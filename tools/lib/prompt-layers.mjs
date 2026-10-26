@@ -42,27 +42,42 @@ function readJson(file) {
  * @param {{ tmpDir?: string, mergeJson?: ((base: object, override: object) => object)|null, env?: Record<string, string | undefined> }} [options]
  * @returns {{ hot: object, dir: string }}
  */
-export function promptLayersHot(createHot, root, layers, { tmpDir = os.tmpdir(), mergeJson = null, env = process.env } = {}) {
+export function promptLayersHot(
+  createHot,
+  root,
+  layers,
+  { tmpDir = os.tmpdir(), mergeJson = null, env = process.env } = {}
+) {
   const sources = layers.map((layer) => {
     const source = path.resolve(root, layer);
-    if (!fs.existsSync(source) || !fs.statSync(source).isDirectory()) throw new CliError(`replay-cli: ${layer} is not a directory`);
+    if (!fs.existsSync(source) || !fs.statSync(source).isDirectory())
+      throw new CliError(`replay-cli: ${layer} is not a directory`);
     return fs.realpathSync(source);
   });
   const dir = fs.mkdtempSync(path.join(tmpDir, 'nep-prompt-layers-'));
   try {
     const privateDir = privateDirOf(root, env);
-    for (const [from, name] of [[root, 'config.json'], [privateDir, 'config.local.json']]) {
+    for (const [from, name] of [
+      [root, 'config.json'],
+      [privateDir, 'config.local.json'],
+    ]) {
       if (fs.existsSync(path.join(from, name))) fs.copyFileSync(path.join(from, name), path.join(dir, name));
     }
-    fs.cpSync(fs.realpathSync(path.join(root, 'prompts')), path.join(dir, 'prompts'), { recursive: true, dereference: true });
+    fs.cpSync(fs.realpathSync(path.join(root, 'prompts')), path.join(dir, 'prompts'), {
+      recursive: true,
+      dereference: true,
+    });
     const local = path.join(dir, 'prompts.local');
     fs.mkdirSync(local, { recursive: true });
     for (const source of sources) {
       // With mergeJson, a JSON layer file meeting one already laid down is merged over it: the one
       // there is read before the copy and the merge written after it.
-      const kept = typeof mergeJson === 'function'
-        ? JSON_LAYER_FILES.filter((name) => fs.existsSync(path.join(source, name)) && fs.existsSync(path.join(local, name))).map((name) => [name, readJson(path.join(local, name))])
-        : [];
+      const kept =
+        typeof mergeJson === 'function'
+          ? JSON_LAYER_FILES.filter(
+              (name) => fs.existsSync(path.join(source, name)) && fs.existsSync(path.join(local, name))
+            ).map((name) => [name, readJson(path.join(local, name))])
+          : [];
       fs.cpSync(source, local, { recursive: true, force: true, dereference: true });
       for (const [name, base] of kept) {
         const value = mergeJson(base, readJson(path.join(source, name)));

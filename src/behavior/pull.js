@@ -247,7 +247,7 @@ function skipped(skip) {
  */
 export function pullWindow(
   messages,
-  { anchorTs = null, windowMinutes, minMessages, maxMessages, pageFull = false, maxAgeDays, now } = {},
+  { anchorTs = null, windowMinutes, minMessages, maxMessages, pageFull = false, maxAgeDays, now } = {}
 ) {
   const list = (Array.isArray(messages) ? messages : [])
     .filter((m) => m && Number.isFinite(m.ts))

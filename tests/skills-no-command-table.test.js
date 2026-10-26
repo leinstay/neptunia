@@ -15,7 +15,11 @@ const HOOKS = path.join(ROOT, 'tests', 'fixtures', 'no-command-table-hooks.mjs')
 const CHILD = path.join(ROOT, 'tests', 'fixtures', 'no-command-table-child.mjs');
 
 test('skills without the command tree: the registry, the gateway and her calls work with COMMAND_TABLE empty and resolveCommand throwing', () => {
-  const ran = spawnSync(process.execPath, ['--import', pathToFileURL(HOOKS).href, CHILD], { cwd: ROOT, encoding: 'utf8', timeout: 120_000 });
+  const ran = spawnSync(process.execPath, ['--import', pathToFileURL(HOOKS).href, CHILD], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    timeout: 120_000,
+  });
   assert.equal(ran.status, 0, `${ran.stdout}\n${ran.stderr}`);
   assert.match(ran.stdout, /^ok$/m);
 });
@@ -30,12 +34,17 @@ function sourcesUnder(dir) {
 }
 
 test('skills static guard: nothing under src/skills/ or src/behavior/ imports the command catalog, or resolves a command', () => {
-  const files = [...sourcesUnder(path.join(ROOT, 'src', 'skills')), ...sourcesUnder(path.join(ROOT, 'src', 'behavior'))];
+  const files = [
+    ...sourcesUnder(path.join(ROOT, 'src', 'skills')),
+    ...sourcesUnder(path.join(ROOT, 'src', 'behavior')),
+  ];
   assert.ok(files.length > 10);
   for (const file of files) {
     const text = fs.readFileSync(file, 'utf8');
     const rel = path.relative(ROOT, file);
-    const imports = [...text.matchAll(/^\s*(?:import|export)\b[^'"]*?from\s+['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/gm)].map((m) => m[1] ?? m[2]);
+    const imports = [
+      ...text.matchAll(/^\s*(?:import|export)\b[^'"]*?from\s+['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/gm),
+    ].map((m) => m[1] ?? m[2]);
     for (const spec of imports) {
       assert.ok(!/ops\/catalog(\.js)?$/.test(spec), `${rel} imports ${spec}`);
     }

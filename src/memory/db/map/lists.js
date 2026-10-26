@@ -19,9 +19,24 @@ const BASE_SPEC = [
 
 /** The claim lists of a member's file (public or private). */
 export const MEMBER_LISTS = [
-  { key: 'details', kind: 'detail', spec: [{ col: 'text', key: 'text', type: 'text' }, ...BASE_SPEC], stable: (item) => [item.id ?? item.text] },
-  { key: 'interests', kind: 'interest', spec: [{ col: 'text', key: 'topic', type: 'text' }, ...BASE_SPEC], stable: (item) => [item.topic] },
-  { key: 'aliases', kind: 'alias', spec: [{ col: 'text', key: 'name', type: 'text' }, ...BASE_SPEC], stable: (item) => [item.name] },
+  {
+    key: 'details',
+    kind: 'detail',
+    spec: [{ col: 'text', key: 'text', type: 'text' }, ...BASE_SPEC],
+    stable: (item) => [item.id ?? item.text],
+  },
+  {
+    key: 'interests',
+    kind: 'interest',
+    spec: [{ col: 'text', key: 'topic', type: 'text' }, ...BASE_SPEC],
+    stable: (item) => [item.topic],
+  },
+  {
+    key: 'aliases',
+    kind: 'alias',
+    spec: [{ col: 'text', key: 'name', type: 'text' }, ...BASE_SPEC],
+    stable: (item) => [item.name],
+  },
   {
     key: 'closed',
     kind: null,
@@ -138,7 +153,13 @@ export function profileRows(rows, value, o) {
   const has = [];
   for (const def of MEMBER_LISTS) {
     if (!Object.hasOwn(value, def.key)) continue;
-    const ok = claimRows(rows, value[def.key], def, { rel: o.rel, subject_kind: 'person', subject_id: o.person, owner: o.owner, scope: o.scope });
+    const ok = claimRows(rows, value[def.key], def, {
+      rel: o.rel,
+      subject_kind: 'person',
+      subject_id: o.person,
+      owner: o.owner,
+      scope: o.scope,
+    });
     if (ok) {
       delete rest[def.key];
       has.push(def.key);
@@ -179,11 +200,29 @@ export function profileRows(rows, value, o) {
       delete rest.relationshipWrittenAt;
     }
     put(rows, 'descriptions', {
-      id, subject_kind: 'person', subject_id: o.person, field, ...o.scope, current_version: `${id}:legacy`, owner_file: o.rel,
+      id,
+      subject_kind: 'person',
+      subject_id: o.person,
+      field,
+      ...o.scope,
+      current_version: `${id}:legacy`,
+      owner_file: o.rel,
     });
     put(rows, 'description_versions', {
-      id: `${id}:legacy`, description_id: id, text, author: 'import', written_at: writtenAt, chars: [...text].length,
-      kept: null, removed: null, added: null, reason: null, origin: 'legacy', extra: null, owner_file: o.rel, position: 0,
+      id: `${id}:legacy`,
+      description_id: id,
+      text,
+      author: 'import',
+      written_at: writtenAt,
+      chars: [...text].length,
+      kept: null,
+      removed: null,
+      added: null,
+      reason: null,
+      origin: 'legacy',
+      extra: null,
+      owner_file: o.rel,
+      position: 0,
     });
     delete rest[field];
   }
@@ -219,7 +258,9 @@ export function profileFrom(rows, has, o) {
   const obj = {};
   for (const def of MEMBER_LISTS) {
     if (!has.includes(def.key)) continue;
-    const mine = rowsOf(rows, 'claims').filter((row) => (def.closed ? row.truth === 'historical' : row.truth !== 'historical' && row.kind === def.kind));
+    const mine = rowsOf(rows, 'claims').filter((row) =>
+      def.closed ? row.truth === 'historical' : row.truth !== 'historical' && row.kind === def.kind
+    );
     obj[def.key] = claimItems(mine, def);
   }
   if (has.includes('episodes')) {
@@ -237,7 +278,8 @@ export function profileFrom(rows, has, o) {
     const version = versions.get(description.id);
     if (!version) continue;
     obj[description.field] = version.text;
-    if (description.field === 'relationship' && version.written_at !== null && version.written_at !== undefined) obj.relationshipWrittenAt = version.written_at;
+    if (description.field === 'relationship' && version.written_at !== null && version.written_at !== undefined)
+      obj.relationshipWrittenAt = version.written_at;
   }
   return obj;
 }

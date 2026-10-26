@@ -19,8 +19,14 @@ test('journalResultOf: a list records its item count next to the size', () => {
 });
 
 test('journalResultOf: a posted message keeps its id, with the size when the call also answered', () => {
-  assert.deepEqual(journalResultOf({ skill: 'message.create', status: 'ok', ref: { messageId: '99', conversationId: '5' } }), { messageId: '99' });
-  assert.deepEqual(journalResultOf({ skill: 'draw.create', status: 'ok', ref: { messageId: '7' }, data: { text: 'done' } }), { messageId: '7', chars: 4 });
+  assert.deepEqual(
+    journalResultOf({ skill: 'message.create', status: 'ok', ref: { messageId: '99', conversationId: '5' } }),
+    { messageId: '99' }
+  );
+  assert.deepEqual(
+    journalResultOf({ skill: 'draw.create', status: 'ok', ref: { messageId: '7' }, data: { text: 'done' } }),
+    { messageId: '7', chars: 4 }
+  );
 });
 
 test('journalResultOf: no data and no ref is an empty record', () => {

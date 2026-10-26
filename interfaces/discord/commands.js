@@ -61,15 +61,20 @@ const COMMAND_SIZE_LIMIT = 8000;
  */
 function nodeJson(node, type) {
   const { args: _args, personaOptions: _persona, personaOnly: _only, subcommands, options, ...rest } = node;
-  if (subcommands) return { type: SUBCOMMAND_GROUP, ...rest, options: subcommands.filter((sub) => sub.personaOnly !== true).map((sub) => nodeJson(sub, SUBCOMMAND)) };
+  if (subcommands)
+    return {
+      type: SUBCOMMAND_GROUP,
+      ...rest,
+      options: subcommands.filter((sub) => sub.personaOnly !== true).map((sub) => nodeJson(sub, SUBCOMMAND)),
+    };
   return options ? { type, ...rest, options } : { type, ...rest };
 }
 
 /** Every leaf's command key (`<group>.<name>` or a bare `<name>`) -> its `args` mapper. */
 const OPTION_MAPPERS = new Map(
   COMMAND_TABLE.flatMap((node) =>
-    node.subcommands ? node.subcommands.map((sub) => [`${node.name}.${sub.name}`, sub.args]) : [[node.name, node.args]],
-  ),
+    node.subcommands ? node.subcommands.map((sub) => [`${node.name}.${sub.name}`, sub.args]) : [[node.name, node.args]]
+  )
 );
 
 /** Discord's "Invalid Form Body … APPLICATION_COMMAND_TOO_LARGE" refusal (error 50035). */
@@ -203,7 +208,6 @@ function buildArgs(commandKey, interaction) {
   return mapper ? mapper(interaction.options) : {};
 }
 
-
 /**
  * Reply with an admin handler's result: a string (chunked into follow-ups when
  * long, code-fenced when multi-line), `{ text, files: [{ attachment: Buffer,
@@ -216,7 +220,10 @@ async function respond(interaction, result, { deferred = false } = {}) {
   const isObject = result !== null && typeof result === 'object';
   const body = String((isObject ? result.text : result) ?? '');
   const files = isObject && Array.isArray(result.files) && result.files.length > 0 ? result.files : null;
-  const embeds = isObject && Array.isArray(result.embeds) && result.embeds.length > 0 ? result.embeds.map((data) => new EmbedBuilder(data)) : null;
+  const embeds =
+    isObject && Array.isArray(result.embeds) && result.embeds.length > 0
+      ? result.embeds.map((data) => new EmbedBuilder(data))
+      : null;
   const wrap = body.includes('\n');
   const format = (chunk) => (wrap ? `\`\`\`\n${chunk}\n\`\`\`` : chunk);
   const flags = { flags: MessageFlags.Ephemeral };
@@ -281,7 +288,12 @@ export function commandEvent(interaction, commandKey, args, config, replyRef, at
     },
     name: commandKey,
     args,
-    requester: { id: userId, name: displayNameOf(interaction.member, interaction.user), roles: roleIdsFor(interaction), owner: isOwnerId(config, userId) },
+    requester: {
+      id: userId,
+      name: displayNameOf(interaction.member, interaction.user),
+      roles: roleIdsFor(interaction),
+      owner: isOwnerId(config, userId),
+    },
     replyRef,
   };
 }
@@ -291,7 +303,8 @@ export function commandEvent(interaction, commandKey, args, config, replyRef, at
  * typed text. Owner-only operations are never offered: no grant can open them; nor are the member
  * operations, open without one. */
 function accessKeyChoices(admin, typed) {
-  return admin.accessKeys()
+  return admin
+    .accessKeys()
     .filter((key) => key.toLowerCase().includes(typed))
     .slice(0, MAX_AUTOCOMPLETE_CHOICES)
     .map((key) => ({ name: key, value: key }));
@@ -302,9 +315,10 @@ function accessKeyChoices(admin, typed) {
  * (`ROUTE_ROLES`) are configured with, each once, filtered by the typed text. */
 function routeModelChoices(config, typed) {
   const byModel = config?.llm?.providerByModel;
-  const prefixes = byModel && typeof byModel === 'object' && !Array.isArray(byModel)
-    ? Object.keys(byModel).map((key) => (key.includes('@') ? key.slice(0, key.lastIndexOf('@')) : key))
-    : [];
+  const prefixes =
+    byModel && typeof byModel === 'object' && !Array.isArray(byModel)
+      ? Object.keys(byModel).map((key) => (key.includes('@') ? key.slice(0, key.lastIndexOf('@')) : key))
+      : [];
   const models = ROUTE_ROLES.map((role) => roleModel(config, role));
   const all = [...new Set([...prefixes, ...models].filter((value) => typeof value === 'string' && value))];
   return all
@@ -351,7 +365,12 @@ export function createInteractionHandler({ hot, admin, getGuildId, now = Date.no
     }
 
     const commandKey = commandKeyFor(interaction);
-    const context = { guildId: interaction.guildId, channelId: interaction.channelId, userId: interaction.user.id, roleIds: roleIdsFor(interaction) };
+    const context = {
+      guildId: interaction.guildId,
+      channelId: interaction.channelId,
+      userId: interaction.user.id,
+      roleIds: roleIdsFor(interaction),
+    };
     const allowed = admin.isAllowed(commandKey, context);
     if (!allowed) {
       await interaction.respond([]).catch(() => {});
@@ -372,9 +391,7 @@ export function createInteractionHandler({ hot, admin, getGuildId, now = Date.no
 
     // `/nep status field:` offers the card's field names (too many to list as fixed choices within Discord's size limit).
     if (commandKey === 'status' && focused.name === 'field') {
-      const choices = STATUS_FIELDS
-        .filter((name) => name.includes(typed))
-        .map((name) => ({ name, value: name }));
+      const choices = STATUS_FIELDS.filter((name) => name.includes(typed)).map((name) => ({ name, value: name }));
       await interaction.respond(choices).catch(() => {});
       return;
     }
@@ -391,7 +408,8 @@ export function createInteractionHandler({ hot, admin, getGuildId, now = Date.no
     }
 
     if (commandKey === 'memory.restore' && focused.name === 'id') {
-      const choices = typeof admin.archiveChoices === 'function' ? await admin.archiveChoices(context, typed).catch(() => []) : [];
+      const choices =
+        typeof admin.archiveChoices === 'function' ? await admin.archiveChoices(context, typed).catch(() => []) : [];
       await interaction.respond(choices.slice(0, MAX_AUTOCOMPLETE_CHOICES)).catch(() => {});
       return;
     }
@@ -410,7 +428,9 @@ export function createInteractionHandler({ hot, admin, getGuildId, now = Date.no
 
     const commandKey = commandKeyFor(interaction);
     if (!commandKey) {
-      await interaction.reply({ content: 'Error: no subcommand given.', flags: MessageFlags.Ephemeral }).catch(() => {});
+      await interaction
+        .reply({ content: 'Error: no subcommand given.', flags: MessageFlags.Ephemeral })
+        .catch(() => {});
       return;
     }
 
@@ -436,7 +456,12 @@ export function createInteractionHandler({ hot, admin, getGuildId, now = Date.no
       const op = typeof admin.operationFor === 'function' ? admin.operationFor(name, args) : null;
       mode = { deferred: op !== null && DEFERRED_OPS.has(op) };
       if (mode.deferred) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-      const context = { guildId: conversation.guildId, channelId: conversation.id, userId: requester.id, roleIds: requester.roles };
+      const context = {
+        guildId: conversation.guildId,
+        channelId: conversation.id,
+        userId: requester.id,
+        roleIds: requester.roles,
+      };
       // The rights are checked by the operation's own runOp (src/ops/index.js), every time.
       const run = admin.runCommand(name, args, context);
       let result;
@@ -445,7 +470,12 @@ export function createInteractionHandler({ hot, admin, getGuildId, now = Date.no
         const late = Symbol('late');
         let timer;
         try {
-          const first = await Promise.race([run, new Promise((resolve) => { timer = setTimeout(() => resolve(late), deferAfterMs); })]);
+          const first = await Promise.race([
+            run,
+            new Promise((resolve) => {
+              timer = setTimeout(() => resolve(late), deferAfterMs);
+            }),
+          ]);
           if (first === late) {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
             mode = { deferred: true };
@@ -465,7 +495,12 @@ export function createInteractionHandler({ hot, admin, getGuildId, now = Date.no
       } else if (result.status === 'denied') {
         await respond(target, NOT_ALLOWED_MESSAGE, mode);
       } else {
-        log.warn('commands: command failed', { command: commandKey, status: result.status, code: result.code, error: new Error(result.summary) });
+        log.warn('commands: command failed', {
+          command: commandKey,
+          status: result.status,
+          code: result.code,
+          error: new Error(result.summary),
+        });
         await respond(target, `Error: ${result.summary}`, mode).catch(() => {});
       }
     } catch (err) {

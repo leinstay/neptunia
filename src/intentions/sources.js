@@ -121,7 +121,8 @@ export function externalOrigin(candidate, line, sources, { strict = false } = {}
   if (sources.read === true) return 'read';
   const overlap = new Set(Array.isArray(sources.overlap) ? sources.overlap : []);
   if (overlap.size > 0) {
-    for (const text of [candidate?.span, candidate?.purpose]) for (const shingle of shinglesOf(text)) if (overlap.has(shingle)) return 'overlap';
+    for (const text of [candidate?.span, candidate?.purpose])
+      for (const shingle of shinglesOf(text)) if (overlap.has(shingle)) return 'overlap';
   }
   return null;
 }

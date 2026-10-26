@@ -47,11 +47,25 @@ function makeStore({ dataDir = tempDataDir(), clock = { t: T0 }, agents = {}, jo
     },
   };
   let n = 0;
-  const store = createTaskStore({ dataDir, guildId: 'g1', now: () => clock.t, config: () => config, journal, memoryDb: memoryOf(dataDir), uuid: () => `${(n += 1).toString(16).padStart(8, '0')}-aaaa-bbbb-cccc-dddddddddddd` });
+  const store = createTaskStore({
+    dataDir,
+    guildId: 'g1',
+    now: () => clock.t,
+    config: () => config,
+    journal,
+    memoryDb: memoryOf(dataDir),
+    uuid: () => `${(n += 1).toString(16).padStart(8, '0')}-aaaa-bbbb-cccc-dddddddddddd`,
+  });
   return { store, dataDir, clock, config };
 }
 
-const asked = { agent: 'scout', goal: 'find the release notes', requester: { userId: 'u1', kind: 'member' }, origin: { channelId: 'c1', messageId: 'm1' }, scope: 'group' };
+const asked = {
+  agent: 'scout',
+  goal: 'find the release notes',
+  requester: { userId: 'u1', kind: 'member' },
+  origin: { channelId: 'c1', messageId: 'm1' },
+  scope: 'group',
+};
 
 test('task store: a new task is queued and written to tasks.json and tasks.jsonl', async () => {
   await withCapturedLogs(async () => {
@@ -69,7 +83,7 @@ test('task store: a new task is queued and written to tasks.json and tasks.jsonl
     assert.equal(task.createdAt, T0);
     assert.equal(task.seen, false);
     assert.equal(task.result, null);
-    const file = JSON.parse((await fileText(store, dataDir, 'guilds/g1/tasks.json')));
+    const file = JSON.parse(await fileText(store, dataDir, 'guilds/g1/tasks.json'));
     assert.equal(file.tasks.length, 1);
     const lines = (await fileText(store, dataDir, 'guilds/g1/tasks.jsonl')).trim().split('\n');
     assert.equal(lines.length, 1);
@@ -87,9 +101,16 @@ test('task store: queued -> running -> done; the end is written once, a late one
     clock.t += 1000;
     assert.equal(store.start(task.id).state, 'running');
     assert.equal(store.start(task.id), null, 'only a queued task starts');
-    assert.deepEqual(store.open().map((t) => t.id), [task.id]);
+    assert.deepEqual(
+      store.open().map((t) => t.id),
+      [task.id]
+    );
     clock.t += 5000;
-    const done = store.finish(task.id, { status: 'done', result: { text: 'here', sources: ['https://example.org'], files: [] }, usage: { usd: 0.25, steps: 3 } });
+    const done = store.finish(task.id, {
+      status: 'done',
+      result: { text: 'here', sources: ['https://example.org'], files: [] },
+      usage: { usd: 0.25, steps: 3 },
+    });
     assert.equal(done.state, 'done');
     assert.equal(done.endedAt, T0 + 6000);
     assert.equal(done.result.text, 'here');
@@ -98,11 +119,17 @@ test('task store: queued -> running -> done; the end is written once, a late one
     assert.equal(Object.hasOwn(done.result, 'filesDropped'), false, 'none held back, no key');
     assert.equal(store.finish(task.id, { status: 'failed' }), null);
     assert.deepEqual(store.open(), []);
-    assert.deepEqual(store.unseen().map((t) => t.id), [task.id]);
+    assert.deepEqual(
+      store.unseen().map((t) => t.id),
+      [task.id]
+    );
     assert.equal(store.markSeen(task.id).seen, true);
     assert.deepEqual(store.unseen(), []);
     assert.equal(store.today('scout').usd, 0.25);
-    const states = (await fileText(store, dataDir, 'guilds/g1/tasks.jsonl')).trim().split('\n').map((line) => JSON.parse(line).state);
+    const states = (await fileText(store, dataDir, 'guilds/g1/tasks.jsonl'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line).state);
     assert.deepEqual(states, ['queued', 'running', 'done']);
   });
 });
@@ -112,12 +139,22 @@ test('task store: the files the runner held back are kept as names only', async 
     const { store } = makeStore();
     const { task } = store.add(asked);
     store.start(task.id);
-    const done = store.finish(task.id, { status: 'done', result: { text: 'here', filesDropped: [{ name: 'x.env', reason: 'secret' }, { name: 'a.txt', reason: 'withheld' }, { name: 'b', reason: 'other' }] } });
+    const done = store.finish(task.id, {
+      status: 'done',
+      result: {
+        text: 'here',
+        filesDropped: [
+          { name: 'x.env', reason: 'secret' },
+          { name: 'a.txt', reason: 'withheld' },
+          { name: 'b', reason: 'other' },
+        ],
+      },
+    });
     assert.deepEqual(done.result.filesDropped, ['x.env', 'a.txt']);
   });
 });
 
-test('task store: a cancel closes an open task; the runner\'s later end changes nothing', async () => {
+test("task store: a cancel closes an open task; the runner's later end changes nothing", async () => {
   await withCapturedLogs(() => {
     const { store } = makeStore();
     const { task } = store.add(asked);
@@ -172,9 +209,20 @@ test('task store: every transition is one journal operation, counts only', async
     const { store } = makeStore({ journal });
     const { task } = store.add(asked);
     store.start(task.id);
-    store.finish(task.id, { status: 'done', result: { text: 'secret answer text', sources: ['https://a', 'https://b'], files: [{ path: '/x/a.png', name: 'a.png', contentType: 'image/png', bytes: 3 }] }, usage: { usd: 0.02, steps: 2 } });
+    store.finish(task.id, {
+      status: 'done',
+      result: {
+        text: 'secret answer text',
+        sources: ['https://a', 'https://b'],
+        files: [{ path: '/x/a.png', name: 'a.png', contentType: 'image/png', bytes: 3 }],
+      },
+      usage: { usd: 0.02, steps: 2 },
+    });
     await new Promise((r) => setImmediate(r));
-    assert.deepEqual(lines.map((line) => line.phase), ['proposed', 'started', 'succeeded']);
+    assert.deepEqual(
+      lines.map((line) => line.phase),
+      ['proposed', 'started', 'succeeded']
+    );
     assert.equal(new Set(lines.map((line) => line.opId)).size, 1, 'one operation per task');
     for (const line of lines) {
       assert.equal(line.name, 'task');
@@ -182,7 +230,14 @@ test('task store: every transition is one journal operation, counts only', async
       assert.deepEqual(line.participants, ['u1']);
       assert.deepEqual(line.sourceMessageIds, ['m1']);
     }
-    assert.deepEqual(lines[2].result, { taskId: task.id, state: 'done', chars: 18, sources: 2, files: 1, usage: { usd: 0.02, steps: 2, seconds: 0 } });
+    assert.deepEqual(lines[2].result, {
+      taskId: task.id,
+      state: 'done',
+      chars: 18,
+      sources: 2,
+      files: 1,
+      usage: { usd: 0.02, steps: 2, seconds: 0 },
+    });
     const all = JSON.stringify(lines);
     assert.ok(!all.includes('release notes') && !all.includes('secret answer'), 'never the goal or the result');
     // A failure closes with its code; the journal off writes nothing.
@@ -200,7 +255,7 @@ test('task store: every transition is one journal operation, counts only', async
   assert.deepEqual(quiet, []);
 });
 
-test('task store: a DM task journals into the requester\'s private layer', async () => {
+test("task store: a DM task journals into the requester's private layer", async () => {
   const lines = [];
   await withCapturedLogs(async () => {
     const { store } = makeStore({ journal: { action: async (guildId, record) => lines.push(record) } });
@@ -215,12 +270,22 @@ test('task store: a file handle resolves only to a file the task lists, inside i
   await withCapturedLogs(() => {
     const { store } = makeStore();
     const { task } = store.add(asked);
-    store.finish(task.id, { status: 'done', result: { text: 'ok', files: [{ path: '/elsewhere/meme.png', name: 'meme.png', contentType: 'image/png', bytes: 1234 }] } });
+    store.finish(task.id, {
+      status: 'done',
+      result: {
+        text: 'ok',
+        files: [{ path: '/elsewhere/meme.png', name: 'meme.png', contentType: 'image/png', bytes: 1234 }],
+      },
+    });
     const handle = fileHandle(task.id, 'meme.png');
     assert.equal(handle, `file:${task.id}/meme.png`);
     assert.deepEqual(parseFileHandle(handle), { id: task.id, name: 'meme.png' });
     const file = store.fileOf(handle);
-    assert.equal(file.path, path.resolve('/var/lib/agent-scout/out', task.id, 'meme.png'), 'the out directory, never the path the runner wrote');
+    assert.equal(
+      file.path,
+      path.resolve('/var/lib/agent-scout/out', task.id, 'meme.png'),
+      'the out directory, never the path the runner wrote'
+    );
     assert.equal(file.contentType, 'image/png');
     assert.equal(file.bytes, 1234);
     assert.equal(store.fileOf(`file:${task.id}/other.png`), null);
@@ -240,7 +305,10 @@ test('task store: recent lists newest first; failOpen fails what a restart left 
     clock.t += 10;
     const c = store.add(asked).task;
     store.start(b.id);
-    assert.deepEqual(store.recent(2).map((t) => t.id), [c.id, b.id]);
+    assert.deepEqual(
+      store.recent(2).map((t) => t.id),
+      [c.id, b.id]
+    );
     assert.equal(store.failOpen('restarted'), 3);
     assert.deepEqual(store.open(), []);
     for (const id of [a.id, b.id, c.id]) {
@@ -250,7 +318,7 @@ test('task store: recent lists newest first; failOpen fails what a restart left 
   });
 });
 
-test('task store: a finished task\'s files expire once the runner removed its directory; the handle then names nothing', async () => {
+test("task store: a finished task's files expire once the runner removed its directory; the handle then names nothing", async () => {
   await withCapturedLogs(async () => {
     const out = tempDir('errands-out-');
     const { store, dataDir } = makeStore({ agents: { maxOpen: 5, scout: { daily: { tasks: 5 }, out } } });
@@ -270,7 +338,7 @@ test('task store: a finished task\'s files expire once the runner removed its di
     assert.equal(store.fileOf(fileHandle(gone.id, 'meme.png')), null);
     assert.ok(store.fileOf(fileHandle(kept.id, 'meme.png')));
     assert.ok(store.unseen().find((t) => t.id === gone.id).filesExpired);
-    const saved = JSON.parse((await fileText(store, dataDir, 'guilds/g1/tasks.json')));
+    const saved = JSON.parse(await fileText(store, dataDir, 'guilds/g1/tasks.json'));
     assert.equal(saved.tasks.find((t) => t.id === gone.id).filesExpired, true, 'written to tasks.json');
     assert.equal(store.expireFiles(), 0, 'marked once');
     fs.rmSync(path.join(out, kept.id), { recursive: true });
@@ -280,7 +348,9 @@ test('task store: a finished task\'s files expire once the runner removed its di
 
 test('task store: no out dir at all (no runner on this host) expires nothing', async () => {
   await withCapturedLogs(() => {
-    const { store } = makeStore({ agents: { scout: { daily: { tasks: 5 }, out: path.join(os.tmpdir(), 'errands-no-such-out-dir') } } });
+    const { store } = makeStore({
+      agents: { scout: { daily: { tasks: 5 }, out: path.join(os.tmpdir(), 'errands-no-such-out-dir') } },
+    });
     const { task } = store.add(asked);
     store.finish(task.id, { status: 'done', result: { text: 'ok', files: [{ path: '/x/a.png', name: 'a.png' }] } });
     assert.equal(store.expireFiles(), 0);
@@ -288,7 +358,7 @@ test('task store: no out dir at all (no runner on this host) expires nothing', a
   });
 });
 
-test('task store: setLedgerId keeps the ledger\'s id on the task (tasks.json written, the later transition lines carry it); none for an unknown task', async () => {
+test("task store: setLedgerId keeps the ledger's id on the task (tasks.json written, the later transition lines carry it); none for an unknown task", async () => {
   await withCapturedLogs(async () => {
     const { store, dataDir } = makeStore();
     const { task } = store.add(asked);
@@ -299,12 +369,24 @@ test('task store: setLedgerId keeps the ledger\'s id on the task (tasks.json wri
     assert.equal(store.setLedgerId('tnone', 'L8'), null);
     assert.equal(store.setLedgerId(task.id, ''), null);
     store.start(task.id);
-    const file = JSON.parse((await fileText(store, dataDir, 'guilds/g1/tasks.json')));
+    const file = JSON.parse(await fileText(store, dataDir, 'guilds/g1/tasks.json'));
     assert.equal(file.tasks[0].ledgerId, 'L7');
-    const lines = (await fileText(store, dataDir, 'guilds/g1/tasks.jsonl')).trim().split('\n').map((line) => JSON.parse(line));
-    assert.deepEqual(lines.map((line) => [line.state, line.ledgerId ?? null]), [['queued', null], ['running', 'L7']]);
+    const lines = (await fileText(store, dataDir, 'guilds/g1/tasks.jsonl'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    assert.deepEqual(
+      lines.map((line) => [line.state, line.ledgerId ?? null]),
+      [
+        ['queued', null],
+        ['running', 'L7'],
+      ]
+    );
     // A second store over the same directory reads it back.
-    assert.equal(createTaskStore({ dataDir, guildId: 'g1', memoryDb: memoryOf(dataDir), now: () => T0 }).get(task.id).ledgerId, 'L7');
+    assert.equal(
+      createTaskStore({ dataDir, guildId: 'g1', memoryDb: memoryOf(dataDir), now: () => T0 }).get(task.id).ledgerId,
+      'L7'
+    );
   });
 });
 
@@ -326,30 +408,49 @@ test('task store: costs and the daily caps read the same spend records, rebuilt 
     assert.deepEqual(costs.scout.today, { runs: 2, input: 3000, output: 300, usd: 0.8999999999999999 });
     assert.equal(costs.scout.last7.runs, 3);
     assert.equal(costs.dev.last30.runs, 0);
-    assert.deepEqual(store.today('scout'), { tasks: costs.scout.today.runs, usd: costs.scout.today.usd, caps: { tasks: 5 } }, 'the caps read the costs\' today');
+    assert.deepEqual(
+      store.today('scout'),
+      { tasks: costs.scout.today.runs, usd: costs.scout.today.usd, caps: { tasks: 5 } },
+      "the caps read the costs' today"
+    );
     const c = store.add(asked).task;
     store.finish(c.id, { status: 'done', usage: { usd: 0.2 } });
 
     // A restart: the list file carries no counters; tasks.jsonl gives the same numbers back.
-    assert.equal(Object.hasOwn(JSON.parse((await fileText(store, dataDir, 'guilds/g1/tasks.json'))), 'daily'), false);
-    const again = createTaskStore({ dataDir, guildId: 'g1', memoryDb: memoryOf(dataDir), now: () => clock.t, config: () => config });
+    assert.equal(Object.hasOwn(JSON.parse(await fileText(store, dataDir, 'guilds/g1/tasks.json')), 'daily'), false);
+    const again = createTaskStore({
+      dataDir,
+      guildId: 'g1',
+      memoryDb: memoryOf(dataDir),
+      now: () => clock.t,
+      config: () => config,
+    });
     assert.deepEqual(again.costs(), store.costs());
-
   });
 });
 
-test('task store: the persona\'s call keeps its turn and its brief as written; the same idempotency key again is that task, never a second, before any cap', async () => {
+test("task store: the persona's call keeps its turn and its brief as written; the same idempotency key again is that task, never a second, before any cap", async () => {
   await withCapturedLogs(() => {
     const { store } = makeStore({ agents: { maxOpen: 1 } });
     const brief = '  Βρες το πιο δημοφιλές έργο με την ετικέτα serial_experiments_lain και φέρε το αρχείο.  ';
-    const hers = { ...asked, goal: brief, requester: { userId: 'u1', kind: 'member' }, origin: { channelId: 'c1', messageId: 'm1', turnId: 'turn-7' }, idempotencyKey: 'turn-7.1:0' };
+    const hers = {
+      ...asked,
+      goal: brief,
+      requester: { userId: 'u1', kind: 'member' },
+      origin: { channelId: 'c1', messageId: 'm1', turnId: 'turn-7' },
+      idempotencyKey: 'turn-7.1:0',
+    };
     const first = store.add(hers);
     assert.equal(first.ok, true);
     assert.equal(first.task.goal, brief.trim(), 'the brief as she wrote it');
     assert.deepEqual(first.task.origin, { channelId: 'c1', messageId: 'm1', turnId: 'turn-7' });
     assert.equal(first.task.idempotencyKey, 'turn-7.1:0');
     const again = store.add({ ...hers, goal: 'κάτι άλλο' });
-    assert.deepEqual([again.ok, again.duplicate, again.task.id, again.task.goal], [true, true, first.task.id, brief.trim()], 'the same call: the same task, even past the open cap');
+    assert.deepEqual(
+      [again.ok, again.duplicate, again.task.id, again.task.goal],
+      [true, true, first.task.id, brief.trim()],
+      'the same call: the same task, even past the open cap'
+    );
     assert.equal(store.recent(10).length, 1);
     // Another call of the same turn is another errand (here refused by the cap of one open task).
     assert.deepEqual([store.add({ ...hers, idempotencyKey: 'turn-7.1:1' }).ok, store.recent(10).length], [false, 1]);

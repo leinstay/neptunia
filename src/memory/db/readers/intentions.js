@@ -8,4 +8,5 @@ import { layerDir, unitLines, unitValue } from './common.js';
 export const intentionsValue = (db, guildId) => unitValue(db, layerDir(guildId, null, 'intentions.json'));
 
 /** The lines (JSON text) of a guild's `intentions-archive.jsonl`, in file order. */
-export const intentionsArchiveLines = (db, guildId) => unitLines(db, layerDir(guildId, null, 'intentions-archive.jsonl'));
+export const intentionsArchiveLines = (db, guildId) =>
+  unitLines(db, layerDir(guildId, null, 'intentions-archive.jsonl'));

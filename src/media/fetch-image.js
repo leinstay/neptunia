@@ -105,7 +105,11 @@ export function createImageFetcher({
       return null;
     }
 
-    return { dataUrl: `data:${contentType};base64,${buffer.toString('base64')}`, bytes: buffer.byteLength, contentType };
+    return {
+      dataUrl: `data:${contentType};base64,${buffer.toString('base64')}`,
+      bytes: buffer.byteLength,
+      contentType,
+    };
   }
 
   /**

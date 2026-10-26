@@ -21,7 +21,12 @@ const envelope = (kind, fields) => ({
 /** One day of every kind: three turns (two attempts of one turn), actions, memory, system. */
 function fixtureDay() {
   return [
-    envelope('turn.start', { turnId: 't-1', attemptId: 1, mode: 'reply', trigger: { kind: 'mention', messageId: 'm1' } }),
+    envelope('turn.start', {
+      turnId: 't-1',
+      attemptId: 1,
+      mode: 'reply',
+      trigger: { kind: 'mention', messageId: 'm1' },
+    }),
     envelope('action', { opId: 'op-1', turnId: 't-1', name: 'post', phase: 'started' }),
     envelope('action', { opId: 'op-1', turnId: 't-1', name: 'post', phase: 'succeeded' }),
     envelope('action', { opId: 'op-2', turnId: 't-1', name: 'recall', phase: 'started' }),
@@ -32,7 +37,10 @@ function fixtureDay() {
       outcome: 'spoke',
       reason: null,
       think: 'Ζωή said hello',
-      posted: [{ opId: 'op-1', messageId: 'p1' }, { opId: 'op-3', messageId: 'p2' }],
+      posted: [
+        { opId: 'op-1', messageId: 'p1' },
+        { opId: 'op-3', messageId: 'p2' },
+      ],
       usage: { prompt: 40000, cached: 10000, cacheWrite: 1200, completion: 500 },
       budget: { dropped: { recent: 8, emoji: 14 } },
       limits: [
@@ -42,11 +50,41 @@ function fixtureDay() {
       ],
     }),
     envelope('turn.start', { turnId: 't-2', attemptId: 1, mode: 'reply', trigger: { kind: 'reply' } }),
-    envelope('turn', { turnId: 't-2', attemptId: 1, outcome: 'skip', reason: 'model-skip', usage: { prompt: 30000, cached: null, completion: 20 }, budget: { dropped: { recent: 2 } }, limits: [] }),
+    envelope('turn', {
+      turnId: 't-2',
+      attemptId: 1,
+      outcome: 'skip',
+      reason: 'model-skip',
+      usage: { prompt: 30000, cached: null, completion: 20 },
+      budget: { dropped: { recent: 2 } },
+      limits: [],
+    }),
     envelope('turn.start', { turnId: 't-2', attemptId: 2, mode: 'reply', trigger: { kind: 'reply' } }),
-    envelope('turn', { turnId: 't-2', attemptId: 2, outcome: 'refused', reason: 'daily-cap', usage: null, budget: { dropped: {} }, limits: [{ kind: 'daily-cap', where: 'llm.maxRequestsPerDay', lost: null }] }),
-    envelope('turn', { turnId: 't-9', attemptId: 1, outcome: 'error', reason: 'timeout', usage: { prompt: 50000, cached: 5000, completion: 0 } }),
-    envelope('memory', { batchId: 'b-1', stage: 'two', batch: { messageIds: ['m1', 'm2'], consumed: 2 }, limits: [{ kind: 'over-limit', where: 'character', lost: 300 }, { kind: 'clamp', where: 'episodes', lost: null }] }),
+    envelope('turn', {
+      turnId: 't-2',
+      attemptId: 2,
+      outcome: 'refused',
+      reason: 'daily-cap',
+      usage: null,
+      budget: { dropped: {} },
+      limits: [{ kind: 'daily-cap', where: 'llm.maxRequestsPerDay', lost: null }],
+    }),
+    envelope('turn', {
+      turnId: 't-9',
+      attemptId: 1,
+      outcome: 'error',
+      reason: 'timeout',
+      usage: { prompt: 50000, cached: 5000, completion: 0 },
+    }),
+    envelope('memory', {
+      batchId: 'b-1',
+      stage: 'two',
+      batch: { messageIds: ['m1', 'm2'], consumed: 2 },
+      limits: [
+        { kind: 'over-limit', where: 'character', lost: 300 },
+        { kind: 'clamp', where: 'episodes', lost: null },
+      ],
+    }),
     envelope('system', { event: 'pause', by: 'owner' }),
     envelope('system', { event: 'resume', by: 'owner' }),
     envelope('system', { event: 'pause', by: 'owner' }),
@@ -92,7 +130,13 @@ test('report: limitsTable sums count and lost per kind in the design order', () 
   // The bare entries tally collects give the same table.
   assert.deepEqual(limitsTable(tally(fixtureDay()).limits), limitsTable(fixtureDay()));
   // An unknown kind goes last; records of other kinds add nothing.
-  assert.deepEqual(limitsTable([{ kind: 'zz-new', lost: 3 }, envelope('system', { event: 'x', limits: [{ kind: 'clamp', lost: 1 }] })]), [{ kind: 'zz-new', count: 1, lost: 3 }]);
+  assert.deepEqual(
+    limitsTable([
+      { kind: 'zz-new', lost: 3 },
+      envelope('system', { event: 'x', limits: [{ kind: 'clamp', lost: 1 }] }),
+    ]),
+    [{ kind: 'zz-new', count: 1, lost: 3 }]
+  );
 });
 
 test('report: renderDay prints every section with N/A for missing and none for empty', () => {
@@ -104,7 +148,11 @@ test('report: renderDay prints every section with N/A for missing and none for e
   assert.match(text, /\| outcome \| - \| mention \| reply \| total \|/);
   assert.match(text, /\| spoke \| 0 \| 1 \| 0 \| 1 \|/);
   assert.match(text, /\| refused \| daily-cap \| 1 \|/);
-  assert.ok(text.includes('| action | failed | started | succeeded | total |\n| --- | --- | --- | --- | --- |\n| post | 0 | 1 | 1 | 2 |\n| recall | 1 | 1 | 0 | 2 |'));
+  assert.ok(
+    text.includes(
+      '| action | failed | started | succeeded | total |\n| --- | --- | --- | --- | --- |\n| post | 0 | 1 | 1 | 2 |\n| recall | 1 | 1 | 0 | 2 |'
+    )
+  );
   assert.match(text, /\| prompt tokens median \| 40000 \|/);
   assert.match(text, /\| prompt tokens p90 \| 48000 \|/);
   assert.match(text, /\| cached share \| 16\.7% \|/);
@@ -127,7 +175,15 @@ test('report: renderDay prints every section with N/A for missing and none for e
 test('report: tallyLog reads model-answered lines per day and leaves what the log lacks N/A', () => {
   const line = (time, fields) => JSON.stringify({ level: 'info', time, msg: 'turn: model answered', ...fields });
   const lines = [
-    line('2026-10-12T09:00:00.000Z', { trigger: 'mention', usage: { prompt_tokens: 40000, completion_tokens: 300, prompt_tokens_details: { cached_tokens: 20000, cache_write_tokens: 3000 } }, budget: { recent: { used: 10, kept: 3, dropped: 4 }, used: 100, limit: 50000 } }),
+    line('2026-10-12T09:00:00.000Z', {
+      trigger: 'mention',
+      usage: {
+        prompt_tokens: 40000,
+        completion_tokens: 300,
+        prompt_tokens_details: { cached_tokens: 20000, cache_write_tokens: 3000 },
+      },
+      budget: { recent: { used: 10, kept: 3, dropped: 4 }, used: 100, limit: 50000 },
+    }),
     `Oct 12 10:00:00 host node[1]: ${line('2026-10-12T10:00:00.000Z', { trigger: 'reply', usage: { prompt_tokens: 44000, completion_tokens: 200 }, budget: { recent: { dropped: 1 }, emoji: { dropped: 6 } } })}`,
     line('2026-10-13T00:00:01.000Z', { trigger: null, usage: {} }),
     JSON.stringify({ level: 'info', time: '2026-10-12T11:00:00.000Z', msg: 'turn: skipped' }),
@@ -141,7 +197,8 @@ test('report: tallyLog reads model-answered lines per day and leaves what the lo
   assert.deepEqual(d12.prompt, [40000, 44000]);
   assert.deepEqual(d12.cached, { cached: 20000, prompt: 40000, counted: 1, cacheWrite: 3000, writeCounted: 1 });
   assert.deepEqual(d12.dropped, { recent: 5, emoji: 6 });
-  for (const key of ['reasons', 'actions', 'limits', 'ownMessages', 'memoryBatches', 'system', 'fileBytes']) assert.equal(d12[key], null, key);
+  for (const key of ['reasons', 'actions', 'limits', 'ownMessages', 'memoryBatches', 'system', 'fileBytes'])
+    assert.equal(d12[key], null, key);
   const text = renderDay('2026-10-12', d12);
   assert.match(text, /### Skip and refusal reasons\n\nN\/A/);
   assert.match(text, /### Limits\n\nN\/A/);

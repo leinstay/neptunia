@@ -57,7 +57,8 @@ export function settleWait({ now, triggerAt, lastAt, settleMs, settleMaxMs }) {
   const known = [anchor, Number.isFinite(lastAt) ? lastAt : null].filter((at) => at !== null);
   if (known.length === 0 || !Number.isFinite(now)) return 0;
   const latest = Math.max(...known);
-  const cap = typeof settleMaxMs === 'number' && Number.isFinite(settleMaxMs) && settleMaxMs > 0 ? settleMaxMs : settleMs;
+  const cap =
+    typeof settleMaxMs === 'number' && Number.isFinite(settleMaxMs) && settleMaxMs > 0 ? settleMaxMs : settleMs;
   const until = Math.min(latest + settleMs, (anchor ?? latest) + cap);
   return Math.max(0, until - now);
 }

@@ -18,7 +18,9 @@ const BEST_LINE = /^best:\s*([A-Z])\s*$/i;
 
 /** One line: whitespace collapsed, trimmed. */
 function flat(value) {
-  return String(value ?? '').replace(/\s+/g, ' ').trim();
+  return String(value ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /** What is wrong with one parsed queries row (`seen`: the ids before it), or null. */
@@ -62,7 +64,12 @@ export function parseQueries(text) {
     }
     const id = flat(row.id);
     seen.add(id);
-    rows.push({ id, query: row.query, asked: typeof row.asked === 'string' ? row.asked : '', note: typeof row.note === 'string' ? row.note : '' });
+    rows.push({
+      id,
+      query: row.query,
+      asked: typeof row.asked === 'string' ? row.asked : '',
+      note: typeof row.note === 'string' ? row.note : '',
+    });
   }
   return { rows, errors };
 }
@@ -140,7 +147,9 @@ export function summarize(results, engines) {
       engine,
       runs: runs.length,
       ...counts,
-      reasons: [...reasons.entries()].map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count || a.reason.localeCompare(b.reason)),
+      reasons: [...reasons.entries()]
+        .map(([reason, count]) => ({ reason, count }))
+        .sort((a, b) => b.count - a.count || a.reason.localeCompare(b.reason)),
       search: p('ms_search'),
       summary: p('ms_summary'),
       total: p('ms_total'),
@@ -187,25 +196,33 @@ function msOf(value) {
  * @param {{ at?: string, queries?: string, repeat?: number, seed?: string, rows?: number, notRun?: number, stopped?: string|null }} [meta]
  * @returns {string}
  */
-export function renderSummary(summary, { at = '', queries = '', repeat = 1, seed = '', rows = 0, notRun = 0, stopped = null } = {}) {
+export function renderSummary(
+  summary,
+  { at = '', queries = '', repeat = 1, seed = '', rows = 0, notRun = 0, stopped = null } = {}
+) {
   const out = ['# Search comparison', ''];
   if (at) out.push(`- at: ${at}`);
   if (queries) out.push(`- queries: ${queries}`);
   out.push(`- engines: ${summary.engines.map((e) => e.engine).join(', ')}`);
-  out.push(`- rows: ${rows}${notRun > 0 ? `, ${notRun} not run (${stopped ?? 'stopped'})` : ''}; runs per query and engine: ${repeat}`);
+  out.push(
+    `- rows: ${rows}${notRun > 0 ? `, ${notRun} not run (${stopped ?? 'stopped'})` : ''}; runs per query and engine: ${repeat}`
+  );
   if (seed) out.push(`- blind seed: ${seed}`);
   out.push(`- cost: ${summary.costUsd.toFixed(4)} USD`);
   out.push('', '## Per engine', '');
   out.push(
     '| engine | runs | answered | empty | failed | skipped | search p50 | search p95 | summary p50 | summary p95 | total p50 | total p95 | cost USD | per run USD |',
-    '|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|',
+    '|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|'
   );
   for (const e of summary.engines) {
     out.push(
-      `| ${e.engine} | ${e.runs} | ${e.answered} | ${e.empty} | ${e.failed} | ${e.skipped} | ${msOf(e.search.p50)} | ${msOf(e.search.p95)} | ${msOf(e.summary.p50)} | ${msOf(e.summary.p95)} | ${msOf(e.total.p50)} | ${msOf(e.total.p95)} | ${e.costUsd.toFixed(4)} | ${e.costPerRun === null ? '-' : e.costPerRun.toFixed(4)} |`,
+      `| ${e.engine} | ${e.runs} | ${e.answered} | ${e.empty} | ${e.failed} | ${e.skipped} | ${msOf(e.search.p50)} | ${msOf(e.search.p95)} | ${msOf(e.summary.p50)} | ${msOf(e.summary.p95)} | ${msOf(e.total.p50)} | ${msOf(e.total.p95)} | ${e.costUsd.toFixed(4)} | ${e.costPerRun === null ? '-' : e.costPerRun.toFixed(4)} |`
     );
   }
-  out.push('', 'Times in ms. search: the engine\'s own request (for `openrouter`, the one request that searches and summarizes); summary: the summary request; total: the whole search step.');
+  out.push(
+    '',
+    "Times in ms. search: the engine's own request (for `openrouter`, the one request that searches and summarizes); summary: the summary request; total: the whole search step."
+  );
   out.push('', '## Failures', '');
   const failures = summary.engines.flatMap((e) => e.reasons.map((r) => ({ engine: e.engine, ...r })));
   if (failures.length === 0) out.push('None.');
@@ -217,7 +234,8 @@ export function renderSummary(summary, { at = '', queries = '', repeat = 1, seed
   if (summary.gaps.length === 0) out.push('None.');
   else {
     out.push('| answered | not answered | queries | ids |', '|---|---|---:|---|');
-    for (const g of summary.gaps) out.push(`| ${g.answered} | ${g.missed} | ${g.ids.length} | ${g.ids.map(cell).join(', ')} |`);
+    for (const g of summary.gaps)
+      out.push(`| ${g.answered} | ${g.missed} | ${g.ids.length} | ${g.ids.map(cell).join(', ')} |`);
   }
   return `${out.join('\n')}\n`;
 }
@@ -288,7 +306,8 @@ export function parseBlindScores(markdown) {
   const close = () => {
     if (id === null) return;
     if (score && Object.keys(score).length > 0) scores[id] = score;
-    else if (best && letters.includes(best)) scores[id] = Object.fromEntries(letters.map((l) => [l, l === best ? 1 : 0]));
+    else if (best && letters.includes(best))
+      scores[id] = Object.fromEntries(letters.map((l) => [l, l === best ? 1 : 0]));
   };
   for (const line of String(markdown ?? '').split(/\r?\n/)) {
     const head = SECTION_HEAD.exec(line);
@@ -360,7 +379,12 @@ export function tallySearchScores({ key, scores, baseline = BASELINE_ENGINE }) {
       else row.tie += 1;
     }
   }
-  return { baseline, queries: ids.length, scored, engines: [...rows.values()].sort((a, b) => a.engine.localeCompare(b.engine)) };
+  return {
+    baseline,
+    queries: ids.length,
+    scored,
+    engines: [...rows.values()].sort((a, b) => a.engine.localeCompare(b.engine)),
+  };
 }
 
 /** `n` of `of` as `p%`, `-` when `of` is 0. */
@@ -374,11 +398,22 @@ function pct(n, of) {
  * @returns {string}
  */
 export function renderSearchTally(tally) {
-  const out = ['# Search blind scores', '', `Against: ${tally.baseline}`, `Queries on the sheet: ${tally.queries}, scored: ${tally.scored}`, ''];
-  out.push('| engine | win | tie | lose | win or tie | lose | unscored | no baseline answer |', '|---|---:|---:|---:|---:|---:|---:|---:|');
+  const out = [
+    '# Search blind scores',
+    '',
+    `Against: ${tally.baseline}`,
+    `Queries on the sheet: ${tally.queries}, scored: ${tally.scored}`,
+    '',
+  ];
+  out.push(
+    '| engine | win | tie | lose | win or tie | lose | unscored | no baseline answer |',
+    '|---|---:|---:|---:|---:|---:|---:|---:|'
+  );
   for (const e of tally.engines) {
     const pairs = e.win + e.tie + e.lose;
-    out.push(`| ${e.engine} | ${e.win} | ${e.tie} | ${e.lose} | ${pct(e.win + e.tie, pairs)} | ${pct(e.lose, pairs)} | ${e.unscored} | ${e.noBaseline} |`);
+    out.push(
+      `| ${e.engine} | ${e.win} | ${e.tie} | ${e.lose} | ${pct(e.win + e.tie, pairs)} | ${pct(e.lose, pairs)} | ${e.unscored} | ${e.noBaseline} |`
+    );
   }
   return `${out.join('\n')}\n`;
 }

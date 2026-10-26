@@ -31,15 +31,31 @@ function gate(overrides = {}) {
 
 // --- privateGate ---------------------------------------------------------------
 
-test('privateGate: membership, the owner cap and today\'s replies decide the verdict', () => {
+test("privateGate: membership, the owner cap and today's replies decide the verdict", () => {
   const owner = { isOwner: true };
   const rows = [
     ['a known member above the threshold passes, with the member cap', {}, { ok: true, cap: 100 }],
     ['a non-member is refused', { isMember: false }, { ok: false, reason: 'not-member' }],
-    ['owners skip the affinity check and get the owner cap', { ...owner, profile: profile(-80) }, { ok: true, cap: 200 }],
-    ['the owner cap is checked for owners: 150 of 200 passes', { ...owner, replies: { day: TODAY, count: 150 } }, { ok: true, cap: 200 }],
-    ['the owner cap is checked for owners: 200 of 200 is refused', { ...owner, replies: { day: TODAY, count: 200 } }, { ok: false, reason: 'cap', cap: 200, used: 200 }],
-    ['replies from another day count as 0 (day rollover)', { replies: { day: '2026-09-28', count: 100 } }, { ok: true, cap: 100 }],
+    [
+      'owners skip the affinity check and get the owner cap',
+      { ...owner, profile: profile(-80) },
+      { ok: true, cap: 200 },
+    ],
+    [
+      'the owner cap is checked for owners: 150 of 200 passes',
+      { ...owner, replies: { day: TODAY, count: 150 } },
+      { ok: true, cap: 200 },
+    ],
+    [
+      'the owner cap is checked for owners: 200 of 200 is refused',
+      { ...owner, replies: { day: TODAY, count: 200 } },
+      { ok: false, reason: 'cap', cap: 200, used: 200 },
+    ],
+    [
+      'replies from another day count as 0 (day rollover)',
+      { replies: { day: '2026-09-28', count: 100 } },
+      { ok: true, cap: 100 },
+    ],
     ['missing replies count as 0', { replies: undefined }, { ok: true, cap: 100 }],
     ['a malformed count counts as 0', { replies: { day: TODAY, count: 'many' } }, { ok: true, cap: 100 }],
   ];
@@ -52,7 +68,10 @@ test('privateGate: off unless features.privateMessages is exactly true', () => {
   assert.deepEqual(gate({ config: config({ privateMessages: false }) }), { ok: false, reason: 'off' });
   const missing = { private: config().private, features: {} };
   assert.deepEqual(gate({ config: missing }), { ok: false, reason: 'off' });
-  assert.deepEqual(gate({ config: { ...config(), features: { privateMessages: 'yes' } } }), { ok: false, reason: 'off' });
+  assert.deepEqual(gate({ config: { ...config(), features: { privateMessages: 'yes' } } }), {
+    ok: false,
+    reason: 'off',
+  });
 });
 
 test('privateGate: off wins over every other reason', () => {
@@ -98,13 +117,16 @@ test('privateGate: missing private.* numbers fail closed', () => {
 test('effectiveAffinity: public plus private, private reason first, no history', () => {
   const view = effectiveAffinity(
     { score: 20, reason: 'public reason', history: [{ delta: 1 }] },
-    { score: 7, reason: 'private reason', history: [{ delta: 2 }] },
+    { score: 7, reason: 'private reason', history: [{ delta: 2 }] }
   );
   assert.deepEqual(view, { score: 27, reason: 'private reason', history: [] });
 });
 
 test('effectiveAffinity: falls back to the public reason when the private one is empty', () => {
-  const view = effectiveAffinity({ score: 20, reason: 'public reason', history: [] }, { score: -3, reason: '', history: [] });
+  const view = effectiveAffinity(
+    { score: 20, reason: 'public reason', history: [] },
+    { score: -3, reason: '', history: [] }
+  );
   assert.deepEqual(view, { score: 17, reason: 'public reason', history: [] });
 });
 
@@ -137,8 +159,20 @@ function publicProfile() {
     lastSeen: '2026-09-28T00:00:00.000Z',
     relationship: 'public relationship',
     interests: [
-      { topic: 'Chess', note: 'public note', weight: 3, firstSeen: '2026-07-01T00:00:00.000Z', lastSeen: '2026-09-01T00:00:00.000Z' },
-      { topic: 'Café', note: 'only public', weight: 1, firstSeen: '2026-07-02T00:00:00.000Z', lastSeen: '2026-07-02T00:00:00.000Z' },
+      {
+        topic: 'Chess',
+        note: 'public note',
+        weight: 3,
+        firstSeen: '2026-07-01T00:00:00.000Z',
+        lastSeen: '2026-09-01T00:00:00.000Z',
+      },
+      {
+        topic: 'Café',
+        note: 'only public',
+        weight: 1,
+        firstSeen: '2026-07-02T00:00:00.000Z',
+        lastSeen: '2026-07-02T00:00:00.000Z',
+      },
     ],
     details: [{ id: 1, text: 'public detail', weight: 2, firstSeen: null, lastSeen: null }],
     detailsSeq: 2,
@@ -154,8 +188,20 @@ function privateProfile() {
   return {
     relationship: 'private relationship',
     interests: [
-      { topic: 'chess', note: 'private note', weight: 1, firstSeen: '2026-09-20T00:00:00.000Z', lastSeen: '2026-09-25T00:00:00.000Z' },
-      { topic: 'Poetry', note: 'only private', weight: 2, firstSeen: '2026-09-21T00:00:00.000Z', lastSeen: '2026-09-21T00:00:00.000Z' },
+      {
+        topic: 'chess',
+        note: 'private note',
+        weight: 1,
+        firstSeen: '2026-09-20T00:00:00.000Z',
+        lastSeen: '2026-09-25T00:00:00.000Z',
+      },
+      {
+        topic: 'Poetry',
+        note: 'only private',
+        weight: 2,
+        firstSeen: '2026-09-21T00:00:00.000Z',
+        lastSeen: '2026-09-21T00:00:00.000Z',
+      },
     ],
     details: [{ id: 1, text: 'private detail', weight: 1, firstSeen: null, lastSeen: null }],
     detailsSeq: 2,
@@ -199,8 +245,14 @@ test('mergeProfiles: relationship is the public text, then the private text as a
 });
 
 test('mergeProfiles: relationship with one side empty is just the other side', () => {
-  assert.equal(mergeProfiles({ ...publicProfile(), relationship: '' }, privateProfile()).relationship, 'private relationship');
-  assert.equal(mergeProfiles(publicProfile(), { ...privateProfile(), relationship: '' }).relationship, 'public relationship');
+  assert.equal(
+    mergeProfiles({ ...publicProfile(), relationship: '' }, privateProfile()).relationship,
+    'private relationship'
+  );
+  assert.equal(
+    mergeProfiles(publicProfile(), { ...privateProfile(), relationship: '' }).relationship,
+    'public relationship'
+  );
 });
 
 test('mergeProfiles: interests are a union by topic, the private note wins on a shared topic', () => {
@@ -220,7 +272,10 @@ test('mergeProfiles: interests are a union by topic, the private note wins on a 
 });
 
 test('mergeProfiles: an empty private note does not erase the public one', () => {
-  const priv = { ...privateProfile(), interests: [{ topic: 'CHESS', note: '', weight: 5, firstSeen: null, lastSeen: null }] };
+  const priv = {
+    ...privateProfile(),
+    interests: [{ topic: 'CHESS', note: '', weight: 5, firstSeen: null, lastSeen: null }],
+  };
   const chess = mergeProfiles(publicProfile(), priv).interests.find((item) => item.topic === 'Chess');
   assert.equal(chess.note, 'public note');
   assert.equal(chess.weight, 5);
@@ -228,12 +283,18 @@ test('mergeProfiles: an empty private note does not erase the public one', () =>
 
 test('mergeProfiles: details are public then private', () => {
   const merged = mergeProfiles(publicProfile(), privateProfile());
-  assert.deepEqual(merged.details.map((d) => d.text), ['public detail', 'private detail']);
+  assert.deepEqual(
+    merged.details.map((d) => d.text),
+    ['public detail', 'private detail']
+  );
 });
 
 test('mergeProfiles: episodes from both sides, sorted by date', () => {
   const merged = mergeProfiles(publicProfile(), privateProfile());
-  assert.deepEqual(merged.episodes.map((e) => e.what), ['public early', 'private middle', 'public late']);
+  assert.deepEqual(
+    merged.episodes.map((e) => e.what),
+    ['public early', 'private middle', 'public late']
+  );
 });
 
 test('mergeProfiles: affinity is the clamped effective view', () => {
@@ -259,16 +320,32 @@ test('mergeProfiles: tolerates missing lists on either side', () => {
 });
 
 test('privateRepliesToday: the owner or member cap, a missing cap as 0, another day as no replies', () => {
-  assert.deepEqual(privateRepliesToday({ config: config(), isOwner: false, replies: { day: TODAY, count: 7 }, today: TODAY }), { used: 7, cap: 100 });
-  assert.deepEqual(privateRepliesToday({ config: config(), isOwner: true, replies: { day: TODAY, count: 7 }, today: TODAY }), { used: 7, cap: 200 });
-  assert.deepEqual(privateRepliesToday({ config: config(), isOwner: false, replies: { day: '2026-09-28', count: 7 }, today: TODAY }), { used: 0, cap: 100 });
-  assert.deepEqual(privateRepliesToday({ config: {}, isOwner: false, replies: null, today: TODAY }), { used: 0, cap: 0 });
+  assert.deepEqual(
+    privateRepliesToday({ config: config(), isOwner: false, replies: { day: TODAY, count: 7 }, today: TODAY }),
+    { used: 7, cap: 100 }
+  );
+  assert.deepEqual(
+    privateRepliesToday({ config: config(), isOwner: true, replies: { day: TODAY, count: 7 }, today: TODAY }),
+    { used: 7, cap: 200 }
+  );
+  assert.deepEqual(
+    privateRepliesToday({ config: config(), isOwner: false, replies: { day: '2026-09-28', count: 7 }, today: TODAY }),
+    { used: 0, cap: 100 }
+  );
+  assert.deepEqual(privateRepliesToday({ config: {}, isOwner: false, replies: null, today: TODAY }), {
+    used: 0,
+    cap: 0,
+  });
 });
 
 test('privateRepliesToday: a stored count that is not a finite number >= 0 reads as 0, and the replies are never written', () => {
   for (const bad of [-3, NaN, Infinity, '150', null, {}]) {
     const replies = { day: TODAY, count: bad };
-    assert.deepEqual(privateRepliesToday({ config: config(), isOwner: false, replies, today: TODAY }), { used: 0, cap: 100 }, String(bad));
+    assert.deepEqual(
+      privateRepliesToday({ config: config(), isOwner: false, replies, today: TODAY }),
+      { used: 0, cap: 100 },
+      String(bad)
+    );
   }
   const stale = { day: '2026-09-28', count: 7, noticedDay: '2026-09-28' };
   privateRepliesToday({ config: config(), isOwner: false, replies: stale, today: TODAY });

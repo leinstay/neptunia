@@ -10,8 +10,18 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  scopeOf, isFiltered, isWithheldPath, withheldInToolUse, redactSecrets, redactorFor, containsSecret, REDACTED,
-  WITHHELD_ROOTS, WITHHELD_GLOBS, withheldRootsOf, withheldGlobsOf,
+  scopeOf,
+  isFiltered,
+  isWithheldPath,
+  withheldInToolUse,
+  redactSecrets,
+  redactorFor,
+  containsSecret,
+  REDACTED,
+  WITHHELD_ROOTS,
+  WITHHELD_GLOBS,
+  withheldRootsOf,
+  withheldGlobsOf,
 } from '../src/agent-runner/policy.js';
 import { resolvePaths } from '../src/paths.js';
 
@@ -42,21 +52,40 @@ test('isWithheldPath: roots, name components and env files', () => {
 });
 
 test('withheld roots and globs: the fixed ones, then the data directory and a private directory apart from the checkout', () => {
-  const apart = resolvePaths({ rootDir: '/srv/app', env: { NEPTUNIA_PRIVATE_DIR: '/srv/site/etc', NEPTUNIA_DATA_DIR: '/srv/site/data' } });
+  const apart = resolvePaths({
+    rootDir: '/srv/app',
+    env: { NEPTUNIA_PRIVATE_DIR: '/srv/site/etc', NEPTUNIA_DATA_DIR: '/srv/site/data' },
+  });
   const roots = withheldRootsOf({ paths: apart });
   assert.deepEqual(roots.slice(-2), ['/srv/site/data', '/srv/site/etc']);
   assert.ok(roots.includes('/etc/neptunia'), '/etc/neptunia stays');
   assert.ok(!roots.some((root) => root.startsWith('/opt/neptunia')), 'no hard-coded deployment path');
   const globs = withheldGlobsOf({ paths: apart });
-  for (const glob of ['/srv/site/data', '/srv/site/data/**', '/srv/site/etc', '/srv/site/etc/**', '/etc/neptunia/**', '**/data/guilds/**']) assert.ok(globs.includes(glob), glob);
+  for (const glob of [
+    '/srv/site/data',
+    '/srv/site/data/**',
+    '/srv/site/etc',
+    '/srv/site/etc/**',
+    '/etc/neptunia/**',
+    '**/data/guilds/**',
+  ])
+    assert.ok(globs.includes(glob), glob);
   assert.ok(!globs.some((glob) => glob.startsWith('/srv/app')), 'the checkout itself is not withheld');
 
   const together = resolvePaths({ rootDir: '/srv/app', env: {} });
-  assert.deepEqual(withheldRootsOf({ paths: together }).at(-1), '/srv/app/data', 'default: <root>/data, the private directory is the checkout');
+  assert.deepEqual(
+    withheldRootsOf({ paths: together }).at(-1),
+    '/srv/app/data',
+    'default: <root>/data, the private directory is the checkout'
+  );
   assert.ok(!withheldRootsOf({ paths: together }).includes('/srv/app'));
 
   const own = resolvePaths({ rootDir: ROOT });
-  assert.deepEqual(WITHHELD_ROOTS, withheldRootsOf({ paths: own }), 'the module default: this checkout, resolved from the environment');
+  assert.deepEqual(
+    WITHHELD_ROOTS,
+    withheldRootsOf({ paths: own }),
+    'the module default: this checkout, resolved from the environment'
+  );
   assert.deepEqual(WITHHELD_GLOBS, withheldGlobsOf({ paths: own }));
   assert.equal(isWithheldPath(path.join(own.dataDir, 'guilds', '1', 'guild.json')), true);
 });
@@ -69,7 +98,10 @@ test('withheldInToolUse: core withholds nothing', () => {
 test('withheldInToolUse: a read of a withheld path is caught in dm/group', () => {
   assert.ok(withheldInToolUse({ tool: 'read', input: { filePath: '/opt/app/.env' } }, 'dm'));
   assert.ok(withheldInToolUse({ tool: 'read', input: { path: '/srv/neptunia-dev/.secrets/x' } }, 'group'));
-  assert.equal(withheldInToolUse({ tool: 'read', input: { path: '/srv/neptunia-dev/neptunia-core/README.md' } }, 'dm'), null);
+  assert.equal(
+    withheldInToolUse({ tool: 'read', input: { path: '/srv/neptunia-dev/neptunia-core/README.md' } }, 'dm'),
+    null
+  );
 });
 
 test('withheldInToolUse: bash reads are checked, listings are not', () => {
@@ -94,10 +126,16 @@ test('redactSecrets: assignments, prefixes, dotted tokens, hex, URL creds, SSH, 
   assert.match(redactSecrets('"password": "hunter2secretpass"'), /"password": \[redacted\]/);
   assert.match(redactSecrets('token xai-0123456789abcdefghij0123'), new RegExp(REDACTED.replace(/[[\]]/g, '\\$&')));
   assert.match(redactSecrets('aws AKIAIOSFODNN7EXAMPLE here'), /\[redacted\]/);
-  assert.match(redactSecrets('jwt eyJhbGciOiJIUzI1NiwidHlwIjoiSldUI.aaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbb'), /\[redacted\]/);
+  assert.match(
+    redactSecrets('jwt eyJhbGciOiJIUzI1NiwidHlwIjoiSldUI.aaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbb'),
+    /\[redacted\]/
+  );
   assert.match(redactSecrets('https://user:p4ssw0rd@example.org/x'), /https:\/\/\[redacted\]@example\.org/);
   assert.match(redactSecrets('ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAexampleKEY me@host'), /ssh-ed25519 \[redacted\]/);
-  assert.match(redactSecrets('-----BEGIN OPENSSH PRIVATE KEY-----\nabcdef\n-----END OPENSSH PRIVATE KEY-----'), /\[redacted\]/);
+  assert.match(
+    redactSecrets('-----BEGIN OPENSSH PRIVATE KEY-----\nabcdef\n-----END OPENSSH PRIVATE KEY-----'),
+    /\[redacted\]/
+  );
 });
 
 test('redactSecrets: ordinary text and paths survive', () => {

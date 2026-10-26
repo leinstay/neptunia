@@ -8,7 +8,10 @@ import { innerOutputCalls } from '../src/behavior/inner-output.js';
 const parsed = {
   reactions: [{ to: 2, emoji: '👍' }],
   untargetedReactions: [{ emoji: '🔥' }],
-  messages: [{ text: 'πρώτο', replyTo: 3 }, { text: 'δεύτερο', replyTo: null }],
+  messages: [
+    { text: 'πρώτο', replyTo: 3 },
+    { text: 'δεύτερο', replyTo: null },
+  ],
   gif: { id: 'g7', replyTo: null },
   // A leftover picture tag is not lowered: a picture is the draw.create tool.
   draw: { text: 'a boat', self: true, replyTo: 4 },
@@ -25,18 +28,33 @@ test('innerOutputCalls: reactions, messages and the GIF, in that order, and no p
   ]);
 });
 
-test('innerOutputCalls: a current channel other than the turn\'s is named by the channel argument', () => {
-  const calls = innerOutputCalls({ messages: [{ text: 'x', replyTo: null }], gif: { id: 'g2', replyTo: null } }, { current: 'c9', turnChannel: 'c1' });
-  assert.deepEqual(calls.map((call) => call.args.channel), ['c9', 'c9']);
+test("innerOutputCalls: a current channel other than the turn's is named by the channel argument", () => {
+  const calls = innerOutputCalls(
+    { messages: [{ text: 'x', replyTo: null }], gif: { id: 'g2', replyTo: null } },
+    { current: 'c9', turnChannel: 'c1' }
+  );
+  assert.deepEqual(
+    calls.map((call) => call.args.channel),
+    ['c9', 'c9']
+  );
 });
 
 test('innerOutputCalls: with no current channel every post is refused destination-required; a reaction naming its message is not', () => {
   const calls = innerOutputCalls(parsed, { current: null, turnChannel: 'c1' });
   const codes = calls.map((call) => `${call.skill}:${call.refuse?.code ?? ''}`);
-  assert.deepEqual(codes, ['message.react.add:', 'message.react.add:target-required', 'message.create:destination-required', 'message.create:destination-required', 'message.create:destination-required']);
+  assert.deepEqual(codes, [
+    'message.react.add:',
+    'message.react.add:target-required',
+    'message.create:destination-required',
+    'message.create:destination-required',
+    'message.create:destination-required',
+  ]);
 });
 
 test('innerOutputCalls: nothing written, nothing lowered', () => {
-  assert.deepEqual(innerOutputCalls({ messages: [], reactions: [], gif: null, draw: null }, { current: 'c1', turnChannel: 'c1' }), []);
+  assert.deepEqual(
+    innerOutputCalls({ messages: [], reactions: [], gif: null, draw: null }, { current: 'c1', turnChannel: 'c1' }),
+    []
+  );
   assert.deepEqual(innerOutputCalls(null, { current: 'c1', turnChannel: 'c1' }), []);
 });

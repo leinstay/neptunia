@@ -17,7 +17,13 @@ import { fileURLToPath } from 'node:url';
 import { SnowflakeUtil } from 'discord.js';
 import { deepMerge, isPlainObject } from '../src/config.js';
 import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay, zonedDay } from '../src/time.js';
-import { buildDiaryPlanRequest, buildDrawPrompt, buildRequest, hasRequiredLabels, userText } from '../src/behavior/prompt.js';
+import {
+  buildDiaryPlanRequest,
+  buildDrawPrompt,
+  buildRequest,
+  hasRequiredLabels,
+  userText,
+} from '../src/behavior/prompt.js';
 import { parseSeedFamilies, pickSeeds, renderSeedsBlock } from '../src/behavior/diary.js';
 import { fill, formatDate } from '../src/format.js';
 import { createTurnRunner } from '../src/behavior/turn.js';
@@ -28,7 +34,15 @@ import { askPlanner } from '../src/behavior/planner.js';
 import { createTagHistory } from '../src/behavior/mention.js';
 import { createMissed } from '../src/behavior/missed.js';
 import { createMessageHandler } from '../src/behavior/pipeline.js';
-import { canSend, createDiscordAdapter, createDiscordInterface, normalizeMessage, normalizeOptions, toEvent, withTextPreviews } from '../src/interface/discord.js';
+import {
+  canSend,
+  createDiscordAdapter,
+  createDiscordInterface,
+  normalizeMessage,
+  normalizeOptions,
+  toEvent,
+  withTextPreviews,
+} from '../src/interface/discord.js';
 import { createCalibrator } from '../src/llm/tokens.js';
 import { createDescriber } from '../src/memory/describe.js';
 import { createAvatarQueue } from '../src/memory/avatar-queue.js';
@@ -154,7 +168,7 @@ const LOADS = {
   merge: ['merge'],
   missed: ['missed'],
   gifPick: ['gif-pick'],
-  turn:[...SYSTEM, 'reply'],
+  turn: [...SYSTEM, 'reply'],
 };
 
 /** The shipped config.json with `overrides` deep-merged over a fresh copy. */
@@ -220,7 +234,11 @@ function assertFilled(messages, { files = [], blocks = [] }, where) {
   assert.deepEqual(strayLabelKeys(text), [], `${where}: a label placeholder reached the request unfilled`);
   for (const name of files) {
     const missing = literalLines(name).filter((line) => !text.includes(line));
-    assert.equal(missing.length, 0, `${where}: prompts/${name}.md is not carried whole, e.g. ${JSON.stringify(missing.slice(0, 2))}`);
+    assert.equal(
+      missing.length,
+      0,
+      `${where}: prompts/${name}.md is not carried whole, e.g. ${JSON.stringify(missing.slice(0, 2))}`
+    );
   }
   for (const tag of blocks) assert.ok(text.includes(`<${tag}>\n`), `${where}: no <${tag}> block`);
   return text;
@@ -228,7 +246,9 @@ function assertFilled(messages, { files = [], blocks = [] }, where) {
 
 /** Every key path of a labels object (`a.b.c`), arrays counted as one value. */
 function keyPaths(value, prefix = '') {
-  return Object.entries(value).flatMap(([key, entry]) => (isPlainObject(entry) ? keyPaths(entry, `${prefix}${key}.`) : [`${prefix}${key}`]));
+  return Object.entries(value).flatMap(([key, entry]) =>
+    isPlainObject(entry) ? keyPaths(entry, `${prefix}${key}.`) : [`${prefix}${key}`]
+  );
 }
 
 // ---- the scene: one server, its members and channels --------------------------------
@@ -263,18 +283,48 @@ function profile(id, names, extra = {}) {
     character: `${names[0]} is curious and warm`,
     style: 'short lines, many questions',
     interests: [
-      { topic: 'gardening', note: 'grows tomatoes on a balcony', weight: 4, firstSeen: iso(NOW - 30 * DAY_MS), lastSeen: iso(NOW - DAY_MS) },
+      {
+        topic: 'gardening',
+        note: 'grows tomatoes on a balcony',
+        weight: 4,
+        firstSeen: iso(NOW - 30 * DAY_MS),
+        lastSeen: iso(NOW - DAY_MS),
+      },
       { topic: 'chess', note: '', weight: 1, firstSeen: iso(NOW - 200 * DAY_MS), lastSeen: iso(NOW - 200 * DAY_MS) },
     ],
-    details: [{ id: 1, text: 'lives near the sea', weight: 3, firstSeen: iso(NOW - 40 * DAY_MS), lastSeen: iso(NOW - 2 * DAY_MS) }],
-    aliases: [{ name: `${names[0].slice(0, 3)}ou`, weight: 3, firstSeen: iso(NOW - 20 * DAY_MS), lastSeen: iso(NOW - DAY_MS) }],
+    details: [
+      {
+        id: 1,
+        text: 'lives near the sea',
+        weight: 3,
+        firstSeen: iso(NOW - 40 * DAY_MS),
+        lastSeen: iso(NOW - 2 * DAY_MS),
+      },
+    ],
+    aliases: [
+      { name: `${names[0].slice(0, 3)}ou`, weight: 3, firstSeen: iso(NOW - 20 * DAY_MS), lastSeen: iso(NOW - DAY_MS) },
+    ],
     relationship: 'an old friend of the chat',
     relationshipScore: 20,
     relationshipWrittenAt: iso(NOW - 10 * DAY_MS),
     affinity: { score: 22, reason: 'brought crêpes to the meetup', history: [{ delta: 5, ts: NOW - 3 * DAY_MS }] },
     episodes: [
-      { date: '2026-09-28', what: 'taught the persona a card trick', quote: 'regarde bien', feeling: 'delighted', weight: 3, addedAt: iso(NOW - 7 * DAY_MS) },
-      { date: '2026-10-04', what: 'asked about the weather', quote: '', feeling: 'calm', weight: 1, addedAt: iso(NOW - DAY_MS) },
+      {
+        date: '2026-09-28',
+        what: 'taught the persona a card trick',
+        quote: 'regarde bien',
+        feeling: 'delighted',
+        weight: 3,
+        addedAt: iso(NOW - 7 * DAY_MS),
+      },
+      {
+        date: '2026-10-04',
+        what: 'asked about the weather',
+        quote: '',
+        feeling: 'calm',
+        weight: 1,
+        addedAt: iso(NOW - DAY_MS),
+      },
     ],
     messageCount: 420,
     firstSeen: iso(NOW - 90 * DAY_MS),
@@ -298,7 +348,14 @@ const GUILD_MEMORY = {
   injokes: ['the eternal tomato'],
   self: ['once claimed to like rain'],
   learned: [
-    { id: 1, text: 'say bonjour before anything else', from: `<@${ANA}>`, weight: 3, firstSeen: iso(NOW - 9 * DAY_MS), lastSeen: iso(NOW - DAY_MS) },
+    {
+      id: 1,
+      text: 'say bonjour before anything else',
+      from: `<@${ANA}>`,
+      weight: 3,
+      firstSeen: iso(NOW - 9 * DAY_MS),
+      lastSeen: iso(NOW - DAY_MS),
+    },
     { id: 2, text: 'never spoil a film', weight: 1, firstSeen: iso(NOW - DAY_MS), lastSeen: iso(NOW - DAY_MS) },
   ],
   emojiUsage: { E1: { name: 'zoe_wave', count: 4, last: NOW - DAY_MS } },
@@ -323,11 +380,43 @@ const CHANNELS = [
     ],
     updatedAt: iso(NOW - 8 * DAY_MS),
   },
-  { id: GARDEN, name: 'jardin', category: 'Café', topic: null, purpose: 'garden photos', topics: 'seeds', tone: 'calm', lastMessageAt: NOW - 20 * MINUTE_MS, messageCount: 120, days: {} },
-  { id: DIARY, name: 'journal', category: 'Notes', topic: 'one member per thread', purpose: 'personal diaries', topics: 'daily life', tone: 'quiet', lastMessageAt: NOW - 5 * MINUTE_MS, messageCount: 60, days: {} },
+  {
+    id: GARDEN,
+    name: 'jardin',
+    category: 'Café',
+    topic: null,
+    purpose: 'garden photos',
+    topics: 'seeds',
+    tone: 'calm',
+    lastMessageAt: NOW - 20 * MINUTE_MS,
+    messageCount: 120,
+    days: {},
+  },
+  {
+    id: DIARY,
+    name: 'journal',
+    category: 'Notes',
+    topic: 'one member per thread',
+    purpose: 'personal diaries',
+    topics: 'daily life',
+    tone: 'quiet',
+    lastMessageAt: NOW - 5 * MINUTE_MS,
+    messageCount: 60,
+    days: {},
+  },
 ];
 
-const LORE = [{ id: 'l1', title: 'Le grand gel', keys: ['tomate'], text: 'The winter the balcony tomatoes froze.', always: false, source: 'analyzer', weight: 3 }];
+const LORE = [
+  {
+    id: 'l1',
+    title: 'Le grand gel',
+    keys: ['tomate'],
+    text: 'The winter the balcony tomatoes froze.',
+    always: false,
+    source: 'analyzer',
+    weight: 3,
+  },
+];
 
 const CUSTOM_EMOJI = [
   { id: 'E1', name: 'zoe_wave' },
@@ -335,7 +424,15 @@ const CUSTOM_EMOJI = [
 ];
 
 const RECENT_LINES = [
-  { id: 1, at: NOW - 2 * HOUR_MS, addedAt: iso(NOW - HOUR_MS), channelId: GARDEN, text: `<@${NIKOS}> planted garlic`, who: [NIKOS], weight: 2 },
+  {
+    id: 1,
+    at: NOW - 2 * HOUR_MS,
+    addedAt: iso(NOW - HOUR_MS),
+    channelId: GARDEN,
+    text: `<@${NIKOS}> planted garlic`,
+    who: [NIKOS],
+    weight: 2,
+  },
 ];
 
 const LOOKUP_RESULT = {
@@ -349,13 +446,31 @@ const LOOKUP_RESULT = {
  * plain lists (attachments `{ id, name, contentType, url, size?, duration? }`, embeds as Discord
  * sends them, stickers `{ id, name, format }`, reactions `{ name, id?, count, me? }`).
  */
-function rawMessage(channel, { ts, author, content = '', attachments = [], embeds = [], stickers = [], reactions = [], replyTo = null, mentions = [], forwarded = null }) {
+function rawMessage(
+  channel,
+  {
+    ts,
+    author,
+    content = '',
+    attachments = [],
+    embeds = [],
+    stickers = [],
+    reactions = [],
+    replyTo = null,
+    mentions = [],
+    forwarded = null,
+  }
+) {
   // The same id on every call: the time, and the channel as the increment.
   const id = SnowflakeUtil.generate({ timestamp: ts, increment: CHANNEL_INCREMENT[channel.id] ?? 0n }).toString();
   return {
     id,
     channelId: channel.id,
-    channel: { name: channel.name, parent: channel.category ? { name: channel.category } : null, topic: channel.topic ?? null },
+    channel: {
+      name: channel.name,
+      parent: channel.category ? { name: channel.category } : null,
+      topic: channel.topic ?? null,
+    },
     guild: null,
     author: { id: author.id, bot: false, globalName: author.name, username: author.name },
     member: { displayName: author.name },
@@ -366,9 +481,25 @@ function rawMessage(channel, { ts, author, content = '', attachments = [], embed
     attachments: new Map(attachments.map((a) => [a.id, a])),
     embeds,
     stickers: new Map(stickers.map((s) => [s.id, s])),
-    messageSnapshots: new Map(forwarded ? [['fwd', { content: forwarded, cleanContent: forwarded, attachments: new Map(), embeds: [], stickers: new Map() }]] : []),
+    messageSnapshots: new Map(
+      forwarded
+        ? [
+            [
+              'fwd',
+              { content: forwarded, cleanContent: forwarded, attachments: new Map(), embeds: [], stickers: new Map() },
+            ],
+          ]
+        : []
+    ),
     mentions: { users: new Map(mentions.map((userId) => [userId, { id: userId }])) },
-    reactions: { cache: new Map(reactions.map((r, i) => [String(i), { emoji: { name: r.name, id: r.id ?? null }, count: r.count, me: r.me ?? false }])) },
+    reactions: {
+      cache: new Map(
+        reactions.map((r, i) => [
+          String(i),
+          { emoji: { name: r.name, id: r.id ?? null }, count: r.count, me: r.me ?? false },
+        ])
+      ),
+    },
     flags: { has: () => false },
   };
 }
@@ -383,7 +514,11 @@ const GIF_EMBED = {
   thumbnail: { url: 'https://media.tenor.com/cat.png' },
   video: { url: 'https://media.tenor.com/cat.mp4' },
 };
-const PAGE_EMBED = { url: 'https://example.org/tomates', title: 'Tomates en pot', description: 'Comment cultiver des tomates sur un balcon' };
+const PAGE_EMBED = {
+  url: 'https://example.org/tomates',
+  title: 'Tomates en pot',
+  description: 'Comment cultiver des tomates sur un balcon',
+};
 
 /** The chat of #général the turn answers, oldest first: every kind of media the transcript renders. */
 function generalRaws() {
@@ -394,30 +529,95 @@ function generalRaws() {
     raws.push(raw);
     return raw;
   };
-  add({ ts: at(55), author: PEOPLE[NIKOS], content: 'bonjour à tous, la tomate a gelé', reactions: [{ name: '🍅', count: 3 }, { name: 'zoe_wave', id: 'E1', count: 1, me: true }] });
+  add({
+    ts: at(55),
+    author: PEOPLE[NIKOS],
+    content: 'bonjour à tous, la tomate a gelé',
+    reactions: [
+      { name: '🍅', count: 3 },
+      { name: 'zoe_wave', id: 'E1', count: 1, me: true },
+    ],
+  });
   const own = add({ ts: at(50), author: PEOPLE[SELF_ID], content: 'oh non, pauvre tomate' });
-  add({ ts: at(45), author: PEOPLE[BJORN], content: 'la preuve', attachments: [{ id: '800000000000000001', name: 'photo.png', contentType: 'image/png', url: 'https://cdn.discordapp.com/attachments/1/2/photo.png', size: 2000 }] });
-  add({ ts: at(40), author: PEOPLE[NIKOS], content: 'regardez https://tenor.com/view/cat-wave-123', embeds: [GIF_EMBED] });
+  add({
+    ts: at(45),
+    author: PEOPLE[BJORN],
+    content: 'la preuve',
+    attachments: [
+      {
+        id: '800000000000000001',
+        name: 'photo.png',
+        contentType: 'image/png',
+        url: 'https://cdn.discordapp.com/attachments/1/2/photo.png',
+        size: 2000,
+      },
+    ],
+  });
+  add({
+    ts: at(40),
+    author: PEOPLE[NIKOS],
+    content: 'regardez https://tenor.com/view/cat-wave-123',
+    embeds: [GIF_EMBED],
+  });
   const video = add({
     ts: at(35),
     author: PEOPLE[ANA],
     content: 'une vidéo des oranges',
-    attachments: [{ id: '800000000000000002', name: 'oranges.mp4', contentType: 'video/mp4', url: 'https://cdn.discordapp.com/attachments/1/2/oranges.mp4', size: 90000, duration: 20 }],
+    attachments: [
+      {
+        id: '800000000000000002',
+        name: 'oranges.mp4',
+        contentType: 'video/mp4',
+        url: 'https://cdn.discordapp.com/attachments/1/2/oranges.mp4',
+        size: 90000,
+        duration: 20,
+      },
+    ],
   });
   add({ ts: at(30), author: PEOPLE[BJORN], content: 'un article https://example.org/tomates', embeds: [PAGE_EMBED] });
-  add({ ts: at(26), author: PEOPLE[ANA], content: '', stickers: [{ id: '810000000000000001', name: 'tomato_dance', format: 1 }] });
-  add({ ts: at(22), author: PEOPLE[NIKOS], content: 'mes graines', attachments: [{ id: '800000000000000003', name: 'graines.txt', contentType: 'text/plain', url: 'https://cdn.discordapp.com/attachments/1/2/graines.txt', size: 40 }] });
+  add({
+    ts: at(26),
+    author: PEOPLE[ANA],
+    content: '',
+    stickers: [{ id: '810000000000000001', name: 'tomato_dance', format: 1 }],
+  });
+  add({
+    ts: at(22),
+    author: PEOPLE[NIKOS],
+    content: 'mes graines',
+    attachments: [
+      {
+        id: '800000000000000003',
+        name: 'graines.txt',
+        contentType: 'text/plain',
+        url: 'https://cdn.discordapp.com/attachments/1/2/graines.txt',
+        size: 40,
+      },
+    ],
+  });
   add({ ts: at(18), author: PEOPLE[BJORN], content: 'vu ailleurs', forwarded: 'le gel arrive mardi' });
   add({ ts: at(14), author: PEOPLE[SELF_ID], content: 'jolie vidéo', replyTo: video.id });
   add({ ts: at(10), author: PEOPLE[NIKOS], content: 'Zoë, tu as aimé ?', replyTo: own.id });
-  add({ ts: at(2), author: PEOPLE[ANA], content: '@Zoë de quelle couleur sont les oranges dans la vidéo ? et quand gèle la tomate ?', mentions: [SELF_ID] });
+  add({
+    ts: at(2),
+    author: PEOPLE[ANA],
+    content: '@Zoë de quelle couleur sont les oranges dans la vidéo ? et quand gèle la tomate ?',
+    mentions: [SELF_ID],
+  });
   return raws;
 }
 
-const normalize = (raws) => raws.map((raw) => normalizeMessage(raw, SELF_ID, { embedTextChars: 200, videoSites: SHIPPED.config.media.video.sites }));
+const normalize = (raws) =>
+  raws.map((raw) =>
+    normalizeMessage(raw, SELF_ID, { embedTextChars: 200, videoSites: SHIPPED.config.media.video.sites })
+  );
 
 /** A fetch stand-in for text attachment previews: every file reads the same short text. */
-const previewFetch = async () => ({ ok: true, headers: { get: () => null }, text: async () => 'graines: tomate, basilic, ail' });
+const previewFetch = async () => ({
+  ok: true,
+  headers: { get: () => null },
+  text: async () => 'graines: tomate, basilic, ail',
+});
 
 /** The #général chat, normalized, text previews filled, oldest first. */
 async function generalHistory() {
@@ -432,7 +632,12 @@ function mediaMaps(history) {
   for (const message of history) {
     for (const item of message.attachments ?? []) {
       if (item.kind === 'image' || item.kind === 'gif') descriptions.set(item.id, 'a tomato plant covered in frost');
-      if (item.kind === 'video') videos.set(item.id, { state: 'watched', text: 'a person juggles three oranges', answer: { question: 'what colour?', text: 'orange' } });
+      if (item.kind === 'video')
+        videos.set(item.id, {
+          state: 'watched',
+          text: 'a person juggles three oranges',
+          answer: { question: 'what colour?', text: 'orange' },
+        });
     }
     for (const link of message.links ?? []) {
       if (link.kind === 'gif') descriptions.set(link.id, 'a cat waves');
@@ -448,13 +653,28 @@ function gifLibrary(history) {
   const gif = history.flatMap((m) => m.links ?? []).find((link) => link.kind === 'gif');
   return {
     nextId: 2,
-    entries: { [gif.id]: { id: 'g1', kind: 'link', url: gif.url, site: 'tenor.com', itemId: gif.id, count: 3, last: NOW - DAY_MS, firstSeen: NOW - 9 * DAY_MS } },
+    entries: {
+      [gif.id]: {
+        id: 'g1',
+        kind: 'link',
+        url: gif.url,
+        site: 'tenor.com',
+        itemId: gif.id,
+        count: 3,
+        last: NOW - DAY_MS,
+        firstSeen: NOW - 9 * DAY_MS,
+      },
+    },
   };
 }
 
 /** One neighbour channel with a line of its own. */
 function neighbors() {
-  const line = rawMessage(GARDEN_INFO, { ts: NOW - 20 * MINUTE_MS, author: PEOPLE[BJORN], content: 'les semis sont sortis' });
+  const line = rawMessage(GARDEN_INFO, {
+    ts: NOW - 20 * MINUTE_MS,
+    author: PEOPLE[BJORN],
+    content: 'les semis sont sortis',
+  });
   return [{ channelId: GARDEN, channelName: 'jardin', readOnly: false, messages: normalize([line]) }];
 }
 
@@ -463,7 +683,10 @@ async function turnInput(overrides = {}) {
   const history = await generalHistory();
   const trigger = history.at(-1);
   const { descriptions, videos, reads } = mediaMaps(history);
-  const config = shippedConfig({ features: { webLookup: true, imageGeneration: true, privateMessages: true, videoDescriptions: true }, memory: { mainChannelIds: [GENERAL] } });
+  const config = shippedConfig({
+    features: { webLookup: true, imageGeneration: true, privateMessages: true, videoDescriptions: true },
+    memory: { mainChannelIds: [GENERAL] },
+  });
   return {
     config,
     prompts: SHIPPED.prompts,
@@ -502,7 +725,22 @@ async function turnInput(overrides = {}) {
 }
 
 // The blocks a fully fed server turn renders, each headed or filled by labels.
-const TURN_BLOCKS = ['now', 'senses', 'about_chat', 'emoji', 'gifs', 'server', 'lore', 'self_facts', 'people', 'other_channels', 'lookup', 'chat', 'tempo', 'task'];
+const TURN_BLOCKS = [
+  'now',
+  'senses',
+  'about_chat',
+  'emoji',
+  'gifs',
+  'server',
+  'lore',
+  'self_facts',
+  'people',
+  'other_channels',
+  'lookup',
+  'chat',
+  'tempo',
+  'task',
+];
 
 // ---- the layer itself ---------------------------------------------------------------
 
@@ -512,14 +750,15 @@ test('prompts: every tracked prompt file is loaded by a request built here, or n
   assert.deepEqual(
     named.filter((name) => !PROMPT_FILES.includes(name)),
     [],
-    'a name here that is no tracked prompt file',
+    'a name here that is no tracked prompt file'
   );
   assert.deepEqual(
     PROMPT_FILES.filter((name) => !loaded.has(name) && !Object.hasOwn(NOT_BUILT, name)),
     [],
-    'a tracked prompt file that no request built here loads',
+    'a tracked prompt file that no request built here loads'
   );
-  for (const [name, { literal }] of Object.entries(LITERAL_BRACES)) assert.ok(SHIPPED.prompts[name].includes(literal), `${name}: its literal braces are gone`);
+  for (const [name, { literal }] of Object.entries(LITERAL_BRACES))
+    assert.ok(SHIPPED.prompts[name].includes(literal), `${name}: its literal braces are gone`);
 });
 
 test('labels: the tracked labels.json passes the startup check and carries every key the code renders', () => {
@@ -546,7 +785,11 @@ test('buildRequest: a reply fills system-prompt, character-card, rules, format a
   }
   // A Discord reply to the persona: untagged takes the follow-up task, tagged keeps reply.md.
   const untagged = buildRequest(await turnInput({ triggerKind: 'reply', taggedCall: false }));
-  const untaggedText = assertFilled(untagged.messages, { files: LOADS.followUp, blocks: TURN_BLOCKS }, 'reply (untagged reply)');
+  const untaggedText = assertFilled(
+    untagged.messages,
+    { files: LOADS.followUp, blocks: TURN_BLOCKS },
+    'reply (untagged reply)'
+  );
   assert.ok(!carries(untaggedText, 'reply'), 'an untagged reply: reply.md is not sent as well');
   const tagged = buildRequest(await turnInput({ triggerKind: 'reply', taggedCall: true }));
   const taggedText = assertFilled(tagged.messages, { files: LOADS.reply, blocks: TURN_BLOCKS }, 'reply (tagged reply)');
@@ -558,28 +801,66 @@ test('buildRequest: the skills protocol and an asked-for catalogue fill labels.s
   const shipped = shippedConfig();
   // message.edit granted to the persona (the bot's user, as `/nep access grant` stores it).
   const self = '799999999999999999';
-  const config = { ...shipped, bot: { ...shipped.bot, access: { 'message.edit': { everyone: false, roles: [], users: [self] } } } };
+  const config = {
+    ...shipped,
+    bot: { ...shipped.bot, access: { 'message.edit': { everyone: false, roles: [], users: [self] } } },
+  };
   // Stand-ins named as the operations, with no operation behind them: the shipped texts are keyed by those names.
-  const registry = loadSkills(['message.create', 'message.edit', 'message.delete'].map((name) => ({ name, op: null, argsSchema: { type: 'object' }, effects: 'write', costClass: 'free', targets: null })).map((definition) => (definition.name !== 'message.edit' ? definition : {
-    ...definition,
-    // Every form of an argument: required, the body option, a range, an enum. A command makes it a
-    // derived skill, so an operation stands behind it (message.edit is her own: no requester right).
-    op: 'message.edit',
-    argsSchema: {
-      type: 'object',
-      properties: { message: { type: 'string' }, text: { type: 'string' }, n: { type: 'integer', minimum: 1, maximum: 50 }, kind: { type: 'string', enum: ['turn', 'all'] } },
-      required: ['message', 'text'],
-      additionalProperties: false,
-    },
-    dispatch: { op: 'message.edit', toOp: () => ({}), body: 'text' },
-  })), { getOp: (name) => ({ name, rights: { kind: 'write' } }) });
-  const rows = listSkills({ config, selfId: self, texts, requester: { id: ANA }, audience: { conversationId: GENERAL }, registry });
+  const registry = loadSkills(
+    ['message.create', 'message.edit', 'message.delete']
+      .map((name) => ({
+        name,
+        op: null,
+        argsSchema: { type: 'object' },
+        effects: 'write',
+        costClass: 'free',
+        targets: null,
+      }))
+      .map((definition) =>
+        definition.name !== 'message.edit'
+          ? definition
+          : {
+              ...definition,
+              // Every form of an argument: required, the body option, a range, an enum. A command makes it a
+              // derived skill, so an operation stands behind it (message.edit is her own: no requester right).
+              op: 'message.edit',
+              argsSchema: {
+                type: 'object',
+                properties: {
+                  message: { type: 'string' },
+                  text: { type: 'string' },
+                  n: { type: 'integer', minimum: 1, maximum: 50 },
+                  kind: { type: 'string', enum: ['turn', 'all'] },
+                },
+                required: ['message', 'text'],
+                additionalProperties: false,
+              },
+              dispatch: { op: 'message.edit', toOp: () => ({}), body: 'text' },
+            }
+      ),
+    { getOp: (name) => ({ name, rights: { kind: 'write' } }) }
+  );
+  const rows = listSkills({
+    config,
+    selfId: self,
+    texts,
+    requester: { id: ANA },
+    audience: { conversationId: GENERAL },
+    registry,
+  });
   const request = buildRequest(await turnInput({ skillsInventory: rows }));
-  const text = assertFilled(request.messages, { files: LOADS.reply, blocks: [...TURN_BLOCKS, 'skills'] }, 'reply (skills catalogue)');
+  const text = assertFilled(
+    request.messages,
+    { files: LOADS.reply, blocks: [...TURN_BLOCKS, 'skills'] },
+    'reply (skills catalogue)'
+  );
   // Only what she may use now: carried over and allowed; a closed skill is not listed.
   assert.ok(text.includes(`(${LABELS.skills.access.allowed})`), 'labels.skills.access.allowed');
   // message.create, carried over, has no shipped texts yet: listed by its name alone.
-  assert.ok(texts['message.create'] !== undefined || text.includes('\nmessage.create\n'), 'a skill without texts by its name');
+  assert.ok(
+    texts['message.create'] !== undefined || text.includes('\nmessage.create\n'),
+    'a skill without texts by its name'
+  );
   assert.ok(!text.includes('message.delete'), 'a closed skill is not listed');
   const forms = LABELS.skills.args;
   const args = fill(forms.list, {
@@ -590,7 +871,18 @@ test('buildRequest: the skills protocol and an asked-for catalogue fill labels.s
       fill(forms.values, { arg: 'kind', values: 'turn|all' }),
     ].join(', '),
   });
-  assert.ok(text.includes(fill(LABELS.skills.line, { name: 'message.edit', title: texts['message.edit'].title, whenToUse: texts['message.edit'].whenToUse, access: LABELS.skills.access.allowed, args })), 'the arguments through labels.skills.args');
+  assert.ok(
+    text.includes(
+      fill(LABELS.skills.line, {
+        name: 'message.edit',
+        title: texts['message.edit'].title,
+        whenToUse: texts['message.edit'].whenToUse,
+        access: LABELS.skills.access.allowed,
+        args,
+      })
+    ),
+    'the arguments through labels.skills.args'
+  );
 });
 
 test('buildRequest: the text transport describes her tools in <tools> in the stable part, the same for another requester', async () => {
@@ -601,7 +893,9 @@ test('buildRequest: the text transport describes her tools in <tools> in the sta
   assert.equal(stable.cacheSegment, 'stable');
   assert.ok(stable.text.includes(`<tools>\n${body}\n</tools>`), stable.text);
   // Another member asking in another channel: the cached part does not move.
-  const other = buildRequest(await turnInput({ toolsBlock: body, interlocutor: PROFILES[NIKOS], currentChannelId: DIARY }));
+  const other = buildRequest(
+    await turnInput({ toolsBlock: body, interlocutor: PROFILES[NIKOS], currentChannelId: DIARY })
+  );
   assert.equal(other.messages[1].content[0].text, stable.text);
   // The native transport sends no block: the tools are a request field.
   assert.ok(!buildRequest(await turnInput({})).messages[1].content[0].text.includes('<tools>'));
@@ -615,21 +909,48 @@ test('buildRequest: an overheard line fills overheard.md in place of the reply t
 
 test('buildRequest: the turn a finished errand opens without an origin message fills errand-result.md in place of interject.md', async () => {
   const history = await generalHistory();
-  const request = buildRequest(await turnInput({ mode: 'interject', trigger: null, triggerKind: 'task', interlocutor: null, focus: history.at(-2) }));
-  const text = assertFilled(request.messages, { files: LOADS.errandResult, blocks: ['senses', 'chat', 'tempo', 'task'] }, 'errand-result');
+  const request = buildRequest(
+    await turnInput({
+      mode: 'interject',
+      trigger: null,
+      triggerKind: 'task',
+      interlocutor: null,
+      focus: history.at(-2),
+    })
+  );
+  const text = assertFilled(
+    request.messages,
+    { files: LOADS.errandResult, blocks: ['senses', 'chat', 'tempo', 'task'] },
+    'errand-result'
+  );
   assert.ok(!carries(text, 'interject'), 'interject.md is not sent as well');
 });
 
 test('buildRequest: interject and a forced initiate fill their task, forced.md after it, and the room line', async () => {
   const history = await generalHistory();
   const focus = history.at(-2);
-  const interject = buildRequest(await turnInput({ mode: 'interject', trigger: null, triggerKind: null, interlocutor: null, focus }));
-  const text = assertFilled(interject.messages, { files: LOADS.interject, blocks: ['senses', 'chat', 'tempo', 'task'] }, 'interject');
+  const interject = buildRequest(
+    await turnInput({ mode: 'interject', trigger: null, triggerKind: null, interlocutor: null, focus })
+  );
+  const text = assertFilled(
+    interject.messages,
+    { files: LOADS.interject, blocks: ['senses', 'chat', 'tempo', 'task'] },
+    'interject'
+  );
   assert.ok(!carries(text, 'forced'), 'forced.md only on a forced turn');
   const [focusIndex] = [...interject.idByIndex].find(([, id]) => id === focus.id) ?? [];
-  assert.ok(text.includes(fill(LABELS.room.focus, { author: focus.authorName, target: `#${focusIndex}` })), 'room.focus follows the task');
-  const initiate = buildRequest(await turnInput({ mode: 'initiate', forced: true, trigger: null, triggerKind: null, interlocutor: null }));
-  assertFilled(initiate.messages, { files: LOADS.forcedInitiate, blocks: ['senses', 'chat', 'tempo', 'task'] }, 'forced initiate');
+  assert.ok(
+    text.includes(fill(LABELS.room.focus, { author: focus.authorName, target: `#${focusIndex}` })),
+    'room.focus follows the task'
+  );
+  const initiate = buildRequest(
+    await turnInput({ mode: 'initiate', forced: true, trigger: null, triggerKind: null, interlocutor: null })
+  );
+  assertFilled(
+    initiate.messages,
+    { files: LOADS.forcedInitiate, blocks: ['senses', 'chat', 'tempo', 'task'] },
+    'forced initiate'
+  );
 });
 
 test('buildRequest: a private chat fills private.md after the reply task', async () => {
@@ -643,8 +964,25 @@ test('buildRequest: a private chat fills private.md after the reply task', async
   const privateProfile = {
     relationship: 'a quiet confidante',
     affinity: { score: 30, reason: 'shared a secret', history: [] },
-    episodes: [{ date: '2026-10-03', what: 'told the persona about a new job', quote: 'chut', feeling: 'trusted', weight: 3, addedAt: iso(NOW - 2 * DAY_MS) }],
-    details: [{ id: 1, text: 'starts a new job on Monday', weight: 2, firstSeen: iso(NOW - 2 * DAY_MS), lastSeen: iso(NOW - 2 * DAY_MS) }],
+    episodes: [
+      {
+        date: '2026-10-03',
+        what: 'told the persona about a new job',
+        quote: 'chut',
+        feeling: 'trusted',
+        weight: 3,
+        addedAt: iso(NOW - 2 * DAY_MS),
+      },
+    ],
+    details: [
+      {
+        id: 1,
+        text: 'starts a new job on Monday',
+        weight: 2,
+        firstSeen: iso(NOW - 2 * DAY_MS),
+        lastSeen: iso(NOW - 2 * DAY_MS),
+      },
+    ],
   };
   const request = buildRequest(
     await turnInput({
@@ -659,9 +997,13 @@ test('buildRequest: a private chat fills private.md after the reply task', async
       descriptions: new Map(),
       videos: new Map(),
       reads: new Map(),
-    }),
+    })
   );
-  const text = assertFilled(request.messages, { files: LOADS.private, blocks: ['senses', 'people', 'chat', 'tempo', 'task'] }, 'private');
+  const text = assertFilled(
+    request.messages,
+    { files: LOADS.private, blocks: ['senses', 'people', 'chat', 'tempo', 'task'] },
+    'private'
+  );
   assert.ok(text.includes(LABELS.senses.privateChat), 'the private senses line');
 });
 
@@ -675,7 +1017,12 @@ function diaryPulled(reason, { called = true } = {}) {
     rawMessage(DIARY_INFO, { ts: at(40), author: PEOPLE[ANA], content: 'journal du jour : semis' }),
     rawMessage(DIARY_INFO, { ts: at(30), author: PEOPLE[ANA], content: '@Zoë tu te souviens ?', mentions: [SELF_ID] }),
     rawMessage(DIARY_INFO, { ts: at(20), author: PEOPLE[ANA], content: 'et les tomates ?' }),
-    rawMessage(DIARY_INFO, { ts: at(3), author: PEOPLE[ANA], content: called ? '@Zoë alors, ces tomates ?' : 'les tomates ont gelé', mentions: called ? [SELF_ID] : [] }),
+    rawMessage(DIARY_INFO, {
+      ts: at(3),
+      author: PEOPLE[ANA],
+      content: called ? '@Zoë alors, ces tomates ?' : 'les tomates ont gelé',
+      mentions: called ? [SELF_ID] : [],
+    }),
   ]);
   const earlier = messages[1];
   return {
@@ -698,9 +1045,18 @@ function diaryPulled(reason, { called = true } = {}) {
 test('buildRequest: a routed call fills the task and renders the pulled channel with its call', async () => {
   const pulled = diaryPulled('routed');
   const call = pulled.messages.at(-1);
-  const input = await turnInput({ trigger: call, pulled: [pulled], source: { channelId: DIARY, reason: 'routed' }, elsewhereDestination: { name: 'général' } });
+  const input = await turnInput({
+    trigger: call,
+    pulled: [pulled],
+    source: { channelId: DIARY, reason: 'routed' },
+    elsewhereDestination: { name: 'général' },
+  });
   const request = buildRequest(input);
-  const text = assertFilled(request.messages, { files: LOADS.routed, blocks: [...TURN_BLOCKS, 'channel_view'] }, 'routed');
+  const text = assertFilled(
+    request.messages,
+    { files: LOADS.routed, blocks: [...TURN_BLOCKS, 'channel_view'] },
+    'routed'
+  );
   const { timezone } = input.config.bot;
   for (const [key, line] of [
     ['elsewhere.called', fill(LABELS.elsewhere.called, { channel: 'journal', destination: 'général' })],
@@ -708,7 +1064,10 @@ test('buildRequest: a routed call fills the task and renders the pulled channel 
     ['server.readOnly', LABELS.server.readOnly],
     ['pull.olderNotShown', LABELS.pull.olderNotShown],
     ['pull.picturesNotSeen', fill(LABELS.pull.picturesNotSeen, { count: 2 })],
-    ['pull.earlierPings', fill(LABELS.pull.earlierPings, { date: formatDate(pulled.messages[1].ts, timezone, LABELS.locale) })],
+    [
+      'pull.earlierPings',
+      fill(LABELS.pull.earlierPings, { date: formatDate(pulled.messages[1].ts, timezone, LABELS.locale) }),
+    ],
     ['pull.pingAnswered', LABELS.pull.pingAnswered],
   ]) {
     assert.ok(text.includes(line), `${key} is rendered`);
@@ -726,18 +1085,38 @@ test('buildRequest: a noticed turn fills elsewhere.md with the channel it read a
       pulled: [pulled],
       source: { channelId: DIARY, reason: 'noticed' },
       elsewhereDestination: { name: 'général' },
-    }),
+    })
   );
-  const text = assertFilled(request.messages, { files: LOADS.noticed, blocks: ['senses', 'channel_view', 'chat', 'tempo', 'task'] }, 'noticed');
+  const text = assertFilled(
+    request.messages,
+    { files: LOADS.noticed, blocks: ['senses', 'channel_view', 'chat', 'tempo', 'task'] },
+    'noticed'
+  );
   assert.ok(!carries(text, 'reply') && !carries(text, 'interject'), 'the task is elsewhere.md alone');
 });
 
 test('buildDrawPrompt: draw.md and appearance.md are filled for a picture the persona is in', () => {
-  const prompt = buildDrawPrompt({ prompts: SHIPPED.prompts, selfName: SELF_NAME, request: 'the persona waters frozen tomatoes on a balcony', self: true });
+  const prompt = buildDrawPrompt({
+    prompts: SHIPPED.prompts,
+    selfName: SELF_NAME,
+    request: 'the persona waters frozen tomatoes on a balcony',
+    self: true,
+  });
   assertFilled([{ role: 'user', content: prompt }], { files: LOADS.draw }, 'draw');
-  const without = buildDrawPrompt({ prompts: SHIPPED.prompts, selfName: SELF_NAME, request: 'a frozen balcony', self: false });
+  const without = buildDrawPrompt({
+    prompts: SHIPPED.prompts,
+    selfName: SELF_NAME,
+    request: 'a frozen balcony',
+    self: false,
+  });
   assertFilled([{ role: 'user', content: without }], { files: ['draw'] }, 'draw without the persona');
-  const timed = buildDrawPrompt({ prompts: SHIPPED.prompts, selfName: SELF_NAME, request: 'a frozen balcony', self: false, when: 'Mon 5 Oct, 23:10' });
+  const timed = buildDrawPrompt({
+    prompts: SHIPPED.prompts,
+    selfName: SELF_NAME,
+    request: 'a frozen balcony',
+    self: false,
+    when: 'Mon 5 Oct, 23:10',
+  });
   const text = assertFilled([{ role: 'user', content: timed }], { files: ['draw'] }, 'draw with the local time');
   assert.ok(text.includes(fill(LABELS.draw.when, { when: 'Mon 5 Oct, 23:10' })), 'draw.when fills {{when}}');
 });
@@ -747,7 +1126,14 @@ test('buildDrawPrompt: draw.md and appearance.md are filled for a picture the pe
 /** Two past diary posts, one with a picture. */
 const DIARY_POSTS = [
   { at: NOW - 2 * DAY_MS, kind: 'status', gist: 'pluie toute la journée', picture: null, messageIds: [], search: null },
-  { at: NOW - DAY_MS, kind: 'selfPicture', gist: 'sur le toit', picture: 'a rooftop at dusk', messageIds: [], search: null },
+  {
+    at: NOW - DAY_MS,
+    kind: 'selfPicture',
+    gist: 'sur le toit',
+    picture: 'a rooftop at dusk',
+    messageIds: [],
+    search: null,
+  },
 ];
 
 test('shipped labels: every kind of fact she can be told is worded, with no placeholder left unfilled, and the dropped-calls line takes its count and cause', () => {
@@ -755,9 +1141,33 @@ test('shipped labels: every kind of fact she can be told is worded, with no plac
     { kind: 'callFailed', skill: 'web.search', status: 'failed', code: 'error', text: 'the page is gone' },
     { kind: 'doneWithoutDelivery', intentionId: 'i1', purpose: 'say hi' },
     { kind: 'loopCut', cut: 'extra-call', droppedCalls: 2, steps: 1 },
-    { kind: 'wakeDropped', wakeId: 'w1', wake: 'intention_due', code: 'stale', why: 'done', intentionId: 'i1', purpose: 'say hi' },
-    { kind: 'wakeDropped', wakeId: 'w2', wake: 'review', code: 'no-channel', why: 'no-review-channel', intentionId: null, purpose: '' },
-    { kind: 'wakeHeld', wakeId: 'w3', wake: 'intention_due', code: 'per-chain', intentionId: 'i2', purpose: 'later', until: NOW + HOUR_MS },
+    {
+      kind: 'wakeDropped',
+      wakeId: 'w1',
+      wake: 'intention_due',
+      code: 'stale',
+      why: 'done',
+      intentionId: 'i1',
+      purpose: 'say hi',
+    },
+    {
+      kind: 'wakeDropped',
+      wakeId: 'w2',
+      wake: 'review',
+      code: 'no-channel',
+      why: 'no-review-channel',
+      intentionId: null,
+      purpose: '',
+    },
+    {
+      kind: 'wakeHeld',
+      wakeId: 'w3',
+      wake: 'intention_due',
+      code: 'per-chain',
+      intentionId: 'i2',
+      purpose: 'later',
+      until: NOW + HOUR_MS,
+    },
     { kind: 'turnFailed', code: 'cut-off', wake: 'attend' },
     { kind: 'sendFailed', code: 'forbidden', n: 1, total: 3 },
   ];
@@ -765,7 +1175,17 @@ test('shipped labels: every kind of fact she can be told is worded, with no plac
   assert.equal(text.split('\n').length, facts.length + 1, text);
   assert.equal(text.split('\n')[0], LABELS.wake.feedbackInTurn);
   assert.ok(!/[{}]/.test(text), text);
-  for (const code of ['done', 'cancelled', 'expired', 'forgotten', 'dm-off', 'not-writable', 'unavailable', 'no-review-channel']) assert.equal(typeof LABELS.wake.feedback.codes[code], 'string', code);
+  for (const code of [
+    'done',
+    'cancelled',
+    'expired',
+    'forgotten',
+    'dm-off',
+    'not-writable',
+    'unavailable',
+    'no-review-channel',
+  ])
+    assert.equal(typeof LABELS.wake.feedback.codes[code], 'string', code);
   assert.equal(fill(LABELS.task.callsDropped, { count: '2', why: 'extra-call' }).includes('{'), false);
 });
 
@@ -792,39 +1212,95 @@ test('buildRequest: an inner turn fills system-prompt, character-card, rules, fo
       posts: { left: 2, cap: 2, resetAt },
     },
   };
-  const request = buildRequest(await turnInput({ mode: 'inner', trigger: null, triggerKind: 'inner', interlocutor: null, wake: wakeBlockText(wake, LABELS, { locale: LABELS.locale }) }));
+  const request = buildRequest(
+    await turnInput({
+      mode: 'inner',
+      trigger: null,
+      triggerKind: 'inner',
+      interlocutor: null,
+      wake: wakeBlockText(wake, LABELS, { locale: LABELS.locale }),
+    })
+  );
   const text = assertFilled(request.messages, { files: LOADS.inner, blocks: ['wake', 'chat', 'task'] }, 'inner turn');
   assert.ok(text.includes(LABELS.wake.header));
   assert.ok(text.includes('ask Ana how the tomatoes are doing'));
 });
 
 test('buildRequest: an inner turn woken by a heartbeat fills heartbeat.md in place of inner.md; a review keeps inner.md', async () => {
-  const beat = await turnInput({ mode: 'inner', trigger: null, triggerKind: 'inner', interlocutor: null, wake: '', wakeKind: 'heartbeat' });
+  const beat = await turnInput({
+    mode: 'inner',
+    trigger: null,
+    triggerKind: 'inner',
+    interlocutor: null,
+    wake: '',
+    wakeKind: 'heartbeat',
+  });
   const beatRequest = buildRequest(beat);
   const beatText = assertFilled(beatRequest.messages, { files: LOADS.heartbeat, blocks: ['task'] }, 'heartbeat turn');
-  assert.ok(!/^<chat>\s*$/m.test(userText(beatRequest.messages[1].content)), 'a heartbeat has no current conversation to answer');
-  assert.ok(!/^<tempo>\s*$/m.test(userText(beatRequest.messages[1].content)), 'silence in an anchor channel is not heartbeat tempo');
+  assert.ok(
+    !/^<chat>\s*$/m.test(userText(beatRequest.messages[1].content)),
+    'a heartbeat has no current conversation to answer'
+  );
+  assert.ok(
+    !/^<tempo>\s*$/m.test(userText(beatRequest.messages[1].content)),
+    'silence in an anchor channel is not heartbeat tempo'
+  );
   assert.ok(!carries(beatText, 'inner'), 'inner.md is not sent as well');
-  const review = await turnInput({ mode: 'inner', trigger: null, triggerKind: 'inner', interlocutor: null, wake: '', wakeKind: 'review' });
-  const reviewText = assertFilled(buildRequest(review).messages, { files: LOADS.inner, blocks: ['chat', 'task'] }, 'review turn');
+  const review = await turnInput({
+    mode: 'inner',
+    trigger: null,
+    triggerKind: 'inner',
+    interlocutor: null,
+    wake: '',
+    wakeKind: 'review',
+  });
+  const reviewText = assertFilled(
+    buildRequest(review).messages,
+    { files: LOADS.inner, blocks: ['chat', 'task'] },
+    'review turn'
+  );
   assert.ok(!carries(reviewText, 'heartbeat'), 'heartbeat.md is not sent on a review');
-  const missing = await turnInput({ mode: 'inner', trigger: null, triggerKind: 'inner', interlocutor: null, wake: '', wakeKind: 'heartbeat' });
+  const missing = await turnInput({
+    mode: 'inner',
+    trigger: null,
+    triggerKind: 'inner',
+    interlocutor: null,
+    wake: '',
+    wakeKind: 'heartbeat',
+  });
   missing.prompts = { ...SHIPPED.prompts, heartbeat: '  ' };
   assertFilled(buildRequest(missing).messages, { files: LOADS.inner }, 'heartbeat with no heartbeat.md');
 });
 
 test('buildRequest: a diary post fills system-prompt, character-card, rules, format, diary.md and world.md', async () => {
-  const input = await turnInput({ mode: 'diary', trigger: null, triggerKind: null, interlocutor: null, currentChannelId: DIARY });
+  const input = await turnInput({
+    mode: 'diary',
+    trigger: null,
+    triggerKind: null,
+    interlocutor: null,
+    currentChannelId: DIARY,
+  });
   input.config = shippedConfig({ diary: { world: true, channelId: DIARY } });
   const plan = { kind: 'selfPicture', brief: 'a pier in the fog', picture: true };
-  const request = buildRequest({ ...input, diaryChannel: 'journal', diary: { posts: DIARY_POSTS, plan, found: 'Une comète passe ce soir.' } });
-  const text = assertFilled(request.messages, { files: LOADS.diary, blocks: ['senses', 'world', 'diary', 'plan', 'found', 'chat', 'task'] }, 'diary');
+  const request = buildRequest({
+    ...input,
+    diaryChannel: 'journal',
+    diary: { posts: DIARY_POSTS, plan, found: 'Une comète passe ce soir.' },
+  });
+  const text = assertFilled(
+    request.messages,
+    { files: LOADS.diary, blocks: ['senses', 'world', 'diary', 'plan', 'found', 'chat', 'task'] },
+    'diary'
+  );
   assert.ok(text.includes(fill(LABELS.senses.diary, { channel: 'journal' })), 'senses.diary names the channel');
 });
 
 test('buildDiaryPlanRequest: diary-plan.md and world.md fill the plan request with its blocks', async () => {
   const config = shippedConfig({ diary: { world: true, channelId: DIARY } });
-  const seeds = renderSeedsBlock(pickSeeds(parseSeedFamilies(SHIPPED.prompts['diary-seeds']), config.diary.seedSets, () => 0.5), LABELS);
+  const seeds = renderSeedsBlock(
+    pickSeeds(parseSeedFamilies(SHIPPED.prompts['diary-seeds']), config.diary.seedSets, () => 0.5),
+    LABELS
+  );
   const request = buildDiaryPlanRequest({
     config,
     prompts: SHIPPED.prompts,
@@ -844,7 +1320,11 @@ test('buildDiaryPlanRequest: diary-plan.md and world.md fill the plan request wi
     kinds: config.diary.kinds,
     seedsText: seeds,
   });
-  assertFilled(request.messages, { files: LOADS.diaryPlan, blocks: ['now', 'server', 'about_chat', 'world', 'diary', 'kinds', 'seeds'] }, 'diary plan');
+  assertFilled(
+    request.messages,
+    { files: LOADS.diaryPlan, blocks: ['now', 'server', 'about_chat', 'world', 'diary', 'kinds', 'seeds'] },
+    'diary plan'
+  );
 });
 
 // ---- the Discord fakes ---------------------------------------------------------------------
@@ -913,14 +1393,27 @@ function recordingLlm(answer) {
 test('createTurnRunner: a reply turn fills the describer, re-watch, link, search, recall and turn requests', async () => {
   const hot = shippedHot({ features: { webLookup: true, videoDescriptions: true } });
   // An old line of #jardin the server search finds (the turn's own chat is never a hit).
-  const old = rawMessage(GARDEN_INFO, { ts: NOW - 4 * DAY_MS, author: PEOPLE[NIKOS], content: 'la tomate a gelé cette nuit' });
+  const old = rawMessage(GARDEN_INFO, {
+    ts: NOW - 4 * DAY_MS,
+    author: PEOPLE[NIKOS],
+    content: 'la tomate a gelé cette nuit',
+  });
   const guild = discordGuild([
     [GENERAL_INFO, generalRaws()],
     [GARDEN_INFO, [old]],
   ]);
-  const hit = { id: old.id, channel_id: GARDEN, timestamp: iso(old.createdTimestamp), author: { id: NIKOS, username: 'Nikos', global_name: 'Nikos', bot: false }, content: old.content };
+  const hit = {
+    id: old.id,
+    channel_id: GARDEN,
+    timestamp: iso(old.createdTimestamp),
+    author: { id: NIKOS, username: 'Nikos', global_name: 'Nikos', bot: false },
+    content: old.content,
+  };
   guild.client = {
-    rest: { get: async (route) => (route.endsWith('/messages/search') ? { total_results: 1, messages: [[{ ...hit, hit: true }]] } : []) },
+    rest: {
+      get: async (route) =>
+        route.endsWith('/messages/search') ? { total_results: 1, messages: [[{ ...hit, hit: true }]] } : [],
+    },
   };
   const channel = guild.channels.cache.get(GENERAL);
   const client = discordClient(guild);
@@ -940,7 +1433,18 @@ test('createTurnRunner: a reply turn fills the describer, re-watch, link, search
     getRecent: () => ({ lines: RECENT_LINES }),
   };
   // Which prompt a request was built from, by the text of its system message.
-  const kinds = ['describe-gif', 'describe-video', 'rewatch-answer', 'describe', 'rewatch', 'read-link', 'lookup', 'search-summary', 'recall-summary', 'system-prompt'];
+  const kinds = [
+    'describe-gif',
+    'describe-video',
+    'rewatch-answer',
+    'describe',
+    'rewatch',
+    'read-link',
+    'lookup',
+    'search-summary',
+    'recall-summary',
+    'system-prompt',
+  ];
   const answers = {
     'describe-gif': 'a cat waves at the camera',
     'describe-video': 'a person juggles three oranges in a kitchen',
@@ -955,7 +1459,9 @@ test('createTurnRunner: a reply turn fills the describer, re-watch, link, search
   };
   const kindOf = (messages) => kinds.find((name) => carries(contentText(messages[0].content), name)) ?? null;
   const llm = recordingLlm((messages) => answers[kindOf(messages)] ?? '');
-  const imageFetcher = { fetchAsDataUrl: async () => ({ dataUrl: 'data:image/webp;base64,ZmFrZQ==', bytes: 4, contentType: 'image/webp' }) };
+  const imageFetcher = {
+    fetchAsDataUrl: async () => ({ dataUrl: 'data:image/webp;base64,ZmFrZQ==', bytes: 4, contentType: 'image/webp' }),
+  };
   const clip = { ok: true, dataUrl: 'data:video/mp4;base64,AAAA', seconds: 20, bytes: 1000 };
   const videoFetcher = {
     fetchAttachment: async () => clip,
@@ -965,14 +1471,53 @@ test('createTurnRunner: a reply turn fills the describer, re-watch, link, search
     probeYoutube: async () => ({ ok: false, reason: 'error' }),
   };
   const describer = createDescriber({ hot, store, llm, now: () => NOW, imageFetcher, videoFetcher, state });
-  const pageFetcher = { fetchText: async () => ({ ok: true, title: 'Tomates en pot', text: 'Tomatoes grow well in pots. Water them often. Bring them in before the frost.' }) };
-  const braveSearch = { search: async () => ({ ok: true, results: [{ title: 'Garden notes', url: 'https://www.example.com/frost', snippet: 'frost kills tomatoes', age: '2 days' }] }) };
-  const lookup = createLookup({ hot, store, llm, state, pageFetcher, searches: { brave: braveSearch }, keys: { brave: 'test-key' }, now: () => NOW });
+  const pageFetcher = {
+    fetchText: async () => ({
+      ok: true,
+      title: 'Tomates en pot',
+      text: 'Tomatoes grow well in pots. Water them often. Bring them in before the frost.',
+    }),
+  };
+  const braveSearch = {
+    search: async () => ({
+      ok: true,
+      results: [
+        { title: 'Garden notes', url: 'https://www.example.com/frost', snippet: 'frost kills tomatoes', age: '2 days' },
+      ],
+    }),
+  };
+  const lookup = createLookup({
+    hot,
+    store,
+    llm,
+    state,
+    pageFetcher,
+    searches: { brave: braveSearch },
+    keys: { brave: 'test-key' },
+    now: () => NOW,
+  });
   const recall = createRecall({ discord: DISCORD, hot, store, llm, describer, now: () => NOW });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: createCalibrator(), client, describer, lookup, recall, imageFetcher, fetchImpl: previewFetch, now: () => NOW, rng: () => 0.5 });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: createCalibrator(),
+    client,
+    describer,
+    lookup,
+    recall,
+    imageFetcher,
+    fetchImpl: previewFetch,
+    now: () => NOW,
+    rng: () => 0.5,
+  });
 
   const history = await generalHistory();
-  const { result } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: history.at(-1), triggerKind: 'mention' }));
+  const { result } = await withCapturedLogs(() =>
+    turns.runTurn({ channel, mode: 'reply', trigger: history.at(-1), triggerKind: 'mention' })
+  );
   assert.equal(result.outcome, 'skip', 'the turn ran to its answer');
 
   const expected = [
@@ -993,12 +1538,31 @@ test('createTurnRunner: a reply turn fills the describer, re-watch, link, search
   }
   const [summary] = llm.calls.filter((call) => kindOf(call.messages) === 'recall-summary');
   // `<memory>`: the stored lore entry keyed `tomate` matches the form `tomate`.
-  assertFilled(summary.messages, { files: LOADS.recallSummary, blocks: ['memory', 'found', 'question'] }, 'recall-summary');
+  assertFilled(
+    summary.messages,
+    { files: LOADS.recallSummary, blocks: ['memory', 'found', 'question'] },
+    'recall-summary'
+  );
   const [turn] = llm.calls.filter((call) => kindOf(call.messages) === 'system-prompt');
-  const text = assertFilled(turn?.messages, { files: LOADS.turn, blocks: ['senses', 'about_chat', 'server', 'lore', 'people', 'lookup', 'chat', 'tempo', 'task'] }, 'the turn');
+  const text = assertFilled(
+    turn?.messages,
+    {
+      files: LOADS.turn,
+      blocks: ['senses', 'about_chat', 'server', 'lore', 'people', 'lookup', 'chat', 'tempo', 'task'],
+    },
+    'the turn'
+  );
   // Both parts of <lookup>, with the stretch the summary named.
-  for (const key of ['bothNote', 'webHeader', 'serverHeader']) assert.ok(text.includes(LABELS.lookup[key]), `the turn: no labels.lookup.${key}`);
-  assert.ok(text.includes(fill(LABELS.lookup.stretch, { date: zonedDay(old.createdTimestamp, SHIPPED.config.bot.timezone), channel: 'jardin' })));
+  for (const key of ['bothNote', 'webHeader', 'serverHeader'])
+    assert.ok(text.includes(LABELS.lookup[key]), `the turn: no labels.lookup.${key}`);
+  assert.ok(
+    text.includes(
+      fill(LABELS.lookup.stretch, {
+        date: zonedDay(old.createdTimestamp, SHIPPED.config.bot.timezone),
+        channel: 'jardin',
+      })
+    )
+  );
 });
 
 test('createChannelRouter: the route classifier fills route-channel.md', async () => {
@@ -1014,22 +1578,65 @@ test('createChannelRouter: the route classifier fills route-channel.md', async (
   const history = await generalHistory();
   const channel = guild.channels.cache.get(GENERAL);
   const { result } = await withCapturedLogs(() =>
-    router({ guildId: GUILD, channel, history, trigger: history.at(-1), triggerKind: 'mention', selfName: SELF_NAME, config: hot.config }),
+    router({
+      guildId: GUILD,
+      channel,
+      history,
+      trigger: history.at(-1),
+      triggerKind: 'mention',
+      selfName: SELF_NAME,
+      config: hot.config,
+    })
   );
   assert.deepEqual(result, []);
   assert.equal(llm.calls.length, 1, 'one route request');
-  assertFilled(llm.calls[0].messages, { files: LOADS.routeChannel, blocks: ['transcript', 'channels', 'candidate'] }, 'route-channel');
+  assertFilled(
+    llm.calls[0].messages,
+    { files: LOADS.routeChannel, blocks: ['transcript', 'channels', 'candidate'] },
+    'route-channel'
+  );
 });
 
 /** The persona's stored exchanges: one in #jardin and one in #journal, both inside the window. */
 function participationState() {
-  const own = (id, ts, text) => ({ id, ts, authorId: SELF_ID, name: SELF_NAME, self: true, text, replyTo: null, caption: null });
-  const member = (id, ts, text) => ({ id, ts, authorId: NIKOS, name: 'Nikos', self: false, text, replyTo: null, caption: 'a tomato plant' });
+  const own = (id, ts, text) => ({
+    id,
+    ts,
+    authorId: SELF_ID,
+    name: SELF_NAME,
+    self: true,
+    text,
+    replyTo: null,
+    caption: null,
+  });
+  const member = (id, ts, text) => ({
+    id,
+    ts,
+    authorId: NIKOS,
+    name: 'Nikos',
+    self: false,
+    text,
+    replyTo: null,
+    caption: 'a tomato plant',
+  });
   return {
     nextId: 3,
     episodes: [
-      { id: 'p1', channelId: GARDEN, continues: null, messages: [member('pa1', NOW - 3 * 60 * MINUTE_MS, 'les tomates ont poussé'), own('pa2', NOW - 3 * 60 * MINUTE_MS + MINUTE_MS, 'enfin !')] },
-      { id: 'p2', channelId: DIARY, continues: null, messages: [own('pb1', NOW - 40 * MINUTE_MS, 'je relis mes notes')] },
+      {
+        id: 'p1',
+        channelId: GARDEN,
+        continues: null,
+        messages: [
+          member('pa1', NOW - 3 * 60 * MINUTE_MS, 'les tomates ont poussé'),
+          own('pa2', NOW - 3 * 60 * MINUTE_MS + MINUTE_MS, 'enfin !'),
+        ],
+      },
+      {
+        id: 'p2',
+        channelId: DIARY,
+        continues: null,
+        messages: [own('pb1', NOW - 40 * MINUTE_MS, 'je relis mes notes')],
+      },
     ],
   };
 }
@@ -1047,11 +1654,24 @@ test('createParticipationPicker: the pick classifier fills participation-pick.md
   const history = await generalHistory();
   const channel = guild.channels.cache.get(GENERAL);
   const { result } = await withCapturedLogs(() =>
-    picker({ guildId: GUILD, channel, history, trigger: history.at(-1), triggerKind: 'mention', mode: 'reply', selfName: SELF_NAME, audience: () => true }),
+    picker({
+      guildId: GUILD,
+      channel,
+      history,
+      trigger: history.at(-1),
+      triggerKind: 'mention',
+      mode: 'reply',
+      selfName: SELF_NAME,
+      audience: () => true,
+    })
   );
   assert.deepEqual(result, []);
   assert.equal(llm.calls.length, 1, 'one pick request');
-  assertFilled(llm.calls[0].messages, { files: LOADS.participationPick, blocks: ['transcript', 'candidate', 'episodes'] }, 'participation-pick');
+  assertFilled(
+    llm.calls[0].messages,
+    { files: LOADS.participationPick, blocks: ['transcript', 'candidate', 'episodes'] },
+    'participation-pick'
+  );
 });
 
 test('askPlanner: the turn planner fills planner.md', async () => {
@@ -1073,16 +1693,28 @@ test('askPlanner: the turn planner fills planner.md', async () => {
       transcriptBlock: '<transcript>\nNikos: les tomates ont poussé\n</transcript>\n',
       candidateBlock: '<candidate>\nAna: tu te souviens ?\n</candidate>',
       now: () => NOW,
-    }),
+    })
   );
   assert.equal(result.outcome, 'classified');
   assert.equal(llm.calls.length, 1, 'one planner request');
-  assertFilled(llm.calls[0].messages, { files: LOADS.planner, blocks: ['channels', 'episodes', 'media', 'transcript', 'candidate'] }, 'planner');
+  assertFilled(
+    llm.calls[0].messages,
+    { files: LOADS.planner, blocks: ['channels', 'episodes', 'media', 'transcript', 'candidate'] },
+    'planner'
+  );
 });
 
 test('buildRequest: the <participation> block fills its labels and the senses line', async () => {
-  const request = buildRequest(await turnInput({ participation: { state: participationState(), pickedIds: [], audience: () => true, channelName: () => null } }));
-  const text = assertFilled(request.messages, { files: LOADS.reply, blocks: [...TURN_BLOCKS, 'participation'] }, 'participation');
+  const request = buildRequest(
+    await turnInput({
+      participation: { state: participationState(), pickedIds: [], audience: () => true, channelName: () => null },
+    })
+  );
+  const text = assertFilled(
+    request.messages,
+    { files: LOADS.reply, blocks: [...TURN_BLOCKS, 'participation'] },
+    'participation'
+  );
   assert.ok(text.includes(LABELS.senses.participation), 'senses.participation rides with the block');
   assert.ok(text.indexOf('<participation>') < text.indexOf('<other_channels>'));
 });
@@ -1092,10 +1724,20 @@ test('createMessageHandler: the room classifier fills room.md', async () => {
   const guild = discordGuild([[GENERAL_INFO, generalRaws()]]);
   const channel = guild.channels.cache.get(GENERAL);
   // An untagged line put to everyone, outside any follow-up window; its author has a stored alias.
-  const line = rawMessage(GENERAL_INFO, { ts: NOW - MINUTE_MS, author: PEOPLE[NIKOS], content: 'qui vient au marché samedi ?' });
+  const line = rawMessage(GENERAL_INFO, {
+    ts: NOW - MINUTE_MS,
+    author: PEOPLE[NIKOS],
+    content: 'qui vient au marché samedi ?',
+  });
   Object.assign(line, { guild, channel, system: false, webhookId: null });
   const store = { state: { data: {}, markDirty() {} }, getUser: (guildId, id) => PROFILES[id] ?? null };
-  const turns = { notePost() {}, runTurn: async () => ({ outcome: 'skip' }), isBusy: () => false, isAnyBusy: () => false, lastPostAt: () => 0 };
+  const turns = {
+    notePost() {},
+    runTurn: async () => ({ outcome: 'skip' }),
+    isBusy: () => false,
+    isAnyBusy: () => false,
+    lastPostAt: () => 0,
+  };
   const scheduled = [];
   // The eavesdrop roll lost, its rails pass: the room path is next.
   const spontaneous = {
@@ -1133,7 +1775,8 @@ test('createMessageHandler: the room classifier fills room.md', async () => {
 
 // ---- several requests in one message, several calls waiting ------------------------------
 
-const SPLIT_LINE = 'Zoë, trois choses : qui a planté les tomates, regarde le canal du jardin, et dis-moi si la photo est drôle.';
+const SPLIT_LINE =
+  'Zoë, trois choses : qui a planté les tomates, regarde le canal du jardin, et dis-moi si la photo est drôle.';
 
 /** The store a turn reads, empty but for the state: the split tests look at the task labels only. */
 function bareStore() {
@@ -1151,11 +1794,28 @@ function bareStore() {
 
 test('createTurnRunner: the splitter fills split.md; each part, its queued calls and a folded message fill labels.task', async () => {
   const hot = shippedHot({ features: { typingSimulation: false } });
-  const line = rawMessage(GENERAL_INFO, { ts: NOW - MINUTE_MS, author: PEOPLE[ANA], content: SPLIT_LINE, mentions: [SELF_ID] });
+  const line = rawMessage(GENERAL_INFO, {
+    ts: NOW - MINUTE_MS,
+    author: PEOPLE[ANA],
+    content: SPLIT_LINE,
+    mentions: [SELF_ID],
+  });
   const guild = discordGuild([[GENERAL_INFO, [...generalRaws(), line]]]);
   const channel = guild.channels.cache.get(GENERAL);
-  const llm = recordingLlm((messages, options) => (options.purpose === 'split' ? '- qui a planté les tomates\n- regarde le canal du jardin' : '<skip/>'));
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: bareStore(), llm, calibrator: createCalibrator(), client: discordClient(guild), now: () => NOW, rng: () => 0.5 });
+  const llm = recordingLlm((messages, options) =>
+    options.purpose === 'split' ? '- qui a planté les tomates\n- regarde le canal du jardin' : '<skip/>'
+  );
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store: bareStore(),
+    llm,
+    calibrator: createCalibrator(),
+    client: discordClient(guild),
+    now: () => NOW,
+    rng: () => 0.5,
+  });
   const history = normalize([...generalRaws(), line]);
   const trigger = history.at(-1);
   const queued = () => [{ id: 'q1', text: 'et la photo ?' }];
@@ -1173,9 +1833,28 @@ test('createTurnRunner: the splitter fills split.md; each part, its queued calls
 
   // A turn with no part: its author's queued calls under labels.task.queued, a folded message under labels.task.added.
   const plainLlm = recordingLlm(() => '<skip/>');
-  const plain = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: bareStore(), llm: plainLlm, calibrator: createCalibrator(), client: discordClient(guild), now: () => NOW, rng: () => 0.5 });
+  const plain = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store: bareStore(),
+    llm: plainLlm,
+    calibrator: createCalibrator(),
+    client: discordClient(guild),
+    now: () => NOW,
+    rng: () => 0.5,
+  });
   const short = history.at(-2);
-  await withCapturedLogs(() => plain.runTurn({ channel, mode: 'reply', trigger: short, triggerKind: 'mention', queued, added: [{ id: 'f1', text: 'alors ?', ts: NOW }] }));
+  await withCapturedLogs(() =>
+    plain.runTurn({
+      channel,
+      mode: 'reply',
+      trigger: short,
+      triggerKind: 'mention',
+      queued,
+      added: [{ id: 'f1', text: 'alors ?', ts: NOW }],
+    })
+  );
   const reply = plainLlm.calls.find((call) => call.options.purpose === 'reply');
   const text = assertFilled(reply?.messages, { files: LOADS.reply, blocks: ['task'] }, 'queued and added');
   assert.ok(text.includes(fill(LABELS.task.queued, { others: '1. et la photo ?' })));
@@ -1186,28 +1865,76 @@ test('createTurnRunner: the splitter fills split.md; each part, its queued calls
 
 test('createTurnRunner: the GIF picker fills gif-pick.md', async () => {
   const hot = shippedHot({ features: { typingSimulation: false } });
-  const line = rawMessage(GENERAL_INFO, { ts: NOW - MINUTE_MS, author: PEOPLE[ANA], content: 'Zoë, tu viens ce soir ?', mentions: [SELF_ID] });
+  const line = rawMessage(GENERAL_INFO, {
+    ts: NOW - MINUTE_MS,
+    author: PEOPLE[ANA],
+    content: 'Zoë, tu viens ce soir ?',
+    mentions: [SELF_ID],
+  });
   const guild = discordGuild([[GENERAL_INFO, [...generalRaws(), line]]]);
   const channel = guild.channels.cache.get(GENERAL);
   const gifs = {
     nextId: 3,
     entries: {
-      k1: { id: 'g1', kind: 'link', url: 'https://tenor.com/view/chat-qui-danse-1', itemId: 'gif-item-1', messageId: 'm1', channelId: GENERAL, count: 3, last: NOW - HOUR_MS },
-      k2: { id: 'g2', kind: 'link', url: 'https://tenor.com/view/haussement-2', itemId: 'gif-item-2', messageId: 'm2', channelId: GENERAL, count: 1, last: NOW - DAY_MS, ownLast: NOW - HOUR_MS },
+      k1: {
+        id: 'g1',
+        kind: 'link',
+        url: 'https://tenor.com/view/chat-qui-danse-1',
+        itemId: 'gif-item-1',
+        messageId: 'm1',
+        channelId: GENERAL,
+        count: 3,
+        last: NOW - HOUR_MS,
+      },
+      k2: {
+        id: 'g2',
+        kind: 'link',
+        url: 'https://tenor.com/view/haussement-2',
+        itemId: 'gif-item-2',
+        messageId: 'm2',
+        channelId: GENERAL,
+        count: 1,
+        last: NOW - DAY_MS,
+        ownLast: NOW - HOUR_MS,
+      },
     },
   };
-  const mediaCache = { 'gif-item-1': { text: 'un chat qui danse' }, 'gif-item-2': { text: 'un haussement d\'épaules' } };
-  const llm = recordingLlm((messages, options) => (options.purpose === 'gif-pick' ? 'none' : '<msg>oui, bien sûr</msg>'));
+  const mediaCache = { 'gif-item-1': { text: 'un chat qui danse' }, 'gif-item-2': { text: "un haussement d'épaules" } };
+  const llm = recordingLlm((messages, options) =>
+    options.purpose === 'gif-pick' ? 'none' : '<msg>oui, bien sûr</msg>'
+  );
   const store = { ...bareStore(), getMediaCache: () => mediaCache, getGifs: () => gifs, findGif: () => null };
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: createCalibrator(), client: discordClient(guild), now: () => NOW, rng: () => 0.5 });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: createCalibrator(),
+    client: discordClient(guild),
+    now: () => NOW,
+    rng: () => 0.5,
+  });
   const history = normalize([...generalRaws(), line]);
-  await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: history.at(-1), triggerKind: 'mention' }));
+  await withCapturedLogs(() =>
+    turns.runTurn({ channel, mode: 'reply', trigger: history.at(-1), triggerKind: 'mention' })
+  );
 
   const [pick] = llm.calls.filter((call) => call.options.purpose === 'gif-pick');
-  const text = assertFilled(pick?.messages, { files: LOADS.gifPick, blocks: ['context', 'reply', 'gifs', 'gifs_recent'] }, 'gif-pick');
+  const text = assertFilled(
+    pick?.messages,
+    { files: LOADS.gifPick, blocks: ['context', 'reply', 'gifs', 'gifs_recent'] },
+    'gif-pick'
+  );
   assert.ok(text.includes(SELF_NAME), 'gif-pick: {{name}} is the persona');
-  assert.ok(text.includes(fill(LABELS.gifs.entry, { id: 'g1', text: 'un chat qui danse' })), 'gif-pick: an entry through labels.gifs.entry');
-  assert.ok(text.includes(`g2 ${fill(LABELS.gifs.ownMark, { ago: `1 ${LABELS.units.hour}` })}`), 'gif-pick: the own post in <gifs_recent> through labels.gifs.ownMark');
+  assert.ok(
+    text.includes(fill(LABELS.gifs.entry, { id: 'g1', text: 'un chat qui danse' })),
+    'gif-pick: an entry through labels.gifs.entry'
+  );
+  assert.ok(
+    text.includes(`g2 ${fill(LABELS.gifs.ownMark, { ago: `1 ${LABELS.units.hour}` })}`),
+    'gif-pick: the own post in <gifs_recent> through labels.gifs.ownMark'
+  );
 });
 
 test('createMissed: the missed-answer check fills missed.md', async () => {
@@ -1244,7 +1971,13 @@ test('createMissed: the missed-answer check fills missed.md', async () => {
 });
 
 test('buildRequest: a recovery turn names its messages under labels.task.missed and its trigger label', async () => {
-  const tasks = { part: null, queued: [], queuedOthers: [], added: [], missed: [{ author: 'Ana', text: 'tu es là ?' }] };
+  const tasks = {
+    part: null,
+    queued: [],
+    queuedOthers: [],
+    added: [],
+    missed: [{ author: 'Ana', text: 'tu es là ?' }],
+  };
   const request = buildRequest(await turnInput({ triggerKind: 'missed', tasks }));
   const text = assertFilled(request.messages, { files: LOADS.reply, blocks: TURN_BLOCKS }, 'reply (missed)');
   assert.ok(text.includes(LABELS.triggers.missed), 'the trigger label fills {{trigger}}');
@@ -1255,7 +1988,12 @@ test('createMessageHandler: the merge classifier fills merge.md', async () => {
   const hot = shippedHot();
   const guild = discordGuild([[GENERAL_INFO, generalRaws()]]);
   const channel = guild.channels.cache.get(GENERAL);
-  const line = rawMessage(GENERAL_INFO, { ts: NOW - MINUTE_MS, author: PEOPLE[ANA], content: 'alors, le canal ?', mentions: [SELF_ID] });
+  const line = rawMessage(GENERAL_INFO, {
+    ts: NOW - MINUTE_MS,
+    author: PEOPLE[ANA],
+    content: 'alors, le canal ?',
+    mentions: [SELF_ID],
+  });
   Object.assign(line, { guild, channel, system: false, webhookId: null });
   const folded = [];
   // She is busy with Ana's split message: its second part still waits.
@@ -1307,10 +2045,22 @@ test('createAvatarQueue: the avatar describer fills avatar.md', async () => {
     setAvatar: (guildId, id, avatar) => Object.assign(profile, { avatar }),
   };
   const llm = recordingLlm(() => 'an illustrated fox in a scarf');
-  const imageFetcher = { fetchAsDataUrl: async () => ({ dataUrl: 'data:image/png;base64,ZmFrZQ==', bytes: 4, contentType: 'image/png' }) };
+  const imageFetcher = {
+    fetchAsDataUrl: async () => ({ dataUrl: 'data:image/png;base64,ZmFrZQ==', bytes: 4, contentType: 'image/png' }),
+  };
   const state = { data: {}, markDirty() {} };
   const view = { id: 'u1', bot: false, hash: 'h1', url: 'https://cdn.example/avatars/u1/h1.png?size=256' };
-  const queue = createAvatarQueue({ hot, store, llm, imageFetcher, state, getGuildId: () => GUILD, selfId: () => SELF_ID, resolveMember: async () => view, now: () => NOW });
+  const queue = createAvatarQueue({
+    hot,
+    store,
+    llm,
+    imageFetcher,
+    state,
+    getGuildId: () => GUILD,
+    selfId: () => SELF_ID,
+    resolveMember: async () => view,
+    now: () => NOW,
+  });
   const { result } = await withCapturedLogs(() => queue.tick());
   assert.equal(result, 'described');
   assert.equal(llm.calls.length, 1);

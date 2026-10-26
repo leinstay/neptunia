@@ -11,12 +11,21 @@ import { coerceArgs, coversSpeech, normalizeCalls, toolResultText } from '../src
 import { labels } from './fixtures/labels.js';
 
 const registry = buildSkills({ table: SKILL_DEFINITIONS });
-const native = (calls) => toolCallsOf(calls.map((c) => ({ id: c.id, function: { name: c.name, arguments: c.arguments } })));
+const native = (calls) =>
+  toolCallsOf(calls.map((c) => ({ id: c.id, function: { name: c.name, arguments: c.arguments } })));
 const normal = (calls, extra = {}) => normalizeCalls({ calls: native(calls), registry, step: 1, ...extra });
 
 test('normalizeCalls: a valid native call becomes a record with the dotted name and parsed arguments', () => {
   const [call] = normal([{ id: 'c1', name: 'draw_create', arguments: '{"text":"a cat","self":true}' }]);
-  assert.deepEqual(call, { id: 'c1', index: 0, name: 'draw.create', apiName: 'draw_create', raw: '{"text":"a cat","self":true}', args: { text: 'a cat', self: true }, problem: null });
+  assert.deepEqual(call, {
+    id: 'c1',
+    index: 0,
+    name: 'draw.create',
+    apiName: 'draw_create',
+    raw: '{"text":"a cat","self":true}',
+    args: { text: 'a cat', self: true },
+    problem: null,
+  });
 });
 
 test('normalizeCalls: malformed arguments give malformed-call, with the raw text kept', () => {
@@ -29,9 +38,21 @@ test('normalizeCalls: malformed arguments give malformed-call, with the raw text
 });
 
 test('normalizeCalls: a finish reason of length makes every call truncated-call', () => {
-  const calls = normal([{ id: 'a', name: 'draw_create', arguments: '{"text":"x"}' }, { id: 'b', name: 'nope', arguments: '{' }], { finishReason: 'length' });
-  assert.deepEqual(calls.map((c) => c.problem), ['truncated-call', 'truncated-call']);
-  assert.equal(normal([{ id: 'a', name: 'draw_create', arguments: '{"text":"x"}' }], { finishReason: 'stop' })[0].problem, null);
+  const calls = normal(
+    [
+      { id: 'a', name: 'draw_create', arguments: '{"text":"x"}' },
+      { id: 'b', name: 'nope', arguments: '{' },
+    ],
+    { finishReason: 'length' }
+  );
+  assert.deepEqual(
+    calls.map((c) => c.problem),
+    ['truncated-call', 'truncated-call']
+  );
+  assert.equal(
+    normal([{ id: 'a', name: 'draw_create', arguments: '{"text":"x"}' }], { finishReason: 'stop' })[0].problem,
+    null
+  );
 });
 
 test('normalizeCalls: an unknown name is unknown-skill and nothing is repaired, either transport', () => {
@@ -41,26 +62,53 @@ test('normalizeCalls: an unknown name is unknown-skill and nothing is repaired, 
   // The native transport carries API names: the dotted one is not a tool of hers.
   assert.equal(normal([{ id: 'a', name: 'draw.create', arguments: '{}' }])[0].problem, 'unknown-skill');
   // The text transport keeps dotted names: the API name is not one.
-  const text = normalizeCalls({ calls: [{ id: null, name: 'draw_create', arguments: '{}', parsed: {}, parseError: null }, { id: null, name: 'draw.create', arguments: '{}', parsed: {}, parseError: null }], transport: 'text', registry, step: 2 });
-  assert.deepEqual(text.map((c) => c.problem), ['unknown-skill', null]);
+  const text = normalizeCalls({
+    calls: [
+      { id: null, name: 'draw_create', arguments: '{}', parsed: {}, parseError: null },
+      { id: null, name: 'draw.create', arguments: '{}', parsed: {}, parseError: null },
+    ],
+    transport: 'text',
+    registry,
+    step: 2,
+  });
+  assert.deepEqual(
+    text.map((c) => c.problem),
+    ['unknown-skill', null]
+  );
   assert.equal(text[1].apiName, 'draw_create');
 });
 
 test('normalizeCalls: a parse error of the text transport is malformed-call, an unclosed block at the length limit truncated-call', () => {
-  const calls = [{ id: null, name: '', arguments: '{', parsed: null, parseError: 'malformed' }, { id: null, name: '', arguments: '{', parsed: null, parseError: 'truncated' }, { id: null, name: 'draw.create', arguments: '{}', parsed: null, parseError: 'nested' }];
-  assert.deepEqual(normalizeCalls({ calls, transport: 'text', registry }).map((c) => c.problem), ['malformed-call', 'truncated-call', 'malformed-call']);
+  const calls = [
+    { id: null, name: '', arguments: '{', parsed: null, parseError: 'malformed' },
+    { id: null, name: '', arguments: '{', parsed: null, parseError: 'truncated' },
+    { id: null, name: 'draw.create', arguments: '{}', parsed: null, parseError: 'nested' },
+  ];
+  assert.deepEqual(
+    normalizeCalls({ calls, transport: 'text', registry }).map((c) => c.problem),
+    ['malformed-call', 'truncated-call', 'malformed-call']
+  );
 });
 
 test('normalizeCalls: a repeated id gets ~2, ~3; a missing one s<step>c<n>', () => {
-  const calls = normal([
-    { id: 'x', name: 'draw_create', arguments: '{}' },
-    { id: 'x', name: 'draw_create', arguments: '{}' },
-    { id: 'x', name: 'draw_create', arguments: '{}' },
-    { id: null, name: 'draw_create', arguments: '{}' },
-    { id: '', name: 'draw_create', arguments: '' },
-  ], { step: 3 });
-  assert.deepEqual(calls.map((c) => c.id), ['x', 'x~2', 'x~3', 's3c4', 's3c5']);
-  assert.deepEqual(calls.map((c) => c.index), [0, 1, 2, 3, 4]);
+  const calls = normal(
+    [
+      { id: 'x', name: 'draw_create', arguments: '{}' },
+      { id: 'x', name: 'draw_create', arguments: '{}' },
+      { id: 'x', name: 'draw_create', arguments: '{}' },
+      { id: null, name: 'draw_create', arguments: '{}' },
+      { id: '', name: 'draw_create', arguments: '' },
+    ],
+    { step: 3 }
+  );
+  assert.deepEqual(
+    calls.map((c) => c.id),
+    ['x', 'x~2', 'x~3', 's3c4', 's3c5']
+  );
+  assert.deepEqual(
+    calls.map((c) => c.index),
+    [0, 1, 2, 3, 4]
+  );
   assert.equal(new Set(calls.map((c) => c.id)).size, 5);
   assert.deepEqual(calls[4].args, {});
 });
@@ -77,7 +125,10 @@ test('coerceArgs: "true" and "5" are read as a boolean and an integer, and each 
   const intSchema = registry.get('intent.set').argsSchema;
   const number = coerceArgs({ settle: '5', perday: ' 12 ' }, intSchema);
   assert.deepEqual(number.args, { settle: 5, perday: 12 });
-  assert.deepEqual(number.coerced, [{ arg: 'settle', to: 5 }, { arg: 'perday', to: 12 }]);
+  assert.deepEqual(number.coerced, [
+    { arg: 'settle', to: 5 },
+    { arg: 'perday', to: 12 },
+  ]);
 });
 
 test('coerceArgs: "yes", "1", null, a number for a boolean and a decimal for an integer are left for the schema to refuse', () => {
@@ -113,7 +164,9 @@ test('toolResultText: the status words, the reason from the code, the data cut t
   assert.ok(toolResultText({ status: 'ok', data: { text: 'x'.repeat(100) } }, labels, { maxChars: 20 }).endsWith('…'));
   assert.equal(toolResultText(null, labels), '');
   // Unknown status reads as failed; a code with no wording falls to the other-reason words.
-  assert.ok(toolResultText({ status: 'weird', code: 'no-such-code' }, labels).includes(labels.skills.result.reasons.other));
+  assert.ok(
+    toolResultText({ status: 'weird', code: 'no-such-code' }, labels).includes(labels.skills.result.reasons.other)
+  );
 });
 
 test('toolResultText: a catalogue answer is rendered by the caller, else as JSON; a data-less ok gives the code', () => {
@@ -123,7 +176,12 @@ test('toolResultText: a catalogue answer is rendered by the caller, else as JSON
 });
 
 test('toolResultText: a coerced value is told in the result text, before the outcome', () => {
-  const text = toolResultText({ status: 'ok', data: { text: '' } }, labels, { coerced: [{ arg: 'self', to: true }, { arg: 'settle', to: 5 }] });
+  const text = toolResultText({ status: 'ok', data: { text: '' } }, labels, {
+    coerced: [
+      { arg: 'self', to: true },
+      { arg: 'settle', to: 5 },
+    ],
+  });
   const lines = text.split('\n');
   assert.equal(lines[0], labels.skills.result.coerced.replace('{arg}', 'self').replace('{value}', 'true'));
   assert.equal(lines[1], labels.skills.result.coerced.replace('{arg}', 'settle').replace('{value}', '5'));
@@ -142,10 +200,29 @@ test('coversSpeech: an ok effect or job covers speech, data and any other status
 });
 
 test('toolResultText: reasonOf words a call that did not work in detail; a result that went well keeps its lead', () => {
-  const labels = { skills: { result: { ok: 'worked', failed: 'failed: {reason}', refused: 'refused: {reason}', reasons: { 'invalid-args': 'not written the way the skill takes it', other: 'something went wrong' } } } };
+  const labels = {
+    skills: {
+      result: {
+        ok: 'worked',
+        failed: 'failed: {reason}',
+        refused: 'refused: {reason}',
+        reasons: { 'invalid-args': 'not written the way the skill takes it', other: 'something went wrong' },
+      },
+    },
+  };
   const refused = { status: 'invalid', code: 'invalid-args', reason: 'args.x:unknown' };
   assert.equal(toolResultText(refused, labels), 'refused: not written the way the skill takes it');
-  assert.equal(toolResultText(refused, labels, { reasonOf: () => 'the skill takes no x' }), 'refused: the skill takes no x');
-  assert.equal(toolResultText(refused, labels, { reasonOf: () => '' }), 'refused: not written the way the skill takes it', 'an empty detail falls back to the code');
-  assert.equal(toolResultText({ status: 'ok', data: { text: 'rows' } }, labels, { reasonOf: () => 'never used' }), 'worked\nrows');
+  assert.equal(
+    toolResultText(refused, labels, { reasonOf: () => 'the skill takes no x' }),
+    'refused: the skill takes no x'
+  );
+  assert.equal(
+    toolResultText(refused, labels, { reasonOf: () => '' }),
+    'refused: not written the way the skill takes it',
+    'an empty detail falls back to the code'
+  );
+  assert.equal(
+    toolResultText({ status: 'ok', data: { text: 'rows' } }, labels, { reasonOf: () => 'never used' }),
+    'worked\nrows'
+  );
 });

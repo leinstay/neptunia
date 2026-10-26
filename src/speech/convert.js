@@ -86,9 +86,14 @@ export async function toVoiceNote(mp3, { ffmpeg = 'ffmpeg' } = {}) {
       run(ffmpeg, [...quiet, '-f', 's16le', 'pipe:1'], mp3),
     ]);
   } catch (err) {
-    throw new SpeechConvertError(err?.code === 'ENOENT' ? 'not-found' : 'failed', err?.code === 'ENOENT' ? 'ffmpeg is not installed' : 'ffmpeg could not run', { cause: err });
+    throw new SpeechConvertError(
+      err?.code === 'ENOENT' ? 'not-found' : 'failed',
+      err?.code === 'ENOENT' ? 'ffmpeg is not installed' : 'ffmpeg could not run',
+      { cause: err }
+    );
   }
-  if (ogg.code !== 0 || pcm.code !== 0) throw new SpeechConvertError('failed', `ffmpeg exited with ${ogg.code !== 0 ? ogg.code : pcm.code}`);
+  if (ogg.code !== 0 || pcm.code !== 0)
+    throw new SpeechConvertError('failed', `ffmpeg exited with ${ogg.code !== 0 ? ogg.code : pcm.code}`);
   if (ogg.stdout.length === 0 || pcm.stdout.length < 2) throw new SpeechConvertError('empty', 'the clip has no audio');
   const durationSecs = Math.round((pcm.stdout.length / 2 / SAMPLE_RATE) * 100) / 100;
   return { ogg: ogg.stdout, durationSecs, waveform: waveformOf(pcm.stdout) };

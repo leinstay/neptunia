@@ -120,7 +120,10 @@ export function pickSpan(all, selection) {
     case 'around': {
       const i = at(selection.anchor);
       if (i < 0) return { slice: [], enough: false };
-      return { slice: list.slice(Math.max(0, i - selection.before), i + selection.after + 1), enough: i - selection.before >= 0 && i + selection.after < list.length };
+      return {
+        slice: list.slice(Math.max(0, i - selection.before), i + selection.after + 1),
+        enough: i - selection.before >= 0 && i + selection.after < list.length,
+      };
     }
     case 'before': {
       const i = at(selection.anchor);
@@ -145,7 +148,10 @@ export function pickSpan(all, selection) {
 /** Messages by id, the later list's copy winning, oldest first. */
 function mergeById(...lists) {
   const byId = new Map();
-  for (const list of lists) for (const message of Array.isArray(list) ? list : []) if (message?.id !== undefined && message?.id !== null) byId.set(String(message.id), { ...(byId.get(String(message.id)) ?? {}), ...message });
+  for (const list of lists)
+    for (const message of Array.isArray(list) ? list : [])
+      if (message?.id !== undefined && message?.id !== null)
+        byId.set(String(message.id), { ...(byId.get(String(message.id)) ?? {}), ...message });
   return [...byId.values()].sort((a, b) => a.ts - b.ts || (String(a.id) < String(b.id) ? -1 : 1));
 }
 
@@ -163,14 +169,21 @@ const str = (value) => (typeof value === 'string' ? value : '');
  * @param {{ channelId: string, from: number, nameOf?: ((id: string) => string|null)|null, selfName?: string, allowLine?: ((line: object) => boolean)|null }} options
  * @returns {Promise<object[]>}
  */
-export async function recordMessages(record, guildId, { channelId, from, nameOf = null, selfName = '', allowLine = null }) {
+export async function recordMessages(
+  record,
+  guildId,
+  { channelId, from, nameOf = null, selfName = '', allowLine = null }
+) {
   if (!record || typeof record.iterate !== 'function') return [];
   const latest = new Map();
   const gone = new Map();
   try {
-    for await (const line of record.iterate(guildId, { from: new Date(from).toISOString(), channelIds: [String(channelId)] })) {
+    for await (const line of record.iterate(guildId, {
+      from: new Date(from).toISOString(),
+      channelIds: [String(channelId)],
+    })) {
       const id = str(line?.messageId);
-      if (!id || typeof allowLine === 'function' && !allowLine(line)) continue;
+      if (!id || (typeof allowLine === 'function' && !allowLine(line))) continue;
       if (line.kind === 'deleted') {
         gone.set(id, line);
         continue;
@@ -203,10 +216,20 @@ export async function recordMessages(record, guildId, { channelId, from, nameOf 
       replyToId: str(line.replyTo) || null,
       mentionedUserIds: Array.isArray(line.mentions) ? line.mentions : [],
       mentionedChannelIds: [],
-      attachments: (Array.isArray(line.media) ? line.media : []).filter((kind) => typeof kind === 'string' && kind).map((kind, i) => ({ id: `${line.messageId}#m${i}`, kind, name: kind })),
+      attachments: (Array.isArray(line.media) ? line.media : [])
+        .filter((kind) => typeof kind === 'string' && kind)
+        .map((kind, i) => ({ id: `${line.messageId}#m${i}`, kind, name: kind })),
       links: (Array.isArray(line.links) ? line.links : [])
         .filter((link) => link && typeof link === 'object' && (str(link.title) || str(link.description)))
-        .map((link, i) => ({ id: str(link.id) || `${line.messageId}#l${i}`, kind: 'link', site: str(link.site), title: str(link.title), text: str(link.description), url: str(link.url) || null, thumbnailUrl: null })),
+        .map((link, i) => ({
+          id: str(link.id) || `${line.messageId}#l${i}`,
+          kind: 'link',
+          site: str(link.site),
+          title: str(link.title),
+          text: str(link.description),
+          url: str(link.url) || null,
+          thumbnailUrl: null,
+        })),
       stickers: [],
       emojis: [],
       forwarded: [],
@@ -216,7 +239,8 @@ export async function recordMessages(record, guildId, { channelId, from, nameOf 
   };
   for (const [id, { line, revision }] of latest) {
     const message = messageOf(line, revision);
-    if (gone.has(id)) out.push({ ...message, content: '', attachments: [], links: [], replyToId: null, editedAt: null, deleted: true });
+    if (gone.has(id))
+      out.push({ ...message, content: '', attachments: [], links: [], replyToId: null, editedAt: null, deleted: true });
     else out.push(message);
   }
   // A deletion whose message the span does not hold: a placeholder from the deletion's own line.
@@ -224,7 +248,26 @@ export async function recordMessages(record, guildId, { channelId, from, nameOf 
     if (latest.has(id) || !Number.isFinite(Date.parse(line.occurredAt))) continue;
     const by = str(line.participants?.[0]) || null;
     const name = by && typeof nameOf === 'function' ? oneLine(nameOf(by) ?? '') : '';
-    out.push({ id, channelId: String(channelId), authorId: by, authorName: name || '-', self: false, bot: false, content: '', ts: Date.parse(line.occurredAt), deleted: true, mentionedUserIds: [], mentionedChannelIds: [], replyToId: null, attachments: [], links: [], forwarded: [], stickers: [], emojis: [], reactions: [] });
+    out.push({
+      id,
+      channelId: String(channelId),
+      authorId: by,
+      authorName: name || '-',
+      self: false,
+      bot: false,
+      content: '',
+      ts: Date.parse(line.occurredAt),
+      deleted: true,
+      mentionedUserIds: [],
+      mentionedChannelIds: [],
+      replyToId: null,
+      attachments: [],
+      links: [],
+      forwarded: [],
+      stickers: [],
+      emojis: [],
+      reactions: [],
+    });
   }
   return mergeById(out);
 }
@@ -243,8 +286,24 @@ export async function recordMessages(record, guildId, { channelId, from, nameOf 
  *   refs?: { next(): number, take(shown: object[]): void }|null, earlier?: boolean, later?: boolean, keep?: 'newest'|'oldest' }} options
  * @returns {string}
  */
-export function conversationText(slice, { labels, channelId, channelName = '', render, maxChars = MAX_CHARS_FALLBACK, refs = null, earlier = true, later = false, keep = 'oldest' }) {
-  const l = labels?.skills?.tools?.conversation && typeof labels.skills.tools.conversation === 'object' ? labels.skills.tools.conversation : {};
+export function conversationText(
+  slice,
+  {
+    labels,
+    channelId,
+    channelName = '',
+    render,
+    maxChars = MAX_CHARS_FALLBACK,
+    refs = null,
+    earlier = true,
+    later = false,
+    keep = 'oldest',
+  }
+) {
+  const l =
+    labels?.skills?.tools?.conversation && typeof labels.skills.tools.conversation === 'object'
+      ? labels.skills.tools.conversation
+      : {};
   const lines = [];
   if (l.source) lines.push(fill(l.source, { channel: channelName }));
   if (!Array.isArray(slice) || slice.length === 0) {
@@ -252,7 +311,10 @@ export function conversationText(slice, { labels, channelId, channelName = '', r
     return lines.join('\n');
   }
   const offset = refs ? refs.next() - 1 : 0;
-  const items = formatTranscript(slice, { ...(typeof render === 'function' ? render(slice) : render), indexOffset: offset });
+  const items = formatTranscript(slice, {
+    ...(typeof render === 'function' ? render(slice) : render),
+    indexOffset: offset,
+  });
   const byId = new Map(slice.map((message) => [String(message.id), message]));
   // The room: whole items, from the far end of the span (the newest are kept for a read of the newest lines).
   const bounded = Number.isFinite(maxChars) && maxChars > 0;
@@ -282,8 +344,16 @@ export function conversationText(slice, { labels, channelId, channelName = '', r
     refs.take(
       kept.map((item) => {
         const message = byId.get(String(item.id));
-        return { n: item.index, id: String(item.id), channelId: String(channelId), authorId: message?.authorId ?? null, self: message?.self === true, ...(message?.deleted === true ? { deleted: true } : {}), message };
-      }),
+        return {
+          n: item.index,
+          id: String(item.id),
+          channelId: String(channelId),
+          authorId: message?.authorId ?? null,
+          self: message?.self === true,
+          ...(message?.deleted === true ? { deleted: true } : {}),
+          message,
+        };
+      })
     );
   }
   return lines.join('\n');
@@ -322,7 +392,21 @@ export async function fetchSpan(discord, source, { mode, anchor, limit, minTs },
  * else `ok` with conversationText. Never throws.
  * @returns {Promise<{ status: string, code?: string, reason?: string, data?: { text: string } }>}
  */
-export async function runConversationRead({ args, labels, config, channelId, channelNameOf = null, allowed, readRecord, fetchLive, render, refs = null, now = Date.now(), timezone = 'UTC', maxChars = MAX_CHARS_FALLBACK }) {
+export async function runConversationRead({
+  args,
+  labels,
+  config,
+  channelId,
+  channelNameOf = null,
+  allowed,
+  readRecord,
+  fetchLive,
+  render,
+  refs = null,
+  now = Date.now(),
+  timezone = 'UTC',
+  maxChars = MAX_CHARS_FALLBACK,
+}) {
   try {
     const target = text(args?.channelId) || String(channelId ?? '');
     if (!target) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.channel:required' };
@@ -342,19 +426,42 @@ export async function runConversationRead({ args, labels, config, channelId, cha
     if (!picked.enough && typeof fetchLive === 'function') {
       asked = true;
       const limit = selection.mode === 'around' ? selection.before + selection.after + 1 : selection.n;
-      live = await fetchLive({ channelId: target, mode: selection.mode, anchor: selection.anchor ?? null, limit, minTs: selection.since ?? 0 });
+      live = await fetchLive({
+        channelId: target,
+        mode: selection.mode,
+        anchor: selection.anchor ?? null,
+        limit,
+        minTs: selection.since ?? 0,
+      });
       if (Array.isArray(live)) {
         all = mergeById(all, live);
         picked = pickSpan(all, selection);
       }
     }
     if (picked.slice.length === 0 && asked && live === null) return { status: 'failed', code: CODE.ERROR };
-    if (selection.anchor && !all.some((message) => String(message.id) === String(selection.anchor))) return { status: 'invalid', code: CODE.UNKNOWN_MESSAGE, reason: `args.${selection.mode}` };
-    const reachedStart = Array.isArray(live) && live.length < (selection.mode === 'around' ? selection.before + selection.after + 1 : selection.n) && (selection.mode === 'last' || selection.mode === 'before');
+    if (selection.anchor && !all.some((message) => String(message.id) === String(selection.anchor)))
+      return { status: 'invalid', code: CODE.UNKNOWN_MESSAGE, reason: `args.${selection.mode}` };
+    const reachedStart =
+      Array.isArray(live) &&
+      live.length < (selection.mode === 'around' ? selection.before + selection.after + 1 : selection.n) &&
+      (selection.mode === 'last' || selection.mode === 'before');
     const truncated = picked.slice.length >= (selection.n ?? 0);
     const earlier = !reachedStart;
-    const later = selection.mode === 'around' || selection.mode === 'before' || ((selection.mode === 'since' || selection.mode === 'after') && truncated);
-    const textOut = conversationText(picked.slice, { labels, channelId: target, channelName: typeof channelNameOf === 'function' ? (channelNameOf(target) ?? '') : '', render, maxChars, refs, earlier, later, keep: selection.mode === 'last' || selection.mode === 'before' ? 'newest' : 'oldest' });
+    const later =
+      selection.mode === 'around' ||
+      selection.mode === 'before' ||
+      ((selection.mode === 'since' || selection.mode === 'after') && truncated);
+    const textOut = conversationText(picked.slice, {
+      labels,
+      channelId: target,
+      channelName: typeof channelNameOf === 'function' ? (channelNameOf(target) ?? '') : '',
+      render,
+      maxChars,
+      refs,
+      earlier,
+      later,
+      keep: selection.mode === 'last' || selection.mode === 'before' ? 'newest' : 'oldest',
+    });
     return { status: 'ok', data: { text: textOut } };
   } catch {
     return { status: 'failed', code: CODE.ERROR };

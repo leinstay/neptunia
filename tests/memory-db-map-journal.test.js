@@ -22,23 +22,24 @@ const envelope = (kind, extra = {}) => ({
   ...extra,
 });
 
-const turn = () => envelope('turn', {
-  turnId: 'turn-1',
-  attemptId: 1,
-  startedAt: '2026-10-20T09:59:58.000Z',
-  mode: 'reply',
-  outcome: 'spoke',
-  reason: null,
-  posted: [{ messageId: '400000000000000009', replyTo: '400000000000000001', opId: 'op-1' }],
-  reactions: [{ opId: 'op-2', to: '400000000000000001', emoji: 'ok' }],
-  actions: ['op-1', { skill: 'look', status: 'ok', result: 'seen', target: { channel: CHANNEL } }],
-  think: 'Καλημέρα. A café thought.',
-  thinkTruncated: true,
-  usage: { prompt: 10, cached: 4, completion: 3 },
-  budget: { dropped: { emoji: 0 } },
-  limits: [{ kind: 'chars', where: 'think', lost: null }],
-  format: { thinkMissing: 0, coerced: 0 },
-});
+const turn = () =>
+  envelope('turn', {
+    turnId: 'turn-1',
+    attemptId: 1,
+    startedAt: '2026-10-20T09:59:58.000Z',
+    mode: 'reply',
+    outcome: 'spoke',
+    reason: null,
+    posted: [{ messageId: '400000000000000009', replyTo: '400000000000000001', opId: 'op-1' }],
+    reactions: [{ opId: 'op-2', to: '400000000000000001', emoji: 'ok' }],
+    actions: ['op-1', { skill: 'look', status: 'ok', result: 'seen', target: { channel: CHANNEL } }],
+    think: 'Καλημέρα. A café thought.',
+    thinkTruncated: true,
+    usage: { prompt: 10, cached: 4, completion: 3 },
+    budget: { dropped: { emoji: 0 } },
+    limits: [{ kind: 'chars', where: 'think', lost: null }],
+    format: { thinkMissing: 0, coerced: 0 },
+  });
 
 test('a turn becomes an answer source and a day row, and the line comes back whole', () => {
   const line = turn();
@@ -75,14 +76,39 @@ test('a turn with a null think, or none, keeps which it was', () => {
 
 test('turn.start, action, inner, system and the missed-message answer record are day rows', () => {
   const lines = [
-    envelope('turn.start', { turnId: 'turn-1', attemptId: 1, mode: 'reply', trigger: { kind: 'mention', messageId: '400000000000000001', authorId: '100000000000000001' } }),
-    envelope('action', {
-      turnId: 'turn-1', opId: 'op-1', name: 'message', phase: 'succeeded', by: 'persona', trigger: null,
-      input: { to: null, text: 'x' }, result: { messageId: '400000000000000009', delivered: true }, intent: { replyTo: null, text: 'hi' },
+    envelope('turn.start', {
+      turnId: 'turn-1',
+      attemptId: 1,
+      mode: 'reply',
+      trigger: { kind: 'mention', messageId: '400000000000000001', authorId: '100000000000000001' },
     }),
-    envelope('inner', { event: 'wake', wake: { id: 'w1', kind: 'heartbeat', reason: 'due', dueAt: 1, intentionIds: ['i1'], chainId: 'c1' }, outcome: 'idle', reason: 'nothing', cost: { usd: 0, requests: 1, voice: 0 } }),
+    envelope('action', {
+      turnId: 'turn-1',
+      opId: 'op-1',
+      name: 'message',
+      phase: 'succeeded',
+      by: 'persona',
+      trigger: null,
+      input: { to: null, text: 'x' },
+      result: { messageId: '400000000000000009', delivered: true },
+      intent: { replyTo: null, text: 'hi' },
+    }),
+    envelope('inner', {
+      event: 'wake',
+      wake: { id: 'w1', kind: 'heartbeat', reason: 'due', dueAt: 1, intentionIds: ['i1'], chainId: 'c1' },
+      outcome: 'idle',
+      reason: 'nothing',
+      cost: { usd: 0, requests: 1, voice: 0 },
+    }),
     envelope('system', { event: 'start', by: 'owner', note: 'ok' }),
-    envelope('answer', { event: 'fact', reason: 'maybe unanswered', messageId: '400000000000000001', authorId: '100000000000000001', at: 1760954400000, question: true }),
+    envelope('answer', {
+      event: 'fact',
+      reason: 'maybe unanswered',
+      messageId: '400000000000000001',
+      authorId: '100000000000000001',
+      at: 1760954400000,
+      question: true,
+    }),
     envelope('answer', { event: 'verdict', verdict: 'answered', by: 'code', at: '2026-10-20T10:00:00.000Z' }),
     envelope('something-new', { whatever: [1, 2, 3] }),
   ];
@@ -100,25 +126,26 @@ test('the day row takes outcome, reason and turn id from the line when it has th
   assert.deepEqual([rows.day[0].outcome, rows.day[0].reason, rows.day[0].turn_id], ['idle', 'nothing', 't9']);
 });
 
-const memory = () => envelope('memory', {
-  batchId: 'b-1',
-  stage: 'applied',
-  appliedRevision: 'r1',
-  note: 'a batch',
-  batch: { messageIds: ['400000000000000001'], consumed: 1 },
-  changed: { users: ['100000000000000001'], guild: false, channels: [], lore: 0 },
-  episodes: [{ userId: '100000000000000001', itemId: null, key: 'k', what: 'w', weight: 1 }],
-  attitude: [
-    { userId: '100000000000000001', delta: 3, applied: 2, reason: 'was kind' },
-    { userId: '100000000000000002', delta: -1, applied: -1, reason: 'was rude', extraField: 'kept' },
-  ],
-  self: [],
-  learned: [{ id: 1, text: 'taught' }],
-  consolidation: [],
-  archived: [{ itemId: 'i', revisionId: 'r', confirmed: true }],
-  promptsHash: 'p',
-  configHash: 'c',
-});
+const memory = () =>
+  envelope('memory', {
+    batchId: 'b-1',
+    stage: 'applied',
+    appliedRevision: 'r1',
+    note: 'a batch',
+    batch: { messageIds: ['400000000000000001'], consumed: 1 },
+    changed: { users: ['100000000000000001'], guild: false, channels: [], lore: 0 },
+    episodes: [{ userId: '100000000000000001', itemId: null, key: 'k', what: 'w', weight: 1 }],
+    attitude: [
+      { userId: '100000000000000001', delta: 3, applied: 2, reason: 'was kind' },
+      { userId: '100000000000000002', delta: -1, applied: -1, reason: 'was rude', extraField: 'kept' },
+    ],
+    self: [],
+    learned: [{ id: 1, text: 'taught' }],
+    consolidation: [],
+    archived: [{ itemId: 'i', revisionId: 'r', confirmed: true }],
+    promptsHash: 'p',
+    configHash: 'c',
+  });
 
 test('a memory line becomes a decision by the analyzer and one affinity event per attitude entry', () => {
   const line = memory();
@@ -127,14 +154,14 @@ test('a memory line becomes a decision by the analyzer and one affinity event pe
   const [decision] = rows.decisions;
   assert.deepEqual(
     [decision.id, decision.at, decision.by, decision.target_kind, decision.target_id, decision.action, decision.reason],
-    ['j-memory', line.occurredAt, 'analyzer', 'batch', 'b-1', 'applied', 'a batch'],
+    ['j-memory', line.occurredAt, 'analyzer', 'batch', 'b-1', 'applied', 'a batch']
   );
   assert.ok(!('attitude' in JSON.parse(decision.extra)));
   assert.equal(rows.affinity_events.length, 2);
   const [first, second] = rows.affinity_events;
   assert.deepEqual(
     [first.person_id, first.delta, first.applied, first.reason, first.at, first.position, first.scope_kind],
-    ['person:discord:100000000000000001', 3, 2, 'was kind', line.occurredAt, 0, 'group'],
+    ['person:discord:100000000000000001', 3, 2, 'was kind', line.occurredAt, 0, 'group']
   );
   assert.equal(second.position, 1);
   assert.equal(JSON.parse(second.extra).extraField, 'kept');
@@ -152,10 +179,16 @@ test('attitude: empty, absent and not-a-list each come back as they were', () =>
 });
 
 test('the order of attitude entries comes back by position', () => {
-  const line = { ...memory(), attitude: ['a', 'b', 'c', 'd'].map((name, index) => ({ userId: name, delta: index, applied: index, reason: name })) };
+  const line = {
+    ...memory(),
+    attitude: ['a', 'b', 'c', 'd'].map((name, index) => ({ userId: name, delta: index, applied: index, reason: name })),
+  };
   const { stored, back } = roundTrip(mapper, REL, line);
   stored.affinity_events.reverse();
-  assert.deepEqual(mapper.fromRows(stored).attitude.map((entry) => entry.userId), ['a', 'b', 'c', 'd']);
+  assert.deepEqual(
+    mapper.fromRows(stored).attitude.map((entry) => entry.userId),
+    ['a', 'b', 'c', 'd']
+  );
   assert.deepEqual(back, line);
 });
 

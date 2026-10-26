@@ -4,11 +4,31 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openMemoryDb } from '../src/memory/db/open.js';
 import {
-  SCOPE_INTERNAL, SCOPE_NONE, allowed, dmContext, dmScope, groupContext, groupScope, internalContext, narrowest, scopeColumns, whereFor,
+  SCOPE_INTERNAL,
+  SCOPE_NONE,
+  allowed,
+  dmContext,
+  dmScope,
+  groupContext,
+  groupScope,
+  internalContext,
+  narrowest,
+  scopeColumns,
+  whereFor,
 } from '../src/memory/db/scope.js';
 import {
-  accountId, answerSourceId, channelPlaceId, dmPlaceId, guildPlaceId, itemOrDerivedId, messageSourceId, nativeOf, otherSourceId,
-  personId, shortHash, uniqueIds,
+  accountId,
+  answerSourceId,
+  channelPlaceId,
+  dmPlaceId,
+  guildPlaceId,
+  itemOrDerivedId,
+  messageSourceId,
+  nativeOf,
+  otherSourceId,
+  personId,
+  shortHash,
+  uniqueIds,
 } from '../src/memory/db/ids.js';
 
 const ALICE = personId('100000000000000001');
@@ -40,9 +60,33 @@ const ROWS = {
 };
 
 const MATRIX = {
-  group: { none: true, group: true, groupOther: false, dmAlice: false, dmBob: false, dmOtherIface: false, internal: false },
-  dmAlice: { none: true, group: true, groupOther: false, dmAlice: true, dmBob: false, dmOtherIface: false, internal: false },
-  dmBob: { none: true, group: true, groupOther: false, dmAlice: false, dmBob: true, dmOtherIface: false, internal: false },
+  group: {
+    none: true,
+    group: true,
+    groupOther: false,
+    dmAlice: false,
+    dmBob: false,
+    dmOtherIface: false,
+    internal: false,
+  },
+  dmAlice: {
+    none: true,
+    group: true,
+    groupOther: false,
+    dmAlice: true,
+    dmBob: false,
+    dmOtherIface: false,
+    internal: false,
+  },
+  dmBob: {
+    none: true,
+    group: true,
+    groupOther: false,
+    dmAlice: false,
+    dmBob: true,
+    dmOtherIface: false,
+    internal: false,
+  },
   internal: Object.fromEntries(Object.keys(ROWS).map((name) => [name, true])),
 };
 
@@ -70,18 +114,36 @@ test('the SQL filter returns exactly the rows allowed() lets through', () => {
   }
   for (const [ctxName, ctx] of Object.entries(CONTEXTS)) {
     const { sql, params } = whereFor(ctx);
-    const got = db.prepare(`SELECT name FROM probe WHERE ${sql} ORDER BY name`).all(...params).map((row) => row.name);
-    const want = Object.keys(ROWS).filter((name) => allowed(ROWS[name], ctx)).sort();
+    const got = db
+      .prepare(`SELECT name FROM probe WHERE ${sql} ORDER BY name`)
+      .all(...params)
+      .map((row) => row.name);
+    const want = Object.keys(ROWS)
+      .filter((name) => allowed(ROWS[name], ctx))
+      .sort();
     assert.deepEqual(got, want, ctxName);
   }
   const aliased = whereFor(CONTEXTS.dmAlice, 'p');
-  const got = db.prepare(`SELECT p.name FROM probe p WHERE ${aliased.sql} ORDER BY p.name`).all(...aliased.params).map((row) => row.name);
+  const got = db
+    .prepare(`SELECT p.name FROM probe p WHERE ${aliased.sql} ORDER BY p.name`)
+    .all(...aliased.params)
+    .map((row) => row.name);
   assert.deepEqual(got, ['dmAlice', 'group', 'none']);
   handle.close();
 });
 
 test('a read with no context, or an invalid one, throws', () => {
-  for (const bad of [undefined, null, {}, { kind: 'group' }, { iface: 'discord' }, { iface: 'discord', kind: 'dm' }, { kind: 'dm', person: ALICE }, { internal: false }, 'group']) {
+  for (const bad of [
+    undefined,
+    null,
+    {},
+    { kind: 'group' },
+    { iface: 'discord' },
+    { iface: 'discord', kind: 'dm' },
+    { kind: 'dm', person: ALICE },
+    { internal: false },
+    'group',
+  ]) {
     assert.throws(() => allowed(ROWS.none, bad), /scope context/, JSON.stringify(bad));
     assert.throws(() => whereFor(bad), /scope context/, JSON.stringify(bad));
   }

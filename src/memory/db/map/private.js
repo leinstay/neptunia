@@ -23,7 +23,12 @@ export function toRows(rel, value) {
   const person = personId(userId);
   const rows = {};
   const { rest, affinity } = profileRows(rows, value, {
-    rel, person, owner: `${person}:dm`, tag: ':dm', scope: dmScope(person), descFields: FIELDS,
+    rel,
+    person,
+    owner: `${person}:dm`,
+    tag: ':dm',
+    scope: dmScope(person),
+    descFields: FIELDS,
   });
   if (affinity) rest.affinity = affinity;
   put(rows, 'operational', { kind: 'private', owner: person, value: JSON.stringify(rest), owner_file: rel });

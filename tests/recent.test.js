@@ -89,14 +89,28 @@ function countsOf(result) {
 
 /** `mergeRecent`'s counts for a call that dropped nothing for the given reasons; `fields` override. */
 function counts(fields = {}) {
-  const base = { added: 0, removed: 0, expired: 0, evicted: 0, invalid: 0, noChannel: 0, stale: 0, duplicate: 0, overCap: 0, ...fields };
+  const base = {
+    added: 0,
+    removed: 0,
+    expired: 0,
+    evicted: 0,
+    invalid: 0,
+    noChannel: 0,
+    stale: 0,
+    duplicate: 0,
+    overCap: 0,
+    ...fields,
+  };
   return { ...base, dropped: base.invalid + base.noChannel + base.stale + base.duplicate + base.overCap };
 }
 
 // --- tokenIds ----------------------------------------------------------------
 
 test('mentions: tokenIds lists each member id of the tokens once, in order of appearance', () => {
-  assert.deepEqual(tokenIds(`<@${NIKOS}> και <@${ELENI}>, ξανά <@${NIKOS}> και <@123> και (id:${ELENI})`), [NIKOS, ELENI]);
+  assert.deepEqual(tokenIds(`<@${NIKOS}> και <@${ELENI}>, ξανά <@${NIKOS}> και <@123> και (id:${ELENI})`), [
+    NIKOS,
+    ELENI,
+  ]);
 });
 
 // --- foldText ------------------------------------------------------------------
@@ -125,8 +139,20 @@ test('recent: a new line gets the next id and the member ids of its tokens', () 
   assert.deepEqual(before, snapshot, 'what was stored is never mutated');
 
   // `who` comes from the text alone: an incoming `who` (or `id`, `addedAt`) is never taken
-  const told = mergeRecent(before, [{ text: `<@${ELENI}> ήρθε`, at: NOW, channelId: KIPOS, who: [NIKOS], id: 99, addedAt: 'χθες' }], { now: NOW });
-  assert.deepEqual(told.value.lines[1], { id: 7, at: NOW, addedAt: NOW_ISO, channelId: KIPOS, text: `<@${ELENI}> ήρθε`, who: [ELENI], weight: 2 });
+  const told = mergeRecent(
+    before,
+    [{ text: `<@${ELENI}> ήρθε`, at: NOW, channelId: KIPOS, who: [NIKOS], id: 99, addedAt: 'χθες' }],
+    { now: NOW }
+  );
+  assert.deepEqual(told.value.lines[1], {
+    id: 7,
+    at: NOW,
+    addedAt: NOW_ISO,
+    channelId: KIPOS,
+    text: `<@${ELENI}> ήρθε`,
+    who: [ELENI],
+    weight: 2,
+  });
 });
 
 test('recent: every stored line records its text, time, channel, weight and member ids', () => {
@@ -139,7 +165,7 @@ test('recent: every stored line records its text, time, channel, weight and memb
       { text: 'μισή', at: NOW - HOUR_MS, channelId: AGORA, weight: 2.5 },
       { text: 'χωρίς ώρα', at: 'χθες', channelId: AGORA },
     ],
-    { now: NOW, maxNew: 10 },
+    { now: NOW, maxNew: 10 }
   );
   assert.deepEqual(
     value.lines.map((l) => [l.text, l.at, l.channelId, l.weight, l.who]),
@@ -149,7 +175,7 @@ test('recent: every stored line records its text, time, channel, weight and memb
       ['ελαφριά', NOW - HOUR_MS, AGORA, 1, []],
       ['μισή', NOW - HOUR_MS, AGORA, 2, []],
       ['χωρίς ώρα', NOW, AGORA, 2, []],
-    ],
+    ]
   );
   for (const stored of value.lines) assert.equal(stored.addedAt, NOW_ISO);
 });
@@ -170,16 +196,23 @@ test('recent: an add without a source channel, without text or already past the 
       null,
       { text: 'μένει', at: NOW - HOUR_MS, channelId: AGORA },
     ],
-    { now: NOW, maxNew: 10 },
+    { now: NOW, maxNew: 10 }
   );
   assert.deepEqual(countsOf(result), counts({ added: 1, invalid: 5, noChannel: 4, stale: 1 }));
   assert.equal(result.dropped, 10, 'dropped is the sum of the reasons');
-  assert.deepEqual(result.value.lines.map((l) => l.text), ['μένει']);
+  assert.deepEqual(
+    result.value.lines.map((l) => l.text),
+    ['μένει']
+  );
 });
 
 test('recent: a long text is cut at a clean boundary to chars, never inside a token', () => {
   const text = `<@${ELENI}> ${'λέξη '.repeat(60)}`;
-  const { value } = mergeRecent(emptyRecent(), [{ text, at: NOW, channelId: AGORA }], { now: NOW, chars: 40, clampTolerance: 1 });
+  const { value } = mergeRecent(emptyRecent(), [{ text, at: NOW, channelId: AGORA }], {
+    now: NOW,
+    chars: 40,
+    clampTolerance: 1,
+  });
   const kept = value.lines[0].text;
   assert.ok([...kept].length <= 40, kept);
   assert.ok(kept.startsWith(`<@${ELENI}> λέξη`));
@@ -196,10 +229,17 @@ test('recent: a line with the same folded text as a live one is not stored twice
       { text: 'Ο Νίκος έχασε το κλειδί', at: NOW, channelId: AGORA },
       { text: 'ο νικος εχασε το κλειδι', at: NOW, channelId: KIPOS },
     ],
-    { now: NOW },
+    { now: NOW }
   );
-  assert.deepEqual(countsOf(result), counts({ added: 1, duplicate: 2 }), 'one equal to a stored line, one to an earlier add');
-  assert.deepEqual(result.value.lines.map((l) => l.text), ['Η Ελένη έφερε καφέ', 'Ο Νίκος έχασε το κλειδί']);
+  assert.deepEqual(
+    countsOf(result),
+    counts({ added: 1, duplicate: 2 }),
+    'one equal to a stored line, one to an earlier add'
+  );
+  assert.deepEqual(
+    result.value.lines.map((l) => l.text),
+    ['Η Ελένη έφερε καφέ', 'Ο Νίκος έχασε το κλειδί']
+  );
 });
 
 test('recent: lines older than recentHours go at the next write, never on read', async () => {
@@ -210,13 +250,25 @@ test('recent: lines older than recentHours go at the next write, never on read',
   // pure: the write drops what is past the window, counted
   const result = mergeRecent(stored([old, edge, fresh]), [], { now: NOW, hours: 72 });
   assert.equal(result.expired, 1);
-  assert.deepEqual(result.value.lines.map((l) => l.id), [2, 3]);
+  assert.deepEqual(
+    result.value.lines.map((l) => l.id),
+    [2, 3]
+  );
   assert.equal(result.value.nextId, 4, 'an expired id is never reused');
 
   // an expired line's text can come back as a new line
-  const again = mergeRecent(stored([old, fresh]), [{ text: 'παλιά', at: NOW, channelId: AGORA }], { now: NOW, hours: 72 });
+  const again = mergeRecent(stored([old, fresh]), [{ text: 'παλιά', at: NOW, channelId: AGORA }], {
+    now: NOW,
+    hours: 72,
+  });
   assert.deepEqual([again.expired, again.added], [1, 1]);
-  assert.deepEqual(again.value.lines.map((l) => [l.id, l.text]), [[3, 'φρέσκια'], [4, 'παλιά']]);
+  assert.deepEqual(
+    again.value.lines.map((l) => [l.id, l.text]),
+    [
+      [3, 'φρέσκια'],
+      [4, 'παλιά'],
+    ]
+  );
 
   // the store: reading keeps every line, the next write drops the old one
   const dir = tmpDataDir();
@@ -224,8 +276,14 @@ test('recent: lines older than recentHours go at the next write, never on read',
   await writeRaw(file, stored([old, edge, fresh]));
   const raw = readRaw(file);
   const store = createStore({ dataDir: dir, memoryDb: memoryOf(dir) });
-  assert.deepEqual(store.getRecent('g1').lines.map((l) => l.id), [1, 2, 3]);
-  assert.deepEqual(liveRecent(store.getRecent('g1').lines, { now: NOW, hours: 24 }).map((l) => l.id), [3]);
+  assert.deepEqual(
+    store.getRecent('g1').lines.map((l) => l.id),
+    [1, 2, 3]
+  );
+  assert.deepEqual(
+    liveRecent(store.getRecent('g1').lines, { now: NOW, hours: 24 }).map((l) => l.id),
+    [3]
+  );
   store.flush();
   await settle();
   assert.equal(readRaw(file), raw, 'a read rewrites nothing');
@@ -234,7 +292,12 @@ test('recent: lines older than recentHours go at the next write, never on read',
   assert.equal(counts.expired, 1);
   store.flush();
   await settle();
-  assert.deepEqual(createStore({ dataDir: dir, memoryDb: memoryOf(dir) }).getRecent('g1').lines.map((l) => l.id), [2, 3]);
+  assert.deepEqual(
+    createStore({ dataDir: dir, memoryDb: memoryOf(dir) })
+      .getRecent('g1')
+      .lines.map((l) => l.id),
+    [2, 3]
+  );
 });
 
 test('recent: past maxStored the lightest, then the oldest lines go first', () => {
@@ -244,14 +307,24 @@ test('recent: past maxStored the lightest, then the oldest lines go first', () =
     line(3, { weight: 1, at: NOW - 8 * HOUR_MS }),
     line(4, { weight: 3, at: NOW - 20 * HOUR_MS }),
   ]);
-  const result = mergeRecent(before, [{ text: 'νέα', at: NOW - HOUR_MS, channelId: AGORA, weight: 2 }], { now: NOW, maxStored: 3 });
+  const result = mergeRecent(before, [{ text: 'νέα', at: NOW - HOUR_MS, channelId: AGORA, weight: 2 }], {
+    now: NOW,
+    maxStored: 3,
+  });
   assert.deepEqual(countsOf(result), counts({ added: 1, evicted: 2 }));
-  assert.deepEqual(result.value.lines.map((l) => l.id), [1, 4, 5], 'the survivors keep their order');
+  assert.deepEqual(
+    result.value.lines.map((l) => l.id),
+    [1, 4, 5],
+    'the survivors keep their order'
+  );
 
   // equal weight and time: the lower id goes first
   const tie = stored([line(1, { at: NOW - HOUR_MS }), line(2, { at: NOW - HOUR_MS })]);
   const tied = mergeRecent(tie, [{ text: 'τρίτη', at: NOW - HOUR_MS, channelId: AGORA }], { now: NOW, maxStored: 2 });
-  assert.deepEqual(tied.value.lines.map((l) => l.id), [2, 3]);
+  assert.deepEqual(
+    tied.value.lines.map((l) => l.id),
+    [2, 3]
+  );
 
   // a full store of heavier lines: a new light line is the one the cap takes, at once -- not
   // added, counted over the cap, no stored line evicted, and its id is not used up
@@ -262,12 +335,21 @@ test('recent: past maxStored the lightest, then the oldest lines go first', () =
       { text: 'ελαφριά', at: NOW - 3 * HOUR_MS, channelId: AGORA, weight: 1 },
       { text: 'βαριά', at: NOW - HOUR_MS, channelId: AGORA, weight: 3 },
     ],
-    { now: NOW, maxStored: 2 },
+    { now: NOW, maxStored: 2 }
   );
   assert.deepEqual(countsOf(bounced), counts({ added: 1, evicted: 1, overCap: 1 }));
-  assert.deepEqual(bounced.value.lines.map((l) => [l.id, l.text]), [[1, 'γραμμή 1'], [3, 'βαριά']]);
+  assert.deepEqual(
+    bounced.value.lines.map((l) => [l.id, l.text]),
+    [
+      [1, 'γραμμή 1'],
+      [3, 'βαριά'],
+    ]
+  );
   assert.equal(bounced.value.nextId, 4);
-  const only = mergeRecent(full, [{ text: 'ελαφριά', at: NOW - 3 * HOUR_MS, channelId: AGORA, weight: 1 }], { now: NOW, maxStored: 2 });
+  const only = mergeRecent(full, [{ text: 'ελαφριά', at: NOW - 3 * HOUR_MS, channelId: AGORA, weight: 1 }], {
+    now: NOW,
+    maxStored: 2,
+  });
   assert.deepEqual(countsOf(only), counts({ overCap: 1 }));
   assert.deepEqual(only.value, full, 'nothing changed, nextId included');
 
@@ -278,9 +360,15 @@ test('recent: past maxStored the lightest, then the oldest lines go first', () =
   assert.equal(quiet.value.lines.length, 3);
 
   // ... and when one comes, the cap holds again, even if the new line is among those it takes
-  const lowered = mergeRecent(many, [{ text: 'ελαφριά', at: NOW - 2 * HOUR_MS, channelId: AGORA, weight: 1 }], { now: NOW, maxStored: 1 });
+  const lowered = mergeRecent(many, [{ text: 'ελαφριά', at: NOW - 2 * HOUR_MS, channelId: AGORA, weight: 1 }], {
+    now: NOW,
+    maxStored: 1,
+  });
   assert.deepEqual(countsOf(lowered), counts({ evicted: 2, overCap: 1 }));
-  assert.deepEqual(lowered.value.lines.map((l) => l.id), [3]);
+  assert.deepEqual(
+    lowered.value.lines.map((l) => l.id),
+    [3]
+  );
 });
 
 test('recent: at most maxNew lines are taken from one batch', () => {
@@ -295,14 +383,17 @@ test('recent: at most maxNew lines are taken from one batch', () => {
       { text: 'δ', at: NOW, channelId: AGORA },
       { text: 'Α', at: NOW, channelId: AGORA },
     ],
-    { now: NOW, maxNew: 3 },
+    { now: NOW, maxNew: 3 }
   );
   assert.deepEqual(
     countsOf(result),
     counts({ added: 3, noChannel: 1, duplicate: 2, overCap: 1 }),
-    'a duplicate past the cap still counts as a duplicate',
+    'a duplicate past the cap still counts as a duplicate'
   );
-  assert.deepEqual(result.value.lines.map((l) => l.text), ['υπάρχει', 'α', 'β', 'γ']);
+  assert.deepEqual(
+    result.value.lines.map((l) => l.text),
+    ['υπάρχει', 'α', 'β', 'γ']
+  );
 
   const none = mergeRecent(emptyRecent(), [{ text: 'α', at: NOW, channelId: AGORA }], { now: NOW, maxNew: 0 });
   assert.deepEqual(countsOf(none), counts({ overCap: 1 }));
@@ -317,7 +408,11 @@ test('recent: remove takes stored ids only', () => {
   });
   assert.equal(result.removed, 2);
   assert.equal(result.added, 1);
-  assert.deepEqual(result.value.lines.map((l) => l.id), [1, 4], 'the id given to the new line in the same call is not removed');
+  assert.deepEqual(
+    result.value.lines.map((l) => l.id),
+    [1, 4],
+    'the id given to the new line in the same call is not removed'
+  );
   assert.equal(result.value.nextId, 5);
 
   const nothing = mergeRecent(before, [], { now: NOW, removeIds: 'όλα' });
@@ -335,18 +430,21 @@ test('recent: settings follow config.json and features.recent missing counts as 
       maxNew: config.memory.maxNewRecent,
       chars: config.memory.recentChars,
       shown: config.memory.recentShown,
-    },
+    }
   );
 
   assert.deepEqual(recentSettings({}), { ...RECENT_DEFAULTS, clampTolerance: undefined });
   assert.deepEqual(recentSettings({ features: {} }), { ...RECENT_DEFAULTS, clampTolerance: undefined });
   assert.equal(recentSettings({ features: { recent: false } }), null);
-  assert.deepEqual(recentSettings({ features: { recent: true }, memory: { recentHours: 48, maxNewRecent: 0, clampTolerance: 1.1 } }), {
-    ...RECENT_DEFAULTS,
-    hours: 48,
-    maxNew: 0,
-    clampTolerance: 1.1,
-  });
+  assert.deepEqual(
+    recentSettings({ features: { recent: true }, memory: { recentHours: 48, maxNewRecent: 0, clampTolerance: 1.1 } }),
+    {
+      ...RECENT_DEFAULTS,
+      hours: 48,
+      maxNew: 0,
+      clampTolerance: 1.1,
+    }
+  );
   assert.deepEqual(recentSettings(config), { ...RECENT_DEFAULTS, clampTolerance: config.memory.clampTolerance });
 });
 
@@ -358,7 +456,15 @@ test('recent: a hand-edited unit with a broken line is healed on read and not re
   writeRaw(file, {
     nextId: 2,
     lines: [
-      { id: 1, at: NOW - HOUR_MS, addedAt: NOW_ISO, channelId: AGORA, text: `<@${ELENI}> έφερε γλυκά`, who: [NIKOS], weight: 9 },
+      {
+        id: 1,
+        at: NOW - HOUR_MS,
+        addedAt: NOW_ISO,
+        channelId: AGORA,
+        text: `<@${ELENI}> έφερε γλυκά`,
+        who: [NIKOS],
+        weight: 9,
+      },
       { id: 2, at: 'χθες', channelId: AGORA, text: 'χωρίς ώρα', weight: 2 },
       { id: 3, at: NOW, channelId: AGORA, text: '   ', weight: 2 },
       { id: 'τέσσερα', at: NOW, channelId: AGORA, text: 'χωρίς αριθμό', weight: 2 },
@@ -375,7 +481,15 @@ test('recent: a hand-edited unit with a broken line is healed on read and not re
   assert.deepEqual(value, {
     nextId: 9,
     lines: [
-      { id: 1, at: NOW - HOUR_MS, addedAt: NOW_ISO, channelId: AGORA, text: `<@${ELENI}> έφερε γλυκά`, who: [ELENI], weight: 3 },
+      {
+        id: 1,
+        at: NOW - HOUR_MS,
+        addedAt: NOW_ISO,
+        channelId: AGORA,
+        text: `<@${ELENI}> έφερε γλυκά`,
+        who: [ELENI],
+        weight: 3,
+      },
       { id: 7, at: NOW, addedAt: null, channelId: KIPOS, text: 'κανονική σε δύο', who: [], weight: 2 },
       { id: 8, at: NOW, addedAt: null, channelId: KIPOS, text: 'ίδιο αριθμό', who: [], weight: 1 },
     ],
@@ -390,8 +504,18 @@ test('recent: a hand-edited unit with a broken line is healed on read and not re
   assert.deepEqual(normalizeRecent({ nextId: 50, lines: [] }), { nextId: 50, lines: [] });
 
   // a repeated id is healed from the stored nextId on, never with an id a gone line once held
-  const healed = normalizeRecent({ nextId: 50, lines: [line(7, { text: 'πρώτη' }), line(7, { text: 'δεύτερη' }), line(7, { text: 'τρίτη' })] });
-  assert.deepEqual(healed.lines.map((l) => [l.id, l.text]), [[7, 'πρώτη'], [50, 'δεύτερη'], [51, 'τρίτη']]);
+  const healed = normalizeRecent({
+    nextId: 50,
+    lines: [line(7, { text: 'πρώτη' }), line(7, { text: 'δεύτερη' }), line(7, { text: 'τρίτη' })],
+  });
+  assert.deepEqual(
+    healed.lines.map((l) => [l.id, l.text]),
+    [
+      [7, 'πρώτη'],
+      [50, 'δεύτερη'],
+      [51, 'τρίτη'],
+    ]
+  );
   assert.equal(healed.nextId, 52);
   assert.deepEqual(normalizeRecent(healed), healed);
 });
@@ -411,8 +535,15 @@ test('store: lines a hand edit broke are logged once as a count on load, never b
   writeRaw(recentFileOf(dir, 'g4'), stored([line(1), line(1, { text: 'ίδιο αριθμό' })]));
   const store = createStore({ dataDir: dir, memoryDb: memoryOf(dir) });
 
-  const { result, logs } = await withCapturedLogs(() => [store.getRecent('g1'), store.getRecent('g1'), store.applyRecentOps('g1', [], { now: NOW })]);
-  assert.deepEqual(result[0].lines.map((l) => l.text), ['μένει']);
+  const { result, logs } = await withCapturedLogs(() => [
+    store.getRecent('g1'),
+    store.getRecent('g1'),
+    store.applyRecentOps('g1', [], { now: NOW }),
+  ]);
+  assert.deepEqual(
+    result[0].lines.map((l) => l.text),
+    ['μένει']
+  );
   const dropped = logs.filter((entry) => entry.msg === 'store: recent lines dropped');
   assert.equal(dropped.length, 1, 'logged on the read that loads the file only');
   assert.equal(dropped[0].level, 'warn');
@@ -420,14 +551,18 @@ test('store: lines a hand edit broke are logged once as a count on load, never b
   assert.equal(dropped[0].dropped, 2);
   assert.ok(!JSON.stringify(logs).includes('λέξεις') && !JSON.stringify(logs).includes('μένει'), 'counts only');
 
-  const { logs: more } = await withCapturedLogs(() => ['g2', 'g3', 'g4', 'g5'].map((guildId) => store.getRecent(guildId)));
+  const { logs: more } = await withCapturedLogs(() =>
+    ['g2', 'g3', 'g4', 'g5'].map((guildId) => store.getRecent(guildId))
+  );
   assert.deepEqual(
-    more.filter((entry) => entry.msg.startsWith('store: recent')).map((entry) => [entry.msg, entry.guildId, entry.reason ?? entry.dropped]),
+    more
+      .filter((entry) => entry.msg.startsWith('store: recent'))
+      .map((entry) => [entry.msg, entry.guildId, entry.reason ?? entry.dropped]),
     [
       ['store: recent store replaced', 'g2', 'malformed'],
       ['store: recent store replaced', 'g3', 'malformed'],
     ],
-    'a healed id and a missing file log nothing',
+    'a healed id and a missing file log nothing'
   );
 });
 
@@ -440,14 +575,21 @@ test('recent: liveRecent shows only the lines inside the window', () => {
     line(3, { at: NOW - 72 * HOUR_MS }),
     line(4, { at: NOW - 30 * HOUR_MS }),
   ];
-  assert.deepEqual(liveRecent(lines, { now: NOW, hours: 72 }).map((l) => l.id), [2, 3, 4], 'stored order, the edge included');
-  assert.deepEqual(liveRecent(lines, { now: NOW, hours: 24 }).map((l) => l.id), [2]);
+  assert.deepEqual(
+    liveRecent(lines, { now: NOW, hours: 72 }).map((l) => l.id),
+    [2, 3, 4],
+    'stored order, the edge included'
+  );
+  assert.deepEqual(
+    liveRecent(lines, { now: NOW, hours: 24 }).map((l) => l.id),
+    [2]
+  );
   assert.equal(lines.length, 4, 'never mutated');
 });
 
 // --- purgeRecentFor --------------------------------------------------------------
 
-test('recent: purge removes lines with the member\'s token or a whole-word stored name', () => {
+test("recent: purge removes lines with the member's token or a whole-word stored name", () => {
   const before = stored([
     line(1, { text: `<@${ELENI}> χάρισε έναν βάτραχο` }),
     line(2, { text: 'η Ελένη ήρθε αργά' }),
@@ -462,7 +604,11 @@ test('recent: purge removes lines with the member\'s token or a whole-word store
 
   const { value, removed } = purgeRecentFor(before, ELENI, ['Ελένη', 'Βάτος', 'Λι', '', null, 42]);
   assert.equal(removed, 5);
-  assert.deepEqual(value.lines.map((l) => l.id), [4, 5, 7], 'a name inside a longer word and a name under 3 letters remove nothing');
+  assert.deepEqual(
+    value.lines.map((l) => l.id),
+    [4, 5, 7],
+    'a name inside a longer word and a name under 3 letters remove nothing'
+  );
   assert.equal(value.nextId, before.nextId);
   assert.deepEqual(before, snapshot, 'never mutated');
 
@@ -471,10 +617,13 @@ test('recent: purge removes lines with the member\'s token or a whole-word store
   // an id outside the snowflake range forms no token `who` holds: the text is searched for it
   const odd = stored([line(1, { text: 'μίλησε με <@u1>' }), line(2, { text: 'μίλησε με <@u10>' })]);
   assert.deepEqual(odd.lines[0].who, []);
-  assert.deepEqual(purgeRecentFor(odd, 'u1', []).value.lines.map((l) => l.id), [2]);
+  assert.deepEqual(
+    purgeRecentFor(odd, 'u1', []).value.lines.map((l) => l.id),
+    [2]
+  );
 });
 
-test('recent: purge counts only letters and digits toward a name\'s minimum, so a symbol-only name removes nothing', () => {
+test("recent: purge counts only letters and digits toward a name's minimum, so a symbol-only name removes nothing", () => {
   const before = stored([
     line(1, { text: 'ήσυχο βράδυ -_- για όλους' }),
     line(2, { text: 'τι έγινε ???' }),
@@ -487,7 +636,10 @@ test('recent: purge counts only letters and digits toward a name\'s minimum, so 
   assert.equal(removed, 0, 'no name with three letters or digits');
   assert.equal(value.lines.length, 6);
 
-  assert.deepEqual(purgeRecentFor(before, '333333333333333333', ['-_-', 'Ζωή-3']).value.lines.map((l) => l.id), [1, 2, 3, 4, 6]);
+  assert.deepEqual(
+    purgeRecentFor(before, '333333333333333333', ['-_-', 'Ζωή-3']).value.lines.map((l) => l.id),
+    [1, 2, 3, 4, 6]
+  );
 });
 
 // --- recentView: the view of the last hours ------------------------------------------------
@@ -538,45 +690,93 @@ test('recent view: a stored moment needs its addedAt and its date inside the win
   const storedAfter = moment('αποθηκεύτηκε μετά', { addedAt: new Date(NOW + 1).toISOString() });
   const future = moment('μεθαύριο', { date: '2026-10-07', addedAt: undefined });
   const broken = moment('χωρίς ημερομηνία', { date: '4 Οκτ' });
-  const profiles = [{ id: NIKOS, names: ['Nikos'], episodes: [sameDay, dayBefore, storedBefore, oldDate, storedAfter, future, broken] }];
+  const profiles = [
+    { id: NIKOS, names: ['Nikos'], episodes: [sameDay, dayBefore, storedBefore, oldDate, storedAfter, future, broken] },
+  ];
   assert.deepEqual(
     shapeOf(recentView({ lines: [], profiles, now: NOW, hours: 72, isShown: ALL })),
     ['την ίδια μέρα'],
-    'stored before the window, an old date stored lately, stored after now: all out',
+    'stored before the window, an old date stored lately, stored after now: all out'
   );
   const atStart = moment('στην αρχή', { date: '2026-10-02', addedAt: '2026-10-02T12:00:00.000Z' });
-  assert.deepEqual(shapeOf(recentView({ lines: [], profiles: [{ id: NIKOS, names: ['Nikos'], episodes: [atStart] }], now: NOW, hours: 72, isShown: ALL })), ['στην αρχή']);
+  assert.deepEqual(
+    shapeOf(
+      recentView({
+        lines: [],
+        profiles: [{ id: NIKOS, names: ['Nikos'], episodes: [atStart] }],
+        now: NOW,
+        hours: 72,
+        isShown: ALL,
+      })
+    ),
+    ['στην αρχή']
+  );
 
   // The window's start at the last instant of 2026-10-02 still holds its day; one millisecond later it does not.
   const edge = Date.parse('2026-10-05T23:59:59.999Z');
   const days = [{ id: NIKOS, names: ['Nikos'], episodes: [sameDay, dayBefore] }];
-  assert.deepEqual(shapeOf(recentView({ lines: [], profiles: days, now: edge, hours: 72, isShown: ALL })), ['την ίδια μέρα']);
+  assert.deepEqual(shapeOf(recentView({ lines: [], profiles: days, now: edge, hours: 72, isShown: ALL })), [
+    'την ίδια μέρα',
+  ]);
   assert.deepEqual(shapeOf(recentView({ lines: [], profiles: days, now: edge + 1, hours: 72, isShown: ALL })), []);
 
   // No stored time, or one that does not parse: the date alone, counted until the end of its day.
-  const dateOnly = [moment('χωρίς ώρα', { date: '2026-10-02', addedAt: undefined, weight: 4 }), moment('άκυρη ώρα', { date: '2026-10-02', addedAt: 'χθες' })];
-  const byDate = (now) => shapeOf(recentView({ lines: [], profiles: [{ id: NIKOS, names: ['Nikos'], episodes: dateOnly }], now, hours: 72, isShown: ALL }));
+  const dateOnly = [
+    moment('χωρίς ώρα', { date: '2026-10-02', addedAt: undefined, weight: 4 }),
+    moment('άκυρη ώρα', { date: '2026-10-02', addedAt: 'χθες' }),
+  ];
+  const byDate = (now) =>
+    shapeOf(
+      recentView({
+        lines: [],
+        profiles: [{ id: NIKOS, names: ['Nikos'], episodes: dateOnly }],
+        now,
+        hours: 72,
+        isShown: ALL,
+      })
+    );
   assert.deepEqual(byDate(NOW), ['χωρίς ώρα', 'άκυρη ώρα']);
   assert.deepEqual(byDate(edge), ['χωρίς ώρα', 'άκυρη ώρα']);
   assert.deepEqual(byDate(edge + 1), []);
-  const view = recentView({ lines: [], profiles: [{ id: NIKOS, names: ['Nikos'], episodes: [sameDay] }], now: NOW, hours: 72, isShown: ALL });
-  assert.deepEqual(view.items.map((item) => item.at), [Date.parse('2026-10-02T12:00:00Z')], 'placed at noon UTC of its date');
+  const view = recentView({
+    lines: [],
+    profiles: [{ id: NIKOS, names: ['Nikos'], episodes: [sameDay] }],
+    now: NOW,
+    hours: 72,
+    isShown: ALL,
+  });
+  assert.deepEqual(
+    view.items.map((item) => item.at),
+    [Date.parse('2026-10-02T12:00:00Z')],
+    'placed at noon UTC of its date'
+  );
 });
 
 test("recent view: a moment dated the server's today just after its midnight is in, in a zone ahead of UTC", () => {
   // 01:30 on 2026-10-05 three hours ahead of UTC is 22:30 UTC on 2026-10-04: the UTC day of the date has not begun.
   const now = Date.UTC(2026, 9, 4, 22, 30);
-  const today = moment('σήμερα μετά τα μεσάνυχτα', { date: '2026-10-05', addedAt: new Date(now - 30 * 60_000).toISOString() });
+  const today = moment('σήμερα μετά τα μεσάνυχτα', {
+    date: '2026-10-05',
+    addedAt: new Date(now - 30 * 60_000).toISOString(),
+  });
   const todayByDate = moment('σήμερα, μόνο ημερομηνία', { date: '2026-10-05', addedAt: undefined });
   const tomorrow = moment('αύριο', { date: '2026-10-06', addedAt: undefined });
   const twoAhead = moment('μεθαύριο', { date: '2026-10-07', addedAt: undefined });
   const profiles = [{ id: NIKOS, names: ['Nikos'], episodes: [today, todayByDate, tomorrow, twoAhead] }];
-  assert.deepEqual(shapeOf(recentView({ lines: [], profiles, now, hours: 72, isShown: ALL })), ['σήμερα μετά τα μεσάνυχτα', 'σήμερα, μόνο ημερομηνία']);
+  assert.deepEqual(shapeOf(recentView({ lines: [], profiles, now, hours: 72, isShown: ALL })), [
+    'σήμερα μετά τα μεσάνυχτα',
+    'σήμερα, μόνο ημερομηνία',
+  ]);
 });
 
 test('recent view: perMember sets how many moments of one member are offered', () => {
-  const nikos = { id: NIKOS, names: ['Nikos'], episodes: [moment('ν1', { weight: 5 }), moment('ν2', { weight: 4 }), moment('ν3', { weight: 3 })] };
-  const view = (perMember) => shapeOf(recentView({ lines: [], profiles: [nikos], now: NOW, hours: 72, isShown: ALL, perMember }));
+  const nikos = {
+    id: NIKOS,
+    names: ['Nikos'],
+    episodes: [moment('ν1', { weight: 5 }), moment('ν2', { weight: 4 }), moment('ν3', { weight: 3 })],
+  };
+  const view = (perMember) =>
+    shapeOf(recentView({ lines: [], profiles: [nikos], now: NOW, hours: 72, isShown: ALL, perMember }));
   assert.deepEqual(view(1), ['ν1']);
   assert.deepEqual(view(3), ['ν1', 'ν2', 'ν3']);
   assert.deepEqual(view(0), [], '0: no moment');
@@ -599,24 +799,56 @@ test('recent view: lines about the focus come first, then the others heavier the
   const profiles = [{ id: NIKOS, names: ['Nikos'], episodes: [moment('στιγμή', { weight: 5 })] }];
   const view = recentView({ lines, profiles, now: NOW, hours: 72, focusIds: [ELENI], isShown: ALL });
   assert.deepEqual(shapeOf(view), [4, 3, 2, 1, 'στιγμή']);
-  assert.deepEqual(view.items.map((item) => item.focus), [true, false, false, false, false]);
-  assert.deepEqual(view.items.map((item) => item.at).slice(0, 4), [NOW - 30 * HOUR_MS, NOW - 2 * HOUR_MS, NOW - 5 * HOUR_MS, NOW - HOUR_MS]);
+  assert.deepEqual(
+    view.items.map((item) => item.focus),
+    [true, false, false, false, false]
+  );
+  assert.deepEqual(view.items.map((item) => item.at).slice(0, 4), [
+    NOW - 30 * HOUR_MS,
+    NOW - 2 * HOUR_MS,
+    NOW - 5 * HOUR_MS,
+    NOW - HOUR_MS,
+  ]);
 });
 
 test('recent view: at most two episodes per member, the focus members first', () => {
   const nikos = {
     id: NIKOS,
     names: ['Nikos'],
-    episodes: [moment('ν1', { weight: 5 }), moment('ν2', { weight: 4 }), moment('ν3', { weight: 5, date: '2026-10-03' })],
+    episodes: [
+      moment('ν1', { weight: 5 }),
+      moment('ν2', { weight: 4 }),
+      moment('ν3', { weight: 5, date: '2026-10-03' }),
+    ],
   };
   const zoi = {
     id: ZOI,
     names: ['Zoí'],
-    episodes: [moment('ζ1', { weight: 1 }), moment('ζ2', { weight: 2 }), moment('ζ3', { weight: 1, date: '2026-10-03' })],
+    episodes: [
+      moment('ζ1', { weight: 1 }),
+      moment('ζ2', { weight: 2 }),
+      moment('ζ3', { weight: 1, date: '2026-10-03' }),
+    ],
   };
-  const view = recentView({ lines: [], profiles: [nikos, zoi], now: NOW, hours: 72, focusIds: new Set([ZOI]), isShown: ALL });
-  assert.deepEqual(shapeOf(view), ['ζ2', 'ζ1', 'ν1', 'ν3'], "the focus member's two, heaviest then newest, then the other member's two");
-  assert.deepEqual(shapeOf(recentView({ lines: [], profiles: [nikos, zoi], now: NOW, hours: 72, isShown: ALL })), ['ν1', 'ν3', 'ζ2', 'ζ1']);
+  const view = recentView({
+    lines: [],
+    profiles: [nikos, zoi],
+    now: NOW,
+    hours: 72,
+    focusIds: new Set([ZOI]),
+    isShown: ALL,
+  });
+  assert.deepEqual(
+    shapeOf(view),
+    ['ζ2', 'ζ1', 'ν1', 'ν3'],
+    "the focus member's two, heaviest then newest, then the other member's two"
+  );
+  assert.deepEqual(shapeOf(recentView({ lines: [], profiles: [nikos, zoi], now: NOW, hours: 72, isShown: ALL })), [
+    'ν1',
+    'ν3',
+    'ζ2',
+    'ζ1',
+  ]);
 });
 
 test('recent view: a line whose channel the audience refuses is hidden and counted; no predicate shows no line', () => {
@@ -625,12 +857,16 @@ test('recent view: a line whose channel the audience refuses is hidden and count
   assert.deepEqual(shapeOf(view), [1]);
   assert.equal(view.hidden, 1);
   const none = recentView({ lines, profiles: [], now: NOW, hours: 72 });
-  assert.deepEqual([none.items.length, none.hidden], [0, 2], 'the audience is the caller\'s to give');
+  assert.deepEqual([none.items.length, none.hidden], [0, 2], "the audience is the caller's to give");
 });
 
 test('recent view: an excluded episode is left out and counted, the rest of that member stay', () => {
   const shown = moment('ήδη αλλού', { weight: 5 });
-  const nikos = { id: NIKOS, names: ['Nikos'], episodes: [shown, moment('η επόμενη', { weight: 2 }), moment('η τελευταία', { weight: 1 })] };
+  const nikos = {
+    id: NIKOS,
+    names: ['Nikos'],
+    episodes: [shown, moment('η επόμενη', { weight: 2 }), moment('η τελευταία', { weight: 1 })],
+  };
   const excludeEpisodeKeys = new Set([episodeKey(NIKOS, shown)]);
   const view = recentView({ lines: [], profiles: [nikos], now: NOW, hours: 72, excludeEpisodeKeys, isShown: ALL });
   assert.deepEqual(shapeOf(view), ['η επόμενη', 'η τελευταία']);
@@ -659,17 +895,28 @@ test('recent: eviction returns the dropped items with their itemId', () => {
   const removed = line(2, { text: 'ένα café', itemId: 'rc-removed' });
   const light = line(3, { text: 'ελαφρύ', weight: 1, itemId: 'rc-light' });
   const heavy = line(4, { text: 'βαρύ', weight: 3, itemId: 'rc-heavy' });
-  const result = mergeRecent(stored([old, removed, light, heavy]), [{ text: 'νέο', at: NOW, channelId: AGORA, weight: 3 }], {
-    now: NOW,
-    hours: 24,
-    maxStored: 2,
-    removeIds: [2],
-  });
+  const result = mergeRecent(
+    stored([old, removed, light, heavy]),
+    [{ text: 'νέο', at: NOW, channelId: AGORA, weight: 3 }],
+    {
+      now: NOW,
+      hours: 24,
+      maxStored: 2,
+      removeIds: [2],
+    }
+  );
   assert.equal(result.expired, 1);
   assert.equal(result.removed, 1);
   assert.equal(result.evicted, 1);
-  assert.deepEqual(result.droppedLines.map((l) => l.itemId), ['rc-old', 'rc-removed', 'rc-light'], 'expired, removed, evicted');
-  assert.deepEqual(result.value.lines.map((l) => l.itemId), ['rc-heavy', undefined]);
+  assert.deepEqual(
+    result.droppedLines.map((l) => l.itemId),
+    ['rc-old', 'rc-removed', 'rc-light'],
+    'expired, removed, evicted'
+  );
+  assert.deepEqual(
+    result.value.lines.map((l) => l.itemId),
+    ['rc-heavy', undefined]
+  );
   assert.deepEqual(mergeRecent(stored([heavy]), [], { now: NOW }).droppedLines, []);
   assert.equal(normalizeRecent(stored([heavy])).lines[0].itemId, 'rc-heavy', 'normalizing keeps an itemId');
   assert.equal('itemId' in normalizeRecent(stored([line(5)])).lines[0], false, 'and adds none');

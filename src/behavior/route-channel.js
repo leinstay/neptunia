@@ -36,7 +36,18 @@ import {
  *   discord: object }} params
  * @returns {{ lines: string[], ids: string[] }}
  */
-export function routeChannelOffer({ store, guildId, channel, guild = channel?.guild ?? null, partner = null, candidate, config, settings, now, discord }) {
+export function routeChannelOffer({
+  store,
+  guildId,
+  channel,
+  guild = channel?.guild ?? null,
+  partner = null,
+  candidate,
+  config,
+  settings,
+  now,
+  discord,
+}) {
   const { checkPull } = discord;
   const check = (id) => {
     try {
@@ -85,13 +96,24 @@ export function routeChannelOffer({ store, guildId, channel, guild = channel?.gu
  *   config?: object }) => Promise<Array<string|{ id: string, direction: 'earlier' }>>}  `guild`: the served guild (default: the channel's).
  */
 export function createChannelRouter({ hot, store, llm, discord, now = Date.now }) {
-  return async function routeChannels({ guildId, channel, guild = channel?.guild ?? null, partner = null, history, trigger = null, triggerKind = null, selfName }) {
+  return async function routeChannels({
+    guildId,
+    channel,
+    guild = channel?.guild ?? null,
+    partner = null,
+    history,
+    trigger = null,
+    triggerKind = null,
+    selfName,
+  }) {
     const channelId = channel?.id ?? null;
     try {
       const config = hot.config;
       const settings = routeSettings(config);
       if (!settings) return [];
-      const allowed = channel?.guild ? routeAllowed({ triggerKind }) : Boolean(guild && partner) && triggerKind === 'private';
+      const allowed = channel?.guild
+        ? routeAllowed({ triggerKind })
+        : Boolean(guild && partner) && triggerKind === 'private';
       if (!allowed) return [];
       const prompt = hot.prompts?.['route-channel'];
       if (typeof prompt !== 'string' || !prompt.trim()) {
@@ -105,7 +127,18 @@ export function createChannelRouter({ hot, store, llm, discord, now = Date.now }
       }
 
       const at = now();
-      const { lines, ids } = routeChannelOffer({ store, guildId, channel, guild, partner, candidate, config, settings, now: at, discord });
+      const { lines, ids } = routeChannelOffer({
+        store,
+        guildId,
+        channel,
+        guild,
+        partner,
+        candidate,
+        config,
+        settings,
+        now: at,
+        discord,
+      });
       if (lines.length === 0) return [];
 
       const { transcriptBlock, candidateBlock } = routeContext({
@@ -123,15 +156,32 @@ export function createChannelRouter({ hot, store, llm, discord, now = Date.now }
       try {
         completion = await llm.complete(messages, {
           model: roleModel(config, 'analyzer', 'route-channel'),
-          ...helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: settings.maxOutputTokens, purpose: 'route-channel' }),
+          ...helperRequestOptions(config, {
+            role: 'analyzer',
+            maxOutputTokens: settings.maxOutputTokens,
+            purpose: 'route-channel',
+          }),
         });
       } catch (err) {
-        log.warn('route: failed', { channel: channelId, reason: railReason(err), status: err?.statusCode ?? null, name: err?.name ?? null });
+        log.warn('route: failed', {
+          channel: channelId,
+          reason: railReason(err),
+          status: err?.statusCode ?? null,
+          name: err?.name ?? null,
+        });
         return [];
       }
       const { index, reason, direction } = parseRouteAnswer(completion?.text, ids.length);
       const pick = index === null ? null : ids[index - 1];
-      log.info('route: classified', { channel: channelId, kind: triggerKind ?? null, channels: ids.length, pick, parse: reason, direction: pick ? direction : null, ms: now() - at });
+      log.info('route: classified', {
+        channel: channelId,
+        kind: triggerKind ?? null,
+        channels: ids.length,
+        pick,
+        parse: reason,
+        direction: pick ? direction : null,
+        ms: now() - at,
+      });
       if (!pick) return [];
       return direction === 'earlier' ? [{ id: pick, direction }] : [pick];
     } catch (err) {

@@ -25,12 +25,49 @@ import { clampAtBoundary } from '../memory/clamp.js';
 import { DAY_MS, utcDay, zonedDay } from '../time.js';
 import { formatClock } from '../format.js';
 import { liveRecent, recentSettings } from '../memory/recent.js';
-import { JOURNAL_N_DEFAULT, JOURNAL_N_MAX, JOURNAL_DAY_RE, treeSize, NONE, isoDay, todayUtc, onOff, MEMORY_SHOW_DEFAULT_LIMIT, MEMORY_SHOW_MAX_LIMIT, dateMs, buildProfileSummary, orderedSectionLines, rawMemoryShowView, interestLine, detailLine, episodeLine, aliasLine, affinityView, channelTopWritersText, channelTableLine, numberedNotes, archivedText, messageRefOf } from './shared.js';
+import {
+  JOURNAL_N_DEFAULT,
+  JOURNAL_N_MAX,
+  JOURNAL_DAY_RE,
+  treeSize,
+  NONE,
+  isoDay,
+  todayUtc,
+  onOff,
+  MEMORY_SHOW_DEFAULT_LIMIT,
+  MEMORY_SHOW_MAX_LIMIT,
+  dateMs,
+  buildProfileSummary,
+  orderedSectionLines,
+  rawMemoryShowView,
+  interestLine,
+  detailLine,
+  episodeLine,
+  aliasLine,
+  affinityView,
+  channelTopWritersText,
+  channelTableLine,
+  numberedNotes,
+  archivedText,
+  messageRefOf,
+} from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
 import { CODE } from '../skills/codes.js';
 
 const handlers = perEnv((env) => {
-  const { hot, store, discord, archive, journal, dataDir, assertNotPaused, freshenIfPaused, requireGuildId, tokenResolver, requireProfile } = env;
+  const {
+    hot,
+    store,
+    discord,
+    archive,
+    journal,
+    dataDir,
+    assertNotPaused,
+    freshenIfPaused,
+    requireGuildId,
+    tokenResolver,
+    requireProfile,
+  } = env;
 
   /**
    * Sectioned, human-readable view of one member's profile — see
@@ -227,7 +264,10 @@ const handlers = perEnv((env) => {
     };
     const lines = [...live]
       .sort((a, b) => b.at - a.at || (Number(b.id) || 0) - (Number(a.id) || 0))
-      .map((line) => `${zonedDay(line.at, timezone)} ${formatClock(line.at, timezone)}  ${channelText(line.channelId)}  w${line.weight}  ${resolve(line.text)}`);
+      .map(
+        (line) =>
+          `${zonedDay(line.at, timezone)} ${formatClock(line.at, timezone)}  ${channelText(line.channelId)}  w${line.weight}  ${resolve(line.text)}`
+      );
     return [`recent lines: ${live.length} live, window ${settings.hours} h`, ...lines].join('\n');
   }
 
@@ -243,11 +283,15 @@ const handlers = perEnv((env) => {
     const guildId = requireGuildId(context);
     if (!archive) return 'the archive is not available';
     const kind = args?.kind ?? null;
-    if (kind !== null && !ARCHIVE_KINDS.includes(kind)) throw invalid(`unknown kind; one of: ${ARCHIVE_KINDS.join(', ')}`);
+    if (kind !== null && !ARCHIVE_KINDS.includes(kind))
+      throw invalid(`unknown kind; one of: ${ARCHIVE_KINDS.join(', ')}`);
     const n = Number.isInteger(args?.n) ? Math.min(100, Math.max(1, args.n)) : 20;
     const userId = args?.userId ? String(args.userId) : null;
     const newest = [];
-    for await (const entry of archive.iterate(guildId, { scope: userId ? { user: userId } : null, kinds: kind ? [kind] : null })) {
+    for await (const entry of archive.iterate(guildId, {
+      scope: userId ? { user: userId } : null,
+      kinds: kind ? [kind] : null,
+    })) {
       if (!userId && typeof entry?.scope?.user === 'string') continue;
       newest.push(entry);
       if (newest.length > n) newest.shift();
@@ -256,7 +300,10 @@ const handlers = perEnv((env) => {
     const { resolve } = tokenResolver(guildId);
     return newest
       .reverse()
-      .map((entry) => `${String(entry.recordedAt ?? '').slice(0, 10)}  ${entry.event}  ${entry.itemKind}  ${entry.itemId}  ${clampAtBoundary(archivedText(entry, resolve), 160)}`)
+      .map(
+        (entry) =>
+          `${String(entry.recordedAt ?? '').slice(0, 10)}  ${entry.event}  ${entry.itemKind}  ${entry.itemId}  ${clampAtBoundary(archivedText(entry, resolve), 160)}`
+      )
       .join('\n');
   }
 
@@ -282,7 +329,13 @@ const handlers = perEnv((env) => {
       throw new Error(`a ${latest.itemKind} cannot be restored`);
     }
     const item = typeof result.item === 'string' ? { itemId: latest.itemId, text: result.item } : result.item;
-    const line = archiveEntry(item, { itemKind: latest.itemKind, event: 'restored', scope: latest.scope, by: 'owner', participants: latest.participants });
+    const line = archiveEntry(item, {
+      itemKind: latest.itemKind,
+      event: 'restored',
+      scope: latest.scope,
+      by: 'owner',
+      participants: latest.participants,
+    });
     const privateUserId = latest.scope?.private === true ? latest.scope.user : null;
     try {
       await archive.append(guildId, [line], privateUserId ? { privateUserId } : {});
@@ -309,7 +362,11 @@ const handlers = perEnv((env) => {
       if (!/^\d{1,20}$/.test(messageId)) throw invalid('a message id or link is required', CODE.UNKNOWN_MESSAGE);
       const at = discord.snowflakeTime(messageId);
       const found = typeof journal.findTurn === 'function' ? await journal.findTurn(guildId, { messageId, at }) : null;
-      if (!found) throw invalid(`no turn of the persona posted message ${messageId} (searched ${utcDay(at)} and ${utcDay(at + DAY_MS)})`, CODE.NOT_FOUND);
+      if (!found)
+        throw invalid(
+          `no turn of the persona posted message ${messageId} (searched ${utcDay(at)} and ${utcDay(at + DAY_MS)})`,
+          CODE.NOT_FOUND
+        );
       return turnView(found);
     }
     const day = args?.day ?? utcDay(Date.now());
@@ -321,7 +378,10 @@ const handlers = perEnv((env) => {
 
     const records = await journal.read(guildId, { day, kind: kind === 'all' ? null : kind, n });
     if (records.length === 0) return `no journal records on ${day}${kind === 'all' ? '' : ` (${kind})`}`;
-    return [`journal ${day}${kind === 'all' ? '' : ` (${kind})`}: last ${records.length}`, ...records.map(journalLine)].join('\n');
+    return [
+      `journal ${day}${kind === 'all' ? '' : ` (${kind})`}: last ${records.length}`,
+      ...records.map(journalLine),
+    ].join('\n');
   }
 
   /**
@@ -335,16 +395,23 @@ const handlers = perEnv((env) => {
     const root = path.join(dataDir, SNAPSHOTS_DIR);
     const dest = path.join(root, new Date().toISOString().replace(/[:.]/g, '-'));
     // The vault (memory.vaultDir, read now) is the owner's copy of what was forgotten: never copied.
-    const vaultTop = path.relative(dataDir, path.resolve(dataDir, hot.config?.memory?.vaultDir ?? DEFAULT_VAULT_DIR)).split(path.sep)[0];
+    const vaultTop = path
+      .relative(dataDir, path.resolve(dataDir, hot.config?.memory?.vaultDir ?? DEFAULT_VAULT_DIR))
+      .split(path.sep)[0];
     const copy = async () => {
       await fs.promises.mkdir(dest, { recursive: true });
       for (const name of await fs.promises.readdir(dataDir)) {
         if (name === SNAPSHOTS_DIR || name === vaultTop) continue;
-        await fs.promises.cp(path.join(dataDir, name), path.join(dest, name), { recursive: true, errorOnExist: true, force: false });
+        await fs.promises.cp(path.join(dataDir, name), path.join(dest, name), {
+          recursive: true,
+          errorOnExist: true,
+          force: false,
+        });
       }
       return treeSize(dest);
     };
-    const { bytes, files } = typeof journal?.withWriterLock === 'function' ? await journal.withWriterLock(copy) : await copy();
+    const { bytes, files } =
+      typeof journal?.withWriterLock === 'function' ? await journal.withWriterLock(copy) : await copy();
     log.info('admin: memory snapshot', { files, bytes });
     return `Snapshot written: ${dest} (${files} files, ${bytes} bytes).`;
   }
@@ -386,7 +453,10 @@ const handlers = perEnv((env) => {
       today: todayUtc(),
     });
 
-    const section = (title, items, lines) => [`${title} (${items.length} stored):`, ...lines.map((line) => `  ${line}`)];
+    const section = (title, items, lines) => [
+      `${title} (${items.length} stored):`,
+      ...lines.map((line) => `  ${line}`),
+    ];
     const interests = priv.interests ?? [];
     const details = priv.details ?? [];
     const episodes = priv.episodes ?? [];
@@ -407,7 +477,7 @@ const handlers = perEnv((env) => {
           halfLifeDays: memoryCfg.interestHalfLifeDays,
           formatLine: (it) => interestLine(it, resolve),
           dateOf: (it) => dateMs(it.lastSeen ?? it.firstSeen),
-        }),
+        })
       ),
       ...section(
         'details',
@@ -418,14 +488,14 @@ const handlers = perEnv((env) => {
           halfLifeDays: memoryCfg.detailHalfLifeDays,
           formatLine: (d) => detailLine(d, resolve),
           dateOf: (d) => dateMs(d.lastSeen ?? d.firstSeen),
-        }),
+        })
       ),
       ...section(
         'episodes',
         episodes,
         sortEpisodesForDisplay(episodes)
           .slice(0, MEMORY_SHOW_DEFAULT_LIMIT)
-          .map((ep) => episodeLine(ep, resolve)),
+          .map((ep) => episodeLine(ep, resolve))
       ),
     ].join('\n');
   }
@@ -441,7 +511,19 @@ const handlers = perEnv((env) => {
     return affinityView(profile.affinity, tokenResolver(guildId).resolve);
   }
 
-  return { cmdMemoryShow, mainChannelIdSet, cmdMemoryChannel, cmdMemoryServer, cmdMemoryRecent, cmdMemoryArchive, cmdMemoryRestore, cmdMemoryJournal, cmdMemorySnapshot, cmdPrivateShow, cmdMemoryAffinity };
+  return {
+    cmdMemoryShow,
+    mainChannelIdSet,
+    cmdMemoryChannel,
+    cmdMemoryServer,
+    cmdMemoryRecent,
+    cmdMemoryArchive,
+    cmdMemoryRestore,
+    cmdMemoryJournal,
+    cmdMemorySnapshot,
+    cmdPrivateShow,
+    cmdMemoryAffinity,
+  };
 });
 
 defineOp({

@@ -23,14 +23,40 @@ function fakeConfig({ features = {}, caps = {}, participation = {} } = {}) {
       gapMarkerMinutes: 20,
       maxMessageChars: 800,
       ageAfterMinutes: 60,
-      caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000, server: 2500, lore: 1500, recent: 1200, ...caps },
+      caps: {
+        interlocutor: 2500,
+        aboutChat: 2500,
+        people: 4000,
+        neighbors: 3000,
+        server: 2500,
+        lore: 1500,
+        recent: 1200,
+        ...caps,
+      },
       vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0 },
       tempo: { liveMessages10min: 4, deadSilenceMinutes: 45 },
     },
-    features: { vision: true, relationships: true, episodes: true, lore: true, recent: true, participation: true, anchoredWindow: true, ...features },
+    features: {
+      vision: true,
+      relationships: true,
+      episodes: true,
+      lore: true,
+      recent: true,
+      participation: true,
+      anchoredWindow: true,
+      ...features,
+    },
     llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
     memory: { recentHours: 72 },
-    participation: { hours: 72, shown: 4, perChannel: 2, episodeChars: 1800, earlierHours: 3, earlierShown: 3, ...participation },
+    participation: {
+      hours: 72,
+      shown: 4,
+      perChannel: 2,
+      episodeChars: 1800,
+      earlierHours: 3,
+      earlierShown: 3,
+      ...participation,
+    },
   };
 }
 
@@ -46,7 +72,19 @@ const prompts = {
 };
 
 function chatLine(id, ts, overrides = {}) {
-  return { id, ts, channelId: HERE, authorId: `a-${id}`, authorName: `User${id}`, self: false, content: `message ${id}`, attachments: [], stickers: [], replyToId: null, ...overrides };
+  return {
+    id,
+    ts,
+    channelId: HERE,
+    authorId: `a-${id}`,
+    authorName: `User${id}`,
+    self: false,
+    content: `message ${id}`,
+    attachments: [],
+    stickers: [],
+    replyToId: null,
+    ...overrides,
+  };
 }
 
 /** A reply parent the turn fetched from outside the window (src/behavior/turn.js#withReplyParents). */
@@ -78,7 +116,12 @@ function input(overrides = {}) {
     otherProfiles: [],
     channels: [{ id: HERE, name: 'general' }],
     currentChannelId: HERE,
-    participation: { state: { nextId: 20, episodes: [] }, pickedIds: [], audience: () => true, channelName: () => null },
+    participation: {
+      state: { nextId: 20, episodes: [] },
+      pickedIds: [],
+      audience: () => true,
+      channelName: () => null,
+    },
     ...overrides,
   };
 }
@@ -103,14 +146,24 @@ function parentCase() {
 test('anchors: the switch off -- the reply parent stays at the head of <chat>, no <earlier>, the same request as without the switch', () => {
   const { history, trigger } = parentCase();
   const state = { nextId: 20, episodes: [episode('p7', [stored('e1', NOW - 40 * MIN, { self: true, text: 'ναι' })])] };
-  const off = (features) => buildRequest(input({ config: fakeConfig({ features }), history, trigger, participation: { state, audience: () => true } }));
+  const off = (features) =>
+    buildRequest(
+      input({ config: fakeConfig({ features }), history, trigger, participation: { state, audience: () => true } })
+    );
   const request = off({ anchoredWindow: false });
   const text = textOf(request);
   assert.equal(blockOf(text, 'earlier'), null);
-  assert.ok(blockOf(text, 'chat').includes(`#1 [${clock(NOW - 2 * HOUR)}`), 'the parent is the chat\'s first line');
+  assert.ok(blockOf(text, 'chat').includes(`#1 [${clock(NOW - 2 * HOUR)}`), "the parent is the chat's first line");
   assert.deepEqual(request.messages, off({ anchoredWindow: undefined }).messages, 'a missing key is off');
   // With the switch off no stored stretch of this channel changes anything.
-  const bare = buildRequest(input({ config: fakeConfig({ features: { anchoredWindow: false } }), history, trigger, participation: { state: { nextId: 20, episodes: [] }, audience: () => true } }));
+  const bare = buildRequest(
+    input({
+      config: fakeConfig({ features: { anchoredWindow: false } }),
+      history,
+      trigger,
+      participation: { state: { nextId: 20, episodes: [] }, audience: () => true },
+    })
+  );
   assert.deepEqual(request.messages, bare.messages);
   assert.deepEqual(request.seen.parents, ['p1']);
 });
@@ -119,7 +172,10 @@ test('anchors: a reply parent leaves <chat> for <earlier> with its number, the c
   const { history, trigger } = parentCase();
   const request = buildRequest(input({ history, trigger }));
   const text = textOf(request);
-  assert.equal(blockOf(text, 'earlier'), [header, `#1 [${clock(NOW - 2 * HOUR)}] Bob: ποιος έχει το κλειδί;`].join('\n'));
+  assert.equal(
+    blockOf(text, 'earlier'),
+    [header, `#1 [${clock(NOW - 2 * HOUR)}] Bob: ποιος έχει το κλειδί;`].join('\n')
+  );
   const chat = blockOf(text, 'chat');
   assert.ok(chat.includes('(replying to #1, Bob: '), 'the trigger names the parent by its number');
   assert.ok(!chat.includes(`#1 [`), 'the parent line is not in the chat');
@@ -147,10 +203,17 @@ test('anchors: a parent the saved stretch already holds is shown once, inside it
       ]),
     ],
   };
-  const earlier = blockOf(textOf(buildRequest(input({ history, trigger, participation: { state, audience: () => true } }))), 'earlier');
+  const earlier = blockOf(
+    textOf(buildRequest(input({ history, trigger, participation: { state, audience: () => true } }))),
+    'earlier'
+  );
   assert.equal(
     earlier,
-    [header, `#1 [${clock(NOW - 2 * HOUR)}] Bob: ποιος έχει το κλειδί;`, `[${clock(NOW - 2 * HOUR + MIN)}] ${selfLabel}: όχι εγώ`].join('\n'),
+    [
+      header,
+      `#1 [${clock(NOW - 2 * HOUR)}] Bob: ποιος έχει το κλειδί;`,
+      `[${clock(NOW - 2 * HOUR + MIN)}] ${selfLabel}: όχι εγώ`,
+    ].join('\n')
   );
 });
 
@@ -161,7 +224,19 @@ test('anchors: an open request to the persona is marked; a line of hers that ans
       stored('e2', NOW - 49 * MIN, { replyTo: 'e1', text: 'πότε;' }),
     ]);
   const window = [chatLine('m0', NOW - 10 * MIN), chatLine('m1', NOW - MIN)];
-  const run = (history) => blockOf(textOf(buildRequest(input({ history, trigger: history.at(-1), participation: { state: { nextId: 20, episodes: [asked()] }, audience: () => true } }))), 'earlier');
+  const run = (history) =>
+    blockOf(
+      textOf(
+        buildRequest(
+          input({
+            history,
+            trigger: history.at(-1),
+            participation: { state: { nextId: 20, episodes: [asked()] }, audience: () => true },
+          })
+        )
+      ),
+      'earlier'
+    );
   assert.ok(run(window).includes(`Ana: πότε; ${labels.participation.earlierOpen}`), run(window));
   // Her window line posted by the turn that line started: answered.
   const answered = [window[0], chatLine('m2', NOW - 5 * MIN, { self: true, triggerId: 'e2' }), window[1]];
@@ -171,25 +246,49 @@ test('anchors: an open request to the persona is marked; a line of hers that ans
   const history = [parent, window[0], chatLine('m1', NOW - MIN, { replyToId: 'p1' })];
   assert.ok(run(history).includes(`Bob: μπορείς; ${labels.participation.earlierOpen}`), run(history));
   // Without the label the request is ranked the same and carries no mark.
-  const quiet = buildRequest(input({ prompts: { ...prompts, labels: { ...labels, participation: { ...labels.participation, earlierOpen: '' } } }, history: window, trigger: window[1], participation: { state: { nextId: 20, episodes: [asked()] }, audience: () => true } }));
+  const quiet = buildRequest(
+    input({
+      prompts: { ...prompts, labels: { ...labels, participation: { ...labels.participation, earlierOpen: '' } } },
+      history: window,
+      trigger: window[1],
+      participation: { state: { nextId: 20, episodes: [asked()] }, audience: () => true },
+    })
+  );
   assert.ok(blockOf(textOf(quiet), 'earlier').endsWith('Ana: πότε;'));
 });
 
-test('anchors: when the cap bites the trigger\'s parent and an open request win over a newer saved stretch', () => {
+test("anchors: when the cap bites the trigger's parent and an open request win over a newer saved stretch", () => {
   const parent = parentLine('p1', NOW - 2 * HOUR, { authorName: 'Bob', content: 'ποιος έχει το κλειδί;' });
   const history = [parent, chatLine('m0', NOW - 10 * MIN), chatLine('m1', NOW - MIN, { replyToId: 'p1' })];
   const long = 'μακρύ κείμενο '.repeat(20);
   const state = {
     nextId: 20,
     episodes: [
-      episode('p5', [stored('o1', NOW - 90 * MIN, { self: true, text: 'θα το φέρω' }), stored('o2', NOW - 89 * MIN, { replyTo: 'o1', text: 'περιμένω' })]),
-      episode('p6', [stored('n1', NOW - 30 * MIN, { self: true, text: long }), stored('n2', NOW - 29 * MIN, { text: long })]),
+      episode('p5', [
+        stored('o1', NOW - 90 * MIN, { self: true, text: 'θα το φέρω' }),
+        stored('o2', NOW - 89 * MIN, { replyTo: 'o1', text: 'περιμένω' }),
+      ]),
+      episode('p6', [
+        stored('n1', NOW - 30 * MIN, { self: true, text: long }),
+        stored('n2', NOW - 29 * MIN, { text: long }),
+      ]),
     ],
   };
-  const run = (caps) => buildRequest(input({ config: fakeConfig({ caps }), history, trigger: history.at(-1), participation: { state, audience: () => true } }));
+  const run = (caps) =>
+    buildRequest(
+      input({
+        config: fakeConfig({ caps }),
+        history,
+        trigger: history.at(-1),
+        participation: { state, audience: () => true },
+      })
+    );
   const all = blockOf(textOf(run({})), 'earlier');
   assert.ok(all.includes('κλειδί') && all.includes('περιμένω') && all.includes('μακρύ'), all);
-  assert.ok(all.indexOf('κλειδί') < all.indexOf('περιμένω') && all.indexOf('περιμένω') < all.indexOf('μακρύ'), 'shown oldest first');
+  assert.ok(
+    all.indexOf('κλειδί') < all.indexOf('περιμένω') && all.indexOf('περιμένω') < all.indexOf('μακρύ'),
+    'shown oldest first'
+  );
   const used = run({}).stats.earlier.used;
   const tight = blockOf(textOf(run({ earlier: used - 20 })), 'earlier');
   assert.ok(tight.includes('κλειδί') && tight.includes('περιμένω') && !tight.includes('μακρύ'), tight);
@@ -199,10 +298,20 @@ test('anchors: when the cap bites the trigger\'s parent and an open request win 
 
 test('anchors: never in a private chat, nothing without the header label', () => {
   const { history, trigger } = parentCase();
-  const priv = textOf(buildRequest(input({ history, trigger, privateChat: { userId: 'a-m1' }, triggerKind: 'private' })));
+  const priv = textOf(
+    buildRequest(input({ history, trigger, privateChat: { userId: 'a-m1' }, triggerKind: 'private' }))
+  );
   assert.equal(blockOf(priv, 'earlier'), null);
   assert.ok(blockOf(priv, 'chat').includes('#1 ['), 'the parent stays in the chat');
-  const unlabeled = textOf(buildRequest(input({ history, trigger, prompts: { ...prompts, labels: { ...labels, participation: { ...labels.participation, earlierHeader: '' } } } })));
+  const unlabeled = textOf(
+    buildRequest(
+      input({
+        history,
+        trigger,
+        prompts: { ...prompts, labels: { ...labels, participation: { ...labels.participation, earlierHeader: '' } } },
+      })
+    )
+  );
   assert.equal(blockOf(unlabeled, 'earlier'), null);
   assert.ok(blockOf(unlabeled, 'chat').includes('#1 ['), 'without a block the parent is not lost');
 });

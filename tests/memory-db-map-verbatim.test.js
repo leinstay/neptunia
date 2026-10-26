@@ -10,12 +10,30 @@ test('a whole file is one operational row whose kind says which file it is', () 
   const cases = [
     ['voice.json', [], 'voice'],
     ['buffer.json', [], 'buffer'],
-    ['inner.json', { v: 1, stopped: false, stoppedAt: null, queue: [], handled: { inner: { 'wake:intention_due:i1:1': { at: 1, outcome: 'done' } } } }, 'inner'],
-    ['missed.json', { v: 1, candidates: [{ messageId: '1', question: true, turnIds: [], verdict: null }], lastRecoveryAt: { 1: 5 } }, 'missed'],
+    [
+      'inner.json',
+      {
+        v: 1,
+        stopped: false,
+        stoppedAt: null,
+        queue: [],
+        handled: { inner: { 'wake:intention_due:i1:1': { at: 1, outcome: 'done' } } },
+      },
+      'inner',
+    ],
+    [
+      'missed.json',
+      { v: 1, candidates: [{ messageId: '1', question: true, turnIds: [], verdict: null }], lastRecoveryAt: { 1: 5 } },
+      'missed',
+    ],
     ['forgotten.json', { ids: ['1'] }, 'forgotten'],
     ['forgetting/100000000000000001.json', { userId: '100000000000000001', at: 'x', step: 'vectors' }, 'forgetting'],
     ['record/2026-10/ids.json', ['400000000000000001:1'], 'record_ids'],
-    ['record/backfill.json', { selfId: '1', channels: { 2: 'a' }, cursors: { 2: { resume: null, last: null, written: 0, doneUntil: 'x' } } }, 'record_backfill'],
+    [
+      'record/backfill.json',
+      { selfId: '1', channels: { 2: 'a' }, cursors: { 2: { resume: null, last: null, written: 0, doneUntil: 'x' } } },
+      'record_backfill',
+    ],
     ['archive/2026-10.ids.json', ['rc-1:rv-1'], 'archive_ids'],
     ['backfill/state.json', { extract: { done: [], windows: 1 } }, 'backfill'],
     ['backfill/manifest-2026-10.json', { guildId: '3', messages: [{ id: '1', channelId: '2' }] }, 'backfill'],
@@ -39,7 +57,15 @@ test('a text file and every JSON value come back as they were', () => {
 });
 
 test('a line of a JSONL file is owned by its path and position', () => {
-  const trace = { at: '2026-10-20T10:00:00.000Z', channelId: '2', forms: ['x'], who: [], when: null, hits: 0, summary: { answer: null } };
+  const trace = {
+    at: '2026-10-20T10:00:00.000Z',
+    channelId: '2',
+    forms: ['x'],
+    who: [],
+    when: null,
+    hits: 0,
+    summary: { answer: null },
+  };
   const a = roundTrip(verbatim, 'recall-trace.jsonl', trace, { position: 0 });
   const b = roundTrip(verbatim, 'recall-trace.jsonl', trace, { position: 1 });
   assert.deepEqual(a.back, trace);
@@ -51,12 +77,21 @@ test('a line of a JSONL file is owned by its path and position', () => {
 });
 
 const dump = (extra = {}) => ({
-  v: 1, turnId: 'turn-1', attemptId: 0, step: 2, recordedAt: '2026-10-23T10:00:00.000Z', system: 'rules', parts: [{ type: 'text', text: 'hi', cacheSegment: 'a' }],
-  raw: '<think>she waits</think>Hello', usage: { prompt: 1, cached: 0, cacheWrite: 0, completion: 2 },
-  toolCalls: [{ id: 'c1', name: 'recall', arguments: '{}', parsed: {}, parseError: null }], later: [{ role: 'tool', content: [{ type: 'text', text: 'x' }], tool_call_id: 'c1' }], ...extra,
+  v: 1,
+  turnId: 'turn-1',
+  attemptId: 0,
+  step: 2,
+  recordedAt: '2026-10-23T10:00:00.000Z',
+  system: 'rules',
+  parts: [{ type: 'text', text: 'hi', cacheSegment: 'a' }],
+  raw: '<think>she waits</think>Hello',
+  usage: { prompt: 1, cached: 0, cacheWrite: 0, completion: 2 },
+  toolCalls: [{ id: 'c1', name: 'recall', arguments: '{}', parsed: {}, parseError: null }],
+  later: [{ role: 'tool', content: [{ type: 'text', text: 'x' }], tool_call_id: 'c1' }],
+  ...extra,
 });
 
-test('a request dump is kept verbatim and also yields the step\'s answer source', () => {
+test("a request dump is kept verbatim and also yields the step's answer source", () => {
   const rel = 'journal/requests/2026-10-23/turn-1-s2.json';
   const { rows, back } = roundTrip(requests, rel, dump());
   assert.deepEqual(back, dump());
@@ -146,8 +181,18 @@ test('classify gives a month directory as the unit of vectors files and strips a
 });
 
 test('paths that are not memory are listed as skipped, and unknown ones are null', () => {
-  for (const rel of ['state.json', 'usage.json', 'metrics.json', 'mentor/run-1.json', 'recall-eval/q.json', 'vision-compare/a/b.json',
-    'state.json.bak-20260921-124355', 'guild.json.bak-20260924110639', 'media.json.bak-20260923-143629', 'intentions.json.unreadable-1792000000000']) {
+  for (const rel of [
+    'state.json',
+    'usage.json',
+    'metrics.json',
+    'mentor/run-1.json',
+    'recall-eval/q.json',
+    'vision-compare/a/b.json',
+    'state.json.bak-20260921-124355',
+    'guild.json.bak-20260924110639',
+    'media.json.bak-20260923-143629',
+    'intentions.json.unreadable-1792000000000',
+  ]) {
     const found = classify(rel);
     assert.equal(found?.skipped, true, rel);
     assert.equal(typeof found.reason, 'string');

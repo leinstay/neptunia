@@ -54,7 +54,11 @@ function valueText(value) {
   else if (Array.isArray(value)) text = value.filter((item) => ['string', 'number'].includes(typeof item)).join(', ');
   else return '';
   // One line; nothing that closes the mark or opens a tag.
-  text = text.replace(/\s+/g, ' ').replace(/[\[\]<>]/g, ' ').replace(/\s+/g, ' ').trim();
+  text = text
+    .replace(/\s+/g, ' ')
+    .replace(/[\[\]<>]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
   if (!text) return '';
   const chars = Array.from(text);
   const cut = chars.length > VALUE_MAX ? `${chars.slice(0, VALUE_MAX).join('').trimEnd()}${CUT}` : text;

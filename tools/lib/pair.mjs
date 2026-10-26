@@ -22,7 +22,12 @@ export function parseTriggers(text) {
       const line = raw.replace(/#.*$/, '').trim();
       if (!line) return;
       const [channelId, triggerId, turnId, extra] = line.split(/\s+/);
-      if (extra !== undefined || !SNOWFLAKE.test(channelId ?? '') || !SNOWFLAKE.test(triggerId ?? '') || (turnId !== undefined && !TURN_ID.test(turnId))) {
+      if (
+        extra !== undefined ||
+        !SNOWFLAKE.test(channelId ?? '') ||
+        !SNOWFLAKE.test(triggerId ?? '') ||
+        (turnId !== undefined && !TURN_ID.test(turnId))
+      ) {
         throw new Error(`triggers line ${index + 1}: expected "<channelId> <triggerMessageId> [<turnId>]"`);
       }
       out.push({ channelId, triggerId, turnId: turnId ?? null });
@@ -43,7 +48,10 @@ export function pairOrder(n, rng) {
 
 /** `text` safe inside HTML text and attribute values. */
 export function escapeHtml(text) {
-  return String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  return String(text ?? '').replace(
+    /[&<>"']/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]
+  );
 }
 
 /** One answer as sheet HTML: its messages, reactions, GIF, pictures drawn and posts of message calls, or that it stayed silent. */
@@ -51,9 +59,11 @@ function answerHtml(answer) {
   if (!answer) return '<p class="none">(no answer: the request failed)</p>';
   const parts = [];
   for (const text of answer.messages ?? []) parts.push(`<p class="msg">${escapeHtml(text)}</p>`);
-  for (const reaction of answer.reactions ?? []) parts.push(`<p class="act">reaction: ${escapeHtml(reaction.emoji ?? reaction)}</p>`);
+  for (const reaction of answer.reactions ?? [])
+    parts.push(`<p class="act">reaction: ${escapeHtml(reaction.emoji ?? reaction)}</p>`);
   if (answer.gif) parts.push(`<p class="act">gif: ${escapeHtml(answer.gif.id ?? '')}</p>`);
-  for (const drawing of answer.drawings ?? []) parts.push(`<p class="act">drawing: ${escapeHtml(drawing.text ?? '')}</p>`);
+  for (const drawing of answer.drawings ?? [])
+    parts.push(`<p class="act">drawing: ${escapeHtml(drawing.text ?? '')}</p>`);
   for (const post of answer.posts ?? []) parts.push(`<p class="act">posted: ${escapeHtml(post.text ?? '')}</p>`);
   if (parts.length === 0 || answer.skip) parts.push('<p class="none">(stays silent)</p>');
   return parts.join('\n');
@@ -69,8 +79,13 @@ function answerHtml(answer) {
  */
 export function renderSheet(pairs) {
   const items = pairs.map((pair) => {
-    const lines = (pair.context ?? []).map((line) => `<p class="line"><b>${escapeHtml(line.author)}</b>: ${escapeHtml(line.text)}</p>`).join('\n');
-    const choice = SCORES.map((score, i) => `<label><input type="radio" name="${escapeHtml(pair.id)}" value="${score}"> ${['1 better', '2 better', 'even'][i]}</label>`).join(' ');
+    const lines = (pair.context ?? [])
+      .map((line) => `<p class="line"><b>${escapeHtml(line.author)}</b>: ${escapeHtml(line.text)}</p>`)
+      .join('\n');
+    const choice = SCORES.map(
+      (score, i) =>
+        `<label><input type="radio" name="${escapeHtml(pair.id)}" value="${score}"> ${['1 better', '2 better', 'even'][i]}</label>`
+    ).join(' ');
     return [
       `<section class="pair" data-pair="${escapeHtml(pair.id)}">`,
       `<h2>${escapeHtml(pair.id)}</h2>`,
@@ -106,8 +121,15 @@ export function renderSheet(pairs) {
  */
 export function sheetPairIds(html) {
   const ids = [];
-  const unescape = (s) => s.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
-  for (const match of String(html ?? '').matchAll(/<section class="pair" data-pair="([^"]*)">/g)) ids.push(unescape(match[1]));
+  const unescape = (s) =>
+    s
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&');
+  for (const match of String(html ?? '').matchAll(/<section class="pair" data-pair="([^"]*)">/g))
+    ids.push(unescape(match[1]));
   return ids;
 }
 

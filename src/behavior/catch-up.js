@@ -37,8 +37,12 @@ const MAX_FETCH = 100;
  */
 export function catchUpSettings(config) {
   const raw = config?.offlineCatchUp ?? {};
-  const windowMinutes = Number.isFinite(raw.windowMinutes) && raw.windowMinutes >= 0 ? raw.windowMinutes : CATCH_UP_FALLBACK.windowMinutes;
-  const maxMessages = Number.isInteger(raw.maxMessages) && raw.maxMessages >= 1 ? Math.min(raw.maxMessages, MAX_FETCH) : CATCH_UP_FALLBACK.maxMessages;
+  const windowMinutes =
+    Number.isFinite(raw.windowMinutes) && raw.windowMinutes >= 0 ? raw.windowMinutes : CATCH_UP_FALLBACK.windowMinutes;
+  const maxMessages =
+    Number.isInteger(raw.maxMessages) && raw.maxMessages >= 1
+      ? Math.min(raw.maxMessages, MAX_FETCH)
+      : CATCH_UP_FALLBACK.maxMessages;
   return { windowMinutes, maxMessages };
 }
 
@@ -89,7 +93,17 @@ function compareIds(a, b) {
  * @param {() => number} [deps.now]
  * @param {object} [deps.log]
  */
-export function createOfflineCatchUp({ hot, store, selfId, channelInfo, fetchRecent, deliver, journal = null, now = Date.now, log = defaultLog }) {
+export function createOfflineCatchUp({
+  hot,
+  store,
+  selfId,
+  channelInfo,
+  fetchRecent,
+  deliver,
+  journal = null,
+  now = Date.now,
+  log = defaultLog,
+}) {
   /**
    * Catch up `guildId` once. Never throws.
    * @returns {Promise<{ channels: object[], failed: number }|null>}  The counts, or null when it did not run.
@@ -104,7 +118,9 @@ export function createOfflineCatchUp({ hot, store, selfId, channelInfo, fetchRec
       }
       const { windowMinutes, maxMessages } = catchUpSettings(config);
       const dryRunChannelId = config.bot?.dryRunChannelId || null;
-      const channels = (store.listChannels(guildId) ?? []).filter((channel) => channel?.id && Number.isFinite(channel.lastMessageAt) && channel.id !== dryRunChannelId);
+      const channels = (store.listChannels(guildId) ?? []).filter(
+        (channel) => channel?.id && Number.isFinite(channel.lastMessageAt) && channel.id !== dryRunChannelId
+      );
       const startedAt = now();
       const self = selfId();
       const planned = [];
@@ -124,12 +140,28 @@ export function createOfflineCatchUp({ hot, store, selfId, channelInfo, fetchRec
           messages = await fetchRecent(channel.id, maxMessages);
         } catch (err) {
           failed += 1;
-          log.warn('catch-up: fetch failed', { channelId: channel.id, code: err?.code ?? null, name: err?.name ?? null });
+          log.warn('catch-up: fetch failed', {
+            channelId: channel.id,
+            code: err?.code ?? null,
+            name: err?.name ?? null,
+          });
           continue;
         }
-        const items = planChannel(messages, { lastSeenAt: channel.lastMessageAt, nowMs: startedAt, windowMs: windowMinutes * MINUTE_MS, selfId: self });
+        const items = planChannel(messages, {
+          lastSeenAt: channel.lastMessageAt,
+          nowMs: startedAt,
+          windowMs: windowMinutes * MINUTE_MS,
+          selfId: self,
+        });
         if (items.length === 0) continue;
-        tallies.set(channel.id, { channelId: channel.id, fetched: items.length, observed: 0, triggered: 0, duplicate: 0, ignored: 0 });
+        tallies.set(channel.id, {
+          channelId: channel.id,
+          fetched: items.length,
+          observed: 0,
+          triggered: 0,
+          duplicate: 0,
+          ignored: 0,
+        });
         for (const item of items) planned.push({ ...item, channelId: channel.id });
       }
       planned.sort((a, b) => a.ts - b.ts || compareIds(a.message.id, b.message.id));

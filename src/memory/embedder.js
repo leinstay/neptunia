@@ -30,7 +30,16 @@ import { EMBED_ROLE } from '../llm/embed.js';
 import { railReason } from '../llm/openrouter.js';
 import { estimateTokens } from '../llm/tokens.js';
 import { HOUR_MS, MINUTE_MS } from '../time.js';
-import { CHUNK_CONTEXT_LINES, chunkKey, compareLines, contextFor, embeddableLine, layerChannelKey, newestRevisions, recordChunk } from './chunks.js';
+import {
+  CHUNK_CONTEXT_LINES,
+  chunkKey,
+  compareLines,
+  contextFor,
+  embeddableLine,
+  layerChannelKey,
+  newestRevisions,
+  recordChunk,
+} from './chunks.js';
 import { isoOf } from './record.js';
 import { createReadSeam } from './db/readers/common.js';
 import { recordLayers } from './db/readers/record.js';
@@ -57,7 +66,8 @@ const LATEST_MAX = 20000;
 const CLOSE_TIMEOUT_MS = 5000;
 
 const positiveInt = (value, fallback) => (Number.isInteger(value) && value > 0 ? value : fallback);
-const positiveNumber = (value, fallback) => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback);
+const positiveNumber = (value, fallback) =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback;
 const revisionOf = (line) => (Number.isInteger(line?.revision) && line.revision > 0 ? line.revision : 1);
 const layerOf = (privateUserId) => (typeof privateUserId === 'string' && privateUserId ? privateUserId : null);
 
@@ -105,7 +115,18 @@ const layerOf = (privateUserId) => (typeof privateUserId === 'string' && private
  *   flushes once, waiting at most `timeoutMs` (default 5000), and resolves its counts, or null on
  *   the timeout, a failure or a second call; after it nothing is queued.
  */
-export function createEmbedder({ hot, vectors, embed, record, log = defaultLog, now = Date.now, nameOf = null, selfName = null, paused = () => false, memoryDb = null }) {
+export function createEmbedder({
+  hot,
+  vectors,
+  embed,
+  record,
+  log = defaultLog,
+  now = Date.now,
+  nameOf = null,
+  selfName = null,
+  paused = () => false,
+  memoryDb = null,
+}) {
   const seam = createReadSeam({ memoryDb, log, reader: 'embedder' });
   let queue = [];
   const rings = new Map(); // `${guildId}|${layerChannelKey}` -> { lines, warmed }
@@ -140,8 +161,10 @@ export function createEmbedder({ hot, vectors, embed, record, log = defaultLog, 
     };
   }
 
-  const ringKey = (guildId, privateUserId, channelId) => `${guildId}|${layerChannelKey(privateUserId ?? '', channelId)}`;
-  const channelOf = (line) => (typeof line?.scope?.channel === 'string' && line.scope.channel ? line.scope.channel : null);
+  const ringKey = (guildId, privateUserId, channelId) =>
+    `${guildId}|${layerChannelKey(privateUserId ?? '', channelId)}`;
+  const channelOf = (line) =>
+    typeof line?.scope?.channel === 'string' && line.scope.channel ? line.scope.channel : null;
 
   function ringOf(key) {
     let ring = rings.get(key);
@@ -200,7 +223,9 @@ export function createEmbedder({ hot, vectors, embed, record, log = defaultLog, 
   /** A full batch starts a flush in the background. */
   function kick(batch) {
     if (queue.length >= batch && !flushing) {
-      flush().catch((error) => log.warn('embedder: flush failed', { code: error?.code ?? null, name: error?.name ?? null }));
+      flush().catch((error) =>
+        log.warn('embedder: flush failed', { code: error?.code ?? null, name: error?.name ?? null })
+      );
     }
   }
 
@@ -215,7 +240,13 @@ export function createEmbedder({ hot, vectors, embed, record, log = defaultLog, 
       const key = `${job.guildId}|${job.privateUserId ?? ''}`;
       let group = groups.get(key);
       if (!group) {
-        group = { guildId: job.guildId, privateUserId: job.privateUserId, channels: new Set(), from: Infinity, to: -Infinity };
+        group = {
+          guildId: job.guildId,
+          privateUserId: job.privateUserId,
+          channels: new Set(),
+          from: Infinity,
+          to: -Infinity,
+        };
         groups.set(key, group);
       }
       group.channels.add(channelOf(job.line));
@@ -241,7 +272,8 @@ export function createEmbedder({ hot, vectors, embed, record, log = defaultLog, 
       } catch (error) {
         log.warn('embedder: warm failed', { guildId: group.guildId, code: error?.code ?? null });
       }
-      for (const channelId of group.channels) ringOf(ringKey(group.guildId, group.privateUserId, channelId)).warmed = true;
+      for (const channelId of group.channels)
+        ringOf(ringKey(group.guildId, group.privateUserId, channelId)).warmed = true;
     }
   }
 
@@ -252,10 +284,12 @@ export function createEmbedder({ hot, vectors, embed, record, log = defaultLog, 
 
   /** The chunk of a job: its line with its context lines. */
   function chunkOf(job) {
-    const context = contextFor(job.line, job.context ?? ringOf(job.ringKey).lines, RING_SIZE).slice(-CHUNK_CONTEXT_LINES);
+    const context = contextFor(job.line, job.context ?? ringOf(job.ringKey).lines, RING_SIZE).slice(
+      -CHUNK_CONTEXT_LINES
+    );
     return recordChunk(job.line, context, {
       nameOf: (id) => (typeof nameOf === 'function' ? nameOf(job.guildId, id) : null),
-      selfName: typeof selfName === 'function' ? selfName(job.guildId) ?? '' : '',
+      selfName: typeof selfName === 'function' ? (selfName(job.guildId) ?? '') : '',
     });
   }
 
@@ -285,7 +319,8 @@ export function createEmbedder({ hot, vectors, embed, record, log = defaultLog, 
     }
     queue = queue.filter((job) => !gone.has(job));
     if (jobs.length === 0) {
-      if (gone.size > 0) log.info('embedder: flushed', { embedded: 0, dropped: gone.size, left: queue.length, ms: now() - startedAt });
+      if (gone.size > 0)
+        log.info('embedder: flushed', { embedded: 0, dropped: gone.size, left: queue.length, ms: now() - startedAt });
       return { embedded: 0, dropped: gone.size, left: queue.length };
     }
 
@@ -293,9 +328,17 @@ export function createEmbedder({ hot, vectors, embed, record, log = defaultLog, 
     inFlight = new Set(jobs.map(({ job }) => jobKey(job.idKey, job.revision)));
     let vectorsOut;
     try {
-      vectorsOut = await embed(jobs.map(({ chunk }) => chunk.text), { config });
+      vectorsOut = await embed(
+        jobs.map(({ chunk }) => chunk.text),
+        { config }
+      );
     } catch (error) {
-      log.warn('embedder: embed failed', { lines: jobs.length, reason: railReason(error, 'embed-error'), status: error?.statusCode ?? null, left: queue.length });
+      log.warn('embedder: embed failed', {
+        lines: jobs.length,
+        reason: railReason(error, 'embed-error'),
+        status: error?.statusCode ?? null,
+        left: queue.length,
+      });
       return { embedded: 0, dropped: gone.size, left: queue.length };
     }
     const sent = new Set(jobs.map(({ job }) => job));
@@ -311,7 +354,8 @@ export function createEmbedder({ hot, vectors, embed, record, log = defaultLog, 
         continue;
       }
       const key = `${job.guildId}|${job.privateUserId ?? ''}`;
-      if (!groups.has(key)) groups.set(key, { guildId: job.guildId, privateUserId: job.privateUserId, rows: [], jobs: [] });
+      if (!groups.has(key))
+        groups.set(key, { guildId: job.guildId, privateUserId: job.privateUserId, rows: [], jobs: [] });
       groups.get(key).rows.push({ meta: chunk.meta, vector: vectorsOut[i] });
       groups.get(key).jobs.push(job);
     }
@@ -325,7 +369,11 @@ export function createEmbedder({ hot, vectors, embed, record, log = defaultLog, 
       } catch (error) {
         // Kept for the next flush: the jobs go back to the front of the queue.
         queue = [...group.jobs, ...queue];
-        log.warn('embedder: append failed', { guildId: group.guildId, rows: group.rows.length, code: error?.code ?? null });
+        log.warn('embedder: append failed', {
+          guildId: group.guildId,
+          rows: group.rows.length,
+          code: error?.code ?? null,
+        });
       }
     }
     log.info('embedder: flushed', { embedded, dropped, left: queue.length, ms: now() - startedAt });
@@ -361,7 +409,11 @@ export function createEmbedder({ hot, vectors, embed, record, log = defaultLog, 
     const out = { messages: 0, indexed: 0, missing: [] };
     for (const layer of [null, ...privateLayers(guildId)]) {
       const raw = [];
-      const query = { from: new Date(from - (withContext ? WARM_MS : 0)).toISOString(), to: new Date(to).toISOString(), privateUserId: layer };
+      const query = {
+        from: new Date(from - (withContext ? WARM_MS : 0)).toISOString(),
+        to: new Date(to).toISOString(),
+        privateUserId: layer,
+      };
       for await (const line of record.iterate(guildId, query)) raw.push(line);
       const lines = newestRevisions(raw);
       const channels = new Map();
@@ -379,7 +431,11 @@ export function createEmbedder({ hot, vectors, embed, record, log = defaultLog, 
           out.indexed += 1;
           continue;
         }
-        out.missing.push({ layer, line, context: withContext ? channelLines.slice(Math.max(0, channelLines.length - 1 - RING_SIZE), -1) : null });
+        out.missing.push({
+          layer,
+          line,
+          context: withContext ? channelLines.slice(Math.max(0, channelLines.length - 1 - RING_SIZE), -1) : null,
+        });
       }
     }
     return out;
@@ -399,7 +455,8 @@ export function createEmbedder({ hot, vectors, embed, record, log = defaultLog, 
   /** The earliest `occurredAt` among missing messages, or null. */
   function oldestOf(missing) {
     let oldest = null;
-    for (const { line } of missing) if (oldest === null || Date.parse(line.occurredAt) < Date.parse(oldest)) oldest = isoOf(line.occurredAt);
+    for (const { line } of missing)
+      if (oldest === null || Date.parse(line.occurredAt) < Date.parse(oldest)) oldest = isoOf(line.occurredAt);
     return oldest;
   }
 
@@ -450,15 +507,30 @@ export function createEmbedder({ hot, vectors, embed, record, log = defaultLog, 
       remember(idKey, revision);
       queue = queue.filter((job) => job.idKey !== idKey);
       const line = { ...item.line, occurredAt: isoOf(item.line.occurredAt) };
-      queue.push({ guildId, privateUserId: item.layer, line, revision, idKey, ringKey: ringKey(guildId, item.layer, channelOf(line)), context: item.context });
+      queue.push({
+        guildId,
+        privateUserId: item.layer,
+        line,
+        revision,
+        idKey,
+        ringKey: ringKey(guildId, item.layer, channelOf(line)),
+        context: item.context,
+      });
       room -= 1;
       counts.queued += 1;
     }
     behind = counts.left > 0;
-    const pass = { messages: found.messages, indexed, missing: missing.length, ...counts, oldestMissing: oldestOf(missing) };
+    const pass = {
+      messages: found.messages,
+      indexed,
+      missing: missing.length,
+      ...counts,
+      oldestMissing: oldestOf(missing),
+    };
     lastPass.set(guildId, pass);
     log.info('embedder: coverage', { guildId, ...pass });
-    if (counts.lost > 0) log.warn('embedder: coverage gap', { guildId, missing: pass.missing, lost: counts.lost, queued: counts.queued });
+    if (counts.lost > 0)
+      log.warn('embedder: coverage gap', { guildId, missing: pass.missing, lost: counts.lost, queued: counts.queued });
     kick(batch);
     return pass;
   }
@@ -484,7 +556,8 @@ export function createEmbedder({ hot, vectors, embed, record, log = defaultLog, 
     const id = String(guildId);
     let rows = 0;
     if (typeof vectors?.stats === 'function') {
-      for (const layer of [null, ...privateLayers(id)]) rows += (await vectors.stats(id, { privateUserId: layer })).rows ?? 0;
+      for (const layer of [null, ...privateLayers(id)])
+        rows += (await vectors.stats(id, { privateUserId: layer })).rows ?? 0;
     }
     return { rows, missing: lastPass.get(id)?.missing ?? null };
   }
@@ -495,7 +568,9 @@ export function createEmbedder({ hot, vectors, embed, record, log = defaultLog, 
     wasOn = isOn;
     const flushDue = () => now() - lastFlushAt >= settings().flushSeconds * 1000;
     if (pass) {
-      const logged = pass.catch((error) => log.warn('embedder: catch-up failed', { guildId: String(guildId), code: error?.code ?? null }));
+      const logged = pass.catch((error) =>
+        log.warn('embedder: catch-up failed', { guildId: String(guildId), code: error?.code ?? null })
+      );
       return logged.then(() => (flushDue() ? flush() : null));
     }
     if (!flushDue()) return null;

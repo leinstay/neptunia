@@ -37,20 +37,42 @@ import { CODE } from '../skills/codes.js';
 const PURPOSE_LINE_CHARS = 80;
 
 /** The service's refusal codes that mean bad arguments rather than a failure. */
-const INVALID = new Set(['no-purpose', 'bad-due', 'bad-every', 'every-without-due', 'bad-expiry', 'due-after-expiry', 'bad-deadline', 'wait-without-task', 'no-task', 'task-ended', 'bad-move', 'terminal', 'not-found', 'bad-attend', 'attend-with-due', 'attend-with-every', 'not-attend', 'reason-required']);
+const INVALID = new Set([
+  'no-purpose',
+  'bad-due',
+  'bad-every',
+  'every-without-due',
+  'bad-expiry',
+  'due-after-expiry',
+  'bad-deadline',
+  'wait-without-task',
+  'no-task',
+  'task-ended',
+  'bad-move',
+  'terminal',
+  'not-found',
+  'bad-attend',
+  'attend-with-due',
+  'attend-with-every',
+  'not-attend',
+  'reason-required',
+]);
 
 const handlers = perEnv((env) => {
   const { hot, client, resolvedGuildId, now = Date.now } = env;
 
   /** The intention service, or an Error naming what is missing. */
   function intentions() {
-    if (!env.intentions || typeof env.intentions.set !== 'function') throw Object.assign(new Error('intentions are not running'), { code: CODE.NOT_CONFIGURED });
+    if (!env.intentions || typeof env.intentions.set !== 'function')
+      throw Object.assign(new Error('intentions are not running'), { code: CODE.NOT_CONFIGURED });
     return env.intentions;
   }
 
   /** The refusal with the switch off, or null. */
   function off() {
-    return intentionsOn(hot.config) ? null : { status: 'failed', code: CODE.FEATURE_OFF, summary: 'intentions are off (features.intentions)', data: null };
+    return intentionsOn(hot.config)
+      ? null
+      : { status: 'failed', code: CODE.FEATURE_OFF, summary: 'intentions are off (features.intentions)', data: null };
   }
 
   /** Whether the conversation the command runs in is a private chat. */
@@ -65,7 +87,8 @@ const handlers = perEnv((env) => {
     const text = args?.[key];
     if (text === undefined || text === null || text === '') return undefined;
     const at = parseWhen(text, now(), { timezone: hot.config?.bot?.timezone ?? 'UTC' });
-    if (at === null) throw invalid(`${key}: a time like 30m, 6h, 2d, 21:00, mon 20:00 or an ISO date-time`, CODE.BAD_TIME);
+    if (at === null)
+      throw invalid(`${key}: a time like 30m, 6h, 2d, 21:00, mon 20:00 or an ISO date-time`, CODE.BAD_TIME);
     return at;
   }
 
@@ -88,14 +111,18 @@ const handlers = perEnv((env) => {
   function peopleOf(args) {
     const value = text(args, 'people');
     if (value === undefined) return undefined;
-    return value.split(/[\s,]+/).map((token) => token.replace(/^<@!?(\d+)>$/, '$1').trim()).filter(Boolean);
+    return value
+      .split(/[\s,]+/)
+      .map((token) => token.replace(/^<@!?(\d+)>$/, '$1').trim())
+      .filter(Boolean);
   }
 
   /** `args[key]` as a whole number >= `min`, undefined when not given; an `invalid` error (`bad-attend`) otherwise. */
   function integer(args, key, min) {
     const value = args?.[key];
     if (value === undefined || value === null || value === '') return undefined;
-    const n = typeof value === 'number' ? value : /^\d{1,9}$/.test(String(value).trim()) ? Number(String(value).trim()) : NaN;
+    const n =
+      typeof value === 'number' ? value : /^\d{1,9}$/.test(String(value).trim()) ? Number(String(value).trim()) : NaN;
     if (!Number.isInteger(n) || n < min) throw invalid(`${key}: a whole number of at least ${min}`, CODE.BAD_ATTEND);
     return n;
   }
@@ -106,7 +133,11 @@ const handlers = perEnv((env) => {
     const settle = integer(args, 'settle', 0);
     const perDay = integer(args, 'perday', 1);
     if (people === undefined && settle === undefined && perDay === undefined) return null;
-    return { ...(people !== undefined ? { people } : {}), ...(settle !== undefined ? { settle } : {}), ...(perDay !== undefined ? { perDay } : {}) };
+    return {
+      ...(people !== undefined ? { people } : {}),
+      ...(settle !== undefined ? { settle } : {}),
+      ...(perDay !== undefined ? { perDay } : {}),
+    };
   }
 
   /**
@@ -138,7 +169,8 @@ const handlers = perEnv((env) => {
   function lineOf(record) {
     const parts = [`${record.id} ${record.status}`];
     // A dropped one is over: its reason and its purpose only, no due or expiry to act on.
-    if (record.status === 'dropped') return `${parts[0]}, reason ${clampWithEllipsis(oneLine(record.reason ?? ''), PURPOSE_LINE_CHARS)}: ${clampWithEllipsis(oneLine(record.purpose), PURPOSE_LINE_CHARS)}`;
+    if (record.status === 'dropped')
+      return `${parts[0]}, reason ${clampWithEllipsis(oneLine(record.reason ?? ''), PURPOSE_LINE_CHARS)}: ${clampWithEllipsis(oneLine(record.purpose), PURPOSE_LINE_CHARS)}`;
     if (Number.isFinite(record.dueAt)) parts.push(`due ${stamp(record.dueAt)}`);
     // A pending intention nothing wakes her for: said at once, so a due left in the purpose text is caught in the turn.
     else if (record.status === 'pending' && !record.every?.period && !record.attend?.place) parts.push('no due');
@@ -148,7 +180,8 @@ const handlers = perEnv((env) => {
       if (record.attend.people.length > 0) parts.push(`people ${record.attend.people.join(',')}`);
       parts.push(`settle ${record.attend.settle}s`, `today ${record.attend.today?.wakes ?? 0}/${record.attend.perDay}`);
     }
-    if (record.status === 'waiting') parts.push(`awaiting ${record.awaitingTaskId} until ${stamp(record.waitDeadline)}`);
+    if (record.status === 'waiting')
+      parts.push(`awaiting ${record.awaitingTaskId} until ${stamp(record.waitDeadline)}`);
     else if (record.outcome?.taskId) parts.push(`errand ${record.outcome.taskId} ${record.outcome.state}`);
     else if (record.note) parts.push(record.note);
     if (record.waitRequested) parts.push('wait asked');
@@ -160,17 +193,32 @@ const handlers = perEnv((env) => {
   function answer(result, verb) {
     if (result.ok) {
       const line = lineOf(result.intention);
-      return { status: 'ok', code: CODE.OK, summary: `intention ${verb}: ${line}`, data: { text: `intention ${verb}: ${line}`, intention: { id: result.intention.id, status: result.intention.status } } };
+      return {
+        status: 'ok',
+        code: CODE.OK,
+        summary: `intention ${verb}: ${line}`,
+        data: {
+          text: `intention ${verb}: ${line}`,
+          intention: { id: result.intention.id, status: result.intention.status },
+        },
+      };
     }
     const status = INVALID.has(result.code) ? 'invalid' : 'failed';
     // A heartbeat's cap names the open ones from heartbeats, so she can update or cancel one instead.
-    const open = Array.isArray(result.open) && result.open.length > 0 ? `; open from heartbeats: ${result.open.map((record) => `${record.id} (${clampWithEllipsis(oneLine(record.purpose), PURPOSE_LINE_CHARS)}${record.every?.period ? `, every ${record.every.period}` : ''})`).join('; ')}` : '';
+    const open =
+      Array.isArray(result.open) && result.open.length > 0
+        ? `; open from heartbeats: ${result.open.map((record) => `${record.id} (${clampWithEllipsis(oneLine(record.purpose), PURPOSE_LINE_CHARS)}${record.every?.period ? `, every ${record.every.period}` : ''})`).join('; ')}`
+        : '';
     return { status, code: result.code, summary: `intention not ${verb}: ${result.code}${open}`, data: null };
   }
 
   /** The members of the call's conversation: who asked, whom her turn answered, whom she mentioned. */
   function participantsOf(context) {
-    const ids = [context?.userId, context?.repliedAuthorId, ...(Array.isArray(context?.mentionUserIds) ? context.mentionUserIds : [])];
+    const ids = [
+      context?.userId,
+      context?.repliedAuthorId,
+      ...(Array.isArray(context?.mentionUserIds) ? context.mentionUserIds : []),
+    ];
     return [...new Set(ids.filter((id) => (typeof id === 'string' && id) || typeof id === 'number').map(String))];
   }
 
@@ -180,7 +228,10 @@ const handlers = perEnv((env) => {
    */
   function whereOf(context) {
     const owner = context?.actor !== 'persona' && isOwnerId(hot.config, context?.userId);
-    return { all: owner, privateChannelId: !owner && inPrivate(context) && context?.channelId ? String(context.channelId) : null };
+    return {
+      all: owner,
+      privateChannelId: !owner && inPrivate(context) && context?.channelId ? String(context.channelId) : null,
+    };
   }
 
   /** What the caller's context says about where and when the call came from. */
@@ -232,7 +283,8 @@ const handlers = perEnv((env) => {
     const { id, args } = idOf(given);
     if (!id) throw invalid('an id is required');
     const state = text(args, 'state');
-    if (state !== undefined && state !== 'pending' && state !== 'done' && state !== 'dropped') throw invalid('state must be pending, done or dropped');
+    if (state !== undefined && state !== 'pending' && state !== 'done' && state !== 'dropped')
+      throw invalid('state must be pending, done or dropped');
     const from = origin(context);
     const due = moment(args, 'due');
     const recurrence = every(args);
@@ -253,7 +305,9 @@ const handlers = perEnv((env) => {
       turnId: from.turnId,
       by: from.by,
       // An inner turn's call (her own initiative) and its chain: which candidates it may accept.
-      ...(context?.ownInitiative === true ? { initiative: true, callerChain: context?.chainId ? String(context.chainId) : null } : {}),
+      ...(context?.ownInitiative === true
+        ? { initiative: true, callerChain: context?.chainId ? String(context.chainId) : null }
+        : {}),
       ...whereOf(context),
     });
     return answer(result, 'updated');
@@ -265,7 +319,10 @@ const handlers = perEnv((env) => {
     if (refused) return refused;
     const { id } = idOf(given);
     if (!id) throw invalid('an id is required');
-    return answer(intentions().cancel(resolvedGuildId(context), id, { by: origin(context).by, ...whereOf(context) }), 'cancelled');
+    return answer(
+      intentions().cancel(resolvedGuildId(context), id, { by: origin(context).by, ...whereOf(context) }),
+      'cancelled'
+    );
   }
 
   /** `intent.list`: the open intentions, a private chat's own only in that chat (an owner's command sees all). */

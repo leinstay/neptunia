@@ -187,7 +187,8 @@ export function createAdmin(deps) {
    */
   async function runCommand(commandKey, args = {}, context = {}) {
     const target = resolveCommand(commandKey, args);
-    if (!target) return { status: 'invalid', code: CODE.UNKNOWN_COMMAND, summary: `unknown command: ${commandKey}`, data: null };
+    if (!target)
+      return { status: 'invalid', code: CODE.UNKNOWN_COMMAND, summary: `unknown command: ${commandKey}`, data: null };
     if (target.invalid) return { status: 'invalid', code: CODE.INVALID_ARGS, summary: target.invalid, data: null };
     return runOp(target.op, target.args, { ...context, env });
   }
@@ -209,7 +210,8 @@ export function createAdmin(deps) {
    * @returns {Promise<{ status: string, code: string, summary: string, data: unknown }>}
    */
   async function runOwnSkillOp(op, args = {}, context = {}) {
-    if (!SELF_OWNED_OPS.includes(op)) return { status: 'denied', code: CODE.NOT_SELF_OWNED, summary: `${op} is not the persona's own`, data: null };
+    if (!SELF_OWNED_OPS.includes(op))
+      return { status: 'denied', code: CODE.NOT_SELF_OWNED, summary: `${op} is not the persona's own`, data: null };
     return runOpPrechecked(op, args, { ...context, env });
   }
 
@@ -254,10 +256,24 @@ export function createAdmin(deps) {
     for (const entry of newest.reverse()) {
       if (seen.has(entry.itemId)) continue;
       seen.add(entry.itemId);
-      choices.push({ name: `${entry.itemId} (${entry.itemKind ?? '?'})`.slice(0, 100), value: entry.itemId.slice(0, 100) });
+      choices.push({
+        name: `${entry.itemId} (${entry.itemKind ?? '?'})`.slice(0, 100),
+        value: entry.itemId.slice(0, 100),
+      });
     }
     return choices;
   }
 
-  return { isAllowed, operationFor, accessKeys, archiveChoices, run, runCommand, runSkillOp, runOwnSkillOp, runInitiativeSkillOp, migrateAccess };
+  return {
+    isAllowed,
+    operationFor,
+    accessKeys,
+    archiveChoices,
+    run,
+    runCommand,
+    runSkillOp,
+    runOwnSkillOp,
+    runInitiativeSkillOp,
+    migrateAccess,
+  };
 }

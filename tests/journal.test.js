@@ -4,7 +4,14 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { callMarksOf, createJournal, createOffPeriodsReader, offPeriods, triggerLinksOf, toolsHashOf } from '../src/memory/journal.js';
+import {
+  callMarksOf,
+  createJournal,
+  createOffPeriodsReader,
+  offPeriods,
+  triggerLinksOf,
+  toolsHashOf,
+} from '../src/memory/journal.js';
 import { tempDir } from './fixtures/tmp.js';
 import { openTestMemory, openTestMemorySync } from './fixtures/memory-db/service.js';
 
@@ -48,7 +55,8 @@ function recordingMemory(lines) {
   return {
     ...mem.memoryDb,
     writeUnit: (update) => {
-      for (const line of update.lines ?? []) lines.push({ file: path.join(DATA, update.owner), line: JSON.stringify(line) });
+      for (const line of update.lines ?? [])
+        lines.push({ file: path.join(DATA, update.owner), line: JSON.stringify(line) });
       return mem.memoryDb.writeUnit(update);
     },
   };
@@ -122,7 +130,18 @@ test('journal: turn record carries the envelope and caps think at thinkChars', a
     posted: [{ messageId: 's1', replyTo: 'm2' }],
   });
   const [{ record }] = records(appendStore);
-  for (const key of ['v', 'id', 'kind', 'occurredAt', 'recordedAt', 'guildId', 'scope', 'participants', 'sourceMessageIds', 'origin']) {
+  for (const key of [
+    'v',
+    'id',
+    'kind',
+    'occurredAt',
+    'recordedAt',
+    'guildId',
+    'scope',
+    'participants',
+    'sourceMessageIds',
+    'origin',
+  ]) {
     assert.ok(key in record, `envelope key ${key}`);
   }
   assert.equal(record.kind, 'turn');
@@ -170,11 +189,17 @@ test('journal: read returns the last n records of a kind, newest last', async ()
   }
 
   const dayD = await journal.read('g1', { day: '2026-10-13' });
-  assert.deepEqual(dayD.map((r) => r.kind), ['turn.start', 'system']);
+  assert.deepEqual(
+    dayD.map((r) => r.kind),
+    ['turn.start', 'system']
+  );
   const startD = (await journal.read('g1', { day: '2026-10-13', kind: 'turn.start' }))[0];
 
   const turnsD1 = await journal.read('g1', { day: '2026-10-14', kind: 'turn', n: 2 });
-  assert.deepEqual(turnsD1.map((r) => r.outcome), ['o1', 'o2']);
+  assert.deepEqual(
+    turnsD1.map((r) => r.outcome),
+    ['o1', 'o2']
+  );
   const all = await journal.read('g1', { day: '2026-10-14', kind: 'turn' });
   assert.equal(all.length, 4);
   // The turn that started on day D closed on day D+1, linked by its turnId.
@@ -184,8 +209,16 @@ test('journal: read returns the last n records of a kind, newest last', async ()
 });
 
 test('triggerLinksOf: each posted message of a turn maps to the message that started it; a turn without one maps nothing', () => {
-  const start = (turnId, messageId) => ({ kind: 'turn.start', turnId, trigger: messageId === null ? null : { kind: 'mention', messageId, authorId: 'u1' } });
-  const turn = (turnId, ids) => ({ kind: 'turn', turnId, posted: ids.map((messageId) => ({ opId: `op-${messageId}`, messageId, replyTo: null })) });
+  const start = (turnId, messageId) => ({
+    kind: 'turn.start',
+    turnId,
+    trigger: messageId === null ? null : { kind: 'mention', messageId, authorId: 'u1' },
+  });
+  const turn = (turnId, ids) => ({
+    kind: 'turn',
+    turnId,
+    posted: ids.map((messageId) => ({ opId: `op-${messageId}`, messageId, replyTo: null })),
+  });
   const links = triggerLinksOf([
     start('t1', 'm98'),
     start('t2', 'm99'),
@@ -210,13 +243,42 @@ test('triggerLinksOf: each posted message of a turn maps to the message that sta
 test('journal: triggerLinks rebuilds the links of the days read, a turn closed the next day included', async () => {
   const clock = { ms: DAY_D };
   const { journal } = journalAt(clock);
-  const first = journal.start('g1', { channelId: 'c1', mode: 'reply', trigger: { kind: 'mention', messageId: 'm1', authorId: 'u1' } });
+  const first = journal.start('g1', {
+    channelId: 'c1',
+    mode: 'reply',
+    trigger: { kind: 'mention', messageId: 'm1', authorId: 'u1' },
+  });
   const spontaneous = journal.start('g1', { channelId: 'c1', mode: 'interject', trigger: null });
-  await journal.turn('g1', { ...spontaneous, channelId: 'c1', outcome: 'spoke', posted: [{ messageId: 'p0', replyTo: null }] });
+  await journal.turn('g1', {
+    ...spontaneous,
+    channelId: 'c1',
+    outcome: 'spoke',
+    posted: [{ messageId: 'p0', replyTo: null }],
+  });
   clock.ms = DAY_D1;
-  await journal.turn('g1', { ...first, channelId: 'c1', outcome: 'spoke', posted: [{ messageId: 'p1', replyTo: null }, { messageId: 'p2', replyTo: 'm7' }] });
-  journal.start('g1', { channelId: 'c1', mode: 'reply', privateUserId: 'u2', trigger: { kind: 'private', messageId: 'd1', authorId: 'u2' }, turnId: 't-private' });
-  await journal.turn('g1', { turnId: 't-private', attemptId: 1, privateUserId: 'u2', outcome: 'spoke', posted: [{ messageId: 'd2' }] });
+  await journal.turn('g1', {
+    ...first,
+    channelId: 'c1',
+    outcome: 'spoke',
+    posted: [
+      { messageId: 'p1', replyTo: null },
+      { messageId: 'p2', replyTo: 'm7' },
+    ],
+  });
+  journal.start('g1', {
+    channelId: 'c1',
+    mode: 'reply',
+    privateUserId: 'u2',
+    trigger: { kind: 'private', messageId: 'd1', authorId: 'u2' },
+    turnId: 't-private',
+  });
+  await journal.turn('g1', {
+    turnId: 't-private',
+    attemptId: 1,
+    privateUserId: 'u2',
+    outcome: 'spoke',
+    posted: [{ messageId: 'd2' }],
+  });
 
   assert.deepEqual(await journal.triggerLinks('g1', { days: ['2026-10-13', '2026-10-14'] }), [
     ['p1', 'm1'],
@@ -228,10 +290,27 @@ test('journal: triggerLinks rebuilds the links of the days read, a turn closed t
 
 test('callMarksOf: each skill call of the records with its channel, time, status (and why it did not work), target and the posts of its turn', () => {
   const at = (s) => `2026-10-14T10:00:${String(s).padStart(2, '0')}.000Z`;
-  const skill = (opId, phase, extra = {}) => ({ kind: 'action', name: 'skill', opId, turnId: 't1', phase, scope: { channel: 'c1' }, occurredAt: at(extra.s ?? 0), ...extra });
+  const skill = (opId, phase, extra = {}) => ({
+    kind: 'action',
+    name: 'skill',
+    opId,
+    turnId: 't1',
+    phase,
+    scope: { channel: 'c1' },
+    occurredAt: at(extra.s ?? 0),
+    ...extra,
+  });
   const marks = callMarksOf([
     { kind: 'turn.start', turnId: 't1', trigger: { kind: 'mention', messageId: 'm1' } },
-    { kind: 'action', name: 'post', opId: 'op-p', turnId: 't1', phase: 'succeeded', scope: { channel: 'c1' }, result: { messageId: 'p1' } },
+    {
+      kind: 'action',
+      name: 'post',
+      opId: 'op-p',
+      turnId: 't1',
+      phase: 'succeeded',
+      scope: { channel: 'c1' },
+      result: { messageId: 'p1' },
+    },
     skill('op-1', 'proposed', { input: { skill: 'message.create', invocationId: 'i1', args: ['channel'] }, s: 1 }),
     skill('op-1', 'started', { input: { skill: 'message.create' }, target: { channel: 'c9' }, s: 2 }),
     skill('op-1', 'succeeded', { result: { messageId: 'x1' }, s: 3 }),
@@ -243,45 +322,143 @@ test('callMarksOf: each skill call of the records with its channel, time, status
     skill('op-4', 'proposed', { input: { skill: 'lore.list' }, s: 9 }),
     skill('op-4', 'unknown', { result: { code: 'timeout' }, s: 10 }),
     skill('op-5', 'proposed', { input: { skill: 'lore.list' }, s: 11 }), // never closed
-    { kind: 'action', name: 'skill', opId: 'op-6', turnId: 't2', phase: 'proposed', scope: { user: 'u2', private: true }, input: { skill: 'lore.list' }, occurredAt: at(12) },
+    {
+      kind: 'action',
+      name: 'skill',
+      opId: 'op-6',
+      turnId: 't2',
+      phase: 'proposed',
+      scope: { user: 'u2', private: true },
+      input: { skill: 'lore.list' },
+      occurredAt: at(12),
+    },
     skill('op-7', 'proposed', { input: { skill: 'message.delete' }, s: 13 }),
-    skill('op-7', 'failed', { result: { code: 'invalid-args', status: 'invalid', reason: 'args.message:required' }, s: 14 }),
+    skill('op-7', 'failed', {
+      result: { code: 'invalid-args', status: 'invalid', reason: 'args.message:required' },
+      s: 14,
+    }),
     { kind: 'turn', turnId: 't1', posted: [{ messageId: 'p1' }, 'p2'] },
   ]);
   const posted = ['p1', 'x1', 'p2'];
   assert.deepEqual(marks.calls, [
-    { channelId: 'c1', at: Date.parse(at(3)), skill: 'message.create', status: 'ok', target: { messageId: null, channelId: 'c9' }, postedId: 'x1', posted },
-    { channelId: 'c1', at: Date.parse(at(5)), skill: 'message.delete', status: 'denied', code: 'not-allowed', target: { messageId: null, channelId: null }, postedId: null, posted },
-    { channelId: 'c1', at: Date.parse(at(8)), skill: 'message.edit', status: 'failed', code: 'error', target: { messageId: 'p0', channelId: 'c1' }, postedId: null, posted },
-    { channelId: 'c1', at: Date.parse(at(10)), skill: 'lore.list', status: 'unknown', code: 'timeout', target: { messageId: null, channelId: null }, postedId: null, posted },
-    { channelId: 'c1', at: Date.parse(at(11)), skill: 'lore.list', status: 'unknown', target: { messageId: null, channelId: null }, postedId: null, posted },
-    { channelId: 'c1', at: Date.parse(at(14)), skill: 'message.delete', status: 'invalid', code: 'invalid-args', reason: 'args.message:required', target: { messageId: null, channelId: null }, postedId: null, posted },
+    {
+      channelId: 'c1',
+      at: Date.parse(at(3)),
+      skill: 'message.create',
+      status: 'ok',
+      target: { messageId: null, channelId: 'c9' },
+      postedId: 'x1',
+      posted,
+    },
+    {
+      channelId: 'c1',
+      at: Date.parse(at(5)),
+      skill: 'message.delete',
+      status: 'denied',
+      code: 'not-allowed',
+      target: { messageId: null, channelId: null },
+      postedId: null,
+      posted,
+    },
+    {
+      channelId: 'c1',
+      at: Date.parse(at(8)),
+      skill: 'message.edit',
+      status: 'failed',
+      code: 'error',
+      target: { messageId: 'p0', channelId: 'c1' },
+      postedId: null,
+      posted,
+    },
+    {
+      channelId: 'c1',
+      at: Date.parse(at(10)),
+      skill: 'lore.list',
+      status: 'unknown',
+      code: 'timeout',
+      target: { messageId: null, channelId: null },
+      postedId: null,
+      posted,
+    },
+    {
+      channelId: 'c1',
+      at: Date.parse(at(11)),
+      skill: 'lore.list',
+      status: 'unknown',
+      target: { messageId: null, channelId: null },
+      postedId: null,
+      posted,
+    },
+    {
+      channelId: 'c1',
+      at: Date.parse(at(14)),
+      skill: 'message.delete',
+      status: 'invalid',
+      code: 'invalid-args',
+      reason: 'args.message:required',
+      target: { messageId: null, channelId: null },
+      postedId: null,
+      posted,
+    },
   ]);
-  assert.deepEqual(marks.postedFrom, [['x1', 'c1']], 'a post the call made in another channel names the channel of its turn');
+  assert.deepEqual(
+    marks.postedFrom,
+    [['x1', 'c1']],
+    'a post the call made in another channel names the channel of its turn'
+  );
   assert.deepEqual(callMarksOf(null), { calls: [], postedFrom: [] });
 });
 
 test('journal: callMarks rebuilds the skill calls of the days read from the operations a turn wrote', async () => {
   const clock = { ms: DAY_D };
   const { journal } = journalAt(clock);
-  const started = journal.start('g1', { channelId: 'c1', mode: 'reply', trigger: { kind: 'mention', messageId: 'm1', authorId: 'u1' } });
-  const op = journal.op('g1', { turnId: started.turnId, name: 'skill', by: 'persona', channelId: 'c1', input: { skill: 'message.create', invocationId: 'i1' } });
+  const started = journal.start('g1', {
+    channelId: 'c1',
+    mode: 'reply',
+    trigger: { kind: 'mention', messageId: 'm1', authorId: 'u1' },
+  });
+  const op = journal.op('g1', {
+    turnId: started.turnId,
+    name: 'skill',
+    by: 'persona',
+    channelId: 'c1',
+    input: { skill: 'message.create', invocationId: 'i1' },
+  });
   await op.proposed({ input: { skill: 'message.create', invocationId: 'i1', args: ['channel'], body: true } });
   await op.started({ target: { channel: 'c9' } });
   clock.ms = DAY_D1;
   await op.succeeded({ messageId: 'x1' });
-  await journal.turn('g1', { ...started, channelId: 'c1', outcome: 'spoke', posted: [{ messageId: 'p1', replyTo: 'm1' }] });
-  const refused = journal.op('g1', { turnId: started.turnId, name: 'skill', by: 'persona', channelId: 'c1', input: { skill: 'lore.list' } });
+  await journal.turn('g1', {
+    ...started,
+    channelId: 'c1',
+    outcome: 'spoke',
+    posted: [{ messageId: 'p1', replyTo: 'm1' }],
+  });
+  const refused = journal.op('g1', {
+    turnId: started.turnId,
+    name: 'skill',
+    by: 'persona',
+    channelId: 'c1',
+    input: { skill: 'lore.list' },
+  });
   await refused.proposed();
   await refused.failed('not-allowed', { status: 'denied' });
 
   const marks = await journal.callMarks('g1', { days: ['2026-10-13', '2026-10-14'] });
   assert.deepEqual(
-    marks.calls.map((call) => [call.channelId, call.skill, call.status, call.target, call.postedId, call.posted, call.at]),
+    marks.calls.map((call) => [
+      call.channelId,
+      call.skill,
+      call.status,
+      call.target,
+      call.postedId,
+      call.posted,
+      call.at,
+    ]),
     [
       ['c1', 'message.create', 'ok', { messageId: null, channelId: 'c9' }, 'x1', ['x1', 'p1'], DAY_D1],
       ['c1', 'lore.list', 'denied', { messageId: null, channelId: null }, null, ['x1', 'p1'], DAY_D1],
-    ],
+    ]
   );
   assert.deepEqual(marks.postedFrom, [['x1', 'c1']]);
   assert.deepEqual(await journal.callMarks('g1', { days: [] }), { calls: [], postedFrom: [] });
@@ -290,12 +467,29 @@ test('journal: callMarks rebuilds the skill calls of the days read from the oper
 test('journal: a record missing participants or sourceMessageIds is written with empty arrays, never rejected', async () => {
   const clock = { ms: DAY_D };
   const { journal, appendStore } = journalAt(clock);
-  await journal.turn('g1', { turnId: 't-1', attemptId: 1, channelId: 'c1', outcome: 'error', participants: null, sourceMessageIds: 'm1' });
-  await journal.action('g1', { opId: 'op-1', turnId: 't-1', phase: 'started', name: 'post', by: 'persona', channelId: 'c1' });
+  await journal.turn('g1', {
+    turnId: 't-1',
+    attemptId: 1,
+    channelId: 'c1',
+    outcome: 'error',
+    participants: null,
+    sourceMessageIds: 'm1',
+  });
+  await journal.action('g1', {
+    opId: 'op-1',
+    turnId: 't-1',
+    phase: 'started',
+    name: 'post',
+    by: 'persona',
+    channelId: 'c1',
+  });
   await journal.memory('g1', { batchId: 'b-1', participants: [7, 'u1', 'u1'] });
   await journal.system('g1', { event: 'resume', by: 'owner' });
   const written = records(appendStore).map(({ record }) => record);
-  assert.deepEqual(written.map((r) => r.kind), ['turn', 'action', 'memory', 'system']);
+  assert.deepEqual(
+    written.map((r) => r.kind),
+    ['turn', 'action', 'memory', 'system']
+  );
   for (const record of written) {
     assert.ok(Array.isArray(record.participants));
     assert.ok(Array.isArray(record.sourceMessageIds));
@@ -327,7 +521,10 @@ test('journal: op writes started then one closing phase with the same opId', asy
   await op.failed('late'); // ignored: the operation is closed
   await op.unknown(); // ignored too
   const written = records(appendStore).map(({ record }) => record);
-  assert.deepEqual(written.map((r) => r.phase), ['started', 'succeeded']);
+  assert.deepEqual(
+    written.map((r) => r.phase),
+    ['started', 'succeeded']
+  );
   const [started, closed] = written;
   assert.equal(started.kind, 'action');
   assert.equal(started.opId, op.opId);
@@ -346,7 +543,9 @@ test('journal: op writes started then one closing phase with the same opId', asy
   const failing = journal.op('g1', { turnId: 't-1', name: 'draw', by: 'persona', channelId: 'c1', dryRun: true });
   await failing.started({ input: { self: true } });
   await failing.failed('image-cap');
-  const [fs, ff] = records(appendStore).slice(2).map(({ record }) => record);
+  const [fs, ff] = records(appendStore)
+    .slice(2)
+    .map(({ record }) => record);
   assert.deepEqual(fs.input, { self: true });
   assert.equal(fs.dryRun, true);
   assert.equal(ff.phase, 'failed');
@@ -357,7 +556,13 @@ test('journal: op writes started then one closing phase with the same opId', asy
 test('journal: pending lists started operations without a closing phase', async () => {
   const clock = { ms: DAY_D };
   const { journal } = journalAt(clock);
-  const open = journal.op('g1', { turnId: 't-1', name: 'post', by: 'persona', channelId: 'c1', intent: { replyTo: 'm1', text: 'Ελένη' } });
+  const open = journal.op('g1', {
+    turnId: 't-1',
+    name: 'post',
+    by: 'persona',
+    channelId: 'c1',
+    intent: { replyTo: 'm1', text: 'Ελένη' },
+  });
   await open.started();
   const done = journal.op('g1', { turnId: 't-1', name: 'react', by: 'persona', channelId: 'c1' });
   await done.started();
@@ -377,9 +582,21 @@ test('journal: pending lists started operations without a closing phase', async 
   await crossing.succeeded({ hits: 0, delivered: false });
 
   const pending = await journal.pending('g1', { day: '2026-10-13' });
-  assert.deepEqual(pending.map((p) => p.opId), [open.opId, crossing.opId]);
-  assert.deepEqual(pending[0], { opId: open.opId, turnId: 't-1', name: 'post', intent: { replyTo: 'm1', text: 'Ελένη' }, channelId: 'c1' });
-  assert.deepEqual((await journal.pending('g1', { days: ['2026-10-13', '2026-10-14'] })).map((p) => p.opId), [open.opId]);
+  assert.deepEqual(
+    pending.map((p) => p.opId),
+    [open.opId, crossing.opId]
+  );
+  assert.deepEqual(pending[0], {
+    opId: open.opId,
+    turnId: 't-1',
+    name: 'post',
+    intent: { replyTo: 'm1', text: 'Ελένη' },
+    channelId: 'c1',
+  });
+  assert.deepEqual(
+    (await journal.pending('g1', { days: ['2026-10-13', '2026-10-14'] })).map((p) => p.opId),
+    [open.opId]
+  );
   assert.deepEqual(await journal.pending('g1', { day: '2026-10-14' }), []);
 });
 
@@ -387,13 +604,32 @@ test('journal: reconcile matches a post by replyTo and the first 80 chars of int
   const clock = { ms: DAY_D - 60_000 };
   const { journal, appendStore } = journalAt(clock);
   const long = 'Καλημέρα σε όλους, σήμερα η Ζωή έφερε γλυκά και ο Andrés έφερε καφέ για την ομάδα μας.';
-  const found = journal.op('g1', { turnId: 't-1', name: 'post', by: 'persona', channelId: 'c1', participants: ['u1'], intent: { replyTo: 'm1', text: long } });
+  const found = journal.op('g1', {
+    turnId: 't-1',
+    name: 'post',
+    by: 'persona',
+    channelId: 'c1',
+    participants: ['u1'],
+    intent: { replyTo: 'm1', text: long },
+  });
   await found.started();
   // Same text, wrong reply target: not a match.
-  const missing = journal.op('g1', { turnId: 't-1', name: 'post', by: 'persona', channelId: 'c1', intent: { replyTo: 'm2', text: 'ναι' } });
+  const missing = journal.op('g1', {
+    turnId: 't-1',
+    name: 'post',
+    by: 'persona',
+    channelId: 'c1',
+    intent: { replyTo: 'm2', text: 'ναι' },
+  });
   await missing.started();
   // Right target, different text: not a match either.
-  const plain = journal.op('g1', { turnId: 't-2', name: 'post', by: 'persona', channelId: 'c2', intent: { replyTo: null, text: 'éclair' } });
+  const plain = journal.op('g1', {
+    turnId: 't-2',
+    name: 'post',
+    by: 'persona',
+    channelId: 'c2',
+    intent: { replyTo: null, text: 'éclair' },
+  });
   await plain.started();
   const reacted = journal.op('g1', { turnId: 't-1', name: 'react', by: 'persona', channelId: 'c1' });
   await reacted.started();
@@ -412,7 +648,8 @@ test('journal: reconcile matches a post by replyTo and the first 80 chars of int
   const fetched = [];
   const fetchOwnMessages = async (channelId, n) => {
     fetched.push({ channelId, n });
-    if (channelId === 'c1') return [own('s0', 'ναι', 'm9'), own('s1', `${long} και κάτι ακόμα`, 'm1'), own('s2', 'ναι', null)];
+    if (channelId === 'c1')
+      return [own('s0', 'ναι', 'm9'), own('s1', `${long} και κάτι ακόμα`, 'm1'), own('s2', 'ναι', null)];
     return [own('s3', 'eclair', null)];
   };
 
@@ -421,12 +658,17 @@ test('journal: reconcile matches a post by replyTo and the first 80 chars of int
   assert.deepEqual(counts, { succeeded: 1, unknown: 4 });
   assert.deepEqual(sends, []);
   // One fetch per channel with a pending post; a react or a recall needs none.
-  assert.deepEqual(fetched.sort((a, b) => a.channelId.localeCompare(b.channelId)), [
-    { channelId: 'c1', n: 20 },
-    { channelId: 'c2', n: 20 },
-  ]);
+  assert.deepEqual(
+    fetched.sort((a, b) => a.channelId.localeCompare(b.channelId)),
+    [
+      { channelId: 'c1', n: 20 },
+      { channelId: 'c2', n: 20 },
+    ]
+  );
 
-  const closing = records(appendStore).map(({ record }) => record).filter((r) => r.phase !== 'started');
+  const closing = records(appendStore)
+    .map(({ record }) => record)
+    .filter((r) => r.phase !== 'started');
   const byOp = new Map(closing.map((r) => [r.opId, r]));
   assert.equal(closing.length, 5);
   assert.equal(byOp.get(found.opId).phase, 'succeeded');
@@ -449,7 +691,13 @@ test('journal: reconcile matches a post by replyTo and the first 80 chars of int
 test('journal: reconcile marks a post unknown when the fetch fails', async () => {
   const clock = { ms: DAY_D };
   const { journal, appendStore } = journalAt(clock);
-  const op = journal.op('g1', { turnId: 't-1', name: 'post', by: 'persona', channelId: 'c1', intent: { replyTo: null, text: 'Ζωή' } });
+  const op = journal.op('g1', {
+    turnId: 't-1',
+    name: 'post',
+    by: 'persona',
+    channelId: 'c1',
+    intent: { replyTo: null, text: 'Ζωή' },
+  });
   await op.started();
   const counts = await journal.reconcile('g1', {
     days: ['2026-10-13'],
@@ -468,13 +716,26 @@ test('journal: reconcile leaves alone an operation started after its cutoff', as
   await old.started();
   clock.ms = DAY_D;
   // A turn running while the reconciliation reads: its post is still in flight.
-  const live = journal.op('g1', { turnId: 't-2', name: 'post', by: 'persona', channelId: 'c1', intent: { replyTo: null, text: 'Ζωή' } });
+  const live = journal.op('g1', {
+    turnId: 't-2',
+    name: 'post',
+    by: 'persona',
+    channelId: 'c1',
+    intent: { replyTo: null, text: 'Ζωή' },
+  });
   await live.started();
   const fetched = [];
-  const counts = await journal.reconcile('g1', { days: ['2026-10-13'], before: DAY_D - 1000, fetchOwnMessages: async (channelId) => fetched.push(channelId) && [] });
+  const counts = await journal.reconcile('g1', {
+    days: ['2026-10-13'],
+    before: DAY_D - 1000,
+    fetchOwnMessages: async (channelId) => fetched.push(channelId) && [],
+  });
   assert.deepEqual(counts, { succeeded: 0, unknown: 1 });
   assert.deepEqual(fetched, []);
-  assert.deepEqual((await journal.pending('g1', { day: '2026-10-13' })).map((p) => p.opId), [live.opId]);
+  assert.deepEqual(
+    (await journal.pending('g1', { day: '2026-10-13' })).map((p) => p.opId),
+    [live.opId]
+  );
 });
 
 test('journal: stalled follows the append store and a private memory record goes to the private day file', async () => {
@@ -515,11 +776,29 @@ test('journal: an answer record is scoped to its channel, named by its participa
   assert.deepEqual(record.participants, ['u7']);
   assert.deepEqual(record.sourceMessageIds, ['m1', 'm2']);
   assert.equal(record.channelId, undefined, 'the channel is the scope, not stored twice');
-  assert.deepEqual((await journal.read('g1', { day: '2026-10-13', kind: 'answer' })).map((r) => r.messageId), ['m1']);
+  assert.deepEqual(
+    (await journal.read('g1', { day: '2026-10-13', kind: 'answer' })).map((r) => r.messageId),
+    ['m1']
+  );
   const { journalLine } = await import('../src/memory/journal.js');
-  assert.equal(journalLine({ ...record, occurredAt: '2026-10-13T08:09:10.000Z' }), '08:09:10 answer fact replaced-deferred');
-  assert.equal(journalLine({ kind: 'answer', occurredAt: '2026-10-13T08:09:10.000Z', event: 'verdict', reason: 'gate-failed', verdict: 'owed' }), '08:09:10 answer verdict gate-failed owed');
-  assert.equal(journalLine({ kind: 'answer', occurredAt: '2026-10-13T08:09:10.000Z', event: 'recovery', outcome: 'spoke' }), '08:09:10 answer recovery spoke');
+  assert.equal(
+    journalLine({ ...record, occurredAt: '2026-10-13T08:09:10.000Z' }),
+    '08:09:10 answer fact replaced-deferred'
+  );
+  assert.equal(
+    journalLine({
+      kind: 'answer',
+      occurredAt: '2026-10-13T08:09:10.000Z',
+      event: 'verdict',
+      reason: 'gate-failed',
+      verdict: 'owed',
+    }),
+    '08:09:10 answer verdict gate-failed owed'
+  );
+  assert.equal(
+    journalLine({ kind: 'answer', occurredAt: '2026-10-13T08:09:10.000Z', event: 'recovery', outcome: 'spoke' }),
+    '08:09:10 answer recovery spoke'
+  );
 });
 
 // ---- the run marker: a real directory and database --------------------------------------------
@@ -532,7 +811,16 @@ async function realJournal(clock) {
   const mem = await openTestMemory({ dataDir });
   OPENED.push(mem);
   const appendStore = createAppendStore({ fsyncMs: 0, log: quiet, now: () => clock.ms });
-  const make = (store = appendStore) => createJournal({ appendStore: store, dataDir, config: () => ({}), now: () => clock.ms, uuid: counter('r-'), log: quiet, memoryDb: mem.memoryDb });
+  const make = (store = appendStore) =>
+    createJournal({
+      appendStore: store,
+      dataDir,
+      config: () => ({}),
+      now: () => clock.ms,
+      uuid: counter('r-'),
+      log: quiet,
+      memoryDb: mem.memoryDb,
+    });
   return { fsp, dataDir, appendStore, make, journal: make() };
 }
 
@@ -554,7 +842,10 @@ test('journal: a .running marker left over at start writes an unclean-stop recor
     assert.deepEqual(await journal.markRunning('g1'), { unclean: true });
     await appendStore.flush();
     const written = await journal.read('g1', { day: '2026-10-13' });
-    assert.deepEqual(written.map((r) => [r.kind, r.event]), [['system', 'unclean-stop']]);
+    assert.deepEqual(
+      written.map((r) => [r.kind, r.event]),
+      [['system', 'unclean-stop']]
+    );
     await fsp.stat(running);
   } finally {
     await appendStore.close();
@@ -566,18 +857,43 @@ test('journalLine: one short line per kind', async () => {
   const { journalLine } = await import('../src/memory/journal.js');
   const at = '2026-10-13T08:09:10.000Z';
   assert.equal(
-    journalLine({ kind: 'turn', occurredAt: at, mode: 'reply', outcome: 'spoke', seen: { messageIds: ['a', 'b', 'c'] }, think: `Ζωή\n${'x'.repeat(100)}` }),
-    `08:09:10 turn reply spoke 3 msgs, think: Ζωή ${'x'.repeat(76)}`,
+    journalLine({
+      kind: 'turn',
+      occurredAt: at,
+      mode: 'reply',
+      outcome: 'spoke',
+      seen: { messageIds: ['a', 'b', 'c'] },
+      think: `Ζωή\n${'x'.repeat(100)}`,
+    }),
+    `08:09:10 turn reply spoke 3 msgs, think: Ζωή ${'x'.repeat(76)}`
   );
-  assert.equal(journalLine({ kind: 'turn', occurredAt: at, mode: 'interject', outcome: 'skip', think: null }), '08:09:10 turn interject skip 0 msgs, think: -');
-  assert.equal(journalLine({ kind: 'action', occurredAt: at, name: 'post', phase: 'started' }), '08:09:10 action post started');
   assert.equal(
-    journalLine({ kind: 'memory', occurredAt: at, batch: { messageIds: ['a'], consumed: 4 }, changed: { users: ['u1', 'u2'] }, episodes: [{}] }),
-    '08:09:10 memory batch 4 lines, users 2, episodes 1',
+    journalLine({ kind: 'turn', occurredAt: at, mode: 'interject', outcome: 'skip', think: null }),
+    '08:09:10 turn interject skip 0 msgs, think: -'
   );
-  assert.equal(journalLine({ kind: 'system', occurredAt: at, event: 'pause', by: 'owner' }), '08:09:10 system pause owner');
+  assert.equal(
+    journalLine({ kind: 'action', occurredAt: at, name: 'post', phase: 'started' }),
+    '08:09:10 action post started'
+  );
+  assert.equal(
+    journalLine({
+      kind: 'memory',
+      occurredAt: at,
+      batch: { messageIds: ['a'], consumed: 4 },
+      changed: { users: ['u1', 'u2'] },
+      episodes: [{}],
+    }),
+    '08:09:10 memory batch 4 lines, users 2, episodes 1'
+  );
+  assert.equal(
+    journalLine({ kind: 'system', occurredAt: at, event: 'pause', by: 'owner' }),
+    '08:09:10 system pause owner'
+  );
   assert.equal(journalLine({ kind: 'system', occurredAt: at, event: 'unclean-stop' }), '08:09:10 system unclean-stop');
-  assert.equal(journalLine({ kind: 'system', occurredAt: at, event: 'reload', note: 'prompts' }), '08:09:10 system reload prompts');
+  assert.equal(
+    journalLine({ kind: 'system', occurredAt: at, event: 'reload', note: 'prompts' }),
+    '08:09:10 system reload prompts'
+  );
 });
 
 /** An in-memory `fs/promises` stand-in: files by path, directories derived from them. */
@@ -586,7 +902,8 @@ function memoryFs() {
   const dirNames = (dir) => {
     const prefix = dir.endsWith(path.sep) ? dir : dir + path.sep;
     const names = new Set();
-    for (const file of files.keys()) if (file.startsWith(prefix)) names.add(file.slice(prefix.length).split(path.sep)[0]);
+    for (const file of files.keys())
+      if (file.startsWith(prefix)) names.add(file.slice(prefix.length).split(path.sep)[0]);
     return [...names];
   };
   return {
@@ -605,7 +922,8 @@ function memoryFs() {
       return names;
     },
     rm: async (target) => {
-      for (const file of [...files.keys()]) if (file === target || file.startsWith(target + path.sep)) files.delete(file);
+      for (const file of [...files.keys()])
+        if (file === target || file.startsWith(target + path.sep)) files.delete(file);
     },
   };
 }
@@ -634,7 +952,14 @@ test('journal: dumpRequest writes <day>/<turnId>-<attempt>.json with the request
     request: {
       messages: [
         { role: 'system', content: 'sys text' },
-        { role: 'user', content: [{ type: 'text', text: 'chat' }, { type: 'image_url', image_url: { url: dataUrl } }, { type: 'text', text: 'task' }] },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'chat' },
+            { type: 'image_url', image_url: { url: dataUrl } },
+            { type: 'text', text: 'task' },
+          ],
+        },
       ],
     },
     raw: '<msg>γεια</msg>',
@@ -650,24 +975,59 @@ test('journal: dumpRequest writes <day>/<turnId>-<attempt>.json with the request
   assert.equal(dump.system, 'sys text');
   assert.equal(dump.raw, '<msg>γεια</msg>');
   assert.deepEqual(dump.usage, { prompt: 10, cached: 4, completion: 2 });
-  assert.deepEqual(dump.parts, [{ type: 'text', text: 'chat' }, { image: 'attachment', bytes: 30 }, { type: 'text', text: 'task' }]);
+  assert.deepEqual(dump.parts, [
+    { type: 'text', text: 'chat' },
+    { image: 'attachment', bytes: 30 },
+    { type: 'text', text: 'task' },
+  ]);
   assert.ok(!fs.files.get(file).includes('data:'));
 
   // A private turn lands under the partner's private journal directory.
-  await journal.dumpRequest('g1', { turnId: 't-2', attemptId: 1, request: { system: 's', parts: [{ type: 'text', text: 'x' }] }, raw: '', usage: null, privateUserId: 'u9' });
-  assert.ok(fs.files.has(path.join(DATA, 'guilds', 'g1', 'private', 'u9', 'journal', 'requests', '2026-10-13', 't-2-1.json')));
+  await journal.dumpRequest('g1', {
+    turnId: 't-2',
+    attemptId: 1,
+    request: { system: 's', parts: [{ type: 'text', text: 'x' }] },
+    raw: '',
+    usage: null,
+    privateUserId: 'u9',
+  });
+  assert.ok(
+    fs.files.has(path.join(DATA, 'guilds', 'g1', 'private', 'u9', 'journal', 'requests', '2026-10-13', 't-2-1.json'))
+  );
 });
 
 test('journal: dumpRequest of a tool-loop step writes <turnId>-<attempt>-s<step>.json beside the base dump, same shape', async () => {
   const { journal, fs } = dumpJournal();
-  const request = { messages: [{ role: 'system', content: 'sys' }, { role: 'user', content: 'chat <result>ok</result> task' }] };
+  const request = {
+    messages: [
+      { role: 'system', content: 'sys' },
+      { role: 'user', content: 'chat <result>ok</result> task' },
+    ],
+  };
   await journal.dumpRequest('g1', { turnId: 't-1', attemptId: 1, request, raw: 'base', usage: null });
-  await journal.dumpRequest('g1', { turnId: 't-1', attemptId: 1, step: 2, request, raw: '<msg>δεύτερο</msg>', usage: { prompt: 5, completion: 1 } });
+  await journal.dumpRequest('g1', {
+    turnId: 't-1',
+    attemptId: 1,
+    step: 2,
+    request,
+    raw: '<msg>δεύτερο</msg>',
+    usage: { prompt: 5, completion: 1 },
+  });
   const base = path.join(REQUESTS, '2026-10-13', 't-1-1.json');
   const step = path.join(REQUESTS, '2026-10-13', 't-1-1-s2.json');
   assert.deepEqual([...fs.files.keys()].sort(), [base, step].sort());
   const dump = JSON.parse(fs.files.get(step));
-  assert.deepEqual(Object.keys(dump), ['v', 'turnId', 'attemptId', 'step', 'recordedAt', 'system', 'parts', 'raw', 'usage']);
+  assert.deepEqual(Object.keys(dump), [
+    'v',
+    'turnId',
+    'attemptId',
+    'step',
+    'recordedAt',
+    'system',
+    'parts',
+    'raw',
+    'usage',
+  ]);
   assert.equal(dump.step, 2);
   assert.equal(dump.system, 'sys');
   assert.deepEqual(dump.parts, [{ type: 'text', text: 'chat <result>ok</result> task' }]);
@@ -677,27 +1037,45 @@ test('journal: dumpRequest of a tool-loop step writes <turnId>-<attempt>-s<step>
 
 test('journal: dumpRequest stores the later messages with their tool calls, pictures reduced; absent when there are none', async () => {
   const { journal, fs } = dumpJournal();
-  const request = { messages: [{ role: 'system', content: 'sys' }, { role: 'user', content: 'chat' }] };
+  const request = {
+    messages: [
+      { role: 'system', content: 'sys' },
+      { role: 'user', content: 'chat' },
+    ],
+  };
   const dataUrl = `data:image/png;base64,${'QUJD'.repeat(10)}`;
   const toolCalls = [{ id: 'call_1', type: 'function', function: { name: 'search_web', arguments: '{"q":"γάτα"}' } }];
   const later = [
     { role: 'assistant', content: '<think>x</think>', tool_calls: toolCalls },
     { role: 'tool', tool_call_id: 'call_1', content: '{"status":"ok"}' },
-    { role: 'user', content: [{ type: 'text', text: 'note' }, { type: 'image_url', image_url: { url: dataUrl } }] },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: 'note' },
+        { type: 'image_url', image_url: { url: dataUrl } },
+      ],
+    },
   ];
   await journal.dumpRequest('g1', { turnId: 't-1', attemptId: 1, step: 1, request, raw: 'r', later });
   await journal.dumpRequest('g1', { turnId: 't-2', attemptId: 1, request, raw: 'r', later: [] });
   const dump = JSON.parse(fs.files.get(path.join(REQUESTS, '2026-10-13', 't-1-1-s1.json')));
   assert.deepEqual(dump.later[0], later[0]);
   assert.deepEqual(dump.later[1], later[1]);
-  assert.deepEqual(dump.later[2], { role: 'user', content: [{ type: 'text', text: 'note' }, { image: 'attachment', bytes: 30 }] });
+  assert.deepEqual(dump.later[2], {
+    role: 'user',
+    content: [
+      { type: 'text', text: 'note' },
+      { image: 'attachment', bytes: 30 },
+    ],
+  });
   assert.ok(!JSON.stringify(dump).includes('data:'));
   assert.equal('later' in JSON.parse(fs.files.get(path.join(REQUESTS, '2026-10-13', 't-2-1.json'))), false);
 });
 
 test('journal: pruneRequests deletes days older than keepRequests and keeps the rest', async () => {
   const { journal, fs } = dumpJournal({ keepRequests: 3 });
-  for (const day of ['2026-10-08', '2026-10-09', '2026-10-10', '2026-10-12', '2026-10-13']) fs.files.set(path.join(REQUESTS, day, 't-1.json'), '{}');
+  for (const day of ['2026-10-08', '2026-10-09', '2026-10-10', '2026-10-12', '2026-10-13'])
+    fs.files.set(path.join(REQUESTS, day, 't-1.json'), '{}');
   fs.files.set(path.join(DATA, 'guilds', 'g1', 'private', 'u9', 'journal', 'requests', '2026-10-01', 't-1.json'), '{}');
   fs.files.set(path.join(REQUESTS, 'notes'), 'not a day');
   const result = await journal.pruneRequests('g1');
@@ -713,7 +1091,13 @@ test('journal: pruneRequests deletes days older than keepRequests and keeps the 
 
 test('journal: keepRequests 0 writes nothing', async () => {
   const { journal, fs } = dumpJournal({ keepRequests: 0 });
-  await journal.dumpRequest('g1', { turnId: 't-1', attemptId: 1, request: { system: 's', parts: [] }, raw: 'x', usage: null });
+  await journal.dumpRequest('g1', {
+    turnId: 't-1',
+    attemptId: 1,
+    request: { system: 's', parts: [] },
+    raw: 'x',
+    usage: null,
+  });
   assert.equal(fs.files.size, 0);
   fs.files.set(path.join(REQUESTS, '2000-01-01', 't.json'), '{}');
   assert.deepEqual(await journal.pruneRequests('g1'), { removed: 0 });
@@ -755,7 +1139,7 @@ test('journal: withWriterLock releases the lock when fn throws', async () => {
     journal.withWriterLock(async () => {
       throw new Error('disk full');
     }),
-    /disk full/,
+    /disk full/
   );
   await journal.system('g1', { event: 'resume', by: 'owner' });
   assert.equal(appendStore.lines.length, 1);
@@ -815,11 +1199,16 @@ test('offPeriods: periods that ended before the window are ignored; an ongoing p
 
 test('offPeriods: at most 3 periods, newest first; an overlap takes the kind of its longest part', () => {
   const timeline = [
-    sys(T0, 'pause'), sys(T0 + 10 * MINUTE, 'resume'),
-    sys(T0 + HOUR, 'pause'), sys(T0 + HOUR + 10 * MINUTE, 'resume'),
-    sys(T0 + 2 * HOUR, 'stop'), sys(T0 + 2 * HOUR + 10 * MINUTE, 'start'),
+    sys(T0, 'pause'),
+    sys(T0 + 10 * MINUTE, 'resume'),
+    sys(T0 + HOUR, 'pause'),
+    sys(T0 + HOUR + 10 * MINUTE, 'resume'),
+    sys(T0 + 2 * HOUR, 'stop'),
+    sys(T0 + 2 * HOUR + 10 * MINUTE, 'start'),
     // A pause that a restart falls inside: one period, paused.
-    sys(T0 + 3 * HOUR, 'pause'), sys(T0 + 3 * HOUR + 5 * MINUTE, 'stop'), sys(T0 + 3 * HOUR + 6 * MINUTE, 'start'),
+    sys(T0 + 3 * HOUR, 'pause'),
+    sys(T0 + 3 * HOUR + 5 * MINUTE, 'stop'),
+    sys(T0 + 3 * HOUR + 6 * MINUTE, 'start'),
     sys(T0 + 3 * HOUR + 40 * MINUTE, 'resume'),
   ];
   assert.deepEqual(offPeriods(timeline, { now: T0 + 5 * HOUR, windowMs: DAY_WINDOW }), [
@@ -882,30 +1271,78 @@ test('createOffPeriodsReader: reads the window once a minute and gives [] with a
 test('journal: turnOperations gives the operations of one turn with how each ended; a started one without a closing line is open, a proposed one never started stays proposed', async () => {
   const clock = { ms: DAY_D };
   const { journal } = journalAt(clock);
-  const post = journal.op('g1', { turnId: 't-1', name: 'post', by: 'persona', channelId: 'c1', intent: { replyTo: null, text: 'Ελένη' } });
+  const post = journal.op('g1', {
+    turnId: 't-1',
+    name: 'post',
+    by: 'persona',
+    channelId: 'c1',
+    intent: { replyTo: null, text: 'Ελένη' },
+  });
   await post.started();
   await post.succeeded({ messageId: 's1' });
-  const call = journal.op('g1', { turnId: 't-1', name: 'skill', by: 'persona', channelId: 'c1', input: { skill: 'message.create', invocationId: 'i1' } });
+  const call = journal.op('g1', {
+    turnId: 't-1',
+    name: 'skill',
+    by: 'persona',
+    channelId: 'c1',
+    input: { skill: 'message.create', invocationId: 'i1' },
+  });
   await call.proposed();
   await call.started();
-  const refused = journal.op('g1', { turnId: 't-1', name: 'skill', by: 'persona', channelId: 'c1', input: { skill: 'draw.create', invocationId: 'i2' } });
+  const refused = journal.op('g1', {
+    turnId: 't-1',
+    name: 'skill',
+    by: 'persona',
+    channelId: 'c1',
+    input: { skill: 'draw.create', invocationId: 'i2' },
+  });
   await refused.proposed();
   const other = journal.op('g1', { turnId: 't-2', name: 'react', by: 'persona', channelId: 'c1' });
   await other.started();
   await other.succeeded({});
   const ops = await journal.turnOperations('g1', { turnId: 't-1', days: ['2026-10-13'] });
-  assert.deepEqual(ops.map((op) => [op.name, op.phase, op.skill, op.text]), [['post', 'succeeded', null, 'Ελένη'], ['skill', 'open', 'message.create', null], ['skill', 'proposed', 'draw.create', null]]);
+  assert.deepEqual(
+    ops.map((op) => [op.name, op.phase, op.skill, op.text]),
+    [
+      ['post', 'succeeded', null, 'Ελένη'],
+      ['skill', 'open', 'message.create', null],
+      ['skill', 'proposed', 'draw.create', null],
+    ]
+  );
   assert.deepEqual(await journal.turnOperations('g1', { turnId: 't-9', days: ['2026-10-13'] }), []);
   assert.deepEqual(await journal.turnOperations('g1', { turnId: null, days: ['2026-10-13'] }), []);
 });
 
-test('journal: dumpRequest of a request with tools stores the array once by hash, the choice and the answer\'s tool calls', async () => {
+test("journal: dumpRequest of a request with tools stores the array once by hash, the choice and the answer's tool calls", async () => {
   const { journal, fs } = dumpJournal();
-  const tools = [{ type: 'function', function: { name: 'draw_create', description: 'd', parameters: { type: 'object', properties: {} } } }];
+  const tools = [
+    {
+      type: 'function',
+      function: { name: 'draw_create', description: 'd', parameters: { type: 'object', properties: {} } },
+    },
+  ];
   const request = { system: 's', parts: [{ type: 'text', text: 'x' }] };
   const toolCalls = [{ id: 'c1', name: 'draw_create', arguments: '{}', parsed: {}, parseError: null }];
-  await journal.dumpRequest('g1', { turnId: 't-1', attemptId: 1, request, raw: 'r', usage: null, tools, toolChoice: 'auto', toolCalls });
-  await journal.dumpRequest('g1', { turnId: 't-1', attemptId: 1, step: 2, request, raw: 'r', usage: null, tools, toolChoice: 'auto' });
+  await journal.dumpRequest('g1', {
+    turnId: 't-1',
+    attemptId: 1,
+    request,
+    raw: 'r',
+    usage: null,
+    tools,
+    toolChoice: 'auto',
+    toolCalls,
+  });
+  await journal.dumpRequest('g1', {
+    turnId: 't-1',
+    attemptId: 1,
+    step: 2,
+    request,
+    raw: 'r',
+    usage: null,
+    tools,
+    toolChoice: 'auto',
+  });
   const hash = toolsHashOf(tools);
   const copy = path.join(REQUESTS, 'tools', `${hash}.json`);
   assert.deepEqual(JSON.parse(fs.files.get(copy)), tools);
@@ -921,7 +1358,13 @@ test('journal: dumpRequest of a request with tools stores the array once by hash
 
 test('journal: dumpRequest without tools has no tool fields and writes no tools copy', async () => {
   const { journal, fs } = dumpJournal();
-  await journal.dumpRequest('g1', { turnId: 't-1', attemptId: 1, request: { system: 's', parts: [] }, raw: 'r', usage: null });
+  await journal.dumpRequest('g1', {
+    turnId: 't-1',
+    attemptId: 1,
+    request: { system: 's', parts: [] },
+    raw: 'r',
+    usage: null,
+  });
   const dump = JSON.parse(fs.files.get(path.join(REQUESTS, '2026-10-13', 't-1-1.json')));
   assert.deepEqual(Object.keys(dump), ['v', 'turnId', 'attemptId', 'recordedAt', 'system', 'parts', 'raw', 'usage']);
   assert.equal(fs.files.size, 1);

@@ -6,7 +6,23 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BASE_ROLES, CORE_ROLE, CORE_ROLES, DEVELOPMENT_ROLES, ERRAND_ROLES, HELPER_ROLES, MEMORY_ROLE, OPENCODE_ROLES, ROLES, ROLE_DEFAULTS, PURPOSE_ROLES, isRole, roleConfigKeys, roleGroup, roleModel } from '../src/llm/roles.js';
+import {
+  BASE_ROLES,
+  CORE_ROLE,
+  CORE_ROLES,
+  DEVELOPMENT_ROLES,
+  ERRAND_ROLES,
+  HELPER_ROLES,
+  MEMORY_ROLE,
+  OPENCODE_ROLES,
+  ROLES,
+  ROLE_DEFAULTS,
+  PURPOSE_ROLES,
+  isRole,
+  roleConfigKeys,
+  roleGroup,
+  roleModel,
+} from '../src/llm/roles.js';
 import { readConfig } from '../src/config.js';
 import { MODEL_SET_ROLES } from '../src/ops/catalog.js';
 import { tempDir } from './fixtures/tmp.js';
@@ -27,7 +43,7 @@ function loadWith(local) {
 
 // ---- roleModel ---------------------------------------------------------------
 
-test('roleModel: models.byPurpose for the purpose, else the role\'s own key, else the role default', () => {
+test("roleModel: models.byPurpose for the purpose, else the role's own key, else the role default", () => {
   const config = { models: { base: { analyzer: 'x/analyzer' }, byPurpose: { split: 'x/split' } } };
   assert.equal(roleModel(config, 'analyzer', 'split'), 'x/split');
   assert.equal(roleModel(config, 'analyzer', 'address'), 'x/analyzer');
@@ -36,9 +52,21 @@ test('roleModel: models.byPurpose for the purpose, else the role\'s own key, els
 });
 
 test('roles: the lookup purposes go out on the analyzer, each pinnable by itself', () => {
-  for (const purpose of ['lookup', 'planner', 'recall-summary', 'search-summary', 'read-link', 'diary-plan', 'web-search']) {
+  for (const purpose of [
+    'lookup',
+    'planner',
+    'recall-summary',
+    'search-summary',
+    'read-link',
+    'diary-plan',
+    'web-search',
+  ]) {
     assert.equal(PURPOSE_ROLES[purpose], 'analyzer', purpose);
-    assert.equal(roleModel({ models: { base: { analyzer: 'x/a' }, byPurpose: { [purpose]: 'x/pinned' } } }, 'analyzer', purpose), 'x/pinned', purpose);
+    assert.equal(
+      roleModel({ models: { base: { analyzer: 'x/a' }, byPurpose: { [purpose]: 'x/pinned' } } }, 'analyzer', purpose),
+      'x/pinned',
+      purpose
+    );
   }
 });
 
@@ -47,18 +75,29 @@ test('roleModel: a byPurpose entry applies whatever the role, an empty or non-st
   assert.equal(roleModel(config, 'core', 'reply'), 'x/reply');
   assert.equal(roleModel(config, 'vision', 'describe'), ROLE_DEFAULTS.vision);
   assert.equal(roleModel(config, 'vision', 'relook'), ROLE_DEFAULTS.vision);
-  assert.equal(roleModel({ models: { byPurpose: Object.create({ split: 'x/inherited' }) } }, 'analyzer', 'split'), ROLE_DEFAULTS.analyzer);
+  assert.equal(
+    roleModel({ models: { byPurpose: Object.create({ split: 'x/inherited' }) } }, 'analyzer', 'split'),
+    ROLE_DEFAULTS.analyzer
+  );
 });
 
 test('roleModel: a byPurpose that is not a plain object, or an entry that is not a non-empty string, leaves the role model', () => {
   const base = { analyzer: 'x/analyzer' };
   for (const byPurpose of [{ lookup: '' }, { lookup: null }, { lookup: 7 }, ['x/array'], 'x/string', null]) {
-    assert.equal(roleModel({ models: { base, byPurpose } }, 'analyzer', 'lookup'), 'x/analyzer', JSON.stringify(byPurpose));
+    assert.equal(
+      roleModel({ models: { base, byPurpose } }, 'analyzer', 'lookup'),
+      'x/analyzer',
+      JSON.stringify(byPurpose)
+    );
   }
-  assert.equal(roleModel({ models: { byPurpose: { toString: 'x/proto' } } }, 'analyzer', 'constructor'), ROLE_DEFAULTS.analyzer, 'own keys only');
+  assert.equal(
+    roleModel({ models: { byPurpose: { toString: 'x/proto' } } }, 'analyzer', 'constructor'),
+    ROLE_DEFAULTS.analyzer,
+    'own keys only'
+  );
 });
 
-test('roleModel: an unset role takes its own default, never another role\'s model', () => {
+test("roleModel: an unset role takes its own default, never another role's model", () => {
   const config = { models: { base: { core: 'x/core', analyzer: 'x/analyzer', vision: 'x/vision' } } };
   for (const role of ['video', 'embedding', 'drawing', 'scout', 'dev']) {
     assert.equal(roleModel(config, role), ROLE_DEFAULTS[role], role);
@@ -66,7 +105,11 @@ test('roleModel: an unset role takes its own default, never another role\'s mode
   assert.equal(roleModel({ models: { base: { analyzer: null, video: '' } } }, 'analyzer'), ROLE_DEFAULTS.analyzer);
   assert.equal(roleModel({ models: { base: { analyzer: null, video: '' } } }, 'video'), ROLE_DEFAULTS.video);
   assert.equal(roleModel(undefined, 'core'), ROLE_DEFAULTS.core);
-  assert.equal(roleModel({ models: { base: { core: { nested: 'x/no' } } } }, 'core'), ROLE_DEFAULTS.core, 'models.base.core is a string, nothing else');
+  assert.equal(
+    roleModel({ models: { base: { core: { nested: 'x/no' } } } }, 'core'),
+    ROLE_DEFAULTS.core,
+    'models.base.core is a string, nothing else'
+  );
 });
 
 test('roleModel: undefined for a name that is not a role, unless its purpose is pinned', () => {
@@ -80,23 +123,40 @@ test('roleModel: undefined for a name that is not a role, unless its purpose is 
 });
 
 test('roleModel: each role reads its own group only', () => {
-  const crossed = { models: { base: { scout: 'openrouter/x/scout', thinker: 'openrouter/x/thinker' }, errands: { core: 'x/core', drawing: 'x/draw' }, development: { analyzer: 'x/an', server: 'openrouter/x/server' } } };
+  const crossed = {
+    models: {
+      base: { scout: 'openrouter/x/scout', thinker: 'openrouter/x/thinker' },
+      errands: { core: 'x/core', drawing: 'x/draw' },
+      development: { analyzer: 'x/an', server: 'openrouter/x/server' },
+    },
+  };
   for (const role of ROLES) assert.equal(roleModel(crossed, role), ROLE_DEFAULTS[role], role);
-  const own = { models: { base: { drawing: 'x/draw' }, errands: { scout: 'openrouter/x/scout' }, development: { dev: 'openrouter/x/dev' } } };
+  const own = {
+    models: {
+      base: { drawing: 'x/draw' },
+      errands: { scout: 'openrouter/x/scout' },
+      development: { dev: 'openrouter/x/dev' },
+    },
+  };
   assert.equal(roleModel(own, 'drawing'), 'x/draw');
   assert.equal(roleModel(own, 'scout'), 'openrouter/x/scout');
   assert.equal(roleModel(own, 'dev'), 'openrouter/x/dev');
-  assert.equal(roleModel(own, 'server'), ROLE_DEFAULTS.server, 'never another agent role\'s model');
-  for (const models of [null, 'x', ['a'], { base: 7 }, { base: [], errands: 'x', development: null }]) assert.equal(roleModel({ models }, 'core'), ROLE_DEFAULTS.core, JSON.stringify(models));
+  assert.equal(roleModel(own, 'server'), ROLE_DEFAULTS.server, "never another agent role's model");
+  for (const models of [null, 'x', ['a'], { base: 7 }, { base: [], errands: 'x', development: null }])
+    assert.equal(roleModel({ models }, 'core'), ROLE_DEFAULTS.core, JSON.stringify(models));
 });
 
-test('roleModel: the memory role has its own key and default, never the core\'s key', () => {
+test("roleModel: the memory role has its own key and default, never the core's key", () => {
   assert.equal(roleModel({ models: { base: { memory: 'x/m', core: 'x/c' } } }, MEMORY_ROLE), 'x/m');
-  assert.equal(roleModel({ models: { base: { core: 'x/c' } } }, MEMORY_ROLE), ROLE_DEFAULTS.core, 'unset: its own default, never the core key');
+  assert.equal(
+    roleModel({ models: { base: { core: 'x/c' } } }, MEMORY_ROLE),
+    ROLE_DEFAULTS.core,
+    'unset: its own default, never the core key'
+  );
   assert.equal(isRole(MEMORY_ROLE), false, '/nep model does not list it');
 });
 
-test('roleGroup / roleConfigKeys: each role\'s group and config keys', () => {
+test("roleGroup / roleConfigKeys: each role's group and config keys", () => {
   for (const role of [...BASE_ROLES, MEMORY_ROLE]) {
     assert.equal(roleGroup(role), 'base', role);
     assert.deepEqual(roleConfigKeys(role), ['models', 'base', role]);
@@ -115,14 +175,22 @@ test('roleGroup / roleConfigKeys: each role\'s group and config keys', () => {
   }
 });
 
-test('roles: the built-in defaults equal config.json\'s three groups, and every role has one', () => {
+test("roles: the built-in defaults equal config.json's three groups, and every role has one", () => {
   const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
   assert.deepEqual(Object.keys(shipped.models), ['base', 'byPurpose', 'errands', 'development']);
   assert.deepEqual(Object.keys(shipped.models.base), [CORE_ROLE, MEMORY_ROLE, ...HELPER_ROLES, 'drawing']);
   assert.deepEqual(Object.keys(shipped.models.errands), [...ERRAND_ROLES]);
   assert.deepEqual(Object.keys(shipped.models.development), [...DEVELOPMENT_ROLES]);
-  assert.equal(shipped.models.base.memory, shipped.models.base.core, 'her memory session starts on the core\'s model, as its own key');
-  assert.equal(roleModel({}, 'memory'), roleModel({}, 'core'), 'unset: the built-in default of the memory role is the core\'s default');
+  assert.equal(
+    shipped.models.base.memory,
+    shipped.models.base.core,
+    "her memory session starts on the core's model, as its own key"
+  );
+  assert.equal(
+    roleModel({}, 'memory'),
+    roleModel({}, 'core'),
+    "unset: the built-in default of the memory role is the core's default"
+  );
   const { memory, ...base } = shipped.models.base;
   assert.deepEqual({ ...base, ...shipped.models.errands, ...shipped.models.development }, { ...ROLE_DEFAULTS });
   assert.deepEqual(shipped.models.byPurpose, {});
@@ -145,11 +213,18 @@ test('roles: the groups, the OpenCode roles with OpenCode model ids, resolved li
   assert.equal(ROLE_DEFAULTS.thinker, 'openrouter/anthropic/claude-opus-5.5');
   assert.equal(ROLE_DEFAULTS.dev, 'openrouter/anthropic/claude-sonnet-5.5');
   assert.equal(ROLE_DEFAULTS.drawing, 'openai/gpt-image-2.5-flare', 'drawing: a bare OpenRouter image model id');
-  for (const role of OPENCODE_ROLES) assert.match(ROLE_DEFAULTS[role], /^openrouter\/[\w.-]+\/[\w.:-]+$/, `${role}: an OpenCode id, provider first`);
+  for (const role of OPENCODE_ROLES)
+    assert.match(ROLE_DEFAULTS[role], /^openrouter\/[\w.-]+\/[\w.:-]+$/, `${role}: an OpenCode id, provider first`);
   for (const role of ROLES) assert.equal(roleModel({}, role), ROLE_DEFAULTS[role], role);
   assert.equal(roleModel({ models: { errands: { scout: 'openrouter/x/scout' } } }, 'scout'), 'openrouter/x/scout');
-  assert.equal(roleModel({ models: { errands: { scout: 'openrouter/x/scout' }, byPurpose: { scout: 'x/pinned' } } }, 'server'), ROLE_DEFAULTS.server);
-  assert.ok(!Object.values(PURPOSE_ROLES).some((role) => OPENCODE_ROLES.includes(role)), 'no request purpose goes out on an OpenCode role');
+  assert.equal(
+    roleModel({ models: { errands: { scout: 'openrouter/x/scout' }, byPurpose: { scout: 'x/pinned' } } }, 'server'),
+    ROLE_DEFAULTS.server
+  );
+  assert.ok(
+    !Object.values(PURPOSE_ROLES).some((role) => OPENCODE_ROLES.includes(role)),
+    'no request purpose goes out on an OpenCode role'
+  );
 });
 
 test('roles: config.json carries none of the old model keys', () => {
@@ -161,8 +236,16 @@ test('roles: config.json carries none of the old model keys', () => {
   assert.equal(Object.hasOwn(shipped.image, 'model'), false);
   assert.deepEqual(shipped.llm.hedge.roles, ['analyzer']);
   assert.deepEqual(shipped.llm.cache.roles, ['core']);
-  assert.equal(JSON.stringify([shipped.models, shipped.llm]).includes('voice'), false, 'no model key or role named voice (memory.voice is the memory-wording section, not a role)');
-  assert.equal(JSON.stringify([shipped.models, shipped.llm, shipped.agents]).includes('"web"'), false, 'the errand agent is called scout');
+  assert.equal(
+    JSON.stringify([shipped.models, shipped.llm]).includes('voice'),
+    false,
+    'no model key or role named voice (memory.voice is the memory-wording section, not a role)'
+  );
+  assert.equal(
+    JSON.stringify([shipped.models, shipped.llm, shipped.agents]).includes('"web"'),
+    false,
+    'the errand agent is called scout'
+  );
 });
 
 // ---- readConfig --------------------------------------------------------------
@@ -176,9 +259,10 @@ test('readConfig: config.local.json is merged over config.json key by key', () =
 
 // ---- every purpose resolves --------------------------------------------------
 
-test('purposes: under config.json every purpose resolves to its role\'s default model', () => {
+test("purposes: under config.json every purpose resolves to its role's default model", () => {
   const config = loadWith(undefined);
-  for (const [purpose, role] of Object.entries(PURPOSE_ROLES)) assert.equal(roleModel(config, role, purpose), ROLE_DEFAULTS[role], purpose);
+  for (const [purpose, role] of Object.entries(PURPOSE_ROLES))
+    assert.equal(roleModel(config, role, purpose), ROLE_DEFAULTS[role], purpose);
 });
 
 // ---- the call sites ----------------------------------------------------------
@@ -204,13 +288,18 @@ test('call sites: every request role is one of the roles, every purpose goes out
   for (const [file, text] of sources()) {
     for (const [, role] of text.matchAll(/\brole: '([\w.-]+)'/g)) {
       if (!chatRoles.has(role)) assert.ok(isRole(role), `${file}: role '${role}'`);
-      assert.ok(!OPENCODE_ROLES.includes(role), `${file}: no request of the bot goes out on the OpenCode role '${role}'`);
+      assert.ok(
+        !OPENCODE_ROLES.includes(role),
+        `${file}: no request of the bot goes out on the OpenCode role '${role}'`
+      );
     }
     for (const [, role, purpose] of text.matchAll(/roleModel\([\w.]+, '([\w-]+)', '([\w-]+)'\)/g)) {
       assert.equal(PURPOSE_ROLES[purpose], role, `${file}: roleModel for ${purpose}`);
       pairs += 1;
     }
-    for (const [, role, purpose] of text.matchAll(/helperRequestOptions\([\w.]+, \{\s*role: '([\w-]+)'[^}]*?purpose: '([\w-]+)'/g)) {
+    for (const [, role, purpose] of text.matchAll(
+      /helperRequestOptions\([\w.]+, \{\s*role: '([\w-]+)'[^}]*?purpose: '([\w-]+)'/g
+    )) {
       assert.equal(PURPOSE_ROLES[purpose], role, `${file}: helper request for ${purpose}`);
       pairs += 1;
     }

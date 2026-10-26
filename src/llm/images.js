@@ -144,13 +144,17 @@ export function createImageGen({ apiKey, getConfig, state, fetchImpl = fetch, no
   function readCounts(userId, nowMs) {
     const used = countToday(state.data, IMAGE_DAILY, nowMs);
     const users = state.data.imageUsers;
-    const userUsed = userId == null ? 0 : countToday({ day: users?.day, count: users?.counts?.[userId] }, MEMBER_DAILY, nowMs);
+    const userUsed =
+      userId == null ? 0 : countToday({ day: users?.day, count: users?.counts?.[userId] }, MEMBER_DAILY, nowMs);
     return { used, userUsed };
   }
 
   /** Both caps, read now; one that is not a finite number counts as 0 (src/llm/openrouter.js#dailyCapOf). */
   function caps(cfg) {
-    return { cap: dailyCapOf(cfg.maxPerDay, 'image.maxPerDay'), userCap: dailyCapOf(cfg.maxPerUserPerDay, 'image.maxPerUserPerDay') };
+    return {
+      cap: dailyCapOf(cfg.maxPerDay, 'image.maxPerDay'),
+      userCap: dailyCapOf(cfg.maxPerUserPerDay, 'image.maxPerUserPerDay'),
+    };
   }
 
   /** Roll both counters over to today, refuse at a cap, then count this request. */
@@ -158,7 +162,11 @@ export function createImageGen({ apiKey, getConfig, state, fetchImpl = fetch, no
     const { cap, userCap } = caps(cfg);
     const nowMs = now();
     const { day, count: used } = dailyCounter(state.data, IMAGE_DAILY, nowMs);
-    if (!isPlainObject(state.data.imageUsers) || state.data.imageUsers.day !== day || !isPlainObject(state.data.imageUsers.counts)) {
+    if (
+      !isPlainObject(state.data.imageUsers) ||
+      state.data.imageUsers.day !== day ||
+      !isPlainObject(state.data.imageUsers.counts)
+    ) {
       state.data.imageUsers = { day, counts: {} };
     }
     const counts = state.data.imageUsers.counts;
@@ -200,7 +208,11 @@ export function createImageGen({ apiKey, getConfig, state, fetchImpl = fetch, no
     }
 
     // The route of this generation: its body's `provider` and, on the answer, its `byok` mark.
-    const routing = resolveProvider(model, { byModel: getConfig().llm?.providerByModel, fallback: cfg.provider, role: IMAGE_ROLE });
+    const routing = resolveProvider(model, {
+      byModel: getConfig().llm?.providerByModel,
+      fallback: cfg.provider,
+      role: IMAGE_ROLE,
+    });
     const body = JSON.stringify(buildBody({ cfg, model, routing, family, prompt, reference }));
     // Normalised so a negative, NaN or non-numeric value still sends one request.
     const retries = Math.max(0, Math.floor(Number(cfg.retries ?? 1)) || 0);
@@ -230,9 +242,18 @@ export function createImageGen({ apiKey, getConfig, state, fetchImpl = fetch, no
           const rawBody = await response.text().catch(() => '');
           const statusCode = response.status;
           if (MODERATION_STATUS.has(statusCode) && MODERATION_MARKERS.test(rawBody)) {
-            throw fail(new ImageGenError('moderation', `image refused by moderation (HTTP ${statusCode})`, { statusCode, body: rawBody }), attempt);
+            throw fail(
+              new ImageGenError('moderation', `image refused by moderation (HTTP ${statusCode})`, {
+                statusCode,
+                body: rawBody,
+              }),
+              attempt
+            );
           }
-          const error = new ImageGenError('error', `OpenRouter images HTTP ${statusCode}`, { statusCode, body: rawBody });
+          const error = new ImageGenError('error', `OpenRouter images HTTP ${statusCode}`, {
+            statusCode,
+            body: rawBody,
+          });
           if (RETRY_STATUS.has(statusCode)) {
             lastError = error;
             continue;
@@ -242,7 +263,10 @@ export function createImageGen({ apiKey, getConfig, state, fetchImpl = fetch, no
       } catch (err) {
         if (err instanceof ImageGenError) throw err; // already classified and logged, not retried
         if (isAbort(err)) {
-          throw fail(new ImageGenError('timeout', `image generation timed out after ${timeoutMs} ms`, { cause: err }), attempt);
+          throw fail(
+            new ImageGenError('timeout', `image generation timed out after ${timeoutMs} ms`, { cause: err }),
+            attempt
+          );
         }
         // A network failure is transient, like a 5xx: retried.
         lastError = new ImageGenError('error', 'image request failed', { cause: err });
@@ -254,14 +278,23 @@ export function createImageGen({ apiKey, getConfig, state, fetchImpl = fetch, no
         json = await response.json();
       } catch (err) {
         if (isAbort(err)) {
-          throw fail(new ImageGenError('timeout', `image generation timed out after ${timeoutMs} ms`, { cause: err }), attempt);
+          throw fail(
+            new ImageGenError('timeout', `image generation timed out after ${timeoutMs} ms`, { cause: err }),
+            attempt
+          );
         }
         throw fail(new ImageGenError('error', 'image response was not JSON', { cause: err }), attempt);
       }
       const item = Array.isArray(json?.data) ? json.data[0] : undefined;
       if (typeof item?.b64_json !== 'string' || !item.b64_json) {
         const reason = json?.error ? 'error' : 'empty';
-        throw fail(new ImageGenError(reason, reason === 'empty' ? 'image response carried no picture' : 'OpenRouter images error'), attempt);
+        throw fail(
+          new ImageGenError(
+            reason,
+            reason === 'empty' ? 'image response carried no picture' : 'OpenRouter images error'
+          ),
+          attempt
+        );
       }
       const buffer = Buffer.from(item.b64_json, 'base64');
       const outputFormat = cfg.outputFormat ?? 'png';

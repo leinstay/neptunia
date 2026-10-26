@@ -60,7 +60,8 @@ test('applyAddressUses: keeps at most 12 names, dropping the lowest decayed scor
 
 test('applyAddressUses: the cap drops the name whose decayed score is lowest now', () => {
   const map = {};
-  for (let i = 0; i < 12; i += 1) map[`name${String.fromCharCode(97 + i)}`] = { score: 5, last: new Date(T0 + 100 * DAY).toISOString() };
+  for (let i = 0; i < 12; i += 1)
+    map[`name${String.fromCharCode(97 + i)}`] = { score: 5, last: new Date(T0 + 100 * DAY).toISOString() };
   // An old name with a high raw score decays below the newcomer's single use.
   map.ancient = { score: 4, last: new Date(T0).toISOString() };
   const next = applyAddressUses(map, [{ name: 'fresh', at: T0 + 100 * DAY }], { halfLifeDays: 30, max: 13 });
@@ -82,14 +83,26 @@ test('decayedScore / rankAddressed: order by the score decayed to now, names onl
 
 test('normalizeAddressedAs: keeps valid entries, drops broken ones, garbage becomes {}', () => {
   const last = new Date(T0).toISOString();
-  assert.deepEqual(normalizeAddressedAs({ Léo: { score: 2, last }, bad: { score: 'x', last }, worse: 3, nodate: { score: 1, last: 'never' } }), { Léo: { score: 2, last } });
+  assert.deepEqual(
+    normalizeAddressedAs({
+      Léo: { score: 2, last },
+      bad: { score: 'x', last },
+      worse: 3,
+      nodate: { score: 1, last: 'never' },
+    }),
+    { Léo: { score: 2, last } }
+  );
   assert.deepEqual(normalizeAddressedAs([1, 2]), {});
   assert.deepEqual(normalizeAddressedAs('x'), {});
 });
 
 test('addressCandidates: display names and open aliases; a shared name and a short one are left out', () => {
   const candidates = addressCandidates([
-    { id: ANA, names: ['Anaïs', 'Al'], aliases: [{ name: 'Nana' }, { name: 'Old', validTo: '2026-01-01' }, { name: 'Kiki' }] },
+    {
+      id: ANA,
+      names: ['Anaïs', 'Al'],
+      aliases: [{ name: 'Nana' }, { name: 'Old', validTo: '2026-01-01' }, { name: 'Kiki' }],
+    },
     { id: NIKOS, names: ['Nikos'], aliases: [{ name: 'kiki' }] },
   ]);
   const byId = Object.fromEntries(candidates.map((c) => [c.userId, c.names]));
@@ -107,7 +120,7 @@ test('countAddressUses: a name of another member counts for that member, not for
   assert.deepEqual(uses.get(ANA), [{ name: 'Anaïs', at: T0 }]);
 });
 
-test('countAddressUses: the member\'s own message never counts for him', () => {
+test("countAddressUses: the member's own message never counts for him", () => {
   const candidates = addressCandidates([{ id: NIKOS, names: ['Nikos'], aliases: [] }]);
   const uses = countAddressUses([msg(NIKOS, 'Nikos is here')], candidates);
   assert.equal(uses.get(NIKOS), undefined);
@@ -125,12 +138,8 @@ test('countAddressUses: a name shared by two members counts for neither', () => 
 test('countAddressUses: a name inside a URL, inline code or a code block does not count', () => {
   const candidates = addressCandidates([{ id: NIKOS, names: ['Nikos'], aliases: [] }]);
   const uses = countAddressUses(
-    [
-      msg(ANA, 'look https://example.com/nikos/page'),
-      msg(ANA, 'run `nikos --help`'),
-      msg(ANA, '```\nnikos()\n```'),
-    ],
-    candidates,
+    [msg(ANA, 'look https://example.com/nikos/page'), msg(ANA, 'run `nikos --help`'), msg(ANA, '```\nnikos()\n```')],
+    candidates
   );
   assert.equal(uses.size, 0);
 });
@@ -140,7 +149,7 @@ test('countAddressUses: a ping (@DisplayName) is not a use of the name', () => {
   assert.equal(countAddressUses([msg(ANA, '@Nikos look')], candidates).size, 0);
 });
 
-test('countAddressUses: an inflected form counts by its stem; the persona\'s own line counts too', () => {
+test("countAddressUses: an inflected form counts by its stem; the persona's own line counts too", () => {
   const candidates = addressCandidates([{ id: NIKOS, names: ['Nikolaos'], aliases: [] }]);
   const uses = countAddressUses([msg('999', 'thanks Nikolaou', T0 + 5, { self: true })], candidates);
   assert.deepEqual(uses.get(NIKOS), [{ name: 'Nikolaos', at: T0 + 5 }]);

@@ -93,7 +93,10 @@ test('metrics: a missing or broken file starts empty', () => {
   assert.equal(createMetrics({ dataDir, now: clock() }).summary('reply', 24).n, 0);
   fs.writeFileSync(path.join(dataDir, 'metrics.json'), '{not json');
   assert.equal(createMetrics({ dataDir, now: clock() }).summary('reply', 24).n, 0);
-  fs.writeFileSync(path.join(dataDir, 'metrics.json'), JSON.stringify({ v: 1, samples: { reply: [[1, 'x'], 'junk'] } }));
+  fs.writeFileSync(
+    path.join(dataDir, 'metrics.json'),
+    JSON.stringify({ v: 1, samples: { reply: [[1, 'x'], 'junk'] } })
+  );
   assert.equal(createMetrics({ dataDir, now: clock() }).summary('reply', 24).n, 0);
 });
 
@@ -130,7 +133,13 @@ test('metricsTap: the log events feed the speed metrics', () => {
   const t0 = now();
 
   // A turn with a recall: the search during the turn, the timings, two messages sent.
-  tap(entry('recall: searched', { channel: 'c1', ms: 900, meaningMs: 120, discordMs: 500, recordMs: 30, memoryMs: 15 }, t0 + 1000));
+  tap(
+    entry(
+      'recall: searched',
+      { channel: 'c1', ms: 900, meaningMs: 120, discordMs: 500, recordMs: 30, memoryMs: 15 },
+      t0 + 1000
+    )
+  );
   tap(entry('recall: summary', { channel: 'c1', ms: 2000, totalMs: 2900, answer: 'text' }, t0 + 3000));
   tap(entry('turn: timings', { channel: 'c1', totalMs: 6000, stages: {} }, t0 + 6000));
   tap(entry('turn: sent', { channel: 'c1', secondsSinceTrigger: 8.5 }, t0 + 8500));
@@ -139,7 +148,13 @@ test('metricsTap: the log events feed the speed metrics', () => {
   tap(entry('turn: timings', { channel: 'c2', totalMs: 2000, stages: {} }, t0 + 20000));
   tap(entry('turn: sent', { channel: 'c2', secondsSinceTrigger: 3.2 }, t0 + 21000));
   // A recall run of an earlier turn on c2 does not mark the next turn there.
-  tap(entry('recall: searched', { channel: 'c2', ms: 100, meaningMs: 0, discordMs: 0, recordMs: 0, memoryMs: 0 }, t0 + 30000));
+  tap(
+    entry(
+      'recall: searched',
+      { channel: 'c2', ms: 100, meaningMs: 0, discordMs: 0, recordMs: 0, memoryMs: 0 },
+      t0 + 30000
+    )
+  );
   tap(entry('turn: timings', { channel: 'c2', totalMs: 1000, stages: {} }, t0 + 40000));
   tap(entry('turn: sent', { channel: 'c2', secondsSinceTrigger: 1 }, t0 + 41000));
   tap(entry('planner: classified', { channel: 'c1', ms: 700 }, t0));
@@ -161,10 +176,18 @@ test('metricsTap: the log events feed the speed metrics', () => {
   assert.equal(median('memory match'), 15);
   assert.equal(median('meaning search'), 120);
   assert.equal(n('meaning search'), 1, 'a search that did not run is no sample');
-  assert.deepEqual(metrics.summary('recall summary', 24), { n: 1, median: 2000, mean: 2000 }, 'a skipped summary is no sample');
+  assert.deepEqual(
+    metrics.summary('recall summary', 24),
+    { n: 1, median: 2000, mean: 2000 },
+    'a skipped summary is no sample'
+  );
   assert.equal(median('planner'), 700);
   assert.equal(n('analyzer batch'), 2);
-  assert.deepEqual(metrics.summary('embedding flush', 24), { n: 1, median: 1500, mean: 1500 }, 'a flush that sent nothing is no sample');
+  assert.deepEqual(
+    metrics.summary('embedding flush', 24),
+    { n: 1, median: 1500, mean: 1500 },
+    'a flush that sent nothing is no sample'
+  );
   for (const name of metrics.names()) assert.ok(SPEED_METRICS.includes(name), name);
 });
 

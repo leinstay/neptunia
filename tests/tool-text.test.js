@@ -11,9 +11,17 @@ import { parseToolCallBlocks, toolsBlockText } from '../src/llm/tool-text.js';
 const block = (json) => `<tool_call>${typeof json === 'string' ? json : JSON.stringify(json)}</tool_call>`;
 
 test('parseToolCallBlocks: a top-level block is a call, the rest is the text without it', () => {
-  const { calls, rest, diagnostics } = parseToolCallBlocks(`<think>plan</think>\n${block({ name: 'draw.create', arguments: { text: 'a cat', self: true } })}\n<msg>here</msg>`);
+  const { calls, rest, diagnostics } = parseToolCallBlocks(
+    `<think>plan</think>\n${block({ name: 'draw.create', arguments: { text: 'a cat', self: true } })}\n<msg>here</msg>`
+  );
   assert.equal(calls.length, 1);
-  assert.deepEqual(calls[0], { id: null, name: 'draw.create', arguments: '{"text":"a cat","self":true}', parsed: { text: 'a cat', self: true }, parseError: null });
+  assert.deepEqual(calls[0], {
+    id: null,
+    name: 'draw.create',
+    arguments: '{"text":"a cat","self":true}',
+    parsed: { text: 'a cat', self: true },
+    parseError: null,
+  });
   assert.equal(rest, '<think>plan</think>\n\n<msg>here</msg>');
   assert.deepEqual(diagnostics, []);
 });
@@ -21,7 +29,10 @@ test('parseToolCallBlocks: a top-level block is a call, the rest is the text wit
 test('parseToolCallBlocks: several blocks in order; text without blocks is returned as it is', () => {
   const text = `a ${block({ name: 'web.search', arguments: { query: 'x' } })} b ${block({ name: 'task.status' })} c`;
   const { calls, rest } = parseToolCallBlocks(text);
-  assert.deepEqual(calls.map((c) => c.name), ['web.search', 'task.status']);
+  assert.deepEqual(
+    calls.map((c) => c.name),
+    ['web.search', 'task.status']
+  );
   assert.deepEqual(calls[1].parsed, {});
   assert.equal(rest, 'a  b  c');
   assert.deepEqual(parseToolCallBlocks('<msg>hi</msg>'), { calls: [], rest: '<msg>hi</msg>', diagnostics: [] });
@@ -72,7 +83,10 @@ test('parseToolCallBlocks: a block inside an unclosed <think> is never seen, one
   assert.deepEqual(parseToolCallBlocks(inside), { calls: [], rest: inside, diagnostics: [] });
   const closed = `<think>${block({ name: 'web.search', arguments: {} })}</think>${block({ name: 'task.status' })}`;
   const out = parseToolCallBlocks(closed);
-  assert.deepEqual(out.calls.map((c) => c.name), ['task.status']);
+  assert.deepEqual(
+    out.calls.map((c) => c.name),
+    ['task.status']
+  );
   assert.equal(out.rest, `<think>${block({ name: 'web.search', arguments: {} })}</think>`);
 });
 
@@ -81,7 +95,10 @@ test('parseToolCallBlocks: a block in a code fence or an inline code span is tex
   const fenced = `Example:\n\`\`\`\n${one}\n\`\`\`\nand \`${one}\` too`;
   assert.deepEqual(parseToolCallBlocks(fenced), { calls: [], rest: fenced, diagnostics: [] });
   const real = parseToolCallBlocks(`\`\`\`\n${one}\n\`\`\`\n${block({ name: 'task.status' })}`);
-  assert.deepEqual(real.calls.map((c) => c.name), ['task.status']);
+  assert.deepEqual(
+    real.calls.map((c) => c.name),
+    ['task.status']
+  );
 });
 
 test('parseToolCallBlocks: backticks inside a call body do not hide the closing tag', () => {

@@ -80,7 +80,10 @@ const PROFILE_FILE = 'profile.json';
  * @param {{ rootDir?: string, env?: Record<string, string | undefined>, override?: string, prompt?: string }} [options]
  * @returns {string[]}
  */
-export function promptFilesOf(name, { rootDir = ROOT_DIR, env = process.env, override = `agent-${name}.md`, prompt = 'prompt.md' } = {}) {
+export function promptFilesOf(
+  name,
+  { rootDir = ROOT_DIR, env = process.env, override = `agent-${name}.md`, prompt = 'prompt.md' } = {}
+) {
   const { rootDir: root, privateDir } = resolvePaths({ rootDir, env });
   return [path.join(privateDir, 'prompts.local', override), path.join(root, AGENTS_DIRNAME, name, prompt)];
 }
@@ -88,7 +91,24 @@ export function promptFilesOf(name, { rootDir = ROOT_DIR, env = process.env, ove
 /** The first option words `tar` may start with on the server: the list mode (`-t`) with only
  * verbose, archive-file and decompression letters, so no cluster carries a write mode or `-I`.
  * The options after it are checked by TAR_DENIES. */
-const TAR_LIST_CLUSTERS = Object.freeze(['-t', '-tf', '-tvf', '-tzf', '-tzvf', '-tvzf', '-tjf', '-tjvf', '-tvjf', '-tJf', '-tJvf', '-tvJf', '-taf', '-tavf', '-tvaf', '--list']);
+const TAR_LIST_CLUSTERS = Object.freeze([
+  '-t',
+  '-tf',
+  '-tvf',
+  '-tzf',
+  '-tzvf',
+  '-tvzf',
+  '-tjf',
+  '-tjvf',
+  '-tvjf',
+  '-tJf',
+  '-tJvf',
+  '-tvJf',
+  '-taf',
+  '-tavf',
+  '-tvaf',
+  '--list',
+]);
 
 /** The `ip` objects the server agent may show (`ip a`, `ip r` and `ip l` are their short names), and
  * the display options that may precede one. Only `show` (or nothing) may follow: no `add`, `set`,
@@ -96,31 +116,133 @@ const TAR_LIST_CLUSTERS = Object.freeze(['-t', '-tf', '-tvf', '-tzf', '-tzvf', '
 const IP_OBJECTS = Object.freeze(['addr', 'address', 'a', 'route', 'r', 'link', 'l']);
 const IP_DISPLAY_OPTIONS = Object.freeze(['', '-br ', '-4 ', '-6 ', '-s ', '-d ', '-j ']);
 const IP_SHOW_ALLOW = Object.freeze(
-  IP_DISPLAY_OPTIONS.flatMap((option) => IP_OBJECTS.flatMap((object) => [`ip ${option}${object}`, `ip ${option}${object} show`, `ip ${option}${object} show *`])),
+  IP_DISPLAY_OPTIONS.flatMap((option) =>
+    IP_OBJECTS.flatMap((object) => [
+      `ip ${option}${object}`,
+      `ip ${option}${object} show`,
+      `ip ${option}${object} show *`,
+    ])
+  )
 );
 
 /** The shell commands the server agent's `bash` may run (OpenCode bash patterns): read-only ones, and `cp` into its folder. */
 export const SERVER_SHELL_ALLOW = Object.freeze([
-  'ls', 'ls *', 'cat', 'cat *', 'head', 'head *', 'tail', 'tail *', 'grep', 'grep *', 'egrep *', 'fgrep *',
-  'find', 'find *', 'ps', 'ps *', 'df', 'df *', 'du', 'du *', 'wc', 'wc *', 'stat', 'stat *',
-  'which', 'which *', 'id', 'id *', 'uname', 'uname *', 'cut', 'cut *', 'sort', 'sort *', 'uniq', 'uniq *',
-  'sed -n --sandbox *', 'sed --sandbox -n *', 'ss -ln', 'ss -ln *', 'ss *', 'journalctl', 'journalctl *',
-  'systemctl status', 'systemctl status *', 'systemctl show', 'systemctl show *', 'systemctl cat *',
-  'systemctl list-units *', 'systemctl list-unit-files *', 'systemctl list-*', 'systemctl is-* *',
-  'git log *', 'git show *', 'git status', 'git status *', 'git diff', 'git diff *',
+  'ls',
+  'ls *',
+  'cat',
+  'cat *',
+  'head',
+  'head *',
+  'tail',
+  'tail *',
+  'grep',
+  'grep *',
+  'egrep *',
+  'fgrep *',
+  'find',
+  'find *',
+  'ps',
+  'ps *',
+  'df',
+  'df *',
+  'du',
+  'du *',
+  'wc',
+  'wc *',
+  'stat',
+  'stat *',
+  'which',
+  'which *',
+  'id',
+  'id *',
+  'uname',
+  'uname *',
+  'cut',
+  'cut *',
+  'sort',
+  'sort *',
+  'uniq',
+  'uniq *',
+  'sed -n --sandbox *',
+  'sed --sandbox -n *',
+  'ss -ln',
+  'ss -ln *',
+  'ss *',
+  'journalctl',
+  'journalctl *',
+  'systemctl status',
+  'systemctl status *',
+  'systemctl show',
+  'systemctl show *',
+  'systemctl cat *',
+  'systemctl list-units *',
+  'systemctl list-unit-files *',
+  'systemctl list-*',
+  'systemctl is-* *',
+  'git log *',
+  'git show *',
+  'git status',
+  'git status *',
+  'git diff',
+  'git diff *',
   // The same reads of another checkout by path, so the agent never changes directory (OpenCode
   // refuses a workdir outside its own as external_directory); GIT_WRITE_DENIES keeps writes out.
-  'git -C * log *', 'git -C * show *', 'git -C * status', 'git -C * status *', 'git -C * diff *', 'git -C * branch *', 'git -C * rev-parse *',
-  'readlink *', 'realpath *',
-  'file *', 'echo *', 'basename *', 'dirname *', 'date', 'date *', 'free', 'free *', 'uptime', 'hostname',
-  'pwd', 'command -v *',
+  'git -C * log *',
+  'git -C * show *',
+  'git -C * status',
+  'git -C * status *',
+  'git -C * diff *',
+  'git -C * branch *',
+  'git -C * rev-parse *',
+  'readlink *',
+  'realpath *',
+  'file *',
+  'echo *',
+  'basename *',
+  'dirname *',
+  'date',
+  'date *',
+  'free',
+  'free *',
+  'uptime',
+  'hostname',
+  'pwd',
+  'command -v *',
   // Searching and reading (each a content command, SHELL_CONTENT_COMMANDS): ripgrep without
   // `--pre` and tar in its list mode only (SHELL_DENY_AFTER).
-  'rg', 'rg *', 'tree', 'tree *', 'jq *', 'diff *', 'sha256sum *', 'md5sum *', 'zcat *', 'zgrep *', 'xxd *', 'strings *',
-  'column', 'column *', 'nl', 'nl *', ...TAR_LIST_CLUSTERS.map((cluster) => `tar ${cluster} *`),
+  'rg',
+  'rg *',
+  'tree',
+  'tree *',
+  'jq *',
+  'diff *',
+  'sha256sum *',
+  'md5sum *',
+  'zcat *',
+  'zgrep *',
+  'xxd *',
+  'strings *',
+  'column',
+  'column *',
+  'nl',
+  'nl *',
+  ...TAR_LIST_CLUSTERS.map((cluster) => `tar ${cluster} *`),
   // Who and what this machine is.
-  ...IP_SHOW_ALLOW, 'getent passwd', 'getent passwd *', 'getent group', 'getent group *', 'last', 'last *', 'w', 'w *', 'who', 'who *',
-  'timedatectl', 'timedatectl status', 'hostnamectl', 'hostnamectl status',
+  ...IP_SHOW_ALLOW,
+  'getent passwd',
+  'getent passwd *',
+  'getent group',
+  'getent group *',
+  'last',
+  'last *',
+  'w',
+  'w *',
+  'who',
+  'who *',
+  'timedatectl',
+  'timedatectl status',
+  'hostnamectl',
+  'hostnamectl status',
   // The one command that writes: a copy, so the agent hands an existing file back whole as a
   // result file (src/agent-runner/opencode.js collects what its working directory holds) instead
   // of retyping it. The OS keeps every other destination read-only: the unit's
@@ -141,13 +263,41 @@ export const SERVER_SHELL_ALLOW = Object.freeze([
  * `sed -n --sandbox`, where sed refuses its `e`, `r` and `w` commands), `jq`, and `cp`, `mv`, `rm`
  * within its folder and SCOUT_TMP_DIR (SCOUT_FILE_RULES). */
 export const SCOUT_SHELL_ALLOW = Object.freeze([
-  'curl *', 'wget *', 'yt-dlp --ignore-config *', 'ffmpeg *', 'ffprobe *', 'file *', 'ls', 'ls *', 'mkdir *', 'cat *', 'head *', 'stat *',
+  'curl *',
+  'wget *',
+  'yt-dlp --ignore-config *',
+  'ffmpeg *',
+  'ffprobe *',
+  'file *',
+  'ls',
+  'ls *',
+  'mkdir *',
+  'cat *',
+  'head *',
+  'stat *',
   // The web search (src/web/web-search.js): the wrapper in SCOUT_TOOLS_DIR, found on the child's
   // PATH; never `node` itself, so no other script runs.
   'web-search *',
-  'tail *', 'wc *', 'sort *', 'uniq *', 'cut *', 'tr *', 'grep *', 'egrep *', 'fgrep *', 'sed -n --sandbox *', 'sed --sandbox -n *', 'jq *',
-  'pwd', 'which *', 'command -v *', 'echo', 'echo *',
-  'cp *', 'mv *', 'rm *',
+  'tail *',
+  'wc *',
+  'sort *',
+  'uniq *',
+  'cut *',
+  'tr *',
+  'grep *',
+  'egrep *',
+  'fgrep *',
+  'sed -n --sandbox *',
+  'sed --sandbox -n *',
+  'jq *',
+  'pwd',
+  'which *',
+  'command -v *',
+  'echo',
+  'echo *',
+  'cp *',
+  'mv *',
+  'rm *',
 ]);
 
 /** The folder of the scout agent's own commands (`web-search`), put first on its child's PATH. */
@@ -172,7 +322,25 @@ const FILE_BYPASS_PARTS = Object.freeze(['$', '`', '~', '..']);
 
 /** The top-level directories a file command may not name (an absolute path outside the folder; `/tmp` itself below). */
 const FILE_DENIED_ROOTS = Object.freeze([
-  '/bin', '/boot', '/dev', '/etc', '/home', '/lib', '/lost+found', '/media', '/mnt', '/opt', '/proc', '/root', '/run', '/sbin', '/snap', '/srv', '/sys', '/usr', '/var',
+  '/bin',
+  '/boot',
+  '/dev',
+  '/etc',
+  '/home',
+  '/lib',
+  '/lost+found',
+  '/media',
+  '/mnt',
+  '/opt',
+  '/proc',
+  '/root',
+  '/run',
+  '/sbin',
+  '/snap',
+  '/srv',
+  '/sys',
+  '/usr',
+  '/var',
 ]);
 
 /**
@@ -187,14 +355,22 @@ const FILE_DENIED_ROOTS = Object.freeze([
  * for SCOUT_TMP_DIR; these rules refuse what that check cannot see.
  */
 export const SCOUT_FILE_RULES = Object.freeze(
-  Object.entries(FILE_COMMAND_OPTIONS).flatMap(([command, options]) => [
-    [`${command} -*`, 'deny'],
-    ...options.map((option) => [`${command} ${option} *`, 'allow']),
-    [`${command} * -*`, 'deny'],
-    ...FILE_BYPASS_PARTS.map((part) => [`${command} *${part}*`, 'deny']),
-    ...FILE_DENIED_ROOTS.flatMap((root) => [[`${command} ${root}*`, 'deny'], [`${command} * ${root}*`, 'deny']]),
-    [`${command} / *`, 'deny'], [`${command} * / *`, 'deny'], [`${command} /tmp *`, 'deny'], [`${command} * /tmp *`, 'deny'],
-  ].map((rule) => Object.freeze(rule))),
+  Object.entries(FILE_COMMAND_OPTIONS).flatMap(([command, options]) =>
+    [
+      [`${command} -*`, 'deny'],
+      ...options.map((option) => [`${command} ${option} *`, 'allow']),
+      [`${command} * -*`, 'deny'],
+      ...FILE_BYPASS_PARTS.map((part) => [`${command} *${part}*`, 'deny']),
+      ...FILE_DENIED_ROOTS.flatMap((root) => [
+        [`${command} ${root}*`, 'deny'],
+        [`${command} * ${root}*`, 'deny'],
+      ]),
+      [`${command} / *`, 'deny'],
+      [`${command} * / *`, 'deny'],
+      [`${command} /tmp *`, 'deny'],
+      [`${command} * /tmp *`, 'deny'],
+    ].map((rule) => Object.freeze(rule))
+  )
 );
 
 /**
@@ -207,7 +383,12 @@ export const SCOUT_FILE_RULES = Object.freeze(
  * `--conf`, `--plu`), not the full name. OpenCode's `*` matches any text, so the option is
  * refused wherever it stands, `=value` form included.
  */
-export const YT_DLP_DENIES = Object.freeze(['yt-dlp *--exe*', 'yt-dlp *--netrc-c*', 'yt-dlp *--conf*', 'yt-dlp *--plu*']);
+export const YT_DLP_DENIES = Object.freeze([
+  'yt-dlp *--exe*',
+  'yt-dlp *--netrc-c*',
+  'yt-dlp *--conf*',
+  'yt-dlp *--plu*',
+]);
 
 /** A permission value for a path tool in `scope`: a plain `allow`, or `*: allow` then the withheld denies. */
 function pathPermission(scope) {
@@ -219,14 +400,63 @@ function pathPermission(scope) {
 
 /** The git subcommands that write (a repository, a working tree, a remote or a config): never run through `git -C`. */
 const GIT_WRITE_SUBCOMMANDS = Object.freeze([
-  'commit', 'push', 'pull', 'fetch', 'checkout', 'switch', 'restore', 'reset', 'config', 'merge', 'rebase', 'cherry-pick',
-  'revert', 'am', 'apply', 'add', 'rm', 'mv', 'clean', 'stash', 'tag', 'gc', 'prune', 'repack', 'worktree', 'submodule',
-  'remote', 'update-ref', 'update-index', 'symbolic-ref', 'notes', 'init', 'clone', 'filter-branch', 'replace', 'bisect',
+  'commit',
+  'push',
+  'pull',
+  'fetch',
+  'checkout',
+  'switch',
+  'restore',
+  'reset',
+  'config',
+  'merge',
+  'rebase',
+  'cherry-pick',
+  'revert',
+  'am',
+  'apply',
+  'add',
+  'rm',
+  'mv',
+  'clean',
+  'stash',
+  'tag',
+  'gc',
+  'prune',
+  'repack',
+  'worktree',
+  'submodule',
+  'remote',
+  'update-ref',
+  'update-index',
+  'symbolic-ref',
+  'notes',
+  'init',
+  'clone',
+  'filter-branch',
+  'replace',
+  'bisect',
 ]);
 
 /** The `git branch` options that create, rename, copy, delete or retarget a branch. */
 const GIT_BRANCH_WRITE_OPTIONS = Object.freeze([
-  '-d', '-D', '--delete', '-m', '-M', '--move', '-c', '-C', '--copy', '-f', '--force', '-u', '--set-upstream-to', '--unset-upstream', '--edit-description', '--track', '--no-track',
+  '-d',
+  '-D',
+  '--delete',
+  '-m',
+  '-M',
+  '--move',
+  '-c',
+  '-C',
+  '--copy',
+  '-f',
+  '--force',
+  '-u',
+  '--set-upstream-to',
+  '--unset-upstream',
+  '--edit-description',
+  '--track',
+  '--no-track',
 ]);
 
 /**
@@ -238,8 +468,15 @@ const GIT_BRANCH_WRITE_OPTIONS = Object.freeze([
  */
 export const GIT_WRITE_DENIES = Object.freeze([
   ...GIT_WRITE_SUBCOMMANDS.flatMap((command) => [`git -C * ${command}`, `git -C * ${command} *`]),
-  'git -C * -c *', 'git -C * --config-env*', 'git -C * --exec-path*', 'git -C *--output*',
-  ...GIT_BRANCH_WRITE_OPTIONS.flatMap((option) => [`git -C * branch* ${option}`, `git -C * branch* ${option} *`, `git -C * branch* ${option}=*`]),
+  'git -C * -c *',
+  'git -C * --config-env*',
+  'git -C * --exec-path*',
+  'git -C *--output*',
+  ...GIT_BRANCH_WRITE_OPTIONS.flatMap((option) => [
+    `git -C * branch* ${option}`,
+    `git -C * branch* ${option} *`,
+    `git -C * branch* ${option}=*`,
+  ]),
 ]);
 
 /**
@@ -252,8 +489,26 @@ export const GIT_WRITE_DENIES = Object.freeze([
  */
 export const TAR_DENIES = Object.freeze([
   ...['x', 'c', 'r', 'u', 'A', 'I', 'F', 'g'].flatMap((letter) => [`tar * -${letter}*`, `tar * -?${letter}*`]),
-  ...['--ext', '--get', '--cr', '--ap', '--up', '--del', '--cat', '--conc', '--to-c', '--use', '--checkpoint-a', '--rsh', '--rmt', '--info', '--new-v', '--listed', '--index', '--vol']
-    .map((prefix) => `tar *${prefix}*`),
+  ...[
+    '--ext',
+    '--get',
+    '--cr',
+    '--ap',
+    '--up',
+    '--del',
+    '--cat',
+    '--conc',
+    '--to-c',
+    '--use',
+    '--checkpoint-a',
+    '--rsh',
+    '--rmt',
+    '--info',
+    '--new-v',
+    '--listed',
+    '--index',
+    '--vol',
+  ].map((prefix) => `tar *${prefix}*`),
 ]);
 
 /** The options of an allowed reader that run another program or edit in place: ripgrep's
@@ -266,12 +521,49 @@ export const READER_DENIES = Object.freeze(['rg *--pre*', 'sort *--co*', 'sed * 
 export const ENV_READ_DENIES = Object.freeze(['echo *$*', 'jq *env*', 'jq *$ENV*']);
 
 /** Patterns denied after the allows (the last match wins): the ways an allowed command could write, reach the network, run another program or read the environment. */
-export const SHELL_DENY_AFTER = Object.freeze([...GIT_WRITE_DENIES, ...YT_DLP_DENIES, ...TAR_DENIES, ...READER_DENIES, ...ENV_READ_DENIES, 'find * -exec*', 'find * -ok*', 'find * -delete*', 'find * -fprint*', 'awk */inet/*', 'gawk *']);
+export const SHELL_DENY_AFTER = Object.freeze([
+  ...GIT_WRITE_DENIES,
+  ...YT_DLP_DENIES,
+  ...TAR_DENIES,
+  ...READER_DENIES,
+  ...ENV_READ_DENIES,
+  'find * -exec*',
+  'find * -ok*',
+  'find * -delete*',
+  'find * -fprint*',
+  'awk */inet/*',
+  'gawk *',
+]);
 
 /** The allowed shell commands that open file contents: in a filtered scope each is refused on a withheld path. */
 export const SHELL_CONTENT_COMMANDS = Object.freeze([
-  'cat', 'head', 'tail', 'grep', 'egrep', 'fgrep', 'sed', 'cut', 'sort', 'uniq', 'wc', 'file', 'git', 'cp',
-  'rg', 'tree', 'jq', 'diff', 'sha256sum', 'md5sum', 'zcat', 'zgrep', 'xxd', 'strings', 'column', 'nl', 'tar',
+  'cat',
+  'head',
+  'tail',
+  'grep',
+  'egrep',
+  'fgrep',
+  'sed',
+  'cut',
+  'sort',
+  'uniq',
+  'wc',
+  'file',
+  'git',
+  'cp',
+  'rg',
+  'tree',
+  'jq',
+  'diff',
+  'sha256sum',
+  'md5sum',
+  'zcat',
+  'zgrep',
+  'xxd',
+  'strings',
+  'column',
+  'nl',
+  'tar',
 ]);
 
 /** The `.env` forms policy.js withholds (`.env`, `.env.<anything>`): one substring matches them all. */
@@ -358,7 +650,18 @@ export const SERVER_CHILD_ENV = Object.freeze({
  * `skill` and `todowrite` (always on), `lsp`, `plan_exit` and `execute` (behind experimental
  * flags). A tool whose permission is a plain deny is left out of the model's tool list.
  */
-export const ALWAYS_DENIED = Object.freeze(['edit', 'write', 'patch', 'task', 'question', 'skill', 'todowrite', 'lsp', 'plan_exit', 'execute']);
+export const ALWAYS_DENIED = Object.freeze([
+  'edit',
+  'write',
+  'patch',
+  'task',
+  'question',
+  'skill',
+  'todowrite',
+  'lsp',
+  'plan_exit',
+  'execute',
+]);
 
 /**
  * The shell classes a worker profile names in `shell`, the permission ceiling of this runner.
@@ -414,7 +717,12 @@ function permissionFor({ shell, tools }, scope) {
     if (!granted.has(tool)) map[tool] = 'deny';
     else if (PATH_TOOLS.includes(tool)) map[tool] = pathPermission(scope);
     else if (NETWORK_TOOLS.includes(tool)) map[tool] = 'allow';
-    else if (tool === 'bash') map[tool] = bashPermission(shellClass.allow, shellClass.rules, shellClass.withheldDenies && scope !== 'core' ? withheldShellDenies() : []);
+    else if (tool === 'bash')
+      map[tool] = bashPermission(
+        shellClass.allow,
+        shellClass.rules,
+        shellClass.withheldDenies && scope !== 'core' ? withheldShellDenies() : []
+      );
   }
   map.external_directory = externalPermission(shellClass.externalDirectory, scope);
   for (const tool of ALWAYS_DENIED) map[tool] = 'deny';
@@ -451,7 +759,21 @@ const KEYS_BY_KIND = Object.freeze({
  * (a headless run cannot answer it) are never on it, nor the experimental `lsp`, `plan_exit`
  * and `execute`.
  */
-export const DEVELOPMENT_TOOLS = Object.freeze(['bash', 'read', 'grep', 'glob', 'list', 'edit', 'write', 'patch', 'webfetch', 'websearch', 'todowrite', 'skill', 'external_directory']);
+export const DEVELOPMENT_TOOLS = Object.freeze([
+  'bash',
+  'read',
+  'grep',
+  'glob',
+  'list',
+  'edit',
+  'write',
+  'patch',
+  'webfetch',
+  'websearch',
+  'todowrite',
+  'skill',
+  'external_directory',
+]);
 
 /**
  * The OpenCode permission actions a development profile's `permission` rules may name. `permission`
@@ -512,7 +834,12 @@ function checkNumbers(agent, key, value, spec) {
   }
   for (const [name, whole] of Object.entries(spec)) {
     if (!Object.hasOwn(value, name)) throw new AgentProfileError(agent, `${key}.${name}`, 'missing');
-    if (!isPositive(value[name], whole)) throw new AgentProfileError(agent, `${key}.${name}`, whole ? 'must be a positive whole number' : 'must be a positive number');
+    if (!isPositive(value[name], whole))
+      throw new AgentProfileError(
+        agent,
+        `${key}.${name}`,
+        whole ? 'must be a positive whole number' : 'must be a positive number'
+      );
   }
 }
 
@@ -520,40 +847,63 @@ function checkNumbers(agent, key, value, spec) {
 function checkFileName(agent, key, value, nullable) {
   if (value === null && nullable) return;
   if (typeof value !== 'string' || !FILE_NAME_PATTERN.test(value)) {
-    throw new AgentProfileError(agent, key, `must be a .md file name with no directory part${nullable ? ', or null' : ''}`);
+    throw new AgentProfileError(
+      agent,
+      key,
+      `must be a .md file name with no directory part${nullable ? ', or null' : ''}`
+    );
   }
 }
 
 /** Checks `tools`: a non-empty list of distinct names, each one of `allowed` (`where` names the bound in the error). */
 function checkTools(agent, tools, allowed, where) {
-  if (!Array.isArray(tools) || tools.length === 0) throw new AgentProfileError(agent, 'tools', 'must be a non-empty list');
+  if (!Array.isArray(tools) || tools.length === 0)
+    throw new AgentProfileError(agent, 'tools', 'must be a non-empty list');
   for (const tool of tools) {
-    if (!allowed.includes(tool)) throw new AgentProfileError(agent, 'tools', `unknown tool ${JSON.stringify(tool)} ${where} (allowed: ${allowed.join(', ')})`);
+    if (!allowed.includes(tool))
+      throw new AgentProfileError(
+        agent,
+        'tools',
+        `unknown tool ${JSON.stringify(tool)} ${where} (allowed: ${allowed.join(', ')})`
+      );
   }
   if (new Set(tools).size !== tools.length) throw new AgentProfileError(agent, 'tools', 'names a tool twice');
 }
 
 /** Checks a development profile's `permission`: tool -> action, or tool -> { pattern: action }, tools from `tools`. */
 function checkPermission(agent, permission, tools) {
-  if (!isObject(permission)) throw new AgentProfileError(agent, 'permission', 'must be an object of tool -> action or tool -> { pattern: action }');
+  if (!isObject(permission))
+    throw new AgentProfileError(
+      agent,
+      'permission',
+      'must be an object of tool -> action or tool -> { pattern: action }'
+    );
   const actions = `must be one of ${PERMISSION_ACTIONS.join(', ')}`;
   for (const [tool, rules] of Object.entries(permission)) {
-    if (!tools.includes(tool)) throw new AgentProfileError(agent, `permission.${tool}`, 'names a tool the profile does not ask for');
+    if (!tools.includes(tool))
+      throw new AgentProfileError(agent, `permission.${tool}`, 'names a tool the profile does not ask for');
     if (typeof rules === 'string') {
       if (!PERMISSION_ACTIONS.includes(rules)) throw new AgentProfileError(agent, `permission.${tool}`, actions);
       continue;
     }
-    if (!isObject(rules) || Object.keys(rules).length === 0) throw new AgentProfileError(agent, `permission.${tool}`, 'must be an action or a non-empty object of pattern -> action');
+    if (!isObject(rules) || Object.keys(rules).length === 0)
+      throw new AgentProfileError(
+        agent,
+        `permission.${tool}`,
+        'must be an action or a non-empty object of pattern -> action'
+      );
     for (const [pattern, action] of Object.entries(rules)) {
       if (!pattern.trim()) throw new AgentProfileError(agent, `permission.${tool}`, 'has an empty pattern');
-      if (!PERMISSION_ACTIONS.includes(action)) throw new AgentProfileError(agent, `permission.${tool}.${pattern}`, actions);
+      if (!PERMISSION_ACTIONS.includes(action))
+        throw new AgentProfileError(agent, `permission.${tool}.${pattern}`, actions);
     }
   }
 }
 
 /** Checks an absolute path default (`socket`, `out`). */
 function checkAbsolute(agent, key, value) {
-  if (typeof value !== 'string' || !path.isAbsolute(value) || value.includes('\0')) throw new AgentProfileError(agent, key, 'must be an absolute path');
+  if (typeof value !== 'string' || !path.isAbsolute(value) || value.includes('\0'))
+    throw new AgentProfileError(agent, key, 'must be an absolute path');
 }
 
 /**
@@ -567,12 +917,18 @@ function checkAbsolute(agent, key, value) {
 function validateProfile(agent, raw) {
   if (!isObject(raw)) throw new AgentProfileError(agent, PROFILE_FILE, 'must be a JSON object');
   if (!Object.hasOwn(raw, 'kind')) throw new AgentProfileError(agent, 'kind', 'missing');
-  if (!Object.hasOwn(KEYS_BY_KIND, raw.kind)) throw new AgentProfileError(agent, 'kind', `must be one of ${Object.keys(KEYS_BY_KIND).join(', ')}`);
+  if (!Object.hasOwn(KEYS_BY_KIND, raw.kind))
+    throw new AgentProfileError(agent, 'kind', `must be one of ${Object.keys(KEYS_BY_KIND).join(', ')}`);
   const worker = raw.kind === 'worker';
   const development = raw.kind === 'development';
   const keys = KEYS_BY_KIND[raw.kind];
   for (const key of Object.keys(raw)) {
-    if (!keys.includes(key)) throw new AgentProfileError(agent, key, worker || !WORKER_KEYS.includes(key) ? 'unknown key' : `unknown key (a ${raw.kind} profile has no runner)`);
+    if (!keys.includes(key))
+      throw new AgentProfileError(
+        agent,
+        key,
+        worker || !WORKER_KEYS.includes(key) ? 'unknown key' : `unknown key (a ${raw.kind} profile has no runner)`
+      );
   }
   for (const key of keys) {
     if (!Object.hasOwn(raw, key)) throw new AgentProfileError(agent, key, 'missing');
@@ -584,21 +940,31 @@ function validateProfile(agent, raw) {
   if (!roles.includes(raw.role)) throw new AgentProfileError(agent, 'role', `must be one of ${roles.join(', ')}`);
   checkFileName(agent, 'prompt', raw.prompt, !worker && !development);
   checkFileName(agent, 'override', raw.override, !worker);
-  if (typeof raw.description !== 'string' || !raw.description.trim()) throw new AgentProfileError(agent, 'description', 'must be a non-empty string');
+  if (typeof raw.description !== 'string' || !raw.description.trim())
+    throw new AgentProfileError(agent, 'description', 'must be a non-empty string');
   if (development) {
     checkTools(agent, raw.tools, DEVELOPMENT_TOOLS, 'for a development profile');
     checkPermission(agent, raw.permission, raw.tools);
-    if (!DEVELOPMENT_EFFORTS.includes(raw.effort)) throw new AgentProfileError(agent, 'effort', `must be one of ${DEVELOPMENT_EFFORTS.join(', ')}`);
+    if (!DEVELOPMENT_EFFORTS.includes(raw.effort))
+      throw new AgentProfileError(agent, 'effort', `must be one of ${DEVELOPMENT_EFFORTS.join(', ')}`);
     checkNumbers(agent, 'limits', raw.limits, { steps: true, minutes: false });
     return;
   }
   if (!worker) return;
 
-  if (!Object.hasOwn(SHELL_CLASSES, raw.shell)) throw new AgentProfileError(agent, 'shell', `unknown shell class ${JSON.stringify(raw.shell)} (known: ${Object.keys(SHELL_CLASSES).join(', ')})`);
+  if (!Object.hasOwn(SHELL_CLASSES, raw.shell))
+    throw new AgentProfileError(
+      agent,
+      'shell',
+      `unknown shell class ${JSON.stringify(raw.shell)} (known: ${Object.keys(SHELL_CLASSES).join(', ')})`
+    );
   checkTools(agent, raw.tools, SHELL_CLASSES[raw.shell].tools, `for shell class ${raw.shell}`);
   checkNumbers(agent, 'limits', raw.limits, { steps: true, seconds: false });
   checkNumbers(agent, 'daily', raw.daily, { tasks: true });
-  if (raw.searchProvider !== null && (typeof raw.searchProvider !== 'string' || !PROVIDER_PATTERN.test(raw.searchProvider))) {
+  if (
+    raw.searchProvider !== null &&
+    (typeof raw.searchProvider !== 'string' || !PROVIDER_PATTERN.test(raw.searchProvider))
+  ) {
     throw new AgentProfileError(agent, 'searchProvider', 'must be a provider name or null');
   }
   checkAbsolute(agent, 'socket', raw.socket);
@@ -611,7 +977,8 @@ function validateProfile(agent, raw) {
 /** A deep-frozen copy of a parsed JSON value. */
 function frozenCopy(value) {
   if (Array.isArray(value)) return Object.freeze(value.map(frozenCopy));
-  if (isObject(value)) return Object.freeze(Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, frozenCopy(entry)])));
+  if (isObject(value))
+    return Object.freeze(Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, frozenCopy(entry)])));
   return value;
 }
 
@@ -636,11 +1003,15 @@ export function listAgents({ rootDir = ROOT_DIR } = {}) {
       try {
         raw = JSON.parse(fs.readFileSync(path.join(agentsDir, agent, PROFILE_FILE), 'utf8'));
       } catch (err) {
-        throw new AgentProfileError(agent, PROFILE_FILE, err?.code === 'ENOENT' ? 'missing' : `unreadable (${err?.code ?? err?.name ?? 'parse'})`);
+        throw new AgentProfileError(
+          agent,
+          PROFILE_FILE,
+          err?.code === 'ENOENT' ? 'missing' : `unreadable (${err?.code ?? err?.name ?? 'parse'})`
+        );
       }
       validateProfile(agent, raw);
       return frozenCopy(raw);
-    }),
+    })
   );
 }
 
@@ -702,9 +1073,12 @@ function makeProfile(definition, { rootDir, env }) {
       };
       if (modelId) config.model = `${providerId}/${modelId}`;
       if (cost && Number.isFinite(cost.input) && Number.isFinite(cost.output) && modelId) {
-        config.provider = { [providerId]: { models: { [modelId]: { cost: { input: cost.input, output: cost.output } } } } };
+        config.provider = {
+          [providerId]: { models: { [modelId]: { cost: { input: cost.input, output: cost.output } } } },
+        };
       }
-      if (Number.isFinite(toolResultChars) && toolResultChars > 0) config.tool_output = { max_bytes: Math.floor(toolResultChars) };
+      if (Number.isFinite(toolResultChars) && toolResultChars > 0)
+        config.tool_output = { max_bytes: Math.floor(toolResultChars) };
       return config;
     },
   };
@@ -720,7 +1094,9 @@ function makeProfile(definition, { rootDir, env }) {
  */
 export function loadProfiles({ rootDir = ROOT_DIR, env = process.env } = {}) {
   const workers = listAgents({ rootDir }).filter((definition) => definition.kind === 'worker');
-  return Object.freeze(Object.fromEntries(workers.map((definition) => [definition.id, makeProfile(definition, { rootDir, env })])));
+  return Object.freeze(
+    Object.fromEntries(workers.map((definition) => [definition.id, makeProfile(definition, { rootDir, env })]))
+  );
 }
 
 /** The profiles of this engine's `agents/` folder, by name, loaded once at import. */

@@ -58,8 +58,20 @@ test('applyDetailOps: a sighting past confirmGapHours away bumps the weight once
 });
 
 test('applyDetailOps: sure:false on an EXISTING item changes nothing at all', () => {
-  const existing = [{ id: 1, text: 'Owns a cat', weight: 3, firstSeen: '2026-01-01T00:00:00.000Z', lastSeen: '2026-01-01T00:00:00.000Z' }];
-  const { items } = applyDetailOps(existing, { add: [{ text: 'Owns a cat', sure: false }] }, opts({ seenAt: NOW, nextId: 2 }));
+  const existing = [
+    {
+      id: 1,
+      text: 'Owns a cat',
+      weight: 3,
+      firstSeen: '2026-01-01T00:00:00.000Z',
+      lastSeen: '2026-01-01T00:00:00.000Z',
+    },
+  ];
+  const { items } = applyDetailOps(
+    existing,
+    { add: [{ text: 'Owns a cat', sure: false }] },
+    opts({ seenAt: NOW, nextId: 2 })
+  );
   assert.deepEqual(items, existing);
 });
 
@@ -90,7 +102,10 @@ test('applyDetailOps: remove by numeric id deletes the matching item', () => {
     { id: 2, text: 'Plays guitar', weight: 1, firstSeen: 'a', lastSeen: null },
   ];
   const { items } = applyDetailOps(existing, { remove: [1] }, opts({ nextId: 3 }));
-  assert.deepEqual(items.map((i) => i.id), [2]);
+  assert.deepEqual(
+    items.map((i) => i.id),
+    [2]
+  );
 });
 
 test('applyDetailOps: remove by exact stored text deletes the matching item', () => {
@@ -103,14 +118,24 @@ test('applyDetailOps: remove by exact stored text deletes the matching item', ()
 
 test('applyDetailOps: ids increment across calls and are never reused after a remove', () => {
   let result = applyDetailOps([], { add: ['a', 'b'] }, opts({ nextId: 1 }));
-  assert.deepEqual(result.items.map((i) => i.id), [1, 2]);
+  assert.deepEqual(
+    result.items.map((i) => i.id),
+    [1, 2]
+  );
   assert.equal(result.nextId, 3);
 
   result = applyDetailOps(result.items, { remove: [1] }, opts({ nextId: result.nextId }));
-  assert.deepEqual(result.items.map((i) => i.id), [2]);
+  assert.deepEqual(
+    result.items.map((i) => i.id),
+    [2]
+  );
 
   result = applyDetailOps(result.items, { add: ['c'] }, opts({ nextId: result.nextId }));
-  assert.deepEqual(result.items.map((i) => i.id), [2, 3], 'id 1 is never reused');
+  assert.deepEqual(
+    result.items.map((i) => i.id),
+    [2, 3],
+    'id 1 is never reused'
+  );
   assert.equal(result.nextId, 4);
 });
 
@@ -163,10 +188,16 @@ test('applyDetailOps: a shorter detailHalfLifeDays makes recency dominate sooner
   // weight gap, evicting the older-heavier item first; the config.json
   // default (720 days) does not -- weight still wins.
   const shortHalfLife = applyDetailOps(olderHeavier, {}, opts({ maxDetails: 1, halfLifeDays: 7, nextId: 3 }));
-  assert.deepEqual(shortHalfLife.items.map((i) => i.text), ['b']);
+  assert.deepEqual(
+    shortHalfLife.items.map((i) => i.text),
+    ['b']
+  );
 
   const longHalfLife = applyDetailOps(olderHeavier, {}, opts({ maxDetails: 1, halfLifeDays: 720, nextId: 3 }));
-  assert.deepEqual(longHalfLife.items.map((i) => i.text), ['a']);
+  assert.deepEqual(
+    longHalfLife.items.map((i) => i.text),
+    ['a']
+  );
 });
 
 // ---- garbage tolerance ----------------------------------------------------------
@@ -195,12 +226,18 @@ test('applyDetailOps: does not mutate the existing array or its items', () => {
 
 test('normalizeDetails: startId offsets the ids assigned to entries missing one', () => {
   const { items, nextId } = normalizeDetails([{ text: 'a' }, { text: 'b' }], 5);
-  assert.deepEqual(items.map((i) => i.id), [5, 6]);
+  assert.deepEqual(
+    items.map((i) => i.id),
+    [5, 6]
+  );
   assert.equal(nextId, 7);
 });
 
 test('normalizeDetails: an array already in the item shape passes through, keeping valid ids', () => {
-  const { items, nextId } = normalizeDetails([{ id: 7, text: 'Owns a cat', weight: 3, firstSeen: 'a', lastSeen: 'b' }], 1);
+  const { items, nextId } = normalizeDetails(
+    [{ id: 7, text: 'Owns a cat', weight: 3, firstSeen: 'a', lastSeen: 'b' }],
+    1
+  );
   assert.deepEqual(items, [{ id: 7, text: 'Owns a cat', weight: 3, firstSeen: 'a', lastSeen: 'b' }]);
   assert.equal(nextId, 8, 'the sequence continues past the highest id seen');
 });
@@ -212,7 +249,10 @@ test('normalizeDetails: item-shaped entries missing a valid id get one assigned 
 
 test('normalizeDetails: garbage entries (including a bare string) never throw, valid ones survive', () => {
   const { items } = normalizeDetails([null, 42, {}, { text: '' }, 'Owns a cat', { text: 'Plays guitar' }], 1);
-  assert.deepEqual(items.map((i) => i.text), ['Plays guitar']);
+  assert.deepEqual(
+    items.map((i) => i.text),
+    ['Plays guitar']
+  );
 });
 
 test('normalizeDetails: null/undefined/number/string/object all yield an empty list', () => {
@@ -224,7 +264,11 @@ test('normalizeDetails: null/undefined/number/string/object all yield an empty l
 // ---- the optional `from` (who taught an item; used by guild.learned) ---------
 
 test('applyDetailOps: an add item keeps a non-empty string from, trimmed', () => {
-  const { items } = applyDetailOps([], { add: [{ text: 'Friday is τυρόπιτα day', from: ' <@322222222222222222> ' }] }, opts());
+  const { items } = applyDetailOps(
+    [],
+    { add: [{ text: 'Friday is τυρόπιτα day', from: ' <@322222222222222222> ' }] },
+    opts()
+  );
   assert.equal(items[0].from, '<@322222222222222222>');
 });
 
@@ -237,14 +281,24 @@ test('applyDetailOps: a missing, empty or non-string from is dropped, the item s
 });
 
 test('applyDetailOps: sure:false with from starts at weight 0 and keeps the from', () => {
-  const { items } = applyDetailOps([], { add: [{ text: 'Maybe the kettle is Ὠκεανός', from: '<@322222222222222222>', sure: false }] }, opts());
+  const { items } = applyDetailOps(
+    [],
+    { add: [{ text: 'Maybe the kettle is Ὠκεανός', from: '<@322222222222222222>', sure: false }] },
+    opts()
+  );
   assert.equal(items[0].weight, 0);
   assert.equal(items[0].from, '<@322222222222222222>');
 });
 
 test('applyDetailOps: a sighting of a known item never rewrites its stored from', () => {
-  const existing = [{ id: 1, text: 'Café closes at nine', weight: 1, firstSeen: 'a', lastSeen: null, from: '<@322222222222222222>' }];
-  const { items } = applyDetailOps(existing, { add: [{ text: 'café closes at nine', from: '<@422222222222222222>' }] }, opts({ nextId: 2 }));
+  const existing = [
+    { id: 1, text: 'Café closes at nine', weight: 1, firstSeen: 'a', lastSeen: null, from: '<@322222222222222222>' },
+  ];
+  const { items } = applyDetailOps(
+    existing,
+    { add: [{ text: 'café closes at nine', from: '<@422222222222222222>' }] },
+    opts({ nextId: 2 })
+  );
   assert.equal(items.length, 1);
   assert.equal(items[0].from, '<@322222222222222222>');
   assert.equal(items[0].weight, 2);
@@ -257,18 +311,50 @@ test('normalizeDetails: a valid string from survives, a garbage from is dropped'
       { id: 2, text: 'Friday is τυρόπιτα day', weight: 1, firstSeen: 'a', lastSeen: 'b', from: 42 },
       { id: 3, text: 'Owns a cat', weight: 1, firstSeen: 'a', lastSeen: 'b', from: '  ' },
     ],
-    1,
+    1
   );
-  assert.deepEqual(items[0], { id: 1, text: 'Café closes at nine', weight: 2, firstSeen: 'a', lastSeen: 'b', from: '<@322222222222222222>' });
+  assert.deepEqual(items[0], {
+    id: 1,
+    text: 'Café closes at nine',
+    weight: 2,
+    firstSeen: 'a',
+    lastSeen: 'b',
+    from: '<@322222222222222222>',
+  });
   assert.equal('from' in items[1], false);
   assert.equal('from' in items[2], false);
 });
 
 test('details: eviction returns the dropped items with their itemId', () => {
-  const old = { id: 1, text: 'έχει γάτα', weight: 1, firstSeen: '2025-01-01T00:00:00.000Z', lastSeen: '2025-01-01T00:00:00.000Z', itemId: 'dt-old' };
-  const fresh = { id: 2, text: 'ζει στη Λυών', weight: 3, firstSeen: '2026-09-20T00:00:00.000Z', lastSeen: '2026-09-20T00:00:00.000Z', itemId: 'dt-fresh' };
-  const removed = { id: 3, text: 'πίνει café', weight: 2, firstSeen: '2026-09-19T00:00:00.000Z', lastSeen: '2026-09-19T00:00:00.000Z', itemId: 'dt-removed' };
-  const result = applyDetailOps([old, fresh, removed], { remove: [3] }, opts({ maxDetails: 1, halfLifeDays: 30, nextId: 4 }));
+  const old = {
+    id: 1,
+    text: 'έχει γάτα',
+    weight: 1,
+    firstSeen: '2025-01-01T00:00:00.000Z',
+    lastSeen: '2025-01-01T00:00:00.000Z',
+    itemId: 'dt-old',
+  };
+  const fresh = {
+    id: 2,
+    text: 'ζει στη Λυών',
+    weight: 3,
+    firstSeen: '2026-09-20T00:00:00.000Z',
+    lastSeen: '2026-09-20T00:00:00.000Z',
+    itemId: 'dt-fresh',
+  };
+  const removed = {
+    id: 3,
+    text: 'πίνει café',
+    weight: 2,
+    firstSeen: '2026-09-19T00:00:00.000Z',
+    lastSeen: '2026-09-19T00:00:00.000Z',
+    itemId: 'dt-removed',
+  };
+  const result = applyDetailOps(
+    [old, fresh, removed],
+    { remove: [3] },
+    opts({ maxDetails: 1, halfLifeDays: 30, nextId: 4 })
+  );
   assert.deepEqual(result.items, [fresh]);
   assert.deepEqual(result.dropped, [removed, old]);
   assert.deepEqual(applyDetailOps([fresh], { seen: [2] }, opts({ nextId: 4 })).dropped, []);
@@ -281,13 +367,24 @@ test('details: eviction returns the dropped items with their itemId', () => {
 // ---- validity: supersedes / validFrom -------------------------------------------
 
 test('details: a joke correction closes with validTo equal to validFrom', () => {
-  const old = { id: 1, text: 'Lives in Lyon', weight: 1, firstSeen: '2026-09-19T10:00:00.000Z', lastSeen: '2026-09-19T10:00:00.000Z', itemId: 'dt-old', validFrom: '2026-09-19' };
+  const old = {
+    id: 1,
+    text: 'Lives in Lyon',
+    weight: 1,
+    firstSeen: '2026-09-19T10:00:00.000Z',
+    lastSeen: '2026-09-19T10:00:00.000Z',
+    itemId: 'dt-old',
+    validFrom: '2026-09-19',
+  };
   const { items, closed, dropped } = applyDetailOps(
     [old],
     { add: [{ text: 'Lives in Nice', supersedes: 'dt-old', validFrom: '2026-09-19' }] },
-    opts({ nextId: 2, mintId: () => 'dt-new' }),
+    opts({ nextId: 2, mintId: () => 'dt-new' })
   );
-  assert.deepEqual(items.map((item) => item.text), ['Lives in Nice']);
+  assert.deepEqual(
+    items.map((item) => item.text),
+    ['Lives in Nice']
+  );
   assert.equal(items[0].validFrom, '2026-09-19');
   assert.equal(closed.length, 1);
   assert.equal(closed[0].validTo, closed[0].validFrom, 'it was never true');
@@ -295,8 +392,14 @@ test('details: a joke correction closes with validTo equal to validFrom', () => 
   assert.deepEqual(dropped, []);
 
   // By the numeric id the input view shows, the same.
-  const byId = applyDetailOps([old], { add: [{ text: 'Lives in Nice', supersedes: 1 }] }, opts({ nextId: 2, mintId: () => 'dt-new' }));
+  const byId = applyDetailOps(
+    [old],
+    { add: [{ text: 'Lives in Nice', supersedes: 1 }] },
+    opts({ nextId: 2, mintId: () => 'dt-new' })
+  );
   assert.equal(byId.closed[0].validTo, '2026-09-21', 'no validFrom: the batch day');
   // Old items load unchanged; validity fields survive.
-  assert.deepEqual(normalizeDetails([{ ...old, validTo: '2026-09-20', supersededBy: 'dt-new' }]).items, [{ ...old, validTo: '2026-09-20', supersededBy: 'dt-new' }]);
+  assert.deepEqual(normalizeDetails([{ ...old, validTo: '2026-09-20', supersededBy: 'dt-new' }]).items, [
+    { ...old, validTo: '2026-09-20', supersededBy: 'dt-new' },
+  ]);
 });

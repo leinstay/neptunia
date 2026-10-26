@@ -44,7 +44,9 @@ function part(l, key, values) {
  */
 function activeLine(record, l, { timezone, locale, channelNameOf, nameOf, now, noticeMs }) {
   const state = typeof l.states?.[record.status] === 'string' ? l.states[record.status] : record.status;
-  const pieces = [fill(l.line, { id: record.id, state, purpose: clampWithEllipsis(oneLine(record.purpose), PURPOSE_LINE_CHARS) })];
+  const pieces = [
+    fill(l.line, { id: record.id, state, purpose: clampWithEllipsis(oneLine(record.purpose), PURPOSE_LINE_CHARS) }),
+  ];
   const dateless = !Number.isFinite(record.dueAt) && record.status !== 'waiting' && !record.attend?.place;
   let noDue = '';
   if (Number.isFinite(record.dueAt)) pieces.push(part(l, 'due', { when: when(record.dueAt, timezone, locale) }));
@@ -52,17 +54,33 @@ function activeLine(record, l, { timezone, locale, channelNameOf, nameOf, now, n
     noDue = part(l, 'noDue', { expires: when(record.expiresAt, timezone, locale) });
     pieces.push(noDue);
   }
-  if (typeof record.every?.period === 'string' && record.every.period) pieces.push(part(l, 'every', { period: record.every.period }));
+  if (typeof record.every?.period === 'string' && record.every.period)
+    pieces.push(part(l, 'every', { period: record.every.period }));
   if (record.attend?.place) {
     const attend = record.attend;
-    pieces.push(part(l, 'attend', { place: channelNameOf(attend.place) || attend.place, wakes: String(attend.today?.wakes ?? 0), perDay: String(attend.perDay), settle: String(attend.settle) }));
-    if (Array.isArray(attend.people) && attend.people.length > 0) pieces.push(part(l, 'attendPeople', { people: attend.people.map((id) => oneLine(nameOf(id) || id)).join(', ') }));
+    pieces.push(
+      part(l, 'attend', {
+        place: channelNameOf(attend.place) || attend.place,
+        wakes: String(attend.today?.wakes ?? 0),
+        perDay: String(attend.perDay),
+        settle: String(attend.settle),
+      })
+    );
+    if (Array.isArray(attend.people) && attend.people.length > 0)
+      pieces.push(part(l, 'attendPeople', { people: attend.people.map((id) => oneLine(nameOf(id) || id)).join(', ') }));
   }
-  if (record.status === 'waiting') pieces.push(part(l, 'waiting', { task: record.awaitingTaskId, deadline: when(record.waitDeadline, timezone, locale) }));
-  else if (record.outcome?.taskId) pieces.push(part(l, 'outcome', { task: record.outcome.taskId, state: record.outcome.state }));
-  else if (record.note && typeof l.notes?.[record.note] === 'string') pieces.push(fill(l.notes[record.note], { task: record.lastTaskId ?? '' }));
-  if (record.destination) pieces.push(part(l, 'destination', { channel: channelNameOf(record.destination) || record.destination }));
-  if (!noDue && Number.isFinite(record.expiresAt) && Number.isFinite(now) && record.expiresAt - now <= noticeMs) pieces.push(part(l, 'expiresSoon', { when: when(record.expiresAt, timezone, locale) }));
+  if (record.status === 'waiting')
+    pieces.push(
+      part(l, 'waiting', { task: record.awaitingTaskId, deadline: when(record.waitDeadline, timezone, locale) })
+    );
+  else if (record.outcome?.taskId)
+    pieces.push(part(l, 'outcome', { task: record.outcome.taskId, state: record.outcome.state }));
+  else if (record.note && typeof l.notes?.[record.note] === 'string')
+    pieces.push(fill(l.notes[record.note], { task: record.lastTaskId ?? '' }));
+  if (record.destination)
+    pieces.push(part(l, 'destination', { channel: channelNameOf(record.destination) || record.destination }));
+  if (!noDue && Number.isFinite(record.expiresAt) && Number.isFinite(now) && record.expiresAt - now <= noticeMs)
+    pieces.push(part(l, 'expiresSoon', { when: when(record.expiresAt, timezone, locale) }));
   return pieces.filter(Boolean).join(' · ');
 }
 
@@ -74,7 +92,12 @@ function activeLine(record, l, { timezone, locale, channelNameOf, nameOf, now, n
 function candidateLine(record, l) {
   const external = record.provenance?.origin === 'external';
   const marker = external && typeof l.externalMarker === 'string' ? l.externalMarker : '';
-  return part(l, 'candidate', { id: record.id, purpose: clampWithEllipsis(oneLine(record.purpose), PURPOSE_LINE_CHARS), span: clampWithEllipsis(oneLine(record.provenance?.span ?? ''), SPAN_LINE_CHARS), marker });
+  return part(l, 'candidate', {
+    id: record.id,
+    purpose: clampWithEllipsis(oneLine(record.purpose), PURPOSE_LINE_CHARS),
+    span: clampWithEllipsis(oneLine(record.provenance?.span ?? ''), SPAN_LINE_CHARS),
+    marker,
+  });
 }
 
 /**
@@ -91,7 +114,20 @@ function candidateLine(record, l) {
  * @param {{ timezone?: string, locale?: string, maxTokens?: number, cost?: (text: string) => number, channelNameOf?: (id: string) => string|null, nameOf?: (id: string) => string|null, now?: number|null, expiryNoticeDays?: number }} [options]
  * @returns {string}
  */
-export function intentionsBlockText(records, labels, { timezone = 'UTC', locale = 'en-US', maxTokens = DEFAULT_INTENTIONS_CAP, cost = estimateTokens, channelNameOf = () => null, nameOf = () => null, now = null, expiryNoticeDays = DEFAULTS.expiryNoticeDays } = {}) {
+export function intentionsBlockText(
+  records,
+  labels,
+  {
+    timezone = 'UTC',
+    locale = 'en-US',
+    maxTokens = DEFAULT_INTENTIONS_CAP,
+    cost = estimateTokens,
+    channelNameOf = () => null,
+    nameOf = () => null,
+    now = null,
+    expiryNoticeDays = DEFAULTS.expiryNoticeDays,
+  } = {}
+) {
   const l = labels?.intentions;
   const list = Array.isArray(records) ? records.filter((record) => record && typeof record.id === 'string') : [];
   if (list.length === 0 || typeof l?.header !== 'string' || typeof l?.line !== 'string') return '';
@@ -102,7 +138,9 @@ export function intentionsBlockText(records, labels, { timezone = 'UTC', locale 
     out.push(text);
     used += cost(text) + 1;
   };
-  const noticeMs = (Number.isFinite(expiryNoticeDays) && expiryNoticeDays >= 0 ? expiryNoticeDays : DEFAULTS.expiryNoticeDays) * DAY_MS;
+  const noticeMs =
+    (Number.isFinite(expiryNoticeDays) && expiryNoticeDays >= 0 ? expiryNoticeDays : DEFAULTS.expiryNoticeDays) *
+    DAY_MS;
   for (const record of list.filter((r) => r.status !== 'proposed')) {
     const text = activeLine(record, l, { timezone, locale, channelNameOf, nameOf, now, noticeMs });
     if (!fits(text)) break;

@@ -58,7 +58,8 @@ function absent(value) {
 function byOption(option, table) {
   return (args) => {
     const value = args?.[option];
-    if (!Object.hasOwn(table, String(value))) return { invalid: `${option} must be one of: ${Object.keys(table).join(', ')}` };
+    if (!Object.hasOwn(table, String(value)))
+      return { invalid: `${option} must be one of: ${Object.keys(table).join(', ')}` };
     return { op: table[value], args };
   };
 }
@@ -116,7 +117,10 @@ export const COMMAND_TO_OP = Object.freeze({
   'message.react': byAction({ add: 'message.react.add', remove: 'message.react.remove' }),
   'task.run': 'task.run',
   // Her own call adds `action`: read or resolve a finished task (src/ops/catalog.js, the leaf's persona-only options).
-  'task.status': (args) => (args?.action === undefined ? { op: 'task.status', args } : byAction({ read: 'task.read', resolve: 'task.resolve' })(args)),
+  'task.status': (args) =>
+    args?.action === undefined
+      ? { op: 'task.status', args }
+      : byAction({ read: 'task.read', resolve: 'task.resolve' })(args),
   'task.cancel': 'task.cancel',
   'task.list': 'task.list',
   'task.search': 'web.search',
@@ -212,7 +216,8 @@ export function resolveCommand(commandKey, args = {}) {
  */
 export function legacyGrantOps(key) {
   if (key === '*') return { from: '*', names: listOps().map((op) => op.name) };
-  if (Object.hasOwn(LEGACY_COMMAND_TO_OP, key)) return { from: null, names: [resolveIn(LEGACY_COMMAND_TO_OP, key, {}).op] };
+  if (Object.hasOwn(LEGACY_COMMAND_TO_OP, key))
+    return { from: null, names: [resolveIn(LEGACY_COMMAND_TO_OP, key, {}).op] };
   const under = Object.keys(LEGACY_COMMAND_TO_OP).filter((full) => full.startsWith(`${key}.`));
   if (under.length === 0) return null;
   return { from: key, names: [...new Set(under.map((full) => resolveIn(LEGACY_COMMAND_TO_OP, full, {}).op))] };
@@ -241,7 +246,8 @@ function checkRights(op, ctx) {
  * Exported for the tests' fake admin, which answers in the same shape. */
 export function asResult(value) {
   if (value && typeof value === 'object' && STATUSES.includes(value.status)) return value;
-  if (value && typeof value === 'object') return { status: 'ok', code: CODE.OK, summary: String(value.text ?? ''), data: value };
+  if (value && typeof value === 'object')
+    return { status: 'ok', code: CODE.OK, summary: String(value.text ?? ''), data: value };
   const text = String(value ?? '');
   return { status: 'ok', code: CODE.OK, summary: text, data: { text } };
 }

@@ -33,13 +33,17 @@ const handlers = perEnv((env) => {
 
   /** The inner life's places view, or an Error naming what is missing. */
   function places() {
-    if (typeof env.inner?.places !== 'function') throw Object.assign(new Error('the places are not available'), { code: CODE.NOT_CONFIGURED });
+    if (typeof env.inner?.places !== 'function')
+      throw Object.assign(new Error('the places are not available'), { code: CODE.NOT_CONFIGURED });
     return env.inner;
   }
 
   function cmdList(args, context) {
     const filter = typeof args?.filter === 'string' && args.filter.trim() ? args.filter.trim() : null;
-    const sort = args?.sort === undefined || args?.sort === null || args?.sort === '' ? 'recent' : String(args.sort).trim().toLowerCase();
+    const sort =
+      args?.sort === undefined || args?.sort === null || args?.sort === ''
+        ? 'recent'
+        : String(args.sort).trim().toLowerCase();
     if (!PLACE_SORTS.includes(sort)) throw invalid(`sort: ${PLACE_SORTS.join(', ')}`, CODE.BAD_SORT);
     const raw = args?.page === undefined || args?.page === null || args?.page === '' ? 1 : Number(args.page);
     if (!Number.isInteger(raw) || raw < 1) throw invalid('page: a whole number from 1', CODE.BAD_PAGE);

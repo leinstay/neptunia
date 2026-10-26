@@ -18,8 +18,13 @@ test('intentions db reader: list, get and archived come from the database', asyn
     assert.equal(store.get('i3')?.provenance?.scope, 'dm');
     assert.equal(store.get('nope'), null);
     assert.deepEqual([ids(stores.get(GUILD_2).list()), ids(stores.get(GUILD_2).archived())], [[], []]);
-    assert.deepEqual(env.warns.filter((warn) => warn.message === 'memory db: read failed'), []);
-  } finally { env.done(); }
+    assert.deepEqual(
+      env.warns.filter((warn) => warn.message === 'memory db: read failed'),
+      []
+    );
+  } finally {
+    env.done();
+  }
 });
 
 test('intentions db reader: a closed database fails the load with a code, logged; the next get tries again', async () => {
@@ -28,9 +33,17 @@ test('intentions db reader: a closed database fails the load with a code, logged
     let open = false;
     const memoryDb = { readHandle: () => (open ? env.handle : null), database: () => (open ? env.handle.db : null) };
     const stores = createIntentionStores({ log: env.log, memoryDb });
-    assert.throws(() => stores.get(GUILD), (error) => error.code === 'DB_CLOSED');
-    assert.deepEqual(env.warns.map((warn) => [warn.message, warn.reader, warn.code]), [['memory db: read failed', 'intentions', 'DB_CLOSED']]);
+    assert.throws(
+      () => stores.get(GUILD),
+      (error) => error.code === 'DB_CLOSED'
+    );
+    assert.deepEqual(
+      env.warns.map((warn) => [warn.message, warn.reader, warn.code]),
+      [['memory db: read failed', 'intentions', 'DB_CLOSED']]
+    );
     open = true;
     assert.deepEqual(ids(stores.get(GUILD).list()), ['i2', 'i3']);
-  } finally { env.done(); }
+  } finally {
+    env.done();
+  }
 });

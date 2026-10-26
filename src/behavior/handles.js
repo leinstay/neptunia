@@ -70,7 +70,9 @@ export function assignHandles({ profiled = [], inView = [] } = {}, { prefix = HA
   const handles = new Map();
   const taken = new Set();
   const place = (ids) => {
-    let pending = [...new Set([...ids].filter((id) => id !== undefined && id !== null && String(id) !== '').map(String))]
+    let pending = [
+      ...new Set([...ids].filter((id) => id !== undefined && id !== null && String(id) !== '').map(String)),
+    ]
       .filter((id) => !handles.has(id))
       .sort(compareIds);
     for (let digits = HANDLE_DIGITS; pending.length > 0 && digits <= MAX_DIGITS; digits += 1) {
@@ -130,9 +132,11 @@ export function directoryEntries(profiles, { selfId = null } = {}) {
     const id = String(profile.id);
     if (id === '' || id === self || byId.has(id)) continue;
     const names = sortedNames(profile.names);
-    const aliases = sortedNames((Array.isArray(profile.aliases) ? profile.aliases : []).filter((alias) => isOpen(alias)).map((alias) => alias?.name)).filter(
-      (alias) => !names.includes(alias),
-    );
+    const aliases = sortedNames(
+      (Array.isArray(profile.aliases) ? profile.aliases : [])
+        .filter((alias) => isOpen(alias))
+        .map((alias) => alias?.name)
+    ).filter((alias) => !names.includes(alias));
     if (names.length === 0 && aliases.length === 0) continue;
     byId.set(id, { id, names, aliases });
   }
@@ -171,7 +175,7 @@ export function renderDirectory(entries, handles, labels) {
     lines.push(
       entry.aliases.length > 0 && typeof l.lineAliases === 'string' && l.lineAliases
         ? fill(l.lineAliases, { ...values, aliases: quotedList(entry.aliases) })
-        : fill(l.line, values),
+        : fill(l.line, values)
     );
   }
   if (lines.length === 0) return '';
@@ -201,7 +205,7 @@ export function resolveHandles(text, ids) {
       }
       if (!userIds.includes(String(id))) userIds.push(String(id));
       return `<@${id}>`;
-    }),
+    })
   );
   return { text: resolved, userIds, unknown };
 }
@@ -261,7 +265,7 @@ export function renderChannelDirectory(entries, handles, labels) {
     lines.push(
       entry.category && typeof l.lineCategory === 'string' && l.lineCategory
         ? fill(l.lineCategory, { ...values, category: JSON.stringify(entry.category) })
-        : fill(l.line, values),
+        : fill(l.line, values)
     );
   }
   if (lines.length === 0) return '';

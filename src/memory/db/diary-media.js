@@ -40,11 +40,12 @@ const silent = { info: noop, warn: noop, error: noop, debug: noop };
 /** A file-name-safe form of a diary id. */
 const safeName = (id) => String(id).replace(/[^A-Za-z0-9._-]/g, '_');
 
-const isImage = (attachment) => /^image\//i.test(attachment?.contentType ?? '')
-  || /\.(png|jpe?g|gif|webp)$/i.test(attachment?.name ?? '');
+const isImage = (attachment) =>
+  /^image\//i.test(attachment?.contentType ?? '') || /\.(png|jpe?g|gif|webp)$/i.test(attachment?.name ?? '');
 
-const isAudio = (attachment) => /^audio\//i.test(attachment?.contentType ?? '')
-  || (!attachment?.contentType && /\.(ogg|oga|opus|mp3|m4a|wav)$/i.test(attachment?.name ?? ''));
+const isAudio = (attachment) =>
+  /^audio\//i.test(attachment?.contentType ?? '') ||
+  (!attachment?.contentType && /\.(ogg|oga|opus|mp3|m4a|wav)$/i.test(attachment?.name ?? ''));
 
 /** The file extension of an audio attachment: from its mime type, else from its name. */
 function audioExtension(mime, name) {
@@ -62,25 +63,33 @@ function audioExtension(mime, name) {
  * kept) a `voice` field in its extra with no audio media row. Each carries the post's `voice` object, if any.
  */
 export function pendingDiaryRows(db) {
-  const rows = db.prepare(
-    `SELECT d.id AS id, d.scope_kind AS scope_kind, d.scope_iface AS scope_iface, d.scope_dm AS scope_dm, m.native_ids AS native_ids, d.extra AS extra
+  const rows = db
+    .prepare(
+      `SELECT d.id AS id, d.scope_kind AS scope_kind, d.scope_iface AS scope_iface, d.scope_dm AS scope_dm, m.native_ids AS native_ids, d.extra AS extra
        FROM diary d JOIN diary_mirrors m ON m.diary_id = d.id
       WHERE d.retired_at IS NULL AND m.retired_at IS NULL
         AND (d.text IS NULL
           OR (json_type(d.extra, '$.voice') = 'object'
             AND NOT EXISTS (SELECT 1 FROM media x WHERE x.kind = 'diary' AND x.owner = d.id AND x.mime LIKE 'audio/%')))
-      ORDER BY d.position, d.rowid`,
-  ).all();
+      ORDER BY d.position, d.rowid`
+    )
+    .all();
   const out = [];
   for (const row of rows) {
     let ids;
-    try { ids = JSON.parse(row.native_ids); } catch { continue; }
+    try {
+      ids = JSON.parse(row.native_ids);
+    } catch {
+      continue;
+    }
     if (!Array.isArray(ids) || ids.length === 0 || !ids.every((id) => typeof id === 'string')) continue;
     let voice = null;
     try {
       const parsed = JSON.parse(row.extra ?? 'null')?.voice;
       if (parsed && typeof parsed === 'object') voice = parsed;
-    } catch { /* an unreadable extra means no voice field */ }
+    } catch {
+      /* an unreadable extra means no voice field */
+    }
     const { extra: _extra, ...rest } = row;
     out.push({ ...rest, messageIds: ids, voice });
   }
@@ -97,18 +106,33 @@ export function applyDiaryUpdate(handle, update) {
     const diary = db.prepare('SELECT scope_kind, scope_iface, scope_dm FROM diary WHERE id = ?').get(update.id);
     if (!diary) return;
     // A refetch (for audio) never replaces a text the row already holds: only an empty or missing text is filled.
-    db.prepare("UPDATE diary SET text = CASE WHEN text IS NOT NULL AND text <> '' THEN text ELSE ? END WHERE id = ?").run(update.text ?? '', update.id);
+    db.prepare(
+      "UPDATE diary SET text = CASE WHEN text IS NOT NULL AND text <> '' THEN text ELSE ? END WHERE id = ?"
+    ).run(update.text ?? '', update.id);
     const insert = db.prepare(
       `INSERT INTO media (id, kind, owner, path, native_ref, sha1, bytes, mime, scope_kind, scope_iface, scope_dm, extra, retired_at, audience_id)
        VALUES (?, 'diary', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
        ON CONFLICT(id) DO UPDATE SET path = excluded.path, native_ref = excluded.native_ref, sha1 = excluded.sha1,
          bytes = excluded.bytes, mime = excluded.mime, scope_kind = excluded.scope_kind, scope_iface = excluded.scope_iface,
-         scope_dm = excluded.scope_dm, extra = excluded.extra, retired_at = NULL, audience_id = excluded.audience_id`,
+         scope_dm = excluded.scope_dm, extra = excluded.extra, retired_at = NULL, audience_id = excluded.audience_id`
     );
     const audience = audienceOf(diary);
     if ((update.media ?? []).length > 0) ensureAudience(db, audience);
     for (const item of update.media ?? []) {
-      insert.run(item.id, update.id, item.path, item.nativeRef, item.sha1, item.bytes, item.mime, diary.scope_kind, diary.scope_iface, diary.scope_dm, item.extra ?? null, audience.audience_id);
+      insert.run(
+        item.id,
+        update.id,
+        item.path,
+        item.nativeRef,
+        item.sha1,
+        item.bytes,
+        item.mime,
+        diary.scope_kind,
+        diary.scope_iface,
+        diary.scope_dm,
+        item.extra ?? null,
+        audience.audience_id
+      );
       projectRow(db, 'media', { id: item.id });
     }
   });
@@ -131,7 +155,10 @@ function writeAtomic(abs, buffer) {
 async function downloadPlain(fetchImpl, url, { maxBytes, timeoutMs }) {
   let response;
   try {
-    response = await fetchImpl(url, { method: 'GET', signal: AbortSignal.timeout(Number.isFinite(timeoutMs) ? timeoutMs : 15000) });
+    response = await fetchImpl(url, {
+      method: 'GET',
+      signal: AbortSignal.timeout(Number.isFinite(timeoutMs) ? timeoutMs : 15000),
+    });
   } catch {
     return null;
   }
@@ -145,7 +172,13 @@ async function downloadPlain(fetchImpl, url, { maxBytes, timeoutMs }) {
     return null;
   }
   if (Number.isFinite(maxBytes) && buffer.byteLength > maxBytes) return null;
-  return { buffer, contentType: String(response.headers?.get?.('content-type') ?? '').split(';')[0].trim().toLowerCase() };
+  return {
+    buffer,
+    contentType: String(response.headers?.get?.('content-type') ?? '')
+      .split(';')[0]
+      .trim()
+      .toLowerCase(),
+  };
 }
 
 /**
@@ -155,15 +188,32 @@ async function downloadPlain(fetchImpl, url, { maxBytes, timeoutMs }) {
  *   Everything that changes is a getter (read at the moment of use). `db` is a connection that can read the diary;
  *   `apply` writes one update (applyDiaryUpdate on the writer); `sleep` is injected by the tests.
  */
-export function createDiaryMedia({ db, apply, port, imageFetcher, config, dataDir, log = silent, sleep, setTimer = setTimeout, fetchImpl = fetch }) {
+export function createDiaryMedia({
+  db,
+  apply,
+  port,
+  imageFetcher,
+  config,
+  dataDir,
+  log = silent,
+  sleep,
+  setTimer = setTimeout,
+  fetchImpl = fetch,
+}) {
   let stopped = false;
   let running = null;
   let wake = null;
   const attempted = new Set();
-  const pause = sleep ?? ((ms) => new Promise((resolve) => {
-    const timer = setTimer(resolve, ms);
-    wake = () => { clearTimeout(timer); resolve(); };
-  }));
+  const pause =
+    sleep ??
+    ((ms) =>
+      new Promise((resolve) => {
+        const timer = setTimer(resolve, ms);
+        wake = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+      }));
 
   const codeOf = (error) => error?.code ?? error?.name ?? 'ERROR';
 
@@ -174,7 +224,9 @@ export function createDiaryMedia({ db, apply, port, imageFetcher, config, dataDi
       channelId: typeof cfg.diary?.channelId === 'string' ? cfg.diary.channelId : '',
       maxBytes: cfg.image?.referenceMaxBytes,
       timeoutMs: cfg.context?.vision?.fetchTimeoutMs,
-      audioMaxBytes: Number.isFinite(cfg.memoryDb?.diaryAudioMaxBytes) ? cfg.memoryDb.diaryAudioMaxBytes : DEFAULT_AUDIO_MAX_BYTES,
+      audioMaxBytes: Number.isFinite(cfg.memoryDb?.diaryAudioMaxBytes)
+        ? cfg.memoryDb.diaryAudioMaxBytes
+        : DEFAULT_AUDIO_MAX_BYTES,
     };
   }
 
@@ -192,7 +244,10 @@ export function createDiaryMedia({ db, apply, port, imageFetcher, config, dataDi
       await apply({ id: row.id, text: '', media: [] });
       return 'done';
     }
-    const text = present.map((message) => (typeof message.text === 'string' ? message.text : '')).filter((part) => part !== '').join('\n');
+    const text = present
+      .map((message) => (typeof message.text === 'string' ? message.text : ''))
+      .filter((part) => part !== '')
+      .join('\n');
     const media = [];
     const base = safeName(row.id);
     let n = 0;
@@ -215,8 +270,12 @@ export function createDiaryMedia({ db, apply, port, imageFetcher, config, dataDi
           const matched = row.voice && row.voice.messageId === message.messageId;
           const extra = { voice: true };
           if (matched && typeof row.voice.text === 'string') extra.text = row.voice.text;
-          const duration = matched && Number.isFinite(row.voice.durationSec) ? row.voice.durationSec
-            : (Number.isFinite(attachment.durationSec) ? attachment.durationSec : null);
+          const duration =
+            matched && Number.isFinite(row.voice.durationSec)
+              ? row.voice.durationSec
+              : Number.isFinite(attachment.durationSec)
+                ? attachment.durationSec
+                : null;
           if (duration !== null) extra.durationSec = duration;
           media.push({
             id: `media:diary:${base}-${n}`,
@@ -295,7 +354,9 @@ export function createDiaryMedia({ db, apply, port, imageFetcher, config, dataDi
     /** Handles the rows pending now that were not tried in this start; one run at a time (a call during a run returns it). */
     run() {
       if (running) return running;
-      running = runOnce().finally(() => { running = null; });
+      running = runOnce().finally(() => {
+        running = null;
+      });
       return running;
     },
     /** Rows still waiting that this start has not tried: a cheap check before `run()`. */

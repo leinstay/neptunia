@@ -107,7 +107,10 @@ export function journalLine(record) {
   const count = (value) => (Array.isArray(value) ? value.length : 0);
   let short;
   if (kind === 'turn') {
-    const think = typeof record.think === 'string' && record.think.trim() ? Array.from(oneLine(record.think)).slice(0, LINE_THINK_CHARS).join('') : '-';
+    const think =
+      typeof record.think === 'string' && record.think.trim()
+        ? Array.from(oneLine(record.think)).slice(0, LINE_THINK_CHARS).join('')
+        : '-';
     short = `${words(record.mode ?? '-', record.outcome ?? '-')} ${count(record.seen?.messageIds)} msgs, think: ${think}`;
   } else if (kind === 'turn.start') {
     short = words(record.mode ?? '-', record.trigger?.kind);
@@ -121,7 +124,14 @@ export function journalLine(record) {
   } else if (kind === 'answer') {
     short = words(record.event ?? '-', record.reason, record.verdict, record.outcome);
   } else if (kind === 'inner') {
-    short = words(record.event ?? '-', record.wake?.kind, record.cap, record.outcome, record.reason, Array.isArray(record.actions) ? `${record.actions.length} actions` : null);
+    short = words(
+      record.event ?? '-',
+      record.wake?.kind,
+      record.cap,
+      record.outcome,
+      record.reason,
+      Array.isArray(record.actions) ? `${record.actions.length} actions` : null
+    );
   } else {
     short = '';
   }
@@ -135,7 +145,9 @@ export function journalLine(record) {
  * @returns {string}
  */
 export function intentText(text) {
-  return Array.from(typeof text === 'string' ? text : '').slice(0, INTENT_CHARS).join('');
+  return Array.from(typeof text === 'string' ? text : '')
+    .slice(0, INTENT_CHARS)
+    .join('');
 }
 
 /** An epoch-ms time of a message's `createdAt` (a number, a Date or an ISO string), else null. */
@@ -273,7 +285,12 @@ export function triggerLinksOf(records) {
   const triggers = new Map(); // turnId -> trigger messageId
   for (const record of list) {
     const triggerId = record?.trigger?.messageId;
-    if (record?.kind === 'turn.start' && typeof record.turnId === 'string' && typeof triggerId === 'string' && triggerId) {
+    if (
+      record?.kind === 'turn.start' &&
+      typeof record.turnId === 'string' &&
+      typeof triggerId === 'string' &&
+      triggerId
+    ) {
       triggers.set(record.turnId, triggerId);
     }
   }
@@ -332,27 +349,48 @@ export function callMarksOf(records) {
     postedByTurn.set(turnId, ids);
   };
   for (const record of list) {
-    if (record.kind === 'turn') for (const post of Array.isArray(record.posted) ? record.posted : []) addPosted(record.turnId, postedIdOf(post));
+    if (record.kind === 'turn')
+      for (const post of Array.isArray(record.posted) ? record.posted : []) addPosted(record.turnId, postedIdOf(post));
     else if (record.kind === 'action') addPosted(record.turnId, succeededIdOf(record));
   }
   const ops = new Map(); // opId -> what its lines said
   // A call an inner turn only proposed (shadow mode, src/behavior/inner.js) never ran: no mark.
-  const shadowOps = new Set(list.filter((record) => record.kind === 'action' && record.shadow === true && text(record.opId)).map((record) => record.opId));
+  const shadowOps = new Set(
+    list
+      .filter((record) => record.kind === 'action' && record.shadow === true && text(record.opId))
+      .map((record) => record.opId)
+  );
   for (const record of list) {
-    if (record.kind !== 'action' || record.name !== 'skill' || !text(record.opId) || shadowOps.has(record.opId)) continue;
-    const op = ops.get(record.opId) ?? { turnId: null, channelId: null, skill: null, target: null, status: null, code: null, reason: null, postedId: null, at: null, values: null };
+    if (record.kind !== 'action' || record.name !== 'skill' || !text(record.opId) || shadowOps.has(record.opId))
+      continue;
+    const op = ops.get(record.opId) ?? {
+      turnId: null,
+      channelId: null,
+      skill: null,
+      target: null,
+      status: null,
+      code: null,
+      reason: null,
+      postedId: null,
+      at: null,
+      values: null,
+    };
     op.turnId = text(record.turnId) ?? op.turnId;
     op.channelId = text(record.scope?.channel) ?? op.channelId;
     op.skill = text(record.input?.skill) ?? op.skill;
     if (record.target && typeof record.target === 'object') op.target = record.target;
     if (record.phase === 'succeeded') op.status = 'ok';
     else if (record.phase === 'unknown') op.status = 'unknown';
-    else if (record.phase === 'failed') op.status = CALL_STATUS_RE.test(String(record.result?.status ?? '')) ? record.result.status : 'failed';
+    else if (record.phase === 'failed')
+      op.status = CALL_STATUS_RE.test(String(record.result?.status ?? '')) ? record.result.status : 'failed';
     // Why a call that did not work did not: its code and the machine reason (a schema path, an option name).
     if (record.phase === 'failed' || record.phase === 'unknown') {
       op.code = text(record.result?.code);
       op.reason = text(record.result?.reason);
-      op.values = record.result?.values && typeof record.result.values === 'object' && !Array.isArray(record.result.values) ? record.result.values : null;
+      op.values =
+        record.result?.values && typeof record.result.values === 'object' && !Array.isArray(record.result.values)
+          ? record.result.values
+          : null;
     }
     op.postedId = succeededIdOf(record) ?? op.postedId;
     const at = Date.parse(record.occurredAt);
@@ -363,7 +401,10 @@ export function callMarksOf(records) {
   const postedFrom = [];
   for (const op of ops.values()) {
     if (!op.channelId || !op.skill) continue;
-    const target = { messageId: text(op.target?.message) ?? text(op.target?.reply), channelId: text(op.target?.channel) };
+    const target = {
+      messageId: text(op.target?.message) ?? text(op.target?.reply),
+      channelId: text(op.target?.channel),
+    };
     calls.push({
       channelId: op.channelId,
       at: op.at,
@@ -376,7 +417,8 @@ export function callMarksOf(records) {
       postedId: op.postedId,
       posted: [...(postedByTurn.get(op.turnId) ?? [])],
     });
-    if (op.postedId && target.channelId && target.channelId !== op.channelId) postedFrom.push([op.postedId, op.channelId]);
+    if (op.postedId && target.channelId && target.channelId !== op.channelId)
+      postedFrom.push([op.postedId, op.channelId]);
   }
   return { calls, postedFrom };
 }
@@ -400,18 +442,26 @@ export function turnOfMessage(records, messageId) {
   const id = String(messageId ?? '');
   if (!id) return null;
   const turns = list.filter((record) => record.kind === 'turn' && typeof record.turnId === 'string');
-  let turn = turns.find((record) => Array.isArray(record.posted) && record.posted.some((post) => postedIdOf(post) === id)) ?? null;
+  let turn =
+    turns.find((record) => Array.isArray(record.posted) && record.posted.some((post) => postedIdOf(post) === id)) ??
+    null;
   if (!turn) {
     const op = list.find((record) => succeededIdOf(record) === id && typeof record.turnId === 'string');
     if (!op) return null;
     const ofTurn = turns.filter((record) => record.turnId === op.turnId);
-    turn = ofTurn.find((record) => Array.isArray(record.actions) && record.actions.includes(op.opId)) ?? ofTurn.at(-1) ?? null;
+    turn =
+      ofTurn.find((record) => Array.isArray(record.actions) && record.actions.includes(op.opId)) ??
+      ofTurn.at(-1) ??
+      null;
     if (!turn) return null;
   }
   const starts = list.filter((record) => record.kind === 'turn.start' && record.turnId === turn.turnId);
   const start = starts.find((record) => record.attemptId === turn.attemptId) ?? starts.at(-1) ?? null;
   // The attempt's operations: those its `actions` lists, else every one of the turn.
-  const mine = (record) => record.kind === 'action' && record.turnId === turn.turnId && (!Array.isArray(turn.actions) || turn.actions.includes(record.opId));
+  const mine = (record) =>
+    record.kind === 'action' &&
+    record.turnId === turn.turnId &&
+    (!Array.isArray(turn.actions) || turn.actions.includes(record.opId));
   const ops = list.filter(mine);
   const posted = [];
   const add = (postedId) => {
@@ -422,7 +472,14 @@ export function turnOfMessage(records, messageId) {
   const calls = new Map(); // opId -> call
   for (const record of ops) {
     if (record.name !== 'skill' || typeof record.opId !== 'string') continue;
-    const call = calls.get(record.opId) ?? { skill: null, args: [], target: null, phase: null, code: null, messageId: null };
+    const call = calls.get(record.opId) ?? {
+      skill: null,
+      args: [],
+      target: null,
+      phase: null,
+      code: null,
+      messageId: null,
+    };
     if (typeof record.input?.skill === 'string') call.skill = record.input.skill;
     if (Array.isArray(record.input?.args)) call.args = record.input.args.filter((name) => typeof name === 'string');
     if (record.target && typeof record.target === 'object') call.target = record.target;
@@ -447,8 +504,19 @@ export function turnView({ turn, start = null, posted = [], calls = [] }) {
   const channel = turn.scope?.channel ?? (turn.scope?.private ? 'private' : null);
   const trigger = start?.trigger ?? null;
   const callText = (call) => {
-    const target = call.target ? Object.entries(call.target).map(([key, value]) => `${key}=${value}`).join(' ') : '';
-    return [text(call.skill), text(call.phase), call.code, call.args.length > 0 ? `args: ${call.args.join(', ')}` : '', target ? `target: ${target}` : '', call.messageId ? `posted: ${call.messageId}` : '']
+    const target = call.target
+      ? Object.entries(call.target)
+          .map(([key, value]) => `${key}=${value}`)
+          .join(' ')
+      : '';
+    return [
+      text(call.skill),
+      text(call.phase),
+      call.code,
+      call.args.length > 0 ? `args: ${call.args.join(', ')}` : '',
+      target ? `target: ${target}` : '',
+      call.messageId ? `posted: ${call.messageId}` : '',
+    ]
       .filter(Boolean)
       .join(' ');
   };
@@ -462,7 +530,9 @@ export function turnView({ turn, start = null, posted = [], calls = [] }) {
     `outcome: ${text(turn.outcome)}, reason: ${text(turn.reason)}`,
     `posted: ${posted.length > 0 ? posted.join(', ') : 'none'}`,
     ...(calls.length > 0 ? calls.map((call) => `call: ${callText(call)}`) : ['call: none']),
-    think ? `think (${Array.from(think).length} chars${turn.thinkTruncated === true ? ', cut when stored' : ''}):` : 'think: none',
+    think
+      ? `think (${Array.from(think).length} chars${turn.thinkTruncated === true ? ', cut when stored' : ''}):`
+      : 'think: none',
     ...(think ? [think] : []),
   ].join('\n');
 }
@@ -559,7 +629,17 @@ function scopeOf({ privateUserId = null, channelId = null } = {}) {
  *   `stalled` says whether the append store's retry queue is full (`stats().stalled`; false for a
  *   store without stats): what depends on a record being taken (memory application) waits.
  */
-export function createJournal({ appendStore = null, dataDir, config = () => ({}), now = Date.now, uuid = randomUUID, log = defaultLog, fs = nodeFs, lockStores = [], memoryDb = null }) {
+export function createJournal({
+  appendStore = null,
+  dataDir,
+  config = () => ({}),
+  now = Date.now,
+  uuid = randomUUID,
+  log = defaultLog,
+  fs = nodeFs,
+  lockStores = [],
+  memoryDb = null,
+}) {
   const root = memoryRootOf(dataDir);
   const seam = createReadSeam({ memoryDb, log, reader: 'journal' });
   const guildDir = root.guildDir;
@@ -582,7 +662,14 @@ export function createJournal({ appendStore = null, dataDir, config = () => ({})
 
   /** `fields` wrapped in the envelope; `channelId` and `privateUserId` decide the scope, not stored twice. */
   function envelope(guildId, kind, fields) {
-    const { channelId = null, privateUserId = null, participants, sourceMessageIds, occurredAt, ...rest } = fields ?? {};
+    const {
+      channelId = null,
+      privateUserId = null,
+      participants,
+      sourceMessageIds,
+      occurredAt,
+      ...rest
+    } = fields ?? {};
     const at = new Date(now()).toISOString();
     return {
       record: {
@@ -615,14 +702,27 @@ export function createJournal({ appendStore = null, dataDir, config = () => ({})
       const { record, privateUserId } = envelope(guildId, kind, fields);
       await unlocked();
       const file = dayFile(guildId, record.occurredAt, privateUserId);
-      if (typeof memoryDb?.writeUnit !== 'function') throw Object.assign(new Error('memory db: no writer'), { code: 'DB_CLOSED' });
+      if (typeof memoryDb?.writeUnit !== 'function')
+        throw Object.assign(new Error('memory db: no writer'), { code: 'DB_CLOSED' });
       await memoryDb.writeUnit({ op: 'lines', owner: root.relative(file), lines: [record] });
     } catch (error) {
       log.warn('journal: append failed', { kind, code: error?.code ?? null, guildId: String(guildId) });
     }
   }
 
-  function start(guildId, { channelId = null, mode = null, trigger = null, participants, sourceMessageIds, privateUserId = null, turnId = null, attemptId = null } = {}) {
+  function start(
+    guildId,
+    {
+      channelId = null,
+      mode = null,
+      trigger = null,
+      participants,
+      sourceMessageIds,
+      privateUserId = null,
+      turnId = null,
+      attemptId = null,
+    } = {}
+  ) {
     const id = typeof turnId === 'string' && turnId ? turnId : `t-${uuid()}`;
     const attempt = Number.isInteger(attemptId) && attemptId > 0 ? attemptId : 1;
     const startedAt = new Date(now()).toISOString();
@@ -731,7 +831,10 @@ export function createJournal({ appendStore = null, dataDir, config = () => ({})
         if (typeof kind === 'string' && Number.isFinite(at)) out.push({ at, kind, event });
       }
     }
-    return out.map((entry, i) => ({ entry, i })).sort((a, b) => a.entry.at - b.entry.at || a.i - b.i).map(({ entry }) => entry);
+    return out
+      .map((entry, i) => ({ entry, i }))
+      .sort((a, b) => a.entry.at - b.entry.at || a.i - b.i)
+      .map(({ entry }) => entry);
   }
 
   /**
@@ -790,7 +893,10 @@ export function createJournal({ appendStore = null, dataDir, config = () => ({})
     const { intent, ...rest } = base ?? {};
     const common = { ...rest, opId };
     if (intent && typeof intent === 'object') {
-      common.intent = { replyTo: typeof intent.replyTo === 'string' && intent.replyTo ? intent.replyTo : null, text: intentText(intent.text) };
+      common.intent = {
+        replyTo: typeof intent.replyTo === 'string' && intent.replyTo ? intent.replyTo : null,
+        text: intentText(intent.text),
+      };
     }
     const closingBase = { opId };
     for (const key of OP_FIELDS) if (key in rest) closingBase[key] = rest[key];
@@ -805,7 +911,8 @@ export function createJournal({ appendStore = null, dataDir, config = () => ({})
       proposed: (extra = {}) => write(guildId, 'action', { ...common, ...extra, opId, phase: 'proposed' }),
       started: (extra = {}) => write(guildId, 'action', { ...common, ...extra, opId, phase: 'started' }),
       succeeded: (result = {}) => close('succeeded', result),
-      failed: (code, result = {}) => close('failed', { ...result, code: typeof code === 'string' && code ? code : 'error' }),
+      failed: (code, result = {}) =>
+        close('failed', { ...result, code: typeof code === 'string' && code ? code : 'error' }),
       unknown: (result) => close('unknown', result),
     };
   }
@@ -850,7 +957,17 @@ export function createJournal({ appendStore = null, dataDir, config = () => ({})
     for (const day of Array.isArray(days) ? days : []) {
       for (const record of await read(guildId, { day, kind: 'action', n: Number.MAX_SAFE_INTEGER, privateUserId })) {
         if (record.turnId !== turnId || typeof record.opId !== 'string' || !record.opId) continue;
-        const op = ops.get(record.opId) ?? { opId: record.opId, name: null, by: null, phase: 'proposed', skill: null, text: null, dryRun: false, shadow: false, started: false };
+        const op = ops.get(record.opId) ?? {
+          opId: record.opId,
+          name: null,
+          by: null,
+          phase: 'proposed',
+          skill: null,
+          text: null,
+          dryRun: false,
+          shadow: false,
+          started: false,
+        };
         op.name = record.name ?? op.name;
         op.by = record.by ?? op.by;
         op.skill = record.input?.skill ?? op.skill;
@@ -862,7 +979,9 @@ export function createJournal({ appendStore = null, dataDir, config = () => ({})
         ops.set(record.opId, op);
       }
     }
-    return [...ops.values()].map(({ started, ...op }) => (op.phase === 'proposed' && started ? { ...op, phase: 'open' } : op));
+    return [...ops.values()].map(({ started, ...op }) =>
+      op.phase === 'proposed' && started ? { ...op, phase: 'open' } : op
+    );
   }
 
   /** The persona's last own messages of `channelId`, fetched once per reconciliation; null when the fetch failed. */
@@ -871,7 +990,11 @@ export function createJournal({ appendStore = null, dataDir, config = () => ({})
       const fetching = Promise.resolve()
         .then(() => fetchOwnMessages(channelId, RECONCILE_FETCH))
         .catch((error) => {
-          log.warn('journal: reconcile fetch failed', { code: error?.code ?? null, channelId, guildId: String(guildId) });
+          log.warn('journal: reconcile fetch failed', {
+            code: error?.code ?? null,
+            channelId,
+            guildId: String(guildId),
+          });
           return null;
         });
       fetches.set(channelId, fetching);
@@ -962,12 +1085,29 @@ export function createJournal({ appendStore = null, dataDir, config = () => ({})
    * @param {{ turnId: string, attemptId?: number, step?: number|null, request: object, raw?: string, usage?: object|null, privateUserId?: string|null, tools?: object[]|null, toolChoice?: string|object|null, toolCalls?: object[]|null, later?: object[]|null }} dump
    * @returns {Promise<void>}
    */
-  async function dumpRequest(guildId, { turnId, attemptId = 1, step = null, request, raw = '', usage = null, privateUserId = null, tools = null, toolChoice = null, toolCalls = null, later = null } = {}) {
+  async function dumpRequest(
+    guildId,
+    {
+      turnId,
+      attemptId = 1,
+      step = null,
+      request,
+      raw = '',
+      usage = null,
+      privateUserId = null,
+      tools = null,
+      toolChoice = null,
+      toolCalls = null,
+      later = null,
+    } = {}
+  ) {
     if (keepRequests() === 0) return;
     const messages = Array.isArray(request?.messages) ? request.messages : [];
     const system = typeof request?.system === 'string' ? request.system : textOfContent(messages[0]?.content);
     const userContent = Array.isArray(request?.parts) ? request.parts : messages[1]?.content;
-    const parts = (Array.isArray(userContent) ? userContent : [{ type: 'text', text: textOfContent(userContent) }]).map(dumpPart);
+    const parts = (Array.isArray(userContent) ? userContent : [{ type: 'text', text: textOfContent(userContent) }]).map(
+      dumpPart
+    );
     const at = new Date(now()).toISOString();
     const dir = path.join(journalDir(guildId, privateUserId), 'requests', utcDay(now()));
     const stepped = Number.isInteger(step) && step > 0;
@@ -977,7 +1117,15 @@ export function createJournal({ appendStore = null, dataDir, config = () => ({})
     const withTools = Array.isArray(tools) && tools.length > 0;
     const toolsHash = withTools ? toolsHashOf(tools) : null;
     const body = JSON.stringify({
-      v: JOURNAL_VERSION, turnId, attemptId, ...(stepped ? { step } : {}), recordedAt: at, system, parts, raw: typeof raw === 'string' ? raw : '', usage,
+      v: JOURNAL_VERSION,
+      turnId,
+      attemptId,
+      ...(stepped ? { step } : {}),
+      recordedAt: at,
+      system,
+      parts,
+      raw: typeof raw === 'string' ? raw : '',
+      usage,
       ...(withTools ? { tools: toolsHash, toolChoice: toolChoice ?? 'auto' } : {}),
       ...(Array.isArray(toolCalls) && toolCalls.length > 0 ? { toolCalls } : {}),
       ...(Array.isArray(later) && later.length > 0 ? { later: dumpLater(later) } : {}),
@@ -1090,7 +1238,14 @@ export function createJournal({ appendStore = null, dataDir, config = () => ({})
   async function stats(guildId, { now: at = now() } = {}) {
     const files = [at, at - DAY_MS].map((ms) => dayFile(guildId, new Date(ms).toISOString()));
     const db = seam.db();
-    return { lastWriteMs: seam.run(() => journalLastWrite(db, files.map((file) => root.relative(file)))) };
+    return {
+      lastWriteMs: seam.run(() =>
+        journalLastWrite(
+          db,
+          files.map((file) => root.relative(file))
+        )
+      ),
+    };
   }
 
   return {

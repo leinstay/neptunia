@@ -17,7 +17,15 @@ const J = 20;
 const SILENT = { info() {}, warn() {}, error() {} };
 
 function beat(id, dueAt, extra = {}) {
-  const made = createIntention({ purpose: 'look at the thread', provenance: { kind: 'self', turnId: 't1' }, dueAt, origin: HEARTBEAT_ORIGIN, now: T0, id, ...extra });
+  const made = createIntention({
+    purpose: 'look at the thread',
+    provenance: { kind: 'self', turnId: 't1' },
+    dueAt,
+    origin: HEARTBEAT_ORIGIN,
+    now: T0,
+    id,
+    ...extra,
+  });
   assert.equal(made.ok, true, made.code);
   return made.intention;
 }
@@ -55,7 +63,13 @@ test('a record updated later counts its lead from the update, so the wake is nev
 test('zero jitter disables it; a non-heartbeat intention and one without a due time stay exact', () => {
   const due = T0 + 6 * HOUR_MS;
   assert.equal(wakeTimeOf(beat('z', due), 0), due);
-  const own = createIntention({ purpose: 'tell her', provenance: { kind: 'self', turnId: 't1' }, dueAt: due, now: T0, id: 'own' }).intention;
+  const own = createIntention({
+    purpose: 'tell her',
+    provenance: { kind: 'self', turnId: 't1' },
+    dueAt: due,
+    now: T0,
+    id: 'own',
+  }).intention;
   assert.equal(wakeTimeOf(own, J), due);
   assert.ok(Number.isNaN(wakeTimeOf(beat('n', null), J)));
   assert.equal(dueJitterMinutes({}), 20);
@@ -91,16 +105,46 @@ test('the scheduler wakes a shifted heartbeat intention at its shifted time and 
       bot: { timezone: 'UTC' },
       features: { innerLife: true, intentions: true, journal: true },
       mention: { oneAtATime: true },
-      intentions: { expiresDays: 14, recurringExpiresDays: 30, maxOpen: 20, maxCandidates: 5, candidateExpiresHours: 48, waitHours: 2 },
-      innerLife: { mode: 'shadow', tickSeconds: 60, queueMax: 20, chatMessages: 30, review: { enabled: false, historyDays: 14 }, heartbeat: { enabled: false, dueJitterMinutes: J }, caps: { perChain: 3 } },
+      intentions: {
+        expiresDays: 14,
+        recurringExpiresDays: 30,
+        maxOpen: 20,
+        maxCandidates: 5,
+        candidateExpiresHours: 48,
+        waitHours: 2,
+      },
+      innerLife: {
+        mode: 'shadow',
+        tickSeconds: 60,
+        queueMax: 20,
+        chatMessages: 30,
+        review: { enabled: false, historyDays: 14 },
+        heartbeat: { enabled: false, dueJitterMinutes: J },
+        caps: { perChain: 3 },
+      },
     },
   };
-  const service = createIntentionService({ stores: createIntentionStores({ dataDir, now: () => clock.t, log: SILENT }), hot, getGuildId: () => 'g1', now: () => clock.t, log: SILENT, uuid: () => 'fixed-jitter-id' });
+  const service = createIntentionService({
+    stores: createIntentionStores({ dataDir, now: () => clock.t, log: SILENT }),
+    hot,
+    getGuildId: () => 'g1',
+    now: () => clock.t,
+    log: SILENT,
+    uuid: () => 'fixed-jitter-id',
+  });
   const due = T0 + 6 * HOUR_MS;
-  const set = service.set('g1', { purpose: 'look at the thread', dueAt: due, destination: 'c1', origin: HEARTBEAT_ORIGIN });
+  const set = service.set('g1', {
+    purpose: 'look at the thread',
+    dueAt: due,
+    destination: 'c1',
+    origin: HEARTBEAT_ORIGIN,
+  });
   assert.equal(set.ok, true, set.code);
   const id = set.intention.id;
-  const at = wakeTimeOf(service.list('g1').find((record) => record.id === id), J);
+  const at = wakeTimeOf(
+    service.list('g1').find((record) => record.id === id),
+    J
+  );
   assert.notEqual(at, due);
   const calls = [];
   const turns = {
@@ -115,7 +159,11 @@ test('the scheduler wakes a shifted heartbeat intention at its shifted time and 
   const door = createEventDoor({ handlers: { 'inner.wake': (event) => inner.onWake(event) }, log: SILENT });
   const channels = new Map([['c1', { id: 'c1', name: 'chan', guild: { id: 'g1' } }]]);
   inner = createInnerLife({
-    hot, dataDir, turns, intentions: service, record: null,
+    hot,
+    dataDir,
+    turns,
+    intentions: service,
+    record: null,
     journal: { inner: async () => {} },
     client: { channels: { cache: channels, fetch: async (cid) => channels.get(cid) ?? null } },
     discord: { canSend: () => true },
@@ -137,15 +185,46 @@ test('the scheduler wakes a shifted heartbeat intention at its shifted time and 
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(calls.length, 1);
   assert.equal(calls[0].inner.wake.kind, 'intention_due');
-  assert.equal(service.list('g1').find((record) => record.id === id).dueAt, due, 'what she sees keeps the time she chose');
+  assert.equal(
+    service.list('g1').find((record) => record.id === id).dueAt,
+    due,
+    'what she sees keeps the time she chose'
+  );
 });
 
 test('a recurring heartbeat intention woken early still advances to the next occurrence', () => {
   const clock = { t: T0 };
-  const hot = { config: { features: { intentions: true }, bot: { timezone: 'UTC' }, intentions: { expiresDays: 14, recurringExpiresDays: 30, maxOpen: 20, maxCandidates: 5, candidateExpiresHours: 48, waitHours: 2 }, innerLife: { heartbeat: { dueJitterMinutes: J } } } };
-  const service = createIntentionService({ stores: createIntentionStores({ dataDir: tempDir('nep-due-jitter-'), now: () => clock.t, log: SILENT }), hot, getGuildId: () => 'g1', now: () => clock.t, log: SILENT, uuid: () => 'early-id' });
+  const hot = {
+    config: {
+      features: { intentions: true },
+      bot: { timezone: 'UTC' },
+      intentions: {
+        expiresDays: 14,
+        recurringExpiresDays: 30,
+        maxOpen: 20,
+        maxCandidates: 5,
+        candidateExpiresHours: 48,
+        waitHours: 2,
+      },
+      innerLife: { heartbeat: { dueJitterMinutes: J } },
+    },
+  };
+  const service = createIntentionService({
+    stores: createIntentionStores({ dataDir: tempDir('nep-due-jitter-'), now: () => clock.t, log: SILENT }),
+    hot,
+    getGuildId: () => 'g1',
+    now: () => clock.t,
+    log: SILENT,
+    uuid: () => 'early-id',
+  });
   const due = T0 + 6 * HOUR_MS;
-  const set = service.set('g1', { purpose: 'look at the thread', dueAt: due, every: { period: 'day', at: null }, destination: 'c1', origin: HEARTBEAT_ORIGIN });
+  const set = service.set('g1', {
+    purpose: 'look at the thread',
+    dueAt: due,
+    every: { period: 'day', at: null },
+    destination: 'c1',
+    origin: HEARTBEAT_ORIGIN,
+  });
   assert.equal(set.ok, true, set.code);
   const record = service.list('g1')[0];
   const at = wakeTimeOf(record, J);

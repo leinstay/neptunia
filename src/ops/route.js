@@ -6,7 +6,21 @@ import { isPlainObject } from '../config.js';
 import { IMAGE_ROLE } from '../llm/images.js';
 import { matchRoute } from '../llm/openrouter.js';
 import { OPENCODE_ROLES } from '../llm/roles.js';
-import { NONE, onOff, reloadNote, readLocalConfig, ROUTE_ROLES, PROVIDER_SLUG_RE, modelForRole, describeProviders, fallbacksText, byokText, routingSummary, routePrefixArg, routeRoleArg } from './shared.js';
+import {
+  NONE,
+  onOff,
+  reloadNote,
+  readLocalConfig,
+  ROUTE_ROLES,
+  PROVIDER_SLUG_RE,
+  modelForRole,
+  describeProviders,
+  fallbacksText,
+  byokText,
+  routingSummary,
+  routePrefixArg,
+  routeRoleArg,
+} from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
 import { CODE } from '../skills/codes.js';
 
@@ -56,7 +70,8 @@ const handlers = perEnv((env) => {
     if (match) applied = `${match.key} ${routingSummary(match.value)}`;
     else if (isPlainObject(fallback)) applied = `${fallbackName} ${routingSummary(fallback)}`;
     const pin = cfg?.media?.video?.provider;
-    const pinned = role === 'video' && isPlainObject(pin) ? `; direct-URL videos: media.video.provider ${routingSummary(pin)}` : '';
+    const pinned =
+      role === 'video' && isPlainObject(pin) ? `; direct-URL videos: media.video.provider ${routingSummary(pin)}` : '';
     return `  ${role}: ${model} -> ${applied}${pinned}`;
   }
 
@@ -67,20 +82,30 @@ const handlers = perEnv((env) => {
   function cmdRouteList() {
     const cfg = hot.config;
     const byModel = effectiveRoutes();
-    const roleRank = (role) => (role === null ? -1 : ROUTE_ROLES.includes(role) ? ROUTE_ROLES.indexOf(role) : ROUTE_ROLES.length);
+    const roleRank = (role) =>
+      role === null ? -1 : ROUTE_ROLES.includes(role) ? ROUTE_ROLES.indexOf(role) : ROUTE_ROLES.length;
     const routes = Object.entries(byModel)
       .filter(([, value]) => isPlainObject(value))
       .map(([key, value]) => {
         const at = key.lastIndexOf('@');
-        return at === -1 ? { prefix: key, role: null, value } : { prefix: key.slice(0, at), role: key.slice(at + 1), value };
+        return at === -1
+          ? { prefix: key, role: null, value }
+          : { prefix: key.slice(0, at), role: key.slice(at + 1), value };
       })
       .sort((a, b) => (a.prefix === b.prefix ? roleRank(a.role) - roleRank(b.role) : a.prefix < b.prefix ? -1 : 1));
     const lines = routes.length === 0 ? [`routes: ${NONE}`] : ['routes:'];
     for (const route of routes) {
-      lines.push(`  ${route.prefix} | ${route.role ?? 'any'} | ${describeProviders(route.value)} | fallbacks: ${fallbacksText(route.value)} | byok: ${byokText(route.value)}`);
+      lines.push(
+        `  ${route.prefix} | ${route.role ?? 'any'} | ${describeProviders(route.value)} | fallbacks: ${fallbacksText(route.value)} | byok: ${byokText(route.value)}`
+      );
     }
     lines.push('by role:', ...ROUTE_ROLES.map((role) => routeRoleLine(role, cfg, byModel)));
-    lines.push(...OPENCODE_ROLES.map((role) => `  ${role}: ${modelForRole(role, cfg) ?? '(no model configured)'} -> OpenCode's own routing (llm.providerByModel not read)`));
+    lines.push(
+      ...OPENCODE_ROLES.map(
+        (role) =>
+          `  ${role}: ${modelForRole(role, cfg) ?? '(no model configured)'} -> OpenCode's own routing (llm.providerByModel not read)`
+      )
+    );
     return lines.join('\n');
   }
 
@@ -89,7 +114,14 @@ const handlers = perEnv((env) => {
   function cmdRouteSet(args) {
     const prefix = routePrefixArg(args);
     const role = routeRoleArg(args);
-    const providers = [...new Set(String(args?.providers ?? '').split(',').map((slug) => slug.trim()).filter(Boolean))];
+    const providers = [
+      ...new Set(
+        String(args?.providers ?? '')
+          .split(',')
+          .map((slug) => slug.trim())
+          .filter(Boolean)
+      ),
+    ];
     if (providers.length === 0) throw invalid('at least one provider slug is required, e.g. google-vertex');
     const badSlug = providers.find((slug) => !PROVIDER_SLUG_RE.test(slug));
     if (badSlug) throw invalid(`invalid provider slug: ${badSlug} (lowercase letters, digits and -)`);
@@ -111,7 +143,8 @@ const handlers = perEnv((env) => {
     const localMap = isPlainObject(local?.llm?.providerByModel) ? local.llm.providerByModel : {};
     if (!Object.hasOwn(localMap, key)) {
       const live = hot.config?.llm?.providerByModel;
-      const fromBase = isPlainObject(live) && Object.hasOwn(live, key) ? ' in config.local.json (it is set in config.json)' : '';
+      const fromBase =
+        isPlainObject(live) && Object.hasOwn(live, key) ? ' in config.local.json (it is set in config.json)' : '';
       throw invalid(`no route ${key}${fromBase}`, CODE.NOT_FOUND);
     }
     const ok = writeRoutes((map) => {

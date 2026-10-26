@@ -89,11 +89,20 @@ export function isOpenState(state) {
  *   still fails in `memory-pending/`. Without a `memoryDb` (tests) nothing is read or written: the list lives in
  *   memory only.
  */
-export function createTaskStore({ guildId, now = Date.now, config = () => ({}), journal = null, uuid = randomUUID, log = defaultLog, memoryDb = null }) {
+export function createTaskStore({
+  guildId,
+  now = Date.now,
+  config = () => ({}),
+  journal = null,
+  uuid = randomUUID,
+  log = defaultLog,
+  memoryDb = null,
+}) {
   const seam = createReadSeam({ memoryDb, log, reader: 'tasks' });
   const db = memoryDb ? seam.db() : null;
   const state = load();
-  const outbox = db && typeof memoryDb?.writeUnit === 'function' ? createUnitOutbox({ memoryDb, log, name: 'tasks' }) : null;
+  const outbox =
+    db && typeof memoryDb?.writeUnit === 'function' ? createUnitOutbox({ memoryDb, log, name: 'tasks' }) : null;
   const listOwner = `guilds/${String(guildId)}/tasks.json`;
   const logOwner = `guilds/${String(guildId)}/tasks.jsonl`;
   // id -> the spend record of each task of the last KEEP_DAYS days (src/errands/costs.js#costRecord).
@@ -106,7 +115,9 @@ export function createTaskStore({ guildId, now = Date.now, config = () => ({}), 
       const found = seam.run(() => tasksValue(db, guildId));
       raw = found.found ? found.value : null;
     }
-    const tasks = Array.isArray(raw?.tasks) ? raw.tasks.filter((task) => task && typeof task.id === 'string' && TASK_STATES.includes(task.state)) : [];
+    const tasks = Array.isArray(raw?.tasks)
+      ? raw.tasks.filter((task) => task && typeof task.id === 'string' && TASK_STATES.includes(task.state))
+      : [];
     for (const task of tasks) {
       // Records from before readAt: a seen one was read, an unseen one is still unread.
       if (task.readAt === undefined) task.readAt = task.seen === true ? (task.endedAt ?? task.createdAt ?? 0) : null;
@@ -164,9 +175,13 @@ export function createTaskStore({ guildId, now = Date.now, config = () => ({}), 
     const finished = tasks.filter((task) => !isOpenState(task.state));
     if (finished.length <= KEEP_FINISHED) return tasks;
     // The unread first, then the latest to end.
-    const keep = new Set([...finished]
-      .sort((a, b) => Number(isUnread(a) === false) - Number(isUnread(b) === false) || (b.endedAt ?? 0) - (a.endedAt ?? 0))
-      .slice(0, KEEP_FINISHED));
+    const keep = new Set(
+      [...finished]
+        .sort(
+          (a, b) => Number(isUnread(a) === false) - Number(isUnread(b) === false) || (b.endedAt ?? 0) - (a.endedAt ?? 0)
+        )
+        .slice(0, KEEP_FINISHED)
+    );
     return tasks.filter((task) => isOpenState(task.state) || keep.has(task));
   }
 
@@ -188,17 +203,19 @@ export function createTaskStore({ guildId, now = Date.now, config = () => ({}), 
   function journalLine(task, phase, extra = {}) {
     if (!journal || typeof journal.action !== 'function' || config()?.features?.journal !== true) return;
     const privateUserId = task.scope === 'dm' ? (task.requester?.userId ?? null) : null;
-    Promise.resolve(journal.action(String(guildId), {
-      opId: task.opId,
-      name: 'task',
-      // Her errand, whoever asked for it: the requester is in `participants`.
-      by: 'persona',
-      ...(privateUserId ? { privateUserId } : { channelId: task.origin?.channelId ?? null }),
-      participants: task.requester?.userId ? [task.requester.userId] : [],
-      sourceMessageIds: task.origin?.messageId ? [task.origin.messageId] : [],
-      phase,
-      ...extra,
-    })).catch((err) => log.warn('errands: journal failed', { id: task.id, code: err?.code ?? null }));
+    Promise.resolve(
+      journal.action(String(guildId), {
+        opId: task.opId,
+        name: 'task',
+        // Her errand, whoever asked for it: the requester is in `participants`.
+        by: 'persona',
+        ...(privateUserId ? { privateUserId } : { channelId: task.origin?.channelId ?? null }),
+        participants: task.requester?.userId ? [task.requester.userId] : [],
+        sourceMessageIds: task.origin?.messageId ? [task.origin.messageId] : [],
+        phase,
+        ...extra,
+      })
+    ).catch((err) => log.warn('errands: journal failed', { id: task.id, code: err?.code ?? null }));
   }
 
   /** The counts of a finished task for its closing journal line: never its text. */
@@ -209,7 +226,8 @@ export function createTaskStore({ guildId, now = Date.now, config = () => ({}), 
     if (chars > 0) out.chars = chars;
     if (Array.isArray(result.sources) && result.sources.length > 0) out.sources = result.sources.length;
     if (Array.isArray(result.files) && result.files.length > 0) out.files = result.files.length;
-    if (task.usage) out.usage = { usd: task.usage.usd ?? 0, steps: task.usage.steps ?? 0, seconds: task.usage.seconds ?? 0 };
+    if (task.usage)
+      out.usage = { usd: task.usage.usd ?? 0, steps: task.usage.steps ?? 0, seconds: task.usage.seconds ?? 0 };
     return out;
   }
 
@@ -333,7 +351,10 @@ export function createTaskStore({ guildId, now = Date.now, config = () => ({}), 
       id: freshId(),
       agent,
       goal: text,
-      requester: { userId: requester?.userId ? String(requester.userId) : null, kind: REQUESTER_KINDS.includes(requester?.kind) ? requester.kind : 'member' },
+      requester: {
+        userId: requester?.userId ? String(requester.userId) : null,
+        kind: REQUESTER_KINDS.includes(requester?.kind) ? requester.kind : 'member',
+      },
       origin: {
         channelId: origin?.channelId ? String(origin.channelId) : null,
         messageId: origin?.messageId ? String(origin.messageId) : null,
@@ -356,7 +377,9 @@ export function createTaskStore({ guildId, now = Date.now, config = () => ({}), 
     };
     state.tasks.push(task);
     persist(task);
-    journalLine(task, 'proposed', { input: { taskId: task.id, agent, goalChars: text.length, requester: task.requester.kind } });
+    journalLine(task, 'proposed', {
+      input: { taskId: task.id, agent, goalChars: text.length, requester: task.requester.kind },
+    });
     log.info('errands: task queued', { guildId: String(guildId), id: task.id, agent });
     return { ok: true, task: copy(task) };
   }
@@ -386,14 +409,28 @@ export function createTaskStore({ guildId, now = Date.now, config = () => ({}), 
     task.usage = normalizeUsage(usage);
     task.result = task.state === 'done' || result ? normalizeResult(result) : null;
     // The record keeps only the names of the files the runner held back (the persona is told).
-    if (task.result?.filesDropped) task.result.filesDropped = task.result.filesDropped.map((entry) => entry.name).filter(Boolean);
+    if (task.result?.filesDropped)
+      task.result.filesDropped = task.result.filesDropped.map((entry) => entry.name).filter(Boolean);
     if (task.result?.filesDropped?.length === 0) delete task.result.filesDropped;
-    task.error = task.state === 'done' ? null : (typeof error === 'string' && error ? error : task.state === 'cancelled' ? 'cancelled' : 'failed');
+    task.error =
+      task.state === 'done'
+        ? null
+        : typeof error === 'string' && error
+          ? error
+          : task.state === 'cancelled'
+            ? 'cancelled'
+            : 'failed';
     task.seen = false;
     persist(task);
     if (task.state === 'done') journalLine(task, 'succeeded', { result: journalResult(task) });
     else journalLine(task, 'failed', { result: { ...journalResult(task), code: task.error } });
-    log.info('errands: task ended', { guildId: String(guildId), id: task.id, agent: task.agent, state: task.state, ...(task.error ? { code: task.error } : {}) });
+    log.info('errands: task ended', {
+      guildId: String(guildId),
+      id: task.id,
+      agent: task.agent,
+      state: task.state,
+      ...(task.error ? { code: task.error } : {}),
+    });
     return copy(task);
   }
 
@@ -454,7 +491,10 @@ export function createTaskStore({ guildId, now = Date.now, config = () => ({}), 
    */
   function setLedgerId(id, ledgerId) {
     const task = find(id);
-    const value = typeof ledgerId === 'string' || (typeof ledgerId === 'number' && Number.isFinite(ledgerId)) ? String(ledgerId) : '';
+    const value =
+      typeof ledgerId === 'string' || (typeof ledgerId === 'number' && Number.isFinite(ledgerId))
+        ? String(ledgerId)
+        : '';
     if (!task || !value) return null;
     if (task.ledgerId !== value) {
       task.ledgerId = value;
@@ -473,7 +513,12 @@ export function createTaskStore({ guildId, now = Date.now, config = () => ({}), 
     expireFiles();
     const count = Number.isInteger(n) && n > 0 ? n : 10;
     // Reversed first, so tasks of the same millisecond keep the later one first.
-    return state.tasks.slice().reverse().sort((a, b) => b.createdAt - a.createdAt).slice(0, count).map(copy);
+    return state.tasks
+      .slice()
+      .reverse()
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, count)
+      .map(copy);
   }
 
   /** The finished tasks the persona has not seen yet, oldest first. */
@@ -485,7 +530,10 @@ export function createTaskStore({ guildId, now = Date.now, config = () => ({}), 
   /** The finished errands whose result she has not read nor closed, oldest first (to end). */
   function unread() {
     expireFiles();
-    return state.tasks.filter(isUnread).sort((a, b) => (a.endedAt ?? 0) - (b.endedAt ?? 0)).map(copy);
+    return state.tasks
+      .filter(isUnread)
+      .sort((a, b) => (a.endedAt ?? 0) - (b.endedAt ?? 0))
+      .map(copy);
   }
 
   /** Task `id`, or null. */
@@ -527,7 +575,13 @@ export function createTaskStore({ guildId, now = Date.now, config = () => ({}), 
     const base = path.resolve(outDir, task.id);
     const full = path.resolve(base, parsed.name);
     if (path.dirname(full) !== base) return null;
-    return { path: full, name: parsed.name, contentType: file.contentType ?? '', bytes: file.bytes ?? 0, task: copy(task) };
+    return {
+      path: full,
+      name: parsed.name,
+      contentType: file.contentType ?? '',
+      bytes: file.bytes ?? 0,
+      task: copy(task),
+    };
   }
 
   /** Whether the handle names a file of a task whose files have expired (`file-expired`); false otherwise. */
@@ -560,7 +614,31 @@ export function createTaskStore({ guildId, now = Date.now, config = () => ({}), 
     return { waiting, pending: final ? outbox.keep() : 0 };
   }
 
-  return { add, start, finish, cancel, markSeen, markRead, markResultFailed, resolve, setLedgerId, open, recent, unseen, unread, get, budget, today, costs, fileOf, fileExpired, failOpen, expireFiles, flush, guildId: String(guildId) };
+  return {
+    add,
+    start,
+    finish,
+    cancel,
+    markSeen,
+    markRead,
+    markResultFailed,
+    resolve,
+    setLedgerId,
+    open,
+    recent,
+    unseen,
+    unread,
+    get,
+    budget,
+    today,
+    costs,
+    fileOf,
+    fileExpired,
+    failOpen,
+    expireFiles,
+    flush,
+    guildId: String(guildId),
+  };
 }
 
 /**
@@ -570,7 +648,13 @@ export function createTaskStore({ guildId, now = Date.now, config = () => ({}), 
  * @returns {{ get(guildId: string): ReturnType<typeof createTaskStore>,
  *   flush(options?: { final?: boolean }): Promise<{ waiting: number, pending: number }> }}
  */
-export function createTaskStores({ config = () => ({}), journal = null, now = Date.now, log = defaultLog, memoryDb = null }) {
+export function createTaskStores({
+  config = () => ({}),
+  journal = null,
+  now = Date.now,
+  log = defaultLog,
+  memoryDb = null,
+}) {
   const stores = new Map();
   const tasks = {
     get(guildId) {

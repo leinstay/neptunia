@@ -172,7 +172,14 @@ export function reactionEventOf(kind, { reaction = null, user = null, message = 
  */
 export function reactionStoreEventOf(event) {
   const text = (value) => (value === undefined || value === null ? null : String(value));
-  const kind = event?.cleared === 'all' ? 'removeAll' : event?.cleared === 'emoji' ? 'removeEmoji' : event?.added === true ? 'add' : 'remove';
+  const kind =
+    event?.cleared === 'all'
+      ? 'removeAll'
+      : event?.cleared === 'emoji'
+        ? 'removeEmoji'
+        : event?.added === true
+          ? 'add'
+          : 'remove';
   return {
     kind,
     guildId: text(event?.conversation?.guildId),
@@ -200,7 +207,13 @@ export function applyReactionEvent(store, event, { guildId, selfId }) {
     case 'add':
     case 'remove':
       if (!event.emoji || !event.userId || (selfId && event.userId === String(selfId))) return 'ignored';
-      return (event.kind === 'add' ? store.add(event.messageId, event.emoji, event.userId) : store.remove(event.messageId, event.emoji, event.userId)) ? 'applied' : 'ignored';
+      return (
+        event.kind === 'add'
+          ? store.add(event.messageId, event.emoji, event.userId)
+          : store.remove(event.messageId, event.emoji, event.userId)
+      )
+        ? 'applied'
+        : 'ignored';
     case 'removeAll':
       return store.removeAll(event.messageId) ? 'applied' : 'ignored';
     case 'removeEmoji':
@@ -273,7 +286,11 @@ export async function runBackfill(plan, store, fetchReactors, { budgetMs = 2000,
       try {
         const ids = await fetchReactors(item);
         if (!Array.isArray(ids)) throw new TypeError('not a list');
-        store.set(item.messageId, item.emoji, ids.map(String).filter((id) => !selfId || id !== String(selfId)));
+        store.set(
+          item.messageId,
+          item.emoji,
+          ids.map(String).filter((id) => !selfId || id !== String(selfId))
+        );
         stats.fetched += 1;
       } catch {
         stats.failed += 1;
@@ -310,7 +327,8 @@ export function withReactors(messages, store, resolveUser) {
       const users = [];
       for (const id of ids) {
         const user = resolveUser(id);
-        if (user && typeof user.name === 'string' && user.name !== '') users.push({ id, name: user.name, bot: Boolean(user.bot) });
+        if (user && typeof user.name === 'string' && user.name !== '')
+          users.push({ id, name: user.name, bot: Boolean(user.bot) });
       }
       if (users.length === 0) return reaction;
       changed = true;

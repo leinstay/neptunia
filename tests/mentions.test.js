@@ -2,7 +2,20 @@
 // id-token round trip) and teacherToken (the lesson teacher rule). Pure, no I/O.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { TEACHER_TOKEN_RE, channelCore, isWordChar, linkChannels, linkMessageNumbers, matchChannel, numberMessageLinks, toTokens, fromTokens, occursAsWholeWord, occursAsWordStem, teacherToken } from '../src/memory/mentions.js';
+import {
+  TEACHER_TOKEN_RE,
+  channelCore,
+  isWordChar,
+  linkChannels,
+  linkMessageNumbers,
+  matchChannel,
+  numberMessageLinks,
+  toTokens,
+  fromTokens,
+  occursAsWholeWord,
+  occursAsWordStem,
+  teacherToken,
+} from '../src/memory/mentions.js';
 
 const ID_A = '123456789012345678';
 const ID_B = '223456789012345678';
@@ -35,7 +48,11 @@ test('toTokens: without namesOf only the single word immediately before the id m
     ],
   ];
   for (const [label, text, expected] of rows) {
-    assert.equal(toTokens(text, () => true), expected, label);
+    assert.equal(
+      toTokens(text, () => true),
+      expected,
+      label
+    );
   }
 });
 
@@ -56,54 +73,105 @@ test('toTokens: idempotent -- running it twice gives the same result', () => {
 
 test('toTokens: a known multi-word name is consumed whole, not just its last word', () => {
   const rows = [
-    ['a known two-word name, at the very start of the text', `Al Sus (id:${ID_A}) plays it`, 'Al Sus', `<@${ID_A}> plays it`],
+    [
+      'a known two-word name, at the very start of the text',
+      `Al Sus (id:${ID_A}) plays it`,
+      'Al Sus',
+      `<@${ID_A}> plays it`,
+    ],
     ['a known three-word name', `The Great Vertex (id:${ID_A}) said hi`, 'The Great Vertex', `<@${ID_A}> said hi`],
   ];
   for (const [label, text, name, expected] of rows) {
-    assert.equal(toTokens(text, () => true, () => [name]), expected, label);
+    assert.equal(
+      toTokens(
+        text,
+        () => true,
+        () => [name]
+      ),
+      expected,
+      label
+    );
   }
 });
 
 test('toTokens: a known name in Greek is matched exactly', () => {
   const text = `το είπε ο Νικόλαος Παπαδόπουλος (id:${ID_A}) χθες`;
-  const out = toTokens(text, () => true, () => ['Νικόλαος Παπαδόπουλος']);
+  const out = toTokens(
+    text,
+    () => true,
+    () => ['Νικόλαος Παπαδόπουλος']
+  );
   assert.equal(out, `το είπε ο <@${ID_A}> χθες`);
 });
 
 test('toTokens: two different members, each with a multi-word name, in one sentence', () => {
   const text = `Al Sus (id:${ID_A}) argued with Vertex Prime (id:${ID_B})`;
   const names = { [ID_A]: ['Al Sus'], [ID_B]: ['Vertex Prime'] };
-  const out = toTokens(text, () => true, (id) => names[id]);
+  const out = toTokens(
+    text,
+    () => true,
+    (id) => names[id]
+  );
   assert.equal(out, `<@${ID_A}> argued with <@${ID_B}>`);
 });
 
 test('toTokens: the longest known name is preferred when a shorter one is also a suffix', () => {
   const text = `Vertex Prime (id:${ID_A}) said hi`;
-  const out = toTokens(text, () => true, () => ['Prime', 'Vertex Prime']);
+  const out = toTokens(
+    text,
+    () => true,
+    () => ['Prime', 'Vertex Prime']
+  );
   assert.equal(out, `<@${ID_A}> said hi`);
 });
 
 test('toTokens: when the preceding words are NOT a known name, falls back to the single-word capture', () => {
   const text = `heard from Al Sus (id:${ID_A}) yesterday`;
-  const out = toTokens(text, () => true, () => ['Vertex Prime']);
-  assert.equal(out, `heard from Al <@${ID_A}> yesterday`, 'no known name matches, so only the single trailing word is consumed');
+  const out = toTokens(
+    text,
+    () => true,
+    () => ['Vertex Prime']
+  );
+  assert.equal(
+    out,
+    `heard from Al <@${ID_A}> yesterday`,
+    'no known name matches, so only the single trailing word is consumed'
+  );
 });
 
 test('toTokens: namesOf returning an empty array or nothing falls back to the single-word capture', () => {
   const text = `Vertex (id:${ID_A}) helped`;
-  assert.equal(toTokens(text, () => true, () => []), `<@${ID_A}> helped`);
-  assert.equal(toTokens(text, () => true, () => null), `<@${ID_A}> helped`);
+  assert.equal(
+    toTokens(
+      text,
+      () => true,
+      () => []
+    ),
+    `<@${ID_A}> helped`
+  );
+  assert.equal(
+    toTokens(
+      text,
+      () => true,
+      () => null
+    ),
+    `<@${ID_A}> helped`
+  );
 });
 
 test('toTokens: a known multi-word name is still respected even for an unknown id (no crash, id stays untouched)', () => {
   const text = `Al Sus (id:${ID_A}) plays it`;
-  const out = toTokens(text, () => false, () => ['Al Sus']);
+  const out = toTokens(
+    text,
+    () => false,
+    () => ['Al Sus']
+  );
   assert.equal(out, text);
 });
 
 // ---- fromTokens ---------------------------------------------------------------
 
-test('fromTokens: chat mode resolves a token to the member\'s current name alone', () => {
+test("fromTokens: chat mode resolves a token to the member's current name alone", () => {
   const text = `<@${ID_A}> helped with the raid`;
   const out = fromTokens(text, (id) => (id === ID_A ? 'Vertex' : null), 'chat');
   assert.equal(out, 'Vertex helped with the raid');
@@ -117,8 +185,14 @@ test('fromTokens: analyzer mode resolves a token to "name (id:...)"', () => {
 
 test('fromTokens: an id nameOf cannot resolve is left as the bare token', () => {
   const text = `<@${ID_A}> helped`;
-  assert.equal(fromTokens(text, () => null, 'chat'), text);
-  assert.equal(fromTokens(text, () => undefined, 'analyzer'), text);
+  assert.equal(
+    fromTokens(text, () => null, 'chat'),
+    text
+  );
+  assert.equal(
+    fromTokens(text, () => undefined, 'analyzer'),
+    text
+  );
 });
 
 // ---- occursAsWholeWord ----------------------------------------------------------
@@ -148,13 +222,7 @@ test('isWordChar: letters, digits and underscore in any script; punctuation, spa
 const known = (id) => id === ID_A || id === ID_B;
 
 test('teacherToken: one token or one name (id:...) reference of a known id gives the token', () => {
-  const forms = [
-    `<@${ID_A}>`,
-    `Νίκος (id:${ID_A})`,
-    `Νίκος Παπάς (id:${ID_A})`,
-    `(id:${ID_A})`,
-    `\t<@${ID_A}>\n`,
-  ];
+  const forms = [`<@${ID_A}>`, `Νίκος (id:${ID_A})`, `Νίκος Παπάς (id:${ID_A})`, `(id:${ID_A})`, `\t<@${ID_A}>\n`];
   for (const from of forms) assert.equal(teacherToken(from, known), `<@${ID_A}>`, from);
   assert.equal(teacherToken(`Ελένη (id:${ID_B})`, known), `<@${ID_B}>`);
 });
@@ -175,7 +243,10 @@ test('teacherToken: a bare name, an unknown id, two references or other text aro
 test('teacherToken: not a string, or no isKnownId, gives undefined', () => {
   for (const from of [undefined, 42, [`<@${ID_A}>`]]) assert.equal(teacherToken(from, known), undefined, String(from));
   assert.equal(teacherToken(`<@${ID_A}>`, undefined), undefined);
-  assert.equal(teacherToken(`<@${ID_A}>`, () => false), undefined);
+  assert.equal(
+    teacherToken(`<@${ID_A}>`, () => false),
+    undefined
+  );
 });
 
 test('teacherToken: isKnownId is asked about the id alone', () => {
@@ -211,7 +282,10 @@ test('linkChannels: a #name inside a URL stays as written; the same name after i
 });
 
 test('linkChannels: a longer name is matched before a name that is its prefix', () => {
-  const channels = [{ id: CHANNEL_A, name: 'art' }, { id: CHANNEL_B, name: 'art-τέχνη' }];
+  const channels = [
+    { id: CHANNEL_A, name: 'art' },
+    { id: CHANNEL_B, name: 'art-τέχνη' },
+  ];
   assert.equal(linkChannels('#art-τέχνη και #art', channels), `<#${CHANNEL_B}> και <#${CHANNEL_A}>`);
 });
 
@@ -222,13 +296,22 @@ test('linkChannels: no link inside a word or when the name runs on into a word',
 });
 
 test('linkChannels: names with emoji and Greek letters link; an existing <#id> is left alone', () => {
-  const channels = [{ id: CHANNEL_A, name: '🎮παιχνίδια' }, { id: CHANNEL_C, name: 'μουσική' }];
-  assert.equal(linkChannels('#🎮παιχνίδια ή <#999999999999999999>', channels), `<#${CHANNEL_A}> ή <#999999999999999999>`);
+  const channels = [
+    { id: CHANNEL_A, name: '🎮παιχνίδια' },
+    { id: CHANNEL_C, name: 'μουσική' },
+  ];
+  assert.equal(
+    linkChannels('#🎮παιχνίδια ή <#999999999999999999>', channels),
+    `<#${CHANNEL_A}> ή <#999999999999999999>`
+  );
   assert.equal(linkChannels(`<#${CHANNEL_C}> #μουσική`, channels), `<#${CHANNEL_C}> <#${CHANNEL_C}>`);
 });
 
 test('linkChannels: a name written with other or no leading emoji links by its core', () => {
-  const channels = [{ id: CHANNEL_A, name: '💖ανιμε' }, { id: CHANNEL_C, name: 'μουσική' }];
+  const channels = [
+    { id: CHANNEL_A, name: '💖ανιμε' },
+    { id: CHANNEL_C, name: 'μουσική' },
+  ];
   assert.equal(linkChannels('δες #🍡ανιμε τώρα', channels), `δες <#${CHANNEL_A}> τώρα`);
   assert.equal(linkChannels('δες #ανιμε, ναι', channels), `δες <#${CHANNEL_A}>, ναι`);
   assert.equal(linkChannels('#💖ανιμε', channels), `<#${CHANNEL_A}>`);
@@ -239,13 +322,21 @@ test('linkChannels: a name written with other or no leading emoji links by its c
 });
 
 test('linkChannels: two channels sharing a core link neither by it; an exact name still wins', () => {
-  const channels = [{ id: CHANNEL_A, name: '💖ανιμε' }, { id: CHANNEL_B, name: '🍡ανιμε' }];
+  const channels = [
+    { id: CHANNEL_A, name: '💖ανιμε' },
+    { id: CHANNEL_B, name: '🍡ανιμε' },
+  ];
   assert.equal(linkChannels('#🎀ανιμε και #ανιμε', channels), '#🎀ανιμε και #ανιμε');
   assert.equal(linkChannels('#🍡ανιμε', channels), `<#${CHANNEL_B}>`);
 });
 
 test('matchChannel: exact name first, then the one channel with the same core; several -> ambiguous', () => {
-  const channels = [{ id: 'a', name: '💖ανιμε' }, { id: 'b', name: 'γενικά' }, { id: 'c', name: '🍡κουζίνα' }, { id: 'd', name: '🍰κουζίνα' }];
+  const channels = [
+    { id: 'a', name: '💖ανιμε' },
+    { id: 'b', name: 'γενικά' },
+    { id: 'c', name: '🍡κουζίνα' },
+    { id: 'd', name: '🍰κουζίνα' },
+  ];
   assert.equal(matchChannel('💖ανιμε', channels).id, 'a');
   assert.equal(matchChannel('🍡Ανιμέ', channels).id, 'a');
   assert.equal(matchChannel('ΓΕΝΙΚΑ', channels).id, 'b');
@@ -266,11 +357,20 @@ test('linkChannels: text without # comes back unchanged', () => {
 // ---- numberMessageLinks -----------------------------------------------------
 
 test('numberMessageLinks: a link to a message of the window becomes its #n, any host form', () => {
-  const numbers = new Map([['300', 4], ['301', 9]]);
+  const numbers = new Map([
+    ['300', 4],
+    ['301', 9],
+  ]);
   const numberOf = (id) => numbers.get(id);
   assert.equal(numberMessageLinks('εδώ https://discord.com/channels/1/2/300 είπες', numberOf), 'εδώ #4 είπες');
   assert.equal(numberMessageLinks('https://ptb.discord.com/channels/1/2/300/', numberOf), '#4');
-  assert.equal(numberMessageLinks('https://canary.discordapp.com/channels/1/2/301 και https://discordapp.com/channels/@me/2/300', numberOf), '#9 και #4');
+  assert.equal(
+    numberMessageLinks(
+      'https://canary.discordapp.com/channels/1/2/301 και https://discordapp.com/channels/@me/2/300',
+      numberOf
+    ),
+    '#9 και #4'
+  );
   assert.equal(numberMessageLinks('voilà <https://discord.com/channels/1/2/301>.', numberOf), 'voilà #9.');
   assert.equal(numberMessageLinks('(https://discord.com/channels/1/2/300), ok', numberOf), '(#4), ok');
 });
@@ -290,12 +390,16 @@ test('numberMessageLinks: a link outside the window or not a bare message link s
   }
   assert.equal(numberMessageLinks('', numberOf), '');
   assert.equal(numberMessageLinks(null, numberOf), null);
-  assert.equal(numberMessageLinks('https://discord.com/channels/1/2/300', null), 'https://discord.com/channels/1/2/300');
+  assert.equal(
+    numberMessageLinks('https://discord.com/channels/1/2/300', null),
+    'https://discord.com/channels/1/2/300'
+  );
 });
 
 // ---- linkMessageNumbers -----------------------------------------------------
 
-const jump = (n) => (n === 93 ? 'https://discord.com/channels/1/2/3' : n === 7 ? 'https://discord.com/channels/1/9/8' : null);
+const jump = (n) =>
+  n === 93 ? 'https://discord.com/channels/1/2/3' : n === 7 ? 'https://discord.com/channels/1/9/8' : null;
 
 test('linkMessageNumbers: a mapped #n becomes its message link', () => {
   assert.equal(linkMessageNumbers('see #93 there', jump), 'see https://discord.com/channels/1/2/3 there');
@@ -307,13 +411,14 @@ test('linkMessageNumbers: an unmapped number stays', () => {
 });
 
 test('linkMessageNumbers: glued, entity and doubled forms stay', () => {
-  for (const text of ['#93abc', '&#93;', 'x#93', '##93', '#93_', '<#93>', 'ά#93']) assert.equal(linkMessageNumbers(text, jump), text);
+  for (const text of ['#93abc', '&#93;', 'x#93', '##93', '#93_', '<#93>', 'ά#93'])
+    assert.equal(linkMessageNumbers(text, jump), text);
 });
 
 test('linkMessageNumbers: two numbers in one text both convert', () => {
   assert.equal(
     linkMessageNumbers('#93 and #7, #93.', jump),
-    'https://discord.com/channels/1/2/3 and https://discord.com/channels/1/9/8, https://discord.com/channels/1/2/3.',
+    'https://discord.com/channels/1/2/3 and https://discord.com/channels/1/9/8, https://discord.com/channels/1/2/3.'
   );
 });
 
@@ -363,7 +468,11 @@ test('occursAsWordStem: a form word with digits matches only as a whole word', (
 
 test('occursAsWordStem: a multi-word form matches consecutive inflected words in order', () => {
   assert.equal(occursAsWordStem('two carolinas reapers, hot', 'carolina reaper'), true);
-  assert.equal(occursAsWordStem('carolinas, reapers', 'carolina reaper'), true, 'punctuation between is only a boundary');
+  assert.equal(
+    occursAsWordStem('carolinas, reapers', 'carolina reaper'),
+    true,
+    'punctuation between is only a boundary'
+  );
   assert.equal(occursAsWordStem('carolinas and reapers', 'carolina reaper'), false, 'a word between breaks the phrase');
   assert.equal(occursAsWordStem('reapers carolinas', 'carolina reaper'), false, 'order matters');
 });

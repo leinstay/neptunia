@@ -29,14 +29,24 @@ function withStore(fn) {
 
 /** A tenor embed as discord.js exposes it. */
 function tenorEmbed(url, title = 'Chat qui danse') {
-  return { url, title, provider: { name: 'Tenor' }, thumbnail: { url: `${url}/frame.png`, proxyURL: `${url}/proxy.png` } };
+  return {
+    url,
+    title,
+    provider: { name: 'Tenor' },
+    thumbnail: { url: `${url}/frame.png`, proxyURL: `${url}/proxy.png` },
+  };
 }
 
 /** A raw discord.js-shaped message. */
 function rawMessage(n, { authorId = 'a', bot = false, embeds = [], gifFile = null } = {}) {
   const attachments = new Map();
   if (gifFile) {
-    attachments.set(gifFile, { id: gifFile, name: 'réaction.gif', contentType: 'image/gif', url: `https://cdn.discordapp.com/attachments/1/${gifFile}/r.gif` });
+    attachments.set(gifFile, {
+      id: gifFile,
+      name: 'réaction.gif',
+      contentType: 'image/gif',
+      url: `https://cdn.discordapp.com/attachments/1/${gifFile}/r.gif`,
+    });
   }
   return {
     id: String(1000 + n),
@@ -78,7 +88,11 @@ function fakeChannel(id, historyAsc, { readable = true } = {}) {
 }
 
 function fakeClient(channels, guildId = 'g1') {
-  const guild = { id: guildId, channels: { cache: new Map(channels.map((c) => [c.id, c])) }, members: { me: { id: 'selfUser' } } };
+  const guild = {
+    id: guildId,
+    channels: { cache: new Map(channels.map((c) => [c.id, c])) },
+    members: { me: { id: 'selfUser' } },
+  };
   for (const c of channels) c.guild = guild;
   return { user: { id: 'selfUser' }, guilds: { cache: new Map([[guildId, guild]]) } };
 }
@@ -89,7 +103,15 @@ function fakeHot({ gifs = {}, features = {} } = {}) {
       bot: {},
       features,
       media: { embedTextChars: 200 },
-      gifs: { max: 20, storeMax: 300, halfLifeDays: 30, maxPerDay: 40, backfillMessages: 500, backfillDescribe: 20, ...gifs },
+      gifs: {
+        max: 20,
+        storeMax: 300,
+        halfLifeDays: 30,
+        maxPerDay: 40,
+        backfillMessages: 500,
+        backfillDescribe: 20,
+        ...gifs,
+      },
     },
   };
 }
@@ -106,7 +128,10 @@ function fakeDescriber() {
     calls: [],
     async describeMany(guildId, items, opts) {
       this.calls.push({ guildId, items, opts });
-      return { descriptions: new Map(items.map((item) => [item.itemId, `caption of ${item.itemId}`])), newCount: items.length };
+      return {
+        descriptions: new Map(items.map((item) => [item.itemId, `caption of ${item.itemId}`])),
+        newCount: items.length,
+      };
     },
   };
 }
@@ -132,14 +157,25 @@ function standardChannels() {
 }
 
 function countsByUrl(store) {
-  return Object.fromEntries(Object.values(store.getGifs('g1').entries).map((entry) => [entry.kind === 'link' ? entry.url : entry.itemId, entry.count]));
+  return Object.fromEntries(
+    Object.values(store.getGifs('g1').entries).map((entry) => [
+      entry.kind === 'link' ? entry.url : entry.itemId,
+      entry.count,
+    ])
+  );
 }
 
-test('gif backfill run: counts members\' gifs over every readable channel, bots and self skipped', async () => {
+test("gif backfill run: counts members' gifs over every readable channel, bots and self skipped", async () => {
   await withStore(async (store) => {
     const log = fakeLog();
     const hidden = fakeChannel('c3', [rawMessage(10, { embeds: [tenorEmbed(TENOR_A)] })], { readable: false });
-    const backfill = createGifBackfill({ discord: DISCORD, hot: fakeHot(), store, client: fakeClient([...standardChannels(), hidden]), log });
+    const backfill = createGifBackfill({
+      discord: DISCORD,
+      hot: fakeHot(),
+      store,
+      client: fakeClient([...standardChannels(), hidden]),
+      log,
+    });
 
     const result = await backfill.run('g1');
     assert.deepEqual(result, { ok: true, channels: 2, messages: 7, gifs: 7, described: 0 });
@@ -177,9 +213,20 @@ test('gif backfill run: the first run resets what was recorded on arrival, never
     // Recorded on arrival: a message the history window also holds, and one gone from it.
     store.recordGifs('g1', [
       { id: '1001', ts: T0 + 1000, channelId: 'c1', links: [{ id: '1001#e0', kind: 'gif', url: TENOR_A }] },
-      { id: 'old', ts: T0 - 1000, channelId: 'c1', links: [{ id: 'old#e0', kind: 'gif', url: 'https://tenor.com/view/gone-9' }] },
+      {
+        id: 'old',
+        ts: T0 - 1000,
+        channelId: 'c1',
+        links: [{ id: 'old#e0', kind: 'gif', url: 'https://tenor.com/view/gone-9' }],
+      },
     ]);
-    const backfill = createGifBackfill({ discord: DISCORD, hot: fakeHot(), store, client: fakeClient(standardChannels()), log: fakeLog() });
+    const backfill = createGifBackfill({
+      discord: DISCORD,
+      hot: fakeHot(),
+      store,
+      client: fakeClient(standardChannels()),
+      log: fakeLog(),
+    });
 
     await backfill.startIfNeeded('g1');
     assert.deepEqual(countsByUrl(store), { [TENOR_A]: 3, 555: 2, [TENOR_B]: 2, 'https://tenor.com/view/gone-9': 0 });
@@ -191,18 +238,37 @@ test('gif backfill run: the first run resets what was recorded on arrival, never
 test('gif backfill run: keep handles across a rescan', async () => {
   await withStore(async (store) => {
     const hot = fakeHot();
-    const backfill = createGifBackfill({ discord: DISCORD, hot, store, client: fakeClient(standardChannels()), log: fakeLog() });
+    const backfill = createGifBackfill({
+      discord: DISCORD,
+      hot,
+      store,
+      client: fakeClient(standardChannels()),
+      log: fakeLog(),
+    });
 
     await backfill.run('g1');
-    const firstHandles = Object.fromEntries(Object.entries(store.getGifs('g1').entries).map(([key, entry]) => [key, entry.id]));
-    store.recordGifs('g1', [{ id: 'x', ts: T0, channelId: 'c1', attachments: [{ id: '999', kind: 'gif', url: 'https://cdn.discordapp.com/x.gif' }] }]);
+    const firstHandles = Object.fromEntries(
+      Object.entries(store.getGifs('g1').entries).map(([key, entry]) => [key, entry.id])
+    );
+    store.recordGifs('g1', [
+      {
+        id: 'x',
+        ts: T0,
+        channelId: 'c1',
+        attachments: [{ id: '999', kind: 'gif', url: 'https://cdn.discordapp.com/x.gif' }],
+      },
+    ]);
     const staleHandle = store.getGifs('g1').entries['999'].id;
     const nextId = store.getGifs('g1').nextId;
 
     const result = await backfill.run('g1', { force: true });
     assert.equal(result.ok, true);
     assert.equal(result.gifs, 7);
-    assert.deepEqual(countsByUrl(store), { [TENOR_A]: 3, 555: 2, [TENOR_B]: 2, 999: 0 }, 'fresh counts, never added on top');
+    assert.deepEqual(
+      countsByUrl(store),
+      { [TENOR_A]: 3, 555: 2, [TENOR_B]: 2, 999: 0 },
+      'fresh counts, never added on top'
+    );
     const entries = store.getGifs('g1').entries;
     for (const [key, id] of Object.entries(firstHandles)) assert.equal(entries[key].id, id, `${key} keeps ${id}`);
     assert.equal(entries['999'].id, staleHandle, 'an entry gone from history keeps its handle with count 0');
@@ -210,7 +276,11 @@ test('gif backfill run: keep handles across a rescan', async () => {
 
     hot.config.gifs.storeMax = 3;
     await backfill.run('g1', { force: true });
-    assert.deepEqual(countsByUrl(store), { [TENOR_A]: 3, 555: 2, [TENOR_B]: 2 }, 'the zero-count entry is the first evicted at storeMax');
+    assert.deepEqual(
+      countsByUrl(store),
+      { [TENOR_A]: 3, 555: 2, [TENOR_B]: 2 },
+      'the zero-count entry is the first evicted at storeMax'
+    );
     for (const [key, id] of Object.entries(firstHandles)) assert.equal(store.getGifs('g1').entries[key].id, id);
   });
 });
@@ -221,31 +291,51 @@ test('gif backfill run: describes the top backfillDescribe entries without a cac
     const hot = fakeHot({ gifs: { backfillDescribe: 2 } });
     // The most used gif already has a caption (its first embed id): it is skipped, not re-described.
     store.getMediaCache('g1')['1001#e0'] = { text: 'a cat dancing', ts: T0 };
-    const backfill = createGifBackfill({ discord: DISCORD, hot, store, client: fakeClient(standardChannels()), describer, log: fakeLog() });
+    const backfill = createGifBackfill({
+      discord: DISCORD,
+      hot,
+      store,
+      client: fakeClient(standardChannels()),
+      describer,
+      log: fakeLog(),
+    });
 
     const result = await backfill.run('g1');
     assert.equal(result.described, 2);
     assert.equal(describer.calls.length, 1);
     const [call] = describer.calls;
     assert.equal(call.guildId, 'g1');
-    assert.deepEqual(call.opts, { concurrency: 1 }, 'one GIF at a time; every describer request counts, no option to say so');
+    assert.deepEqual(
+      call.opts,
+      { concurrency: 1 },
+      'one GIF at a time; every describer request counts, no option to say so'
+    );
     assert.deepEqual(
       call.items.map(({ itemId, kind, url }) => ({ itemId, kind, url })),
       [
         { itemId: '1006#e0', kind: 'gif', url: `${TENOR_B}/proxy.png` },
         { itemId: '555', kind: 'gif', url: 'https://cdn.discordapp.com/attachments/1/555/r.gif' },
       ],
-      'the embed thumbnail and the attachment file, in rank order (same count, TENOR_B used last)',
+      'the embed thumbnail and the attachment file, in rank order (same count, TENOR_B used last)'
     );
   });
 });
 
-test('gif backfill run: the describer gets each GIF\'s whole picture item, so a library GIF is watched from its animation', async () => {
+test("gif backfill run: the describer gets each GIF's whole picture item, so a library GIF is watched from its animation", async () => {
   await withStore(async (store) => {
     const describer = fakeDescriber();
     const gifv = { ...tenorEmbed(TENOR_A), video: { url: `${TENOR_A}/loop.mp4`, proxyURL: `${TENOR_A}/proxy.mp4` } };
-    const channels = [fakeChannel('c1', [rawMessage(1, { embeds: [gifv] }), rawMessage(2, { authorId: 'b', gifFile: '555' })])];
-    const backfill = createGifBackfill({ discord: DISCORD, hot: fakeHot(), store, client: fakeClient(channels), describer, log: fakeLog() });
+    const channels = [
+      fakeChannel('c1', [rawMessage(1, { embeds: [gifv] }), rawMessage(2, { authorId: 'b', gifFile: '555' })]),
+    ];
+    const backfill = createGifBackfill({
+      discord: DISCORD,
+      hot: fakeHot(),
+      store,
+      client: fakeClient(channels),
+      describer,
+      log: fakeLog(),
+    });
 
     await backfill.run('g1');
     const byId = new Map(describer.calls[0].items.map((item) => [item.itemId, item]));
@@ -260,11 +350,24 @@ test('gif backfill run: the describer gets each GIF\'s whole picture item, so a 
 test('gif backfill run: backfillDescribe 0 or no describer describes nothing', async () => {
   await withStore(async (store) => {
     const describer = fakeDescriber();
-    const off = createGifBackfill({ discord: DISCORD, hot: fakeHot({ gifs: { backfillDescribe: 0 } }), store, client: fakeClient(standardChannels()), describer, log: fakeLog() });
+    const off = createGifBackfill({
+      discord: DISCORD,
+      hot: fakeHot({ gifs: { backfillDescribe: 0 } }),
+      store,
+      client: fakeClient(standardChannels()),
+      describer,
+      log: fakeLog(),
+    });
     assert.equal((await off.run('g1')).described, 0);
     assert.equal(describer.calls.length, 0);
 
-    const none = createGifBackfill({ discord: DISCORD, hot: fakeHot(), store, client: fakeClient(standardChannels()), log: fakeLog() });
+    const none = createGifBackfill({
+      discord: DISCORD,
+      hot: fakeHot(),
+      store,
+      client: fakeClient(standardChannels()),
+      log: fakeLog(),
+    });
     assert.equal((await none.run('g1', { force: true })).described, 0);
   });
 });
@@ -273,7 +376,14 @@ test('gif backfill run: backfillMessages 0 disables it, even forced', async () =
   await withStore(async (store) => {
     const channels = standardChannels();
     const describer = fakeDescriber();
-    const backfill = createGifBackfill({ discord: DISCORD, hot: fakeHot({ gifs: { backfillMessages: 0 } }), store, client: fakeClient(channels), describer, log: fakeLog() });
+    const backfill = createGifBackfill({
+      discord: DISCORD,
+      hot: fakeHot({ gifs: { backfillMessages: 0 } }),
+      store,
+      client: fakeClient(channels),
+      describer,
+      log: fakeLog(),
+    });
 
     assert.deepEqual(await backfill.run('g1'), { ok: false, reason: 'disabled' });
     assert.deepEqual(await backfill.run('g1', { force: true }), { ok: false, reason: 'disabled' });
@@ -286,7 +396,13 @@ test('gif backfill run: backfillMessages 0 disables it, even forced', async () =
 
 test('gif backfill run: backfillMessages caps the messages read per channel (read at use)', async () => {
   await withStore(async (store) => {
-    const backfill = createGifBackfill({ discord: DISCORD, hot: fakeHot({ gifs: { backfillMessages: 2 } }), store, client: fakeClient(standardChannels()), log: fakeLog() });
+    const backfill = createGifBackfill({
+      discord: DISCORD,
+      hot: fakeHot({ gifs: { backfillMessages: 2 } }),
+      store,
+      client: fakeClient(standardChannels()),
+      log: fakeLog(),
+    });
 
     // c1's newest two are the persona's and a bot's; c2 has one member message.
     const result = await backfill.run('g1');
@@ -297,7 +413,13 @@ test('gif backfill run: backfillMessages caps the messages read per channel (rea
 
 test('gif backfill run: refused while paused and while another run is in flight', async () => {
   await withStore(async (store) => {
-    const backfill = createGifBackfill({ discord: DISCORD, hot: fakeHot(), store, client: fakeClient(standardChannels()), log: fakeLog() });
+    const backfill = createGifBackfill({
+      discord: DISCORD,
+      hot: fakeHot(),
+      store,
+      client: fakeClient(standardChannels()),
+      log: fakeLog(),
+    });
 
     store.state.data.paused = true;
     assert.deepEqual(await backfill.run('g1'), { ok: false, reason: 'paused' });
@@ -313,7 +435,13 @@ test('gif backfill run: refused while paused and while another run is in flight'
 
 test('gif backfill run: an unknown guild is skipped', async () => {
   await withStore(async (store) => {
-    const backfill = createGifBackfill({ discord: DISCORD, hot: fakeHot(), store, client: fakeClient(standardChannels()), log: fakeLog() });
+    const backfill = createGifBackfill({
+      discord: DISCORD,
+      hot: fakeHot(),
+      store,
+      client: fakeClient(standardChannels()),
+      log: fakeLog(),
+    });
     assert.deepEqual(await backfill.run('nope'), { ok: false, reason: 'no-guild' });
   });
 });
@@ -321,7 +449,13 @@ test('gif backfill run: an unknown guild is skipped', async () => {
 test('gif backfill startIfNeeded: runs once when the feature is on and nothing is stamped', async () => {
   await withStore(async (store) => {
     const channels = standardChannels();
-    const backfill = createGifBackfill({ discord: DISCORD, hot: fakeHot(), store, client: fakeClient(channels), log: fakeLog() });
+    const backfill = createGifBackfill({
+      discord: DISCORD,
+      hot: fakeHot(),
+      store,
+      client: fakeClient(channels),
+      log: fakeLog(),
+    });
 
     await backfill.startIfNeeded('g1');
     assert.equal(Object.keys(store.getGifs('g1').entries).length, 3);
@@ -335,7 +469,13 @@ test('gif backfill startIfNeeded: features.gifs off skips it', async () => {
   await withStore(async (store) => {
     const log = fakeLog();
     const channels = standardChannels();
-    const backfill = createGifBackfill({ discord: DISCORD, hot: fakeHot({ features: { gifs: false } }), store, client: fakeClient(channels), log });
+    const backfill = createGifBackfill({
+      discord: DISCORD,
+      hot: fakeHot({ features: { gifs: false } }),
+      store,
+      client: fakeClient(channels),
+      log,
+    });
 
     await backfill.startIfNeeded('g1');
     assert.equal(channels[0].messages.fetchCalls, 0);
@@ -347,7 +487,14 @@ test('gif backfill startIfNeeded: features.gifs off skips it', async () => {
 test('gif backfill startIfNeeded: an error is logged, never thrown', async () => {
   await withStore(async (store) => {
     const log = fakeLog();
-    const client = { user: { id: 'selfUser' }, guilds: { get cache() { throw new Error('boom'); } } };
+    const client = {
+      user: { id: 'selfUser' },
+      guilds: {
+        get cache() {
+          throw new Error('boom');
+        },
+      },
+    };
     const backfill = createGifBackfill({ discord: DISCORD, hot: fakeHot(), store, client, log });
 
     await backfill.startIfNeeded('g1');
@@ -374,7 +521,11 @@ test('store setGifBackfill / resetGifCounts: the stamp is normalised and persist
     assert.equal(onDisk.entries['m#e0'].count, 0);
     assert.equal(onDisk.entries['m#e0'].last, T0);
     assert.equal(onDisk.nextId, 2);
-    assert.equal(createStore({ dataDir: dir }).getGifs('g1').entries['m#e0'].id, 'g1', 'a reset entry survives a restart');
+    assert.equal(
+      createStore({ dataDir: dir }).getGifs('g1').entries['m#e0'].id,
+      'g1',
+      'a reset entry survives a restart'
+    );
     assert.deepEqual(onDisk.backfill, { at: '2026-09-30T00:00:00.000Z', channels: 2, messages: 0 });
   });
 });

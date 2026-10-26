@@ -140,7 +140,8 @@ export function collectGifItems(message) {
   for (const part of mediaParts(message)) {
     if (!part) continue;
     for (const attachment of Array.isArray(part.attachments) ? part.attachments : []) {
-      if (attachment?.kind !== 'gif' || attachment.id == null || typeof attachment.url !== 'string' || !attachment.url) continue;
+      if (attachment?.kind !== 'gif' || attachment.id == null || typeof attachment.url !== 'string' || !attachment.url)
+        continue;
       const key = String(attachment.id);
       items.push({
         key,
@@ -222,8 +223,14 @@ export function rankGifs(gifs, halfLifeDays) {
     weight: entry.count,
     lastSeen: entry.last > 0 ? new Date(entry.last).toISOString() : null,
   }));
-  const used = sortByRank(items.filter((item) => item.count > 0), halfLifeDays);
-  const unused = sortByRank(items.filter((item) => item.count <= 0), halfLifeDays);
+  const used = sortByRank(
+    items.filter((item) => item.count > 0),
+    halfLifeDays
+  );
+  const unused = sortByRank(
+    items.filter((item) => item.count <= 0),
+    halfLifeDays
+  );
   return [...used, ...unused].map(({ weight, lastSeen, ...entry }) => entry);
 }
 
@@ -296,7 +303,7 @@ export function gifHandleOf(handles, item, kind) {
   const key = matchGifKey(
     { key: String(item.id), kind, url: typeof item.url === 'string' ? item.url : '' },
     (k) => handles.has(k) && !k.includes('://'),
-    (url) => (handles.has(url) ? url : null),
+    (url) => (handles.has(url) ? url : null)
   );
   return key == null ? null : handles.get(key);
 }
@@ -334,7 +341,7 @@ export function mergeGifs(gifs, messages, { storeMax, halfLifeDays } = {}) {
         matchGifKey(
           item,
           (k) => Boolean(next.entries[k]),
-          (url) => byUrl.get(url),
+          (url) => byUrl.get(url)
         ) ?? item.key;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -360,7 +367,11 @@ export function mergeGifs(gifs, messages, { storeMax, halfLifeDays } = {}) {
   }
   const keys = Object.keys(next.entries);
   if (Number.isInteger(storeMax) && storeMax >= 0 && keys.length > storeMax) {
-    const kept = new Set(rankGifs(next, halfLifeDays).slice(0, storeMax).map((entry) => entry.key));
+    const kept = new Set(
+      rankGifs(next, halfLifeDays)
+        .slice(0, storeMax)
+        .map((entry) => entry.key)
+    );
     for (const key of keys) if (!kept.has(key)) delete next.entries[key];
   }
   return { gifs: next, counted };

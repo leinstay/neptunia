@@ -46,15 +46,17 @@ function ipv4Octets(ip) {
 }
 
 function isForbiddenIpv4([a, b]) {
-  return a === 0 // this network, 0.0.0.0 included
-    || a === 127 // loopback
-    || a === 10 // private
-    || (a === 172 && b >= 16 && b <= 31) // private
-    || (a === 192 && b === 168) // private
-    || (a === 169 && b === 254) // link-local
-    || (a === 100 && b >= 64 && b <= 127) // carrier-grade NAT
-    || (a === 198 && (b === 18 || b === 19)) // benchmarking 198.18/15
-    || a >= 224; // multicast, reserved, broadcast
+  return (
+    a === 0 || // this network, 0.0.0.0 included
+    a === 127 || // loopback
+    a === 10 || // private
+    (a === 172 && b >= 16 && b <= 31) || // private
+    (a === 192 && b === 168) || // private
+    (a === 169 && b === 254) || // link-local
+    (a === 100 && b >= 64 && b <= 127) || // carrier-grade NAT
+    (a === 198 && (b === 18 || b === 19)) || // benchmarking 198.18/15
+    a >= 224
+  ); // multicast, reserved, broadcast
 }
 
 /** The eight 16-bit groups of an IPv6 address (zone id already removed), or null. */
@@ -72,7 +74,8 @@ function ipv6Groups(ip) {
   }
   const halves = text.split('::');
   if (halves.length > 2) return null;
-  const parse = (part) => (part ? part.split(':').map((g) => (/^[0-9a-f]{1,4}$/i.test(g) ? parseInt(g, 16) : NaN)) : []);
+  const parse = (part) =>
+    part ? part.split(':').map((g) => (/^[0-9a-f]{1,4}$/i.test(g) ? parseInt(g, 16) : NaN)) : [];
   const head = parse(halves[0]);
   const rest = halves.length === 2 ? parse(halves[1]) : [];
   const missing = 8 - head.length - rest.length;
@@ -110,10 +113,12 @@ export function isForbiddenAddress(ip) {
     return isForbiddenIpv4([g[6] >> 8, g[6] & 0xff, g[7] >> 8, g[7] & 0xff]); // NAT64 64:ff9b::a.b.c.d
   }
   if (g[0] === 0x2002) return isForbiddenIpv4([g[1] >> 8, g[1] & 0xff, g[2] >> 8, g[2] & 0xff]); // 6to4 2002:AABB:CCDD::/48
-  return (g[0] & 0xfe00) === 0xfc00 // unique local fc00::/7
-    || (g[0] & 0xffc0) === 0xfe80 // link-local fe80::/10
-    || (g[0] & 0xffc0) === 0xfec0 // site-local fec0::/10 (deprecated)
-    || (g[0] & 0xff00) === 0xff00; // multicast
+  return (
+    (g[0] & 0xfe00) === 0xfc00 || // unique local fc00::/7
+    (g[0] & 0xffc0) === 0xfe80 || // link-local fe80::/10
+    (g[0] & 0xffc0) === 0xfec0 || // site-local fec0::/10 (deprecated)
+    (g[0] & 0xff00) === 0xff00
+  ); // multicast
 }
 
 /** `promise`, rejected early when `signal` aborts. */
@@ -130,7 +135,7 @@ function raceAbort(promise, signal) {
       (err) => {
         signal.removeEventListener('abort', onAbort);
         reject(err);
-      },
+      }
     );
   });
 }
@@ -149,12 +154,14 @@ function discardBody(response) {
 /** One response header (a plain object with lowercase keys, as node gives them), first value of a list. */
 function headerOf(response, name) {
   const value = response?.headers?.[name];
-  return Array.isArray(value) ? value[0] : value ?? null;
+  return Array.isArray(value) ? value[0] : (value ?? null);
 }
 
 /** `res` decoded when a server compresses although none was asked for; errors travel down the pipe. */
 function decodedBody(res) {
-  const encoding = String(res.headers?.['content-encoding'] ?? '').trim().toLowerCase();
+  const encoding = String(res.headers?.['content-encoding'] ?? '')
+    .trim()
+    .toLowerCase();
   let decoder = null;
   if (encoding === 'gzip' || encoding === 'x-gzip') decoder = zlib.createGunzip();
   else if (encoding === 'deflate') decoder = zlib.createInflate();
@@ -233,7 +240,10 @@ export function createPageFetcher({ requestImpl = nodeRequest, lookup = dns.prom
    * short by the timeout rethrows, so the caller reports `timeout`.
    */
   async function checkHost(hostname, signal) {
-    const host = String(hostname ?? '').toLowerCase().replace(/^\[|\]$/g, '').replace(/\.+$/, '');
+    const host = String(hostname ?? '')
+      .toLowerCase()
+      .replace(/^\[|\]$/g, '')
+      .replace(/\.+$/, '');
     if (!host || host === 'localhost' || host.endsWith('.localhost')) return { verdict: 'private' };
     if (net.isIP(host.split('%')[0]) !== 0) return { verdict: 'private' };
     let answers;
@@ -243,7 +253,8 @@ export function createPageFetcher({ requestImpl = nodeRequest, lookup = dns.prom
       if (signal.aborted) throw err;
       return { verdict: 'network' };
     }
-    const list = (Array.isArray(answers) ? answers : [answers]).filter(Boolean)
+    const list = (Array.isArray(answers) ? answers : [answers])
+      .filter(Boolean)
       .map((entry) => (typeof entry === 'string' ? { address: entry } : entry));
     if (!list.length) return { verdict: 'network' };
     if (list.some((entry) => isForbiddenAddress(entry.address))) return { verdict: 'private' };
@@ -269,7 +280,9 @@ export function createPageFetcher({ requestImpl = nodeRequest, lookup = dns.prom
     const byteCap = Number.isFinite(maxBytes) && maxBytes > 0 ? maxBytes : DEFAULT_MAX_BYTES;
     const waitMs = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : DEFAULT_TIMEOUT_MS;
     const language = typeof acceptLanguage === 'string' ? acceptLanguage.trim() : '';
-    const headers = HEADER_VALUE.test(language) ? { ...REQUEST_HEADERS, 'Accept-Language': language } : { ...REQUEST_HEADERS };
+    const headers = HEADER_VALUE.test(language)
+      ? { ...REQUEST_HEADERS, 'Accept-Language': language }
+      : { ...REQUEST_HEADERS };
     const controller = new AbortController();
     let timedOut = false;
     const timer = setTimeout(() => {
@@ -291,12 +304,15 @@ export function createPageFetcher({ requestImpl = nodeRequest, lookup = dns.prom
         const checked = await checkHost(parsed.hostname, controller.signal);
         if (checked.verdict !== 'ok') return fail(current, checked.verdict);
 
-        const response = await raceAbort(requestImpl(parsed.href, {
-          lookupAddress: checked.address,
-          family: checked.family,
-          headers: { ...headers },
-          signal: controller.signal,
-        }), controller.signal);
+        const response = await raceAbort(
+          requestImpl(parsed.href, {
+            lookupAddress: checked.address,
+            family: checked.family,
+            headers: { ...headers },
+            signal: controller.signal,
+          }),
+          controller.signal
+        );
         if (!response || typeof response !== 'object') return fail(current, 'network');
         const { status } = response;
 

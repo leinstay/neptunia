@@ -15,7 +15,8 @@ import path from 'node:path';
 import { renderDay, tally } from './lib/report.mjs';
 import { parseFlags, daysBetween, defaultDataDir, resolveGuildId, CliError, runCli } from './lib/cli.mjs';
 
-const USAGE = 'usage: node tools/journal-report.mjs --since <YYYY-MM-DD> [--until <YYYY-MM-DD>] [--guild <id>] [--data <dir>]';
+const USAGE =
+  'usage: node tools/journal-report.mjs --since <YYYY-MM-DD> [--until <YYYY-MM-DD>] [--guild <id>] [--data <dir>]';
 
 /**
  * The whole tool: the markdown report as a string.

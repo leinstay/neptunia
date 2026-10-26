@@ -58,13 +58,24 @@ test('checkYoutube: ytdlp when the yt-dlp probe returns a duration, probing the 
   assert.equal(result.status, 'ytdlp');
   assert.equal(result.keySet, true);
   assert.equal(typeof result.detail, 'string');
-  assert.deepEqual(videoFetcher.calls.map((c) => c.fn), ['probeSite']);
+  assert.deepEqual(
+    videoFetcher.calls.map((c) => c.fn),
+    ['probeSite']
+  );
   assert.equal(videoFetcher.calls[0].url, CANARY);
-  assert.deepEqual(videoFetcher.calls[0].options, { ytdlpPath: 'yt-dlp-test', toolTimeoutMs: 5678, proxy: null, proxyRetryMinutes: undefined });
+  assert.deepEqual(videoFetcher.calls[0].options, {
+    ytdlpPath: 'yt-dlp-test',
+    toolTimeoutMs: 5678,
+    proxy: null,
+    proxyRetryMinutes: undefined,
+  });
 });
 
 test('checkYoutube: a yt-dlp probe without a duration does not count as ytdlp', async () => {
-  const videoFetcher = fakeFetcher({ site: { ok: true, durationSec: null, title: null }, page: { ok: true, durationSec: 19 } });
+  const videoFetcher = fakeFetcher({
+    site: { ok: true, durationSec: null, title: null },
+    page: { ok: true, durationSec: 19 },
+  });
   const checkYoutube = createYoutubeCheck({ hot: checkHot(), videoFetcher });
   assert.equal((await checkYoutube()).status, 'page');
 });
@@ -74,7 +85,10 @@ test('checkYoutube: api when yt-dlp fails and the Data API alone returns a durat
   const checkYoutube = createYoutubeCheck({ hot: checkHot(), videoFetcher, youtubeApiKey: API_KEY });
   const result = await checkYoutube();
   assert.equal(result.status, 'api');
-  assert.deepEqual(videoFetcher.calls.map((c) => c.fn), ['probeSite', 'api']);
+  assert.deepEqual(
+    videoFetcher.calls.map((c) => c.fn),
+    ['probeSite', 'api']
+  );
   assert.deepEqual(videoFetcher.calls[1].options, { fetchTimeoutMs: 1234, apiKey: API_KEY, pageFallback: false });
   assert.ok(!result.detail.includes(API_KEY), 'the key is never in the detail');
 });
@@ -85,7 +99,10 @@ test('checkYoutube: page when yt-dlp and the Data API fail but the watch page ha
   const result = await checkYoutube();
   assert.equal(result.status, 'page');
   assert.equal(result.keySet, true);
-  assert.deepEqual(videoFetcher.calls.map((c) => c.fn), ['probeSite', 'api', 'page']);
+  assert.deepEqual(
+    videoFetcher.calls.map((c) => c.fn),
+    ['probeSite', 'api', 'page']
+  );
   assert.deepEqual(videoFetcher.calls[2].options, { fetchTimeoutMs: 1234, apiKey: null });
 });
 
@@ -96,7 +113,10 @@ test('checkYoutube: without a key the Data API is never tried', async () => {
     const result = await checkYoutube();
     assert.equal(result.status, 'page');
     assert.equal(result.keySet, false);
-    assert.deepEqual(videoFetcher.calls.map((c) => c.fn), ['probeSite', 'page']);
+    assert.deepEqual(
+      videoFetcher.calls.map((c) => c.fn),
+      ['probeSite', 'page']
+    );
   }
 });
 

@@ -54,7 +54,8 @@ function recordingMemory(lines) {
   return {
     ...mem.memoryDb,
     writeUnit: (update) => {
-      for (const line of update.lines ?? []) lines.push({ file: path.join(DATA, update.owner), line: JSON.stringify(line) });
+      for (const line of update.lines ?? [])
+        lines.push({ file: path.join(DATA, update.owner), line: JSON.stringify(line) });
       return mem.memoryDb.writeUnit(update);
     },
   };
@@ -63,7 +64,14 @@ function recordingMemory(lines) {
 function journalAt(clock) {
   let n = 0;
   const appendStore = fakeAppendStore();
-  const journal = createJournal({ appendStore, memoryDb: recordingMemory(appendStore.lines), dataDir: DATA, config: () => ({ thinkChars: 4000 }), now: () => clock.ms, uuid: () => `u-${(n += 1)}` });
+  const journal = createJournal({
+    appendStore,
+    memoryDb: recordingMemory(appendStore.lines),
+    dataDir: DATA,
+    config: () => ({ thinkChars: 4000 }),
+    now: () => clock.ms,
+    uuid: () => `u-${(n += 1)}`,
+  });
   return { journal, appendStore };
 }
 
@@ -77,18 +85,42 @@ const THINK = `Η Ελένη ρωτά για το ταξίδι. ${'Σκέφτο�
  * `succeeded` with `postedId` at `postMs`, the `turn` record at `endMs`. `oldShape`: the record
  * keeps no `posted` ids (only the action line names the post). `call`: a skill call of the turn.
  */
-async function writeTurn(journal, clock, { startMs, postMs, endMs, triggerId, postedId, oldShape = false, call = false, channelId = 'c1' }) {
+async function writeTurn(
+  journal,
+  clock,
+  { startMs, postMs, endMs, triggerId, postedId, oldShape = false, call = false, channelId = 'c1' }
+) {
   clock.ms = startMs;
-  const started = journal.start('g1', { channelId, mode: 'reply', trigger: { kind: 'mention', messageId: triggerId, authorId: '7' }, participants: ['7'], sourceMessageIds: [triggerId] });
+  const started = journal.start('g1', {
+    channelId,
+    mode: 'reply',
+    trigger: { kind: 'mention', messageId: triggerId, authorId: '7' },
+    participants: ['7'],
+    sourceMessageIds: [triggerId],
+  });
   await tick();
   clock.ms = postMs;
-  const op = journal.op('g1', { turnId: started.turnId, name: 'post', by: 'persona', channelId, intent: { replyTo: triggerId, text: 'γεια' } });
+  const op = journal.op('g1', {
+    turnId: started.turnId,
+    name: 'post',
+    by: 'persona',
+    channelId,
+    intent: { replyTo: triggerId, text: 'γεια' },
+  });
   await op.started();
   await op.succeeded({ messageId: postedId });
   const actions = [op.opId];
   if (call) {
-    const skill = journal.op('g1', { turnId: started.turnId, name: 'skill', by: 'persona', channelId, input: { skill: 'memory.profile.read', invocationId: 'inv-1' } });
-    await skill.proposed({ input: { skill: 'memory.profile.read', invocationId: 'inv-1', args: ['user'], body: false } });
+    const skill = journal.op('g1', {
+      turnId: started.turnId,
+      name: 'skill',
+      by: 'persona',
+      channelId,
+      input: { skill: 'memory.profile.read', invocationId: 'inv-1' },
+    });
+    await skill.proposed({
+      input: { skill: 'memory.profile.read', invocationId: 'inv-1', args: ['user'], body: false },
+    });
     await skill.started({ target: { user: '7' } });
     await skill.succeeded({});
     actions.push(skill.opId);
@@ -112,8 +144,20 @@ async function writeTurn(journal, clock, { startMs, postMs, endMs, triggerId, po
 
 /** An admin over the journal, the persona's own id `SELF`, the owner `OWNER`. */
 function makeAdmin(journal) {
-  const hot = { config: { features: { skills: true, journal: true }, skills: { safeMode: false }, bot: { owners: [OWNER], access: {} } }, prompts: { labels: {} } };
-  const store = { state: { data: {}, markDirty() {} }, getUser: () => null, getGuild: () => ({}), isPingsOff: () => false };
+  const hot = {
+    config: {
+      features: { skills: true, journal: true },
+      skills: { safeMode: false },
+      bot: { owners: [OWNER], access: {} },
+    },
+    prompts: { labels: {} },
+  };
+  const store = {
+    state: { data: {}, markDirty() {} },
+    getUser: () => null,
+    getGuild: () => ({}),
+    isPingsOff: () => false,
+  };
   return createAdmin({ discord: DISCORD, hot, store, client: { user: { id: SELF } }, getGuildId: () => 'g1', journal });
 }
 
@@ -123,14 +167,30 @@ test('turnOfMessage: the turn whose posted names the message, its start, its pos
   const clock = { ms: D };
   const { journal, appendStore } = journalAt(clock);
   const postedId = idAt(D + 3000);
-  const started = await writeTurn(journal, clock, { startMs: D, postMs: D + 3000, endMs: D + 5000, triggerId: 'm-trigger', postedId, call: true });
+  const started = await writeTurn(journal, clock, {
+    startMs: D,
+    postMs: D + 3000,
+    endMs: D + 5000,
+    triggerId: 'm-trigger',
+    postedId,
+    call: true,
+  });
   const records = appendStore.lines.map(({ line }) => JSON.parse(line));
 
   const found = turnOfMessage(records, postedId);
   assert.equal(found.turn.turnId, started.turnId);
   assert.equal(found.start.trigger.messageId, 'm-trigger');
   assert.deepEqual(found.posted, [postedId]);
-  assert.deepEqual(found.calls, [{ skill: 'memory.profile.read', args: ['user'], target: { user: '7' }, phase: 'succeeded', code: null, messageId: null }]);
+  assert.deepEqual(found.calls, [
+    {
+      skill: 'memory.profile.read',
+      args: ['user'],
+      target: { user: '7' },
+      phase: 'succeeded',
+      code: null,
+      messageId: null,
+    },
+  ]);
   assert.equal(turnOfMessage(records, 'm-trigger'), null, 'the message that started the turn is not one it posted');
   assert.equal(turnOfMessage(records, 'm-none'), null);
   assert.equal(turnOfMessage(null, postedId), null);
@@ -138,14 +198,31 @@ test('turnOfMessage: the turn whose posted names the message, its start, its pos
   // The view: every field, the think whole.
   const view = turnView(found);
   assert.ok(view.includes(THINK), 'the stored think, whole');
-  for (const part of [started.turnId, 'reply', 'spoke', 'mention m-trigger', postedId, 'c1', 'memory.profile.read', started.startedAt]) assert.ok(view.includes(part), part);
+  for (const part of [
+    started.turnId,
+    'reply',
+    'spoke',
+    'mention m-trigger',
+    postedId,
+    'c1',
+    'memory.profile.read',
+    started.startedAt,
+  ])
+    assert.ok(view.includes(part), part);
 });
 
 test('turnOfMessage: an old record without posted ids is found through its post operation', async () => {
   const clock = { ms: D };
   const { journal, appendStore } = journalAt(clock);
   const postedId = idAt(D + 3000);
-  const started = await writeTurn(journal, clock, { startMs: D, postMs: D + 3000, endMs: D + 5000, triggerId: 'm-t', postedId, oldShape: true });
+  const started = await writeTurn(journal, clock, {
+    startMs: D,
+    postMs: D + 3000,
+    endMs: D + 5000,
+    triggerId: 'm-t',
+    postedId,
+    oldShape: true,
+  });
   const records = appendStore.lines.map(({ line }) => JSON.parse(line));
   const found = turnOfMessage(records, postedId);
   assert.equal(found.turn.turnId, started.turnId);
@@ -163,7 +240,13 @@ test('findTurn: a turn that crossed midnight -- the record of the next day, the 
   const lateStart = Date.UTC(2026, 9, 13, 23, 59, 50);
   const latePost = Date.UTC(2026, 9, 13, 23, 59, 58);
   const lateId = idAt(latePost);
-  const late = await writeTurn(journal, clock, { startMs: lateStart, postMs: latePost, endMs: Date.UTC(2026, 9, 14, 0, 0, 5), triggerId: 'm-late', postedId: lateId });
+  const late = await writeTurn(journal, clock, {
+    startMs: lateStart,
+    postMs: latePost,
+    endMs: Date.UTC(2026, 9, 14, 0, 0, 5),
+    triggerId: 'm-late',
+    postedId: lateId,
+  });
   const found = await journal.findTurn('g1', { messageId: lateId, at: latePost });
   assert.equal(found.turn.turnId, late.turnId);
   assert.equal(found.start.trigger.messageId, 'm-late');
@@ -172,7 +255,13 @@ test('findTurn: a turn that crossed midnight -- the record of the next day, the 
   const earlyStart = Date.UTC(2026, 9, 14, 23, 59, 50);
   const earlyPost = Date.UTC(2026, 9, 15, 0, 0, 2);
   const earlyId = idAt(earlyPost);
-  const early = await writeTurn(journal, clock, { startMs: earlyStart, postMs: earlyPost, endMs: Date.UTC(2026, 9, 15, 0, 0, 4), triggerId: 'm-early', postedId: earlyId });
+  const early = await writeTurn(journal, clock, {
+    startMs: earlyStart,
+    postMs: earlyPost,
+    endMs: Date.UTC(2026, 9, 15, 0, 0, 4),
+    triggerId: 'm-early',
+    postedId: earlyId,
+  });
   const crossed = await journal.findTurn('g1', { messageId: earlyId, at: earlyPost });
   assert.equal(crossed.turn.turnId, early.turnId);
   assert.equal(crossed.start.trigger.messageId, 'm-early');
@@ -186,19 +275,36 @@ test('memory.journal.read: by message id or link, the turn record whole; not her
   const { journal } = journalAt(clock);
   const postedId = idAt(D + 3000);
   const triggerId = idAt(D - 60_000);
-  const started = await writeTurn(journal, clock, { startMs: D, postMs: D + 3000, endMs: D + 5000, triggerId, postedId });
+  const started = await writeTurn(journal, clock, {
+    startMs: D,
+    postMs: D + 3000,
+    endMs: D + 5000,
+    triggerId,
+    postedId,
+  });
   const admin = makeAdmin(journal);
 
   const byId = await admin.run('memory.journal', { messageId: postedId }, { guildId: 'g1', userId: OWNER });
   assert.ok(byId.includes(THINK), 'the think whole, not its first 80 characters');
   assert.ok(byId.includes(started.turnId));
-  const byLink = await admin.run('memory.journal', { messageId: `https://discord.com/channels/111/222/${postedId}` }, { guildId: 'g1', userId: OWNER });
+  const byLink = await admin.run(
+    'memory.journal',
+    { messageId: `https://discord.com/channels/111/222/${postedId}` },
+    { guildId: 'g1', userId: OWNER }
+  );
   assert.equal(byLink, byId);
 
   // Someone else's message (it started the turn), an unknown one, and junk.
-  await assert.rejects(admin.run('memory.journal', { messageId: triggerId }, { guildId: 'g1', userId: OWNER }), { code: 'not-found' });
-  await assert.rejects(admin.run('memory.journal', { messageId: idAt(D + 4000, 9) }, { guildId: 'g1', userId: OWNER }), { code: 'not-found' });
-  await assert.rejects(admin.run('memory.journal', { messageId: 'not an id' }, { guildId: 'g1', userId: OWNER }), { code: 'unknown-message' });
+  await assert.rejects(admin.run('memory.journal', { messageId: triggerId }, { guildId: 'g1', userId: OWNER }), {
+    code: 'not-found',
+  });
+  await assert.rejects(
+    admin.run('memory.journal', { messageId: idAt(D + 4000, 9) }, { guildId: 'g1', userId: OWNER }),
+    { code: 'not-found' }
+  );
+  await assert.rejects(admin.run('memory.journal', { messageId: 'not an id' }, { guildId: 'g1', userId: OWNER }), {
+    code: 'unknown-message',
+  });
 });
 
 test('memory.journal.read: the persona names her line #N; it resolves to the message id as message.edit does', async () => {
@@ -209,22 +315,46 @@ test('memory.journal.read: the persona names her line #N; it resolves to the mes
   const admin = makeAdmin(journal);
   const lines = new Map([[2, { id: postedId, conversationId: 'c1', authorId: SELF, self: true }]]);
 
-  const resolved = resolveCall({ skill: 'memory.journal.read', args: { message: '#2' }, body: '' }, { skills: skillRegistry(), messageAt: (n) => lines.get(n) ?? null, selfId: SELF });
+  const resolved = resolveCall(
+    { skill: 'memory.journal.read', args: { message: '#2' }, body: '' },
+    { skills: skillRegistry(), messageAt: (n) => lines.get(n) ?? null, selfId: SELF }
+  );
   assert.equal(resolved.ok, true);
   assert.deepEqual(resolved.args, { message: postedId });
   const result = await executeCall(resolved, {
-    envelope: Object.freeze({ actor: 'persona', requester: { id: OWNER, roleIds: [] }, mixed: false, invocationId: 'inv-1', originChannelId: 'c1' }),
+    envelope: Object.freeze({
+      actor: 'persona',
+      requester: { id: OWNER, roleIds: [] },
+      mixed: false,
+      invocationId: 'inv-1',
+      originChannelId: 'c1',
+    }),
     runOp: admin.runSkillOp,
     runOwnOp: admin.runOwnSkillOp,
     opContext: { guildId: 'g1', channelId: 'c1' },
   });
   assert.equal(result.status, 'ok');
   assert.ok(result.data.text.includes(THINK));
-  assert.equal(resolveCall({ skill: 'memory.journal.read', args: { message: '#9' }, body: '' }, { skills: skillRegistry(), messageAt: (n) => lines.get(n) ?? null }).code, 'unknown-message');
+  assert.equal(
+    resolveCall(
+      { skill: 'memory.journal.read', args: { message: '#9' }, body: '' },
+      { skills: skillRegistry(), messageAt: (n) => lines.get(n) ?? null }
+    ).code,
+    'unknown-message'
+  );
 });
 
 test('turnView: an old skip record with reason null still reads', () => {
-  const turn = { kind: 'turn', turnId: 't-old', attemptId: 1, mode: 'reply', outcome: 'skip', reason: null, think: null, posted: [] };
+  const turn = {
+    kind: 'turn',
+    turnId: 't-old',
+    attemptId: 1,
+    mode: 'reply',
+    outcome: 'skip',
+    reason: null,
+    think: null,
+    posted: [],
+  };
   const view = turnView({ turn, start: null, posted: [], calls: [] });
   assert.ok(view.includes('outcome: skip, reason: -'));
   const silent = turnView({ turn: { ...turn, reason: 'silence' }, start: null, posted: [], calls: [] });
@@ -232,12 +362,21 @@ test('turnView: an old skip record with reason null still reads', () => {
 });
 
 test('journalTurnRecord: format counts and steps are written only when the turn noted them', async () => {
-  const draft = { started: { turnId: 't-1', attemptId: 1, startedAt: 'x' }, channelId: 'c1', privateUserId: null, participants: [], think: null };
+  const draft = {
+    started: { turnId: 't-1', attemptId: 1, startedAt: 'x' },
+    channelId: 'c1',
+    privateUserId: null,
+    participants: [],
+    think: null,
+  };
   const plain = journalTurnRecord(draft, { outcome: 'delivered', mode: 'reply' });
   assert.equal('format' in plain, false);
   assert.equal('steps' in plain, false);
 
-  const noted = journalTurnRecord({ ...draft, format: { thinkMissing: 1, coerced: 2, held: 1 }, steps: 3 }, { outcome: 'delivered', mode: 'reply' });
+  const noted = journalTurnRecord(
+    { ...draft, format: { thinkMissing: 1, coerced: 2, held: 1 }, steps: 3 },
+    { outcome: 'delivered', mode: 'reply' }
+  );
   assert.deepEqual(noted.format, { thinkMissing: 1, coerced: 2, malformed: 0, truncated: 0, capped: 0, held: 1 });
   assert.equal(noted.steps, 3);
 

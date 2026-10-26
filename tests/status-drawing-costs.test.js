@@ -36,11 +36,25 @@ const COSTS = {
 function setup() {
   const config = {
     bot: { owners: ['42'] },
-    llm: { maxRequestsPerDay: 10, probeTimeoutMs: 50, keyByRole: { scout: 'OPENROUTER_ERRAND_KEY', drawing: 'OPENROUTER_ERRAND_KEY' } },
+    llm: {
+      maxRequestsPerDay: 10,
+      probeTimeoutMs: 50,
+      keyByRole: { scout: 'OPENROUTER_ERRAND_KEY', drawing: 'OPENROUTER_ERRAND_KEY' },
+    },
     agents: { maxOpen: 3 },
   };
-  const hot = { config, prompts: { labels: { status: { costs: COSTS } } }, promptSources: {}, rootDir: tempDir('nep-status-drawing-') };
-  const tasks = createTaskStore({ dataDir: tempDir('nep-status-drawing-data-'), guildId: 'g1', now: () => NOW, config: () => config });
+  const hot = {
+    config,
+    prompts: { labels: { status: { costs: COSTS } } },
+    promptSources: {},
+    rootDir: tempDir('nep-status-drawing-'),
+  };
+  const tasks = createTaskStore({
+    dataDir: tempDir('nep-status-drawing-data-'),
+    guildId: 'g1',
+    now: () => NOW,
+    config: () => config,
+  });
   // The accumulator the status card reads: a voice request and a picture's `images: generated` line.
   const usage = createUsage({ dataDir: tempDir('nep-status-drawing-usage-'), now: () => NOW });
   const tap = usageTap(usage);
@@ -57,18 +71,24 @@ function setup() {
   const errands = { store: (guildId) => (guildId === 'g1' ? tasks : null) };
   const store = { state: { data: {}, markDirty() {} }, flush() {} };
   const env = createOpsEnv({ discord: DISCORD, hot, store, client: {}, getGuildId: () => 'g1', llm, errands, usage });
-  const card = async (field) => (await runOp('status.show', { field }, { env, guildId: 'g1', userId: '42', roleIds: [] })).data.embeds[0].fields[0].value.split('\n');
+  const card = async (field) =>
+    (
+      await runOp('status.show', { field }, { env, guildId: 'g1', userId: '42', roleIds: [] })
+    ).data.embeds[0].fields[0].value.split('\n');
   return { card, reads };
 }
 
-test('status: drawing\'s spend is a row of costs.base from the usage accumulator, never a line of costs.errands', async () => {
+test("status: drawing's spend is a row of costs.base from the usage accumulator, never a line of costs.errands", async () => {
   const { card } = setup();
-  const { result } = await withCapturedLogs(async () => ({ errands: await card('costs.errands'), base: await card('costs.base') }));
+  const { result } = await withCapturedLogs(async () => ({
+    errands: await card('costs.errands'),
+    base: await card('costs.base'),
+  }));
   assert.deepEqual(result.errands, ['scout: none', 'server: none', 'est.'], 'the pictures are not an errand');
   assert.deepEqual(result.base, ['core: 1 req 0.40', 'drawing: 1 req 0.03']);
 });
 
-test('status: keys.base leaves the agents\' key out when the drawing role is on it, and never reads it', async () => {
+test("status: keys.base leaves the agents' key out when the drawing role is on it, and never reads it", async () => {
   const { card, reads } = setup();
   const { result } = await withCapturedLogs(() => card('keys.base'));
   assert.deepEqual(result, ['main 0.00/30.00', 'sim: not set']);

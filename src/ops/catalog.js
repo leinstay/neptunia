@@ -32,16 +32,18 @@ const GUILD_TEXT = 0;
 export const DEFER_AFTER_MS = 2000;
 
 /** Operations that may take long enough to need `deferReply` before `editReply`. */
-export const DEFERRED_OPS = Object.freeze(new Set([
-  'message.create',
-  'bot.pause',
-  'bot.resume',
-  'memory.archive.read',
-  'memory.restore',
-  'memory.snapshot',
-  'media.rescan',
-  'draw.create',
-]));
+export const DEFERRED_OPS = Object.freeze(
+  new Set([
+    'message.create',
+    'bot.pause',
+    'bot.resume',
+    'memory.archive.read',
+    'memory.restore',
+    'memory.snapshot',
+    'media.rescan',
+    'draw.create',
+  ])
+);
 
 /**
  * The core's model roles (src/llm/roles.js#CORE_ROLES: the core, then the helpers), each with the
@@ -50,7 +52,9 @@ export const DEFERRED_OPS = Object.freeze(new Set([
  * the one model that speaks as the persona: its replies. `embedding` serves the embeddings (src/llm/embed.js), which
  * take no chat completion.
  */
-export const MODEL_ROLE_PATHS = Object.freeze(Object.fromEntries(CORE_ROLES.map((role) => [role, roleConfigKeys(role).join('.')])));
+export const MODEL_ROLE_PATHS = Object.freeze(
+  Object.fromEntries(CORE_ROLES.map((role) => [role, roleConfigKeys(role).join('.')]))
+);
 
 /** The roles of `MODEL_ROLE_PATHS`, in order. */
 export const MODEL_ROLES = Object.freeze(Object.keys(MODEL_ROLE_PATHS));
@@ -61,7 +65,9 @@ export const MODEL_ROLES = Object.freeze(Object.keys(MODEL_ROLE_PATHS));
  * helpers, drawing), then the errand and development roles, which take no request of the bot
  * (OpenCode workers run them). Drawing (src/llm/images.js#IMAGE_ROLE) takes no chat completion.
  */
-export const MODEL_SET_PATHS = Object.freeze(Object.fromEntries(ROLES.map((role) => [role, roleConfigKeys(role).join('.')])));
+export const MODEL_SET_PATHS = Object.freeze(
+  Object.fromEntries(ROLES.map((role) => [role, roleConfigKeys(role).join('.')]))
+);
 
 /** The roles of `MODEL_SET_PATHS`, in order: the choices of `/nep model set`. */
 export const MODEL_SET_ROLES = Object.freeze(Object.keys(MODEL_SET_PATHS));
@@ -85,14 +91,37 @@ export const MEMORY_SHOW_SECTIONS = Object.freeze([
  * memory and speed ones are the owner's only): the choices of its `field` option. Kept here, not
  * in src/ops/status.js, which imports this module.
  */
-export const STATUS_FIELDS = Object.freeze(['state', 'tasks', 'models.base', 'keys.base', 'costs.base', 'models.errands', 'costs.errands', 'models.development', 'costs.development', 'inner', 'limits', 'memory', 'speed']);
+export const STATUS_FIELDS = Object.freeze([
+  'state',
+  'tasks',
+  'models.base',
+  'keys.base',
+  'costs.base',
+  'models.errands',
+  'costs.errands',
+  'models.development',
+  'costs.development',
+  'inner',
+  'limits',
+  'memory',
+  'speed',
+]);
 
 /**
  * The parts of the status card her own `status.show` call may ask for (`part`), each a few of the
  * card's fields (src/ops/status.js#PART_FIELDS): `overview` (the default of her call), `limits`,
  * `models`, `memory`, `inner`, `errands`, `features` and `all` (the whole card).
  */
-export const STATUS_PARTS = Object.freeze(['overview', 'limits', 'models', 'memory', 'inner', 'errands', 'features', 'all']);
+export const STATUS_PARTS = Object.freeze([
+  'overview',
+  'limits',
+  'models',
+  'memory',
+  'inner',
+  'errands',
+  'features',
+  'all',
+]);
 
 /** `{ name, value }` choices, one per entry of `values`, the name being the value itself. */
 function choicesOf(values) {
@@ -123,7 +152,13 @@ export const INTENT_ACTIONS = Object.freeze(['add', 'update', 'cancel', 'list'])
 // The table
 // ---------------------------------------------------------------------------
 
-const channelOption = (description, required = false) => ({ type: CHANNEL, name: 'channel', description, required, channel_types: [GUILD_TEXT] });
+const channelOption = (description, required = false) => ({
+  type: CHANNEL,
+  name: 'channel',
+  description,
+  required,
+  channel_types: [GUILD_TEXT],
+});
 const userOption = (description = 'Member.', required = true) => ({ type: USER, name: 'user', description, required });
 const userId = (options) => options.getUser('user', true).id;
 const none = () => ({});
@@ -132,7 +167,10 @@ const none = () => ({});
  * The choices of a yes/no option: lowercase `true` / `false` (a Discord BOOLEAN shows as
  * True/False), sent as a STRING option and read back by readFlag.
  */
-export const FLAG_CHOICES = Object.freeze([Object.freeze({ name: 'true', value: 'true' }), Object.freeze({ name: 'false', value: 'false' })]);
+export const FLAG_CHOICES = Object.freeze([
+  Object.freeze({ name: 'true', value: 'true' }),
+  Object.freeze({ name: 'false', value: 'false' }),
+]);
 
 /** A yes/no option: a STRING with FLAG_CHOICES. */
 function flagOption(name, description) {
@@ -169,11 +207,28 @@ export const COMMAND_TABLE = Object.freeze([
     name: 'status',
     description: 'What the bot is doing now: one card.',
     options: [
-      { type: STRING, name: 'field', description: 'Show only this field of the card.', required: false, autocomplete: true },
+      {
+        type: STRING,
+        name: 'field',
+        description: 'Show only this field of the card.',
+        required: false,
+        autocomplete: true,
+      },
     ],
     // Her own call may ask for a part instead (an argument only she has, never shown to Discord).
-    personaOptions: [{ type: STRING, name: 'part', description: 'A part of the card.', required: false, choices: choicesOf(STATUS_PARTS) }],
-    args: (options) => ({ field: options.getString('field') ?? null, ...(options.getString('part') ? { part: options.getString('part') } : {}) }),
+    personaOptions: [
+      {
+        type: STRING,
+        name: 'part',
+        description: 'A part of the card.',
+        required: false,
+        choices: choicesOf(STATUS_PARTS),
+      },
+    ],
+    args: (options) => ({
+      field: options.getString('field') ?? null,
+      ...(options.getString('part') ? { part: options.getString('part') } : {}),
+    }),
   },
   {
     name: 'set',
@@ -202,26 +257,61 @@ export const COMMAND_TABLE = Object.freeze([
     ],
     args: (options) => {
       const channelId = options.getChannel('channel')?.id;
-      return { text: options.getString('text', true), self: readFlag(options, 'self') ?? false, ...(channelId ? { channelId } : {}) };
+      return {
+        text: options.getString('text', true),
+        self: readFlag(options, 'self') ?? false,
+        ...(channelId ? { channelId } : {}),
+      };
     },
   },
   {
     name: 'pings',
     description: "Choose whether the bot's messages notify you.",
-    options: [{ type: STRING, name: 'mode', description: 'on or off; leave empty to see your current setting.', required: false, choices: choicesOf(PINGS_MODES) }],
+    options: [
+      {
+        type: STRING,
+        name: 'mode',
+        description: 'on or off; leave empty to see your current setting.',
+        required: false,
+        choices: choicesOf(PINGS_MODES),
+      },
+    ],
     args: (options) => ({ mode: options.getString('mode') ?? undefined }),
   },
   {
     name: 'media',
     description: 'The custom emoji ranking, the GIF library and the picture descriptions.',
     options: [
-      { type: STRING, name: 'kind', description: 'emoji, gifs, or pictures (recache only).', required: true, choices: choicesOf(['emoji', 'gifs', 'pictures']) },
-      { type: STRING, name: 'action', description: 'status, rescan (recount) or recache.', required: true, choices: choicesOf(['status', 'rescan', 'recache']) },
-      { type: INTEGER, name: 'days', description: 'Recache: pictures used in the last N days (default 7).', required: false, min_value: 1, max_value: 60 },
+      {
+        type: STRING,
+        name: 'kind',
+        description: 'emoji, gifs, or pictures (recache only).',
+        required: true,
+        choices: choicesOf(['emoji', 'gifs', 'pictures']),
+      },
+      {
+        type: STRING,
+        name: 'action',
+        description: 'status, rescan (recount) or recache.',
+        required: true,
+        choices: choicesOf(['status', 'rescan', 'recache']),
+      },
+      {
+        type: INTEGER,
+        name: 'days',
+        description: 'Recache: pictures used in the last N days (default 7).',
+        required: false,
+        min_value: 1,
+        max_value: 60,
+      },
     ],
     args: (options) => {
       const days = options.getInteger('days');
-      return { kind: options.getString('kind', true), action: options.getString('action', true), ...(days == null ? {} : { days }) };
+      return {
+        kind: options.getString('kind', true),
+        action: options.getString('action', true),
+        ...(days == null ? {} : { days }),
+      };
     },
   },
   {
@@ -233,7 +323,13 @@ export const COMMAND_TABLE = Object.freeze([
         name: 'set',
         description: 'Set the model for one role.',
         options: [
-          { type: STRING, name: 'role', description: 'Role to change.', required: true, choices: choicesOf(MODEL_SET_ROLES) },
+          {
+            type: STRING,
+            name: 'role',
+            description: 'Role to change.',
+            required: true,
+            choices: choicesOf(MODEL_SET_ROLES),
+          },
           { type: STRING, name: 'id', description: 'OpenRouter model id.', required: true, autocomplete: true },
         ],
         args: (options) => ({ role: options.getString('role', true), id: options.getString('id', true) }),
@@ -249,9 +345,26 @@ export const COMMAND_TABLE = Object.freeze([
         name: 'set',
         description: 'Route a model prefix, for one role or any, to these providers only.',
         options: [
-          { type: STRING, name: 'model', description: 'Model id or prefix, e.g. google/ (no @ or spaces).', required: true, autocomplete: true },
-          { type: STRING, name: 'providers', description: 'Comma-separated provider slugs, e.g. google-vertex.', required: true },
-          { type: STRING, name: 'role', description: 'Only for this role (default: any).', required: false, choices: choicesOf(ROUTE_ROLES) },
+          {
+            type: STRING,
+            name: 'model',
+            description: 'Model id or prefix, e.g. google/ (no @ or spaces).',
+            required: true,
+            autocomplete: true,
+          },
+          {
+            type: STRING,
+            name: 'providers',
+            description: 'Comma-separated provider slugs, e.g. google-vertex.',
+            required: true,
+          },
+          {
+            type: STRING,
+            name: 'role',
+            description: 'Only for this role (default: any).',
+            required: false,
+            choices: choicesOf(ROUTE_ROLES),
+          },
           flagOption('fallbacks', 'Allow other providers if these fail (default: false).'),
           flagOption('byok', 'Refuse answers not served by your own provider keys (default: false).'),
         ],
@@ -267,8 +380,20 @@ export const COMMAND_TABLE = Object.freeze([
         name: 'remove',
         description: "Remove a model prefix's route, for one role or any.",
         options: [
-          { type: STRING, name: 'model', description: 'Model id or prefix of the route.', required: true, autocomplete: true },
-          { type: STRING, name: 'role', description: "The route's role (default: any).", required: false, choices: choicesOf(ROUTE_ROLES) },
+          {
+            type: STRING,
+            name: 'model',
+            description: 'Model id or prefix of the route.',
+            required: true,
+            autocomplete: true,
+          },
+          {
+            type: STRING,
+            name: 'role',
+            description: "The route's role (default: any).",
+            required: false,
+            choices: choicesOf(ROUTE_ROLES),
+          },
         ],
         args: (options) => ({ model: options.getString('model', true), role: options.getString('role') ?? undefined }),
       },
@@ -301,21 +426,41 @@ export const COMMAND_TABLE = Object.freeze([
         name: 'grant',
         description: 'Open an operation, group or * to everyone, a role or a user.',
         options: [
-          { type: STRING, name: 'command', description: 'Operation name, group, or *.', required: true, autocomplete: true },
+          {
+            type: STRING,
+            name: 'command',
+            description: 'Operation name, group, or *.',
+            required: true,
+            autocomplete: true,
+          },
           { type: ROLE, name: 'role', description: 'Role (omit both for everyone).', required: false },
           { type: USER, name: 'user', description: 'User (omit both for everyone).', required: false },
         ],
-        args: (options) => ({ command: options.getString('command', true), roleId: options.getRole('role')?.id, userId: options.getUser('user')?.id }),
+        args: (options) => ({
+          command: options.getString('command', true),
+          roleId: options.getRole('role')?.id,
+          userId: options.getUser('user')?.id,
+        }),
       },
       {
         name: 'revoke',
         description: 'Revoke an operation, group or * from everyone, a role or a user.',
         options: [
-          { type: STRING, name: 'command', description: 'Operation name, group, or *.', required: true, autocomplete: true },
+          {
+            type: STRING,
+            name: 'command',
+            description: 'Operation name, group, or *.',
+            required: true,
+            autocomplete: true,
+          },
           { type: ROLE, name: 'role', description: 'Role (omit both to clear everyone).', required: false },
           { type: USER, name: 'user', description: 'User (omit both to clear everyone).', required: false },
         ],
-        args: (options) => ({ command: options.getString('command', true), roleId: options.getRole('role')?.id, userId: options.getUser('user')?.id }),
+        args: (options) => ({
+          command: options.getString('command', true),
+          roleId: options.getRole('role')?.id,
+          userId: options.getUser('user')?.id,
+        }),
       },
       { name: 'list', description: 'List every access grant.', args: none },
     ],
@@ -327,19 +472,55 @@ export const COMMAND_TABLE = Object.freeze([
       {
         name: 'create',
         description: 'Make the persona speak now: her turn, in her own words.',
-        options: [channelOption('Channel; leave out to post here.'), { type: STRING, name: 'reply', description: 'Message id or link to answer.', required: false }],
+        options: [
+          channelOption('Channel; leave out to post here.'),
+          { type: STRING, name: 'reply', description: 'Message id or link to answer.', required: false },
+        ],
         // When the persona herself calls it, she gives her text: an argument only she has
         // (her skills' own table, src/skills/definitions.js, carries them now), never shown to Discord; the operation picks its mode by who acts.
         // With it, a file one of her errands brought back (`file:<task id>/<name>`, src/errands/store.js),
         // and a GIF of her library (`gif`, a handle: src/media/gif-post.js).
         personaOptions: [
           { type: STRING, name: 'text', description: 'Her text.', required: true, max_length: 2000 },
-          { type: STRING, name: 'file', description: 'A file handle of one of her errands.', required: false, max_length: 300 },
-          { type: STRING, name: 'gif', description: 'A handle of a GIF in her library.', required: false, max_length: 40 },
-          { type: STRING, name: 'media', description: 'Her message (#N or link) whose attachment to post again.', required: false, max_length: 300 },
-          { type: INTEGER, name: 'item', description: 'Which attachment of that message (default 1).', required: false, min_value: 1, max_value: 20 },
+          {
+            type: STRING,
+            name: 'file',
+            description: 'A file handle of one of her errands.',
+            required: false,
+            max_length: 300,
+          },
+          {
+            type: STRING,
+            name: 'gif',
+            description: 'A handle of a GIF in her library.',
+            required: false,
+            max_length: 40,
+          },
+          {
+            type: STRING,
+            name: 'media',
+            description: 'Her message (#N or link) whose attachment to post again.',
+            required: false,
+            max_length: 300,
+          },
+          {
+            type: INTEGER,
+            name: 'item',
+            description: 'Which attachment of that message (default 1).',
+            required: false,
+            min_value: 1,
+            max_value: 20,
+          },
         ],
-        args: (options) => ({ channelId: options.getChannel('channel')?.id, replyTo: options.getString('reply') ?? undefined, text: options.getString('text') ?? undefined, file: options.getString('file') ?? undefined, gif: options.getString('gif') ?? undefined, media: options.getString('media') ?? undefined, item: options.getInteger('item') ?? undefined }),
+        args: (options) => ({
+          channelId: options.getChannel('channel')?.id,
+          replyTo: options.getString('reply') ?? undefined,
+          text: options.getString('text') ?? undefined,
+          file: options.getString('file') ?? undefined,
+          gif: options.getString('gif') ?? undefined,
+          media: options.getString('media') ?? undefined,
+          item: options.getInteger('item') ?? undefined,
+        }),
       },
       {
         name: 'edit',
@@ -349,24 +530,45 @@ export const COMMAND_TABLE = Object.freeze([
           { type: STRING, name: 'text', description: 'The new text.', required: true, max_length: 2000 },
           channelOption('Channel (default: this one).'),
         ],
-        args: (options) => ({ messageId: options.getString('message', true), text: options.getString('text', true), channelId: options.getChannel('channel')?.id }),
+        args: (options) => ({
+          messageId: options.getString('message', true),
+          text: options.getString('text', true),
+          channelId: options.getChannel('channel')?.id,
+        }),
       },
       {
         name: 'delete',
         description: "Delete one of the persona's messages.",
-        options: [{ type: STRING, name: 'message', description: 'Message id or link.', required: true }, channelOption('Channel (default: this one).')],
-        args: (options) => ({ messageId: options.getString('message', true), channelId: options.getChannel('channel')?.id }),
+        options: [
+          { type: STRING, name: 'message', description: 'Message id or link.', required: true },
+          channelOption('Channel (default: this one).'),
+        ],
+        args: (options) => ({
+          messageId: options.getString('message', true),
+          channelId: options.getChannel('channel')?.id,
+        }),
       },
       {
         name: 'react',
         description: "Put or take back the persona's reaction.",
         options: [
-          { type: STRING, name: 'action', description: 'add or remove.', required: true, choices: choicesOf(['add', 'remove']) },
+          {
+            type: STRING,
+            name: 'action',
+            description: 'add or remove.',
+            required: true,
+            choices: choicesOf(['add', 'remove']),
+          },
           { type: STRING, name: 'message', description: 'Message id or link.', required: true },
           { type: STRING, name: 'emoji', description: 'The emoji.', required: true, max_length: 100 },
           channelOption('Channel (default: this one).'),
         ],
-        args: (options) => ({ action: options.getString('action', true), messageId: options.getString('message', true), emoji: options.getString('emoji', true), channelId: options.getChannel('channel')?.id }),
+        args: (options) => ({
+          action: options.getString('action', true),
+          messageId: options.getString('message', true),
+          emoji: options.getString('emoji', true),
+          channelId: options.getChannel('channel')?.id,
+        }),
       },
     ],
   },
@@ -378,7 +580,13 @@ export const COMMAND_TABLE = Object.freeze([
         name: 'run',
         description: 'Hand an errand to an agent (server: owners only).',
         options: [
-          { type: STRING, name: 'agent', description: 'scout or server.', required: true, choices: choicesOf(TASK_AGENTS) },
+          {
+            type: STRING,
+            name: 'agent',
+            description: 'scout or server.',
+            required: true,
+            choices: choicesOf(TASK_AGENTS),
+          },
           { type: STRING, name: 'goal', description: 'What to find out or fetch.', required: true, max_length: 2000 },
         ],
         args: (options) => ({ agent: options.getString('agent', true), goal: options.getString('goal', true) }),
@@ -391,10 +599,27 @@ export const COMMAND_TABLE = Object.freeze([
         // character `from`) or closes it (`action: resolve`): arguments only she has (her skills' table, src/skills/definitions.js, carries them now),
         // never shown to Discord, whose command tree is near its size limit.
         personaOptions: [
-          { type: STRING, name: 'action', description: 'read or resolve a finished task.', required: false, choices: choicesOf(RESULT_ACTIONS) },
-          { type: INTEGER, name: 'from', description: 'Start character of a page.', required: false, min_value: 0, max_value: 10000000 },
+          {
+            type: STRING,
+            name: 'action',
+            description: 'read or resolve a finished task.',
+            required: false,
+            choices: choicesOf(RESULT_ACTIONS),
+          },
+          {
+            type: INTEGER,
+            name: 'from',
+            description: 'Start character of a page.',
+            required: false,
+            min_value: 0,
+            max_value: 10000000,
+          },
         ],
-        args: (options) => ({ id: options.getString('id') ?? undefined, action: options.getString('action') ?? undefined, from: options.getInteger('from') ?? undefined }),
+        args: (options) => ({
+          id: options.getString('id') ?? undefined,
+          action: options.getString('action') ?? undefined,
+          from: options.getInteger('from') ?? undefined,
+        }),
       },
       {
         name: 'cancel',
@@ -409,15 +634,39 @@ export const COMMAND_TABLE = Object.freeze([
         name: 'intent',
         description: "The persona's intentions.",
         options: [
-          { type: STRING, name: 'action', description: 'What to do.', required: true, choices: choicesOf(INTENT_ACTIONS) },
+          {
+            type: STRING,
+            name: 'action',
+            description: 'What to do.',
+            required: true,
+            choices: choicesOf(INTENT_ACTIONS),
+          },
           { type: STRING, name: 'text', description: 'Purpose.', required: false, max_length: 300 },
           { type: STRING, name: 'id', description: 'Intention id.', required: false, max_length: 20 },
-          { type: STRING, name: 'due', description: 'When: 30m, 6h, 2d, 21:00, mon 20:00 or ISO.', required: false, max_length: 40 },
-          { type: STRING, name: 'every', description: 'Repeat: day, week, 12h, 3d; none clears.', required: false, max_length: 10 },
+          {
+            type: STRING,
+            name: 'due',
+            description: 'When: 30m, 6h, 2d, 21:00, mon 20:00 or ISO.',
+            required: false,
+            max_length: 40,
+          },
+          {
+            type: STRING,
+            name: 'every',
+            description: 'Repeat: day, week, 12h, 3d; none clears.',
+            required: false,
+            max_length: 10,
+          },
           { type: STRING, name: 'expires', description: 'Expiry, same form.', required: false, max_length: 40 },
           { type: STRING, name: 'task', description: 'Errand id to wait for.', required: false, max_length: 20 },
           { type: STRING, name: 'deadline', description: 'Wait until.', required: false, max_length: 40 },
-          { type: STRING, name: 'state', description: 'pending, done or dropped.', required: false, choices: choicesOf(['pending', 'done', 'dropped']) },
+          {
+            type: STRING,
+            name: 'state',
+            description: 'pending, done or dropped.',
+            required: false,
+            choices: choicesOf(['pending', 'done', 'dropped']),
+          },
           { type: STRING, name: 'chain', description: 'Chain id.', required: false, max_length: 64 },
           { type: STRING, name: 'condition', description: 'Done when.', required: false, max_length: 300 },
           channelOption('Destination.'),
@@ -425,15 +674,44 @@ export const COMMAND_TABLE = Object.freeze([
           // the quiet seconds before a wake, her own daily bound.
           { type: CHANNEL, name: 'attend', description: 'Listen there.', required: false, channel_types: [GUILD_TEXT] },
           { type: STRING, name: 'people', description: 'Whose lines count.', required: false, max_length: 500 },
-          { type: INTEGER, name: 'settle', description: 'Quiet seconds.', required: false, min_value: 0, max_value: 86400 },
-          { type: INTEGER, name: 'perday', description: 'Wakes a day.', required: false, min_value: 1, max_value: 1000 },
+          {
+            type: INTEGER,
+            name: 'settle',
+            description: 'Quiet seconds.',
+            required: false,
+            min_value: 0,
+            max_value: 86400,
+          },
+          {
+            type: INTEGER,
+            name: 'perday',
+            description: 'Wakes a day.',
+            required: false,
+            min_value: 1,
+            max_value: 1000,
+          },
         ],
         // Her own call also gives the reason of a dropped intention: an argument only she has
         // (her skills' own table, src/skills/definitions.js, carries them now), never shown to Discord, whose command tree is near its size limit.
-        personaOptions: [{ type: STRING, name: 'reason', description: 'Why it is dropped.', required: false, max_length: 300 }],
+        personaOptions: [
+          { type: STRING, name: 'reason', description: 'Why it is dropped.', required: false, max_length: 300 },
+        ],
         args: (options) => {
           const out = { action: options.getString('action', true) };
-          for (const name of ['text', 'id', 'due', 'every', 'expires', 'task', 'deadline', 'state', 'chain', 'condition', 'people', 'reason']) {
+          for (const name of [
+            'text',
+            'id',
+            'due',
+            'every',
+            'expires',
+            'task',
+            'deadline',
+            'state',
+            'chain',
+            'condition',
+            'people',
+            'reason',
+          ]) {
             const value = options.getString(name);
             if (value !== null && value !== undefined) out[name] = value;
           }
@@ -467,7 +745,11 @@ export const COMMAND_TABLE = Object.freeze([
         ],
         args: (options) => {
           const page = options.getInteger('page');
-          return { filter: options.getString('filter') ?? undefined, sort: options.getString('sort') ?? undefined, ...(page == null ? {} : { page }) };
+          return {
+            filter: options.getString('filter') ?? undefined,
+            sort: options.getString('sort') ?? undefined,
+            ...(page == null ? {} : { page }),
+          };
         },
       },
       {
@@ -481,10 +763,29 @@ export const COMMAND_TABLE = Object.freeze([
         options: [
           channelOption('Channel; leave out for this one.'),
           { type: STRING, name: 'around', description: 'Message id or link.', required: false, max_length: 200 },
-          { type: STRING, name: 'before', description: 'Message id or link, or a count.', required: false, max_length: 200 },
-          { type: STRING, name: 'after', description: 'Message id or link, or a count.', required: false, max_length: 200 },
+          {
+            type: STRING,
+            name: 'before',
+            description: 'Message id or link, or a count.',
+            required: false,
+            max_length: 200,
+          },
+          {
+            type: STRING,
+            name: 'after',
+            description: 'Message id or link, or a count.',
+            required: false,
+            max_length: 200,
+          },
           { type: STRING, name: 'since', description: 'A delay, a time or a date.', required: false, max_length: 40 },
-          { type: INTEGER, name: 'last', description: 'Lines (default 20).', required: false, min_value: 1, max_value: 60 },
+          {
+            type: INTEGER,
+            name: 'last',
+            description: 'Lines (default 20).',
+            required: false,
+            min_value: 1,
+            max_value: 60,
+          },
         ],
         args: (options) => {
           const last = options.getInteger('last');
@@ -501,7 +802,15 @@ export const COMMAND_TABLE = Object.freeze([
         // The kill switch of the persona's inner life (src/ops/inner.js): owner-only.
         name: 'inner',
         description: "The persona's inner life: stop, start or show it.",
-        options: [{ type: STRING, name: 'action', description: 'What to do.', required: true, choices: choicesOf(['stop', 'start', 'status']) }],
+        options: [
+          {
+            type: STRING,
+            name: 'action',
+            description: 'What to do.',
+            required: true,
+            choices: choicesOf(['stop', 'start', 'status']),
+          },
+        ],
         args: (options) => ({ action: options.getString('action', true) }),
       },
       {
@@ -509,18 +818,43 @@ export const COMMAND_TABLE = Object.freeze([
         description: 'One quick web search (search snippets, pages not opened).',
         options: [
           { type: STRING, name: 'query', description: 'What to search for.', required: true, max_length: 200 },
-          { type: STRING, name: 'goal', description: 'What the search should establish.', required: false, max_length: 300 },
+          {
+            type: STRING,
+            name: 'goal',
+            description: 'What the search should establish.',
+            required: false,
+            max_length: 300,
+          },
         ],
         args: (options) => ({ query: options.getString('query', true), goal: options.getString('goal') ?? undefined }),
       },
       {
         name: 'read',
-        description: "Read one web page: its own text, cut (no summary).",
-        options: [{ type: STRING, name: 'url', description: 'The page link (http or https).', required: false, max_length: 2000 }],
+        description: 'Read one web page: its own text, cut (no summary).',
+        options: [
+          {
+            type: STRING,
+            name: 'url',
+            description: 'The page link (http or https).',
+            required: false,
+            max_length: 2000,
+          },
+        ],
         // When the persona herself calls it she may name a message she sees (`#N`) instead of a
         // link: an argument only she has (her skills' own table, src/skills/definitions.js, carries them now), never shown to Discord.
-        personaOptions: [{ type: STRING, name: 'message', description: 'A message whose link to read.', required: false, max_length: 100 }],
-        args: (options) => ({ url: options.getString('url') ?? undefined, message: options.getString('message') ?? undefined }),
+        personaOptions: [
+          {
+            type: STRING,
+            name: 'message',
+            description: 'A message whose link to read.',
+            required: false,
+            max_length: 100,
+          },
+        ],
+        args: (options) => ({
+          url: options.getString('url') ?? undefined,
+          message: options.getString('message') ?? undefined,
+        }),
       },
       {
         // The persona's own second look at a picture or a video (src/ops/search.js, features.coreTools):
@@ -528,13 +862,30 @@ export const COMMAND_TABLE = Object.freeze([
         name: 'look',
         description: 'Look again at a picture or video of a message.',
         options: [
-          { type: STRING, name: 'message', description: 'The message id or link (in this channel).', required: true, max_length: 200 },
+          {
+            type: STRING,
+            name: 'message',
+            description: 'The message id or link (in this channel).',
+            required: true,
+            max_length: 200,
+          },
           { type: STRING, name: 'question', description: 'What to look for.', required: true, max_length: 500 },
-          { type: INTEGER, name: 'item', description: 'Which one (default 1).', required: false, min_value: 1, max_value: 20 },
+          {
+            type: INTEGER,
+            name: 'item',
+            description: 'Which one (default 1).',
+            required: false,
+            min_value: 1,
+            max_value: 20,
+          },
         ],
         args: (options) => {
           const item = options.getInteger('item');
-          return { message: options.getString('message', true), question: options.getString('question', true), ...(item == null ? {} : { item }) };
+          return {
+            message: options.getString('message', true),
+            question: options.getString('question', true),
+            ...(item == null ? {} : { item }),
+          };
         },
       },
       {
@@ -544,7 +895,16 @@ export const COMMAND_TABLE = Object.freeze([
         description: 'Search the GIF library.',
         options: [{ type: STRING, name: 'query', description: 'What it shows.', required: true, max_length: 200 }],
         // How many come back: an argument only her own call has (never shown to Discord, the tree's size).
-        personaOptions: [{ type: INTEGER, name: 'n', description: 'How many (default 5).', required: false, min_value: 1, max_value: 10 }],
+        personaOptions: [
+          {
+            type: INTEGER,
+            name: 'n',
+            description: 'How many (default 5).',
+            required: false,
+            min_value: 1,
+            max_value: 10,
+          },
+        ],
         args: (options) => {
           const n = options.getInteger('n');
           return { query: options.getString('query', true), ...(n == null ? {} : { n }) };
@@ -637,9 +997,28 @@ export const COMMAND_TABLE = Object.freeze([
         description: "Show a member's stored profile.",
         options: [
           userOption(),
-          { type: STRING, name: 'section', description: 'Profile part (default: summary).', required: false, choices: choicesOf(MEMORY_SHOW_SECTIONS) },
-          { type: INTEGER, name: 'limit', description: 'Max items for a list section (default 25).', required: false, min_value: 1, max_value: 100 },
-          { type: STRING, name: 'order', description: 'Order for a list section (default: rank).', required: false, choices: choicesOf(['rank', 'recent']) },
+          {
+            type: STRING,
+            name: 'section',
+            description: 'Profile part (default: summary).',
+            required: false,
+            choices: choicesOf(MEMORY_SHOW_SECTIONS),
+          },
+          {
+            type: INTEGER,
+            name: 'limit',
+            description: 'Max items for a list section (default 25).',
+            required: false,
+            min_value: 1,
+            max_value: 100,
+          },
+          {
+            type: STRING,
+            name: 'order',
+            description: 'Order for a list section (default: rank).',
+            required: false,
+            choices: choicesOf(['rank', 'recent']),
+          },
         ],
         args: (options) => ({
           userId: userId(options),
@@ -667,9 +1046,27 @@ export const COMMAND_TABLE = Object.freeze([
         description: 'Journal records.',
         options: [
           { type: STRING, name: 'day', description: 'UTC day (default: today).', required: false },
-          { type: STRING, name: 'kind', description: 'Kind (default: all).', required: false, choices: choicesOf(JOURNAL_KINDS) },
-          { type: INTEGER, name: 'n', description: 'How many (default 20).', required: false, min_value: 1, max_value: 50 },
-          { type: STRING, name: 'message', description: 'Message id or link: the turn that posted it, in full.', required: false },
+          {
+            type: STRING,
+            name: 'kind',
+            description: 'Kind (default: all).',
+            required: false,
+            choices: choicesOf(JOURNAL_KINDS),
+          },
+          {
+            type: INTEGER,
+            name: 'n',
+            description: 'How many (default 20).',
+            required: false,
+            min_value: 1,
+            max_value: 50,
+          },
+          {
+            type: STRING,
+            name: 'message',
+            description: 'Message id or link: the turn that posted it, in full.',
+            required: false,
+          },
         ],
         args: (options) => ({
           day: options.getString('day') ?? undefined,
@@ -684,9 +1081,20 @@ export const COMMAND_TABLE = Object.freeze([
         options: [
           userOption('Member; omit for the server.', false),
           { type: STRING, name: 'kind', description: 'Kind.', required: false },
-          { type: INTEGER, name: 'n', description: 'How many (default 20).', required: false, min_value: 1, max_value: 100 },
+          {
+            type: INTEGER,
+            name: 'n',
+            description: 'How many (default 20).',
+            required: false,
+            min_value: 1,
+            max_value: 100,
+          },
         ],
-        args: (options) => ({ userId: options.getUser('user')?.id, kind: options.getString('kind') ?? undefined, n: options.getInteger('n') ?? undefined }),
+        args: (options) => ({
+          userId: options.getUser('user')?.id,
+          kind: options.getString('kind') ?? undefined,
+          n: options.getInteger('n') ?? undefined,
+        }),
       },
       {
         name: 'restore',
@@ -708,12 +1116,50 @@ export const COMMAND_TABLE = Object.freeze([
           { type: STRING, name: 'question', description: 'What to find.', required: false, max_length: 500 },
           { type: STRING, name: 'people', description: 'Names, comma-separated.', required: false, max_length: 200 },
           channelOption('Only this channel.'),
-          { type: STRING, name: 'when', description: 'YYYY-MM-DD, or a range A..B (either side may be open).', required: false, max_length: 40 },
-          { type: STRING, name: 'terms', description: 'Exact words or phrases, comma-separated.', required: false, max_length: 300 },
-          { type: STRING, name: 'anchor', description: 'A message id: read the lines around it.', required: false, max_length: 200 },
-          { type: STRING, name: 'move', description: 'With anchor: up reads earlier lines, down later ones.', required: false, choices: choicesOf(['up', 'down']) },
-          { type: INTEGER, name: 'messages', description: 'With anchor: how many lines.', required: false, min_value: 1, max_value: 60 },
-          { type: INTEGER, name: 'minutes', description: 'With anchor: how many minutes.', required: false, min_value: 1, max_value: 1440 },
+          {
+            type: STRING,
+            name: 'when',
+            description: 'YYYY-MM-DD, or a range A..B (either side may be open).',
+            required: false,
+            max_length: 40,
+          },
+          {
+            type: STRING,
+            name: 'terms',
+            description: 'Exact words or phrases, comma-separated.',
+            required: false,
+            max_length: 300,
+          },
+          {
+            type: STRING,
+            name: 'anchor',
+            description: 'A message id: read the lines around it.',
+            required: false,
+            max_length: 200,
+          },
+          {
+            type: STRING,
+            name: 'move',
+            description: 'With anchor: up reads earlier lines, down later ones.',
+            required: false,
+            choices: choicesOf(['up', 'down']),
+          },
+          {
+            type: INTEGER,
+            name: 'messages',
+            description: 'With anchor: how many lines.',
+            required: false,
+            min_value: 1,
+            max_value: 60,
+          },
+          {
+            type: INTEGER,
+            name: 'minutes',
+            description: 'With anchor: how many minutes.',
+            required: false,
+            min_value: 1,
+            max_value: 1440,
+          },
         ],
         args: (options) => ({
           question: options.getString('question') ?? undefined,

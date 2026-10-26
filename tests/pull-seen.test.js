@@ -21,7 +21,15 @@ function fakeConfig(features = {}) {
     context: {
       gapMarkerMinutes: 20,
       maxMessageChars: 800,
-      caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000, server: 2500, lore: 1500, pulled: 4000 },
+      caps: {
+        interlocutor: 2500,
+        aboutChat: 2500,
+        people: 4000,
+        neighbors: 3000,
+        server: 2500,
+        lore: 1500,
+        pulled: 4000,
+      },
       vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0 },
       tempo: { liveMessages10min: 4, deadSilenceMinutes: 45 },
       pull: { seenTtlMinutes: 120 },
@@ -152,7 +160,9 @@ test('pull seen: two new messages at the bottom -> seenBefore with fresh 2, olde
 });
 
 test('pull seen: a page of three older messages -> older 3', () => {
-  const built = request([line('p1', 70), line('p2', 60), line('p3', 50), ...PAGE], { seenBefore: shownBefore(request(PAGE), 3) });
+  const built = request([line('p1', 70), line('p2', 60), line('p3', 50), ...PAGE], {
+    seenBefore: shownBefore(request(PAGE), 3),
+  });
   assert.equal(viewOf(built)[1], fill(labels.pull.seenBefore, { fresh: 3, older: 3, ago: ago(3) }));
   assert.equal(built.stats.pulled.seenOlder, 3);
 });

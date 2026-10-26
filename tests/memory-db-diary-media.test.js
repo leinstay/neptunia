@@ -39,33 +39,58 @@ function setup({ posts, config = {} } = {}) {
       return files.get(url) ?? null;
     },
   };
-  const hot = { config: { diary: { channelId: CHANNEL }, image: { referenceMaxBytes: 1000 }, context: { vision: { fetchTimeoutMs: 5000 } }, ...config } };
+  const hot = {
+    config: {
+      diary: { channelId: CHANNEL },
+      image: { referenceMaxBytes: 1000 },
+      context: { vision: { fetchTimeoutMs: 5000 } },
+      ...config,
+    },
+  };
   const sleeps = [];
   const logs = [];
-  const log = { info: (m, f) => logs.push({ m, ...f }), warn: (m, f) => logs.push({ m, ...f }), error() {}, debug() {} };
-  const job = () => createDiaryMedia({
-    db: () => handle.db,
-    apply: (update) => applyDiaryUpdate(handle, update),
-    port: () => port,
-    imageFetcher: () => fetcher,
-    fetchImpl: async (url) => {
-      audioFetches.push(url);
-      const served = audioFiles.get(url);
-      if (!served) return { ok: false, status: 404 };
-      return { ok: true, headers: { get: (name) => (name.toLowerCase() === 'content-type' ? served.type : null) }, arrayBuffer: async () => served.bytes };
-    },
-    config: () => hot.config,
-    dataDir: data,
-    log,
-    sleep: async (ms) => { sleeps.push(ms); },
-  });
+  const log = {
+    info: (m, f) => logs.push({ m, ...f }),
+    warn: (m, f) => logs.push({ m, ...f }),
+    error() {},
+    debug() {},
+  };
+  const job = () =>
+    createDiaryMedia({
+      db: () => handle.db,
+      apply: (update) => applyDiaryUpdate(handle, update),
+      port: () => port,
+      imageFetcher: () => fetcher,
+      fetchImpl: async (url) => {
+        audioFetches.push(url);
+        const served = audioFiles.get(url);
+        if (!served) return { ok: false, status: 404 };
+        return {
+          ok: true,
+          headers: { get: (name) => (name.toLowerCase() === 'content-type' ? served.type : null) },
+          arrayBuffer: async () => served.bytes,
+        };
+      },
+      config: () => hot.config,
+      dataDir: data,
+      log,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+      },
+    });
   /** A message of hers in the diary channel, with picture attachments (url -> bytes served by the fake fetcher). */
   const say = (text, pictures = [], size) => {
     const ref = port.seed(CHANNEL, { authorId: 'self', text });
     port.messages.get(`${CHANNEL}/${ref.messageId}`).attachments = pictures.map((picture) => {
       const url = `https://cdn.example/${picture.name}?sig=1`;
-      if (picture.bytes) files.set(url, { dataUrl: dataUrl(picture.bytes), bytes: picture.bytes.byteLength, contentType: 'image/png' });
-      return { url, name: picture.name, contentType: picture.type ?? 'image/png', size: size ?? picture.bytes?.byteLength };
+      if (picture.bytes)
+        files.set(url, { dataUrl: dataUrl(picture.bytes), bytes: picture.bytes.byteLength, contentType: 'image/png' });
+      return {
+        url,
+        name: picture.name,
+        contentType: picture.type ?? 'image/png',
+        size: size ?? picture.bytes?.byteLength,
+      };
     });
     return ref.messageId;
   };
@@ -74,26 +99,62 @@ function setup({ posts, config = {} } = {}) {
     const ref = port.seed(CHANNEL, { authorId: 'self', text });
     const url = `https://cdn.example/${name}?sig=1`;
     audioFiles.set(url, { bytes, type });
-    port.messages.get(`${CHANNEL}/${ref.messageId}`).attachments = [{ url, name, contentType: type, size: size ?? bytes.byteLength, ...(durationSec === undefined ? {} : { durationSec }) }];
+    port.messages.get(`${CHANNEL}/${ref.messageId}`).attachments = [
+      {
+        url,
+        name,
+        contentType: type,
+        size: size ?? bytes.byteLength,
+        ...(durationSec === undefined ? {} : { durationSec }),
+      },
+    ];
     return ref.messageId;
   };
   return {
-    sayVoice, audioFetches,
-    root, data, g, handle, port, job, say, writePosts, downloads, sleeps, logs, hot, dbFile,
+    sayVoice,
+    audioFetches,
+    root,
+    data,
+    g,
+    handle,
+    port,
+    job,
+    say,
+    writePosts,
+    downloads,
+    sleeps,
+    logs,
+    hot,
+    dbFile,
     row: (id) => handle.db.prepare('SELECT * FROM diary WHERE id = ?').get(id),
     media: () => handle.db.prepare("SELECT * FROM media WHERE kind = 'diary' ORDER BY id").all(),
     writeUnits: () => seedUnits(handle, data),
-    done: () => { handle.close(); fs.rmSync(root, { recursive: true, force: true }); },
+    done: () => {
+      handle.close();
+      fs.rmSync(root, { recursive: true, force: true });
+    },
   };
 }
 
-const post = (itemId, messageIds, extra = {}) => ({ at: 1792000000000, kind: 'picture', gist: `gist ${itemId}`, picture: null, messageIds, search: null, itemId, ...extra });
+const post = (itemId, messageIds, extra = {}) => ({
+  at: 1792000000000,
+  kind: 'picture',
+  gist: `gist ${itemId}`,
+  picture: null,
+  messageIds,
+  search: null,
+  itemId,
+  ...extra,
+});
 
 test('a post gets its messages joined in order, its pictures saved and a media row with the diary scope', async () => {
   const env = setup({ posts: [post('d-1', ['x'])] });
   try {
     const a = env.say('first part', [{ name: 'a.png', bytes: png('a') }]);
-    const b = env.say('second part', [{ name: 'b.png', bytes: png('b') }, { name: 'notes.txt', type: 'text/plain' }]);
+    const b = env.say('second part', [
+      { name: 'b.png', bytes: png('b') },
+      { name: 'notes.txt', type: 'text/plain' },
+    ]);
     env.writePosts([post('d-1', [a, b])]);
     env.writeUnits();
     const counts = await env.job().run();
@@ -102,7 +163,10 @@ test('a post gets its messages joined in order, its pictures saved and a media r
     assert.equal(row.text, 'first part\nsecond part');
     const media = env.media();
     assert.equal(media.length, 2);
-    assert.deepEqual(media.map((m) => m.path), ['media/diary/d-1-1.png', 'media/diary/d-1-2.png']);
+    assert.deepEqual(
+      media.map((m) => m.path),
+      ['media/diary/d-1-1.png', 'media/diary/d-1-2.png']
+    );
     for (const [index, item] of media.entries()) {
       const bytes = fs.readFileSync(path.join(env.data, item.path));
       assert.deepEqual(bytes, png(index === 0 ? 'a' : 'b'));
@@ -118,9 +182,20 @@ test('a post gets its messages joined in order, its pictures saved and a media r
       assert.match(JSON.parse(item.native_ref).url, /^https:\/\/cdn\.example\//);
     }
     assert.ok(row.scope_kind);
-    assert.deepEqual(env.downloads.map((d) => [d.maxBytes, d.timeoutMs]), [[1000, 5000], [1000, 5000]]);
-    assert.equal(fs.readdirSync(path.join(env.data, 'media', 'diary')).some((name) => name.includes('.tmp-')), false);
-  } finally { env.done(); }
+    assert.deepEqual(
+      env.downloads.map((d) => [d.maxBytes, d.timeoutMs]),
+      [
+        [1000, 5000],
+        [1000, 5000],
+      ]
+    );
+    assert.equal(
+      fs.readdirSync(path.join(env.data, 'media', 'diary')).some((name) => name.includes('.tmp-')),
+      false
+    );
+  } finally {
+    env.done();
+  }
 });
 
 test('a post whose messages are all gone keeps what the database holds and is not asked for again; one with some left keeps them', async () => {
@@ -139,7 +214,9 @@ test('a post whose messages are all gone keeps what the database holds and is no
     const calls = env.port.calls.length;
     await env.job().run();
     assert.equal(env.port.calls.length, calls);
-  } finally { env.done(); }
+  } finally {
+    env.done();
+  }
 });
 
 test('it is idempotent: a second start asks for nothing, and a rewrite of the same diary keeps the text', async () => {
@@ -162,7 +239,9 @@ test('it is idempotent: a second start asks for nothing, and a rewrite of the sa
     assert.equal(env.port.calls.length, calls);
     assert.equal(env.downloads.length, downloads);
     assert.equal(env.media().length, 1);
-  } finally { env.done(); }
+  } finally {
+    env.done();
+  }
 });
 
 test('a picture over the cap is skipped without a download; a failed download leaves the post for the next start', async () => {
@@ -176,22 +255,34 @@ test('a picture over the cap is skipped without a download; a failed download le
     assert.deepEqual(await first.run(), { done: 1, failed: 1 });
     assert.equal(env.row('d-1').text, 'big one');
     assert.equal(env.media().length, 0);
-    assert.equal(env.downloads.some((d) => d.url.includes('big.png')), false);
+    assert.equal(
+      env.downloads.some((d) => d.url.includes('big.png')),
+      false
+    );
     assert.equal(env.row('d-2').text, null);
     // The same start does not hammer it; the next start does, and now the picture arrives.
     assert.deepEqual(await first.run(), { done: 0, failed: 0 });
     const url = [...env.port.messages.values()].find((m) => m.text === 'flaky one').attachments[0].url;
     const served = png('flaky');
     const second = createDiaryMedia({
-      db: () => env.handle.db, apply: (u) => applyDiaryUpdate(env.handle, u), port: () => env.port,
-      imageFetcher: () => ({ fetchAsDataUrl: async (u) => (u === url ? { dataUrl: dataUrl(served), bytes: served.byteLength, contentType: 'image/png' } : null) }),
-      config: () => env.hot.config, dataDir: env.data, sleep: async () => {},
+      db: () => env.handle.db,
+      apply: (u) => applyDiaryUpdate(env.handle, u),
+      port: () => env.port,
+      imageFetcher: () => ({
+        fetchAsDataUrl: async (u) =>
+          u === url ? { dataUrl: dataUrl(served), bytes: served.byteLength, contentType: 'image/png' } : null,
+      }),
+      config: () => env.hot.config,
+      dataDir: env.data,
+      sleep: async () => {},
     });
     assert.equal(second.hasWork(), true);
     assert.deepEqual(await second.run(), { done: 1, failed: 0 });
     assert.equal(env.row('d-2').text, 'flaky one');
     assert.equal(env.media().length, 1);
-  } finally { env.done(); }
+  } finally {
+    env.done();
+  }
 });
 
 test('rows are fetched at most one a second, only with a diary channel, and a new post is picked up by the next run', async () => {
@@ -215,7 +306,9 @@ test('rows are fetched at most one a second, only with a diary channel, and a ne
     assert.equal(job.hasWork(), true);
     assert.deepEqual(await job.run(), { done: 1, failed: 0 });
     assert.equal(env.row('d-3').text, 'three');
-  } finally { env.done(); }
+  } finally {
+    env.done();
+  }
 });
 
 test('a port failure leaves the post and logs a code only', async () => {
@@ -226,13 +319,24 @@ test('a port failure leaves the post and logs a code only', async () => {
     assert.deepEqual(await env.job().run(), { done: 0, failed: 1 });
     assert.equal(env.row('d-1').text, null);
     assert.ok(env.logs.some((entry) => entry.code === 'http-503'));
-  } finally { env.done(); }
+  } finally {
+    env.done();
+  }
 });
 
 test('the Discord adapter reads messages by id: text, attachments, and missing for a deleted one', async () => {
-  const messages = new Map([['m1', {
-    id: 'm1', content: 'a post', attachments: new Map([['a1', { url: 'https://cdn.example/a.png', name: 'a.png', contentType: 'image/png', size: 12 }]]),
-  }]]);
+  const messages = new Map([
+    [
+      'm1',
+      {
+        id: 'm1',
+        content: 'a post',
+        attachments: new Map([
+          ['a1', { url: 'https://cdn.example/a.png', name: 'a.png', contentType: 'image/png', size: 12 }],
+        ]),
+      },
+    ],
+  ]);
   const channel = {
     messages: {
       async fetch(id) {
@@ -242,11 +346,17 @@ test('the Discord adapter reads messages by id: text, attachments, and missing f
       },
     },
   };
-  const port = createDiscordAdapter({ client: { channels: { cache: new Map([['c1', channel]]) }, user: { id: 'me' } } });
+  const port = createDiscordAdapter({
+    client: { channels: { cache: new Map([['c1', channel]]) }, user: { id: 'me' } },
+  });
   const found = await port.fetchMessages({ iface: 'discord', conversationId: 'c1' }, ['m1', 'm2']);
   assert.equal(found.status, 'ok');
   assert.deepEqual(found.messages, [
-    { messageId: 'm1', text: 'a post', attachments: [{ url: 'https://cdn.example/a.png', name: 'a.png', contentType: 'image/png', size: 12 }] },
+    {
+      messageId: 'm1',
+      text: 'a post',
+      attachments: [{ url: 'https://cdn.example/a.png', name: 'a.png', contentType: 'image/png', size: 12 }],
+    },
     { messageId: 'm2', missing: true },
   ]);
   const failed = await port.fetchMessages({ iface: 'discord', conversationId: 'c1' }, ['m1', 'boom']);
@@ -266,7 +376,10 @@ test('the service runs the job once the database is open, only with memoryDb.dia
       env.handle.close();
       const hot = { config: { ...env.hot.config, memoryDb: { diaryMedia: flag } } };
       const service = createMemoryDb({
-        hot, dataDir: env.data, worker: false, log: { info() {}, warn() {}, error() {}, debug() {} },
+        hot,
+        dataDir: env.data,
+        worker: false,
+        log: { info() {}, warn() {}, error() {}, debug() {} },
         diaryMediaDeps: () => ({ port: env.port, imageFetcher: { fetchAsDataUrl: async () => null } }),
         diarySleep: async () => {},
       });
@@ -276,8 +389,12 @@ test('the service runs the job once the database is open, only with memoryDb.dia
       const reader = openMemoryDb(env.dbFile, { readOnly: true });
       try {
         assert.equal(reader.db.prepare('SELECT text FROM diary WHERE id = ?').get('d-1').text, flag ? 'served' : null);
-      } finally { reader.close(); }
-    } finally { fs.rmSync(env.root, { recursive: true, force: true }); }
+      } finally {
+        reader.close();
+      }
+    } finally {
+      fs.rmSync(env.root, { recursive: true, force: true });
+    }
   }
 });
 
@@ -291,12 +408,20 @@ test('an audio attachment is saved in the picture numbering with a row whose ext
     env.writeUnits();
     assert.deepEqual(await env.job().run(), { done: 1, failed: 0 });
     const media = env.media();
-    assert.deepEqual(media.map((m) => [m.path, m.mime]), [['media/diary/d-1-1.png', 'image/png'], ['media/diary/d-1-2.ogg', 'audio/ogg']]);
+    assert.deepEqual(
+      media.map((m) => [m.path, m.mime]),
+      [
+        ['media/diary/d-1-1.png', 'image/png'],
+        ['media/diary/d-1-2.ogg', 'audio/ogg'],
+      ]
+    );
     assert.deepEqual(fs.readFileSync(path.join(env.data, media[1].path)), bytes);
     assert.equal(media[1].sha1, createHash('sha1').update(bytes).digest('hex'));
     assert.deepEqual(JSON.parse(media[1].extra), { voice: true, text: 'sp+oken', durationSec: 4.25 });
     assert.equal(media[0].extra, null);
-  } finally { env.done(); }
+  } finally {
+    env.done();
+  }
 });
 
 test('an audio attachment without a matching voice field keeps its own duration only', async () => {
@@ -309,7 +434,9 @@ test('an audio attachment without a matching voice field keeps its own duration 
     const [item] = env.media();
     assert.equal(item.path, 'media/diary/d-1-1.mp3');
     assert.deepEqual(JSON.parse(item.extra), { voice: true, durationSec: 7 });
-  } finally { env.done(); }
+  } finally {
+    env.done();
+  }
 });
 
 test('audio over the cap is skipped without a download; a failed audio download leaves the post', async () => {
@@ -320,13 +447,19 @@ test('audio over the cap is skipped without a download; a failed audio download 
     env.writePosts([post('d-1', [big]), post('d-2', [missing])]);
     env.writeUnits();
     // Serve nothing for the second one.
-    for (const m of env.port.messages.values()) if (m.text === 'gone') m.attachments[0].url = 'https://cdn.example/unserved.ogg';
+    for (const m of env.port.messages.values())
+      if (m.text === 'gone') m.attachments[0].url = 'https://cdn.example/unserved.ogg';
     assert.deepEqual(await env.job().run(), { done: 1, failed: 1 });
     assert.equal(env.media().length, 0);
     assert.equal(env.row('d-1').text, 'big');
-    assert.equal(env.audioFetches.some((u) => u.includes('big.ogg')), false);
+    assert.equal(
+      env.audioFetches.some((u) => u.includes('big.ogg')),
+      false
+    );
     assert.equal(env.row('d-2').text, null);
-  } finally { env.done(); }
+  } finally {
+    env.done();
+  }
 });
 
 test('a completed old post is fetched again only with a voice field and no audio row', async () => {
@@ -346,7 +479,10 @@ test('a completed old post is fetched again only with a voice field and no audio
     assert.equal(env.job().hasWork(), false);
     // Add a voice field to the old picture-only post: fetched once more, picture numbering unchanged.
     const voiceId = env.sayVoice('', { bytes: Buffer.from('late') });
-    env.writePosts([post('d-1', [a, voiceId], { voice: { messageId: voiceId, text: 'late', durationSec: 2 } }), post('d-2', [v])]);
+    env.writePosts([
+      post('d-1', [a, voiceId], { voice: { messageId: voiceId, text: 'late', durationSec: 2 } }),
+      post('d-2', [v]),
+    ]);
     env.writeUnits();
     assert.equal(env.row('d-1').text, 'plain old');
     const job = env.job();
@@ -354,16 +490,51 @@ test('a completed old post is fetched again only with a voice field and no audio
     const calls = env.port.calls.length;
     assert.deepEqual(await job.run(), { done: 1, failed: 0 });
     assert.equal(env.port.calls.length, calls + 1);
-    const paths = env.media().filter((m) => m.owner === 'd-1').map((m) => m.path);
+    const paths = env
+      .media()
+      .filter((m) => m.owner === 'd-1')
+      .map((m) => m.path);
     assert.deepEqual(paths, ['media/diary/d-1-1.png', 'media/diary/d-1-2.ogg']);
     assert.equal(env.job().hasWork(), false);
-  } finally { env.done(); }
+  } finally {
+    env.done();
+  }
 });
 
 test('the Discord adapter passes an attachment duration and waveform when Discord gives them', async () => {
-  const messages = new Map([['m1', { id: 'm1', content: '', attachments: new Map([['a1', { url: 'https://cdn.example/v.ogg', name: 'v.ogg', contentType: 'audio/ogg', size: 9, duration: 2.5, waveform: 'AAEC' }]]) }]]);
+  const messages = new Map([
+    [
+      'm1',
+      {
+        id: 'm1',
+        content: '',
+        attachments: new Map([
+          [
+            'a1',
+            {
+              url: 'https://cdn.example/v.ogg',
+              name: 'v.ogg',
+              contentType: 'audio/ogg',
+              size: 9,
+              duration: 2.5,
+              waveform: 'AAEC',
+            },
+          ],
+        ]),
+      },
+    ],
+  ]);
   const channel = { messages: { fetch: async (id) => messages.get(id) } };
-  const port = createDiscordAdapter({ client: { channels: { cache: new Map([['c1', channel]]) }, user: { id: 'me' } } });
+  const port = createDiscordAdapter({
+    client: { channels: { cache: new Map([['c1', channel]]) }, user: { id: 'me' } },
+  });
   const found = await port.fetchMessages({ iface: 'discord', conversationId: 'c1' }, ['m1']);
-  assert.deepEqual(found.messages[0].attachments[0], { url: 'https://cdn.example/v.ogg', name: 'v.ogg', contentType: 'audio/ogg', size: 9, durationSec: 2.5, waveform: 'AAEC' });
+  assert.deepEqual(found.messages[0].attachments[0], {
+    url: 'https://cdn.example/v.ogg',
+    name: 'v.ogg',
+    contentType: 'audio/ogg',
+    size: 9,
+    durationSec: 2.5,
+    waveform: 'AAEC',
+  });
 });

@@ -89,7 +89,11 @@ export function bandGap(score, band) {
  * `bandHysteresis` points past the old band's edge before a band change counts, `rewriteOnDrift`
  * score points since the text was written, `rewriteAfterMoves` attitude moves since then.
  */
-export const RELATIONSHIP_STALE_DEFAULTS = Object.freeze({ bandHysteresis: 2, rewriteOnDrift: 8, rewriteAfterMoves: 6 });
+export const RELATIONSHIP_STALE_DEFAULTS = Object.freeze({
+  bandHysteresis: 2,
+  rewriteOnDrift: 8,
+  rewriteAfterMoves: 6,
+});
 
 /** A finite number of at least 0, else `fallback` (a missing or unusable setting). */
 function settingOf(value, fallback) {
@@ -319,7 +323,7 @@ export function applyDelta(
   affinity,
   delta,
   reason,
-  { maxDelta, historySize, now = Date.now(), clampTolerance, damping = false, dampingPower = 1, truncate = true } = {},
+  { maxDelta, historySize, now = Date.now(), clampTolerance, damping = false, dampingPower = 1, truncate = true } = {}
 ) {
   const base = normalizeAffinity(affinity);
 
@@ -334,11 +338,18 @@ export function applyDelta(
   const appliedDelta = round2(newScore - base.score);
   if (appliedDelta === 0) return affinity && typeof affinity === 'object' && !Array.isArray(affinity) ? affinity : base;
 
-  const trimmedReason = typeof reason === 'string' ? clampText(stripUrls(reason), REASON_CHARS, { tolerance: clampTolerance }) : '';
+  const trimmedReason =
+    typeof reason === 'string' ? clampText(stripUrls(reason), REASON_CHARS, { tolerance: clampTolerance }) : '';
   const finalReason = trimmedReason || base.reason;
 
   // The entry is this move's own record: an earlier reason is never copied onto a move it did not cause.
-  const entry = { ts: new Date(now).toISOString(), delta: clampedDelta, appliedDelta, score: newScore, reason: trimmedReason };
+  const entry = {
+    ts: new Date(now).toISOString(),
+    delta: clampedDelta,
+    appliedDelta,
+    score: newScore,
+    reason: trimmedReason,
+  };
   const size = Number.isFinite(historySize) && historySize > 0 ? historySize : 0;
   const all = [...base.history, entry];
   const history = size > 0 ? all.slice(-size) : [];
@@ -388,7 +399,10 @@ export function decayAffinity(affinity, nowMs, cfg = {}) {
   const since = skip > 0 ? Math.max(stamped, Math.min(nowMs, stamped + skip)) : stamped;
 
   const days = Math.min(MAX_DECAY_DAYS, Math.floor((nowMs - since) / DAY_MS));
-  if (days < 1) return since === stamped ? { affinity, days: 0 } : { affinity: { ...base, decayedAt: new Date(since).toISOString() }, days: 0 };
+  if (days < 1)
+    return since === stamped
+      ? { affinity, days: 0 }
+      : { affinity: { ...base, decayedAt: new Date(since).toISOString() }, days: 0 };
 
   let score = base.score;
   for (let i = 0; i < days && score !== 0; i += 1) {
@@ -398,7 +412,10 @@ export function decayAffinity(affinity, nowMs, cfg = {}) {
   }
 
   // `|| 0` turns a rounded -0 into 0.
-  return { affinity: { ...base, score: round2(score) || 0, decayedAt: new Date(since + days * DAY_MS).toISOString() }, days };
+  return {
+    affinity: { ...base, score: round2(score) || 0, decayedAt: new Date(since + days * DAY_MS).toISOString() },
+    days,
+  };
 }
 
 /**

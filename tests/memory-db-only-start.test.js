@@ -58,20 +58,39 @@ function databaseOnly() {
 
 /** The memory modules over `data`, as src/index.js builds them (the clock fixed, no network, no model). */
 function engine(data, log = quiet) {
-  const config = { features: { record: true, journal: true, archive: true, intentions: true }, memoryDb: { session: { mode: 'off' } }, agents: { maxOpen: 3, scout: { daily: { tasks: 5 } } } };
+  const config = {
+    features: { record: true, journal: true, archive: true, intentions: true },
+    memoryDb: { session: { mode: 'off' } },
+    agents: { maxOpen: 3, scout: { daily: { tasks: 5 } } },
+  };
   const hot = { config, prompts: {} };
   const memoryDb = createMemoryDb({ hot, dataDir: data, log, now: () => NOW, worker: false });
   const archiveAppendStore = createAppendStore({ fsyncMs: 0, log });
   const record = createRecord({ dataDir: data, log, now: () => NOW, memoryDb });
   const vectors = createVectors({ dataDir: data, log, now: () => NOW, memoryDb });
   const archive = createArchive({ appendStore: archiveAppendStore, dataDir: data, log, now: () => NOW, memoryDb });
-  const journal = createJournal({ dataDir: data, config: () => ({}), lockStores: [archiveAppendStore], now: () => NOW, memoryDb, log });
+  const journal = createJournal({
+    dataDir: data,
+    config: () => ({}),
+    lockStores: [archiveAppendStore],
+    now: () => NOW,
+    memoryDb,
+    log,
+  });
   const store = createStore({ dataDir: data, record, recordOn: () => true, archive, archiveOn: () => true, memoryDb });
   const embedQueue = createEmbedder({ hot, vectors, embed: async () => [], record, log, now: () => NOW, memoryDb });
   const taskStores = createTaskStores({ config: () => config, journal, log, now: () => NOW, memoryDb });
   const intentionStores = createIntentionStores({ log, now: () => NOW, memoryDb });
   return {
-    memoryDb, store, record, archive, journal, vectors, embedQueue, taskStores, intentionStores,
+    memoryDb,
+    store,
+    record,
+    archive,
+    journal,
+    vectors,
+    embedQueue,
+    taskStores,
+    intentionStores,
     /** The shutdown of src/index.js: the stores' writes, the queue, then the database. */
     async close() {
       store.flush();
@@ -89,11 +108,18 @@ test('the memory starts from memory.db and the operational files alone, writes o
   const { root, data } = databaseOnly();
   try {
     const before = filesOf(data);
-    assert.ok(before.every((rel) => DB_FILES.has(rel) || isOperational(rel)), `only the database and operational files: ${before}`);
+    assert.ok(
+      before.every((rel) => DB_FILES.has(rel) || isOperational(rel)),
+      `only the database and operational files: ${before}`
+    );
     assert.ok(before.includes('memory.db'));
 
     const warnings = [];
-    const log = { ...quiet, warn: (message, fields) => warnings.push({ message, ...fields }), error: (message, fields) => warnings.push({ message, ...fields }) };
+    const log = {
+      ...quiet,
+      warn: (message, fields) => warnings.push({ message, ...fields }),
+      error: (message, fields) => warnings.push({ message, ...fields }),
+    };
     const first = engine(data, log);
     await first.memoryDb.tick();
     assert.equal(first.memoryDb.status().open, true);
@@ -104,29 +130,73 @@ test('the memory starts from memory.db and the operational files alone, writes o
     assert.equal(first.store.getChannel(GUILD, CHANNEL)?.id, CHANNEL);
     assert.deepEqual(first.store.listPrivate(GUILD), [MEMBER]);
     const lines = [];
-    for await (const line of first.record.iterate(GUILD, { from: '2026-10-20T00:00:00.000Z', to: '2026-10-20T23:59:59.999Z' })) lines.push(line);
+    for await (const line of first.record.iterate(GUILD, {
+      from: '2026-10-20T00:00:00.000Z',
+      to: '2026-10-20T23:59:59.999Z',
+    }))
+      lines.push(line);
     assert.ok(lines.length > 0, 'the record day');
     assert.ok((await first.journal.read(GUILD, { day: '2026-10-20', n: 100 })).length > 0, 'the journal day');
-    assert.deepEqual(first.taskStores.get(GUILD).recent(10).map((task) => task.id), ['t1']);
+    assert.deepEqual(
+      first.taskStores
+        .get(GUILD)
+        .recent(10)
+        .map((task) => task.id),
+      ['t1']
+    );
     assert.ok(Array.isArray(first.intentionStores.get(GUILD).list()));
     assert.ok((await first.vectors.stats(GUILD)).rows >= 0);
 
     // A day of writes.
     first.store.touchUser(GUILD, '100000000000000077', 'Zoé', NOW);
-    first.store.setLore(GUILD, [{ title: 'Η πλατεία', keys: ['πλατεία'], text: 'The square by the sea.' }], { source: 'owner', now: NOW });
-    const said = toRecordLine({ id: '700000000000000001', channelId: CHANNEL, authorId: MEMBER, authorName: 'Ana', content: 'Καλημέρα, café?', ts: NOW, attachments: [], links: [], stickers: [], emojis: [] });
+    first.store.setLore(GUILD, [{ title: 'Η πλατεία', keys: ['πλατεία'], text: 'The square by the sea.' }], {
+      source: 'owner',
+      now: NOW,
+    });
+    const said = toRecordLine({
+      id: '700000000000000001',
+      channelId: CHANNEL,
+      authorId: MEMBER,
+      authorName: 'Ana',
+      content: 'Καλημέρα, café?',
+      ts: NOW,
+      attachments: [],
+      links: [],
+      stickers: [],
+      emojis: [],
+    });
     assert.deepEqual(await first.record.append(GUILD, [said]), { written: 1, duplicates: 0 });
     await first.journal.system(GUILD, { event: 'pause', by: 'owner' });
-    const task = first.taskStores.get(GUILD).add({ agent: 'scout', goal: 'find the café hours', requester: { userId: MEMBER, kind: 'member' }, origin: { channelId: CHANNEL, messageId: null }, scope: 'group' });
+    const task = first.taskStores.get(GUILD).add({
+      agent: 'scout',
+      goal: 'find the café hours',
+      requester: { userId: MEMBER, kind: 'member' },
+      origin: { channelId: CHANNEL, messageId: null },
+      scope: 'group',
+    });
     assert.equal(task.ok, true);
     await first.close();
 
     // No memory file was written; the database and the operational files are all there is.
     const after = filesOf(data);
-    assert.deepEqual(after.filter((rel) => isMemoryPath(rel)), [], 'no memory file');
-    assert.ok(after.every((rel) => DB_FILES.has(rel) || isOperational(rel) || rel.startsWith('memory-pending/')), `${after}`);
-    assert.deepEqual(after.filter((rel) => rel.startsWith('memory-pending/')), [], 'nothing waits for a next start');
-    assert.deepEqual(warnings.filter((entry) => /failed|refused|pending|lost/.test(entry.message)), []);
+    assert.deepEqual(
+      after.filter((rel) => isMemoryPath(rel)),
+      [],
+      'no memory file'
+    );
+    assert.ok(
+      after.every((rel) => DB_FILES.has(rel) || isOperational(rel) || rel.startsWith('memory-pending/')),
+      `${after}`
+    );
+    assert.deepEqual(
+      after.filter((rel) => rel.startsWith('memory-pending/')),
+      [],
+      'nothing waits for a next start'
+    );
+    assert.deepEqual(
+      warnings.filter((entry) => /failed|refused|pending|lost/.test(entry.message)),
+      []
+    );
 
     // A fresh start reads the new writes back from the database.
     const second = engine(data);
@@ -135,7 +205,11 @@ test('the memory starts from memory.db and the operational files alone, writes o
       assert.equal(second.store.getUser(GUILD, '100000000000000077')?.names?.[0], 'Zoé');
       assert.ok(second.store.getLore(GUILD).some((entry) => entry.title === 'Η πλατεία'));
       assert.equal(await second.record.newestRevision(GUILD, '700000000000000001', new Date(NOW).toISOString()), 1);
-      assert.ok((await second.journal.read(GUILD, { day: '2026-10-24', n: 100 })).some((entry) => entry.kind === 'system' && entry.event === 'pause'));
+      assert.ok(
+        (await second.journal.read(GUILD, { day: '2026-10-24', n: 100 })).some(
+          (entry) => entry.kind === 'system' && entry.event === 'pause'
+        )
+      );
       assert.ok(second.taskStores.get(GUILD).get(task.task.id), 'the task');
     } finally {
       await second.close();

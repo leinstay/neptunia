@@ -52,8 +52,17 @@ function countingBody(chunks) {
   return body;
 }
 
-function fakeResponse({ ok = true, status = 200, contentType = 'video/webm', contentLength, chunks = [Buffer.from('video-bytes')] } = {}) {
-  const headers = { 'content-type': contentType, 'content-length': contentLength !== undefined ? String(contentLength) : undefined };
+function fakeResponse({
+  ok = true,
+  status = 200,
+  contentType = 'video/webm',
+  contentLength,
+  chunks = [Buffer.from('video-bytes')],
+} = {}) {
+  const headers = {
+    'content-type': contentType,
+    'content-length': contentLength !== undefined ? String(contentLength) : undefined,
+  };
   return {
     ok,
     status,
@@ -225,7 +234,10 @@ test('fetchAttachment: ffmpeg missing -> tool (retryable), whether the video was
     const { spawnImpl } = fakeSpawn(enoent);
     const fetcher = makeFetcher({ fetchImpl, spawnImpl, tmpDir });
 
-    assert.deepEqual(await fetcher.fetchAttachment(ATTACHMENT, { ...OPTS, durationSec }), { ok: false, reason: 'tool' });
+    assert.deepEqual(await fetcher.fetchAttachment(ATTACHMENT, { ...OPTS, durationSec }), {
+      ok: false,
+      reason: 'tool',
+    });
     assert.deepEqual(await leftovers(), []);
   }
 });
@@ -247,7 +259,9 @@ test('fetchAttachment: a trimmed clip over maxBytes is encoded once more at a fi
   const { spawnImpl, calls } = fakeSpawn((child, command, args) => writesOutput(sizes.shift())(child, command, args));
   const fetcher = makeFetcher({ fetchImpl, spawnImpl, tmpDir });
 
-  const { result, logs } = await withCapturedLogs(() => fetcher.fetchAttachment(ATTACHMENT, { ...OPTS, durationSec: 90 }));
+  const { result, logs } = await withCapturedLogs(() =>
+    fetcher.fetchAttachment(ATTACHMENT, { ...OPTS, durationSec: 90 })
+  );
 
   assert.equal(result.ok, true);
   assert.equal(result.bytes, 800);
@@ -257,7 +271,11 @@ test('fetchAttachment: a trimmed clip over maxBytes is encoded once more at a fi
   const fitArgs = calls[1].args;
   assert.ok(trimArgs.includes('-crf') && !trimArgs.includes('-b:v'));
   assert.ok(fitArgs.includes('-b:v') && !fitArgs.includes('-crf'));
-  assert.equal(fitArgs[fitArgs.indexOf('-i') + 1], trimArgs[trimArgs.indexOf('-i') + 1], 'both encode the same download');
+  assert.equal(
+    fitArgs[fitArgs.indexOf('-i') + 1],
+    trimArgs[trimArgs.indexOf('-i') + 1],
+    'both encode the same download'
+  );
   assert.equal(fitArgs[fitArgs.indexOf('-t') + 1], '60');
   const refit = logs.find((l) => l.msg === 'fetch-video: refit');
   assert.ok(refit, 'the fit re-encode is logged');
@@ -267,12 +285,18 @@ test('fetchAttachment: a trimmed clip over maxBytes is encoded once more at a fi
 });
 
 test('fetchAttachment: a failing fit re-encode keeps its own reason (tool, timeout)', async () => {
-  for (const [second, reason] of [[(child) => child.emit('close', 1, null), 'tool'], [() => {}, 'timeout']]) {
+  for (const [second, reason] of [
+    [(child) => child.emit('close', 1, null), 'tool'],
+    [() => {}, 'timeout'],
+  ]) {
     const { fetchImpl } = fakeFetch(fakeResponse());
     const behaviours = [writesOutput(1001), second];
     const { spawnImpl } = fakeSpawn((child, command, args) => behaviours.shift()(child, command, args));
     const fetcher = makeFetcher({ fetchImpl, spawnImpl, tmpDir });
-    assert.deepEqual(await fetcher.fetchAttachment(ATTACHMENT, { ...OPTS, toolTimeoutMs: 50, durationSec: 90 }), { ok: false, reason });
+    assert.deepEqual(await fetcher.fetchAttachment(ATTACHMENT, { ...OPTS, toolTimeoutMs: 50, durationSec: 90 }), {
+      ok: false,
+      reason,
+    });
     assert.deepEqual(await leftovers(), []);
   }
 });
@@ -328,7 +352,11 @@ test('fetchGif: a content type that is neither a GIF nor a video -> download, no
 
 test('fetchGif: a download over the ceiling -> size; ffmpeg missing or failing -> tool; a clip over maxBytes -> size', async () => {
   const big = fakeFetch(fakeResponse({ contentType: 'image/gif', contentLength: 4001 }));
-  const fetcherBig = makeFetcher({ fetchImpl: big.fetchImpl, spawnImpl: fakeSpawn(() => assert.fail('no ffmpeg')).spawnImpl, tmpDir });
+  const fetcherBig = makeFetcher({
+    fetchImpl: big.fetchImpl,
+    spawnImpl: fakeSpawn(() => assert.fail('no ffmpeg')).spawnImpl,
+    tmpDir,
+  });
   assert.deepEqual(await fetcherBig.fetchGif(GIF_URL, GIF_OPTS), { ok: false, reason: 'size' });
 
   const missing = makeFetcher({
@@ -361,7 +389,10 @@ test('kill: on POSIX a tool is spawned detached and a timeout kills its whole pr
   const { killProcess, kills } = fakeKill();
   const fetcher = createVideoFetcher({ spawnImpl, killProcess, platform: 'linux', tmpDir });
 
-  assert.deepEqual(await fetcher.fetchSiteClip(SITE_URL, { ...OPTS, toolTimeoutMs: 20 }), { ok: false, reason: 'timeout' });
+  assert.deepEqual(await fetcher.fetchSiteClip(SITE_URL, { ...OPTS, toolTimeoutMs: 20 }), {
+    ok: false,
+    reason: 'timeout',
+  });
 
   assert.equal(calls[0].options.detached, true);
   assert.deepEqual(kills, [{ pid: -calls[0].child.pid, signal: 'SIGKILL' }]);
@@ -391,9 +422,18 @@ test('kill: the temp directory is removed only after the killed tool has closed'
 
 test('kill: a tool that never closes after the kill is given up on after the grace period', async () => {
   const { spawnImpl } = fakeSpawn(() => {});
-  const fetcher = createVideoFetcher({ spawnImpl, killProcess: () => true, platform: 'linux', closeGraceMs: 30, tmpDir });
+  const fetcher = createVideoFetcher({
+    spawnImpl,
+    killProcess: () => true,
+    platform: 'linux',
+    closeGraceMs: 30,
+    tmpDir,
+  });
 
-  assert.deepEqual(await fetcher.fetchSiteClip(SITE_URL, { ...OPTS, toolTimeoutMs: 20 }), { ok: false, reason: 'timeout' });
+  assert.deepEqual(await fetcher.fetchSiteClip(SITE_URL, { ...OPTS, toolTimeoutMs: 20 }), {
+    ok: false,
+    reason: 'timeout',
+  });
   assert.deepEqual(await leftovers(), []);
 });
 
@@ -418,7 +458,10 @@ test('kill: on Windows the tool is not detached and the tree is killed with task
   const killProcess = () => assert.fail('no process-group kill on Windows');
   const fetcher = createVideoFetcher({ spawnImpl, killProcess, platform: 'win32', tmpDir });
 
-  assert.deepEqual(await fetcher.fetchSiteClip(SITE_URL, { ...OPTS, toolTimeoutMs: 20 }), { ok: false, reason: 'timeout' });
+  assert.deepEqual(await fetcher.fetchSiteClip(SITE_URL, { ...OPTS, toolTimeoutMs: 20 }), {
+    ok: false,
+    reason: 'timeout',
+  });
 
   assert.equal(calls[0].options.detached, false);
   assert.equal(calls[1].command, 'taskkill');
@@ -446,23 +489,34 @@ test('fetchAttachment: a declared content-length over the ceiling is refused bef
   const { fetchImpl } = fakeFetch(response);
   const fetcher = makeFetcher({ fetchImpl, spawnImpl: fakeSpawn(() => {}).spawnImpl, tmpDir });
 
-  assert.deepEqual(await fetcher.fetchAttachment(ATTACHMENT, { ...OPTS, durationSec: 10 }), { ok: false, reason: 'size' });
+  assert.deepEqual(await fetcher.fetchAttachment(ATTACHMENT, { ...OPTS, durationSec: 10 }), {
+    ok: false,
+    reason: 'size',
+  });
   assert.equal(response.body.pulled, 0);
 });
 
 test('fetchAttachment: non-video content type, non-OK status and a thrown fetch all give download', async () => {
-  for (const response of [fakeResponse({ contentType: 'text/html' }), fakeResponse({ ok: false, status: 403 }), new Error('network down')]) {
+  for (const response of [
+    fakeResponse({ contentType: 'text/html' }),
+    fakeResponse({ ok: false, status: 403 }),
+    new Error('network down'),
+  ]) {
     const { fetchImpl } = fakeFetch(response);
     const fetcher = makeFetcher({ fetchImpl, spawnImpl: fakeSpawn(() => {}).spawnImpl, tmpDir });
-    assert.deepEqual(await fetcher.fetchAttachment(ATTACHMENT, { ...OPTS, durationSec: 10 }), { ok: false, reason: 'download' });
+    assert.deepEqual(await fetcher.fetchAttachment(ATTACHMENT, { ...OPTS, durationSec: 10 }), {
+      ok: false,
+      reason: 'download',
+    });
   }
   assert.deepEqual(await leftovers(), []);
 });
 
 test('fetchAttachment: a download that outlives fetchTimeoutMs is aborted -> timeout', async () => {
-  const fetchImpl = (url, { signal }) => new Promise((resolve, reject) => {
-    signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
-  });
+  const fetchImpl = (url, { signal }) =>
+    new Promise((resolve, reject) => {
+      signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+    });
   const fetcher = makeFetcher({ fetchImpl, spawnImpl: fakeSpawn(() => {}).spawnImpl, tmpDir });
 
   const result = await fetcher.fetchAttachment(ATTACHMENT, { ...OPTS, fetchTimeoutMs: 20, durationSec: 10 });
@@ -555,7 +609,10 @@ test('fetchSiteClip: a longer probed duration keeps the cut; a path ffmpeg is pa
  * A spawn behaviour per tool: yt-dlp (`-o` output) and ffmpeg (last-arg
  * output) act differently; any other command fails the test.
  */
-function byTool({ ytdlp = () => assert.fail('yt-dlp must not run'), ffmpeg = () => assert.fail('ffmpeg must not run') }) {
+function byTool({
+  ytdlp = () => assert.fail('yt-dlp must not run'),
+  ffmpeg = () => assert.fail('ffmpeg must not run'),
+}) {
   return (child, command, args) => {
     if (command === 'yt-dlp') return ytdlp(child, command, args);
     if (command === 'ffmpeg') return ffmpeg(child, command, args);
@@ -621,13 +678,20 @@ test('fetchSiteClip: still over maxBytes after the re-encode and the fit re-enco
 });
 
 test('fetchSiteClip: a re-encode still over maxBytes is encoded once more from the download at a fitted bitrate', async () => {
-  const { spawnImpl, calls } = fakeSpawn(byTool({ ytdlp: writesOutput(1_500_000, '-o'), ffmpeg: writesOutput(900_000) }));
+  const { spawnImpl, calls } = fakeSpawn(
+    byTool({ ytdlp: writesOutput(1_500_000, '-o'), ffmpeg: writesOutput(900_000) })
+  );
   const fetcher = makeFetcher({ spawnImpl, tmpDir });
 
-  const { result, logs } = await withCapturedLogs(() => fetcher.fetchSiteClip(SITE_URL, { ...OPTS, maxBytes: 1_000_000, durationSec: 58 }));
+  const { result, logs } = await withCapturedLogs(() =>
+    fetcher.fetchSiteClip(SITE_URL, { ...OPTS, maxBytes: 1_000_000, durationSec: 58 })
+  );
   assert.equal(result.bytes, 900_000);
   assert.equal(calls.length, 2, 'no fit run while the first re-encode is within maxBytes');
-  assert.equal(logs.some((l) => l.msg === 'fetch-video: refit'), false);
+  assert.equal(
+    logs.some((l) => l.msg === 'fetch-video: refit'),
+    false
+  );
 
   const sizes2 = [1_200_000, 900_000];
   const ffmpeg2 = (child, command, args) => writesOutput(sizes2.shift())(child, command, args);
@@ -641,7 +705,11 @@ test('fetchSiteClip: a re-encode still over maxBytes is encoded once more from t
   assert.equal(second.calls.length, 3);
   const clipPath = second.calls[0].args[second.calls[0].args.indexOf('-o') + 1];
   const fitArgs = second.calls[2].args;
-  assert.equal(fitArgs[fitArgs.indexOf('-i') + 1], clipPath, 'the fit re-encode reads the download, not the first re-encode');
+  assert.equal(
+    fitArgs[fitArgs.indexOf('-i') + 1],
+    clipPath,
+    'the fit re-encode reads the download, not the first re-encode'
+  );
   // 1 MB over 58 s: 1e6 * 8 * 0.9 / 58 / 1000 = 124 kbps, minus 48 for audio -> the 100k floor.
   assert.equal(fitArgs[fitArgs.indexOf('-b:v') + 1], '100k');
   assert.equal(fitArgs[fitArgs.indexOf('-b:a') + 1], '48k');
@@ -736,7 +804,10 @@ test('logging: an attachment failure logs source attachment without the signed q
 
 test('logging: a thrown error logs its code or name only, never its message', async () => {
   const cases = [
-    [Object.assign(new Error('connect ECONNREFUSED https://cdn.discordapp.com/x?hm=secret'), { code: 'ECONNREFUSED' }), 'ECONNREFUSED'],
+    [
+      Object.assign(new Error('connect ECONNREFUSED https://cdn.discordapp.com/x?hm=secret'), { code: 'ECONNREFUSED' }),
+      'ECONNREFUSED',
+    ],
     [new TypeError('fetch failed for https://cdn.discordapp.com/x?hm=secret'), 'TypeError'],
   ];
   for (const [error, code] of cases) {
@@ -789,22 +860,30 @@ test('probeYoutube: with an API key the Data API answers first and the page is n
   const result = await fetcher.probeYoutube(SITE_URL, { fetchTimeoutMs: 10_000, apiKey: API_KEY });
 
   assert.deepEqual(result, { ok: true, durationSec: 214 });
-  assert.deepEqual(calls.map((c) => c.url), [API_URL]);
+  assert.deepEqual(
+    calls.map((c) => c.url),
+    [API_URL]
+  );
 });
 
 test('probeYoutube: without an API key only the watch page is fetched, with a browser UA and Accept-Language', async () => {
   for (const apiKey of [undefined, null, '']) {
-    const { fetchImpl, calls } = routedFetch({ [PAGE_PREFIX]: textResponse('<script>{"lengthSeconds":"42"}</script>') });
+    const { fetchImpl, calls } = routedFetch({
+      [PAGE_PREFIX]: textResponse('<script>{"lengthSeconds":"42"}</script>'),
+    });
     const fetcher = makeFetcher({ fetchImpl, tmpDir });
 
     const result = await fetcher.probeYoutube('https://youtu.be/abc123?si=track', { fetchTimeoutMs: 10_000, apiKey });
 
     assert.deepEqual(result, { ok: true, durationSec: 42 });
-    assert.deepEqual(calls.map((c) => c.url), [WATCH_PAGE]);
+    assert.deepEqual(
+      calls.map((c) => c.url),
+      [WATCH_PAGE]
+    );
     const { headers } = calls[0].options;
     assert.equal(
       headers['User-Agent'],
-      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
     );
     assert.equal(headers['Accept-Language'], 'en');
   }
@@ -824,11 +903,14 @@ test('probeYoutube: an API failure falls through to the page, logging reason api
     const fetcher = makeFetcher({ fetchImpl, tmpDir });
 
     const { result, logs } = await withCapturedLogs(() =>
-      fetcher.probeYoutube(SITE_URL, { fetchTimeoutMs: 10_000, apiKey: API_KEY }),
+      fetcher.probeYoutube(SITE_URL, { fetchTimeoutMs: 10_000, apiKey: API_KEY })
     );
 
     assert.deepEqual(result, { ok: true, durationSec: 62 });
-    assert.deepEqual(calls.map((c) => c.url), [API_URL, WATCH_PAGE]);
+    assert.deepEqual(
+      calls.map((c) => c.url),
+      [API_URL, WATCH_PAGE]
+    );
     const lines = logs.filter((l) => l.msg.startsWith('fetch-video:'));
     assert.equal(lines.length, 1);
     assert.equal(lines[0].reason, 'api');
@@ -847,14 +929,18 @@ test('probeYoutube: a page without a duration, a non-OK page or a thrown fetch g
   ]) {
     const { fetchImpl } = routedFetch({ [PAGE_PREFIX]: page });
     const fetcher = makeFetcher({ fetchImpl, tmpDir });
-    assert.deepEqual(await fetcher.probeYoutube(SITE_URL, { fetchTimeoutMs: 10_000 }), { ok: false, reason: 'download' });
+    assert.deepEqual(await fetcher.probeYoutube(SITE_URL, { fetchTimeoutMs: 10_000 }), {
+      ok: false,
+      reason: 'download',
+    });
   }
 });
 
 test('probeYoutube: a page that outlives fetchTimeoutMs is aborted -> timeout', async () => {
-  const fetchImpl = (url, { signal }) => new Promise((resolve, reject) => {
-    signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
-  });
+  const fetchImpl = (url, { signal }) =>
+    new Promise((resolve, reject) => {
+      signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+    });
   const fetcher = makeFetcher({ fetchImpl, tmpDir });
   assert.deepEqual(await fetcher.probeYoutube(SITE_URL, { fetchTimeoutMs: 20 }), { ok: false, reason: 'timeout' });
 });
@@ -874,7 +960,10 @@ test('probeYoutube: at most 2 MB of the page is read -- a duration past the cap 
 test('probeYoutube: a non-YouTube URL gives download without any request', async () => {
   const { fetchImpl, calls } = fakeFetch(textResponse('{"lengthSeconds":"42"}'));
   const fetcher = makeFetcher({ fetchImpl, tmpDir });
-  const result = await fetcher.probeYoutube('https://www.tiktok.com/@someone/video/123', { fetchTimeoutMs: 10_000, apiKey: API_KEY });
+  const result = await fetcher.probeYoutube('https://www.tiktok.com/@someone/video/123', {
+    fetchTimeoutMs: 10_000,
+    apiKey: API_KEY,
+  });
   assert.deepEqual(result, { ok: false, reason: 'download' });
   assert.equal(calls.length, 0);
 });
@@ -886,17 +975,20 @@ test('probeYoutube: pageFallback false stops after a failed Data API call, never
   });
   const fetcher = makeFetcher({ fetchImpl, tmpDir });
   const { result } = await withCapturedLogs(() =>
-    fetcher.probeYoutube(SITE_URL, { fetchTimeoutMs: 10_000, apiKey: API_KEY, pageFallback: false }),
+    fetcher.probeYoutube(SITE_URL, { fetchTimeoutMs: 10_000, apiKey: API_KEY, pageFallback: false })
   );
   assert.deepEqual(result, { ok: false, reason: 'download' });
-  assert.deepEqual(calls.map((c) => c.url), [API_URL]);
+  assert.deepEqual(
+    calls.map((c) => c.url),
+    [API_URL]
+  );
 });
 
 test('probeYoutube: pageFallback false without a key makes no request', async () => {
   const { fetchImpl, calls } = fakeFetch(textResponse('{"lengthSeconds":"42"}'));
   const fetcher = makeFetcher({ fetchImpl, tmpDir });
   const { result } = await withCapturedLogs(() =>
-    fetcher.probeYoutube(SITE_URL, { fetchTimeoutMs: 10_000, apiKey: null, pageFallback: false }),
+    fetcher.probeYoutube(SITE_URL, { fetchTimeoutMs: 10_000, apiKey: null, pageFallback: false })
   );
   assert.deepEqual(result, { ok: false, reason: 'download' });
   assert.equal(calls.length, 0);
@@ -986,7 +1078,10 @@ test('logging: failures with a proxy never log the proxy URL or its credentials'
     const fetcher = makeFetcher({ spawnImpl: fakeSpawn(behave).spawnImpl, tmpDir });
     const { result, logs } = await withCapturedLogs(() => run(fetcher));
     assert.equal(result.ok, false);
-    assert.ok(logs.some((l) => l.msg === 'fetch-video: failed'), 'the failure is logged');
+    assert.ok(
+      logs.some((l) => l.msg === 'fetch-video: failed'),
+      'the failure is logged'
+    );
     const serialized = JSON.stringify(logs) + JSON.stringify(result);
     assert.equal(serialized.includes('proxy.example'), false);
     assert.equal(serialized.includes('s3cr'), false);
@@ -1039,10 +1134,12 @@ test('proxy fallback: a proxied spawn error or timeout is retried directly too, 
   ];
   for (const [proxied, reason, code] of cases) {
     const { spawnImpl, calls } = fakeSpawn((child, command, args) =>
-      args.includes('--proxy') ? proxied(child) : proxyAware()(child, command, args));
+      args.includes('--proxy') ? proxied(child) : proxyAware()(child, command, args)
+    );
     const fetcher = makeFetcher({ spawnImpl, tmpDir, now: clock().now });
     const { result, logs } = await withCapturedLogs(() =>
-      fetcher.probeSite(SITE_URL, { ...OPTS, toolTimeoutMs: 30, proxy: PROXY }));
+      fetcher.probeSite(SITE_URL, { ...OPTS, toolTimeoutMs: 30, proxy: PROXY })
+    );
     assert.equal(result.ok, true, reason);
     assert.equal(calls.length, 2);
     const [line] = logs.filter((l) => l.msg === 'fetch-video: proxy failed');
@@ -1075,7 +1172,11 @@ test('proxy fallback: within the cooldown the proxy is not tried and the skip is
   assert.equal(calls.length, 4, 'one yt-dlp run per call');
   assert.equal(calls[2].args.includes('--proxy'), false);
   assert.equal(calls[3].args.includes('--proxy'), false);
-  assert.equal(calls[3].args[calls[3].args.indexOf('--download-sections') + 1], '*0-60', 'the direct clip keeps the cut');
+  assert.equal(
+    calls[3].args[calls[3].args.indexOf('--download-sections') + 1],
+    '*0-60',
+    'the direct clip keeps the cut'
+  );
   const skipped = logs.filter((l) => l.msg === 'fetch-video: proxy skipped');
   assert.equal(skipped.length, 1);
   assert.equal(skipped[0].reason, 'cooldown');
@@ -1083,7 +1184,11 @@ test('proxy fallback: within the cooldown the proxy is not tried and the skip is
 
   time.t += 6 * 60_000;
   await withCapturedLogs(() => fetcher.probeSite(SITE_URL, { ...OPTS, proxy: PROXY, proxyRetryMinutes: 10 }));
-  assert.equal(calls[4].args[calls[4].args.indexOf('--proxy') + 1], PROXY, 'the window passed: the proxy is tried again');
+  assert.equal(
+    calls[4].args[calls[4].args.indexOf('--proxy') + 1],
+    PROXY,
+    'the window passed: the proxy is tried again'
+  );
 });
 
 test('proxy fallback: the cooldown length follows proxyRetryMinutes', async () => {
@@ -1107,18 +1212,23 @@ test('proxy fallback: a proxied success never opens the cooldown', async () => {
   });
   assert.equal(calls.length, 2);
   assert.ok(calls.every((c) => c.args.includes('--proxy')));
-  assert.equal(logs.some((l) => l.msg.startsWith('fetch-video: proxy')), false);
+  assert.equal(
+    logs.some((l) => l.msg.startsWith('fetch-video: proxy')),
+    false
+  );
 });
 
 test('proxy fallback: a failed proxied clip is downloaded again directly with the sections cut, no local trim', async () => {
-  const { spawnImpl, calls } = fakeSpawn(byTool({
-    ytdlp: (child, command, args) => (args.includes('--proxy')
-      ? child.emit('close', 1, null)
-      : writesOutput(500, '-o')(child, command, args)),
-  }));
+  const { spawnImpl, calls } = fakeSpawn(
+    byTool({
+      ytdlp: (child, command, args) =>
+        args.includes('--proxy') ? child.emit('close', 1, null) : writesOutput(500, '-o')(child, command, args),
+    })
+  );
   const fetcher = makeFetcher({ spawnImpl, tmpDir, now: clock().now });
   const { result, logs } = await withCapturedLogs(() =>
-    fetcher.fetchSiteClip(SITE_URL, { ...OPTS, durationSec: null, proxy: PROXY }));
+    fetcher.fetchSiteClip(SITE_URL, { ...OPTS, durationSec: null, proxy: PROXY })
+  );
   assert.equal(result.ok, true);
   assert.equal(result.bytes, 500);
   assert.equal(calls.length, 2, 'proxied yt-dlp, direct yt-dlp, no ffmpeg');
@@ -1136,16 +1246,21 @@ test('proxy fallback: a link without a proxy (a site outside proxySites) is unto
   const fetcher = makeFetcher({ spawnImpl, tmpDir, now: clock().now });
   await withCapturedLogs(() => fetcher.probeSite(SITE_URL, { ...OPTS, proxy: PROXY }));
   const { result, logs } = await withCapturedLogs(() =>
-    fetcher.probeSite('https://vk.com/video-1_2', { ...OPTS, proxy: null }));
+    fetcher.probeSite('https://vk.com/video-1_2', { ...OPTS, proxy: null })
+  );
   assert.equal(result.ok, true);
   assert.equal(calls.length, 3);
   assert.equal(calls[2].args.includes('--proxy'), false);
-  assert.equal(logs.some((l) => l.msg.startsWith('fetch-video: proxy')), false, 'no skip line for a direct site');
+  assert.equal(
+    logs.some((l) => l.msg.startsWith('fetch-video: proxy')),
+    false,
+    'no skip line for a direct site'
+  );
 });
 
 // --- proxy liveness --------------------------------------------------------------
 
-test('proxy liveness: a proxied failure with a reachable proxy is the video\'s own -- no direct retry, no cooldown', async () => {
+test("proxy liveness: a proxied failure with a reachable proxy is the video's own -- no direct retry, no cooldown", async () => {
   const time = clock();
   const checked = [];
   const { spawnImpl, calls } = fakeSpawn(proxyAware());
@@ -1166,12 +1281,18 @@ test('proxy liveness: a proxied failure with a reachable proxy is the video\'s o
   assert.deepEqual(result.probe, { ok: false, reason: 'download' });
   assert.deepEqual(result.clip, { ok: false, reason: 'download' });
   assert.equal(calls.length, 2, 'one proxied run per call, no direct retry');
-  assert.ok(calls.every((c) => c.args.includes('--proxy')), 'the second call still uses the proxy: no cooldown');
+  assert.ok(
+    calls.every((c) => c.args.includes('--proxy')),
+    'the second call still uses the proxy: no cooldown'
+  );
   assert.deepEqual(checked, [PROXY, PROXY], 'the check runs once per failure');
   const failed = logs.filter((l) => l.msg === 'fetch-video: failed');
   assert.equal(failed.length, 2);
   assert.ok(failed.every((l) => l.proxied === true && l.reason === 'download' && l.code === 1));
-  assert.equal(logs.some((l) => l.msg.startsWith('fetch-video: proxy')), false);
+  assert.equal(
+    logs.some((l) => l.msg.startsWith('fetch-video: proxy')),
+    false
+  );
   const serialized = JSON.stringify(logs);
   assert.equal(serialized.includes('proxy.example'), false);
   assert.equal(serialized.includes('s3cr'), false);
@@ -1179,7 +1300,12 @@ test('proxy liveness: a proxied failure with a reachable proxy is the video\'s o
 });
 
 test('proxy liveness: an unreachable proxy (false or a throwing check) gets the direct retry and the cooldown', async () => {
-  for (const probeProxy of [async () => false, async () => { throw new Error(`down: ${PROXY}`); }]) {
+  for (const probeProxy of [
+    async () => false,
+    async () => {
+      throw new Error(`down: ${PROXY}`);
+    },
+  ]) {
     const time = clock();
     const { spawnImpl, calls } = fakeSpawn(proxyAware());
     const fetcher = makeFetcher({ spawnImpl, tmpDir, now: time.now, probeProxy });
@@ -1200,7 +1326,14 @@ test('proxy liveness: an unreachable proxy (false or a throwing check) gets the 
 test('proxy liveness: a proxied success never runs the check', async () => {
   let checks = 0;
   const { spawnImpl } = fakeSpawn(proxyAware({ proxyWorks: true }));
-  const fetcher = makeFetcher({ spawnImpl, tmpDir, probeProxy: async () => { checks += 1; return false; } });
+  const fetcher = makeFetcher({
+    spawnImpl,
+    tmpDir,
+    probeProxy: async () => {
+      checks += 1;
+      return false;
+    },
+  });
   const result = await fetcher.probeSite(SITE_URL, { ...OPTS, proxy: PROXY });
   assert.equal(result.ok, true);
   assert.equal(checks, 0);
@@ -1217,7 +1350,8 @@ function fakeConnect(outcome) {
       socket.destroyed = true;
     };
     if (outcome === 'connect') setImmediate(() => socket.emit('connect'));
-    if (outcome === 'error') setImmediate(() => socket.emit('error', Object.assign(new Error('refused'), { code: 'ECONNREFUSED' })));
+    if (outcome === 'error')
+      setImmediate(() => socket.emit('error', Object.assign(new Error('refused'), { code: 'ECONNREFUSED' })));
     seen.socket = socket;
     return socket;
   };
@@ -1253,7 +1387,9 @@ test('proxyReachable: default ports per scheme; an unparsable URL or unknown sch
     assert.equal(await proxyReachable(url, { connect: fake.connect, timeoutMs: 50 }), false, url);
     assert.equal(fake.seen.length, 0);
   }
-  const throwing = () => { throw new Error('boom'); };
+  const throwing = () => {
+    throw new Error('boom');
+  };
   assert.equal(await proxyReachable(PROXY, { connect: throwing, timeoutMs: 50 }), false);
 });
 
@@ -1307,7 +1443,8 @@ test('fetchAttachment: with audioMap an as-is clip with no audio stream is measu
 });
 
 test('fetchSiteClip: with audioMap the clip sent is measured -> a mostly silent one is a map', async () => {
-  const ffmpeg = (child, command, args) => (isMeasure(args) ? measures(STDERR_SPARSE)(child) : writesOutput(600)(child, command, args));
+  const ffmpeg = (child, command, args) =>
+    isMeasure(args) ? measures(STDERR_SPARSE)(child) : writesOutput(600)(child, command, args);
   const { spawnImpl, calls } = fakeSpawn(byTool({ ytdlp: writesOutput(3000, '-o'), ffmpeg }));
   const fetcher = makeFetcher({ spawnImpl, tmpDir });
 
@@ -1323,12 +1460,17 @@ test('fetchSiteClip: with audioMap the clip sent is measured -> a mostly silent 
 });
 
 test('fetchAttachment: a failed measurement is one warn line and audio null, never a failed fetch', async () => {
-  for (const [behave, reason] of [[measures('garbage', 1), 'tool'], [measures('garbage', 0), 'parse'], [enoent, 'tool'], [() => {}, 'timeout']]) {
+  for (const [behave, reason] of [
+    [measures('garbage', 1), 'tool'],
+    [measures('garbage', 0), 'parse'],
+    [enoent, 'tool'],
+    [() => {}, 'timeout'],
+  ]) {
     const { fetchImpl } = fakeFetch(fakeResponse());
     const { spawnImpl } = fakeSpawn(behave);
     const fetcher = makeFetcher({ fetchImpl, spawnImpl, tmpDir });
     const { result, logs } = await withCapturedLogs(() =>
-      fetcher.fetchAttachment(ATTACHMENT, { ...OPTS, toolTimeoutMs: 50, durationSec: 12, audioMap: AUDIO_MAP }),
+      fetcher.fetchAttachment(ATTACHMENT, { ...OPTS, toolTimeoutMs: 50, durationSec: 12, audioMap: AUDIO_MAP })
     );
     assert.equal(result.ok, true, reason);
     assert.equal(result.audio, null);
@@ -1341,8 +1483,11 @@ test('fetchAttachment: a failed measurement is one warn line and audio null, nev
 });
 
 test('fetchAttachment: an input that prints no duration is measured against the known clip length', async () => {
-  const stderr = STDERR_SPARSE.replace(/Duration: [^,]+/, 'Duration: N/A').split('\n').slice(0, 4).join('\n') +
-    '\n[silencedetect @ 0x1] silence_start: 3';
+  const stderr =
+    STDERR_SPARSE.replace(/Duration: [^,]+/, 'Duration: N/A')
+      .split('\n')
+      .slice(0, 4)
+      .join('\n') + '\n[silencedetect @ 0x1] silence_start: 3';
   const { fetchImpl } = fakeFetch(fakeResponse());
   const { spawnImpl } = fakeSpawn(measures(stderr));
   const fetcher = makeFetcher({ fetchImpl, spawnImpl, tmpDir });

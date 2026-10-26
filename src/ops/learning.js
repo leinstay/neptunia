@@ -47,7 +47,9 @@ const handlers = perEnv((env) => {
       item = locate(store.applyLearnedOps(guildId, { add: [{ text }] }, { ...memoryCfg, seenAt }));
     } else {
       for (let i = 0; i < target; i += 1) {
-        item = locate(store.applyLearnedOps(guildId, { add: [{ text }] }, { ...memoryCfg, confirmGapHours: 0, seenAt }));
+        item = locate(
+          store.applyLearnedOps(guildId, { add: [{ text }] }, { ...memoryCfg, confirmGapHours: 0, seenAt })
+        );
         if (!item || item.weight >= target) break;
       }
     }

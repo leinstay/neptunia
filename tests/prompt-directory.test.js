@@ -23,16 +23,62 @@ const labels = {
 
 // 23 members, as a mid-sized server keeps them: one to three names, up to three aliases, some closed.
 const NAMES = [
-  ['Ἀλκμήνη'], ['Zoé', 'Zoé ✿'], ['Léo Martin'], ['Ταξιάρχης'], ['Anaïs', 'anaïs_42'], ['Bérénice'], ['Δημήτρης'],
-  ['Élodie', 'Élo'], ['François'], ['Ἑλένη', 'Helena'], ['Inès'], ['Jérôme', 'J.'], ['Κωνσταντίνος'], ['Loïc'],
-  ['Maëlle', 'Maëlle (away)', 'mae'], ['Νίκος'], ['Océane'], ['Pénélope'], ['Ρένα'], ['Sébastien'], ['Σοφία'],
-  ['Thaïs'], ['Ulysse'],
+  ['Ἀλκμήνη'],
+  ['Zoé', 'Zoé ✿'],
+  ['Léo Martin'],
+  ['Ταξιάρχης'],
+  ['Anaïs', 'anaïs_42'],
+  ['Bérénice'],
+  ['Δημήτρης'],
+  ['Élodie', 'Élo'],
+  ['François'],
+  ['Ἑλένη', 'Helena'],
+  ['Inès'],
+  ['Jérôme', 'J.'],
+  ['Κωνσταντίνος'],
+  ['Loïc'],
+  ['Maëlle', 'Maëlle (away)', 'mae'],
+  ['Νίκος'],
+  ['Océane'],
+  ['Pénélope'],
+  ['Ρένα'],
+  ['Sébastien'],
+  ['Σοφία'],
+  ['Thaïs'],
+  ['Ulysse'],
 ];
-const ALIASES = [['Ἀλκ'], [], ['Léo', 'Martinou'], ['Ταξ'], [], ['Béré', 'Nice'], [], ['Lodie'], ['Franz'], ['Λένα'], [], ['Jéjé'], ['Κώστας', 'Ντίνος'], [], ['Maë'], [], ['Océ'], ['Pénny'], [], ['Séb', 'Bastien'], ['Σόφη'], [], ['Ulyx']];
+const ALIASES = [
+  ['Ἀλκ'],
+  [],
+  ['Léo', 'Martinou'],
+  ['Ταξ'],
+  [],
+  ['Béré', 'Nice'],
+  [],
+  ['Lodie'],
+  ['Franz'],
+  ['Λένα'],
+  [],
+  ['Jéjé'],
+  ['Κώστας', 'Ντίνος'],
+  [],
+  ['Maë'],
+  [],
+  ['Océ'],
+  ['Pénny'],
+  [],
+  ['Séb', 'Bastien'],
+  ['Σόφη'],
+  [],
+  ['Ulyx'],
+];
 const PROFILES = NAMES.map((names, i) => ({
   id: String(700000000000000000n + BigInt(i) * 7_340_033n),
   names,
-  aliases: [...ALIASES[i].map((name) => ({ name, weight: 3 })), ...(i % 5 === 0 ? [{ name: 'Old nick', weight: 1, validTo: '2026-01-01' }] : [])],
+  aliases: [
+    ...ALIASES[i].map((name) => ({ name, weight: 3 })),
+    ...(i % 5 === 0 ? [{ name: 'Old nick', weight: 1, validTo: '2026-01-01' }] : []),
+  ],
   character: 'a note the directory never shows',
   interests: [{ topic: 'a game the directory never shows', weight: 4 }],
 }));
@@ -56,7 +102,18 @@ function fakeConfig(features = {}) {
 }
 
 function line(id, minutesAgo, author, overrides = {}) {
-  return { id, ts: NOW - minutesAgo * MIN, authorId: author.id, authorName: author.names?.[0] ?? author.name, self: false, content: `line ${id}`, attachments: [], stickers: [], replyToId: null, ...overrides };
+  return {
+    id,
+    ts: NOW - minutesAgo * MIN,
+    authorId: author.id,
+    authorName: author.names?.[0] ?? author.name,
+    self: false,
+    content: `line ${id}`,
+    attachments: [],
+    stickers: [],
+    replyToId: null,
+    ...overrides,
+  };
 }
 
 const STRANGER = { id: '650000000000000123', name: 'Passer-by' };
@@ -66,7 +123,15 @@ function input(overrides = {}) {
   const history = overrides.history ?? [line('1', 3, PROFILES[0]), line('2', 2, STRANGER), line('3', 1, PROFILES[1])];
   return {
     config: fakeConfig(),
-    prompts: { 'system-prompt': 'SYSTEM', 'character-card': 'CARD', rules: 'RULES', format: 'FORMAT', reply: 'REPLY to {{author}}', interject: 'INTERJECT', labels },
+    prompts: {
+      'system-prompt': 'SYSTEM',
+      'character-card': 'CARD',
+      rules: 'RULES',
+      format: 'FORMAT',
+      reply: 'REPLY to {{author}}',
+      interject: 'INTERJECT',
+      labels,
+    },
     calibrator: { ratio: 1, apply: (n) => n },
     mode: 'reply',
     now: NOW,
@@ -108,7 +173,11 @@ test('buildRequest: <directory> lists every profiled member but the persona, las
 
 test('buildRequest: the stable part is byte-identical between turns, requesters and channels', () => {
   const first = buildRequest(input());
-  const otherHistory = [line('7', 9, PROFILES[5]), line('8', 4, STRANGER, { authorId: '650000000000000777', authorName: 'Someone else' }), line('9', 1, PROFILES[12])];
+  const otherHistory = [
+    line('7', 9, PROFILES[5]),
+    line('8', 4, STRANGER, { authorId: '650000000000000777', authorName: 'Someone else' }),
+    line('9', 1, PROFILES[12]),
+  ];
   const second = buildRequest(
     input({
       history: otherHistory,
@@ -116,11 +185,19 @@ test('buildRequest: the stable part is byte-identical between turns, requesters 
       currentChannelId: 'another-channel',
       interlocutor: PROFILES[12],
       neighbors: [{ channelId: 'n1', channelName: 'next-door', messages: [line('n1', 2, PROFILES[7])] }],
-    }),
+    })
   );
   const interject = buildRequest(input({ mode: 'interject', trigger: null, triggerKind: null }));
   // The stored order of a member's names (the newest first) moves with every message they post.
-  const reordered = buildRequest(input({ candidateProfiles: [...PROFILES].reverse().map((profile) => ({ ...profile, names: [...profile.names].reverse(), aliases: [...profile.aliases].reverse() })) }));
+  const reordered = buildRequest(
+    input({
+      candidateProfiles: [...PROFILES].reverse().map((profile) => ({
+        ...profile,
+        names: [...profile.names].reverse(),
+        aliases: [...profile.aliases].reverse(),
+      })),
+    })
+  );
   assert.ok(directoryOf(stableOf(first)));
   assert.equal(stableOf(second), stableOf(first));
   assert.equal(stableOf(interject), stableOf(first));
@@ -129,12 +206,14 @@ test('buildRequest: the stable part is byte-identical between turns, requesters 
 
 test('buildRequest: a new alias changes the directory line of that member only', () => {
   const first = directoryOf(stableOf(buildRequest(input()))).split('\n');
-  const changed = PROFILES.map((profile, i) => (i === 3 ? { ...profile, aliases: [...profile.aliases, { name: 'Τάκης', weight: 2 }] } : profile));
+  const changed = PROFILES.map((profile, i) =>
+    i === 3 ? { ...profile, aliases: [...profile.aliases, { name: 'Τάκης', weight: 2 }] } : profile
+  );
   const second = directoryOf(stableOf(buildRequest(input({ candidateProfiles: changed })))).split('\n');
   assert.equal(second.length, first.length);
   assert.deepEqual(
     second.filter((text, i) => text !== first[i]).map((text) => text.includes('Τάκης')),
-    [true],
+    [true]
   );
 });
 

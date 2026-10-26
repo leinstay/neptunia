@@ -23,19 +23,44 @@ test('schema v12: the legacy diary mirrors get the diary channel as destination,
   try {
     // A database of schema 11 with the legacy mirrors, then opened by a tool (no channel), then by the bot.
     const v11 = openMemoryDb(file, { migrations: MIGRATIONS.slice(0, 11) });
-    try { seedUnits(v11, data, { now: () => NOW }); } finally { v11.close(); }
+    try {
+      seedUnits(v11, data, { now: () => NOW });
+    } finally {
+      v11.close();
+    }
     openMemoryDb(file).close();
     const plain = openMemoryDb(file, { readOnly: true });
     try {
-      assert.equal(plain.db.prepare("SELECT COUNT(*) AS n FROM publications WHERE row_kind = 'diary' AND destination_place_id IS NULL").get().n, 1);
-      assert.equal(plain.db.prepare("SELECT value FROM meta WHERE key = 'diary_destination_pending'").get()?.value, '1', 'opened by a tool without the channel');
-    } finally { plain.close(); }
+      assert.equal(
+        plain.db
+          .prepare("SELECT COUNT(*) AS n FROM publications WHERE row_kind = 'diary' AND destination_place_id IS NULL")
+          .get().n,
+        1
+      );
+      assert.equal(
+        plain.db.prepare("SELECT value FROM meta WHERE key = 'diary_destination_pending'").get()?.value,
+        '1',
+        'opened by a tool without the channel'
+      );
+    } finally {
+      plain.close();
+    }
     const known = openMemoryDb(file, { context: { diaryPlaceId: channelPlaceId(CHANNEL) } });
     try {
-      assert.equal(known.db.prepare("SELECT destination_place_id AS d FROM publications WHERE row_kind = 'diary'").get().d, channelPlaceId(CHANNEL));
-      assert.equal(known.db.prepare("SELECT 1 AS ok FROM meta WHERE key = 'diary_destination_pending'").get(), undefined);
-    } finally { known.close(); }
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+      assert.equal(
+        known.db.prepare("SELECT destination_place_id AS d FROM publications WHERE row_kind = 'diary'").get().d,
+        channelPlaceId(CHANNEL)
+      );
+      assert.equal(
+        known.db.prepare("SELECT 1 AS ok FROM meta WHERE key = 'diary_destination_pending'").get(),
+        undefined
+      );
+    } finally {
+      known.close();
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('schema v12 on a new database: no publication to wait for, no mark', () => {
@@ -43,10 +68,17 @@ test('schema v12 on a new database: no publication to wait for, no mark', () => 
   try {
     const handle = openMemoryDb(path.join(root, 'memory.db'));
     try {
-      assert.equal(handle.db.prepare("SELECT 1 AS ok FROM meta WHERE key = 'diary_destination_pending'").get(), undefined);
+      assert.equal(
+        handle.db.prepare("SELECT 1 AS ok FROM meta WHERE key = 'diary_destination_pending'").get(),
+        undefined
+      );
       assert.equal(handle.db.prepare('SELECT MAX(version) AS v FROM schema_version').get().v, MIGRATIONS.length);
-    } finally { handle.close(); }
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+    } finally {
+      handle.close();
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 // Schema v13 (2026-10-25): the rows of the removed drawing errand agent leave `work` and `work_events` once.
@@ -63,13 +95,38 @@ test('schema v13: work rows of agent drawing and their events are dropped, the o
       event.run('pic-1:1:0', 'pic-1', 1, '{}');
       event.run('pic-1:2:1', 'pic-1', 2, '{}');
       event.run('scout-1:1:2', 'scout-1', 1, '{}');
-    } finally { old.close(); }
+    } finally {
+      old.close();
+    }
     const handle = openMemoryDb(file);
     try {
-      assert.deepEqual(handle.db.prepare('SELECT id FROM work').all().map((row) => row.id), ['scout-1']);
-      assert.deepEqual(handle.db.prepare('SELECT id FROM work_events').all().map((row) => row.id), ['scout-1:1:2']);
-      const decisions = handle.db.prepare("SELECT action, json_extract(extra, '$.rows') AS rows FROM decisions WHERE action = 'migration:drawing_work_dropped'").all();
-      assert.deepEqual(decisions.map((row) => [row.action, row.rows]), [['migration:drawing_work_dropped', 1]]);
-    } finally { handle.close(); }
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+      assert.deepEqual(
+        handle.db
+          .prepare('SELECT id FROM work')
+          .all()
+          .map((row) => row.id),
+        ['scout-1']
+      );
+      assert.deepEqual(
+        handle.db
+          .prepare('SELECT id FROM work_events')
+          .all()
+          .map((row) => row.id),
+        ['scout-1:1:2']
+      );
+      const decisions = handle.db
+        .prepare(
+          "SELECT action, json_extract(extra, '$.rows') AS rows FROM decisions WHERE action = 'migration:drawing_work_dropped'"
+        )
+        .all();
+      assert.deepEqual(
+        decisions.map((row) => [row.action, row.rows]),
+        [['migration:drawing_work_dropped', 1]]
+      );
+    } finally {
+      handle.close();
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });

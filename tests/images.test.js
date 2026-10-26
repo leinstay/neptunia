@@ -37,12 +37,23 @@ function baseConfig({ model = 'openai/test-image', ...overrides } = {}) {
 }
 
 function fakeState(data = {}) {
-  return { data, dirty: 0, markDirty() { this.dirty += 1; } };
+  return {
+    data,
+    dirty: 0,
+    markDirty() {
+      this.dirty += 1;
+    },
+  };
 }
 
 const PIXELS = Buffer.from('fake picture bytes');
 
-function okResponse(json = { data: [{ b64_json: PIXELS.toString('base64'), media_type: 'image/png' }], usage: { total_tokens: 10, cost: 0.04 } }) {
+function okResponse(
+  json = {
+    data: [{ b64_json: PIXELS.toString('base64'), media_type: 'image/png' }],
+    usage: { total_tokens: 10, cost: 0.04 },
+  }
+) {
   return { ok: true, status: 200, json: async () => json, text: async () => JSON.stringify(json) };
 }
 
@@ -63,7 +74,12 @@ function fakeFetch(...responses) {
   return impl;
 }
 
-function makeGen({ config = baseConfig(), state = fakeState(), fetchImpl = fakeFetch(okResponse()), now = () => NOW } = {}) {
+function makeGen({
+  config = baseConfig(),
+  state = fakeState(),
+  fetchImpl = fakeFetch(okResponse()),
+  now = () => NOW,
+} = {}) {
   const gen = createImageGen({ apiKey: 'test-key', getConfig: () => config, state, fetchImpl, now });
   return { gen, state, fetchImpl };
 }
@@ -102,7 +118,11 @@ test('images: Google body carries resolution and omits aspect_ratio on auto', as
 });
 
 test('images: null values omit their fields', async () => {
-  const config = baseConfig({ outputFormat: null, aspectRatio: null, openai: { quality: null, background: null, moderation: null } });
+  const config = baseConfig({
+    outputFormat: null,
+    aspectRatio: null,
+    openai: { quality: null, background: null, moderation: null },
+  });
   const { gen, fetchImpl } = makeGen({ config });
   await gen.generate({ prompt: 'a small boat' });
   assert.deepEqual(fetchImpl.calls[0].body, { model: 'openai/test-image', prompt: 'a small boat' });
@@ -138,7 +158,10 @@ test('images: unsupported model prefix is refused without a request', async () =
 });
 
 test('images: response b64_json becomes a Buffer with media_type and cost', async () => {
-  const json = { data: [{ b64_json: PIXELS.toString('base64'), media_type: 'image/webp' }], usage: { total_tokens: 7, cost: 0.02 } };
+  const json = {
+    data: [{ b64_json: PIXELS.toString('base64'), media_type: 'image/webp' }],
+    usage: { total_tokens: 7, cost: 0.02 },
+  };
   const { gen } = makeGen({ fetchImpl: fakeFetch(okResponse(json)) });
   const result = await gen.generate({ prompt: 'a small boat' });
   assert.ok(Buffer.isBuffer(result.buffer));
@@ -282,7 +305,11 @@ test('images: counters roll over on a new day', async () => {
 // The one test that waits for the real backoff (~1.5s before attempt 1).
 test('images: 502 is retried up to image.retries then fails with reason error', async () => {
   const state = fakeState();
-  const { gen, fetchImpl } = makeGen({ config: baseConfig({ retries: 1 }), state, fetchImpl: fakeFetch(errorResponse(502)) });
+  const { gen, fetchImpl } = makeGen({
+    config: baseConfig({ retries: 1 }),
+    state,
+    fetchImpl: fakeFetch(errorResponse(502)),
+  });
   await assert.rejects(gen.generate({ prompt: 'a small boat' }), (err) => {
     assert.ok(err instanceof ImageGenError);
     assert.equal(err.reason, 'error');
@@ -308,7 +335,10 @@ test('images: a negative or non-numeric image.retries still sends exactly one re
 
 test('images: moderation-looking 400 is not retried and has reason moderation', async () => {
   const body = '{"error":{"code":"moderation_blocked","message":"Your request was rejected by the safety system."}}';
-  const { gen, fetchImpl } = makeGen({ config: baseConfig({ retries: 3 }), fetchImpl: fakeFetch(errorResponse(400, body)) });
+  const { gen, fetchImpl } = makeGen({
+    config: baseConfig({ retries: 3 }),
+    fetchImpl: fakeFetch(errorResponse(400, body)),
+  });
   await assert.rejects(gen.generate({ prompt: 'a small boat' }), (err) => {
     assert.ok(err instanceof ImageGenError);
     assert.equal(err.reason, 'moderation');
@@ -319,7 +349,10 @@ test('images: moderation-looking 400 is not retried and has reason moderation', 
 });
 
 test('images: a plain 400 is not retried and has reason error', async () => {
-  const { gen, fetchImpl } = makeGen({ config: baseConfig({ retries: 3 }), fetchImpl: fakeFetch(errorResponse(400, '{"error":{"message":"bad size"}}')) });
+  const { gen, fetchImpl } = makeGen({
+    config: baseConfig({ retries: 3 }),
+    fetchImpl: fakeFetch(errorResponse(400, '{"error":{"message":"bad size"}}')),
+  });
   await assert.rejects(gen.generate({ prompt: 'a small boat' }), (err) => {
     assert.equal(err.reason, 'error');
     assert.equal(err.statusCode, 400);
@@ -346,16 +379,41 @@ test('images: quota reports used, cap and spent flags', async () => {
   assert.deepEqual(gen.quota(), { used: 0, cap: 3, userUsed: 0, userCap: 1, spent: false, userSpent: false });
   await gen.generate({ prompt: 'one', userId: 'u1' });
   await gen.generate({ prompt: 'two' });
-  assert.deepEqual(gen.quota({ userId: 'u1' }), { used: 2, cap: 3, userUsed: 1, userCap: 1, spent: false, userSpent: true });
-  assert.deepEqual(gen.quota({ userId: 'u2' }), { used: 2, cap: 3, userUsed: 0, userCap: 1, spent: false, userSpent: false });
+  assert.deepEqual(gen.quota({ userId: 'u1' }), {
+    used: 2,
+    cap: 3,
+    userUsed: 1,
+    userCap: 1,
+    spent: false,
+    userSpent: true,
+  });
+  assert.deepEqual(gen.quota({ userId: 'u2' }), {
+    used: 2,
+    cap: 3,
+    userUsed: 0,
+    userCap: 1,
+    spent: false,
+    userSpent: false,
+  });
   await gen.generate({ prompt: 'three' });
   assert.equal(gen.quota().spent, true);
 });
 
-test('images: quota ignores yesterday\'s counters without resetting them', () => {
-  const state = fakeState({ imageDay: '2026-09-27', imageCount: 9, imageUsers: { day: '2026-09-27', counts: { u1: 9 } } });
+test("images: quota ignores yesterday's counters without resetting them", () => {
+  const state = fakeState({
+    imageDay: '2026-09-27',
+    imageCount: 9,
+    imageUsers: { day: '2026-09-27', counts: { u1: 9 } },
+  });
   const { gen } = makeGen({ state });
-  assert.deepEqual(gen.quota({ userId: 'u1' }), { used: 0, cap: 50, userUsed: 0, userCap: 50, spent: false, userSpent: false });
+  assert.deepEqual(gen.quota({ userId: 'u1' }), {
+    used: 0,
+    cap: 50,
+    userUsed: 0,
+    userCap: 50,
+    spent: false,
+    userSpent: false,
+  });
   assert.equal(state.data.imageCount, 9);
   assert.equal(state.dirty, 0);
 });
@@ -365,14 +423,22 @@ test('images: quota reads a stored count that is not a finite number >= 0 as 0, 
     const data = { imageDay: '2026-09-28', imageCount: bad, imageUsers: { day: '2026-09-28', counts: { u1: bad } } };
     const state = fakeState(structuredClone(data));
     const { gen } = makeGen({ state });
-    assert.deepEqual(gen.quota({ userId: 'u1' }), { used: 0, cap: 50, userUsed: 0, userCap: 50, spent: false, userSpent: false }, String(bad));
+    assert.deepEqual(
+      gen.quota({ userId: 'u1' }),
+      { used: 0, cap: 50, userUsed: 0, userCap: 50, spent: false, userSpent: false },
+      String(bad)
+    );
     assert.deepEqual(state.data, data, `a read leaves the stored value alone (${String(bad)})`);
     assert.equal(state.dirty, 0);
   }
   // A member table that is not a table at all is read as no use, never thrown on.
   for (const imageUsers of [null, 'x', { day: '2026-09-28' }, { day: '2026-09-28', counts: 'x' }]) {
     const { gen } = makeGen({ state: fakeState({ imageDay: '2026-09-28', imageCount: 2, imageUsers }) });
-    assert.deepEqual(gen.quota({ userId: 'u1' }), { used: 2, cap: 50, userUsed: 0, userCap: 50, spent: false, userSpent: false }, JSON.stringify(imageUsers));
+    assert.deepEqual(
+      gen.quota({ userId: 'u1' }),
+      { used: 2, cap: 50, userUsed: 0, userCap: 50, spent: false, userSpent: false },
+      JSON.stringify(imageUsers)
+    );
   }
 });
 
@@ -401,7 +467,11 @@ test('images: llm.providerByModel (longest prefix) wins over image.provider, wit
     allow_fallbacks: false,
     options: { openai: { moderation: 'low' } },
   });
-  assert.deepEqual(config.llm.providerByModel['openai/test-image'], { only: ['openai'], allow_fallbacks: false }, 'the config object is not mutated');
+  assert.deepEqual(
+    config.llm.providerByModel['openai/test-image'],
+    { only: ['openai'], allow_fallbacks: false },
+    'the config object is not mutated'
+  );
 });
 
 test('images: a model with no valid by-model entry falls back to image.provider, then to nothing', async () => {
@@ -454,12 +524,16 @@ function byokResponse(isByok) {
   });
 }
 
-test('images: the body\'s provider never carries byok; the config route keeps it', async () => {
+test("images: the body's provider never carries byok; the config route keeps it", async () => {
   const config = baseConfig();
   config.llm.providerByModel = { 'openai/@drawing': { only: ['openai'], allow_fallbacks: false, byok: true } };
   const { gen, fetchImpl } = makeGen({ config, fetchImpl: fakeFetch(byokResponse(true)) });
   await withCapturedLogs(() => gen.generate({ prompt: 'a small boat' }));
-  assert.deepEqual(fetchImpl.calls[0].body.provider, { only: ['openai'], allow_fallbacks: false, options: { openai: { moderation: 'low' } } });
+  assert.deepEqual(fetchImpl.calls[0].body.provider, {
+    only: ['openai'],
+    allow_fallbacks: false,
+    options: { openai: { moderation: 'low' } },
+  });
   assert.equal(config.llm.providerByModel['openai/@drawing'].byok, true, 'the config object is not mutated');
 });
 
@@ -470,9 +544,12 @@ test('images: a byok route with is_byok false fails with reason error after a no
   const { logs } = await withCapturedLogs(() =>
     assert.rejects(
       gen.generate({ prompt: 'the prompt itself' }),
-      (err) => err instanceof ImageGenError && err.reason === 'error' && err.cause instanceof NotByokError
-        && err.message === 'not byok: openai/test-image via OpenAI',
-    ),
+      (err) =>
+        err instanceof ImageGenError &&
+        err.reason === 'error' &&
+        err.cause instanceof NotByokError &&
+        err.message === 'not byok: openai/test-image via OpenAI'
+    )
   );
   assert.equal(fetchImpl.calls.length, 1, 'billed already: nothing is retried');
   const warn = logs.filter((l) => l.msg === 'llm: not byok');
@@ -484,7 +561,13 @@ test('images: a byok route with is_byok false fails with reason error after a no
 });
 
 test('images: without a route marked byok exactly true, or without is_byok false, the picture passes silently', async () => {
-  const cases = [[undefined, false], [{ only: ['openai'] }, false], [{ only: ['openai'], byok: 'true' }, false], [{ only: ['openai'], byok: true }, undefined], [{ only: ['openai'], byok: true }, true]];
+  const cases = [
+    [undefined, false],
+    [{ only: ['openai'] }, false],
+    [{ only: ['openai'], byok: 'true' }, false],
+    [{ only: ['openai'], byok: true }, undefined],
+    [{ only: ['openai'], byok: true }, true],
+  ];
   for (const [route, isByok] of cases) {
     const config = baseConfig();
     if (route) config.llm.providerByModel = { 'openai/': route };

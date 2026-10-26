@@ -59,7 +59,10 @@ test('a seen line becomes one sources row whose columns hold the fields', () => 
 test('extra holds only the fields no column names', () => {
   const rows = assertRoundTrip(mapper, REL, seen());
   const extra = JSON.parse(rows.sources[0].extra);
-  assert.deepEqual(Object.keys(extra).sort(), ['guildId', 'id', 'links', 'participants', 'sourceMessageIds', 'v', '$null'].sort());
+  assert.deepEqual(
+    Object.keys(extra).sort(),
+    ['guildId', 'id', 'links', 'participants', 'sourceMessageIds', 'v', '$null'].sort()
+  );
   assert.deepEqual(extra.$null, ['replyTo']);
 });
 
@@ -86,7 +89,7 @@ test('numbers stay numbers, empty strings and empty lists stay as they are', () 
   assert.deepEqual(back, line);
 });
 
-test('an edit is its own source and the persona\'s own line carries the turn and operation ids', () => {
+test("an edit is its own source and the persona's own line carries the turn and operation ids", () => {
   const edit = { ...seen(), revision: 2, text: 'edited' };
   assert.equal(roundTrip(mapper, REL, edit).rows.sources[0].id, 'src:discord:400000000000000001:2:seen');
   const said = { ...seen(), id: 'rec-2', kind: 'said', turnId: 'turn-1', opId: null, by: '100000000000000009' };
@@ -99,8 +102,17 @@ test('an edit is its own source and the persona\'s own line carries the turn and
 
 test('a deleted line has no revision, text or author and still round trips', () => {
   const line = {
-    v: 1, id: 'rec-3', kind: 'deleted', messageId: '400000000000000002', occurredAt: '2026-10-20T11:00:00.000Z',
-    recordedAt: '2026-10-20T11:00:00.000Z', guildId: GUILD, scope: { channel: CHANNEL }, participants: [], sourceMessageIds: ['400000000000000002'], origin: 'live',
+    v: 1,
+    id: 'rec-3',
+    kind: 'deleted',
+    messageId: '400000000000000002',
+    occurredAt: '2026-10-20T11:00:00.000Z',
+    recordedAt: '2026-10-20T11:00:00.000Z',
+    guildId: GUILD,
+    scope: { channel: CHANNEL },
+    participants: [],
+    sourceMessageIds: ['400000000000000002'],
+    origin: 'live',
   };
   const { rows, back } = roundTrip(mapper, REL, line);
   assert.equal(rows.sources[0].id, 'src:discord:400000000000000002:deleted:rec-3');
@@ -110,9 +122,19 @@ test('a deleted line has no revision, text or author and still round trips', () 
 
 test('a felt line has its own id, no message, and a user scope', () => {
   const line = {
-    v: 1, id: 'rec-4', kind: 'felt', occurredAt: '2026-10-20T12:00:00.000Z', recordedAt: '2026-10-20T12:00:00.000Z', guildId: GUILD,
-    scope: { user: '100000000000000001' }, participants: ['100000000000000001'], sourceMessageIds: [], origin: 'live',
-    feltId: 'felt-1', itemId: 'ep-1', revisionId: 'rev-1',
+    v: 1,
+    id: 'rec-4',
+    kind: 'felt',
+    occurredAt: '2026-10-20T12:00:00.000Z',
+    recordedAt: '2026-10-20T12:00:00.000Z',
+    guildId: GUILD,
+    scope: { user: '100000000000000001' },
+    participants: ['100000000000000001'],
+    sourceMessageIds: [],
+    origin: 'live',
+    feltId: 'felt-1',
+    itemId: 'ep-1',
+    revisionId: 'rev-1',
   };
   const { rows, back } = roundTrip(mapper, REL, line);
   assert.equal(rows.sources[0].id, 'src:discord:none:felt:rec-4');
@@ -131,7 +153,13 @@ test('a line of a private layer is a DM source of that member and keeps its chan
 });
 
 test('scopes the columns cannot rebuild are kept whole', () => {
-  for (const scope of [{ guild: true }, {}, { channel: CHANNEL, user: '100000000000000001' }, { channel: 5 }, { other: 1 }]) {
+  for (const scope of [
+    { guild: true },
+    {},
+    { channel: CHANNEL, user: '100000000000000001' },
+    { channel: 5 },
+    { other: 1 },
+  ]) {
     const line = { ...seen(), scope };
     assert.deepEqual(roundTrip(mapper, REL, line).back, line, JSON.stringify(scope));
   }
@@ -141,7 +169,14 @@ test('scopes the columns cannot rebuild are kept whole', () => {
 });
 
 test('a field of an unexpected type, or an unknown field, survives', () => {
-  const line = { ...seen(), text: 5, revision: '2', direct: 'yes', media: 'image', unknownField: { deep: [1, null, 'x'] } };
+  const line = {
+    ...seen(),
+    text: 5,
+    revision: '2',
+    direct: 'yes',
+    media: 'image',
+    unknownField: { deep: [1, null, 'x'] },
+  };
   assert.deepEqual(roundTrip(mapper, REL, line).back, line);
 });
 

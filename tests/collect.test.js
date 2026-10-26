@@ -26,7 +26,15 @@ import {
   isWritableChannel,
   audienceOf,
 } from '../src/interface/discord.js';
-import { ChannelType, Embed, MessageReferenceType, OverwriteType, PermissionFlagsBits, PermissionsBitField, SnowflakeUtil } from 'discord.js';
+import {
+  ChannelType,
+  Embed,
+  MessageReferenceType,
+  OverwriteType,
+  PermissionFlagsBits,
+  PermissionsBitField,
+  SnowflakeUtil,
+} from 'discord.js';
 import { videoUrlCacheKey } from '../src/media/video-sites.js';
 import { collectPictures, collectVideos } from '../src/media/classify.js';
 import { audienceCovers } from '../src/behavior/elsewhere.js';
@@ -64,7 +72,17 @@ test('normalizeMessage: classifies attachments through media.js, keeping url/siz
   const raw = rawMessage({
     attachments: new Map([
       ['a1', { id: 'a1', contentType: 'image/png', name: 'pic.png', url: 'https://cdn/pic.png', size: 123 }],
-      ['a2', { id: 'a2', contentType: 'video/mp4', name: 'clip.mp4', url: 'https://cdn/clip.mp4', size: 456, duration: null }],
+      [
+        'a2',
+        {
+          id: 'a2',
+          contentType: 'video/mp4',
+          name: 'clip.mp4',
+          url: 'https://cdn/clip.mp4',
+          size: 456,
+          duration: null,
+        },
+      ],
     ]),
   });
   const m = normalizeMessage(raw, 'self');
@@ -84,8 +102,30 @@ test('normalizeMessage: classifies attachments through media.js, keeping url/siz
 test('normalizeMessage: an attachment carries its pixel size from discord.js, null when Discord gives none', () => {
   const raw = rawMessage({
     attachments: new Map([
-      ['a1', { id: 'a1', contentType: 'image/png', name: 'pic.png', url: 'https://cdn/pic.png', size: 1, width: 988, height: 1306 }],
-      ['a2', { id: 'a2', contentType: 'text/plain', name: 'a.txt', url: 'https://cdn/a.txt', size: 1, width: null, height: null }],
+      [
+        'a1',
+        {
+          id: 'a1',
+          contentType: 'image/png',
+          name: 'pic.png',
+          url: 'https://cdn/pic.png',
+          size: 1,
+          width: 988,
+          height: 1306,
+        },
+      ],
+      [
+        'a2',
+        {
+          id: 'a2',
+          contentType: 'text/plain',
+          name: 'a.txt',
+          url: 'https://cdn/a.txt',
+          size: 1,
+          width: null,
+          height: null,
+        },
+      ],
     ]),
   });
   const m = normalizeMessage(raw, 'self');
@@ -103,7 +143,13 @@ test('normalizeMessage: the voice-message flag reclassifies an audio attachment 
     {
       label: 'a voice-message flag reclassifies the attachment as voice',
       flags: ['IsVoiceMessage'],
-      attachment: { id: 'a1', contentType: 'audio/ogg', name: 'voice-message.ogg', url: 'https://cdn/v.ogg', duration: 12 },
+      attachment: {
+        id: 'a1',
+        contentType: 'audio/ogg',
+        name: 'voice-message.ogg',
+        url: 'https://cdn/v.ogg',
+        duration: 12,
+      },
       expected: { kind: 'voice', durationSec: 12 },
     },
     {
@@ -114,7 +160,10 @@ test('normalizeMessage: the voice-message flag reclassifies an audio attachment 
     },
   ];
   for (const { label, flags, attachment, expected } of rows) {
-    const m = normalizeMessage(rawMessage({ flags: flagsWith(flags), attachments: new Map([['a1', attachment]]) }), 'self');
+    const m = normalizeMessage(
+      rawMessage({ flags: flagsWith(flags), attachments: new Map([['a1', attachment]]) }),
+      'self'
+    );
     for (const [key, value] of Object.entries(expected)) {
       assert.equal(m.attachments[0][key], value, `${label}: ${key}`);
     }
@@ -144,7 +193,17 @@ test('normalizeMessage: a tenor gifv embed keeps its mp4 as animationUrl, in the
     cleanContent: 'https://tenor.com/view/x',
     embeds: [gifv],
     messageSnapshots: new Map([
-      ['snap1', { id: 'snap1', cleanContent: '', attachments: new Map(), embeds: [gifv], stickers: new Map(), flags: flagsWith([]) }],
+      [
+        'snap1',
+        {
+          id: 'snap1',
+          cleanContent: '',
+          attachments: new Map(),
+          embeds: [gifv],
+          stickers: new Map(),
+          flags: flagsWith([]),
+        },
+      ],
     ]),
   });
   const m = normalizeMessage(raw, 'self');
@@ -183,7 +242,11 @@ test('normalizeMessage: a GIF-picker post (a gifv embed of an unknown provider) 
 test('normalizeMessage: a pasted Discord-hosted .gif link is a gif item to watch, a .png link stays a link', () => {
   const url = 'https://media.discordapp.net/attachments/1/2/dance.gif?ex=1&is=2&hm=3';
   const proxy = 'https://media.discordapp.net/attachments/1/2/dance.gif?ex=1&is=2&hm=3&width=498&height=280';
-  const embed = new Embed({ type: 'image', url, thumbnail: { url, proxy_url: proxy, width: 498, height: 280, content_type: 'image/gif' } });
+  const embed = new Embed({
+    type: 'image',
+    url,
+    thumbnail: { url, proxy_url: proxy, width: 498, height: 280, content_type: 'image/gif' },
+  });
   const m = normalizeMessage(rawMessage({ cleanContent: url, content: url, embeds: [embed] }), 'self');
   assert.deepEqual(m.attachments, []);
   assert.equal(m.links.length, 1);
@@ -197,7 +260,11 @@ test('normalizeMessage: a pasted Discord-hosted .gif link is a gif item to watch
   assert.equal(picture.animationUrl, url, 'what the GIF watch downloads');
 
   const png = 'https://media.discordapp.net/attachments/1/3/photo.png?ex=1&is=2&hm=3';
-  const pngEmbed = new Embed({ type: 'image', url: png, thumbnail: { url: png, proxy_url: png, width: 10, height: 10, content_type: 'image/png' } });
+  const pngEmbed = new Embed({
+    type: 'image',
+    url: png,
+    thumbnail: { url: png, proxy_url: png, width: 10, height: 10, content_type: 'image/png' },
+  });
   const p = normalizeMessage(rawMessage({ cleanContent: png, content: png, embeds: [pngEmbed] }), 'self');
   assert.equal(p.links[0].kind, 'link');
   assert.equal('animationUrl' in p.links[0], false);
@@ -206,7 +273,12 @@ test('normalizeMessage: a pasted Discord-hosted .gif link is a gif item to watch
 
 test('normalizeMessage: a gifv embed on a configured video site stays a video link', () => {
   const url = 'https://x.com/someone/status/1';
-  const embed = new Embed({ type: 'gifv', url, thumbnail: { url: 'https://pbs.example.net/t.jpg' }, video: { url: 'https://video.example.net/v.mp4' } });
+  const embed = new Embed({
+    type: 'gifv',
+    url,
+    thumbnail: { url: 'https://pbs.example.net/t.jpg' },
+    video: { url: 'https://video.example.net/v.mp4' },
+  });
   const m = normalizeMessage(rawMessage({ cleanContent: url, embeds: [embed] }), 'self', { videoSites: ['x.com'] });
   assert.equal(m.links[0].kind, 'link');
   assert.equal(m.links[0].id, videoUrlCacheKey(url));
@@ -239,7 +311,9 @@ test('normalizeMessage: a forwarded message (snapshot) is captured with its own 
         {
           id: 'snap1',
           cleanContent: 'forwarded text',
-          attachments: new Map([['f1', { id: 'f1', contentType: 'image/png', name: 'f.png', url: 'https://cdn/f.png' }]]),
+          attachments: new Map([
+            ['f1', { id: 'f1', contentType: 'image/png', name: 'f.png', url: 'https://cdn/f.png' }],
+          ]),
           embeds: [],
           stickers: new Map(),
           flags: flagsWith([]),
@@ -268,9 +342,24 @@ test('normalizeMessage: stickers become { id, name, format, url }, PNG/APNG/GIF 
     ]),
   });
   const m = normalizeMessage(raw, 'self');
-  assert.deepEqual(m.stickers[0], { id: 's1', name: 'pepe', format: 1, url: 'https://media.discordapp.net/stickers/s1.png?size=160' });
-  assert.deepEqual(m.stickers[1], { id: 's2', name: 'wave', format: 2, url: 'https://media.discordapp.net/stickers/s2.png?size=160' });
-  assert.deepEqual(m.stickers[2], { id: 's3', name: 'dance', format: 4, url: 'https://media.discordapp.net/stickers/s3.gif?size=160' });
+  assert.deepEqual(m.stickers[0], {
+    id: 's1',
+    name: 'pepe',
+    format: 1,
+    url: 'https://media.discordapp.net/stickers/s1.png?size=160',
+  });
+  assert.deepEqual(m.stickers[1], {
+    id: 's2',
+    name: 'wave',
+    format: 2,
+    url: 'https://media.discordapp.net/stickers/s2.png?size=160',
+  });
+  assert.deepEqual(m.stickers[2], {
+    id: 's3',
+    name: 'dance',
+    format: 4,
+    url: 'https://media.discordapp.net/stickers/s3.gif?size=160',
+  });
 });
 
 // --- normalizeMessage: custom emoji extraction -------------------------
@@ -284,21 +373,28 @@ test('normalizeMessage: custom emoji are read from the raw content, text from cl
   const raw = rawMessage({ content: `hi <:pepe:${PEPE_ID}>`, cleanContent: 'hi :pepe:' });
   const m = normalizeMessage(raw, 'self');
   assert.equal(m.content, 'hi :pepe:');
-  assert.deepEqual(m.emojis, [{ id: PEPE_ID, name: 'pepe', animated: false, url: `https://cdn.discordapp.com/emojis/${PEPE_ID}.webp?size=96` }]);
+  assert.deepEqual(m.emojis, [
+    { id: PEPE_ID, name: 'pepe', animated: false, url: `https://cdn.discordapp.com/emojis/${PEPE_ID}.webp?size=96` },
+  ]);
 });
 
 test('normalizeMessage: an animated custom emoji in the raw content is marked animated', () => {
   const raw = rawMessage({ content: `hi <a:pepe:${PEPE_ID}>`, cleanContent: 'hi :pepe:' });
   const m = normalizeMessage(raw, 'self');
   assert.equal(m.content, 'hi :pepe:');
-  assert.deepEqual(m.emojis, [{ id: PEPE_ID, name: 'pepe', animated: true, url: `https://cdn.discordapp.com/emojis/${PEPE_ID}.webp?size=96` }]);
+  assert.deepEqual(m.emojis, [
+    { id: PEPE_ID, name: 'pepe', animated: true, url: `https://cdn.discordapp.com/emojis/${PEPE_ID}.webp?size=96` },
+  ]);
 });
 
 test('normalizeMessage: without a raw content, custom emoji fall back to cleanContent', () => {
   const raw = rawMessage({ content: undefined, cleanContent: `hi <:pepe:${PEPE_ID}>` });
   const m = normalizeMessage(raw, 'self');
   assert.equal(m.content, 'hi :pepe:');
-  assert.deepEqual(m.emojis.map((e) => e.name), ['pepe']);
+  assert.deepEqual(
+    m.emojis.map((e) => e.name),
+    ['pepe']
+  );
 });
 
 test('normalizeMessage: the same custom emoji repeated in one message is de-duplicated', () => {
@@ -313,10 +409,13 @@ test('normalizeMessage: distinct custom emoji are capped at 5 per message, first
   const raw = rawMessage({ content, cleanContent: ids.map((id) => `:e${id}:`).join(' ') });
   const m = normalizeMessage(raw, 'self');
   assert.equal(m.emojis.length, 5);
-  assert.deepEqual(m.emojis.map((e) => e.id), ['1', '2', '3', '4', '5']);
+  assert.deepEqual(
+    m.emojis.map((e) => e.id),
+    ['1', '2', '3', '4', '5']
+  );
 });
 
-test('normalizeMessage: reactions are read with count and the bot\'s own mark', () => {
+test("normalizeMessage: reactions are read with count and the bot's own mark", () => {
   const raw = rawMessage({
     reactions: {
       cache: new Map([
@@ -363,8 +462,12 @@ test('normalizeMessage: a forwarded snapshot also carries its own stickers and e
   });
   const m = normalizeMessage(raw, 'self');
   assert.equal(m.forwarded[0].content, 'look :pog:');
-  assert.deepEqual(m.forwarded[0].emojis, [{ id: '111', name: 'pog', animated: false, url: 'https://cdn.discordapp.com/emojis/111.webp?size=96' }]);
-  assert.deepEqual(m.forwarded[0].stickers, [{ id: 's1', name: 'pepe', format: 1, url: 'https://media.discordapp.net/stickers/s1.png?size=160' }]);
+  assert.deepEqual(m.forwarded[0].emojis, [
+    { id: '111', name: 'pog', animated: false, url: 'https://cdn.discordapp.com/emojis/111.webp?size=96' },
+  ]);
+  assert.deepEqual(m.forwarded[0].stickers, [
+    { id: 's1', name: 'pepe', format: 1, url: 'https://media.discordapp.net/stickers/s1.png?size=160' },
+  ]);
 });
 
 // --- normalizeMessage: describable link thumbnails get a stable id ----
@@ -395,8 +498,11 @@ test('normalizeMessage: the same link thumbnail on two different messages gets t
   });
   const m1 = normalizeMessage(rawMessage({ id: 'm1', embeds: [embed()] }), 'self');
   const m2 = normalizeMessage(
-    rawMessage({ id: 'm2', embeds: [{ ...embed(), thumbnail: { url: 'https://i.ytimg.com/vi/xyz/hq.jpg?ex=9&hm=zzz' } }] }),
-    'self',
+    rawMessage({
+      id: 'm2',
+      embeds: [{ ...embed(), thumbnail: { url: 'https://i.ytimg.com/vi/xyz/hq.jpg?ex=9&hm=zzz' } }],
+    }),
+    'self'
   );
   assert.equal(m1.links[0].id, m2.links[0].id);
 });
@@ -408,7 +514,10 @@ test('normalizeMessage: an embed thumbnail prefers proxyURL over url when discor
         url: 'https://www.youtube.com/watch?v=xyz',
         provider: { name: 'YouTube' },
         title: 'Cool video',
-        thumbnail: { url: 'https://i.ytimg.com/vi/xyz/hq.jpg', proxyURL: 'https://media.discordapp.net/external/abc/hq.jpg' },
+        thumbnail: {
+          url: 'https://i.ytimg.com/vi/xyz/hq.jpg',
+          proxyURL: 'https://media.discordapp.net/external/abc/hq.jpg',
+        },
       },
     ],
   });
@@ -439,7 +548,7 @@ test('normalizeMessage: a link thumbnail carries its pixel size from the embed t
     [
       [1280, 720],
       [null, null],
-    ],
+    ]
   );
 });
 
@@ -473,7 +582,14 @@ test('normalizeMessage: a typed URL that an embed already carries is added once 
   const url = 'https://www.youtube.com/watch?v=xyz';
   const raw = rawMessage({
     cleanContent: `look ${url}`,
-    embeds: [{ url, provider: { name: 'YouTube' }, title: 'Cool video', thumbnail: { url: 'https://i.ytimg.com/vi/xyz/hq.jpg' } }],
+    embeds: [
+      {
+        url,
+        provider: { name: 'YouTube' },
+        title: 'Cool video',
+        thumbnail: { url: 'https://i.ytimg.com/vi/xyz/hq.jpg' },
+      },
+    ],
   });
   const m = normalizeMessage(raw, 'self', { videoSites: VIDEO_SITES });
   assert.equal(m.links.length, 1);
@@ -564,12 +680,22 @@ test('normalizeMessage: a plain reply keeps replyToId, forwardedFrom stays null'
   assert.equal(m.forwardedFrom, null);
 });
 
-test('normalizeMessage: a forward\'s replyToId is null even though message_reference carries the original message id', () => {
+test("normalizeMessage: a forward's replyToId is null even though message_reference carries the original message id", () => {
   const raw = rawMessage({
     guild: guildWithChannel('c2', 'announcements'),
     reference: { messageId: 'original-msg-id', channelId: 'c2', type: MessageReferenceType.Forward },
     messageSnapshots: new Map([
-      ['snap1', { id: 'snap1', cleanContent: 'forwarded text', attachments: new Map(), embeds: [], stickers: new Map(), flags: flagsWith([]) }],
+      [
+        'snap1',
+        {
+          id: 'snap1',
+          cleanContent: 'forwarded text',
+          attachments: new Map(),
+          embeds: [],
+          stickers: new Map(),
+          flags: flagsWith([]),
+        },
+      ],
     ]),
   });
   const m = normalizeMessage(raw, 'self');
@@ -607,19 +733,33 @@ test('normalizeMessage: a forward with no guild on the message never throws, for
 // --- normalizeMessage: mentionedUserIds ---------------------------------
 
 test('normalizeMessage: mentionedUserIds carries the real mention ids, in order', () => {
-  const raw = rawMessage({ mentions: { users: new Map([['u2', {}], ['u3', {}]]) } });
+  const raw = rawMessage({
+    mentions: {
+      users: new Map([
+        ['u2', {}],
+        ['u3', {}],
+      ]),
+    },
+  });
   const m = normalizeMessage(raw, 'self');
   assert.deepEqual(m.mentionedUserIds, ['u2', 'u3']);
 });
 
-test('normalizeMessage: mentionedUsers names each mention as the text reads it (the member\'s display name, else the user\'s)', () => {
+test("normalizeMessage: mentionedUsers names each mention as the text reads it (the member's display name, else the user's)", () => {
   const raw = rawMessage({
     mentions: {
-      users: new Map([['u2', { globalName: 'Zo\u00eb' }], ['u3', { username: 'bo' }], ['u4', {}]]),
+      users: new Map([
+        ['u2', { globalName: 'Zo\u00eb' }],
+        ['u3', { username: 'bo' }],
+        ['u4', {}],
+      ]),
       members: new Map([['u3', { displayName: 'Bo Nick' }]]),
     },
   });
-  assert.deepEqual(normalizeMessage(raw, 'self').mentionedUsers, [{ id: 'u2', name: 'Zo\u00eb' }, { id: 'u3', name: 'Bo Nick' }]);
+  assert.deepEqual(normalizeMessage(raw, 'self').mentionedUsers, [
+    { id: 'u2', name: 'Zo\u00eb' },
+    { id: 'u3', name: 'Bo Nick' },
+  ]);
 });
 
 // --- normalizeMessage: mentionedChannelIds -------------------------------
@@ -649,7 +789,18 @@ test('normalizeMessage: no channel mention gives an empty list', () => {
     cleanContent: '',
     reference: { messageId: 'orig', channelId: 'c2', type: MessageReferenceType.Forward },
     messageSnapshots: new Map([
-      ['snap1', { id: 'snap1', content: `<#${CHANNEL_IDS[0]}>`, cleanContent: '#ημερολόγιο', attachments: new Map(), embeds: [], stickers: new Map(), flags: flagsWith([]) }],
+      [
+        'snap1',
+        {
+          id: 'snap1',
+          content: `<#${CHANNEL_IDS[0]}>`,
+          cleanContent: '#ημερολόγιο',
+          attachments: new Map(),
+          embeds: [],
+          stickers: new Map(),
+          flags: flagsWith([]),
+        },
+      ],
     ]),
   });
   assert.deepEqual(normalizeMessage(forward, 'self').mentionedChannelIds, []);
@@ -719,7 +870,12 @@ test('fetchHistory: threads videoSites through, a typed video-site URL becomes a
   const raw = rawMessage({ cleanContent: 'regarde https://www.youtube.com/watch?v=abc' });
   const channel = { messages: { fetch: async () => new Map([[raw.id, raw]]) } };
 
-  const [withSites] = await fetchHistory(channel, { limit: 10, selfId: 'self', embedTextChars: 200, videoSites: ['youtube.com'] });
+  const [withSites] = await fetchHistory(channel, {
+    limit: 10,
+    selfId: 'self',
+    embedTextChars: 200,
+    videoSites: ['youtube.com'],
+  });
   assert.equal(withSites.links.length, 1);
   assert.equal(withSites.links[0].url, 'https://www.youtube.com/watch?v=abc');
 
@@ -735,13 +891,19 @@ test('fetchHistory: asks for at most one page of messages, oldest first in the r
     messages: {
       fetch: async (query) => {
         queries.push(query);
-        return new Map([[newer.id, newer], [older.id, older]]);
+        return new Map([
+          [newer.id, newer],
+          [older.id, older],
+        ]);
       },
     },
   };
   const messages = await fetchHistory(channel, { limit: 500, selfId: 'self' });
   assert.deepEqual(queries, [{ limit: 100 }]);
-  assert.deepEqual(messages.map((m) => m.id), ['m1', 'm2']);
+  assert.deepEqual(
+    messages.map((m) => m.id),
+    ['m1', 'm2']
+  );
 });
 
 // --- fetchMessage: cache first, then one fetch, null on failure ----------------
@@ -779,7 +941,14 @@ test('fetchMessage: an uncached message is fetched by id', async () => {
 });
 
 test('fetchMessage: a failed or empty fetch, or a channel without a message cache, is null', async () => {
-  const failing = { messages: { cache: new Map(), fetch: async () => { throw new Error('Unknown Message'); } } };
+  const failing = {
+    messages: {
+      cache: new Map(),
+      fetch: async () => {
+        throw new Error('Unknown Message');
+      },
+    },
+  };
   assert.equal(await fetchMessage(failing, 'gone'), null);
   const empty = { messages: { cache: new Map(), fetch: async () => undefined } };
   assert.equal(await fetchMessage(empty, 'gone'), null);
@@ -816,7 +985,11 @@ function parentChannel(stored) {
 const PARENT_OPTIONS = { recent: 3, max: 4, selfId: 'self', embedTextChars: 200, videoSites: ['youtube.com'] };
 
 test('fetchReplyParents: the trigger replies outside the window -- its parent is fetched and normalized like a history line', async () => {
-  const parent = rawMessage({ id: 'p1', createdTimestamp: 100, cleanContent: 'regarde https://www.youtube.com/watch?v=abc' });
+  const parent = rawMessage({
+    id: 'p1',
+    createdTimestamp: 100,
+    cleanContent: 'regarde https://www.youtube.com/watch?v=abc',
+  });
   const channel = parentChannel([parent]);
   const history = [normalizeMessage(rawReply('m1', 5000, 'p1'), 'self')];
   const parents = await fetchReplyParents(channel, history, { ...PARENT_OPTIONS, trigger: history[0] });
@@ -827,7 +1000,10 @@ test('fetchReplyParents: the trigger replies outside the window -- its parent is
 
 test('fetchReplyParents: a parent inside the window is never fetched', async () => {
   const channel = parentChannel([]);
-  const history = [normalizeMessage(rawMessage({ id: 'p1' }), 'self'), normalizeMessage(rawReply('m1', 5000, 'p1'), 'self')];
+  const history = [
+    normalizeMessage(rawMessage({ id: 'p1' }), 'self'),
+    normalizeMessage(rawReply('m1', 5000, 'p1'), 'self'),
+  ];
   const parents = await fetchReplyParents(channel, history, { ...PARENT_OPTIONS, trigger: history[1] });
   assert.deepEqual(parents, []);
   assert.deepEqual(channel.fetched, []);
@@ -840,7 +1016,10 @@ test('fetchReplyParents: a chain of two -- the parent of the fetched parent come
   const channel = parentChannel([root, grand, parent]);
   const history = [normalizeMessage(rawReply('m1', 5000, 'p2'), 'self')];
   const parents = await fetchReplyParents(channel, history, { ...PARENT_OPTIONS, trigger: history[0] });
-  assert.deepEqual(parents.map((m) => m.id), ['p1', 'p2']);
+  assert.deepEqual(
+    parents.map((m) => m.id),
+    ['p1', 'p2']
+  );
   assert.deepEqual(channel.fetched, ['p2', 'p1']);
 });
 
@@ -855,7 +1034,10 @@ test('fetchReplyParents: the last `recent` lines of the window get their parents
   ];
   const parents = await fetchReplyParents(channel, history, { ...PARENT_OPTIONS, recent: 3, trigger: null });
   assert.deepEqual(channel.fetched, ['pd', 'pc', 'pb']);
-  assert.deepEqual(parents.map((m) => m.id), ['pb', 'pc', 'pd']);
+  assert.deepEqual(
+    parents.map((m) => m.id),
+    ['pb', 'pc', 'pd']
+  );
 });
 
 test('fetchReplyParents: at most `max` lines are fetched, the trigger chain first', async () => {
@@ -873,13 +1055,21 @@ test('fetchReplyParents: at most `max` lines are fetched, the trigger chain firs
   ];
   const parents = await fetchReplyParents(channel, history, { ...PARENT_OPTIONS, max: 3, trigger: history[2] });
   assert.deepEqual(channel.fetched, ['p1', 'p0', 'pc']);
-  assert.deepEqual(parents.map((m) => m.id), ['p0', 'p1', 'pc']);
+  assert.deepEqual(
+    parents.map((m) => m.id),
+    ['p0', 'p1', 'pc']
+  );
 });
 
 test('fetchReplyParents: a deleted parent is skipped and logged once with ids only', async () => {
   const channel = parentChannel([]);
-  const history = [normalizeMessage(rawReply('m1', 1000, 'gone'), 'self'), normalizeMessage(rawReply('m2', 2000, 'gone'), 'self')];
-  const { result, logs } = await withCapturedLogs(() => fetchReplyParents(channel, history, { ...PARENT_OPTIONS, trigger: history[1] }));
+  const history = [
+    normalizeMessage(rawReply('m1', 1000, 'gone'), 'self'),
+    normalizeMessage(rawReply('m2', 2000, 'gone'), 'self'),
+  ];
+  const { result, logs } = await withCapturedLogs(() =>
+    fetchReplyParents(channel, history, { ...PARENT_OPTIONS, trigger: history[1] })
+  );
   assert.deepEqual(result, []);
   assert.deepEqual(channel.fetched, ['gone']);
   const missing = logs.filter((entry) => entry.msg === 'collect: parent missing');
@@ -911,7 +1101,11 @@ test('fetchTextPreview: returns the first maxChars characters', async () => {
 });
 
 test('fetchTextPreview: a declared content-length over the 256 KB guard is never fetched fully', async () => {
-  const text = await fetchTextPreview('https://x/big.txt', 100, fakeFetch('x'.repeat(10), { headers: { 'content-length': String(300 * 1024) } }));
+  const text = await fetchTextPreview(
+    'https://x/big.txt',
+    100,
+    fakeFetch('x'.repeat(10), { headers: { 'content-length': String(300 * 1024) } })
+  );
   assert.equal(text, null);
 });
 
@@ -957,7 +1151,10 @@ function permChannel({ granted = [], me = { id: 'self-id' }, viewable = true, pe
 }
 
 test('canAttach: true when the bot member has Attach Files in the channel', () => {
-  assert.equal(canAttach(permChannel({ granted: [PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles] })), true);
+  assert.equal(
+    canAttach(permChannel({ granted: [PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles] })),
+    true
+  );
 });
 
 test('canAttach: false when the bot member can send but not attach files', () => {
@@ -1013,7 +1210,11 @@ test('canReact: needs AddReactions on a viewable channel, a DM is always yes', (
   const read = PermissionFlagsBits.ReadMessageHistory;
   const react = PermissionFlagsBits.AddReactions;
   assert.equal(canReact(permChannel({ granted: [read, react] })), true, 'a read-only channel the bot may react in');
-  assert.equal(canReact(permChannel({ granted: [read, PermissionFlagsBits.SendMessages] })), false, 'sending is not reacting');
+  assert.equal(
+    canReact(permChannel({ granted: [read, PermissionFlagsBits.SendMessages] })),
+    false,
+    'sending is not reacting'
+  );
   assert.equal(canReact(permChannel({ granted: [react] })), false, 'Discord also needs Read Message History to react');
   assert.equal(canReact(permChannel({ granted: [read, react], viewable: false })), false);
   assert.equal(canReact(permChannel({ granted: [read, react], me: null })), false);
@@ -1081,9 +1282,12 @@ test('fetchNeighbors: a neighbour the bot cannot write in is marked readOnly', a
     [
       { channelId: 'diary', readOnly: true },
       { channelId: 'talk', readOnly: false },
-    ],
+    ]
   );
-  assert.deepEqual(neighbours[0].messages.map((m) => m.id), ['diary-m']);
+  assert.deepEqual(
+    neighbours[0].messages.map((m) => m.id),
+    ['diary-m']
+  );
 });
 
 test('fetchNeighbors: the dry-run mirror channel is never a neighbour', async () => {
@@ -1094,9 +1298,15 @@ test('fetchNeighbors: the dry-run mirror channel is never a neighbour', async ()
   ]);
   const here = guild.channels.cache.get('here');
   const withMirror = await fetchNeighbors(here, NEIGHBOUR_CONFIG({ dryRunChannelId: MIRROR_ID }), 'self-id', NOW);
-  assert.deepEqual(withMirror.map((n) => n.channelId), ['talk']);
+  assert.deepEqual(
+    withMirror.map((n) => n.channelId),
+    ['talk']
+  );
   const noMirror = await fetchNeighbors(here, NEIGHBOUR_CONFIG({ dryRunChannelId: '' }), 'self-id', NOW);
-  assert.deepEqual(noMirror.map((n) => n.channelId), [MIRROR_ID, 'talk']);
+  assert.deepEqual(
+    noMirror.map((n) => n.channelId),
+    [MIRROR_ID, 'talk']
+  );
 });
 
 test('readableChannels: threads, non-text, unreadable channels and the dry-run mirror are left out', () => {
@@ -1110,8 +1320,14 @@ test('readableChannels: threads, non-text, unreadable channels and the dry-run m
     { id: MIRROR_ID, granted: [READ, SEND] },
   ]);
   const bot = { dryRunChannelId: MIRROR_ID };
-  assert.deepEqual(readableChannels(guild, bot).map((c) => c.id), ['open', 'diary']);
-  assert.deepEqual(readableChannels(guild, bot, 'open').map((c) => c.id), ['diary']);
+  assert.deepEqual(
+    readableChannels(guild, bot).map((c) => c.id),
+    ['open', 'diary']
+  );
+  assert.deepEqual(
+    readableChannels(guild, bot, 'open').map((c) => c.id),
+    ['diary']
+  );
   assert.equal(isReadableChannel(guild.channels.cache.get('diary'), bot), true);
   assert.equal(isReadableChannel(guild.channels.cache.get(MIRROR_ID), bot), false);
   assert.equal(isReadableChannel(guild.channels.cache.get(MIRROR_ID), { dryRunChannelId: '' }), true);
@@ -1124,9 +1340,16 @@ test('readableChannels: a leftover bot.channels allow/deny key is ignored; Disco
     { id: 'hidden', granted: [SEND] },
   ]);
   const bot = { channels: { allow: ['hidden'], deny: ['listed'] }, dryRunChannelId: '' };
-  assert.deepEqual(readableChannels(guild, bot).map((c) => c.id), ['open', 'listed']);
+  assert.deepEqual(
+    readableChannels(guild, bot).map((c) => c.id),
+    ['open', 'listed']
+  );
   assert.equal(isWritableChannel(guild.channels.cache.get('listed'), bot), true);
-  assert.equal(isReadableChannel(guild.channels.cache.get('hidden'), bot), false, 'an allow entry opens no channel Discord closes');
+  assert.equal(
+    isReadableChannel(guild.channels.cache.get('hidden'), bot),
+    false,
+    'an allow entry opens no channel Discord closes'
+  );
 });
 
 // --- audienceOf: who can view a channel, in the shape audienceCovers takes ---
@@ -1147,14 +1370,26 @@ const BOT_ID = '630000000000000001';
  * user's (channel.client.user); both absent by default. `members`: the
  * guild's member cache as `{ id, bot }`; absent by default (no cache).
  */
-function audienceChannel({ roles = Object.values(ROLE), overwrites = [], thread = false, meId = null, clientUserId = null, members = null } = {}) {
+function audienceChannel({
+  roles = Object.values(ROLE),
+  overwrites = [],
+  thread = false,
+  meId = null,
+  clientUserId = null,
+  members = null,
+} = {}) {
   const everyone = { id: GUILD_ID, permissions: new PermissionsBitField(VIEW) };
   const all = [everyone, ...roles.map((id) => ({ id, permissions: new PermissionsBitField(0n) }))];
   const cache = new Map(
     overwrites.map((o) => [
       o.id,
-      { id: o.id, type: o.type, allow: new PermissionsBitField(o.allow ?? 0n), deny: new PermissionsBitField(o.deny ?? 0n) },
-    ]),
+      {
+        id: o.id,
+        type: o.type,
+        allow: new PermissionsBitField(o.allow ?? 0n),
+        deny: new PermissionsBitField(o.deny ?? 0n),
+      },
+    ])
   );
   const resolve = (role) => {
     let bits = everyone.permissions.bitfield | role.permissions.bitfield;
@@ -1170,7 +1405,20 @@ function audienceChannel({ roles = Object.values(ROLE), overwrites = [], thread 
       id: GUILD_ID,
       members: {
         me: meId ? { id: meId } : null,
-        ...(members ? { cache: new Map(members.map(({ id, bot, roleIds }) => [id, { id, user: { id, bot }, ...(roleIds ? { roles: { cache: new Map(roleIds.map((r) => [r, { id: r }])) } } : {}) }])) } : {}),
+        ...(members
+          ? {
+              cache: new Map(
+                members.map(({ id, bot, roleIds }) => [
+                  id,
+                  {
+                    id,
+                    user: { id, bot },
+                    ...(roleIds ? { roles: { cache: new Map(roleIds.map((r) => [r, { id: r }])) } } : {}),
+                  },
+                ])
+              ),
+            }
+          : {}),
       },
       roles: { everyone, cache: new Map(all.map((role) => [role.id, role])) },
     },
@@ -1228,7 +1476,9 @@ test('audienceOf: memberRoles holds the cached roles of the members named by an 
 // source (audienceCovers, tests/elsewhere.test.js); these are the sets that
 // make it do so for a role denied on an everyone-visible source (M2).
 test('audienceOf: a role denied on an everyone-visible channel is missing from its roles though @everyone views it', () => {
-  const source = audienceOf(audienceChannel({ overwrites: [{ id: ROLE.muted, type: OverwriteType.Role, deny: VIEW }] }));
+  const source = audienceOf(
+    audienceChannel({ overwrites: [{ id: ROLE.muted, type: OverwriteType.Role, deny: VIEW }] })
+  );
   const dest = audienceOf(audienceChannel());
   assert.equal(source.everyone, true, '@everyone still views the source');
   assert.deepEqual(source.roles, new Set([GUILD_ID, ROLE.regular, ROLE.moderator]));
@@ -1242,22 +1492,34 @@ test("audienceOf: the bot's own member overwrite is not part of the audience", (
   const botAllow = { id: BOT_ID, type: OverwriteType.Member, allow: VIEW | PermissionFlagsBits.SendMessages };
   const botDeny = { id: BOT_ID, type: OverwriteType.Member, deny: VIEW };
   const publicChannel = audienceOf(audienceChannel());
-  assert.deepEqual(audienceOf(audienceChannel({ overwrites: [botAllow], meId: BOT_ID })), publicChannel, 'the bot member from guild.members.me');
-  assert.deepEqual(audienceOf(audienceChannel({ overwrites: [botAllow], clientUserId: BOT_ID })), publicChannel, 'the bot user from channel.client');
+  assert.deepEqual(
+    audienceOf(audienceChannel({ overwrites: [botAllow], meId: BOT_ID })),
+    publicChannel,
+    'the bot member from guild.members.me'
+  );
+  assert.deepEqual(
+    audienceOf(audienceChannel({ overwrites: [botAllow], clientUserId: BOT_ID })),
+    publicChannel,
+    'the bot user from channel.client'
+  );
   assert.deepEqual(audienceOf(audienceChannel({ overwrites: [botDeny], meId: BOT_ID })).memberDeny, new Set());
 
   const mixed = audienceOf(
     audienceChannel({
       meId: BOT_ID,
-      overwrites: [botAllow, { id: MEMBER.zoe, type: OverwriteType.Member, allow: VIEW }, { id: MEMBER.iason, type: OverwriteType.Member, deny: VIEW }],
-    }),
+      overwrites: [
+        botAllow,
+        { id: MEMBER.zoe, type: OverwriteType.Member, allow: VIEW },
+        { id: MEMBER.iason, type: OverwriteType.Member, deny: VIEW },
+      ],
+    })
   );
   assert.deepEqual(mixed.memberAllow, new Set([MEMBER.zoe]), "another member's allow stays");
   assert.deepEqual(mixed.memberDeny, new Set([MEMBER.iason]), "another member's deny stays");
   assert.deepEqual(
     audienceOf(audienceChannel({ overwrites: [botAllow] })).memberAllow,
     new Set([BOT_ID]),
-    'with no bot id known, nothing is left out',
+    'with no bot id known, nothing is left out'
   );
 });
 
@@ -1280,7 +1542,11 @@ test('audienceOf: a bot member overwrite is not part of the audience, a human or
     ],
   });
   const audience = audienceOf(channel);
-  assert.deepEqual(audience.memberAllow, new Set([MEMBER.zoe, MEMBER.nefeli]), "a bot's allow is ignored; a human's and an uncached member's stay");
+  assert.deepEqual(
+    audience.memberAllow,
+    new Set([MEMBER.zoe, MEMBER.nefeli]),
+    "a bot's allow is ignored; a human's and an uncached member's stay"
+  );
   assert.deepEqual(audience.memberDeny, new Set([MEMBER.iason]), "a bot's deny is ignored; a human's stays");
 });
 
@@ -1290,7 +1556,10 @@ test('audienceOf: two channels differing only by bot member allows cover each ot
   const shared = { roles: [...Object.values(ROLE), BOT_ROLE], members: bots.map((id) => ({ id, bot: true })) };
   const botRoleDeny = { id: BOT_ROLE, type: OverwriteType.Role, deny: VIEW };
   const main = audienceOf(
-    audienceChannel({ ...shared, overwrites: [botRoleDeny, ...bots.map((id) => ({ id, type: OverwriteType.Member, allow: VIEW }))] }),
+    audienceChannel({
+      ...shared,
+      overwrites: [botRoleDeny, ...bots.map((id) => ({ id, type: OverwriteType.Member, allow: VIEW }))],
+    })
   );
   const memes = audienceOf(audienceChannel({ ...shared, overwrites: [botRoleDeny] }));
   assert.equal(audienceCovers(main, memes), true, 'the memes channel is a source for the main chat');
@@ -1301,9 +1570,13 @@ test('audienceOf: two channels differing only by bot member allows cover each ot
       ...shared,
       members: [{ id: MEMBER.zoe, bot: false }],
       overwrites: [botRoleDeny, { id: MEMBER.zoe, type: OverwriteType.Member, allow: VIEW }],
-    }),
+    })
   );
-  assert.equal(audienceCovers(humanAllow, memes), false, "a human's allow by name still has to be proven on the source");
+  assert.equal(
+    audienceCovers(humanAllow, memes),
+    false,
+    "a human's allow by name still has to be proven on the source"
+  );
 });
 
 test('audienceOf: a channel without a guild or a thread has no audience', () => {
@@ -1314,7 +1587,14 @@ test('audienceOf: a channel without a guild or a thread has no audience', () => 
 // --- normalizeMessage: links to Discord CDN video attachments ------------------
 
 const CDN_VIDEO_URL = 'https://cdn.discordapp.com/attachments/111/222/clip.mp4?ex=aa&is=bb&hm=cc';
-const CDN_VIDEO_ENTRY = { id: '222', kind: 'video', name: 'clip.mp4', url: CDN_VIDEO_URL, size: null, durationSec: null };
+const CDN_VIDEO_ENTRY = {
+  id: '222',
+  kind: 'video',
+  name: 'clip.mp4',
+  url: CDN_VIDEO_URL,
+  size: null,
+  durationSec: null,
+};
 
 test('normalizeMessage: an embedded Discord CDN video link becomes a video attachment, not a link', () => {
   const raw = rawMessage({
@@ -1328,7 +1608,7 @@ test('normalizeMessage: an embedded Discord CDN video link becomes a video attac
   // collectVideos sees it as one attachment video and keeps the unknown duration unknown.
   assert.deepEqual(
     collectVideos(m, { videoSites: ['youtube.com'] }).map((v) => [v.source, v.itemId, v.url, v.durationSec]),
-    [['attachment', '222', CDN_VIDEO_URL, null]],
+    [['attachment', '222', CDN_VIDEO_URL, null]]
   );
 });
 
@@ -1351,7 +1631,12 @@ test('normalizeMessage: the embed URL of a CDN video is preferred over a typed o
 test('normalizeMessage: a CDN video link of an attachment already on the message is not duplicated', () => {
   const raw = rawMessage({
     cleanContent: CDN_VIDEO_URL,
-    attachments: new Map([['222', { id: '222', contentType: 'video/mp4', name: 'clip.mp4', url: 'https://cdn/real.mp4', size: 9, duration: 4 }]]),
+    attachments: new Map([
+      [
+        '222',
+        { id: '222', contentType: 'video/mp4', name: 'clip.mp4', url: 'https://cdn/real.mp4', size: 9, duration: 4 },
+      ],
+    ]),
     embeds: [{ url: CDN_VIDEO_URL }],
   });
   const m = normalizeMessage(raw, 'self');
@@ -1365,7 +1650,17 @@ test('normalizeMessage: a forwarded snapshot carrying a CDN video link gets a vi
   const raw = rawMessage({
     cleanContent: '',
     messageSnapshots: new Map([
-      ['snap1', { id: 'snap1', cleanContent: CDN_VIDEO_URL, attachments: new Map(), embeds: [{ url: CDN_VIDEO_URL }], stickers: new Map(), flags: flagsWith([]) }],
+      [
+        'snap1',
+        {
+          id: 'snap1',
+          cleanContent: CDN_VIDEO_URL,
+          attachments: new Map(),
+          embeds: [{ url: CDN_VIDEO_URL }],
+          stickers: new Map(),
+          flags: flagsWith([]),
+        },
+      ],
     ]),
   });
   const m = normalizeMessage(raw, 'self');
@@ -1402,9 +1697,15 @@ test('isWritableChannel: readable and sendable; never the dry-run mirror or an u
     { id: MIRROR_ID, granted: [READ, SEND] },
   ]);
   const bot = { dryRunChannelId: MIRROR_ID };
-  const writable = [...guild.channels.cache.values()].filter((channel) => isWritableChannel(channel, bot)).map((channel) => channel.id);
+  const writable = [...guild.channels.cache.values()]
+    .filter((channel) => isWritableChannel(channel, bot))
+    .map((channel) => channel.id);
   assert.deepEqual(writable, ['open']);
-  assert.equal(isWritableChannel(guild.channels.cache.get(MIRROR_ID), { dryRunChannelId: '' }), true, 'only the configured mirror is refused');
+  assert.equal(
+    isWritableChannel(guild.channels.cache.get(MIRROR_ID), { dryRunChannelId: '' }),
+    true,
+    'only the configured mirror is refused'
+  );
 });
 
 test('fetchNeighbors: accept is judged before the channel cap; a refused channel takes no slot and is never fetched', async () => {
@@ -1421,21 +1722,40 @@ test('fetchNeighbors: accept is judged before the channel cap; a refused channel
   }
   const judged = [];
   const accept = (other) => (judged.push(other.id), other.id !== 'staff');
-  const config = { ...NEIGHBOUR_CONFIG(), context: { neighborMessages: 5, neighborMaxAgeMinutes: 60, neighborMaxChannels: 1 } };
+  const config = {
+    ...NEIGHBOUR_CONFIG(),
+    context: { neighborMessages: 5, neighborMaxAgeMinutes: 60, neighborMaxChannels: 1 },
+  };
   const neighbours = await fetchNeighbors(guild.channels.cache.get('here'), config, 'self-id', NOW, { accept });
-  assert.deepEqual(neighbours.map((n) => n.channelId), ['talk'], 'the slot goes to the next accepted channel');
+  assert.deepEqual(
+    neighbours.map((n) => n.channelId),
+    ['talk'],
+    'the slot goes to the next accepted channel'
+  );
   assert.deepEqual(fetched, ['talk']);
   assert.deepEqual(judged.sort(), ['staff', 'talk'], 'only active channels are judged');
   const all = await fetchNeighbors(guild.channels.cache.get('here'), config, 'self-id', NOW);
-  assert.deepEqual(all.map((n) => n.channelId), ['staff'], 'no accept: every readable channel');
+  assert.deepEqual(
+    all.map((n) => n.channelId),
+    ['staff'],
+    'no accept: every readable channel'
+  );
 });
-
 
 test('normalizeMessage: a reaction whose emoji getter throws (a REST-only client) is skipped, not fatal', () => {
   const throwing = { count: 3, me: false };
-  Object.defineProperty(throwing, 'emoji', { get() { throw new TypeError("Cannot read properties of null (reading 'emojis')"); } });
+  Object.defineProperty(throwing, 'emoji', {
+    get() {
+      throw new TypeError("Cannot read properties of null (reading 'emojis')");
+    },
+  });
   const raw = rawMessage({
-    reactions: { cache: new Map([['a', throwing], ['b', { emoji: { id: null, name: '👍' }, count: 1, me: false }]]) },
+    reactions: {
+      cache: new Map([
+        ['a', throwing],
+        ['b', { emoji: { id: null, name: '👍' }, count: 1, me: false }],
+      ]),
+    },
   });
   const m = normalizeMessage(raw, 'self');
   assert.deepEqual(m.reactions, [{ emoji: '👍', count: 1, mine: false }]);
@@ -1445,14 +1765,17 @@ test('normalizeMessage: a reaction whose emoji getter throws (a REST-only client
 
 /** The chat-mode transcript line of the last of `messages`, as the persona reads it. */
 function lineOf(messages) {
-  return formatTranscript(messages, { timezone: 'UTC', gapMinutes: 20, maxChars: 2000, selfName: 'Bot', labels }).at(-1).text;
+  return formatTranscript(messages, { timezone: 'UTC', gapMinutes: 20, maxChars: 2000, selfName: 'Bot', labels }).at(-1)
+    .text;
 }
 
 test('normalizeMessage: a posted link keeps its URL, tracking parameters included, before its link tag in the transcript', () => {
   const url = 'https://www.youtube.com/watch?v=ID42&si=Ab_Cd-9xYz&t=31';
   const raw = rawMessage({
     cleanContent: `δες ${url} τώρα`,
-    embeds: [{ url, provider: { name: 'YouTube' }, title: 'Clip', thumbnail: { url: 'https://i.ytimg.com/vi/ID42/hq.jpg' } }],
+    embeds: [
+      { url, provider: { name: 'YouTube' }, title: 'Clip', thumbnail: { url: 'https://i.ytimg.com/vi/ID42/hq.jpg' } },
+    ],
   });
   const m = normalizeMessage(raw, 'self', { videoSites: VIDEO_SITES, maxUrlChars: 200 });
   assert.equal(m.content, `δες ${url} τώρα`);
@@ -1465,7 +1788,18 @@ test('normalizeMessage: attachment, sticker, emoji and Discord CDN file URLs nev
   const raw = rawMessage({
     content: `voilà <:pog:111> ${pasted}`,
     cleanContent: `voilà :pog: ${pasted}`,
-    attachments: new Map([['a1', { id: 'a1', contentType: 'image/png', name: 'pic.png', url: 'https://cdn.discordapp.com/attachments/1/9/pic.png', size: 1 }]]),
+    attachments: new Map([
+      [
+        'a1',
+        {
+          id: 'a1',
+          contentType: 'image/png',
+          name: 'pic.png',
+          url: 'https://cdn.discordapp.com/attachments/1/9/pic.png',
+          size: 1,
+        },
+      ],
+    ]),
     embeds: [{ url: pasted, thumbnail: { url: pasted } }],
     stickers: new Map([['s1', { id: 's1', name: 'pepe', format: 1 }]]),
   });
@@ -1481,7 +1815,19 @@ test('normalizeMessage: a URL longer than maxUrlChars is cut there with an ellip
   const raw = rawMessage({
     cleanContent: `δες ${url} ok`,
     embeds: [{ url, title: 'Search' }],
-    messageSnapshots: new Map([['snap1', { id: 'snap1', cleanContent: `και ${url}`, attachments: new Map(), embeds: [], stickers: new Map(), flags: flagsWith([]) }]]),
+    messageSnapshots: new Map([
+      [
+        'snap1',
+        {
+          id: 'snap1',
+          cleanContent: `και ${url}`,
+          attachments: new Map(),
+          embeds: [],
+          stickers: new Map(),
+          flags: flagsWith([]),
+        },
+      ],
+    ]),
   });
   const m = normalizeMessage(raw, 'self', { maxUrlChars: 40 });
   assert.equal(m.content, `δες ${cut} ok`);
@@ -1523,7 +1869,12 @@ function guildMessage(overrides = {}) {
     channel,
     content: 'hello <@self> <#222222222222222222>',
     cleanContent: 'hello @Bot #news',
-    mentions: { users: new Map([['self', { id: 'self' }], ['u2', { id: 'u2' }]]) },
+    mentions: {
+      users: new Map([
+        ['self', { id: 'self' }],
+        ['u2', { id: 'u2' }],
+      ]),
+    },
     reference: { messageId: 'm0' },
     ...overrides,
   });
@@ -1537,56 +1888,137 @@ test('toEvent: a message becomes a valid message.received event, field for field
   assert.equal(event.iface, 'discord');
   assert.equal(event.id, 'discord:message:m1');
   assert.equal(event.at, 1000);
-  assert.deepEqual(event.conversation, { id: 'c1', kind: 'channel', guildId: 'g1', name: 'γενικά', topic: 'κουβέντα', category: 'κοινότητα', chatType: 'channel' });
+  assert.deepEqual(event.conversation, {
+    id: 'c1',
+    kind: 'channel',
+    guildId: 'g1',
+    name: 'γενικά',
+    topic: 'κουβέντα',
+    category: 'κοινότητα',
+    chatType: 'channel',
+  });
   assert.deepEqual(event.message.author, { id: 'u1', name: 'Alice', self: false, bot: false });
   assert.equal(event.message.content, 'hello @Bot #news');
   assert.equal(event.message.at, 1000);
   assert.equal(event.message.replyToId, 'm0');
-  assert.deepEqual(event.addressing, { mentioned: true, replyToSelf: false, mentionedUserIds: ['self', 'u2'], mentionedUsers: [], mentionedConversationIds: ['222222222222222222'] });
+  assert.deepEqual(event.addressing, {
+    mentioned: true,
+    replyToSelf: false,
+    mentionedUserIds: ['self', 'u2'],
+    mentionedUsers: [],
+    mentionedConversationIds: ['222222222222222222'],
+  });
   assert.equal(event.raw, raw, 'the discord.js message rides along for the Discord side only');
-  for (const key of ['channelId', 'authorId', 'authorName', 'ts', 'channelName', 'mentionedUserIds']) assert.ok(!(key in event.message), key);
+  for (const key of ['channelId', 'authorId', 'authorName', 'ts', 'channelName', 'mentionedUserIds'])
+    assert.ok(!(key in event.message), key);
 });
 
-test('normalizedOf: the event gives back normalizeMessage\'s result, key for key and in order', () => {
-  for (const raw of [guildMessage(), rawMessage(), guildMessage({ author: { id: 'self', bot: true, globalName: 'Bot', username: 'bot' } })]) {
-    const options = normalizeOptions({ media: { embedTextChars: 50, video: { sites: ['youtube.com'] } }, context: { maxUrlChars: 30 } });
-    assert.equal(JSON.stringify(normalizedOf(toEvent(raw, 'self', options))), JSON.stringify(normalizeMessage(raw, 'self', options)));
+test("normalizedOf: the event gives back normalizeMessage's result, key for key and in order", () => {
+  for (const raw of [
+    guildMessage(),
+    rawMessage(),
+    guildMessage({ author: { id: 'self', bot: true, globalName: 'Bot', username: 'bot' } }),
+  ]) {
+    const options = normalizeOptions({
+      media: { embedTextChars: 50, video: { sites: ['youtube.com'] } },
+      context: { maxUrlChars: 30 },
+    });
+    assert.equal(
+      JSON.stringify(normalizedOf(toEvent(raw, 'self', options))),
+      JSON.stringify(normalizeMessage(raw, 'self', options))
+    );
     assert.deepEqual(normalizedOf(toEvent(raw, 'self', options)), normalizeMessage(raw, 'self', options));
   }
 });
 
 test('normalizeOptions: the three normaliser settings from the config, absent ones left to its defaults', () => {
-  assert.deepEqual(normalizeOptions({ media: { embedTextChars: 50, video: { sites: ['a'] } }, context: { maxUrlChars: 30 } }), { embedTextChars: 50, videoSites: ['a'], maxUrlChars: 30 });
+  assert.deepEqual(
+    normalizeOptions({ media: { embedTextChars: 50, video: { sites: ['a'] } }, context: { maxUrlChars: 30 } }),
+    { embedTextChars: 50, videoSites: ['a'], maxUrlChars: 30 }
+  );
   assert.deepEqual(normalizeOptions({}), { embedTextChars: undefined, videoSites: undefined, maxUrlChars: undefined });
 });
 
 test('toEvent: a direct chat is a dm conversation, a thread a thread', () => {
   const dm = toEvent(rawMessage({ guild: null, channel: { id: 'd1' }, channelId: 'd1' }), 'self');
-  assert.deepEqual(dm.conversation, { id: 'd1', kind: 'dm', guildId: null, name: null, topic: null, category: null, chatType: 'dm', partnerId: null });
+  assert.deepEqual(dm.conversation, {
+    id: 'd1',
+    kind: 'dm',
+    guildId: null,
+    name: null,
+    topic: null,
+    category: null,
+    chatType: 'dm',
+    partnerId: null,
+  });
   assert.deepEqual(validateEvent(dm), { ok: true });
-  const thread = toEvent(guildMessage({ channel: { id: 't1', name: 'νήμα', isThread: () => true } , channelId: 't1' }), 'self');
+  const thread = toEvent(
+    guildMessage({ channel: { id: 't1', name: 'νήμα', isThread: () => true }, channelId: 't1' }),
+    'self'
+  );
   assert.equal(thread.conversation.kind, 'thread');
 });
 
 test('toEvent: a one-to-one chat names its partner, a group chat is group_dm, a thread names its channel', () => {
-  const dm = toEvent(rawMessage({ guild: null, channel: { id: 'd1', type: ChannelType.DM, recipientId: 'u1' }, channelId: 'd1' }), 'self');
+  const dm = toEvent(
+    rawMessage({ guild: null, channel: { id: 'd1', type: ChannelType.DM, recipientId: 'u1' }, channelId: 'd1' }),
+    'self'
+  );
   assert.deepEqual([dm.conversation.chatType, dm.conversation.partnerId], ['dm', 'u1']);
-  assert.equal(toEvent(rawMessage({ guild: null, channel: { id: 'd2', recipient: { id: 'u2' } }, channelId: 'd2' }), 'self').conversation.partnerId, 'u2');
-  const group = toEvent(rawMessage({ guild: null, channel: { id: 'g9', name: 'φίλοι', type: ChannelType.GroupDM }, channelId: 'g9' }), 'self');
-  assert.deepEqual([group.conversation.kind, group.conversation.chatType, 'partnerId' in group.conversation], ['dm', 'group_dm', false]);
-  const thread = toEvent(guildMessage({ channel: { id: 't1', name: 'νήμα', isThread: () => true, parentId: 'c1' }, channelId: 't1' }), 'self');
+  assert.equal(
+    toEvent(rawMessage({ guild: null, channel: { id: 'd2', recipient: { id: 'u2' } }, channelId: 'd2' }), 'self')
+      .conversation.partnerId,
+    'u2'
+  );
+  const group = toEvent(
+    rawMessage({ guild: null, channel: { id: 'g9', name: 'φίλοι', type: ChannelType.GroupDM }, channelId: 'g9' }),
+    'self'
+  );
+  assert.deepEqual(
+    [group.conversation.kind, group.conversation.chatType, 'partnerId' in group.conversation],
+    ['dm', 'group_dm', false]
+  );
+  const thread = toEvent(
+    guildMessage({ channel: { id: 't1', name: 'νήμα', isThread: () => true, parentId: 'c1' }, channelId: 't1' }),
+    'self'
+  );
   assert.deepEqual([thread.conversation.chatType, thread.conversation.parentId], ['thread', 'c1']);
   for (const event of [dm, group, thread]) assert.deepEqual(validateEvent(event), { ok: true });
-  assert.deepEqual(validateEvent({ ...dm, conversation: { ...dm.conversation, chatType: 'room' } }), { ok: false, reason: 'conversation.chatType:unknown' });
-  assert.deepEqual(validateEvent({ ...dm, conversation: { ...dm.conversation, partnerId: 7 } }), { ok: false, reason: 'conversation.partnerId:type' });
+  assert.deepEqual(validateEvent({ ...dm, conversation: { ...dm.conversation, chatType: 'room' } }), {
+    ok: false,
+    reason: 'conversation.chatType:unknown',
+  });
+  assert.deepEqual(validateEvent({ ...dm, conversation: { ...dm.conversation, partnerId: 7 } }), {
+    ok: false,
+    reason: 'conversation.partnerId:type',
+  });
 });
 
 test('toEvent: replyToSelf is the cached answer only; a forward replies to nothing', () => {
-  const channel = { id: 'c1', isThread: () => false, messages: { cache: new Map([['m0', { author: { id: 'self' } }], ['m9', { partial: true, author: { id: 'self' } }]]) } };
+  const channel = {
+    id: 'c1',
+    isThread: () => false,
+    messages: {
+      cache: new Map([
+        ['m0', { author: { id: 'self' } }],
+        ['m9', { partial: true, author: { id: 'self' } }],
+      ]),
+    },
+  };
   assert.equal(toEvent(guildMessage({ channel }), 'self').addressing.replyToSelf, true);
-  assert.equal(toEvent(guildMessage({ channel, reference: { messageId: 'm9' } }), 'self').addressing.replyToSelf, false, 'a partial cached message is no answer');
-  assert.equal(toEvent(guildMessage({ channel, reference: { messageId: 'other' } }), 'self').addressing.replyToSelf, false);
-  const forward = toEvent(guildMessage({ channel, reference: { messageId: 'm0', channelId: 'c2', type: MessageReferenceType.Forward } }), 'self');
+  assert.equal(
+    toEvent(guildMessage({ channel, reference: { messageId: 'm9' } }), 'self').addressing.replyToSelf,
+    false,
+    'a partial cached message is no answer'
+  );
+  assert.equal(
+    toEvent(guildMessage({ channel, reference: { messageId: 'other' } }), 'self').addressing.replyToSelf,
+    false
+  );
+  const forward = toEvent(
+    guildMessage({ channel, reference: { messageId: 'm0', channelId: 'c2', type: MessageReferenceType.Forward } }),
+    'self'
+  );
   assert.equal(forward.message.replyToId, null);
   assert.equal(forward.addressing.replyToSelf, false);
 });
@@ -1625,19 +2057,51 @@ test('toEvent: an edit of a partial message carries only its id, and a deletion 
   assert.deepEqual([edit.message, edit.edit, edit.partial, edit.raw], [{ id: 'm1' }, true, true, partial]);
   const deleted = toEvent(partial, 'self', { deleted: true, now: () => 8000 });
   assert.deepEqual(validateEvent(deleted), { ok: true });
-  assert.deepEqual([deleted.message, deleted.deleted, deleted.at, deleted.id], [{ id: 'm1' }, true, 8000, 'discord:delete:m1']);
-  assert.deepEqual(deleted.conversation, { id: 'c1', kind: 'channel', guildId: 'g1', name: null, topic: null, category: null, chatType: 'channel' });
+  assert.deepEqual(
+    [deleted.message, deleted.deleted, deleted.at, deleted.id],
+    [{ id: 'm1' }, true, 8000, 'discord:delete:m1']
+  );
+  assert.deepEqual(deleted.conversation, {
+    id: 'c1',
+    kind: 'channel',
+    guildId: 'g1',
+    name: null,
+    topic: null,
+    category: null,
+    chatType: 'channel',
+  });
 });
 
 test('reactionEvent: a reaction becomes a valid reaction.changed event, its parts kept for the reactor store', () => {
-  const message = { id: 'm1', channelId: 'c1', guildId: 'g1', channel: { id: 'c1', name: 'γενικά', isThread: () => false } };
+  const message = {
+    id: 'm1',
+    channelId: 'c1',
+    guildId: 'g1',
+    channel: { id: 'c1', name: 'γενικά', isThread: () => false },
+  };
   const reaction = { message, emoji: { name: '\u{1F389}', id: null } };
   const user = { id: 'u2' };
   const event = reactionEvent(reaction, user, true, { now: () => 3000 });
   assert.deepEqual(validateEvent(event), { ok: true });
   assert.deepEqual(
-    { kind: event.kind, at: event.at, conversation: event.conversation.id, messageId: event.messageId, emoji: event.emoji, userId: event.userId, added: event.added },
-    { kind: 'reaction.changed', at: 3000, conversation: 'c1', messageId: 'm1', emoji: { name: '\u{1F389}' }, userId: 'u2', added: true },
+    {
+      kind: event.kind,
+      at: event.at,
+      conversation: event.conversation.id,
+      messageId: event.messageId,
+      emoji: event.emoji,
+      userId: event.userId,
+      added: event.added,
+    },
+    {
+      kind: 'reaction.changed',
+      at: 3000,
+      conversation: 'c1',
+      messageId: 'm1',
+      emoji: { name: '\u{1F389}' },
+      userId: 'u2',
+      added: true,
+    }
   );
   assert.deepEqual(event.raw, { reaction, user });
   const custom = reactionEvent({ message, emoji: { name: 'party', id: '42' } }, user, false, { now: () => 3000 });
@@ -1646,10 +2110,24 @@ test('reactionEvent: a reaction becomes a valid reaction.changed event, its part
 });
 
 test('reactionEvent: an unreadable emoji or a missing message never throws and fails validation', () => {
-  const broken = { message: null, get emoji() { throw new Error('REST-only client'); } };
+  const broken = {
+    message: null,
+    get emoji() {
+      throw new Error('REST-only client');
+    },
+  };
   const event = reactionEvent(broken, { id: 'u2' }, true);
   assert.equal(validateEvent(event).ok, false);
-  assert.equal(validateEvent(reactionEvent({ message: { id: 'm1', channelId: 'c1', guildId: 'g1' }, emoji: { name: null } }, { id: 'u2' }, true)).ok, false);
+  assert.equal(
+    validateEvent(
+      reactionEvent(
+        { message: { id: 'm1', channelId: 'c1', guildId: 'g1' }, emoji: { name: null } },
+        { id: 'u2' },
+        true
+      )
+    ).ok,
+    false
+  );
 });
 
 test('normalizeMessage: editedAt is the edit stamp, null for a message never edited', () => {

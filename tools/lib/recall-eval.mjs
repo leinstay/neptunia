@@ -52,7 +52,8 @@ export function parseQuestions(value) {
     if (!expected) problems.push('expected is not a list');
     else if (!expected.every(isSnowflake)) problems.push('expected holds a value that is not a Discord id');
     else if (raw.kind === 'none' && expected.length > 0) problems.push('a none question expects no message');
-    else if (raw.kind !== 'none' && QUESTION_KINDS.includes(raw.kind) && expected.length === 0) problems.push('expected is empty');
+    else if (raw.kind !== 'none' && QUESTION_KINDS.includes(raw.kind) && expected.length === 0)
+      problems.push('expected is empty');
     if (raw.note !== undefined && typeof raw.note !== 'string') problems.push('note is not a string');
     if (problems.length > 0) {
       errors.push(`${where}: ${problems.join('; ')}`);
@@ -146,7 +147,17 @@ export function surfacedIds(windows, matched) {
 export function scoreQuestion(question, { windows = [], matched = [], confident = false, chatIds = [] } = {}) {
   const { surfaced, matched: hitOrder } = surfacedIds(windows, new Set(matched));
   if (question.kind === 'none') {
-    return { surfaced, rank: null, hit1: null, hit5: null, seen: null, windowRank: null, inChat: null, outcome: null, falseConfident: confident === true };
+    return {
+      surfaced,
+      rank: null,
+      hit1: null,
+      hit5: null,
+      seen: null,
+      windowRank: null,
+      inChat: null,
+      outcome: null,
+      falseConfident: confident === true,
+    };
   }
   const expected = new Set(question.expected);
   const at = hitOrder.findIndex((id) => expected.has(id));
@@ -213,13 +224,26 @@ export function summarize(results) {
     falseConfident: count(none, (r) => r.score?.falseConfident === true),
     failed: count(results, (r) => Boolean(r.error)),
     latencyMs: {
-      median: percentile(results.map((r) => r.latencyMs), 50),
-      p90: percentile(results.map((r) => r.latencyMs), 90),
+      median: percentile(
+        results.map((r) => r.latencyMs),
+        50
+      ),
+      p90: percentile(
+        results.map((r) => r.latencyMs),
+        90
+      ),
     },
     costUsd: Math.round(results.reduce((sum, r) => sum + (Number.isFinite(r.costUsd) ? r.costUsd : 0), 0) * 1e6) / 1e6,
     misses: answerable
       .filter((r) => r.score?.hit5 !== true && !inChat(r))
-      .map((r) => ({ id: r.id, question: r.question, surfaced: (r.score?.surfaced ?? []).slice(0, HIT_AT), seen: r.score?.seen === true, answer: r.answer ?? null, error: r.error ?? null })),
+      .map((r) => ({
+        id: r.id,
+        question: r.question,
+        surfaced: (r.score?.surfaced ?? []).slice(0, HIT_AT),
+        seen: r.score?.seen === true,
+        answer: r.answer ?? null,
+        error: r.error ?? null,
+      })),
   };
 }
 
@@ -262,7 +286,7 @@ function sampleLine(line, nameOf) {
   return {
     id: line.messageId,
     authorId: by,
-    authorName: line.kind === 'said' ? null : (by && typeof nameOf === 'function' ? nameOf(by) : null) ?? null,
+    authorName: line.kind === 'said' ? null : ((by && typeof nameOf === 'function' ? nameOf(by) : null) ?? null),
     self: line.kind === 'said',
     occurredAt: line.occurredAt,
     text: typeof line.text === 'string' ? line.text : '',
@@ -282,7 +306,10 @@ function sampleLine(line, nameOf) {
  * @param {{ n: number, days: number, now: number, rng: () => number, selfId?: string|null, minChars?: number,
  *   recentDays?: number, neighbours?: number, nameOf?: (id: string) => string|null }} options
  */
-export function sampleCandidates(lines, { n, days, now, rng, selfId = null, minChars = 40, recentDays = 2, neighbours = 3, nameOf = null }) {
+export function sampleCandidates(
+  lines,
+  { n, days, now, rng, selfId = null, minChars = 40, recentDays = 2, neighbours = 3, nameOf = null }
+) {
   const from = now - days * DAY_MS;
   const until = now - recentDays * DAY_MS;
   const byChannel = new Map();
@@ -310,7 +337,10 @@ export function sampleCandidates(lines, { n, days, now, rng, selfId = null, minC
   }
   const queues = shuffle([...buckets.keys()].sort(), rng).map((channelId) => ({
     channelId,
-    days: shuffle([...buckets.get(channelId).entries()].sort(([a], [b]) => (a < b ? -1 : 1)), rng),
+    days: shuffle(
+      [...buckets.get(channelId).entries()].sort(([a], [b]) => (a < b ? -1 : 1)),
+      rng
+    ),
   }));
   const picked = [];
   while (picked.length < n && queues.some((q) => q.days.length > 0)) {
@@ -400,7 +430,9 @@ export function localGuild({ guildId, selfId = null, channelNameOf = () => null 
 
 /** One table cell: pipes escaped, line breaks flattened, cut to `max` characters. */
 function cell(value, max = 120) {
-  const text = String(value ?? '').replace(/\s+/g, ' ').replace(/\|/g, '\\|');
+  const text = String(value ?? '')
+    .replace(/\s+/g, ' ')
+    .replace(/\|/g, '\\|');
   return [...text].length > max ? `${[...text].slice(0, max - 1).join('')}~` : text;
 }
 
@@ -415,7 +447,9 @@ function share(k, n) {
  * @param {{ reportPath: string, stages: object, stopped: string|null, skipped: number }} meta
  */
 export function renderSummary(summary, { reportPath, stages, stopped = null, skipped = 0 }) {
-  const ran = Object.entries(stages).map(([name, on]) => `${name} ${on ? 'on' : 'off'}`).join(', ');
+  const ran = Object.entries(stages)
+    .map(([name, on]) => `${name} ${on ? 'on' : 'off'}`)
+    .join(', ');
   const out = [
     '# Recall evaluation',
     '',
@@ -445,7 +479,9 @@ export function renderSummary(summary, { reportPath, stages, stopped = null, ski
     out.push(`| id | question | first ${HIT_AT} surfaced | in windows | answer |`, '| --- | --- | --- | --- | --- |');
     for (const miss of summary.misses) {
       const answer = miss.error ? `error: ${miss.error}` : (miss.answer ?? '-');
-      out.push(`| ${cell(miss.id, 40)} | ${cell(miss.question)} | ${miss.surfaced.join(' ') || '-'} | ${miss.seen ? 'yes' : 'no'} | ${cell(answer)} |`);
+      out.push(
+        `| ${cell(miss.id, 40)} | ${cell(miss.question)} | ${miss.surfaced.join(' ') || '-'} | ${miss.seen ? 'yes' : 'no'} | ${cell(answer)} |`
+      );
     }
   }
   return `${out.join('\n')}\n`;
@@ -474,7 +510,16 @@ export function prefetchWindows(found) {
  */
 export function comparePrefetch(results) {
   const classifier = summarize(results);
-  const prefetch = summarize(results.map((r) => ({ ...r, score: r.prefetch?.score ?? null, web: null, latencyMs: r.prefetch?.ms ?? null, costUsd: 0, answer: null })));
+  const prefetch = summarize(
+    results.map((r) => ({
+      ...r,
+      score: r.prefetch?.score ?? null,
+      web: null,
+      latencyMs: r.prefetch?.ms ?? null,
+      costUsd: 0,
+      answer: null,
+    }))
+  );
   const hit = (score) => score?.hit5 === true || score?.inChat === true;
   const answerable = results.filter((r) => r.kind !== 'none');
   return {
@@ -512,13 +557,19 @@ export function renderPrefetchCompare(compare, results, { reportPath }) {
     '',
     `Only A hit: ${compare.onlyClassifier.join(' ') || '-'}`,
     `Only B hit: ${compare.onlyPrefetch.join(' ') || '-'}`,
-    `B statuses: ${Object.entries(compare.statuses).map(([k, v]) => `${k} ${v}`).join(', ') || '-'}`,
+    `B statuses: ${
+      Object.entries(compare.statuses)
+        .map(([k, v]) => `${k} ${v}`)
+        .join(', ') || '-'
+    }`,
     '',
     '| id | kind | A rank | B rank | B status | B excerpts | question |',
     '| --- | --- | --- | --- | --- | --- | --- |',
   ];
   for (const r of results) {
-    out.push(`| ${cell(r.id, 40)} | ${r.kind} | ${r.score?.rank ?? (r.score?.inChat ? 'chat' : '-')} | ${r.prefetch?.score?.rank ?? (r.prefetch?.score?.inChat ? 'chat' : '-')} | ${r.prefetch?.status ?? '-'} | ${r.prefetch?.excerpts ?? 0} | ${cell(r.question, 80)} |`);
+    out.push(
+      `| ${cell(r.id, 40)} | ${r.kind} | ${r.score?.rank ?? (r.score?.inChat ? 'chat' : '-')} | ${r.prefetch?.score?.rank ?? (r.prefetch?.score?.inChat ? 'chat' : '-')} | ${r.prefetch?.status ?? '-'} | ${r.prefetch?.excerpts ?? 0} | ${cell(r.question, 80)} |`
+    );
   }
   return `${out.join('\n')}\n`;
 }
@@ -535,10 +586,7 @@ export function renderPrefetchCompare(compare, results, { reportPath }) {
  * @returns {'same'|'partial'|'none'|'n/a'}
  */
 export function traceAgreement(trace, excerpts, { nearMs = DAY_MS } = {}) {
-  const spans = [
-    ...(trace?.clusters ?? []).filter((c) => c?.kept),
-    ...(trace?.record ?? []).filter((w) => w?.kept),
-  ]
+  const spans = [...(trace?.clusters ?? []).filter((c) => c?.kept), ...(trace?.record ?? []).filter((w) => w?.kept)]
     .map((w) => ({ channelId: w.channelId, from: Date.parse(w.from), to: Date.parse(w.to) }))
     .filter((w) => w.channelId && Number.isFinite(w.from) && Number.isFinite(w.to));
   const hitIds = new Set([
@@ -547,7 +595,14 @@ export function traceAgreement(trace, excerpts, { nearMs = DAY_MS } = {}) {
   ]);
   if (spans.length === 0 && hitIds.size === 0) return 'n/a';
   const history = (excerpts ?? []).filter((e) => e?.source === 'history');
-  const overlaps = (e, margin) => spans.some((w) => w.channelId === e.channelId && Number.isFinite(e.startTs) && e.startTs <= w.to + margin && (Number.isFinite(e.endTs) ? e.endTs : e.startTs) >= w.from - margin);
+  const overlaps = (e, margin) =>
+    spans.some(
+      (w) =>
+        w.channelId === e.channelId &&
+        Number.isFinite(e.startTs) &&
+        e.startTs <= w.to + margin &&
+        (Number.isFinite(e.endTs) ? e.endTs : e.startTs) >= w.from - margin
+    );
   if (history.some((e) => (e.ids ?? []).some((id) => hitIds.has(id)) || overlaps(e, 0))) return 'same';
   if (history.some((e) => overlaps(e, nearMs))) return 'partial';
   return 'none';
@@ -572,7 +627,13 @@ export function renderTraceCompare(rows, { reportPath }) {
   const ran = rows.filter((r) => !r.error);
   const found = ran.filter((r) => r.answer === 'text');
   const nothing = ran.filter((r) => r.answer !== 'text');
-  const day = (at) => cell(String(at ?? '').slice(0, 16).replace('T', ' '), 20);
+  const day = (at) =>
+    cell(
+      String(at ?? '')
+        .slice(0, 16)
+        .replace('T', ' '),
+      20
+    );
   const count = (list, pick) => list.filter(pick).length;
   const out = [
     '# Recall evaluation: live recall traces vs automatic prefetch',
@@ -582,22 +643,42 @@ export function renderTraceCompare(rows, { reportPath }) {
     '',
     '| measure | value |',
     '| --- | --- |',
-    `| classifier answered: prefetch found the same | ${share(count(found, (r) => r.agreement === 'same'), found.length)} |`,
-    `| classifier answered: prefetch partial (same channel, near) | ${share(count(found, (r) => r.agreement === 'partial'), found.length)} |`,
-    `| classifier answered: prefetch found none of it | ${share(count(found, (r) => r.agreement === 'none' || r.agreement === 'n/a'), found.length)} |`,
-    `| classifier answered: prefetch showed anything | ${share(count(found, (r) => r.excerpts > 0), found.length)} |`,
-    `| classifier found nothing: prefetch showed anything | ${share(count(nothing, (r) => r.excerpts > 0), nothing.length)} |`,
+    `| classifier answered: prefetch found the same | ${share(
+      count(found, (r) => r.agreement === 'same'),
+      found.length
+    )} |`,
+    `| classifier answered: prefetch partial (same channel, near) | ${share(
+      count(found, (r) => r.agreement === 'partial'),
+      found.length
+    )} |`,
+    `| classifier answered: prefetch found none of it | ${share(
+      count(found, (r) => r.agreement === 'none' || r.agreement === 'n/a'),
+      found.length
+    )} |`,
+    `| classifier answered: prefetch showed anything | ${share(
+      count(found, (r) => r.excerpts > 0),
+      found.length
+    )} |`,
+    `| classifier found nothing: prefetch showed anything | ${share(
+      count(nothing, (r) => r.excerpts > 0),
+      nothing.length
+    )} |`,
     '',
     '| date | trigger | classifier forms | classifier found | prefetch same | prefetch status | prefetch top hit |',
     '| --- | --- | --- | --- | --- | --- | --- |',
   ];
   for (const r of rows) {
     if (r.error) {
-      out.push(`| ${day(r.at)} | - | ${cell((r.forms ?? []).join(', '), 60)} | ${r.answer ?? '-'} | - | error: ${cell(r.error, 40)} | - |`);
+      out.push(
+        `| ${day(r.at)} | - | ${cell((r.forms ?? []).join(', '), 60)} | ${r.answer ?? '-'} | - | error: ${cell(r.error, 40)} | - |`
+      );
       continue;
     }
-    const same = r.agreement === 'same' ? 'Y' : r.agreement === 'partial' ? 'partial' : r.agreement === 'n/a' ? '-' : 'N';
-    out.push(`| ${day(r.at)} | ${cell(r.trigger, 60)} | ${cell((r.forms ?? []).join(', '), 60)} | ${r.answer === 'text' ? 'Y' : 'N'} | ${same} | ${r.status} (${r.excerpts}) | ${cell(r.top || '-', 90)} |`);
+    const same =
+      r.agreement === 'same' ? 'Y' : r.agreement === 'partial' ? 'partial' : r.agreement === 'n/a' ? '-' : 'N';
+    out.push(
+      `| ${day(r.at)} | ${cell(r.trigger, 60)} | ${cell((r.forms ?? []).join(', '), 60)} | ${r.answer === 'text' ? 'Y' : 'N'} | ${same} | ${r.status} (${r.excerpts}) | ${cell(r.top || '-', 90)} |`
+    );
   }
   return `${out.join('\n')}\n`;
 }

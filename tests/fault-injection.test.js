@@ -99,7 +99,12 @@ function makeChat() {
   const rawOf = (message) => ({
     id: message.ref.messageId,
     channelId: message.ref.conversationId,
-    author: { id: message.authorId, bot: false, globalName: names[message.authorId] ?? message.authorId, username: names[message.authorId] ?? message.authorId },
+    author: {
+      id: message.authorId,
+      bot: false,
+      globalName: names[message.authorId] ?? message.authorId,
+      username: names[message.authorId] ?? message.authorId,
+    },
     member: { displayName: names[message.authorId] ?? message.authorId },
     cleanContent: message.text,
     createdTimestamp: message.at,
@@ -133,7 +138,9 @@ function makeChat() {
     },
     channel(id, { dm = false } = {}) {
       if (!channels.has(id)) {
-        const guild = dm ? null : { id: GUILD, members: { me: { displayName: 'Bot' } }, channels: { cache: guildChannels } };
+        const guild = dm
+          ? null
+          : { id: GUILD, members: { me: { displayName: 'Bot' } }, channels: { cache: guildChannels } };
         const channel = {
           id,
           name: dm ? null : `chan-${id}`,
@@ -153,7 +160,8 @@ function makeChat() {
             cache: new Map(),
             fetch: async (arg) => {
               const all = rawIn(id);
-              if (arg && typeof arg === 'object' && 'limit' in arg) return new Map(all.slice(-arg.limit).map((message) => [message.id, message]));
+              if (arg && typeof arg === 'object' && 'limit' in arg)
+                return new Map(all.slice(-arg.limit).map((message) => [message.id, message]));
               return all.find((message) => message.id === arg) ?? null;
             },
           },
@@ -173,10 +181,18 @@ function makeChat() {
         .messagesIn(conversationId)
         .filter((message) => message.authorId === SELF)
         .slice(-n)
-        .map((message) => ({ id: message.ref.messageId, content: message.text, replyToId: message.replyTo?.messageId ?? null, createdAt: message.at }));
+        .map((message) => ({
+          id: message.ref.messageId,
+          content: message.text,
+          replyToId: message.replyTo?.messageId ?? null,
+          createdAt: message.at,
+        }));
     },
     textsFromSelf(conversationId) {
-      return port.messagesIn(conversationId).filter((message) => message.authorId === SELF).map((message) => message.text);
+      return port
+        .messagesIn(conversationId)
+        .filter((message) => message.authorId === SELF)
+        .map((message) => message.text);
     },
     llm: null,
   };
@@ -204,7 +220,10 @@ const requestText = (chat, i) => chat.requests[i].text;
 
 // ---- one boot of the engine over a data directory ----
 
-const intentionRecord = (id, { dueAt = NOW0 - MINUTE_MS, channelId = 'c1', chainId = null, purpose = `purpose ${id}`, scope = 'group' } = {}) => ({
+const intentionRecord = (
+  id,
+  { dueAt = NOW0 - MINUTE_MS, channelId = 'c1', chainId = null, purpose = `purpose ${id}`, scope = 'group' } = {}
+) => ({
   id,
   status: 'pending',
   purpose,
@@ -221,35 +240,85 @@ const intentionRecord = (id, { dueAt = NOW0 - MINUTE_MS, channelId = 'c1', chain
 function fakeIntentions(records) {
   return {
     records,
-    due: () => records.filter((r) => r.status === 'pending' && Number.isFinite(r.dueAt) && r.dueAt <= clock.t).map((r) => ({ intention: r, reason: 'due', at: r.dueAt })),
+    due: () =>
+      records
+        .filter((r) => r.status === 'pending' && Number.isFinite(r.dueAt) && r.dueAt <= clock.t)
+        .map((r) => ({ intention: r, reason: 'due', at: r.dueAt })),
     reconcile: () => ({ arrived: 0, missing: 0, deadline: 0, expired: 0 }),
     list: () => records.filter((r) => ['pending', 'waiting', 'proposed'].includes(r.status)),
     store: () => ({ get: (id) => records.find((r) => r.id === id) ?? null, list: () => records }),
   };
 }
 
-const personaGrants = (names) => Object.fromEntries(names.map((name) => [name, { everyone: false, roles: [], users: [SELF] }]));
+const personaGrants = (names) =>
+  Object.fromEntries(names.map((name) => [name, { everyone: false, roles: [], users: [SELF] }]));
 
 function hotWith({ features = {}, innerLife = {}, timezone = 'UTC', grants = [], config = {} } = {}) {
   return {
     config: {
       bot: { timezone, dryRunChannelId: '', owners: ['u1'], access: personaGrants(grants) },
       context: {
-        channelMessages: 100, neighborMessages: 5, neighborMaxAgeMinutes: 60, neighborMaxChannels: 8, maxMessageChars: 800,
-        gapMarkerMinutes: 20, otherProfiles: 6, failedTurnsKept: 3, caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 },
-        vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0, maxBytes: 1_500_000, fetchTimeoutMs: 10_000 },
+        channelMessages: 100,
+        neighborMessages: 5,
+        neighborMaxAgeMinutes: 60,
+        neighborMaxChannels: 8,
+        maxMessageChars: 800,
+        gapMarkerMinutes: 20,
+        otherProfiles: 6,
+        failedTurnsKept: 3,
+        caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 },
+        vision: {
+          maxImages: 2,
+          tokensPerImage: 400,
+          imageSize: 512,
+          recentImages: 0,
+          recentImageMinutes: 0,
+          maxBytes: 1_500_000,
+          fetchTimeoutMs: 10_000,
+        },
         pull: { scanMessages: 20, maxChannels: 1, sameAudience: true },
       },
       llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 100, betweenMessagesMs: [0, 0] },
-      features: { memory: true, reactions: true, multiMessage: true, typingSimulation: false, vision: false, callMarkers: true, coreTools: true, innerLife: true, intentions: true, ...features },
+      features: {
+        memory: true,
+        reactions: true,
+        multiMessage: true,
+        typingSimulation: false,
+        vision: false,
+        callMarkers: true,
+        coreTools: true,
+        innerLife: true,
+        intentions: true,
+        ...features,
+      },
       models: { base: { analyzer: 'x/text' } },
       media: { maxPerTurn: 6, filePreviewChars: 500 },
       gifs: { maxPerDay: 40 },
       mention: { oneAtATime: true },
-      skills: { safeMode: false, resultMaxChars: 2000, callTimeoutMs: 120000, loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 } },
-      innerLife: { mode: 'live', tickSeconds: 60, queueMax: 20, chatMessages: 30, review: { enabled: false, historyDays: 14 }, heartbeat: { enabled: false }, caps: { perChain: 3 }, ...innerLife },
-      agents: { maxOpen: 3, scout: { enabled: true, daily: { tasks: 10 } }, resultMaxChars: 1000, resultCooldownSeconds: 60, resultRetrySeconds: 30 },
+      skills: {
+        safeMode: false,
+        resultMaxChars: 2000,
+        callTimeoutMs: 120000,
+        loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 },
+      },
+      innerLife: {
+        mode: 'live',
+        tickSeconds: 60,
+        queueMax: 20,
+        chatMessages: 30,
+        review: { enabled: false, historyDays: 14 },
+        heartbeat: { enabled: false },
+        caps: { perChain: 3 },
+        ...innerLife,
+      },
+      agents: {
+        maxOpen: 3,
+        scout: { enabled: true, daily: { tasks: 10 } },
+        resultMaxChars: 1000,
+        resultCooldownSeconds: 60,
+        resultRetrySeconds: 30,
+      },
       ...config,
     },
     prompts: {
@@ -288,21 +357,24 @@ function fakeStore(gifs = null) {
  * `dataDir` is a restart. `records` are the intentions (they outlive a boot, like their file would).
  * `die`: the errand service's end hook does nothing (the process died before the result turn).
  */
-function boot(chat, {
-  dataDir,
-  records = [],
-  hot = hotWith(),
-  unwritable = [],
-  recall = null,
-  failOps = [],
-  journal = null,
-  record = null,
-  gifs = null,
-  runErrand = null,
-  die = false,
-  store = fakeStore(gifs),
-  ready = undefined,
-} = {}) {
+function boot(
+  chat,
+  {
+    dataDir,
+    records = [],
+    hot = hotWith(),
+    unwritable = [],
+    recall = null,
+    failOps = [],
+    journal = null,
+    record = null,
+    gifs = null,
+    runErrand = null,
+    die = false,
+    store = fakeStore(gifs),
+    ready = undefined,
+  } = {}
+) {
   const intentions = fakeIntentions(records);
   const timers = [];
   const accepted = new Set();
@@ -318,13 +390,24 @@ function boot(chat, {
   };
   const port = chat.port;
   const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => GUILD, port });
-  const runOp = failOps.length === 0 ? admin.runSkillOp : async (op, args, context) => (failOps.includes(op) ? { status: 'failed', code: 'error', summary: 'it did not work', data: null } : admin.runSkillOp(op, args, context));
+  const runOp =
+    failOps.length === 0
+      ? admin.runSkillOp
+      : async (op, args, context) =>
+          failOps.includes(op)
+            ? { status: 'failed', code: 'error', summary: 'it did not work', data: null }
+            : admin.runSkillOp(op, args, context);
 
   // The errand service over the real task store; its runner is a fake that ends at once.
   const stores = createTaskStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: SILENT });
   let taskTurns = null;
   const errands = createErrandService({
-    client: { configured: () => true, run: async (task) => (runErrand ? runErrand(task) : { status: 'done', result: { text: 'found it' }, usage: { usd: 0.01 } }), cancel: () => true },
+    client: {
+      configured: () => true,
+      run: async (task) =>
+        runErrand ? runErrand(task) : { status: 'done', result: { text: 'found it' }, usage: { usd: 0.01 } },
+      cancel: () => true,
+    },
     stores,
     hot,
     getGuildId: () => GUILD,
@@ -357,11 +440,26 @@ function boot(chat, {
       chat.audience = params.channel?.id ?? null;
       const before = chat.sendAttempts;
       const result = await turns.runTurn(params);
-      chat.results.push({ channelId: params.channel?.id ?? null, mode: params.mode, result, failedSends: chat.injected.filter((f) => f.n > before && f.n <= chat.sendAttempts) });
+      chat.results.push({
+        channelId: params.channel?.id ?? null,
+        mode: params.mode,
+        result,
+        failedSends: chat.injected.filter((f) => f.n > before && f.n <= chat.sendAttempts),
+      });
       return result;
     },
   };
-  taskTurns = createTaskTurns({ hot, client, discord: DISCORD, turns: recorded, errands, getGuildId: () => GUILD, now: () => clock.t, setTimer: (fn, ms) => timers.push({ fn, ms }), log: SILENT });
+  taskTurns = createTaskTurns({
+    hot,
+    client,
+    discord: DISCORD,
+    turns: recorded,
+    errands,
+    getGuildId: () => GUILD,
+    now: () => clock.t,
+    setTimer: (fn, ms) => timers.push({ fn, ms }),
+    log: SILENT,
+  });
 
   const unwritableIds = new Set(unwritable);
   let inner;
@@ -416,8 +514,26 @@ function boot(chat, {
     ask: (conversationId, text, { dm = false } = {}) =>
       quiet(async () => {
         const raw = chat.say(conversationId, 'u1', text);
-        const trigger = { id: raw.id, channelId: raw.channelId, authorId: 'u1', authorName: 'Alice', self: false, bot: false, content: raw.cleanContent, ts: raw.createdTimestamp, replyToId: null, attachments: [], stickers: [] };
-        return recorded.runTurn({ channel: chat.channel(conversationId, { dm }), ...(dm ? { guildId: GUILD } : {}), mode: 'reply', trigger, triggerKind: 'mention' });
+        const trigger = {
+          id: raw.id,
+          channelId: raw.channelId,
+          authorId: 'u1',
+          authorName: 'Alice',
+          self: false,
+          bot: false,
+          content: raw.cleanContent,
+          ts: raw.createdTimestamp,
+          replyToId: null,
+          attachments: [],
+          stickers: [],
+        };
+        return recorded.runTurn({
+          channel: chat.channel(conversationId, { dm }),
+          ...(dm ? { guildId: GUILD } : {}),
+          mode: 'reply',
+          trigger,
+          triggerKind: 'mention',
+        });
       }),
     quiet,
     state: () => inner.state(GUILD),
@@ -457,14 +573,22 @@ function assertNoSilentFailure(run, { accepted = [], privateChats = ['d1'], priv
   const { chat } = run;
   const state = run.inner.state(GUILD);
   for (const id of new Set([...accepted, ...run.accepted])) {
-    assert.ok(state.queue.some((wake) => wake.id === id) || state.handled[id], `1: the accepted wake ${id} is neither queued nor handled`);
+    assert.ok(
+      state.queue.some((wake) => wake.id === id) || state.handled[id],
+      `1: the accepted wake ${id} is neither queued nor handled`
+    );
   }
   const open = run.errands.store(GUILD)?.open() ?? [];
-  assert.deepEqual(open.map((task) => task.id), [], '1: an errand is left open with no process to run it');
+  assert.deepEqual(
+    open.map((task) => task.id),
+    [],
+    '1: an errand is left open with no process to run it'
+  );
   for (const { channelId, mode, result, failedSends } of chat.results) {
     if (failedSends.length === 0) continue;
     const callNotOk = (result?.inner?.actions ?? []).some((action) => action.result !== 'ok');
-    const readsAsSuccess = result?.outcome === 'spoke' && result.delivered === true && result.partial !== true && !callNotOk;
+    const readsAsSuccess =
+      result?.outcome === 'spoke' && result.delivered === true && result.partial !== true && !callNotOk;
     assert.equal(readsAsSuccess, false, `2: the ${mode} turn in ${channelId} lost a send but reads as a success`);
   }
   const said = new Map();
@@ -477,12 +601,18 @@ function assertNoSilentFailure(run, { accepted = [], privateChats = ['d1'], priv
     if (count > 1) assert.fail(`3: the persona said twice in ${key.split('\n')[0]}: ${key.split('\n')[1]}`);
   }
   for (const fact of state.facts) {
-    if (fact.told) assert.ok(chat.completed.some((done) => done.at >= fact.at), `4: the fact ${fact.kind} is told but no model answer completed after it was born`);
-    if (fact.privateChat) assert.ok(privateChats.includes(fact.channelId), `5: a private fact belongs to ${fact.channelId}`);
+    if (fact.told)
+      assert.ok(
+        chat.completed.some((done) => done.at >= fact.at),
+        `4: the fact ${fact.kind} is told but no model answer completed after it was born`
+      );
+    if (fact.privateChat)
+      assert.ok(privateChats.includes(fact.channelId), `5: a private fact belongs to ${fact.channelId}`);
   }
   for (const request of chat.requests) {
     if (request.audience !== null && privateChats.includes(request.audience)) continue;
-    for (const mark of privateMarks) assert.ok(!request.text.includes(mark), `5: a request in ${request.audience} carries a private mark`);
+    for (const mark of privateMarks)
+      assert.ok(!request.text.includes(mark), `5: a request in ${request.audience} carries a private mark`);
   }
 }
 
@@ -499,9 +629,17 @@ test('row 1: the process dies right after a wake is queued -- the wake runs afte
   assert.equal(chat.llm.calls.length, 0, 'it died before any turn ran');
 
   const after = boot(chat, { dataDir, records });
-  assert.deepEqual(after.state().queue.map((queued) => queued.id), [wake.id], 'the queue is read back from the disk');
+  assert.deepEqual(
+    after.state().queue.map((queued) => queued.id),
+    [wake.id],
+    'the queue is read back from the disk'
+  );
   await after.tick();
-  assert.equal(chat.llm.calls.length, 1, 'the wake ran after the reload, and the due list did not queue it a second time');
+  assert.equal(
+    chat.llm.calls.length,
+    1,
+    'the wake ran after the reload, and the due list did not queue it a second time'
+  );
   assert.equal(after.state().handled[wake.id].outcome, 'skip');
   assert.deepEqual(after.state().queue, []);
   assertNoSilentFailure(after, { accepted: [wake.id] });
@@ -510,28 +648,54 @@ test('row 1: the process dies right after a wake is queued -- the wake runs afte
 test('row 2: the process dies right after a message was sent -- the journal closes the post as said, and nothing is sent again', async () => {
   const dataDir = tempDir('nep-fault-');
   const chat = makeChat();
-  const makeJournal = () => createJournal({ memoryDb: memoryOf(dataDir), dataDir, config: () => ({ thinkChars: 4000 }), now: () => clock.t });
+  const makeJournal = () =>
+    createJournal({ memoryDb: memoryOf(dataDir), dataDir, config: () => ({ thinkChars: 4000 }), now: () => clock.t });
   const hot = hotWith({ features: { journal: true } });
   const before = boot(chat, { dataDir, hot, journal: makeJournal() });
   chat.script = ['<msg>καλημέρα</msg>'];
   chat.dieAfterSend(1);
   await dieDuring(chat, () => before.ask('c1', 'say good morning'));
-  assert.deepEqual(chat.textsFromSelf('c1'), ['καλημέρα'], 'the message reached the chat; the process never learned it');
+  assert.deepEqual(
+    chat.textsFromSelf('c1'),
+    ['καλημέρα'],
+    'the message reached the chat; the process never learned it'
+  );
 
   // The restart: a fresh journal over the same files finds the post open and closes it from the chat.
   const after = makeJournal();
   const open = await after.pending(GUILD, { days: [utcDay(clock.t)] });
-  assert.deepEqual(open.map((op) => op.name), ['post']);
-  const reconciled = await after.reconcile(GUILD, { days: [utcDay(clock.t)], before: clock.t + HOUR_MS, fetchOwnMessages: async (conversationId, n) => chat.ownMessages(conversationId, n) });
-  assert.deepEqual(reconciled, { succeeded: 1, unknown: 0 }, 'the post is on record as said, not failed and not unknown');
+  assert.deepEqual(
+    open.map((op) => op.name),
+    ['post']
+  );
+  const reconciled = await after.reconcile(GUILD, {
+    days: [utcDay(clock.t)],
+    before: clock.t + HOUR_MS,
+    fetchOwnMessages: async (conversationId, n) => chat.ownMessages(conversationId, n),
+  });
+  assert.deepEqual(
+    reconciled,
+    { succeeded: 1, unknown: 0 },
+    'the post is on record as said, not failed and not unknown'
+  );
   assert.deepEqual(await after.pending(GUILD, { days: [utcDay(clock.t)] }), []);
   assert.deepEqual(chat.textsFromSelf('c1'), ['καλημέρα'], 'the reconciliation sends nothing');
 });
 
 /** A journal over the scenario's data directory, and the start-up reconciliation of its open operations from the chat (src/index.js). */
 function journalFor(chat, dataDir) {
-  const journal = createJournal({ memoryDb: memoryOf(dataDir), dataDir, config: () => ({ thinkChars: 4000 }), now: () => clock.t });
-  const ready = () => journal.reconcile(GUILD, { days: [utcDay(clock.t)], before: clock.t + HOUR_MS, fetchOwnMessages: async (conversationId, n) => chat.ownMessages(conversationId, n) });
+  const journal = createJournal({
+    memoryDb: memoryOf(dataDir),
+    dataDir,
+    config: () => ({ thinkChars: 4000 }),
+    now: () => clock.t,
+  });
+  const ready = () =>
+    journal.reconcile(GUILD, {
+      days: [utcDay(clock.t)],
+      before: clock.t + HOUR_MS,
+      fetchOwnMessages: async (conversationId, n) => chat.ownMessages(conversationId, n),
+    });
   return { journal, ready };
 }
 
@@ -547,7 +711,11 @@ test('row 2: the process dies after an inner turn sent a message and before the 
   await dieDuring(chat, () => before.inner.tick());
   assert.deepEqual(chat.textsFromSelf('c1'), ['καλημέρα']);
   const mark = JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', GUILD, 'inner.json'), 'utf8')).inflight;
-  assert.deepEqual([mark.wakeIds, mark.kind, mark.channelId, typeof mark.turnId], [[wake.id], 'intention_due', 'c1', 'string'], 'the turn in flight is on disk');
+  assert.deepEqual(
+    [mark.wakeIds, mark.kind, mark.channelId, typeof mark.turnId],
+    [[wake.id], 'intention_due', 'c1', 'string'],
+    'the turn in flight is on disk'
+  );
 
   const reborn = journalFor(chat, dataDir);
   const after = boot(chat, { dataDir, records, hot, journal: reborn.journal, ready: reborn.ready });
@@ -555,40 +723,66 @@ test('row 2: the process dies after an inner turn sent a message and before the 
   await after.tick();
   assert.deepEqual(chat.textsFromSelf('c1'), ['καλημέρα'], 'no resend');
   assert.equal(chat.llm.calls.length, 1, 'the cut-off turn was not run again');
-  assert.deepEqual([after.state().handled[wake.id]?.outcome, after.state().inflight, after.state().queue], ['interrupted', null, []]);
+  assert.deepEqual(
+    [after.state().handled[wake.id]?.outcome, after.state().inflight, after.state().queue],
+    ['interrupted', null, []]
+  );
   const [fact] = after.state().facts;
-  assert.deepEqual([fact.kind, fact.wake, fact.channelId, fact.privateChat, fact.told], ['interrupted', 'intention_due', 'c1', false, false]);
+  assert.deepEqual(
+    [fact.kind, fact.wake, fact.channelId, fact.privateChat, fact.told],
+    ['interrupted', 'intention_due', 'c1', false, false]
+  );
   assert.ok(fact.done.includes('message.create'), fact.done);
 
   // Her next request in that channel carries it, once.
   chat.script = ['<skip/>'];
   await after.ask('c1', 'hello');
-  assert.ok(requestText(chat, 1).includes('cut off after') && requestText(chat, 1).includes('message.create'), requestText(chat, 1));
+  assert.ok(
+    requestText(chat, 1).includes('cut off after') && requestText(chat, 1).includes('message.create'),
+    requestText(chat, 1)
+  );
   assert.equal(after.state().facts[0].told !== false, true);
   assertNoSilentFailure(after, { accepted: [wake.id] });
 });
 
-test('row 2: the process dies after a tool call\'s send reached the chat and before its result was recorded -- the journal closes the call as unknown from the restart, and nothing is sent again', async () => {
+test("row 2: the process dies after a tool call's send reached the chat and before its result was recorded -- the journal closes the call as unknown from the restart, and nothing is sent again", async () => {
   const dataDir = tempDir('nep-fault-');
   const chat = makeChat();
-  const makeJournal = () => createJournal({ memoryDb: memoryOf(dataDir), dataDir, config: () => ({ thinkChars: 4000 }), now: () => clock.t });
+  const makeJournal = () =>
+    createJournal({ memoryDb: memoryOf(dataDir), dataDir, config: () => ({ thinkChars: 4000 }), now: () => clock.t });
   const hot = hotWith({ grants: ['message.create'], features: { journal: true } });
   const before = boot(chat, { dataDir, hot, journal: makeJournal() });
   chat.script = [toolAnswer('<think>x</think>', [call('message.create', { text: 'καλημέρα' })])];
   chat.dieAfterSend(1);
   await dieDuring(chat, () => before.ask('c1', 'say good morning'));
-  assert.deepEqual(chat.textsFromSelf('c1'), ['καλημέρα'], 'the message reached the chat; the process never learned it');
+  assert.deepEqual(
+    chat.textsFromSelf('c1'),
+    ['καλημέρα'],
+    'the message reached the chat; the process never learned it'
+  );
 
   const after = makeJournal();
   const open = await after.pending(GUILD, { days: [utcDay(clock.t)] });
-  assert.deepEqual(open.map((op) => op.name), ['skill'], 'the call was opened and never closed');
-  const reconciled = await after.reconcile(GUILD, { days: [utcDay(clock.t)], before: clock.t + HOUR_MS, fetchOwnMessages: async (conversationId, n) => chat.ownMessages(conversationId, n) });
-  assert.deepEqual(reconciled, { succeeded: 0, unknown: 1 }, 'a call that may have taken effect is closed unknown, never failed and never sent again');
+  assert.deepEqual(
+    open.map((op) => op.name),
+    ['skill'],
+    'the call was opened and never closed'
+  );
+  const reconciled = await after.reconcile(GUILD, {
+    days: [utcDay(clock.t)],
+    before: clock.t + HOUR_MS,
+    fetchOwnMessages: async (conversationId, n) => chat.ownMessages(conversationId, n),
+  });
+  assert.deepEqual(
+    reconciled,
+    { succeeded: 0, unknown: 1 },
+    'a call that may have taken effect is closed unknown, never failed and never sent again'
+  );
   assert.deepEqual(await after.pending(GUILD, { days: [utcDay(clock.t)] }), []);
   assert.deepEqual(chat.textsFromSelf('c1'), ['καλημέρα'], 'the reconciliation sends nothing');
 });
 
-test('row 2: the process dies after an inner turn\'s tool call posted and before the turn ended -- the reload does not run the turn again and post it twice, and she is told the turn was cut off', async () => {
+test("row 2: the process dies after an inner turn's tool call posted and before the turn ended -- the reload does not run the turn again and post it twice, and she is told the turn was cut off", async () => {
   const dataDir = tempDir('nep-fault-');
   const chat = makeChat();
   const records = [intentionRecord('i1')];
@@ -606,7 +800,10 @@ test('row 2: the process dies after an inner turn\'s tool call posted and before
   await after.tick();
   assert.deepEqual(chat.textsFromSelf('c1'), ['καλημέρα'], 'no resend');
   assert.equal(chat.llm.calls.length, 1, 'the cut-off turn was not run again');
-  assert.deepEqual([after.state().handled[wake.id]?.outcome, after.state().inflight, after.state().queue], ['interrupted', null, []]);
+  assert.deepEqual(
+    [after.state().handled[wake.id]?.outcome, after.state().inflight, after.state().queue],
+    ['interrupted', null, []]
+  );
   const [fact] = after.state().facts;
   assert.deepEqual([fact.kind, fact.wake, fact.channelId, fact.told], ['interrupted', 'intention_due', 'c1', false]);
   assertNoSilentFailure(after, { accepted: [wake.id] });
@@ -630,18 +827,32 @@ test('row 2: the process dies in an inner turn before anything went out -- the r
   assert.deepEqual(chat.textsFromSelf('c1'), ['καλημέρα'], 'the wake ran again and said it once');
   assert.ok(chat.llm.calls.length >= 2, 'the interrupted call and the new turn');
   assert.deepEqual([after.state().handled[wake.id]?.outcome, after.state().inflight], ['spoke', null]);
-  assert.deepEqual(after.state().facts.filter((fact) => fact.kind === 'interrupted'), []);
+  assert.deepEqual(
+    after.state().facts.filter((fact) => fact.kind === 'interrupted'),
+    []
+  );
   assertNoSilentFailure(after, { accepted: [wake.id] });
 });
 
-test('row 3: the process dies after an errand\'s result was stored and before its result turn ran -- the turn is reopened after the reload and task.read gives the whole text', async () => {
+test("row 3: the process dies after an errand's result was stored and before its result turn ran -- the turn is reopened after the reload and task.read gives the whole text", async () => {
   const dataDir = tempDir('nep-fault-');
   const chat = makeChat();
   const text = Array.from({ length: 250 }, (_, i) => `line${i}`).join(' ');
   const origin = chat.say('c1', 'u1', 'find the changelog');
-  const runErrand = async () => ({ status: 'done', result: { text, sources: ['https://example.org/a'] }, usage: { usd: 0.02 } });
+  const runErrand = async () => ({
+    status: 'done',
+    result: { text, sources: ['https://example.org/a'] },
+    usage: { usd: 0.02 },
+  });
   const before = boot(chat, { dataDir, die: true, runErrand });
-  const submitted = before.errands.submit({ guildId: GUILD, agent: 'scout', goal: 'find the changelog', requester: { userId: 'u1', kind: 'member' }, origin: { channelId: 'c1', messageId: origin.id }, scope: 'group' });
+  const submitted = before.errands.submit({
+    guildId: GUILD,
+    agent: 'scout',
+    goal: 'find the changelog',
+    requester: { userId: 'u1', kind: 'member' },
+    origin: { channelId: 'c1', messageId: origin.id },
+    scope: 'group',
+  });
   assert.equal(submitted.ok, true);
   await before.errands.idle();
   // The result is stored: its write reached the database before the process died.
@@ -662,11 +873,26 @@ test('row 3: the process dies after an errand\'s result was stored and before it
   assert.ok(task.seen && task.readAt, 'a turn that completed marks the task seen and read');
 
   // task.read pages through the whole text.
-  const env = createOpsEnv({ discord: DISCORD, hot: after.hot, store: after.store, client: after.client, spontaneous: {}, calibrator: { ratio: 1 }, getGuildId: () => GUILD, errands: after.errands });
+  const env = createOpsEnv({
+    discord: DISCORD,
+    hot: after.hot,
+    store: after.store,
+    client: after.client,
+    spontaneous: {},
+    calibrator: { ratio: 1 },
+    getGuildId: () => GUILD,
+    errands: after.errands,
+  });
   let from = 0;
   let got = '';
   for (let page = 0; page < 10; page += 1) {
-    const read = await runOp('task.read', from > 0 ? { id, from } : { id }, { env, guildId: GUILD, channelId: 'c1', userId: 'u1', roleIds: [] });
+    const read = await runOp('task.read', from > 0 ? { id, from } : { id }, {
+      env,
+      guildId: GUILD,
+      channelId: 'c1',
+      userId: 'u1',
+      roleIds: [],
+    });
     assert.equal(read.status, 'ok');
     const lines = read.summary.split('\n');
     const at = lines.findIndex((line) => line.startsWith('result: characters'));
@@ -691,7 +917,10 @@ test('row 4: the process dies before a fact was presented -- the fact is still u
   const dataDir = tempDir('nep-fault-');
   const chat = makeChat();
   // i9 lands in a channel she cannot reach: a wakeDropped fact; i1 is queued behind it.
-  const records = [intentionRecord('i9', { channelId: 'c9', dueAt: NOW0 - 2 * MINUTE_MS, purpose: 'announce the game night' }), intentionRecord('i1')];
+  const records = [
+    intentionRecord('i9', { channelId: 'c9', dueAt: NOW0 - 2 * MINUTE_MS, purpose: 'announce the game night' }),
+    intentionRecord('i1'),
+  ];
   const before = boot(chat, { dataDir, records });
   await before.tick();
   assert.deepEqual(before.factKinds(), ['wakeDropped'], 'the drop is a fact at the moment it happens');
@@ -720,14 +949,20 @@ test('row 5: a terminal call fails on the last loop step -- a callFailed fact sh
   const dataDir = tempDir('nep-fault-');
   const chat = makeChat();
   const records = [intentionRecord('i1')];
-  const hot = hotWith({ grants: ['lore.list', 'message.create'], innerLife: { loop: { maxSteps: 1, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 60000 } } });
+  const hot = hotWith({
+    grants: ['lore.list', 'message.create'],
+    innerLife: { loop: { maxSteps: 1, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 60000 } },
+  });
   const inner = boot(chat, { dataDir, records, hot });
   chat.script = [toolAnswer('', [call('lore.list')]), '<msg>καλημέρα</msg>'];
   chat.failSend(1);
   await inner.tick();
   assert.equal(chat.llm.calls.length, 2, 'nothing follows the terminal call');
   const failed = inner.state().facts.filter((fact) => fact.kind === 'callFailed');
-  assert.deepEqual(failed.map((fact) => [fact.skill, fact.status, fact.channelId, fact.told]), [['message.create', 'failed', 'c1', false]]);
+  assert.deepEqual(
+    failed.map((fact) => [fact.skill, fact.status, fact.channelId, fact.told]),
+    [['message.create', 'failed', 'c1', false]]
+  );
   assert.equal(inner.state().queue[0]?.kind, 'feedback', 'a feedback wake carries it');
   await inner.tick();
   assert.equal(chat.llm.calls.length, 3, 'the next turn of that channel');
@@ -755,7 +990,10 @@ test('row 6: the feedback turn itself fails -- its facts stay untold, the wake i
   const dataDir = tempDir('nep-fault-');
   const chat = makeChat();
   const records = [intentionRecord('i1')];
-  const hot = hotWith({ grants: ['lore.list', 'message.create'], innerLife: { loop: { maxSteps: 1, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 60000 } } });
+  const hot = hotWith({
+    grants: ['lore.list', 'message.create'],
+    innerLife: { loop: { maxSteps: 1, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 60000 } },
+  });
   const run = boot(chat, { dataDir, records, hot });
   chat.script = [toolAnswer('', [call('lore.list')]), '<msg>καλημέρα</msg>', providerLimit()];
   chat.failSend(1);
@@ -763,7 +1001,10 @@ test('row 6: the feedback turn itself fails -- its facts stay untold, the wake i
   await run.tick(); // the feedback turn, which fails
   assert.equal(chat.llm.calls.length, 3);
   assert.ok(requestText(chat, 2).includes('call message.create failed'));
-  const untold = run.state().facts.filter((fact) => !fact.told).map((fact) => fact.kind);
+  const untold = run
+    .state()
+    .facts.filter((fact) => !fact.told)
+    .map((fact) => fact.kind);
   assert.ok(untold.includes('callFailed'), 'the fact was not marked told by a turn that failed');
   const retried = run.state().queue.find((wake) => wake.kind === 'feedback');
   assert.ok(retried, 'the feedback wake is still queued');
@@ -788,14 +1029,21 @@ test('row 7: a chain at its cap holds a wake through a local midnight and a relo
   // Europe/Athens is UTC+3 on this date: 12:00Z is 15:00 local, the local midnight is 21:00Z.
   const midnight = zonedEpoch('2026-10-20', 0, 0, 'Europe/Athens');
   assert.equal(midnight, Date.parse('2026-10-19T21:00:00Z'));
-  const records = [intentionRecord('i1', { chainId: 'k', channelId: 'c1', dueAt: NOW0 - 2 * MINUTE_MS }), intentionRecord('i2', { chainId: 'k', channelId: 'c2', purpose: 'follow up later' })];
+  const records = [
+    intentionRecord('i1', { chainId: 'k', channelId: 'c1', dueAt: NOW0 - 2 * MINUTE_MS }),
+    intentionRecord('i2', { chainId: 'k', channelId: 'c2', purpose: 'follow up later' }),
+  ];
   const hot = hotWith({ timezone: 'Europe/Athens', innerLife: { caps: { perChain: 1 } } });
   const first = boot(chat, { dataDir, records, hot });
   await first.tick(); // i1 runs: the chain is at its cap
   assert.equal(chat.llm.calls.length, 1);
   await first.tick(); // i2 is held
   const held = first.state().facts.filter((fact) => fact.kind === 'wakeHeld');
-  assert.deepEqual(held.map((fact) => [fact.code, fact.until, fact.channelId]), [['per-chain', midnight, 'c2']], 'a fact at the hold, with the moment it waits for');
+  assert.deepEqual(
+    held.map((fact) => [fact.code, fact.until, fact.channelId]),
+    [['per-chain', midnight, 'c2']],
+    'a fact at the hold, with the moment it waits for'
+  );
   await first.tick(); // the feedback wake carrying the hold
   assert.equal(chat.llm.calls.length, 2);
   assert.ok(requestText(chat, 1).includes('held intention_due i2'), 'she is told at the hold');
@@ -820,25 +1068,42 @@ test('row 7: a chain at its cap holds a wake through a local midnight and a relo
 test('row 8: wakes of different chains meet one unwritable channel -- the writable one runs and the other is a wakeDropped fact with not-writable', async () => {
   const dataDir = tempDir('nep-fault-');
   const chat = makeChat();
-  const records = [intentionRecord('i2', { channelId: 'c2', dueAt: NOW0 - 3 * MINUTE_MS, purpose: 'post in the locked channel' }), intentionRecord('i1', { channelId: 'c1', dueAt: NOW0 - MINUTE_MS })];
+  const records = [
+    intentionRecord('i2', { channelId: 'c2', dueAt: NOW0 - 3 * MINUTE_MS, purpose: 'post in the locked channel' }),
+    intentionRecord('i1', { channelId: 'c1', dueAt: NOW0 - MINUTE_MS }),
+  ];
   const run = boot(chat, { dataDir, records, unwritable: ['c2'] });
   await run.tick();
   await run.tick();
   assert.equal(chat.llm.calls.length, 1, 'the writable wake ran');
   const dropped = run.state().facts.find((fact) => fact.kind === 'wakeDropped');
-  assert.deepEqual([dropped.code, dropped.why, dropped.channelId, dropped.intentionId], ['no-channel', 'not-writable', 'c2', 'i2']);
+  assert.deepEqual(
+    [dropped.code, dropped.why, dropped.channelId, dropped.intentionId],
+    ['no-channel', 'not-writable', 'c2', 'i2']
+  );
   assert.ok(requestText(chat, 0).includes('not writable'), 'and the drop was shown in it');
   assert.ok(run.state().facts.every((fact) => fact.told));
   assertNoSilentFailure(run);
 });
 
-test('row 8: the day\'s review rides with a wake whose channel is unwritable -- the review still runs', async () => {
+test("row 8: the day's review rides with a wake whose channel is unwritable -- the review still runs", async () => {
   const dataDir = tempDir('nep-fault-');
   const chat = makeChat();
   // The review's hours come from her lines of the record: one at 20:00Z yesterday, in c1.
-  const line = { kind: 'said', messageId: 'r1', occurredAt: new Date(Date.parse('2026-10-18T20:10:00Z')).toISOString(), scope: { channel: 'c1' } };
-  const record = { async *iterate() { yield line; } };
-  const records = [intentionRecord('i2', { channelId: 'c2', dueAt: NOW0 + 3 * HOUR_MS, purpose: 'post in the locked channel' })];
+  const line = {
+    kind: 'said',
+    messageId: 'r1',
+    occurredAt: new Date(Date.parse('2026-10-18T20:10:00Z')).toISOString(),
+    scope: { channel: 'c1' },
+  };
+  const record = {
+    async *iterate() {
+      yield line;
+    },
+  };
+  const records = [
+    intentionRecord('i2', { channelId: 'c2', dueAt: NOW0 + 3 * HOUR_MS, purpose: 'post in the locked channel' }),
+  ];
   const hot = hotWith({ innerLife: { review: { enabled: true, historyDays: 14, expiredMax: 5 } } });
   const run = boot(chat, { dataDir, records, hot, unwritable: ['c2'], record });
   await run.tick(); // the review is drawn for the evening
@@ -851,27 +1116,53 @@ test('row 8: the day\'s review rides with a wake whose channel is unwritable -- 
   await run.tick();
   const reviewId = reviewWake('2026-10-19', review.at).id;
   assert.ok(chat.requests.length >= 1, 'a turn ran');
-  assert.equal(run.state().handled[reviewId]?.outcome, 'skip', 'the review ran, whatever became of the unwritable wake');
+  assert.equal(
+    run.state().handled[reviewId]?.outcome,
+    'skip',
+    'the review ran, whatever became of the unwritable wake'
+  );
   const dropped = run.state().facts.find((fact) => fact.kind === 'wakeDropped' && fact.wake === 'intention_due');
-  assert.deepEqual([dropped?.code, dropped?.why, dropped?.channelId], ['no-channel', 'not-writable', 'c2'], 'the unwritable wake is a fact');
-  assert.equal(run.state().facts.filter((fact) => fact.kind === 'wakeDropped' && fact.wake === 'review').length, 0, 'it was not dropped with the other wake');
+  assert.deepEqual(
+    [dropped?.code, dropped?.why, dropped?.channelId],
+    ['no-channel', 'not-writable', 'c2'],
+    'the unwritable wake is a fact'
+  );
+  assert.equal(
+    run.state().facts.filter((fact) => fact.kind === 'wakeDropped' && fact.wake === 'review').length,
+    0,
+    'it was not dropped with the other wake'
+  );
   assertNoSilentFailure(run);
 });
 
 test('row 9: memory.search that timed out reads as a timeout; one that really found nothing reads as none', async () => {
   // The fixture labels word no timeout; this test words it itself, as the tracked labels do.
-  const words = { ...labels, skills: { ...labels.skills, result: { ...labels.skills.result, reasons: { ...labels.skills.result.reasons, timeout: '{what} timed out' } } } };
+  const words = {
+    ...labels,
+    skills: {
+      ...labels.skills,
+      result: { ...labels.skills.result, reasons: { ...labels.skills.result.reasons, timeout: '{what} timed out' } },
+    },
+  };
   const hot = hotWith({ grants: ['memory.search'], features: { recall: true } });
   hot.prompts.labels = words;
   const search = async (outcome) => {
     const chat = makeChat();
-    const recall = { available: () => true, run: async () => ({ text: null, stretch: null, people: [], quotes: [], stats: {}, outcome }) };
+    const recall = {
+      available: () => true,
+      run: async () => ({ text: null, stretch: null, people: [], quotes: [], stats: {}, outcome }),
+    };
     const run = boot(chat, { dataDir: tempDir('nep-fault-'), hot, recall });
     chat.script = [toolAnswer('', [call('memory.search', { question: 'what did Éloïse say' })]), '<msg>ok</msg>'];
     await run.ask('c1', 'search for it');
     assert.equal(chat.llm.calls.length, 2);
     assertNoSilentFailure(run);
-    return chat.llm.calls[1].filter((message) => message.role === 'tool').map((message) => (typeof message.content === 'string' ? message.content : message.content.map((part) => part.text).join(''))).join('\n');
+    return chat.llm.calls[1]
+      .filter((message) => message.role === 'tool')
+      .map((message) =>
+        typeof message.content === 'string' ? message.content : message.content.map((part) => part.text).join('')
+      )
+      .join('\n');
   };
   const timedOut = await search({ kind: 'timeout' });
   assert.match(timedOut, /timed out/, 'the cause is the timeout');
@@ -900,12 +1191,23 @@ test('row 10: the text goes out and the GIF fails -- the turn is partial, the te
   // Inner: the same tags are two calls; the GIF's fails and no step follows.
   const chat2 = makeChat();
   const records = [intentionRecord('i1')];
-  const inner = boot(chat2, { dataDir: tempDir('nep-fault-'), records, gifs, hot: hotWith({ grants: ['message.create'] }) });
+  const inner = boot(chat2, {
+    dataDir: tempDir('nep-fault-'),
+    records,
+    gifs,
+    hot: hotWith({ grants: ['message.create'] }),
+  });
   chat2.script = ['<msg>γεια</msg><gif>g1</gif>', providerLimit()];
   chat2.failSend(2);
   await inner.tick();
   assert.deepEqual(chat2.textsFromSelf('c1'), ['γεια']);
-  assert.deepEqual(inner.state().facts.filter((fact) => fact.kind === 'callFailed').map((fact) => fact.skill), ['message.create']);
+  assert.deepEqual(
+    inner
+      .state()
+      .facts.filter((fact) => fact.kind === 'callFailed')
+      .map((fact) => fact.skill),
+    ['message.create']
+  );
   await inner.tick();
   assert.ok(requestText(chat2, 2).includes('call message.create'), 'the cause reaches her next turn there');
   assertNoSilentFailure(inner);
@@ -916,9 +1218,19 @@ test('row 11: an errand completes and its result turn fails every time -- the ta
   const chat = makeChat();
   const text = 'the changelog says: nothing breaking, two fixes, one new switch';
   const origin = chat.say('c1', 'u1', 'find the changelog');
-  const run = boot(chat, { dataDir, runErrand: async () => ({ status: 'done', result: { text }, usage: { usd: 0.01 } }) });
+  const run = boot(chat, {
+    dataDir,
+    runErrand: async () => ({ status: 'done', result: { text }, usage: { usd: 0.01 } }),
+  });
   chat.fallback = providerLimit();
-  const submitted = run.errands.submit({ guildId: GUILD, agent: 'scout', goal: 'find the changelog', requester: { userId: 'u1', kind: 'member' }, origin: { channelId: 'c1', messageId: origin.id }, scope: 'group' });
+  const submitted = run.errands.submit({
+    guildId: GUILD,
+    agent: 'scout',
+    goal: 'find the changelog',
+    requester: { userId: 'u1', kind: 'member' },
+    origin: { channelId: 'c1', messageId: origin.id },
+    scope: 'group',
+  });
   const id = submitted.task.id;
   await withCapturedLogs(async () => {
     await run.errands.idle();
@@ -932,14 +1244,29 @@ test('row 11: an errand completes and its result turn fails every time -- the ta
   assert.equal(task.state, 'done');
   assert.equal(task.resultTurnFailed, true, 'the task says its result turn never ran');
   assert.ok(!task.readAt, 'and it is unread');
-  assert.deepEqual(run.errands.view({ guildId: GUILD }).map((t) => t.id), [id]);
+  assert.deepEqual(
+    run.errands.view({ guildId: GUILD }).map((t) => t.id),
+    [id]
+  );
 
   // A later turn of hers in that channel sees the task with its note.
   chat.fallback = '<skip/>';
   await run.ask('c1', 'anything new?');
   const line = tasksBlockOf(requestText(chat, chat.requests.length - 1));
-  assert.ok(line.includes(id) && line.includes(labels.tasks.unread) && line.includes(labels.tasks.resultTurnFailed), line);
-  const env = createOpsEnv({ discord: DISCORD, hot: run.hot, store: run.store, client: run.client, spontaneous: {}, calibrator: { ratio: 1 }, getGuildId: () => GUILD, errands: run.errands });
+  assert.ok(
+    line.includes(id) && line.includes(labels.tasks.unread) && line.includes(labels.tasks.resultTurnFailed),
+    line
+  );
+  const env = createOpsEnv({
+    discord: DISCORD,
+    hot: run.hot,
+    store: run.store,
+    client: run.client,
+    spontaneous: {},
+    calibrator: { ratio: 1 },
+    getGuildId: () => GUILD,
+    errands: run.errands,
+  });
   const read = await runOp('task.read', { id }, { env, guildId: GUILD, channelId: 'c1', userId: 'u1', roleIds: [] });
   assert.equal(read.status, 'ok');
   assert.ok(read.summary.includes(text), 'task.read returns the result');
@@ -951,12 +1278,18 @@ test('row 13: a fact born in a DM is not shown in a server channel, and is shown
   const chat = makeChat();
   const mark = 'PRIVATE-ERRAND-MARK';
   // The DM intention cannot run (private chats are off): its drop is a fact of that chat.
-  const dm = { ...intentionRecord('i7', { channelId: 'd1', scope: 'dm', purpose: mark }), provenance: { kind: 'self', channelId: 'd1', scope: 'dm' } };
+  const dm = {
+    ...intentionRecord('i7', { channelId: 'd1', scope: 'dm', purpose: mark }),
+    provenance: { kind: 'self', channelId: 'd1', scope: 'dm' },
+  };
   const records = [dm, intentionRecord('i1', { dueAt: NOW0 + MINUTE_MS })];
   const run = boot(chat, { dataDir, records });
   await run.tick();
   const [fact] = run.state().facts;
-  assert.deepEqual([fact.kind, fact.code, fact.why, fact.channelId, fact.privateChat, fact.told], ['wakeDropped', 'no-channel', 'dm-off', 'd1', true, false]);
+  assert.deepEqual(
+    [fact.kind, fact.code, fact.why, fact.channelId, fact.privateChat, fact.told],
+    ['wakeDropped', 'no-channel', 'dm-off', 'd1', true, false]
+  );
 
   // A server inner turn and an addressed server turn do not show it.
   clock.t = NOW0 + 2 * MINUTE_MS;
@@ -987,7 +1320,11 @@ test('row 14: the inner state file is corrupt at start -- a backup is written an
   await run.tick();
   const backups = fs.readdirSync(path.dirname(file)).filter((name) => name.startsWith('inner.json.bad-'));
   assert.equal(backups.length, 1, 'the unreadable file is kept aside');
-  assert.equal(fs.readFileSync(path.join(path.dirname(file), backups[0]), 'utf8'), '{"v":1,"queue":[{"id":"inner.wake:', 'untouched');
+  assert.equal(
+    fs.readFileSync(path.join(path.dirname(file), backups[0]), 'utf8'),
+    '{"v":1,"queue":[{"id":"inner.wake:',
+    'untouched'
+  );
   assert.equal(chat.llm.calls.length, 1, 'the due intention came back from its own store and ran');
   assert.ok(requestText(chat, 0).includes('inner state lost'), requestText(chat, 0));
   assert.deepEqual(run.factKinds(), ['stateLost:told']);
@@ -1011,9 +1348,15 @@ test('row 15: a send times out and the message is in the chat -- nothing is told
   };
   const found = await attempt(true);
   assert.ok(!found.chat.requests[1].text.includes('<wake>'), 'it was found among her lines: no sendFailed');
-  assert.deepEqual(found.run.state().facts.filter((fact) => !fact.told), []);
+  assert.deepEqual(
+    found.run.state().facts.filter((fact) => !fact.told),
+    []
+  );
   assertNoSilentFailure(found.run);
   const missing = await attempt(false);
-  assert.ok(wakeBlockOf(missing.chat.requests[1].text).includes('send unclear timeout'), wakeBlockOf(missing.chat.requests[1].text));
+  assert.ok(
+    wakeBlockOf(missing.chat.requests[1].text).includes('send unclear timeout'),
+    wakeBlockOf(missing.chat.requests[1].text)
+  );
   assertNoSilentFailure(missing.run);
 });

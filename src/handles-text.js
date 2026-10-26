@@ -15,14 +15,18 @@ function nameAt(text, at, entries, fold) {
   if (isWordChar(text[at - 1])) return undefined;
   return entries.find(({ name }) => {
     const written = text.slice(at + 1, at + 1 + name.length);
-    return (fold ? written.toLowerCase() === name.toLowerCase() : written === name) && !isWordChar(text[at + 1 + name.length]);
+    return (
+      (fold ? written.toLowerCase() === name.toLowerCase() : written === name) &&
+      !isWordChar(text[at + 1 + name.length])
+    );
   });
 }
 
 /** Entries of `{ name, ... }` for the names of `ids`, longest name first. */
 function nameEntries(ids, names, extra) {
   const out = [];
-  for (const id of ids) for (const name of names.get(String(id)) ?? []) out.push({ ...extra(String(id)), name, id: String(id) });
+  for (const id of ids)
+    for (const name of names.get(String(id)) ?? []) out.push({ ...extra(String(id)), name, id: String(id) });
   return out.sort((a, b) => b.name.length - a.name.length);
 }
 
@@ -41,7 +45,7 @@ export function withUserHandles(text, mentionedIds, { names, handles }) {
   const entries = nameEntries(
     [...new Set([...(mentionedIds ?? [])].map(String))].filter((id) => handles.has(id)),
     names,
-    (id) => ({ handle: handles.get(id) }),
+    (id) => ({ handle: handles.get(id) })
   );
   if (entries.length === 0) return text;
   return outsideUrls(text, (part) => {
@@ -75,12 +79,13 @@ export function withUserHandles(text, mentionedIds, { names, handles }) {
  * @returns {{ name: string, id: string, handle: string }[]}  `name`: as written, without the `@`.
  */
 export function untaggedNames(text, { names, handles, mentionedIds = [] }) {
-  if (typeof text !== 'string' || !text.includes('@') || !(names instanceof Map) || !(handles instanceof Map)) return [];
+  if (typeof text !== 'string' || !text.includes('@') || !(names instanceof Map) || !(handles instanceof Map))
+    return [];
   const mentioned = new Set([...mentionedIds].map(String));
   const ids = [...names.keys()].filter((id) => handles.has(id));
   // The members really mentioned come first among equal names: their name is not an untagged one.
   const entries = nameEntries(ids, names, (id) => ({ handle: handles.get(id), mentioned: mentioned.has(id) })).sort(
-    (a, b) => b.name.length - a.name.length || Number(b.mentioned) - Number(a.mentioned),
+    (a, b) => b.name.length - a.name.length || Number(b.mentioned) - Number(a.mentioned)
   );
   const found = [];
   outsideUrls(text, (part) => {

@@ -44,7 +44,10 @@ const TOOL_OUTPUT = '(?:mentor|recall-eval|vision-compare)(?:/.*)?';
 /** What is written as a file (see the head of this file). */
 export const OPERATIONAL_PATTERNS = Object.freeze([
   pattern('{state,usage,metrics}.json', '(?:state|usage|metrics)\\.json'),
-  pattern('guilds/*/[private/*/]{state,usage,metrics,inner,missed,participation,gifs,media}.json', `${G}${P}${GUILD_STATE}`),
+  pattern(
+    'guilds/*/[private/*/]{state,usage,metrics,inner,missed,participation,gifs,media}.json',
+    `${G}${P}${GUILD_STATE}`
+  ),
   pattern('guilds/*/recall-trace.jsonl', `${G}recall-trace\\.jsonl`),
   pattern('guilds/*/[private/*/]journal/.running', `${G}${P}journal/\\.running`),
   pattern('guilds/*/[private/*/]journal/requests/**', `${G}${P}journal/requests/.+`),
@@ -68,19 +71,28 @@ const PRIVATE_OPERATIONAL = `(?:${GUILD_STATE}|journal/\\.running|journal/reques
 export const MEMORY_PATTERNS = Object.freeze([
   pattern('guilds/*/users/**', `${NOT_LEFTOVER}${G}users/.+`),
   pattern('guilds/*/channels/**', `${NOT_LEFTOVER}${G}channels/.+`),
-  pattern('guilds/*/{guild,lore,recent,diary,buffer,voice,forgotten}.json', `${NOT_LEFTOVER}${G}(?:guild|lore|recent|diary|buffer|voice|forgotten)\\.json`),
+  pattern(
+    'guilds/*/{guild,lore,recent,diary,buffer,voice,forgotten}.json',
+    `${NOT_LEFTOVER}${G}(?:guild|lore|recent|diary|buffer|voice|forgotten)\\.json`
+  ),
   pattern('guilds/*/forgetting/**', `${NOT_LEFTOVER}${G}forgetting/.+`),
   pattern('guilds/*/versions/**', `${NOT_LEFTOVER}${G}versions/.+`),
   pattern('guilds/*/archive/** (not archive/pending*.jsonl)', `${NOT_LEFTOVER}${G}archive/(?!pending[^/]*\\.jsonl$).+`),
   pattern('guilds/*/record/** (not record/backfill.json)', `${NOT_LEFTOVER}${G}record/(?!backfill\\.json$).+`),
   pattern('guilds/*/journal/<YYYY-MM-DD>.jsonl', `${NOT_LEFTOVER}${G}journal/\\d{4}-\\d{2}-\\d{2}\\.jsonl`),
-  pattern('guilds/*/private/** (not a layer\'s operational paths)', `${NOT_LEFTOVER}${G}private/(?![^/]+/${PRIVATE_OPERATIONAL}$).+`),
+  pattern(
+    "guilds/*/private/** (not a layer's operational paths)",
+    `${NOT_LEFTOVER}${G}private/(?![^/]+/${PRIVATE_OPERATIONAL}$).+`
+  ),
   pattern('guilds/*/intentions*.json[l]', `${NOT_LEFTOVER}${G}intentions[^/]*\\.jsonl?`),
   pattern('guilds/*/tasks*.json[l]', `${NOT_LEFTOVER}${G}tasks[^/]*\\.jsonl?`),
   pattern('guilds/*/vectors/**', `${NOT_LEFTOVER}${G}vectors/.+`),
 ]);
 
-const normal = (rel) => String(rel ?? '').replace(/\\/g, '/').replace(/^\.\//, '');
+const normal = (rel) =>
+  String(rel ?? '')
+    .replace(/\\/g, '/')
+    .replace(/^\.\//, '');
 const matches = (list, rel) => list.some((entry) => entry.re.test(rel));
 
 /** Whether a path is written as a file. */

@@ -97,8 +97,14 @@ export function createPullViews() {
     remember(destinationId, shown, now) {
       for (const view of Array.isArray(shown) ? shown : []) {
         if (!view?.channelId || !(view.hashes instanceof Map)) continue;
-        const oldestId = view.oldestId === null || view.oldestId === undefined || view.oldestId === '' ? null : String(view.oldestId);
-        views.set(`${destinationId}:${view.channelId}`, { hashes: view.hashes, oldestTs: view.oldestTs, oldestId, shownAt: now });
+        const oldestId =
+          view.oldestId === null || view.oldestId === undefined || view.oldestId === '' ? null : String(view.oldestId);
+        views.set(`${destinationId}:${view.channelId}`, {
+          hashes: view.hashes,
+          oldestTs: view.oldestTs,
+          oldestId,
+          shownAt: now,
+        });
       }
     },
     size: () => views.size,
@@ -184,7 +190,8 @@ function readableRefusal(channel, bot) {
  */
 export function checkPull({ guild, channelId, destination = null, partner = null, config, now = Date.now() } = {}) {
   if (destination && !destination.guild && !partner) return refused('private-chat');
-  const channel = typeof channelId === 'string' && channelId ? (guild?.channels?.cache?.get?.(channelId) ?? null) : null;
+  const channel =
+    typeof channelId === 'string' && channelId ? (guild?.channels?.cache?.get?.(channelId) ?? null) : null;
   if (!channel) return refused('not-found');
   const unreadable = readableRefusal(channel, config?.bot ?? {});
   if (unreadable) return refused(unreadable);
@@ -206,7 +213,11 @@ export function checkPull({ guild, channelId, destination = null, partner = null
  * (exclusive), one request (`{ before, limit }`), normalized the same way;
  * a failed request is null too.
  */
-async function fetchPage(channel, { anchorId, beforeId = null, limit, selfId, embedTextChars, videoSites, maxUrlChars }, logIds) {
+async function fetchPage(
+  channel,
+  { anchorId, beforeId = null, limit, selfId, embedTextChars, videoSites, maxUrlChars },
+  logIds
+) {
   if (beforeId) {
     let fetched;
     try {
@@ -239,7 +250,14 @@ async function fetchPage(channel, { anchorId, beforeId = null, limit, selfId, em
     },
   };
   try {
-    const page = await fetchHistoryWindow(watched, { anchorId, limit, selfId, embedTextChars, videoSites, maxUrlChars });
+    const page = await fetchHistoryWindow(watched, {
+      anchorId,
+      limit,
+      selfId,
+      embedTextChars,
+      videoSites,
+      maxUrlChars,
+    });
     return failed ? null : page;
   } catch (err) {
     log.warn('pull: page unreadable', { ...logIds, error: err });
@@ -267,7 +285,12 @@ async function messageById(channel, messageId, { pageById, selfId, normalizeOpti
 
 /** Whether `trigger` is a normalized message of channel `channelId` with an id and a time. */
 function isTriggerOf(trigger, channelId) {
-  return typeof trigger?.id === 'string' && trigger.id !== '' && trigger.channelId === channelId && Number.isFinite(trigger.ts);
+  return (
+    typeof trigger?.id === 'string' &&
+    trigger.id !== '' &&
+    trigger.channelId === channelId &&
+    Number.isFinite(trigger.ts)
+  );
 }
 
 /**
@@ -335,14 +358,29 @@ async function pullCaptions(messages, { describer, guildId, config, requestFresh
     if (requestFresh && typeof describer.describeMany === 'function') {
       const uncached = items.filter((item) => !descriptions.has(item.itemId)).slice(0, settings.maxNewDescriptions);
       asked = uncached.length;
-      const result = await freshCaptions({ describer, guildId, items: uncached, timeoutMs: settings.describeTimeoutMs, timers, logIds });
+      const result = await freshCaptions({
+        describer,
+        guildId,
+        items: uncached,
+        timeoutMs: settings.describeTimeoutMs,
+        timers,
+        logIds,
+      });
       for (const [id, text] of result.got) descriptions.set(id, text);
       fresh = result.got.size;
       late = result.late;
     }
   }
   const captioned = pictures.filter((item) => descriptions.has(item.itemId)).length;
-  return { descriptions, pictures: pictures.length, captioned, notSeen: pictures.length - captioned, asked, fresh, late };
+  return {
+    descriptions,
+    pictures: pictures.length,
+    captioned,
+    notSeen: pictures.length - captioned,
+    asked,
+    fresh,
+    late,
+  };
 }
 
 /** The caption counts of a `pull:` log line (pullCaptions' result); never a caption. */
@@ -379,7 +417,10 @@ function captionCounts(captions) {
  * @param {{ set: Function, clear: Function }} [args.timers]  setTimeout / clearTimeout (tests inject fakes).
  * @returns {Promise<PulledChannel>}
  */
-export async function captionPulled(pulled, { describer = null, guildId = null, config, destination = null, timers = DEFAULT_TIMERS } = {}) {
+export async function captionPulled(
+  pulled,
+  { describer = null, guildId = null, config, destination = null, timers = DEFAULT_TIMERS } = {}
+) {
   if (!pulled || !Array.isArray(pulled.messages)) return pulled;
   const started = Date.now();
   const logIds = { channel: destination?.id ?? null, source: pulled.channelId ?? null };
@@ -392,7 +433,12 @@ export async function captionPulled(pulled, { describer = null, guildId = null, 
     known: pulled.descriptions,
     logIds,
   });
-  log.info('pull: captions', { ...logIds, pullReason: pulled.reason ?? null, ...captionCounts(captions), ms: Date.now() - started });
+  log.info('pull: captions', {
+    ...logIds,
+    pullReason: pulled.reason ?? null,
+    ...captionCounts(captions),
+    ms: Date.now() - started,
+  });
   return { ...pulled, descriptions: captions.descriptions, picturesNotSeen: captions.notSeen };
 }
 
@@ -519,11 +565,19 @@ export async function fetchPull({
     if (isTooOld(anchorTs, { maxAgeDays: settings.maxAgeDays, now: nowMs })) return skipWith('too-old');
   }
 
-  const normalizeOptions = { embedTextChars: config?.media?.embedTextChars, videoSites: config?.media?.video?.sites, maxUrlChars: config?.context?.maxUrlChars };
+  const normalizeOptions = {
+    embedTextChars: config?.media?.embedTextChars,
+    videoSites: config?.media?.video?.sites,
+    maxUrlChars: config?.context?.maxUrlChars,
+  };
   const limit = Math.min(PAGE, Math.max(settings.maxMessages, settings.minMessages) + 1);
   const earlierPull = direction === 'earlier';
   const before = earlierPull && anchor === null && typeof beforeId === 'string' && beforeId !== '' ? beforeId : null;
-  const page = await fetchPage(channel, { anchorId: anchor, beforeId: before, limit, selfId, ...normalizeOptions }, logIds);
+  const page = await fetchPage(
+    channel,
+    { anchorId: anchor, beforeId: before, limit, selfId, ...normalizeOptions },
+    logIds
+  );
   if (page === null) return skipWith('fetch-failed');
 
   const window = pullWindow(page, {
@@ -550,8 +604,7 @@ export async function fetchPull({
   if (triggerId !== null && !shownIds.has(triggerId)) {
     // The page's span: from its oldest message to the anchor, the earlier page's newest one, or now.
     const pageEnd = anchorTs ?? (before !== null ? page.at(-1).ts : null);
-    const deleted =
-      !pageById.has(triggerId) && trigger.ts > page[0].ts && (pageEnd === null || trigger.ts <= pageEnd);
+    const deleted = !pageById.has(triggerId) && trigger.ts > page[0].ts && (pageEnd === null || trigger.ts <= pageEnd);
     const line = deleted ? null : await byId(triggerId);
     if (!line) return skipWith('trigger-gone');
     shown.push(line);
@@ -566,7 +619,7 @@ export async function fetchPull({
       pingStatus(entry) === 'unanswered' &&
       entry.messageId !== triggerId &&
       !shownIds.has(entry.messageId) &&
-      entry.ts < windowStart,
+      entry.ts < windowStart
   );
   const fetched = await Promise.all(wanted.map((entry) => byId(entry.messageId)));
   let earlier = 0;

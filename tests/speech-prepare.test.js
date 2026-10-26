@@ -38,7 +38,11 @@ test('sameWords: whitespace is collapsed and trimmed', () => {
 const answering = (text) => async () => ({ text });
 
 test('prepareSpeech: an answer that only adds marks and tags is used', async () => {
-  const out = await prepareSpeech({ text: '[quietly] cafe', complete: answering(`[whispers] cafe${ACUTE}\n`), prompt: 'p' });
+  const out = await prepareSpeech({
+    text: '[quietly] cafe',
+    complete: answering(`[whispers] cafe${ACUTE}\n`),
+    prompt: 'p',
+  });
   assert.deepEqual(out, { text: `[whispers] cafe${ACUTE}`, prepared: true });
 });
 
@@ -49,17 +53,37 @@ test('prepareSpeech: an answer that changes a word falls back to the original', 
 
 test('prepareSpeech: an empty answer, an error and a timeout fall back with their reasons', async () => {
   assert.equal((await prepareSpeech({ text: 'x', complete: answering('  '), prompt: 'p' })).reason, 'empty');
-  const boom = async () => { throw new Error('boom'); };
-  assert.deepEqual(await prepareSpeech({ text: 'x', complete: boom, prompt: 'p' }), { text: 'x', prepared: false, reason: 'error' });
-  const slow = async () => { throw Object.assign(new Error('late'), { name: 'TimeoutError' }); };
+  const boom = async () => {
+    throw new Error('boom');
+  };
+  assert.deepEqual(await prepareSpeech({ text: 'x', complete: boom, prompt: 'p' }), {
+    text: 'x',
+    prepared: false,
+    reason: 'error',
+  });
+  const slow = async () => {
+    throw Object.assign(new Error('late'), { name: 'TimeoutError' });
+  };
   assert.equal((await prepareSpeech({ text: 'x', complete: slow, prompt: 'p' })).reason, 'timeout');
 });
 
 test('prepareSpeech: no prompt means no pass; the request is the analyzer at temperature 0', async () => {
   assert.equal((await prepareSpeech({ text: 'x', complete: answering('x'), prompt: '' })).reason, 'no-prompt');
   let seen;
-  await prepareSpeech({ text: 'x', complete: async (messages, options) => { seen = { messages, options }; return { text: 'x' }; }, prompt: 'SYS', maxOutputTokens: 77, timeoutMs: 5 });
-  assert.deepEqual(seen.messages, [{ role: 'system', content: 'SYS' }, { role: 'user', content: 'x' }]);
+  await prepareSpeech({
+    text: 'x',
+    complete: async (messages, options) => {
+      seen = { messages, options };
+      return { text: 'x' };
+    },
+    prompt: 'SYS',
+    maxOutputTokens: 77,
+    timeoutMs: 5,
+  });
+  assert.deepEqual(seen.messages, [
+    { role: 'system', content: 'SYS' },
+    { role: 'user', content: 'x' },
+  ]);
   assert.equal(seen.options.role, 'analyzer');
   assert.equal(seen.options.temperature, 0);
   assert.equal(seen.options.maxOutputTokens, 77);

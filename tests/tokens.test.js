@@ -21,7 +21,7 @@ test('estimateMessages: an image_url part is charged the flat tokensPerImage reg
   const longDataUrl = `data:image/webp;base64,${'A'.repeat(500_000)}`;
   const total = estimateMessages(
     [{ role: 'user', content: [{ type: 'image_url', image_url: { url: longDataUrl } }] }],
-    400,
+    400
   );
   // overhead 6 + flat 400, NOT proportional to the ~500,000-character data URL --
   // otherwise the 50k request cap would refuse every request with a picture.
@@ -31,30 +31,29 @@ test('estimateMessages: an image_url part is charged the flat tokensPerImage reg
 test('estimateMessages: a video_url part is charged 0 tokens (its cost comes through videoSeconds)', () => {
   const total = estimateMessages(
     [{ role: 'user', content: [{ type: 'video_url', video_url: { url: 'https://www.youtube.com/watch?v=x' } }] }],
-    400,
+    400
   );
   assert.equal(total, 6);
 });
 
 test('estimateMessages: next to a video_url part, an image_url part still costs tokensPerImage', () => {
   const total = estimateMessages(
-    [{
-      role: 'user',
-      content: [
-        { type: 'video_url', video_url: { url: 'data:video/mp4;base64,AAAA' } },
-        { type: 'image_url', image_url: { url: 'x' } },
-      ],
-    }],
-    400,
+    [
+      {
+        role: 'user',
+        content: [
+          { type: 'video_url', video_url: { url: 'data:video/mp4;base64,AAAA' } },
+          { type: 'image_url', image_url: { url: 'x' } },
+        ],
+      },
+    ],
+    400
   );
   assert.equal(total, 6 + 400);
 });
 
 test('estimateMessages: custom tokensPerImage is honoured', () => {
-  const total = estimateMessages(
-    [{ role: 'user', content: [{ type: 'image_url', image_url: { url: 'x' } }] }],
-    100,
-  );
+  const total = estimateMessages([{ role: 'user', content: [{ type: 'image_url', image_url: { url: 'x' } }] }], 100);
   assert.equal(total, 6 + 100);
 });
 
@@ -104,7 +103,9 @@ test('createCalibrator: observe() clamps the observed sample before averaging', 
 test('estimateTools: zero without tools, the JSON of the definitions otherwise', () => {
   assert.equal(estimateTools(undefined), 0);
   assert.equal(estimateTools([]), 0);
-  const tools = [{ type: 'function', function: { name: 'a', description: 'x'.repeat(70), parameters: { type: 'object' } } }];
+  const tools = [
+    { type: 'function', function: { name: 'a', description: 'x'.repeat(70), parameters: { type: 'object' } } },
+  ];
   const json = JSON.stringify(tools);
   // JSON is denser than prose: dearer per character than the prose estimate, plus the definition overhead and the provider's preamble.
   assert.ok(estimateTools(tools) > estimateTokens(json) + 6);
@@ -113,7 +114,13 @@ test('estimateTools: zero without tools, the JSON of the definitions otherwise',
 
 test('estimateMessages: tool_calls of an assistant message and a null content are counted, a message without them is unchanged', () => {
   const plain = estimateMessages([{ role: 'assistant', content: 'ab' }]);
-  const calling = estimateMessages([{ role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'draw_create', arguments: 'a'.repeat(70) } }] }]);
+  const calling = estimateMessages([
+    {
+      role: 'assistant',
+      content: null,
+      tool_calls: [{ id: 'c1', type: 'function', function: { name: 'draw_create', arguments: 'a'.repeat(70) } }],
+    },
+  ]);
   assert.ok(calling > plain + 20);
   assert.equal(estimateMessages([{ role: 'tool', tool_call_id: 'c1', content: 'a'.repeat(7) }]), 8);
 });

@@ -46,7 +46,10 @@ test('matchEmojiName: an unknown name or an unavailable emoji resolves to nothin
 
 test('renderCustomEmoji: a known name becomes <:name:id>, an animated one <a:name:id>', () => {
   assert.equal(renderCustomEmoji('ok :pepe_cry:', lookup), 'ok <:pepe_cry:111111111111111111>');
-  assert.equal(renderCustomEmoji(':dance: :dance:', lookup), '<a:dance:222222222222222222> <a:dance:222222222222222222>');
+  assert.equal(
+    renderCustomEmoji(':dance: :dance:', lookup),
+    '<a:dance:222222222222222222> <a:dance:222222222222222222>'
+  );
 });
 
 test('renderCustomEmoji: the emoji keeps its real name when matched case-insensitively', () => {
@@ -58,7 +61,10 @@ test('renderCustomEmoji: unknown and ambiguous names are left untouched', () => 
 });
 
 test('renderCustomEmoji: adjacent tokens both resolve, and an unknown one does not swallow the next', () => {
-  assert.equal(renderCustomEmoji(':dance::pepe_cry:', lookup), '<a:dance:222222222222222222><:pepe_cry:111111111111111111>');
+  assert.equal(
+    renderCustomEmoji(':dance::pepe_cry:', lookup),
+    '<a:dance:222222222222222222><:pepe_cry:111111111111111111>'
+  );
   assert.equal(renderCustomEmoji(':nope:dance:', lookup), ':nope<a:dance:222222222222222222>');
 });
 
@@ -123,7 +129,10 @@ test('createEmojiIndex: reads the guild cache on demand, so later changes are se
   cache.delete('222222222222222222');
   assert.equal(index.byName('dance'), null);
   assert.equal(index.byName('fresh').id, '6');
-  assert.deepEqual(index.list().map((e) => e.name), ['pepe_cry', 'fresh']);
+  assert.deepEqual(
+    index.list().map((e) => e.name),
+    ['pepe_cry', 'fresh']
+  );
 });
 
 test('createEmojiIndex: the guild id may be a getter read at use; no guild -> empty', () => {
@@ -137,7 +146,13 @@ test('createEmojiIndex: the guild id may be a getter read at use; no guild -> em
 });
 
 test('createEmojiIndex: list leaves out unavailable emoji', () => {
-  const { client } = fakeClient('g1', [...EMOJIS.slice(0, 2), { id: '9', name: 'gone', animated: false, available: false }]);
+  const { client } = fakeClient('g1', [
+    ...EMOJIS.slice(0, 2),
+    { id: '9', name: 'gone', animated: false, available: false },
+  ]);
   const index = createEmojiIndex(client, 'g1');
-  assert.deepEqual(index.list().map((e) => e.name), ['pepe_cry', 'dance']);
+  assert.deepEqual(
+    index.list().map((e) => e.name),
+    ['pepe_cry', 'dance']
+  );
 });

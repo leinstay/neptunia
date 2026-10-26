@@ -6,17 +6,44 @@ import * as recent from '../src/memory/db/map/recent.js';
 import * as diary from '../src/memory/db/map/diary.js';
 import { assertRoundTrip, roundTrip } from './fixtures/memory-db/roundtrip.js';
 
-const message = (id, extra = {}) => ({ id, ts: 1792000000000, authorId: '100000000000000001', name: 'Ada', self: false, text: 'Καλημέρα', replyTo: null, caption: null, ...extra });
+const message = (id, extra = {}) => ({
+  id,
+  ts: 1792000000000,
+  authorId: '100000000000000001',
+  name: 'Ada',
+  self: false,
+  text: 'Καλημέρα',
+  replyTo: null,
+  caption: null,
+  ...extra,
+});
 
 const participationFile = () => ({
   nextId: 5,
   episodes: [
     {
-      id: 'p-1', channelId: '200000000000000001', startAt: 1792000000000, lastAt: 1792000060000, lastOwnAt: 1792000050000,
-      messages: [message('400000000000000001'), message('400000000000000002', { self: true, replyTo: '400000000000000001', caption: 'a cat' })],
-      continues: null, itemId: 'ep-1',
+      id: 'p-1',
+      channelId: '200000000000000001',
+      startAt: 1792000000000,
+      lastAt: 1792000060000,
+      lastOwnAt: 1792000050000,
+      messages: [
+        message('400000000000000001'),
+        message('400000000000000002', { self: true, replyTo: '400000000000000001', caption: 'a cat' }),
+      ],
+      continues: null,
+      itemId: 'ep-1',
     },
-    { id: 'p-2', channelId: '200000000000000002', startAt: 1, lastAt: 2, lastOwnAt: 2, messages: [], continues: 'p-1', itemId: 'ep-2' },
+    {
+      id: 'p-2',
+      channelId: '200000000000000002',
+      startAt: 1,
+      lastAt: 2,
+      lastOwnAt: 2,
+      messages: [],
+      continues: 'p-1',
+      itemId: 'ep-2',
+    },
   ],
 });
 
@@ -31,10 +58,13 @@ test('participation: episodes of kind participation with the messages kept whole
   assert.equal(first.last_ms, 1792000060000);
   assert.equal(first.scope_kind, 'group');
   assert.ok(JSON.parse(first.extra).messages[1].caption === 'a cat');
-  assert.deepEqual(rows.episode_sources.map((row) => [row.episode_id, row.source_id, row.position]), [
-    ['ep-1', 'src:discord:400000000000000001', 0],
-    ['ep-1', 'src:discord:400000000000000002', 1],
-  ]);
+  assert.deepEqual(
+    rows.episode_sources.map((row) => [row.episode_id, row.source_id, row.position]),
+    [
+      ['ep-1', 'src:discord:400000000000000001', 0],
+      ['ep-1', 'src:discord:400000000000000002', 1],
+    ]
+  );
 });
 
 test('participation: an episode without itemId or with a repeated one still comes back as it was', () => {
@@ -50,7 +80,16 @@ test('participation: an episode without itemId or with a repeated one still come
 const recentFile = () => ({
   nextId: 3,
   lines: [
-    { id: 1, at: 1792000000000, addedAt: '2026-10-20T10:00:00.000Z', channelId: '200000000000000001', text: 'café', who: ['100000000000000001'], weight: 0.5, itemId: 'rc-1' },
+    {
+      id: 1,
+      at: 1792000000000,
+      addedAt: '2026-10-20T10:00:00.000Z',
+      channelId: '200000000000000001',
+      text: 'café',
+      who: ['100000000000000001'],
+      weight: 0.5,
+      itemId: 'rc-1',
+    },
     { id: 2, at: 2, addedAt: 'x', channelId: '200000000000000001', text: '', who: [], weight: 1, itemId: 'rc-2' },
   ],
 });
@@ -80,7 +119,16 @@ test('recent: lines without an itemId, empty files and odd shapes survive', () =
 const diaryFile = () => ({
   updatedAt: 1792000000000,
   posts: [
-    { at: 1792000000000, kind: 'day', gist: 'a quiet day', picture: 'a lamp in the rain', messageIds: ['500000000000000001', '500000000000000002'], search: null, itemId: 'd-1', pictures: 1 },
+    {
+      at: 1792000000000,
+      kind: 'day',
+      gist: 'a quiet day',
+      picture: 'a lamp in the rain',
+      messageIds: ['500000000000000001', '500000000000000002'],
+      search: null,
+      itemId: 'd-1',
+      pictures: 1,
+    },
     { at: 2, kind: 'night', gist: 'late', picture: null, messageIds: [], search: 'moths', itemId: 'd-2' },
   ],
 });

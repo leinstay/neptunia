@@ -77,7 +77,11 @@ function topWritersText(topWriters, nameOf) {
  *   including the current one; nothing is added when that label is missing.
  * @returns {string}
  */
-export function renderChannel(channel, labels, { current = false, activity, now: nowMs, nameOf, readOnly = false, diary = false } = {}) {
+export function renderChannel(
+  channel,
+  labels,
+  { current = false, activity, now: nowMs, nameOf, readOnly = false, diary = false } = {}
+) {
   const s = labels.server;
   const mark = current ? s.currentMark : '';
   const lines = [`# ${channel.name}${mark}`];

@@ -18,7 +18,13 @@ import net from 'node:net';
 import fs from 'node:fs';
 import { log } from '../log.js';
 import {
-  encodeLine, endEvent, errorEvent, parseRequestLine, pongEvent, progressEvent, restartedEvent,
+  encodeLine,
+  endEvent,
+  errorEvent,
+  parseRequestLine,
+  pongEvent,
+  progressEvent,
+  restartedEvent,
 } from './protocol.js';
 
 /** The most ids the runner remembers as finished (to answer a late `ping` without a duplicate `end`). */
@@ -87,8 +93,22 @@ export function createRunnerServer({ profile, runner, socketPath, socketMode = 0
     }
     current = null;
     rememberFinished(task.id);
-    send(conn, endEvent({ id: task.id, status: outcome.status, result: outcome.result, usage: outcome.usage, error: outcome.error }));
-    log.info('agent-runner: task end', { id: task.id, profile, status: outcome.status, steps: outcome.usage?.steps ?? 0 });
+    send(
+      conn,
+      endEvent({
+        id: task.id,
+        status: outcome.status,
+        result: outcome.result,
+        usage: outcome.usage,
+        error: outcome.error,
+      })
+    );
+    log.info('agent-runner: task end', {
+      id: task.id,
+      profile,
+      status: outcome.status,
+      steps: outcome.usage?.steps ?? 0,
+    });
     setImmediate(runNext);
   }
 
@@ -205,10 +225,12 @@ export function createRunnerServer({ profile, runner, socketPath, socketMode = 0
       }
     }, 100);
     grace.unref?.();
-    await new Promise((resolve) => server.close(() => {
-      clearTimeout(grace);
-      resolve();
-    }));
+    await new Promise((resolve) =>
+      server.close(() => {
+        clearTimeout(grace);
+        resolve();
+      })
+    );
     connections.clear();
     try {
       if (fs.existsSync(socketPath)) fs.unlinkSync(socketPath);
@@ -222,5 +244,16 @@ export function createRunnerServer({ profile, runner, socketPath, socketMode = 0
     return [...(current ? [current.id] : []), ...queue.map((item) => item.task.id)];
   }
 
-  return { start, stop, server, liveIds, get queueLength() { return queue.length; }, get busy() { return Boolean(current); } };
+  return {
+    start,
+    stop,
+    server,
+    liveIds,
+    get queueLength() {
+      return queue.length;
+    },
+    get busy() {
+      return Boolean(current);
+    },
+  };
 }

@@ -79,7 +79,10 @@ export function tally(records) {
   const triggers = new Map();
   for (const record of list) {
     if (record.kind === 'turn.start' && typeof record.turnId === 'string') {
-      triggers.set(`${record.turnId}#${record.attemptId ?? 1}`, typeof record.trigger?.kind === 'string' ? record.trigger.kind : '-');
+      triggers.set(
+        `${record.turnId}#${record.attemptId ?? 1}`,
+        typeof record.trigger?.kind === 'string' ? record.trigger.kind : '-'
+      );
     }
   }
   for (const record of list) {
@@ -106,7 +109,11 @@ export function tally(records) {
       }
       if (Array.isArray(record.posted)) out.ownMessages += record.posted.length;
     } else if (record.kind === 'action') {
-      bump2(out.actions, typeof record.name === 'string' ? record.name : '-', typeof record.phase === 'string' ? record.phase : '-');
+      bump2(
+        out.actions,
+        typeof record.name === 'string' ? record.name : '-',
+        typeof record.phase === 'string' ? record.phase : '-'
+      );
     } else if (record.kind === 'memory') {
       out.memoryBatches += 1;
     } else if (record.kind === 'system') {
@@ -146,7 +153,8 @@ export function limitsTable(records) {
     if (!record || typeof record !== 'object') continue;
     const isRecord = 'v' in record || 'occurredAt' in record || Array.isArray(record.limits);
     if (!isRecord) add(record);
-    else if ((record.kind === 'turn' || record.kind === 'memory') && Array.isArray(record.limits)) record.limits.forEach(add);
+    else if ((record.kind === 'turn' || record.kind === 'memory') && Array.isArray(record.limits))
+      record.limits.forEach(add);
   }
   const rank = (kind) => {
     const at = LIMIT_KINDS.indexOf(kind);
@@ -181,7 +189,15 @@ export function tallyLog(lines) {
     if (entry?.msg !== 'turn: model answered' || typeof entry.time !== 'string') continue;
     const day = entry.time.slice(0, 10);
     if (!days.has(day)) {
-      days.set(day, { ...emptyTally(), reasons: null, actions: null, limits: null, ownMessages: null, memoryBatches: null, system: null });
+      days.set(day, {
+        ...emptyTally(),
+        reasons: null,
+        actions: null,
+        limits: null,
+        ownMessages: null,
+        memoryBatches: null,
+        system: null,
+      });
     }
     const out = days.get(day);
     out.records += 1;
@@ -247,7 +263,10 @@ function crossTable(label, map) {
  */
 export function renderDay(day, t) {
   const out = [`## ${day}`, ''];
-  const isEmpty = (value) => (Array.isArray(value) ? value.length === 0 : Boolean(value) && typeof value === 'object' && Object.keys(value).length === 0);
+  const isEmpty = (value) =>
+    Array.isArray(value)
+      ? value.length === 0
+      : Boolean(value) && typeof value === 'object' && Object.keys(value).length === 0;
   const section = (title, value, render) => {
     out.push(`### ${title}`, '');
     if (value === null || value === undefined) out.push(NA);
@@ -265,9 +284,9 @@ export function renderDay(day, t) {
         .flatMap((outcome) =>
           Object.entries(v[outcome])
             .sort(([a], [b]) => a.localeCompare(b))
-            .map(([reason, n]) => [outcome, reason, n]),
-        ),
-    ),
+            .map(([reason, n]) => [outcome, reason, n])
+        )
+    )
   );
   section('Actions by name and phase', t.actions, (v) => crossTable('action', v));
   const share = t.cached && t.cached.prompt > 0 ? `${((100 * t.cached.cached) / t.cached.prompt).toFixed(1)}%` : NA;
@@ -282,17 +301,28 @@ export function renderDay(day, t) {
         ['cached share', share],
         ['requests reporting cached', t.cached ? t.cached.counted : NA],
         ['cache-write tokens', t.cached?.writeCounted > 0 ? num(t.cached.cacheWrite) : NA],
-      ],
+      ]
     ),
-    '',
+    ''
   );
   section('Budget dropped (items per section)', t.dropped, (v) =>
-    table(['section', 'dropped'], Object.entries(v).sort(([a], [b]) => a.localeCompare(b))),
+    table(
+      ['section', 'dropped'],
+      Object.entries(v).sort(([a], [b]) => a.localeCompare(b))
+    )
   );
   section('Limits', t.limits === null || t.limits === undefined ? null : limitsTable(t.limits), (rows) =>
-    table(['limit', 'count', 'lost'], rows.map((r) => [r.kind, r.count, num(r.lost)])),
+    table(
+      ['limit', 'count', 'lost'],
+      rows.map((r) => [r.kind, r.count, num(r.lost)])
+    )
   );
   out.push(`Own messages: ${num(t.ownMessages)}`, `Memory batches: ${num(t.memoryBatches)}`, '');
-  section('System events', t.system, (v) => table(['event', 'count'], Object.entries(v).sort(([a], [b]) => a.localeCompare(b))));
+  section('System events', t.system, (v) =>
+    table(
+      ['event', 'count'],
+      Object.entries(v).sort(([a], [b]) => a.localeCompare(b))
+    )
+  );
   return `${out.join('\n').trimEnd()}\n`;
 }

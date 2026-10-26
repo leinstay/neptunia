@@ -49,7 +49,14 @@ async function withStore(fn) {
 
 test('countEmojiUses: one use per emoji per message, members only', () => {
   const uses = countEmojiUses([
-    msg({ ts: T0, emojis: [{ id: '10', name: 'kappa' }, { id: '10', name: 'kappa' }, { id: '20', name: 'omega' }] }),
+    msg({
+      ts: T0,
+      emojis: [
+        { id: '10', name: 'kappa' },
+        { id: '10', name: 'kappa' },
+        { id: '20', name: 'omega' },
+      ],
+    }),
     msg({ ts: T0 + 1000, emojis: [{ id: '10', name: 'kappa_new' }] }),
     msg({ self: true, ts: T0 + 2000, emojis: [{ id: '10', name: 'kappa' }] }),
     msg({ bot: true, ts: T0 + 3000, emojis: [{ id: '20', name: 'omega' }] }),
@@ -60,7 +67,7 @@ test('countEmojiUses: one use per emoji per message, members only', () => {
   assert.equal(uses.size, 2);
 });
 
-test('countEmojiUses: forwarded snapshots are not the member\'s own use', () => {
+test("countEmojiUses: forwarded snapshots are not the member's own use", () => {
   const uses = countEmojiUses([msg({ forwarded: [{ content: '', emojis: [{ id: '30', name: 'sigma' }] }] })]);
   assert.equal(uses.size, 0);
 });
@@ -89,9 +96,15 @@ test('rankEmojiUsage: recency decay lets a fresh emoji outrank an old heavier on
     1: { name: 'old', count: 8, last: T0 },
     2: { name: 'fresh', count: 2, last: T0 + 60 * DAY },
   };
-  assert.deepEqual(rankEmojiUsage(usage, 30).map((e) => e.name), ['fresh', 'old']);
+  assert.deepEqual(
+    rankEmojiUsage(usage, 30).map((e) => e.name),
+    ['fresh', 'old']
+  );
   // Without decay the count alone decides.
-  assert.deepEqual(rankEmojiUsage(usage, 0).map((e) => e.name), ['old', 'fresh']);
+  assert.deepEqual(
+    rankEmojiUsage(usage, 0).map((e) => e.name),
+    ['old', 'fresh']
+  );
 });
 
 test('mergeEmojiUsage: past storeMax the lowest-ranked entries are evicted', () => {
@@ -111,8 +124,13 @@ test('normalizeEmojiUsage: a missing or broken field reads as empty, bad entries
   assert.deepEqual(normalizeEmojiUsage(undefined), {});
   assert.deepEqual(normalizeEmojiUsage('x'), {});
   assert.deepEqual(
-    normalizeEmojiUsage({ 1: { name: 'ok', count: 2, last: 5 }, 2: { name: 'zero', count: 0 }, 3: null, 4: { count: 1 } }),
-    { 1: { name: 'ok', count: 2, last: 5 }, 4: { name: '', count: 1, last: 0 } },
+    normalizeEmojiUsage({
+      1: { name: 'ok', count: 2, last: 5 },
+      2: { name: 'zero', count: 0 },
+      3: null,
+      4: { count: 1 },
+    }),
+    { 1: { name: 'ok', count: 2, last: 5 }, 4: { name: '', count: 1, last: 0 } }
   );
 });
 
@@ -121,7 +139,11 @@ test('normalizeEmojiUsage: a missing or broken field reads as empty, bad entries
 test('store.getGuild: emojiUsage is normalised on read, missing -> {}', async () => {
   await withStore(async (store, memoryDb) => {
     assert.deepEqual(store.getGuild('g1').emojiUsage, {});
-    await memoryDb.writeUnit({ op: 'value', owner: 'guilds/g2/guild.json', value: { patterns: 'p', emojiUsage: { 7: { name: 'ή', count: 4, last: 9 }, 8: 'junk' } } });
+    await memoryDb.writeUnit({
+      op: 'value',
+      owner: 'guilds/g2/guild.json',
+      value: { patterns: 'p', emojiUsage: { 7: { name: 'ή', count: 4, last: 9 }, 8: 'junk' } },
+    });
     assert.deepEqual(store.getGuild('g2').emojiUsage, { 7: { name: 'ή', count: 4, last: 9 } });
     assert.equal(store.getGuild('g2').patterns, 'p');
   });
@@ -129,7 +151,9 @@ test('store.getGuild: emojiUsage is normalised on read, missing -> {}', async ()
 
 test('store.recordEmojiUsage: persists counts; updateGuild never overwrites them', async () => {
   await withStore(async (store, memoryDb, dataDir) => {
-    const counted = store.recordEmojiUsage('g1', [msg({ ts: T0, emojis: [{ id: '10', name: 'kappa' }] })], { storeMax: 200 });
+    const counted = store.recordEmojiUsage('g1', [msg({ ts: T0, emojis: [{ id: '10', name: 'kappa' }] })], {
+      storeMax: 200,
+    });
     assert.equal(counted, 1);
     store.updateGuild('g1', { patterns: 'friendly', emojiUsage: {} });
     store.flush();
@@ -143,15 +167,31 @@ test('store.recordEmojiUsage: persists counts; updateGuild never overwrites them
 // --- the live observer --------------------------------------------------------
 
 function hotFor(context) {
-  return { config: { bot: { timezone: 'UTC' }, context: { gapMarkerMinutes: 20, maxMessageChars: 800, ...context }, memory: { fieldChars: 400 } } };
+  return {
+    config: {
+      bot: { timezone: 'UTC' },
+      context: { gapMarkerMinutes: 20, maxMessageChars: 800, ...context },
+      memory: { fieldChars: 400 },
+    },
+  };
 }
 
-test('observe: a member\'s message adds its emoji to guild.emojiUsage; her own adds nothing', async () => {
+test("observe: a member's message adds its emoji to guild.emojiUsage; her own adds nothing", async () => {
   await withStore(async (store) => {
     const updater = createMemoryUpdater({ hot: hotFor({}), store });
     updater.observe('g1', msg({ id: 'a', ts: T0, emojis: [{ id: '10', name: 'kappa' }] }));
     updater.observe('g1', msg({ id: 'b', ts: T0 + 1, self: true, emojis: [{ id: '10', name: 'kappa' }] }));
-    updater.observe('g1', msg({ id: 'c', ts: T0 + 2, emojis: [{ id: '10', name: 'kappa' }, { id: '20', name: 'omega' }] }));
+    updater.observe(
+      'g1',
+      msg({
+        id: 'c',
+        ts: T0 + 2,
+        emojis: [
+          { id: '10', name: 'kappa' },
+          { id: '20', name: 'omega' },
+        ],
+      })
+    );
     assert.deepEqual(store.getGuild('g1').emojiUsage, {
       10: { name: 'kappa', count: 2, last: T0 + 2 },
       20: { name: 'omega', count: 1, last: T0 + 2 },

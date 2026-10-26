@@ -40,7 +40,11 @@ function imported() {
 
 const hashesOf = (file) => {
   const handle = openMemoryDb(file, { readOnly: true });
-  try { return tableHashes(handle.db); } finally { handle.close(); }
+  try {
+    return tableHashes(handle.db);
+  } finally {
+    handle.close();
+  }
 };
 
 test('backup and restore: the rehearsal gives a database whose every table hashes like the source, and the media back byte for byte', () => {
@@ -52,7 +56,10 @@ test('backup and restore: the rehearsal gives a database whose every table hashe
     assert.equal(backup.code, 0, backup.text);
     const manifest = JSON.parse(fs.readFileSync(path.join(to, 'manifest.json'), 'utf8'));
     assert.equal(manifest.schemaVersion, MIGRATIONS.length);
-    assert.deepEqual(manifest.files.map((file) => file.path), ['memory.db', 'media/diary/d-1-1.png', 'media/diary/d-1-2.ogg']);
+    assert.deepEqual(
+      manifest.files.map((file) => file.path),
+      ['memory.db', 'media/diary/d-1-1.png', 'media/diary/d-1-2.ogg']
+    );
     for (const file of manifest.files) {
       assert.match(file.sha256, /^[0-9a-f]{64}$/);
       assert.equal(file.size, fs.statSync(path.join(to, file.path)).size);
@@ -67,7 +74,12 @@ test('backup and restore: the rehearsal gives a database whose every table hashe
     assert.match(restore.text, /restore ok/);
     assert.deepEqual(hashesOf(target), source, 'the restored database hashes like the source, table by table');
     for (const name of ['d-1-1.png', 'd-1-2.ogg']) {
-      assert.ok(fs.readFileSync(path.join(env.root, 'restored', 'media', 'diary', name)).equals(fs.readFileSync(path.join(env.data, 'media', 'diary', name))), name);
+      assert.ok(
+        fs
+          .readFileSync(path.join(env.root, 'restored', 'media', 'diary', name))
+          .equals(fs.readFileSync(path.join(env.data, 'media', 'diary', name))),
+        name
+      );
     }
     const restored = openMemoryDb(target, { readOnly: true });
     assert.equal(schemaVersion(restored.db), MIGRATIONS.length);
@@ -93,7 +105,10 @@ test('restore: a backup whose file does not match its manifest is refused before
     backupDatabase({ db: env.file, to, data: env.data });
     fs.appendFileSync(path.join(to, 'media', 'diary', 'd-1-1.png'), Buffer.from([0]));
     const target = path.join(env.root, 'restored', 'memory.db');
-    assert.throws(() => restoreDatabase({ from: to, db: target }), /does not match the manifest: media\/diary\/d-1-1.png/);
+    assert.throws(
+      () => restoreDatabase({ from: to, db: target }),
+      /does not match the manifest: media\/diary\/d-1-1.png/
+    );
     assert.equal(fs.existsSync(target), false);
     fs.rmSync(path.join(to, 'media', 'diary', 'd-1-1.png'));
     assert.throws(() => restoreDatabase({ from: to, db: target }), /missing from the backup/);
@@ -104,7 +119,8 @@ test('restore: a backup whose file does not match its manifest is refused before
 });
 
 /** The scratch folders `restore-test` leaves under TMPDIR (it must leave none). */
-const restoreScratch = () => fs.readdirSync(process.env.TMPDIR || os.tmpdir()).filter((name) => name.startsWith('restore-test-'));
+const restoreScratch = () =>
+  fs.readdirSync(process.env.TMPDIR || os.tmpdir()).filter((name) => name.startsWith('restore-test-'));
 
 test('restore-test: the backup restored into an isolated db service hashes as the backup itself, then the scratch goes', async () => {
   const env = imported();
@@ -113,7 +129,10 @@ test('restore-test: the backup restored into an isolated db service hashes as th
     backupDatabase({ db: env.file, to, data: env.data });
     const scratchBefore = restoreScratch();
     const lines = [];
-    const code = await main(['restore-test', '--from', to], { out: (line) => lines.push(line), err: (line) => lines.push(line) });
+    const code = await main(['restore-test', '--from', to], {
+      out: (line) => lines.push(line),
+      err: (line) => lines.push(line),
+    });
     const text = lines.join('\n');
     assert.equal(code, 0, text);
     assert.match(text, /restored: schema \d+, 3 files checked/);
@@ -126,7 +145,10 @@ test('restore-test: the backup restored into an isolated db service hashes as th
     // A backup that does not match its manifest fails before any service opens, and leaves no scratch either.
     fs.appendFileSync(path.join(to, 'memory.db'), Buffer.from([0]));
     const bad = [];
-    assert.equal(await main(['restore-test', '--from', to], { out: (line) => bad.push(line), err: (line) => bad.push(line) }), 2);
+    assert.equal(
+      await main(['restore-test', '--from', to], { out: (line) => bad.push(line), err: (line) => bad.push(line) }),
+      2
+    );
     assert.match(bad.join('\n'), /does not match the manifest: memory\.db/);
     assert.deepEqual(restoreScratch(), scratchBefore);
   } finally {

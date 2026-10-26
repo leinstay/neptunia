@@ -82,7 +82,8 @@ async function main() {
   // No key of its own is needed: the core sends one with each task. A task that brings none
   // while this environment has none either fails `no-key`, with one warning
   // (src/agent-runner/opencode.js).
-  if (!process.env.OPENROUTER_ERRAND_KEY) log.info('agent-runner: no key in the environment, each task brings its own', { profile: name });
+  if (!process.env.OPENROUTER_ERRAND_KEY)
+    log.info('agent-runner: no key in the environment, each task brings its own', { profile: name });
 
   try {
     fs.mkdirSync(outDir, { recursive: true });
@@ -102,7 +103,13 @@ async function main() {
   };
 
   // Fail fast when the prompt file is missing, rather than failing every task.
-  const engineRunner = createOpencodeRunner({ profile, outDir, env: process.env, opencodePath, getConfig: currentConfig });
+  const engineRunner = createOpencodeRunner({
+    profile,
+    outDir,
+    env: process.env,
+    opencodePath,
+    getConfig: currentConfig,
+  });
   try {
     engineRunner.checkPrompt();
   } catch (err) {
@@ -111,30 +118,36 @@ async function main() {
 
   const journalWrite = journalFile
     ? (line) => {
-      try {
-        fs.appendFileSync(journalFile, `${JSON.stringify(line)}\n`);
-      } catch {
-        // the journal is a record, never a reason to drop a task
+        try {
+          fs.appendFileSync(journalFile, `${JSON.stringify(line)}\n`);
+        } catch {
+          // the journal is a record, never a reason to drop a task
+        }
       }
-    }
     : () => {};
 
   // Merge config defaults into each task so the core may omit the cost and limits; a task without
   // a model runs on its profile's model role (src/agent-runner/opencode.js).
-  const limitsDefault = { ...profile.defaultLimits, ...(settings.limits ?? {}), toolResultChars: agents.toolResultChars };
+  const limitsDefault = {
+    ...profile.defaultLimits,
+    ...(settings.limits ?? {}),
+    toolResultChars: agents.toolResultChars,
+  };
   const runner = {
     run(task) {
       journalWrite({ event: 'task-start', id: task.id, profile: name });
-      return engineRunner.run({
-        ...task,
-        limits: { ...limitsDefault, ...(task.limits ?? {}) },
-        model: task.model,
-        cost: task.cost ?? settings.cost,
-        searchProvider: task.searchProvider ?? settings.search?.provider,
-      }).then((outcome) => {
-        journalWrite({ event: 'task-end', id: task.id, profile: name, status: outcome.status, usage: outcome.usage });
-        return outcome;
-      });
+      return engineRunner
+        .run({
+          ...task,
+          limits: { ...limitsDefault, ...(task.limits ?? {}) },
+          model: task.model,
+          cost: task.cost ?? settings.cost,
+          searchProvider: task.searchProvider ?? settings.search?.provider,
+        })
+        .then((outcome) => {
+          journalWrite({ event: 'task-end', id: task.id, profile: name, status: outcome.status, usage: outcome.usage });
+          return outcome;
+        });
     },
   };
 

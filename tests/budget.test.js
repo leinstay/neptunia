@@ -24,8 +24,16 @@ test('fitSections: required sections are kept in full even when it leaves nothin
 
 test('fitSections: required sections alone over the limit throw the dedicated class, naming the overflow', () => {
   const sections = [{ name: 'fixed', required: true, items: ['aaaaaaaaaa'] }]; // 10 tokens
-  assert.throws(() => fitSections(sections, 5, cost), SectionsTooLargeError, 'a dedicated class, not just a matching message');
-  assert.throws(() => fitSections(sections, 5, cost), /required prompt sections exceed the token limit by 5/, 'the message says by how much');
+  assert.throws(
+    () => fitSections(sections, 5, cost),
+    SectionsTooLargeError,
+    'a dedicated class, not just a matching message'
+  );
+  assert.throws(
+    () => fitSections(sections, 5, cost),
+    /required prompt sections exceed the token limit by 5/,
+    'the message says by how much'
+  );
 });
 
 test('fitSections: priority order -- earlier sections get first claim on the remaining budget', () => {
@@ -131,7 +139,7 @@ test('fitSections: a broken limit is not reported as sections that are too large
     assert.throws(
       () => fitSections(sections, limit, cost),
       (err) => err instanceof TypeError && !(err instanceof SectionsTooLargeError),
-      String(limit),
+      String(limit)
     );
   }
 });

@@ -24,16 +24,26 @@ function envOf(grants = {}) {
     config: { bot: { owners: ['42'], access: grants }, features: { skills: true } },
     prompts: {
       labels: LABELS,
-      skills: { 'memory.search': { title: 'Search', whenToUse: 'find old talk', whenNotToUse: '' }, 'memory.journal.read': { title: 'Journal', whenToUse: 'read it', whenNotToUse: '' } },
+      skills: {
+        'memory.search': { title: 'Search', whenToUse: 'find old talk', whenNotToUse: '' },
+        'memory.journal.read': { title: 'Journal', whenToUse: 'read it', whenNotToUse: '' },
+      },
     },
     promptSources: {},
     rootDir: tempDir('nep-skills-describe-'),
   };
   const store = { state: { data: {}, markDirty() {} }, flush() {} };
-  return createOpsEnv({ discord: createDiscordInterface().capabilities, hot, store, client: { user: { id: 'self-id' } }, getGuildId: () => 'g1' });
+  return createOpsEnv({
+    discord: createDiscordInterface().capabilities,
+    hot,
+    store,
+    client: { user: { id: 'self-id' } },
+    getGuildId: () => 'g1',
+  });
 }
 
-const call = (env, name) => runOp('skills.describe', { name }, { env, guildId: 'g1', userId: '42', roleIds: [], actor: 'persona' });
+const call = (env, name) =>
+  runOp('skills.describe', { name }, { env, guildId: 'g1', userId: '42', roleIds: [], actor: 'persona' });
 const grant = { everyone: false, roles: [], users: ['self-id'] };
 
 test('skills.describe is a registered read skill with a name argument that the body fills', () => {
@@ -48,7 +58,10 @@ test('skills.describe: an exact name comes back in full with its arguments and w
   const env = envOf({ 'memory.search': grant });
   const result = await call(env, 'memory.search');
   assert.equal(result.status, 'ok');
-  assert.equal(result.data.text, 'memory.search: Search -- find old talk (allowed) Arguments: question, people, channel, when, terms, anchor, move, messages, minutes.');
+  assert.equal(
+    result.data.text,
+    'memory.search: Search -- find old talk (allowed) Arguments: question, people, channel, when, terms, anchor, move, messages, minutes.'
+  );
   const off = await call(env, 'memory.journal.read');
   assert.match(off.data.text, /\(off\)/);
 });

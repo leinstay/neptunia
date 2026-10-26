@@ -127,7 +127,12 @@ export function createErrandClient({
       pings.delete(agent);
       for (const waiter of waiters) {
         clearTimer(waiter.timer);
-        waiter.resolve({ ok: true, profile: String(event.profile ?? agent), busy: event.busy === true, queued: Number(event.queued) || 0 });
+        waiter.resolve({
+          ok: true,
+          profile: String(event.profile ?? agent),
+          busy: event.busy === true,
+          queued: Number(event.queued) || 0,
+        });
       }
       return;
     }
@@ -135,7 +140,13 @@ export function createErrandClient({
     if (event.event === 'progress' && id) {
       for (const fn of progressListeners) {
         try {
-          fn({ agent, id, step: Number(event.step) || 0, tool: typeof event.tool === 'string' ? event.tool : null, note: String(event.note ?? '') });
+          fn({
+            agent,
+            id,
+            step: Number(event.step) || 0,
+            tool: typeof event.tool === 'string' ? event.tool : null,
+            note: String(event.note ?? ''),
+          });
         } catch (err) {
           log.warn('errands: progress listener failed', { agent, id, error: err });
         }
@@ -190,7 +201,15 @@ export function createErrandClient({
     // A link to another path (the socket setting changed): its tasks can no longer end.
     if (link?.open) dropPending(agent);
     if (link?.socket && !link.socket.destroyed) link.socket.destroy();
-    link = { socket: null, path: socketPath, open: false, opening: null, backoffMs: link?.backoffMs ?? RECONNECT_MIN_MS, timer: null, buffer: '' };
+    link = {
+      socket: null,
+      path: socketPath,
+      open: false,
+      opening: null,
+      backoffMs: link?.backoffMs ?? RECONNECT_MIN_MS,
+      timer: null,
+      buffer: '',
+    };
     links.set(agent, link);
     const current = link;
     current.opening = new Promise((resolve, reject) => {
@@ -245,7 +264,10 @@ export function createErrandClient({
         }
         if (links.get(agent) !== current) return;
         if (wasOpen) {
-          log.warn('errands: disconnected', { agent, pending: [...pending.values()].filter((entry) => entry.agent === agent).length });
+          log.warn('errands: disconnected', {
+            agent,
+            pending: [...pending.values()].filter((entry) => entry.agent === agent).length,
+          });
           emitLink(agent, false, 'disconnected');
         }
         dropPending(agent);
@@ -288,7 +310,14 @@ export function createErrandClient({
   function preambleOf(agent, runModel) {
     const composed = composePreamble({ prompts: hot?.prompts, agent, model: runModel, maxChars: MAX_PREAMBLE_CHARS });
     if (composed.dropped.length > 0) {
-      log.warn('errands: preamble over the cap', { agent, model: runModel, files: composed.files, dropped: composed.dropped, chars: composed.chars, maxChars: MAX_PREAMBLE_CHARS });
+      log.warn('errands: preamble over the cap', {
+        agent,
+        model: runModel,
+        files: composed.files,
+        dropped: composed.dropped,
+        chars: composed.chars,
+        maxChars: MAX_PREAMBLE_CHARS,
+      });
     }
     return composed;
   }
@@ -303,13 +332,16 @@ export function createErrandClient({
     }
     return new Promise((resolve) => {
       const seconds = Number.isFinite(limits?.seconds) && limits.seconds > 0 ? limits.seconds : DEFAULT_TASK_SECONDS;
-      const timer = setTimer(() => {
-        if (!pending.has(id)) return;
-        pending.delete(id);
-        send(agent, { op: 'cancel', id });
-        log.warn('errands: no end in time', { agent, id });
-        resolve(failed('timeout'));
-      }, seconds * 1000 + END_GRACE_MS);
+      const timer = setTimer(
+        () => {
+          if (!pending.has(id)) return;
+          pending.delete(id);
+          send(agent, { op: 'cancel', id });
+          log.warn('errands: no end in time', { agent, id });
+          resolve(failed('timeout'));
+        },
+        seconds * 1000 + END_GRACE_MS
+      );
       timer?.unref?.();
       pending.set(id, { agent, resolve, timer });
       const request = { op: 'run', id, goal, context };
@@ -347,7 +379,10 @@ export function createErrandClient({
       const waiter = { resolve, timer: null };
       waiter.timer = setTimer(() => {
         const list = pings.get(agent) ?? [];
-        pings.set(agent, list.filter((entry) => entry !== waiter));
+        pings.set(
+          agent,
+          list.filter((entry) => entry !== waiter)
+        );
         resolve({ ok: false, error: CODE.TIMEOUT });
       }, PING_TIMEOUT_MS);
       waiter.timer?.unref?.();
@@ -355,7 +390,10 @@ export function createErrandClient({
       const ids = [...pending.entries()].filter(([, entry]) => entry.agent === agent).map(([taskId]) => taskId);
       if (!send(agent, { op: 'ping', ids })) {
         clearTimer(waiter.timer);
-        pings.set(agent, (pings.get(agent) ?? []).filter((entry) => entry !== waiter));
+        pings.set(
+          agent,
+          (pings.get(agent) ?? []).filter((entry) => entry !== waiter)
+        );
         resolve({ ok: false, error: CODE.DISCONNECTED });
       }
     });

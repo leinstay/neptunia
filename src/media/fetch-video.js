@@ -103,7 +103,14 @@ function isGifType(type) {
 }
 
 // The port a proxy URL means when it names none.
-const PROXY_DEFAULT_PORTS = { 'socks5h:': 1080, 'socks5:': 1080, 'socks4a:': 1080, 'socks4:': 1080, 'http:': 80, 'https:': 443 };
+const PROXY_DEFAULT_PORTS = {
+  'socks5h:': 1080,
+  'socks5:': 1080,
+  'socks4a:': 1080,
+  'socks4:': 1080,
+  'http:': 80,
+  'https:': 443,
+};
 
 /**
  * Whether a plain TCP connection to the proxy's host and port opens within
@@ -339,9 +346,8 @@ export function createVideoFetcher({
   function proxyFailed(stage, run, proxyRetryMinutes) {
     const reason = run.timedOut ? 'timeout' : run.spawnError ? 'tool' : 'download';
     log.warn('fetch-video: proxy failed', { stage, reason, code: runCode(run) });
-    const minutes = Number.isFinite(proxyRetryMinutes) && proxyRetryMinutes >= 0
-      ? proxyRetryMinutes
-      : PROXY_RETRY_MINUTES_FALLBACK;
+    const minutes =
+      Number.isFinite(proxyRetryMinutes) && proxyRetryMinutes >= 0 ? proxyRetryMinutes : PROXY_RETRY_MINUTES_FALLBACK;
     proxyDownUntil = now() + minutes * MINUTE_MS;
     proxySkipLogged = false;
   }
@@ -424,7 +430,10 @@ export function createVideoFetcher({
 
     const fitPath = path.join(dir, 'fit.mp4');
     const { videoKbps, audioKbps } = fitBitrate({ maxBytes, seconds });
-    const fitted = await encode(ffmpegFitArgs(sourcePath, fitPath, { ffmpegPath, maxSeconds, videoKbps, audioKbps }), fitPath);
+    const fitted = await encode(
+      ffmpegFitArgs(sourcePath, fitPath, { ffmpegPath, maxSeconds, videoKbps, audioKbps }),
+      fitPath
+    );
     log.info('fetch-video: refit', {
       source,
       seconds,
@@ -454,9 +463,13 @@ export function createVideoFetcher({
     };
     try {
       const run = await runTool(
-        silenceDetectArgs(clipPath, { ffmpegPath, noiseDb: settings.noiseDb, minSilenceSeconds: settings.minSilenceSeconds }),
+        silenceDetectArgs(clipPath, {
+          ffmpegPath,
+          noiseDb: settings.noiseDb,
+          minSilenceSeconds: settings.minSilenceSeconds,
+        }),
         toolTimeoutMs,
-        { readStderr: true },
+        { readStderr: true }
       );
       if (run.timedOut) return failed('timeout', runCode(run));
       if (run.spawnError) return failed('tool', runCode(run));
@@ -485,12 +498,13 @@ export function createVideoFetcher({
   async function download(url, file, { ceiling, timeoutMs, accept = isVideoType }) {
     const controller = new AbortController();
     let timedOut = false;
-    const timer = Number.isFinite(timeoutMs) && timeoutMs > 0
-      ? setTimeout(() => {
-        timedOut = true;
-        controller.abort();
-      }, timeoutMs)
-      : null;
+    const timer =
+      Number.isFinite(timeoutMs) && timeoutMs > 0
+        ? setTimeout(() => {
+            timedOut = true;
+            controller.abort();
+          }, timeoutMs)
+        : null;
     let handle = null;
     try {
       const response = await fetchImpl(url, { method: 'GET', signal: controller.signal });
@@ -542,9 +556,10 @@ export function createVideoFetcher({
    * @returns {Promise<{ ok: true, dataUrl: string, mimeType: string, seconds: number|null, bytes: number,
    *   audio?: object|null } | { ok: false, reason: 'size'|'download'|'tool'|'timeout' }>}
    */
-  async function fetchAttachment(url, {
-    durationSec = null, maxSeconds, maxBytes, toolTimeoutMs, ffmpegPath, fetchTimeoutMs, audioMap = null,
-  } = {}) {
+  async function fetchAttachment(
+    url,
+    { durationSec = null, maxSeconds, maxBytes, toolTimeoutMs, ffmpegPath, fetchTimeoutMs, audioMap = null } = {}
+  ) {
     let dir = null;
     try {
       dir = await makeWorkDir();
@@ -564,12 +579,22 @@ export function createVideoFetcher({
           mimeType: got.contentType,
           seconds: knownDuration,
           bytes: got.bytes,
-          ...(await audioField('attachment', inPath, audioMap, { ffmpegPath, toolTimeoutMs, fallbackSec: knownDuration })),
+          ...(await audioField('attachment', inPath, audioMap, {
+            ffmpegPath,
+            toolTimeoutMs,
+            fallbackSec: knownDuration,
+          })),
         };
       }
 
       const seconds = Math.min(knownDuration ?? maxSeconds, maxSeconds);
-      const shrunk = await shrinkClip('attachment', inPath, dir, { ffmpegPath, maxSeconds, maxBytes, seconds, toolTimeoutMs });
+      const shrunk = await shrinkClip('attachment', inPath, dir, {
+        ffmpegPath,
+        maxSeconds,
+        maxBytes,
+        seconds,
+        toolTimeoutMs,
+      });
       if (!shrunk.ok) return fail('attachment', url, shrunk.reason, shrunk.extra);
       return {
         ok: true,
@@ -647,11 +672,11 @@ export function createVideoFetcher({
    */
   async function probeSite(url, { ytdlpPath, toolTimeoutMs, proxy = null, proxyRetryMinutes } = {}) {
     try {
-      const { run, proxied } = await runYtdlp(
-        'probe',
-        (via) => ytdlpProbeArgs(url, { ytdlpPath, proxy: via }),
-        { proxy, proxyRetryMinutes, toolTimeoutMs },
-      );
+      const { run, proxied } = await runYtdlp('probe', (via) => ytdlpProbeArgs(url, { ytdlpPath, proxy: via }), {
+        proxy,
+        proxyRetryMinutes,
+        toolTimeoutMs,
+      });
       const extra = { code: runCode(run), proxied };
       if (run.timedOut) return fail('link', url, 'timeout', extra);
       if (run.spawnError) return fail('link', url, 'tool', extra);
@@ -685,10 +710,20 @@ export function createVideoFetcher({
    * @returns {Promise<{ ok: true, dataUrl: string, mimeType: string, seconds: number, bytes: number,
    *   audio?: object|null } | { ok: false, reason: 'size'|'download'|'tool'|'timeout' }>}
    */
-  async function fetchSiteClip(url, {
-    ytdlpPath, ffmpegPath, maxSeconds, maxBytes, toolTimeoutMs, durationSec = null, proxy = null,
-    proxyRetryMinutes, audioMap = null,
-  } = {}) {
+  async function fetchSiteClip(
+    url,
+    {
+      ytdlpPath,
+      ffmpegPath,
+      maxSeconds,
+      maxBytes,
+      toolTimeoutMs,
+      durationSec = null,
+      proxy = null,
+      proxyRetryMinutes,
+      audioMap = null,
+    } = {}
+  ) {
     let dir = null;
     try {
       dir = await makeWorkDir();
@@ -696,16 +731,17 @@ export function createVideoFetcher({
       const clipPathFor = (via) => path.join(dir, via ? 'clip-proxy.mp4' : 'clip.mp4');
       const { run, proxied } = await runYtdlp(
         'clip',
-        (via) => ytdlpClipArgs(url, {
-          ytdlpPath,
-          ffmpegPath,
-          maxSeconds,
-          maxFileSize: maxBytes * DOWNLOAD_CEILING_FACTOR,
-          outPath: clipPathFor(via),
-          durationSec,
-          proxy: via,
-        }),
-        { proxy, proxyRetryMinutes, toolTimeoutMs },
+        (via) =>
+          ytdlpClipArgs(url, {
+            ytdlpPath,
+            ffmpegPath,
+            maxSeconds,
+            maxFileSize: maxBytes * DOWNLOAD_CEILING_FACTOR,
+            outPath: clipPathFor(via),
+            durationSec,
+            proxy: via,
+          }),
+        { proxy, proxyRetryMinutes, toolTimeoutMs }
       );
       const clipPath = clipPathFor(proxied);
       const runExtra = { code: runCode(run), proxied };
@@ -722,7 +758,13 @@ export function createVideoFetcher({
       // Through a proxy nothing was cut on download (see ytdlpClipArgs).
       const uncut = proxied && !(Number.isFinite(durationSec) && durationSec <= maxSeconds);
       if (clipBytes > maxBytes || uncut) {
-        const shrunk = await shrinkClip('link', clipPath, dir, { ffmpegPath, maxSeconds, maxBytes, seconds, toolTimeoutMs });
+        const shrunk = await shrinkClip('link', clipPath, dir, {
+          ffmpegPath,
+          maxSeconds,
+          maxBytes,
+          seconds,
+          toolTimeoutMs,
+        });
         if (!shrunk.ok) return fail('link', url, shrunk.reason, shrunk.extra);
         outPath = shrunk.path;
         bytes = shrunk.bytes;
@@ -750,12 +792,13 @@ export function createVideoFetcher({
   async function fetchText(url, { headers, timeoutMs, maxBytes }) {
     const controller = new AbortController();
     let timedOut = false;
-    const timer = Number.isFinite(timeoutMs) && timeoutMs > 0
-      ? setTimeout(() => {
-        timedOut = true;
-        controller.abort();
-      }, timeoutMs)
-      : null;
+    const timer =
+      Number.isFinite(timeoutMs) && timeoutMs > 0
+        ? setTimeout(() => {
+            timedOut = true;
+            controller.abort();
+          }, timeoutMs)
+        : null;
     try {
       const options = { method: 'GET', signal: controller.signal };
       if (headers) options.headers = headers;
@@ -797,7 +840,10 @@ export function createVideoFetcher({
       if (!id) return fail('youtube', url, 'download');
 
       if (typeof apiKey === 'string' && apiKey) {
-        const got = await fetchText(youtubeDataApiUrl(id, apiKey), { timeoutMs: fetchTimeoutMs, maxBytes: PAGE_MAX_BYTES });
+        const got = await fetchText(youtubeDataApiUrl(id, apiKey), {
+          timeoutMs: fetchTimeoutMs,
+          maxBytes: PAGE_MAX_BYTES,
+        });
         const durationSec = got.ok ? parseYoutubeDataApi(got.text) : null;
         if (durationSec !== null) return { ok: true, durationSec };
         const meta = { source: 'youtube', reason: 'api', location: YOUTUBE_API_LOCATION };
@@ -812,7 +858,11 @@ export function createVideoFetcher({
       if (pageFallback === false) return { ok: false, reason: 'download' };
 
       const pageUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(id)}&hl=en`;
-      const page = await fetchText(pageUrl, { headers: PAGE_HEADERS, timeoutMs: fetchTimeoutMs, maxBytes: PAGE_MAX_BYTES });
+      const page = await fetchText(pageUrl, {
+        headers: PAGE_HEADERS,
+        timeoutMs: fetchTimeoutMs,
+        maxBytes: PAGE_MAX_BYTES,
+      });
       if (!page.ok) return fail('youtube', pageUrl, page.reason, page.extra);
       const durationSec = parseYoutubePageDuration(page.text);
       if (durationSec === null) return fail('youtube', pageUrl, 'download');

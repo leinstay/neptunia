@@ -4,7 +4,20 @@
   "role": "thinker",
   "prompt": "prompt.md",
   "override": null,
-  "tools": ["bash", "read", "grep", "glob", "list", "edit", "write", "patch", "webfetch", "todowrite", "skill", "external_directory"],
+  "tools": [
+    "bash",
+    "read",
+    "grep",
+    "glob",
+    "list",
+    "edit",
+    "write",
+    "patch",
+    "webfetch",
+    "todowrite",
+    "skill",
+    "external_directory"
+  ],
   "permission": {
     "bash": {
       "*": "allow",

@@ -20,13 +20,21 @@ function config(overrides = {}) {
       providerByModel: { 'openai/@embedding': { only: ['openai'] } },
       ...overrides.llm,
     },
-    models: { base: { analyzer: 'x/text', embedding: 'openai/text-embedding-3-large', ...overrides.models?.base }, byPurpose: { ...overrides.models?.byPurpose } },
+    models: {
+      base: { analyzer: 'x/text', embedding: 'openai/text-embedding-3-large', ...overrides.models?.base },
+      byPurpose: { ...overrides.models?.byPurpose },
+    },
     embed: { dimensions: 4, ...overrides.embed },
   };
 }
 
 function fakeState() {
-  return { data: {}, markDirty() { this.dirty = (this.dirty ?? 0) + 1; } };
+  return {
+    data: {},
+    markDirty() {
+      this.dirty = (this.dirty ?? 0) + 1;
+    },
+  };
 }
 
 function jsonResponse(status, json) {
@@ -64,7 +72,12 @@ function makeEmbedder(answers, { state = fakeState() } = {}) {
 }
 
 test('embed: one POST to /embeddings with model, input and dimensions, routed by the embedding role', async () => {
-  const { embedder, sent } = makeEmbedder([embeddingsOf([[3, 4, 0, 0], [0, 0, 0, 2]])]);
+  const { embedder, sent } = makeEmbedder([
+    embeddingsOf([
+      [3, 4, 0, 0],
+      [0, 0, 0, 2],
+    ]),
+  ]);
   const vectors = await embedder.embed(['Ωmega', 'café'], { config: config(), purpose: 'search' });
   assert.equal(sent.length, 1);
   assert.equal(sent[0].url, 'https://openrouter.ai/api/v1/embeddings');
@@ -78,39 +91,72 @@ test('embed: one POST to /embeddings with model, input and dimensions, routed by
   });
   assert.equal(vectors.length, 2);
   assert.ok(vectors.every((vector) => vector instanceof Float32Array));
-  assert.deepEqual([...vectors[0]].map((x) => Math.round(x * 1000) / 1000), [0.6, 0.8, 0, 0]);
+  assert.deepEqual(
+    [...vectors[0]].map((x) => Math.round(x * 1000) / 1000),
+    [0.6, 0.8, 0, 0]
+  );
   assert.deepEqual([...vectors[1]], [0, 0, 0, 1]);
 });
 
 test('embed: a models.byPurpose entry picks the model; the vectors come back in input order', async () => {
-  const { embedder, sent } = makeEmbedder([jsonResponse(200, { data: [{ index: 1, embedding: [0, 1] }, { index: 0, embedding: [1, 0] }] })]);
-  const vectors = await embedder.embed(['a', 'b'], { config: config({ models: { byPurpose: { search: 'other/embed' } }, embed: { dimensions: 2 } }), purpose: 'search' });
+  const { embedder, sent } = makeEmbedder([
+    jsonResponse(200, {
+      data: [
+        { index: 1, embedding: [0, 1] },
+        { index: 0, embedding: [1, 0] },
+      ],
+    }),
+  ]);
+  const vectors = await embedder.embed(['a', 'b'], {
+    config: config({ models: { byPurpose: { search: 'other/embed' } }, embed: { dimensions: 2 } }),
+    purpose: 'search',
+  });
   assert.equal(sent[0].body.model, 'other/embed');
   assert.equal('provider' in sent[0].body, false, 'no route for that model');
-  assert.deepEqual(vectors.map((vector) => [...vector]), [[1, 0], [0, 1]]);
+  assert.deepEqual(
+    vectors.map((vector) => [...vector]),
+    [
+      [1, 0],
+      [0, 1],
+    ]
+  );
 });
 
 test('normalizeVector: unit length; a zero vector stays zero; anything not a finite number list is refused', () => {
   assert.deepEqual([...normalizeVector([0, 0, 5])], [0, 0, 1]);
   assert.deepEqual([...normalizeVector([0, 0])], [0, 0]);
-  for (const bad of [null, 'x', [], [1, 'a'], [1, Infinity]]) assert.equal(normalizeVector(bad), null, JSON.stringify(bad));
+  for (const bad of [null, 'x', [], [1, 'a'], [1, Infinity]])
+    assert.equal(normalizeVector(bad), null, JSON.stringify(bad));
 });
 
 test('embed: dimensions read now from embed.dimensions; an invalid value reads as config.json', async () => {
   const { embedder, sent } = makeEmbedder([embeddingsOf([[1]]), embeddingsOf([[1]])]);
   await embedder.embed(['a'], { config: config({ embed: { dimensions: 256 } }) });
   await embedder.embed(['a'], { config: config({ embed: { dimensions: -3 } }) });
-  assert.deepEqual(sent.map((call) => call.body.dimensions), [256, 1024]);
+  assert.deepEqual(
+    sent.map((call) => call.body.dimensions),
+    [256, 1024]
+  );
 });
 
 test('embed: a 5xx or a network failure is retried after the backoff, up to llm.retries; the request counts once', async () => {
-  const { embedder, sent, sleeps, state } = makeEmbedder([jsonResponse(502, { error: 'bad gateway' }), new TypeError('fetch failed'), embeddingsOf([[1, 0]])]);
+  const { embedder, sent, sleeps, state } = makeEmbedder([
+    jsonResponse(502, { error: 'bad gateway' }),
+    new TypeError('fetch failed'),
+    embeddingsOf([[1, 0]]),
+  ]);
   const { result, logs } = await withCapturedLogs(() => embedder.embed(['a'], { config: config(), purpose: 'search' }));
   assert.equal(result.length, 1);
   assert.equal(sent.length, 3);
   assert.deepEqual(sleeps, [1500, 3000]);
   assert.equal(llmCountToday(state.data, DAY), 1, 'one request against llm.maxRequestsPerDay');
-  assert.deepEqual(logs.filter((l) => l.msg === 'llm: retry').map((l) => [l.role, l.attempt, l.status]), [['embedding', 1, 502], ['embedding', 2, null]]);
+  assert.deepEqual(
+    logs.filter((l) => l.msg === 'llm: retry').map((l) => [l.role, l.attempt, l.status]),
+    [
+      ['embedding', 1, 502],
+      ['embedding', 2, null],
+    ]
+  );
 });
 
 test('embed: a 4xx is thrown at once; the last retryable error is thrown when the retries run out', async () => {
@@ -118,7 +164,10 @@ test('embed: a 4xx is thrown at once; the last retryable error is thrown when th
   await assert.rejects(bad.embedder.embed(['a'], { config: config() }), (err) => err.statusCode === 400);
   assert.equal(bad.sent.length, 1);
   const down = makeEmbedder([jsonResponse(503, {}), jsonResponse(503, {}), jsonResponse(503, {})]);
-  await assert.rejects(withCapturedLogs(() => down.embedder.embed(['a'], { config: config() })), (err) => err.statusCode === 503);
+  await assert.rejects(
+    withCapturedLogs(() => down.embedder.embed(['a'], { config: config() })),
+    (err) => err.statusCode === 503
+  );
   assert.equal(down.sent.length, 3);
 });
 
@@ -131,7 +180,7 @@ test('embed: a 200 with an error body or a wrong number of vectors is thrown, ne
   assert.equal(short.sent.length, 1);
 });
 
-test('embed: the daily request cap refuses before anything is sent, on the chat client\'s counter', async () => {
+test("embed: the daily request cap refuses before anything is sent, on the chat client's counter", async () => {
   const state = fakeState();
   state.data.llmDay = '2026-10-14';
   state.data.llmCount = 10;
@@ -145,7 +194,10 @@ test('embed: the daily request cap refuses before anything is sent, on the chat 
 
 test('embed: the token cap refuses an input over llm.maxRequestTokens before anything is counted or sent', async () => {
   const { embedder, sent, state } = makeEmbedder([embeddingsOf([[1]])]);
-  await assert.rejects(embedder.embed(['x'.repeat(5000)], { config: config({ llm: { maxRequestTokens: 100 } }) }), TokenLimitError);
+  await assert.rejects(
+    embedder.embed(['x'.repeat(5000)], { config: config({ llm: { maxRequestTokens: 100 } }) }),
+    TokenLimitError
+  );
   assert.equal(sent.length, 0);
   assert.equal(llmCountToday(state.data, DAY), 0);
 });
@@ -158,15 +210,20 @@ test('embed: nothing to embed sends nothing; an empty text is an error before an
   assert.equal(llmCountToday(state.data, DAY), 0);
 });
 
-test('embed: an unset models.base.embedding goes out on the role default, never on another role\'s model', async () => {
+test("embed: an unset models.base.embedding goes out on the role default, never on another role's model", async () => {
   const { embedder, sent } = makeEmbedder([embeddingsOf([[1, 0, 0, 0]])]);
-  await embedder.embed(['a'], { config: config({ models: { base: { analyzer: 'x/text', embedding: null } } }), purpose: 'search' });
+  await embedder.embed(['a'], {
+    config: config({ models: { base: { analyzer: 'x/text', embedding: null } } }),
+    purpose: 'search',
+  });
   assert.equal(sent[0].body.model, ROLE_DEFAULTS.embedding);
 });
 
 test('embed: one llm: usage line with role embedding, counts and cost, never the input text', async () => {
   const { embedder } = makeEmbedder([embeddingsOf([[1, 0]])]);
-  const { logs } = await withCapturedLogs(() => embedder.embed(['Ωmega secret'], { config: config(), purpose: 'search', origin: 'status' }));
+  const { logs } = await withCapturedLogs(() =>
+    embedder.embed(['Ωmega secret'], { config: config(), purpose: 'search', origin: 'status' })
+  );
   const usage = logs.filter((l) => l.msg === 'llm: usage');
   assert.equal(usage.length, 1);
   const { level, msg, time, ts, ...fields } = usage[0];
@@ -189,7 +246,8 @@ test('embed: one llm: usage line with role embedding, counts and cost, never the
 });
 
 /** The test config with the embedding model's route set to `route` (undefined: no route at all). */
-const byokConfig = (route) => config({ llm: { providerByModel: route === undefined ? {} : { 'openai/@embedding': route } } });
+const byokConfig = (route) =>
+  config({ llm: { providerByModel: route === undefined ? {} : { 'openai/@embedding': route } } });
 const BYOK_ROUTE = { only: ['openai'], allow_fallbacks: false, byok: true };
 
 test('embed: on a byok route, an answer with is_byok false throws NotByokError after the usage line and a not-byok warning, never retried', async () => {
@@ -198,8 +256,8 @@ test('embed: on a byok route, an answer with is_byok false throws NotByokError a
   const { logs } = await withCapturedLogs(() =>
     assert.rejects(
       embedder.embed(['Ωmega secret'], { config: byokConfig(BYOK_ROUTE), purpose: 'search' }),
-      (err) => err instanceof NotByokError && err.message === 'not byok: openai/text-embedding-3-large via OpenAI',
-    ),
+      (err) => err instanceof NotByokError && err.message === 'not byok: openai/text-embedding-3-large via OpenAI'
+    )
   );
   assert.equal(sent.length, 1);
   assert.equal(logs.filter((l) => l.msg === 'llm: usage').length, 1);
@@ -228,7 +286,7 @@ test('embed: without a route marked byok exactly true, or without is_byok false,
   }
 });
 
-test('embed: the body\'s provider never carries byok', async () => {
+test("embed: the body's provider never carries byok", async () => {
   const { embedder, sent } = makeEmbedder([embeddingsOf([[1, 0]])]);
   await withCapturedLogs(() => embedder.embed(['a'], { config: byokConfig(BYOK_ROUTE) }));
   assert.deepEqual(sent[0].body.provider, { only: ['openai'], allow_fallbacks: false });

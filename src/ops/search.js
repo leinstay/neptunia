@@ -20,9 +20,16 @@ import { CODE } from '../skills/codes.js';
 function asOpResult(result, what = 'search') {
   const text = String(result?.data?.text ?? '');
   if (result?.status === 'ok') return { status: 'ok', code: CODE.OK, summary: text, data: { text } };
-  if (result?.status === 'partial') return { status: 'partial', code: String(result.code ?? 'partial'), summary: text, data: { text } };
-  if (result?.status === 'invalid') throw invalid(`not run: ${result.code ?? CODE.INVALID_ARGS}`, result.code ?? CODE.INVALID_ARGS);
-  return { status: 'failed', code: String(result?.code ?? CODE.ERROR), summary: `${what} not run: ${result?.code ?? CODE.ERROR}`, data: null };
+  if (result?.status === 'partial')
+    return { status: 'partial', code: String(result.code ?? 'partial'), summary: text, data: { text } };
+  if (result?.status === 'invalid')
+    throw invalid(`not run: ${result.code ?? CODE.INVALID_ARGS}`, result.code ?? CODE.INVALID_ARGS);
+  return {
+    status: 'failed',
+    code: String(result?.code ?? CODE.ERROR),
+    summary: `${what} not run: ${result?.code ?? CODE.ERROR}`,
+    data: null,
+  };
 }
 
 const handlers = perEnv((env) => {
@@ -30,7 +37,13 @@ const handlers = perEnv((env) => {
 
   /** `/nep task search query [goal]`. */
   async function cmdWebSearch(args, context) {
-    const result = await runWebSearch({ lookup: env.lookup ?? null, config: hot.config, labels: hot.prompts?.labels ?? {}, guildId: resolvedGuildId(context), args });
+    const result = await runWebSearch({
+      lookup: env.lookup ?? null,
+      config: hot.config,
+      labels: hot.prompts?.labels ?? {},
+      guildId: resolvedGuildId(context),
+      args,
+    });
     return asOpResult(result);
   }
 
@@ -73,7 +86,13 @@ const handlers = perEnv((env) => {
     const channel = context?.channelId ? (client?.channels?.cache?.get?.(String(context.channelId)) ?? null) : null;
     const discord = env.discord;
     const id = /(\d+)\D*$/.exec(String(reference ?? '').trim())?.[1] ?? null;
-    if (!channel || !id || typeof discord?.fetchMessage !== 'function' || typeof discord.normalizeMessage !== 'function') return null;
+    if (
+      !channel ||
+      !id ||
+      typeof discord?.fetchMessage !== 'function' ||
+      typeof discord.normalizeMessage !== 'function'
+    )
+      return null;
     const raw = await discord.fetchMessage(channel, id);
     if (!raw) return null;
     const options = typeof discord.normalizeOptions === 'function' ? discord.normalizeOptions(hot.config) : {};
@@ -114,7 +133,16 @@ const handlers = perEnv((env) => {
 
   /** `/nep task find query [n]`: her GIF library searched by the stored descriptions. */
   function cmdMediaFind(args, context) {
-    return asOpResult(runMediaFind({ store, config: hot.config, labels: hot.prompts?.labels ?? {}, guildId: resolvedGuildId(context), args }), 'find');
+    return asOpResult(
+      runMediaFind({
+        store,
+        config: hot.config,
+        labels: hot.prompts?.labels ?? {},
+        guildId: resolvedGuildId(context),
+        args,
+      }),
+      'find'
+    );
   }
 
   /**
@@ -127,11 +155,13 @@ const handlers = perEnv((env) => {
     const here = context?.channelId ? (client?.channels?.cache?.get?.(String(context.channelId)) ?? null) : null;
     const discord = env.discord;
     const guild = here?.guild ?? null;
-    if (!here || !guild || typeof discord?.fetchHistory !== 'function') return asOpResult({ status: 'not_configured', code: CODE.NOT_CONFIGURED }, 'conversation');
+    if (!here || !guild || typeof discord?.fetchHistory !== 'function')
+      return asOpResult({ status: 'not_configured', code: CODE.NOT_CONFIGURED }, 'conversation');
     const config = hot.config;
     const labels = hot.prompts?.labels ?? {};
     const guildId = resolvedGuildId(context);
-    const channelOf = (id) => (String(id) === String(here.id) ? here : (guild.channels?.cache?.get?.(String(id)) ?? null));
+    const channelOf = (id) =>
+      String(id) === String(here.id) ? here : (guild.channels?.cache?.get?.(String(id)) ?? null);
     const selfId = client?.user?.id ?? null;
     const selfName = guild.members?.me?.displayName ?? client?.user?.username ?? '';
     const nameOf = (id) => guild.members?.cache?.get?.(id)?.displayName ?? null;
@@ -143,10 +173,24 @@ const handlers = perEnv((env) => {
       config,
       channelId: String(here.id),
       channelNameOf: (id) => channelOf(id)?.name ?? null,
-      allowed: (id) => String(id) === String(here.id) || (typeof discord.checkPull === 'function' && discord.checkPull({ guild, channelId: String(id), destination: here, config, now: now() }).skip === null),
-      readRecord: ({ channelId, from }) => (config.features?.record === true && env.record ? recordMessages(env.record, guildId, { channelId, from, nameOf, selfName }) : Promise.resolve([])),
+      allowed: (id) =>
+        String(id) === String(here.id) ||
+        (typeof discord.checkPull === 'function' &&
+          discord.checkPull({ guild, channelId: String(id), destination: here, config, now: now() }).skip === null),
+      readRecord: ({ channelId, from }) =>
+        config.features?.record === true && env.record
+          ? recordMessages(env.record, guildId, { channelId, from, nameOf, selfName })
+          : Promise.resolve([]),
       fetchLive: (request) => fetchSpan(discord, channelOf(request.channelId), request, { selfId, ...options }),
-      render: () => ({ timezone, gapMinutes: config.context?.gapMarkerMinutes, maxChars: config.context?.maxMessageChars ?? 2000, selfName, labels, seeReactions: config.features?.seeReactions !== false, reactionsPerMessage: config.context?.reactionsPerMessage }),
+      render: () => ({
+        timezone,
+        gapMinutes: config.context?.gapMarkerMinutes,
+        maxChars: config.context?.maxMessageChars ?? 2000,
+        selfName,
+        labels,
+        seeReactions: config.features?.seeReactions !== false,
+        reactionsPerMessage: config.context?.reactionsPerMessage,
+      }),
       now: now(),
       timezone,
       maxChars: recallSettings(config)?.quoteMaxChars ?? RECALL_DEFAULTS.quoteMaxChars,

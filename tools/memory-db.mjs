@@ -93,18 +93,32 @@ function runStats(io, options) {
   const handle = openMemoryDb(options.db, { readOnly: true });
   try {
     const db = handle.db;
-    for (const { name: table } of db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all()) {
-      const columns = new Set(db.prepare(`PRAGMA table_info("${table}")`).all().map((column) => column.name));
+    for (const { name: table } of db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+      .all()) {
+      const columns = new Set(
+        db
+          .prepare(`PRAGMA table_info("${table}")`)
+          .all()
+          .map((column) => column.name)
+      );
       const total = db.prepare(`SELECT COUNT(*) AS n FROM "${table}"`).get().n;
       let line = `${table.padEnd(22)} ${String(total).padStart(8)}`;
-      if (columns.has('retired_at')) line += `  retired ${db.prepare(`SELECT COUNT(*) AS n FROM "${table}" WHERE retired_at IS NOT NULL`).get().n}`;
+      if (columns.has('retired_at'))
+        line += `  retired ${db.prepare(`SELECT COUNT(*) AS n FROM "${table}" WHERE retired_at IS NOT NULL`).get().n}`;
       if (columns.has('scope_kind') && total) {
-        const scopes = db.prepare(`SELECT scope_kind AS k, COUNT(*) AS n FROM "${table}" GROUP BY scope_kind ORDER BY k`).all();
+        const scopes = db
+          .prepare(`SELECT scope_kind AS k, COUNT(*) AS n FROM "${table}" GROUP BY scope_kind ORDER BY k`)
+          .all();
         line += `  scope ${scopes.map((scope) => `${scope.k ?? 'null'}=${scope.n}`).join(' ')}`;
       }
       if (columns.has('audience_id') && total) {
-        const kinds = db.prepare(`SELECT CASE WHEN audience_id IS NULL THEN 'null' WHEN audience_id LIKE 'aud:dm:%' THEN 'dm' ELSE substr(audience_id, 5) END AS k,
-          COUNT(*) AS n, COUNT(DISTINCT CASE WHEN audience_id LIKE 'aud:dm:%' THEN audience_id END) AS places FROM "${table}" GROUP BY 1 ORDER BY 1`).all();
+        const kinds = db
+          .prepare(
+            `SELECT CASE WHEN audience_id IS NULL THEN 'null' WHEN audience_id LIKE 'aud:dm:%' THEN 'dm' ELSE substr(audience_id, 5) END AS k,
+          COUNT(*) AS n, COUNT(DISTINCT CASE WHEN audience_id LIKE 'aud:dm:%' THEN audience_id END) AS places FROM "${table}" GROUP BY 1 ORDER BY 1`
+          )
+          .all();
         line += `  audience ${kinds.map((kind) => `${kind.k}=${kind.n}${kind.k === 'dm' ? ` (${kind.places} places)` : ''}`).join(' ')}`;
       }
       io.out(line);
@@ -141,9 +155,16 @@ export function tableHashes(db, only = null) {
       statement = db.prepare(`SELECT term, doc, col, offset FROM temp."${vocab}" ORDER BY term, doc, col, offset`);
     } else {
       const columns = db.prepare(`PRAGMA table_info("${name}")`).all();
-      const keys = columns.filter((column) => column.pk > 0).sort((a, b) => a.pk - b.pk).map((column) => column.name);
-      const order = (keys.length ? keys : columns.map((column) => column.name)).map((column) => `"${column}"`).join(', ');
-      statement = db.prepare(`SELECT ${columns.map((column) => `"${column.name}"`).join(', ')} FROM "${name}" ORDER BY ${order}`);
+      const keys = columns
+        .filter((column) => column.pk > 0)
+        .sort((a, b) => a.pk - b.pk)
+        .map((column) => column.name);
+      const order = (keys.length ? keys : columns.map((column) => column.name))
+        .map((column) => `"${column}"`)
+        .join(', ');
+      statement = db.prepare(
+        `SELECT ${columns.map((column) => `"${column.name}"`).join(', ')} FROM "${name}" ORDER BY ${order}`
+      );
     }
     for (const row of statement.iterate()) {
       hash.update(JSON.stringify(Object.values(row).map(valueOf)));
@@ -159,7 +180,12 @@ function runHash(io, options) {
   need(options, 'db');
   const handle = openMemoryDb(options.db, { readOnly: true });
   try {
-    const only = options.tables ? String(options.tables).split(',').map((name) => name.trim()).filter(Boolean) : null;
+    const only = options.tables
+      ? String(options.tables)
+          .split(',')
+          .map((name) => name.trim())
+          .filter(Boolean)
+      : null;
     const hashes = tableHashes(handle.db, only);
     for (const { table, rows, hash } of hashes) io.out(`${table.padEnd(26)} ${String(rows).padStart(8)}  ${hash}`);
     const missing = (only ?? []).filter((name) => !hashes.some((entry) => entry.table === name));
@@ -177,7 +203,9 @@ function runReproject(io, options) {
     const at = new Date().toISOString();
     const pending = projectPending(handle, { at });
     const done = reproject(handle, { at });
-    io.out(`graph: ${done.units} units projected, ${done.edges} edges, ${done.retired} retired as stale, ${done.ms} ms${pending.units ? ` (the pending projection took ${pending.ms} ms)` : ''}`);
+    io.out(
+      `graph: ${done.units} units projected, ${done.edges} edges, ${done.retired} retired as stale, ${done.ms} ms${pending.units ? ` (the pending projection took ${pending.ms} ms)` : ''}`
+    );
     return 0;
   } finally {
     handle.close();
@@ -192,22 +220,30 @@ function runRebuild(io, options) {
   const handle = openMemoryDb(options.db);
   try {
     const before = tableHashes(handle.db, DERIVED_TABLES);
-    const stale = handle.db.prepare("SELECT COUNT(*) AS n FROM graph_edges WHERE retired_at IS NOT NULL").get().n;
+    const stale = handle.db.prepare('SELECT COUNT(*) AS n FROM graph_edges WHERE retired_at IS NOT NULL').get().n;
     const done = rebuildGraph(handle, { at: new Date().toISOString() });
     handle.transaction(() => {
-      handle.db.exec("INSERT INTO sources_fts(sources_fts) VALUES ('rebuild'); INSERT INTO sources_tri(sources_tri) VALUES ('rebuild');");
+      handle.db.exec(
+        "INSERT INTO sources_fts(sources_fts) VALUES ('rebuild'); INSERT INTO sources_tri(sources_tri) VALUES ('rebuild');"
+      );
     });
     const after = tableHashes(handle.db, DERIVED_TABLES);
-    const keptRetired = handle.db.prepare("SELECT COUNT(*) AS n FROM graph_edges WHERE retired_at IS NOT NULL").get().n;
-    io.out(`graph rebuilt: ${done.units} units, ${done.edges} edges in ${done.ms} ms; retired edges ${stale} before, ${keptRetired} after (the rest were stale: their rows no longer produce them)`);
+    const keptRetired = handle.db.prepare('SELECT COUNT(*) AS n FROM graph_edges WHERE retired_at IS NOT NULL').get().n;
+    io.out(
+      `graph rebuilt: ${done.units} units, ${done.edges} edges in ${done.ms} ms; retired edges ${stale} before, ${keptRetired} after (the rest were stale: their rows no longer produce them)`
+    );
     let differ = 0;
     for (const entry of after) {
       const was = before.find((row) => row.table === entry.table);
       const same = was?.hash === entry.hash;
       if (!same) differ += 1;
-      io.out(`${entry.table.padEnd(26)} ${String(was?.rows ?? 0).padStart(8)} -> ${String(entry.rows).padStart(8)}  ${same ? 'equal' : 'differs'}`);
+      io.out(
+        `${entry.table.padEnd(26)} ${String(was?.rows ?? 0).padStart(8)} -> ${String(entry.rows).padStart(8)}  ${same ? 'equal' : 'differs'}`
+      );
     }
-    io.out(differ ? `rebuild: ${differ} derived tables differ from before` : 'rebuild: every derived table equal to before');
+    io.out(
+      differ ? `rebuild: ${differ} derived tables differ from before` : 'rebuild: every derived table equal to before'
+    );
     return 0;
   } finally {
     handle.close();
@@ -226,7 +262,9 @@ function runLedgerImport(io, options) {
     const counts = {};
     target.transaction(() => {
       for (const table of LEDGER_TABLES) {
-        const exists = source.db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = ?").get(table);
+        const exists = source.db
+          .prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = ?")
+          .get(table);
         counts[table] = 0;
         if (!exists) continue;
         const insert = target.db.prepare(`INSERT OR REPLACE INTO ledger_${table} (id, record) VALUES (?, ?)`);
@@ -255,10 +293,21 @@ function runIndexPolicy(io, options) {
   try {
     const config = { recall: { db: { ...(days ? { vectorDays: days } : {}), vectorEviction: apply } } };
     const done = classifyIndex(handle, { now: Date.now(), config, apply, evict: apply });
-    io.out(`tiers: a ${done.tiers.a}, b ${done.tiers.b}, c ${done.tiers.c} (${Object.entries(done.reasons).sort().map(([reason, n]) => `${reason} ${n}`).join(', ')})`);
+    io.out(
+      `tiers: a ${done.tiers.a}, b ${done.tiers.b}, c ${done.tiers.c} (${Object.entries(done.reasons)
+        .sort()
+        .map(([reason, n]) => `${reason} ${n}`)
+        .join(', ')})`
+    );
     const kept = done.vectors.kept;
-    io.out(`vectors kept: recent ${kept.recent}, cited ${kept.cited}, pinned ${kept.pinned}, touched ${kept.touch}, consolidated ${kept.consolidated}, unlinked ${kept.unlinked}; evicted before ${done.vectors.evicted}`);
-    io.out(apply ? `evicted now: ${done.evictedNow}` : `would evict: ${done.vectors.evict} (dry run: nothing written; --apply to evict)`);
+    io.out(
+      `vectors kept: recent ${kept.recent}, cited ${kept.cited}, pinned ${kept.pinned}, touched ${kept.touch}, consolidated ${kept.consolidated}, unlinked ${kept.unlinked}; evicted before ${done.vectors.evicted}`
+    );
+    io.out(
+      apply
+        ? `evicted now: ${done.evictedNow}`
+        : `would evict: ${done.vectors.evict} (dry run: nothing written; --apply to evict)`
+    );
     return 0;
   } finally {
     handle.close();
@@ -271,7 +320,9 @@ function runMediaCheck(io, options) {
   const handle = openMemoryDb(options.db, { readOnly: !apply });
   try {
     const done = checkMedia(handle, { dataDir: options.data, apply });
-    io.out(`media: present ${done.present}, missing ${done.missing}, unknown ${done.unknown}; ${apply ? 'marked' : 'would mark'} ${done.changed}`);
+    io.out(
+      `media: present ${done.present}, missing ${done.missing}, unknown ${done.unknown}; ${apply ? 'marked' : 'would mark'} ${done.changed}`
+    );
     return 0;
   } finally {
     handle.close();
@@ -281,16 +332,29 @@ function runMediaCheck(io, options) {
 function runBackup(io, options) {
   need(options, 'db', 'to');
   const start = performance.now();
-  const manifest = backupDatabase({ db: options.db, to: options.to, commit: engineCommit(), ...(options.data ? { data: options.data } : {}) });
-  io.out(`backup: schema ${manifest.schemaVersion}, ${manifest.files.length} files, ${Object.keys(manifest.rows).length} tables in ${seconds(start)}`);
+  const manifest = backupDatabase({
+    db: options.db,
+    to: options.to,
+    commit: engineCommit(),
+    ...(options.data ? { data: options.data } : {}),
+  });
+  io.out(
+    `backup: schema ${manifest.schemaVersion}, ${manifest.files.length} files, ${Object.keys(manifest.rows).length} tables in ${seconds(start)}`
+  );
   return 0;
 }
 
 function runRestore(io, options) {
   need(options, 'from', 'db');
   const start = performance.now();
-  const manifest = restoreDatabase({ from: options.from, db: options.db, ...(options.data ? { data: options.data } : {}) });
-  io.out(`restore ok: schema ${manifest.schemaVersion}, ${manifest.files.length} files checked and restored, row counts equal (${seconds(start)})`);
+  const manifest = restoreDatabase({
+    from: options.from,
+    db: options.db,
+    ...(options.data ? { data: options.data } : {}),
+  });
+  io.out(
+    `restore ok: schema ${manifest.schemaVersion}, ${manifest.files.length} files checked and restored, row counts equal (${seconds(start)})`
+  );
   return 0;
 }
 
@@ -327,11 +391,23 @@ async function runRestoreTest(io, options) {
     const expected = hashesOf(path.join(options.from, 'memory.db'));
     const restored = new Map(hashesOf(path.join(data, 'memory.db')).map((entry) => [entry.table, entry]));
     const warnings = [];
-    const log = { info() {}, debug() {}, error: (message, fields) => warnings.push(fields?.code ?? message), warn: (message, fields) => warnings.push(fields?.code ?? message) };
-    service = createMemoryDb({ hot: { config: structuredClone(RESTORE_TEST_CONFIG), prompts: {} }, dataDir: data, log, worker: false });
+    const log = {
+      info() {},
+      debug() {},
+      error: (message, fields) => warnings.push(fields?.code ?? message),
+      warn: (message, fields) => warnings.push(fields?.code ?? message),
+    };
+    service = createMemoryDb({
+      hot: { config: structuredClone(RESTORE_TEST_CONFIG), prompts: {} },
+      dataDir: data,
+      log,
+      worker: false,
+    });
     await service.tick();
     if (!service.readHandle()) {
-      io.out(`restore-test FAILED: the service did not open the restored database (${warnings.filter(Boolean).join(', ') || 'unknown'})`);
+      io.out(
+        `restore-test FAILED: the service did not open the restored database (${warnings.filter(Boolean).join(', ') || 'unknown'})`
+      );
       return 1;
     }
     let differ = 0;
@@ -340,12 +416,16 @@ async function runRestoreTest(io, options) {
       const same = got !== undefined && got.hash === entry.hash;
       if (!same) {
         differ += 1;
-        io.out(`${entry.table.padEnd(26)} ${String(entry.rows).padStart(8)} -> ${String(got?.rows ?? 0).padStart(8)}  differs`);
+        io.out(
+          `${entry.table.padEnd(26)} ${String(entry.rows).padStart(8)} -> ${String(got?.rows ?? 0).padStart(8)}  differs`
+        );
       }
     }
-    io.out(differ === 0
-      ? `restore-test ok: every table of the restored database equals the backup's (${expected.length} tables, ${seconds(start)})`
-      : `restore-test FAILED: ${differ} tables differ (${seconds(start)})`);
+    io.out(
+      differ === 0
+        ? `restore-test ok: every table of the restored database equals the backup's (${expected.length} tables, ${seconds(start)})`
+        : `restore-test FAILED: ${differ} tables differ (${seconds(start)})`
+    );
     return differ === 0 ? 0 : 1;
   } finally {
     if (service) await service.close();
@@ -392,5 +472,7 @@ export function main(argv, io = { out: (line) => console.log(line), err: (line) 
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(fs.realpathSync(process.argv[1])).href) {
-  Promise.resolve(main(process.argv.slice(2))).then((code) => { process.exitCode = code; });
+  Promise.resolve(main(process.argv.slice(2))).then((code) => {
+    process.exitCode = code;
+  });
 }

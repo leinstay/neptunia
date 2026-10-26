@@ -95,22 +95,40 @@ export function parseRewatchPickDetailed(raw, count) {
  *   episodeLines?: string[], episodeAgeLines?: string[], mediaLines?: string[], transcriptBlock?: string, candidateBlock: string }} params
  * @returns {{ role: string, content: string|object[] }[]|null}
  */
-export function buildPlannerRequest({ prompt, selfName, today, skills = '', channelLines = [], episodeLines = [], episodeAgeLines = [], mediaLines = [], transcriptBlock = '', candidateBlock }) {
+export function buildPlannerRequest({
+  prompt,
+  selfName,
+  today,
+  skills = '',
+  channelLines = [],
+  episodeLines = [],
+  episodeAgeLines = [],
+  mediaLines = [],
+  transcriptBlock = '',
+  candidateBlock,
+}) {
   if (typeof prompt !== 'string' || !prompt.trim()) return null;
   if (typeof candidateBlock !== 'string' || !candidateBlock) return null;
   const lines = (list) => (Array.isArray(list) ? list.join('\n') : '');
-  const stable = [block('channels', lines(channelLines)), block('episodes', lines(episodeLines))].filter(Boolean).join('\n');
+  const stable = [block('channels', lines(channelLines)), block('episodes', lines(episodeLines))]
+    .filter(Boolean)
+    .join('\n');
   // The ages only with the episodes they number.
-  const ages = Array.isArray(episodeLines) && episodeLines.length > 0 ? block('episode_ages', lines(episodeAgeLines)) : '';
+  const ages =
+    Array.isArray(episodeLines) && episodeLines.length > 0 ? block('episode_ages', lines(episodeAgeLines)) : '';
   const tail = [ages, block('media', lines(mediaLines)), String(transcriptBlock ?? '').trimEnd(), candidateBlock];
   return [
-    { role: 'system', content: fillPromptTemplate(prompt, { name: selfName ?? '', today: today ?? '', skills: skills ?? '' }) },
+    {
+      role: 'system',
+      content: fillPromptTemplate(prompt, { name: selfName ?? '', today: today ?? '', skills: skills ?? '' }),
+    },
     { role: 'user', content: stableThenTail(stable, tail, '\n') },
   ];
 }
 
 /** A labelled line of the answer: a list bullet or bold marks around the label are tolerated. */
-const LINE_RE = /^(?:[-*•>]\s*)*\**\s*(channel|episodes|rewatch|lookup|web|server|who|when[-_ ]?role|when|recent|skills)\s*\**\s*:\s*\**\s*(.*)$/i;
+const LINE_RE =
+  /^(?:[-*•>]\s*)*\**\s*(channel|episodes|rewatch|lookup|web|server|who|when[-_ ]?role|when|recent|skills)\s*\**\s*:\s*\**\s*(.*)$/i;
 /** The labels of the lookup block's own lines (src/behavior/recall.js#parseLookupAnswer). */
 const LOOKUP_LABELS = new Set(['web', 'server', 'who', 'when', 'when-role', 'recent']);
 
@@ -188,7 +206,8 @@ function lookupBlock(heads, labelled, options) {
     seen.add(label);
   }
   const head = heads.length === 1 ? heads[0].trim() : '';
-  if (NONE_RE.test(head)) return labelled.length > 0 ? verdict('invalid', 'conflict', empty) : verdict('none', 'none', empty);
+  if (NONE_RE.test(head))
+    return labelled.length > 0 ? verdict('invalid', 'conflict', empty) : verdict('none', 'none', empty);
   if (head) return verdict('invalid', 'unparsed', empty);
   if (labelled.length === 0) return verdict('invalid', 'empty', empty);
   const parsed = parseLookupAnswer(labelled.map(({ label, value }) => `${label}: ${value}`).join('\n'), options);
@@ -288,7 +307,22 @@ function allMissing() {
  *   now?: () => number, limits?: { add: Function }|null }} params
  * @returns {Promise<{ outcome: 'classified'|'failed'|'skipped', reason: string|null, blocks: ReturnType<typeof parsePlannerAnswer> }>}
  */
-export async function askPlanner({ llm, config, prompt, selfName, today, skills = '', skillNames, offer = {}, transcriptBlock = '', candidateBlock = null, channelId = null, kind = null, now = Date.now, limits = null }) {
+export async function askPlanner({
+  llm,
+  config,
+  prompt,
+  selfName,
+  today,
+  skills = '',
+  skillNames,
+  offer = {},
+  transcriptBlock = '',
+  candidateBlock = null,
+  channelId = null,
+  kind = null,
+  now = Date.now,
+  limits = null,
+}) {
   const at = now();
   const list = (key) => (Array.isArray(offer[key]) ? offer[key] : []);
   const counts = { channels: list('channels').length, episodes: list('episodes').length, media: list('media').length };
@@ -302,7 +336,8 @@ export async function askPlanner({ llm, config, prompt, selfName, today, skills 
     log.info('planner: skipped', { channel: channelId, reason });
     return { outcome: 'skipped', reason, blocks: allMissing() };
   };
-  if (!PLANNER_BLOCKS.some((name) => offered[name])) return { outcome: 'skipped', reason: 'nothing', blocks: allMissing() };
+  if (!PLANNER_BLOCKS.some((name) => offered[name]))
+    return { outcome: 'skipped', reason: 'nothing', blocks: allMissing() };
   if (typeof prompt !== 'string' || !prompt.trim()) return skipped('no-prompt');
   const messages = buildPlannerRequest({
     prompt,
@@ -335,13 +370,22 @@ export async function askPlanner({ llm, config, prompt, selfName, today, skills 
   try {
     completion = await llm.complete(messages, {
       model,
-      ...helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: config?.web?.search?.classifierMaxOutputTokens ?? 2000, purpose: 'planner' }),
+      ...helperRequestOptions(config, {
+        role: 'analyzer',
+        maxOutputTokens: config?.web?.search?.classifierMaxOutputTokens ?? 2000,
+        purpose: 'planner',
+      }),
     });
   } catch (err) {
-    return failed('classifier-failed', { rail: railReason(err), status: err?.statusCode ?? null, name: err?.name ?? null });
+    return failed('classifier-failed', {
+      rail: railReason(err),
+      status: err?.statusCode ?? null,
+      name: err?.name ?? null,
+    });
   }
   // Nothing at all (typically a reasoning model that spent its whole output cap thinking) is a failed call.
-  if (!String(completion?.text ?? '').trim()) return failed('empty', { rail: null, status: null, name: null, model: model ?? null });
+  if (!String(completion?.text ?? '').trim())
+    return failed('empty', { rail: null, status: null, name: null, model: model ?? null });
   const blocks = parsePlannerAnswer(completion.text, {
     counts,
     timezone: config?.bot?.timezone,

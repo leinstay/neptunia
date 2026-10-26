@@ -35,7 +35,8 @@ const RESULTS = {
       {
         title: 'The <strong>Aegean</strong> &amp; its islands',
         url: 'https://example.org/aegean',
-        description: 'A guide to the <strong>Aegean</strong> sea &mdash; \u03b8\u03ac\u03bb\u03b1\u03c3\u03c3\u03b1, caf&eacute;s and\n  ferries.',
+        description:
+          'A guide to the <strong>Aegean</strong> sea &mdash; \u03b8\u03ac\u03bb\u03b1\u03c3\u03c3\u03b1, caf&eacute;s and\n  ferries.',
         age: '2 days ago',
       },
       { title: 'Second', url: 'https://example.com/b', description: 'Plain snippet.' },
@@ -58,7 +59,11 @@ test('search: request shape -- endpoint, encoded query, count, headers', async (
   assert.equal(`${url.origin}${url.pathname}`, 'https://api.search.brave.com/res/v1/web/search');
   assert.equal(url.searchParams.get('q'), 'caf\u00e9 & \u03b1\u03b2\u03b3?');
   assert.equal(url.searchParams.get('count'), '5');
-  assert.ok(calls[0].url.startsWith(`https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent('caf\u00e9 & \u03b1\u03b2\u03b3?')}&count=5`));
+  assert.ok(
+    calls[0].url.startsWith(
+      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent('caf\u00e9 & \u03b1\u03b2\u03b3?')}&count=5`
+    )
+  );
   assert.equal(calls[0].options.method, 'GET');
   assert.deepEqual(calls[0].options.headers, {
     Accept: 'application/json',
@@ -97,10 +102,21 @@ test('search: parses web.results, cleans titles and snippets, keeps age, drops e
 });
 
 test('search: never returns more results than count', async () => {
-  const many = { web: { results: Array.from({ length: 12 }, (_, i) => ({ title: `t${i}`, url: `https://e.example/${i}`, description: 'd' })) } };
+  const many = {
+    web: {
+      results: Array.from({ length: 12 }, (_, i) => ({
+        title: `t${i}`,
+        url: `https://e.example/${i}`,
+        description: 'd',
+      })),
+    },
+  };
   const { fetchImpl } = fakeFetch(jsonResponse(many));
   const { result } = await run(createBraveSearch({ fetchImpl }), 'q', { apiKey: KEY, count: 3, timeoutMs: 5000 });
-  assert.deepEqual(result.results.map((r) => r.title), ['t0', 't1', 't2']);
+  assert.deepEqual(
+    result.results.map((r) => r.title),
+    ['t0', 't1', 't2']
+  );
 });
 
 test('search: an empty or missing key fails with no-key and sends nothing', async () => {
@@ -127,20 +143,25 @@ test('search: a body that is not JSON fails with http', async () => {
 });
 
 test('search: a request hanging past timeoutMs fails with timeout', async () => {
-  const fetchImpl = (url, { signal }) => new Promise((resolve, reject) => {
-    signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
-  });
+  const fetchImpl = (url, { signal }) =>
+    new Promise((resolve, reject) => {
+      signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+    });
   const { result } = await run(createBraveSearch({ fetchImpl }), 'q', { apiKey: KEY, timeoutMs: 20 });
   assert.deepEqual(result, { ok: false, reason: 'timeout' });
 });
 
 test('search: a thrown fetch or a missing response fails with network', async () => {
   const thrown = fakeFetch(new TypeError('fetch failed'));
-  assert.deepEqual((await run(createBraveSearch({ fetchImpl: thrown.fetchImpl }), 'q', { apiKey: KEY, timeoutMs: 5000 })).result,
-    { ok: false, reason: 'network' });
+  assert.deepEqual(
+    (await run(createBraveSearch({ fetchImpl: thrown.fetchImpl }), 'q', { apiKey: KEY, timeoutMs: 5000 })).result,
+    { ok: false, reason: 'network' }
+  );
   const empty = fakeFetch(null);
-  assert.deepEqual((await run(createBraveSearch({ fetchImpl: empty.fetchImpl }), 'q', { apiKey: KEY, timeoutMs: 5000 })).result,
-    { ok: false, reason: 'network' });
+  assert.deepEqual(
+    (await run(createBraveSearch({ fetchImpl: empty.fetchImpl }), 'q', { apiKey: KEY, timeoutMs: 5000 })).result,
+    { ok: false, reason: 'network' }
+  );
 });
 
 test('search: no usable results fails with empty, without a warn line (a normal outcome); a blank query too, without a request but warned', async () => {
@@ -154,7 +175,10 @@ test('search: no usable results fails with empty, without a warn line (a normal 
   const { result, logs } = await run(createBraveSearch({ fetchImpl }), '   ', { apiKey: KEY, timeoutMs: 5000 });
   assert.deepEqual(result, { ok: false, reason: 'empty' });
   assert.equal(calls.length, 0);
-  assert.deepEqual(logs.map((l) => [l.level, l.msg, l.reason]), [['warn', 'brave: search failed', 'empty']]);
+  assert.deepEqual(
+    logs.map((l) => [l.level, l.msg, l.reason]),
+    [['warn', 'brave: search failed', 'empty']]
+  );
 });
 
 test('search: failure logs carry reason and status only, never the query or the key', async () => {

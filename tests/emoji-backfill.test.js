@@ -67,7 +67,11 @@ function fakeChannel(id, historyAsc, { readable = true } = {}) {
 }
 
 function fakeClient(channels, guildId = 'g1') {
-  const guild = { id: guildId, channels: { cache: new Map(channels.map((c) => [c.id, c])) }, members: { me: { id: 'selfUser' } } };
+  const guild = {
+    id: guildId,
+    channels: { cache: new Map(channels.map((c) => [c.id, c])) },
+    members: { me: { id: 'selfUser' } },
+  };
   for (const c of channels) c.guild = guild;
   return { user: { id: 'selfUser' }, guilds: { cache: new Map([[guildId, guild]]) } };
 }
@@ -105,11 +109,17 @@ function standardChannels() {
   ];
 }
 
-test('emoji backfill run: counts members\' emoji over every readable channel, bots and self skipped', async () => {
+test("emoji backfill run: counts members' emoji over every readable channel, bots and self skipped", async () => {
   await withStore(async (store) => {
     const log = fakeLog();
     const hidden = fakeChannel('c3', [rawMessage(7, { content: KAPPA })], { readable: false });
-    const backfill = createEmojiBackfill({ discord: DISCORD, hot: fakeHot(), store, client: fakeClient([...standardChannels(), hidden]), log });
+    const backfill = createEmojiBackfill({
+      discord: DISCORD,
+      hot: fakeHot(),
+      store,
+      client: fakeClient([...standardChannels(), hidden]),
+      log,
+    });
 
     const result = await backfill.run('g1');
     assert.deepEqual(result, { ok: true, channels: 2, messages: 4, emoji: 4 });
@@ -123,7 +133,6 @@ test('emoji backfill run: counts members\' emoji over every readable channel, bo
     assert.equal(stamp.channels, 2);
     assert.equal(stamp.messages, 4);
     assert.ok(Number.isFinite(Date.parse(stamp.at)));
-
   });
 });
 
@@ -131,7 +140,13 @@ test('emoji backfill run: a second run without force is a no-op and never double
   await withStore(async (store) => {
     const log = fakeLog();
     const channels = standardChannels();
-    const backfill = createEmojiBackfill({ discord: DISCORD, hot: fakeHot(), store, client: fakeClient(channels), log });
+    const backfill = createEmojiBackfill({
+      discord: DISCORD,
+      hot: fakeHot(),
+      store,
+      client: fakeClient(channels),
+      log,
+    });
 
     await backfill.run('g1');
     const fetchesAfterFirst = channels[0].messages.fetchCalls;
@@ -145,7 +160,13 @@ test('emoji backfill run: a second run without force is a no-op and never double
 
 test('emoji backfill run: force clears emojiUsage and recounts from history', async () => {
   await withStore(async (store) => {
-    const backfill = createEmojiBackfill({ discord: DISCORD, hot: fakeHot(), store, client: fakeClient(standardChannels()), log: fakeLog() });
+    const backfill = createEmojiBackfill({
+      discord: DISCORD,
+      hot: fakeHot(),
+      store,
+      client: fakeClient(standardChannels()),
+      log: fakeLog(),
+    });
 
     await backfill.run('g1');
     // An entry the history no longer shows (e.g. counted before) disappears on a forced rescan.
@@ -159,7 +180,7 @@ test('emoji backfill run: force clears emojiUsage and recounts from history', as
   });
 });
 
-test('emoji backfill run: a first run over a ranking with counts ends with the history\'s counts alone', async () => {
+test("emoji backfill run: a first run over a ranking with counts ends with the history's counts alone", async () => {
   await withStore(async (store) => {
     // What the analyzer counted since the feature went live: messages the history window also holds.
     store.recordEmojiUsage('g1', [
@@ -167,7 +188,13 @@ test('emoji backfill run: a first run over a ranking with counts ends with the h
       { id: '1006', ts: T0 + 6000, emojis: [{ id: '222', name: 'omega' }] },
       { id: 'old', ts: T0 - 1000, emojis: [{ id: '333', name: 'gone' }] },
     ]);
-    const backfill = createEmojiBackfill({ discord: DISCORD, hot: fakeHot(), store, client: fakeClient(standardChannels()), log: fakeLog() });
+    const backfill = createEmojiBackfill({
+      discord: DISCORD,
+      hot: fakeHot(),
+      store,
+      client: fakeClient(standardChannels()),
+      log: fakeLog(),
+    });
 
     const result = await backfill.run('g1');
     assert.deepEqual(result, { ok: true, channels: 2, messages: 4, emoji: 4 });
@@ -196,7 +223,13 @@ test('emoji backfill run: backfillMessages 0 disables it, even forced', async ()
 test('emoji backfill run: backfillMessages caps the messages read per channel (read at use)', async () => {
   await withStore(async (store) => {
     const hot = fakeHot({ customEmoji: { backfillMessages: 2 } });
-    const backfill = createEmojiBackfill({ discord: DISCORD, hot, store, client: fakeClient(standardChannels()), log: fakeLog() });
+    const backfill = createEmojiBackfill({
+      discord: DISCORD,
+      hot,
+      store,
+      client: fakeClient(standardChannels()),
+      log: fakeLog(),
+    });
 
     // c1's newest two are a member's message without emoji and a bot's; c2 has one member message.
     const result = await backfill.run('g1');
@@ -207,7 +240,13 @@ test('emoji backfill run: backfillMessages caps the messages read per channel (r
 
 test('emoji backfill run: refused while paused and while another run is in flight', async () => {
   await withStore(async (store) => {
-    const backfill = createEmojiBackfill({ discord: DISCORD, hot: fakeHot(), store, client: fakeClient(standardChannels()), log: fakeLog() });
+    const backfill = createEmojiBackfill({
+      discord: DISCORD,
+      hot: fakeHot(),
+      store,
+      client: fakeClient(standardChannels()),
+      log: fakeLog(),
+    });
 
     store.state.data.paused = true;
     assert.deepEqual(await backfill.run('g1'), { ok: false, reason: 'paused' });
@@ -223,7 +262,13 @@ test('emoji backfill run: refused while paused and while another run is in fligh
 
 test('emoji backfill run: an unknown guild is skipped', async () => {
   await withStore(async (store) => {
-    const backfill = createEmojiBackfill({ discord: DISCORD, hot: fakeHot(), store, client: fakeClient(standardChannels()), log: fakeLog() });
+    const backfill = createEmojiBackfill({
+      discord: DISCORD,
+      hot: fakeHot(),
+      store,
+      client: fakeClient(standardChannels()),
+      log: fakeLog(),
+    });
     assert.deepEqual(await backfill.run('nope'), { ok: false, reason: 'no-guild' });
   });
 });
@@ -231,7 +276,13 @@ test('emoji backfill run: an unknown guild is skipped', async () => {
 test('emoji backfill startIfNeeded: runs once when the feature is on and nothing is stamped', async () => {
   await withStore(async (store) => {
     const channels = standardChannels();
-    const backfill = createEmojiBackfill({ discord: DISCORD, hot: fakeHot(), store, client: fakeClient(channels), log: fakeLog() });
+    const backfill = createEmojiBackfill({
+      discord: DISCORD,
+      hot: fakeHot(),
+      store,
+      client: fakeClient(channels),
+      log: fakeLog(),
+    });
 
     await backfill.startIfNeeded('g1');
     assert.equal(store.getGuild('g1').emojiUsage['111'].count, 2);
@@ -245,7 +296,13 @@ test('emoji backfill startIfNeeded: features.customEmoji off skips it', async ()
   await withStore(async (store) => {
     const log = fakeLog();
     const channels = standardChannels();
-    const backfill = createEmojiBackfill({ discord: DISCORD, hot: fakeHot({ features: { customEmoji: false } }), store, client: fakeClient(channels), log });
+    const backfill = createEmojiBackfill({
+      discord: DISCORD,
+      hot: fakeHot({ features: { customEmoji: false } }),
+      store,
+      client: fakeClient(channels),
+      log,
+    });
 
     await backfill.startIfNeeded('g1');
     assert.equal(channels[0].messages.fetchCalls, 0);
@@ -256,7 +313,14 @@ test('emoji backfill startIfNeeded: features.customEmoji off skips it', async ()
 test('emoji backfill startIfNeeded: an error is logged, never thrown', async () => {
   await withStore(async (store) => {
     const log = fakeLog();
-    const client = { user: { id: 'selfUser' }, guilds: { get cache() { throw new Error('boom'); } } };
+    const client = {
+      user: { id: 'selfUser' },
+      guilds: {
+        get cache() {
+          throw new Error('boom');
+        },
+      },
+    };
     const backfill = createEmojiBackfill({ discord: DISCORD, hot: fakeHot(), store, client, log });
 
     await backfill.startIfNeeded('g1');
@@ -272,10 +336,18 @@ test('store emojiBackfill: normalised on read, set only through setEmojiBackfill
     const store = createStore({ dataDir: dir, memoryDb });
     assert.equal(store.getGuild('g1').emojiBackfill, null);
 
-    await memoryDb.writeUnit({ op: 'value', owner: 'guilds/g2/guild.json', value: { emojiBackfill: { at: 5, channels: 'x' } } });
+    await memoryDb.writeUnit({
+      op: 'value',
+      owner: 'guilds/g2/guild.json',
+      value: { emojiBackfill: { at: 5, channels: 'x' } },
+    });
     assert.equal(store.getGuild('g2').emojiBackfill, null);
 
-    await memoryDb.writeUnit({ op: 'value', owner: 'guilds/g3/guild.json', value: { emojiBackfill: { at: '2026-09-30T00:00:00.000Z', channels: 2.7, messages: -1 } } });
+    await memoryDb.writeUnit({
+      op: 'value',
+      owner: 'guilds/g3/guild.json',
+      value: { emojiBackfill: { at: '2026-09-30T00:00:00.000Z', channels: 2.7, messages: -1 } },
+    });
     assert.deepEqual(store.getGuild('g3').emojiBackfill, { at: '2026-09-30T00:00:00.000Z', channels: 2, messages: 0 });
 
     store.updateGuild('g1', { emojiBackfill: { at: 'x', channels: 1, messages: 1 } });
@@ -294,4 +366,3 @@ test('store emojiBackfill: normalised on read, set only through setEmojiBackfill
     fs.rmSync(mem.dataDir, { recursive: true, force: true });
   }
 });
-

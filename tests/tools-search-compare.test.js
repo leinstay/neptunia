@@ -26,7 +26,18 @@ function hotFixture() {
     config: {
       models: { base: { analyzer: 'test/analyzer' } },
       llm: { helperTimeoutMs: 9000 },
-      web: { maxPerDay: 0, search: { engine: 'brave', fallback: ['exa'], results: 5, summaryChars: 900, maxOutputTokens: 400, timeoutMs: 7000, cacheHours: 24 } },
+      web: {
+        maxPerDay: 0,
+        search: {
+          engine: 'brave',
+          fallback: ['exa'],
+          results: 5,
+          summaryChars: 900,
+          maxOutputTokens: 400,
+          timeoutMs: 7000,
+          cacheHours: 24,
+        },
+      },
     },
     prompts: { 'search-summary': 'Q: {{query}}\nT: {{today}}\nM: {{maxChars}}' },
   };
@@ -40,7 +51,13 @@ function fakes({ clock }) {
       calls.brave.push({ query, options });
       if (query === 'weather in Lisboa today') {
         clock.t += 200;
-        return { ok: true, results: [{ title: 'Brave one', url: 'https://weather.example.org/lisboa', snippet: 'sunny' }, { title: 'Brave two', url: 'https://news.example.net/a', snippet: 'warm' }] };
+        return {
+          ok: true,
+          results: [
+            { title: 'Brave one', url: 'https://weather.example.org/lisboa', snippet: 'sunny' },
+            { title: 'Brave two', url: 'https://news.example.net/a', snippet: 'warm' },
+          ],
+        };
       }
       clock.t += 150;
       return { ok: false, reason: 'empty' };
@@ -63,7 +80,11 @@ function fakes({ clock }) {
           throw new NotByokError('not byok: test/analyzer via test');
         }
         clock.t += 1000;
-        return { text: `plugin answer about ${query}`, usage: { cost: 0.01 }, annotations: [{ type: 'url_citation', url_citation: { title: 'Cited', url: 'https://cited.example.org/p' } }] };
+        return {
+          text: `plugin answer about ${query}`,
+          usage: { cost: 0.01 },
+          annotations: [{ type: 'url_citation', url_citation: { title: 'Cited', url: 'https://cited.example.org/p' } }],
+        };
       }
       clock.t += 100;
       const firstTitle = /^1\. (.*)$/m.exec(messages[1].content)[1];
@@ -94,12 +115,26 @@ async function quietly(fn) {
 function run(argv, { dir, env = ENV }) {
   const clock = { t: NOW };
   const f = fakes({ clock });
-  const promise = quietly(() => main(argv, { cwd: dir, rootDir: dir, now: () => clock.t, hot: hotFixture(), llmClient: f.llm, searches: f.searches, env }));
+  const promise = quietly(() =>
+    main(argv, {
+      cwd: dir,
+      rootDir: dir,
+      now: () => clock.t,
+      hot: hotFixture(),
+      llmClient: f.llm,
+      searches: f.searches,
+      env,
+    })
+  );
   return { promise, ...f };
 }
 
 function readJsonl(file) {
-  return fs.readFileSync(file, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  return fs
+    .readFileSync(file, 'utf8')
+    .trim()
+    .split('\n')
+    .map((l) => JSON.parse(l));
 }
 
 /** Each section of a blind sheet as `{ id, answers: { letter: text } }`. */
@@ -125,16 +160,81 @@ test('search-compare: two queries x three engines -> results, summary, blind she
   const results = readJsonl(path.join(dir, 'out', 'results.jsonl'));
   const strip = ({ text, sources, ...rest }) => rest;
   assert.deepEqual(results.map(strip), [
-    { id: 'q1', engine: 'brave', ok: true, reason: null, ms_search: 200, ms_summary: 100, ms_total: 300, results: 2, cost: 0.001 },
-    { id: 'q1', engine: 'exa', ok: true, reason: null, ms_search: 300, ms_summary: 100, ms_total: 400, results: 1, cost: 0.001 },
-    { id: 'q1', engine: 'openrouter', ok: true, reason: null, ms_search: 1000, ms_summary: null, ms_total: 1000, results: 1, cost: 0.01 },
-    { id: 'q2', engine: 'brave', ok: true, reason: 'empty', ms_search: 150, ms_summary: null, ms_total: 150, results: 0, cost: 0 },
-    { id: 'q2', engine: 'exa', ok: true, reason: null, ms_search: 500, ms_summary: 100, ms_total: 600, results: 1, cost: 0.001 },
-    { id: 'q2', engine: 'openrouter', ok: false, reason: 'not-byok', ms_search: 800, ms_summary: null, ms_total: 800, results: 0, cost: 0 },
+    {
+      id: 'q1',
+      engine: 'brave',
+      ok: true,
+      reason: null,
+      ms_search: 200,
+      ms_summary: 100,
+      ms_total: 300,
+      results: 2,
+      cost: 0.001,
+    },
+    {
+      id: 'q1',
+      engine: 'exa',
+      ok: true,
+      reason: null,
+      ms_search: 300,
+      ms_summary: 100,
+      ms_total: 400,
+      results: 1,
+      cost: 0.001,
+    },
+    {
+      id: 'q1',
+      engine: 'openrouter',
+      ok: true,
+      reason: null,
+      ms_search: 1000,
+      ms_summary: null,
+      ms_total: 1000,
+      results: 1,
+      cost: 0.01,
+    },
+    {
+      id: 'q2',
+      engine: 'brave',
+      ok: true,
+      reason: 'empty',
+      ms_search: 150,
+      ms_summary: null,
+      ms_total: 150,
+      results: 0,
+      cost: 0,
+    },
+    {
+      id: 'q2',
+      engine: 'exa',
+      ok: true,
+      reason: null,
+      ms_search: 500,
+      ms_summary: 100,
+      ms_total: 600,
+      results: 1,
+      cost: 0.001,
+    },
+    {
+      id: 'q2',
+      engine: 'openrouter',
+      ok: false,
+      reason: 'not-byok',
+      ms_search: 800,
+      ms_summary: null,
+      ms_total: 800,
+      results: 0,
+      cost: 0,
+    },
   ]);
   assert.equal(results[0].text, 'summary from Brave one');
-  assert.deepEqual(results[0].sources.map((s) => s.site), ['weather.example.org', 'news.example.net']);
-  assert.deepEqual(results[2].sources, [{ title: 'Cited', url: 'https://cited.example.org/p', site: 'cited.example.org' }]);
+  assert.deepEqual(
+    results[0].sources.map((s) => s.site),
+    ['weather.example.org', 'news.example.net']
+  );
+  assert.deepEqual(results[2].sources, [
+    { title: 'Cited', url: 'https://cited.example.org/p', site: 'cited.example.org' },
+  ]);
   assert.equal(results[3].text, '');
 
   // Production's requests: the engine forced, no fallback, the analyzer, outside the daily cap.
@@ -156,9 +256,18 @@ test('search-compare: two queries x three engines -> results, summary, blind she
 
   const summary = fs.readFileSync(path.join(dir, 'out', 'summary.md'), 'utf8');
   assert.ok(out.startsWith(summary));
-  assert.match(summary, /\| brave \| 2 \| 1 \| 1 \| 0 \| 0 \| 150 \| 200 \| 100 \| 100 \| 150 \| 300 \| 0\.0010 \| 0\.0005 \|/);
-  assert.match(summary, /\| exa \| 2 \| 2 \| 0 \| 0 \| 0 \| 300 \| 500 \| 100 \| 100 \| 400 \| 600 \| 0\.0020 \| 0\.0010 \|/);
-  assert.match(summary, /\| openrouter \| 2 \| 1 \| 0 \| 1 \| 0 \| 800 \| 1000 \| - \| - \| 800 \| 1000 \| 0\.0100 \| 0\.0050 \|/);
+  assert.match(
+    summary,
+    /\| brave \| 2 \| 1 \| 1 \| 0 \| 0 \| 150 \| 200 \| 100 \| 100 \| 150 \| 300 \| 0\.0010 \| 0\.0005 \|/
+  );
+  assert.match(
+    summary,
+    /\| exa \| 2 \| 2 \| 0 \| 0 \| 0 \| 300 \| 500 \| 100 \| 100 \| 400 \| 600 \| 0\.0020 \| 0\.0010 \|/
+  );
+  assert.match(
+    summary,
+    /\| openrouter \| 2 \| 1 \| 0 \| 1 \| 0 \| 800 \| 1000 \| - \| - \| 800 \| 1000 \| 0\.0100 \| 0\.0050 \|/
+  );
   assert.match(summary, /\| openrouter \| not-byok \| 1 \|/);
   assert.match(summary, /\| exa \| brave \| 1 \| q2 \|/);
   assert.match(summary, /\| exa \| openrouter \| 1 \| q2 \|/);
@@ -189,14 +298,17 @@ test('search-compare: two queries x three engines -> results, summary, blind she
   assert.deepEqual(Object.values(key.q1), order);
 });
 
-test('search-compare: --dry-run prints each engine\'s request shapes and sends nothing', async () => {
+test("search-compare: --dry-run prints each engine's request shapes and sends nothing", async () => {
   const { dir, file } = tempQueries();
   const { promise, calls } = run([file, '--dry-run'], { dir });
   const out = await promise;
   assert.equal(calls.brave.length + calls.exa.length + calls.llm.length, 0);
   assert.deepEqual(fs.readdirSync(dir), ['queries.jsonl']);
   assert.match(out, /# dry run: row q1, nothing sent/);
-  assert.match(out, /## brave\n\n```json[\s\S]*"kind": "search"[\s\S]*"apiKey": "set"[\s\S]*"purpose": "search-summary"/);
+  assert.match(
+    out,
+    /## brave\n\n```json[\s\S]*"kind": "search"[\s\S]*"apiKey": "set"[\s\S]*"purpose": "search-summary"/
+  );
   assert.match(out, /## openrouter\n\n```json[\s\S]*"plugins"/);
   assert.doesNotMatch(out, /brave-test-key/);
 });
@@ -208,7 +320,13 @@ test('search-compare: Brave without its key is skipped for every row, not an err
   assert.equal(calls.brave.length, 0);
   const results = readJsonl(path.join(dir, 'nokey', 'results.jsonl'));
   const brave = results.filter((r) => r.engine === 'brave');
-  assert.deepEqual(brave.map((r) => [r.id, r.ok, r.reason, r.ms_total]), [['q1', false, 'skipped', null], ['q2', false, 'skipped', null]]);
+  assert.deepEqual(
+    brave.map((r) => [r.id, r.ok, r.reason, r.ms_total]),
+    [
+      ['q1', false, 'skipped', null],
+      ['q2', false, 'skipped', null],
+    ]
+  );
   assert.match(out, /\| brave \| 2 \| 0 \| 0 \| 0 \| 2 \| - \| - \| - \| - \| - \| - \| 0\.0000 \| - \|/);
   assert.doesNotMatch(out, /\| brave \| skipped \|/);
   const key = JSON.parse(fs.readFileSync(path.join(dir, 'nokey', 'blind-key.json'), 'utf8'));
@@ -224,14 +342,36 @@ test('search-compare: --max-usd stops starting rows; --repeat records each run; 
   const repeated = run([file, '--out', 'rep', '--repeat', '2', '--engines', 'exa'], { dir });
   await repeated.promise;
   const rep = readJsonl(path.join(dir, 'rep', 'results.jsonl'));
-  assert.deepEqual(rep.map((r) => [r.id, r.engine, r.run]), [['q1', 'exa', 1], ['q1', 'exa', 2], ['q2', 'exa', 1], ['q2', 'exa', 2]]);
+  assert.deepEqual(
+    rep.map((r) => [r.id, r.engine, r.run]),
+    [
+      ['q1', 'exa', 1],
+      ['q1', 'exa', 2],
+      ['q2', 'exa', 1],
+      ['q2', 'exa', 2],
+    ]
+  );
 
   await assert.rejects(run([file], { dir }).promise, (err) => err instanceof CliError && /--out/.test(err.message));
-  await assert.rejects(run([file, '--out', 'data/x'], { dir }).promise, (err) => err instanceof CliError && /under data/.test(err.message));
-  await assert.rejects(run([file, '--out', 'x', '--engines', 'brave,bing'], { dir }).promise, (err) => err instanceof CliError && /--engines/.test(err.message));
   await assert.rejects(
-    quietly(() => main([file, '--out', 'x', '--key', 'sk-or-abc'], { cwd: dir, rootDir: dir, hot: hotFixture(), searches: fakes({ clock: { t: 0 } }).searches, env: {} })),
-    (err) => err instanceof CliError && /name of a variable/.test(err.message) && !err.message.includes('sk-or-abc'),
+    run([file, '--out', 'data/x'], { dir }).promise,
+    (err) => err instanceof CliError && /under data/.test(err.message)
+  );
+  await assert.rejects(
+    run([file, '--out', 'x', '--engines', 'brave,bing'], { dir }).promise,
+    (err) => err instanceof CliError && /--engines/.test(err.message)
+  );
+  await assert.rejects(
+    quietly(() =>
+      main([file, '--out', 'x', '--key', 'sk-or-abc'], {
+        cwd: dir,
+        rootDir: dir,
+        hot: hotFixture(),
+        searches: fakes({ clock: { t: 0 } }).searches,
+        env: {},
+      })
+    ),
+    (err) => err instanceof CliError && /name of a variable/.test(err.message) && !err.message.includes('sk-or-abc')
   );
 });
 
@@ -255,10 +395,26 @@ test('replay-score --search: tallies a filled blind sheet against Brave', async 
 });
 
 test('parseBlindScores and tallySearchScores: score lines, best lines, ties, unknown queries', () => {
-  const md = ['## query a', '### A', '### B', 'score: A = 3, B = 3', '## query b', '### A', '### B', '### C', 'best: C', '## query c', '### A', 'score: A = ?'].join('\n');
+  const md = [
+    '## query a',
+    '### A',
+    '### B',
+    'score: A = 3, B = 3',
+    '## query b',
+    '### A',
+    '### B',
+    '### C',
+    'best: C',
+    '## query c',
+    '### A',
+    'score: A = ?',
+  ].join('\n');
   const scores = parseBlindScores(md);
   assert.deepEqual(scores, { a: { A: 3, B: 3 }, b: { A: 0, B: 0, C: 1 } });
-  const tally = tallySearchScores({ key: { a: { A: 'brave', B: 'exa' }, b: { A: 'exa', B: 'openrouter', C: 'brave' }, c: { A: 'exa' } }, scores });
+  const tally = tallySearchScores({
+    key: { a: { A: 'brave', B: 'exa' }, b: { A: 'exa', B: 'openrouter', C: 'brave' }, c: { A: 'exa' } },
+    scores,
+  });
   assert.deepEqual(tally.engines, [
     { engine: 'exa', win: 0, tie: 1, lose: 1, unscored: 0, noBaseline: 1 },
     { engine: 'openrouter', win: 0, tie: 0, lose: 1, unscored: 0, noBaseline: 0 },
@@ -267,8 +423,18 @@ test('parseBlindScores and tallySearchScores: score lines, best lines, ties, unk
 });
 
 test('parseQueries: rows checked line by line', () => {
-  const text = ['{"id":"a","query":"x"}', '', '{"id":2,"query":"y","asked":"why?"}', 'nope', '{"id":"a","query":"z"}', '{"id":"b","query":" "}'].join('\n');
+  const text = [
+    '{"id":"a","query":"x"}',
+    '',
+    '{"id":2,"query":"y","asked":"why?"}',
+    'nope',
+    '{"id":"a","query":"z"}',
+    '{"id":"b","query":" "}',
+  ].join('\n');
   const { rows, errors } = parseQueries(text);
-  assert.deepEqual(rows, [{ id: 'a', query: 'x', asked: '', note: '' }, { id: '2', query: 'y', asked: 'why?', note: '' }]);
+  assert.deepEqual(rows, [
+    { id: 'a', query: 'x', asked: '', note: '' },
+    { id: '2', query: 'y', asked: 'why?', note: '' },
+  ]);
   assert.deepEqual(errors, ['line 4: not JSON', 'line 5: duplicate id a', 'line 6: no query']);
 });

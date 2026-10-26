@@ -22,8 +22,14 @@ test('pair: parseTriggers reads channel, trigger and an optional turn id, skippi
 test('pair: pairOrder draws the first side of each pair from rng', () => {
   const values = [0.1, 0.9, 0.5, 0.49];
   let i = 0;
-  assert.deepEqual(pairOrder(4, () => values[i++]), ['A', 'B', 'B', 'A']);
-  assert.deepEqual(pairOrder(0, () => 0), []);
+  assert.deepEqual(
+    pairOrder(4, () => values[i++]),
+    ['A', 'B', 'B', 'A']
+  );
+  assert.deepEqual(
+    pairOrder(0, () => 0),
+    []
+  );
 });
 
 test('pair: renderSheet shows both answers unlabelled, escaped, and sheetPairIds reads the ids back', () => {
@@ -32,14 +38,24 @@ test('pair: renderSheet shows both answers unlabelled, escaped, and sheetPairIds
       id: 'p1',
       context: [{ author: 'Ζωή', text: 'hello <b>there</b>' }],
       first: { messages: ['side one'], reactions: [], gif: null, drawings: [], posts: [], skip: false },
-      second: { messages: [], reactions: [{ emoji: 'wave' }], gif: null, drawings: [{ text: 'a cat <i>on</i> a roof' }], posts: [{ text: 'posted elsewhere' }], skip: false },
+      second: {
+        messages: [],
+        reactions: [{ emoji: 'wave' }],
+        gif: null,
+        drawings: [{ text: 'a cat <i>on</i> a roof' }],
+        posts: [{ text: 'posted elsewhere' }],
+        skip: false,
+      },
     },
     { id: 'p"2', context: [], first: null, second: { messages: [], reactions: [], skip: true } },
   ]);
   assert.ok(html.includes('hello &lt;b&gt;there&lt;/b&gt;'));
   assert.ok(html.includes('side one'));
   assert.ok(html.includes('reaction: wave'));
-  assert.ok(html.includes('drawing: a cat &lt;i&gt;on&lt;/i&gt; a roof'), 'a picture she drew (her draw.create call) is shown');
+  assert.ok(
+    html.includes('drawing: a cat &lt;i&gt;on&lt;/i&gt; a roof'),
+    'a picture she drew (her draw.create call) is shown'
+  );
   assert.ok(html.includes('posted: posted elsewhere'), 'so is the text of a message call');
   assert.ok(html.includes('(stays silent)'));
   assert.ok(html.includes('(no answer: the request failed)'));
@@ -51,7 +67,9 @@ test('pair: renderSheet shows both answers unlabelled, escaped, and sheetPairIds
 });
 
 test('pair: tallyScores maps positions to sides through the key and counts the unscored', () => {
-  const key = { pairs: { p1: { first: 'A' }, p2: { first: 'B' }, p3: { first: 'B' }, p4: { first: 'A' }, p5: { first: 'A' } } };
+  const key = {
+    pairs: { p1: { first: 'A' }, p2: { first: 'B' }, p3: { first: 'B' }, p4: { first: 'A' }, p5: { first: 'A' } },
+  };
   const scores = { p1: 'first', p2: 'first', p3: 'second', p4: 'even', p5: 'maybe' };
   const result = tallyScores({ ids: ['p1', 'p2', 'p3', 'p4', 'p5'], key, scores });
   assert.deepEqual(result.pairs, [

@@ -81,7 +81,8 @@ function inside(file, dir) {
 /** The key the run spends: the variable `name` names, else the simulator key (simKey). Never printed. */
 function keyOf(name, env) {
   if (name === undefined) return simKey(ORIGIN, env);
-  if (!ENV_NAME_RE.test(name)) throw new CliError(`search-compare: --key takes the name of a variable, not a key\n${USAGE}`);
+  if (!ENV_NAME_RE.test(name))
+    throw new CliError(`search-compare: --key takes the name of a variable, not a key\n${USAGE}`);
   const value = env[name];
   if (typeof value !== 'string' || !value.trim()) throw new CliError(`search-compare: ${name} is not set (.env)`);
   return value.trim();
@@ -121,7 +122,10 @@ function requestShape(messages, options) {
   return {
     model: options?.model ?? null,
     options: Object.fromEntries(Object.entries(options ?? {}).filter(([k]) => k !== 'model')),
-    messages: messages.map((m) => ({ role: m.role, chars: typeof m.content === 'string' ? m.content.length : JSON.stringify(m.content).length })),
+    messages: messages.map((m) => ({
+      role: m.role,
+      chars: typeof m.content === 'string' ? m.content.length : JSON.stringify(m.content).length,
+    })),
   };
 }
 
@@ -134,7 +138,18 @@ function requestShape(messages, options) {
  *   and prompts, the OpenRouter client and the search clients (tests).
  * @returns {Promise<string>}
  */
-export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: givenHot = null, llmClient = null, searches: givenSearches = null, env = process.env, rootDir = ROOT } = {}) {
+export async function main(
+  argv,
+  {
+    cwd = process.cwd(),
+    now = Date.now,
+    hot: givenHot = null,
+    llmClient = null,
+    searches: givenSearches = null,
+    env = process.env,
+    rootDir = ROOT,
+  } = {}
+) {
   const flags = parseFlags(argv, {
     values: ['--out', '--engines', '--key', '--repeat', '--max-usd', '--seed'],
     switches: ['--dry-run'],
@@ -150,7 +165,10 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: giv
     throw new CliError(`search-compare: cannot read the queries ${queriesFile} (${err?.code ?? err?.name ?? 'Error'})`);
   }
   const { rows, errors } = parseQueries(text);
-  if (errors.length > 0) throw new CliError(`search-compare: the queries file has ${errors.length} problem(s):\n${errors.slice(0, 20).join('\n')}`);
+  if (errors.length > 0)
+    throw new CliError(
+      `search-compare: the queries file has ${errors.length} problem(s):\n${errors.slice(0, 20).join('\n')}`
+    );
   if (rows.length === 0) throw new CliError('search-compare: the queries file has no row');
 
   const { createLookup, SEARCH_ENGINES } = await import('../src/web/lookup.js');
@@ -195,7 +213,12 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: giv
         async complete(messages, options) {
           const started = now();
           try {
-            const completion = await llm.complete(messages, { ...options, origin: ORIGIN, countAgainstDailyCap: false, skipCalibration: true });
+            const completion = await llm.complete(messages, {
+              ...options,
+              origin: ORIGIN,
+              countAgainstDailyCap: false,
+              skipCalibration: true,
+            });
             timing.cost += costOf(completion?.usage);
             return completion;
           } catch (err) {
@@ -241,7 +264,18 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: giv
         keys,
         now,
       });
-      const base = { engine, ok: false, reason: null, ms_search: null, ms_summary: null, ms_total: null, results: 0, cost: 0, text: '', sources: [] };
+      const base = {
+        engine,
+        ok: false,
+        reason: null,
+        ms_search: null,
+        ms_summary: null,
+        ms_total: null,
+        results: 0,
+        cost: 0,
+        text: '',
+        sources: [],
+      };
       if (!lookup.hasSearch()) return { ...base, reason: 'skipped' };
 
       let logged = null;
@@ -255,10 +289,23 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: giv
       } finally {
         stop();
       }
-      const record = { ...base, ms_search: timing.search, ms_summary: timing.summary, ms_total: now() - started, cost: timing.cost };
+      const record = {
+        ...base,
+        ms_search: timing.search,
+        ms_summary: timing.summary,
+        ms_total: now() - started,
+        cost: timing.cost,
+      };
       if (found) {
         const sources = found.sources ?? [];
-        return { ...record, ok: true, reason: found.text ? null : 'empty', results: timing.results ?? sources.length, text: found.text, sources };
+        return {
+          ...record,
+          ok: true,
+          reason: found.text ? null : 'empty',
+          results: timing.results ?? sources.length,
+          text: found.text,
+          sources,
+        };
       }
       let reason = logged?.reason ?? 'not-run';
       if (timing.llmError instanceof NotByokError) reason = 'not-byok';
@@ -272,7 +319,14 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: giv
         const calls = [];
         const recorder = {
           async search(q, options) {
-            calls.push({ kind: 'search', engine, count: options?.count ?? null, timeoutMs: options?.timeoutMs ?? null, apiKey: options?.apiKey ? 'set' : 'none', queryChars: String(q).length });
+            calls.push({
+              kind: 'search',
+              engine,
+              count: options?.count ?? null,
+              timeoutMs: options?.timeoutMs ?? null,
+              apiKey: options?.apiKey ? 'set' : 'none',
+              queryChars: String(q).length,
+            });
             return { ok: true, results: [DRY_RESULT] };
           },
         };
@@ -287,7 +341,9 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: giv
         if (r.reason === 'skipped') out.push('skipped: the lookup cannot run this engine (a missing key)', '');
         else out.push('```json', JSON.stringify(calls, null, 2), '```', '');
       }
-      process.stderr.write(`search-compare: dry run, ${rows.length} row(s) x ${engines.length} engine(s) x ${repeat}, nothing sent\n`);
+      process.stderr.write(
+        `search-compare: dry run, ${rows.length} row(s) x ${engines.length} engine(s) x ${repeat}, nothing sent\n`
+      );
       return `${out.join('\n')}`;
     }
 
@@ -297,7 +353,13 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: giv
       const { createCalibrator } = await import('../src/llm/tokens.js');
       const apiKey = keyOf(flags['--key'], env);
       // Per-role keys are not looked up (env {}): the given key pays; the daily counters are a throwaway copy.
-      llm = createLlm({ apiKey, env: {}, getConfig: () => hot.config, calibrator: createCalibrator(), state: { data: {}, markDirty() {} } });
+      llm = createLlm({
+        apiKey,
+        env: {},
+        getConfig: () => hot.config,
+        calibrator: createCalibrator(),
+        state: { data: {}, markDirty() {} },
+      });
     }
     let searches = givenSearches;
     if (!searches) {
@@ -307,7 +369,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: giv
     }
 
     process.stderr.write(
-      `search-compare: ${rows.length} row(s) x ${engines.length} engine(s) x ${repeat}, up to ${rows.length * engines.length * repeat} search step(s), no row started once the cost passes ${maxUsd} USD\n`,
+      `search-compare: ${rows.length} row(s) x ${engines.length} engine(s) x ${repeat}, up to ${rows.length * engines.length * repeat} search step(s), no row started once the cost passes ${maxUsd} USD\n`
     );
     const results = [];
     let spent = 0;
@@ -323,7 +385,9 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: giv
           const r = await runOnce(engine, row.query, { llm, searches });
           spent += r.cost;
           results.push({ id: row.id, ...r, ...(repeat > 1 ? { run } : {}) });
-          process.stderr.write(`search-compare: ${row.id} ${engine}${repeat > 1 ? ` run ${run}` : ''} ${outcomeOf(r)}${r.reason && r.reason !== 'empty' ? ` (${r.reason})` : ''}${r.ms_total !== null ? ` ${r.ms_total} ms` : ''}\n`);
+          process.stderr.write(
+            `search-compare: ${row.id} ${engine}${repeat > 1 ? ` run ${run}` : ''} ${outcomeOf(r)}${r.reason && r.reason !== 'empty' ? ` (${r.reason})` : ''}${r.ms_total !== null ? ` ${r.ms_total} ms` : ''}\n`
+          );
         }
       }
       done += 1;
@@ -342,7 +406,20 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: giv
     });
     const blind = renderBlind(ran, results, engines, seed);
     fs.mkdirSync(outDir, { recursive: true });
-    const fields = ({ id, engine, ok, reason, ms_search, ms_summary, ms_total, results: count, cost, text: answer, sources, run }) => ({
+    const fields = ({
+      id,
+      engine,
+      ok,
+      reason,
+      ms_search,
+      ms_summary,
+      ms_total,
+      results: count,
+      cost,
+      text: answer,
+      sources,
+      run,
+    }) => ({
       id,
       engine,
       ok,

@@ -179,7 +179,12 @@ export function stemmerOf({ endings, productivity }) {
 
 /** Whether `line` is a chat line of the record (a `seen` or `said` message with an id, a channel or private scope and a time). */
 function chatLine(line) {
-  return (line?.kind === 'seen' || line?.kind === 'said') && typeof line.messageId === 'string' && line.messageId && Number.isFinite(Date.parse(line.occurredAt));
+  return (
+    (line?.kind === 'seen' || line?.kind === 'said') &&
+    typeof line.messageId === 'string' &&
+    line.messageId &&
+    Number.isFinite(Date.parse(line.occurredAt))
+  );
 }
 
 /** The searchable text of a record line: its text and its links' titles and descriptions. */
@@ -302,7 +307,16 @@ export function buildRecordIndex(lines) {
   const vocabulary = new Set();
   for (const line of ordered) for (const word of indexWords(lineText(line))) vocabulary.add(word);
   const learned = learnEndings(vocabulary);
-  const index = { terms: new Map(), postings: [], docs: [], byMessage: new Map(), deleted, alive: 0, endings: learned.endings, stem: stemmerOf(learned) };
+  const index = {
+    terms: new Map(),
+    postings: [],
+    docs: [],
+    byMessage: new Map(),
+    deleted,
+    alive: 0,
+    endings: learned.endings,
+    stem: stemmerOf(learned),
+  };
   for (const line of ordered) addDocument(index, line, revisionOf(line));
   return index;
 }
@@ -357,8 +371,18 @@ export function nameAlternates(profiles, selfId = null) {
   const out = new Map();
   for (const profile of Array.isArray(profiles) ? profiles : []) {
     if (!profile || typeof profile !== 'object' || (selfId !== null && String(profile.id) === String(selfId))) continue;
-    const names = [...(Array.isArray(profile.names) ? profile.names : []), ...(Array.isArray(profile.aliases) ? profile.aliases : []).map((alias) => alias?.name)].filter((name) => typeof name === 'string');
-    const single = [...new Set(names.map((name) => indexWords(name)).filter((words) => words.length === 1 && [...words[0]].length >= 3).map((words) => words[0]))];
+    const names = [
+      ...(Array.isArray(profile.names) ? profile.names : []),
+      ...(Array.isArray(profile.aliases) ? profile.aliases : []).map((alias) => alias?.name),
+    ].filter((name) => typeof name === 'string');
+    const single = [
+      ...new Set(
+        names
+          .map((name) => indexWords(name))
+          .filter((words) => words.length === 1 && [...words[0]].length >= 3)
+          .map((words) => words[0])
+      ),
+    ];
     if (single.length < 2) continue;
     for (const name of names) {
       for (const word of indexWords(name)) {
@@ -391,7 +415,11 @@ export function nameAlternates(profiles, selfId = null) {
  * @param {{ until?: number, exclude?: Set<string>, skipWords?: string[], alternates?: Map<string, string[]>, quoted?: string[],
  *   maxTerms?: number, maxTermShare?: number, rareTermDf?: number, maxPhrases?: number, maxPhraseDf?: number, minPhraseShare?: number }} [options]
  */
-export function indexQuery(index, text, { until = Infinity, exclude = new Set(), skipWords = [], alternates = new Map(), quoted = [], ...rest } = {}) {
+export function indexQuery(
+  index,
+  text,
+  { until = Infinity, exclude = new Set(), skipWords = [], alternates = new Map(), quoted = [], ...rest } = {}
+) {
   const o = { ...INDEX_QUERY_DEFAULTS, ...rest };
   const ok = (at) => counts(index.docs[at], until, exclude);
   const total = Math.max(1, index.alive);
@@ -446,7 +474,8 @@ export function indexQuery(index, text, { until = Infinity, exclude = new Set(),
     }
   }
   grams.sort((a, b) => b.weight - a.weight);
-  const inside = (small, big) => big.ids.length > small.ids.length && ` ${big.ids.join(' ')} `.includes(` ${small.ids.join(' ')} `);
+  const inside = (small, big) =>
+    big.ids.length > small.ids.length && ` ${big.ids.join(' ')} `.includes(` ${small.ids.join(' ')} `);
   for (const gram of grams) {
     if (phrases.length >= o.maxPhrases) break;
     if (phrases.some((kept) => inside(gram, kept))) continue;
@@ -466,7 +495,11 @@ export function indexQuery(index, text, { until = Infinity, exclude = new Set(),
  * @param {{ terms: object[], phrases: object[] }} query
  * @param {{ until?: number, exclude?: Set<string>, allow?: ((doc: object) => boolean)|null, limit?: number, rareTermDf?: number }} [options]
  */
-export function searchRecordIndex(index, query, { until = Infinity, exclude = new Set(), allow = null, limit = 20, rareTermDf = INDEX_QUERY_DEFAULTS.rareTermDf } = {}) {
+export function searchRecordIndex(
+  index,
+  query,
+  { until = Infinity, exclude = new Set(), allow = null, limit = 20, rareTermDf = INDEX_QUERY_DEFAULTS.rareTermDf } = {}
+) {
   const terms = Array.isArray(query?.terms) ? query.terms : [];
   const phrases = Array.isArray(query?.phrases) ? query.phrases : [];
   if (terms.length === 0 && phrases.length === 0) return [];
@@ -498,7 +531,15 @@ export function searchRecordIndex(index, query, { until = Infinity, exclude = ne
       }
     }
     if (!(matchedPhrases > 0 || matchedTerms >= 2 || rare)) continue;
-    hits.push({ messageId: doc.messageId, channelId: doc.channelId, occurredAt: doc.occurredAt, ts: doc.ts, score, terms: matchedTerms, phrases: matchedPhrases });
+    hits.push({
+      messageId: doc.messageId,
+      channelId: doc.channelId,
+      occurredAt: doc.occurredAt,
+      ts: doc.ts,
+      score,
+      terms: matchedTerms,
+      phrases: matchedPhrases,
+    });
   }
   hits.sort((a, b) => b.score - a.score || b.ts - a.ts);
   return hits.slice(0, Math.max(0, limit));
@@ -515,7 +556,9 @@ export function searchRecordIndex(index, query, { until = Infinity, exclude = ne
  * @returns {{ terms: number, phrases: number }}
  */
 export function querySupport(index, texts, query) {
-  const seqs = (Array.isArray(texts) ? texts : []).map((text) => indexWords(text).map((word) => index.terms.get(index.stem(word)) ?? -1));
+  const seqs = (Array.isArray(texts) ? texts : []).map((text) =>
+    indexWords(text).map((word) => index.terms.get(index.stem(word)) ?? -1)
+  );
   const keys = new Set(seqs.flat());
   const terms = (query?.terms ?? []).filter((term) => term.ids.some((id) => keys.has(id))).length;
   const phrases = (query?.phrases ?? []).filter((phrase) => seqs.some((seq) => holdsPhrase(seq, phrase.ids))).length;
@@ -545,7 +588,11 @@ async function collect(record, guildId, query) {
  * @param {{ privateUserId?: string|null, now?: () => number, refreshMs?: number, rebuildMs?: number }} [options]
  * @returns {Promise<object>}
  */
-export function recordIndexOf(record, guildId, { privateUserId = null, now = Date.now, refreshMs = 30000, rebuildMs = 60 * 60 * 1000 } = {}) {
+export function recordIndexOf(
+  record,
+  guildId,
+  { privateUserId = null, now = Date.now, refreshMs = 30000, rebuildMs = 60 * 60 * 1000 } = {}
+) {
   if (!CACHE.has(record)) CACHE.set(record, new Map());
   const entries = CACHE.get(record);
   const key = `${guildId}:${privateUserId ?? ''}`;
@@ -562,7 +609,7 @@ export function recordIndexOf(record, guildId, { privateUserId = null, now = Dat
       (err) => {
         entries.delete(key);
         throw err;
-      },
+      }
     );
     entries.set(key, fresh);
     return fresh.ready;

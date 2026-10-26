@@ -265,7 +265,9 @@ export function mergeRecent(stored, incoming, opts = {}) {
   const expired = base.lines.length - live.length;
   const expiredLines = base.lines.filter((line) => line.at < cutoff);
 
-  const removing = new Set((Array.isArray(options.removeIds) ? options.removeIds : []).map(lineIdOf).filter((id) => id !== null));
+  const removing = new Set(
+    (Array.isArray(options.removeIds) ? options.removeIds : []).map(lineIdOf).filter((id) => id !== null)
+  );
   const kept = live.filter((line) => !removing.has(line.id));
   const removed = live.length - kept.length;
   const removedLines = live.filter((line) => removing.has(line.id));
@@ -275,7 +277,10 @@ export function mergeRecent(stored, incoming, opts = {}) {
   const fresh = [];
   const why = { invalid: 0, noChannel: 0, stale: 0, duplicate: 0, overCap: 0 };
   for (const raw of items) {
-    const text = isPlainObject(raw) && typeof raw.text === 'string' ? clampText(oneLine(stripUrls(raw.text)), chars, { tolerance: options.clampTolerance }) : '';
+    const text =
+      isPlainObject(raw) && typeof raw.text === 'string'
+        ? clampText(oneLine(stripUrls(raw.text)), chars, { tolerance: options.clampTolerance })
+        : '';
     const channelId = isPlainObject(raw) ? channelIdOf(raw.channelId) : null;
     const at = isPlainObject(raw) && Number.isFinite(raw.at) ? raw.at : now;
     const key = foldText(text);
@@ -305,7 +310,12 @@ export function mergeRecent(stored, incoming, opts = {}) {
   let evicted = 0;
   let evictedLines = [];
   if (fresh.length > 0 && survivors.length > maxStored) {
-    const going = new Set([...survivors].sort(evictionOrder).slice(0, survivors.length - maxStored).map((line) => line.id));
+    const going = new Set(
+      [...survivors]
+        .sort(evictionOrder)
+        .slice(0, survivors.length - maxStored)
+        .map((line) => line.id)
+    );
     evictedLines = kept.filter((line) => going.has(line.id));
     evicted = evictedLines.length;
     why.overCap += going.size - evicted;
@@ -320,7 +330,15 @@ export function mergeRecent(stored, incoming, opts = {}) {
     const id = nextId;
     nextId += 1;
     added += 1;
-    return { id, at: line.at, addedAt, channelId: line.channelId, text: line.text, who: tokenIds(line.text), weight: line.weight };
+    return {
+      id,
+      at: line.at,
+      addedAt,
+      channelId: line.channelId,
+      text: line.text,
+      who: tokenIds(line.text),
+      weight: line.weight,
+    };
   });
 
   const dropped = why.invalid + why.noChannel + why.stale + why.duplicate + why.overCap;
@@ -480,7 +498,7 @@ export function recentView({ lines, profiles, now, hours, focusIds, excludeEpiso
       Number(b.focus) - Number(a.focus) ||
       weightOf(b.line.weight) - weightOf(a.line.weight) ||
       b.at - a.at ||
-      (Number(b.line.id) || 0) - (Number(a.line.id) || 0),
+      (Number(b.line.id) || 0) - (Number(a.line.id) || 0)
   );
 
   let repeated = 0;
@@ -513,7 +531,7 @@ export function recentView({ lines, profiles, now, hours, focusIds, excludeEpiso
       Number(b.focus) - Number(a.focus) ||
       (Number(b.episode.weight) || 0) - (Number(a.episode.weight) || 0) ||
       b.at - a.at ||
-      String(b.episode.addedAt ?? '').localeCompare(String(a.episode.addedAt ?? '')),
+      String(b.episode.addedAt ?? '').localeCompare(String(a.episode.addedAt ?? ''))
   );
 
   return { items: [...shownLines, ...moments], hidden, repeated };

@@ -76,7 +76,8 @@ function inside(file, dir) {
 /** The key the run spends: the variable `name` names, else the simulator key (simKey). Never printed. */
 function keyOf(name, env) {
   if (name === undefined) return simKey(ORIGIN, env);
-  if (!ENV_NAME_RE.test(name)) throw new CliError(`search-policy-eval: --key takes the name of a variable, not a key\n${USAGE}`);
+  if (!ENV_NAME_RE.test(name))
+    throw new CliError(`search-policy-eval: --key takes the name of a variable, not a key\n${USAGE}`);
   const value = env[name];
   if (typeof value !== 'string' || !value.trim()) throw new CliError(`search-policy-eval: ${name} is not set (.env)`);
   return value.trim();
@@ -90,7 +91,17 @@ function keyOf(name, env) {
  *   stand in for the live config and prompts and the OpenRouter client (tests).
  * @returns {Promise<string>}
  */
-export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: givenHot = null, llmClient = null, env = process.env, rootDir = ROOT } = {}) {
+export async function main(
+  argv,
+  {
+    cwd = process.cwd(),
+    now = Date.now,
+    hot: givenHot = null,
+    llmClient = null,
+    env = process.env,
+    rootDir = ROOT,
+  } = {}
+) {
   const flags = parseFlags(argv, {
     values: ['--out', '--key', '--model', '--limit', '--max-usd', '--concurrency', '--self-name'],
     switches: ['--dry-run'],
@@ -106,7 +117,10 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: giv
     throw new CliError(`search-policy-eval: cannot read the sheet ${sheetFile} (${err?.code ?? err?.name ?? 'Error'})`);
   }
   const { rows, errors } = parseSheet(text);
-  if (errors.length > 0) throw new CliError(`search-policy-eval: the sheet has ${errors.length} problem(s):\n${errors.slice(0, 20).join('\n')}`);
+  if (errors.length > 0)
+    throw new CliError(
+      `search-policy-eval: the sheet has ${errors.length} problem(s):\n${errors.slice(0, 20).join('\n')}`
+    );
   if (rows.length === 0) throw new CliError('search-policy-eval: the sheet has no row');
   const limit = numberFlag(flags['--limit'], rows.length, { min: 1, integer: true });
   const maxUsd = numberFlag(flags['--max-usd'], DEFAULT_MAX_USD);
@@ -154,8 +168,14 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: giv
       const config = configNow();
       const { history, trigger } = rowChat(row, { now: now(), selfName });
       const { user } = lookupClassifierInput({ config, labels: hot.prompts.labels, selfName, history, trigger });
-      const discovery = discoveryOn(config) ? { index: skillsIndex(skillRegistry(), hot.prompts?.skills), names: [...skillRegistry().keys()] } : { index: '', names: [] };
-      const system = fillPromptTemplate(hot.prompts.lookup, { today: zonedDay(now(), config.bot?.timezone), name: selfName, skills: discovery.index });
+      const discovery = discoveryOn(config)
+        ? { index: skillsIndex(skillRegistry(), hot.prompts?.skills), names: [...skillRegistry().keys()] }
+        : { index: '', names: [] };
+      const system = fillPromptTemplate(hot.prompts.lookup, {
+        today: zonedDay(now(), config.bot?.timezone),
+        name: selfName,
+        skills: discovery.index,
+      });
       return { config, system, user, skillNames: discovery.names };
     };
 
@@ -165,7 +185,9 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: giv
       return `# row ${asked[0].id} (model ${roleModel(config, 'analyzer', 'lookup') ?? '-'})\n\n## system\n\n${system}\n\n## user\n\n${user}\n`;
     }
 
-    process.stderr.write(`search-policy-eval: ${asked.length} row(s), up to ${asked.length} model request(s), none started once the cost passes ${maxUsd} USD\n`);
+    process.stderr.write(
+      `search-policy-eval: ${asked.length} row(s), up to ${asked.length} model request(s), none started once the cost passes ${maxUsd} USD\n`
+    );
     let llm = llmClient;
     if (!llm) {
       const { loadDotEnv } = await import('../src/config.js');
@@ -174,7 +196,13 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: giv
       loadDotEnv(privateDirOf(rootDir, env));
       const apiKey = keyOf(flags['--key'], env);
       // Per-role keys are not looked up (env {}): the given key pays; the daily counters are a throwaway copy.
-      llm = createLlm({ apiKey, env: {}, getConfig: configNow, calibrator: createCalibrator(), state: { data: {}, markDirty() {} } });
+      llm = createLlm({
+        apiKey,
+        env: {},
+        getConfig: configNow,
+        calibrator: createCalibrator(),
+        state: { data: {}, markDirty() {} },
+      });
     }
 
     let spent = 0;
@@ -195,22 +223,51 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: giv
           ],
           {
             model: roleModel(config, 'analyzer', 'lookup'),
-            ...helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: config.web?.search?.classifierMaxOutputTokens ?? 2000, purpose: 'lookup' }),
+            ...helperRequestOptions(config, {
+              role: 'analyzer',
+              maxOutputTokens: config.web?.search?.classifierMaxOutputTokens ?? 2000,
+              purpose: 'lookup',
+            }),
             origin: ORIGIN,
             countAgainstDailyCap: false,
             skipCalibration: true,
             cache: false,
-          },
+          }
         );
       } catch (err) {
-        return { ...base, decision: 'failed', query: null, forms: [], who: [], ms: now() - started, ok: false, error: err?.name ?? 'Error', costUsd: 0 };
+        return {
+          ...base,
+          decision: 'failed',
+          query: null,
+          forms: [],
+          who: [],
+          ms: now() - started,
+          ok: false,
+          error: err?.name ?? 'Error',
+          costUsd: 0,
+        };
       }
       const ms = now() - started;
       const costUsd = costOf(completion?.usage);
       spent += costUsd;
-      if (!String(completion?.text ?? '').trim()) return { ...base, decision: 'failed', query: null, forms: [], who: [], ms, ok: false, error: 'empty', costUsd };
-      const parsed = parseLookupAnswer(completion.text, { timezone: config.bot?.timezone, now: now(), maxForms: recallSettings(config)?.maxForms, skillNames });
-      return { ...base, decision: decisionOf(parsed), query: parsed.web ?? null, forms: parsed.server?.forms ?? [], who: parsed.server?.who ?? [], ms, ok: true, costUsd };
+      if (!String(completion?.text ?? '').trim())
+        return { ...base, decision: 'failed', query: null, forms: [], who: [], ms, ok: false, error: 'empty', costUsd };
+      const parsed = parseLookupAnswer(completion.text, {
+        timezone: config.bot?.timezone,
+        now: now(),
+        maxForms: recallSettings(config)?.maxForms,
+        skillNames,
+      });
+      return {
+        ...base,
+        decision: decisionOf(parsed),
+        query: parsed.web ?? null,
+        forms: parsed.server?.forms ?? [],
+        who: parsed.server?.who ?? [],
+        ms,
+        ok: true,
+        costUsd,
+      };
     }
 
     let next = 0;
@@ -223,7 +280,9 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: giv
         const index = next++;
         const r = await ask(asked[index]);
         results[index] = r;
-        process.stderr.write(`search-policy-eval: ${r.id} tier ${r.tier} decision ${r.decision}${r.error ? ` (${r.error})` : ''} ${r.ms} ms\n`);
+        process.stderr.write(
+          `search-policy-eval: ${r.id} tier ${r.tier} decision ${r.decision}${r.error ? ` (${r.error})` : ''} ${r.ms} ms\n`
+        );
       }
     };
     await Promise.all(Array.from({ length: Math.min(concurrency, asked.length) }, worker));
@@ -238,7 +297,9 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: giv
       stopped,
     });
     fs.mkdirSync(outDir, { recursive: true });
-    const lines = done.map(({ id, source, tier, decision, query, forms, who, ms, ok }) => JSON.stringify({ id, source, tier, decision, query, forms, who, ms, ok }));
+    const lines = done.map(({ id, source, tier, decision, query, forms, who, ms, ok }) =>
+      JSON.stringify({ id, source, tier, decision, query, forms, who, ms, ok })
+    );
     fs.writeFileSync(path.join(outDir, 'results.jsonl'), lines.length > 0 ? `${lines.join('\n')}\n` : '');
     fs.writeFileSync(path.join(outDir, 'summary.md'), markdown);
     return `${markdown}\n${path.join(outDir, 'results.jsonl')}\n${path.join(outDir, 'summary.md')}\n`;

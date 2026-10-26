@@ -79,7 +79,9 @@ export function isPictureKey(key) {
   if (typeof key !== 'string') return false;
   if (key.startsWith('video:')) return key.startsWith('video:url:') && !key.includes(':q:');
   if (key.includes(':q:')) return false;
-  return ATTACHMENT_ID_RE.test(key) || EMBED_ID_RE.test(key) || PICTURE_KEY_PREFIXES.some((prefix) => key.startsWith(prefix));
+  return (
+    ATTACHMENT_ID_RE.test(key) || EMBED_ID_RE.test(key) || PICTURE_KEY_PREFIXES.some((prefix) => key.startsWith(prefix))
+  );
 }
 
 /** When a cached description was last used: its `usedAt` or its `ts`, whichever is later; -Infinity when neither. */
@@ -103,7 +105,8 @@ export function pickStaleDescriptions(cache, { nowMs, days, cutoffMs, models }) 
   const since = nowMs - days * DAY_MS;
   const picked = [];
   for (const [key, entry] of Object.entries(cache ?? {})) {
-    if (!isPictureKey(key) || !entry || entry.miss || typeof entry.text !== 'string' || entry.text.trim() === '') continue;
+    if (!isPictureKey(key) || !entry || entry.miss || typeof entry.text !== 'string' || entry.text.trim() === '')
+      continue;
     const usedAt = lastUseOf(entry);
     if (usedAt < since) continue;
     if (cutoffMs !== null && cutoffMs !== undefined && !isStaleDescription(entry, cutoffMs)) continue;
@@ -155,7 +158,8 @@ export function recordFinder(keys, sinceMs) {
     if (messageIds.has(line.messageId)) return true;
     const occurredMs = Date.parse(line.occurredAt);
     const at = snowflakeMs(line.messageId) ?? occurredMs;
-    if (Number.isFinite(at) && uploads.some((upload) => upload <= at + MINUTE_MS && upload >= at - UPLOAD_LEAD_MS)) return true;
+    if (Number.isFinite(at) && uploads.some((upload) => upload <= at + MINUTE_MS && upload >= at - UPLOAD_LEAD_MS))
+      return true;
     return untimed && Number.isFinite(occurredMs) && occurredMs >= sinceMs;
   };
   return { fromMs, matches };
@@ -240,7 +244,9 @@ export function recacheQueue(gifs, cache, limit) {
     return Number.isFinite(cached.ts) ? cached.ts : 0;
   };
   return Object.entries(normalizeGifs(gifs).entries)
-    .filter(([, entry]) => gifCaptionState(cache?.[entry.itemId]) !== 'watched' || watchedOldFormat(cache?.[entry.itemId]))
+    .filter(
+      ([, entry]) => gifCaptionState(cache?.[entry.itemId]) !== 'watched' || watchedOldFormat(cache?.[entry.itemId])
+    )
     .map(([key, entry]) => ({ key, ...entry }))
     .sort((a, b) => describedAt(a) - describedAt(b))
     .slice(0, Math.max(0, limit));
@@ -311,7 +317,11 @@ export function createGifRecache({
       const channel = await client.channels.fetch(channelId);
       const message = await channel?.messages?.fetch(messageId);
       if (!message) return null;
-      return normalizeMessage(message, client.user?.id, { embedTextChars: hot.config.media?.embedTextChars, videoSites: hot.config.media?.video?.sites, maxUrlChars: hot.config.context?.maxUrlChars });
+      return normalizeMessage(message, client.user?.id, {
+        embedTextChars: hot.config.media?.embedTextChars,
+        videoSites: hot.config.media?.video?.sites,
+        maxUrlChars: hot.config.context?.maxUrlChars,
+      });
     } catch (err) {
       log.warn('gif-recache: message read failed', { channelId, error: err });
       return null;
@@ -438,7 +448,8 @@ export function createGifRecache({
       for (const key of keys) {
         if (!key.startsWith('emoji:')) continue;
         wanted.delete(key);
-        if (!(await one({ source: 'emoji', itemId: key, kind: 'emoji', url: emojiUrl(key.slice('emoji:'.length)) }))) return;
+        if (!(await one({ source: 'emoji', itemId: key, kind: 'emoji', url: emojiUrl(key.slice('emoji:'.length)) })))
+          return;
       }
       // A library GIF from its library entry's message.
       for (const entry of Object.values(normalizeGifs(store.getGifs(guildId)).entries)) {
@@ -457,7 +468,11 @@ export function createGifRecache({
       for await (const line of record.iterate(guildId, { from: new Date(finder.fromMs).toISOString() })) {
         if (!finder.matches(line)) continue;
         const at = snowflakeMs(line.messageId) ?? Date.parse(line.occurredAt);
-        messages.set(line.messageId, { messageId: line.messageId, channelId: line.scope.channel, at: Number.isFinite(at) ? at : 0 });
+        messages.set(line.messageId, {
+          messageId: line.messageId,
+          channelId: line.scope.channel,
+          at: Number.isFinite(at) ? at : 0,
+        });
       }
       for (const ref of [...messages.values()].sort((a, b) => b.at - a.at)) {
         if (wanted.size === 0) return;
@@ -496,7 +511,9 @@ export function createGifRecache({
     const blocker = typeof describer.pictureBlocker === 'function' ? describer.pictureBlocker() : null;
     if (blocker) return { ok: false, reason: blocker };
 
-    const span = Number.isInteger(days) ? Math.min(RECACHE_DAYS.max, Math.max(RECACHE_DAYS.min, days)) : RECACHE_DAYS.default;
+    const span = Number.isInteger(days)
+      ? Math.min(RECACHE_DAYS.max, Math.max(RECACHE_DAYS.min, days))
+      : RECACHE_DAYS.default;
     const nowMs = now();
     const keys = pickStaleDescriptions(store.getMediaCache(guildId), {
       nowMs,

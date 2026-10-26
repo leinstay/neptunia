@@ -25,7 +25,17 @@ import {
   bareContentType,
 } from '../src/media/video-sites.js';
 
-const SITES = ['youtube.com', 'youtu.be', 'tiktok.com', 'vk.com', 'vkvideo.ru', 'x.com', 'twitter.com', 'reddit.com', 'twitch.tv'];
+const SITES = [
+  'youtube.com',
+  'youtu.be',
+  'tiktok.com',
+  'vk.com',
+  'vkvideo.ru',
+  'x.com',
+  'twitter.com',
+  'reddit.com',
+  'twitch.tv',
+];
 
 test('videoSiteFor: matches the exact host and any subdomain, case-insensitive', () => {
   assert.equal(videoSiteFor('https://youtube.com/watch?v=abc', SITES), 'youtube.com');
@@ -45,8 +55,9 @@ test('videoSiteFor: a look-alike host, an unknown host or an unparsable URL give
 });
 
 test('extractVideoUrls: finds matching http(s) URLs in order, distinct, trailing punctuation stripped', () => {
-  const text = 'régarde (https://youtu.be/abc). et https://www.tiktok.com/@a/video/1, puis <https://x.com/u/status/9> '
-    + 'aussi https://example.com/v.mp4 et encore https://youtu.be/abc';
+  const text =
+    'régarde (https://youtu.be/abc). et https://www.tiktok.com/@a/video/1, puis <https://x.com/u/status/9> ' +
+    'aussi https://example.com/v.mp4 et encore https://youtu.be/abc';
   assert.deepEqual(extractVideoUrls(text, SITES), [
     'https://youtu.be/abc',
     'https://www.tiktok.com/@a/video/1',
@@ -70,9 +81,15 @@ test('videoUrlCacheKey: stable across www./m., host case and tracking params; ke
 });
 
 test('videoUrlCacheKey: a different video id or path gives a different key', () => {
-  assert.notEqual(videoUrlCacheKey('https://youtube.com/watch?v=abc'), videoUrlCacheKey('https://youtube.com/watch?v=abd'));
+  assert.notEqual(
+    videoUrlCacheKey('https://youtube.com/watch?v=abc'),
+    videoUrlCacheKey('https://youtube.com/watch?v=abd')
+  );
   assert.notEqual(videoUrlCacheKey('https://youtu.be/abc'), videoUrlCacheKey('https://youtu.be/abd'));
-  assert.equal(videoUrlCacheKey('https://youtu.be/abc?si=1'), videoUrlCacheKey('https://www.youtu.be/abc?utm_source=x'));
+  assert.equal(
+    videoUrlCacheKey('https://youtu.be/abc?si=1'),
+    videoUrlCacheKey('https://www.youtu.be/abc?utm_source=x')
+  );
 });
 
 test('videoUrlCacheKey: every YouTube form of one video maps to the canonical watch?v= key', () => {
@@ -117,14 +134,22 @@ test('ytdlpClipArgs: a long or unknown video is cut to its first maxSeconds, one
   assert.deepEqual(out, {
     command: '/opt/yt-dlp',
     args: [
-      '--no-playlist', '--no-warnings', '--quiet',
-      '--ffmpeg-location', '/usr/bin/ffmpeg',
-      '-f', FORMAT,
-      '--merge-output-format', 'mp4',
-      '--download-sections', '*0-60',
+      '--no-playlist',
+      '--no-warnings',
+      '--quiet',
+      '--ffmpeg-location',
+      '/usr/bin/ffmpeg',
+      '-f',
+      FORMAT,
+      '--merge-output-format',
+      'mp4',
+      '--download-sections',
+      '*0-60',
       '--force-keyframes-at-cuts',
-      '--max-filesize', '8000000',
-      '-o', '/tmp/d/clip.mp4',
+      '--max-filesize',
+      '8000000',
+      '-o',
+      '/tmp/d/clip.mp4',
       '--',
       'https://youtu.be/abc',
     ],
@@ -145,12 +170,19 @@ test('ytdlpClipArgs: a video no longer than maxSeconds is downloaded whole, with
     assert.deepEqual(out, {
       command: '/opt/yt-dlp',
       args: [
-        '--no-playlist', '--no-warnings', '--quiet',
-        '--ffmpeg-location', '/usr/bin/ffmpeg',
-        '-f', FORMAT,
-        '--merge-output-format', 'mp4',
-        '--max-filesize', '8000000',
-        '-o', '/tmp/d/clip.mp4',
+        '--no-playlist',
+        '--no-warnings',
+        '--quiet',
+        '--ffmpeg-location',
+        '/usr/bin/ffmpeg',
+        '-f',
+        FORMAT,
+        '--merge-output-format',
+        'mp4',
+        '--max-filesize',
+        '8000000',
+        '-o',
+        '/tmp/d/clip.mp4',
         '--',
         'https://youtu.be/abc',
       ],
@@ -165,11 +197,17 @@ test('ytdlpClipArgs: a bare ffmpeg name omits --ffmpeg-location so yt-dlp search
   assert.equal(args[args.indexOf('--download-sections') + 1], '*0-60');
   const short = ytdlpClipArgs('https://youtu.be/abc', { ...CLIP, ffmpegPath: 'ffmpeg', durationSec: 14 }).args;
   assert.deepEqual(short, [
-    '--no-playlist', '--no-warnings', '--quiet',
-    '-f', FORMAT,
-    '--merge-output-format', 'mp4',
-    '--max-filesize', '8000000',
-    '-o', '/tmp/d/clip.mp4',
+    '--no-playlist',
+    '--no-warnings',
+    '--quiet',
+    '-f',
+    FORMAT,
+    '--merge-output-format',
+    'mp4',
+    '--max-filesize',
+    '8000000',
+    '-o',
+    '/tmp/d/clip.mp4',
     '--',
     'https://youtu.be/abc',
   ]);
@@ -179,15 +217,31 @@ test('ffmpegGifArgs: a GIF becomes a short, even-sided, never upscaled yuv420p H
   assert.deepEqual(ffmpegGifArgs('/tmp/in', '/tmp/out.mp4', { ffmpegPath: '/usr/bin/ffmpeg', maxSeconds: 8 }), {
     command: '/usr/bin/ffmpeg',
     args: [
-      '-y', '-hide_banner', '-loglevel', 'error',
-      '-i', '/tmp/in',
-      '-t', '8',
-      '-vf', "scale=-2:'min(360,trunc(ih/2)*2)'",
-      '-pix_fmt', 'yuv420p',
-      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '28',
-      '-maxrate', '400k', '-bufsize', '800k',
+      '-y',
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-i',
+      '/tmp/in',
+      '-t',
+      '8',
+      '-vf',
+      "scale=-2:'min(360,trunc(ih/2)*2)'",
+      '-pix_fmt',
+      'yuv420p',
+      '-c:v',
+      'libx264',
+      '-preset',
+      'veryfast',
+      '-crf',
+      '28',
+      '-maxrate',
+      '400k',
+      '-bufsize',
+      '800k',
       '-an',
-      '-movflags', '+faststart',
+      '-movflags',
+      '+faststart',
       '/tmp/out.mp4',
     ],
   });
@@ -197,23 +251,46 @@ test('fitBitrate + ffmpegFitArgs: a shipped-length fit re-encode stays within th
   const shipped = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
   const { maxSeconds, maxBytes } = shipped.media.video;
   const { videoKbps, audioKbps } = fitBitrate({ maxBytes, seconds: maxSeconds });
-  const { args } = ffmpegFitArgs('/tmp/in.webm', '/tmp/out.mp4', { ffmpegPath: 'ffmpeg', maxSeconds, videoKbps, audioKbps });
+  const { args } = ffmpegFitArgs('/tmp/in.webm', '/tmp/out.mp4', {
+    ffmpegPath: 'ffmpeg',
+    maxSeconds,
+    videoKbps,
+    audioKbps,
+  });
   const kbps = (flag) => Number(String(args[args.indexOf(flag) + 1]).replace(/k$/, ''));
-  const bytes = ((kbps('-maxrate') + kbps('-b:a')) * 1000 / 8) * maxSeconds;
+  const bytes = (((kbps('-maxrate') + kbps('-b:a')) * 1000) / 8) * maxSeconds;
   assert.ok(bytes < maxBytes, `${bytes} bytes for ${maxSeconds} s`);
   assert.ok(Math.ceil(maxBytes / 3) * 4 < 20_000_000, 'the inlined clip fits the provider body limit');
 });
 
 test('ffmpegTrimArgs: the first maxSeconds at 360p, CRF 28 under a 400k ceiling, 96k audio', () => {
   assert.deepEqual(ffmpegTrimArgs('/tmp/in', '/tmp/small.mp4', { ffmpegPath: 'ffmpeg', maxSeconds: 300 }).args, [
-    '-y', '-hide_banner', '-loglevel', 'error',
-    '-i', '/tmp/in',
-    '-t', '300',
-    '-vf', 'scale=-2:360',
-    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '28',
-    '-maxrate', '400k', '-bufsize', '800k',
-    '-c:a', 'aac', '-b:a', '96k',
-    '-movflags', '+faststart',
+    '-y',
+    '-hide_banner',
+    '-loglevel',
+    'error',
+    '-i',
+    '/tmp/in',
+    '-t',
+    '300',
+    '-vf',
+    'scale=-2:360',
+    '-c:v',
+    'libx264',
+    '-preset',
+    'veryfast',
+    '-crf',
+    '28',
+    '-maxrate',
+    '400k',
+    '-bufsize',
+    '800k',
+    '-c:a',
+    'aac',
+    '-b:a',
+    '96k',
+    '-movflags',
+    '+faststart',
     '/tmp/small.mp4',
   ]);
 });
@@ -227,24 +304,53 @@ test('fitBitrate: video gets what maxBytes leaves after 10 % headroom and 48k au
 });
 
 test('ffmpegFitArgs: the trim at fixed bitrates instead of CRF', () => {
-  assert.deepEqual(ffmpegFitArgs('/tmp/in', '/tmp/fit.mp4', { ffmpegPath: '/usr/bin/ffmpeg', maxSeconds: 300, videoKbps: 250, audioKbps: 48 }), {
-    command: '/usr/bin/ffmpeg',
-    args: [
-      '-y', '-hide_banner', '-loglevel', 'error',
-      '-i', '/tmp/in',
-      '-t', '300',
-      '-vf', 'scale=-2:360',
-      '-c:v', 'libx264', '-preset', 'veryfast',
-      '-b:v', '250k', '-maxrate', '250k', '-bufsize', '500k',
-      '-c:a', 'aac', '-b:a', '48k',
-      '-movflags', '+faststart',
-      '/tmp/fit.mp4',
-    ],
-  });
+  assert.deepEqual(
+    ffmpegFitArgs('/tmp/in', '/tmp/fit.mp4', {
+      ffmpegPath: '/usr/bin/ffmpeg',
+      maxSeconds: 300,
+      videoKbps: 250,
+      audioKbps: 48,
+    }),
+    {
+      command: '/usr/bin/ffmpeg',
+      args: [
+        '-y',
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        '-i',
+        '/tmp/in',
+        '-t',
+        '300',
+        '-vf',
+        'scale=-2:360',
+        '-c:v',
+        'libx264',
+        '-preset',
+        'veryfast',
+        '-b:v',
+        '250k',
+        '-maxrate',
+        '250k',
+        '-bufsize',
+        '500k',
+        '-c:a',
+        'aac',
+        '-b:a',
+        '48k',
+        '-movflags',
+        '+faststart',
+        '/tmp/fit.mp4',
+      ],
+    }
+  );
 });
 
 test('parseProbe: reads duration and title; tolerates missing fields and bad JSON', () => {
-  assert.deepEqual(parseProbe(JSON.stringify({ duration: 42.5, title: 'Ἀρχή καὶ τέλος' })), { durationSec: 42.5, title: 'Ἀρχή καὶ τέλος' });
+  assert.deepEqual(parseProbe(JSON.stringify({ duration: 42.5, title: 'Ἀρχή καὶ τέλος' })), {
+    durationSec: 42.5,
+    title: 'Ἀρχή καὶ τέλος',
+  });
   assert.deepEqual(parseProbe(JSON.stringify({ id: 'x' })), { durationSec: null, title: null });
   assert.deepEqual(parseProbe(JSON.stringify({ duration: 'long', title: 7 })), { durationSec: null, title: null });
   assert.deepEqual(parseProbe('{not json'), { durationSec: null, title: null });
@@ -253,7 +359,10 @@ test('parseProbe: reads duration and title; tolerates missing fields and bad JSO
 });
 
 test('parseProbe: a zero or negative duration is a live stream, not a length', () => {
-  assert.deepEqual(parseProbe(JSON.stringify({ duration: 0, title: 'ζωντανά' })), { durationSec: null, title: 'ζωντανά' });
+  assert.deepEqual(parseProbe(JSON.stringify({ duration: 0, title: 'ζωντανά' })), {
+    durationSec: null,
+    title: 'ζωντανά',
+  });
   assert.deepEqual(parseProbe(JSON.stringify({ duration: -3 })), { durationSec: null, title: null });
 });
 
@@ -287,7 +396,7 @@ test('youtubeVideoId: every YouTube form canonicalised by the cache key gives th
 test('publicVideoUrl: a YouTube watch link loses its playlist, timestamp and tracking params', () => {
   assert.equal(
     publicVideoUrl('https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=OLAK5uy_abc&index=2&t=42&si=track&pp=xyz'),
-    'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+    'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
   );
 });
 
@@ -341,7 +450,8 @@ test('parseIsoDuration: garbage gives null', () => {
 });
 
 test('parseYoutubePageDuration: lengthSeconds first', () => {
-  const html = '<script>var x = {"videoDetails":{"videoId":"abc","lengthSeconds":"214","approxDurationMs":"999000"}};</script>';
+  const html =
+    '<script>var x = {"videoDetails":{"videoId":"abc","lengthSeconds":"214","approxDurationMs":"999000"}};</script>';
   assert.equal(parseYoutubePageDuration(html), 214);
 });
 
@@ -366,7 +476,10 @@ test('parseYoutubePageDuration: nothing usable gives null; a zero length (a live
 });
 
 test('parseYoutubeDataApi: the first item contentDetails.duration in seconds', () => {
-  const json = JSON.stringify({ kind: 'youtube#videoListResponse', items: [{ id: 'abc', contentDetails: { duration: 'PT3M34S' } }] });
+  const json = JSON.stringify({
+    kind: 'youtube#videoListResponse',
+    items: [{ id: 'abc', contentDetails: { duration: 'PT3M34S' } }],
+  });
   assert.equal(parseYoutubeDataApi(json), 214);
 });
 
@@ -397,7 +510,12 @@ test('proxyFor: a listed site (or its subdomain) gets the proxy, verbatim', () =
 });
 
 test('proxyFor: a site outside proxySites runs direct', () => {
-  for (const url of ['https://vk.com/video-1_2', 'https://www.tiktok.com/@a/video/1', 'https://notyoutube.com/x', 'not a url']) {
+  for (const url of [
+    'https://vk.com/video-1_2',
+    'https://www.tiktok.com/@a/video/1',
+    'https://notyoutube.com/x',
+    'not a url',
+  ]) {
     assert.equal(proxyFor(url, PROXY_CFG), null, url);
   }
 });
@@ -405,7 +523,8 @@ test('proxyFor: a site outside proxySites runs direct', () => {
 test('proxyFor: an empty, missing or non-string proxy, or an empty or missing proxySites, never proxies', () => {
   const url = 'https://youtu.be/abc';
   for (const proxy of ['', undefined, null, 42]) assert.equal(proxyFor(url, { ...PROXY_CFG, proxy }), null);
-  for (const proxySites of [[], undefined, null, 'youtube.com']) assert.equal(proxyFor(url, { ...PROXY_CFG, proxySites }), null);
+  for (const proxySites of [[], undefined, null, 'youtube.com'])
+    assert.equal(proxyFor(url, { ...PROXY_CFG, proxySites }), null);
   assert.equal(proxyFor(url, undefined), null);
 });
 
@@ -423,21 +542,38 @@ test('ytdlpProbeArgs: a proxy is passed verbatim as --proxy before the URL; none
 
 test('ytdlpClipArgs: with a proxy the video is downloaded whole (no sections cut), ceiling and format kept', () => {
   for (const durationSec of [null, 125, 14]) {
-    const out = ytdlpClipArgs('https://youtu.be/abc', { ...CLIP, ffmpegPath: '/usr/bin/ffmpeg', durationSec, proxy: PROXY });
-    assert.deepEqual(out, {
-      command: '/opt/yt-dlp',
-      args: [
-        '--no-playlist', '--no-warnings', '--quiet',
-        '--proxy', PROXY,
-        '--ffmpeg-location', '/usr/bin/ffmpeg',
-        '-f', FORMAT,
-        '--merge-output-format', 'mp4',
-        '--max-filesize', '8000000',
-        '-o', '/tmp/d/clip.mp4',
-        '--',
-        'https://youtu.be/abc',
-      ],
-    }, `duration ${durationSec}`);
+    const out = ytdlpClipArgs('https://youtu.be/abc', {
+      ...CLIP,
+      ffmpegPath: '/usr/bin/ffmpeg',
+      durationSec,
+      proxy: PROXY,
+    });
+    assert.deepEqual(
+      out,
+      {
+        command: '/opt/yt-dlp',
+        args: [
+          '--no-playlist',
+          '--no-warnings',
+          '--quiet',
+          '--proxy',
+          PROXY,
+          '--ffmpeg-location',
+          '/usr/bin/ffmpeg',
+          '-f',
+          FORMAT,
+          '--merge-output-format',
+          'mp4',
+          '--max-filesize',
+          '8000000',
+          '-o',
+          '/tmp/d/clip.mp4',
+          '--',
+          'https://youtu.be/abc',
+        ],
+      },
+      `duration ${durationSec}`
+    );
   }
 });
 

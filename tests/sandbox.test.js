@@ -14,7 +14,17 @@ import { fill } from '../src/format.js';
 import { buildRequest } from '../src/behavior/prompt.js';
 import { handleOf } from '../src/behavior/handles.js';
 
-const { liveView, situationHistory, answerReply, sandboxRequestInput, SANDBOX_OMITS, momentView, momentCutoff, hiddenLater, replayMedia } = sandbox;
+const {
+  liveView,
+  situationHistory,
+  answerReply,
+  sandboxRequestInput,
+  SANDBOX_OMITS,
+  momentView,
+  momentCutoff,
+  hiddenLater,
+  replayMedia,
+} = sandbox;
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { labels } from './fixtures/labels.js';
 import '../src/ops/index.js';
@@ -29,8 +39,33 @@ const CHANNEL = { id: '500000000000000001', name: 'general', category: 'Talk', t
 /** A moment as normalized channel messages (interfaces/discord/collect.js#normalizeMessage), oldest first:
  * one `[authorId, authorName, text, minutesBefore]` per line, the last one the trigger. */
 function moment(lines) {
-  const base = { channelId: CHANNEL.id, channelName: CHANNEL.name, channelCategory: CHANNEL.category, channelTopic: null, self: false, bot: false, mentionedUserIds: [], replyToId: null, forwardedFrom: null, attachments: [], links: [], forwarded: [], stickers: [], emojis: [], reactions: [] };
-  return { history: lines.map(([authorId, authorName, content, minutes], i) => ({ ...base, id: `80000000000000010${i}`, authorId, authorName, content, ts: NOW - minutes * 60_000 })) };
+  const base = {
+    channelId: CHANNEL.id,
+    channelName: CHANNEL.name,
+    channelCategory: CHANNEL.category,
+    channelTopic: null,
+    self: false,
+    bot: false,
+    mentionedUserIds: [],
+    replyToId: null,
+    forwardedFrom: null,
+    attachments: [],
+    links: [],
+    forwarded: [],
+    stickers: [],
+    emojis: [],
+    reactions: [],
+  };
+  return {
+    history: lines.map(([authorId, authorName, content, minutes], i) => ({
+      ...base,
+      id: `80000000000000010${i}`,
+      authorId,
+      authorName,
+      content,
+      ts: NOW - minutes * 60_000,
+    })),
+  };
 }
 
 function twoLines() {
@@ -115,7 +150,6 @@ function fakeLlm(texts, { usage = { total_tokens: 120 }, estimated = 100, onCall
   };
 }
 
-
 // ---- liveView ----------------------------------------------------------------
 
 test('liveView: reads prompts at call time', () => {
@@ -178,12 +212,23 @@ test('liveView: the calibrator follows the live ratio and never feeds it', () =>
 
 // ---- answerReply -------------------------------------------------------------
 
-test('answerReply: sends the live system prompt and renders the member\'s profile', async () => {
+test("answerReply: sends the live system prompt and renders the member's profile", async () => {
   const hot = fakeHot();
-  const store = fakeStore({ userProfiles: { [ALICE]: { id: ALICE, names: ['Alice'], character: 'CHARACTER_MARKER solves chess problems' } } });
+  const store = fakeStore({
+    userProfiles: { [ALICE]: { id: ALICE, names: ['Alice'], character: 'CHARACTER_MARKER solves chess problems' } },
+  });
   const view = liveView({ hot, store, guildId: 'g1' });
   const llm = fakeLlm('<msg reply="#2">δεν ξέρω</msg><react to="#1">👍</react>');
-  const result = await answerReply({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, samples: 1, at: NOW });
+  const result = await answerReply({
+    view,
+    situation: twoLines(),
+    selfId: SELF_ID,
+    selfName: 'Zoë',
+    channel: CHANNEL,
+    llm,
+    samples: 1,
+    at: NOW,
+  });
 
   assert.equal(llm.calls.length, 1);
   const [system, user] = llm.calls[0].messages;
@@ -195,7 +240,13 @@ test('answerReply: sends the live system prompt and renders the member\'s profil
   assert.ok(result.request.user.includes('CHARACTER_MARKER'));
   assert.ok(result.request.user.includes('what do you think about chess?'));
   assert.deepEqual(result.answers, [
-    { messages: [{ text: 'δεν ξέρω', replyTo: 2 }], reactions: [{ to: 1, emoji: '👍' }], gif: null, skip: false, think: '' },
+    {
+      messages: [{ text: 'δεν ξέρω', replyTo: 2 }],
+      reactions: [{ to: 1, emoji: '👍' }],
+      gif: null,
+      skip: false,
+      think: '',
+    },
   ]);
   assert.equal(result.stopped, false);
   assert.deepEqual(store.writes, [], 'nothing is written to memory');
@@ -203,10 +254,33 @@ test('answerReply: sends the live system prompt and renders the member\'s profil
 
 /** A real moment: normalized messages, the trigger last. */
 function storedMoment({ replyToSelf = false, mentions = [] } = {}) {
-  const base = { channelId: CHANNEL.id, channelName: 'general', channelCategory: 'Talk', channelTopic: null, bot: false, mentionedUserIds: [], replyToId: null, forwardedFrom: null, attachments: [], links: [], forwarded: [], stickers: [], emojis: [], reactions: [] };
+  const base = {
+    channelId: CHANNEL.id,
+    channelName: 'general',
+    channelCategory: 'Talk',
+    channelTopic: null,
+    bot: false,
+    mentionedUserIds: [],
+    replyToId: null,
+    forwardedFrom: null,
+    attachments: [],
+    links: [],
+    forwarded: [],
+    stickers: [],
+    emojis: [],
+    reactions: [],
+  };
   return {
     history: [
-      { ...base, id: '800000000000000001', authorId: SELF_ID, authorName: 'Zoë', self: true, content: 'it opens at nine', ts: NOW - 120000 },
+      {
+        ...base,
+        id: '800000000000000001',
+        authorId: SELF_ID,
+        authorName: 'Zoë',
+        self: true,
+        content: 'it opens at nine',
+        ts: NOW - 120000,
+      },
       {
         ...base,
         id: '800000000000000002',
@@ -238,7 +312,16 @@ test('situationHistory: a stored moment is replayed as stored, the last message 
 test('answerReply: a stored moment is answered from its own messages, reactions included', async () => {
   const view = liveView({ hot: fakeHot(), store: fakeStore(), guildId: 'g1' });
   const llm = fakeLlm('<msg>ok</msg>');
-  const result = await answerReply({ view, situation: storedMoment({ replyToSelf: true }), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, samples: 1, at: NOW });
+  const result = await answerReply({
+    view,
+    situation: storedMoment({ replyToSelf: true }),
+    selfId: SELF_ID,
+    selfName: 'Zoë',
+    channel: CHANNEL,
+    llm,
+    samples: 1,
+    at: NOW,
+  });
   assert.ok(result.request.user.includes('REAL_MOMENT'));
   assert.ok(result.request.user.includes('it opens at nine'));
   assert.ok(result.request.user.includes('[reactions: '));
@@ -250,10 +333,27 @@ test('answerReply: a stored moment over the request budget loses its oldest mess
   const hot = fakeHot();
   hot.config.llm.maxRequestTokens = 2500;
   const moment = storedMoment();
-  const filler = Array.from({ length: 30 }, (_, i) => ({ ...moment.history[0], id: `70000000000000${1000 + i}`, self: false, authorId: BRUNO, authorName: 'Bruno', content: `OLD_${i} ${'x'.repeat(700)}`, ts: NOW - 3_600_000 + i * 1000 }));
+  const filler = Array.from({ length: 30 }, (_, i) => ({
+    ...moment.history[0],
+    id: `70000000000000${1000 + i}`,
+    self: false,
+    authorId: BRUNO,
+    authorName: 'Bruno',
+    content: `OLD_${i} ${'x'.repeat(700)}`,
+    ts: NOW - 3_600_000 + i * 1000,
+  }));
   const view = liveView({ hot, store: fakeStore(), guildId: 'g1' });
   const llm = fakeLlm('<msg>ok</msg>');
-  const result = await answerReply({ view, situation: { ...moment, history: [...filler, ...moment.history] }, selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, samples: 1, at: NOW });
+  const result = await answerReply({
+    view,
+    situation: { ...moment, history: [...filler, ...moment.history] },
+    selfId: SELF_ID,
+    selfName: 'Zoë',
+    channel: CHANNEL,
+    llm,
+    samples: 1,
+    at: NOW,
+  });
   assert.ok(result.request.user.includes('REAL_MOMENT'));
   assert.ok(!result.request.user.includes('OLD_0 '));
 });
@@ -261,7 +361,16 @@ test('answerReply: a stored moment over the request budget loses its oldest mess
 test('answerReply: makes samples requests, none counted against the daily cap', async () => {
   const view = liveView({ hot: fakeHot(), store: fakeStore(), guildId: 'g1' });
   const llm = fakeLlm(['<msg>a</msg>', '<msg>b</msg>', '<skip/>']);
-  const result = await answerReply({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, samples: 3, at: NOW });
+  const result = await answerReply({
+    view,
+    situation: twoLines(),
+    selfId: SELF_ID,
+    selfName: 'Zoë',
+    channel: CHANNEL,
+    llm,
+    samples: 3,
+    at: NOW,
+  });
 
   assert.equal(llm.calls.length, 3);
   for (const { options } of llm.calls) {
@@ -269,19 +378,39 @@ test('answerReply: makes samples requests, none counted against the daily cap', 
     assert.equal(options.skipCalibration, true);
     assert.equal('maxRequestTokens' in options, false);
   }
-  assert.deepEqual(result.answers.map((a) => a.messages.map((m) => m.text)), [['a'], ['b'], []]);
+  assert.deepEqual(
+    result.answers.map((a) => a.messages.map((m) => m.text)),
+    [['a'], ['b'], []]
+  );
   assert.equal(result.answers[2].skip, true);
 });
 
 test('answerReply: a ratio under 1 lets a capped section keep more', async () => {
   // Enough self notes to go well past a small aboutChat cap.
-  const self = Array.from({ length: 80 }, (_, i) => `note ${i + 1}: the persona likes the café on the corner and tea with honey`);
+  const self = Array.from(
+    { length: 80 },
+    (_, i) => `note ${i + 1}: the persona likes the café on the corner and tea with honey`
+  );
   const userTextAt = async (ratio) => {
     const hot = fakeHot();
     hot.config.context.caps.aboutChat = 300;
-    const view = liveView({ hot, store: fakeStore({ guildMemory: { self } }), guildId: 'g1', calibrator: createCalibrator(ratio) });
+    const view = liveView({
+      hot,
+      store: fakeStore({ guildMemory: { self } }),
+      guildId: 'g1',
+      calibrator: createCalibrator(ratio),
+    });
     const llm = fakeLlm('<skip/>');
-    const result = await answerReply({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, samples: 1, at: NOW });
+    const result = await answerReply({
+      view,
+      situation: twoLines(),
+      selfId: SELF_ID,
+      selfName: 'Zoë',
+      channel: CHANNEL,
+      llm,
+      samples: 1,
+      at: NOW,
+    });
     return result.request.user;
   };
   const atOne = await userTextAt(1);
@@ -294,7 +423,16 @@ test('answerReply: a ratio under 1 lets a capped section keep more', async () =>
 test('answerReply: the feature switches trim the answer as in a real turn', async () => {
   const view = liveView({ hot: fakeHot({ reactions: false, multiMessage: false }), store: fakeStore(), guildId: 'g1' });
   const llm = fakeLlm('<msg>one</msg><msg>two</msg><react to="#1">👍</react>');
-  const result = await answerReply({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, samples: 1, at: NOW });
+  const result = await answerReply({
+    view,
+    situation: twoLines(),
+    selfId: SELF_ID,
+    selfName: 'Zoë',
+    channel: CHANNEL,
+    llm,
+    samples: 1,
+    at: NOW,
+  });
   assert.deepEqual(result.answers[0].messages, [{ text: 'one', replyTo: null }]);
   assert.deepEqual(result.answers[0].reactions, []);
 });
@@ -304,10 +442,20 @@ test('answerReply: reports usage through onUsage; the result carries no token co
   const llm = fakeLlm('<msg>a</msg>', { usage: { total_tokens: 120 }, estimated: 100 });
   const seen = [];
   const result = await answerReply({
-    view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, samples: 2, at: NOW,
+    view,
+    situation: twoLines(),
+    selfId: SELF_ID,
+    selfName: 'Zoë',
+    channel: CHANNEL,
+    llm,
+    samples: 2,
+    at: NOW,
     onUsage: (usage, estimated) => seen.push([usage, estimated]),
   });
-  assert.deepEqual(seen, [[{ total_tokens: 120 }, 100], [{ total_tokens: 120 }, 100]]);
+  assert.deepEqual(seen, [
+    [{ total_tokens: 120 }, 100],
+    [{ total_tokens: 120 }, 100],
+  ]);
   assert.deepEqual(Object.keys(result).sort(), ['answers', 'request', 'stopped']);
 });
 
@@ -316,17 +464,39 @@ test('answerReply: without usage, onUsage gets null and the estimate (what the b
   const llm = fakeLlm('<msg>a</msg>', { usage: null, estimated: 70 });
   const seen = [];
   await answerReply({
-    view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, samples: 2, at: NOW,
+    view,
+    situation: twoLines(),
+    selfId: SELF_ID,
+    selfName: 'Zoë',
+    channel: CHANNEL,
+    llm,
+    samples: 2,
+    at: NOW,
     onUsage: (usage, estimated) => seen.push([usage, estimated]),
   });
-  assert.deepEqual(seen, [[null, 70], [null, 70]]);
+  assert.deepEqual(seen, [
+    [null, 70],
+    [null, 70],
+  ]);
 });
 
 const EMOJI = [{ id: '600000000000000001', name: 'wave', animated: false }];
 const GIF_LIBRARY = {
   nextId: 2,
   entries: {
-    k1: { id: 'g1', kind: 'link', url: 'https://tenor.com/view/dance-1', site: 'Tenor', name: 'Danse', itemId: 'k1', messageId: 'm1', channelId: CHANNEL.id, count: 3, last: NOW - 86_400_000, firstSeen: NOW - 86_400_000 },
+    k1: {
+      id: 'g1',
+      kind: 'link',
+      url: 'https://tenor.com/view/dance-1',
+      site: 'Tenor',
+      name: 'Danse',
+      itemId: 'k1',
+      messageId: 'm1',
+      channelId: CHANNEL.id,
+      count: 3,
+      last: NOW - 86_400_000,
+      firstSeen: NOW - 86_400_000,
+    },
   },
   backfill: null,
 };
@@ -335,24 +505,57 @@ const MEDIA_CACHE = {
   k1: { text: 'a dancing cat', ts: NOW - 1000 },
 };
 
-test('answerReply: the server\'s custom emoji and GIF library render as in a live turn, with their cached captions', async () => {
+test("answerReply: the server's custom emoji and GIF library render as in a live turn, with their cached captions", async () => {
   const view = liveView({ hot: fakeHot(), store: fakeStore(), guildId: 'g1' });
   const result = await answerReply({
-    view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm: fakeLlm('<msg>ok</msg>'), samples: 1, at: NOW,
-    customEmoji: EMOJI, gifs: GIF_LIBRARY, mediaCache: MEDIA_CACHE,
+    view,
+    situation: twoLines(),
+    selfId: SELF_ID,
+    selfName: 'Zoë',
+    channel: CHANNEL,
+    llm: fakeLlm('<msg>ok</msg>'),
+    samples: 1,
+    at: NOW,
+    customEmoji: EMOJI,
+    gifs: GIF_LIBRARY,
+    mediaCache: MEDIA_CACHE,
   });
-  assert.ok(result.request.user.includes(`<emoji>\n${labels.emoji.header}\n:wave: -- a waving hand\n</emoji>`), result.request.user);
-  assert.ok(result.request.user.includes(`<gifs>\n${labels.gifs.header}\ng1 -- a dancing cat\n</gifs>`), result.request.user);
+  assert.ok(
+    result.request.user.includes(`<emoji>\n${labels.emoji.header}\n:wave: -- a waving hand\n</emoji>`),
+    result.request.user
+  );
+  assert.ok(
+    result.request.user.includes(`<gifs>\n${labels.gifs.header}\ng1 -- a dancing cat\n</gifs>`),
+    result.request.user
+  );
   assert.ok(result.request.user.includes(labels.senses.customEmoji));
   assert.ok(result.request.user.includes(labels.senses.gifs));
 
   // The switches drop them as in a live turn; nothing handed in, nothing rendered.
   const off = liveView({ hot: fakeHot({ customEmoji: false, gifs: false }), store: fakeStore(), guildId: 'g1' });
   const without = await answerReply({
-    view: off, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm: fakeLlm('<msg>ok</msg>'), samples: 1, at: NOW,
-    customEmoji: EMOJI, gifs: GIF_LIBRARY, mediaCache: MEDIA_CACHE,
+    view: off,
+    situation: twoLines(),
+    selfId: SELF_ID,
+    selfName: 'Zoë',
+    channel: CHANNEL,
+    llm: fakeLlm('<msg>ok</msg>'),
+    samples: 1,
+    at: NOW,
+    customEmoji: EMOJI,
+    gifs: GIF_LIBRARY,
+    mediaCache: MEDIA_CACHE,
   });
-  const bare = await answerReply({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm: fakeLlm('<msg>ok</msg>'), samples: 1, at: NOW });
+  const bare = await answerReply({
+    view,
+    situation: twoLines(),
+    selfId: SELF_ID,
+    selfName: 'Zoë',
+    channel: CHANNEL,
+    llm: fakeLlm('<msg>ok</msg>'),
+    samples: 1,
+    at: NOW,
+  });
   for (const { request } of [without, bare]) {
     assert.ok(!request.user.includes('<emoji>'));
     assert.ok(!request.user.includes('<gifs>'));
@@ -362,7 +565,17 @@ test('answerReply: the server\'s custom emoji and GIF library render as in a liv
 test('answerReply: a GIF alone is an action, not silence; switched off or unknown, nothing is left to do', async () => {
   const answer = async (text, { features = {}, gifs = GIF_LIBRARY } = {}) => {
     const view = liveView({ hot: fakeHot(features), store: fakeStore(), guildId: 'g1' });
-    const result = await answerReply({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm: fakeLlm(text), samples: 1, at: NOW, gifs });
+    const result = await answerReply({
+      view,
+      situation: twoLines(),
+      selfId: SELF_ID,
+      selfName: 'Zoë',
+      channel: CHANNEL,
+      llm: fakeLlm(text),
+      samples: 1,
+      at: NOW,
+      gifs,
+    });
     return result.answers[0];
   };
   const gif = await answer('<gif reply="#2">g1</gif>');
@@ -385,7 +598,15 @@ test('answerReply: an aborted signal stops before the next sample', async () => 
   const view = liveView({ hot: fakeHot(), store: fakeStore(), guildId: 'g1' });
   const llm = fakeLlm('<msg>a</msg>', { onCall: () => controller.abort() });
   const result = await answerReply({
-    view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, samples: 3, at: NOW, signal: controller.signal,
+    view,
+    situation: twoLines(),
+    selfId: SELF_ID,
+    selfName: 'Zoë',
+    channel: CHANNEL,
+    llm,
+    samples: 3,
+    at: NOW,
+    signal: controller.signal,
   });
   assert.equal(llm.calls.length, 1);
   assert.equal(llm.calls[0].options.signal, controller.signal);
@@ -408,7 +629,15 @@ test('answerReply: an abort during a request returns what was collected', async 
     },
   };
   const result = await answerReply({
-    view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, samples: 3, at: NOW, signal: controller.signal,
+    view,
+    situation: twoLines(),
+    selfId: SELF_ID,
+    selfName: 'Zoë',
+    channel: CHANNEL,
+    llm,
+    samples: 3,
+    at: NOW,
+    signal: controller.signal,
   });
   assert.equal(result.answers.length, 1);
   assert.equal(result.stopped, true);
@@ -416,10 +645,23 @@ test('answerReply: an abort during a request returns what was collected', async 
 
 test('answerReply: an llm error other than an abort is thrown to the caller', async () => {
   const view = liveView({ hot: fakeHot(), store: fakeStore(), guildId: 'g1' });
-  const llm = { complete: async () => { throw new Error('provider down'); } };
+  const llm = {
+    complete: async () => {
+      throw new Error('provider down');
+    },
+  };
   await assert.rejects(
-    answerReply({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, samples: 1, at: NOW }),
-    /provider down/,
+    answerReply({
+      view,
+      situation: twoLines(),
+      selfId: SELF_ID,
+      selfName: 'Zoë',
+      channel: CHANNEL,
+      llm,
+      samples: 1,
+      at: NOW,
+    }),
+    /provider down/
   );
 });
 
@@ -437,7 +679,16 @@ test('answerReply: reads everything through the view, so another view of the sam
     },
   };
   const llm = fakeLlm('<skip/>');
-  const result = await answerReply({ view: overlay, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, samples: 1, at: NOW });
+  const result = await answerReply({
+    view: overlay,
+    situation: twoLines(),
+    selfId: SELF_ID,
+    selfName: 'Zoë',
+    channel: CHANNEL,
+    llm,
+    samples: 1,
+    at: NOW,
+  });
   assert.ok(result.request.system.includes('OVERLAY_SYSTEM'));
   assert.ok(result.request.user.includes('OVERLAY_CHARACTER'));
 });
@@ -471,7 +722,17 @@ function aliceStore() {
 async function replay(situation, { hot = kindHot(), samples = 1, ...extra } = {}) {
   const view = liveView({ hot, store: aliceStore(), guildId: 'g1' });
   const llm = fakeLlm('<skip/>');
-  const result = await answerReply({ view, situation, selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, samples, at: NOW, ...extra });
+  const result = await answerReply({
+    view,
+    situation,
+    selfId: SELF_ID,
+    selfName: 'Zoë',
+    channel: CHANNEL,
+    llm,
+    samples,
+    at: NOW,
+    ...extra,
+  });
   return { ...result, llm };
 }
 
@@ -503,7 +764,10 @@ test('situationHistory: a spontaneous moment has no trigger, whoever wrote last'
 
 test('answerReply: a moment stored as overheard is replayed with the overheard task and its trigger label', async () => {
   const overheard = await replay({ ...storedMoment(), mode: 'reply', kind: 'overheard', triggerId: TRIGGER_ID });
-  assert.ok(overheard.request.user.includes(`OVERHEARD_TASK Alice: ${labels.triggers.overheard}`), overheard.request.user);
+  assert.ok(
+    overheard.request.user.includes(`OVERHEARD_TASK Alice: ${labels.triggers.overheard}`),
+    overheard.request.user
+  );
   assert.ok(!overheard.request.user.includes('REPLY_TASK'));
   // Its author is not the one who called her.
   assert.ok(overheard.request.user.includes('ALICE_PORTRAIT'));
@@ -514,7 +778,7 @@ test('answerReply: a moment stored as overheard is replayed with the overheard t
   assert.ok(guessed.request.user.includes(labels.peopleNow.marks.interlocutor));
 });
 
-test('answerReply: a follow-up and a name call keep their trigger labels; a spontaneous moment takes its mode\'s task', async () => {
+test("answerReply: a follow-up and a name call keep their trigger labels; a spontaneous moment takes its mode's task", async () => {
   for (const kind of ['followUp', 'name']) {
     const result = await replay({ ...storedMoment(), mode: 'reply', kind, triggerId: TRIGGER_ID });
     assert.ok(result.request.user.includes(`REPLY_TASK Alice: ${labels.triggers[kind]}`), kind);
@@ -534,24 +798,50 @@ test('answerReply: a follow-up and an untagged reply are replayed with the follo
   const followUp = await replay({ ...storedMoment(), mode: 'reply', kind: 'followUp', triggerId: TRIGGER_ID }, { hot });
   assert.ok(followUp.request.user.includes(`FOLLOW_UP_TASK Alice: ${labels.triggers.followUp}`), followUp.request.user);
   assert.ok(!followUp.request.user.includes('REPLY_TASK'));
-  const untagged = await replay({ ...storedMoment({ replyToSelf: true }), mode: 'reply', kind: 'reply', triggerId: TRIGGER_ID }, { hot });
+  const untagged = await replay(
+    { ...storedMoment({ replyToSelf: true }), mode: 'reply', kind: 'reply', triggerId: TRIGGER_ID },
+    { hot }
+  );
   assert.ok(untagged.request.user.includes(`FOLLOW_UP_TASK Alice: ${labels.triggers.reply}`), untagged.request.user);
-  const tagged = await replay({ ...storedMoment({ replyToSelf: true, mentions: [SELF_ID] }), mode: 'reply', kind: 'reply', triggerId: TRIGGER_ID }, { hot });
+  const tagged = await replay(
+    {
+      ...storedMoment({ replyToSelf: true, mentions: [SELF_ID] }),
+      mode: 'reply',
+      kind: 'reply',
+      triggerId: TRIGGER_ID,
+    },
+    { hot }
+  );
   assert.ok(tagged.request.user.includes(`REPLY_TASK Alice: ${labels.triggers.reply}`), tagged.request.user);
   assert.ok(!tagged.request.user.includes('FOLLOW_UP_TASK'));
 });
 
 test('answerReply: no other channel is pulled in and no call is routed', async () => {
-  const result = await replay({ ...storedMoment(), pulled: [{ channelId: KITCHEN.id }], source: { channelId: KITCHEN.id, reason: 'routed' } });
+  const result = await replay({
+    ...storedMoment(),
+    pulled: [{ channelId: KITCHEN.id }],
+    source: { channelId: KITCHEN.id, reason: 'routed' },
+  });
   assert.ok(!result.request.user.includes('<channel_view>'));
-  const input = sandboxRequestInput({ view: liveView({ hot: kindHot(), store: aliceStore(), guildId: 'g1' }), situation: storedMoment(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, at: NOW });
+  const input = sandboxRequestInput({
+    view: liveView({ hot: kindHot(), store: aliceStore(), guildId: 'g1' }),
+    situation: storedMoment(),
+    selfId: SELF_ID,
+    selfName: 'Zoë',
+    channel: CHANNEL,
+    at: NOW,
+  });
   assert.deepEqual(input.pulled, []);
   assert.equal(input.source, null);
 });
 
 test('answerReply: the destination of a read-only call and the search flag reach <senses>', async () => {
   const destination = fill(labels.senses.elsewhere, { destination: 'general' });
-  const withBoth = await replay(storedMoment(), { hot: kindHot({ webLookup: true }), elsewhereDestination: { name: 'general' }, searchAvailable: true });
+  const withBoth = await replay(storedMoment(), {
+    hot: kindHot({ webLookup: true }),
+    elsewhereDestination: { name: 'general' },
+    searchAvailable: true,
+  });
   assert.ok(withBoth.request.user.includes(destination));
   assert.ok(withBoth.request.user.includes(labels.senses.search));
   const without = await replay(storedMoment(), { hot: kindHot({ webLookup: true }) });
@@ -562,7 +852,15 @@ test('answerReply: the destination of a read-only call and the search flag reach
 test('answerReply: the sandbox never runs the server search, so <senses> never offers it', async () => {
   assert.ok(Object.hasOwn(SANDBOX_OMITS, 'recallAvailable'));
   const view = liveView({ hot: fakeHot(), store: fakeStore(), guildId: 'g1' });
-  const input = sandboxRequestInput({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, at: NOW, recallAvailable: true });
+  const input = sandboxRequestInput({
+    view,
+    situation: twoLines(),
+    selfId: SELF_ID,
+    selfName: 'Zoë',
+    channel: CHANNEL,
+    at: NOW,
+    recallAvailable: true,
+  });
   assert.equal(input.recallAvailable, null);
   const result = await replay(storedMoment(), { hot: kindHot({ webLookup: true }), searchAvailable: true });
   assert.ok(result.request.user.includes(labels.senses.search));
@@ -577,7 +875,16 @@ test('answerReply: with the prompt cache on, samples 1 and 2 carry the same mark
   };
   const view = liveView({ hot: cachedHot(), store: fakeStore(), guildId: 'g1' });
   const llm = fakeLlm('<msg>ok</msg>');
-  const result = await answerReply({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, samples: 2, at: NOW });
+  const result = await answerReply({
+    view,
+    situation: twoLines(),
+    selfId: SELF_ID,
+    selfName: 'Zoë',
+    channel: CHANNEL,
+    llm,
+    samples: 2,
+    at: NOW,
+  });
   const [first, second] = llm.calls.map((call) => call.messages[1].content);
   assert.deepEqual(first, second);
   assert.equal(first.length, 1);
@@ -587,19 +894,41 @@ test('answerReply: with the prompt cache on, samples 1 and 2 carry the same mark
 
   // One sample, or a request the client does not cache: the plain text as before.
   const single = fakeLlm('<msg>ok</msg>');
-  await answerReply({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm: single, samples: 1, at: NOW });
+  await answerReply({
+    view,
+    situation: twoLines(),
+    selfId: SELF_ID,
+    selfName: 'Zoë',
+    channel: CHANNEL,
+    llm: single,
+    samples: 1,
+    at: NOW,
+  });
   assert.equal(typeof single.calls[0].messages[1].content, 'string');
   const off = fakeLlm('<msg>ok</msg>');
   const offHot = cachedHot();
   offHot.config.features.promptCache = false;
-  await answerReply({ view: liveView({ hot: offHot, store: fakeStore(), guildId: 'g1' }), situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm: off, samples: 2, at: NOW });
+  await answerReply({
+    view: liveView({ hot: offHot, store: fakeStore(), guildId: 'g1' }),
+    situation: twoLines(),
+    selfId: SELF_ID,
+    selfName: 'Zoë',
+    channel: CHANNEL,
+    llm: off,
+    samples: 2,
+    at: NOW,
+  });
   assert.ok(off.calls.every((call) => typeof call.messages[1].content === 'string'));
 });
 
-test('answerReply: every sample is sent as the replay\'s', async () => {
+test("answerReply: every sample is sent as the replay's", async () => {
   const { llm } = await replay(storedMoment(), { samples: 2 });
   assert.equal(llm.calls.length, 2);
-  assert.ok(llm.calls.every((call) => call.options.origin === 'replay' && call.options.role === 'core' && call.options.purpose === 'reply'));
+  assert.ok(
+    llm.calls.every(
+      (call) => call.options.origin === 'replay' && call.options.role === 'core' && call.options.purpose === 'reply'
+    )
+  );
 });
 
 // ---- the last hours: <recent> -------------------------------------------------
@@ -620,12 +949,15 @@ function recentStore(lines) {
 test('liveView: the recent store is read for the one guild; a store without one reads as none', () => {
   const store = recentStore([recentLine(1, 'η αγορά άνοιξε')]);
   const view = liveView({ hot: fakeHot(), store, guildId: 'g1' });
-  assert.deepEqual(view.memory.getRecent().lines.map((line) => line.text), ['η αγορά άνοιξε']);
+  assert.deepEqual(
+    view.memory.getRecent().lines.map((line) => line.text),
+    ['η αγορά άνοιξε']
+  );
   assert.deepEqual(store.reads, ['g1']);
   assert.equal(liveView({ hot: fakeHot(), store: fakeStore(), guildId: 'g1' }).memory.getRecent(), null);
 });
 
-test('answerReply: the channel\'s recent lines inside the window render as <recent>, as they stood at the turn\'s time', async () => {
+test("answerReply: the channel's recent lines inside the window render as <recent>, as they stood at the turn's time", async () => {
   const lines = [
     recentLine(1, 'RECENT_HERE the café closed early'),
     recentLine(2, 'RECENT_ELSEWHERE a kitchen rumour', { channelId: KITCHEN.id }),
@@ -633,7 +965,16 @@ test('answerReply: the channel\'s recent lines inside the window render as <rece
   ];
   const ask = async (store, featureOverrides = {}, at = NOW) => {
     const view = liveView({ hot: fakeHot(featureOverrides), store, guildId: 'g1' });
-    const result = await answerReply({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm: fakeLlm('<skip/>'), samples: 1, at });
+    const result = await answerReply({
+      view,
+      situation: twoLines(),
+      selfId: SELF_ID,
+      selfName: 'Zoë',
+      channel: CHANNEL,
+      llm: fakeLlm('<skip/>'),
+      samples: 1,
+      at,
+    });
     return result.request.user;
   };
   const user = await ask(recentStore(lines));
@@ -648,21 +989,42 @@ test('answerReply: the channel\'s recent lines inside the window render as <rece
   assert.ok((await ask(recentStore(lines), {}, NOW - 70 * HOUR)).includes('RECENT_OLD the market moved'));
 
   // No block: the switch off, memory off, a store without a recent store.
-  for (const without of [await ask(recentStore(lines), { recent: false }), await ask(recentStore(lines), { memory: false }), await ask(fakeStore())]) {
+  for (const without of [
+    await ask(recentStore(lines), { recent: false }),
+    await ask(recentStore(lines), { memory: false }),
+    await ask(fakeStore()),
+  ]) {
     assert.ok(!without.includes('<recent>'));
   }
 });
 
 test('answerReply: a recent store that cannot be read costs the block, never the answer', async () => {
-  const store = { ...fakeStore(), getRecent: () => { throw new Error('the memory store is read-only here'); } };
+  const store = {
+    ...fakeStore(),
+    getRecent: () => {
+      throw new Error('the memory store is read-only here');
+    },
+  };
   const view = liveView({ hot: fakeHot(), store, guildId: 'g1' });
   const llm = fakeLlm('<msg>ok</msg>');
   const { result, logs } = await withCapturedLogs(() =>
-    answerReply({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, samples: 1, at: NOW }),
+    answerReply({
+      view,
+      situation: twoLines(),
+      selfId: SELF_ID,
+      selfName: 'Zoë',
+      channel: CHANNEL,
+      llm,
+      samples: 1,
+      at: NOW,
+    })
   );
   assert.equal(result.answers.length, 1);
   assert.ok(!result.request.user.includes('<recent>'));
-  assert.deepEqual(logs.map((entry) => [entry.level, entry.msg]), [['warn', 'sandbox: recent failed']]);
+  assert.deepEqual(
+    logs.map((entry) => [entry.level, entry.msg]),
+    [['warn', 'sandbox: recent failed']]
+  );
 });
 
 /** Every input buildRequest reads: the keys it destructures from `input` and each `input.<key>` of its body. */
@@ -673,7 +1035,10 @@ function buildRequestInputs() {
   const body = source.slice(start, source.indexOf('\n}\n', start));
   const destructured = /const \{([^}]*)\} = input;/.exec(body);
   assert.ok(destructured, 'buildRequest destructures its input');
-  const keys = destructured[1].split(',').map((part) => part.trim().split(/[\s=:]/)[0]).filter(Boolean);
+  const keys = destructured[1]
+    .split(',')
+    .map((part) => part.trim().split(/[\s=:]/)[0])
+    .filter(Boolean);
   for (const match of body.matchAll(/\binput\.(\w+)/g)) keys.push(match[1]);
   return new Set(keys);
 }
@@ -716,7 +1081,11 @@ function grantedView(names, { skills = {}, features = {} } = {}) {
   return liveView({ hot, store: fakeStore(), guildId: 'g1' });
 }
 
-const OK_DATA = (skill, text = '') => ({ verdict: { stage: 'gateway', ok: true }, executed: { skill, args: {} }, result: { skill, status: 'ok', data: { text } } });
+const OK_DATA = (skill, text = '') => ({
+  verdict: { stage: 'gateway', ok: true },
+  executed: { skill, args: {} },
+  result: { skill, status: 'ok', data: { text } },
+});
 const BOUNDS = { settings: { maxSteps: 3, timeBudgetMs: 60000, maxCallsPerStep: 4 } };
 
 test('sandboxToolset: her granted and carried-over skills as native definitions, or as the <tools> text on the text transport', () => {
@@ -726,21 +1095,41 @@ test('sandboxToolset: her granted and carried-over skills as native definitions,
   assert.equal(native.tools.length, native.names.length);
   assert.equal(native.block, null);
   assert.ok(native.tokens > 0);
-  const text = sandbox.sandboxToolset({ view: grantedView(['rule.add'], { skills: { transport: 'text' } }), selfId: SELF_ID });
+  const text = sandbox.sandboxToolset({
+    view: grantedView(['rule.add'], { skills: { transport: 'text' } }),
+    selfId: SELF_ID,
+  });
   assert.equal(text.transport, 'text');
   assert.equal(typeof text.block, 'string');
   assert.equal(text.tokens, 0);
-  assert.deepEqual(sandbox.sandboxToolset({ view: grantedView(['rule.add'], { features: { skills: false } }), selfId: SELF_ID }).names, []);
+  assert.deepEqual(
+    sandbox.sandboxToolset({ view: grantedView(['rule.add'], { features: { skills: false } }), selfId: SELF_ID }).names,
+    []
+  );
 });
 
 test('sandboxRequestInput: a skill scenario passes its inventory and her tools set; everything else SANDBOX_OMITS leaves out stays out', () => {
   const { SKILL_SCENARIO_OMITS } = sandbox;
-  assert.deepEqual(Object.keys(SKILL_SCENARIO_OMITS).sort(), Object.keys(SANDBOX_OMITS).filter((key) => !['skillsInventory', 'toolsGranted', 'toolsBlock', 'toolsTokens'].includes(key)).sort());
+  assert.deepEqual(
+    Object.keys(SKILL_SCENARIO_OMITS).sort(),
+    Object.keys(SANDBOX_OMITS)
+      .filter((key) => !['skillsInventory', 'toolsGranted', 'toolsBlock', 'toolsTokens'].includes(key))
+      .sort()
+  );
   const view = liveView({ hot: fakeHot(), store: fakeStore(), guildId: 'g1' });
   const wanted = buildRequestInputs();
   const rows = [{ name: 'rule.add', title: 'Add a rule', whenToUse: 'when asked', allowed: true, reason: 'allowed' }];
   const toolset = { names: ['rule.add'], block: 'TOOLS_MARKER', tokens: 321 };
-  const input = sandboxRequestInput({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, at: NOW, skillsInventory: rows, toolset });
+  const input = sandboxRequestInput({
+    view,
+    situation: twoLines(),
+    selfId: SELF_ID,
+    selfName: 'Zoë',
+    channel: CHANNEL,
+    at: NOW,
+    skillsInventory: rows,
+    toolset,
+  });
   assert.equal(input.skillsInventory, rows);
   assert.deepEqual([input.toolsGranted, input.toolsBlock, input.toolsTokens], [['rule.add'], 'TOOLS_MARKER', 321]);
   const passed = Object.keys(input).filter((key) => !Object.hasOwn(SKILL_SCENARIO_OMITS, key));
@@ -751,8 +1140,27 @@ test('sandboxRequestInput: a skill scenario passes its inventory and her tools s
     assert.ok(absent, `${key} is left out`);
   }
   // An empty catalogue is no block, as in any other sandbox turn; no tools set, no tools.
-  assert.equal(sandboxRequestInput({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, at: NOW, skillsInventory: [] }).skillsInventory, null);
-  const bare = sandboxRequestInput({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, at: NOW, toolset: { names: [], block: null, tokens: 0 } });
+  assert.equal(
+    sandboxRequestInput({
+      view,
+      situation: twoLines(),
+      selfId: SELF_ID,
+      selfName: 'Zoë',
+      channel: CHANNEL,
+      at: NOW,
+      skillsInventory: [],
+    }).skillsInventory,
+    null
+  );
+  const bare = sandboxRequestInput({
+    view,
+    situation: twoLines(),
+    selfId: SELF_ID,
+    selfName: 'Zoë',
+    channel: CHANNEL,
+    at: NOW,
+    toolset: { names: [], block: null, tokens: 0 },
+  });
   assert.deepEqual([bare.toolsGranted, bare.toolsBlock, bare.toolsTokens], [null, null, null]);
 });
 
@@ -768,7 +1176,15 @@ test('answerSkillScenario: native -- the tools ride on every request; a data res
   ]);
   const seen = [];
   const result = await answerSkillScenario({
-    view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, runs: 3, at: NOW, loop: BOUNDS,
+    view,
+    situation: twoLines(),
+    selfId: SELF_ID,
+    selfName: 'Zoë',
+    channel: CHANNEL,
+    llm,
+    runs: 3,
+    at: NOW,
+    loop: BOUNDS,
     onCall: (given, context) => {
       seen.push({ given, context });
       return given.skill === 'web.search' ? OK_DATA('web.search', 'RESULT_MARKER') : OK_DATA(given.skill);
@@ -776,12 +1192,24 @@ test('answerSkillScenario: native -- the tools ride on every request; a data res
   });
   assert.equal(llm.calls.length, 5, 'run 1: two requests, run 2: one, run 3: two');
   for (const { options } of llm.calls) {
-    assert.deepEqual([options.origin, options.countAgainstDailyCap, options.skipCalibration, options.purpose, options.toolChoice], ['replay', false, true, 'reply', 'auto']);
-    assert.ok(options.tools.some((tool) => tool.function.name === 'web_search'), 'her tools are sent');
+    assert.deepEqual(
+      [options.origin, options.countAgainstDailyCap, options.skipCalibration, options.purpose, options.toolChoice],
+      ['replay', false, true, 'reply', 'auto']
+    );
+    assert.ok(
+      options.tools.some((tool) => tool.function.name === 'web_search'),
+      'her tools are sent'
+    );
   }
   assert.ok(result.request.toolsTokens > 0 && result.request.tools >= 2);
   // Run 1: the call reached onCall with its tool call id; the second request appends to the first messages, which are the same objects.
-  assert.deepEqual(seen[0].given, { skill: 'web.search', args: { query: 'chess' }, body: '', toolCallId: 'w1', index: 0 });
+  assert.deepEqual(seen[0].given, {
+    skill: 'web.search',
+    args: { query: 'chess' },
+    body: '',
+    toolCallId: 'w1',
+    index: 0,
+  });
   assert.ok(seen[0].context.idByIndex instanceof Map);
   assert.equal(seen[0].context.history.at(-1).authorId, ALICE);
   const [first, second] = [llm.calls[0].messages, llm.calls[1].messages];
@@ -795,8 +1223,14 @@ test('answerSkillScenario: native -- the tools ride on every request; a data res
   assert.ok(second[4].content[0].text.includes(labels.task.step.held), 'the held speech is told');
   const [one, two, three] = result.runs;
   assert.equal(one.loop.steps[0].held, true, 'a data result does not cover the speech of its step');
-  assert.deepEqual(one.loop.steps[0].answer.messages.map((m) => m.text), ['μια στιγμή']);
-  assert.deepEqual(one.followUp.answer.messages.map((m) => m.text), ['έγινε']);
+  assert.deepEqual(
+    one.loop.steps[0].answer.messages.map((m) => m.text),
+    ['μια στιγμή']
+  );
+  assert.deepEqual(
+    one.followUp.answer.messages.map((m) => m.text),
+    ['έγινε']
+  );
   assert.equal(one.followUp.extraCall, false);
   assert.deepEqual([one.call.skill, one.outcome.result.status], ['web.search', 'ok']);
   // Run 2: an effect covers the speech, nothing is read, no second request.
@@ -820,7 +1254,14 @@ test('answerSkillScenario: the last step allowed is final -- its calls get loop-
   ]);
   let n = 0;
   const result = await answerSkillScenario({
-    view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, runs: 1, at: NOW,
+    view,
+    situation: twoLines(),
+    selfId: SELF_ID,
+    selfName: 'Zoë',
+    channel: CHANNEL,
+    llm,
+    runs: 1,
+    at: NOW,
     loop: { settings: { maxSteps: 1, timeBudgetMs: 60000, maxCallsPerStep: 4 } },
     onCall: (given) => {
       n += 1;
@@ -830,9 +1271,12 @@ test('answerSkillScenario: the last step allowed is final -- its calls get loop-
   assert.equal(llm.calls.length, 2);
   assert.ok(llm.calls[1].messages.at(-1).content[0].text.includes(labels.task.step.last), 'the last-step notice');
   const [run] = result.runs;
-  assert.equal(n, 1, 'the final answer\'s call never runs');
+  assert.equal(n, 1, "the final answer's call never runs");
   const last = run.loop.steps[1];
-  assert.deepEqual([last.calls[0].outcome.result.code, last.capped, last.held, last.thinkMissing, last.dropped], ['loop-cap', 'steps', true, true, 1]);
+  assert.deepEqual(
+    [last.calls[0].outcome.result.code, last.capped, last.held, last.thinkMissing, last.dropped],
+    ['loop-cap', 'steps', true, true, 1]
+  );
   assert.equal(run.loop.steps[0].thinkMissing, false);
 });
 
@@ -844,20 +1288,35 @@ test('answerSkillScenario: the text transport -- no tools field, the <tools> blo
     '<think>b</think><msg>έγινε</msg>',
   ]);
   const result = await answerSkillScenario({
-    view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, runs: 1, at: NOW, loop: BOUNDS,
+    view,
+    situation: twoLines(),
+    selfId: SELF_ID,
+    selfName: 'Zoë',
+    channel: CHANNEL,
+    llm,
+    runs: 1,
+    at: NOW,
+    loop: BOUNDS,
     onCall: (given) => OK_DATA(given.skill, 'RESULT_MARKER'),
   });
   assert.equal('tools' in llm.calls[0].options, false);
   assert.ok(result.request.user.includes('<tools>'));
   const [run] = result.runs;
-  assert.deepEqual(run.loop.steps[0].answer.messages.map((m) => m.text), ['μια στιγμή'], 'the block is cut out of her speech');
+  assert.deepEqual(
+    run.loop.steps[0].answer.messages.map((m) => m.text),
+    ['μια στιγμή'],
+    'the block is cut out of her speech'
+  );
   assert.equal(run.call.skill, 'web.search');
   const appended = llm.calls[1].messages;
   assert.equal(appended[2].role, 'assistant');
   assert.equal(appended[3].role, 'user');
   assert.ok(appended[3].content[0].text.startsWith('<tool_result id="s1c1" name="web.search" status="ok">'));
   assert.ok(appended[3].content[0].text.includes('RESULT_MARKER'));
-  assert.deepEqual(run.followUp.answer.messages.map((m) => m.text), ['έγινε']);
+  assert.deepEqual(
+    run.followUp.answer.messages.map((m) => m.text),
+    ['έγινε']
+  );
 });
 
 // ---- the memory as it stood at the moment: momentView, momentCutoff, hiddenLater ---------------
@@ -926,7 +1385,11 @@ function brunoProfile() {
     interests: [],
     details: [],
     aliases: [],
-    affinity: { score: -4, reason: 'R only after', history: [{ ts: AFTER, delta: -4, appliedDelta: -4, score: -4, reason: 'R only after' }] },
+    affinity: {
+      score: -4,
+      reason: 'R only after',
+      history: [{ ts: AFTER, delta: -4, appliedDelta: -4, score: -4, reason: 'R only after' }],
+    },
     episodes: [],
   };
 }
@@ -947,8 +1410,24 @@ function guildMemory() {
 
 function loreEntries() {
   return [
-    { id: 'a', title: 'Old tale', keys: ['tale'], text: 'Known.', source: 'analyzer', createdAt: EARLIER, updatedAt: AFTER },
-    { id: 'b', title: 'The argument', keys: ['argument'], text: 'How it ended.', source: 'analyzer', createdAt: AFTER, updatedAt: AFTER },
+    {
+      id: 'a',
+      title: 'Old tale',
+      keys: ['tale'],
+      text: 'Known.',
+      source: 'analyzer',
+      createdAt: EARLIER,
+      updatedAt: AFTER,
+    },
+    {
+      id: 'b',
+      title: 'The argument',
+      keys: ['argument'],
+      text: 'How it ended.',
+      source: 'analyzer',
+      createdAt: AFTER,
+      updatedAt: AFTER,
+    },
     { id: 'c', title: 'Owner note', keys: ['note'], text: 'Undated.', source: 'owner' },
   ];
 }
@@ -963,7 +1442,12 @@ function deepFreeze(value) {
 
 /** A base view (liveView's shape) over plain data; its data is deep-frozen, so a write throws. */
 function baseView() {
-  const data = deepFreeze({ users: { [ALICE]: aliceProfile(), [BRUNO]: brunoProfile() }, guild: guildMemory(), lore: loreEntries(), channels: [{ id: 'c1', name: 'games' }] });
+  const data = deepFreeze({
+    users: { [ALICE]: aliceProfile(), [BRUNO]: brunoProfile() },
+    guild: guildMemory(),
+    lore: loreEntries(),
+    channels: [{ id: 'c1', name: 'games' }],
+  });
   const hot = { prompts: { rules: 'RULES' }, config: { features: {} } };
   return {
     hot,
@@ -993,14 +1477,34 @@ test('momentCutoff: the newest line she saw, else the answer time, else null', (
   assert.equal(momentCutoff({ history: [{}], at: undefined }), null);
   assert.equal(momentCutoff({}), null);
   // Lines after the trigger that her request held: the last of them.
-  assert.equal(momentCutoff({ history: [{ id: 't', ts: CUTOFF - 60_000 }, { id: 'n', ts: CUTOFF }], triggerId: 't' }), CUTOFF);
+  assert.equal(
+    momentCutoff({
+      history: [
+        { id: 't', ts: CUTOFF - 60_000 },
+        { id: 'n', ts: CUTOFF },
+      ],
+      triggerId: 't',
+    }),
+    CUTOFF
+  );
   // A trigger id found nowhere: the last line.
-  assert.equal(momentCutoff({ history: [{ id: 'a', ts: CUTOFF - 120_000 }, { id: 'b', ts: CUTOFF - 60_000 }], triggerId: 'gone' }), CUTOFF - 60_000);
+  assert.equal(
+    momentCutoff({
+      history: [
+        { id: 'a', ts: CUTOFF - 120_000 },
+        { id: 'b', ts: CUTOFF - 60_000 },
+      ],
+      triggerId: 'gone',
+    }),
+    CUTOFF - 60_000
+  );
 });
 
 test('momentView: episodes written at or after the cutoff are hidden, earlier ones kept', () => {
   const { view } = baseView();
-  const episodes = momentView(view, CUTOFF).memory.getUser(ALICE).episodes.map((e) => e.what);
+  const episodes = momentView(view, CUTOFF)
+    .memory.getUser(ALICE)
+    .episodes.map((e) => e.what);
   assert.deepEqual(episodes, ['old episode', 'no addedAt, the day before', 'no date at all']);
 });
 
@@ -1008,7 +1512,10 @@ test('momentView: affinity history entries at or after the cutoff are hidden; th
   const { view } = baseView();
   const at = momentView(view, CUTOFF);
   const affinity = at.memory.getUser(ALICE).affinity;
-  assert.deepEqual(affinity.history.map((h) => h.reason), ['R1', 'R2']);
+  assert.deepEqual(
+    affinity.history.map((h) => h.reason),
+    ['R1', 'R2']
+  );
   assert.equal(affinity.reason, 'R2');
   assert.equal(affinity.score, 12);
   const other = at.memory.getUser(BRUNO).affinity;
@@ -1034,37 +1541,75 @@ test('momentView: the restored reason looks past kept entries whose reason is em
       ],
     },
   };
-  const affinity = momentView({ ...view, memory: { ...view.memory, getUser: () => profile } }, CUTOFF).memory.getUser(ALICE).affinity;
-  assert.deepEqual(affinity.history.map((h) => h.reason), ['R1', '']);
+  const affinity = momentView({ ...view, memory: { ...view.memory, getUser: () => profile } }, CUTOFF).memory.getUser(
+    ALICE
+  ).affinity;
+  assert.deepEqual(
+    affinity.history.map((h) => h.reason),
+    ['R1', '']
+  );
   assert.equal(affinity.reason, 'R1');
 });
 
 test('momentView: details, interests and aliases first recorded at or after the cutoff are hidden', () => {
   const { view } = baseView();
   const profile = momentView(view, CUTOFF).memory.getUser(ALICE);
-  assert.deepEqual(profile.details.map((d) => d.text), ['lives by the sea', 'undated detail']);
-  assert.deepEqual(profile.interests.map((i) => i.topic), ['chess', 'tea']);
-  assert.deepEqual(profile.aliases.map((a) => a.name), ['Ali']);
+  assert.deepEqual(
+    profile.details.map((d) => d.text),
+    ['lives by the sea', 'undated detail']
+  );
+  assert.deepEqual(
+    profile.interests.map((i) => i.topic),
+    ['chess', 'tea']
+  );
+  assert.deepEqual(
+    profile.aliases.map((a) => a.name),
+    ['Ali']
+  );
   assert.deepEqual(profile.details[0], aliceProfile().details[0]);
 });
 
 test('momentView: learned items and lore entries created at or after the cutoff are hidden', () => {
   const { view } = baseView();
   const at = momentView(view, CUTOFF);
-  assert.deepEqual(at.memory.getGuild().learned.map((i) => i.text), ['answer in one line']);
-  assert.deepEqual(at.memory.getLore().map((e) => e.title), ['Old tale', 'Owner note']);
+  assert.deepEqual(
+    at.memory.getGuild().learned.map((i) => i.text),
+    ['answer in one line']
+  );
+  assert.deepEqual(
+    at.memory.getLore().map((e) => e.title),
+    ['Old tale', 'Owner note']
+  );
 });
 
 test('momentView: recent lines added at or after the cutoff are hidden; a base without a recent store reads none', () => {
   const { view } = baseView();
-  const line = (id, fields = {}) => ({ id, at: CUTOFF - 7_200_000, addedAt: EARLIER, channelId: 'c1', text: `σημείωση ${id}`, who: [], weight: 2, ...fields });
+  const line = (id, fields = {}) => ({
+    id,
+    at: CUTOFF - 7_200_000,
+    addedAt: EARLIER,
+    channelId: 'c1',
+    text: `σημείωση ${id}`,
+    who: [],
+    weight: 2,
+    ...fields,
+  });
   const stored = deepFreeze({
     nextId: 6,
-    lines: [line(1), line(2, { addedAt: AT }), line(3, { at: CUTOFF - 60_000, addedAt: AFTER }), line(4, { addedAt: null }), line(5, { at: CUTOFF + 60_000, addedAt: null })],
+    lines: [
+      line(1),
+      line(2, { addedAt: AT }),
+      line(3, { at: CUTOFF - 60_000, addedAt: AFTER }),
+      line(4, { addedAt: null }),
+      line(5, { at: CUTOFF + 60_000, addedAt: null }),
+    ],
   });
   const base = { prompts: view.prompts, config: view.config, memory: { ...view.memory, getRecent: () => stored } };
   const seen = momentView(base, CUTOFF).memory.getRecent();
-  assert.deepEqual(seen.lines.map((entry) => entry.id), [1, 4]);
+  assert.deepEqual(
+    seen.lines.map((entry) => entry.id),
+    [1, 4]
+  );
   assert.equal(seen.lines[0], stored.lines[0], 'a kept line is the stored one');
   assert.equal(momentView(base, CUTOFF + 3_600_000).memory.getRecent(), stored);
   assert.equal(momentView(view, CUTOFF).memory.getRecent(), null);
@@ -1076,11 +1621,23 @@ test('momentView: undated fields, channels, prompts and config are untouched', (
   const at = momentView(view, CUTOFF);
   const profile = at.memory.getUser(ALICE);
   const stored = aliceProfile();
-  for (const key of ['id', 'names', 'firstSeen', 'lastSeen', 'messageCount', 'character', 'style', 'relationship', 'detailsSeq', 'updatedAt']) {
+  for (const key of [
+    'id',
+    'names',
+    'firstSeen',
+    'lastSeen',
+    'messageCount',
+    'character',
+    'style',
+    'relationship',
+    'detailsSeq',
+    'updatedAt',
+  ]) {
     assert.deepEqual(profile[key], stored[key], key);
   }
   const g = at.memory.getGuild();
-  for (const key of ['patterns', 'starters', 'injokes', 'self', 'learnedNextId']) assert.deepEqual(g[key], guildMemory()[key], key);
+  for (const key of ['patterns', 'starters', 'injokes', 'self', 'learnedNextId'])
+    assert.deepEqual(g[key], guildMemory()[key], key);
   assert.equal(at.memory.listChannels(), view.memory.listChannels());
   assert.equal(at.memory.getUser('333333333333333333'), null);
   assert.equal(at.calibrator, view.calibrator);
@@ -1092,12 +1649,38 @@ test('momentView: undated fields, channels, prompts and config are untouched', (
 
 test('hiddenLater: counts what the cutoff hides, by kind; nothing for undated memory', () => {
   const { view } = baseView();
-  assert.deepEqual(hiddenLater(view, CUTOFF), { episodes: 3, affinity: 2, reasons: 2, details: 1, interests: 2, aliases: 1, learned: 1, lore: 1 });
+  assert.deepEqual(hiddenLater(view, CUTOFF), {
+    episodes: 3,
+    affinity: 2,
+    reasons: 2,
+    details: 1,
+    interests: 2,
+    aliases: 1,
+    learned: 1,
+    lore: 1,
+  });
   const bare = { id: ALICE, names: ['Alice'], character: 'x' };
-  const plain = { memory: { getGuild: () => ({ patterns: 'p' }), getUser: () => bare, listUserProfiles: () => [bare], listChannels: () => [], getLore: () => null } };
+  const plain = {
+    memory: {
+      getGuild: () => ({ patterns: 'p' }),
+      getUser: () => bare,
+      listUserProfiles: () => [bare],
+      listChannels: () => [],
+      getLore: () => null,
+    },
+  };
   assert.deepEqual(momentView(plain, CUTOFF).memory.getUser(ALICE), bare);
   assert.equal(momentView(plain, CUTOFF).memory.getLore(), null);
-  assert.deepEqual(hiddenLater(plain, CUTOFF), { episodes: 0, affinity: 0, reasons: 0, details: 0, interests: 0, aliases: 0, learned: 0, lore: 0 });
+  assert.deepEqual(hiddenLater(plain, CUTOFF), {
+    episodes: 0,
+    affinity: 0,
+    reasons: 0,
+    details: 0,
+    interests: 0,
+    aliases: 0,
+    learned: 0,
+    lore: 0,
+  });
 });
 
 // ---- what the persona saw of the moment's media: replayMedia ------------------------------------
@@ -1159,14 +1742,23 @@ function fakeChannel(raws) {
 }
 
 function attachmentsOf(...list) {
-  return new Map(list.map((a) => [a.id, { url: `https://cdn.discordapp.com/attachments/1/${a.id}/${a.name}`, size: 1000, ...a }]));
+  return new Map(
+    list.map((a) => [a.id, { url: `https://cdn.discordapp.com/attachments/1/${a.id}/${a.name}`, size: 1000, ...a }])
+  );
 }
 
 /** A chat with media: a clip, two pictures, a video-site link, a custom emoji in the trigger. */
 function mediaChat() {
   return [
-    rawMessage(0, BRUNO, 'look', { attachments: attachmentsOf({ id: VIDEO_ID, contentType: 'video/mp4', name: 'clip.mp4', duration: 12 }) }),
-    rawMessage(1, ALICE, 'and these', { attachments: attachmentsOf({ id: IMAGE_ID, contentType: 'image/png', name: 'a.png' }, { id: BLANK_ID, contentType: 'image/png', name: 'b.png' }) }),
+    rawMessage(0, BRUNO, 'look', {
+      attachments: attachmentsOf({ id: VIDEO_ID, contentType: 'video/mp4', name: 'clip.mp4', duration: 12 }),
+    }),
+    rawMessage(1, ALICE, 'and these', {
+      attachments: attachmentsOf(
+        { id: IMAGE_ID, contentType: 'image/png', name: 'a.png' },
+        { id: BLANK_ID, contentType: 'image/png', name: 'b.png' }
+      ),
+    }),
     rawMessage(2, BRUNO, `this one too ${YOUTUBE}`),
     rawMessage(3, ALICE, 'what do you think :wave:', { content: `what do you think <:wave:${EMOJI_ID}>` }),
   ];
@@ -1186,32 +1778,65 @@ function mediaCache() {
 }
 
 function rendered(history, { descriptions, videos } = {}) {
-  return formatTranscript(history, { timezone: 'UTC', gapMinutes: 60, maxChars: 2000, selfName: 'Zoë', labels, descriptions, videos })
+  return formatTranscript(history, {
+    timezone: 'UTC',
+    gapMinutes: 60,
+    maxChars: 2000,
+    selfName: 'Zoë',
+    labels,
+    descriptions,
+    videos,
+  })
     .map((item) => item.text)
     .join('\n');
 }
 
 test('replayMedia: a stored watched length and total pass through, so a part-watched link renders as live', async () => {
-  const history = await fetchHistoryWindow(fakeChannel(mediaChat()), { anchorId: sf(3), limit: 30, selfId: SELF_ID, embedTextChars: 300, videoSites: SITES });
+  const history = await fetchHistoryWindow(fakeChannel(mediaChat()), {
+    anchorId: sf(3),
+    limit: 30,
+    selfId: SELF_ID,
+    embedTextChars: 300,
+    videoSites: SITES,
+  });
   const key = `video:${videoUrlCacheKey(YOUTUBE)}`;
-  const cache = deepFreeze({ [key]: { text: 'a long lecture', ts: SEEN_TS, watched: true, watchedSeconds: 300, totalSeconds: 3289 } });
+  const cache = deepFreeze({
+    [key]: { text: 'a long lecture', ts: SEEN_TS, watched: true, watchedSeconds: 300, totalSeconds: 3289 },
+  });
   const media = replayMedia(history, { cache, sites: SITES });
-  assert.deepEqual(media.videos.get(videoUrlCacheKey(YOUTUBE)), { state: 'watched', text: 'a long lecture', watchedSeconds: 300, totalSeconds: 3289 });
+  assert.deepEqual(media.videos.get(videoUrlCacheKey(YOUTUBE)), {
+    state: 'watched',
+    text: 'a long lecture',
+    watchedSeconds: 300,
+    totalSeconds: 3289,
+  });
   assert.match(rendered(history, media), /\[watched the first 5:00 of 54:49 \(clip cap\): a long lecture\]/);
 });
 
 test('replayMedia: the describer cache as it stood when she answered renders as the live transcript did, read only', async () => {
-  const history = await fetchHistoryWindow(fakeChannel(mediaChat()), { anchorId: sf(3), limit: 30, selfId: SELF_ID, embedTextChars: 300, videoSites: SITES });
+  const history = await fetchHistoryWindow(fakeChannel(mediaChat()), {
+    anchorId: sf(3),
+    limit: 30,
+    selfId: SELF_ID,
+    embedTextChars: 300,
+    videoSites: SITES,
+  });
   assert.equal(history.length, 4);
   const cache = mediaCache();
   const media = replayMedia(history, { cache, sites: SITES, before: START + 4 * 60_000 });
-  assert.deepEqual(media.descriptions, new Map([[VIDEO_ID, 'a still of a cat'], [IMAGE_ID, 'a café terrace at night']]));
+  assert.deepEqual(
+    media.descriptions,
+    new Map([
+      [VIDEO_ID, 'a still of a cat'],
+      [IMAGE_ID, 'a café terrace at night'],
+    ])
+  );
   assert.deepEqual(
     media.videos,
     new Map([
       [VIDEO_ID, { state: 'watched', text: 'a cat knocks a cup off the table' }],
       [videoUrlCacheKey(YOUTUBE), { state: 'watched', text: 'a music video from the eighties' }],
-    ]),
+    ])
   );
   const text = rendered(history, media);
   assert.match(text, /\[video: clip\.mp4, 0:12, watched: a cat knocks a cup off the table\]/);
@@ -1221,7 +1846,11 @@ test('replayMedia: the describer cache as it stood when she answered renders as 
   // No time bound: what was described later is taken too.
   assert.equal(replayMedia(history, { cache, sites: SITES }).descriptions.get(`emoji:${EMOJI_ID}`), 'a waving hand');
   // Nothing cached: empty maps, the transcript as it renders without any.
-  for (const empty of [replayMedia(history, { cache: null, sites: SITES }), replayMedia(history, { cache: {}, sites: SITES }), replayMedia(history)]) {
+  for (const empty of [
+    replayMedia(history, { cache: null, sites: SITES }),
+    replayMedia(history, { cache: {}, sites: SITES }),
+    replayMedia(history),
+  ]) {
     assert.equal(empty.descriptions.size, 0);
     assert.equal(empty.videos.size, 0);
     assert.equal(rendered(history, empty), rendered(history));
@@ -1235,36 +1864,72 @@ test('tools/replay.mjs: replays through src/behavior/sandbox.js, every name it t
   assert.ok(source.includes("path.join(src, 'behavior', 'sandbox.js')"), 'the engine check names the sandbox');
   const match = /const \{([^}]*)\} = await load\('behavior\/sandbox\.js'\);/.exec(source);
   assert.ok(match, 'replay loads the sandbox');
-  const names = match[1].split(',').map((name) => name.trim()).filter(Boolean);
+  const names = match[1]
+    .split(',')
+    .map((name) => name.trim())
+    .filter(Boolean);
   assert.ok(names.length >= 10);
   for (const name of names) assert.notEqual(sandbox[name], undefined, name);
-  assert.deepEqual([...sandbox.SANDBOX_STORE_READS].sort(), ['getGifs', 'getGuild', 'getLore', 'getMediaCache', 'getRecent', 'getUser', 'listChannels', 'listUserProfiles']);
+  assert.deepEqual([...sandbox.SANDBOX_STORE_READS].sort(), [
+    'getGifs',
+    'getGuild',
+    'getLore',
+    'getMediaCache',
+    'getRecent',
+    'getUser',
+    'listChannels',
+    'listUserProfiles',
+  ]);
 });
 
 // ---- mention handles (features.mentionHandles) -------------------------------------------
 
 const ZOE_ID = '333333333333333333';
-const DIRECTORY_LABELS = { ...labels, transcript: { ...labels.transcript, author: '{name} [{handle}]' }, directory: { lead: 'DIRECTORY', line: '{handle} {names}', lineAliases: '{handle} {names} aka {aliases}' } };
+const DIRECTORY_LABELS = {
+  ...labels,
+  transcript: { ...labels.transcript, author: '{name} [{handle}]' },
+  directory: { lead: 'DIRECTORY', line: '{handle} {names}', lineAliases: '{handle} {names} aka {aliases}' },
+};
 
 /** A view whose labels render the directory and the author handles, with Zoé's stored profile (not in the moment). */
 function handlesView(features = {}) {
   const hot = fakeHot(features);
   hot.prompts.labels = DIRECTORY_LABELS;
-  const store = fakeStore({ userProfiles: { [ZOE_ID]: { id: ZOE_ID, names: ['Zoé'], aliases: [{ name: 'Zo', weight: 3 }] }, [SELF_ID]: { id: SELF_ID, names: ['Zoë'], aliases: [] } } });
+  const store = fakeStore({
+    userProfiles: {
+      [ZOE_ID]: { id: ZOE_ID, names: ['Zoé'], aliases: [{ name: 'Zo', weight: 3 }] },
+      [SELF_ID]: { id: SELF_ID, names: ['Zoë'], aliases: [] },
+    },
+  });
   return liveView({ hot, store, guildId: 'g1' });
 }
 
-test('answerReply: the replay shows the live turn\'s <directory> and author handles, and resolves @handle as a live turn would', async () => {
+test("answerReply: the replay shows the live turn's <directory> and author handles, and resolves @handle as a live turn would", async () => {
   const view = handlesView();
   const zoe = `@${handleOf(ZOE_ID)}`;
   const alice = `@${handleOf(ALICE)}`;
   const unknown = [zoe, alice].includes('@uzzzz') ? '@u0000' : '@uzzzz';
   const llm = fakeLlm(`<msg>${zoe} ${alice} @Alice ${unknown}</msg><msg>ναι</msg>`);
-  const result = await answerReply({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, samples: 1, at: NOW });
+  const result = await answerReply({
+    view,
+    situation: twoLines(),
+    selfId: SELF_ID,
+    selfName: 'Zoë',
+    channel: CHANNEL,
+    llm,
+    samples: 1,
+    at: NOW,
+  });
 
-  const live = buildRequest(sandboxRequestInput({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, at: NOW }));
+  const live = buildRequest(
+    sandboxRequestInput({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, at: NOW })
+  );
   const directory = /<directory>\n[\s\S]*?\n<\/directory>/.exec(result.request.user)?.[0];
-  assert.equal(directory, `<directory>\nDIRECTORY\n${zoe} "Zoé" aka "Zo"\n</directory>`, 'the persona\'s own profile is never listed');
+  assert.equal(
+    directory,
+    `<directory>\nDIRECTORY\n${zoe} "Zoé" aka "Zo"\n</directory>`,
+    "the persona's own profile is never listed"
+  );
   assert.ok(live.messages[1].content.find((part) => part.cacheSegment === 'stable').text.includes(directory));
   assert.ok(result.request.user.includes(`Alice [${alice}]: what do you think about chess?`), result.request.user);
   assert.ok(result.request.user.includes(`Bruno [@${handleOf(BRUNO)}]: καλημέρα`));
@@ -1277,7 +1942,16 @@ test('answerReply: the replay shows the live turn\'s <directory> and author hand
 test('answerReply: features.mentionHandles off -- no directory, no handles, nothing resolved', async () => {
   const view = handlesView({ mentionHandles: false });
   const llm = fakeLlm(`<msg>@${handleOf(ZOE_ID)}</msg>`);
-  const result = await answerReply({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, samples: 1, at: NOW });
+  const result = await answerReply({
+    view,
+    situation: twoLines(),
+    selfId: SELF_ID,
+    selfName: 'Zoë',
+    channel: CHANNEL,
+    llm,
+    samples: 1,
+    at: NOW,
+  });
   assert.equal(result.request.user.includes('<directory>'), false);
   assert.ok(result.request.user.includes('Alice: what do you think about chess?'));
   assert.deepEqual(result.answers[0].messages, [{ text: `@${handleOf(ZOE_ID)}`, replyTo: null }]);
@@ -1288,11 +1962,20 @@ test('answerSkillScenario: a message.create text is resolved like a <msg> (callM
   const view = handlesView();
   const zoe = `@${handleOf(ZOE_ID)}`;
   const llm = fakeToolLlm([
-    toolAnswer(`<think>a</think><msg>${zoe}</msg>`, [call('message.create', { channel: '#general', text: `${zoe} @Zo` })]),
+    toolAnswer(`<think>a</think><msg>${zoe}</msg>`, [
+      call('message.create', { channel: '#general', text: `${zoe} @Zo` }),
+    ]),
     toolAnswer('<think>b</think><msg>ok</msg>', []),
   ]);
   const result = await answerSkillScenario({
-    view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, runs: 2, at: NOW,
+    view,
+    situation: twoLines(),
+    selfId: SELF_ID,
+    selfName: 'Zoë',
+    channel: CHANNEL,
+    llm,
+    runs: 2,
+    at: NOW,
     onCall: (given) => OK_DATA(given.skill),
   });
   const [first, second] = result.runs;
@@ -1301,7 +1984,7 @@ test('answerSkillScenario: a message.create text is resolved like a <msg> (callM
   assert.equal('callMentions' in second, false, 'a run without a call has none');
 });
 
-test('answerSkillScenario: only a message\'s text is rendered as a post (message.edit too, rule.add not)', async () => {
+test("answerSkillScenario: only a message's text is rendered as a post (message.edit too, rule.add not)", async () => {
   const { answerSkillScenario } = sandbox;
   const view = handlesView();
   const zoe = `@${handleOf(ZOE_ID)}`;
@@ -1310,7 +1993,14 @@ test('answerSkillScenario: only a message\'s text is rendered as a post (message
     toolAnswer('<think>b</think>', [call('rule.add', { text: zoe })]),
   ]);
   const result = await answerSkillScenario({
-    view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, runs: 2, at: NOW,
+    view,
+    situation: twoLines(),
+    selfId: SELF_ID,
+    selfName: 'Zoë',
+    channel: CHANNEL,
+    llm,
+    runs: 2,
+    at: NOW,
     onCall: (given) => OK_DATA(given.skill),
   });
   const [edit, other] = result.runs;
@@ -1318,23 +2008,61 @@ test('answerSkillScenario: only a message\'s text is rendered as a post (message
   assert.equal('callMentions' in other, false);
 });
 
-test('answerReply: given tools, they are passed to the llm and the completion\'s tool calls ride on the answer; without them nothing changes', async () => {
+test("answerReply: given tools, they are passed to the llm and the completion's tool calls ride on the answer; without them nothing changes", async () => {
   const hot = fakeHot();
   const view = liveView({ hot, store: fakeStore({ userProfiles: {} }), guildId: 'g1' });
-  const tools = [{ type: 'function', function: { name: 'draw_create', description: 'd', parameters: { type: 'object' } } }];
+  const tools = [
+    { type: 'function', function: { name: 'draw_create', description: 'd', parameters: { type: 'object' } } },
+  ];
   const toolCalls = [{ id: 'c1', name: 'draw_create', arguments: '{}', parsed: {}, parseError: null }];
-  const llm = { calls: [], complete: async (messages, options) => { llm.calls.push(options); return { text: '<msg>ok</msg>', usage: {}, estimated: 1, toolCalls }; } };
-  const withTools = await answerReply({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, samples: 1, at: NOW, tools, toolChoice: 'auto' });
+  const llm = {
+    calls: [],
+    complete: async (messages, options) => {
+      llm.calls.push(options);
+      return { text: '<msg>ok</msg>', usage: {}, estimated: 1, toolCalls };
+    },
+  };
+  const withTools = await answerReply({
+    view,
+    situation: twoLines(),
+    selfId: SELF_ID,
+    selfName: 'Zoë',
+    channel: CHANNEL,
+    llm,
+    samples: 1,
+    at: NOW,
+    tools,
+    toolChoice: 'auto',
+  });
   assert.deepEqual(llm.calls[0].tools, tools);
   assert.equal(llm.calls[0].toolChoice, 'auto');
   assert.deepEqual(withTools.answers[0].toolCalls, toolCalls);
   const plain = fakeLlm('<msg>ok</msg>');
-  const without = await answerReply({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm: plain, samples: 1, at: NOW, tools: null });
+  const without = await answerReply({
+    view,
+    situation: twoLines(),
+    selfId: SELF_ID,
+    selfName: 'Zoë',
+    channel: CHANNEL,
+    llm: plain,
+    samples: 1,
+    at: NOW,
+    tools: null,
+  });
   assert.equal('tools' in plain.calls[0].options, false);
   assert.equal('toolCalls' in without.answers[0], false);
   // By default her tools go as a live turn sends them.
   const live = fakeLlm('<msg>ok</msg>');
-  await answerReply({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm: live, samples: 1, at: NOW });
+  await answerReply({
+    view,
+    situation: twoLines(),
+    selfId: SELF_ID,
+    selfName: 'Zoë',
+    channel: CHANNEL,
+    llm: live,
+    samples: 1,
+    at: NOW,
+  });
   assert.ok(live.calls[0].options.tools.some((tool) => tool.function.name === 'message_create'));
   assert.equal(live.calls[0].options.toolChoice, 'auto');
 });

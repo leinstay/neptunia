@@ -3,7 +3,15 @@
 // text, and `@handle` -> `<@id>` in the persona's output. Pure.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { HANDLE_DIGITS, HANDLE_PREFIX, assignHandles, directoryEntries, handleOf, renderDirectory, resolveHandles } from '../src/behavior/handles.js';
+import {
+  HANDLE_DIGITS,
+  HANDLE_PREFIX,
+  assignHandles,
+  directoryEntries,
+  handleOf,
+  renderDirectory,
+  resolveHandles,
+} from '../src/behavior/handles.js';
 
 // Two ids whose four-digit handles collide (found by search; see the derivation in handles.js).
 const OLDER = '400000000000807738';
@@ -31,7 +39,10 @@ test('assignHandles: one handle per id, unique, whatever the order the ids come 
   const backward = assignHandles({ profiled: [...ids].reverse() });
   assert.equal(forward.size, ids.length);
   assert.equal(new Set(forward.values()).size, ids.length, 'no handle given twice');
-  assert.deepEqual([...ids].map((id) => backward.get(id)), [...ids].map((id) => forward.get(id)));
+  assert.deepEqual(
+    [...ids].map((id) => backward.get(id)),
+    [...ids].map((id) => forward.get(id))
+  );
 });
 
 test('assignHandles: of two ids sharing a handle the older keeps it, the newer takes one more digit', () => {
@@ -41,7 +52,7 @@ test('assignHandles: of two ids sharing a handle the older keeps it, the newer t
   assert.equal(handles.get(NEWER), handleOf(NEWER, HANDLE_DIGITS + 1));
 });
 
-test('assignHandles: a member only in view never moves a profiled member\'s handle', () => {
+test("assignHandles: a member only in view never moves a profiled member's handle", () => {
   const handles = assignHandles({ profiled: [NEWER], inView: [OLDER, NEWER, '1'] });
   assert.equal(handles.get(NEWER), handleOf(NEWER), 'the profiled member keeps the short form');
   assert.equal(handles.get(OLDER), handleOf(OLDER, HANDLE_DIGITS + 1), 'the passer-by takes one more digit');
@@ -56,7 +67,11 @@ test('assignHandles: blank and missing ids are skipped', () => {
 
 test('directoryEntries: names and open aliases sorted, never the persona or a member with no name', () => {
   const profiles = [
-    { id: '30', names: ['Zoé', 'Ana'], aliases: [{ name: 'Zo' }, { name: 'Ana' }, { name: 'Old', validTo: '2026-01-01' }] },
+    {
+      id: '30',
+      names: ['Zoé', 'Ana'],
+      aliases: [{ name: 'Zo' }, { name: 'Ana' }, { name: 'Old', validTo: '2026-01-01' }],
+    },
     { id: '10', names: ['Ἀλκμήνη'], aliases: [] },
     { id: '99', names: ['Self'], aliases: [] },
     { id: '40', names: [], aliases: [] },
@@ -88,7 +103,7 @@ test('renderDirectory: the lead, then one line per member with the exact @handle
   ]);
   assert.equal(
     renderDirectory(entries, handles, DIRECTORY_LABELS),
-    ['DIRECTORY LEAD', '@uaaaa = "Ana \\"the\\" Great" / "Ani"', '@ubbbb = "Ἀλκμήνη"'].join('\n'),
+    ['DIRECTORY LEAD', '@uaaaa = "Ana \\"the\\" Great" / "Ani"', '@ubbbb = "Ἀλκμήνη"'].join('\n')
   );
 });
 
@@ -106,7 +121,10 @@ test('resolveHandles: an exact @handle becomes a mention; names and look-alikes 
     ['ubbbb', '222222222222222222'],
   ]);
   const result = resolveHandles('@uaaaa γεια, @ubbbb! @uaaaa @Ana mail@uaaaa @uaaaab @uaaaaά', ids);
-  assert.equal(result.text, '<@111111111111111111> γεια, <@222222222222222222>! <@111111111111111111> @Ana mail@uaaaa @uaaaab @uaaaaά');
+  assert.equal(
+    result.text,
+    '<@111111111111111111> γεια, <@222222222222222222>! <@111111111111111111> @Ana mail@uaaaa @uaaaab @uaaaaά'
+  );
   assert.deepEqual(result.userIds, ['111111111111111111', '222222222222222222']);
   assert.equal(result.unknown, 1, 'only @uaaaab is a handle nobody has');
 });

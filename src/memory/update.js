@@ -49,7 +49,12 @@ export function recordAddressing(store, guildId, messages, cfg = {}) {
   const uses = countAddressUses(lines, addressCandidates(store.listUserProfiles(guildId)));
   let recorded = 0;
   for (const [userId, list] of uses) {
-    if (store.recordAddressUses(guildId, userId, list, { halfLifeDays: cfg?.addressHalfLifeDays ?? DEFAULT_ADDRESS_HALF_LIFE_DAYS })) recorded += list.length;
+    if (
+      store.recordAddressUses(guildId, userId, list, {
+        halfLifeDays: cfg?.addressHalfLifeDays ?? DEFAULT_ADDRESS_HALF_LIFE_DAYS,
+      })
+    )
+      recorded += list.length;
   }
   return recorded;
 }
@@ -86,7 +91,7 @@ export function touchMemory(store, guildId, normalized, memoryCfg) {
     { name: normalized.channelName, category: normalized.channelCategory, topic: normalized.channelTopic },
     normalized.ts,
     writerId,
-    memoryCfg,
+    memoryCfg
   );
 }
 
@@ -99,8 +104,18 @@ export function touchMemory(store, guildId, normalized, memoryCfg) {
  */
 function slimMedia(part) {
   return {
-    attachments: (part.attachments ?? []).map((a) => ({ kind: a.kind, name: a.name, id: a.id, durationSec: a.durationSec ?? null })),
-    links: (part.links ?? []).map((l) => ({ kind: l.kind, name: l.title || l.site || '', id: l.id, durationSec: null })),
+    attachments: (part.attachments ?? []).map((a) => ({
+      kind: a.kind,
+      name: a.name,
+      id: a.id,
+      durationSec: a.durationSec ?? null,
+    })),
+    links: (part.links ?? []).map((l) => ({
+      kind: l.kind,
+      name: l.title || l.site || '',
+      id: l.id,
+      durationSec: null,
+    })),
     stickers: (part.stickers ?? []).map((s) => ({ id: s.id, name: s.name, format: s.format })),
     emojis: (part.emojis ?? []).map((e) => ({ id: e.id, name: e.name })),
   };
@@ -134,7 +149,9 @@ export function slimMessage(normalized, direct = false) {
     ts: normalized.ts,
     replyToId: normalized.replyToId,
     // The members the message mentions (the record's `mentions`); absent when none.
-    ...(Array.isArray(normalized.mentionedUserIds) && normalized.mentionedUserIds.length > 0 ? { mentionedUserIds: [...normalized.mentionedUserIds] } : {}),
+    ...(Array.isArray(normalized.mentionedUserIds) && normalized.mentionedUserIds.length > 0
+      ? { mentionedUserIds: [...normalized.mentionedUserIds] }
+      : {}),
     ...slimMedia(normalized),
     // The link previews the record keeps (toRecordLine's `links`); absent when none.
     ...(linkCards.length > 0 ? { linkCards } : {}),
@@ -163,7 +180,10 @@ export function createMemoryUpdater({ hot, store }) {
     if (store.state.data.paused) return;
     if (normalized.bot) return;
     if (privateUserId) return;
-    touchMemory(store, guildId, normalized, { ...hot.config.memory, diaryChannelId: hot.config.diary?.channelId || null });
+    touchMemory(store, guildId, normalized, {
+      ...hot.config.memory,
+      diaryChannelId: hot.config.diary?.channelId || null,
+    });
     // The GIF library (src/memory/gifs.js) is fed here: it needs the GIF's URL, which no slim message keeps.
     if (hot.config.features?.gifs !== false) {
       const gifs = store.recordGifs(guildId, [normalized], gifOpts(hot.config));

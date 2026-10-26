@@ -41,7 +41,14 @@ function fakeFetch(response) {
 const JSON_TEXT = JSON.stringify({
   requestId: 'r1',
   results: [
-    { id: 'a', title: 'OpenRouter  API\nReference', url: 'https://example.org/api', publishedDate: '2026-09-01T00:00:00.000Z', author: 'x', text: 'One API\n  for many   models.' },
+    {
+      id: 'a',
+      title: 'OpenRouter  API\nReference',
+      url: 'https://example.org/api',
+      publishedDate: '2026-09-01T00:00:00.000Z',
+      author: 'x',
+      text: 'One API\n  for many   models.',
+    },
     { title: 'Second', url: 'https://example.com/b', highlights: ['first part.', 'second part.'] },
     { title: 'No date', url: 'https://example.net/c', summary: 'A summary.' },
     { title: 'No url', text: 'dropped' },
@@ -83,7 +90,10 @@ test('search: request shape -- endpoint, JSON-RPC tools/call body, headers, no k
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, ENDPOINT);
   assert.equal(calls[0].options.method, 'POST');
-  assert.deepEqual(calls[0].options.headers, { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' });
+  assert.deepEqual(calls[0].options.headers, {
+    'Content-Type': 'application/json',
+    Accept: 'application/json, text/event-stream',
+  });
   const body = JSON.parse(calls[0].options.body);
   assert.equal(body.jsonrpc, '2.0');
   assert.equal(body.method, 'tools/call');
@@ -99,7 +109,10 @@ test('search: request shape -- endpoint, JSON-RPC tools/call body, headers, no k
 
 test('search: a key is sent as a bearer header; a custom endpoint is used', async () => {
   const { calls, fetchImpl } = fakeFetch(sseAnswer(JSON_TEXT));
-  await run(createExaSearch({ fetchImpl, endpoint: 'https://exa.example/mcp' }), 'q', { apiKey: ` ${KEY} `, timeoutMs: 5000 });
+  await run(createExaSearch({ fetchImpl, endpoint: 'https://exa.example/mcp' }), 'q', {
+    apiKey: ` ${KEY} `,
+    timeoutMs: 5000,
+  });
   assert.equal(calls[0].url, 'https://exa.example/mcp');
   assert.equal(calls[0].options.headers.Authorization, `Bearer ${KEY}`);
 });
@@ -120,7 +133,12 @@ test('search: a good answer (event stream, JSON text) -> items with age from pub
   assert.deepEqual(result, {
     ok: true,
     results: [
-      { title: 'OpenRouter API Reference', url: 'https://example.org/api', snippet: 'One API for many models.', age: '2026-09-01T00:00:00.000Z' },
+      {
+        title: 'OpenRouter API Reference',
+        url: 'https://example.org/api',
+        snippet: 'One API for many models.',
+        age: '2026-09-01T00:00:00.000Z',
+      },
       { title: 'Second', url: 'https://example.com/b', snippet: 'first part. second part.' },
       { title: 'No date', url: 'https://example.net/c', snippet: 'A summary.' },
     ],
@@ -129,7 +147,13 @@ test('search: a good answer (event stream, JSON text) -> items with age from pub
 });
 
 test('search: a plain JSON body is read like the stream; a bare results array too', async () => {
-  const message = { jsonrpc: '2.0', id: 1, result: { content: [{ type: 'text', text: JSON.stringify([{ title: 'T', url: 'https://e.example/1', text: 's' }]) }] } };
+  const message = {
+    jsonrpc: '2.0',
+    id: 1,
+    result: {
+      content: [{ type: 'text', text: JSON.stringify([{ title: 'T', url: 'https://e.example/1', text: 's' }]) }],
+    },
+  };
   const { fetchImpl } = fakeFetch(rawResponse(JSON.stringify(message), { type: 'application/json' }));
   const { result } = await run(createExaSearch({ fetchImpl }), 'q', { timeoutMs: 5000 });
   assert.deepEqual(result, { ok: true, results: [{ title: 'T', url: 'https://e.example/1', snippet: 's' }] });
@@ -137,7 +161,12 @@ test('search: a plain JSON body is read like the stream; a bare results array to
 
 test('parseExaText: the formatted text form -- Title/URL/Published Date/Text lines, continuation lines, separators', () => {
   assert.deepEqual(parseExaText(LINES_TEXT, 10), [
-    { title: 'OpenRouter API Reference', url: 'https://example.org/api', snippet: 'One API for many models. It routes requests.', age: '2026-09-01T00:00:00.000Z' },
+    {
+      title: 'OpenRouter API Reference',
+      url: 'https://example.org/api',
+      snippet: 'One API for many models. It routes requests.',
+      age: '2026-09-01T00:00:00.000Z',
+    },
     { title: 'Second', url: 'https://example.com/b', snippet: 'first part. second part.' },
   ]);
   assert.deepEqual(parseExaText('', 5), []);
@@ -174,19 +203,35 @@ test('parseExaText: the live label set -- Title/URL/Published/Author/Highlights 
     'Nothing.',
   ].join('\n');
   assert.deepEqual(parseExaText(text, 10), [
-    { title: 'Harbour Timetable', url: 'https://example.org/timetable', snippet: 'Ferries leave every hour. Last one at midnight.', age: '2026-10-01T00:00:00.000Z' },
+    {
+      title: 'Harbour Timetable',
+      url: 'https://example.org/timetable',
+      snippet: 'Ferries leave every hour. Last one at midnight.',
+      age: '2026-10-01T00:00:00.000Z',
+    },
     { title: 'Café Notes', url: 'https://example.com/cafe', snippet: 'Open late.' },
     { title: 'Lower Case', url: 'https://example.net/lower', snippet: 'Quiet.' },
     { title: 'Empty Date', url: 'https://example.net/empty', snippet: 'Nothing.' },
   ]);
-  const json = JSON.stringify({ results: [{ title: 'J', url: 'https://e.example/j', publishedDate: 'N/A', text: 's' }] });
+  const json = JSON.stringify({
+    results: [{ title: 'J', url: 'https://e.example/j', publishedDate: 'N/A', text: 's' }],
+  });
   assert.deepEqual(parseExaText(json, 5), [{ title: 'J', url: 'https://e.example/j', snippet: 's' }]);
 });
 
 test('parseExaText: at most count items; a long snippet is cut', () => {
-  const many = JSON.stringify({ results: Array.from({ length: 12 }, (_, i) => ({ title: `t${i}`, url: `https://e.example/${i}`, text: 'word '.repeat(400) })) });
+  const many = JSON.stringify({
+    results: Array.from({ length: 12 }, (_, i) => ({
+      title: `t${i}`,
+      url: `https://e.example/${i}`,
+      text: 'word '.repeat(400),
+    })),
+  });
   const items = parseExaText(many, 3);
-  assert.deepEqual(items.map((r) => r.title), ['t0', 't1', 't2']);
+  assert.deepEqual(
+    items.map((r) => r.title),
+    ['t0', 't1', 't2']
+  );
   assert.ok(items[0].snippet.length <= 600);
   assert.ok(items[0].snippet.length > 0);
 });
@@ -195,11 +240,16 @@ test('search: a 429 fails with rate-limited and the status', async () => {
   const { fetchImpl } = fakeFetch(rawResponse('{}', { status: 429, type: 'application/json' }));
   const { result, logs } = await run(createExaSearch({ fetchImpl }), 'q', { timeoutMs: 5000 });
   assert.deepEqual(result, { ok: false, reason: 'rate-limited', status: 429 });
-  assert.deepEqual(logs.map((l) => [l.level, l.msg, l.reason, l.status]), [['warn', 'web: exa failed', 'rate-limited', 429]]);
+  assert.deepEqual(
+    logs.map((l) => [l.level, l.msg, l.reason, l.status]),
+    [['warn', 'web: exa failed', 'rate-limited', 429]]
+  );
 });
 
 test('search: the probed shape -- a 200 whose result carries the rate-limit flag -> rate-limited', async () => {
-  const { fetchImpl } = fakeFetch(sseAnswer("You've hit the free rate limit.", { meta: { 'ai.exa/rateLimited': true } }));
+  const { fetchImpl } = fakeFetch(
+    sseAnswer("You've hit the free rate limit.", { meta: { 'ai.exa/rateLimited': true } })
+  );
   const { result, logs } = await run(createExaSearch({ fetchImpl }), 'q', { timeoutMs: 5000 });
   assert.deepEqual(result, { ok: false, reason: 'rate-limited' });
   assert.equal(logs.length, 1);
@@ -209,7 +259,12 @@ test('search: a non-2xx, an unreadable body, a JSON-RPC error or a tool error fa
   const cases = [
     [rawResponse('nope', { status: 500 }), { ok: false, reason: 'http', status: 500 }],
     [rawResponse('<html>oops</html>'), { ok: false, reason: 'http', status: 200 }],
-    [rawResponse(JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -32600, message: 'bad' } }), { type: 'application/json' }), { ok: false, reason: 'http', status: 200 }],
+    [
+      rawResponse(JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -32600, message: 'bad' } }), {
+        type: 'application/json',
+      }),
+      { ok: false, reason: 'http', status: 200 },
+    ],
     [sseAnswer('tool failed', { isError: true }), { ok: false, reason: 'http', status: 200 }],
   ];
   for (const [response, expected] of cases) {
@@ -219,34 +274,52 @@ test('search: a non-2xx, an unreadable body, a JSON-RPC error or a tool error fa
 });
 
 test('search: a request hanging past timeoutMs fails with timeout', async () => {
-  const fetchImpl = (url, { signal }) => new Promise((resolve, reject) => {
-    signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
-  });
+  const fetchImpl = (url, { signal }) =>
+    new Promise((resolve, reject) => {
+      signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+    });
   const { result } = await run(createExaSearch({ fetchImpl }), 'q', { timeoutMs: 20 });
   assert.deepEqual(result, { ok: false, reason: 'timeout' });
 });
 
 test('search: a thrown fetch or a missing response fails with network', async () => {
   const thrown = fakeFetch(new TypeError('fetch failed'));
-  assert.deepEqual((await run(createExaSearch({ fetchImpl: thrown.fetchImpl }), 'q', { timeoutMs: 5000 })).result, { ok: false, reason: 'network' });
+  assert.deepEqual((await run(createExaSearch({ fetchImpl: thrown.fetchImpl }), 'q', { timeoutMs: 5000 })).result, {
+    ok: false,
+    reason: 'network',
+  });
   const missing = fakeFetch(null);
-  assert.deepEqual((await run(createExaSearch({ fetchImpl: missing.fetchImpl }), 'q', { timeoutMs: 5000 })).result, { ok: false, reason: 'network' });
+  assert.deepEqual((await run(createExaSearch({ fetchImpl: missing.fetchImpl }), 'q', { timeoutMs: 5000 })).result, {
+    ok: false,
+    reason: 'network',
+  });
 });
 
 test('search: an empty answer fails with empty without a warn line; a blank query too, without a request but warned', async () => {
-  for (const text of ['', 'No results found.', JSON.stringify({ results: [] }), JSON.stringify({ results: [{ title: 'x' }] })]) {
+  for (const text of [
+    '',
+    'No results found.',
+    JSON.stringify({ results: [] }),
+    JSON.stringify({ results: [{ title: 'x' }] }),
+  ]) {
     const { fetchImpl } = fakeFetch(sseAnswer(text));
     const { result, logs } = await run(createExaSearch({ fetchImpl }), 'q', { timeoutMs: 5000 });
     assert.deepEqual(result, { ok: false, reason: 'empty' }, text);
     assert.equal(logs.length, 0, text);
   }
   const noContent = fakeFetch(rawResponse(`data: ${JSON.stringify({ jsonrpc: '2.0', id: 1, result: {} })}\n`));
-  assert.deepEqual((await run(createExaSearch({ fetchImpl: noContent.fetchImpl }), 'q', { timeoutMs: 5000 })).result, { ok: false, reason: 'empty' });
+  assert.deepEqual((await run(createExaSearch({ fetchImpl: noContent.fetchImpl }), 'q', { timeoutMs: 5000 })).result, {
+    ok: false,
+    reason: 'empty',
+  });
   const { calls, fetchImpl } = fakeFetch(sseAnswer(JSON_TEXT));
   const { result, logs } = await run(createExaSearch({ fetchImpl }), '   ', { timeoutMs: 5000 });
   assert.deepEqual(result, { ok: false, reason: 'empty' });
   assert.equal(calls.length, 0);
-  assert.deepEqual(logs.map((l) => [l.level, l.msg, l.reason]), [['warn', 'web: exa failed', 'empty']]);
+  assert.deepEqual(
+    logs.map((l) => [l.level, l.msg, l.reason]),
+    [['warn', 'web: exa failed', 'empty']]
+  );
 });
 
 test('search: failure logs carry reason and status only, never the query, the key or the endpoint', async () => {

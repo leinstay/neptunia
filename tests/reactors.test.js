@@ -66,7 +66,12 @@ test('reactors store: an add on her message is kept in order, each user once', (
 test('reactors store: remove takes one user back, removeEmoji one emoji, removeAll every emoji', () => {
   const store = createReactorStore();
   const message = rawMsg('m1');
-  for (const [emoji, user] of [['😂', '1'], ['😂', '2'], ['👍', '3'], [':kek:', '4']]) {
+  for (const [emoji, user] of [
+    ['😂', '1'],
+    ['😂', '2'],
+    ['👍', '3'],
+    [':kek:', '4'],
+  ]) {
     const parsed = emoji.startsWith(':') ? { id: '77', name: 'kek' } : { name: emoji };
     feed(store, 'add', { reaction: rawReaction(message, parsed), user: { id: user } });
   }
@@ -98,7 +103,15 @@ test('reactors store: another guild, another author and an unknown partial messa
   assert.equal(feed(store, 'add', { reaction: rawReaction(partial, { name: '😂' }), user: { id: '2' } }), 'ignored');
   assert.deepEqual(store.counts(), { messages: 0, reactors: 0 });
   // Not served yet (no guild resolved): nothing.
-  assert.equal(feed(store, 'add', { reaction: rawReaction(rawMsg('m4'), { name: '😂' }), user: { id: '2' } }, { guildId: null, selfId: SELF }), 'ignored');
+  assert.equal(
+    feed(
+      store,
+      'add',
+      { reaction: rawReaction(rawMsg('m4'), { name: '😂' }), user: { id: '2' } },
+      { guildId: null, selfId: SELF }
+    ),
+    'ignored'
+  );
 });
 
 test('reactors store: a partial message already known as hers takes live events', () => {
@@ -127,7 +140,10 @@ test('reactors store: bounded by maxMessages read at each insertion, the oldest 
   store.add('1001', '😂', '2');
   store.markOwn('1009');
   assert.equal(store.isOwn('1001'), false, 'the oldest snowflake goes first');
-  assert.deepEqual(['1003', '1005', '1009'].map((id) => store.isOwn(id)), [true, true, true]);
+  assert.deepEqual(
+    ['1003', '1005', '1009'].map((id) => store.isOwn(id)),
+    [true, true, true]
+  );
   max = 2;
   store.markOwn('1010');
   assert.deepEqual(store.counts().messages, 2);
@@ -138,7 +154,10 @@ test('reactors store: bounded by maxMessages read at each insertion, the oldest 
 // --- the backfill decision -----------------------------------------------------
 
 /** A normalized line. */
-function line(id, { self = true, reactions = [], authorId = self ? SELF : '7', authorName = self ? 'Persona' : 'Zoé', bot = false } = {}) {
+function line(
+  id,
+  { self = true, reactions = [], authorId = self ? SELF : '7', authorName = self ? 'Persona' : 'Zoé', bot = false } = {}
+) {
   return { id, channelId: 'c1', authorId, authorName, self, bot, content: 'text', ts: 1_000 + Number(id), reactions };
 }
 
@@ -148,8 +167,18 @@ test('backfillPlan: only her lines, only reactions by others the store lacks, on
   store.add('2', '👍', '8');
   const lines = [
     line('1', { self: false, reactions: [{ emoji: '😂', count: 2, mine: false }] }),
-    line('2', { reactions: [{ emoji: '👍', count: 1, mine: false }, { emoji: '😂', count: 3, mine: false }] }),
-    line('3', { reactions: [{ emoji: '🙂', count: 1, mine: true }, { emoji: '🔥', count: 2, mine: true }] }),
+    line('2', {
+      reactions: [
+        { emoji: '👍', count: 1, mine: false },
+        { emoji: '😂', count: 3, mine: false },
+      ],
+    }),
+    line('3', {
+      reactions: [
+        { emoji: '🙂', count: 1, mine: true },
+        { emoji: '🔥', count: 2, mine: true },
+      ],
+    }),
     line('4'),
   ];
   const plan = backfillPlan(lines, store);
@@ -167,7 +196,9 @@ test('backfillPlan: a reaction whose known reactors fall short of its count is a
   const store = createReactorStore();
   store.markOwn('2');
   store.add('2', '😂', '8');
-  assert.deepEqual(backfillPlan([line('2', { reactions: [{ emoji: '😂', count: 3, mine: false }] })], store), [{ messageId: '2', emoji: '😂' }]);
+  assert.deepEqual(backfillPlan([line('2', { reactions: [{ emoji: '😂', count: 3, mine: false }] })], store), [
+    { messageId: '2', emoji: '😂' },
+  ]);
 });
 
 test('runBackfill: fetches one at a time into the store, her own id dropped, failures counted', async () => {
@@ -176,14 +207,17 @@ test('runBackfill: fetches one at a time into the store, her own id dropped, fai
   store.add('2', '😂', '9');
   const asked = [];
   const stats = await runBackfill(
-    [{ messageId: '2', emoji: '😂' }, { messageId: '2', emoji: '👍' }],
+    [
+      { messageId: '2', emoji: '😂' },
+      { messageId: '2', emoji: '👍' },
+    ],
     store,
     async (item) => {
       asked.push(item.emoji);
       if (item.emoji === '👍') throw new Error('gone');
       return ['5', SELF, '6'];
     },
-    { budgetMs: 1000, selfId: SELF, wait: () => new Promise(() => {}) },
+    { budgetMs: 1000, selfId: SELF, wait: () => new Promise(() => {}) }
   );
   assert.deepEqual(asked, ['😂', '👍']);
   assert.deepEqual(stats, { planned: 2, fetched: 1, failed: 1, timedOut: false });
@@ -215,7 +249,9 @@ test('runBackfill: the budget is respected, a late fetch still lands in the stor
 });
 
 test('runBackfill: an empty plan asks nothing and waits for nothing', async () => {
-  const stats = await runBackfill([], createReactorStore(), () => assert.fail('no fetch'), { wait: () => assert.fail('no wait') });
+  const stats = await runBackfill([], createReactorStore(), () => assert.fail('no fetch'), {
+    wait: () => assert.fail('no wait'),
+  });
   assert.deepEqual(stats, { planned: 0, fetched: 0, failed: 0, timedOut: false });
 });
 
@@ -228,10 +264,21 @@ test('withReactors: her reactions carry the known reactors resolved to names, un
   store.set('2', '😂', ['5', '6', '404']);
   store.set('1', '😂', ['5']);
   const users = { 5: { name: 'Zoé' }, 6: { name: 'Helper', bot: true } };
-  const lines = [line('1', { self: false, reactions: [{ emoji: '😂', count: 1, mine: false }] }), line('2', { reactions: [{ emoji: '😂', count: 3, mine: false }, { emoji: '👍', count: 1, mine: false }] })];
+  const lines = [
+    line('1', { self: false, reactions: [{ emoji: '😂', count: 1, mine: false }] }),
+    line('2', {
+      reactions: [
+        { emoji: '😂', count: 3, mine: false },
+        { emoji: '👍', count: 1, mine: false },
+      ],
+    }),
+  ];
   const out = withReactors(lines, store, (id) => users[id] ?? null);
-  assert.equal(out[0], lines[0], 'someone else\'s line is untouched');
-  assert.deepEqual(out[1].reactions[0].users, [{ id: '5', name: 'Zoé', bot: false }, { id: '6', name: 'Helper', bot: true }]);
+  assert.equal(out[0], lines[0], "someone else's line is untouched");
+  assert.deepEqual(out[1].reactions[0].users, [
+    { id: '5', name: 'Zoé', bot: false },
+    { id: '6', name: 'Helper', bot: true },
+  ]);
   assert.equal(out[1].reactions[1].users, undefined);
   assert.equal(lines[1].reactions[0].users, undefined, 'the input is not mutated');
   assert.deepEqual(reactorIdsOf(out), ['5'], 'bots get no handle');
@@ -268,26 +315,41 @@ test('fetchHistory: with reactors, her missing reactors are fetched once and nam
     users: {
       fetch: async (query) => {
         calls.push(query);
-        return new Map([['7', {}], ['8', {}]]);
+        return new Map([
+          ['7', {}],
+          ['8', {}],
+        ]);
       },
     },
   };
   const own = historyMessage('2', SELF, [laugh], 2000);
-  const theirs = historyMessage('1', '7', [{ emoji: { name: '👍' }, count: 1, me: false, users: { fetch: async () => assert.fail('not hers') } }], 1000);
-  const members = new Map([
-    ['7', { displayName: 'Zoé', user: { id: '7', bot: false } }],
-  ]);
+  const theirs = historyMessage(
+    '1',
+    '7',
+    [{ emoji: { name: '👍' }, count: 1, me: false, users: { fetch: async () => assert.fail('not hers') } }],
+    1000
+  );
+  const members = new Map([['7', { displayName: 'Zoé', user: { id: '7', bot: false } }]]);
   const channel = {
     id: 'c1',
     guild: { members: { cache: members } },
     client: { users: { cache: new Map([['8', { id: '8', bot: true, globalName: null, username: 'helperbot' }]]) } },
-    messages: { fetch: async () => new Map([['2', own], ['1', theirs]]) },
+    messages: {
+      fetch: async () =>
+        new Map([
+          ['2', own],
+          ['1', theirs],
+        ]),
+    },
   };
   const store = createReactorStore();
   const options = { limit: 10, selfId: SELF, reactors: { store, budgetMs: 2000, fetchUsers: 10 } };
   const lines = await fetchHistory(channel, options);
   assert.deepEqual(calls, [{ limit: 10 }]);
-  assert.deepEqual(lines[1].reactions[0].users, [{ id: '7', name: 'Zoé', bot: false }, { id: '8', name: 'helperbot', bot: true }]);
+  assert.deepEqual(lines[1].reactions[0].users, [
+    { id: '7', name: 'Zoé', bot: false },
+    { id: '8', name: 'helperbot', bot: true },
+  ]);
   assert.equal(lines[0].reactions[0].users, undefined);
   await fetchHistory(channel, options);
   assert.equal(calls.length, 1, 'once per message and emoji');
@@ -297,7 +359,9 @@ test('fetchHistory: with reactors, her missing reactors are fetched once and nam
 
 test('fetchMessage: a partial message in the cache is fetched whole', async () => {
   const whole = { id: 'm1', partial: false, author: { id: SELF } };
-  const channel = { messages: { cache: new Map([['m1', { id: 'm1', partial: true, author: null }]]), fetch: async () => whole } };
+  const channel = {
+    messages: { cache: new Map([['m1', { id: 'm1', partial: true, author: null }]]), fetch: async () => whole },
+  };
   assert.equal(await fetchMessage(channel, 'm1'), whole);
 });
 
@@ -315,13 +379,19 @@ function reacted(users, { count = users.length, mine = false, emoji = '😂' } =
 }
 
 test('formatTranscript: her line names its reactors instead of counting them', () => {
-  const users = [{ id: '7', name: 'Zoé', bot: false }, { id: '8', name: 'Helper', bot: true }];
+  const users = [
+    { id: '7', name: 'Zoé', bot: false },
+    { id: '8', name: 'Helper', bot: true },
+  ];
   const [item] = formatTranscript([reacted(users)], { ...base, reactionNames: true });
   assert.ok(item.text.endsWith('[reactions: 😂 by Zoé, Helper]'), item.text);
 });
 
 test('formatTranscript: a reactor reads exactly like an author with the same id, handle included', () => {
-  const handles = new Map([['7', 'u1abc'], ['8', 'u2def']]);
+  const handles = new Map([
+    ['7', 'u1abc'],
+    ['8', 'u2def'],
+  ]);
   const author = { ...line('1', { self: false, authorId: '7', authorName: 'Zoé' }) };
   const users = [{ id: '7', name: 'Zoé', bot: false }];
   const items = formatTranscript([author, reacted(users)], { ...base, handles, reactionNames: true });
@@ -329,20 +399,33 @@ test('formatTranscript: a reactor reads exactly like an author with the same id,
   assert.equal(authorForm, 'Zoé [@u1abc]');
   assert.ok(items[1].text.endsWith(`[reactions: 😂 by ${authorForm}]`), items[1].text);
   // A bot reactor, like a bot author, never carries a handle.
-  const botItems = formatTranscript([{ ...line('1', { self: false, authorId: '8', authorName: 'Helper', bot: true }) }, reacted([{ id: '8', name: 'Helper', bot: true }])], { ...base, handles, reactionNames: true });
+  const botItems = formatTranscript(
+    [
+      { ...line('1', { self: false, authorId: '8', authorName: 'Helper', bot: true }) },
+      reacted([{ id: '8', name: 'Helper', bot: true }]),
+    ],
+    { ...base, handles, reactionNames: true }
+  );
   assert.ok(botItems[0].text.includes('] Helper: text'));
   assert.ok(botItems[1].text.endsWith('[reactions: 😂 by Helper]'), botItems[1].text);
 });
 
 test('formatTranscript: past reactionNamesMax the rest is counted, and unknown reactors too', () => {
   const users = ['Ana', 'Bé', 'Cé', 'Dé'].map((name, i) => ({ id: String(i + 10), name, bot: false }));
-  const [capped] = formatTranscript([reacted(users, { count: 4 })], { ...base, reactionNames: true, reactionNamesMax: 2 });
+  const [capped] = formatTranscript([reacted(users, { count: 4 })], {
+    ...base,
+    reactionNames: true,
+    reactionNamesMax: 2,
+  });
   assert.ok(capped.text.endsWith('[reactions: 😂 by Ana, Bé and 2 more]'), capped.text);
-  const [partly] = formatTranscript([reacted(users.slice(0, 1), { count: 4, mine: true })], { ...base, reactionNames: true });
+  const [partly] = formatTranscript([reacted(users.slice(0, 1), { count: 4, mine: true })], {
+    ...base,
+    reactionNames: true,
+  });
   assert.ok(partly.text.endsWith('[reactions: 😂 by Ana, Persona (you) and 2 more]'), partly.text);
 });
 
-test('formatTranscript: counts stay on others\' lines, for unknown reactors and with the switch off', () => {
+test("formatTranscript: counts stay on others' lines, for unknown reactors and with the switch off", () => {
   const users = [{ id: '7', name: 'Zoé', bot: false }];
   const theirs = { ...line('1', { self: false }), reactions: [{ emoji: '😂', count: 1, mine: false, users }] };
   const [other] = formatTranscript([theirs], { ...base, reactionNames: true });
@@ -351,7 +434,11 @@ test('formatTranscript: counts stay on others\' lines, for unknown reactors and 
   assert.ok(unknown.text.endsWith('[reactions: 😂 x2]'), unknown.text);
   const [off] = formatTranscript([reacted(users)], { ...base, reactionNames: false });
   assert.ok(off.text.endsWith('[reactions: 😂 x1]'), off.text);
-  const [noLabel] = formatTranscript([reacted(users)], { ...base, reactionNames: true, labels: { ...labels, transcript: { ...labels.transcript, reactionNames: '' } } });
+  const [noLabel] = formatTranscript([reacted(users)], {
+    ...base,
+    reactionNames: true,
+    labels: { ...labels, transcript: { ...labels.transcript, reactionNames: '' } },
+  });
   assert.ok(noLabel.text.endsWith('[reactions: 😂 x1]'), noLabel.text);
   const [memory] = formatTranscript([reacted(users)], { ...base, mode: 'memory', reactionNames: true });
   assert.ok(memory.text.endsWith('[reactions: 😂 x1]'), memory.text);
@@ -364,7 +451,17 @@ test('buildRequest: a reactor on her line gets a handle like an author, only in 
   const author = { id: '650000000000000123', name: 'Zoé' };
   const reactor = { id: '650000000000000456', name: 'Ἑλένη' };
   const history = [
-    { id: '1', ts: now - 3 * 60_000, authorId: author.id, authorName: author.name, self: false, content: 'line 1', attachments: [], stickers: [], replyToId: null },
+    {
+      id: '1',
+      ts: now - 3 * 60_000,
+      authorId: author.id,
+      authorName: author.name,
+      self: false,
+      content: 'line 1',
+      attachments: [],
+      stickers: [],
+      replyToId: null,
+    },
     {
       id: '2',
       ts: now - 2 * 60_000,
@@ -375,10 +472,23 @@ test('buildRequest: a reactor on her line gets a handle like an author, only in 
       attachments: [],
       stickers: [],
       replyToId: null,
-      reactions: [{ emoji: '😂', count: 2, mine: false, users: [{ id: reactor.id, name: reactor.name, bot: false }, { id: author.id, name: author.name, bot: false }] }],
+      reactions: [
+        {
+          emoji: '😂',
+          count: 2,
+          mine: false,
+          users: [
+            { id: reactor.id, name: reactor.name, bot: false },
+            { id: author.id, name: author.name, bot: false },
+          ],
+        },
+      ],
     },
   ];
-  const plain = history.map((message) => ({ ...message, reactions: (message.reactions ?? []).map(({ users, ...rest }) => rest) }));
+  const plain = history.map((message) => ({
+    ...message,
+    reactions: (message.reactions ?? []).map(({ users, ...rest }) => rest),
+  }));
   const config = (features = {}) => ({
     bot: { timezone: 'UTC' },
     context: {
@@ -395,7 +505,15 @@ test('buildRequest: a reactor on her line gets a handle like an author, only in 
   });
   const input = (lines, features) => ({
     config: config(features),
-    prompts: { 'system-prompt': 'SYSTEM', 'character-card': 'CARD', rules: 'RULES', format: 'FORMAT', reply: 'REPLY', interject: 'INTERJECT', labels },
+    prompts: {
+      'system-prompt': 'SYSTEM',
+      'character-card': 'CARD',
+      rules: 'RULES',
+      format: 'FORMAT',
+      reply: 'REPLY',
+      interject: 'INTERJECT',
+      labels,
+    },
     calibrator: { ratio: 1, apply: (n) => n },
     mode: 'interject',
     now,
@@ -410,8 +528,16 @@ test('buildRequest: a reactor on her line gets a handle like an author, only in 
     otherProfiles: [],
     candidateProfiles: [{ id: author.id, names: [author.name], aliases: [] }],
   });
-  const textOf = (request) => request.messages[1].content.filter((part) => part.type === 'text').map((part) => part.text).join('\n');
-  const stableOf = (request) => request.messages[1].content.filter((part) => part.cacheSegment).map((part) => part.text).join('\n');
+  const textOf = (request) =>
+    request.messages[1].content
+      .filter((part) => part.type === 'text')
+      .map((part) => part.text)
+      .join('\n');
+  const stableOf = (request) =>
+    request.messages[1].content
+      .filter((part) => part.cacheSegment)
+      .map((part) => part.text)
+      .join('\n');
 
   const named = buildRequest(input(history));
   const handleOfId = new Map([...named.handles].map(([handle, id]) => [id, handle]));
@@ -430,7 +556,10 @@ test('buildRequest: a reactor on her line gets a handle like an author, only in 
 
 test('reactionStoreEventOf: add, remove, clear-all and clear-emoji equal reactionEventOf and leave the store alike', () => {
   const guild = { id: GUILD };
-  const emojis = [{ id: null, name: '\u{1F525}' }, { id: '55', name: 'kek' }];
+  const emojis = [
+    { id: null, name: '\u{1F525}' },
+    { id: '55', name: 'kek' },
+  ];
   const messages = [
     rawMsg('m1', SELF, { channelId: 'c1', guild }),
     rawMsg('m2', '7', { channelId: 'c1', guild }),
@@ -461,7 +590,8 @@ test('reactionStoreEventOf: add, remove, clear-all and clear-emoji equal reactio
         const a = applyReactionEvent(left, reactionEventOf(kind, parts), served);
         const b = applyReactionEvent(right, reactionStoreEventOf(event), served);
         assert.equal(b, a, kind);
-        for (const key of [reactionKey(emoji), 'other']) assert.deepEqual(right.reactors('m1', key), left.reactors('m1', key), kind);
+        for (const key of [reactionKey(emoji), 'other'])
+          assert.deepEqual(right.reactors('m1', key), left.reactors('m1', key), kind);
         assert.deepEqual(right.counts(), left.counts(), kind);
       }
     }
@@ -469,6 +599,13 @@ test('reactionStoreEventOf: add, remove, clear-all and clear-emoji equal reactio
 });
 
 test('reactionStoreEventOf: never throws on a bare event', () => {
-  assert.deepEqual(reactionStoreEventOf({}), { kind: 'remove', guildId: null, messageId: null, authorId: null, emoji: null, userId: null });
+  assert.deepEqual(reactionStoreEventOf({}), {
+    kind: 'remove',
+    guildId: null,
+    messageId: null,
+    authorId: null,
+    emoji: null,
+    userId: null,
+  });
   assert.doesNotThrow(() => reactionStoreEventOf(null));
 });

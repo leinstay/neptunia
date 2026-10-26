@@ -31,7 +31,8 @@ export function operationalKindOf(rel) {
 }
 
 /** The `owner` key of a row: the path, or the path and the line position for a JSONL line. */
-export const ownerOf = (rel, ctx = {}) => (ctx.position === undefined || ctx.position === null ? String(rel) : `${rel}#${ctx.position}`);
+export const ownerOf = (rel, ctx = {}) =>
+  ctx.position === undefined || ctx.position === null ? String(rel) : `${rel}#${ctx.position}`;
 
 export function operationalRow(kind, rel, value, ctx = {}) {
   return { kind, owner: ownerOf(rel, ctx), value: JSON.stringify(value), owner_file: String(rel) };

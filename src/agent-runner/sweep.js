@@ -110,7 +110,15 @@ export async function sweepOutputs({ outDir, keepHours, liveIds = () => [], now 
  * @param {{ info: Function }} [options.log]
  * @returns {{ sweep: () => Promise<object|null>, stop: () => void }}
  */
-export function startSweeper({ profile, outDir, keepHours, liveIds, intervalMs = SWEEP_INTERVAL_MS, now = Date.now, log = defaultLog }) {
+export function startSweeper({
+  profile,
+  outDir,
+  keepHours,
+  liveIds,
+  intervalMs = SWEEP_INTERVAL_MS,
+  now = Date.now,
+  log = defaultLog,
+}) {
   let busy = null;
   let stopped = false;
 

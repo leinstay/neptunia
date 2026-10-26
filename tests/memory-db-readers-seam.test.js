@@ -21,13 +21,21 @@ test('service: the read connection opens with the first tick and closes with the
     const dataDir = path.join(env.root, 'service');
     fs.mkdirSync(dataDir);
     buildDataDir(dataDir);
-    const service = createMemoryDb({ hot: { config: {} }, dataDir, log: silent, worker: false, now: () => Date.UTC(2026, 9, 24) });
+    const service = createMemoryDb({
+      hot: { config: {} },
+      dataDir,
+      log: silent,
+      worker: false,
+      now: () => Date.UTC(2026, 9, 24),
+    });
     assert.equal(service.readHandle(), null, 'nothing open before the first tick');
     await service.tick();
     assert.ok(service.readHandle()?.db, 'the read connection once open');
     await service.close();
     assert.equal(service.readHandle(), null, 'closed: no read connection');
-  } finally { env.done(); }
+  } finally {
+    env.done();
+  }
 });
 
 test('store: the directory ids come from the database only; a closed database is an error with a code', async () => {
@@ -35,16 +43,31 @@ test('store: the directory ids come from the database only; a closed database is
   try {
     const originalReaddir = fs.readdirSync;
     let readdirs = 0;
-    fs.readdirSync = (...args) => { readdirs += 1; return originalReaddir(...args); };
+    fs.readdirSync = (...args) => {
+      readdirs += 1;
+      return originalReaddir(...args);
+    };
     try {
       const store = createStore({ dataDir: env.data, memoryDb: env.memoryDb });
-      for (const g of [GUILD, GUILD_2]) assert.deepEqual({ privates: store.listPrivate(g).sort(), users: store.countUsers(g) }, { privates: [MEMBER], users: 1 }, g);
+      for (const g of [GUILD, GUILD_2])
+        assert.deepEqual(
+          { privates: store.listPrivate(g).sort(), users: store.countUsers(g) },
+          { privates: [MEMBER], users: 1 },
+          g
+        );
       assert.equal(readdirs, 0, 'no directory listed');
       assert.deepEqual(store.listPrivate('300000000000000099'), []);
-    } finally { fs.readdirSync = originalReaddir; }
+    } finally {
+      fs.readdirSync = originalReaddir;
+    }
     const closed = createStore({ dataDir: env.data, memoryDb: env.closedDb });
-    assert.throws(() => closed.listPrivate(GUILD), (error) => error.code === 'DB_CLOSED');
-  } finally { env.done(); }
+    assert.throws(
+      () => closed.listPrivate(GUILD),
+      (error) => error.code === 'DB_CLOSED'
+    );
+  } finally {
+    env.done();
+  }
 });
 
 test('store: /nep resume checks only the operational JSON files', async () => {
@@ -56,15 +79,31 @@ test('store: /nep resume checks only the operational JSON files', async () => {
     fs.mkdirSync(path.join(g, 'journal', 'requests', '2026-10-21'), { recursive: true });
     fs.writeFileSync(path.join(g, 'journal', 'requests', '2026-10-21', 'turn-9-s1.json'), '{ broken');
     const broken = createStore({ dataDir: env.data, memoryDb: env.memoryDb }).validate().sort();
-    assert.deepEqual(broken, [`guilds/${GUILD}/inner.json`, `guilds/${GUILD}/journal/requests/2026-10-21/turn-9-s1.json`]);
+    assert.deepEqual(broken, [
+      `guilds/${GUILD}/inner.json`,
+      `guilds/${GUILD}/journal/requests/2026-10-21/turn-9-s1.json`,
+    ]);
     for (const [rel, kept] of [
-      ['state.json', true], ['usage.json', true], ['vault/x/guilds/1/users/2.json', true], ['snapshots/a/b.json', true],
-      [`guilds/${GUILD}/gifs.json`, true], [`guilds/${GUILD}/media.json`, true], [`guilds/${GUILD}/participation.json`, true],
-      [`guilds/${GUILD}/backfill/state.json`, true], [`guilds/${GUILD}/record/backfill.json`, true], [`guilds/${GUILD}/private/${MEMBER}/missed.json`, true],
-      [`guilds/${GUILD}/guild.json`, false], [`guilds/${GUILD}/intentions.json`, false], [`guilds/${GUILD}/private/${MEMBER}.json`, false],
-      [`guilds/${GUILD}/record/2026-10/ids.json`, false], [`guilds/${GUILD}/forgotten.json`, false],
-    ]) assert.equal(operationalJsonPath(rel), kept, rel);
-  } finally { env.done(); }
+      ['state.json', true],
+      ['usage.json', true],
+      ['vault/x/guilds/1/users/2.json', true],
+      ['snapshots/a/b.json', true],
+      [`guilds/${GUILD}/gifs.json`, true],
+      [`guilds/${GUILD}/media.json`, true],
+      [`guilds/${GUILD}/participation.json`, true],
+      [`guilds/${GUILD}/backfill/state.json`, true],
+      [`guilds/${GUILD}/record/backfill.json`, true],
+      [`guilds/${GUILD}/private/${MEMBER}/missed.json`, true],
+      [`guilds/${GUILD}/guild.json`, false],
+      [`guilds/${GUILD}/intentions.json`, false],
+      [`guilds/${GUILD}/private/${MEMBER}.json`, false],
+      [`guilds/${GUILD}/record/2026-10/ids.json`, false],
+      [`guilds/${GUILD}/forgotten.json`, false],
+    ])
+      assert.equal(operationalJsonPath(rel), kept, rel);
+  } finally {
+    env.done();
+  }
 });
 
 test('embedder: the catch-up survey comes from the database', async () => {
@@ -72,9 +111,15 @@ test('embedder: the catch-up survey comes from the database', async () => {
   try {
     const now = () => Date.parse('2026-10-21T23:00:00.000Z');
     const hot = { config: { features: { meaningSearch: true, embedIndex: true }, embed: { catchUpHours: 72 } } };
-    const embed = async () => { throw new Error('no model call in a test'); };
+    const embed = async () => {
+      throw new Error('no model call in a test');
+    };
     const embedder = createEmbedder({
-      hot, embed, now, log: env.log, memoryDb: env.memoryDb,
+      hot,
+      embed,
+      now,
+      log: env.log,
+      memoryDb: env.memoryDb,
       record: createRecord({ dataDir: env.data, log: env.log, memoryDb: env.memoryDb }),
       vectors: createVectors({ dataDir: env.data, log: env.log, memoryDb: env.memoryDb }),
     });
@@ -82,6 +127,11 @@ test('embedder: the catch-up survey comes from the database', async () => {
     assert.ok(found.messages > 0 && found.indexed > 0, 'messages counted and some indexed');
     const second = await embedder.coverage(GUILD_2, { hours: 72 });
     assert.ok(second.messages > 0, 'the second guild counted');
-    assert.deepEqual(env.warns.filter((warn) => warn.message === 'memory db: read failed'), []);
-  } finally { env.done(); }
+    assert.deepEqual(
+      env.warns.filter((warn) => warn.message === 'memory db: read failed'),
+      []
+    );
+  } finally {
+    env.done();
+  }
 });

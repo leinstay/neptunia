@@ -24,15 +24,21 @@ test('resolvePaths: a blank variable counts as unset', () => {
 test('resolvePaths: absolute values are taken as they are', () => {
   const privateDir = path.resolve('/etc/engine-private');
   const dataDir = path.resolve('/var/lib/engine-data');
-  assert.deepEqual(resolvePaths({ rootDir: ROOT, env: { NEPTUNIA_PRIVATE_DIR: privateDir, NEPTUNIA_DATA_DIR: dataDir } }), {
-    rootDir: ROOT,
-    privateDir,
-    dataDir,
-  });
+  assert.deepEqual(
+    resolvePaths({ rootDir: ROOT, env: { NEPTUNIA_PRIVATE_DIR: privateDir, NEPTUNIA_DATA_DIR: dataDir } }),
+    {
+      rootDir: ROOT,
+      privateDir,
+      dataDir,
+    }
+  );
 });
 
 test('resolvePaths: relative values are resolved against the root, not the working directory', () => {
-  const paths = resolvePaths({ rootDir: ROOT, env: { NEPTUNIA_PRIVATE_DIR: '../private', NEPTUNIA_DATA_DIR: 'state/memory' } });
+  const paths = resolvePaths({
+    rootDir: ROOT,
+    env: { NEPTUNIA_PRIVATE_DIR: '../private', NEPTUNIA_DATA_DIR: 'state/memory' },
+  });
   assert.equal(paths.privateDir, path.resolve(ROOT, '..', 'private'));
   assert.equal(paths.dataDir, path.join(ROOT, 'state', 'memory'));
 });

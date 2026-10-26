@@ -71,7 +71,15 @@ export const PART_FIELDS = Object.freeze({
 });
 
 /** The fields a member's card leaves out. */
-const OWNER_FIELDS = new Set(['keys.base', 'costs.base', 'costs.errands', 'costs.development', 'inner', 'memory', 'speed']);
+const OWNER_FIELDS = new Set([
+  'keys.base',
+  'costs.base',
+  'costs.errands',
+  'costs.development',
+  'inner',
+  'memory',
+  'speed',
+]);
 
 /** The model roles of the errand agents (src/agent-runner/profiles.js) and `drawing`, which shares
  * their key: a key only they use is the errands' key, which `keys.base` leaves out. */
@@ -117,13 +125,29 @@ export function innerLines(s, labels, { tokens = null } = {}) {
     labelLine(L.modeLine, { mode: s.mode, state: state ?? '' }),
     s.turnsToday != null ? labelLine(L.turnsLine, { used: s.turnsToday, chains: s.chains ?? 0 }) : null,
     s.turnsToday != null ? labelLine(L.usdLine, { spent: (s.spentUsd ?? 0).toFixed(2) }) : null,
-    s.next ? labelLine(L.nextLine, { at: innerStamp(s.next.at), kind: kinds[s.next.kind] ?? s.next.kind }) : labelLine(L.nextNone, {}),
-    s.heartbeat === undefined ? null : s.heartbeat ? (Number.isFinite(s.heartbeat.nextAt) ? labelLine(L.heartbeatLine, { at: innerStamp(s.heartbeat.nextAt) }) : null) : labelLine(L.heartbeatOff, {}),
-    s.lastTurn ? labelLine(L.lastLine, { outcome: s.lastTurn.outcome ?? L.outcomeUnknown ?? '-', at: innerStamp(s.lastTurn.at) }) : labelLine(L.lastNone, {}),
+    s.next
+      ? labelLine(L.nextLine, { at: innerStamp(s.next.at), kind: kinds[s.next.kind] ?? s.next.kind })
+      : labelLine(L.nextNone, {}),
+    s.heartbeat === undefined
+      ? null
+      : s.heartbeat
+        ? Number.isFinite(s.heartbeat.nextAt)
+          ? labelLine(L.heartbeatLine, { at: innerStamp(s.heartbeat.nextAt) })
+          : null
+        : labelLine(L.heartbeatOff, {}),
+    s.lastTurn
+      ? labelLine(L.lastLine, { outcome: s.lastTurn.outcome ?? L.outcomeUnknown ?? '-', at: innerStamp(s.lastTurn.at) })
+      : labelLine(L.lastNone, {}),
     s.lastError ? labelLine(L.lastErrorLine, { code: s.lastError.code, at: innerStamp(s.lastError.at) }) : null,
     intentions ? labelLine(L.intentionsLine, intentions) : null,
     s.attention ? labelLine(L.attentionLine, s.attention) : null,
-    tokens ? labelLine(L.tokensLine, { prompt: tokens.prompt ?? 0, cached: tokens.cached ?? 0, completion: tokens.completion ?? 0 }) : null,
+    tokens
+      ? labelLine(L.tokensLine, {
+          prompt: tokens.prompt ?? 0,
+          cached: tokens.cached ?? 0,
+          completion: tokens.completion ?? 0,
+        })
+      : null,
   ].filter(Boolean);
 }
 
@@ -162,7 +186,9 @@ function byPurposeLines(cfg, roles, unlisted) {
   if (!isPlainObject(byPurpose)) return [];
   return Object.entries(byPurpose)
     .filter(([, model]) => typeof model === 'string' && model)
-    .filter(([purpose]) => (Object.hasOwn(PURPOSE_ROLES, purpose) ? roles.includes(PURPOSE_ROLES[purpose]) : unlisted === true))
+    .filter(([purpose]) =>
+      Object.hasOwn(PURPOSE_ROLES, purpose) ? roles.includes(PURPOSE_ROLES[purpose]) : unlisted === true
+    )
     .map(([purpose, model]) => `byPurpose ${purpose} · ${model}`);
 }
 
@@ -296,7 +322,29 @@ function datedLine(name, count, starts, ends) {
 }
 
 const handlers = perEnv((env) => {
-  const { hot, store, client, getGuildId, images, archive, journal, record, metrics, lookup, usage, errands, emojiBackfill, gifBackfill, gifRecache, freshenIfPaused, imageModelLabel, llm, embedder, embedQueue, memoryDb } = env;
+  const {
+    hot,
+    store,
+    client,
+    getGuildId,
+    images,
+    archive,
+    journal,
+    record,
+    metrics,
+    lookup,
+    usage,
+    errands,
+    emojiBackfill,
+    gifBackfill,
+    gifRecache,
+    freshenIfPaused,
+    imageModelLabel,
+    llm,
+    embedder,
+    embedQueue,
+    memoryDb,
+  } = env;
   // The card's clock (the coverage cache, the storage line): the environment's, else the wall clock.
   const clock = typeof env.now === 'function' ? env.now : Date.now;
   // guildId -> { at, value }: the memory field, reused for COVERAGE_CACHE_MS.
@@ -359,7 +407,12 @@ const handlers = perEnv((env) => {
     const pending = archivePending(guildId);
     if (pending > 0) problems.push(`${pending} archive copies pending`);
     const nowMs = clock();
-    if (guildId && cfg?.features?.journal === true && typeof metrics?.summary === 'function' && metrics.summary('reply', 1).n > 0) {
+    if (
+      guildId &&
+      cfg?.features?.journal === true &&
+      typeof metrics?.summary === 'function' &&
+      metrics.summary('reply', 1).n > 0
+    ) {
       const last = await journalLastWrite(guildId, nowMs);
       if (last === null) problems.push('journal not written today while turns happen');
       else if (nowMs - last > HOUR_MS) problems.push(`journal not written since ${utcMinute(last)} while turns happen`);
@@ -370,7 +423,9 @@ const handlers = perEnv((env) => {
   /** The `models.base` field unprobed (a member's card): every role's own model, the drawing model last. */
   function modelsValue(cfg) {
     const image = roleHead(IMAGE_ROLE, roleModel(cfg, 'drawing') ? imageModelLabel(cfg) : 'no model configured');
-    return [groupedModels(cfg, (role) => roleHead(role, modelForRole(role, cfg) ?? 'no model configured')), image].join('\n');
+    return [groupedModels(cfg, (role) => roleHead(role, modelForRole(role, cfg) ?? 'no model configured')), image].join(
+      '\n'
+    );
   }
 
   /** The embedding role's probe: one embedding request of one input (the probe label), never
@@ -378,7 +433,13 @@ const handlers = perEnv((env) => {
   async function embedProbe(cfg, promptText, timeoutMs) {
     const start = Date.now();
     try {
-      const [vector] = await embedder.embed([promptText], { config: cfg, purpose: 'probe', origin: 'status', countAgainstDailyCap: false, timeoutMs });
+      const [vector] = await embedder.embed([promptText], {
+        config: cfg,
+        purpose: 'probe',
+        origin: 'status',
+        countAgainstDailyCap: false,
+        timeoutMs,
+      });
       return { ok: true, ms: Date.now() - start, result: { dimensions: vector?.length } };
     } catch (err) {
       return { ok: false, ms: Date.now() - start, err };
@@ -467,7 +528,7 @@ const handlers = perEnv((env) => {
           } catch (err) {
             results.set(target, { ok: false, ms: Date.now() - start, err });
           }
-        }),
+        })
       );
     }
     const outcomes = [...results.values()];
@@ -501,7 +562,7 @@ const handlers = perEnv((env) => {
     parts.push(
       `videos ${usedOf(countToday(data, VIDEO_DAILY, nowMs), cfg?.media?.video?.maxPerDay)}`,
       `recall ${usedOf(countToday(data, RECALL_DAILY, nowMs), cfg?.recall?.maxPerDay)}`,
-      `lookups ${usedOf(countToday(data, WEB_DAILY, nowMs), cfg?.web?.maxPerDay)}`,
+      `lookups ${usedOf(countToday(data, WEB_DAILY, nowMs), cfg?.web?.maxPerDay)}`
     );
     // The web search engine, one word: the chosen engine (web.search.engine) when a search can
     // run (features.webLookup on, web.search.enabled not false, the engine ready), else `off`.
@@ -530,7 +591,10 @@ const handlers = perEnv((env) => {
     const readKey = readAccount(typeof llm?.keyInfo === 'function' ? () => llm.keyInfo({ timeoutMs }) : null);
     const simKey = typeof env.simKey === 'string' && env.simKey ? env.simKey : null;
     // The simulator key is used for this one read only, never for a model request.
-    const readSim = simKey && typeof llm?.keyInfo === 'function' ? readAccount(() => llm.keyInfo({ timeoutMs, apiKey: simKey })) : null;
+    const readSim =
+      simKey && typeof llm?.keyInfo === 'function'
+        ? readAccount(() => llm.keyInfo({ timeoutMs, apiKey: simKey }))
+        : null;
     const allGroups = typeof llm?.roleKeys === 'function' && typeof llm?.keyInfo === 'function' ? llm.roleKeys() : [];
     // The errand agents' key is not the core's: their spend is the costs.errands field.
     const agentsOnly = (group) => group.roles.length > 0 && group.roles.every((role) => ERRAND_KEY_ROLES.has(role));
@@ -541,17 +605,25 @@ const handlers = perEnv((env) => {
     const onSim = (group) => simHash !== null && llm.keyHash({ role: group.roles[0] }) === simHash;
     const groups = keyGroups.filter((group) => !onSim(group));
     const simRoles = keyGroups.filter(onSim).flatMap((group) => group.roles);
-    const readRoleKeys = Promise.all(groups.map((group) => readAccount(() => llm.keyInfo({ timeoutMs, role: group.roles[0] }))));
+    const readRoleKeys = Promise.all(
+      groups.map((group) => readAccount(() => llm.keyInfo({ timeoutMs, role: group.roles[0] })))
+    );
     // The management key reads each key's activity by its hash, for these GETs only; never logged.
     const managementKey = typeof env.managementKey === 'string' && env.managementKey ? env.managementKey : null;
     const canActivity = managementKey && typeof llm?.activity === 'function' && typeof llm?.keyHash === 'function';
-    const readActivityOf = (hashOf) => (canActivity ? readActivity(() => llm.activity({ apiKey: managementKey, keyHash: hashOf(), timeoutMs })) : null);
+    const readActivityOf = (hashOf) =>
+      canActivity ? readActivity(() => llm.activity({ apiKey: managementKey, keyHash: hashOf(), timeoutMs })) : null;
     const activityReads = Promise.all([
       readActivityOf(() => llm.keyHash()),
       simKey ? readActivityOf(() => keyHashOf(simKey)) : null,
       ...groups.map((group) => readActivityOf(() => llm.keyHash({ role: group.roles[0] }))),
     ]);
-    const [key, sim, roleReads, [mainActivity, simActivity, ...roleActivity]] = await Promise.all([readKey, readSim, readRoleKeys, activityReads]);
+    const [key, sim, roleReads, [mainActivity, simActivity, ...roleActivity]] = await Promise.all([
+      readKey,
+      readSim,
+      readRoleKeys,
+      activityReads,
+    ]);
     const activityRead = [mainActivity, simActivity, ...roleActivity].filter(Boolean);
     log.info('status: account read', {
       key: key.ok ? 'ok' : key.reason,
@@ -566,9 +638,15 @@ const handlers = perEnv((env) => {
     const sumsOf = (outcome) => (outcome?.ok ? activitySums(outcome.data, today) : null);
     // Rolling sums per key: an extra key over its own roles, the main key over every other role.
     const sums = typeof usage?.sumDays === 'function';
-    const windowsOf = (filter) => (sums ? { last7: usage.sumDays(7, filter), last30: usage.sumDays(30, filter) } : null);
+    const windowsOf = (filter) =>
+      sums ? { last7: usage.sumDays(7, filter), last30: usage.sumDays(30, filter) } : null;
     const taken = [...groups.flatMap((group) => group.roles), ...simRoles, ...agentRoles];
-    const roleKeys = groups.map((group, i) => ({ roles: group.roles, key: roleReads[i], activity: sumsOf(roleActivity[i]), windows: windowsOf({ only: group.roles }) }));
+    const roleKeys = groups.map((group, i) => ({
+      roles: group.roles,
+      key: roleReads[i],
+      activity: sumsOf(roleActivity[i]),
+      windows: windowsOf({ only: group.roles }),
+    }));
     const lines = keyCostsLines({
       key,
       activity: sumsOf(mainActivity),
@@ -611,7 +689,9 @@ const handlers = perEnv((env) => {
     } catch (err) {
       log.warn('status: ledger costs failed', { error: err });
     }
-    const totals = Object.fromEntries(DEVELOPMENT_ROLES.filter((agent) => ledgerTotals?.[agent]).map((agent) => [agent, ledgerTotals[agent]]));
+    const totals = Object.fromEntries(
+      DEVELOPMENT_ROLES.filter((agent) => ledgerTotals?.[agent]).map((agent) => [agent, ledgerTotals[agent]])
+    );
     const lines = agentCostsLines({ agents: DEVELOPMENT_ROLES, totals, labels: hot.prompts?.labels });
     return lines.length > 0 ? lines.join('\n') : '-';
   }
@@ -621,7 +701,9 @@ const handlers = perEnv((env) => {
     if (typeof env.inner?.status !== 'function') return '-';
     // The core role's tokens today (prompt, cached, completion), from the same accumulator costs.base reads.
     const row = typeof usage?.byRole === 'function' ? usage.byRole().find((entry) => entry.role === CORE_ROLE) : null;
-    const tokens = row ? { prompt: row.promptTokens, cached: row.cachedTokens, completion: row.completionTokens } : null;
+    const tokens = row
+      ? { prompt: row.promptTokens, cached: row.cachedTokens, completion: row.completionTokens }
+      : null;
     const lines = innerLines(env.inner.status(guildId ?? undefined), hot.prompts?.labels, { tokens });
     return lines.length > 0 ? lines.join('\n') : '-';
   }
@@ -646,7 +728,8 @@ const handlers = perEnv((env) => {
     const parts = [`index: ${rows} rows`];
     if (typeof embedQueue.coverage === 'function') {
       const configured = cfg?.embed?.catchUpHours;
-      const hours = typeof configured === 'number' && Number.isFinite(configured) && configured > 0 ? configured : CATCH_UP_HOURS;
+      const hours =
+        typeof configured === 'number' && Number.isFinite(configured) && configured > 0 ? configured : CATCH_UP_HOURS;
       const found = await embedQueue.coverage(guildId, { hours });
       parts.push(`${percent(found.indexed, found.messages)} of record messages indexed (last ${hours} h)`);
       parts.push(found.oldestMissing ? `oldest missing ${String(found.oldestMissing).slice(0, 10)}` : 'none missing');
@@ -716,7 +799,9 @@ const handlers = perEnv((env) => {
   /** The channels line: the channels with notes (a purpose, topics or a tone) of those seen. */
   function channelsLine(guildId) {
     const channels = store.listChannels(guildId) ?? [];
-    const noted = channels.filter((channel) => ['purpose', 'topics', 'tone'].some((key) => typeof channel?.[key] === 'string' && channel[key].trim())).length;
+    const noted = channels.filter((channel) =>
+      ['purpose', 'topics', 'tone'].some((key) => typeof channel?.[key] === 'string' && channel[key].trim())
+    ).length;
     return `channels: ${noted} with notes / ${channels.length} seen (${percent(noted, channels.length)})`;
   }
 
@@ -730,7 +815,12 @@ const handlers = perEnv((env) => {
 
   function participationLine(guildId) {
     const episodes = store.getParticipation?.(guildId)?.episodes ?? [];
-    return datedLine('participation fragments', episodes.length, episodes.map((episode) => episode?.startAt), episodes.map((episode) => episode?.lastAt));
+    return datedLine(
+      'participation fragments',
+      episodes.length,
+      episodes.map((episode) => episode?.startAt),
+      episodes.map((episode) => episode?.lastAt)
+    );
   }
 
   /** One coverage line through `compute`; `<name>: unreadable` (and a warn with the code) when it throws. */
@@ -746,7 +836,10 @@ const handlers = perEnv((env) => {
   /** The features part: each `features` switch of the live config that is a plain true or false, `<name> on|off`, sorted by name. */
   function featuresValue(cfg) {
     const features = isPlainObject(cfg?.features) ? cfg.features : {};
-    const lines = Object.keys(features).filter((name) => typeof features[name] === 'boolean').sort().map((name) => `${name} ${features[name] ? 'on' : 'off'}`);
+    const lines = Object.keys(features)
+      .filter((name) => typeof features[name] === 'boolean')
+      .sort()
+      .map((name) => `${name} ${features[name] ? 'on' : 'off'}`);
     return lines.length > 0 ? lines.join('\n') : '-';
   }
 
@@ -770,7 +863,9 @@ const handlers = perEnv((env) => {
       await safeLine('recent lines', () => recentLine(guildId)),
       await safeLine('participation fragments', () => participationLine(guildId)),
       memoryDbLine(),
-    ].filter(Boolean).join('\n');
+    ]
+      .filter(Boolean)
+      .join('\n');
   }
 
   /** The guild's memory field, computed at most once per COVERAGE_CACHE_MS (the cached text in between). */
@@ -829,21 +924,37 @@ const handlers = perEnv((env) => {
     const data = store.state.data ?? {};
     const guildId = getGuildId?.() ?? null;
     const unresolved = 'guild not resolved yet';
-    const visible = STATUS_FIELDS.filter((name) => (owner || !OWNER_FIELDS.has(name)) && (name !== 'inner' || innerOn(cfg)));
+    const visible = STATUS_FIELDS.filter(
+      (name) => (owner || !OWNER_FIELDS.has(name)) && (name !== 'inner' || innerOn(cfg))
+    );
     // Her own call may ask for a part (PART_FIELDS): the fields it holds that she may see, models named and never probed.
-    const partFields = typeof part === 'string' && Object.hasOwn(PART_FIELDS, part) && part !== 'all' ? PART_FIELDS[part] : null;
+    const partFields =
+      typeof part === 'string' && Object.hasOwn(PART_FIELDS, part) && part !== 'all' ? PART_FIELDS[part] : null;
     const probe = partFields === null && part !== 'all';
-    const shown = partFields ? partFields.filter((name) => name === 'features' || visible.includes(name)) : visible.includes(field) ? [field] : visible;
+    const shown = partFields
+      ? partFields.filter((name) => name === 'features' || visible.includes(name))
+      : visible.includes(field)
+        ? [field]
+        : visible;
     if (partFields && shown.length === 0) return { fields: [{ name: part, value: '-', inline: false }] };
     // Each field's work, run only for the fields shown, all at once: the account reads go out
     // alongside the model probes.
     const compute = {
       // The state, then the gateway connection, then the uptime.
-      state: async () => [stateValue(data), owner ? await storageLine(guildId, cfg) : null, connectionValue(), `uptime ${span(process.uptime() * 1000)}`].filter(Boolean).join('\n'),
+      state: async () =>
+        [
+          stateValue(data),
+          owner ? await storageLine(guildId, cfg) : null,
+          connectionValue(),
+          `uptime ${span(process.uptime() * 1000)}`,
+        ]
+          .filter(Boolean)
+          .join('\n'),
       tasks: () => longTasksValue(guildId),
       // The owner's card probes every model (the old ping); a member's, or one without an llm client, names them.
       features: () => featuresValue(cfg),
-      'models.base': () => (owner && probe && typeof llm?.complete === 'function' ? probedModelsValue(cfg) : modelsValue(cfg)),
+      'models.base': () =>
+        owner && probe && typeof llm?.complete === 'function' ? probedModelsValue(cfg) : modelsValue(cfg),
       'keys.base': () => keyCostsValue(cfg),
       'costs.base': () => roleCostsValue(),
       'models.errands': () => agentModels(cfg, ERRAND_ROLES),

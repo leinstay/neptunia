@@ -5,7 +5,15 @@
 import { leafPaths } from './catalog.js';
 import { isOwnerId } from './grants.js';
 import { governsPersona } from './rights.js';
-import { splitPath, unsetPath, ownValueAt, jsonTypeOf, withArticle, touchesOwnerOnlyConfig, reloadNote } from './shared.js';
+import {
+  splitPath,
+  unsetPath,
+  ownValueAt,
+  jsonTypeOf,
+  withArticle,
+  touchesOwnerOnlyConfig,
+  reloadNote,
+} from './shared.js';
 import { defineOp, perEnv, invalid, denied } from './registry.js';
 import { CODE } from '../skills/codes.js';
 

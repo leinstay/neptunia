@@ -60,7 +60,10 @@ function dimensionsOf(config) {
 /** The error of a non-ok answer, as the chat client builds it: `.statusCode`, the full body on `.body`. */
 async function httpErrorOf(response) {
   const rawBody = await response.text();
-  return Object.assign(new Error(`OpenRouter HTTP ${response.status}: ${rawBody.slice(0, 500)}`), { statusCode: response.status, body: rawBody });
+  return Object.assign(new Error(`OpenRouter HTTP ${response.status}: ${rawBody.slice(0, 500)}`), {
+    statusCode: response.status,
+    body: rawBody,
+  });
 }
 
 /** The vectors of a 200's body in input order, each normalised; throws when they do not match the inputs. */
@@ -69,7 +72,9 @@ function vectorsOf(json, count) {
   data.sort((a, b) => (numberOrNull(a?.index) ?? 0) - (numberOrNull(b?.index) ?? 0));
   const vectors = data.map((item) => normalizeVector(item?.embedding));
   if (vectors.length !== count || vectors.some((vector) => vector === null)) {
-    throw new Error(`OpenRouter embeddings: expected ${count} vectors, got ${vectors.filter(Boolean).length} valid of ${vectors.length}`);
+    throw new Error(
+      `OpenRouter embeddings: expected ${count} vectors, got ${vectors.filter(Boolean).length} valid of ${vectors.length}`
+    );
   }
   return vectors;
 }
@@ -121,7 +126,9 @@ export function createEmbedder({ apiKey, env = {}, state, fetchImpl = fetch, now
 
     const estimated = texts.reduce((sum, text) => sum + estimateTokens(text), 0);
     if (estimated > cfg.maxRequestTokens || !Number.isFinite(cfg.maxRequestTokens)) {
-      const err = new TokenLimitError(`embedding request estimated at ${estimated} tokens, cap is ${cfg.maxRequestTokens}`);
+      const err = new TokenLimitError(
+        `embedding request estimated at ${estimated} tokens, cap is ${cfg.maxRequestTokens}`
+      );
       throw Object.assign(err, { key: 'llm.maxRequestTokens', used: estimated, cap: cfg.maxRequestTokens });
     }
     if (signal?.aborted) throw signal.reason ?? new Error('request aborted');
@@ -139,7 +146,12 @@ export function createEmbedder({ apiKey, env = {}, state, fetchImpl = fetch, now
     let lastError;
     for (let attempt = 0; attempt <= retries; attempt += 1) {
       if (attempt > 0) {
-        log.warn('llm: retry', { role: EMBED_ROLE, attempt, status: lastError?.statusCode ?? null, name: lastError?.name ?? null });
+        log.warn('llm: retry', {
+          role: EMBED_ROLE,
+          attempt,
+          status: lastError?.statusCode ?? null,
+          name: lastError?.name ?? null,
+        });
         await sleepImpl(backoffMs(attempt));
       }
       if (signal?.aborted) throw lastError ?? signal.reason ?? new Error('request aborted');

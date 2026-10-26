@@ -44,8 +44,13 @@ export const REDACTED = '[redacted]';
 
 /** Absolute paths whose content is withheld in `dm` and `group` whatever the deployment's layout. */
 const FIXED_ROOTS = Object.freeze([
-  '/var/www', '/srv/neptunia-backups', '/etc/shadow', '/etc/gshadow', '/etc/nginx/htpasswd',
-  '/etc/letsencrypt', '/etc/neptunia',
+  '/var/www',
+  '/srv/neptunia-backups',
+  '/etc/shadow',
+  '/etc/gshadow',
+  '/etc/nginx/htpasswd',
+  '/etc/letsencrypt',
+  '/etc/neptunia',
 ]);
 
 /**
@@ -79,14 +84,37 @@ export const WITHHELD_NAMES = Object.freeze(['.git', '.local.git', '.secrets', '
 const ENV_FILE = /^\.env(?:\..+)?$/;
 /** The glob patterns of the fixed roots and the names, before the deployment's directories. */
 const FIXED_GLOBS = Object.freeze([
-  '/var/www', '/var/www/**', '/srv/neptunia-backups', '/srv/neptunia-backups/**',
-  '/etc/shadow', '/etc/gshadow', '/etc/nginx/htpasswd', '/etc/nginx/htpasswd/**', '/etc/letsencrypt',
-  '/etc/letsencrypt/**', '/etc/neptunia', '/etc/neptunia/**',
-  '**/.git', '**/.git/**', '**/.local.git', '**/.local.git/**', '**/.secrets', '**/.secrets/**',
-  '**/.ssh', '**/.ssh/**', '**/config.local.json', '**/.env', '**/.env.*',
+  '/var/www',
+  '/var/www/**',
+  '/srv/neptunia-backups',
+  '/srv/neptunia-backups/**',
+  '/etc/shadow',
+  '/etc/gshadow',
+  '/etc/nginx/htpasswd',
+  '/etc/nginx/htpasswd/**',
+  '/etc/letsencrypt',
+  '/etc/letsencrypt/**',
+  '/etc/neptunia',
+  '/etc/neptunia/**',
+  '**/.git',
+  '**/.git/**',
+  '**/.local.git',
+  '**/.local.git/**',
+  '**/.secrets',
+  '**/.secrets/**',
+  '**/.ssh',
+  '**/.ssh/**',
+  '**/config.local.json',
+  '**/.env',
+  '**/.env.*',
 ]);
 /** The glob patterns after the deployment's directories. */
-const TRAILING_GLOBS = Object.freeze(['**/data/guilds', '**/data/guilds/**', '**/.agents/scratch', '**/.agents/scratch/**']);
+const TRAILING_GLOBS = Object.freeze([
+  '**/data/guilds',
+  '**/data/guilds/**',
+  '**/.agents/scratch',
+  '**/.agents/scratch/**',
+]);
 
 /**
  * The glob patterns a config denies for a path tool in a filtered scope (OpenCode's
@@ -105,15 +133,92 @@ export const WITHHELD_GLOBS = withheldGlobsOf();
 
 /** Bash command words that open file contents (so their path arguments are checked). */
 const READERS = new Set([
-  'cat', 'tac', 'less', 'more', 'head', 'tail', 'nl', 'od', 'xxd', 'hexdump', 'strings', 'base64', 'cut', 'column',
-  'grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack', 'zgrep', 'zcat', 'bzcat', 'xzcat',
-  'awk', 'gawk', 'sed', 'perl', 'python', 'python3', 'ruby', 'node', 'php',
-  'sort', 'uniq', 'diff', 'comm', 'paste', 'join', 'tr', 'fold', 'fmt', 'expand', 'wc',
-  'cp', 'install', 'tar', 'zip', 'gzip', 'openssl', 'gpg', 'jq', 'yq', 'md5sum', 'sha1sum', 'sha256sum',
-  'readlink', 'realpath', 'file', 'git', 'vi', 'vim', 'nano', 'emacs', 'source',
+  'cat',
+  'tac',
+  'less',
+  'more',
+  'head',
+  'tail',
+  'nl',
+  'od',
+  'xxd',
+  'hexdump',
+  'strings',
+  'base64',
+  'cut',
+  'column',
+  'grep',
+  'egrep',
+  'fgrep',
+  'rg',
+  'ag',
+  'ack',
+  'zgrep',
+  'zcat',
+  'bzcat',
+  'xzcat',
+  'awk',
+  'gawk',
+  'sed',
+  'perl',
+  'python',
+  'python3',
+  'ruby',
+  'node',
+  'php',
+  'sort',
+  'uniq',
+  'diff',
+  'comm',
+  'paste',
+  'join',
+  'tr',
+  'fold',
+  'fmt',
+  'expand',
+  'wc',
+  'cp',
+  'install',
+  'tar',
+  'zip',
+  'gzip',
+  'openssl',
+  'gpg',
+  'jq',
+  'yq',
+  'md5sum',
+  'sha1sum',
+  'sha256sum',
+  'readlink',
+  'realpath',
+  'file',
+  'git',
+  'vi',
+  'vim',
+  'nano',
+  'emacs',
+  'source',
 ]);
 /** Wrappers whose first non-flag argument is the real command. */
-const WRAPPERS = new Set(['sudo', 'env', 'nohup', 'nice', 'ionice', 'time', 'command', 'stdbuf', 'xargs', 'exec', 'timeout', 'watch', 'bash', 'sh', 'zsh', 'ksh', 'dash']);
+const WRAPPERS = new Set([
+  'sudo',
+  'env',
+  'nohup',
+  'nice',
+  'ionice',
+  'time',
+  'command',
+  'stdbuf',
+  'xargs',
+  'exec',
+  'timeout',
+  'watch',
+  'bash',
+  'sh',
+  'zsh',
+  'ksh',
+  'dash',
+]);
 
 /**
  * The scope of a request context: its `scope` when it is one of SCOPES,
@@ -138,23 +243,36 @@ export function isFiltered(scope) {
  * @returns {boolean}
  */
 export function isWithheldPath(p) {
-  const text = String(p ?? '').trim().replace(/\/+$/, '') || '/';
+  const text =
+    String(p ?? '')
+      .trim()
+      .replace(/\/+$/, '') || '/';
   if (WITHHELD_ROOTS.some((root) => text === root || text.startsWith(`${root}/`))) return true;
-  return text.split('/').filter(Boolean).some((part) => WITHHELD_NAMES.includes(part) || ENV_FILE.test(part));
+  return text
+    .split('/')
+    .filter(Boolean)
+    .some((part) => WITHHELD_NAMES.includes(part) || ENV_FILE.test(part));
 }
 
 /** Whether a withheld root lies at or under `p` (a listing of a parent is allowed, a read of it is not). */
 function pathReachesWithheld(p) {
-  const text = String(p ?? '').trim().replace(/\/+$/, '');
+  const text = String(p ?? '')
+    .trim()
+    .replace(/\/+$/, '');
   if (!text) return false;
   const prefix = `${text}/`;
-  return WITHHELD_ROOTS.some((root) => root === text || root.startsWith(prefix) || text.startsWith(`${root}/`) || text === root)
-    || isWithheldPath(text);
+  return (
+    WITHHELD_ROOTS.some(
+      (root) => root === text || root.startsWith(prefix) || text.startsWith(`${root}/`) || text === root
+    ) || isWithheldPath(text)
+  );
 }
 
 /** The path-looking tokens of a bash command (quotes stripped, flags and operators dropped). */
 function pathTokensOf(command) {
-  const text = String(command ?? '').replace(/'[^']*'/g, (m) => m.slice(1, -1)).replace(/"((?:[^"\\]|\\.)*)"/g, '$1');
+  const text = String(command ?? '')
+    .replace(/'[^']*'/g, (m) => m.slice(1, -1))
+    .replace(/"((?:[^"\\]|\\.)*)"/g, '$1');
   return text
     .split(/[\s;|&><()]+/)
     .filter((tok) => tok && !/^-/.test(tok) && !/^[A-Za-z_]\w*=/.test(tok))
@@ -174,7 +292,10 @@ function commandWordsOf(command) {
     let i = 0;
     while (i < toks.length && (/^[A-Za-z_]\w*=/.test(toks[i]) || WRAPPERS.has(toks[i].replace(/^.*\//, '')))) {
       // a shell wrapper with -c is a nested command: treat the whole thing as a reader (conservative)
-      if (/^(?:ba|z|k|da)?sh$/.test(toks[i].replace(/^.*\//, '')) && toks.slice(i + 1).some((t) => /^-\w*c/.test(t))) { words.push('sh-c'); break; }
+      if (/^(?:ba|z|k|da)?sh$/.test(toks[i].replace(/^.*\//, '')) && toks.slice(i + 1).some((t) => /^-\w*c/.test(t))) {
+        words.push('sh-c');
+        break;
+      }
       i += 1;
     }
     if (i < toks.length) words.push(toks[i].replace(/^.*\//, ''));
@@ -239,9 +360,11 @@ const PRIVATE_KEY_BLOCK = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----
 const SSH_KEY = /\b(ssh-(?:ed25519|rsa|dss)|ecdsa-sha2-nistp\d+|sk-ssh-ed25519@openssh\.com)\s+[A-Za-z0-9+/=]{16,}/g;
 const URL_CREDENTIALS = /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@:]+:[^\s/@]+@/gi;
 const BEARER = /\b(Bearer|Basic|Token)\s+[A-Za-z0-9._~+/=-]{8,}/g;
-const PREFIXED = /\b(?:sk-[A-Za-z0-9_-]{16,}|xai-[A-Za-z0-9_-]{16,}|(?:AKIA|ASIA)[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{16,}|xox[abprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{30,})/g;
+const PREFIXED =
+  /\b(?:sk-[A-Za-z0-9_-]{16,}|xai-[A-Za-z0-9_-]{16,}|(?:AKIA|ASIA)[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{16,}|xox[abprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{30,})/g;
 const DOTTED_TOKEN = /\b[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{20,}\b/g;
-const ASSIGNMENT = /\b([\w.-]*(?:key|token|secret|passw(?:or)?d|passphrase|pwd|credentials?|auth)[\w.-]*)(["']?)(\s*[=:]\s*)("[^"\n]*"|'[^'\n]*'|[^\s,;}\]]+)/gi;
+const ASSIGNMENT =
+  /\b([\w.-]*(?:key|token|secret|passw(?:or)?d|passphrase|pwd|credentials?|auth)[\w.-]*)(["']?)(\s*[=:]\s*)("[^"\n]*"|'[^'\n]*'|[^\s,;}\]]+)/gi;
 const LONG_RUN = /[A-Za-z0-9+/_=-]{32,}/g;
 const HEX_RUN = /\b[A-Fa-f0-9]{32,}\b/g;
 
@@ -269,7 +392,9 @@ export function redactSecrets(text) {
     .replace(BEARER, `$1 ${REDACTED}`)
     .replace(PREFIXED, REDACTED)
     .replace(DOTTED_TOKEN, REDACTED)
-    .replace(ASSIGNMENT, (whole, name, quote, sep, value) => (value.includes(REDACTED) ? whole : `${name}${quote}${sep}${REDACTED}`))
+    .replace(ASSIGNMENT, (whole, name, quote, sep, value) =>
+      value.includes(REDACTED) ? whole : `${name}${quote}${sep}${REDACTED}`
+    )
     .replace(HEX_RUN, (run) => (/\d/.test(run) && /[A-Fa-f]/.test(run) ? REDACTED : run))
     .replace(LONG_RUN, (run) => (looksRandom(run) ? REDACTED : run));
 }

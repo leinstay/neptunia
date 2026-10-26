@@ -38,7 +38,10 @@ export const recordLines = (db, owner) => unitLines(db, owner);
 export function recordNewestRevision(db, guildId, privateUserId, month, messageId) {
   const prefix = `${recordDirOf(guildId, privateUserId)}/${month}/`;
   let newest = null;
-  for (const row of db.prepare("SELECT kind, revision FROM sources WHERE native_id = ? AND owner_file >= ? AND owner_file < ? AND retired_at IS NULL")
+  for (const row of db
+    .prepare(
+      'SELECT kind, revision FROM sources WHERE native_id = ? AND owner_file >= ? AND owner_file < ? AND retired_at IS NULL'
+    )
     .all(String(messageId), prefix, `${prefix}￿`)) {
     if (row.kind === 'deleted') continue;
     const n = Number.isInteger(row.revision) && row.revision > 0 ? row.revision : 1;
@@ -73,7 +76,10 @@ export function recordStats(db, guildId) {
     }
   }
   const prefix = `${dir}/`;
-  const messages = db.prepare('SELECT COUNT(DISTINCT native_id) AS n FROM sources WHERE native_id IS NOT NULL AND owner_file >= ? AND owner_file < ? AND retired_at IS NULL')
+  const messages = db
+    .prepare(
+      'SELECT COUNT(DISTINCT native_id) AS n FROM sources WHERE native_id IS NOT NULL AND owner_file >= ? AND owner_file < ? AND retired_at IS NULL'
+    )
     .get(prefix, `${prefix}￿`).n;
   return { messages, days, first };
 }

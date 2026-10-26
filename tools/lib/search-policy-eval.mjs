@@ -24,7 +24,11 @@ function rowProblem(row, seen) {
   if (!TIERS.includes(row.tier)) return `tier must be one of ${TIERS.join(', ')}`;
   if (row.source !== undefined && typeof row.source !== 'string') return 'source must be a string';
   const context = row.context ?? [];
-  const lineOk = (c) => c && typeof c === 'object' && typeof c.text === 'string' && (c.author === undefined || typeof c.author === 'string');
+  const lineOk = (c) =>
+    c &&
+    typeof c === 'object' &&
+    typeof c.text === 'string' &&
+    (c.author === undefined || typeof c.author === 'string');
   if (!Array.isArray(context) || !context.every(lineOk)) return 'context must be [{ author, text }]';
   return null;
 }
@@ -107,9 +111,21 @@ export function rowChat(row, { now, selfName }) {
   const context = row.context ?? [];
   const history = context.map((line, i) => {
     const authorName = line.author?.trim() || NO_AUTHOR;
-    return chatMessage({ id: `${row.id}:${i + 1}`, authorName, content: line.text, ts: now - (context.length - i) * MINUTE_MS, self: own !== '' && authorName.toLowerCase() === own });
+    return chatMessage({
+      id: `${row.id}:${i + 1}`,
+      authorName,
+      content: line.text,
+      ts: now - (context.length - i) * MINUTE_MS,
+      self: own !== '' && authorName.toLowerCase() === own,
+    });
   });
-  const trigger = chatMessage({ id: `${row.id}:q`, authorName: row.author ?? NO_AUTHOR, content: row.question, ts: now, self: false });
+  const trigger = chatMessage({
+    id: `${row.id}:q`,
+    authorName: row.author ?? NO_AUTHOR,
+    content: row.question,
+    ts: now,
+    self: false,
+  });
   return { history: [...history, trigger], trigger };
 }
 
@@ -179,7 +195,9 @@ function share(n, of) {
 
 /** A table cell: one line, `|` escaped. */
 function cell(value) {
-  return String(value ?? '').replace(/\s+/g, ' ').replace(/\|/g, '\\|');
+  return String(value ?? '')
+    .replace(/\s+/g, ' ')
+    .replace(/\|/g, '\\|');
 }
 
 /**
@@ -194,7 +212,9 @@ export function renderSummary(summary, { at = '', sheet = '', model = null, skip
   if (at) out.push(`- at: ${at}`);
   if (sheet) out.push(`- sheet: ${sheet}`);
   out.push(`- model: ${model ?? '-'}`);
-  out.push(`- rows: ${summary.rows}${skipped > 0 ? `, ${skipped} not asked (${stopped ?? 'stopped'})` : ''}; failed calls: ${summary.failed}`);
+  out.push(
+    `- rows: ${summary.rows}${skipped > 0 ? `, ${skipped} not asked (${stopped ?? 'stopped'})` : ''}; failed calls: ${summary.failed}`
+  );
   out.push(`- agreement: ${share(summary.agreed, summary.rows)}`);
   out.push(`- latency: p50 ${summary.latency.p50 ?? '-'} ms, p95 ${summary.latency.p95 ?? '-'} ms`);
   out.push(`- cost: ${summary.costUsd.toFixed(4)} USD`);

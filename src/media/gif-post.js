@@ -15,7 +15,8 @@ import { bumpDaily } from '../time.js';
 export async function freshAttachmentUrl({ client, channel, entry, onError = () => {} }) {
   if (!entry.messageId) return null;
   try {
-    const source = entry.channelId && entry.channelId !== channel.id ? await client.channels.fetch(entry.channelId) : channel;
+    const source =
+      entry.channelId && entry.channelId !== channel.id ? await client.channels.fetch(entry.channelId) : channel;
     const message = await source?.messages?.fetch(entry.messageId);
     const own = message?.attachments?.get?.(entry.itemId);
     if (own?.url) return own.url;

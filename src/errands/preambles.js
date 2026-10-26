@@ -32,7 +32,8 @@ export function modelSlugs(model) {
   const id = model.trim().toLowerCase();
   const slug = (value) => value.replace(/[^a-z0-9.]/g, '-');
   const out = [slug(id)];
-  if (id.startsWith(PROVIDER_PREFIX) && id.length > PROVIDER_PREFIX.length) out.push(slug(id.slice(PROVIDER_PREFIX.length)));
+  if (id.startsWith(PROVIDER_PREFIX) && id.length > PROVIDER_PREFIX.length)
+    out.push(slug(id.slice(PROVIDER_PREFIX.length)));
   return [...new Set(out)];
 }
 

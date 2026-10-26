@@ -81,10 +81,17 @@ function clampWeight(raw) {
  */
 function sanitizeEpisode(raw, nowMs, clampTolerance) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const what = typeof raw.what === 'string' ? clampText(stripUrls(raw.what), EPISODE_CHARS.what, { tolerance: clampTolerance }) : '';
+  const what =
+    typeof raw.what === 'string'
+      ? clampText(stripUrls(raw.what), EPISODE_CHARS.what, { tolerance: clampTolerance })
+      : '';
   if (!what) return null;
-  const quote = typeof raw.quote === 'string' ? clampText(stripUrls(raw.quote), EPISODE_CHARS.quote, { tolerance: 1 }) : '';
-  const feeling = typeof raw.feeling === 'string' ? clampText(stripUrls(raw.feeling), EPISODE_CHARS.feeling, { tolerance: clampTolerance }) : '';
+  const quote =
+    typeof raw.quote === 'string' ? clampText(stripUrls(raw.quote), EPISODE_CHARS.quote, { tolerance: 1 }) : '';
+  const feeling =
+    typeof raw.feeling === 'string'
+      ? clampText(stripUrls(raw.feeling), EPISODE_CHARS.feeling, { tolerance: clampTolerance })
+      : '';
   const weight = clampWeight(raw.weight);
   const date = episodeDate(raw.date, nowMs);
   return { date, what, quote, feeling, weight };
@@ -168,7 +175,7 @@ function newestIndices(list, count, storedLength) {
 export function mergeEpisodes(
   existing,
   incoming,
-  { maxEpisodes, maxNew = Infinity, now: nowMs = Date.now(), clampTolerance, keepNewest = 0 } = {},
+  { maxEpisodes, maxNew = Infinity, now: nowMs = Date.now(), clampTolerance, keepNewest = 0 } = {}
 ) {
   const stored = Array.isArray(existing) ? existing : [];
   if (!Array.isArray(incoming) || incoming.length === 0) return { episodes: stored, added: 0, dropped: [] };
@@ -214,7 +221,7 @@ export function sortEpisodesForDisplay(episodes) {
     (a, b) =>
       b.weight - a.weight ||
       (a.date < b.date ? 1 : a.date > b.date ? -1 : 0) ||
-      String(b.addedAt ?? '').localeCompare(String(a.addedAt ?? '')),
+      String(b.addedAt ?? '').localeCompare(String(a.addedAt ?? ''))
   );
 }
 

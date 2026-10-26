@@ -30,7 +30,10 @@ export const KEEP_CLOSED = 50;
 export function createIntentionStore({ guildId, log = defaultLog, memoryDb = null }) {
   const seam = createReadSeam({ memoryDb, log, reader: 'intentions' });
   const state = { list: load(), archived: [] };
-  const outbox = memoryDb && typeof memoryDb.writeUnit === 'function' ? createUnitOutbox({ memoryDb, log, name: 'intentions' }) : null;
+  const outbox =
+    memoryDb && typeof memoryDb.writeUnit === 'function'
+      ? createUnitOutbox({ memoryDb, log, name: 'intentions' })
+      : null;
   const owner = `guilds/${String(guildId)}/intentions.json`;
   const archiveOwner = `guilds/${String(guildId)}/intentions-archive.jsonl`;
 
@@ -46,7 +49,8 @@ export function createIntentionStore({ guildId, log = defaultLog, memoryDb = nul
   function valid(raw) {
     const list = Array.isArray(raw?.intentions) ? raw.intentions : [];
     const kept = list.filter((record) => record && typeof record.id === 'string' && checkInvariants(record) === null);
-    if (kept.length < list.length) log.warn('intentions: records left out on load', { guildId: String(guildId), count: list.length - kept.length });
+    if (kept.length < list.length)
+      log.warn('intentions: records left out on load', { guildId: String(guildId), count: list.length - kept.length });
     return kept;
   }
 
@@ -55,7 +59,10 @@ export function createIntentionStore({ guildId, log = defaultLog, memoryDb = nul
     const closed = list.filter((record) => !isOpen(record.status));
     if (closed.length <= KEEP_CLOSED) return { kept: list, moved: [] };
     const keep = new Set([...closed].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)).slice(0, KEEP_CLOSED));
-    return { kept: list.filter((record) => isOpen(record.status) || keep.has(record)), moved: list.filter((record) => !isOpen(record.status) && !keep.has(record)) };
+    return {
+      kept: list.filter((record) => isOpen(record.status) || keep.has(record)),
+      moved: list.filter((record) => !isOpen(record.status) && !keep.has(record)),
+    };
   }
 
   /**

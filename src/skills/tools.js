@@ -100,7 +100,10 @@ function cleanLink(raw) {
  * @param {{ goal?: string, labels: object, snippetChars?: number, maxChars?: number }} options
  * @returns {string}
  */
-export function webSearchText(found, { goal = '', labels, snippetChars = SNIPPET_CHARS_FALLBACK, maxChars = RESULTS_CHARS_FALLBACK }) {
+export function webSearchText(
+  found,
+  { goal = '', labels, snippetChars = SNIPPET_CHARS_FALLBACK, maxChars = RESULTS_CHARS_FALLBACK }
+) {
   const l = toolLabels(labels, 'web');
   const lines = [];
   if (l.source) lines.push(fill(l.source, { query: text(found?.query) }));
@@ -114,19 +117,24 @@ export function webSearchText(found, { goal = '', labels, snippetChars = SNIPPET
     const link = cleanLink(result?.url);
     if (!link || seen.has(link.key)) continue;
     seen.add(link.key);
-    const head = [`${blocks.length + 1}. ${clampWithEllipsis(oneLine(result?.title), RESULT_TITLE_MAX)}`.trimEnd(), link.href];
+    const head = [
+      `${blocks.length + 1}. ${clampWithEllipsis(oneLine(result?.title), RESULT_TITLE_MAX)}`.trimEnd(),
+      link.href,
+    ];
     const where = [oneLine(result?.site), oneLine(result?.age)].filter(Boolean).join(' · ');
     if (where) head.push(where);
     const headText = head.join('\n');
     const room = maxChars - used - headText.length - 2;
     if (blocks.length > 0 && room < 0) {
       // This result and every one listed after it, left out for room.
-      left = 1 + all.slice(at + 1).filter((rest) => {
-        const next = cleanLink(rest?.url);
-        if (!next || seen.has(next.key)) return false;
-        seen.add(next.key);
-        return true;
-      }).length;
+      left =
+        1 +
+        all.slice(at + 1).filter((rest) => {
+          const next = cleanLink(rest?.url);
+          if (!next || seen.has(next.key)) return false;
+          seen.add(next.key);
+          return true;
+        }).length;
       break;
     }
     const limit = Math.min(snippetChars, room);
@@ -194,7 +202,17 @@ export function webReadText(page, { labels, maxChars = READ_CHARS_FALLBACK }) {
  * @param {{ labels: object, timezone?: string, windowChars?: number, maxChars?: number, refs?: { next(): number, take(shown: object[]): void }|null, hidden?: boolean }} options
  * @returns {string}
  */
-export function memorySearchText(quotes, { labels, timezone = 'UTC', windowChars = RECALL_DEFAULTS.quoteWindowChars, maxChars = RECALL_DEFAULTS.quoteMaxChars, refs = null, hidden = false }) {
+export function memorySearchText(
+  quotes,
+  {
+    labels,
+    timezone = 'UTC',
+    windowChars = RECALL_DEFAULTS.quoteWindowChars,
+    maxChars = RECALL_DEFAULTS.quoteMaxChars,
+    refs = null,
+    hidden = false,
+  }
+) {
   const l = toolLabels(labels, 'memory');
   const lines = l.source ? [l.source] : [];
   let counter = refs ? refs.next() : 0;
@@ -204,7 +222,9 @@ export function memorySearchText(quotes, { labels, timezone = 'UTC', windowChars
     return list;
   };
   let handled = false;
-  const shown = (Array.isArray(quotes) ? quotes : []).filter((quote) => typeof quote?.lines === 'string' && quote.lines.trim() && Number.isFinite(quote.startTs));
+  const shown = (Array.isArray(quotes) ? quotes : []).filter(
+    (quote) => typeof quote?.lines === 'string' && quote.lines.trim() && Number.isFinite(quote.startTs)
+  );
   if (shown.length === 0) {
     if (l.none) lines.push(l.none);
     if (hidden && l.hidden) lines.push(l.hidden);
@@ -228,7 +248,14 @@ export function memorySearchText(quotes, { labels, timezone = 'UTC', windowChars
       let left = quoted.text.split('\n').length;
       for (const entry of entries) {
         if (left <= 0) break;
-        stayed.push({ n: entry.n, id: entry.id, channelId: quote.channelId ?? null, authorId: entry.authorId, self: entry.self, message: entry.message });
+        stayed.push({
+          n: entry.n,
+          id: entry.id,
+          channelId: quote.channelId ?? null,
+          authorId: entry.authorId,
+          self: entry.self,
+          message: entry.message,
+        });
         left -= entry.shown.split('\n').length;
       }
     }
@@ -243,7 +270,8 @@ export function memorySearchText(quotes, { labels, timezone = 'UTC', windowChars
     used += size;
   }
   // The closing line takes room too: windows give way to it until the whole fits.
-  const closing = () => (left.length > 0 && l.windowsLeft ? fill(l.windowsLeft, { count: String(left.length), where: left.join(', ') }) : '');
+  const closing = () =>
+    left.length > 0 && l.windowsLeft ? fill(l.windowsLeft, { count: String(left.length), where: left.join(', ') }) : '';
   while (bounded && kept.length > 1 && used + closing().length + 1 > maxChars) {
     const dropped = kept.pop();
     used -= dropped.size;
@@ -265,7 +293,8 @@ export function memorySearchText(quotes, { labels, timezone = 'UTC', windowChars
 /** One stretch's lines cut at `limit` characters: whole lines from the top (the first always stays, clamped when alone too long), how many were dropped. */
 function cutWindowLines(value, limit) {
   const all = String(value).split('\n');
-  if (!Number.isFinite(limit) || limit <= 0 || String(value).length <= limit) return { text: String(value), dropped: 0 };
+  if (!Number.isFinite(limit) || limit <= 0 || String(value).length <= limit)
+    return { text: String(value), dropped: 0 };
   const kept = [];
   let used = 0;
   for (const line of all) {
@@ -295,9 +324,17 @@ export async function runWebSearch({ lookup, config, labels, guildId, args }) {
   try {
     const query = text(args?.query);
     if (!query) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.query:required' };
-    if (!lookup || typeof lookup.searchResults !== 'function' || config?.features?.webLookup !== true || config?.web?.search?.enabled === false) return { status: 'not_configured', code: CODE.NOT_CONFIGURED, values: { feature: FEATURE.web } };
-    if (typeof lookup.hasSearch === 'function' && !lookup.hasSearch()) return { status: 'not_configured', code: CODE.NOT_CONFIGURED, values: { feature: FEATURE.web } };
-    if (typeof lookup.webCapLeft === 'function' && !(lookup.webCapLeft() > 0)) return { status: 'failed', code: CODE.DAILY_CAP };
+    if (
+      !lookup ||
+      typeof lookup.searchResults !== 'function' ||
+      config?.features?.webLookup !== true ||
+      config?.web?.search?.enabled === false
+    )
+      return { status: 'not_configured', code: CODE.NOT_CONFIGURED, values: { feature: FEATURE.web } };
+    if (typeof lookup.hasSearch === 'function' && !lookup.hasSearch())
+      return { status: 'not_configured', code: CODE.NOT_CONFIGURED, values: { feature: FEATURE.web } };
+    if (typeof lookup.webCapLeft === 'function' && !(lookup.webCapLeft() > 0))
+      return { status: 'failed', code: CODE.DAILY_CAP };
     const found = await lookup.searchResults(guildId, query);
     if (!found) return { status: 'failed', code: CODE.ERROR };
     // The lookup's own coded failure (src/web/lookup.js#searchResults): said as it was.
@@ -305,16 +342,22 @@ export async function runWebSearch({ lookup, config, labels, guildId, args }) {
       const { code, status } = found.failed;
       if (code === CODE.NOT_CONFIGURED) return { status: 'not_configured', code, values: { feature: FEATURE.web } };
       if (code === CODE.EMPTY_QUERY) return { status: 'invalid', code };
-      if (code === CODE.PROVIDER) return { status: 'failed', code, values: { status: status === undefined ? '' : String(status) } };
-      return code === CODE.CAP ? { status: 'failed', code: CODE.CAP, values: { what: WHAT.search } } : { status: 'failed', code: CODE.ERROR };
+      if (code === CODE.PROVIDER)
+        return { status: 'failed', code, values: { status: status === undefined ? '' : String(status) } };
+      return code === CODE.CAP
+        ? { status: 'failed', code: CODE.CAP, values: { what: WHAT.search } }
+        : { status: 'failed', code: CODE.ERROR };
     }
     const searchCfg = config?.web?.search ?? {};
-    const shown = webSearchText({ ...found, query: found.query ?? query }, {
-      goal: args?.goal,
-      labels,
-      snippetChars: positiveOr(searchCfg.snippetChars, SNIPPET_CHARS_FALLBACK),
-      maxChars: positiveOr(searchCfg.resultsChars, RESULTS_CHARS_FALLBACK),
-    });
+    const shown = webSearchText(
+      { ...found, query: found.query ?? query },
+      {
+        goal: args?.goal,
+        labels,
+        snippetChars: positiveOr(searchCfg.snippetChars, SNIPPET_CHARS_FALLBACK),
+        maxChars: positiveOr(searchCfg.resultsChars, RESULTS_CHARS_FALLBACK),
+      }
+    );
     return { status: 'ok', data: { text: shown } };
   } catch {
     return { status: 'failed', code: CODE.ERROR };
@@ -357,24 +400,39 @@ export async function runWebRead({ lookup, config, labels, guildId, args, linkOf
     let url = text(args?.url);
     const messageId = text(args?.message);
     if (!url && !messageId) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.url:required' };
-    if (!lookup || typeof lookup.readPage !== 'function' || config?.features?.webLookup !== true) return { status: 'not_configured', code: CODE.NOT_CONFIGURED, values: { feature: FEATURE.web } };
+    if (!lookup || typeof lookup.readPage !== 'function' || config?.features?.webLookup !== true)
+      return { status: 'not_configured', code: CODE.NOT_CONFIGURED, values: { feature: FEATURE.web } };
     if (!url) {
       url = text(typeof linkOf === 'function' ? await linkOf(messageId) : null);
       if (!url) return { status: 'invalid', code: CODE.NO_LINK };
     }
-    if (typeof lookup.webCapLeft === 'function' && !(lookup.webCapLeft() > 0)) return { status: 'failed', code: CODE.DAILY_CAP };
+    if (typeof lookup.webCapLeft === 'function' && !(lookup.webCapLeft() > 0))
+      return { status: 'failed', code: CODE.DAILY_CAP };
     const page = await lookup.readPage(guildId, url);
     const maxChars = positiveOr(config?.web?.links?.readChars, READ_CHARS_FALLBACK);
     if (page?.ok === true) return { status: 'ok', data: { text: webReadText(page, { labels, maxChars }) } };
     const reason = String(page?.reason ?? CODE.ERROR);
     if (reason === 'empty') {
       const l = toolLabels(labels, 'read');
-      return { status: 'ok', data: { text: [l.source ? fill(l.source, { url, maxChars: String(maxChars) }) : '', l.none ?? ''].filter(Boolean).join('\n') } };
+      return {
+        status: 'ok',
+        data: {
+          text: [l.source ? fill(l.source, { url, maxChars: String(maxChars) }) : '', l.none ?? '']
+            .filter(Boolean)
+            .join('\n'),
+        },
+      };
     }
-    if (reason === CODE.NOT_CONFIGURED) return { status: 'not_configured', code: reason, values: { feature: FEATURE.web } };
+    if (reason === CODE.NOT_CONFIGURED)
+      return { status: 'not_configured', code: reason, values: { feature: FEATURE.web } };
     // A page code the catalogue knows is told as it is (an HTTP status rides along); any other is `error`.
     const code = isCode(reason) ? reason : CODE.ERROR;
-    return { status: READ_INVALID.has(code) ? 'invalid' : 'failed', code, ...(code === CODE.HTTP && page?.status !== undefined ? { values: { status: String(page.status) } } : {}), ...(code === CODE.TIMEOUT ? { values: { what: WHAT.page } } : {}) };
+    return {
+      status: READ_INVALID.has(code) ? 'invalid' : 'failed',
+      code,
+      ...(code === CODE.HTTP && page?.status !== undefined ? { values: { status: String(page.status) } } : {}),
+      ...(code === CODE.TIMEOUT ? { values: { what: WHAT.page } } : {}),
+    };
   } catch {
     return { status: 'failed', code: CODE.ERROR };
   }
@@ -396,9 +454,28 @@ export async function runWebRead({ lookup, config, labels, guildId, args, linkOf
  * `memoryContext` (optional): the turn's execution context, handed to the recall runner. Never throws.
  * @returns {Promise<{ status: string, code?: string, data?: { text: string } }>}
  */
-export async function runMemorySearch({ recall, store, config, labels, guild, guildId, channel, partner = null, selfId = null, selfName = '', history = [], decorate = null, args, now = Date.now(), refs = null, asker = null, memoryContext = null }) {
+export async function runMemorySearch({
+  recall,
+  store,
+  config,
+  labels,
+  guild,
+  guildId,
+  channel,
+  partner = null,
+  selfId = null,
+  selfName = '',
+  history = [],
+  decorate = null,
+  args,
+  now = Date.now(),
+  refs = null,
+  asker = null,
+  memoryContext = null,
+}) {
   try {
-    if (!recall || typeof recall.run !== 'function' || (typeof recall.available === 'function' && !recall.available())) return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
+    if (!recall || typeof recall.run !== 'function' || (typeof recall.available === 'function' && !recall.available()))
+      return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
     if (!guild || (!channel?.guild && !partner)) return { status: 'not_configured', code: CODE.UNSUPPORTED };
     const settings = recallSettings(config);
     const timezone = config?.bot?.timezone ?? 'UTC';
@@ -406,12 +483,37 @@ export async function runMemorySearch({ recall, store, config, labels, guild, gu
     if (text(args?.anchor)) {
       if (typeof recall.window !== 'function') return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
       const count = (value) => (Number.isInteger(value) && value > 0 ? value : null);
-      const read = await recall.window({ guild, guildId, channel, partner, selfName, history, anchor: text(args.anchor), move: text(args?.move) === 'down' ? 'down' : 'up', messages: count(args?.messages), minutes: count(args?.minutes), decorate, asker, ...(memoryContext ? { memoryContext } : {}) });
+      const read = await recall.window({
+        guild,
+        guildId,
+        channel,
+        partner,
+        selfName,
+        history,
+        anchor: text(args.anchor),
+        move: text(args?.move) === 'down' ? 'down' : 'up',
+        messages: count(args?.messages),
+        minutes: count(args?.minutes),
+        decorate,
+        asker,
+        ...(memoryContext ? { memoryContext } : {}),
+      });
       const kind = read?.outcome?.kind ?? null;
       if (kind === 'not-configured') return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
       if (kind === 'unknown-anchor') return { status: 'invalid', code: CODE.UNKNOWN_MESSAGE, reason: 'args.anchor' };
       if (kind === 'error' || !Array.isArray(read?.quotes)) return { status: 'failed', code: CODE.ERROR };
-      return { status: 'ok', data: { text: memorySearchText(read.quotes, { labels, timezone, windowChars: settings?.quoteWindowChars, maxChars: settings?.quoteMaxChars, refs }) } };
+      return {
+        status: 'ok',
+        data: {
+          text: memorySearchText(read.quotes, {
+            labels,
+            timezone,
+            windowChars: settings?.quoteWindowChars,
+            maxChars: settings?.quoteMaxChars,
+            refs,
+          }),
+        },
+      };
     }
     const plan = memorySearchPlan({
       question: text(args?.question),
@@ -428,21 +530,46 @@ export async function runMemorySearch({ recall, store, config, labels, guild, gu
     });
     if (!plan) return { status: 'invalid', code: CODE.NO_QUERY };
     const candidate = { id: null, content: text(args?.question), authorId: asker };
-    const found = await recall.run({ guild, guildId, channel, partner, selfId, selfName, history, candidate, server: plan, decorate, quotes: true, ...(memoryContext ? { memoryContext } : {}) });
+    const found = await recall.run({
+      guild,
+      guildId,
+      channel,
+      partner,
+      selfId,
+      selfName,
+      history,
+      candidate,
+      server: plan,
+      decorate,
+      quotes: true,
+      ...(memoryContext ? { memoryContext } : {}),
+    });
     const outcome = found?.outcome ?? null;
     const quotes = Array.isArray(found?.quotes) ? found.quotes : [];
-    const shown = () => memorySearchText(quotes, { labels, timezone, windowChars: settings?.quoteWindowChars, maxChars: settings?.quoteMaxChars, refs, hidden: found?.hidden === true });
+    const shown = () =>
+      memorySearchText(quotes, {
+        labels,
+        timezone,
+        windowChars: settings?.quoteWindowChars,
+        maxChars: settings?.quoteMaxChars,
+        refs,
+        hidden: found?.hidden === true,
+      });
     // A run that did not search says so; an empty search that ran stays an ok with `memory.none`.
     if (outcome?.kind === 'daily-cap') return { status: 'denied', code: CODE.DAILY_CAP };
     if (outcome?.kind === 'not-configured') return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
     if (outcome?.kind === 'not-visible') return { status: 'denied', code: CODE.CHANNEL_NOT_VISIBLE };
     if (outcome?.kind === 'error') return { status: 'failed', code: CODE.ERROR };
-    if (outcome?.kind === 'timeout') return quotes.length > 0 ? { status: 'partial', code: CODE.TIMEOUT, values: { what: WHAT.search }, data: { text: shown() } } : { status: 'failed', code: CODE.TIMEOUT, values: { what: WHAT.search } };
+    if (outcome?.kind === 'timeout')
+      return quotes.length > 0
+        ? { status: 'partial', code: CODE.TIMEOUT, values: { what: WHAT.search }, data: { text: shown() } }
+        : { status: 'failed', code: CODE.TIMEOUT, values: { what: WHAT.search } };
     const l = toolLabels(labels, 'memory');
     const lines = [];
     if (outcome?.degraded === true && l.degraded) lines.push(l.degraded);
     lines.push(shown());
-    if (outcome?.failed > 0 && l.partial) lines.push(fill(l.partial, { failed: String(outcome.failed), total: String(outcome.total) }));
+    if (outcome?.failed > 0 && l.partial)
+      lines.push(fill(l.partial, { failed: String(outcome.failed), total: String(outcome.total) }));
     return { status: 'ok', data: { text: lines.join('\n') } };
   } catch {
     return { status: 'failed', code: CODE.ERROR };
@@ -520,7 +647,10 @@ export function mediaLookText({ kind, name = '', question = '', text: answer = '
  */
 const LOOKS = Object.freeze({
   image: { method: 'relookImage', on: (features) => features.imageRelook !== false },
-  video: { method: 'rewatchVideo', on: (features, config) => isVideoVisionOn(config) && features.videoRewatch !== false },
+  video: {
+    method: 'rewatchVideo',
+    on: (features, config) => isVideoVisionOn(config) && features.videoRewatch !== false,
+  },
   gif: { method: 'rewatchGif', on: (features, config) => isVideoVisionOn(config) && features.videoRewatch !== false },
 });
 
@@ -568,28 +698,44 @@ export async function runMediaLook({ describer, config, labels, guildId, args, m
       } catch {
         parsed = null;
       }
-      if (!parsed || (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.url:bad' };
+      if (!parsed || (parsed.protocol !== 'http:' && parsed.protocol !== 'https:'))
+        return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.url:bad' };
       const sites = config?.media?.video?.sites;
       const site = Array.isArray(sites) ? videoSiteFor(link, sites) : null;
       if (!site) {
         const notVideo = toolLabels(labels, 'look').notVideoSite;
         const list = Array.isArray(sites) ? sites.join(', ') : '';
-        return { status: 'invalid', code: CODE.NOT_VIDEO_SITE, ...(notVideo ? { data: { text: fill(notVideo, { sites: list }) } } : {}) };
+        return {
+          status: 'invalid',
+          code: CODE.NOT_VIDEO_SITE,
+          ...(notVideo ? { data: { text: fill(notVideo, { sites: list }) } } : {}),
+        };
       }
       if (!describer) return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
       kind = 'video';
-      item = { source: 'link', messageId: null, itemId: videoUrlCacheKey(link), kind: 'link', url: link, site, name: link, durationSec: null };
+      item = {
+        source: 'link',
+        messageId: null,
+        itemId: videoUrlCacheKey(link),
+        kind: 'link',
+        url: link,
+        site,
+        name: link,
+        durationSec: null,
+      };
     } else {
       if (!describer) return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
       const message = typeof mediaOf === 'function' ? await mediaOf(messageId) : null;
       if (!message) return { status: 'invalid', code: CODE.UNKNOWN_MESSAGE };
       // A placeholder line of a deleted message: gone, whatever it held.
-      if (message.deleted === true) return { status: 'invalid', code: CODE.UNKNOWN_MESSAGE, reason: CODE.MESSAGE_DELETED };
+      if (message.deleted === true)
+        return { status: 'invalid', code: CODE.UNKNOWN_MESSAGE, reason: CODE.MESSAGE_DELETED };
       const media = lookableMedia(message, { videoSites: config?.media?.video?.sites });
       if (media.length === 0) return { status: 'invalid', code: CODE.NO_MEDIA };
       const given = args?.item;
       const n = given === undefined || given === null || given === '' ? 1 : Number(given);
-      if (!Number.isInteger(n) || n < 1 || n > media.length) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.item:range' };
+      if (!Number.isInteger(n) || n < 1 || n > media.length)
+        return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.item:range' };
       ({ kind, item } = media[n - 1]);
     }
     const look = LOOKS[kind];
@@ -597,15 +743,33 @@ export async function runMediaLook({ describer, config, labels, guildId, args, m
       // The switch that is off, by name (`labels.skills.tools.look.off`, as the call mark's op text).
       const feature = switchOf(kind, config?.features ?? {}, config);
       const off = toolLabels(labels, 'look').off;
-      return { status: 'not_configured', code: CODE.NOT_CONFIGURED, ...(feature && off ? { data: { text: fill(off, { feature }) } } : {}) };
+      return {
+        status: 'not_configured',
+        code: CODE.NOT_CONFIGURED,
+        ...(feature && off ? { data: { text: fill(off, { feature }) } } : {}),
+      };
     }
     const slots = typeof describer.videoCapsLeft === 'function' ? describer.videoCapsLeft() : null;
-    if (slots && (!(slots.rewatch > 0) || (kind === 'video' && !(slots.video > 0)) || (kind === 'gif' && !((slots.gif ?? Infinity) > 0)))) return { status: 'failed', code: CODE.DAILY_CAP };
+    if (
+      slots &&
+      (!(slots.rewatch > 0) ||
+        (kind === 'video' && !(slots.video > 0)) ||
+        (kind === 'gif' && !((slots.gif ?? Infinity) > 0)))
+    )
+      return { status: 'failed', code: CODE.DAILY_CAP };
     if (typeof takeTurnSlot === 'function' && !takeTurnSlot()) return { status: 'failed', code: CODE.TURN_CAP };
     const answer = await describer[look.method](guildId, item, question);
     const said = typeof answer?.text === 'string' ? answer.text.trim() : '';
     if (!said) return { status: 'failed', code: CODE.ERROR };
-    return { status: 'ok', data: { text: mediaLookText({ kind, name: item.name, question: text(answer.question) || question, text: said }, { labels }) } };
+    return {
+      status: 'ok',
+      data: {
+        text: mediaLookText(
+          { kind, name: item.name, question: text(answer.question) || question, text: said },
+          { labels }
+        ),
+      },
+    };
   } catch {
     return { status: 'failed', code: CODE.ERROR };
   }
@@ -619,7 +783,9 @@ const STEM_MIN = 4;
 
 /** The words of `value` folded for comparison (lower case, no accents), letters and digits only, one letter words dropped. */
 function wordsOf(value) {
-  return foldText(value).split(/[^\p{L}\p{N}]+/u).filter((word) => word.length > 1);
+  return foldText(value)
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((word) => word.length > 1);
 }
 
 /** How well query word `q` matches document word `d`: 1 equal, 0.6 one starts with the other (both at least STEM_MIN long), else 0. */
@@ -652,7 +818,11 @@ export function findGifs(gifs, mediaCache, query, { n = FIND_DEFAULT, halfLifeDa
     if (!cached || cached.miss) continue;
     const fields = gifFields(entry, mediaCache, { reactionChars: 0, actionChars: 0 });
     const parts = fields
-      ? [[fields.reaction, 2], [fields.action, 1], [fields.text, 1]]
+      ? [
+          [fields.reaction, 2],
+          [fields.action, 1],
+          [fields.text, 1],
+        ]
       : [[typeof cached.text === 'string' ? cached.text : '', 1]];
     const docs = parts.map(([value, weight]) => ({ words: wordsOf(value), weight }));
     if (docs.every((doc) => doc.words.length === 0)) continue;
@@ -703,12 +873,23 @@ export function mediaFindText(found, { query = '', labels, mediaCache = null, co
 export function runMediaFind({ store, config, labels, guildId, args }) {
   try {
     const query = text(args?.query);
-    if (!query || wordsOf(query).length === 0) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.query:required' };
-    if (!store || typeof store.getGifs !== 'function' || !guildId || config?.features?.gifs === false) return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
+    if (!query || wordsOf(query).length === 0)
+      return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.query:required' };
+    if (!store || typeof store.getGifs !== 'function' || !guildId || config?.features?.gifs === false)
+      return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
     const given = args?.n;
-    if (given !== undefined && given !== null && given !== '' && (!Number.isInteger(Number(given)) || Number(given) < 1 || Number(given) > FIND_MAX)) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.n:range' };
+    if (
+      given !== undefined &&
+      given !== null &&
+      given !== '' &&
+      (!Number.isInteger(Number(given)) || Number(given) < 1 || Number(given) > FIND_MAX)
+    )
+      return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.n:range' };
     const mediaCache = typeof store.getMediaCache === 'function' ? (store.getMediaCache(guildId) ?? null) : null;
-    const found = findGifs(store.getGifs(guildId), mediaCache, query, { n: given, halfLifeDays: config?.gifs?.halfLifeDays ?? 30 });
+    const found = findGifs(store.getGifs(guildId), mediaCache, query, {
+      n: given,
+      halfLifeDays: config?.gifs?.halfLifeDays ?? 30,
+    });
     return { status: 'ok', data: { text: mediaFindText(found, { query, labels, mediaCache, config }) } };
   } catch {
     return { status: 'failed', code: CODE.ERROR };

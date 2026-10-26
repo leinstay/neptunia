@@ -54,7 +54,7 @@ const handlers = perEnv((env) => {
           maxAliases: memoryCfg.maxAliases,
           maxAliasesStored: memoryCfg.maxAliasesStored,
           aliasHalfLifeDays: memoryCfg.aliasHalfLifeDays,
-        },
+        }
       );
     }
 
@@ -84,7 +84,7 @@ const handlers = perEnv((env) => {
         maxAliases: memoryCfg.maxAliases,
         maxAliasesStored: memoryCfg.maxAliasesStored,
         aliasHalfLifeDays: memoryCfg.aliasHalfLifeDays,
-      },
+      }
     );
 
     const after = store.getUser(guildId, userId);

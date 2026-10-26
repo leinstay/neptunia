@@ -33,7 +33,15 @@ function input({ llm = {}, vision = {}, picture = false } = {}) {
       context: {
         gapMarkerMinutes: 20,
         maxMessageChars: 800,
-        caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000, server: 2500, lore: 1500, pulled: 4000 },
+        caps: {
+          interlocutor: 2500,
+          aboutChat: 2500,
+          people: 4000,
+          neighbors: 3000,
+          server: 2500,
+          lore: 1500,
+          pulled: 4000,
+        },
         vision: { ...vision },
       },
       features: {},
@@ -41,7 +49,14 @@ function input({ llm = {}, vision = {}, picture = false } = {}) {
       lore: { scanMessages: 30 },
       memory: {},
     },
-    prompts: { 'system-prompt': 'SYSTEM', 'character-card': 'CARD', rules: 'RULES', format: 'FORMAT', reply: 'REPLY_TASK', labels },
+    prompts: {
+      'system-prompt': 'SYSTEM',
+      'character-card': 'CARD',
+      rules: 'RULES',
+      format: 'FORMAT',
+      reply: 'REPLY_TASK',
+      labels,
+    },
     calibrator: { ratio: 1, apply: (n) => n },
     mode: 'reply',
     now: NOW,
@@ -66,7 +81,9 @@ test('buildRequest: a missing or unusable llm.safetyMargin is read as 0.9, a usa
 });
 
 test('buildRequest: a picture in the chat reserves nothing of the budget -- it is never attached, whatever tokensPerImage says', () => {
-  const withPicture = buildRequest(input({ llm: { safetyMargin: 0.9 }, vision: { tokensPerImage: 1000 }, picture: true }));
+  const withPicture = buildRequest(
+    input({ llm: { safetyMargin: 0.9 }, vision: { tokensPerImage: 1000 }, picture: true })
+  );
   assert.equal(withPicture.stats.limit, Math.floor(50000 * 0.9) - TAG_OVERHEAD);
   assert.ok(withPicture.messages[1].content.every((part) => part.type === 'text'));
   assert.equal('images' in withPicture.stats, false);
@@ -80,19 +97,46 @@ const TZ = 'UTC';
 const AHEAD_OF_PULLED = ['fixed', 'interlocutor', 'lookup', 'aboutChat', 'self', 'lore', 'server', 'chat'];
 
 function line(id, ts, content, overrides = {}) {
-  return { id, ts, authorId: 'w1', authorName: 'Zoé', self: false, content, attachments: [], stickers: [], replyToId: null, ...overrides };
+  return {
+    id,
+    ts,
+    authorId: 'w1',
+    authorName: 'Zoé',
+    self: false,
+    content,
+    attachments: [],
+    stickers: [],
+    replyToId: null,
+    ...overrides,
+  };
 }
 
 /**
  * A turn in `dest` with five chat lines that pulls `src` (`lines` lines of `words` words each). `routed`
  * makes it a call from `src` answered in `dest`, the trigger being pulled line `triggerAt`.
  */
-function pulledScene({ caps = {}, maxRequestTokens = 50000, routed = false, lines = 8, words = 20, triggerAt = lines - 1, extra = {} } = {}) {
+function pulledScene({
+  caps = {},
+  maxRequestTokens = 50000,
+  routed = false,
+  lines = 8,
+  words = 20,
+  triggerAt = lines - 1,
+  extra = {},
+} = {}) {
   const history = Array.from({ length: 5 }, (_, i) =>
-    line(`d${i + 1}`, NOW - (10 - i) * MIN, `chat ${i + 1} ${'mot '.repeat(30)}`, { authorId: 'a', authorName: 'Ana', channelId: 'dest', channelName: 'général' }),
+    line(`d${i + 1}`, NOW - (10 - i) * MIN, `chat ${i + 1} ${'mot '.repeat(30)}`, {
+      authorId: 'a',
+      authorName: 'Ana',
+      channelId: 'dest',
+      channelName: 'général',
+    })
   );
   const messages = Array.from({ length: lines }, (_, i) =>
-    line(`p${i + 1}`, NOW - (lines + 30 - i) * MIN, `page ${i + 1} ${'σελίδα '.repeat(words)}`, { channelId: 'src', channelName: 'journal' }),
+    line(`p${i + 1}`, NOW - (lines + 30 - i) * MIN, `page ${i + 1} ${'σελίδα '.repeat(words)}`, {
+      channelId: 'src',
+      channelName: 'journal',
+    })
   );
   const base = input();
   return {
@@ -178,14 +222,22 @@ test('buildRequest: the pulled block is trimmed after the chat on an ordinary tu
   assert.equal(kept.newestId, 'p8');
   const firstTs = pulledScene().pulled[0].messages.find((m) => m.id === kept.ids[0]).ts;
   assert.ok(view.split('\n')[0].includes(`from ${moment(firstTs)} to`), 'the header starts at the first line kept');
-  assert.deepEqual(tight.stats.pulled, { used: tight.stats.pulled.used, kept: 1, dropped: 0, lines: 8, linesCut: 8 - kept.ids.length });
+  assert.deepEqual(tight.stats.pulled, {
+    used: tight.stats.pulled.used,
+    kept: 1,
+    dropped: 0,
+    lines: 8,
+    linesCut: 8 - kept.ids.length,
+  });
   assert.ok(tight.stats.pulled.linesCut > 0, 'the lines cut are counted');
 });
 
 test('buildRequest: on a routed turn the pulled block is fitted before the chat', () => {
   const roomy = buildRequest(pulledScene({ routed: true }));
   const full = roomy.stats.pulled.used;
-  const tight = buildRequest(pulledScene({ routed: true, maxRequestTokens: roomy.stats.fixed.used + TAG_OVERHEAD + full + 40 }));
+  const tight = buildRequest(
+    pulledScene({ routed: true, maxRequestTokens: roomy.stats.fixed.used + TAG_OVERHEAD + full + 40 })
+  );
   assert.equal(tight.stats.pulled.used, full, 'the block stays whole');
   assert.ok(tight.stats.chat.kept < 5, 'the chat gives way');
   assert.ok(viewOf(tight).includes('page 1 '));
@@ -196,15 +248,27 @@ test('buildRequest: the pulled block is capped by context.caps.pulled', () => {
   assert.ok(capped.stats.pulled.used <= 1000 && capped.stats.pulled.used > 0, String(capped.stats.pulled.used));
   assert.ok(viewOf(capped).includes('page 60 '));
   const shown = capped.pulledKept[0].ids.length;
-  assert.deepEqual(capped.stats.pulled, { used: capped.stats.pulled.used, kept: 1, dropped: 0, lines: 60, linesCut: 60 - shown });
+  assert.deepEqual(capped.stats.pulled, {
+    used: capped.stats.pulled.used,
+    kept: 1,
+    dropped: 0,
+    lines: 60,
+    linesCut: 60 - shown,
+  });
   assert.ok(shown > 0 && shown < 60, String(shown));
 });
 
 test('buildRequest: the pulled block never raises a token-limit failure; with no room it is left out', () => {
   const roomy = buildRequest(pulledScene({ lines: 60, words: 40 }));
-  const request = buildRequest(pulledScene({ lines: 60, words: 40, maxRequestTokens: aheadOfPulled(roomy.stats) + TAG_OVERHEAD + 5 }));
+  const request = buildRequest(
+    pulledScene({ lines: 60, words: 40, maxRequestTokens: aheadOfPulled(roomy.stats) + TAG_OVERHEAD + 5 })
+  );
   assert.equal(viewOf(request), null);
-  assert.deepEqual(request.stats.pulled, { used: 0, kept: 0, dropped: 1, lines: 60, linesCut: 60 }, 'pulled and cut, not "nothing pulled"');
+  assert.deepEqual(
+    request.stats.pulled,
+    { used: 0, kept: 0, dropped: 1, lines: 60, linesCut: 60 },
+    'pulled and cut, not "nothing pulled"'
+  );
   assert.deepEqual(request.pulledKept, []);
   assert.equal(request.pulledIds.size, 60, 'the lines stay mapped for the output side');
 });
@@ -220,7 +284,9 @@ test('buildRequest: a routed trigger line is kept even when newer lines fill the
   const scene = pulledScene({ routed: true, triggerAt: 0 });
   const [first, , , , , , , newest] = scene.pulled[0].messages;
   const roomy = buildRequest(scene);
-  const tight = buildRequest(pulledScene({ routed: true, triggerAt: 0, caps: { pulled: Math.floor(roomy.stats.pulled.used / 2) } }));
+  const tight = buildRequest(
+    pulledScene({ routed: true, triggerAt: 0, caps: { pulled: Math.floor(roomy.stats.pulled.used / 2) } })
+  );
   const view = viewOf(tight);
   assert.ok(view.includes('#6 [') && view.includes('page 1 '), 'the trigger, numbered after the chat');
   assert.ok(view.includes('page 8 '));
@@ -231,7 +297,12 @@ test('buildRequest: a routed trigger line is kept even when newer lines fill the
   // are marked where they are, not announced as older ones.
   const lines = view.split('\n');
   assert.deepEqual(lines.slice(0, 4), [
-    fill(labels.pull.header, { channel: 'journal', from: moment(first.ts), to: moment(newest.ts), ago: formatDuration(NOW - newest.ts, labels.units) }),
+    fill(labels.pull.header, {
+      channel: 'journal',
+      from: moment(first.ts),
+      to: moment(newest.ts),
+      ago: formatDuration(NOW - newest.ts, labels.units),
+    }),
     labels.server.readOnly,
     lines[2],
     labels.pull.olderNotShown,
@@ -247,7 +318,12 @@ test('buildRequest: a routed call keeps its header and its own line past context
   const newestCall = pulledScene({ routed: true, caps: { pulled: 0 } });
   const newest = newestCall.pulled[0].messages.at(-1);
   const off = buildRequest(newestCall);
-  const header = fill(labels.pull.header, { channel: 'journal', from: moment(newest.ts), to: moment(newest.ts), ago: formatDuration(NOW - newest.ts, labels.units) });
+  const header = fill(labels.pull.header, {
+    channel: 'journal',
+    from: moment(newest.ts),
+    to: moment(newest.ts),
+    ago: formatDuration(NOW - newest.ts, labels.units),
+  });
   const lines = viewOf(off).split('\n');
   assert.deepEqual(lines.slice(0, 3), [header, labels.server.readOnly, labels.pull.olderNotShown]);
   assert.equal(lines.length, 4);
@@ -261,7 +337,12 @@ test('buildRequest: a routed call keeps its header and its own line past context
   const [first] = oldestCall.pulled[0].messages;
   const oldest = viewOf(buildRequest(oldestCall)).split('\n');
   assert.deepEqual(oldest.slice(0, 2), [
-    fill(labels.pull.header, { channel: 'journal', from: moment(first.ts), to: moment(newest.ts), ago: formatDuration(NOW - newest.ts, labels.units) }),
+    fill(labels.pull.header, {
+      channel: 'journal',
+      from: moment(first.ts),
+      to: moment(newest.ts),
+      ago: formatDuration(NOW - newest.ts, labels.units),
+    }),
     labels.server.readOnly,
   ]);
   assert.equal(oldest.length, 3);
@@ -270,19 +351,38 @@ test('buildRequest: a routed call keeps its header and its own line past context
 
 test('buildRequest: a routed call with no room for its line leaves the task without a target or the called text', () => {
   const roomy = buildRequest(pulledScene({ routed: true }));
-  const request = buildRequest(pulledScene({ routed: true, maxRequestTokens: aheadOfRouted(roomy.stats) + TAG_OVERHEAD + 5 }));
+  const request = buildRequest(
+    pulledScene({ routed: true, maxRequestTokens: aheadOfRouted(roomy.stats) + TAG_OVERHEAD + 5 })
+  );
   assert.equal(viewOf(request), null);
   assert.equal(taskOf(request), 'REPLY_TASK ');
   assert.ok(!contentText(request.messages[1].content).includes('the call came from'));
   assert.deepEqual(request.stats.pulled, { used: 0, kept: 0, dropped: 1, lines: 8, linesCut: 8 });
   // The shorter task is what the budget line counts.
   assert.ok(request.stats.fixed.used < roomy.stats.fixed.used);
-  const sections = ['fixed', 'interlocutor', 'lookup', 'aboutChat', 'self', 'lore', 'server', 'pulled', 'chat', 'people', 'neighbors', 'emoji', 'gifs'];
-  assert.equal(request.stats.used, sections.reduce((sum, name) => sum + request.stats[name].used, 0));
+  const sections = [
+    'fixed',
+    'interlocutor',
+    'lookup',
+    'aboutChat',
+    'self',
+    'lore',
+    'server',
+    'pulled',
+    'chat',
+    'people',
+    'neighbors',
+    'emoji',
+    'gifs',
+  ];
+  assert.equal(
+    request.stats.used,
+    sections.reduce((sum, name) => sum + request.stats[name].used, 0)
+  );
   assert.ok(request.stats.used <= request.stats.limit);
 });
 
-test('buildRequest: two pulled channels share the block\'s room evenly, each keeping its newest lines', () => {
+test("buildRequest: two pulled channels share the block's room evenly, each keeping its newest lines", () => {
   const base = pulledScene();
   const [journal] = base.pulled;
   const pages = journal.messages.map((message, i) => ({
@@ -292,7 +392,17 @@ test('buildRequest: two pulled channels share the block\'s room evenly, each kee
     channelName: 'carnet',
     content: `feuille ${i + 1} ${'φύλλο '.repeat(20)}`,
   }));
-  const pulled = [journal, { ...journal, channelId: 'src2', channelName: 'carnet', messages: pages, newestId: 'q8', newestTs: pages.at(-1).ts }];
+  const pulled = [
+    journal,
+    {
+      ...journal,
+      channelId: 'src2',
+      channelName: 'carnet',
+      messages: pages,
+      newestId: 'q8',
+      newestTs: pages.at(-1).ts,
+    },
+  ];
   const roomy = buildRequest(pulledScene({ extra: { pulled } }));
   assert.equal(roomy.stats.pulled.kept, 2);
   const room = Math.floor(roomy.stats.pulled.used * 0.6);
@@ -300,18 +410,38 @@ test('buildRequest: two pulled channels share the block\'s room evenly, each kee
 
   const items = viewOf(tight).split('\n\n');
   assert.equal(items.length, 2);
-  for (const item of items) assert.ok(itemCost(item) <= Math.floor(room / 2), `${itemCost(item)} <= ${Math.floor(room / 2)}`);
+  for (const item of items)
+    assert.ok(itemCost(item) <= Math.floor(room / 2), `${itemCost(item)} <= ${Math.floor(room / 2)}`);
   assert.ok(items[0].startsWith('channel #journal') && items[0].includes('page 8 '), items[0]);
   assert.ok(items[1].startsWith('channel #carnet') && items[1].includes('feuille 8 '), items[1]);
-  assert.deepEqual(tight.pulledKept.map((kept) => [kept.channelId, kept.newestId]), [['src', 'p8'], ['src2', 'q8']]);
+  assert.deepEqual(
+    tight.pulledKept.map((kept) => [kept.channelId, kept.newestId]),
+    [
+      ['src', 'p8'],
+      ['src2', 'q8'],
+    ]
+  );
   const shown = tight.pulledKept.reduce((sum, kept) => sum + kept.ids.length, 0);
-  assert.deepEqual(tight.stats.pulled, { used: tight.stats.pulled.used, kept: 2, dropped: 0, lines: 16, linesCut: 16 - shown });
+  assert.deepEqual(tight.stats.pulled, {
+    used: tight.stats.pulled.used,
+    kept: 2,
+    dropped: 0,
+    lines: 16,
+    linesCut: 16 - shown,
+  });
   assert.ok(shown < 16);
 });
 
 test('buildRequest: a pulled channel cut by the budget stays among the neighbours', () => {
-  const neighbors = [{ channelId: 'src', channelName: 'journal', messages: [line('n1', NOW - 31 * MIN, 'une ligne courte', { channelId: 'src' })] }];
-  const others = (request) => /<other_channels>\n([\s\S]*?)\n<\/other_channels>/.exec(contentText(request.messages[1].content))?.[1] ?? null;
+  const neighbors = [
+    {
+      channelId: 'src',
+      channelName: 'journal',
+      messages: [line('n1', NOW - 31 * MIN, 'une ligne courte', { channelId: 'src' })],
+    },
+  ];
+  const others = (request) =>
+    /<other_channels>\n([\s\S]*?)\n<\/other_channels>/.exec(contentText(request.messages[1].content))?.[1] ?? null;
 
   const cut = buildRequest(pulledScene({ words: 400, caps: { pulled: 60 }, extra: { neighbors } }));
   assert.equal(viewOf(cut), null);
@@ -331,7 +461,9 @@ test('buildRequest: the pulled block outranks other profiles and neighbours on a
   const roomy = buildRequest(pulledScene({ extra }));
   assert.equal(roomy.stats.people.kept, 1);
   assert.equal(roomy.stats.neighbors.kept, 1);
-  const tight = buildRequest(pulledScene({ extra, maxRequestTokens: aheadOfPulled(roomy.stats) + TAG_OVERHEAD + roomy.stats.pulled.used + 20 }));
+  const tight = buildRequest(
+    pulledScene({ extra, maxRequestTokens: aheadOfPulled(roomy.stats) + TAG_OVERHEAD + roomy.stats.pulled.used + 20 })
+  );
   assert.equal(tight.stats.pulled.used, roomy.stats.pulled.used);
   assert.equal(tight.stats.people.kept, 0);
   assert.equal(tight.stats.neighbors.kept, 0);

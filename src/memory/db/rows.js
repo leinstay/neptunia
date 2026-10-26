@@ -30,8 +30,19 @@
 
 import { log as engineLog } from '../../log.js';
 import {
-  CORE_AUTHORITY, LEGACY_AUTHORITY, dmPartnerOfPlace, externalTargetKey, guildAuthorityOf, legacyAccountNative, legacyNativeKind, legacyPersonNative,
-  linkId, nativeAuthorityOf, placeNativeKey, SELF_PERSON, sourceTargetKey,
+  CORE_AUTHORITY,
+  LEGACY_AUTHORITY,
+  dmPartnerOfPlace,
+  externalTargetKey,
+  guildAuthorityOf,
+  legacyAccountNative,
+  legacyNativeKind,
+  legacyPersonNative,
+  linkId,
+  nativeAuthorityOf,
+  placeNativeKey,
+  SELF_PERSON,
+  sourceTargetKey,
 } from './ids.js';
 import { AUD_INTERNAL, SCOPE_INTERNAL, audienceOf, audienceParts } from './scope.js';
 import { SELF_SOURCE_KINDS } from './schema.js';
@@ -48,7 +59,16 @@ const columnCache = new WeakMap();
 export function columnsOf(db, table) {
   let tables = columnCache.get(db);
   if (!tables) columnCache.set(db, (tables = new Map()));
-  if (!tables.has(table)) tables.set(table, new Set(db.prepare(`PRAGMA table_info(${quote(table)})`).all().map((c) => c.name)));
+  if (!tables.has(table))
+    tables.set(
+      table,
+      new Set(
+        db
+          .prepare(`PRAGMA table_info(${quote(table)})`)
+          .all()
+          .map((c) => c.name)
+      )
+    );
   return tables.get(table);
 }
 
@@ -67,9 +87,18 @@ const coded = (code) => Object.assign(new Error(`memory db: ${code}`), { code })
 /** The interface row and its native authority, when missing. */
 export function ensureInterface(db, iface) {
   if (!hasV7(db) || typeof iface !== 'string' || !iface) return;
-  if (Number(prepared(db, 'INSERT OR IGNORE INTO interfaces (id) VALUES (?)').run(iface).changes) > 0) projectRow(db, 'interfaces', { id: iface });
+  if (Number(prepared(db, 'INSERT OR IGNORE INTO interfaces (id) VALUES (?)').run(iface).changes) > 0)
+    projectRow(db, 'interfaces', { id: iface });
   const authority = nativeAuthorityOf(iface);
-  if (Number(prepared(db, 'INSERT OR IGNORE INTO authorities (id, iface, namespace) VALUES (?, ?, ?)').run(authority, iface, authority.slice(iface.length + 1)).changes) > 0) {
+  if (
+    Number(
+      prepared(db, 'INSERT OR IGNORE INTO authorities (id, iface, namespace) VALUES (?, ?, ?)').run(
+        authority,
+        iface,
+        authority.slice(iface.length + 1)
+      ).changes
+    ) > 0
+  ) {
     projectRow(db, 'authorities', { id: authority });
   }
 }
@@ -77,7 +106,15 @@ export function ensureInterface(db, iface) {
 /** An authority row (and its interface), when missing. */
 export function ensureAuthority(db, authority, iface, namespace) {
   ensureInterface(db, iface);
-  if (Number(prepared(db, 'INSERT OR IGNORE INTO authorities (id, iface, namespace) VALUES (?, ?, ?)').run(authority, iface, namespace).changes) > 0) {
+  if (
+    Number(
+      prepared(db, 'INSERT OR IGNORE INTO authorities (id, iface, namespace) VALUES (?, ?, ?)').run(
+        authority,
+        iface,
+        namespace
+      ).changes
+    ) > 0
+  ) {
     projectRow(db, 'authorities', { id: authority });
   }
 }
@@ -87,8 +124,10 @@ const stampOf = (at) => (typeof at === 'string' && at ? at : new Date().toISOStr
 
 export function addKey(db, authority, kind, nativeKey, nodeId, { generation = 1, at } = {}) {
   if (nativeKey === null || nativeKey === undefined || nativeKey === '') return;
-  prepared(db, `INSERT OR IGNORE INTO external_keys (authority_id, object_kind, native_key, generation, node_id, recorded_at) VALUES (?, ?, ?, ?, ?, ?)`)
-    .run(authority, kind, String(nativeKey), generation, nodeId, stampOf(at));
+  prepared(
+    db,
+    `INSERT OR IGNORE INTO external_keys (authority_id, object_kind, native_key, generation, node_id, recorded_at) VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(authority, kind, String(nativeKey), generation, nodeId, stampOf(at));
 }
 
 /** The derived columns of a place row: authority, native key, conversation. */
@@ -110,8 +149,11 @@ export function ensureDmPlace(db, placeId, iface, person, { at } = {}) {
   const account = partner && partner.iface === iface ? partner.account : null;
   const row = { id: placeId, iface, kind: 'dm', native_id: null, scope_kind: 'dm' };
   const cols = placeColumns(row);
-  prepared(db, `INSERT INTO places (id, iface, kind, native_id, parent_id, scope_kind, authority_id, native_key, generation, conversation, partner_person, partner_account)
-    VALUES (?, ?, 'dm', NULL, NULL, 'dm', ?, ?, 1, 'dm', ?, ?)`).run(placeId, iface, cols.authority_id, cols.native_key, person ?? null, account);
+  prepared(
+    db,
+    `INSERT INTO places (id, iface, kind, native_id, parent_id, scope_kind, authority_id, native_key, generation, conversation, partner_person, partner_account)
+    VALUES (?, ?, 'dm', NULL, NULL, 'dm', ?, ?, 1, 'dm', ?, ?)`
+  ).run(placeId, iface, cols.authority_id, cols.native_key, person ?? null, account);
   addKey(db, cols.authority_id, 'place', cols.native_key, placeId, { at });
   addKey(db, LEGACY_AUTHORITY, 'place', placeId, placeId, { at });
   projectRow(db, 'places', { id: placeId }, { at });
@@ -122,7 +164,10 @@ export function ensureAudience(db, resolved, { at } = {}) {
   if (!hasV7(db)) return;
   const parts = audienceParts(resolved.audience_id);
   if (!parts || parts.kind === 'none' || parts.kind === 'internal') {
-    prepared(db, 'INSERT OR IGNORE INTO audiences (id, kind) VALUES (?, ?)').run(parts ? parts.id : AUD_INTERNAL, parts ? parts.kind : 'internal');
+    prepared(db, 'INSERT OR IGNORE INTO audiences (id, kind) VALUES (?, ?)').run(
+      parts ? parts.id : AUD_INTERNAL,
+      parts ? parts.kind : 'internal'
+    );
     return;
   }
   const iface = parts.kind === 'group' ? parts.iface : resolved.scope_iface;
@@ -132,7 +177,11 @@ export function ensureAudience(db, resolved, { at } = {}) {
     return;
   }
   ensureDmPlace(db, parts.place_id, iface, resolved.scope_dm, { at });
-  prepared(db, "INSERT OR IGNORE INTO audiences (id, kind, iface, place_id) VALUES (?, 'dm', ?, ?)").run(parts.id, iface, parts.place_id);
+  prepared(db, "INSERT OR IGNORE INTO audiences (id, kind, iface, place_id) VALUES (?, 'dm', ?, ?)").run(
+    parts.id,
+    iface,
+    parts.place_id
+  );
 }
 
 /**
@@ -141,14 +190,26 @@ export function ensureAudience(db, resolved, { at } = {}) {
  * anything else is a conflict (`conflict: true`).
  */
 export function resolveRow(db, row) {
-  const scope = { scope_kind: row.scope_kind ?? null, scope_iface: row.scope_iface ?? null, scope_dm: row.scope_dm ?? null };
+  const scope = {
+    scope_kind: row.scope_kind ?? null,
+    scope_iface: row.scope_iface ?? null,
+    scope_dm: row.scope_dm ?? null,
+  };
   const given = row.audience_id ?? null;
   const parts = given ? audienceParts(given) : null;
   let dmPlace = null;
   if (parts?.kind === 'dm' && scope.scope_kind === 'dm' && hasV7(db)) {
-    const place = prepared(db, 'SELECT iface, partner_person, conversation FROM places WHERE id = ?').get(parts.place_id);
+    const place = prepared(db, 'SELECT iface, partner_person, conversation FROM places WHERE id = ?').get(
+      parts.place_id
+    );
     // A DM place with no known partner person (an observed DM) matches a triple with none (schema v8).
-    if (place && place.conversation === 'dm' && place.iface === scope.scope_iface && (place.partner_person ?? null) === (scope.scope_dm ?? null)) dmPlace = parts.place_id;
+    if (
+      place &&
+      place.conversation === 'dm' &&
+      place.iface === scope.scope_iface &&
+      (place.partner_person ?? null) === (scope.scope_dm ?? null)
+    )
+      dmPlace = parts.place_id;
   }
   const resolved = audienceOf(scope, { dmPlace });
   return { ...resolved, conflict: given !== null && given !== resolved.audience_id };
@@ -186,13 +247,25 @@ export function deriveRow(db, table, row, { log = engineLog, at } = {}) {
   } else if (table === 'places' && have.has('authority_id') && Object.hasOwn(out, 'id')) {
     ensureInterface(db, out.iface);
     Object.assign(out, placeColumns(out));
-    if (out.kind === 'guild' && typeof out.iface === 'string' && out.iface && out.native_id !== null && out.native_id !== undefined) {
+    if (
+      out.kind === 'guild' &&
+      typeof out.iface === 'string' &&
+      out.iface &&
+      out.native_id !== null &&
+      out.native_id !== undefined
+    ) {
       ensureAuthority(db, guildAuthorityOf(out.native_id, out.iface), out.iface, `guild:${out.native_id}`);
     }
   } else if (table === 'sources' && have.has('authority_id')) {
     if (Object.hasOwn(out, 'iface') && !own) out.authority_id = nativeAuthorityOf(out.iface);
     if (Object.hasOwn(out, 'kind') && !Object.hasOwn(row, 'author_kind')) {
-      out.author_kind = SELF_KINDS.has(out.kind) ? 'self' : out.author_participant ? 'participant' : out.author_account ? 'account' : null;
+      out.author_kind = SELF_KINDS.has(out.kind)
+        ? 'self'
+        : out.author_participant
+          ? 'participant'
+          : out.author_account
+            ? 'account'
+            : null;
     }
     if (Object.hasOwn(out, 'recorded_at')) out.observed_at = out.observed_at ?? out.recorded_at ?? null;
     if (have.has('native_kind') && Object.hasOwn(out, 'iface') && !Object.hasOwn(row, 'native_kind')) {
@@ -212,18 +285,30 @@ export function checkAuthor(row) {
   const kind = row.author_kind ?? null;
   const participant = row.author_participant ?? null;
   const account = row.author_account ?? null;
-  const ok = kind === 'participant' ? participant !== null && account === null
-    : kind === 'account' ? participant === null && account !== null
-      : participant === null;
+  const ok =
+    kind === 'participant'
+      ? participant !== null && account === null
+      : kind === 'account'
+        ? participant === null && account !== null
+        : participant === null;
   if (!ok) throw coded('AUTHOR_COMBINATION');
 }
 
 /** The stored source a native tuple names (a revision not named: its first stored revision), or null. */
 export function findSourceByTuple(db, { authority, kind, key, generation = 1, revision = null }) {
   if (!hasV8(db)) return null;
-  const row = prepared(db, `SELECT id FROM sources WHERE authority_id = ? AND native_kind = ? AND native_id = ? AND generation = ?
-    AND (? IS NULL OR revision = ?) AND kind IN ('seen', 'said') AND retired_at IS NULL ORDER BY revision, rowid LIMIT 1`)
-    .get(String(authority), String(kind), String(key), Number.isInteger(generation) ? generation : 1, bind(revision), bind(revision));
+  const row = prepared(
+    db,
+    `SELECT id FROM sources WHERE authority_id = ? AND native_kind = ? AND native_id = ? AND generation = ?
+    AND (? IS NULL OR revision = ?) AND kind IN ('seen', 'said') AND retired_at IS NULL ORDER BY revision, rowid LIMIT 1`
+  ).get(
+    String(authority),
+    String(kind),
+    String(key),
+    Number.isInteger(generation) ? generation : 1,
+    bind(revision),
+    bind(revision)
+  );
   return row?.id ?? null;
 }
 
@@ -243,11 +328,16 @@ export function addRelation(db, sourceId, predicate, target, { at } = {}) {
     key = externalTargetKey(target);
     found = findSourceByTuple(db, target);
   }
-  const done = prepared(db, `INSERT OR IGNORE INTO source_relations (source_id, predicate, target_key, target_source_id, recorded_at, resolved_at)
-    VALUES (?, ?, ?, ?, ?, ?)`).run(sourceId, predicate, key, found, stamp, found ? stamp : null);
+  const done = prepared(
+    db,
+    `INSERT OR IGNORE INTO source_relations (source_id, predicate, target_key, target_source_id, recorded_at, resolved_at)
+    VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(sourceId, predicate, key, found, stamp, found ? stamp : null);
   if (Number(done.changes) === 0 && found) {
-    prepared(db, 'UPDATE source_relations SET target_source_id = ?, resolved_at = ? WHERE source_id = ? AND predicate = ? AND target_key = ? AND target_source_id IS NULL')
-      .run(found, stamp, sourceId, predicate, key);
+    prepared(
+      db,
+      'UPDATE source_relations SET target_source_id = ?, resolved_at = ? WHERE source_id = ? AND predicate = ? AND target_key = ? AND target_source_id IS NULL'
+    ).run(found, stamp, sourceId, predicate, key);
   }
   return Number(done.changes);
 }
@@ -256,8 +346,20 @@ export function addRelation(db, sourceId, predicate, target, { at } = {}) {
 export function resolveRelationsTo(db, row, { at } = {}) {
   if (!hasV8(db) || typeof row?.id !== 'string') return 0;
   const keys = [sourceTargetKey(row.id)];
-  if ((row.kind === 'seen' || row.kind === 'said') && row.retired_at == null && row.authority_id && row.native_kind && row.native_id !== null && row.native_id !== undefined) {
-    const tuple = { authority: row.authority_id, kind: row.native_kind, key: row.native_id, generation: Number.isInteger(row.generation) ? row.generation : 1 };
+  if (
+    (row.kind === 'seen' || row.kind === 'said') &&
+    row.retired_at == null &&
+    row.authority_id &&
+    row.native_kind &&
+    row.native_id !== null &&
+    row.native_id !== undefined
+  ) {
+    const tuple = {
+      authority: row.authority_id,
+      kind: row.native_kind,
+      key: row.native_id,
+      generation: Number.isInteger(row.generation) ? row.generation : 1,
+    };
     keys.push(externalTargetKey(tuple));
     if (Number.isInteger(row.revision)) keys.push(externalTargetKey({ ...tuple, revision: row.revision }));
   }
@@ -265,8 +367,10 @@ export function resolveRelationsTo(db, row, { at } = {}) {
   let count = 0;
   const waiting = new Set();
   for (const key of keys) {
-    const done = prepared(db, 'UPDATE source_relations SET target_source_id = ?, resolved_at = ? WHERE target_key = ? AND target_source_id IS NULL RETURNING source_id')
-      .all(row.id, stamp, key);
+    const done = prepared(
+      db,
+      'UPDATE source_relations SET target_source_id = ?, resolved_at = ? WHERE target_key = ? AND target_source_id IS NULL RETURNING source_id'
+    ).all(row.id, stamp, key);
     count += done.length;
     for (const relation of done) waiting.add(relation.source_id);
   }
@@ -283,7 +387,13 @@ export function ensureRelations(db, row, { at } = {}) {
   if (!hasV8(db) || typeof row?.id !== 'string' || !row.id) return;
   const kind = legacyNativeKind(row.iface);
   if (kind && typeof row.reply_to === 'string' && row.reply_to !== '' && row.authority_id) {
-    addRelation(db, row.id, 'replies_to', { authority: row.authority_id, kind, key: row.reply_to, generation: 1, revision: null }, { at });
+    addRelation(
+      db,
+      row.id,
+      'replies_to',
+      { authority: row.authority_id, kind, key: row.reply_to, generation: 1, revision: null },
+      { at }
+    );
   }
   resolveRelationsTo(db, row, { at });
   projectRow(db, 'sources', { id: row.id }, { at });
@@ -297,7 +407,10 @@ export function ensureRelations(db, row, { at } = {}) {
 export function ensureNodeKeys(db, table, row, { at, legacy = true } = {}) {
   if (!hasV7(db) || typeof row?.id !== 'string' || !row.id) return;
   if (table === 'people') {
-    if (row.id === SELF_PERSON) { addKey(db, CORE_AUTHORITY, 'person', 'self', row.id, { at }); return; }
+    if (row.id === SELF_PERSON) {
+      addKey(db, CORE_AUTHORITY, 'person', 'self', row.id, { at });
+      return;
+    }
     const native = legacyPersonNative(row.id);
     if (native) {
       ensureInterface(db, native.iface);
@@ -306,9 +419,18 @@ export function ensureNodeKeys(db, table, row, { at, legacy = true } = {}) {
     addKey(db, LEGACY_AUTHORITY, 'person', row.id, row.id, { at });
   } else if (table === 'accounts' || table === 'places') {
     const kind = table === 'accounts' ? 'account' : 'place';
-    const legacyDerived = table === 'accounts' ? { authority_id: nativeAuthorityOf(row.iface), native_key: row.native_key ?? row.native_id ?? legacyAccountNative(row.id, row.iface) } : placeColumns(row);
+    const legacyDerived =
+      table === 'accounts'
+        ? {
+            authority_id: nativeAuthorityOf(row.iface),
+            native_key: row.native_key ?? row.native_id ?? legacyAccountNative(row.id, row.iface),
+          }
+        : placeColumns(row);
     const derived = legacy ? legacyDerived : { authority_id: row.authority_id, native_key: row.native_key };
-    addKey(db, derived.authority_id, kind, derived.native_key, row.id, { generation: Number.isInteger(row.generation) ? row.generation : 1, at });
+    addKey(db, derived.authority_id, kind, derived.native_key, row.id, {
+      generation: Number.isInteger(row.generation) ? row.generation : 1,
+      at,
+    });
     if (legacy) addKey(db, LEGACY_AUTHORITY, kind, row.id, row.id, { at });
   }
 }
@@ -325,8 +447,19 @@ export function ensureLinks(db, accounts, { by = 'import', at } = {}) {
     if (typeof row?.id !== 'string' || typeof row.person_id !== 'string' || !row.person_id) continue;
     if (!prepared(db, 'SELECT 1 AS ok FROM accounts WHERE id = ?').get(row.id)) continue;
     if (!prepared(db, 'SELECT 1 AS ok FROM people WHERE id = ?').get(row.person_id)) continue;
-    const done = prepared(db, `INSERT OR IGNORE INTO account_person_links (id, account_id, person_id, state, by, reason, evidence_id, valid_from_at, valid_to_at, recorded_at)
-      VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, NULL, ?)`).run(linkId(row.id, row.person_id), row.id, row.person_id, row.link === 'verified' ? 'verified' : 'proposed', by, bind(row.linked_at), stampOf(at));
+    const done = prepared(
+      db,
+      `INSERT OR IGNORE INTO account_person_links (id, account_id, person_id, state, by, reason, evidence_id, valid_from_at, valid_to_at, recorded_at)
+      VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, NULL, ?)`
+    ).run(
+      linkId(row.id, row.person_id),
+      row.id,
+      row.person_id,
+      row.link === 'verified' ? 'verified' : 'proposed',
+      by,
+      bind(row.linked_at),
+      stampOf(at)
+    );
     count += Number(done.changes);
     if (Number(done.changes) > 0) projectRow(db, 'account_person_links', { account_id: row.id }, { at });
   }
@@ -355,7 +488,10 @@ export function insertRows(db, mapping, { log = engineLog, at } = {}) {
 export function readRows(db, tables) {
   const out = {};
   for (const table of tables) {
-    out[table] = db.prepare(`SELECT * FROM ${quote(table)} ORDER BY rowid`).all().map((row) => ({ ...row }));
+    out[table] = db
+      .prepare(`SELECT * FROM ${quote(table)} ORDER BY rowid`)
+      .all()
+      .map((row) => ({ ...row }));
   }
   return out;
 }

@@ -34,7 +34,11 @@ const MINUTE = 60_000;
 const MAIN_KEY = 'OPENROUTER_CORE_KEY';
 const dayOf = (ms) => new Date(ms).toISOString().slice(0, 10);
 const parse = (text) => {
-  try { return JSON.parse(text); } catch { return null; }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
 };
 
 /** The scopes a scheduled sweep takes now (see the head of this file). */
@@ -43,12 +47,22 @@ export function dueScopes(db, config, now) {
   const out = [];
   const settleBefore = now - settings.settleMinutes * MINUTE;
   for (const scope of scopesOf(db, { audienceColumn: config?.memoryDb?.audienceColumn === true })) {
-    const cursor = Number(db.prepare('SELECT value FROM meta WHERE key = ?').get(cursorKey(settings.mode, scope.key))?.value ?? 0);
-    const batch = batchOf(db, scope.scope, { cursor, since: settings.since, maxMessages: settings.maxMessages, settleBefore, audienceId: scope.audienceId ?? null });
+    const cursor = Number(
+      db.prepare('SELECT value FROM meta WHERE key = ?').get(cursorKey(settings.mode, scope.key))?.value ?? 0
+    );
+    const batch = batchOf(db, scope.scope, {
+      cursor,
+      since: settings.since,
+      maxMessages: settings.maxMessages,
+      settleBefore,
+      audienceId: scope.audienceId ?? null,
+    });
     if (batch.length < Math.min(settings.minMessages, settings.maxMessages)) continue;
     if (scopeSweepsToday(db, scope.key, now, settings.mode) >= settings.sweepsPerScopePerDay) continue;
     const full = batch.length >= settings.maxMessages;
-    const last = db.prepare('SELECT MAX(started_at) AS at FROM session_runs WHERE scope_key = ? AND mode = ?').get(scope.key, settings.mode)?.at;
+    const last = db
+      .prepare('SELECT MAX(started_at) AS at FROM session_runs WHERE scope_key = ? AND mode = ?')
+      .get(scope.key, settings.mode)?.at;
     const lastMs = typeof last === 'string' ? Date.parse(last) : NaN;
     if (!full && Number.isFinite(lastMs) && now - lastMs < settings.everyMinutes * MINUTE) continue;
     out.push({ key: scope.key, lines: batch.length, full });
@@ -58,9 +72,12 @@ export function dueScopes(db, config, now) {
 
 /** The accepted description reviews written on the UTC day of `now`. */
 export function reviewsToday(db, now) {
-  return db.prepare("SELECT COUNT(*) AS n FROM description_versions WHERE origin = 'review' AND retired_at IS NULL AND substr(written_at, 1, 10) = ?").get(dayOf(now)).n;
+  return db
+    .prepare(
+      "SELECT COUNT(*) AS n FROM description_versions WHERE origin = 'review' AND retired_at IS NULL AND substr(written_at, 1, 10) = ?"
+    )
+    .get(dayOf(now)).n;
 }
-
 
 /** The display name of a review's subject: an account's first name, a place's name, her own name. */
 function subjectName(db, kind, id, selfName) {
@@ -71,22 +88,35 @@ function subjectName(db, kind, id, selfName) {
       const names = parse(row.names);
       if (Array.isArray(names) && typeof names[0] === 'string' && names[0]) return names[0];
     }
-  } catch { /* the id is the name */ }
+  } catch {
+    /* the id is the name */
+  }
   return null;
 }
 
 /** The description flags waiting for a review, in review order (see the head of this file). */
 export function openFlags(db, config, { skip = new Set(), selfName = '' } = {}) {
   const audienceColumn = config?.memoryDb?.audienceColumn === true;
-  const rows = db.prepare("SELECT id, at, extra FROM decisions WHERE action = 'flag:description' AND by = 'her' AND retired_at IS NULL ORDER BY at, id").all();
-  const reviewed = db.prepare("SELECT 1 AS ok FROM description_versions WHERE description_id = ? AND origin = 'review' AND retired_at IS NULL AND written_at >= ? LIMIT 1");
+  const rows = db
+    .prepare(
+      "SELECT id, at, extra FROM decisions WHERE action = 'flag:description' AND by = 'her' AND retired_at IS NULL ORDER BY at, id"
+    )
+    .all();
+  const reviewed = db.prepare(
+    "SELECT 1 AS ok FROM description_versions WHERE description_id = ? AND origin = 'review' AND retired_at IS NULL AND written_at >= ? LIMIT 1"
+  );
   const seen = new Set();
   const flags = [];
   for (const row of rows) {
     const extra = parse(row.extra);
     const op = extra?.op;
     const kind = op?.subjectKind;
-    if (!['person', 'place', 'self'].includes(kind) || typeof op.subjectId !== 'string' || !DESCRIPTION_FIELDS.includes(op.field)) continue;
+    if (
+      !['person', 'place', 'self'].includes(kind) ||
+      typeof op.subjectId !== 'string' ||
+      !DESCRIPTION_FIELDS.includes(op.field)
+    )
+      continue;
     const scope = extra.scope ?? {};
     const iface = typeof scope.scope_iface === 'string' && scope.scope_iface ? scope.scope_iface : 'discord';
     const base = scope.scope_kind === 'dm' && scope.scope_dm ? dmContext(scope.scope_dm, iface) : groupContext(iface);
@@ -104,7 +134,10 @@ export function openFlags(db, config, { skip = new Set(), selfName = '' } = {}) 
     const at = flag.subject.kind === 'person' ? close.indexOf(flag.subject.id) : -1;
     return at === -1 ? Infinity : at;
   };
-  return flags.map((flag, order) => ({ flag, order })).sort((a, b) => rank(a.flag) - rank(b.flag) || a.order - b.order).map(({ flag }) => flag);
+  return flags
+    .map((flag, order) => ({ flag, order }))
+    .sort((a, b) => rank(a.flag) - rank(b.flag) || a.order - b.order)
+    .map(({ flag }) => flag);
 }
 
 /** The key variable a request of `role` goes out on (openrouter.js#roleApiKey's choice), by name; null for none. */
@@ -119,7 +152,12 @@ function keyNameOf(config, env, role) {
 export function effectiveModels(config, env) {
   const out = [];
   for (const purpose of MEMORY_PURPOSES) {
-    out.push({ purpose, role: MEMORY_ROLE, model: roleModel(config, MEMORY_ROLE) ?? null, key: keyNameOf(config, env, MEMORY_ROLE) });
+    out.push({
+      purpose,
+      role: MEMORY_ROLE,
+      model: roleModel(config, MEMORY_ROLE) ?? null,
+      key: keyNameOf(config, env, MEMORY_ROLE),
+    });
   }
   for (const [purpose, role] of Object.entries(PURPOSE_ROLES)) {
     out.push({ purpose, role, model: roleModel(config, role, purpose) ?? null, key: keyNameOf(config, env, role) });

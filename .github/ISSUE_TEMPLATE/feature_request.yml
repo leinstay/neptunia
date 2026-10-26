@@ -1,7 +1,7 @@
 name: Feature request
 description: Suggest a change or addition.
-title: "[feature] "
-labels: ["enhancement"]
+title: '[feature] '
+labels: ['enhancement']
 body:
   - type: textarea
     id: problem
@@ -15,7 +15,7 @@ body:
     id: proposed-change
     attributes:
       label: Proposed change
-      description: "What the change would look like: which setting, prompt file, command or code area it would touch."
+      description: 'What the change would look like: which setting, prompt file, command or code area it would touch.'
     validations:
       required: true
 
@@ -30,9 +30,9 @@ body:
     attributes:
       label: Would you implement this?
       options:
-        - "Yes, I can open a pull request"
-        - "Maybe, with guidance"
-        - "No"
+        - 'Yes, I can open a pull request'
+        - 'Maybe, with guidance'
+        - 'No'
 
   - type: checkboxes
     id: confirmations

@@ -25,7 +25,7 @@ function config(overrides = {}) {
       offlineCatchUp: { windowMinutes: 15, maxMessages: 50 },
       mention: { ignoreChance: 0, nameTriggerChance: 1, oneAtATime: true, pendingSameChannel: true },
     }),
-    overrides,
+    overrides
   );
 }
 
@@ -118,7 +118,11 @@ async function settle() {
 }
 
 test('planChannel: keeps what came after the last seen message, oldest first, a call only inside the window and before her own post', () => {
-  const at = (id, minutesAgo, authorId = 'u1') => ({ id, createdTimestamp: NOW - minutesAgo * MIN, author: { id: authorId } });
+  const at = (id, minutesAgo, authorId = 'u1') => ({
+    id,
+    createdTimestamp: NOW - minutesAgo * MIN,
+    author: { id: authorId },
+  });
   const messages = [at('105', 2), at('101', 40), at('103', 20), at('104', 5, SELF), at('106', 1)];
   const plan = planChannel(messages, { lastSeenAt: LAST_SEEN, nowMs: NOW, windowMs: 15 * MIN, selfId: SELF });
   assert.deepEqual(
@@ -128,9 +132,14 @@ test('planChannel: keeps what came after the last seen message, oldest first, a 
       ['104', false], // her own
       ['105', true],
       ['106', true],
-    ],
+    ]
   );
-  const beforeHer = planChannel([at('201', 3), at('202', 2, SELF)], { lastSeenAt: LAST_SEEN, nowMs: NOW, windowMs: 15 * MIN, selfId: SELF });
+  const beforeHer = planChannel([at('201', 3), at('202', 2, SELF)], {
+    lastSeenAt: LAST_SEEN,
+    nowMs: NOW,
+    windowMs: 15 * MIN,
+    selfId: SELF,
+  });
   assert.equal(beforeHer[0].trigger, false, 'she already posted in the channel after it');
 });
 
@@ -155,7 +164,9 @@ test('catch-up: a mention after the last seen message starts one turn; the plain
   assert.equal(h.turnsStarted.length, 1);
   assert.equal(h.turnsStarted[0].trigger.id, '120');
   assert.equal(h.turnsStarted[0].triggerKind, 'mention');
-  assert.deepEqual(result.channels, [{ channelId: 'c1', fetched: 2, observed: 1, triggered: 1, duplicate: 0, ignored: 0 }]);
+  assert.deepEqual(result.channels, [
+    { channelId: 'c1', fetched: 2, observed: 1, triggered: 1, duplicate: 0, ignored: 0 },
+  ]);
 });
 
 test('catch-up: a mention older than the window is observed but starts nothing', async () => {
@@ -244,5 +255,15 @@ test('catch-up: the counts per channel reach the journal as one system record', 
     fetchRecent: async () => [fakeMessage({ id: '150', channel, ts: NOW - MIN, mention: true })],
   }).run('g1');
   await settle();
-  assert.deepEqual(records, [['g1', { event: 'catch-up', by: 'service', channels: [{ channelId: 'c1', fetched: 1, observed: 0, triggered: 1, duplicate: 0, ignored: 0 }], failed: 0 }]]);
+  assert.deepEqual(records, [
+    [
+      'g1',
+      {
+        event: 'catch-up',
+        by: 'service',
+        channels: [{ channelId: 'c1', fetched: 1, observed: 0, triggered: 1, duplicate: 0, ignored: 0 }],
+        failed: 0,
+      },
+    ],
+  ]);
 });

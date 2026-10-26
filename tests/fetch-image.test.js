@@ -176,7 +176,10 @@ test('fetchAsDataUrl: a failure logs the host and path only, never the signed qu
   const fetcher = createImageFetcher({ fetchImpl });
 
   const { logs } = await withCapturedLogs(() =>
-    fetcher.fetchAsDataUrl('https://media.discordapp.net/attachments/1/2/pic.png?ex=deadbeef&is=cafef00d&hm=abc123', OPTIONS),
+    fetcher.fetchAsDataUrl(
+      'https://media.discordapp.net/attachments/1/2/pic.png?ex=deadbeef&is=cafef00d&hm=abc123',
+      OPTIONS
+    )
   );
 
   const line = logs.find((l) => l.msg.startsWith('fetch-image:'));
@@ -206,7 +209,9 @@ test('fetchAsDataUrl: a thrown fetch error logs its code, never its message (whi
 
 test('fetchAsDataUrl: an error without a code logs its class name; a body-read failure too', async () => {
   const { fetchImpl } = fakeFetchImpl(Object.assign(new Error('The operation was aborted'), { name: 'AbortError' }));
-  const { logs } = await withCapturedLogs(() => createImageFetcher({ fetchImpl }).fetchAsDataUrl('https://x/pic.png', OPTIONS));
+  const { logs } = await withCapturedLogs(() =>
+    createImageFetcher({ fetchImpl }).fetchAsDataUrl('https://x/pic.png', OPTIONS)
+  );
   assert.equal(logs.find((l) => l.msg === 'fetch-image: download failed')?.code, 'AbortError');
 
   const response = fakeResponse();
@@ -214,7 +219,9 @@ test('fetchAsDataUrl: an error without a code logs its class name; a body-read f
     throw new Error('stream error');
   };
   const { fetchImpl: bodyFetch } = fakeFetchImpl(response);
-  const { logs: bodyLogs } = await withCapturedLogs(() => createImageFetcher({ fetchImpl: bodyFetch }).fetchAsDataUrl('https://x/pic.png', OPTIONS));
+  const { logs: bodyLogs } = await withCapturedLogs(() =>
+    createImageFetcher({ fetchImpl: bodyFetch }).fetchAsDataUrl('https://x/pic.png', OPTIONS)
+  );
   const line = bodyLogs.find((l) => l.msg === 'fetch-image: reading the body failed');
   assert.equal(line?.code, 'Error');
   assert.ok(!JSON.stringify(line).includes('stream error'));
@@ -246,9 +253,14 @@ test('avatarReference: a static 1024 px PNG fetched under the reference limits, 
       return { dataUrl: 'data:image/png;base64,YXZhdGFy', bytes: 6, contentType: 'image/png' };
     },
   };
-  assert.equal(await avatarReference({ client, imageFetcher, config: AVATAR_CONFIG }), 'data:image/png;base64,YXZhdGFy');
+  assert.equal(
+    await avatarReference({ client, imageFetcher, config: AVATAR_CONFIG }),
+    'data:image/png;base64,YXZhdGFy'
+  );
   assert.deepEqual(client.asked, [{ extension: 'png', size: 1024, forceStatic: true }]);
-  assert.deepEqual(calls, [{ url: 'https://cdn.example.com/avatar.png', options: { maxBytes: 4_000_000, timeoutMs: 10_000 } }]);
+  assert.deepEqual(calls, [
+    { url: 'https://cdn.example.com/avatar.png', options: { maxBytes: 4_000_000, timeoutMs: 10_000 } },
+  ]);
 });
 
 test('avatarReference: null without a fetcher, an avatar URL or a download; a throw is swallowed', async () => {
@@ -256,7 +268,18 @@ test('avatarReference: null without a fetcher, an avatar URL or a download; a th
   assert.equal(await avatarReference({ client: avatarClient(), imageFetcher: null, config: AVATAR_CONFIG }), null);
   assert.equal(await avatarReference({ client: { user: {} }, imageFetcher: ok, config: AVATAR_CONFIG }), null);
   assert.equal(await avatarReference({ client: avatarClient(''), imageFetcher: ok, config: AVATAR_CONFIG }), null);
-  assert.equal(await avatarReference({ client: avatarClient(), imageFetcher: { fetchAsDataUrl: async () => null }, config: AVATAR_CONFIG }), null);
-  const throwing = { fetchAsDataUrl: async () => { throw new Error('boom'); } };
+  assert.equal(
+    await avatarReference({
+      client: avatarClient(),
+      imageFetcher: { fetchAsDataUrl: async () => null },
+      config: AVATAR_CONFIG,
+    }),
+    null
+  );
+  const throwing = {
+    fetchAsDataUrl: async () => {
+      throw new Error('boom');
+    },
+  };
   assert.equal(await avatarReference({ client: avatarClient(), imageFetcher: throwing, config: AVATAR_CONFIG }), null);
 });

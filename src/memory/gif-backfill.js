@@ -105,7 +105,13 @@ export function createGifBackfill({ hot, store, client, discord, describer = nul
       const guild = client.guilds.cache.get(guildId);
       if (!guild) return skipped('no-guild');
 
-      const { channels, messages: collected } = await readMemberHistory(guild, limit, { config: hot.config, discord, selfId: client.user?.id, log, prefix: 'gif-backfill' });
+      const { channels, messages: collected } = await readMemberHistory(guild, limit, {
+        config: hot.config,
+        discord,
+        selfId: client.user?.id,
+        log,
+        prefix: 'gif-backfill',
+      });
 
       // From here on nothing awaits until the stamp: no GIF can be recorded in between.
       if (store.state?.data?.paused) return skipped('paused');
@@ -126,12 +132,15 @@ export function createGifBackfill({ hot, store, client, discord, describer = nul
       const pictures = new Map();
       for (const message of members) {
         for (const picture of collectPictures(message)) {
-          if (picture.kind === 'gif' && picture.url && !pictures.has(picture.itemId)) pictures.set(picture.itemId, picture);
+          if (picture.kind === 'gif' && picture.url && !pictures.has(picture.itemId))
+            pictures.set(picture.itemId, picture);
         }
       }
       const describeLimit = gifCfg.backfillDescribe ?? DEFAULT_BACKFILL_DESCRIBE;
       const described =
-        store.state?.data?.paused || !Number.isInteger(describeLimit) ? 0 : await describeTop(guildId, pictures, describeLimit);
+        store.state?.data?.paused || !Number.isInteger(describeLimit)
+          ? 0
+          : await describeTop(guildId, pictures, describeLimit);
       if (described > 0) store.flush();
 
       const counts = { channels, messages: members.length, gifs, described };

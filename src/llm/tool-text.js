@@ -24,7 +24,11 @@ export function toolsBlockText(tools, labels) {
   const lines = list
     .map((tool) => {
       const api = tool?.function?.name ?? '';
-      return { name: skillNameOfApi(api) ?? api, description: tool?.function?.description ?? '', parameters: tool?.function?.parameters ?? {} };
+      return {
+        name: skillNameOfApi(api) ?? api,
+        description: tool?.function?.description ?? '',
+        parameters: tool?.function?.parameters ?? {},
+      };
     })
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
     .map((entry) => JSON.stringify(canonicalJson(entry)));
@@ -79,7 +83,14 @@ function callOf(body) {
   } catch {
     return fail('malformed');
   }
-  if (!value || typeof value !== 'object' || Array.isArray(value) || typeof value.name !== 'string' || value.name === '') return fail('malformed');
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    Array.isArray(value) ||
+    typeof value.name !== 'string' ||
+    value.name === ''
+  )
+    return fail('malformed');
   let given = value.arguments;
   if (given === undefined || given === null) given = {};
   if (typeof given === 'string') {
@@ -119,10 +130,18 @@ export function parseToolCallBlocks(text, { finishReason = null } = {}) {
     const to = close === -1 ? source.length : close + CLOSE.length;
     const body = source.slice(bodyFrom, close === -1 ? source.length : close);
     let call;
-    if (close === -1) call = { id: null, name: '', arguments: body, parsed: null, parseError: finishReason === 'length' ? 'truncated' : 'unclosed' };
+    if (close === -1)
+      call = {
+        id: null,
+        name: '',
+        arguments: body,
+        parsed: null,
+        parseError: finishReason === 'length' ? 'truncated' : 'unclosed',
+      };
     else {
       call = callOf(body);
-      if (messages.some(([start, end]) => from > start && from < end)) call = { ...call, parsed: null, parseError: 'nested' };
+      if (messages.some(([start, end]) => from > start && from < end))
+        call = { ...call, parsed: null, parseError: 'nested' };
     }
     calls.push(call);
     cuts.push([from, to]);
@@ -135,6 +154,8 @@ export function parseToolCallBlocks(text, { finishReason = null } = {}) {
     last = to;
   }
   rest += source.slice(last);
-  const diagnostics = calls.map((call, index) => (call.parseError ? { kind: call.parseError, index } : null)).filter(Boolean);
+  const diagnostics = calls
+    .map((call, index) => (call.parseError ? { kind: call.parseError, index } : null))
+    .filter(Boolean);
   return { calls, rest, diagnostics };
 }

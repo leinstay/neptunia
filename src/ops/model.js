@@ -40,7 +40,8 @@ const handlers = perEnv((env) => {
     const keys = roleConfigKeys(role);
 
     const id = String(args?.id ?? '').trim();
-    if (!MODEL_ID_RE.test(id)) throw invalid('id must look like a model id, e.g. anthropic/claude-haiku-4.5 (3-100 chars)');
+    if (!MODEL_ID_RE.test(id))
+      throw invalid('id must look like a model id, e.g. anthropic/claude-haiku-4.5 (3-100 chars)');
 
     // A new vision or video model: every description cached before now is described again
     // when it comes up (src/memory/describe.js), written in the same config.local.json edit.

@@ -303,7 +303,19 @@ export function isStale(item, nowMs, staleDays) {
 export function applyRankedOps(
   existing,
   ops,
-  { identityField, noteField, identityChars, noteChars, confirmGapHours, seenAt = Date.now(), halfLifeDays, cap, clampTolerance, mintId, now } = {},
+  {
+    identityField,
+    noteField,
+    identityChars,
+    noteChars,
+    confirmGapHours,
+    seenAt = Date.now(),
+    halfLifeDays,
+    cap,
+    clampTolerance,
+    mintId,
+    now,
+  } = {}
 ) {
   const items = Array.isArray(existing) ? existing.map((item) => ({ ...item })) : [];
   const validity = [];
@@ -325,8 +337,14 @@ export function applyRankedOps(
     let sure = true;
     if (noteField) {
       if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return;
-      identity = typeof raw[identityField] === 'string' ? clampText(stripUrls(raw[identityField]), identityChars, { tolerance: 1 }) : '';
-      note = typeof raw[noteField] === 'string' ? clampText(stripUrls(raw[noteField]), noteChars, { tolerance: clampTolerance }) : '';
+      identity =
+        typeof raw[identityField] === 'string'
+          ? clampText(stripUrls(raw[identityField]), identityChars, { tolerance: 1 })
+          : '';
+      note =
+        typeof raw[noteField] === 'string'
+          ? clampText(stripUrls(raw[noteField]), noteChars, { tolerance: clampTolerance })
+          : '';
       sure = raw.sure !== false;
     } else {
       const value = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw[identityField] : raw;
@@ -336,14 +354,25 @@ export function applyRankedOps(
     const index = findIndex(identity);
     // supersedes / validFrom / conflict ride on an object op; applied once every op is merged.
     const wantValidity = (item) => {
-      if (raw && typeof raw === 'object' && !Array.isArray(raw) && (raw.supersedes !== undefined || raw.validFrom !== undefined || raw.conflict !== undefined)) {
+      if (
+        raw &&
+        typeof raw === 'object' &&
+        !Array.isArray(raw) &&
+        (raw.supersedes !== undefined || raw.validFrom !== undefined || raw.conflict !== undefined)
+      ) {
         validity.push({ item, supersedes: raw.supersedes, validFrom: raw.validFrom, conflict: raw.conflict });
       }
     };
 
     if (index === -1) {
       if (!allowCreate) return;
-      const item = { [identityField]: identity, weight: sure ? 1 : 0, firstSeen: seenAtIso, lastSeen: seenAtIso, recordedAt };
+      const item = {
+        [identityField]: identity,
+        weight: sure ? 1 : 0,
+        firstSeen: seenAtIso,
+        lastSeen: seenAtIso,
+        recordedAt,
+      };
       if (noteField) item[noteField] = note;
       items.push(item);
       wantValidity(item);
@@ -568,7 +597,9 @@ function resolveParentheticalVariants(existing, strippedOps, merged = []) {
  */
 function fillQualifierNotes(strippedOps, resolvedExisting) {
   if (!strippedOps || typeof strippedOps !== 'object' || Array.isArray(strippedOps)) return strippedOps;
-  const byTopic = new Map((Array.isArray(resolvedExisting) ? resolvedExisting : []).map((item) => [normalizeTopic(item.topic), item]));
+  const byTopic = new Map(
+    (Array.isArray(resolvedExisting) ? resolvedExisting : []).map((item) => [normalizeTopic(item.topic), item])
+  );
 
   const fillItem = (raw) => {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw) || !raw._qualifier) return raw;
@@ -610,7 +641,18 @@ function fillQualifierNotes(strippedOps, resolvedExisting) {
 export function applyInterestOps(
   existing,
   ops,
-  { maxInterests, maxInterestsStored, topicChars, noteChars, confirmGapHours, seenAt = Date.now(), halfLifeDays, clampTolerance, mintId, now } = {},
+  {
+    maxInterests,
+    maxInterestsStored,
+    topicChars,
+    noteChars,
+    confirmGapHours,
+    seenAt = Date.now(),
+    halfLifeDays,
+    clampTolerance,
+    mintId,
+    now,
+  } = {}
 ) {
   const strippedOps = stripParentheticalTopics(ops);
   const merged = [];

@@ -30,7 +30,19 @@ const SPEC = [
 ];
 
 /** The key order the engine writes a vector line in; keys it does not know follow in their own order. */
-const CANONICAL = ['row', 'kind', 'id', 'revision', 'occurredAt', 'channelId', 'by', 'participants', 'sourceIds', 'scale', 'norm'];
+const CANONICAL = [
+  'row',
+  'kind',
+  'id',
+  'revision',
+  'occurredAt',
+  'channelId',
+  'by',
+  'participants',
+  'sourceIds',
+  'scale',
+  'norm',
+];
 
 const sameOrder = (a, b) => a.length === b.length && a.every((key, index) => key === b[index]);
 
@@ -43,7 +55,8 @@ export function monthDirOf(rel) {
   return String(rel).replace(/\/(?:manifest\.json|\d+\.(?:i8|jsonl))$/, '');
 }
 
-const chunkKeyOf = (line, prefix) => `${prefix}${line.kind === 'archive' ? 'archive' : 'record'}:${line.id ?? ''}:${line.revision ?? ''}`;
+const chunkKeyOf = (line, prefix) =>
+  `${prefix}${line.kind === 'archive' ? 'archive' : 'record'}:${line.id ?? ''}:${line.revision ?? ''}`;
 
 /** The meta lines of a jsonl text when it is clean (every line complete, parseable, and re-written identically). */
 function cleanLines(text) {
@@ -85,7 +98,12 @@ function lineRow(line, index, ctx) {
 function monthContext(dir, manifest, i8, unique) {
   const user = privateUserOf(dir);
   return {
-    manifest, i8, unique, dims: manifest.dims, prefix: user ? `private:${user}:` : '', scope: user ? dmScope(personId(user)) : groupScope(),
+    manifest,
+    i8,
+    unique,
+    dims: manifest.dims,
+    prefix: user ? `private:${user}:` : '',
+    scope: user ? dmScope(personId(user)) : groupScope(),
   };
 }
 
@@ -127,7 +145,13 @@ export function appendRows(rel, delta, { previous, keys }) {
   const manifest = delta.manifest;
   const old = previous?.manifest;
   if (!old || previous.raw || previous.tailI8 || !Number.isInteger(manifest?.dims) || manifest.dims <= 0) return null;
-  if (old.gen !== manifest.gen || old.dims !== manifest.dims || old.model !== manifest.model || manifest.rows <= old.rows) return null;
+  if (
+    old.gen !== manifest.gen ||
+    old.dims !== manifest.dims ||
+    old.model !== manifest.model ||
+    manifest.rows <= old.rows
+  )
+    return null;
   const lines = cleanLines(metaText(delta));
   if (lines === null || lines.length !== manifest.rows - old.rows) return null;
   const i8 = Buffer.from(delta.i8 ?? []);
@@ -136,7 +160,10 @@ export function appendRows(rel, delta, { previous, keys }) {
   const unique = (id) => {
     let n = 1;
     let out = id;
-    while (seen.has(out)) { n += 1; out = `${id}-${n}`; }
+    while (seen.has(out)) {
+      n += 1;
+      out = `${id}-${n}`;
+    }
     seen.add(out);
     return out;
   };
@@ -162,13 +189,19 @@ function inOrder(line, keys) {
 export function fromRows(rows) {
   const operational = JSON.parse(rowsOf(rows, 'operational')[0].value);
   if (operational.raw) {
-    return { manifest: operational.manifest, meta: operational.raw.meta, i8: Buffer.from(operational.raw.i8, 'base64') };
+    return {
+      manifest: operational.manifest,
+      meta: operational.raw.meta,
+      i8: Buffer.from(operational.raw.i8, 'base64'),
+    };
   }
   const lines = [];
   const chunks = [];
   const vectors = rowsOf(rows, 'vectors')
     .map((row, index) => ({ row, index, order: Number(parseExtra(row.context).row) }))
-    .sort((a, b) => (Number.isFinite(a.order) && Number.isFinite(b.order) ? a.order - b.order : 0) || a.index - b.index);
+    .sort(
+      (a, b) => (Number.isFinite(a.order) && Number.isFinite(b.order) ? a.order - b.order : 0) || a.index - b.index
+    );
   for (const { row } of vectors) {
     const context = parseExtra(row.context);
     const keys = context.$keys;

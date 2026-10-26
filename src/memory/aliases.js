@@ -37,7 +37,7 @@ export function applyAliasOps(
   existing,
   ops,
   displayNames,
-  { maxAliases, maxAliasesStored, confirmGapHours, seenAt = Date.now(), halfLifeDays, mintId, now } = {},
+  { maxAliases, maxAliasesStored, confirmGapHours, seenAt = Date.now(), halfLifeDays, mintId, now } = {}
 ) {
   const ownNames = new Set((Array.isArray(displayNames) ? displayNames : []).map((name) => normalizeTopic(name)));
   const filtered = ops && typeof ops === 'object' && !Array.isArray(ops) ? { ...ops } : {};

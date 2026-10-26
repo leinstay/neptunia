@@ -11,7 +11,15 @@
 // the one-time migration of the old command-key grants (`migrateStoredGrants`), which leaves her
 // grants as they are.
 
-import { expandGrant, migrateGrants, describeGrants, isGrantableOp, grant as accessGrant, revoke as accessRevoke, hasGrant } from './grants.js';
+import {
+  expandGrant,
+  migrateGrants,
+  describeGrants,
+  isGrantableOp,
+  grant as accessGrant,
+  revoke as accessRevoke,
+  hasGrant,
+} from './grants.js';
 import { isPlainObject } from '../config.js';
 import { log } from '../log.js';
 import { NONE, reloadNote } from './shared.js';
@@ -77,10 +85,17 @@ export function renameGrants(access, renames = RENAMED_OPS) {
  * @returns {{ from: string|null, names: string[], refused: string[] } | null}
  */
 export function expandPersonaGrant(key) {
-  if (skillNames().includes(key)) return NOT_GRANTABLE_TO_PERSONA.includes(key) ? { from: null, names: [], refused: [key] } : { from: null, names: [key], refused: [] };
-  const under = [...skillRegistry().values()].filter((skill) => key === '*' || (typeof key === 'string' && key !== '' && skill.name.startsWith(`${key}.`)));
+  if (skillNames().includes(key))
+    return NOT_GRANTABLE_TO_PERSONA.includes(key)
+      ? { from: null, names: [], refused: [key] }
+      : { from: null, names: [key], refused: [] };
+  const under = [...skillRegistry().values()].filter(
+    (skill) => key === '*' || (typeof key === 'string' && key !== '' && skill.name.startsWith(`${key}.`))
+  );
   if (under.length === 0) return null;
-  const names = under.filter((skill) => skill.kind === 'read' && !NOT_GRANTABLE_TO_PERSONA.includes(skill.name)).map((skill) => skill.name);
+  const names = under
+    .filter((skill) => skill.kind === 'read' && !NOT_GRANTABLE_TO_PERSONA.includes(skill.name))
+    .map((skill) => skill.name);
   return { from: key, names, refused: [] };
 }
 
@@ -118,7 +133,10 @@ const handlers = perEnv((env) => {
    */
   function refuseSelfChange(name, what, context) {
     if (context?.actor !== 'persona') return;
-    const reachesHer = targetsPersona(what) || what?.everyone === true || (what?.roleId != null && personaRoleIds(context).includes(String(what.roleId)));
+    const reachesHer =
+      targetsPersona(what) ||
+      what?.everyone === true ||
+      (what?.roleId != null && personaRoleIds(context).includes(String(what.roleId)));
     if (reachesHer) throw denied(`${name}: the persona never changes rights that reach her`, CODE.SELF_GRANT);
   }
 
@@ -154,8 +172,10 @@ const handlers = perEnv((env) => {
   function grantToPersona(key, target) {
     const expanded = expandPersonaGrant(key);
     if (!expanded) throw invalid(`unknown skill: ${key}`, CODE.UNKNOWN_SKILL);
-    if (expanded.refused.length > 0) throw invalid(`${key} cannot be granted to the persona yet (irreversible or administrative)`, CODE.NOT_GRANTABLE);
-    if (expanded.names.length === 0) throw invalid(`${key} covers no read skill open to a group grant; grant it by its name`);
+    if (expanded.refused.length > 0)
+      throw invalid(`${key} cannot be granted to the persona yet (irreversible or administrative)`, CODE.NOT_GRANTABLE);
+    if (expanded.names.length === 0)
+      throw invalid(`${key} covers no read skill open to a group grant; grant it by its name`);
     let next = effectiveAccess();
     for (const name of expanded.names) next = accessGrant(next, name, target.what, { from: expanded.from });
     const ok = writeAccess(next);
@@ -177,7 +197,8 @@ const handlers = perEnv((env) => {
       if (op?.rights?.member === true) throw invalid(`${key} is open to every member and cannot be granted`);
       throw invalid(`${key} is owner-only and cannot be granted`);
     }
-    if (expanded.names.length === 0) throw invalid(`${key} covers no grantable read operation; grant a write by its name`);
+    if (expanded.names.length === 0)
+      throw invalid(`${key} covers no grantable read operation; grant a write by its name`);
 
     let next = effectiveAccess();
     for (const name of expanded.names) next = accessGrant(next, name, target.what, { from: expanded.from });
@@ -190,7 +211,8 @@ const handlers = perEnv((env) => {
       lines.push('Note: a group or * opens only the read operations that exist now; grant a write by its name.');
     } else {
       lines.push(`Granted ${key} to ${target.label} ${reloadNote(ok)}`);
-      if (byName.get(key)?.rights?.kind === 'write') lines.push('Note: this opens commands that change memory or config.');
+      if (byName.get(key)?.rights?.kind === 'write')
+        lines.push('Note: this opens commands that change memory or config.');
     }
     return lines.join('\n');
   }
@@ -235,7 +257,10 @@ const handlers = perEnv((env) => {
     for (const key of skillNames().filter((name) => personaOnlyKey(name, ops))) {
       const users = isPlainObject(access[key]) && Array.isArray(access[key].users) ? access[key].users.map(String) : [];
       if (selfId && users.includes(selfId)) {
-        const via = isPlainObject(access[key].via) && access[key].via[`user:${selfId}`] ? { via: { [`user:${selfId}`]: access[key].via[`user:${selfId}`] } } : {};
+        const via =
+          isPlainObject(access[key].via) && access[key].via[`user:${selfId}`]
+            ? { via: { [`user:${selfId}`]: access[key].via[`user:${selfId}`] } }
+            : {};
         access[key] = { everyone: false, roles: [], users: [selfId], ...via };
         alsoKeys.push(key);
       }
@@ -279,7 +304,15 @@ const handlers = perEnv((env) => {
     return { migrated: true, note };
   }
 
-  return { effectiveAccess, writeAccess, accessTargetArgs, cmdAccessGrant, cmdAccessRevoke, cmdAccessList, migrateStoredGrants };
+  return {
+    effectiveAccess,
+    writeAccess,
+    accessTargetArgs,
+    cmdAccessGrant,
+    cmdAccessRevoke,
+    cmdAccessList,
+    migrateStoredGrants,
+  };
 });
 
 /**

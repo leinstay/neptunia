@@ -40,7 +40,9 @@ function alive(pid) {
 
 const post = (message) => parentPort.postMessage(message);
 const log = {
-  info() {}, debug() {}, error() {},
+  info() {},
+  debug() {},
+  error() {},
   warn: (message, fields) => post({ type: 'log', level: 'warn', message, fields }),
 };
 

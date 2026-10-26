@@ -69,11 +69,16 @@ export function silenceDetectArgs(clipPath, { ffmpegPath, noiseDb, minSilenceSec
   return {
     command: ffmpegPath,
     args: [
-      '-nostats', '-hide_banner',
-      '-i', String(clipPath),
+      '-nostats',
+      '-hide_banner',
+      '-i',
+      String(clipPath),
       '-vn',
-      '-af', `silencedetect=n=${noiseDb}dB:d=${minSilenceSeconds}`,
-      '-f', 'null', '-',
+      '-af',
+      `silencedetect=n=${noiseDb}dB:d=${minSilenceSeconds}`,
+      '-f',
+      'null',
+      '-',
     ],
   };
 }

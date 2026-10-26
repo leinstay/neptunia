@@ -42,11 +42,7 @@ export function parseEnv(content) {
     let value = line.slice(eq + 1).trim();
 
     if (value.length >= 2 && value[0] === '"' && value[value.length - 1] === '"') {
-      value = value
-        .slice(1, -1)
-        .replace(/\\n/g, '\n')
-        .replace(/\\r/g, '\r')
-        .replace(/\\"/g, '"');
+      value = value.slice(1, -1).replace(/\\n/g, '\n').replace(/\\r/g, '\r').replace(/\\"/g, '"');
     } else if (value.length >= 2 && value[0] === "'" && value[value.length - 1] === "'") {
       value = value.slice(1, -1);
     } else {

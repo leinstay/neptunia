@@ -41,11 +41,13 @@ const handlers = perEnv((env) => {
     freshenIfPaused();
     const guildId = requireGuildId(context);
 
-    const query = String(args?.query ?? '').trim().toLowerCase();
+    const query = String(args?.query ?? '')
+      .trim()
+      .toLowerCase();
     let entries = store.getLore(guildId);
     if (query) {
       entries = entries.filter(
-        (entry) => entry.title.toLowerCase().includes(query) || entry.keys.some((key) => key.includes(query)),
+        (entry) => entry.title.toLowerCase().includes(query) || entry.keys.some((key) => key.includes(query))
       );
     }
     if (entries.length === 0) return NONE;

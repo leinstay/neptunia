@@ -175,7 +175,14 @@ function validManifest(value) {
  *   cached one, read only, current as of the call: an append, a rewrite or a replace by this
  *   index or another process shows on the next call.
  */
-export function createVectors({ dataDir, log = defaultLog, now = Date.now, writerGate = null, maxCacheBytes = DEFAULT_CACHE_BYTES, memoryDb = null }) {
+export function createVectors({
+  dataDir,
+  log = defaultLog,
+  now = Date.now,
+  writerGate = null,
+  maxCacheBytes = DEFAULT_CACHE_BYTES,
+  memoryDb = null,
+}) {
   const root = memoryRootOf(dataDir);
   const seam = createReadSeam({ memoryDb, log, reader: 'vectors' });
   // The last months rebuilt from the database, by their stored state (a grown month is a new state).
@@ -234,7 +241,8 @@ export function createVectors({ dataDir, log = defaultLog, now = Date.now, write
   function readBytes(file, position, length, db) {
     const files = rebuiltMonth(db, path.dirname(file));
     const match = path.basename(file).match(GEN_FILE_RE);
-    if (!files || !match || Number(match[1]) !== files.manifest?.gen) throw Object.assign(new Error('vectors: no such generation'), { code: 'ENOENT' });
+    if (!files || !match || Number(match[1]) !== files.manifest?.gen)
+      throw Object.assign(new Error('vectors: no such generation'), { code: 'ENOENT' });
     const data = match[2] === 'i8' ? files.i8 : files.meta;
     if (position + length > data.length) {
       const error = new Error('vectors: month shorter than its manifest');
@@ -322,8 +330,15 @@ export function createVectors({ dataDir, log = defaultLog, now = Date.now, write
     }
     const data = new Int8Array(dataBuf.buffer, dataBuf.byteOffset, dataBuf.length);
     const entry = {
-      gen: manifest.gen, rows: manifest.rows, dims: manifest.dims, bytes: manifest.bytes, metaBytes: manifest.metaBytes,
-      data, metas, hashes, size: manifest.bytes + manifest.metaBytes,
+      gen: manifest.gen,
+      rows: manifest.rows,
+      dims: manifest.dims,
+      bytes: manifest.bytes,
+      metaBytes: manifest.metaBytes,
+      data,
+      metas,
+      hashes,
+      size: manifest.bytes + manifest.metaBytes,
     };
     remember(key, entry);
     return entry;
@@ -361,7 +376,8 @@ export function createVectors({ dataDir, log = defaultLog, now = Date.now, write
 
   /** The database's writer of a month: one write, resolved once committed. */
   async function writeMonth(dir, payload) {
-    if (typeof memoryDb?.writeUnit !== 'function') throw Object.assign(new Error('memory db: no writer'), { code: 'DB_CLOSED' });
+    if (typeof memoryDb?.writeUnit !== 'function')
+      throw Object.assign(new Error('memory db: no writer'), { code: 'DB_CLOSED' });
     await memoryDb.writeUnit({ op: 'vectors', owner: root.relative(dir), ...payload });
   }
 
@@ -369,9 +385,17 @@ export function createVectors({ dataDir, log = defaultLog, now = Date.now, write
     const dir = path.join(base, month);
     const current = readManifest(dir, db);
     let manifest = current ?? {
-      v: MANIFEST_VERSION, gen: 1, rows: 0, bytes: 0, metaBytes: 0, model: model ?? null, dims, checksum: checksumOf(FNV_OFFSET, FNV_OFFSET),
+      v: MANIFEST_VERSION,
+      gen: 1,
+      rows: 0,
+      bytes: 0,
+      metaBytes: 0,
+      model: model ?? null,
+      dims,
+      checksum: checksumOf(FNV_OFFSET, FNV_OFFSET),
     };
-    if (manifest.rows > 0 && (manifest.dims !== dims || (model && manifest.model && model !== manifest.model))) throw shapeError(month);
+    if (manifest.rows > 0 && (manifest.dims !== dims || (model && manifest.model && model !== manifest.model)))
+      throw shapeError(month);
     if (manifest.rows === 0) manifest = { ...manifest, dims, model: model ?? manifest.model ?? null };
     const hashes = parseChecksum(manifest.checksum) ?? [FNV_OFFSET, FNV_OFFSET];
     const data = Buffer.alloc(items.length * dims);
@@ -470,11 +494,18 @@ export function createVectors({ dataDir, log = defaultLog, now = Date.now, write
     const dir = path.join(base, month);
     const manifest = readManifest(dir, db);
     const kept = [];
-    if (manifest && manifest.rows > 0 && typeof keep === 'function' && manifest.dims === dims && !(model && manifest.model && model !== manifest.model)) {
+    if (
+      manifest &&
+      manifest.rows > 0 &&
+      typeof keep === 'function' &&
+      manifest.dims === dims &&
+      !(model && manifest.model && model !== manifest.model)
+    ) {
       const data = readBytes(genFile(dir, manifest.gen, 'i8'), 0, manifest.bytes, db);
       const metas = parseLines(readBytes(genFile(dir, manifest.gen, 'jsonl'), 0, manifest.metaBytes, db));
       for (let row = 0; row < manifest.rows; row += 1) {
-        if (metas[row] && keep(metas[row])) kept.push({ meta: metas[row], bytes: data.subarray(row * dims, (row + 1) * dims) });
+        if (metas[row] && keep(metas[row]))
+          kept.push({ meta: metas[row], bytes: data.subarray(row * dims, (row + 1) * dims) });
       }
     }
     const gen = (manifest?.gen ?? 0) + 1;
@@ -519,7 +550,15 @@ export function createVectors({ dataDir, log = defaultLog, now = Date.now, write
         if (rowMonth !== String(month)) throw new TypeError(`vectors: a row of ${rowMonth} in a replace of ${month}`);
         return { quantized: quantize(row.vector), meta: row.meta, iso };
       });
-      const result = await replaceMonth(baseDir(guildId, privateUserId), String(month), items, dims, model, keep, seam.db());
+      const result = await replaceMonth(
+        baseDir(guildId, privateUserId),
+        String(month),
+        items,
+        dims,
+        model,
+        keep,
+        seam.db()
+      );
       log.info('vectors: replaced', { guildId: String(guildId), month: String(month), ...result });
       return result;
     });
@@ -553,7 +592,11 @@ export function createVectors({ dataDir, log = defaultLog, now = Date.now, write
     }
   }
 
-  async function search(guildId, query, { months: asked = null, from = null, to = null, filter = null, k = 10, privateUserId = null } = {}) {
+  async function search(
+    guildId,
+    query,
+    { months: asked = null, from = null, to = null, filter = null, k = 10, privateUserId = null } = {}
+  ) {
     const limit = Number.isInteger(k) && k > 0 ? k : 0;
     if (!limit || !query?.length) return [];
     const q = query instanceof Float32Array ? query : Float32Array.from(query);

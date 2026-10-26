@@ -57,7 +57,11 @@ test('channel handles: `c` and four base-36 digits, stable per id, never a membe
   assert.match(handles.get(GENERAL), new RegExp(`^${CHANNEL_HANDLE_PREFIX}[0-9a-z]{${HANDLE_DIGITS}}$`));
   assert.equal(handles.get(GENERAL), handleOf(GENERAL, HANDLE_DIGITS, CHANNEL_HANDLE_PREFIX));
   assert.deepEqual(assignChannelHandles([NEWS, GENERAL]), handles, 'the order the ids come in changes nothing');
-  assert.notEqual(handles.get(GENERAL), assignHandles({ profiled: [GENERAL] }).get(GENERAL), 'a member handle has another prefix');
+  assert.notEqual(
+    handles.get(GENERAL),
+    assignHandles({ profiled: [GENERAL] }).get(GENERAL),
+    'a member handle has another prefix'
+  );
   // A collision: the older channel keeps the short form.
   const collided = assignChannelHandles([NEWER, OLDER]);
   assert.equal(collided.get(OLDER), handleOf(OLDER, HANDLE_DIGITS, CHANNEL_HANDLE_PREFIX));
@@ -65,8 +69,16 @@ test('channel handles: `c` and four base-36 digits, stable per id, never a membe
 });
 
 test('channelDirectoryEntries / renderChannelDirectory: one line per channel by id, the category when known', () => {
-  const entries = channelDirectoryEntries([...CHANNELS, { id: GENERAL, name: 'duplicate' }, { id: '1', name: '  ' }, null]);
-  assert.deepEqual(entries.map((entry) => entry.id), [GENERAL, NEWS, KITCHEN]);
+  const entries = channelDirectoryEntries([
+    ...CHANNELS,
+    { id: GENERAL, name: 'duplicate' },
+    { id: '1', name: '  ' },
+    null,
+  ]);
+  assert.deepEqual(
+    entries.map((entry) => entry.id),
+    [GENERAL, NEWS, KITCHEN]
+  );
   const handles = assignChannelHandles(entries.map((entry) => entry.id));
   const text = renderChannelDirectory(entries, handles, labels);
   assert.deepEqual(text.split('\n'), [
@@ -83,8 +95,16 @@ test('linkChannels: an exact #handle links its channel first; a name still links
   const known = CHANNELS.map(({ id, name }) => ({ id, name }));
   assert.equal(linkChannels('see #c1a2b and #γενικά', known, handles), `see <#${KITCHEN}> and <#${GENERAL}>`);
   assert.equal(linkChannels('#c1a2b.', [], handles), `<#${KITCHEN}>.`, 'handles alone, without the guild list');
-  assert.equal(linkChannels('#c1a2bx #C1A2B https://x.test/#c1a2b', [], handles), '#c1a2bx #C1A2B https://x.test/#c1a2b', 'only the whole token, as shown, never in a URL');
-  assert.equal(linkChannels('#c9999 #νέα', known, handles), `#c9999 <#${NEWS}>`, 'an unknown handle stays text; the core match is kept');
+  assert.equal(
+    linkChannels('#c1a2bx #C1A2B https://x.test/#c1a2b', [], handles),
+    '#c1a2bx #C1A2B https://x.test/#c1a2b',
+    'only the whole token, as shown, never in a URL'
+  );
+  assert.equal(
+    linkChannels('#c9999 #νέα', known, handles),
+    `#c9999 <#${NEWS}>`,
+    'an unknown handle stays text; the core match is kept'
+  );
 });
 
 test('resolveCall: a #handle in a channel argument resolves exactly; the name stays the fallback', () => {
@@ -97,27 +117,68 @@ test('resolveCall: a #handle in a channel argument resolves exactly; the name st
   assert.equal(read('#c1a2b').args.channel, KITCHEN);
   assert.equal(read('c1a2b').args.channel, KITCHEN, 'without its #');
   assert.equal(read('#γενικά').args.channel, GENERAL, 'a name resolves as before');
-  assert.equal(read('#c9999').reason, 'args.channel:unknown-channel', 'a handle the request does not hold is never guessed');
-  assert.equal(resolveCall({ skill: 'memory.channel.read', args: { channel: '#c1a2b' }, body: '' }, { ...view, channelHandles: null }).reason, 'args.channel:unknown-channel');
+  assert.equal(
+    read('#c9999').reason,
+    'args.channel:unknown-channel',
+    'a handle the request does not hold is never guessed'
+  );
+  assert.equal(
+    resolveCall(
+      { skill: 'memory.channel.read', args: { channel: '#c1a2b' }, body: '' },
+      { ...view, channelHandles: null }
+    ).reason,
+    'args.channel:unknown-channel'
+  );
 });
 
 test('formatTranscript: a mentioned channel carries its handle, as `#name` or a raw <#id>', () => {
-  const channels = new Map([[NEWS, { handle: 'c1a2b', name: '💖νέα' }], [GENERAL, { handle: 'c3c4d', name: 'γενικά' }]]);
+  const channels = new Map([
+    [NEWS, { handle: 'c1a2b', name: '💖νέα' }],
+    [GENERAL, { handle: 'c3c4d', name: 'γενικά' }],
+  ]);
   const message = {
-    id: '1', ts: NOW, authorId: '5', authorName: 'Zoë', self: false, attachments: [], stickers: [], replyToId: null,
-    content: `look at #💖νέα, #💖νέας, https://x.test/#💖νέα and <#${GENERAL}>`, mentionedChannelIds: [NEWS],
+    id: '1',
+    ts: NOW,
+    authorId: '5',
+    authorName: 'Zoë',
+    self: false,
+    attachments: [],
+    stickers: [],
+    replyToId: null,
+    content: `look at #💖νέα, #💖νέας, https://x.test/#💖νέα and <#${GENERAL}>`,
+    mentionedChannelIds: [NEWS],
   };
   const options = { timezone: 'UTC', gapMinutes: 20, maxChars: 800, selfName: 'Nept', labels };
   const [item] = formatTranscript([message], { ...options, channels });
-  assert.ok(item.text.endsWith('look at #💖νέα [#c1a2b], #💖νέας, https://x.test/#💖νέα and #γενικά [#c3c4d]'), item.text);
-  assert.ok(formatTranscript([message], options)[0].text.endsWith(`and <#${GENERAL}>`), 'no channels: the text as it came');
-  assert.ok(formatTranscript([message], { ...options, channels, mode: 'memory' })[0].text.includes('look at #💖νέα,'), 'memory mode never');
+  assert.ok(
+    item.text.endsWith('look at #💖νέα [#c1a2b], #💖νέας, https://x.test/#💖νέα and #γενικά [#c3c4d]'),
+    item.text
+  );
+  assert.ok(
+    formatTranscript([message], options)[0].text.endsWith(`and <#${GENERAL}>`),
+    'no channels: the text as it came'
+  );
+  assert.ok(
+    formatTranscript([message], { ...options, channels, mode: 'memory' })[0].text.includes('look at #💖νέα,'),
+    'memory mode never'
+  );
 });
 
 function input(overrides = {}) {
   const author = { id: '650000000000000123', names: ['Zoë'] };
   const history = overrides.history ?? [
-    { id: '1', ts: NOW - 2 * MIN, authorId: author.id, authorName: 'Zoë', self: false, content: 'in #κουζίνα now', mentionedChannelIds: [KITCHEN], attachments: [], stickers: [], replyToId: null },
+    {
+      id: '1',
+      ts: NOW - 2 * MIN,
+      authorId: author.id,
+      authorName: 'Zoë',
+      self: false,
+      content: 'in #κουζίνα now',
+      mentionedChannelIds: [KITCHEN],
+      attachments: [],
+      stickers: [],
+      replyToId: null,
+    },
   ];
   return {
     config: {
@@ -134,7 +195,14 @@ function input(overrides = {}) {
       lore: { scanMessages: 30, maxMatches: 8 },
       memory: { recentHours: 72 },
     },
-    prompts: { 'system-prompt': 'SYSTEM', 'character-card': 'CARD', rules: 'RULES', format: 'FORMAT', reply: 'REPLY to {{author}}', labels },
+    prompts: {
+      'system-prompt': 'SYSTEM',
+      'character-card': 'CARD',
+      rules: 'RULES',
+      format: 'FORMAT',
+      reply: 'REPLY to {{author}}',
+      labels,
+    },
     calibrator: { ratio: 1, apply: (n) => n },
     mode: 'reply',
     now: NOW,
@@ -179,9 +247,26 @@ test('buildRequest: <channel_directory> sits in the cached stable part, before <
 test('buildRequest: the channel directory is byte-identical across turns with another clock, chat and channel order', () => {
   const first = buildRequest(input());
   const laterHistory = [
-    { id: '7', ts: NOW + 50 * MIN, authorId: '650000000000000777', authorName: 'Léo', self: false, content: 'hi', attachments: [], stickers: [], replyToId: null },
+    {
+      id: '7',
+      ts: NOW + 50 * MIN,
+      authorId: '650000000000000777',
+      authorName: 'Léo',
+      self: false,
+      content: 'hi',
+      attachments: [],
+      stickers: [],
+      replyToId: null,
+    },
   ];
-  const second = buildRequest(input({ now: NOW + 90 * MIN, history: laterHistory, trigger: laterHistory[0], channelDirectory: [...CHANNELS].reverse() }));
+  const second = buildRequest(
+    input({
+      now: NOW + 90 * MIN,
+      history: laterHistory,
+      trigger: laterHistory[0],
+      channelDirectory: [...CHANNELS].reverse(),
+    })
+  );
   assert.equal(channelDirectoryOf(stableOf(second)), channelDirectoryOf(stableOf(first)));
   assert.equal(stableOf(second), stableOf(first));
 });
@@ -201,11 +286,34 @@ test('buildRequest: a channel a chat line mentions shows its handle; off with fe
 test('afterScenarioTurn: her #handle lands on her line as the channel link a live post makes', () => {
   const here = { id: GENERAL, name: 'γενικά' };
   const run = {
-    answer: { messages: [{ text: 'over in #c1a2b', replyTo: null }], reactions: [], gif: null, draw: null, skip: false, think: '' },
-    call: null, outcome: null, followUp: null,
-    refs: { idByIndex: new Map(), handles: null, channelHandles: new Map([['c1a2b', KITCHEN]]), followUpIdByIndex: null },
+    answer: {
+      messages: [{ text: 'over in #c1a2b', replyTo: null }],
+      reactions: [],
+      gif: null,
+      draw: null,
+      skip: false,
+      think: '',
+    },
+    call: null,
+    outcome: null,
+    followUp: null,
+    refs: {
+      idByIndex: new Map(),
+      handles: null,
+      channelHandles: new Map([['c1a2b', KITCHEN]]),
+      followUpIdByIndex: null,
+    },
   };
-  const out = afterScenarioTurn({ transcript: [], callMarks: [], run, at: NOW, selfId: SELF_ID, selfName: 'Nept', channel: here, config: {} });
+  const out = afterScenarioTurn({
+    transcript: [],
+    callMarks: [],
+    run,
+    at: NOW,
+    selfId: SELF_ID,
+    selfName: 'Nept',
+    channel: here,
+    config: {},
+  });
   const [mine] = out.transcript;
   assert.equal(mine.content, `over in <#${KITCHEN}>`);
   assert.deepEqual(mine.mentionedChannelIds, [KITCHEN]);
@@ -214,7 +322,11 @@ test('afterScenarioTurn: her #handle lands on her line as the channel link a liv
 test('channelDirectoryOf: the readable text channels with their category, never a thread', () => {
   const guild = { members: { me: { id: SELF_ID } } };
   const channel = (id, name, { thread = false, parent = null, readable = true } = {}) => ({
-    id, name, guild, viewable: true, parent,
+    id,
+    name,
+    guild,
+    viewable: true,
+    parent,
     isTextBased: () => true,
     isThread: () => thread,
     permissionsFor: () => ({ has: () => readable }),

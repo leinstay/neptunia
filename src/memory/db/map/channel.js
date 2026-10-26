@@ -28,16 +28,43 @@ export function toRows(rel, value, ctx = {}) {
   const { cols, rest } = split(value, PLACE_SPEC);
   const scope = groupScope();
   put(rows, 'places', {
-    id: placeId, iface: IFACE, kind: 'channel', ...cols, parent_id: ctx.guildId ? guildPlaceId(ctx.guildId) : null,
-    scope_kind: 'group', extra: null, retired_at: null, owner_file: rel,
+    id: placeId,
+    iface: IFACE,
+    kind: 'channel',
+    ...cols,
+    parent_id: ctx.guildId ? guildPlaceId(ctx.guildId) : null,
+    scope_kind: 'group',
+    extra: null,
+    retired_at: null,
+    owner_file: rel,
   });
   for (const field of FIELDS) {
     if (typeof value[field] !== 'string') continue;
     const id = `desc:${placeId}:${field}`;
-    put(rows, 'descriptions', { id, subject_kind: 'place', subject_id: placeId, field, ...scope, current_version: `${id}:legacy`, owner_file: rel });
+    put(rows, 'descriptions', {
+      id,
+      subject_kind: 'place',
+      subject_id: placeId,
+      field,
+      ...scope,
+      current_version: `${id}:legacy`,
+      owner_file: rel,
+    });
     put(rows, 'description_versions', {
-      id: `${id}:legacy`, description_id: id, text: value[field], author: 'import', written_at: null, chars: [...value[field]].length,
-      kept: null, removed: null, added: null, reason: null, origin: 'legacy', extra: null, owner_file: rel, position: 0,
+      id: `${id}:legacy`,
+      description_id: id,
+      text: value[field],
+      author: 'import',
+      written_at: null,
+      chars: [...value[field]].length,
+      kept: null,
+      removed: null,
+      added: null,
+      reason: null,
+      origin: 'legacy',
+      extra: null,
+      owner_file: rel,
+      position: 0,
     });
     delete rest[field];
   }

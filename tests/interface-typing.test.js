@@ -15,7 +15,9 @@ function manual() {
     schedule: (fn, ms) => {
       const entry = { fn, ms };
       pending = entry;
-      return () => { if (pending === entry) pending = null; };
+      return () => {
+        if (pending === entry) pending = null;
+      };
     },
     advance(ms) {
       time += ms;
@@ -30,7 +32,14 @@ function manual() {
 test('typing lease: sent now, again on every refresh, never after stop', async () => {
   const clock = manual();
   let sends = 0;
-  const stop = startTypingLease({ send: () => { sends += 1; }, schedule: clock.schedule, refreshMs: 8000, now: clock.now });
+  const stop = startTypingLease({
+    send: () => {
+      sends += 1;
+    },
+    schedule: clock.schedule,
+    refreshMs: 8000,
+    now: clock.now,
+  });
   await flush();
   assert.equal(sends, 1);
   clock.advance(8000);
@@ -49,7 +58,18 @@ test('typing lease: it lapses at its expiry, tells onExpire once, and arms no mo
   const clock = manual();
   let sends = 0;
   let expired = 0;
-  const stop = startTypingLease({ send: () => { sends += 1; }, schedule: clock.schedule, refreshMs: 8000, now: clock.now, leaseMs: 20_000, onExpire: () => { expired += 1; } });
+  const stop = startTypingLease({
+    send: () => {
+      sends += 1;
+    },
+    schedule: clock.schedule,
+    refreshMs: 8000,
+    now: clock.now,
+    leaseMs: 20_000,
+    onExpire: () => {
+      expired += 1;
+    },
+  });
   clock.advance(8000);
   clock.advance(8000);
   await flush();
@@ -66,10 +86,18 @@ test('typing lease: it lapses at its expiry, tells onExpire once, and arms no mo
 test('typing lease: a send that fails or throws never stops the refresh or escapes', async () => {
   const clock = manual();
   let sends = 0;
-  startTypingLease({ send: async () => { sends += 1; throw new Error('nope'); }, schedule: clock.schedule, refreshMs: 1000, now: clock.now });
+  startTypingLease({
+    send: async () => {
+      sends += 1;
+      throw new Error('nope');
+    },
+    schedule: clock.schedule,
+    refreshMs: 1000,
+    now: clock.now,
+  });
   await new Promise((resolve) => setImmediate(resolve));
   clock.advance(1000);
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(sends, 2);
-  assert.ok(TYPING_LEASE_MS > 120_000, 'the default lease is past a turn\'s own bar');
+  assert.ok(TYPING_LEASE_MS > 120_000, "the default lease is past a turn's own bar");
 });

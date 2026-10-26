@@ -54,7 +54,13 @@ export function toRows(rel, value) {
         position,
       });
       if (mirrored) {
-        put(rows, 'diary_mirrors', { diary_id: id, iface: IFACE, place_id: null, native_ids: JSON.stringify(post.messageIds), posted_at: null });
+        put(rows, 'diary_mirrors', {
+          diary_id: id,
+          iface: IFACE,
+          place_id: null,
+          native_ids: JSON.stringify(post.messageIds),
+          posted_at: null,
+        });
       }
     });
     delete rest.posts;

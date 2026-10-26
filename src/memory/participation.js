@@ -261,9 +261,10 @@ export function recordOwnLine(state, { channelId, own, before = [], parent = nul
   const base = normalizeParticipation(state);
   const take = Math.floor(s.linesBefore);
   const contextFrom = ownLine.ts - s.contextMinutes * MINUTE_MS;
-  const context = take > 0 && Array.isArray(before)
-    ? before.slice(-take).filter((m) => isPlainObject(m) && Number.isFinite(m.ts) && m.ts >= contextFrom)
-    : [];
+  const context =
+    take > 0 && Array.isArray(before)
+      ? before.slice(-take).filter((m) => isPlainObject(m) && Number.isFinite(m.ts) && m.ts >= contextFrom)
+      : [];
   const incoming = [];
   const incomingIds = new Set();
   for (const raw of [parent, ...context, own]) {
@@ -295,7 +296,10 @@ export function recordOwnLine(state, { channelId, own, before = [], parent = nul
   while (fresh.length > 0) {
     const part = fresh.slice(0, max);
     fresh = fresh.slice(max);
-    const episode = withMessages({ id: `p${nextId}`, channelId: channel, continues: previous ? previous.id : null }, part);
+    const episode = withMessages(
+      { id: `p${nextId}`, channelId: channel, continues: previous ? previous.id : null },
+      part
+    );
     nextId += 1;
     episodes.push(episode);
     previous = episode;
@@ -442,8 +446,14 @@ export function episodeHeadlines(state, { excludeChannelId, audience, now } = {}
         ageMs: clock - ep.lastOwnAt,
         memberLine: member ? headlineText(member) : null,
         selfLine: headlineText(self),
-        memberLines: headlineColumn(ep.messages.filter((m) => !m.self), HEADLINE_MEMBER_CHARS),
-        selfLines: headlineColumn(ep.messages.filter((m) => m.self), HEADLINE_SELF_CHARS),
+        memberLines: headlineColumn(
+          ep.messages.filter((m) => !m.self),
+          HEADLINE_MEMBER_CHARS
+        ),
+        selfLines: headlineColumn(
+          ep.messages.filter((m) => m.self),
+          HEADLINE_SELF_CHARS
+        ),
       };
     });
 }

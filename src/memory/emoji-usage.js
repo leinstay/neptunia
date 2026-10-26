@@ -120,7 +120,11 @@ export function mergeEmojiUsage(usage, messages, { storeMax, halfLifeDays } = {}
   }
   const ids = Object.keys(next);
   if (Number.isInteger(storeMax) && storeMax >= 0 && ids.length > storeMax) {
-    const kept = new Set(rankEmojiUsage(next, halfLifeDays).slice(0, storeMax).map((entry) => entry.id));
+    const kept = new Set(
+      rankEmojiUsage(next, halfLifeDays)
+        .slice(0, storeMax)
+        .map((entry) => entry.id)
+    );
     for (const id of ids) if (!kept.has(id)) delete next[id];
   }
   return { usage: next, counted };

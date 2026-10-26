@@ -77,7 +77,10 @@ export function isoOf(value) {
 /** The media kinds of a slim message: attachments, links, then one `sticker` per sticker. */
 function mediaKinds(slim) {
   const kinds = [];
-  for (const item of [...(Array.isArray(slim.attachments) ? slim.attachments : []), ...(Array.isArray(slim.links) ? slim.links : [])]) {
+  for (const item of [
+    ...(Array.isArray(slim.attachments) ? slim.attachments : []),
+    ...(Array.isArray(slim.links) ? slim.links : []),
+  ]) {
     if (item && typeof item.kind === 'string' && item.kind) kinds.push(item.kind);
   }
   for (const sticker of Array.isArray(slim.stickers) ? slim.stickers : []) if (sticker) kinds.push('sticker');
@@ -131,13 +134,17 @@ export function recordLinks(items) {
  *   now?: () => number, uuid?: () => string, turnId?: string|null, opId?: string|null }} [options]
  * @returns {object}
  */
-export function toRecordLine(slim, { kind = 'seen', revision = 1, origin = 'live', now = Date.now, uuid = randomUUID, turnId = null, opId = null } = {}) {
+export function toRecordLine(
+  slim,
+  { kind = 'seen', revision = 1, origin = 'live', now = Date.now, uuid = randomUUID, turnId = null, opId = null } = {}
+) {
   const source = slim && typeof slim === 'object' ? slim : {};
   const messageId = typeof source.id === 'string' && source.id ? source.id : null;
   const channelId = typeof source.channelId === 'string' && source.channelId ? source.channelId : null;
   const by = typeof source.authorId === 'string' && source.authorId ? source.authorId : null;
   const replyTo = typeof source.replyToId === 'string' && source.replyToId ? source.replyToId : null;
-  const replyAuthor = replyTo && typeof source.replyToAuthorId === 'string' && source.replyToAuthorId ? source.replyToAuthorId : null;
+  const replyAuthor =
+    replyTo && typeof source.replyToAuthorId === 'string' && source.replyToAuthorId ? source.replyToAuthorId : null;
   const mentions = idList(source.mentionedUserIds ?? source.mentions);
   const recordedAt = new Date(now()).toISOString();
   const head = {
@@ -168,7 +175,13 @@ export function toRecordLine(slim, { kind = 'seen', revision = 1, origin = 'live
     mentions,
   };
   if (kind === 'said') {
-    return { ...body, turnId: turnId ?? null, opId: opId ?? null, participants: idList(mentions, replyAuthor), ...tail };
+    return {
+      ...body,
+      turnId: turnId ?? null,
+      opId: opId ?? null,
+      participants: idList(mentions, replyAuthor),
+      ...tail,
+    };
   }
   return { ...body, direct: source.direct === true, participants: idList(by, mentions, replyAuthor), ...tail };
 }
@@ -179,7 +192,10 @@ export function toRecordLine(slim, { kind = 'seen', revision = 1, origin = 'live
  * @returns {string}
  */
 export function revisionOf(text) {
-  return `rv-${createHash('sha256').update(String(text ?? ''), 'utf8').digest('hex').slice(0, 12)}`;
+  return `rv-${createHash('sha256')
+    .update(String(text ?? ''), 'utf8')
+    .digest('hex')
+    .slice(0, 12)}`;
 }
 
 /**
@@ -189,7 +205,10 @@ export function revisionOf(text) {
  * @param {{ now?: () => number, uuid?: () => string, origin?: 'live'|'backfill' }} [options]
  * @returns {object}
  */
-export function feltLine({ userId, itemId = null, text, date = null, sourceMessageIds = [] }, { now = Date.now, uuid = randomUUID, origin = 'live' } = {}) {
+export function feltLine(
+  { userId, itemId = null, text, date = null, sourceMessageIds = [] },
+  { now = Date.now, uuid = randomUUID, origin = 'live' } = {}
+) {
   const recordedAt = new Date(now()).toISOString();
   return {
     v: RECORD_VERSION,
@@ -225,7 +244,13 @@ export const EDIT_REVISION_RETRIES = 5;
  * @param {{ log?: { info: Function }, privateUserId?: string|null }} [options]
  * @returns {Promise<{ revision: number, written: number, duplicates: number, bumps: number }>}
  */
-export async function appendRevision(record, guildId, lineAt, revision, { log = defaultLog, privateUserId = null } = {}) {
+export async function appendRevision(
+  record,
+  guildId,
+  lineAt,
+  revision,
+  { log = defaultLog, privateUserId = null } = {}
+) {
   const opts = privateUserId ? { privateUserId } : undefined;
   let current = revision;
   let line = lineAt(current);
@@ -233,7 +258,10 @@ export async function appendRevision(record, guildId, lineAt, revision, { log = 
   let bumps = 0;
   while ((result?.duplicates ?? 0) > 0 && bumps < EDIT_REVISION_RETRIES) {
     bumps += 1;
-    const known = typeof record.newestRevision === 'function' ? await record.newestRevision(guildId, line.messageId, line.occurredAt, { privateUserId }) : null;
+    const known =
+      typeof record.newestRevision === 'function'
+        ? await record.newestRevision(guildId, line.messageId, line.occurredAt, { privateUserId })
+        : null;
     current = Math.max(current, Number.isInteger(known) ? known : current) + 1;
     line = lineAt(current);
     result = await record.append(guildId, [line], opts);
@@ -319,7 +347,8 @@ export function createRecord({ dataDir, log = defaultLog, now = Date.now, writer
 
   /** The database's writer, or a coded rejection when there is none. */
   function unitWriter() {
-    if (typeof memoryDb?.writeUnit !== 'function') throw Object.assign(new Error('memory db: no writer'), { code: 'DB_CLOSED' });
+    if (typeof memoryDb?.writeUnit !== 'function')
+      throw Object.assign(new Error('memory db: no writer'), { code: 'DB_CLOSED' });
     return memoryDb.writeUnit;
   }
 
@@ -383,7 +412,9 @@ export function createRecord({ dataDir, log = defaultLog, now = Date.now, writer
   function newestRevision(guildId, messageId, occurredAtIso, { privateUserId = null } = {}) {
     return serial(async () => {
       const db = seam.db();
-      return seam.run(() => recordNewestRevision(db, guildId, privateUserId, dayOf(occurredAtIso).slice(0, 7), messageId));
+      return seam.run(() =>
+        recordNewestRevision(db, guildId, privateUserId, dayOf(occurredAtIso).slice(0, 7), messageId)
+      );
     });
   }
 

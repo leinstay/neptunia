@@ -50,10 +50,18 @@ export function renderRequest({ model, purpose = null, messages, tools = null, t
   for (const message of messages ?? []) {
     parts.push(`## ${message?.role ?? 'user'}`, '', contentText(message?.content), '');
     if (Array.isArray(message?.tool_calls) && message.tool_calls.length > 0) {
-      parts.push('### tool calls', '', ...message.tool_calls.map((call) => `${call?.id ?? ''} ${call?.function?.name ?? ''} ${call?.function?.arguments ?? ''}`.trim()), '');
+      parts.push(
+        '### tool calls',
+        '',
+        ...message.tool_calls.map((call) =>
+          `${call?.id ?? ''} ${call?.function?.name ?? ''} ${call?.function?.arguments ?? ''}`.trim()
+        ),
+        ''
+      );
     }
   }
-  if (Array.isArray(tools) && tools.length > 0) parts.push('## tools', '', `tool_choice: ${toolChoice ?? 'auto'}`, '', JSON.stringify(tools, null, 2), '');
+  if (Array.isArray(tools) && tools.length > 0)
+    parts.push('## tools', '', `tool_choice: ${toolChoice ?? 'auto'}`, '', JSON.stringify(tools, null, 2), '');
   return parts.join('\n');
 }
 
@@ -61,18 +69,26 @@ export function renderRequest({ model, purpose = null, messages, tools = null, t
 export function requestJson({ model, purpose = null, messages, tools = null, toolChoice = null }) {
   const list = messages ?? [];
   const system = list.filter((m) => m?.role === 'system').map((m) => contentText(m.content));
-  return JSON.stringify({
-    model,
-    purpose: purpose ?? null,
-    system: system.length > 0 ? system.join('\n\n') : null,
-    messages: list.filter((m) => m?.role !== 'system').map((m) => ({
-      role: m?.role ?? 'user',
-      content: contentText(m?.content),
-      ...(Array.isArray(m?.tool_calls) ? { tool_calls: m.tool_calls } : {}),
-      ...(typeof m?.tool_call_id === 'string' ? { tool_call_id: m.tool_call_id } : {}),
-    })),
-    ...(Array.isArray(tools) && tools.length > 0 ? { tools, toolChoice: toolChoice ?? 'auto' } : {}),
-  }, null, 2) + '\n';
+  return (
+    JSON.stringify(
+      {
+        model,
+        purpose: purpose ?? null,
+        system: system.length > 0 ? system.join('\n\n') : null,
+        messages: list
+          .filter((m) => m?.role !== 'system')
+          .map((m) => ({
+            role: m?.role ?? 'user',
+            content: contentText(m?.content),
+            ...(Array.isArray(m?.tool_calls) ? { tool_calls: m.tool_calls } : {}),
+            ...(typeof m?.tool_call_id === 'string' ? { tool_call_id: m.tool_call_id } : {}),
+          })),
+        ...(Array.isArray(tools) && tools.length > 0 ? { tools, toolChoice: toolChoice ?? 'auto' } : {}),
+      },
+      null,
+      2
+    ) + '\n'
+  );
 }
 
 function writeAtomic(file, text) {
@@ -86,10 +102,22 @@ const pad = (n) => String(n).padStart(3, '0');
 /**
  * @param {{ dir: string, timeoutMin?: number, pollMs?: number, sleep?: (ms: number) => Promise<void>, now?: () => number, estimate?: (messages: object[]) => number }} options
  */
-export function createAnswersDir({ dir, timeoutMin = ANSWERS_TIMEOUT_MIN, pollMs = ANSWERS_POLL_MS, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), now = Date.now, estimate = () => 0 }) {
+export function createAnswersDir({
+  dir,
+  timeoutMin = ANSWERS_TIMEOUT_MIN,
+  pollMs = ANSWERS_POLL_MS,
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  now = Date.now,
+  estimate = () => 0,
+}) {
   fs.mkdirSync(dir, { recursive: true });
-  const stale = fs.readdirSync(dir).filter((name) => /^(req-\d+\.(?:md|json)|ans-\d+\.(?:txt|tool-calls\.json)|done)$/.test(name));
-  if (stale.length > 0) throw new Error(`answers-dir: ${dir} holds files of an earlier run (${stale.slice(0, 3).join(', ')}${stale.length > 3 ? ', ...' : ''}); use an empty directory`);
+  const stale = fs
+    .readdirSync(dir)
+    .filter((name) => /^(req-\d+\.(?:md|json)|ans-\d+\.(?:txt|tool-calls\.json)|done)$/.test(name));
+  if (stale.length > 0)
+    throw new Error(
+      `answers-dir: ${dir} holds files of an earlier run (${stale.slice(0, 3).join(', ')}${stale.length > 3 ? ', ...' : ''}); use an empty directory`
+    );
   let count = 0;
 
   /** Write the request, wait for the answer; resolves in the shape of the llm client's `complete`. */
@@ -98,8 +126,26 @@ export function createAnswersDir({ dir, timeoutMin = ANSWERS_TIMEOUT_MIN, pollMs
     const id = pad(count);
     const reqFile = path.join(dir, `req-${id}.md`);
     const ansFile = path.join(dir, `ans-${id}.txt`);
-    writeAtomic(path.join(dir, `req-${id}.json`), requestJson({ model, purpose: options?.purpose ?? null, messages, tools: options?.tools, toolChoice: options?.toolChoice }));
-    writeAtomic(reqFile, renderRequest({ model, purpose: options?.purpose ?? null, messages, tools: options?.tools, toolChoice: options?.toolChoice }));
+    writeAtomic(
+      path.join(dir, `req-${id}.json`),
+      requestJson({
+        model,
+        purpose: options?.purpose ?? null,
+        messages,
+        tools: options?.tools,
+        toolChoice: options?.toolChoice,
+      })
+    );
+    writeAtomic(
+      reqFile,
+      renderRequest({
+        model,
+        purpose: options?.purpose ?? null,
+        messages,
+        tools: options?.tools,
+        toolChoice: options?.toolChoice,
+      })
+    );
     const deadline = now() + timeoutMin * 60_000;
     for (;;) {
       if (options?.signal?.aborted) throw options.signal.reason ?? new Error('request aborted');
@@ -116,10 +162,12 @@ export function createAnswersDir({ dir, timeoutMin = ANSWERS_TIMEOUT_MIN, pollMs
       toolCalls = [];
       if (fs.existsSync(callsFile)) {
         const given = JSON.parse(fs.readFileSync(callsFile, 'utf8'));
-        toolCalls = toolCallsOf((Array.isArray(given) ? given : []).map((call, i) => ({
-          id: call?.id ?? `call_${i + 1}`,
-          function: { name: call?.name, arguments: call?.arguments },
-        })));
+        toolCalls = toolCallsOf(
+          (Array.isArray(given) ? given : []).map((call, i) => ({
+            id: call?.id ?? `call_${i + 1}`,
+            function: { name: call?.name, arguments: call?.arguments },
+          }))
+        );
       }
     }
     return {
@@ -160,8 +208,13 @@ export function withAnswersDir(createLlm, answers, modelOf, { firstOnly = false 
         if (prop === 'complete') {
           return (messages, options = {}) => {
             const model = options.model ?? modelOf(deps.getConfig(), options.purpose);
-            const continued = firstOnly && Array.isArray(messages) && messages.some((m) => m?.role === 'assistant' || CONTINUED_RE.test(contentText(m?.content)));
-            return isAnthropicModel(model) && !continued ? answers.answer(model, messages, options) : target.complete(messages, options);
+            const continued =
+              firstOnly &&
+              Array.isArray(messages) &&
+              messages.some((m) => m?.role === 'assistant' || CONTINUED_RE.test(contentText(m?.content)));
+            return isAnthropicModel(model) && !continued
+              ? answers.answer(model, messages, options)
+              : target.complete(messages, options);
           };
         }
         const value = Reflect.get(target, prop, target);

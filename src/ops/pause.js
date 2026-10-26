@@ -50,7 +50,8 @@ const handlers = perEnv((env) => {
     }
 
     // A file held for the archive (an item rewritten in place) waits up to archive.holdMaxMs, then is written.
-    if (typeof store.flushSettled === 'function') await store.flushSettled({ holdMaxMs: hot.config?.archive?.holdMaxMs ?? 5000 });
+    if (typeof store.flushSettled === 'function')
+      await store.flushSettled({ holdMaxMs: hot.config?.archive?.holdMaxMs ?? 5000 });
     else store.flush();
     const dropped = typeof store.dropCaches === 'function' ? store.dropCaches() : 0;
 

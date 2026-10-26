@@ -25,16 +25,36 @@ test('media: each key is an attachment row with its description', () => {
 
 test('media: odd entries and an empty file survive', () => {
   assertRoundTrip(media, 'media.json', {});
-  assertRoundTrip(media, 'media.json', { a: 'string', b: null, c: 5, d: { text: 5, ts: 'x' }, e: { text: '', ts: 0 }, f: [1] });
+  assertRoundTrip(media, 'media.json', {
+    a: 'string',
+    b: null,
+    c: 5,
+    d: { text: 5, ts: 'x' },
+    e: { text: '', ts: 0 },
+    f: [1],
+  });
 });
 
 const gifEntry = (key, extra = {}) => ({
-  id: key, kind: 'gif', url: 'https://example.test/g.gif', site: 'example', messageId: '400000000000000001', channelId: '200000000000000001',
-  itemId: `gif-${key}`, name: 'dancing cat', firstSeen: 1792000000000, last: 1792000001000, count: 3, ...extra,
+  id: key,
+  kind: 'gif',
+  url: 'https://example.test/g.gif',
+  site: 'example',
+  messageId: '400000000000000001',
+  channelId: '200000000000000001',
+  itemId: `gif-${key}`,
+  name: 'dancing cat',
+  firstSeen: 1792000000000,
+  last: 1792000001000,
+  count: 3,
+  ...extra,
 });
 
 test('gifs: entries become gif rows and the counter stays operational', () => {
-  const file = { nextId: 4, entries: { '1#e0': gifEntry('1#e0', { ownUses: 2, ownLast: 5 }), '2#e0': gifEntry('2#e0', { name: undefined }) } };
+  const file = {
+    nextId: 4,
+    entries: { '1#e0': gifEntry('1#e0', { ownUses: 2, ownLast: 5 }), '2#e0': gifEntry('2#e0', { name: undefined }) },
+  };
   delete file.entries['2#e0'].name;
   const rows = assertRoundTrip(gifs, 'gifs.json', file);
   assert.equal(rows.media.length, 2);

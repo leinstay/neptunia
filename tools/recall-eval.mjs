@@ -193,7 +193,8 @@ function fileTime(ms) {
 function evalPath(dataDir, ...parts) {
   const base = path.join(dataDir, 'recall-eval');
   const file = path.join(base, ...parts);
-  if (!file.startsWith(`${base}${path.sep}`)) throw new CliError('recall-eval: the output must stay under data/recall-eval/');
+  if (!file.startsWith(`${base}${path.sep}`))
+    throw new CliError('recall-eval: the output must stay under data/recall-eval/');
   return file;
 }
 
@@ -227,13 +228,15 @@ async function openSources(dataDir, dbFile) {
 }
 
 /** The memory database a run reads: `--db`, else `<data>/memory.db`. */
-const dbFileOf = (flags, { cwd, dataDir }) => (flags['--db'] ? path.resolve(cwd, flags['--db']) : path.join(dataDir, 'memory.db'));
+const dbFileOf = (flags, { cwd, dataDir }) =>
+  flags['--db'] ? path.resolve(cwd, flags['--db']) : path.join(dataDir, 'memory.db');
 
 /** The stored members' first names by id. */
 function namesOf(store, guildId) {
   const names = new Map();
   for (const profile of store.listUserProfiles(guildId) ?? []) {
-    if (profile?.id && typeof profile.names?.[0] === 'string' && profile.names[0]) names.set(String(profile.id), profile.names[0]);
+    if (profile?.id && typeof profile.names?.[0] === 'string' && profile.names[0])
+      names.set(String(profile.id), profile.names[0]);
   }
   return names;
 }
@@ -241,7 +244,11 @@ function namesOf(store, guildId) {
 /** The record's messages from `from` on (latestLines), optionally of the given channels. */
 async function readRecord(record, guildId, { from, channelIds = null }) {
   const lines = [];
-  for await (const line of record.iterate(guildId, { from: new Date(from).toISOString(), ...(channelIds ? { channelIds } : {}) })) lines.push(line);
+  for await (const line of record.iterate(guildId, {
+    from: new Date(from).toISOString(),
+    ...(channelIds ? { channelIds } : {}),
+  }))
+    lines.push(line);
   return latestLines(lines);
 }
 
@@ -256,7 +263,8 @@ async function connectDiscord({ token, guildId }) {
   client.rest.setToken(token);
   const restRequest = client.rest.request.bind(client.rest);
   client.rest.request = (options) => {
-    if (String(options?.method ?? 'GET').toUpperCase() !== 'GET') throw new Error('recall-eval: only GET requests reach Discord');
+    if (String(options?.method ?? 'GET').toUpperCase() !== 'GET')
+      throw new Error('recall-eval: only GET requests reach Discord');
     return restRequest(options);
   };
   try {
@@ -296,10 +304,20 @@ async function sample(flags, { dataDir, guildId, now, cwd }) {
   } finally {
     sources.close();
   }
-  const candidates = sampleCandidates(lines, { n, days, now: now(), rng: seeded(seed), selfId: flags['--self-id'] ?? null, nameOf: (id) => names.get(id) ?? null });
+  const candidates = sampleCandidates(lines, {
+    n,
+    days,
+    now: now(),
+    rng: seeded(seed),
+    selfId: flags['--self-id'] ?? null,
+    nameOf: (id) => names.get(id) ?? null,
+  });
   const file = evalPath(dataDir, 'candidates.json');
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, `${JSON.stringify({ at: new Date(now()).toISOString(), guildId, days, seed, candidates }, null, 2)}\n`);
+  fs.writeFileSync(
+    file,
+    `${JSON.stringify({ at: new Date(now()).toISOString(), guildId, days, seed, candidates }, null, 2)}\n`
+  );
   const channels = new Set(candidates.map((c) => c.channelId)).size;
   const dayCount = new Set(candidates.map((c) => c.occurredAt.slice(0, 10))).size;
   return `recall-eval: ${candidates.length} candidate(s) from ${lines.length} record message(s), ${channels} channel(s), ${dayCount} day(s), seed ${seed}\n${file}\n`;
@@ -308,7 +326,10 @@ async function sample(flags, { dataDir, guildId, now, cwd }) {
 /** `config` with the prefetch's deadline lifted (`--no-deadline`): a copy, the live config untouched. */
 function withoutDeadline(config, lifted) {
   if (!lifted) return config;
-  return { ...config, recall: { ...(config.recall ?? {}), prefetch: { ...(config.recall?.prefetch ?? {}), deadlineMs: 600000 } } };
+  return {
+    ...config,
+    recall: { ...(config.recall ?? {}), prefetch: { ...(config.recall?.prefetch ?? {}), deadlineMs: 600000 } },
+  };
 }
 
 /** The lines of a recall-trace.jsonl file that parse as objects, in order. */
@@ -337,7 +358,9 @@ async function traces(flags, { dataDir, guildId, now, cwd }) {
   const dry = flags['--dry'] === true;
   const noDeadline = flags['--no-deadline'] === true;
   const file = flags._[1] ? path.resolve(cwd, flags._[1]) : path.join(dataDir, 'guilds', guildId, 'recall-trace.jsonl');
-  const all = traceLines(file).filter((t) => typeof t.triggerId === 'string' && t.triggerId && typeof t.channelId === 'string');
+  const all = traceLines(file).filter(
+    (t) => typeof t.triggerId === 'string' && t.triggerId && typeof t.channelId === 'string'
+  );
   const limit = numberFlag(flags['--limit'], all.length, { min: 1, integer: true });
   const runs = all.slice(-limit);
   const { createHot } = await import('../src/hot.js');
@@ -361,32 +384,53 @@ async function traces(flags, { dataDir, guildId, now, cwd }) {
     const settings = recallSettings(config);
     if (!settings) throw new CliError('recall-eval: features.recall is off: there is no recall to measure');
     const meaningOn = !dry && config.features?.meaningSearch === true;
-    process.stderr.write(`recall-eval: ${runs.length} live recall run(s)${meaningOn ? `, up to ${runs.length} embedding(s) on the simulator key` : ', no request'}\n`);
+    process.stderr.write(
+      `recall-eval: ${runs.length} live recall run(s)${meaningOn ? `, up to ${runs.length} embedding(s) on the simulator key` : ', no request'}\n`
+    );
     let embed = null;
     if (meaningOn) {
       loadDotEnv(privateDirOf(ROOT));
       const { createEmbedder } = await import('../src/llm/embed.js');
       const embedder = createEmbedder({ apiKey: simKey(ORIGIN), env: {}, state: { data: {}, markDirty() {} } });
-      embed = (texts, options = {}) => embedder.embed(texts, { ...options, origin: ORIGIN, countAgainstDailyCap: false });
+      embed = (texts, options = {}) =>
+        embedder.embed(texts, { ...options, origin: ORIGIN, countAgainstDailyCap: false });
     }
     sources = await openSources(dataDir, dbFileOf(flags, { cwd, dataDir }));
     const { record, archive, vectors, store, memoryDb } = sources;
     const names = namesOf(store, guildId);
     const nameOf = (id) => names.get(String(id)) ?? null;
-    const channelNames = new Map((store.listChannels?.(guildId) ?? []).filter((c) => c?.id).map((c) => [String(c.id), c.name || null]));
+    const channelNames = new Map(
+      (store.listChannels?.(guildId) ?? []).filter((c) => c?.id).map((c) => [String(c.id), c.name || null])
+    );
     const self = { id: flags['--self-id'] ?? null, name: flags['--self-name'] ?? null };
     const guild = localGuild({ guildId, selfId: self.id, channelNameOf: (id) => channelNames.get(id) ?? null });
     const selfName = self.name ?? config.bot?.nameTriggers?.[0] ?? 'bot';
     const historyCount = Math.max(1, Math.floor(config.context?.channelMessages ?? 100));
-    const llm = { capLeft: () => Infinity, complete: async () => { throw new Error('recall-eval: no model request in traces'); } };
+    const llm = {
+      capLeft: () => Infinity,
+      complete: async () => {
+        throw new Error('recall-eval: no model request in traces');
+      },
+    };
     const rows = [];
     for (const t of runs) {
-      const base = { at: t.at ?? null, triggerId: t.triggerId, channelId: t.channelId, forms: [...(t.forms ?? []), ...(t.who ?? [])], answer: t.summary?.answer ?? null, skipped: t.skipped ?? null };
+      const base = {
+        at: t.at ?? null,
+        triggerId: t.triggerId,
+        channelId: t.channelId,
+        forms: [...(t.forms ?? []), ...(t.who ?? [])],
+        answer: t.summary?.answer ?? null,
+        skipped: t.skipped ?? null,
+      };
       const atMs = Date.parse(t.at);
       try {
         if (!Number.isFinite(atMs)) throw Object.assign(new Error('no time'), { name: 'no-time' });
         const lines = [];
-        const query = { from: new Date(atMs - HISTORY_DAYS * DAY_MS).toISOString(), to: new Date(atMs + 60 * 60 * 1000).toISOString(), channelIds: [t.channelId] };
+        const query = {
+          from: new Date(atMs - HISTORY_DAYS * DAY_MS).toISOString(),
+          to: new Date(atMs + 60 * 60 * 1000).toISOString(),
+          channelIds: [t.channelId],
+        };
         for await (const line of record.iterate(guildId, query)) lines.push(line);
         const messages = latestLines(lines).map((line) => recordMessage(line, { nameOf, selfName }));
         const at = messages.findIndex((m) => m.id === t.triggerId);
@@ -394,23 +438,81 @@ async function traces(flags, { dataDir, guildId, now, cwd }) {
         const trigger = messages[at];
         const history = messages.slice(Math.max(0, at + 1 - historyCount), at + 1);
         const channel = guild.channels.cache.get(t.channelId);
-        const { lanes, skip } = prefetchLanes({ trigger, history, settings: settings.prefetch, selfId: self.id, selfName, selfNames: config.bot?.nameTriggers ?? [], nameOf });
+        const { lanes, skip } = prefetchLanes({
+          trigger,
+          history,
+          settings: settings.prefetch,
+          selfId: self.id,
+          selfName,
+          selfNames: config.bot?.nameTriggers ?? [],
+          nameOf,
+        });
         if (skip) {
-          rows.push({ ...base, trigger: trigger.content, status: `skipped:${skip}`, excerpts: 0, agreement: traceAgreement(t, []), top: '' });
+          rows.push({
+            ...base,
+            trigger: trigger.content,
+            status: `skipped:${skip}`,
+            excerpts: 0,
+            agreement: traceAgreement(t, []),
+            top: '',
+          });
           continue;
         }
-        const recall = createRecall({ hot: evalHot, store: { state: { data: {}, markDirty() {} }, listUserProfiles: (id) => store.listUserProfiles(id), getLore: (id) => store.getLore(id), getGuild: (id) => store.getGuild(id), getRecent: (id) => store.getRecent(id) }, llm, discord: createDiscordInterface().capabilities, archive, record, vectors, embed, memoryDb, now });
-        const found = await recall.prefetch({ guild, guildId, channel, selfId: self.id, selfName, history, lanes, at: trigger.ts });
-        const row = { ...base, trigger: trigger.content, status: found?.status ?? 'none-ran', partial: found?.partial === true, basis: found?.basis ?? [], excerpts: found?.excerpts?.length ?? 0, agreement: traceAgreement(t, found?.excerpts ?? []), top: topExcerptLine(found), found: found?.excerpts ?? [], ms: found?.ms ?? null, stages: found?.stats?.stages ?? null };
+        const recall = createRecall({
+          hot: evalHot,
+          store: {
+            state: { data: {}, markDirty() {} },
+            listUserProfiles: (id) => store.listUserProfiles(id),
+            getLore: (id) => store.getLore(id),
+            getGuild: (id) => store.getGuild(id),
+            getRecent: (id) => store.getRecent(id),
+          },
+          llm,
+          discord: createDiscordInterface().capabilities,
+          archive,
+          record,
+          vectors,
+          embed,
+          memoryDb,
+          now,
+        });
+        const found = await recall.prefetch({
+          guild,
+          guildId,
+          channel,
+          selfId: self.id,
+          selfName,
+          history,
+          lanes,
+          at: trigger.ts,
+        });
+        const row = {
+          ...base,
+          trigger: trigger.content,
+          status: found?.status ?? 'none-ran',
+          partial: found?.partial === true,
+          basis: found?.basis ?? [],
+          excerpts: found?.excerpts?.length ?? 0,
+          agreement: traceAgreement(t, found?.excerpts ?? []),
+          top: topExcerptLine(found),
+          found: found?.excerpts ?? [],
+          ms: found?.ms ?? null,
+          stages: found?.stats?.stages ?? null,
+        };
         rows.push(row);
-        process.stderr.write(`recall-eval: ${t.triggerId} classifier ${base.answer ?? '-'} prefetch ${row.status} (${row.excerpts}) ${row.agreement} ${row.ms} ms\n`);
+        process.stderr.write(
+          `recall-eval: ${t.triggerId} classifier ${base.answer ?? '-'} prefetch ${row.status} (${row.excerpts}) ${row.agreement} ${row.ms} ms\n`
+        );
       } catch (err) {
         rows.push({ ...base, error: err?.name ?? 'Error' });
       }
     }
     const reportPath = evalPath(dataDir, 'runs', `${fileTime(now())}-traces.json`);
     fs.mkdirSync(path.dirname(reportPath), { recursive: true });
-    fs.writeFileSync(reportPath, `${JSON.stringify({ at: new Date(now()).toISOString(), guildId, traceFile: file, mode: { dry, noDeadline }, settings: settings.prefetch, rows }, null, 2)}\n`);
+    fs.writeFileSync(
+      reportPath,
+      `${JSON.stringify({ at: new Date(now()).toISOString(), guildId, traceFile: file, mode: { dry, noDeadline }, settings: settings.prefetch, rows }, null, 2)}\n`
+    );
     return renderTraceCompare(rows, { reportPath });
   } finally {
     sources?.close();
@@ -426,7 +528,18 @@ async function traces(flags, { dataDir, guildId, now, cwd }) {
  */
 export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   const flags = parseFlags(argv, {
-    values: ['--limit', '--max-usd', '--guild', '--data', '--self-id', '--self-name', '--n', '--days', '--seed', '--db'],
+    values: [
+      '--limit',
+      '--max-usd',
+      '--guild',
+      '--data',
+      '--self-id',
+      '--self-name',
+      '--n',
+      '--days',
+      '--seed',
+      '--db',
+    ],
     switches: ['--dry', '--discord', '--web', '--prefetch', '--no-deadline'],
     usage: USAGE,
   });
@@ -445,7 +558,10 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
     throw new CliError(`recall-eval: cannot read the questions file ${questionsFile} (${err?.name ?? 'Error'})`);
   }
   const { questions, errors } = parseQuestions(raw);
-  if (errors.length > 0) throw new CliError(`recall-eval: the questions file has ${errors.length} problem(s):\n${errors.slice(0, 20).join('\n')}`);
+  if (errors.length > 0)
+    throw new CliError(
+      `recall-eval: the questions file has ${errors.length} problem(s):\n${errors.slice(0, 20).join('\n')}`
+    );
   const limit = numberFlag(flags['--limit'], questions.length, { min: 1, integer: true });
   const maxUsd = numberFlag(flags['--max-usd'], DEFAULT_MAX_USD);
   const dry = flags['--dry'] === true;
@@ -476,10 +592,13 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   const evalHot = {
     get config() {
       const live = hot.config;
-      return withoutDeadline({
-        ...live,
-        features: { ...(live.features ?? {}), recallTrace: true, ...(useWeb ? { webLookup: true } : {}) },
-      }, noDeadline);
+      return withoutDeadline(
+        {
+          ...live,
+          features: { ...(live.features ?? {}), recallTrace: true, ...(useWeb ? { webLookup: true } : {}) },
+        },
+        noDeadline
+      );
     },
     get prompts() {
       return hot.prompts;
@@ -500,7 +619,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   };
   const asking = Math.min(limit, questions.length);
   process.stderr.write(
-    `recall-eval: ${asking} question(s); ${dry ? 'dry: no model request' : `up to ${asking * (REQUESTS_PER_QUESTION + (useWeb ? 1 : 0))} model request(s)${useWeb ? ` and ${asking} web search(es)` : ''}${meaningOn ? ` and ${asking} embedding(s)` : ''}, none asked once the cost passes ${maxUsd} USD`}\n`,
+    `recall-eval: ${asking} question(s); ${dry ? 'dry: no model request' : `up to ${asking * (REQUESTS_PER_QUESTION + (useWeb ? 1 : 0))} model request(s)${useWeb ? ` and ${asking} web search(es)` : ''}${meaningOn ? ` and ${asking} embedding(s)` : ''}, none asked once the cost passes ${maxUsd} USD`}\n`
   );
 
   // The keys (OPENROUTER_SIM_KEY, DISCORD_TOKEN, the search engine's) only when something is sent.
@@ -512,7 +631,9 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
     const { createExaSearch } = await import('../src/web/exa.js');
     webParts = { createLookup, searches: { brave: createBraveSearch(), exa: createExaSearch() } };
     if (!webSearchReady({ hot: evalHot, ...webParts })) {
-      throw new CliError('recall-eval: --web needs a web search that can run (web.search.engine brave needs BRAVE_SEARCH_API_KEY in .env)');
+      throw new CliError(
+        'recall-eval: --web needs a web search that can run (web.search.engine brave needs BRAVE_SEARCH_API_KEY in .env)'
+      );
     }
   }
   const sources = await openSources(dataDir, dbFile);
@@ -539,7 +660,13 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
     llm = {
       capLeft: () => Infinity,
       async complete(messages, options = {}) {
-        const completion = await realLlm.complete(messages, { ...options, origin: ORIGIN, countAgainstDailyCap: false, skipCalibration: true, cache: false });
+        const completion = await realLlm.complete(messages, {
+          ...options,
+          origin: ORIGIN,
+          countAgainstDailyCap: false,
+          skipCalibration: true,
+          cache: false,
+        });
         if (usage) {
           usage.requests += 1;
           usage.promptTokens += Number(completion?.usage?.prompt_tokens) || 0;
@@ -568,7 +695,17 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
     const webStore = { getMediaCache: () => media, markMediaCacheDirty() {} };
     const pageFetcher = createPageFetcher();
     const keys = webSearchKeys(process.env);
-    webSearch = (query) => createLookup({ hot: evalHot, store: webStore, llm, state: { data: {}, markDirty() {} }, pageFetcher, searches, keys, now }).search(guildId, query);
+    webSearch = (query) =>
+      createLookup({
+        hot: evalHot,
+        store: webStore,
+        llm,
+        state: { data: {}, markDirty() {} },
+        pageFetcher,
+        searches,
+        keys,
+        now,
+      }).search(guildId, query);
   }
 
   // The guild: Discord over REST, or the local one.
@@ -582,7 +719,9 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
     guild = connection.guild;
     self = { id: self.id ?? connection.self.id, name: self.name ?? connection.self.name };
   } else {
-    const channelNames = new Map((store.listChannels?.(guildId) ?? []).filter((c) => c?.id).map((c) => [String(c.id), c.name || null]));
+    const channelNames = new Map(
+      (store.listChannels?.(guildId) ?? []).filter((c) => c?.id).map((c) => [String(c.id), c.name || null])
+    );
     guild = localGuild({ guildId, selfId: self.id, channelNameOf: (id) => channelNames.get(id) ?? null });
   }
   const selfName = self.name ?? config.bot?.nameTriggers?.[0] ?? 'bot';
@@ -593,7 +732,10 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   async function channelHistory(channelId) {
     if (!historyOf.has(channelId)) {
       const lines = await readRecord(record, guildId, { from: now() - HISTORY_DAYS * DAY_MS, channelIds: [channelId] });
-      historyOf.set(channelId, lines.slice(-historyCount).map((line) => recordMessage(line, { nameOf, selfName })));
+      historyOf.set(
+        channelId,
+        lines.slice(-historyCount).map((line) => recordMessage(line, { nameOf, selfName }))
+      );
     }
     return historyOf.get(channelId);
   }
@@ -603,12 +745,23 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
     const searchCfg = hot.config.web?.search ?? {};
     const contextMessages = Math.max(0, Math.floor(searchCfg.contextMessages ?? 50));
     const context = contextMessages > 0 ? history.filter((m) => m.id !== trigger.id).slice(-contextMessages) : [];
-    const triggerText = [...String(trigger.content ?? '')].slice(0, hot.config.context?.maxMessageChars ?? 2000).join('');
-    const transcript = context.length === 0 ? '' : `<transcript>\n${classifierTranscript(context, { config: hot.config, selfName, labels: hot.prompts.labels })}\n</transcript>\n`;
+    const triggerText = [...String(trigger.content ?? '')]
+      .slice(0, hot.config.context?.maxMessageChars ?? 2000)
+      .join('');
+    const transcript =
+      context.length === 0
+        ? ''
+        : `<transcript>\n${classifierTranscript(context, { config: hot.config, selfName, labels: hot.prompts.labels })}\n</transcript>\n`;
     // A dry run has no classifier: the fallback plan always stands in for its answer.
     const fallback = (reason) => {
       if (!dry && !settings.fallbackOnClassifierFailure) return { server: null, how: 'failed', reason };
-      const plan = fallbackLookupPlan({ text: triggerText, profiles: store.listUserProfiles(guildId) ?? [], selfId: self.id, selfName, maxForms: settings.maxForms });
+      const plan = fallbackLookupPlan({
+        text: triggerText,
+        profiles: store.listUserProfiles(guildId) ?? [],
+        selfId: self.id,
+        selfName,
+        maxForms: settings.maxForms,
+      });
       return { server: plan, how: 'fallback', reason };
     };
     if (dry) return fallback('dry');
@@ -616,20 +769,41 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
     try {
       completion = await llm.complete(
         [
-          { role: 'system', content: fillPromptTemplate(hot.prompts.lookup, { today: zonedDay(now(), hot.config.bot?.timezone), name: selfName, skills: '' }) },
+          {
+            role: 'system',
+            content: fillPromptTemplate(hot.prompts.lookup, {
+              today: zonedDay(now(), hot.config.bot?.timezone),
+              name: selfName,
+              skills: '',
+            }),
+          },
           { role: 'user', content: `${transcript}<candidate>\n${trigger.authorName}: ${triggerText}\n</candidate>` },
         ],
         {
           model: roleModel(hot.config, 'analyzer', 'lookup'),
-          ...helperRequestOptions(hot.config, { role: 'analyzer', maxOutputTokens: searchCfg.classifierMaxOutputTokens ?? 2000, purpose: 'lookup' }),
-        },
+          ...helperRequestOptions(hot.config, {
+            role: 'analyzer',
+            maxOutputTokens: searchCfg.classifierMaxOutputTokens ?? 2000,
+            purpose: 'lookup',
+          }),
+        }
       );
     } catch (err) {
       return fallback(railReason(err, 'classifier-failed'));
     }
     if (!String(completion?.text ?? '').trim()) return fallback('empty');
-    const parsed = parseLookupAnswer(completion.text, { timezone: hot.config.bot?.timezone, now: now(), maxForms: settings.maxForms });
-    return { server: parsed.server ?? null, web: parsed.web ?? null, how: 'classifier', reason: parsed.reason ?? null, raw: completion.text };
+    const parsed = parseLookupAnswer(completion.text, {
+      timezone: hot.config.bot?.timezone,
+      now: now(),
+      maxForms: settings.maxForms,
+    });
+    return {
+      server: parsed.server ?? null,
+      web: parsed.web ?? null,
+      how: 'classifier',
+      reason: parsed.reason ?? null,
+      raw: completion.text,
+    };
   }
 
   /** The trigger a question is asked as: a new message of `askerId` in its channel, now. */
@@ -661,9 +835,34 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
       const trigger = triggerOf(q, index);
       const chat = await channelHistory(q.channelId);
       const history = [...chat, trigger];
-      const { lanes, skip } = prefetchLanes({ trigger, history, settings: settings.prefetch, selfId: self.id, selfName, selfNames: config.bot?.nameTriggers ?? [], nameOf });
-      if (skip) return { status: `skipped:${skip}`, excerpts: 0, score: scoreQuestion(q, { chatIds: chat.map((m) => m.id) }), ms: now() - started };
-      const recall = createRecall({ hot: evalHot, store: readStore(), llm, discord: createDiscordInterface().capabilities, archive, record, vectors, embed, memoryDb, now });
+      const { lanes, skip } = prefetchLanes({
+        trigger,
+        history,
+        settings: settings.prefetch,
+        selfId: self.id,
+        selfName,
+        selfNames: config.bot?.nameTriggers ?? [],
+        nameOf,
+      });
+      if (skip)
+        return {
+          status: `skipped:${skip}`,
+          excerpts: 0,
+          score: scoreQuestion(q, { chatIds: chat.map((m) => m.id) }),
+          ms: now() - started,
+        };
+      const recall = createRecall({
+        hot: evalHot,
+        store: readStore(),
+        llm,
+        discord: createDiscordInterface().capabilities,
+        archive,
+        record,
+        vectors,
+        embed,
+        memoryDb,
+        now,
+      });
       const found = await recall.prefetch({ guild, guildId, channel, selfId: self.id, selfName, history, lanes });
       const { windows, matched } = prefetchWindows(found);
       return {
@@ -704,7 +903,14 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   async function askClassifier(q, index) {
     const started = now();
     usage = { requests: 0, promptTokens: 0, completionTokens: 0, costUsd: 0, embeddings: 0 };
-    const base = { id: q.id, kind: q.kind, channelId: q.channelId, question: q.question, expected: q.expected, ...(q.note ? { note: q.note } : {}) };
+    const base = {
+      id: q.id,
+      kind: q.kind,
+      channelId: q.channelId,
+      question: q.question,
+      expected: q.expected,
+      ...(q.note ? { note: q.note } : {}),
+    };
     const finish = (extra) => {
       const out = { ...base, ...extra, latencyMs: now() - started, usage: { ...usage }, costUsd: usage.costUsd };
       usage = null;
@@ -719,24 +925,54 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
       const chatIds = chat.map((m) => m.id);
       const history = [...chat, trigger];
       const classified = await classify(trigger, history);
-      const lookup = { how: classified.how, reason: classified.reason ?? null, raw: classified.raw ?? null, server: classified.server ?? null, web: classified.web ?? null };
+      const lookup = {
+        how: classified.how,
+        reason: classified.reason ?? null,
+        raw: classified.raw ?? null,
+        server: classified.server ?? null,
+        web: classified.web ?? null,
+      };
       // The web part runs beside the server part, as the live turn runs both.
-      const webRun = webSearch && classified.web
-        ? webSearch(classified.web).then(
-            (result) => ({ query: result?.query ?? classified.web, found: Boolean(result?.text), sources: Array.isArray(result?.sources) ? result.sources.length : 0, text: result?.text ?? null }),
-            (err) => ({ query: classified.web, found: false, sources: 0, text: null, error: err?.name ?? 'Error' }),
-          )
-        : null;
+      const webRun =
+        webSearch && classified.web
+          ? webSearch(classified.web).then(
+              (result) => ({
+                query: result?.query ?? classified.web,
+                found: Boolean(result?.text),
+                sources: Array.isArray(result?.sources) ? result.sources.length : 0,
+                text: result?.text ?? null,
+              }),
+              (err) => ({ query: classified.web, found: false, sources: 0, text: null, error: err?.name ?? 'Error' })
+            )
+          : null;
       if (!classified.server) {
         const web = webRun ? await webRun : null;
-        return finish({ lookup, ran: false, score: scoreQuestion(q, { chatIds }), confident: false, answer: null, ...(web ? { web } : {}) });
+        return finish({
+          lookup,
+          ran: false,
+          score: scoreQuestion(q, { chatIds }),
+          confident: false,
+          answer: null,
+          ...(web ? { web } : {}),
+        });
       }
       // A fresh store view per question: the daily recall counter starts at zero, the trace is caught here.
       let trace = null;
       const recallStore = readStore((line) => {
         trace = line;
       });
-      const recall = createRecall({ hot: evalHot, store: recallStore, llm, discord: createDiscordInterface().capabilities, archive, record, vectors, embed, memoryDb, now });
+      const recall = createRecall({
+        hot: evalHot,
+        store: recallStore,
+        llm,
+        discord: createDiscordInterface().capabilities,
+        archive,
+        record,
+        vectors,
+        embed,
+        memoryDb,
+        now,
+      });
       const windows = [];
       const found = await recall.run({
         guild,
@@ -766,7 +1002,16 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
         answer: found?.text ?? null,
         summary: found?.stats?.summary ?? null,
         stretch: found?.stretch ?? null,
-        windows: windows.map((w) => w.map((m) => ({ id: m.id, channelId: m.channelId ?? null, authorId: m.authorId ?? null, ts: m.ts ?? null, self: m.self === true, text: m.content ?? '' }))),
+        windows: windows.map((w) =>
+          w.map((m) => ({
+            id: m.id,
+            channelId: m.channelId ?? null,
+            authorId: m.authorId ?? null,
+            ts: m.ts ?? null,
+            self: m.self === true,
+            text: m.content ?? '',
+          }))
+        ),
         memory: trace?.memory ?? [],
         stats: found?.stats ?? null,
       });
@@ -784,7 +1029,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
       ask: (q) => ask(q, index++),
       onResult: (r) =>
         process.stderr.write(
-          `recall-eval: ${r.id} ${r.error ? `error ${r.error}` : `${r.score?.outcome ?? r.kind} rank ${r.score?.rank ?? '-'} hit@${HIT_AT} ${r.score?.hit5 ?? '-'} confident ${r.confident === true}${r.web ? ` web ${r.web.found}` : ''}`}${r.prefetch ? ` prefetch ${r.prefetch.status} rank ${r.prefetch.score?.rank ?? '-'}` : ''} ${r.latencyMs} ms ${r.costUsd.toFixed(4)} USD\n`,
+          `recall-eval: ${r.id} ${r.error ? `error ${r.error}` : `${r.score?.outcome ?? r.kind} rank ${r.score?.rank ?? '-'} hit@${HIT_AT} ${r.score?.hit5 ?? '-'} confident ${r.confident === true}${r.web ? ` web ${r.web.found}` : ''}`}${r.prefetch ? ` prefetch ${r.prefetch.status} rank ${r.prefetch.score?.rank ?? '-'}` : ''} ${r.latencyMs} ms ${r.costUsd.toFixed(4)} USD\n`
         ),
     });
   } finally {
@@ -802,7 +1047,11 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
     questionsFile,
     mode: { dry, discord: useDiscord, web: useWeb, prefetch: usePrefetch, noDeadline },
     stages,
-    settings: { recall: settings, meaningSearch: config.features?.meaningSearch === true, channelMessages: historyCount },
+    settings: {
+      recall: settings,
+      meaningSearch: config.features?.meaningSearch === true,
+      channelMessages: historyCount,
+    },
     stopped: outcome.stopped,
     skipped: outcome.skipped,
     summary,

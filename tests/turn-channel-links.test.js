@@ -107,12 +107,28 @@ function fakeHot(channelLinks) {
         gapMarkerMinutes: 20,
         otherProfiles: 6,
         caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 },
-        vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0, maxBytes: 1_500_000, fetchTimeoutMs: 10_000 },
+        vision: {
+          maxImages: 2,
+          tokensPerImage: 400,
+          imageSize: 512,
+          recentImages: 0,
+          recentImageMinutes: 0,
+          maxBytes: 1_500_000,
+          fetchTimeoutMs: 10_000,
+        },
         pull: { scanMessages: 20, maxChannels: 1, sameAudience: true },
       },
       llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 100, betweenMessagesMs: [0, 0] },
-      features: { memory: true, multiMessage: true, typingSimulation: false, channelPull: false, channelRoute: false, elsewhere: false, channelLinks },
+      features: {
+        memory: true,
+        multiMessage: true,
+        typingSimulation: false,
+        channelPull: false,
+        channelRoute: false,
+        elsewhere: false,
+        channelLinks,
+      },
       media: { maxPerTurn: 6, filePreviewChars: 500 },
       gifs: { maxPerDay: 40 },
     },
@@ -138,7 +154,12 @@ async function runLinkTurn(channelLinks, answer = '<msg>δες στο #γενι�
     calibrator: { ratio: 1, apply: (n) => n, observe: () => {} },
     client: { user: { id: 'self-id', username: 'Bot' } },
   });
-  const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+  const result = await turns.runTurn({
+    channel,
+    mode: 'reply',
+    trigger: normalizedTrigger(raw),
+    triggerKind: 'mention',
+  });
   return { result, channel };
 }
 
