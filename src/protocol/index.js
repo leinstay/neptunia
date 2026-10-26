@@ -8,3 +8,5 @@ export * from './actions.js';
 export { validateEvent, validateAction } from './validate.js';
 export * from './envelope.js';
 export { originOf } from './origin.js';
+export { deliveryOf } from './adapter.ts';
+export { splitText } from './split-text.ts';
