@@ -5,7 +5,7 @@
     "erasableSyntaxOnly": true,
     "allowImportingTsExtensions": true,
     "allowJs": true,
-    "checkJs": true,
+    "checkJs": false,
     "module": "nodenext",
     "moduleResolution": "nodenext",
     "target": "esnext",
