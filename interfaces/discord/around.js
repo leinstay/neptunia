@@ -1,168 +1,176 @@
-// What the persona sees at the corner of her eye, the way a member sees it in Discord's
-// sidebar right now: for each person a request is about, their status, the voice channel they
-// sit in (muted, deafened, streaming, camera on) and what they are doing; and who else sits in
-// a voice channel. src/behavior/prompt.js puts it in the `<people_now>` rows, one per person.
-//
-// A LIVE SNAPSHOT, never a record: the store below lives in process memory, is fed by the
-// gateway's voice and presence events, is never written to data/, the journal, the record,
-// a log (counts only) or a backup, and is gone at a restart. Discord sends presences only for
-// members who are not offline, so with the presences intent on and a fresh snapshot a member
-// without a presence record IS offline; with the intent off or a stale snapshot nothing is
-// claimed about presence: the fields say "unavailable" or "stale", never "no".
-//
-// Member-supplied text (names, activity names, details, channel names) is untrusted data: one
-// line, clamped, angle brackets removed so it cannot close or open a prompt block. Custom
-// statuses are never kept.
-//
-// Pure: no discord.js import, no clock; src/index.js feeds the store; the rows it renders into are
-// src/behavior/around.js.
+// The builders of the live glance on the Discord side: a discord.js voice state, presence or guild becomes the
+// protocol event the core's around store (src/behavior/around-store.ts) takes through the event door. The
+// events are plain data. A custom status is dropped here, so its text never leaves this package; the activity
+// type number becomes the protocol's word. Ids come from what makes the event (the member and the time), so a
+// repeat is a duplicate at the door.
 
-import { STATUSES, cleanText } from '../../src/behavior/around.js';
+import {
+  CONNECTION_CHANGED,
+  PRESENCE_CHANGED,
+  PRESENCE_SNAPSHOT,
+  PRESENCE_STATUSES,
+  VOICE_CHANGED,
+} from '../../src/protocol/index.js';
+import { DISCORD_IFACE } from './port.js';
 
-/** Most activities kept per member. */
-const MAX_ACTIVITIES = 3;
+/**
+ * The fields of a discord.js `VoiceState` the builders read.
+ * @typedef {{ id?: string, guild?: { id?: string }|null, channelId?: string|null, selfMute?: boolean,
+ *   serverMute?: boolean, selfDeaf?: boolean, serverDeaf?: boolean, streaming?: boolean|null, selfVideo?: boolean,
+ *   member?: { id?: string, displayName?: string }|null }} VoiceStateLike
+ */
 
-// A custom status is not kept: dropped at the door.
+/**
+ * The fields of a discord.js `Presence` the builders read.
+ * @typedef {{ userId?: string, user?: { id?: string }|null, member?: { id?: string, displayName?: string }|null,
+ *   status?: string, activities?: Array<{ type?: number, name?: string, details?: string|null, state?: string|null }> }} PresenceLike
+ */
+
+/**
+ * The fields of a discord.js `Guild` the snapshot reads.
+ * @typedef {{ id?: string, voiceStates?: { cache?: Map<string, VoiceStateLike> },
+ *   presences?: { cache?: Map<string, PresenceLike> } }} GuildLike
+ */
+
+// discord.js ActivityType, by number, as the protocol names a kind of activity.
+const ACTIVITY_KINDS = { 0: 'playing', 1: 'streaming', 2: 'listening', 3: 'watching', 5: 'competing' };
 const CUSTOM_STATUS = 4;
 
-/** A non-empty id string, else null. */
+/**
+ * A non-empty id string, else null.
+ * @param {unknown} value
+ * @returns {string|null}
+ */
 function idOf(value) {
   return typeof value === 'string' && value !== '' ? value : null;
 }
 
-/** A member's display name from a discord.js object's `member`, else null. */
+/**
+ * A member's display name from a discord.js object's `member`, else null.
+ * @param {{ displayName?: string }|null|undefined} member
+ * @returns {string|null}
+ */
 function nameFrom(member) {
   const name = member?.displayName;
-  return typeof name === 'string' && name !== '' ? cleanText(name) || null : null;
+  return typeof name === 'string' && name !== '' ? name : null;
 }
 
 /**
- * A voice state (discord.js `VoiceState`, or any object with the same fields) as the snapshot's
- * record; null for a member who is in no channel (the member left).
- * @param {object} state  `id`, `channelId`, `selfMute`, `selfDeaf`, `serverMute`, `serverDeaf`, `streaming`, `selfVideo`, `member?`.
- * @returns {{ memberId: string, channelId: string, name: string|null, muted: boolean, deafened: boolean, streaming: boolean, camera: boolean }|null}
+ * The voice fields of a voice state, without the event envelope (the fields a snapshot entry shares).
+ * @param {VoiceStateLike} state
+ * @param {GuildLike|null} guild
+ * @param {string|null} [previousId]
  */
-export function voiceRecord(state) {
-  const memberId = idOf(state?.id) ?? idOf(state?.member?.id);
-  const channelId = idOf(state?.channelId);
-  if (!memberId || !channelId) return null;
+function voiceFields(state, guild, previousId = null) {
   return {
-    memberId,
-    channelId,
-    name: nameFrom(state.member),
-    muted: state.selfMute === true || state.serverMute === true,
-    deafened: state.selfDeaf === true || state.serverDeaf === true,
-    streaming: state.streaming === true,
-    camera: state.selfVideo === true,
+    guildId: idOf(state?.guild?.id) ?? idOf(guild?.id),
+    userId: idOf(state?.id) ?? idOf(state?.member?.id),
+    name: nameFrom(state?.member),
+    conversationId: idOf(state?.channelId),
+    previousId,
+    muted: state?.selfMute === true || state?.serverMute === true,
+    deafened: state?.selfDeaf === true || state?.serverDeaf === true,
+    streaming: state?.streaming === true,
+    camera: state?.selfVideo === true,
   };
 }
 
 /**
- * A presence (discord.js `Presence`, or any object with the same fields) as the snapshot's
- * record; null without a member id. An unrecognised status stays `unknown` (nothing about
- * presence is said for it). A custom status is not kept.
- * @param {object} presence  `userId`, `status`, `activities` (`type`, `name`, `details`, `state`), `member?`.
- * @returns {{ memberId: string, name: string|null, status: 'online'|'idle'|'dnd'|'offline'|'unknown', activities: { type: number, name: string, details: string, state: string }[] }|null}
+ * The presence fields of a presence, without the event envelope.
+ * @param {PresenceLike} presence
  */
-export function presenceRecord(presence) {
-  const memberId = idOf(presence?.userId) ?? idOf(presence?.user?.id) ?? idOf(presence?.member?.id);
-  if (!memberId) return null;
+function presenceFields(presence) {
+  /** @type {Array<{ kind: string, name: string, details: string, state: string }>} */
   const activities = [];
-  for (const activity of Array.isArray(presence.activities) ? presence.activities : []) {
+  for (const activity of Array.isArray(presence?.activities) ? presence.activities : []) {
     if (activity?.type === CUSTOM_STATUS) continue;
-    if (activities.length >= MAX_ACTIVITIES) continue;
-    const name = cleanText(activity?.name);
-    if (!name) continue;
     activities.push({
-      type: Number.isInteger(activity.type) ? activity.type : -1,
-      name,
-      details: cleanText(activity.details),
-      state: cleanText(activity.state),
+      kind: ACTIVITY_KINDS[activity?.type] ?? 'other',
+      name: typeof activity?.name === 'string' ? activity.name : '',
+      details: typeof activity?.details === 'string' ? activity.details : '',
+      state: typeof activity?.state === 'string' ? activity.state : '',
     });
   }
   return {
-    memberId,
-    name: nameFrom(presence.member),
-    status: STATUSES.has(presence.status) ? presence.status : 'unknown',
+    userId: idOf(presence?.userId) ?? idOf(presence?.user?.id) ?? idOf(presence?.member?.id),
+    name: nameFrom(presence?.member),
+    // A status Discord does not define stays unknown, never offline.
+    status: PRESENCE_STATUSES.includes(presence?.status) ? presence.status : 'unknown',
     activities,
   };
 }
 
 /**
- * The snapshot store of one served guild. Methods take discord.js objects (or the same shape)
- * and keep plain records; nothing is persisted. A voice record seen joining a channel (a join or
- * a move) carries `joinedAt` (ms, from `now`), kept while the member stays in that channel (a
- * flag change); a record from a seed has none: when that member joined is not known.
- * @param {{ presences?: boolean, now?: () => number }} [options]  `presences`: the presences
- *   intent is on (fixed at login); `now`: the clock (Date.now by default).
+ * The `voice.changed` event of a discord.js `VoiceState` (or any object with the same fields). A member in no
+ * channel gives `conversationId: null`. `previous`, when given, is the state before and gives `previousId`.
+ * @param {VoiceStateLike} state
+ * @param {number} at  When the change was seen (ms).
+ * @param {{ channelId?: string|null }|null} [previous]
  */
-export function createAroundStore({ presences = false, now = Date.now } = {}) {
-  /** @type {Map<string, object>} */
-  let voice = new Map();
-  /** @type {Map<string, object>} */
-  let presence = new Map();
-  let stale = false;
-
+export function voiceEvent(state, at, previous = null) {
+  const fields = voiceFields(state, null, idOf(previous?.channelId));
   return {
-    /**
-     * A voice state changed: a join, a move or a flag change replaces the record; a leave removes
-     * it. A join or a move stamps `joinedAt`; a flag change keeps the held one (none after a seed).
-     */
-    voiceUpdate(state) {
-      const memberId = idOf(state?.id) ?? idOf(state?.member?.id);
-      if (!memberId) return;
-      const record = voiceRecord(state);
-      if (!record) {
-        voice.delete(memberId);
-        return;
-      }
-      const held = voice.get(memberId);
-      if (held && held.channelId === record.channelId) {
-        if (held.joinedAt !== undefined) record.joinedAt = held.joinedAt;
-      } else {
-        const at = now();
-        if (Number.isFinite(at)) record.joinedAt = at;
-      }
-      voice.set(memberId, record);
-    },
-    /** A presence changed (a no-op while the presences intent is off). */
-    presenceUpdate(next) {
-      if (!presences) return;
-      const record = presenceRecord(next);
-      if (record) presence.set(record.memberId, record);
-    },
-    /** Replace the voice records with the voice states of the guild's cache (no `joinedAt`: not seen joining). */
-    seedVoice(states) {
-      voice = new Map();
-      for (const state of states ?? []) {
-        const record = voiceRecord(state);
-        if (record) voice.set(record.memberId, record);
-      }
-    },
-    /** Replace the presence records with the presences of the guild's cache (a no-op while the intent is off). */
-    seedPresence(list) {
-      if (!presences) return;
-      presence = new Map();
-      for (const item of list ?? []) {
-        const record = presenceRecord(item);
-        if (record) presence.set(record.memberId, record);
-      }
-    },
-    /** The gateway dropped: what is held may be out of date until `markFresh`. */
-    markStale() {
-      stale = true;
-    },
-    /** The gateway is back and the snapshot was reseeded or kept current by resumed events. */
-    markFresh() {
-      stale = false;
-    },
-    /** The snapshot to render: copies, so a renderer cannot change the store. */
-    snapshot() {
-      return { presences, stale, voice: new Map(voice), presence: new Map(presence) };
-    },
-    /** Counts only, for a log line. */
-    counts() {
-      return { voice: voice.size, presence: presence.size, stale };
-    },
+    kind: VOICE_CHANGED,
+    iface: DISCORD_IFACE,
+    at,
+    id: `${DISCORD_IFACE}:voice:${fields.userId}:${at}`,
+    ...fields,
+  };
+}
+
+/**
+ * The `presence.changed` event of a discord.js `Presence` (or any object with the same fields). A custom status is
+ * dropped.
+ * @param {PresenceLike} presence
+ * @param {number} at
+ */
+export function presenceEvent(presence, at) {
+  const fields = presenceFields(presence);
+  return {
+    kind: PRESENCE_CHANGED,
+    iface: DISCORD_IFACE,
+    at,
+    id: `${DISCORD_IFACE}:presence:${fields.userId}:${at}`,
+    ...fields,
+  };
+}
+
+/**
+ * The `presence.snapshot` event of a guild: the voice states of the members in a channel and the presences its
+ * cache holds, which replace what the core holds.
+ * @param {GuildLike} guild
+ * @param {number} at
+ */
+export function presenceSnapshotEvent(guild, at) {
+  /** @type {Array<ReturnType<typeof voiceFields>>} */
+  const voice = [];
+  for (const state of guild?.voiceStates?.cache?.values() ?? []) {
+    const fields = voiceFields(state, guild);
+    if (fields.conversationId !== null) voice.push(fields);
+  }
+  const presence = [...(guild?.presences?.cache?.values() ?? [])].map(presenceFields);
+  return {
+    kind: PRESENCE_SNAPSHOT,
+    iface: DISCORD_IFACE,
+    at,
+    id: `${DISCORD_IFACE}:presence.snapshot:${guild?.id}:${at}`,
+    voice,
+    presence,
+  };
+}
+
+/**
+ * The `connection.changed` event of the gateway: `lost` when a shard dropped or is reconnecting, `resumed` when
+ * it is back.
+ * @param {'lost'|'resumed'} state
+ * @param {number} at
+ */
+export function connectionEvent(state, at) {
+  return {
+    kind: CONNECTION_CHANGED,
+    iface: DISCORD_IFACE,
+    at,
+    id: `${DISCORD_IFACE}:connection:${state}:${at}`,
+    state,
   };
 }
