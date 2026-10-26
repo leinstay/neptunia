@@ -35,7 +35,9 @@ npm run check:codes                                       # the result codes aga
 
 Set `TMPDIR` to a scratch folder before running tests.
 
-Every run you start in the background has a time budget, and you check on it every five minutes: one test file 2 minutes, the whole suite 6, a lint or type check 2, a CI run 5 from the moment it starts. Past its budget a run is not waited for: stop it, find out why it is slow, and fix that before anything else. A check that takes longer than it used to is a bug of the check. Never start the engine (`src/index.js`) from a checkout whose `.env` belongs to a running deployment: that starts a second instance of the persona.
+Every run you start in the background has a time budget, and you check on it every five minutes: one test file 2 minutes, the whole suite 6, a lint or type check 2, a CI run 5 from the moment it starts. Past its budget a run is not waited for: stop it, find out why it is slow, and fix that before anything else. A check that takes longer than it used to is a bug of the check.
+
+Never start the engine (`src/index.js`) from a checkout whose `.env` belongs to a running deployment: that starts a second instance of the persona.
 
 ## Project rules
 
