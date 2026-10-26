@@ -556,6 +556,15 @@ import {
 import { pairOrder, parseTriggers, renderSheet } from './lib/pair.mjs';
 import { promptLayersHot } from './lib/prompt-layers.mjs';
 import { readOnlyMemory } from './lib/memory-read.mjs';
+import {
+  conversationOfChannel,
+  discordReads,
+  guildListing,
+  onPlatformChannel,
+  requesterOfChannel,
+} from './lib/platform-objects.ts';
+
+export { guildListing, requesterOfChannel, roleIdsOf } from './lib/platform-objects.ts';
 
 /** The memory of a data directory, read only (tools/lib/memory-read.mjs), one per directory for the whole run. */
 const memories = new Map();
@@ -4292,6 +4301,8 @@ export function createReplayTools({
   pageFetcher = null,
   linkOfMessage = null,
   discord,
+  reads = null,
+  iface = 'discord',
   describer = null,
   searches = {},
   keys = {},
@@ -4368,7 +4379,6 @@ export function createReplayTools({
       null;
     const settings = typeof recallSettings === 'function' ? recallSettings(config) : null;
     const timezone = config.bot?.timezone ?? 'UTC';
-    const options = typeof discord.normalizeOptions === 'function' ? discord.normalizeOptions(config) : {};
     return runConversationRead({
       args,
       labels,
@@ -4390,7 +4400,7 @@ export function createReplayTools({
         config.features?.record === true
           ? recordMessages(record, guildId, { channelId, from, nameOf, selfName })
           : Promise.resolve([]),
-      fetchLive: (request) => fetchSpan(discord, channelOf(request.channelId), request, { selfId, ...options }),
+      fetchLive: (request) => fetchSpan(reads, { iface, conversationId: String(request.channelId) }, request),
       render: (slice) => {
         let descriptions;
         if (config.features?.mediaDescriptions === true && typeof describer?.cachedDescriptions === 'function') {
@@ -4495,13 +4505,13 @@ export function createReplayTools({
       }
       if (skill === 'memory.search') {
         const result = await runMemorySearch({
-          recall: recallOf(client),
+          recall: onPlatformChannel(recallOf(client), { guild, channel }),
           store,
           config: hot.config,
           labels,
           guild,
           guildId,
-          channel,
+          channel: conversationOfChannel(channel, String(guildId)),
           partner: null,
           selfId,
           selfName,
@@ -5677,6 +5687,7 @@ async function runSkills({
           call,
           view: callViewOf({
             channel,
+            snapshot: guildListing(channel),
             guildId,
             idByIndex,
             lines,
@@ -6497,6 +6508,7 @@ export async function runTriggerLoops({
           call,
           view: callViewOf({
             channel,
+            snapshot: guildListing(channel),
             guildId,
             idByIndex,
             lines: lines2,
@@ -6864,6 +6876,9 @@ async function loopDepsOf({
   const searches = { brave: createBraveSearch(), exa: createExaSearch() };
   const keys = { brave: process.env.BRAVE_SEARCH_API_KEY || null, exa: process.env.EXA_API_KEY || null };
   const discord = createDiscordInterface().capabilities;
+  // The interface's reads over this guild's client, GET only as the rest of the replay is: the history conversation.read
+  // asks for.
+  const { reads, iface } = discordReads(guild.client, () => hot.config);
   return {
     IN_TURN_TOOLS,
     transportOf,
@@ -6897,6 +6912,8 @@ async function loopDepsOf({
         pageFetcher,
         linkOfMessage,
         discord,
+        reads,
+        iface,
         describer,
         searches,
         keys,
@@ -7175,7 +7192,8 @@ async function runMain(args, { root, signal, rng, answers }) {
     await load('ops/index.js');
     const { skillRegistry } = await load('skills/registry.js');
     const { expandPersonaGrant } = await load('ops/access.js');
-    const { requesterOf, callViewOf } = await load('behavior/turn.js');
+    const { requesterOf: turnRequesterOf, callViewOf } = await load('behavior/turn.js');
+    const requesterOf = requesterOfChannel(turnRequesterOf);
     const { createImageGen } = await load('llm/images.js');
     const { grantedSkillNames } = await load('skills/discovery.js');
     // The errands' budget (every scenario: a task.run is checked as live) and the handles of an errand's files.

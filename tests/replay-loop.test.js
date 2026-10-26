@@ -62,7 +62,9 @@ import {
   preTurnLookup,
   renderLoopTriggersReport,
   renderSkillsReport,
+  guildListing,
   requestBlocks,
+  requesterOfChannel,
   runRecord,
   scenarioSummary,
   replayWithoutCache,
@@ -74,6 +76,10 @@ import {
 } from '../tools/replay.mjs';
 import { labels } from './fixtures/labels.js';
 import { call, completionOf, textAnswer, toolAnswer } from './fixtures/tool-answers.js';
+import { useIface, world } from './fixtures/turn-world.ts';
+
+// The conversation of the tools' history read is held by a fake interface named `fake`.
+useIface('fake');
 
 const OWNER = '100000000000000042';
 const SELF = '100000000000000001';
@@ -188,7 +194,7 @@ async function loopRun(answers, { tool, config = toolConfig(), clock = tickingCl
   });
   const situation = { history: [trigger], triggerId: trigger.id, kind: 'mention', mode: 'reply' };
   const registry = skillRegistry();
-  const requester = requesterOf(trigger, channel);
+  const requester = requesterOfChannel(requesterOf)(trigger, channel);
   const tasks = { budget: () => ({ spent: false, key: null, code: null }) };
   const toolCalls = [];
   const simulate = (call, { idByIndex, history: lines, channelHandles = null }) =>
@@ -196,6 +202,7 @@ async function loopRun(answers, { tool, config = toolConfig(), clock = tickingCl
       call,
       view: callViewOf({
         channel,
+        snapshot: guildListing(channel),
         guildId: GUILD,
         idByIndex,
         lines,
@@ -1355,7 +1362,7 @@ async function triggerRun({ single, transport = null, answers, config = toolConf
     answerSkillScenario,
     simulateCall,
     callViewOf,
-    requesterOf,
+    requesterOf: requesterOfChannel(requesterOf),
     skillRegistry,
     createImageGen,
     createTaskStore,
@@ -1502,6 +1509,11 @@ test('createReplayTools: conversation.read runs the live reader over the REST hi
       },
     },
   };
+  /**
+   * @param {string} id
+   * @param {number} minutes
+   * @param {string} content
+   */
   const line = (id, minutes, content) => ({
     id,
     channelId: HERE,
@@ -1521,14 +1533,35 @@ test('createReplayTools: conversation.read runs the live reader over the REST hi
     emojis: [],
     reactions: [],
   });
-  const fetched = [];
-  const discord = {
-    fetchHistory: async (source, options) => (
-      fetched.push([source.id, options.limit]),
-      [line('m1', 3, 'πρώτο'), line('m2', 2, 'δεύτερο')]
-    ),
-    checkPull: () => ({ skip: null }),
-  };
+  // The conversation's history is held by the fake interface; the reads it answers are what the tool asked for.
+  world().channel({ id: HERE, name: 'γενικά', guildId: GUILD });
+  for (const entry of [line('m1', 3, 'πρώτο'), line('m2', 2, 'δεύτερο')])
+    world().port.seedEvent({
+      kind: 'message.received',
+      iface: 'fake',
+      at: entry.ts,
+      id: `fake:message:${entry.id}`,
+      conversation: { id: HERE, kind: 'channel', communityId: GUILD, name: 'γενικά' },
+      message: {
+        id: entry.id,
+        author: { id: entry.authorId, name: entry.authorName, self: false, bot: false },
+        content: entry.content,
+        sourceText: entry.content,
+        system: false,
+        at: entry.ts,
+        replyToId: null,
+        replyPingUserId: null,
+        forwardedFrom: null,
+        attachments: [],
+        links: [],
+        forwarded: [],
+        stickers: [],
+        emojis: [],
+        reactions: [],
+      },
+      addressing: { mentioned: false, replyToSelf: false, mentionedUserIds: [], mentionedConversationIds: [] },
+    });
+  const discord = { checkPull: () => ({ skip: null }) };
   const store = { state: { data: {} }, listUserProfiles: () => [], getLore: () => [], getGuild: () => ({}) };
   const warnings = [];
   const channel = fakeChannel();
@@ -1547,6 +1580,8 @@ test('createReplayTools: conversation.read runs the live reader over the REST hi
     runWebSearch,
     runMemorySearch,
     discord,
+    reads: world().reads,
+    iface: world().port.iface,
     recallSettings,
     conversation: { runConversationRead, fetchSpan, recordMessages, searchHandles, pullPictures },
     log: { warn: (...a) => warnings.push(a) },
@@ -1557,7 +1592,12 @@ test('createReplayTools: conversation.read runs the live reader over the REST hi
   ]);
   const read = await tools.run('conversation.read', { last: 30 }, { history: [], at: NOW, idByIndex });
   assert.equal(read.result.status, 'ok', JSON.stringify(read.result));
-  assert.deepEqual(fetched, [[HERE, 30]]);
+  assert.deepEqual(
+    world()
+      .port.calls.filter((call) => call.op === 'history')
+      .map((call) => call.args),
+    [[{ iface: 'fake', conversationId: HERE }, { limit: 30 }]]
+  );
   assert.ok(
     read.result.data.text.includes('πρώτο') && read.result.data.text.includes('δεύτερο'),
     read.result.data.text
