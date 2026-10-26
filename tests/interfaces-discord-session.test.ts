@@ -17,7 +17,6 @@ type Fake = Record<string, unknown>;
 type Legacy = {
   client: unknown;
   serveCommands(admin: unknown): unknown;
-  rawOf(event: { id: string }): { message: unknown; previous: unknown } | null;
   catchUp: { eventOf(message: object): { id: string } };
 };
 
@@ -584,43 +583,11 @@ test('hands the core exactly the named seams of legacy, over the client it built
   await withSession({}, (h, running) => {
     const legacy = running.legacy as Legacy;
     assert.equal(legacy.client, h.client);
+    // The seams the core's reads replaced (the reactors, the raw handles, the direct-chat lookup) are gone.
     assert.deepEqual(
       Object.keys(legacy).sort(),
-      [
-        'applyReaction',
-        'capabilities',
-        'catchUp',
-        'client',
-        'dmConversationOf',
-        'emoji',
-        'fetchOwnMessages',
-        'reactors',
-        'rawOf',
-        'resolveMember',
-        'serveCommands',
-      ].sort()
+      ['capabilities', 'catchUp', 'client', 'emoji', 'fetchOwnMessages', 'resolveMember', 'serveCommands'].sort()
     );
-    return Promise.resolve();
-  });
-});
-
-// A caught-up message never crossed the link as an event, so the session keeps its handles when the core turns it
-// into an event, and `rawOf` finds them under the event id like those of a live message.
-test('keeps the handles of a caught-up message so that rawOf finds it by the event id', async () => {
-  await withSession({}, (h, running) => {
-    const legacy = running.legacy as Legacy;
-    const message = messageIn('m77', h.channel('c1'), h.guild);
-    const event = legacy.catchUp.eventOf(message);
-    const handles = legacy.rawOf(event);
-    assert.equal(handles?.message, message);
-    assert.equal(handles?.previous, null);
-    return Promise.resolve();
-  });
-});
-
-test('rawOf knows nothing of an event id the session never saw', async () => {
-  await withSession({}, (_h, running) => {
-    assert.equal((running.legacy as Legacy).rawOf({ id: 'discord:message:unknown' }), null);
     return Promise.resolve();
   });
 });

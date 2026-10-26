@@ -1,71 +1,63 @@
-// Tests for interfaces/discord/reactors.js (who reacted to the persona's own messages), its use in
-// interfaces/discord/collect.js#fetchHistory (the backfill and the names) and the rendering of those
-// names in src/format.js#formatTranscript. Fakes only: no Discord, no network.
+// Tests for the reactor store of the core (src/behavior/reactor-store.ts: who reacted to the persona's own messages,
+// fed by `reaction.changed` events), the backfill and the rendering of the names in src/format.js#formatTranscript.
+// Fakes only: no Discord, no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  applyReactionEvent,
+  applyReactionChanged,
   backfillPlan,
   createReactorStore,
-  reactionEventOf,
-  reactionKey,
-  reactionStoreEventOf,
-  reactionEvent,
-  reactionClearAllEvent,
-  reactionClearEmojiEvent,
-  reactorIdsOf,
   runBackfill,
   withReactors,
-  fetchHistory,
-  fetchMessage,
-} from '../interfaces/discord/index.js';
-import { validateEvent } from '../src/protocol/index.js';
-import { formatTranscript } from '../src/format.js';
+} from '../src/behavior/reactor-store.ts';
+import { formatTranscript, reactorIdsOf } from '../src/format.js';
 import { buildRequest } from '../src/behavior/prompt.js';
 import { labels as fixtureLabels } from './fixtures/labels.js';
 
 const SELF = '100';
 const GUILD = '900';
-const served = { guildId: GUILD, selfId: SELF };
+const served = { communityId: GUILD, selfId: SELF };
 
-/** A discord.js-shaped reaction on message `message` with emoji `emoji` (`{ id, name }`). */
-function rawReaction(message, emoji, extra = {}) {
-  return { message, emoji, ...extra };
+/**
+ * A `reaction.changed` event of conversation `c1`: `kind` add, remove, removeEmoji or removeAll; `authorId` is the author
+ * of the message when the interface knows it.
+ */
+function reactionEvent(
+  kind,
+  { messageId = 'm1', authorId = SELF, emoji = { name: '😂' }, userId = '2', communityId = GUILD } = {}
+) {
+  return {
+    kind: 'reaction.changed',
+    iface: 'fake',
+    at: 1,
+    id: `fake:reaction:${kind}:${messageId}`,
+    conversation: { id: 'c1', kind: 'channel', communityId },
+    messageId,
+    emoji: kind === 'removeAll' ? null : emoji,
+    userId: kind === 'removeEmoji' || kind === 'removeAll' ? null : userId,
+    added: kind === 'add',
+    authorId,
+    ...(kind === 'removeEmoji' ? { cleared: 'emoji' } : kind === 'removeAll' ? { cleared: 'all' } : {}),
+  };
 }
 
-/** A discord.js-shaped message of the served guild: whole by default, by `authorId`. */
-function rawMsg(id, authorId = SELF, extra = {}) {
-  return { id, guildId: GUILD, partial: false, author: { id: authorId }, ...extra };
+/** Apply one event of the served community. */
+function feed(store, kind, parts = {}, where = served) {
+  return applyReactionChanged(store, reactionEvent(kind, parts), where);
 }
 
-/** Apply one event built from discord.js-shaped parts. */
-function feed(store, kind, parts, where = served) {
-  return applyReactionEvent(store, reactionEventOf(kind, parts), where);
-}
-
-// --- reactionKey ---------------------------------------------------------------
-
-test('reactionKey: a unicode emoji reads as itself, a custom one as :name:, none without a name', () => {
-  assert.equal(reactionKey({ id: null, name: '🔥' }), '🔥');
-  assert.equal(reactionKey({ id: '55', name: 'kek' }), ':kek:');
-  assert.equal(reactionKey({ id: '55', name: null }), null);
-  assert.equal(reactionKey(null), null);
-});
-
-// --- the store through gateway events -----------------------------------------
+// --- the store through reaction.changed events ---------------------------------
 
 test('reactors store: an add on her message is kept in order, each user once', () => {
   const store = createReactorStore();
-  const message = rawMsg('m1');
-  assert.equal(feed(store, 'add', { reaction: rawReaction(message, { name: '😂' }), user: { id: '2' } }), 'applied');
-  feed(store, 'add', { reaction: rawReaction(message, { name: '😂' }), user: { id: '1' } });
-  assert.equal(feed(store, 'add', { reaction: rawReaction(message, { name: '😂' }), user: { id: '2' } }), 'ignored');
+  assert.equal(feed(store, 'add', { userId: '2' }), 'applied');
+  feed(store, 'add', { userId: '1' });
+  assert.equal(feed(store, 'add', { userId: '2' }), 'ignored');
   assert.deepEqual(store.reactors('m1', '😂'), ['2', '1']);
 });
 
 test('reactors store: remove takes one user back, removeEmoji one emoji, removeAll every emoji', () => {
   const store = createReactorStore();
-  const message = rawMsg('m1');
   for (const [emoji, user] of [
     ['😂', '1'],
     ['😂', '2'],
@@ -73,14 +65,14 @@ test('reactors store: remove takes one user back, removeEmoji one emoji, removeA
     [':kek:', '4'],
   ]) {
     const parsed = emoji.startsWith(':') ? { id: '77', name: 'kek' } : { name: emoji };
-    feed(store, 'add', { reaction: rawReaction(message, parsed), user: { id: user } });
+    feed(store, 'add', { emoji: parsed, userId: user });
   }
-  feed(store, 'remove', { reaction: rawReaction(message, { name: '😂' }), user: { id: '1' } });
+  feed(store, 'remove', { emoji: { name: '😂' }, userId: '1' });
   assert.deepEqual(store.reactors('m1', '😂'), ['2']);
-  feed(store, 'removeEmoji', { reaction: rawReaction(message, { name: '👍' }) });
+  feed(store, 'removeEmoji', { emoji: { name: '👍' } });
   assert.equal(store.reactors('m1', '👍'), null);
   assert.deepEqual(store.reactors('m1', ':kek:'), ['4']);
-  feed(store, 'removeAll', { message });
+  feed(store, 'removeAll');
   assert.equal(store.reactors('m1', '😂'), null);
   assert.equal(store.reactors('m1', ':kek:'), null);
   assert.equal(store.isOwn('m1'), true, 'the message stays hers');
@@ -88,49 +80,25 @@ test('reactors store: remove takes one user back, removeEmoji one emoji, removeA
 
 test('reactors store: her own reaction is never a reactor', () => {
   const store = createReactorStore();
-  const message = rawMsg('m1');
-  assert.equal(feed(store, 'add', { reaction: rawReaction(message, { name: '😂' }), user: { id: SELF } }), 'ignored');
+  assert.equal(feed(store, 'add', { userId: SELF }), 'ignored');
   assert.equal(store.reactors('m1', '😂'), null);
 });
 
-test('reactors store: another guild, another author and an unknown partial message are ignored', () => {
+test('reactors store: another community, another author and an unknown author are ignored', () => {
   const store = createReactorStore();
-  const elsewhere = rawMsg('m1', SELF, { guildId: '901' });
-  assert.equal(feed(store, 'add', { reaction: rawReaction(elsewhere, { name: '😂' }), user: { id: '2' } }), 'ignored');
-  const theirs = rawMsg('m2', '5');
-  assert.equal(feed(store, 'add', { reaction: rawReaction(theirs, { name: '😂' }), user: { id: '2' } }), 'ignored');
-  const partial = { id: 'm3', guildId: GUILD, partial: true, author: null };
-  assert.equal(feed(store, 'add', { reaction: rawReaction(partial, { name: '😂' }), user: { id: '2' } }), 'ignored');
+  assert.equal(feed(store, 'add', { communityId: '901' }), 'ignored');
+  assert.equal(feed(store, 'add', { messageId: 'm2', authorId: '5' }), 'ignored');
+  assert.equal(feed(store, 'add', { messageId: 'm3', authorId: null }), 'ignored');
   assert.deepEqual(store.counts(), { messages: 0, reactors: 0 });
-  // Not served yet (no guild resolved): nothing.
-  assert.equal(
-    feed(
-      store,
-      'add',
-      { reaction: rawReaction(rawMsg('m4'), { name: '😂' }), user: { id: '2' } },
-      { guildId: null, selfId: SELF }
-    ),
-    'ignored'
-  );
+  // Not served yet (no community resolved): nothing.
+  assert.equal(feed(store, 'add', { messageId: 'm4' }, { communityId: null, selfId: SELF }), 'ignored');
 });
 
-test('reactors store: a partial message already known as hers takes live events', () => {
+test('reactors store: a message already known as hers takes live events whose author is unknown', () => {
   const store = createReactorStore();
   store.markOwn('m3');
-  const partial = { id: 'm3', guildId: GUILD, partial: true, author: null };
-  assert.equal(feed(store, 'add', { reaction: rawReaction(partial, { name: '🙂' }), user: { id: '2' } }), 'applied');
+  assert.equal(feed(store, 'add', { messageId: 'm3', authorId: null, emoji: { name: '🙂' } }), 'applied');
   assert.deepEqual(store.reactors('m3', '🙂'), ['2']);
-});
-
-test('reactors store: an emoji getter that throws leaves the event without an emoji, never fatal', () => {
-  const store = createReactorStore();
-  const reaction = {
-    message: rawMsg('m1'),
-    get emoji() {
-      throw new Error('no emoji cache');
-    },
-  };
-  assert.equal(feed(store, 'add', { reaction, user: { id: '2' } }), 'ignored');
 });
 
 test('reactors store: bounded by maxMessages read at each insertion, the oldest message evicted', () => {
@@ -282,87 +250,6 @@ test('withReactors: her reactions carry the known reactors resolved to names, un
   assert.equal(out[1].reactions[1].users, undefined);
   assert.equal(lines[1].reactions[0].users, undefined, 'the input is not mutated');
   assert.deepEqual(reactorIdsOf(out), ['5'], 'bots get no handle');
-});
-
-// --- fetchHistory with reactors ---------------------------------------------------
-
-/** A discord.js-shaped history message with a reaction cache. */
-function historyMessage(id, authorId, reactions, ts) {
-  return {
-    id,
-    channelId: 'c1',
-    channel: { name: 'general' },
-    author: { id: authorId, bot: false, globalName: authorId === SELF ? 'Persona' : 'Zoé', username: 'u' },
-    member: { displayName: authorId === SELF ? 'Persona' : 'Zoé' },
-    cleanContent: 'hello',
-    createdTimestamp: ts,
-    reference: null,
-    attachments: new Map(),
-    stickers: new Map(),
-    embeds: [],
-    messageSnapshots: new Map(),
-    flags: { has: () => false },
-    reactions: { cache: new Map(reactions.map((reaction, i) => [String(i), reaction])) },
-  };
-}
-
-test('fetchHistory: with reactors, her missing reactors are fetched once and named like authors', async () => {
-  const calls = [];
-  const laugh = {
-    emoji: { id: null, name: '😂' },
-    count: 2,
-    me: false,
-    users: {
-      fetch: async (query) => {
-        calls.push(query);
-        return new Map([
-          ['7', {}],
-          ['8', {}],
-        ]);
-      },
-    },
-  };
-  const own = historyMessage('2', SELF, [laugh], 2000);
-  const theirs = historyMessage(
-    '1',
-    '7',
-    [{ emoji: { name: '👍' }, count: 1, me: false, users: { fetch: async () => assert.fail('not hers') } }],
-    1000
-  );
-  const members = new Map([['7', { displayName: 'Zoé', user: { id: '7', bot: false } }]]);
-  const channel = {
-    id: 'c1',
-    guild: { members: { cache: members } },
-    client: { users: { cache: new Map([['8', { id: '8', bot: true, globalName: null, username: 'helperbot' }]]) } },
-    messages: {
-      fetch: async () =>
-        new Map([
-          ['2', own],
-          ['1', theirs],
-        ]),
-    },
-  };
-  const store = createReactorStore();
-  const options = { limit: 10, selfId: SELF, reactors: { store, budgetMs: 2000, fetchUsers: 10 } };
-  const lines = await fetchHistory(channel, options);
-  assert.deepEqual(calls, [{ limit: 10 }]);
-  assert.deepEqual(lines[1].reactions[0].users, [
-    { id: '7', name: 'Zoé', bot: false },
-    { id: '8', name: 'helperbot', bot: true },
-  ]);
-  assert.equal(lines[0].reactions[0].users, undefined);
-  await fetchHistory(channel, options);
-  assert.equal(calls.length, 1, 'once per message and emoji');
-  const plain = await fetchHistory(channel, { limit: 10, selfId: SELF });
-  assert.equal(plain[1].reactions[0].users, undefined, 'no reactors option: counts only');
-});
-
-test('fetchMessage: a partial message in the cache is fetched whole', async () => {
-  const whole = { id: 'm1', partial: false, author: { id: SELF } };
-  const channel = {
-    messages: { cache: new Map([['m1', { id: 'm1', partial: true, author: null }]]), fetch: async () => whole },
-  };
-  assert.equal(await fetchMessage(channel, 'm1'), whole);
 });
 
 // --- rendering ---------------------------------------------------------------------
@@ -550,62 +437,4 @@ test('buildRequest: a reactor on her line gets a handle like an author, only in 
 
   const off = textOf(buildRequest(input(history, { reactionNames: false })));
   assert.ok(off.includes('[reactions: 😂 x2]'), off);
-});
-
-// --- the store's event from a protocol event ------------------------------------
-
-test('reactionStoreEventOf: add, remove, clear-all and clear-emoji equal reactionEventOf and leave the store alike', () => {
-  const guild = { id: GUILD };
-  const emojis = [
-    { id: null, name: '\u{1F525}' },
-    { id: '55', name: 'kek' },
-  ];
-  const messages = [
-    rawMsg('m1', SELF, { channelId: 'c1', guild }),
-    rawMsg('m2', '7', { channelId: 'c1', guild }),
-    { id: 'm1', guildId: GUILD, partial: true, channelId: 'c1', guild },
-  ];
-  const now = () => 5000;
-  for (const emoji of emojis) {
-    for (const message of messages) {
-      const reaction = rawReaction(message, emoji);
-      const user = { id: '2' };
-      const cases = [
-        ['add', { reaction, user }, reactionEvent(reaction, user, true, { now })],
-        ['remove', { reaction, user }, reactionEvent(reaction, user, false, { now })],
-        ['removeAll', { message }, reactionClearAllEvent(message, { now })],
-        ['removeEmoji', { reaction }, reactionClearEmojiEvent(reaction, { now })],
-      ];
-      for (const [kind, parts, event] of cases) {
-        assert.deepEqual(validateEvent(event), { ok: true }, kind);
-        assert.deepEqual(reactionStoreEventOf(event), reactionEventOf(kind, parts), kind);
-        const left = createReactorStore();
-        const right = createReactorStore();
-        for (const store of [left, right]) {
-          store.markOwn('m1');
-          store.add('m1', reactionKey(emoji), '2');
-          store.add('m1', reactionKey(emoji), '3');
-          store.add('m1', 'other', '4');
-        }
-        const a = applyReactionEvent(left, reactionEventOf(kind, parts), served);
-        const b = applyReactionEvent(right, reactionStoreEventOf(event), served);
-        assert.equal(b, a, kind);
-        for (const key of [reactionKey(emoji), 'other'])
-          assert.deepEqual(right.reactors('m1', key), left.reactors('m1', key), kind);
-        assert.deepEqual(right.counts(), left.counts(), kind);
-      }
-    }
-  }
-});
-
-test('reactionStoreEventOf: never throws on a bare event', () => {
-  assert.deepEqual(reactionStoreEventOf({}), {
-    kind: 'remove',
-    guildId: null,
-    messageId: null,
-    authorId: null,
-    emoji: null,
-    userId: null,
-  });
-  assert.doesNotThrow(() => reactionStoreEventOf(null));
 });

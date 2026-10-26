@@ -26,12 +26,20 @@ import {
 } from '../src/behavior/missed.js';
 import { labels } from './fixtures/labels.js';
 import { tempDir } from './fixtures/tmp.js';
+import { useIface, world } from './fixtures/turn-world.ts';
+
+// The conversations are held by a fake interface named `fake`.
+useIface('fake');
 
 const T0 = Date.parse('2026-10-14T12:00:00.000Z');
 const MIN = 60_000;
 const SELF = 'self1';
 
-/** A normalized message (interfaces/discord/collect.js#normalizeMessage's shape, the fields read here). */
+/**
+ * A normalized message (interfaces/discord/collect.js#normalizeMessage's shape, the fields read here).
+ * @param {{ id: string, authorId?: string, authorName?: string, content?: string, ts?: number, self?: boolean,
+ *   replyToId?: string|null, channelId?: string }} fields
+ */
 function msg({
   id,
   authorId = 'u1',
@@ -60,6 +68,38 @@ function msg({
     emojis: [],
     reactions: [],
     forwarded: [],
+  };
+}
+
+/**
+ * The `message.received` event of a line, as an interface delivers it (the line it gives back is the line).
+ * @param {ReturnType<typeof msg>} line
+ */
+function eventOfLine(line) {
+  return {
+    kind: 'message.received',
+    iface: 'fake',
+    at: line.ts,
+    id: `fake:message:${line.id}`,
+    conversation: { id: line.channelId, kind: 'channel', communityId: 'g1', name: line.channelId },
+    message: {
+      id: line.id,
+      author: { id: line.authorId, name: line.authorName, self: line.self, bot: line.bot },
+      content: line.content,
+      sourceText: line.content,
+      system: false,
+      at: line.ts,
+      replyToId: line.replyToId,
+      replyPingUserId: null,
+      forwardedFrom: null,
+      attachments: [],
+      links: [],
+      forwarded: [],
+      stickers: [],
+      emojis: [],
+      reactions: [],
+    },
+    addressing: { mentioned: false, replyToSelf: false, mentionedUserIds: [], mentionedConversationIds: [] },
   };
 }
 
@@ -200,30 +240,42 @@ function scene({
   const timers = handTimers(clock);
   const log = fakeLog();
   const store = { state: { data: { paused } } };
-  const channel = { id: 'c1', guild: { id: 'g1' } };
-  const client = {
-    user: { id: SELF, username: 'Bot' },
-    channels: { cache: new Map([['c1', channel], ...channels.map((extra) => [extra.id, extra])]) },
-  };
+  // #general (c1) of the community, and the other conversations the test names (a private chat: `recipientId`).
+  const channel = world().channel({ id: 'c1', guildId: 'g1', permissions: { send: canSend({ id: 'c1' }) } });
+  /** @type {Map<string, string>} */
+  const partners = new Map();
+  /** @type {Array<{ id: string, recipientId: string }>} */
+  const others = channels;
+  for (const extra of others) {
+    world().channel({ id: extra.id, dm: true, partnerId: extra.recipientId });
+    partners.set(extra.id, extra.recipientId);
+  }
   const hot = { config, prompts };
-  const fetched = { history };
+  // What every conversation's history holds: the lines of the test, seeded as events when they are set.
+  const fetched = {
+    /** @param {Array<ReturnType<typeof msg>>} lines */
+    set history(lines) {
+      for (const line of lines) world().port.seedEvent(eventOfLine(line));
+    },
+  };
+  fetched.history = history;
   const missed = createMissed({
     hot,
     store,
     journal,
     llm,
     turns,
-    client,
+    reads: world().reads,
+    iface: () => 'fake',
+    partnerOf: (id) => partners.get(id) ?? null,
     getGuildId: () => 'g1',
     getSelfName: () => 'Bot',
     dataDir,
     now: clock,
     timers,
-    fetchHistory: async () => fetched.history,
-    canSend,
     log,
   });
-  return { missed, clock, timers, log, store, journal, llm, turns, hot, fetched, dataDir, channel, client };
+  return { missed, clock, timers, log, store, journal, llm, turns, hot, fetched, dataDir, channel };
 }
 
 const flush = async () => {
@@ -824,7 +876,7 @@ test('createMissed: a second owed candidate inside the channel cooldown waits fo
 
   clock.advance(30_000);
   const second = msg({ id: 'm2', ts: clock() });
-  fetched.history = [...history, second];
+  fetched.history = [second];
   missed.noteFact(fact('gate-failed', second));
   await timers.fireAll();
   assert.equal(turns.calls.length, 1, 'held by the cooldown');
@@ -953,7 +1005,7 @@ test("createMissed: a private chat's fact goes to that person's private journal 
   allowed.missed.noteFact(fact('pending-expired', history[0]));
   await allowed.timers.fireAll();
   assert.equal(allowed.turns.calls.length, 1);
-  assert.equal(allowed.turns.calls[0].channel.id, 'd1');
+  assert.equal(allowed.turns.calls[0].conversation.conversationId, 'd1');
   assert.equal(allowed.turns.calls[0].guildId, 'g1', 'a private chat is served on behalf of the pinned guild');
   assert.deepEqual(seen, [
     ['allow', 'd1', 'm1'],

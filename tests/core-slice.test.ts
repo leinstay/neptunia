@@ -1,6 +1,6 @@
 // The slice end to end: `startCore` (src/core.js) over temporary data and private directories, the tracked prompts, a
-// scripted model and the fake interface (src/interface/fake-interface.ts) carrying the discord.js-shaped seams of
-// tests/fixtures/fake-legacy.ts. One member message that names the persona goes through the link, the event door, the
+// scripted model and the fake interface (src/interface/fake-interface.ts), which holds the conversation and answers the
+// core's reads. One member message that names the persona goes through the link, the event door, the
 // pipeline, a turn and the memory database, and her `<msg>` text comes back over the link to the fake adapter. The model
 // is a function that records its requests, so nothing calls a provider, and the settings that would add helper requests
 // or random behaviour are switched off in the private layer. The memory database is read through a second, read-only
@@ -14,12 +14,12 @@ import { fileURLToPath } from 'node:url';
 import { startCore } from '../src/core.js';
 import { start } from '../src/interface/fake-interface.ts';
 import { lockPathOf, openMemoryDb } from '../src/memory/db/open.js';
-import { createFakeLegacy } from './fixtures/fake-legacy.ts';
-import type { MemberMessage } from './fixtures/fake-legacy.ts';
+import { channelInfo, deliver } from './fixtures/core-over-fake.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 type Running = Awaited<ReturnType<typeof start>>;
 type Row = Record<string, unknown>;
+type MemberMessage = { id: string; content: string; at: number };
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const SELF_ID = 'self-id';
@@ -82,8 +82,6 @@ function scriptedLlm() {
 
 async function withCore(body: (core: Awaited<ReturnType<typeof startCore>>, ctx: Context) => Promise<void>) {
   const dirs = folders();
-  const fake = createFakeLegacy({ selfId: SELF_ID });
-  const { legacy } = fake;
   const llm = scriptedLlm();
   let running: Running | null = null;
   const core = await startCore({
@@ -93,7 +91,7 @@ async function withCore(body: (core: Awaited<ReturnType<typeof startCore>>, ctx:
       {
         name: 'fake',
         start: async (host) => {
-          running = await start(host, { legacy, selfId: SELF_ID });
+          running = await start(host, { selfId: SELF_ID });
           return running;
         },
       },
@@ -104,11 +102,13 @@ async function withCore(body: (core: Awaited<ReturnType<typeof startCore>>, ctx:
   if (running === null) throw new Error('the core never started the fake interface');
   const live: Running = running;
   const dbPath = join(dirs.dataDir, 'memory.db');
+  live.adapter.seedConversation(channelInfo('c1'));
   const ctx: Context = {
     ...dirs,
     dbPath,
     llm,
-    mentionEvent: (message) => fake.mentionEvent(message),
+    mentionEvent: (message) =>
+      deliver(live.adapter, { id: message.id, text: message.content, at: message.at, mention: true }),
     emit: (event) => live.emit(event),
     posted: () =>
       live.adapter
@@ -144,8 +144,8 @@ async function withCore(body: (core: Awaited<ReturnType<typeof startCore>>, ctx:
 type Context = ReturnType<typeof folders> & {
   dbPath: string;
   llm: ReturnType<typeof scriptedLlm>;
-  mentionEvent(message: MemberMessage): Row;
-  emit(event: Row): Promise<string>;
+  mentionEvent(message: MemberMessage): unknown;
+  emit(event: unknown): Promise<string>;
   posted(): Array<string>;
   rows(kind: string): Array<Row>;
   stop?: () => Promise<void>;

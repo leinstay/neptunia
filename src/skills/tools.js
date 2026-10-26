@@ -476,7 +476,8 @@ export async function runMemorySearch({
   try {
     if (!recall || typeof recall.run !== 'function' || (typeof recall.available === 'function' && !recall.available()))
       return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
-    if (!guild || (!channel?.guild && !partner)) return { status: 'not_configured', code: CODE.UNSUPPORTED };
+    if (!guild || (channel?.communityId == null && !partner))
+      return { status: 'not_configured', code: CODE.UNSUPPORTED };
     const settings = recallSettings(config);
     const timezone = config?.bot?.timezone ?? 'UTC';
     // An `anchor` makes the call a window read: the lines up or down from that message, no search.

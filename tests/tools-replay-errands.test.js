@@ -22,7 +22,9 @@ import {
 import { createTaskStore, parseFileHandle } from '../src/errands/store.js';
 import {
   parseScenarios,
+  guildListing,
   renderSkillsReport,
+  requesterOfChannel,
   runRecord,
   sandboxErrandBudget,
   scenarioFileOf,
@@ -164,6 +166,7 @@ function runTask({ config, tasks, agent = 'scout', author = OWNER }) {
     call: { skill: 'task.run', args: { agent, goal: 'Βρες το πρόγραμμα' }, body: '' },
     view: callViewOf({
       channel,
+      snapshot: guildListing(channel),
       guildId: GUILD,
       idByIndex: new Map(),
       lines: [],
@@ -175,7 +178,7 @@ function runTask({ config, tasks, agent = 'scout', author = OWNER }) {
     }),
     config,
     selfId: SELF,
-    requester: requesterOf({ id: '1', authorId: author }, channel),
+    requester: requesterOfChannel(requesterOf)({ id: '1', authorId: author }, channel),
     conversationId: HERE,
     now: NOW,
     ...(tasks ? { tasks } : {}),
@@ -438,6 +441,7 @@ test("replay --skills taskResult: the turn an errand's end opens; her message.cr
         call,
         view: callViewOf({
           channel,
+          snapshot: guildListing(channel),
           guildId: GUILD,
           idByIndex,
           lines,
@@ -487,6 +491,7 @@ test("replay --skills taskResult: the turn an errand's end opens; her message.cr
     call: { skill: 'message.create', args: { text: 'x', file: `file:${task.id}/autre.pdf` }, body: '' },
     view: callViewOf({
       channel,
+      snapshot: guildListing(channel),
       guildId: GUILD,
       idByIndex: new Map(),
       lines: [],

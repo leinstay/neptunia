@@ -26,7 +26,7 @@ import {
 } from '../src/behavior/prompt.js';
 import { parseSeedFamilies, pickSeeds, renderSeedsBlock } from '../src/behavior/diary.js';
 import { fill, formatDate } from '../src/format.js';
-import { createTurnRunner } from '../src/behavior/turn.js';
+import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.js';
 import { createRecall } from '../src/behavior/recall-run.js';
 import { createChannelRouter } from '../src/behavior/route-channel.js';
 import { createParticipationPicker } from '../src/behavior/participation-pick.js';
@@ -34,15 +34,14 @@ import { askPlanner } from '../src/behavior/planner.js';
 import { createTagHistory } from '../src/behavior/mention.js';
 import { createMissed } from '../src/behavior/missed.js';
 import { createMessageHandler } from '../src/behavior/pipeline.js';
-import {
-  canSend,
-  createDiscordAdapter,
-  createDiscordInterface,
-  normalizeMessage,
-  normalizeOptions,
-  toEvent,
-  withTextPreviews,
-} from '../interfaces/discord/index.js';
+import { createDiscordInterface, normalizeMessage, normalizeOptions, toEvent } from '../interfaces/discord/index.js';
+import { bridgeRecall } from '../src/interface/recall-bridge.ts';
+import { takeSnapshot } from '../src/behavior/snapshot.ts';
+import { onWorld, onWorldIface, useIface, useSelf, world, worldChannels } from './fixtures/turn-world.ts';
+
+/** @param {Parameters<typeof worldChannels>[1]} channels */
+const worldChannelsOf = (channels) => worldChannels(GUILD, channels);
+import { withTextPreviews } from '../src/media/text-preview.ts';
 import { createCalibrator } from '../src/llm/tokens.js';
 import { createDescriber } from '../src/memory/describe.js';
 import { createAvatarQueue } from '../src/memory/avatar-queue.js';
@@ -56,8 +55,14 @@ import { labels as contractLabels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { tempDir } from './fixtures/tmp.js';
 
-// The Discord interface's capabilities object, as src/index.js injects it.
+// The Discord interface's capabilities object, as src/index.js injects it (the recall runner still takes it).
 const DISCORD = createDiscordInterface().capabilities;
+
+// The conversations of the turns, the pipeline and the classifiers are held by a fake interface named `fake`, the
+// persona being `SELF_ID`; the recall runner keeps reading the platform's own objects through the recall bridge.
+useIface('fake');
+useSelf('900000000000000001');
+const createTurnRunner = onWorld(createRealTurnRunner);
 
 // ---- the shipped layer --------------------------------------------------------
 
@@ -1368,14 +1373,20 @@ function discordGuild(channels) {
   return guild;
 }
 
-/** The client of `guild`: the persona's user, the guild cached. */
+/** The client of `guild` (the persona's user, the guild cached). @param {{ channels: { cache: Map<string, unknown> } }} guild */
 function discordClient(guild) {
   return {
     user: { id: SELF_ID, username: SELF_NAME },
     guilds: { cache: new Map([[GUILD, guild]]) },
-    channels: { fetch: async (id) => guild.channels.cache.get(id) ?? null },
+    channels: {
+      cache: guild.channels.cache,
+      fetch: async (/** @type {string} */ id) => guild.channels.cache.get(id) ?? null,
+    },
   };
 }
+
+/** The guild of a message the pipeline reads: its id and the persona's name there. */
+const MESSAGE_GUILD = { id: GUILD, members: { me: { displayName: SELF_NAME } } };
 
 /** A fake `llm.complete` recording every request and answering `answer(messages, options)`. */
 function recordingLlm(answer) {
@@ -1415,8 +1426,12 @@ test('createTurnRunner: a reply turn fills the describer, re-watch, link, search
         route.endsWith('/messages/search') ? { total_results: 1, messages: [[{ ...hit, hit: true }]] } : [],
     },
   };
-  const channel = guild.channels.cache.get(GENERAL);
   const client = discordClient(guild);
+  const channels = worldChannelsOf([
+    [GENERAL_INFO, generalRaws()],
+    [GARDEN_INFO, [old]],
+  ]);
+  const channel = channels[GENERAL];
   const mediaCache = {};
   const state = { data: {}, markDirty() {} };
   const store = {
@@ -1496,15 +1511,12 @@ test('createTurnRunner: a reply turn fills the describer, re-watch, link, search
     keys: { brave: 'test-key' },
     now: () => NOW,
   });
-  const recall = createRecall({ discord: DISCORD, hot, store, llm, describer, now: () => NOW });
+  const recall = bridgeRecall(createRecall({ discord: DISCORD, hot, store, llm, describer, now: () => NOW }), client);
   const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
     hot,
     store,
     llm,
     calibrator: createCalibrator(),
-    client,
     describer,
     lookup,
     recall,
@@ -1567,20 +1579,21 @@ test('createTurnRunner: a reply turn fills the describer, re-watch, link, search
 
 test('createChannelRouter: the route classifier fills route-channel.md', async () => {
   const hot = shippedHot();
-  const guild = discordGuild([
+  const channels = worldChannelsOf([
     [GENERAL_INFO, generalRaws()],
     [GARDEN_INFO, []],
     [DIARY_INFO, []],
   ]);
   const store = { listChannels: () => CHANNELS, getUser: (guildId, id) => PROFILES[id] ?? null };
   const llm = recordingLlm(() => 'none');
-  const router = createChannelRouter({ discord: DISCORD, hot, store, llm, now: () => NOW });
+  const router = createChannelRouter({ hot, store, llm, now: () => NOW });
   const history = await generalHistory();
-  const channel = guild.channels.cache.get(GENERAL);
+  const snapshot = await takeSnapshot(world().reads, GUILD);
   const { result } = await withCapturedLogs(() =>
     router({
       guildId: GUILD,
-      channel,
+      channel: channels[GENERAL].info,
+      snapshot,
       history,
       trigger: history.at(-1),
       triggerKind: 'mention',
@@ -1643,7 +1656,7 @@ function participationState() {
 
 test('createParticipationPicker: the pick classifier fills participation-pick.md', async () => {
   const hot = shippedHot();
-  const guild = discordGuild([
+  const channels = worldChannelsOf([
     [GENERAL_INFO, generalRaws()],
     [GARDEN_INFO, []],
     [DIARY_INFO, []],
@@ -1652,11 +1665,12 @@ test('createParticipationPicker: the pick classifier fills participation-pick.md
   const llm = recordingLlm(() => 'none');
   const picker = createParticipationPicker({ hot, store, llm, now: () => NOW });
   const history = await generalHistory();
-  const channel = guild.channels.cache.get(GENERAL);
+  const snapshot = await takeSnapshot(world().reads, GUILD);
   const { result } = await withCapturedLogs(() =>
     picker({
       guildId: GUILD,
-      channel,
+      channel: channels[GENERAL].info,
+      snapshot,
       history,
       trigger: history.at(-1),
       triggerKind: 'mention',
@@ -1721,15 +1735,14 @@ test('buildRequest: the <participation> block fills its labels and the senses li
 
 test('createMessageHandler: the room classifier fills room.md', async () => {
   const hot = shippedHot({ memory: { mainChannelIds: [GENERAL] } });
-  const guild = discordGuild([[GENERAL_INFO, generalRaws()]]);
-  const channel = guild.channels.cache.get(GENERAL);
+  worldChannelsOf([[GENERAL_INFO, generalRaws()]]);
   // An untagged line put to everyone, outside any follow-up window; its author has a stored alias.
   const line = rawMessage(GENERAL_INFO, {
     ts: NOW - MINUTE_MS,
     author: PEOPLE[NIKOS],
     content: 'qui vient au marché samedi ?',
   });
-  Object.assign(line, { guild, channel, system: false, webhookId: null });
+  Object.assign(line, { guild: MESSAGE_GUILD, system: false, webhookId: null });
   const store = { state: { data: {}, markDirty() {} }, getUser: (guildId, id) => PROFILES[id] ?? null };
   const turns = {
     notePost() {},
@@ -1748,12 +1761,12 @@ test('createMessageHandler: the room classifier fills room.md', async () => {
     eavesdropReady: () => true,
   };
   const llm = recordingLlm(() => 'yes');
-  const client = discordClient(guild);
   const handler = createMessageHandler({
     hot,
     store,
-    client,
-    discord: DISCORD,
+    reads: world().reads,
+    selfId: () => SELF_ID,
+    port: world().port,
     turns,
     spontaneous,
     memory: { observe() {} },
@@ -1765,7 +1778,7 @@ test('createMessageHandler: the room classifier fills room.md', async () => {
     now: () => NOW,
   });
 
-  await withCapturedLogs(() => handler(toEvent(line, client.user.id, normalizeOptions(hot.config))));
+  await withCapturedLogs(() => handler(onWorldIface(toEvent(line, SELF_ID, normalizeOptions(hot.config)))));
 
   assert.equal(llm.calls.length, 1, 'one room request');
   assertFilled(llm.calls[0].messages, { files: LOADS.room, blocks: ['author', 'candidate'] }, 'room');
@@ -1800,19 +1813,15 @@ test('createTurnRunner: the splitter fills split.md; each part, its queued calls
     content: SPLIT_LINE,
     mentions: [SELF_ID],
   });
-  const guild = discordGuild([[GENERAL_INFO, [...generalRaws(), line]]]);
-  const channel = guild.channels.cache.get(GENERAL);
+  const channel = worldChannelsOf([[GENERAL_INFO, [...generalRaws(), line]]])[GENERAL];
   const llm = recordingLlm((messages, options) =>
     options.purpose === 'split' ? '- qui a planté les tomates\n- regarde le canal du jardin' : '<skip/>'
   );
   const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
     hot,
     store: bareStore(),
     llm,
     calibrator: createCalibrator(),
-    client: discordClient(guild),
     now: () => NOW,
     rng: () => 0.5,
   });
@@ -1834,13 +1843,10 @@ test('createTurnRunner: the splitter fills split.md; each part, its queued calls
   // A turn with no part: its author's queued calls under labels.task.queued, a folded message under labels.task.added.
   const plainLlm = recordingLlm(() => '<skip/>');
   const plain = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
     hot,
     store: bareStore(),
     llm: plainLlm,
     calibrator: createCalibrator(),
-    client: discordClient(guild),
     now: () => NOW,
     rng: () => 0.5,
   });
@@ -1871,8 +1877,7 @@ test('createTurnRunner: the GIF picker fills gif-pick.md', async () => {
     content: 'Zoë, tu viens ce soir ?',
     mentions: [SELF_ID],
   });
-  const guild = discordGuild([[GENERAL_INFO, [...generalRaws(), line]]]);
-  const channel = guild.channels.cache.get(GENERAL);
+  const channel = worldChannelsOf([[GENERAL_INFO, [...generalRaws(), line]]])[GENERAL];
   const gifs = {
     nextId: 3,
     entries: {
@@ -1905,13 +1910,10 @@ test('createTurnRunner: the GIF picker fills gif-pick.md', async () => {
   );
   const store = { ...bareStore(), getMediaCache: () => mediaCache, getGifs: () => gifs, findGif: () => null };
   const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
     hot,
     store,
     llm,
     calibrator: createCalibrator(),
-    client: discordClient(guild),
     now: () => NOW,
     rng: () => 0.5,
   });
@@ -1941,21 +1943,20 @@ test('createMissed: the missed-answer check fills missed.md', async () => {
   const history = await generalHistory();
   const candidate = history.findLast((message) => !message.self);
   const llm = recordingLlm(() => '1: stale');
-  const guild = discordGuild([[GENERAL_INFO, generalRaws()]]);
+  worldChannelsOf([[GENERAL_INFO, generalRaws()]]);
   const dataDir = tempDir('nep-shipped-missed-');
   const missed = createMissed({
     hot: shippedHot(),
     store: { state: { data: {} } },
     llm,
     turns: { triggerOf: () => null },
-    client: discordClient(guild),
+    reads: world().reads,
+    iface: () => world().port.iface,
     getGuildId: () => GUILD,
     getSelfName: () => SELF_NAME,
     dataDir,
     now: () => candidate.ts + MINUTE_MS,
     timers: { set: () => null, clear() {} },
-    fetchHistory: async () => history,
-    canSend,
   });
   try {
     await withCapturedLogs(async () => {
@@ -1986,15 +1987,14 @@ test('buildRequest: a recovery turn names its messages under labels.task.missed 
 
 test('createMessageHandler: the merge classifier fills merge.md', async () => {
   const hot = shippedHot();
-  const guild = discordGuild([[GENERAL_INFO, generalRaws()]]);
-  const channel = guild.channels.cache.get(GENERAL);
+  worldChannelsOf([[GENERAL_INFO, generalRaws()]]);
   const line = rawMessage(GENERAL_INFO, {
     ts: NOW - MINUTE_MS,
     author: PEOPLE[ANA],
     content: 'alors, le canal ?',
     mentions: [SELF_ID],
   });
-  Object.assign(line, { guild, channel, system: false, webhookId: null });
+  Object.assign(line, { guild: MESSAGE_GUILD, system: false, webhookId: null });
   const folded = [];
   // She is busy with Ana's split message: its second part still waits.
   const turns = {
@@ -2007,12 +2007,12 @@ test('createMessageHandler: the merge classifier fills merge.md', async () => {
     addToPart: (...args) => folded.push(args) > 0,
   };
   const llm = recordingLlm(() => '1');
-  const client = discordClient(guild);
   const handler = createMessageHandler({
     hot,
     store: { state: { data: {}, markDirty() {} }, getUser: () => null },
-    client,
-    discord: DISCORD,
+    reads: world().reads,
+    selfId: () => SELF_ID,
+    port: world().port,
     turns,
     spontaneous: { onMessage: () => false },
     memory: { observe() {} },
@@ -2026,7 +2026,7 @@ test('createMessageHandler: the merge classifier fills merge.md', async () => {
   });
 
   await withCapturedLogs(async () => {
-    await handler(toEvent(line, client.user.id, normalizeOptions(hot.config)));
+    await handler(onWorldIface(toEvent(line, SELF_ID, normalizeOptions(hot.config))));
     for (let i = 0; i < 20 && folded.length === 0; i += 1) await new Promise((resolve) => setImmediate(resolve));
   });
 

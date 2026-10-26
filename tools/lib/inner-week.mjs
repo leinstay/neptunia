@@ -61,6 +61,7 @@ import { lineSourcesOf } from '../../src/intentions/sources.js';
 import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../../src/time.js';
 import { parseOutput } from '../../src/llm/parse.js';
 import { answerOf } from '../../src/behavior/turn.js';
+import { weekReads } from './platform-objects.ts';
 
 /** The read skills whose results the week's simulated analyzer reads as her inner-turn findings. */
 const FINDING_SKILLS = Object.freeze(['web.search', 'web.read', 'memory.search', 'task.status', 'task.list']);
@@ -815,13 +816,7 @@ export async function runWeek({
     for (const fn of listeners) fn(entry);
   };
 
-  const channelObjects = new Map(
-    fixture.channels.map((channel) => [
-      channel.id,
-      { id: channel.id, name: channel.name, guild: { id: guildId }, writable: channel.writable },
-    ])
-  );
-  const client = { channels: { cache: channelObjects, fetch: async (id) => channelObjects.get(String(id)) ?? null } };
+  const { reads, iface } = weekReads(fixture.channels, guildId, log);
   // The record: her lines of the history (the review's hours) and every line of the week's chat
   // (`seen` by its author, `said` for hers), the store the scheduler counts a place's lines from.
   const record = {
@@ -879,7 +874,7 @@ export async function runWeek({
       voice: live ? 'live' : 'stub',
       kind: wake.kind,
       chainId: wake.chainId ?? null,
-      channelId: String(params.channel?.id ?? ''),
+      channelId: String(params.conversation?.conversationId ?? ''),
       items,
       notes: wake.notes ?? null,
       places: wake.places ?? null,
@@ -1114,8 +1109,8 @@ export async function runWeek({
         inner: async (_guild, fields) =>
           journal.push({ ...fields, ...(fields.at !== undefined ? { fieldAt: fields.at } : {}), at: clock.now() }),
       },
-      client,
-      discord: { canSend: (channel) => channel?.writable !== false },
+      reads,
+      iface: () => iface,
       submit: (event) => door.submit(event),
       store: { state: { data: {} } },
       getGuildId: () => guildId,

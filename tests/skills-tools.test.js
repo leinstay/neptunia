@@ -311,7 +311,8 @@ test('runMemorySearch: her arguments become the server part (no helper), recall 
     },
   };
   const guild = { id: 'g1' };
-  const channel = { id: 'c1', guild };
+  // The conversation is the interface's info now: a conversation of a community says which.
+  const channel = { id: 'c1', communityId: 'g1', guild };
   const history = [{ id: 'h1' }];
   const decorate = (lines) => lines;
   const store = { listUserProfiles: () => [{ id: 'u3', names: ['Éloïse'], aliases: [] }] };
@@ -817,7 +818,7 @@ async function memoryWith(answer, args = { question: 'τι είπε η Zoë;', t
     labels,
     guild,
     guildId: 'g1',
-    channel: { id: 'c1', guild },
+    channel: { id: 'c1', communityId: 'g1', guild },
     args,
     now: NOW,
   });

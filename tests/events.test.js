@@ -17,19 +17,23 @@ import { ROLE_DEFAULTS } from '../src/llm/roles.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createStore } from '../src/memory/store.js';
-import {
-  createDiscordAdapter,
-  createDiscordInterface,
-  normalizeMessage,
-  normalizeOptions,
-  toEvent,
-} from '../interfaces/discord/index.js';
+import { normalizeMessage, normalizeOptions, toEvent } from '../interfaces/discord/index.js';
 import { createActivity } from '../src/behavior/activity.js';
 import { tempDir } from './fixtures/tmp.js';
-import { createFakeAdapter } from '../src/interface/fake.js';
+import {
+  freshWorld,
+  onWorldIface,
+  refTo,
+  runnerOptions,
+  seedExisting,
+  syncStub,
+  useIface,
+  useSelf,
+  world,
+} from './fixtures/turn-world.ts';
 
-/** The Discord functions the pipeline is given, the real ones src/index.js passes. */
-const DISCORD = createDiscordInterface().capabilities;
+useIface('fake');
+useSelf('self1');
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -73,8 +77,9 @@ function fakeGuild(id = 'g1', displayName = 'Ζωή') {
   return { id, members: { me: { displayName } } };
 }
 
+/** A discord.js-shaped channel for `toEvent`, and the same conversation in the fake interface. */
 function fakeChannel(id, guild, overrides = {}) {
-  return {
+  const channel = {
     id,
     guild,
     isThread: () => false,
@@ -83,6 +88,8 @@ function fakeChannel(id, guild, overrides = {}) {
     messages: { cache: new Map(), fetch: async () => null },
     ...overrides,
   };
+  syncStub(channel);
+  return channel;
 }
 
 function fakeMessage(overrides = {}) {
@@ -166,12 +173,11 @@ function mutableNow(start) {
   return fn;
 }
 
-/** A fakeChannel whose message `messageId` is already cached -- messageStillExists finds it without a fetch. */
+/** A fakeChannel that holds the message `messageId` -- messageStillExists finds it. */
 function fakeChannelWithMessage(id, guild, messageId, overrides = {}) {
-  return fakeChannel(id, guild, {
-    messages: { cache: new Map([[messageId, {}]]), fetch: async () => ({}) },
-    ...overrides,
-  });
+  const channel = fakeChannel(id, guild, overrides);
+  seedExisting(id, messageId);
+  return channel;
 }
 
 function fakeStore(profiles = {}) {
@@ -235,12 +241,20 @@ function makeHandler({
 } = {}) {
   const hot = prompts !== undefined ? { config: config ?? baseConfig(), prompts } : { config: config ?? baseConfig() };
   const discord = client ?? fakeClient();
-  const port = createFakeAdapter();
+  const names = { self: 'Ζωή' };
+  const port = world().port;
+  if (discord.knows) {
+    world().knowMembers('g1', discord.knows);
+    world().tap('memberInfo', ([member]) => {
+      discord.fetchCalls.push(member.memberId);
+    });
+  }
   const handler = createMessageHandler({
     hot,
     store: store ?? fakeStore(),
-    client: discord,
-    discord: DISCORD,
+    reads: world().reads,
+    selfId: () => discord.user.id,
+    getSelfName: () => names.self,
     turns: turns ?? fakeTurns(),
     spontaneous: spontaneous ?? fakeSpontaneous(),
     memory: memory ?? fakeMemory(),
@@ -258,7 +272,7 @@ function makeHandler({
     missed,
     port,
   });
-  return Object.assign(asDiscordEvents(handler, hot, discord), { port });
+  return Object.assign(asDiscordEvents(handler, hot, discord, names), { port });
 }
 
 /**
@@ -266,12 +280,18 @@ function makeHandler({
  * deletion) becomes its protocol event (interfaces/discord/collect.js#toEvent) at the moment of the
  * call, with the options read from the live config then.
  */
-function asDiscordEvents(handler, hot, client) {
+function asDiscordEvents(handler, hot, client, names = { self: 'Ζωή' }) {
   const options = () => normalizeOptions(hot.config);
-  const driven = (message) => handler(toEvent(message, client.user.id, options()));
+  const driven = (message) => {
+    names.self = message.guild?.members?.me?.displayName ?? names.self;
+    return handler(onWorldIface(toEvent(message, client.user.id, options())));
+  };
   driven.onMessageUpdate = (oldMessage, newMessage) =>
-    handler.onMessageUpdate(toEvent(newMessage, client.user.id, { ...options(), edit: true, previous: oldMessage }));
-  driven.onMessageDelete = (message) => handler.onMessageDelete(toEvent(message, client.user.id, { deleted: true }));
+    handler.onMessageUpdate(
+      onWorldIface(toEvent(newMessage, client.user.id, { ...options(), edit: true, previous: oldMessage }))
+    );
+  driven.onMessageDelete = (message) =>
+    handler.onMessageDelete(onWorldIface(toEvent(message, client.user.id, { deleted: true })));
   driven.drainPending = (...args) => handler.drainPending(...args);
   driven.clearPending = (...args) => handler.clearPending(...args);
   driven.stop = (...args) => handler.stop(...args);
@@ -311,18 +331,9 @@ function rawHistoryMessage({ id, authorId = 'u1', authorName = 'Alice', ts, cont
 
 /** A fakeChannel whose messages.fetch({limit}) serves `historyMessages` (see fetchHistory). */
 function fakeChannelWithHistory(id, guild, historyMessages = [], overrides = {}) {
-  return fakeChannel(id, guild, {
-    messages: {
-      cache: new Map(),
-      fetch: async (arg) => {
-        if (arg && typeof arg === 'object' && 'limit' in arg) {
-          return new Map(historyMessages.map((m) => [m.id, m]));
-        }
-        return null;
-      },
-    },
-    ...overrides,
-  });
+  const channel = fakeChannel(id, guild, overrides);
+  world().follow(id, historyMessages);
+  return channel;
 }
 
 function fakeAddressPrompts() {
@@ -500,7 +511,7 @@ test('events: a plain message is observed and handed to the spontaneous schedule
 
   assert.equal(memory.observeCalls.length, 1);
   assert.equal(spontaneous.onMessageCalls.length, 1);
-  assert.equal(spontaneous.onMessageCalls[0][0], message.channel);
+  assert.equal(spontaneous.onMessageCalls[0][0].id, message.channel.id);
   assert.equal(spontaneous.onMessageCalls[0][1].content, 'ένα μήνυμα χωρίς πρόκληση');
 });
 
@@ -525,7 +536,7 @@ test('events: a mention with rng above ignoreChance runs a reply turn', async ()
   await Promise.resolve();
 
   assert.ok(seenArgs, 'expected runTurn to be called');
-  assert.equal(seenArgs.channel, message.channel);
+  assert.deepEqual(seenArgs.conversation, refTo(message.channel));
   assert.equal(seenArgs.mode, 'reply');
   assert.equal(seenArgs.triggerKind, 'mention');
   assert.equal(seenArgs.trigger.content, 'γεια');
@@ -1248,7 +1259,7 @@ test('events: a direct ping elsewhere becomes pending and is answered after the 
   await handler.drainPending();
 
   assert.ok(seenArgs, 'expected the deferred turn to run once drained');
-  assert.equal(seenArgs.channel, channel);
+  assert.deepEqual(seenArgs.conversation, refTo(channel));
   assert.equal(seenArgs.mode, 'reply');
   assert.equal(seenArgs.triggerKind, 'mention');
   assert.equal(seenArgs.trigger.content, 'γεια');
@@ -1308,7 +1319,7 @@ for (const [roll, answered] of [
     assert.equal(tagHistory.hits, 1);
     assert.equal(calls.length, answered ? 1 : 0);
     if (answered) {
-      assert.equal(calls[0].channel, channel);
+      assert.deepEqual(calls[0].conversation, refTo(channel));
       assert.equal(calls[0].trigger.id, 'm1');
       assert.equal(calls[0].triggerKind, 'name');
     }
@@ -1327,7 +1338,7 @@ function busyChannelTurns({ seen = [] } = {}) {
     isAnyBusy: () => busy,
     runTurn: async (args) => {
       calls.push(args);
-      return { outcome: busy && args.channel.id === 'c1' ? 'busy' : 'spoke' };
+      return { outcome: busy && args.conversation.conversationId === 'c1' ? 'busy' : 'spoke' };
     },
   });
   turns.spokeAfterSeeing = (channelId, messageId) => channelId === 'c1' && seen.includes(messageId);
@@ -1367,7 +1378,7 @@ for (const oneAtATime of [true, false]) {
     await handler.drainPending();
 
     assert.equal(turns.calls.length, 1);
-    assert.equal(turns.calls[0].channel, channel);
+    assert.deepEqual(turns.calls[0].conversation, refTo(channel));
     assert.equal(turns.calls[0].trigger.id, 'm1');
     assert.equal(turns.calls[0].triggerKind, 'mention');
     assert.equal(tagHistory.hits, 1);
@@ -1430,7 +1441,7 @@ test('events: a name trigger in the channel whose turn is running is deferred an
   const drained = await withCapturedLogs(() => handler.drainPending());
 
   assert.equal(turns.calls.length, 1);
-  assert.equal(turns.calls[0].channel, channel);
+  assert.deepEqual(turns.calls[0].conversation, refTo(channel));
   assert.equal(turns.calls[0].trigger.id, 'm1');
   assert.equal(turns.calls[0].triggerKind, 'name');
   assert.equal(tagHistory.hits, 1);
@@ -1536,7 +1547,7 @@ test('events: a newer direct ping in the same channel waits beside the older one
 
   const guild = fakeGuild();
   const channel = fakeChannelWithMessage('c1', guild, 'm2');
-  channel.messages.cache.set('m1', {});
+  seedExisting(channel.id, 'm1');
 
   await handler(directPingMessage({ id: 'm1', guild, channel, channelId: 'c1', cleanContent: 'first' }));
   await handler(directPingMessage({ id: 'm2', guild, channel, channelId: 'c1', cleanContent: 'second' }));
@@ -1554,7 +1565,7 @@ test('events: mention.maxPending caps distinct pending channels, dropping the ol
     isBusy: () => false,
     isAnyBusy: () => true,
     runTurn: async (args) => {
-      answeredChannels.push(args.channel.id);
+      answeredChannels.push(args.conversation.conversationId);
       return { outcome: 'spoke' };
     },
   });
@@ -1683,10 +1694,11 @@ test('events: a pending ping whose message no longer exists is dropped with reas
 });
 
 test('events: a pending ping whose message fetch fails is dropped as fetch-failed; a Discord not-found is gone', async () => {
-  for (const [label, error, reason] of [
-    ['a server error', Object.assign(new Error('Service Unavailable'), { status: 503 }), 'fetch-failed'],
-    ['Unknown Message', Object.assign(new Error('Unknown Message'), { status: 404, code: 10008 }), 'gone'],
+  for (const [label, breakLookup, reason] of [
+    ['a server error', () => world().failRead('fetchMessages', 'c1'), 'fetch-failed'],
+    ['Unknown Message', () => {}, 'gone'],
   ]) {
+    freshWorld();
     let called = false;
     const turns = fakeTurns({
       isBusy: () => false,
@@ -1698,15 +1710,9 @@ test('events: a pending ping whose message fetch fails is dropped as fetch-faile
     });
     const handler = makeHandler({ turns, sleep: async () => {}, rng: scripted([0.5]) });
     const guild = fakeGuild();
-    const channel = fakeChannel('c1', guild, {
-      messages: {
-        cache: new Map(),
-        fetch: async () => {
-          throw error;
-        },
-      },
-    });
+    const channel = fakeChannel('c1', guild);
     await handler(directPingMessage({ guild, channel, channelId: 'c1' }));
+    breakLookup();
 
     const { logs } = await withCapturedLogs(() => handler.drainPending());
 
@@ -1786,6 +1792,7 @@ test('events: a pending ping whose channel lost send permission is dropped with 
   await handler(directPingMessage({ guild, channel, channelId: 'c1' }));
 
   canSendNow = false; // permission lost while the ping was pending
+  syncStub(channel);
   const { logs } = await withCapturedLogs(() => handler.drainPending());
 
   assert.equal(called, false);
@@ -1811,7 +1818,7 @@ test('events: several pending pings drain oldest first, one at a time (never con
     runTurn: async (args) => {
       concurrent += 1;
       if (concurrent > 1) sawConcurrency = true;
-      order.push(args.channel.id);
+      order.push(args.conversation.conversationId);
       await Promise.resolve();
       concurrent -= 1;
       return { outcome: 'spoke' };
@@ -1840,7 +1847,7 @@ test('events: a hot change to mention.oneAtATime is picked up without recreating
     isBusy: () => false,
     isAnyBusy: () => true,
     runTurn: async (args) => {
-      answeredChannels.push(args.channel.id);
+      answeredChannels.push(args.conversation.conversationId);
       return { outcome: 'spoke' };
     },
   });
@@ -1990,7 +1997,7 @@ test('events: a newer ping queued in the same channel during the switch pause wa
   const turns = pauseRaceTurns();
   const guild = fakeGuild();
   const channel = fakeChannelWithMessage('c1', guild, 'm1');
-  channel.messages.cache.set('m2', {});
+  seedExisting(channel.id, 'm2');
   let handler = null;
   let pauses = 0;
   const sleep = async () => {
@@ -2499,7 +2506,7 @@ test('follow-up: a "yes" verdict runs a reply turn with the candidate as the tar
   assert.equal(seenArgs.triggerKind, 'followUp');
   assert.equal(seenArgs.trigger.id, 'm-candidate', 'the candidate is the target, so replyTo works');
   assert.equal(seenArgs.trigger.content, 'so what do you think');
-  assert.equal(seenArgs.channel, channel);
+  assert.deepEqual(seenArgs.conversation, refTo(channel));
   assert.equal(spontaneous.onMessageCalls.length, 0);
 });
 
@@ -3245,6 +3252,8 @@ function privateConfig(overrides = {}) {
 
 function fakeDmChannel(id = 'dm1', recipientId = 'u1', overrides = {}) {
   const sent = [];
+  world().channel({ id, dm: true, partnerId: recipientId ?? null }, { keep: true });
+  seedExisting(id, 'dm-m1');
   return {
     id,
     type: 'DM',
@@ -3273,22 +3282,10 @@ function fakeDmMessage(overrides = {}) {
   });
 }
 
-/** A client whose served guild knows `members` (cache) and can fetch `fetchable` ones. */
+/** A client of a served community the interface knows `members` and `fetchable` ones of; `fetchCalls` lists each member read. */
 function fakeDmClient({ members = ['u1', 'owner1'], fetchable = [] } = {}) {
   const fetchCalls = [];
-  const guild = {
-    id: 'g1',
-    members: {
-      me: { displayName: 'Ζωή' },
-      cache: new Map(members.map((id) => [id, { id }])),
-      fetch: async (id) => {
-        fetchCalls.push(id);
-        if (fetchable.includes(id)) return { id };
-        throw new Error('Unknown Member');
-      },
-    },
-  };
-  return { user: { id: 'self1', username: 'Neptunia' }, guilds: { cache: new Map([['g1', guild]]) }, fetchCalls };
+  return { user: { id: 'self1', username: 'Neptunia' }, fetchCalls, knows: [...members, ...fetchable] };
 }
 
 /** A store with public profiles and private files; records the private bookkeeping calls. */
@@ -3355,6 +3352,7 @@ test('private: every gate reason drops the DM without a turn or an observe', asy
     },
   ];
   for (const { reason, ...deps } of cases) {
+    freshWorld();
     const turns = recordingTurns();
     const memory = fakeMemory();
     const spontaneous = fakeSpontaneous();
@@ -3492,7 +3490,7 @@ test('private: a DM that passes is observed privately, answered with the pinned 
   assert.deepEqual(memory.observeCalls[0][2], { direct: true, private: 'u1' });
   assert.equal(turns.calls.length, 1);
   const args = turns.calls[0];
-  assert.equal(args.channel, channel);
+  assert.deepEqual(args.conversation, refTo(channel));
   assert.equal(args.guildId, 'g1');
   assert.equal(args.mode, 'reply');
   assert.equal(args.triggerKind, 'private');
@@ -3556,7 +3554,7 @@ test('private: while busy elsewhere the DM is pending as "private"; the drain pa
   assert.equal(turns.calls.length, 1);
   assert.equal(turns.calls[0].guildId, 'g1');
   assert.equal(turns.calls[0].triggerKind, 'private');
-  assert.equal(turns.calls[0].channel, channel);
+  assert.deepEqual(turns.calls[0].conversation, refTo(channel));
   assert.deepEqual(store.bumps, [['g1', 'u1', TODAY]]);
 });
 
@@ -3762,13 +3760,9 @@ test('limits: a refusal with no limit, or another outcome, posts nothing', async
 test('limits: in dry-run the notice is logged and mirrored, never sent to the channel', async () => {
   const guild = fakeGuild();
   const channel = sendingChannel('c1', guild);
-  const mirrored = [];
-  const client = {
-    ...fakeClient(),
-    channels: { fetch: async () => ({ send: async (payload) => mirrored.push(payload) }) },
-  };
+  const mirror = world().channel({ id: 'mirror1', name: 'mirror' }, { keep: true });
   const config = baseConfig({ features: { dryRun: true }, bot: { dryRunChannelId: 'mirror1' } });
-  const handler = makeHandler({ config, client, turns: refusedTurns(), rng: scripted([0.99]), prompts: { labels } });
+  const handler = makeHandler({ config, turns: refusedTurns(), rng: scripted([0.99]), prompts: { labels } });
   const { logs } = await withCapturedLogs(async () => {
     await handler(directPingMessage({ guild, channel, channelId: 'c1' }));
     await settle();
@@ -3779,8 +3773,8 @@ test('limits: in dry-run the notice is logged and mirrored, never sent to the ch
   assert.equal(line.key, 'llm.maxRequestsPerDay');
   assert.equal(line.used, 800);
   assert.equal(line.cap, 800);
-  assert.equal(mirrored.length, 1);
-  assert.deepEqual(mirrored[0].allowedMentions, { parse: [] });
+  assert.equal(mirror.sent.length, 1);
+  assert.deepEqual(mirror.sent[0].allowedMentions, { parse: [], users: [], repliedUser: false });
 });
 
 test('limits: a follow-up turn refused by a rail posts the notice', async () => {
@@ -4206,7 +4200,7 @@ async function deferredFollowUps({
       const id = `m${i + 1}`;
       const ts = FOLLOW_UP_T0 + (i + 1) * 1000;
       clock.set(ts);
-      channel.messages.cache.set(id, {});
+      seedExisting(channel.id, id);
       turns.busy = false;
       const p = handler(
         plainFollowUpMessage({ id, guild, channel, content: 'and then?', authorId: 'u1', authorName: 'Élodie', ts })
@@ -4258,7 +4252,7 @@ test('follow-up: a "yes" during a turn elsewhere is deferred, then picked up and
   );
   assert.equal(scene.turns.calls.length, 1);
   const [call] = scene.turns.calls;
-  assert.equal(call.channel, scene.channel);
+  assert.deepEqual(call.conversation, refTo(scene.channel));
   assert.equal(call.mode, 'reply');
   assert.equal(call.triggerKind, 'followUp');
   assert.equal(call.trigger.id, 'm1');
@@ -4455,7 +4449,7 @@ test('follow-up: an "overheard" answer runs a reply turn with triggerKind overhe
   assert.equal(turns.calls[0].mode, 'reply');
   assert.equal(turns.calls[0].triggerKind, 'overheard');
   assert.equal(turns.calls[0].trigger.id, 'm1');
-  assert.equal(turns.calls[0].channel, channel);
+  assert.deepEqual(turns.calls[0].conversation, refTo(channel));
   assert.equal(spontaneous.onMessageCalls.length, 0);
 });
 
@@ -4796,7 +4790,13 @@ const WAITING_LINE_BLOCKERS = [
     () => {
       let sendAllowed = true;
       const permissionsFor = () => ({ has: (flag) => sendAllowed || flag !== PermissionFlagsBits.SendMessages });
-      return { options: { channelOverrides: { permissionsFor } }, block: () => (sendAllowed = false) };
+      return {
+        options: { channelOverrides: { permissionsFor } },
+        block: () => {
+          sendAllowed = false;
+          world().channel({ id: 'c1', guildId: 'g1', name: null, permissions: { send: false } }, { keep: true });
+        },
+      };
     },
   ],
 ];
@@ -5020,17 +5020,13 @@ test("events: forwarding one of the persona's own messages is not a reply to it"
 
 test('events: a message that replies to nothing fetches no message; a reply target missing from the cache is fetched', async () => {
   const fetched = [];
-  let target = { author: { id: 'self1' } };
   const guild = fakeGuild();
-  const channel = fakeChannel('c1', guild, {
-    messages: {
-      cache: new Map(),
-      fetch: async (arg) => {
-        fetched.push(arg);
-        if (target instanceof Error) throw target;
-        return target;
-      },
-    },
+  const channel = fakeChannel('c1', guild);
+  world().seed('c1', [
+    rawHistoryMessage({ id: 'm0', authorId: 'self1', authorName: 'Neptunia', ts: Date.now() - 1000, channelId: 'c1' }),
+  ]);
+  world().tap('fetchMessages', ([ref, ids]) => {
+    if (ref.conversationId === 'c1') fetched.push(...ids);
   });
   const turns = recordingTurns();
   const config = baseConfig({ bot: { nameTriggers: [] } });
@@ -5051,7 +5047,7 @@ test('events: a message that replies to nothing fetches no message; a reply targ
     );
 
     // A target that cannot be fetched is no reply to the persona, and nothing escapes the handler.
-    target = new Error('Service Unavailable');
+    world().failRead('fetchMessages', 'c1');
     await handler(
       fakeMessage({ id: 'm3', guild, channel, channelId: 'c1', cleanContent: 'όχι', reference: { messageId: 'm9' } })
     );
@@ -5070,15 +5066,9 @@ test('follow-up: a failure while building the classifier request is not reported
   const prompts = fakeAddressPrompts();
   const handler = makeHandler({ llm, prompts });
   const guild = fakeGuild();
-  const channel = fakeChannel('c1', guild, {
-    messages: {
-      cache: new Map(),
-      fetch: async () => {
-        throw new Error('Missing Access');
-      },
-    },
-  });
+  const channel = fakeChannel('c1', guild);
   await openFollowUpWindow(handler, { guild, channel, ts: Date.now() });
+  world().failRead('history', 'c1');
 
   const first = await withCapturedLogs(async () => {
     await handler(plainFollowUpMessage({ id: 'm1', guild, channel, content: 'plain follow-up' }));
@@ -5466,13 +5456,13 @@ function routeGuild() {
 /**
  * A text channel of a routeGuild, no overwrites. `send`: the bot may send there (it may always
  * view, read and react). `viewers`: the ids of the roles that can view it (@everyone is `g1`).
- * Its message cache answers `messages.fetch` too (a message deleted from it is gone); `sent`
- * records what the bot posted.
+ * `sent` records what the bot posted.
+ * @param {{ id: string, members: { me: object } }} guild
+ * @param {string} id
  */
 function routeChannel(guild, id, { send = true, viewers = ['g1', 'r1'] } = {}) {
   const me = guild.members.me;
   const cache = new Map();
-  const sent = [];
   const channel = fakeChannel(id, guild, {
     name: id,
     isTextBased: () => true,
@@ -5482,12 +5472,20 @@ function routeChannel(guild, id, { send = true, viewers = ['g1', 'r1'] } = {}) {
         ? { has: (flag) => send || flag !== SEND }
         : { has: (flag) => flag === VIEW && viewers.includes(target?.id) },
     messages: { cache, fetch: async (messageId) => cache.get(messageId) ?? null },
-    send: async (payload) => {
-      sent.push(payload);
-      return { id: `sent-${sent.length}` };
-    },
   });
-  channel.sent = sent;
+  const noOverwrites = { groupAllow: [], groupDeny: [], memberAllow: [], memberDeny: [], memberGroups: {} };
+  const audienceOf = (/** @type {string[]} */ roles) => ({
+    ...noOverwrites,
+    everyone: roles.includes('g1'),
+    groups: roles.filter((role) => role !== 'g1'),
+  });
+  const held = world().channel(
+    { id, guildId: guild.id, name: id, permissions: { send }, audience: audienceOf(viewers) },
+    { keep: true }
+  );
+  Object.defineProperty(channel, 'sent', { get: () => held.sent });
+  channel.setViewers = (/** @type {string[]} */ roles) => held.update({ audience: audienceOf(roles) });
+  channel.revokeSend = () => held.permit({ send: false });
   guild.channels.cache.set(id, channel);
   return channel;
 }
@@ -5509,6 +5507,7 @@ function routeScene({
   tagHistory,
   spontaneous,
 } = {}) {
+  freshWorld();
   const config = baseConfig(
     deepMerge({ memory: { mainChannelIds: ['d1'] }, bot: { nameTriggers: ['νεπτούνια'] } }, overrides)
   );
@@ -5560,6 +5559,7 @@ async function routeSend(scene, channel, seconds, spec) {
   scene.clock.set(routeAt(seconds));
   const message = routeMessage(channel, { ts: routeAt(seconds), ...spec });
   channel.messages.cache.set(message.id, message);
+  world().seed(channel.id, [message]);
   await scene.handler(message);
 }
 
@@ -5584,7 +5584,7 @@ test('events: a ping in a read-only channel waits for the settle, then runs a re
 
   assert.equal(scene.turns.calls.length, 1);
   const args = scene.turns.calls[0];
-  assert.equal(args.channel, scene.main, 'the turn posts in the main channel');
+  assert.deepEqual(args.conversation, refTo(scene.main), 'the turn posts in the main channel');
   assert.equal(args.mode, 'reply');
   assert.equal(args.triggerKind, 'mention');
   assert.equal(args.trigger.id, 'm1');
@@ -5821,7 +5821,7 @@ test('events: settle waits are per source: a call in another read-only channel a
   });
 
   assert.deepEqual(
-    scene.turns.calls.map((args) => [args.channel.id, args.source.channelId, args.trigger.id]),
+    scene.turns.calls.map((args) => [args.conversation.conversationId, args.source.channelId, args.trigger.id]),
     [
       ['d1', 's1', 'm1'],
       ['d1', 's2', 'm2'],
@@ -5923,13 +5923,20 @@ test('events: a settled call the ring holds as answered starts no turn, though n
   );
 });
 
-/** Replace the message lookup of `channel` with `answer`, counted: `count` is how many fetches were made. */
+/** Replace the `fetchMessages` of `channel` with `answer` (null: gone, an object: there, a throw: fails), counted. */
 function countLookups(channel, answer) {
   const lookups = { count: 0 };
-  channel.messages.fetch = async (...args) => {
+  world().intercept('fetchMessages', async ([ref, ids]) => {
+    if (ref.conversationId !== channel.id) return undefined;
     lookups.count += 1;
-    return answer(...args);
-  };
+    try {
+      const found = await answer();
+      if (found === null) return { status: 'ok', messages: ids.map((messageId) => ({ messageId, missing: true })) };
+      seedExisting(channel.id, ids[0]);
+    } catch {
+      return { status: 'failed', error: { code: 'http-503', retryable: true, retryAfterMs: null } };
+    }
+  });
   return lookups;
 }
 
@@ -5946,12 +5953,13 @@ const LOOKUP_MISSES = [
 
 test('events: a settled call the ring holds as answered is logged as answered, never as gone or fetch-failed, and costs no lookup', async () => {
   for (const [label, answer] of LOOKUP_MISSES) {
+    freshWorld();
     const scene = routeScene();
     await routeSend(scene, scene.source, 0, { id: 'm1' });
     // A turn in the main channel pulled s1, answered the call and stamped the ring; then the
     // call's message left the cache (deleted, or swept) and cannot be looked up any more.
     scene.store.state.data.elsewherePings[0].answeredAt = routeAt(40);
-    scene.source.messages.cache.delete('m1');
+    world().forget(scene.source.id, 'm1');
     const lookups = countLookups(scene.source, answer);
     const { logs } = await withCapturedLogs(() => routeFire(scene, 90));
 
@@ -5969,11 +5977,12 @@ test('events: a settled call the ring holds as answered is logged as answered, n
 
 test('events: a settled call answered while its message is looked up is not answered again', async () => {
   for (const [label, answer] of [['found', async () => ({ id: 'm1' })], ...LOOKUP_MISSES]) {
+    freshWorld();
     const scene = routeScene();
     await routeSend(scene, scene.source, 0, { id: 'm1' });
     // Swept from the cache, so the settle has to fetch it. While that fetch is in flight a turn
     // in the main channel that showed the call speaks and stamps the ring.
-    scene.source.messages.cache.delete('m1');
+    world().forget(scene.source.id, 'm1');
     const lookups = countLookups(scene.source, async () => {
       scene.store.state.data.elsewherePings[0].answeredAt = routeAt(90);
       return answer();
@@ -5995,7 +6004,7 @@ test('events: a settled call answered while its message is looked up is not answ
 test('events: a call deleted during the settle wait is dropped with reason gone', async () => {
   const scene = routeScene();
   await routeSend(scene, scene.source, 0, { id: 'm1' });
-  scene.source.messages.cache.delete('m1');
+  world().forget(scene.source.id, 'm1');
   const { logs } = await withCapturedLogs(() => routeFire(scene, 90));
 
   assert.equal(scene.turns.calls.length, 0);
@@ -6016,10 +6025,8 @@ test('events: a call deleted during the settle wait is dropped with reason gone'
 test('events: a settled call whose message fetch fails is dropped as fetch-failed and stays unanswered', async () => {
   const scene = routeScene();
   await routeSend(scene, scene.source, 0, { id: 'm1' });
-  scene.source.messages.cache.delete('m1');
-  scene.source.messages.fetch = async () => {
-    throw Object.assign(new Error('Service Unavailable'), { status: 503 });
-  };
+  world().forget(scene.source.id, 'm1');
+  world().failRead('fetchMessages', scene.source.id);
   const { logs } = await withCapturedLogs(() => routeFire(scene, 90));
 
   assert.equal(scene.turns.calls.length, 0);
@@ -6127,7 +6134,7 @@ test('events: the settle wait marks no turn busy: a call in the main channel mea
 
   await routeSend(scene, scene.main, 10, { id: 'm2', authorId: 'u2', authorName: 'Ίων' });
   assert.equal(turns.calls.length, 1, 'the call in the main channel runs now');
-  assert.equal(turns.calls[0].channel, scene.main);
+  assert.deepEqual(turns.calls[0].conversation, refTo(scene.main));
   assert.equal('source' in turns.calls[0], false);
   assert.equal(scene.timers.all.length, 1, 'a message in another channel does not move the settle');
 
@@ -6188,7 +6195,7 @@ test('events: context.pull.sameAudience false lets a ping from a narrower channe
   await routeSend(scene, scene.source, 0, { id: 'm1' });
   await routeFire(scene, 90);
   assert.equal(scene.turns.calls.length, 1);
-  assert.equal(scene.turns.calls[0].channel, scene.main);
+  assert.deepEqual(scene.turns.calls[0].conversation, refTo(scene.main));
 });
 
 test('events: a settle that fires while paused drops the call (paused)', async () => {
@@ -6210,7 +6217,7 @@ for (const [reason, change] of [
   ['off', (scene) => (scene.config.features.elsewhere = false)],
   ['no-destination', (scene) => (scene.config.memory.mainChannelIds = [])],
   // @everyone loses the source; the main channel stays visible to everyone.
-  ['audience', (scene) => scene.sourceViewers.splice(scene.sourceViewers.indexOf('g1'), 1)],
+  ['audience', (scene) => scene.source.setViewers(scene.sourceViewers.filter((role) => role !== 'g1'))],
 ]) {
   test(`events: the route is checked again when the settle fires (${reason})`, async () => {
     const scene = routeScene();
@@ -6279,9 +6286,7 @@ test('events: the busy rules of a routed call are keyed by the main channel', as
 
 /** Lets the bot keep viewing `channel` but no longer send there. */
 function revokeSend(scene, channel) {
-  const original = channel.permissionsFor;
-  channel.permissionsFor = (target) =>
-    target === scene.guild.members.me ? { has: (flag) => flag !== SEND } : original(target);
+  channel.revokeSend();
 }
 
 test('events: a routed ping during a turn is queued under its source and drained into the destination', async () => {
@@ -6313,7 +6318,7 @@ test('events: a routed ping during a turn is queued under its source and drained
   );
   assert.equal(turns.calls.length, 1);
   const args = turns.calls[0];
-  assert.equal(args.channel, scene.main, 'the drained turn posts in the main channel');
+  assert.deepEqual(args.conversation, refTo(scene.main), 'the drained turn posts in the main channel');
   assert.deepEqual(args.source, { channelId: 's1', reason: 'routed' });
   assert.deepEqual([args.mode, args.triggerKind, args.trigger.id], ['reply', 'mention', 'm1']);
   assert.equal(byMsg(logs, 'mention: dropped').length, 0);
@@ -6351,7 +6356,7 @@ test("events: a routed ping at mention.maxPending evicts the oldest waiting call
   assert.equal('destination' in dropped[0], false, 'the evicted call was written in the main channel itself');
   assert.equal(byMsg(logs, 'mention: deferred').at(-1).pending, 3);
   assert.deepEqual(
-    turns.calls.map((args) => [args.channel.id, args.trigger.id, args.source?.channelId ?? null]),
+    turns.calls.map((args) => [args.conversation.conversationId, args.trigger.id, args.source?.channelId ?? null]),
     [
       ['c2', 'w2', null],
       ['c3', 'w3', null],
@@ -6375,7 +6380,7 @@ test("events: a queued routed ping never replaces the main channel's own pending
 
   assert.equal(byMsg(logs, 'mention: dropped').length, 0);
   assert.deepEqual(
-    turns.calls.map((args) => [args.channel.id, args.trigger.id, args.source?.channelId ?? null]),
+    turns.calls.map((args) => [args.conversation.conversationId, args.trigger.id, args.source?.channelId ?? null]),
     [
       ['d1', 'w1', null],
       ['d1', 'm1', 's1'],
@@ -6411,7 +6416,7 @@ test('events: a drained routed ping whose turn finds the attention taken is queu
   busyIds.clear();
   const second = await withCapturedLogs(() => scene.handler.drainPending());
   assert.equal(calls.length, 2);
-  assert.equal(calls[1].channel, scene.main);
+  assert.deepEqual(calls[1].conversation, refTo(scene.main));
   assert.deepEqual(calls[1].source, { channelId: 's1', reason: 'routed' });
   assert.equal(byMsg([...first.logs, ...second.logs], 'mention: decided').length, 1, 'decided once');
   assert.equal(scene.store.state.data.elsewherePings[0].answeredAt, routeAt(90));
@@ -6467,7 +6472,7 @@ test('events: a drained routed ping posts in the main channel resolved now, not 
     assert.equal(byMsg(logs, 'mention: deferred')[0].destination, 'd1', `${label}: it waited with d1`);
     assert.equal(byMsg(logs, 'mention: dropped').length, 0, label);
     assert.equal(turns.calls.length, 1, label);
-    assert.equal(turns.calls[0].channel, second, `${label}: the turn posts in d2`);
+    assert.deepEqual(turns.calls[0].conversation, refTo(second), `${label}: the turn posts in d2`);
     assert.deepEqual(turns.calls[0].source, { channelId: 's1', reason: 'routed' }, label);
     const [decided] = byMsg(logs, 'mention: decided');
     assert.deepEqual([decided.channel, decided.destination], ['s1', 'd2'], label);
@@ -6479,7 +6484,7 @@ for (const [reason, change] of [
   ['off', (scene) => (scene.config.features.elsewhere = false)],
   ['no-destination', (scene) => (scene.config.memory.mainChannelIds = [])],
   // @everyone loses the source; the main channel stays visible to everyone.
-  ['audience', (scene) => scene.sourceViewers.splice(scene.sourceViewers.indexOf('g1'), 1)],
+  ['audience', (scene) => scene.source.setViewers(scene.sourceViewers.filter((role) => role !== 'g1'))],
 ]) {
   test(`events: the drain checks the route of a queued routed ping again (${reason})`, async () => {
     let busy = true;
@@ -6579,11 +6584,12 @@ async function queuedRouteScene() {
 
 test('events: a queued routed ping the ring holds as answered is logged as answered, never as gone or fetch-failed, and costs no lookup', async () => {
   for (const [label, answer] of LOOKUP_MISSES) {
+    freshWorld();
     const scene = await queuedRouteScene();
     // The running turn pulled s1, answered the queued call and stamped the ring; then the call's
     // message left the cache (deleted, or swept) and cannot be looked up any more.
     scene.store.state.data.elsewherePings[0].answeredAt = routeAt(95);
-    scene.source.messages.cache.delete('m1');
+    world().forget(scene.source.id, 'm1');
     const lookups = countLookups(scene.source, answer);
     scene.release();
     const { logs } = await withCapturedLogs(() => scene.handler.drainPending());
@@ -6607,10 +6613,11 @@ test('events: a queued routed ping the ring holds as answered is logged as answe
 
 test('events: a queued routed ping answered while its message is looked up is not answered again', async () => {
   for (const [label, answer] of [['found', async () => ({ id: 'm1' })], ...LOOKUP_MISSES]) {
+    freshWorld();
     const scene = await queuedRouteScene();
     // Swept from the cache, so the drain has to fetch it. While that fetch is in flight another
     // turn that showed the call speaks and stamps the ring.
-    scene.source.messages.cache.delete('m1');
+    world().forget(scene.source.id, 'm1');
     const lookups = countLookups(scene.source, async () => {
       scene.store.state.data.elsewherePings[0].answeredAt = routeAt(100);
       return answer();
@@ -6983,7 +6990,7 @@ test('events: a routed name call while busy is held and answered in the main cha
     [['name', 'name', 's1', 'd1']]
   );
   assert.equal(turns.calls.length, 1);
-  assert.equal(turns.calls[0].channel, scene.main);
+  assert.deepEqual(turns.calls[0].conversation, refTo(scene.main));
   assert.equal(turns.calls[0].triggerKind, 'name');
   assert.deepEqual(turns.calls[0].source, { channelId: 's1', reason: 'routed' });
   assert.deepEqual(ringStates(scene), { m1: 'answered' });
@@ -7063,26 +7070,24 @@ test('events: a refused routed turn posts the notice in the destination, not as 
   }
 
   // Dry-run: logged and mirrored under the main channel, sent nowhere.
-  const mirrored = [];
   const turns = recordingTurns({ outcome: 'refused', limit });
   const scene = routeScene({
     turns,
     prompts: { labels },
     config: { features: { dryRun: true }, bot: { dryRunChannelId: 'mirror1' } },
   });
+  const mirror = world().channel({ id: 'mirror1', name: 'mirror' }, { keep: true });
   const mirrorHot = { config: scene.config, prompts: { labels } };
-  const mirrorClient = {
-    ...fakeClient(),
-    channels: { fetch: async () => ({ send: async (payload) => mirrored.push(payload) }) },
-  };
-  const port = createFakeAdapter();
+  const mirrorClient = fakeClient();
+  const port = world().port;
   scene.handler = asDiscordEvents(
     createMessageHandler({
       port,
       hot: mirrorHot,
       store: scene.store,
-      client: mirrorClient,
-      discord: DISCORD,
+      reads: world().reads,
+      selfId: () => mirrorClient.user.id,
+      getSelfName: () => 'Ζωή',
       turns,
       spontaneous: fakeSpontaneous(),
       memory: fakeMemory(),
@@ -7105,8 +7110,8 @@ test('events: a refused routed turn posts the notice in the destination, not as 
     byMsg(logs, 'dry-run: would notify limit').map((entry) => entry.channel),
     ['d1']
   );
-  assert.equal(mirrored.length, 1);
-  assert.ok(mirrored[0].content.startsWith('[dry-run] #d1 · limit'), mirrored[0].content);
+  assert.equal(mirror.sent.length, 1);
+  assert.ok(mirror.sent[0].content.startsWith('[dry-run] #d1 · limit'), mirror.sent[0].content);
 });
 
 test('events: a settle whose turn throws is logged and never escapes the timer', async () => {
@@ -7199,7 +7204,7 @@ test('events: a call in a writable channel is untouched by routing', async () =>
 
   assert.equal(scene.turns.calls.length, 1, 'answered at once');
   const args = scene.turns.calls[0];
-  assert.equal(args.channel, scene.main);
+  assert.deepEqual(args.conversation, refTo(scene.main));
   assert.equal('source' in args, false);
   assert.equal(scene.timers.all.length, 0);
   assert.equal(scene.store.state.data.elsewherePings, undefined);
@@ -7247,7 +7252,7 @@ test('events: an eavesdrop hit in a read-only channel settles, then runs the not
   const { logs } = await withCapturedLogs(async () => {
     await routeSend(scene, scene.source, 0, plainLine('m1'));
     assert.equal(spontaneous.noticeCalls.length, 1);
-    assert.equal(spontaneous.noticeCalls[0].channel, scene.source);
+    assert.equal(spontaneous.noticeCalls[0].channel.id, scene.source.id);
     assert.equal(spontaneous.noticeCalls[0].normalized.id, 'm1');
     assert.equal(scene.timers.live().length, 1, 'one settle timer for the source');
     assert.equal(scene.timers.live()[0].ms, 90 * SECOND);
@@ -7258,7 +7263,8 @@ test('events: an eavesdrop hit in a read-only channel settles, then runs the not
     await routeFire(scene, 120);
   });
 
-  assert.deepEqual(spontaneous.runCalls, [scene.source], 'the noticed comment runs on its source');
+  assert.equal(spontaneous.runCalls.length, 1);
+  assert.equal(spontaneous.runCalls[0].id, scene.source.id, 'the noticed comment runs on its source');
   assert.equal(scene.turns.calls.length, 0, "the turn is the scheduler's, not a call's");
   assert.equal(scene.store.state.data.elsewherePings, undefined, 'a noticed message is no call of the ring');
   assert.deepEqual(
@@ -7290,7 +7296,7 @@ test('events: a call arriving during a noticed settle takes its place', async ()
   assert.equal(spontaneous.runCalls.length, 0, 'no noticed comment once a call took the wait');
   assert.equal(scene.turns.calls.length, 1);
   const [args] = scene.turns.calls;
-  assert.equal(args.channel, scene.main);
+  assert.deepEqual(args.conversation, refTo(scene.main));
   assert.equal(args.trigger.id, 'm2');
   assert.deepEqual(args.source, { channelId: 's1', reason: 'routed' });
   assert.deepEqual(
@@ -7506,7 +7512,7 @@ test('events: the room classifier is never asked when the eavesdrop rails fail',
   const channel = roomChannel();
   await handler(roomMessage(channel));
   assert.equal(spontaneous.readyCalls.length, 1, 'the rails were asked');
-  assert.equal(spontaneous.readyCalls[0], channel);
+  assert.equal(spontaneous.readyCalls[0].id, channel.id);
   assert.equal(llm.calls.length, 0);
 
   // The pre-filter: a reply or a member mention, or no text, is never a room line.
@@ -7581,7 +7587,7 @@ test('events: a yes schedules the room turn, a no leaves the message', async () 
     assert.equal(first.length, 2, 'the ordinary eavesdrop comes first, no options');
     if (scheduled) {
       const [roomChannelArg, roomLine, options] = spontaneous.calls[1];
-      assert.equal(roomChannelArg, channel);
+      assert.equal(roomChannelArg.id, channel.id);
       assert.equal(roomLine, first[1], 'the same message is the focus');
       assert.deepEqual(options, { room: true });
     }
@@ -7748,10 +7754,13 @@ function pausedChannel(id = 'c1', guild = fakeGuild(), overrides = {}) {
   const channel = sendingChannel(id, guild);
   channel.messages.cache.set('m0', { author: { id: 'self1' } });
   channel.messages.cache.set('m-other', { author: { id: 'u2' } });
-  return Object.assign(channel, overrides);
+  Object.assign(channel, overrides);
+  syncStub(channel);
+  return channel;
 }
 
 function pausedScene(options = {}) {
+  freshWorld();
   const { config = pauseConfig(), now = mutableNow(PAUSE_T0), client } = options;
   const prompts = 'prompts' in options ? options.prompts : { labels };
   const state = pausedState();
@@ -7944,22 +7953,17 @@ test('pause notice: the switch off or a missing label posts nothing', async () =
 });
 
 test('pause notice: in a dry run it is mirrored, never posted', async () => {
-  const mirrored = [];
-  const client = {
-    ...fakeClient(),
-    channels: { fetch: async () => ({ send: async (payload) => mirrored.push(payload) }) },
-  };
   const scene = pausedScene({
     config: pauseConfig({ features: { dryRun: true }, bot: { dryRunChannelId: 'mirror1' } }),
-    client,
   });
+  const mirror = world().channel({ id: 'mirror1', name: 'mirror' }, { keep: true });
   const guild = fakeGuild();
   const channel = pausedChannel('c1', guild);
   await scene.handler(directPingMessage({ guild, channel, channelId: 'c1' }));
   await settle();
   assert.deepEqual(noticesOf(scene.handler, 'c1'), []);
-  assert.equal(mirrored.length, 1);
-  assert.ok(mirrored[0].content.endsWith(`\n${labels.limits.paused}`));
+  assert.equal(mirror.sent.length, 1);
+  assert.ok(mirror.sent[0].content.endsWith(`\n${labels.limits.paused}`));
   assertPausedQuiet(scene, 'dry run');
 });
 
@@ -8090,6 +8094,7 @@ function liveScene({
   labels: ownLabels = labels,
   config: overrides = {},
 } = {}) {
+  freshWorld();
   const config = baseConfig(
     deepMerge(
       {
@@ -8136,43 +8141,34 @@ function liveScene({
   let t = LIVE_T0;
   const now = () => t;
   const history = [];
-  const sent = [];
   const client = fakeDmClient();
   const store = fakePrivateStore();
   store.state.markDirty = () => {};
   const guild = dm ? null : { id: 'g1', members: { me: { displayName: 'Ζωή' } }, channels: { cache: new Map() } };
-  const messages = {
-    cache: new Map(),
-    fetch: async (arg) =>
-      arg && typeof arg === 'object'
-        ? new Map(history.map((m) => [m.id, m]))
-        : (history.find((m) => m.id === arg) ?? null),
-  };
-  const send = async (payload) => {
-    sent.push(payload);
-    return { id: `sent-${sent.length}` };
-  };
+  world().knowMembers('g1', client.knows);
   const channel = dm
-    ? fakeDmChannel('dm1', 'u1', { messages, sendTyping: async () => {}, send })
-    : fakeChannel('c1', guild, { name: 'general', messages, sendTyping: async () => {}, send });
+    ? fakeDmChannel('dm1', 'u1')
+    : fakeChannel('c1', guild, { name: 'general', sendTyping: async () => {} });
+  world().follow(channel.id, history);
   const tagHistory = countingTagHistory();
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot,
-    store,
-    llm,
-    calibrator: { ratio: 1, apply: (n) => n, observe: () => {} },
-    client,
-    now,
-    schedule: () => () => {},
-  });
+  const turns = createTurnRunner(
+    runnerOptions({
+      hot,
+      store,
+      llm,
+      calibrator: { ratio: 1, apply: (n) => n, observe: () => {} },
+      now,
+      schedule: () => () => {},
+    })
+  );
   const handler = asDiscordEvents(
     createMessageHandler({
       hot,
       store,
-      client,
-      discord: DISCORD,
+      reads: world().reads,
+      selfId: () => client.user.id,
+      getSelfName: () => 'Ζωή',
+      port: world().port,
       turns,
       spontaneous: fakeSpontaneous(),
       memory: fakeMemory(),
@@ -8205,7 +8201,7 @@ function liveScene({
     history.push(message);
     await handler(message);
   };
-  return { calls, call, sent, store, turns, handler, tagHistory };
+  return { calls, call, store, turns, handler, tagHistory };
 }
 
 /** A talk answer that holds the first talk request until `open()`. */
@@ -8529,7 +8525,7 @@ async function busyFollowUpScene({ busyIn = 'c9', config = baseConfig() } = {}) 
     sent += 1;
     const ts = FOLLOW_UP_T0 + sent * 1000;
     clock.set(ts);
-    channel.messages.cache.set(id, {});
+    seedExisting(channel.id, id);
     return handler(plainFollowUpMessage({ id, guild, channel, content, authorId: 'u1', authorName: 'Élodie', ts }));
   };
   return { clock, llm, spontaneous, turns, handler, guild, channel, send };
@@ -8769,7 +8765,8 @@ test('onMessageUpdate: a late gifv embed is counted into the library and prefill
   assert.equal(entries[0].itemId, 'm1#e0');
   const folded = logs.filter((entry) => entry.msg === 'events: embeds folded');
   assert.equal(folded.length, 1);
-  assert.equal(folded[0].embeds, 1);
+  // Changed with the contract: the log counts the late media items of the message (an event carries no embed count).
+  assert.equal(folded[0].items, 1);
   assert.equal(folded[0].messageId, 'm1');
   assert.equal(folded[0].channelId, 'c1');
   assert.equal(describer.calls.length, 1, 'the late GIF is prefilled like one on arrival');
@@ -8820,7 +8817,7 @@ test('onMessageUpdate: without the message as it was, a late embed is an accepte
   assert.equal(gifEntries(scene.store).length, 0, 'an accepted miss: nothing recorded');
   const late = logs.filter((entry) => entry.msg === 'events: embeds late');
   assert.equal(late.length, 1);
-  assert.equal(late[0].embeds, 1);
+  assert.equal(late[0].items, 1);
 });
 
 test('onMessageUpdate: off with features.embedUpdates false', async () => {
@@ -8870,7 +8867,7 @@ test('follow-up: an overheard verdict during a running turn is deferred and drai
   );
   assert.deepEqual(startedTurns(scene.turns), [['m1', 'overheard']]);
   assert.equal(scene.turns.calls[0].mode, 'reply');
-  assert.equal(scene.turns.calls[0].channel, scene.channel);
+  assert.deepEqual(scene.turns.calls[0].conversation, refTo(scene.channel));
   assert.equal(tagHistory.hits, 0, 'talk about the persona is never counted for spam');
 });
 
@@ -8898,7 +8895,7 @@ test('follow-up: an overheard turn whose runTurn answers busy is deferred, then 
   const channel = fakeChannelWithHistory('c1', guild, []);
   await openFollowUpWindow(handler, { guild, channel, ts: FOLLOW_UP_T0 });
   clock.set(FOLLOW_UP_T0 + 1000);
-  channel.messages.cache.set('m1', {});
+  seedExisting(channel.id, 'm1');
 
   const { logs } = await withCapturedLogs(async () => {
     const p = handler(
@@ -8959,7 +8956,7 @@ test('follow-up: a pending overheard is replaced by a later followUp', async () 
 test('follow-up: a pending overheard is replaced by a later direct mention in its channel', async () => {
   const scene = await busyFollowUpScene({ config: baseConfig(PENDING_OVERHEARD) });
   await busyCandidate(scene, 'm1', 'overheard');
-  scene.channel.messages.cache.set('m2', {});
+  seedExisting('c1', 'm2');
   const { logs } = await withCapturedLogs(() =>
     scene.handler(
       directPingMessage({
@@ -8981,7 +8978,7 @@ test('follow-up: a pending overheard is replaced by a later direct mention in it
 test('follow-up: a waiting followUp stays beside a later direct mention with pendingOverheard on, as before', async () => {
   const scene = await busyFollowUpScene({ config: baseConfig(PENDING_OVERHEARD) });
   await busyCandidate(scene, 'm1', 'yes');
-  scene.channel.messages.cache.set('m2', {});
+  seedExisting('c1', 'm2');
   const { logs } = await withCapturedLogs(() =>
     scene.handler(
       directPingMessage({
@@ -9005,7 +9002,7 @@ test('follow-up: a deferred overheard line is not shown to another turn of its c
   const scene = await busyFollowUpScene({ config: baseConfig(PENDING_OVERHEARD) });
   // A direct mention queued first, then the overheard line of the same channel (a later
   // direct call would take its place, so the mention must come before it).
-  scene.channel.messages.cache.set('m0', {});
+  seedExisting('c1', 'm0');
   await withCapturedLogs(() =>
     scene.handler(
       directPingMessage({
@@ -9057,7 +9054,6 @@ test('follow-up: three messages in a row keep the newest in the slot and the dra
     clock.set(ts);
     const message = plainFollowUpMessage({ id, guild, channel, content, authorId: 'u1', authorName: 'Élodie', ts });
     history.push(message);
-    channel.messages.cache.set(id, message);
     const { logs } = await withCapturedLogs(async () => {
       const p = handler(message);
       await tick();
@@ -9083,8 +9079,12 @@ test('follow-up: three messages in a row keep the newest in the slot and the dra
   turns.busy = false;
   await withCapturedLogs(() => handler.drainPending());
   assert.deepEqual(startedTurns(turns), [['m3', 'overheard']], 'the slot held the last one');
-  const fetched = await turns.calls[0].channel.messages.fetch({ limit: 50 });
-  assert.deepEqual([...fetched.keys()], ['m1', 'm2', 'm3'], 'the drained turn reads all three in the history');
+  const page = await world().reads.history(refTo({ id: 'c1' }), { limit: 50 });
+  assert.deepEqual(
+    page.events.map((event) => event.message.id),
+    ['m1', 'm2', 'm3'],
+    'the drained turn reads all three in the history'
+  );
 });
 
 test('follow-up: an overheard line that arrived after the running turn fetched its history is drained, not dropped as answered', async () => {

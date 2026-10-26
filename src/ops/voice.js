@@ -19,7 +19,11 @@ const STAGE_NAMES = Object.freeze({
 });
 
 const handlers = perEnv((env) => {
-  const { hot, client, discord, speech, port, assertNotPaused, resolvedGuildId } = env;
+  const { hot, speech, assertNotPaused, resolvedGuildId } = env;
+  /** @type {import('../interface/reads.ts').Reads} */
+  const reads = env.reads;
+  /** @type {import('../protocol/adapter.ts').Adapter|null|undefined} */
+  const port = env.port;
 
   /**
    * One voice message. Answers `{ text, ref, at }` when it was posted: the duration, the
@@ -49,8 +53,8 @@ const handlers = perEnv((env) => {
     const target = given ?? reply?.channelId ?? null;
     // Checked before anything is made or paid for.
     const postTo = await postingConversation({
-      client,
-      discord,
+      reads,
+      iface: port.iface,
       guildId: resolvedGuildId(context),
       channelId: target,
       context,

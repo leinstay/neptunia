@@ -6,7 +6,7 @@
 // (src/interface/fake.js); a turn held back by the attention is tried again later.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createTurnRunner } from '../src/behavior/turn.js';
+import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.js';
 import { userText } from '../src/behavior/prompt.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
 import { tasksBlockText, taskResultText } from '../src/errands/blocks.js';
@@ -15,10 +15,11 @@ import { createEventDoor } from '../src/interface/door.js';
 import { validateEvent } from '../src/protocol/index.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { createDiscordInterface } from '../interfaces/discord/index.js';
+import { onWorld, useIface, world } from './fixtures/turn-world.ts';
 
-// The Discord interface's capabilities object, as src/index.js injects it.
-const DISCORD = createDiscordInterface().capabilities;
+// The conversations are held by a fake interface named `fake`.
+useIface('fake');
+const createTurnRunner = onWorld(createRealTurnRunner);
 
 const NOW = Date.parse('2026-10-17T12:00:00Z');
 const MINUTE = 60_000;
@@ -56,21 +57,7 @@ function normalizedTrigger(raw) {
 
 /** A channel of guild g1 whose history is `historyMessages`; `fetch(id)` gives one of them. */
 function fakeChannel({ historyMessages = [] } = {}) {
-  const guild = { id: 'g1', members: { me: { displayName: 'Bot' } }, channels: { cache: new Map() } };
-  return {
-    id: 'c1',
-    name: 'general',
-    guild,
-    sendTyping: async () => {},
-    send: async () => ({ id: 'sent' }),
-    messages: {
-      cache: new Map(),
-      fetch: async (arg) => {
-        if (arg && typeof arg === 'object' && 'limit' in arg) return new Map(historyMessages.map((m) => [m.id, m]));
-        return historyMessages.find((m) => m.id === arg) ?? null;
-      },
-    },
-  };
+  return world().channel({ id: 'c1', name: 'general', guildId: 'g1', historyMessages });
 }
 
 function fakeStore() {
@@ -302,12 +289,10 @@ test('<tasks>: an open errand is in the request tail; with none, the block is go
   const llm = fakeLlm('<skip/>');
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id' });
   const turns = createTurnRunner({
-    discord: DISCORD,
     hot: fakeHot(),
     store: fakeStore(),
     llm,
     calibrator: { ratio: 1, apply: (n) => n, observe: () => {} },
-    client: { user: { id: 'self-id', username: 'Bot' } },
     port,
     errands,
     now: () => NOW,
@@ -341,12 +326,10 @@ test('<tasks>: a finished errand she has not read is listed with its marker and 
   const errands = fakeErrands([runningTask, doneTask]);
   const llm = fakeLlm('<skip/>');
   const turns = createTurnRunner({
-    discord: DISCORD,
     hot: fakeHot(),
     store: fakeStore(),
     llm,
     calibrator: { ratio: 1, apply: (n) => n, observe: () => {} },
-    client: { user: { id: 'self-id', username: 'Bot' } },
     port: createFakeAdapter({ iface: 'fake', selfId: 'self-id' }),
     errands,
     now: () => NOW,
@@ -361,30 +344,24 @@ test('<tasks>: a finished errand she has not read is listed with its marker and 
 
 test('task turns: a finished errand opens her turn where it was asked, with <task_result>, through the interface', async () => {
   const raw = rawMessage({ id: 'm1', content: 'βρες μου ένα meme' });
-  const channel = fakeChannel({ historyMessages: [raw] });
+  fakeChannel({ historyMessages: [raw] });
   const errands = fakeErrands([doneTask]);
   const llm = fakeLlm('<msg reply="#1">βρήκα κάτι</msg>');
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id' });
   const hot = fakeHot();
-  const client = {
-    user: { id: 'self-id', username: 'Bot' },
-    channels: { fetch: async (id) => (id === 'c1' ? channel : null) },
-  };
   const turns = createTurnRunner({
-    discord: DISCORD,
     hot,
     store: fakeStore(),
     llm,
     calibrator: { ratio: 1, apply: (n) => n, observe: () => {} },
-    client,
     port,
     errands,
     now: () => NOW,
   });
   const taskTurns = createTaskTurns({
-    discord: DISCORD,
     hot,
-    client,
+    reads: world().reads,
+    iface: () => 'fake',
     turns,
     errands,
     getGuildId: () => 'g1',
@@ -429,12 +406,11 @@ test('task turns: held back while the attention is taken, tried again after agen
   };
   const timers = [];
   const errands = fakeErrands();
-  const channel = fakeChannel({ historyMessages: [rawMessage({ id: 'm1' })] });
-  const client = { user: { id: 'self-id' }, channels: { fetch: async () => channel } };
+  fakeChannel({ historyMessages: [rawMessage({ id: 'm1' })] });
   const taskTurns = createTaskTurns({
-    discord: DISCORD,
     hot: fakeHot(),
-    client,
+    reads: world().reads,
+    iface: () => 'fake',
     turns,
     errands,
     now: () => NOW,
@@ -470,10 +446,16 @@ test('task turns: an errand end enters through the event door as task.completed,
       return { outcome: 'spoke' };
     },
   };
-  const channel = fakeChannel({ historyMessages: [rawMessage({ id: 'm1' })] });
-  const client = { user: { id: 'self-id' }, channels: { fetch: async () => channel } };
+  fakeChannel({ historyMessages: [rawMessage({ id: 'm1' })] });
   const errands = fakeErrands();
-  const taskTurns = createTaskTurns({ discord: DISCORD, hot: fakeHot(), client, turns, errands, now: () => NOW });
+  const taskTurns = createTaskTurns({
+    hot: fakeHot(),
+    reads: world().reads,
+    iface: () => 'fake',
+    turns,
+    errands,
+    now: () => NOW,
+  });
   const door = createEventDoor({ handlers: { 'task.completed': (event) => taskTurns.onEvent(event) } });
   const event = taskCompletedEvent(doneTask, 'g1', () => NOW);
   assert.deepEqual(validateEvent(event), { ok: true });
@@ -504,13 +486,19 @@ test("task turns: an event without the task in hand asks the guild's task store;
       return { outcome: 'spoke' };
     },
   };
-  const channel = fakeChannel({ historyMessages: [rawMessage({ id: 'm1' })] });
-  const client = { user: { id: 'self-id' }, channels: { fetch: async () => channel } };
+  fakeChannel({ historyMessages: [rawMessage({ id: 'm1' })] });
   const errands = {
     ...fakeErrands(),
     store: (guildId) => (guildId === 'g1' ? { get: (id) => (id === 'tab02' ? doneTask : null) } : null),
   };
-  const taskTurns = createTaskTurns({ discord: DISCORD, hot: fakeHot(), client, turns, errands, now: () => NOW });
+  const taskTurns = createTaskTurns({
+    hot: fakeHot(),
+    reads: world().reads,
+    iface: () => 'fake',
+    turns,
+    errands,
+    now: () => NOW,
+  });
   const { raw: _raw, ...bare } = taskCompletedEvent(doneTask, 'g1', () => NOW);
   await withCapturedLogs(async () => {
     assert.equal(await taskTurns.onEvent({ ...bare, taskId: 'nope' }), null);
@@ -559,12 +547,11 @@ test('task turns: a result turn that spoke or chose silence marks the task seen 
   for (const outcome of ['spoke', 'skip']) {
     const errands = fakeErrands();
     const turns = { isBusy: () => false, isAnyBusy: () => false, runTurn: async () => ({ outcome }) };
-    const channel = fakeChannel({ historyMessages: [rawMessage({ id: 'm1' })] });
-    const client = { user: { id: 'self-id' }, channels: { fetch: async () => channel } };
+    fakeChannel({ historyMessages: [rawMessage({ id: 'm1' })] });
     const taskTurns = createTaskTurns({
-      discord: DISCORD,
       hot: fakeHot(),
-      client,
+      reads: world().reads,
+      iface: () => 'fake',
       turns,
       errands,
       now: () => NOW,
@@ -589,12 +576,11 @@ test('task turns: a result turn that ended error or refused marks nothing and is
   };
   const timers = [];
   const errands = fakeErrands();
-  const channel = fakeChannel({ historyMessages: [rawMessage({ id: 'm1' })] });
-  const client = { user: { id: 'self-id' }, channels: { fetch: async () => channel } };
+  fakeChannel({ historyMessages: [rawMessage({ id: 'm1' })] });
   const taskTurns = createTaskTurns({
-    discord: DISCORD,
     hot: fakeHot(),
-    client,
+    reads: world().reads,
+    iface: () => 'fake',
     turns,
     errands,
     now: () => NOW,
@@ -617,9 +603,9 @@ test('task turns: a result turn that ended error or refused marks nothing and is
   assert.deepEqual(errands.read, [{ guildId: 'g1', ids: ['tab02'] }], 'the third try spoke: read');
   const dry = fakeErrands();
   const dryTurns = createTaskTurns({
-    discord: DISCORD,
     hot: fakeHot(),
-    client,
+    reads: world().reads,
+    iface: () => 'fake',
     turns: { isBusy: () => false, isAnyBusy: () => false, runTurn: async () => ({ outcome: 'spoke', dryRun: true }) },
     errands: dry,
     now: () => NOW,
@@ -633,12 +619,11 @@ test('task turns: after the attempts a result that never got its turn stays unre
   const turns = { isBusy: () => false, isAnyBusy: () => false, runTurn: async () => ({ outcome: 'error' }) };
   const timers = [];
   const errands = fakeErrands();
-  const channel = fakeChannel({ historyMessages: [rawMessage({ id: 'm1' })] });
-  const client = { user: { id: 'self-id' }, channels: { fetch: async () => channel } };
+  fakeChannel({ historyMessages: [rawMessage({ id: 'm1' })] });
   const taskTurns = createTaskTurns({
-    discord: DISCORD,
     hot: fakeHot(),
-    client,
+    reads: world().reads,
+    iface: () => 'fake',
     turns,
     errands,
     now: () => NOW,

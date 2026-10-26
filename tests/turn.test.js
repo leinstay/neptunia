@@ -7,13 +7,10 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import fs from 'node:fs';
-import os from 'node:os';
-import { PermissionFlagsBits, SnowflakeUtil } from 'discord.js';
 import {
   resolveMentions,
   mentionDirectory,
-  createTurnRunner,
+  createTurnRunner as createRealTurnRunner,
   parseRewatchPickDetailed,
   usableDestination,
   paceSettings,
@@ -41,7 +38,14 @@ import { createErrandService } from '../src/errands/service.js';
 import { createDiscordAdapter, createDiscordInterface } from '../interfaces/discord/index.js';
 import { createLocalFacts } from '../src/behavior/inner.js';
 import { tempDir } from './fixtures/tmp.js';
+import { freshWorld, onWorld, world } from './fixtures/turn-world.ts';
+import { snapshotOf } from '../src/behavior/snapshot.ts';
 import { openTestMemorySync } from './fixtures/memory-db/service.js';
+
+/** What she did through a port: its calls but the reads a turn makes of it. */
+function effectsOf(port) {
+  return port.calls.filter((call) => ['typing', 'send', 'edit', 'delete', 'react', 'unreact'].includes(call.op));
+}
 
 /** The test memory databases opened here; closed when the file is done. */
 const OPENED_MEMORY = [];
@@ -265,6 +269,9 @@ test('mentionDirectory: no sources give an empty directory', () => {
 
 const NOW = Date.UTC(2026, 8, 20, 12, 0, 0);
 
+// The turn runner over the fake interface of the test's world: `runTurn` takes the channel handle `fakeTurnChannel` gives.
+const createTurnRunner = onWorld(createRealTurnRunner);
+
 /** A discord.js-shaped raw message, just enough for normalizeMessage. */
 function rawMessage({
   id,
@@ -305,7 +312,7 @@ function normalizedTrigger(raw) {
   };
 }
 
-/** `dm: true` is a private (DM) channel: no guild, no name, no member permissions. */
+/** `dm: true` is a private (DM) channel: no community, no name. `attachFiles: false` takes the permission to attach away. */
 function fakeTurnChannel({
   id = 'c1',
   name = 'general',
@@ -313,45 +320,9 @@ function fakeTurnChannel({
   historyMessages = [],
   attachFiles = true,
   dm = false,
+  ...more
 } = {}) {
-  const guild = dm ? null : { id: guildId, members: { me: { displayName: 'Bot' } }, channels: { cache: new Map() } };
-  const sent = [];
-  const typingCalls = [];
-  const reactCalls = [];
-  const channel = {
-    id,
-    name: dm ? null : name,
-    guild,
-    viewable: true,
-    // Every permission is granted, Attach Files only when `attachFiles`; a DM has no permissions to resolve.
-    permissionsFor: dm
-      ? () => {
-          throw new Error('a DM channel has no member permissions');
-        }
-      : () => ({ has: (flag) => attachFiles || flag !== PermissionFlagsBits.AttachFiles }),
-    sendTyping: async () => {
-      typingCalls.push(Date.now());
-    },
-    send: async (payload) => {
-      sent.push(payload);
-      return { id: `sent-${sent.length}` };
-    },
-    messages: {
-      cache: new Map(),
-      fetch: async (arg) => {
-        if (arg && typeof arg === 'object' && 'limit' in arg) {
-          return new Map(historyMessages.map((m) => [m.id, m]));
-        }
-        const target = historyMessages.find((m) => m.id === arg);
-        if (!target) throw new Error(`fixture message not found: ${arg}`);
-        return { react: async (emoji) => reactCalls.push({ id: arg, emoji }) };
-      },
-    },
-    sent,
-    typingCalls,
-    reactCalls,
-  };
-  return channel;
+  return world().channel({ id, name, guildId, dm, historyMessages, permissions: { attach: attachFiles }, ...more });
 }
 
 /** A request's options without her tools (`tools`, `toolChoice`): what the rest of the request carries. */
@@ -1280,14 +1251,7 @@ function neighborPictureTurn(features) {
     }),
     channelId: 'c2',
   };
-  const neighbor = {
-    ...fakeTurnChannel({ id: 'c2', name: 'random', historyMessages: [posted] }),
-    guild: channel.guild,
-    isTextBased: () => true,
-    isThread: () => false,
-    lastMessageId: SnowflakeUtil.generate({ timestamp: NOW - 2000 }).toString(),
-  };
-  channel.guild.channels.cache.set(neighbor.id, neighbor);
+  fakeTurnChannel({ id: 'c2', name: 'random', historyMessages: [posted], lastMessageAt: NOW - 2000 });
   const cached = { np1: 'a sleeping cat' };
   const describer = {
     calls: [],
@@ -1673,7 +1637,8 @@ test('runTurn: features.mentionHandles off resolves @name as before and leaves a
 async function runDirectoryTurn(store, answer, members) {
   const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice' });
   const channel = fakeTurnChannel({ id: 'c1', historyMessages: [raw] });
-  channel.guild.members.cache = new Map(members.map((member) => [member.id, member]));
+  for (const member of members)
+    world().member(channel.guildId, { ...member, name: member.displayName, bot: member.user.bot });
   const turns = createTurnRunner({
     discord: DISCORD,
     createPort: createDiscordAdapter,
@@ -1760,20 +1725,7 @@ test('createTurnRunner: features.dryRun=true mirrors each action into bot.dryRun
   const llm = fakeLlm('<msg reply="#1">hi @Alice</msg>');
   const store = fakeStore();
   const hot = fakeHot({ dryRun: true }, { dryRunChannelId: 'mirror1' });
-  const mirrorSent = [];
-  const client = fakeClient({
-    channels: {
-      fetch: async (id) => {
-        assert.equal(id, 'mirror1');
-        return {
-          send: async (payload) => {
-            mirrorSent.push(payload);
-            return { id: 'mirror-msg-1' };
-          },
-        };
-      },
-    },
-  });
+  const mirror = fakeTurnChannel({ id: 'mirror1', name: 'mirror' });
   const turns = createTurnRunner({
     discord: DISCORD,
     createPort: createDiscordAdapter,
@@ -1781,7 +1733,7 @@ test('createTurnRunner: features.dryRun=true mirrors each action into bot.dryRun
     store,
     llm,
     calibrator: identityCalibrator(),
-    client,
+    client: fakeClient(),
   });
 
   const result = await turns.runTurn({
@@ -1792,8 +1744,10 @@ test('createTurnRunner: features.dryRun=true mirrors each action into bot.dryRun
   });
 
   assert.equal(result.outcome, 'spoke');
+  const mirrorSent = mirror.sent;
   assert.equal(mirrorSent.length, 1);
-  assert.deepEqual(mirrorSent[0].allowedMentions, { parse: [] });
+  // The mirror goes through the port, which says outright that nobody is notified (the platform call carried only `parse`).
+  assert.deepEqual(mirrorSent[0].allowedMentions, { parse: [], users: [], repliedUser: false });
   const [, ...bodyLines] = mirrorSent[0].content.split('\n');
   assert.equal(bodyLines.join('\n'), 'hi @Alice');
   assert.ok(!mirrorSent[0].content.includes('<@'), 'a mirrored @name must never resolve to a real mention');
@@ -1802,10 +1756,7 @@ test('createTurnRunner: features.dryRun=true mirrors each action into bot.dryRun
 test('createTurnRunner: features.dryRun=true logs a handle resolved, mirrors it as written, and sends nothing', async () => {
   const raw = rawMessage({ id: 'm1', authorName: 'Alice' });
   const channel = fakeTurnChannel({ id: 'c1', name: 'general', historyMessages: [raw] });
-  const mirrorSent = [];
-  const client = fakeClient({
-    channels: { fetch: async () => ({ send: async (payload) => (mirrorSent.push(payload), { id: 'mirror-msg-1' }) }) },
-  });
+  const mirror = fakeTurnChannel({ id: 'mirror1', name: 'mirror' });
   const turns = createTurnRunner({
     discord: DISCORD,
     createPort: createDiscordAdapter,
@@ -1813,7 +1764,7 @@ test('createTurnRunner: features.dryRun=true logs a handle resolved, mirrors it 
     store: fakeStore(),
     llm: fakeLlm(`<msg>hi @${handleOf('u1')}</msg>`),
     calibrator: identityCalibrator(),
-    client,
+    client: fakeClient(),
   });
 
   const { result, logs } = await withCapturedLogs(() =>
@@ -1823,8 +1774,8 @@ test('createTurnRunner: features.dryRun=true logs a handle resolved, mirrors it 
   assert.equal(result.outcome, 'spoke');
   assert.equal(channel.sent.length, 0);
   assert.equal(logs.find((entry) => entry.msg === 'dry-run: would send').text, 'hi <@u1>');
-  assert.equal(mirrorSent[0].content.split('\n').slice(1).join('\n'), `hi @${handleOf('u1')}`);
-  assert.deepEqual(mirrorSent[0].allowedMentions, { parse: [] });
+  assert.equal(mirror.sent[0].content.split('\n').slice(1).join('\n'), `hi @${handleOf('u1')}`);
+  assert.deepEqual(mirror.sent[0].allowedMentions, { parse: [], users: [], repliedUser: false }, 'nobody is notified');
 });
 
 test('createTurnRunner: features.dryRun=true with no bot.dryRunChannelId configured mirrors nothing', async () => {
@@ -1833,15 +1784,6 @@ test('createTurnRunner: features.dryRun=true with no bot.dryRunChannelId configu
   const llm = fakeLlm('<msg>hello</msg>');
   const store = fakeStore();
   const hot = fakeHot({ dryRun: true });
-  let fetchCalled = false;
-  const client = fakeClient({
-    channels: {
-      fetch: async () => {
-        fetchCalled = true;
-        return null;
-      },
-    },
-  });
   const turns = createTurnRunner({
     discord: DISCORD,
     createPort: createDiscordAdapter,
@@ -1849,7 +1791,7 @@ test('createTurnRunner: features.dryRun=true with no bot.dryRunChannelId configu
     store,
     llm,
     calibrator: identityCalibrator(),
-    client,
+    client: fakeClient(),
   });
 
   const result = await turns.runTurn({
@@ -1860,7 +1802,12 @@ test('createTurnRunner: features.dryRun=true with no bot.dryRunChannelId configu
   });
 
   assert.equal(result.outcome, 'spoke');
-  assert.equal(fetchCalled, false, 'an empty dryRunChannelId must never be fetched');
+  // Changed with the contract: the mirror goes through the port, so "never fetched" is "nothing sent anywhere".
+  assert.equal(
+    world().port.calls.filter((call) => call.op === 'send').length,
+    0,
+    'an empty dryRunChannelId mirrors nothing'
+  );
 });
 
 test('createTurnRunner: features.dryRun=true swallows a mirror channel failure and still finishes the turn', async () => {
@@ -1869,13 +1816,7 @@ test('createTurnRunner: features.dryRun=true swallows a mirror channel failure a
   const llm = fakeLlm('<msg>hello</msg>');
   const store = fakeStore();
   const hot = fakeHot({ dryRun: true }, { dryRunChannelId: 'mirror1' });
-  const client = fakeClient({
-    channels: {
-      fetch: async () => {
-        throw new Error('missing access');
-      },
-    },
-  });
+  world().port.failNext('send', { status: 'failed', error: { code: 'http-403', retryable: false } });
   const turns = createTurnRunner({
     discord: DISCORD,
     createPort: createDiscordAdapter,
@@ -1883,7 +1824,7 @@ test('createTurnRunner: features.dryRun=true swallows a mirror channel failure a
     store,
     llm,
     calibrator: identityCalibrator(),
-    client,
+    client: fakeClient(),
   });
 
   const { result } = await withCapturedLogs(() =>
@@ -3246,8 +3187,9 @@ test("createTurnRunner: recall -- a server: answer runs recall with the trigger,
   assert.equal(lookup.searchCalls.length, 0, 'no web query was asked');
   assert.equal(recall.runCalls.length, 1);
   const args = recall.runCalls[0];
-  assert.equal(args.channel, channel);
-  assert.equal(args.guild, channel.guild);
+  // Changed with the contract: the runner is given the conversation's info and the community's id, where it was
+  // given the discord.js channel and guild (src/interface/recall-bridge.ts hands the platform objects over).
+  assert.equal(args.channel.id, channel.id);
   assert.equal(args.guildId, 'g1');
   assert.equal(args.selfId, 'self-id');
   assert.equal(args.selfName, 'Bot');
@@ -3341,16 +3283,14 @@ test('createTurnRunner: recall -- with the web search unable to run, the classif
   }
 });
 
-/** A client serving g1, where the DM partner u1 (the trigger's author) is fetched as `partner`. */
+/** The DM partner u1 (the trigger's author) as a member of the served community g1 the interface knows. */
 function partnerClient() {
-  const guild = { id: 'g1', members: { me: { displayName: 'Bot' } }, channels: { cache: new Map() } };
-  const partner = { id: 'u1', guild };
-  guild.members.fetch = async (id) => (id === 'u1' ? partner : null);
-  return { client: fakeClient({ guilds: { cache: new Map([['g1', guild]]) } }), guild, partner };
+  world().member('g1', { id: 'u1', name: 'Alice' });
+  return { client: fakeClient() };
 }
 
 test("createTurnRunner: recall -- a private chat runs recall on its partner's behalf in the served guild", async () => {
-  const { client, guild, partner } = partnerClient();
+  const { client } = partnerClient();
   const { result, recall, channel, lookup, llm } = await runRecallTurn({
     llm: lookupLlm('server: κουνέλι'),
     dm: true,
@@ -3359,10 +3299,9 @@ test("createTurnRunner: recall -- a private chat runs recall on its partner's be
   assert.equal(result.outcome, 'spoke');
   assert.equal(recall.runCalls.length, 1);
   const args = recall.runCalls[0];
-  assert.equal(args.channel, channel);
-  assert.equal(args.guild, guild);
+  assert.equal(args.channel.id, channel.id);
   assert.equal(args.guildId, 'g1');
-  assert.equal(args.partner, partner);
+  assert.equal(args.partner.id, 'u1');
   assert.deepEqual(args.server, { forms: ['κουνέλι'], who: [], from: null, to: null });
   assert.equal(lookup.searchCalls.length, 0);
   assert.equal(turnLookupOf(llm), [labels.lookup.serverHeader, RECALL_TEXT].join('\n'));
@@ -3841,12 +3780,18 @@ test('runTurn: the draw request is clamped to image.maxPromptChars', async () =>
 });
 
 test('runTurn: a self <draw> passes the avatar as reference', async () => {
-  const avatarCalls = [];
+  // The address of her large avatar comes from the interface (`memberInfo` of herself, `avatar.largeUrl`), which
+  // sizes it for its platform; the size the Discord adapter asks for is that adapter's own test.
+  const avatarAsks = [];
+  world().tap('memberInfo', ([member]) => {
+    if (member.memberId === 'self-id') avatarAsks.push(member.memberId);
+  });
+  world().member('g1', {
+    id: 'self-id',
+    name: 'Bot',
+    avatar: { hash: null, url: null, largeUrl: 'https://cdn.example.com/avatar.png' },
+  });
   const client = fakeClient();
-  client.user.displayAvatarURL = (options) => {
-    avatarCalls.push(options);
-    return 'https://cdn.example.com/avatar.png';
-  };
   const imageFetcher = fakeImageFetcher({
     dataUrl: 'data:image/png;base64,YXZhdGFy',
     bytes: 6,
@@ -3858,7 +3803,7 @@ test('runTurn: a self <draw> passes the avatar as reference', async () => {
     imageFetcher,
   });
 
-  assert.deepEqual(avatarCalls, [{ extension: 'png', size: 1024, forceStatic: true }]);
+  assert.deepEqual(avatarAsks, ['self-id']);
   assert.equal(imageFetcher.calls.length, 1);
   assert.equal(imageFetcher.calls[0].url, 'https://cdn.example.com/avatar.png');
   assert.equal(imageFetcher.calls[0].options.maxBytes, DRAW_IMAGE_CFG.referenceMaxBytes);
@@ -3872,11 +3817,15 @@ test('runTurn: a self <draw> passes the avatar as reference', async () => {
 
 test('runTurn: reference none skips the avatar', async () => {
   let avatarAsked = false;
+  world().tap('memberInfo', ([member]) => {
+    if (member.memberId === 'self-id') avatarAsked = true;
+  });
+  world().member('g1', {
+    id: 'self-id',
+    name: 'Bot',
+    avatar: { hash: null, url: null, largeUrl: 'https://cdn.example.com/avatar.png' },
+  });
   const client = fakeClient();
-  client.user.displayAvatarURL = () => {
-    avatarAsked = true;
-    return 'https://cdn.example.com/avatar.png';
-  };
   const { images, imageFetcher } = await runDrawTurn({
     answers: [toolAnswer('', [call('draw.create', { self: true, text: 'me waving' })])],
     hot: drawHot({}, { reference: 'none' }),
@@ -3890,7 +3839,11 @@ test('runTurn: reference none skips the avatar', async () => {
 
 test('runTurn: an avatar that cannot be fetched is logged and the picture is drawn without it', async () => {
   const client = fakeClient();
-  client.user.displayAvatarURL = () => 'https://cdn.example.com/avatar.png';
+  world().member('g1', {
+    id: 'self-id',
+    name: 'Bot',
+    avatar: { hash: null, url: null, largeUrl: 'https://cdn.example.com/avatar.png' },
+  });
   const { images, channel, logs } = await runDrawTurn({
     answers: [toolAnswer('', [call('draw.create', { self: true, text: 'me' })])],
     client,
@@ -4062,19 +4015,12 @@ function privateStore() {
   });
 }
 
-/** The client of a bot serving guild g1, where its display name is `GuildBot`. */
-function guildClient() {
-  return fakeClient({
-    guilds: { cache: new Map([['g1', { id: 'g1', members: { me: { displayName: 'GuildBot' } } }]]) },
-  });
-}
-
 async function runPrivateTurn({
   answers = ['<msg reply="#1">hi</msg>'],
   hot = privateHot(),
   store = privateStore(),
   images = fakeImages(),
-  client = guildClient(),
+  selfName = 'GuildBot',
   guildId = 'g1',
   errands = null,
 } = {}) {
@@ -4088,7 +4034,9 @@ async function runPrivateTurn({
     store,
     llm,
     calibrator: identityCalibrator(),
-    client,
+    client: fakeClient(),
+    // Her name in the served community is the core's to tell (the member directory, else the name of `hello`).
+    getSelfName: () => selfName,
     images,
     errands,
   });
@@ -4130,8 +4078,8 @@ test('runTurn: a private request carries the private prompt, the private trigger
   assert.ok(!user.includes('<other_channels>'));
 });
 
-test('runTurn: a private turn falls back to the bot user name when the served guild is not cached', async () => {
-  const { llm } = await runPrivateTurn({ client: fakeClient({ guilds: { cache: new Map() } }) });
+test('runTurn: a private turn names her as the core says, the name of her account when no nickname is known', async () => {
+  const { llm } = await runPrivateTurn({ selfName: 'Bot' });
   assert.ok(userTextOf(llm.calls[0]).includes('You are Bot.'));
 });
 
@@ -4161,9 +4109,7 @@ test("runTurn: the injected clock stamps lastPostAt and the turn's own time", as
 test('runTurn: a failing typing indicator does not stop the message', async () => {
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
-  channel.sendTyping = async () => {
-    throw new Error('Missing Permissions');
-  };
+  world().port.failNext('typing', { status: 'failed', error: { code: 'http-403', retryable: false } });
   const turns = createTurnRunner({
     discord: DISCORD,
     createPort: createDiscordAdapter,
@@ -4180,14 +4126,11 @@ test('runTurn: a failing typing indicator does not stop the message', async () =
 });
 
 test('runTurn: a dry-run private turn is mirrored without a channel name, never as "#null"', async () => {
-  const mirrored = [];
-  const client = {
-    ...guildClient(),
-    channels: { fetch: async () => ({ send: async (payload) => mirrored.push(payload) }) },
-  };
+  const mirror = fakeTurnChannel({ id: 'mirror1', name: 'mirror' });
   const hot = privateHot({ dryRun: true });
   hot.config.bot.dryRunChannelId = 'mirror1';
-  const { channel } = await runPrivateTurn({ hot, client });
+  const { channel } = await runPrivateTurn({ hot });
+  const mirrored = mirror.sent;
   assert.equal(channel.sent.length, 0);
   assert.equal(mirrored.length, 1);
   assert.ok(!mirrored[0].content.split('\n')[0].includes('#null'), mirrored[0].content);
@@ -4700,9 +4643,10 @@ function lineIn(channelId, { raw, ...fields }) {
 }
 
 /**
- * Another text channel of `turnChannel`'s guild the bot may read, holding `messages`; its newest
+ * Another text channel of the same community the bot may read, holding `messages`; its newest
  * message is at `lastTs` (a neighbour when within the last hour of NOW). `readOnly`: the bot
- * cannot send there. `fetchFails`: every history fetch throws. Records every fetch in `fetches`.
+ * cannot send there. `fetchFails`: every history read of it fails. `fetches` lists the history
+ * reads made of it.
  */
 function addChannel(
   turnChannel,
@@ -4713,28 +4657,19 @@ function addChannel(
     lastTs = messages.at(-1)?.createdTimestamp ?? NOW - 3 * HOUR,
     readOnly = false,
     fetchFails = false,
+    ...more
   }
 ) {
-  const base = fakeTurnChannel({ id, name, historyMessages: messages });
-  const fetches = [];
-  const other = {
-    ...base,
-    guild: turnChannel.guild,
-    isTextBased: () => true,
-    isThread: () => false,
-    lastMessageId: SnowflakeUtil.generate({ timestamp: lastTs }).toString(),
-    permissionsFor: () => ({ has: (flag) => !readOnly || flag !== PermissionFlagsBits.SendMessages }),
-    fetches,
-    messages: {
-      cache: new Map(),
-      fetch: async (arg) => {
-        fetches.push(arg);
-        if (fetchFails) throw new Error('fixture: fetch failed');
-        return base.messages.fetch(arg);
-      },
-    },
-  };
-  turnChannel.guild.channels.cache.set(id, other);
+  const other = fakeTurnChannel({
+    id,
+    name,
+    guildId: turnChannel.guildId,
+    historyMessages: messages,
+    lastMessageAt: lastTs,
+    ...(readOnly ? { permissions: { send: false } } : {}),
+    ...more,
+  });
+  if (fetchFails) other.failHistory();
   return other;
 }
 
@@ -4808,11 +4743,8 @@ function pullScene({
   return { channel, other, hot, llm, store, turns, trigger: normalizedTrigger(call) };
 }
 
-/** Makes the fixture channel `channel` a text channel listed in its own guild, as a main channel must be. */
+/** A channel of the world is a text channel listed in its community already, as a main channel must be. */
 function registerTextChannel(channel) {
-  channel.isTextBased = () => true;
-  channel.isThread = () => false;
-  channel.guild.channels.cache.set(channel.id, channel);
   return channel;
 }
 
@@ -5137,7 +5069,22 @@ test('runTurn: route hook ids are pulled after explicit mentions', async () => {
 
 test('runTurn: an earlier route pick fetches the page before the oldest line shown last time, else the newest page', async () => {
   const answers = [[DIARY], [{ id: DIARY, direction: 'earlier' }]];
-  const scene = pullScene({ mention: false, routeChannels: async () => answers.shift() ?? [] });
+  // The fake interface answers `before` as a platform does, so there is an earlier line to find: the first page holds
+  // the lines of the hour before the newest one (minMessages 0), the second starts before the oldest of them (the old
+  // fixture answered every page alike).
+  const earlier = lineIn(DIARY, {
+    id: 'd0',
+    authorId: 'u3',
+    authorName: 'Éloïse',
+    ts: NOW - 4 * HOUR,
+    content: 'πριν',
+  });
+  const scene = pullScene({
+    mention: false,
+    context: { pull: { minMessages: 0, scanMessages: 20, maxChannels: 1, sameAudience: true } },
+    diary: { messages: [earlier, ...diaryLines()] },
+    routeChannels: async () => answers.shift() ?? [],
+  });
 
   const { logs } = await withCapturedLogs(async () => {
     await scene.turns.runTurn({
@@ -5411,7 +5358,7 @@ test('runTurn: a private chat whose partner cannot be fetched as a guild member 
     store: privateStore(),
     llm,
     calibrator: identityCalibrator(),
-    client: guildClient(),
+    client: fakeClient(),
     images: fakeImages(),
     routeChannels: async () => {
       asked += 1;
@@ -5445,17 +5392,11 @@ test('runTurn: a private chat whose partner cannot be fetched as a guild member 
  */
 function privatePullScene({ features = {}, canView = true, mention = false, routeChannels } = {}) {
   const server = fakeTurnChannel({ id: 'c1' });
-  const guild = server.guild;
-  const partner = { id: 'u1', guild };
+  world().member('g1', { id: 'u1', name: 'Alice' });
   const memberFetches = [];
-  guild.members.fetch = async (id) => {
-    memberFetches.push(id);
-    return partner;
-  };
-  const diary = addChannel(server, { id: DIARY, name: 'diary', messages: diaryLines() });
-  const botView = diary.permissionsFor;
-  diary.permissionsFor = (target) =>
-    target === partner ? { has: (flag) => canView || flag !== PermissionFlagsBits.ViewChannel } : botView(target);
+  world().tap('memberInfo', ([member]) => memberFetches.push(member.memberId));
+  // The interface tells whether the partner (u1) can view each conversation of the listing.
+  const diary = addChannel(server, { id: DIARY, name: 'diary', messages: diaryLines(), viewers: { u1: canView } });
   const call = lineIn('dm1', {
     id: 'p1',
     authorId: 'u1',
@@ -5465,7 +5406,7 @@ function privatePullScene({ features = {}, canView = true, mention = false, rout
   });
   const channel = fakeTurnChannel({ id: 'dm1', dm: true, historyMessages: [call] });
   const llm = sequenceLlm(['<msg>ok</msg>']);
-  const client = fakeClient({ guilds: { cache: new Map([['g1', guild]]) } });
+  const client = fakeClient();
   const turns = createTurnRunner({
     discord: DISCORD,
     createPort: createDiscordAdapter,
@@ -5482,7 +5423,7 @@ function privatePullScene({ features = {}, canView = true, mention = false, rout
   const trigger = { ...normalizedTrigger(call), ...(mention ? { mentionedChannelIds: [DIARY] } : {}) };
   const run = () =>
     withCapturedLogs(() => turns.runTurn({ channel, guildId: 'g1', mode: 'reply', trigger, triggerKind: 'private' }));
-  return { channel, diary, guild, partner, memberFetches, llm, run };
+  return { channel, diary, memberFetches, llm, run };
 }
 
 /** A route hook that names #diary and records its arguments. */
@@ -5504,9 +5445,11 @@ test('runTurn: a private chat asks the route hook for its partner and pulls the 
   assert.equal(result.outcome, 'spoke');
   assert.deepEqual(scene.memberFetches, ['u1']);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].channel, scene.channel);
-  assert.equal(calls[0].guild, scene.guild, 'judged in the served guild');
-  assert.equal(calls[0].partner, scene.partner);
+  // Changed with the contract: the hook gets the conversation's info, the served community's listing and the
+  // partner's member record (the hook's arguments held platform objects before).
+  assert.equal(calls[0].channel.id, scene.channel.id);
+  assert.equal(calls[0].snapshot.communityId, 'g1', 'judged in the served community');
+  assert.equal(calls[0].partner.id, 'u1');
   assert.equal(calls[0].triggerKind, 'private');
   assert.deepEqual(
     calls[0].history.map((m) => m.id),
@@ -5564,9 +5507,7 @@ test('runTurn: features.privateLikeServer off -- a private chat asks no route ho
 test('runTurn: a private chat whose partner left the guild pulls nothing and logs the failed fetch', async () => {
   const { calls, hook } = diaryHook();
   const scene = privatePullScene({ mention: true, routeChannels: hook });
-  scene.guild.members.fetch = async () => {
-    throw new Error('Unknown Member');
-  };
+  world().port.failNext('memberInfo', { status: 'failed', error: { code: 'unknown-member', retryable: false } });
 
   const { result, logs } = await scene.run();
 
@@ -5829,7 +5770,7 @@ test('runTurn: senses name only a usable main channel, the first one in list ord
     {
       name: 'thread',
       main: ['c5'],
-      add: (scene) => Object.assign(addChannel(scene.channel, { id: 'c5', name: 'lounge' }), { isThread: () => true }),
+      add: (scene) => addChannel(scene.channel, { id: 'c5', name: 'lounge', kind: 'thread' }),
       expected: null,
     },
     {
@@ -5858,22 +5799,21 @@ test('usableDestination: the first usable main channel, never the excepted one; 
   const general = registerTextChannel(fakeTurnChannel());
   const hall = addChannel(general, { id: 'c6', name: 'hall' });
   const config = { bot: {}, features: {}, memory: { mainChannelIds: ['c1', 'c6'] } };
+  // The destination is a conversation of the turn's listing now (it was a discord.js guild's channel cache).
+  const listing = snapshotOf('g1', { conversations: [general.info, hall.info], groups: [] });
 
-  assert.deepEqual(usableDestination(general.guild, config, { discord: DISCORD }), { channel: general, reason: null });
-  assert.deepEqual(usableDestination(general.guild, config, { exceptId: 'c1', discord: DISCORD }), {
-    channel: hall,
-    reason: null,
+  assert.deepEqual(usableDestination(listing, config), { channel: general.info, reason: null });
+  assert.deepEqual(usableDestination(listing, config, { exceptId: 'c1' }), { channel: hall.info, reason: null });
+  assert.deepEqual(usableDestination(listing, { ...config, features: { elsewhere: false } }), {
+    channel: null,
+    reason: 'off',
+  });
+  assert.deepEqual(usableDestination(listing, { ...config, memory: { mainChannelIds: [] } }), {
+    channel: null,
+    reason: 'no-destination',
   });
   assert.deepEqual(
-    usableDestination(general.guild, { ...config, features: { elsewhere: false } }, { discord: DISCORD }),
-    { channel: null, reason: 'off' }
-  );
-  assert.deepEqual(
-    usableDestination(general.guild, { ...config, memory: { mainChannelIds: [] } }, { discord: DISCORD }),
-    { channel: null, reason: 'no-destination' }
-  );
-  assert.deepEqual(
-    usableDestination(null, config, { discord: DISCORD }),
+    usableDestination(null, config),
     { channel: null, reason: 'no-destination' },
     'a private chat has none'
   );
@@ -5920,7 +5860,7 @@ test("runTurn: on a routed turn the route hook reads the source channel's lines"
 
   assert.equal(result.outcome, 'spoke');
   assert.equal(hookCalls.length, 1);
-  assert.equal(hookCalls[0].channel, scene.channel, 'asked for the destination');
+  assert.equal(hookCalls[0].channel.id, scene.channel.id, 'asked for the destination');
   assert.deepEqual(
     hookCalls[0].history.map((m) => m.id),
     ['d1', 'd2', 'd3'],
@@ -6092,11 +6032,8 @@ test('runTurn: a pull candidate whose check throws is left out, and a routed tur
       }),
     ],
   });
-  Object.defineProperty(notes, 'permissionOverwrites', {
-    get() {
-      throw new Error('fixture: broken channel');
-    },
-  });
+  // A listing entry the check cannot read (a group list that is no list) makes the check throw.
+  notes.update({ audience: { ...EVERYONE_AUDIENCE, groups: 5 } });
 
   const { result, logs } = await withCapturedLogs(() => scene.turns.runTurn(scene.params));
 
@@ -6200,16 +6137,6 @@ function linked(text, messageId) {
   return fill(labels.elsewhere.link, { text, link: diaryLink(messageId) });
 }
 
-/** A client whose dry-run mirror channel records every post in `mirrored`. */
-function mirrorClient(mirrored) {
-  return fakeClient({ channels: { fetch: async () => ({ send: async (payload) => mirrored.push(payload) }) } });
-}
-
-/** Lets the bot read `channel` but not put a reaction there. */
-function denyReactions(channel) {
-  channel.permissionsFor = () => ({ has: (flag) => flag !== PermissionFlagsBits.AddReactions });
-}
-
 test('runTurn: a reaction to a pulled line reacts in the source channel, one to a chat line stays here', async () => {
   const scene = pullScene({
     features: { typingSimulation: false },
@@ -6234,7 +6161,7 @@ test('runTurn: a reaction to a pulled line is dropped where the bot cannot react
     features: { typingSimulation: false },
     llm: fakeLlm('<react to="#3">🎉</react><react to="#2">👍</react>'),
   });
-  denyReactions(scene.other);
+  scene.other.permit({ react: false });
 
   const { result, logs } = await withCapturedLogs(() =>
     scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
@@ -6594,19 +6521,19 @@ test('runTurn: a noticed turn whose source block the budget dropped posts no lin
 
 test('runTurn: a reaction on a pulled line whose channel is gone is dropped as not-found', async () => {
   for (const dryRun of [false, true]) {
-    let guild = null;
+    let other = null;
     const calls = [];
-    // The pulled channel leaves the guild's cache while the model answers.
+    // The pulled channel leaves the community while the model answers.
     const llm = {
       calls,
       complete: async (messages) => {
         calls.push(messages);
-        guild.channels.cache.delete(DIARY);
+        other.leave();
         return { text: '<react to="#3">🎉</react>', usage: {}, estimated: 10 };
       },
     };
     const scene = pullScene({ features: { typingSimulation: false, dryRun }, llm });
-    guild = scene.channel.guild;
+    other = scene.other;
 
     const { result, logs } = await withCapturedLogs(() =>
       scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
@@ -6736,7 +6663,6 @@ test('runTurn: a dry-run routed turn acts nowhere, yet marks what it saw', async
   const answer = '<react to="#2">🎉</react><react to="#1">👍</react><msg reply="#4">ναι, μπλε</msg>';
   const scene = routedScene({
     hot: fakeHot({ dryRun: true }, { dryRunChannelId: 'mirror1' }),
-    client: mirrorClient([]),
     llm: fakeLlm(answer),
   });
 
@@ -6766,7 +6692,7 @@ test('runTurn: a turn whose output never reached the chat reports delivered fals
   const quiet = { typingSimulation: false };
   // The bot may not react in the source: the one reaction, on the call, is dropped.
   const denied = routedScene({ features: quiet, llm: fakeLlm('<react to="#4">👍</react>') });
-  denyReactions(denied.other);
+  denied.other.permit({ react: false });
   const dropped = await withCapturedLogs(() => denied.turns.runTurn(denied.params));
   assert.deepEqual([dropped.result.outcome, dropped.result.delivered], ['spoke', false]);
   assert.deepEqual([denied.other.reactCalls, denied.channel.sent], [[], []]);
@@ -6774,15 +6700,10 @@ test('runTurn: a turn whose output never reached the chat reports delivered fals
 
   // Discord refuses the reaction on a chat line.
   const refusing = routedScene({ features: quiet, llm: fakeLlm('<react to="#1">👍</react>') });
-  const fetchMessages = refusing.channel.messages.fetch;
-  refusing.channel.messages.fetch = async (arg) =>
-    arg && typeof arg === 'object'
-      ? fetchMessages(arg)
-      : {
-          react: async () => {
-            throw new Error('fixture: reaction refused');
-          },
-        };
+  world().port.failNext('react', {
+    status: 'failed',
+    error: { code: 'fixture-refused', retryable: false },
+  });
   const failed = await withCapturedLogs(() => refusing.turns.runTurn(refusing.params));
   assert.deepEqual([failed.result.outcome, failed.result.delivered], ['spoke', false]);
   assert.ok(failed.logs.some((l) => l.msg === 'turn: reaction failed'));
@@ -6986,37 +6907,33 @@ const OPEN_ROOM = '100000000000000011';
 const STAFF_ROOM = '100000000000000012';
 const STAFF_ROLE = '100000000000000099';
 
+const EVERYONE_AUDIENCE = {
+  everyone: true,
+  groups: [],
+  groupAllow: [],
+  groupDeny: [],
+  memberAllow: [],
+  memberDeny: [],
+  memberGroups: {},
+};
+
+/** What every group can view: everyone, and the staff group on its own. */
+const ALL_GROUPS_VIEW = { ...EVERYONE_AUDIENCE, groups: [STAFF_ROLE] };
+
 /**
- * Gives `guild` its roles -- @everyone (the guild's id) and a staff role -- and two more text
- * channels the bot reads (quiet: never a neighbour): #open, which every role can view, and
- * #staff, which only the staff role can. A fakeTurnChannel grants every permission, so the
- * turn's own channel is viewable by every role.
+ * Gives the community two more text channels the bot reads (quiet: never a neighbour): #open, which every
+ * group can view, and #staff, which only the staff group (STAFF_ROLE) can. `turnChannels` are the channels of the
+ * test that every group can view as well (a fakeTurnChannel is open to everyone, with no group in mind).
  */
-function audienceGuild(guild) {
-  const everyone = { id: guild.id };
-  const staff = { id: STAFF_ROLE };
-  guild.roles = {
-    everyone,
-    cache: new Map([
-      [everyone.id, everyone],
-      [staff.id, staff],
-    ]),
-  };
-  const room = (id, name, viewers) =>
-    guild.channels.cache.set(id, {
-      id,
-      name,
-      guild,
-      isTextBased: () => true,
-      isThread: () => false,
-      permissionsFor: (target) =>
-        target === guild.members.me
-          ? { has: () => true }
-          : { has: (flag) => flag === PermissionFlagsBits.ViewChannel && viewers.includes(target?.id) },
-    });
-  room(OPEN_ROOM, 'open', [everyone.id, staff.id]);
-  room(STAFF_ROOM, 'staff', [staff.id]);
-  return guild;
+function audienceGuild(...turnChannels) {
+  for (const turnChannel of turnChannels) turnChannel.update({ audience: ALL_GROUPS_VIEW });
+  const open = fakeTurnChannel({ id: OPEN_ROOM, name: 'open', audience: ALL_GROUPS_VIEW });
+  const staff = fakeTurnChannel({
+    id: STAFF_ROOM,
+    name: 'staff',
+    audience: { ...EVERYONE_AUDIENCE, everyone: false, groups: [STAFF_ROLE] },
+  });
+  return { open, staff };
 }
 
 /** Three live lines: one of #general (c1), one of #open, one of #staff. */
@@ -7047,7 +6964,7 @@ function recentShownLogs(logs) {
 test("turn: <recent> shows this channel's lines and those of channels everyone here can read, never a narrower channel's", async () => {
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
-  audienceGuild(channel.guild);
+  const rooms = audienceGuild(channel);
   const store = recentStore(threeRooms(), { channels: [{ id: OPEN_ROOM, name: 'open' }] });
   const llm = fakeLlm('<skip/>');
   const turns = createTurnRunner({
@@ -7080,11 +6997,8 @@ test("turn: <recent> shows this channel's lines and those of channels everyone h
   assert.ok(!text.includes('στο γραφείο'), 'a channel only the staff can read never reaches #general');
 
   // In #staff, whose readers can all read #general and #open, all three are shown.
-  const staffChannel = {
-    ...fakeTurnChannel({ id: STAFF_ROOM, historyMessages: [{ ...raw, channelId: STAFF_ROOM }] }),
-    guild: channel.guild,
-  };
-  staffChannel.permissionsFor = channel.guild.channels.cache.get(STAFF_ROOM).permissionsFor;
+  world().seed(STAFF_ROOM, [{ ...raw, channelId: STAFF_ROOM }]);
+  const staffChannel = rooms.staff;
   const staffLlm = fakeLlm('<skip/>');
   const staffTurns = createTurnRunner({
     discord: DISCORD,
@@ -7096,7 +7010,6 @@ test("turn: <recent> shows this channel's lines and those of channels everyone h
     client: fakeClient(),
     now: () => NOW,
   });
-  registerTextChannel(channel);
   await withCapturedLogs(() =>
     staffTurns.runTurn({
       channel: staffChannel,
@@ -7114,13 +7027,13 @@ test("turn: <recent> shows this channel's lines and those of channels everyone h
 
 test('turn: a private chat shows only the recent lines of channels everyone on the server can read', async () => {
   const general = fakeTurnChannel({ id: 'c1' });
-  const guild = audienceGuild(general.guild);
-  registerTextChannel(general);
+  const rooms = audienceGuild(general);
+  const guild = { id: 'g1' };
   const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', content: 'hey' });
   const dm = fakeTurnChannel({ id: 'dm1', dm: true, historyMessages: [raw] });
   const store = recentStore(threeRooms());
   const llm = fakeLlm('<skip/>');
-  const client = fakeClient({ guilds: { cache: new Map([[guild.id, guild]]) } });
+  const client = fakeClient();
   const turns = createTurnRunner({
     discord: DISCORD,
     createPort: createDiscordAdapter,
@@ -7146,20 +7059,8 @@ test('turn: a private chat shows only the recent lines of channels everyone on t
   assert.ok(text.includes('εδώ το πρωί') && text.includes('στην αυλή'), 'channels every member can read');
   assert.ok(!text.includes('στο γραφείο'));
 
-  // A role denied on #open hides it from some members: it is no longer every member's.
-  guild.channels.cache.get(OPEN_ROOM).permissionOverwrites = {
-    cache: new Map([
-      [
-        STAFF_ROLE,
-        {
-          id: STAFF_ROLE,
-          type: 0,
-          allow: { has: () => false },
-          deny: { has: (flag) => flag === PermissionFlagsBits.ViewChannel },
-        },
-      ],
-    ]),
-  };
+  // A group denied on #open hides it from some members: it is no longer every member's.
+  rooms.open.update({ audience: { ...EVERYONE_AUDIENCE, groupDeny: [STAFF_ROLE] } });
   const deniedLlm = fakeLlm('<skip/>');
   const denied = createTurnRunner({
     discord: DISCORD,
@@ -7201,7 +7102,7 @@ test('turn: with no live line <recent> still shows the moments of the last hours
   const run = async (lines) => {
     const raw = rawMessage({ id: 'm1' });
     const channel = fakeTurnChannel({ historyMessages: [raw] });
-    audienceGuild(channel.guild);
+    audienceGuild(channel);
     const llm = fakeLlm('<skip/>');
     const store = recentStore(lines, { userProfiles: { u9: nikos } });
     const turns = createTurnRunner({
@@ -7238,7 +7139,7 @@ test('turn: features.recent false, memory off or a store without the recent stor
   const run = async ({ store, features = {} }) => {
     const raw = rawMessage({ id: 'm1' });
     const channel = fakeTurnChannel({ historyMessages: [raw] });
-    audienceGuild(channel.guild);
+    audienceGuild(channel);
     const llm = fakeLlm('<skip/>');
     const turns = createTurnRunner({
       discord: DISCORD,
@@ -7291,35 +7192,33 @@ test('turn: features.recent false, memory off or a store without the recent stor
 
 // --- the request input, named in full (src/behavior/turn-input.js) ----------------------------
 
-/** Makes #open and #staff of audienceGuild active neighbours (a fresh line each), recording their fetches. */
-function activeRooms(guild) {
+/** Makes #open and #staff of audienceGuild active neighbours (a fresh line each), recording their history reads. */
+function activeRooms(rooms) {
   const fetched = [];
-  for (const [id, text] of [
-    [OPEN_ROOM, 'στην αυλή τώρα'],
-    [STAFF_ROOM, 'στο γραφείο τώρα'],
+  for (const [room, text] of [
+    [rooms.open, 'στην αυλή τώρα'],
+    [rooms.staff, 'στο γραφείο τώρα'],
   ]) {
-    const room = guild.channels.cache.get(id);
-    const line = lineIn(id, { id: `${id}-1`, authorId: 'u5', authorName: 'Inès', ts: NOW - 2 * MINUTE, content: text });
-    Object.assign(room, {
-      viewable: true,
-      lastMessageId: SnowflakeUtil.generate({ timestamp: NOW - 2 * MINUTE }).toString(),
-      messages: {
-        cache: new Map(),
-        fetch: async () => {
-          fetched.push(id);
-          return new Map([[line.id, line]]);
-        },
-      },
+    const line = lineIn(room.id, {
+      id: `${room.id}-1`,
+      authorId: 'u5',
+      authorName: 'Inès',
+      ts: NOW - 2 * MINUTE,
+      content: text,
     });
+    world().seed(room.id, [line]);
+    room.update({ lastMessageAt: NOW - 2 * MINUTE });
   }
+  world().tap('history', ([ref]) => {
+    if ([OPEN_ROOM, STAFF_ROOM].includes(ref.conversationId)) fetched.push(ref.conversationId);
+  });
   return fetched;
 }
 
 test('runTurn: a neighbour whose audience the channel does not cover is left out of <other_channels> and <server>, unfetched', async () => {
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
-  audienceGuild(channel.guild);
-  const fetched = activeRooms(channel.guild);
+  const fetched = activeRooms(audienceGuild(channel));
   const store = fakeStore({
     channels: [
       { id: 'c1', name: 'general', days: {} },
@@ -7357,14 +7256,11 @@ test('usableDestination: the dry-run mirror or a channel the bot cannot read is 
   const general = registerTextChannel(fakeTurnChannel());
   const hall = addChannel(general, { id: 'c6', name: 'hall' });
   const config = { bot: { dryRunChannelId: 'c1' }, features: {}, memory: { mainChannelIds: ['c1', 'c6'] } };
-  assert.equal(
-    usableDestination(general.guild, config, { discord: DISCORD }).channel,
-    hall,
-    'the mirror is passed over'
-  );
-  hall.permissionsFor = () => ({ has: (flag) => flag !== PermissionFlagsBits.ReadMessageHistory });
+  const listing = () => snapshotOf('g1', { conversations: [general.info, hall.info], groups: [] });
+  assert.equal(usableDestination(listing(), config).channel.id, hall.id, 'the mirror is passed over');
+  hall.permit({ read: false });
   assert.deepEqual(
-    usableDestination(general.guild, config, { discord: DISCORD }),
+    usableDestination(listing(), config),
     { channel: null, reason: 'no-destination' },
     'unreadable: not usable'
   );
@@ -7402,12 +7298,8 @@ async function followUpTurn({ features = {}, answer = '<msg>ένα</msg><msg>δ�
 test('runTurn: a second message that fails to send ends the turn as spoke with what reached the chat', async () => {
   const { result, logs, channel, turns } = await followUpTurn({
     answer: '<msg>ένα</msg><msg>δύο</msg><msg>τρία</msg>',
-    configure: ({ channel: c }) => {
-      const send = c.send;
-      c.send = async (payload) => {
-        if (payload.content === 'δύο') throw new Error('fixture: Missing Permissions');
-        return send(payload);
-      };
+    configure: () => {
+      world().failSends((text) => text === 'δύο');
     },
   });
   assert.deepEqual({ outcome: result.outcome, delivered: result.delivered }, { outcome: 'spoke', delivered: true });
@@ -7426,11 +7318,7 @@ test('runTurn: a message that fails to send ends the turn partial with a sendFai
   const channel = fakeTurnChannel({
     historyMessages: [rawMessage({ id: 'm0', ts: NOW - 5000, authorId: 'u2', authorName: 'Bob' }), raw],
   });
-  const send = channel.send;
-  channel.send = async (payload) => {
-    if (payload.content === 'δύο') throw new Error('fixture: Missing Permissions');
-    return send(payload);
-  };
+  world().failSends((text) => text === 'δύο');
   const store = fakeStore();
   const hot = fakeHot({ typingSimulation: false });
   const turns = createTurnRunner({
@@ -7457,16 +7345,15 @@ test('runTurn: a message that fails to send ends the turn partial with a sendFai
   assert.deepEqual([fact.n, fact.total], [1, 3]);
   assert.equal(typeof fact.code, 'string');
   // A turn whose messages all went out leaves no such fact.
+  freshWorld();
   const fine = await followUpTurn({});
   assert.equal(fine.result.partial, undefined);
 });
 
 test('runTurn: a first message that fails to send ends spoke with nothing delivered', async () => {
   const { result, channel } = await followUpTurn({
-    configure: ({ channel: c }) => {
-      c.send = async () => {
-        throw new Error('fixture: Missing Permissions');
-      };
+    configure: () => {
+      world().failSends();
     },
   });
   assert.deepEqual({ outcome: result.outcome, delivered: result.delivered }, { outcome: 'spoke', delivered: false });
@@ -7746,11 +7633,9 @@ function settleScene({ settleMs, activity }) {
   const raw = rawMessage({ id: 'm1', ts: NOW - 1000 });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const fetchedAt = [];
-  const fetchAll = channel.messages.fetch;
-  channel.messages.fetch = async (arg) => {
-    if (arg && typeof arg === 'object' && 'limit' in arg) fetchedAt.push(clock.t);
-    return fetchAll(arg);
-  };
+  world().tap('history', ([ref]) => {
+    if (ref.conversationId === channel.id) fetchedAt.push(clock.t);
+  });
   const waits = [];
   const schedule = (fn, ms) => {
     waits.push(ms);
@@ -8469,11 +8354,9 @@ test('runTurn: turn: timings carries every stage, null for one that did not run'
     },
   };
   const scene = paceScene({ caption, clock: () => t, llm });
-  const fetchMessages = scene.channel.messages.fetch;
-  scene.channel.messages.fetch = async (arg) => {
-    if (arg && typeof arg === 'object' && 'limit' in arg) t += 100;
-    return fetchMessages(arg);
-  };
+  world().tap('history', ([ref]) => {
+    if (ref.conversationId === scene.channel.id) t += 100;
+  });
 
   const running = withCapturedLogs(() => scene.turns.runTurn(scene.params));
   await settleUntil(() => scene.describer.calls > 0);
@@ -8811,7 +8694,7 @@ test('runTurn: a private chat message shows the typing indicator while its turn 
     store: privateStore(),
     llm,
     calibrator: identityCalibrator(),
-    client: guildClient(),
+    client: fakeClient(),
     images: fakeImages(),
     now: () => NOW,
     schedule: timers.schedule,
@@ -9242,14 +9125,14 @@ test('runTurn: a pause ends the chain before its next part', async () => {
 });
 
 test('runTurn: a dry run mirrors each part with its number in the header', async () => {
-  const mirrored = [];
+  const mirror = fakeTurnChannel({ id: 'mirror1', name: 'mirror' });
   const hot = splitHot({ features: { dryRun: true } });
   hot.config.bot.dryRunChannelId = 'mirror1';
   const { result } = await runSplitTurn({
     hot,
     llm: splitLlm({ talk: '<msg>ok</msg>' }),
-    extra: { client: mirrorClient(mirrored) },
   });
+  const mirrored = mirror.sent;
   assert.deepEqual(result, { outcome: 'spoke', mode: 'reply', dryRun: true });
   assert.deepEqual(
     mirrored.map((payload) => /· part (\d)\/(\d)/.exec(payload.content)?.slice(1).join('/')),
@@ -9499,12 +9382,10 @@ async function runPickTurn({
 } = {}) {
   const channel = fakeTurnChannel({ historyMessages: raws });
   const sendTimes = [];
-  const send = channel.send;
-  channel.send = async (payload) => {
+  world().tap('send', () => {
     sendTimes.push(Date.now());
-    if (failGif && String(payload.content).startsWith('https://tenor.com/')) throw new Error('Missing Permissions');
-    return send(payload);
-  };
+  });
+  if (failGif) world().failSends((text) => String(text).startsWith('https://tenor.com/'));
   const llm = pickLlm({ reply, pick });
   const hot = pickHot({ ...hotOptions, typing });
   // With `journaled`, a journal in memory: `limits` are the turn record's.
@@ -9916,19 +9797,15 @@ function rawReplyTo(parentId, fields) {
   return { ...rawMessage(fields), reference: { messageId: parentId } };
 }
 
-/** fakeTurnChannel whose by-id fetch also serves `stored` (raw messages outside the window); `fetchedIds` records every by-id fetch. */
+/** fakeTurnChannel that also holds `stored` (raw messages outside the window); `fetchedIds` records every message read by id. */
 function replyParentChannel(historyMessages, stored = []) {
-  const channel = fakeTurnChannel({ historyMessages });
-  const byId = new Map(stored.map((m) => [m.id, m]));
+  // The stored messages are older than the window, which is exactly the lines of `historyMessages`: the history read
+  // (the newest `context.channelMessages`, set by runReplyParentTurn) leaves them out and a read by id finds them.
+  const channel = fakeTurnChannel({ historyMessages: [...stored, ...historyMessages] });
   const fetchedIds = [];
-  const base = channel.messages.fetch;
-  channel.messages.fetch = async (arg) => {
-    if (typeof arg === 'string') {
-      fetchedIds.push(arg);
-      if (byId.has(arg)) return byId.get(arg);
-    }
-    return base(arg);
-  };
+  world().tap('fetchMessages', ([ref, ids]) => {
+    if (ref.conversationId === channel.id) fetchedIds.push(...ids);
+  });
   channel.fetchedIds = fetchedIds;
   return channel;
 }
@@ -9943,6 +9820,7 @@ function replyParentHot({ fetchReplyParents = true, replyParentsFor = 3, replyPa
 const OLD_PARENT_TS = NOW - 2 * 60 * 60 * 1000;
 
 async function runReplyParentTurn({ hot = replyParentHot(), historyMessages, stored, trigger }) {
+  hot.config.context.channelMessages = historyMessages.length;
   const channel = replyParentChannel(historyMessages, stored);
   const llm = fakeLlm('<msg>ok</msg>');
   const describer = fakeVideoDescriber({});
@@ -10175,15 +10053,8 @@ function participationChannel(historyMessages) {
     ['c2', 'journal'],
     ['c3', 'jardin'],
   ]) {
-    channel.guild.channels.cache.set(id, {
-      id,
-      name,
-      guild: channel.guild,
-      viewable: true,
-      permissionsFor: () => ({ has: () => true }),
-    });
+    fakeTurnChannel({ id, name });
   }
-  channel.guild.channels.cache.set('c1', channel);
   return channel;
 }
 
@@ -10655,12 +10526,10 @@ test('turn: a post writes started then succeeded with the messageId and the turn
   const channel = fakeTurnChannel({ historyMessages: [earlier, raw] });
   const { journal, lines } = journalOverMemory();
   // The started line is written before the message is sent.
-  const send = channel.send;
   const linesAtSend = [];
-  channel.send = async (payload) => {
+  world().tap('send', () => {
     linesAtSend.push(lines.map(({ record }) => `${record.kind}:${record.name ?? ''}:${record.phase ?? ''}`));
-    return send(payload);
-  };
+  });
   const llm = fakeLlm('<msg reply="#2">γεια σου Αλίκη</msg><react to="#1">\u{1F389}</react>');
   const hot = fakeHot({ journal: true, typingSimulation: false });
   const turns = createTurnRunner({
@@ -10745,13 +10614,12 @@ test('turn: a post writes started then succeeded with the messageId and the turn
   assert.equal(dryTurn.actions.length, 2);
 });
 
-test('turn: a send that throws writes unknown', async () => {
+test('turn: a send the interface answers unknown writes unknown, a refused one failed', async () => {
   const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', ts: NOW - 1000 });
-  const run = async (error) => {
+  const run = async (status, code) => {
+    freshWorld();
     const channel = fakeTurnChannel({ historyMessages: [raw] });
-    channel.send = async () => {
-      throw error;
-    };
+    world().failSends(undefined, code, status);
     const { journal, lines } = journalOverMemory();
     const turns = createTurnRunner({
       discord: DISCORD,
@@ -10769,8 +10637,8 @@ test('turn: a send that throws writes unknown', async () => {
     return { result, lines };
   };
 
-  // The request may have reached Discord: the outcome is unknown, never retried.
-  const lost = await run(new Error('socket hang up'));
+  // The request may have reached the platform: the interface answers `unknown`, and the post is never retried.
+  const lost = await run('unknown', 'timeout');
   const posts = actionsNamed(lost.lines, 'post');
   assert.deepEqual(
     posts.map((r) => r.phase),
@@ -10781,9 +10649,8 @@ test('turn: a send that throws writes unknown', async () => {
   assert.deepEqual(turn.posted, []);
   assert.deepEqual(turn.actions, [posts[0].opId]);
 
-  // Discord answered with a refusal: a known failure with its code.
-  const refused = Object.assign(new Error('Missing Permissions'), { status: 403, code: 50013 });
-  const failed = actionsNamed((await run(refused)).lines, 'post');
+  // The platform answered with a refusal: a known failure with its code.
+  const failed = actionsNamed((await run('failed', 'http-403')).lines, 'post');
   assert.deepEqual(
     failed.map((r) => r.phase),
     ['started', 'failed']
@@ -11717,11 +11584,12 @@ test('skills gateway: a normal reply is carried over and posted through the port
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id' });
   const other = await gatewayTurn({ answer: `<msg reply="#1">γεια σου @${handleOf('u1')}</msg>`, port });
   assert.equal(other.result.outcome, 'spoke');
+  const effects = effectsOf(port);
   assert.deepEqual(
-    port.calls.map((call) => call.op),
+    effects.map((call) => call.op),
     ['typing', 'send']
   );
-  assert.deepEqual(port.calls[1].args, [
+  assert.deepEqual(effects[1].args, [
     { iface: 'fake', conversationId: 'c1' },
     {
       text: 'γεια σου <@u1>',
@@ -11853,16 +11721,6 @@ function skillPhases(lines) {
 }
 
 /**
- * The client of the skill-call scenes: it knows `channels` by id, each a text channel of the guild
- * (fakeTurnChannel's permissions, or the ones a channel brings).
- */
-function clientWithChannels(...channels) {
-  return fakeClient({
-    channels: { cache: new Map(channels.map((channel) => [channel.id, { isTextBased: () => true, ...channel }])) },
-  });
-}
-
-/**
  * A mention by Alice (u1, #2) after a line of the persona (#1) in #general (c1), with #νέα (c9,
  * where the bot may do anything) and #αλλού (c8, where it may not send) in the guild; no
  * `skills.conversations` list; the LLM answers `answers` in
@@ -11895,11 +11753,9 @@ async function callTurn({
     rawMessage({ id: 'm1', ts: NOW - 1000, authorId: 'u1', authorName: 'Alice', content: 'γράψε στο #νέα' }),
   ];
   const channel = fakeTurnChannel({ historyMessages: history });
-  channel.guild.channels.cache.set('c9', { id: 'c9', name: '💖νέα', isTextBased: () => true });
-  channel.guild.channels.cache.set('c8', { id: 'c8', name: 'αλλού', isTextBased: () => true });
+  fakeTurnChannel({ id: 'c9', name: '💖νέα' });
+  fakeTurnChannel({ id: 'c8', name: 'αλλού', permissions: { send: false } });
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
-  port.seed('c1', { authorId: 'self-id', messageId: 'm0', text: 'πρώτη' });
-  port.seed('c1', { authorId: 'u1', messageId: 'm1', text: 'γράψε' });
   if (failNext) port.failNext(...failNext);
   const hot = fakeHot(
     { typingSimulation: false, journal: Boolean(journal), ...features },
@@ -11915,17 +11771,14 @@ async function callTurn({
       return send(...args);
     };
   }
-  const noSend = {
-    ...fakeTurnChannel({ id: 'c8', name: 'αλλού' }),
-    permissionsFor: () => ({ has: (flag) => flag !== PermissionFlagsBits.SendMessages }),
-  };
-  const client = clientWithChannels(fakeTurnChannel({ id: 'c9', name: '💖νέα' }), noSend);
+  const client = fakeClient();
   const admin = createAdmin({
     discord: DISCORD,
     hot,
     store,
     client,
     getGuildId: () => 'g1',
+    reads: world().adopt(port),
     port,
     ...(images ? { images } : {}),
     ...(diary ? { diary: diary(hot) } : {}),
@@ -12300,7 +12153,7 @@ test('skill call: features.skills off does nothing at all; safe mode lets only t
     allowed: ['message.create'],
     features: { skills: false },
   });
-  assert.deepEqual(off.port.calls, []);
+  assert.deepEqual(effectsOf(off.port), [], 'nothing went through the port');
   assert.equal(off.llm.calls.length, 1, 'no request after the full stop');
   assert.equal(off.llm.options[0].tools, undefined, 'and no tools');
   const safe = await callTurn({
@@ -12369,7 +12222,7 @@ test('skill call: a dry run only logs the call', async () => {
     allowed: ['message.create'],
     features: { dryRun: true },
   });
-  assert.deepEqual(run.port.calls, []);
+  assert.deepEqual(effectsOf(run.port), [], 'nothing went through the port');
   assert.equal(run.llm.calls.length, 1);
   assert.ok(run.logs.some((entry) => entry.msg === 'dry-run: would call' && entry.skill === 'message.create'));
 });
@@ -12460,24 +12313,25 @@ function callMarkScene({ answers, allowed = ['message.create'], features = {}, j
     rawMessage({ id: 'm0', ts: NOW - 5000, authorId: 'self-id', authorName: 'Bot', content: 'πρώτη' }),
     rawMessage({ id: 'm1', ts: NOW - 1000, authorId: 'u1', authorName: 'Alice', content: 'γράψε στο #νέα' }),
   ];
-  const named = (channel) => {
-    channel.guild.channels.cache.set('c1', { id: 'c1', name: 'general', isTextBased: () => true });
-    channel.guild.channels.cache.set('c9', { id: 'c9', name: '💖νέα', isTextBased: () => true });
-    return channel;
-  };
-  const channel = named(fakeTurnChannel({ historyMessages: history }));
-  const news = named(fakeTurnChannel({ id: 'c9', name: '💖νέα', historyMessages: [] }));
+  const channel = fakeTurnChannel({ historyMessages: history });
+  const news = fakeTurnChannel({ id: 'c9', name: '💖νέα', historyMessages: [] });
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
-  port.seed('c1', { authorId: 'self-id', messageId: 'm0', text: 'πρώτη' });
-  port.seed('c1', { authorId: 'u1', messageId: 'm1', text: 'γράψε' });
   const hot = fakeHot(
     { typingSimulation: false, journal: Boolean(journal), ...features },
     { owners: ['u1'], access: personaGrants(allowed) },
     { skills: { safeMode: false, resultMaxChars: 2000 } }
   );
   const store = fakeStore();
-  const client = clientWithChannels(news);
-  const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => 'g1', port });
+  const client = fakeClient();
+  const admin = createAdmin({
+    discord: DISCORD,
+    hot,
+    store,
+    client,
+    getGuildId: () => 'g1',
+    reads: world().adopt(port),
+    port,
+  });
   const llm = sequenceLlm(answers);
   const clock = { ms: NOW };
   const runner = () =>
@@ -12547,7 +12401,7 @@ test('call marks: a later turn shows the call on her last line of the turn that 
 
   // In #💖νέα her post says which channel's turn posted it; the call itself is not shown there.
   const n1 = { ...rawMessage({ id: 'n1', ts: NOW + 30_000, authorName: 'Alice', content: 'γεια' }), channelId: 'c9' };
-  scene.news.messages.fetch = async () => new Map([there, n1].map((m) => [m.id, m]));
+  world().seed('c9', [there, n1]);
   await scene.run(scene.news, n1);
   const newsChat = lastChat(scene.llm);
   assert.ok(

@@ -29,6 +29,7 @@ import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createDiscordInterface } from '../interfaces/discord/index.js';
 import { tempDir } from './fixtures/tmp.js';
+import { world } from './fixtures/turn-world.ts';
 import { openTestMemory } from './fixtures/memory-db/service.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
@@ -347,6 +348,8 @@ function makeAdmin(rootDir, extra = {}) {
     discord: DISCORD,
     hot,
     store,
+    reads: extra.reads ?? world().reads,
+    port: extra.port ?? world().port,
     client: extra.client ?? {},
     spontaneous: extra.spontaneous ?? {},
     calibrator: extra.calibrator ?? { ratio: 1 },
@@ -2619,8 +2622,8 @@ function fakeSpontaneous(forceResult) {
   const calls = [];
   return {
     calls,
-    force: async (channel, mode, options) => {
-      calls.push([channel.id, mode, options]);
+    force: async (conversation, mode, options) => {
+      calls.push([conversation.conversationId, mode, options]);
       return forceResult ?? { ok: true };
     },
   };
@@ -2629,8 +2632,8 @@ function fakeSpontaneous(forceResult) {
 test('run: message create gives the persona a turn in the context channel, the one who asked its requester', async () => {
   const rootDir = makeRoot();
   const spontaneous = fakeSpontaneous();
-  const client = { channels: { fetch: async (id) => ({ id }) } };
-  const { admin } = makeAdmin(rootDir, { spontaneous, client });
+  world().channel({ id: 'c1' });
+  const { admin } = makeAdmin(rootDir, { spontaneous });
 
   const result = await admin.run('message.create', {}, { channelId: 'c1', userId: '42', roleIds: ['r1'] });
 
@@ -2642,8 +2645,8 @@ test('run: message create gives the persona a turn in the context channel, the o
 test('run: message create uses the channel argument when given, overriding the context channel; a text from a person changes nothing', async () => {
   const rootDir = makeRoot();
   const spontaneous = fakeSpontaneous();
-  const client = { channels: { fetch: async (id) => ({ id }) } };
-  const { admin } = makeAdmin(rootDir, { spontaneous, client });
+  world().channel({ id: 'other' });
+  const { admin } = makeAdmin(rootDir, { spontaneous });
 
   // The mode is the server's: a person always gets her turn, whatever text the arguments carry.
   await admin.run('message.create', { channelId: 'other', text: 'Σ' }, { channelId: 'c1' });
@@ -2935,17 +2938,15 @@ function hotForDraw(rootDir, { model = 'openai/image-model', ...image } = {}) {
 
 function drawClient() {
   const guild = { id: 'g1', name: 'The Server', members: { me: { displayName: 'Persona' } } };
-  const avatarCalls = [];
+  // The address of her large avatar is the interface's to give (`memberInfo` of herself).
+  world().member('g1', {
+    id: 'self-id',
+    name: 'Persona',
+    avatar: { hash: null, url: null, largeUrl: 'https://cdn.example/avatar.png' },
+  });
   return {
-    avatarCalls,
     guilds: { cache: new Map([['g1', guild]]) },
-    user: {
-      username: 'persona-bot',
-      displayAvatarURL(opts) {
-        avatarCalls.push(opts);
-        return 'https://cdn.example/avatar.png';
-      },
-    },
+    user: { id: 'self-id', username: 'persona-bot' },
   };
 }
 
@@ -3005,7 +3006,6 @@ test('run: draw with self adds the appearance and sends the avatar as the refere
 
   await admin.run('draw', { text: 'at the beach', self: true }, { guildId: 'g1' });
 
-  assert.deepEqual(client.avatarCalls, [{ extension: 'png', size: 1024, forceStatic: true }]);
   assert.deepEqual(imageFetcher.calls, [
     { url: 'https://cdn.example/avatar.png', opts: { maxBytes: 4000000, timeoutMs: 7000 } },
   ]);

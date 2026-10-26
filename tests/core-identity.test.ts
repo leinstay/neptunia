@@ -1,8 +1,8 @@
 // Who the persona is and which interface a row belongs to, end to end (the harness of tests/core-slice.test.ts):
 // `startCore` over the fake interface, whose `hello` names the persona and the community. The persona's name in every
 // request is the one of `hello`, a nickname change that arrives as `membership.changed` changes it for the next
-// request, and the rows her turn writes carry the interface of the event, not a fixed one. The legacy seams still hold
-// a stale persona name and id that the core must never read.
+// request, and the rows her turn writes carry the interface of the event, not a fixed one. A legacy surface that still
+// holds a stale persona name and id is handed over, and the core must never read it.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -12,12 +12,12 @@ import { fileURLToPath } from 'node:url';
 import { startCore } from '../src/core.js';
 import { start } from '../src/interface/fake-interface.ts';
 import { openMemoryDb } from '../src/memory/db/open.js';
-import { createFakeLegacy } from './fixtures/fake-legacy.ts';
-import type { MemberMessage } from './fixtures/fake-legacy.ts';
+import { channelInfo, deliver } from './fixtures/core-over-fake.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 type Running = Awaited<ReturnType<typeof start>>;
 type Row = Record<string, unknown>;
+type MemberMessage = { id: string; content: string; at: number };
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const SELF_ID = 'self-id';
@@ -80,13 +80,12 @@ function scriptedLlm() {
 }
 
 // A legacy surface with the persona's old seams put back, to show the core no longer asks them.
-function staleLegacy(base: unknown): unknown {
-  return Object.assign({}, base, { selfName: () => 'Stale', selfId: () => 'stale-id', guildId: 'g-stale' });
+function staleLegacy(): unknown {
+  return { selfName: () => 'Stale', selfId: () => 'stale-id', guildId: 'g-stale' };
 }
 
 async function withIdentityCore(body: (ctx: Context) => Promise<void>) {
   const dirs = folders();
-  const fake = createFakeLegacy({ selfId: SELF_ID });
   const llm = scriptedLlm();
   let running: Running | null = null;
   const core = await startCore({
@@ -97,7 +96,7 @@ async function withIdentityCore(body: (ctx: Context) => Promise<void>) {
         name: 'fake',
         start: async (host) => {
           running = await start(host, {
-            legacy: staleLegacy(fake.legacy),
+            legacy: staleLegacy(),
             self: { id: SELF_ID, name: SELF_NAME },
             community: { id: 'g1', name: 'Alpha' },
           });
@@ -111,11 +110,13 @@ async function withIdentityCore(body: (ctx: Context) => Promise<void>) {
   if (running === null) throw new Error('the core never started the fake interface');
   const live: Running = running;
   const dbPath = join(dirs.dataDir, 'memory.db');
+  live.adapter.seedConversation(channelInfo('c1'));
   const ctx: Context = {
     ...dirs,
     dbPath,
     llm,
-    mentionEvent: (message) => fake.mentionEvent(message),
+    mentionEvent: (message) =>
+      deliver(live.adapter, { id: message.id, text: message.content, at: message.at, mention: true }),
     emit: (event) => live.emit(event),
     posted: () =>
       live.adapter
@@ -146,8 +147,8 @@ async function withIdentityCore(body: (ctx: Context) => Promise<void>) {
 type Context = ReturnType<typeof folders> & {
   dbPath: string;
   llm: ReturnType<typeof scriptedLlm>;
-  mentionEvent(message: MemberMessage): Row;
-  emit(event: Row): Promise<string>;
+  mentionEvent(message: MemberMessage): unknown;
+  emit(event: unknown): Promise<string>;
   posted(): Array<string>;
   rows(kind: string): Array<Row>;
 };

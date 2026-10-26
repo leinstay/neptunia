@@ -20,10 +20,11 @@ import { createChannelRouter } from '../src/behavior/route-channel.js';
 import { DailyCapError } from '../src/llm/openrouter.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { createDiscordInterface } from '../interfaces/discord/index.js';
+import { takeSnapshot } from '../src/behavior/snapshot.ts';
+import { useIface, world } from './fixtures/turn-world.ts';
 
-// The Discord interface's capabilities object, as src/index.js injects it.
-const DISCORD = createDiscordInterface().capabilities;
+// The conversations are held by a fake interface named `fake`.
+useIface('fake');
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SHIPPED_CONFIG = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
@@ -312,36 +313,13 @@ test('routeContext: the last contextMessages before the candidate, and the candi
 
 // ---- the router ------------------------------------------------------------------------------
 
-/** A discord.js-shaped text channel of `guild` every member may view. */
-function fakeChannel(guild, id, name) {
-  const channel = {
-    id,
-    name,
-    guild,
-    viewable: true,
-    lastMessageId: null,
-    isTextBased: () => true,
-    isThread: () => false,
-    permissionsFor: () => ({ has: () => true }),
-    permissionOverwrites: { cache: new Map() },
-  };
-  guild.channels.cache.set(id, channel);
-  return channel;
-}
-
-/** A guild holding #general (c1, the turn's channel), #journal (c2), #jardin (c3) and #secret (c4, hidden from the bot). */
+/** The conversations of the community: #general (c1, the turn's), #journal (c2), #jardin (c3) and #secret (c4, hidden from the bot). */
 function fakeGuild() {
-  const guild = {
-    id: GUILD,
-    members: { me: { id: 'self' } },
-    roles: { everyone: { id: GUILD }, cache: new Map() },
-    channels: { cache: new Map() },
-  };
-  const channel = fakeChannel(guild, 'c1', 'general');
-  fakeChannel(guild, 'c2', 'journal');
-  fakeChannel(guild, 'c3', 'jardin');
-  fakeChannel(guild, 'c4', 'secret').viewable = false;
-  return { guild, channel };
+  const channel = world().channel({ id: 'c1', name: 'general', guildId: GUILD });
+  world().channel({ id: 'c2', name: 'journal', guildId: GUILD });
+  world().channel({ id: 'c3', name: 'jardin', guildId: GUILD });
+  world().channel({ id: 'c4', name: 'secret', guildId: GUILD, permissions: { read: false } });
+  return { channel };
 }
 
 const STORED_CHANNELS = [
@@ -391,23 +369,24 @@ function fakeLlm(answer) {
 }
 
 /** A router over the fake guild (#secret, c4, hidden from the bot), the shipped config and a stand-in prompt. */
-function routerScene({ answer = '1', features = {}, prompt = 'You are {{name}}.', channels } = {}) {
-  const { guild, channel } = fakeGuild();
+async function routerScene({ answer = '1', features = {}, prompt = 'You are {{name}}.', channels } = {}) {
+  const { channel } = fakeGuild();
+  const snapshot = await takeSnapshot(world().reads, GUILD);
   const hot = {
     config: config({ features, llm: { helperTimeoutMs: 12345 } }),
     prompts: { 'route-channel': prompt, labels },
   };
   const llm = fakeLlm(answer);
   let t = NOW;
-  const router = createChannelRouter({ discord: DISCORD, hot, store: fakeStore(channels), llm, now: () => (t += 7) });
+  const router = createChannelRouter({ hot, store: fakeStore(channels), llm, now: () => (t += 7) });
   const history = [
     line('m1', { content: 'τι έγραψε η Ελο;' }),
     line('m2', { authorName: 'Nikos', content: 'στο ημερολόγιο' }),
   ];
   const args = {
     guildId: GUILD,
-    channel,
-    guild,
+    channel: channel.info,
+    snapshot,
     history,
     trigger: history[1],
     triggerKind: 'mention',
@@ -418,7 +397,7 @@ function routerScene({ answer = '1', features = {}, prompt = 'You are {{name}}.'
 }
 
 test('createChannelRouter: a pick returns its channel id; the request lists only pullable channels, newest first', async () => {
-  const { router, llm, args } = routerScene({ answer: '1' });
+  const { router, llm, args } = await routerScene({ answer: '1' });
   const { result, logs } = await withCapturedLogs(() => router(args));
   assert.deepEqual(result, ['c2']);
   assert.equal(llm.calls.length, 1);
@@ -455,11 +434,11 @@ test('createChannelRouter: a pick returns its channel id; the request lists only
 
 test('createChannelRouter: the list is ordered by channel id, not by activity, and the answered number maps back to its channel', async () => {
   // The second scene makes c2 the less recent channel; it is still listed first, and the list text is unchanged.
-  const { router, llm, args } = routerScene({ answer: '2' });
+  const { router, llm, args } = await routerScene({ answer: '2' });
   const first = await withCapturedLogs(() => router(args));
   assert.deepEqual(first.result, ['c3'], 'number 2 is the second line of the id-ordered list');
   const listed = (content) => content.slice(0, content.indexOf('</channels>'));
-  const swapped = routerScene({
+  const swapped = await routerScene({
     answer: '1',
     channels: STORED_CHANNELS.map((c) => (c.id === 'c2' ? { ...c, lastMessageAt: NOW - 90 * MINUTE } : c)),
   });
@@ -473,7 +452,7 @@ test('createChannelRouter: the list is ordered by channel id, not by activity, a
 });
 
 test('createChannelRouter: the request options carry the classifier model, the purpose and the helper timeout', async () => {
-  const { router, llm, args, hot } = routerScene();
+  const { router, llm, args, hot } = await routerScene();
   await withCapturedLogs(() => router(args));
   const { options } = llm.calls[0];
   assert.equal(options.model, hot.config.models.base.analyzer);
@@ -486,7 +465,7 @@ test('createChannelRouter: the request options carry the classifier model, the p
 });
 
 test('createChannelRouter: an earlier pick returns its channel id with the direction and logs it', async () => {
-  const { router, args } = routerScene({ answer: '1 earlier' });
+  const { router, args } = await routerScene({ answer: '1 earlier' });
   const { result, logs } = await withCapturedLogs(() => router(args));
   assert.deepEqual(result, [{ id: 'c2', direction: 'earlier' }]);
   const classified = logs.find((l) => l.msg === 'route: classified');
@@ -501,7 +480,7 @@ test('createChannelRouter: none, an unknown number or junk return no id', async 
     ['maybe', 'unparsed'],
     ['', 'empty'],
   ]) {
-    const { router, args } = routerScene({ answer });
+    const { router, args } = await routerScene({ answer });
     const { result, logs } = await withCapturedLogs(() => router(args));
     assert.deepEqual(result, [], answer);
     assert.equal(logs.find((l) => l.msg === 'route: classified').parse, parse);
@@ -510,13 +489,13 @@ test('createChannelRouter: none, an unknown number or junk return no id', async 
 
 test('createChannelRouter: overheard and private turns, and the switch off, make no call', async () => {
   for (const triggerKind of ['overheard', 'private']) {
-    const { router, llm, args } = routerScene();
+    const { router, llm, args } = await routerScene();
     const { result, logs } = await withCapturedLogs(() => router({ ...args, triggerKind }));
     assert.deepEqual(result, []);
     assert.equal(llm.calls.length, 0, triggerKind);
     assert.equal(logs.length, 0);
   }
-  const off = routerScene({ features: { channelRoute: false } });
+  const off = await routerScene({ features: { channelRoute: false } });
   const { result, logs } = await withCapturedLogs(() => off.router(off.args));
   assert.deepEqual(result, []);
   assert.equal(off.llm.calls.length, 0);
@@ -524,32 +503,34 @@ test('createChannelRouter: overheard and private turns, and the switch off, make
 });
 
 test('createChannelRouter: a private chat with its partner lists the server channels the partner can view; without one it makes no call', async () => {
-  const { router, llm, args } = routerScene({ answer: '2' });
-  const dm = { id: 'dm1', guild: null };
-  const partner = { id: 'u9', guild: args.guild };
-  args.guild.channels.cache.get('c3').permissionsFor = (target) => ({ has: () => target !== partner });
+  const { router, llm, args } = await routerScene({ answer: '2' });
+  const dm = world().channel({ id: 'dm1', dm: true, partnerId: 'u9' }).info;
+  const partner = { id: 'u9' };
+  // The partner cannot view #jardin; the listing says so for the viewer it is asked about.
+  world().channel({ id: 'c3', name: 'jardin', guildId: GUILD, viewers: { u9: false } });
+  const snapshot = await takeSnapshot(world().reads, GUILD, ['u9']);
   const history = args.history.map((m) => ({ ...m, channelId: 'dm1' }));
-  const turn = { ...args, channel: dm, partner, history, trigger: history[1], triggerKind: 'private' };
+  const turn = { ...args, channel: dm, snapshot, partner, history, trigger: history[1], triggerKind: 'private' };
   const { result, logs } = await withCapturedLogs(() => router(turn));
   assert.deepEqual(result, ['c2']);
   const user = userText(llm.calls[0].messages[1].content);
   assert.ok(user.includes('<channels>\n1 | #general |  |\n2 | #journal | Éloïse (Élo) | a diary\n</channels>'), user);
   assert.equal(logs.find((l) => l.msg === 'route: classified').kind, 'private');
 
-  const alone = routerScene();
-  const refused = await withCapturedLogs(() => alone.router({ ...turn, guild: alone.args.guild, partner: null }));
+  const alone = await routerScene();
+  const refused = await withCapturedLogs(() => alone.router({ ...turn, partner: null }));
   assert.deepEqual(refused.result, []);
   assert.equal(alone.llm.calls.length, 0);
   assert.equal(refused.logs.length, 0);
 });
 
 test('createChannelRouter: a spontaneous turn judges the newest member line; no candidate is skipped', async () => {
-  const { router, llm, args } = routerScene();
+  const { router, llm, args } = await routerScene();
   const own = line('m3', { self: true, authorName: 'Zoë', content: 'εγώ' });
   await withCapturedLogs(() => router({ ...args, trigger: null, triggerKind: null, history: [...args.history, own] }));
   assert.ok(userText(llm.calls[0].messages[1].content).endsWith('<candidate>\nNikos: στο ημερολόγιο\n</candidate>'));
 
-  const lonely = routerScene();
+  const lonely = await routerScene();
   const { result, logs } = await withCapturedLogs(() =>
     lonely.router({ ...lonely.args, trigger: null, triggerKind: null, history: [own] })
   );
@@ -562,7 +543,7 @@ test('createChannelRouter: a spontaneous turn judges the newest member line; no 
 });
 
 test('createChannelRouter: no prompt is skipped, no listable channel makes no call and no log', async () => {
-  const blank = routerScene({ prompt: '' });
+  const blank = await routerScene({ prompt: '' });
   const skipped = await withCapturedLogs(() => blank.router(blank.args));
   assert.deepEqual(skipped.result, []);
   assert.equal(blank.llm.calls.length, 0);
@@ -571,7 +552,7 @@ test('createChannelRouter: no prompt is skipped, no listable channel makes no ca
     [['route: skipped', 'no-prompt']]
   );
 
-  const empty = routerScene({ channels: [STORED_CHANNELS[0], STORED_CHANNELS[3]] });
+  const empty = await routerScene({ channels: [STORED_CHANNELS[0], STORED_CHANNELS[3]] });
   const { result, logs } = await withCapturedLogs(() => empty.router(empty.args));
   assert.deepEqual(result, []);
   assert.equal(empty.llm.calls.length, 0);
@@ -580,14 +561,14 @@ test('createChannelRouter: no prompt is skipped, no listable channel makes no ca
 
 test('createChannelRouter: a thrown request returns no id and logs its rail code', async () => {
   const err = new DailyCapError('cap');
-  const { router, args } = routerScene({ answer: err });
+  const { router, args } = await routerScene({ answer: err });
   const { result, logs } = await withCapturedLogs(() => router(args));
   assert.deepEqual(result, []);
   const failed = logs.find((l) => l.msg === 'route: failed');
   assert.equal(failed.reason, 'daily-cap');
   assert.equal(failed.channel, 'c1');
 
-  const plain = routerScene({ answer: Object.assign(new Error('boom'), { statusCode: 502 }) });
+  const plain = await routerScene({ answer: Object.assign(new Error('boom'), { statusCode: 502 }) });
   const second = await withCapturedLogs(() => plain.router(plain.args));
   assert.deepEqual(second.result, []);
   const failedAgain = second.logs.find((l) => l.msg === 'route: failed');
@@ -596,9 +577,15 @@ test('createChannelRouter: a thrown request returns no id and logs its rail code
 });
 
 test('createChannelRouter: a channel whose pull check throws is dropped from the list', async () => {
-  const { router, llm, args } = routerScene();
-  args.guild.channels.cache.get('c3').isTextBased = () => {
-    throw new Error('fixture: broken channel');
+  const { router, llm, args } = await routerScene();
+  // A listing entry that cannot be read: the check of #jardin throws and the channel is dropped.
+  const listing = args.snapshot;
+  args.snapshot = {
+    ...listing,
+    get: (id) => {
+      if (id === 'c3') throw new Error('fixture: broken channel');
+      return listing.get(id);
+    },
   };
   const { result } = await withCapturedLogs(() => router(args));
   assert.deepEqual(result, ['c2']);
@@ -610,10 +597,9 @@ test('createChannelRouter: a channel whose pull check throws is dropped from the
 });
 
 test('createChannelRouter: a store that throws resolves no id instead of rejecting', async () => {
-  const { args } = routerScene();
+  const { args } = await routerScene();
   const { result, logs } = await withCapturedLogs(() =>
     createChannelRouter({
-      discord: DISCORD,
       hot: { config: config(), prompts: { 'route-channel': 'p', labels } },
       store: {
         listChannels: () => {

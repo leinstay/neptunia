@@ -28,7 +28,7 @@ The twelve event kinds:
 
 | Kind | Source | What happens |
 |---|---|---|
-| `message.received` | adapter | A new message, an edit (`edit: true`), or a deletion (`deleted: true`). Carries the message, its author, the addressing (who was mentioned, whether the persona was replied to) and an optional origin record. A partial edit (`edit: true, partial: true`) carries only the message id; the core asks the adapter for the rest. |
+| `message.received` | adapter | A new message, an edit (`edit: true`), or a deletion (`deleted: true`). Carries the message, its author, the addressing (who was mentioned, whether the persona was replied to) and an optional origin record. An edit carries `previous`, the message as it was, or null when the adapter did not hold it. A deletion carries the message id and, when the adapter still knew them, `message.at` and `message.author`. A partial edit (`edit: true, partial: true`) carries only the message id; the core asks the adapter for the rest with a read. |
 | `reaction.changed` | adapter | A reaction put on or taken off a message. Carries the emoji, the member who reacted, and `added` (true for put on, false for taken off). A clear (`cleared: 'emoji'` or `'all'`) removes many at once. |
 | `command.requested` | adapter | An owner command from the chat surface. Carries the command `name`, its `args`, the `requester` and a `replyRef` token the core uses to send the answer back. |
 | `membership.changed` | adapter | A member joined, left or was updated in a community. Carries the `member` with its optional `avatar`. The Discord interface sends `updated` when a member or a user changes. |
@@ -50,6 +50,8 @@ A message looks like this:
 | `id` | The message's id |
 | `author` | `{ id, name, self, bot }` and an optional `avatar`. `self` is true for the persona's own messages; `bot` for another automated account. `avatar` is `{ hash, url }`, each a string or null; `membership.changed` carries the same record on its `member`. |
 | `content` | The text as people read it (mentions written as names) |
+| `sourceText` | The text as the platform stores it, when it differs from `content` (optional). The core compares it to tell an edit of the words from an update of an embed. |
+| `system` | True for a message the platform wrote itself, such as a join notice (optional) |
 | `at` | When it was written (ms since epoch) |
 | `replyToId` | The message it replies to, or null |
 | `replyPingUserId` | The replied-to author when only the reply notified them, or null |
@@ -99,7 +101,26 @@ A `conversation` reference is `{ iface, conversationId }`. A `message` reference
 
 `content` is `{ text?, attachments?, replyTo?, mentions? }`. Attachments are `{ name, data?, url?, contentType? }` (bytes or a URL). `replyTo` is a message reference of the same interface. `mentions` is `{ users, repliedUser }`, the members the message may notify. When mentions are absent, nobody is notified.
 
-An adapter also exposes `fetchMessages(conversation, messageIds)`, which reads messages by id (their text and attachments, or `missing` for a gone message). This is a read, not a capability. Over the link it travels as the action `messages.fetch`, `{ action: 'messages.fetch', conversation, messageIds }`, which `portAction` builds and `validateAction` checks.
+### Reads
+
+A read asks the adapter a question and changes nothing. It is not a capability and it never answers `unknown`, since asking again is always safe. Every read answers `{ status: 'ok', ...body }`, or `failed`, `unsupported` or `forbidden` with an `error`. An adapter declares the reads it answers in `capabilities().reads`, by wire name. `createReads` (`src/interface/reads.ts`) wraps an adapter for the core: a caller gets the body of an `ok` answer and null for anything else. A read the adapter does not declare is null without a call, and a failing read is logged once for each code, with names and codes only. A block of a request that depends on a read is left out when the read gives null.
+
+The table is written from `src/protocol/adapter.ts`. `portAction` builds the wire action of a call and `validateAction` checks its shape.
+
+| Method | Wire action | Arguments | Body of an `ok` answer |
+|---|---|---|---|
+| `conversationInfo` | `conversation.info` | a conversation, optional `audience` and `viewers` | `conversation`, a conversation with `iface`, `permissions` (`read`, `send`, `attach`, `react`), `owner`, `lastMessageAt`, `voice`, `public` and, when asked, `audience` and `viewers` |
+| `conversations` | `conversations.list` | `communityId`, optional `audience` and `viewers` | `conversations` as above and `groups`, each `{ id, name }` |
+| `fetchMessages` | `messages.fetch` | a conversation, `messageIds` | `messages`, one for each id: `missing`, or `text`, `attachments` and the whole `event` |
+| `history` | `messages.history` | a conversation, `limit` (1 to 10,000), at most one of `before`, `after` and `around`, optional `since` | `events` oldest first, and `complete` |
+| `memberInfo` | `member.info` | `communityId` or null, `memberId` | `member` or null: `id`, `name`, `bot`, `groupIds`, `avatar` with `hash`, `url` and `largeUrl` |
+| `searchMessages` | `messages.search` | `communityId`, optional `text`, `authorId`, `after`, `before`, `offset` | `total` and `hits`, each with a message reference, `at`, `text` and the author |
+| `searchMembers` | `members.search` | `communityId`, `prefix`, `limit` (1 to 1,000) | `members`, each with `id`, `handle`, `displayName`, `nickname` and `bot` |
+| `emoji` | `emoji.list` | `communityId` | `emoji`, each `{ id, name, animated, url }` |
+| `parseLinks` | `links.parse` | `texts` (at most 50, each at most 2,000 characters) | `refs`, a message reference or null for each text |
+| `reactors` | `message.reactors` | a message, an `emoji`, `limit` (at most 100) | `memberIds` |
+
+`viewers` names at most 25 members. With `audience` the info carries who can see the conversation, as `everyone`, `groups`, `groupAllow`, `groupDeny`, `memberAllow`, `memberDeny` and `memberGroups`, where a group is what the platform calls a role. With `viewers` the info also carries `viewers`, a map from each named member to whether that member can see the conversation. `history` refuses two anchors, and refuses `since` together with `after` or `around`. An event of a read is the `message.received` event the interface would deliver for that message, so `lineOf` (`src/behavior/line-of.js`) makes the same line of it that a live event gets.
 
 ### Results
 
@@ -126,6 +147,7 @@ An adapter declares what it can do and its limits:
 ```js
 capabilities() → {
   operations: string[],  // the action names it offers
+  reads: string[],       // the read actions it answers (see Reads)
   maxChars,              // code points of text in one message
   maxFiles,              // attachments in one message
   maxFileBytes,          // bytes in one attachment
@@ -135,7 +157,7 @@ capabilities() → {
 
 The turn reads `maxFiles` (how many pictures of a diary set go in one message) and `maxChars` (how long a part of a mirrored prompt is) from `capabilities()` of its port. `messageUrl` holds two templates with `{community}`, `{conversation}` and `{message}`, one for a message of a community and one for a message of a private chat. The core fills them in to link a message it names (a `#n` the persona writes, a call mark, a failed message) and sends no link when the interface declares none.
 
-A call to an action the adapter does not offer returns `unsupported` without contacting the platform.
+A call to an action the adapter does not offer returns `unsupported` without contacting the platform. A read the adapter does not list in `reads` gives the caller null the same way.
 
 ### Validation
 
@@ -216,17 +238,17 @@ A failed startup check, such as a private directory that does not exist, a missi
 
 `emit(event)` on the interface's end checks the event with `validateEvent`, drops the `raw` and `rawPrevious` keys, sends an `event` envelope whose id is the event's own id, and resolves with the status of the `ack` that answers it: `ok`, `duplicate`, `invalid`, `unhandled` or `failed`. An event that fails validation resolves `invalid` and is not sent. A closed transport resolves `failed`. Several events can wait for their acks at once. On the core's end each `event` envelope goes to `door.receive`, its ack goes back, and envelopes are handled concurrently.
 
-The discord.js message behind a message event stays on the Discord side. `createRawRegistry` in `interfaces/discord/raw-registry.ts` keeps the newest 2,000 messages under the event id, and the message pipeline reads them through an injected `rawOf(event)`.
+The discord.js message behind a message event stays on the Discord side. The pipeline decides on the event's own fields and asks the interface for anything else through a read.
 
 ### Actions
 
-Every method of the core's adapter, `link.adapter`, sends one `action` envelope and resolves with the `action_result` whose `replyTo` is the action's id. The actions are the port's capabilities and the read `messages.fetch`. A `send` carries an `idempotencyKey` the link generates. The interface's end remembers the last 1,000 keys and answers a repeated key with the stored result, without calling the adapter again. An action that fails validation is answered `failed` with the code `invalid-action`. The platform error in `error.cause` is removed before a result is sent, because it may not serialise.
+Every method of the core's adapter, `link.adapter`, sends one `action` envelope and resolves with the `action_result` whose `replyTo` is the action's id. The actions are the port's capabilities and the reads. A `send` carries an `idempotencyKey` the link generates. The interface's end remembers the last 1,000 keys and answers a repeated key with the stored result, without calling the adapter again. An action that fails validation is answered `failed` with the code `invalid-action`. The platform error in `error.cause` is removed before a result is sent, because it may not serialise.
 
-At most 256 actions wait for an answer. A call past that answers `failed` with the retryable code `link-busy`. When the link closes, every waiting effect answers `unknown` with the code `link-closed` and a waiting `fetchMessages` answers `failed`. A call made after the close gets the same answers at once. An action has no deadline.
+At most 256 actions wait for an answer. A call past that answers `failed` with the retryable code `link-busy`. When the link closes, every waiting effect answers `unknown` with the code `link-closed` and a waiting read answers `failed`. A call made after the close gets the same answers at once. An action has no deadline.
 
 ### What crosses
 
-Only plain data crosses the socket, that is events, results and attachments, whose bytes travel as base64. A discord.js object, a platform error or a handle never does. The live glance at voice and presence crosses as the events `voice.changed`, `presence.changed`, `presence.snapshot` and `connection.changed`. `interfaces/discord/around.js` builds them from discord.js objects and the core's around store in `src/behavior/around-store.ts` keeps what they report for the `<people_now>` block.
+Only plain data crosses the socket, that is events, results and attachments, whose bytes travel as base64. A discord.js object, a platform error or a handle never does. A read of a conversation, a message or a member crosses as the data of its answer. The live glance at voice and presence crosses as the events `voice.changed`, `presence.changed`, `presence.snapshot` and `connection.changed`. `interfaces/discord/around.js` builds them from discord.js objects and the core's around store in `src/behavior/around-store.ts` keeps what they report for the `<people_now>` block.
 
 ## Conversations and memory scope
 
@@ -252,16 +274,17 @@ The Discord adapter lives in `interfaces/discord/` as the npm workspace package 
 Besides the port, `createDiscordInterface` returns a frozen capabilities object: the functions the core calls by name for everything it still asks Discord. These include:
 
 - Permission checks: whether the bot can read, send, attach or react in a channel.
-- History: fetching the last N messages of a channel, a window around a message, reply parents, neighbour channels.
-- Pulling: fetching another channel's recent messages for the `<channel_view>` prompt block.
+- History: fetching the last N messages of a channel and a window around a message.
+- Pulling: the rails a pull of another channel must pass, over discord.js objects (`checkPull`, `audienceAllows`). The turn pulls through the reads.
 - Searching: guild message search and member search for recall.
-- Reactors: who reacted to the persona's messages (in-process, never persisted).
 - Around: builders that turn voice states, presences and a guild's snapshot into protocol events. The core's around store keeps the live view for the `<people_now>` prompt block, never persisted and gone at restart.
 - Emoji: the server's custom emoji index.
 - Audience: warming the member cache for the audience rail.
 - Commands: the slash command tree, registration and interaction handling.
 
-The core imports none of these directly. The session builds them once, `src/core.js` takes them from `legacy.capabilities` and passes them as `discord` to every module that needs them. A test or a tool hands in plain fakes of the same shape.
+The core imports none of these directly. The session builds them once, `src/core.js` takes them from `legacy.capabilities` and passes them as `discord` to the modules that still need them. A test or a tool hands in plain fakes of the same shape.
+
+The conversation reads of the table above are answered by `interfaces/discord/reads.ts`, which `createDiscordAdapter` adds to its port. The turn, the pipeline and the wake modules take only those reads and the port: the conversations of the community, their permissions, audiences and viewers, the history, the members and the reactors come from the adapter, and the core keeps who reacted to the persona's messages in its own store (`src/behavior/reactor-store.ts`), fed by `reaction.changed`.
 
 ### Gateway intents
 
@@ -305,7 +328,9 @@ One instance serves exactly one Discord server. The guild is resolved from `bot.
 
 `src/interface/fake.js` is an in-memory adapter for tests. It keeps conversations and messages in memory, records every call in order (`calls`), and lets a test queue results for any operation (`failNext`). It validates every outbound action through `validateAction`, so a test driving the persona through the fake also proves she only asks for well-formed actions.
 
-`src/interface/fake-interface.ts` starts the fake the way a package starts: `start(host, { legacy, selfId, self, community })` connects with `host.connect()`, serves the adapter with `serveAdapter` and resolves with the running interface plus `emit(event)`, which injects an inbound event and resolves with the core's ack status, and `adapter`, whose stored messages are what the persona posted. `self` and `community` are what its `hello` tells the core, and a test that names neither gets the account of `selfId` and the community `g1`. The fake has no `legacy` of its own. A test that needs a turn to run passes the discord.js-shaped seams that `tests/fixtures/fake-legacy.ts` builds, and `tests/core-slice.test.ts` starts the whole core this way over temporary directories with the tracked prompts and a scripted model.
+The fake answers every read from what a test seeds: `seedConversation(info)` gives a conversation with its permissions, audience and viewers, `seedEvent(event)` puts a whole message into a conversation's history, `seedMember`, `seedGroups`, `seedEmoji` and `seedReactors` give the members, groups, emoji and reactors a read returns, and `removeConversation` takes a conversation away. The `reads` option limits which reads the fake declares, and `showSendsInHistory(false)` keeps the persona's own sends out of the history it serves.
+
+`src/interface/fake-interface.ts` starts the fake the way a package starts: `start(host, { legacy, selfId, self, community, reads })` connects with `host.connect()`, serves the adapter with `serveAdapter` and resolves with the running interface plus `emit(event)`, which injects an inbound event and resolves with the core's ack status, and `adapter`, whose stored messages are what the persona posted. `self` and `community` are what its `hello` tells the core, and a test that names neither gets the account of `selfId` and the community `g1`. The fake has no `legacy` of its own, and a turn needs none: it reads the conversation through the fake's reads. `tests/fixtures/core-over-fake.ts` starts the whole core over the fake with temporary directories, the tracked prompts and a scripted model, and `tests/core-slice.test.ts` runs a message through it.
 
 `replayFixture(fixture, door)` replays a recorded fixture of inbound events through the event door in order, the way a live adapter would deliver them. A `redeliver: n` field on an event sends it n extra times (the door answers `duplicate` to each), testing at-least-once delivery.
 
@@ -317,7 +342,7 @@ To wire up a new chat platform:
 
 1. Create a directory under `interfaces/` with its own `package.json`. The platform library is a dependency here, not in the engine's root. The core has no platform dependencies.
 
-2. Implement the port. Your adapter exports an object with `iface` (a unique namespace string), the seven methods (`send`, `edit`, `delete`, `react`, `unreact`, `typing`, `fetchMessages`), `capabilities()`, and the three declared hooks (`onMessage`, `onEdit`, `onDelete`). Every method resolves a `PortResult` and never rejects. Every reference your adapter builds uses your `iface`.
+2. Implement the port. Your adapter exports an object with `iface` (a unique namespace string), the six effect methods (`send`, `edit`, `delete`, `react`, `unreact`, `typing`), the ten reads of the table above, `capabilities()` with the `reads` it answers, and the three declared hooks (`onMessage`, `onEdit`, `onDelete`). Every method resolves a `PortResult` and never rejects. Every reference your adapter builds uses your `iface`.
 
 3. Build protocol events from your platform's gateway events. Each event must match the shapes in `src/protocol/events.js` and pass `validateEvent`. Conversations, messages, authors and addressing must be filled from your platform's data with opaque string ids namespaced by your `iface`.
 
@@ -331,15 +356,12 @@ To wire up a new chat platform:
 
 | Field | What it holds | Read by |
 |---|---|---|
-| `client` | The discord.js client. | The turn runner, the memory jobs, the admin, the spontaneous and diary behaviours, the inner life's channel fetch |
-| `capabilities` | The functions the core asks Discord for by name. | Every module that takes `discord` |
-| `rawOf(event)` | The discord.js message behind a message event. | The message pipeline |
+| `client` | The discord.js client. | The admin, the operations, the memory backfills and the recall runner's bridge |
+| `capabilities` | The functions the core asks Discord for by name. | The modules that still take `discord`: the recall runner, the operations and the memory backfills |
 | `resolveMember(guildId, userId)` | One member by REST, as the avatar queue reads it. | The avatar queue |
-| `dmConversationOf(userId)` | A member's private conversation, when the client knows it. | The memory session failure fact |
 | `catchUp` | `channelInfo`, `fetchRecent` and `eventOf` for the offline catch-up. | `createOfflineCatchUp` |
 | `fetchOwnMessages(channelId, count)` | The persona's last messages of a channel. | The journal's reconciliation |
-| `reactors`, `applyReaction(event)` | Who reacted to her messages, and the store's feed. | The turn runner and the door's `reaction.changed` handler |
 | `emoji` | The served guild's custom emoji. | The turn runner |
 | `serveCommands(admin)` | Builds the interaction handler over the core's admin, wires the slash command interactions to it and returns `{ register() }`, which pushes the command tree. | `startCore` |
 
-`catchUp.eventOf` keeps the handles of a caught-up message in the session's own registry, because a message fetched over REST never crosses the link as an event, so `rawOf` finds it like a live one.
+The message pipeline, the turn, the spontaneous and diary behaviours, the inner life and the missed-answer check read the community through the reads, and the member directory and the conversation directory of the core name who and where.

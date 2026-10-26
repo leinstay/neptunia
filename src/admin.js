@@ -42,12 +42,13 @@ const ARCHIVE_CHOICES = 25;
  * `hot`, `store` — see src/hot.js, src/memory/store.js.
  * `client` — a discord.js Client (used for channels.fetch and guilds.cache).
  * `discord` — the Discord interface's capabilities object (interfaces/discord/index.js#
- *   createDiscordInterface; src/index.js passes the one it builds): the permission checks of
- *   an operation posting in another channel (src/ops/shared.js#
- *   postingConversation), `normalizeMessage` for a turn asked
- *   on a message (src/ops/message.js). The operations read it
- *   as `env.discord`.
- * `spontaneous` — the spontaneous scheduler: `force(channel, mode)` and `status()`.
+ *   createDiscordInterface; src/index.js passes the one it builds), for the operations that still read the
+ *   platform directly. The operations read it as `env.discord`.
+ * `reads` — the core's reads of the interface (src/interface/reads.ts): the permission checks of an operation
+ *   posting in another conversation (src/ops/shared.js#postingConversation), a message's event for a turn asked on
+ *   a message (src/ops/message.js). The operations read it as `env.reads`.
+ * `spontaneous` — the spontaneous scheduler: `force(conversation, mode)` and `status()`, the conversation as a
+ *   reference `{ iface, conversationId }`.
  * `calibrator` — token calibrator (src/llm/tokens.js), read for `.ratio`.
  * `getGuildId` — the single guild this instance serves, or null before it resolves.
  * `turns` — from createTurnRunner() (src/behavior/turn.js), optional: `waitIdle()`, used by

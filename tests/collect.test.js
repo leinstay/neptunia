@@ -7,20 +7,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   normalizeMessage,
-  normalizeOptions,
-  normalizedOf,
   toEvent,
   reactionEvent,
-  fetchTextPreview,
-  withTextPreviews,
   fetchHistory,
   fetchMessage,
-  fetchReplyParents,
   canAttach,
   canSend,
   canRead,
   canReact,
-  fetchNeighbors,
   readableChannels,
   isReadableChannel,
   isWritableChannel,
@@ -39,7 +33,6 @@ import { videoUrlCacheKey } from '../src/media/video-sites.js';
 import { collectPictures, collectVideos } from '../src/media/classify.js';
 import { audienceCovers } from '../src/behavior/elsewhere.ts';
 import { emptyGifs, mergeGifs } from '../src/memory/gifs.js';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { formatTranscript } from '../src/format.js';
 import { labels } from './fixtures/labels.js';
 import { validateEvent } from '../src/protocol/index.js';
@@ -926,190 +919,6 @@ test('fetchMessage: a failed or empty fetch, or a channel without a message cach
   assert.equal(await fetchMessage(noCache, 'm9'), uncached);
 });
 
-// --- fetchReplyParents: replies whose parent is outside the window -------------
-
-/** A raw reply to `parentId`. */
-function rawReply(id, ts, parentId, overrides = {}) {
-  return rawMessage({ id, createdTimestamp: ts, reference: parentId ? { messageId: parentId } : null, ...overrides });
-}
-
-/** A channel whose by-id fetch serves `stored` (raw messages) and records every id asked for. */
-function parentChannel(stored) {
-  const byId = new Map(stored.map((m) => [m.id, m]));
-  const fetched = [];
-  return {
-    id: 'c1',
-    fetched,
-    messages: {
-      cache: new Map(),
-      fetch: async (id) => {
-        fetched.push(id);
-        if (!byId.has(id)) throw Object.assign(new Error('Unknown Message'), { code: 10008 });
-        return byId.get(id);
-      },
-    },
-  };
-}
-
-const PARENT_OPTIONS = { recent: 3, max: 4, selfId: 'self', embedTextChars: 200, videoSites: ['youtube.com'] };
-
-test('fetchReplyParents: the trigger replies outside the window -- its parent is fetched and normalized like a history line', async () => {
-  const parent = rawMessage({
-    id: 'p1',
-    createdTimestamp: 100,
-    cleanContent: 'regarde https://www.youtube.com/watch?v=abc',
-  });
-  const channel = parentChannel([parent]);
-  const history = [normalizeMessage(rawReply('m1', 5000, 'p1'), 'self')];
-  const parents = await fetchReplyParents(channel, history, { ...PARENT_OPTIONS, trigger: history[0] });
-  assert.deepEqual(channel.fetched, ['p1']);
-  assert.deepEqual(parents, [normalizeMessage(parent, 'self', { embedTextChars: 200, videoSites: ['youtube.com'] })]);
-  assert.equal(parents[0].links[0].url, 'https://www.youtube.com/watch?v=abc');
-});
-
-test('fetchReplyParents: a parent inside the window is never fetched', async () => {
-  const channel = parentChannel([]);
-  const history = [
-    normalizeMessage(rawMessage({ id: 'p1' }), 'self'),
-    normalizeMessage(rawReply('m1', 5000, 'p1'), 'self'),
-  ];
-  const parents = await fetchReplyParents(channel, history, { ...PARENT_OPTIONS, trigger: history[1] });
-  assert.deepEqual(parents, []);
-  assert.deepEqual(channel.fetched, []);
-});
-
-test('fetchReplyParents: a chain of two -- the parent of the fetched parent comes too, one level only, oldest first', async () => {
-  const root = rawMessage({ id: 'p0', createdTimestamp: 50 });
-  const grand = rawReply('p1', 80, 'p0');
-  const parent = rawReply('p2', 100, 'p1');
-  const channel = parentChannel([root, grand, parent]);
-  const history = [normalizeMessage(rawReply('m1', 5000, 'p2'), 'self')];
-  const parents = await fetchReplyParents(channel, history, { ...PARENT_OPTIONS, trigger: history[0] });
-  assert.deepEqual(
-    parents.map((m) => m.id),
-    ['p1', 'p2']
-  );
-  assert.deepEqual(channel.fetched, ['p2', 'p1']);
-});
-
-test('fetchReplyParents: the last `recent` lines of the window get their parents too, older lines do not', async () => {
-  const stored = ['pa', 'pb', 'pc', 'pd'].map((id, i) => rawMessage({ id, createdTimestamp: 10 + i }));
-  const channel = parentChannel(stored);
-  const history = [
-    normalizeMessage(rawReply('m1', 1000, 'pa'), 'self'),
-    normalizeMessage(rawReply('m2', 2000, 'pb'), 'self'),
-    normalizeMessage(rawReply('m3', 3000, 'pc'), 'self'),
-    normalizeMessage(rawReply('m4', 4000, 'pd'), 'self'),
-  ];
-  const parents = await fetchReplyParents(channel, history, { ...PARENT_OPTIONS, recent: 3, trigger: null });
-  assert.deepEqual(channel.fetched, ['pd', 'pc', 'pb']);
-  assert.deepEqual(
-    parents.map((m) => m.id),
-    ['pb', 'pc', 'pd']
-  );
-});
-
-test('fetchReplyParents: at most `max` lines are fetched, the trigger chain first', async () => {
-  const stored = [
-    rawMessage({ id: 'p0', createdTimestamp: 1 }),
-    rawReply('p1', 2, 'p0'),
-    rawMessage({ id: 'pb', createdTimestamp: 3 }),
-    rawMessage({ id: 'pc', createdTimestamp: 4 }),
-  ];
-  const channel = parentChannel(stored);
-  const history = [
-    normalizeMessage(rawReply('m2', 2000, 'pb'), 'self'),
-    normalizeMessage(rawReply('m3', 3000, 'pc'), 'self'),
-    normalizeMessage(rawReply('m4', 4000, 'p1'), 'self'),
-  ];
-  const parents = await fetchReplyParents(channel, history, { ...PARENT_OPTIONS, max: 3, trigger: history[2] });
-  assert.deepEqual(channel.fetched, ['p1', 'p0', 'pc']);
-  assert.deepEqual(
-    parents.map((m) => m.id),
-    ['p0', 'p1', 'pc']
-  );
-});
-
-test('fetchReplyParents: a deleted parent is skipped and logged once with ids only', async () => {
-  const channel = parentChannel([]);
-  const history = [
-    normalizeMessage(rawReply('m1', 1000, 'gone'), 'self'),
-    normalizeMessage(rawReply('m2', 2000, 'gone'), 'self'),
-  ];
-  const { result, logs } = await withCapturedLogs(() =>
-    fetchReplyParents(channel, history, { ...PARENT_OPTIONS, trigger: history[1] })
-  );
-  assert.deepEqual(result, []);
-  assert.deepEqual(channel.fetched, ['gone']);
-  const missing = logs.filter((entry) => entry.msg === 'collect: parent missing');
-  assert.equal(missing.length, 1);
-  assert.equal(missing[0].channel, 'c1');
-  assert.equal(missing[0].messageId, 'gone');
-});
-
-test('fetchReplyParents: max 0 fetches nothing', async () => {
-  const channel = parentChannel([rawMessage({ id: 'p1' })]);
-  const history = [normalizeMessage(rawReply('m1', 1000, 'p1'), 'self')];
-  assert.deepEqual(await fetchReplyParents(channel, history, { ...PARENT_OPTIONS, max: 0, trigger: history[0] }), []);
-  assert.deepEqual(channel.fetched, []);
-});
-
-// --- fetchTextPreview / withTextPreviews ------------------------------------
-
-function fakeFetch(body, { ok = true, headers = {} } = {}) {
-  return async () => ({
-    ok,
-    headers: { get: (name) => headers[name.toLowerCase()] ?? null },
-    text: async () => body,
-  });
-}
-
-test('fetchTextPreview: returns the first maxChars characters', async () => {
-  const text = await fetchTextPreview('https://x/notes.txt', 5, fakeFetch('hello world'));
-  assert.equal(text, 'hello');
-});
-
-test('fetchTextPreview: a declared content-length over the 256 KB guard is never fetched fully', async () => {
-  const text = await fetchTextPreview(
-    'https://x/big.txt',
-    100,
-    fakeFetch('x'.repeat(10), { headers: { 'content-length': String(300 * 1024) } })
-  );
-  assert.equal(text, null);
-});
-
-test('fetchTextPreview: a non-ok response returns null', async () => {
-  const text = await fetchTextPreview('https://x/missing.txt', 100, fakeFetch('', { ok: false }));
-  assert.equal(text, null);
-});
-
-test('fetchTextPreview: a thrown fetch error falls back to null instead of throwing', async () => {
-  const text = await fetchTextPreview('https://x', 100, async () => {
-    throw new Error('network down');
-  });
-  assert.equal(text, null);
-});
-
-test('withTextPreviews: fills previewText on text attachments only, leaves other messages untouched', async () => {
-  const messages = [
-    { id: 'm1', attachments: [{ id: 't1', kind: 'text', name: 'a.txt', url: 'https://x/a.txt' }] },
-    { id: 'm2', attachments: [{ id: 'i1', kind: 'image', name: 'b.png', url: 'https://x/b.png' }] },
-  ];
-  const result = await withTextPreviews(messages, 20, fakeFetch('line one\nline two'));
-  assert.equal(result[0].attachments[0].previewText, 'line one\nline two'.slice(0, 20));
-  assert.equal(result[1].attachments[0].previewText, undefined);
-  // the input array/objects are never mutated
-  assert.equal(messages[0].attachments[0].previewText, undefined);
-});
-
-test('withTextPreviews: a fetch failure leaves the attachment without previewText (plain file form fallback)', async () => {
-  const messages = [{ id: 'm1', attachments: [{ id: 't1', kind: 'text', name: 'a.txt', url: 'https://x/a.txt' }] }];
-  const result = await withTextPreviews(messages, 20, async () => {
-    throw new Error('boom');
-  });
-  assert.equal(result[0].attachments[0].previewText, undefined);
-});
-
 /** A channel whose bot member holds exactly `granted` permission flags. */
 function permChannel({ granted = [], me = { id: 'self-id' }, viewable = true, permissionsFor } = {}) {
   return {
@@ -1162,11 +971,6 @@ test('canSend: still resolved through the bot member in a guild channel', () => 
   assert.equal(canSend(permChannel({ granted: [PermissionFlagsBits.SendMessages], me: null })), false);
 });
 
-test('fetchNeighbors: a channel without a guild (a DM) has no neighbours', async () => {
-  const config = { context: { neighborMessages: 5, neighborMaxAgeMinutes: 60, neighborMaxChannels: 8 }, bot: {} };
-  assert.deepEqual(await fetchNeighbors(dmChannel(), config, 'self-id', 1000), []);
-});
-
 test('canRead: needs Read Message History on a viewable channel, a DM is always yes', () => {
   assert.equal(canRead(permChannel({ granted: [PermissionFlagsBits.ReadMessageHistory] })), true);
   assert.equal(canRead(permChannel({ granted: [PermissionFlagsBits.SendMessages] })), false);
@@ -1195,8 +999,6 @@ test('canReact: needs AddReactions on a viewable channel, a DM is always yes', (
 
 const READ = PermissionFlagsBits.ReadMessageHistory;
 const SEND = PermissionFlagsBits.SendMessages;
-const REACT = PermissionFlagsBits.AddReactions;
-const NOW = Date.UTC(2026, 9, 5, 12, 0, 0);
 const MIRROR_ID = '500000000000000009';
 
 /**
@@ -1222,61 +1024,6 @@ function fakeGuild(specs) {
   }
   return guild;
 }
-
-/** One raw message `minutesAgo` before NOW in channel `channelId`. */
-function recentMessage(id, channelId, minutesAgo) {
-  return rawMessage({ id, channelId, cleanContent: 'καλημέρα', createdTimestamp: NOW - minutesAgo * 60_000 });
-}
-
-/** A neighbour spec with one message `minutesAgo` before NOW. */
-function neighbourSpec(id, granted, minutesAgo) {
-  return { id, granted, lastTs: NOW - minutesAgo * 60_000, messages: [recentMessage(`${id}-m`, id, minutesAgo)] };
-}
-
-const NEIGHBOUR_CONFIG = (bot = {}) => ({
-  context: { neighborMessages: 5, neighborMaxAgeMinutes: 60, neighborMaxChannels: 8 },
-  bot,
-  media: {},
-});
-
-test('fetchNeighbors: a neighbour the bot cannot write in is marked readOnly', async () => {
-  const guild = fakeGuild([
-    neighbourSpec('here', [READ, SEND], 1),
-    neighbourSpec('talk', [READ, SEND, REACT], 5),
-    neighbourSpec('diary', [READ, REACT], 3),
-  ]);
-  const neighbours = await fetchNeighbors(guild.channels.cache.get('here'), NEIGHBOUR_CONFIG(), 'self-id', NOW);
-  assert.deepEqual(
-    neighbours.map(({ channelId, readOnly }) => ({ channelId, readOnly })),
-    [
-      { channelId: 'diary', readOnly: true },
-      { channelId: 'talk', readOnly: false },
-    ]
-  );
-  assert.deepEqual(
-    neighbours[0].messages.map((m) => m.id),
-    ['diary-m']
-  );
-});
-
-test('fetchNeighbors: the dry-run mirror channel is never a neighbour', async () => {
-  const guild = fakeGuild([
-    neighbourSpec('here', [READ, SEND], 1),
-    neighbourSpec(MIRROR_ID, [READ, SEND, REACT], 2),
-    neighbourSpec('talk', [READ, SEND], 4),
-  ]);
-  const here = guild.channels.cache.get('here');
-  const withMirror = await fetchNeighbors(here, NEIGHBOUR_CONFIG({ dryRunChannelId: MIRROR_ID }), 'self-id', NOW);
-  assert.deepEqual(
-    withMirror.map((n) => n.channelId),
-    ['talk']
-  );
-  const noMirror = await fetchNeighbors(here, NEIGHBOUR_CONFIG({ dryRunChannelId: '' }), 'self-id', NOW);
-  assert.deepEqual(
-    noMirror.map((n) => n.channelId),
-    [MIRROR_ID, 'talk']
-  );
-});
 
 test('readableChannels: threads, non-text, unreadable channels and the dry-run mirror are left out', () => {
   const guild = fakeGuild([
@@ -1677,40 +1424,6 @@ test('isWritableChannel: readable and sendable; never the dry-run mirror or an u
   );
 });
 
-test('fetchNeighbors: accept is judged before the channel cap; a refused channel takes no slot and is never fetched', async () => {
-  const guild = fakeGuild([
-    neighbourSpec('here', [READ, SEND], 1),
-    neighbourSpec('staff', [READ, SEND], 2),
-    neighbourSpec('talk', [READ, SEND], 4),
-    neighbourSpec('quiet', [READ, SEND], 90),
-  ]);
-  const fetched = [];
-  for (const channel of guild.channels.cache.values()) {
-    const fetch = channel.messages.fetch;
-    channel.messages.fetch = async (query) => (fetched.push(channel.id), fetch(query));
-  }
-  const judged = [];
-  const accept = (other) => (judged.push(other.id), other.id !== 'staff');
-  const config = {
-    ...NEIGHBOUR_CONFIG(),
-    context: { neighborMessages: 5, neighborMaxAgeMinutes: 60, neighborMaxChannels: 1 },
-  };
-  const neighbours = await fetchNeighbors(guild.channels.cache.get('here'), config, 'self-id', NOW, { accept });
-  assert.deepEqual(
-    neighbours.map((n) => n.channelId),
-    ['talk'],
-    'the slot goes to the next accepted channel'
-  );
-  assert.deepEqual(fetched, ['talk']);
-  assert.deepEqual(judged.sort(), ['staff', 'talk'], 'only active channels are judged');
-  const all = await fetchNeighbors(guild.channels.cache.get('here'), config, 'self-id', NOW);
-  assert.deepEqual(
-    all.map((n) => n.channelId),
-    ['staff'],
-    'no accept: every readable channel'
-  );
-});
-
 test('normalizeMessage: a reaction whose emoji getter throws (a REST-only client) is skipped, not fatal', () => {
   const throwing = { count: 3, me: false };
   Object.defineProperty(throwing, 'emoji', {
@@ -1880,24 +1593,6 @@ test('toEvent: a message becomes a valid message.received event, field for field
   assert.equal(event.raw, raw, 'the discord.js message rides along for the Discord side only');
   for (const key of ['channelId', 'authorId', 'authorName', 'ts', 'channelName', 'mentionedUserIds'])
     assert.ok(!(key in event.message), key);
-});
-
-test("normalizedOf: the event gives back normalizeMessage's result, key for key and in order", () => {
-  for (const raw of [
-    guildMessage(),
-    rawMessage(),
-    guildMessage({ author: { id: 'self', bot: true, globalName: 'Bot', username: 'bot' } }),
-  ]) {
-    const options = normalizeOptions({
-      media: { embedTextChars: 50, video: { sites: ['youtube.com'] } },
-      context: { maxUrlChars: 30 },
-    });
-    assert.equal(
-      JSON.stringify(normalizedOf(toEvent(raw, 'self', options))),
-      JSON.stringify(normalizeMessage(raw, 'self', options))
-    );
-    assert.deepEqual(normalizedOf(toEvent(raw, 'self', options)), normalizeMessage(raw, 'self', options));
-  }
 });
 
 test('toEvent: a direct chat is a dm conversation, a thread a thread', () => {
@@ -2095,4 +1790,12 @@ test('normalizeMessage: editedAt is the edit stamp, null for a message never edi
   assert.equal(normalizeMessage(rawMessage({ editedTimestamp: 5000 }), 'self').editedAt, 5000);
   assert.equal(normalizeMessage(rawMessage({ editedTimestamp: null }), 'self').editedAt, null);
   assert.equal(normalizeMessage(rawMessage(), 'self').editedAt, null);
+});
+
+test('fetchMessage: a partial message in the cache is fetched whole', async () => {
+  const whole = { id: 'm1', partial: false, author: { id: 'self' } };
+  const channel = {
+    messages: { cache: new Map([['m1', { id: 'm1', partial: true, author: null }]]), fetch: async () => whole },
+  };
+  assert.equal(await fetchMessage(channel, 'm1'), whole);
 });

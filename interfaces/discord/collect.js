@@ -9,7 +9,6 @@
 import { ChannelType, PermissionFlagsBits, SnowflakeUtil, MessageReferenceType, OverwriteType } from 'discord.js';
 import { log } from '../../src/log.js';
 import { ID_DIGITS, URL_PATTERN } from '../../src/memory/mentions.ts';
-import { MINUTE_MS } from '../../src/time.js';
 import {
   classifyAttachment,
   classifyEmbed,
@@ -22,12 +21,11 @@ import {
 import { DISCORD_CDN_SITES, discordCdnVideo, previewAttachments, previewLinks, stickerUrl } from './media.js';
 import { extractVideoUrls, videoSiteFor, videoUrlCacheKey } from '../../src/media/video-sites.js';
 import { CUSTOM_EMOJI_MARKUP } from '../../src/behavior/emoji.js';
-import { backfillPlan, emojiOf, reactionKey, runBackfill, withReactors } from './reactors.js';
+import { reactionKey } from '../../src/protocol/reaction-key.ts';
 import { MESSAGE_RECEIVED, REACTION_CHANGED } from '../../src/protocol/index.js';
 import { memberView } from './members.ts';
 import { DISCORD_IFACE } from './port.js';
 
-const TEXT_PREVIEW_SIZE_GUARD = 256 * 1024; // 256 KB — never fetch a bigger "text" attachment
 /** Discord's REST page size for a message list. */
 export const PAGE = 100;
 const MAX_EMOJIS_PER_MESSAGE = 5;
@@ -125,6 +123,20 @@ function normalizeStickers(stickers) {
     format: sticker.format,
     url: stickerUrl(sticker.id, sticker.format),
   }));
+}
+
+/**
+ * A discord.js reaction's emoji, or null: discord.js resolves it through the client's emoji cache, and on a REST-only
+ * client (the tools) the getter throws.
+ * @param {object|null|undefined} reaction
+ * @returns {{ id?: string|null, name?: string|null }|null}
+ */
+export function emojiOf(reaction) {
+  try {
+    return reaction?.emoji ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -538,6 +550,14 @@ function conversationOf(message) {
 }
 
 /**
+ * The protocol conversation of a discord.js channel: the record `conversationOf` builds for a message in it.
+ * @param {object} channel  A discord.js channel.
+ */
+export function conversationOfChannel(channel) {
+  return conversationOf({ channel, channelId: channel?.id, guild: channel?.guild ?? null, guildId: channel?.guildId });
+}
+
+/**
  * Whether the message `replyToId` names is one of the persona's own, as far as the channel's
  * cache knows (the first step of fetchMessage, without its fetch): a missing or partial cached
  * message is no answer here, and the message pipeline still asks fetchMessage then.
@@ -550,6 +570,32 @@ function cachedReplyToSelf(message, replyToId, selfId) {
   } catch {
     return false;
   }
+}
+
+/**
+ * The deletion event of a message: what the platform still knows of it, when it was written (its id says) and who
+ * wrote it.
+ */
+function deletionEvent(message, selfId, conversation, at) {
+  const written = Number.isFinite(message?.createdTimestamp) ? message.createdTimestamp : undefined;
+  const author = message?.author?.id
+    ? {
+        id: String(message.author.id),
+        name: displayNameOf(message.member, message.author),
+        self: message.author.id === selfId,
+        bot: Boolean(message.author.bot) && message.author.id !== selfId,
+      }
+    : undefined;
+  return {
+    kind: MESSAGE_RECEIVED,
+    iface: DISCORD_IFACE,
+    at,
+    id: `${DISCORD_IFACE}:delete:${message?.id}`,
+    conversation,
+    message: { id: message?.id, ...(written === undefined ? {} : { at: written }), ...(author ? { author } : {}) },
+    deleted: true,
+    raw: message,
+  };
 }
 
 /**
@@ -571,17 +617,7 @@ export function toEvent(message, selfId, options = {}) {
   const now = options.now ?? Date.now;
   const conversation = conversationOf(message);
   const base = { kind: MESSAGE_RECEIVED, iface: DISCORD_IFACE };
-  if (options.deleted === true) {
-    return {
-      ...base,
-      at: now(),
-      id: `${DISCORD_IFACE}:delete:${message?.id}`,
-      conversation,
-      message: { id: message?.id },
-      deleted: true,
-      raw: message,
-    };
-  }
+  if (options.deleted === true) return deletionEvent(message, selfId, conversation, now());
   const edit = options.edit === true;
   const receivedAt = now();
   const editAt = edit ? (Number.isFinite(message?.editedTimestamp) ? message.editedTimestamp : receivedAt) : null;
@@ -590,6 +626,12 @@ export function toEvent(message, selfId, options = {}) {
   const editId = (id) => `${DISCORD_IFACE}:edit:${id}:${editAt}:${receivedAt}`;
   const editPart = edit ? { edit: true } : {};
   const editRaw = edit ? { rawPrevious: options.previous ?? null } : {};
+  // The message as it was before an edit, whole, or null when the platform did not hold it (or only in part).
+  const previousOf = () => {
+    const old = options.previous;
+    if (!edit || !old || old.partial) return null;
+    return toEvent(old, selfId, { ...options, edit: false, previous: null }).message;
+  };
   if (edit && message?.partial) {
     return {
       ...base,
@@ -599,6 +641,7 @@ export function toEvent(message, selfId, options = {}) {
       message: { id: message.id },
       ...editPart,
       partial: true,
+      previous: previousOf(),
       raw: message,
       ...editRaw,
     };
@@ -620,6 +663,10 @@ export function toEvent(message, selfId, options = {}) {
         ...(view ? { avatar: { hash: view.hash, url: view.url } } : {}),
       },
       content: normalized.content,
+      // The text as written, mentions as `<@id>`: what an edit and the journal's reconciliation compare.
+      sourceText: typeof message.content === 'string' ? message.content : '',
+      // The platform's own message (a member joined, a pin) or a webhook's: never a person's.
+      system: Boolean(message.system || message.webhookId),
       at: normalized.ts,
       editedAt: normalized.editedAt,
       replyToId: normalized.replyToId,
@@ -641,47 +688,9 @@ export function toEvent(message, selfId, options = {}) {
       mentionedConversationIds: normalized.mentionedChannelIds,
     },
     ...editPart,
+    ...(edit ? { previous: previousOf() } : {}),
     raw: message,
     ...editRaw,
-  };
-}
-
-/**
- * The normalised message (normalizeMessage's shape, key for key and in its key order) of a whole
- * `message.received` event: what the memory, the turn and the prompt builders still read until
- * they read the event itself (stage 4). normalizedOf(toEvent(m, selfId, options)) equals
- * normalizeMessage(m, selfId, options).
- * @param {import('../../src/protocol/index.js').MessageReceived} event
- * @returns {object}
- */
-export function normalizedOf(event) {
-  const { conversation, message, addressing } = event;
-  return {
-    id: message.id,
-    channelId: conversation.id,
-    channelName: conversation.name,
-    channelCategory: conversation.category,
-    channelTopic: conversation.topic,
-    authorId: message.author.id,
-    authorName: message.author.name,
-    self: message.author.self,
-    bot: message.author.bot,
-    content: message.content,
-    ts: message.at,
-    editedAt: message.editedAt ?? null,
-    mentionedUserIds: addressing.mentionedUserIds,
-    mentionedUsers: addressing.mentionedUsers ?? [],
-    mentionedChannelIds: addressing.mentionedConversationIds,
-    replyToId: message.replyToId,
-    replyPingUserId: message.replyPingUserId,
-    forwardedFrom: message.forwardedFrom,
-    attachments: message.attachments,
-    links: message.links,
-    forwarded: message.forwarded,
-    stickers: message.stickers,
-    emojis: message.emojis,
-    reactions: message.reactions,
-    messageRefs: /** @type {{ messageRefs?: unknown[] }} */ (message).messageRefs ?? [],
   };
 }
 
@@ -783,70 +792,6 @@ export function reactionClearEmojiEvent(reaction, { now = Date.now } = {}) {
 }
 
 /**
- * The first `maxChars` characters of a text attachment's content, fetched
- * lazily — only ever called for a message that ends up inside a real
- * request (see src/behavior/prompt.js, src/memory/update.js), never during
- * plain normalization. A response bigger than 256 KB, or any fetch failure,
- * returns `null` so the caller falls back to the plain `file` form.
- * @param {string} url
- * @param {number} maxChars
- * @param {typeof fetch} [fetchImpl]
- * @returns {Promise<string|null>}
- */
-export async function fetchTextPreview(url, maxChars, fetchImpl = fetch) {
-  return (await fetchPreview(url, maxChars, fetchImpl))?.text ?? null;
-}
-
-/** fetchTextPreview's body: `{ text, lost }` (`lost`: the characters past `maxChars` left out), or null. */
-async function fetchPreview(url, maxChars, fetchImpl) {
-  try {
-    const response = await fetchImpl(url);
-    if (!response.ok) return null;
-    const declaredSize = Number(response.headers?.get?.('content-length'));
-    if (Number.isFinite(declaredSize) && declaredSize > TEXT_PREVIEW_SIZE_GUARD) return null;
-    const text = await response.text();
-    if (!Number.isFinite(declaredSize) && Buffer.byteLength(text, 'utf8') > TEXT_PREVIEW_SIZE_GUARD) return null;
-    const preview = text.slice(0, maxChars);
-    return { text: preview, lost: text.length - preview.length };
-  } catch (err) {
-    log.warn('collect: text attachment preview fetch failed', { error: err });
-    return null;
-  }
-}
-
-/**
- * Return a shallow-cloned copy of `messages` with `previewText` filled in on
- * every `kind: 'text'` attachment that does not have one yet (best effort,
- * in parallel, never mutates the input). Meant to run once, right before the
- * messages are handed to buildRequest/buildMemoryRequest — see the header
- * comment of fetchTextPreview. A preview cut at `maxChars` also carries
- * `previewLost`: the characters left out (the turn's journal names the cut).
- * @param {object[]} messages
- * @param {number} maxChars
- * @param {typeof fetch} [fetchImpl]
- */
-export async function withTextPreviews(messages, maxChars, fetchImpl = fetch) {
-  return Promise.all(
-    messages.map(async (message) => {
-      const textAttachments = (message.attachments ?? []).filter((a) => a.kind === 'text' && !a.previewText);
-      if (textAttachments.length === 0) return message;
-      const previews = await Promise.all(textAttachments.map((a) => fetchPreview(a.url, maxChars, fetchImpl)));
-      const byId = new Map(textAttachments.map((a, i) => [a.id, previews[i]]));
-      return {
-        ...message,
-        attachments: message.attachments.map((a) => {
-          const preview = byId.get(a.id);
-          if (!preview) return a;
-          return preview.lost > 0
-            ? { ...a, previewText: preview.text, previewLost: preview.lost }
-            : { ...a, previewText: preview.text };
-        }),
-      };
-    })
-  );
-}
-
-/**
  * Whether the bot member holds permission `flag` in `channel`: no bot
  * member, an unviewable channel or no resolved permissions count as no. A
  * channel without a guild (a private chat) has no member permissions:
@@ -898,37 +843,24 @@ export function canAttach(channel) {
 }
 
 /**
- * Last `limit` messages of a channel (at most one page), oldest first,
- * normalized. `embedTextChars` caps link/gif embed title+description
- * (config.media.embedTextChars); `videoSites` lists the video-site hosts
- * whose typed URLs become link items (config.media.video.sites); `maxUrlChars`
- * cuts the URLs left in the text (config.context.maxUrlChars). With `reactors`
- * (features.reactionNames, interfaces/discord/reactors.js) every line of the persona
- * is kept in the reactor store, the reactors it lacks for her reactions are
- * fetched first (each message and emoji once, at most `fetchUsers` users,
- * waiting at most `budgetMs`), and each reaction on her lines with known
- * reactors carries them as `users` (`{ id, name, bot }`, named by displayNameOf
- * from the client's caches; one not in them is left out).
+ * Last `limit` messages of a channel (at most one page), oldest first, normalized. `embedTextChars` caps link/gif embed
+ * title+description (config.media.embedTextChars); `videoSites` lists the video-site hosts whose typed URLs become link
+ * items (config.media.video.sites); `maxUrlChars` cuts the URLs left in the text (config.context.maxUrlChars).
  * @param {import('discord.js').TextBasedChannel} channel
- * @param {{ limit: number, selfId: string, embedTextChars?: number, videoSites?: string[], maxUrlChars?: number,
- *   reactors?: { store: object, budgetMs: number, fetchUsers: number }|null }} options
+ * @param {{ limit: number, selfId: string, embedTextChars?: number, videoSites?: string[], maxUrlChars?: number }} options
  * @returns {Promise<object[]>}
  */
-export async function fetchHistory(
-  channel,
-  { limit, selfId, embedTextChars, videoSites, maxUrlChars, reactors = null }
-) {
+export async function fetchHistory(channel, { limit, selfId, embedTextChars, videoSites, maxUrlChars }) {
   const fetched = await channel.messages.fetch({ limit: Math.min(PAGE, limit) });
   const raw = [...fetched.values()].sort((a, b) => a.createdTimestamp - b.createdTimestamp);
-  const lines = raw.map((message) => normalizeMessage(message, selfId, { embedTextChars, videoSites, maxUrlChars }));
-  return reactors?.store ? withReactorNames(channel, raw, lines, reactors, selfId) : lines;
+  return raw.map((message) => normalizeMessage(message, selfId, { embedTextChars, videoSites, maxUrlChars }));
 }
 
 /**
  * The ids of the members who put `emoji` (a reactionKey) on discord.js message `message`: one
  * REST page of at most `fetchUsers` (1..100). Throws when the message or the reaction is gone.
  */
-async function fetchReactorIds(message, emoji, fetchUsers) {
+export async function fetchReactorIds(message, emoji, fetchUsers) {
   const reaction = [...(message?.reactions?.cache?.values?.() ?? [])].find(
     (item) => reactionKey(emojiOf(item)) === emoji
   );
@@ -936,29 +868,6 @@ async function fetchReactorIds(message, emoji, fetchUsers) {
   const cap = Math.min(PAGE, Math.max(1, Math.floor(Number(fetchUsers) || 10)));
   const users = await reaction.users.fetch({ limit: cap });
   return [...users.keys()];
-}
-
-/** fetchHistory's `reactors` step: the backfill (logged with counts), then the reactors' names. */
-async function withReactorNames(channel, raw, lines, { store, budgetMs, fetchUsers }, selfId) {
-  const byId = new Map(raw.map((message) => [message.id, message]));
-  const plan = backfillPlan(lines, store);
-  if (plan.length > 0) {
-    const stats = await runBackfill(
-      plan,
-      store,
-      (item) => fetchReactorIds(byId.get(item.messageId), item.emoji, fetchUsers),
-      { budgetMs, selfId }
-    );
-    log.info('reactors: backfill', { channel: channel.id, ...stats });
-  }
-  const guild = channel.guild ?? null;
-  const users = channel.client?.users?.cache ?? null;
-  return withReactors(lines, store, (id) => {
-    const member = guild?.members?.cache?.get?.(id) ?? null;
-    const user = member?.user ?? users?.get?.(id) ?? null;
-    const name = displayNameOf(member, user);
-    return name ? { name, bot: Boolean(user?.bot) } : null;
-  });
 }
 
 /** A Discord snowflake string one greater than `id`, so `before: bump(id)` includes `id` itself. */
@@ -1037,52 +946,6 @@ export async function fetchMessage(channel, id) {
 }
 
 /**
- * The messages that lines of `history` reply to but that are outside it (a reply to something
- * older than the window), fetched by id and normalized like any history line, OLDEST first --
- * the caller prepends them so the transcript can show what a reply answers. Asked in this
- * order until `max` lines are fetched: the parent of `trigger` (when given; its own line may be
- * in `history` or not), then that parent's parent when the fetched parent is itself a reply to
- * a message outside the window (one level, so a short chain reads), then the parents of the
- * last `recent` lines of `history`, newest first. A parent already in `history` or already
- * fetched is not asked again. A parent that cannot be fetched (deleted, no access, any error)
- * is skipped and logged once (`collect: parent missing`, ids only).
- * @param {import('discord.js').TextBasedChannel} channel
- * @param {object[]} history  Normalized lines, oldest first.
- * @param {{ trigger?: { id: string, replyToId?: string|null }|null, recent: number, max: number, selfId: string,
- *   embedTextChars?: number, videoSites?: string[], maxUrlChars?: number }} options
- * @returns {Promise<object[]>}
- */
-export async function fetchReplyParents(
-  channel,
-  history,
-  { trigger = null, recent, max, selfId, embedTextChars, videoSites, maxUrlChars }
-) {
-  const found = [];
-  if (!(max > 0)) return found;
-  const asked = new Set(history.map((m) => m.id));
-  if (trigger?.id) asked.add(trigger.id);
-  const fetchParent = async (id) => {
-    if (!id || asked.has(id) || found.length >= max) return null;
-    asked.add(id);
-    const raw = await fetchMessage(channel, id);
-    if (!raw) {
-      log.info('collect: parent missing', { channel: channel.id, messageId: id });
-      return null;
-    }
-    const parent = normalizeMessage(raw, selfId, { embedTextChars, videoSites, maxUrlChars });
-    found.push(parent);
-    return parent;
-  };
-
-  const parent = await fetchParent(trigger?.replyToId ?? null);
-  if (parent) await fetchParent(parent.replyToId);
-  const tail = recent > 0 ? history.slice(-recent).reverse() : [];
-  for (const line of tail) await fetchParent(line.replyToId ?? null);
-
-  return found.sort((a, b) => a.ts - b.ts);
-}
-
-/**
  * Whether `channel` is one the persona may read: a text channel, not a
  * thread, not the dry-run mirror (`bot.dryRunChannelId`, the owner's
  * rehearsal room, never real conversation), and the bot can read its history
@@ -1153,58 +1016,6 @@ export function snowflakeTime(id) {
 /** Timestamp of the newest message in a channel, from its snowflake — no API call. */
 export function lastActivity(channel) {
   return channel.lastMessageId ? snowflakeTime(channel.lastMessageId) : 0;
-}
-
-/**
- * Up to `neighborMessages` recent messages from each neighbouring channel that
- * saw activity within `neighborMaxAgeMinutes`. Channels are pre-filtered by the
- * snowflake of their last message, so quiet channels cost no API calls. Only
- * channels the persona may read are neighbours (readableChannels: never the
- * dry-run mirror), and only those `accept` takes (the caller's rail: a turn
- * passes the audience rail, interfaces/discord/pull-fetch.js#audienceAllows), judged
- * among the active ones BEFORE the `neighborMaxChannels` cut, so a refused
- * channel takes no slot and costs no fetch; no `accept` takes every one.
- * `readOnly` marks a neighbour the bot cannot send in (canSend). A channel
- * without a guild (a private chat) has no neighbours.
- * @param {object} channel  The discord.js channel the turn speaks in.
- * @param {object} config   The live config.
- * @param {string} selfId
- * @param {number} [now]
- * @param {{ accept?: (other: object) => boolean }} [options]
- * @returns {Promise<{ channelId: string, channelName: string, readOnly: boolean, messages: object[] }[]>}
- */
-export async function fetchNeighbors(channel, config, selfId, now = Date.now(), { accept } = {}) {
-  if (!channel.guild) return [];
-  const { neighborMessages, neighborMaxAgeMinutes, neighborMaxChannels } = config.context;
-  const minTs = now - neighborMaxAgeMinutes * MINUTE_MS;
-
-  const candidates = readableChannels(channel.guild, config.bot, channel.id)
-    .filter((other) => lastActivity(other) >= minTs)
-    .filter((other) => typeof accept !== 'function' || accept(other))
-    .sort((a, b) => lastActivity(b) - lastActivity(a))
-    .slice(0, neighborMaxChannels);
-
-  const results = await Promise.all(
-    candidates.map(async (other) => {
-      const readOnly = !canSend(other);
-      try {
-        const messages = (
-          await fetchHistory(other, {
-            limit: neighborMessages,
-            selfId,
-            embedTextChars: config.media?.embedTextChars,
-            videoSites: config.media?.video?.sites,
-            maxUrlChars: config.context?.maxUrlChars,
-          })
-        ).filter((m) => m.ts >= minTs);
-        return { channelId: other.id, channelName: other.name, readOnly, messages };
-      } catch (err) {
-        log.warn('collect: neighbour channel fetch failed', { channel: other.id, error: err });
-        return { channelId: other.id, channelName: other.name, readOnly, messages: [] };
-      }
-    })
-  );
-  return results.filter((result) => result.messages.length > 0);
 }
 
 /**

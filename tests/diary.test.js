@@ -27,18 +27,17 @@ import {
   gistOf,
   createDiary,
 } from '../src/behavior/diary.js';
-import { PermissionFlagsBits } from 'discord.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { fill, localHour } from '../src/format.js';
 import { MINUTE_MS, HOUR_MS } from '../src/time.js';
 import { labels } from './fixtures/labels.js';
 import { createStore } from '../src/memory/store.js';
-import { createDiscordInterface } from '../interfaces/discord/index.js';
+import { useIface, world } from './fixtures/turn-world.ts';
 import { tempDir } from './fixtures/tmp.js';
 import { openTestMemory, unitFile } from './fixtures/memory-db/service.js';
 
-// The Discord interface's capabilities object, as src/index.js injects it.
-const DISCORD = createDiscordInterface().capabilities;
+// The diary channel is held by a fake interface named `fake`.
+useIface('fake');
 
 const seq = (values) => {
   let i = 0;
@@ -785,18 +784,9 @@ test('store: a malformed diary value reads as the empty default', async () => {
 const D_NOW = Date.UTC(2026, 9, 6, 19, 0, 0); // 19:00 UTC, before the evening slot
 const SLOT = Date.UTC(2026, 9, 6, 21, 30, 0); // 18 + 0.5 * 7 h with rng 0.5
 
-/** A diary channel of guild g1; `attach: false` lacks Attach Files, `send: false` Send Messages. */
+/** A diary channel of guild g1 as the harness holds it; `attach: false` may not attach files, `send: false` not send. */
 function diaryChannelFake({ send = true, attach = true, guildId = 'g1' } = {}) {
-  return {
-    id: 'd1',
-    name: 'journal',
-    viewable: true,
-    guild: { id: guildId, members: { me: { id: 'self' } } },
-    permissionsFor: () => ({
-      has: (flag) =>
-        flag === PermissionFlagsBits.AttachFiles ? attach : flag === PermissionFlagsBits.SendMessages ? send : true,
-    }),
-  };
+  return { send, attach, guildId };
 }
 
 function diaryHarness({
@@ -832,15 +822,14 @@ function diaryHarness({
     state: { data: { ...data }, markDirty() {} },
     getDiary: () => ({ posts, updatedAt: 0 }),
   };
-  const client = {
-    user: { id: 'self' },
-    channels: {
-      cache: new Map(channel ? [[channel.id, channel]] : []),
-      fetch: async () => {
-        throw new Error('unknown channel');
-      },
-    },
-  };
+  // The diary channel is a conversation of the fake interface (none when the test gives none).
+  if (channel)
+    world().channel({
+      id: 'd1',
+      name: 'journal',
+      guildId: channel.guildId,
+      permissions: { send: channel.send, attach: channel.attach },
+    });
   const turns = {
     runTurn: async (params) => {
       turnCalls.push({ params, done: [...(store.state.data.diary?.g1?.done ?? [])] });
@@ -851,10 +840,10 @@ function diaryHarness({
     ...turnsExtra,
   };
   const diaryFactory = createDiary({
-    discord: DISCORD,
     hot,
     store,
-    client,
+    reads: world().reads,
+    iface: () => 'fake',
     turns,
     getGuildId: () => 'g1',
     backfill,
@@ -946,7 +935,7 @@ test('tick: fires the due slot through runTurn with mode diary and marks it done
   assert.equal(h.turnCalls.length, 1);
   const { params, done } = h.turnCalls[0];
   assert.equal(params.mode, 'diary');
-  assert.equal(params.channel.id, 'd1');
+  assert.equal(params.conversation.conversationId, 'd1');
   assert.deepEqual(params.diary, { kind: null, forced: false });
   assert.deepEqual(done, [SLOT], 'marked before the turn ran');
   assert.ok(logs.some((l) => l.msg === 'diary: due'));
@@ -1057,8 +1046,8 @@ test('tick: backfills an empty history before the first post', async () => {
   assert.equal(calls.length, 1);
   assert.equal(calls[0].turns, 0, 'before the post');
   assert.equal(calls[0].args.guildId, 'g1');
-  assert.equal(calls[0].args.channel.id, 'd1');
-  assert.equal(calls[0].args.selfId, 'self');
+  // Changed with the contract: the backfill gets the conversation and the reads, not a channel object and her id.
+  assert.equal(calls[0].args.conversation.conversationId, 'd1');
   assert.equal(calls[0].args.labels, labels);
   assert.ok(logs.some((l) => l.msg === 'diary: backfill' && l.count === 4));
   await h.diary.force({});

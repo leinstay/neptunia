@@ -142,20 +142,17 @@ export function createImageFetcher({
 }
 
 /**
- * The bot's avatar as a `data:` URL, the reference for a picture the persona
- * is in: a static 1024 px PNG, downloaded through `imageFetcher` under
- * `image.referenceMaxBytes` and `context.vision.fetchTimeoutMs` (`config` is
- * the caller's `hot.config`, read at the moment of use). Null when there is
- * no fetcher, no avatar URL, or the download fails; never throws. The one
+ * The persona's avatar as a `data:` URL, the reference for a picture she is in: the large static address the
+ * interface gave (`url`, `memberInfo(self).avatar.largeUrl`), downloaded through `imageFetcher` under
+ * `image.referenceMaxBytes` and `context.vision.fetchTimeoutMs` (`config` is the caller's `hot.config`, read at the
+ * moment of use). Null when there is no fetcher, no avatar address, or the download fails; never throws. The one
  * copy for a turn's drawing (src/behavior/turn.js) and `/nep draw`.
- * @param {{ client: object, imageFetcher: { fetchAsDataUrl: Function }|null|undefined, config: object }} args
+ * @param {{ url: string|null|undefined, imageFetcher: { fetchAsDataUrl: Function }|null|undefined, config: object }} args
  * @returns {Promise<string|null>}
  */
-export async function avatarReference({ client, imageFetcher, config }) {
-  if (!imageFetcher || typeof client?.user?.displayAvatarURL !== 'function') return null;
+export async function avatarReference({ url, imageFetcher, config }) {
+  if (!imageFetcher || !url) return null;
   try {
-    const url = client.user.displayAvatarURL({ extension: 'png', size: 1024, forceStatic: true });
-    if (!url) return null;
     const downloaded = await imageFetcher.fetchAsDataUrl(url, {
       maxBytes: config?.image?.referenceMaxBytes,
       timeoutMs: config?.context?.vision?.fetchTimeoutMs,

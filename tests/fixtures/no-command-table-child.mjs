@@ -9,6 +9,7 @@ import { resolveCommand } from '../../src/ops/index.js';
 import { createAdmin } from '../../src/admin.js';
 import { createDiscordInterface } from '../../interfaces/discord/index.js';
 import { createFakeAdapter } from '../../src/interface/fake.js';
+import { createReads } from '../../src/interface/reads.ts';
 import { skillRegistry } from '../../src/skills/registry.js';
 import { SKILL_DEFINITIONS } from '../../src/skills/definitions.js';
 import { checkSkill } from '../../src/skills/gateway.js';
@@ -70,10 +71,25 @@ for (const name of GRANTED) {
 const DISCORD = createDiscordInterface().capabilities;
 const port = createFakeAdapter({ iface: 'fake', selfId: SELF, now: () => 1000 });
 port.seed('c1', { authorId: '7', messageId: '1003', text: 'q' });
-const channel = { id: 'c1', guild: { id: 'g1', members: { me: { id: SELF } } }, viewable: true, isTextBased: () => true, isDMBased: () => false, permissionsFor: () => ({ has: () => true }) };
+port.seedConversation({
+  id: 'c1',
+  kind: 'channel',
+  communityId: 'g1',
+  name: 'general',
+  topic: null,
+  category: null,
+  chatType: 'channel',
+  iface: 'fake',
+  permissions: { read: true, send: true, attach: true, react: true },
+  owner: null,
+  lastMessageAt: null,
+  voice: false,
+  public: true,
+  audience: { everyone: true, groups: [], groupAllow: [], groupDeny: [], memberAllow: [], memberDeny: [], memberGroups: {} },
+});
 const hot = { config, prompts: { labels: {} } };
 const store = { state: { data: {}, markDirty() {} }, getUser: () => null, getGuild: () => ({}), getLore: () => [], listChannels: () => [], listUserProfiles: () => [], isPingsOff: () => false };
-const admin = createAdmin({ discord: DISCORD, hot, store, client: { user: { id: SELF }, channels: { cache: new Map([['c1', channel]]) } }, getGuildId: () => 'g1', port });
+const admin = createAdmin({ discord: DISCORD, hot, store, client: { user: { id: SELF } }, getGuildId: () => 'g1', port, reads: createReads(port, { info() {}, warn() {}, error() {} }) });
 const view = { skills: registry, conversations: [{ id: 'c1', name: 'general' }], messageAt: () => null, members: [{ id: OWNER, names: ['Zoë'], aliases: [] }], roles: [], selfId: SELF };
 const deps = {
   port,

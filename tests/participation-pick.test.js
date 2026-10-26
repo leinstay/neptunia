@@ -17,6 +17,7 @@ import {
   parseParticipationPick,
 } from '../src/behavior/participation-pick.js';
 import { userText } from '../src/behavior/prompt.js';
+import { snapshotOf } from '../src/behavior/snapshot.ts';
 import { DailyCapError } from '../src/llm/openrouter.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
@@ -243,8 +244,9 @@ function pickerScene({
     getParticipation: () => structuredClone(state),
     listChannels: () => [{ id: 'c2', name: 'journal' }],
   };
-  const guild = { id: GUILD, channels: { cache: new Map([['c3', { id: 'c3', name: 'jardin' }]]) } };
-  const channel = { id: 'c1', name: 'general', guild };
+  // The conversations the interface lists: #jardin is named there, #journal only in the stored channel map.
+  const snapshot = snapshotOf(GUILD, { conversations: [{ id: 'c3', name: 'jardin' }], groups: [] });
+  const channel = { id: 'c1', name: 'general', communityId: GUILD };
   let t = NOW;
   const picker = createParticipationPicker({ hot, store, llm, now: () => (t += 5), ...(schedule ? { schedule } : {}) });
   const history = [
@@ -255,6 +257,7 @@ function pickerScene({
   const args = {
     guildId: GUILD,
     channel,
+    snapshot,
     history,
     trigger: history[2],
     triggerKind: 'mention',

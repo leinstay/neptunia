@@ -556,6 +556,17 @@ import {
 import { pairOrder, parseTriggers, renderSheet } from './lib/pair.mjs';
 import { promptLayersHot } from './lib/prompt-layers.mjs';
 import { readOnlyMemory } from './lib/memory-read.mjs';
+import {
+  conversationOfChannel,
+  conversationRef,
+  discordReads,
+  guildListing,
+  hiddenReads,
+  onPlatformChannel,
+  requesterOfChannel,
+} from './lib/platform-objects.ts';
+
+export { guildListing, hiddenReads, requesterOfChannel, roleIdsOf } from './lib/platform-objects.ts';
 
 /** The memory of a data directory, read only (tools/lib/memory-read.mjs), one per directory for the whole run. */
 const memories = new Map();
@@ -2200,6 +2211,8 @@ export async function loadDiaryMods(load) {
     ...(await load('behavior/recall-run.js')),
     ...(await load('../interfaces/discord/index.js')),
     ...(await load('interface/fake.js')),
+    ...(await load('interface/reads.ts')),
+    ...(await load('interface/recall-bridge.ts')),
     ...(await load('memory/describe.js')),
     ...(await load('media/fetch-image.js')),
     ...(await load('media/fetch-video.js')),
@@ -2322,9 +2335,10 @@ async function openDiaryChannel({ client, guildId, diaryChannelId, canSend, canA
 }
 
 /**
- * The turn runner of a diary run, wired as src/index.js wires it over `client` (REST only).
- * `port`: the interface port the turn acts through (else the default Discord adapter);
- * `rng` / `now`: the runner's random stream and clock (else its defaults).
+ * The turn runner of a diary run, wired as src/index.js wires it over `client` (REST only): the interface's reads are
+ * the Discord adapter's over that client, `wrapReads` may filter them (what the replay hides, what a week scripts).
+ * `port`: the interface port the turn acts through (else the Discord adapter over `client`, whose writes the replay
+ * has refused); `rng` / `now`: the runner's random stream and clock (else its defaults).
  */
 export function diaryTurnRunner(
   mods,
@@ -2342,7 +2356,7 @@ export function diaryTurnRunner(
     rng = null,
     now = null,
     extra = {},
-    wrapDiscord = null,
+    wrapReads = null,
   }
 ) {
   const imageFetcher = mods.createImageFetcher();
@@ -2364,29 +2378,29 @@ export function diaryTurnRunner(
     searches: { brave: mods.createBraveSearch(), exa: mods.createExaSearch() },
     keys: { brave: process.env.BRAVE_SEARCH_API_KEY || null, exa: process.env.EXA_API_KEY || null },
   });
-  // The Discord interface's capabilities, injected as src/index.js injects them; the turn's port
-  // is the default adapter it builds over `client` (createPort) unless one is given.
-  const capabilities = wrapDiscord
-    ? wrapDiscord(mods.createDiscordInterface({ client }).capabilities)
-    : mods.createDiscordInterface({ client }).capabilities;
+  // The Discord interface over `client`: its adapter reads for the turn and writes unless a port is given; its
+  // capabilities are what the recall runner (which still takes the platform's objects) is given.
+  const discord = mods.createDiscordInterface({ client, config: () => hot.config });
+  const capabilities = discord.capabilities;
+  const found = mods.createReads(discord.port, { info() {}, warn() {}, error() {} });
+  const reads = wrapReads ? wrapReads(found) : found;
   return mods.createTurnRunner({
     hot,
     store,
     llm,
     calibrator,
-    client,
-    discord: capabilities,
-    createPort: mods.createDiscordAdapter,
     describer,
     imageFetcher,
     lookup,
     images,
-    recall: mods.createRecall({ hot, store, llm, discord: capabilities, describer }),
+    recall: mods.bridgeRecall(mods.createRecall({ hot, store, llm, discord: capabilities, describer }), client),
     emoji: mods.createEmojiIndex(client, () => guildId),
     getSelfName: () => self.name,
-    routeChannels: mods.createChannelRouter({ hot, store, llm, discord: capabilities }),
+    selfId: () => self.id,
+    reads,
+    port: port ?? discord.port,
+    routeChannels: mods.createChannelRouter({ hot, store, llm }),
     activity: null,
-    ...(port ? { port } : {}),
     ...(rng ? { rng } : {}),
     ...(now ? { now } : {}),
     // `--inner`: her skills, the commands they run through, her intentions and errands, read only.
@@ -2494,7 +2508,7 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
       const from = calls.length;
       let result;
       try {
-        result = await turns.runTurn({ channel, ...params });
+        result = await turns.runTurn({ conversation: conversationRef(channel), ...params });
       } catch (err) {
         result = { outcome: 'error', reason: `${err?.name ?? 'Error'}: ${err?.message ?? err}` };
       }
@@ -2748,40 +2762,6 @@ export function hiddenPlaces(places, hide) {
 }
 
 /**
- * The Discord interface's capabilities with the hidden channels and messages filtered out of what the request reads:
- * the turn's history (a hidden channel gives none, hidden messages are dropped after the fetch), the neighbours
- * (a hidden channel is not a candidate, a neighbour left without lines goes), the pulled channels (a hidden one is
- * skipped as not found; hidden lines leave the window). The channel directory is not touched.
- */
-export function hiddenCapabilities(capabilities, hide) {
-  if (!hide?.any) return capabilities;
-  const keep = (messages) =>
-    Array.isArray(messages) ? messages.filter((message) => !hide.messages.has(String(message?.id))) : messages;
-  return Object.freeze({
-    ...capabilities,
-    fetchHistory: async (channel, options) =>
-      hide.channels.has(String(channel?.id)) ? [] : keep(await capabilities.fetchHistory(channel, options)),
-    fetchNeighbors: async (channel, config, selfId, now, { accept } = {}) => {
-      const found = await capabilities.fetchNeighbors(channel, config, selfId, now, {
-        accept: (other) => !hide.channels.has(String(other?.id)) && (typeof accept !== 'function' || accept(other)),
-      });
-      return found
-        .map((neighbor) => ({ ...neighbor, messages: keep(neighbor.messages) }))
-        .filter((neighbor) => neighbor.messages.length > 0);
-    },
-    fetchPull: async (args = {}) => {
-      if (hide.channels.has(String(args.channelId))) return { pulled: null, skip: 'not-found' };
-      const found = await capabilities.fetchPull(args);
-      if (!found?.pulled) return found;
-      const messages = keep(found.pulled.messages);
-      return messages.length > 0
-        ? { ...found, pulled: { ...found.pulled, messages } }
-        : { pulled: null, skip: 'not-found' };
-    },
-  });
-}
-
-/**
  * The heartbeat's wake, built by the scheduler itself: a real inner life (src/behavior/inner.js#createInnerLife)
  * over a throwaway data directory holding a copy of the guild's inner.json (`dataDir` is only read), the
  * stores and sources it was given, the heartbeat wake queued for `now` and one drain; its turn runner only
@@ -2796,10 +2776,10 @@ export function hiddenCapabilities(capabilities, hide) {
  * @param {string} input.guildId
  * @param {number} input.now
  * @param {object} [input.deps]  The createInnerLife options besides hot, dataDir and turns:
- *   intentions, record, journal (reads only), places, nameOf, client, discord, store, heartbeat.
+ *   intentions, record, journal (reads only), places, nameOf, reads, iface, store, heartbeat.
  * @param {string} [input.tmpRoot]  Where the throwaway directory is made (default the OS temp directory).
  * @param {object} [input.log]
- * @returns {Promise<{ info: object, channel: object, currentChannel: string|null }>}
+ * @returns {Promise<{ info: object, conversation: { iface: string, conversationId: string }, currentChannel: string|null }>}
  */
 export async function heartbeatReplayWake({
   inner,
@@ -2830,7 +2810,11 @@ export async function heartbeatReplayWake({
       dataDir: scratch,
       turns: {
         runTurn: async (turn) => {
-          seen = { info: turn.inner.wake, channel: turn.channel, currentChannel: turn.inner.currentChannel ?? null };
+          seen = {
+            info: turn.inner.wake,
+            conversation: turn.conversation,
+            currentChannel: turn.inner.currentChannel ?? null,
+          };
           return { outcome: 'skip', reason: 'replay-capture' };
         },
       },
@@ -3075,7 +3059,9 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
       return queueRequest(request);
     };
     const hide = hideSetsOf(args);
-    const capabilities = hiddenCapabilities(mods.createDiscordInterface({ client }).capabilities, hide);
+    const capabilities = mods.createDiscordInterface({ client }).capabilities;
+    const discordPort = mods.createDiscordInterface({ client, config: () => hot.config }).port;
+    const reads = hiddenReads(mods.createReads(discordPort, log), hide);
 
     // Her intentions and errands, read only; her inner state as it stands.
     const taskStore = createTaskStore({
@@ -3112,12 +3098,9 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
 
     const now = Date.now();
     let intention = null;
-    let channel = null;
+    let conversation = null;
     let info = null;
     let currentChannel;
-    const refuse = (name) => async () => {
-      throw new Error(`replay-cli: channel.${name} refused (read-only tool)`);
-    };
     if (args.inner === 'heartbeat') {
       // The scheduler builds it: the heartbeat view over the stores as they are, in the conversation it picks.
       if (!settings.heartbeat.enabled)
@@ -3160,8 +3143,8 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
             });
           }, hide),
           nameOf: (id, memberId) => store.getUser(id, memberId)?.names?.[0] ?? null,
-          client,
-          discord: capabilities,
+          reads,
+          iface: () => discordPort.iface,
           store: schedulerStore,
           heartbeat: {
             tasks: () => taskStore.recent(100),
@@ -3171,7 +3154,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
           },
         },
       });
-      ({ info, channel, currentChannel } = caught);
+      ({ info, conversation, currentChannel } = caught);
     } else {
       let channelIds = [];
       if (args.inner !== 'review') {
@@ -3199,10 +3182,13 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
         }
       }
       for (const id of channelIds) {
-        channel = await client.channels.fetch(id).catch(() => null);
-        if (channel) break;
+        const found = await client.channels.fetch(id).catch(() => null);
+        if (found) {
+          conversation = conversationRef(found);
+          break;
+        }
       }
-      if (!channel)
+      if (!conversation)
         throw new CliError(
           'replay-cli: no conversation for this wake (its channel is gone, or she has no recent line)'
         );
@@ -3219,12 +3205,10 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
         channelNames,
       }).info;
     }
-    channel.send = refuse('send');
-    channel.sendTyping = refuse('sendTyping');
 
     // The engine, wired as src/index.js wires it: her skills through a real admin over the copies.
     const port = createFakeAdapter({
-      iface: 'replay',
+      iface: 'discord',
       selfId: self.id,
       now: Date.now,
       capabilities: { maxFileBytes: 64 * 1024 * 1024 },
@@ -3252,7 +3236,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
       images: null,
       state,
       port,
-      wrapDiscord: (found) => hiddenCapabilities(found, hide),
+      wrapReads: (found) => hiddenReads(found, hide),
       extra: {
         skills: skillRegistry(),
         runOp: admin.runSkillOp,
@@ -3264,7 +3248,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     });
     log.info('replay-cli: inner ready', {
       guildId,
-      channelId: channel.id,
+      channelId: conversation.conversationId,
       kind: args.inner,
       intention: intention?.id ?? null,
       samples: args.samples,
@@ -3288,7 +3272,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
       let result;
       try {
         result = await turns.runTurn({
-          channel,
+          conversation,
           guildId,
           mode: 'inner',
           triggerKind: 'inner',
@@ -3348,7 +3332,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     const report = {
       kind: args.inner,
       intention: intention?.id ?? null,
-      channelId: String(channel.id),
+      channelId: conversation.conversationId,
       hidden: hide.any ? { channels: [...hide.channels], messages: [...hide.messages] } : null,
       wake: blocks.wake ?? null,
       request: {
@@ -3602,7 +3586,7 @@ async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, si
     const { guildId, self } = connection;
     const channel = await openDiaryChannel({ client, guildId, diaryChannelId, canSend, canAttach, log });
     const port = createFakeAdapter({
-      iface: 'replay',
+      iface: 'discord',
       selfId: self.id,
       now,
       capabilities: { maxFileBytes: 64 * 1024 * 1024 },
@@ -3665,7 +3649,11 @@ async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, si
       const fromPort = port.calls.length;
       let result;
       try {
-        result = await turns.runTurn({ channel, mode: 'diary', diary: { kind: null, forced: false } });
+        result = await turns.runTurn({
+          conversation: conversationRef(channel),
+          mode: 'diary',
+          diary: { kind: null, forced: false },
+        });
       } catch (err) {
         result = { outcome: 'error', reason: `${err?.name ?? 'Error'}: ${err?.message ?? err}` };
       }
@@ -4292,6 +4280,8 @@ export function createReplayTools({
   pageFetcher = null,
   linkOfMessage = null,
   discord,
+  reads = null,
+  iface = 'discord',
   describer = null,
   searches = {},
   keys = {},
@@ -4368,7 +4358,6 @@ export function createReplayTools({
       null;
     const settings = typeof recallSettings === 'function' ? recallSettings(config) : null;
     const timezone = config.bot?.timezone ?? 'UTC';
-    const options = typeof discord.normalizeOptions === 'function' ? discord.normalizeOptions(config) : {};
     return runConversationRead({
       args,
       labels,
@@ -4390,7 +4379,7 @@ export function createReplayTools({
         config.features?.record === true
           ? recordMessages(record, guildId, { channelId, from, nameOf, selfName })
           : Promise.resolve([]),
-      fetchLive: (request) => fetchSpan(discord, channelOf(request.channelId), request, { selfId, ...options }),
+      fetchLive: (request) => fetchSpan(reads, { iface, conversationId: String(request.channelId) }, request),
       render: (slice) => {
         let descriptions;
         if (config.features?.mediaDescriptions === true && typeof describer?.cachedDescriptions === 'function') {
@@ -4495,13 +4484,13 @@ export function createReplayTools({
       }
       if (skill === 'memory.search') {
         const result = await runMemorySearch({
-          recall: recallOf(client),
+          recall: onPlatformChannel(recallOf(client), { guild, channel }),
           store,
           config: hot.config,
           labels,
           guild,
           guildId,
-          channel,
+          channel: conversationOfChannel(channel, String(guildId)),
           partner: null,
           selfId,
           selfName,
@@ -5607,8 +5596,7 @@ async function runSkills({
         at: ts,
         tagged,
       });
-    // The config with her grants, read now and kept for the scenario (both sides); never written.
-    // --core-tools: features.coreTools on in that copy; --transport: the tools' transport.
+    // The config with her grants, read now and kept for the scenario (both sides), never written; --core-tools and --transport set it.
     const scenarioConfig = personaGrantsConfig(
       withTransport(args.coreTools ? withCoreTools(hot.config) : hot.config, args.transport),
       self.id,
@@ -5677,6 +5665,7 @@ async function runSkills({
           call,
           view: callViewOf({
             channel,
+            snapshot: guildListing(channel),
             guildId,
             idByIndex,
             lines,
@@ -6400,8 +6389,7 @@ export async function runTriggerLoops({
     const requester = requesterOf(triggerLine, channel);
     const answers = {};
     const runs = {};
-    // What a live turn runs before her reply, once for every side: the memory prefetch with features.coreTools on,
-    // else the search classifier and its searches (preTurnLookup over private copies).
+    // What a live turn runs before her reply, once per side: the memory prefetch (coreTools on), else the search classifier.
     const baseConfig = structuredClone(hot.config);
     const baseHot = {
       get prompts() {
@@ -6497,6 +6485,7 @@ export async function runTriggerLoops({
           call,
           view: callViewOf({
             channel,
+            snapshot: guildListing(channel),
             guildId,
             idByIndex,
             lines: lines2,
@@ -6864,6 +6853,9 @@ async function loopDepsOf({
   const searches = { brave: createBraveSearch(), exa: createExaSearch() };
   const keys = { brave: process.env.BRAVE_SEARCH_API_KEY || null, exa: process.env.EXA_API_KEY || null };
   const discord = createDiscordInterface().capabilities;
+  // The interface's reads over this guild's client, GET only as the rest of the replay is: the history conversation.read
+  // asks for.
+  const { reads, iface } = discordReads(guild.client, () => hot.config);
   return {
     IN_TURN_TOOLS,
     transportOf,
@@ -6897,6 +6889,8 @@ async function loopDepsOf({
         pageFetcher,
         linkOfMessage,
         discord,
+        reads,
+        iface,
         describer,
         searches,
         keys,
@@ -7188,7 +7182,7 @@ async function runMain(args, { root, signal, rng, answers }) {
       personaGrantsConfig,
       replayMedia,
       fetchHistoryWindow,
-      requesterOf,
+      requesterOf: requesterOfChannel(requesterOf),
       callViewOf,
       skillRegistry,
       expandPersonaGrant,

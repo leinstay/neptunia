@@ -1,15 +1,14 @@
 {
   "files": {
-    "src/behavior/inner.js": 2529,
-    "src/behavior/pipeline.js": 3104,
+    "src/behavior/inner.js": 2523,
+    "src/behavior/pipeline.js": 3090,
     "src/behavior/prompt.js": 4903,
     "src/behavior/recall-run.js": 2346,
     "src/behavior/recall.js": 2508,
     "src/behavior/sandbox.js": 2136,
-    "src/behavior/turn.js": 9485,
+    "src/behavior/turn.js": 9362,
     "src/memory/store.js": 3346,
     "tests/admin.test.js": 3882,
-    "tests/collect.test.js": 2098,
     "tests/describe.test.js": 3705,
     "tests/events.test.js": 9301,
     "tests/format.test.js": 2060,
@@ -22,19 +21,14 @@
     "tests/recall.test.js": 2561,
     "tests/sandbox.test.js": 2068,
     "tests/store.test.js": 3255,
-    "tests/turn.test.js": 13028,
-    "tools/lib/inner-week.mjs": 2204,
-    "tools/replay.mjs": 7751
+    "tests/turn.test.js": 12882,
+    "tools/lib/inner-week.mjs": 2199,
+    "tools/replay.mjs": 7745
   },
   "functions": {
     "interfaces/discord/collect.js": {
       "audienceOf": {
         "complexity": 22
-      }
-    },
-    "interfaces/discord/pull-fetch.js": {
-      "fetchPull": {
-        "complexity": 41
       }
     },
     "src/agent-runner/opencode.js": {
@@ -86,7 +80,7 @@
     },
     "src/behavior/inner.js": {
       "createInnerLife": {
-        "function-length": 1569
+        "function-length": 1563
       },
       "createInnerLife>drain": {
         "complexity": 108,
@@ -107,7 +101,7 @@
     },
     "src/behavior/missed.js": {
       "createMissed": {
-        "function-length": 659
+        "function-length": 652
       },
       "createMissed>onTurnEnd": {
         "complexity": 23
@@ -126,7 +120,7 @@
     },
     "src/behavior/pipeline.js": {
       "createMessageHandler": {
-        "function-length": 2808
+        "function-length": 2806
       },
       "createMessageHandler>classifyFollowUp": {
         "complexity": 21
@@ -135,10 +129,10 @@
         "complexity": 43
       },
       "createMessageHandler>handleMessage": {
-        "complexity": 40
+        "complexity": 39
       },
       "createMessageHandler>onMessageUpdate": {
-        "complexity": 26
+        "complexity": 25
       }
     },
     "src/behavior/prefetch.js": {
@@ -241,31 +235,28 @@
     },
     "src/behavior/spontaneous.js": {
       "createSpontaneous": {
-        "function-length": 431
+        "function-length": 428
       }
     },
     "src/behavior/turn.js": {
       "callViewOf": {
-        "complexity": 33
+        "complexity": 30
       },
       "createTurnRunner": {
-        "function-length": 7401
+        "function-length": 7352
       },
       "createTurnRunner>act": {
-        "complexity": 76,
+        "complexity": 75,
         "function-length": 399
       },
       "createTurnRunner>applyRewatch": {
         "complexity": 23
       },
       "createTurnRunner>drawTool": {
-        "complexity": 57
+        "complexity": 56
       },
       "createTurnRunner>dryAct": {
         "complexity": 28
-      },
-      "createTurnRunner>lateMediaTeller><anonymous>": {
-        "complexity": 22
       },
       "createTurnRunner>maybeLookup": {
         "complexity": 29
@@ -293,10 +284,10 @@
       },
       "createTurnRunner>runStepsIn": {
         "complexity": 97,
-        "function-length": 471
+        "function-length": 469
       },
       "createTurnRunner>runTurnAttempt": {
-        "complexity": 378,
+        "complexity": 375,
         "function-length": 1865
       },
       "journalTurnRecord": {
@@ -658,10 +649,10 @@
     },
     "src/ops/message.js": {
       "<anonymous>": {
-        "function-length": 364
+        "function-length": 351
       },
       "<anonymous>>mediaFile": {
-        "complexity": 30
+        "complexity": 28
       },
       "<anonymous>>post": {
         "complexity": 41
@@ -833,7 +824,7 @@
       },
       "runWeek": {
         "complexity": 23,
-        "function-length": 642
+        "function-length": 636
       },
       "runWeek>act": {
         "complexity": 39
@@ -978,8 +969,7 @@
         "src/behavior/emoji.js",
         "src/log.js",
         "src/media/video-sites.js",
-        "src/memory/mentions.ts",
-        "src/time.js"
+        "src/memory/mentions.ts"
       ],
       "interfaces/discord/commands.js": [
         "src/llm/roles.js",
@@ -997,13 +987,7 @@
       ],
       "interfaces/discord/pull-fetch.js": [
         "src/behavior/elsewhere.ts",
-        "src/behavior/pull.js",
-        "src/log.js",
-        "src/memory/mentions.ts",
-        "src/time.js"
-      ],
-      "interfaces/discord/reactors.js": [
-        "src/format.js"
+        "src/behavior/pull.js"
       ],
       "interfaces/discord/search.js": [
         "src/log.js"

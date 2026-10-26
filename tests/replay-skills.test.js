@@ -35,7 +35,9 @@ import {
   parseArgs,
   parseScenarios,
   playSteps,
+  requesterOfChannel,
   renderPairReport,
+  guildListing,
   renderSkillsReport,
   runRecord,
   scenarioDiscovery,
@@ -213,6 +215,7 @@ function simulate(
     call,
     view: callViewOf({
       channel,
+      snapshot: guildListing(channel),
       guildId: 'g1',
       idByIndex: new Map(),
       lines: [],
@@ -225,7 +228,7 @@ function simulate(
     }),
     config,
     selfId: SELF,
-    requester: requesterOf(trigger, channel),
+    requester: requesterOfChannel(requesterOf)(trigger, channel),
     conversationId: HERE,
     now: NOW,
     images,
@@ -554,7 +557,7 @@ async function playSequence(
     seedLine,
     planBurst: (incoming, { history: before }) => burstTurns(incoming, { selfId: SELF, config, history: before }),
     answerStep: async ({ situation, trigger, at, callMarks, result, queued }) => {
-      const requester = requesterOf(trigger, channel);
+      const requester = requesterOfChannel(requesterOf)(trigger, channel);
       const answered = await answerSkillScenario({
         view,
         situation,
@@ -571,6 +574,7 @@ async function playSequence(
             call,
             view: callViewOf({
               channel,
+              snapshot: guildListing(channel),
               guildId: 'g1',
               idByIndex,
               lines,

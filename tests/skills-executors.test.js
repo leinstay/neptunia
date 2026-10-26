@@ -20,6 +20,11 @@ import { checkSkill } from '../src/skills/gateway.js';
 import { labels } from './fixtures/labels.js';
 import { createDiscordInterface } from '../interfaces/discord/index.js';
 import { tempDir } from './fixtures/tmp.js';
+import { freshWorld, seedExisting, syncStub, useIface, useSelf, world } from './fixtures/turn-world.ts';
+
+// The conversations are held by a fake interface named `fake`, where the persona is `self-1`.
+useIface('fake');
+useSelf('self-1');
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -55,6 +60,7 @@ function textChannel(id, { guildId = 'g1', dm = false, allowed = null } = {}) {
 /** The client's channels: NEWS and 555 open, ELSEWHERE seen but no send, READ_ONLY readable, NO_FILES without Attach Files, one of another guild, a DM. */
 function clientChannels() {
   return new Map([
+    [HERE, textChannel(HERE)],
     [NEWS, textChannel(NEWS)],
     ['555', textChannel('555')],
     [ELSEWHERE, textChannel(ELSEWHERE, { allowed: [ViewChannel, ReadMessageHistory, AddReactions] })],
@@ -257,12 +263,19 @@ function makeAdmin({
     getGuild: () => ({}),
     isPingsOff: (guildId, userId) => userId === '8',
   };
+  // What the interface says of each channel: its community and what she may do there.
+  freshWorld();
+  for (const stub of channels.values()) syncStub(stub);
+  for (const [id, message] of Object.entries(HELD.get(channels) ?? {}))
+    seedExisting('555', id, { authorId: message.author.id, ts: 5, attachments: message.attachments });
   const admin = createAdmin({
     discord: DISCORD,
     hot,
     store,
     client: { user: { id: SELF }, channels: { cache: channels } },
     getGuildId: () => 'g1',
+    // What the persona and the members posted through the port is read back from it, as a platform does.
+    reads: world().adopt(port, { sendsInHistory: true }),
     port,
     ...extra,
   });
@@ -488,13 +501,14 @@ test('message.create gif=: the GIF follows the text, goes alone without one, and
 
 test('message.create gif=: an attached GIF posts a fresh URL of its attachment; with a file the order is text and file, then the GIF', async () => {
   const library = gifLibrary();
-  const channels = clientChannels();
-  const here = channels.get(HERE) ?? textChannel(HERE);
-  here.messages = {
-    fetch: async () => ({ attachments: new Map([['item-2', { url: 'https://cdn.example/fresh.gif' }]]) }),
-  };
-  channels.set(HERE, here);
-  const { admin, store, port } = makeAdmin({ channels });
+  const { admin, store, port } = makeAdmin();
+  seedExisting(HERE, 'm-src', {
+    authorId: MEMBER,
+    ts: 5,
+    attachments: new Map([
+      ['item-2', { id: 'item-2', url: 'https://cdn.example/fresh.gif', contentType: 'image/gif', name: 'fresh.gif' }],
+    ]),
+  });
   library.patch(store);
   const entry = store.findGif('g1', 'g2');
   Object.assign(entry, { messageId: 'm-src', channelId: HERE, itemId: 'item-2' });
@@ -677,13 +691,12 @@ test('executeCall: her written text goes out as rendered; only the members the r
 test("executeCall: a person who runs /nep message create gives her a turn; her own call posts -- the mode is the server's, by who acts", async () => {
   const forced = [];
   const spontaneous = {
-    force: async (channel, mode, options) => {
-      forced.push([channel.id, mode, options]);
+    force: async (conversation, mode, options) => {
+      forced.push([conversation.conversationId, mode, options]);
       return { outcome: 'spoke' };
     },
   };
-  const client = { user: { id: SELF }, channels: { fetch: async (id) => ({ id }) } };
-  const { admin, port } = makeAdmin({ extra: { spontaneous, client } });
+  const { admin, port } = makeAdmin({ extra: { spontaneous } });
   // a person: a turn, even with a text in the arguments
   const person = await admin.runCommand(
     'message.create',
@@ -692,7 +705,7 @@ test("executeCall: a person who runs /nep message create gives her a turn; her o
   );
   assert.equal(person.status, 'ok');
   assert.deepEqual(forced, [[HERE, null, { requester: { id: OWNER, roleIds: [] } }]]);
-  assert.equal(port.calls.length, 0, 'nothing posted as given text');
+  assert.equal(port.calls.filter((call) => call.op === 'send').length, 0, 'nothing posted as given text');
   // her own call: her text, no turn
   const own = await executeCall(resolve('message.create', {}, 'το λέω εγώ'), deps(admin, port));
   assert.equal(own.status, 'ok');
@@ -729,33 +742,19 @@ test("executeCall: edit and delete change her own message; the port refuses anyo
 });
 
 test('executeCall: `last` edits or deletes her own most recent message in the channel, looked up in its recent history', async () => {
-  // HERE's recent history, newest first as Discord gives it: a member's line, then two of hers.
+  // HERE's recent history: two lines of hers, then a member's. NEWS holds one line, a member's.
+  const { admin, port } = makeAdmin();
   const asked = [];
-  const history = [
-    { id: '3003', author: { id: MEMBER }, createdTimestamp: 3 },
-    { id: '3002', author: { id: SELF }, createdTimestamp: 2 },
-    { id: '3001', author: { id: SELF }, createdTimestamp: 1 },
-  ];
-  const here = {
-    ...textChannel(HERE),
-    messages: {
-      fetch: async (options) => {
-        asked.push(options);
-        return new Map(history.map((m) => [m.id, m]));
-      },
-    },
-  };
-  const quiet = {
-    ...textChannel(NEWS),
-    messages: { fetch: async () => new Map([['4001', { id: '4001', author: { id: MEMBER }, createdTimestamp: 5 }]]) },
-  };
-  const { admin, port } = makeAdmin({ channels: new Map([...clientChannels(), [HERE, here], [NEWS, quiet]]) });
+  world().tap('history', ([ref, query]) => {
+    if (ref.conversationId === HERE) asked.push(query);
+  });
   for (const [id, authorId] of [
     ['3001', SELF],
     ['3002', SELF],
     ['3003', MEMBER],
   ])
     port.seed(HERE, { authorId, messageId: id, text: 'λάθος' });
+  port.seed(NEWS, { authorId: MEMBER, messageId: '4001', text: 'ερώτηση' });
   const edit = resolve('message.edit', { message: 'last' }, 'σωστό');
   assert.deepEqual(edit.args, { message: 'last', text: 'σωστό' }, 'passed on as written');
   const edited = await executeCall(edit, deps(admin, port));
@@ -939,7 +938,7 @@ test('executeCall: draw.create to a channel without Attach Files is refused befo
     deps(admin, port)
   );
   assert.deepEqual([refused.status, refused.code], ['denied', 'channel-no-permission']);
-  assert.deepEqual([generated.length, port.calls.length], [0, 0]);
+  assert.deepEqual([generated.length, port.calls.filter((call) => call.op === 'send').length], [0, 0]);
 });
 
 test('executeCall: an operation that does not answer in time is unknown, never retried', async () => {
@@ -1188,17 +1187,17 @@ test('resolveCall: the channel of a #N message wins over a channel that does not
   assert.equal(resolve('conversation.read', { before: '#3', channel: '#γενικά' }).reason, 'conversation');
 });
 
-/** The channel 555 (digits, as a message link needs) whose messages.fetch answers from `messages` (id -> message), a missing one as Discord's unknown message. */
+/** @type {WeakMap<object, Record<string, { author: { id: string }, attachments?: Map<string, object> }>>} */
+const HELD = new WeakMap();
+
+/**
+ * The channels with channel 555 (digits, as a message link needs) holding `messages` (id -> message); a missing one is gone.
+ * @param {Record<string, { author: { id: string }, attachments?: Map<string, object> }>} messages
+ */
 function channelsWithMessages(messages) {
   const channels = clientChannels();
-  const here = textChannel('555');
-  here.messages = {
-    fetch: async (id) => {
-      if (!messages[id]) throw Object.assign(new Error('Unknown Message'), { code: 10008 });
-      return messages[id];
-    },
-  };
-  channels.set('555', here);
+  // The messages the interface holds in channel 555 (makeAdmin puts them there).
+  HELD.set(channels, messages);
   return channels;
 }
 

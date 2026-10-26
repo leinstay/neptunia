@@ -229,23 +229,13 @@ test('fetchAsDataUrl: an error without a code logs its class name; a body-read f
 
 // --- avatarReference: the bot's avatar as a drawing's reference -----------------
 
-function avatarClient(url = 'https://cdn.example.com/avatar.png') {
-  const asked = [];
-  return {
-    asked,
-    user: {
-      displayAvatarURL: (options) => {
-        asked.push(options);
-        return url;
-      },
-    },
-  };
-}
-
 const AVATAR_CONFIG = { image: { referenceMaxBytes: 4_000_000 }, context: { vision: { fetchTimeoutMs: 10_000 } } };
 
-test('avatarReference: a static 1024 px PNG fetched under the reference limits, as a data: URL', async () => {
-  const client = avatarClient();
+// Changed with the contract: the caller hands over the address the interface gave (`memberInfo(self).avatar.largeUrl`)
+// where it handed over the discord.js client; the size and the static form are the interface's, tested in
+// tests/discord-reads.test.ts.
+test('avatarReference: the large avatar address fetched under the reference limits, as a data: URL', async () => {
+  const url = 'https://cdn.example.com/avatar.png';
   const calls = [];
   const imageFetcher = {
     fetchAsDataUrl: async (url, options) => {
@@ -253,27 +243,20 @@ test('avatarReference: a static 1024 px PNG fetched under the reference limits, 
       return { dataUrl: 'data:image/png;base64,YXZhdGFy', bytes: 6, contentType: 'image/png' };
     },
   };
-  assert.equal(
-    await avatarReference({ client, imageFetcher, config: AVATAR_CONFIG }),
-    'data:image/png;base64,YXZhdGFy'
-  );
-  assert.deepEqual(client.asked, [{ extension: 'png', size: 1024, forceStatic: true }]);
+  assert.equal(await avatarReference({ url, imageFetcher, config: AVATAR_CONFIG }), 'data:image/png;base64,YXZhdGFy');
   assert.deepEqual(calls, [
     { url: 'https://cdn.example.com/avatar.png', options: { maxBytes: 4_000_000, timeoutMs: 10_000 } },
   ]);
 });
 
 test('avatarReference: null without a fetcher, an avatar URL or a download; a throw is swallowed', async () => {
+  const url = 'https://cdn.example.com/avatar.png';
   const ok = { fetchAsDataUrl: async () => ({ dataUrl: 'data:image/png;base64,eA==' }) };
-  assert.equal(await avatarReference({ client: avatarClient(), imageFetcher: null, config: AVATAR_CONFIG }), null);
-  assert.equal(await avatarReference({ client: { user: {} }, imageFetcher: ok, config: AVATAR_CONFIG }), null);
-  assert.equal(await avatarReference({ client: avatarClient(''), imageFetcher: ok, config: AVATAR_CONFIG }), null);
+  assert.equal(await avatarReference({ url, imageFetcher: null, config: AVATAR_CONFIG }), null);
+  assert.equal(await avatarReference({ url: undefined, imageFetcher: ok, config: AVATAR_CONFIG }), null);
+  assert.equal(await avatarReference({ url: '', imageFetcher: ok, config: AVATAR_CONFIG }), null);
   assert.equal(
-    await avatarReference({
-      client: avatarClient(),
-      imageFetcher: { fetchAsDataUrl: async () => null },
-      config: AVATAR_CONFIG,
-    }),
+    await avatarReference({ url, imageFetcher: { fetchAsDataUrl: async () => null }, config: AVATAR_CONFIG }),
     null
   );
   const throwing = {
@@ -281,5 +264,5 @@ test('avatarReference: null without a fetcher, an avatar URL or a download; a th
       throw new Error('boom');
     },
   };
-  assert.equal(await avatarReference({ client: avatarClient(), imageFetcher: throwing, config: AVATAR_CONFIG }), null);
+  assert.equal(await avatarReference({ url, imageFetcher: throwing, config: AVATAR_CONFIG }), null);
 });

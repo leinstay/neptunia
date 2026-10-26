@@ -6,8 +6,7 @@
 // fake store, fake image client and lookup; no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PermissionFlagsBits } from 'discord.js';
-import { chunkPictures, createTurnRunner } from '../src/behavior/turn.js';
+import { chunkPictures, createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.js';
 import { DIARY_DAILY, DIARY_PICTURES_DAILY } from '../src/behavior/diary.js';
 import { ImageCapError, ImageGenError } from '../src/llm/images.js';
 import { DailyCapError } from '../src/llm/openrouter.js';
@@ -20,39 +19,58 @@ import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
 import { contentText } from './fixtures/turn-harness.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
 import '../src/ops/index.js';
-import { createDiscordAdapter, createDiscordInterface } from '../interfaces/discord/index.js';
+import { attachmentCount, onWorld, useIface, useSelf, world } from './fixtures/turn-world.ts';
 
-// The Discord interface's capabilities object, as src/index.js injects it.
-const DISCORD = createDiscordInterface().capabilities;
+// The diary channel is held by a fake interface named `fake`; the persona is `self-id`.
+useIface('fake');
+useSelf('self-id');
+const createWorldRunner = onWorld(createRealTurnRunner);
+
+/**
+ * A turn runner whose `runTurn` first opens the conversation a test gave as a diary channel (see diaryChannel).
+ * @param {Record<string, unknown>} options
+ */
+function createTurnRunner(options) {
+  const turns = createWorldRunner(options);
+  return {
+    ...turns,
+    /** @param {Record<string, unknown> & { channel?: { open?: () => unknown } }} params */
+    runTurn: (params) => {
+      params.channel?.open?.();
+      return turns.runTurn(params);
+    },
+  };
+}
 
 const NOW = Date.UTC(2026, 9, 6, 19, 30, 0);
 const DAY = 24 * 60 * 60 * 1000;
 const TZ = 'Europe/Athens';
 
-/** A diary channel the persona owns: every permission, Attach Files only when `attachFiles`. */
+/**
+ * A diary channel the persona owns: every permission, Attach Files only when `attachFiles`. The conversation is made in
+ * the test's world when a turn runs in it (`open`), and `sent` and `reactCalls` read what the persona did there.
+ */
 function diaryChannel({ attachFiles = true, historyMessages = [] } = {}) {
-  const sent = [];
-  const reactCalls = [];
+  /** @type {import('./fixtures/turn-world.ts').Channel|null} */
+  let handle = null;
   return {
     id: 'd1',
-    name: 'journal',
-    guild: { id: 'g1', members: { me: { displayName: 'Bot' } }, channels: { cache: new Map() } },
-    viewable: true,
-    permissionsFor: () => ({ has: (flag) => attachFiles || flag !== PermissionFlagsBits.AttachFiles }),
-    sendTyping: async () => {},
-    send: async (payload) => {
-      sent.push(payload);
-      return { id: `sent-${sent.length}` };
+    open() {
+      handle ??= world().channel({
+        id: 'd1',
+        name: 'journal',
+        guildId: 'g1',
+        permissions: { attach: attachFiles },
+        historyMessages,
+      });
+      return handle;
     },
-    messages: {
-      cache: new Map(),
-      fetch: async (arg) => {
-        if (arg && typeof arg === 'object' && 'limit' in arg) return new Map(historyMessages.map((m) => [m.id, m]));
-        return { react: async (emoji) => reactCalls.push({ id: arg, emoji }) };
-      },
+    get sent() {
+      return handle?.sent ?? [];
     },
-    sent,
-    reactCalls,
+    get reactCalls() {
+      return handle?.reactCalls ?? [];
+    },
   };
 }
 
@@ -228,22 +246,12 @@ function fakeHot({ features = {}, diary = {}, prompts = {} } = {}) {
   };
 }
 
-function client() {
-  return {
-    user: { id: 'self-id', username: 'Bot' },
-    channels: { cache: new Map([['d1', { id: 'd1', name: 'journal' }]]) },
-  };
-}
-
 function runner({ hot = fakeHot(), store = fakeStore(), llm, images = fakeImages(), lookup = null } = {}) {
   return createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
     hot,
     store,
     llm,
     calibrator: { ratio: 1, apply: (n) => n, observe: () => {} },
-    client: client(),
     images,
     lookup,
     rng: () => 0.5,
@@ -672,13 +680,10 @@ test('diary turn: a voice message is kept in the post: its id among messageIds a
     },
   });
   const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
     hot: fakeHot({ features: { speech: true } }),
     store,
     llm,
     calibrator: { ratio: 1, apply: (n) => n, observe: () => {} },
-    client: client(),
     images: fakeImages(),
     speech: { quota: () => ({ used: 0, cap: 10, spent: false }) },
     runOwnOp,
@@ -832,14 +837,13 @@ function setHot({ set = {}, features = {}, diary = {} } = {}) {
   });
 }
 
-/** A diary channel whose sends are logged into `events` too. */
+/** A diary channel whose sends are logged into `events` too (one entry per message: its files, or `msg`). */
 function eventChannel(events) {
   const channel = diaryChannel();
-  const send = channel.send;
-  channel.send = async (payload) => {
-    events.push(payload.files ? `files ${payload.files.length}` : 'msg');
-    return send(payload);
-  };
+  world().tap('send', ([, content]) => {
+    const files = attachmentCount(content);
+    events.push(files > 0 ? `files ${files}` : 'msg');
+  });
   return channel;
 }
 
@@ -921,17 +925,15 @@ test('diary set: six draw.create calls in one answer are generated before anythi
 
 /**
  * A runner whose port is a fake adapter with the given limits: the turn reads them from `capabilities()`.
- * @param {{ hot: object, llm: object, images: object, store?: object, limits: { maxFiles?: number, maxChars?: number }, client?: object }} options
+ * @param {{ hot: object, llm: object, images: object, store?: object, limits: { maxFiles?: number, maxChars?: number } }} options
  */
-function limitedRunner({ hot, llm, images, store = fakeStore(), limits, client: clientOverride = client() }) {
+function limitedRunner({ hot, llm, images, store = fakeStore(), limits }) {
   const adapter = createFakeAdapter({ iface: 'fake', selfId: 'self-id', capabilities: limits });
   const turns = createTurnRunner({
-    discord: DISCORD,
     hot,
     store,
     llm,
     calibrator: { ratio: 1, apply: (/** @type {number} */ n) => n, observe: () => {} },
-    client: clientOverride,
     images,
     port: adapter,
     rng: () => 0.5,
@@ -970,26 +972,13 @@ test('diary set: an adapter that allows twelve files per message gets the same s
 test('diary set: a dry run mirrors the image prompt in messages no longer than the maxChars of the adapter', async () => {
   const scene = 'x'.repeat(600);
   const llm = fakeLlm(TOUR_PLAN, toolAnswer('<msg>x</msg>', [call('draw.create', { text: scene })]));
-  /** @type {string[]} */
-  const mirrored = [];
-  const mirrorChannel = {
-    id: 'dry',
-    send: (/** @type {{ content: string }} */ payload) => {
-      mirrored.push(payload.content);
-      return Promise.resolve();
-    },
-  };
-  const client = {
-    user: { id: 'self-id', username: 'Bot' },
-    channels: {
-      cache: new Map([['d1', { id: 'd1', name: 'journal' }]]),
-      fetch: (/** @type {string} */ id) => Promise.resolve(id === 'dry' ? mirrorChannel : null),
-    },
-  };
+  // The mirror is a conversation of the fake interface; what the adapter holds of it is what was mirrored.
+  world().channel({ id: 'dry', guildId: 'g1' });
   const hot = setHot({ features: { dryRun: true }, set: { minPosted: 1 } });
   hot.config.bot.dryRunChannelId = 'dry';
-  const { turns } = limitedRunner({ hot, llm, images: fakeSetImages([]), limits: { maxChars: 250 }, client });
+  const { turns, adapter } = limitedRunner({ hot, llm, images: fakeSetImages([]), limits: { maxChars: 250 } });
   await withCapturedLogs(() => turns.runTurn({ channel: diaryChannel(), mode: 'diary', diary: {} }));
+  const mirrored = adapter.messagesIn('dry').map((message) => message.text);
   const parts = mirrored.filter((content) => content.includes('x'.repeat(20)));
   assert.ok(parts.length >= 2, 'a 600 character scene does not fit one message of 250');
   assert.ok(

@@ -21,7 +21,8 @@ import {
   ok,
   refRefusal,
 } from '../../src/interface/port.js';
-import { deliveryOf, splitText } from '../../src/protocol/index.js';
+import { READ_ACTIONS, deliveryOf, splitText } from '../../src/protocol/index.js';
+import { createDiscordReads } from './reads.ts';
 import { CODE, httpCode } from '../../src/skills/codes.js';
 
 /** The namespace of every Discord reference. */
@@ -88,9 +89,10 @@ function reactionKey(emoji) {
 
 /**
  * The Discord adapter over a discord.js client.
- * @param {{ client: object, lookupChannel?: ((id: string) => object|null)|null, operations?: Iterable<string>|null,
- *   limits?: Partial<typeof DISCORD_LIMITS>, now?: () => number }} options
- *   `lookupChannel`: a channel the caller already holds, tried before the client's cache and
+ * @param {{ client: object, config?: () => object, lookupChannel?: ((id: string) => object|null)|null,
+ *   operations?: Iterable<string>|null, limits?: Partial<typeof DISCORD_LIMITS>, now?: () => number }} options
+ *   `config`: the live config, read at each read (`normalizeOptions(config())`); `lookupChannel`: a channel the
+ *   caller already holds, tried before the client's cache and
  *   fetch; `operations`: the capability names to offer (all of CAPABILITIES when absent), any
  *   other answers `unsupported` without a call; `limits`: over DISCORD_LIMITS; `now`: the clock
  *   that names a send's idempotency key.
@@ -98,6 +100,7 @@ function reactionKey(emoji) {
  */
 export function createDiscordAdapter({
   client,
+  config = () => ({}),
   lookupChannel = null,
   operations = null,
   limits = {},
@@ -197,6 +200,16 @@ export function createDiscordAdapter({
     const self = selfId();
     return self && message?.author?.id === self ? null : notOk('forbidden', CODE.NOT_OWN_MESSAGE);
   }
+
+  const reads = createDiscordReads({
+    client,
+    config,
+    iface: DISCORD_IFACE,
+    resolveChannel,
+    resolveMessage,
+    failure: (err) => discordFailure(err, { sent: false }),
+    refusal: (ref, needMessage = false) => refRefusal(ref, DISCORD_IFACE, { needMessage }),
+  });
 
   return {
     iface: DISCORD_IFACE,
@@ -312,51 +325,10 @@ export function createDiscordAdapter({
       }
     },
 
-    /**
-     * Reads messages by id from one conversation: their text and attachments (url, name, content type, size), or
-     * `missing` for an id Discord no longer has. A read, not an effect: it is not one of CAPABILITIES. A failure that
-     * is not "the message is gone" fails the whole call, so the caller can try again later.
-     */
-    async fetchMessages(conversation, messageIds) {
-      const refused = refRefusal(conversation, DISCORD_IFACE);
-      if (refused) return refused;
-      const { channel, result } = await resolveChannel(conversation);
-      if (result) return result;
-      if (typeof channel.messages?.fetch !== 'function') return unsupported();
-      const messages = [];
-      for (const id of Array.isArray(messageIds) ? messageIds : []) {
-        try {
-          const found = await channel.messages.fetch(String(id));
-          if (!found) {
-            messages.push({ messageId: String(id), missing: true });
-            continue;
-          }
-          const files = found.attachments?.values ? [...found.attachments.values()] : [];
-          messages.push({
-            messageId: String(id),
-            text: typeof found.content === 'string' ? found.content : '',
-            attachments: files.map((file) => ({
-              url: file.url,
-              name: file.name,
-              contentType: file.contentType ?? undefined,
-              size: Number.isFinite(file.size) ? file.size : undefined,
-              ...(Number.isFinite(file.duration) ? { durationSec: file.duration } : {}),
-              ...(typeof file.waveform === 'string' ? { waveform: file.waveform } : {}),
-            })),
-          });
-        } catch (err) {
-          if (err?.status === 404 || err?.code === 10008) {
-            messages.push({ messageId: String(id), missing: true });
-            continue;
-          }
-          return discordFailure(err, { sent: false });
-        }
-      }
-      return { ...ok(), messages };
-    },
+    ...reads,
 
     capabilities() {
-      return { operations: [...offered], ...caps, messageUrl: DISCORD_MESSAGE_URL };
+      return { operations: [...offered], ...caps, messageUrl: DISCORD_MESSAGE_URL, reads: [...READ_ACTIONS] };
     },
 
     ...declaredHooks(),

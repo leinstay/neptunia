@@ -658,7 +658,7 @@ for (const transport of TRANSPORTS) {
         '<skip/>',
       ],
       allowed: ['lore.list', 'message.react.add'],
-      onAnswer: (n, history, port) => {
+      onAnswer: (n, history) => {
         if (n !== 0 || added) return;
         added = true;
         history.push({
@@ -672,7 +672,6 @@ for (const transport of TRANSPORTS) {
           attachments: new Map(),
           stickers: new Map(),
         });
-        port.seed('c1', { authorId: 'u2', messageId: 'm9', text: 'ωραία νέα' });
       },
     });
     const note = noteText(turn.llm, 1);
@@ -896,7 +895,7 @@ test('a line shown to her in a step note counts as seen: the turn that spoke ans
   const run = await coreTurn({
     answers: [toolAnswer('<think>1</think>', [call('lore.list')]), '<think>2</think><msg>απάντηση</msg>'],
     allowed: ['lore.list'],
-    onAnswer: (n, history, port) => {
+    onAnswer: (n, history) => {
       if (n !== 0 || added) return;
       added = true;
       history.push({
@@ -910,7 +909,6 @@ test('a line shown to her in a step note counts as seen: the turn that spoke ans
         attachments: new Map(),
         stickers: new Map(),
       });
-      port.seed('c1', { authorId: 'u2', messageId: 'm9', text: 'ωραία νέα' });
     },
   });
   assert.ok(noteText(run.llm, 1).includes('ωραία νέα'), 'the line was shown in the note');

@@ -12,7 +12,11 @@ import { defineOp, perEnv, invalid } from './registry.js';
 import { CODE } from '../skills/codes.js';
 
 const handlers = perEnv((env) => {
-  const { hot, client, discord, images, imageFetcher, port, assertNotPaused, resolvedGuildId } = env;
+  const { hot, client, images, imageFetcher, assertNotPaused, resolvedGuildId } = env;
+  /** @type {import('../interface/reads.ts').Reads} */
+  const reads = env.reads;
+  /** @type {import('../protocol/adapter.ts').Adapter|null|undefined} */
+  const port = env.port;
 
   /**
    * `/nep draw`: one picture (src/media/draw.js), the same prompt
@@ -41,8 +45,8 @@ const handlers = perEnv((env) => {
     const postTo =
       target || reply
         ? await postingConversation({
-            client,
-            discord,
+            reads,
+            iface: port?.iface,
             guildId: resolvedGuildId(context),
             channelId: target,
             context,
@@ -71,7 +75,11 @@ const handlers = perEnv((env) => {
       ({ picture, referenceMissing } = await drawPicture({
         images,
         hot,
-        client,
+        // The persona's large avatar, asked of the interface only when the picture needs the reference.
+        avatarUrl: async () => {
+          const found = await reads.memberInfo({ communityId: guildId, memberId: String(client?.user?.id ?? '') });
+          return found?.member?.avatar.largeUrl ?? null;
+        },
         imageFetcher,
         input: { scene: request, selfName, self, withTime: false, userId: null },
       }));

@@ -21,6 +21,7 @@
 // src/intentions/service.js), so the turn already shows them back to pending with the outcome.
 
 import { log as defaultLog } from '../log.js';
+import { lineOf } from '../behavior/line-of.js';
 
 /** `agents.resultRetrySeconds` and `agents.resultCooldownSeconds` when missing (config.json carries the same). */
 export const DEFAULT_RETRY_SECONDS = 30;
@@ -55,8 +56,9 @@ const DONE = new Set(['spoke', 'skip']);
 /**
  * @param {object} options
  * @param {{ config: object }} options.hot
- * @param {object} options.client  discord.js-shaped: `channels.fetch(id)`, `user.id`.
- * @param {object} options.discord  The Discord interface's capabilities object (src/index.js injects it): `normalizeMessage` of the message a result answers.
+ * @param {import('../interface/reads.ts').Reads} options.reads  The core's reads of the interface: the conversation a
+ *   result answers in and the message it was asked in.
+ * @param {() => string} [options.iface]  The interface the conversations belong to (from `hello`).
  * @param {{ runTurn: Function, isBusy?: Function, isAnyBusy?: Function }} options.turns
  * @param {{ markSeen: Function, markRead?: Function, markResultFailed?: Function }} options.errands
  * @param {{ onTaskFinished: Function }|null} [options.intentions]  The intention service: an errand's
@@ -68,8 +70,8 @@ const DONE = new Set(['spoke', 'skip']);
  */
 export function createTaskTurns({
   hot,
-  client,
-  discord,
+  reads,
+  iface = () => '',
   turns,
   errands,
   intentions = null,
@@ -78,7 +80,6 @@ export function createTaskTurns({
   setTimer = (fn, ms) => setTimeout(fn, ms),
   log = defaultLog,
 }) {
-  const { normalizeMessage } = discord;
   // conversation id -> when its last result turn started
   const lastAt = new Map();
   // task id -> pending timer, while a result waits for its turn
@@ -119,18 +120,14 @@ export function createTaskTurns({
     waiting.set(task.id, timer);
   }
 
-  /** The message the errand was asked in, normalized as a turn's trigger, or null. */
-  async function originMessage(channel, task) {
+  /** The message the errand was asked in, as a line (a turn's trigger), or null. */
+  /** @param {import('../protocol/adapter.ts').ConversationRef} ref */
+  async function originMessage(ref, task) {
     const messageId = task.origin?.messageId;
-    if (!messageId || typeof channel?.messages?.fetch !== 'function') return null;
-    const message = await Promise.resolve(channel.messages.fetch(messageId)).catch(() => null);
-    if (!message) return null;
-    const media = hot.config?.media ?? {};
-    return normalizeMessage(message, client?.user?.id, {
-      embedTextChars: media.embedTextChars,
-      videoSites: media.video?.sites,
-      maxUrlChars: hot.config?.context?.maxUrlChars,
-    });
+    if (!messageId) return null;
+    const found = await reads.fetchMessages(ref, [messageId]);
+    const event = found?.messages[0]?.event;
+    return event === undefined ? null : lineOf(event);
   }
 
   /** One attempt at the result turn of `task`. */
@@ -151,18 +148,19 @@ export function createTaskTurns({
       later(task, guildId, attempt, retryMs);
       return null;
     }
-    const channel = await Promise.resolve(client?.channels?.fetch?.(channelId)).catch(() => null);
-    if (!channel) {
+    const conversation = { iface: iface(), conversationId: String(channelId) };
+    const known = await reads.conversationInfo(conversation);
+    if (known === null) {
       log.warn('errands: result conversation unavailable', { id: task.id, channelId });
       return null;
     }
-    const trigger = await originMessage(channel, task);
+    const trigger = await originMessage(conversation, task);
     const requester = task.requester?.userId ? { id: task.requester.userId } : null;
     lastAt.set(channelId, now());
     let result;
     try {
       result = await turns.runTurn({
-        channel,
+        conversation,
         guildId: guildId ?? getGuildId?.() ?? null,
         mode: trigger ? 'reply' : 'interject',
         trigger,

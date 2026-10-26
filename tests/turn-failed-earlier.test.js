@@ -2,20 +2,19 @@
 // (src/behavior/turn.js, src/behavior/prompt.js#renderTasks): an addressed reply turn that ended
 // `error` with nothing posted is kept per channel (at most context.failedTurnsKept, 24 hours); the
 // next request there ends its task with one labels.task.failedEarlier line per entry, then the
-// entries are gone. Fake client, fake llm, injected clock; no network.
+// entries are gone. The core's turn over the fake interface, fake llm, injected clock; no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createTurnRunner, sendHash, settleUnknownSends } from '../src/behavior/turn.js';
+import { createTurnRunner as createRealTurnRunner, sendHash, settleUnknownSends } from '../src/behavior/turn.js';
 import { createLocalFacts } from '../src/behavior/inner.js';
 import { DailyCapError } from '../src/llm/openrouter.js';
 import { fill, formatClock, formatDate } from '../src/format.js';
 import { userText } from '../src/behavior/prompt.js';
-import { createFakeAdapter } from '../src/interface/fake.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { createDiscordInterface } from '../interfaces/discord/index.js';
+import { freshWorld, onWorld, world } from './fixtures/turn-world.ts';
 
-const DISCORD = createDiscordInterface().capabilities;
+const createTurnRunner = onWorld(createRealTurnRunner);
 const NOW = Date.parse('2026-10-19T12:00:00Z');
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -51,22 +50,9 @@ function triggerOf(raw) {
   };
 }
 
+/** @param {Array<Record<string, unknown>>} [historyMessages] */
 function fakeChannel(historyMessages) {
-  const guild = { id: '55', members: { me: { displayName: 'Bot' } }, channels: { cache: new Map() } };
-  return {
-    id: '77',
-    name: 'general',
-    guild,
-    sendTyping: async () => {},
-    send: async () => ({ id: 'sent' }),
-    messages: {
-      cache: new Map(),
-      fetch: async (arg) =>
-        arg && typeof arg === 'object' && 'limit' in arg
-          ? new Map(historyMessages.map((m) => [m.id, m]))
-          : (historyMessages.find((m) => m.id === arg) ?? null),
-    },
-  };
+  return world().channel({ id: '77', name: 'general', guildId: '55', historyMessages });
 }
 
 const store = {
@@ -123,6 +109,8 @@ function hotWith(context = {}) {
 
 /** A runner whose llm throws while `fail.on` and answers a skip otherwise. */
 function setup({ history, context } = {}) {
+  // Each setup is its own scene: the fake holds only its history.
+  freshWorld();
   const channel = fakeChannel(history);
   const fail = { on: true, error: Object.assign(new Error('OpenRouter HTTP 429'), { statusCode: 429, body: '{}' }) };
   const calls = [];
@@ -134,13 +122,10 @@ function setup({ history, context } = {}) {
     },
   };
   const turns = createTurnRunner({
-    discord: DISCORD,
     hot: hotWith(context),
     store,
     llm,
     calibrator: { ratio: 1, apply: (n) => n, observe: () => {} },
-    client: { user: { id: 'self-id', username: 'Bot' } },
-    port: createFakeAdapter({ iface: 'fake', selfId: 'self-id' }),
     now: () => clock.t,
   });
   const run = (raw, triggerKind = 'mention') =>

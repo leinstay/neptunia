@@ -20,15 +20,14 @@ import {
 import { createStore } from '../src/memory/store.js';
 import { createMemoryUpdater } from '../src/memory/update.js';
 import { parseOutput } from '../src/llm/parse.js';
-import { createTurnRunner } from '../src/behavior/turn.js';
+import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.js';
 import { userText } from '../src/behavior/prompt.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { createDiscordAdapter, createDiscordInterface } from '../interfaces/discord/index.js';
+import { onWorld, world } from './fixtures/turn-world.ts';
 import { tempDir } from './fixtures/tmp.js';
 
-// The Discord interface's capabilities object, as src/index.js injects it.
-const DISCORD = createDiscordInterface().capabilities;
+const createTurnRunner = onWorld(createRealTurnRunner);
 
 const DAY = 86_400_000;
 const T0 = Date.UTC(2026, 8, 1);
@@ -576,34 +575,15 @@ function trigger(raw) {
   };
 }
 
+/** A channel of the world holding `historyMessages`; `fetched` lists the messages read by id, `fetchFails` makes that read fail. */
 function fakeChannel({ id = 'c1', historyMessages = [], fetchFails = false } = {}) {
-  const sent = [];
   const fetched = [];
-  return {
-    id,
-    name: 'general',
-    guild: { id: 'g1', members: { me: { displayName: 'Bot' } }, channels: { cache: new Map() } },
-    viewable: true,
-    permissionsFor: () => ({ has: () => true }),
-    sendTyping: async () => {},
-    send: async (payload) => {
-      sent.push(payload);
-      return { id: `sent-${sent.length}` };
-    },
-    messages: {
-      cache: new Map(),
-      fetch: async (arg) => {
-        if (arg && typeof arg === 'object' && 'limit' in arg) return new Map(historyMessages.map((m) => [m.id, m]));
-        fetched.push(arg);
-        if (fetchFails) throw new Error('Unknown Message');
-        const target = historyMessages.find((m) => m.id === arg);
-        if (!target) throw new Error('Unknown Message');
-        return target;
-      },
-    },
-    sent,
-    fetched,
-  };
+  world().tap('fetchMessages', ([ref, ids]) => {
+    if (ref.conversationId === id) fetched.push(...ids);
+  });
+  const channel = world().channel({ id, name: 'general', guildId: 'g1', historyMessages });
+  if (fetchFails) world().failRead('fetchMessages', id);
+  return Object.assign(channel, { fetched });
 }
 
 function fakeHot(features = {}, config = {}) {
@@ -659,7 +639,6 @@ async function runGifTurn({
   output,
   features = {},
   config = {},
-  clientChannels = {},
   channelOpts = {},
   prepare,
   triggerKind = 'mention',
@@ -669,23 +648,11 @@ async function runGifTurn({
     if (prepare) prepare(store);
     const raw = rawMessage('m1');
     const channel = fakeChannel({ historyMessages: [raw], ...channelOpts });
-    const client = {
-      user: { id: 'self-id', username: 'Bot' },
-      channels: {
-        fetch: async (id) => {
-          if (!clientChannels[id]) throw new Error('Unknown Channel');
-          return clientChannels[id];
-        },
-      },
-    };
     const turns = createTurnRunner({
-      discord: DISCORD,
-      createPort: createDiscordAdapter,
       hot: fakeHot(features, config),
       store,
       llm: fakeLlm(output),
       calibrator: calibrator(),
-      client,
       now: () => NOW,
     });
     const { result, logs } = await withCapturedLogs(() =>
@@ -729,7 +696,7 @@ test('turn <gif>: an attachment handle re-fetches its message and sends the fres
   const fresh = 'https://cdn.discordapp.com/attachments/c2/att1/r%C3%A9action.gif?ex=fresh';
   const original = rawMessage('m-att', { attachments: new Map([['att1', { id: 'att1', url: fresh }]]) });
   const source = fakeChannel({ id: 'c2', historyMessages: [original] });
-  const { channel, logs } = await runGifTurn({ output: '<gif>g2</gif>', clientChannels: { c2: source } });
+  const { channel, logs } = await runGifTurn({ output: '<gif>g2</gif>' });
   assert.deepEqual(source.fetched, ['m-att']);
   assert.equal(channel.sent[0].content, fresh);
   const line = logs.find((l) => l.msg === 'turn: gif sent');
@@ -741,8 +708,8 @@ test('turn <gif>: an attachment in a forwarded snapshot is found too', async () 
   const fresh = 'https://cdn.discordapp.com/attachments/c2/att1/x.gif?ex=fwd';
   const snapshots = new Map([['s', { attachments: new Map([['att1', { id: 'att1', url: fresh }]]) }]]);
   const original = rawMessage('m-att', { messageSnapshots: snapshots });
-  const source = fakeChannel({ id: 'c2', historyMessages: [original] });
-  const { channel } = await runGifTurn({ output: '<gif>g2</gif>', clientChannels: { c2: source } });
+  fakeChannel({ id: 'c2', historyMessages: [original] });
+  const { channel } = await runGifTurn({ output: '<gif>g2</gif>' });
   assert.equal(channel.sent[0].content, fresh);
 });
 
@@ -829,22 +796,11 @@ test('turn request: the library reaches the prompt as <gifs> with cached caption
           return { text: '<skip/>', usage: {}, estimated: 10 };
         },
       };
-      const client = {
-        user: { id: 'self-id', username: 'Bot' },
-        channels: {
-          fetch: async () => {
-            throw new Error('Unknown Channel');
-          },
-        },
-      };
       const turns = createTurnRunner({
-        discord: DISCORD,
-        createPort: createDiscordAdapter,
         hot: fakeHot(features),
         store,
         llm,
         calibrator: calibrator(),
-        client,
         now: () => NOW,
       });
       await withCapturedLogs(() =>

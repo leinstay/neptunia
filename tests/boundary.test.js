@@ -9,13 +9,12 @@ import path from 'node:path';
 import { createMemoryDb } from '../src/memory/db/service.js';
 import { lockPathOf, openMemoryDb } from '../src/memory/db/open.js';
 import { createAdmin } from '../src/admin.js';
-import { createTurnRunner } from '../src/behavior/turn.js';
 import { createEventDoor } from '../src/interface/door.js';
 import { createFakeAdapter, replayFixture } from '../src/interface/fake.js';
 import { createDiary } from '../src/behavior/diary.js';
 import { heartbeatWake } from '../src/behavior/inner.js';
 import { skillRegistry } from '../src/skills/registry.js';
-import { DISCORD, fakeStore, hotWith, sequenceLlm } from './fixtures/turn-harness.js';
+import { createTurnRunner, fakeStore, hotWith, sequenceLlm } from './fixtures/turn-harness.js';
 import { GUILD, MINUTE, START, innerRig, newHistory, replyTo, rowsOf } from './fixtures/boundary.js';
 import { tempDataDir } from './fixtures/memory-db/service.js';
 
@@ -33,18 +32,15 @@ after(async () => {
  * @param {{ port: ReturnType<typeof createFakeAdapter>, hot: ReturnType<typeof hotWith>, llm: { complete: Function }, store?: ReturnType<typeof fakeStore> }} options
  */
 function runnerOver({ port, hot, llm, store = fakeStore() }) {
-  const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } };
   const calibrator = { ratio: 1, apply: (/** @type {number} */ value) => value, observe: () => {} };
   // The runner's declared parameters ask for more than a test passes (a describer, a fetch), and the fakes are narrower
   // than the real client and port, so the whole argument is cast.
   return createTurnRunner(
     /** @type {never} */ ({
-      discord: DISCORD,
       hot,
       store,
       llm,
       calibrator,
-      client,
       now: () => START,
       port,
       skills: skillRegistry(),
@@ -135,8 +131,8 @@ describe('inner turns with no interface', () => {
     const diary = createDiary({
       hot,
       store,
-      client: { user: { id: 'self-id' }, channels: { cache: new Map(), fetch: () => Promise.resolve(null) } },
-      discord: DISCORD,
+      reads: null,
+      iface: () => 'fake',
       turns: runnerOver({ port, hot, llm, store }),
       getGuildId: () => GUILD,
       now: () => START,
@@ -315,7 +311,7 @@ describe('an adapter that claims the owner', () => {
     const store = Object.assign(fakeStore(), { flush: () => Promise.resolve() });
     const hot = hotWith({ config: { bot: { timezone: 'UTC', owners: [OWNER], access: {} } } });
     const client = { user: { id: 'self-id' }, channels: { cache: new Map() } };
-    const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => GUILD });
+    const admin = createAdmin({ hot, store, client, getGuildId: () => GUILD });
     const door = createEventDoor({
       handlers: {
         'command.requested': (event) => {
@@ -388,8 +384,8 @@ describe('a delivery that changes no character', () => {
     const text = `${GENERATED}   \n `;
     const sent = await port.send({ iface: 'fake', conversationId: 'c1' }, { text });
     const fetched = await port.fetchMessages({ iface: 'fake', conversationId: 'c1' }, [sent.ref?.messageId ?? '']);
-    const [stored] = fetched.messages ?? [];
-    assert.equal(/** @type {{ text: string }} */ (stored).text, text);
+    const [stored] = fetched.status === 'ok' ? fetched.messages : [];
+    assert.equal(stored?.text, text);
   });
 
   test('her turn sends the generated text to the interface unchanged', async () => {
