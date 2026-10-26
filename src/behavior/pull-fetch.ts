@@ -196,6 +196,7 @@ async function fetchPage(
   reads: Reads,
   entry: ConversationInfo,
   { anchorId, beforeId, limit }: { anchorId: string | null; beforeId: string | null; limit: number },
+  age: { maxAgeDays: number; now: number },
   logIds: LogIds
 ): Promise<{ lines: Array<Line>; anchorTs: number | null } | null> {
   const ref = refOf(entry);
@@ -219,9 +220,11 @@ async function fetchPage(
   const anchor = await reads.fetchMessages(ref, [anchorId]);
   const event = anchor?.messages[0]?.event;
   if (event === undefined) return anchor === null ? null : { lines: [], anchorTs: Number.NaN };
+  const line = lineOf(event) as Line;
+  // An anchor too old for the pull reads no page: the caller refuses it from its time.
+  if (isTooOld(line.ts, age)) return { lines: [], anchorTs: line.ts };
   try {
     const earlier = await historyLines(reads, ref, { limit: Math.max(1, limit - 1), before: anchorId });
-    const line = lineOf(event) as Line;
     return { lines: [...earlier, line], anchorTs: line.ts };
   } catch {
     log.warn('pull: page unreadable', logIds);
@@ -536,7 +539,13 @@ export async function fetchPull({
   const limit = Math.min(100, Math.max(settings.maxMessages, settings.minMessages) + 1);
   const earlierPull = direction === 'earlier';
   const before = earlierPull && anchor === null && typeof beforeId === 'string' && beforeId !== '' ? beforeId : null;
-  const fetched = await fetchPage(reads, channel, { anchorId: anchor, beforeId: before, limit }, logIds);
+  const fetched = await fetchPage(
+    reads,
+    channel,
+    { anchorId: anchor, beforeId: before, limit },
+    { maxAgeDays: settings.maxAgeDays, now: nowMs },
+    logIds
+  );
   if (fetched === null) return skipWith('fetch-failed');
   if (anchor !== null && !Number.isFinite(fetched.anchorTs)) return skipWith('not-found');
   const { lines: page } = fetched;

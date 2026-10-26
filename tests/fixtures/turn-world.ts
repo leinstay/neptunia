@@ -100,8 +100,11 @@ export type World = {
   renormalize(config: unknown): void;
   /** Calls `spy` with the arguments of each call of `op`, before the adapter answers it. */
   tap(op: string, spy: (args: Array<unknown>) => void | Promise<void>): void;
-  /** Answers each call of `op` with what `answer` returns, when that is not undefined, in place of the adapter. */
-  intercept(op: string, answer: (args: Array<unknown>) => unknown): void;
+  /**
+   * Answers each call of `op` with what `answer` returns, when that is not undefined, in place of the adapter. `answer`
+   * gets the adapter's own answer as a second argument, to change it.
+   */
+  intercept(op: string, answer: (args: Array<unknown>, original: () => Promise<unknown>) => unknown): void;
   /** Makes each send whose text `matches` (every send by default) end `failed` (or `unknown`) with `code`, nothing posted. */
   failSends(matches?: (text: string | undefined) => boolean, code?: string, status?: 'failed' | 'unknown'): void;
   /** The reads over another adapter a test brings, which then holds what the world holds. */
@@ -197,7 +200,7 @@ function create(): World {
   const adapter = port as unknown as Methods;
 
   type Spy = (args: Array<unknown>) => void | Promise<void>;
-  type Interceptor = (args: Array<unknown>) => unknown;
+  type Interceptor = (args: Array<unknown>, original: () => Promise<unknown>) => unknown;
   const spies = new Map<string, Array<Spy>>();
   const interceptors = new Map<string, Array<Interceptor>>();
   const wrapped = new Set<string>();
@@ -211,7 +214,7 @@ function create(): World {
       for (const spy of spies.get(op) ?? []) await spy(args);
       // An interceptor that answers (anything but undefined) answers in place of the adapter.
       for (const intercept of interceptors.get(op) ?? []) {
-        const answered = await intercept(args);
+        const answered = await intercept(args, () => original.apply(one, args));
         if (answered !== undefined) return answered;
       }
       const ref = args[0] as { conversationId?: string } | undefined;
