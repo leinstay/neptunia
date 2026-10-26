@@ -37,6 +37,7 @@ npm run typecheck                                         # tsc errors against t
 npm run typecheck:update                                  # after fixing type errors: rewrites type-baseline.json
 npm run health                                            # file, function and structure limits against code-health-baseline.json, and docs/structure.md against structure.json
 npm run health:update                                     # after fixing a breach: rewrites code-health-baseline.json
+npm run mutation -- <base-ref>                            # Stryker on the source lines changed since <base-ref> only; fails under the threshold in stryker.config.json
 npm run format:check -- <files>                           # Prettier on the files you changed, never on the whole tree
 sh tools/pre-commit.sh                                    # format and lint on the staged files
 ```
@@ -110,6 +111,7 @@ Tests are written by agents, so the quality lives in the method, not in a review
 - Never change an existing test's expectation to make a run pass. When an expectation is wrong, the change says why in a comment on the test. Never weaken, skip or delete a test to get to green; report real counts.
 - No snapshots, no test of a label's wording or a document's text, no test for what nothing sane could break. A test whose failure would catch no real bug is deleted, not kept for coverage.
 - For a change that adds behaviour, the tests and the code are written by different agents: one writes the tests from the brief and the signatures without seeing the code, the other makes them green without touching them, and the reviewer answers one question per test: which real bug it catches.
+- The source lines a pull request changes must reach the mutation score in `stryker.config.json` (`npm run mutation -- origin/main`); CI runs it on every pull request. Formatting an old file goes in its own pull request whose commit subjects all start with `Format ` and which changes no behaviour, and the run skips it.
 - Run only the tests of the module you changed, with the `dot` reporter. The whole suite runs once, before the pull request is opened. On a failure, rerun that one file with `--test-reporter=spec` and read the first failing trace. Pipe long output through `tail`; never paste a test log into a commit, an issue or a document.
 
 ## The agents' folder

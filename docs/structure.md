@@ -21,6 +21,7 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `package-lock.json` | public | The locked dependency tree. | nothing | none |
 | `tsconfig.json` | public | The TypeScript compiler options used for type checking. | nothing | none |
 | `eslint.config.js` | public | The ESLint flat configuration. | `@eslint/js`, `globals`, `eslint-plugin-import-x`, `typescript-eslint`, `tools/eslint-test-rules.mjs` | none |
+| `stryker.config.json` | public | The Stryker settings that stay the same on every mutation run. | nothing | none |
 | `eslint-suppressions.json` | public | The recorded ESLint violations that may only shrink. | nothing | none |
 | `type-baseline.json` | public | The recorded type errors that may only shrink. | nothing | none |
 | `code-health-baseline.json` | public | The recorded size and structure breaches that may only shrink. | nothing | none |

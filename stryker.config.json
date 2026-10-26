@@ -1,0 +1,12 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "tap",
+  "coverageAnalysis": "perTest",
+  "reporters": ["clear-text", "json"],
+  "jsonReporter": { "fileName": ".stryker-tmp/mutation.json" },
+  "tempDirName": ".stryker-tmp/sandbox",
+  "thresholds": { "break": 60 },
+  "concurrency": 4,
+  "timeoutMS": 10000,
+  "ignorePatterns": [".agents", "data", "references", "prompts.local", ".secrets", ".claude", ".opencode", ".github"]
+}

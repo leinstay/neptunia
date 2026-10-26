@@ -26,6 +26,9 @@ Thumbs.db
 # Node
 node_modules/
 
+# Stryker sandbox of a direct run
+/.stryker-tmp/
+
 # Per-deployment personality overrides (the real character lives here)
 /prompts.local/
 
