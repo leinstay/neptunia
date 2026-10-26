@@ -306,13 +306,12 @@ export function createMessageHandler({
   memoryDb = null,
   port,
 }) {
-  /** The reference of a conversation of the interface (its info). */
   const refOf = (/** @type {Conv} */ channel) => ({ iface: channel.iface, conversationId: channel.id });
 
-  /**
-   * The conversation as the interface describes it now, with its audience (the route of a call compares it), or null
-   * when the interface does not describe it.
-   */
+  /** The conversation as the interface describes it now, else the one given. */
+  const currentOf = async (/** @type {Conv} */ channel) => (await infoNow(channel.iface, channel.id)) ?? channel;
+
+  /** The conversation as the interface describes it now, with its audience, or null. */
   async function infoNow(iface, conversationId) {
     const found = await reads.conversationInfo(
       { iface, conversationId: String(conversationId) },
@@ -321,17 +320,9 @@ export function createMessageHandler({
     return found?.conversation ?? null;
   }
 
-  /** The community's listing, taken now; null when the interface gives none. */
-  function listing(communityId) {
-    return takeSnapshot(reads, communityId);
-  }
-
-  /**
-   * Where a call written in `source` (a conversation the persona cannot write in) is answered, over the listing (src/behavior/turn.js#routeFor).
-   * @param {Conv} source
-   */
+  /** Where a call written in `source` (one she cannot write in) is answered (src/behavior/turn.js#routeFor). */
   async function routeOf(source, config) {
-    const snapshot = await listing(source.communityId ?? getGuildId());
+    const snapshot = await takeSnapshot(reads, source.communityId ?? getGuildId());
     return routeFor(snapshot?.get(source.id) ?? source, snapshot, config);
   }
 
@@ -379,12 +370,8 @@ export function createMessageHandler({
     }
   }
 
-  /**
-   * Whether the message `replyToId` (a forward has none) is one of the persona's own, as the interface says
-   * (`fetchMessages`: the author's `self`); a failed read is no reply. A message that replies to nothing costs no read.
-   */
+  /** Whether the message `replyToId` is one of her own, as the interface says; a failed read is no reply. */
   async function resolveReference(ref, replyToId) {
-    // Every message of a community comes through here: no id, no read at all.
     if (!replyToId) return false;
     const found = await reads.fetchMessages(ref, [replyToId]);
     return found?.messages[0]?.event?.message.author?.self === true;
@@ -720,7 +707,6 @@ export function createMessageHandler({
    * turnBlocked -- whose "yes" could not be deferred, cannot send), `{ kind: 'handled' }` when the pre-filter
    * already gave a "no" (logged, streak bumped), `{ kind: 'classify', config,
    * state }` when the model must be asked.
-   * @param {Conv} channel
    */
   function followUpGate(channel, normalized, selfId) {
     const config = hot.config;
@@ -770,7 +756,6 @@ export function createMessageHandler({
    * off -- see followUpGate) and the caller falls back to its usual
    * handling. `ownPrefill` is the message's picture prefill from
    * warmMediaCache (or null), awaited before its classifier request is built.
-   * @param {Conv} channel
    */
   async function maybeFollowUp(channel, normalized, selfId, ownPrefill = null) {
     const gate = followUpGate(channel, normalized, selfId);
@@ -847,8 +832,7 @@ export function createMessageHandler({
         // As if it had just arrived: paused, onMessage would
         // never reach the classifier (and pause forbids marking the store dirty).
         const muted = followUpMuted();
-        // The conversation as it is now: the permissions of the held message's arrival may be gone.
-        const here = muted ? held.channel : ((await infoNow(held.channel.iface, held.channel.id)) ?? held.channel);
+        const here = muted ? held.channel : await currentOf(held.channel);
         const gate = muted ? { kind: 'skip', reason: muted } : followUpGate(here, held.normalized, held.selfId);
         if (gate.kind === 'skip') {
           log.info('follow-up: held message dropped', {
@@ -912,7 +896,7 @@ export function createMessageHandler({
     let reason = followUpMuted();
     if (!reason && followUpOff(config)) reason = 'off';
     if (!reason) {
-      const here = (await infoNow(waiting.channel.iface, waiting.channel.id)) ?? waiting.channel;
+      const here = await currentOf(waiting.channel);
       if (!here.permissions.send) reason = 'cannot-send';
     }
     if (reason) {
@@ -932,7 +916,6 @@ export function createMessageHandler({
    * exchange (activeExchangeWith, within mention.failOpenMinutes read now;
    * 0 = off), a "no" otherwise -- `follow-up: fail-open` says which.
    * @returns {Promise<'yes'|'overheard'|'no'>}
-   * @param {Conv} channel
    */
   async function classifyFollowUp(channel, normalized, selfId, { config, state }, ownPrefill = null) {
     const channelId = channel.id;
@@ -1132,7 +1115,6 @@ export function createMessageHandler({
    * then the roll; only then the prompt (`room: skipped`, `no-prompt`) and
    * the channel's slot (`in-flight`). Never throws past its own call:
    * classifyRoom logs a failure and answers null.
-   * @param {Conv} channel
    */
   async function maybeRoom(channel, normalized, ownPrefill) {
     const config = hot.config;
@@ -1246,7 +1228,6 @@ export function createMessageHandler({
    * (a routed call's, whose trigger lives in another channel). Never throws.
    * @param {TriggerKind} triggerKind
    * @param {{ plain?: boolean }} [options]
-   * @param {Conv} channel
    */
   async function notifyLimit(channel, trigger, limit, triggerKind, { plain = false } = {}) {
     await postLimitNotice({
@@ -1267,7 +1248,6 @@ export function createMessageHandler({
    * @param {{ outcome: TurnOutcome, limit?: object|null }|undefined} result
    * @param {TriggerKind} triggerKind
    * @param {{ plain?: boolean }} [options]
-   * @param {Conv} channel
    */
   async function announceRefusal(channel, trigger, result, triggerKind, { plain = false } = {}) {
     if (triggerKind === 'overheard') return;
@@ -1413,7 +1393,6 @@ export function createMessageHandler({
    * After a private turn: every turn that reached the model (it spoke, or it
    * chose to stay silent -- `skip`) counts toward today's cap; a refusal is
    * announced. A refused, busy, paused, error or not-now turn is not counted.
-   * @param {Conv} channel
    */
   async function afterPrivateTurn(channel, guildId, trigger, result) {
     if (result?.outcome === 'spoke' || result?.outcome === 'skip') {
@@ -1426,8 +1405,7 @@ export function createMessageHandler({
    * The private-chat gate for one DM author (src/behavior/private.js#privateGate),
    * shared by a live DM and a queued one at drain time. The free checks (a
    * stored profile, the owner flag, the attitude threshold) run before any
-   * read of the interface: the member read (`memberInfo`) is only made when
-   * those checks would let the author through. `config` is the caller's `hot.config`, read at the moment of use.
+   * read: `memberInfo` is only asked when those checks would let the author through.
    * @returns {Promise<{ gate: object, isOwner: boolean, replies: object|null, today: string }>}
    */
   async function checkPrivateGate(config, guildId, authorId) {
@@ -1437,7 +1415,6 @@ export function createMessageHandler({
     const today = utcDay(now());
     const input = { config, profile, isOwner, replies, today };
 
-    // The free checks first: only a person they would let through is looked up as a member.
     const free = privateGate({ ...input, isMember: true });
     if (!free.ok && free.reason !== 'cap') return { gate: free, isOwner, replies, today };
     const found = await reads.memberInfo({ communityId: guildId, memberId: String(authorId) });
@@ -1461,7 +1438,6 @@ export function createMessageHandler({
   /**
    * A DM the gate refused: dropped silently (the reason is logged), except
    * the daily-cap notice, posted at most once a day per person.
-   * @param {Conv} channel
    */
   async function dropPrivate(channel, guildId, authorId, trigger, { gate, isOwner, replies, today }) {
     log.info('private: dropped', { reason: gate.reason });
@@ -1595,7 +1571,6 @@ export function createMessageHandler({
    * (waitingItems). `follow-up: deferred` names where the running turn is
    * (`runningIn`), and the kind of an overheard line.
    * @param {'followUp'|'overheard'} [kind]
-   * @param {Conv} channel
    */
   function deferFollowUp(channel, trigger, kind = 'followUp') {
     const config = hot.config;
@@ -1669,13 +1644,9 @@ export function createMessageHandler({
   }
 
   /**
-   * Whether the message `messageId` of `channel` is still there to answer, as the interface says
-   * (`fetchMessages`): `true` (it holds it), `'gone'` (it says the message is missing: deleted) or `'error'` (the
-   * read failed, or the interface offers none -- a rate limit, a server error, lost access: it may still exist).
-   * The drain and the settle drop the call either way and log which (heldCallState, missingReason). A failed read
-   * must not read as a deleted message.
+   * Whether the message `messageId` of `channel` is still there to answer, as the interface says: `true`, `'gone'`
+   * (missing: deleted) or `'error'` (the read failed, so it may still exist; never read as deleted).
    * @returns {Promise<true|'gone'|'error'>}
-   * @param {Conv} channel
    */
   async function messageStillExists(channel, messageId) {
     const found = await reads.fetchMessages(refOf(channel), [messageId]);
@@ -1719,7 +1690,6 @@ export function createMessageHandler({
    * `sameChannel` is logged for the channel the turn would post in,
    * `queued` is how many calls the author has waiting in that channel.
    * @param {string[]} [superseded]  A routed call only: see answerCall.
-   * @param {Conv} channel
    */
   function enqueuePending(channel, trigger, kind, destination = null, superseded = [], arrivedAt = now()) {
     const maxPending = hot.config.mention.maxPending ?? 6;
@@ -1759,7 +1729,6 @@ export function createMessageHandler({
    * dropped`, `paused`). Once it is queued, a drain starts if nothing blocks
    * it any more (drainPending). Never throws.
    * @param {string[]} [superseded]  A routed call only: see answerCall.
-   * @param {Conv} channel
    */
   function holdCall(channel, trigger, kind, destination = null, superseded = []) {
     const items = destination ? [] : waitingItems(channel.id, trigger.authorId);
@@ -1838,7 +1807,6 @@ export function createMessageHandler({
    * with its reason: `no-prompt`, the rail's code or `llm-error` (with the
    * HTTP status), `empty`, `unparsed`, `out-of-range`. Codes and counts only.
    * @returns {Promise<number|null>}
-   * @param {Conv} channel
    */
   async function classifyMerge(channel, trigger, items) {
     const channelId = channel.id;
@@ -1922,7 +1890,6 @@ export function createMessageHandler({
    * reply ping alone) is read off `trigger`, so an untagged reply meets
    * mention.followUpIgnoreChance like a follow-up (decideMention).
    * @returns {{ respond: boolean, reason: string, ignoreChance: number, roll?: number }}
-   * @param {Conv} channel
    */
   function decideAndLog(channel, trigger, kind, config, { deferred = false, destination = null } = {}) {
     const features = config.features ?? {};
@@ -2038,7 +2005,7 @@ export function createMessageHandler({
         // turn posts in a main channel, resolved again below (routeFor): the
         // one it waited with may have changed or lost Send meanwhile.
         if (!ping.destination) {
-          const here = (await infoNow(ping.channel.iface, ping.channel.id)) ?? ping.channel;
+          const here = await currentOf(ping.channel);
           if (!here.permissions.send) {
             logPending(ping, 'dropped', { reason: 'cannot-send' });
             continue;
@@ -2430,7 +2397,6 @@ export function createMessageHandler({
     if ((await spontaneous.noticeElsewhere?.(source, normalized)) !== true) return;
     const route = await routeOf(source, hot.config);
     if (!route.destination) return;
-    // The wait may have been armed by another message while the route was read.
     if (settles.has(source.id)) return;
     startSettle(source, normalized, 'noticed', null, route.destination);
   }
@@ -2656,7 +2622,7 @@ export function createMessageHandler({
     if (event.conversation.communityId !== getGuildId() || event.conversation.kind === 'thread') return null;
     if (config.bot.dryRunChannelId && event.conversation.id === config.bot.dryRunChannelId) return null;
     const channel = await infoNow(event.iface, event.conversation.id);
-    if (!channel || !channel.permissions.send) return null;
+    if (!channel?.permissions.send) return null;
     const normalized = normalize();
     const kind = detectTrigger({
       mentionsSelf: features.mentions !== false && event.addressing.mentioned,
@@ -2753,9 +2719,7 @@ export function createMessageHandler({
     if (ids.size > CATCH_UP_IDS_KEPT) ids.delete(ids.values().next().value);
   }
 
-  /**
-   * @param {Ev} event
-   */
+  /** @param {Ev} event */
   async function onMessage(event) {
     await handleMessage(event, null);
   }
@@ -2776,9 +2740,7 @@ export function createMessageHandler({
     return (await handleMessage(event, { trigger: trigger === true })) ?? 'ignored';
   }
 
-  /**
-   * @param {Ev} event
-   */
+  /** @param {Ev} event */
   async function handleMessage(event, catchUp) {
     try {
       // 1. System / webhook messages are not conversation.
@@ -2838,7 +2800,6 @@ export function createMessageHandler({
       // Any message, hers included, pushes back a missed-answer sweep armed here (src/behavior/missed.js).
       missed?.noteActivity(event.conversation.id, event.message.at);
 
-      // 4. The line, as the event carries it.
       const selfId = selfIdOf();
       const normalized = lineOf(event);
       const guildId = event.conversation.communityId;
@@ -2909,8 +2870,6 @@ export function createMessageHandler({
       // whole room (maybeRoom). A caught-up line stops here: no follow-up, eavesdrop or room
       // question for chatter from before the start; so does a caught-up call not to be answered.
       if (catchUp && (!kind || !catchUp.trigger)) return 'observed';
-      // The conversation as the interface describes it now (its permissions decide what follows); one it does
-      // not describe is observed and no more.
       const channel = await infoNow(event.iface, event.conversation.id);
       if (!channel) return 'observed';
       if (!kind) {
@@ -2965,8 +2924,7 @@ export function createMessageHandler({
    * accepted miss, logged with counts only. Off with features.embedUpdates (a missing key counts as
    * on), with features.memory off and while paused. Only the served community, a conversation outside threads
    * and the dry-run mirror, and a human author's message with media. Config read now. Never throws.
-   * @param {import('../protocol/index.js').MessageReceived} event  The edit event: `message` the updated
-   *   message, `previous` the one before it; a partial one is read whole through `fetchMessages` here.
+   * @param {import('../protocol/index.js').MessageReceived} event  The edit event; a partial one is read whole here.
    * @returns {Promise<void>}
    */
   async function onMessageUpdate(event) {
@@ -3014,9 +2972,8 @@ export function createMessageHandler({
   }
 
   /**
-   * Whether the message of `event` may enter the record: a record injected and features.record exactly true
-   * (`config` read now), the served community, no system message, no other bot's, a
-   * conversation outside threads and the dry-run mirror.
+   * Whether the message of `event` may enter the record: a record injected, features.record exactly true, the served
+   * community, no system or other bot's message, a conversation outside threads and the dry-run mirror.
    * @param {Ev} event
    */
   function recordable(event, config) {
@@ -3038,9 +2995,7 @@ export function createMessageHandler({
   /**
    * An edited message (its text changed between `oldMessage` and `newMessage`) as a `seen`
    * line of the record with the next revision of the day (`revisions`). An update that only
-   * attached embeds is no edit. `event` is onMessageUpdate's (its `message` and `previous` the
-   * new and old message). Never throws: a refused append is logged as `events:
-   * record failed` (counts only).
+   * attached embeds is no edit. Never throws: a refused append is logged as `events: record failed` (counts only).
    * @param {Ev} event
    */
   async function recordEdit(event) {
@@ -3087,8 +3042,7 @@ export function createMessageHandler({
    * keeps the deletion time. The message's recorded text stays (a deletion is not a forget
    * request). Only what `recordable` lets in. Never throws: a refused append is logged as
    * `events: record failed` (counts only).
-   * @param {import('../protocol/index.js').MessageReceived} event  The deletion event:
-   *   `message.id`, and `message.at` and `message.author` when the interface still knew them.
+   * @param {import('../protocol/index.js').MessageReceived} event  The deletion event.
    * @returns {Promise<void>}
    */
   async function onMessageDelete(event) {
