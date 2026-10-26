@@ -8,7 +8,7 @@
 // private handles to its platform's objects (removed once the adapters live in their own
 // packages) and are never looked at.
 
-import { ACTIONS, CAPABILITIES, COMMAND_RESULT } from './actions.js';
+import { ACTIONS, CAPABILITIES, COMMAND_RESULT, MESSAGES_FETCH } from './actions.js';
 import {
   ACTIVITY_KINDS,
   CHAT_TYPES,
@@ -377,16 +377,23 @@ function checkCommandResult(action) {
 /**
  * Whether `action` is a well-formed outbound action (actions.js): a known `action` name, a
  * target reference with string ids (a message's with its `messageId`), an object `content` for a
- * send or an edit, a string `emoji` for a reaction, and for a command result its `replyRef` and
- * `text`. What the content holds and whose the target is stay the adapter's checks. Never throws.
+ * send or an edit, a string `emoji` for a reaction, for a message fetch the `messageIds`, and for a command
+ * result its `replyRef` and `text`. An `idempotencyKey`, when present, is a non-empty string. What the content holds and whose the target is stay the adapter's checks. Never throws.
  * @param {unknown} action
  * @returns {{ ok: true } | { ok: false, reason: string }}
  */
 export function validateAction(action) {
   return verdict(() => {
     need(action, 'action', isObject);
-    need(action.action, 'action', (name) => ACTIONS.includes(name), { problem: 'unknown' });
+    need(action.action, 'action', (name) => ACTIONS.includes(name) || name === MESSAGES_FETCH, {
+      problem: 'unknown',
+    });
+    need(action.idempotencyKey, 'idempotencyKey', isId, { required: false });
     switch (action.action) {
+      case MESSAGES_FETCH:
+        checkRef(action.conversation, 'conversation', { needMessage: false });
+        needIds(action.messageIds, 'messageIds');
+        return;
       case CAPABILITIES.send:
         checkRef(action.conversation, 'conversation', { needMessage: false });
         checkContent(action.content);

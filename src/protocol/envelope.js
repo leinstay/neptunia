@@ -5,7 +5,7 @@
 // redelivery is the same envelope: delivery is at-least-once and the receiver deduplicates by
 // id), `type` one of ENVELOPE_TYPES, `replyTo` the id of the envelope this one answers (null for
 // the first of a conversation), `body` the type's payload:
-//   hello          { iface, capabilities?: string[], resume?: string|null }  who is speaking, what it offers
+//   hello          { iface, capabilities?: string[]|object, resume?: string|null, token?: string }  who is speaking, what it offers
 //   event          an inbound event (events.js)                           interface -> core
 //   ack            { status: 'ok'|'duplicate'|'invalid'|'unhandled'|'failed', reason? }  the event is taken (or not)
 //   action         an outbound action (actions.js)                        core -> interface
@@ -54,13 +54,19 @@ export function validateEnvelope(value) {
     return { ok: false, reason: 'replyTo:type' };
   const answers = value.type === 'ack' || value.type === 'action_result';
   if (answers && !isId(value.replyTo)) return { ok: false, reason: 'replyTo:required' };
+  if (!isObject(value.body)) return { ok: false, reason: 'body:type' };
+  /** @type {Record<string, any>} */
   const body = value.body;
-  if (!isObject(body)) return { ok: false, reason: 'body:type' };
   switch (value.type) {
     case 'hello':
       if (!isId(body.iface)) return { ok: false, reason: 'body.iface:type' };
-      if (body.capabilities !== undefined && !(Array.isArray(body.capabilities) && body.capabilities.every(isId)))
+      if (
+        body.capabilities !== undefined &&
+        !isObject(body.capabilities) &&
+        !(Array.isArray(body.capabilities) && body.capabilities.every(isId))
+      )
         return { ok: false, reason: 'body.capabilities:type' };
+      if (body.token !== undefined && typeof body.token !== 'string') return { ok: false, reason: 'body.token:type' };
       if (body.resume !== undefined && body.resume !== null && !isId(body.resume))
         return { ok: false, reason: 'body.resume:type' };
       return { ok: true };

@@ -94,6 +94,7 @@
  *   | { action: 'message.delete', message: MessageRef }
  *   | { action: 'message.react.add'|'message.react.remove', message: MessageRef, emoji: string }
  *   | { action: 'conversation.typing', conversation: ConversationRef }
+ *   | { action: 'messages.fetch', conversation: ConversationRef, messageIds: string[] }
  *   | { action: 'command.result', replyRef: string, text: string, files?: Attachment[], ephemeral?: boolean }} Action
  */
 
@@ -113,6 +114,9 @@ export const CAPABILITIES = Object.freeze({
   unreact: 'message.react.remove',
   typing: 'conversation.typing',
 });
+
+/** The read action of the port: the messages of a conversation by id. It changes nothing, so it is not a capability. */
+export const MESSAGES_FETCH = 'messages.fetch';
 
 /** The action that answers an owner command (command.requested's `replyRef`). */
 export const COMMAND_RESULT = 'command.result';
@@ -148,6 +152,8 @@ export function portAction(operation, args) {
       return { action: CAPABILITIES[operation], message: target, emoji: second };
     case 'typing':
       return { action: CAPABILITIES.typing, conversation: target };
+    case 'fetchMessages':
+      return { action: MESSAGES_FETCH, conversation: target, messageIds: second };
     default:
       return { action: String(operation) };
   }
