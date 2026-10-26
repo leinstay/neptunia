@@ -13,7 +13,8 @@ export type MessageRef = {
   memberId?: string;
 };
 
-export type PortError = { code: string; retryable: boolean; retryAfterMs: number | null };
+// `cause` is the platform's own error, kept for the logs and never shown to the model.
+export type PortError = { code: string; retryable: boolean; retryAfterMs: number | null; cause?: unknown };
 
 export type Delivery = {
   status: 'ok' | 'failed' | 'unknown' | 'unsupported' | 'forbidden';
@@ -61,7 +62,14 @@ export type Adapter = {
 };
 
 const portErrorOf = (error: PortResult['error']): PortError | null =>
-  error === undefined ? null : { code: error.code, retryable: error.retryable, retryAfterMs: null };
+  error === undefined
+    ? null
+    : {
+        code: error.code,
+        retryable: error.retryable,
+        retryAfterMs: null,
+        ...(error.cause !== undefined ? { cause: error.cause } : {}),
+      };
 
 // A first part that fails is the whole send's status and nothing was posted. A later part that
 // fails leaves the earlier ones on the platform, so the outcome is `unknown` and the posted parts

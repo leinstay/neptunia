@@ -110,6 +110,8 @@ Every action returns a result. An adapter never throws.
 
 When the status is not `ok`, the result carries `error: { code, retryable }`. The code is a kebab-case string (`empty-content`, `text-too-long`, `not-own-message`, `timeout`, etc.) or `http-<status>`. An adapter may add `cause` for its own logs; it never reaches the model.
 
+A `send` answers with a delivery, which is the result above plus `parts` (every message posted) and an `idempotencyKey` that names the send. Its `ref` is the first message posted. A text longer than `maxChars` is split by the adapter into several messages that join to the text, so `send` is never refused as `text-too-long`. The reply target and the files go with the first part. If a later part fails, the status is `unknown` and `parts` lists the messages already posted. `edit` cannot split and still refuses a longer text as `text-too-long`. The core cuts no text of hers.
+
 An adapter edits and deletes only the persona's own messages (returning `forbidden` otherwise) and refuses a reference of another interface as `foreign-reference`.
 
 ### Capabilities
@@ -118,8 +120,10 @@ An adapter declares what it can do and its limits:
 
 ```js
 capabilities() → {
-  operations: Set<string>,  // the action names it offers
-  limits: { maxTextLength, maxAttachments, maxAttachmentBytes }
+  operations: string[],  // the action names it offers
+  maxChars,              // code points of text in one message
+  maxFiles,              // attachments in one message
+  maxFileBytes           // bytes in one attachment
 }
 ```
 
@@ -203,7 +207,7 @@ The two privileged intents are controlled by `discord.intents.presences` (defaul
 
 ### Limits and error mapping
 
-Discord allows 2000 characters per message, 10 files per message and 10 MiB per file (on a server without boosts). The adapter declares these as its `limits`.
+Discord allows 2000 characters per message, 10 files per message and 10 MiB per file (on a server without boosts). The adapter declares these as `maxChars`, `maxFiles` and `maxFileBytes`.
 
 Discord errors map to result statuses:
 
@@ -227,7 +231,7 @@ One instance serves exactly one Discord server. The guild is resolved from `bot.
 
 `replayFixture(fixture, door)` replays a recorded fixture of inbound events through the event door in order, the way a live adapter would deliver them. A `redeliver: n` field on an event sends it n extra times (the door answers `duplicate` to each), testing at-least-once delivery.
 
-The fake offers all capabilities by default. A test can restrict it to a subset (`operations` option) to verify the engine handles `unsupported` correctly.
+The fake offers all capabilities by default. A test can restrict it to a subset (`operations` option) to verify the engine handles `unsupported` correctly, and set its limits with the `capabilities` option (`maxChars` 2000, `maxFiles` 10 and `maxFileBytes` 8 MiB by default).
 
 ## Adding an interface
 

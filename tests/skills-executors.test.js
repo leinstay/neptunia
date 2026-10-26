@@ -551,7 +551,7 @@ test('resolveCall and executeCall: a file handle of one of her errands attaches 
   assert.equal(posted.attachments[0].contentType, 'image/png');
   assert.deepEqual([...posted.attachments[0].data], [1, 2, 3, 4]);
   // Larger than the interface takes: failed with its code, nothing sent.
-  const small = createFakeAdapter({ iface: 'fake', selfId: SELF, limits: { maxAttachmentBytes: 2 } });
+  const small = createFakeAdapter({ iface: 'fake', selfId: SELF, capabilities: { maxFileBytes: 2 } });
   const tight = makeAdmin({ port: small, extra: { errands } });
   const big = await executeCall(call, deps(tight.admin, small));
   assert.deepEqual([big.status, big.code], ['failed', 'attachment-too-large']);
@@ -1325,7 +1325,7 @@ test('message.create media=: the picture of her own message goes up as a file to
 
 test("message.create media=: over the interface's byte cap and a failed download are failures, nothing is posted", async () => {
   const channels = channelsWithMessages({ 1002: PIC() });
-  const small = createFakeAdapter({ iface: 'fake', selfId: SELF, limits: { maxAttachmentBytes: 2 } });
+  const small = createFakeAdapter({ iface: 'fake', selfId: SELF, capabilities: { maxFileBytes: 2 } });
   const big = makeAdmin({ port: small, channels, extra: { fetchImpl: bytesFetch([1, 2, 3]) } });
   const over = await executeCall(resolve('message.create', { media: '#2' }, '', PICS), deps(big.admin, small));
   assert.deepEqual([over.status, over.code], ['failed', 'attachment-too-large']);

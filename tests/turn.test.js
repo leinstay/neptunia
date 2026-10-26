@@ -6646,8 +6646,16 @@ test('runTurn: labels.elsewhere.link is read at the moment of use; without it th
   );
 });
 
-test('runTurn: a message near the length limit is cut so its link still fits one Discord message', async () => {
-  const long = `${'a'.repeat(1850)}${' :dance:'.repeat(5)}`;
+// The core does not cut a post, the adapter splits it: the texts a fake channel received, and what a split keeps.
+const postedTexts = (/** @type {{ sent: Array<{ content: string }> }} */ channel) => channel.sent.map((p) => p.content);
+function assertSplitIntact(/** @type {string[]} */ posts) {
+  assert.ok(posts.length > 1, 'the adapter split it');
+  const intact = (/** @type {string} */ c) => [...c].length <= 2000 && c.lastIndexOf('<') <= c.lastIndexOf('>');
+  assert.ok(posts.every(intact), 'each message fits Discord and holds no half token');
+}
+
+test('runTurn: a post over the Discord limit keeps its link and arrives whole as several messages', async () => {
+  const long = `${'a'.repeat(1990)}${' :dance:'.repeat(5)}`;
   const scene = routedScene({ features: { typingSimulation: false }, llm: fakeLlm(`<msg>${long}</msg>`) });
   const turns = createTurnRunner({
     discord: DISCORD,
@@ -6665,12 +6673,10 @@ test('runTurn: a message near the length limit is cut so its link still fits one
   const { result } = await withCapturedLogs(() => turns.runTurn(scene.params));
 
   assert.equal(result.outcome, 'spoke');
-  const [post] = scene.channel.sent;
-  const tail = ` [from ${diaryLink('d3')}]`;
-  assert.ok(post.content.endsWith(tail), 'the link is kept');
-  assert.ok([...post.content].length <= 2000, `${[...post.content].length} characters`);
-  assert.ok(post.content.startsWith('a'.repeat(1850)), 'the text is cut at its end');
-  assert.equal(/<[^>]*$/.test(post.content.slice(0, -tail.length)), false, 'no custom emoji token is cut in half');
+  const posts = postedTexts(scene.channel);
+  assertSplitIntact(posts);
+  assert.ok(posts.join('').startsWith('a'.repeat(1990)), 'the text is not cut at its end');
+  assert.ok(posts.join('').endsWith(` [from ${diaryLink('d3')}]`), 'the link is kept');
 });
 
 test('runTurn: a pulled channel gets its seen mark and its spokeSaw ids', async () => {
@@ -7467,15 +7473,14 @@ test('runTurn: a first message that fails to send ends spoke with nothing delive
   assert.equal(channel.sent.length, 0);
 });
 
-test('runTurn: a post that grew past 2000 characters once its mentions expanded is cut to fit, never inside a mention', async () => {
+test('runTurn: a post that grew past 2000 characters once its mentions expanded arrives whole, never split inside a mention', async () => {
   const { channel } = await followUpTurn({
     features: { mentionHandles: false },
-    answer: `<msg>${'α'.repeat(1880)} @Bob @Bob @Bob @Bob</msg>`,
+    answer: `<msg>${'α'.repeat(1990)} @Bob @Bob @Bob @Bob</msg>`,
   });
-  const [payload] = channel.sent;
-  assert.ok([...payload.content].length <= 2000, String([...payload.content].length));
-  assert.ok(payload.content.lastIndexOf('<') <= payload.content.lastIndexOf('>'), 'no half mention at the end');
-  assert.ok(payload.content.includes('<@u2>'), 'the mentions that fit stay');
+  const posts = postedTexts(channel);
+  assertSplitIntact(posts);
+  assert.equal(posts.join('').split('<@u2>').length - 1, 4, 'all four mentions arrive');
 });
 
 test('runTurn: a reaction stamps no lastPostAt, in a dry run or for real', async () => {
@@ -10942,7 +10947,7 @@ test('turn: a successful post writes a said line', async () => {
   assert.equal(appended.length, 1);
 });
 
-test('turn: limits lists a message cut at 2000 with the lost length', async () => {
+test('turn: a post that grew past 2000 characters is posted whole and the journal lists no message-cut', async () => {
   // A member with a long id: every @name the model wrote grows into a <@id> token when posted.
   const bobId = '123456789012345678';
   const earlier = rawMessage({ id: 'm0', authorId: bobId, authorName: 'Bob', ts: NOW - 5000, content: 'καλημέρα' });
@@ -10963,15 +10968,10 @@ test('turn: limits lists a message cut at 2000 with the lost length', async () =
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
-  const [payload] = channel.sent;
-  const posted = [...payload.content].length;
-  assert.ok(posted <= 2000, String(posted));
   const expanded = 1400 + 100 * ` <@${bobId}>`.length;
+  assert.equal([...postedTexts(channel).join('')].length, expanded);
   const turn = lines.find(({ record }) => record.kind === 'turn').record;
-  assert.deepEqual(
-    turn.limits.filter((limit) => limit.kind === 'message-cut'),
-    [{ kind: 'message-cut', where: 'post', lost: expanded - posted }]
-  );
+  assert.equal(turn.limits.filter((limit) => limit.kind === 'message-cut').length, 0);
 });
 
 test('turn: limits lists a preview cut', async () => {

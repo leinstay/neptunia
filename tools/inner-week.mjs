@@ -305,7 +305,7 @@ async function createLiveVoice({ args, fixture, clock, budget, log }) {
       iface: 'inner-week',
       selfId: self.id,
       now: clock.now,
-      limits: { maxAttachmentBytes: 64 * 1024 * 1024 },
+      capabilities: { maxFileBytes: 64 * 1024 * 1024 },
     });
     let week = null;
     // The week's intention service (rebound after a restart); errands: none shown, an open budget

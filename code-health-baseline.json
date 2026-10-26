@@ -6,7 +6,7 @@
     "src/behavior/recall-run.js": 2347,
     "src/behavior/recall.js": 2508,
     "src/behavior/sandbox.js": 2136,
-    "src/behavior/turn.js": 9529,
+    "src/behavior/turn.js": 9500,
     "src/memory/store.js": 3346,
     "tests/admin.test.js": 3882,
     "tests/collect.test.js": 2137,
@@ -249,11 +249,11 @@
         "complexity": 33
       },
       "createTurnRunner": {
-        "function-length": 7406
+        "function-length": 7401
       },
       "createTurnRunner>act": {
         "complexity": 76,
-        "function-length": 400
+        "function-length": 399
       },
       "createTurnRunner>applyRewatch": {
         "complexity": 23
@@ -406,7 +406,7 @@
     },
     "src/llm/parse.js": {
       "parseOutput": {
-        "complexity": 28
+        "complexity": 27
       }
     },
     "src/media/classify.js": {

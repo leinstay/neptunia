@@ -7,7 +7,9 @@
 // retryable, a 403 `forbidden`, any other 4xx `failed` with its `http-<status>` code; a 5xx, a
 // timeout or a network error once the request may have left is `unknown` -- it may have taken
 // effect, so the caller never sends it again blindly. A failure while looking the target up is
-// always `failed`: nothing was sent.
+// always `failed`: nothing was sent. A text longer than `maxChars` is posted as several messages
+// (src/protocol/split-text.ts): `send` answers a Delivery whose `parts` are all of them, and a part
+// that fails after the first leaves the earlier ones posted and the outcome `unknown`.
 
 import { AttachmentBuilder, MessageFlags } from 'discord.js';
 import {
@@ -19,6 +21,7 @@ import {
   ok,
   refRefusal,
 } from '../../src/interface/port.js';
+import { deliveryOf, splitText } from '../../src/protocol/index.js';
 import { CODE, httpCode } from '../../src/skills/codes.js';
 
 /** The namespace of every Discord reference. */
@@ -29,9 +32,9 @@ export const DISCORD_IFACE = 'discord';
  * without boosts.
  */
 export const DISCORD_LIMITS = Object.freeze({
-  maxTextLength: 2000,
-  maxAttachments: 10,
-  maxAttachmentBytes: 10 * 1024 * 1024,
+  maxChars: 2000,
+  maxFiles: 10,
+  maxFileBytes: 10 * 1024 * 1024,
 });
 
 /** Error names and codes of a request that timed out or lost its connection. */
@@ -77,18 +80,26 @@ function reactionKey(emoji) {
 /**
  * The Discord adapter over a discord.js client.
  * @param {{ client: object, lookupChannel?: ((id: string) => object|null)|null, operations?: Iterable<string>|null,
- *   limits?: Partial<typeof DISCORD_LIMITS> }} options
+ *   limits?: Partial<typeof DISCORD_LIMITS>, now?: () => number }} options
  *   `lookupChannel`: a channel the caller already holds, tried before the client's cache and
  *   fetch; `operations`: the capability names to offer (all of CAPABILITIES when absent), any
- *   other answers `unsupported` without a call; `limits`: over DISCORD_LIMITS.
+ *   other answers `unsupported` without a call; `limits`: over DISCORD_LIMITS; `now`: the clock
+ *   that names a send's idempotency key.
  * @returns {import('../../src/interface/port.js').Port}
  */
-export function createDiscordAdapter({ client, lookupChannel = null, operations = null, limits = {} } = {}) {
+export function createDiscordAdapter({
+  client,
+  lookupChannel = null,
+  operations = null,
+  limits = {},
+  now = Date.now,
+} = {}) {
   const offered = new Set(operations ? [...operations] : Object.values(CAPABILITIES));
   const caps = { ...DISCORD_LIMITS, ...limits };
   const supports = (operation) => offered.has(CAPABILITIES[operation]);
   const unsupported = () => notOk('unsupported', CODE.UNSUPPORTED);
   const selfId = () => client?.user?.id ?? null;
+  let sends = 0;
 
   /** The channel `conversationId`, or null; a lookup that throws is rethrown as a lookup failure. */
   async function channelOf(conversationId) {
@@ -182,18 +193,29 @@ export function createDiscordAdapter({ client, lookupChannel = null, operations 
     iface: DISCORD_IFACE,
 
     async send(conversation, content) {
-      if (!supports('send')) return unsupported();
-      const refused = refRefusal(conversation, DISCORD_IFACE) ?? contentRefusal(content, caps, DISCORD_IFACE);
-      if (refused) return refused;
+      sends += 1;
+      const key = `${DISCORD_IFACE}-send-${now()}-${sends}`;
+      if (!supports('send')) return deliveryOf([unsupported()], key);
+      const refused =
+        refRefusal(conversation, DISCORD_IFACE) ?? contentRefusal(content, caps, DISCORD_IFACE, { splits: true });
+      if (refused) return deliveryOf([refused], key);
       const { channel, result } = await resolveChannel(conversation);
-      if (result) return result;
-      if (typeof channel.send !== 'function') return unsupported();
-      try {
-        const posted = await channel.send(payloadOf(content));
-        return ok(refOf(posted, conversation.conversationId), posted?.createdTimestamp);
-      } catch (err) {
-        return discordFailure(err, { sent: true });
+      if (result) return deliveryOf([result], key);
+      if (typeof channel.send !== 'function') return deliveryOf([unsupported()], key);
+      // The reply and the files go with the first part; the rest of the text follows as plain messages.
+      const texts = splitText(typeof content.text === 'string' ? content.text : '', caps.maxChars);
+      const results = [];
+      for (const [index, text] of texts.entries()) {
+        const part = index === 0 ? { ...content, text } : { text, mentions: content.mentions };
+        try {
+          const posted = await channel.send(payloadOf(part));
+          results.push(ok(refOf(posted, conversation.conversationId), posted?.createdTimestamp));
+        } catch (err) {
+          results.push(discordFailure(err, { sent: true }));
+          break;
+        }
       }
+      return deliveryOf(results, key);
     },
 
     async edit(message, content) {
@@ -325,7 +347,7 @@ export function createDiscordAdapter({ client, lookupChannel = null, operations 
     },
 
     capabilities() {
-      return { operations: new Set(offered), limits: { ...caps } };
+      return { operations: [...offered], ...caps };
     },
 
     ...declaredHooks(),
