@@ -180,6 +180,7 @@ test('runTurn: a message link in the window reads as the #n of the message it na
     createdTimestamp: NOW - 500,
   };
   const channel = fakeTurnChannel([first, second]);
+  /** @type {string[]} */
   const requests = [];
   const turns = createTurnRunner({
     discord: DISCORD,
@@ -187,12 +188,12 @@ test('runTurn: a message link in the window reads as the #n of the message it na
     hot: fakeHot(true),
     store: fakeStore(),
     llm: {
-      complete: async (messages) => {
+      complete: (/** @type {unknown} */ messages) => {
         requests.push(JSON.stringify(messages));
-        return { text: '<skip/>', usage: {}, estimated: 10 };
+        return Promise.resolve({ text: '<skip/>', usage: {}, estimated: 10 });
       },
     },
-    calibrator: { ratio: 1, apply: (n) => n, observe: () => {} },
+    calibrator: { ratio: 1, apply: (/** @type {number} */ n) => n, observe: () => {} },
     client: { user: { id: 'self-id', username: 'Bot' } },
   });
   await turns.runTurn({

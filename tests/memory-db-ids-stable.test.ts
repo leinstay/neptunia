@@ -88,6 +88,7 @@ test('lands an observed Discord message of the same member and channel on the ro
       },
     };
     const envelope = observationOf(event);
+    if (envelope === null) assert.fail('the event is an observable line');
     observe(handle, envelope, { now: () => NOW, log: quiet });
     assert.deepEqual(idsOf(handle, 'accounts'), [`discord:${MEMBER}`], 'no second account');
     assert.equal(idsOf(handle, 'places').length, 3, 'no second place');

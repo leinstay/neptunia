@@ -919,7 +919,10 @@ test('diary set: six draw.create calls in one answer are generated before anythi
   assert.equal(countToday(store.state.data, DIARY_PICTURES_DAILY, NOW), 6);
 });
 
-/** A runner whose port is a fake adapter with the given limits: the turn reads them from `capabilities()`. */
+/**
+ * A runner whose port is a fake adapter with the given limits: the turn reads them from `capabilities()`.
+ * @param {{ hot: object, llm: object, images: object, store?: object, limits: { maxFiles?: number, maxChars?: number }, client?: object }} options
+ */
 function limitedRunner({ hot, llm, images, store = fakeStore(), limits, client: clientOverride = client() }) {
   const adapter = createFakeAdapter({ iface: 'fake', selfId: 'self-id', capabilities: limits });
   const turns = createTurnRunner({
@@ -927,7 +930,7 @@ function limitedRunner({ hot, llm, images, store = fakeStore(), limits, client: 
     hot,
     store,
     llm,
-    calibrator: { ratio: 1, apply: (n) => n, observe: () => {} },
+    calibrator: { ratio: 1, apply: (/** @type {number} */ n) => n, observe: () => {} },
     client: clientOverride,
     images,
     port: adapter,
@@ -967,13 +970,20 @@ test('diary set: an adapter that allows twelve files per message gets the same s
 test('diary set: a dry run mirrors the image prompt in messages no longer than the maxChars of the adapter', async () => {
   const scene = 'x'.repeat(600);
   const llm = fakeLlm(TOUR_PLAN, toolAnswer('<msg>x</msg>', [call('draw.create', { text: scene })]));
+  /** @type {string[]} */
   const mirrored = [];
-  const mirrorChannel = { id: 'dry', send: async (payload) => void mirrored.push(payload.content) };
+  const mirrorChannel = {
+    id: 'dry',
+    send: (/** @type {{ content: string }} */ payload) => {
+      mirrored.push(payload.content);
+      return Promise.resolve();
+    },
+  };
   const client = {
     user: { id: 'self-id', username: 'Bot' },
     channels: {
       cache: new Map([['d1', { id: 'd1', name: 'journal' }]]),
-      fetch: async (id) => (id === 'dry' ? mirrorChannel : null),
+      fetch: (/** @type {string} */ id) => Promise.resolve(id === 'dry' ? mirrorChannel : null),
     },
   };
   const hot = setHot({ features: { dryRun: true }, set: { minPosted: 1 } });

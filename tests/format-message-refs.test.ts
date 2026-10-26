@@ -9,7 +9,19 @@ import { labels } from './fixtures/labels.js';
 const TZ = 'Europe/Athens';
 const MIN = 60_000;
 
-function msg(id, ts, overrides = {}) {
+type Ref = { iface: string; conversationId: string; messageId: string; url: string; text: string };
+type Line = {
+  id: string;
+  ts: number;
+  authorId: string;
+  authorName: string;
+  content: string;
+  channelId: string;
+  channelName: string;
+  messageRefs?: Array<Ref>;
+};
+
+function msg(id: string, ts: number, overrides: Partial<Line> = {}): Line {
   return {
     id,
     ts,
@@ -22,7 +34,7 @@ function msg(id, ts, overrides = {}) {
   };
 }
 
-const refTo = (id, text) => ({
+const refTo = (id: string, text: string): Ref => ({
   iface: 'discord',
   conversationId: '22',
   messageId: id,
@@ -32,7 +44,7 @@ const refTo = (id, text) => ({
 
 test('formatTranscript: messageNumbers maps a reference to a line of the list to its #n, a reference to another message stays', () => {
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
-  const link = (id) => `https://discord.com/channels/9/22/${id}`;
+  const link = (id: string): string => `https://discord.com/channels/9/22/${id}`;
   const messages = [
     msg('101', t0, { content: 'γεια' }),
     msg('102', t0 + MIN, {

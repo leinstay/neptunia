@@ -399,7 +399,7 @@ test('describe: an item with a preview url is downloaded from the preview, never
     pictureItem('v1', { kind: 'video', url: 'https://files.example/clip.mp4', previewUrl: preview })
   );
   assert.deepEqual(
-    imageFetcher.calls.map((call) => call.url),
+    imageFetcher.calls.map((/** @type {{ url: string }} */ call) => call.url),
     [preview]
   );
 });
@@ -415,7 +415,7 @@ test('describe: an item with no preview url is downloaded from its own url exact
   const url = 'https://cdn.discordapp.com/x/pic.png?ex=1';
   await describer.describe('g1', pictureItem('a1', { url, width: 988, height: 1306 }));
   assert.deepEqual(
-    imageFetcher.calls.map((call) => call.url),
+    imageFetcher.calls.map((/** @type {{ url: string }} */ call) => call.url),
     [url],
     'no host rewriting and no size parameters of the core'
   );

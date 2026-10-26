@@ -3,12 +3,51 @@
 // (interfaces/discord/collect.js#messageRefsOf and normalizeMessage). Discord objects are plain fixtures.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Embed } from 'discord.js';
-import { messageRefsOf, normalizeMessage, normalizeOptions, toEvent } from '../interfaces/discord/index.js';
+import {
+  messageRefsOf,
+  normalizeMessage as normalizeRaw,
+  normalizeOptions,
+  toEvent,
+} from '../interfaces/discord/index.js';
 import { collectPictures } from '../src/media/classify.js';
 import { validateEvent } from '../src/protocol/index.js';
 
-function rawMessage(overrides = {}) {
+type Item = {
+  id?: string;
+  kind?: string;
+  name?: string;
+  url?: string;
+  size?: number;
+  durationSec?: number | null;
+  width?: number | null;
+  height?: number | null;
+  expiring?: boolean;
+  previewUrl?: string;
+};
+type Ref = { iface: string; conversationId: string; messageId: string; url: string; text: string };
+type Normalized = { content: string; attachments: Array<Item>; links: Array<Item>; messageRefs: Array<Ref> };
+
+function isNormalized(value: unknown): value is Normalized {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'attachments' in value &&
+    Array.isArray(value.attachments) &&
+    'links' in value &&
+    Array.isArray(value.links) &&
+    'messageRefs' in value &&
+    Array.isArray(value.messageRefs)
+  );
+}
+
+// The package's own result, read through the shape this file asserts on.
+function normalizeMessage(raw: object, selfId: string, options: { imageSize?: number } = {}): Normalized {
+  const result: unknown = normalizeRaw(raw, selfId, options);
+  if (!isNormalized(result)) throw new Error('normalizeMessage did not return a normalised message');
+  return result;
+}
+
+function rawMessage(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     id: 'm1',
     channelId: 'c1',
@@ -27,7 +66,7 @@ function rawMessage(overrides = {}) {
   };
 }
 
-function guildMessage(overrides = {}) {
+function guildMessage(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return rawMessage({
     guild: { id: 'g1' },
     guildId: 'g1',
@@ -147,11 +186,11 @@ test('normalizeMessage: the preview url of a GIF attachment asks for one still f
 
 test('normalizeMessage: a link on the Discord CDN is expiring and a link elsewhere is not', () => {
   const cdn = `https://media.discordapp.net/attachments/1/2/dance.gif?${SIGNED}`;
-  const embed = new Embed({
+  const embed = {
     type: 'image',
     url: cdn,
-    thumbnail: { url: cdn, proxy_url: cdn, width: 4, height: 4, content_type: 'image/gif' },
-  });
+    thumbnail: { url: cdn, proxyURL: cdn, width: 4, height: 4, contentType: 'image/gif' },
+  };
   const onCdn = normalizeMessage(rawMessage({ cleanContent: cdn, content: cdn, embeds: [embed] }), 'self');
   assert.equal(onCdn.links[0].expiring, true);
   const page = normalizeMessage(
@@ -166,7 +205,10 @@ test('normalizeMessage: a link on the Discord CDN is expiring and a link elsewhe
 
 // What the describer downloads: the picture sized to `media.imageSize` on the media proxy (the cases that lived in
 // tests/describe.test.js while the core built the address).
-function attachmentPreview(attachment, options = { imageSize: 256 }) {
+function attachmentPreview(
+  attachment: Item & { contentType: string },
+  options = { imageSize: 256 }
+): string | undefined {
   const raw = rawMessage({ attachments: new Map([['a1', { id: 'a1', size: 5, ...attachment }]]) });
   return normalizeMessage(raw, 'self', options).attachments[0].previewUrl;
 }

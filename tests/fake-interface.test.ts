@@ -80,7 +80,7 @@ test('says hello with the selfId option as the persona id when no self is given'
   const running = await start(host, { selfId: SELF_ID });
   const hello = await link.hello;
   assert.equal(hello.self.id, SELF_ID);
-  assert.equal(typeof hello.self.name, 'string');
+  assert.notEqual(hello.self.name, '');
   await running.stop();
 });
 
