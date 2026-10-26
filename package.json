@@ -35,6 +35,8 @@
     "format:check": "prettier --check",
     "health": "node tools/code-health.mjs && node tools/code-health.mjs --check-docs",
     "health:update": "node tools/code-health.mjs --update",
+    "prose": "node tools/prose-check.mjs",
+    "prose:update": "node tools/prose-check.mjs --update",
     "mutation": "node tools/mutation-diff.mjs"
   },
   "workspaces": [

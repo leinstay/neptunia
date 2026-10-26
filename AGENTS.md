@@ -31,6 +31,8 @@ npm install
 node --test --test-reporter=dot tests/<module>.test.js   # the tests of the module you changed
 npm test                                                  # the whole suite, once before a pull request
 npm run check:codes                                       # the result codes against labels and docs
+npm run prose                                             # the prose files against the dash, label and slash rules of WRITING.md
+npm run prose:update                                      # after fixing a violation: rewrites prose-baseline.json
 npm run lint                                              # ESLint over the tree; fails on a violation not in eslint-suppressions.json
 npm run lint:prune                                        # after fixing violations: drops the stale entries from eslint-suppressions.json
 npm run typecheck                                         # tsc errors against type-baseline.json; fails when a count grows or shrinks
@@ -73,6 +75,7 @@ The defaults, for documentation, comments, commit messages, pull request text an
 - Formatting: bold only for a term the reader must find again, headings as plain phrases, code and paths and keys in backticks, no emoji.
 - Length: about 100 words for a direct answer, 250 for an explanation or a work report, 500 for a plan or a review. A document is as long as its rules need.
 - Before handing in a text, review it against `WRITING.md` and hand in the corrected text; only the final text goes into a file.
+- CI fails a prose file that gains a dash, a "Label: explanation" row outside a table or a slash list (`npm run prose`).
 
 ## Documentation
 

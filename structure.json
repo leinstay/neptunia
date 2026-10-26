@@ -140,6 +140,13 @@
       "test": "none"
     },
     {
+      "path": "prose-baseline.json",
+      "purpose": "The recorded prose violations that may only shrink.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
       "path": "structure.json",
       "purpose": "This manifest of the tracked tree.",
       "layer": "public",
