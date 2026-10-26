@@ -13,7 +13,10 @@ function buildRequestInputs() {
   const body = source.slice(start, source.indexOf('\n}\n', start));
   const destructured = /const \{([^}]*)\} = input;/.exec(body);
   assert.ok(destructured, 'buildRequest destructures its input');
-  const keys = destructured[1].split(',').map((part) => part.trim().split(/[\s=:]/)[0]).filter(Boolean);
+  const keys = destructured[1]
+    .split(',')
+    .map((part) => part.trim().split(/[\s=:]/)[0])
+    .filter(Boolean);
   for (const match of body.matchAll(/\binput\.(\w+)/g)) keys.push(match[1]);
   return new Set(keys);
 }

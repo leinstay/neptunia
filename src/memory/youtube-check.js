@@ -58,7 +58,11 @@ export function createYoutubeCheck({ hot, videoFetcher, youtubeApiKey = null }) 
       const reasons = [`ytdlp=${site?.ok ? 'no-duration' : reasonOf(site)}`];
 
       if (keySet) {
-        const api = await videoFetcher.probeYoutube(url, { fetchTimeoutMs, apiKey: youtubeApiKey, pageFallback: false });
+        const api = await videoFetcher.probeYoutube(url, {
+          fetchTimeoutMs,
+          apiKey: youtubeApiKey,
+          pageFallback: false,
+        });
         if (hasDuration(api)) return { status: 'api', detail: `duration ${api.durationSec}s`, keySet };
         reasons.push(`api=${reasonOf(api)}`);
       } else {

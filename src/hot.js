@@ -62,8 +62,16 @@ const JSON_LAYERS = Object.freeze(['labels', 'skills']);
 const RETIRED_CONFIG_KEYS = Object.freeze([
   { key: 'memory.voiceModel', use: 'models.base.core', read: (config) => config?.memory?.voiceModel },
   { key: 'features.vision', use: 'features.mediaDescriptions', read: (config) => config?.features?.vision },
-  { key: 'features.attachedDescriptions', use: 'features.mediaDescriptions', read: (config) => config?.features?.attachedDescriptions },
-  { key: 'innerLife.loop.strayFollowUps', use: 'innerLife.loop.maxSteps', read: (config) => config?.innerLife?.loop?.strayFollowUps },
+  {
+    key: 'features.attachedDescriptions',
+    use: 'features.mediaDescriptions',
+    read: (config) => config?.features?.attachedDescriptions,
+  },
+  {
+    key: 'innerLife.loop.strayFollowUps',
+    use: 'innerLife.loop.maxSteps',
+    read: (config) => config?.innerLife?.loop?.strayFollowUps,
+  },
   { key: 'innerLife.caps.usdPerDay', use: null, read: (config) => config?.innerLife?.caps?.usdPerDay },
   { key: 'innerLife.caps.perDay', use: null, read: (config) => config?.innerLife?.caps?.perDay },
   { key: 'innerLife.caps.perHour', use: null, read: (config) => config?.innerLife?.caps?.perHour },
@@ -72,7 +80,11 @@ const RETIRED_CONFIG_KEYS = Object.freeze([
   { key: 'innerLife.errandReserveMaxMinutes', use: null, read: (config) => config?.innerLife?.errandReserveMaxMinutes },
   { key: 'intentions.droppedDays', use: null, read: (config) => config?.intentions?.droppedDays },
   { key: 'innerLife.heartbeat.droppedDays', use: null, read: (config) => config?.innerLife?.heartbeat?.droppedDays },
-  { key: 'innerLife.heartbeat.droppedShown', use: 'innerLife.heartbeat.closedShown', read: (config) => config?.innerLife?.heartbeat?.droppedShown },
+  {
+    key: 'innerLife.heartbeat.droppedShown',
+    use: 'innerLife.heartbeat.closedShown',
+    read: (config) => config?.innerLife?.heartbeat?.droppedShown,
+  },
   ...['scout', 'server', 'thinker', 'dev'].flatMap((agent) => [
     { key: `agents.${agent}.daily.usd`, use: null, read: (config) => config?.agents?.[agent]?.daily?.usd },
     { key: `agents.${agent}.limits.usd`, use: null, read: (config) => config?.agents?.[agent]?.limits?.usd },
@@ -86,7 +98,9 @@ const HASH_CHARS = 16;
 function canonicalJson(value) {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
   if (isPlainObject(value)) {
-    const keys = Object.keys(value).filter((key) => value[key] !== undefined).sort();
+    const keys = Object.keys(value)
+      .filter((key) => value[key] !== undefined)
+      .sort();
     return `{${keys.map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;
   }
   return JSON.stringify(value) ?? 'null';
@@ -275,12 +289,11 @@ export function createHot({ rootDir, privateDir = rootDir, watchImpl = fs.watch 
 
   hot.reloadPrompts = () => {
     try {
-      const { prompts: mdPrompts, sources: mdSources, keptPrevious } = computePromptFiles(
-        promptsDir,
-        localPromptsDir,
-        hot.prompts,
-        hot.promptSources,
-      );
+      const {
+        prompts: mdPrompts,
+        sources: mdSources,
+        keptPrevious,
+      } = computePromptFiles(promptsDir, localPromptsDir, hot.prompts, hot.promptSources);
 
       // Each JSON layer on its own: a broken one keeps its previous value, the rest still reload.
       const json = {};
@@ -302,7 +315,11 @@ export function createHot({ rootDir, privateDir = rootDir, watchImpl = fs.watch 
       hot.prompts = { ...mdPrompts, preambles, ...json };
       hot.promptSources = { ...mdSources, preambles: 'local', ...jsonSources };
       hot.hashes = { ...hot.hashes, promptsHash: shortHash(hot.prompts) };
-      log.info('hot: prompts reloaded', { prompts: Object.keys(mdPrompts), preambles: Object.keys(preambles), keptPrevious });
+      log.info('hot: prompts reloaded', {
+        prompts: Object.keys(mdPrompts),
+        preambles: Object.keys(preambles),
+        keptPrevious,
+      });
       hot.emit('change', { what: 'prompts' });
       return true;
     } catch (err) {

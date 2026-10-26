@@ -28,9 +28,19 @@ test('overwriteMemberIds: member overwrite ids across channels, once each, roles
     channel([member('cached')]),
   ];
   const cached = new Set(['cached', 'm3']);
-  assert.deepEqual(overwriteMemberIds(channels, (id) => cached.has(id)), ['m1', 'm2']);
-  assert.deepEqual(overwriteMemberIds(new Map([['c', channel([member('m1')])]]).values(), () => false), ['m1'], 'any iterable');
-  assert.deepEqual(overwriteMemberIds(undefined, () => false), []);
+  assert.deepEqual(
+    overwriteMemberIds(channels, (id) => cached.has(id)),
+    ['m1', 'm2']
+  );
+  assert.deepEqual(
+    overwriteMemberIds(new Map([['c', channel([member('m1')])]]).values(), () => false),
+    ['m1'],
+    'any iterable'
+  );
+  assert.deepEqual(
+    overwriteMemberIds(undefined, () => false),
+    []
+  );
 });
 
 test('fetchMembers: fetches one by one and counts fetched, missing and failed without throwing', async () => {
@@ -128,7 +138,20 @@ test('createAudienceWarmer: overlapping runs coalesce into one more pass, each m
 test('createAudienceWarmer: no guild or a throwing guild never rejects', async () => {
   const logger = fakeLogger();
   await createAudienceWarmer({ getGuild: () => null, logger }).warm();
-  const throwing = { id: 'g1', channels: { cache: { values: () => { throw new Error('boom'); } } }, members: { cache: new Map() } };
+  const throwing = {
+    id: 'g1',
+    channels: {
+      cache: {
+        values: () => {
+          throw new Error('boom');
+        },
+      },
+    },
+    members: { cache: new Map() },
+  };
   await createAudienceWarmer({ getGuild: () => throwing, logger }).warm();
-  assert.deepEqual(logger.lines.map((line) => [line.level, line.msg]), [['warn', 'audience: members warm failed']]);
+  assert.deepEqual(
+    logger.lines.map((line) => [line.level, line.msg]),
+    [['warn', 'audience: members warm failed']]
+  );
 });

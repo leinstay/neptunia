@@ -53,7 +53,8 @@ const isAbort = (err) => err?.name === 'AbortError' || err?.name === 'TimeoutErr
  */
 export async function prepareSpeech({ text, complete, prompt, model, maxOutputTokens, timeoutMs }) {
   const original = String(text ?? '');
-  if (typeof prompt !== 'string' || prompt.trim() === '' || typeof complete !== 'function') return { text: original, prepared: false, reason: 'no-prompt' };
+  if (typeof prompt !== 'string' || prompt.trim() === '' || typeof complete !== 'function')
+    return { text: original, prepared: false, reason: 'no-prompt' };
   let answer;
   try {
     const result = await complete(
@@ -61,7 +62,15 @@ export async function prepareSpeech({ text, complete, prompt, model, maxOutputTo
         { role: 'system', content: prompt },
         { role: 'user', content: original },
       ],
-      { ...(model ? { model } : {}), role: PREPARE_ROLE, purpose: PREPARE_PURPOSE, temperature: 0, maxOutputTokens, timeoutMs, skipCalibration: true },
+      {
+        ...(model ? { model } : {}),
+        role: PREPARE_ROLE,
+        purpose: PREPARE_PURPOSE,
+        temperature: 0,
+        maxOutputTokens,
+        timeoutMs,
+        skipCalibration: true,
+      }
     );
     answer = typeof result?.text === 'string' ? result.text.trim() : '';
   } catch (err) {

@@ -106,7 +106,10 @@ test('channelActivity: a missing cfg, or a missing key, falls back to the values
   ];
   for (const c of channels) {
     assert.equal(channelActivity(c, NOW), channelActivity(c, NOW, tracked));
-    assert.equal(channelActivity(c, NOW, { liveMessagesPerDay: tracked.liveMessagesPerDay }), channelActivity(c, NOW, tracked));
+    assert.equal(
+      channelActivity(c, NOW, { liveMessagesPerDay: tracked.liveMessagesPerDay }),
+      channelActivity(c, NOW, tracked)
+    );
     assert.equal(channelActivity(c, NOW, { deadAfterDays: tracked.deadAfterDays }), channelActivity(c, NOW, tracked));
   }
 });
@@ -139,7 +142,7 @@ test('renderChannel: fact lines appear in the documented order: category, topic,
       'what people write here: games, memes',
       'tone: casual, lots of emoji',
       'activity: live',
-    ].join('\n'),
+    ].join('\n')
   );
 });
 
@@ -188,14 +191,27 @@ test('renderChannel: lastMessage line is omitted entirely when labels.server.las
 });
 
 test('renderChannel: topWriters resolves ids to current names via nameOf, in the stored order', () => {
-  const c = channel({ name: 'general', topWriters: [{ id: 'a', count: 8 }, { id: 'b', count: 3 }] });
+  const c = channel({
+    name: 'general',
+    topWriters: [
+      { id: 'a', count: 8 },
+      { id: 'b', count: 3 },
+    ],
+  });
   const nameOf = (id) => ({ a: 'Alice', b: 'Bob' })[id] ?? null;
   const text = renderChannel(c, labels, { current: false, activity: 'live', nameOf });
   assert.equal(text, '# general\nwrites here most: Alice, Bob\nactivity: live');
 });
 
 test('renderChannel: topWriters skips an id nameOf cannot resolve (e.g. someone who left)', () => {
-  const c = channel({ name: 'general', topWriters: [{ id: 'a', count: 8 }, { id: 'gone', count: 3 }, { id: 'b', count: 1 }] });
+  const c = channel({
+    name: 'general',
+    topWriters: [
+      { id: 'a', count: 8 },
+      { id: 'gone', count: 3 },
+      { id: 'b', count: 1 },
+    ],
+  });
   const nameOf = (id) => ({ a: 'Alice', b: 'Bob' })[id] ?? null;
   const text = renderChannel(c, labels, { current: false, activity: 'live', nameOf });
   assert.ok(text.includes('writes here most: Alice, Bob'));
@@ -206,7 +222,11 @@ test('renderChannel: topWriters is omitted when there is no nameOf, or an empty 
   const c = channel({ name: 'general', topWriters: [{ id: 'a', count: 8 }] });
   assert.ok(!renderChannel(c, labels, { current: false, activity: 'live' }).includes('writes here most'));
   const nameOf = (id) => ({ a: 'Alice' })[id] ?? null;
-  assert.ok(!renderChannel(channel({ name: 'general', topWriters: [] }), labels, { activity: 'live', nameOf }).includes('writes here most'));
+  assert.ok(
+    !renderChannel(channel({ name: 'general', topWriters: [] }), labels, { activity: 'live', nameOf }).includes(
+      'writes here most'
+    )
+  );
   const noTopWritersLabels = { server: { ...labels.server, topWriters: undefined }, units: labels.units };
   assert.ok(!renderChannel(c, noTopWritersLabels, { activity: 'live', nameOf }).includes('writes here most'));
 });
@@ -233,7 +253,7 @@ test('renderChannel: a read-only channel carries labels.server.readOnly', () => 
       'last message: 3 d ago',
       'writes here most: Élodie',
       'activity: slow',
-    ].join('\n'),
+    ].join('\n')
   );
 });
 
@@ -241,7 +261,10 @@ test('renderChannel: the current channel never carries the read-only mark', () =
   const c = channel({ name: 'ημερολόγιο', purpose: 'café notes', lastMessageAt: NOW - 3 * DAY });
   const current = renderChannel(c, labels, { current: true, activity: 'slow', now: NOW });
   assert.equal(renderChannel(c, labels, { current: true, activity: 'slow', now: NOW, readOnly: true }), current);
-  assert.equal(current, `# ημερολόγιο${labels.server.currentMark}\npurpose: café notes\nlast message: 3 d ago\nactivity: slow`);
+  assert.equal(
+    current,
+    `# ημερολόγιο${labels.server.currentMark}\npurpose: café notes\nlast message: 3 d ago\nactivity: slow`
+  );
   assert.ok(!current.includes(labels.server.readOnly));
 });
 
@@ -282,14 +305,30 @@ const SINCE_T0 = Date.UTC(2026, 9, 7, 12); // 2026-10-07T12:00Z
 const dayKey = (ms) => new Date(ms).toISOString().slice(0, 10);
 
 test('messagesSince: sums the days tally from the reference day to now', () => {
-  const channel = { days: { [dayKey(SINCE_T0)]: 5, [dayKey(SINCE_T0 - DAY_MS)]: 7, [dayKey(SINCE_T0 - 2 * DAY_MS)]: 11, [dayKey(SINCE_T0 - 9 * DAY_MS)]: 100 } };
-  assert.deepEqual(messagesSince(channel, SINCE_T0 - 2 * DAY_MS, SINCE_T0), { count: 23, coveredFromMs: Date.UTC(2026, 8, 28) });
+  const channel = {
+    days: {
+      [dayKey(SINCE_T0)]: 5,
+      [dayKey(SINCE_T0 - DAY_MS)]: 7,
+      [dayKey(SINCE_T0 - 2 * DAY_MS)]: 11,
+      [dayKey(SINCE_T0 - 9 * DAY_MS)]: 100,
+    },
+  };
+  assert.deepEqual(messagesSince(channel, SINCE_T0 - 2 * DAY_MS, SINCE_T0), {
+    count: 23,
+    coveredFromMs: Date.UTC(2026, 8, 28),
+  });
   assert.equal(messagesSince(channel, null, SINCE_T0).count, 123, 'no reference = everything');
 });
 
 test('messagesSince: a tally that does not reach the reference date reports what it covers and never throws', () => {
   const channel = { days: { [dayKey(SINCE_T0)]: 3 } };
-  assert.deepEqual(messagesSince(channel, SINCE_T0 - 30 * DAY_MS, SINCE_T0), { count: 3, coveredFromMs: Date.UTC(2026, 9, 7) });
+  assert.deepEqual(messagesSince(channel, SINCE_T0 - 30 * DAY_MS, SINCE_T0), {
+    count: 3,
+    coveredFromMs: Date.UTC(2026, 9, 7),
+  });
   assert.deepEqual(messagesSince({}, SINCE_T0 - DAY_MS, SINCE_T0), { count: 0, coveredFromMs: null });
-  assert.deepEqual(messagesSince({ days: { bogus: 'x', [dayKey(SINCE_T0)]: 2 } }, null, SINCE_T0), { count: 2, coveredFromMs: Date.UTC(2026, 9, 7) });
+  assert.deepEqual(messagesSince({ days: { bogus: 'x', [dayKey(SINCE_T0)]: 2 } }, null, SINCE_T0), {
+    count: 2,
+    coveredFromMs: Date.UTC(2026, 9, 7),
+  });
 });

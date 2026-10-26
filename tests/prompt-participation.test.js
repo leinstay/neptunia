@@ -20,11 +20,28 @@ function fakeConfig({ features = {}, caps = {}, participation = {} } = {}) {
       gapMarkerMinutes: 20,
       maxMessageChars: 800,
       ageAfterMinutes: 60,
-      caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000, server: 2500, lore: 1500, recent: 1200, ...caps },
+      caps: {
+        interlocutor: 2500,
+        aboutChat: 2500,
+        people: 4000,
+        neighbors: 3000,
+        server: 2500,
+        lore: 1500,
+        recent: 1200,
+        ...caps,
+      },
       vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0 },
       tempo: { liveMessages10min: 4, deadSilenceMinutes: 45 },
     },
-    features: { vision: true, relationships: true, episodes: true, lore: true, recent: true, participation: true, ...features },
+    features: {
+      vision: true,
+      relationships: true,
+      episodes: true,
+      lore: true,
+      recent: true,
+      participation: true,
+      ...features,
+    },
     llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
     memory: { recentHours: 72 },
     participation: { hours: 72, shown: 4, perChannel: 2, episodeChars: 1800, ...participation },
@@ -45,11 +62,26 @@ function prompts(labelOverrides = null) {
 }
 
 function chatLine(id, ts, overrides = {}) {
-  return { id, ts, authorId: `a-${id}`, authorName: `User${id}`, self: false, content: `message ${id}`, attachments: [], stickers: [], replyToId: null, ...overrides };
+  return {
+    id,
+    ts,
+    authorId: `a-${id}`,
+    authorName: `User${id}`,
+    self: false,
+    content: `message ${id}`,
+    attachments: [],
+    stickers: [],
+    replyToId: null,
+    ...overrides,
+  };
 }
 
 /** A stored participation message. */
-function stored(id, ts, { name = 'Ana', authorId = 'u1', self = false, text = `γραμμή ${id}`, caption = null, replyTo = null } = {}) {
+function stored(
+  id,
+  ts,
+  { name = 'Ana', authorId = 'u1', self = false, text = `γραμμή ${id}`, caption = null, replyTo = null } = {}
+) {
   return { id, ts, authorId: self ? 'self' : authorId, name: self ? 'Zoë' : name, self, text, replyTo, caption };
 }
 
@@ -62,7 +94,10 @@ function state(extra = []) {
         id: 'p1',
         channelId: 'c2',
         continues: null,
-        messages: [stored('a1', NOW - 2 * HOUR - MIN, { text: 'πού είναι το βιβλίο;' }), stored('a2', NOW - 2 * HOUR, { self: true, text: 'στο ράφι' })],
+        messages: [
+          stored('a1', NOW - 2 * HOUR - MIN, { text: 'πού είναι το βιβλίο;' }),
+          stored('a2', NOW - 2 * HOUR, { self: true, text: 'στο ράφι' }),
+        ],
       },
       {
         id: 'p2',
@@ -126,18 +161,30 @@ test('participation block: header, channel lines once per channel, episodes with
       '2 h ago:',
       `${aged(NOW - 2 * HOUR - MIN, '2 h 1 min')} Ana: πού είναι το βιβλίο;`,
       `${aged(NOW - 2 * HOUR, '2 h')} Zoë (you): στο ράφι`,
-    ].join('\n'),
+    ].join('\n')
   );
   assert.ok(!body.includes('#1 ') && !body.includes('#2 '), 'no #n index');
   assert.deepEqual(
     { ...request.stats.participation, used: undefined },
-    { used: undefined, kept: 3, dropped: 0, offered: 2, shown: 2, cut: 0, deduped: 0 },
+    { used: undefined, kept: 3, dropped: 0, offered: 2, shown: 2, cut: 0, deduped: 0 }
   );
 });
 
 test('participation block: right after <recent>, before <other_channels>, in the tail', () => {
-  const recentLines = [{ id: 1, at: NOW - HOUR, addedAt: new Date(NOW).toISOString(), channelId: HERE, text: 'σημείωση', who: [], weight: 2 }];
-  const neighbors = [{ channelId: 'c4', channelName: 'next', messages: [chatLine('n1', NOW - 2 * MIN, { channelId: 'c4' })] }];
+  const recentLines = [
+    {
+      id: 1,
+      at: NOW - HOUR,
+      addedAt: new Date(NOW).toISOString(),
+      channelId: HERE,
+      text: 'σημείωση',
+      who: [],
+      weight: 2,
+    },
+  ];
+  const neighbors = [
+    { channelId: 'c4', channelName: 'next', messages: [chatLine('n1', NOW - 2 * MIN, { channelId: 'c4' })] },
+  ];
   const text = textOf(buildRequest(input({ recentLines, neighbors })));
   const recent = text.indexOf('<recent>');
   const participation = text.indexOf('<participation>');
@@ -155,7 +202,9 @@ test('participation block: the senses line is there with the block and gone with
   const off = textOf(buildRequest(input({ config: fakeConfig({ features: { participation: false } }) })));
   assert.equal(blockOf(off, 'participation'), null);
   assert.ok(!off.includes(sense));
-  const empty = textOf(buildRequest(input({ participation: { state: { episodes: [], nextId: 1 }, audience: () => true } })));
+  const empty = textOf(
+    buildRequest(input({ participation: { state: { episodes: [], nextId: 1 }, audience: () => true } }))
+  );
   assert.ok(!empty.includes(sense) && !empty.includes('<participation>'));
 });
 
@@ -170,7 +219,17 @@ test('participation block: a missing header or episode label means no block and 
 
 test('participation block: never in a private chat', () => {
   const trigger = chatLine('d1', NOW - MIN, { content: 'θυμάσαι το βιβλίο;' });
-  const text = textOf(buildRequest(input({ history: [trigger], trigger, triggerKind: 'private', currentChannelId: 'dm1', privateChat: { userId: 'a-d1' } })));
+  const text = textOf(
+    buildRequest(
+      input({
+        history: [trigger],
+        trigger,
+        triggerKind: 'private',
+        currentChannelId: 'dm1',
+        privateChat: { userId: 'a-d1' },
+      })
+    )
+  );
   assert.equal(blockOf(text, 'participation'), null);
   assert.ok(!text.includes(labels.senses.participation));
 });
@@ -192,13 +251,23 @@ test('participation block: a line shown in the chat, a neighbour or a pulled cha
   assert.ok(!chatBody.includes('πού είναι το βιβλίο;') && chatBody.includes('στο ράφι'));
   assert.equal(inChat.stats.participation.deduped, 1);
   // b1 (p2's only own line) is a neighbour's line: p2 goes whole.
-  const neighbors = [{ channelId: 'c4', channelName: 'next', messages: [chatLine('b1', NOW - 30 * MIN, { channelId: 'c4' })] }];
+  const neighbors = [
+    { channelId: 'c4', channelName: 'next', messages: [chatLine('b1', NOW - 30 * MIN, { channelId: 'c4' })] },
+  ];
   const inNeighbor = buildRequest(input({ neighbors }));
   const neighborBody = blockOf(textOf(inNeighbor), 'participation');
   assert.ok(!neighborBody.includes('#jardin') && neighborBody.includes('#journal'));
   assert.equal(inNeighbor.stats.participation.cut, 1);
   // a2 (p1's own line) in a pulled channel: p1 goes.
-  const pulled = [{ channelId: 'c5', channelName: 'pulled', messages: [chatLine('a2', NOW - 2 * HOUR, { channelId: 'c5' })], descriptions: new Map(), readOnly: false }];
+  const pulled = [
+    {
+      channelId: 'c5',
+      channelName: 'pulled',
+      messages: [chatLine('a2', NOW - 2 * HOUR, { channelId: 'c5' })],
+      descriptions: new Map(),
+      readOnly: false,
+    },
+  ];
   const inPulled = buildRequest(input({ pulled }));
   const pulledBody = blockOf(textOf(inPulled), 'participation');
   assert.ok(textOf(inPulled).includes('<channel_view>'), 'the pulled channel is shown');
@@ -207,7 +276,12 @@ test('participation block: a line shown in the chat, a neighbour or a pulled cha
 
 test('participation block: picks come first and win the budget; the newest fill up', () => {
   const tight = fakeConfig({ participation: { shown: 1 } });
-  const picked = blockOf(textOf(buildRequest(input({ config: tight, participation: { state: state(), pickedIds: ['p1'], audience: () => true } }))), 'participation');
+  const picked = blockOf(
+    textOf(
+      buildRequest(input({ config: tight, participation: { state: state(), pickedIds: ['p1'], audience: () => true } }))
+    ),
+    'participation'
+  );
   assert.ok(picked.includes('#journal') && !picked.includes('#jardin'));
   const newest = blockOf(textOf(buildRequest(input({ config: tight }))), 'participation');
   assert.ok(newest.includes('#jardin') && !newest.includes('#journal'));
@@ -216,7 +290,12 @@ test('participation block: picks come first and win the budget; the newest fill 
 test('participation block: context.caps.participation cuts whole episodes, the picked one kept', () => {
   const probe = buildRequest(input({ participation: { state: state(), pickedIds: ['p1'], audience: () => true } }));
   const cap = probe.stats.participation.used - 3;
-  const request = buildRequest(input({ config: fakeConfig({ caps: { participation: cap } }), participation: { state: state(), pickedIds: ['p1'], audience: () => true } }));
+  const request = buildRequest(
+    input({
+      config: fakeConfig({ caps: { participation: cap } }),
+      participation: { state: state(), pickedIds: ['p1'], audience: () => true },
+    })
+  );
   const body = blockOf(textOf(request), 'participation');
   assert.ok(body.includes('#journal (a reading log):') && !body.includes('#jardin'), body);
   assert.equal(request.stats.participation.shown, 1);
@@ -243,16 +322,37 @@ test('participation block: a long episode is cut to episodeChars, keeping lines 
   };
   const trigger = chatLine('m1', NOW - MIN, { content: 'το Ποδήλατο;' });
   const config = fakeConfig({ participation: { episodeChars: 100 } });
-  const request = buildRequest(input({ config, history: [trigger], trigger, participation: { state: { episodes: [long], nextId: 4 }, audience: () => true } }));
+  const request = buildRequest(
+    input({
+      config,
+      history: [trigger],
+      trigger,
+      participation: { state: { episodes: [long], nextId: 4 }, audience: () => true },
+    })
+  );
   const body = blockOf(textOf(request), 'participation');
   assert.ok(body.includes('μιλάμε για ποδήλατο τώρα'), 'the line sharing a word with the candidate is kept');
-  assert.ok(body.includes('εντάξει'), 'the persona\'s own line is kept');
-  assert.ok(body.includes(fill(labels.participation.skipped, { count: 1 })) || body.includes(fill(labels.participation.skipped, { count: 2 })), body);
+  assert.ok(body.includes('εντάξει'), "the persona's own line is kept");
+  assert.ok(
+    body.includes(fill(labels.participation.skipped, { count: 1 })) ||
+      body.includes(fill(labels.participation.skipped, { count: 2 })),
+    body
+  );
 });
 
 test('participation block: a channel with no stored name takes the live name, and no name at all drops it', () => {
   const names = { c3: 'jardin-live' };
-  const live = blockOf(textOf(buildRequest(input({ channels: [], participation: { state: state(), audience: () => true, channelName: (id) => names[id] ?? null } }))), 'participation');
+  const live = blockOf(
+    textOf(
+      buildRequest(
+        input({
+          channels: [],
+          participation: { state: state(), audience: () => true, channelName: (id) => names[id] ?? null },
+        })
+      )
+    ),
+    'participation'
+  );
   assert.ok(live.includes('#jardin-live:') && !live.includes('journal'));
 });
 
@@ -275,11 +375,19 @@ function hereEpisode() {
 const selfLabel = () => fill(labels.self, { name: 'Zoë' });
 
 /** The config with the anchored window on (features.anchoredWindow), which `<earlier>` belongs to. */
-const anchoredConfig = ({ features = {}, ...rest } = {}) => fakeConfig({ ...rest, features: { anchoredWindow: true, ...features } });
+const anchoredConfig = ({ features = {}, ...rest } = {}) =>
+  fakeConfig({ ...rest, features: { anchoredWindow: true, ...features } });
 
 test('earlier block: the stored lines of this channel older than the chat, in the tail after <participation>, before <chat>', () => {
   const window = [chatLine('m0', NOW - 30 * MIN), chatLine('m1', NOW - MIN, { content: 'θυμάσαι;' })];
-  const request = buildRequest(input({ config: anchoredConfig(), history: window, trigger: window[1], participation: { state: state([hereEpisode()]), audience: () => true } }));
+  const request = buildRequest(
+    input({
+      config: anchoredConfig(),
+      history: window,
+      trigger: window[1],
+      participation: { state: state([hereEpisode()]), audience: () => true },
+    })
+  );
   const text = textOf(request);
   assert.equal(
     blockOf(text, 'earlier'),
@@ -288,22 +396,42 @@ test('earlier block: the stored lines of this channel older than the chat, in th
       `[${clock(NOW - 40 * MIN)}] Ana: θα το στείλεις στο άλλο κανάλι;`,
       `[${clock(NOW - 39 * MIN)}] ${selfLabel()}: ναι, εντάξει`,
     ].join('\n'),
-    'e3 is younger than the window start: it is not repeated',
+    'e3 is younger than the window start: it is not repeated'
   );
   const at = (tag) => text.indexOf(`<${tag}>`);
   assert.ok(at('participation') !== -1 && at('earlier') > at('participation') && at('chat') > at('earlier'), text);
   const parts = request.messages[1].content.filter((part) => part.type === 'text');
-  assert.ok(parts.filter((part) => part.cacheSegment).every((part) => !part.text.includes('<earlier>')), 'never in a cached part');
+  assert.ok(
+    parts.filter((part) => part.cacheSegment).every((part) => !part.text.includes('<earlier>')),
+    'never in a cached part'
+  );
   assert.ok(parts.at(-1).text.includes('<earlier>') && !parts.at(-1).cacheSegment);
   assert.ok(!blockOf(text, 'participation').includes('εντάξει'), 'the current channel stays out of <participation>');
 });
 
 test('earlier block: the same stretch renders the same text as turns go by; a stored line leaving the chat joins it', () => {
   const st = state([hereEpisode()]);
-  const turn = (history, now) => blockOf(textOf(buildRequest(input({ config: anchoredConfig(), now, history, trigger: history.at(-1), participation: { state: st, audience: () => true } }))), 'earlier');
+  const turn = (history, now) =>
+    blockOf(
+      textOf(
+        buildRequest(
+          input({
+            config: anchoredConfig(),
+            now,
+            history,
+            trigger: history.at(-1),
+            participation: { state: st, audience: () => true },
+          })
+        )
+      ),
+      'earlier'
+    );
   const first = turn([chatLine('m0', NOW - 30 * MIN), chatLine('m1', NOW - MIN)], NOW);
   // Five minutes on, the window lost m0 (not stored) and starts at m5, still before e3: nothing stored crossed it.
-  const second = turn([chatLine('m5', NOW - 25 * MIN), chatLine('m1', NOW - MIN), chatLine('m2', NOW + 4 * MIN)], NOW + 5 * MIN);
+  const second = turn(
+    [chatLine('m5', NOW - 25 * MIN), chatLine('m1', NOW - MIN), chatLine('m2', NOW + 4 * MIN)],
+    NOW + 5 * MIN
+  );
   assert.equal(second, first);
   // Lines past context.ageAfterMinutes keep their bare clock: an hour on, the same text.
   assert.equal(turn([chatLine('m5', NOW - 25 * MIN), chatLine('m6', NOW + HOUR)], NOW + HOUR), first);
@@ -314,23 +442,56 @@ test('earlier block: the same stretch renders the same text as turns go by; a st
 
 test('earlier block: earlierHours bounds the age; off with 0, without the label, with features.participation off, in a private chat', () => {
   const window = [chatLine('m1', NOW - MIN)];
-  const run = (overrides) => blockOf(textOf(buildRequest(input({ config: anchoredConfig(), history: window, trigger: window[0], participation: { state: state([hereEpisode()]), audience: () => true }, ...overrides }))), 'earlier');
+  const run = (overrides) =>
+    blockOf(
+      textOf(
+        buildRequest(
+          input({
+            config: anchoredConfig(),
+            history: window,
+            trigger: window[0],
+            participation: { state: state([hereEpisode()]), audience: () => true },
+            ...overrides,
+          })
+        )
+      ),
+      'earlier'
+    );
   assert.ok(run({}).includes('τέλεια'));
   const young = run({ config: anchoredConfig({ participation: { earlierHours: 0.5 } }) });
   assert.ok(young.includes('τέλεια') && !young.includes('εντάξει'), 'only lines younger than 30 min');
   assert.equal(run({ config: anchoredConfig({ participation: { earlierHours: 0 } }) }), null);
-  assert.equal(run({ prompts: prompts({ ...labels, participation: { ...labels.participation, earlierHeader: '' } }) }), null);
+  assert.equal(
+    run({ prompts: prompts({ ...labels, participation: { ...labels.participation, earlierHeader: '' } }) }),
+    null
+  );
   assert.equal(run({ config: anchoredConfig({ features: { participation: false } }) }), null);
   assert.equal(run({ privateChat: { userId: 'a-m1' }, triggerKind: 'private' }), null);
 });
 
 test('earlier block: the newest episodes win the cap, rendered oldest first with the gap label between them', () => {
-  const older = { id: 'p6', channelId: HERE, continues: null, messages: [stored('o1', NOW - 90 * MIN, { self: true, text: 'παλιό' })] };
+  const older = {
+    id: 'p6',
+    channelId: HERE,
+    continues: null,
+    messages: [stored('o1', NOW - 90 * MIN, { self: true, text: 'παλιό' })],
+  };
   const window = [chatLine('m1', NOW - MIN)];
   const run = (config) =>
-    buildRequest(input({ config, history: window, trigger: window[0], participation: { state: state([older, hereEpisode()]), audience: () => true } }));
+    buildRequest(
+      input({
+        config,
+        history: window,
+        trigger: window[0],
+        participation: { state: state([older, hereEpisode()]), audience: () => true },
+      })
+    );
   const both = blockOf(textOf(run(anchoredConfig())), 'earlier');
-  assert.ok(both.indexOf('παλιό') < both.indexOf(`\n${labels.participation.earlierGap}\n`) && both.indexOf(labels.participation.earlierGap) < both.indexOf('εντάξει'), both);
+  assert.ok(
+    both.indexOf('παλιό') < both.indexOf(`\n${labels.participation.earlierGap}\n`) &&
+      both.indexOf(labels.participation.earlierGap) < both.indexOf('εντάξει'),
+    both
+  );
   const used = run(anchoredConfig()).stats.earlier.used;
   const tight = blockOf(textOf(run(anchoredConfig({ caps: { earlier: used - 5 } }))), 'earlier');
   assert.ok(tight.includes('εντάξει') && !tight.includes('παλιό'), tight);

@@ -46,11 +46,12 @@ function connect(sock) {
     client.once('connect', resolve);
     client.once('error', reject);
   });
-  const next = (match) => new Promise((resolve) => {
-    const found = events.find(match);
-    if (found) return resolve(found);
-    waiters.push({ match, resolve });
-  });
+  const next = (match) =>
+    new Promise((resolve) => {
+      const found = events.find(match);
+      if (found) return resolve(found);
+      waiters.push({ match, resolve });
+    });
   const send = (obj) => client.write(encodeLine(obj));
   return { client, events, next, send, ready, end: () => client.end() };
 }
@@ -68,7 +69,8 @@ function controllableRunner() {
       });
     },
   };
-  const finish = (id, outcome) => gates.get(id)?.(outcome ?? { status: 'done', result: { text: 'ok' }, usage: { steps: 1 } });
+  const finish = (id, outcome) =>
+    gates.get(id)?.(outcome ?? { status: 'done', result: { text: 'ok' }, usage: { steps: 1 } });
   return { runner, started, finish };
 }
 
@@ -86,23 +88,25 @@ async function withServer(runner, fn) {
 
 test('server: a run gets progress then one end, and the socket is group-accessible', async () => {
   const { runner, finish } = controllableRunner();
-  await withCapturedLogs(() => withServer(runner, async (sock) => {
-    const mode = fs.statSync(sock).mode & 0o777;
-    assert.equal(mode & 0o060, 0o060, 'group rw on the socket');
-    const c = connect(sock);
-    await c.ready;
-    c.send({ op: 'run', id: 'task-a', goal: 'find a meme' });
-    const progress = await c.next((e) => e.event === 'progress');
-    assert.equal(progress.tool, 'search');
-    finish('task-a', { status: 'done', result: { text: 'found it' }, usage: { steps: 2 } });
-    const end = await c.next((e) => e.event === 'end');
-    assert.equal(end.status, 'done');
-    assert.equal(end.result.text, 'found it');
-    c.end();
-  }));
+  await withCapturedLogs(() =>
+    withServer(runner, async (sock) => {
+      const mode = fs.statSync(sock).mode & 0o777;
+      assert.equal(mode & 0o060, 0o060, 'group rw on the socket');
+      const c = connect(sock);
+      await c.ready;
+      c.send({ op: 'run', id: 'task-a', goal: 'find a meme' });
+      const progress = await c.next((e) => e.event === 'progress');
+      assert.equal(progress.tool, 'search');
+      finish('task-a', { status: 'done', result: { text: 'found it' }, usage: { steps: 2 } });
+      const end = await c.next((e) => e.event === 'end');
+      assert.equal(end.status, 'done');
+      assert.equal(end.result.text, 'found it');
+      c.end();
+    })
+  );
 });
 
-test('server: a run\'s secrets reach the engine and nothing else: no event, no log line; refused ones come back as a code', async () => {
+test("server: a run's secrets reach the engine and nothing else: no event, no log line; refused ones come back as a code", async () => {
   const seen = [];
   const runner = {
     run(task) {
@@ -110,24 +114,30 @@ test('server: a run\'s secrets reach the engine and nothing else: no event, no l
       return Promise.resolve({ status: 'done', result: { text: 'ok' }, usage: { steps: 1 } });
     },
   };
-  const secrets = { openrouterKey: 'sk-SECRET', proxy: 'http://u:SECRET@proxy.example:8000', searchKey: 'search-SECRET' };
-  const { result: events, logs } = await withCapturedLogs(() => withServer(runner, async (sock) => {
-    const c = connect(sock);
-    await c.ready;
-    c.send({ op: 'run', id: 'task-s', goal: 'g', secrets });
-    await c.next((e) => e.event === 'end' && e.id === 'task-s');
-    c.send({ op: 'run', id: 'task-t', goal: 'g', secrets: { ...secrets, extra: 'SECRET' } });
-    const refused = await c.next((e) => e.event === 'error' && e.id === 'task-t');
-    assert.equal(refused.error, 'bad-secrets');
-    c.end();
-    return c.events;
-  }));
+  const secrets = {
+    openrouterKey: 'sk-SECRET',
+    proxy: 'http://u:SECRET@proxy.example:8000',
+    searchKey: 'search-SECRET',
+  };
+  const { result: events, logs } = await withCapturedLogs(() =>
+    withServer(runner, async (sock) => {
+      const c = connect(sock);
+      await c.ready;
+      c.send({ op: 'run', id: 'task-s', goal: 'g', secrets });
+      await c.next((e) => e.event === 'end' && e.id === 'task-s');
+      c.send({ op: 'run', id: 'task-t', goal: 'g', secrets: { ...secrets, extra: 'SECRET' } });
+      const refused = await c.next((e) => e.event === 'error' && e.id === 'task-t');
+      assert.equal(refused.error, 'bad-secrets');
+      c.end();
+      return c.events;
+    })
+  );
   assert.deepEqual(seen, [secrets], 'the refused run never reached the engine');
   assert.ok(!JSON.stringify(events).includes('SECRET'), 'no secret in an event');
   assert.ok(!JSON.stringify(logs).includes('SECRET'), 'no secret in a log line');
 });
 
-test('server: a run\'s preamble reaches the engine and no event or log line; a run without one passes none; a bad one is refused', async () => {
+test("server: a run's preamble reaches the engine and no event or log line; a run without one passes none; a bad one is refused", async () => {
   const seen = [];
   const runner = {
     run(task) {
@@ -135,42 +145,49 @@ test('server: a run\'s preamble reaches the engine and no event or log line; a r
       return Promise.resolve({ status: 'done', result: { text: 'ok' }, usage: { steps: 1 } });
     },
   };
-  const { result: events, logs } = await withCapturedLogs(() => withServer(runner, async (sock) => {
-    const c = connect(sock);
-    await c.ready;
-    c.send({ op: 'run', id: 'task-p', goal: 'g', preamble: 'SHARED-PREAMBLE text' });
-    await c.next((e) => e.event === 'end' && e.id === 'task-p');
-    c.send({ op: 'run', id: 'task-q', goal: 'g' });
-    await c.next((e) => e.event === 'end' && e.id === 'task-q');
-    c.send({ op: 'run', id: 'task-r', goal: 'g', preamble: 7 });
-    const refused = await c.next((e) => e.event === 'error' && e.id === 'task-r');
-    assert.equal(refused.error, 'bad-preamble');
-    c.end();
-    return c.events;
-  }));
-  assert.deepEqual(seen, [['task-p', 'SHARED-PREAMBLE text'], ['task-q', undefined]]);
+  const { result: events, logs } = await withCapturedLogs(() =>
+    withServer(runner, async (sock) => {
+      const c = connect(sock);
+      await c.ready;
+      c.send({ op: 'run', id: 'task-p', goal: 'g', preamble: 'SHARED-PREAMBLE text' });
+      await c.next((e) => e.event === 'end' && e.id === 'task-p');
+      c.send({ op: 'run', id: 'task-q', goal: 'g' });
+      await c.next((e) => e.event === 'end' && e.id === 'task-q');
+      c.send({ op: 'run', id: 'task-r', goal: 'g', preamble: 7 });
+      const refused = await c.next((e) => e.event === 'error' && e.id === 'task-r');
+      assert.equal(refused.error, 'bad-preamble');
+      c.end();
+      return c.events;
+    })
+  );
+  assert.deepEqual(seen, [
+    ['task-p', 'SHARED-PREAMBLE text'],
+    ['task-q', undefined],
+  ]);
   assert.ok(!JSON.stringify(events).includes('SHARED-PREAMBLE'), 'no preamble in an event');
   assert.ok(!JSON.stringify(logs).includes('SHARED-PREAMBLE'), 'no preamble in a log line');
 });
 
 test('server: one task at a time, the second waits in the queue', async () => {
   const { runner, started, finish } = controllableRunner();
-  await withCapturedLogs(() => withServer(runner, async (sock) => {
-    const c = connect(sock);
-    await c.ready;
-    c.send({ op: 'run', id: 'one', goal: 'first' });
-    c.send({ op: 'run', id: 'two', goal: 'second' });
-    await c.next((e) => e.event === 'progress' && e.id === 'one');
-    await new Promise((r) => setTimeout(r, 20));
-    assert.deepEqual(started, ['one'], 'the second has not started yet');
-    finish('one');
-    await c.next((e) => e.event === 'end' && e.id === 'one');
-    await c.next((e) => e.event === 'progress' && e.id === 'two');
-    assert.deepEqual(started, ['one', 'two']);
-    finish('two');
-    await c.next((e) => e.event === 'end' && e.id === 'two');
-    c.end();
-  }));
+  await withCapturedLogs(() =>
+    withServer(runner, async (sock) => {
+      const c = connect(sock);
+      await c.ready;
+      c.send({ op: 'run', id: 'one', goal: 'first' });
+      c.send({ op: 'run', id: 'two', goal: 'second' });
+      await c.next((e) => e.event === 'progress' && e.id === 'one');
+      await new Promise((r) => setTimeout(r, 20));
+      assert.deepEqual(started, ['one'], 'the second has not started yet');
+      finish('one');
+      await c.next((e) => e.event === 'end' && e.id === 'one');
+      await c.next((e) => e.event === 'progress' && e.id === 'two');
+      assert.deepEqual(started, ['one', 'two']);
+      finish('two');
+      await c.next((e) => e.event === 'end' && e.id === 'two');
+      c.end();
+    })
+  );
 });
 
 test('server: cancel aborts the running task', async () => {
@@ -179,48 +196,56 @@ test('server: cancel aborts the running task', async () => {
     run(task) {
       started.push(task.id);
       return new Promise((resolve) => {
-        task.signal.addEventListener('abort', () => resolve({ status: 'cancelled', result: {}, usage: {}, error: 'cancelled' }));
+        task.signal.addEventListener('abort', () =>
+          resolve({ status: 'cancelled', result: {}, usage: {}, error: 'cancelled' })
+        );
       });
     },
   };
-  await withCapturedLogs(() => withServer(runner, async (sock) => {
-    const c = connect(sock);
-    await c.ready;
-    c.send({ op: 'run', id: 'task-c', goal: 'slow' });
-    await new Promise((r) => setTimeout(r, 20));
-    c.send({ op: 'cancel', id: 'task-c' });
-    const end = await c.next((e) => e.event === 'end');
-    assert.equal(end.status, 'cancelled');
-    c.end();
-  }));
+  await withCapturedLogs(() =>
+    withServer(runner, async (sock) => {
+      const c = connect(sock);
+      await c.ready;
+      c.send({ op: 'run', id: 'task-c', goal: 'slow' });
+      await new Promise((r) => setTimeout(r, 20));
+      c.send({ op: 'cancel', id: 'task-c' });
+      const end = await c.next((e) => e.event === 'end');
+      assert.equal(end.status, 'cancelled');
+      c.end();
+    })
+  );
 });
 
 test('server: a bad line gets an error event, a ping gets a pong', async () => {
   const { runner } = controllableRunner();
-  await withCapturedLogs(() => withServer(runner, async (sock) => {
-    const c = connect(sock);
-    await c.ready;
-    c.client.write('{not json\n');
-    const err = await c.next((e) => e.event === 'error');
-    assert.equal(err.error, 'bad-json');
-    c.send({ op: 'ping', ids: [] });
-    const pong = await c.next((e) => e.event === 'pong');
-    assert.equal(pong.profile, 'web');
-    c.end();
-  }));
+  await withCapturedLogs(() =>
+    withServer(runner, async (sock) => {
+      const c = connect(sock);
+      await c.ready;
+      c.client.write('{not json\n');
+      const err = await c.next((e) => e.event === 'error');
+      assert.equal(err.error, 'bad-json');
+      c.send({ op: 'ping', ids: [] });
+      const pong = await c.next((e) => e.event === 'pong');
+      assert.equal(pong.profile, 'web');
+      c.end();
+    })
+  );
 });
 
 test('server: a ping about an unknown id answers end/restarted', async () => {
   const { runner } = controllableRunner();
-  await withCapturedLogs(() => withServer(runner, async (sock) => {
-    const c = connect(sock);
-    await c.ready;
-    c.send({ op: 'ping', ids: ['ghost'] });
-    const end = await c.next((e) => e.event === 'end' && e.id === 'ghost');
-    assert.equal(end.status, 'failed');
-    assert.equal(end.error, 'restarted');
-    c.end();
-  }));
+  await withCapturedLogs(() =>
+    withServer(runner, async (sock) => {
+      const c = connect(sock);
+      await c.ready;
+      c.send({ op: 'ping', ids: ['ghost'] });
+      const end = await c.next((e) => e.event === 'end' && e.id === 'ghost');
+      assert.equal(end.status, 'failed');
+      assert.equal(end.error, 'restarted');
+      c.end();
+    })
+  );
 });
 
 test('server: stop ends an open task with restarted', async () => {
@@ -244,22 +269,24 @@ test('server: stop ends an open task with restarted', async () => {
 
 test('server: liveIds names the running task and the queued ones, never a finished one', async () => {
   const { runner, finish } = controllableRunner();
-  await withCapturedLogs(() => withServer(runner, async (sock, server) => {
-    assert.deepEqual(server.liveIds(), []);
-    const c = connect(sock);
-    await c.ready;
-    c.send({ op: 'run', id: 'first', goal: 'one' });
-    c.send({ op: 'run', id: 'second', goal: 'two' });
-    await c.next((e) => e.event === 'progress' && e.id === 'first');
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    assert.deepEqual(server.liveIds(), ['first', 'second']);
-    finish('first');
-    await c.next((e) => e.event === 'end' && e.id === 'first');
-    await c.next((e) => e.event === 'progress' && e.id === 'second');
-    assert.deepEqual(server.liveIds(), ['second']);
-    finish('second');
-    await c.next((e) => e.event === 'end' && e.id === 'second');
-    assert.deepEqual(server.liveIds(), []);
-    c.end();
-  }));
+  await withCapturedLogs(() =>
+    withServer(runner, async (sock, server) => {
+      assert.deepEqual(server.liveIds(), []);
+      const c = connect(sock);
+      await c.ready;
+      c.send({ op: 'run', id: 'first', goal: 'one' });
+      c.send({ op: 'run', id: 'second', goal: 'two' });
+      await c.next((e) => e.event === 'progress' && e.id === 'first');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.deepEqual(server.liveIds(), ['first', 'second']);
+      finish('first');
+      await c.next((e) => e.event === 'end' && e.id === 'first');
+      await c.next((e) => e.event === 'progress' && e.id === 'second');
+      assert.deepEqual(server.liveIds(), ['second']);
+      finish('second');
+      await c.next((e) => e.event === 'end' && e.id === 'second');
+      assert.deepEqual(server.liveIds(), []);
+      c.end();
+    })
+  );
 });

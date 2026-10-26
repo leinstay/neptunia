@@ -55,7 +55,7 @@ function formatter(timezone, locale, options) {
 export function fill(template, values = {}) {
   if (!template) return '';
   return template.replace(/\{(\w+)\}/g, (all, key) =>
-    Object.prototype.hasOwnProperty.call(values, key) ? String(values[key]) : all,
+    Object.prototype.hasOwnProperty.call(values, key) ? String(values[key]) : all
   );
 }
 
@@ -127,7 +127,9 @@ export function formatDate(ts, timezone, locale = 'en-US') {
  * @returns {string}
  */
 export function formatNow(ts, timezone, locale = 'en-US') {
-  const date = formatter(timezone, locale, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(ts);
+  const date = formatter(timezone, locale, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(
+    ts
+  );
   return `${date}, ${formatClock(ts, timezone, locale)} (${timezone})`;
 }
 
@@ -288,7 +290,18 @@ function mediaTags(message, labels, context = {}) {
     const video = videoOf(attachment.id);
     const gifHandle = handleOf(attachment, 'attachment');
     const answer = answerOf(attachment);
-    pushLabel(withGifFallback(mediaLabelFor(attachment, { description, unknownDuration, video, gifHandle, gifFields: gifFieldsOf(attachment), answer })));
+    pushLabel(
+      withGifFallback(
+        mediaLabelFor(attachment, {
+          description,
+          unknownDuration,
+          video,
+          gifHandle,
+          gifFields: gifFieldsOf(attachment),
+          answer,
+        })
+      )
+    );
   }
   for (const link of message.links ?? []) {
     // A plain 'link' (video-site preview) thumbnail description
@@ -301,7 +314,19 @@ function mediaTags(message, labels, context = {}) {
     const read = readsOn ? (context.reads?.get(link.id) ?? null) : null;
     const gifHandle = handleOf(link, 'link');
     const answer = answerOf(link);
-    pushLabel(withGifFallback(mediaLabelFor(link, { description, unknownDuration, video: videoOf(link.id), read, gifHandle, gifFields: gifFieldsOf(link), answer })));
+    pushLabel(
+      withGifFallback(
+        mediaLabelFor(link, {
+          description,
+          unknownDuration,
+          video: videoOf(link.id),
+          read,
+          gifHandle,
+          gifFields: gifFieldsOf(link),
+          answer,
+        })
+      )
+    );
   }
   for (const sticker of message.stickers ?? []) {
     const description = labels.transcript.stickerDescribed
@@ -346,13 +371,20 @@ function reactionsTag(message, labels, max, names = null) {
   const template = labels.transcript.reactions;
   const reactions = Array.isArray(message.reactions) ? message.reactions.slice(0, Math.max(0, max)) : [];
   if (!template || reactions.length === 0) return '';
-  const named = names && message.self && typeof labels.transcript.reactionNames === 'string' && labels.transcript.reactionNames !== '';
+  const named =
+    names &&
+    message.self &&
+    typeof labels.transcript.reactionNames === 'string' &&
+    labels.transcript.reactionNames !== '';
   const list = reactions
     .map((reaction) => {
       const { emoji, count, mine } = reaction;
       const item = named ? reactionNamesItem(reaction, labels, names) : '';
       if (item) return item;
-      return fill(mine ? (labels.transcript.reactionMine ?? labels.transcript.reactionItem) : labels.transcript.reactionItem, { emoji, count });
+      return fill(
+        mine ? (labels.transcript.reactionMine ?? labels.transcript.reactionItem) : labels.transcript.reactionItem,
+        { emoji, count }
+      );
     })
     .filter(Boolean)
     .join(labels.transcript.reactionSeparator ?? ', ');
@@ -369,7 +401,9 @@ function reactionsTag(message, labels, max, names = null) {
  * '' without known reactors (the caller counts it as before, `reactionMine` included).
  */
 function reactionNamesItem(reaction, labels, names) {
-  const users = Array.isArray(reaction.users) ? reaction.users.filter((user) => user && typeof user.name === 'string' && user.name !== '') : [];
+  const users = Array.isArray(reaction.users)
+    ? reaction.users.filter((user) => user && typeof user.name === 'string' && user.name !== '')
+    : [];
   if (users.length === 0) return '';
   const count = Number(reaction.count);
   const others = Math.max(users.length, Number.isInteger(count) ? count - (reaction.mine ? 1 : 0) : 0);
@@ -395,7 +429,8 @@ export function reactorIdsOf(messages) {
   for (const message of Array.isArray(messages) ? messages : []) {
     if (!message?.self) continue;
     for (const reaction of Array.isArray(message.reactions) ? message.reactions : []) {
-      for (const user of Array.isArray(reaction?.users) ? reaction.users : []) if (user?.id && !user.bot) ids.add(String(user.id));
+      for (const user of Array.isArray(reaction?.users) ? reaction.users : [])
+        if (user?.id && !user.bot) ids.add(String(user.id));
     }
   }
   return [...ids];
@@ -493,15 +528,20 @@ function withoutCallFields(message) {
  */
 export function withCalls(messages, marks, { nameOf = () => null, linkOf = () => null } = {}) {
   if (!Array.isArray(messages)) return [];
-  const out = messages.map((message) => (message && CALL_FIELDS.some((key) => key in message) ? withoutCallFields(message) : message));
+  const out = messages.map((message) =>
+    message && CALL_FIELDS.some((key) => key in message) ? withoutCallFields(message) : message
+  );
   if (!marks) return out;
   const text = (value) => (typeof value === 'string' && value ? value : null);
   const name = (id) => (text(id) ? text(nameOf(id)) : null);
-  const link = (channelId, messageId) => (text(channelId) && text(messageId) ? text(linkOf(channelId, messageId)) : null);
+  const link = (channelId, messageId) =>
+    text(channelId) && text(messageId) ? text(linkOf(channelId, messageId)) : null;
   const add = (i, field, mark) => {
     out[i] = { ...out[i], [field]: [...(out[i][field] ?? []), mark] };
   };
-  const calls = (Array.isArray(marks.calls) ? marks.calls : []).filter((call) => text(call?.channelId) && text(call?.skill));
+  const calls = (Array.isArray(marks.calls) ? marks.calls : []).filter(
+    (call) => text(call?.channelId) && text(call?.skill)
+  );
   for (const call of [...calls].sort((a, b) => (a.at ?? 0) - (b.at ?? 0))) {
     const here = [];
     out.forEach((message, i) => {
@@ -567,12 +607,16 @@ function callText(mark, indexById, labels) {
   else if (mark.targetLink) target = fill(t.calledTargetLink, { link: mark.targetLink });
   else if (mark.targetChannel) target = fill(t.calledTargetChannel, { channel: mark.targetChannel });
   const posted = mark.postedLink ? fill(t.calledPosted, { link: mark.postedLink }) : '';
-  const args = mark.args && typeof t.calledArgs === 'string' && t.calledArgs ? fill(t.calledArgs, { args: mark.args }) : '';
+  const args =
+    mark.args && typeof t.calledArgs === 'string' && t.calledArgs ? fill(t.calledArgs, { args: mark.args }) : '';
   const words = t.callStatus;
   const word = words && typeof words === 'object' && Object.hasOwn(words, mark.status) ? words[mark.status] : null;
   const statusWord = typeof word === 'string' && word ? word : mark.status;
   const reason = callReason(mark, labels);
-  const status = reason && typeof t.callStatusReason === 'string' && t.callStatusReason ? fill(t.callStatusReason, { status: statusWord, reason }) : statusWord;
+  const status =
+    reason && typeof t.callStatusReason === 'string' && t.callStatusReason
+      ? fill(t.callStatusReason, { status: statusWord, reason })
+      : statusWord;
   return fill(t.called, { skill: mark.skill, target, args, status, posted });
 }
 
@@ -595,12 +639,21 @@ export function callReason(mark, labels) {
   if (!detail) return '';
   const arg = typeof detail.arg === 'string' && detail.arg ? detail.arg : '';
   const channel = typeof mark.targetChannel === 'string' && mark.targetChannel ? mark.targetChannel : '';
-  const agents = Array.isArray(detail.values) ? detail.values.filter((value) => typeof value === 'string' && value).join(', ') : '';
+  const agents = Array.isArray(detail.values)
+    ? detail.values.filter((value) => typeof value === 'string' && value).join(', ')
+    : '';
   const fields = detail.fields && typeof detail.fields === 'object' ? detail.fields : {};
-  const usable = (phrase) => typeof phrase === 'string' && phrase !== '' && (!phrase.includes('{status}') || fields.status) && (arg || !phrase.includes('{arg}')) && (channel || !phrase.includes('{channel}')) && (agents || (!phrase.includes('{agents}') && !phrase.includes('{args}')));
+  const usable = (phrase) =>
+    typeof phrase === 'string' &&
+    phrase !== '' &&
+    (!phrase.includes('{status}') || fields.status) &&
+    (arg || !phrase.includes('{arg}')) &&
+    (channel || !phrase.includes('{channel}')) &&
+    (agents || (!phrase.includes('{agents}') && !phrase.includes('{args}')));
   const own = labels.transcript.callReasons;
   const coded = labels.skills?.result?.reasons;
-  const lookup = (map, key) => (map && typeof map === 'object' && typeof key === 'string' && Object.hasOwn(map, key) ? map[key] : null);
+  const lookup = (map, key) =>
+    map && typeof map === 'object' && typeof key === 'string' && Object.hasOwn(map, key) ? map[key] : null;
   const refusal = lookup(labels.skills?.refusals, lookup(REFUSAL_LABELS, detail.kind));
   if (usable(refusal)) return fill(refusal, { arg, agents, args: agents });
   const specific = lookup(own, detail.kind);
@@ -609,7 +662,12 @@ export function callReason(mark, labels) {
   // which names what exactly went wrong.
   if (typeof detail.text === 'string' && detail.text) return detail.text;
   // The code's own words with its values (src/skills/codes.js#reasonText, the lookup the `<result>` block shares), else `other`.
-  const worded = reasonText(labels, detail.code, { ...(arg ? { arg } : {}), ...(channel ? { channel } : {}), ...fields }, fill);
+  const worded = reasonText(
+    labels,
+    detail.code,
+    { ...(arg ? { arg } : {}), ...(channel ? { channel } : {}), ...fields },
+    fill
+  );
   if (worded) return worded;
   const other = lookup(coded, 'other');
   return usable(other) ? fill(other, { arg, channel, ...fields }) : '';
@@ -676,7 +734,9 @@ function withChannelHandles(content, mentionedIds, channels, template) {
       const at = raw.indexOf('#', index);
       if (at === -1) break;
       out += raw.slice(index, at);
-      const entry = isWordChar(raw[at - 1]) ? null : named.find(({ name }) => raw.startsWith(name, at + 1) && !isWordChar(raw[at + 1 + name.length]));
+      const entry = isWordChar(raw[at - 1])
+        ? null
+        : named.find(({ name }) => raw.startsWith(name, at + 1) && !isWordChar(raw[at + 1 + name.length]));
       if (entry) {
         out += marked(entry);
         index = at + 1 + entry.name.length;
@@ -804,30 +864,57 @@ function withChannelHandles(content, mentionedIds, channels, template) {
  * channel run, never across a channel switch.
  */
 export function formatTranscript(messages, options) {
-  const { timezone, gapMinutes, maxChars, selfName, labels, mode = 'chat', descriptions, videos, reads, gifHandles, gifFields, imageAnswers } = options;
+  const {
+    timezone,
+    gapMinutes,
+    maxChars,
+    selfName,
+    labels,
+    mode = 'chat',
+    descriptions,
+    videos,
+    reads,
+    gifHandles,
+    gifFields,
+    imageAnswers,
+  } = options;
   const skip = typeof options.skip === 'function' ? options.skip : null;
   const seeReactions = options.seeReactions ?? true;
   const reactionsPerMessage = options.reactionsPerMessage ?? 6;
   const replyQuoteChars = options.replyQuoteChars ?? DEFAULT_REPLY_QUOTE_CHARS;
-  const mediaContext = { descriptions, videos, reads, gifHandles, gifFields, imageAnswers, emojiInline: options.emojiInline !== false };
+  const mediaContext = {
+    descriptions,
+    videos,
+    reads,
+    gifHandles,
+    gifFields,
+    imageAnswers,
+    emojiInline: options.emojiInline !== false,
+  };
   const locale = labels.locale;
   const selfLabel = fill(labels.self, { name: selfName });
   const indexOffset = options.indexOffset ?? 0;
   // A line's age (chat mode only): relative to the request's clock, never Date.now().
   const agedTemplate = labels.transcript.timeAged;
-  const agesOn = mode === 'chat' && typeof options.now === 'number' && typeof agedTemplate === 'string' && agedTemplate !== '';
+  const agesOn =
+    mode === 'chat' && typeof options.now === 'number' && typeof agedTemplate === 'string' && agedTemplate !== '';
   const ageMs = (options.ageMinutes ?? DEFAULT_AGE_MINUTES) * MINUTE_MS;
   /** The bracketed time of a line at `ts`, with its age when old enough (see agesOn). */
   const timeOf = (ts) => {
     const clock = formatClock(ts, timezone, locale);
     const age = options.now - ts;
-    return agesOn && age >= ageMs ? fill(agedTemplate, { clock, age: formatDuration(age, labels.units) }) : `[${clock}]`;
+    return agesOn && age >= ageMs
+      ? fill(agedTemplate, { clock, age: formatDuration(age, labels.units) })
+      : `[${clock}]`;
   };
   // The persona's skill calls (withCalls): chat mode only, and only with `transcript.called` set.
   const callsOn = mode === 'chat' && typeof labels.transcript.called === 'string' && labels.transcript.called !== '';
   // Each author's mention handle (chat mode only, and only with `transcript.author` set).
   const authorLabel = labels.transcript.author;
-  const authorHandles = mode === 'chat' && options.handles instanceof Map && typeof authorLabel === 'string' && authorLabel !== '' ? options.handles : null;
+  const authorHandles =
+    mode === 'chat' && options.handles instanceof Map && typeof authorLabel === 'string' && authorLabel !== ''
+      ? options.handles
+      : null;
   /**
    * How the transcript names a member: the persona's self label for her, else the name with the
    * member's mention handle (transcript.author) when they have one and are not a bot, else the
@@ -839,21 +926,32 @@ export function formatTranscript(messages, options) {
     return handle ? fill(authorLabel, { name, handle: `@${handle}` }) : name;
   };
   const memberNames = authorHandles && options.memberNames instanceof Map ? options.memberNames : new Map();
-  const untaggedLabel = authorHandles && typeof labels.transcript.untagged === 'string' && labels.transcript.untagged !== '' ? labels.transcript.untagged : null;
+  const untaggedLabel =
+    authorHandles && typeof labels.transcript.untagged === 'string' && labels.transcript.untagged !== ''
+      ? labels.transcript.untagged
+      : null;
   /** The names a line's mentions go by: the line's own (as Discord rendered them), then the request's. */
   const mentionNamesOf = (message) => {
     const names = new Map(memberNames);
     for (const user of Array.isArray(message.mentionedUsers) ? message.mentionedUsers : []) {
-      if (user?.id !== undefined && typeof user.name === 'string' && user.name) names.set(String(user.id), [user.name, ...(names.get(String(user.id)) ?? [])]);
+      if (user?.id !== undefined && typeof user.name === 'string' && user.name)
+        names.set(String(user.id), [user.name, ...(names.get(String(user.id)) ?? [])]);
     }
     return names;
   };
   // Each channel a line mentions with its handle (chat mode only, and only with `transcript.channel` set).
   const channelLabel = labels.transcript.channel;
   const channelMarks =
-    mode === 'chat' && options.channels instanceof Map && options.channels.size > 0 && typeof channelLabel === 'string' && channelLabel !== '' ? options.channels : null;
+    mode === 'chat' &&
+    options.channels instanceof Map &&
+    options.channels.size > 0 &&
+    typeof channelLabel === 'string' &&
+    channelLabel !== ''
+      ? options.channels
+      : null;
   // Reactors named on the persona's lines (chat mode, features.reactionNames).
-  const reactorNames = mode === 'chat' && options.reactionNames === true ? { max: options.reactionNamesMax ?? 5, nameOf } : null;
+  const reactorNames =
+    mode === 'chat' && options.reactionNames === true ? { max: options.reactionNamesMax ?? 5, nameOf } : null;
   // A bad offset is a caller bug: counting it as 0 would renumber a second
   // block from #1 over the first block's indices, so a tag aimed at one line
   // would silently land on another.
@@ -886,7 +984,11 @@ export function formatTranscript(messages, options) {
       const dayChanged = date !== formatDate(gapPrevious.ts, timezone, locale);
       if (gap >= gapMinutes * MINUTE_MS) {
         const duration = formatDuration(gap, labels.units);
-        parts.push(dayChanged ? fill(labels.transcript.gapWithDate, { duration, date }) : fill(labels.transcript.gap, { duration }));
+        parts.push(
+          dayChanged
+            ? fill(labels.transcript.gapWithDate, { duration, date })
+            : fill(labels.transcript.gap, { duration })
+        );
       } else if (dayChanged) {
         parts.push(fill(labels.transcript.date, { date }));
       }
@@ -896,8 +998,14 @@ export function formatTranscript(messages, options) {
     // The persona's own line names the message that started its turn (chat mode; see withTriggers)
     // and, posted from another channel's turn, that channel (withCalls).
     const triggered = mode === 'chat' ? triggerMarker(message, indexById, labels) : '';
-    const postedFrom = mode === 'chat' && message.self && typeof message.postedFrom === 'string' && message.postedFrom ? fill(labels.transcript.postedFrom, { channel: message.postedFrom }) : '';
-    const who = mode === 'memory' && !message.self ? `${name} (id:${message.authorId})` : [name, postedFrom, triggered].filter(Boolean).join(' ');
+    const postedFrom =
+      mode === 'chat' && message.self && typeof message.postedFrom === 'string' && message.postedFrom
+        ? fill(labels.transcript.postedFrom, { channel: message.postedFrom })
+        : '';
+    const who =
+      mode === 'memory' && !message.self
+        ? `${name} (id:${message.authorId})`
+        : [name, postedFrom, triggered].filter(Boolean).join(' ');
     const time = timeOf(message.ts);
     const head = mode === 'memory' ? time : `#${index} ${time}`;
 
@@ -912,14 +1020,27 @@ export function formatTranscript(messages, options) {
       continue;
     }
     const mentionedIds = Array.isArray(message.mentionedUserIds) ? message.mentionedUserIds : [];
-    const named = authorHandles && mentionedIds.length > 0 ? withUserHandles(message.content, mentionedIds, { names: mentionNamesOf(message), handles: authorHandles }) : message.content;
-    const marked = channelMarks ? withChannelHandles(named, message.mentionedChannelIds, channelMarks, channelLabel) : named;
+    const named =
+      authorHandles && mentionedIds.length > 0
+        ? withUserHandles(message.content, mentionedIds, { names: mentionNamesOf(message), handles: authorHandles })
+        : message.content;
+    const marked = channelMarks
+      ? withChannelHandles(named, message.mentionedChannelIds, channelMarks, channelLabel)
+      : named;
     const content = linkNumbers ? numberMessageLinks(marked, (id) => indexById.get(id)) : marked;
     if (content) body.push(clipWithEllipsis(content, maxChars));
     if (message.replyToId) {
       const target = indexById.get(message.replyToId);
       if (target) {
-        body.push(replyMarker(byId.get(message.replyToId), target, { labels, selfName, replyQuoteChars, context: mediaContext, mode }));
+        body.push(
+          replyMarker(byId.get(message.replyToId), target, {
+            labels,
+            selfName,
+            replyQuoteChars,
+            context: mediaContext,
+            mode,
+          })
+        );
       } else {
         body.push(labels.transcript.replyToOld);
       }
@@ -930,11 +1051,17 @@ export function formatTranscript(messages, options) {
     }
     if (seeReactions) body.push(reactionsTag(message, labels, reactionsPerMessage, reactorNames));
     // An edited message ends with the mark (chat mode, with `transcript.edited` set).
-    if (mode === 'chat' && message.editedAt && typeof labels.transcript.edited === 'string') body.push(labels.transcript.edited);
+    if (mode === 'chat' && message.editedAt && typeof labels.transcript.edited === 'string')
+      body.push(labels.transcript.edited);
     // A tag of hers that named a member and tagged nobody (its text still reads `@name`).
     if (untaggedLabel && message.self && typeof message.content === 'string') {
-      const untagged = untaggedNames(message.content, { names: mentionNamesOf(message), handles: authorHandles, mentionedIds });
-      if (untagged.length > 0) body.push(fill(untaggedLabel, { names: untagged.map((hit) => `@${hit.name}`).join(', ') }));
+      const untagged = untaggedNames(message.content, {
+        names: mentionNamesOf(message),
+        handles: authorHandles,
+        mentionedIds,
+      });
+      if (untagged.length > 0)
+        body.push(fill(untaggedLabel, { names: untagged.map((hit) => `@${hit.name}`).join(', ') }));
     }
     // The skill calls of the turn that posted this line of hers (chat mode; see withCalls).
     if (callsOn && message.self) for (const mark of message.calls ?? []) body.push(callText(mark, indexById, labels));
@@ -959,9 +1086,10 @@ export function formatTranscript(messages, options) {
 /** Join kept items under a date header taken from the first surviving message. */
 export function renderTranscript(items, timezone, labels) {
   if (items.length === 0) return labels.transcript.empty;
-  return [fill(labels.transcript.header, { date: formatDate(items[0].ts, timezone, labels.locale) }), ...items.map((item) => item.text)].join(
-    '\n',
-  );
+  return [
+    fill(labels.transcript.header, { date: formatDate(items[0].ts, timezone, labels.locale) }),
+    ...items.map((item) => item.text),
+  ].join('\n');
 }
 
 /**

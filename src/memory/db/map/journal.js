@@ -42,7 +42,9 @@ const ATTITUDE_SPEC = [
 ];
 
 const has = (rest, key) => Array.isArray(rest.$has) && rest.$has.includes(key);
-const markHas = (rest, key) => { (rest.$has ??= []).push(key); };
+const markHas = (rest, key) => {
+  (rest.$has ??= []).push(key);
+};
 
 function memoryRows(rel, line, ctx, privateUser) {
   const rows = {};
@@ -94,7 +96,10 @@ export function toRows(rel, line, ctx = {}) {
   if (isTurn) {
     delete body.think;
     delete body.posted;
-    sourceId = answerSourceId(typeof line.turnId === 'string' ? line.turnId : line.id, Number.isFinite(line.attemptId) ? line.attemptId : 0);
+    sourceId = answerSourceId(
+      typeof line.turnId === 'string' ? line.turnId : line.id,
+      Number.isFinite(line.attemptId) ? line.attemptId : 0
+    );
   }
   const { cols, rest } = split(body, DAY_SPEC);
   const scope = scopeInto(rest, line.scope, privateUser);

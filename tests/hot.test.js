@@ -116,7 +116,9 @@ test('createHot: emits "change" with what:"config" after reloadConfig', () => {
   const hot = createHot({ rootDir: dir });
   try {
     let seen = null;
-    hot.on('change', (payload) => { seen = payload; });
+    hot.on('change', (payload) => {
+      seen = payload;
+    });
     fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ a: 2 }));
     hot.reloadConfig();
     assert.deepEqual(seen, { what: 'config' });
@@ -131,7 +133,9 @@ test('createHot: emits "change" with what:"prompts" after reloadPrompts', () => 
   const hot = createHot({ rootDir: dir });
   try {
     let seen = null;
-    hot.on('change', (payload) => { seen = payload; });
+    hot.on('change', (payload) => {
+      seen = payload;
+    });
     fs.writeFileSync(path.join(dir, 'prompts', 'persona.md'), 'b');
     hot.reloadPrompts();
     assert.deepEqual(seen, { what: 'prompts' });
@@ -146,7 +150,9 @@ test('createHot: does not emit "change" when reloadConfig fails', () => {
   const hot = createHot({ rootDir: dir });
   try {
     let emitted = false;
-    hot.on('change', () => { emitted = true; });
+    hot.on('change', () => {
+      emitted = true;
+    });
     fs.writeFileSync(path.join(dir, 'config.json'), '{ bad json');
     hot.reloadConfig();
     assert.equal(emitted, false);
@@ -295,7 +301,11 @@ test('createHot: skills.json is a JSON layer like labels.json: deep-merged, {} w
     write('local', '{ broken');
     writeLabels(dir, 'base', JSON.stringify({ locale: 'fr-FR' }));
     assert.equal(hot.reloadPrompts(), true);
-    assert.deepEqual(hot.prompts.skills, { draw: { title: 'Ζωγραφιά', whenToUse: 'local' } }, 'the previous skills stay');
+    assert.deepEqual(
+      hot.prompts.skills,
+      { draw: { title: 'Ζωγραφιά', whenToUse: 'local' } },
+      'the previous skills stay'
+    );
     assert.deepEqual(hot.prompts.labels, { locale: 'fr-FR' }, 'the other JSON layer still reloads');
   } finally {
     hot.close();
@@ -456,7 +466,10 @@ test('createHot: a config that still sets memory.voiceModel warns once at startu
 
     const reloads = await withCapturedLogs(() => {
       hot.reloadConfig(); // still set: no second warning
-      fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ llm: { model: 'x/voice' }, memory: { voiceModel: null } }));
+      fs.writeFileSync(
+        path.join(dir, 'config.json'),
+        JSON.stringify({ llm: { model: 'x/voice' }, memory: { voiceModel: null } })
+      );
       hot.reloadConfig(); // gone (null counts as unset)
       fs.writeFileSync(path.join(dir, 'config.local.json'), JSON.stringify({ memory: { voiceModel: 'x/old-voice' } }));
       hot.reloadConfig(); // back through the local layer
@@ -475,16 +488,25 @@ test('createHot: a config that still sets memory.voiceModel warns once at startu
 
 test('createHot: an old config that still sets features.vision or features.attachedDescriptions loads, warns once per key at startup and reads neither', async () => {
   const dir = makeRoot({ config: { bot: { timezone: 'UTC' } } });
-  fs.writeFileSync(path.join(dir, 'config.local.json'), JSON.stringify({ features: { vision: false, attachedDescriptions: true } }));
-  const retired = (logs) => logs.filter((entry) => entry.level === 'warn' && /^config: features\.(vision|attachedDescriptions) is no longer read$/.test(entry.msg));
+  fs.writeFileSync(
+    path.join(dir, 'config.local.json'),
+    JSON.stringify({ features: { vision: false, attachedDescriptions: true } })
+  );
+  const retired = (logs) =>
+    logs.filter(
+      (entry) =>
+        entry.level === 'warn' && /^config: features\.(vision|attachedDescriptions) is no longer read$/.test(entry.msg)
+    );
   let hot;
   try {
     const started = await withCapturedLogs(() => {
       hot = createHot({ rootDir: dir });
     });
     assert.deepEqual(
-      retired(started.logs).map((entry) => entry.msg).sort(),
-      ['config: features.attachedDescriptions is no longer read', 'config: features.vision is no longer read'],
+      retired(started.logs)
+        .map((entry) => entry.msg)
+        .sort(),
+      ['config: features.attachedDescriptions is no longer read', 'config: features.vision is no longer read']
     );
     assert.equal(hot.config.features.vision, false, 'the value stays in the config, unread');
     const again = await withCapturedLogs(() => hot.reloadConfig());
@@ -498,7 +520,10 @@ test('createHot: an old config that still sets features.vision or features.attac
 test('createHot: an old config that still sets innerLife.loop.strayFollowUps loads and warns once at startup', async () => {
   const dir = makeRoot({ config: { bot: { timezone: 'UTC' } } });
   fs.writeFileSync(path.join(dir, 'config.local.json'), JSON.stringify({ innerLife: { loop: { strayFollowUps: 2 } } }));
-  const retired = (logs) => logs.filter((entry) => entry.level === 'warn' && entry.msg === 'config: innerLife.loop.strayFollowUps is no longer read');
+  const retired = (logs) =>
+    logs.filter(
+      (entry) => entry.level === 'warn' && entry.msg === 'config: innerLife.loop.strayFollowUps is no longer read'
+    );
   let hot;
   try {
     const started = await withCapturedLogs(() => {
@@ -515,14 +540,28 @@ test('createHot: an old config that still sets innerLife.loop.strayFollowUps loa
 
 test('createHot: a config that still sets a dollar limit loads and warns once per key at startup', async () => {
   const dir = makeRoot({ config: { bot: { timezone: 'UTC' } } });
-  fs.writeFileSync(path.join(dir, 'config.local.json'), JSON.stringify({ innerLife: { caps: { usdPerDay: 4 } }, agents: { scout: { daily: { usd: 8 }, limits: { usd: 1 } } } }));
-  const retired = (logs) => logs.filter((entry) => entry.level === 'warn' && /^config: .*usd.* is no longer read$/i.test(entry.msg)).map((entry) => entry.msg).sort();
+  fs.writeFileSync(
+    path.join(dir, 'config.local.json'),
+    JSON.stringify({
+      innerLife: { caps: { usdPerDay: 4 } },
+      agents: { scout: { daily: { usd: 8 }, limits: { usd: 1 } } },
+    })
+  );
+  const retired = (logs) =>
+    logs
+      .filter((entry) => entry.level === 'warn' && /^config: .*usd.* is no longer read$/i.test(entry.msg))
+      .map((entry) => entry.msg)
+      .sort();
   let hot;
   try {
     const started = await withCapturedLogs(() => {
       hot = createHot({ rootDir: dir });
     });
-    assert.deepEqual(retired(started.logs), ['config: agents.scout.daily.usd is no longer read', 'config: agents.scout.limits.usd is no longer read', 'config: innerLife.caps.usdPerDay is no longer read']);
+    assert.deepEqual(retired(started.logs), [
+      'config: agents.scout.daily.usd is no longer read',
+      'config: agents.scout.limits.usd is no longer read',
+      'config: innerLife.caps.usdPerDay is no longer read',
+    ]);
     const again = await withCapturedLogs(() => hot.reloadConfig());
     assert.equal(retired(again.logs).length, 0);
   } finally {
@@ -533,14 +572,25 @@ test('createHot: a config that still sets a dollar limit loads and warns once pe
 
 test('createHot: a config that still sets a per-day, per-hour or public-posts count cap loads and warns once per key', async () => {
   const dir = makeRoot({ config: { bot: { timezone: 'UTC' } } });
-  fs.writeFileSync(path.join(dir, 'config.local.json'), JSON.stringify({ innerLife: { caps: { perDay: 9, perHour: 2, perChain: 2, publicPostsPerDay: 1 } } }));
-  const retired = (logs) => logs.filter((entry) => entry.level === 'warn' && /^config: innerLife\.caps\..* is no longer read$/.test(entry.msg)).map((entry) => entry.msg).sort();
+  fs.writeFileSync(
+    path.join(dir, 'config.local.json'),
+    JSON.stringify({ innerLife: { caps: { perDay: 9, perHour: 2, perChain: 2, publicPostsPerDay: 1 } } })
+  );
+  const retired = (logs) =>
+    logs
+      .filter((entry) => entry.level === 'warn' && /^config: innerLife\.caps\..* is no longer read$/.test(entry.msg))
+      .map((entry) => entry.msg)
+      .sort();
   let hot;
   try {
     const started = await withCapturedLogs(() => {
       hot = createHot({ rootDir: dir });
     });
-    assert.deepEqual(retired(started.logs), ['config: innerLife.caps.perDay is no longer read', 'config: innerLife.caps.perHour is no longer read', 'config: innerLife.caps.publicPostsPerDay is no longer read']);
+    assert.deepEqual(retired(started.logs), [
+      'config: innerLife.caps.perDay is no longer read',
+      'config: innerLife.caps.perHour is no longer read',
+      'config: innerLife.caps.publicPostsPerDay is no longer read',
+    ]);
     const again = await withCapturedLogs(() => hot.reloadConfig());
     assert.equal(retired(again.logs).length, 0);
   } finally {
@@ -552,7 +602,10 @@ test('createHot: a config that still sets a per-day, per-hour or public-posts co
 test('createHot: a config.local.json is read key by key: an old model key is not read, a reload keeps the previous config on bad JSON', async () => {
   const dir = makeRoot({ config: { models: { base: { analyzer: 'x/default' } } } });
   const localFile = path.join(dir, 'config.local.json');
-  fs.writeFileSync(localFile, JSON.stringify({ classifier: { text: 'x/old-text' }, models: { base: { vision: 'x/new-vision' } } }));
+  fs.writeFileSync(
+    localFile,
+    JSON.stringify({ classifier: { text: 'x/old-text' }, models: { base: { vision: 'x/new-vision' } } })
+  );
   let hot;
   try {
     const started = await withCapturedLogs(() => {
@@ -783,7 +836,7 @@ test('watch: prompts.local/preambles/ gets a watcher of its own; created, edited
 
     fs.rmSync(preamblesDir, { recursive: true, force: true });
     local.listener('rename', 'preambles');
-    assert.equal(watch.of(preamblesDir)[0].closed, true, 'the removed folder\'s watcher is closed');
+    assert.equal(watch.of(preamblesDir)[0].closed, true, "the removed folder's watcher is closed");
     await new Promise((resolve) => setTimeout(resolve, 400));
     assert.deepEqual(hot.prompts.preambles, {});
 

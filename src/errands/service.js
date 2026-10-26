@@ -69,7 +69,19 @@ export const RUNNER_RECHECK_MS = 10_000;
  *   default one over `agents.ledger.socket`, read at the moment of use.
  * @param {() => number} [options.now]  The clock of the runner rechecks.
  */
-export function createErrandService({ client, stores, hot, env = {}, memory = null, getGuildId = () => null, onFinished = null, log = defaultLog, defer = (fn) => setImmediate(fn), ledger = null, now = Date.now }) {
+export function createErrandService({
+  client,
+  stores,
+  hot,
+  env = {},
+  memory = null,
+  getGuildId = () => null,
+  onFinished = null,
+  log = defaultLog,
+  defer = (fn) => setImmediate(fn),
+  ledger = null,
+  now = Date.now,
+}) {
   // task id -> the promise of its run, while it runs (tests and the shutdown wait on them).
   const running = new Map();
   // task id -> the task as it started, while its runner works on it (its progress goes to the ledger).
@@ -193,7 +205,10 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
   function recentOf(guildId, channelId, scope) {
     if (scope === 'dm' || !channelId || typeof memory?.recentLines !== 'function') return [];
     const set = hot.config?.agents?.recentLines;
-    const count = Math.min(MAX_RECENT_ENTRIES, Number.isFinite(set) && set >= 0 ? Math.floor(set) : DEFAULT_RECENT_LINES);
+    const count = Math.min(
+      MAX_RECENT_ENTRIES,
+      Number.isFinite(set) && set >= 0 ? Math.floor(set) : DEFAULT_RECENT_LINES
+    );
     if (count === 0) return [];
     let lines;
     try {
@@ -203,7 +218,10 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
       return [];
     }
     return (Array.isArray(lines) ? lines : [])
-      .map((line) => ({ author: clampChars(oneLine(line.author ?? ''), RECENT_CHARS), text: clampChars(oneLine(line.text ?? ''), RECENT_CHARS) }))
+      .map((line) => ({
+        author: clampChars(oneLine(line.author ?? ''), RECENT_CHARS),
+        text: clampChars(oneLine(line.text ?? ''), RECENT_CHARS),
+      }))
       .filter((line) => line.text)
       .slice(-count);
   }
@@ -216,7 +234,9 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
     if (!task) return null;
     const secrets = secretsOf(task.agent);
     const limits = limitsOf(task.agent);
-    mirrored(task.id, () => mirror.start(task, { limits, model: roleModel(hot.config, profileOf(task.agent)?.modelRole) ?? null }));
+    mirrored(task.id, () =>
+      mirror.start(task, { limits, model: roleModel(hot.config, profileOf(task.agent)?.modelRole) ?? null })
+    );
     live.set(task.id, task);
     let outcome;
     try {
@@ -224,7 +244,12 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
         agent: task.agent,
         id: task.id,
         goal: task.goal,
-        context: { scope: task.scope, channel: task.origin?.channelId ?? null, asker: task.requester?.userId ?? null, recent: task.scope === 'dm' ? [] : recent },
+        context: {
+          scope: task.scope,
+          channel: task.origin?.channelId ?? null,
+          asker: task.requester?.userId ?? null,
+          recent: task.scope === 'dm' ? [] : recent,
+        },
         limits,
         ...(secrets ? { secrets } : {}),
       });
@@ -260,12 +285,15 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
     const store = storeOf(guildId);
     if (!store) return { ok: false, code: CODE.NO_GUILD };
     if (!profileOf(agent)) return { ok: false, code: CODE.UNKNOWN_AGENT };
-    if (typeof client?.configured === 'function' && !client.configured(agent)) return { ok: false, code: CODE.NOT_CONFIGURED };
+    if (typeof client?.configured === 'function' && !client.configured(agent))
+      return { ok: false, code: CODE.NOT_CONFIGURED };
     if (runnerDown(agent)) return { ok: false, code: CODE.RUNNER_DOWN };
     const added = store.add({ agent, goal, requester, origin, scope, idempotencyKey });
     if (!added.ok || added.duplicate) return added;
     const id = added.task.id;
-    mirrored(id, () => mirror.add(added.task, { guildId: store.guildId, limits: limitsOf(agent), onLedgerId: keepLedgerId(store, id) }));
+    mirrored(id, () =>
+      mirror.add(added.task, { guildId: store.guildId, limits: limitsOf(agent), onLedgerId: keepLedgerId(store, id) })
+    );
     // The channel as it was when the task was asked for, not when it is sent.
     recentById.set(id, recentOf(store.guildId, added.task.origin?.channelId ?? null, added.task.scope));
     // After the operation's answer: the persona never waits for her errand.
@@ -308,14 +336,23 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
   function view({ guildId = null, privateChannelId = null } = {}) {
     const store = storeOf(guildId);
     if (!store) return [];
-    const visible = (task) => task.scope !== 'dm' || (privateChannelId !== null && task.origin?.channelId === String(privateChannelId));
+    const visible = (task) =>
+      task.scope !== 'dm' || (privateChannelId !== null && task.origin?.channelId === String(privateChannelId));
     return [...store.open(), ...store.unread()].filter(visible);
   }
 
   /** `{ expired: true, task }` for the expired file `handle` of a task this conversation may see, else null. */
   function expiredFile(store, handle, privateChannelId) {
-    const task = store.get(String(handle).replace(/^file:/, '').split('/')[0]);
-    if (!task || (task.scope === 'dm' && (privateChannelId === null || task.origin?.channelId !== String(privateChannelId)))) return null;
+    const task = store.get(
+      String(handle)
+        .replace(/^file:/, '')
+        .split('/')[0]
+    );
+    if (
+      !task ||
+      (task.scope === 'dm' && (privateChannelId === null || task.origin?.channelId !== String(privateChannelId)))
+    )
+      return null;
     return { expired: true, task };
   }
 
@@ -329,7 +366,11 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
     const file = store ? store.fileOf(handle) : null;
     // Files the runner has deleted: a marker the callers refuse as `file-expired`, never a path.
     if (!file) return store?.fileExpired?.(handle) === true ? expiredFile(store, handle, privateChannelId) : null;
-    if (file.task.scope === 'dm' && (privateChannelId === null || file.task.origin?.channelId !== String(privateChannelId))) return null;
+    if (
+      file.task.scope === 'dm' &&
+      (privateChannelId === null || file.task.origin?.channelId !== String(privateChannelId))
+    )
+      return null;
     return file;
   }
 
@@ -371,19 +412,32 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
     const store = storeOf(guildId);
     if (!store) return 0;
     const open = store.open();
-    mirrored(null, () => mirror.mirrorOpen(open, { guildId: store.guildId, limitsOf: (task) => limitsOf(task.agent), onLedgerId: (task, ledgerId) => store.setLedgerId?.(task.id, ledgerId) }));
+    mirrored(null, () =>
+      mirror.mirrorOpen(open, {
+        guildId: store.guildId,
+        limitsOf: (task) => limitsOf(task.agent),
+        onLedgerId: (task, ledgerId) => store.setLedgerId?.(task.id, ledgerId),
+      })
+    );
     const failed = store.failOpen('restarted');
     for (const task of open) {
       const ended = store.get(task.id);
-      if (ended && !isOpenState(ended.state)) mirrored(ended.id, () => mirror.finish(ended, { maxChars: resultMaxChars() }));
+      if (ended && !isOpenState(ended.state))
+        mirrored(ended.id, () => mirror.finish(ended, { maxChars: resultMaxChars() }));
     }
     if (failed > 0) log.info('errands: open tasks failed at start', { guildId: store.guildId, count: failed });
     // Finished errands whose result turn never ran (a restart cut it short, or it kept failing):
     // their turn is opened again, one after another through the turn runner's own cooldown.
     if (typeof onFinished === 'function') {
       const waiting = store.unseen().filter((task) => task.origin?.channelId);
-      if (waiting.length > 0) log.info('errands: result turns reopened at start', { guildId: store.guildId, count: waiting.length });
-      for (const task of waiting) defer(() => Promise.resolve(onFinished(task, store.guildId)).catch((err) => log.warn('errands: onFinished failed', { id: task.id, error: err })));
+      if (waiting.length > 0)
+        log.info('errands: result turns reopened at start', { guildId: store.guildId, count: waiting.length });
+      for (const task of waiting)
+        defer(() =>
+          Promise.resolve(onFinished(task, store.guildId)).catch((err) =>
+            log.warn('errands: onFinished failed', { id: task.id, error: err })
+          )
+        );
     }
     return failed;
   }
@@ -393,5 +447,21 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
     while (running.size > 0) await Promise.allSettled([...running.values()]);
   }
 
-  return { submit, cancel, budget, view, fileOf, markSeen, markRead, markResultFailed, start, idle, check, runnerUp: (agent) => health.get(agent)?.up ?? null, store: storeOf, limitsOf, ledger: mirror };
+  return {
+    submit,
+    cancel,
+    budget,
+    view,
+    fileOf,
+    markSeen,
+    markRead,
+    markResultFailed,
+    start,
+    idle,
+    check,
+    runnerUp: (agent) => health.get(agent)?.up ?? null,
+    store: storeOf,
+    limitsOf,
+    ledger: mirror,
+  };
 }

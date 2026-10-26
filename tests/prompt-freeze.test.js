@@ -35,12 +35,31 @@ function baseInput(overrides = {}) {
   const now = overrides.now ?? EDGE + 10 * MINUTE;
   return {
     config: fakeConfig(),
-    prompts: { 'system-prompt': 'SYSTEM', 'character-card': 'CARD', rules: 'RULES', format: 'FORMAT', reply: 'REPLY_TASK', labels },
+    prompts: {
+      'system-prompt': 'SYSTEM',
+      'character-card': 'CARD',
+      rules: 'RULES',
+      format: 'FORMAT',
+      reply: 'REPLY_TASK',
+      labels,
+    },
     calibrator: { ratio: 1, apply: (n) => n },
     mode: 'reply',
     now,
     selfName: 'Nept',
-    history: [{ id: '1', ts: now - 60_000, authorId: 'a', authorName: 'Zoé', self: false, content: 'γεια', attachments: [], stickers: [], replyToId: null }],
+    history: [
+      {
+        id: '1',
+        ts: now - 60_000,
+        authorId: 'a',
+        authorName: 'Zoé',
+        self: false,
+        content: 'γεια',
+        attachments: [],
+        stickers: [],
+        replyToId: null,
+      },
+    ],
     neighbors: [],
     trigger: null,
     triggerKind: null,
@@ -99,7 +118,9 @@ test('buildRequest: the self facts follow memory at once with the prompt cache o
   const off = fakeConfig({ features: { promptCache: false } });
   const stableFreeze = new Map();
   buildRequest(baseInput({ config: off, stableFreeze, guildMemory: { self: ['likes tea'] } }));
-  assert.ok(stableText(buildRequest(baseInput({ config: off, stableFreeze, guildMemory: batch }))).includes('- hates mornings'));
+  assert.ok(
+    stableText(buildRequest(baseInput({ config: off, stableFreeze, guildMemory: batch }))).includes('- hates mornings')
+  );
   assert.ok(stableText(buildRequest(baseInput({ guildMemory: batch }))).includes('- hates mornings'));
 });
 
@@ -109,8 +130,16 @@ test('buildRequest: with llm.cache.ttl 5m the bucket is five minutes', () => {
   const start = EDGE + MINUTE;
   buildRequest(baseInput({ config, stableFreeze, guildMemory: { self: ['likes tea'] }, now: start }));
   const batch = { self: ['likes tea', 'hates mornings'] };
-  assert.ok(!stableText(buildRequest(baseInput({ config, stableFreeze, guildMemory: batch, now: start + 3 * MINUTE }))).includes('hates mornings'));
-  assert.ok(stableText(buildRequest(baseInput({ config, stableFreeze, guildMemory: batch, now: start + 5 * MINUTE }))).includes('hates mornings'));
+  assert.ok(
+    !stableText(
+      buildRequest(baseInput({ config, stableFreeze, guildMemory: batch, now: start + 3 * MINUTE }))
+    ).includes('hates mornings')
+  );
+  assert.ok(
+    stableText(buildRequest(baseInput({ config, stableFreeze, guildMemory: batch, now: start + 5 * MINUTE }))).includes(
+      'hates mornings'
+    )
+  );
 });
 
 /** A library of link GIFs `g<n>` keyed `k<n>`, each `[n, count, ownLast?]`. */
@@ -135,11 +164,24 @@ function library(rows) {
 
 test('buildRequest: an own GIF post and a reranking use inside one bucket leave the stable part byte-identical; the next bucket shows the new order', () => {
   const stableFreeze = new Map();
-  const before = buildRequest(baseInput({ stableFreeze, gifs: library([[1, 9], [2, 5], [3, 2]]) }));
+  const before = buildRequest(
+    baseInput({
+      stableFreeze,
+      gifs: library([
+        [1, 9],
+        [2, 5],
+        [3, 2],
+      ]),
+    })
+  );
   assert.ok(stableText(before).includes('g1\ng2\ng3'), stableText(before));
   // The persona posts g3 and members use it enough to lead the ranking.
   const posted = EDGE + 30 * MINUTE;
-  const after = library([[1, 9], [2, 5], [3, 20, posted]]);
+  const after = library([
+    [1, 9],
+    [2, 5],
+    [3, 20, posted],
+  ]);
   const sameBucket = buildRequest(baseInput({ stableFreeze, gifs: after, now: posted + MINUTE }));
   assert.equal(stableText(sameBucket), stableText(before));
   // The post is said in the tail at once.

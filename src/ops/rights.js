@@ -60,5 +60,7 @@ export const PERSONA_GOVERNED_CONFIG = Object.freeze([
 export function governsPersona(key) {
   const path = String(key ?? '');
   if (!path) return false;
-  return PERSONA_GOVERNED_CONFIG.some((governed) => path === governed || path.startsWith(`${governed}.`) || governed.startsWith(`${path}.`));
+  return PERSONA_GOVERNED_CONFIG.some(
+    (governed) => path === governed || path.startsWith(`${governed}.`) || governed.startsWith(`${path}.`)
+  );
 }

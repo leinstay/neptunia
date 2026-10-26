@@ -8,7 +8,11 @@ import { MIGRATIONS, lockPathOf, openMemoryDb, schemaVersion } from '../src/memo
 import { V1_TABLES } from '../src/memory/db/schema.js';
 import { tempDir } from './fixtures/tmp.js';
 
-const names = (db, type = 'table') => db.prepare('SELECT name FROM sqlite_master WHERE type = ? ORDER BY name').all(type).map((row) => row.name);
+const names = (db, type = 'table') =>
+  db
+    .prepare('SELECT name FROM sqlite_master WHERE type = ? ORDER BY name')
+    .all(type)
+    .map((row) => row.name);
 
 test('a new database is migrated to the latest version with every table of schema v1', () => {
   const handle = openMemoryDb(':memory:');
@@ -70,13 +74,23 @@ test('a failing migration rolls back whole and leaves the version where it was',
 test('transaction commits on return and rolls back on a throw', () => {
   const handle = openMemoryDb(':memory:');
   handle.transaction(() => handle.db.prepare("INSERT INTO meta (key, value) VALUES ('a', 1)").run());
-  assert.throws(() => handle.transaction(() => {
-    handle.db.prepare("INSERT INTO meta (key, value) VALUES ('b', 2)").run();
-    throw new Error('boom');
-  }), /boom/);
-  const keys = handle.db.prepare('SELECT key FROM meta ORDER BY key').all().map((row) => row.key);
+  assert.throws(
+    () =>
+      handle.transaction(() => {
+        handle.db.prepare("INSERT INTO meta (key, value) VALUES ('b', 2)").run();
+        throw new Error('boom');
+      }),
+    /boom/
+  );
+  const keys = handle.db
+    .prepare('SELECT key FROM meta ORDER BY key')
+    .all()
+    .map((row) => row.key);
   assert.deepEqual(keys, ['a']);
-  assert.equal(handle.transaction(() => 7), 7);
+  assert.equal(
+    handle.transaction(() => 7),
+    7
+  );
   handle.close();
 });
 
@@ -155,11 +169,24 @@ test('closing twice is harmless', () => {
   handle.close();
 });
 
-const insertSource = (db, id, text, stems = null) => db.prepare(
-  "INSERT INTO sources (id, kind, text, stems, scope_kind) VALUES (?, 'seen', ?, ?, 'group')",
-).run(id, text, stems).lastInsertRowid;
-const wordHits = (db, query) => db.prepare('SELECT s.id FROM sources_fts f JOIN sources s ON s.rowid = f.rowid WHERE sources_fts MATCH ? ORDER BY s.id').all(query).map((row) => row.id);
-const triHits = (db, query) => db.prepare('SELECT s.id FROM sources_tri f JOIN sources s ON s.rowid = f.rowid WHERE sources_tri MATCH ? ORDER BY s.id').all(query).map((row) => row.id);
+const insertSource = (db, id, text, stems = null) =>
+  db
+    .prepare("INSERT INTO sources (id, kind, text, stems, scope_kind) VALUES (?, 'seen', ?, ?, 'group')")
+    .run(id, text, stems).lastInsertRowid;
+const wordHits = (db, query) =>
+  db
+    .prepare(
+      'SELECT s.id FROM sources_fts f JOIN sources s ON s.rowid = f.rowid WHERE sources_fts MATCH ? ORDER BY s.id'
+    )
+    .all(query)
+    .map((row) => row.id);
+const triHits = (db, query) =>
+  db
+    .prepare(
+      'SELECT s.id FROM sources_tri f JOIN sources s ON s.rowid = f.rowid WHERE sources_tri MATCH ? ORDER BY s.id'
+    )
+    .all(query)
+    .map((row) => row.id);
 
 test('triggers keep the word and trigram indexes in step with sources', () => {
   const handle = openMemoryDb(':memory:');
@@ -170,7 +197,11 @@ test('triggers keep the word and trigram indexes in step with sources', () => {
   assert.deepEqual(wordHits(db, 'cafe'), ['b'], 'diacritics are removed');
   assert.deepEqual(wordHits(db, 'stems:keeper'), ['a']);
   assert.deepEqual(triHits(db, 'ighthou'), ['a']);
-  db.prepare('UPDATE sources SET text = ?, stems = ? WHERE rowid = ?').run('the harbour master', 'harbour master', first);
+  db.prepare('UPDATE sources SET text = ?, stems = ? WHERE rowid = ?').run(
+    'the harbour master',
+    'harbour master',
+    first
+  );
   assert.deepEqual(wordHits(db, 'lighthouse'), []);
   assert.deepEqual(wordHits(db, 'harbour'), ['a', 'b']);
   assert.deepEqual(triHits(db, 'ighthou'), []);

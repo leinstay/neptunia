@@ -8,30 +8,35 @@ import assert from 'node:assert/strict';
 import { htmlToText, pageTitle, truncateText } from '../src/web/readable.js';
 
 test('htmlToText: the article is preferred over the rest of the body', () => {
-  const html = '<html><body><div>Sidebar junk</div><article><p>The real story.</p></article><div>More junk</div></body></html>';
+  const html =
+    '<html><body><div>Sidebar junk</div><article><p>The real story.</p></article><div>More junk</div></body></html>';
   assert.equal(htmlToText(html), 'The real story.');
 });
 
 test('htmlToText: the largest of several article/main elements wins', () => {
-  const html = '<body><article>Short teaser.</article><main><p>A much longer main text that carries the page.</p></main></body>';
+  const html =
+    '<body><article>Short teaser.</article><main><p>A much longer main text that carries the page.</p></main></body>';
   assert.equal(htmlToText(html), 'A much longer main text that carries the page.');
 });
 
 test('htmlToText: without article/main the body is used, the head is not', () => {
-  const html = '<html><head><title>Page title</title><meta charset="utf-8"></head><body><p>Body text.</p></body></html>';
+  const html =
+    '<html><head><title>Page title</title><meta charset="utf-8"></head><body><p>Body text.</p></body></html>';
   assert.equal(htmlToText(html), 'Body text.');
 });
 
 test('htmlToText: nav, header, footer, aside and form contents are dropped, nested ones too', () => {
-  const html = '<body><header><nav>Home <nav>Deep</nav> About</nav>Logo</header>'
-    + '<p>Content.</p><aside>Related</aside><form><input> Search</form><footer>Copyright</footer></body>';
+  const html =
+    '<body><header><nav>Home <nav>Deep</nav> About</nav>Logo</header>' +
+    '<p>Content.</p><aside>Related</aside><form><input> Search</form><footer>Copyright</footer></body>';
   assert.equal(htmlToText(html), 'Content.');
 });
 
 test('htmlToText: script, style, noscript, template, svg and comments are dropped', () => {
-  const html = '<body><script>var a = "<p>no</p>";</script><style>p { color: red }</style>'
-    + '<noscript>Enable it</noscript><template><p>tpl</p></template><svg><text>icon</text></svg>'
-    + '<!-- a comment <p>hidden</p> --><p>Visible.</p><SCRIPT type="x">upper</SCRIPT ></body>';
+  const html =
+    '<body><script>var a = "<p>no</p>";</script><style>p { color: red }</style>' +
+    '<noscript>Enable it</noscript><template><p>tpl</p></template><svg><text>icon</text></svg>' +
+    '<!-- a comment <p>hidden</p> --><p>Visible.</p><SCRIPT type="x">upper</SCRIPT ></body>';
   assert.equal(htmlToText(html), 'Visible.');
 });
 
@@ -71,15 +76,24 @@ test('htmlToText: malformed HTML never throws and keeps the readable text', () =
     '<p>unclosed <b>bold <i>italic',
     '<div class="a>b">quoted gt</div>',
     'a < b and c > d',
-    '<p title=it\'s>apostrophe</p>',
+    "<p title=it's>apostrophe</p>",
     '<script>never closed',
     '<!-- never closed',
     '<',
     '</p></div>stray closes',
     '<header>unclosed header, the only text',
   ];
-  const expected = ['unclosed bold italic', 'quoted gt', 'a < b and c > d', 'apostrophe', '', '', '<', 'stray closes',
-    'unclosed header, the only text'];
+  const expected = [
+    'unclosed bold italic',
+    'quoted gt',
+    'a < b and c > d',
+    'apostrophe',
+    '',
+    '',
+    '<',
+    'stray closes',
+    'unclosed header, the only text',
+  ];
   cases.forEach((html, i) => assert.equal(htmlToText(html), expected[i], `case ${i}`));
   for (const bad of [null, undefined, 42, {}]) assert.equal(typeof htmlToText(bad), 'string');
 });
@@ -89,7 +103,10 @@ test('htmlToText: control characters and byte-order marks are removed', () => {
 });
 
 test('pageTitle: the title element, entities decoded and whitespace collapsed', () => {
-  assert.equal(pageTitle('<head><title>\n  Caf&eacute;   &amp; \u03b1\u03b2\u03b3 </title></head>'), 'Caf\u00e9 & \u03b1\u03b2\u03b3');
+  assert.equal(
+    pageTitle('<head><title>\n  Caf&eacute;   &amp; \u03b1\u03b2\u03b3 </title></head>'),
+    'Caf\u00e9 & \u03b1\u03b2\u03b3'
+  );
 });
 
 test('pageTitle: og:title when the title element is missing or empty, attributes in any order', () => {
@@ -121,9 +138,12 @@ test('pageTitle: only the first 64 KB of the document are looked at', () => {
 
 test('readable: pageTitle and htmlToText stay linear on 1.5 MB of unclosed title or meta tags', () => {
   const size = 1.5 * 1024 * 1024;
-  for (const unit of ['<title>', '<meta ', '<meta a="', '<title x=\'', '<meta ' + 'a'.repeat(50)]) {
+  for (const unit of ['<title>', '<meta ', '<meta a="', "<title x='", '<meta ' + 'a'.repeat(50)]) {
     const page = unit.repeat(Math.ceil(size / unit.length));
-    for (const [name, fn] of [['pageTitle', pageTitle], ['htmlToText', htmlToText]]) {
+    for (const [name, fn] of [
+      ['pageTitle', pageTitle],
+      ['htmlToText', htmlToText],
+    ]) {
       const started = process.hrtime.bigint();
       fn(page);
       const ms = Number(process.hrtime.bigint() - started) / 1e6;

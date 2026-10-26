@@ -30,7 +30,8 @@ const handlers = perEnv((env) => {
     });
     if (rows.length === 0) {
       const label = labels.skills?.tools?.describe?.closest;
-      const text = closest.length > 0 && typeof label === 'string' && label ? fill(label, { names: closest.join(', ') }) : '';
+      const text =
+        closest.length > 0 && typeof label === 'string' && label ? fill(label, { names: closest.join(', ') }) : '';
       return { status: 'invalid', code: CODE.UNKNOWN_SKILL, summary: text, data: { text, closest } };
     }
     const text = skillsInventoryText(rows, labels);

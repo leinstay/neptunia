@@ -54,7 +54,19 @@ function nonNegativeOr(value, fallback) {
  * @param {() => number} [deps.now]
  * @param {object} [deps.log]
  */
-export function createAvatarQueue({ hot, store, llm, imageFetcher, state, getGuildId, selfId, resolveMember, paused = () => false, now = Date.now, log = defaultLog }) {
+export function createAvatarQueue({
+  hot,
+  store,
+  llm,
+  imageFetcher,
+  state,
+  getGuildId,
+  selfId,
+  resolveMember,
+  paused = () => false,
+  now = Date.now,
+  log = defaultLog,
+}) {
   /** userId -> { guildId, userId, hash, url }, in offer order. */
   const queue = new Map();
   /** userId -> the hash whose description failed; offered again only by the next scan. */
@@ -198,7 +210,10 @@ export function createAvatarQueue({ hot, store, llm, imageFetcher, state, getGui
     };
     if (!item.url) return fail('no-url');
     const visionCfg = config.context?.vision ?? {};
-    const downloaded = await imageFetcher.fetchAsDataUrl(item.url, { maxBytes: visionCfg.maxBytes, timeoutMs: visionCfg.fetchTimeoutMs });
+    const downloaded = await imageFetcher.fetchAsDataUrl(item.url, {
+      maxBytes: visionCfg.maxBytes,
+      timeoutMs: visionCfg.fetchTimeoutMs,
+    });
     if (!downloaded) return fail('download');
 
     bumpDaily(state.data, AVATAR_DAILY, now());
@@ -212,8 +227,12 @@ export function createAvatarQueue({ hot, store, llm, imageFetcher, state, getGui
         ],
         {
           model: roleModel(config, 'vision', 'avatar'),
-          ...helperRequestOptions(config, { role: 'vision', maxOutputTokens: config.media?.maxOutputTokens, purpose: 'avatar' }),
-        },
+          ...helperRequestOptions(config, {
+            role: 'vision',
+            maxOutputTokens: config.media?.maxOutputTokens,
+            purpose: 'avatar',
+          }),
+        }
       );
     } catch (err) {
       return fail(railReason(err, 'llm-error'), { status: err?.statusCode ?? null });
@@ -223,7 +242,11 @@ export function createAvatarQueue({ hot, store, llm, imageFetcher, state, getGui
       .split('\n')[0];
     const text = clampText(oneLine(firstLine), descriptionChars, { tolerance: 1 });
     if (!text) return fail('empty');
-    const written = store.setAvatar(item.guildId, item.userId, { hash: item.hash, text, describedAt: new Date(now()).toISOString() });
+    const written = store.setAvatar(item.guildId, item.userId, {
+      hash: item.hash,
+      text,
+      describedAt: new Date(now()).toISOString(),
+    });
     if (!written) return fail('no-profile');
     log.info('avatars: described', { userId: item.userId, chars: Array.from(text).length });
     return 'described';

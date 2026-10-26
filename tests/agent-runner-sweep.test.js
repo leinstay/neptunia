@@ -73,7 +73,13 @@ test('sweeper: sweeps at start with the live hours, one log line of counts, no n
   taskDir(out, 'tbusy', 30);
   let hours = 24;
   const { logs } = await withCapturedLogs(async () => {
-    const sweeper = startSweeper({ profile: 'web', outDir: out, keepHours: () => hours, liveIds: () => ['tbusy'], now: () => NOW });
+    const sweeper = startSweeper({
+      profile: 'web',
+      outDir: out,
+      keepHours: () => hours,
+      liveIds: () => ['tbusy'],
+      now: () => NOW,
+    });
     const first = await sweeper.sweep();
     assert.deepEqual(first, { removed: 1, kept: 0, live: 1, failed: 0 });
     hours = 48;
@@ -86,6 +92,10 @@ test('sweeper: sweeps at start with the live hours, one log line of counts, no n
   assert.equal(swept[0].removed, 1);
   assert.equal(swept[0].hours, 24);
   assert.equal(swept[1].hours, 48);
-  for (const entry of swept) assert.ok(!JSON.stringify(entry).includes('tsecretname') && !JSON.stringify(entry).includes('tbusy'), 'no task name in a log line');
+  for (const entry of swept)
+    assert.ok(
+      !JSON.stringify(entry).includes('tsecretname') && !JSON.stringify(entry).includes('tbusy'),
+      'no task name in a log line'
+    );
   assert.deepEqual(fs.readdirSync(out), ['tbusy']);
 });

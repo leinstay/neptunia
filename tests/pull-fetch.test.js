@@ -10,7 +10,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { OverwriteType, PermissionFlagsBits, PermissionsBitField, SnowflakeUtil } from 'discord.js';
-import { audienceAllows, captionPulled, checkPull, fetchPull, isReadableChannel, normalizeMessage } from '../src/interface/discord.js';
+import {
+  audienceAllows,
+  captionPulled,
+  checkPull,
+  fetchPull,
+  isReadableChannel,
+  normalizeMessage,
+} from '../src/interface/discord.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 const MIN = 60_000;
@@ -77,13 +84,27 @@ function fakeGuild() {
  */
 function addChannel(
   guild,
-  { id, name = id, granted = [READ, SEND, REACT], overwrites = [], messages = [], thread = false, text = true, fail = false },
+  {
+    id,
+    name = id,
+    granted = [READ, SEND, REACT],
+    overwrites = [],
+    messages = [],
+    thread = false,
+    text = true,
+    fail = false,
+  }
 ) {
   const overwriteCache = new Map(
     overwrites.map((o) => [
       o.id,
-      { id: o.id, type: o.type, allow: new PermissionsBitField(o.allow ?? 0n), deny: new PermissionsBitField(o.deny ?? 0n) },
-    ]),
+      {
+        id: o.id,
+        type: o.type,
+        allow: new PermissionsBitField(o.allow ?? 0n),
+        deny: new PermissionsBitField(o.deny ?? 0n),
+      },
+    ])
   );
   const resolveRole = (role) => {
     let bits = guild.roles.everyone.permissions.bitfield | role.permissions.bitfield;
@@ -159,11 +180,20 @@ function addChannel(
 
 /** One raw image attachment. */
 function rawImage(imageId) {
-  return { id: imageId, contentType: 'image/png', name: `${imageId}.png`, url: `https://cdn.example/${imageId}.png`, size: 1000 };
+  return {
+    id: imageId,
+    contentType: 'image/png',
+    name: `${imageId}.png`,
+    url: `https://cdn.example/${imageId}.png`,
+    size: 1000,
+  };
 }
 
 /** A raw discord.js message of `channel` written at `ts`. */
-function rawMessage(channel, { ts, content = 'καλημέρα σε όλους', authorId = MEMBER.zoe, images = [], mentionsSelf = false }) {
+function rawMessage(
+  channel,
+  { ts, content = 'καλημέρα σε όλους', authorId = MEMBER.zoe, images = [], mentionsSelf = false }
+) {
   return {
     id: SnowflakeUtil.generate({ timestamp: ts }).toString(),
     channelId: channel.id,
@@ -245,7 +275,15 @@ function manualTimers() {
     set,
     timers: {
       set: (fn, ms) => {
-        const timer = { fn, ms, unrefed: false, cleared: false, unref() { this.unrefed = true; } };
+        const timer = {
+          fn,
+          ms,
+          unrefed: false,
+          cleared: false,
+          unref() {
+            this.unrefed = true;
+          },
+        };
         set.push(timer);
         return timer;
       },
@@ -312,11 +350,15 @@ test("fetchPull: the window ends at the channel's newest message", async () => {
   const { result, logs } = await withCapturedLogs(() => pull(guild, diary.id));
   const { pulled, skip } = result;
   assert.equal(skip, null);
-  assert.deepEqual(Object.keys(result).sort(), ['pulled', 'skip'], 'the record and the skip code, no discord.js channel');
+  assert.deepEqual(
+    Object.keys(result).sort(),
+    ['pulled', 'skip'],
+    'the record and the skip code, no discord.js channel'
+  );
   assert.deepEqual(
     pulled.messages.map((m) => m.ts),
     burst(LAST - 60 * MIN, LAST, 10).map((spec) => spec.ts),
-    'every message of 9:00-10:00 two days ago, nothing older, nothing measured from now',
+    'every message of 9:00-10:00 two days ago, nothing older, nothing measured from now'
   );
   assert.equal(pulled.olderNotShown, true);
   assert.equal(pulled.messages.at(-1).id, idAt(diary, LAST));
@@ -339,11 +381,12 @@ test('fetchPull: an explicit anchor ends the window at that message', async () =
   });
   const anchorId = idAt(diary, LAST - 120 * MIN);
   const cfg = config({ pull: { minMessages: 2 } });
-  const { pulled } = (await withCapturedLogs(() => pull(guild, diary.id, { anchorId, reason: 'recall', config: cfg }))).result;
+  const { pulled } = (await withCapturedLogs(() => pull(guild, diary.id, { anchorId, reason: 'recall', config: cfg })))
+    .result;
   assert.deepEqual(
     pulled.messages.map((m) => m.ts),
     [LAST - 180 * MIN, LAST - 160 * MIN, LAST - 140 * MIN, LAST - 120 * MIN],
-    'the hour before the anchor, nothing after it',
+    'the hour before the anchor, nothing after it'
   );
   assert.equal(pulled.olderNotShown, true);
   assert.equal(pulled.messages.at(-1).id, anchorId);
@@ -356,14 +399,20 @@ test('fetchPull: an earlier page ends just before the oldest message shown last 
   mainChannel(guild);
   const diary = addChannel(guild, { id: '760000000000000011', messages: burst(LAST - 300 * MIN, LAST, 10) });
   const beforeId = idAt(diary, LAST - 60 * MIN);
-  const { result, logs } = await withCapturedLogs(() => pull(guild, diary.id, { reason: 'route', direction: 'earlier', beforeId }));
+  const { result, logs } = await withCapturedLogs(() =>
+    pull(guild, diary.id, { reason: 'route', direction: 'earlier', beforeId })
+  );
   const { pulled, skip } = result;
   assert.equal(skip, null);
-  assert.deepEqual(diary.fetchCalls, [{ before: beforeId, limit: 61 }], 'one page before the oldest message shown, the usual limit');
+  assert.deepEqual(
+    diary.fetchCalls,
+    [{ before: beforeId, limit: 61 }],
+    'one page before the oldest message shown, the usual limit'
+  );
   assert.deepEqual(
     pulled.messages.map((m) => m.ts),
     burst(LAST - 130 * MIN, LAST - 70 * MIN, 10).map((spec) => spec.ts),
-    'the hour before the last view, nothing of it and nothing newer',
+    'the hour before the last view, nothing of it and nothing newer'
   );
   assert.equal(pulled.olderNotShown, true);
   const line = logs.find((entry) => entry.msg === 'pull: channel');
@@ -377,7 +426,9 @@ test('fetchPull: an earlier page without a previous view falls back to the newes
   const guild = fakeGuild();
   mainChannel(guild);
   const diary = addChannel(guild, { id: '760000000000000012', messages: burst(LAST - 300 * MIN, LAST, 10) });
-  const { result, logs } = await withCapturedLogs(() => pull(guild, diary.id, { reason: 'route', direction: 'earlier', beforeId: null }));
+  const { result, logs } = await withCapturedLogs(() =>
+    pull(guild, diary.id, { reason: 'route', direction: 'earlier', beforeId: null })
+  );
   assert.deepEqual(diary.fetchCalls, [{ limit: 100 }], 'the newest page, as a plain pull');
   assert.equal(result.pulled.messages.at(-1).id, idAt(diary, LAST));
   const line = logs.find((entry) => entry.msg === 'pull: channel');
@@ -404,10 +455,18 @@ test('fetchPull: nothing before the previous view is an empty skip, a failed ear
   mainChannel(guild);
   const diary = addChannel(guild, { id: '760000000000000014', messages: burst(LAST - 30 * MIN, LAST, 10) });
   const first = idAt(diary, LAST - 30 * MIN);
-  const empty = await withCapturedLogs(() => pull(guild, diary.id, { reason: 'route', direction: 'earlier', beforeId: first }));
+  const empty = await withCapturedLogs(() =>
+    pull(guild, diary.id, { reason: 'route', direction: 'earlier', beforeId: first })
+  );
   assert.equal(empty.result.skip, 'empty');
-  const broken = addChannel(guild, { id: '760000000000000015', messages: burst(LAST - 30 * MIN, LAST, 10), fail: true });
-  const failed = await withCapturedLogs(() => pull(guild, broken.id, { reason: 'route', direction: 'earlier', beforeId: first }));
+  const broken = addChannel(guild, {
+    id: '760000000000000015',
+    messages: burst(LAST - 30 * MIN, LAST, 10),
+    fail: true,
+  });
+  const failed = await withCapturedLogs(() =>
+    pull(guild, broken.id, { reason: 'route', direction: 'earlier', beforeId: first })
+  );
   assert.equal(failed.result.skip, 'fetch-failed');
 });
 
@@ -423,7 +482,11 @@ test('fetchPull: a malformed anchor is not found, an anchor older than a positiv
   ]);
   assert.equal(result[0].skip, 'not-found');
   assert.equal(result[1].skip, 'too-old');
-  assert.deepEqual(result[2].pulled.messages.map((m) => m.id), [oldId], 'maxAgeDays 0: no age limit');
+  assert.deepEqual(
+    result[2].pulled.messages.map((m) => m.id),
+    [oldId],
+    'maxAgeDays 0: no age limit'
+  );
   assert.equal(diary.fetchCalls.length, 1, 'only the last pull fetched');
 });
 
@@ -458,7 +521,7 @@ test('fetchPull: an unknown, thread, unreadable or non-text channel is skipped w
     const line = logs.find((entry) => entry.msg === 'pull: skipped');
     assert.deepEqual(
       { channel: line.channel, source: line.source, reason: line.reason, pullReason: line.pullReason },
-      { channel: '750000000000000001', source: channelId, reason: code, pullReason: 'mention' },
+      { channel: '750000000000000001', source: channelId, reason: code, pullReason: 'mention' }
     );
   }
   for (const channel of [thread, hidden, category]) assert.deepEqual(channel.fetchCalls, [], 'nothing fetched');
@@ -468,7 +531,9 @@ test('fetchPull: the dry-run channel is skipped with its own reason', async () =
   const guild = fakeGuild();
   mainChannel(guild);
   const mirror = addChannel(guild, { id: MIRROR_ID, messages: [{ ts: LAST }] });
-  const { result, logs } = await withCapturedLogs(() => pull(guild, MIRROR_ID, { config: config({ bot: { dryRunChannelId: MIRROR_ID } }) }));
+  const { result, logs } = await withCapturedLogs(() =>
+    pull(guild, MIRROR_ID, { config: config({ bot: { dryRunChannelId: MIRROR_ID } }) })
+  );
   assert.deepEqual(result, { pulled: null, skip: 'dry-run-channel' });
   assert.equal(logs.find((entry) => entry.msg === 'pull: skipped').reason, 'dry-run-channel');
   assert.deepEqual(mirror.fetchCalls, []);
@@ -479,19 +544,25 @@ test('fetchPull: an empty channel and a failed fetch return their own skip codes
   mainChannel(guild);
   const empty = addChannel(guild, { id: '760000000000000021' });
   const broken = addChannel(guild, { id: '760000000000000022', fail: true, messages: [{ ts: LAST }] });
-  const { result, logs } = await withCapturedLogs(async () => [await pull(guild, empty.id), await pull(guild, broken.id)]);
+  const { result, logs } = await withCapturedLogs(async () => [
+    await pull(guild, empty.id),
+    await pull(guild, broken.id),
+  ]);
   assert.deepEqual(result[0], { pulled: null, skip: 'empty' });
   assert.deepEqual(result[1], { pulled: null, skip: 'fetch-failed' });
   assert.deepEqual(
     logs.filter((entry) => entry.msg === 'pull: skipped').map((entry) => entry.reason),
-    ['empty', 'fetch-failed'],
+    ['empty', 'fetch-failed']
   );
 });
 
 test('fetchPull: a channel quieter than maxAgeDays is skipped, maxAgeDays 0 pulls it whatever its age', async () => {
   const guild = fakeGuild();
   mainChannel(guild);
-  const old = addChannel(guild, { id: '760000000000000031', messages: burst(NOW - 280 * DAY, NOW - 280 * DAY + 30 * MIN, 10) });
+  const old = addChannel(guild, {
+    id: '760000000000000031',
+    messages: burst(NOW - 280 * DAY, NOW - 280 * DAY + 30 * MIN, 10),
+  });
   const { result } = await withCapturedLogs(async () => [
     await pull(guild, old.id, { config: config({ pull: { maxAgeDays: 30 } }) }),
     await pull(guild, old.id, { config: config({ pull: { maxAgeDays: 0 } }) }),
@@ -537,7 +608,10 @@ test('audienceAllows: same audience passes, a narrower source or no destination 
   const guild = fakeGuild();
   const main = mainChannel(guild);
   const open = addChannel(guild, { id: '760000000000000044' });
-  const narrow = addChannel(guild, { id: '760000000000000045', overwrites: [{ id: MEMBER.zoe, type: OverwriteType.Member, deny: VIEW }] });
+  const narrow = addChannel(guild, {
+    id: '760000000000000045',
+    overwrites: [{ id: MEMBER.zoe, type: OverwriteType.Member, deny: VIEW }],
+  });
   assert.equal(audienceAllows(main, open, config()), true);
   assert.equal(audienceAllows(main, narrow, config()), false, 'a member denied on the source only');
   assert.equal(audienceAllows(null, open, config()), false, 'no destination never qualifies');
@@ -549,17 +623,29 @@ test('checkPull: the rails without a request, the channel when they pass', () =>
   const guild = fakeGuild();
   const main = mainChannel(guild);
   const diary = addChannel(guild, { id: '760000000000000046', granted: [READ], messages: [{ ts: LAST }] });
-  assert.deepEqual(checkPull({ guild, channelId: diary.id, destination: main, config: config(), now: NOW }), { channel: diary, skip: null });
-  assert.deepEqual(checkPull({ guild, channelId: diary.id, destination: null, config: config(), now: NOW }), { channel: null, skip: 'audience' });
-  assert.deepEqual(checkPull({ guild, channelId: undefined, destination: main, config: config(), now: NOW }), { channel: null, skip: 'not-found' });
+  assert.deepEqual(checkPull({ guild, channelId: diary.id, destination: main, config: config(), now: NOW }), {
+    channel: diary,
+    skip: null,
+  });
+  assert.deepEqual(checkPull({ guild, channelId: diary.id, destination: null, config: config(), now: NOW }), {
+    channel: null,
+    skip: 'audience',
+  });
+  assert.deepEqual(checkPull({ guild, channelId: undefined, destination: main, config: config(), now: NOW }), {
+    channel: null,
+    skip: 'not-found',
+  });
   const privateChat = { id: '790000000000000001', guild: null };
   const railOff = config({ pull: { sameAudience: false } });
   assert.deepEqual(
     checkPull({ guild, channelId: diary.id, destination: privateChat, config: railOff, now: NOW }),
     { channel: null, skip: 'private-chat' },
-    'a private chat never pulls, even with the audience rail off',
+    'a private chat never pulls, even with the audience rail off'
   );
-  assert.deepEqual(checkPull({ guild, channelId: diary.id, destination: null, config: railOff, now: NOW }), { channel: diary, skip: null });
+  assert.deepEqual(checkPull({ guild, channelId: diary.id, destination: null, config: railOff, now: NOW }), {
+    channel: diary,
+    skip: null,
+  });
   assert.deepEqual(diary.fetchCalls, []);
 });
 
@@ -573,13 +659,20 @@ test('audienceAllows: a private chat lets in exactly the sources its partner can
       { id: ROLE.regular, type: OverwriteType.Role, allow: VIEW },
     ],
   });
-  const named = addChannel(guild, { id: '760000000000000049', overwrites: [{ id: MEMBER.zoe, type: OverwriteType.Member, deny: VIEW }] });
+  const named = addChannel(guild, {
+    id: '760000000000000049',
+    overwrites: [{ id: MEMBER.zoe, type: OverwriteType.Member, deny: VIEW }],
+  });
   const zoe = fakeMember(guild, MEMBER.zoe, [ROLE.regular]);
   const iason = fakeMember(guild, MEMBER.iason);
   for (const rail of [config(), config({ pull: { sameAudience: false } })]) {
     assert.equal(audienceAllows(privateChat(), open, rail, { partner: iason }), true);
     assert.equal(audienceAllows(privateChat(), closed, rail, { partner: zoe }), true, 'her role views it');
-    assert.equal(audienceAllows(privateChat(), closed, rail, { partner: iason }), false, 'he holds no role that views it');
+    assert.equal(
+      audienceAllows(privateChat(), closed, rail, { partner: iason }),
+      false,
+      'he holds no role that views it'
+    );
     assert.equal(audienceAllows(privateChat(), named, rail, { partner: zoe }), false, 'denied by name');
     assert.equal(audienceAllows(privateChat(), named, rail, { partner: iason }), true);
     assert.equal(audienceAllows(privateChat(), open, rail), false, 'no partner never qualifies');
@@ -596,17 +689,33 @@ test('checkPull: a private chat with its partner passes what the partner can vie
   });
   const iason = fakeMember(guild, MEMBER.iason);
   const dm = privateChat();
-  assert.deepEqual(checkPull({ guild, channelId: open.id, destination: dm, partner: iason, config: config(), now: NOW }), { channel: open, skip: null });
-  assert.deepEqual(checkPull({ guild, channelId: closed.id, destination: dm, partner: iason, config: config(), now: NOW }), { channel: null, skip: 'audience' });
   assert.deepEqual(
-    checkPull({ guild, channelId: closed.id, destination: dm, partner: iason, config: config({ pull: { sameAudience: false } }), now: NOW }),
-    { channel: null, skip: 'audience' },
-    'the partner rule holds with the audience rail off',
+    checkPull({ guild, channelId: open.id, destination: dm, partner: iason, config: config(), now: NOW }),
+    { channel: open, skip: null }
   );
-  assert.deepEqual(checkPull({ guild, channelId: open.id, destination: dm, config: config(), now: NOW }), { channel: null, skip: 'private-chat' });
+  assert.deepEqual(
+    checkPull({ guild, channelId: closed.id, destination: dm, partner: iason, config: config(), now: NOW }),
+    { channel: null, skip: 'audience' }
+  );
+  assert.deepEqual(
+    checkPull({
+      guild,
+      channelId: closed.id,
+      destination: dm,
+      partner: iason,
+      config: config({ pull: { sameAudience: false } }),
+      now: NOW,
+    }),
+    { channel: null, skip: 'audience' },
+    'the partner rule holds with the audience rail off'
+  );
+  assert.deepEqual(checkPull({ guild, channelId: open.id, destination: dm, config: config(), now: NOW }), {
+    channel: null,
+    skip: 'private-chat',
+  });
   assert.deepEqual(
     checkPull({ guild, channelId: '760000000000000059', destination: dm, partner: iason, config: config(), now: NOW }),
-    { channel: null, skip: 'not-found' },
+    { channel: null, skip: 'not-found' }
   );
 });
 
@@ -670,7 +779,11 @@ test('fetchPull: a routed trigger outside the window is added', async () => {
   assert.equal(pulled.messages.length, 7);
   assert.notEqual(pulled.messages[0], trigger, "the page's copy, not the given one");
   assert.equal(pulled.messages[0].content, 'καλημέρα σε όλους');
-  assert.deepEqual([...pulled.earlierPingIds], [trigger.id], 'shown before the window, so the window keeps its own span');
+  assert.deepEqual(
+    [...pulled.earlierPingIds],
+    [trigger.id],
+    'shown before the window, so the window keeps its own span'
+  );
   assert.equal(pulled.pingState.has(trigger.id), false, 'the trigger itself carries no mark');
   assert.deepEqual(diary.fetchCalls, [{ limit: 100 }], 'the page holds the trigger: never fetched by id');
 });
@@ -681,12 +794,22 @@ test('fetchPull: a routed trigger deleted before the pull is not shown', async (
   const diary = addChannel(guild, {
     id: '760000000000000054',
     granted: [READ, REACT],
-    messages: [{ ts: LAST - 240 * MIN, mentionsSelf: true }, ...burst(LAST - 50 * MIN, LAST, 10), { ts: LAST - 25 * MIN, mentionsSelf: true }],
+    messages: [
+      { ts: LAST - 240 * MIN, mentionsSelf: true },
+      ...burst(LAST - 50 * MIN, LAST, 10),
+      { ts: LAST - 25 * MIN, mentionsSelf: true },
+    ],
   });
   const older = normalizeMessage(diary.raws[0], SELF_ID);
-  const inside = normalizeMessage(diary.raws.find((m) => m.createdTimestamp === LAST - 25 * MIN), SELF_ID);
+  const inside = normalizeMessage(
+    diary.raws.find((m) => m.createdTimestamp === LAST - 25 * MIN),
+    SELF_ID
+  );
   // Both calls are deleted during the settle wait.
-  diary.raws.splice(diary.raws.findIndex((m) => m.id === inside.id), 1);
+  diary.raws.splice(
+    diary.raws.findIndex((m) => m.id === inside.id),
+    1
+  );
   diary.raws.splice(0, 1);
   const { result, logs } = await withCapturedLogs(async () => [
     await pull(guild, diary.id, { reason: 'routed', trigger: inside }),
@@ -697,14 +820,14 @@ test('fetchPull: a routed trigger deleted before the pull is not shown', async (
   assert.deepEqual(
     diary.fetchCalls,
     [{ limit: 100 }, { limit: 100 }, older.id],
-    'a call inside the page span is known gone without a request; one older than the page is asked for once',
+    'a call inside the page span is known gone without a request; one older than the page is asked for once'
   );
   assert.deepEqual(
     logs.filter((entry) => entry.msg === 'pull: skipped').map((entry) => [entry.reason, entry.pullReason]),
     [
       ['trigger-gone', 'routed'],
       ['trigger-gone', 'routed'],
-    ],
+    ]
   );
 });
 
@@ -740,7 +863,10 @@ test('fetchPull: a trigger already in the window is kept once, a trigger of anot
   ]);
   assert.equal(result[0].pulled.messages.filter((m) => m.id === inside.id).length, 1);
   assert.equal(result[0].pulled.messages.length, 4);
-  assert.equal(result[1].pulled.messages.some((m) => m.id === foreign.id), false);
+  assert.equal(
+    result[1].pulled.messages.some((m) => m.id === foreign.id),
+    false
+  );
 });
 
 test('fetchPull: an unanswered ring ping outside the window is fetched and marked', async () => {
@@ -757,10 +883,34 @@ test('fetchPull: an unanswered ring ping outside the window is fetched and marke
   });
   const [unanswered, answered, skipped] = diary.raws;
   const ring = [
-    { messageId: unanswered.id, channelId: diary.id, ts: unanswered.createdTimestamp, answeredAt: null, skippedAt: null },
-    { messageId: answered.id, channelId: diary.id, ts: answered.createdTimestamp, answeredAt: LAST - 270 * MIN, skippedAt: null },
-    { messageId: skipped.id, channelId: diary.id, ts: skipped.createdTimestamp, answeredAt: null, skippedAt: LAST - 250 * MIN },
-    { messageId: '769999999999999999', channelId: '760000000000000099', ts: LAST - 100 * MIN, answeredAt: null, skippedAt: null },
+    {
+      messageId: unanswered.id,
+      channelId: diary.id,
+      ts: unanswered.createdTimestamp,
+      answeredAt: null,
+      skippedAt: null,
+    },
+    {
+      messageId: answered.id,
+      channelId: diary.id,
+      ts: answered.createdTimestamp,
+      answeredAt: LAST - 270 * MIN,
+      skippedAt: null,
+    },
+    {
+      messageId: skipped.id,
+      channelId: diary.id,
+      ts: skipped.createdTimestamp,
+      answeredAt: null,
+      skippedAt: LAST - 250 * MIN,
+    },
+    {
+      messageId: '769999999999999999',
+      channelId: '760000000000000099',
+      ts: LAST - 100 * MIN,
+      answeredAt: null,
+      skippedAt: null,
+    },
   ];
   // Only the newest page is served, so the call outside it must be fetched by id.
   const page = diary.messages.fetch;
@@ -771,11 +921,18 @@ test('fetchPull: an unanswered ring ping outside the window is fetched and marke
   };
   const { result, logs } = await withCapturedLogs(() => pull(guild, diary.id, { pings: ring }));
   const { pulled } = result;
-  assert.deepEqual(pulled.messages.map((m) => m.id), [unanswered.id, ...diary.raws.slice(3).map((m) => m.id)]);
+  assert.deepEqual(
+    pulled.messages.map((m) => m.id),
+    [unanswered.id, ...diary.raws.slice(3).map((m) => m.id)]
+  );
   assert.deepEqual([...pulled.earlierPingIds], [unanswered.id]);
   assert.deepEqual([...pulled.pingState], [[unanswered.id, 'unanswered']]);
   assert.ok(diary.fetchCalls.includes(unanswered.id), 'fetched by id');
-  assert.equal(diary.fetchCalls.includes(answered.id) || diary.fetchCalls.includes(skipped.id), false, 'answered and skipped calls stay out');
+  assert.equal(
+    diary.fetchCalls.includes(answered.id) || diary.fetchCalls.includes(skipped.id),
+    false,
+    'answered and skipped calls stay out'
+  );
   const line = logs.find((entry) => entry.msg === 'pull: channel');
   assert.deepEqual([line.earlier, line.earlierGone, line.pings], [1, 0, 1]);
 });
@@ -809,7 +966,13 @@ test('fetchPull: ring calls inside the window are marked answered, skipped or un
   mainChannel(guild);
   const diary = addChannel(guild, { id: '760000000000000063', messages: burst(LAST - 50 * MIN, LAST, 10) });
   const [a, b, c] = diary.raws;
-  const entry = (raw, answeredAt, skippedAt) => ({ messageId: raw.id, channelId: diary.id, ts: raw.createdTimestamp, answeredAt, skippedAt });
+  const entry = (raw, answeredAt, skippedAt) => ({
+    messageId: raw.id,
+    channelId: diary.id,
+    ts: raw.createdTimestamp,
+    answeredAt,
+    skippedAt,
+  });
   const ring = [entry(a, LAST - 45 * MIN, null), entry(b, null, LAST - 35 * MIN), entry(c, null, null)];
   const { pulled } = (await withCapturedLogs(() => pull(guild, diary.id, { pings: ring }))).result;
   assert.deepEqual(
@@ -818,7 +981,7 @@ test('fetchPull: ring calls inside the window are marked answered, skipped or un
       [a.id, 'answered'],
       [b.id, 'skipped'],
       [c.id, 'unanswered'],
-    ],
+    ]
   );
   assert.equal(pulled.earlierPingIds.size, 0);
 });
@@ -836,25 +999,38 @@ test('fetchPull: cached captions are used for every picture, fresh ones only wit
   const guild = fakeGuild();
   mainChannel(guild);
   const channel = pictureChannel(guild, '760000000000000071', 5);
-  const describer = fakeDescriber({ cached: { p4: 'λεζάντα p4', p1: 'λεζάντα p1' }, fresh: { p5: 'νέα p5', p3: 'νέα p3' } });
+  const describer = fakeDescriber({
+    cached: { p4: 'λεζάντα p4', p1: 'λεζάντα p1' },
+    fresh: { p5: 'νέα p5', p3: 'νέα p3' },
+  });
   const cfg = config({ pull: { maxPictures: 3, maxNewDescriptions: 1 } });
-  const { result, logs } = await withCapturedLogs(() => pull(guild, channel.id, { config: cfg, describer, turnCertain: true }));
-  const { pulled } = result;
-  assert.deepEqual(describer.calls.cached, [{ guildId: GUILD_ID, ids: ['p5', 'p4', 'p3', 'p2', 'p1'] }], 'the cache is asked for every picture');
-  assert.deepEqual(describer.calls.many, [{ guildId: GUILD_ID, ids: ['p5'], options: { maxNew: 1 } }]);
-  assert.deepEqual(
-    [...pulled.descriptions].sort(),
-    [
-      ['p1', 'λεζάντα p1'],
-      ['p4', 'λεζάντα p4'],
-      ['p5', 'νέα p5'],
-    ],
+  const { result, logs } = await withCapturedLogs(() =>
+    pull(guild, channel.id, { config: cfg, describer, turnCertain: true })
   );
+  const { pulled } = result;
+  assert.deepEqual(
+    describer.calls.cached,
+    [{ guildId: GUILD_ID, ids: ['p5', 'p4', 'p3', 'p2', 'p1'] }],
+    'the cache is asked for every picture'
+  );
+  assert.deepEqual(describer.calls.many, [{ guildId: GUILD_ID, ids: ['p5'], options: { maxNew: 1 } }]);
+  assert.deepEqual([...pulled.descriptions].sort(), [
+    ['p1', 'λεζάντα p1'],
+    ['p4', 'λεζάντα p4'],
+    ['p5', 'νέα p5'],
+  ]);
   assert.equal(pulled.picturesNotSeen, 2, 'p3 (no fresh slot left) and p2 (past maxPictures, not cached)');
   const line = logs.find((entry) => entry.msg === 'pull: channel');
   assert.deepEqual(
-    { pictures: line.pictures, cached: line.cached, asked: line.asked, fresh: line.fresh, late: line.late, notSeen: line.notSeen },
-    { pictures: 5, cached: 2, asked: 1, fresh: 1, late: 0, notSeen: 2 },
+    {
+      pictures: line.pictures,
+      cached: line.cached,
+      asked: line.asked,
+      fresh: line.fresh,
+      late: line.late,
+      notSeen: line.notSeen,
+    },
+    { pictures: 5, cached: 2, asked: 1, fresh: 1, late: 0, notSeen: 2 }
   );
 });
 
@@ -864,17 +1040,28 @@ test('fetchPull: cached emoji captions are used and never counted as pictures', 
   const emojiId = '780000000000000001';
   const channel = addChannel(guild, {
     id: '760000000000000077',
-    messages: [{ ts: LAST - MIN, images: ['p1'] }, { ts: LAST, content: `ωραία <:kardia:${emojiId}>` }],
+    messages: [
+      { ts: LAST - MIN, images: ['p1'] },
+      { ts: LAST, content: `ωραία <:kardia:${emojiId}>` },
+    ],
   });
   const describer = fakeDescriber({ cached: { [`emoji:${emojiId}`]: 'λεζάντα emoji' }, fresh: { p1: 'νέα p1' } });
   const { result, logs } = await withCapturedLogs(() => pull(guild, channel.id, { describer, turnCertain: true }));
   const { pulled } = result;
   assert.equal(pulled.descriptions.get(`emoji:${emojiId}`), 'λεζάντα emoji');
   assert.ok(describer.calls.cached[0].ids.includes(`emoji:${emojiId}`), 'the cache is asked for the emoji');
-  assert.deepEqual(describer.calls.many.map((call) => call.ids), [['p1']], 'no fresh request for an emoji');
+  assert.deepEqual(
+    describer.calls.many.map((call) => call.ids),
+    [['p1']],
+    'no fresh request for an emoji'
+  );
   assert.equal(pulled.picturesNotSeen, 0);
   const line = logs.find((entry) => entry.msg === 'pull: channel');
-  assert.deepEqual([line.pictures, line.cached, line.asked, line.fresh, line.notSeen], [1, 0, 1, 1, 0], 'the emoji is no picture');
+  assert.deepEqual(
+    [line.pictures, line.cached, line.asked, line.fresh, line.notSeen],
+    [1, 0, 1, 1, 0],
+    'the emoji is no picture'
+  );
 });
 
 test('fetchPull: a cached caption after the eighth fresh one is still used', async () => {
@@ -887,7 +1074,7 @@ test('fetchPull: a cached caption after the eighth fresh one is still used', asy
   assert.deepEqual(
     describer.calls.many.map((call) => call.ids[0]),
     ['p12', 'p11', 'p10', 'p9', 'p8', 'p7', 'p6', 'p5'],
-    'eight fresh requests, newest first, one picture each',
+    'eight fresh requests, newest first, one picture each'
   );
   assert.equal(pulled.descriptions.get('p4'), 'λεζάντα p4', 'the ninth picture keeps its cached caption');
   assert.equal(pulled.descriptions.get('p2'), 'λεζάντα p2', 'a picture past maxPictures keeps its cached caption');
@@ -917,7 +1104,11 @@ test('fetchPull: fresh captions run in parallel and a late one renders blind', a
     return done;
   });
   const { pulled } = result;
-  assert.deepEqual(describer.calls.many.map((call) => call.ids[0]), ['p3', 'p2', 'p1'], 'all three asked before any answered');
+  assert.deepEqual(
+    describer.calls.many.map((call) => call.ids[0]),
+    ['p3', 'p2', 'p1'],
+    'all three asked before any answered'
+  );
   assert.deepEqual([...pulled.descriptions.keys()].sort(), ['p2', 'p3']);
   assert.equal(pulled.picturesNotSeen, 1);
   const line = logs.find((entry) => entry.msg === 'pull: channel');
@@ -941,7 +1132,9 @@ test('fetchPull: mediaDescriptions off makes no describer call', async () => {
   const channel = pictureChannel(guild, '760000000000000076', 2);
   const describer = fakeDescriber({ cached: { p1: 'λεζάντα p1' }, fresh: { p2: 'νέα p2' } });
   const cfg = config({ features: { mediaDescriptions: false } });
-  const { pulled } = (await withCapturedLogs(() => pull(guild, channel.id, { config: cfg, describer, turnCertain: true }))).result;
+  const { pulled } = (
+    await withCapturedLogs(() => pull(guild, channel.id, { config: cfg, describer, turnCertain: true }))
+  ).result;
   assert.deepEqual(describer.calls, { cached: [], many: [] });
   assert.equal(pulled.descriptions.size, 0);
   assert.equal(pulled.picturesNotSeen, 2);
@@ -963,16 +1156,31 @@ test('captionPulled: a top-up makes no Discord request and asks only for uncache
   });
   const { before, after, requests } = result;
   assert.equal(channel.fetchCalls.length, requests, 'no Discord request');
-  assert.deepEqual(describer.calls.many.map((call) => call.ids), [['p5']], 'within maxPictures and maxNewDescriptions');
-  assert.deepEqual(describer.calls.cached.at(-1).ids, ['p5', 'p3', 'p2', 'p1'], 'the cache is asked again, never for a known caption');
-  assert.deepEqual([...after.descriptions].sort(), [['p4', 'λεζάντα p4'], ['p5', 'νέα p5']]);
+  assert.deepEqual(
+    describer.calls.many.map((call) => call.ids),
+    [['p5']],
+    'within maxPictures and maxNewDescriptions'
+  );
+  assert.deepEqual(
+    describer.calls.cached.at(-1).ids,
+    ['p5', 'p3', 'p2', 'p1'],
+    'the cache is asked again, never for a known caption'
+  );
+  assert.deepEqual([...after.descriptions].sort(), [
+    ['p4', 'λεζάντα p4'],
+    ['p5', 'νέα p5'],
+  ]);
   assert.equal(after.picturesNotSeen, 3);
   assert.equal(after.messages, before.messages, 'the same lines');
-  assert.deepEqual([[...before.descriptions], before.picturesNotSeen], [[['p4', 'λεζάντα p4']], 4], 'the given record is not changed');
+  assert.deepEqual(
+    [[...before.descriptions], before.picturesNotSeen],
+    [[['p4', 'λεζάντα p4']], 4],
+    'the given record is not changed'
+  );
   const line = logs.find((entry) => entry.msg === 'pull: captions');
   assert.deepEqual(
     { channel: line.channel, source: line.source, pullReason: line.pullReason },
-    { channel: main.id, source: channel.id, pullReason: 'mention' },
+    { channel: main.id, source: channel.id, pullReason: 'mention' }
   );
   assert.deepEqual([line.pictures, line.cached, line.asked, line.fresh, line.late, line.notSeen], [5, 1, 1, 1, 0, 3]);
 });
@@ -1044,14 +1252,19 @@ test('fetchPull: an earlier call that cannot be read is left out, the rest of th
     messages: [{ ts: LAST - 300 * MIN, mentionsSelf: true }, ...burst(LAST - 50 * MIN, LAST, 10)],
   });
   const call = diary.raws[0];
-  const ring = [{ messageId: call.id, channelId: diary.id, ts: call.createdTimestamp, answeredAt: null, skippedAt: null }];
+  const ring = [
+    { messageId: call.id, channelId: diary.id, ts: call.createdTimestamp, answeredAt: null, skippedAt: null },
+  ];
   pageFrom(diary, LAST - 50 * MIN, { byId: unreadable });
   const { result, logs } = await withCapturedLogs(() => pull(guild, diary.id, { pings: ring }));
   const { pulled, skip } = result;
   assert.equal(skip, null);
   assert.ok(diary.fetchCalls.includes(call.id), 'asked for by id');
   assert.equal(pulled.earlierPingIds.size, 0);
-  assert.equal(pulled.messages.some((m) => m.id === call.id), false);
+  assert.equal(
+    pulled.messages.some((m) => m.id === call.id),
+    false
+  );
   assert.equal(pulled.messages.length, 6);
   const warn = logs.find((entry) => entry.msg === 'pull: call unreadable');
   assert.deepEqual([warn.level, warn.source], ['warn', diary.id]);
@@ -1066,29 +1279,39 @@ test('fetchPull: the logs carry counts and codes, never message text or captions
   mainChannel(guild);
   const channel = addChannel(guild, {
     id: '760000000000000081',
-    messages: [{ ts: LAST - MIN, content: 'μυστικό ημερολόγιο', images: ['p1'] }, { ts: LAST, content: 'café crème' }],
+    messages: [
+      { ts: LAST - MIN, content: 'μυστικό ημερολόγιο', images: ['p1'] },
+      { ts: LAST, content: 'café crème' },
+    ],
   });
   const describer = fakeDescriber({ fresh: { p1: 'ιδιωτική λεζάντα' } });
-  const { logs } = await withCapturedLogs(() => pull(guild, channel.id, { describer, turnCertain: true, reason: 'routed' }));
+  const { logs } = await withCapturedLogs(() =>
+    pull(guild, channel.id, { describer, turnCertain: true, reason: 'routed' })
+  );
   const line = logs.find((entry) => entry.msg === 'pull: channel');
-  assert.deepEqual(Object.keys(line).filter((key) => !['level', 'time', 'msg'].includes(key)).sort(), [
-    'asked',
-    'cached',
-    'channel',
-    'direction',
-    'earlier',
-    'earlierGone',
-    'fresh',
-    'late',
-    'messages',
-    'ms',
-    'notSeen',
-    'olderNotShown',
-    'pictures',
-    'pings',
-    'pullReason',
-    'source',
-  ]);
+  assert.deepEqual(
+    Object.keys(line)
+      .filter((key) => !['level', 'time', 'msg'].includes(key))
+      .sort(),
+    [
+      'asked',
+      'cached',
+      'channel',
+      'direction',
+      'earlier',
+      'earlierGone',
+      'fresh',
+      'late',
+      'messages',
+      'ms',
+      'notSeen',
+      'olderNotShown',
+      'pictures',
+      'pings',
+      'pullReason',
+      'source',
+    ]
+  );
   assert.equal(line.pullReason, 'routed', 'why it was pulled: the same field as on pull: skipped');
   assert.equal('reason' in line, false, '`reason` is only ever a skip code');
   assert.equal(typeof line.ms, 'number');
@@ -1103,9 +1326,15 @@ test('pull: a read-only channel where only the persona writes is pulled and its 
     id: '760000000000000071',
     name: 'ημερολόγιο',
     granted: [READ, REACT],
-    messages: [{ ts: LAST - 5 * MIN, authorId: SELF_ID }, { ts: LAST, authorId: SELF_ID }],
+    messages: [
+      { ts: LAST - 5 * MIN, authorId: SELF_ID },
+      { ts: LAST, authorId: SELF_ID },
+    ],
   });
-  assert.deepEqual(checkPull({ guild, channelId: diary.id, destination: main, config: config(), now: NOW }), { channel: diary, skip: null });
+  assert.deepEqual(checkPull({ guild, channelId: diary.id, destination: main, config: config(), now: NOW }), {
+    channel: diary,
+    skip: null,
+  });
   const { result } = await withCapturedLogs(() => pull(guild, diary.id));
   assert.equal(result.skip, null);
   assert.equal(result.pulled.readOnly, true);

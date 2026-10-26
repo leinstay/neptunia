@@ -45,7 +45,8 @@ const handlers = perEnv((env) => {
 
   /** The errand service, or an Error naming what is missing. */
   function errands() {
-    if (!env.errands || typeof env.errands.submit !== 'function') throw Object.assign(new Error('the errand agents are not running'), { code: CODE.NOT_CONFIGURED });
+    if (!env.errands || typeof env.errands.submit !== 'function')
+      throw Object.assign(new Error('the errand agents are not running'), { code: CODE.NOT_CONFIGURED });
     return env.errands;
   }
 
@@ -77,7 +78,10 @@ const handlers = perEnv((env) => {
   /** One line of a task: id, agent, state (with the error code and `files-expired`), age, goal. */
   function taskLine(task) {
     const minutes = Math.max(0, Math.floor((now() - (task.createdAt ?? now())) / MINUTE_MS));
-    const codes = [...(task.error && task.state !== 'done' ? [task.error] : []), ...(task.filesExpired === true ? ['files-expired'] : [])];
+    const codes = [
+      ...(task.error && task.state !== 'done' ? [task.error] : []),
+      ...(task.filesExpired === true ? ['files-expired'] : []),
+    ];
     const state = codes.length > 0 ? `${task.state} (${codes.join(', ')})` : task.state;
     return `${task.id} ${task.agent} ${state} ${minutes}m: ${clampWithEllipsis(oneLine(task.goal), GOAL_LINE_CHARS)}`;
   }
@@ -97,7 +101,8 @@ const handlers = perEnv((env) => {
     if (!goal) throw invalid('a goal is required');
     const requester = requesterOf(context);
     // Only an owner may have this machine read, through the persona or not.
-    if (agent === 'server' && requester.kind !== 'owner') throw denied('only an owner may ask for the server agent', CODE.OWNER_ONLY);
+    if (agent === 'server' && requester.kind !== 'owner')
+      throw denied('only an owner may ask for the server agent', CODE.OWNER_ONLY);
     const scope = inPrivate(context) ? 'dm' : 'group';
     // Her own call carries its turn and its idempotency key (src/skills/executors.js); a command neither.
     const persona = context?.actor === 'persona';
@@ -107,13 +112,27 @@ const handlers = perEnv((env) => {
       ...(persona && context?.turnId ? { turnId: String(context.turnId) } : {}),
     };
     const idempotencyKey = persona && typeof context?.idempotencyKey === 'string' ? context.idempotencyKey : null;
-    const submitted = errands().submit({ guildId: resolvedGuildId(context), agent, goal, requester, origin, scope, idempotencyKey });
+    const submitted = errands().submit({
+      guildId: resolvedGuildId(context),
+      agent,
+      goal,
+      requester,
+      origin,
+      scope,
+      idempotencyKey,
+    });
     if (!submitted.ok) return refusal(submitted.code);
     const { task } = submitted;
     // An intention of the same turn waiting for the errand it hands off is linked to it now
     // (src/intentions/service.js#linkTurnTask); a refused errand above links nothing.
-    if (origin.turnId) env.intentions?.linkTurnTask?.(resolvedGuildId(context), { turnId: origin.turnId, taskId: task.id });
-    return { status: 'ok', code: CODE.OK, summary: `task ${task.id}: queued (${agent})`, data: { text: `task ${task.id}: queued (${agent})`, task: { id: task.id, agent, state: task.state } } };
+    if (origin.turnId)
+      env.intentions?.linkTurnTask?.(resolvedGuildId(context), { turnId: origin.turnId, taskId: task.id });
+    return {
+      status: 'ok',
+      code: CODE.OK,
+      summary: `task ${task.id}: queued (${agent})`,
+      data: { text: `task ${task.id}: queued (${agent})`, task: { id: task.id, agent, state: task.state } },
+    };
   }
 
   /** `/nep task status [id]`: one task, or every open one. */
@@ -126,16 +145,23 @@ const handlers = perEnv((env) => {
       if (!task || !mayView(task, context)) throw invalid(`no task ${id}`, CODE.NOT_FOUND);
       const lines = [taskLine(task)];
       if (task.state === 'done' && task.result) {
-        lines.push(`result: ${task.result.text ? `${task.result.text.length} chars` : 'empty'}, ${task.result.sources?.length ?? 0} sources, ${task.result.files?.length ?? 0} files`);
+        lines.push(
+          `result: ${task.result.text ? `${task.result.text.length} chars` : 'empty'}, ${task.result.sources?.length ?? 0} sources, ${task.result.files?.length ?? 0} files`
+        );
       }
-      if (task.usage) lines.push(`usage: ${task.usage.steps ?? 0} steps, ${(task.usage.usd ?? 0).toFixed(3)} USD, ${Math.round(task.usage.seconds ?? 0)} s`);
+      if (task.usage)
+        lines.push(
+          `usage: ${task.usage.steps ?? 0} steps, ${(task.usage.usd ?? 0).toFixed(3)} USD, ${Math.round(task.usage.seconds ?? 0)} s`
+        );
       // The ledger's id of the task's mirror (src/errands/ledger.js), when it has one.
       if (task.ledgerId) lines.push(`ledger: ${task.ledgerId}`);
       return lines.join('\n');
     }
     // The open tasks, then the finished ones she has not read (their result is still waiting).
     const listed = [...store.open(), ...store.unread()].filter((task) => mayView(task, context));
-    return listed.length > 0 ? listed.map((task) => (isOpenState(task.state) ? taskLine(task) : `${taskLine(task)} (unread)`)).join('\n') : 'no open tasks';
+    return listed.length > 0
+      ? listed.map((task) => (isOpenState(task.state) ? taskLine(task) : `${taskLine(task)} (unread)`)).join('\n')
+      : 'no open tasks';
   }
 
   /** A finished task of the caller's view, or an `invalid` error: not found, not viewable, still open. */
@@ -157,17 +183,24 @@ const handlers = perEnv((env) => {
     const page = Number.isInteger(configured) && configured > 0 ? configured : DEFAULT_RESULT_MAX_CHARS;
     const text = typeof task.result?.text === 'string' ? task.result.text : '';
     const from = args?.from === undefined || args?.from === null || args?.from === '' ? 0 : Number(args.from);
-    if (!Number.isInteger(from) || from < 0 || (from > 0 && from >= text.length)) throw invalid(`from must be between 0 and ${Math.max(0, text.length - 1)}`);
+    if (!Number.isInteger(from) || from < 0 || (from > 0 && from >= text.length))
+      throw invalid(`from must be between 0 and ${Math.max(0, text.length - 1)}`);
     const to = Math.min(text.length, from + page);
     const lines = [taskLine(task)];
     if (from === 0) {
       if (task.error && task.state !== 'done') lines.push(`error: ${task.error}`);
-      const sources = Array.isArray(task.result?.sources) ? task.result.sources.filter((url) => typeof url === 'string' && url) : [];
+      const sources = Array.isArray(task.result?.sources)
+        ? task.result.sources.filter((url) => typeof url === 'string' && url)
+        : [];
       for (const [i, url] of sources.entries()) lines.push(`source ${i + 1}: ${url}`);
       for (const file of Array.isArray(task.result?.files) ? task.result.files : []) {
         if (!file || typeof file.name !== 'string') continue;
         const meta = `${file.contentType || '-'}, ${Number(file.bytes) || 0} bytes`;
-        lines.push(task.filesExpired === true ? `file: ${file.name} (${meta}) expired, no handle` : `file: ${fileHandle(task.id, file.name)} (${meta})`);
+        lines.push(
+          task.filesExpired === true
+            ? `file: ${file.name} (${meta}) expired, no handle`
+            : `file: ${fileHandle(task.id, file.name)} (${meta})`
+        );
       }
     }
     lines.push(text ? `result: characters ${from}-${to} of ${text.length}` : 'result: empty');
@@ -197,11 +230,18 @@ const handlers = perEnv((env) => {
     if (!task || !mayView(task, context)) throw invalid(`no task ${id}`, CODE.NOT_FOUND);
     const own = Boolean(context?.userId) && String(context.userId) === task.requester?.userId;
     const hers = context?.actor === 'persona' && task.requester?.kind === 'persona';
-    if (!ownerCalls(context) && !own && !hers) throw denied('only the requester of the task or an owner may cancel it', CODE.NOT_REQUESTER);
+    if (!ownerCalls(context) && !own && !hers)
+      throw denied('only the requester of the task or an owner may cancel it', CODE.NOT_REQUESTER);
     // Who cancelled it, for the ledger's close reason.
     const by = context?.actor === 'persona' ? 'persona' : ownerCalls(context) ? 'owner' : 'requester';
     const cancelled = service.cancel({ guildId: resolvedGuildId(context), id, by });
-    if (!cancelled.ok) return { status: 'failed', code: cancelled.code, summary: `task ${id}: ${cancelled.code === CODE.NOT_OPEN ? `already ${task.state}` : cancelled.code}`, data: null };
+    if (!cancelled.ok)
+      return {
+        status: 'failed',
+        code: cancelled.code,
+        summary: `task ${id}: ${cancelled.code === CODE.NOT_OPEN ? `already ${task.state}` : cancelled.code}`,
+        data: null,
+      };
     return `task ${id}: cancelled`;
   }
 
@@ -209,7 +249,10 @@ const handlers = perEnv((env) => {
   function cmdList(args, context) {
     const store = errands().store(resolvedGuildId(context));
     if (!store) throw Object.assign(new Error('no guild'), { code: CODE.NO_GUILD });
-    const tasks = store.recent(TASK_LIST_COUNT * 3).filter((task) => mayView(task, context)).slice(0, TASK_LIST_COUNT);
+    const tasks = store
+      .recent(TASK_LIST_COUNT * 3)
+      .filter((task) => mayView(task, context))
+      .slice(0, TASK_LIST_COUNT);
     return tasks.length > 0 ? tasks.map(taskLine).join('\n') : 'no tasks yet';
   }
 

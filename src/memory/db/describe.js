@@ -43,7 +43,8 @@ const codeOf = (error) => error?.code ?? error?.name ?? 'ERROR';
 const present = (value) => typeof value === 'string' && value.trim() !== '';
 
 /** A finite number above 0, else `fallback`. */
-const positive = (value, fallback) => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback);
+const positive = (value, fallback) =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback;
 
 /**
  * The display cap of a field, in characters: the limits the store applies to the same kind of text
@@ -52,18 +53,28 @@ const positive = (value, fallback) => (typeof value === 'number' && Number.isFin
  */
 export function fieldCap(config, field) {
   const fieldChars = positive(config?.memory?.fieldChars, MEMORY_LIMIT_DEFAULTS.fieldChars);
-  if (field === 'relationship') return positive(config?.relationships?.textChars, MEMORY_LIMIT_DEFAULTS.relationshipChars);
+  if (field === 'relationship')
+    return positive(config?.relationships?.textChars, MEMORY_LIMIT_DEFAULTS.relationshipChars);
   if (field === 'patterns' || field === 'starters') return fieldChars * 2;
   return fieldChars;
 }
 
-const wordsOf = (text) => [...new Set(String(text ?? '').normalize('NFKC').toLowerCase().match(/[\p{L}\p{N}]{4,}/gu) ?? [])];
+const wordsOf = (text) => [
+  ...new Set(
+    String(text ?? '')
+      .normalize('NFKC')
+      .toLowerCase()
+      .match(/[\p{L}\p{N}]{4,}/gu) ?? []
+  ),
+];
 
 /** Whether `description` carries the claim: most of the claim's words (4 letters or more) occur in it. */
 export function showsClaim(description, claim) {
   const words = wordsOf(claim.text);
   if (words.length === 0) return false;
-  const haystack = String(description ?? '').normalize('NFKC').toLowerCase();
+  const haystack = String(description ?? '')
+    .normalize('NFKC')
+    .toLowerCase();
   const found = words.filter((word) => haystack.includes(word)).length;
   return found / words.length >= 0.6;
 }
@@ -83,8 +94,14 @@ export function claimDiff(claims, before, after) {
   return { lost, gained, kept };
 }
 
-const claimStatus = (claim) => (claim.shown === 1 && (claim.truth === 'current' || claim.truth === 'disputed') ? `shown, ${claim.truth}` : `historical${claim.valid_to ? ` since ${claim.valid_to}` : ''}, ${claim.truth}`);
-const claimLine = (claim) => `[${claim.id}] ${claim.kind ? `${claim.kind}: ` : ''}${String(claim.text ?? '').replace(/\s+/g, ' ').trim()} (${[claim.first_seen_at, claim.last_seen_at].filter(Boolean).join(' to ') || 'undated'}; ${claimStatus(claim)})`;
+const claimStatus = (claim) =>
+  claim.shown === 1 && (claim.truth === 'current' || claim.truth === 'disputed')
+    ? `shown, ${claim.truth}`
+    : `historical${claim.valid_to ? ` since ${claim.valid_to}` : ''}, ${claim.truth}`;
+const claimLine = (claim) =>
+  `[${claim.id}] ${claim.kind ? `${claim.kind}: ` : ''}${String(claim.text ?? '')
+    .replace(/\s+/g, ' ')
+    .trim()} (${[claim.first_seen_at, claim.last_seen_at].filter(Boolean).join(' to ') || 'undated'}; ${claimStatus(claim)})`;
 
 /** The scope columns a review reads and writes in: the read context's own. */
 export function scopeOfContext(readCtx) {
@@ -96,58 +113,91 @@ export function scopeOfContext(readCtx) {
  * `audienceColumn`: the stored row is found by its `audience_id` (the scope's audience), else by the triple.
  */
 export function descriptionIdFor(db, subject, field, scope, { audienceColumn = false } = {}) {
-  const found = audienceColumn === true
-    ? db.prepare('SELECT id FROM descriptions WHERE subject_id = ? AND field = ? AND audience_id = ? AND retired_at IS NULL ORDER BY id LIMIT 1')
-      .get(subject.id, field, audienceOf(scope).audience_id)
-    : db.prepare(
-      `SELECT id FROM descriptions WHERE subject_id = ? AND field = ? AND scope_kind IS ? AND scope_iface IS ? AND scope_dm IS ? AND retired_at IS NULL ORDER BY id LIMIT 1`,
-    ).get(subject.id, field, scope.scope_kind, scope.scope_iface, scope.scope_dm);
+  const found =
+    audienceColumn === true
+      ? db
+          .prepare(
+            'SELECT id FROM descriptions WHERE subject_id = ? AND field = ? AND audience_id = ? AND retired_at IS NULL ORDER BY id LIMIT 1'
+          )
+          .get(subject.id, field, audienceOf(scope).audience_id)
+      : db
+          .prepare(
+            `SELECT id FROM descriptions WHERE subject_id = ? AND field = ? AND scope_kind IS ? AND scope_iface IS ? AND scope_dm IS ? AND retired_at IS NULL ORDER BY id LIMIT 1`
+          )
+          .get(subject.id, field, scope.scope_kind, scope.scope_iface, scope.scope_dm);
   if (found) return found.id;
-  const tag = scope.scope_kind === 'dm' ? `dm.${scope.scope_iface}.${scope.scope_dm}` : `${scope.scope_kind}.${scope.scope_iface}`;
+  const tag =
+    scope.scope_kind === 'dm'
+      ? `dm.${scope.scope_iface}.${scope.scope_dm}`
+      : `${scope.scope_kind}.${scope.scope_iface}`;
   return `desc:${tag}:${subject.id}:${field}`;
 }
 
 function sourceLines(db, claimId, timezone, seen) {
-  return db.prepare(
-    `SELECT s.id, s.occurred_at, s.text FROM claim_sources cs JOIN sources s ON s.id = cs.source_id WHERE cs.claim_id = ? AND cs.retired_at IS NULL AND s.retired_at IS NULL
-      ORDER BY cs.position LIMIT ?`,
-  ).all(claimId, SOURCES_PER_ITEM).map((row) => {
-    seen?.add(row.id);
-    return `  source ${Number.isFinite(Date.parse(row.occurred_at)) ? stamp(Date.parse(row.occurred_at), timezone) : '?'}: ${String(row.text ?? '').replace(/\s+/g, ' ').slice(0, SOURCE_CHARS)}`;
-  });
+  return db
+    .prepare(
+      `SELECT s.id, s.occurred_at, s.text FROM claim_sources cs JOIN sources s ON s.id = cs.source_id WHERE cs.claim_id = ? AND cs.retired_at IS NULL AND s.retired_at IS NULL
+      ORDER BY cs.position LIMIT ?`
+    )
+    .all(claimId, SOURCES_PER_ITEM)
+    .map((row) => {
+      seen?.add(row.id);
+      return `  source ${Number.isFinite(Date.parse(row.occurred_at)) ? stamp(Date.parse(row.occurred_at), timezone) : '?'}: ${String(
+        row.text ?? ''
+      )
+        .replace(/\s+/g, ' ')
+        .slice(0, SOURCE_CHARS)}`;
+    });
 }
 
 /** What the first call is given, from the database. */
 export function gatherReview(db, subject, field, { config, readCtx }) {
   const scopeColumns = scopeOfContext(readCtx);
-  const descriptionId = descriptionIdFor(db, subject, field, scopeColumns, { audienceColumn: readCtx?.audienceColumn === true });
+  const descriptionId = descriptionIdFor(db, subject, field, scopeColumns, {
+    audienceColumn: readCtx?.audienceColumn === true,
+  });
   const sourceIds = new Set();
   const timezone = config?.bot?.timezone ?? 'UTC';
   const scope = scopeWhere(readCtx, 'c');
-  const claims = db.prepare(
-    `SELECT c.id, c.kind, c.text, c.first_seen_at, c.last_seen_at, c.valid_to, c.truth, c.shown FROM claims c
-      WHERE c.subject_kind = ? AND c.subject_id = ? AND c.retired_at IS NULL AND ${scope.sql} ORDER BY c.first_seen_at, c.id LIMIT 300`,
-  ).all(subject.kind, subject.id, ...scope.params);
-  const currentRow = db.prepare(
-    `SELECT d.current_version AS id, v.text FROM descriptions d JOIN description_versions v ON v.id = d.current_version WHERE d.id = ? AND d.retired_at IS NULL`,
-  ).get(descriptionId);
+  const claims = db
+    .prepare(
+      `SELECT c.id, c.kind, c.text, c.first_seen_at, c.last_seen_at, c.valid_to, c.truth, c.shown FROM claims c
+      WHERE c.subject_kind = ? AND c.subject_id = ? AND c.retired_at IS NULL AND ${scope.sql} ORDER BY c.first_seen_at, c.id LIMIT 300`
+    )
+    .all(subject.kind, subject.id, ...scope.params);
+  const currentRow = db
+    .prepare(
+      `SELECT d.current_version AS id, v.text FROM descriptions d JOIN description_versions v ON v.id = d.current_version WHERE d.id = ? AND d.retired_at IS NULL`
+    )
+    .get(descriptionId);
   const current = currentRow?.text ?? '';
-  const currentVersion = db.prepare('SELECT current_version FROM descriptions WHERE id = ?').get(descriptionId)?.current_version ?? null;
+  const currentVersion =
+    db.prepare('SELECT current_version FROM descriptions WHERE id = ?').get(descriptionId)?.current_version ?? null;
   // "Last reviewed" is the accepted path's mark: a shadow review never moves it.
-  const last = db.prepare("SELECT MAX(written_at) AS at FROM description_versions WHERE description_id = ? AND retired_at IS NULL AND written_at IS NOT NULL AND origin IS NOT 'shadow'").get(descriptionId)?.at ?? null;
+  const last =
+    db
+      .prepare(
+        "SELECT MAX(written_at) AS at FROM description_versions WHERE description_id = ? AND retired_at IS NULL AND written_at IS NOT NULL AND origin IS NOT 'shadow'"
+      )
+      .get(descriptionId)?.at ?? null;
 
   const byId = new Map(claims.map((claim) => [claim.id, claim]));
   const evidence = [];
   const evidenceClaims = new Set();
   if (claims.length > 0) {
     const marks = claims.map(() => '?').join(', ');
-    const versions = db.prepare(
-      `SELECT claim_id, event, text, recorded_at FROM claim_versions WHERE claim_id IN (${marks}) AND retired_at IS NULL
-        ${last ? 'AND recorded_at > ?' : ''} ORDER BY recorded_at DESC, rowid DESC LIMIT ?`,
-    ).all(...claims.map((claim) => claim.id), ...(last ? [last] : []), EVIDENCE_MAX);
+    const versions = db
+      .prepare(
+        `SELECT claim_id, event, text, recorded_at FROM claim_versions WHERE claim_id IN (${marks}) AND retired_at IS NULL
+        ${last ? 'AND recorded_at > ?' : ''} ORDER BY recorded_at DESC, rowid DESC LIMIT ?`
+      )
+      .all(...claims.map((claim) => claim.id), ...(last ? [last] : []), EVIDENCE_MAX);
     for (const version of versions.reverse()) {
       evidenceClaims.add(version.claim_id);
-      evidence.push(`${version.recorded_at ?? 'undated'} ${version.event} [${version.claim_id}] ${String(version.text ?? '').replace(/\s+/g, ' ')}`, ...sourceLines(db, version.claim_id, timezone, sourceIds));
+      evidence.push(
+        `${version.recorded_at ?? 'undated'} ${version.event} [${version.claim_id}] ${String(version.text ?? '').replace(/\s+/g, ' ')}`,
+        ...sourceLines(db, version.claim_id, timezone, sourceIds)
+      );
     }
     // A claim the sync brought in without versions: it counts as evidence when it was seen after the last review.
     for (const claim of claims) {
@@ -155,7 +205,10 @@ export function gatherReview(db, subject, field, { config, readCtx }) {
       const seen = claim.last_seen_at ?? claim.first_seen_at;
       if (last && (!seen || seen <= last.slice(0, seen.length))) continue;
       evidenceClaims.add(claim.id);
-      evidence.push(`${seen ?? 'undated'} seen [${claim.id}] ${String(claim.text ?? '').replace(/\s+/g, ' ')}`, ...sourceLines(db, claim.id, timezone, sourceIds));
+      evidence.push(
+        `${seen ?? 'undated'} seen [${claim.id}] ${String(claim.text ?? '').replace(/\s+/g, ' ')}`,
+        ...sourceLines(db, claim.id, timezone, sourceIds)
+      );
     }
   }
   // Samples: lines from the other claims, spread over time.
@@ -163,16 +216,38 @@ export function gatherReview(db, subject, field, { config, readCtx }) {
   const pool = [];
   for (const claim of claims) {
     if (evidenceClaims.has(claim.id)) continue;
-    for (const row of db.prepare(
-      `SELECT s.id, s.occurred_at, s.text FROM claim_sources cs JOIN sources s ON s.id = cs.source_id WHERE cs.claim_id = ? AND cs.retired_at IS NULL AND s.retired_at IS NULL ORDER BY cs.position LIMIT 1`,
-    ).all(claim.id)) pool.push({ id: row.id, at: row.occurred_at ?? '', text: row.text });
+    for (const row of db
+      .prepare(
+        `SELECT s.id, s.occurred_at, s.text FROM claim_sources cs JOIN sources s ON s.id = cs.source_id WHERE cs.claim_id = ? AND cs.retired_at IS NULL AND s.retired_at IS NULL ORDER BY cs.position LIMIT 1`
+      )
+      .all(claim.id))
+      pool.push({ id: row.id, at: row.occurred_at ?? '', text: row.text });
   }
   pool.sort((a, b) => a.at.localeCompare(b.at));
   if (pool.length <= SAMPLES_MAX) sampled.push(...pool);
-  else for (let i = 0; i < SAMPLES_MAX; i += 1) sampled.push(pool[Math.floor((i * (pool.length - 1)) / (SAMPLES_MAX - 1))]);
+  else
+    for (let i = 0; i < SAMPLES_MAX; i += 1)
+      sampled.push(pool[Math.floor((i * (pool.length - 1)) / (SAMPLES_MAX - 1))]);
   for (const row of sampled) sourceIds.add(row.id);
-  const samples = sampled.map((row) => `${Number.isFinite(Date.parse(row.at)) ? stamp(Date.parse(row.at), timezone) : '?'}: ${String(row.text ?? '').replace(/\s+/g, ' ').slice(0, SOURCE_CHARS)}`);
-  return { descriptionId, scope: scopeColumns, claims, byId, current, currentVersion, last, evidence, evidenceClaims: [...evidenceClaims], sourceIds: [...sourceIds], samples };
+  const samples = sampled.map(
+    (row) =>
+      `${Number.isFinite(Date.parse(row.at)) ? stamp(Date.parse(row.at), timezone) : '?'}: ${String(row.text ?? '')
+        .replace(/\s+/g, ' ')
+        .slice(0, SOURCE_CHARS)}`
+  );
+  return {
+    descriptionId,
+    scope: scopeColumns,
+    claims,
+    byId,
+    current,
+    currentVersion,
+    last,
+    evidence,
+    evidenceClaims: [...evidenceClaims],
+    sourceIds: [...sourceIds],
+    samples,
+  };
 }
 
 /** `<description>` and `<reason>` of an answer (the thinking removed); null when the description is missing or empty. */
@@ -225,7 +300,8 @@ export async function reviewDescription(db, subject, field, { ctx }) {
   const now = ctx.now ?? Date.now;
   const refused = reviewRefusal(config, ctx.env, prompts);
   if (refused) return { status: refused === CODES.OFF ? 'off' : 'refused', code: refused };
-  if (!DESCRIPTION_FIELDS.includes(field) || !subject?.id || !['person', 'place', 'self'].includes(subject.kind)) return { status: 'refused', code: 'bad_subject' };
+  if (!DESCRIPTION_FIELDS.includes(field) || !subject?.id || !['person', 'place', 'self'].includes(subject.kind))
+    return { status: 'refused', code: 'bad_subject' };
   // Read through `audience_id` when the live config says so (`memoryDb.audienceColumn`) or the caller's context does.
   const given = ctx.readCtx ?? groupContext('discord');
   const readCtx = config?.memoryDb?.audienceColumn === true ? { ...given, audienceColumn: true } : given;
@@ -240,17 +316,31 @@ export async function reviewDescription(db, subject, field, { ctx }) {
   };
 
   // Call 1: the draft, from the claims and the evidence alone.
-  const subjectBody = [`subject: ${subject.name ?? subject.id}`, `kind: ${subject.kind}`, `field: ${field}`, `cap: ${cap} characters`].join('\n');
+  const subjectBody = [
+    `subject: ${subject.name ?? subject.id}`,
+    `kind: ${subject.kind}`,
+    `field: ${field}`,
+    `cap: ${cap} characters`,
+  ].join('\n');
   const draftUser = [
     block('subject', subjectBody),
     block('claims', gathered.claims.map(claimLine).join('\n')),
     block('evidence', gathered.evidence.join('\n')),
     block('samples', gathered.samples.join('\n')),
-  ].filter(Boolean).join('\n\n');
+  ]
+    .filter(Boolean)
+    .join('\n\n');
   let draft;
   const answers = [];
   try {
-    const completion = await ask(ctx, [{ role: 'system', content: systemTextOf(prompts, selfName, prompts[DRAFT_PURPOSE]) }, { role: 'user', content: draftUser }], { purpose: DRAFT_PURPOSE, maxOutputTokens: settings.descriptionMaxOutputTokens });
+    const completion = await ask(
+      ctx,
+      [
+        { role: 'system', content: systemTextOf(prompts, selfName, prompts[DRAFT_PURPOSE]) },
+        { role: 'user', content: draftUser },
+      ],
+      { purpose: DRAFT_PURPOSE, maxOutputTokens: settings.descriptionMaxOutputTokens }
+    );
     add(completion);
     if (typeof completion?.text === 'string') answers.push({ purpose: DRAFT_PURPOSE, text: completion.text });
     draft = parseDescriptionAnswer(completion?.text);
@@ -263,17 +353,28 @@ export async function reviewDescription(db, subject, field, { ctx }) {
   // Call 2: the check, against the stored text and the claim-level diff.
   const draftDiff = claimDiff(gathered.claims, gathered.current, draft.description);
   const diffBody = [
-    draftDiff.lost.length ? `the old text showed, the draft does not:\n${draftDiff.lost.map(claimLine).join('\n')}` : '',
-    draftDiff.gained.length ? `the draft shows, the old text did not:\n${draftDiff.gained.map(claimLine).join('\n')}` : '',
-  ].filter(Boolean).join('\n\n');
-  const checkUser = [
-    block('draft', draft.description),
-    block('current', gathered.current),
-    block('diff', diffBody),
-  ].filter(Boolean).join('\n\n');
+    draftDiff.lost.length
+      ? `the old text showed, the draft does not:\n${draftDiff.lost.map(claimLine).join('\n')}`
+      : '',
+    draftDiff.gained.length
+      ? `the draft shows, the old text did not:\n${draftDiff.gained.map(claimLine).join('\n')}`
+      : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+  const checkUser = [block('draft', draft.description), block('current', gathered.current), block('diff', diffBody)]
+    .filter(Boolean)
+    .join('\n\n');
   let final;
   try {
-    const completion = await ask(ctx, [{ role: 'system', content: systemTextOf(prompts, selfName, prompts[CHECK_PURPOSE]) }, { role: 'user', content: checkUser }], { purpose: CHECK_PURPOSE, maxOutputTokens: settings.descriptionMaxOutputTokens });
+    const completion = await ask(
+      ctx,
+      [
+        { role: 'system', content: systemTextOf(prompts, selfName, prompts[CHECK_PURPOSE]) },
+        { role: 'user', content: checkUser },
+      ],
+      { purpose: CHECK_PURPOSE, maxOutputTokens: settings.descriptionMaxOutputTokens }
+    );
     add(completion);
     if (typeof completion?.text === 'string') answers.push({ purpose: CHECK_PURPOSE, text: completion.text });
     final = parseDescriptionAnswer(completion?.text);
@@ -315,8 +416,14 @@ export async function reviewDescription(db, subject, field, { ctx }) {
   };
   try {
     await ctx.write({
-      kind: 'description', mode: settings.mode, row, subject: { kind: subject.kind, id: subject.id, field }, scope: gathered.scope,
-      expectCurrent: gathered.currentVersion, answers, now: at,
+      kind: 'description',
+      mode: settings.mode,
+      row,
+      subject: { kind: subject.kind, id: subject.id, field },
+      scope: gathered.scope,
+      expectCurrent: gathered.currentVersion,
+      answers,
+      now: at,
     });
   } catch (error) {
     log.warn?.('description review: write failed', { code: codeOf(error) });

@@ -25,10 +25,26 @@ import { deriveMirrorPublication } from './publish.js';
 
 /** Tables whose rows belong to one file (`owner_file`), and their primary key columns. */
 export const OWNED = {
-  people: ['id'], accounts: ['id'], places: ['id'], memberships: ['id'], sources: ['id'], claims: ['id'],
-  claim_versions: ['id'], descriptions: ['id'], description_versions: ['id'], episodes: ['id'],
-  affinity_events: ['id'], day: ['id'], diary: ['id'], media: ['id'], intentions: ['id'], work: ['id'],
-  work_events: ['id'], decisions: ['id'], operational: ['kind', 'owner'], vectors: ['chunk_key'],
+  people: ['id'],
+  accounts: ['id'],
+  places: ['id'],
+  memberships: ['id'],
+  sources: ['id'],
+  claims: ['id'],
+  claim_versions: ['id'],
+  descriptions: ['id'],
+  description_versions: ['id'],
+  episodes: ['id'],
+  affinity_events: ['id'],
+  day: ['id'],
+  diary: ['id'],
+  media: ['id'],
+  intentions: ['id'],
+  work: ['id'],
+  work_events: ['id'],
+  decisions: ['id'],
+  operational: ['kind', 'owner'],
+  vectors: ['chunk_key'],
 };
 
 /** Tables that hang off a parent row of the same unit: child table -> [parent table, link column, parent key]. */
@@ -44,7 +60,16 @@ const columnCache = new WeakMap();
 function columnsOf(db, table) {
   let tables = columnCache.get(db);
   if (!tables) columnCache.set(db, (tables = new Map()));
-  if (!tables.has(table)) tables.set(table, new Set(db.prepare(`PRAGMA table_info(${quote(table)})`).all().map((c) => c.name)));
+  if (!tables.has(table))
+    tables.set(
+      table,
+      new Set(
+        db
+          .prepare(`PRAGMA table_info(${quote(table)})`)
+          .all()
+          .map((c) => c.name)
+      )
+    );
   return tables.get(table);
 }
 
@@ -70,9 +95,15 @@ function upsert(db, table, row, { ignore = false } = {}) {
   const key = OWNED[table] ?? [];
   const update = cols.filter((col) => !key.includes(col));
   // A source whose text changed loses its stems (the stems job stems it again).
-  const restem = table === 'sources' && cols.includes('text') && have.has('stems') ? ', "stems" = CASE WHEN excluded."text" IS "sources"."text" THEN "sources"."stems" ELSE NULL END' : '';
-  const sql = `INSERT INTO ${quote(table)} (${cols.map(quote).join(', ')}) VALUES (${cols.map(() => '?').join(', ')}) ON CONFLICT(${key.map(quote).join(', ')}) `
-    + (ignore || update.length === 0 ? 'DO NOTHING' : `DO UPDATE SET ${update.map((col) => `${quote(col)} = excluded.${quote(col)}`).join(', ')}${restem}`);
+  const restem =
+    table === 'sources' && cols.includes('text') && have.has('stems')
+      ? ', "stems" = CASE WHEN excluded."text" IS "sources"."text" THEN "sources"."stems" ELSE NULL END'
+      : '';
+  const sql =
+    `INSERT INTO ${quote(table)} (${cols.map(quote).join(', ')}) VALUES (${cols.map(() => '?').join(', ')}) ON CONFLICT(${key.map(quote).join(', ')}) ` +
+    (ignore || update.length === 0
+      ? 'DO NOTHING'
+      : `DO UPDATE SET ${update.map((col) => `${quote(col)} = excluded.${quote(col)}`).join(', ')}${restem}`);
   prepared(db, sql).run(...cols.map((col) => bind(out[col])));
 }
 
@@ -82,8 +113,10 @@ const keyOf = (table, row) => OWNED[table].map((col) => row[col]).join('\u0000')
 function existingOf(db, table, row) {
   const key = OWNED[table];
   const origin = table === 'sources' ? ', origin' : '';
-  return prepared(db, `SELECT owner_file, retired_at${origin} FROM ${quote(table)} WHERE ${key.map((col) => `${quote(col)} = ?`).join(' AND ')}`)
-    .get(...key.map((col) => bind(row[col])));
+  return prepared(
+    db,
+    `SELECT owner_file, retired_at${origin} FROM ${quote(table)} WHERE ${key.map((col) => `${quote(col)} = ?`).join(' AND ')}`
+  ).get(...key.map((col) => bind(row[col])));
 }
 
 /**
@@ -92,8 +125,10 @@ function existingOf(db, table, row) {
  * the DM places the resolver creates are never in a unit). The unit's row adopts it (its `owner_file`, every column
  * the mapping names) instead of skipping it or writing a second row.
  */
-const observedRow = (table, found, row) => (table === 'sources' ? found.origin === 'observation'
-  : table === 'accounts' || (table === 'places' && row.kind !== 'dm'));
+const observedRow = (table, found, row) =>
+  table === 'sources'
+    ? found.origin === 'observation'
+    : table === 'accounts' || (table === 'places' && row.kind !== 'dm');
 
 /**
  * Writes one mapped row of a unit, keeping the ownership rules: a row the database wrote (no owner) is left alone;
@@ -108,7 +143,11 @@ function writeRow(db, table, row, opts) {
     if (found.owner_file !== mine && found.retired_at === null) {
       const theirs = guildOf(found.owner_file);
       if (theirs !== null && guildOf(mine) !== null && theirs !== guildOf(mine)) {
-        prepared(db, 'INSERT OR IGNORE INTO co_owners (tbl, key, owner_file) VALUES (?, ?, ?)').run(table, keyOf(table, row), mine);
+        prepared(db, 'INSERT OR IGNORE INTO co_owners (tbl, key, owner_file) VALUES (?, ?, ?)').run(
+          table,
+          keyOf(table, row),
+          mine
+        );
         return false;
       }
     }
@@ -116,43 +155,70 @@ function writeRow(db, table, row, opts) {
   // The v7 derived columns (audience, authority, native key, ...) come from the row itself, so a remap re-derives them.
   const derived = deriveRow(db, table, row, { at: opts.at });
   upsert(db, table, derived, opts);
-  if (table === 'people' || table === 'accounts' || table === 'places') ensureNodeKeys(db, table, derived, { at: opts.at });
+  if (table === 'people' || table === 'accounts' || table === 'places')
+    ensureNodeKeys(db, table, derived, { at: opts.at });
   // Schema v8: a line's `reply_to` is a `replies_to` relation, and relations waiting for this line are resolved. Schema
   // v9: the row's unit is projected (ensureRelations projects a source with its relations).
   if (table === 'sources') ensureRelations(db, derived, { at: opts.at });
   else projectRow(db, table, derived, { at: opts.at });
   if (found && found.owner_file !== row.owner_file) {
-    prepared(db, 'DELETE FROM co_owners WHERE tbl = ? AND key = ? AND owner_file = ?').run(table, keyOf(table, row), row.owner_file);
+    prepared(db, 'DELETE FROM co_owners WHERE tbl = ? AND key = ? AND owner_file = ?').run(
+      table,
+      keyOf(table, row),
+      row.owner_file
+    );
   }
   return true;
 }
 
 /** Hands a row over to another live unit that also maps it; false when there is none. */
 function handOver(db, table, key, owner) {
-  const heir = prepared(db, `SELECT c.owner_file FROM co_owners c JOIN files f ON f.path = c.owner_file
-     WHERE c.tbl = ? AND c.key = ? AND c.owner_file != ? AND f.gone_at IS NULL ORDER BY c.owner_file LIMIT 1`).get(table, keyOf(table, key), owner);
+  const heir = prepared(
+    db,
+    `SELECT c.owner_file FROM co_owners c JOIN files f ON f.path = c.owner_file
+     WHERE c.tbl = ? AND c.key = ? AND c.owner_file != ? AND f.gone_at IS NULL ORDER BY c.owner_file LIMIT 1`
+  ).get(table, keyOf(table, key), owner);
   if (!heir) return false;
   const cols = OWNED[table];
-  prepared(db, `UPDATE ${quote(table)} SET owner_file = ? WHERE ${cols.map((col) => `${quote(col)} = ?`).join(' AND ')}`).run(heir.owner_file, ...cols.map((col) => key[col]));
-  prepared(db, 'DELETE FROM co_owners WHERE tbl = ? AND key = ? AND owner_file = ?').run(table, keyOf(table, key), heir.owner_file);
+  prepared(
+    db,
+    `UPDATE ${quote(table)} SET owner_file = ? WHERE ${cols.map((col) => `${quote(col)} = ?`).join(' AND ')}`
+  ).run(heir.owner_file, ...cols.map((col) => key[col]));
+  prepared(db, 'DELETE FROM co_owners WHERE tbl = ? AND key = ? AND owner_file = ?').run(
+    table,
+    keyOf(table, key),
+    heir.owner_file
+  );
   for (const [child, [parent, link]] of Object.entries(CHILDREN)) {
-    if (parent === table) prepared(db, `UPDATE ${quote(child)} SET owner_file = ? WHERE ${quote(link)} = ? AND owner_file = ?`).run(heir.owner_file, key.id, owner);
+    if (parent === table)
+      prepared(db, `UPDATE ${quote(child)} SET owner_file = ? WHERE ${quote(link)} = ? AND owner_file = ?`).run(
+        heir.owner_file,
+        key.id,
+        owner
+      );
   }
   return true;
 }
 
 /** The identity of a child link inside its unit: where it sits under its parent (a mirror: which place it was sent to). */
-const childKey = (child, row) => (child === 'diary_mirrors'
-  ? [row.diary_id, row.iface, row.place_id ?? ''].join('\u0000')
-  : [row[CHILDREN[child][1]], row.position].join('\u0000'));
+const childKey = (child, row) =>
+  child === 'diary_mirrors'
+    ? [row.diary_id, row.iface, row.place_id ?? ''].join('\u0000')
+    : [row[CHILDREN[child][1]], row.position].join('\u0000');
 
 /** Retires the active rows of a unit that the given mapping no longer holds. Returns how many. */
 export function retireAbsent(db, owner, mapping, at) {
   let count = 0;
   for (const [table, key] of Object.entries(OWNED)) {
     const keep = new Set((mapping[table] ?? []).map((row) => keyOf(table, row)));
-    const existing = prepared(db, `SELECT ${key.map(quote).join(', ')} FROM ${quote(table)} WHERE owner_file = ? AND retired_at IS NULL`).all(owner);
-    const update = prepared(db, `UPDATE ${quote(table)} SET retired_at = ? WHERE ${key.map((col) => `${quote(col)} = ?`).join(' AND ')}`);
+    const existing = prepared(
+      db,
+      `SELECT ${key.map(quote).join(', ')} FROM ${quote(table)} WHERE owner_file = ? AND retired_at IS NULL`
+    ).all(owner);
+    const update = prepared(
+      db,
+      `UPDATE ${quote(table)} SET retired_at = ? WHERE ${key.map((col) => `${quote(col)} = ?`).join(' AND ')}`
+    );
     for (const row of existing) {
       if (keep.has(keyOf(table, row))) continue;
       if (handOver(db, table, row, owner)) continue;
@@ -162,14 +228,22 @@ export function retireAbsent(db, owner, mapping, at) {
     }
     // This unit no longer maps the rows it shared with another guild.
     for (const shared of prepared(db, 'SELECT key FROM co_owners WHERE tbl = ? AND owner_file = ?').all(table, owner)) {
-      if (!keep.has(shared.key)) prepared(db, 'DELETE FROM co_owners WHERE tbl = ? AND key = ? AND owner_file = ?').run(table, shared.key, owner);
+      if (!keep.has(shared.key))
+        prepared(db, 'DELETE FROM co_owners WHERE tbl = ? AND key = ? AND owner_file = ?').run(
+          table,
+          shared.key,
+          owner
+        );
     }
   }
   for (const [child, [parent, link]] of Object.entries(CHILDREN)) {
     const keep = new Set((mapping[child] ?? []).map((row) => childKey(child, row)));
     const cols = child === 'diary_mirrors' ? 'rowid, diary_id, iface, place_id' : `rowid, ${quote(link)}, position`;
-    const existing = prepared(db, `SELECT ${cols} FROM ${quote(child)} c WHERE owner_file = ? AND retired_at IS NULL
-      AND NOT EXISTS (SELECT 1 FROM ${quote(parent)} p WHERE p.id = c.${quote(link)} AND p.retired_at IS NULL AND p.owner_file IS NOT NULL AND p.owner_file != ?)`).all(owner, owner);
+    const existing = prepared(
+      db,
+      `SELECT ${cols} FROM ${quote(child)} c WHERE owner_file = ? AND retired_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM ${quote(parent)} p WHERE p.id = c.${quote(link)} AND p.retired_at IS NULL AND p.owner_file IS NOT NULL AND p.owner_file != ?)`
+    ).all(owner, owner);
     for (const row of existing) {
       if (keep.has(childKey(child, row))) continue;
       prepared(db, `UPDATE ${quote(child)} SET retired_at = ? WHERE rowid = ?`).run(at, row.rowid);
@@ -189,14 +263,27 @@ function writeChildren(db, mapping, owner, skippedParents, touched) {
       if (skippedParents.has(`${parent}\u0000${row[link]}`)) continue;
       const out = { ...row, owner_file: owner, retired_at: null };
       const cols = Object.keys(out);
-      const where = child === 'diary_mirrors' ? 'diary_id = ? AND iface = ? AND coalesce(place_id, \'\') = ?' : `${quote(link)} = ? AND position = ?`;
-      const args = child === 'diary_mirrors' ? [row.diary_id, row.iface, row.place_id ?? ''] : [row[link], bind(row.position)];
-      const found = prepared(db, `SELECT rowid, owner_file FROM ${quote(child)} WHERE ${where} ORDER BY owner_file IS NULL DESC, rowid LIMIT 1`).get(...args);
+      const where =
+        child === 'diary_mirrors'
+          ? "diary_id = ? AND iface = ? AND coalesce(place_id, '') = ?"
+          : `${quote(link)} = ? AND position = ?`;
+      const args =
+        child === 'diary_mirrors' ? [row.diary_id, row.iface, row.place_id ?? ''] : [row[link], bind(row.position)];
+      const found = prepared(
+        db,
+        `SELECT rowid, owner_file FROM ${quote(child)} WHERE ${where} ORDER BY owner_file IS NULL DESC, rowid LIMIT 1`
+      ).get(...args);
       if (found && (found.owner_file === null || found.owner_file === undefined)) continue;
       if (found) {
-        prepared(db, `UPDATE ${quote(child)} SET ${cols.map((col) => `${quote(col)} = ?`).join(', ')} WHERE rowid = ?`).run(...cols.map((col) => bind(out[col])), found.rowid);
+        prepared(
+          db,
+          `UPDATE ${quote(child)} SET ${cols.map((col) => `${quote(col)} = ?`).join(', ')} WHERE rowid = ?`
+        ).run(...cols.map((col) => bind(out[col])), found.rowid);
       } else {
-        prepared(db, `INSERT INTO ${quote(child)} (${cols.map(quote).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).run(...cols.map((col) => bind(out[col])));
+        prepared(
+          db,
+          `INSERT INTO ${quote(child)} (${cols.map(quote).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`
+        ).run(...cols.map((col) => bind(out[col])));
       }
       touched.push([child, row]);
       count += 1;
@@ -213,7 +300,8 @@ export function writeMapping(db, mapping, owner, { ignoreClaims = false, at } = 
     if (CHILDREN[table] || !rows.length) continue;
     for (const row of rows) {
       if (writeRow(db, table, row, { ignore: table === 'claims' && ignoreClaims, at })) count += 1;
-      else if (Object.values(CHILDREN).some(([parent]) => parent === table)) skippedParents.add(`${table}\u0000${row.id}`);
+      else if (Object.values(CHILDREN).some(([parent]) => parent === table))
+        skippedParents.add(`${table}\u0000${row.id}`);
     }
   }
   // An account with a person gets its link row once; an existing link is the database's and is never rewritten.
@@ -236,7 +324,8 @@ export function qualify(mapping, unit) {
   for (const rows of Object.values(mapping)) {
     for (const row of rows) {
       if (row.owner_file !== undefined && row.owner_file !== null && row.owner_file === unit.rel) {
-        if (row.owner !== undefined && (row.owner === unit.rel || String(row.owner).startsWith(`${unit.rel}#`))) row.owner = `${unit.full}${String(row.owner).slice(unit.rel.length)}`;
+        if (row.owner !== undefined && (row.owner === unit.rel || String(row.owner).startsWith(`${unit.rel}#`)))
+          row.owner = `${unit.full}${String(row.owner).slice(unit.rel.length)}`;
         row.owner_file = unit.full;
       }
     }
@@ -248,7 +337,10 @@ export function qualify(mapping, unit) {
 /** The ids of the hot claims and episodes (what an archive line must not stub over, map/archive.js). */
 export function hotClaimIds(db) {
   const ids = new Set();
-  for (const row of db.prepare("SELECT id FROM claims WHERE retired_at IS NULL AND owner_file NOT GLOB '*archive/*'").all()) ids.add(row.id);
+  for (const row of db
+    .prepare("SELECT id FROM claims WHERE retired_at IS NULL AND owner_file NOT GLOB '*archive/*'")
+    .all())
+    ids.add(row.id);
   for (const row of db.prepare('SELECT id FROM episodes WHERE retired_at IS NULL').all()) ids.add(row.id);
   return ids;
 }
@@ -262,11 +354,24 @@ function relinkParticipation(db, at) {
   // that happens to be the same string is never taken for it. A database before v8 has only the native id.
   const tuple = columnsOf(db, 'sources').has('native_kind');
   const find = tuple
-    ? prepared(db, "SELECT id FROM sources WHERE authority_id = 'discord/global' AND native_kind = 'message' AND generation = 1 AND native_id = ? AND kind IN ('seen', 'said') AND retired_at IS NULL ORDER BY revision DESC LIMIT 1")
-    : prepared(db, "SELECT id FROM sources WHERE native_id = ? AND kind IN ('seen', 'said') AND retired_at IS NULL ORDER BY revision DESC LIMIT 1");
-  const update = prepared(db, 'UPDATE episode_sources SET source_id = ? WHERE episode_id = ? AND position = ? AND source_id = ?');
+    ? prepared(
+        db,
+        "SELECT id FROM sources WHERE authority_id = 'discord/global' AND native_kind = 'message' AND generation = 1 AND native_id = ? AND kind IN ('seen', 'said') AND retired_at IS NULL ORDER BY revision DESC LIMIT 1"
+      )
+    : prepared(
+        db,
+        "SELECT id FROM sources WHERE native_id = ? AND kind IN ('seen', 'said') AND retired_at IS NULL ORDER BY revision DESC LIMIT 1"
+      );
+  const update = prepared(
+    db,
+    'UPDATE episode_sources SET source_id = ? WHERE episode_id = ? AND position = ? AND source_id = ?'
+  );
   let count = 0;
-  for (const row of db.prepare("SELECT episode_id, source_id, position FROM episode_sources WHERE source_id LIKE 'src:discord:%' AND retired_at IS NULL").all()) {
+  for (const row of db
+    .prepare(
+      "SELECT episode_id, source_id, position FROM episode_sources WHERE source_id LIKE 'src:discord:%' AND retired_at IS NULL"
+    )
+    .all()) {
     const messageId = /^src:discord:([^:]+)/.exec(row.source_id)?.[1];
     const found = messageId ? find.get(messageId) : null;
     if (!found || found.id === row.source_id) continue;
@@ -281,8 +386,10 @@ export function linkVectors(db, rows) {
   for (const row of rows) {
     const match = /^(?:private:[^:]+:)?record:(.+):([^:]*?)(?:#\d+)?$/.exec(String(row.chunk_key));
     if (!match || match[2] === '') continue;
-    const found = prepared(db, "SELECT rowid FROM sources WHERE native_id = ? AND revision = ? AND kind IN ('seen', 'said') ORDER BY kind LIMIT 1")
-      .get(match[1], Number(match[2]));
+    const found = prepared(
+      db,
+      "SELECT rowid FROM sources WHERE native_id = ? AND revision = ? AND kind IN ('seen', 'said') ORDER BY kind LIMIT 1"
+    ).get(match[1], Number(match[2]));
     if (found) row.source_rowid = found.rowid;
   }
 }

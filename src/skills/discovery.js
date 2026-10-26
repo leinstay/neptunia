@@ -12,13 +12,27 @@
 // Pure; the texts are `hot.prompts.skills`, read by the caller at the moment of use.
 
 import { isPlainObject } from '../config.js';
-import { CARRIED_OVER, NOT_GRANTABLE_TO_PERSONA, grantedToPersona, safeModeOn, skillFeatureOn, skillsOn } from './access.js';
+import {
+  CARRIED_OVER,
+  NOT_GRANTABLE_TO_PERSONA,
+  grantedToPersona,
+  safeModeOn,
+  skillFeatureOn,
+  skillsOn,
+} from './access.js';
 import { describeSkill, skillNames } from './registry.js';
 import { CODE } from './codes.js';
 
 /** The skills that run inside the persona's turn and come back in it (src/skills/tools.js; features.coreTools). */
 // `conversation.read` and `media.find` are built on their own branches; a name with no registered skill is skipped everywhere it is used.
-export const IN_TURN_TOOLS = Object.freeze(['web.search', 'web.read', 'media.look', 'memory.search', 'conversation.read', 'media.find']);
+export const IN_TURN_TOOLS = Object.freeze([
+  'web.search',
+  'web.read',
+  'media.look',
+  'memory.search',
+  'conversation.read',
+  'media.find',
+]);
 
 /** The most skills one answer may name. */
 export const MAX_PROPOSED = 4;
@@ -57,7 +71,13 @@ export function discoveryOn(config) {
 export function grantedSkillNames({ config, selfId = null, registry = null }) {
   if (!skillsOn(config) || safeModeOn(config) || !(registry instanceof Map)) return [];
   return [...registry.keys()]
-    .filter((name) => typeof name === 'string' && !NOT_GRANTABLE_TO_PERSONA.includes(name) && skillFeatureOn(name, config) && grantedToPersona(config, selfId, name))
+    .filter(
+      (name) =>
+        typeof name === 'string' &&
+        !NOT_GRANTABLE_TO_PERSONA.includes(name) &&
+        skillFeatureOn(name, config) &&
+        grantedToPersona(config, selfId, name)
+    )
     .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
@@ -74,7 +94,9 @@ export function grantedSkillNames({ config, selfId = null, registry = null }) {
  */
 export function exposedSkillNames({ config, selfId = null, registry = null }) {
   if (!skillsOn(config) || !(registry instanceof Map)) return [];
-  const names = safeModeOn(config) ? [...CARRIED_OVER] : [...grantedSkillNames({ config, selfId, registry }), ...CARRIED_OVER];
+  const names = safeModeOn(config)
+    ? [...CARRIED_OVER]
+    : [...grantedSkillNames({ config, selfId, registry }), ...CARRIED_OVER];
   const drawOn = config?.features?.imageGeneration !== false;
   return [...new Set(names)]
     .filter((name) => registry.has(name) && skillFeatureOn(name, config) && (name !== 'draw.create' || drawOn))
@@ -98,10 +120,15 @@ export function parseSkillsLines(values, names = skillNames()) {
   const list = Array.isArray(values) ? values : [];
   if (list.length === 0) return { ...NO_SKILLS, names: [] };
   if (list.length > 1) return { state: 'invalid', inventory: false, names: [] };
-  const value = String(list[0] ?? '').replace(WRAPPING, '').trim();
+  const value = String(list[0] ?? '')
+    .replace(WRAPPING, '')
+    .trim();
   if (!value || NONE_RE.test(value)) return { state: 'none', inventory: false, names: [] };
   const known = new Map((Array.isArray(names) ? names : []).map((name) => [String(name).toLowerCase(), String(name)]));
-  const tokens = value.split(SPLIT_RE).map((token) => token.replace(WRAPPING, '').trim().toLowerCase()).filter(Boolean);
+  const tokens = value
+    .split(SPLIT_RE)
+    .map((token) => token.replace(WRAPPING, '').trim().toLowerCase())
+    .filter(Boolean);
   if (tokens.includes(INVENTORY)) return { state: 'inventory', inventory: true, names: [] };
   const picked = [];
   for (const token of tokens) {
@@ -109,7 +136,9 @@ export function parseSkillsLines(values, names = skillNames()) {
     if (name && !picked.includes(name)) picked.push(name);
     if (picked.length >= MAX_PROPOSED) break;
   }
-  return picked.length > 0 ? { state: 'named', inventory: false, names: picked } : { state: 'invalid', inventory: false, names: [] };
+  return picked.length > 0
+    ? { state: 'named', inventory: false, names: picked }
+    : { state: 'invalid', inventory: false, names: [] };
 }
 
 /**
@@ -211,7 +240,9 @@ export function proposalVerdicts(names, rows) {
   const byName = new Map((Array.isArray(rows) ? rows : []).map((row) => [row.name, row]));
   return (Array.isArray(names) ? names : []).map((name) => {
     const row = byName.get(name);
-    return row ? { name, allowed: row.allowed === true, reason: row.reason } : { name, allowed: false, reason: CODE.UNKNOWN_SKILL };
+    return row
+      ? { name, allowed: row.allowed === true, reason: row.reason }
+      : { name, allowed: false, reason: CODE.UNKNOWN_SKILL };
   });
 }
 
@@ -226,7 +257,9 @@ export function proposalVerdicts(names, rows) {
  */
 export function proposedRows(proposals, rows) {
   const byName = new Map((Array.isArray(rows) ? rows : []).map((row) => [row.name, row]));
-  const shown = (Array.isArray(proposals) ? proposals : []).filter(({ name }) => byName.has(name)).map(({ name }) => ({ ...byName.get(name), proposed: true }));
+  const shown = (Array.isArray(proposals) ? proposals : [])
+    .filter(({ name }) => byName.has(name))
+    .map(({ name }) => ({ ...byName.get(name), proposed: true }));
   return shown.length > 0 ? shown : null;
 }
 
@@ -235,7 +268,8 @@ function editDistance(a, b) {
   let row = Array.from({ length: b.length + 1 }, (_, i) => i);
   for (let i = 1; i <= a.length; i += 1) {
     const next = [i];
-    for (let j = 1; j <= b.length; j += 1) next[j] = Math.min(row[j] + 1, next[j - 1] + 1, row[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    for (let j = 1; j <= b.length; j += 1)
+      next[j] = Math.min(row[j] + 1, next[j - 1] + 1, row[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
     row = next;
   }
   return row[b.length];
@@ -255,7 +289,9 @@ export const MAX_CLOSEST = 5;
  * @returns {{ rows: object[], closest: string[] }}
  */
 export function describeRows({ config, selfId = null, registry = null, texts = undefined, name = '' }) {
-  const wanted = String(name ?? '').trim().toLowerCase();
+  const wanted = String(name ?? '')
+    .trim()
+    .toLowerCase();
   if (!wanted || !(registry instanceof Map)) return { rows: [], closest: [] };
   const granted = new Set(grantedSkillNames({ config, selfId, registry }));
   const skills = [...registry.values()].filter((skill) => skillFeatureOn(skill.name, config));
@@ -268,9 +304,21 @@ export function describeRows({ config, selfId = null, registry = null, texts = u
   const exact = skills.find((skill) => skill.name.toLowerCase() === wanted);
   if (exact) return { rows: [row(exact, true)], closest: [] };
   const family = skills.filter((skill) => skill.name.split('.')[0].toLowerCase() === wanted);
-  if (family.length > 0) return { rows: byFamily(family).flat().map((skill) => row(skill, false)), closest: [] };
+  if (family.length > 0)
+    return {
+      rows: byFamily(family)
+        .flat()
+        .map((skill) => row(skill, false)),
+      closest: [],
+    };
   const closest = skills
-    .map((skill) => ({ name: skill.name, score: skill.name.toLowerCase().includes(wanted) || wanted.includes(skill.name.toLowerCase()) ? 0 : editDistance(wanted, skill.name.toLowerCase()) }))
+    .map((skill) => ({
+      name: skill.name,
+      score:
+        skill.name.toLowerCase().includes(wanted) || wanted.includes(skill.name.toLowerCase())
+          ? 0
+          : editDistance(wanted, skill.name.toLowerCase()),
+    }))
     .filter((item) => item.score <= Math.max(3, Math.floor(wanted.length / 2)))
     .sort((a, b) => a.score - b.score || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
     .slice(0, MAX_CLOSEST)

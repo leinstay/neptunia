@@ -126,7 +126,7 @@ function mergeEpisodes(publicEpisodes, privateEpisodes) {
   return [...listOf(publicEpisodes), ...listOf(privateEpisodes)].sort(
     (a, b) =>
       String(a?.date ?? '').localeCompare(String(b?.date ?? '')) ||
-      String(a?.addedAt ?? '').localeCompare(String(b?.addedAt ?? '')),
+      String(a?.addedAt ?? '').localeCompare(String(b?.addedAt ?? ''))
   );
 }
 

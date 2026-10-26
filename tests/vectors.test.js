@@ -77,10 +77,14 @@ async function scene(options = {}) {
 
 /** The files a month of the index stands for (`manifest.json`, `<gen>.i8`, `<gen>.jsonl`), from the database: name -> bytes. */
 function monthFiles(memoryDb, month, privateUserId = null) {
-  const rel = privateUserId ? `guilds/g1/private/${privateUserId}/vectors/${month}/manifest.json` : `guilds/g1/vectors/${month}/manifest.json`;
+  const rel = privateUserId
+    ? `guilds/g1/private/${privateUserId}/vectors/${month}/manifest.json`
+    : `guilds/g1/vectors/${month}/manifest.json`;
   const info = classify(rel);
   const full = `guilds/g1/${info.unit}`;
-  return new Map(filesOfUnit(memoryDb.readHandle().db, info.unit, info, full).map((file) => [file.rel.split('/').at(-1), file.data]));
+  return new Map(
+    filesOfUnit(memoryDb.readHandle().db, info.unit, info, full).map((file) => [file.rel.split('/').at(-1), file.data])
+  );
 }
 
 function manifestOf(memoryDb, month, privateUserId = null) {
@@ -149,7 +153,11 @@ test('vectors: rewrite writes a new generation, switches the manifest and remove
   const { memoryDb, vectors } = await scene();
   const rng = seeded(5);
   const q = randomVector(rng, 16);
-  await vectors.append('g1', ['a', 'b', 'c'].map((id) => ({ meta: meta(id), vector: near(q, rng, 0.3) })), { model: 'mx' });
+  await vectors.append(
+    'g1',
+    ['a', 'b', 'c'].map((id) => ({ meta: meta(id), vector: near(q, rng, 0.3) })),
+    { model: 'mx' }
+  );
   const before = manifestOf(memoryDb, '2026-10');
   assert.deepEqual(ids(await vectors.search('g1', q, { k: 5 })).sort(), ['a', 'b', 'c']);
   const result = await vectors.rewrite('g1', '2026-10', (m) => m.id !== 'b');
@@ -158,7 +166,10 @@ test('vectors: rewrite writes a new generation, switches the manifest and remove
   assert.notEqual(after.gen, before.gen);
   assert.equal(after.rows, 2);
   assert.equal(after.model, 'mx');
-  assert.deepEqual([...monthFiles(memoryDb, '2026-10').keys()].sort(), [`${after.gen}.i8`, `${after.gen}.jsonl`, 'manifest.json'].sort());
+  assert.deepEqual(
+    [...monthFiles(memoryDb, '2026-10').keys()].sort(),
+    [`${after.gen}.i8`, `${after.gen}.jsonl`, 'manifest.json'].sort()
+  );
   const hits = await vectors.search('g1', q, { k: 5 });
   assert.deepEqual(ids(hits).sort(), ['a', 'c']);
   assert.deepEqual(hits.map((h) => h.meta.row).sort(), [0, 1]);
@@ -203,10 +214,14 @@ test('vectors: replace builds a month as a new generation, keeps the rows asked,
   const { memoryDb, vectors } = await scene();
   const rng = seeded(21);
   const q = randomVector(rng, 16);
-  await vectors.append('g1', [
-    { meta: meta('old-1'), vector: randomVector(rng, 16) },
-    { meta: meta('live-2'), vector: randomVector(rng, 16) },
-  ], { model: 'm-a' });
+  await vectors.append(
+    'g1',
+    [
+      { meta: meta('old-1'), vector: randomVector(rng, 16) },
+      { meta: meta('live-2'), vector: randomVector(rng, 16) },
+    ],
+    { model: 'm-a' }
+  );
   const before = manifestOf(memoryDb, '2026-10');
   const result = await vectors.replace('g1', '2026-10', [{ meta: meta('old-1'), vector: near(q, rng, 0.01) }], {
     model: 'm-a',
@@ -216,7 +231,10 @@ test('vectors: replace builds a month as a new generation, keeps the rows asked,
   const after = manifestOf(memoryDb, '2026-10');
   assert.equal(after.gen, before.gen + 1);
   assert.equal(after.rows, 2);
-  assert.deepEqual([...monthFiles(memoryDb, '2026-10').keys()].filter((n) => /^\d+\./.test(n)).sort(), [`${after.gen}.i8`, `${after.gen}.jsonl`]);
+  assert.deepEqual([...monthFiles(memoryDb, '2026-10').keys()].filter((n) => /^\d+\./.test(n)).sort(), [
+    `${after.gen}.i8`,
+    `${after.gen}.jsonl`,
+  ]);
   assert.deepEqual(ids(await vectors.search('g1', q, { k: 1 })), ['old-1']);
   assert.deepEqual(ids(await vectors.search('g1', q, { k: 5 })).sort(), ['live-2', 'old-1']);
 });
@@ -225,14 +243,19 @@ test('vectors: replace with another model or length keeps none of the old rows; 
   const { memoryDb, vectors } = await scene();
   const rng = seeded(22);
   await vectors.append('g1', [{ meta: meta('a'), vector: randomVector(rng, 16) }], { model: 'm-a' });
-  const result = await vectors.replace('g1', '2026-10', [{ meta: meta('b'), vector: randomVector(rng, 8) }], { model: 'm-b', keep: () => true });
+  const result = await vectors.replace('g1', '2026-10', [{ meta: meta('b'), vector: randomVector(rng, 8) }], {
+    model: 'm-b',
+    keep: () => true,
+  });
   assert.deepEqual(result, { written: 1, kept: 0, dropped: 1 });
   const manifest = manifestOf(memoryDb, '2026-10');
   assert.equal(manifest.dims, 8);
   assert.equal(manifest.model, 'm-b');
   await assert.rejects(
-    vectors.replace('g1', '2026-10', [{ meta: meta('c', { occurredAt: '2026-09-01T00:00:00.000Z' }), vector: randomVector(rng, 8) }]),
-    /a row of 2026-09/,
+    vectors.replace('g1', '2026-10', [
+      { meta: meta('c', { occurredAt: '2026-09-01T00:00:00.000Z' }), vector: randomVector(rng, 8) },
+    ]),
+    /a row of 2026-09/
   );
 });
 
@@ -249,11 +272,19 @@ test('vectors: has lists the kind, id and revision of every row of a month, kept
   await vectors.append('g1', [{ meta: meta('c'), vector: randomVector(rng, 8) }]);
   assert.ok((await vectors.has('g1', '2026-10')).has('record:c:1'), 'an append shows at once');
   await vectors.rewrite('g1', '2026-10', (m) => m.id !== 'a');
-  assert.deepEqual([...(await vectors.has('g1', '2026-10'))].sort(), ['archive:ep1:rv-1', 'record:b:2', 'record:c:1'], 'a rewrite shows at once');
+  assert.deepEqual(
+    [...(await vectors.has('g1', '2026-10'))].sort(),
+    ['archive:ep1:rv-1', 'record:b:2', 'record:c:1'],
+    'a rewrite shows at once'
+  );
   assert.equal((await vectors.has('g1', '2026-09')).size, 0, 'another month');
   await vectors.append('g1', [{ meta: meta('p'), vector: randomVector(rng, 8) }], { privateUserId: 'u9' });
   assert.deepEqual([...(await vectors.has('g1', '2026-10', { privateUserId: 'u9' }))], ['record:p:1']);
-  assert.equal((await vectors.has('g1', '2026-10')).has('record:p:1'), false, 'a private row stays out of the guild month');
+  assert.equal(
+    (await vectors.has('g1', '2026-10')).has('record:p:1'),
+    false,
+    'a private row stays out of the guild month'
+  );
   await assert.rejects(vectors.has('g1', 'october'), TypeError);
 });
 

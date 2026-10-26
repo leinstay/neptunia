@@ -30,8 +30,25 @@ import * as verbatim from './verbatim.js';
 import * as versions from './versions.js';
 
 export const MAPPERS = {
-  record, journal, user, private: privateLayer, channel, guild, lore,
-  participation, recent, diary, intentions, tasks, archive, versions, vectors, media, gifs, requests, verbatim,
+  record,
+  journal,
+  user,
+  private: privateLayer,
+  channel,
+  guild,
+  lore,
+  participation,
+  recent,
+  diary,
+  intentions,
+  tasks,
+  archive,
+  versions,
+  vectors,
+  media,
+  gifs,
+  requests,
+  verbatim,
 };
 
 const PRIVATE = '(?:private\\/[^/]+\\/)?';

@@ -176,5 +176,5 @@ export function roleModel(config, role, purpose) {
   if (!group) return undefined;
   const map = models && Object.hasOwn(models, group) && isPlainObject(models[group]) ? models[group] : undefined;
   const own = map && Object.hasOwn(map, role) ? map[role] : undefined;
-  return typeof own === 'string' && own ? own : (role === MEMORY_ROLE ? MEMORY_ROLE_DEFAULT : ROLE_DEFAULTS[role]);
+  return typeof own === 'string' && own ? own : role === MEMORY_ROLE ? MEMORY_ROLE_DEFAULT : ROLE_DEFAULTS[role];
 }

@@ -32,12 +32,21 @@ export function toRows(rel, entries, ctx = {}) {
     else part.rest.$noId = true;
     put(rows, 'claims', {
       id,
-      subject_kind: 'place', subject_id: placeId, kind: 'lore',
-      from_person: null, how: 'legacy', truth: 'current', shown: 1,
+      subject_kind: 'place',
+      subject_id: placeId,
+      kind: 'lore',
+      from_person: null,
+      how: 'legacy',
+      truth: 'current',
+      shown: 1,
       ...part.cols,
       extra: extraText(part.rest),
       ...groupScope(),
-      created_at: null, retired_at: null, origin_file: rel, owner_file: rel, position,
+      created_at: null,
+      retired_at: null,
+      origin_file: rel,
+      owner_file: rel,
+      position,
     });
   });
   return rows;

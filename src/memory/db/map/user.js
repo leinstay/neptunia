@@ -41,7 +41,14 @@ export function toRows(rel, value, ctx = {}) {
   const person = personId(userId);
   const scope = groupScope();
   const rows = {};
-  const { rest, affinity } = profileRows(rows, value, { rel, person, owner: person, tag: '', scope, descFields: FIELDS });
+  const { rest, affinity } = profileRows(rows, value, {
+    rel,
+    person,
+    owner: person,
+    tag: '',
+    scope,
+    descFields: FIELDS,
+  });
   const people = split(rest, PEOPLE_SPEC);
   const account = split(people.rest, ACCOUNT_SPEC);
   const left = account.rest;
@@ -56,20 +63,39 @@ export function toRows(rel, value, ctx = {}) {
     membership = split({ addressedAs: left.addressedAs }, MEMBERSHIP_SPEC);
     delete left.addressedAs;
   }
-  put(rows, 'people', { id: person, kind: 'member', ...people.cols, ...affinityCols, extra: extraText(left), retired_at: null, owner_file: rel });
+  put(rows, 'people', {
+    id: person,
+    kind: 'member',
+    ...people.cols,
+    ...affinityCols,
+    extra: extraText(left),
+    retired_at: null,
+    owner_file: rel,
+  });
   put(rows, 'accounts', {
-    id: accountId(userId), iface: IFACE, ...account.cols, person_id: person, link: 'verified', linked_by: null, linked_at: null,
-    extra: null, owner_file: rel,
+    id: accountId(userId),
+    iface: IFACE,
+    ...account.cols,
+    person_id: person,
+    link: 'verified',
+    linked_by: null,
+    linked_at: null,
+    extra: null,
+    owner_file: rel,
   });
   if (membership) {
     put(rows, 'memberships', {
       id: `mem:${accountId(userId)}:${ctx.guildId ?? 'unknown'}`,
       account_id: accountId(userId),
       place_id: guildPlaceId(ctx.guildId ?? 'unknown'),
-      nick: null, roles: null, pings_off: null,
+      nick: null,
+      roles: null,
+      pings_off: null,
       ...membership.cols,
       extra: extraText(membership.rest),
-      valid_from_at: null, valid_to_at: null, owner_file: rel,
+      valid_from_at: null,
+      valid_to_at: null,
+      owner_file: rel,
     });
   }
   return rows;

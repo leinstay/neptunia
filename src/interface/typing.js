@@ -20,7 +20,14 @@ export const TYPING_LEASE_MS = 5 * 60_000;
  * @param {() => void} [options.onExpire]  Called once when the lease lapsed instead of being stopped.
  * @returns {() => void}  Stops the lease; calling it again, or after the expiry, does nothing.
  */
-export function startTypingLease({ send, schedule, refreshMs, now = Date.now, leaseMs = TYPING_LEASE_MS, onExpire = () => {} }) {
+export function startTypingLease({
+  send,
+  schedule,
+  refreshMs,
+  now = Date.now,
+  leaseMs = TYPING_LEASE_MS,
+  onExpire = () => {},
+}) {
   const expiresAt = now() + leaseMs;
   let stopped = false;
   let cancel = null;

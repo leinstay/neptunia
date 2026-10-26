@@ -44,7 +44,9 @@ export function splitSettings(config) {
   const group = isPlainObject(config?.split) ? config.split : {};
   const read = (key, min) => {
     const value = group[key];
-    return typeof value === 'number' && Number.isFinite(value) && value >= min ? Math.floor(value) : SPLIT_DEFAULTS[key];
+    return typeof value === 'number' && Number.isFinite(value) && value >= min
+      ? Math.floor(value)
+      : SPLIT_DEFAULTS[key];
   };
   return {
     minChars: read('minChars', 0),
@@ -57,7 +59,9 @@ export function splitSettings(config) {
 
 // The length of `text` as the split rails count it: code points, links and Discord tokens left out.
 function plainText(text) {
-  return String(text ?? '').replace(NOT_TEXT, ' ').trim();
+  return String(text ?? '')
+    .replace(NOT_TEXT, ' ')
+    .trim();
 }
 
 /**

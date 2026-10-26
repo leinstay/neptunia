@@ -6,8 +6,14 @@ import assert from 'node:assert/strict';
 import { modelSlugs, preambleNames, composePreamble } from '../src/errands/preambles.js';
 
 test('modelSlugs: lowercased, every character outside [a-z0-9.] a dash, the openrouter/ prefix also dropped', () => {
-  assert.deepEqual(modelSlugs('openrouter/moonshotai/kimi-k3'), ['openrouter-moonshotai-kimi-k3', 'moonshotai-kimi-k3']);
-  assert.deepEqual(modelSlugs('openrouter/OpenAI/GPT-6.1-Sol:free'), ['openrouter-openai-gpt-6.1-sol-free', 'openai-gpt-6.1-sol-free']);
+  assert.deepEqual(modelSlugs('openrouter/moonshotai/kimi-k3'), [
+    'openrouter-moonshotai-kimi-k3',
+    'moonshotai-kimi-k3',
+  ]);
+  assert.deepEqual(modelSlugs('openrouter/OpenAI/GPT-6.1-Sol:free'), [
+    'openrouter-openai-gpt-6.1-sol-free',
+    'openai-gpt-6.1-sol-free',
+  ]);
   assert.deepEqual(modelSlugs('anthropic/claude_x'), ['anthropic-claude-x'], 'no prefix: one form');
   assert.deepEqual(modelSlugs('vendor/modèle'), ['vendor-mod-le'], 'a non-ASCII letter is a dash');
   assert.deepEqual(modelSlugs(''), []);
@@ -53,16 +59,28 @@ test('composePreamble: the matching files in order, joined by a blank line, empt
   assert.deepEqual(out.dropped, []);
   assert.equal(out.chars, out.text.length);
 
-  const short = composePreamble({ prompts: { preambles: { '@moonshotai-kimi-k3': '  only the short form \n' } }, agent: 'scout', model: 'openrouter/moonshotai/kimi-k3' });
+  const short = composePreamble({
+    prompts: { preambles: { '@moonshotai-kimi-k3': '  only the short form \n' } },
+    agent: 'scout',
+    model: 'openrouter/moonshotai/kimi-k3',
+  });
   assert.equal(short.text, 'only the short form', 'the id without its provider prefix matches, trimmed');
 
   const none = composePreamble({ prompts: {}, agent: 'scout', model: 'openrouter/x/y' });
   assert.deepEqual(none, { text: '', files: [], dropped: [], chars: 0 });
-  assert.deepEqual(composePreamble({ agent: 'scout' }), { text: '', files: [], dropped: [], chars: 0 }, 'no prompts at all');
+  assert.deepEqual(
+    composePreamble({ agent: 'scout' }),
+    { text: '', files: [], dropped: [], chars: 0 },
+    'no prompts at all'
+  );
 });
 
 test('composePreamble: prompts.local/agents.md (the prompt `agents`) is never a preamble', () => {
-  const beside = composePreamble({ prompts: { agents: 'OLD', preambles: { scout: 'SCOUT' } }, agent: 'scout', model: null });
+  const beside = composePreamble({
+    prompts: { agents: 'OLD', preambles: { scout: 'SCOUT' } },
+    agent: 'scout',
+    model: null,
+  });
   assert.equal(beside.text, 'SCOUT');
   assert.deepEqual(beside.files, ['preambles/scout.md']);
 

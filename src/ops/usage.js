@@ -49,7 +49,9 @@ const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Role rows by cost, then requests (both descending), then role name. */
 function sortRows(rows) {
-  return rows.sort((a, b) => b.cost - a.cost || b.requests - a.requests || (a.role < b.role ? -1 : a.role > b.role ? 1 : 0));
+  return rows.sort(
+    (a, b) => b.cost - a.cost || b.requests - a.requests || (a.role < b.role ? -1 : a.role > b.role ? 1 : 0)
+  );
 }
 
 /** A role's counters with every field a finite number >= 0 (0 for anything else). */
@@ -109,7 +111,11 @@ export function createUsage({ dataDir, now = Date.now, fs = nodeFs, log = defaul
     if (!isPlainObject(parsed?.days)) return;
     for (const [day, roles] of Object.entries(parsed.days)) {
       if (!isPlainObject(roles)) continue;
-      days[day] = Object.fromEntries(Object.entries(roles).filter(([, row]) => isPlainObject(row)).map(([role, row]) => [role, cleanRow(row)]));
+      days[day] = Object.fromEntries(
+        Object.entries(roles)
+          .filter(([, row]) => isPlainObject(row))
+          .map(([role, row]) => [role, cleanRow(row)])
+      );
     }
     prune();
   }
@@ -138,7 +144,9 @@ export function createUsage({ dataDir, now = Date.now, fs = nodeFs, log = defaul
     const today = utcDay(nowMs);
     const span = Number.isInteger(count) && count > 0 ? Math.min(count, KEEP_DAYS) : 1;
     const start = utcDay(nowMs - (span - 1) * DAY_MS);
-    const kept = Object.keys(days).filter((day) => day <= today).sort();
+    const kept = Object.keys(days)
+      .filter((day) => day <= today)
+      .sort();
     const since = kept.length === 0 ? today : kept[0] > start ? kept[0] : start;
     const onlySet = Array.isArray(only) ? new Set(only) : null;
     const exceptSet = new Set(Array.isArray(except) ? except : []);
@@ -305,23 +313,37 @@ function line(template, values) {
 /** Why an account read failed, through `labels.reasons`. */
 function reasonText(outcome, L) {
   const reasons = isPlainObject(L.reasons) ? L.reasons : {};
-  const key = { timeout: 'timeout', network: 'network', http: 'http', 'no-client': 'noClient', 'bad-answer': 'badAnswer' }[outcome.reason] ?? 'badAnswer';
+  const key =
+    { timeout: 'timeout', network: 'network', http: 'http', 'no-client': 'noClient', 'bad-answer': 'badAnswer' }[
+      outcome.reason
+    ] ?? 'badAnswer';
   return line(reasons[key], { status: outcome.status ?? '-' }) ?? outcome.reason;
 }
 
 /** The budget that describes the key's limit: the `key_limit` one, else the effective budget, else the first. */
 function keyBudget(data) {
   const budgets = Array.isArray(data.budgets) ? data.budgets.filter(isPlainObject) : [];
-  return budgets.find((budget) => budget.scope === 'key_limit') ?? (isPlainObject(data.effective_budget) ? data.effective_budget : null) ?? budgets[0] ?? null;
+  return (
+    budgets.find((budget) => budget.scope === 'key_limit') ??
+    (isPlainObject(data.effective_budget) ? data.effective_budget : null) ??
+    budgets[0] ??
+    null
+  );
 }
 
 const INTERVAL_USAGE = Object.freeze({ daily: 'usage_daily', weekly: 'usage_weekly', monthly: 'usage_monthly' });
 
 /** The rolling windows of a usage line, in order: the `sumDays` result's key and its label. */
-const WINDOWS = Object.freeze([['last7', 'last7'], ['last30', 'last30']]);
+const WINDOWS = Object.freeze([
+  ['last7', 'last7'],
+  ['last30', 'last30'],
+]);
 
 /** The simulator key's calendar periods after today, in order: the key's own field and its label. */
-const CALENDAR = Object.freeze([['usage_weekly', 'usageWeekCal'], ['usage_monthly', 'usageMonthCal']]);
+const CALENDAR = Object.freeze([
+  ['usage_weekly', 'usageWeekCal'],
+  ['usage_monthly', 'usageMonthCal'],
+]);
 
 /** The key line (src: GET /key's `data`): spend over limit with its notes, or no limit with the total used. */
 function keyLine(data, L, lead) {
@@ -337,12 +359,14 @@ function keyLine(data, L, lead) {
   if (isAmount(budget?.spend_usd)) spent = budget.spend_usd;
   else if (isAmount(remaining)) spent = Math.max(0, limit - remaining);
   else if (interval === null && isAmount(data.usage)) spent = data.usage;
-  else if (typeof interval === 'string' && isAmount(data[INTERVAL_USAGE[interval]])) spent = data[INTERVAL_USAGE[interval]];
+  else if (typeof interval === 'string' && isAmount(data[INTERVAL_USAGE[interval]]))
+    spent = data[INTERVAL_USAGE[interval]];
 
   const notes = [];
   if (hasReset) {
     if (typeof interval === 'string' && interval) {
-      const word = (isPlainObject(L.intervals) && typeof L.intervals[interval] === 'string' && L.intervals[interval]) || interval;
+      const word =
+        (isPlainObject(L.intervals) && typeof L.intervals[interval] === 'string' && L.intervals[interval]) || interval;
       const at = budget?.resets_at ? utcMinute(budget.resets_at) : null;
       notes.push(at && at !== '-' ? line(L.resetsAt, { interval: word, at }) : line(L.resets, { interval: word }));
     } else {
@@ -354,7 +378,9 @@ function keyLine(data, L, lead) {
   if (byok === false) notes.push(line(L.byokNotCounted, {}));
   const kept = notes.filter(Boolean);
   const values = { lead, spent: spent === null ? '-' : usd(spent), limit: usd(limit) };
-  return kept.length > 0 ? line(L.keyLimit, { ...values, notes: kept.join(L.noteSeparator ?? '') }) : line(L.keyLimitPlain, values);
+  return kept.length > 0
+    ? line(L.keyLimit, { ...values, notes: kept.join(L.noteSeparator ?? '') })
+    : line(L.keyLimitPlain, values);
 }
 
 /** The usage line of `parts` (the null ones dropped), or null when none is left. */
@@ -383,11 +409,14 @@ function usageLine(data, windows, L) {
 function activityLine(data, activity, L) {
   if (!isPlainObject(data) || !isAmount(data.usage_daily)) return null;
   const today = data.usage_daily;
-  return partsLine([
-    line(L.usageToday, { usd: usd(today) }),
-    line(L.last7, { usd: usd(today + amountOr0(activity.last7)), since: '' }),
-    line(L.last30, { usd: usd(today + amountOr0(activity.last30)), since: '' }),
-  ], L);
+  return partsLine(
+    [
+      line(L.usageToday, { usd: usd(today) }),
+      line(L.last7, { usd: usd(today + amountOr0(activity.last7)), since: '' }),
+      line(L.last30, { usd: usd(today + amountOr0(activity.last30)), since: '' }),
+    ],
+    L
+  );
 }
 
 /** A key's usage line: with its activity (`activityLine`), else `fallback()`. */
@@ -402,7 +431,8 @@ function ownUsageLine(data, L) {
   if (!isPlainObject(data)) return null;
   const parts = [];
   if (isAmount(data.usage_daily)) parts.push(line(L.usageToday, { usd: usd(data.usage_daily) }));
-  for (const [field, label] of CALENDAR) if (isAmount(data[field])) parts.push(line(L[label], { usd: usd(data[field]) }));
+  for (const [field, label] of CALENDAR)
+    if (isAmount(data[field])) parts.push(line(L[label], { usd: usd(data[field]) }));
   return partsLine(parts, L);
 }
 
@@ -426,7 +456,10 @@ function rowLine(template, row, L) {
 /** The roles of an extra key as its lead names them: each through `names` (`roleNames`, a role ->
  * shown name map; a role it lacks shows as itself), each shown name once, in order. */
 function shownRoles(roles, names) {
-  const nameOf = (role) => (isPlainObject(names) && Object.hasOwn(names, role) && typeof names[role] === 'string' && names[role] ? names[role] : role);
+  const nameOf = (role) =>
+    isPlainObject(names) && Object.hasOwn(names, role) && typeof names[role] === 'string' && names[role]
+      ? names[role]
+      : role;
   return [...new Set(roles.map(nameOf))];
 }
 
@@ -454,24 +487,41 @@ function shownRoles(roles, names) {
  *   returns, the main key's over the roles no extra key takes.
  * @returns {string[]}
  */
-export function keyCostsLines({ key, activity = null, sim = null, simActivity = null, labels, windows = null, roleKeys = [] }) {
+export function keyCostsLines({
+  key,
+  activity = null,
+  sim = null,
+  simActivity = null,
+  labels,
+  windows = null,
+  roleKeys = [],
+}) {
   const L = labels?.status?.costs;
   if (!isPlainObject(L)) return [];
   const lines = [];
   const lead = typeof L.keyLead === 'string' ? L.keyLead : '';
   const simLead = typeof L.simKeyLead === 'string' ? L.simKeyLead : '';
-  const unavailable = (outcome, word) => line(L.keyUnavailable, { lead: word, reason: reasonText(outcome ?? { reason: 'bad-answer' }, L) });
+  const unavailable = (outcome, word) =>
+    line(L.keyUnavailable, { lead: word, reason: reasonText(outcome ?? { reason: 'bad-answer' }, L) });
   lines.push(key?.ok ? keyLine(key.data, L, lead) : unavailable(key, lead));
   const dataOf = (outcome) => (outcome?.ok ? outcome.data : null);
   lines.push(keyUsageLine(dataOf(key), activity, L, () => usageLine(dataOf(key), windows, L)));
-  if (sim) lines.push(sim.ok ? keyLine(sim.data, L, simLead) : unavailable(sim, simLead), keyUsageLine(dataOf(sim), simActivity, L, () => ownUsageLine(dataOf(sim), L)));
+  if (sim)
+    lines.push(
+      sim.ok ? keyLine(sim.data, L, simLead) : unavailable(sim, simLead),
+      keyUsageLine(dataOf(sim), simActivity, L, () => ownUsageLine(dataOf(sim), L))
+    );
   else lines.push(line(L.simKeyNotSet, {}));
   for (const extra of Array.isArray(roleKeys) ? roleKeys : []) {
     const roles = Array.isArray(extra?.roles) ? extra.roles : [];
-    const roleLead = line(L.roleKeyLead, { roles: shownRoles(roles, L.roleNames).join(typeof L.roleSeparator === 'string' ? L.roleSeparator : ', ') });
+    const roleLead = line(L.roleKeyLead, {
+      roles: shownRoles(roles, L.roleNames).join(typeof L.roleSeparator === 'string' ? L.roleSeparator : ', '),
+    });
     if (!roleLead) continue;
     lines.push(extra.key?.ok ? keyLine(extra.key.data, L, roleLead) : unavailable(extra.key, roleLead));
-    lines.push(keyUsageLine(dataOf(extra.key), extra.activity, L, () => usageLine(dataOf(extra.key), extra.windows, L)));
+    lines.push(
+      keyUsageLine(dataOf(extra.key), extra.activity, L, () => usageLine(dataOf(extra.key), extra.windows, L))
+    );
   }
   return lines.filter(Boolean);
 }
@@ -515,12 +565,19 @@ export function agentCostsLines({ agents, totals, labels }) {
   const lines = (Array.isArray(agents) ? agents : []).flatMap((agent) => {
     const row = isPlainObject(totals) && isPlainObject(totals[agent]) ? totals[agent] : null;
     const context = contextLine(L, agent, row?.last_wave);
-    const counted = row && AGENT_WINDOWS.some((window) => amountOr0(row[window]?.runs) > 0 || amountOr0(row[window]?.usd) > 0);
+    const counted =
+      row && AGENT_WINDOWS.some((window) => amountOr0(row[window]?.runs) > 0 || amountOr0(row[window]?.usd) > 0);
     if (!counted) return [line(L.agentNoRuns, { agent }), context];
     const parts = AGENT_WINDOWS.map((window) => {
       const sums = isPlainObject(row[window]) ? row[window] : {};
       const name = typeof names[window] === 'string' && names[window] ? names[window] : window;
-      return line(L.agentWindow, { window: name, runs: amountOr0(sums.runs), in: compactTokens(sums.input), out: compactTokens(sums.output), usd: usd(sums.usd) });
+      return line(L.agentWindow, {
+        window: name,
+        runs: amountOr0(sums.runs),
+        in: compactTokens(sums.input),
+        out: compactTokens(sums.output),
+        usd: usd(sums.usd),
+      });
     }).filter(Boolean);
     return [parts.length > 0 ? line(L.agentLine, { agent, parts: parts.join(L.partSeparator ?? '') }) : null, context];
   });
@@ -533,6 +590,14 @@ function contextLine(L, agent, wave) {
   const figure = (value) => (typeof value === 'number' && Number.isFinite(value) ? compactTokens(value) : '-');
   const mean = wave.context_mean;
   const peak = wave.context_peak;
-  if (!(typeof mean === 'number' && Number.isFinite(mean)) && !(typeof peak === 'number' && Number.isFinite(peak))) return null;
-  return line(L.agentContext, { agent, wave: wave.wave ?? '-', turns: amountOr0(wave.turns), mean: figure(mean), peak: figure(peak), usd: usd(wave.usd) });
+  if (!(typeof mean === 'number' && Number.isFinite(mean)) && !(typeof peak === 'number' && Number.isFinite(peak)))
+    return null;
+  return line(L.agentContext, {
+    agent,
+    wave: wave.wave ?? '-',
+    turns: amountOr0(wave.turns),
+    mean: figure(mean),
+    peak: figure(peak),
+    usd: usd(wave.usd),
+  });
 }

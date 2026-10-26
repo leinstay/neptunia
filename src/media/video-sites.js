@@ -203,9 +203,14 @@ export function ytdlpProbeArgs(url, { ytdlpPath, proxy = null } = {}) {
   return {
     command: ytdlpPath,
     args: [
-      '--dump-single-json', '--skip-download', '--no-playlist', '--no-warnings', '--quiet',
+      '--dump-single-json',
+      '--skip-download',
+      '--no-playlist',
+      '--no-warnings',
+      '--quiet',
       ...proxyArgs(proxy),
-      '--', String(url),
+      '--',
+      String(url),
     ],
   };
 }
@@ -229,9 +234,10 @@ export function ytdlpProbeArgs(url, { ytdlpPath, proxy = null } = {}) {
  *   durationSec?: number|null, proxy?: string|null }} options
  * @returns {{ command: string, args: string[] }}
  */
-export function ytdlpClipArgs(url, {
-  ytdlpPath, ffmpegPath, maxSeconds, maxFileSize, outPath, durationSec = null, proxy = null,
-} = {}) {
+export function ytdlpClipArgs(
+  url,
+  { ytdlpPath, ffmpegPath, maxSeconds, maxFileSize, outPath, durationSec = null, proxy = null } = {}
+) {
   const ffmpegPathStr = ffmpegPath == null ? '' : String(ffmpegPath);
   const location = /[\\/]/.test(ffmpegPathStr) ? ['--ffmpeg-location', ffmpegPathStr] : [];
   const viaProxy = proxyArgs(proxy);
@@ -240,14 +246,20 @@ export function ytdlpClipArgs(url, {
   return {
     command: ytdlpPath,
     args: [
-      '--no-playlist', '--no-warnings', '--quiet',
+      '--no-playlist',
+      '--no-warnings',
+      '--quiet',
       ...viaProxy,
       ...location,
-      '-f', YTDLP_FORMAT,
-      '--merge-output-format', 'mp4',
+      '-f',
+      YTDLP_FORMAT,
+      '--merge-output-format',
+      'mp4',
       ...cut,
-      '--max-filesize', String(maxFileSize),
-      '-o', String(outPath),
+      '--max-filesize',
+      String(maxFileSize),
+      '-o',
+      String(outPath),
       '--',
       String(url),
     ],
@@ -279,14 +291,32 @@ export function ffmpegTrimArgs(inPath, outPath, { ffmpegPath, maxSeconds } = {})
   return {
     command: ffmpegPath,
     args: [
-      '-y', '-hide_banner', '-loglevel', 'error',
-      '-i', String(inPath),
-      '-t', String(maxSeconds),
-      '-vf', 'scale=-2:360',
-      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '28',
-      '-maxrate', `${TRIM_VIDEO_KBPS}k`, '-bufsize', `${TRIM_VIDEO_KBPS * 2}k`,
-      '-c:a', 'aac', '-b:a', `${TRIM_AUDIO_KBPS}k`,
-      '-movflags', '+faststart',
+      '-y',
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-i',
+      String(inPath),
+      '-t',
+      String(maxSeconds),
+      '-vf',
+      'scale=-2:360',
+      '-c:v',
+      'libx264',
+      '-preset',
+      'veryfast',
+      '-crf',
+      '28',
+      '-maxrate',
+      `${TRIM_VIDEO_KBPS}k`,
+      '-bufsize',
+      `${TRIM_VIDEO_KBPS * 2}k`,
+      '-c:a',
+      'aac',
+      '-b:a',
+      `${TRIM_AUDIO_KBPS}k`,
+      '-movflags',
+      '+faststart',
       String(outPath),
     ],
   };
@@ -323,14 +353,32 @@ export function ffmpegFitArgs(inPath, outPath, { ffmpegPath, maxSeconds, videoKb
   return {
     command: ffmpegPath,
     args: [
-      '-y', '-hide_banner', '-loglevel', 'error',
-      '-i', String(inPath),
-      '-t', String(maxSeconds),
-      '-vf', 'scale=-2:360',
-      '-c:v', 'libx264', '-preset', 'veryfast',
-      '-b:v', `${videoKbps}k`, '-maxrate', `${videoKbps}k`, '-bufsize', `${videoKbps * 2}k`,
-      '-c:a', 'aac', '-b:a', `${audioKbps}k`,
-      '-movflags', '+faststart',
+      '-y',
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-i',
+      String(inPath),
+      '-t',
+      String(maxSeconds),
+      '-vf',
+      'scale=-2:360',
+      '-c:v',
+      'libx264',
+      '-preset',
+      'veryfast',
+      '-b:v',
+      `${videoKbps}k`,
+      '-maxrate',
+      `${videoKbps}k`,
+      '-bufsize',
+      `${videoKbps * 2}k`,
+      '-c:a',
+      'aac',
+      '-b:a',
+      `${audioKbps}k`,
+      '-movflags',
+      '+faststart',
       String(outPath),
     ],
   };
@@ -354,15 +402,31 @@ export function ffmpegGifArgs(inPath, outPath, { ffmpegPath, maxSeconds } = {}) 
   return {
     command: ffmpegPath,
     args: [
-      '-y', '-hide_banner', '-loglevel', 'error',
-      '-i', String(inPath),
-      '-t', String(maxSeconds),
-      '-vf', `scale=-2:'min(${GIF_MAX_HEIGHT},trunc(ih/2)*2)'`,
-      '-pix_fmt', 'yuv420p',
-      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '28',
-      '-maxrate', '400k', '-bufsize', '800k',
+      '-y',
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-i',
+      String(inPath),
+      '-t',
+      String(maxSeconds),
+      '-vf',
+      `scale=-2:'min(${GIF_MAX_HEIGHT},trunc(ih/2)*2)'`,
+      '-pix_fmt',
+      'yuv420p',
+      '-c:v',
+      'libx264',
+      '-preset',
+      'veryfast',
+      '-crf',
+      '28',
+      '-maxrate',
+      '400k',
+      '-bufsize',
+      '800k',
       '-an',
-      '-movflags', '+faststart',
+      '-movflags',
+      '+faststart',
       String(outPath),
     ],
   };
@@ -395,7 +459,10 @@ export function parseProbe(jsonText) {
  * @returns {string}
  */
 export function bareContentType(value) {
-  return String(value ?? '').split(';')[0].trim().toLowerCase();
+  return String(value ?? '')
+    .split(';')[0]
+    .trim()
+    .toLowerCase();
 }
 
 /**

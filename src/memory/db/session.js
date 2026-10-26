@@ -56,14 +56,44 @@ const SESSION_BLOCKS = Object.freeze(['self', 'place', 'people', 'episodes', 'in
 export const CLAIM_KINDS = Object.freeze(['detail', 'interest', 'alias', 'injoke', 'self_fact', 'lesson', 'pattern']);
 export const HOW = Object.freeze(['said', 'saw', 'claimed', 'inferred', 'taught']);
 export const TRUTHS = Object.freeze(['historical', 'disputed', 'retired']);
-export const DESCRIPTION_FIELDS = Object.freeze(['character', 'style', 'relationship', 'purpose', 'topics', 'tone', 'patterns', 'starters', 'self_view']);
+export const DESCRIPTION_FIELDS = Object.freeze([
+  'character',
+  'style',
+  'relationship',
+  'purpose',
+  'topics',
+  'tone',
+  'patterns',
+  'starters',
+  'self_view',
+]);
 /** Status codes. */
-export const CODES = Object.freeze({ OFF: 'off', NOT_CONFIGURED: 'not_configured', NO_PROMPT: 'no_prompt', SWEEP_CAP: 'sweep_cap', NOT_READY: 'not_ready' });
+export const CODES = Object.freeze({
+  OFF: 'off',
+  NOT_CONFIGURED: 'not_configured',
+  NO_PROMPT: 'no_prompt',
+  SWEEP_CAP: 'sweep_cap',
+  NOT_READY: 'not_ready',
+});
 export const pendingKey = (mode, scopeKey) => `memory_session.pending.${mode}.${scopeKey}`;
 
 const DEFAULTS = Object.freeze({
-  mode: 'off', maxMessages: 200, minMessages: 5, sweepsPerScopePerDay: 24, everyMinutes: 60, reviewsPerDay: 6, settleMinutes: 10, since: null, maxPeople: 12,
-  claimsPerPerson: 30, selfMax: 40, episodesMax: 20, maxOutputTokens: 8000, timeoutMs: 300000, descriptionMaxOutputTokens: 1500, retryLimit: 3,
+  mode: 'off',
+  maxMessages: 200,
+  minMessages: 5,
+  sweepsPerScopePerDay: 24,
+  everyMinutes: 60,
+  reviewsPerDay: 6,
+  settleMinutes: 10,
+  since: null,
+  maxPeople: 12,
+  claimsPerPerson: 30,
+  selfMax: 40,
+  episodesMax: 20,
+  maxOutputTokens: 8000,
+  timeoutMs: 300000,
+  descriptionMaxOutputTokens: 1500,
+  retryLimit: 3,
 });
 const MODES = ['off', 'shadow', 'apply'];
 const MINUTE = 60_000;
@@ -79,9 +109,12 @@ export function sessionSettings(config) {
     minMessages: posInt(given.minMessages, DEFAULTS.minMessages),
     // Per scope since stage W3; the old daily key stands in while the new one is missing.
     sweepsPerScopePerDay: posInt(given.sweepsPerScopePerDay, posInt(given.sweepsPerDay, DEFAULTS.sweepsPerScopePerDay)),
-    everyMinutes: Number.isFinite(given.everyMinutes) && given.everyMinutes >= 0 ? given.everyMinutes : DEFAULTS.everyMinutes,
-    reviewsPerDay: Number.isInteger(given.reviewsPerDay) && given.reviewsPerDay >= 0 ? given.reviewsPerDay : DEFAULTS.reviewsPerDay,
-    settleMinutes: Number.isFinite(given.settleMinutes) && given.settleMinutes >= 0 ? given.settleMinutes : DEFAULTS.settleMinutes,
+    everyMinutes:
+      Number.isFinite(given.everyMinutes) && given.everyMinutes >= 0 ? given.everyMinutes : DEFAULTS.everyMinutes,
+    reviewsPerDay:
+      Number.isInteger(given.reviewsPerDay) && given.reviewsPerDay >= 0 ? given.reviewsPerDay : DEFAULTS.reviewsPerDay,
+    settleMinutes:
+      Number.isFinite(given.settleMinutes) && given.settleMinutes >= 0 ? given.settleMinutes : DEFAULTS.settleMinutes,
     since: typeof given.since === 'string' && given.since ? given.since : null,
     maxPeople: posInt(given.maxPeople, DEFAULTS.maxPeople),
     claimsPerPerson: posInt(given.claimsPerPerson, DEFAULTS.claimsPerPerson),
@@ -127,12 +160,24 @@ export function systemTextOf(prompts, selfName, extra) {
 
 const parseJson = (text) => {
   if (typeof text !== 'string' || !text) return null;
-  try { return JSON.parse(text); } catch { return null; }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
 };
 
 /** `2026-10-24 10:05` in `timezone` (a line's time in the batch, the cutoff). */
 export function stamp(ms, timezone = 'UTC') {
-  const parts = new Intl.DateTimeFormat('sv-SE', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(ms);
+  const parts = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(ms);
   return parts.replace(/ /g, ' ');
 }
 
@@ -144,9 +189,10 @@ export function stamp(ms, timezone = 'UTC') {
  * interfaces' ids that are the same string never meet; a database before v8 has only the native id.
  */
 function currentSql(db) {
-  const same = (t) => (columnsOf(db, 'sources').has('native_kind')
-    ? `${t}.native_id = s.native_id AND ${t}.authority_id IS s.authority_id AND ${t}.native_kind IS s.native_kind AND ${t}.generation IS s.generation`
-    : `${t}.native_id = s.native_id`);
+  const same = (t) =>
+    columnsOf(db, 'sources').has('native_kind')
+      ? `${t}.native_id = s.native_id AND ${t}.authority_id IS s.authority_id AND ${t}.native_kind IS s.native_kind AND ${t}.generation IS s.generation`
+      : `${t}.native_id = s.native_id`;
   return `s.kind IN ('seen', 'said') AND s.retired_at IS NULL
   AND s.revision IS (SELECT MAX(t.revision) FROM sources t WHERE ${same('t')} AND t.kind IN ('seen', 'said') AND t.retired_at IS NULL)
   AND s.rowid = (SELECT MIN(t.rowid) FROM sources t WHERE ${same('t')} AND t.kind IN ('seen', 'said') AND t.retired_at IS NULL AND t.revision IS s.revision)
@@ -158,9 +204,18 @@ function currentSql(db) {
  * (`audienceColumn`: the entry also carries `audienceId`, and its context reads that column), else through the triple.
  */
 function scopeOf(row, audienceColumn = false) {
-  const entry = row.scope_kind === 'group'
-    ? { key: `group:${row.scope_iface}`, scope: { scope_kind: 'group', scope_iface: row.scope_iface, scope_dm: null }, ctx: groupContext(row.scope_iface) }
-    : { key: `dm:${row.scope_iface}:${row.scope_dm}`, scope: { scope_kind: 'dm', scope_iface: row.scope_iface, scope_dm: row.scope_dm }, ctx: dmContext(row.scope_dm, row.scope_iface) };
+  const entry =
+    row.scope_kind === 'group'
+      ? {
+          key: `group:${row.scope_iface}`,
+          scope: { scope_kind: 'group', scope_iface: row.scope_iface, scope_dm: null },
+          ctx: groupContext(row.scope_iface),
+        }
+      : {
+          key: `dm:${row.scope_iface}:${row.scope_dm}`,
+          scope: { scope_kind: 'dm', scope_iface: row.scope_iface, scope_dm: row.scope_dm },
+          ctx: dmContext(row.scope_dm, row.scope_iface),
+        };
   if (audienceColumn !== true) return entry;
   return { ...entry, audienceId: audienceOf(entry.scope).audience_id, ctx: { ...entry.ctx, audienceColumn: true } };
 }
@@ -171,11 +226,13 @@ function scopeOf(row, audienceColumn = false) {
  * own: its lines are internal (scope.js#audienceOf), never read as a conversation.
  */
 export function scopesOf(db, { audienceColumn = false } = {}) {
-  const rows = db.prepare(
-    `SELECT DISTINCT scope_kind, scope_iface, scope_dm FROM sources
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT scope_kind, scope_iface, scope_dm FROM sources
       WHERE kind IN ('seen', 'said') AND retired_at IS NULL AND scope_kind IN ('group', 'dm') AND scope_iface IS NOT NULL
-      ORDER BY scope_kind, scope_iface, scope_dm`,
-  ).all();
+      ORDER BY scope_kind, scope_iface, scope_dm`
+    )
+    .all();
   return rows.filter((row) => wellFormed(row)).map((row) => scopeOf(row, audienceColumn));
 }
 
@@ -197,16 +254,24 @@ export function batchOf(db, scope, { cursor, since, maxMessages, settleBefore, a
   } else {
     where.push('s.scope_kind = ?', 's.scope_iface = ?');
     params.push(scope.scope_kind, scope.scope_iface);
-    if (scope.scope_kind === 'dm') { where.push('s.scope_dm = ?'); params.push(scope.scope_dm); }
+    if (scope.scope_kind === 'dm') {
+      where.push('s.scope_dm = ?');
+      params.push(scope.scope_dm);
+    }
   }
   where.push(currentSql(db));
-  if (since) { where.push('s.occurred_at >= ?'); params.push(since); }
+  if (since) {
+    where.push('s.occurred_at >= ?');
+    params.push(since);
+  }
   // Schema v8: a line by a thread-local poster names its participant.
   const participant = columnsOf(db, 'sources').has('author_participant') ? 's.author_participant' : 'NULL';
-  const rows = db.prepare(
-    `SELECT s.rowid AS rowid, s.id, s.native_id, s.kind, s.place_id, s.author_account, ${participant} AS author_participant, s.occurred_at, s.text, s.direct
-       FROM sources s WHERE ${where.join(' AND ')} ORDER BY s.rowid LIMIT ?`,
-  ).all(...params, maxMessages);
+  const rows = db
+    .prepare(
+      `SELECT s.rowid AS rowid, s.id, s.native_id, s.kind, s.place_id, s.author_account, ${participant} AS author_participant, s.occurred_at, s.text, s.direct
+       FROM sources s WHERE ${where.join(' AND ')} ORDER BY s.rowid LIMIT ?`
+    )
+    .all(...params, maxMessages);
   const out = [];
   for (const row of rows) {
     const at = Date.parse(row.occurred_at);
@@ -218,7 +283,12 @@ export function batchOf(db, scope, { cursor, since, maxMessages, settleBefore, a
 
 // ---------- the request ----------
 
-const foldName = (text) => String(text ?? '').normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
+const foldName = (text) =>
+  String(text ?? '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
 
 /**
  * The names and ids of the accounts and people a batch touches, and its authors: every account and participant (schema
@@ -233,7 +303,11 @@ function peopleOf(db, batch, selfName) {
     const row = db.prepare('SELECT id, person_id, native_id, names FROM accounts WHERE id = ?').get(id);
     if (!row) continue;
     const names = parseJson(row.names);
-    accounts.set(id, { personId: row.person_id, native: row.native_id ?? nativeOf(id), name: Array.isArray(names) && typeof names[0] === 'string' && names[0] ? names[0] : (row.native_id ?? id) });
+    accounts.set(id, {
+      personId: row.person_id,
+      native: row.native_id ?? nativeOf(id),
+      name: Array.isArray(names) && typeof names[0] === 'string' && names[0] ? names[0] : (row.native_id ?? id),
+    });
   }
   const participants = new Map();
   for (const id of new Set(batch.map((line) => line.author_participant).filter(Boolean))) {
@@ -244,30 +318,51 @@ function peopleOf(db, batch, selfName) {
   const handled = new Set();
   for (const line of batch) {
     if (line.kind === 'said') continue;
-    const entry = line.author_participant && participants.has(line.author_participant)
-      ? { kind: 'participant', id: line.author_participant }
-      : line.author_account && accounts.has(line.author_account) ? { kind: 'account', id: line.author_account } : null;
+    const entry =
+      line.author_participant && participants.has(line.author_participant)
+        ? { kind: 'participant', id: line.author_participant }
+        : line.author_account && accounts.has(line.author_account)
+          ? { kind: 'account', id: line.author_account }
+          : null;
     if (!entry || handled.has(entry.id)) continue;
     handled.add(entry.id);
-    authors.set(`a${authors.size + 1}`, { ...entry, hasPerson: entry.kind === 'account' ? Boolean(accounts.get(entry.id).personId) : false });
+    authors.set(`a${authors.size + 1}`, {
+      ...entry,
+      hasPerson: entry.kind === 'account' ? Boolean(accounts.get(entry.id).personId) : false,
+    });
   }
   const byPerson = new Map();
   for (const line of batch) {
     if (line.kind === 'said') continue;
     const account = accounts.get(line.author_account);
     if (!account?.personId) continue;
-    const entry = byPerson.get(account.personId) ?? { id: account.personId, native: account.native, name: account.name, count: 0 };
+    const entry = byPerson.get(account.personId) ?? {
+      id: account.personId,
+      native: account.native,
+      name: account.name,
+      count: 0,
+    };
     entry.count += 1;
     byPerson.set(account.personId, entry);
   }
-  return { accounts, participants, authors, people: [...byPerson.values()].sort((a, b) => b.count - a.count || a.id.localeCompare(b.id)), selfName };
+  return {
+    accounts,
+    participants,
+    authors,
+    people: [...byPerson.values()].sort((a, b) => b.count - a.count || a.id.localeCompare(b.id)),
+    selfName,
+  };
 }
 
 /** One line of the batch: `#n [time] [pN] name: text`, a line addressed to her led by `→ `, her own under her self label. */
 function lineText(line, n, { accounts, participants, selfName, labels, timezone, handle, authorHandle = null }) {
   const own = line.kind === 'said';
-  const author = own ? String(labels?.self ?? '{name}').replace('{name}', selfName)
-    : (accounts.get(line.author_account)?.name ?? participants?.get(line.author_participant)?.name ?? line.author_account ?? '?');
+  const author = own
+    ? String(labels?.self ?? '{name}').replace('{name}', selfName)
+    : (accounts.get(line.author_account)?.name ??
+      participants?.get(line.author_participant)?.name ??
+      line.author_account ??
+      '?');
   const lead = !own && line.direct ? '→ ' : '';
   const place = handle ? `[${handle}] ` : '';
   // An author who is not a person yet carries the handle `people:add` names (prompts/memory-session.md, "People").
@@ -276,17 +371,21 @@ function lineText(line, n, { accounts, participants, selfName, labels, timezone,
 }
 
 function claimLine(label, row) {
-  const text = String(row.text ?? '').replace(/\s+/g, ' ').trim();
+  const text = String(row.text ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
   return `[${label}] ${row.kind ? `${row.kind}: ` : ''}${text}`;
 }
 
 function currentDescriptions(db, subjectIds, ctx) {
   if (subjectIds.length === 0) return [];
   const scope = scopeWhere(ctx, 'd');
-  return db.prepare(
-    `SELECT d.id AS id, d.subject_id AS subject_id, d.field AS field, v.text AS text FROM descriptions d JOIN description_versions v ON v.id = d.current_version
-      WHERE d.retired_at IS NULL AND d.subject_id IN (${subjectIds.map(() => '?').join(', ')}) AND ${scope.sql} ORDER BY d.subject_id, d.field`,
-  ).all(...subjectIds, ...scope.params);
+  return db
+    .prepare(
+      `SELECT d.id AS id, d.subject_id AS subject_id, d.field AS field, v.text AS text FROM descriptions d JOIN description_versions v ON v.id = d.current_version
+      WHERE d.retired_at IS NULL AND d.subject_id IN (${subjectIds.map(() => '?').join(', ')}) AND ${scope.sql} ORDER BY d.subject_id, d.field`
+    )
+    .all(...subjectIds, ...scope.params);
 }
 
 /** How many requests a batch takes: its people, `maxPeople` to a request (one request at least). */
@@ -299,8 +398,12 @@ function lateIds(db, ids, cutoff) {
   if (ids.length === 0) return new Set();
   const marks = ids.map(() => '?').join(', ');
   const late = new Set();
-  for (const row of db.prepare(`SELECT id FROM claims WHERE id IN (${marks}) AND (created_at > ? OR last_seen_at > ?)`).all(...ids, cutoff, cutoff)) late.add(row.id);
-  for (const row of db.prepare(`SELECT id FROM episodes WHERE id IN (${marks}) AND created_at > ?`).all(...ids, cutoff)) late.add(row.id);
+  for (const row of db
+    .prepare(`SELECT id FROM claims WHERE id IN (${marks}) AND (created_at > ? OR last_seen_at > ?)`)
+    .all(...ids, cutoff, cutoff))
+    late.add(row.id);
+  for (const row of db.prepare(`SELECT id FROM episodes WHERE id IN (${marks}) AND created_at > ?`).all(...ids, cutoff))
+    late.add(row.id);
   return late;
 }
 
@@ -315,7 +418,8 @@ function profileAsOf(db, profile, cutoff) {
   if (late.size === 0) return profile;
   const out = { ...profile };
   for (const [key, value] of Object.entries(profile)) {
-    if (Array.isArray(value)) out[key] = value.filter((item) => !(typeof item?.itemId === 'string' && late.has(item.itemId)));
+    if (Array.isArray(value))
+      out[key] = value.filter((item) => !(typeof item?.itemId === 'string' && late.has(item.itemId)));
   }
   return out;
 }
@@ -337,8 +441,16 @@ export function buildSessionRequest({ db, scope, batch, config, prompts, selfNam
   const touched = peopleOf(db, batch, selfName);
   // What the request renders, in its order (turnReadRows resolves it to versions and revisions).
   const reads = [];
-  const read = (kind, id, blockName) => { if (typeof id === 'string' && id) reads.push({ kind, id, block: blockName }); };
-  const maps = { sources: new Map(), claims: new Map(), episodes: new Map(), places: new Map(), authors: touched.authors };
+  const read = (kind, id, blockName) => {
+    if (typeof id === 'string' && id) reads.push({ kind, id, block: blockName });
+  };
+  const maps = {
+    sources: new Map(),
+    claims: new Map(),
+    episodes: new Map(),
+    places: new Map(),
+    authors: touched.authors,
+  };
   const nameOf = (id) => {
     for (const account of touched.accounts.values()) if (account.native === String(id)) return account.name;
     return null;
@@ -346,12 +458,21 @@ export function buildSessionRequest({ db, scope, batch, config, prompts, selfNam
   const pages = Math.max(1, Math.ceil(touched.people.length / settings.maxPeople));
   const cutoff = batch.length > 0 ? Math.max(...batch.map((line) => line.at)) : now;
   const cutoffIso = new Date(cutoff).toISOString();
-  const early = (alias) => `(${alias}.created_at IS NULL OR ${alias}.created_at <= ?) AND (${alias}.last_seen_at IS NULL OR ${alias}.last_seen_at <= ?)`;
+  const early = (alias) =>
+    `(${alias}.created_at IS NULL OR ${alias}.created_at <= ?) AND (${alias}.last_seen_at IS NULL OR ${alias}.last_seen_at <= ?)`;
 
   // The places of the batch get a handle each (`p1`, ...), in order of their first line; the guilds they sit in follow.
   const placeIds = [...new Set(batch.map((line) => line.place_id).filter(Boolean))];
   // A DM place row the database made (schema v7) is not shown: the block stays as it was until its wording is written.
-  const placeRows = placeIds.map((id) => db.prepare("SELECT id, kind, name, topic, parent_id FROM places WHERE id = ? AND (kind IS NOT 'dm' OR owner_file IS NOT NULL)").get(id)).filter(Boolean);
+  const placeRows = placeIds
+    .map((id) =>
+      db
+        .prepare(
+          "SELECT id, kind, name, topic, parent_id FROM places WHERE id = ? AND (kind IS NOT 'dm' OR owner_file IS NOT NULL)"
+        )
+        .get(id)
+    )
+    .filter(Boolean);
   const guilds = [...new Set(placeRows.map((row) => row.parent_id).filter(Boolean))];
   const handleOf = new Map();
   for (const id of [...placeRows.map((row) => row.id), ...guilds]) {
@@ -364,22 +485,36 @@ export function buildSessionRequest({ db, scope, batch, config, prompts, selfNam
   const rendered = [];
   let n = 0;
   // The handle of every author of the batch who is not a person yet, by account or participant id.
-  const authorHandleOf = new Map([...touched.authors].filter(([, entry]) => !entry.hasPerson).map(([handle, entry]) => [entry.id, handle]));
+  const authorHandleOf = new Map(
+    [...touched.authors].filter(([, entry]) => !entry.hasPerson).map(([handle, entry]) => [entry.id, handle])
+  );
   for (const line of batch) {
     if (typeof line.text !== 'string' || line.text.trim() === '') continue;
     n += 1;
     maps.sources.set(`#${n}`, line.id);
     read('source_id', line.id, 'batch');
-    rendered.push(lineText(line, n, { accounts: touched.accounts, participants: touched.participants, selfName, labels, timezone, handle: handleOf.get(line.place_id) ?? null, authorHandle: authorHandleOf.get(line.author_participant ?? line.author_account) ?? null }));
+    rendered.push(
+      lineText(line, n, {
+        accounts: touched.accounts,
+        participants: touched.participants,
+        selfName,
+        labels,
+        timezone,
+        handle: handleOf.get(line.place_id) ?? null,
+        authorHandle: authorHandleOf.get(line.author_participant ?? line.author_account) ?? null,
+      })
+    );
   }
   const batchBody = [`cutoff: ${stamp(cutoff, timezone)}`, ...rendered].join('\n');
 
   // <self>
   const selfScope = scopeWhere(ctx, 'c');
-  const selfClaims = db.prepare(
-    `SELECT c.id, c.kind, c.text FROM claims c WHERE c.subject_kind = 'self' AND c.retired_at IS NULL AND c.shown = 1 AND c.truth IN ('current', 'disputed')
-       AND ${selfScope.sql} AND ${early('c')} ORDER BY c.last_seen_at DESC, c.id LIMIT ?`,
-  ).all(...selfScope.params, cutoffIso, cutoffIso, settings.selfMax);
+  const selfClaims = db
+    .prepare(
+      `SELECT c.id, c.kind, c.text FROM claims c WHERE c.subject_kind = 'self' AND c.retired_at IS NULL AND c.shown = 1 AND c.truth IN ('current', 'disputed')
+       AND ${selfScope.sql} AND ${early('c')} ORDER BY c.last_seen_at DESC, c.id LIMIT ?`
+    )
+    .all(...selfScope.params, cutoffIso, cutoffIso, settings.selfMax);
   const selfLines = selfClaims.map((row, index) => {
     maps.claims.set(`s${index + 1}`, row.id);
     read('claim', row.id, 'self');
@@ -389,7 +524,9 @@ export function buildSessionRequest({ db, scope, batch, config, prompts, selfNam
   // <place>
   const placeLines = [`scope: ${scope.scope.scope_kind}`];
   for (const row of placeRows) {
-    placeLines.push(`[${handleOf.get(row.id)}] ${row.kind === 'dm' ? 'dm' : 'channel'}: ${[row.name, row.topic].filter(Boolean).join(' - ') || row.id}`);
+    placeLines.push(
+      `[${handleOf.get(row.id)}] ${row.kind === 'dm' ? 'dm' : 'channel'}: ${[row.name, row.topic].filter(Boolean).join(' - ') || row.id}`
+    );
     read('place', row.id, 'place');
   }
   for (const id of guilds) {
@@ -403,10 +540,15 @@ export function buildSessionRequest({ db, scope, batch, config, prompts, selfNam
   }
   const placeScope = scopeWhere(ctx, 'c');
   const placeSubjects = [...guilds, ...placeIds];
-  const placeClaims = placeSubjects.length === 0 ? [] : db.prepare(
-    `SELECT c.id, c.kind, c.text FROM claims c WHERE c.subject_kind = 'place' AND c.subject_id IN (${placeSubjects.map(() => '?').join(', ')}) AND c.retired_at IS NULL
-       AND c.shown = 1 AND c.truth IN ('current', 'disputed') AND ${placeScope.sql} AND ${early('c')} ORDER BY c.last_seen_at DESC, c.id LIMIT ?`,
-  ).all(...placeSubjects, ...placeScope.params, cutoffIso, cutoffIso, settings.claimsPerPerson);
+  const placeClaims =
+    placeSubjects.length === 0
+      ? []
+      : db
+          .prepare(
+            `SELECT c.id, c.kind, c.text FROM claims c WHERE c.subject_kind = 'place' AND c.subject_id IN (${placeSubjects.map(() => '?').join(', ')}) AND c.retired_at IS NULL
+       AND c.shown = 1 AND c.truth IN ('current', 'disputed') AND ${placeScope.sql} AND ${early('c')} ORDER BY c.last_seen_at DESC, c.id LIMIT ?`
+          )
+          .all(...placeSubjects, ...placeScope.params, cutoffIso, cutoffIso, settings.claimsPerPerson);
   let claimNumber = 0;
   for (const row of placeClaims) {
     claimNumber += 1;
@@ -436,23 +578,31 @@ export function buildSessionRequest({ db, scope, batch, config, prompts, selfNam
   const peopleBodies = [];
   const personScope = scopeWhere(ctx, 'c');
   for (const person of shown) {
-    const file = db.prepare("SELECT path FROM files WHERE path LIKE ? ESCAPE '\\' AND gone_at IS NULL ORDER BY path LIMIT 1").get(`guilds/%/users/${person.native}.json`);
+    const file = db
+      .prepare("SELECT path FROM files WHERE path LIKE ? ESCAPE '\\' AND gone_at IS NULL ORDER BY path LIMIT 1")
+      .get(`guilds/%/users/${person.native}.json`);
     let profile = null;
     if (file) {
       try {
         const found = exportOne(db, file.path);
         if (found.found) profile = profileAsOf(db, found.value, cutoffIso);
-      } catch { /* the profile is shown without the stored text */ }
+      } catch {
+        /* the profile is shown without the stored text */
+      }
     }
     let text = '';
     try {
       text = profile ? renderProfile(profile, labels, profileOptions) : '';
-    } catch { text = ''; }
+    } catch {
+      text = '';
+    }
     const row = db.prepare('SELECT affinity FROM people WHERE id = ?').get(person.id);
-    const claims = db.prepare(
-      `SELECT c.id, c.kind, c.text FROM claims c WHERE c.subject_kind = 'person' AND c.subject_id = ? AND c.retired_at IS NULL AND c.shown = 1
-         AND c.truth IN ('current', 'disputed') AND ${personScope.sql} AND ${early('c')} ORDER BY c.last_seen_at DESC, c.id LIMIT ?`,
-    ).all(person.id, ...personScope.params, cutoffIso, cutoffIso, settings.claimsPerPerson);
+    const claims = db
+      .prepare(
+        `SELECT c.id, c.kind, c.text FROM claims c WHERE c.subject_kind = 'person' AND c.subject_id = ? AND c.retired_at IS NULL AND c.shown = 1
+         AND c.truth IN ('current', 'disputed') AND ${personScope.sql} AND ${early('c')} ORDER BY c.last_seen_at DESC, c.id LIMIT ?`
+      )
+      .all(person.id, ...personScope.params, cutoffIso, cutoffIso, settings.claimsPerPerson);
     const lines = [text || `## ${person.name}`, `id: <@${person.native}>`];
     if (row && Number.isFinite(row.affinity)) lines.push(`affinity: ${row.affinity}`);
     for (const claim of claims) {
@@ -469,29 +619,38 @@ export function buildSessionRequest({ db, scope, batch, config, prompts, selfNam
   if (shown.length > 0) {
     const episodeScope = scopeWhere(ctx, 'e');
     const ids = shown.map((person) => person.id);
-    const rows = db.prepare(
-      `SELECT e.id, e.subject_id, e.date, e.what, e.feeling FROM episodes e
+    const rows = db
+      .prepare(
+        `SELECT e.id, e.subject_id, e.date, e.what, e.feeling FROM episodes e
         WHERE e.retired_at IS NULL AND (e.status IS NULL OR e.status != 'closed') AND e.subject_id IN (${ids.map(() => '?').join(', ')}) AND ${episodeScope.sql}
           AND (e.created_at IS NULL OR e.created_at <= ?)
-        ORDER BY COALESCE(e.last_ms, 0) DESC, e.date DESC, e.id LIMIT ?`,
-    ).all(...ids, ...episodeScope.params, cutoffIso, settings.episodesMax);
+        ORDER BY COALESCE(e.last_ms, 0) DESC, e.date DESC, e.id LIMIT ?`
+      )
+      .all(...ids, ...episodeScope.params, cutoffIso, settings.episodesMax);
     rows.forEach((row, index) => {
       maps.episodes.set(`e${index + 1}`, row.id);
       read('episode', row.id, 'episodes');
       const who = shown.find((person) => person.id === row.subject_id)?.name ?? row.subject_id;
-      episodeLines.push(`[e${index + 1}] ${[row.date, who].filter(Boolean).join(' ')}: ${row.what}${row.feeling ? ` (${row.feeling})` : ''}`);
+      episodeLines.push(
+        `[e${index + 1}] ${[row.date, who].filter(Boolean).join(' ')}: ${row.what}${row.feeling ? ` (${row.feeling})` : ''}`
+      );
     });
   }
 
   // <intentions>
   const intentionLines = [];
   const intentionScope = scopeWhere(ctx, 'i');
-  const records = db.prepare(`SELECT i.id, i.record FROM intentions i WHERE i.archived = 0 AND i.retired_at IS NULL AND ${intentionScope.sql} ORDER BY i.created_ms`).all(...intentionScope.params);
+  const records = db
+    .prepare(
+      `SELECT i.id, i.record FROM intentions i WHERE i.archived = 0 AND i.retired_at IS NULL AND ${intentionScope.sql} ORDER BY i.created_ms`
+    )
+    .all(...intentionScope.params);
   for (const row of records) {
     const record = parseJson(row.record);
     if (!record || !isOpen(record.status)) continue;
-    const concerns = shown.some((person) => concernsMember(record, { userId: person.native, names: [person.name] }))
-      || placeIds.some((id) => JSON.stringify(record).includes(nativeOf(id) ?? '\u0000'));
+    const concerns =
+      shown.some((person) => concernsMember(record, { userId: person.native, names: [person.name] })) ||
+      placeIds.some((id) => JSON.stringify(record).includes(nativeOf(id) ?? '\u0000'));
     if (concerns && typeof record.purpose === 'string') {
       intentionLines.push(`${record.status}: ${record.purpose}`);
       read('intention', row.id, 'intentions');
@@ -506,12 +665,28 @@ export function buildSessionRequest({ db, scope, batch, config, prompts, selfNam
     block('episodes', episodeLines.join('\n')),
     block('intentions', intentionLines.join('\n')),
     block('batch', batchBody),
-  ].filter(Boolean).join('\n\n');
+  ]
+    .filter(Boolean)
+    .join('\n\n');
   // A read's order is its place in the request: the blocks in the order the user content has them, then as built.
   const rank = (name) => SESSION_BLOCKS.indexOf(name);
-  const ordered = reads.map((entry, at) => ({ entry, at })).sort((a, b) => rank(a.entry.block) - rank(b.entry.block) || a.at - b.at)
+  const ordered = reads
+    .map((entry, at) => ({ entry, at }))
+    .sort((a, b) => rank(a.entry.block) - rank(b.entry.block) || a.at - b.at)
     .map(({ entry }, ord) => ({ ...entry, ord: ord + 1 }));
-  return { messages: [{ role: 'system', content: system }, { role: 'user', content: user }], maps, lines: rendered.length, people: shown, places: placeIds, pages, cutoff, reads: ordered };
+  return {
+    messages: [
+      { role: 'system', content: system },
+      { role: 'user', content: user },
+    ],
+    maps,
+    lines: rendered.length,
+    people: shown,
+    places: placeIds,
+    pages,
+    cutoff,
+    reads: ordered,
+  };
 }
 
 /**
@@ -521,8 +696,12 @@ export function buildSessionRequest({ db, scope, batch, config, prompts, selfNam
  */
 export function resolveSessionReads(db, request) {
   const rows = turnReadRows(db, request.reads ?? []);
-  const versionOf = new Map(rows.filter((row) => row.row_kind === 'claims').map((row) => [row.row_id, row.version_id ?? null]));
-  request.maps.versions = new Map([...request.maps.claims].map(([handle, id]) => [handle, versionOf.has(id) ? versionOf.get(id) : null]));
+  const versionOf = new Map(
+    rows.filter((row) => row.row_kind === 'claims').map((row) => [row.row_id, row.version_id ?? null])
+  );
+  request.maps.versions = new Map(
+    [...request.maps.claims].map(([handle, id]) => [handle, versionOf.has(id) ? versionOf.get(id) : null])
+  );
   return rows;
 }
 
@@ -539,9 +718,17 @@ export function parseSessionAnswer(text) {
   let body = raw.slice(open + '<memory>'.length);
   const close = body.indexOf('</memory>');
   if (close !== -1) body = body.slice(0, close);
-  body = body.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  body = body
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/, '')
+    .trim();
   let value;
-  try { value = JSON.parse(body); } catch { return { ok: false, code: 'bad_json' }; }
+  try {
+    value = JSON.parse(body);
+  } catch {
+    return { ok: false, code: 'bad_json' };
+  }
   if (!value || typeof value !== 'object' || Array.isArray(value)) return { ok: false, code: 'not_object' };
   return { ok: true, value };
 }
@@ -561,7 +748,9 @@ const isObject = (value) => value !== null && typeof value === 'object' && !Arra
 export function validateAnswer(value, { maps, people }) {
   const plan = { claims: [], episodes: [], affinity: [], descriptions: [], people: [] };
   const counts = { kept: 0, dropped: {} };
-  const drop = (reason) => { counts.dropped[reason] = (counts.dropped[reason] ?? 0) + 1; };
+  const drop = (reason) => {
+    counts.dropped[reason] = (counts.dropped[reason] ?? 0) + 1;
+  };
   const personByKey = new Map();
   const ambiguous = new Set();
   for (const person of people) {
@@ -578,10 +767,18 @@ export function validateAnswer(value, { maps, people }) {
     for (const ref of Array.isArray(list) ? list : []) {
       const key = typeof ref === 'number' ? `#${ref}` : text(ref).replace(/^(?!#)/, '#');
       const id = maps.sources.get(key);
-      if (id) { if (!out.includes(id)) out.push(id); } else unknown = true;
+      if (id) {
+        if (!out.includes(id)) out.push(id);
+      } else unknown = true;
     }
-    if (unknown) { drop('unknown_source'); return null; }
-    if (out.length === 0) { drop('no_sources'); return null; }
+    if (unknown) {
+      drop('unknown_source');
+      return null;
+    }
+    if (out.length === 0) {
+      drop('no_sources');
+      return null;
+    }
     return out;
   };
   const person = (subject) => {
@@ -594,53 +791,110 @@ export function validateAnswer(value, { maps, people }) {
     if (word === 'self') return { kind: 'self', id: SELF_PERSON };
     if (word === 'place' || maps.places?.has(text(item.subject))) {
       const handle = maps.places?.has(text(item.subject)) ? text(item.subject) : text(item.place);
-      if (!handle) { drop('no_place'); return null; }
+      if (!handle) {
+        drop('no_place');
+        return null;
+      }
       const id = maps.places?.get(handle);
-      if (!id) { drop('unknown_place'); return null; }
+      if (!id) {
+        drop('unknown_place');
+        return null;
+      }
       return { kind: 'place', id };
     }
     const found = person(item.subject);
     if (!found) drop('unknown_subject');
     return found ? { kind: 'person', id: found.id } : null;
   };
-  const keep = (group, entry) => { plan[group].push(entry); counts.kept += 1; };
+  const keep = (group, entry) => {
+    plan[group].push(entry);
+    counts.kept += 1;
+  };
 
   const list = (key) => {
     const given = value[key];
     if (given === undefined) return [];
-    if (!Array.isArray(given)) { drop(`${key}_not_list`); return []; }
+    if (!Array.isArray(given)) {
+      drop(`${key}_not_list`);
+      return [];
+    }
     return given;
   };
 
   for (const item of list('claims')) {
-    if (!isObject(item)) { drop('bad_op'); continue; }
+    if (!isObject(item)) {
+      drop('bad_op');
+      continue;
+    }
     const op = text(item.op);
     if (op === 'add') {
       const subject = subjectOf(item);
       if (!subject) continue;
-      if (!CLAIM_KINDS.includes(item.kind)) { drop('bad_kind'); continue; }
-      if (!text(item.text)) { drop('no_text'); continue; }
-      if (!HOW.includes(item.how)) { drop('bad_how'); continue; }
+      if (!CLAIM_KINDS.includes(item.kind)) {
+        drop('bad_kind');
+        continue;
+      }
+      if (!text(item.text)) {
+        drop('no_text');
+        continue;
+      }
+      if (!HOW.includes(item.how)) {
+        drop('bad_how');
+        continue;
+      }
       const sources = sourcesOf(item.sources);
       if (!sources) continue;
-      keep('claims', { op, subjectKind: subject.kind, subjectId: subject.id, kind: item.kind, text: text(item.text), how: item.how, sources, when: text(item.when) || null });
+      keep('claims', {
+        op,
+        subjectKind: subject.kind,
+        subjectId: subject.id,
+        kind: item.kind,
+        text: text(item.text),
+        how: item.how,
+        sources,
+        when: text(item.when) || null,
+      });
     } else if (op === 'confirm' || op === 'revise' || op === 'retire') {
       const id = maps.claims.get(text(item.id));
-      if (!id) { drop('unknown_id'); continue; }
+      if (!id) {
+        drop('unknown_id');
+        continue;
+      }
       const sources = sourcesOf(item.sources);
       if (!sources) continue;
       // The version the request showed (resolveSessionReads), never a value from the answer.
-      const base = maps.versions instanceof Map && maps.versions.has(text(item.id)) ? { base: maps.versions.get(text(item.id)) } : {};
-      if (op === 'confirm') { keep('claims', { op, id, sources, ...base }); continue; }
+      const base =
+        maps.versions instanceof Map && maps.versions.has(text(item.id))
+          ? { base: maps.versions.get(text(item.id)) }
+          : {};
+      if (op === 'confirm') {
+        keep('claims', { op, id, sources, ...base });
+        continue;
+      }
       if (op === 'revise') {
-        if (!text(item.text)) { drop('no_text'); continue; }
-        if (!HOW.includes(item.how)) { drop('bad_how'); continue; }
-        if (!text(item.reason)) { drop('no_reason'); continue; }
+        if (!text(item.text)) {
+          drop('no_text');
+          continue;
+        }
+        if (!HOW.includes(item.how)) {
+          drop('bad_how');
+          continue;
+        }
+        if (!text(item.reason)) {
+          drop('no_reason');
+          continue;
+        }
         keep('claims', { op, id, text: text(item.text), how: item.how, sources, reason: text(item.reason), ...base });
         continue;
       }
-      if (!TRUTHS.includes(item.truth)) { drop('bad_truth'); continue; }
-      if (!text(item.reason)) { drop('no_reason'); continue; }
+      if (!TRUTHS.includes(item.truth)) {
+        drop('bad_truth');
+        continue;
+      }
+      if (!text(item.reason)) {
+        drop('no_reason');
+        continue;
+      }
       keep('claims', { op, id, truth: item.truth, reason: text(item.reason), sources, ...base });
     } else {
       drop('bad_op');
@@ -648,43 +902,85 @@ export function validateAnswer(value, { maps, people }) {
   }
 
   for (const item of list('episodes')) {
-    if (!isObject(item)) { drop('bad_op'); continue; }
+    if (!isObject(item)) {
+      drop('bad_op');
+      continue;
+    }
     const found = person(item.subject);
-    if (!found) { drop('unknown_subject'); continue; }
-    if (!text(item.what)) { drop('no_text'); continue; }
+    if (!found) {
+      drop('unknown_subject');
+      continue;
+    }
+    if (!text(item.what)) {
+      drop('no_text');
+      continue;
+    }
     const sources = sourcesOf(item.sources);
     if (!sources) continue;
     keep('episodes', { subjectId: found.id, what: text(item.what), feeling: text(item.feeling), sources });
   }
 
   for (const item of list('affinity')) {
-    if (!isObject(item)) { drop('bad_op'); continue; }
+    if (!isObject(item)) {
+      drop('bad_op');
+      continue;
+    }
     const found = person(item.person);
-    if (!found) { drop('unknown_subject'); continue; }
-    if (typeof item.delta !== 'number' || !Number.isFinite(item.delta) || Math.round(item.delta) === 0) { drop('bad_delta'); continue; }
-    if (!text(item.reason)) { drop('no_reason'); continue; }
+    if (!found) {
+      drop('unknown_subject');
+      continue;
+    }
+    if (typeof item.delta !== 'number' || !Number.isFinite(item.delta) || Math.round(item.delta) === 0) {
+      drop('bad_delta');
+      continue;
+    }
+    if (!text(item.reason)) {
+      drop('no_reason');
+      continue;
+    }
     const sources = sourcesOf(item.sources);
     if (!sources) continue;
     keep('affinity', { personId: found.id, delta: Math.round(item.delta), reason: text(item.reason), sources });
   }
 
   for (const item of list('descriptions')) {
-    if (!isObject(item)) { drop('bad_op'); continue; }
+    if (!isObject(item)) {
+      drop('bad_op');
+      continue;
+    }
     const subject = subjectOf(item);
     if (!subject) continue;
-    if (!DESCRIPTION_FIELDS.includes(item.field)) { drop('bad_field'); continue; }
-    if (!text(item.why)) { drop('no_reason'); continue; }
+    if (!DESCRIPTION_FIELDS.includes(item.field)) {
+      drop('bad_field');
+      continue;
+    }
+    if (!text(item.why)) {
+      drop('no_reason');
+      continue;
+    }
     keep('descriptions', { subjectKind: subject.kind, subjectId: subject.id, field: item.field, why: text(item.why) });
   }
 
   // people:add (schema v8): an account or participant of the batch, by its handle, becomes a tentative person. The
   // request does not offer the op yet (docs/prompt-contract.md); the validator and the writer take it.
   for (const item of list('people')) {
-    if (!isObject(item) || text(item.op) !== 'add') { drop('bad_op'); continue; }
+    if (!isObject(item) || text(item.op) !== 'add') {
+      drop('bad_op');
+      continue;
+    }
     const author = maps.authors?.get(text(item.subject));
-    if (!author) { drop('unknown_subject'); continue; }
-    if (author.hasPerson) { drop('has_person'); continue; }
-    if (!text(item.reason)) { drop('no_reason'); continue; }
+    if (!author) {
+      drop('unknown_subject');
+      continue;
+    }
+    if (author.hasPerson) {
+      drop('has_person');
+      continue;
+    }
+    if (!text(item.reason)) {
+      drop('no_reason');
+      continue;
+    }
     const sources = sourcesOf(item.sources);
     if (!sources) continue;
     keep('people', { op: 'add', subjectKind: author.kind, subjectId: author.id, sources, reason: text(item.reason) });
@@ -699,22 +995,37 @@ const codeOf = (error) => error?.code ?? error?.name ?? 'ERROR';
 
 /** How many sweeps have started on the UTC day of `now`. */
 export function sweepsToday(db, now) {
-  return db.prepare("SELECT COUNT(DISTINCT sweep_id) AS n FROM session_runs WHERE substr(started_at, 1, 10) = ? AND sweep_id IS NOT NULL").get(dayOf(now)).n;
+  return db
+    .prepare(
+      'SELECT COUNT(DISTINCT sweep_id) AS n FROM session_runs WHERE substr(started_at, 1, 10) = ? AND sweep_id IS NOT NULL'
+    )
+    .get(dayOf(now)).n;
 }
 
 /** How many sweeps reached the scope `scopeKey` (in `mode`) on the UTC day of `now`. */
 export function scopeSweepsToday(db, scopeKey, now, mode) {
-  return db.prepare("SELECT COUNT(DISTINCT sweep_id) AS n FROM session_runs WHERE scope_key = ? AND mode = ? AND substr(started_at, 1, 10) = ? AND sweep_id IS NOT NULL")
+  return db
+    .prepare(
+      'SELECT COUNT(DISTINCT sweep_id) AS n FROM session_runs WHERE scope_key = ? AND mode = ? AND substr(started_at, 1, 10) = ? AND sweep_id IS NOT NULL'
+    )
     .get(scopeKey, mode, dayOf(now)).n;
 }
 
 /** The batches waiting for another try: `[{ scope, tries, from, to }]` (an `all_dropped` answer leaves its lines pending). */
 export function pendingBatches(db) {
   const out = [];
-  for (const row of db.prepare("SELECT key, value FROM meta WHERE key LIKE 'memory_session.pending.%' ORDER BY key").all()) {
+  for (const row of db
+    .prepare("SELECT key, value FROM meta WHERE key LIKE 'memory_session.pending.%' ORDER BY key")
+    .all()) {
     const record = parseJson(row.value);
     if (!record) continue;
-    out.push({ scope: row.key.split('.').slice(3).join('.'), mode: row.key.split('.')[2], tries: record.tries ?? 0, from: record.from ?? null, to: record.to ?? null });
+    out.push({
+      scope: row.key.split('.').slice(3).join('.'),
+      mode: row.key.split('.')[2],
+      tries: record.tries ?? 0,
+      from: record.from ?? null,
+      to: record.to ?? null,
+    });
   }
   return out;
 }
@@ -737,13 +1048,29 @@ export function sessionStatus({ db, config, env, prompts, now = Date.now() }) {
   if (db) {
     try {
       today = sweepsToday(db, now);
-      const row = db.prepare('SELECT outcome, finished_at, scope_key FROM session_runs ORDER BY finished_at DESC, rowid DESC LIMIT 1').get();
+      const row = db
+        .prepare(
+          'SELECT outcome, finished_at, scope_key FROM session_runs ORDER BY finished_at DESC, rowid DESC LIMIT 1'
+        )
+        .get();
       if (row) last = { outcome: row.outcome, at: row.finished_at };
       pending = pendingBatches(db);
-    } catch { /* an older database without the table */ }
+    } catch {
+      /* an older database without the table */
+    }
   }
   // `sweepsPerDay` is the per-scope cap since stage W3 (the status line's `{cap}`).
-  return { mode, state, code, sweepsToday: today, sweepsPerDay: sweepsPerScopePerDay, sweepsPerScopePerDay, retryLimit, last, pending };
+  return {
+    mode,
+    state,
+    code,
+    sweepsToday: today,
+    sweepsPerDay: sweepsPerScopePerDay,
+    sweepsPerScopePerDay,
+    retryLimit,
+    last,
+    pending,
+  };
 }
 
 /**
@@ -771,15 +1098,27 @@ export async function sweep(ctx, options = {}) {
     if (options.scopes instanceof Set && !options.scopes.has(scope.key)) continue;
     const key = cursorKey(settings.mode, scope.key);
     const cursor = Number(metaOf(db, key) ?? 0);
-    const batch = batchOf(db, scope.scope, { cursor, since: settings.since, maxMessages, settleBefore: now() - settings.settleMinutes * MINUTE, audienceId: scope.audienceId ?? null });
-    if (batch.length < Math.min(settings.minMessages, maxMessages)) { runs.push({ scope: scope.key, outcome: 'quiet', lines: batch.length }); continue; }
-    if (!options.ignoreSweepCap && scopeSweepsToday(db, scope.key, started, settings.mode) >= settings.sweepsPerScopePerDay) {
+    const batch = batchOf(db, scope.scope, {
+      cursor,
+      since: settings.since,
+      maxMessages,
+      settleBefore: now() - settings.settleMinutes * MINUTE,
+      audienceId: scope.audienceId ?? null,
+    });
+    if (batch.length < Math.min(settings.minMessages, maxMessages)) {
+      runs.push({ scope: scope.key, outcome: 'quiet', lines: batch.length });
+      continue;
+    }
+    if (
+      !options.ignoreSweepCap &&
+      scopeSweepsToday(db, scope.key, started, settings.mode) >= settings.sweepsPerScopePerDay
+    ) {
       capped += 1;
       runs.push({ scope: scope.key, outcome: 'capped', lines: batch.length });
       continue;
     }
     ran += 1;
-    runs.push(...await runBatch(ctx, { scope, batch, cursor, key, sweepId, settings }));
+    runs.push(...(await runBatch(ctx, { scope, batch, cursor, key, sweepId, settings })));
   }
   // Every scope with work is at its daily cap: the sweep did nothing.
   if (ran === 0 && capped > 0) return { status: 'refused', code: CODES.SWEEP_CAP, runs };
@@ -811,7 +1150,9 @@ export function fitBatch(db, scope, batch, { config, prompts, selfName, now, min
   let lines = batch;
   while (lines.length > Math.max(1, min) && largest(lines) > budget) {
     const byArrival = [...lines].sort((a, b) => a.rowid - b.rowid);
-    const keep = new Set(byArrival.slice(0, Math.max(Math.max(1, min), Math.ceil(byArrival.length / 2))).map((line) => line.rowid));
+    const keep = new Set(
+      byArrival.slice(0, Math.max(Math.max(1, min), Math.ceil(byArrival.length / 2))).map((line) => line.rowid)
+    );
     const next = lines.filter((line) => keep.has(line.rowid));
     if (next.length === lines.length) break;
     lines = next;
@@ -835,7 +1176,11 @@ async function runBatch(ctx, { scope, batch: read, cursor, key, sweepId, setting
   // may have let more lines in since, and a wider batch would carry another key and apply its first pages again. The
   // lines after it wait for the next batch.
   if (settings.mode === 'apply') {
-    const earlier = db.prepare('SELECT MIN(cursor_to) AS last FROM session_runs WHERE mode = ? AND scope_key = ? AND cursor_from = ? AND applied = 1').get(settings.mode, scope.key, cursor)?.last;
+    const earlier = db
+      .prepare(
+        'SELECT MIN(cursor_to) AS last FROM session_runs WHERE mode = ? AND scope_key = ? AND cursor_from = ? AND applied = 1'
+      )
+      .get(settings.mode, scope.key, cursor)?.last;
     if (Number.isFinite(earlier)) pinned = true;
     if (Number.isFinite(earlier) && earlier !== cursorTo) {
       batch = batch.filter((line) => line.rowid <= earlier);
@@ -843,7 +1188,15 @@ async function runBatch(ctx, { scope, batch: read, cursor, key, sweepId, setting
       if (batch.length === 0) {
         // Every line of the old batch is gone (retired since): only the cursor is left to move.
         try {
-          await ctx.write({ kind: 'session', mode: settings.mode, run: null, plan: null, advance: { key, value: cursorTo, expect: cursor }, pending: { key: holdKey, value: null }, now: (ctx.now ?? Date.now)() });
+          await ctx.write({
+            kind: 'session',
+            mode: settings.mode,
+            run: null,
+            plan: null,
+            advance: { key, value: cursorTo, expect: cursor },
+            pending: { key: holdKey, value: null },
+            now: (ctx.now ?? Date.now)(),
+          });
           return [{ scope: scope.key, outcome: 'applied_before', lines: 0 }];
         } catch (error) {
           ctx.log?.warn?.('memory session: write failed', { code: codeOf(error) });
@@ -856,16 +1209,27 @@ async function runBatch(ctx, { scope, batch: read, cursor, key, sweepId, setting
   // first lines by arrival, halving until it fits or `minMessages` is reached; the lines after it wait for the next
   // batch (none is skipped: the cursor follows the cut). A batch pinned by an applied page above keeps its lines.
   if (!pinned) {
-    const fitted = fitBatch(db, scope, batch, { config, prompts: hot.prompts, selfName: ctx.selfName ?? '', now: (ctx.now ?? Date.now)(), min: settings.minMessages });
+    const fitted = fitBatch(db, scope, batch, {
+      config,
+      prompts: hot.prompts,
+      selfName: ctx.selfName ?? '',
+      now: (ctx.now ?? Date.now)(),
+      min: settings.minMessages,
+    });
     if (fitted.length < batch.length) {
-      ctx.log?.info?.('memory session: batch cut to fit the request cap', { scope: scope.scope.scope_kind, from: batch.length, to: fitted.length });
+      ctx.log?.info?.('memory session: batch cut to fit the request cap', {
+        scope: scope.scope.scope_kind,
+        from: batch.length,
+        to: fitted.length,
+      });
       batch = fitted;
       cursorTo = Math.max(...batch.map((line) => line.rowid));
     }
   }
   const held = parseJson(metaOf(db, holdKey));
   const tries = held && held.from === cursor ? Number(held.tries) || 0 : 0;
-  if (tries >= settings.retryLimit) return [await skipBatch(ctx, { scope, batch, cursor, cursorTo, key, holdKey, sweepId, settings, tries })];
+  if (tries >= settings.retryLimit)
+    return [await skipBatch(ctx, { scope, batch, cursor, cursorTo, key, holdKey, sweepId, settings, tries })];
 
   const pages = pagesOf(db, batch, config, ctx.selfName ?? '');
   const results = [];
@@ -874,22 +1238,54 @@ async function runBatch(ctx, { scope, batch: read, cursor, key, sweepId, setting
   for (let page = 0; page < pages; page += 1) {
     const batchKey = [settings.mode, scope.key, cursor, cursorTo, page].join('|');
     const last = page === pages - 1;
-    if (settings.mode === 'apply' && db.prepare('SELECT 1 AS ok FROM session_runs WHERE batch_key = ? AND applied = 1').get(batchKey)) {
+    if (
+      settings.mode === 'apply' &&
+      db.prepare('SELECT 1 AS ok FROM session_runs WHERE batch_key = ? AND applied = 1').get(batchKey)
+    ) {
       results.push({ scope: scope.key, outcome: 'applied_before', lines: batch.length, page });
       lastApplied = last;
       continue;
     }
-    results.push(await runScope(ctx, { scope, batch, cursor, cursorTo, key, holdKey, sweepId, settings, page, pages, batchKey, state, tries }));
+    results.push(
+      await runScope(ctx, {
+        scope,
+        batch,
+        cursor,
+        cursorTo,
+        key,
+        holdKey,
+        sweepId,
+        settings,
+        page,
+        pages,
+        batchKey,
+        state,
+        tries,
+      })
+    );
   }
   if (lastApplied) {
     // The last page needs no write of its own (it was applied in an earlier try): the cursor moves on its own.
     const final = settleState(state, { key, holdKey, cursor, cursorTo, tries, from: cursor });
     if (final.advance || final.pending) {
       try {
-        await ctx.write({ kind: 'session', mode: settings.mode, run: null, plan: null, advance: final.advance, pending: final.pending, now: (ctx.now ?? Date.now)() });
+        await ctx.write({
+          kind: 'session',
+          mode: settings.mode,
+          run: null,
+          plan: null,
+          advance: final.advance,
+          pending: final.pending,
+          now: (ctx.now ?? Date.now)(),
+        });
       } catch (error) {
         ctx.log?.warn?.('memory session: write failed', { code: codeOf(error) });
-        results.push({ scope: scope.key, outcome: 'write_failed', lines: batch.length, errors: [`write:${codeOf(error)}`] });
+        results.push({
+          scope: scope.key,
+          outcome: 'write_failed',
+          lines: batch.length,
+          errors: [`write:${codeOf(error)}`],
+        });
       }
     }
   }
@@ -899,7 +1295,8 @@ async function runBatch(ctx, { scope, batch: read, cursor, key, sweepId, setting
 /** What the end of a batch does to the cursor and to the pending mark, from how its pages went. */
 function settleState(state, { key, holdKey, cursor, cursorTo, tries, from }) {
   if (state.ok) return { advance: { key, value: cursorTo, expect: cursor }, pending: { key: holdKey, value: null } };
-  if (state.dropped) return { advance: null, pending: { key: holdKey, value: json({ from, to: cursorTo, tries: tries + 1 }) } };
+  if (state.dropped)
+    return { advance: null, pending: { key: holdKey, value: json({ from, to: cursorTo, tries: tries + 1 }) } };
   return { advance: null, pending: null };
 }
 
@@ -917,7 +1314,13 @@ async function skipBatch(ctx, { scope, batch, cursor, cursorTo, key, holdKey, sw
       plan: null,
       advance: { key, value: cursorTo, expect: cursor },
       pending: { key: holdKey, value: null },
-      decision: { id, scope: scope.key, action: 'skipped:all_dropped', reason: 'every answer was dropped', extra: { scope: scope.key, tries, from: cursor, to: cursorTo, lines: batch.length } },
+      decision: {
+        id,
+        scope: scope.key,
+        action: 'skipped:all_dropped',
+        reason: 'every answer was dropped',
+        extra: { scope: scope.key, tries, from: cursor, to: cursorTo, lines: batch.length },
+      },
       now: now(),
     });
   } catch (error) {
@@ -929,7 +1332,10 @@ async function skipBatch(ctx, { scope, batch, cursor, cursorTo, key, holdKey, sw
 }
 
 /** One request (one page of the batch): build, send, parse, validate, write. Never throws; the outcome is in the result. */
-async function runScope(ctx, { scope, batch, cursor, cursorTo, key, holdKey, sweepId, settings, page, pages, batchKey, state, tries }) {
+async function runScope(
+  ctx,
+  { scope, batch, cursor, cursorTo, key, holdKey, sweepId, settings, page, pages, batchKey, state, tries }
+) {
   const { db, write, llm, hot, log = {} } = ctx;
   const now = ctx.now ?? Date.now;
   const config = hot.config;
@@ -937,9 +1343,22 @@ async function runScope(ctx, { scope, batch, cursor, cursorTo, key, holdKey, swe
   const runId = `run:${shortHash(sweepId, scope.key, page)}`;
   const last = page === pages - 1;
   const run = {
-    id: runId, sweepId, scopeKey: scope.key, scope: scope.scope, batchKey, startedAt: new Date(startedAt).toISOString(), finishedAt: null,
-    cursorFrom: cursor, cursorTo, sourcesN: batch.length, tokensPrompt: null, tokensCompletion: null,
-    model: roleModel(config, MEMORY_ROLE), outcome: 'error', counts: {}, errors: [],
+    id: runId,
+    sweepId,
+    scopeKey: scope.key,
+    scope: scope.scope,
+    batchKey,
+    startedAt: new Date(startedAt).toISOString(),
+    finishedAt: null,
+    cursorFrom: cursor,
+    cursorTo,
+    sourcesN: batch.length,
+    tokensPrompt: null,
+    tokensCompletion: null,
+    model: roleModel(config, MEMORY_ROLE),
+    outcome: 'error',
+    counts: {},
+    errors: [],
   };
   // The read-set of the request, resolved when it is assembled (below), and the run's context.
   let readSet = null;
@@ -963,8 +1382,15 @@ async function runScope(ctx, { scope, batch, cursor, cursorTo, key, holdKey, swe
     let written = null;
     try {
       written = await write({
-        kind: 'session', mode: settings.mode, run, plan: extra.plan ?? null, advance, pending, answer: extra.answer ? { text: extra.answer } : null,
-        maxDelta: config?.relationships?.maxDeltaPerUpdate, now: now(),
+        kind: 'session',
+        mode: settings.mode,
+        run,
+        plan: extra.plan ?? null,
+        advance,
+        pending,
+        answer: extra.answer ? { text: extra.answer } : null,
+        maxDelta: config?.relationships?.maxDeltaPerUpdate,
+        now: now(),
         ...(readSet ? { reads: readSet.rows, readStep: String(page), context: readSet.context } : {}),
       });
     } catch (error) {
@@ -972,11 +1398,30 @@ async function runScope(ctx, { scope, batch, cursor, cursorTo, key, holdKey, swe
       run.errors.push(`write:${codeOf(error)}`);
       state.ok = false;
       log.warn?.('memory session: write failed', { code: codeOf(error) });
-      return { scope: scope.key, outcome: 'write_failed', lines: batch.length, page, counts: run.counts, errors: run.errors };
+      return {
+        scope: scope.key,
+        outcome: 'write_failed',
+        lines: batch.length,
+        page,
+        counts: run.counts,
+        errors: run.errors,
+      };
     }
-    log.debug?.('memory session: run', { scope: scope.scope.scope_kind, outcome, lines: batch.length, page, ...run.counts });
+    log.debug?.('memory session: run', {
+      scope: scope.scope.scope_kind,
+      outcome,
+      lines: batch.length,
+      page,
+      ...run.counts,
+    });
     return {
-      scope: scope.key, outcome, lines: batch.length, page, counts: run.counts, errors: run.errors, ...(written?.replayed ? { replayed: true } : {}),
+      scope: scope.key,
+      outcome,
+      lines: batch.length,
+      page,
+      counts: run.counts,
+      errors: run.errors,
+      ...(written?.replayed ? { replayed: true } : {}),
       ...(extra.plan ? { plan: extra.plan } : {}),
     };
   };
@@ -984,7 +1429,14 @@ async function runScope(ctx, { scope, batch, cursor, cursorTo, key, holdKey, swe
   let request;
   try {
     request = buildSessionRequest({
-      db, scope, batch, config, prompts: hot.prompts, selfName: ctx.selfName ?? '', now: startedAt, page,
+      db,
+      scope,
+      batch,
+      config,
+      prompts: hot.prompts,
+      selfName: ctx.selfName ?? '',
+      now: startedAt,
+      page,
     });
   } catch (error) {
     run.errors.push(`build:${codeOf(error)}`);
@@ -992,8 +1444,11 @@ async function runScope(ctx, { scope, batch, cursor, cursorTo, key, holdKey, swe
   }
   try {
     const issued = issueContext({
-      kind: scope.scope.scope_kind === 'dm' ? 'dm' : 'group', iface: scope.scope.scope_iface, person: scope.scope.scope_dm,
-      now: () => startedAt, newId: () => `ctx:session:${runId}`,
+      kind: scope.scope.scope_kind === 'dm' ? 'dm' : 'group',
+      iface: scope.scope.scope_iface,
+      person: scope.scope.scope_dm,
+      now: () => startedAt,
+      newId: () => `ctx:session:${runId}`,
     });
     readSet = { rows: resolveSessionReads(db, request), context: contextRow(issued) };
   } catch (error) {
@@ -1029,18 +1484,44 @@ async function runScope(ctx, { scope, batch, cursor, cursorTo, key, holdKey, swe
     return finish('bad_answer', { answer });
   }
   const { plan, counts } = validateAnswer(parsed.value, { maps: request.maps, people: request.people });
-  const counted = { lines: request.lines, page, pages, kept: counts.kept, dropped: counts.dropped, claims: plan.claims.length, episodes: plan.episodes.length, affinity: plan.affinity.length, descriptions: plan.descriptions.length, people: plan.people.length };
-  return finish(counts.kept === 0 && Object.keys(counts.dropped).length > 0 ? 'all_dropped' : 'ok', { plan, counts: counted, answer });
+  const counted = {
+    lines: request.lines,
+    page,
+    pages,
+    kept: counts.kept,
+    dropped: counts.dropped,
+    claims: plan.claims.length,
+    episodes: plan.episodes.length,
+    affinity: plan.affinity.length,
+    descriptions: plan.descriptions.length,
+    people: plan.people.length,
+  };
+  return finish(counts.kept === 0 && Object.keys(counts.dropped).length > 0 ? 'all_dropped' : 'ok', {
+    plan,
+    counts: counted,
+    answer,
+  });
 }
 
 /** The status card's line for the session, from `sessionStatus` and `labels.status.memorySession`; '' without the label. */
-export function memorySessionStatusLine(status, labels, fill = (template, values) => String(template).replace(/\{(\w+)\}/g, (all, key) => (key in values ? String(values[key]) : all))) {
+export function memorySessionStatusLine(
+  status,
+  labels,
+  fill = (template, values) =>
+    String(template).replace(/\{(\w+)\}/g, (all, key) => (key in values ? String(values[key]) : all))
+) {
   const set = labels?.status?.memorySession;
   if (!set || !status) return '';
   if (status.state === 'off') return set.off ?? '';
   if (status.state === 'not_configured') return set.notConfigured ?? '';
   if (status.state === 'refused') return fill(set.refused ?? '', { code: status.code });
-  const line = fill(set.line ?? '', { mode: status.mode, sweeps: status.sweepsToday ?? 0, cap: status.sweepsPerDay, outcome: status.last?.outcome ?? '-', at: status.last?.at ?? '-' });
+  const line = fill(set.line ?? '', {
+    mode: status.mode,
+    sweeps: status.sweepsToday ?? 0,
+    cap: status.sweepsPerDay,
+    outcome: status.last?.outcome ?? '-',
+    at: status.last?.at ?? '-',
+  });
   // Batches waiting for another try (an all-dropped answer leaves its lines pending), with the most tries any has had.
   const waiting = status.pending ?? [];
   if (waiting.length === 0 || !set.pending) return line;

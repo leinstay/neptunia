@@ -3,19 +3,47 @@
 // The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
-import { rankEmojiUsage, rankGifs, gifCaptionCounts, gifFormatCounts, RECACHE_DAYS, gifPostsToday, gifWatchesToday } from '../memory/index.js';
-import { NONE, todayUtc, backfillText, EMOJI_RESCAN_SKIPS, GIFS_RESCAN_SKIPS, GIFS_RECACHE_SKIPS, PICTURES_RECACHE_SKIPS } from './shared.js';
+import {
+  rankEmojiUsage,
+  rankGifs,
+  gifCaptionCounts,
+  gifFormatCounts,
+  RECACHE_DAYS,
+  gifPostsToday,
+  gifWatchesToday,
+} from '../memory/index.js';
+import {
+  NONE,
+  todayUtc,
+  backfillText,
+  EMOJI_RESCAN_SKIPS,
+  GIFS_RESCAN_SKIPS,
+  GIFS_RECACHE_SKIPS,
+  PICTURES_RECACHE_SKIPS,
+} from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
 
 /** The handler of `args.kind` among `byKindHandlers`, or an `invalid` error naming the kinds. */
 function byKind(args, byKindHandlers) {
   const kind = args?.kind;
-  if (!Object.hasOwn(byKindHandlers, String(kind))) throw invalid(`kind must be one of: ${Object.keys(byKindHandlers).join(', ')}`);
+  if (!Object.hasOwn(byKindHandlers, String(kind)))
+    throw invalid(`kind must be one of: ${Object.keys(byKindHandlers).join(', ')}`);
   return byKindHandlers[kind];
 }
 
 const handlers = perEnv((env) => {
-  const { hot, store, emojiBackfill, gifBackfill, gifRecache, slash, skipText, assertNotPaused, freshenIfPaused, requireGuildId } = env;
+  const {
+    hot,
+    store,
+    emojiBackfill,
+    gifBackfill,
+    gifRecache,
+    slash,
+    skipText,
+    assertNotPaused,
+    freshenIfPaused,
+    requireGuildId,
+  } = env;
 
   /** `/nep emoji status`: how many emoji the ranking holds, the top 10 (rank order,
    * `context.customEmoji.halfLifeDays`) with their counts, and the history backfill stamp. */
@@ -116,7 +144,8 @@ const handlers = perEnv((env) => {
 
     const result = gifRecache.start(guildId);
     if (!result.ok) {
-      if (result.reason === 'running') return `A GIF recache is already running: see ${slash('media kind:gifs action:status')}.`;
+      if (result.reason === 'running')
+        return `A GIF recache is already running: see ${slash('media kind:gifs action:status')}.`;
       return skipText(GIFS_RECACHE_SKIPS, result.reason, `not started (${result.reason})`);
     }
     return [
@@ -155,15 +184,18 @@ const handlers = perEnv((env) => {
 defineOp({
   name: 'media.status',
   rights: { kind: 'read' },
-  run: (args, ctx) => byKind(args, { emoji: handlers(ctx.env).cmdEmojiStatus, gifs: handlers(ctx.env).cmdGifsStatus })(args, ctx),
+  run: (args, ctx) =>
+    byKind(args, { emoji: handlers(ctx.env).cmdEmojiStatus, gifs: handlers(ctx.env).cmdGifsStatus })(args, ctx),
 });
 defineOp({
   name: 'media.rescan',
   rights: { kind: 'write' },
-  run: (args, ctx) => byKind(args, { emoji: handlers(ctx.env).cmdEmojiRescan, gifs: handlers(ctx.env).cmdGifsRescan })(args, ctx),
+  run: (args, ctx) =>
+    byKind(args, { emoji: handlers(ctx.env).cmdEmojiRescan, gifs: handlers(ctx.env).cmdGifsRescan })(args, ctx),
 });
 defineOp({
   name: 'media.recache',
   rights: { kind: 'write' },
-  run: (args, ctx) => byKind(args, { gifs: handlers(ctx.env).cmdGifsRecache, pictures: handlers(ctx.env).cmdPicturesRecache })(args, ctx),
+  run: (args, ctx) =>
+    byKind(args, { gifs: handlers(ctx.env).cmdGifsRecache, pictures: handlers(ctx.env).cmdPicturesRecache })(args, ctx),
 });

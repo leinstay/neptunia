@@ -28,7 +28,10 @@ export function detectTrigger({ mentionsSelf, repliesToSelf, content, nameTrigge
  * @returns {number}
  */
 export function strippedLength(content, selfName) {
-  return content.replaceAll(`@${selfName}`, '').replace(/<@!?\d+>/g, '').trim().length;
+  return content
+    .replaceAll(`@${selfName}`, '')
+    .replace(/<@!?\d+>/g, '')
+    .trim().length;
 }
 
 /**
@@ -187,7 +190,11 @@ const OVERHEARD_ANSWER = /^overheard[.,;:!?\u2026]*$/;
  * @returns {'yes'|'overheard'|'no'}
  */
 export function parseAddressAnswer(text) {
-  const firstWord = (String(text ?? '').trim().split(/\s+/)[0] ?? '').toLowerCase();
+  const firstWord = (
+    String(text ?? '')
+      .trim()
+      .split(/\s+/)[0] ?? ''
+  ).toLowerCase();
   if (firstWord.startsWith('y')) return 'yes';
   return OVERHEARD_ANSWER.test(firstWord) ? 'overheard' : 'no';
 }

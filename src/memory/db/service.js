@@ -127,7 +127,10 @@ const ENGINE_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 /** The source text of each operation's module under src/ops/ (op name -> the file's text). */
 export function opSources(dir = OPS_DIR) {
   const out = new Map();
-  for (const name of fs.readdirSync(dir).filter((file) => file.endsWith('.js')).sort()) {
+  for (const name of fs
+    .readdirSync(dir)
+    .filter((file) => file.endsWith('.js'))
+    .sort()) {
     const text = fs.readFileSync(new URL(name, dir), 'utf8');
     for (const match of text.matchAll(/defineOp\(\{\s*name:\s*'([^']+)'/g)) out.set(match[1], text);
   }
@@ -137,7 +140,9 @@ export function opSources(dir = OPS_DIR) {
 /** The engine's commit (`git rev-parse HEAD` in the checkout), or 'unknown'. */
 export function engineCommit(cwd = ENGINE_ROOT) {
   try {
-    const sha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd, timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] }).toString('utf8').trim();
+    const sha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd, timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] })
+      .toString('utf8')
+      .trim();
     return /^[0-9a-f]{7,64}$/.test(sha) ? sha : 'unknown';
   } catch {
     return 'unknown';
@@ -169,23 +174,46 @@ export function turnReadRows(db, reads, { guildId = null, authority = 'discord/g
     if (rowKind === 'claims') versionId = claimVersion.get(rowId)?.id ?? null;
     else if (rowKind === 'descriptions') versionId = descriptionVersion.get(rowId)?.id ?? null;
     else if (rowKind === 'sources') revision = sourceRevision.get(rowId)?.revision ?? null;
-    rows.set(key, { row_kind: rowKind, row_id: rowId, block: typeof read.block === 'string' ? read.block : null, ord: Number.isInteger(read.ord) ? read.ord : at, version_id: versionId, revision });
+    rows.set(key, {
+      row_kind: rowKind,
+      row_id: rowId,
+      block: typeof read.block === 'string' ? read.block : null,
+      ord: Number.isInteger(read.ord) ? read.ord : at,
+      version_id: versionId,
+      revision,
+    });
   };
   const hasRow = (table, id) => db.prepare(`SELECT 1 AS ok FROM "${table}" WHERE id = ? LIMIT 1`).get(id) !== undefined;
   // A message id is native to one authority: the turn's (Discord's global snowflakes today), never matched alone.
-  const latestMessage = db.prepare("SELECT id FROM sources WHERE native_id = ? AND authority_id IS ? AND kind IN ('seen', 'said') AND retired_at IS NULL ORDER BY revision DESC LIMIT 1");
+  const latestMessage = db.prepare(
+    "SELECT id FROM sources WHERE native_id = ? AND authority_id IS ? AND kind IN ('seen', 'said') AND retired_at IS NULL ORDER BY revision DESC LIMIT 1"
+  );
   for (const read of Array.isArray(reads) ? reads : []) {
     at += 1;
     const id = read?.id === undefined || read?.id === null ? '' : String(read.id);
     if (!id) continue;
     switch (read.kind) {
-      case 'claim': put('claims', id, read); break;
-      case 'episode': put('episodes', id, read); break;
-      case 'participation': put('episodes', id, read); break;
-      case 'recent_line': put('claims', id, read); break;
-      case 'lore': put('claims', `lore:${id}`, read); break;
-      case 'channel': put('places', channelPlaceId(id), read); break;
-      case 'guild_note': if (guildId) put('descriptions', `desc:${guildPlaceId(guildId)}:${id}`, read); break;
+      case 'claim':
+        put('claims', id, read);
+        break;
+      case 'episode':
+        put('episodes', id, read);
+        break;
+      case 'participation':
+        put('episodes', id, read);
+        break;
+      case 'recent_line':
+        put('claims', id, read);
+        break;
+      case 'lore':
+        put('claims', `lore:${id}`, read);
+        break;
+      case 'channel':
+        put('places', channelPlaceId(id), read);
+        break;
+      case 'guild_note':
+        if (guildId) put('descriptions', `desc:${guildPlaceId(guildId)}:${id}`, read);
+        break;
       case 'item':
         if (hasRow('claims', id)) put('claims', id, read);
         else if (hasRow('episodes', id)) put('episodes', id, read);
@@ -195,11 +223,20 @@ export function turnReadRows(db, reads, { guildId = null, authority = 'discord/g
         if (found) put('sources', found.id, read);
         break;
       }
-      case 'source_id': put('sources', id, read); break;
-      case 'description': put('descriptions', id, read); break;
-      case 'place': put('places', id, read); break;
-      case 'intention': put('intentions', id, read); break;
-      default: break;
+      case 'source_id':
+        put('sources', id, read);
+        break;
+      case 'description':
+        put('descriptions', id, read);
+        break;
+      case 'place':
+        put('places', id, read);
+        break;
+      case 'intention':
+        put('intentions', id, read);
+        break;
+      default:
+        break;
     }
   }
   return [...rows.values()];
@@ -221,7 +258,12 @@ async function waitFor(promise, ms) {
   if (!promise) return;
   let timer;
   try {
-    await Promise.race([promise.catch(() => {}), new Promise((resolve) => { timer = setTimeout(resolve, ms); })]);
+    await Promise.race([
+      promise.catch(() => {}),
+      new Promise((resolve) => {
+        timer = setTimeout(resolve, ms);
+      }),
+    ]);
   } finally {
     clearTimeout(timer);
   }
@@ -241,17 +283,21 @@ function startWorker({ workerFile, log, codeOf }) {
   let logged = false;
   let exited = false;
   let onExit;
-  const exit = new Promise((resolve) => { onExit = resolve; });
+  const exit = new Promise((resolve) => {
+    onExit = resolve;
+  });
   const engine = { dead: false, call, stop };
 
   function fail(code) {
     engine.dead = true;
-    for (const waiting of pending.values()) waiting.reject(Object.assign(new Error('memory db worker stopped'), { code }));
+    for (const waiting of pending.values())
+      waiting.reject(Object.assign(new Error('memory db worker stopped'), { code }));
     pending.clear();
   }
 
   function call(type, payload = {}) {
-    if (engine.dead) return Promise.reject(Object.assign(new Error('memory db worker stopped'), { code: 'WORKER_EXIT' }));
+    if (engine.dead)
+      return Promise.reject(Object.assign(new Error('memory db worker stopped'), { code: 'WORKER_EXIT' }));
     return new Promise((resolve, reject) => {
       seq += 1;
       pending.set(seq, { resolve, reject });
@@ -271,12 +317,18 @@ function startWorker({ workerFile, log, codeOf }) {
     else waiting.reject(Object.assign(new Error('memory db worker call failed'), { code: message.code }));
   });
   worker.on('error', (error) => {
-    if (!logged && !stopping) { logged = true; log.warn('memory db: worker failed', { code: codeOf(error) }); }
+    if (!logged && !stopping) {
+      logged = true;
+      log.warn('memory db: worker failed', { code: codeOf(error) });
+    }
     fail(codeOf(error));
   });
   worker.on('exit', (exitCode) => {
     exited = true;
-    if (!logged && !stopping) { logged = true; log.warn('memory db: worker exited', { code: 'WORKER_EXIT', exit: exitCode }); }
+    if (!logged && !stopping) {
+      logged = true;
+      log.warn('memory db: worker exited', { code: 'WORKER_EXIT', exit: exitCode });
+    }
     fail('WORKER_EXIT');
     onExit();
   });
@@ -293,7 +345,9 @@ function startWorker({ workerFile, log, codeOf }) {
       // A terminated or crashed worker cannot release the lock it took for this process.
       try {
         if (JSON.parse(fs.readFileSync(lockFile, 'utf8'))?.pid === process.pid) fs.rmSync(lockFile, { force: true });
-      } catch { /* no lock, or not ours */ }
+      } catch {
+        /* no lock, or not ours */
+      }
     }
   }
 
@@ -312,11 +366,23 @@ function startWorker({ workerFile, log, codeOf }) {
  *   in a rebuilt embedding input.
  */
 export function createMemoryDb({
-  hot, dataDir, log = silent, now = Date.now, open,
+  hot,
+  dataDir,
+  log = silent,
+  now = Date.now,
+  open,
   defer = (fn) => setImmediate(fn),
-  worker: useWorker, workerFile = WORKER_FILE, diaryMediaDeps = null, diarySleep,
-  embed = null, commit = null, selfName = () => '',
-  sessionLlm = () => null, sessionEnv = () => null, onSessionFailure = null, sessionLookMs = 60_000,
+  worker: useWorker,
+  workerFile = WORKER_FILE,
+  diaryMediaDeps = null,
+  diarySleep,
+  embed = null,
+  commit = null,
+  selfName = () => '',
+  sessionLlm = () => null,
+  sessionEnv = () => null,
+  onSessionFailure = null,
+  sessionLookMs = 60_000,
   onBackupFailure = null,
 }) {
   const threaded = useWorker ?? open === undefined;
@@ -335,7 +401,10 @@ export function createMemoryDb({
     return {
       file: typeof given.file === 'string' && given.file ? given.file : DEFAULT_FILE,
       turnReads: given.turnReads !== false,
-      closeMs: Number.isFinite(given.closeTimeoutMs) && given.closeTimeoutMs > 0 ? given.closeTimeoutMs : DEFAULT_CLOSE_TIMEOUT_MS,
+      closeMs:
+        Number.isFinite(given.closeTimeoutMs) && given.closeTimeoutMs > 0
+          ? given.closeTimeoutMs
+          : DEFAULT_CLOSE_TIMEOUT_MS,
     };
   };
   const codeOf = (error) => error?.code ?? error?.name ?? 'ERROR';
@@ -375,7 +444,13 @@ export function createMemoryDb({
     } catch (error) {
       replaying = false;
       // A replay that failed leaves the database opened: closed again (its lock released), tried at the next tick.
-      if (handle) { try { handle.close(); } catch { /* already closed */ } }
+      if (handle) {
+        try {
+          handle.close();
+        } catch {
+          /* already closed */
+        }
+      }
       handle = null;
       engine = null;
       if (started) await started.stop(0);
@@ -391,7 +466,11 @@ export function createMemoryDb({
   async function closeNow(timeoutMs = settings().closeMs) {
     if (!handle && !engine) return;
     if (handle) {
-      try { handle.close(); } catch (error) { log.warn('memory db: close failed', { code: codeOf(error) }); }
+      try {
+        handle.close();
+      } catch (error) {
+        log.warn('memory db: close failed', { code: codeOf(error) });
+      }
     }
     const worker = engine;
     handle = null;
@@ -423,13 +502,18 @@ export function createMemoryDb({
   function stampUnit(update) {
     const stamped = { ...update, kind: 'unit', now: Number.isFinite(update?.now) ? update.now : now() };
     // A diary post's destination is the deployment's diary channel (the live `diary.channelId`, as its place).
-    if ((stamped.op === 'diary' || (stamped.op === 'value' && /^guilds\/[^/]+\/diary\.json$/.test(String(stamped.owner ?? '')))) && stamped.destination === undefined) {
+    if (
+      (stamped.op === 'diary' ||
+        (stamped.op === 'value' && /^guilds\/[^/]+\/diary\.json$/.test(String(stamped.owner ?? '')))) &&
+      stamped.destination === undefined
+    ) {
       stamped.destination = openContext().diaryPlaceId;
     }
     return stamped;
   }
 
-  const pendingFileOf = (owner) => path.join(pendingDir, `${createHash('sha1').update(String(owner)).digest('hex')}.json`);
+  const pendingFileOf = (owner) =>
+    path.join(pendingDir, `${createHash('sha1').update(String(owner)).digest('hex')}.json`);
 
   /**
    * Keeps a unit write that could not be made (unit-outbox.js#keep, at shutdown) in `memory-pending/`, replayed at the
@@ -439,16 +523,25 @@ export function createMemoryDb({
    */
   function keepPending(update) {
     const owner = String(update?.owner ?? '');
-    if (!owner || (update.op !== 'value' && update.op !== 'lines')) throw Object.assign(new Error('memory db: not a unit write'), { code: 'UNIT_BAD_OP' });
+    if (!owner || (update.op !== 'value' && update.op !== 'lines'))
+      throw Object.assign(new Error('memory db: not a unit write'), { code: 'UNIT_BAD_OP' });
     const file = pendingFileOf(owner);
     let lines = update.op === 'lines' ? (Array.isArray(update.lines) ? update.lines : []) : null;
     if (lines) {
       try {
         const held = JSON.parse(fs.readFileSync(file, 'utf8'));
-        if (held?.owner === owner && held.op === 'lines' && Array.isArray(held.lines)) lines = [...held.lines, ...lines];
-      } catch { /* nothing kept yet */ }
+        if (held?.owner === owner && held.op === 'lines' && Array.isArray(held.lines))
+          lines = [...held.lines, ...lines];
+      } catch {
+        /* nothing kept yet */
+      }
     }
-    const kept = { owner, op: update.op, ...(lines ? { lines } : { value: update.value ?? null }), at: new Date(now()).toISOString() };
+    const kept = {
+      owner,
+      op: update.op,
+      ...(lines ? { lines } : { value: update.value ?? null }),
+      at: new Date(now()).toISOString(),
+    };
     fs.mkdirSync(pendingDir, { recursive: true });
     const tmp = `${file}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(kept));
@@ -459,15 +552,31 @@ export function createMemoryDb({
   /** The pending files: [{ file, update }] (a file that does not parse is skipped and counted). */
   function pendingWrites() {
     let names = [];
-    try { names = fs.readdirSync(pendingDir).filter((name) => /^[0-9a-f]{40}\.json$/.test(name)).sort(); } catch { return []; }
+    try {
+      names = fs
+        .readdirSync(pendingDir)
+        .filter((name) => /^[0-9a-f]{40}\.json$/.test(name))
+        .sort();
+    } catch {
+      return [];
+    }
     const out = [];
     let bad = 0;
     for (const name of names) {
       const file = path.join(pendingDir, name);
       try {
         const kept = JSON.parse(fs.readFileSync(file, 'utf8'));
-        if (typeof kept?.owner !== 'string' || (kept.op !== 'value' && kept.op !== 'lines')) { bad += 1; continue; }
-        out.push({ file, update: kept.op === 'value' ? { op: 'value', owner: kept.owner, value: kept.value } : { op: 'lines', owner: kept.owner, lines: Array.isArray(kept.lines) ? kept.lines : [] } });
+        if (typeof kept?.owner !== 'string' || (kept.op !== 'value' && kept.op !== 'lines')) {
+          bad += 1;
+          continue;
+        }
+        out.push({
+          file,
+          update:
+            kept.op === 'value'
+              ? { op: 'value', owner: kept.owner, value: kept.value }
+              : { op: 'lines', owner: kept.owner, lines: Array.isArray(kept.lines) ? kept.lines : [] },
+        });
       } catch {
         bad += 1;
       }
@@ -487,8 +596,17 @@ export function createMemoryDb({
     replaying = true;
     let failed = 0;
     let code = null;
-    const done = (file) => { try { fs.rmSync(file, { force: true }); } catch { /* removed at the next replay */ } };
-    const fail = (error) => { failed += 1; code = codeOf(error); };
+    const done = (file) => {
+      try {
+        fs.rmSync(file, { force: true });
+      } catch {
+        /* removed at the next replay */
+      }
+    };
+    const fail = (error) => {
+      failed += 1;
+      code = codeOf(error);
+    };
     const finish = () => {
       replaying = false;
       if (failed > 0) {
@@ -499,13 +617,23 @@ export function createMemoryDb({
     };
     if (!engine) {
       for (const { file, update } of writes) {
-        try { applyMemoryWrite(handle, stampUnit(update)); done(file); } catch (error) { fail(error); }
+        try {
+          applyMemoryWrite(handle, stampUnit(update));
+          done(file);
+        } catch (error) {
+          fail(error);
+        }
       }
       return finish();
     }
     return (async () => {
       for (const { file, update } of writes) {
-        try { await engine.call('memoryWrite', { update: stampUnit(update) }); done(file); } catch (error) { fail(error); }
+        try {
+          await engine.call('memoryWrite', { update: stampUnit(update) });
+          done(file);
+        } catch (error) {
+          fail(error);
+        }
       }
       finish();
     })();
@@ -513,7 +641,8 @@ export function createMemoryDb({
 
   /** One write on the writer connection: a message to the worker, or this thread's own connection. */
   function write(update) {
-    if (!handle || closing) return Promise.reject(Object.assign(new Error('memory db is not open'), { code: 'DB_CLOSED' }));
+    if (!handle || closing)
+      return Promise.reject(Object.assign(new Error('memory db is not open'), { code: 'DB_CLOSED' }));
     if (engine) return engine.call('memoryWrite', { update });
     return Promise.resolve().then(() => applyMemoryWrite(handle, update));
   }
@@ -523,19 +652,40 @@ export function createMemoryDb({
     const given = hot.config?.memoryDb ?? {};
     if (given.wakeRuns === true) {
       const budget = hot.config?.innerLife?.loop?.timeBudgetMs;
-      write({ kind: 'wake', op: 'interrupt', now: now(), limitMs: Number.isFinite(budget) && budget > 0 ? budget : DEFAULT_TURN_BUDGET_MS })
-        .then((done) => { if (done?.interrupted > 0) log.debug?.('memory db: wake runs interrupted', { runs: done.interrupted }); })
+      write({
+        kind: 'wake',
+        op: 'interrupt',
+        now: now(),
+        limitMs: Number.isFinite(budget) && budget > 0 ? budget : DEFAULT_TURN_BUDGET_MS,
+      })
+        .then((done) => {
+          if (done?.interrupted > 0) log.debug?.('memory db: wake runs interrupted', { runs: done.interrupted });
+        })
         .catch((error) => log.warn('memory db: wake interrupt failed', { code: codeOf(error) }));
     }
     if (given.skillsRegistry === true) {
       Promise.resolve()
         .then(async () => {
-          const [{ SKILL_DEFINITIONS }, { NESTED_CAPABILITIES }] = await Promise.all([import('../../skills/definitions.js'), import('../../skills/access.js')]);
+          const [{ SKILL_DEFINITIONS }, { NESTED_CAPABILITIES }] = await Promise.all([
+            import('../../skills/definitions.js'),
+            import('../../skills/access.js'),
+          ]);
           const sources = opSources();
-          const entries = skillVersionsOf({ definitions: SKILL_DEFINITIONS, nested: NESTED_CAPABILITIES, sourceOf: (op) => sources.get(op) ?? '', commit: typeof commit === 'string' ? commit : engineCommit() });
+          const entries = skillVersionsOf({
+            definitions: SKILL_DEFINITIONS,
+            nested: NESTED_CAPABILITIES,
+            sourceOf: (op) => sources.get(op) ?? '',
+            commit: typeof commit === 'string' ? commit : engineCommit(),
+          });
           return write({ kind: 'skills', entries, now: now() });
         })
-        .then((done) => log.debug?.('memory db: skills registered', { skills: done?.skills ?? 0, versions: done?.versions ?? 0, stale: done?.stale ?? 0 }))
+        .then((done) =>
+          log.debug?.('memory db: skills registered', {
+            skills: done?.skills ?? 0,
+            versions: done?.versions ?? 0,
+            stale: done?.stale ?? 0,
+          })
+        )
         .catch((error) => log.warn('memory db: skills registry failed', { code: codeOf(error) }));
     }
   }
@@ -581,7 +731,8 @@ export function createMemoryDb({
 
   /** The drops since the last count warning, one warning per reason with its count. */
   function tellDropped() {
-    for (const [reason, count] of droppedUntold) log.warn('memory db: observations dropped', { reason, count, dropped: observeDropped });
+    for (const [reason, count] of droppedUntold)
+      log.warn('memory db: observations dropped', { reason, count, dropped: observeDropped });
     droppedUntold.clear();
   }
   const observeOn = (envelope) => envelope !== null && typeof envelope === 'object';
@@ -591,7 +742,10 @@ export function createMemoryDb({
     const guildId = where?.guildId;
     const day = /^\d{4}-\d{2}-\d{2}/.exec(String(envelope?.occurredAt ?? ''))?.[0];
     if (typeof guildId !== 'string' || !guildId || !day) return null;
-    const layer = typeof where.privateUserId === 'string' && where.privateUserId ? `guilds/${guildId}/private/${where.privateUserId}` : `guilds/${guildId}`;
+    const layer =
+      typeof where.privateUserId === 'string' && where.privateUserId
+        ? `guilds/${guildId}/private/${where.privateUserId}`
+        : `guilds/${guildId}`;
     return `${layer}/record/${day.slice(0, 7)}/${day}.jsonl`;
   }
 
@@ -606,9 +760,11 @@ export function createMemoryDb({
 
   function sendObservation(item) {
     const { envelope, owner } = item;
-    const done = (engine
-      ? engine.call('observe', { envelope, now: now(), owner })
-      : Promise.resolve().then(() => observeEnvelope(handle, envelope, { now, log, owner })))
+    const done = (
+      engine
+        ? engine.call('observe', { envelope, now: now(), owner })
+        : Promise.resolve().then(() => observeEnvelope(handle, envelope, { now, log, owner }))
+    )
       .then((result) => {
         if (result && result.ok === false) log.warn('memory db: observe refused', { code: result.code ?? null });
         return result;
@@ -683,12 +839,21 @@ export function createMemoryDb({
   function startProject() {
     if (closing || !handle || projectRun || engine?.dead) return;
     let due = false;
-    try { due = graphPending(handle) || stemsPending(handle.db); } catch { due = false; }
+    try {
+      due = graphPending(handle) || stemsPending(handle.db);
+    } catch {
+      due = false;
+    }
     if (!due) return;
     projectRun = writeUnit({ op: 'project', maxSlices: 1 })
-      .then((done) => { if (done?.units > 0 || done?.stems > 0) log.debug?.('memory db: projected', { units: done.units, stems: done.stems, done: done.done }); })
+      .then((done) => {
+        if (done?.units > 0 || done?.stems > 0)
+          log.debug?.('memory db: projected', { units: done.units, stems: done.stems, done: done.done });
+      })
       .catch((error) => log.warn('memory db: projection failed', { code: codeOf(error) }))
-      .finally(() => { projectRun = null; });
+      .finally(() => {
+        projectRun = null;
+      });
   }
 
   /**
@@ -709,8 +874,12 @@ export function createMemoryDb({
     if (!handle || closing || !indexSettings(hot.config).eviction) return;
     const sources = [...new Set(ids.filter((id) => typeof id === 'string' && id))];
     if (sources.length === 0) return;
-    write({ kind: 'touch', sourceIds: sources, now: now(), config: { recall: { db: hot.config?.recall?.db ?? {} } } })
-      .catch((error) => log.warn('memory db: touch failed', { code: codeOf(error) }));
+    write({
+      kind: 'touch',
+      sourceIds: sources,
+      now: now(),
+      config: { recall: { db: hot.config?.recall?.db ?? {} } },
+    }).catch((error) => log.warn('memory db: touch failed', { code: codeOf(error) }));
   }
 
   // The index policy (index-policy.js): once per UTC day while `recall.db.vectorEviction` is on, through the writer.
@@ -725,10 +894,17 @@ export function createMemoryDb({
     indexRun = write({ kind: 'index-policy', now: at, config: { recall: { db: hot.config?.recall?.db ?? {} } } })
       .then((done) => {
         indexDay = day;
-        log.debug?.('memory db: index policy', { a: done?.tiers?.a ?? 0, b: done?.tiers?.b ?? 0, c: done?.tiers?.c ?? 0, evicted: done?.evicted ?? 0 });
+        log.debug?.('memory db: index policy', {
+          a: done?.tiers?.a ?? 0,
+          b: done?.tiers?.b ?? 0,
+          c: done?.tiers?.c ?? 0,
+          evicted: done?.evicted ?? 0,
+        });
       })
       .catch((error) => log.warn('memory db: index policy failed', { code: codeOf(error) }))
-      .finally(() => { indexRun = null; });
+      .finally(() => {
+        indexRun = null;
+      });
   }
 
   // The re-embed job (index-policy.js#reembedTouched): `recall.db.reembed` with an embedding client, at most once a minute.
@@ -742,21 +918,46 @@ export function createMemoryDb({
     reembedAt = at;
     const db = handle.db;
     reembedRun = (async () => {
-      const [{ quantize }, { recordChunk }, { roleModel }] = await Promise.all([import('../vectors.js'), import('../chunks.js'), import('../../llm/roles.js')]);
+      const [{ quantize }, { recordChunk }, { roleModel }] = await Promise.all([
+        import('../vectors.js'),
+        import('../chunks.js'),
+        import('../../llm/roles.js'),
+      ]);
       const config = hot.config;
       const nameOf = (id) => {
         try {
-          const names = JSON.parse(db.prepare('SELECT names FROM accounts WHERE native_id = ? LIMIT 1').get(id)?.names ?? 'null');
+          const names = JSON.parse(
+            db.prepare('SELECT names FROM accounts WHERE native_id = ? LIMIT 1').get(id)?.names ?? 'null'
+          );
           return Array.isArray(names) && typeof names[0] === 'string' ? names[0] : null;
         } catch {
           return null;
         }
       };
-      return reembedTouched({ db, write, embed, config, now: at, quantize, model: roleModel(config, 'embedding') ?? null, chunkOf: (line, context) => recordChunk(line, context, { nameOf, selfName: selfName() ?? '' }).text });
+      return reembedTouched({
+        db,
+        write,
+        embed,
+        config,
+        now: at,
+        quantize,
+        model: roleModel(config, 'embedding') ?? null,
+        chunkOf: (line, context) => recordChunk(line, context, { nameOf, selfName: selfName() ?? '' }).text,
+      });
     })()
-      .then((done) => { if (done.pending > 0) log.debug?.('memory db: reembed', { pending: done.pending, embedded: done.embedded, written: done.written, skipped: done.skipped }); })
+      .then((done) => {
+        if (done.pending > 0)
+          log.debug?.('memory db: reembed', {
+            pending: done.pending,
+            embedded: done.embedded,
+            written: done.written,
+            skipped: done.skipped,
+          });
+      })
       .catch((error) => log.warn('memory db: reembed failed', { code: codeOf(error) }))
-      .finally(() => { reembedRun = null; });
+      .finally(() => {
+        reembedRun = null;
+      });
   }
 
   // The focus job (focus.js): once per UTC day, through the writer, with the live settings.
@@ -769,17 +970,32 @@ export function createMemoryDb({
     const day = utcDay(at);
     if (focusDay === day) return;
     try {
-      if (lastFocusDay(handle.db) === day) { focusDay = day; return; }
-    } catch { /* a database before v10: the job runs and fails with a code */ }
+      if (lastFocusDay(handle.db) === day) {
+        focusDay = day;
+        return;
+      }
+    } catch {
+      /* a database before v10: the job runs and fails with a code */
+    }
     const config = { focus: hot.config?.focus ?? null };
-    const job = engine ? engine.call('focus', { now: at, config }) : Promise.resolve().then(() => runFocusDay(handle, { now: at, config }));
+    const job = engine
+      ? engine.call('focus', { now: at, config })
+      : Promise.resolve().then(() => runFocusDay(handle, { now: at, config }));
     focusRun = job
       .then((done) => {
         focusDay = day;
-        log.debug?.('memory db: focus', { days: done.days, rows: done.rows, close: done.close, exploring: done.exploring, events: done.events });
+        log.debug?.('memory db: focus', {
+          days: done.days,
+          rows: done.rows,
+          close: done.close,
+          exploring: done.exploring,
+          events: done.events,
+        });
       })
       .catch((error) => log.warn('memory db: focus failed', { code: codeOf(error) }))
-      .finally(() => { focusRun = null; });
+      .finally(() => {
+        focusRun = null;
+      });
   }
 
   /**
@@ -826,17 +1042,36 @@ export function createMemoryDb({
     if (backupState.doneDay === day) return;
     const { hour, dir, keep } = backupSettings(hot.config, dataDir);
     if (new Date(at).getUTCHours() < hour) return;
-    if (backupState.failedAt !== null && utcDay(backupState.failedAt) === day && at - backupState.failedAt < BACKUP_RETRY_MS) return;
+    if (
+      backupState.failedAt !== null &&
+      utcDay(backupState.failedAt) === day &&
+      at - backupState.failedAt < BACKUP_RETRY_MS
+    )
+      return;
     let done = null;
-    try { done = backupOn(dir, day); } catch { done = null; }
-    if (done) { backupState.doneDay = day; return; }
+    try {
+      done = backupOn(dir, day);
+    } catch {
+      done = null;
+    }
+    if (done) {
+      backupState.doneDay = day;
+      return;
+    }
     const name = backupName(at);
     const partial = path.join(dir, partialOf(name));
     backupRun = (async () => {
       try {
         fs.rmSync(partial, { recursive: true, force: true });
         fs.mkdirSync(dir, { recursive: true });
-        const update = { kind: 'backup', to: partial, dataDir, now: at, commit: typeof commit === 'string' ? commit : engineCommit(), configHash: configHash(hot.config) };
+        const update = {
+          kind: 'backup',
+          to: partial,
+          dataDir,
+          now: at,
+          commit: typeof commit === 'string' ? commit : engineCommit(),
+          configHash: configHash(hot.config),
+        };
         const manifest = await write(update);
         fs.renameSync(partial, path.join(dir, name));
         backupState.doneDay = day;
@@ -845,28 +1080,61 @@ export function createMemoryDb({
         backupState.lastFailure = null;
         backupState.failedAt = null;
         let removed = 0;
-        try { removed = pruneBackups(dir, keep); } catch (error) { log.warn('memory db: backup prune failed', { code: codeOf(error) }); }
-        log.info('memory db: backup', { files: manifest?.files?.length ?? 0, tables: Object.keys(manifest?.rows ?? {}).length, removed });
+        try {
+          removed = pruneBackups(dir, keep);
+        } catch (error) {
+          log.warn('memory db: backup prune failed', { code: codeOf(error) });
+        }
+        log.info('memory db: backup', {
+          files: manifest?.files?.length ?? 0,
+          tables: Object.keys(manifest?.rows ?? {}).length,
+          removed,
+        });
       } catch (error) {
-        try { fs.rmSync(partial, { recursive: true, force: true }); } catch { /* removed at the next prune */ }
+        try {
+          fs.rmSync(partial, { recursive: true, force: true });
+        } catch {
+          /* removed at the next prune */
+        }
         backupFailed(codeOf(error), at);
       }
-    })().finally(() => { backupRun = null; });
+    })().finally(() => {
+      backupRun = null;
+    });
   }
 
   // The effective models and her memory session's schedule (see the head of this file).
   let modelsLogged = false;
   let sessionRun = null;
   let sessionLookAt = -Infinity;
-  const sessionState = { lastAt: null, lastOutcome: null, lastFailure: null, told: new Set(), reviewFailDay: null, reviewFails: 0, reviewSkip: new Set() };
-  const SESSION_FAILURES = new Set(['llm_error', 'bad_answer', 'build_error', 'write_failed', 'not_configured', 'skipped']);
+  const sessionState = {
+    lastAt: null,
+    lastOutcome: null,
+    lastFailure: null,
+    told: new Set(),
+    reviewFailDay: null,
+    reviewFails: 0,
+    reviewSkip: new Set(),
+  };
+  const SESSION_FAILURES = new Set([
+    'llm_error',
+    'bad_answer',
+    'build_error',
+    'write_failed',
+    'not_configured',
+    'skipped',
+  ]);
 
   /** The start-up line of the effective models (codes and model ids only, never a key value). */
   function logEffectiveModels() {
     if (modelsLogged) return Promise.resolve();
     modelsLogged = true;
     return import('./writer-switch.js')
-      .then(({ effectiveModels, effectiveModelsLine }) => log.info('memory db: effective models', { purposes: effectiveModelsLine(effectiveModels(hot.config, sessionEnv?.() ?? null)) }))
+      .then(({ effectiveModels, effectiveModelsLine }) =>
+        log.info('memory db: effective models', {
+          purposes: effectiveModelsLine(effectiveModels(hot.config, sessionEnv?.() ?? null)),
+        })
+      )
       .catch((error) => log.warn('memory db: effective models failed', { code: codeOf(error) }));
   }
 
@@ -880,7 +1148,15 @@ export function createMemoryDb({
     if (typeof onSessionFailure !== 'function') return;
     const [scopeKind, iface, ...rest] = String(run.scope ?? '').split(':');
     try {
-      onSessionFailure({ scopeKey: run.scope, scopeKind, iface: iface ?? null, partner: scopeKind === 'dm' ? rest.join(':') || null : null, code, lines: run.lines ?? 0, at });
+      onSessionFailure({
+        scopeKey: run.scope,
+        scopeKind,
+        iface: iface ?? null,
+        partner: scopeKind === 'dm' ? rest.join(':') || null : null,
+        code,
+        lines: run.lines ?? 0,
+        at,
+      });
     } catch (error) {
       log.warn('memory session: the failure could not be told', { code: codeOf(error) });
     }
@@ -888,43 +1164,71 @@ export function createMemoryDb({
 
   /** One scheduled look: a sweep over the due scopes, then the reviews her flags ask for. Never throws. */
   async function sessionJob(at) {
-    const [{ sweep, refusalOf, sessionSettings }, { reviewDescription, reviewRefusal }, { dueScopes, openFlags, reviewsToday }] = await Promise.all([
-      import('./session.js'), import('./describe.js'), import('./writer-switch.js'),
-    ]);
+    const [
+      { sweep, refusalOf, sessionSettings },
+      { reviewDescription, reviewRefusal },
+      { dueScopes, openFlags, reviewsToday },
+    ] = await Promise.all([import('./session.js'), import('./describe.js'), import('./writer-switch.js')]);
     const config = hot.config;
     const env = sessionEnv?.() ?? null;
     const llm = sessionLlm?.() ?? null;
     if (!llm || !handle || refusalOf(config, env, hot.prompts)) return;
     const db = handle.db;
     const ctx = {
-      db, write: memoryWrite, llm, hot, env, now, log, selfName: selfName() ?? '',
+      db,
+      write: memoryWrite,
+      llm,
+      hot,
+      env,
+      now,
+      log,
+      selfName: selfName() ?? '',
     };
     const due = dueScopes(db, config, at);
     if (due.length > 0) {
       const result = await sweep(ctx, { scopes: new Set(due.map((scope) => scope.key)) });
       sessionState.lastAt = at;
-      sessionState.lastOutcome = result.status === 'ok' ? 'ok' : result.code ?? result.status;
+      sessionState.lastOutcome = result.status === 'ok' ? 'ok' : (result.code ?? result.status);
       for (const run of result.runs ?? []) {
         if (SESSION_FAILURES.has(run.outcome)) sessionFailed(run, at);
         else if (run.outcome === 'ok' || run.outcome === 'applied_before') sessionState.told.delete(run.scope);
       }
-      log.debug?.('memory session: sweep', { scopes: due.length, runs: result.runs?.length ?? 0, status: result.status });
+      log.debug?.('memory session: sweep', {
+        scopes: due.length,
+        runs: result.runs?.length ?? 0,
+        status: result.status,
+      });
     }
     // The reviews: at most `reviewsPerDay` a UTC day, accepted or failed.
     if (closing || !handle || reviewRefusal(config, env, hot.prompts)) return;
     const day = utcDay(at);
-    if (sessionState.reviewFailDay !== day) { sessionState.reviewFailDay = day; sessionState.reviewFails = 0; sessionState.reviewSkip = new Set(); }
+    if (sessionState.reviewFailDay !== day) {
+      sessionState.reviewFailDay = day;
+      sessionState.reviewFails = 0;
+      sessionState.reviewSkip = new Set();
+    }
     let left = sessionSettings(config).reviewsPerDay - reviewsToday(db, at) - sessionState.reviewFails;
     if (left <= 0) return;
     for (const flag of openFlags(db, config, { skip: sessionState.reviewSkip, selfName: ctx.selfName })) {
       if (left <= 0 || closing || !handle) break;
       left -= 1;
-      const reviewed = await reviewDescription(db, flag.subject, flag.field, { ctx: { ...ctx, readCtx: flag.readCtx } });
+      const reviewed = await reviewDescription(db, flag.subject, flag.field, {
+        ctx: { ...ctx, readCtx: flag.readCtx },
+      });
       if (reviewed.status === 'ok') continue;
       sessionState.reviewFails += 1;
       sessionState.reviewSkip.add(flag.key);
-      sessionState.lastFailure = { code: reviewed.code ?? reviewed.status, at, scope: flag.readCtx?.kind ?? null, review: true };
-      log.warn('memory session: review failed', { code: reviewed.code ?? reviewed.status, step: reviewed.step ?? null, kind: flag.subject.kind });
+      sessionState.lastFailure = {
+        code: reviewed.code ?? reviewed.status,
+        at,
+        scope: flag.readCtx?.kind ?? null,
+        review: true,
+      };
+      log.warn('memory session: review failed', {
+        code: reviewed.code ?? reviewed.status,
+        step: reviewed.step ?? null,
+        kind: flag.subject.kind,
+      });
     }
   }
 
@@ -940,7 +1244,9 @@ export function createMemoryDb({
         sessionState.lastFailure = { code: codeOf(error), at, scope: null };
         log.warn('memory session: run failed', { code: codeOf(error), scope: null });
       })
-      .finally(() => { sessionRun = null; });
+      .finally(() => {
+        sessionRun = null;
+      });
   }
 
   /** The read-only connection (`{ db }`) while the database is open, else null. */
@@ -956,7 +1262,14 @@ export function createMemoryDb({
       if (threaded) await opening;
     }
     if (!handle) return;
-    drainObservations(); startProject(); startDiaryMedia(); startFocus(); startIndexPolicy(); startReembed(); startSession(); startBackup();
+    drainObservations();
+    startProject();
+    startDiaryMedia();
+    startFocus();
+    startIndexPolicy();
+    startReembed();
+    startSession();
+    startBackup();
   }
 
   /** The database for recall (src/memory/db/recall.js): the read-only connection while it is open, else null. */
@@ -967,7 +1280,14 @@ export function createMemoryDb({
    * `contextId` is the execution context of the read (`issueContext`), `readerKind` `turn` (default), `session` or `wake`.
    * @param {{ turnId: string, step?: string, guildId?: string|null, reads: { kind: string, id: string }[], contextId?: string|null, readerKind?: string }} args
    */
-  function recordTurnReads({ turnId, step = 's0', guildId = null, reads: carried, contextId = null, readerKind = 'turn' }) {
+  function recordTurnReads({
+    turnId,
+    step = 's0',
+    guildId = null,
+    reads: carried,
+    contextId = null,
+    readerKind = 'turn',
+  }) {
     if (!handle || !settings().turnReads || !turnId || !Array.isArray(carried) || carried.length === 0) return;
     // Resolved now, from the rows as they are when the request is assembled; only the write waits for a quiet loop.
     let rows;
@@ -1041,8 +1361,12 @@ export function createMemoryDb({
     let moves = [];
     try {
       const prefix = `aff:${runId}:`;
-      moves = handle.db.prepare('SELECT id, person_id AS personId, applied, score FROM affinity_events WHERE substr(id, 1, ?) = ? ORDER BY id')
-        .all(prefix.length, prefix).filter((move) => !toldMoves.has(move.id));
+      moves = handle.db
+        .prepare(
+          'SELECT id, person_id AS personId, applied, score FROM affinity_events WHERE substr(id, 1, ?) = ? ORDER BY id'
+        )
+        .all(prefix.length, prefix)
+        .filter((move) => !toldMoves.has(move.id));
     } catch (error) {
       log.warn('memory db: affinity moves unread', { code: codeOf(error) });
       return;
@@ -1054,7 +1378,11 @@ export function createMemoryDb({
     }
     const told = moves.map(({ personId, applied, score }) => ({ personId, applied, score }));
     for (const fn of affinityListeners) {
-      try { fn(told); } catch (error) { log.warn('memory db: affinity moves not told', { code: codeOf(error) }); }
+      try {
+        fn(told);
+      } catch (error) {
+        log.warn('memory db: affinity moves not told', { code: codeOf(error) });
+      }
     }
   }
 
@@ -1068,7 +1396,8 @@ export function createMemoryDb({
     // The read predicate of the target check is the live config's.
     const stamped = { ...update, audienceColumn: hot.config?.memoryDb?.audienceColumn === true };
     // A session's batch read its lines: touched while eviction is on.
-    if (update?.kind === 'session' && Array.isArray(update.reads)) touchSources(update.reads.filter((row) => row?.row_kind === 'sources').map((row) => row.row_id));
+    if (update?.kind === 'session' && Array.isArray(update.reads))
+      touchSources(update.reads.filter((row) => row?.row_kind === 'sources').map((row) => row.row_id));
     const applies = update?.kind === 'session' && update.mode === 'apply';
     try {
       if (engine) return await engine.call('memoryWrite', { update: stamped });
@@ -1090,7 +1419,11 @@ export function createMemoryDb({
     const update = { kind: 'context', context: contextRow(ctx) };
     defer(() => {
       if (!handle || closing) return;
-      const done = engine ? (engine.dead ? null : engine.call('memoryWrite', { update })) : Promise.resolve().then(() => applyMemoryWrite(handle, update));
+      const done = engine
+        ? engine.dead
+          ? null
+          : engine.call('memoryWrite', { update })
+        : Promise.resolve().then(() => applyMemoryWrite(handle, update));
       done?.catch((error) => log.warn('memory db: context record failed', { code: codeOf(error) }));
     });
     return ctx;
@@ -1108,16 +1441,29 @@ export function createMemoryDb({
         for (const table of ['sources', 'claims', 'episodes', 'descriptions', 'places', 'people', 'day', 'diary']) {
           rows += handle.db.prepare(`SELECT COUNT(*) AS n FROM "${table}" WHERE retired_at IS NULL`).get().n;
         }
-      } catch { /* a closing database */ }
+      } catch {
+        /* a closing database */
+      }
     }
     return {
       open,
       openedAt,
       files,
       rows,
-      backup: { running: backupRun !== null, lastAt: backupState.lastAt, lastName: backupState.lastName, lastFailure: backupState.lastFailure },
+      backup: {
+        running: backupRun !== null,
+        lastAt: backupState.lastAt,
+        lastName: backupState.lastName,
+        lastFailure: backupState.lastFailure,
+      },
       observe: { queued: observeQueue.length, writing: observing.size, dropped: observeDropped },
-      session: { running: sessionRun !== null, lastAt: sessionState.lastAt, lastOutcome: sessionState.lastOutcome, lastFailure: sessionState.lastFailure, reviewsFailedToday: sessionState.reviewFailDay === utcDay(now()) ? sessionState.reviewFails : 0 },
+      session: {
+        running: sessionRun !== null,
+        lastAt: sessionState.lastAt,
+        lastOutcome: sessionState.lastOutcome,
+        lastFailure: sessionState.lastFailure,
+        reviewsFailedToday: sessionState.reviewFailDay === utcDay(now()) ? sessionState.reviewFails : 0,
+      },
     };
   }
 
@@ -1146,5 +1492,23 @@ export function createMemoryDb({
   /** The daily backup under way, or a resolved promise: its end. */
   const waitBackup = () => backupRun ?? Promise.resolve();
 
-  return { tick, database, readHandle, recordTurnReads, memoryWrite, onAffinityMoves, writeUnit, keepPending, recordWake, issueContext, observe, waitObservations, focusPeople, status, close, waitSession, waitBackup };
+  return {
+    tick,
+    database,
+    readHandle,
+    recordTurnReads,
+    memoryWrite,
+    onAffinityMoves,
+    writeUnit,
+    keepPending,
+    recordWake,
+    issueContext,
+    observe,
+    waitObservations,
+    focusPeople,
+    status,
+    close,
+    waitSession,
+    waitBackup,
+  };
 }

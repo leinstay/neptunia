@@ -22,14 +22,27 @@ const LEARNED_SPEC = [
   { col: 'first_seen_at', key: 'firstSeen', type: 'text' },
   { col: 'last_seen_at', key: 'lastSeen', type: 'text' },
   {
-    col: 'from_person', key: 'from', type: 'text', ok: (v) => /^<@\d+>$/.test(v), enc: (v) => personId(v.slice(2, -1)), dec: (id) => `<@${nativeOf(id)}>`,
+    col: 'from_person',
+    key: 'from',
+    type: 'text',
+    ok: (v) => /^<@\d+>$/.test(v),
+    enc: (v) => personId(v.slice(2, -1)),
+    dec: (id) => `<@${nativeOf(id)}>`,
   },
 ];
 
 const LISTS = [
   { key: 'injokes', kind: 'injoke', strings: true, subject: 'place', scope: 'group' },
   { key: 'self', kind: 'self_fact', strings: true, subject: 'self', scope: 'none' },
-  { key: 'learned', kind: 'lesson', spec: LEARNED_SPEC, stable: (item) => [item.id ?? item.text], subject: 'place', scope: 'group', how: 'taught' },
+  {
+    key: 'learned',
+    kind: 'lesson',
+    spec: LEARNED_SPEC,
+    stable: (item) => [item.id ?? item.text],
+    subject: 'place',
+    scope: 'group',
+    how: 'taught',
+  },
 ];
 
 export function toRows(rel, value, ctx = {}) {
@@ -38,16 +51,46 @@ export function toRows(rel, value, ctx = {}) {
   const rows = {};
   const rest = { ...value };
   put(rows, 'places', {
-    id: placeId, iface: IFACE, kind: 'guild', native_id: guildId, parent_id: null, scope_kind: 'group', name: null, category: null,
-    topic: null, extra: null, retired_at: null, owner_file: rel,
+    id: placeId,
+    iface: IFACE,
+    kind: 'guild',
+    native_id: guildId,
+    parent_id: null,
+    scope_kind: 'group',
+    name: null,
+    category: null,
+    topic: null,
+    extra: null,
+    retired_at: null,
+    owner_file: rel,
   });
   for (const field of FIELDS) {
     if (typeof value[field] !== 'string') continue;
     const id = `desc:${placeId}:${field}`;
-    put(rows, 'descriptions', { id, subject_kind: 'place', subject_id: placeId, field, ...groupScope(), current_version: `${id}:legacy`, owner_file: rel });
+    put(rows, 'descriptions', {
+      id,
+      subject_kind: 'place',
+      subject_id: placeId,
+      field,
+      ...groupScope(),
+      current_version: `${id}:legacy`,
+      owner_file: rel,
+    });
     put(rows, 'description_versions', {
-      id: `${id}:legacy`, description_id: id, text: value[field], author: 'import', written_at: null, chars: [...value[field]].length,
-      kept: null, removed: null, added: null, reason: null, origin: 'legacy', extra: null, owner_file: rel, position: 0,
+      id: `${id}:legacy`,
+      description_id: id,
+      text: value[field],
+      author: 'import',
+      written_at: null,
+      chars: [...value[field]].length,
+      kept: null,
+      removed: null,
+      added: null,
+      reason: null,
+      origin: 'legacy',
+      extra: null,
+      owner_file: rel,
+      position: 0,
     });
     delete rest[field];
   }
@@ -85,7 +128,10 @@ export function fromRows(rows) {
   }
   for (const def of LISTS) {
     if (!has.includes(def.key)) continue;
-    obj[def.key] = claimItems(rowsOf(rows, 'claims').filter((row) => row.kind === def.kind), def);
+    obj[def.key] = claimItems(
+      rowsOf(rows, 'claims').filter((row) => row.kind === def.kind),
+      def
+    );
   }
   return obj;
 }

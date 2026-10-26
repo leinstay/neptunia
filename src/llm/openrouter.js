@@ -107,7 +107,8 @@ const warnedRoleKeys = new Set();
 export function roleApiKey(config, env, role, mainKey) {
   const map = config?.llm?.keyByRole;
   const strict = typeof role === 'string' && STRICT_KEY_ROLES.includes(role);
-  if (typeof role !== 'string' || !role || !isPlainObject(map) || !Object.hasOwn(map, role)) return strict ? '' : mainKey;
+  if (typeof role !== 'string' || !role || !isPlainObject(map) || !Object.hasOwn(map, role))
+    return strict ? '' : mainKey;
   const name = map[role];
   const valid = typeof name === 'string' && ROLE_KEY_NAME.test(name);
   const value = valid && env ? env[name] : undefined;
@@ -245,7 +246,12 @@ export function helperRequestOptions(config, { role, maxOutputTokens, purpose, s
 }
 
 /** `llm.hedge`, key by key, when the group is there but a key is missing or invalid: config.json's values. */
-const HEDGE_FALLBACK = Object.freeze({ roles: Object.freeze(['analyzer']), afterMs: 2500, timeoutMs: 8000, longTimeoutMs: 20000 });
+const HEDGE_FALLBACK = Object.freeze({
+  roles: Object.freeze(['analyzer']),
+  afterMs: 2500,
+  timeoutMs: 8000,
+  longTimeoutMs: 20000,
+});
 
 /**
  * The hedge settings of the live config, or null when `llm.hedge` is not an object (no hedge at
@@ -511,7 +517,8 @@ export function cacheTtlFor(config, role, model, force) {
   const roles = Array.isArray(cache?.roles) ? cache.roles : DEFAULT_CACHE_ROLES;
   if (typeof role !== 'string' || !roles.includes(role)) return null;
   const models = Array.isArray(cache?.models) ? cache.models : DEFAULT_CACHE_MODELS;
-  const listed = typeof model === 'string' && models.some((prefix) => typeof prefix === 'string' && model.startsWith(prefix));
+  const listed =
+    typeof model === 'string' && models.some((prefix) => typeof prefix === 'string' && model.startsWith(prefix));
   return listed ? ttl : null;
 }
 
@@ -551,7 +558,9 @@ function cacheMarkerFor(ttl) {
 
 // The index of the last text part with a non-empty text in a content array, or -1.
 function lastTextPart(content) {
-  return content.findLastIndex((part) => isPlainObject(part) && part.type === 'text' && typeof part.text === 'string' && part.text !== '');
+  return content.findLastIndex(
+    (part) => isPlainObject(part) && part.type === 'text' && typeof part.text === 'string' && part.text !== ''
+  );
 }
 
 /**
@@ -631,7 +640,8 @@ export function withCacheMarker(messages, ttl, profilesTtl = null) {
   const settle = (part, breakpoint) => {
     const placed = Object.hasOwn(part, CACHE_CONTROL);
     const tagged = Object.hasOwn(part, CACHE_SEGMENT);
-    const segmentMarker = tagged && Object.hasOwn(segmentMarkers, part[CACHE_SEGMENT]) ? segmentMarkers[part[CACHE_SEGMENT]] : null;
+    const segmentMarker =
+      tagged && Object.hasOwn(segmentMarkers, part[CACHE_SEGMENT]) ? segmentMarkers[part[CACHE_SEGMENT]] : null;
     const wanted = marker && (placed || breakpoint) ? marker : segmentMarker;
     const { [CACHE_CONTROL]: _removed, [CACHE_SEGMENT]: _segment, ...rest } = part;
     if (wanted && kept < MAX_CACHE_MARKERS) {
@@ -656,7 +666,8 @@ export function withCacheMarker(messages, ttl, profilesTtl = null) {
   // last part of the appended prefix -- the latest tool message, or the note's text part -- carries a
   // fourth marker, so the next step reads everything before it from the cache. Always the short TTL
   // (a longer one must not follow a shorter one, and a turn's steps follow each other within minutes).
-  const tail = marker && messages.length > 2 && kept < MAX_CACHE_MARKERS ? tailMarked(sent, cacheMarkerFor('5m')) : sent;
+  const tail =
+    marker && messages.length > 2 && kept < MAX_CACHE_MARKERS ? tailMarked(sent, cacheMarkerFor('5m')) : sent;
   return tail.some((message, index) => message !== messages[index]) ? tail : messages;
 }
 
@@ -686,8 +697,13 @@ function tailMarked(sent, tailMarker) {
 
 // Whether any part of `messages` carries a `cache_control` (what was actually sent).
 function hasCacheMarker(messages) {
-  return Array.isArray(messages) && messages.some(
-    (message) => Array.isArray(message?.content) && message.content.some((part) => isPlainObject(part) && Object.hasOwn(part, CACHE_CONTROL)),
+  return (
+    Array.isArray(messages) &&
+    messages.some(
+      (message) =>
+        Array.isArray(message?.content) &&
+        message.content.some((part) => isPlainObject(part) && Object.hasOwn(part, CACHE_CONTROL))
+    )
   );
 }
 
@@ -714,7 +730,9 @@ export function fullPromptTokens(usage, config, marked) {
   if (typeof prompt !== 'number' || !Number.isFinite(prompt) || prompt < 0) return null;
   let total = prompt;
   if (marked === true && config?.llm?.cache?.promptIncludesCached === false) {
-    total += countOrZero(usage.prompt_tokens_details?.cached_tokens) + countOrZero(usage.prompt_tokens_details?.cache_write_tokens);
+    total +=
+      countOrZero(usage.prompt_tokens_details?.cached_tokens) +
+      countOrZero(usage.prompt_tokens_details?.cache_write_tokens);
   }
   return total > 0 ? total : null;
 }
@@ -829,7 +847,8 @@ export function errorCodeOf(err) {
   const status = err?.statusCode;
   if (Number.isInteger(status)) return status === 429 ? 'provider-limit' : 'provider-error';
   if (err instanceof TokenLimitError || err instanceof DailyCapError || err instanceof NotByokError) return 'error';
-  if (err?.name === 'TimeoutError' || err?.name === 'AbortError' || /timed out/i.test(String(err?.message ?? ''))) return 'timeout';
+  if (err?.name === 'TimeoutError' || err?.name === 'AbortError' || /timed out/i.test(String(err?.message ?? '')))
+    return 'timeout';
   if (err instanceof TypeError && /fetch failed|network/i.test(String(err.message ?? ''))) return 'provider-error';
   return 'error';
 }
@@ -874,7 +893,8 @@ function choiceErrorOf(json) {
   const choice = json?.choices?.[0];
   const detail = isPlainObject(choice?.error) ? choice.error : null;
   if (!detail && choice?.finish_reason !== 'error') return null;
-  const message = typeof detail?.message === 'string' && detail.message ? detail.message : String(choice.finish_reason ?? 'error');
+  const message =
+    typeof detail?.message === 'string' && detail.message ? detail.message : String(choice.finish_reason ?? 'error');
   const error = new Error(message);
   error.statusCode = typeof detail?.code === 'number' ? detail.code : undefined;
   error.errorType = detail?.metadata?.error_type ?? null;
@@ -1247,8 +1267,18 @@ export function createLlm({
    */
   function reportLimits(limits, { where, estimated, promptTokens, completion, maxTokens }) {
     const margin = safetyMarginOf(getConfig());
-    if (Number.isFinite(promptTokens) && Number.isFinite(estimated) && estimated > 0 && promptTokens - estimated > estimated * (1 - margin)) {
-      limits.add({ kind: 'estimate-off', where, lost: promptTokens - estimated, detail: `${estimated}->${promptTokens}` });
+    if (
+      Number.isFinite(promptTokens) &&
+      Number.isFinite(estimated) &&
+      estimated > 0 &&
+      promptTokens - estimated > estimated * (1 - margin)
+    ) {
+      limits.add({
+        kind: 'estimate-off',
+        where,
+        lost: promptTokens - estimated,
+        detail: `${estimated}->${promptTokens}`,
+      });
     }
     if (Number.isFinite(completion) && Number.isFinite(maxTokens) && maxTokens > 0 && completion >= maxTokens) {
       limits.add({ kind: 'output-cap', where: 'completion', lost: null });
@@ -1262,7 +1292,11 @@ export function createLlm({
     // The tools are counted apart (src/llm/tokens.js#estimateTools): added to the calibrated estimate, never fed to the calibrator.
     const toolsTokens = tools ? estimateTools(tools) : 0;
     let raw = estimateMessages(messages, tokensPerImage);
-    if (typeof options.videoSeconds === 'number' && Number.isFinite(options.videoSeconds) && options.videoSeconds >= 0) {
+    if (
+      typeof options.videoSeconds === 'number' &&
+      Number.isFinite(options.videoSeconds) &&
+      options.videoSeconds >= 0
+    ) {
       const override = options.videoTokensPerSecond;
       const tokensPerSecond =
         typeof override === 'number' && Number.isFinite(override) && override > 0
@@ -1286,7 +1320,11 @@ export function createLlm({
       model,
       // The cache marker goes on only now: `raw` above was estimated from the caller's own
       // messages, and a marker is a JSON field, not prompt text.
-      messages: withCacheMarker(messages, cacheTtlFor(getConfig(), options.role, model, options.cache), profilesTtlFor(getConfig())),
+      messages: withCacheMarker(
+        messages,
+        cacheTtlFor(getConfig(), options.role, model, options.cache),
+        profilesTtlFor(getConfig())
+      ),
       temperature: options.temperature ?? cfg.temperature,
       max_tokens: options.maxOutputTokens ?? cfg.maxOutputTokens,
     };
@@ -1318,14 +1356,19 @@ export function createLlm({
 
     // The key of this request's role (`llm.keyByRole`, read now), else the main key.
     const requestKey = roleApiKey(getConfig(), env, options.role, apiKey);
-    if (!requestKey) throw Object.assign(new Error('llm: no key for this role'), { code: 'ROLE_KEY_MISSING', name: 'RoleKeyMissingError' });
+    if (!requestKey)
+      throw Object.assign(new Error('llm: no key for this role'), {
+        code: 'ROLE_KEY_MISSING',
+        name: 'RoleKeyMissingError',
+      });
     // One POST of this body, under the attempt's own signal.
-    const send = (signal) => fetchImpl(apiUrl(cfg.baseUrl, 'chat/completions'), {
-      method: 'POST',
-      headers: openRouterHeaders(requestKey),
-      body: JSON.stringify(body),
-      signal,
-    });
+    const send = (signal) =>
+      fetchImpl(apiUrl(cfg.baseUrl, 'chat/completions'), {
+        method: 'POST',
+        headers: openRouterHeaders(requestKey),
+        body: JSON.stringify(body),
+        signal,
+      });
     // The start of the first attempt: the logged duration covers the retries and their backoff.
     const startedAt = now();
     // The answered request, once: calibration, the over-cap warning and the usage line (`extra`
@@ -1353,13 +1396,21 @@ export function createLlm({
       const finishReason = json.choices?.[0]?.finish_reason ?? undefined;
       // The whole prompt as the provider counted it, its cached part included (see fullPromptTokens).
       const promptTokens = fullPromptTokens(usage, getConfig(), marked);
-      if (options.skipCalibration !== true && promptTokens !== null) calibrator.observe(raw, promptTokens - toolsTokens);
+      if (options.skipCalibration !== true && promptTokens !== null)
+        calibrator.observe(raw, promptTokens - toolsTokens);
       if (promptTokens !== null && promptTokens > requestTokenCap) {
         log.warn('llm: provider counted more prompt tokens than the cap', { usage, estimated });
       }
       const usageFields = { ...usageLogFields(json, usage, body.model, options, marked, now() - startedAt), ...extra };
       log.info('llm: usage', usageFields);
-      if (options.limits) reportLimits(options.limits, { where: options.purpose ?? options.role ?? 'request', estimated, promptTokens, completion: usage.completion_tokens, maxTokens: body.max_tokens });
+      if (options.limits)
+        reportLimits(options.limits, {
+          where: options.purpose ?? options.role ?? 'request',
+          estimated,
+          promptTokens,
+          completion: usage.completion_tokens,
+          maxTokens: body.max_tokens,
+        });
       // `answer` runs once the retry loop or the hedge has returned, so a refused answer is never
       // re-sent: it was billed already, and the caller's ordinary error path takes it from here.
       assertByok(provider, usage, usageFields);
@@ -1367,7 +1418,12 @@ export function createLlm({
       // actually served the request (undefined when the response omits it) --
       // surfaced so `/nep ping` can report it without a second request shape.
       return {
-        text: typeof text === 'string' ? text : '', usage, estimated, finishReason, provider: json.provider, promptTokens,
+        text: typeof text === 'string' ? text : '',
+        usage,
+        estimated,
+        finishReason,
+        provider: json.provider,
+        promptTokens,
         ...(Array.isArray(annotations) && annotations.length ? { annotations } : {}),
         ...(tools ? { toolCalls: toolCallsOf(json.choices?.[0]?.message?.tool_calls) } : {}),
       };
@@ -1378,7 +1434,12 @@ export function createLlm({
     const hedge = hedgeOf(getConfig(), options);
     if (hedge) {
       if (options.signal?.aborted) throw options.signal.reason ?? new Error('request aborted');
-      const won = await hedgedCall(send, { hedge, options, model: body.model, attemptTimeoutMs: options.timeoutMs ?? cfg.timeoutMs });
+      const won = await hedgedCall(send, {
+        hedge,
+        options,
+        model: body.model,
+        attemptTimeoutMs: options.timeoutMs ?? cfg.timeoutMs,
+      });
       return answer(won.json, { hedged: won.hedged, attempt: won.attempt });
     }
 

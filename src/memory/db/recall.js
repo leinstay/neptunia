@@ -35,7 +35,16 @@
 // stretches `recall.run` returns when it renders them with src/behavior/recall.js#renderRecallWindows).
 
 import { MINUTE_MS } from '../../time.js';
-import { RECALL_DEFAULTS, RRF_K, cutStretch, followConversation, fuseRanks, mergeWindows, recallSettings, renderRecallWindows } from '../../behavior/recall.js';
+import {
+  RECALL_DEFAULTS,
+  RRF_K,
+  cutStretch,
+  followConversation,
+  fuseRanks,
+  mergeWindows,
+  recallSettings,
+  renderRecallWindows,
+} from '../../behavior/recall.js';
 import { log } from '../../log.js';
 import { foldText } from '../recent.js';
 import { indexWords } from '../record-index.js';
@@ -79,7 +88,11 @@ export function dbSettings(config) {
 
 const parseJson = (text) => {
   if (typeof text !== 'string' || !text) return null;
-  try { return JSON.parse(text); } catch { return null; }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
 };
 const str = (value) => (typeof value === 'string' ? value : '');
 
@@ -97,9 +110,15 @@ function accountNames(db) {
 /** The names of the places a context may know: a private place's name is the internal context's alone. */
 function placeNames(db, ctx) {
   const names = new Map();
-  const rows = db.prepare("SELECT id, name, iface, scope_kind FROM places WHERE name IS NOT NULL AND retired_at IS NULL").all();
+  const rows = db
+    .prepare('SELECT id, name, iface, scope_kind FROM places WHERE name IS NOT NULL AND retired_at IS NULL')
+    .all();
   for (const row of rows) {
-    if (ctx.internal !== true && (row.scope_kind === 'dm' || row.scope_kind === 'internal' || (row.iface && row.iface !== ctx.iface))) continue;
+    if (
+      ctx.internal !== true &&
+      (row.scope_kind === 'dm' || row.scope_kind === 'internal' || (row.iface && row.iface !== ctx.iface))
+    )
+      continue;
     names.set(row.id, row.name);
   }
   return names;
@@ -126,7 +145,10 @@ function messageOf(row, { nameOf, selfName }) {
     id: row.native_id,
     channelId: channelOf(row, extra),
     authorId: by,
-    authorName: String(name ?? '').replace(/\s+/g, ' ').trim() || '-',
+    authorName:
+      String(name ?? '')
+        .replace(/\s+/g, ' ')
+        .trim() || '-',
     self,
     bot: false,
     content: str(row.text),
@@ -134,15 +156,26 @@ function messageOf(row, { nameOf, selfName }) {
     replyToId: str(row.reply_to) || null,
     mentionedUserIds: Array.isArray(mentions) ? mentions : [],
     mentionedChannelIds: [],
-    attachments: (Array.isArray(media) ? media : []).filter((kind) => typeof kind === 'string' && kind).map((kind, i) => ({ id: `${row.native_id}#m${i}`, kind, name: kind })),
+    attachments: (Array.isArray(media) ? media : [])
+      .filter((kind) => typeof kind === 'string' && kind)
+      .map((kind, i) => ({ id: `${row.native_id}#m${i}`, kind, name: kind })),
     links: links
       .filter((link) => link && typeof link === 'object' && (str(link.title) || str(link.description)))
-      .map((link, i) => ({ id: str(link.id) || `${row.native_id}#l${i}`, kind: 'link', site: str(link.site), title: str(link.title), text: str(link.description), url: str(link.url) || null, thumbnailUrl: null })),
+      .map((link, i) => ({
+        id: str(link.id) || `${row.native_id}#l${i}`,
+        kind: 'link',
+        site: str(link.site),
+        title: str(link.title),
+        text: str(link.description),
+        url: str(link.url) || null,
+        thumbnailUrl: null,
+      })),
     stickers: [],
     emojis: [],
     forwarded: [],
     reactions: [],
-    editedAt: Number.isInteger(row.revision) && row.revision > 1 ? (Number.isFinite(recordedAt) ? recordedAt : ts) : null,
+    editedAt:
+      Number.isInteger(row.revision) && row.revision > 1 ? (Number.isFinite(recordedAt) ? recordedAt : ts) : null,
   };
 }
 
@@ -183,7 +216,9 @@ const matchOf = (terms) => `{stems} : (${terms.map((term) => quoteFts(term.id)).
 
 /** How many terms, and how many of them phrases, a row holds (by its stems; by its text for a trigram hit). */
 function holds(terms, row) {
-  const tokens = String(row.stems ?? '').split(' ').filter(Boolean);
+  const tokens = String(row.stems ?? '')
+    .split(' ')
+    .filter(Boolean);
   const text = foldText(row.text);
   let count = 0;
   let phrases = 0;
@@ -191,7 +226,8 @@ function holds(terms, row) {
     let found = false;
     if (term.keys.length === 1) found = tokens.includes(term.keys[0]);
     else {
-      for (let at = 0; !found && at + term.keys.length <= tokens.length; at += 1) found = term.keys.every((key, i) => tokens[at + i] === key);
+      for (let at = 0; !found && at + term.keys.length <= tokens.length; at += 1)
+        found = term.keys.every((key, i) => tokens[at + i] === key);
     }
     if (!found && term.folded && text.includes(term.folded)) found = true;
     if (found) {
@@ -212,7 +248,9 @@ function holds(terms, row) {
 function placesAllowed(db, ctx, allowPlace) {
   if (typeof allowPlace !== 'function') return null;
   const scope = scopeWhere(ctx, 's');
-  const found = db.prepare(`SELECT DISTINCT s.place_id AS place_id FROM sources s WHERE s.place_id IS NOT NULL AND ${scope.sql}`).all(...scope.params);
+  const found = db
+    .prepare(`SELECT DISTINCT s.place_id AS place_id FROM sources s WHERE s.place_id IS NOT NULL AND ${scope.sql}`)
+    .all(...scope.params);
   return JSON.stringify(found.map((row) => row.place_id).filter((placeId) => allowPlace(placeId)));
 }
 
@@ -221,10 +259,22 @@ function filters(ctx, { from, to, placeId, places = null }, alias = 's') {
   const scope = scopeWhere(ctx, alias);
   const parts = [scope.sql];
   const params = [...scope.params];
-  if (Number.isFinite(from)) { parts.push(`${alias}.occurred_at >= ?`); params.push(iso(from)); }
-  if (Number.isFinite(to)) { parts.push(`${alias}.occurred_at <= ?`); params.push(iso(to)); }
-  if (placeId) { parts.push(`${alias}.place_id = ?`); params.push(placeId); }
-  if (places !== null) { parts.push(`${alias}.place_id IN (SELECT value FROM json_each(?))`); params.push(places); }
+  if (Number.isFinite(from)) {
+    parts.push(`${alias}.occurred_at >= ?`);
+    params.push(iso(from));
+  }
+  if (Number.isFinite(to)) {
+    parts.push(`${alias}.occurred_at <= ?`);
+    params.push(iso(to));
+  }
+  if (placeId) {
+    parts.push(`${alias}.place_id = ?`);
+    params.push(placeId);
+  }
+  if (places !== null) {
+    parts.push(`${alias}.place_id IN (SELECT value FROM json_each(?))`);
+    params.push(places);
+  }
   return { sql: parts.join(' AND '), params };
 }
 
@@ -233,15 +283,25 @@ const WORD_COLUMNS = 's.*, s.rowid AS rowid';
 function wordRows(db, ctx, terms, scopeArgs, limit) {
   if (terms.length === 0) return [];
   const filter = filters(ctx, scopeArgs);
-  return db.prepare(`SELECT ${WORD_COLUMNS}, bm25(sources_fts, 0.0, 1.0) AS rank FROM sources_fts JOIN sources s ON s.rowid = sources_fts.rowid
-    WHERE sources_fts MATCH ? AND ${CURRENT} AND ${filter.sql} ORDER BY rank LIMIT ?`).all(matchOf(terms), ...filter.params, limit);
+  return db
+    .prepare(
+      `SELECT ${WORD_COLUMNS}, bm25(sources_fts, 0.0, 1.0) AS rank FROM sources_fts JOIN sources s ON s.rowid = sources_fts.rowid
+    WHERE sources_fts MATCH ? AND ${CURRENT} AND ${filter.sql} ORDER BY rank LIMIT ?`
+    )
+    .all(matchOf(terms), ...filter.params, limit);
 }
 
 /** Whether the word stream finds `term` at all inside the context. */
 function wordFinds(db, ctx, term, scopeArgs) {
   const filter = filters(ctx, scopeArgs);
-  return db.prepare(`SELECT 1 AS ok FROM sources_fts JOIN sources s ON s.rowid = sources_fts.rowid
-    WHERE sources_fts MATCH ? AND ${CURRENT} AND ${filter.sql} LIMIT 1`).get(matchOf([term]), ...filter.params) !== undefined;
+  return (
+    db
+      .prepare(
+        `SELECT 1 AS ok FROM sources_fts JOIN sources s ON s.rowid = sources_fts.rowid
+    WHERE sources_fts MATCH ? AND ${CURRENT} AND ${filter.sql} LIMIT 1`
+      )
+      .get(matchOf([term]), ...filter.params) !== undefined
+  );
 }
 
 function trigramRows(db, ctx, terms, scopeArgs, limit) {
@@ -249,8 +309,14 @@ function trigramRows(db, ctx, terms, scopeArgs, limit) {
   const rows = [];
   for (const term of terms) {
     if ([...term.form.trim()].length < 3) continue;
-    rows.push(...db.prepare(`SELECT ${WORD_COLUMNS}, bm25(sources_tri) AS rank FROM sources_tri JOIN sources s ON s.rowid = sources_tri.rowid
-      WHERE sources_tri MATCH ? AND ${CURRENT} AND ${filter.sql} ORDER BY rank LIMIT ?`).all(quoteFts(term.form.trim()), ...filter.params, limit));
+    rows.push(
+      ...db
+        .prepare(
+          `SELECT ${WORD_COLUMNS}, bm25(sources_tri) AS rank FROM sources_tri JOIN sources s ON s.rowid = sources_tri.rowid
+      WHERE sources_tri MATCH ? AND ${CURRENT} AND ${filter.sql} ORDER BY rank LIMIT ?`
+        )
+        .all(quoteFts(term.form.trim()), ...filter.params, limit)
+    );
   }
   return rows.sort((a, b) => a.rank - b.rank);
 }
@@ -263,7 +329,14 @@ let warnedModel = false;
 const evictionColumn = new WeakMap();
 /** ` AND v.evicted_at IS NULL` on a database with the column (schema v11), '' before it. */
 function notEvicted(db) {
-  if (!evictionColumn.has(db)) evictionColumn.set(db, db.prepare('PRAGMA table_info(vectors)').all().some((column) => column.name === 'evicted_at'));
+  if (!evictionColumn.has(db))
+    evictionColumn.set(
+      db,
+      db
+        .prepare('PRAGMA table_info(vectors)')
+        .all()
+        .some((column) => column.name === 'evicted_at')
+    );
   return evictionColumn.get(db) ? ' AND v.evicted_at IS NULL' : '';
 }
 
@@ -284,10 +357,14 @@ function meaningRows(db, ctx, vector, scopeArgs, limit, model = null) {
   const filter = filters(ctx, scopeArgs);
   const modelSql = typeof model === 'string' && model ? ' AND (v.model IS NULL OR v.model = ?)' : '';
   const modelParams = modelSql ? [model] : [];
-  const rows = db.prepare(`SELECT s.rowid AS source_rowid, v.scale AS scale, v.norm AS norm, v.bytes AS bytes, v.model AS model
+  const rows = db
+    .prepare(
+      `SELECT s.rowid AS source_rowid, v.scale AS scale, v.norm AS norm, v.bytes AS bytes, v.model AS model
     FROM vectors v JOIN sources o ON o.rowid = v.source_rowid
     JOIN sources s ON s.native_id = o.native_id AND (s.rowid = o.rowid OR s.text IS o.text)
-    WHERE v.retired_at IS NULL AND v.bytes IS NOT NULL${notEvicted(db)} AND v.dims = ?${modelSql} AND ${CURRENT} AND ${filter.sql}`).iterate(q.length, ...modelParams, ...filter.params);
+    WHERE v.retired_at IS NULL AND v.bytes IS NOT NULL${notEvicted(db)} AND v.dims = ?${modelSql} AND ${CURRENT} AND ${filter.sql}`
+    )
+    .iterate(q.length, ...modelParams, ...filter.params);
   const heap = [];
   let floor = -Infinity;
   for (const row of rows) {
@@ -330,7 +407,9 @@ function currentRows(db, ctx, rowids, scopeArgs) {
  * only while their link is `verified`.
  */
 function accountsOf(db, ctx, forms) {
-  const wanted = new Map((Array.isArray(forms) ? forms : []).map((form) => [foldText(form), form]).filter(([key]) => key));
+  const wanted = new Map(
+    (Array.isArray(forms) ? forms : []).map((form) => [foldText(form), form]).filter(([key]) => key)
+  );
   const ids = new Set();
   const named = new Set();
   if (wanted.size === 0) return { ids, unresolved: [] };
@@ -338,15 +417,25 @@ function accountsOf(db, ctx, forms) {
     const list = parseJson(row.names);
     for (const name of Array.isArray(list) ? list : []) {
       const key = foldText(name);
-      if (wanted.has(key)) { ids.add(row.id); named.add(key); }
+      if (wanted.has(key)) {
+        ids.add(row.id);
+        named.add(key);
+      }
     }
   }
   const scope = scopeWhere(ctx, 'c');
-  const aliases = db.prepare(`SELECT c.text AS text, a.id AS account FROM claims c JOIN accounts a ON a.person_id = c.subject_id
-    WHERE c.kind = 'alias' AND c.retired_at IS NULL AND a.retired_at IS NULL AND a.link = 'verified' AND ${scope.sql}`).all(...scope.params);
+  const aliases = db
+    .prepare(
+      `SELECT c.text AS text, a.id AS account FROM claims c JOIN accounts a ON a.person_id = c.subject_id
+    WHERE c.kind = 'alias' AND c.retired_at IS NULL AND a.retired_at IS NULL AND a.link = 'verified' AND ${scope.sql}`
+    )
+    .all(...scope.params);
   for (const row of aliases) {
     const key = foldText(row.text);
-    if (wanted.has(key)) { ids.add(row.account); named.add(key); }
+    if (wanted.has(key)) {
+      ids.add(row.account);
+      named.add(key);
+    }
   }
   return { ids, unresolved: [...wanted].filter(([key]) => !named.has(key)).map(([, form]) => form) };
 }
@@ -355,8 +444,12 @@ function peopleRows(db, ctx, accounts, scopeArgs, limit) {
   if (accounts.size === 0) return [];
   const filter = filters(ctx, scopeArgs);
   const marks = [...accounts].map(() => '?').join(', ');
-  return db.prepare(`SELECT ${WORD_COLUMNS} FROM sources s WHERE s.author_account IN (${marks}) AND ${CURRENT} AND ${filter.sql}
-    ORDER BY s.occurred_at DESC LIMIT ?`).all(...accounts, ...filter.params, limit);
+  return db
+    .prepare(
+      `SELECT ${WORD_COLUMNS} FROM sources s WHERE s.author_account IN (${marks}) AND ${CURRENT} AND ${filter.sql}
+    ORDER BY s.occurred_at DESC LIMIT ?`
+    )
+    .all(...accounts, ...filter.params, limit);
 }
 
 // ---------- windows ----------
@@ -369,16 +462,23 @@ function peopleRows(db, ctx, accounts, scopeArgs, limit) {
 function neighbours(db, ctx, row, direction, { count, minutes = null }) {
   if (!(count > 0)) return { rows: [], stopped: null };
   const earlier = direction < 0;
-  const limitMs = Number.isFinite(minutes) ? Date.parse(row.occurred_at) + (earlier ? -1 : 1) * minutes * MINUTE_MS : null;
+  const limitMs = Number.isFinite(minutes)
+    ? Date.parse(row.occurred_at) + (earlier ? -1 : 1) * minutes * MINUTE_MS
+    : null;
   const bound = limitMs === null ? '' : ` AND s.occurred_at ${earlier ? '>=' : '<='} ?`;
   // The boundary is read as ids and scope columns only; the text is fetched for the lines the context may open.
   const sql = `SELECT s.rowid AS rowid, s.scope_kind AS scope_kind, s.scope_iface AS scope_iface, s.scope_dm AS scope_dm, s.audience_id AS audience_id FROM sources s WHERE s.place_id = ? AND ${CURRENT}
     AND (s.occurred_at, s.rowid) ${earlier ? '<' : '>'} (?, ?)${bound} ORDER BY s.occurred_at ${earlier ? 'DESC' : 'ASC'}, s.rowid ${earlier ? 'DESC' : 'ASC'} LIMIT ?`;
-  const found = db.prepare(sql).all(row.place_id, row.occurred_at, row.rowid, ...(limitMs === null ? [] : [iso(limitMs)]), count);
+  const found = db
+    .prepare(sql)
+    .all(row.place_id, row.occurred_at, row.rowid, ...(limitMs === null ? [] : [iso(limitMs)]), count);
   const open = [];
   let stopped = null;
   for (const next of found) {
-    if (!canRead(next, ctx)) { stopped = 'hidden'; break; }
+    if (!canRead(next, ctx)) {
+      stopped = 'hidden';
+      break;
+    }
     open.push(next.rowid);
   }
   const rows = rowsByRowid(db, open);
@@ -388,7 +488,12 @@ function neighbours(db, ctx, row, direction, { count, minutes = null }) {
 /** The full source rows of `rowids`, in that order. */
 function rowsByRowid(db, rowids) {
   if (rowids.length === 0) return [];
-  const byId = new Map(db.prepare('SELECT s.*, s.rowid AS rowid FROM sources s WHERE s.rowid IN (SELECT value FROM json_each(?))').all(JSON.stringify(rowids)).map((row) => [row.rowid, row]));
+  const byId = new Map(
+    db
+      .prepare('SELECT s.*, s.rowid AS rowid FROM sources s WHERE s.rowid IN (SELECT value FROM json_each(?))')
+      .all(JSON.stringify(rowids))
+      .map((row) => [row.rowid, row])
+  );
   return rowids.map((id) => byId.get(id)).filter(Boolean);
 }
 
@@ -397,7 +502,11 @@ function rowsByRowid(db, rowids) {
  * of a line the context may not open is never loaded.
  */
 function sourceByNative(db, ctx, nativeId) {
-  const light = db.prepare(`SELECT s.rowid AS rowid, s.scope_kind AS scope_kind, s.scope_iface AS scope_iface, s.scope_dm AS scope_dm, s.audience_id AS audience_id FROM sources s WHERE s.native_id = ? AND ${CURRENT}`).get(String(nativeId));
+  const light = db
+    .prepare(
+      `SELECT s.rowid AS rowid, s.scope_kind AS scope_kind, s.scope_iface AS scope_iface, s.scope_dm AS scope_dm, s.audience_id AS audience_id FROM sources s WHERE s.native_id = ? AND ${CURRENT}`
+    )
+    .get(String(nativeId));
   return light && canRead(light, ctx) ? (rowsByRowid(db, [light.rowid])[0] ?? null) : null;
 }
 
@@ -415,15 +524,23 @@ function stretchAround(db, ctx, hit, { around, followMessages, followGapMinutes 
   const after = neighbours(db, ctx, hit, 1, { count: around });
   for (const row of after.rows) chosen.set(row.rowid, row);
   // The conversation goes on past the last line of the stretch while it does not fall silent.
-  const rows = [...chosen.values()].sort((a, b) => (a.occurred_at < b.occurred_at ? -1 : a.occurred_at > b.occurred_at ? 1 : a.rowid - b.rowid));
+  const rows = [...chosen.values()].sort((a, b) =>
+    a.occurred_at < b.occurred_at ? -1 : a.occurred_at > b.occurred_at ? 1 : a.rowid - b.rowid
+  );
   const last = rows[rows.length - 1];
   if (after.stopped !== 'hidden') {
     const ahead = neighbours(db, ctx, last, 1, { count: FOLLOW_READ_MAX }).rows;
     const lastTs = Date.parse(last.occurred_at);
-    const followed = followConversation(lastTs, ahead.map((row) => ({ ts: Date.parse(row.occurred_at), row })), { followMessages, followGapMinutes });
+    const followed = followConversation(
+      lastTs,
+      ahead.map((row) => ({ ts: Date.parse(row.occurred_at), row })),
+      { followMessages, followGapMinutes }
+    );
     for (const { row } of followed) chosen.set(row.rowid, row);
   }
-  return [...chosen.values()].sort((a, b) => (a.occurred_at < b.occurred_at ? -1 : a.occurred_at > b.occurred_at ? 1 : a.rowid - b.rowid));
+  return [...chosen.values()].sort((a, b) =>
+    a.occurred_at < b.occurred_at ? -1 : a.occurred_at > b.occurred_at ? 1 : a.rowid - b.rowid
+  );
 }
 
 /** A window (the recall runner's shape) of source rows. */
@@ -486,7 +603,23 @@ function targetOf({ from, to }, now) {
  * @returns {{ windows: object[], hits: object[], hidden: boolean, stats: object }}
  *   a hit: { id, rowid, messageId, placeId, ts, score, streams, terms, phrases, cosine }, best first.
  */
-export function search(db, { ctx, plan, limit = RECALL_DEFAULTS.maxClusters, now = Date.now(), vector = null, settings = null, exclude = null, nameOf = null, selfName = '', channelNameOf = null, allowPlace = null, model = null } = {}) {
+export function search(
+  db,
+  {
+    ctx,
+    plan,
+    limit = RECALL_DEFAULTS.maxClusters,
+    now = Date.now(),
+    vector = null,
+    settings = null,
+    exclude = null,
+    nameOf = null,
+    selfName = '',
+    channelNameOf = null,
+    allowPlace = null,
+    model = null,
+  } = {}
+) {
   whereFor(ctx); // a read without a valid context throws
   const opts = settings ?? dbSettings({});
   const { gateShare, candidates, minMeaning } = opts;
@@ -503,19 +636,24 @@ export function search(db, { ctx, plan, limit = RECALL_DEFAULTS.maxClusters, now
   const terms = termsOf(stem, [...(plan?.forms ?? []), ...people.unresolved]);
   const stats = { words: 0, trigram: 0, meaning: 0, people: 0 };
   const rowsOf = new Map();
-  const remember = (row) => { if (!rowsOf.has(row.rowid)) rowsOf.set(row.rowid, row); };
+  const remember = (row) => {
+    if (!rowsOf.has(row.rowid)) rowsOf.set(row.rowid, row);
+  };
 
   // A wider pool is ranked by what a row holds (distinct terms, phrases, then bm25); the best `candidates` go on.
-  const covered = (rows) => rows
-    .map((row, at) => ({ row, at, held: holds(terms, row) }))
-    .sort((a, b) => b.held.terms - a.held.terms || b.held.phrases - a.held.phrases || a.at - b.at)
-    .slice(0, candidates)
-    .map((entry) => entry.row);
+  const covered = (rows) =>
+    rows
+      .map((row, at) => ({ row, at, held: holds(terms, row) }))
+      .sort((a, b) => b.held.terms - a.held.terms || b.held.phrases - a.held.phrases || a.at - b.at)
+      .slice(0, candidates)
+      .map((entry) => entry.row);
   const words = covered(wordRows(db, ctx, terms, scopeArgs, pool));
   words.forEach(remember);
   stats.words = words.length;
   const missed = terms.filter((term) => !wordFinds(db, ctx, term, scopeArgs));
-  const trigram = covered(trigramRows(db, ctx, missed, scopeArgs, pool)).filter((row) => !words.some((w) => w.rowid === row.rowid));
+  const trigram = covered(trigramRows(db, ctx, missed, scopeArgs, pool)).filter(
+    (row) => !words.some((w) => w.rowid === row.rowid)
+  );
   trigram.forEach(remember);
   stats.trigram = trigram.length;
 
@@ -523,12 +661,20 @@ export function search(db, { ctx, plan, limit = RECALL_DEFAULTS.maxClusters, now
   const cosine = new Map();
   if (vector && vector.length > 0) {
     const scored = meaningRows(db, ctx, vector, scopeArgs, candidates, model);
-    const live = currentRows(db, ctx, scored.map((row) => row.source_rowid), scopeArgs);
+    const live = currentRows(
+      db,
+      ctx,
+      scored.map((row) => row.source_rowid),
+      scopeArgs
+    );
     for (const row of scored) {
       if (row.score < minMeaning) continue;
       const source = live.get(row.source_rowid);
       if (!source) continue;
-      if (!cosine.has(source.rowid)) { cosine.set(source.rowid, row.score); meaning.push(source); }
+      if (!cosine.has(source.rowid)) {
+        cosine.set(source.rowid, row.score);
+        meaning.push(source);
+      }
     }
     meaning = meaning.slice(0, candidates);
     meaning.forEach(remember);
@@ -563,10 +709,16 @@ export function search(db, { ctx, plan, limit = RECALL_DEFAULTS.maxClusters, now
         cosine: cosine.get(row.rowid) ?? null,
       };
     })
-    .sort(dated
-      // A named date: nearness to it first. Else relevance first (coverage), the date only breaks a tie of coverage.
-      ? (a, b) => Math.abs(a.ts - target) - Math.abs(b.ts - target) || b.score - a.score
-      : (a, b) => b.terms - a.terms || b.phrases - a.phrases || Math.abs(a.ts - target) - Math.abs(b.ts - target) || b.score - a.score);
+    .sort(
+      dated
+        ? // A named date: nearness to it first. Else relevance first (coverage), the date only breaks a tie of coverage.
+          (a, b) => Math.abs(a.ts - target) - Math.abs(b.ts - target) || b.score - a.score
+        : (a, b) =>
+            b.terms - a.terms ||
+            b.phrases - a.phrases ||
+            Math.abs(a.ts - target) - Math.abs(b.ts - target) ||
+            b.score - a.score
+    );
 
   const read = readerOf(db, ctx, { nameOf, selfName, channelNameOf, exclude: skip });
   const keep = Math.max(1, Number.isInteger(limit) ? limit : RECALL_DEFAULTS.maxClusters);
@@ -574,16 +726,24 @@ export function search(db, { ctx, plan, limit = RECALL_DEFAULTS.maxClusters, now
   const chosen = new Set(hits.slice(0, keep * HITS_PER_WINDOW).map((hit) => hit.rowid));
   for (const hit of byScore.slice(0, keep)) chosen.add(hit.rowid);
   const hitIds = new Set(hits.map((hit) => hit.messageId));
-  const built = hits.filter((hit) => chosen.has(hit.rowid)).map((hit) => {
-    const rows = stretchAround(db, ctx, rowsOf.get(hit.rowid), { around: opts.recordContext, followMessages: opts.followMessages, followGapMinutes: opts.followGapMinutes });
-    return windowOf(rows, new Set(rows.map((row) => row.native_id).filter((id) => hitIds.has(id))), read);
-  });
+  const built = hits
+    .filter((hit) => chosen.has(hit.rowid))
+    .map((hit) => {
+      const rows = stretchAround(db, ctx, rowsOf.get(hit.rowid), {
+        around: opts.recordContext,
+        followMessages: opts.followMessages,
+        followGapMinutes: opts.followGapMinutes,
+      });
+      return windowOf(rows, new Set(rows.map((row) => row.native_id).filter((id) => hitIds.has(id))), read);
+    });
   // A window's place is its best hit's place.
   // Its place is the better of two ranks: in the ranked hits (coverage) and by the fused score (where the meaning
   // stream lifts a line the words miss), so neither kind of match crowds the other out of the windows kept.
   const byRank = new Map(hits.map((hit, i) => [hit.messageId, i]));
   const byFused = new Map(byScore.map((hit, i) => [hit.messageId, i]));
-  const order = new Map(hits.map((hit) => [hit.messageId, Math.min(byRank.get(hit.messageId), byFused.get(hit.messageId))]));
+  const order = new Map(
+    hits.map((hit) => [hit.messageId, Math.min(byRank.get(hit.messageId), byFused.get(hit.messageId))])
+  );
   const merged = mergeWindows(built).map((window) => ({
     ...window,
     best: Math.min(Infinity, ...[...window.hitIds].map((id) => order.get(id) ?? Infinity)),
@@ -596,12 +756,23 @@ export function search(db, { ctx, plan, limit = RECALL_DEFAULTS.maxClusters, now
     .sort((a, b) => b.endTs - a.endTs)
     .map(({ best, endTs, ...window }) => window);
 
-  const hidden = ctx.kind === 'group' && terms.length > 0 ? hiddenBetter(db, ctx, terms, scopeArgs, (row) => shown(row) && (typeof allowPlace !== 'function' || allowPlace(row.place_id)), askersOf(ctx)) : false;
+  const hidden =
+    ctx.kind === 'group' && terms.length > 0
+      ? hiddenBetter(
+          db,
+          ctx,
+          terms,
+          scopeArgs,
+          (row) => shown(row) && (typeof allowPlace !== 'function' || allowPlace(row.place_id)),
+          askersOf(ctx)
+        )
+      : false;
   return { windows, hits, hidden, stats };
 }
 
 /** The person ids of whoever asked, from the context's optional `asker` (one id or a list). */
-const askersOf = (ctx) => (Array.isArray(ctx?.asker) ? ctx.asker : [ctx?.asker]).filter((id) => typeof id === 'string' && id);
+const askersOf = (ctx) =>
+  (Array.isArray(ctx?.asker) ? ctx.asker : [ctx?.asker]).filter((id) => typeof id === 'string' && id);
 
 /**
  * Whether a DM of the person who asked holds a word match better than anything this context may show: the matches
@@ -614,17 +785,31 @@ function hiddenBetter(db, ctx, terms, scopeArgs, shown, askers) {
   if (askers.length === 0) return false;
   // The asker's own DM on this interface: by the triple, or by its audience (the DM place of the asker) on `audience_id`.
   const askerAudiences = new Set(askers.map((person) => audienceOf(dmScope(person, ctx.iface)).audience_id));
-  const askedIn = ctx.audienceColumn === true
-    ? (row) => askerAudiences.has(row.audience_id)
-    : (row) => row.scope_kind === 'dm' && row.scope_iface === ctx.iface && askers.includes(row.scope_dm);
+  const askedIn =
+    ctx.audienceColumn === true
+      ? (row) => askerAudiences.has(row.audience_id)
+      : (row) => row.scope_kind === 'dm' && row.scope_iface === ctx.iface && askers.includes(row.scope_dm);
   const parts = [];
   const params = [];
-  if (Number.isFinite(scopeArgs.from)) { parts.push('s.occurred_at >= ?'); params.push(iso(scopeArgs.from)); }
-  if (Number.isFinite(scopeArgs.to)) { parts.push('s.occurred_at <= ?'); params.push(iso(scopeArgs.to)); }
-  if (scopeArgs.placeId) { parts.push('s.place_id = ?'); params.push(scopeArgs.placeId); }
-  const rows = db.prepare(`SELECT s.native_id AS native_id, s.place_id AS place_id, s.scope_kind AS scope_kind, s.scope_iface AS scope_iface, s.scope_dm AS scope_dm, s.audience_id AS audience_id
+  if (Number.isFinite(scopeArgs.from)) {
+    parts.push('s.occurred_at >= ?');
+    params.push(iso(scopeArgs.from));
+  }
+  if (Number.isFinite(scopeArgs.to)) {
+    parts.push('s.occurred_at <= ?');
+    params.push(iso(scopeArgs.to));
+  }
+  if (scopeArgs.placeId) {
+    parts.push('s.place_id = ?');
+    params.push(scopeArgs.placeId);
+  }
+  const rows = db
+    .prepare(
+      `SELECT s.native_id AS native_id, s.place_id AS place_id, s.scope_kind AS scope_kind, s.scope_iface AS scope_iface, s.scope_dm AS scope_dm, s.audience_id AS audience_id
     FROM sources_fts JOIN sources s ON s.rowid = sources_fts.rowid
-    WHERE sources_fts MATCH ? AND ${CURRENT} ${parts.map((part) => `AND ${part}`).join(' ')} ORDER BY bm25(sources_fts, 0.0, 1.0)`).iterate(matchOf(terms), ...params);
+    WHERE sources_fts MATCH ? AND ${CURRENT} ${parts.map((part) => `AND ${part}`).join(' ')} ORDER BY bm25(sources_fts, 0.0, 1.0)`
+    )
+    .iterate(matchOf(terms), ...params);
   for (const row of rows) {
     if (canRead(row, ctx)) {
       if (shown(row)) return false;
@@ -646,22 +831,49 @@ function hiddenBetter(db, ctx, terms, scopeArgs, shown, askers) {
  * context may not open, or that does not exist, is `unknown`.
  * @returns {{ windows: object[], unknown: boolean, stopped: 'hidden'|'edge'|null }}
  */
-export function window(db, { ctx, anchor, move = 'up', messages = null, minutes = null, settings = null, nameOf = null, selfName = '', channelNameOf = null, exclude = null, allowPlace = null } = {}) {
+export function window(
+  db,
+  {
+    ctx,
+    anchor,
+    move = 'up',
+    messages = null,
+    minutes = null,
+    settings = null,
+    nameOf = null,
+    selfName = '',
+    channelNameOf = null,
+    exclude = null,
+    allowPlace = null,
+  } = {}
+) {
   whereFor(ctx);
   const gone = { windows: [], unknown: true, stopped: null };
   const id = String(anchor ?? '').trim();
   if (!id) return gone;
   let row = null;
   if (id.startsWith('src:')) {
-    const light = db.prepare('SELECT s.rowid AS rowid, s.scope_kind AS scope_kind, s.scope_iface AS scope_iface, s.scope_dm AS scope_dm, s.audience_id AS audience_id FROM sources s WHERE s.id = ? AND s.retired_at IS NULL').get(id);
+    const light = db
+      .prepare(
+        'SELECT s.rowid AS rowid, s.scope_kind AS scope_kind, s.scope_iface AS scope_iface, s.scope_dm AS scope_dm, s.audience_id AS audience_id FROM sources s WHERE s.id = ? AND s.retired_at IS NULL'
+      )
+      .get(id);
     row = light && canRead(light, ctx) ? (rowsByRowid(db, [light.rowid])[0] ?? null) : null;
   } else {
     row = sourceByNative(db, ctx, id);
   }
   if (!row || !row.place_id || (typeof allowPlace === 'function' && !allowPlace(row.place_id))) return gone;
-  const count = Number.isInteger(messages) && messages > 0 ? messages : Number.isFinite(minutes) && minutes > 0 ? FOLLOW_READ_MAX : (settings?.windowMessages ?? WINDOW_FALLBACK);
+  const count =
+    Number.isInteger(messages) && messages > 0
+      ? messages
+      : Number.isFinite(minutes) && minutes > 0
+        ? FOLLOW_READ_MAX
+        : (settings?.windowMessages ?? WINDOW_FALLBACK);
   const span = Number.isFinite(minutes) && minutes > 0 ? minutes : null;
-  const read = neighbours(db, ctx, row, move === 'down' ? 1 : -1, { count: Math.min(count, FOLLOW_READ_MAX), minutes: span });
+  const read = neighbours(db, ctx, row, move === 'down' ? 1 : -1, {
+    count: Math.min(count, FOLLOW_READ_MAX),
+    minutes: span,
+  });
   const rows = move === 'down' ? read.rows : [...read.rows].reverse();
   const skip = exclude instanceof Set ? exclude : new Set(Array.isArray(exclude) ? exclude : []);
   const shown = windowOf(rows, new Set(), readerOf(db, ctx, { nameOf, selfName, channelNameOf, exclude: skip }));
@@ -687,9 +899,21 @@ export function quotesOf(windows, { render, stretchChars }) {
     const byId = new Map(one.messages.map((message) => [message.id, message]));
     const entries = lines.map((line) => {
       const message = byId.get(line.id) ?? null;
-      return { id: line.id, text: line.text, authorId: message?.authorId ?? null, self: message?.self === true, message };
+      return {
+        id: line.id,
+        text: line.text,
+        authorId: message?.authorId ?? null,
+        self: message?.self === true,
+        message,
+      };
     });
-    out.push({ channelId: one.channelId, channelName: one.channelName, startTs: lines[0].ts, lines: lines.map((line) => line.text).join('\n'), entries });
+    out.push({
+      channelId: one.channelId,
+      channelName: one.channelName,
+      startTs: lines[0].ts,
+      lines: lines.map((line) => line.text).join('\n'),
+      entries,
+    });
   }
   return out;
 }

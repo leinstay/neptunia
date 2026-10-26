@@ -44,7 +44,17 @@ import { CODE } from '../skills/codes.js';
 import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay } from '../time.js';
 
 /** Why a message became a candidate. */
-export const MISSED_REASONS = Object.freeze(['gate-failed', 'gate-failopen', 'replaced-deferred', 'turn-error', 'turn-dropped', 'not-now', CODE.PENDING_FULL, CODE.PENDING_EXPIRED, CODE.PENDING_OUTRANKED]);
+export const MISSED_REASONS = Object.freeze([
+  'gate-failed',
+  'gate-failopen',
+  'replaced-deferred',
+  'turn-error',
+  'turn-dropped',
+  'not-now',
+  CODE.PENDING_FULL,
+  CODE.PENDING_EXPIRED,
+  CODE.PENDING_OUTRANKED,
+]);
 
 /** The helper's verdicts, then the one code gives a check that did not complete. */
 export const MISSED_VERDICTS = Object.freeze(['owed', 'resolved', 'intentional-skip', 'stale', 'uncertain']);
@@ -122,13 +132,24 @@ export function isOpen(candidate) {
  * @returns {{ list: object[], added: boolean, candidate: object|null }}
  */
 export function addCandidate(list, fact, { now = fact?.at } = {}) {
-  if (!fact?.messageId || !fact.channelId || !MISSED_REASONS.includes(fact.reason)) return { list, added: false, candidate: null };
+  if (!fact?.messageId || !fact.channelId || !MISSED_REASONS.includes(fact.reason))
+    return { list, added: false, candidate: null };
   const turnIds = typeof fact.turnId === 'string' && fact.turnId ? [fact.turnId] : [];
   const existing = list.find((candidate) => candidate.messageId === fact.messageId);
   if (existing) {
     if (!isOpen(existing)) return { list, added: false, candidate: existing };
-    const updated = { ...existing, reason: fact.reason, turnIds: [...new Set([...existing.turnIds, ...turnIds])], question: existing.question || fact.question === true, updatedAt: now };
-    return { list: list.map((candidate) => (candidate === existing ? updated : candidate)), added: false, candidate: updated };
+    const updated = {
+      ...existing,
+      reason: fact.reason,
+      turnIds: [...new Set([...existing.turnIds, ...turnIds])],
+      question: existing.question || fact.question === true,
+      updatedAt: now,
+    };
+    return {
+      list: list.map((candidate) => (candidate === existing ? updated : candidate)),
+      added: false,
+      candidate: updated,
+    };
   }
   const candidate = {
     messageId: fact.messageId,
@@ -167,12 +188,21 @@ export function resolveByTurn(list, turn) {
     let by = null;
     if (turn.triggerId && turn.triggerId === candidate.messageId) by = 'trigger';
     else if (targets.has(candidate.messageId)) by = 'reply';
-    else if (turn.outcome === 'spoke' && turn.triggerAuthorId && turn.triggerAuthorId === candidate.authorId && Number.isFinite(turn.triggerAt) && turn.triggerAt > candidate.at) {
+    else if (
+      turn.outcome === 'spoke' &&
+      turn.triggerAuthorId &&
+      turn.triggerAuthorId === candidate.authorId &&
+      Number.isFinite(turn.triggerAt) &&
+      turn.triggerAt > candidate.at
+    ) {
       by = 'author';
     }
     if (!by) return candidate;
     resolved.push({ messageId: candidate.messageId, channelId: candidate.channelId, by });
-    const turnIds = typeof turn.turnId === 'string' && turn.turnId ? [...new Set([...candidate.turnIds, turn.turnId])] : candidate.turnIds;
+    const turnIds =
+      typeof turn.turnId === 'string' && turn.turnId
+        ? [...new Set([...candidate.turnIds, turn.turnId])]
+        : candidate.turnIds;
     return { ...candidate, state: 'resolved', turnIds, updatedAt: turn.at };
   });
   return { list: resolved.length > 0 ? next : list, resolved };
@@ -269,7 +299,9 @@ export function parseMissedAnswer(text, count) {
     found.set(index, verdict);
   }
   return {
-    verdicts: Array.from({ length: count }, (_, i) => (conflicted.has(i + 1) ? 'uncertain' : (found.get(i + 1) ?? 'uncertain'))),
+    verdicts: Array.from({ length: count }, (_, i) =>
+      conflicted.has(i + 1) ? 'uncertain' : (found.get(i + 1) ?? 'uncertain')
+    ),
     empty: false,
   };
 }
@@ -296,7 +328,10 @@ export function stateForVerdict(verdict, recovery) {
  * @returns {number} epoch ms
  */
 export function sweepDueAt(sweep, settings) {
-  return Math.min(sweep.lastAt + settings.sweepDelaySeconds * 1000, sweep.firstAt + Math.max(settings.sweepMaxDelaySeconds, settings.sweepDelaySeconds) * 1000);
+  return Math.min(
+    sweep.lastAt + settings.sweepDelaySeconds * 1000,
+    sweep.firstAt + Math.max(settings.sweepMaxDelaySeconds, settings.sweepDelaySeconds) * 1000
+  );
 }
 
 /**
@@ -310,7 +345,9 @@ export function sweepDueAt(sweep, settings) {
  */
 export function pruneCandidates(list, now, max = MAX_CANDIDATES) {
   const kept = list.filter((candidate) => {
-    const last = isOpen(candidate) ? candidate.at : Math.max(candidate.at ?? 0, candidate.updatedAt ?? 0, candidate.checkedAt ?? 0);
+    const last = isOpen(candidate)
+      ? candidate.at
+      : Math.max(candidate.at ?? 0, candidate.updatedAt ?? 0, candidate.checkedAt ?? 0);
     return Number.isFinite(last) && now - last <= KEEP_MS;
   });
   if (kept.length <= max) return kept;
@@ -353,14 +390,28 @@ export function reconcileFromRecords(list, records, { now, windowMs = RECONCILE_
     if (!Number.isFinite(at)) continue;
     const channelId = record.scope?.channel ?? null;
     if (record.kind === 'turn.start') {
-      starts.set(record.turnId, { triggerId: record.trigger?.messageId ?? null, triggerAuthorId: record.trigger?.authorId ?? null, at });
+      starts.set(record.turnId, {
+        triggerId: record.trigger?.messageId ?? null,
+        triggerAuthorId: record.trigger?.authorId ?? null,
+        at,
+      });
       continue;
     }
     if (at < from) continue;
     if (record.kind === 'turn') {
       const start = starts.get(record.turnId) ?? {};
-      const replyTargets = (Array.isArray(record.posted) ? record.posted : []).map((post) => post?.replyTo).filter((id) => typeof id === 'string' && id);
-      const result = resolveByTurn(out, { channelId, ...start, triggerAt: start.at ?? null, outcome: record.outcome, replyTargets, turnId: record.turnId, at });
+      const replyTargets = (Array.isArray(record.posted) ? record.posted : [])
+        .map((post) => post?.replyTo)
+        .filter((id) => typeof id === 'string' && id);
+      const result = resolveByTurn(out, {
+        channelId,
+        ...start,
+        triggerAt: start.at ?? null,
+        outcome: record.outcome,
+        replyTargets,
+        turnId: record.turnId,
+        at,
+      });
       out = result.list;
       closed += result.resolved.length;
       continue;
@@ -368,26 +419,36 @@ export function reconcileFromRecords(list, records, { now, windowMs = RECONCILE_
     if (record.kind !== 'answer') continue;
     if (record.event === 'fact') {
       const messageAt = Date.parse(record.at);
-      const result = addCandidate(out, {
-        messageId: record.messageId,
-        channelId,
-        authorId: record.authorId ?? null,
-        at: Number.isFinite(messageAt) ? messageAt : at,
-        reason: record.reason,
-        question: record.question === true,
-        turnId: record.turnId ?? null,
-      }, { now: at });
+      const result = addCandidate(
+        out,
+        {
+          messageId: record.messageId,
+          channelId,
+          authorId: record.authorId ?? null,
+          at: Number.isFinite(messageAt) ? messageAt : at,
+          reason: record.reason,
+          question: record.question === true,
+          turnId: record.turnId ?? null,
+        },
+        { now: at }
+      );
       out = result.list;
       if (result.added) added += 1;
       continue;
     }
-    const ids = record.event === 'recovery' ? (Array.isArray(record.messageIds) ? record.messageIds : []) : [record.messageId];
+    const ids =
+      record.event === 'recovery' ? (Array.isArray(record.messageIds) ? record.messageIds : []) : [record.messageId];
     for (const messageId of ids) {
       let patch = null;
-      if (record.event === 'verdict' && typeof record.verdict === 'string') patch = { verdict: record.verdict, checkedAt: at, state: stateForVerdict(record.verdict, recovery) };
+      if (record.event === 'verdict' && typeof record.verdict === 'string')
+        patch = { verdict: record.verdict, checkedAt: at, state: stateForVerdict(record.verdict, recovery) };
       else if (record.event === 'resolved') patch = { state: 'resolved' };
       else if (record.event === 'expired') patch = { state: 'expired' };
-      else if (record.event === 'recovery') patch = { state: record.outcome === 'spoke' || record.outcome === 'skip' ? 'resolved' : 'dismissed', attempts: 1 };
+      else if (record.event === 'recovery')
+        patch = {
+          state: record.outcome === 'spoke' || record.outcome === 'skip' ? 'resolved' : 'dismissed',
+          attempts: 1,
+        };
       if (!patch) continue;
       const result = patchOpen(out, messageId, { ...patch, updatedAt: at });
       out = result.list;
@@ -448,7 +509,9 @@ export function missedStatusLine(counts) {
 export function buildCheckRequest({ prompt, labels, config, selfName, history, candidates, triggerOf, now }) {
   if (typeof prompt !== 'string' || !prompt.trim()) return null;
   const list = Array.isArray(history) ? history : [];
-  const positions = candidates.map((candidate) => list.findIndex((message) => message?.id === candidate.messageId)).filter((index) => index >= 0);
+  const positions = candidates
+    .map((candidate) => list.findIndex((message) => message?.id === candidate.messageId))
+    .filter((index) => index >= 0);
   if (positions.length === 0) return null;
   const window = list.slice(Math.max(0, Math.min(...positions) - LINES_BEFORE));
   const lines = typeof triggerOf === 'function' ? withTriggers(window, triggerOf) : window;
@@ -535,7 +598,8 @@ export function createMissed({
   const enabled = () => hot.config.features?.missedAnswers !== false;
   const recoveryOn = () => hot.config.features?.missedRecovery === true;
   const paused = () => Boolean(store?.state?.data?.paused);
-  const journalOn = () => Boolean(journal) && typeof journal.answer === 'function' && hot.config.features?.journal === true;
+  const journalOn = () =>
+    Boolean(journal) && typeof journal.answer === 'function' && hot.config.features?.journal === true;
   const fileOf = (guildId) => path.join(dataDir, 'guilds', String(guildId), 'missed.json');
   const iso = (ms) => new Date(ms).toISOString();
 
@@ -593,8 +657,11 @@ export function createMissed({
     }
     try {
       const parsed = JSON.parse(text);
-      candidates = Array.isArray(parsed?.candidates) ? parsed.candidates.filter((candidate) => candidate && typeof candidate.messageId === 'string') : [];
-      lastRecoveryAt = parsed?.lastRecoveryAt && typeof parsed.lastRecoveryAt === 'object' ? { ...parsed.lastRecoveryAt } : {};
+      candidates = Array.isArray(parsed?.candidates)
+        ? parsed.candidates.filter((candidate) => candidate && typeof candidate.messageId === 'string')
+        : [];
+      lastRecoveryAt =
+        parsed?.lastRecoveryAt && typeof parsed.lastRecoveryAt === 'object' ? { ...parsed.lastRecoveryAt } : {};
     } catch {
       log.warn('missed: file unreadable, moved aside', { guildId: String(guildId) });
       await fs.rename(file, `${file}.bad-${now()}`).catch(() => {});
@@ -620,7 +687,10 @@ export function createMissed({
     await load(guildId);
     if (hot.config.features?.journal === true) {
       try {
-        const result = reconcileFromRecords(candidates, await recentRecords(guildId), { now: now(), recovery: recoveryOn() });
+        const result = reconcileFromRecords(candidates, await recentRecords(guildId), {
+          now: now(),
+          recovery: recoveryOn(),
+        });
         candidates = result.list;
         log.info('missed: reconciled', { guildId: String(guildId), added: result.added, closed: result.closed });
       } catch (error) {
@@ -630,7 +700,10 @@ export function createMissed({
     candidates = pruneCandidates(candidates, now());
     await save();
     if (!enabled()) return;
-    for (const channelId of new Set(candidates.filter((candidate) => candidate.state === 'pending').map((candidate) => candidate.channelId))) arm(channelId);
+    for (const channelId of new Set(
+      candidates.filter((candidate) => candidate.state === 'pending').map((candidate) => candidate.channelId)
+    ))
+      arm(channelId);
   }
 
   /** (Re)schedule a channel's sweep at sweepDueAt, never before its `notBefore` (a held recovery). */
@@ -675,7 +748,15 @@ export function createMissed({
     try {
       if (!message?.id || !message.channelId) return;
       const at = Number.isFinite(message.ts) ? message.ts : now();
-      record({ event: 'address', verdict: 'not-addressed', messageId: message.id, authorId: message.authorId ?? null, channelId: message.channelId, at: iso(at), participants: message.authorId ? [message.authorId] : [] });
+      record({
+        event: 'address',
+        verdict: 'not-addressed',
+        messageId: message.id,
+        authorId: message.authorId ?? null,
+        channelId: message.channelId,
+        at: iso(at),
+        participants: message.authorId ? [message.authorId] : [],
+      });
     } catch (error) {
       log.warn('missed: address verdict failed', { code: error?.code ?? null });
     }
@@ -706,9 +787,18 @@ export function createMissed({
         participants: authorId ? [authorId] : [],
         sourceMessageIds: [message.id, ...(replacedBy ? [replacedBy] : [])],
       });
-      const result = addCandidate(candidates, { messageId: message.id, channelId: message.channelId, authorId, at, reason, question, turnId }, { now: now() });
+      const result = addCandidate(
+        candidates,
+        { messageId: message.id, channelId: message.channelId, authorId, at, reason, question, turnId },
+        { now: now() }
+      );
       candidates = result.list;
-      log.info('missed: candidate', { channelId: message.channelId, messageId: message.id, reason, added: result.added });
+      log.info('missed: candidate', {
+        channelId: message.channelId,
+        messageId: message.id,
+        reason,
+        added: result.added,
+      });
       save();
       if (result.candidate && isOpen(result.candidate)) arm(message.channelId);
     } catch (error) {
@@ -719,7 +809,14 @@ export function createMissed({
   /** Close what a turn's end resolved: journaled `resolved`, logged. */
   function noteResolved(resolved, turnId = null) {
     for (const { messageId, channelId, by } of resolved) {
-      record({ event: 'resolved', messageId, channelId, by, ...(turnId ? { turnId } : {}), sourceMessageIds: [messageId] });
+      record({
+        event: 'resolved',
+        messageId,
+        channelId,
+        by,
+        ...(turnId ? { turnId } : {}),
+        sourceMessageIds: [messageId],
+      });
       log.info('missed: resolved', { channelId, messageId, by });
     }
   }
@@ -757,7 +854,13 @@ export function createMissed({
       else if (end.outcome === 'not-now') reason = 'not-now';
       // A failed turn's own reason (`cut-off`, ...) rides along as the fact's `failure`.
       const failure = reason === 'turn-error' && typeof end.reason === 'string' ? end.reason : null;
-      if (reason) noteFact({ reason, message: { ...trigger, channelId: trigger.channelId ?? end.channelId }, turnId: end.turnId ?? null, failure });
+      if (reason)
+        noteFact({
+          reason,
+          message: { ...trigger, channelId: trigger.channelId ?? end.channelId },
+          turnId: end.turnId ?? null,
+          failure,
+        });
     } catch (error) {
       log.warn('missed: turn end failed', { error });
     }
@@ -767,7 +870,14 @@ export function createMissed({
   function close(candidate, state, event, fields = {}, patch = {}) {
     const result = patchOpen(candidates, candidate.messageId, { state, updatedAt: now(), ...patch });
     candidates = result.list;
-    record({ event, messageId: candidate.messageId, channelId: candidate.channelId, reason: candidate.reason, ...fields, sourceMessageIds: [candidate.messageId] });
+    record({
+      event,
+      messageId: candidate.messageId,
+      channelId: candidate.channelId,
+      reason: candidate.reason,
+      ...fields,
+      sourceMessageIds: [candidate.messageId],
+    });
   }
 
   /** Journal one verdict and put the candidate in the state it leaves. */
@@ -788,7 +898,13 @@ export function createMissed({
       participants: candidate.authorId ? [candidate.authorId] : [],
       sourceMessageIds: [candidate.messageId],
     });
-    log.info('missed: verdict', { channelId: candidate.channelId, messageId: candidate.messageId, reason: candidate.reason, verdict, by });
+    log.info('missed: verdict', {
+      channelId: candidate.channelId,
+      messageId: candidate.messageId,
+      reason: candidate.reason,
+      verdict,
+      by,
+    });
     return result.changed;
   }
 
@@ -832,8 +948,12 @@ export function createMissed({
         ],
         {
           model: roleModel(config, 'analyzer', 'missed'),
-          ...helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: settings.maxOutputTokens, purpose: 'missed' }),
-        },
+          ...helperRequestOptions(config, {
+            role: 'analyzer',
+            maxOutputTokens: settings.maxOutputTokens,
+            purpose: 'missed',
+          }),
+        }
       );
       const { verdicts, empty } = parseMissedAnswer(completion?.text, request.candidates.length);
       if (empty) log.warn('missed: helper failed', { channelId: channel.id, reason: 'empty' });
@@ -881,7 +1001,10 @@ export function createMissed({
         }
       }
       if (!Array.isArray(history)) {
-        for (const candidate of candidates.filter((entry) => entry.channelId === channelId && entry.state === 'pending')) applyVerdict(candidate, UNCHECKED, 'code');
+        for (const candidate of candidates.filter(
+          (entry) => entry.channelId === channelId && entry.state === 'pending'
+        ))
+          applyVerdict(candidate, UNCHECKED, 'code');
         await save();
         return;
       }
@@ -965,20 +1088,35 @@ export function createMissed({
     const ids = shown.map((candidate) => candidate.messageId);
     // A private chat is recovered only where the private-chat gate lets the person through (their daily cap counts the turn).
     const isPrivate = !channel.guild;
-    if (isPrivate && !(typeof privateRecovery?.allow === 'function' && (await privateRecovery.allow(channel, trigger).catch(() => false)))) {
+    if (
+      isPrivate &&
+      !(
+        typeof privateRecovery?.allow === 'function' &&
+        (await privateRecovery.allow(channel, trigger).catch(() => false))
+      )
+    ) {
       log.info('missed: recovery refused', { channelId, reason: 'private-gate', candidates: ids.length });
       finishRecovery(channelId, shown, { outcome: 'private-gate' }, trigger.id);
       await save();
       return;
     }
     const startedAt = now();
-    for (const candidate of shown) candidates = patchOpen(candidates, candidate.messageId, { state: 'in_progress', attempts: candidate.attempts + 1, updatedAt: startedAt }).list;
+    for (const candidate of shown)
+      candidates = patchOpen(candidates, candidate.messageId, {
+        state: 'in_progress',
+        attempts: candidate.attempts + 1,
+        updatedAt: startedAt,
+      }).list;
     lastRecoveryAt = { ...lastRecoveryAt, [channelId]: startedAt };
     await save();
     const maxChars = config.context?.maxMessageChars ?? 2000;
     const missedItems = shown.map((candidate) => {
       const message = byId.get(candidate.messageId);
-      return { id: candidate.messageId, author: oneLine(message.authorName ?? ''), text: clampChars(oneLine(message.content ?? ''), maxChars) };
+      return {
+        id: candidate.messageId,
+        author: oneLine(message.authorName ?? ''),
+        text: clampChars(oneLine(message.content ?? ''), maxChars),
+      };
     });
     const stillDue = () => {
       const lastPost = typeof turns?.lastPostAt === 'function' ? turns.lastPostAt(channelId) : 0;
@@ -988,7 +1126,15 @@ export function createMissed({
     log.info('missed: recovery', { channelId, candidates: ids.length, trigger: trigger.id });
     let result;
     try {
-      result = await turns.runTurn({ channel, ...(isPrivate ? { guildId: getGuildId?.() } : {}), mode: 'reply', trigger, triggerKind: 'missed', missed: missedItems, stillDue });
+      result = await turns.runTurn({
+        channel,
+        ...(isPrivate ? { guildId: getGuildId?.() } : {}),
+        mode: 'reply',
+        trigger,
+        triggerKind: 'missed',
+        missed: missedItems,
+        stillDue,
+      });
     } catch (error) {
       log.error('missed: recovery failed', { channelId, error });
       result = { outcome: 'error' };
@@ -996,7 +1142,12 @@ export function createMissed({
     const outcome = result?.outcome ?? 'error';
     if (outcome === 'busy') {
       // Never an attempt: the attention was taken between the check and the start.
-      for (const candidate of shown) candidates = patchOpen(candidates, candidate.messageId, { state: 'pending', attempts: candidate.attempts, updatedAt: now() }).list;
+      for (const candidate of shown)
+        candidates = patchOpen(candidates, candidate.messageId, {
+          state: 'pending',
+          attempts: candidate.attempts,
+          updatedAt: now(),
+        }).list;
       const { [channelId]: _ours, ...others } = lastRecoveryAt;
       lastRecoveryAt = Number.isFinite(last) ? { ...others, [channelId]: last } : others;
       holdFor(channelId, settings.sweepDelaySeconds * 1000);
@@ -1004,7 +1155,10 @@ export function createMissed({
       return;
     }
     finishRecovery(channelId, shown, result ?? { outcome }, trigger.id);
-    if (isPrivate) await Promise.resolve(privateRecovery.after?.(channel, trigger, result ?? { outcome })).catch((error) => log.warn('missed: private recovery count failed', { error }));
+    if (isPrivate)
+      await Promise.resolve(privateRecovery.after?.(channel, trigger, result ?? { outcome })).catch((error) =>
+        log.warn('missed: private recovery count failed', { error })
+      );
     await save();
   }
 
@@ -1019,7 +1173,11 @@ export function createMissed({
     for (const candidate of list) {
       const current = candidates.find((entry) => entry.messageId === candidate.messageId);
       const attempts = Math.max(1, current?.attempts ?? 0);
-      candidates = patchOpen(candidates, candidate.messageId, { state: done ? 'resolved' : 'dismissed', attempts, updatedAt: now() }).list;
+      candidates = patchOpen(candidates, candidate.messageId, {
+        state: done ? 'resolved' : 'dismissed',
+        attempts,
+        updatedAt: now(),
+      }).list;
     }
     record({
       event: 'recovery',

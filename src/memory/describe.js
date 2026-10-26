@@ -184,7 +184,10 @@ function gifAnimationSource(item) {
 /** Whether `item` is one collectVideos candidate (an attached video or a video-site link). */
 function isVideoCandidate(item) {
   return (
-    Boolean(item) && (item.source === 'attachment' || item.source === 'link') && Boolean(item.itemId) && Boolean(item.url)
+    Boolean(item) &&
+    (item.source === 'attachment' || item.source === 'link') &&
+    Boolean(item.itemId) &&
+    Boolean(item.url)
   );
 }
 
@@ -199,7 +202,14 @@ const GIF_FIELD_LINE = /^[\s*_•-]*(reaction|action|text)[\s*_]*:[\s*_]*(.*)$/i
 // The answer's word for an empty field, with an optional full stop.
 const GIF_NONE = /^none\.?$/i;
 // One pair of quotes around a whole value (the on-screen text is often quoted).
-const QUOTE_PAIRS = [['"', '"'], ['«', '»'], ['“', '”'], ['„', '“'], ["'", "'"], ['‘', '’']];
+const QUOTE_PAIRS = [
+  ['"', '"'],
+  ['«', '»'],
+  ['“', '”'],
+  ['„', '“'],
+  ["'", "'"],
+  ['‘', '’'],
+];
 
 /** A field's value on one line, without one pair of surrounding quotes; '' for "none". */
 function gifFieldValue(raw) {
@@ -349,11 +359,11 @@ function lengthCap(item, videoCfg, llmCfg) {
  */
 function staticRequestSeconds(videoCfg, llmCfg) {
   const isPositive = (value) => typeof value === 'number' && Number.isFinite(value) && value > 0;
-  const maxRequestTokens = isPositive(videoCfg.maxRequestTokens)
-    ? videoCfg.maxRequestTokens
-    : llmCfg?.maxRequestTokens;
+  const maxRequestTokens = isPositive(videoCfg.maxRequestTokens) ? videoCfg.maxRequestTokens : llmCfg?.maxRequestTokens;
   if (!isPositive(maxRequestTokens)) return null;
-  const tokensPerSecond = isPositive(videoCfg.tokensPerSecond) ? videoCfg.tokensPerSecond : STATIC_TOKENS_PER_SECOND_FALLBACK;
+  const tokensPerSecond = isPositive(videoCfg.tokensPerSecond)
+    ? videoCfg.tokensPerSecond
+    : STATIC_TOKENS_PER_SECOND_FALLBACK;
   return Math.floor(maxRequestTokens / tokensPerSecond);
 }
 
@@ -648,7 +658,10 @@ export function createDescriber({
     try {
       completion = await llm.complete(
         [
-          { role: 'system', content: fillPromptTemplate(promptText, { maxChars: descriptionChars, today: todayDate() }) },
+          {
+            role: 'system',
+            content: fillPromptTemplate(promptText, { maxChars: descriptionChars, today: todayDate() }),
+          },
           { role: 'user', content: [{ type: 'image_url', image_url: { url: downloaded.dataUrl } }] },
         ],
         // An in-turn helper (llm.helperTimeoutMs, counted, never calibrated: the
@@ -656,12 +669,21 @@ export function createDescriber({
         // the vision model counts far more).
         {
           model,
-          ...helperRequestOptions(hot.config, { role: 'vision', maxOutputTokens: mediaCfg.maxOutputTokens, purpose: 'describe' }),
-        },
+          ...helperRequestOptions(hot.config, {
+            role: 'vision',
+            maxOutputTokens: mediaCfg.maxOutputTokens,
+            purpose: 'describe',
+          }),
+        }
       );
     } catch (err) {
       const reason = requestFailureReason(err);
-      log.warn('describe: failed', { kind: item.kind, reason, status: err.statusCode, detail: safeDetail(err.message) });
+      log.warn('describe: failed', {
+        kind: item.kind,
+        reason,
+        status: err.statusCode,
+        detail: safeDetail(err.message),
+      });
       // A refusal by the daily cap says nothing about the picture: described after the reset.
       return fail(reason !== 'daily-cap');
     }
@@ -757,7 +779,7 @@ export function createDescriber({
           { role: 'system', content: gifSystemPrompt(descriptionChars, maxSeconds) },
           { role: 'user', content: [videoPart(videoCfg, clip)] },
         ],
-        options,
+        options
       );
     } catch (err) {
       const reason = requestFailureReason(err);
@@ -769,7 +791,17 @@ export function createDescriber({
     if (!fields) return report({ state: 'failed', reason: 'empty' }, sizes);
     const { text, reaction, action, screen } = fields;
     const ts = now();
-    putVideoEntry(guildId, item.itemId, { text, reaction, action, screen, ts, watched: true, gif: true, describedAt: ts, model: options.model });
+    putVideoEntry(guildId, item.itemId, {
+      text,
+      reaction,
+      action,
+      screen,
+      ts,
+      watched: true,
+      gif: true,
+      describedAt: ts,
+      model: options.model,
+    });
     report({ state: 'watched' }, sizes);
     return { state: 'watched', text, usage: completion.usage ?? null, estimated: completion.estimated ?? 0 };
   }
@@ -1033,7 +1065,9 @@ export function createDescriber({
     const videoCfg = hot.config.media?.video ?? {};
     const nowMs = now();
     const left = (cap, keys) =>
-      typeof cap === 'number' && !Number.isNaN(cap) ? Math.max(0, cap - readDailyCount(state.data, keys, nowMs)) : Infinity;
+      typeof cap === 'number' && !Number.isNaN(cap)
+        ? Math.max(0, cap - readDailyCount(state.data, keys, nowMs))
+        : Infinity;
     return {
       video: left(videoCfg.maxPerDay, VIDEO_DAILY),
       rewatch: left(videoCfg.rewatch?.maxPerDay, REWATCH_DAILY),
@@ -1133,7 +1167,14 @@ export function createDescriber({
         audioMap,
       });
       if (got.ok) {
-        return { ok: true, url: got.dataUrl, seconds: got.seconds, bytes: got.bytes, pinned: false, audio: got.audio ?? null };
+        return {
+          ok: true,
+          url: got.dataUrl,
+          seconds: got.seconds,
+          bytes: got.bytes,
+          pinned: false,
+          audio: got.audio ?? null,
+        };
       }
       if (got.reason === 'length') {
         return { ok: false, reason: 'length', durationSec: Number.isFinite(got.durationSec) ? got.durationSec : null };
@@ -1265,7 +1306,10 @@ export function createDescriber({
     const media = await fetchVideoMedia(item, videoCfg);
     if (!media.ok) {
       if (previous) {
-        report({ state: PERMANENT_VIDEO_MISSES.has(media.reason) ? 'limit' : 'error' }, { reason: media.reason ?? 'download' });
+        report(
+          { state: PERMANENT_VIDEO_MISSES.has(media.reason) ? 'limit' : 'error' },
+          { reason: media.reason ?? 'download' }
+        );
         return { result: keepPrevious(), sent: false, attempted: true };
       }
       if (PERMANENT_VIDEO_MISSES.has(media.reason)) {
@@ -1283,10 +1327,16 @@ export function createDescriber({
     try {
       completion = await llm.complete(
         [
-          { role: 'system', content: videoSystemPrompt(fillPromptTemplate(promptText, { maxChars: summaryChars, today: todayDate() }), media) },
+          {
+            role: 'system',
+            content: videoSystemPrompt(
+              fillPromptTemplate(promptText, { maxChars: summaryChars, today: todayDate() }),
+              media
+            ),
+          },
           { role: 'user', content: [videoPart(videoCfg, media)] },
         ],
-        options,
+        options
       );
     } catch (err) {
       const reason = requestFailureReason(err);
@@ -1294,7 +1344,11 @@ export function createDescriber({
         report({ state: 'skipped' }, { ...sizes, reason });
         return { result: previous?.result ?? null, sent: false, attempted: true };
       }
-      return { result: errorMiss(reason, { ...sizes, status: err.statusCode }), sent: reason !== 'token-limit', attempted: true };
+      return {
+        result: errorMiss(reason, { ...sizes, status: err.statusCode }),
+        sent: reason !== 'token-limit',
+        attempted: true,
+      };
     }
 
     const text = cleanVideoText(completion.text, summaryChars);
@@ -1336,7 +1390,12 @@ export function createDescriber({
       const { stale, ...result } = cached;
       previous = { entry: stale, result };
     } else if (cached) {
-      log.info('describe: video', { source: item.source, state: cached.state, reason: cached.reason ?? null, cached: true });
+      log.info('describe: video', {
+        source: item.source,
+        state: cached.state,
+        reason: cached.reason ?? null,
+        cached: true,
+      });
       return { result: cached, sent: false, attempted: false };
     }
     if (cacheOnly) return { result: previous?.result ?? null, sent: false, attempted: false };
@@ -1348,7 +1407,7 @@ export function createDescriber({
       return { result: result ?? previous?.result ?? null, sent: false, attempted: true };
     }
     const promise = watchVideo(guildId, item, key, promptText, force, previous).finally(() =>
-      inFlight.delete(flightKey),
+      inFlight.delete(flightKey)
     );
     inFlight.set(flightKey, promise);
     return promise;
@@ -1497,11 +1556,14 @@ export function createDescriber({
         [
           {
             role: 'system',
-            content: videoSystemPrompt(fillPromptTemplate(promptText, { question: asked, maxChars: answerChars, today: todayDate() }), media),
+            content: videoSystemPrompt(
+              fillPromptTemplate(promptText, { question: asked, maxChars: answerChars, today: todayDate() }),
+              media
+            ),
           },
           { role: 'user', content: [{ type: 'text', text: asked }, videoPart(videoCfg, media)] },
         ],
-        videoRequestOptions(videoCfg, media, { maxOutputTokens: rewatchCfg.maxOutputTokens }),
+        videoRequestOptions(videoCfg, media, { maxOutputTokens: rewatchCfg.maxOutputTokens })
       );
     } catch (err) {
       report('error', { reason: requestFailureReason(err), seconds: media.seconds ?? null });
@@ -1601,13 +1663,26 @@ export function createDescriber({
     try {
       completion = await llm.complete(
         [
-          { role: 'system', content: fillPromptTemplate(promptText, { question: asked, maxChars: answerChars, today: todayDate() }) },
-          { role: 'user', content: [{ type: 'text', text: asked }, { type: 'image_url', image_url: { url: downloaded.dataUrl } }] },
+          {
+            role: 'system',
+            content: fillPromptTemplate(promptText, { question: asked, maxChars: answerChars, today: todayDate() }),
+          },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: asked },
+              { type: 'image_url', image_url: { url: downloaded.dataUrl } },
+            ],
+          },
         ],
         {
           model: roleModel(hot.config, 'vision', 'relook'),
-          ...helperRequestOptions(hot.config, { role: 'vision', maxOutputTokens: rewatchCfg.maxOutputTokens, purpose: 'relook' }),
-        },
+          ...helperRequestOptions(hot.config, {
+            role: 'vision',
+            maxOutputTokens: rewatchCfg.maxOutputTokens,
+            purpose: 'relook',
+          }),
+        }
       );
     } catch (err) {
       report('error', { reason: requestFailureReason(err) });
@@ -1737,10 +1812,13 @@ export function createDescriber({
     try {
       completion = await llm.complete(
         [
-          { role: 'system', content: fillPromptTemplate(promptText, { question: asked, maxChars: answerChars, today: todayDate() }) },
+          {
+            role: 'system',
+            content: fillPromptTemplate(promptText, { question: asked, maxChars: answerChars, today: todayDate() }),
+          },
           { role: 'user', content: [videoPart(videoCfg, clip)] },
         ],
-        videoRequestOptions(videoCfg, clip, { maxOutputTokens: rewatchCfg.maxOutputTokens }),
+        videoRequestOptions(videoCfg, clip, { maxOutputTokens: rewatchCfg.maxOutputTokens })
       );
     } catch (err) {
       report('error', { reason: requestFailureReason(err), seconds: clip.seconds });

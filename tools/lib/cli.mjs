@@ -114,12 +114,19 @@ export function resolveGuildId(dataDir, given) {
   }
   let names = [];
   try {
-    names = fs.readdirSync(path.join(dataDir, 'guilds'), { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
+    names = fs
+      .readdirSync(path.join(dataDir, 'guilds'), { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name);
   } catch {
     names = [];
   }
   if (names.length === 1) return names[0];
-  throw new CliError(names.length === 0 ? `no guild under ${path.join(dataDir, 'guilds')}` : `several guilds under ${path.join(dataDir, 'guilds')}: give --guild`);
+  throw new CliError(
+    names.length === 0
+      ? `no guild under ${path.join(dataDir, 'guilds')}`
+      : `several guilds under ${path.join(dataDir, 'guilds')}: give --guild`
+  );
 }
 
 /**
@@ -135,7 +142,12 @@ export function spendGate({ estimateUsd, requests, spend, detail = '' }) {
   const head = `estimate: ${requests} model request(s), ~${usd.toFixed(2)} USD${detail ? ` (${detail})` : ''}`;
   if (requests <= 0) return { ok: true, text: head, budget: null };
   const budget = spend === undefined ? NaN : Number(spend);
-  if (!Number.isFinite(budget) || budget < 0) return { ok: false, text: `${head}\nrefused: give --spend <usd> of at least ${usd.toFixed(2)} to run it`, budget: null };
+  if (!Number.isFinite(budget) || budget < 0)
+    return {
+      ok: false,
+      text: `${head}\nrefused: give --spend <usd> of at least ${usd.toFixed(2)} to run it`,
+      budget: null,
+    };
   if (budget < usd) return { ok: false, text: `${head}\nrefused: --spend ${budget} is below the estimate`, budget };
   return { ok: true, text: head, budget };
 }
@@ -168,6 +180,6 @@ export function runCli(url, main) {
     (err) => {
       const message = err instanceof CliError ? err.message : `${err?.name ?? 'Error'}: ${err?.message ?? err}`;
       process.stderr.write(`${message}\n`, () => process.exit(err instanceof CliError ? err.exitCode : 1));
-    },
+    }
   );
 }

@@ -94,7 +94,11 @@ function clampCount(count) {
 function itemOf({ title, url, snippet, age }) {
   const link = typeof url === 'string' ? url.trim() : '';
   if (!isWebUrl(link)) return null;
-  const item = { title: inlineText(title), url: link, snippet: clampText(inlineText(snippet), SNIPPET_MAX_CHARS, { tolerance: 1 }) };
+  const item = {
+    title: inlineText(title),
+    url: link,
+    snippet: clampText(inlineText(snippet), SNIPPET_MAX_CHARS, { tolerance: 1 }),
+  };
   const date = inlineText(age);
   if (date && !NO_DATE.test(date)) item.age = date;
   return item;
@@ -121,7 +125,9 @@ function parseJsonResults(text) {
   if (!raw) return null;
   return raw
     .filter((entry) => entry && typeof entry === 'object')
-    .map((entry) => itemOf({ title: entry.title, url: entry.url, snippet: entrySnippet(entry), age: entry.publishedDate }));
+    .map((entry) =>
+      itemOf({ title: entry.title, url: entry.url, snippet: entrySnippet(entry), age: entry.publishedDate })
+    );
 }
 
 /** The items of the formatted text form: a `Title:` line, or a url line once the entry has one, starts a new entry. */
@@ -138,7 +144,11 @@ function parseTextResults(text) {
     const key = match ? match[1].trim().toLowerCase() : null;
     if (match && TEXT_KEYS.has(key)) {
       const target = TEXT_KEYS.get(key);
-      if (!current || (target === 'title' && current.title !== undefined) || (target === 'url' && current.url !== undefined)) {
+      if (
+        !current ||
+        (target === 'title' && current.title !== undefined) ||
+        (target === 'url' && current.url !== undefined)
+      ) {
         current = {};
         entries.push(current);
       }
@@ -216,7 +226,12 @@ export function createExaSearch({ fetchImpl = fetch, endpoint = ENDPOINT } = {})
     const n = clampCount(count);
     const headers = { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' };
     if (typeof apiKey === 'string' && apiKey.trim()) headers.Authorization = `Bearer ${apiKey.trim()}`;
-    const body = JSON.stringify({ jsonrpc: '2.0', id: nextId++, method: 'tools/call', params: { name: TOOL, arguments: { query: q, numResults: n } } });
+    const body = JSON.stringify({
+      jsonrpc: '2.0',
+      id: nextId++,
+      method: 'tools/call',
+      params: { name: TOOL, arguments: { query: q, numResults: n } },
+    });
 
     const waitMs = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : DEFAULT_TIMEOUT_MS;
     const controller = new AbortController();

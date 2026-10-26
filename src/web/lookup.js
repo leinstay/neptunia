@@ -129,7 +129,11 @@ export function urlCitations(annotations) {
     if (!/^https?:\/\//i.test(url) || seen.has(url)) continue;
     seen.add(url);
     const content = entry.url_citation.content;
-    out.push({ title: oneLine(String(entry.url_citation.title ?? '')), url, snippet: typeof content === 'string' ? oneLine(content) : '' });
+    out.push({
+      title: oneLine(String(entry.url_citation.title ?? '')),
+      url,
+      snippet: typeof content === 'string' ? oneLine(content) : '',
+    });
   }
   return out;
 }
@@ -258,7 +262,7 @@ export function renderResults(results) {
     .map((result, index) =>
       [`${index + 1}. ${result.title ?? ''}`, result.url ?? '', result.snippet ?? '', result.age ?? '']
         .filter(Boolean)
-        .join('\n'),
+        .join('\n')
     )
     .join('\n\n');
 }
@@ -278,7 +282,16 @@ export function renderResults(results) {
  *   optional EXA_API_KEY; never logged.
  * @param {() => number} [deps.now]
  */
-export function createLookup({ hot, store, llm, state = memoryState(), pageFetcher, searches = {}, keys = {}, now = Date.now }) {
+export function createLookup({
+  hot,
+  store,
+  llm,
+  state = memoryState(),
+  pageFetcher,
+  searches = {},
+  keys = {},
+  now = Date.now,
+}) {
   // One in-flight read per guild + link: a message prefill and a turn that
   // reach the same new link at once share one request.
   const inFlight = new Map();
@@ -411,13 +424,21 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
     try {
       completion = await llm.complete(
         [
-          { role: 'system', content: fillPromptTemplate(hot.prompts['read-link'], { maxChars: summaryChars, today: todayDate() }) },
+          {
+            role: 'system',
+            content: fillPromptTemplate(hot.prompts['read-link'], { maxChars: summaryChars, today: todayDate() }),
+          },
           { role: 'user', content: title ? `${title}\n\n${body}` : body },
         ],
         {
           model: roleModel(config, 'analyzer', 'read-link'),
-          ...helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: linksCfg.maxOutputTokens, purpose: 'read-link', long: true }),
-        },
+          ...helperRequestOptions(config, {
+            role: 'analyzer',
+            maxOutputTokens: linksCfg.maxOutputTokens,
+            purpose: 'read-link',
+            long: true,
+          }),
+        }
       );
     } catch (err) {
       const reason = llmFailure(err);
@@ -539,7 +560,8 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
     if (!promptText || !asked) return null;
     if (!hasSearch()) return null;
 
-    const report = (outcome, reason = null, extra = {}) => log.info('lookup: search', { state: outcome, reason, ...extra });
+    const report = (outcome, reason = null, extra = {}) =>
+      log.info('lookup: search', { state: outcome, reason, ...extra });
     const cache = store.getMediaCache(guildId);
     const key = searchKey(asked);
     const hit = cache[key];
@@ -576,7 +598,11 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
       const outcome = await attempt(engines[i], asked, promptText, config);
       if (outcome.result) {
         putEntry(guildId, key, { ...outcome.result, ts: now() });
-        report(outcome.result.text ? 'found' : 'nothing', null, { cached: false, results: outcome.result.sources.length, ...meta });
+        report(outcome.result.text ? 'found' : 'nothing', null, {
+          cached: false,
+          results: outcome.result.sources.length,
+          ...meta,
+        });
         return outcome.result;
       }
       const { reason, status } = outcome.failure;
@@ -588,7 +614,10 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
 
   /** Whether `engine` can run: Brave needs its client and its key, Exa its client, OpenRouter the llm client. */
   function engineReady(engine) {
-    if (engine === 'brave') return typeof searches.brave?.search === 'function' && typeof keys.brave === 'string' && keys.brave.trim().length > 0;
+    if (engine === 'brave')
+      return (
+        typeof searches.brave?.search === 'function' && typeof keys.brave === 'string' && keys.brave.trim().length > 0
+      );
     if (engine === 'exa') return typeof searches.exa?.search === 'function';
     return typeof llm?.complete === 'function';
   }
@@ -599,7 +628,8 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
     const list = Array.isArray(config.web?.search?.fallback) ? config.web.search.fallback : [];
     const out = [];
     for (const engine of list) {
-      if (!SEARCH_ENGINES.includes(engine) || engine === chosen || out.includes(engine) || !engineReady(engine)) continue;
+      if (!SEARCH_ENGINES.includes(engine) || engine === chosen || out.includes(engine) || !engineReady(engine))
+        continue;
       out.push(engine);
     }
     return out;
@@ -608,10 +638,18 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
   /** The summary prompt filled for `asked`, and the summary request's options for this config. */
   function summaryRequest(config, promptText, asked, summaryChars, searchCfg) {
     return {
-      system: { role: 'system', content: fillPromptTemplate(promptText, { query: asked, maxChars: summaryChars, today: todayDate() }) },
+      system: {
+        role: 'system',
+        content: fillPromptTemplate(promptText, { query: asked, maxChars: summaryChars, today: todayDate() }),
+      },
       options: {
         model: roleModel(config, 'analyzer', 'search-summary'),
-        ...helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: searchCfg.maxOutputTokens, purpose: 'search-summary', long: true }),
+        ...helperRequestOptions(config, {
+          role: 'analyzer',
+          maxOutputTokens: searchCfg.maxOutputTokens,
+          purpose: 'search-summary',
+          long: true,
+        }),
       },
     };
   }
@@ -636,7 +674,12 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
           plugins: webSearchPlugins(searchCfg.results),
         });
       } catch (err) {
-        return { failure: { reason: openrouterFailure(err), ...(err?.statusCode !== undefined ? { status: err.statusCode } : {}) } };
+        return {
+          failure: {
+            reason: openrouterFailure(err),
+            ...(err?.statusCode !== undefined ? { status: err.statusCode } : {}),
+          },
+        };
       }
       const text = cleanText(completion.text, summaryChars);
       if (!text) return { failure: { reason: 'empty' } };
@@ -645,16 +688,27 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
     }
 
     const client = searches[engine];
-    const found = await client.search(asked, { apiKey: keys[engine] ?? null, count: searchCfg.results, timeoutMs: searchCfg.timeoutMs });
+    const found = await client.search(asked, {
+      apiKey: keys[engine] ?? null,
+      count: searchCfg.results,
+      timeoutMs: searchCfg.timeoutMs,
+    });
     if (!found?.ok) {
       if (found?.reason === 'empty') return { result: { query: asked, text: '', sources: [] } };
-      return { failure: { reason: found?.reason ?? 'network', ...(found?.status !== undefined ? { status: found.status } : {}) } };
+      return {
+        failure: {
+          reason: found?.reason ?? 'network',
+          ...(found?.status !== undefined ? { status: found.status } : {}),
+        },
+      };
     }
     let completion;
     try {
       completion = await llm.complete([system, { role: 'user', content: renderResults(found.results) }], options);
     } catch (err) {
-      return { failure: { reason: llmFailure(err), ...(err?.statusCode !== undefined ? { status: err.statusCode } : {}) } };
+      return {
+        failure: { reason: llmFailure(err), ...(err?.statusCode !== undefined ? { status: err.statusCode } : {}) },
+      };
     }
     const text = cleanText(completion.text, summaryChars);
     if (!text) return { failure: { reason: 'empty' } };
@@ -687,7 +741,8 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
     if (!asked) return failedWith(CODE.EMPTY_QUERY);
     if (!hasSearch()) return failedWith(CODE.NOT_CONFIGURED);
 
-    const report = (outcome, reason = null, extra = {}) => log.info('lookup: search', { state: outcome, reason, raw: true, ...extra });
+    const report = (outcome, reason = null, extra = {}) =>
+      log.info('lookup: search', { state: outcome, reason, raw: true, ...extra });
     const cache = store.getMediaCache(guildId);
     const key = hashedKey('results', normalizeQuery(asked));
     const hit = cache[key];
@@ -724,7 +779,11 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
       if (outcome.results) {
         const result = { query: asked, results: outcome.results };
         putEntry(guildId, key, { ...result, ts: now() });
-        report(outcome.results.length ? 'found' : 'nothing', null, { cached: false, results: outcome.results.length, ...meta });
+        report(outcome.results.length ? 'found' : 'nothing', null, {
+          cached: false,
+          results: outcome.results.length,
+          ...meta,
+        });
         return result;
       }
       const { reason, status } = outcome.failure;
@@ -748,20 +807,45 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
       try {
         completion = await llm.complete([{ role: 'user', content: asked }], {
           model: roleModel(config, 'analyzer', 'web-search'),
-          ...helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: positiveOr(searchCfg.rawOutputTokens, RAW_OUTPUT_TOKENS_FALLBACK), purpose: 'web-search' }),
+          ...helperRequestOptions(config, {
+            role: 'analyzer',
+            maxOutputTokens: positiveOr(searchCfg.rawOutputTokens, RAW_OUTPUT_TOKENS_FALLBACK),
+            purpose: 'web-search',
+          }),
           // No hedge: a second attempt would run (and bill) the web search twice.
           helper: false,
           plugins: webSearchPlugins(searchCfg.results),
         });
       } catch (err) {
-        return { failure: { reason: openrouterFailure(err), ...(err?.statusCode !== undefined ? { status: err.statusCode } : {}) } };
+        return {
+          failure: {
+            reason: openrouterFailure(err),
+            ...(err?.statusCode !== undefined ? { status: err.statusCode } : {}),
+          },
+        };
       }
-      return { results: urlCitations(completion.annotations).map((c) => ({ title: c.title, url: c.url, site: siteOf(c.url), snippet: c.snippet })) };
+      return {
+        results: urlCitations(completion.annotations).map((c) => ({
+          title: c.title,
+          url: c.url,
+          site: siteOf(c.url),
+          snippet: c.snippet,
+        })),
+      };
     }
-    const found = await searches[engine].search(asked, { apiKey: keys[engine] ?? null, count: searchCfg.results, timeoutMs: searchCfg.timeoutMs });
+    const found = await searches[engine].search(asked, {
+      apiKey: keys[engine] ?? null,
+      count: searchCfg.results,
+      timeoutMs: searchCfg.timeoutMs,
+    });
     if (!found?.ok) {
       if (found?.reason === 'empty') return { results: [] };
-      return { failure: { reason: found?.reason ?? 'network', ...(found?.status !== undefined ? { status: found.status } : {}) } };
+      return {
+        failure: {
+          reason: found?.reason ?? 'network',
+          ...(found?.status !== undefined ? { status: found.status } : {}),
+        },
+      };
     }
     return {
       results: found.results.map((r) => ({
@@ -795,7 +879,8 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
     const maxChars = positiveOr(linksCfg.readChars, PAGE_READ_CHARS_FALLBACK);
     const asked = String(url ?? '').trim();
     const location = safeLocation(asked);
-    const report = (outcome, reason = null, extra = {}) => log.info('lookup: page', { state: outcome, reason, location, ...extra });
+    const report = (outcome, reason = null, extra = {}) =>
+      log.info('lookup: page', { state: outcome, reason, location, ...extra });
     const cache = store.getMediaCache(guildId);
     const key = hashedKey('page', asked);
     const hit = cache[key];
@@ -829,7 +914,12 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
       return { ok: false, reason: 'empty' };
     }
     const text = truncateText(whole, maxChars);
-    const read = { url: String(page.finalUrl || asked), title: oneLine(String(page.title ?? '')), text, cut: text !== whole };
+    const read = {
+      url: String(page.finalUrl || asked),
+      title: oneLine(String(page.title ?? '')),
+      text,
+      cut: text !== whole,
+    };
     putEntry(guildId, key, { ...read, ts: now() });
     report('read', null, { cached: false, chars: text.length, cut: read.cut });
     return { ok: true, ...read };

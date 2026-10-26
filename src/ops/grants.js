@@ -81,10 +81,16 @@ export function isAllowed({ op, member, access, owners, features }) {
 export function expandGrant(key, ops) {
   const list = Array.isArray(ops) ? ops : [];
   const exact = list.find((op) => op.name === key);
-  if (exact) return isGrantableOp(exact) ? { from: null, names: [key], refused: [] } : { from: null, names: [], refused: [key] };
-  const under = key === '*' ? list : list.filter((op) => typeof key === 'string' && key && op.name.startsWith(`${key}.`));
+  if (exact)
+    return isGrantableOp(exact) ? { from: null, names: [key], refused: [] } : { from: null, names: [], refused: [key] };
+  const under =
+    key === '*' ? list : list.filter((op) => typeof key === 'string' && key && op.name.startsWith(`${key}.`));
   if (under.length === 0) return null;
-  return { from: key, names: under.filter((op) => isGrantableOp(op) && op.rights.kind === 'read').map((op) => op.name), refused: [] };
+  return {
+    from: key,
+    names: under.filter((op) => isGrantableOp(op) && op.rights.kind === 'read').map((op) => op.name),
+    refused: [],
+  };
 }
 
 /** The `via` key of one grant target: `everyone`, `role:<id>` or `user:<id>`; null for none. */
@@ -245,9 +251,13 @@ export function migrateGrants({ access, ops, legacy }) {
     const mapped = typeof legacy === 'function' ? legacy(key) : null;
     const names = [...new Set(mapped?.names ?? [])].filter((name) => byName.has(name));
     const from = mapped?.from ?? null;
-    const covers = names.filter((name) => isGrantableOp(byName.get(name)) && (!from || byName.get(name).rights.kind === 'read'));
+    const covers = names.filter(
+      (name) => isGrantableOp(byName.get(name)) && (!from || byName.get(name).rights.kind === 'read')
+    );
     // A member operation is open without a grant: nothing is lost, so it is not named as dropped.
-    const dropped = mapped ? names.filter((name) => !isGrantableOp(byName.get(name)) && byName.get(name).rights.member !== true) : [key];
+    const dropped = mapped
+      ? names.filter((name) => !isGrantableOp(byName.get(name)) && byName.get(name).rights.member !== true)
+      : [key];
     for (const name of covers) {
       for (const what of targetsOf(entry)) next = grant(next, name, what, { from });
     }
@@ -285,7 +295,10 @@ export function describeGrants(access, ops, { alsoKeys = [] } = {}) {
   const byName = new Map((Array.isArray(ops) ? ops : []).map((op) => [op.name, op]));
   const source = access && typeof access === 'object' && !Array.isArray(access) ? access : {};
   return Object.keys(source)
-    .filter((key) => (isGrantableOp(byName.get(key)) || alsoKeys.includes(key)) && source[key] && typeof source[key] === 'object')
+    .filter(
+      (key) =>
+        (isGrantableOp(byName.get(key)) || alsoKeys.includes(key)) && source[key] && typeof source[key] === 'object'
+    )
     .map((key) => {
       const entry = entryOf(source, key);
       const label = (text, what) => {

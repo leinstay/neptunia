@@ -20,24 +20,43 @@ const CHILDREN = {
 };
 
 const HAS_POSITION = new Set([
-  'sources', 'claims', 'claim_versions', 'description_versions', 'episodes', 'affinity_events', 'day', 'diary',
-  'intentions', 'work', 'work_events', 'decisions',
+  'sources',
+  'claims',
+  'claim_versions',
+  'description_versions',
+  'episodes',
+  'affinity_events',
+  'day',
+  'diary',
+  'intentions',
+  'work',
+  'work_events',
+  'decisions',
 ]);
 
-const KEY_SQL = (table) => (OWNED[table].length === 1 ? `"${OWNED[table][0]}"` : OWNED[table].map((col) => `"${col}"`).join(" || char(0) || "));
+const KEY_SQL = (table) =>
+  OWNED[table].length === 1 ? `"${OWNED[table][0]}"` : OWNED[table].map((col) => `"${col}"`).join(' || char(0) || ');
 
 /** The active rows of one unit (`owner` is its full path): table -> rows (every table present), children included. */
 export function unitRows(db, owner) {
   const rows = {};
   for (const table of Object.keys(OWNED)) {
     const order = HAS_POSITION.has(table) ? 'position, rowid' : 'rowid';
-    rows[table] = db.prepare(`SELECT * FROM "${table}" WHERE (owner_file = ? OR ${KEY_SQL(table)} IN (SELECT key FROM co_owners WHERE tbl = ? AND owner_file = ?)) AND retired_at IS NULL ORDER BY ${order}`)
-      .all(owner, table, owner).map((row) => ({ ...row }));
+    rows[table] = db
+      .prepare(
+        `SELECT * FROM "${table}" WHERE (owner_file = ? OR ${KEY_SQL(table)} IN (SELECT key FROM co_owners WHERE tbl = ? AND owner_file = ?)) AND retired_at IS NULL ORDER BY ${order}`
+      )
+      .all(owner, table, owner)
+      .map((row) => ({ ...row }));
   }
   for (const [child, [parent, link]] of Object.entries(CHILDREN)) {
-    rows[child] = db.prepare(`SELECT c.* FROM "${child}" c JOIN "${parent}" p ON p.id = c."${link}"
-      WHERE (p.owner_file = ? OR p.id IN (SELECT key FROM co_owners WHERE tbl = ? AND owner_file = ?)) AND p.retired_at IS NULL AND c.retired_at IS NULL ORDER BY ${child === 'diary_mirrors' ? 'c.rowid' : 'c.position, c.rowid'}`)
-      .all(owner, parent, owner).map((row) => ({ ...row }));
+    rows[child] = db
+      .prepare(
+        `SELECT c.* FROM "${child}" c JOIN "${parent}" p ON p.id = c."${link}"
+      WHERE (p.owner_file = ? OR p.id IN (SELECT key FROM co_owners WHERE tbl = ? AND owner_file = ?)) AND p.retired_at IS NULL AND c.retired_at IS NULL ORDER BY ${child === 'diary_mirrors' ? 'c.rowid' : 'c.position, c.rowid'}`
+      )
+      .all(owner, parent, owner)
+      .map((row) => ({ ...row }));
   }
   return rows;
 }
@@ -57,17 +76,30 @@ function linesOf(kind, mapper, rows) {
     case 'tasks':
       return rows.work_events.map((row) => one('work_events', row));
     case 'verbatim':
-      return [...rows.operational].sort((a, b) => positionOfOwner(a) - positionOfOwner(b)).map((row) => one('operational', row));
+      return [...rows.operational]
+        .sort((a, b) => positionOfOwner(a) - positionOfOwner(b))
+        .map((row) => one('operational', row));
     case 'journal': {
       const answers = new Map(rows.sources.map((row) => [row.id, row]));
       const items = [
-        ...rows.day.map((row) => ({ position: row.position, build: () => mapper.fromRows({ day: [row], sources: answers.has(row.source_id) ? [answers.get(row.source_id)] : [] }) })),
+        ...rows.day.map((row) => ({
+          position: row.position,
+          build: () =>
+            mapper.fromRows({ day: [row], sources: answers.has(row.source_id) ? [answers.get(row.source_id)] : [] }),
+        })),
         ...rows.decisions.map((row) => ({
           position: row.position,
-          build: () => mapper.fromRows({ decisions: [row], affinity_events: rows.affinity_events.filter((event) => event.id.startsWith(`aff:${row.id}:`)) }),
+          build: () =>
+            mapper.fromRows({
+              decisions: [row],
+              affinity_events: rows.affinity_events.filter((event) => event.id.startsWith(`aff:${row.id}:`)),
+            }),
         })),
       ];
-      return items.map((item, index) => [item, index]).sort((a, b) => (a[0].position ?? 0) - (b[0].position ?? 0) || a[1] - b[1]).map(([item]) => item.build());
+      return items
+        .map((item, index) => [item, index])
+        .sort((a, b) => (a[0].position ?? 0) - (b[0].position ?? 0) || a[1] - b[1])
+        .map(([item]) => item.build());
     }
     default:
       throw new Error(`no line export for kind ${kind}`);
@@ -80,7 +112,10 @@ export function filesOfUnit(db, unitRel, info, unitFull = unitRel) {
   const { kind, mapper, format } = info;
   if (format === 'vectors') {
     if (!rows.operational.length) return [];
-    return filesOf(`${unitRel}/manifest.json`, mapper.fromRows(rows)).map((file) => ({ rel: file.rel, data: file.data }));
+    return filesOf(`${unitRel}/manifest.json`, mapper.fromRows(rows)).map((file) => ({
+      rel: file.rel,
+      data: file.data,
+    }));
   }
   if (format === 'jsonl') {
     const lines = linesOf(kind, mapper, rows).map((line) => `${JSON.stringify(line)}\n`);
@@ -114,7 +149,9 @@ export function idsUnderDir(database, relDir) {
   const db = database.db ?? database;
   const prefix = `${String(relDir).replace(/\\/g, '/').replace(/\/+$/, '')}/`;
   const ids = [];
-  for (const row of db.prepare('SELECT path FROM files WHERE gone_at IS NULL AND substr(path, 1, ?) = ?').all(prefix.length, prefix)) {
+  for (const row of db
+    .prepare('SELECT path FROM files WHERE gone_at IS NULL AND substr(path, 1, ?) = ?')
+    .all(prefix.length, prefix)) {
     const rest = row.path.slice(prefix.length);
     if (!rest.includes('/') && rest.endsWith('.json')) ids.push(rest.slice(0, -5));
   }

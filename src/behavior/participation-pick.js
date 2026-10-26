@@ -109,7 +109,8 @@ export function participationEpisodeList(headlines, { state, channelNameOf, unit
     const name = oneLine(channelNameOf(headline.channelId) ?? '');
     if (!name) continue;
     const member = episodes.get(headline.id)?.messages?.find((m) => !m.self) ?? null;
-    const memberPart = headline.memberLines && member ? `${oneLine(member.name)}: ${noPipes(headline.memberLines)}` : '';
+    const memberPart =
+      headline.memberLines && member ? `${oneLine(member.name)}: ${noPipes(headline.memberLines)}` : '';
     const n = ids.length + 1;
     lines.push(`${n} | #${name} | ${memberPart} | ${selfName}: ${noPipes(headline.selfLines)}`);
     ages.push(`${n} | ${formatDuration(headline.ageMs, units)}`);
@@ -130,7 +131,14 @@ export function participationEpisodeList(headlines, { state, channelNameOf, unit
  *   candidateBlock?: string, lines: string[], ages?: string[] }} params
  * @returns {{ role: string, content: string|object[] }[]|null}
  */
-export function buildParticipationPickRequest({ prompt, selfName, transcriptBlock = '', candidateBlock = '', lines, ages = [] }) {
+export function buildParticipationPickRequest({
+  prompt,
+  selfName,
+  transcriptBlock = '',
+  candidateBlock = '',
+  lines,
+  ages = [],
+}) {
   if (typeof prompt !== 'string' || !prompt.trim()) return null;
   if (!Array.isArray(lines) || lines.length === 0) return null;
   const agesBlock = Array.isArray(ages) ? block('episode_ages', ages.join('\n')) : '';
@@ -165,7 +173,10 @@ export function parseParticipationPick(raw, count) {
   if (!first) return { indices: [], reason: 'empty' };
   const text = first.replace(WRAPPING, '').trim().replace(TRAILING, '').trim();
   if (!text) return { indices: [], reason: 'empty' };
-  const word = text.split(/\s+/u)[0].replace(/[^\p{L}]/gu, '').toLowerCase();
+  const word = text
+    .split(/\s+/u)[0]
+    .replace(/[^\p{L}]/gu, '')
+    .toLowerCase();
   if (word === 'none') return { indices: [], reason: 'none' };
   const parts = text.split(/[\s,]+/u).filter(Boolean);
   const numbers = [];
@@ -196,7 +207,11 @@ export function parseParticipationPick(raw, count) {
  */
 export function participationEpisodeOffer({ store, guildId, channel, audience, config, units, selfName, now }) {
   const state = store.getParticipation(guildId);
-  const headlines = episodeHeadlines(state, { excludeChannelId: channel?.id ?? null, audience, now }, participationSettings(config));
+  const headlines = episodeHeadlines(
+    state,
+    { excludeChannelId: channel?.id ?? null, audience, now },
+    participationSettings(config)
+  );
   if (headlines.length === 0) return { headlines: 0, lines: [], ages: [], ids: [] };
   const stored = typeof store.listChannels === 'function' ? store.listChannels(guildId) : [];
   const channelNameOf = (id) =>
@@ -240,7 +255,17 @@ export function participationEpisodeOffer({ store, guildId, channel, audience, c
  *   audience: (channelId: string) => boolean, limits?: { add: Function }|null }) => Promise<string[]>}
  */
 export function createParticipationPicker({ hot, store, llm, now = Date.now, schedule = scheduleTimer }) {
-  return async function pickParticipation({ guildId, channel, history, trigger = null, triggerKind = null, mode = 'reply', selfName, audience, limits = null }) {
+  return async function pickParticipation({
+    guildId,
+    channel,
+    history,
+    trigger = null,
+    triggerKind = null,
+    mode = 'reply',
+    selfName,
+    audience,
+    limits = null,
+  }) {
     const channelId = channel?.id ?? null;
     try {
       const config = hot.config;
@@ -250,7 +275,16 @@ export function createParticipationPicker({ hot, store, llm, now = Date.now, sch
       if (typeof store?.getParticipation !== 'function') return [];
       const at = now();
       const labels = hot.prompts?.labels;
-      const { headlines, lines, ages, ids } = participationEpisodeOffer({ store, guildId, channel, audience, config, units: labels?.units, selfName, now: at });
+      const { headlines, lines, ages, ids } = participationEpisodeOffer({
+        store,
+        guildId,
+        channel,
+        audience,
+        config,
+        units: labels?.units,
+        selfName,
+        now: at,
+      });
       if (headlines === 0) return [];
       const prompt = hot.prompts?.['participation-pick'];
       if (typeof prompt !== 'string' || !prompt.trim()) {
@@ -271,7 +305,14 @@ export function createParticipationPicker({ hot, store, llm, now = Date.now, sch
         labels,
         selfName,
       });
-      const messages = buildParticipationPickRequest({ prompt, selfName, transcriptBlock, candidateBlock, lines, ages });
+      const messages = buildParticipationPickRequest({
+        prompt,
+        selfName,
+        transcriptBlock,
+        candidateBlock,
+        lines,
+        ages,
+      });
       if (!messages) return [];
 
       let completion;
@@ -288,11 +329,21 @@ export function createParticipationPicker({ hot, store, llm, now = Date.now, sch
       try {
         completion = await llm.complete(messages, {
           model: roleModel(config, 'analyzer', 'participation-pick'),
-          ...helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: settings.maxOutputTokens, purpose: 'participation-pick', signal: abort?.signal }),
+          ...helperRequestOptions(config, {
+            role: 'analyzer',
+            maxOutputTokens: settings.maxOutputTokens,
+            purpose: 'participation-pick',
+            signal: abort?.signal,
+          }),
         });
       } catch (err) {
         if (late) return pickLate({ channelId, offered: ids.length, timeoutMs, limits });
-        log.warn('participation: failed', { channel: channelId, reason: railReason(err), status: err?.statusCode ?? null, name: err?.name ?? null });
+        log.warn('participation: failed', {
+          channel: channelId,
+          reason: railReason(err),
+          status: err?.statusCode ?? null,
+          name: err?.name ?? null,
+        });
         return [];
       } finally {
         cancel?.();
@@ -301,7 +352,14 @@ export function createParticipationPicker({ hot, store, llm, now = Date.now, sch
       if (late) return pickLate({ channelId, offered: ids.length, timeoutMs, limits });
       const { indices, reason } = parseParticipationPick(completion?.text, ids.length);
       const picked = indices.map((n) => ids[n - 1]);
-      log.info('participation: classified', { channel: channelId, kind: triggerKind ?? null, offered: ids.length, picked: picked.length, parse: reason, ms: now() - at });
+      log.info('participation: classified', {
+        channel: channelId,
+        kind: triggerKind ?? null,
+        offered: ids.length,
+        picked: picked.length,
+        parse: reason,
+        ms: now() - at,
+      });
       return picked;
     } catch (err) {
       log.warn('participation: failed', { channel: channelId, reason: 'error', status: null, name: err?.name ?? null });

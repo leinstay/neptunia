@@ -15,20 +15,30 @@ const RESULT_NAMES = Object.freeze(['effect', 'job', 'data']);
 const REF_KINDS = Object.freeze(['channel', 'user', 'role']);
 
 /** An object schema: `properties` in order, `required` names, nothing else allowed. */
-export const obj = (properties, required = []) => ({ type: 'object', properties, required, additionalProperties: false });
+export const obj = (properties, required = []) => ({
+  type: 'object',
+  properties,
+  required,
+  additionalProperties: false,
+});
 /** A free string, 1 to `max` characters. */
 export const str = (max = STRING_MAX) => ({ type: 'string', minLength: 1, maxLength: max });
 /** One of `values`, as a string. */
 export const oneOf = (values) => ({ type: 'string', minLength: 1, maxLength: STRING_MAX, enum: [...values] });
 /** An integer, with the bounds given. */
-export const int = (min, max) => ({ type: 'integer', ...(Number.isFinite(min) ? { minimum: min } : {}), ...(Number.isFinite(max) ? { maximum: max } : {}) });
+export const int = (min, max) => ({
+  type: 'integer',
+  ...(Number.isFinite(min) ? { minimum: min } : {}),
+  ...(Number.isFinite(max) ? { maximum: max } : {}),
+});
 /** A yes/no. */
 export const bool = () => ({ type: 'boolean' });
 /** An opaque reference (a member, a channel, a role) the server resolves to an id. */
 export const ref = () => ({ type: 'string', minLength: 1, maxLength: 100 });
 
 /** Her argument `name`, or null when she did not give it. */
-export const val = (given, name) => (given && Object.hasOwn(given, name) && given[name] !== undefined ? given[name] : null);
+export const val = (given, name) =>
+  given && Object.hasOwn(given, name) && given[name] !== undefined ? given[name] : null;
 /** Her argument `name` as an id string, or undefined when she did not give it. */
 export const idOf = (given, name) => (val(given, name) === null ? undefined : String(val(given, name)));
 /** A yes/no value as a boolean (`true`/`false` as a boolean or a string, any case), else null. */
@@ -90,7 +100,20 @@ export const INTENT_PARAMS = Object.freeze({
 export function intentArgs(action) {
   return (a) => {
     const out = { action };
-    for (const name of ['text', 'id', 'due', 'every', 'expires', 'task', 'deadline', 'state', 'chain', 'condition', 'people', 'reason']) {
+    for (const name of [
+      'text',
+      'id',
+      'due',
+      'every',
+      'expires',
+      'task',
+      'deadline',
+      'state',
+      'chain',
+      'condition',
+      'people',
+      'reason',
+    ]) {
       const value = val(a, name);
       if (value !== null) out[name] = value;
     }
@@ -201,9 +224,18 @@ function def(name, { params, refs = NO_REFS, body = null, effects, feature = nul
   };
 }
 
-const mediaArgs = (action) => (a) => ({ kind: val(a, 'kind'), action, ...(val(a, 'days') == null ? {} : { days: val(a, 'days') }) });
+const mediaArgs = (action) => (a) => ({
+  kind: val(a, 'kind'),
+  action,
+  ...(val(a, 'days') == null ? {} : { days: val(a, 'days') }),
+});
 const accessArgs = (a) => ({ command: val(a, 'command'), roleId: idOf(a, 'role'), userId: idOf(a, 'user') });
-const reactArgs = (action) => (a) => ({ action, messageId: val(a, 'message'), emoji: val(a, 'emoji'), channelId: idOf(a, 'channel') });
+const reactArgs = (action) => (a) => ({
+  action,
+  messageId: val(a, 'message'),
+  emoji: val(a, 'emoji'),
+  channelId: idOf(a, 'channel'),
+});
 const taskStatusArgs = (action) => (a) => ({ id: opt(a, 'id'), action, from: opt(a, 'from') });
 // A member the operation needs: no member, no call.
 const forMember = (build) => (a) => {
@@ -215,7 +247,21 @@ const none = () => ({});
 const ENTRIES = [
   def('status.show', {
     params: obj({
-      field: oneOf(['state', 'tasks', 'models.base', 'keys.base', 'costs.base', 'models.errands', 'costs.errands', 'models.development', 'costs.development', 'inner', 'limits', 'memory', 'speed']),
+      field: oneOf([
+        'state',
+        'tasks',
+        'models.base',
+        'keys.base',
+        'costs.base',
+        'models.errands',
+        'costs.errands',
+        'models.development',
+        'costs.development',
+        'inner',
+        'limits',
+        'memory',
+        'speed',
+      ]),
       part: oneOf(['overview', 'limits', 'models', 'memory', 'inner', 'errands', 'features', 'all']),
     }),
     effects: 'read',
@@ -241,7 +287,12 @@ const ENTRIES = [
     toArgs: (a) => {
       const channelId = idOf(a, 'channel');
       const replyTo = opt(a, 'reply');
-      return { text: val(a, 'text'), self: flag(val(a, 'self')) ?? false, ...(channelId ? { channelId } : {}), ...(replyTo === undefined ? {} : { replyTo }) };
+      return {
+        text: val(a, 'text'),
+        self: flag(val(a, 'self')) ?? false,
+        ...(channelId ? { channelId } : {}),
+        ...(replyTo === undefined ? {} : { replyTo }),
+      };
     },
   }),
   def('voice.say', {
@@ -253,7 +304,11 @@ const ENTRIES = [
     toArgs: (a) => {
       const channelId = idOf(a, 'channel');
       const replyTo = opt(a, 'reply');
-      return { text: val(a, 'text'), ...(channelId ? { channelId } : {}), ...(replyTo === undefined ? {} : { replyTo }) };
+      return {
+        text: val(a, 'text'),
+        ...(channelId ? { channelId } : {}),
+        ...(replyTo === undefined ? {} : { replyTo }),
+      };
     },
   }),
   def('pings.get', { params: EMPTY(), effects: 'read', toArgs: () => ({ mode: undefined }) }),
@@ -264,16 +319,41 @@ const ENTRIES = [
   }),
   def('media.status', { params: MEDIA_PARAMS(['emoji', 'gifs']), effects: 'read', toArgs: mediaArgs('status') }),
   def('media.rescan', { params: MEDIA_PARAMS(['emoji', 'gifs']), effects: 'write', toArgs: mediaArgs('rescan') }),
-  def('media.recache', { params: obj({ kind: oneOf(['gifs', 'pictures']), days: int(1, 60) }, ['kind']), effects: 'write', toArgs: mediaArgs('recache') }),
+  def('media.recache', {
+    params: obj({ kind: oneOf(['gifs', 'pictures']), days: int(1, 60) }, ['kind']),
+    effects: 'write',
+    toArgs: mediaArgs('recache'),
+  }),
   def('model.show', { params: EMPTY(), effects: 'read', toArgs: none }),
   def('model.set', {
-    params: obj({ role: oneOf(['core', 'analyzer', 'vision', 'video', 'embedding', 'speech', 'drawing', 'scout', 'server', 'thinker', 'dev']), id: str() }, ['role', 'id']),
+    params: obj(
+      {
+        role: oneOf([
+          'core',
+          'analyzer',
+          'vision',
+          'video',
+          'embedding',
+          'speech',
+          'drawing',
+          'scout',
+          'server',
+          'thinker',
+          'dev',
+        ]),
+        id: str(),
+      },
+      ['role', 'id']
+    ),
     effects: 'administrative',
     toArgs: (a) => ({ role: val(a, 'role'), id: val(a, 'id') }),
   }),
   def('route.list', { params: EMPTY(), effects: 'read', toArgs: none }),
   def('route.set', {
-    params: obj({ model: str(), providers: str(), role: oneOf(ROUTE_ROLES), fallbacks: bool(), byok: bool() }, ['model', 'providers']),
+    params: obj({ model: str(), providers: str(), role: oneOf(ROUTE_ROLES), fallbacks: bool(), byok: bool() }, [
+      'model',
+      'providers',
+    ]),
     effects: 'administrative',
     toArgs: (a) => ({
       model: val(a, 'model'),
@@ -300,8 +380,18 @@ const ENTRIES = [
     effects: 'destructive',
     toArgs: (a) => ({ number: val(a, 'number') }),
   }),
-  def('access.grant', { params: ACCESS_PARAMS(), refs: { 'role': 'role', user: 'user' }, effects: 'administrative', toArgs: accessArgs }),
-  def('access.revoke', { params: ACCESS_PARAMS(), refs: { 'role': 'role', user: 'user' }, effects: 'administrative', toArgs: accessArgs }),
+  def('access.grant', {
+    params: ACCESS_PARAMS(),
+    refs: { 'role': 'role', user: 'user' },
+    effects: 'administrative',
+    toArgs: accessArgs,
+  }),
+  def('access.revoke', {
+    params: ACCESS_PARAMS(),
+    refs: { 'role': 'role', user: 'user' },
+    effects: 'administrative',
+    toArgs: accessArgs,
+  }),
   def('access.list', { params: EMPTY(), effects: 'read', toArgs: none }),
   def('alias.add', {
     params: obj({ user: ref(), name: str() }, ['user', 'name']),
@@ -330,7 +420,12 @@ const ENTRIES = [
     params: obj({ title: str(), keys: str(), text: str(), always: bool() }, ['title', 'keys', 'text']),
     body: 'text',
     effects: 'write',
-    toArgs: (a) => ({ title: val(a, 'title'), keys: val(a, 'keys'), text: val(a, 'text'), always: flag(val(a, 'always')) ?? false }),
+    toArgs: (a) => ({
+      title: val(a, 'title'),
+      keys: val(a, 'keys'),
+      text: val(a, 'text'),
+      always: flag(val(a, 'always')) ?? false,
+    }),
   }),
   def('lore.list', {
     params: obj({ query: str() }),
@@ -348,15 +443,34 @@ const ENTRIES = [
     toArgs: (a) => ({ id: val(a, 'id') }),
   }),
   def('memory.profile.read', {
-    params: obj({
-      user: ref(),
-      section: oneOf(['summary', 'character', 'style', 'relationship', 'affinity', 'aliases', 'interests', 'details', 'episodes', 'raw']),
-      limit: int(1, 100),
-      order: oneOf(['rank', 'recent']),
-    }, ['user']),
+    params: obj(
+      {
+        user: ref(),
+        section: oneOf([
+          'summary',
+          'character',
+          'style',
+          'relationship',
+          'affinity',
+          'aliases',
+          'interests',
+          'details',
+          'episodes',
+          'raw',
+        ]),
+        limit: int(1, 100),
+        order: oneOf(['rank', 'recent']),
+      },
+      ['user']
+    ),
     refs: { user: 'user' },
     effects: 'read',
-    toArgs: forMember((userId, a) => ({ userId, section: opt(a, 'section'), limit: opt(a, 'limit'), order: opt(a, 'order') })),
+    toArgs: forMember((userId, a) => ({
+      userId,
+      section: opt(a, 'section'),
+      limit: opt(a, 'limit'),
+      order: opt(a, 'order'),
+    })),
   }),
   def('memory.channel.read', {
     params: obj({ channel: ref() }),
@@ -373,7 +487,12 @@ const ENTRIES = [
     toArgs: forMember((userId) => ({ userId })),
   }),
   def('memory.journal.read', {
-    params: obj({ day: str(), kind: oneOf(['turn', 'action', 'memory', 'system', 'answer', 'inner', 'all']), n: int(1, 50), message: str() }),
+    params: obj({
+      day: str(),
+      kind: oneOf(['turn', 'action', 'memory', 'system', 'answer', 'inner', 'all']),
+      n: int(1, 50),
+      message: str(),
+    }),
     effects: 'read',
     toArgs: (a) => ({ day: opt(a, 'day'), kind: opt(a, 'kind'), n: opt(a, 'n'), messageId: opt(a, 'message') }),
   }),
@@ -396,7 +515,18 @@ const ENTRIES = [
     toArgs: forMember((userId) => ({ userId })),
   }),
   def('message.create', {
-    params: obj({ channel: ref(), reply: str(), text: str(2000), file: str(300), gif: str(40), media: str(300), item: int(1, 20) }, []),
+    params: obj(
+      {
+        channel: ref(),
+        reply: str(),
+        text: str(2000),
+        file: str(300),
+        gif: str(40),
+        media: str(300),
+        item: int(1, 20),
+      },
+      []
+    ),
     refs: { channel: 'channel' },
     body: 'text',
     effects: 'write',
@@ -423,8 +553,18 @@ const ENTRIES = [
     effects: 'destructive',
     toArgs: (a) => ({ messageId: val(a, 'message'), channelId: idOf(a, 'channel') }),
   }),
-  def('message.react.add', { params: REACT_PARAMS(), refs: { channel: 'channel' }, effects: 'write', toArgs: reactArgs('add') }),
-  def('message.react.remove', { params: REACT_PARAMS(), refs: { channel: 'channel' }, effects: 'write', toArgs: reactArgs('remove') }),
+  def('message.react.add', {
+    params: REACT_PARAMS(),
+    refs: { channel: 'channel' },
+    effects: 'write',
+    toArgs: reactArgs('add'),
+  }),
+  def('message.react.remove', {
+    params: REACT_PARAMS(),
+    refs: { channel: 'channel' },
+    effects: 'write',
+    toArgs: reactArgs('remove'),
+  }),
   def('task.run', {
     params: obj({ agent: oneOf(['scout', 'server']), goal: str(2000) }, ['agent', 'goal']),
     body: 'goal',
@@ -438,17 +578,50 @@ const ENTRIES = [
     toArgs: (a) => ({ id: val(a, 'id') }),
   }),
   def('task.list', { params: EMPTY(), effects: 'read', toArgs: none }),
-  def('task.read', { params: obj({ id: str(), from: int(0, 10000000) }, ['id']), effects: 'read', toArgs: taskStatusArgs('read') }),
+  def('task.read', {
+    params: obj({ id: str(), from: int(0, 10000000) }, ['id']),
+    effects: 'read',
+    toArgs: taskStatusArgs('read'),
+  }),
   def('task.resolve', { params: obj({ id: str() }, ['id']), effects: 'write', toArgs: taskStatusArgs('resolve') }),
-  def('intent.set', { params: INTENT_PARAMS.set, refs: { channel: 'channel', attend: 'channel' }, body: 'text', effects: 'write', feature: 'intentions', toArgs: intentArgs('add') }),
-  def('intent.update', { params: INTENT_PARAMS.update, refs: { channel: 'channel' }, body: 'text', effects: 'write', feature: 'intentions', toArgs: intentArgs('update') }),
-  def('intent.cancel', { params: INTENT_PARAMS.cancel, body: 'id', effects: 'write', feature: 'intentions', toArgs: intentArgs('cancel') }),
-  def('intent.list', { params: INTENT_PARAMS.list, effects: 'read', feature: 'intentions', toArgs: intentArgs('list') }),
+  def('intent.set', {
+    params: INTENT_PARAMS.set,
+    refs: { channel: 'channel', attend: 'channel' },
+    body: 'text',
+    effects: 'write',
+    feature: 'intentions',
+    toArgs: intentArgs('add'),
+  }),
+  def('intent.update', {
+    params: INTENT_PARAMS.update,
+    refs: { channel: 'channel' },
+    body: 'text',
+    effects: 'write',
+    feature: 'intentions',
+    toArgs: intentArgs('update'),
+  }),
+  def('intent.cancel', {
+    params: INTENT_PARAMS.cancel,
+    body: 'id',
+    effects: 'write',
+    feature: 'intentions',
+    toArgs: intentArgs('cancel'),
+  }),
+  def('intent.list', {
+    params: INTENT_PARAMS.list,
+    effects: 'read',
+    feature: 'intentions',
+    toArgs: intentArgs('list'),
+  }),
   def('places.list', {
     params: obj({ filter: str(100), sort: str(10), page: int(1, 1000) }),
     body: 'filter',
     effects: 'read',
-    toArgs: (a) => ({ filter: opt(a, 'filter'), sort: opt(a, 'sort'), ...(val(a, 'page') == null ? {} : { page: val(a, 'page') }) }),
+    toArgs: (a) => ({
+      filter: opt(a, 'filter'),
+      sort: opt(a, 'sort'),
+      ...(val(a, 'page') == null ? {} : { page: val(a, 'page') }),
+    }),
   }),
   def('skills.describe', {
     params: obj({ name: str(60) }, ['name']),
@@ -456,8 +629,18 @@ const ENTRIES = [
     effects: 'read',
     toArgs: (a) => ({ name: val(a, 'name') }),
   }),
-  def('inner.stop', { params: EMPTY(), effects: 'administrative', feature: 'innerLife', toArgs: () => ({ action: 'stop' }) }),
-  def('inner.start', { params: EMPTY(), effects: 'administrative', feature: 'innerLife', toArgs: () => ({ action: 'start' }) }),
+  def('inner.stop', {
+    params: EMPTY(),
+    effects: 'administrative',
+    feature: 'innerLife',
+    toArgs: () => ({ action: 'stop' }),
+  }),
+  def('inner.start', {
+    params: EMPTY(),
+    effects: 'administrative',
+    feature: 'innerLife',
+    toArgs: () => ({ action: 'start' }),
+  }),
   def('inner.status', { params: EMPTY(), effects: 'read', feature: 'innerLife', toArgs: () => ({ action: 'status' }) }),
   def('web.search', {
     params: obj({ query: str(200), goal: str(300) }, ['query']),
@@ -476,7 +659,12 @@ const ENTRIES = [
     body: 'question',
     effects: 'read',
     feature: 'coreTools',
-    toArgs: (a) => ({ message: opt(a, 'message'), url: opt(a, 'url'), question: val(a, 'question'), ...(val(a, 'item') == null ? {} : { item: val(a, 'item') }) }),
+    toArgs: (a) => ({
+      message: opt(a, 'message'),
+      url: opt(a, 'url'),
+      question: val(a, 'question'),
+      ...(val(a, 'item') == null ? {} : { item: val(a, 'item') }),
+    }),
   }),
   def('media.find', {
     params: obj({ query: str(200), n: int(1, 10) }, ['query']),
@@ -486,7 +674,17 @@ const ENTRIES = [
     toArgs: (a) => ({ query: val(a, 'query'), ...(val(a, 'n') == null ? {} : { n: val(a, 'n') }) }),
   }),
   def('memory.search', {
-    params: obj({ question: str(500), people: str(200), channel: ref(), when: str(40), terms: str(300), anchor: str(200), move: oneOf(['up', 'down']), messages: int(1, 60), minutes: int(1, 1440) }),
+    params: obj({
+      question: str(500),
+      people: str(200),
+      channel: ref(),
+      when: str(40),
+      terms: str(300),
+      anchor: str(200),
+      move: oneOf(['up', 'down']),
+      messages: int(1, 60),
+      minutes: int(1, 1440),
+    }),
     refs: { channel: 'channel' },
     body: 'question',
     effects: 'read',
@@ -497,11 +695,22 @@ const ENTRIES = [
       when: opt(a, 'when'),
       terms: opt(a, 'terms'),
       // The window read's arguments ride along only when she gave them.
-      ...Object.fromEntries(['anchor', 'move', 'messages', 'minutes'].filter((name) => val(a, name) !== null).map((name) => [name, val(a, name)])),
+      ...Object.fromEntries(
+        ['anchor', 'move', 'messages', 'minutes']
+          .filter((name) => val(a, name) !== null)
+          .map((name) => [name, val(a, name)])
+      ),
     }),
   }),
   def('conversation.read', {
-    params: obj({ channel: ref(), around: str(200), before: str(200), after: str(200), since: str(40), last: int(1, 60) }),
+    params: obj({
+      channel: ref(),
+      around: str(200),
+      before: str(200),
+      after: str(200),
+      since: str(40),
+      last: int(1, 60),
+    }),
     refs: { channel: 'channel' },
     effects: 'read',
     toArgs: (a) => {
@@ -511,7 +720,11 @@ const ENTRIES = [
         if (value !== null) out[name] = value;
       }
       const channelId = idOf(a, 'channel');
-      return { ...out, ...(channelId ? { channelId } : {}), ...(val(a, 'last') == null ? {} : { last: val(a, 'last') }) };
+      return {
+        ...out,
+        ...(channelId ? { channelId } : {}),
+        ...(val(a, 'last') == null ? {} : { last: val(a, 'last') }),
+      };
     },
   }),
 ];
@@ -534,21 +747,30 @@ export function validateDefinitions(definitions = SKILL_DEFINITIONS) {
     if (names.has(name)) throw new Error(`skill defined twice: ${name}`);
     names.add(name);
     const { api, params } = definition;
-    if (typeof api !== 'string' || !API_NAME.test(api)) throw new Error(`skill ${name}: api name must match ${API_NAME}`);
+    if (typeof api !== 'string' || !API_NAME.test(api))
+      throw new Error(`skill ${name}: api name must match ${API_NAME}`);
     if (apis.has(api)) throw new Error(`skill ${name}: api name ${api} is used twice`);
     apis.add(api);
     if (typeof definition.op !== 'string' || !definition.op) throw new Error(`skill ${name}: op is required`);
-    if (!params || params.type !== 'object' || typeof params.properties !== 'object' || !Array.isArray(params.required)) throw new Error(`skill ${name}: params must be an object schema`);
-    if (!EFFECT_NAMES.includes(definition.effects)) throw new Error(`skill ${name}: effects must be one of ${EFFECT_NAMES.join(', ')}`);
+    if (!params || params.type !== 'object' || typeof params.properties !== 'object' || !Array.isArray(params.required))
+      throw new Error(`skill ${name}: params must be an object schema`);
+    if (!EFFECT_NAMES.includes(definition.effects))
+      throw new Error(`skill ${name}: effects must be one of ${EFFECT_NAMES.join(', ')}`);
     if (!COST_NAMES.includes(definition.costClass)) throw new Error(`skill ${name}: costClass must be free or paid`);
-    if (!RESULT_NAMES.includes(definition.result)) throw new Error(`skill ${name}: result must be one of ${RESULT_NAMES.join(', ')}`);
-    if (definition.body !== null && params.properties[definition.body]?.type !== 'string') throw new Error(`skill ${name}: body must be null or a string argument`);
+    if (!RESULT_NAMES.includes(definition.result))
+      throw new Error(`skill ${name}: result must be one of ${RESULT_NAMES.join(', ')}`);
+    if (definition.body !== null && params.properties[definition.body]?.type !== 'string')
+      throw new Error(`skill ${name}: body must be null or a string argument`);
     for (const [argument, kind] of Object.entries(definition.refs ?? {})) {
-      if (!Object.hasOwn(params.properties, argument)) throw new Error(`skill ${name}: ref ${argument} is not an argument`);
+      if (!Object.hasOwn(params.properties, argument))
+        throw new Error(`skill ${name}: ref ${argument} is not an argument`);
       if (!REF_KINDS.includes(kind)) throw new Error(`skill ${name}: ref ${argument} has an unknown kind ${kind}`);
     }
-    for (const required of params.required) if (!Object.hasOwn(params.properties, required)) throw new Error(`skill ${name}: required ${required} is not an argument`);
-    if (definition.feature !== null && (typeof definition.feature !== 'string' || !definition.feature)) throw new Error(`skill ${name}: feature must be null or a name`);
+    for (const required of params.required)
+      if (!Object.hasOwn(params.properties, required))
+        throw new Error(`skill ${name}: required ${required} is not an argument`);
+    if (definition.feature !== null && (typeof definition.feature !== 'string' || !definition.feature))
+      throw new Error(`skill ${name}: feature must be null or a name`);
     if (typeof definition.toArgs !== 'function') throw new Error(`skill ${name}: toArgs is required`);
   }
   return definitions;
@@ -578,5 +800,8 @@ export function skillNameOfApi(api) {
 
 /** The arguments of a definition as `{ name, kind }` in order: `string`, `integer`, `boolean`, or the kind of reference. */
 export function optionsOfDefinition(definition) {
-  return Object.entries(definition.params.properties).map(([name, schema]) => ({ name, kind: definition.refs?.[name] ?? schema.type }));
+  return Object.entries(definition.params.properties).map(([name, schema]) => ({
+    name,
+    kind: definition.refs?.[name] ?? schema.type,
+  }));
 }

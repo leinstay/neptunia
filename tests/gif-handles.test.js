@@ -14,15 +14,32 @@ const T0 = Date.UTC(2026, 8, 1);
 const TENOR = 'https://tenor.com/view/cat-dance-123';
 
 function msg(id, overrides = {}) {
-  return { id, ts: T0, channelId: 'c1', authorId: 'a', authorName: 'Zoé', self: false, content: '', attachments: [], links: [], ...overrides };
+  return {
+    id,
+    ts: T0,
+    channelId: 'c1',
+    authorId: 'a',
+    authorName: 'Zoé',
+    self: false,
+    content: '',
+    attachments: [],
+    links: [],
+    ...overrides,
+  };
 }
 
 function libraryOf(messages) {
   return mergeGifs(undefined, messages).gifs;
 }
 
-const LINK_MSG = msg('m1', { links: [{ id: 'm1#e0', kind: 'gif', url: TENOR, site: 'Tenor', title: 'Chat qui danse' }] });
-const FILE_MSG = msg('m2', { attachments: [{ id: 'att9', kind: 'gif', url: 'https://cdn.discordapp.com/a/att9/réaction.gif', name: 'réaction.gif' }] });
+const LINK_MSG = msg('m1', {
+  links: [{ id: 'm1#e0', kind: 'gif', url: TENOR, site: 'Tenor', title: 'Chat qui danse' }],
+});
+const FILE_MSG = msg('m2', {
+  attachments: [
+    { id: 'att9', kind: 'gif', url: 'https://cdn.discordapp.com/a/att9/réaction.gif', name: 'réaction.gif' },
+  ],
+});
 
 test('matchGifKey: own key first, then a link by url, never an attachment by url', () => {
   const has = (key) => key === 'k1';
@@ -46,14 +63,31 @@ test('gifHandleMap / gifHandleOf: keys and link urls lead to the handle', () => 
 
 test('mediaLabelFor: a gif with a handle -> gifKnown with a caption, gifKnownNoText without', () => {
   const gif = { kind: 'gif', name: 'réaction.gif' };
-  assert.deepEqual(mediaLabelFor(gif, { gifHandle: 'g4', description: 'a wave' }), { key: 'gifKnown', values: { id: 'g4', text: 'a wave' } });
-  assert.deepEqual(mediaLabelFor(gif, { gifHandle: 'g4' }), { key: 'gifKnownNoText', values: { id: 'g4', name: 'réaction.gif' } });
+  assert.deepEqual(mediaLabelFor(gif, { gifHandle: 'g4', description: 'a wave' }), {
+    key: 'gifKnown',
+    values: { id: 'g4', text: 'a wave' },
+  });
+  assert.deepEqual(mediaLabelFor(gif, { gifHandle: 'g4' }), {
+    key: 'gifKnownNoText',
+    values: { id: 'g4', name: 'réaction.gif' },
+  });
   assert.deepEqual(mediaLabelFor(gif, { description: 'a wave' }), { key: 'gifDescribed', values: { text: 'a wave' } });
-  assert.deepEqual(mediaLabelFor({ kind: 'image' }, { gifHandle: 'g4' }), { key: 'image', values: {} }, 'other kinds ignore it');
+  assert.deepEqual(
+    mediaLabelFor({ kind: 'image' }, { gifHandle: 'g4' }),
+    { key: 'image', values: {} },
+    'other kinds ignore it'
+  );
 });
 
 function render(messages, extra = {}, labelSet = labels) {
-  return formatTranscript(messages, { timezone: 'UTC', gapMinutes: 20, maxChars: 800, selfName: 'Nept', labels: labelSet, ...extra })
+  return formatTranscript(messages, {
+    timezone: 'UTC',
+    gapMinutes: 20,
+    maxChars: 800,
+    selfName: 'Nept',
+    labels: labelSet,
+    ...extra,
+  })
     .map((item) => item.text)
     .join('\n');
 }
@@ -66,7 +100,7 @@ test('formatTranscript: library gifs (embed and attachment) render with their ha
   assert.ok(text.includes('[gif g2: réaction.gif]'));
 });
 
-test('formatTranscript: a gif the library does not know keeps today\'s form', () => {
+test("formatTranscript: a gif the library does not know keeps today's form", () => {
   const gifHandles = gifHandleMap(libraryOf([LINK_MSG]));
   const text = render([FILE_MSG], { gifHandles });
   assert.ok(text.includes('[gif: réaction.gif]'));

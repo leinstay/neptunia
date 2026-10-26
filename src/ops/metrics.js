@@ -134,7 +134,11 @@ export function createMetrics({ dataDir, now = Date.now, fs = nodeFs, log = defa
   function summary(name, hours = 24) {
     const span = Math.min(isDuration(hours) ? hours * HOUR_MS : KEEP_MS, KEEP_MS);
     const from = now() - span;
-    return summarize(prune(name).filter(([at]) => at >= from).map(([, ms]) => ms));
+    return summarize(
+      prune(name)
+        .filter(([at]) => at >= from)
+        .map(([, ms]) => ms)
+    );
   }
 
   function names() {

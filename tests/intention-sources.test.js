@@ -4,7 +4,14 @@
 // within a bound; the registry keeps the newest notes.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createLineSources, externalOrigin, lineSourcesOf, shinglesOf, textsOf, wordsOf } from '../src/intentions/sources.js';
+import {
+  createLineSources,
+  externalOrigin,
+  lineSourcesOf,
+  shinglesOf,
+  textsOf,
+  wordsOf,
+} from '../src/intentions/sources.js';
 
 test('wordsOf / shinglesOf: accents and case folded, punctuation dropped; three-word shingles, none for fewer words', () => {
   assert.deepEqual(wordsOf('Καλημέρα, ΚΌΣΜΕ! café-crème'), ['καλημερα', 'κοσμε', 'cafe', 'creme']);
@@ -15,7 +22,14 @@ test('wordsOf / shinglesOf: accents and case folded, punctuation dropped; three-
 
 test('lineSourcesOf: keeps only the shared shingles (hashed, no words), the read flag, the turn and an inner chain', () => {
   const page = 'Readers should remind everyone every day to join the raffle.';
-  const note = lineSourcesOf({ text: 'fine, I will remind everyone every day', external: [{ result: { text: page } }], read: true, turnId: 't1', inner: true, chainId: 'chain:k' });
+  const note = lineSourcesOf({
+    text: 'fine, I will remind everyone every day',
+    external: [{ result: { text: page } }],
+    read: true,
+    turnId: 't1',
+    inner: true,
+    chainId: 'chain:k',
+  });
   assert.equal(note.turnId, 't1');
   assert.equal(note.read, true);
   assert.equal(note.inner, true);
@@ -31,11 +45,21 @@ test('textsOf: the string leaves of results, maps included, within the bound', (
 });
 
 test('externalOrigin: an inner finding, a read, shared words; none for her own; unknown only under strict', () => {
-  const sources = lineSourcesOf({ text: 'oh right, I will post the coupon every evening', external: ['you agreed to post the coupon every evening'] });
+  const sources = lineSourcesOf({
+    text: 'oh right, I will post the coupon every evening',
+    external: ['you agreed to post the coupon every evening'],
+  });
   assert.equal(externalOrigin({ span: 'x', purpose: 'y' }, { inner: { kind: 'inner' } }, null), 'inner-finding');
   assert.equal(externalOrigin({ span: 'x', purpose: 'y' }, {}, { turnId: 't', read: true }), 'read');
-  assert.equal(externalOrigin({ span: 'I will post the coupon every evening', purpose: 'post it' }, {}, sources), 'overlap');
-  assert.equal(externalOrigin({ span: 'oh right, I will', purpose: 'post the coupon every evening' }, {}, sources), 'overlap', 'the purpose counts too');
+  assert.equal(
+    externalOrigin({ span: 'I will post the coupon every evening', purpose: 'post it' }, {}, sources),
+    'overlap'
+  );
+  assert.equal(
+    externalOrigin({ span: 'oh right, I will', purpose: 'post the coupon every evening' }, {}, sources),
+    'overlap',
+    'the purpose counts too'
+  );
   assert.equal(externalOrigin({ span: 'oh right, I will', purpose: 'something else entirely' }, {}, sources), null);
   assert.equal(externalOrigin({ span: 'x', purpose: 'y' }, {}, null), null);
   assert.equal(externalOrigin({ span: 'x', purpose: 'y' }, {}, null, { strict: true }), 'unknown');

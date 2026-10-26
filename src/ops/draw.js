@@ -35,14 +35,30 @@ const handlers = perEnv((env) => {
     // A reply is a message to quote: it follows that message's channel, as message.create does.
     const reply = args?.replyTo ? messageRefOf(args.replyTo) : null;
     const given = args?.channelId ? String(args.channelId) : null;
-    if (given && reply?.channelId && given !== reply.channelId) throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
+    if (given && reply?.channelId && given !== reply.channelId)
+      throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
     const target = given ?? reply?.channelId ?? null;
-    const postTo = target || reply ? await postingConversation({ client, discord, guildId: resolvedGuildId(context), channelId: target, context, need: 'attach' }) : null;
-    if (postTo && (!port || typeof port.send !== 'function')) throw Object.assign(new Error('the persona\'s interface is not available'), { code: CODE.NOT_CONFIGURED });
+    const postTo =
+      target || reply
+        ? await postingConversation({
+            client,
+            discord,
+            guildId: resolvedGuildId(context),
+            channelId: target,
+            context,
+            need: 'attach',
+          })
+        : null;
+    if (postTo && (!port || typeof port.send !== 'function'))
+      throw Object.assign(new Error("the persona's interface is not available"), { code: CODE.NOT_CONFIGURED });
 
     const model = roleModel(hot.config, 'drawing');
     if (!images.familyOf(model)) {
-      return { status: 'failed', code: CODE.NOT_CONFIGURED, summary: `unsupported image model: ${model ?? '-'} (no supported family); nothing was generated` };
+      return {
+        status: 'failed',
+        code: CODE.NOT_CONFIGURED,
+        summary: `unsupported image model: ${model ?? '-'} (no supported family); nothing was generated`,
+      };
     }
 
     const self = args?.self === true;
@@ -69,18 +85,36 @@ const handlers = perEnv((env) => {
       throw err;
     }
 
-    log.info('admin: drew', { model: picture.model, seconds: picture.seconds, cost: picture.cost, self, bytes: picture.buffer?.length ?? 0 });
+    log.info('admin: drew', {
+      model: picture.model,
+      seconds: picture.seconds,
+      cost: picture.cost,
+      self,
+      bytes: picture.buffer?.length ?? 0,
+    });
 
     const cost = picture.cost == null ? 'cost unknown' : `cost ${picture.cost}`;
     const parts = [picture.model, `${picture.seconds}s`, cost];
     if (referenceMissing) parts.push('no avatar reference');
     const file = { attachment: picture.buffer, name: imageFileName(picture.mediaType) };
     if (!postTo) return { text: parts.join(' · '), files: [file] };
-    const sent = await port.send({ iface: port.iface, conversationId: postTo }, { attachments: [{ name: file.name, data: file.attachment, contentType: picture.mediaType }], ...(reply ? { replyTo: { iface: port.iface, conversationId: postTo, messageId: reply.messageId } } : {}) });
-    if (sent?.status === 'ok') return { text: `${parts.join(' · ')} · posted in ${postTo}`, ref: sent.ref ?? null, at: sent.at };
+    const sent = await port.send(
+      { iface: port.iface, conversationId: postTo },
+      {
+        attachments: [{ name: file.name, data: file.attachment, contentType: picture.mediaType }],
+        ...(reply ? { replyTo: { iface: port.iface, conversationId: postTo, messageId: reply.messageId } } : {}),
+      }
+    );
+    if (sent?.status === 'ok')
+      return { text: `${parts.join(' · ')} · posted in ${postTo}`, ref: sent.ref ?? null, at: sent.at };
     const code = String(sent?.error?.code ?? sent?.status ?? CODE.ERROR);
     const unknown = sent?.status === 'unknown';
-    return { status: 'failed', code, summary: `draw: ${unknown ? 'unclear whether the picture was posted' : 'the picture was not posted'} (${code})`, data: { unknown, portStatus: sent?.status ?? null } };
+    return {
+      status: 'failed',
+      code,
+      summary: `draw: ${unknown ? 'unclear whether the picture was posted' : 'the picture was not posted'} (${code})`,
+      data: { unknown, portStatus: sent?.status ?? null },
+    };
   }
 
   return { cmdDraw };

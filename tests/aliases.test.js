@@ -39,7 +39,11 @@ test('applyAliasOps: a sighting inside the confirmGapHours window does not bump 
 
 test('applyAliasOps: an add equal (case-insensitively) to a stored display name is ignored outright', () => {
   const items = applyAliasOps([], { add: ['prime', 'Vertex'] }, ['Prime'], opts());
-  assert.deepEqual(items.map((i) => i.name), ['Vertex'], 'the one matching a display name never becomes an alias');
+  assert.deepEqual(
+    items.map((i) => i.name),
+    ['Vertex'],
+    'the one matching a display name never becomes an alias'
+  );
 });
 
 test('applyAliasOps: an add equal to a display name does not even count as a sighting on an existing alias', () => {
@@ -61,7 +65,10 @@ test('applyAliasOps: remove deletes the alias, case-insensitively', () => {
     { name: 'Prime', weight: 1, firstSeen: 'a', lastSeen: 'a' },
   ];
   const items = applyAliasOps(existing, { remove: ['vertex'] }, [], opts());
-  assert.deepEqual(items.map((i) => i.name), ['Prime']);
+  assert.deepEqual(
+    items.map((i) => i.name),
+    ['Prime']
+  );
 });
 
 test('applyAliasOps: an alias is clamped to 40 characters', () => {
@@ -98,32 +105,81 @@ test('applyAliasOps: garbage ops never throw and change nothing', () => {
 
 test('applyAliasOps: with halfLifeDays, top-ranked aliases can be selected the same way as interests', () => {
   const existing = [
-    { name: 'Ancient nickname', weight: 10, firstSeen: '2021-01-01T00:00:00.000Z', lastSeen: '2021-01-01T00:00:00.000Z' },
+    {
+      name: 'Ancient nickname',
+      weight: 10,
+      firstSeen: '2021-01-01T00:00:00.000Z',
+      lastSeen: '2021-01-01T00:00:00.000Z',
+    },
     { name: 'Fresh nickname', weight: 2, firstSeen: '2026-09-01T00:00:00.000Z', lastSeen: '2026-09-01T00:00:00.000Z' },
   ];
   const capOne = { maxAliases: 1, maxAliasesStored: 1 };
   const decayed = applyAliasOps(existing, {}, [], opts({ ...capOne, halfLifeDays: 180 }));
-  assert.deepEqual(decayed.map((i) => i.name), ['Fresh nickname'], 'five years of silence sink the heavier alias under eviction');
+  assert.deepEqual(
+    decayed.map((i) => i.name),
+    ['Fresh nickname'],
+    'five years of silence sink the heavier alias under eviction'
+  );
   assert.deepEqual(decayed, topByRank(existing, 1, 180), 'the same pick as topByRank, the ranking interests use');
   const undecayed = applyAliasOps(existing, {}, [], opts(capOne));
-  assert.deepEqual(undecayed.map((i) => i.name), ['Ancient nickname'], 'without halfLifeDays the heavier alias stays');
+  assert.deepEqual(
+    undecayed.map((i) => i.name),
+    ['Ancient nickname'],
+    'without halfLifeDays the heavier alias stays'
+  );
 });
 
 test('aliases: eviction returns the dropped items with their itemId', () => {
-  const old = { name: 'Λένα', weight: 1, firstSeen: '2025-01-01T00:00:00.000Z', lastSeen: '2025-01-01T00:00:00.000Z', itemId: 'al-old' };
-  const result = applyAliasOps([old], { add: ['Élise'] }, [], opts({ maxAliases: 1, maxAliasesStored: 1, halfLifeDays: 30 }));
-  assert.deepEqual(result.map((a) => a.name), ['Élise']);
+  const old = {
+    name: 'Λένα',
+    weight: 1,
+    firstSeen: '2025-01-01T00:00:00.000Z',
+    lastSeen: '2025-01-01T00:00:00.000Z',
+    itemId: 'al-old',
+  };
+  const result = applyAliasOps(
+    [old],
+    { add: ['Élise'] },
+    [],
+    opts({ maxAliases: 1, maxAliasesStored: 1, halfLifeDays: 30 })
+  );
+  assert.deepEqual(
+    result.map((a) => a.name),
+    ['Élise']
+  );
   assert.deepEqual(result.dropped, [old]);
   assert.equal(result.dropped[0].itemId, 'al-old');
 });
 
 test('aliases: a supersedes op closes the old nickname', () => {
-  const old = { name: 'Vex', weight: 2, firstSeen: '2026-09-01T10:00:00.000Z', lastSeen: '2026-09-10T10:00:00.000Z', itemId: 'al-old' };
-  const items = applyAliasOps([old], { add: [{ name: 'Vertex', supersedes: 'al-old' }] }, ['LongDisplayName'], opts({ mintId: () => 'al-new' }));
-  assert.deepEqual(items.map((item) => item.name), ['Vertex']);
+  const old = {
+    name: 'Vex',
+    weight: 2,
+    firstSeen: '2026-09-01T10:00:00.000Z',
+    lastSeen: '2026-09-10T10:00:00.000Z',
+    itemId: 'al-old',
+  };
+  const items = applyAliasOps(
+    [old],
+    { add: [{ name: 'Vertex', supersedes: 'al-old' }] },
+    ['LongDisplayName'],
+    opts({ mintId: () => 'al-new' })
+  );
+  assert.deepEqual(
+    items.map((item) => item.name),
+    ['Vertex']
+  );
   assert.deepEqual(items.closed, [{ ...old, validTo: '2026-09-21', supersededBy: 'al-new' }]);
   // By name, too; a plain string add stays a plain add.
-  const byName = applyAliasOps([old], { add: [{ name: 'Vertex', supersedes: 'vex' }, 'Vx'] }, [], opts({ mintId: () => 'al-new' }));
-  assert.deepEqual(byName.map((item) => item.name), ['Vertex', 'Vx']);
+  const byName = applyAliasOps(
+    [old],
+    { add: [{ name: 'Vertex', supersedes: 'vex' }, 'Vx'] },
+    [],
+    opts({ mintId: () => 'al-new' })
+  );
+  assert.deepEqual(
+    byName.map((item) => item.name),
+    ['Vertex', 'Vx']
+  );
   assert.equal(byName.closed[0].name, 'Vex');
 });

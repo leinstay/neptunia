@@ -88,7 +88,8 @@ export function layerChannelKey(privateUserId, channelId) {
 }
 
 /** The channel of a record line, or null. */
-const channelOf = (line) => (typeof line?.scope?.channel === 'string' && line.scope.channel ? line.scope.channel : null);
+const channelOf = (line) =>
+  typeof line?.scope?.channel === 'string' && line.scope.channel ? line.scope.channel : null;
 
 /** The layer of a record line: its private member, or '' for the guild. */
 const layerOf = (line) => (line?.scope?.private === true && typeof line.scope.user === 'string' ? line.scope.user : '');
@@ -130,7 +131,9 @@ function chunkLine(line, { nameOf, selfName, lineChars }) {
   const by = typeof line.by === 'string' && line.by ? line.by : null;
   const author = line.kind === 'said' ? selfName : (by && oneLine(resolve(by))) || by || '';
   const text = clampChars(oneLine(fromTokens(line.text, resolve, 'chat')), lineChars);
-  const links = (Array.isArray(line.links) ? line.links : []).flatMap((link) => [link?.title, link?.description]).filter((part) => typeof part === 'string' && part);
+  const links = (Array.isArray(line.links) ? line.links : [])
+    .flatMap((link) => [link?.title, link?.description])
+    .filter((part) => typeof part === 'string' && part);
   const shown = links.length > 0 ? clampChars(oneLine(links.join(' ')), lineChars) : '';
   return shown ? `${oneLine(author)}: ${text} ${shown}` : `${oneLine(author)}: ${text}`;
 }
@@ -180,10 +183,17 @@ export function recordChunks(lines, { targets = null, contextLines = CHUNK_CONTE
   for (const channelLines of channels.values()) {
     channelLines.forEach((line, i) => {
       if (targets && !targets.has(`${line.messageId}:${revisionOf(line)}`)) return;
-      out.push(recordChunk(line, contextLines > 0 ? channelLines.slice(Math.max(0, i - contextLines), i) : [], options));
+      out.push(
+        recordChunk(line, contextLines > 0 ? channelLines.slice(Math.max(0, i - contextLines), i) : [], options)
+      );
     });
   }
-  return out.sort((a, b) => compareLines({ occurredAt: a.meta.occurredAt, messageId: a.meta.id }, { occurredAt: b.meta.occurredAt, messageId: b.meta.id }));
+  return out.sort((a, b) =>
+    compareLines(
+      { occurredAt: a.meta.occurredAt, messageId: a.meta.id },
+      { occurredAt: b.meta.occurredAt, messageId: b.meta.id }
+    )
+  );
 }
 
 /** The text fields of an archive entry, as archive.js keeps them for its kind. */
@@ -201,7 +211,9 @@ export function isEmbeddableArchive(entry) {
   if (!entry || typeof entry !== 'object' || entry.event === 'restored') return false;
   if (typeof entry.itemId !== 'string' || !entry.itemId) return false;
   const fields = entryFields(entry);
-  return [...ARCHIVE_MAIN_FIELDS, 'note', 'quote'].some((field) => typeof fields[field] === 'string' && fields[field].trim() !== '');
+  return [...ARCHIVE_MAIN_FIELDS, 'note', 'quote'].some(
+    (field) => typeof fields[field] === 'string' && fields[field].trim() !== ''
+  );
 }
 
 /**

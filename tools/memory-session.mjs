@@ -77,7 +77,15 @@ export function backoffMs(error, attempt, now = Date.now()) {
  * `complete` with a backoff on 429: at most `tries` calls, serial; any other error is thrown at once.
  * @param {(messages: object[], options?: object) => Promise<object>} complete
  */
-export function withBackoff(complete, { tries = TRIES, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), now = Date.now, onWait = () => {} } = {}) {
+export function withBackoff(
+  complete,
+  {
+    tries = TRIES,
+    sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    now = Date.now,
+    onWait = () => {},
+  } = {}
+) {
   return async (messages, options) => {
     for (let attempt = 1; ; attempt += 1) {
       try {
@@ -103,8 +111,10 @@ export function parseSubject(text) {
 export function opKinds(plan) {
   const counts = new Map();
   const bump = (key) => counts.set(key, (counts.get(key) ?? 0) + 1);
-  for (const claim of plan?.claims ?? []) bump(`claims:${claim.op}${claim.op === 'add' ? `(${claim.subjectKind})` : ''}`);
-  for (const group of ['episodes', 'affinity', 'descriptions']) for (let i = 0; i < (plan?.[group]?.length ?? 0); i += 1) bump(group);
+  for (const claim of plan?.claims ?? [])
+    bump(`claims:${claim.op}${claim.op === 'add' ? `(${claim.subjectKind})` : ''}`);
+  for (const group of ['episodes', 'affinity', 'descriptions'])
+    for (let i = 0; i < (plan?.[group]?.length ?? 0); i += 1) bump(group);
   for (const person of plan?.people ?? []) bump(`people:${person.op}`);
   return [...counts].map(([key, n]) => `${key} ${n}`).join(', ') || 'none';
 }
@@ -122,9 +132,18 @@ async function copyDatabase(source, target) {
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const parseJson = (text) => {
-  try { return JSON.parse(text); } catch { return null; }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
 };
-const scopeKeyOf = (row) => (row?.scope_kind === 'dm' ? `dm:${row.scope_iface}:${row.scope_dm}` : row?.scope_kind === 'group' ? `group:${row.scope_iface}` : null);
+const scopeKeyOf = (row) =>
+  row?.scope_kind === 'dm'
+    ? `dm:${row.scope_iface}:${row.scope_dm}`
+    : row?.scope_kind === 'group'
+      ? `group:${row.scope_iface}`
+      : null;
 
 /**
  * Her proposals for the lines of `day` that a copy already holds (shadow `decisions` rows `proposed:<op>`): one entry
@@ -133,22 +152,29 @@ const scopeKeyOf = (row) => (row?.scope_kind === 'dm' ? `dm:${row.scope_iface}:$
 export function storedProposals(db, day) {
   const sourceDay = db.prepare('SELECT occurred_at FROM sources WHERE id = ?');
   const runDay = db.prepare('SELECT cursor_from, cursor_to, scope_key FROM session_runs WHERE id = ?');
-  const lineOfDay = db.prepare("SELECT 1 AS ok FROM sources WHERE rowid > ? AND rowid <= ? AND substr(occurred_at, 1, 10) = ? LIMIT 1");
+  const lineOfDay = db.prepare(
+    'SELECT 1 AS ok FROM sources WHERE rowid > ? AND rowid <= ? AND substr(occurred_at, 1, 10) = ? LIMIT 1'
+  );
   const groupOf = { claims: 'claims', episode: 'episodes', affinity: 'affinity', description: 'descriptions' };
   const out = [];
-  for (const row of db.prepare("SELECT action, extra FROM decisions WHERE action LIKE 'proposed:%' AND retired_at IS NULL ORDER BY at, id").all()) {
+  for (const row of db
+    .prepare(
+      "SELECT action, extra FROM decisions WHERE action LIKE 'proposed:%' AND retired_at IS NULL ORDER BY at, id"
+    )
+    .all()) {
     const extra = parseJson(row.extra);
     const op = extra?.op;
     if (!op) continue;
     const name = row.action.slice('proposed:'.length);
-    const group = name.startsWith('people_') ? 'people' : groupOf[name] ?? 'claims';
+    const group = name.startsWith('people_') ? 'people' : (groupOf[name] ?? 'claims');
     const scope = scopeKeyOf(extra.scope);
     if (group === 'descriptions') {
       const run = runDay.get(extra.run);
       if (run && lineOfDay.get(run.cursor_from ?? 0, run.cursor_to ?? 0, day)) out.push({ scope, group, op });
       continue;
     }
-    if ((op.sources ?? []).some((id) => String(sourceDay.get(id)?.occurred_at ?? '').slice(0, 10) === day)) out.push({ scope, group, op });
+    if ((op.sources ?? []).some((id) => String(sourceDay.get(id)?.occurred_at ?? '').slice(0, 10) === day))
+      out.push({ scope, group, op });
   }
   return out;
 }
@@ -167,18 +193,34 @@ export function analyzerWrites(db, day) {
     if (!by.has(key)) by.set(key, { claims: [], episodes: [], affinity: [] });
     return by.get(key);
   };
-  for (const row of db.prepare(
-    `SELECT v.claim_id, v.event, v.text, c.subject_kind, c.subject_id, c.kind, c.scope_kind, c.scope_iface, c.scope_dm FROM claim_versions v JOIN claims c ON c.id = v.claim_id
+  for (const row of db
+    .prepare(
+      `SELECT v.claim_id, v.event, v.text, c.subject_kind, c.subject_id, c.kind, c.scope_kind, c.scope_iface, c.scope_dm FROM claim_versions v JOIN claims c ON c.id = v.claim_id
       WHERE substr(v.recorded_at, 1, 10) = ? AND v.origin IS NOT 'session' AND v.retired_at IS NULL
         AND v.event NOT IN (${ARCHIVE_CHURN.map((event) => `'${event}'`).join(', ')}) AND c.kind NOT IN (${CODE_KINDS.map((kind) => `'${kind}'`).join(', ')})
-      ORDER BY v.recorded_at, v.rowid`,
-  ).all(day)) of(row).claims.push({ claimId: row.claim_id, event: row.event, text: row.text ?? '', subjectKind: row.subject_kind, subjectId: row.subject_id, kind: row.kind });
-  for (const row of db.prepare(
-    "SELECT id, subject_id, what, scope_kind, scope_iface, scope_dm FROM episodes WHERE substr(created_at, 1, 10) = ? AND kind IS NOT 'session' AND retired_at IS NULL ORDER BY created_at, id",
-  ).all(day)) of(row).episodes.push({ id: row.id, subjectId: row.subject_id, what: row.what ?? '' });
-  for (const row of db.prepare(
-    "SELECT id, person_id, delta, scope_kind, scope_iface, scope_dm FROM affinity_events WHERE substr(at, 1, 10) = ? AND retired_at IS NULL AND json_extract(extra, '$.run') IS NULL AND COALESCE(reason, '') <> '' ORDER BY at, id",
-  ).all(day)) of(row).affinity.push({ id: row.id, personId: row.person_id, delta: Number(row.delta) || 0 });
+      ORDER BY v.recorded_at, v.rowid`
+    )
+    .all(day))
+    of(row).claims.push({
+      claimId: row.claim_id,
+      event: row.event,
+      text: row.text ?? '',
+      subjectKind: row.subject_kind,
+      subjectId: row.subject_id,
+      kind: row.kind,
+    });
+  for (const row of db
+    .prepare(
+      "SELECT id, subject_id, what, scope_kind, scope_iface, scope_dm FROM episodes WHERE substr(created_at, 1, 10) = ? AND kind IS NOT 'session' AND retired_at IS NULL ORDER BY created_at, id"
+    )
+    .all(day))
+    of(row).episodes.push({ id: row.id, subjectId: row.subject_id, what: row.what ?? '' });
+  for (const row of db
+    .prepare(
+      "SELECT id, person_id, delta, scope_kind, scope_iface, scope_dm FROM affinity_events WHERE substr(at, 1, 10) = ? AND retired_at IS NULL AND json_extract(extra, '$.run') IS NULL AND COALESCE(reason, '') <> '' ORDER BY at, id"
+    )
+    .all(day))
+    of(row).affinity.push({ id: row.id, personId: row.person_id, delta: Number(row.delta) || 0 });
   return by;
 }
 
@@ -201,27 +243,48 @@ export function compareDay(db, { day, proposals, showsClaim }) {
       const at = list.findIndex(match);
       return at === -1 ? null : list.splice(at, 1)[0];
     };
-    const result = { scope: key, hers: 0, analyzer: theirs.claims.length + theirs.episodes.length + theirs.affinity.length, both: 0, onlyHers: [], onlyAnalyzer: [], violations: 0, unsupported: 0, flags: 0 };
+    const result = {
+      scope: key,
+      hers: 0,
+      analyzer: theirs.claims.length + theirs.episodes.length + theirs.affinity.length,
+      both: 0,
+      onlyHers: [],
+      onlyAnalyzer: [],
+      violations: 0,
+      unsupported: 0,
+      flags: 0,
+    };
     for (const { group, op } of mine) {
-      if (group === 'descriptions') { result.flags += 1; continue; }
+      if (group === 'descriptions') {
+        result.flags += 1;
+        continue;
+      }
       result.hers += 1;
       const sources = Array.isArray(op.sources) ? op.sources : [];
       if (sources.length === 0) result.unsupported += 1;
       if (sources.some((id) => scopeKeyOf(scopeOfSource.get(id)) !== key)) result.violations += 1;
       let matched = null;
       if (group === 'claims') {
-        matched = op.op === 'add'
-          ? take(left.claims, (row) => row.subjectId === op.subjectId && row.kind === op.kind && words(row.text, op.text))
-          : take(left.claims, (row) => row.claimId === op.id);
+        matched =
+          op.op === 'add'
+            ? take(
+                left.claims,
+                (row) => row.subjectId === op.subjectId && row.kind === op.kind && words(row.text, op.text)
+              )
+            : take(left.claims, (row) => row.claimId === op.id);
       } else if (group === 'episodes') {
         matched = take(left.episodes, (row) => row.subjectId === op.subjectId && words(row.what, op.what));
       } else if (group === 'affinity') {
-        matched = take(left.affinity, (row) => row.personId === op.personId && Math.sign(row.delta) === Math.sign(op.delta));
+        matched = take(
+          left.affinity,
+          (row) => row.personId === op.personId && Math.sign(row.delta) === Math.sign(op.delta)
+        );
       }
       if (matched) result.both += 1;
       else result.onlyHers.push({ group, op });
     }
-    for (const group of ['claims', 'episodes', 'affinity']) for (const row of left[group]) result.onlyAnalyzer.push({ group, row });
+    for (const group of ['claims', 'episodes', 'affinity'])
+      for (const row of left[group]) result.onlyAnalyzer.push({ group, row });
     out.push(result);
   }
   return out;
@@ -231,10 +294,14 @@ export function compareDay(db, { day, proposals, showsClaim }) {
 export function compareLines(results, { show = false } = {}) {
   const lines = [];
   for (const result of results) {
-    lines.push(`scope ${result.scope}: hers ${result.hers}, the analyzer's ${result.analyzer}; both ${result.both}, only hers ${result.onlyHers.length}, only the analyzer's ${result.onlyAnalyzer.length}; scope violations ${result.violations}, unsupported ${result.unsupported}, description flags ${result.flags}`);
+    lines.push(
+      `scope ${result.scope}: hers ${result.hers}, the analyzer's ${result.analyzer}; both ${result.both}, only hers ${result.onlyHers.length}, only the analyzer's ${result.onlyAnalyzer.length}; scope violations ${result.violations}, unsupported ${result.unsupported}, description flags ${result.flags}`
+    );
     if (!show) continue;
-    for (const { group, op } of result.onlyHers) lines.push(`  hers ${group}: ${op.text ?? op.what ?? op.reason ?? op.id ?? ''}`);
-    for (const { group, row } of result.onlyAnalyzer) lines.push(`  analyzer ${group}: ${row.text ?? row.what ?? row.delta ?? ''}`);
+    for (const { group, op } of result.onlyHers)
+      lines.push(`  hers ${group}: ${op.text ?? op.what ?? op.reason ?? op.id ?? ''}`);
+    for (const { group, row } of result.onlyAnalyzer)
+      lines.push(`  analyzer ${group}: ${row.text ?? row.what ?? row.delta ?? ''}`);
   }
   return lines;
 }
@@ -244,7 +311,19 @@ export function compareLines(results, { show = false } = {}) {
  * `shadowOnly`), then the comparison. `llm` is `{ complete }` (a fake in the tests); `usage` collects requests,
  * tokens and cost. Returns the lines to print.
  */
-export async function runCompare({ handle, llm, hot, env, day, shadowOnly = false, scope = null, show = false, selfName = '', usage = { requests: 0, prompt: 0, completion: 0, cost: null }, log = {} }) {
+export async function runCompare({
+  handle,
+  llm,
+  hot,
+  env,
+  day,
+  shadowOnly = false,
+  scope = null,
+  show = false,
+  selfName = '',
+  usage = { requests: 0, prompt: 0, completion: 0, cost: null },
+  log = {},
+}) {
   const { sweep } = await import('../src/memory/db/session.js');
   const { showsClaim } = await import('../src/memory/db/describe.js');
   const { applyMemoryWrite } = await import('../src/memory/db/session-write.js');
@@ -255,35 +334,71 @@ export async function runCompare({ handle, llm, hot, env, day, shadowOnly = fals
   if (!shadowOnly) {
     const { db } = handle;
     // The copy's own shadow state goes: every scope starts at its first line of the day.
-    db.prepare("DELETE FROM meta WHERE key LIKE 'memory_session.cursor.shadow.%' OR key LIKE 'memory_session.pending.shadow.%'").run();
+    db.prepare(
+      "DELETE FROM meta WHERE key LIKE 'memory_session.cursor.shadow.%' OR key LIKE 'memory_session.pending.shadow.%'"
+    ).run();
     const live = hot.config;
     const config = {
       ...live,
-      memoryDb: { ...(live.memoryDb ?? {}), session: { ...(live.memoryDb?.session ?? {}), mode: 'shadow', minMessages: 1, sweepsPerScopePerDay: 1_000_000, settleMinutes: 0, since: new Date(start).toISOString() } },
+      memoryDb: {
+        ...(live.memoryDb ?? {}),
+        session: {
+          ...(live.memoryDb?.session ?? {}),
+          mode: 'shadow',
+          minMessages: 1,
+          sweepsPerScopePerDay: 1_000_000,
+          settleMinutes: 0,
+          since: new Date(start).toISOString(),
+        },
+      },
     };
     // The clock stands at the day's end (a millisecond more each call, so every sweep has its own id).
     let tick = 0;
     const ctx = {
-      db, write: async (update) => applyMemoryWrite(handle, update), llm, hot: { config, prompts: hot.prompts }, env, now: () => end + (tick += 1), log, selfName,
+      db,
+      write: async (update) => applyMemoryWrite(handle, update),
+      llm,
+      hot: { config, prompts: hot.prompts },
+      env,
+      now: () => end + (tick += 1),
+      log,
+      selfName,
     };
     for (let round = 0; round < 200; round += 1) {
       const result = await sweep(ctx, { scope: scope ?? undefined, ignoreSweepCap: true });
-      if (result.status !== 'ok') { lines.push(`sweep: ${result.status} (${result.code})`); break; }
+      if (result.status !== 'ok') {
+        lines.push(`sweep: ${result.status} (${result.code})`);
+        break;
+      }
       let worked = false;
       for (const run of result.runs) {
         if (run.outcome === 'quiet') continue;
         worked = true;
-        if (run.outcome !== 'ok' && run.outcome !== 'all_dropped') lines.push(`scope ${run.scope}: ${run.outcome}${run.errors?.length ? ` (${run.errors.join(', ')})` : ''}`);
-        if (run.plan) for (const group of ['claims', 'episodes', 'affinity', 'descriptions', 'people']) for (const op of run.plan[group] ?? []) proposals.push({ scope: run.scope, group, op });
+        if (run.outcome !== 'ok' && run.outcome !== 'all_dropped')
+          lines.push(`scope ${run.scope}: ${run.outcome}${run.errors?.length ? ` (${run.errors.join(', ')})` : ''}`);
+        if (run.plan)
+          for (const group of ['claims', 'episodes', 'affinity', 'descriptions', 'people'])
+            for (const op of run.plan[group] ?? []) proposals.push({ scope: run.scope, group, op });
       }
       // A batch that failed outright leaves its lines where they were: the next sweep would ask again, so stop.
-      if (!worked || result.runs.some((run) => !['quiet', 'ok', 'all_dropped', 'skipped', 'applied_before'].includes(run.outcome))) break;
+      if (
+        !worked ||
+        result.runs.some((run) => !['quiet', 'ok', 'all_dropped', 'skipped', 'applied_before'].includes(run.outcome))
+      )
+        break;
     }
   } else {
     proposals = storedProposals(handle.db, day).filter((entry) => !scope || entry.scope === scope);
   }
-  lines.push(`day ${day}, ${shadowOnly ? 'the shadow proposals already stored' : 'her session in shadow over the lines of the day'}`);
-  lines.push(...compareLines(compareDay(handle.db, { day, proposals, showsClaim }).filter((result) => !scope || result.scope === scope), { show }));
+  lines.push(
+    `day ${day}, ${shadowOnly ? 'the shadow proposals already stored' : 'her session in shadow over the lines of the day'}`
+  );
+  lines.push(
+    ...compareLines(
+      compareDay(handle.db, { day, proposals, showsClaim }).filter((result) => !scope || result.scope === scope),
+      { show }
+    )
+  );
   const cost = usage.cost === null || usage.cost === undefined ? '-' : `${Math.round(usage.cost * 10000) / 10000} USD`;
   lines.push(`requests ${usage.requests}, tokens ${usage.prompt} prompt, ${usage.completion} completion, cost ${cost}`);
   return lines;
@@ -291,9 +406,14 @@ export async function runCompare({ handle, llm, hot, env, day, shadowOnly = fals
 
 /** The compare subcommand (see the head of this file). */
 async function compareMain(argv) {
-  const flags = parseFlags(argv, { values: ['--db', '--data', '--day', '--key-env', '--scope', '--self-name', '--keep'], switches: ['--shadow', '--show'], usage: COMPARE_USAGE });
+  const flags = parseFlags(argv, {
+    values: ['--db', '--data', '--day', '--key-env', '--scope', '--self-name', '--keep'],
+    switches: ['--shadow', '--show'],
+    usage: COMPARE_USAGE,
+  });
   if (flags._.length > 0 || !flags['--db'] || !flags['--day']) throw new CliError(COMPARE_USAGE);
-  if (!DAY_RE.test(flags['--day']) || !Number.isFinite(Date.parse(`${flags['--day']}T00:00:00.000Z`))) throw new CliError(`memory-session: --day is a date, YYYY-MM-DD\n${COMPARE_USAGE}`);
+  if (!DAY_RE.test(flags['--day']) || !Number.isFinite(Date.parse(`${flags['--day']}T00:00:00.000Z`)))
+    throw new CliError(`memory-session: --day is a date, YYYY-MM-DD\n${COMPARE_USAGE}`);
   const source = path.resolve(flags['--db']);
   if (!fs.existsSync(source)) throw new CliError(`memory-session: no database at ${source}`);
   const shadowOnly = flags['--shadow'] === true;
@@ -318,26 +438,64 @@ async function compareMain(argv) {
     await copyDatabase(source, copy);
     handle = openMemoryDb(copy);
     const live = hot.config;
-    const config = { ...live, llm: { ...(live.llm ?? {}), keyByRole: { ...(live.llm?.keyByRole ?? {}), memory: keyEnv } } };
+    const config = {
+      ...live,
+      llm: { ...(live.llm ?? {}), keyByRole: { ...(live.llm?.keyByRole ?? {}), memory: keyEnv } },
+    };
     const usage = { requests: 0, prompt: 0, completion: 0, cost: null };
     let llm = null;
     if (!shadowOnly) {
       const { createLlm } = await import('../src/llm/openrouter.js');
       const { createCalibrator } = await import('../src/llm/tokens.js');
-      const client = createLlm({ apiKey, env: { [keyEnv]: apiKey }, getConfig: () => config, calibrator: createCalibrator(undefined), state: { data: {}, markDirty() {} } });
-      llm = { complete: withBackoff(async (messages, options = {}) => {
-        const completion = await client.complete(messages, { ...options, origin: ORIGIN, countAgainstDailyCap: false, skipCalibration: true, cache: false });
-        usage.requests += 1;
-        usage.prompt += Number(completion?.usage?.prompt_tokens) || 0;
-        usage.completion += Number(completion?.usage?.completion_tokens) || 0;
-        if (Number.isFinite(completion?.usage?.cost)) usage.cost = (usage.cost ?? 0) + completion.usage.cost;
-        return completion;
-      }, { onWait: (ms, attempt) => process.stderr.write(`memory-session: 429, waiting ${Math.round(ms / 1000)} s (try ${attempt} of ${TRIES})\n`) }) };
+      const client = createLlm({
+        apiKey,
+        env: { [keyEnv]: apiKey },
+        getConfig: () => config,
+        calibrator: createCalibrator(undefined),
+        state: { data: {}, markDirty() {} },
+      });
+      llm = {
+        complete: withBackoff(
+          async (messages, options = {}) => {
+            const completion = await client.complete(messages, {
+              ...options,
+              origin: ORIGIN,
+              countAgainstDailyCap: false,
+              skipCalibration: true,
+              cache: false,
+            });
+            usage.requests += 1;
+            usage.prompt += Number(completion?.usage?.prompt_tokens) || 0;
+            usage.completion += Number(completion?.usage?.completion_tokens) || 0;
+            if (Number.isFinite(completion?.usage?.cost)) usage.cost = (usage.cost ?? 0) + completion.usage.cost;
+            return completion;
+          },
+          {
+            onWait: (ms, attempt) =>
+              process.stderr.write(
+                `memory-session: 429, waiting ${Math.round(ms / 1000)} s (try ${attempt} of ${TRIES})\n`
+              ),
+          }
+        ),
+      };
     }
     const lines = await runCompare({
-      handle, llm, hot: { config, prompts: hot.prompts }, env: apiKey ? { [keyEnv]: apiKey } : {}, day: flags['--day'], shadowOnly,
-      scope: flags['--scope'] ?? null, show: flags['--show'] === true, selfName: flags['--self-name'] ?? live.bot?.name ?? '', usage,
-      log: { info() {}, debug() {}, warn: (message, fields) => process.stderr.write(`${message} ${JSON.stringify(fields ?? {})}\n`), error() {} },
+      handle,
+      llm,
+      hot: { config, prompts: hot.prompts },
+      env: apiKey ? { [keyEnv]: apiKey } : {},
+      day: flags['--day'],
+      shadowOnly,
+      scope: flags['--scope'] ?? null,
+      show: flags['--show'] === true,
+      selfName: flags['--self-name'] ?? live.bot?.name ?? '',
+      usage,
+      log: {
+        info() {},
+        debug() {},
+        warn: (message, fields) => process.stderr.write(`${message} ${JSON.stringify(fields ?? {})}\n`),
+        error() {},
+      },
     });
     return `${[`copy: ${flags['--keep'] ? 'kept' : 'temporary'}, schema ok`, ...lines].join('\n')}\n`;
   } finally {
@@ -350,12 +508,17 @@ async function compareMain(argv) {
 /** Runs the tool; returns the text to print. */
 export async function main(argv) {
   if (argv[0] === 'compare') return compareMain(argv.slice(1));
-  const flags = parseFlags(argv, { values: ['--db', '--data', '--scope', '--limit', '--key-env', '--review', '--self-name', '--keep'], switches: ['--show'], usage: USAGE });
+  const flags = parseFlags(argv, {
+    values: ['--db', '--data', '--scope', '--limit', '--key-env', '--review', '--self-name', '--keep'],
+    switches: ['--show'],
+    usage: USAGE,
+  });
   if (flags._.length > 0 || !flags['--db']) throw new CliError(USAGE);
   const source = path.resolve(flags['--db']);
   if (!fs.existsSync(source)) throw new CliError(`memory-session: no database at ${source}`);
   const limit = flags['--limit'] === undefined ? undefined : Number(flags['--limit']);
-  if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) throw new CliError(`memory-session: --limit is a whole number above 0\n${USAGE}`);
+  if (limit !== undefined && (!Number.isInteger(limit) || limit < 1))
+    throw new CliError(`memory-session: --limit is a whole number above 0\n${USAGE}`);
   const keyEnv = flags['--key-env'] ?? 'OPENROUTER_SIM_KEY';
   if (!/^[A-Z][A-Z0-9_]*$/.test(keyEnv)) throw new CliError('memory-session: --key-env names an environment variable');
   const review = flags['--review'] ? parseSubject(flags['--review']) : null;
@@ -392,19 +555,46 @@ export async function main(argv) {
       llm: { ...(live.llm ?? {}), keyByRole: { ...(live.llm?.keyByRole ?? {}), memory: keyEnv } },
       memoryDb: {
         ...(live.memoryDb ?? {}),
-        session: { ...(live.memoryDb?.session ?? {}), mode: 'shadow', minMessages: 1, sweepsPerScopePerDay: 1_000_000, settleMinutes: 0, ...(limit ? { maxMessages: limit } : {}) },
+        session: {
+          ...(live.memoryDb?.session ?? {}),
+          mode: 'shadow',
+          minMessages: 1,
+          sweepsPerScopePerDay: 1_000_000,
+          settleMinutes: 0,
+          ...(limit ? { maxMessages: limit } : {}),
+        },
       },
     };
     const counters = { data: {}, markDirty() {} };
-    const client = createLlm({ apiKey, env: { [keyEnv]: apiKey }, getConfig: () => config, calibrator: createCalibrator(undefined), state: counters });
+    const client = createLlm({
+      apiKey,
+      env: { [keyEnv]: apiKey },
+      getConfig: () => config,
+      calibrator: createCalibrator(undefined),
+      state: counters,
+    });
     const usage = { requests: 0, prompt: 0, completion: 0 };
-    const complete = withBackoff(async (messages, options = {}) => {
-      const completion = await client.complete(messages, { ...options, origin: ORIGIN, countAgainstDailyCap: false, skipCalibration: true, cache: false });
-      usage.requests += 1;
-      usage.prompt += Number(completion?.usage?.prompt_tokens) || 0;
-      usage.completion += Number(completion?.usage?.completion_tokens) || 0;
-      return completion;
-    }, { onWait: (ms, attempt) => process.stderr.write(`memory-session: 429, waiting ${Math.round(ms / 1000)} s (try ${attempt} of ${TRIES})\n`) });
+    const complete = withBackoff(
+      async (messages, options = {}) => {
+        const completion = await client.complete(messages, {
+          ...options,
+          origin: ORIGIN,
+          countAgainstDailyCap: false,
+          skipCalibration: true,
+          cache: false,
+        });
+        usage.requests += 1;
+        usage.prompt += Number(completion?.usage?.prompt_tokens) || 0;
+        usage.completion += Number(completion?.usage?.completion_tokens) || 0;
+        return completion;
+      },
+      {
+        onWait: (ms, attempt) =>
+          process.stderr.write(
+            `memory-session: 429, waiting ${Math.round(ms / 1000)} s (try ${attempt} of ${TRIES})\n`
+          ),
+      }
+    );
     const ctx = {
       db: handle.db,
       write: async (update) => applyMemoryWrite(handle, update),
@@ -412,7 +602,12 @@ export async function main(argv) {
       hot: { config, prompts: hot.prompts },
       env: { [keyEnv]: apiKey },
       now: Date.now,
-      log: { info() {}, debug() {}, warn: (message, fields) => process.stderr.write(`${message} ${JSON.stringify(fields ?? {})}\n`), error() {} },
+      log: {
+        info() {},
+        debug() {},
+        warn: (message, fields) => process.stderr.write(`${message} ${JSON.stringify(fields ?? {})}\n`),
+        error() {},
+      },
       selfName: flags['--self-name'] ?? live.bot?.name ?? '',
     };
 
@@ -423,7 +618,10 @@ export async function main(argv) {
     for (const run of result.runs) {
       lines.push(`scope ${run.scope}: ${run.outcome}, ${run.lines} lines`);
       if (run.counts && run.plan) {
-        const dropped = Object.entries(run.counts.dropped ?? {}).map(([reason, n]) => `${reason} ${n}`).join(', ') || 'none';
+        const dropped =
+          Object.entries(run.counts.dropped ?? {})
+            .map(([reason, n]) => `${reason} ${n}`)
+            .join(', ') || 'none';
         lines.push(`  kept ${run.counts.kept}: ${opKinds(run.plan)}; dropped: ${dropped}`);
         if (show) lines.push(`  ${JSON.stringify(run.plan)}`);
       }
@@ -433,10 +631,15 @@ export async function main(argv) {
 
     if (review) {
       const reviewed = await reviewDescription(handle.db, review.subject, review.field, { ctx });
-      lines.push(`review ${review.subject.kind} ${review.field}: ${reviewed.status}${reviewed.code ? ` (${reviewed.code}${reviewed.step ? ` at ${reviewed.step}` : ''})` : ''}`);
+      lines.push(
+        `review ${review.subject.kind} ${review.field}: ${reviewed.status}${reviewed.code ? ` (${reviewed.code}${reviewed.step ? ` at ${reviewed.step}` : ''})` : ''}`
+      );
       if (reviewed.status === 'ok') {
-        lines.push(`  draft ${[...reviewed.draft].length} characters, final ${[...reviewed.final].length} characters, cap ${reviewed.row.extra.cap}${reviewed.row.extra.overCap ? ', over the cap' : ''}, kept ${reviewed.row.kept}, lost ${reviewed.row.removed}, gained ${reviewed.row.added}`);
-        if (show) lines.push(`  draft: ${reviewed.draft}`, `  final: ${reviewed.final}`, `  reason: ${reviewed.reason}`);
+        lines.push(
+          `  draft ${[...reviewed.draft].length} characters, final ${[...reviewed.final].length} characters, cap ${reviewed.row.extra.cap}${reviewed.row.extra.overCap ? ', over the cap' : ''}, kept ${reviewed.row.kept}, lost ${reviewed.row.removed}, gained ${reviewed.row.added}`
+        );
+        if (show)
+          lines.push(`  draft: ${reviewed.draft}`, `  final: ${reviewed.final}`, `  reason: ${reviewed.reason}`);
       }
       lines.push(`requests ${usage.requests}, tokens ${usage.prompt} prompt, ${usage.completion} completion`);
     }

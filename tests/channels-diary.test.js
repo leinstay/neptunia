@@ -28,7 +28,10 @@ test('renderChannel: does not mark other channels', () => {
 
 test('renderChannel: the diary mark is omitted when its label is missing', () => {
   const bare = { ...labels, server: { ...labels.server, diary: undefined } };
-  assert.equal(renderChannel(channel, bare, { activity: 'slow', diary: true }), renderChannel(channel, bare, { activity: 'slow' }));
+  assert.equal(
+    renderChannel(channel, bare, { activity: 'slow', diary: true }),
+    renderChannel(channel, bare, { activity: 'slow' })
+  );
 });
 
 function withStore(fn) {
@@ -52,7 +55,7 @@ const own = (channelId) => ({
   ts: Date.UTC(2026, 8, 20, 12),
 });
 
-test('touchMemory: the persona\'s lines count as a writer only in the diary channel', () => {
+test("touchMemory: the persona's lines count as a writer only in the diary channel", () => {
   withStore((store) => {
     touchMemory(store, 'g1', own('diary'), { diaryChannelId: 'diary' });
     touchMemory(store, 'g1', own('other'), { diaryChannelId: 'diary' });

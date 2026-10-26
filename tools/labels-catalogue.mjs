@@ -34,12 +34,16 @@ export async function main(argv, { root = ROOT } = {}) {
   if (flags['--write']) {
     const begin = docs.indexOf(TABLE_BEGIN);
     const end = docs.indexOf(TABLE_END);
-    if (begin === -1 || end === -1) throw new CliError('docs/prompt-contract.md has no generated codes table (the two markers)');
+    if (begin === -1 || end === -1)
+      throw new CliError('docs/prompt-contract.md has no generated codes table (the two markers)');
     docs = `${docs.slice(0, begin)}${renderCodesTable(CATALOGUE)}${docs.slice(end + TABLE_END.length)}`;
     fs.writeFileSync(docsPath, docs);
   }
   const problems = catalogueProblems({ catalogue: CATALOGUE, labels, docs });
-  if (problems.length > 0) throw new CliError(`${problems.length} mismatch(es) between the code catalogue, the labels and the contract:\n${problems.map((problem) => `- ${problem}`).join('\n')}`);
+  if (problems.length > 0)
+    throw new CliError(
+      `${problems.length} mismatch(es) between the code catalogue, the labels and the contract:\n${problems.map((problem) => `- ${problem}`).join('\n')}`
+    );
   return `ok: ${Object.keys(CATALOGUE).length} codes, labels and contract agree`;
 }
 

@@ -49,7 +49,8 @@ export function denied(message, code = CODE.OWNER_ONLY) {
 export function defineOp({ name, rights, run }) {
   if (typeof name !== 'string' || !name) throw new Error('an operation needs a name');
   if (registry.has(name)) throw new Error(`operation defined twice: ${name}`);
-  if (rights?.kind !== 'read' && rights?.kind !== 'write') throw new Error(`operation ${name} needs rights.kind read or write`);
+  if (rights?.kind !== 'read' && rights?.kind !== 'write')
+    throw new Error(`operation ${name} needs rights.kind read or write`);
   if (typeof run !== 'function') throw new Error(`operation ${name} needs a run function`);
   const op = Object.freeze({ name, rights: Object.freeze({ ...rights }), run });
   registry.set(name, op);

@@ -61,7 +61,15 @@ export const ITEM_ID_PREFIX = Object.freeze({
 });
 
 /** The events an entry may record. */
-export const ARCHIVE_EVENTS = Object.freeze(['evicted', 'expired', 'replaced', 'merged', 'set-aside', 'restored', 'backfill']);
+export const ARCHIVE_EVENTS = Object.freeze([
+  'evicted',
+  'expired',
+  'replaced',
+  'merged',
+  'set-aside',
+  'restored',
+  'backfill',
+]);
 
 /** The text fields of each kind: what `text` holds verbatim and the revision hashes. */
 const TEXT_FIELDS = Object.freeze({
@@ -181,9 +189,11 @@ function sourceRefsOf(value, given) {
 function participantsOf(value, text, scope, given) {
   const named = [];
   for (const field of Object.values(text)) if (typeof field === 'string') named.push(...tokenIds(field));
-  const teacher = typeof value.from === 'string' ? value.from.match(TEACHER_TOKEN_RE)?.[1] ?? null : null;
+  const teacher = typeof value.from === 'string' ? (value.from.match(TEACHER_TOKEN_RE)?.[1] ?? null) : null;
   const authors = Array.isArray(value.messages)
-    ? value.messages.filter((message) => isPlainObject(message) && message.self !== true).map((message) => message.authorId)
+    ? value.messages
+        .filter((message) => isPlainObject(message) && message.self !== true)
+        .map((message) => message.authorId)
     : [];
   return idList(scope?.user, given, Array.isArray(value.who) ? value.who : [], named, teacher, authors, value.userId);
 }
@@ -207,7 +217,21 @@ function participantsOf(value, text, scope, given) {
  * @returns {object}
  * @throws {TypeError} An unknown `itemKind` or `event`.
  */
-export function archiveEntry(item, { itemKind, event, scope = { guild: true }, origin = 'live', by = 'store', now = Date.now, sourceRefs, neutral = null, uuid = randomUUID, participants = [] } = {}) {
+export function archiveEntry(
+  item,
+  {
+    itemKind,
+    event,
+    scope = { guild: true },
+    origin = 'live',
+    by = 'store',
+    now = Date.now,
+    sourceRefs,
+    neutral = null,
+    uuid = randomUUID,
+    participants = [],
+  } = {}
+) {
   if (!TEXT_FIELDS[itemKind]) throw new TypeError(`archiveEntry: unknown item kind ${itemKind}`);
   if (!ARCHIVE_EVENTS.includes(event)) throw new TypeError(`archiveEntry: unknown event ${event}`);
   const value = itemValue(item);
@@ -301,7 +325,15 @@ function parse(line) {
  *   file at the first refusal. `stats` reads the pending count kept in memory (set by `queuePending` and
  *   `drainPending`; 0 before the first). Every method but `iterate`, `find` and `stats` runs one at a time.
  */
-export function createArchive({ appendStore, dataDir, log = defaultLog, now = Date.now, fs = nodeFs, writerGate = null, memoryDb = null }) {
+export function createArchive({
+  appendStore,
+  dataDir,
+  log = defaultLog,
+  now = Date.now,
+  fs = nodeFs,
+  writerGate = null,
+  memoryDb = null,
+}) {
   const root = memoryRootOf(dataDir);
   const seam = createReadSeam({ memoryDb, log, reader: 'archive' });
   const indexes = new Map(); // unit -> Set of keys
@@ -332,7 +364,10 @@ export function createArchive({ appendStore, dataDir, log = defaultLog, now = Da
   async function listDir(dir, { dirsOnly = false } = {}) {
     try {
       const entries = await fs.readdir(dir, { withFileTypes: true });
-      return entries.filter((entry) => !dirsOnly || entry.isDirectory()).map((entry) => entry.name).sort();
+      return entries
+        .filter((entry) => !dirsOnly || entry.isDirectory())
+        .map((entry) => entry.name)
+        .sort();
     } catch (error) {
       if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return [];
       throw error;
@@ -385,7 +420,8 @@ export function createArchive({ appendStore, dataDir, log = defaultLog, now = Da
   /** The month units' lines written through the database's writer. */
   async function appendNow(guildId, entries, privateUserId = null) {
     const db = seam.db();
-    if (typeof memoryDb?.writeUnit !== 'function') throw Object.assign(new Error('memory db: no writer'), { code: 'DB_CLOSED' });
+    if (typeof memoryDb?.writeUnit !== 'function')
+      throw Object.assign(new Error('memory db: no writer'), { code: 'DB_CLOSED' });
     const base = baseDir(guildId, privateUserId);
     const isPrivate = typeof privateUserId === 'string' && privateUserId;
     const months = new Map(); // owner -> { keys, lines, added }
@@ -397,7 +433,11 @@ export function createArchive({ appendStore, dataDir, log = defaultLog, now = Da
       const month = monthOf(entry);
       const owner = root.relative(segmentFile(base, month));
       let unit = months.get(owner);
-      if (!unit) months.set(owner, (unit = { keys: dbIndex(db, guildId, privateUserId, month, owner), lines: [], added: new Set() }));
+      if (!unit)
+        months.set(
+          owner,
+          (unit = { keys: dbIndex(db, guildId, privateUserId, month, owner), lines: [], added: new Set() })
+        );
       const key = keyOf(entry);
       if (key && (unit.keys.has(key) || unit.added.has(key))) {
         duplicates += 1;
@@ -518,7 +558,11 @@ export function createArchive({ appendStore, dataDir, log = defaultLog, now = Da
             await appendNow(guildId, [entry], privateUserId);
             await appendLine(doneFile(base), JSON.stringify({ id: entry.id }));
           } catch (error) {
-            log.warn('archive: drain stopped', { guildId: String(guildId), left: waiting.length - taken, code: error?.code ?? null });
+            log.warn('archive: drain stopped', {
+              guildId: String(guildId),
+              left: waiting.length - taken,
+              code: error?.code ?? null,
+            });
             break;
           }
           done.add(entry.id);

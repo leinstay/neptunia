@@ -108,7 +108,10 @@ export function buildSearchRequest({ query, count, model }) {
  */
 export function searchResults(json) {
   const annotations = json?.choices?.[0]?.message?.annotations;
-  return urlCitations(annotations).map((result) => ({ ...result, snippet: clampText(result.snippet, SNIPPET_CHARS, { tolerance: 1 }) }));
+  return urlCitations(annotations).map((result) => ({
+    ...result,
+    snippet: clampText(result.snippet, SNIPPET_CHARS, { tolerance: 1 }),
+  }));
 }
 
 /**

@@ -104,7 +104,12 @@ test('classifyAttachment: a voice-message flag wins over content type; without i
 // --- classifyEmbed -----------------------------------------------------------
 
 test('classifyEmbed: a tenor embed classifies as gif via its provider name', () => {
-  const embed = { url: 'https://tenor.com/view/x', provider: { name: 'Tenor' }, title: 'cat', thumbnail: { url: 'https://t.tenor.com/x.png' } };
+  const embed = {
+    url: 'https://tenor.com/view/x',
+    provider: { name: 'Tenor' },
+    title: 'cat',
+    thumbnail: { url: 'https://t.tenor.com/x.png' },
+  };
   const item = classifyEmbed(embed);
   assert.equal(item.kind, 'gif');
   assert.equal(item.site, 'Tenor');
@@ -136,25 +141,45 @@ test('classifyEmbed: a tenor gifv embed carries its video as animationUrl, the p
   const embed = {
     url: 'https://tenor.com/view/x',
     provider: { name: 'Tenor' },
-    thumbnail: { url: 'https://media.tenor.com/x/AAAAe/x.png', proxyURL: 'https://images-ext-1.discordapp.net/external/t/x.png' },
-    video: { url: 'https://media.tenor.com/x/AAAPo/x.mp4', proxyURL: 'https://images-ext-1.discordapp.net/external/v/x.mp4' },
+    thumbnail: {
+      url: 'https://media.tenor.com/x/AAAAe/x.png',
+      proxyURL: 'https://images-ext-1.discordapp.net/external/t/x.png',
+    },
+    video: {
+      url: 'https://media.tenor.com/x/AAAPo/x.mp4',
+      proxyURL: 'https://images-ext-1.discordapp.net/external/v/x.mp4',
+    },
   };
   assert.equal(classifyEmbed(embed).animationUrl, 'https://images-ext-1.discordapp.net/external/v/x.mp4');
   const bare = classifyEmbed({ ...embed, video: { url: 'https://media.tenor.com/x/AAAPo/x.mp4' } });
   assert.equal(bare.animationUrl, 'https://media.tenor.com/x/AAAPo/x.mp4');
-  assert.equal(bare.thumbnailUrl, 'https://images-ext-1.discordapp.net/external/t/x.png', 'the still thumbnail is unchanged');
+  assert.equal(
+    bare.thumbnailUrl,
+    'https://images-ext-1.discordapp.net/external/t/x.png',
+    'the still thumbnail is unchanged'
+  );
 });
 
 test('classifyEmbed: a direct .gif link on a GIF host is its own animation; a gif embed without either has none', () => {
-  const direct = classifyEmbed({ url: 'https://media.giphy.com/media/abc/giphy.GIF?cid=1', thumbnail: { url: 'https://media.giphy.com/media/abc/giphy.gif' } });
+  const direct = classifyEmbed({
+    url: 'https://media.giphy.com/media/abc/giphy.GIF?cid=1',
+    thumbnail: { url: 'https://media.giphy.com/media/abc/giphy.gif' },
+  });
   assert.equal(direct.kind, 'gif');
   assert.equal(direct.animationUrl, 'https://media.giphy.com/media/abc/giphy.GIF?cid=1');
-  const page = classifyEmbed({ url: 'https://tenor.com/view/x', provider: { name: 'Tenor' }, thumbnail: { url: 'https://t.tenor.com/x.png' } });
+  const page = classifyEmbed({
+    url: 'https://tenor.com/view/x',
+    provider: { name: 'Tenor' },
+    thumbnail: { url: 'https://t.tenor.com/x.png' },
+  });
   assert.equal('animationUrl' in page, false);
 });
 
 test('classifyEmbed: a link embed never carries animationUrl, even with a video or a .gif URL', () => {
-  const youtube = classifyEmbed({ url: 'https://www.youtube.com/watch?v=xyz', video: { url: 'https://www.youtube.com/embed/xyz' } });
+  const youtube = classifyEmbed({
+    url: 'https://www.youtube.com/watch?v=xyz',
+    video: { url: 'https://www.youtube.com/embed/xyz' },
+  });
   assert.equal('animationUrl' in youtube, false);
   const other = classifyEmbed({ url: 'https://example.com/a.gif', thumbnail: { url: 'https://example.com/a.gif' } });
   assert.equal(other.kind, 'link');
@@ -163,7 +188,12 @@ test('classifyEmbed: a link embed never carries animationUrl, even with a video 
 
 /** A pasted link to a file on the Discord CDN as Discord embeds it: an `image` embed whose thumbnail is the file itself. */
 function discordFileEmbed(url, { contentType = 'image/gif', proxyURL = url } = {}) {
-  return { type: 'image', url, thumbnail: { url, proxyURL, width: 498, height: 280 }, data: { type: 'image', thumbnail: { content_type: contentType } } };
+  return {
+    type: 'image',
+    url,
+    thumbnail: { url, proxyURL, width: 498, height: 280 },
+    data: { type: 'image', thumbnail: { content_type: contentType } },
+  };
 }
 
 test('classifyEmbed: a Discord-hosted .gif link is a gif: the proxy URL as the still, the file as the animation', () => {
@@ -174,7 +204,10 @@ test('classifyEmbed: a Discord-hosted .gif link is a gif: the proxy URL as the s
   assert.equal(item.thumbnailUrl, proxyURL);
   assert.equal(item.animationUrl, url);
   assert.equal(item.url, url);
-  const cdn = classifyEmbed({ url: 'https://cdn.discordapp.com/attachments/1/2/Dance.GIF', thumbnail: { url: 'https://cdn.discordapp.com/attachments/1/2/Dance.GIF' } });
+  const cdn = classifyEmbed({
+    url: 'https://cdn.discordapp.com/attachments/1/2/Dance.GIF',
+    thumbnail: { url: 'https://cdn.discordapp.com/attachments/1/2/Dance.GIF' },
+  });
   assert.equal(cdn.kind, 'gif', 'cdn.discordapp.com, an upper-case extension, no content type');
   assert.equal(cdn.animationUrl, 'https://cdn.discordapp.com/attachments/1/2/Dance.GIF');
 });
@@ -190,9 +223,21 @@ test('classifyEmbed: a Discord-hosted link whose thumbnail is image/gif is a gif
 
 test('classifyEmbed: any other Discord-hosted file, or a .gif elsewhere, stays a link', () => {
   const rows = [
-    { label: 'a .png on media.discordapp.net', embed: discordFileEmbed('https://media.discordapp.net/attachments/1/2/a.png', { contentType: 'image/png' }) },
-    { label: 'a .png on cdn.discordapp.com', embed: { url: 'https://cdn.discordapp.com/attachments/1/2/a.png', thumbnail: { url: 'https://cdn.discordapp.com/attachments/1/2/a.png' } } },
-    { label: 'a gif content type off Discord', embed: { url: 'https://example.com/a', thumbnail: { url: 'https://example.com/a', contentType: 'image/gif' } } },
+    {
+      label: 'a .png on media.discordapp.net',
+      embed: discordFileEmbed('https://media.discordapp.net/attachments/1/2/a.png', { contentType: 'image/png' }),
+    },
+    {
+      label: 'a .png on cdn.discordapp.com',
+      embed: {
+        url: 'https://cdn.discordapp.com/attachments/1/2/a.png',
+        thumbnail: { url: 'https://cdn.discordapp.com/attachments/1/2/a.png' },
+      },
+    },
+    {
+      label: 'a gif content type off Discord',
+      embed: { url: 'https://example.com/a', thumbnail: { url: 'https://example.com/a', contentType: 'image/gif' } },
+    },
     { label: 'a lookalike host', embed: { url: 'https://media.discordapp.net.example.com/a.gif' } },
   ];
   for (const { label, embed } of rows) {
@@ -208,8 +253,14 @@ function pickerEmbed(overrides = {}) {
     type: 'gifv',
     url: 'https://gifs.example.net/gifs/dancing-cat',
     provider: { name: 'Gifland' },
-    thumbnail: { url: 'https://static.gifs.example.net/x/still.webp', proxyURL: 'https://images-ext-1.discordapp.net/external/t/still.webp' },
-    video: { url: 'https://static.gifs.example.net/x/loop.mp4', proxyURL: 'https://images-ext-1.discordapp.net/external/v/loop.mp4' },
+    thumbnail: {
+      url: 'https://static.gifs.example.net/x/still.webp',
+      proxyURL: 'https://images-ext-1.discordapp.net/external/t/still.webp',
+    },
+    video: {
+      url: 'https://static.gifs.example.net/x/loop.mp4',
+      proxyURL: 'https://images-ext-1.discordapp.net/external/v/loop.mp4',
+    },
     ...overrides,
   };
 }
@@ -231,7 +282,10 @@ test('classifyEmbed: the embed type is read off a discord.js Embed too (its `dat
 });
 
 test('classifyEmbed: a klipy page is a gif by its host, with or without a type or a provider name', () => {
-  const bare = classifyEmbed({ url: 'https://klipy.com/gifs/dancing-cat', thumbnail: { url: 'https://static.klipy.com/x/still.webp' } });
+  const bare = classifyEmbed({
+    url: 'https://klipy.com/gifs/dancing-cat',
+    thumbnail: { url: 'https://static.klipy.com/x/still.webp' },
+  });
   assert.equal(bare.kind, 'gif');
   assert.equal(bare.url, 'https://klipy.com/gifs/dancing-cat');
   const picker = classifyEmbed(pickerEmbed({ url: 'https://klipy.com/gifs/dancing-cat', provider: { name: 'Klipy' } }));
@@ -241,10 +295,22 @@ test('classifyEmbed: a klipy page is a gif by its host, with or without a type o
 
 test('classifyEmbed: tenor and giphy stay gifs exactly as before; an embed of another type stays a link', () => {
   const rows = [
-    { label: 'tenor by provider', embed: { url: 'https://tenor.com/view/x', provider: { name: 'Tenor' } }, kind: 'gif' },
+    {
+      label: 'tenor by provider',
+      embed: { url: 'https://tenor.com/view/x', provider: { name: 'Tenor' } },
+      kind: 'gif',
+    },
     { label: 'giphy by host', embed: { url: 'https://giphy.com/gifs/x' }, kind: 'gif' },
-    { label: 'tenor gifv', embed: { type: 'gifv', url: 'https://tenor.com/view/x', provider: { name: 'Tenor' } }, kind: 'gif' },
-    { label: 'a rich page', embed: { type: 'rich', url: 'https://example.com/a', provider: { name: 'Example' } }, kind: 'link' },
+    {
+      label: 'tenor gifv',
+      embed: { type: 'gifv', url: 'https://tenor.com/view/x', provider: { name: 'Tenor' } },
+      kind: 'gif',
+    },
+    {
+      label: 'a rich page',
+      embed: { type: 'rich', url: 'https://example.com/a', provider: { name: 'Example' } },
+      kind: 'link',
+    },
     { label: 'an article', embed: { type: 'article', url: 'https://example.com/b' }, kind: 'link' },
   ];
   for (const { label, embed, kind } of rows) assert.equal(classifyEmbed(embed).kind, kind, label);
@@ -268,14 +334,29 @@ test('isGifHostUrl: tenor, giphy and klipy pages and their media hosts; nothing 
   ]) {
     assert.equal(isGifHostUrl(url), true, url);
   }
-  for (const url of ['https://example.com/klipy.com', 'https://notklipy.com/gifs/x', 'https://youtube.com/watch?v=1', 'not a url', undefined]) {
+  for (const url of [
+    'https://example.com/klipy.com',
+    'https://notklipy.com/gifs/x',
+    'https://youtube.com/watch?v=1',
+    'not a url',
+    undefined,
+  ]) {
     assert.equal(isGifHostUrl(url), false, String(url));
   }
 });
 
 test('collectReadableLinks: a gifv embed from any provider is never a page to read', () => {
-  const message = { id: 'm1', links: [{ id: 'm1#e0', ...classifyEmbed(pickerEmbed()) }, { id: 'm1#e1', ...classifyEmbed({ url: 'https://example.com/a' }) }] };
-  assert.deepEqual(collectReadableLinks(message).map((link) => link.id), ['m1#e1']);
+  const message = {
+    id: 'm1',
+    links: [
+      { id: 'm1#e0', ...classifyEmbed(pickerEmbed()) },
+      { id: 'm1#e1', ...classifyEmbed({ url: 'https://example.com/a' }) },
+    ],
+  };
+  assert.deepEqual(
+    collectReadableLinks(message).map((link) => link.id),
+    ['m1#e1']
+  );
 });
 
 test('classifyEmbed: title/description are truncated to embedTextChars', () => {
@@ -408,7 +489,10 @@ test('mediaLabelFor: a link thumbnail description appends thumbnailDescribed, th
 
 test('mediaLabelFor: image blind vs described', () => {
   assert.deepEqual(mediaLabelFor({ kind: 'image' }), { key: 'image', values: {} });
-  assert.deepEqual(mediaLabelFor({ kind: 'image' }, { description: 'a cat' }), { key: 'imageDescribed', values: { text: 'a cat' } });
+  assert.deepEqual(mediaLabelFor({ kind: 'image' }, { description: 'a cat' }), {
+    key: 'imageDescribed',
+    values: { text: 'a cat' },
+  });
 });
 
 test('mediaLabelFor: gif blind uses the name, described uses only the text', () => {
@@ -439,9 +523,15 @@ test('mediaLabelFor: voice/audio render their duration', () => {
 });
 
 test('mediaLabelFor: a missing duration never renders "0:00" -- falls back to unknownDuration (default "?")', () => {
-  assert.deepEqual(mediaLabelFor({ kind: 'video', name: 'clip.mp4' }), { key: 'video', values: { name: 'clip.mp4', duration: '?' } });
+  assert.deepEqual(mediaLabelFor({ kind: 'video', name: 'clip.mp4' }), {
+    key: 'video',
+    values: { name: 'clip.mp4', duration: '?' },
+  });
   assert.deepEqual(mediaLabelFor({ kind: 'voice' }), { key: 'voice', values: { duration: '?' } });
-  assert.deepEqual(mediaLabelFor({ kind: 'audio', name: 'song.mp3' }), { key: 'audio', values: { name: 'song.mp3', duration: '?' } });
+  assert.deepEqual(mediaLabelFor({ kind: 'audio', name: 'song.mp3' }), {
+    key: 'audio',
+    values: { name: 'song.mp3', duration: '?' },
+  });
 });
 
 test('mediaLabelFor: a missing duration uses the caller-supplied unknownDuration text', () => {
@@ -464,7 +554,10 @@ test('mediaLabelFor: a text attachment uses filePreview once fetched, else the p
 });
 
 test('mediaLabelFor: a link with description text uses linkText, else link', () => {
-  assert.deepEqual(mediaLabelFor({ kind: 'link', site: 's', title: 't' }), { key: 'link', values: { site: 's', title: 't' } });
+  assert.deepEqual(mediaLabelFor({ kind: 'link', site: 's', title: 't' }), {
+    key: 'link',
+    values: { site: 's', title: 't' },
+  });
   assert.deepEqual(mediaLabelFor({ kind: 'link', site: 's', title: 't', text: 'd' }), {
     key: 'linkText',
     values: { site: 's', title: 't', text: 'd' },
@@ -491,8 +584,14 @@ test('mediaLabelFor: a video watched only in part renders videoWatchedPart with 
   // Watched whole, an unknown total, or an old cache entry without watchedSeconds: the plain form.
   for (const [item, video] of [
     [long, { state: 'watched', text: 'a talk', watchedSeconds: 400 }],
-    [{ ...long, durationSec: 300.4 }, { state: 'watched', text: 'a talk', watchedSeconds: 300 }],
-    [{ ...long, durationSec: null }, { state: 'watched', text: 'a talk', watchedSeconds: 300 }],
+    [
+      { ...long, durationSec: 300.4 },
+      { state: 'watched', text: 'a talk', watchedSeconds: 300 },
+    ],
+    [
+      { ...long, durationSec: null },
+      { state: 'watched', text: 'a talk', watchedSeconds: 300 },
+    ],
     [long, { state: 'watched', text: 'a talk' }],
   ]) {
     assert.equal(mediaLabelFor(item, { video }).key, 'videoWatched');
@@ -540,12 +639,19 @@ test('mediaLabelFor: a watched link keeps its link tag, the one extra becomes li
 
 test('mediaLabelFor: a link watched only in part renders linkWatchedPart from the stored total; whole or old entries keep linkWatched', () => {
   const item = { kind: 'link', site: 's', title: 't', durationSec: null };
-  assert.deepEqual(mediaLabelFor(item, { video: { state: 'watched', text: 'a talk', watchedSeconds: 300, totalSeconds: 3289 } }).extra, {
-    key: 'linkWatchedPart',
-    values: { duration: '54:49', watched: '5:00', reason: 'clip', text: 'a talk' },
-  });
+  assert.deepEqual(
+    mediaLabelFor(item, { video: { state: 'watched', text: 'a talk', watchedSeconds: 300, totalSeconds: 3289 } }).extra,
+    {
+      key: 'linkWatchedPart',
+      values: { duration: '54:49', watched: '5:00', reason: 'clip', text: 'a talk' },
+    }
+  );
   // The item's own duration stands in when the state carries no total.
-  assert.equal(mediaLabelFor({ ...item, durationSec: 400 }, { video: { state: 'watched', text: 'a talk', watchedSeconds: 300 } }).extra.key, 'linkWatchedPart');
+  assert.equal(
+    mediaLabelFor({ ...item, durationSec: 400 }, { video: { state: 'watched', text: 'a talk', watchedSeconds: 300 } })
+      .extra.key,
+    'linkWatchedPart'
+  );
   for (const video of [
     { state: 'watched', text: 'a talk', watchedSeconds: 42, totalSeconds: 42 },
     { state: 'watched', text: 'a talk', watchedSeconds: 300 },
@@ -556,7 +662,10 @@ test('mediaLabelFor: a link watched only in part renders linkWatchedPart from th
 });
 
 test('watchedLengths: the finite watchedSeconds / totalSeconds of a cache entry, nothing for an old entry', () => {
-  assert.deepEqual(watchedLengths({ text: 'x', watched: true, watchedSeconds: 300, totalSeconds: 3289 }), { watchedSeconds: 300, totalSeconds: 3289 });
+  assert.deepEqual(watchedLengths({ text: 'x', watched: true, watchedSeconds: 300, totalSeconds: 3289 }), {
+    watchedSeconds: 300,
+    totalSeconds: 3289,
+  });
   assert.deepEqual(watchedLengths({ text: 'x', watched: true, watchedSeconds: 'long', totalSeconds: null }), {});
   assert.deepEqual(watchedLengths(undefined), {});
 });
@@ -582,7 +691,10 @@ test('mediaLabelFor: a link not watched without a caption renders linkNotWatched
 test('mediaLabelFor: other kinds ignore a video state', () => {
   const video = { state: 'watched', text: 'x' };
   assert.deepEqual(mediaLabelFor({ kind: 'image' }, { video }), { key: 'image', values: {} });
-  assert.deepEqual(mediaLabelFor({ kind: 'gif', name: 'cat.gif' }, { video }), { key: 'gif', values: { name: 'cat.gif' } });
+  assert.deepEqual(mediaLabelFor({ kind: 'gif', name: 'cat.gif' }, { video }), {
+    key: 'gif',
+    values: { name: 'cat.gif' },
+  });
   assert.deepEqual(mediaLabelFor({ kind: 'audio', name: 'a.mp3', durationSec: 5 }, { video }), {
     key: 'audio',
     values: { name: 'a.mp3', duration: '0:05' },
@@ -600,7 +712,13 @@ function videoMessage() {
       { id: 'a3', kind: 'gif', url: 'u3', name: 'a.gif', size: 5 },
     ],
     links: [
-      { id: 'link:aaaa', kind: 'link', url: 'https://www.youtube.com/watch?v=abc', site: 'YouTube', title: 'Cool video' },
+      {
+        id: 'link:aaaa',
+        kind: 'link',
+        url: 'https://www.youtube.com/watch?v=abc',
+        site: 'YouTube',
+        title: 'Cool video',
+      },
       { id: 'm1#e1', kind: 'link', url: 'https://example.com/page', site: 'example.com', title: 'A page' },
       { id: 'video:url:bbbb', kind: 'link', url: 'https://youtu.be/xyz', site: 'youtu.be', title: '' },
       { id: 'm1#e3', kind: 'gif', url: 'https://tenor.com/view/x', site: 'Tenor', title: 'cat' },
@@ -611,7 +729,16 @@ function videoMessage() {
 test('collectVideos: video attachments first, then links on a video site, in order', () => {
   const items = collectVideos(videoMessage(), { videoSites: ['youtube.com', 'youtu.be'] });
   assert.deepEqual(items, [
-    { source: 'attachment', messageId: 'm1', itemId: 'a2', kind: 'video', url: 'u2', name: 'ταξίδι.mp4', durationSec: 12, bytes: 2048 },
+    {
+      source: 'attachment',
+      messageId: 'm1',
+      itemId: 'a2',
+      kind: 'video',
+      url: 'u2',
+      name: 'ταξίδι.mp4',
+      durationSec: 12,
+      bytes: 2048,
+    },
     {
       source: 'link',
       messageId: 'm1',
@@ -636,8 +763,14 @@ test('collectVideos: video attachments first, then links on a video site, in ord
 });
 
 test('collectVideos: no sites (missing or empty) -> attachments only', () => {
-  assert.deepEqual(collectVideos(videoMessage()).map((item) => item.itemId), ['a2']);
-  assert.deepEqual(collectVideos(videoMessage(), { videoSites: [] }).map((item) => item.itemId), ['a2']);
+  assert.deepEqual(
+    collectVideos(videoMessage()).map((item) => item.itemId),
+    ['a2']
+  );
+  assert.deepEqual(
+    collectVideos(videoMessage(), { videoSites: [] }).map((item) => item.itemId),
+    ['a2']
+  );
 });
 
 // --- fitBox ------------------------------------------------------------------
@@ -676,7 +809,10 @@ test('collectPictures: picks image/gif/video attachments, skips audio/voice/text
     ],
   });
   const pictures = collectPictures(m);
-  assert.deepEqual(pictures.map((p) => p.itemId), ['a1', 'a2', 'a3']);
+  assert.deepEqual(
+    pictures.map((p) => p.itemId),
+    ['a1', 'a2', 'a3']
+  );
   assert.equal(pictures[2].durationSec, 5);
 });
 
@@ -689,20 +825,39 @@ test('collectPictures: includes any embed with a thumbnail, gif or link kind ali
     ],
   });
   const pictures = collectPictures(m);
-  assert.deepEqual(pictures.map((p) => p.itemId), ['m1#e0', 'm1#e1']);
+  assert.deepEqual(
+    pictures.map((p) => p.itemId),
+    ['m1#e0', 'm1#e1']
+  );
 });
 
 test('collectPictures: a gif embed passes its animationUrl on, its url stays the thumbnail; other items never get one', () => {
   const m = message('m1', {
     attachments: [{ id: 'a1', kind: 'gif', url: 'https://cdn.discordapp.com/attachments/1/2/a.gif', name: 'a.gif' }],
     links: [
-      { id: 'm1#e0', kind: 'gif', thumbnailUrl: 'https://t/x.png', animationUrl: 'https://t/x.mp4', title: 'cat', site: 'Tenor' },
+      {
+        id: 'm1#e0',
+        kind: 'gif',
+        thumbnailUrl: 'https://t/x.png',
+        animationUrl: 'https://t/x.mp4',
+        title: 'cat',
+        site: 'Tenor',
+      },
       { id: 'm1#e1', kind: 'gif', thumbnailUrl: 'https://t/y.png', title: 'dog', site: 'Tenor' },
     ],
-    forwarded: [{ links: [{ id: 'f1#e0', kind: 'gif', thumbnailUrl: 'https://t/z.png', animationUrl: 'https://t/z.mp4', site: 'Tenor' }] }],
+    forwarded: [
+      {
+        links: [
+          { id: 'f1#e0', kind: 'gif', thumbnailUrl: 'https://t/z.png', animationUrl: 'https://t/z.mp4', site: 'Tenor' },
+        ],
+      },
+    ],
   });
   const pictures = collectPictures(m);
-  assert.deepEqual(pictures.map((p) => p.itemId), ['a1', 'm1#e0', 'm1#e1', 'f1#e0']);
+  assert.deepEqual(
+    pictures.map((p) => p.itemId),
+    ['a1', 'm1#e0', 'm1#e1', 'f1#e0']
+  );
   assert.equal('animationUrl' in pictures[0], false, 'an attachment is its own file');
   assert.equal(pictures[1].url, 'https://t/x.png');
   assert.equal(pictures[1].animationUrl, 'https://t/x.mp4');
@@ -732,7 +887,11 @@ test('stickerUrl: a picture format sizes to media.discordapp.net/.../<id>.<ext>?
   const rows = [
     { label: 'PNG (format 1)', format: 1, expected: 'https://media.discordapp.net/stickers/123.png?size=160' },
     { label: 'APNG (format 2)', format: 2, expected: 'https://media.discordapp.net/stickers/123.png?size=160' },
-    { label: 'GIF (format 4), never cdn.discordapp.com', format: 4, expected: 'https://media.discordapp.net/stickers/123.gif?size=160' },
+    {
+      label: 'GIF (format 4), never cdn.discordapp.com',
+      format: 4,
+      expected: 'https://media.discordapp.net/stickers/123.gif?size=160',
+    },
     { label: 'Lottie (format 3) is never a picture', format: 3, expected: null },
     { label: 'a missing format is never a picture', format: undefined, expected: null },
     { label: 'an unknown format is never a picture', format: 99, expected: null },
@@ -795,7 +954,10 @@ test('collectPictures: a picture-format sticker is included, a Lottie one is not
     { id: 's2', name: 'dance', format: 3, url: null },
   ]);
   const pictures = collectPictures(m);
-  assert.deepEqual(pictures.map((p) => p.itemId), ['sticker:s1']);
+  assert.deepEqual(
+    pictures.map((p) => p.itemId),
+    ['sticker:s1']
+  );
   assert.equal(pictures[0].kind, 'sticker');
   assert.equal(pictures[0].source, 'sticker');
 });
@@ -808,10 +970,16 @@ test('collectEmojiItems: every distinct emoji of a message becomes a describable
     ],
   });
   const items = collectEmojiItems(m);
-  assert.deepEqual(items.map((i) => i.itemId), ['emoji:e1', 'emoji:e2']);
+  assert.deepEqual(
+    items.map((i) => i.itemId),
+    ['emoji:e1', 'emoji:e2']
+  );
   assert.ok(items.every((i) => i.source === 'emoji' && isDescribable(i)));
   // Never a picture: collectPictures ignores message.emojis entirely.
-  assert.deepEqual(collectPictures(m).map((p) => p.itemId), []);
+  assert.deepEqual(
+    collectPictures(m).map((p) => p.itemId),
+    []
+  );
 });
 
 // --- mediaLabelFor: a second look on a question (videoAnswered) -------------------
@@ -830,7 +998,10 @@ test('mediaLabelFor: a watched link with an answer -> linkWatched, then videoAns
   const item = { kind: 'link', site: 's', title: 't', thumbnailUrl: 'https://x/y.jpg' };
   const video = { state: 'watched', text: 'a talk', answer };
   const answered = { key: 'videoAnswered', values: { question: answer.question, text: answer.text } };
-  assert.deepEqual(mediaLabelFor(item, { video }).extra, [{ key: 'linkWatched', values: { text: 'a talk' } }, answered]);
+  assert.deepEqual(mediaLabelFor(item, { video }).extra, [
+    { key: 'linkWatched', values: { text: 'a talk' } },
+    answered,
+  ]);
 });
 
 test('mediaLabelFor: an answer on a state that is not watched is ignored', () => {
@@ -858,19 +1029,26 @@ test('mediaLabelFor: an answer on a video item is ignored (its answer lives in i
   assert.deepEqual(mediaLabelFor(clip, { answer }), { key: 'video', values: { name: 'clip.mp4', duration: '1:05' } });
 });
 
-test('mediaLabelFor: a GIF\'s second look appends videoAnswered after its tag, described or known alike', () => {
+test("mediaLabelFor: a GIF's second look appends videoAnswered after its tag, described or known alike", () => {
   const answered = { key: 'videoAnswered', values: { question: answer.question, text: answer.text } };
-  assert.deepEqual(mediaLabelFor({ kind: 'gif', name: 'a.gif' }, { answer }), { key: 'gif', values: { name: 'a.gif' }, extra: answered });
+  assert.deepEqual(mediaLabelFor({ kind: 'gif', name: 'a.gif' }, { answer }), {
+    key: 'gif',
+    values: { name: 'a.gif' },
+    extra: answered,
+  });
   assert.deepEqual(mediaLabelFor({ kind: 'gif', name: 'a.gif' }, { answer, description: 'un miroir' }), {
     key: 'gifDescribed',
     values: { text: 'un miroir' },
     extra: answered,
   });
-  assert.deepEqual(mediaLabelFor({ kind: 'gif', name: 'a.gif' }, { answer, description: 'un miroir', gifHandle: 'g3' }), {
-    key: 'gifKnown',
-    values: { id: 'g3', text: 'un miroir' },
-    extra: answered,
-  });
+  assert.deepEqual(
+    mediaLabelFor({ kind: 'gif', name: 'a.gif' }, { answer, description: 'un miroir', gifHandle: 'g3' }),
+    {
+      key: 'gifKnown',
+      values: { id: 'g3', text: 'un miroir' },
+      extra: answered,
+    }
+  );
 });
 
 // --- mediaLabelFor: a link read by the web lookup (linkRead) -----------------------
@@ -911,7 +1089,10 @@ test('mediaLabelFor: without a read the link renders exactly as before; other ki
     values: { site: 's', title: 't' },
     extra: { key: 'thumbnailDescribed', values: { text: 'thumb' } },
   });
-  assert.deepEqual(mediaLabelFor({ kind: 'gif', name: 'cat.gif' }, { read: 'x' }), { key: 'gif', values: { name: 'cat.gif' } });
+  assert.deepEqual(mediaLabelFor({ kind: 'gif', name: 'cat.gif' }, { read: 'x' }), {
+    key: 'gif',
+    values: { name: 'cat.gif' },
+  });
   assert.deepEqual(mediaLabelFor({ kind: 'image' }, { read: 'x' }), { key: 'image', values: {} });
 });
 
@@ -931,13 +1112,22 @@ test('collectReadableLinks: plain links in order, without gif embeds, video-site
   const items = collectReadableLinks(message, { videoSites: ['youtube.com'] });
   assert.deepEqual(
     items.map((item) => item.id),
-    ['m1#e0', 'm1#e4'],
+    ['m1#e0', 'm1#e4']
   );
-  assert.deepEqual(items[0], { id: 'm1#e0', messageId: 'm1', url: 'https://example.org/a', site: 'example.org', title: 'Á' });
+  assert.deepEqual(items[0], {
+    id: 'm1#e0',
+    messageId: 'm1',
+    url: 'https://example.org/a',
+    site: 'example.org',
+    title: 'Á',
+  });
 });
 
 test('collectReadableLinks: no sites keeps video-site links; no links -> []', () => {
-  const message = { id: 'm1', links: [{ id: 'v', kind: 'link', site: 'youtube.com', title: '', url: 'https://youtu.be/abc' }] };
+  const message = {
+    id: 'm1',
+    links: [{ id: 'v', kind: 'link', site: 'youtube.com', title: '', url: 'https://youtu.be/abc' }],
+  };
   assert.equal(collectReadableLinks(message).length, 1);
   assert.deepEqual(collectReadableLinks({ id: 'm2' }), []);
 });
@@ -950,7 +1140,16 @@ function forwardMessage() {
     id: 'outer',
     ts: 0,
     attachments: [{ id: 'own-a', kind: 'image', url: 'u-own', name: 'own.png' }],
-    links: [{ id: 'outer#e0', kind: 'link', url: 'https://example.org/own', site: 'example.org', title: 'Own', thumbnailUrl: null }],
+    links: [
+      {
+        id: 'outer#e0',
+        kind: 'link',
+        url: 'https://example.org/own',
+        site: 'example.org',
+        title: 'Own',
+        thumbnailUrl: null,
+      },
+    ],
     stickers: [],
     emojis: [{ id: 'e-own', name: 'own', url: 'https://cdn.discordapp.com/emojis/e-own.webp?size=96' }],
     forwarded: [
@@ -969,9 +1168,18 @@ function forwardMessage() {
             title: 'Forwarded video',
             thumbnailUrl: 'https://i.ytimg.com/vi/abc/hq.jpg',
           },
-          { id: 'fwd#e1', kind: 'link', url: 'https://news.example.com/story', site: 'news.example.com', title: 'Story', thumbnailUrl: null },
+          {
+            id: 'fwd#e1',
+            kind: 'link',
+            url: 'https://news.example.com/story',
+            site: 'news.example.com',
+            title: 'Story',
+            thumbnailUrl: null,
+          },
         ],
-        stickers: [{ id: 's-fwd', name: 'wave', format: 1, url: 'https://media.discordapp.net/stickers/s-fwd.png?size=160' }],
+        stickers: [
+          { id: 's-fwd', name: 'wave', format: 1, url: 'https://media.discordapp.net/stickers/s-fwd.png?size=160' },
+        ],
         emojis: [{ id: 'e-fwd1', name: 'fwd', url: 'https://cdn.discordapp.com/emojis/e-fwd1.webp?size=96' }],
       },
       {
@@ -985,11 +1193,11 @@ function forwardMessage() {
   };
 }
 
-test('collectPictures: forwarded snapshots follow the message\'s own pictures, in order, with the outer messageId', () => {
+test("collectPictures: forwarded snapshots follow the message's own pictures, in order, with the outer messageId", () => {
   const pictures = collectPictures(forwardMessage());
   assert.deepEqual(
     pictures.map((p) => p.itemId),
-    ['own-a', 'fwd-a1', 'video:url:yt1', 'sticker:s-fwd', 'fwd-a3'],
+    ['own-a', 'fwd-a1', 'video:url:yt1', 'sticker:s-fwd', 'fwd-a3']
   );
   assert.ok(pictures.every((p) => p.messageId === 'outer'));
   assert.deepEqual(pictures[2], {
@@ -1004,16 +1212,28 @@ test('collectPictures: forwarded snapshots follow the message\'s own pictures, i
   });
 });
 
-test('collectEmojiItems: a forwarded snapshot\'s custom emoji follow the message\'s own, with the outer messageId', () => {
+test("collectEmojiItems: a forwarded snapshot's custom emoji follow the message's own, with the outer messageId", () => {
   const items = collectEmojiItems(forwardMessage());
-  assert.deepEqual(items.map((i) => i.itemId), ['emoji:e-own', 'emoji:e-fwd1', 'emoji:e-fwd2']);
+  assert.deepEqual(
+    items.map((i) => i.itemId),
+    ['emoji:e-own', 'emoji:e-fwd1', 'emoji:e-fwd2']
+  );
   assert.ok(items.every((i) => i.messageId === 'outer' && i.source === 'emoji'));
 });
 
 test('collectVideos: a forwarded YouTube link is a candidate with its site set (the forwarded-video case)', () => {
   const items = collectVideos(forwardMessage(), { videoSites: ['youtube.com', 'youtu.be'] });
   assert.deepEqual(items, [
-    { source: 'attachment', messageId: 'outer', itemId: 'fwd-a1', kind: 'video', url: 'u-fwd1', name: 'clip.mp4', durationSec: 30, bytes: 4096 },
+    {
+      source: 'attachment',
+      messageId: 'outer',
+      itemId: 'fwd-a1',
+      kind: 'video',
+      url: 'u-fwd1',
+      name: 'clip.mp4',
+      durationSec: 30,
+      bytes: 4096,
+    },
     {
       source: 'link',
       messageId: 'outer',
@@ -1027,11 +1247,17 @@ test('collectVideos: a forwarded YouTube link is a candidate with its site set (
   ]);
 });
 
-test('collectReadableLinks: forwarded plain links follow the message\'s own, video-site links still excluded', () => {
+test("collectReadableLinks: forwarded plain links follow the message's own, video-site links still excluded", () => {
   const items = collectReadableLinks(forwardMessage(), { videoSites: ['youtube.com'] });
   assert.deepEqual(items, [
     { id: 'outer#e0', messageId: 'outer', url: 'https://example.org/own', site: 'example.org', title: 'Own' },
-    { id: 'fwd#e1', messageId: 'outer', url: 'https://news.example.com/story', site: 'news.example.com', title: 'Story' },
+    {
+      id: 'fwd#e1',
+      messageId: 'outer',
+      url: 'https://news.example.com/story',
+      site: 'news.example.com',
+      title: 'Story',
+    },
   ]);
 });
 
@@ -1086,17 +1312,26 @@ test('discordCdnVideo: a malformed path, protocol or URL is rejected', () => {
 
 test('lateVideoStates: known states kept, the first maxNew unknown candidates pending, the rest left out', () => {
   const candidates = [{ itemId: 'v1' }, { itemId: 'v2' }, { itemId: 'v3' }, { itemId: 'v4' }];
-  const known = new Map([['v2', { state: 'watched', text: 'ένα ποτάμι' }], ['zz', { state: 'error' }]]);
-  const states = lateVideoStates(candidates, known, 2);
-  assert.deepEqual([...states], [
-    ['v1', { state: 'pending' }],
+  const known = new Map([
     ['v2', { state: 'watched', text: 'ένα ποτάμι' }],
-    ['v3', { state: 'pending' }],
+    ['zz', { state: 'error' }],
   ]);
+  const states = lateVideoStates(candidates, known, 2);
+  assert.deepEqual(
+    [...states],
+    [
+      ['v1', { state: 'pending' }],
+      ['v2', { state: 'watched', text: 'ένα ποτάμι' }],
+      ['v3', { state: 'pending' }],
+    ]
+  );
 });
 
 test('lateVideoStates: no known states and no candidates', () => {
-  assert.deepEqual([...lateVideoStates([{ itemId: 'v1' }, { itemId: 'v2' }], undefined, 1)], [['v1', { state: 'pending' }]]);
+  assert.deepEqual(
+    [...lateVideoStates([{ itemId: 'v1' }, { itemId: 'v2' }], undefined, 1)],
+    [['v1', { state: 'pending' }]]
+  );
   assert.deepEqual([...lateVideoStates([], new Map(), 1)], []);
   assert.deepEqual([...lateVideoStates([{ itemId: 'v1' }], null, 0)], []);
 });
@@ -1106,7 +1341,13 @@ test('mediaLabelFor: a library GIF with a reaction or on-screen text -> gifKnown
   const all = { reaction: 'accord ferme', action: 'un chat lève le menton', screen: 'ναι' };
   assert.deepEqual(mediaLabelFor(gif, { gifHandle: 'g3', description: 'un chat lève le menton', gifFields: all }), {
     key: 'gifKnownFields',
-    values: { id: 'g3', text: 'un chat lève le menton', reaction: 'accord ferme', action: 'un chat lève le menton', screen: 'ναι' },
+    values: {
+      id: 'g3',
+      text: 'un chat lève le menton',
+      reaction: 'accord ferme',
+      action: 'un chat lève le menton',
+      screen: 'ναι',
+    },
   });
   assert.deepEqual(mediaLabelFor(gif, { gifHandle: 'g3', description: 'ναι', gifFields: { screen: 'ναι' } }).values, {
     id: 'g3',
@@ -1115,18 +1356,33 @@ test('mediaLabelFor: a library GIF with a reaction or on-screen text -> gifKnown
     action: '',
     screen: 'ναι',
   });
-  const reactionOnly = mediaLabelFor(gif, { gifHandle: 'g3', description: 'x', gifFields: { reaction: 'accord', action: '', screen: '' } });
+  const reactionOnly = mediaLabelFor(gif, {
+    gifHandle: 'g3',
+    description: 'x',
+    gifFields: { reaction: 'accord', action: '', screen: '' },
+  });
   assert.equal(reactionOnly.key, 'gifKnownFields');
 });
 
 test('mediaLabelFor: gifKnownFields needs a handle, a caption and a reaction or on-screen text', () => {
   const gif = { kind: 'gif', name: 'a.gif' };
   const all = { reaction: 'accord ferme', action: 'un chat lève le menton', screen: 'ναι' };
-  assert.deepEqual(mediaLabelFor(gif, { description: 'un chat', gifFields: all }), { key: 'gifDescribed', values: { text: 'un chat' } }, 'no handle: the caption alone');
-  assert.deepEqual(mediaLabelFor(gif, { gifHandle: 'g3', description: 'un chat', gifFields: { reaction: '', action: 'un chat', screen: '' } }), {
-    key: 'gifKnown',
-    values: { id: 'g3', text: 'un chat' },
-  });
+  assert.deepEqual(
+    mediaLabelFor(gif, { description: 'un chat', gifFields: all }),
+    { key: 'gifDescribed', values: { text: 'un chat' } },
+    'no handle: the caption alone'
+  );
+  assert.deepEqual(
+    mediaLabelFor(gif, {
+      gifHandle: 'g3',
+      description: 'un chat',
+      gifFields: { reaction: '', action: 'un chat', screen: '' },
+    }),
+    {
+      key: 'gifKnown',
+      values: { id: 'g3', text: 'un chat' },
+    }
+  );
   assert.equal(mediaLabelFor(gif, { gifHandle: 'g3', gifFields: all }).key, 'gifKnownNoText', 'no caption');
   assert.deepEqual(mediaLabelFor({ kind: 'image' }, { gifHandle: 'g3', gifFields: all }), { key: 'image', values: {} });
 });

@@ -76,7 +76,9 @@ export function fromRows(rows) {
   const obj = {};
   const versions = ordered(rows, 'description_versions');
   for (const [field, descriptionId] of Object.entries(has)) {
-    obj[field] = versions.filter((row) => row.description_id === descriptionId).map((row) => join(row, row.extra, SPEC));
+    obj[field] = versions
+      .filter((row) => row.description_id === descriptionId)
+      .map((row) => join(row, row.extra, SPEC));
   }
   return { ...rest, ...obj };
 }

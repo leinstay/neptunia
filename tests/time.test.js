@@ -62,7 +62,7 @@ test('countToday: the count stored for today, read without writing', () => {
   assert.deepEqual(state, { fooDay: '2026-09-21', fooCount: 7, other: 1 });
 });
 
-test('countToday: 0 for yesterday\'s stamp, and the stale pair is left as it was', () => {
+test("countToday: 0 for yesterday's stamp, and the stale pair is left as it was", () => {
   const state = { fooDay: '2026-09-20', fooCount: 7 };
   assert.equal(countToday(state, KEYS, NOON), 0);
   assert.deepEqual(state, { fooDay: '2026-09-20', fooCount: 7 }, 'only dailyCounter rolls the pair over');
@@ -71,11 +71,15 @@ test('countToday: 0 for yesterday\'s stamp, and the stale pair is left as it was
   assert.deepEqual(fresh, {}, 'a fresh state gets no stamp from a read');
 });
 
-test('countToday: a count that is not a finite number >= 0 reads as zero, by dailyCounter\'s rule', () => {
+test("countToday: a count that is not a finite number >= 0 reads as zero, by dailyCounter's rule", () => {
   for (const bad of [undefined, null, 'x', '7', NaN, Infinity, -3, {}]) {
     const state = { fooDay: '2026-09-21', fooCount: bad };
     assert.equal(countToday(state, KEYS, NOON), 0, `count ${String(bad)}`);
-    assert.equal(countToday(state, KEYS, NOON), dailyCounter({ ...state }, KEYS, NOON).count, `same as dailyCounter for ${String(bad)}`);
+    assert.equal(
+      countToday(state, KEYS, NOON),
+      dailyCounter({ ...state }, KEYS, NOON).count,
+      `same as dailyCounter for ${String(bad)}`
+    );
   }
 });
 

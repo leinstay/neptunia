@@ -7,7 +7,16 @@
 // printed. A fake fetch; no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSearchRequest, DEFAULT_COUNT, formatResults, parseSearchArgs, runWebSearch, searchResults, WEB_SEARCH_MODEL_ENV, webSearchModel } from '../src/web/web-search.js';
+import {
+  buildSearchRequest,
+  DEFAULT_COUNT,
+  formatResults,
+  parseSearchArgs,
+  runWebSearch,
+  searchResults,
+  WEB_SEARCH_MODEL_ENV,
+  webSearchModel,
+} from '../src/web/web-search.js';
 import { ROLE_DEFAULTS } from '../src/llm/roles.js';
 
 /** An answer of the chat-completions API carrying `annotations` on its first choice. */
@@ -38,7 +47,11 @@ test('parseSearchArgs: the words make the query, cleaned; --count, --count= and 
   assert.deepEqual(parseSearchArgs(['--count', '3', 'ελληνικά', 'νέα']), { query: 'ελληνικά νέα', count: 3 });
   assert.deepEqual(parseSearchArgs(['a', '--count=5']), { query: 'a', count: 5 });
   assert.deepEqual(parseSearchArgs(['-n', '2', 'b']), { query: 'b', count: 2 });
-  assert.deepEqual(parseSearchArgs(['line\none', '<tag>']), { query: 'line one tag', count: 8 }, 'one line, no angle brackets');
+  assert.deepEqual(
+    parseSearchArgs(['line\none', '<tag>']),
+    { query: 'line one tag', count: 8 },
+    'one line, no angle brackets'
+  );
   assert.deepEqual(parseSearchArgs(['--', '-not-an-option']), { query: '-not-an-option', count: 8 });
 });
 
@@ -63,23 +76,31 @@ test('buildSearchRequest: the query as the only message, the Exa web plugin with
   assert.equal(buildSearchRequest({ query: 'q', count: undefined, model: 'm' }).plugins[0].max_results, 8);
 });
 
-test('webSearchModel: the persona\'s own web.search model (analyzer for web-search), a byPurpose entry included', () => {
+test("webSearchModel: the persona's own web.search model (analyzer for web-search), a byPurpose entry included", () => {
   assert.equal(webSearchModel({}), ROLE_DEFAULTS.analyzer);
   assert.equal(webSearchModel({ models: { base: { analyzer: 'x/cheap' } } }), 'x/cheap');
-  assert.equal(webSearchModel({ models: { base: { analyzer: 'x/cheap' }, byPurpose: { 'web-search': 'x/other' } } }), 'x/other');
+  assert.equal(
+    webSearchModel({ models: { base: { analyzer: 'x/cheap' }, byPurpose: { 'web-search': 'x/other' } } }),
+    'x/other'
+  );
 });
 
 test('searchResults: the url_citation annotations, http(s) only, each url once, snippet one line and clamped', () => {
   const long = `${'word '.repeat(100)}end`;
-  const results = searchResults(answer([
-    cite('https://a.example/one', 'First\nTitle', 'Line one.\n\nLine two.'),
-    cite('https://a.example/one', 'Again', 'dup'),
-    cite('javascript:alert(1)', 'Bad', 'x'),
-    { type: 'file', file: {} },
-    cite('http://b.example/two', 'Second', long),
-    cite('https://c.example/three', undefined, undefined),
-  ]));
-  assert.deepEqual(results.map((r) => r.url), ['https://a.example/one', 'http://b.example/two', 'https://c.example/three']);
+  const results = searchResults(
+    answer([
+      cite('https://a.example/one', 'First\nTitle', 'Line one.\n\nLine two.'),
+      cite('https://a.example/one', 'Again', 'dup'),
+      cite('javascript:alert(1)', 'Bad', 'x'),
+      { type: 'file', file: {} },
+      cite('http://b.example/two', 'Second', long),
+      cite('https://c.example/three', undefined, undefined),
+    ])
+  );
+  assert.deepEqual(
+    results.map((r) => r.url),
+    ['https://a.example/one', 'http://b.example/two', 'https://c.example/three']
+  );
   assert.equal(results[0].title, 'First Title');
   assert.equal(results[0].snippet, 'Line one. Line two.');
   assert.ok(results[1].snippet.length <= 240 && results[1].snippet.length > 100, String(results[1].snippet.length));
@@ -107,12 +128,17 @@ test('runWebSearch: one POST to OpenRouter chat completions with the agent key, 
   assert.equal(calls[0].url, 'https://openrouter.ai/api/v1/chat/completions');
   assert.equal(calls[0].init.method, 'POST');
   assert.equal(calls[0].init.headers.Authorization, 'Bearer sk-or-agent-key');
-  assert.deepEqual(calls[0].body, { model: 'openai/small', messages: [{ role: 'user', content: 'olé meme' }], max_tokens: calls[0].body.max_tokens, plugins: [{ id: 'web', engine: 'exa', max_results: 4 }] });
+  assert.deepEqual(calls[0].body, {
+    model: 'openai/small',
+    messages: [{ role: 'user', content: 'olé meme' }],
+    max_tokens: calls[0].body.max_tokens,
+    plugins: [{ id: 'web', engine: 'exa', max_results: 4 }],
+  });
   assert.ok(calls[0].init.signal, 'a timeout signal');
   assert.ok(!out.stdout.includes('secret-free text'), 'the answer text is never printed');
 });
 
-test('runWebSearch: without a passed model, the lookup\'s default model', async () => {
+test("runWebSearch: without a passed model, the lookup's default model", async () => {
   const { fetchImpl, calls } = fakeFetch(answer([cite('https://a.example/one', 'First', 'One.')]));
   await runWebSearch({ argv: ['q'], env: { OPENROUTER_API_KEY: 'k' }, fetchImpl });
   assert.equal(calls[0].body.model, ROLE_DEFAULTS.analyzer);
@@ -149,6 +175,16 @@ test('runWebSearch: every failure is one web-search: <code> line on stderr, the 
     assert.deepEqual(out, { code: 1, stdout: '', stderr: `web-search: ${reason}\n` }, reason);
     assert.ok(!JSON.stringify(out).includes('sk-or-agent-key'), reason);
   }
-  const notJson = await runWebSearch({ argv: ['q'], env, fetchImpl: async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError('x'); } }) });
+  const notJson = await runWebSearch({
+    argv: ['q'],
+    env,
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => {
+        throw new SyntaxError('x');
+      },
+    }),
+  });
   assert.deepEqual(notJson, { code: 1, stdout: '', stderr: 'web-search: bad-answer\n' });
 });

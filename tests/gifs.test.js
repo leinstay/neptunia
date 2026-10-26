@@ -8,7 +8,15 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { collectGifItems, findGif, markOwnGif, mergeGifs, normalizeGifs, rankGifs, resetGifCounts } from '../src/memory/gifs.js';
+import {
+  collectGifItems,
+  findGif,
+  markOwnGif,
+  mergeGifs,
+  normalizeGifs,
+  rankGifs,
+  resetGifCounts,
+} from '../src/memory/gifs.js';
 import { createStore } from '../src/memory/store.js';
 import { createMemoryUpdater } from '../src/memory/update.js';
 import { parseOutput } from '../src/llm/parse.js';
@@ -32,7 +40,14 @@ function gifLink(id, url = TENOR, title = 'Chat qui danse') {
 }
 
 function gifAttachment(id, name = 'réaction.gif') {
-  return { id, kind: 'gif', name, url: `https://cdn.discordapp.com/attachments/c1/${id}/${name}?ex=1`, size: 10, durationSec: null };
+  return {
+    id,
+    kind: 'gif',
+    name,
+    url: `https://cdn.discordapp.com/attachments/c1/${id}/${name}?ex=1`,
+    size: 10,
+    durationSec: null,
+  };
 }
 
 function msg(overrides = {}) {
@@ -72,32 +87,72 @@ function withStore(fn) {
 
 // --- pure collection ---------------------------------------------------------
 
-test('collectGifItems: gif embeds and gif attachments, the message\'s own then its forwards', () => {
+test("collectGifItems: gif embeds and gif attachments, the message's own then its forwards", () => {
   const items = collectGifItems(
     msg({
       id: 'm7',
       channelId: 'c3',
       attachments: [gifAttachment('a1'), { id: 'a2', kind: 'image', name: 'p.png', url: 'https://cdn/p.png' }],
-      links: [gifLink('m7#e0'), { id: 'link:1', kind: 'link', site: 'example.org', title: 'Page', url: 'https://example.org' }],
-      forwarded: [{ content: '', attachments: [gifAttachment('fa1', 'ωμέγα.gif')], links: [gifLink('fwd#e0', GIPHY, '')] }],
-    }),
+      links: [
+        gifLink('m7#e0'),
+        { id: 'link:1', kind: 'link', site: 'example.org', title: 'Page', url: 'https://example.org' },
+      ],
+      forwarded: [
+        { content: '', attachments: [gifAttachment('fa1', 'ωμέγα.gif')], links: [gifLink('fwd#e0', GIPHY, '')] },
+      ],
+    })
   );
   assert.deepEqual(items, [
-    { key: 'a1', kind: 'attachment', url: gifAttachment('a1').url, name: 'réaction.gif', itemId: 'a1', messageId: 'm7', channelId: 'c3' },
-    { key: 'm7#e0', kind: 'link', url: TENOR, site: 'Tenor', name: 'Chat qui danse', itemId: 'm7#e0', messageId: 'm7', channelId: 'c3' },
-    { key: 'fa1', kind: 'attachment', url: gifAttachment('fa1', 'ωμέγα.gif').url, name: 'ωμέγα.gif', itemId: 'fa1', messageId: 'm7', channelId: 'c3' },
+    {
+      key: 'a1',
+      kind: 'attachment',
+      url: gifAttachment('a1').url,
+      name: 'réaction.gif',
+      itemId: 'a1',
+      messageId: 'm7',
+      channelId: 'c3',
+    },
+    {
+      key: 'm7#e0',
+      kind: 'link',
+      url: TENOR,
+      site: 'Tenor',
+      name: 'Chat qui danse',
+      itemId: 'm7#e0',
+      messageId: 'm7',
+      channelId: 'c3',
+    },
+    {
+      key: 'fa1',
+      kind: 'attachment',
+      url: gifAttachment('fa1', 'ωμέγα.gif').url,
+      name: 'ωμέγα.gif',
+      itemId: 'fa1',
+      messageId: 'm7',
+      channelId: 'c3',
+    },
     { key: 'fwd#e0', kind: 'link', url: GIPHY, site: 'Tenor', itemId: 'fwd#e0', messageId: 'm7', channelId: 'c3' },
   ]);
 });
 
 test('collectGifItems: a gif embed of a Discord CDN link is not a library item (its signed URL expires)', () => {
   const cdn = 'https://cdn.discordapp.com/attachments/1/2/loop.gif?ex=1&is=2&hm=3';
-  const items = collectGifItems(msg({ links: [gifLink('m1#e0', cdn), gifLink('m1#e1', 'https://klipy.com/gifs/dancing-cat')] }));
-  assert.deepEqual(items.map((item) => item.url), ['https://klipy.com/gifs/dancing-cat']);
+  const items = collectGifItems(
+    msg({ links: [gifLink('m1#e0', cdn), gifLink('m1#e1', 'https://klipy.com/gifs/dancing-cat')] })
+  );
+  assert.deepEqual(
+    items.map((item) => item.url),
+    ['https://klipy.com/gifs/dancing-cat']
+  );
 });
 
 test('collectGifItems: items without a url or an id are skipped; no message -> []', () => {
-  assert.deepEqual(collectGifItems(msg({ links: [{ ...gifLink('e0'), url: null }], attachments: [{ ...gifAttachment('a1'), id: null }] })), []);
+  assert.deepEqual(
+    collectGifItems(
+      msg({ links: [{ ...gifLink('e0'), url: null }], attachments: [{ ...gifAttachment('a1'), id: null }] })
+    ),
+    []
+  );
   assert.deepEqual(collectGifItems(null), []);
 });
 
@@ -153,7 +208,10 @@ test('mergeGifs: past storeMax the lowest-ranked are evicted and their handles n
     msg({ id: 'm2', ts: T0 + DAY, attachments: [gifAttachment('a2')] }),
     msg({ id: 'm3', ts: T0 + DAY, attachments: [gifAttachment('a2')] }),
   ]).gifs;
-  gifs = mergeGifs(gifs, [msg({ id: 'm4', ts: T0 + 2 * DAY, attachments: [gifAttachment('a3')] })], { storeMax: 2, halfLifeDays: 30 }).gifs;
+  gifs = mergeGifs(gifs, [msg({ id: 'm4', ts: T0 + 2 * DAY, attachments: [gifAttachment('a3')] })], {
+    storeMax: 2,
+    halfLifeDays: 30,
+  }).gifs;
   assert.deepEqual(Object.keys(gifs.entries).sort(), ['a2', 'a3']);
   gifs = mergeGifs(gifs, [msg({ id: 'm5', ts: T0 + 3 * DAY, attachments: [gifAttachment('a4')] })]).gifs;
   assert.equal(gifs.entries.a4.id, 'g4');
@@ -165,8 +223,14 @@ test('rankGifs: count and recency, best first; findGif by handle', () => {
     msg({ id: 'm2', ts: T0, attachments: [gifAttachment('a1')] }),
     msg({ id: 'm3', ts: T0 + DAY, links: [gifLink('m3#e0')] }),
   ]);
-  assert.deepEqual(rankGifs(gifs, 30).map((entry) => entry.key), ['a1', 'm3#e0']);
-  assert.deepEqual(rankGifs(gifs, 0.01).map((entry) => entry.key), ['m3#e0', 'a1']);
+  assert.deepEqual(
+    rankGifs(gifs, 30).map((entry) => entry.key),
+    ['a1', 'm3#e0']
+  );
+  assert.deepEqual(
+    rankGifs(gifs, 0.01).map((entry) => entry.key),
+    ['m3#e0', 'a1']
+  );
   assert.equal('weight' in rankGifs(gifs, 30)[0], false);
   assert.equal(findGif(gifs, 'G2').key, 'm3#e0');
   assert.equal(findGif(gifs, 'g99'), null);
@@ -180,7 +244,10 @@ test('resetGifCounts: every entry kept with count 0, handles, last and nextId un
   ]);
   const reset = resetGifCounts({ ...gifs, backfill: { at: '2026-09-30T00:00:00.000Z', channels: 1, messages: 2 } });
   assert.deepEqual(Object.keys(reset.entries), ['a1', 'm2#e0']);
-  assert.deepEqual(Object.values(reset.entries).map((entry) => entry.count), [0, 0]);
+  assert.deepEqual(
+    Object.values(reset.entries).map((entry) => entry.count),
+    [0, 0]
+  );
   assert.equal(reset.entries.a1.id, 'g1');
   assert.equal(reset.entries['m2#e0'].id, 'g2');
   assert.equal(reset.entries['m2#e0'].last, T0 + DAY);
@@ -195,7 +262,9 @@ test('mergeGifs: a reset entry seen again keeps its handle and counts afresh', (
     msg({ id: 'm1', ts: T0, attachments: [gifAttachment('a1')] }),
     msg({ id: 'm2', ts: T0, attachments: [gifAttachment('a1')] }),
   ]).gifs;
-  const { gifs, counted } = mergeGifs(resetGifCounts(first), [msg({ id: 'm7', channelId: 'c2', ts: T0 + DAY, attachments: [gifAttachment('a1')] })]);
+  const { gifs, counted } = mergeGifs(resetGifCounts(first), [
+    msg({ id: 'm7', channelId: 'c2', ts: T0 + DAY, attachments: [gifAttachment('a1')] }),
+  ]);
   assert.equal(counted, 1);
   assert.equal(gifs.entries.a1.id, 'g1');
   assert.equal(gifs.entries.a1.count, 1);
@@ -217,20 +286,37 @@ test('mergeGifs: a reset link entry is matched by url under a new embed id and k
 
 test('rankGifs: a GIF posted once yesterday outranks one posted seven times three years ago', () => {
   const now = T0 + 3 * 365 * DAY;
-  const oldPosts = Array.from({ length: 7 }, (_, i) => msg({ id: `o${i}`, ts: T0 + i * DAY, attachments: [gifAttachment('old')] }));
-  const { gifs } = mergeGifs(undefined, [...oldPosts, msg({ id: 'n1', ts: now - DAY, attachments: [gifAttachment('new')] })]);
+  const oldPosts = Array.from({ length: 7 }, (_, i) =>
+    msg({ id: `o${i}`, ts: T0 + i * DAY, attachments: [gifAttachment('old')] })
+  );
+  const { gifs } = mergeGifs(undefined, [
+    ...oldPosts,
+    msg({ id: 'n1', ts: now - DAY, attachments: [gifAttachment('new')] }),
+  ]);
   assert.equal(gifs.entries.old.count, 7);
   assert.equal(gifs.entries.new.count, 1);
-  assert.deepEqual(rankGifs(gifs, 30).map((entry) => entry.key), ['new', 'old']);
+  assert.deepEqual(
+    rankGifs(gifs, 30).map((entry) => entry.key),
+    ['new', 'old']
+  );
 });
 
 test('rankGifs: a zero count ranks below any positive count, however recent', () => {
   const old = mergeGifs(undefined, [msg({ id: 'm1', ts: T0, attachments: [gifAttachment('a1')] })]).gifs;
   const recent = mergeGifs(old, [msg({ id: 'm2', ts: T0 + 400 * DAY, attachments: [gifAttachment('a2')] })]).gifs;
   const library = { ...recent, entries: { ...recent.entries, a2: { ...recent.entries.a2, count: 0 } } };
-  assert.deepEqual(rankGifs(library, 30).map((entry) => entry.key), ['a1', 'a2']);
-  assert.deepEqual(rankGifs(library, 0.01).map((entry) => entry.key), ['a1', 'a2']);
-  assert.deepEqual(rankGifs(library).map((entry) => entry.key), ['a1', 'a2']);
+  assert.deepEqual(
+    rankGifs(library, 30).map((entry) => entry.key),
+    ['a1', 'a2']
+  );
+  assert.deepEqual(
+    rankGifs(library, 0.01).map((entry) => entry.key),
+    ['a1', 'a2']
+  );
+  assert.deepEqual(
+    rankGifs(library).map((entry) => entry.key),
+    ['a1', 'a2']
+  );
 });
 
 test('mergeGifs: past storeMax zero-count entries are evicted first, handles never reused', () => {
@@ -244,9 +330,13 @@ test('mergeGifs: past storeMax zero-count entries are evicted first, handles nev
       msg({ id: 'm3', ts: T0, attachments: [gifAttachment('a3')] }),
       msg({ id: 'm4', ts: T0 + DAY, attachments: [gifAttachment('a1')] }),
     ],
-    { storeMax: 2, halfLifeDays: 30 },
+    { storeMax: 2, halfLifeDays: 30 }
   );
-  assert.deepEqual(Object.keys(gifs.entries).sort(), ['a1', 'a3'], 'the zero-count a2 goes, though its last is the newest');
+  assert.deepEqual(
+    Object.keys(gifs.entries).sort(),
+    ['a1', 'a3'],
+    'the zero-count a2 goes, though its last is the newest'
+  );
   assert.equal(gifs.entries.a1.id, 'g1');
   assert.equal(gifs.entries.a3.id, 'g3');
   const again = mergeGifs(gifs, [msg({ id: 'm5', ts: T0 + 7 * DAY, attachments: [gifAttachment('a2')] })]).gifs;
@@ -322,7 +412,7 @@ test('markOwnGif: stamps ownLast and counts ownUses on the entry; an unknown key
   assert.equal(once.marked, true);
   assert.equal(once.gifs.entries['m1#e0'].ownLast, T0 + DAY);
   assert.equal(once.gifs.entries['m1#e0'].ownUses, 1);
-  assert.equal(once.gifs.entries['m1#e0'].count, 1, 'the members\' count is not touched');
+  assert.equal(once.gifs.entries['m1#e0'].count, 1, "the members' count is not touched");
   assert.equal('ownLast' in gifs.entries['m1#e0'], false);
   const twice = markOwnGif(once.gifs, 'm1#e0', T0 + 2 * DAY);
   assert.equal(twice.gifs.entries['m1#e0'].ownLast, T0 + 2 * DAY);
@@ -332,7 +422,7 @@ test('markOwnGif: stamps ownLast and counts ownUses on the entry; an unknown key
   assert.deepEqual(unknown.gifs, normalizeGifs(gifs));
 });
 
-test('normalizeGifs: ownLast/ownUses survive a member\'s use and a recount; bad values are dropped', () => {
+test("normalizeGifs: ownLast/ownUses survive a member's use and a recount; bad values are dropped", () => {
   const { gifs } = mergeGifs(null, [msg({ links: [gifLink('m1#e0')] })]);
   const marked = markOwnGif(gifs, 'm1#e0', T0 + DAY).gifs;
   const again = mergeGifs(marked, [msg({ id: 'm2', ts: T0 + 2 * DAY, links: [gifLink('m2#e0')] })]).gifs;
@@ -342,10 +432,14 @@ test('normalizeGifs: ownLast/ownUses survive a member\'s use and a recount; bad 
   const reset = resetGifCounts(again);
   assert.equal(reset.entries['m1#e0'].ownLast, T0 + DAY);
   assert.equal(reset.entries['m1#e0'].ownUses, 1);
-  const broken = normalizeGifs({ entries: { a: { kind: 'link', url: TENOR, count: 1, last: T0, ownLast: 'x', ownUses: -3 } } });
+  const broken = normalizeGifs({
+    entries: { a: { kind: 'link', url: TENOR, count: 1, last: T0, ownLast: 'x', ownUses: -3 } },
+  });
   assert.equal('ownLast' in broken.entries.a, false);
   assert.equal('ownUses' in broken.entries.a, false);
-  const fractional = normalizeGifs({ entries: { a: { kind: 'link', url: TENOR, count: 1, last: T0, ownLast: T0, ownUses: 2.7 } } });
+  const fractional = normalizeGifs({
+    entries: { a: { kind: 'link', url: TENOR, count: 1, last: T0, ownLast: T0, ownUses: 2.7 } },
+  });
   assert.equal(fractional.entries.a.ownUses, 2);
 });
 
@@ -379,7 +473,7 @@ function hotFor(features = {}, gifs = undefined) {
   };
 }
 
-test('observe: a member\'s gif joins the library with its url', async () => {
+test("observe: a member's gif joins the library with its url", async () => {
   await withStore(async (store) => {
     const updater = createMemoryUpdater({ hot: hotFor(), store });
     const { logs } = await withCapturedLogs(() => updater.observe('g1', msg({ links: [gifLink('m1#e0')] })));
@@ -453,7 +547,19 @@ function rawMessage(id, { attachments = new Map(), messageSnapshots } = {}) {
 }
 
 function trigger(raw) {
-  return { id: raw.id, channelId: 'c1', authorId: 'u1', authorName: 'Zoé', self: false, bot: false, content: 'hey', ts: raw.createdTimestamp, replyToId: null, attachments: [], stickers: [] };
+  return {
+    id: raw.id,
+    channelId: 'c1',
+    authorId: 'u1',
+    authorName: 'Zoé',
+    self: false,
+    bot: false,
+    content: 'hey',
+    ts: raw.createdTimestamp,
+    replyToId: null,
+    attachments: [],
+    stickers: [],
+  };
 }
 
 function fakeChannel({ id = 'c1', historyMessages = [], fetchFails = false } = {}) {
@@ -535,7 +641,15 @@ function seedLibrary(store) {
   ]);
 }
 
-async function runGifTurn({ output, features = {}, config = {}, clientChannels = {}, channelOpts = {}, prepare, triggerKind = 'mention' } = {}) {
+async function runGifTurn({
+  output,
+  features = {},
+  config = {},
+  clientChannels = {},
+  channelOpts = {},
+  prepare,
+  triggerKind = 'mention',
+} = {}) {
   return withStore(async (store) => {
     seedLibrary(store);
     if (prepare) prepare(store);
@@ -550,8 +664,19 @@ async function runGifTurn({ output, features = {}, config = {}, clientChannels =
         },
       },
     };
-    const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot(features, config), store, llm: fakeLlm(output), calibrator: calibrator(), client, now: () => NOW });
-    const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: trigger(raw), triggerKind }));
+    const turns = createTurnRunner({
+      discord: DISCORD,
+      createPort: createDiscordAdapter,
+      hot: fakeHot(features, config),
+      store,
+      llm: fakeLlm(output),
+      calibrator: calibrator(),
+      client,
+      now: () => NOW,
+    });
+    const { result, logs } = await withCapturedLogs(() =>
+      turns.runTurn({ channel, mode: 'reply', trigger: trigger(raw), triggerKind })
+    );
     return { result, logs, channel, state: store.state.data, gifs: store.getGifs('g1') };
   });
 }
@@ -572,7 +697,7 @@ test('turn <gif>: a sent gif stamps ownLast and ownUses on its library entry', a
   const { gifs } = await runGifTurn({ output: '<msg>ha</msg><gif>g1</gif>' });
   assert.equal(gifs.entries['m-old#e0'].ownLast, NOW);
   assert.equal(gifs.entries['m-old#e0'].ownUses, 1);
-  assert.equal(gifs.entries['m-old#e0'].count, 1, 'the members\' count is not touched');
+  assert.equal(gifs.entries['m-old#e0'].count, 1, "the members' count is not touched");
   assert.equal('ownLast' in gifs.entries.att1, false);
 });
 
@@ -618,7 +743,10 @@ test('turn <gif>: a failed re-fetch falls back to the stored url', async () => {
 test('turn <gif>: an unknown handle is dropped and logged without a url', async () => {
   const { result, channel, logs } = await runGifTurn({ output: '<msg>ok</msg><gif>g99</gif>' });
   assert.equal(result.outcome, 'spoke');
-  assert.deepEqual(channel.sent.map((p) => p.content), ['ok']);
+  assert.deepEqual(
+    channel.sent.map((p) => p.content),
+    ['ok']
+  );
   const line = logs.find((l) => l.msg === 'turn: gif dropped');
   assert.equal(line.reason, 'unknown');
   const alone = await runGifTurn({ output: '<gif>g99</gif>' });
@@ -654,7 +782,10 @@ test('turn <gif>: gifs.maxPerDay spent today drops it; a new day starts over', a
 });
 
 test('turn <gif>: dry-run logs the handle and url, sends nothing, counts nothing', async () => {
-  const { result, channel, logs, state } = await runGifTurn({ output: '<gif reply="#1">g1</gif>', features: { dryRun: true } });
+  const { result, channel, logs, state } = await runGifTurn({
+    output: '<gif reply="#1">g1</gif>',
+    features: { dryRun: true },
+  });
   assert.equal(result.dryRun, true);
   assert.equal(channel.sent.length, 0);
   const line = logs.find((l) => l.msg === 'dry-run: would send gif');
@@ -684,9 +815,27 @@ test('turn request: the library reaches the prompt as <gifs> with cached caption
           return { text: '<skip/>', usage: {}, estimated: 10 };
         },
       };
-      const client = { user: { id: 'self-id', username: 'Bot' }, channels: { fetch: async () => { throw new Error('Unknown Channel'); } } };
-      const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot(features), store, llm, calibrator: calibrator(), client, now: () => NOW });
-      await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: trigger(raw), triggerKind: 'mention' }));
+      const client = {
+        user: { id: 'self-id', username: 'Bot' },
+        channels: {
+          fetch: async () => {
+            throw new Error('Unknown Channel');
+          },
+        },
+      };
+      const turns = createTurnRunner({
+        discord: DISCORD,
+        createPort: createDiscordAdapter,
+        hot: fakeHot(features),
+        store,
+        llm,
+        calibrator: calibrator(),
+        client,
+        now: () => NOW,
+      });
+      await withCapturedLogs(() =>
+        turns.runTurn({ channel, mode: 'reply', trigger: trigger(raw), triggerKind: 'mention' })
+      );
       return userText(seen[0][1].content);
     });
   }

@@ -25,7 +25,12 @@
 import { createHash } from 'node:crypto';
 
 const sha256 = (text) => createHash('sha256').update(text).digest('hex');
-const iso = (value) => (Number.isFinite(value) ? new Date(value).toISOString() : typeof value === 'string' && value ? value : new Date().toISOString());
+const iso = (value) =>
+  Number.isFinite(value)
+    ? new Date(value).toISOString()
+    : typeof value === 'string' && value
+      ? value
+      : new Date().toISOString();
 const parse = (text, fallback) => {
   try {
     return text ? JSON.parse(text) : fallback;
@@ -38,7 +43,11 @@ const sorted = (values) => [...new Set(values)].sort();
 /** JSON with the keys of every object sorted: the one serialisation a hash is taken of. */
 export function canonicalJson(value) {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  if (value && typeof value === 'object') return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;
+  if (value && typeof value === 'object')
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+      .join(',')}}`;
   if (typeof value === 'function') return JSON.stringify(String(value));
   return JSON.stringify(value === undefined ? null : value);
 }
@@ -57,8 +66,14 @@ export function manifestOf(definition, nested = []) {
   const params = Object.keys(definition.params?.properties ?? {});
   const manifest = {
     tools: [definition.name, ...nested],
-    destinations: definition.effects === 'read' && nested.length === 0 ? [] : ['current', ...(refs.includes('channel') ? ['other-channel'] : [])],
-    network: [...(definition.costClass === 'paid' ? ['provider'] : []), ...(String(definition.name).startsWith('web.') ? ['web'] : [])],
+    destinations:
+      definition.effects === 'read' && nested.length === 0
+        ? []
+        : ['current', ...(refs.includes('channel') ? ['other-channel'] : [])],
+    network: [
+      ...(definition.costClass === 'paid' ? ['provider'] : []),
+      ...(String(definition.name).startsWith('web.') ? ['web'] : []),
+    ],
     fileAccess: params.includes('file') ? ['errand-files'] : [],
     capabilities: [definition.effects, ...(definition.feature ? [`feature:${definition.feature}`] : [])],
   };
@@ -94,12 +109,19 @@ export function skillVersionsOf({ definitions, nested = {}, sourceOf = () => '',
     } catch {
       source = '';
     }
-    return { name: definition.name, contentHash: contentHashOf(definition, source), manifestHash: sha256(canonicalJson(manifest)), commitSha, manifest };
+    return {
+      name: definition.name,
+      contentHash: contentHashOf(definition, source),
+      manifestHash: sha256(canonicalJson(manifest)),
+      commitSha,
+      manifest,
+    };
   });
 }
 
 const skillId = (name) => `skill:${name}`;
-const versionId = (entry) => `skillver:${entry.name}:${sha256(`${entry.contentHash}\n${entry.manifestHash}\n${entry.commitSha}`).slice(0, 32)}`;
+const versionId = (entry) =>
+  `skillver:${entry.name}:${sha256(`${entry.contentHash}\n${entry.manifestHash}\n${entry.commitSha}`).slice(0, 32)}`;
 
 /**
  * Registers the entries (see the head of this file) in one transaction.
@@ -116,18 +138,38 @@ export function registerSkills(handle, entries, { at } = {}) {
       const id = skillId(entry.name);
       const known = db.prepare('SELECT * FROM skills WHERE id = ?').get(id);
       if (!known) {
-        db.prepare("INSERT INTO skills (id, name, active_version, lifecycle, origin_work_id, pinned, extra) VALUES (?, ?, NULL, 'active', NULL, 0, NULL)").run(id, entry.name);
+        db.prepare(
+          "INSERT INTO skills (id, name, active_version, lifecycle, origin_work_id, pinned, extra) VALUES (?, ?, NULL, 'active', NULL, 0, NULL)"
+        ).run(id, entry.name);
         counts.skills += 1;
       } else if (known.lifecycle === 'stale') {
         db.prepare("UPDATE skills SET lifecycle = 'active' WHERE id = ?").run(id);
       }
       const vid = versionId(entry);
       const first = !known?.active_version;
-      const written = db.prepare(`INSERT OR IGNORE INTO skill_versions (id, skill_id, version, content_hash, manifest_hash, commit_sha, origin_work_id, status, created_at, manifest)
-        VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`)
-        .run(vid, id, `${entry.commitSha.slice(0, 12)}-${entry.contentHash.slice(0, 8)}`, entry.contentHash, entry.manifestHash, entry.commitSha, first ? 'active' : 'candidate', stamp, canonicalJson(entry.manifest));
+      const written = db
+        .prepare(
+          `INSERT OR IGNORE INTO skill_versions (id, skill_id, version, content_hash, manifest_hash, commit_sha, origin_work_id, status, created_at, manifest)
+        VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`
+        )
+        .run(
+          vid,
+          id,
+          `${entry.commitSha.slice(0, 12)}-${entry.contentHash.slice(0, 8)}`,
+          entry.contentHash,
+          entry.manifestHash,
+          entry.commitSha,
+          first ? 'active' : 'candidate',
+          stamp,
+          canonicalJson(entry.manifest)
+        );
       if (written.changes > 0) counts.versions += 1;
-      if (first) db.prepare('UPDATE skills SET active_version = ?, extra = ? WHERE id = ?').run(vid, JSON.stringify({ bootstrap: true, activatedAt: stamp, history: [] }), id);
+      if (first)
+        db.prepare('UPDATE skills SET active_version = ?, extra = ? WHERE id = ?').run(
+          vid,
+          JSON.stringify({ bootstrap: true, activatedAt: stamp, history: [] }),
+          id
+        );
     }
     for (const row of db.prepare("SELECT id, name FROM skills WHERE lifecycle = 'active'").all()) {
       if (names.has(row.name)) continue;
@@ -145,18 +187,37 @@ export function registerSkills(handle, entries, { at } = {}) {
  */
 export function addEvaluation(handle, evaluation) {
   return handle.transaction(() => {
-    handle.db.prepare(`INSERT INTO skill_evaluations (id, version_id, kind, passed, result, evidence_id, at, content_hash, manifest_hash, commit_sha)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(evaluation.id, evaluation.versionId, evaluation.kind, evaluation.passed === true ? 1 : 0, evaluation.result === undefined || evaluation.result === null ? null : JSON.stringify(evaluation.result),
-        evaluation.evidenceId ?? null, iso(evaluation.at), evaluation.contentHash, evaluation.manifestHash, evaluation.commitSha);
+    handle.db
+      .prepare(
+        `INSERT INTO skill_evaluations (id, version_id, kind, passed, result, evidence_id, at, content_hash, manifest_hash, commit_sha)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        evaluation.id,
+        evaluation.versionId,
+        evaluation.kind,
+        evaluation.passed === true ? 1 : 0,
+        evaluation.result === undefined || evaluation.result === null ? null : JSON.stringify(evaluation.result),
+        evaluation.evidenceId ?? null,
+        iso(evaluation.at),
+        evaluation.contentHash,
+        evaluation.manifestHash,
+        evaluation.commitSha
+      );
     return { ok: true, id: evaluation.id };
   });
 }
 
 /** Whether a passing evaluation of `kind` binds the version's three hashes. */
 function bound(db, version, kind) {
-  return db.prepare(`SELECT 1 AS ok FROM skill_evaluations WHERE version_id = ? AND kind = ? AND passed = 1
-    AND content_hash = ? AND manifest_hash = ? AND commit_sha = ? LIMIT 1`).get(version.id, kind, version.content_hash, version.manifest_hash, version.commit_sha) !== undefined;
+  return (
+    db
+      .prepare(
+        `SELECT 1 AS ok FROM skill_evaluations WHERE version_id = ? AND kind = ? AND passed = 1
+    AND content_hash = ? AND manifest_hash = ? AND commit_sha = ? LIMIT 1`
+      )
+      .get(version.id, kind, version.content_hash, version.manifest_hash, version.commit_sha) !== undefined
+  );
 }
 
 /** Activates a candidate under the agents' rule (see the head of this file). */
@@ -170,15 +231,26 @@ export function activateVersion(handle, id, { at } = {}) {
     if (skill.active_version === id) return { ok: false, code: 'already-active' };
     if (!bound(db, version, 'tests')) return { ok: false, code: 'no-tests' };
     if (!bound(db, version, 'audience_check')) return { ok: false, code: 'no-audience-check' };
-    const current = skill.active_version ? db.prepare('SELECT * FROM skill_versions WHERE id = ?').get(skill.active_version) : null;
+    const current = skill.active_version
+      ? db.prepare('SELECT * FROM skill_versions WHERE id = ?').get(skill.active_version)
+      : null;
     if (!current) return { ok: false, code: 'no-rollback' };
     const added = newCapabilities(parse(current.manifest, {}), parse(version.manifest, {}));
     if (added.length > 0) return { ok: false, code: 'new-capability', added };
     const extra = parse(skill.extra, {});
     db.prepare("UPDATE skill_versions SET status = 'retired' WHERE id = ?").run(current.id);
     db.prepare("UPDATE skill_versions SET status = 'active' WHERE id = ?").run(id);
-    db.prepare('UPDATE skills SET active_version = ?, extra = ? WHERE id = ?')
-      .run(id, JSON.stringify({ ...extra, bootstrap: false, activatedAt: stamp, activatedBy: 'agents', history: [...(Array.isArray(extra.history) ? extra.history : []), current.id] }), skill.id);
+    db.prepare('UPDATE skills SET active_version = ?, extra = ? WHERE id = ?').run(
+      id,
+      JSON.stringify({
+        ...extra,
+        bootstrap: false,
+        activatedAt: stamp,
+        activatedBy: 'agents',
+        history: [...(Array.isArray(extra.history) ? extra.history : []), current.id],
+      }),
+      skill.id
+    );
     return { ok: true, previous: current.id };
   });
 }
@@ -194,10 +266,14 @@ export function rollback(handle, name, { at } = {}) {
     const history = Array.isArray(extra.history) ? [...extra.history] : [];
     const previous = history.pop();
     if (!previous) return { ok: false, code: 'no-rollback' };
-    if (skill.active_version) db.prepare("UPDATE skill_versions SET status = 'retired' WHERE id = ?").run(skill.active_version);
+    if (skill.active_version)
+      db.prepare("UPDATE skill_versions SET status = 'retired' WHERE id = ?").run(skill.active_version);
     db.prepare("UPDATE skill_versions SET status = 'active' WHERE id = ?").run(previous);
-    db.prepare('UPDATE skills SET active_version = ?, extra = ? WHERE id = ?')
-      .run(previous, JSON.stringify({ ...extra, activatedAt: stamp, activatedBy: 'rollback', history }), skill.id);
+    db.prepare('UPDATE skills SET active_version = ?, extra = ? WHERE id = ?').run(
+      previous,
+      JSON.stringify({ ...extra, activatedAt: stamp, activatedBy: 'rollback', history }),
+      skill.id
+    );
     return { ok: true, active: previous, retired: skill.active_version };
   });
 }
@@ -207,15 +283,22 @@ export function rollback(handle, name, { at } = {}) {
  * `usesOf(name, sinceIso)` counts the uses since the activation (default: the wake actions naming the skill).
  */
 export function reviewsDue(db, { now, usesOf = null, uses = 5, days = 14 } = {}) {
-  const count = usesOf ?? ((name, since) => db.prepare('SELECT COUNT(*) AS n FROM wake_actions WHERE kind = ? AND at >= ?').get(name, since).n);
+  const count =
+    usesOf ??
+    ((name, since) =>
+      db.prepare('SELECT COUNT(*) AS n FROM wake_actions WHERE kind = ? AND at >= ?').get(name, since).n);
   const out = [];
   for (const skill of db.prepare('SELECT * FROM skills WHERE active_version IS NOT NULL ORDER BY name').all()) {
     const extra = parse(skill.extra, {});
     if (extra.activatedBy !== 'agents' || typeof extra.activatedAt !== 'string') continue;
-    const reviewed = db.prepare("SELECT 1 AS ok FROM skill_evaluations WHERE version_id = ? AND kind = 'outcome' AND at >= ? LIMIT 1").get(skill.active_version, extra.activatedAt);
+    const reviewed = db
+      .prepare("SELECT 1 AS ok FROM skill_evaluations WHERE version_id = ? AND kind = 'outcome' AND at >= ? LIMIT 1")
+      .get(skill.active_version, extra.activatedAt);
     if (reviewed) continue;
-    if (count(skill.name, extra.activatedAt) >= uses) out.push({ skill: skill.name, versionId: skill.active_version, reason: 'uses' });
-    else if (Number.isFinite(now) && now - Date.parse(extra.activatedAt) >= days * 86_400_000) out.push({ skill: skill.name, versionId: skill.active_version, reason: 'days' });
+    if (count(skill.name, extra.activatedAt) >= uses)
+      out.push({ skill: skill.name, versionId: skill.active_version, reason: 'uses' });
+    else if (Number.isFinite(now) && now - Date.parse(extra.activatedAt) >= days * 86_400_000)
+      out.push({ skill: skill.name, versionId: skill.active_version, reason: 'days' });
   }
   return out;
 }

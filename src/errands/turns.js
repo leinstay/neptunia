@@ -37,7 +37,14 @@ export const RESULT_ATTEMPTS = 20;
  * @param {() => number} [now]
  */
 export function taskCompletedEvent(task, guildId = null, now = Date.now) {
-  return { kind: 'task.completed', at: now(), guildId: guildId ?? null, taskId: task.id, status: task.state, raw: { task } };
+  return {
+    kind: 'task.completed',
+    at: now(),
+    guildId: guildId ?? null,
+    taskId: task.id,
+    status: task.state,
+    raw: { task },
+  };
 }
 
 /** The outcomes that mean the turn never ran: try again later. */
@@ -59,7 +66,18 @@ const DONE = new Set(['spoke', 'skip']);
  * @param {(fn: Function, ms: number) => unknown} [options.setTimer]
  * @param {{ info: Function, warn: Function }} [options.log]
  */
-export function createTaskTurns({ hot, client, discord, turns, errands, intentions = null, getGuildId = () => null, now = Date.now, setTimer = (fn, ms) => setTimeout(fn, ms), log = defaultLog }) {
+export function createTaskTurns({
+  hot,
+  client,
+  discord,
+  turns,
+  errands,
+  intentions = null,
+  getGuildId = () => null,
+  now = Date.now,
+  setTimer = (fn, ms) => setTimeout(fn, ms),
+  log = defaultLog,
+}) {
   const { normalizeMessage } = discord;
   // conversation id -> when its last result turn started
   const lastAt = new Map();
@@ -88,10 +106,15 @@ export function createTaskTurns({ hot, client, discord, turns, errands, intentio
       }
       return;
     }
-    const timer = setTimer(() => {
-      waiting.delete(task.id);
-      deliver(task, guildId, attempt + 1).catch((err) => log.warn('errands: result turn failed', { id: task.id, error: err }));
-    }, Math.max(0, ms));
+    const timer = setTimer(
+      () => {
+        waiting.delete(task.id);
+        deliver(task, guildId, attempt + 1).catch((err) =>
+          log.warn('errands: result turn failed', { id: task.id, error: err })
+        );
+      },
+      Math.max(0, ms)
+    );
     timer?.unref?.();
     waiting.set(task.id, timer);
   }
@@ -103,7 +126,11 @@ export function createTaskTurns({ hot, client, discord, turns, errands, intentio
     const message = await Promise.resolve(channel.messages.fetch(messageId)).catch(() => null);
     if (!message) return null;
     const media = hot.config?.media ?? {};
-    return normalizeMessage(message, client?.user?.id, { embedTextChars: media.embedTextChars, videoSites: media.video?.sites, maxUrlChars: hot.config?.context?.maxUrlChars });
+    return normalizeMessage(message, client?.user?.id, {
+      embedTextChars: media.embedTextChars,
+      videoSites: media.video?.sites,
+      maxUrlChars: hot.config?.context?.maxUrlChars,
+    });
   }
 
   /** One attempt at the result turn of `task`. */

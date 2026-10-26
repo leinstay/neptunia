@@ -42,7 +42,16 @@ const grLabels = {
 };
 
 function msg(id, ts, overrides = {}) {
-  return { id, ts, authorId: 'u1', authorName: 'Nick', content: 'text', channelId: 'c1', channelName: 'general', ...overrides };
+  return {
+    id,
+    ts,
+    authorId: 'u1',
+    authorName: 'Nick',
+    content: 'text',
+    channelId: 'c1',
+    channelName: 'general',
+    ...overrides,
+  };
 }
 
 // --- fill --------------------------------------------------------------
@@ -157,7 +166,11 @@ test('formatTranscript: a gap exactly at the threshold also gets a marker (inclu
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
   const rows = [
     { label: 'a gap over the threshold gets a "passed" marker', gap: 25 * MIN, expected: '--- 25 min passed ---' },
-    { label: 'a gap exactly at the threshold also gets a marker (inclusive)', gap: 20 * MIN, expected: '--- 20 min passed ---' },
+    {
+      label: 'a gap exactly at the threshold also gets a marker (inclusive)',
+      gap: 20 * MIN,
+      expected: '--- 20 min passed ---',
+    },
   ];
   for (const { label, gap, expected } of rows) {
     const messages = [msg('a', t0), msg('b', t0 + gap)];
@@ -187,7 +200,13 @@ test('formatTranscript: a gap over the threshold AND a date change combines both
 test('formatTranscript: labels drive the wording even for non-English deployments', () => {
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
   const messages = [msg('a', t0), msg('b', t0 + 25 * MIN)];
-  const items = formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels: grLabels });
+  const items = formatTranscript(messages, {
+    timezone: TZ,
+    gapMinutes: 20,
+    maxChars: 100,
+    selfName: 'Nept',
+    labels: grLabels,
+  });
   assert.ok(items[1].text.startsWith('--- πέρασαν 25 λεπτό ---'));
 });
 
@@ -233,7 +252,11 @@ test('formatTranscript: labels without transcript.timeAged (absent or blank) kee
 });
 
 test('formatTranscript: memory mode never shows ages', () => {
-  const items = formatTranscript([msg('a', AGE_NOW - 2 * HOUR, { authorId: '42' })], { ...ageOptions, mode: 'memory', now: AGE_NOW });
+  const items = formatTranscript([msg('a', AGE_NOW - 2 * HOUR, { authorId: '42' })], {
+    ...ageOptions,
+    mode: 'memory',
+    now: AGE_NOW,
+  });
   assert.equal(items[0].text, '## #general (id:c1)\n[11:00] Nick (id:42): text');
 });
 
@@ -252,7 +275,10 @@ test('formatTranscript: a gap marker with a date change renders alongside ages',
   const before = Date.UTC(2026, 8, 19, 20, 0, 0); // 23:00 Moscow
   const after = Date.UTC(2026, 8, 19, 23, 12, 0); // 02:12 Moscow, the next day
   const items = formatTranscript([msg('a', before), msg('b', after)], { ...ageOptions, now: after + 2 * HOUR });
-  assert.equal(items[1].text, `--- 3 h 12 min passed · ${formatDate(after, TZ, labels.locale)} ---\n#2 [02:12 · 2 h ago] Nick: text`);
+  assert.equal(
+    items[1].text,
+    `--- 3 h 12 min passed · ${formatDate(after, TZ, labels.locale)} ---\n#2 [02:12 · 2 h ago] Nick: text`
+  );
 });
 
 test('formatTranscript: the age head takes its wording and units from the labels', () => {
@@ -279,7 +305,7 @@ test('formatTranscript: indexOffset shifts every index and reply target', () => 
   const items = formatTranscript(offsetMessages(), { ...offsetOptions, indexOffset: 7 });
   assert.deepEqual(
     items.map((item) => item.index),
-    [8, 9, 10, 11],
+    [8, 9, 10, 11]
   );
   assert.deepEqual(
     items.map((item) => item.text),
@@ -288,16 +314,31 @@ test('formatTranscript: indexOffset shifts every index and reply target', () => 
       '#9 [13:01] Nick: δεύτερο (replying to #8, Nick: "πρώτο")',
       '#10 [13:02] Nick: τρίτο (replying to an older message)',
       '#11 [13:03] Nick: café (replying to #9, Nick: "δεύτερο")',
-    ],
+    ]
   );
 });
 
 test('formatTranscript: no offset keeps 1..N', () => {
   const expected = [
     { id: 'a', index: 1, ts: Date.UTC(2026, 8, 20, 10, 0, 0), text: '#1 [13:00] Nick: πρώτο' },
-    { id: 'b', index: 2, ts: Date.UTC(2026, 8, 20, 10, 1, 0), text: '#2 [13:01] Nick: δεύτερο (replying to #1, Nick: "πρώτο")' },
-    { id: 'c', index: 3, ts: Date.UTC(2026, 8, 20, 10, 2, 0), text: '#3 [13:02] Nick: τρίτο (replying to an older message)' },
-    { id: 'd', index: 4, ts: Date.UTC(2026, 8, 20, 10, 3, 0), text: '#4 [13:03] Nick: café (replying to #2, Nick: "δεύτερο")' },
+    {
+      id: 'b',
+      index: 2,
+      ts: Date.UTC(2026, 8, 20, 10, 1, 0),
+      text: '#2 [13:01] Nick: δεύτερο (replying to #1, Nick: "πρώτο")',
+    },
+    {
+      id: 'c',
+      index: 3,
+      ts: Date.UTC(2026, 8, 20, 10, 2, 0),
+      text: '#3 [13:02] Nick: τρίτο (replying to an older message)',
+    },
+    {
+      id: 'd',
+      index: 4,
+      ts: Date.UTC(2026, 8, 20, 10, 3, 0),
+      text: '#4 [13:03] Nick: café (replying to #2, Nick: "δεύτερο")',
+    },
   ];
   assert.deepEqual(formatTranscript(offsetMessages(), offsetOptions), expected);
   assert.deepEqual(formatTranscript(offsetMessages(), { ...offsetOptions, indexOffset: undefined }), expected);
@@ -344,7 +385,11 @@ test('formatTranscript: an indexOffset given but not a whole number of at least 
   // A caller bug (say NaN from summing an undefined count) must not silently
   // renumber a second block from #1 over the chat's own indices.
   for (const indexOffset of [-3, 2.5, Number.NaN, Infinity, '4', {}]) {
-    assert.throws(() => formatTranscript(offsetMessages(), { ...offsetOptions, indexOffset }), RangeError, String(indexOffset));
+    assert.throws(
+      () => formatTranscript(offsetMessages(), { ...offsetOptions, indexOffset }),
+      RangeError,
+      String(indexOffset)
+    );
   }
 });
 
@@ -353,11 +398,11 @@ test('formatTranscript: indexOffset in memory mode moves only item.index, the te
   const shifted = formatTranscript(offsetMessages(), { ...offsetOptions, mode: 'memory', indexOffset: 5 });
   assert.deepEqual(
     shifted.map((item) => item.text),
-    plain.map((item) => item.text),
+    plain.map((item) => item.text)
   );
   assert.deepEqual(
     shifted.map((item) => item.index),
-    [6, 7, 8, 9],
+    [6, 7, 8, 9]
   );
 });
 
@@ -386,7 +431,13 @@ test('formatTranscript: a media tag rendering empty (missing label key) never le
       stickers: [{ id: 's1', name: 'pepe', format: 1, url: 'https://media.discordapp.net/stickers/s1.png?size=160' }],
     }),
   ];
-  const items = formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels: noImageLabel });
+  const items = formatTranscript(messages, {
+    timezone: TZ,
+    gapMinutes: 20,
+    maxChars: 100,
+    selfName: 'Nept',
+    labels: noImageLabel,
+  });
   assert.ok(!items[0].text.includes('  '), `expected no double space, got: ${JSON.stringify(items[0].text)}`);
   assert.ok(items[0].text.includes('text before [sticker: pepe]'));
 });
@@ -401,7 +452,13 @@ test('formatTranscript: a forward with an empty-rendering media tag never leaves
       forwarded: [{ content: 'the news', attachments: [{ kind: 'image' }], links: [], stickers: [] }],
     }),
   ];
-  const items = formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels: noImageLabel });
+  const items = formatTranscript(messages, {
+    timezone: TZ,
+    gapMinutes: 20,
+    maxChars: 100,
+    selfName: 'Nept',
+    labels: noImageLabel,
+  });
   assert.ok(!items[0].text.includes('  '), `expected no double space, got: ${JSON.stringify(items[0].text)}`);
   assert.ok(items[0].text.includes('[forwarded: the news]'));
 });
@@ -437,8 +494,18 @@ test('formatTranscript: mode "memory" drops the #index and adds the user id, a r
 test('formatTranscript: mode "memory" marks a reply to a member\'s line with replyToMemory, no #index', () => {
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
   const messages = [
-    msg('a', t0, { authorName: 'Éloïse', authorId: '7', content: 'je préfère\nles penalties à la dernière minute, toujours' }),
-    msg('b', t0 + MIN, { authorName: 'Nick', authorId: '42', content: 'ok', replyToId: 'a', attachments: [{ id: 'p1', kind: 'image' }] }),
+    msg('a', t0, {
+      authorName: 'Éloïse',
+      authorId: '7',
+      content: 'je préfère\nles penalties à la dernière minute, toujours',
+    }),
+    msg('b', t0 + MIN, {
+      authorName: 'Nick',
+      authorId: '42',
+      content: 'ok',
+      replyToId: 'a',
+      attachments: [{ id: 'p1', kind: 'image' }],
+    }),
   ];
   const items = formatTranscript(messages, { ...offsetOptions, mode: 'memory', replyQuoteChars: 24 });
   assert.equal(items[1].text, '[13:01] Nick (id:42): ok (reply to Éloïse: je préfère les…) [image]');
@@ -482,14 +549,17 @@ test('formatTranscript: mode "memory" marks a message addressed to the persona w
 
 test('formatTranscript: mode "memory" leaves a non-direct message unmarked', () => {
   const t0 = Date.UTC(2026, 8, 20, 14, 32, 0);
-  const items = formatTranscript([msg('a', t0, { authorName: 'nick', authorId: '1', content: 'text', direct: false })], {
-    timezone: TZ,
-    gapMinutes: 20,
-    maxChars: 100,
-    selfName: 'Nept',
-    labels,
-    mode: 'memory',
-  });
+  const items = formatTranscript(
+    [msg('a', t0, { authorName: 'nick', authorId: '1', content: 'text', direct: false })],
+    {
+      timezone: TZ,
+      gapMinutes: 20,
+      maxChars: 100,
+      selfName: 'Nept',
+      labels,
+      mode: 'memory',
+    }
+  );
   const lines = items[0].text.split('\n');
   assert.equal(lines.at(-1), '[17:32] nick (id:1): text');
   assert.ok(!items[0].text.includes('→'));
@@ -530,7 +600,14 @@ test('formatTranscript: mode "memory" does not repeat the heading while the chan
     msg('a', t0, { channelId: 'c1', channelName: 'general' }),
     msg('b', t0 + MIN, { channelId: 'c1', channelName: 'general' }),
   ];
-  const items = formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels, mode: 'memory' });
+  const items = formatTranscript(messages, {
+    timezone: TZ,
+    gapMinutes: 20,
+    maxChars: 100,
+    selfName: 'Nept',
+    labels,
+    mode: 'memory',
+  });
   assert.ok(!items[1].text.includes('##'));
 });
 
@@ -540,7 +617,14 @@ test('formatTranscript: mode "memory" opens a new heading when the channel chang
     msg('a', t0, { channelId: 'c1', channelName: 'general' }),
     msg('b', t0 + MIN, { channelId: 'c2', channelName: 'random' }),
   ];
-  const items = formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels, mode: 'memory' });
+  const items = formatTranscript(messages, {
+    timezone: TZ,
+    gapMinutes: 20,
+    maxChars: 100,
+    selfName: 'Nept',
+    labels,
+    mode: 'memory',
+  });
   assert.ok(items[0].text.startsWith('## #general (id:c1)\n'));
   assert.ok(items[1].text.startsWith('## #random (id:c2)\n'));
 });
@@ -552,7 +636,14 @@ test('formatTranscript: mode "memory" re-opens a heading when returning to a pre
     msg('b', t0 + MIN, { channelId: 'c2', channelName: 'random' }),
     msg('c', t0 + 2 * MIN, { channelId: 'c1', channelName: 'general' }),
   ];
-  const items = formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels, mode: 'memory' });
+  const items = formatTranscript(messages, {
+    timezone: TZ,
+    gapMinutes: 20,
+    maxChars: 100,
+    selfName: 'Nept',
+    labels,
+    mode: 'memory',
+  });
   assert.ok(items[2].text.startsWith('## #general (id:c1)\n'));
 });
 
@@ -563,7 +654,14 @@ test('formatTranscript: mode "memory" gap markers are computed within a channel 
     // Big gap AND a channel switch: must show only the heading, no "passed" marker.
     msg('b', t0 + 5 * HOUR, { channelId: 'c2', channelName: 'random' }),
   ];
-  const items = formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels, mode: 'memory' });
+  const items = formatTranscript(messages, {
+    timezone: TZ,
+    gapMinutes: 20,
+    maxChars: 100,
+    selfName: 'Nept',
+    labels,
+    mode: 'memory',
+  });
   assert.ok(!items[1].text.includes('passed'));
   assert.ok(items[1].text.startsWith('## #random (id:c2)\n'));
 });
@@ -574,7 +672,14 @@ test('formatTranscript: mode "memory" still marks a gap within the same channel 
     msg('a', t0, { channelId: 'c1', channelName: 'general' }),
     msg('b', t0 + 25 * MIN, { channelId: 'c1', channelName: 'general' }),
   ];
-  const items = formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels, mode: 'memory' });
+  const items = formatTranscript(messages, {
+    timezone: TZ,
+    gapMinutes: 20,
+    maxChars: 100,
+    selfName: 'Nept',
+    labels,
+    mode: 'memory',
+  });
   assert.ok(items[1].text.includes('25 min passed'));
 });
 
@@ -597,7 +702,15 @@ test('formatTranscript: a link thumbnail description appends thumbnailDescribed,
   const messages = [
     msg('a', t0, {
       content: '',
-      links: [{ id: 'link:abcd1234', kind: 'link', site: 'YouTube', title: 'Cool video', thumbnailUrl: 'https://i.ytimg.com/x.jpg' }],
+      links: [
+        {
+          id: 'link:abcd1234',
+          kind: 'link',
+          site: 'YouTube',
+          title: 'Cool video',
+          thumbnailUrl: 'https://i.ytimg.com/x.jpg',
+        },
+      ],
     }),
   ];
   const blind = formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels });
@@ -621,7 +734,15 @@ test('formatTranscript: an older labels.json with no thumbnailDescribed key rend
   const messages = [
     msg('a', t0, {
       content: '',
-      links: [{ id: 'link:abcd1234', kind: 'link', site: 'YouTube', title: 'Cool video', thumbnailUrl: 'https://i.ytimg.com/x.jpg' }],
+      links: [
+        {
+          id: 'link:abcd1234',
+          kind: 'link',
+          site: 'YouTube',
+          title: 'Cool video',
+          thumbnailUrl: 'https://i.ytimg.com/x.jpg',
+        },
+      ],
     }),
   ];
   const items = formatTranscript(messages, {
@@ -640,12 +761,26 @@ test('formatTranscript: an older labels.json with no thumbnailDescribed key rend
 // --- formatTranscript: video states ------------------------------------
 
 function videoTranscript(messages, extra = {}) {
-  return formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels, ...extra });
+  return formatTranscript(messages, {
+    timezone: TZ,
+    gapMinutes: 20,
+    maxChars: 100,
+    selfName: 'Nept',
+    labels,
+    ...extra,
+  });
 }
 
 const T0 = Date.UTC(2026, 8, 20, 10, 0, 0);
-const videoMsg = () => msg('a', T0, { content: '', attachments: [{ id: 'v1', kind: 'video', name: 'clip.mp4', durationSec: 65 }] });
-const ytLink = { id: 'link:abcd1234', kind: 'link', site: 'YouTube', title: 'Cool video', thumbnailUrl: 'https://i.ytimg.com/x.jpg' };
+const videoMsg = () =>
+  msg('a', T0, { content: '', attachments: [{ id: 'v1', kind: 'video', name: 'clip.mp4', durationSec: 65 }] });
+const ytLink = {
+  id: 'link:abcd1234',
+  kind: 'link',
+  site: 'YouTube',
+  title: 'Cool video',
+  thumbnailUrl: 'https://i.ytimg.com/x.jpg',
+};
 
 test('formatTranscript: a watched video renders videoWatched', () => {
   const items = videoTranscript([videoMsg()], { videos: new Map([['v1', { state: 'watched', text: 'a dog runs' }]]) });
@@ -653,17 +788,24 @@ test('formatTranscript: a watched video renders videoWatched', () => {
 });
 
 test('formatTranscript: a video watched only in part renders videoWatchedPart with its reason label; blank falls back to videoWatched', () => {
-  const longMsg = () => msg('a', T0, { content: '', attachments: [{ id: 'v1', kind: 'video', name: 'long.mp4', durationSec: 400 }] });
+  const longMsg = () =>
+    msg('a', T0, { content: '', attachments: [{ id: 'v1', kind: 'video', name: 'long.mp4', durationSec: 400 }] });
   const videos = new Map([['v1', { state: 'watched', text: 'a talk', watchedSeconds: 300 }]]);
   const items = videoTranscript([longMsg()], { videos });
-  assert.ok(items[0].text.endsWith('[video: long.mp4, 6:40, watched the first 5:00 (clip cap): a talk]'), items[0].text);
+  assert.ok(
+    items[0].text.endsWith('[video: long.mp4, 6:40, watched the first 5:00 (clip cap): a talk]'),
+    items[0].text
+  );
 
   const blank = { ...labels, transcript: { ...labels.transcript, videoWatchedPart: '' } };
   const fallback = videoTranscript([longMsg()], { labels: blank, videos });
   assert.ok(fallback[0].text.endsWith('[video: long.mp4, 6:40, watched: a talk]'), fallback[0].text);
 
   const old = videoTranscript([longMsg()], { videos: new Map([['v1', { state: 'watched', text: 'a talk' }]]) });
-  assert.ok(old[0].text.endsWith('[video: long.mp4, 6:40, watched: a talk]'), 'an entry without watchedSeconds keeps the old line');
+  assert.ok(
+    old[0].text.endsWith('[video: long.mp4, 6:40, watched: a talk]'),
+    'an entry without watchedSeconds keeps the old line'
+  );
 });
 
 test('formatTranscript: the reason code is swapped for its label, for all four codes', () => {
@@ -688,9 +830,14 @@ test('formatTranscript: a reason code missing from labels.transcript.videoReason
 
 test('formatTranscript: a link watched only in part renders linkWatchedPart with the clip reason; blank falls back to linkWatched', () => {
   const messages = [msg('a', T0, { content: '', links: [ytLink] })];
-  const videos = new Map([['link:abcd1234', { state: 'watched', text: 'a talk', watchedSeconds: 300, totalSeconds: 3289 }]]);
+  const videos = new Map([
+    ['link:abcd1234', { state: 'watched', text: 'a talk', watchedSeconds: 300, totalSeconds: 3289 }],
+  ]);
   const items = videoTranscript(messages, { videos });
-  assert.ok(items[0].text.endsWith('[link: YouTube — Cool video] [watched the first 5:00 of 54:49 (clip cap): a talk]'), items[0].text);
+  assert.ok(
+    items[0].text.endsWith('[link: YouTube — Cool video] [watched the first 5:00 of 54:49 (clip cap): a talk]'),
+    items[0].text
+  );
   const blank = { ...labels, transcript: { ...labels.transcript, linkWatchedPart: '' } };
   const fallback = videoTranscript(messages, { labels: blank, videos });
   assert.ok(fallback[0].text.endsWith('[link: YouTube — Cool video] [watched: a talk]'), fallback[0].text);
@@ -706,11 +853,13 @@ test('formatTranscript: a watched link keeps the link tag, linkWatched follows',
   assert.ok(!items[0].text.includes('[thumbnail:'));
 });
 
-test('formatTranscript: a forwarded snapshot\'s video also reads its state', () => {
+test("formatTranscript: a forwarded snapshot's video also reads its state", () => {
   const messages = [
     msg('a', T0, {
       content: '',
-      forwarded: [{ content: '', attachments: [{ id: 'v9', kind: 'video', name: 'ρολόι.mp4', durationSec: 3 }], links: [] }],
+      forwarded: [
+        { content: '', attachments: [{ id: 'v9', kind: 'video', name: 'ρολόι.mp4', durationSec: 3 }], links: [] },
+      ],
     }),
   ];
   const items = videoTranscript(messages, { videos: new Map([['v9', { state: 'watched', text: 'a clock ticks' }]]) });
@@ -719,12 +868,24 @@ test('formatTranscript: a forwarded snapshot\'s video also reads its state', () 
 
 test('formatTranscript: labels without the video keys render byte-for-byte as before, video states ignored', () => {
   const oldTranscript = { ...labels.transcript };
-  for (const key of ['videoWatched', 'videoNotWatched', 'videoNotWatchedFrame', 'linkWatched', 'linkNotWatched', 'linkNotWatchedFrame', 'videoReason']) {
+  for (const key of [
+    'videoWatched',
+    'videoNotWatched',
+    'videoNotWatchedFrame',
+    'linkWatched',
+    'linkNotWatched',
+    'linkNotWatchedFrame',
+    'videoReason',
+  ]) {
     delete oldTranscript[key];
   }
   const oldLabels = { ...labels, transcript: oldTranscript };
   const messages = [
-    msg('a', T0, { content: 'look', attachments: [{ id: 'v1', kind: 'video', name: 'clip.mp4', durationSec: 65 }], links: [ytLink] }),
+    msg('a', T0, {
+      content: 'look',
+      attachments: [{ id: 'v1', kind: 'video', name: 'clip.mp4', durationSec: 65 }],
+      links: [ytLink],
+    }),
   ];
   const context = {
     descriptions: new Map([['v1', 'a dog runs']]),
@@ -739,7 +900,10 @@ test('formatTranscript: labels without the video keys render byte-for-byte as be
     ]),
   });
   assert.equal(after[0].text, before[0].text);
-  assert.ok(before[0].text.endsWith('look [video: clip.mp4, 1:05: a dog runs] [link: YouTube — Cool video]'), before[0].text);
+  assert.ok(
+    before[0].text.endsWith('look [video: clip.mp4, 1:05: a dog runs] [link: YouTube — Cool video]'),
+    before[0].text
+  );
 });
 
 // --- formatTranscript: stickers ---------------------------------------
@@ -802,7 +966,7 @@ test('formatTranscript: an undescribed custom emoji renders no extra tag at all'
   assert.ok(!items[0].text.includes('[:pog:'));
 });
 
-test('formatTranscript: an older labels.json with no emojiDescribed key renders no extra tag, today\'s behaviour', () => {
+test("formatTranscript: an older labels.json with no emojiDescribed key renders no extra tag, today's behaviour", () => {
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
   const oldLabels = { ...labels, transcript: { ...labels.transcript, emojiDescribed: undefined } };
   const messages = [msg('a', t0, { content: 'nice :pog:', emojis: [{ id: 'e1', name: 'pog' }] })];
@@ -838,7 +1002,9 @@ test('formatTranscript: a forwarded message-snapshot wraps its content and media
   const messages = [
     msg('a', t0, {
       content: '',
-      forwarded: [{ content: 'look at this', attachments: [{ id: 'f1', kind: 'image', name: 'x.png' }], links: [], stickers: [] }],
+      forwarded: [
+        { content: 'look at this', attachments: [{ id: 'f1', kind: 'image', name: 'x.png' }], links: [], stickers: [] },
+      ],
     }),
   ];
   const items = formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels });
@@ -882,7 +1048,13 @@ test('formatTranscript: an older labels.json with no forwardedFrom key falls bac
       forwarded: [{ content: 'big news', attachments: [], links: [], stickers: [] }],
     }),
   ];
-  const items = formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels: oldLabels });
+  const items = formatTranscript(messages, {
+    timezone: TZ,
+    gapMinutes: 20,
+    maxChars: 100,
+    selfName: 'Nept',
+    labels: oldLabels,
+  });
   assert.ok(items[0].text.includes('[forwarded: big news]'));
 });
 
@@ -960,7 +1132,7 @@ test('computeTempo: authorsLastHour counts distinct non-self authors only', () =
   assert.equal(tempo.authorsLastHour, 2);
 });
 
-test('computeTempo: lastIsOwn reflects whether the very last message was the persona\'s', () => {
+test("computeTempo: lastIsOwn reflects whether the very last message was the persona's", () => {
   const now = Date.UTC(2026, 8, 20, 12, 0, 0);
   const messages = [msg('a', now - 20 * MIN), msg('b', now - 5 * MIN, { self: true })];
   const tempo = computeTempo(messages, now, null);
@@ -1027,12 +1199,20 @@ test('renderTempo: fewer messages in the last 10 min than the live threshold are
 });
 
 test('renderTempo: messages at the live threshold -> the "live" verdict, even with long silence', () => {
-  const text = renderTempo(baseTempo({ last10min: THRESHOLDS.liveMessages10min, silenceMs: 50 * MIN }), labels, THRESHOLDS);
+  const text = renderTempo(
+    baseTempo({ last10min: THRESHOLDS.liveMessages10min, silenceMs: 50 * MIN }),
+    labels,
+    THRESHOLDS
+  );
   assert.ok(text.includes(labels.tempo.verdictLive));
 });
 
 test('renderTempo: silence just under the dead threshold -> the "slow" verdict, not dead', () => {
-  const text = renderTempo(baseTempo({ last10min: 0, silenceMs: THRESHOLDS.deadSilenceMinutes * MIN - 1000 }), labels, THRESHOLDS);
+  const text = renderTempo(
+    baseTempo({ last10min: 0, silenceMs: THRESHOLDS.deadSilenceMinutes * MIN - 1000 }),
+    labels,
+    THRESHOLDS
+  );
   assert.ok(text.includes(labels.tempo.verdictSlow));
 });
 
@@ -1052,7 +1232,11 @@ test('renderTempo: custom thresholds are honoured', () => {
 });
 
 test('renderTempo: silence exactly at the dead threshold -> "dead" (inclusive)', () => {
-  const text = renderTempo(baseTempo({ last10min: 0, silenceMs: THRESHOLDS.deadSilenceMinutes * MIN }), labels, THRESHOLDS);
+  const text = renderTempo(
+    baseTempo({ last10min: 0, silenceMs: THRESHOLDS.deadSilenceMinutes * MIN }),
+    labels,
+    THRESHOLDS
+  );
   assert.ok(text.includes(labels.tempo.verdictDead));
 });
 
@@ -1098,17 +1282,24 @@ test('format: the code fallbacks equal the values in config.json', () => {
   }
   // Reactions per message: the omitted option reads as the shipped number.
   const T = Date.UTC(2026, 8, 20, 10, 0, 0);
-  const reactions = Array.from({ length: shipped.reactionsPerMessage + 3 }, (_, i) => ({ emoji: `:e${i}:`, count: 1, mine: false }));
+  const reactions = Array.from({ length: shipped.reactionsPerMessage + 3 }, (_, i) => ({
+    emoji: `:e${i}:`,
+    count: 1,
+    mine: false,
+  }));
   const options = { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels };
   assert.deepEqual(
     formatTranscript([msg('1', T, { reactions })], options),
-    formatTranscript([msg('1', T, { reactions })], { ...options, reactionsPerMessage: shipped.reactionsPerMessage }),
+    formatTranscript([msg('1', T, { reactions })], { ...options, reactionsPerMessage: shipped.reactionsPerMessage })
   );
   // The reply quote: the omitted option reads as the shipped length.
   const long = Array.from({ length: shipped.replyQuoteChars }, (_, i) => `λέξη${i}`).join(' ');
   const thread = [msg('1', T, { content: long }), msg('2', T + MIN, { replyToId: '1' })];
   const withShipped = formatTranscript(thread, { ...options, maxChars: 0, replyQuoteChars: shipped.replyQuoteChars });
-  assert.notEqual(withShipped[1].text, formatTranscript(thread, { ...options, maxChars: 0, replyQuoteChars: shipped.replyQuoteChars + 10 })[1].text);
+  assert.notEqual(
+    withShipped[1].text,
+    formatTranscript(thread, { ...options, maxChars: 0, replyQuoteChars: shipped.replyQuoteChars + 10 })[1].text
+  );
   assert.equal(formatTranscript(thread, { ...options, maxChars: 0 })[1].text, withShipped[1].text);
 });
 
@@ -1117,13 +1308,23 @@ test('format: the code fallbacks equal the values in config.json', () => {
 const answered = { question: 'τι χρώμα είναι;', text: 'κόκκινο' };
 
 test('formatTranscript: a watched video with an answer renders videoAnswered right after videoWatched', () => {
-  const items = videoTranscript([videoMsg()], { videos: new Map([['v1', { state: 'watched', text: 'a dog runs', answer: answered }]]) });
-  assert.ok(items[0].text.endsWith('[video: clip.mp4, 1:05, watched: a dog runs] [looked again for "τι χρώμα είναι;": κόκκινο]'));
+  const items = videoTranscript([videoMsg()], {
+    videos: new Map([['v1', { state: 'watched', text: 'a dog runs', answer: answered }]]),
+  });
+  assert.ok(
+    items[0].text.endsWith('[video: clip.mp4, 1:05, watched: a dog runs] [looked again for "τι χρώμα είναι;": κόκκινο]')
+  );
 });
 
 test('formatTranscript: labels without videoAnswered render an answered video exactly as a plain watched one', () => {
   const oldLabels = { ...labels, transcript: { ...labels.transcript, videoAnswered: undefined } };
-  const messages = [msg('a', T0, { content: '', attachments: [{ id: 'v1', kind: 'video', name: 'clip.mp4', durationSec: 65 }], links: [ytLink] })];
+  const messages = [
+    msg('a', T0, {
+      content: '',
+      attachments: [{ id: 'v1', kind: 'video', name: 'clip.mp4', durationSec: 65 }],
+      links: [ytLink],
+    }),
+  ];
   const context = {};
   const plain = videoTranscript(messages, {
     labels: oldLabels,
@@ -1153,16 +1354,26 @@ test('formatTranscript: a picture with an answer renders imageAnswered right aft
   const imageAnswers = new Map([['p1', answered]]);
   const descriptions = new Map([['p1', 'deux singes']]);
   const plain = videoTranscript([pictureMsg()], { imageAnswers, descriptions });
-  assert.ok(plain[0].text.endsWith('[image: deux singes] [picture checked again for "τι χρώμα είναι;": κόκκινο]'), plain[0].text);
+  assert.ok(
+    plain[0].text.endsWith('[image: deux singes] [picture checked again for "τι χρώμα είναι;": κόκκινο]'),
+    plain[0].text
+  );
   const blind = videoTranscript([pictureMsg()], { imageAnswers });
-  assert.ok(blind[0].text.endsWith(`${labels.transcript.image} [picture checked again for "τι χρώμα είναι;": κόκκινο]`), blind[0].text);
+  assert.ok(
+    blind[0].text.endsWith(`${labels.transcript.image} [picture checked again for "τι χρώμα είναι;": κόκκινο]`),
+    blind[0].text
+  );
 });
 
 test('formatTranscript: labels without imageAnswered render an answered picture exactly as a plain one', () => {
   const oldLabels = { ...labels, transcript: { ...labels.transcript, imageAnswered: undefined } };
   const descriptions = new Map([['p1', 'deux singes']]);
   const plain = videoTranscript([pictureMsg()], { labels: oldLabels, descriptions });
-  const withAnswer = videoTranscript([pictureMsg()], { labels: oldLabels, descriptions, imageAnswers: new Map([['p1', answered]]) });
+  const withAnswer = videoTranscript([pictureMsg()], {
+    labels: oldLabels,
+    descriptions,
+    imageAnswers: new Map([['p1', answered]]),
+  });
   assert.deepEqual(withAnswer, plain);
 });
 
@@ -1187,7 +1398,14 @@ test('formatTranscript: reads appends linkRead after the link tag and its other 
     msg('a', t0, {
       content: 'regarde',
       links: [
-        { id: 'a#e0', kind: 'link', site: 'example.org', title: 'Crêpes', thumbnailUrl: 'https://example.org/t.jpg', url: 'https://example.org/c' },
+        {
+          id: 'a#e0',
+          kind: 'link',
+          site: 'example.org',
+          title: 'Crêpes',
+          thumbnailUrl: 'https://example.org/t.jpg',
+          url: 'https://example.org/c',
+        },
         { id: 'a#e1', kind: 'link', site: 'other.org', title: 'Autre', url: 'https://other.org/x' },
       ],
     }),
@@ -1202,15 +1420,22 @@ test('formatTranscript: reads appends linkRead after the link tag and its other 
     reads: new Map([['a#e0', 'une recette simple, 3 œufs']]),
   });
   assert.ok(
-    items[0].text.includes('[link: example.org — Crêpes] [thumbnail: une assiette] [page read: une recette simple, 3 œufs] [link: other.org — Autre]'),
-    items[0].text,
+    items[0].text.includes(
+      '[link: example.org — Crêpes] [thumbnail: une assiette] [page read: une recette simple, 3 œufs] [link: other.org — Autre]'
+    ),
+    items[0].text
   );
 });
 
 test('formatTranscript: an older labels.json with no linkRead key ignores reads, rendering as before', () => {
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
   const oldLabels = { ...labels, transcript: { ...labels.transcript, linkRead: undefined } };
-  const messages = [msg('a', t0, { content: '', links: [{ id: 'a#e0', kind: 'link', site: 'example.org', title: 'Crêpes', url: 'https://example.org/c' }] })];
+  const messages = [
+    msg('a', t0, {
+      content: '',
+      links: [{ id: 'a#e0', kind: 'link', site: 'example.org', title: 'Crêpes', url: 'https://example.org/c' }],
+    }),
+  ];
   const options = { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept' };
   const withReads = formatTranscript(messages, { ...options, labels: oldLabels, reads: new Map([['a#e0', 'texte']]) });
   const without = formatTranscript(messages, { ...options, labels });
@@ -1221,7 +1446,15 @@ test('formatTranscript: an older labels.json with no linkRead key ignores reads,
 // --- formatTranscript: reactions ---------------------------------------
 
 function reactionTranscript(messages, extra = {}) {
-  return formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels, seeReactions: true, ...extra });
+  return formatTranscript(messages, {
+    timezone: TZ,
+    gapMinutes: 20,
+    maxChars: 100,
+    selfName: 'Nept',
+    labels,
+    seeReactions: true,
+    ...extra,
+  });
 }
 
 test('formatTranscript: reactions are rendered after the text', () => {
@@ -1235,7 +1468,10 @@ test('formatTranscript: reactions follow the media tags, in both modes', () => {
   const messages = [
     msg('1', T, {
       attachments: [{ id: 'p1', kind: 'image', name: 'a.png' }],
-      reactions: [{ emoji: ':κάτι:', count: 3, mine: false }, { emoji: '🍣', count: 1, mine: false }],
+      reactions: [
+        { emoji: ':κάτι:', count: 3, mine: false },
+        { emoji: '🍣', count: 1, mine: false },
+      ],
     }),
   ];
   for (const mode of ['chat', 'memory']) {
@@ -1244,46 +1480,88 @@ test('formatTranscript: reactions follow the media tags, in both modes', () => {
   }
 });
 
-test('formatTranscript: the bot\'s own reaction uses reactionMine', () => {
+test("formatTranscript: the bot's own reaction uses reactionMine", () => {
   const T = Date.UTC(2026, 8, 20, 10, 0, 0);
   const items = reactionTranscript([
-    msg('1', T, { reactions: [{ emoji: '👍', count: 3, mine: true }, { emoji: '🍣', count: 1, mine: false }] }),
+    msg('1', T, {
+      reactions: [
+        { emoji: '👍', count: 3, mine: true },
+        { emoji: '🍣', count: 1, mine: false },
+      ],
+    }),
   ]);
   assert.ok(items[0].text.endsWith('[reactions: 👍 x3 (yours too) · 🍣 x1]'), items[0].text);
 });
 
 test('formatTranscript: at most reactionsPerMessage items', () => {
   const T = Date.UTC(2026, 8, 20, 10, 0, 0);
-  const reactions = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map((name, i) => ({ emoji: `:${name}:`, count: 8 - i, mine: false }));
+  const reactions = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map((name, i) => ({
+    emoji: `:${name}:`,
+    count: 8 - i,
+    mine: false,
+  }));
   const capped = reactionTranscript([msg('1', T, { reactions })], { reactionsPerMessage: 2 });
   assert.ok(capped[0].text.endsWith('[reactions: :a: x8 · :b: x7]'), capped[0].text);
 });
 
 test('formatTranscript: reactionSeparator parts reactions, names inside one reaction keep ", "', () => {
   const T = Date.UTC(2026, 8, 20, 10, 0, 0);
-  const users = [{ id: '7', name: 'Ἄννα', bot: false }, { id: '8', name: 'Bé', bot: false }];
-  const own = msg('1', T, { self: true, reactions: [{ emoji: '😂', count: 2, mine: false, users }, { emoji: '👍', count: 2, mine: false }] });
+  const users = [
+    { id: '7', name: 'Ἄννα', bot: false },
+    { id: '8', name: 'Bé', bot: false },
+  ];
+  const own = msg('1', T, {
+    self: true,
+    reactions: [
+      { emoji: '😂', count: 2, mine: false, users },
+      { emoji: '👍', count: 2, mine: false },
+    ],
+  });
   const items = reactionTranscript([own], { reactionNames: true });
   assert.ok(items[0].text.endsWith('[reactions: 😂 by Ἄννα, Bé · 👍 x2]'), items[0].text);
   const noKey = { ...labels, transcript: { ...labels.transcript, reactionSeparator: undefined } };
-  const old = reactionTranscript([msg('1', T, { reactions: [{ emoji: '😂', count: 2, mine: false }, { emoji: '👍', count: 1, mine: false }] })], { labels: noKey });
+  const old = reactionTranscript(
+    [
+      msg('1', T, {
+        reactions: [
+          { emoji: '😂', count: 2, mine: false },
+          { emoji: '👍', count: 1, mine: false },
+        ],
+      }),
+    ],
+    { labels: noKey }
+  );
   assert.ok(old[0].text.endsWith('[reactions: 😂 x2, 👍 x1]'), old[0].text);
 });
 
 test('formatTranscript: the persona among the reactors of her line is named as her lines name her, counts keep reactionMine', () => {
   const T = Date.UTC(2026, 8, 20, 10, 0, 0);
-  const users = [{ id: '7', name: 'Ἄννα', bot: false }, { id: '8', name: 'Bé', bot: false }];
-  const own = msg('1', T, { self: true, reactions: [{ emoji: '😂', count: 3, mine: true, users }, { emoji: '👍', count: 2, mine: true }] });
+  const users = [
+    { id: '7', name: 'Ἄννα', bot: false },
+    { id: '8', name: 'Bé', bot: false },
+  ];
+  const own = msg('1', T, {
+    self: true,
+    reactions: [
+      { emoji: '😂', count: 3, mine: true, users },
+      { emoji: '👍', count: 2, mine: true },
+    ],
+  });
   const items = reactionTranscript([own], { reactionNames: true });
   assert.ok(items[0].text.includes('] Nept (you): text'), items[0].text);
   assert.ok(items[0].text.endsWith('[reactions: 😂 by Ἄννα, Bé, Nept (you) · 👍 x2 (yours too)]'), items[0].text);
-  const capped = reactionTranscript([{ ...own, reactions: [{ emoji: '😂', count: 4, mine: true, users }] }], { reactionNames: true, reactionNamesMax: 1 });
+  const capped = reactionTranscript([{ ...own, reactions: [{ emoji: '😂', count: 4, mine: true, users }] }], {
+    reactionNames: true,
+    reactionNamesMax: 1,
+  });
   assert.ok(capped[0].text.endsWith('[reactions: 😂 by Ἄννα, Nept (you) and 2 more]'), capped[0].text);
 });
 
 test('formatTranscript: seeReactions=false renders none', () => {
   const T = Date.UTC(2026, 8, 20, 10, 0, 0);
-  const items = reactionTranscript([msg('1', T, { reactions: [{ emoji: '🍣', count: 2, mine: false }] })], { seeReactions: false });
+  const items = reactionTranscript([msg('1', T, { reactions: [{ emoji: '🍣', count: 2, mine: false }] })], {
+    seeReactions: false,
+  });
   assert.ok(items[0].text.endsWith(': text'), items[0].text);
   assert.ok(!items[0].text.includes('🍣'));
 });
@@ -1294,7 +1572,9 @@ test('formatTranscript: labels without transcript.reactions render none', () => 
     ...labels,
     transcript: { ...labels.transcript, reactions: undefined, reactionItem: undefined, reactionMine: undefined },
   };
-  const items = reactionTranscript([msg('1', T, { reactions: [{ emoji: '🍣', count: 2, mine: true }] })], { labels: oldLabels });
+  const items = reactionTranscript([msg('1', T, { reactions: [{ emoji: '🍣', count: 2, mine: true }] })], {
+    labels: oldLabels,
+  });
   assert.ok(items[0].text.endsWith(': text'), items[0].text);
 });
 
@@ -1302,7 +1582,12 @@ test('formatTranscript: labels without transcript.reactions render none', () => 
 
 const GIF_T = Date.UTC(2026, 8, 20, 10, 0, 0);
 const GIF_LINK = { id: 'm1#e0', kind: 'gif', url: 'https://tenor.com/view/chat-123', site: 'Tenor', title: 'Chat' };
-const GIF_FILE = { id: 'att9', kind: 'gif', url: 'https://cdn.discordapp.com/a/att9/réaction.gif', name: 'réaction.gif' };
+const GIF_FILE = {
+  id: 'att9',
+  kind: 'gif',
+  url: 'https://cdn.discordapp.com/a/att9/réaction.gif',
+  name: 'réaction.gif',
+};
 const GIF_FULL = { reaction: 'accord ferme', action: 'un chat lève le menton', screen: 'ναι' };
 
 function gifLines(fields, { labelSet = labels, handles = true, item = GIF_LINK } = {}) {
@@ -1340,9 +1625,17 @@ test('formatTranscript: without a reaction or on-screen text a library GIF keeps
 
 test('formatTranscript: a blanked transcript.gifKnownFields falls back to gifKnown, then to gifDescribed', () => {
   const blanked = { ...labels, transcript: { ...labels.transcript, gifKnownFields: '' } };
-  assert.ok(gifLines(GIF_FULL, { labelSet: blanked }).endsWith(fill(labels.transcript.gifKnown, { id: 'g4', text: 'un chat lève le menton' })));
+  assert.ok(
+    gifLines(GIF_FULL, { labelSet: blanked }).endsWith(
+      fill(labels.transcript.gifKnown, { id: 'g4', text: 'un chat lève le menton' })
+    )
+  );
   const bothBlanked = { ...labels, transcript: { ...labels.transcript, gifKnownFields: '', gifKnown: '' } };
-  assert.ok(gifLines(GIF_FULL, { labelSet: bothBlanked }).endsWith(fill(labels.transcript.gifDescribed, { text: 'un chat lève le menton' })));
+  assert.ok(
+    gifLines(GIF_FULL, { labelSet: bothBlanked }).endsWith(
+      fill(labels.transcript.gifDescribed, { text: 'un chat lève le menton' })
+    )
+  );
 });
 
 test('formatTranscript: a GIF without a handle keeps gifDescribed with the action line only', () => {
@@ -1352,7 +1645,10 @@ test('formatTranscript: a GIF without a handle keeps gifDescribed with the actio
 });
 
 test('fillGifFields: a field the template names but the values lack is left out; {text} and {screen} are both slots', () => {
-  assert.equal(fillGifFields('{id}: {reaction}; {action}; "{text}"', 'g1', { reaction: 'r', action: 'a', text: 't' }), 'g1: r; a; "t"');
+  assert.equal(
+    fillGifFields('{id}: {reaction}; {action}; "{text}"', 'g1', { reaction: 'r', action: 'a', text: 't' }),
+    'g1: r; a; "t"'
+  );
   assert.equal(fillGifFields('{id}: {reaction}; "{screen}"', 'g1', { reaction: 'r' }), 'g1: r');
   assert.equal(fillGifFields('{id}', 'g1', { reaction: 'r' }), 'g1');
 });
@@ -1367,8 +1663,22 @@ function triggerScene(overrides = {}) {
     msg('q1', t0, { authorName: 'Éloïse', content: 'tu viens ce soir ?' }),
     msg('q2', t0 + 30_000, { authorName: 'Nick', content: 'et le lapin ?' }),
     msg('a1', t0 + MIN, { self: true, authorName: 'Nept', content: 'ναι', triggerId: 'q1', ...overrides.a1 }),
-    msg('a2', t0 + 2 * MIN, { self: true, authorName: 'Nept', content: 'κοιμάται', replyToId: 'q2', triggerId: 'q1', ...overrides.a2 }),
-    msg('a3', t0 + 3 * MIN, { self: true, authorName: 'Nept', content: 'ακόμα', replyToId: 'q2', triggerId: 'q2', ...overrides.a3 }),
+    msg('a2', t0 + 2 * MIN, {
+      self: true,
+      authorName: 'Nept',
+      content: 'κοιμάται',
+      replyToId: 'q2',
+      triggerId: 'q1',
+      ...overrides.a2,
+    }),
+    msg('a3', t0 + 3 * MIN, {
+      self: true,
+      authorName: 'Nept',
+      content: 'ακόμα',
+      replyToId: 'q2',
+      triggerId: 'q2',
+      ...overrides.a3,
+    }),
   ];
 }
 
@@ -1379,7 +1689,10 @@ test('formatTranscript: a plain line of the persona names the message that start
 
 test('formatTranscript: a reply of the persona to another message than its trigger shows both', () => {
   const items = formatTranscript(triggerScene(), offsetOptions);
-  assert.equal(items[3].text, '#4 [13:02] Nept (you) (turn triggered by #1): κοιμάται (replying to #2, Nick: "et le lapin ?")');
+  assert.equal(
+    items[3].text,
+    '#4 [13:02] Nept (you) (turn triggered by #1): κοιμάται (replying to #2, Nick: "et le lapin ?")'
+  );
 });
 
 test('formatTranscript: a reply of the persona to its own trigger shows the reply marker only', () => {
@@ -1400,21 +1713,30 @@ test('formatTranscript: the trigger number follows indexOffset', () => {
 });
 
 test('formatTranscript: lines without a trigger render exactly as before', () => {
-  const linked = formatTranscript(triggerScene({ a1: { triggerId: undefined }, a2: { triggerId: null }, a3: { triggerId: undefined } }), offsetOptions);
+  const linked = formatTranscript(
+    triggerScene({ a1: { triggerId: undefined }, a2: { triggerId: null }, a3: { triggerId: undefined } }),
+    offsetOptions
+  );
   const bare = formatTranscript(
     triggerScene().map(({ triggerId, ...message }) => message),
-    offsetOptions,
+    offsetOptions
   );
   assert.deepEqual(linked, bare);
   assert.equal(bare[2].text, '#3 [13:01] Nept (you): ναι');
 });
 
-test('formatTranscript: a trigger on another member\'s line, in memory mode or with blanked labels shows no marker', () => {
+test("formatTranscript: a trigger on another member's line, in memory mode or with blanked labels shows no marker", () => {
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
-  const member = formatTranscript([msg('q1', t0), msg('b', t0 + MIN, { content: 'ok', triggerId: 'q1' })], offsetOptions);
+  const member = formatTranscript(
+    [msg('q1', t0), msg('b', t0 + MIN, { content: 'ok', triggerId: 'q1' })],
+    offsetOptions
+  );
   assert.equal(member[1].text, '#2 [13:01] Nick: ok');
   const memory = formatTranscript(triggerScene(), { ...offsetOptions, mode: 'memory' });
-  assert.ok(memory.every((item) => !item.text.includes('triggered')), memory.map((item) => item.text).join('\n'));
+  assert.ok(
+    memory.every((item) => !item.text.includes('triggered')),
+    memory.map((item) => item.text).join('\n')
+  );
   const blanked = { ...labels, transcript: { ...labels.transcript, triggeredBy: '', triggeredByOlder: '' } };
   const quiet = formatTranscript(triggerScene(), { ...offsetOptions, labels: blanked });
   assert.equal(quiet[2].text, '#3 [13:01] Nept (you): ναι');
@@ -1422,9 +1744,14 @@ test('formatTranscript: a trigger on another member\'s line, in memory mode or w
   assert.equal(older[0].text, '#1 [13:01] Nept (you): ναι');
 });
 
-test('withTriggers: the persona\'s lines with a known link carry their trigger id; every other line is the same object', () => {
+test("withTriggers: the persona's lines with a known link carry their trigger id; every other line is the same object", () => {
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
-  const lines = [msg('q1', t0), msg('a1', t0 + MIN, { self: true }), msg('a2', t0 + 2 * MIN, { self: true }), msg('x', t0 + 3 * MIN)];
+  const lines = [
+    msg('q1', t0),
+    msg('a1', t0 + MIN, { self: true }),
+    msg('a2', t0 + 2 * MIN, { self: true }),
+    msg('x', t0 + 3 * MIN),
+  ];
   const links = new Map([
     ['a1', 'q1'],
     ['x', 'q1'],
@@ -1478,7 +1805,15 @@ test('withCalls: a call rides on the last line its turn posted in the channel wh
   const out = withCalls(lines, { calls: [call()] }, resolvers);
   assert.equal(out[1], lines[1], 'an earlier line of the same turn is left alone');
   assert.deepEqual(out[2].calls, [
-    { skill: 'message.edit', status: 'ok', targetId: 'p1', targetLink: LINK('c1', 'p1'), targetChannel: 'général', postedLink: null, ts: CALL_T0 + 2 * MIN + 10_000 },
+    {
+      skill: 'message.edit',
+      status: 'ok',
+      targetId: 'p1',
+      targetLink: LINK('c1', 'p1'),
+      targetChannel: 'général',
+      postedLink: null,
+      ts: CALL_T0 + 2 * MIN + 10_000,
+    },
   ]);
   assert.notEqual(out[2], lines[2], 'a new object: the fetched line is never changed');
   assert.equal(lines[2].calls, undefined);
@@ -1489,12 +1824,23 @@ test('withCalls: a call rides on the last line its turn posted in the channel wh
 
 test('withCalls: a turn that posted nothing here shows the call as a standalone line of hers at the call time, without a number', () => {
   const lines = callScene();
-  const out = withCalls(lines, { calls: [call({ posted: [], at: CALL_T0 + 3 * MIN, skill: 'lore.list', target: { messageId: null, channelId: null } })] }, resolvers);
+  const out = withCalls(
+    lines,
+    {
+      calls: [
+        call({ posted: [], at: CALL_T0 + 3 * MIN, skill: 'lore.list', target: { messageId: null, channelId: null } }),
+      ],
+    },
+    resolvers
+  );
   assert.equal(out[2].calls, undefined);
   assert.equal(out[2].callsAfter.length, 1, 'after the last line at or before the call');
   const items = formatTranscript(out, offsetOptions);
   assert.equal(items.length, 4, 'no item and no number of its own');
-  assert.equal(items[2].text, '#3 [13:02] Nept (you): μια στιγμή\n[13:03] Nept (you): [called lore.list in #général: done]');
+  assert.equal(
+    items[2].text,
+    '#3 [13:02] Nept (you): μια στιγμή\n[13:03] Nept (you): [called lore.list in #général: done]'
+  );
   assert.equal(items[3].text, '#4 [13:05] Nick: alors ?');
   // A call made before the first line in view is out of view.
   const early = withCalls(lines, { calls: [call({ posted: [], at: CALL_T0 - MIN })] }, resolvers);
@@ -1508,14 +1854,30 @@ test('withCalls: a call that posted in another channel names it and links the po
   const here = callScene();
   const there = [
     msg('z1', CALL_T0 + MIN, { channelId: 'c9', channelName: 'νέα', content: 'salut' }),
-    msg('x1', CALL_T0 + 2 * MIN + 5000, { channelId: 'c9', channelName: 'νέα', self: true, authorName: 'Nept', content: 'καλημέρα' }),
+    msg('x1', CALL_T0 + 2 * MIN + 5000, {
+      channelId: 'c9',
+      channelName: 'νέα',
+      self: true,
+      authorName: 'Nept',
+      content: 'καλημέρα',
+    }),
   ];
   const marks = {
-    calls: [call({ skill: 'message.create', target: { messageId: null, channelId: 'c9' }, postedId: 'x1', posted: ['p1', 'p2', 'x1'] })],
+    calls: [
+      call({
+        skill: 'message.create',
+        target: { messageId: null, channelId: 'c9' },
+        postedId: 'x1',
+        posted: ['p1', 'p2', 'x1'],
+      }),
+    ],
     postedFrom: new Map([['x1', 'c1']]),
   };
   const inA = formatTranscript(withCalls(here, marks, resolvers), offsetOptions);
-  assert.equal(inA[2].text, `#3 [13:02] Nept (you): μια στιγμή [called message.create in #νέα: done, posted as ${LINK('c9', 'x1')}]`);
+  assert.equal(
+    inA[2].text,
+    `#3 [13:02] Nept (you): μια στιγμή [called message.create in #νέα: done, posted as ${LINK('c9', 'x1')}]`
+  );
   const inB = withCalls(there, marks, resolvers);
   assert.equal(inB[1].calls, undefined, 'the call itself shows only where it was made');
   assert.equal(inB[1].callsAfter, undefined);
@@ -1529,46 +1891,117 @@ test('withCalls: a call that posted in another channel names it and links the po
 test('formatTranscript: a call status renders through transcript.callStatus, an unlisted one as its code', () => {
   for (const status of ['ok', 'denied', 'invalid', 'not_configured', 'unknown', 'partial', 'failed']) {
     const items = formatTranscript(withCalls(callScene(), { calls: [call({ status })] }, resolvers), offsetOptions);
-    assert.ok(items[2].text.endsWith(`[called message.edit on #2: ${labels.transcript.callStatus[status]}]`), items[2].text);
+    assert.ok(
+      items[2].text.endsWith(`[called message.edit on #2: ${labels.transcript.callStatus[status]}]`),
+      items[2].text
+    );
   }
-  const odd = formatTranscript(withCalls(callScene(), { calls: [call({ status: 'strange' })] }, resolvers), offsetOptions);
+  const odd = formatTranscript(
+    withCalls(callScene(), { calls: [call({ status: 'strange' })] }, resolvers),
+    offsetOptions
+  );
   assert.ok(odd[2].text.endsWith('[called message.edit on #2: strange]'), odd[2].text);
 });
 
-test('formatTranscript: a call that did not work says why: its argument, its message or its channel, else the code\'s reason, else the status alone', () => {
+test("formatTranscript: a call that did not work says why: its argument, its message or its channel, else the code's reason, else the status alone", () => {
   const reasons = labels.transcript.callReasons;
-  const ended = (detail, extra = {}) => formatTranscript(withCalls(callScene(), { calls: [call({ status: 'invalid', detail, ...extra })] }, resolvers), offsetOptions)[2].text;
+  const ended = (detail, extra = {}) =>
+    formatTranscript(
+      withCalls(callScene(), { calls: [call({ status: 'invalid', detail, ...extra })] }, resolvers),
+      offsetOptions
+    )[2].text;
   const status = labels.transcript.callStatus.invalid;
   const withReason = (reason) => fill(labels.transcript.callStatusReason, { status, reason });
   // The live failure: a deletion without the message it should delete.
-  assert.ok(ended({ kind: 'missing-arg', code: 'invalid-args', arg: 'message' }).endsWith(`[called message.edit on #2: ${withReason(fill(reasons['missing-arg'], { arg: 'message' }))}]`));
+  assert.ok(
+    ended({ kind: 'missing-arg', code: 'invalid-args', arg: 'message' }).endsWith(
+      `[called message.edit on #2: ${withReason(fill(reasons['missing-arg'], { arg: 'message' }))}]`
+    )
+  );
   // A channel she may not write in, named.
-  const channel = ended({ kind: 'channel-no-permission', code: 'channel-no-permission', arg: null }, { target: { messageId: null, channelId: 'c9' } });
-  assert.ok(channel.endsWith(`[called message.edit in #νέα: ${withReason(fill(reasons['channel-no-permission'], { channel: 'νέα' }))}]`), channel);
+  const channel = ended(
+    { kind: 'channel-no-permission', code: 'channel-no-permission', arg: null },
+    { target: { messageId: null, channelId: 'c9' } }
+  );
+  assert.ok(
+    channel.endsWith(
+      `[called message.edit in #νέα: ${withReason(fill(reasons['channel-no-permission'], { channel: 'νέα' }))}]`
+    ),
+    channel
+  );
   // A phrase whose placeholder cannot be filled gives way to the code's reason in skills.result.reasons.
-  const unnamed = ended({ kind: 'channel-no-permission', code: 'channel-no-permission', arg: null }, { target: { messageId: null, channelId: 'c5' } });
-  assert.ok(unnamed.endsWith(`[called message.edit: ${withReason(labels.skills.result.reasons['channel-no-permission'])}]`), unnamed);
+  const unnamed = ended(
+    { kind: 'channel-no-permission', code: 'channel-no-permission', arg: null },
+    { target: { messageId: null, channelId: 'c5' } }
+  );
+  assert.ok(
+    unnamed.endsWith(`[called message.edit: ${withReason(labels.skills.result.reasons['channel-no-permission'])}]`),
+    unnamed
+  );
   // A kind without a phrase of its own: the code's reason, else reasons.other.
-  assert.ok(ended({ kind: 'target-ambiguous', code: 'target-ambiguous', arg: null }).endsWith(`: ${withReason(labels.skills.result.reasons['target-ambiguous'])}]`));
-  assert.ok(ended({ kind: 'strange', code: 'strange', arg: null }).endsWith(`: ${withReason(labels.skills.result.reasons.other)}]`));
+  assert.ok(
+    ended({ kind: 'target-ambiguous', code: 'target-ambiguous', arg: null }).endsWith(
+      `: ${withReason(labels.skills.result.reasons['target-ambiguous'])}]`
+    )
+  );
+  assert.ok(
+    ended({ kind: 'strange', code: 'strange', arg: null }).endsWith(
+      `: ${withReason(labels.skills.result.reasons.other)}]`
+    )
+  );
   // The operation's own message: after the specific phrase, before the generic phrase of the code and reasons.other.
-  assert.ok(ended({ kind: 'strange', code: 'strange', arg: null, text: 'the diary has no channel set' }).endsWith(`: ${withReason('the diary has no channel set')}]`));
-  assert.ok(ended({ kind: 'target-ambiguous', code: 'target-ambiguous', arg: null, text: 'two channels' }).endsWith(`: ${withReason('two channels')}]`));
-  assert.ok(ended({ kind: 'missing-arg', code: 'invalid-args', arg: 'message', text: 'Invalid arguments' }).endsWith(`: ${withReason(fill(reasons['missing-arg'], { arg: 'message' }))}]`));
+  assert.ok(
+    ended({ kind: 'strange', code: 'strange', arg: null, text: 'the diary has no channel set' }).endsWith(
+      `: ${withReason('the diary has no channel set')}]`
+    )
+  );
+  assert.ok(
+    ended({ kind: 'target-ambiguous', code: 'target-ambiguous', arg: null, text: 'two channels' }).endsWith(
+      `: ${withReason('two channels')}]`
+    )
+  );
+  assert.ok(
+    ended({ kind: 'missing-arg', code: 'invalid-args', arg: 'message', text: 'Invalid arguments' }).endsWith(
+      `: ${withReason(fill(reasons['missing-arg'], { arg: 'message' }))}]`
+    )
+  );
   // No detail, or no callStatusReason label: the status word alone, as before.
   assert.ok(ended(null).endsWith(`[called message.edit on #2: ${status}]`));
   const plain = { ...labels, transcript: { ...labels.transcript, callStatusReason: '' } };
-  const marked = withCalls(callScene(), { calls: [call({ status: 'invalid', detail: { kind: 'missing-arg', code: 'invalid-args', arg: 'message' } })] }, resolvers);
-  assert.ok(formatTranscript(marked, { ...offsetOptions, labels: plain })[2].text.endsWith(`[called message.edit on #2: ${status}]`));
+  const marked = withCalls(
+    callScene(),
+    { calls: [call({ status: 'invalid', detail: { kind: 'missing-arg', code: 'invalid-args', arg: 'message' } })] },
+    resolvers
+  );
+  assert.ok(
+    formatTranscript(marked, { ...offsetOptions, labels: plain })[2].text.endsWith(
+      `[called message.edit on #2: ${status}]`
+    )
+  );
 });
 
 test('formatTranscript: an errand without its agent says so through skills.refusals.agentRequired, naming the agents', () => {
-  const ended = (detail, over = labels) => formatTranscript(withCalls(callScene(), { calls: [call({ skill: 'task.run', status: 'invalid', detail, target: { messageId: null, channelId: null } })] }, resolvers), { ...offsetOptions, labels: over })[2].text;
+  const ended = (detail, over = labels) =>
+    formatTranscript(
+      withCalls(
+        callScene(),
+        {
+          calls: [call({ skill: 'task.run', status: 'invalid', detail, target: { messageId: null, channelId: null } })],
+        },
+        resolvers
+      ),
+      { ...offsetOptions, labels: over }
+    )[2].text;
   const status = labels.transcript.callStatus.invalid;
   const withReason = (reason) => fill(labels.transcript.callStatusReason, { status, reason });
   const detail = { kind: 'agent-required', code: 'agent-required', arg: 'agent', values: ['web', 'server'] };
   const said = ended(detail);
-  assert.ok(said.endsWith(`: ${withReason(fill(labels.skills.refusals.agentRequired, { arg: 'agent', agents: 'web, server' }))}]`), said);
+  assert.ok(
+    said.endsWith(
+      `: ${withReason(fill(labels.skills.refusals.agentRequired, { arg: 'agent', agents: 'web, server' }))}]`
+    ),
+    said
+  );
   assert.ok(said.includes('web, server'), said);
   // Without the agents to name, or without the label, the generic reason as for any other code.
   assert.ok(ended({ ...detail, values: undefined }).endsWith(`: ${withReason(labels.skills.result.reasons.other)}]`));
@@ -1577,21 +2010,41 @@ test('formatTranscript: an errand without its agent says so through skills.refus
 });
 
 test('formatTranscript: a call target out of view renders as its link, else its channel, else nothing', () => {
-  const gone = formatTranscript(withCalls(callScene(), { calls: [call({ target: { messageId: 'old', channelId: 'c9' } })] }, resolvers), offsetOptions);
+  const gone = formatTranscript(
+    withCalls(callScene(), { calls: [call({ target: { messageId: 'old', channelId: 'c9' } })] }, resolvers),
+    offsetOptions
+  );
   assert.ok(gone[2].text.endsWith(`[called message.edit on ${LINK('c9', 'old')}: done]`), gone[2].text);
-  const unlinked = formatTranscript(withCalls(callScene(), { calls: [call({ target: { messageId: 'old', channelId: 'c9' } })] }, { ...resolvers, linkOf: () => null }), offsetOptions);
+  const unlinked = formatTranscript(
+    withCalls(
+      callScene(),
+      { calls: [call({ target: { messageId: 'old', channelId: 'c9' } })] },
+      { ...resolvers, linkOf: () => null }
+    ),
+    offsetOptions
+  );
   assert.ok(unlinked[2].text.endsWith('[called message.edit in #νέα: done]'), unlinked[2].text);
-  const nameless = formatTranscript(withCalls(callScene(), { calls: [call({ target: { messageId: null, channelId: 'c5' } })] }, resolvers), offsetOptions);
+  const nameless = formatTranscript(
+    withCalls(callScene(), { calls: [call({ target: { messageId: null, channelId: 'c5' } })] }, resolvers),
+    offsetOptions
+  );
   assert.ok(nameless[2].text.endsWith('[called message.edit: done]'), nameless[2].text);
 });
 
 test('formatTranscript: blanked call labels, memory mode and no marks render the lines as before', () => {
-  const marked = withCalls(callScene(), { calls: [call(), call({ posted: [], at: CALL_T0 + 3 * MIN })], postedFrom: new Map() }, resolvers);
+  const marked = withCalls(
+    callScene(),
+    { calls: [call(), call({ posted: [], at: CALL_T0 + 3 * MIN })], postedFrom: new Map() },
+    resolvers
+  );
   const bare = formatTranscript(callScene(), offsetOptions);
   const blanked = { ...labels, transcript: { ...labels.transcript, called: '' } };
   assert.deepEqual(formatTranscript(marked, { ...offsetOptions, labels: blanked }), bare);
   const memory = formatTranscript(marked, { ...offsetOptions, mode: 'memory' });
-  assert.ok(memory.every((item) => !item.text.includes('called')), memory.map((item) => item.text).join('\n'));
+  assert.ok(
+    memory.every((item) => !item.text.includes('called')),
+    memory.map((item) => item.text).join('\n')
+  );
   assert.equal(withCalls(callScene(), null, resolvers).length, 4);
   assert.deepEqual(withCalls(null, { calls: [call()] }, resolvers), []);
 });

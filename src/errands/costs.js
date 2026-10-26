@@ -31,7 +31,10 @@ const time = (value) => (typeof value === 'number' && Number.isFinite(value) ? v
  */
 export function costRecord(task) {
   if (!task || typeof task.id !== 'string' || !task.id || typeof task.agent !== 'string' || !task.agent) return null;
-  const usage = task.usage && typeof task.usage === 'object' ? { input: amount(task.usage.input), output: amount(task.usage.output), usd: amount(task.usage.usd) } : null;
+  const usage =
+    task.usage && typeof task.usage === 'object'
+      ? { input: amount(task.usage.input), output: amount(task.usage.output), usd: amount(task.usage.usd) }
+      : null;
   return { id: task.id, agent: task.agent, createdAt: time(task.createdAt), endedAt: time(task.endedAt), usage };
 }
 

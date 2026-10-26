@@ -28,7 +28,7 @@ function refused(code, reason) {
 /** The conversation a call aims at: its `channel` argument (an id the server resolved), else the current one. */
 function targetConversation(args, audience) {
   const given = args && typeof args === 'object' ? args.channel : undefined;
-  return given === undefined || given === null ? audience?.conversationId ?? null : given;
+  return given === undefined || given === null ? (audience?.conversationId ?? null) : given;
 }
 
 /**
@@ -56,7 +56,8 @@ function noRequesterRefusal(skill) {
  */
 function requesterRefusal(skill, requester, context, carriedOver = false) {
   // A turn answering several people at once: no write runs on their mixed authority.
-  if (context?.mixedRequesters === true && skill.kind !== 'read') return refused(CODE.MIXED_REQUESTERS, CODE.MIXED_REQUESTERS);
+  if (context?.mixedRequesters === true && skill.kind !== 'read')
+    return refused(CODE.MIXED_REQUESTERS, CODE.MIXED_REQUESTERS);
   const owners = skill.opBacked === true || skill.ownerOnly === true;
   if (!owners && (!skill.sharedState || !requester)) return null;
   // Her own initiative (an inner turn, src/behavior/inner.js: nobody asked, the owner let her act
@@ -70,7 +71,11 @@ function requesterRefusal(skill, requester, context, carriedOver = false) {
   const getOp = context?.getOp ?? registryGetOp;
   const op = skill.op ? getOp(skill.op) : null;
   if (!op) return refused(CODE.REQUESTER_DENIED, 'no-operation');
-  const code = rightsRefusal(op, { userId: requester?.id ?? null, roleIds: requester?.roleIds ?? [], config: context?.config });
+  const code = rightsRefusal(op, {
+    userId: requester?.id ?? null,
+    roleIds: requester?.roleIds ?? [],
+    config: context?.config,
+  });
   return code ? refused(CODE.REQUESTER_DENIED, code) : null;
 }
 
@@ -80,9 +85,11 @@ function requesterRefusal(skill, requester, context, carriedOver = false) {
  * naming the refusal and the cap that is spent when they are not the drawing's), or null when
  * unavailable.
  */
-const drawBudget = (context, requester) => (typeof context?.images?.quota === 'function' ? context.images.quota({ userId: requester?.id ?? null }) : null);
+const drawBudget = (context, requester) =>
+  typeof context?.images?.quota === 'function' ? context.images.quota({ userId: requester?.id ?? null }) : null;
 /** An errand's budget: its agent's caps (open tasks, tasks and dollars a day), `context.tasks`. */
-const taskBudget = (context, requester, args) => (typeof context?.tasks?.budget === 'function' ? context.tasks.budget(args?.agent) : null);
+const taskBudget = (context, requester, args) =>
+  typeof context?.tasks?.budget === 'function' ? context.tasks.budget(args?.agent) : null;
 /** A voice message's budget: today's count against `speech.maxPerDay`, `context.speech`. */
 const speechBudget = (context) => (typeof context?.speech?.quota === 'function' ? context.speech.quota() : null);
 const BUDGETS = Object.freeze({ 'draw.create': drawBudget, 'voice.say': speechBudget, 'task.run': taskBudget });
@@ -96,9 +103,12 @@ const DESTRUCTIVE_COOLDOWN_MINUTES = 10;
  * `context.now`), else `cooldown`.
  */
 function cooldownRefusal(skill, context) {
-  if (skill.effects !== 'destructive' || !Number.isFinite(context?.lastRunAt) || !Number.isFinite(context?.now)) return null;
+  if (skill.effects !== 'destructive' || !Number.isFinite(context?.lastRunAt) || !Number.isFinite(context?.now))
+    return null;
   const minutes = context.config?.skills?.destructiveCooldownMinutes ?? DESTRUCTIVE_COOLDOWN_MINUTES;
-  return context.now - context.lastRunAt < minutes * MINUTE_MS ? refused(CODE.COOLDOWN, 'skills.destructiveCooldownMinutes') : null;
+  return context.now - context.lastRunAt < minutes * MINUTE_MS
+    ? refused(CODE.COOLDOWN, 'skills.destructiveCooldownMinutes')
+    : null;
 }
 
 /** Null when a paid skill still has budget today, else the refusal. Fails closed. */
@@ -106,7 +116,11 @@ function budgetRefusal(skill, requester, context, args) {
   if (skill.costClass !== 'paid') return null;
   const budget = Object.hasOwn(BUDGETS, skill.name) ? BUDGETS[skill.name](context, requester, args) : null;
   if (!budget || typeof budget !== 'object') return refused(CODE.NO_BUDGET, 'unavailable');
-  if (budget.spent === true) return refused(typeof budget.code === 'string' && budget.code ? budget.code : CODE.DAILY_CAP, typeof budget.key === 'string' && budget.key ? budget.key : 'image.maxPerDay');
+  if (budget.spent === true)
+    return refused(
+      typeof budget.code === 'string' && budget.code ? budget.code : CODE.DAILY_CAP,
+      typeof budget.key === 'string' && budget.key ? budget.key : 'image.maxPerDay'
+    );
   if (budget.userSpent === true) return refused(CODE.DAILY_CAP, 'image.maxPerUserPerDay');
   return null;
 }
@@ -146,18 +160,30 @@ export function checkSkill({ skill: name, args, principal, requester = null, aud
     wakeKind: context.ownInitiative === true && typeof context.wakeKind === 'string' ? context.wakeKind : null,
     wakeActions: Array.isArray(context.wakeActions) ? context.wakeActions : null,
   });
-  if (!access.allowed) return refused(access.reason, access.detail ?? (access.reason === CODE.SAFE_MODE ? 'skills.safeMode' : skill.name));
+  if (!access.allowed)
+    return refused(access.reason, access.detail ?? (access.reason === CODE.SAFE_MODE ? 'skills.safeMode' : skill.name));
 
   // A file-only post: her text (the body argument) left empty beside a file (src/skills/executors.js#resolveCall); a GIF-only post: no text beside a `gif`.
   const bodyArg = skill.dispatch?.body;
-  const gifOnly = Boolean(bodyArg) && (args?.[bodyArg] === '' || args?.[bodyArg] === undefined) && ((typeof args?.gif === 'string' && args.gif !== '') || (typeof args?.media === 'string' && args.media !== ''));
-  const fileOnly = gifOnly || (Boolean(bodyArg) && args?.[bodyArg] === '' && typeof args?.file === 'string' && args.file !== '');
+  const gifOnly =
+    Boolean(bodyArg) &&
+    (args?.[bodyArg] === '' || args?.[bodyArg] === undefined) &&
+    ((typeof args?.gif === 'string' && args.gif !== '') || (typeof args?.media === 'string' && args.media !== ''));
+  const fileOnly =
+    gifOnly || (Boolean(bodyArg) && args?.[bodyArg] === '' && typeof args?.file === 'string' && args.file !== '');
   const argsError = fileOnly
-    ? schemaError(Object.fromEntries(Object.entries(args).filter(([key]) => key !== bodyArg)), { ...skill.argsSchema, required: (skill.argsSchema.required ?? []).filter((key) => key !== bodyArg) })
+    ? schemaError(Object.fromEntries(Object.entries(args).filter(([key]) => key !== bodyArg)), {
+        ...skill.argsSchema,
+        required: (skill.argsSchema.required ?? []).filter((key) => key !== bodyArg),
+      })
     : schemaError(args, skill.argsSchema);
   if (argsError) return refused(CODE.INVALID_ARGS, argsError);
 
-  return requesterRefusal(skill, requester, context, access.reason === 'carried-over') ?? cooldownRefusal(skill, context) ?? budgetRefusal(skill, requester, context, args) ?? { ok: true };
+  return (
+    requesterRefusal(skill, requester, context, access.reason === 'carried-over') ??
+    cooldownRefusal(skill, context) ??
+    budgetRefusal(skill, requester, context, args) ?? { ok: true }
+  );
 }
 
 /**
@@ -190,14 +216,28 @@ export function checkReplyEffect({ skill, principal, config }) {
  *   registry?: Map<string, object>, getOp?: Function }} args
  * @returns {{ name: string, title: string, whenToUse: string, allowed: boolean, reason: string, args: object[] }[]}
  */
-export function listSkills({ config, selfId = null, texts, requester = null, audience = {}, registry = skillRegistry(), getOp }) {
+export function listSkills({
+  config,
+  selfId = null,
+  texts,
+  requester = null,
+  audience = {},
+  registry = skillRegistry(),
+  getOp,
+}) {
   const rows = [];
   for (const skill of registry.values()) {
     // A skill whose feature switch is off does not exist for her: no row.
     if (!skillFeatureOn(skill.name, config)) continue;
     const { title, whenToUse } = describeSkill(skill, texts);
     const current = audience?.conversationId ?? null;
-    let { allowed, reason } = skillAccess({ skill, config, selfId, conversationId: current, currentConversationId: current });
+    let { allowed, reason } = skillAccess({
+      skill,
+      config,
+      selfId,
+      conversationId: current,
+      currentConversationId: current,
+    });
     if (allowed && requesterRefusal(skill, requester, { config, getOp })) {
       allowed = false;
       reason = CODE.REQUESTER_DENIED;

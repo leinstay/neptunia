@@ -90,5 +90,8 @@ export const GIF_POSTS_PER_DAY_FALLBACK = 40;
  */
 export function gifPostsToday(data, config, today) {
   const cap = config?.gifs?.maxPerDay;
-  return { used: countToday(data, GIF_POSTS_DAILY, today), cap: Number.isFinite(cap) ? cap : GIF_POSTS_PER_DAY_FALLBACK };
+  return {
+    used: countToday(data, GIF_POSTS_DAILY, today),
+    cap: Number.isFinite(cap) ? cap : GIF_POSTS_PER_DAY_FALLBACK,
+  };
 }

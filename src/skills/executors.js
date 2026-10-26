@@ -33,7 +33,10 @@ const ANCHOR_OPTIONS = Object.freeze({ 'conversation.read': ['before', 'after'] 
 /** Whether `option` of `skill` given as `text` names a message (a transcript number or a link). */
 function namesMessage(skill, option, text) {
   if (MESSAGE_OPTIONS.includes(option)) return true;
-  return (ANCHOR_OPTIONS[skill] ?? []).includes(option) && (text.startsWith('#') || MESSAGE_LINK_RE.test(text.replace(/^<(.*)>$/, '$1')));
+  return (
+    (ANCHOR_OPTIONS[skill] ?? []).includes(option) &&
+    (text.startsWith('#') || MESSAGE_LINK_RE.test(text.replace(/^<(.*)>$/, '$1')))
+  );
 }
 
 /** The option of message.create that names a message of hers whose attachment is posted again. */
@@ -46,7 +49,10 @@ function mediaRef(channelId, messageId) {
 
 /** Whether the transcript line `line` is the persona's own (`self`, else its author is `selfId`). */
 function isOwnLine(line, selfId) {
-  return line.self === true || (selfId !== null && selfId !== undefined && selfId !== '' && String(line.authorId) === String(selfId));
+  return (
+    line.self === true ||
+    (selfId !== null && selfId !== undefined && selfId !== '' && String(line.authorId) === String(selfId))
+  );
 }
 
 /** The options whose value is a file handle of one of her errands (`file:<task id>/<name>`). */
@@ -61,10 +67,23 @@ const PEOPLE_LIST_SKILLS = Object.freeze(['intent.set', 'intent.update']);
 const WRITTEN = Object.freeze(['message.create', 'message.edit']);
 
 /** Every status a call result may have. */
-export const RESULT_STATUSES = Object.freeze(['ok', 'denied', 'not_configured', 'invalid', 'unknown', 'partial', 'failed']);
+export const RESULT_STATUSES = Object.freeze([
+  'ok',
+  'denied',
+  'not_configured',
+  'invalid',
+  'unknown',
+  'partial',
+  'failed',
+]);
 
 /** What a timed-out in-turn tool was doing (`{what}` of the `timeout` reason); the operations of the chat answer `chat`. */
-const TIMEOUT_WHAT = Object.freeze({ 'web.search': WHAT.search, 'memory.search': WHAT.search, 'web.read': WHAT.page, 'media.look': WHAT.picture });
+const TIMEOUT_WHAT = Object.freeze({
+  'web.search': WHAT.search,
+  'memory.search': WHAT.search,
+  'web.read': WHAT.page,
+  'media.look': WHAT.picture,
+});
 
 /** Milliseconds a call may run before its outcome is `unknown` (`skills.callTimeoutMs`; config.json's value). */
 const CALL_TIMEOUT_MS = 120_000;
@@ -86,7 +105,10 @@ function refused(code, reason = '') {
 
 /** NFC, lower case, trimmed: how names are compared. */
 function folded(value) {
-  return String(value ?? '').normalize('NFC').trim().toLocaleLowerCase();
+  return String(value ?? '')
+    .normalize('NFC')
+    .trim()
+    .toLocaleLowerCase();
 }
 
 /** The id inside a channel reference `<#id>` or a bare id of digits, else null. */
@@ -110,7 +132,9 @@ function conversationIdOf(reference, conversations, channelHandles = null) {
   const byHandle = channelHandles instanceof Map ? channelHandles.get(given.replace(/^#/, '')) : undefined;
   if (byHandle !== undefined && byHandle !== null && String(byHandle) !== '') return String(byHandle);
   const unique = new Map();
-  for (const c of conversations ?? []) if (c && c.id !== undefined && c.id !== null && !unique.has(String(c.id))) unique.set(String(c.id), { id: String(c.id), name: c.name });
+  for (const c of conversations ?? [])
+    if (c && c.id !== undefined && c.id !== null && !unique.has(String(c.id)))
+      unique.set(String(c.id), { id: String(c.id), name: c.name });
   const match = matchChannel(given.replace(/^#/, ''), unique.values());
   return match === 'ambiguous' ? 'ambiguous' : (match?.id ?? null);
 }
@@ -121,7 +145,11 @@ function roleIdOf(reference, roles) {
   const match = /^<@&(\d+)>$/.exec(given) ?? /^(\d+)$/.exec(given);
   if (match) return match[1];
   const name = folded(given.replace(/^@/, ''));
-  const ids = new Set((Array.isArray(roles) ? roles : []).filter((role) => typeof role?.name === 'string' && folded(role.name) === name).map((role) => String(role.id)));
+  const ids = new Set(
+    (Array.isArray(roles) ? roles : [])
+      .filter((role) => typeof role?.name === 'string' && folded(role.name) === name)
+      .map((role) => String(role.id))
+  );
   return ids.size === 1 ? [...ids][0] : null;
 }
 
@@ -139,15 +167,22 @@ function memberOf(reference, members, handles = null) {
   const given = String(reference ?? '').trim();
   const list = Array.isArray(members) ? members : [];
   const mention = /^<@!?(\d+)>$/.exec(given) ?? /^(\d+)$/.exec(given);
-  if (mention) return list.some((member) => String(member?.id) === mention[1]) ? { id: mention[1] } : refused(CODE.UNKNOWN_MEMBER, 'id');
+  if (mention)
+    return list.some((member) => String(member?.id) === mention[1])
+      ? { id: mention[1] }
+      : refused(CODE.UNKNOWN_MEMBER, 'id');
   const byHandle = handles instanceof Map && given.startsWith('@') ? handles.get(given.slice(1)) : undefined;
   if (byHandle) return { id: String(byHandle) };
   const name = folded(given.replace(/^@/, ''));
   if (!name) return refused(CODE.UNKNOWN_MEMBER, 'empty');
   const ids = new Set();
   for (const member of list) {
-    const names = [...(Array.isArray(member?.names) ? member.names : []), ...(Array.isArray(member?.aliases) ? member.aliases.map((alias) => alias?.name) : [])];
-    if (names.some((candidate) => typeof candidate === 'string' && folded(candidate) === name)) ids.add(String(member.id));
+    const names = [
+      ...(Array.isArray(member?.names) ? member.names : []),
+      ...(Array.isArray(member?.aliases) ? member.aliases.map((alias) => alias?.name) : []),
+    ];
+    if (names.some((candidate) => typeof candidate === 'string' && folded(candidate) === name))
+      ids.add(String(member.id));
   }
   if (ids.size === 1) return { id: [...ids][0] };
   return refused(CODE.UNKNOWN_MEMBER, ids.size > 1 ? 'ambiguous' : 'name');
@@ -159,7 +194,10 @@ function namesChannel(text, channelId, names, handles) {
   if (!raw.trim()) return false;
   if (raw.includes(`<#${channelId}>`)) return true;
   const folded = foldText(raw);
-  return handles.some((handle) => occursAsWholeWord(folded, foldText(handle))) || names.some((name) => occursAsWholeWord(folded, channelCore(name)));
+  return (
+    handles.some((handle) => occursAsWholeWord(folded, foldText(handle))) ||
+    names.some((name) => occursAsWholeWord(folded, channelCore(name)))
+  );
 }
 
 /**
@@ -171,8 +209,13 @@ function namesChannel(text, channelId, names, handles) {
 function fileMayGo(task, channelId, view) {
   const origin = task?.origin?.channelId;
   if (origin === undefined || origin === null || origin === '' || String(origin) === channelId) return true;
-  const names = (view?.conversations ?? []).filter((c) => c && String(c.id) === channelId && typeof c.name === 'string' && c.name).map((c) => c.name);
-  const handles = view?.channelHandles instanceof Map ? [...view.channelHandles].filter(([, id]) => String(id) === channelId).map(([handle]) => handle) : [];
+  const names = (view?.conversations ?? [])
+    .filter((c) => c && String(c.id) === channelId && typeof c.name === 'string' && c.name)
+    .map((c) => c.name);
+  const handles =
+    view?.channelHandles instanceof Map
+      ? [...view.channelHandles].filter(([, id]) => String(id) === channelId).map(([handle]) => handle)
+      : [];
   return [task.goal, view?.triggerText].some((text) => namesChannel(text, channelId, names, handles));
 }
 
@@ -304,7 +347,8 @@ export function resolveCall(call, view) {
         if (line.deleted === true) return refused(CODE.UNKNOWN_MESSAGE, CODE.MESSAGE_DELETED);
         if (option === MEDIA_OPTION) {
           // A picture of hers to post again: its own channel is where to fetch it, never where it goes.
-          if (name === 'message.create' && !isOwnLine(line, view?.selfId)) return refused(CODE.NOT_OWN_MESSAGE, 'author');
+          if (name === 'message.create' && !isOwnLine(line, view?.selfId))
+            return refused(CODE.NOT_OWN_MESSAGE, 'author');
           args[option] = mediaRef(line.conversationId, line.id);
           break;
         }
@@ -342,20 +386,28 @@ export function resolveCall(call, view) {
     if (!byName.has('channel')) continue;
     if (args.channel === undefined) args.channel = at;
     else if (String(args.channel) !== at) {
-      if (!Object.keys(linked).every((option) => messageChannelWins(name, option))) return refused(CODE.UNKNOWN_MESSAGE, 'conversation');
+      if (!Object.keys(linked).every((option) => messageChannelWins(name, option)))
+        return refused(CODE.UNKNOWN_MESSAGE, 'conversation');
       args.channel = at;
       channelFixed = true;
     }
   }
   // An errand's file goes where the errand was asked; elsewhere only where its goal or the trigger names.
   if (args.channel !== undefined) {
-    for (const task of errandFiles) if (!fileMayGo(task, String(args.channel), view)) return refused(CODE.FILE_ELSEWHERE, 'channel');
+    for (const task of errandFiles)
+      if (!fileMayGo(task, String(args.channel), view)) return refused(CODE.FILE_ELSEWHERE, 'channel');
   }
   return { ok: true, skill: name, args, dispatch, repliedAuthorId, ...(channelFixed ? { channelFixed: true } : {}) };
 }
 
 /** The calls where the message's own channel wins over a `channel` that does not hold it. */
-const OWN_CHANNEL_SKILLS = Object.freeze({ 'message.react.add': ['message'], 'message.react.remove': ['message'], 'message.edit': ['message'], 'message.delete': ['message'], 'message.create': ['reply'] });
+const OWN_CHANNEL_SKILLS = Object.freeze({
+  'message.react.add': ['message'],
+  'message.react.remove': ['message'],
+  'message.edit': ['message'],
+  'message.delete': ['message'],
+  'message.create': ['reply'],
+});
 
 /** Whether, for `skill`, the channel of the message in `option` wins over the one the call gave. */
 function messageChannelWins(skill, option) {
@@ -437,9 +489,16 @@ export async function executeCall(resolved, deps) {
     if (typeof tool === 'function') {
       // The operation's own arguments, mapped by its command as for the owner's command.
       const mapped = resolved.dispatch ? resolved.dispatch.toOp(args) : { op: resolved.skill, args };
-      if (!mapped.args || mapped.op !== resolved.skill) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'command' };
+      if (!mapped.args || mapped.op !== resolved.skill)
+        return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'command' };
       const answered = await withTimeout(Promise.resolve(tool(mapped.args)), deps.timeoutMs ?? CALL_TIMEOUT_MS);
-      if (answered?.timedOut === true) return { status: 'unknown', code: CODE.TIMEOUT, values: { what: TIMEOUT_WHAT[resolved.skill] ?? WHAT.chat }, data: { text: '' } };
+      if (answered?.timedOut === true)
+        return {
+          status: 'unknown',
+          code: CODE.TIMEOUT,
+          values: { what: TIMEOUT_WHAT[resolved.skill] ?? WHAT.chat },
+          data: { text: '' },
+        };
       return RESULT_STATUSES.includes(answered?.status) ? answered : { status: 'failed', code: CODE.ERROR };
     }
     // Her own writing as a `<msg>` of hers is posted: the members its mentions resolved to ride along.
@@ -449,47 +508,75 @@ export async function executeCall(resolved, deps) {
       if (typeof rendered === 'string') args.text = rendered;
       else if (typeof rendered?.text === 'string') {
         args.text = rendered.text;
-        if (Array.isArray(rendered.userIds)) mentionUserIds = rendered.userIds.filter((id) => typeof id === 'string' && id);
+        if (Array.isArray(rendered.userIds))
+          mentionUserIds = rendered.userIds.filter((id) => typeof id === 'string' && id);
       }
     }
     const call = resolved.dispatch.toOp(args);
-    if (!call.args || call.op !== resolved.skill) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'command' };
+    if (!call.args || call.op !== resolved.skill)
+      return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'command' };
     // Her own expressive operations run on her grant alone; any other on the requester's right too,
     // except on her own initiative (an inner turn, nobody asked): her grant alone, the gateway's.
     const envelope = deps.envelope ?? {};
     const requester = envelope.requester ?? null;
     const initiative = envelope.ownInitiative === true && !requester;
-    const run = SELF_OWNED_OPS.includes(resolved.skill) ? deps.runOwnOp : initiative ? deps.runInitiativeOp : deps.runOp;
+    const run = SELF_OWNED_OPS.includes(resolved.skill)
+      ? deps.runOwnOp
+      : initiative
+        ? deps.runInitiativeOp
+        : deps.runOp;
     if (typeof run !== 'function') return { status: 'not_configured', code: CODE.UNSUPPORTED };
     // An inner turn's wake envelope, at the capabilities this skill reaches inside its operation (a picture or a voice
     // message is a post): checked before anything runs, so nothing paid is made for a post the envelope forbids.
     const wakeKind = initiative && typeof envelope.wakeKind === 'string' ? envelope.wakeKind : null;
     const nested = nestedRefusal({ config: deps.config, wakeKind, skill: resolved.skill });
     if (nested) return { status: 'denied', code: nested.reason, reason: nested.detail, data: { text: '' } };
-    const result = await withTimeout(run(call.op, call.args, {
-      ...deps.opContext,
-      userId: requester?.id ?? null,
-      roleIds: Array.isArray(requester?.roleIds) ? [...requester.roleIds] : [],
-      actor: 'persona',
-      ...(envelope.invocationId ? { invocationId: envelope.invocationId } : {}),
-      // Her turn and the call's place in it: an errand records the turn, and a retry of the same
-      // call cannot queue a second one (src/errands/store.js#add).
-      ...(envelope.turnId ? { turnId: envelope.turnId } : {}),
-      ...(envelope.idempotencyKey ? { idempotencyKey: envelope.idempotencyKey } : {}),
-      // Her own initiative (an inner turn) and its causal chain: which of her candidates the call
-      // may accept (src/intentions/model.js#acceptRefusal).
-      ...(initiative ? { ownInitiative: true, ...(envelope.chainId ? { chainId: String(envelope.chainId) } : {}), ...(envelope.wakeKind ? { wakeKind: String(envelope.wakeKind) } : {}) } : {}),
-      // The message her turn answers: where an errand she starts brings its result back (src/ops/task.js).
-      ...(Array.isArray(envelope.sourceMessageIds) && envelope.sourceMessageIds.length > 0 ? { sourceMessageId: String(envelope.sourceMessageIds[0]) } : {}),
-      ...(resolved.repliedAuthorId ? { repliedAuthorId: String(resolved.repliedAuthorId) } : {}),
-      ...(mentionUserIds.length > 0 ? { mentionUserIds } : {}),
-    }), deps.timeoutMs ?? CALL_TIMEOUT_MS);
+    const result = await withTimeout(
+      run(call.op, call.args, {
+        ...deps.opContext,
+        userId: requester?.id ?? null,
+        roleIds: Array.isArray(requester?.roleIds) ? [...requester.roleIds] : [],
+        actor: 'persona',
+        ...(envelope.invocationId ? { invocationId: envelope.invocationId } : {}),
+        // Her turn and the call's place in it: an errand records the turn, and a retry of the same
+        // call cannot queue a second one (src/errands/store.js#add).
+        ...(envelope.turnId ? { turnId: envelope.turnId } : {}),
+        ...(envelope.idempotencyKey ? { idempotencyKey: envelope.idempotencyKey } : {}),
+        // Her own initiative (an inner turn) and its causal chain: which of her candidates the call
+        // may accept (src/intentions/model.js#acceptRefusal).
+        ...(initiative
+          ? {
+              ownInitiative: true,
+              ...(envelope.chainId ? { chainId: String(envelope.chainId) } : {}),
+              ...(envelope.wakeKind ? { wakeKind: String(envelope.wakeKind) } : {}),
+            }
+          : {}),
+        // The message her turn answers: where an errand she starts brings its result back (src/ops/task.js).
+        ...(Array.isArray(envelope.sourceMessageIds) && envelope.sourceMessageIds.length > 0
+          ? { sourceMessageId: String(envelope.sourceMessageIds[0]) }
+          : {}),
+        ...(resolved.repliedAuthorId ? { repliedAuthorId: String(resolved.repliedAuthorId) } : {}),
+        ...(mentionUserIds.length > 0 ? { mentionUserIds } : {}),
+      }),
+      deps.timeoutMs ?? CALL_TIMEOUT_MS
+    );
     // Dispatched and not back in time: it may have taken effect. Never retried.
-    if (result?.timedOut === true) return { status: 'unknown', code: CODE.TIMEOUT, values: { what: WHAT.chat }, data: { text: '' } };
+    if (result?.timedOut === true)
+      return { status: 'unknown', code: CODE.TIMEOUT, values: { what: WHAT.chat }, data: { text: '' } };
     const status = callStatus(result);
     const embeds = Array.isArray(result?.data?.embeds) && result.data.embeds.length > 0;
     const text = embeds ? cardText(result) : String(result?.summary ?? '');
-    const out = { status, ...(status === 'ok' ? {} : { code: String(result?.code ?? CODE.ERROR) }), data: { text }, ...(result?.data?.ref ? { ref: result.data.ref } : {}), ...(result?.data?.voice ? { voice: result.data.voice } : {}), ...(status === 'ok' && typeof result?.data?.task?.id === 'string' ? { taskId: result.data.task.id } : {}), ...(status === 'ok' && typeof result?.data?.intention?.id === 'string' ? { intentionId: result.data.intention.id } : {}) };
+    const out = {
+      status,
+      ...(status === 'ok' ? {} : { code: String(result?.code ?? CODE.ERROR) }),
+      data: { text },
+      ...(result?.data?.ref ? { ref: result.data.ref } : {}),
+      ...(result?.data?.voice ? { voice: result.data.voice } : {}),
+      ...(status === 'ok' && typeof result?.data?.task?.id === 'string' ? { taskId: result.data.task.id } : {}),
+      ...(status === 'ok' && typeof result?.data?.intention?.id === 'string'
+        ? { intentionId: result.data.intention.id }
+        : {}),
+    };
     const files = status === 'ok' && Array.isArray(result?.data?.files) ? result.data.files : [];
     if (files.length === 0) return out;
     // The post of the files is a post of hers: the wake envelope is asked again right where it happens.
@@ -542,14 +629,27 @@ export function outcomeDetail(outcome, { textChars = 0, argNames = null } = {}) 
   const code = typeof outcome?.code === 'string' ? outcome.code : '';
   if (!code || outcome.status === 'ok') return null;
   const reason = typeof outcome.reason === 'string' ? outcome.reason : '';
-  const said = Number.isFinite(textChars) && textChars > 0 ? clampWithEllipsis(oneLine(outcome.data?.text), textChars) : '';
-  const fields = outcome.values && typeof outcome.values === 'object' && !Array.isArray(outcome.values) ? { ...outcome.values } : null;
-  const of = (kind, arg = null) => ({ kind, code, arg, ...(said ? { text: said } : {}), ...(fields ? { fields } : {}) });
+  const said =
+    Number.isFinite(textChars) && textChars > 0 ? clampWithEllipsis(oneLine(outcome.data?.text), textChars) : '';
+  const fields =
+    outcome.values && typeof outcome.values === 'object' && !Array.isArray(outcome.values)
+      ? { ...outcome.values }
+      : null;
+  const of = (kind, arg = null) => ({
+    kind,
+    code,
+    arg,
+    ...(said ? { text: said } : {}),
+    ...(fields ? { fields } : {}),
+  });
   if (code === CODE.INVALID_ARGS) {
     const path = /^args\.([^.:]+)(?:\.[^:]*)?:(.+)$/.exec(reason);
     if (path) {
       const kind = ARG_RULE_KINDS[path[2]] ?? 'wrong-arg';
-      const known = kind === 'unknown-arg' && Array.isArray(argNames) ? argNames.filter((name) => typeof name === 'string' && name) : [];
+      const known =
+        kind === 'unknown-arg' && Array.isArray(argNames)
+          ? argNames.filter((name) => typeof name === 'string' && name)
+          : [];
       return known.length > 0 ? { ...of(kind, path[1]), values: known } : of(kind, path[1]);
     }
     return of(code);
@@ -562,7 +662,10 @@ export function outcomeDetail(outcome, { textChars = 0, argNames = null } = {}) 
   if (code === CODE.NOT_OWN_MESSAGE) return of(code, 'message');
   if (code === CODE.UNKNOWN_MEMBER && reason === 'ambiguous') return of('member-ambiguous');
   if (code === CODE.AGENT_REQUIRED) {
-    const agents = reason.split(',').map((agent) => agent.trim()).filter(Boolean);
+    const agents = reason
+      .split(',')
+      .map((agent) => agent.trim())
+      .filter(Boolean);
     return { ...of(code, 'agent'), ...(agents.length > 0 ? { values: agents } : {}) };
   }
   return of(code);

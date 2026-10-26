@@ -10,7 +10,18 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { createGifRecache, gifCaptionCounts, gifCaptionState, gifFormatCounts, isPictureKey, oneFrameGifKeys, pickStaleDescriptions, recacheQueue, recordFinder, snowflakeMs } from '../src/memory/gif-recache.js';
+import {
+  createGifRecache,
+  gifCaptionCounts,
+  gifCaptionState,
+  gifFormatCounts,
+  isPictureKey,
+  oneFrameGifKeys,
+  pickStaleDescriptions,
+  recacheQueue,
+  recordFinder,
+  snowflakeMs,
+} from '../src/memory/gif-recache.js';
 import { createStore } from '../src/memory/store.js';
 import { createDiscordInterface } from '../src/interface/discord.js';
 import { tempDir } from './fixtures/tmp.js';
@@ -46,7 +57,11 @@ function linkEntry(n, overrides = {}) {
 }
 
 function library(entries) {
-  return { nextId: entries.length + 1, entries: Object.fromEntries(entries.map((entry) => [entry.itemId, entry])), backfill: null };
+  return {
+    nextId: entries.length + 1,
+    entries: Object.fromEntries(entries.map((entry) => [entry.itemId, entry])),
+    backfill: null,
+  };
 }
 
 // --- pure helpers ------------------------------------------------------------
@@ -87,14 +102,34 @@ test('recacheQueue: an old-format watched entry (no reaction field) is queued wi
   const gifs = library([linkEntry(1), linkEntry(2), linkEntry(3), linkEntry(4)]);
   const cache = {
     'm1#e0': { text: 'watched long ago', ts: 50, watched: true, gif: true },
-    'm2#e0': { text: 'watched', reaction: 'agreement', action: 'watched', screen: '', ts: 10, watched: true, gif: true },
+    'm2#e0': {
+      text: 'watched',
+      reaction: 'agreement',
+      action: 'watched',
+      screen: '',
+      ts: 10,
+      watched: true,
+      gif: true,
+    },
     'm3#e0': { text: 'a still', ts: 100 },
     'm4#e0': { text: 'watched lately', ts: 500, watched: true, gif: true },
   };
-  assert.deepEqual(recacheQueue(gifs, cache, 10).map((entry) => entry.id), ['g1', 'g3', 'g4'], 'the three-field entry is done');
-  assert.deepEqual(recacheQueue(gifs, cache, 2).map((entry) => entry.id), ['g1', 'g3'], 'under the same per-run cap');
+  assert.deepEqual(
+    recacheQueue(gifs, cache, 10).map((entry) => entry.id),
+    ['g1', 'g3', 'g4'],
+    'the three-field entry is done'
+  );
+  assert.deepEqual(
+    recacheQueue(gifs, cache, 2).map((entry) => entry.id),
+    ['g1', 'g3'],
+    'under the same per-run cap'
+  );
   const failed = { ...cache, 'm1#e0': { ...cache['m1#e0'], watchFailed: 900 } };
-  assert.deepEqual(recacheQueue(gifs, failed, 10).map((entry) => entry.id), ['g3', 'g4', 'g1'], 'a failed re-watch goes to the back');
+  assert.deepEqual(
+    recacheQueue(gifs, failed, 10).map((entry) => entry.id),
+    ['g3', 'g4', 'g1'],
+    'a failed re-watch goes to the back'
+  );
 });
 
 test('gif recache: old-format watched captions migrate over runs and the describer is asked for them', async () => {
@@ -105,15 +140,28 @@ test('gif recache: old-format watched captions migrate over runs and the describ
     });
     const describer = fakeDescriber(store);
     const log = silentLog();
-    const recache = createGifRecache({ discord: DISCORD, hot: fakeHot({ recachePerRun: 1 }), store, client: fakeClient([rawGifMessage(1), rawGifMessage(2)]), describer, log });
+    const recache = createGifRecache({
+      discord: DISCORD,
+      hot: fakeHot({ recachePerRun: 1 }),
+      store,
+      client: fakeClient([rawGifMessage(1), rawGifMessage(2)]),
+      describer,
+      log,
+    });
     assert.deepEqual(recache.start('g1'), { ok: true, dropped: 0, queued: 1 });
     await recache.waitIdle();
     assert.deepEqual(recache.start('g1'), { ok: true, dropped: 0, queued: 1 });
     await recache.waitIdle();
     assert.deepEqual(recache.start('g1'), { ok: true, dropped: 0, queued: 0 });
     await recache.waitIdle();
-    assert.deepEqual(describer.calls.map((c) => c.item.itemId), ['m2#e0', 'm1#e0'], 'oldest first, one per run');
-    const started = log.entries.filter((entry) => entry.message === 'gif-recache: started').map((entry) => entry.fields);
+    assert.deepEqual(
+      describer.calls.map((c) => c.item.itemId),
+      ['m2#e0', 'm1#e0'],
+      'oldest first, one per run'
+    );
+    const started = log.entries
+      .filter((entry) => entry.message === 'gif-recache: started')
+      .map((entry) => entry.fields);
     assert.deepEqual(started[0], { dropped: 0, queued: 1 }, 'counts only');
   });
 });
@@ -126,8 +174,14 @@ test('recacheQueue: never-described first, then oldest-described; watched skippe
     'm3#e0': { text: 'a still', ts: 100 },
     'm4#e0': { text: 'a still', ts: 50, watchFailed: 400 },
   };
-  assert.deepEqual(recacheQueue(gifs, cache, 10).map((entry) => entry.id), ['g5', 'g3', 'g1', 'g4']);
-  assert.deepEqual(recacheQueue(gifs, cache, 2).map((entry) => entry.id), ['g5', 'g3']);
+  assert.deepEqual(
+    recacheQueue(gifs, cache, 10).map((entry) => entry.id),
+    ['g5', 'g3', 'g1', 'g4']
+  );
+  assert.deepEqual(
+    recacheQueue(gifs, cache, 2).map((entry) => entry.id),
+    ['g5', 'g3']
+  );
   assert.deepEqual(recacheQueue(gifs, cache, 0), []);
   assert.equal(recacheQueue(gifs, cache, 1)[0].key, 'm5#e0');
 });
@@ -139,8 +193,8 @@ test('oneFrameGifKeys: one-frame GIF captions outside the library; never picture
     'm9#e0': { text: 'embed still', ts: 1 },
     'm9#e1': { text: 'embed watched', ts: 1, watched: true, gif: true },
     'm8#e0': { miss: true, ts: 1 },
-    '555': { text: 'attached gif still', ts: 1, gif: true },
-    '556': { text: 'a picture', ts: 1 },
+    555: { text: 'attached gif still', ts: 1, gif: true },
+    556: { text: 'a picture', ts: 1 },
     'link:abc': { text: 'a thumbnail', ts: 1 },
     'video:777': { text: 'a video', ts: 1, watched: true },
     'video:m7#e0': { text: 'never a gif caption', ts: 1 },
@@ -198,7 +252,15 @@ function fakeDescriber(store, { outcome, blocker = null, gate } = {}) {
       if (gate) await gate();
       const result = outcome ? outcome(item) : { state: 'watched', text: `watched ${item.itemId}` };
       if (result.state === 'watched') {
-        store.getMediaCache(guildId)[item.itemId] = { text: result.text, reaction: '', action: result.text, screen: '', ts: T0, watched: true, gif: true };
+        store.getMediaCache(guildId)[item.itemId] = {
+          text: result.text,
+          reaction: '',
+          action: result.text,
+          screen: '',
+          ts: T0,
+          watched: true,
+          gif: true,
+        };
       }
       return result;
     },
@@ -228,7 +290,7 @@ test('gif recache: drops one-frame captions at once, then watches at most recach
       'm1#e0': { text: 'a still', ts: 300 },
       'm2#e0': { text: 'a still', ts: 100 },
       'x9#e0': { text: 'a stray still', ts: 1, gif: true },
-      '556': { text: 'a picture', ts: 1 },
+      556: { text: 'a picture', ts: 1 },
     });
     const describer = fakeDescriber(store);
     const recache = createGifRecache({
@@ -242,13 +304,21 @@ test('gif recache: drops one-frame captions at once, then watches at most recach
 
     const started = recache.start('g1');
     assert.deepEqual(started, { ok: true, dropped: 1, queued: 2 });
-    assert.equal(store.getMediaCache('g1')['x9#e0'], undefined, 'the stray one-frame caption is dropped, not re-described');
+    assert.equal(
+      store.getMediaCache('g1')['x9#e0'],
+      undefined,
+      'the stray one-frame caption is dropped, not re-described'
+    );
     assert.equal(store.getMediaCache('g1')['556'].text, 'a picture');
     assert.equal(recache.isRunning(), true);
     await recache.waitIdle();
     assert.equal(recache.isRunning(), false);
 
-    assert.deepEqual(describer.calls.map((c) => c.item.itemId), ['m3#e0', 'm2#e0'], 'never described first, then the oldest');
+    assert.deepEqual(
+      describer.calls.map((c) => c.item.itemId),
+      ['m3#e0', 'm2#e0'],
+      'never described first, then the oldest'
+    );
     const [first] = describer.calls;
     assert.equal(first.item.kind, 'gif');
     assert.equal(first.item.animationUrl, `${TENOR(3)}/loop.mp4`, 'the animation comes from the message read again');
@@ -273,8 +343,16 @@ test('gif recache: a second run skips what the first watched and continues with 
     await recache.waitIdle();
     assert.deepEqual(recache.start('g1'), { ok: true, dropped: 0, queued: 1 });
     await recache.waitIdle();
-    assert.deepEqual(describer.calls.map((c) => c.item.itemId), ['m1#e0', 'm2#e0', 'm3#e0']);
-    assert.deepEqual(gifCaptionCounts(store.getGifs('g1'), store.getMediaCache('g1')), { watched: 3, 'one-frame': 0, failed: 0, none: 0 });
+    assert.deepEqual(
+      describer.calls.map((c) => c.item.itemId),
+      ['m1#e0', 'm2#e0', 'm3#e0']
+    );
+    assert.deepEqual(gifCaptionCounts(store.getGifs('g1'), store.getMediaCache('g1')), {
+      watched: 3,
+      'one-frame': 0,
+      failed: 0,
+      none: 0,
+    });
     assert.deepEqual(recache.start('g1'), { ok: true, dropped: 0, queued: 0 });
     await recache.waitIdle();
   });
@@ -283,9 +361,18 @@ test('gif recache: a second run skips what the first watched and continues with 
 test('gif recache: a GIF whose message is gone still goes to the describer, which fails it as source', async () => {
   await withStore(async (store) => {
     seed(store, [linkEntry(1)]);
-    const describer = fakeDescriber(store, { outcome: (item) => (item.animationUrl ? { state: 'watched', text: 'x' } : { state: 'failed', reason: 'source' }) });
+    const describer = fakeDescriber(store, {
+      outcome: (item) => (item.animationUrl ? { state: 'watched', text: 'x' } : { state: 'failed', reason: 'source' }),
+    });
     const log = silentLog();
-    const recache = createGifRecache({ discord: DISCORD, hot: fakeHot(), store, client: fakeClient([]), describer, log });
+    const recache = createGifRecache({
+      discord: DISCORD,
+      hot: fakeHot(),
+      store,
+      client: fakeClient([]),
+      describer,
+      log,
+    });
     recache.start('g1');
     await recache.waitIdle();
     assert.deepEqual(describer.calls[0].item, { itemId: 'm1#e0', kind: 'gif' });
@@ -298,9 +385,10 @@ test('gif recache: one run at a time', async () => {
   await withStore(async (store) => {
     seed(store, [linkEntry(1)]);
     let release;
-    const gate = () => new Promise((resolve) => {
-      release = resolve;
-    });
+    const gate = () =>
+      new Promise((resolve) => {
+        release = resolve;
+      });
     const recache = createGifRecache({
       discord: DISCORD,
       hot: fakeHot(),
@@ -326,10 +414,16 @@ test('gif recache: refused while paused, without a describer or while GIFs are n
 
     assert.deepEqual(createGifRecache({ discord: DISCORD, ...base }).start('g1'), { ok: false, reason: 'unavailable' });
     for (const blocker of ['off', 'video-off', 'no-prompt']) {
-      assert.deepEqual(createGifRecache({ discord: DISCORD, ...base, describer: fakeDescriber(store, { blocker }) }).start('g1'), { ok: false, reason: blocker });
+      assert.deepEqual(
+        createGifRecache({ discord: DISCORD, ...base, describer: fakeDescriber(store, { blocker }) }).start('g1'),
+        { ok: false, reason: blocker }
+      );
     }
     store.state.data.paused = true;
-    assert.deepEqual(createGifRecache({ discord: DISCORD, ...base, describer: fakeDescriber(store) }).start('g1'), { ok: false, reason: 'paused' });
+    assert.deepEqual(createGifRecache({ discord: DISCORD, ...base, describer: fakeDescriber(store) }).start('g1'), {
+      ok: false,
+      reason: 'paused',
+    });
     assert.equal(store.getMediaCache('g1')['x9#e0'].text, 'a stray still');
   });
 });
@@ -381,10 +475,28 @@ test('snowflakeMs: the creation time of a snowflake; null for anything else', ()
 });
 
 test('isPictureKey: picture descriptions only, never video summaries, answers or web entries', () => {
-  for (const key of [snowflake(NOW), `${snowflake(NOW)}#e0`, 'm1#e2', 'emoji:42', 'sticker:42', 'link:abcdef', 'video:url:abcdef']) {
+  for (const key of [
+    snowflake(NOW),
+    `${snowflake(NOW)}#e0`,
+    'm1#e2',
+    'emoji:42',
+    'sticker:42',
+    'link:abcdef',
+    'video:url:abcdef',
+  ]) {
     assert.equal(isPictureKey(key), true, key);
   }
-  for (const key of [`video:${snowflake(NOW)}`, 'video:video:url:abcdef', 'video:m7#e0', 'image:1:q:abc', 'gif:m1#e0:q:abc', 'video:1:q:abc', 'read:link:abc', 'search:abc', 'a1']) {
+  for (const key of [
+    `video:${snowflake(NOW)}`,
+    'video:video:url:abcdef',
+    'video:m7#e0',
+    'image:1:q:abc',
+    'gif:m1#e0:q:abc',
+    'video:1:q:abc',
+    'read:link:abc',
+    'search:abc',
+    'a1',
+  ]) {
     assert.equal(isPictureKey(key), false, key);
   }
 });
@@ -401,8 +513,17 @@ test('pickStaleDescriptions: by last use within the days, older models only, mos
     'link:aa': { miss: true, ts: NOW },
     'video:1': { text: 'a video', ts: NOW, watched: true },
   };
-  assert.deepEqual(pickStaleDescriptions(cache, { nowMs: NOW, days: 7, cutoffMs: null, models: MODELS }), ['emoji:1', snowflake(NOW - 2 * DAY), 'm1#e0']);
-  assert.deepEqual(pickStaleDescriptions(cache, { nowMs: NOW, days: 9, cutoffMs: null, models: MODELS }), ['emoji:1', snowflake(NOW - 2 * DAY), 'm1#e0', 'emoji:3']);
+  assert.deepEqual(pickStaleDescriptions(cache, { nowMs: NOW, days: 7, cutoffMs: null, models: MODELS }), [
+    'emoji:1',
+    snowflake(NOW - 2 * DAY),
+    'm1#e0',
+  ]);
+  assert.deepEqual(pickStaleDescriptions(cache, { nowMs: NOW, days: 9, cutoffMs: null, models: MODELS }), [
+    'emoji:1',
+    snowflake(NOW - 2 * DAY),
+    'm1#e0',
+    'emoji:3',
+  ]);
 });
 
 test('pickStaleDescriptions: with media.recacheBefore set, entries described at or after it are skipped', () => {
@@ -413,21 +534,39 @@ test('pickStaleDescriptions: with media.recacheBefore set, entries described at 
     'emoji:3': { text: 'c', ts: NOW - DAY },
     'emoji:4': { text: 'd', ts: NOW - DAY, describedAt: cutoffMs - 1, model: 'x/new-vision' },
   };
-  assert.deepEqual(pickStaleDescriptions(cache, { nowMs: NOW, days: 7, cutoffMs, models: MODELS }).sort(), ['emoji:2', 'emoji:3']);
+  assert.deepEqual(pickStaleDescriptions(cache, { nowMs: NOW, days: 7, cutoffMs, models: MODELS }).sort(), [
+    'emoji:2',
+    'emoji:3',
+  ]);
 });
 
 test('recordFinder: a gif embed by its message, an attachment by its upload time, an undated key within the window', () => {
   const upload = NOW - 3 * DAY;
   const attachment = snowflake(upload);
   const embedMessage = snowflake(NOW - 40 * DAY);
-  const line = (messageId, occurredAt, extra = {}) => ({ kind: 'seen', messageId, occurredAt: new Date(occurredAt).toISOString(), scope: { channel: 'c1' }, media: ['image'], ...extra });
+  const line = (messageId, occurredAt, extra = {}) => ({
+    kind: 'seen',
+    messageId,
+    occurredAt: new Date(occurredAt).toISOString(),
+    scope: { channel: 'c1' },
+    media: ['image'],
+    ...extra,
+  });
 
   const dated = recordFinder([attachment, `${embedMessage}#e0`], NOW - 7 * DAY);
   assert.ok(dated.fromMs <= NOW - 40 * DAY, 'reads back to the oldest dated key');
   assert.equal(dated.matches(line(embedMessage, NOW - 40 * DAY)), true);
-  assert.equal(dated.matches(line(snowflake(upload + 60_000), upload + 60_000)), true, 'sent a minute after the upload');
+  assert.equal(
+    dated.matches(line(snowflake(upload + 60_000), upload + 60_000)),
+    true,
+    'sent a minute after the upload'
+  );
   assert.equal(dated.matches(line(snowflake(upload + 3_600_000), upload + 3_600_000)), false, 'an hour later');
-  assert.equal(dated.matches(line(snowflake(NOW - DAY), NOW - DAY)), false, 'no undated key: the window alone is not enough');
+  assert.equal(
+    dated.matches(line(snowflake(NOW - DAY), NOW - DAY)),
+    false,
+    'no undated key: the window alone is not enough'
+  );
   assert.equal(dated.matches(line(embedMessage, NOW - 40 * DAY, { media: [] })), false, 'no media');
   assert.equal(dated.matches(line(embedMessage, NOW - 40 * DAY, { kind: 'deleted' })), false);
 
@@ -446,7 +585,19 @@ function rawPictureMessage(id, attachmentId) {
     cleanContent: '',
     createdTimestamp: snowflakeMs(id) ?? T0,
     reference: null,
-    attachments: new Map([[attachmentId, { id: attachmentId, contentType: 'image/png', name: 'p.png', url: `https://cdn.discordapp.com/attachments/1/${attachmentId}/p.png`, width: 64, height: 64 }]]),
+    attachments: new Map([
+      [
+        attachmentId,
+        {
+          id: attachmentId,
+          contentType: 'image/png',
+          name: 'p.png',
+          url: `https://cdn.discordapp.com/attachments/1/${attachmentId}/p.png`,
+          width: 64,
+          height: 64,
+        },
+      ],
+    ]),
     stickers: new Map(),
     messageSnapshots: new Map(),
     embeds: [],
@@ -478,7 +629,13 @@ function fakeMediaDescriber(clock, { outcome, costMs = 0, blocker = null } = {})
 }
 
 function mediaHot(media = {}) {
-  return { config: { media: { embedTextChars: 200, recacheIntervalMs: 3000, ...media }, gifs: { recachePerRun: 50 }, models: { base: { vision: MODELS.vision, video: MODELS.video } } } };
+  return {
+    config: {
+      media: { embedTextChars: 200, recacheIntervalMs: 3000, ...media },
+      gifs: { recachePerRun: 50 },
+      models: { base: { vision: MODELS.vision, video: MODELS.video } },
+    },
+  };
 }
 
 /** A clock and a sleep that moves it, recording every wait. */
@@ -508,7 +665,13 @@ test('media recache: emoji from their id, a library GIF from its message, an att
     const describer = fakeMediaDescriber(clock);
     const log = silentLog();
     const record = fakeRecord([
-      { kind: 'seen', messageId, occurredAt: new Date(upload + 5_000).toISOString(), scope: { channel: 'c1' }, media: ['image'] },
+      {
+        kind: 'seen',
+        messageId,
+        occurredAt: new Date(upload + 5_000).toISOString(),
+        scope: { channel: 'c1' },
+        media: ['image'],
+      },
     ]);
     const recache = createGifRecache({
       discord: DISCORD,
@@ -526,7 +689,10 @@ test('media recache: emoji from their id, a library GIF from its message, an att
     assert.equal(recache.isRunning(), true);
     await recache.waitIdle();
 
-    assert.deepEqual(describer.calls.map((c) => c.item.itemId), ['emoji:77', 'm1#e0', attachmentId]);
+    assert.deepEqual(
+      describer.calls.map((c) => c.item.itemId),
+      ['emoji:77', 'm1#e0', attachmentId]
+    );
     const [emoji, gif, picture] = describer.calls.map((c) => c.item);
     assert.equal(emoji.kind, 'emoji');
     assert.match(emoji.url, /emojis\/77\./);
@@ -546,11 +712,23 @@ test('media recache: descriptions are paced media.recacheIntervalMs apart on the
     });
     const clock = fakeTime();
     const describer = fakeMediaDescriber(clock, { costMs: 1000 });
-    const recache = createGifRecache({ discord: DISCORD, hot: mediaHot({ recacheIntervalMs: 3000 }), store, client: fakeClient([]), describer, now: clock.now, sleep: clock.sleep, log: silentLog() });
+    const recache = createGifRecache({
+      discord: DISCORD,
+      hot: mediaHot({ recacheIntervalMs: 3000 }),
+      store,
+      client: fakeClient([]),
+      describer,
+      now: clock.now,
+      sleep: clock.sleep,
+      log: silentLog(),
+    });
     recache.startMedia('g1', {});
     await recache.waitIdle();
     assert.deepEqual(clock.sleeps, [2000, 2000], 'the time a request took counts toward the pause');
-    assert.deepEqual(describer.calls.map((c) => c.at - NOW), [0, 3000, 6000]);
+    assert.deepEqual(
+      describer.calls.map((c) => c.at - NOW),
+      [0, 3000, 6000]
+    );
   });
 });
 
@@ -565,11 +743,26 @@ test('media recache: a spent daily request cap stops the run; a failure is count
     const outcomes = [{ state: 'failed' }, { state: 'unavailable', reason: 'daily-cap' }, { state: 'done' }];
     const describer = fakeMediaDescriber(clock, { outcome: () => outcomes.shift() });
     const log = silentLog();
-    const recache = createGifRecache({ discord: DISCORD, hot: mediaHot(), store, client: fakeClient([]), describer, now: clock.now, sleep: clock.sleep, log });
+    const recache = createGifRecache({
+      discord: DISCORD,
+      hot: mediaHot(),
+      store,
+      client: fakeClient([]),
+      describer,
+      now: clock.now,
+      sleep: clock.sleep,
+      log,
+    });
     recache.startMedia('g1', { days: 7 });
     await recache.waitIdle();
     assert.equal(describer.calls.length, 2);
-    assert.deepEqual(log.entries.find((e) => e.message === 'media: recached').fields, { picked: 3, done: 0, failed: 1, unlocated: 0, stopped: 'daily-cap' });
+    assert.deepEqual(log.entries.find((e) => e.message === 'media: recached').fields, {
+      picked: 3,
+      done: 0,
+      failed: 1,
+      unlocated: 0,
+      stopped: 'daily-cap',
+    });
   });
 });
 
@@ -577,11 +770,19 @@ test('media recache: refused while running (either run), paused, without a descr
   await withStore(async (store) => {
     seed(store, [linkEntry(1)], { 'emoji:1': { text: 'a', ts: NOW - DAY } });
     const clock = fakeTime();
-    const base = { hot: mediaHot(), store, client: fakeClient([rawGifMessage(1)]), now: clock.now, sleep: clock.sleep, log: silentLog() };
+    const base = {
+      hot: mediaHot(),
+      store,
+      client: fakeClient([rawGifMessage(1)]),
+      now: clock.now,
+      sleep: clock.sleep,
+      log: silentLog(),
+    };
     let release;
-    const gate = () => new Promise((resolve) => {
-      release = resolve;
-    });
+    const gate = () =>
+      new Promise((resolve) => {
+        release = resolve;
+      });
     const both = { ...fakeDescriber(store, { gate }), ...fakeMediaDescriber(clock) };
     const busy = createGifRecache({ discord: DISCORD, ...base, describer: both });
     assert.equal(busy.start('g1').ok, true);
@@ -590,9 +791,22 @@ test('media recache: refused while running (either run), paused, without a descr
     release();
     await busy.waitIdle();
 
-    assert.deepEqual(createGifRecache({ discord: DISCORD, ...base }).startMedia('g1', {}), { ok: false, reason: 'unavailable' });
-    assert.deepEqual(createGifRecache({ discord: DISCORD, ...base, describer: fakeMediaDescriber(clock, { blocker: 'off' }) }).startMedia('g1', {}), { ok: false, reason: 'off' });
+    assert.deepEqual(createGifRecache({ discord: DISCORD, ...base }).startMedia('g1', {}), {
+      ok: false,
+      reason: 'unavailable',
+    });
+    assert.deepEqual(
+      createGifRecache({
+        discord: DISCORD,
+        ...base,
+        describer: fakeMediaDescriber(clock, { blocker: 'off' }),
+      }).startMedia('g1', {}),
+      { ok: false, reason: 'off' }
+    );
     store.state.data.paused = true;
-    assert.deepEqual(createGifRecache({ discord: DISCORD, ...base, describer: fakeMediaDescriber(clock) }).startMedia('g1', {}), { ok: false, reason: 'paused' });
+    assert.deepEqual(
+      createGifRecache({ discord: DISCORD, ...base, describer: fakeMediaDescriber(clock) }).startMedia('g1', {}),
+      { ok: false, reason: 'paused' }
+    );
   });
 });

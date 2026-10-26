@@ -52,7 +52,17 @@ export class SpeechError extends Error {
  * @param {string} [deps.ffmpeg]
  * @returns {{ say: Function, quota: Function }}
  */
-export function createSpeech({ getConfig, getPrompts = () => ({}), env = {}, apiKey, llm, state, fetchImpl = fetch, now = () => Date.now(), ffmpeg = 'ffmpeg' }) {
+export function createSpeech({
+  getConfig,
+  getPrompts = () => ({}),
+  env = {},
+  apiKey,
+  llm,
+  state,
+  fetchImpl = fetch,
+  now = () => Date.now(),
+  ffmpeg = 'ffmpeg',
+}) {
   /** Today's use of the rail, read only (yesterday's count shows as 0 but is not reset). */
   function quota() {
     const cap = dailyCapOf(getConfig().speech?.maxPerDay, SPEECH_CAP_KEY);
@@ -86,7 +96,9 @@ export function createSpeech({ getConfig, getPrompts = () => ({}), env = {}, api
     });
 
     if (!prepared.prepared) {
-      throw new SpeechError('prepare', CODE.SPEECH_PREPARE_FAILED, `pronunciation pass failed (${prepared.reason})`, { reason: prepared.reason ?? null });
+      throw new SpeechError('prepare', CODE.SPEECH_PREPARE_FAILED, `pronunciation pass failed (${prepared.reason})`, {
+        reason: prepared.reason ?? null,
+      });
     }
 
     // Counted as the request goes out: a failure after this was possibly billed.
@@ -106,9 +118,18 @@ export function createSpeech({ getConfig, getPrompts = () => ({}), env = {}, api
     } catch (err) {
       if (!(err instanceof SpeechConvertError)) throw err;
       log.warn('speech: convert failed', { reason: err.reason });
-      throw new SpeechError('convert', err.reason === 'not-found' ? CODE.SPEECH_NOT_CONFIGURED : CODE.SPEECH_CONVERT_FAILED, err.message, { cause: err });
+      throw new SpeechError(
+        'convert',
+        err.reason === 'not-found' ? CODE.SPEECH_NOT_CONFIGURED : CODE.SPEECH_CONVERT_FAILED,
+        err.message,
+        { cause: err }
+      );
     }
-    log.info('speech: made', { chars: Array.from(prepared.text).length, prepared: prepared.prepared, seconds: note.durationSecs });
+    log.info('speech: made', {
+      chars: Array.from(prepared.text).length,
+      prepared: prepared.prepared,
+      seconds: note.durationSecs,
+    });
     return {
       ...note,
       chars: Array.from(prepared.text).length,

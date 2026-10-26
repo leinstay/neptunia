@@ -62,7 +62,8 @@ function fileTime(ms) {
 function outPath(dataDir, cwd, given, nowMs) {
   const base = path.join(dataDir, 'vision-compare');
   const file = given ? path.resolve(cwd, given) : path.join(base, `${fileTime(nowMs)}.html`);
-  if (!file.startsWith(`${base}${path.sep}`)) throw new CliError('vision-compare: the output must stay under data/vision-compare/');
+  if (!file.startsWith(`${base}${path.sep}`))
+    throw new CliError('vision-compare: the output must stay under data/vision-compare/');
   return file;
 }
 
@@ -88,7 +89,8 @@ async function connectDiscord(token) {
   client.rest.setToken(token);
   const restRequest = client.rest.request.bind(client.rest);
   client.rest.request = (options) => {
-    if (String(options?.method ?? 'GET').toUpperCase() !== 'GET') throw new Error('vision-compare: only GET requests reach Discord');
+    if (String(options?.method ?? 'GET').toUpperCase() !== 'GET')
+      throw new Error('vision-compare: only GET requests reach Discord');
     return restRequest(options);
   };
   return client;
@@ -105,13 +107,22 @@ async function resolveFromCache({ picked, dataDir, guildId, hot, nowMs, token })
   const { recordFinder, snowflakeMs } = await import('../src/memory/gif-recache.js');
   const found = new Map();
   for (const p of picked) {
-    if (p.kind === 'emoji') found.set(p.key, { source: 'emoji', itemId: p.itemId, kind: 'emoji', url: emojiUrl(p.itemId.slice('emoji:'.length)), name: null });
+    if (p.kind === 'emoji')
+      found.set(p.key, {
+        source: 'emoji',
+        itemId: p.itemId,
+        kind: 'emoji',
+        url: emojiUrl(p.itemId.slice('emoji:'.length)),
+        name: null,
+      });
   }
   // By cache key: a video's summary and its poster share one item id.
   const wanted = new Map(picked.filter((p) => !found.has(p.key)).map((p) => [p.key, p]));
   const wantsItem = (itemId) => [...wanted.values()].some((p) => p.itemId === itemId);
   if (wanted.size > 0 && !token) {
-    process.stderr.write(`vision-compare: no DISCORD_TOKEN (.env): ${wanted.size} cache entr(ies) other than emoji cannot be found again\n`);
+    process.stderr.write(
+      `vision-compare: no DISCORD_TOKEN (.env): ${wanted.size} cache entr(ies) other than emoji cannot be found again\n`
+    );
   }
   if (wanted.size > 0 && token) {
     const client = await connectDiscord(token);
@@ -123,9 +134,15 @@ async function resolveFromCache({ picked, dataDir, guildId, hot, nowMs, token })
         const channel = await client.channels.fetch(channelId);
         const message = await channel?.messages?.fetch(messageId);
         if (!message) return null;
-        return normalizeMessage(message, null, { embedTextChars: hot.config.media?.embedTextChars, videoSites, maxUrlChars: hot.config.context?.maxUrlChars });
+        return normalizeMessage(message, null, {
+          embedTextChars: hot.config.media?.embedTextChars,
+          videoSites,
+          maxUrlChars: hot.config.context?.maxUrlChars,
+        });
       } catch (err) {
-        process.stderr.write(`vision-compare: message read failed (${err?.name ?? 'Error'}) channel ${channelId} message ${messageId}\n`);
+        process.stderr.write(
+          `vision-compare: message read failed (${err?.name ?? 'Error'}) channel ${channelId} message ${messageId}\n`
+        );
         return null;
       }
     };
@@ -154,12 +171,19 @@ async function resolveFromCache({ picked, dataDir, guildId, hot, nowMs, token })
         // Iteration only: the memory database read only.
         const memory = readOnlyMemory(dataDir);
         const record = createRecord({ dataDir, memoryDb: memory.memoryDb });
-        const finder = recordFinder([...wanted.values()].map((p) => p.itemId), lookupSince(picked, nowMs));
+        const finder = recordFinder(
+          [...wanted.values()].map((p) => p.itemId),
+          lookupSince(picked, nowMs)
+        );
         const refs = new Map();
         for await (const line of record.iterate(guildId, { from: new Date(finder.fromMs).toISOString() })) {
           if (!finder.matches(line)) continue;
           const at = snowflakeMs(line.messageId) ?? Date.parse(line.occurredAt);
-          refs.set(line.messageId, { messageId: line.messageId, channelId: line.scope.channel, at: Number.isFinite(at) ? at : 0 });
+          refs.set(line.messageId, {
+            messageId: line.messageId,
+            channelId: line.scope.channel,
+            at: Number.isFinite(at) ? at : 0,
+          });
         }
         for (const ref of [...refs.values()].sort((a, b) => b.at - a.at)) {
           if (wanted.size === 0 || reads >= MAX_MESSAGE_READS) break;
@@ -210,19 +234,24 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
       items = resolved.items;
       source = `media cache, ${picked.length} picked`;
       if (resolved.unlocated > 0) notes.push(`${resolved.unlocated} picked cache entr(ies) not found again`);
-      process.stderr.write(`vision-compare: ${picked.length} cache entr(ies) picked, ${items.length} found again, ${resolved.unlocated} not\n`);
+      process.stderr.write(
+        `vision-compare: ${picked.length} cache entr(ies) picked, ${items.length} found again, ${resolved.unlocated} not\n`
+      );
     } else {
       const raw = readJson(path.resolve(cwd, args.media), undefined);
       if (raw === undefined) throw new CliError(`vision-compare: cannot read the media file ${args.media}`);
       const parsed = parseMediaList(raw, { videoSites: hot.config.media?.video?.sites ?? [], kinds: args.kinds });
-      if (parsed.errors.length > 0) throw new CliError(`vision-compare: the media file has ${parsed.errors.length} problem(s):\n${parsed.errors.slice(0, 20).join('\n')}`);
+      if (parsed.errors.length > 0)
+        throw new CliError(
+          `vision-compare: the media file has ${parsed.errors.length} problem(s):\n${parsed.errors.slice(0, 20).join('\n')}`
+        );
       items = parsed.items;
       source = 'media file';
       guildId = args.guild ?? configuredGuild ?? ORIGIN;
     }
     if (items.length === 0) throw new CliError('vision-compare: no media to describe');
     process.stderr.write(
-      `vision-compare: ${items.length} item(s) x ${args.models.length} model(s), one request at a time (a GIF up to 2), none started once the cost passes ${args.maxUsd} USD\n`,
+      `vision-compare: ${items.length} item(s) x ${args.models.length} model(s), one request at a time (a GIF up to 2), none started once the cost passes ${args.maxUsd} USD\n`
     );
 
     const { createLlm } = await import('../src/llm/openrouter.js');
@@ -233,7 +262,13 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
     const stored = readJson(path.join(dataDir, 'state.json'), {});
     const calibrator = createCalibrator(stored?.calibration);
     // Throwaway counters; per-role keys are not looked up (env {}): the simulator key pays.
-    const llm = createLlm({ apiKey, env: {}, getConfig: () => hot.config, calibrator, state: { data: {}, markDirty() {} } });
+    const llm = createLlm({
+      apiKey,
+      env: {},
+      getConfig: () => hot.config,
+      calibrator,
+      state: { data: {}, markDirty() {} },
+    });
     const imageFetcher = createImageFetcher();
     const videoFetcher = createVideoFetcher();
     const youtubeApiKey = (process.env.YOUTUBE_API_KEY || '').trim() || null;
@@ -242,20 +277,43 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
       items,
       models: args.models,
       maxUsd: args.maxUsd,
-      runOne: (model, entry) => describeOne({ base: hot, model, entry, guildId, llm, reasoning: args.reasoning, imageFetcher, videoFetcher, youtubeApiKey, now }),
+      runOne: (model, entry) =>
+        describeOne({
+          base: hot,
+          model,
+          entry,
+          guildId,
+          llm,
+          reasoning: args.reasoning,
+          imageFetcher,
+          videoFetcher,
+          youtubeApiKey,
+          now,
+        }),
       onCell: (entry, cell, index) =>
         process.stderr.write(
-          `vision-compare: ${index + 1}/${items.length} ${entry.kind} ${entry.id} ${cell.model} ${cell.ok ? 'ok' : `error ${cell.error}`} ${cell.latencyMs ?? '-'} ms ${cell.costUsd.toFixed(4)} USD\n`,
+          `vision-compare: ${index + 1}/${items.length} ${entry.kind} ${entry.id} ${cell.model} ${cell.ok ? 'ok' : `error ${cell.error}`} ${cell.latencyMs ?? '-'} ms ${cell.costUsd.toFixed(4)} USD\n`
         ),
     });
     const summary = summarizeModels(outcome.rows, args.models);
     const at = new Date(now()).toISOString();
-    const html = renderHtml({ at, models: args.models, rows: outcome.rows, summary, stopped: outcome.stopped, skipped: outcome.skipped, source, reasoning: args.reasoning, notes });
+    const html = renderHtml({
+      at,
+      models: args.models,
+      rows: outcome.rows,
+      summary,
+      stopped: outcome.stopped,
+      skipped: outcome.skipped,
+      source,
+      reasoning: args.reasoning,
+      notes,
+    });
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, html);
 
     const lines = ['| model | items | failures | total USD | median ms |', '|---|---|---|---|---|'];
-    for (const s of summary) lines.push(`| ${s.model} | ${s.items} | ${s.failures} | ${s.costUsd.toFixed(4)} | ${s.medianLatencyMs ?? '-'} |`);
+    for (const s of summary)
+      lines.push(`| ${s.model} | ${s.items} | ${s.failures} | ${s.costUsd.toFixed(4)} | ${s.medianLatencyMs ?? '-'} |`);
     if (outcome.stopped) lines.push('', `stopped: ${outcome.stopped}, ${outcome.skipped} item(s) not described`);
     lines.push('', file);
     return `${lines.join('\n')}\n`;

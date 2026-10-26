@@ -34,20 +34,22 @@ export function toRows(rel, dump, ctx = {}) {
   const rows = { operational: [operationalRow('request_dump', rel, dump, ctx)] };
   if (isPlainObject(dump) && typeof dump.turnId === 'string' && dump.turnId && Number.isFinite(dump.step)) {
     const attempt = Number.isFinite(dump.attemptId) ? dump.attemptId : 0;
-    rows.sources = [{
-      id: stepSourceId(dump.turnId, attempt, dump.step),
-      kind: 'answer',
-      iface: IFACE,
-      place_id: null,
-      occurred_at: typeof dump.recordedAt === 'string' ? dump.recordedAt : null,
-      recorded_at: typeof dump.recordedAt === 'string' ? dump.recordedAt : null,
-      turn_id: dump.turnId,
-      text: typeof dump.raw === 'string' ? dump.raw : null,
-      think: thinkOf(dump.raw),
-      ...SCOPE_INTERNAL,
-      owner_file: rel,
-      position: dump.step,
-    }];
+    rows.sources = [
+      {
+        id: stepSourceId(dump.turnId, attempt, dump.step),
+        kind: 'answer',
+        iface: IFACE,
+        place_id: null,
+        occurred_at: typeof dump.recordedAt === 'string' ? dump.recordedAt : null,
+        recorded_at: typeof dump.recordedAt === 'string' ? dump.recordedAt : null,
+        turn_id: dump.turnId,
+        text: typeof dump.raw === 'string' ? dump.raw : null,
+        think: thinkOf(dump.raw),
+        ...SCOPE_INTERNAL,
+        owner_file: rel,
+        position: dump.step,
+      },
+    ];
   }
   return rows;
 }

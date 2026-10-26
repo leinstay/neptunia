@@ -59,13 +59,27 @@ function fakeClient() {
   };
 }
 
-function makeEnv({ features = { intentions: true }, agents = {}, intentions: settings = {}, rootDir = tempDir('nep-intent-'), clock = { t: T0 }, journal = null } = {}) {
+function makeEnv({
+  features = { intentions: true },
+  agents = {},
+  intentions: settings = {},
+  rootDir = tempDir('nep-intent-'),
+  clock = { t: T0 },
+  journal = null,
+} = {}) {
   const hot = {
     config: {
       bot: { owners: [OWNER], access: {} },
       features,
       agents: { maxOpen: 3, scout: { enabled: true, daily: { tasks: 10 } }, ...agents },
-      intentions: { expiresDays: 14, maxOpen: 20, maxCandidates: 5, candidateExpiresHours: 48, waitHours: 2, ...settings },
+      intentions: {
+        expiresDays: 14,
+        maxOpen: 20,
+        maxCandidates: 5,
+        candidateExpiresHours: 48,
+        waitHours: 2,
+        ...settings,
+      },
     },
     prompts: { labels: {} },
     rootDir,
@@ -86,22 +100,73 @@ function makeEnv({ features = { intentions: true }, agents = {}, intentions: set
     isBusy: () => false,
     isAnyBusy: () => false,
     runTurn: async ({ taskResult }) => {
-      turnSaw.push({ taskId: taskResult.id, intentions: intentions.list('g1', { closed: true, all: true }).map((r) => ({ id: r.id, status: r.status })) });
+      turnSaw.push({
+        taskId: taskResult.id,
+        intentions: intentions.list('g1', { closed: true, all: true }).map((r) => ({ id: r.id, status: r.status })),
+      });
       return { outcome: 'spoke' };
     },
   };
-  const gateway = { user: { id: 'self' }, channels: { fetch: async (id) => ({ id, messages: { fetch: async () => null } }) } };
-  const errands = createErrandService({ client, stores, hot, getGuildId: () => 'g1', now, onFinished: (task, guildId) => door.submit(taskCompletedEvent(task, guildId, now)) });
-  intentions = createIntentionService({ stores: intentionStores, hot, tasks: errands, journal, getGuildId: () => 'g1', now });
-  const taskTurns = createTaskTurns({ hot, client: gateway, discord: DISCORD, turns, errands, intentions, getGuildId: () => 'g1', now, setTimer: () => null });
+  const gateway = {
+    user: { id: 'self' },
+    channels: { fetch: async (id) => ({ id, messages: { fetch: async () => null } }) },
+  };
+  const errands = createErrandService({
+    client,
+    stores,
+    hot,
+    getGuildId: () => 'g1',
+    now,
+    onFinished: (task, guildId) => door.submit(taskCompletedEvent(task, guildId, now)),
+  });
+  intentions = createIntentionService({
+    stores: intentionStores,
+    hot,
+    tasks: errands,
+    journal,
+    getGuildId: () => 'g1',
+    now,
+  });
+  const taskTurns = createTaskTurns({
+    hot,
+    client: gateway,
+    discord: DISCORD,
+    turns,
+    errands,
+    intentions,
+    getGuildId: () => 'g1',
+    now,
+    setTimer: () => null,
+  });
   door = createEventDoor({ handlers: { 'task.completed': (event) => taskTurns.onEvent(event) } });
   const store = { state: { data: {}, markDirty() {} } };
-  const env = createOpsEnv({ discord: DISCORD, hot, store, client: { channels: { cache: new Map() } }, spontaneous: {}, calibrator: { ratio: 1 }, getGuildId: () => 'g1', errands, intentions, now });
+  const env = createOpsEnv({
+    discord: DISCORD,
+    hot,
+    store,
+    client: { channels: { cache: new Map() } },
+    spontaneous: {},
+    calibrator: { ratio: 1 },
+    getGuildId: () => 'g1',
+    errands,
+    intentions,
+    now,
+  });
   return { env, hot, client, errands, intentions, stores, intentionStores, rootDir, dataDir, clock, door, turnSaw };
 }
 
 /** Her own call's context in turn `turnId` (an owner asked). */
-const hers = (env, turnId, extra = {}) => ({ env, guildId: 'g1', channelId: 'c1', userId: OWNER, roleIds: [], actor: 'persona', turnId, sourceMessageId: 'm1', ...extra });
+const hers = (env, turnId, extra = {}) => ({
+  env,
+  guildId: 'g1',
+  channelId: 'c1',
+  userId: OWNER,
+  roleIds: [],
+  actor: 'persona',
+  turnId,
+  sourceMessageId: 'm1',
+  ...extra,
+});
 /** An owner's command. */
 const owner = (env) => ({ env, guildId: 'g1', channelId: 'c1', userId: OWNER, roleIds: [] });
 
@@ -114,7 +179,11 @@ function onlyIntention(intentions) {
 test('intent: with features.intentions off every action answers feature-off', async () => {
   const { env } = makeEnv({ features: {} });
   for (const action of ['add', 'update', 'cancel', 'list']) {
-    const result = await runOp(`intent.${{ add: 'set', update: 'update', cancel: 'cancel', list: 'list' }[action]}`, { text: 'x', id: 'i1' }, owner(env));
+    const result = await runOp(
+      `intent.${{ add: 'set', update: 'update', cancel: 'cancel', list: 'list' }[action]}`,
+      { text: 'x', id: 'i1' },
+      owner(env)
+    );
     assert.equal(result.code, 'feature-off', action);
   }
 });
@@ -139,10 +208,20 @@ test('intent.set: her own intention is pending with its provenance, written to i
     const record = onlyIntention(intentions);
     assert.equal(record.status, 'pending');
     assert.equal(record.dueAt, T0 + 3 * HOUR);
-    assert.deepEqual(record.provenance, { kind: 'self', turnId: 'T1', messageId: 'm1', channelId: 'c1', scope: 'group', participants: [OWNER] });
+    assert.deepEqual(record.provenance, {
+      kind: 'self',
+      turnId: 'T1',
+      messageId: 'm1',
+      channelId: 'c1',
+      scope: 'group',
+      participants: [OWNER],
+    });
     await intentionStores.get('g1').flush();
     const file = JSON.parse(unitFile(memoryOf(dataDir), 'guilds/g1/intentions.json'));
-    assert.deepEqual(file.intentions.map((r) => r.id), [record.id]);
+    assert.deepEqual(
+      file.intentions.map((r) => r.id),
+      [record.id]
+    );
     assert.equal((await runOp('intent.set', { text: 'x', due: 'soon' }, hers(env, 'T1'))).code, 'bad-time');
   });
 });
@@ -168,7 +247,11 @@ test('reliable waiting: the errand of the same turn is linked, intention first; 
   const { env, intentions, client, errands, door, turnSaw } = makeEnv();
   await withCapturedLogs(async () => {
     await runOp('intent.set', { text: 'ψάξε τα νέα', deadline: '1h' }, hers(env, 'T1'));
-    const launched = await runOp('task.run', { agent: 'scout', goal: 'find the news' }, hers(env, 'T1', { idempotencyKey: 'T1.1:1' }));
+    const launched = await runOp(
+      'task.run',
+      { agent: 'scout', goal: 'find the news' },
+      hers(env, 'T1', { idempotencyKey: 'T1.1:1' })
+    );
     const taskId = launched.data.task.id;
     let record = onlyIntention(intentions);
     assert.equal(record.status, 'waiting');
@@ -209,8 +292,10 @@ test('reconciliation: an end that never arrived, a gone errand and a passed dead
   await withCapturedLogs(async () => {
     const a = (await runOp('task.run', { agent: 'scout', goal: 'a' }, owner(env))).data.task.id;
     const b = (await runOp('task.run', { agent: 'scout', goal: 'b' }, owner(env))).data.task.id;
-    const ia = (await runOp('intent.set', { text: 'περιμένω το a', task: a, deadline: '5h' }, owner(env))).data.intention.id;
-    const ib = (await runOp('intent.set', { text: 'περιμένω το b', task: b, deadline: '1h' }, owner(env))).data.intention.id;
+    const ia = (await runOp('intent.set', { text: 'περιμένω το a', task: a, deadline: '5h' }, owner(env))).data
+      .intention.id;
+    const ib = (await runOp('intent.set', { text: 'περιμένω το b', task: b, deadline: '1h' }, owner(env))).data
+      .intention.id;
     assert.equal(intentions.list('g1').filter((r) => r.status === 'waiting').length, 2);
     // Errand a ends in the store with no completion event reaching the intentions.
     stores.get('g1').finish(a, { status: 'done', result: { text: 'x' } });
@@ -245,7 +330,13 @@ test('intent.cancel: a cancelled intention is final; a restart reads every inten
     await intentionStores.get('g1').flush();
     const again = makeEnv({ rootDir, clock });
     assert.deepEqual(again.intentions.list('g1', { closed: true }), before);
-    assert.equal(again.intentions.list('g1').map((r) => r.id).join(), first);
+    assert.equal(
+      again.intentions
+        .list('g1')
+        .map((r) => r.id)
+        .join(),
+      first
+    );
     const listed = await runOp('intent.list', {}, owner(again.env));
     assert.match(listed.summary, new RegExp(`^${first} pending, due `));
   });
@@ -271,7 +362,10 @@ test('intent.update / intent.cancel: the id alone in the body counts as the id; 
     assert.equal(intentions.list('g1').find((r) => r.id === other).purpose, 'τρία');
     // An explicit id wins over a body that looks like one.
     const third = (await runOp('intent.set', { text: 'τέσσερα' }, hers(env, 'T4'))).data.intention.id;
-    assert.equal((await runOp('intent.update', { id: third, text: other, state: 'done' }, hers(env, 'T4'))).data.intention.id, third);
+    assert.equal(
+      (await runOp('intent.update', { id: third, text: other, state: 'done' }, hers(env, 'T4'))).data.intention.id,
+      third
+    );
     // The cancel the same way, with surrounding blanks.
     const cancelled = await runOp('intent.cancel', { text: ` ${other} ` }, hers(env, 'T5'));
     assert.equal(cancelled.status, 'ok', cancelled.summary);
@@ -281,12 +375,32 @@ test('intent.update / intent.cancel: the id alone in the body counts as the id; 
 });
 
 test('candidates: anchored to her own lines, turn looked up, de-duplicated, capped, accepted or rejected, expired when untouched', async () => {
-  const journal = { findTurn: async (guildId, { messageId }) => (messageId === 'm2' ? { turn: { turnId: 'T9' } } : null) };
-  const { env, intentions, clock } = makeEnv({ features: { intentions: true, journal: true }, intentions: { maxCandidates: 2, maxOpen: 1 }, journal });
+  const journal = {
+    findTurn: async (guildId, { messageId }) => (messageId === 'm2' ? { turn: { turnId: 'T9' } } : null),
+  };
+  const { env, intentions, clock } = makeEnv({
+    features: { intentions: true, journal: true },
+    intentions: { maxCandidates: 2, maxOpen: 1 },
+    journal,
+  });
   const lines = [
     { id: 'm1', channelId: 'c1', self: false, content: 'θα έρθεις αύριο;', ts: T0 - 2000 },
-    { id: 'm2', channelId: 'c1', self: true, content: 'Ναι, και θα φέρω το παιχνίδι', ts: T0 - 1000, sources: { turnId: null } },
-    { id: 'm3', channelId: 'c1', self: true, content: 'θα σου στείλω τον σύνδεσμο αργότερα', ts: T0 - 500, sources: { turnId: null } },
+    {
+      id: 'm2',
+      channelId: 'c1',
+      self: true,
+      content: 'Ναι, και θα φέρω το παιχνίδι',
+      ts: T0 - 1000,
+      sources: { turnId: null },
+    },
+    {
+      id: 'm3',
+      channelId: 'c1',
+      self: true,
+      content: 'θα σου στείλω τον σύνδεσμο αργότερα',
+      ts: T0 - 500,
+      sources: { turnId: null },
+    },
   ];
   await withCapturedLogs(async () => {
     const raw = [
@@ -298,28 +412,63 @@ test('candidates: anchored to her own lines, turn looked up, de-duplicated, capp
     assert.equal(out.dropped.quoted + out.dropped.unanchored, 1);
     const [candidate] = intentions.list('g1');
     assert.equal(candidate.status, 'proposed');
-    assert.deepEqual(candidate.provenance, { kind: 'candidate', turnId: 'T9', messageId: 'm2', channelId: 'c1', span: 'θα φέρω το παιχνίδι', scope: 'group', origin: 'own' });
-    assert.equal((await intentions.addCandidates('g1', raw.slice(0, 1), lines)).duplicate, 1, 'the same line again is a duplicate');
+    assert.deepEqual(candidate.provenance, {
+      kind: 'candidate',
+      turnId: 'T9',
+      messageId: 'm2',
+      channelId: 'c1',
+      span: 'θα φέρω το παιχνίδι',
+      scope: 'group',
+      origin: 'own',
+    });
+    assert.equal(
+      (await intentions.addCandidates('g1', raw.slice(0, 1), lines)).duplicate,
+      1,
+      'the same line again is a duplicate'
+    );
     await intentions.addCandidates('g1', [{ span: 'θα σου στείλω τον σύνδεσμο', purpose: 'send the link' }], lines);
-    assert.equal((await intentions.addCandidates('g1', [{ span: 'αργότερα', purpose: 'later' }], lines)).capped, 1, 'maxCandidates open at once');
+    assert.equal(
+      (await intentions.addCandidates('g1', [{ span: 'αργότερα', purpose: 'later' }], lines)).capped,
+      1,
+      'maxCandidates open at once'
+    );
     // Accepted: pending. A second acceptance hits maxOpen; rejected: cancelled.
-    assert.equal((await runOp('intent.update', { id: candidate.id, state: 'pending' }, hers(env, 'T10'))).data.intention.status, 'pending');
-    assert.equal(intentions.store('g1').get(candidate.id).expiresAt, T0 + 14 * 24 * HOUR, 'accepted, it lives as long as her own');
+    assert.equal(
+      (await runOp('intent.update', { id: candidate.id, state: 'pending' }, hers(env, 'T10'))).data.intention.status,
+      'pending'
+    );
+    assert.equal(
+      intentions.store('g1').get(candidate.id).expiresAt,
+      T0 + 14 * 24 * HOUR,
+      'accepted, it lives as long as her own'
+    );
     const other = intentions.list('g1').find((r) => r.status === 'proposed');
     assert.equal((await runOp('intent.update', { id: other.id, state: 'pending' }, hers(env, 'T10'))).code, 'cap-open');
     assert.equal((await runOp('intent.cancel', { id: other.id }, hers(env, 'T10'))).data.intention.status, 'cancelled');
     // An untouched candidate expires after candidateExpiresHours.
     await intentions.addCandidates('g1', [{ span: 'αργότερα', purpose: 'later' }], lines);
     clock.t = T0 + 48 * HOUR;
-    assert.equal(intentions.list('g1').some((r) => r.status === 'proposed'), false);
+    assert.equal(
+      intentions.list('g1').some((r) => r.status === 'proposed'),
+      false
+    );
     assert.equal(intentions.list('g1', { closed: true }).filter((r) => r.status === 'expired').length, 1);
   });
 });
 
 test('intentions: markExpiredShown marks an expired intention once; an open one, an unknown id and a second call change nothing', async () => {
   const { intentions, clock } = makeEnv();
-  const own = intentions.set('g1', { purpose: 'soon gone', expiresAt: T0 + HOUR, channelId: 'c1', scope: 'group' }).intention;
-  assert.deepEqual(intentions.markExpiredShown('g1', own.id), { ok: true, intention: own, changed: false }, 'still open: nothing to mark');
+  const own = intentions.set('g1', {
+    purpose: 'soon gone',
+    expiresAt: T0 + HOUR,
+    channelId: 'c1',
+    scope: 'group',
+  }).intention;
+  assert.deepEqual(
+    intentions.markExpiredShown('g1', own.id),
+    { ok: true, intention: own, changed: false },
+    'still open: nothing to mark'
+  );
   clock.t = T0 + HOUR;
   assert.equal(intentions.list('g1', { closed: true })[0].status, 'expired', 'the sweep expired it');
   clock.t = T0 + 2 * HOUR;
@@ -334,12 +483,16 @@ test('intentions: markExpiredShown marks an expired intention once; an open one,
 
 test('candidates: nothing with features.intentions off', async () => {
   const { intentions } = makeEnv({ features: {} });
-  const out = await intentions.addCandidates('g1', [{ span: 'θα το κάνω', purpose: 'do it' }], [{ id: 'm1', self: true, content: 'θα το κάνω', ts: T0 }]);
+  const out = await intentions.addCandidates(
+    'g1',
+    [{ span: 'θα το κάνω', purpose: 'do it' }],
+    [{ id: 'm1', self: true, content: 'θα το κάνω', ts: T0 }]
+  );
   assert.equal(out.added, 0);
   assert.deepEqual(intentions.list('g1', { closed: true }), []);
 });
 
-test('private chats: her intention in a DM is the DM\'s own -- never in a server turn, not movable from a server channel, gone with a forget of the member', async () => {
+test("private chats: her intention in a DM is the DM's own -- never in a server turn, not movable from a server channel, gone with a forget of the member", async () => {
   const { env, intentions } = makeEnv();
   const dm = (extra = {}) => hers(env, 'T1', { channelId: 'dm1', privateChat: true, ...extra });
   await withCapturedLogs(async () => {
@@ -349,9 +502,20 @@ test('private chats: her intention in a DM is the DM\'s own -- never in a server
     const record = intentions.store('g1').get(id);
     assert.equal(record.provenance.scope, 'dm');
     assert.deepEqual(record.provenance.participants, [OWNER], 'the member of the private chat');
-    assert.deepEqual(intentions.view('g1').map((r) => r.id), [], 'a server turn never sees it');
-    assert.deepEqual(intentions.view('g1', { privateChannelId: 'dm2' }).map((r) => r.id), [], 'nor another private chat');
-    assert.deepEqual(intentions.view('g1', { privateChannelId: 'dm1' }).map((r) => r.id), [id]);
+    assert.deepEqual(
+      intentions.view('g1').map((r) => r.id),
+      [],
+      'a server turn never sees it'
+    );
+    assert.deepEqual(
+      intentions.view('g1', { privateChannelId: 'dm2' }).map((r) => r.id),
+      [],
+      'nor another private chat'
+    );
+    assert.deepEqual(
+      intentions.view('g1', { privateChannelId: 'dm1' }).map((r) => r.id),
+      [id]
+    );
     // Her call from a server channel cannot reach it, even by its id.
     assert.equal((await runOp('intent.update', { id, text: 'άλλο' }, hers(env, 'T2'))).code, 'not-found');
     assert.equal((await runOp('intent.cancel', { id }, hers(env, 'T2'))).code, 'not-found');
@@ -360,14 +524,17 @@ test('private chats: her intention in a DM is the DM\'s own -- never in a server
   });
 });
 
-test('candidates: the other authors of the line\'s channel are its participants', async () => {
+test("candidates: the other authors of the line's channel are its participants", async () => {
   const { intentions } = makeEnv();
   const lines = [
     { id: 'm1', channelId: 'c1', authorId: 'u3', self: false, content: 'θα έρθεις;', ts: T0 - 2000 },
     { id: 'm2', channelId: 'c1', authorId: 'bot', self: true, content: 'θα έρθω το βράδυ', ts: T0 - 1000 },
   ];
   await withCapturedLogs(async () => {
-    assert.equal((await intentions.addCandidates('g1', [{ span: 'θα έρθω το βράδυ', purpose: 'come tonight' }], lines)).added, 1);
+    assert.equal(
+      (await intentions.addCandidates('g1', [{ span: 'θα έρθω το βράδυ', purpose: 'come tonight' }], lines)).added,
+      1
+    );
   });
   assert.deepEqual(onlyIntention(intentions).provenance.participants, ['u3']);
 });
@@ -387,25 +554,61 @@ test('candidates: external ones need her accept in a later ordinary turn; an inn
   // An inner turn's call context (src/skills/executors.js#executeCall adds ownInitiative and the chain).
   const inner = (turnId, chainId) => hers(env, turnId, { ownInitiative: true, chainId });
   await withCapturedLogs(async () => {
-    const out = await intentions.addCandidates('g1', [
-      { span: 'θα φέρω το παιχνίδι', purpose: 'bring the game' },
-      { span: 'θα στείλω τον σύνδεσμο', purpose: 'send the link' },
-      { span: 'θα θυμίζω την κλήρωση κάθε μέρα', purpose: 'remind about the raffle daily' },
-      { span: 'θα ξανακοιτάξω το νήμα αύριο', purpose: 'look at the thread again tomorrow' },
-    ], lines);
+    const out = await intentions.addCandidates(
+      'g1',
+      [
+        { span: 'θα φέρω το παιχνίδι', purpose: 'bring the game' },
+        { span: 'θα στείλω τον σύνδεσμο', purpose: 'send the link' },
+        { span: 'θα θυμίζω την κλήρωση κάθε μέρα', purpose: 'remind about the raffle daily' },
+        { span: 'θα ξανακοιτάξω το νήμα αύριο', purpose: 'look at the thread again tomorrow' },
+      ],
+      lines
+    );
     assert.deepEqual([out.added, out.external], [4, 2]);
     const byMessage = Object.fromEntries(intentions.list('g1').map((r) => [r.provenance.messageId, r]));
-    assert.deepEqual(Object.values(byMessage).map((r) => `${r.provenance.messageId}:${r.provenance.origin}:${r.provenance.turnId}`), ['m2:own:T5', 'm3:external:null', 'm4:external:T6', 'm5:own:T7']);
+    assert.deepEqual(
+      Object.values(byMessage).map((r) => `${r.provenance.messageId}:${r.provenance.origin}:${r.provenance.turnId}`),
+      ['m2:own:T5', 'm3:external:null', 'm4:external:T6', 'm5:own:T7']
+    );
     // An inner turn: her own candidate yes; an external one, or one born in its own chain, no.
-    assert.equal((await runOp('intent.update', { id: byMessage.m2.id, state: 'pending' }, inner('T20', 'review:2026-10-18'))).data.intention.status, 'pending');
-    assert.equal((await runOp('intent.update', { id: byMessage.m4.id, state: 'pending' }, inner('T20', 'review:2026-10-18'))).code, 'candidate-external');
-    assert.equal((await runOp('intent.update', { id: byMessage.m3.id, state: 'pending' }, inner('T20', 'review:2026-10-18'))).code, 'candidate-external', 'a line with no note counts as external');
-    assert.equal((await runOp('intent.update', { id: byMessage.m5.id, state: 'pending' }, inner('T21', 'chain:k'))).code, 'candidate-same-chain');
-    assert.equal(intentions.store('g1').get(byMessage.m5.id).chainId, null, 'the caller\'s chain never becomes the intention\'s');
+    assert.equal(
+      (await runOp('intent.update', { id: byMessage.m2.id, state: 'pending' }, inner('T20', 'review:2026-10-18'))).data
+        .intention.status,
+      'pending'
+    );
+    assert.equal(
+      (await runOp('intent.update', { id: byMessage.m4.id, state: 'pending' }, inner('T20', 'review:2026-10-18'))).code,
+      'candidate-external'
+    );
+    assert.equal(
+      (await runOp('intent.update', { id: byMessage.m3.id, state: 'pending' }, inner('T20', 'review:2026-10-18'))).code,
+      'candidate-external',
+      'a line with no note counts as external'
+    );
+    assert.equal(
+      (await runOp('intent.update', { id: byMessage.m5.id, state: 'pending' }, inner('T21', 'chain:k'))).code,
+      'candidate-same-chain'
+    );
+    assert.equal(
+      intentions.store('g1').get(byMessage.m5.id).chainId,
+      null,
+      "the caller's chain never becomes the intention's"
+    );
     // Her ordinary turn: never the one that wrote the line, a later one may.
-    assert.equal((await runOp('intent.update', { id: byMessage.m4.id, state: 'pending' }, hers(env, 'T6'))).code, 'candidate-same-turn');
-    assert.equal((await runOp('intent.update', { id: byMessage.m4.id, state: 'pending' }, hers(env, 'T30'))).data.intention.status, 'pending');
-    assert.equal((await runOp('intent.update', { id: byMessage.m5.id, state: 'pending' }, inner('T22', 'review:2026-10-18'))).data.intention.status, 'pending', 'another chain may');
+    assert.equal(
+      (await runOp('intent.update', { id: byMessage.m4.id, state: 'pending' }, hers(env, 'T6'))).code,
+      'candidate-same-turn'
+    );
+    assert.equal(
+      (await runOp('intent.update', { id: byMessage.m4.id, state: 'pending' }, hers(env, 'T30'))).data.intention.status,
+      'pending'
+    );
+    assert.equal(
+      (await runOp('intent.update', { id: byMessage.m5.id, state: 'pending' }, inner('T22', 'review:2026-10-18'))).data
+        .intention.status,
+      'pending',
+      'another chain may'
+    );
   });
 });
 
@@ -426,11 +629,18 @@ test('intent.set / intent.update: every= makes a recurring intention with the wa
     assert.equal(record.expiresAt, T0 + 30 * DAY, 'intentions.recurringExpiresDays');
     assert.match(set.summary, /every day/);
     assert.match((await runOp('intent.list', {}, owner(env))).summary, /every day/);
-    assert.equal((await runOp('intent.set', { text: 'x', due: '1h', every: 'hourly' }, hers(env, 'T1'))).code, 'bad-every');
+    assert.equal(
+      (await runOp('intent.set', { text: 'x', due: '1h', every: 'hourly' }, hers(env, 'T1'))).code,
+      'bad-every'
+    );
     assert.equal((await runOp('intent.set', { text: 'x', every: 'day' }, hers(env, 'T1'))).code, 'every-without-due');
     assert.equal((await runOp('intent.set', { text: 'x', due: 'mon 9' }, hers(env, 'T1'))).code, 'bad-time');
     // A weekly one from a weekday form; every=none clears it.
-    const weekly = await runOp('intent.set', { text: 'κοίτα το νήμα', due: 'mon 20:00', every: 'week' }, hers(env, 'T1'));
+    const weekly = await runOp(
+      'intent.set',
+      { text: 'κοίτα το νήμα', due: 'mon 20:00', every: 'week' },
+      hers(env, 'T1')
+    );
     assert.equal(weekly.status, 'ok', weekly.summary);
     const weeklyRecord = intentions.store('g1').get(weekly.data.intention.id);
     assert.deepEqual(weeklyRecord.every, { period: 'week', at: '20:00' });
@@ -446,16 +656,23 @@ test('intent.set / intent.update: every= makes a recurring intention with the wa
     await runOp('intent.update', { id: record.id, due: '22:30' }, hers(env, 'T2'));
     assert.deepEqual(intentions.store('g1').get(record.id).every, { period: 'day', at: '22:30' });
     const noDue = (await runOp('intent.set', { text: 'y' }, hers(env, 'T3'))).data.intention.id;
-    assert.equal((await runOp('intent.update', { id: noDue, every: 'day' }, hers(env, 'T3'))).code, 'every-without-due');
+    assert.equal(
+      (await runOp('intent.update', { id: noDue, every: 'day' }, hers(env, 'T3'))).code,
+      'every-without-due'
+    );
   });
 });
 
 test('intentions: state=done on a recurring one closes the occurrence only; advance writes recurred or missed and never lists the same occurrence twice', async () => {
   const { env, intentions, clock } = makeEnv();
   await withCapturedLogs(async () => {
-    const id = (await runOp('intent.set', { text: 'ψάξε για memes', due: '1h', every: 'day' }, hers(env, 'T1'))).data.intention.id;
+    const id = (await runOp('intent.set', { text: 'ψάξε για memes', due: '1h', every: 'day' }, hers(env, 'T1'))).data
+      .intention.id;
     clock.t = T0 + HOUR + 5 * 60_000;
-    assert.deepEqual(intentions.due('g1').map((d) => d.intention.id), [id]);
+    assert.deepEqual(
+      intentions.due('g1').map((d) => d.intention.id),
+      [id]
+    );
     const done = await runOp('intent.update', { id, state: 'done' }, hers(env, 'T2'));
     assert.equal(done.status, 'ok', done.summary);
     let record = intentions.store('g1').get(id);
@@ -485,10 +702,11 @@ test('intentions: state=done on a recurring one closes the occurrence only; adva
   });
 });
 
-test('intentions: a recurring wait ends per occurrence -- the errand\'s end returns it to pending and advances it with the outcome kept', async () => {
+test("intentions: a recurring wait ends per occurrence -- the errand's end returns it to pending and advances it with the outcome kept", async () => {
   const { env, intentions, client, errands, clock } = makeEnv();
   await withCapturedLogs(async () => {
-    const id = (await runOp('intent.set', { text: 'ψάξε τα νέα', due: '1m', every: 'day' }, hers(env, 'T1'))).data.intention.id;
+    const id = (await runOp('intent.set', { text: 'ψάξε τα νέα', due: '1m', every: 'day' }, hers(env, 'T1'))).data
+      .intention.id;
     const launched = await runOp('task.run', { agent: 'scout', goal: 'find the news' }, hers(env, 'T1'));
     const taskId = launched.data.task.id;
     const waited = await runOp('intent.update', { id, task: taskId, deadline: '2h' }, hers(env, 'T1'));
@@ -524,15 +742,25 @@ test('intent.set attend=: an attention of hers with the defaults from innerLife.
   assert.match(set.data.text, /attend c-garden/);
   assert.match(set.data.text, /settle 45s, today 0\/6/);
   // Her own numbers and people (ids, comma or space separated; a mention unwrapped).
-  const own = await runOp('intent.set', { text: 'follow the garden talk', attend: 'c-garden', people: '7, <@8> 9', settle: '0', perday: 2 }, hers(env, 'T2'));
+  const own = await runOp(
+    'intent.set',
+    { text: 'follow the garden talk', attend: 'c-garden', people: '7, <@8> 9', settle: '0', perday: 2 },
+    hers(env, 'T2')
+  );
   assert.equal(own.status, 'ok', own.code);
   const mine = intentions.list('g1').find((r) => r.purpose === 'follow the garden talk');
   assert.deepEqual(mine.attend, { place: 'c-garden', people: ['7', '8', '9'], settle: 0, perDay: 2, today: null });
   assert.match(own.data.text, /people 7,8,9/);
   // Refusals.
   assert.equal((await runOp('intent.set', { attend: 'c-garden', due: '2h' }, hers(env, 'T3'))).code, 'attend-with-due');
-  assert.equal((await runOp('intent.set', { attend: 'c-garden', every: 'day', due: '2h' }, hers(env, 'T3'))).code, 'attend-with-due');
-  assert.equal((await runOp('intent.set', { attend: 'c-garden', every: 'day' }, hers(env, 'T3'))).code, 'attend-with-every');
+  assert.equal(
+    (await runOp('intent.set', { attend: 'c-garden', every: 'day', due: '2h' }, hers(env, 'T3'))).code,
+    'attend-with-due'
+  );
+  assert.equal(
+    (await runOp('intent.set', { attend: 'c-garden', every: 'day' }, hers(env, 'T3'))).code,
+    'attend-with-every'
+  );
   assert.equal((await runOp('intent.set', { attend: 'c-garden', settle: '-1' }, hers(env, 'T3'))).code, 'bad-attend');
   assert.equal((await runOp('intent.set', { attend: 'c-garden', perday: 0 }, hers(env, 'T3'))).code, 'bad-attend');
   assert.equal((await runOp('intent.set', { attend: 'c-garden', perday: 'many' }, hers(env, 'T3'))).code, 'bad-attend');
@@ -543,14 +771,24 @@ test('intent.update on an attention changes settle, perDay, people and expires; 
   const { env, intentions, clock } = makeEnv();
   await runOp('intent.set', { attend: 'c-garden', text: 'listen' }, hers(env, 'T1'));
   const record = onlyIntention(intentions);
-  const updated = await runOp('intent.update', { id: record.id, settle: 10, perday: 3, people: '7 8', expires: '2d' }, hers(env, 'T2'));
+  const updated = await runOp(
+    'intent.update',
+    { id: record.id, settle: 10, perday: 3, people: '7 8', expires: '2d' },
+    hers(env, 'T2')
+  );
   assert.equal(updated.status, 'ok', updated.code);
   const after = intentions.store('g1').get(record.id);
   assert.deepEqual(after.attend, { place: 'c-garden', people: ['7', '8'], settle: 10, perDay: 3, today: null });
   assert.equal(after.expiresAt, T0 + 48 * HOUR);
   assert.equal((await runOp('intent.update', { id: record.id, due: '1h' }, hers(env, 'T2'))).code, 'attend-with-due');
-  assert.equal((await runOp('intent.update', { id: record.id, every: 'day', due: '1h' }, hers(env, 'T2'))).code, 'attend-with-due');
-  assert.equal((await runOp('intent.update', { id: record.id, every: 'day' }, hers(env, 'T2'))).code, 'attend-with-every');
+  assert.equal(
+    (await runOp('intent.update', { id: record.id, every: 'day', due: '1h' }, hers(env, 'T2'))).code,
+    'attend-with-due'
+  );
+  assert.equal(
+    (await runOp('intent.update', { id: record.id, every: 'day' }, hers(env, 'T2'))).code,
+    'attend-with-every'
+  );
   assert.equal((await runOp('intent.update', { id: record.id, perday: 0 }, hers(env, 'T2'))).code, 'bad-attend');
   // A plain intention takes no attention arguments.
   await runOp('intent.set', { text: 'plain one' }, hers(env, 'T3'));
@@ -561,7 +799,11 @@ test('intent.update on an attention changes settle, perDay, people and expires; 
   assert.equal(intentions.countAttendWake('g1', record.id).intention.attend.today.wakes, 1);
   assert.equal(intentions.countAttendWake('g1', record.id).intention.attend.today.wakes, 2);
   assert.deepEqual(intentions.attendToday('g1', record.id), { day: '2026-10-18', wakes: 2 });
-  assert.deepEqual(intentions.attending('g1').map((r) => r.id), [record.id], 'the open attentions, the plain one not among them');
+  assert.deepEqual(
+    intentions.attending('g1').map((r) => r.id),
+    [record.id],
+    'the open attentions, the plain one not among them'
+  );
   clock.t = T0 + 24 * HOUR;
   assert.deepEqual(intentions.attendToday('g1', record.id), { day: '2026-10-19', wakes: 0 }, 'the day changed');
   assert.equal(intentions.countAttendWake('g1', record.id).intention.attend.today.wakes, 1);
@@ -579,7 +821,11 @@ test('intent dropped: set born dropped and update on an open one need a reason; 
   await withCapturedLogs(async () => {
     const none = await runOp('intent.set', { text: 'πήγαινε στη θάλασσα', state: 'dropped' }, hers(env, 'T1'));
     assert.deepEqual([none.status, none.code], ['invalid', 'reason-required']);
-    const born = await runOp('intent.set', { text: 'πήγαινε στη θάλασσα', state: 'dropped', reason: 'too cold today' }, hers(env, 'T1'));
+    const born = await runOp(
+      'intent.set',
+      { text: 'πήγαινε στη θάλασσα', state: 'dropped', reason: 'too cold today' },
+      hers(env, 'T1')
+    );
     assert.equal(born.status, 'ok', born.summary);
     assert.match(born.data.text, /dropped, reason too cold today/, born.data.text);
     const open = await runOp('intent.set', { text: 'φέρε το άρθρο', due: '1h' }, hers(env, 'T1'));
@@ -597,25 +843,43 @@ test('intent dropped: set born dropped and update on an open one need a reason; 
     assert.deepEqual(intentions.due('g1'), [], 'never wakes');
     assert.equal(intentions.view('g1').length, 0);
     const closed = intentions.list('g1', { closed: true, all: true }).map((r) => [r.id, r.status, r.reason]);
-    assert.deepEqual(closed.sort(), [[id, 'dropped', 'no longer needed'], [born.data.intention.id, 'dropped', 'too cold today']].sort());
+    assert.deepEqual(
+      closed.sort(),
+      [
+        [id, 'dropped', 'no longer needed'],
+        [born.data.intention.id, 'dropped', 'too cold today'],
+      ].sort()
+    );
     clock.t = T0 + 30 * 24 * HOUR;
     assert.equal(intentions.list('g1', { closed: true, all: true }).length, 2, 'nothing prunes a dropped one');
     assert.equal(intentions.dropped, undefined);
   });
 });
 
-test('intent dropped: a drop from a recurring or waiting one ends it; a private chat\'s drop is visible only in that chat', async () => {
+test("intent dropped: a drop from a recurring or waiting one ends it; a private chat's drop is visible only in that chat", async () => {
   const { env, intentions } = makeEnv();
   await withCapturedLogs(async () => {
     const rec = await runOp('intent.set', { text: 'πες καλημέρα', due: '1h', every: 'day' }, hers(env, 'T1'));
     const id = rec.data.intention.id;
-    assert.equal((await runOp('intent.update', { id, state: 'dropped', reason: 'boring' }, hers(env, 'T2'))).status, 'ok');
+    assert.equal(
+      (await runOp('intent.update', { id, state: 'dropped', reason: 'boring' }, hers(env, 'T2'))).status,
+      'ok'
+    );
     assert.equal(intentions.store('g1').get(id).status, 'dropped');
     const dm = (extra = {}) => hers(env, 'T3', { channelId: 'dm1', privateChat: true, ...extra });
     const priv = await runOp('intent.set', { text: 'ρώτα την', state: 'dropped', reason: 'private matter' }, dm());
     assert.equal(priv.status, 'ok');
-    assert.deepEqual(intentions.list('g1', { closed: true }).map((r) => r.reason), ['boring']);
-    assert.deepEqual(intentions.list('g1', { closed: true, privateChannelId: 'dm1' }).map((r) => r.reason).sort(), ['boring', 'private matter']);
+    assert.deepEqual(
+      intentions.list('g1', { closed: true }).map((r) => r.reason),
+      ['boring']
+    );
+    assert.deepEqual(
+      intentions
+        .list('g1', { closed: true, privateChannelId: 'dm1' })
+        .map((r) => r.reason)
+        .sort(),
+      ['boring', 'private matter']
+    );
     assert.equal(intentions.list('g1', { closed: true, all: true }).length, 2);
   });
 });
@@ -628,15 +892,34 @@ test('store: a closed record beyond KEEP_CLOSED moves to the archive, never lost
   const stores = createIntentionStores({ memoryDb: memoryOf(dataDir), now: () => T0 });
   const store = stores.get('g1');
   const make = (i, participants) => {
-    const made = createIntention({ purpose: `want ${i}`, provenance: { kind: 'self', turnId: 't', ...(participants ? { participants } : {}) }, now: T0 + i, id: `i${i}`, dropped: true, reason: `why ${i}` });
+    const made = createIntention({
+      purpose: `want ${i}`,
+      provenance: { kind: 'self', turnId: 't', ...(participants ? { participants } : {}) },
+      now: T0 + i,
+      id: `i${i}`,
+      dropped: true,
+      reason: `why ${i}`,
+    });
     assert.equal(made.ok, true, made.code);
     return made.intention;
   };
-  for (let i = 0; i < KEEP_CLOSED + 3; i += 1) assert.equal(store.add(make(i, i === 0 ? [MEMBER] : undefined)).ok, true);
+  for (let i = 0; i < KEEP_CLOSED + 3; i += 1)
+    assert.equal(store.add(make(i, i === 0 ? [MEMBER] : undefined)).ok, true);
   assert.equal(store.list().length, KEEP_CLOSED, 'the list keeps the latest ones');
   await store.flush();
-  assert.deepEqual(store.archived().map((r) => r.id), ['i0', 'i1', 'i2'], 'the older three moved, not deleted');
+  assert.deepEqual(
+    store.archived().map((r) => r.id),
+    ['i0', 'i1', 'i2'],
+    'the older three moved, not deleted'
+  );
   const lines = unitFile(memoryOf(dataDir), 'guilds/g1/intentions-archive.jsonl').trim().split('\n');
   assert.equal(lines.length, 3);
-  assert.deepEqual(createIntentionStores({ memoryDb: memoryOf(dataDir), now: () => T0 }).get('g1').archived().map((r) => r.id), ['i0', 'i1', 'i2'], 'read back from the database');
+  assert.deepEqual(
+    createIntentionStores({ memoryDb: memoryOf(dataDir), now: () => T0 })
+      .get('g1')
+      .archived()
+      .map((r) => r.id),
+    ['i0', 'i1', 'i2'],
+    'read back from the database'
+  );
 });

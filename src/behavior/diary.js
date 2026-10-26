@@ -376,7 +376,8 @@ function pictureSuffix(picture, labels, pictures) {
     if (count > 1 && labels.diary?.pictureSet) return fill(labels.diary.pictureSet, { count, scene: oneLine(picture) });
     return fill(labels.diary?.picture, { scene: oneLine(picture) });
   }
-  if (picture === true || picture === '') return fill(labels.diary?.picture, { scene: labels.diary?.pictureUnknown ?? '' });
+  if (picture === true || picture === '')
+    return fill(labels.diary?.picture, { scene: labels.diary?.pictureUnknown ?? '' });
   return '';
 }
 
@@ -399,7 +400,7 @@ export function renderDiaryBlock(posts, labels, { timezone, max } = {}) {
   if (shown.length === 0) return '';
   const lines = shown.map((post) => {
     const date = Number.isFinite(post?.at) ? localDayKey(post.at, timezone) : '';
-    const kind = typeof post?.kind === 'string' && post.kind ? post.kind : labels.diary?.kindUnknown ?? '';
+    const kind = typeof post?.kind === 'string' && post.kind ? post.kind : (labels.diary?.kindUnknown ?? '');
     const line = fill(labels.diary?.line, { date, kind, gist: oneLine(post?.gist) });
     return line + pictureSuffix(post?.picture, labels, post?.pictures);
   });
@@ -428,7 +429,7 @@ export function renderKindsBlock(kinds, posts, labels, { window } = {}) {
       weight,
       count: recent.filter((post) => post?.kind === key).length,
       window: recent.length,
-    }),
+    })
   );
   return [labels.diary?.kinds, ...lines].filter(Boolean).join('\n');
 }
@@ -474,7 +475,7 @@ export function parseSeedFamilies(text) {
  */
 export function pickSeeds(families, sets, rng) {
   const lists = Object.values(families && typeof families === 'object' ? families : {}).filter(
-    (lines) => Array.isArray(lines) && lines.length > 0,
+    (lines) => Array.isArray(lines) && lines.length > 0
   );
   const count = countOf(sets);
   if (lists.length === 0 || count === 0) return [];
@@ -607,7 +608,18 @@ function writable(channel, { canSend, canAttach }) {
  *   status: () => { channelId: string, day: string|null, slots: number[], done: number[], quiet: boolean,
  *   hunger: number[], quietStreak: number, posts: number, pictures: number, history: number }, stop: () => void }}
  */
-export function createDiary({ hot, store, client, discord, turns, getGuildId, backfill = null, rng = Math.random, now = Date.now, delay = unrefDelay }) {
+export function createDiary({
+  hot,
+  store,
+  client,
+  discord,
+  turns,
+  getGuildId,
+  backfill = null,
+  rng = Math.random,
+  now = Date.now,
+  delay = unrefDelay,
+}) {
   let stopped = false;
   let inFlight = false;
   // reason -> the local day it was last logged on: one `diary: skip` per reason and day.
@@ -682,7 +694,15 @@ export function createDiary({ hot, store, client, discord, turns, getGuildId, ba
     backfillTried.add(key);
     try {
       if ((store.getDiary(guildId)?.posts ?? []).length > 0) return;
-      const count = await backfill({ store, channel, guildId, selfId: client.user?.id ?? null, config, labels: hot.prompts?.labels, fetchHistoryImpl: discord.fetchHistory });
+      const count = await backfill({
+        store,
+        channel,
+        guildId,
+        selfId: client.user?.id ?? null,
+        config,
+        labels: hot.prompts?.labels,
+        fetchHistoryImpl: discord.fetchHistory,
+      });
       log.info('diary: backfill', { guildId, channelId: channel.id, count: Number.isFinite(count) ? count : 0 });
     } catch (err) {
       log.warn('diary: backfill failed', { guildId, channelId: channel.id, error: err });
@@ -775,7 +795,11 @@ export function createDiary({ hot, store, client, discord, turns, getGuildId, ba
     const block = postBlock(channel, config, t);
     if (block === 'cap') {
       const cap = config.diary?.maxPerDay ?? DEFAULT_MAX_PER_DAY;
-      return { outcome: 'refused', reason: 'cap', limit: { key: 'diary.maxPerDay', used: countToday(store.state.data, DIARY_DAILY, t), cap } };
+      return {
+        outcome: 'refused',
+        reason: 'cap',
+        limit: { key: 'diary.maxPerDay', used: countToday(store.state.data, DIARY_DAILY, t), cap },
+      };
     }
     if (block) return { outcome: 'not-now', reason: block };
     await backfillOnce(channel, guildId, config);
@@ -856,7 +880,9 @@ export async function backfillDiary({ store, channel, guildId, selfId, config, l
       at: message.ts,
       kind: null,
       gist: gistOf(message.content, gistChars),
-      picture: (message.attachments ?? []).some((a) => a.kind === 'image') ? (labels?.diary?.pictureUnknown ?? '') : null,
+      picture: (message.attachments ?? []).some((a) => a.kind === 'image')
+        ? (labels?.diary?.pictureUnknown ?? '')
+        : null,
       messageIds: [message.id],
       search: null,
     }));

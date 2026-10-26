@@ -66,7 +66,15 @@ function hot() {
         gapMarkerMinutes: 20,
         otherProfiles: 6,
         caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 },
-        vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0, maxBytes: 1_500_000, fetchTimeoutMs: 7000 },
+        vision: {
+          maxImages: 2,
+          tokensPerImage: 400,
+          imageSize: 512,
+          recentImages: 0,
+          recentImageMinutes: 0,
+          maxBytes: 1_500_000,
+          fetchTimeoutMs: 7000,
+        },
         pull: { scanMessages: 20, maxChannels: 1, sameAudience: true },
       },
       llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
@@ -161,7 +169,14 @@ function recordingImages() {
     quota: () => ({ used: 0, cap: 50, userUsed: 0, userCap: 5, spent: false, userSpent: false }),
     generate: async (args) => {
       calls.push(structuredClone(args));
-      return { buffer: Buffer.from('png'), mediaType: 'image/png', seconds: 1, cost: 0, usage: {}, model: 'openai/image-model' };
+      return {
+        buffer: Buffer.from('png'),
+        mediaType: 'image/png',
+        seconds: 1,
+        cost: 0,
+        usage: {},
+        model: 'openai/image-model',
+      };
     },
   };
 }
@@ -211,15 +226,37 @@ function runner({ answer, plan = null, images }) {
   });
 }
 
-test('draw parity: a reply turn\'s draw.create call asked by a member', async () => {
+test("draw parity: a reply turn's draw.create call asked by a member", async () => {
   const images = recordingImages();
-  const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Eléna', content: 'draw a lighthouse', ts: NOW - 1000 });
+  const raw = rawMessage({
+    id: 'm1',
+    authorId: 'u1',
+    authorName: 'Eléna',
+    content: 'draw a lighthouse',
+    ts: NOW - 1000,
+  });
   const trigger = {
-    id: raw.id, channelId: raw.channelId, authorId: 'u1', authorName: 'Eléna', self: false, bot: false,
-    content: raw.cleanContent, ts: raw.createdTimestamp, replyToId: null, attachments: [], stickers: [],
+    id: raw.id,
+    channelId: raw.channelId,
+    authorId: 'u1',
+    authorName: 'Eléna',
+    self: false,
+    bot: false,
+    content: raw.cleanContent,
+    ts: raw.createdTimestamp,
+    replyToId: null,
+    attachments: [],
+    stickers: [],
   };
-  const turns = runner({ answer: toolAnswer('<msg>one sec</msg>', [call('draw.create', { reply: '#1', text: 'a lighthouse at dusk, waves below' })]), images });
-  const { result } = await withCapturedLogs(() => turns.runTurn({ channel: channel('c1', 'general', [raw]), mode: 'reply', trigger, triggerKind: 'mention' }));
+  const turns = runner({
+    answer: toolAnswer('<msg>one sec</msg>', [
+      call('draw.create', { reply: '#1', text: 'a lighthouse at dusk, waves below' }),
+    ]),
+    images,
+  });
+  const { result } = await withCapturedLogs(() =>
+    turns.runTurn({ channel: channel('c1', 'general', [raw]), mode: 'reply', trigger, triggerKind: 'mention' })
+  );
   assert.equal(result.outcome, 'spoke');
   assert.deepEqual(images.calls, [
     {
@@ -230,11 +267,19 @@ test('draw parity: a reply turn\'s draw.create call asked by a member', async ()
   ]);
 });
 
-test('draw parity: a diary post\'s single self picture', async () => {
+test("draw parity: a diary post's single self picture", async () => {
   const images = recordingImages();
   const plan = { kind: 'selfPicture', brief: 'a pier at dawn', search: '', picture: true };
-  const turns = runner({ answer: toolAnswer('<msg>early start</msg>', [call('draw.create', { text: 'me on a pier at dawn, fog', self: true })]), plan, images });
-  const { result } = await withCapturedLogs(() => turns.runTurn({ channel: channel('d1', 'journal'), mode: 'diary', diary: { kind: null, forced: false } }));
+  const turns = runner({
+    answer: toolAnswer('<msg>early start</msg>', [
+      call('draw.create', { text: 'me on a pier at dawn, fog', self: true }),
+    ]),
+    plan,
+    images,
+  });
+  const { result } = await withCapturedLogs(() =>
+    turns.runTurn({ channel: channel('d1', 'journal'), mode: 'diary', diary: { kind: null, forced: false } })
+  );
   assert.equal(result.outcome, 'spoke');
   assert.deepEqual(images.calls, [
     {
@@ -245,12 +290,18 @@ test('draw parity: a diary post\'s single self picture', async () => {
   ]);
 });
 
-test('draw parity: a diary set\'s pictures, the persona in the first one only', async () => {
+test("draw parity: a diary set's pictures, the persona in the first one only", async () => {
   const images = recordingImages();
   const plan = { kind: 'tour', brief: 'a harbour walk', search: '', picture: true };
-  const answer = toolAnswer('<msg>a walk</msg>', [call('draw.create', { text: 'me at the harbour gate', self: true }), call('draw.create', { text: 'boats in the harbour' }), call('draw.create', { text: 'a café terrace' })]);
+  const answer = toolAnswer('<msg>a walk</msg>', [
+    call('draw.create', { text: 'me at the harbour gate', self: true }),
+    call('draw.create', { text: 'boats in the harbour' }),
+    call('draw.create', { text: 'a café terrace' }),
+  ]);
   const turns = runner({ answer, plan, images });
-  const { result } = await withCapturedLogs(() => turns.runTurn({ channel: channel('d1', 'journal'), mode: 'diary', diary: { kind: null, forced: false } }));
+  const { result } = await withCapturedLogs(() =>
+    turns.runTurn({ channel: channel('d1', 'journal'), mode: 'diary', diary: { kind: null, forced: false } })
+  );
   assert.equal(result.outcome, 'spoke');
   assert.deepEqual(images.calls, [
     {
@@ -277,7 +328,9 @@ test('draw parity: /nep draw with self', async () => {
     imageFetcher: imageFetcher(),
     now: () => NOW,
   });
-  const { result } = await withCapturedLogs(() => admin.run('draw', { text: 'me reading by the window', self: true }, { guildId: 'g1', userId: '42' }));
+  const { result } = await withCapturedLogs(() =>
+    admin.run('draw', { text: 'me reading by the window', self: true }, { guildId: 'g1', userId: '42' })
+  );
   assert.equal(result.files.length, 1);
   // The owner's command carries no local time: its `{{when}}` is blank.
   assert.deepEqual(images.calls, [

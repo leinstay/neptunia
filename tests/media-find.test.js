@@ -18,7 +18,16 @@ function fixture(descriptions) {
   const cache = {};
   descriptions.forEach((fields, index) => {
     const key = `k${index + 1}`;
-    entries[key] = { id: `g${index + 1}`, kind: 'link', url: `https://tenor.example/${key}`, itemId: key, messageId: 'm', channelId: 'c', count: 10 - index, last: 1000 };
+    entries[key] = {
+      id: `g${index + 1}`,
+      kind: 'link',
+      url: `https://tenor.example/${key}`,
+      itemId: key,
+      messageId: 'm',
+      channelId: 'c',
+      count: 10 - index,
+      last: 1000,
+    };
     cache[key] = typeof fields === 'string' ? { text: fields } : { text: fields.action ?? '', ...fields };
   });
   return { gifs: normalizeGifs({ nextId: descriptions.length + 1, entries }), cache };
@@ -37,26 +46,72 @@ function storeOf({ gifs, cache }) {
 
 test('findGifs ranks by words in either language, accents and case ignored, ties by the library order', () => {
   const lib = fixture(LIBRARY);
-  assert.deepEqual(findGifs(lib.gifs, lib.cache, 'CAT dances').map((e) => e.id), ['g1']);
-  assert.deepEqual(findGifs(lib.gifs, lib.cache, 'γατα').map((e) => e.id), ['g1'], 'a Greek word without its accent');
-  assert.deepEqual(findGifs(lib.gifs, lib.cache, 'elodie').map((e) => e.id), ['g2'], 'accented Latin folded');
-  assert.deepEqual(findGifs(lib.gifs, lib.cache, 'laughs haha').map((e) => e.id), ['g2']);
-  assert.deepEqual(findGifs(lib.gifs, lib.cache, 'dog dances').map((e) => e.id), ['g1', 'g4'], 'equal scores keep the library order');
+  assert.deepEqual(
+    findGifs(lib.gifs, lib.cache, 'CAT dances').map((e) => e.id),
+    ['g1']
+  );
+  assert.deepEqual(
+    findGifs(lib.gifs, lib.cache, 'γατα').map((e) => e.id),
+    ['g1'],
+    'a Greek word without its accent'
+  );
+  assert.deepEqual(
+    findGifs(lib.gifs, lib.cache, 'elodie').map((e) => e.id),
+    ['g2'],
+    'accented Latin folded'
+  );
+  assert.deepEqual(
+    findGifs(lib.gifs, lib.cache, 'laughs haha').map((e) => e.id),
+    ['g2']
+  );
+  assert.deepEqual(
+    findGifs(lib.gifs, lib.cache, 'dog dances').map((e) => e.id),
+    ['g1', 'g4'],
+    'equal scores keep the library order'
+  );
   // a reaction word counts double, a near form (shared stem) less than an exact one
-  assert.deepEqual(findGifs(lib.gifs, lib.cache, 'cry').map((e) => e.id), [], 'under the stem length nothing partial');
-  assert.deepEqual(findGifs(lib.gifs, lib.cache, 'crying').map((e) => e.id), ['g3']);
-  assert.deepEqual(findGifs(lib.gifs, lib.cache, 'dance').map((e) => e.id), ['g1'], 'a shared stem of a form counts, less than the exact word');
-  assert.deepEqual(findGifs(lib.gifs, lib.cache, 'dance laughs').map((e) => e.id), ['g2', 'g1'], 'an exact word outranks a stem match');
-  assert.deepEqual(findGifs(lib.gifs, lib.cache, 'dancing laughs').map((e) => e.id), ['g2'], 'dancing and dances share no stem here');
+  assert.deepEqual(
+    findGifs(lib.gifs, lib.cache, 'cry').map((e) => e.id),
+    [],
+    'under the stem length nothing partial'
+  );
+  assert.deepEqual(
+    findGifs(lib.gifs, lib.cache, 'crying').map((e) => e.id),
+    ['g3']
+  );
+  assert.deepEqual(
+    findGifs(lib.gifs, lib.cache, 'dance').map((e) => e.id),
+    ['g1'],
+    'a shared stem of a form counts, less than the exact word'
+  );
+  assert.deepEqual(
+    findGifs(lib.gifs, lib.cache, 'dance laughs').map((e) => e.id),
+    ['g2', 'g1'],
+    'an exact word outranks a stem match'
+  );
+  assert.deepEqual(
+    findGifs(lib.gifs, lib.cache, 'dancing laughs').map((e) => e.id),
+    ['g2'],
+    'dancing and dances share no stem here'
+  );
 });
 
 test('findGifs: an entry without a stored description is never returned, nothing matching gives none', () => {
   const lib = fixture(LIBRARY);
   delete lib.cache.k4;
   lib.cache.k3 = { miss: true };
-  assert.deepEqual(findGifs(lib.gifs, lib.cache, 'dog park crying').map((e) => e.id), []);
-  assert.deepEqual(findGifs(lib.gifs, lib.cache, 'zzz').map((e) => e.id), []);
-  assert.deepEqual(findGifs(lib.gifs, lib.cache, '   ').map((e) => e.id), []);
+  assert.deepEqual(
+    findGifs(lib.gifs, lib.cache, 'dog park crying').map((e) => e.id),
+    []
+  );
+  assert.deepEqual(
+    findGifs(lib.gifs, lib.cache, 'zzz').map((e) => e.id),
+    []
+  );
+  assert.deepEqual(
+    findGifs(lib.gifs, lib.cache, '   ').map((e) => e.id),
+    []
+  );
 });
 
 test('findGifs: n defaults to 5, is capped at 10 and floored at 1', () => {
@@ -77,7 +132,12 @@ test('runMediaFind: handles in the result are the library handles message.create
   const handles = lines.slice(1).map((line) => line.split(':')[0]);
   assert.equal(handles.length, 2);
   for (const handle of handles) assert.ok(store.findGif('G', handle), `${handle} resolves in the library`);
-  const block = renderGifLibrary(lib.gifs && Object.values(lib.gifs.entries), lib.cache, labels, { now: 0, ownMarkHours: 0, reactionChars: 40, actionChars: 70 });
+  const block = renderGifLibrary(lib.gifs && Object.values(lib.gifs.entries), lib.cache, labels, {
+    now: 0,
+    ownMarkHours: 0,
+    reactionChars: 40,
+    actionChars: 70,
+  });
   for (const line of lines.slice(1)) assert.ok(block.includes(line), 'the same line the <gifs> block shows');
 });
 
@@ -89,10 +149,27 @@ test('runMediaFind: nothing found is an ok with the none label; bad arguments an
   assert.deepEqual([bare.status, bare.data.text], ['ok', '']);
   assert.equal(runMediaFind({ store, config: {}, labels, guildId: 'G', args: {} }).code, 'invalid-args');
   assert.equal(runMediaFind({ store, config: {}, labels, guildId: 'G', args: { query: '!!' } }).status, 'invalid');
-  assert.equal(runMediaFind({ store, config: {}, labels, guildId: 'G', args: { query: 'cat', n: 11 } }).reason, 'args.n:range');
-  assert.equal(runMediaFind({ store, config: {}, labels, guildId: 'G', args: { query: 'cat', n: 0 } }).reason, 'args.n:range');
-  assert.equal(runMediaFind({ store, config: { features: { gifs: false } }, labels, guildId: 'G', args: { query: 'cat' } }).status, 'not_configured');
-  assert.equal(runMediaFind({ store: null, config: {}, labels, guildId: 'G', args: { query: 'cat' } }).status, 'not_configured');
-  assert.equal(runMediaFind({ store, config: {}, labels, guildId: 'G', args: { query: 'cat', n: 1 } }).data.text.split('\n').length, 2, 'n=1 gives one GIF');
+  assert.equal(
+    runMediaFind({ store, config: {}, labels, guildId: 'G', args: { query: 'cat', n: 11 } }).reason,
+    'args.n:range'
+  );
+  assert.equal(
+    runMediaFind({ store, config: {}, labels, guildId: 'G', args: { query: 'cat', n: 0 } }).reason,
+    'args.n:range'
+  );
+  assert.equal(
+    runMediaFind({ store, config: { features: { gifs: false } }, labels, guildId: 'G', args: { query: 'cat' } }).status,
+    'not_configured'
+  );
+  assert.equal(
+    runMediaFind({ store: null, config: {}, labels, guildId: 'G', args: { query: 'cat' } }).status,
+    'not_configured'
+  );
+  assert.equal(
+    runMediaFind({ store, config: {}, labels, guildId: 'G', args: { query: 'cat', n: 1 } }).data.text.split('\n')
+      .length,
+    2,
+    'n=1 gives one GIF'
+  );
   assert.equal(mediaFindText([], { query: 'x', labels }), 'Source: media.find "x", 0 found.\nNothing matched.');
 });

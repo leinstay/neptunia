@@ -16,14 +16,29 @@ function speechWith(complete) {
     apiKey: 'k',
     llm: { complete },
     state,
-    fetchImpl: async () => { fetched += 1; throw new Error('must not be called'); },
+    fetchImpl: async () => {
+      fetched += 1;
+      throw new Error('must not be called');
+    },
   });
   return { speech, state, fetched: () => fetched };
 }
 
 for (const [name, complete, reason] of [
-  ['an error', async () => { throw new Error('provider down'); }, 'error'],
-  ['a timeout', async () => { throw Object.assign(new Error('slow'), { name: 'TimeoutError' }); }, 'timeout'],
+  [
+    'an error',
+    async () => {
+      throw new Error('provider down');
+    },
+    'error',
+  ],
+  [
+    'a timeout',
+    async () => {
+      throw Object.assign(new Error('slow'), { name: 'TimeoutError' });
+    },
+    'timeout',
+  ],
   ['a changed word', async () => ({ text: 'something else' }), 'mismatch'],
 ]) {
   test(`speech.say: ${name} in the pronunciation pass throws a prepare SpeechError and synthesizes nothing`, async () => {
@@ -42,11 +57,21 @@ for (const [name, complete, reason] of [
 
 test('voice.say: a failed pronunciation pass is a failed result with the reason, and nothing is sent', async () => {
   const sent = [];
-  const speech = { say: async () => { throw new SpeechError('prepare', CODE.SPEECH_PREPARE_FAILED, 'x', { reason: 'timeout' }); } };
+  const speech = {
+    say: async () => {
+      throw new SpeechError('prepare', CODE.SPEECH_PREPARE_FAILED, 'x', { reason: 'timeout' });
+    },
+  };
   const env = {
     hot: { config: { speech: { maxChars: 100 } } },
     speech,
-    port: { iface: 'discord', send: async (...args) => { sent.push(args); return { status: 'ok' }; } },
+    port: {
+      iface: 'discord',
+      send: async (...args) => {
+        sent.push(args);
+        return { status: 'ok' };
+      },
+    },
     assertNotPaused() {},
     resolvedGuildId: () => 'g',
   };

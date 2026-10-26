@@ -16,14 +16,20 @@ const MONTH_RE = /^\d{4}-\d{2}$/;
 
 /** The months (`YYYY-MM`) of the index directory `relBase` (`guilds/<g>/vectors`, or a private layer's), sorted. */
 export function vectorMonthsAt(db, relBase) {
-  return childNames(ownersUnder(db, 'operational', relBase, { kind: 'vectors' }), relBase).filter((name) => MONTH_RE.test(name));
+  return childNames(ownersUnder(db, 'operational', relBase, { kind: 'vectors' }), relBase).filter((name) =>
+    MONTH_RE.test(name)
+  );
 }
 
 /** The stored state of a month (`owner`: `guilds/<g>/vectors/<YYYY-MM>`): `{ value, evicted }` or null. */
 export function vectorMonthState(db, owner) {
-  const row = db.prepare("SELECT value FROM operational WHERE owner = ? AND kind = 'vectors' AND retired_at IS NULL").get(owner);
+  const row = db
+    .prepare("SELECT value FROM operational WHERE owner = ? AND kind = 'vectors' AND retired_at IS NULL")
+    .get(owner);
   if (!row) return null;
-  const evicted = db.prepare('SELECT COUNT(*) AS n FROM vectors WHERE owner_file = ? AND bytes IS NULL AND retired_at IS NULL').get(owner).n;
+  const evicted = db
+    .prepare('SELECT COUNT(*) AS n FROM vectors WHERE owner_file = ? AND bytes IS NULL AND retired_at IS NULL')
+    .get(owner).n;
   return { value: row.value, evicted };
 }
 
@@ -52,7 +58,13 @@ export function vectorMonthFiles(db, owner, { checksum }) {
   if (evicted > 0 && manifest && typeof manifest === 'object') {
     const kept = rows.vectors.length;
     const dims = Number.isInteger(manifest.dims) ? manifest.dims : 0;
-    manifest = { ...manifest, rows: kept, bytes: kept * dims, metaBytes: meta.length, checksum: checksum(i8.subarray(0, kept * dims), meta) };
+    manifest = {
+      ...manifest,
+      rows: kept,
+      bytes: kept * dims,
+      metaBytes: meta.length,
+      checksum: checksum(i8.subarray(0, kept * dims), meta),
+    };
   }
   return { manifest, meta, i8 };
 }

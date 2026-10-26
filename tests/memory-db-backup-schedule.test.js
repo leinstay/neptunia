@@ -42,7 +42,12 @@ function prepared() {
   } finally {
     handle.close();
   }
-  return { root, data, backups: path.join(root, 'backups', 'memory'), done: () => fs.rmSync(root, { recursive: true, force: true }) };
+  return {
+    root,
+    data,
+    backups: path.join(root, 'backups', 'memory'),
+    done: () => fs.rmSync(root, { recursive: true, force: true }),
+  };
 }
 
 /** A config with the backup settings given. */
@@ -55,7 +60,15 @@ function serviceOf(data, config, { worker = false, onBackupFailure = null } = {}
   const clock = { at: DAY1 };
   const log = logs();
   const hot = { config };
-  const service = createMemoryDb({ hot, dataDir: data, log, now: () => clock.at, commit: COMMIT, onBackupFailure, ...(worker ? {} : { worker: false }) });
+  const service = createMemoryDb({
+    hot,
+    dataDir: data,
+    log,
+    now: () => clock.at,
+    commit: COMMIT,
+    onBackupFailure,
+    ...(worker ? {} : { worker: false }),
+  });
   const tickAt = async (ms) => {
     clock.at = ms;
     await service.tick();
@@ -70,8 +83,16 @@ const sha256 = (file) => createHash('sha256').update(fs.readFileSync(file)).dige
 test('backup settings: the defaults put the backups beside data/, never inside it', () => {
   const settings = backupSettings({}, '/srv/example/data');
   assert.deepEqual(settings, { hour: 3, keep: 7, dir: path.resolve('/srv/example/backups/memory') });
-  assert.deepEqual(backupSettings({ memoryDb: { backup: { hour: 23, keep: 2, dir: '/var/backups/m' } } }, '/x/data'), { hour: 23, keep: 2, dir: '/var/backups/m' });
-  assert.deepEqual(backupSettings({ memoryDb: { backup: { hour: 24, keep: 0, dir: ' ' } } }, '/x/data'), { hour: 3, keep: 7, dir: path.resolve('/x/backups/memory') });
+  assert.deepEqual(backupSettings({ memoryDb: { backup: { hour: 23, keep: 2, dir: '/var/backups/m' } } }, '/x/data'), {
+    hour: 23,
+    keep: 2,
+    dir: '/var/backups/m',
+  });
+  assert.deepEqual(backupSettings({ memoryDb: { backup: { hour: 24, keep: 0, dir: ' ' } } }, '/x/data'), {
+    hour: 3,
+    keep: 7,
+    dir: path.resolve('/x/backups/memory'),
+  });
   assert.equal(backupName(Date.parse('2026-11-03T03:04:05.678Z')), '2026-11-03-030405-memory');
 });
 
@@ -93,12 +114,18 @@ test('the schedule under db: once a UTC day from the hour, through the writer, w
     assert.equal(manifest.schemaVersion, MIGRATIONS.length);
     assert.equal(manifest.engineCommit, COMMIT);
     assert.equal(manifest.configHash, configHash(config));
-    assert.deepEqual(manifest.files.map((file) => file.path), ['memory.db', 'media/diary/d-1-1.png', 'media/diary/d-1-2.ogg']);
+    assert.deepEqual(
+      manifest.files.map((file) => file.path),
+      ['memory.db', 'media/diary/d-1-1.png', 'media/diary/d-1-2.ogg']
+    );
     for (const file of manifest.files) assert.equal(file.sha256, sha256(path.join(dir, file.path)), file.path);
     assert.ok(manifest.rows.sources > 0);
     assert.ok(!fs.existsSync(path.join(dir, 'memory.db-wal')), 'no WAL file copied');
     const status = service.status().backup;
-    assert.deepEqual([status.lastAt, status.lastName, status.lastFailure, status.running], [DAY1 + 3 * HOUR + 1000, first, null, false]);
+    assert.deepEqual(
+      [status.lastAt, status.lastName, status.lastFailure, status.running],
+      [DAY1 + 3 * HOUR + 1000, first, null, false]
+    );
 
     // The same day again: nothing new.
     await tickAt(DAY1 + 20 * HOUR);
@@ -110,13 +137,20 @@ test('the schedule under db: once a UTC day from the hour, through the writer, w
     await tickAt(DAY1 + DAY + 4 * HOUR);
     await tickAt(DAY1 + 2 * DAY + 5 * HOUR);
     const kept = [backupName(DAY1 + DAY + 4 * HOUR), backupName(DAY1 + 2 * DAY + 5 * HOUR)];
-    assert.deepEqual(names(env.backups), [...kept, 'notes'].sort(), 'the newest two kept, the oldest and the unfinished one removed');
+    assert.deepEqual(
+      names(env.backups),
+      [...kept, 'notes'].sort(),
+      'the newest two kept, the oldest and the unfinished one removed'
+    );
     assert.equal(log.out.filter((entry) => entry.message === 'memory db: backup').length, 3);
     assert.ok(!log.out.some((entry) => entry.message === 'memory db: backup failed'));
 
     // The backup restores whole.
     const target = path.join(env.root, 'restored', 'memory.db');
-    assert.equal(restoreDatabase({ from: path.join(env.backups, kept[1]), db: target }).schemaVersion, MIGRATIONS.length);
+    assert.equal(
+      restoreDatabase({ from: path.join(env.backups, kept[1]), db: target }).schemaVersion,
+      MIGRATIONS.length
+    );
   } finally {
     await service.close();
     env.done();
@@ -128,7 +162,9 @@ test('the schedule: a failed backup is a warning, the status and one fact a day 
   // The backups folder cannot be made: its parent is a file.
   fs.writeFileSync(path.join(env.root, 'blocked'), 'x');
   const told = [];
-  const { service, log, tickAt } = serviceOf(env.data, configOf({ enabled: true, hour: 3, dir: '../blocked/memory' }), { onBackupFailure: (failure) => told.push(failure) });
+  const { service, log, tickAt } = serviceOf(env.data, configOf({ enabled: true, hour: 3, dir: '../blocked/memory' }), {
+    onBackupFailure: (failure) => told.push(failure),
+  });
   try {
     await tickAt(DAY1 + 4 * HOUR);
     const failures = () => log.out.filter((entry) => entry.message === 'memory db: backup failed');

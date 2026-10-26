@@ -28,19 +28,35 @@ export function deletedLinesMax(context) {
  * @param {{ record: { iterate: Function }, guildId: string, channelId: string, history: object[],
  *   selfId?: string|null, selfName?: string, nameOf?: ((id: string) => string|null)|null, max?: number, clock?: () => number }} input
  */
-export async function deletedLinesOf({ record, guildId, channelId, history, selfId = null, selfName = '', nameOf = null, max = DELETED_LINES_MAX_DEFAULT, clock = Date.now }) {
+export async function deletedLinesOf({
+  record,
+  guildId,
+  channelId,
+  history,
+  selfId = null,
+  selfName = '',
+  nameOf = null,
+  max = DELETED_LINES_MAX_DEFAULT,
+  clock = Date.now,
+}) {
   const started = clock();
   const empty = { placeholders: [], deletedIds: new Set(), ms: 0 };
-  const own = (history ?? []).filter((message) => message && message.replyParent !== true && Number.isFinite(message.ts));
+  const own = (history ?? []).filter(
+    (message) => message && message.replyParent !== true && Number.isFinite(message.ts)
+  );
   if (!record || typeof record.iterate !== 'function' || own.length === 0) return empty;
   const oldest = Math.min(...own.map((message) => message.ts));
   const present = new Set((history ?? []).map((message) => String(message?.id)));
   const names = new Map();
-  for (const message of history ?? []) if (message?.authorId && message.authorName) names.set(String(message.authorId), message.authorName);
+  for (const message of history ?? [])
+    if (message?.authorId && message.authorName) names.set(String(message.authorId), message.authorName);
   const seen = new Map();
   const gone = new Map();
   try {
-    for await (const line of record.iterate(guildId, { from: new Date(oldest).toISOString(), channelIds: [String(channelId)] })) {
+    for await (const line of record.iterate(guildId, {
+      from: new Date(oldest).toISOString(),
+      channelIds: [String(channelId)],
+    })) {
       const id = typeof line?.messageId === 'string' ? line.messageId : '';
       if (!id || present.has(id)) continue;
       if (line.kind === 'deleted') gone.set(id, line);
@@ -56,7 +72,11 @@ export async function deletedLinesOf({ record, guildId, channelId, history, self
     if (!Number.isFinite(ts)) continue;
     const authorId = (typeof first?.by === 'string' && first.by) || line.participants?.[0] || null;
     const self = authorId !== null && selfId !== null && String(authorId) === String(selfId);
-    const name = self ? selfName : (names.get(String(authorId)) ?? (authorId ? nameOf?.(String(authorId)) : null) ?? (authorId ? String(authorId) : ''));
+    const name = self
+      ? selfName
+      : (names.get(String(authorId)) ??
+        (authorId ? nameOf?.(String(authorId)) : null) ??
+        (authorId ? String(authorId) : ''));
     all.push({
       id,
       channelId: String(channelId),

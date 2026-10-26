@@ -5,7 +5,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { isAllowed, grant, revoke, hasGrant, isOwnerId, expandGrant, migrateGrants, describeGrants } from '../src/ops/grants.js';
+import {
+  isAllowed,
+  grant,
+  revoke,
+  hasGrant,
+  isOwnerId,
+  expandGrant,
+  migrateGrants,
+  describeGrants,
+} from '../src/ops/grants.js';
 
 /** One operation descriptor as src/ops/registry.js#listOps gives it. */
 function op(name, rights = {}) {
@@ -94,7 +103,13 @@ test('hasGrant: true exactly when revoke with the same arguments would change so
 
 // One row per case: `label` names it in a failure, `expected` is isAllowed's answer.
 const IS_ALLOWED_CASES = [
-  { label: 'an owner always passes, even with no access at all', name: 'memory.wipe', userId: '1', access: undefined, expected: true },
+  {
+    label: 'an owner always passes, even with no access at all',
+    name: 'memory.wipe',
+    userId: '1',
+    access: undefined,
+    expected: true,
+  },
   { label: 'a non-owner with no matching grant is refused', name: 'memory.profile.read', access: {}, expected: false },
   {
     label: 'everyone: true on the exact op name lets a non-owner through',
@@ -195,7 +210,10 @@ test('isAllowed: a member granted memory.affinity.read is denied memory.affinity
 
 test('isAllowed: a member op passes for anyone, with no owners and no access at all', () => {
   assert.equal(isAllowed({ op: byName('pings.set'), member: { userId: '2' } }), true);
-  assert.equal(isAllowed({ op: byName('pings.get'), member: { userId: '2', roleIds: [] }, owners: [], access: undefined }), true);
+  assert.equal(
+    isAllowed({ op: byName('pings.get'), member: { userId: '2', roleIds: [] }, owners: [], access: undefined }),
+    true
+  );
   assert.equal(allowed('pings.get', {}, { features: { memberCommands: true } }), true);
   // it opens nothing else
   assert.equal(allowed('status.show', {}), false);
@@ -213,9 +231,23 @@ test('isAllowed: memberCommands false closes a member op to everyone but an owne
 // ---------------------------------------------------------------------------
 
 test('expandGrant: an op name is itself; a group or * is the grantable read ops that exist now', () => {
-  assert.deepEqual(expandGrant('memory.affinity.set', OPS), { from: null, names: ['memory.affinity.set'], refused: [] });
-  assert.deepEqual(expandGrant('memory', OPS), { from: 'memory', names: ['memory.profile.read', 'memory.recent.read', 'memory.affinity.read'], refused: [] });
-  assert.deepEqual(expandGrant('*', OPS).names, ['status.show', 'rule.list', 'memory.profile.read', 'memory.recent.read', 'memory.affinity.read']);
+  assert.deepEqual(expandGrant('memory.affinity.set', OPS), {
+    from: null,
+    names: ['memory.affinity.set'],
+    refused: [],
+  });
+  assert.deepEqual(expandGrant('memory', OPS), {
+    from: 'memory',
+    names: ['memory.profile.read', 'memory.recent.read', 'memory.affinity.read'],
+    refused: [],
+  });
+  assert.deepEqual(expandGrant('*', OPS).names, [
+    'status.show',
+    'rule.list',
+    'memory.profile.read',
+    'memory.recent.read',
+    'memory.affinity.read',
+  ]);
   assert.deepEqual(expandGrant('memory.wipe', OPS), { from: null, names: [], refused: ['memory.wipe'] });
   assert.deepEqual(expandGrant('pings.get', OPS), { from: null, names: [], refused: ['pings.get'] });
   assert.equal(expandGrant('nonsense', OPS), null);
@@ -224,14 +256,29 @@ test('expandGrant: an op name is itself; a group or * is the grantable read ops 
 
 test('isAllowed: an old memory.* grant after migration covers only the read ops that existed, never a later one', () => {
   for (const key of ['memory', '*']) {
-    const { access } = migrateGrants({ access: { [key]: { everyone: false, roles: ['staff'], users: [] } }, ops: OPS, legacy });
+    const { access } = migrateGrants({
+      access: { [key]: { everyone: false, roles: ['staff'], users: [] } },
+      ops: OPS,
+      legacy,
+    });
     const asStaff = (name) => allowed(name, access, { roleIds: ['staff'] });
-    for (const name of ['memory.profile.read', 'memory.recent.read', 'memory.affinity.read']) assert.equal(asStaff(name), true, `${key}: ${name}`);
-    for (const name of ['memory.affinity.set', 'memory.refresh', 'memory.journal.read', 'memory.wipe', 'memory.private.read']) {
+    for (const name of ['memory.profile.read', 'memory.recent.read', 'memory.affinity.read'])
+      assert.equal(asStaff(name), true, `${key}: ${name}`);
+    for (const name of [
+      'memory.affinity.set',
+      'memory.refresh',
+      'memory.journal.read',
+      'memory.wipe',
+      'memory.private.read',
+    ]) {
       assert.equal(asStaff(name), false, `${key}: ${name}`);
     }
     // an operation added after the migration is never covered by it
-    assert.equal(isAllowed({ op: op('memory.mood.read'), member: { userId: '2', roleIds: ['staff'] }, access, owners: ['1'] }), false, key);
+    assert.equal(
+      isAllowed({ op: op('memory.mood.read'), member: { userId: '2', roleIds: ['staff'] }, access, owners: ['1'] }),
+      false,
+      key
+    );
     assert.equal(Object.hasOwn(access, key), false, `${key}: the pattern itself is not stored`);
   }
 });
@@ -247,10 +294,29 @@ test('migrateGrants: expands group and * grants into op entries once and drops o
   };
   const { access, report, note } = migrateGrants({ access: stored, ops: OPS, legacy });
 
-  assert.deepEqual(access['memory.profile.read'], { everyone: true, roles: ['staff'], users: [], via: { everyone: 'memory', 'role:staff': '*' } });
+  assert.deepEqual(access['memory.profile.read'], {
+    everyone: true,
+    roles: ['staff'],
+    users: [],
+    via: { everyone: 'memory', 'role:staff': '*' },
+  });
   assert.deepEqual(access['status.show'], { everyone: false, roles: ['staff'], users: [], via: { 'role:staff': '*' } });
-  assert.deepEqual(access['config.set'], { everyone: false, roles: [], users: ['9'] }, 'an exact old key keeps its write');
-  for (const key of ['memory', '*', 'set', 'memory.journal', 'private.show', 'ping', 'memory.journal.read', 'memory.private.read', 'memory.refresh']) {
+  assert.deepEqual(
+    access['config.set'],
+    { everyone: false, roles: [], users: ['9'] },
+    'an exact old key keeps its write'
+  );
+  for (const key of [
+    'memory',
+    '*',
+    'set',
+    'memory.journal',
+    'private.show',
+    'ping',
+    'memory.journal.read',
+    'memory.private.read',
+    'memory.refresh',
+  ]) {
     assert.equal(Object.hasOwn(access, key), false, key);
   }
 
@@ -277,7 +343,10 @@ test('access list: names the source of each right', () => {
   ]);
   // a direct grant of the same target replaces the expanded source
   access = grant(access, 'memory.profile.read', { everyone: true });
-  assert.match(describeGrants(access, OPS)[0], /^memory\.profile\.read: everyone, role id:r1, user id:u1 \(expanded from \*/);
+  assert.match(
+    describeGrants(access, OPS)[0],
+    /^memory\.profile\.read: everyone, role id:r1, user id:u1 \(expanded from \*/
+  );
   // revoke drops the source with the target
   access = revoke(access, 'memory.profile.read', { userId: 'u1' });
   assert.equal(access['memory.profile.read'].via, undefined);

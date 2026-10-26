@@ -32,9 +32,12 @@ const SPEC = [
 /** The claim row for an archived item that is not in hot memory: retired, historical, text from the entry. */
 export function claimStub(rel, entry) {
   const scope = entry.scope ?? {};
-  const subject = typeof scope.user === 'string' && scope.user ? { subject_kind: 'person', subject_id: `person:discord:${scope.user}` }
-    : typeof scope.channel === 'string' && scope.channel ? { subject_kind: 'place', subject_id: `discord:channel:${scope.channel}` }
-      : { subject_kind: null, subject_id: null };
+  const subject =
+    typeof scope.user === 'string' && scope.user
+      ? { subject_kind: 'person', subject_id: `person:discord:${scope.user}` }
+      : typeof scope.channel === 'string' && scope.channel
+        ? { subject_kind: 'place', subject_id: `discord:channel:${scope.channel}` }
+        : { subject_kind: null, subject_id: null };
   return {
     id: entry.itemId,
     ...subject,
@@ -76,8 +79,17 @@ export function toRows(rel, entry, ctx = {}) {
   const rows = {};
   if (!isPlainObject(entry)) {
     put(rows, 'claim_versions', {
-      id: `cv:${shortHash(JSON.stringify(entry))}:${ctx.position ?? 0}`, claim_id: null, revision_id: null, text: null,
-      extra: JSON.stringify({ $raw: entry }), recorded_at: null, event: null, by: null, origin: null, owner_file: rel, position: ctx.position ?? null,
+      id: `cv:${shortHash(JSON.stringify(entry))}:${ctx.position ?? 0}`,
+      claim_id: null,
+      revision_id: null,
+      text: null,
+      extra: JSON.stringify({ $raw: entry }),
+      recorded_at: null,
+      event: null,
+      by: null,
+      origin: null,
+      owner_file: rel,
+      position: ctx.position ?? null,
     });
     return rows;
   }
@@ -94,7 +106,13 @@ export function toRows(rel, entry, ctx = {}) {
     cols.id = `cv:${shortHash(JSON.stringify(entry))}:${ctx.position ?? 0}`;
     rest.$noId = true;
   }
-  put(rows, 'claim_versions', { ...cols, text, extra: extraText(rest), owner_file: rel, position: ctx.position ?? null });
+  put(rows, 'claim_versions', {
+    ...cols,
+    text,
+    extra: extraText(rest),
+    owner_file: rel,
+    position: ctx.position ?? null,
+  });
   if (ctx.hotClaimIds instanceof Set) withStubs(rows, rel, [entry], ctx.hotClaimIds);
   return rows;
 }
@@ -107,6 +125,7 @@ export function fromRows(rows) {
   delete rest.$noId;
   const entry = join(row, rest, SPEC);
   if (noId) delete entry.id;
-  if (row.text !== null && row.text !== undefined) entry.text = { text: row.text, ...(isPlainObject(rest.text) ? rest.text : {}) };
+  if (row.text !== null && row.text !== undefined)
+    entry.text = { text: row.text, ...(isPlainObject(rest.text) ? rest.text : {}) };
   return entry;
 }

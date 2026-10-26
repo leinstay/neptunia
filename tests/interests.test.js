@@ -50,7 +50,13 @@ test('applyInterestOps: add with sure:false on a brand new topic starts at weigh
 // ---- applyInterestOps: the confirmation weight / gap rule --------------------
 
 function stored(list) {
-  return list.map(([topic, weight, lastSeen, firstSeen = lastSeen]) => ({ topic, note: '', weight, firstSeen, lastSeen }));
+  return list.map(([topic, weight, lastSeen, firstSeen = lastSeen]) => ({
+    topic,
+    note: '',
+    weight,
+    firstSeen,
+    lastSeen,
+  }));
 }
 
 test('applyInterestOps: a sighting close in time to lastSeen (same conversation split over two batches) does not bump the weight', () => {
@@ -74,7 +80,7 @@ test('applyInterestOps: at most one bump per item per call, even when add/update
   const items = applyInterestOps(
     existing,
     { add: [{ topic: 'Chess', note: '' }], update: [{ topic: 'chess', note: '' }], seen: ['CHESS'] },
-    opts({ seenAt: muchLater }),
+    opts({ seenAt: muchLater })
   );
   assert.equal(items[0].weight, 2, 'only one bump total, not three');
 });
@@ -100,11 +106,19 @@ test('applyInterestOps: sure:false new item needs two later, well-spaced sightin
 });
 
 test('applyInterestOps: sure:false on an EXISTING item changes nothing at all', () => {
-  const existing = [{ topic: 'Chess', note: 'plays weekly', weight: 3, firstSeen: '2026-01-01T00:00:00.000Z', lastSeen: '2026-01-01T00:00:00.000Z' }];
+  const existing = [
+    {
+      topic: 'Chess',
+      note: 'plays weekly',
+      weight: 3,
+      firstSeen: '2026-01-01T00:00:00.000Z',
+      lastSeen: '2026-01-01T00:00:00.000Z',
+    },
+  ];
   const items = applyInterestOps(
     existing,
     { add: [{ topic: 'Chess', note: 'something else entirely', sure: false }] },
-    opts({ seenAt: NOW }),
+    opts({ seenAt: NOW })
   );
   assert.deepEqual(items, existing);
 });
@@ -124,7 +138,15 @@ test('applyInterestOps: out-of-order history -- an older batch processed after a
 // ---- applyInterestOps: add of an existing topic ------------------------------
 
 test('applyInterestOps: add of an existing topic keeps the note when the incoming one is empty', () => {
-  const existing = [{ topic: 'Chess', note: 'plays weekly', weight: 2, firstSeen: 'a', lastSeen: new Date(NOW - 20 * HOUR).toISOString() }];
+  const existing = [
+    {
+      topic: 'Chess',
+      note: 'plays weekly',
+      weight: 2,
+      firstSeen: 'a',
+      lastSeen: new Date(NOW - 20 * HOUR).toISOString(),
+    },
+  ];
   const items = applyInterestOps(existing, { add: [{ topic: 'chess', note: '' }] }, opts());
   assert.equal(items.length, 1);
   assert.equal(items[0].note, 'plays weekly', 'an empty incoming note never erases the stored one');
@@ -132,7 +154,15 @@ test('applyInterestOps: add of an existing topic keeps the note when the incomin
 });
 
 test('applyInterestOps: add of an existing topic replaces the note when the incoming one is non-empty, regardless of the gap', () => {
-  const existing = [{ topic: 'Chess', note: 'plays weekly', weight: 2, firstSeen: 'a', lastSeen: new Date(NOW - 1 * HOUR).toISOString() }];
+  const existing = [
+    {
+      topic: 'Chess',
+      note: 'plays weekly',
+      weight: 2,
+      firstSeen: 'a',
+      lastSeen: new Date(NOW - 1 * HOUR).toISOString(),
+    },
+  ];
   const items = applyInterestOps(existing, { add: [{ topic: 'Chess', note: 'joined a tournament' }] }, opts());
   assert.equal(items[0].note, 'joined a tournament');
   assert.equal(items[0].weight, 2, 'the gap was too short to bump the weight, but the note still replaces');
@@ -185,24 +215,49 @@ test('applyInterestOps: remove deletes the item matching that topic, case-insens
     { topic: 'Anime', note: '', weight: 1, firstSeen: 'a', lastSeen: 'a' },
   ];
   const items = applyInterestOps(existing, { remove: ['chess'] }, opts());
-  assert.deepEqual(items.map((i) => i.topic), ['Anime']);
+  assert.deepEqual(
+    items.map((i) => i.topic),
+    ['Anime']
+  );
 });
 
 // ---- clamping / rejection ----------------------------------------------------
 
 test('applyInterestOps: topic is a hard identity clamp; note is clamped tolerantly (both hard-cut here, a single long word)', () => {
-  const items = applyInterestOps([], { add: [{ topic: 'x'.repeat(60), note: 'y'.repeat(200) }] }, opts({ topicChars: 5, noteChars: 8, clampTolerance: 1.25 }));
+  const items = applyInterestOps(
+    [],
+    { add: [{ topic: 'x'.repeat(60), note: 'y'.repeat(200) }] },
+    opts({ topicChars: 5, noteChars: 8, clampTolerance: 1.25 })
+  );
   assert.equal(items[0].topic.length, 5, 'identity fields never exceed their limit, tolerance or not');
   assert.equal(items[0].note.length, 10, '8 * the tolerance 1.25');
 });
 
 test('applyInterestOps: an item with an empty topic (or whitespace-only) is rejected', () => {
-  const items = applyInterestOps([], { add: [{ topic: '   ', note: 'orphan note' }, { topic: '', note: 'x' }] }, opts());
+  const items = applyInterestOps(
+    [],
+    {
+      add: [
+        { topic: '   ', note: 'orphan note' },
+        { topic: '', note: 'x' },
+      ],
+    },
+    opts()
+  );
   assert.deepEqual(items, []);
 });
 
 test('applyInterestOps: a non-string topic/note is rejected/ignored gracefully', () => {
-  const items = applyInterestOps([], { add: [{ topic: 42, note: {} }, { topic: 'OK', note: 7 }] }, opts());
+  const items = applyInterestOps(
+    [],
+    {
+      add: [
+        { topic: 42, note: {} },
+        { topic: 'OK', note: 7 },
+      ],
+    },
+    opts()
+  );
   assert.equal(items.length, 1);
   assert.equal(items[0].topic, 'OK');
   assert.equal(items[0].note, '');
@@ -226,7 +281,11 @@ test('applyInterestOps: among equal weights, evicts the oldest lastSeen first', 
     ['b', 3, '2026-01-05T00:00:00.000Z'],
     ['c', 3, '2026-01-03T00:00:00.000Z'],
   ]);
-  const items = applyInterestOps(existing, {}, opts({ maxInterests: 2, seenAt: Date.parse('2026-01-05T00:00:00.000Z') }));
+  const items = applyInterestOps(
+    existing,
+    {},
+    opts({ maxInterests: 2, seenAt: Date.parse('2026-01-05T00:00:00.000Z') })
+  );
   assert.deepEqual(items.map((i) => i.topic).sort(), ['b', 'c']);
 });
 
@@ -254,7 +313,11 @@ test('applyInterestOps: the storage cap is max(maxInterestsStored, maxInterests)
   ];
   for (const [label, caps, expected] of rows) {
     const items = applyInterestOps(existing, {}, opts(caps));
-    assert.deepEqual(items.map((i) => i.topic), expected, label);
+    assert.deepEqual(
+      items.map((i) => i.topic),
+      expected,
+      label
+    );
   }
 });
 
@@ -268,9 +331,13 @@ test('applyInterestOps: with halfLifeDays, eviction drops the lowest RANK, not t
   const items = applyInterestOps(
     existing,
     { add: [{ topic: 'New game', note: '' }] },
-    opts({ maxInterests: 3, seenAt: Date.parse('2026-09-20T00:00:00.000Z'), halfLifeDays: 180 }),
+    opts({ maxInterests: 3, seenAt: Date.parse('2026-09-20T00:00:00.000Z'), halfLifeDays: 180 })
   );
-  assert.deepEqual(items.map((i) => i.topic).sort(), ['New game', 'b', 'c'], 'the ancient heavy item sinks below the recent ones and is evicted');
+  assert.deepEqual(
+    items.map((i) => i.topic).sort(),
+    ['New game', 'b', 'c'],
+    'the ancient heavy item sinks below the recent ones and is evicted'
+  );
 });
 
 test('applyInterestOps: a newcomer survives in the unseen (stored-but-not-shown) tail instead of being evicted the moment it arrives', () => {
@@ -283,7 +350,12 @@ test('applyInterestOps: a newcomer survives in the unseen (stored-but-not-shown)
   const items = applyInterestOps(
     twelveOld,
     { add: [{ topic: 'Brand new game', note: '' }] },
-    opts({ maxInterests: 12, maxInterestsStored: 40, seenAt: Date.parse('2026-09-20T00:00:00.000Z'), halfLifeDays: 180 }),
+    opts({
+      maxInterests: 12,
+      maxInterestsStored: 40,
+      seenAt: Date.parse('2026-09-20T00:00:00.000Z'),
+      halfLifeDays: 180,
+    })
   );
   assert.equal(items.length, 13, 'nothing is evicted: the storage cap (40) is far from full');
   const newcomer = items.find((i) => i.topic === 'Brand new game');
@@ -298,9 +370,21 @@ test('applyInterestOps: repeated sightings let a stored-but-unseen item gather w
   const day2 = Date.parse('2026-09-06T00:00:00.000Z'); // past the 12h confirm gap
   const day3 = Date.parse('2026-09-11T00:00:00.000Z');
 
-  let items = applyInterestOps(twelveOld, { add: [{ topic: 'Brand new game', note: '' }] }, opts({ maxInterests: 12, maxInterestsStored: 40, seenAt: day1, halfLifeDays: 180 }));
-  items = applyInterestOps(items, { seen: ['Brand new game'] }, opts({ maxInterests: 12, maxInterestsStored: 40, seenAt: day2, halfLifeDays: 180 }));
-  items = applyInterestOps(items, { seen: ['Brand new game'] }, opts({ maxInterests: 12, maxInterestsStored: 40, seenAt: day3, halfLifeDays: 180 }));
+  let items = applyInterestOps(
+    twelveOld,
+    { add: [{ topic: 'Brand new game', note: '' }] },
+    opts({ maxInterests: 12, maxInterestsStored: 40, seenAt: day1, halfLifeDays: 180 })
+  );
+  items = applyInterestOps(
+    items,
+    { seen: ['Brand new game'] },
+    opts({ maxInterests: 12, maxInterestsStored: 40, seenAt: day2, halfLifeDays: 180 })
+  );
+  items = applyInterestOps(
+    items,
+    { seen: ['Brand new game'] },
+    opts({ maxInterests: 12, maxInterestsStored: 40, seenAt: day3, halfLifeDays: 180 })
+  );
 
   const newcomer = items.find((i) => i.topic === 'Brand new game');
   assert.equal(newcomer.weight, 3, 'confirmed after enough well-spaced sightings');
@@ -308,12 +392,15 @@ test('applyInterestOps: repeated sightings let a stored-but-unseen item gather w
   const shown = topByRank(items, 12, 180);
   assert.ok(
     shown.includes(newcomer),
-    'a frequently and recently confirmed newcomer outranks the five-year-old heavy items and makes the shown top 12',
+    'a frequently and recently confirmed newcomer outranks the five-year-old heavy items and makes the shown top 12'
   );
 });
 
 test('applyInterestOps: no cap when maxInterests is not an integer', () => {
-  const existing = stored([['a', 1, 'x'], ['b', 1, 'y']]);
+  const existing = stored([
+    ['a', 1, 'x'],
+    ['b', 1, 'y'],
+  ]);
   const items = applyInterestOps(existing, {}, { topicChars: 40, noteChars: 120, seenAt: NOW });
   assert.equal(items.length, 2);
 });
@@ -322,12 +409,7 @@ test('applyInterestOps: no cap when maxInterests is not an integer', () => {
 
 test('applyInterestOps: garbage ops (null, a string, an array, wrong-shaped add/update/seen/remove) never throw and change nothing', () => {
   const existing = stored([['a', 1, 'x']]);
-  for (const garbage of [
-    null,
-    'not an object',
-    { add: 'nope' },
-    { add: [null, 42, 'x'] },
-  ]) {
+  for (const garbage of [null, 'not an object', { add: 'nope' }, { add: [null, 42, 'x'] }]) {
     const items = applyInterestOps(existing, garbage, opts());
     assert.equal(items.length, 1, `garbage ${JSON.stringify(garbage)} must not throw or add anything`);
   }
@@ -406,7 +488,11 @@ test('normalizeInterests: null/undefined/number/string/object all yield []', () 
 
 test('stripTrailingParenthetical: strips one trailing parenthetical, trimmed; text with no parenthesis is untouched', () => {
   const rows = [
-    ['one trailing parenthetical is stripped', 'anime (bleak/hopeless)', { topic: 'anime', qualifier: 'bleak/hopeless' }],
+    [
+      'one trailing parenthetical is stripped',
+      'anime (bleak/hopeless)',
+      { topic: 'anime', qualifier: 'bleak/hopeless' },
+    ],
     ['both parts are trimmed', '  anime   ( bleak )  ', { topic: 'anime', qualifier: 'bleak' }],
     ['text with no parenthesis at all is untouched', 'anime', { topic: 'anime', qualifier: '' }],
   ];
@@ -444,7 +530,11 @@ test('applyInterestOps: add strips a trailing parenthetical off the topic, movin
 });
 
 test('applyInterestOps: add does not overwrite a non-empty incoming note with the stripped qualifier', () => {
-  const items = applyInterestOps([], { add: [{ topic: 'anime (bleak/hopeless)', note: 'watches subbed only' }] }, opts());
+  const items = applyInterestOps(
+    [],
+    { add: [{ topic: 'anime (bleak/hopeless)', note: 'watches subbed only' }] },
+    opts()
+  );
   assert.equal(items[0].topic, 'anime');
   assert.equal(items[0].note, 'watches subbed only');
 });
@@ -468,7 +558,11 @@ test('applyInterestOps: the stripped qualifier fills the note only when the stor
 
 test('applyInterestOps: a genuinely non-empty incoming note still replaces the stored one, qualifier or not', () => {
   const existing = [{ topic: 'anime', note: 'watches a lot', weight: 1, firstSeen: 'a', lastSeen: null }];
-  const items = applyInterestOps(existing, { add: [{ topic: 'anime (bleak/hopeless)', note: 'now watches only dark shows' }] }, opts());
+  const items = applyInterestOps(
+    existing,
+    { add: [{ topic: 'anime (bleak/hopeless)', note: 'now watches only dark shows' }] },
+    opts()
+  );
   assert.equal(items[0].note, 'now watches only dark shows');
 });
 
@@ -485,11 +579,16 @@ test('applyInterestOps: remove matches by the stripped plain topic', () => {
     { topic: 'Chess', note: '', weight: 1, firstSeen: 'a', lastSeen: 'a' },
   ];
   const items = applyInterestOps(existing, { remove: ['anime (bleak/hopeless)'] }, opts());
-  assert.deepEqual(items.map((i) => i.topic), ['Chess']);
+  assert.deepEqual(
+    items.map((i) => i.topic),
+    ['Chess']
+  );
 });
 
 test('applyInterestOps: a stored topic that still carries the qualifier is rewritten to plain when a matching op arrives, and sighted as the same item', () => {
-  const existing = [{ topic: 'Anime (bleak/hopeless)', note: 'watches subbed', weight: 1, firstSeen: 'a', lastSeen: null }];
+  const existing = [
+    { topic: 'Anime (bleak/hopeless)', note: 'watches subbed', weight: 1, firstSeen: 'a', lastSeen: null },
+  ];
   const items = applyInterestOps(existing, { seen: ['anime'] }, opts());
   assert.equal(items.length, 1, 'still one item, not two');
   assert.equal(items[0].topic, 'Anime', 'rewritten to the plain form');
@@ -500,15 +599,34 @@ test('applyInterestOps: a stored topic that still carries the qualifier is rewri
 test('applyInterestOps: an untargeted stored topic still carrying a parenthetical is left as stored', () => {
   const existing = [{ topic: 'Anime (bleak/hopeless)', note: '', weight: 1, firstSeen: 'a', lastSeen: null }];
   const items = applyInterestOps(existing, { add: [{ topic: 'Chess', note: '' }] }, opts());
-  assert.ok(items.some((i) => i.topic === 'Anime (bleak/hopeless)'), 'no op targeted it, so it is left alone');
+  assert.ok(
+    items.some((i) => i.topic === 'Anime (bleak/hopeless)'),
+    'no op targeted it, so it is left alone'
+  );
 });
 
 test('applyInterestOps: two stored variants (plain + parenthetical) collapse into one when an op targets the plain form', () => {
   const existing = [
-    { topic: 'Anime', note: '', weight: 3, firstSeen: '2025-01-01T00:00:00.000Z', lastSeen: '2025-06-01T00:00:00.000Z' },
-    { topic: 'Anime (bleak/hopeless)', note: 'likes dark stories', weight: 5, firstSeen: '2024-01-01T00:00:00.000Z', lastSeen: '2025-08-01T00:00:00.000Z' },
+    {
+      topic: 'Anime',
+      note: '',
+      weight: 3,
+      firstSeen: '2025-01-01T00:00:00.000Z',
+      lastSeen: '2025-06-01T00:00:00.000Z',
+    },
+    {
+      topic: 'Anime (bleak/hopeless)',
+      note: 'likes dark stories',
+      weight: 5,
+      firstSeen: '2024-01-01T00:00:00.000Z',
+      lastSeen: '2025-08-01T00:00:00.000Z',
+    },
   ];
-  const items = applyInterestOps(existing, { seen: ['anime'] }, opts({ seenAt: Date.parse('2026-01-01T00:00:00.000Z') }));
+  const items = applyInterestOps(
+    existing,
+    { seen: ['anime'] },
+    opts({ seenAt: Date.parse('2026-01-01T00:00:00.000Z') })
+  );
   assert.equal(items.length, 1, 'the two variants collapse into one');
   assert.equal(items[0].topic, 'Anime');
   assert.equal(items[0].weight, 6, 'the heavier stored weight (5), bumped once by this sighting');
@@ -544,33 +662,82 @@ test('applyInterestOps: collapsing falls back to the other note when the heavier
     { topic: 'anime (x)', note: '', weight: 5, firstSeen: 'a', lastSeen: '2025-06-01T00:00:00.000Z' },
   ];
   const items = applyInterestOps(existing, { seen: ['anime'] }, opts());
-  assert.equal(items[0].note, 'the only note here', 'the heavier variant had no note, so the lighter one\'s note is kept');
+  assert.equal(
+    items[0].note,
+    'the only note here',
+    "the heavier variant had no note, so the lighter one's note is kept"
+  );
 });
 
 test('interests: eviction returns the dropped items with their itemId', () => {
-  const old = { topic: 'σκάκι', note: '', weight: 1, firstSeen: '2025-01-01T00:00:00.000Z', lastSeen: '2025-01-01T00:00:00.000Z', itemId: 'in-old' };
-  const kept = { topic: 'café', note: '', weight: 4, firstSeen: '2026-09-20T00:00:00.000Z', lastSeen: '2026-09-20T00:00:00.000Z', itemId: 'in-kept' };
-  const gone = { topic: 'ζωγραφική', note: '', weight: 2, firstSeen: '2026-09-19T00:00:00.000Z', lastSeen: '2026-09-19T00:00:00.000Z', itemId: 'in-gone' };
+  const old = {
+    topic: 'σκάκι',
+    note: '',
+    weight: 1,
+    firstSeen: '2025-01-01T00:00:00.000Z',
+    lastSeen: '2025-01-01T00:00:00.000Z',
+    itemId: 'in-old',
+  };
+  const kept = {
+    topic: 'café',
+    note: '',
+    weight: 4,
+    firstSeen: '2026-09-20T00:00:00.000Z',
+    lastSeen: '2026-09-20T00:00:00.000Z',
+    itemId: 'in-kept',
+  };
+  const gone = {
+    topic: 'ζωγραφική',
+    note: '',
+    weight: 2,
+    firstSeen: '2026-09-19T00:00:00.000Z',
+    lastSeen: '2026-09-19T00:00:00.000Z',
+    itemId: 'in-gone',
+  };
 
   const { kept: survivors, dropped } = evictToCapacity([old, kept], 1, 30);
   assert.deepEqual(survivors, [kept]);
   assert.deepEqual(dropped, [old]);
   assert.deepEqual(evictToCapacity([old, kept], 5, 30), { kept: [old, kept], dropped: [] });
 
-  const result = applyInterestOps([old, kept, gone], { remove: ['ζωγραφική'] }, opts({ maxInterests: 1, halfLifeDays: 30 }));
+  const result = applyInterestOps(
+    [old, kept, gone],
+    { remove: ['ζωγραφική'] },
+    opts({ maxInterests: 1, halfLifeDays: 30 })
+  );
   assert.deepEqual(result, [kept], 'the return is still the plain list');
-  assert.deepEqual(result.dropped.map((item) => item.itemId), ['in-gone', 'in-old'], 'removed first, then evicted');
+  assert.deepEqual(
+    result.dropped.map((item) => item.itemId),
+    ['in-gone', 'in-old'],
+    'removed first, then evicted'
+  );
   assert.deepEqual(Object.keys(result), ['0'], 'dropped is not an enumerable field of the list');
 });
 
 // ---- validity: supersedes / validFrom / conflict ------------------------------
 
 test('interests: a supersedes op closes the old claim with validTo and supersededBy and keeps it in closed', () => {
-  const old = { topic: 'σκάκι', note: 'παίζει', weight: 2, firstSeen: '2026-09-01T10:00:00.000Z', lastSeen: '2026-09-10T10:00:00.000Z', itemId: 'in-old', validFrom: '2026-09-01' };
+  const old = {
+    topic: 'σκάκι',
+    note: 'παίζει',
+    weight: 2,
+    firstSeen: '2026-09-01T10:00:00.000Z',
+    lastSeen: '2026-09-10T10:00:00.000Z',
+    itemId: 'in-old',
+    validFrom: '2026-09-01',
+  };
   let n = 0;
   const mintId = () => `in-new${++n}`;
-  const items = applyInterestOps([old], { add: [{ topic: 'πόκερ', note: 'παίζει', supersedes: 'in-old', validFrom: '2026-09-20' }] }, { seenAt: NOW, mintId });
-  assert.deepEqual(items.map((item) => item.topic), ['πόκερ'], 'the closed claim leaves the ranked list');
+  const items = applyInterestOps(
+    [old],
+    { add: [{ topic: 'πόκερ', note: 'παίζει', supersedes: 'in-old', validFrom: '2026-09-20' }] },
+    { seenAt: NOW, mintId }
+  );
+  assert.deepEqual(
+    items.map((item) => item.topic),
+    ['πόκερ'],
+    'the closed claim leaves the ranked list'
+  );
   assert.equal(items[0].itemId, 'in-new1');
   assert.equal(items[0].validFrom, '2026-09-20');
   assert.equal(items[0].recordedAt, new Date(NOW).toISOString());
@@ -578,7 +745,11 @@ test('interests: a supersedes op closes the old claim with validTo and supersede
   assert.deepEqual(items.dropped, [], 'closing is not losing');
 
   // Without validFrom the old claim closes on the batch day; a supersedes by topic works too.
-  const byTopic = applyInterestOps([old], { update: [{ topic: 'πόκερ', note: '', supersedes: 'Σκάκι' }] }, { seenAt: NOW, mintId });
+  const byTopic = applyInterestOps(
+    [old],
+    { update: [{ topic: 'πόκερ', note: '', supersedes: 'Σκάκι' }] },
+    { seenAt: NOW, mintId }
+  );
   assert.equal(byTopic.closed[0].validTo, '2026-09-21');
   assert.equal(byTopic.closed[0].supersededBy, byTopic[0].itemId);
 
@@ -589,13 +760,39 @@ test('interests: a supersedes op closes the old claim with validTo and supersede
   assert.equal(removed.dropped.length, 1);
 
   // Validity fields survive normalisation; an old item loads unchanged.
-  const stored = { ...old, recordedAt: '2026-09-01T10:00:00.000Z', validTo: null, supersededBy: null, conflictSetId: 'in-x' };
-  assert.deepEqual(normalizeInterests([stored, { topic: 'go', note: '', weight: 1, firstSeen: null, lastSeen: null }]), [stored, { topic: 'go', note: '', weight: 1, firstSeen: null, lastSeen: null }]);
+  const stored = {
+    ...old,
+    recordedAt: '2026-09-01T10:00:00.000Z',
+    validTo: null,
+    supersededBy: null,
+    conflictSetId: 'in-x',
+  };
+  assert.deepEqual(
+    normalizeInterests([stored, { topic: 'go', note: '', weight: 1, firstSeen: null, lastSeen: null }]),
+    [stored, { topic: 'go', note: '', weight: 1, firstSeen: null, lastSeen: null }]
+  );
 });
 
 test('interests: a conflict op marks the named open claim and the new one with one conflictSetId', () => {
-  const old = { topic: 'σκάκι', note: 'μισεί', weight: 1, firstSeen: '2026-09-01T10:00:00.000Z', lastSeen: '2026-09-01T10:00:00.000Z', itemId: 'in-old' };
-  const items = applyInterestOps([old], { add: [{ topic: 'σκάκι online', note: 'λατρεύει', conflict: 'in-old' }] }, { seenAt: NOW, mintId: () => 'in-new' });
-  assert.deepEqual(items.map((item) => [item.topic, item.conflictSetId]), [['σκάκι', 'in-old'], ['σκάκι online', 'in-old']]);
+  const old = {
+    topic: 'σκάκι',
+    note: 'μισεί',
+    weight: 1,
+    firstSeen: '2026-09-01T10:00:00.000Z',
+    lastSeen: '2026-09-01T10:00:00.000Z',
+    itemId: 'in-old',
+  };
+  const items = applyInterestOps(
+    [old],
+    { add: [{ topic: 'σκάκι online', note: 'λατρεύει', conflict: 'in-old' }] },
+    { seenAt: NOW, mintId: () => 'in-new' }
+  );
+  assert.deepEqual(
+    items.map((item) => [item.topic, item.conflictSetId]),
+    [
+      ['σκάκι', 'in-old'],
+      ['σκάκι online', 'in-old'],
+    ]
+  );
   assert.deepEqual(items.closed, []);
 });

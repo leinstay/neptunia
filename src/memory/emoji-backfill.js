@@ -110,9 +110,19 @@ export function createEmojiBackfill({ hot, store, client, discord, log = default
       const guild = client.guilds.cache.get(guildId);
       if (!guild) return skipped('no-guild');
 
-      const history = await readMemberHistory(guild, limit, { config: hot.config, discord, selfId: client.user?.id, log, prefix: 'emoji-backfill' });
+      const history = await readMemberHistory(guild, limit, {
+        config: hot.config,
+        discord,
+        selfId: client.user?.id,
+        log,
+        prefix: 'emoji-backfill',
+      });
       const channels = history.channels;
-      const collected = history.messages.map((message) => ({ id: message.id, ts: message.ts, emojis: message.emojis ?? [] }));
+      const collected = history.messages.map((message) => ({
+        id: message.id,
+        ts: message.ts,
+        emojis: message.emojis ?? [],
+      }));
 
       if (store.state?.data?.paused) return skipped('paused');
       const members = [...collected].sort((a, b) => a.ts - b.ts);

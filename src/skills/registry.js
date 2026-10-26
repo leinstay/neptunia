@@ -46,12 +46,16 @@ export function loadSkills(definitions = [], { getOp = registryGetOp } = {}) {
     const { name, op } = definition ?? {};
     if (typeof name !== 'string' || !name) throw new Error('a skill needs a name');
     if (skills.has(name)) throw new Error(`skill defined twice: ${name}`);
-    if (!EFFECTS.includes(definition.effects)) throw new Error(`skill ${name}: effects must be one of ${EFFECTS.join(', ')}`);
+    if (!EFFECTS.includes(definition.effects))
+      throw new Error(`skill ${name}: effects must be one of ${EFFECTS.join(', ')}`);
     if (!COST_CLASSES.includes(definition.costClass)) throw new Error(`skill ${name}: costClass must be free or paid`);
-    if (!TARGETS.includes(definition.targets ?? null)) throw new Error(`skill ${name}: targets must be one of ${TARGETS.filter(Boolean).join(', ')} or null`);
-    if (!definition.argsSchema || typeof definition.argsSchema !== 'object') throw new Error(`skill ${name}: argsSchema is required`);
+    if (!TARGETS.includes(definition.targets ?? null))
+      throw new Error(`skill ${name}: targets must be one of ${TARGETS.filter(Boolean).join(', ')} or null`);
+    if (!definition.argsSchema || typeof definition.argsSchema !== 'object')
+      throw new Error(`skill ${name}: argsSchema is required`);
     const dispatch = definition.dispatch ?? null;
-    if (dispatch !== null && (typeof dispatch.op !== 'string' || typeof dispatch.toOp !== 'function')) throw new Error(`skill ${name}: dispatch needs an op and toOp`);
+    if (dispatch !== null && (typeof dispatch.op !== 'string' || typeof dispatch.toOp !== 'function'))
+      throw new Error(`skill ${name}: dispatch needs an op and toOp`);
 
     // An operation's skill inherits both, an owner-only operation included: who may run it is the
     // requester's right (the gateway). Without an operation the kind follows the effects.
@@ -63,23 +67,26 @@ export function loadSkills(definitions = [], { getOp = registryGetOp } = {}) {
       kind = operation.rights.kind;
       ownerOnly = operation.rights?.ownerOnly === true;
     }
-    skills.set(name, Object.freeze({
+    skills.set(
       name,
-      family: String(definition.family ?? name.split('.')[0]),
-      op: op ?? null,
-      kind,
-      ownerOnly,
-      argsSchema: definition.argsSchema,
-      effects: definition.effects,
-      sharedState: definition.sharedState === true,
-      costClass: definition.costClass,
-      targets: definition.targets ?? null,
-      interfaceCapability: definition.interfaceCapability ?? null,
-      ...(definition.api !== undefined ? { api: definition.api } : {}),
-      ...(definition.feature !== undefined ? { feature: definition.feature } : {}),
-      ...(definition.result !== undefined ? { result: definition.result } : {}),
-      ...(dispatch ? { opBacked: true, dispatch } : {}),
-    }));
+      Object.freeze({
+        name,
+        family: String(definition.family ?? name.split('.')[0]),
+        op: op ?? null,
+        kind,
+        ownerOnly,
+        argsSchema: definition.argsSchema,
+        effects: definition.effects,
+        sharedState: definition.sharedState === true,
+        costClass: definition.costClass,
+        targets: definition.targets ?? null,
+        interfaceCapability: definition.interfaceCapability ?? null,
+        ...(definition.api !== undefined ? { api: definition.api } : {}),
+        ...(definition.feature !== undefined ? { feature: definition.feature } : {}),
+        ...(definition.result !== undefined ? { result: definition.result } : {}),
+        ...(dispatch ? { opBacked: true, dispatch } : {}),
+      })
+    );
   }
   return skills;
 }
@@ -202,5 +209,9 @@ export function skillArgTexts(skill, texts) {
   const args = texts && typeof texts === 'object' ? texts[skill?.name]?.args : undefined;
   if (!args || typeof args !== 'object') return {};
   const properties = skill?.argsSchema?.properties ?? {};
-  return Object.fromEntries(Object.entries(args).filter(([key, value]) => Object.hasOwn(properties, key) && typeof value === 'string' && value !== ''));
+  return Object.fromEntries(
+    Object.entries(args).filter(
+      ([key, value]) => Object.hasOwn(properties, key) && typeof value === 'string' && value !== ''
+    )
+  );
 }

@@ -56,7 +56,12 @@ async function scene() {
 /** The lines the database holds for the record unit `rel` (a day of a month). */
 function unitLines(memoryDb, rel) {
   const text = unitFile(memoryDb, rel);
-  return text ? text.split('\n').filter(Boolean).map((line) => JSON.parse(line)) : [];
+  return text
+    ? text
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line))
+    : [];
 }
 
 async function collect(iterable) {
@@ -80,7 +85,7 @@ test('record: toRecordLine keeps only the whitelisted fields and lists participa
       avatarUrl: 'https://x/avatar.png',
       presence: 'online',
     }),
-    { now: () => NOW, uuid: () => 'u-1' },
+    { now: () => NOW, uuid: () => 'u-1' }
   );
   assert.deepEqual(line, {
     v: 1,
@@ -104,30 +109,53 @@ test('record: toRecordLine keeps only the whitelisted fields and lists participa
   });
   assert.equal(JSON.stringify(line).includes('https://'), false, 'no URL survives');
 
-  const said = toRecordLine(slim({ authorId: 'self1', mentionedUserIds: ['u2'], replyToId: 'm0', replyToAuthorId: 'u3' }), {
-    kind: 'said',
-    turnId: 't-1',
-    opId: 'op-1',
-    now: () => NOW,
-    uuid: () => 'u-2',
-  });
+  const said = toRecordLine(
+    slim({ authorId: 'self1', mentionedUserIds: ['u2'], replyToId: 'm0', replyToAuthorId: 'u3' }),
+    {
+      kind: 'said',
+      turnId: 't-1',
+      opId: 'op-1',
+      now: () => NOW,
+      uuid: () => 'u-2',
+    }
+  );
   assert.equal(said.kind, 'said');
   assert.equal('by' in said, false, 'her own line names no author');
   assert.deepEqual(said.participants, ['u2', 'u3']);
   assert.equal(said.turnId, 't-1');
   assert.equal(said.opId, 'op-1');
 
-  const deleted = toRecordLine({ id: 'm1', channelId: 'c1', authorId: 'u1', ts: T2 }, { kind: 'deleted', now: () => NOW, uuid: () => 'u-3' });
+  const deleted = toRecordLine(
+    { id: 'm1', channelId: 'c1', authorId: 'u1', ts: T2 },
+    { kind: 'deleted', now: () => NOW, uuid: () => 'u-3' }
+  );
   assert.deepEqual(
     Object.keys(deleted).sort(),
-    ['guildId', 'id', 'kind', 'messageId', 'occurredAt', 'origin', 'participants', 'recordedAt', 'scope', 'sourceMessageIds', 'v'].sort(),
+    [
+      'guildId',
+      'id',
+      'kind',
+      'messageId',
+      'occurredAt',
+      'origin',
+      'participants',
+      'recordedAt',
+      'scope',
+      'sourceMessageIds',
+      'v',
+    ].sort()
   );
   assert.deepEqual(deleted.participants, ['u1']);
 });
 
 test('record: a message with link embeds keeps a compact links field (url, title, description, site)', () => {
   const embeds = [
-    { url: 'https://video.example/watch?v=1', title: 'Course de montagne épique', description: 'Δύο παίκτες τρέχουν. '.repeat(30), provider: { name: 'VideoSite' } },
+    {
+      url: 'https://video.example/watch?v=1',
+      title: 'Course de montagne épique',
+      description: 'Δύο παίκτες τρέχουν. '.repeat(30),
+      provider: { name: 'VideoSite' },
+    },
     { url: 'https://media.example/cat.gif', title: 'Gato', provider: { name: 'Tenor' } },
     { url: 'https://news.example/a', title: '', description: '' },
     { url: 'https://news.example/b', title: 'Deuxième', description: 'texte' },
@@ -146,7 +174,11 @@ test('record: a message with link embeds keeps a compact links field (url, title
   };
   const line = toRecordLine(slimMessage(normalizeMessage(message, 'self1')), { now: () => NOW, uuid: () => 'u-1' });
   assert.equal(line.links.length, RECORD_LINKS_MAX, 'at most three links');
-  assert.deepEqual(line.links.map((l) => l.title), ['Course de montagne épique', 'Deuxième', 'Troisième'], 'a GIF and an embed with nothing to say are skipped');
+  assert.deepEqual(
+    line.links.map((l) => l.title),
+    ['Course de montagne épique', 'Deuxième', 'Troisième'],
+    'a GIF and an embed with nothing to say are skipped'
+  );
   const [first] = line.links;
   assert.equal(first.url, 'https://video.example/watch?v=1');
   assert.equal(first.site, 'VideoSite');
@@ -157,12 +189,19 @@ test('record: a message with link embeds keeps a compact links field (url, title
 
   const plain = toRecordLine(slim(), { now: () => NOW, uuid: () => 'u-2' });
   assert.equal('links' in plain, false, 'a message without link embeds has no links field');
-  assert.deepEqual(recordLinks([{ kind: 'link', title: 42, text: null, url: 'https://x.example' }]), [], 'nothing readable, nothing kept');
+  assert.deepEqual(
+    recordLinks([{ kind: 'link', title: 42, text: null, url: 'https://x.example' }]),
+    [],
+    'nothing readable, nothing kept'
+  );
 });
 
 test('record: append writes to the day of occurredAt under the month directory and refuses a duplicate messageId+revision', async () => {
   const { dataDir, record, memoryDb, done } = await scene();
-  const first = await record.append('g1', [toRecordLine(slim({ id: 'm1', ts: T1 })), toRecordLine(slim({ id: 'm2', ts: T2 }))]);
+  const first = await record.append('g1', [
+    toRecordLine(slim({ id: 'm1', ts: T1 })),
+    toRecordLine(slim({ id: 'm2', ts: T2 })),
+  ]);
   assert.deepEqual(first, { written: 2, duplicates: 0 });
   const again = await record.append('g1', [toRecordLine(slim({ id: 'm1', ts: T1 }))]);
   assert.deepEqual(again, { written: 0, duplicates: 1 });
@@ -174,12 +213,18 @@ test('record: append writes to the day of occurredAt under the month directory a
   assert.equal(day1.length, 1);
   assert.equal(day1[0].messageId, 'm1');
   assert.equal(day1[0].guildId, 'g1', 'the guild is stamped on append');
-  assert.deepEqual(unitLines(memoryDb, 'guilds/g1/record/2026-10/2026-10-12.jsonl').map((l) => l.messageId), ['m2']);
+  assert.deepEqual(
+    unitLines(memoryDb, 'guilds/g1/record/2026-10/2026-10-12.jsonl').map((l) => l.messageId),
+    ['m2']
+  );
   assert.equal(fs.existsSync(file1), false, 'no record file');
 
   // A fresh instance reads the database and still refuses the duplicate.
   const reopened = createRecord({ dataDir, log: quiet, now: () => NOW, memoryDb });
-  assert.deepEqual(await reopened.append('g1', [toRecordLine(slim({ id: 'm2', ts: T2 }))]), { written: 0, duplicates: 1 });
+  assert.deepEqual(await reopened.append('g1', [toRecordLine(slim({ id: 'm2', ts: T2 }))]), {
+    written: 0,
+    duplicates: 1,
+  });
   await done();
 });
 
@@ -189,7 +234,13 @@ test('record: an edit is a new line with revision 2', async () => {
   const edit = await record.append('g1', [toRecordLine(slim({ content: 'second' }), { revision: 2 })]);
   assert.deepEqual(edit, { written: 1, duplicates: 0 });
   const lines = await collect(record.iterate('g1', OCTOBER));
-  assert.deepEqual(lines.map((l) => [l.messageId, l.revision, l.text]), [['m1', 1, 'first'], ['m1', 2, 'second']]);
+  assert.deepEqual(
+    lines.map((l) => [l.messageId, l.revision, l.text]),
+    [
+      ['m1', 1, 'first'],
+      ['m1', 2, 'second'],
+    ]
+  );
   assert.equal(unitLines(memoryDb, 'guilds/g1/record/2026-10/2026-10-11.jsonl').length, 2);
   await done();
 });
@@ -201,14 +252,21 @@ test('record: iterate filters by time and channel', async () => {
     toRecordLine(slim({ id: 'm2', ts: T2, channelId: 'c2' })),
     toRecordLine(slim({ id: 'm3', ts: T2 + 1000, channelId: 'c1' })),
   ]);
-  const lines = await collect(record.iterate('g1', { from: new Date(T2).toISOString(), to: new Date(NOW).toISOString(), channelIds: ['c1'] }));
-  assert.deepEqual(lines.map((l) => l.messageId), ['m3']);
+  const lines = await collect(
+    record.iterate('g1', { from: new Date(T2).toISOString(), to: new Date(NOW).toISOString(), channelIds: ['c1'] })
+  );
+  assert.deepEqual(
+    lines.map((l) => l.messageId),
+    ['m3']
+  );
   await done();
 });
 
 test('record: a private line never lands in the guild directory', async () => {
   const { dataDir, record, memoryDb, done } = await scene();
-  const result = await record.append('g1', [toRecordLine(slim({ id: 'd1', channelId: 'dm1' }))], { privateUserId: 'u1' });
+  const result = await record.append('g1', [toRecordLine(slim({ id: 'd1', channelId: 'dm1' }))], {
+    privateUserId: 'u1',
+  });
   assert.deepEqual(result, { written: 1, duplicates: 0 });
   const privateFile = path.join(dataDir, 'guilds', 'g1', 'private', 'u1', 'record', '2026-10', '2026-10-11.jsonl');
   assert.equal(record.dayFile('g1', new Date(T1).toISOString(), 'u1'), privateFile);
@@ -216,7 +274,10 @@ test('record: a private line never lands in the guild directory', async () => {
   assert.equal(line.messageId, 'd1');
   assert.deepEqual(line.scope, { user: 'u1', private: true, channel: 'dm1' });
   assert.equal(unitFile(memoryDb, 'guilds/g1/record/2026-10/2026-10-11.jsonl'), null, 'nothing in the guild record');
-  assert.deepEqual((await collect(record.iterate('g1', { ...OCTOBER, privateUserId: 'u1' }))).map((l) => l.messageId), ['d1']);
+  assert.deepEqual(
+    (await collect(record.iterate('g1', { ...OCTOBER, privateUserId: 'u1' }))).map((l) => l.messageId),
+    ['d1']
+  );
   assert.deepEqual(await collect(record.iterate('g1', OCTOBER)), []);
   await done();
 });
@@ -227,22 +288,45 @@ test('record: an edit refused as a duplicate revision lands after the newest one
   const log = { info: (msg, fields) => logs.push({ msg, fields }), warn() {}, error() {} };
   await record.append('g1', [toRecordLine(slim({ content: 'first' }))]);
   // Revision 2 is written already; the bot restarts and an edit comes in.
-  await record.append('g1', [{ ...toRecordLine(slim({ content: 'first' }), { revision: 2 }), links: [{ url: 'https://example.org', title: 'Τίτλος', description: '', site: 'example.org' }] }]);
+  await record.append('g1', [
+    {
+      ...toRecordLine(slim({ content: 'first' }), { revision: 2 }),
+      links: [{ url: 'https://example.org', title: 'Τίτλος', description: '', site: 'example.org' }],
+    },
+  ]);
   const reopened = createRecord({ dataDir, log: quiet, now: () => NOW, memoryDb });
   assert.equal(await reopened.newestRevision('g1', 'm1', new Date(T1).toISOString()), 2);
   assert.equal(await reopened.newestRevision('g1', 'm9', new Date(T1).toISOString()), null);
   const edited = slim({ content: 'edited' });
-  const out = await appendRevision(reopened, 'g1', (revision) => toRecordLine(edited, { revision, now: () => NOW }), 2, { log });
+  const out = await appendRevision(
+    reopened,
+    'g1',
+    (revision) => toRecordLine(edited, { revision, now: () => NOW }),
+    2,
+    { log }
+  );
   assert.deepEqual(out, { revision: 3, written: 1, duplicates: 0, bumps: 1 });
-  assert.deepEqual(logs, [{ msg: 'record: edit revision bumped', fields: { guildId: 'g1', bumps: 1, written: 1 } }], 'counts only');
+  assert.deepEqual(
+    logs,
+    [{ msg: 'record: edit revision bumped', fields: { guildId: 'g1', bumps: 1, written: 1 } }],
+    'counts only'
+  );
   const lines = await collect(reopened.iterate('g1', OCTOBER));
-  assert.deepEqual(lines.map((l) => l.revision), [1, 2, 3]);
+  assert.deepEqual(
+    lines.map((l) => l.revision),
+    [1, 2, 3]
+  );
   const [newest] = newestRevisions(lines);
   assert.deepEqual([newest.revision, newest.text], [3, 'edited']);
 
   // A free revision is written at once, with no log.
   logs.length = 0;
-  assert.deepEqual(await appendRevision(reopened, 'g1', (revision) => toRecordLine(slim({ content: 'again' }), { revision }), 4, { log }), { revision: 4, written: 1, duplicates: 0, bumps: 0 });
+  assert.deepEqual(
+    await appendRevision(reopened, 'g1', (revision) => toRecordLine(slim({ content: 'again' }), { revision }), 4, {
+      log,
+    }),
+    { revision: 4, written: 1, duplicates: 0, bumps: 0 }
+  );
   assert.equal(logs.length, 0);
   // A record without newestRevision still moves on, one revision at a time, at most EDIT_REVISION_RETRIES.
   let calls = 0;

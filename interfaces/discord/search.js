@@ -27,7 +27,12 @@ function hitOf(message) {
     id: message.id,
     channel_id: message.channel_id,
     timestamp: message.timestamp,
-    author: { id: author.id ?? null, username: author.username ?? null, global_name: author.global_name ?? null, bot: author.bot === true },
+    author: {
+      id: author.id ?? null,
+      username: author.username ?? null,
+      global_name: author.global_name ?? null,
+      bot: author.bot === true,
+    },
     content: typeof message.content === 'string' ? message.content : '',
   };
 }
@@ -79,7 +84,12 @@ export async function searchMessages(guild, params = {}, { signal } = {}) {
     const total = Number.isFinite(body.total_results) ? body.total_results : hits.length;
     return { total, hits };
   } catch (err) {
-    log.warn('search: failed', { guildId: guild?.id ?? null, route: 'messages', status: err?.status ?? err?.statusCode ?? null, name: err?.name ?? null });
+    log.warn('search: failed', {
+      guildId: guild?.id ?? null,
+      route: 'messages',
+      status: err?.status ?? err?.statusCode ?? null,
+      name: err?.name ?? null,
+    });
     return null;
   }
 }
@@ -111,7 +121,12 @@ export async function searchMembers(guild, query, limit, { signal } = {}) {
         bot: member.user.bot === true,
       }));
   } catch (err) {
-    log.warn('search: failed', { guildId: guild?.id ?? null, route: 'members', status: err?.status ?? err?.statusCode ?? null, name: err?.name ?? null });
+    log.warn('search: failed', {
+      guildId: guild?.id ?? null,
+      route: 'members',
+      status: err?.status ?? err?.statusCode ?? null,
+      name: err?.name ?? null,
+    });
     return null;
   }
 }
@@ -125,7 +140,11 @@ async function fetchPage(channel, query, limit, { selfId, embedTextChars, videoS
       .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
       .map((message) => normalizeMessage(message, selfId, { embedTextChars, videoSites, maxUrlChars }));
   } catch (err) {
-    log.warn(failed, { channel: channel?.id ?? null, status: err?.status ?? err?.statusCode ?? null, name: err?.name ?? null });
+    log.warn(failed, {
+      channel: channel?.id ?? null,
+      status: err?.status ?? err?.statusCode ?? null,
+      name: err?.name ?? null,
+    });
     return null;
   }
 }

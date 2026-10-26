@@ -7,7 +7,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { MEMORY_PATTERNS, OPERATIONAL_PATTERNS, isMemoryPath, isOperational, pathClass } from '../src/memory/db/paths.js';
+import {
+  MEMORY_PATTERNS,
+  OPERATIONAL_PATTERNS,
+  isMemoryPath,
+  isOperational,
+  pathClass,
+} from '../src/memory/db/paths.js';
 import { MAPPERS, classify } from '../src/memory/db/map/index.js';
 import { operationalJsonPath } from '../src/memory/store.js';
 import { GUILD, MEMBER, buildDataDir } from './fixtures/memory-db/datadir.js';
@@ -70,19 +76,34 @@ const MAPPED = [
 
 /** One path of every pattern the sync skips (map/index.js SKIPPED): all operational. */
 const SKIPPED = [
-  'state.json', 'usage.json', 'metrics.json', `${G}/state.json`, `${G}/usage.json`, `${G}/metrics.json`,
-  'mentor/2026-10-20/run.json', 'recall-eval/questions.json', 'vision-compare/2026-10-20/a.json', `${G}/recall-eval/out.json`,
-  `${G}/users/${MEMBER}.json.bak`, `${G}/users/${MEMBER}.json.bak-2026`, `${G}/guild.json.bak.1`,
-  `${G}/intentions.json.unreadable-1761300000000`, `${L}/record/2026-10/2026-10-20.jsonl.bak`,
+  'state.json',
+  'usage.json',
+  'metrics.json',
+  `${G}/state.json`,
+  `${G}/usage.json`,
+  `${G}/metrics.json`,
+  'mentor/2026-10-20/run.json',
+  'recall-eval/questions.json',
+  'vision-compare/2026-10-20/a.json',
+  `${G}/recall-eval/out.json`,
+  `${G}/users/${MEMBER}.json.bak`,
+  `${G}/users/${MEMBER}.json.bak-2026`,
+  `${G}/guild.json.bak.1`,
+  `${G}/intentions.json.unreadable-1761300000000`,
+  `${L}/record/2026-10/2026-10-20.jsonl.bak`,
 ];
 
 /** The rest of the data layout (store.js and the other owners under `data/`), with its list. */
 const INVENTORY = [
-  ['memory.db', 'operational'], ['memory.db-wal', 'operational'], ['memory.db-shm', 'operational'], ['memory.db.lock', 'operational'],
+  ['memory.db', 'operational'],
+  ['memory.db-wal', 'operational'],
+  ['memory.db-shm', 'operational'],
+  ['memory.db.lock', 'operational'],
   ['memory-pending/0a1b2c3d4e5f60718293a4b5c6d7e8f901234567.json', 'operational'],
   [`vault/forget-${MEMBER}-1761300000000/users/${MEMBER}.json`, 'operational'],
   [`snapshots/2026-10-20/${G}/users/${MEMBER}.json`, 'operational'],
-  ['media/diary/d-1-1.png', 'operational'], ['media/diary/d-1-2.ogg', 'operational'],
+  ['media/diary/d-1-1.png', 'operational'],
+  ['media/diary/d-1-2.ogg', 'operational'],
   [`${G}/journal/2026-10-20.jsonl.torn-1761300000000`, 'operational'],
   [`${G}/record/2026-10/2026-10-20.jsonl.tmp`, 'operational'],
   [`${G}/users/${MEMBER}.json.4242.tmp`, 'operational'],
@@ -102,7 +123,10 @@ function filesOf(dir, rel = '', out = []) {
   return out;
 }
 
-const inLists = (rel) => [OPERATIONAL_PATTERNS.some((entry) => entry.re.test(rel)), MEMORY_PATTERNS.some((entry) => entry.re.test(rel))];
+const inLists = (rel) => [
+  OPERATIONAL_PATTERNS.some((entry) => entry.re.test(rel)),
+  MEMORY_PATTERNS.some((entry) => entry.re.test(rel)),
+];
 
 test('allowlist: every path the sync maps is in exactly one list, the one the spec puts it in', () => {
   for (const [rel, kind, expected] of MAPPED) {
@@ -145,15 +169,28 @@ test('allowlist: every file of the fixture data directory is in exactly one list
       const [operational, memory] = inLists(rel);
       assert.ok(operational !== memory, `${rel} is in exactly one list (operational ${operational}, memory ${memory})`);
     }
-    const operational = files.filter(isOperational).map((rel) => rel.replace(`${G}/`, '')).sort();
-    assert.deepEqual(operational, ['gifs.json', 'inner.json', 'journal/requests/2026-10-20/turn-1-s1.json', 'media.json', 'participation.json', 'recall-trace.jsonl', 'state.json']);
+    const operational = files
+      .filter(isOperational)
+      .map((rel) => rel.replace(`${G}/`, ''))
+      .sort();
+    assert.deepEqual(operational, [
+      'gifs.json',
+      'inner.json',
+      'journal/requests/2026-10-20/turn-1-s1.json',
+      'media.json',
+      'participation.json',
+      'recall-trace.jsonl',
+      'state.json',
+    ]);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
-test('allowlist: the store\'s operational JSON files (what /nep resume checks under db) are the allowlist\'s JSON files', () => {
-  const json = [...MAPPED.map(([rel]) => rel), ...SKIPPED, ...INVENTORY.map(([rel]) => rel)].filter((rel) => rel.endsWith('.json'));
+test("allowlist: the store's operational JSON files (what /nep resume checks under db) are the allowlist's JSON files", () => {
+  const json = [...MAPPED.map(([rel]) => rel), ...SKIPPED, ...INVENTORY.map(([rel]) => rel)].filter((rel) =>
+    rel.endsWith('.json')
+  );
   assert.ok(json.length > 30);
   // The tools' output folders are on the allowlist (never retired) but are not the process's own state.
   const toolOutput = /^(?:guilds\/[^/]+\/)?(?:mentor|recall-eval|vision-compare)\//;

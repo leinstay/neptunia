@@ -84,7 +84,19 @@ function teacherOf(from) {
 export function applyDetailOps(
   existing,
   ops,
-  { maxDetails, maxDetailsStored, fieldChars, confirmGapHours, seenAt = Date.now(), nextId, halfLifeDays, clampTolerance, mintId, now, validity: withValidity = true } = {},
+  {
+    maxDetails,
+    maxDetailsStored,
+    fieldChars,
+    confirmGapHours,
+    seenAt = Date.now(),
+    nextId,
+    halfLifeDays,
+    clampTolerance,
+    mintId,
+    now,
+    validity: withValidity = true,
+  } = {}
 ) {
   const items = Array.isArray(existing) ? existing.map((item) => ({ ...item })) : [];
   const removed = [];
@@ -119,14 +131,20 @@ export function applyDetailOps(
     const isObj = raw && typeof raw === 'object' && !Array.isArray(raw);
     if (!isObj && typeof raw !== 'string') return;
     const value = isObj ? raw.text : raw;
-    const text = clampText(typeof value === 'string' ? stripUrls(value) : value, fieldChars, { tolerance: clampTolerance });
+    const text = clampText(typeof value === 'string' ? stripUrls(value) : value, fieldChars, {
+      tolerance: clampTolerance,
+    });
     if (!text) return;
     const sure = isObj ? raw.sure !== false : true;
     const from = isObj ? teacherOf(raw.from) : undefined;
     const index = findIndex(text);
     // supersedes / validFrom / conflict ride on an object op; applied once every op is merged.
     const wantValidity = (item) => {
-      if (withValidity && isObj && (raw.supersedes !== undefined || raw.validFrom !== undefined || raw.conflict !== undefined)) {
+      if (
+        withValidity &&
+        isObj &&
+        (raw.supersedes !== undefined || raw.validFrom !== undefined || raw.conflict !== undefined)
+      ) {
         validity.push({ item, supersedes: raw.supersedes, validFrom: raw.validFrom, conflict: raw.conflict });
       }
     };
@@ -167,7 +185,8 @@ export function applyDetailOps(
     batchDay: seenAtIso.slice(0, 10),
     recordedAt,
     mintId,
-    findOther: (ref) => (typeof ref === 'number' || (typeof ref === 'string' && ref.trim()) ? items[findIndex(ref)] : undefined),
+    findOther: (ref) =>
+      typeof ref === 'number' || (typeof ref === 'string' && ref.trim()) ? items[findIndex(ref)] : undefined,
   });
 
   const cap = effectiveStorageCap(maxDetailsStored, maxDetails);

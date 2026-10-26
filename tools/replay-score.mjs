@@ -17,7 +17,8 @@ import { sheetPairIds, tallyScores } from './lib/pair.mjs';
 import { CliError, runCli } from './lib/cli.mjs';
 import { parseBlindScores, renderSearchTally, tallySearchScores } from './lib/search-compare.mjs';
 
-const USAGE = 'usage: node tools/replay-score.mjs <sheet.html> <key.json> <scores.json>\n       node tools/replay-score.mjs --search <blind.md> <blind-key.json>';
+const USAGE =
+  'usage: node tools/replay-score.mjs <sheet.html> <key.json> <scores.json>\n       node tools/replay-score.mjs --search <blind.md> <blind-key.json>';
 
 /** A JSON file's value, or a CliError naming the file. */
 function readJson(file) {

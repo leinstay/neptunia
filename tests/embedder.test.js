@@ -11,19 +11,40 @@ const GUILD = '600000000000000001';
 const ELENI = '411111111111111111';
 const NIKOS = '422222222222222222';
 const T0 = Date.UTC(2026, 9, 12, 10, 0, 0);
-const names = new Map([[ELENI, 'Ελένη'], [NIKOS, 'Nikós']]);
+const names = new Map([
+  [ELENI, 'Ελένη'],
+  [NIKOS, 'Nikós'],
+]);
 
 function line(messageId, minute, text, overrides = {}) {
   return {
-    v: 1, kind: 'seen', messageId, revision: 1, occurredAt: new Date(T0 + minute * 60_000).toISOString(),
-    scope: { channel: 'c1' }, by: ELENI, text, participants: [ELENI], ...overrides,
+    v: 1,
+    kind: 'seen',
+    messageId,
+    revision: 1,
+    occurredAt: new Date(T0 + minute * 60_000).toISOString(),
+    scope: { channel: 'c1' },
+    by: ELENI,
+    text,
+    participants: [ELENI],
+    ...overrides,
   };
 }
 
 function quietLog() {
   const warns = [];
   const infos = [];
-  return { warns, infos, info(name, fields) { infos.push({ name, fields }); }, warn(name, fields) { warns.push({ name, fields }); }, error() {} };
+  return {
+    warns,
+    infos,
+    info(name, fields) {
+      infos.push({ name, fields });
+    },
+    warn(name, fields) {
+      warns.push({ name, fields });
+    },
+    error() {},
+  };
 }
 
 /** The test databases opened here; closed when the file is done. */
@@ -33,7 +54,12 @@ after(async () => {
 });
 
 /** A temp data/ with its database, the real record, a fake index and embed call, and the queue over them. */
-function scene({ features = { meaningSearch: true, embedIndex: true }, embedConfig = {}, embedImpl = null, paused = null } = {}) {
+function scene({
+  features = { meaningSearch: true, embedIndex: true },
+  embedConfig = {},
+  embedImpl = null,
+  paused = null,
+} = {}) {
   const mem = openTestMemorySync();
   OPENED.push(mem);
   const { dataDir, memoryDb } = mem;
@@ -55,13 +81,21 @@ function scene({ features = { meaningSearch: true, embedIndex: true }, embedConf
     },
     async has(guildId, month, { privateUserId = null } = {}) {
       const keys = new Set();
-      for (const item of [...preIndexed, ...appended.flatMap((a) => a.rows.map((row) => ({ meta: row.meta, privateUserId: a.opts.privateUserId ?? null })))]) {
-        if ((item.privateUserId ?? null) === privateUserId && item.meta.occurredAt.slice(0, 7) === month) keys.add(`${item.meta.kind}:${item.meta.id}:${item.meta.revision}`);
+      for (const item of [
+        ...preIndexed,
+        ...appended.flatMap((a) =>
+          a.rows.map((row) => ({ meta: row.meta, privateUserId: a.opts.privateUserId ?? null }))
+        ),
+      ]) {
+        if ((item.privateUserId ?? null) === privateUserId && item.meta.occurredAt.slice(0, 7) === month)
+          keys.add(`${item.meta.kind}:${item.meta.id}:${item.meta.revision}`);
       }
       return keys;
     },
     async stats(guildId, { privateUserId = null } = {}) {
-      const rows = appended.filter((a) => (a.opts.privateUserId ?? null) === privateUserId).reduce((n, a) => n + a.rows.length, 0);
+      const rows = appended
+        .filter((a) => (a.opts.privateUserId ?? null) === privateUserId)
+        .reduce((n, a) => n + a.rows.length, 0);
       return { months: rows > 0 ? 1 : 0, rows, bytes: 0 };
     },
   };
@@ -74,7 +108,13 @@ function scene({ features = { meaningSearch: true, embedIndex: true }, embedConf
   const clock = { at: T0 };
   const log = quietLog();
   const embedder = createEmbedder({
-    hot, vectors, embed, record, memoryDb, log, now: () => clock.at,
+    hot,
+    vectors,
+    embed,
+    record,
+    memoryDb,
+    log,
+    now: () => clock.at,
     nameOf: (guildId, id) => names.get(id) ?? null,
     selfName: () => 'Persona',
     ...(paused ? { paused } : {}),
@@ -86,7 +126,20 @@ function scene({ features = { meaningSearch: true, embedIndex: true }, embedConf
   }
   /** Record the lines only: the queue was down (a stop, a crash, the switches off). */
   const recordOnly = (lines, opts = {}) => record.append(GUILD, lines, opts);
-  return { dataDir, record, hot, appended, preIndexed, calls, clock, log, embedder, write, recordOnly, close: async () => {} };
+  return {
+    dataDir,
+    record,
+    hot,
+    appended,
+    preIndexed,
+    calls,
+    clock,
+    log,
+    embedder,
+    write,
+    recordOnly,
+    close: async () => {},
+  };
 }
 
 const sentIds = (kit) => kit.appended.flatMap((a) => a.rows.map((row) => `${row.meta.id}:${row.meta.revision}`));
@@ -109,7 +162,10 @@ test('embedder: a full batch flushes at once: one request, chunks with their cha
   await kit.write([line('m2', 1, 'not me', { kind: 'said', by: undefined, participants: [] })]);
   await kit.embedder.flush();
   assert.equal(kit.calls.length, 1);
-  assert.deepEqual(kit.calls[0].texts, ['Nikós: who brought the café?', 'Nikós: who brought the café?\nPersona: not me']);
+  assert.deepEqual(kit.calls[0].texts, [
+    'Nikós: who brought the café?',
+    'Nikós: who brought the café?\nPersona: not me',
+  ]);
   assert.equal(kit.appended.length, 1);
   const { rows, opts } = kit.appended[0];
   assert.equal(opts.model, 'test/embed-model');
@@ -170,7 +226,10 @@ test('embedder: the queue is bounded at embed.queueMax, the oldest dropped with 
   assert.equal(kit.embedder.stats().queued, 3);
   assert.ok(kit.log.warns.some((w) => w.name === 'embedder: queue full' && w.fields.dropped === 2));
   await kit.embedder.flush();
-  assert.deepEqual(kit.appended[0].rows.map((row) => row.meta.id), ['m3', 'm4', 'm5']);
+  assert.deepEqual(
+    kit.appended[0].rows.map((row) => row.meta.id),
+    ['m3', 'm4', 'm5']
+  );
   await kit.close();
 });
 
@@ -190,7 +249,10 @@ test('embedder: a private line keeps to its own layer and goes to the private in
   await kit.write([line('m2', 1, 'private', { scope: { channel: 'c1' } })], { privateUserId: ELENI });
   await kit.embedder.flush();
   assert.deepEqual(kit.calls[0].texts, ['Ελένη: public', 'Ελένη: private']);
-  assert.deepEqual(kit.appended.map((a) => a.opts.privateUserId), [null, ELENI]);
+  assert.deepEqual(
+    kit.appended.map((a) => a.opts.privateUserId),
+    [null, ELENI]
+  );
   await kit.close();
 });
 
@@ -223,16 +285,30 @@ test('embedder: close gives up after its timeout without waiting for a hung requ
 
 test('embedder: catchUp at start embeds the lines recorded while the queue was down, each with its channel context', async () => {
   const kit = scene();
-  await kit.recordOnly([line('m1', 0, 'who brought the café?', { by: NIKOS, participants: [NIKOS] }), line('m2', 1, 'not me'), line('m3', 2, 'elsewhere', { scope: { channel: 'c2' } })]);
+  await kit.recordOnly([
+    line('m1', 0, 'who brought the café?', { by: NIKOS, participants: [NIKOS] }),
+    line('m2', 1, 'not me'),
+    line('m3', 2, 'elsewhere', { scope: { channel: 'c2' } }),
+  ]);
   await kit.recordOnly([line('p1', 3, 'a private word')], { privateUserId: ELENI });
   kit.clock.at = T0 + 3 * 3_600_000;
   const pass = await kit.embedder.catchUp(GUILD);
   assert.equal(pass.queued, 4);
   assert.equal(pass.missing, 4);
   await kit.embedder.flush();
-  assert.deepEqual(kit.calls[0].texts, ['Nikós: who brought the café?', 'Nikós: who brought the café?\nΕλένη: not me', 'Ελένη: elsewhere', 'Ελένη: a private word']);
-  assert.deepEqual(kit.appended.map((a) => a.opts.privateUserId), [null, ELENI]);
-  assert.ok(kit.log.infos.some((i) => i.name === 'embedder: coverage' && i.fields.missing === 4 && i.fields.queued === 4));
+  assert.deepEqual(kit.calls[0].texts, [
+    'Nikós: who brought the café?',
+    'Nikós: who brought the café?\nΕλένη: not me',
+    'Ελένη: elsewhere',
+    'Ελένη: a private word',
+  ]);
+  assert.deepEqual(
+    kit.appended.map((a) => a.opts.privateUserId),
+    [null, ELENI]
+  );
+  assert.ok(
+    kit.log.infos.some((i) => i.name === 'embedder: coverage' && i.fields.missing === 4 && i.fields.queued === 4)
+  );
   // A second pass finds nothing left.
   assert.equal((await kit.embedder.catchUp(GUILD)).queued, 0);
   assert.equal(kit.embedder.stats().queued, 0);
@@ -245,11 +321,14 @@ test('embedder: catchUp skips what the index holds at that revision and embeds a
   await kit.recordOnly([line('m2', 1, 'edited', { revision: 2 })]);
   kit.preIndexed.push(
     { meta: { kind: 'record', id: 'm1', revision: 1, occurredAt: line('m1', 0, '').occurredAt }, privateUserId: null },
-    { meta: { kind: 'record', id: 'm2', revision: 1, occurredAt: line('m2', 1, '').occurredAt }, privateUserId: null },
+    { meta: { kind: 'record', id: 'm2', revision: 1, occurredAt: line('m2', 1, '').occurredAt }, privateUserId: null }
   );
   kit.clock.at = T0 + 3_600_000;
   const pass = await kit.embedder.catchUp(GUILD);
-  assert.deepEqual({ messages: pass.messages, indexed: pass.indexed, missing: pass.missing, queued: pass.queued }, { messages: 3, indexed: 1, missing: 2, queued: 2 });
+  assert.deepEqual(
+    { messages: pass.messages, indexed: pass.indexed, missing: pass.missing, queued: pass.queued },
+    { messages: 3, indexed: 1, missing: 2, queued: 2 }
+  );
   await kit.embedder.flush();
   assert.deepEqual(sentIds(kit), ['m2:2', 'm3:1']);
   await kit.close();
@@ -265,7 +344,12 @@ test('embedder: coverage counts the record window, the indexed, the missing and 
   assert.equal(wide.messages, 3);
   await kit.embedder.catchUp(GUILD);
   await kit.embedder.flush();
-  assert.deepEqual(await kit.embedder.coverage(GUILD, { hours: 72 }), { messages: 3, indexed: 3, missing: 0, oldestMissing: null });
+  assert.deepEqual(await kit.embedder.coverage(GUILD, { hours: 72 }), {
+    messages: 3,
+    indexed: 3,
+    missing: 0,
+    oldestMissing: null,
+  });
   await kit.close();
 });
 
@@ -336,13 +420,15 @@ test('embedder: a line the queue had and lost is warned about as a coverage gap 
   kit.clock.at = T0 + 3_600_000;
   const pass = await kit.embedder.catchUp(GUILD);
   assert.equal(pass.lost, 1);
-  assert.ok(kit.log.warns.some((w) => w.name === 'embedder: coverage gap' && w.fields.lost === 1 && w.fields.missing === 1));
+  assert.ok(
+    kit.log.warns.some((w) => w.name === 'embedder: coverage gap' && w.fields.lost === 1 && w.fields.missing === 1)
+  );
   await kit.embedder.flush();
   assert.deepEqual(sentIds(kit), ['m2:1', 'm1:1']);
   await kit.close();
 });
 
-test('embedder: indexSummary gives the index rows and the last pass\'s missing count', async () => {
+test("embedder: indexSummary gives the index rows and the last pass's missing count", async () => {
   const kit = scene();
   assert.deepEqual(await kit.embedder.indexSummary(GUILD), { rows: 0, missing: null });
   await kit.recordOnly([line('m1', 0, 'a'), line('m2', 1, 'b')]);

@@ -46,7 +46,11 @@ function taskStateWord(task, labels) {
  * @param {{ now: number, goalChars?: number, unreadShown?: number }} options
  * @returns {string}
  */
-export function tasksBlockText(tasks, labels, { now, goalChars = TASK_GOAL_CHARS, unreadShown = DEFAULT_UNREAD_SHOWN }) {
+export function tasksBlockText(
+  tasks,
+  labels,
+  { now, goalChars = TASK_GOAL_CHARS, unreadShown = DEFAULT_UNREAD_SHOWN }
+) {
   const l = labels?.tasks;
   const list = Array.isArray(tasks) ? tasks.filter((task) => task && typeof task.id === 'string') : [];
   if (list.length === 0 || typeof l?.header !== 'string' || typeof l?.line !== 'string') return '';
@@ -64,7 +68,10 @@ export function tasksBlockText(tasks, labels, { now, goalChars = TASK_GOAL_CHARS
       age: Math.max(0, Math.floor((now - (Number(task.createdAt) || now)) / MINUTE_MS)),
     });
     if (isOpenState(task.state)) return line;
-    const notes = [typeof l.unread === 'string' ? l.unread : '', task.resultTurnFailed === true && typeof l.resultTurnFailed === 'string' ? l.resultTurnFailed : ''].filter(Boolean);
+    const notes = [
+      typeof l.unread === 'string' ? l.unread : '',
+      task.resultTurnFailed === true && typeof l.resultTurnFailed === 'string' ? l.resultTurnFailed : '',
+    ].filter(Boolean);
     return notes.length > 0 ? `${line} ${notes.join(' ')}` : line;
   };
   const lines = shown.map(lineOf);
@@ -93,21 +100,46 @@ export function tasksBlockText(tasks, labels, { now, goalChars = TASK_GOAL_CHARS
 export function taskResultText(task, labels, { maxChars = DEFAULT_RESULT_MAX_CHARS } = {}) {
   const r = labels?.tasks?.result;
   if (!task || typeof r?.header !== 'string') return '';
-  const parts = [fill(r.header, { id: task.id, agent: task.agent, goal: oneLine(task.goal), state: taskStateWord(task, labels) })];
+  const parts = [
+    fill(r.header, { id: task.id, agent: task.agent, goal: oneLine(task.goal), state: taskStateWord(task, labels) }),
+  ];
   const text = typeof task.result?.text === 'string' ? task.result.text.trim() : '';
   if (text && typeof r.text === 'string') parts.push(r.text, clampWithEllipsis(text, maxChars));
   else if (!text && typeof r.empty === 'string') parts.push(r.empty);
-  if (task.state !== 'done' && task.error && typeof r.error === 'string') parts.push(fill(r.error, { error: task.error }));
-  const sources = Array.isArray(task.result?.sources) ? task.result.sources.filter((url) => typeof url === 'string' && url) : [];
-  if (sources.length > 0 && typeof r.sources === 'string') parts.push(r.sources, ...sources.map((url, i) => `${i + 1}. ${url}`));
+  if (task.state !== 'done' && task.error && typeof r.error === 'string')
+    parts.push(fill(r.error, { error: task.error }));
+  const sources = Array.isArray(task.result?.sources)
+    ? task.result.sources.filter((url) => typeof url === 'string' && url)
+    : [];
+  if (sources.length > 0 && typeof r.sources === 'string')
+    parts.push(r.sources, ...sources.map((url, i) => `${i + 1}. ${url}`));
   // Expired files name nothing any more: no handle for them.
-  const files = task.filesExpired !== true && Array.isArray(task.result?.files) ? task.result.files.filter((file) => file && typeof file.name === 'string' && file.name) : [];
+  const files =
+    task.filesExpired !== true && Array.isArray(task.result?.files)
+      ? task.result.files.filter((file) => file && typeof file.name === 'string' && file.name)
+      : [];
   if (files.length > 0 && typeof r.files === 'string' && typeof r.file === 'string') {
-    parts.push(r.files, ...files.map((file) => fill(r.file, { handle: fileHandle(task.id, file.name), contentType: file.contentType || '-', bytes: Number(file.bytes) || 0 })));
+    parts.push(
+      r.files,
+      ...files.map((file) =>
+        fill(r.file, {
+          handle: fileHandle(task.id, file.name),
+          contentType: file.contentType || '-',
+          bytes: Number(file.bytes) || 0,
+        })
+      )
+    );
   }
-  const withheld = Array.isArray(task.result?.withheld) ? task.result.withheld.filter((entry) => typeof entry === 'string' && entry) : [];
-  if (withheld.length > 0 && typeof r.withheld === 'string') parts.push(fill(r.withheld, { paths: withheld.join(', ') }));
-  const held = Array.isArray(task.result?.filesDropped) ? task.result.filesDropped.map((entry) => (typeof entry === 'string' ? entry : entry?.name)).filter((name) => typeof name === 'string' && name) : [];
+  const withheld = Array.isArray(task.result?.withheld)
+    ? task.result.withheld.filter((entry) => typeof entry === 'string' && entry)
+    : [];
+  if (withheld.length > 0 && typeof r.withheld === 'string')
+    parts.push(fill(r.withheld, { paths: withheld.join(', ') }));
+  const held = Array.isArray(task.result?.filesDropped)
+    ? task.result.filesDropped
+        .map((entry) => (typeof entry === 'string' ? entry : entry?.name))
+        .filter((name) => typeof name === 'string' && name)
+    : [];
   if (held.length > 0 && typeof r.held === 'string') parts.push(fill(r.held, { names: held.join(', ') }));
   return parts.join('\n');
 }

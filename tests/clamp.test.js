@@ -2,7 +2,15 @@
 // token-safe replacement for a blind `.slice(0, limit)`. Pure, no I/O.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { clampAtBoundary, clampChars, clampText, clampWithEllipsis, countDashes, oneLine, stripDashes } from '../src/memory/clamp.js';
+import {
+  clampAtBoundary,
+  clampChars,
+  clampText,
+  clampWithEllipsis,
+  countDashes,
+  oneLine,
+  stripDashes,
+} from '../src/memory/clamp.js';
 
 // ---- non-string / empty --------------------------------------------------
 

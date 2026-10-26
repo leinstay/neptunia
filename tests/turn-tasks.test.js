@@ -39,7 +39,19 @@ function rawMessage({ id, authorId = 'u1', authorName = 'Zoë', ts = NOW - 10 * 
 }
 
 function normalizedTrigger(raw) {
-  return { id: raw.id, channelId: raw.channelId, authorId: raw.author.id, authorName: raw.author.globalName, self: false, bot: false, content: raw.cleanContent, ts: raw.createdTimestamp, replyToId: null, attachments: [], stickers: [] };
+  return {
+    id: raw.id,
+    channelId: raw.channelId,
+    authorId: raw.author.id,
+    authorName: raw.author.globalName,
+    self: false,
+    bot: false,
+    content: raw.cleanContent,
+    ts: raw.createdTimestamp,
+    replyToId: null,
+    attachments: [],
+    stickers: [],
+  };
 }
 
 /** A channel of guild g1 whose history is `historyMessages`; `fetch(id)` gives one of them. */
@@ -62,7 +74,14 @@ function fakeChannel({ historyMessages = [] } = {}) {
 }
 
 function fakeStore() {
-  return { getGuild: () => ({}), getUser: () => null, listChannels: () => [], listUserProfiles: () => [], getLore: () => [], state: { data: {}, markDirty() {} } };
+  return {
+    getGuild: () => ({}),
+    getUser: () => null,
+    listChannels: () => [],
+    listUserProfiles: () => [],
+    getLore: () => [],
+    state: { data: {}, markDirty() {} },
+  };
 }
 
 function fakeHot() {
@@ -78,7 +97,15 @@ function fakeHot() {
         gapMarkerMinutes: 20,
         otherProfiles: 6,
         caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 },
-        vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0, maxBytes: 1_500_000, fetchTimeoutMs: 10_000 },
+        vision: {
+          maxImages: 2,
+          tokensPerImage: 400,
+          imageSize: 512,
+          recentImages: 0,
+          recentImageMinutes: 0,
+          maxBytes: 1_500_000,
+          fetchTimeoutMs: 10_000,
+        },
       },
       llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 100, betweenMessagesMs: [0, 0] },
@@ -172,19 +199,41 @@ test('tasksBlockText / taskResultText: every word from labels.tasks; none withou
   assert.equal(result[0], 'errand tab02 (scout) ended done: find a meme');
   assert.equal(result[1], labels.tasks.result.text);
   assert.ok(result[2].length <= 31, 'the result text cut to maxChars');
-  assert.deepEqual(result.slice(3), ['sources:', '1. https://example.org/board/1', '2. https://example.org/board/2', 'files:', 'file:tab02/meme.png | image/png | 2048 bytes']);
-  const failed = taskResultText({ ...doneTask, state: 'failed', error: 'withheld-path', result: null }, labels).split('\n');
-  assert.deepEqual(failed, ['errand tab02 (scout) ended failed: find a meme', 'no result text', 'error: withheld-path']);
+  assert.deepEqual(result.slice(3), [
+    'sources:',
+    '1. https://example.org/board/1',
+    '2. https://example.org/board/2',
+    'files:',
+    'file:tab02/meme.png | image/png | 2048 bytes',
+  ]);
+  const failed = taskResultText({ ...doneTask, state: 'failed', error: 'withheld-path', result: null }, labels).split(
+    '\n'
+  );
+  assert.deepEqual(failed, [
+    'errand tab02 (scout) ended failed: find a meme',
+    'no result text',
+    'error: withheld-path',
+  ]);
   assert.equal(taskResultText(doneTask, {}), '');
 });
 
 test('tasksBlockText / taskResultText: expired files show the expired state word and no handle', () => {
   const expired = { ...doneTask, filesExpired: true };
-  const withWord = { ...labels, tasks: { ...labels.tasks, states: { ...labels.tasks.states, expired: 'done, files gone' } } };
-  assert.ok(tasksBlockText([expired], withWord, { now: NOW }).split('\n')[1].startsWith('tab02 | scout | done, files gone | 3 min'));
+  const withWord = {
+    ...labels,
+    tasks: { ...labels.tasks, states: { ...labels.tasks.states, expired: 'done, files gone' } },
+  };
+  assert.ok(
+    tasksBlockText([expired], withWord, { now: NOW })
+      .split('\n')[1]
+      .startsWith('tab02 | scout | done, files gone | 3 min')
+  );
   const result = taskResultText(expired, withWord).split('\n');
   assert.equal(result[0], 'errand tab02 (scout) ended done, files gone: find a meme');
-  assert.ok(!result.includes('files:') && !result.some((line) => line.startsWith('file:')), 'no handle of an expired file');
+  assert.ok(
+    !result.includes('files:') && !result.some((line) => line.startsWith('file:')),
+    'no handle of an expired file'
+  );
   // Without the label, the state's own word.
   assert.ok(tasksBlockText([expired], labels, { now: NOW }).split('\n')[1].startsWith('tab02 | scout | done | 3 min'));
   assert.equal(taskResultText(expired, labels).split('\n')[0], 'errand tab02 (scout) ended done: find a meme');
@@ -192,28 +241,58 @@ test('tasksBlockText / taskResultText: expired files show the expired state word
 
 test('taskResultText: the withheld paths close the block in labels.tasks.result.withheld; without the label, no line', () => {
   const withheld = { ...doneTask, result: { ...doneTask.result, withheld: ['/etc/shadow', '/srv/app/.env'] } };
-  const withLabel = { ...labels, tasks: { ...labels.tasks, result: { ...labels.tasks.result, withheld: 'not readable here: {paths}' } } };
+  const withLabel = {
+    ...labels,
+    tasks: { ...labels.tasks, result: { ...labels.tasks.result, withheld: 'not readable here: {paths}' } },
+  };
   const lines = taskResultText(withheld, withLabel).split('\n');
   assert.equal(lines.at(-1), 'not readable here: /etc/shadow, /srv/app/.env');
   assert.equal(lines.at(-2), 'file:tab02/meme.png | image/png | 2048 bytes', 'after the text and the files');
   const without = taskResultText(withheld, labels).split('\n');
   assert.equal(without.at(-1), 'file:tab02/meme.png | image/png | 2048 bytes');
   assert.equal(taskResultText(doneTask, withLabel), taskResultText(doneTask, labels), 'no withheld path, no line');
-  const failed = taskResultText({ ...withheld, state: 'failed', error: 'withheld-path', result: { text: '', withheld: ['/etc/shadow'] } }, withLabel).split('\n');
-  assert.deepEqual(failed, ['errand tab02 (scout) ended failed: find a meme', 'no result text', 'error: withheld-path', 'not readable here: /etc/shadow']);
+  const failed = taskResultText(
+    { ...withheld, state: 'failed', error: 'withheld-path', result: { text: '', withheld: ['/etc/shadow'] } },
+    withLabel
+  ).split('\n');
+  assert.deepEqual(failed, [
+    'errand tab02 (scout) ended failed: find a meme',
+    'no result text',
+    'error: withheld-path',
+    'not readable here: /etc/shadow',
+  ]);
 });
 
 test('taskResultText: the files the runner held back follow the withheld line in labels.tasks.result.held, with no handle; without the label, no line', () => {
-  const held = { ...doneTask, result: { ...doneTask.result, withheld: ['/etc/shadow'], filesDropped: [{ name: 'x.env', reason: 'secret' }] } };
-  const withLabels = { ...labels, tasks: { ...labels.tasks, result: { ...labels.tasks.result, withheld: 'not readable here: {paths}', held: 'not delivered: {names}' } } };
+  const held = {
+    ...doneTask,
+    result: { ...doneTask.result, withheld: ['/etc/shadow'], filesDropped: [{ name: 'x.env', reason: 'secret' }] },
+  };
+  const withLabels = {
+    ...labels,
+    tasks: {
+      ...labels.tasks,
+      result: { ...labels.tasks.result, withheld: 'not readable here: {paths}', held: 'not delivered: {names}' },
+    },
+  };
   const lines = taskResultText(held, withLabels).split('\n');
   assert.deepEqual(lines.slice(-2), ['not readable here: /etc/shadow', 'not delivered: x.env']);
   assert.ok(!lines.some((line) => line.includes('file:tab02/x.env')), 'no handle for a held-back file');
   const names = { ...held, result: { ...held.result, filesDropped: ['x.env', 'id_rsa', '', 7] } };
-  assert.equal(taskResultText(names, withLabels).split('\n').at(-1), 'not delivered: x.env, id_rsa', 'the record keeps names');
+  assert.equal(
+    taskResultText(names, withLabels).split('\n').at(-1),
+    'not delivered: x.env, id_rsa',
+    'the record keeps names'
+  );
   const noLabel = { ...labels, tasks: { ...labels.tasks, result: { ...labels.tasks.result, held: undefined } } };
   assert.ok(!taskResultText(held, noLabel).includes('x.env'));
-  assert.equal(taskResultText({ ...held, result: { ...held.result, filesDropped: [] } }, withLabels).split('\n').at(-1), 'not readable here: /etc/shadow', 'none held, no line');
+  assert.equal(
+    taskResultText({ ...held, result: { ...held.result, filesDropped: [] } }, withLabels)
+      .split('\n')
+      .at(-1),
+    'not readable here: /etc/shadow',
+    'none held, no line'
+  );
 });
 
 test('<tasks>: an open errand is in the request tail; with none, the block is gone', async () => {
@@ -222,12 +301,30 @@ test('<tasks>: an open errand is in the request tail; with none, the block is go
   const errands = fakeErrands([runningTask]);
   const llm = fakeLlm('<skip/>');
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id' });
-  const turns = createTurnRunner({ discord: DISCORD, hot: fakeHot(), store: fakeStore(), llm, calibrator: { ratio: 1, apply: (n) => n, observe: () => {} }, client: { user: { id: 'self-id', username: 'Bot' } }, port, errands, now: () => NOW });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    hot: fakeHot(),
+    store: fakeStore(),
+    llm,
+    calibrator: { ratio: 1, apply: (n) => n, observe: () => {} },
+    client: { user: { id: 'self-id', username: 'Bot' } },
+    port,
+    errands,
+    now: () => NOW,
+  });
   await withCapturedLogs(async () => {
-    const first = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+    const first = await turns.runTurn({
+      channel,
+      mode: 'reply',
+      trigger: normalizedTrigger(raw),
+      triggerKind: 'mention',
+    });
     assert.equal(first.outcome, 'skip');
     const text = userText(llm.calls[0][1].content);
-    assert.ok(text.includes(`<tasks>\n${labels.tasks.header}\ntab01 | scout | running | 7 min | find the release notes`), 'the block with its line');
+    assert.ok(
+      text.includes(`<tasks>\n${labels.tasks.header}\ntab01 | scout | running | 7 min | find the release notes`),
+      'the block with its line'
+    );
     const tail = llm.calls[0][1].content.at(-1);
     assert.equal(tail.cacheSegment, undefined, 'in the tail, never a cached part');
     assert.ok(tail.text.indexOf('<tasks>') < tail.text.indexOf('<chat>'), 'before the chat');
@@ -243,8 +340,20 @@ test('<tasks>: a finished errand she has not read is listed with its marker and 
   const channel = fakeChannel({ historyMessages: [raw] });
   const errands = fakeErrands([runningTask, doneTask]);
   const llm = fakeLlm('<skip/>');
-  const turns = createTurnRunner({ discord: DISCORD, hot: fakeHot(), store: fakeStore(), llm, calibrator: { ratio: 1, apply: (n) => n, observe: () => {} }, client: { user: { id: 'self-id', username: 'Bot' } }, port: createFakeAdapter({ iface: 'fake', selfId: 'self-id' }), errands, now: () => NOW });
-  await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    hot: fakeHot(),
+    store: fakeStore(),
+    llm,
+    calibrator: { ratio: 1, apply: (n) => n, observe: () => {} },
+    client: { user: { id: 'self-id', username: 'Bot' } },
+    port: createFakeAdapter({ iface: 'fake', selfId: 'self-id' }),
+    errands,
+    now: () => NOW,
+  });
+  await withCapturedLogs(() =>
+    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' })
+  );
   assert.ok(userText(llm.calls[0][1].content).includes('tab02 | scout | done | 3 min | find a meme [unread]'));
   assert.deepEqual(errands.seen, [], 'appearing in <tasks> marks nothing');
   assert.deepEqual(errands.read, []);
@@ -257,38 +366,87 @@ test('task turns: a finished errand opens her turn where it was asked, with <tas
   const llm = fakeLlm('<msg reply="#1">βρήκα κάτι</msg>');
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id' });
   const hot = fakeHot();
-  const client = { user: { id: 'self-id', username: 'Bot' }, channels: { fetch: async (id) => (id === 'c1' ? channel : null) } };
-  const turns = createTurnRunner({ discord: DISCORD, hot, store: fakeStore(), llm, calibrator: { ratio: 1, apply: (n) => n, observe: () => {} }, client, port, errands, now: () => NOW });
-  const taskTurns = createTaskTurns({ discord: DISCORD, hot, client, turns, errands, getGuildId: () => 'g1', now: () => NOW });
+  const client = {
+    user: { id: 'self-id', username: 'Bot' },
+    channels: { fetch: async (id) => (id === 'c1' ? channel : null) },
+  };
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    hot,
+    store: fakeStore(),
+    llm,
+    calibrator: { ratio: 1, apply: (n) => n, observe: () => {} },
+    client,
+    port,
+    errands,
+    now: () => NOW,
+  });
+  const taskTurns = createTaskTurns({
+    discord: DISCORD,
+    hot,
+    client,
+    turns,
+    errands,
+    getGuildId: () => 'g1',
+    now: () => NOW,
+  });
   const { result } = await withCapturedLogs(() => taskTurns.onFinished(doneTask, 'g1'));
   assert.equal(result.outcome, 'spoke');
   assert.equal(llm.calls.length, 1);
   const text = userText(llm.calls[0][1].content);
-  assert.ok(text.includes('<task_result>\nerrand tab02 (scout) ended done: find a meme\nresult:\n'), 'the block, its header first');
-  assert.ok(text.includes('sources:\n1. https://example.org/board/1\n2. https://example.org/board/2'), 'the sources numbered');
+  assert.ok(
+    text.includes('<task_result>\nerrand tab02 (scout) ended done: find a meme\nresult:\n'),
+    'the block, its header first'
+  );
+  assert.ok(
+    text.includes('sources:\n1. https://example.org/board/1\n2. https://example.org/board/2'),
+    'the sources numbered'
+  );
   assert.ok(text.includes('files:\nfile:tab02/meme.png | image/png | 2048 bytes'), 'the file as its handle');
   assert.ok(!text.includes('posted this morning'), 'the text cut to agents.resultMaxChars');
   assert.equal(text.includes('<tasks>'), false, 'the errand of this turn is not listed twice');
   const sends = port.calls.filter((call) => call.op === 'send');
   assert.equal(sends.length, 1);
   assert.equal(sends[0].args[1].text, 'βρήκα κάτι');
-  assert.deepEqual(sends[0].args[1].replyTo, { iface: 'fake', conversationId: 'c1', messageId: 'm1' }, 'her answer replies to the message that asked');
+  assert.deepEqual(
+    sends[0].args[1].replyTo,
+    { iface: 'fake', conversationId: 'c1', messageId: 'm1' },
+    'her answer replies to the message that asked'
+  );
   assert.deepEqual(errands.seen.at(-1), { guildId: 'g1', ids: ['tab02'] });
 });
 
 test('task turns: held back while the attention is taken, tried again after agents.resultRetrySeconds', async () => {
   const runs = [];
   let busy = true;
-  const turns = { isBusy: () => false, isAnyBusy: () => busy, runTurn: async (params) => { runs.push(params); return { outcome: 'skip' }; } };
+  const turns = {
+    isBusy: () => false,
+    isAnyBusy: () => busy,
+    runTurn: async (params) => {
+      runs.push(params);
+      return { outcome: 'skip' };
+    },
+  };
   const timers = [];
   const errands = fakeErrands();
   const channel = fakeChannel({ historyMessages: [rawMessage({ id: 'm1' })] });
   const client = { user: { id: 'self-id' }, channels: { fetch: async () => channel } };
-  const taskTurns = createTaskTurns({ discord: DISCORD, hot: fakeHot(), client, turns, errands, now: () => NOW, setTimer: (fn, ms) => timers.push({ fn, ms }) });
+  const taskTurns = createTaskTurns({
+    discord: DISCORD,
+    hot: fakeHot(),
+    client,
+    turns,
+    errands,
+    now: () => NOW,
+    setTimer: (fn, ms) => timers.push({ fn, ms }),
+  });
   await withCapturedLogs(async () => {
     await taskTurns.onFinished(doneTask, 'g1');
     assert.equal(runs.length, 0, 'nothing runs while a turn holds the attention');
-    assert.deepEqual(timers.map((t) => t.ms), [30_000]);
+    assert.deepEqual(
+      timers.map((t) => t.ms),
+      [30_000]
+    );
     busy = false;
     timers.shift().fn();
     for (let i = 0; i < 50 && runs.length === 0; i += 1) await new Promise((r) => setImmediate(r));
@@ -304,7 +462,14 @@ test('task turns: held back while the attention is taken, tried again after agen
 
 test('task turns: an errand end enters through the event door as task.completed, once, and opens the same turn', async () => {
   const runs = [];
-  const turns = { isBusy: () => false, isAnyBusy: () => false, runTurn: async (params) => { runs.push(params); return { outcome: 'spoke' }; } };
+  const turns = {
+    isBusy: () => false,
+    isAnyBusy: () => false,
+    runTurn: async (params) => {
+      runs.push(params);
+      return { outcome: 'spoke' };
+    },
+  };
   const channel = fakeChannel({ historyMessages: [rawMessage({ id: 'm1' })] });
   const client = { user: { id: 'self-id' }, channels: { fetch: async () => channel } };
   const errands = fakeErrands();
@@ -312,22 +477,39 @@ test('task turns: an errand end enters through the event door as task.completed,
   const door = createEventDoor({ handlers: { 'task.completed': (event) => taskTurns.onEvent(event) } });
   const event = taskCompletedEvent(doneTask, 'g1', () => NOW);
   assert.deepEqual(validateEvent(event), { ok: true });
-  assert.deepEqual({ ...event, raw: undefined }, { kind: 'task.completed', at: NOW, guildId: 'g1', taskId: 'tab02', status: 'done', raw: undefined });
+  assert.deepEqual(
+    { ...event, raw: undefined },
+    { kind: 'task.completed', at: NOW, guildId: 'g1', taskId: 'tab02', status: 'done', raw: undefined }
+  );
   const first = await withCapturedLogs(() => door.submit(event));
   assert.equal(first.result.status, 'ok');
-  assert.deepEqual((await door.submit(taskCompletedEvent(doneTask, 'g1', () => NOW + 5))).status, 'duplicate', 'the same end delivered twice runs no second turn');
+  assert.deepEqual(
+    (await door.submit(taskCompletedEvent(doneTask, 'g1', () => NOW + 5))).status,
+    'duplicate',
+    'the same end delivered twice runs no second turn'
+  );
   assert.equal(runs.length, 1);
   assert.equal(runs[0].triggerKind, 'task');
   assert.equal(runs[0].taskResult.id, 'tab02');
   assert.deepEqual(errands.seen, [{ guildId: 'g1', ids: ['tab02'] }]);
 });
 
-test('task turns: an event without the task in hand asks the guild\'s task store; an unknown task opens nothing', async () => {
+test("task turns: an event without the task in hand asks the guild's task store; an unknown task opens nothing", async () => {
   const runs = [];
-  const turns = { isBusy: () => false, isAnyBusy: () => false, runTurn: async (params) => { runs.push(params); return { outcome: 'spoke' }; } };
+  const turns = {
+    isBusy: () => false,
+    isAnyBusy: () => false,
+    runTurn: async (params) => {
+      runs.push(params);
+      return { outcome: 'spoke' };
+    },
+  };
   const channel = fakeChannel({ historyMessages: [rawMessage({ id: 'm1' })] });
   const client = { user: { id: 'self-id' }, channels: { fetch: async () => channel } };
-  const errands = { ...fakeErrands(), store: (guildId) => (guildId === 'g1' ? { get: (id) => (id === 'tab02' ? doneTask : null) } : null) };
+  const errands = {
+    ...fakeErrands(),
+    store: (guildId) => (guildId === 'g1' ? { get: (id) => (id === 'tab02' ? doneTask : null) } : null),
+  };
   const taskTurns = createTaskTurns({ discord: DISCORD, hot: fakeHot(), client, turns, errands, now: () => NOW });
   const { raw: _raw, ...bare } = taskCompletedEvent(doneTask, 'g1', () => NOW);
   await withCapturedLogs(async () => {
@@ -354,10 +536,23 @@ test('tasksBlockText: unread results carry the marker, the error code and the fa
   const many = ['a1', 'a2', 'a3', 'a4'].map((id, i) => ({ ...doneTask, id, createdAt: NOW - (10 - i) * MINUTE }));
   const capped = tasksBlockText([runningTask, ...many], labels, { now: NOW, unreadShown: 2 }).split('\n');
   assert.deepEqual(capped.map((line) => line.split(' | ')[0]).slice(1), ['tab01', 'a1', 'a2', '[2 more unread]']);
-  const noMore = tasksBlockText(many, { ...labels, tasks: { ...labels.tasks, unreadMore: undefined } }, { now: NOW, unreadShown: 1 }).split('\n');
+  const noMore = tasksBlockText(
+    many,
+    { ...labels, tasks: { ...labels.tasks, unreadMore: undefined } },
+    { now: NOW, unreadShown: 1 }
+  ).split('\n');
   assert.equal(noMore.length, 2, 'without the label, no count line');
   assert.equal(tasksBlockText(many, labels, { now: NOW }).split('\n').length, 5, 'the default shows five or fewer');
-  assert.equal(tasksBlockText(Array.from({ length: 7 }, (_, i) => ({ ...doneTask, id: `b${i}` })), labels, { now: NOW }).split('\n').at(-1), '[2 more unread]');
+  assert.equal(
+    tasksBlockText(
+      Array.from({ length: 7 }, (_, i) => ({ ...doneTask, id: `b${i}` })),
+      labels,
+      { now: NOW }
+    )
+      .split('\n')
+      .at(-1),
+    '[2 more unread]'
+  );
 });
 
 test('task turns: a result turn that spoke or chose silence marks the task seen and read', async () => {
@@ -366,7 +561,15 @@ test('task turns: a result turn that spoke or chose silence marks the task seen 
     const turns = { isBusy: () => false, isAnyBusy: () => false, runTurn: async () => ({ outcome }) };
     const channel = fakeChannel({ historyMessages: [rawMessage({ id: 'm1' })] });
     const client = { user: { id: 'self-id' }, channels: { fetch: async () => channel } };
-    const taskTurns = createTaskTurns({ discord: DISCORD, hot: fakeHot(), client, turns, errands, now: () => NOW, setTimer: () => null });
+    const taskTurns = createTaskTurns({
+      discord: DISCORD,
+      hot: fakeHot(),
+      client,
+      turns,
+      errands,
+      now: () => NOW,
+      setTimer: () => null,
+    });
     await withCapturedLogs(() => taskTurns.onFinished(doneTask, 'g1'));
     assert.deepEqual(errands.seen, [{ guildId: 'g1', ids: ['tab02'] }], outcome);
     assert.deepEqual(errands.read, [{ guildId: 'g1', ids: ['tab02'] }], outcome);
@@ -376,15 +579,34 @@ test('task turns: a result turn that spoke or chose silence marks the task seen 
 test('task turns: a result turn that ended error or refused marks nothing and is tried again; a rehearsal marks nothing and is not retried', async () => {
   const outcomes = [{ outcome: 'error' }, { outcome: 'refused' }, { outcome: 'spoke' }];
   const runs = [];
-  const turns = { isBusy: () => false, isAnyBusy: () => false, runTurn: async (params) => { runs.push(params); return outcomes[runs.length - 1]; } };
+  const turns = {
+    isBusy: () => false,
+    isAnyBusy: () => false,
+    runTurn: async (params) => {
+      runs.push(params);
+      return outcomes[runs.length - 1];
+    },
+  };
   const timers = [];
   const errands = fakeErrands();
   const channel = fakeChannel({ historyMessages: [rawMessage({ id: 'm1' })] });
   const client = { user: { id: 'self-id' }, channels: { fetch: async () => channel } };
-  const taskTurns = createTaskTurns({ discord: DISCORD, hot: fakeHot(), client, turns, errands, now: () => NOW, setTimer: (fn, ms) => timers.push({ fn, ms }) });
+  const taskTurns = createTaskTurns({
+    discord: DISCORD,
+    hot: fakeHot(),
+    client,
+    turns,
+    errands,
+    now: () => NOW,
+    setTimer: (fn, ms) => timers.push({ fn, ms }),
+  });
   await withCapturedLogs(async () => {
     await taskTurns.onFinished(doneTask, 'g1');
-    assert.deepEqual([errands.seen.length, errands.read.length, timers.length], [0, 0, 1], 'error: nothing marked, a retry waits');
+    assert.deepEqual(
+      [errands.seen.length, errands.read.length, timers.length],
+      [0, 0, 1],
+      'error: nothing marked, a retry waits'
+    );
     timers.shift().fn();
     await flush();
     assert.deepEqual([errands.seen.length, errands.read.length, timers.length], [0, 0, 1], 'refused: the same');
@@ -394,7 +616,15 @@ test('task turns: a result turn that ended error or refused marks nothing and is
   assert.equal(runs.length, 3);
   assert.deepEqual(errands.read, [{ guildId: 'g1', ids: ['tab02'] }], 'the third try spoke: read');
   const dry = fakeErrands();
-  const dryTurns = createTaskTurns({ discord: DISCORD, hot: fakeHot(), client, turns: { isBusy: () => false, isAnyBusy: () => false, runTurn: async () => ({ outcome: 'spoke', dryRun: true }) }, errands: dry, now: () => NOW, setTimer: (fn, ms) => timers.push({ fn, ms }) });
+  const dryTurns = createTaskTurns({
+    discord: DISCORD,
+    hot: fakeHot(),
+    client,
+    turns: { isBusy: () => false, isAnyBusy: () => false, runTurn: async () => ({ outcome: 'spoke', dryRun: true }) },
+    errands: dry,
+    now: () => NOW,
+    setTimer: (fn, ms) => timers.push({ fn, ms }),
+  });
   await withCapturedLogs(() => dryTurns.onFinished(doneTask, 'g1'));
   assert.deepEqual([dry.seen, dry.read, timers.length], [[], [], 0]);
 });
@@ -405,7 +635,15 @@ test('task turns: after the attempts a result that never got its turn stays unre
   const errands = fakeErrands();
   const channel = fakeChannel({ historyMessages: [rawMessage({ id: 'm1' })] });
   const client = { user: { id: 'self-id' }, channels: { fetch: async () => channel } };
-  const taskTurns = createTaskTurns({ discord: DISCORD, hot: fakeHot(), client, turns, errands, now: () => NOW, setTimer: (fn, ms) => timers.push({ fn, ms }) });
+  const taskTurns = createTaskTurns({
+    discord: DISCORD,
+    hot: fakeHot(),
+    client,
+    turns,
+    errands,
+    now: () => NOW,
+    setTimer: (fn, ms) => timers.push({ fn, ms }),
+  });
   await withCapturedLogs(async () => {
     await taskTurns.onFinished(doneTask, 'g1');
     for (let i = 0; i < 40 && timers.length > 0; i += 1) {

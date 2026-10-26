@@ -14,9 +14,33 @@ import { tempDir } from './fixtures/tmp.js';
 
 const NOW = Date.UTC(2026, 9, 17, 12, 0, 0);
 const ROWS = [
-  { id: 'r1', source: 'searched', question: 'what is the weather in Lisboa today', context: [], tier: 'fast', note: '' },
-  { id: 'r2', source: 'not-searched', question: 'good night all', context: [{ author: 'Eleni', text: 'café time' }, { author: 'Persona', text: 'sure' }], tier: 'none', note: '' },
-  { id: 'r3', source: 'owner', question: 'what did Nikos say about the chess night', context: [], tier: 'agent', note: 'needs digging' },
+  {
+    id: 'r1',
+    source: 'searched',
+    question: 'what is the weather in Lisboa today',
+    context: [],
+    tier: 'fast',
+    note: '',
+  },
+  {
+    id: 'r2',
+    source: 'not-searched',
+    question: 'good night all',
+    context: [
+      { author: 'Eleni', text: 'café time' },
+      { author: 'Persona', text: 'sure' },
+    ],
+    tier: 'none',
+    note: '',
+  },
+  {
+    id: 'r3',
+    source: 'owner',
+    question: 'what did Nikos say about the chess night',
+    context: [],
+    tier: 'agent',
+    note: 'needs digging',
+  },
 ];
 const ANSWERS = new Map([
   ['what is the weather in Lisboa today', 'web: Lisboa weather today'],
@@ -80,11 +104,45 @@ test('search-policy-eval: three rows -> decisions, results.jsonl, the confusion 
   const llm = fakeLlm();
   const out = await run([sheet, '--out', 'run1'], { dir, llmClient: llm });
 
-  const results = fs.readFileSync(path.join(dir, 'run1', 'results.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  const results = fs
+    .readFileSync(path.join(dir, 'run1', 'results.jsonl'), 'utf8')
+    .trim()
+    .split('\n')
+    .map((l) => JSON.parse(l));
   assert.deepEqual(results, [
-    { id: 'r1', source: 'searched', tier: 'fast', decision: 'fast', query: 'Lisboa weather today', forms: [], who: [], ms: 0, ok: true },
-    { id: 'r2', source: 'not-searched', tier: 'none', decision: 'none', query: null, forms: [], who: [], ms: 0, ok: true },
-    { id: 'r3', source: 'owner', tier: 'agent', decision: 'memory', query: null, forms: ['chess night'], who: ['nikos'], ms: 0, ok: true },
+    {
+      id: 'r1',
+      source: 'searched',
+      tier: 'fast',
+      decision: 'fast',
+      query: 'Lisboa weather today',
+      forms: [],
+      who: [],
+      ms: 0,
+      ok: true,
+    },
+    {
+      id: 'r2',
+      source: 'not-searched',
+      tier: 'none',
+      decision: 'none',
+      query: null,
+      forms: [],
+      who: [],
+      ms: 0,
+      ok: true,
+    },
+    {
+      id: 'r3',
+      source: 'owner',
+      tier: 'agent',
+      decision: 'memory',
+      query: null,
+      forms: ['chess night'],
+      who: ['nikos'],
+      ms: 0,
+      ok: true,
+    },
   ]);
 
   const summary = fs.readFileSync(path.join(dir, 'run1', 'summary.md'), 'utf8');
@@ -118,8 +176,14 @@ test('search-policy-eval: three rows -> decisions, results.jsonl, the confusion 
   // The user message is the turn's own rendering of the row's chat.
   const config = hotFixture().config;
   const { history, trigger } = rowChat({ ...ROWS[1], context: ROWS[1].context }, { now: NOW, selfName: 'Persona' });
-  assert.equal(messages[1].content, lookupClassifierInput({ config, labels, selfName: 'Persona', history, trigger }).user);
-  assert.match(messages[1].content, /^<transcript>\n[\s\S]*Eleni[\s\S]*café time[\s\S]*Persona \(you\)[\s\S]*<\/transcript>\n<candidate>\n-: good night all\n<\/candidate>$/);
+  assert.equal(
+    messages[1].content,
+    lookupClassifierInput({ config, labels, selfName: 'Persona', history, trigger }).user
+  );
+  assert.match(
+    messages[1].content,
+    /^<transcript>\n[\s\S]*Eleni[\s\S]*café time[\s\S]*Persona \(you\)[\s\S]*<\/transcript>\n<candidate>\n-: good night all\n<\/candidate>$/
+  );
   assert.equal(llm.calls[0].messages[1].content, '<candidate>\n-: what is the weather in Lisboa today\n</candidate>');
 });
 
@@ -139,9 +203,22 @@ test('search-policy-eval: --limit asks the first N rows only; --model pins the m
   const llm = fakeLlm();
   const out = await run([sheet, '--out', 'run2', '--limit', '2', '--model', 'test/other'], { dir, llmClient: llm });
   assert.equal(llm.calls.length, 2);
-  assert.deepEqual(llm.calls.map((c) => c.options.model), ['test/other', 'test/other']);
-  const results = fs.readFileSync(path.join(dir, 'run2', 'results.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-  assert.deepEqual(results.map((r) => [r.id, r.decision]), [['r1', 'fast'], ['r2', 'none']]);
+  assert.deepEqual(
+    llm.calls.map((c) => c.options.model),
+    ['test/other', 'test/other']
+  );
+  const results = fs
+    .readFileSync(path.join(dir, 'run2', 'results.jsonl'), 'utf8')
+    .trim()
+    .split('\n')
+    .map((l) => JSON.parse(l));
+  assert.deepEqual(
+    results.map((r) => [r.id, r.decision]),
+    [
+      ['r1', 'fast'],
+      ['r2', 'none'],
+    ]
+  );
   assert.match(out, /agreement: 2\/2 \(100%\)/);
   assert.match(out, /## Disagreements \(0\)\n\nNone\./);
 });
@@ -152,34 +229,81 @@ test('search-policy-eval: a failed call is decided failed; the cost stop leaves 
   const out = await run([sheet, '--out', 'run3', '--concurrency', '1'], { dir, llmClient: llm });
   assert.match(out, /failed calls: 1/);
   assert.match(out, /\| r2 \| none \| failed \|  \|/);
-  const stopped = await run([sheet, '--out', 'run4', '--concurrency', '1', '--max-usd', '0'], { dir, llmClient: fakeLlm() });
+  const stopped = await run([sheet, '--out', 'run4', '--concurrency', '1', '--max-usd', '0'], {
+    dir,
+    llmClient: fakeLlm(),
+  });
   assert.match(stopped, /rows: 1, 2 not asked \(max-usd\)/);
 });
 
 test('search-policy-eval: refuses a bad sheet, a missing --out, an --out under data/ and a key value for --key', async () => {
   const { dir, sheet } = tempSheet();
   const llm = fakeLlm();
-  await assert.rejects(run([sheet], { dir, llmClient: llm }), (err) => err instanceof CliError && /--out/.test(err.message));
-  await assert.rejects(run([sheet, '--out', 'data/x'], { dir, llmClient: llm }), (err) => err instanceof CliError && /under data/.test(err.message));
-  const bad = path.join(dir, 'bad.jsonl');
-  fs.writeFileSync(bad, '{"id":"a","question":"q","tier":"later"}\n');
-  await assert.rejects(run([bad, '--out', 'x'], { dir, llmClient: llm }), (err) => err instanceof CliError && /tier must be one of/.test(err.message));
   await assert.rejects(
-    quietly(() => main([sheet, '--out', 'x', '--key', 'sk-or-abc'], { cwd: dir, rootDir: dir, now: () => NOW, hot: hotFixture(), env: {} })),
-    (err) => err instanceof CliError && /name of a variable/.test(err.message) && !err.message.includes('sk-or-abc'),
+    run([sheet], { dir, llmClient: llm }),
+    (err) => err instanceof CliError && /--out/.test(err.message)
   );
   await assert.rejects(
-    quietly(() => main([sheet, '--out', 'x', '--key', 'SOME_KEY'], { cwd: dir, rootDir: dir, now: () => NOW, hot: hotFixture(), env: {} })),
-    (err) => err instanceof CliError && /SOME_KEY is not set/.test(err.message),
+    run([sheet, '--out', 'data/x'], { dir, llmClient: llm }),
+    (err) => err instanceof CliError && /under data/.test(err.message)
+  );
+  const bad = path.join(dir, 'bad.jsonl');
+  fs.writeFileSync(bad, '{"id":"a","question":"q","tier":"later"}\n');
+  await assert.rejects(
+    run([bad, '--out', 'x'], { dir, llmClient: llm }),
+    (err) => err instanceof CliError && /tier must be one of/.test(err.message)
+  );
+  await assert.rejects(
+    quietly(() =>
+      main([sheet, '--out', 'x', '--key', 'sk-or-abc'], {
+        cwd: dir,
+        rootDir: dir,
+        now: () => NOW,
+        hot: hotFixture(),
+        env: {},
+      })
+    ),
+    (err) => err instanceof CliError && /name of a variable/.test(err.message) && !err.message.includes('sk-or-abc')
+  );
+  await assert.rejects(
+    quietly(() =>
+      main([sheet, '--out', 'x', '--key', 'SOME_KEY'], {
+        cwd: dir,
+        rootDir: dir,
+        now: () => NOW,
+        hot: hotFixture(),
+        env: {},
+      })
+    ),
+    (err) => err instanceof CliError && /SOME_KEY is not set/.test(err.message)
   );
   assert.equal(llm.calls.length, 0);
 });
 
 test('parseSheet: rows checked line by line; blank lines skipped', () => {
-  const text = [JSON.stringify(ROWS[0]), '', '{"id":2,"question":"q","tier":"memory"}', 'nope', '{"id":"r1","question":"q","tier":"none"}', '{"id":"x","question":" ","tier":"none"}', '{"id":"y","question":"q","tier":"none","context":[{"author":"a"}]}'].join('\n');
+  const text = [
+    JSON.stringify(ROWS[0]),
+    '',
+    '{"id":2,"question":"q","tier":"memory"}',
+    'nope',
+    '{"id":"r1","question":"q","tier":"none"}',
+    '{"id":"x","question":" ","tier":"none"}',
+    '{"id":"y","question":"q","tier":"none","context":[{"author":"a"}]}',
+  ].join('\n');
   const { rows, errors } = parseSheet(text);
-  assert.deepEqual(rows.map((r) => [r.id, r.tier, r.source, r.context.length]), [['r1', 'fast', 'searched', 0], ['2', 'memory', '', 0]]);
-  assert.deepEqual(errors, ['line 4: not JSON', 'line 5: duplicate id r1', 'line 6: no question', 'line 7: context must be [{ author, text }]']);
+  assert.deepEqual(
+    rows.map((r) => [r.id, r.tier, r.source, r.context.length]),
+    [
+      ['r1', 'fast', 'searched', 0],
+      ['2', 'memory', '', 0],
+    ]
+  );
+  assert.deepEqual(errors, [
+    'line 4: not JSON',
+    'line 5: duplicate id r1',
+    'line 6: no question',
+    'line 7: context must be [{ author, text }]',
+  ]);
 });
 
 test('decisionOf: web -> fast, a server part -> memory, nothing -> none, never agent', () => {
@@ -199,7 +323,10 @@ test('summarize: agreement per source and latency percentiles', () => {
   assert.equal(s.agreed, 2);
   assert.equal(s.failed, 1);
   assert.equal(s.saidAgent, true);
-  assert.deepEqual(s.bySource, [{ source: 's1', rows: 2, agreed: 1 }, { source: 's2', rows: 1, agreed: 1 }]);
+  assert.deepEqual(s.bySource, [
+    { source: 's1', rows: 2, agreed: 1 },
+    { source: 's2', rows: 1, agreed: 1 },
+  ]);
   assert.deepEqual(s.latency, { p50: 200, p95: 300 });
   assert.equal(s.costUsd, 0.75);
   assert.deepEqual(s.disagreements, [{ id: 'b', tier: 'fast', decision: 'failed', query: '' }]);

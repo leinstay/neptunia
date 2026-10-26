@@ -96,11 +96,26 @@ import {
 } from '../memory/index.js';
 import { topByRank } from '../memory/ranking.js';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
-import { RECENT_EPISODES_PER_MEMBER, episodeKey, foldText, memberIdOf, recentSettings, recentView } from '../memory/recent.js';
+import {
+  RECENT_EPISODES_PER_MEMBER,
+  episodeKey,
+  foldText,
+  memberIdOf,
+  recentSettings,
+  recentView,
+} from '../memory/recent.js';
 import { mediaParts } from '../media/classify.js';
 import { ID_DIGITS, fromTokens, isWordChar, occursAsWholeWord } from '../memory/mentions.js';
 import { mergeProfiles } from './private.js';
-import { assignChannelHandles, assignHandles, channelDirectoryEntries, directoryEntries, memberNameMap, renderChannelDirectory, renderDirectory } from './handles.js';
+import {
+  assignChannelHandles,
+  assignHandles,
+  channelDirectoryEntries,
+  directoryEntries,
+  memberNameMap,
+  renderChannelDirectory,
+  renderDirectory,
+} from './handles.js';
 import { renderDiaryBlock, renderKindsBlock } from './diary.js';
 import { IN_TURN_TOOLS, byFamily, discoveryOn } from '../skills/discovery.js';
 import { inertThink } from './previous-think.js';
@@ -167,7 +182,7 @@ function episodeLines(episodes, labels, nameOf) {
       what: resolveChatText(ep.what, nameOf),
       quote: ep.quote,
       feeling: resolveChatText(ep.feeling, nameOf),
-    }),
+    })
   );
   return [p.episodes, ...lines];
 }
@@ -250,7 +265,12 @@ function markConfirmation(text, item, p, marks) {
   if (typeof marks?.confirmAfter === 'number' && !isConfirmed(item, marks.confirmAfter) && p.unsureMark) {
     out += p.unsureMark;
   }
-  if (marks?.stale !== false && typeof marks?.staleDays === 'number' && isStale(item, marks.now ?? Date.now(), marks.staleDays) && p.staleMark) {
+  if (
+    marks?.stale !== false &&
+    typeof marks?.staleDays === 'number' &&
+    isStale(item, marks.now ?? Date.now(), marks.staleDays) &&
+    p.staleMark
+  ) {
     out += p.staleMark;
   }
   return out;
@@ -285,7 +305,9 @@ function claimDay(item) {
  * @returns {string[]}
  */
 function validityTexts(ordered, open, render, p, validity) {
-  const closed = (Array.isArray(validity.closed) ? validity.closed : []).filter((item) => item?.kind === validity.kind && typeof item.supersededBy === 'string');
+  const closed = (Array.isArray(validity.closed) ? validity.closed : []).filter(
+    (item) => item?.kind === validity.kind && typeof item.supersededBy === 'string'
+  );
   const shownDays = Number.isFinite(validity.shownDays) ? validity.shownDays : DEFAULT_SUPERSEDED_SHOWN_DAYS;
   const nowMs = Number.isFinite(validity.now) ? validity.now : Date.now();
   const withBefore = (item) => {
@@ -293,7 +315,9 @@ function validityTexts(ordered, open, render, p, validity) {
     if (!p.before || closed.length === 0 || typeof item.itemId !== 'string') return text;
     const recordedMs = Date.parse(item.recordedAt ?? '');
     if (!Number.isFinite(recordedMs) || nowMs - recordedMs > shownDays * DAY_MS) return text;
-    const before = closed.filter((old) => old.supersededBy === item.itemId).map((old) => fill(p.before, { text: validity.renderClosed(old) }));
+    const before = closed
+      .filter((old) => old.supersededBy === item.itemId)
+      .map((old) => fill(p.before, { text: validity.renderClosed(old) }));
     return before.length > 0 ? [text, ...before].join(' ') : text;
   };
   const done = new Set();
@@ -378,11 +402,17 @@ function detailsText(details, labels, maxDetails, marks) {
   const open = details.filter(isOpen);
   const ordered = topByRank(open, maxDetails, marks?.detailHalfLifeDays);
   noteItems(marks?.reads, 'claim', ordered);
-  return validityTexts(ordered, open, (item) => markConfirmation(resolveChatText(item.text, marks?.nameOf) ?? '', item, p, { ...marks, stale: false }), p, {
-    ...marks?.validity,
-    kind: 'detail',
-    renderClosed: (item) => resolveChatText(item.text, marks?.nameOf) ?? '',
-  }).join('; ');
+  return validityTexts(
+    ordered,
+    open,
+    (item) => markConfirmation(resolveChatText(item.text, marks?.nameOf) ?? '', item, p, { ...marks, stale: false }),
+    p,
+    {
+      ...marks?.validity,
+      kind: 'detail',
+      renderClosed: (item) => resolveChatText(item.text, marks?.nameOf) ?? '',
+    }
+  ).join('; ');
 }
 
 /**
@@ -437,10 +467,19 @@ const ADDRESSED_SHOWN = 5;
  * (`labels.profile.before`) while fresh, as a closed alias does. A missing label leaves its line out.
  * @returns {string[]}
  */
-function nameLines(profile, labels, { maxAliases, aliasHalfLifeDays, addressHalfLifeDays, validity, now, reads = null }) {
+function nameLines(
+  profile,
+  labels,
+  { maxAliases, aliasHalfLifeDays, addressHalfLifeDays, validity, now, reads = null }
+) {
   const p = labels.profile;
   const lines = [];
-  const addressed = p.addressed ? rankAddressed(profile.addressedAs, Number.isFinite(now) ? now : Date.now(), addressHalfLifeDays).slice(0, ADDRESSED_SHOWN) : [];
+  const addressed = p.addressed
+    ? rankAddressed(profile.addressedAs, Number.isFinite(now) ? now : Date.now(), addressHalfLifeDays).slice(
+        0,
+        ADDRESSED_SHOWN
+      )
+    : [];
   if (addressed.length > 0) lines.push(fill(p.addressed, { text: addressed.join(', ') }));
   const listed = addressed.length > 0 ? new Set(addressed.map((name) => foldText(name))) : null;
   const aliasesLine = aliasesText(profile.aliases, labels, maxAliases, aliasHalfLifeDays, validity, listed, reads);
@@ -448,7 +487,11 @@ function nameLines(profile, labels, { maxAliases, aliasHalfLifeDays, addressHalf
   const realName = profile.realName;
   if (p.realName && typeof realName?.name === 'string' && realName.name) {
     const item = { name: realName.name, itemId: realName.itemId, recordedAt: realName.recordedAt };
-    const [text] = validityTexts([item], [item], (claim) => claim.name, p, { ...validity, kind: 'realName', renderClosed: (claim) => claim.name });
+    const [text] = validityTexts([item], [item], (claim) => claim.name, p, {
+      ...validity,
+      kind: 'realName',
+      renderClosed: (claim) => claim.name,
+    });
     lines.push(fill(p.realName, { text }));
   }
   return lines;
@@ -642,7 +685,7 @@ function renderProfileShown(
     nameOf,
     supersededShownDays,
     avatars = false,
-  } = {},
+  } = {}
 ) {
   if (!profile) return { text: '', episodes: 0, reads: [] };
   const p = labels.profile;
@@ -652,11 +695,23 @@ function renderProfileShown(
   const validity = { closed: profile.closed, now: day, shownDays: supersededShownDays };
   // What this rendering carried from memory (the collector, see noteItems).
   const reads = [];
-  const marks = { confirmAfter, staleDays, now: day, interestHalfLifeDays, detailHalfLifeDays, nameOf, validity, reads };
+  const marks = {
+    confirmAfter,
+    staleDays,
+    now: day,
+    interestHalfLifeDays,
+    detailHalfLifeDays,
+    nameOf,
+    validity,
+    reads,
+  };
 
   const restLines = [];
-  if (!compact && profile.names?.length > 1) restLines.push(fill(p.formerNames, { names: profile.names.slice(1).join(', ') }));
-  restLines.push(...nameLines(profile, labels, { maxAliases, aliasHalfLifeDays, addressHalfLifeDays, validity, now: day, reads }));
+  if (!compact && profile.names?.length > 1)
+    restLines.push(fill(p.formerNames, { names: profile.names.slice(1).join(', ') }));
+  restLines.push(
+    ...nameLines(profile, labels, { maxAliases, aliasHalfLifeDays, addressHalfLifeDays, validity, now: day, reads })
+  );
   // What their avatar looks like (`features.avatars`): shown, but not something learned about them.
   const avatarText = avatars ? avatarLine(profile.avatar, p) : '';
   if (avatarText) restLines.push(avatarText);
@@ -668,11 +723,17 @@ function renderProfileShown(
   if (!compact && profile.style) restLines.push(fill(p.style, { text: resolveChatText(profile.style, nameOf) }));
   const detailsLine = compact ? '' : detailsText(profile.details, labels, maxDetails, marks);
   if (detailsLine) restLines.push(fill(p.details, { text: detailsLine }));
-  if (!compact && profile.relationship) restLines.push(fill(p.relationship, { text: resolveChatText(profile.relationship, nameOf) }));
+  if (!compact && profile.relationship)
+    restLines.push(fill(p.relationship, { text: resolveChatText(profile.relationship, nameOf) }));
   const hasContent = restLines.length > (avatarText ? 1 : 0);
   // Every episode for the interlocutor; the top `episodes.max` for a member asked about.
-  const showEpisodes = !compact && episodes?.enabled && (interlocutor || (Number.isInteger(episodes.max) && episodes.max > 0));
-  const episodeSource = showEpisodes ? (interlocutor ? profile.episodes : topEpisodes(profile.episodes, episodes.max)) : [];
+  const showEpisodes =
+    !compact && episodes?.enabled && (interlocutor || (Number.isInteger(episodes.max) && episodes.max > 0));
+  const episodeSource = showEpisodes
+    ? interlocutor
+      ? profile.episodes
+      : topEpisodes(profile.episodes, episodes.max)
+    : [];
   let renderedEpisodes = showEpisodes ? episodeLines(episodeSource, labels, nameOf) : [];
   if (!hasContent && interlocutor) restLines.push(p.unknown);
 
@@ -687,7 +748,8 @@ function renderProfileShown(
   }
   // Anyone but the interlocutor with nothing learned, no attitude and no moment shown (none, or
   // none fit): nothing to show. With an attitude alone the heading stands for the entry.
-  if (!hasContent && !interlocutor && renderedEpisodes.length === 0 && !hasAttitude(profile, relationships)) return { text: '', episodes: 0, reads: [] };
+  if (!hasContent && !interlocutor && renderedEpisodes.length === 0 && !hasAttitude(profile, relationships))
+    return { text: '', episodes: 0, reads: [] };
 
   // The episodes heading, then one line per episode.
   const shownEpisodes = Math.max(0, renderedEpisodes.length - 1);
@@ -727,7 +789,11 @@ function hasAttitude(profile, relationships) {
  * @param {{ relationships?: boolean, shownMoves?: number, compact?: boolean, timezone?: string, nameOf?: (id: string) => string|null }} [opts]
  * @returns {string[]}
  */
-export function profileStateFields(profile, labels, { relationships = false, shownMoves, compact = false, timezone, nameOf } = {}) {
+export function profileStateFields(
+  profile,
+  labels,
+  { relationships = false, shownMoves, compact = false, timezone, nameOf } = {}
+) {
   const n = labels?.peopleNow;
   if (!profile || !n) return [];
   const none = n.values?.none ?? '';
@@ -735,13 +801,14 @@ export function profileStateFields(profile, labels, { relationships = false, sho
   if (relationships) {
     const affinity = profile.affinity;
     const shown = hasAttitude(profile, relationships);
-    const attitude = shown && n.attitude
-      ? fill(n.attitude, {
-          score: roundScore(affinity.score),
-          band: labels.affinity?.bands?.[affinityBand(affinity.score)],
-          reason: resolveChatText(affinity.reason, nameOf),
-        })
-      : none;
+    const attitude =
+      shown && n.attitude
+        ? fill(n.attitude, {
+            score: roundScore(affinity.score),
+            band: labels.affinity?.bands?.[affinityBand(affinity.score)],
+            reason: resolveChatText(affinity.reason, nameOf),
+          })
+        : none;
     lines.push(fieldLine(labels, 'attitude', attitude));
     const max = compact ? Math.min(shownMoves ?? 0, 1) : shownMoves;
     if (shown && Number.isInteger(max) && max > 0) {
@@ -802,7 +869,19 @@ function currentChannelFallback(currentChannelId, history) {
  * carries `labels.server.readOnly` (src/memory/channels.js#renderChannel,
  * never on the current channel).
  */
-function serverItems(channels, currentChannelId, neighborChannelIds, history, now, activityCfg, labels, nameOf, readOnlyIds = new Set(), diaryChannelId = null, ids = null) {
+function serverItems(
+  channels,
+  currentChannelId,
+  neighborChannelIds,
+  history,
+  now,
+  activityCfg,
+  labels,
+  nameOf,
+  readOnlyIds = new Set(),
+  diaryChannelId = null,
+  ids = null
+) {
   const byId = new Map(channels.map((channel) => [channel.id, channel]));
   const current = byId.get(currentChannelId) ?? currentChannelFallback(currentChannelId, history);
   const neighborEntries = [...new Set(neighborChannelIds)]
@@ -829,8 +908,8 @@ function serverItems(channels, currentChannelId, neighborChannelIds, history, no
         readOnly: readOnlyIds.has(channel.id),
         // The persona's own diary (diary.channelId): marked so it is found by name like any channel.
         diary: diaryChannelId !== null && channel.id === diaryChannelId,
-      },
-    ),
+      }
+    )
   );
 }
 
@@ -907,8 +986,10 @@ function aboutChatItems(guildMemory, labels, nameOf, learnedCfg = {}, ids = null
     items.push(text);
     if (Array.isArray(ids)) ids.push(id);
   };
-  if (guildMemory?.patterns) push(fill(a.patterns, { text: resolveChatText(guildMemory.patterns, nameOf) }), 'patterns');
-  if (guildMemory?.starters) push(fill(a.starters, { text: resolveChatText(guildMemory.starters, nameOf) }), 'starters');
+  if (guildMemory?.patterns)
+    push(fill(a.patterns, { text: resolveChatText(guildMemory.patterns, nameOf) }), 'patterns');
+  if (guildMemory?.starters)
+    push(fill(a.starters, { text: resolveChatText(guildMemory.starters, nameOf) }), 'starters');
   if (guildMemory?.injokes?.length) {
     push(fill(a.injokes, { text: guildMemory.injokes.map((text) => resolveChatText(text, nameOf)).join('; ') }));
   }
@@ -934,7 +1015,10 @@ function loreItems(loreEntries, history, trigger, labels, loreCfg, nameOf, ids =
   if (entries.length === 0) return [];
 
   const scan = Math.max(0, loreCfg?.scanMessages ?? 30);
-  const recentTexts = history.slice(-scan).map((m) => m.content ?? '').filter(Boolean);
+  const recentTexts = history
+    .slice(-scan)
+    .map((m) => m.content ?? '')
+    .filter(Boolean);
   if (trigger?.content) recentTexts.push(trigger.content);
 
   const matched = matchLore(entries, recentTexts, { maxMatches: loreCfg?.maxMatches ?? 8 });
@@ -1026,7 +1110,8 @@ function seenEmoji(messageSets) {
   const out = new Map();
   const add = (emojis) => {
     for (const emoji of Array.isArray(emojis) ? emojis : []) {
-      if (emoji?.id && emoji.name && !out.has(String(emoji.id))) out.set(String(emoji.id), { id: String(emoji.id), name: emoji.name });
+      if (emoji?.id && emoji.name && !out.has(String(emoji.id)))
+        out.set(String(emoji.id), { id: String(emoji.id), name: emoji.name });
     }
   };
   for (const messages of messageSets) {
@@ -1060,7 +1145,8 @@ function seenEmoji(messageSets) {
  * @returns {T}
  */
 export function freezePerBucket(freeze, key, { now, bucketMs, signature = '' }, compute) {
-  if (!(freeze instanceof Map) || !Number.isFinite(now) || !Number.isFinite(bucketMs) || bucketMs <= 0) return compute();
+  if (!(freeze instanceof Map) || !Number.isFinite(now) || !Number.isFinite(bucketMs) || bucketMs <= 0)
+    return compute();
   const bucket = Math.floor(now / bucketMs);
   let held = freeze.get(key);
   if (!held || held.bucket !== bucket || held.signature !== signature) {
@@ -1096,7 +1182,10 @@ function gifItems(gifs, mediaCache, labels, gifsCfg) {
   const chosen = rankGifs(gifs, gifsCfg?.halfLifeDays ?? 30).slice(0, max);
   if (chosen.length === 0) return { items: [], ids: [] };
   const options = { ...gifFieldChars(gifsCfg), ownMarkHours: 0, now: 0 };
-  return { items: [g.header, ...chosen.map((entry) => gifLine(entry, mediaCache, labels, options))], ids: chosen.map((entry) => entry.id) };
+  return {
+    items: [g.header, ...chosen.map((entry) => gifLine(entry, mediaCache, labels, options))],
+    ids: chosen.map((entry) => entry.id),
+  };
 }
 
 /**
@@ -1119,7 +1208,10 @@ export function ownGifLines(gifs, shownIds, labels, { ownMarkHours, now }) {
   return Object.values(normalizeGifs(gifs).entries)
     .filter((entry) => shown.has(entry.id) && ownPostAge(entry, { ownMarkHours, now }) !== null)
     .sort((a, b) => b.ownLast - a.ownLast)
-    .map((entry) => `${entry.id} ${fill(g.ownMark, { ago: formatDuration(ownPostAge(entry, { ownMarkHours, now }), labels.units) })}`);
+    .map(
+      (entry) =>
+        `${entry.id} ${fill(g.ownMark, { ago: formatDuration(ownPostAge(entry, { ownMarkHours, now }), labels.units) })}`
+    );
 }
 
 /**
@@ -1233,7 +1325,8 @@ export function gifLine(entry, mediaCache, labels, { reactionChars, actionChars,
 /** How long ago the persona posted `entry` when that is within `ownMarkHours` (0 = never) of `now`, else null. */
 function ownPostAge(entry, { ownMarkHours, now }) {
   const age = Math.max(0, now - entry.ownLast);
-  if (!Number.isFinite(ownMarkHours) || ownMarkHours <= 0 || !(entry.ownLast > 0) || age > ownMarkHours * HOUR_MS) return null;
+  if (!Number.isFinite(ownMarkHours) || ownMarkHours <= 0 || !(entry.ownLast > 0) || age > ownMarkHours * HOUR_MS)
+    return null;
   return age;
 }
 
@@ -1249,17 +1342,24 @@ function ownPostAge(entry, { ownMarkHours, now }) {
 function nowBlock(now, timezone, labels, periods) {
   const clock = formatNow(now, timezone, labels.locale);
   const l = labels.journal ?? {};
-  if (!Array.isArray(periods) || periods.length === 0 || typeof l.offLead !== 'string' || !l.offLead.trim()) return clock;
+  if (!Array.isArray(periods) || periods.length === 0 || typeof l.offLead !== 'string' || !l.offLead.trim())
+    return clock;
   const lines = [];
   for (const period of periods) {
     const template = period?.kind === 'paused' ? l.offPaused : period?.kind === 'stopped' ? l.offStopped : null;
-    if (typeof template !== 'string' || !template.trim() || !Number.isFinite(period.from) || !Number.isFinite(period.to)) continue;
+    if (
+      typeof template !== 'string' ||
+      !template.trim() ||
+      !Number.isFinite(period.from) ||
+      !Number.isFinite(period.to)
+    )
+      continue;
     lines.push(
       fill(template, {
         from: pulledMoment(period.from, timezone, labels.locale),
         to: pulledMoment(period.to, timezone, labels.locale),
         length: formatDuration(Math.max(0, period.to - period.from), labels.units),
-      }),
+      })
     );
   }
   return lines.length > 0 ? [clock, l.offLead, ...lines].join('\n') : clock;
@@ -1293,7 +1393,25 @@ function nowBlock(now, timezone, labels, periods) {
  * the `<seeds>` body (a set post's seed combinations, right after the plan).
  * @returns {{ type: 'text', text: string, cacheSegment?: 'stable'|'profiles' }[]}
  */
-function assembleUser({ nowText, timezone, labels, senses, tools = '', channelDirectory = '', directory = '', kept, tempoText, task, chatItems, diary = null, errands = null, intentions = '', wake = '', places = '', previousThink = '' }) {
+function assembleUser({
+  nowText,
+  timezone,
+  labels,
+  senses,
+  tools = '',
+  channelDirectory = '',
+  directory = '',
+  kept,
+  tempoText,
+  task,
+  chatItems,
+  diary = null,
+  errands = null,
+  intentions = '',
+  wake = '',
+  places = '',
+  previousThink = '',
+}) {
   const stable = [
     block('senses', senses.stable),
     // Her tools described in text (the text transport only; the native transport sends none): changes only when a grant or a skill text does.
@@ -1431,7 +1549,7 @@ export function userText(content) {
 export function fillPromptTemplate(template, values) {
   const source = values ?? {};
   return String(template ?? '').replace(/\{\{(\w+)\}\}/g, (all, key) =>
-    Object.hasOwn(source, key) && source[key] != null ? String(source[key]) : all,
+    Object.hasOwn(source, key) && source[key] != null ? String(source[key]) : all
   );
 }
 
@@ -1531,7 +1649,10 @@ function renderTasks(tasks, labels, { chatItems = [], now = 0 } = {}) {
   // A recovery turn's messages left unanswered earlier (src/behavior/missed.js), first.
   const missed = Array.isArray(tasks.missed) ? tasks.missed.filter((item) => item && item.text) : [];
   if (missed.length > 0 && labels.task?.missed) {
-    const items = numberedItems(missed.map((item) => `${item.author ?? ''}: ${item.text}`), 1);
+    const items = numberedItems(
+      missed.map((item) => `${item.author ?? ''}: ${item.text}`),
+      1
+    );
     texts.push(fill(labels.task.missed, { missed: items.join(TASK_ITEM_JOIN) }));
   }
   const part = tasks.part;
@@ -1540,18 +1661,31 @@ function renderTasks(tasks, labels, { chatItems = [], now = 0 } = {}) {
   if (usablePart && labels.task?.part) {
     const otherParts = numberedItems(parts, 1).filter((_, i) => i + 1 !== part.index);
     const others = [...otherParts, ...numberedItems(queued, parts.length + 1)].join(TASK_ITEM_JOIN);
-    texts.push(fill(labels.task.part, { index: part.index, total: part.total ?? parts.length, part: parts[part.index - 1], others }));
+    texts.push(
+      fill(labels.task.part, {
+        index: part.index,
+        total: part.total ?? parts.length,
+        part: parts[part.index - 1],
+        others,
+      })
+    );
   } else if (!usablePart && queued.length > 0 && labels.task?.queued) {
     texts.push(fill(labels.task.queued, { others: numberedItems(queued, 1).join(TASK_ITEM_JOIN) }));
   }
   const others = Array.isArray(tasks.queuedOthers) ? tasks.queuedOthers.filter((call) => call && call.text) : [];
   if (others.length > 0 && labels.task?.queuedOthers) {
-    const items = numberedItems(others.map((call) => `${call.author ?? ''}: ${call.text}`), 1);
+    const items = numberedItems(
+      others.map((call) => `${call.author ?? ''}: ${call.text}`),
+      1
+    );
     texts.push(fill(labels.task.queuedOthers, { others: items.join(TASK_ITEM_JOIN) }));
   }
-  if (added.length > 0 && labels.task?.added) texts.push(fill(labels.task.added, { added: added.join(TASK_ITEM_JOIN) }));
+  if (added.length > 0 && labels.task?.added)
+    texts.push(fill(labels.task.added, { added: added.join(TASK_ITEM_JOIN) }));
   // Earlier requests in this channel that the engine failed to answer: one line each, last.
-  const failed = Array.isArray(tasks.failedEarlier) ? tasks.failedEarlier.filter((entry) => entry && entry.messageId) : [];
+  const failed = Array.isArray(tasks.failedEarlier)
+    ? tasks.failedEarlier.filter((entry) => entry && entry.messageId)
+    : [];
   if (failed.length > 0 && labels.task?.failedEarlier && labels.units) {
     const lines = failed.map((entry) => {
       const shown = chatItems.find((item) => item.id === entry.messageId);
@@ -1633,7 +1767,10 @@ function renderServerLookup(server, labels, timezone) {
   if (text) lines.push(text);
   const stretch = server.stretch;
   if (l.stretch && typeof stretch?.lines === 'string' && stretch.lines.trim() && Number.isFinite(stretch.startTs)) {
-    lines.push(fill(l.stretch, { date: zonedDay(stretch.startTs, timezone), channel: String(stretch.channelName ?? '') }), stretch.lines);
+    lines.push(
+      fill(l.stretch, { date: zonedDay(stretch.startTs, timezone), channel: String(stretch.channelName ?? '') }),
+      stretch.lines
+    );
   }
   return lines.length > 0 ? [l.serverHeader, ...lines].join('\n') : '';
 }
@@ -1657,10 +1794,15 @@ function renderServerLookup(server, labels, timezone) {
 function prefetchText(prefetch, labels, timezone) {
   const l = labels.prefetch;
   if (!prefetch || !isPlainObject(l) || typeof l.header !== 'string' || !l.header.trim()) return '';
-  const lanes = (Array.isArray(prefetch.basis) ? prefetch.basis : []).map((kind) => l.lanes?.[kind]).filter((text) => typeof text === 'string' && text);
+  const lanes = (Array.isArray(prefetch.basis) ? prefetch.basis : [])
+    .map((kind) => l.lanes?.[kind])
+    .filter((text) => typeof text === 'string' && text);
   const lines = [l.header];
-  if (lanes.length > 0 && typeof l.basis === 'string' && l.basis) lines.push(fill(l.basis, { basis: lanes.join(', ') }));
-  const excerpts = Array.isArray(prefetch.excerpts) ? prefetch.excerpts.filter((e) => typeof e?.lines === 'string' && e.lines.trim()) : [];
+  if (lanes.length > 0 && typeof l.basis === 'string' && l.basis)
+    lines.push(fill(l.basis, { basis: lanes.join(', ') }));
+  const excerpts = Array.isArray(prefetch.excerpts)
+    ? prefetch.excerpts.filter((e) => typeof e?.lines === 'string' && e.lines.trim())
+    : [];
   if (excerpts.length === 0) {
     const status = l.status?.[prefetch.status === 'ok' ? 'none' : prefetch.status];
     if (typeof status === 'string' && status) lines.push(status);
@@ -1671,9 +1813,26 @@ function prefetchText(prefetch, labels, timezone) {
     const memory = excerpt.source === 'memory';
     const head = memory ? (l.memoryExcerpt ?? l.excerpt) : l.excerpt;
     const fields = memory
-      ? { n: i + 1, source: l.sources?.memory ?? '', date: excerpt.date ?? '', who: excerpt.who ?? '', id: excerpt.id ?? '' }
-      : { n: i + 1, source: l.sources?.history ?? '', date: Number.isFinite(excerpt.startTs) ? zonedDay(excerpt.startTs, timezone) : '', channel: String(excerpt.channelName ?? ''), id: excerpt.id ?? '' };
-    lines.push(block('excerpt', [typeof head === 'string' && head ? fill(head, fields) : '', excerpt.lines].filter(Boolean).join('\n')));
+      ? {
+          n: i + 1,
+          source: l.sources?.memory ?? '',
+          date: excerpt.date ?? '',
+          who: excerpt.who ?? '',
+          id: excerpt.id ?? '',
+        }
+      : {
+          n: i + 1,
+          source: l.sources?.history ?? '',
+          date: Number.isFinite(excerpt.startTs) ? zonedDay(excerpt.startTs, timezone) : '',
+          channel: String(excerpt.channelName ?? ''),
+          id: excerpt.id ?? '',
+        };
+    lines.push(
+      block(
+        'excerpt',
+        [typeof head === 'string' && head ? fill(head, fields) : '', excerpt.lines].filter(Boolean).join('\n')
+      )
+    );
   });
   return lines.join('\n');
 }
@@ -1759,7 +1918,7 @@ function renderSenses(
     diaryChannel = null,
     participation = false,
     toolsGranted = [],
-  } = {},
+  } = {}
 ) {
   const senses = labels.senses;
   // features.coreTools: no search runs before her reply; she calls her own tools (granted to her by name).
@@ -1780,7 +1939,9 @@ function renderSenses(
   // Watching a video needs the describer on too; an older labels.json
   // without the video-watching lines falls back to the still-frame ones.
   const videoOn = describedOn && config.features?.videoDescriptions !== false;
-  lines.push(videoOn ? (senses.videoWatch ?? senses.videoDescribed) : describedOn ? senses.videoDescribed : senses.videoBlind);
+  lines.push(
+    videoOn ? (senses.videoWatch ?? senses.videoDescribed) : describedOn ? senses.videoDescribed : senses.videoBlind
+  );
   // The second look on a question (features.videoRewatch, a missing key
   // counts as on); an older labels.json without the line shows nothing.
   // With features.coreTools no classifier gives her one: she looks again herself with media.look,
@@ -1855,7 +2016,8 @@ function renderSenses(
     lines.push(fill(senses.elsewhere, { destination: elsewhereDestination.name }));
   }
   // Where the persona keeps its diary, so it can speak of it anywhere.
-  if (senses.diary && typeof diaryChannel === 'string' && diaryChannel) lines.push(fill(senses.diary, { channel: diaryChannel }));
+  if (senses.diary && typeof diaryChannel === 'string' && diaryChannel)
+    lines.push(fill(senses.diary, { channel: diaryChannel }));
   // Private chat: the one line for this conversation (per turn), or -- on the
   // server, with the feature on -- the rule about what was said in private.
   if (privateChat) turnLines.push(senses.privateChat);
@@ -1889,19 +2051,37 @@ const ARG_VALUES_MORE = '…';
  * @returns {string}
  */
 function skillArgsText(args, forms) {
-  if (!Array.isArray(args) || args.length === 0 || !isPlainObject(forms) || typeof forms.list !== 'string' || !forms.list) return '';
-  const wrap = (key, text, values) => (typeof forms[key] === 'string' && forms[key] ? fill(forms[key], { ...values, arg: text }) : text);
+  if (
+    !Array.isArray(args) ||
+    args.length === 0 ||
+    !isPlainObject(forms) ||
+    typeof forms.list !== 'string' ||
+    !forms.list
+  )
+    return '';
+  const wrap = (key, text, values) =>
+    typeof forms[key] === 'string' && forms[key] ? fill(forms[key], { ...values, arg: text }) : text;
   const one = (arg) => {
     let text = String(arg.name);
     if (Array.isArray(arg.values) && arg.values.length > 0) {
-      text = wrap('values', text, { values: [...arg.values, ...(arg.more ? [ARG_VALUES_MORE] : [])].join(ARG_VALUE_SEPARATOR) });
+      text = wrap('values', text, {
+        values: [...arg.values, ...(arg.more ? [ARG_VALUES_MORE] : [])].join(ARG_VALUE_SEPARATOR),
+      });
     } else if (Number.isFinite(arg.minimum) || Number.isFinite(arg.maximum)) {
-      text = wrap('range', text, { min: Number.isFinite(arg.minimum) ? arg.minimum : '', max: Number.isFinite(arg.maximum) ? arg.maximum : '' });
+      text = wrap('range', text, {
+        min: Number.isFinite(arg.minimum) ? arg.minimum : '',
+        max: Number.isFinite(arg.maximum) ? arg.maximum : '',
+      });
     }
     if (arg.required === true) text = wrap('required', text);
     return text;
   };
-  return fill(forms.list, { list: args.filter((arg) => typeof arg?.name === 'string').map(one).join(', ') });
+  return fill(forms.list, {
+    list: args
+      .filter((arg) => typeof arg?.name === 'string')
+      .map(one)
+      .join(', '),
+  });
 }
 
 /**
@@ -1927,14 +2107,32 @@ export function skillsInventoryText(rows, labels) {
   const access = isPlainObject(l.access) ? l.access : {};
   const word = (row) => access[row.reason] ?? access.allowed ?? '';
   const named = rows.filter((row) => row && typeof row.name === 'string');
-  const line = (row) => (row.title ? fill(l.line, { name: row.name, title: row.title, whenToUse: row.whenToUse ?? '', access: word(row), args: skillArgsText(row.args, l.args) }) : row.name);
+  const line = (row) =>
+    row.title
+      ? fill(l.line, {
+          name: row.name,
+          title: row.title,
+          whenToUse: row.whenToUse ?? '',
+          access: word(row),
+          args: skillArgsText(row.args, l.args),
+        })
+      : row.name;
   const open = byFamily(named.filter((row) => row.allowed === true)).map((group) => group.map(line).join('\n'));
   if (!named.every((row) => row.proposed === true)) return open.join('\n\n');
   // A skill the asker has no right to is not a switched-off one: each is named through its own label.
   const closed = named.filter((row) => row.allowed !== true);
-  const note = (label, rows) => (rows.length > 0 && typeof label === 'string' && label ? fill(label, { names: rows.map((row) => row.name).join(', ') }) : '');
-  const offLine = note(l.proposedOff, closed.filter((row) => row.reason !== 'requester-denied'));
-  const deniedLine = note(l.proposedDenied, closed.filter((row) => row.reason === 'requester-denied'));
+  const note = (label, rows) =>
+    rows.length > 0 && typeof label === 'string' && label
+      ? fill(label, { names: rows.map((row) => row.name).join(', ') })
+      : '';
+  const offLine = note(
+    l.proposedOff,
+    closed.filter((row) => row.reason !== 'requester-denied')
+  );
+  const deniedLine = note(
+    l.proposedDenied,
+    closed.filter((row) => row.reason === 'requester-denied')
+  );
   return [open.join('\n\n'), offLine, deniedLine].filter(Boolean).join('\n');
 }
 
@@ -1965,7 +2163,11 @@ function nameOccurs(haystackLower, nameLower) {
 function profileNames(profile, maxAliases, aliasHalfLifeDays) {
   const names = [];
   if (typeof profile?.names?.[0] === 'string') names.push(profile.names[0]);
-  for (const alias of topByRank(Array.isArray(profile?.aliases) ? profile.aliases : [], maxAliases, aliasHalfLifeDays)) {
+  for (const alias of topByRank(
+    Array.isArray(profile?.aliases) ? profile.aliases : [],
+    maxAliases,
+    aliasHalfLifeDays
+  )) {
     if (typeof alias?.name === 'string') names.push(alias.name);
   }
   return names;
@@ -1989,7 +2191,8 @@ function askedAboutWindow(history, trigger) {
   const mentionedIds = new Set();
   const texts = [];
   for (const message of messages) {
-    for (const id of Array.isArray(message?.mentionedUserIds) ? message.mentionedUserIds : []) mentionedIds.add(String(id));
+    for (const id of Array.isArray(message?.mentionedUserIds) ? message.mentionedUserIds : [])
+      mentionedIds.add(String(id));
     if (typeof message?.content === 'string' && message.content) texts.push(message.content);
   }
   return { mentionedIds, scanTextLower: texts.join('\n').toLowerCase() };
@@ -2000,7 +2203,7 @@ function isAskedAbout(profile, mentionedIds, scanTextLower, maxAliases, aliasHal
   const id = profile?.id === undefined || profile?.id === null ? '' : String(profile.id);
   if (id && mentionedIds.has(id)) return true;
   return profileNames(profile, maxAliases, aliasHalfLifeDays).some(
-    (name) => name.length >= 3 && nameOccurs(scanTextLower, name.toLowerCase()),
+    (name) => name.length >= 3 && nameOccurs(scanTextLower, name.toLowerCase())
   );
 }
 
@@ -2042,7 +2245,7 @@ function splitPeople(
   maxAskedAbout,
   maxAliases,
   aliasHalfLifeDays,
-  pulledAuthorIds = [],
+  pulledAuthorIds = []
 ) {
   const { mentionedIds, scanTextLower } = askedAboutWindow(history, trigger);
   const cap = Number.isInteger(maxAskedAbout) && maxAskedAbout >= 0 ? maxAskedAbout : Infinity;
@@ -2085,7 +2288,9 @@ function splitPeople(
       continue;
     }
     if (covered.has(id)) continue;
-    const profile = (Array.isArray(candidateProfiles) ? candidateProfiles : []).find((candidate) => idOf(candidate) === id);
+    const profile = (Array.isArray(candidateProfiles) ? candidateProfiles : []).find(
+      (candidate) => idOf(candidate) === id
+    );
     if (profile) {
       covered.add(id);
       askedAbout.push(profile);
@@ -2114,7 +2319,9 @@ function splitPeople(
 function recentEntries(items, { labels, timezone, currentChannelId, channels, nameOf }) {
   const r = labels.recent;
   const channelNames = new Map(
-    (Array.isArray(channels) ? channels : []).filter((channel) => channel?.id && channel.name).map((channel) => [channel.id, channel.name]),
+    (Array.isArray(channels) ? channels : [])
+      .filter((channel) => channel?.id && channel.name)
+      .map((channel) => [channel.id, channel.name])
   );
   const entries = [];
   let unnamed = 0;
@@ -2124,8 +2331,17 @@ function recentEntries(items, { labels, timezone, currentChannelId, channels, na
       const text = resolveChatText(item.line.text, nameOf);
       const time = formatClock(item.at, timezone, labels.locale);
       const channel = item.line.channelId !== currentChannelId ? channelNames.get(item.line.channelId) : undefined;
-      const rendered = channel && r.lineIn ? fill(r.lineIn, { date, time, channel, text }) : fill(r.line, { date, time, text });
-      entries.push({ kind: 'line', at: item.at, text: rendered, read: typeof item.line.itemId === 'string' && item.line.itemId ? { kind: 'recent_line', id: item.line.itemId } : null });
+      const rendered =
+        channel && r.lineIn ? fill(r.lineIn, { date, time, channel, text }) : fill(r.line, { date, time, text });
+      entries.push({
+        kind: 'line',
+        at: item.at,
+        text: rendered,
+        read:
+          typeof item.line.itemId === 'string' && item.line.itemId
+            ? { kind: 'recent_line', id: item.line.itemId }
+            : null,
+      });
       continue;
     }
     if (!r.episode) continue;
@@ -2139,7 +2355,10 @@ function recentEntries(items, { labels, timezone, currentChannelId, channels, na
       kind: 'episode',
       at: item.at,
       text: fill(r.episode, { date, name, what: resolveChatText(item.episode.what, nameOf) }),
-      read: typeof item.episode.itemId === 'string' && item.episode.itemId ? { kind: 'episode', id: item.episode.itemId } : null,
+      read:
+        typeof item.episode.itemId === 'string' && item.episode.itemId
+          ? { kind: 'episode', id: item.episode.itemId }
+          : null,
     });
   }
   return { entries, unnamed };
@@ -2150,7 +2369,7 @@ function matchWords(text) {
   return new Set(
     foldText(text)
       .split(/\P{L}+/u)
-      .filter((word) => [...word].length >= 4),
+      .filter((word) => [...word].length >= 4)
   );
 }
 
@@ -2167,8 +2386,14 @@ function storedLineRenderer({ labels, timezone, now, selfName, nameOf, ageMinute
   return (message) => {
     const clock = formatClock(message.ts, timezone, labels.locale);
     const age = now - message.ts;
-    const time = agedTemplate && age >= ageMinutes * MINUTE_MS ? fill(agedTemplate, { clock, age: formatDuration(age, labels.units) }) : `[${clock}]`;
-    const caption = message.caption && labels.transcript?.imageDescribed ? fill(labels.transcript.imageDescribed, { text: message.caption }) : '';
+    const time =
+      agedTemplate && age >= ageMinutes * MINUTE_MS
+        ? fill(agedTemplate, { clock, age: formatDuration(age, labels.units) })
+        : `[${clock}]`;
+    const caption =
+      message.caption && labels.transcript?.imageDescribed
+        ? fill(labels.transcript.imageDescribed, { text: message.caption })
+        : '';
     const body = [resolveChatText(message.text, nameOf), caption].filter(Boolean).join(' ');
     return `${time} ${message.self ? selfLabel : message.name}: ${body}`.trimEnd();
   };
@@ -2204,7 +2429,23 @@ function storedLineRenderer({ labels, timezone, now, selfName, nameOf, ageMinute
  * @returns {{ header: string, episodes: { id: string, channelId: string, channelLine: string, text: string,
  *   budgetText: string, rank: number, lastOwnAt: number }[], offered: number, deduped: number }|null}
  */
-function participationView(participation, { config, labels, privateChat, currentChannelId, channels, shownIds, candidateText, now, timezone, selfName, nameOf, ageMinutes }) {
+function participationView(
+  participation,
+  {
+    config,
+    labels,
+    privateChat,
+    currentChannelId,
+    channels,
+    shownIds,
+    candidateText,
+    now,
+    timezone,
+    selfName,
+    nameOf,
+    ageMinutes,
+  }
+) {
   const p = labels.participation;
   if (privateChat || config.features?.participation === false) return null;
   if (!p?.header || !p.episode) return null;
@@ -2214,9 +2455,11 @@ function participationView(participation, { config, labels, privateChat, current
   const groups = selectEpisodes(
     participation.state,
     { pickedIds, excludeChannelId: currentChannelId, audience: participation.audience, now },
-    settings,
+    settings
   );
-  const stored = new Map((Array.isArray(channels) ? channels : []).filter((channel) => channel?.id).map((channel) => [channel.id, channel]));
+  const stored = new Map(
+    (Array.isArray(channels) ? channels : []).filter((channel) => channel?.id).map((channel) => [channel.id, channel])
+  );
   const liveName = typeof participation.channelName === 'function' ? participation.channelName : () => null;
   const words = matchWords(candidateText);
   const renderLine = storedLineRenderer({ labels, timezone, now, selfName, nameOf, ageMinutes });
@@ -2230,17 +2473,29 @@ function participationView(participation, { config, labels, privateChat, current
     const name = oneLine(note?.name ?? '') || oneLine(liveName(group.channelId) ?? '');
     if (!name) continue;
     const purpose = oneLine(note?.purpose ?? '');
-    const channelLine = purpose && p.channel ? fill(p.channel, { channel: name, purpose }) : p.channelNoPurpose ? fill(p.channelNoPurpose, { channel: name }) : '';
+    const channelLine =
+      purpose && p.channel
+        ? fill(p.channel, { channel: name, purpose })
+        : p.channelNoPurpose
+          ? fill(p.channelNoPurpose, { channel: name })
+          : '';
     for (const episode of group.episodes) {
       const messages = episode.messages.filter((message) => !shownIds.has(message.id));
       deduped += episode.messages.length - messages.length;
       if (!messages.some((message) => message.self)) continue;
       const keepIds =
-        words.size > 0 ? messages.filter((message) => [...matchWords(message.text)].some((word) => words.has(word))).map((message) => message.id) : [];
+        words.size > 0
+          ? messages
+              .filter((message) => [...matchWords(message.text)].some((word) => words.has(word)))
+              .map((message) => message.id)
+          : [];
       const lines = cutEpisode({ messages }, { maxChars: settings.episodeChars, keepIds }).map((item) =>
-        'skipped' in item ? (p.skipped ? fill(p.skipped, { count: item.skipped }) : '') : renderLine(item.message),
+        'skipped' in item ? (p.skipped ? fill(p.skipped, { count: item.skipped }) : '') : renderLine(item.message)
       );
-      const text = [fill(p.episode, { when: formatDuration(Math.max(0, now - episode.lastOwnAt), labels.units) }), ...lines.filter(Boolean)].join('\n');
+      const text = [
+        fill(p.episode, { when: formatDuration(Math.max(0, now - episode.lastOwnAt), labels.units) }),
+        ...lines.filter(Boolean),
+      ].join('\n');
       episodes.push({
         id: episode.id,
         itemId: typeof episode.itemId === 'string' && episode.itemId ? episode.itemId : null,
@@ -2318,15 +2573,24 @@ function anchoredOn(config, labels, privateChat) {
  * `startAt`. Null when there is nothing to show.
  * @returns {{ header: string, pieces: object[] }|null}
  */
-function anchorsView(participation, { config, labels, currentChannelId, history, trigger, selfId, now, timezone, selfName, nameOf, formatOptions }) {
+function anchorsView(
+  participation,
+  { config, labels, currentChannelId, history, trigger, selfId, now, timezone, selfName, nameOf, formatOptions }
+) {
   const p = labels.participation;
   const settings = participationSettings(config);
   const parents = history.filter((message) => message.replyParent === true);
   const windowLines = history.filter((message) => message.replyParent !== true);
   const indexOf = new Map(history.map((message, i) => [message.id, i + 1]));
   const starts = windowLines.map((message) => message?.ts).filter(Number.isFinite);
-  const state = config.features?.participation !== false && participation && typeof participation === 'object' ? participation.state : null;
-  const episodes = state && starts.length > 0 ? earlierEpisodes(state, { channelId: currentChannelId, before: Math.min(...starts), now }, settings) : [];
+  const state =
+    config.features?.participation !== false && participation && typeof participation === 'object'
+      ? participation.state
+      : null;
+  const episodes =
+    state && starts.length > 0
+      ? earlierEpisodes(state, { channelId: currentChannelId, before: Math.min(...starts), now }, settings)
+      : [];
 
   // Her lines and what they answer: a reply target, or the message that started their turn.
   const herIds = new Set();
@@ -2345,17 +2609,27 @@ function anchorsView(participation, { config, labels, currentChannelId, history,
     }
   }
   const openParent = (m) =>
-    !m.self && !m.bot && !answered.has(m.id) && ((selfId && (m.mentionedUserIds ?? []).includes(selfId)) || herIds.has(m.replyToId));
+    !m.self &&
+    !m.bot &&
+    !answered.has(m.id) &&
+    ((selfId && (m.mentionedUserIds ?? []).includes(selfId)) || herIds.has(m.replyToId));
   const openStored = (episode, i) => {
     const m = episode.messages[i];
-    return !m.self && herIds.has(m.replyTo) && !answered.has(m.id) && !episode.messages.slice(i + 1).some((later) => later.self);
+    return (
+      !m.self &&
+      herIds.has(m.replyTo) &&
+      !answered.has(m.id) &&
+      !episode.messages.slice(i + 1).some((later) => later.self)
+    );
   };
   const mark = p.earlierOpen ? ` ${p.earlierOpen}` : '';
 
   const pieces = [];
   for (const parent of parents) {
     const open = openParent(parent);
-    const line = formatTranscript(history, { ...formatOptions, now: undefined, skip: (message) => message.id !== parent.id })[0].text + (open ? mark : '');
+    const line =
+      formatTranscript(history, { ...formatOptions, now: undefined, skip: (message) => message.id !== parent.id })[0]
+        .text + (open ? mark : '');
     pieces.push({
       kind: 'reply',
       ids: [parent.id],
@@ -2415,7 +2689,9 @@ function anchorsText(view, keptItems, labels) {
     }
   }
   const inEpisodes = new Set(kept.filter((piece) => piece.kind === 'episode').flatMap((piece) => piece.ids));
-  const shown = kept.filter((piece) => piece.kind === 'episode' || !inEpisodes.has(piece.ids[0])).sort((x, y) => x.startAt - y.startAt);
+  const shown = kept
+    .filter((piece) => piece.kind === 'episode' || !inEpisodes.has(piece.ids[0]))
+    .sort((x, y) => x.startAt - y.startAt);
   if (shown.length === 0) return none;
   const gap = labels.participation?.earlierGap;
   const text = [view.header, shown.map((piece) => piece.text).join(gap ? `\n${gap}\n` : '\n')].join('\n');
@@ -2468,7 +2744,8 @@ function authorsInView(history, sources) {
   const ids = new Set();
   const add = (messages) => {
     for (const message of Array.isArray(messages) ? messages : []) {
-      if (!message || message.self || message.bot || message.authorId === undefined || message.authorId === null) continue;
+      if (!message || message.self || message.bot || message.authorId === undefined || message.authorId === null)
+        continue;
       ids.add(String(message.authorId));
     }
   };
@@ -2546,9 +2823,18 @@ function pulledTranscripts(pulledChannels, { formatOptions, descriptions, firstI
  * @returns {string}
  */
 function pulledLineHash(message) {
-  const ids = (list, key) => (Array.isArray(list) ? list.map((item) => String(item?.[key] ?? item?.url ?? item?.name ?? '')) : []);
-  const forwarded = Array.isArray(message.forwarded) ? message.forwarded.map((part) => [part?.content ?? '', ids(part?.attachments, 'id')]) : [];
-  const source = JSON.stringify([message.content ?? '', ids(message.attachments, 'id'), ids(message.links, 'url'), ids(message.stickers, 'id'), forwarded]);
+  const ids = (list, key) =>
+    Array.isArray(list) ? list.map((item) => String(item?.[key] ?? item?.url ?? item?.name ?? '')) : [];
+  const forwarded = Array.isArray(message.forwarded)
+    ? message.forwarded.map((part) => [part?.content ?? '', ids(part?.attachments, 'id')])
+    : [];
+  const source = JSON.stringify([
+    message.content ?? '',
+    ids(message.attachments, 'id'),
+    ids(message.links, 'url'),
+    ids(message.stickers, 'id'),
+    forwarded,
+  ]);
   return createHash('sha1').update(source).digest('hex').slice(0, 12);
 }
 
@@ -2561,7 +2847,11 @@ function pulledLineHash(message) {
 function seenBeforeOf(entry) {
   const seen = entry?.seenBefore;
   if (!seen || !(seen.hashes instanceof Map) || !Number.isFinite(seen.shownAt)) return null;
-  return { hashes: seen.hashes, oldestTs: Number.isFinite(seen.oldestTs) ? seen.oldestTs : Infinity, shownAt: seen.shownAt };
+  return {
+    hashes: seen.hashes,
+    oldestTs: Number.isFinite(seen.oldestTs) ? seen.oldestTs : Infinity,
+    shownAt: seen.shownAt,
+  };
 }
 
 /**
@@ -2594,12 +2884,17 @@ function seenBeforeOf(entry) {
  * @returns {{ text: string, ids: Array<string|number>, newestId: string|number, newestTs: number,
  *   hashes: Map<string, string>, oldestTs: number, oldestId: string|number, seen: { fresh: number, older: number }|null }|null}
  */
-function fitPulledChannel(channel, { budget, ceiling = budget, cost, labels, timezone, now, readOnly, triggerId, seenOn = false }) {
+function fitPulledChannel(
+  channel,
+  { budget, ceiling = budget, cost, labels, timezone, now, readOnly, triggerId, seenOn = false }
+) {
   const p = labels.pull;
   const windowItems = channel.items.filter((item) => !channel.earlierIds.has(String(item.id)));
   const earlierItems = channel.items.filter((item) => channel.earlierIds.has(String(item.id)));
   if (windowItems.length === 0) return null;
-  const notSeen = Number.isFinite(channel.entry.picturesNotSeen) ? Math.max(0, Math.floor(channel.entry.picturesNotSeen)) : 0;
+  const notSeen = Number.isFinite(channel.entry.picturesNotSeen)
+    ? Math.max(0, Math.floor(channel.entry.picturesNotSeen))
+    : 0;
   const newestWindow = windowItems.at(-1);
   const windowAt = new Map(windowItems.map((item, i) => [item.id, i]));
   const hashById = new Map(channel.messages.map((message) => [String(message.id), pulledLineHash(message)]));
@@ -2608,7 +2903,9 @@ function fitPulledChannel(channel, { budget, ceiling = budget, cost, labels, tim
   // The kept lines against the previous view: new or changed ones, and those of them older than it.
   const seenCounts = (keep) => {
     if (!previous) return null;
-    const fresh = channel.items.filter((item) => keep.has(item.id) && previous.hashes.get(String(item.id)) !== hashById.get(String(item.id)));
+    const fresh = channel.items.filter(
+      (item) => keep.has(item.id) && previous.hashes.get(String(item.id)) !== hashById.get(String(item.id))
+    );
     return { fresh: fresh.length, older: fresh.filter((item) => item.ts < previous.oldestTs).length };
   };
   const seenLine = (counts) => {
@@ -2637,12 +2934,14 @@ function fitPulledChannel(channel, { budget, ceiling = budget, cost, labels, tim
     if (older && p.olderNotShown) lines.push(fill(p.olderNotShown));
     if (notSeen > 0 && p.picturesNotSeen) lines.push(fill(p.picturesNotSeen, { count: notSeen }));
     if (keptEarlier.length > 0) {
-      if (p.earlierPings) lines.push(fill(p.earlierPings, { date: formatDate(keptEarlier[0].ts, timezone, labels.locale) }));
+      if (p.earlierPings)
+        lines.push(fill(p.earlierPings, { date: formatDate(keptEarlier[0].ts, timezone, labels.locale) }));
       lines.push(...keptEarlier.map((item) => item.text));
     }
     keptWindow.forEach((item, i) => {
       // Lines cut between two kept ones are not shown either.
-      if (i > 0 && windowAt.get(item.id) - windowAt.get(keptWindow[i - 1].id) > 1 && p.olderNotShown) lines.push(fill(p.olderNotShown));
+      if (i > 0 && windowAt.get(item.id) - windowAt.get(keptWindow[i - 1].id) > 1 && p.olderNotShown)
+        lines.push(fill(p.olderNotShown));
       lines.push(item.text);
     });
     return lines.join('\n');
@@ -2704,7 +3003,8 @@ function pulledAuthors(pulledFits) {
     const byId = new Map(fit.messages.map((message) => [message.id, message]));
     for (const id of [...fit.ids].reverse()) {
       const message = byId.get(id);
-      if (!message || message.self || message.bot || message.authorId === undefined || message.authorId === null) continue;
+      if (!message || message.self || message.bot || message.authorId === undefined || message.authorId === null)
+        continue;
       const authorId = String(message.authorId);
       if (!out.includes(authorId)) out.push(authorId);
     }
@@ -2747,7 +3047,9 @@ function seenOf({ history, keptChat, anchoredIds = [] }) {
     parts: {
       filePreviews: keptMessages
         .filter((message) =>
-          mediaParts(message).some((part) => (part.attachments ?? []).some((a) => a?.kind === 'text' && typeof a.previewText === 'string')),
+          mediaParts(message).some((part) =>
+            (part.attachments ?? []).some((a) => a?.kind === 'text' && typeof a.previewText === 'string')
+          )
         )
         .map((message) => message.id),
     },
@@ -3088,7 +3390,26 @@ export function buildRequest(input) {
   // The transport anchor is not a heartbeat's current conversation. Memory and its wake remain available.
   const heartbeat = input.mode === 'inner' && input.wakeKind === 'heartbeat';
   if (heartbeat) input = { ...input, history: [], neighbors: [], pulled: null, currentChannelId: null };
-  const { config, prompts, calibrator, mode, forced = false, now, selfName, history, neighbors, trigger, triggerKind, channels = [], currentChannelId = null, descriptions, videos, imageAnswers, reads, lookup = null } = input;
+  const {
+    config,
+    prompts,
+    calibrator,
+    mode,
+    forced = false,
+    now,
+    selfName,
+    history,
+    neighbors,
+    trigger,
+    triggerKind,
+    channels = [],
+    currentChannelId = null,
+    descriptions,
+    videos,
+    imageAnswers,
+    reads,
+    lookup = null,
+  } = input;
   const labels = requireLabels(prompts);
   const privateChat = Boolean(input.privateChat);
   const interlocutor = privateChat ? mergeProfiles(input.interlocutor, input.privateProfile) : input.interlocutor;
@@ -3097,8 +3418,10 @@ export function buildRequest(input) {
   // What memory changes inside the stable part (`<self_facts>`, `<gifs>`) is held for one cache
   // TTL bucket while the prompt cache is on (freezePerBucket): a memory batch or the persona's
   // GIF post rewrites the cached prefix at most once per bucket.
-  const stableFreeze = config.features?.promptCache === true && input.stableFreeze instanceof Map ? input.stableFreeze : null;
-  const frozen = (key, signature, compute) => freezePerBucket(stableFreeze, key, { now, bucketMs: cacheTtlMs(config), signature }, compute);
+  const stableFreeze =
+    config.features?.promptCache === true && input.stableFreeze instanceof Map ? input.stableFreeze : null;
+  const frozen = (key, signature, compute) =>
+    freezePerBucket(stableFreeze, key, { now, bucketMs: cacheTtlMs(config), signature }, compute);
   // Mention handles (features.mentionHandles, a missing key counts as on): every member with a
   // stored profile gets one in `<directory>` (the stable part), the authors in view on their lines.
   const handlesOn = config.features?.mentionHandles !== false;
@@ -3106,19 +3429,33 @@ export function buildRequest(input) {
   // the gateway's voice states and presences, never in a private chat or a diary post.
   const aroundInput = input.around;
   const liveOn =
-    config.features?.around !== false && !privateChat && mode !== 'diary' && isPlainObject(aroundInput) && Boolean(aroundInput.snapshot) && Boolean(labels.peopleNow);
+    config.features?.around !== false &&
+    !privateChat &&
+    mode !== 'diary' &&
+    isPlainObject(aroundInput) &&
+    Boolean(aroundInput.snapshot) &&
+    Boolean(labels.peopleNow);
   const liveSnapshot = liveOn ? aroundInput.snapshot : null;
   const voiceChannelNameOf = liveOn ? aroundInput.channelNameOf : undefined;
   const selfMemberId = memberIdOf(input.selfId);
   // Everyone in a voice channel the audience may see, the persona aside: each gets a handle, so
   // their `<people_now>` entry joins by it like everyone's.
   const inVoice = liveOn
-    ? voiceOccupants(liveSnapshot, { excludeIds: new Set([selfMemberId].filter(Boolean)), nameOf, channelNameOf: voiceChannelNameOf }).map((occupant) => occupant.memberId)
+    ? voiceOccupants(liveSnapshot, {
+        excludeIds: new Set([selfMemberId].filter(Boolean)),
+        nameOf,
+        channelNameOf: voiceChannelNameOf,
+      }).map((occupant) => occupant.memberId)
     : [];
   const directory = handlesOn ? directoryEntries(input.candidateProfiles ?? [], { selfId: input.selfId ?? null }) : [];
   // The interlocutor and the other people a profile is offered for are in view too, so every
   // `<people_now>` entry has a handle even for a member the directory does not list.
-  const offeredIds = [interlocutor?.id, ...(Array.isArray(input.otherProfiles) ? input.otherProfiles.map((profile) => profile?.id) : [])].map(memberIdOf).filter(Boolean);
+  const offeredIds = [
+    interlocutor?.id,
+    ...(Array.isArray(input.otherProfiles) ? input.otherProfiles.map((profile) => profile?.id) : []),
+  ]
+    .map(memberIdOf)
+    .filter(Boolean);
   const handleById = handlesOn
     ? assignHandles({
         profiled: directory.map((entry) => entry.id),
@@ -3129,14 +3466,29 @@ export function buildRequest(input) {
   // The names each member in view goes by (the directory's, the lines' authors and mentioned members): a mention reads
   // as its handle in the transcript, and a tag of hers that names one without the handle is marked (transcript.untagged).
   const memberNames = handleById
-    ? memberNameMap(directory, [history, ...(privateChat ? [] : [input.pulled, neighbors].flatMap((source) => (Array.isArray(source) ? source : []).map((entry) => entry?.messages)))].flat().filter(Boolean))
+    ? memberNameMap(
+        directory,
+        [
+          history,
+          ...(privateChat
+            ? []
+            : [input.pulled, neighbors].flatMap((source) =>
+                (Array.isArray(source) ? source : []).map((entry) => entry?.messages)
+              )),
+        ]
+          .flat()
+          .filter(Boolean)
+      )
     : null;
   // Channel handles (features.mentionHandles too): each text channel the persona can read
   // (`channelDirectory`) gets one, listed in `<channel_directory>` (the stable part) and shown
   // beside every channel a line mentions.
   const channelEntries = handlesOn ? channelDirectoryEntries(input.channelDirectory ?? []) : [];
-  const channelHandleById = channelEntries.length > 0 ? assignChannelHandles(channelEntries.map((entry) => entry.id)) : null;
-  const channelDirectoryText = channelHandleById ? renderChannelDirectory(channelEntries, channelHandleById, labels) : '';
+  const channelHandleById =
+    channelEntries.length > 0 ? assignChannelHandles(channelEntries.map((entry) => entry.id)) : null;
+  const channelDirectoryText = channelHandleById
+    ? renderChannelDirectory(channelEntries, channelHandleById, labels)
+    : '';
   // A member's handle in this request (null with the switch off or none given): on their profile
   // heading and at the start of their `<people_now>` entry, as `<directory>` lists it.
   const handleFor = (memberId) => (memberId !== null && handleById ? (handleById.get(memberId) ?? null) : null);
@@ -3151,7 +3503,8 @@ export function buildRequest(input) {
   const gifLibrary = config.features?.gifs !== false && input.gifs ? normalizeGifs(input.gifs) : null;
   const gifsOn = Boolean(gifLibrary) && Object.keys(gifLibrary.entries).length > 0;
   // The server's custom emoji: the switch (a missing key counts as on) and a non-empty index.
-  const customEmoji = config.features?.customEmoji !== false && Array.isArray(input.customEmoji) ? input.customEmoji : [];
+  const customEmoji =
+    config.features?.customEmoji !== false && Array.isArray(input.customEmoji) ? input.customEmoji : [];
   // A custom emoji of the transcript is described once, in `<emoji>` (emojiItems), when that
   // block can carry it; otherwise its lines keep the inline `transcript.emojiDescribed` tag.
   const emojiLabels = labels.emoji;
@@ -3187,7 +3540,11 @@ export function buildRequest(input) {
     // A message link to a line of the same rendering reads as its `#n` (features.messageLinks).
     messageNumbers: config.features?.messageLinks !== false,
     // Each channel a line mentions carries its handle (transcript.channel).
-    channels: channelHandleById ? new Map(channelEntries.map((entry) => [entry.id, { handle: channelHandleById.get(entry.id), name: entry.name }])) : undefined,
+    channels: channelHandleById
+      ? new Map(
+          channelEntries.map((entry) => [entry.id, { handle: channelHandleById.get(entry.id), name: entry.name }])
+        )
+      : undefined,
     // A GIF the library knows carries its handle in the transcript.
     gifHandles: gifsOn ? gifHandleMap(gifLibrary) : undefined,
     // ...and its three caption fields, cut like the `<gifs>` list (transcript.gifKnownFields).
@@ -3224,7 +3581,13 @@ export function buildRequest(input) {
   const pulledChannels = labels.pull?.header ? offered : [];
   const chatTrigger = trigger ? (chatItems.find((item) => item.id === trigger.id) ?? null) : null;
   const pulledTriggerId = trigger && !chatTrigger ? trigger.id : null;
-  const pulledSets = pulledTranscripts(pulledChannels, { formatOptions, descriptions, firstIndex: history.length, triggerId: pulledTriggerId, labels });
+  const pulledSets = pulledTranscripts(pulledChannels, {
+    formatOptions,
+    descriptions,
+    firstIndex: history.length,
+    triggerId: pulledTriggerId,
+    labels,
+  });
   const pulledIds = new Map();
   for (const channel of pulledSets) {
     for (const item of channel.items) {
@@ -3238,9 +3601,12 @@ export function buildRequest(input) {
   const shownIds = new Set([
     ...history.map((message) => message.id),
     ...pulledChannels.flatMap((channel) => channel.messages.map((message) => message.id)),
-    ...(privateChat ? [] : neighbors ?? []).flatMap((neighbor) => (neighbor.messages ?? []).map((message) => message.id)),
+    ...(privateChat ? [] : (neighbors ?? [])).flatMap((neighbor) =>
+      (neighbor.messages ?? []).map((message) => message.id)
+    ),
   ]);
-  const participationCandidate = trigger ?? [...history].reverse().find((message) => !message.self && !message.bot) ?? null;
+  const participationCandidate =
+    trigger ?? [...history].reverse().find((message) => !message.self && !message.bot) ?? null;
   const participationBuilt = participationView(input.participation, {
     config,
     labels,
@@ -3277,11 +3643,15 @@ export function buildRequest(input) {
   // On a routed turn the call is not in this chat: its silence is measured to now, and its
   // last line being the persona's own is no sign that nobody answered the persona.
   const tempo = computeTempo(history, now, routed ? null : trigger);
-  const tempoText = heartbeat ? '' : renderTempo(routed ? { ...tempo, lastIsOwn: false } : tempo, labels, config.context.tempo);
+  const tempoText = heartbeat
+    ? ''
+    : renderTempo(routed ? { ...tempo, lastIsOwn: false } : tempo, labels, config.context.tempo);
 
   // The trigger's line in another channel (a routed call), when a pulled channel holds it.
   const pulledTrigger =
-    pulledTriggerId !== null ? (pulledSets.flatMap((channel) => channel.items).find((item) => item.id === pulledTriggerId) ?? null) : null;
+    pulledTriggerId !== null
+      ? (pulledSets.flatMap((channel) => channel.items).find((item) => item.id === pulledTriggerId) ?? null)
+      : null;
   // A follow-up (triggerKind: 'followUp') falls back to labels.triggers.reply
   // when an older labels.json has no dedicated label yet -- see prompt-contract.md.
   // An overheard line (triggerKind: 'overheard') falls back to the follow-up's label, then reply's.
@@ -3302,16 +3672,24 @@ export function buildRequest(input) {
     : '';
   // An overheard turn has its own task text (prompts.overheard) INSTEAD of the mode's; without
   // it (missing or blank) the mode's text frames the line as said to the persona: degraded.
-  const overheardTask = overheard && typeof prompts.overheard === 'string' && prompts.overheard.trim() ? prompts.overheard : null;
+  const overheardTask =
+    overheard && typeof prompts.overheard === 'string' && prompts.overheard.trim() ? prompts.overheard : null;
   // A heartbeat's inner turn has its own task text (prompts.heartbeat) INSTEAD of inner.md; without
   // it (missing or blank) inner.md applies (degraded).
-  const heartbeatTask = mode === 'inner' && input.wakeKind === 'heartbeat' && typeof prompts.heartbeat === 'string' && prompts.heartbeat.trim() ? prompts.heartbeat : null;
+  const heartbeatTask =
+    mode === 'inner' &&
+    input.wakeKind === 'heartbeat' &&
+    typeof prompts.heartbeat === 'string' &&
+    prompts.heartbeat.trim()
+      ? prompts.heartbeat
+      : null;
   // The turn a finished errand opens with no origin message (asked in an inner turn of hers, or
   // the message is gone) has its own task text (prompts['errand-result']) INSTEAD of the mode's:
   // interject.md would frame her own errand's end as a conversation to stay out of. Missing or
   // blank, the mode's text applies (degraded).
   const errandPrompt = prompts['errand-result'];
-  const errandTask = triggerKind === 'task' && !trigger && typeof errandPrompt === 'string' && errandPrompt.trim() ? errandPrompt : null;
+  const errandTask =
+    triggerKind === 'task' && !trigger && typeof errandPrompt === 'string' && errandPrompt.trim() ? errandPrompt : null;
   // A follow-up or an untagged reply has its own task text (prompts['follow-up']) INSTEAD of
   // reply.md; without it (missing or blank) reply.md frames it, as before the file existed.
   const followUpPrompt = prompts['follow-up'];
@@ -3324,7 +3702,10 @@ export function buildRequest(input) {
   // A line put to everyone present (a room question), found in the chat.
   const focus = privateChat ? null : (input.focus ?? null);
   const focusItem = focus ? chatItems.find((item) => item.id === focus.id) : null;
-  const focusText = focusItem && labels.room?.focus ? fill(labels.room.focus, { author: focus.authorName ?? '', target: `#${focusItem.index}` }) : '';
+  const focusText =
+    focusItem && labels.room?.focus
+      ? fill(labels.room.focus, { author: focus.authorName ?? '', target: `#${focusItem.index}` })
+      : '';
   // What else the author waits for: the part answered now and the rest, their queued calls, and
   // their later messages about this call.
   const tasksText = renderTasks(input.tasks, labels, { chatItems, now });
@@ -3339,14 +3720,22 @@ export function buildRequest(input) {
       target: callItem ? `#${callItem.index}` : '',
       ...(sourceChannel ? { channel: sourceChannel.name, destination: here } : {}),
     };
-    const baseTask = fillPromptTemplate(overheardTask ?? errandTask ?? followUpTask ?? heartbeatTask ?? prompts[mode] ?? '', taskValues);
+    const baseTask = fillPromptTemplate(
+      overheardTask ?? errandTask ?? followUpTask ?? heartbeatTask ?? prompts[mode] ?? '',
+      taskValues
+    );
     // Owner-forced turn (`/nep interject`/`/nep initiate`): tell the model
     // `<skip/>` is not the expected outcome this time -- optional, missing
     // prompts.forced (an older/undeployed labels layer) leaves the task as-is.
-    const forcedText = forced && typeof prompts.forced === 'string' && prompts.forced.trim() ? fillPromptTemplate(prompts.forced, taskValues) : '';
+    const forcedText =
+      forced && typeof prompts.forced === 'string' && prompts.forced.trim()
+        ? fillPromptTemplate(prompts.forced, taskValues)
+        : '';
     // Private chat: prompts.private follows the mode prompt; a missing file adds nothing.
     const privateText =
-      privateChat && typeof prompts.private === 'string' && prompts.private.trim() ? fillPromptTemplate(prompts.private, taskValues) : '';
+      privateChat && typeof prompts.private === 'string' && prompts.private.trim()
+        ? fillPromptTemplate(prompts.private, taskValues)
+        : '';
     // A routed call: where it came from and where the words go follow the mode's text, while
     // the call is shown and this channel has a name.
     const calledText =
@@ -3363,7 +3752,9 @@ export function buildRequest(input) {
     searchAvailable: input.searchAvailable === true,
     recallAvailable: input.recallAvailable === true,
     // Her own in-turn tools granted to her (features.coreTools): the search lines say she calls them.
-    toolsGranted: Array.isArray(input.toolsGranted) ? input.toolsGranted.filter((name) => IN_TURN_TOOLS.includes(name)) : [],
+    toolsGranted: Array.isArray(input.toolsGranted)
+      ? input.toolsGranted.filter((name) => IN_TURN_TOOLS.includes(name))
+      : [],
     drawQuota: input.drawQuota,
     privateChat,
     customEmoji: customEmoji.length > 0,
@@ -3410,7 +3801,10 @@ export function buildRequest(input) {
   ]);
 
   // `<tasks>` and `<task_result>`: rendered by the turn (src/errands/blocks.js), never cut.
-  const errandsText = { tasks: typeof input.errands?.tasks === 'string' ? input.errands.tasks : '', result: typeof input.errands?.result === 'string' ? input.errands.result : '' };
+  const errandsText = {
+    tasks: typeof input.errands?.tasks === 'string' ? input.errands.tasks : '',
+    result: typeof input.errands?.result === 'string' ? input.errands.result : '',
+  };
   // `<intentions>`: rendered and cut to its own budget by the turn (src/intentions/blocks.js), never cut here.
   const intentionsText = typeof input.intentions === 'string' ? input.intentions : '';
   // `<wake>`: an inner turn's reason to be awake, rendered by the turn (src/behavior/wake.js), never cut.
@@ -3457,13 +3851,21 @@ export function buildRequest(input) {
   // by the person's mention handle (the join key with `<people>` and `<directory>`), then one
   // labelled field per line: the live snapshot (`liveOf`), then what memory holds that changes
   // from turn to turn (profileStateFields).
-  const liveOf = (memberId) => (liveOn && memberId !== null ? liveFields(liveSnapshot, memberId, { labels, channelNameOf: voiceChannelNameOf, now }) : []);
+  const liveOf = (memberId) =>
+    liveOn && memberId !== null
+      ? liveFields(liveSnapshot, memberId, { labels, channelNameOf: voiceChannelNameOf, now })
+      : [];
   // The interlocutor's entry, never cut, its heading tagged as the one talking to the persona
   // (on an overheard turn, as overheard): the tag describes the request, so it is never in the
   // cached profile. The trigger's author without a profile has an entry only for its live part.
   const interlocutorRowId = memberIdOf(interlocutor?.id) ?? memberIdOf(trigger?.authorId);
   const interlocutorFields =
-    interlocutorRowId === null ? [] : [...liveOf(interlocutorRowId), ...profileStateFields(interlocutor, labels, { relationships, shownMoves, timezone, nameOf })];
+    interlocutorRowId === null
+      ? []
+      : [
+          ...liveOf(interlocutorRowId),
+          ...profileStateFields(interlocutor, labels, { relationships, shownMoves, timezone, nameOf }),
+        ];
   const interlocutorRow =
     interlocutorRowId === null || (!interlocutor && interlocutorFields.length === 0)
       ? ''
@@ -3474,12 +3876,14 @@ export function buildRequest(input) {
             mark: (overheard ? labels.peopleNow?.marks?.overheard : labels.peopleNow?.marks?.interlocutor) ?? '',
             fields: interlocutorFields,
           },
-          labels,
+          labels
         );
   // The block's lead and notices (a stale snapshot, the presences intent off), rendered only when
   // an entry is shown: paid for with the fixed part when there is an interlocutor entry or a live
   // part (an entry is then all but certain), else after the fit, from what the request has left.
-  const peopleNowHead = [labels.peopleNow?.lead ?? '', ...(liveOn ? liveNotices(liveSnapshot, labels) : [])].filter(Boolean).join('\n');
+  const peopleNowHead = [labels.peopleNow?.lead ?? '', ...(liveOn ? liveNotices(liveSnapshot, labels) : [])]
+    .filter(Boolean)
+    .join('\n');
   const headReserved = Boolean(interlocutorRow) || liveOn;
   const peopleNowFixed = [headReserved ? peopleNowHead : '', interlocutorRow].filter(Boolean).join('\n\n');
   const fixedSection = {
@@ -3487,9 +3891,34 @@ export function buildRequest(input) {
     required: true,
     // Her tools in text (the text transport), the channel and people directories, a diary post's plan, its seeds, its `<diary>` intro, the
     // interlocutor's `<people_now>` entry, her errands' blocks and her intentions are never cut.
-    items: [system, fittedTask, nowText, sensesWhole(senses), tempoText, ...[toolsText, channelDirectoryText, directoryText, planText, seedsText, diaryIntro, peopleNowFixed, errandsText.tasks, errandsText.result, intentionsText, wakeText, placesText, previousThinkText].filter(Boolean)],
+    items: [
+      system,
+      fittedTask,
+      nowText,
+      sensesWhole(senses),
+      tempoText,
+      ...[
+        toolsText,
+        channelDirectoryText,
+        directoryText,
+        planText,
+        seedsText,
+        diaryIntro,
+        peopleNowFixed,
+        errandsText.tasks,
+        errandsText.result,
+        intentionsText,
+        wakeText,
+        placesText,
+        previousThinkText,
+      ].filter(Boolean),
+    ],
   };
-  const interlocutorSection = { name: 'interlocutor', cap: caps.interlocutor, items: [interlocutorShown.text].filter(Boolean) };
+  const interlocutorSection = {
+    name: 'interlocutor',
+    cap: caps.interlocutor,
+    items: [interlocutorShown.text].filter(Boolean),
+  };
   // `<lookup>`: one piece. With both a web and a server part, the first candidate that fits the
   // room the two sections ahead of it leave (the whole block, else the web part alone, else the
   // server part alone); so a server part never costs the web part its place, and the block as a
@@ -3504,7 +3933,9 @@ export function buildRequest(input) {
   const aboutIds = [];
   const aboutOffered = aboutChatItems(input.guildMemory, labels, nameOf, learnedConfig(config), aboutIds);
   const loreIds = [];
-  const loreOffered = loreOn ? loreItems(input.loreEntries, history, trigger, labels, config.lore, nameOf, loreIds) : [];
+  const loreOffered = loreOn
+    ? loreItems(input.loreEntries, history, trigger, labels, config.lore, nameOf, loreIds)
+    : [];
   const serverIds = [];
   const serverOffered = privateChat
     ? []
@@ -3521,7 +3952,7 @@ export function buildRequest(input) {
         nameOf,
         readOnlyIds,
         config.diary?.channelId || null,
-        serverIds,
+        serverIds
       );
   // The sections fitted ahead of the chat, in priority order.
   const head = [
@@ -3532,7 +3963,9 @@ export function buildRequest(input) {
     // tight budget trims old messages first.
     { name: 'lookup', items: [lookupItem].filter(Boolean) },
     // The automatic memory prefetch (features.coreTools): one piece, bounded by recall.prefetch.maxTokens.
-    ...(input.prefetch ? [{ name: 'prefetch', items: [prefetchText(input.prefetch, labels, timezone)].filter(Boolean) }] : []),
+    ...(input.prefetch
+      ? [{ name: 'prefetch', items: [prefetchText(input.prefetch, labels, timezone)].filter(Boolean) }]
+      : []),
     // A diary post's search result: one piece, bounded by web.search.summaryChars.
     { name: 'found', items: [foundText].filter(Boolean) },
     // The skills catalogue, asked for: one piece, ahead of the chat like what was looked up.
@@ -3546,7 +3979,9 @@ export function buildRequest(input) {
       name: 'self',
       cap: caps.aboutChat,
       // As they were at the start of this cache bucket (frozen): a batch's new fact shows at the next edge.
-      items: frozen('self', '', () => (input.guildMemory?.self ?? []).map((fact) => `- ${resolveChatText(fact, nameOf)}`)),
+      items: frozen('self', '', () =>
+        (input.guildMemory?.self ?? []).map((fact) => `- ${resolveChatText(fact, nameOf)}`)
+      ),
     },
     {
       name: 'lore',
@@ -3595,7 +4030,12 @@ export function buildRequest(input) {
       pulledFits.push({ ...fitted, channelId: channel.channelId, messages: channel.messages });
     }
   }
-  const pulledSection = { name: 'pulled', cap: Math.max(pulledCap, pulledTaken), keep: 'first', items: pulledFits.map((fit) => fit.text) };
+  const pulledSection = {
+    name: 'pulled',
+    cap: Math.max(pulledCap, pulledTaken),
+    keep: 'first',
+    items: pulledFits.map((fit) => fit.text),
+  };
 
   // The neighbours, cut shorter than the chat (context.neighborMessageChars); a channel whose
   // pulled block is shown is not shown again among them, one whose block was cut still is.
@@ -3611,9 +4051,14 @@ export function buildRequest(input) {
     .filter((neighbor) => !shownPulledIds.has(neighbor.channelId))
     .map(
       ({ channelName, messages }) =>
-        `# ${channelName}\n${formatTranscript(messages, { ...formatOptions, maxChars: neighborChars, descriptions: neighborDescriptions, messageNumbers: false })
+        `# ${channelName}\n${formatTranscript(messages, {
+          ...formatOptions,
+          maxChars: neighborChars,
+          descriptions: neighborDescriptions,
+          messageNumbers: false,
+        })
           .map((item) => item.text.replace(/^#\d+ /gm, ''))
-          .join('\n')}`,
+          .join('\n')}`
     );
 
   // <people> priority (b)/(c): who the trigger message / the last few
@@ -3630,14 +4075,17 @@ export function buildRequest(input) {
     config.context.askedAboutProfiles,
     config.memory?.maxAliases,
     config.memory?.aliasHalfLifeDays,
-    pulledAuthors(pulledFits),
+    pulledAuthors(pulledFits)
   );
   // Each member asked about shows their top `context.askedAboutEpisodes` episodes (0 = off;
   // none in a private chat: another member's moments never reach it; none with an older labels
   // file that cannot render one).
-  const askedAboutEpisodes = privateChat && config.features?.privateLikeServer === false ? 0 : (config.context.askedAboutEpisodes ?? 3);
+  const askedAboutEpisodes =
+    privateChat && config.features?.privateLikeServer === false ? 0 : (config.context.askedAboutEpisodes ?? 3);
   const episodeCount = (profile) => (Array.isArray(profile?.episodes) ? profile.episodes.length : 0);
-  const episodeLabelsOn = Boolean(labels.profile?.episodes && labels.profile?.episode && labels.profile?.episodeNoQuote);
+  const episodeLabelsOn = Boolean(
+    labels.profile?.episodes && labels.profile?.episode && labels.profile?.episodeNoQuote
+  );
   const askedEpisodesOn =
     episodesOn &&
     episodeLabelsOn &&
@@ -3646,7 +4094,11 @@ export function buildRequest(input) {
     askedAbout.some((profile) => episodeCount(profile) > 0);
   // The keys of the moments `<people>` shows for the members asked about: the top `counts[i]` of each.
   const askedKeys = (counts) =>
-    new Set(askedAbout.flatMap((profile, i) => topEpisodes(profile.episodes, counts[i]).map((ep) => episodeKey(memberIdOf(profile.id), ep))));
+    new Set(
+      askedAbout.flatMap((profile, i) =>
+        topEpisodes(profile.episodes, counts[i]).map((ep) => episodeKey(memberIdOf(profile.id), ep))
+      )
+    );
   const askedIntended = askedKeys(askedAbout.map(() => (askedEpisodesOn ? askedAboutEpisodes : 0)));
 
   // `<recent>`: the last `memory.recentHours`, built when the caller hands the store's lines
@@ -3660,20 +4112,27 @@ export function buildRequest(input) {
   // ranked before `<people>` is fitted, the block first leaves out every moment `<people>` may
   // show them by and is built again below when `<people>` shows fewer.
   const recentCfg = recentSettings(config);
-  const recentOn = Boolean(recentCfg && labels.recent?.header && labels.recent?.line && Array.isArray(input.recentLines));
+  const recentOn = Boolean(
+    recentCfg && labels.recent?.header && labels.recent?.line && Array.isArray(input.recentLines)
+  );
   const recentCap = caps.recent ?? 1200;
   const interlocutorId = memberIdOf(interlocutor?.id);
-  const recentFocus = [trigger?.authorId, interlocutorId, ...askedAbout.map((profile) => profile?.id)].map(memberIdOf).filter(Boolean);
-  const recentAudience = typeof input.recentAudience === 'function' ? input.recentAudience : (channelId) => channelId === currentChannelId;
+  const recentFocus = [trigger?.authorId, interlocutorId, ...askedAbout.map((profile) => profile?.id)]
+    .map(memberIdOf)
+    .filter(Boolean);
+  const recentAudience =
+    typeof input.recentAudience === 'function' ? input.recentAudience : (channelId) => channelId === currentChannelId;
   const recentProfiles =
-    recentOn && !privateChat && episodesOn && labels.recent.episode && Array.isArray(input.candidateProfiles) ? input.candidateProfiles : [];
+    recentOn && !privateChat && episodesOn && labels.recent.episode && Array.isArray(input.candidateProfiles)
+      ? input.candidateProfiles
+      : [];
   const interlocutorKeys = new Set(
     recentProfiles.length > 0 &&
-    interlocutorId !== null &&
-    interlocutorShown.episodes > 0 &&
-    fitSections([fixedSection, interlocutorSection], limit, cost).kept.interlocutor.length > 0
+      interlocutorId !== null &&
+      interlocutorShown.episodes > 0 &&
+      fitSections([fixedSection, interlocutorSection], limit, cost).kept.interlocutor.length > 0
       ? topEpisodes(interlocutor.episodes, interlocutorShown.episodes).map((ep) => episodeKey(interlocutorId, ep))
-      : [],
+      : []
   );
   const buildRecent = (askedShown) => {
     const view = recentView({
@@ -3687,11 +4146,19 @@ export function buildRequest(input) {
       perMember: RECENT_EPISODES_PER_MEMBER,
     });
     const { entries, unnamed } = recentEntries(view.items, { labels, timezone, currentChannelId, channels, nameOf });
-    return { header: fill(labels.recent.header, { hours: recentCfg.hours }), entries, hidden: view.hidden, repeated: view.repeated, unnamed };
+    return {
+      header: fill(labels.recent.header, { hours: recentCfg.hours }),
+      entries,
+      hidden: view.hidden,
+      repeated: view.repeated,
+      unnamed,
+    };
   };
   // One item per entry after the header, in the view's order: the budget keeps them from the top.
   const recentSectionOf = (built, cap) =>
-    built && built.entries.length > 0 ? { name: 'recent', cap, keep: 'first', items: [built.header, ...built.entries.map((entry) => entry.text)] } : null;
+    built && built.entries.length > 0
+      ? { name: 'recent', cap, keep: 'first', items: [built.header, ...built.entries.map((entry) => entry.text)] }
+      : null;
   let recentBuilt = recentOn ? buildRecent(askedIntended) : null;
   let recentSection = recentSectionOf(recentBuilt, recentCap);
   // `<participation>`: the header, then one item per episode in budget priority, each paying for
@@ -3712,10 +4179,23 @@ export function buildRequest(input) {
   // `<earlier>`: the header, then one item per anchor in its priority order (anchorsView); right
   // after the chat and the pulled block it continues back in time.
   const earlierSection = earlierBuilt
-    ? { name: 'earlier', cap: caps.earlier ?? 2500, keep: 'first', items: [earlierBuilt.header, ...earlierBuilt.pieces.map((piece) => piece.text)] }
+    ? {
+        name: 'earlier',
+        cap: caps.earlier ?? 2500,
+        keep: 'first',
+        items: [earlierBuilt.header, ...earlierBuilt.pieces.map((piece) => piece.text)],
+      }
     : null;
-  const aheadOfRecent = [...head, ...(routed ? [pulledSection, chatSection] : [chatSection, pulledSection]), ...(earlierSection ? [earlierSection] : [])];
-  const aheadOfPeopleWith = (recentSec) => [...aheadOfRecent, ...(recentSec ? [recentSec] : []), ...(participationSection ? [participationSection] : [])];
+  const aheadOfRecent = [
+    ...head,
+    ...(routed ? [pulledSection, chatSection] : [chatSection, pulledSection]),
+    ...(earlierSection ? [earlierSection] : []),
+  ];
+  const aheadOfPeopleWith = (recentSec) => [
+    ...aheadOfRecent,
+    ...(recentSec ? [recentSec] : []),
+    ...(participationSection ? [participationSection] : []),
+  ];
   let aheadOfPeople = aheadOfPeopleWith(recentSection);
   // Episodes only fill what `<people>` has left once every member asked about is placed
   // without them, as the budget takes them in order, so no member asked about is ever cut
@@ -3731,10 +4211,13 @@ export function buildRequest(input) {
     return personRow(
       {
         handle: handleFor(id),
-        name: profile?.names?.[0] ?? (id ?? ''),
-        fields: [...liveOf(id), ...profileStateFields(profile, labels, { relationships, shownMoves, compact, timezone, nameOf })],
+        name: profile?.names?.[0] ?? id ?? '',
+        fields: [
+          ...liveOf(id),
+          ...profileStateFields(profile, labels, { relationships, shownMoves, compact, timezone, nameOf }),
+        ],
       },
-      labels,
+      labels
     );
   };
   const withRow = (text, row) => (text && row ? `${text}\n${row}` : text);
@@ -3804,7 +4287,10 @@ export function buildRequest(input) {
       // come back, ranked anew, in the room the block took plus what the request has beyond
       // `<people>`'s room -- so `<people>` keeps at least the room its members were placed in.
       recentBuilt = buildRecent(askedShown);
-      recentSection = recentSectionOf(recentBuilt, Math.min(recentCap, (measured.stats.recent?.used ?? 0) + (free - room)));
+      recentSection = recentSectionOf(
+        recentBuilt,
+        Math.min(recentCap, (measured.stats.recent?.used ?? 0) + (free - room))
+      );
       aheadOfPeople = aheadOfPeopleWith(recentSection);
       // The room `<people>` has now (never less than `room`): the members placed above keep their
       // rendering, and one that was not is tried bare (their moments are in `<recent>` now) in
@@ -3835,7 +4321,12 @@ export function buildRequest(input) {
   // `<people>`'s items, each with the member it renders and their `<people_now>` entry (an empty
   // rendering is no item): the item's text is the profile with the entry under it.
   const peopleOffered = [
-    ...askedAbout.map((profile, i) => ({ profile, row: askedRows.get(profile) ?? '', text: askedAboutItems[i], reads: askedAboutReads[i] })),
+    ...askedAbout.map((profile, i) => ({
+      profile,
+      row: askedRows.get(profile) ?? '',
+      text: askedAboutItems[i],
+      reads: askedAboutReads[i],
+    })),
     ...participants.map((profile) => {
       const row = tailRowOf(profile, true);
       const { text, reads } = renderProfileShown(profile, labels, {
@@ -3856,7 +4347,8 @@ export function buildRequest(input) {
     }),
   ].filter((entry) => entry.text);
   /** An offered item's profile alone, its row taken off. */
-  const profileTextOf = (entry) => (entry.row && entry.text.endsWith(`\n${entry.row}`) ? entry.text.slice(0, -(entry.row.length + 1)) : entry.text);
+  const profileTextOf = (entry) =>
+    entry.row && entry.text.endsWith(`\n${entry.row}`) ? entry.text.slice(0, -(entry.row.length + 1)) : entry.text;
   const peopleSection = { name: 'people', cap: caps.people, items: peopleOffered.map((entry) => entry.text) };
   // The offered items `<people>` keeps: a subsequence of them, in their order.
   const keptPeopleEntriesOf = (keptPeople) => {
@@ -3874,12 +4366,17 @@ export function buildRequest(input) {
   // The people in voice the request shows no profile for: one `<people_now>` entry each (the
   // live fields alone), the lowest priority of the request, capped by `context.around.maxTokens`.
   // None from a stale snapshot: who sits in voice is not known then.
-  const rowIds = new Set([interlocutorRowId, selfMemberId, ...peopleOffered.map((entry) => memberIdOf(entry.profile?.id))].filter(Boolean));
-  const voiceRows = liveOn && liveSnapshot.stale !== true
-    ? voiceOccupants(liveSnapshot, { excludeIds: rowIds, nameOf, channelNameOf: voiceChannelNameOf })
-        .map(({ memberId, name }) => personRow({ handle: handleFor(memberId), name, fields: liveOf(memberId) }, labels))
-        .filter(Boolean)
-    : [];
+  const rowIds = new Set(
+    [interlocutorRowId, selfMemberId, ...peopleOffered.map((entry) => memberIdOf(entry.profile?.id))].filter(Boolean)
+  );
+  const voiceRows =
+    liveOn && liveSnapshot.stale !== true
+      ? voiceOccupants(liveSnapshot, { excludeIds: rowIds, nameOf, channelNameOf: voiceChannelNameOf })
+          .map(({ memberId, name }) =>
+            personRow({ handle: handleFor(memberId), name, fields: liveOf(memberId) }, labels)
+          )
+          .filter(Boolean)
+      : [];
   const aroundMax = config.context.around?.maxTokens;
   // `<attitudes>`: the top `context.attitudes` members by attitude strength (0 = no block), out
   // of every public profile of the guild, a private chat included. The interlocutor and the
@@ -3896,13 +4393,17 @@ export function buildRequest(input) {
   let attitudesText = '';
   if (attitudesOn) {
     const peopleKept = keptPeopleOf(fitSections([...aheadOfPeople, peopleSection], limit, cost).kept.people);
-    const skipIds = new Set([interlocutorId, ...peopleKept.map((profile) => memberIdOf(profile?.id))].filter((id) => id !== null));
+    const skipIds = new Set(
+      [interlocutorId, ...peopleKept.map((profile) => memberIdOf(profile?.id))].filter((id) => id !== null)
+    );
     attitudesText = renderAttitudes(input.candidateProfiles, labels, { max: attitudesMax, skipIds });
   }
   // Its order and text held per cache bucket (frozen): a GIF use or a new caption moves the cached
   // prefix at the next bucket edge at most. The signature lets an edit of its settings show at once.
   const gifList = gifsOn
-    ? frozen('gifs', JSON.stringify([labels.gifs, labels.units, config.gifs ?? null]), () => gifItems(gifLibrary, input.mediaCache ?? null, labels, config.gifs))
+    ? frozen('gifs', JSON.stringify([labels.gifs, labels.units, config.gifs ?? null]), () =>
+        gifItems(gifLibrary, input.mediaCache ?? null, labels, config.gifs)
+      )
     : { items: [], ids: [] };
   const budgetFit = fitSections(
     [
@@ -3919,10 +4420,28 @@ export function buildRequest(input) {
         name: 'emoji',
         cap: caps.emoji ?? 800,
         keep: 'first',
-        items: emojiItems(customEmoji, input.guildMemory?.emojiUsage, input.mediaCache ?? null, labels, config.context.customEmoji, {
-          seen: emojiOnce ? seenEmoji([history, ...pulledChannels.map((channel) => channel.messages), ...offeredNeighbors.map((neighbor) => neighbor.messages)]) : [],
-          describe: (id) => emojiCaption(`emoji:${id}`, [descriptions, input.neighborDescriptions, ...pulledChannels.map((channel) => channel.entry.descriptions)]),
-        }),
+        items: emojiItems(
+          customEmoji,
+          input.guildMemory?.emojiUsage,
+          input.mediaCache ?? null,
+          labels,
+          config.context.customEmoji,
+          {
+            seen: emojiOnce
+              ? seenEmoji([
+                  history,
+                  ...pulledChannels.map((channel) => channel.messages),
+                  ...offeredNeighbors.map((neighbor) => neighbor.messages),
+                ])
+              : [],
+            describe: (id) =>
+              emojiCaption(`emoji:${id}`, [
+                descriptions,
+                input.neighborDescriptions,
+                ...pulledChannels.map((channel) => channel.entry.descriptions),
+              ]),
+          }
+        ),
       },
       // Below even the emoji: the GIF library, trimmed the same way (least used last).
       {
@@ -3935,12 +4454,13 @@ export function buildRequest(input) {
       { name: 'around', cap: Number.isFinite(aroundMax) ? aroundMax : 400, keep: 'first', items: voiceRows },
     ],
     limit,
-    cost,
+    cost
   );
   const { kept, stats } = budgetFit;
   let { used } = budgetFit;
   // The emoji seen in the chat lost to the cap leave no sub-heading of their own behind.
-  if (emojiOnce && kept.emoji.length > 0 && kept.emoji.at(-1) === labels.emoji.seenInChat) kept.emoji = kept.emoji.slice(0, -1);
+  if (emojiOnce && kept.emoji.length > 0 && kept.emoji.at(-1) === labels.emoji.seenInChat)
+    kept.emoji = kept.emoji.slice(0, -1);
   // The header alone, or entries without their header, make no block.
   if (kept.emoji.length < 2 || kept.emoji[0] !== labels.emoji?.header) kept.emoji = [];
   if (kept.gifs.length < 2 || kept.gifs[0] !== labels.gifs?.header) kept.gifs = [];
@@ -3948,7 +4468,10 @@ export function buildRequest(input) {
   // (`<gifs_recent>`): paid from what the request has left, left out when it does not fit.
   kept.gifsRecent = [];
   if (kept.gifs.length > 0) {
-    const ownLines = ownGifLines(gifLibrary, gifList.ids.slice(0, kept.gifs.length - 1), labels, { ownMarkHours: config.gifs?.ownMarkHours ?? 24, now });
+    const ownLines = ownGifLines(gifLibrary, gifList.ids.slice(0, kept.gifs.length - 1), labels, {
+      ownMarkHours: config.gifs?.ownMarkHours ?? 24,
+      now,
+    });
     const price = ownLines.length > 0 ? cost(ownLines.join('\n')) : 0;
     if (price > 0 && used + price <= limit) {
       used += price;
@@ -3961,7 +4484,9 @@ export function buildRequest(input) {
   // `<people_now>`, under its lead and notices. No row, no block.
   const keptPeopleEntries = keptPeopleEntriesOf(kept.people ?? []);
   kept.people = keptPeopleEntries.map(profileTextOf);
-  let peopleNowRows = [interlocutorRow, ...keptPeopleEntries.map((entry) => entry.row), ...(kept.around ?? [])].filter(Boolean);
+  let peopleNowRows = [interlocutorRow, ...keptPeopleEntries.map((entry) => entry.row), ...(kept.around ?? [])].filter(
+    Boolean
+  );
   // A lead the fixed part did not pay for is paid now, from what the request has left; when it
   // does not fit, the rows are left out (the request only gets shorter).
   if (peopleNowRows.length > 0 && !headReserved && peopleNowHead) {
@@ -3996,7 +4521,8 @@ export function buildRequest(input) {
     shown.sort((a, b) => a.at - b.at);
     for (const entry of shown) if (entry.read) memoryReads.push({ ...entry.read, block: 'recent' });
     kept.recent = shown.length > 0 ? [[recentBuilt.header, ...shown.map((entry) => entry.text)].join('\n')] : [];
-    if (stats.recent) stats.recent = { ...stats.recent, kept: shown.length, dropped: recentBuilt.entries.length - shown.length };
+    if (stats.recent)
+      stats.recent = { ...stats.recent, kept: shown.length, dropped: recentBuilt.entries.length - shown.length };
     // Counted only when the view held something: an item, or one hidden, repeated or unnamed.
     const { entries, hidden, repeated, unnamed } = recentBuilt;
     if (entries.length > 0 || hidden + repeated + unnamed > 0) {
@@ -4026,7 +4552,9 @@ export function buildRequest(input) {
       }
     }
     const text = participationText(participationBuilt, shown);
-    if (text) for (const episode of shown) if (episode.itemId) memoryReads.push({ kind: 'participation', id: episode.itemId, block: 'participation' });
+    if (text)
+      for (const episode of shown)
+        if (episode.itemId) memoryReads.push({ kind: 'participation', id: episode.itemId, block: 'participation' });
     kept.participation = text ? [text] : [];
     stats.participation = {
       ...(stats.participation ?? { used: 0, kept: 0, dropped: 0 }),
@@ -4062,18 +4590,25 @@ export function buildRequest(input) {
   if ((kept.interlocutor ?? []).length > 0) showPerson(interlocutor);
   for (const entry of keptPeopleEntries) showPerson(entry.profile);
   // The rest of the collector: the profiles shown, the sections kept, what the prefetch offered.
-  if ((kept.interlocutor ?? []).length > 0) memoryReads.push(...interlocutorShown.reads.map((read) => ({ ...read, block: 'people' })));
-  for (const entry of keptPeopleEntries) memoryReads.push(...(entry.reads ?? []).map((read) => ({ ...read, block: 'people' })));
-  for (const id of keptIdsOf(serverOffered, serverIds, kept.server ?? [])) memoryReads.push({ kind: 'channel', id, block: 'server' });
-  for (const id of keptIdsOf(aboutOffered, aboutIds, kept.aboutChat ?? [])) memoryReads.push({ kind: 'guild_note', id, block: 'about_chat' });
-  for (const id of keptIdsOf(loreOffered, loreIds, kept.lore ?? [])) memoryReads.push({ kind: 'lore', id, block: 'lore' });
+  if ((kept.interlocutor ?? []).length > 0)
+    memoryReads.push(...interlocutorShown.reads.map((read) => ({ ...read, block: 'people' })));
+  for (const entry of keptPeopleEntries)
+    memoryReads.push(...(entry.reads ?? []).map((read) => ({ ...read, block: 'people' })));
+  for (const id of keptIdsOf(serverOffered, serverIds, kept.server ?? []))
+    memoryReads.push({ kind: 'channel', id, block: 'server' });
+  for (const id of keptIdsOf(aboutOffered, aboutIds, kept.aboutChat ?? []))
+    memoryReads.push({ kind: 'guild_note', id, block: 'about_chat' });
+  for (const id of keptIdsOf(loreOffered, loreIds, kept.lore ?? []))
+    memoryReads.push({ kind: 'lore', id, block: 'lore' });
   if ((kept.prefetch ?? []).length > 0) {
     for (const excerpt of Array.isArray(input.prefetch?.excerpts) ? input.prefetch.excerpts : []) {
       if (typeof excerpt?.lines !== 'string' || !excerpt.lines.trim()) continue;
       if (excerpt.source === 'memory') {
-        if (typeof excerpt.id === 'string' && excerpt.id) memoryReads.push({ kind: 'item', id: excerpt.id, block: 'retrieved' });
+        if (typeof excerpt.id === 'string' && excerpt.id)
+          memoryReads.push({ kind: 'item', id: excerpt.id, block: 'retrieved' });
       } else {
-        for (const id of Array.isArray(excerpt.hitIds) ? excerpt.hitIds : []) if (typeof id === 'string' && id) memoryReads.push({ kind: 'source', id, block: 'retrieved' });
+        for (const id of Array.isArray(excerpt.hitIds) ? excerpt.hitIds : [])
+          if (typeof id === 'string' && id) memoryReads.push({ kind: 'source', id, block: 'retrieved' });
       }
     }
   }
@@ -4086,11 +4621,21 @@ export function buildRequest(input) {
   // or lines cut inside a channel shown.
   const pulledShownLines = pulledKept.reduce((sum, shown) => sum + shown.ids.length, 0);
   const pulledLines = offered.reduce((sum, channel) => sum + channel.messages.length, 0);
-  stats.pulled = { ...stats.pulled, dropped: offered.length - pulledKept.length, lines: pulledLines, linesCut: pulledLines - pulledShownLines };
+  stats.pulled = {
+    ...stats.pulled,
+    dropped: offered.length - pulledKept.length,
+    lines: pulledLines,
+    linesCut: pulledLines - pulledShownLines,
+  };
   // What each kept channel showed, for the next view of it in this channel to compare against;
   // the seen lines' counts join the budget line only when one was shown.
   const keptFits = pulledFits.filter((fit) => keptPulled.has(fit.text));
-  const pulledViews = keptFits.map(({ channelId, hashes, oldestTs, oldestId }) => ({ channelId, hashes, oldestTs, oldestId }));
+  const pulledViews = keptFits.map(({ channelId, hashes, oldestTs, oldestId }) => ({
+    channelId,
+    hashes,
+    oldestTs,
+    oldestId,
+  }));
   const seenFits = keptFits.filter((fit) => fit.seen);
   if (seenFits.length > 0) {
     stats.pulled.seenFresh = seenFits.reduce((sum, fit) => sum + fit.seen.fresh, 0);
@@ -4111,7 +4656,25 @@ export function buildRequest(input) {
   const seen = seenOf({ history, keptChat, anchoredIds: earlierShown?.parentIds ?? [] });
   // The text parts (assembleUser's cache segments) are the whole user content: no image part
   // ever, the persona sees pictures through the describer's captions.
-  const user = assembleUser({ nowText, timezone, labels, senses, tools: toolsText, channelDirectory: channelDirectoryText, directory: directoryText, kept, tempoText, task, chatItems: heartbeat ? null : keptChat, diary: diaryParts, errands: errandsText, intentions: intentionsText, wake: wakeText, places: placesText, previousThink: previousThinkText });
+  const user = assembleUser({
+    nowText,
+    timezone,
+    labels,
+    senses,
+    tools: toolsText,
+    channelDirectory: channelDirectoryText,
+    directory: directoryText,
+    kept,
+    tempoText,
+    task,
+    chatItems: heartbeat ? null : keptChat,
+    diary: diaryParts,
+    errands: errandsText,
+    intentions: intentionsText,
+    wake: wakeText,
+    places: placesText,
+    previousThink: previousThinkText,
+  });
 
   return {
     messages: [
@@ -4164,7 +4727,10 @@ export function worldText(config, prompts, selfName) {
 
 /** The `<diary>` block's post lines (no intro), oldest first: the newest `diary.historyPosts` (150). */
 function diaryHistoryLines(posts, labels, config) {
-  const body = renderDiaryBlock(posts, labels, { timezone: config.bot?.timezone, max: config.diary?.historyPosts ?? 150 });
+  const body = renderDiaryBlock(posts, labels, {
+    timezone: config.bot?.timezone,
+    max: config.diary?.historyPosts ?? 150,
+  });
   if (!body) return [];
   const lines = body.split('\n');
   const intro = labels.diary?.intro;
@@ -4230,7 +4796,9 @@ export function buildDiaryPlanRequest(input) {
 
   // `<recent>`: the lines of the last hours this channel's audience may read, then the members' moments.
   const recentCfg = recentSettings(config);
-  const recentOn = Boolean(recentCfg && labels.recent?.header && labels.recent?.line && Array.isArray(input.recentLines));
+  const recentOn = Boolean(
+    recentCfg && labels.recent?.header && labels.recent?.line && Array.isArray(input.recentLines)
+  );
   let recentBuilt = null;
   if (recentOn) {
     const episodesOn = Boolean(labels.recent.episode) && config.features?.episodes !== false;
@@ -4242,7 +4810,10 @@ export function buildDiaryPlanRequest(input) {
       hours: recentCfg.hours,
       focusIds: [],
       excludeEpisodeKeys: new Set(),
-      isShown: typeof input.recentAudience === 'function' ? input.recentAudience : (channelId) => channelId === currentChannelId,
+      isShown:
+        typeof input.recentAudience === 'function'
+          ? input.recentAudience
+          : (channelId) => channelId === currentChannelId,
       perMember: RECENT_EPISODES_PER_MEMBER,
     });
     const { entries } = recentEntries(view.items, { labels, timezone, currentChannelId, channels, nameOf });
@@ -4252,15 +4823,34 @@ export function buildDiaryPlanRequest(input) {
   const channelIds = channels.map((channel) => channel?.id).filter(Boolean);
   const { kept, stats, used } = fitSections(
     [
-      { name: 'fixed', required: true, items: [system, nowText, kindsText, seedsText, topicText, diaryIntro].filter(Boolean) },
+      {
+        name: 'fixed',
+        required: true,
+        items: [system, nowText, kindsText, seedsText, topicText, diaryIntro].filter(Boolean),
+      },
       { name: 'diary', keep: 'newest', items: diaryLines },
       { name: 'world', items: [worldText(config, prompts, selfName)].filter(Boolean) },
-      { name: 'aboutChat', cap: caps.aboutChat, items: aboutChatItems(input.guildMemory, labels, nameOf, learnedConfig(config)) },
+      {
+        name: 'aboutChat',
+        cap: caps.aboutChat,
+        items: aboutChatItems(input.guildMemory, labels, nameOf, learnedConfig(config)),
+      },
       {
         name: 'server',
         cap: caps.server ?? 4000,
         keep: 'first',
-        items: serverItems(channels, currentChannelId, channelIds, history, now, config.context?.channelActivity, labels, nameOf, new Set(), config.diary?.channelId || null),
+        items: serverItems(
+          channels,
+          currentChannelId,
+          channelIds,
+          history,
+          now,
+          config.context?.channelActivity,
+          labels,
+          nameOf,
+          new Set(),
+          config.diary?.channelId || null
+        ),
       },
       {
         name: 'recent',
@@ -4272,11 +4862,14 @@ export function buildDiaryPlanRequest(input) {
         name: 'lore',
         cap: caps.lore,
         keep: 'first',
-        items: config.features?.lore !== false ? loreItems(input.loreEntries, history, null, labels, config.lore, nameOf) : [],
+        items:
+          config.features?.lore !== false
+            ? loreItems(input.loreEntries, history, null, labels, config.lore, nameOf)
+            : [],
       },
     ],
     limit,
-    cost,
+    cost
   );
 
   // `<recent>` as one piece: the header, then the entries kept, oldest first; the header alone is no block.

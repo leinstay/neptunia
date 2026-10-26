@@ -8,12 +8,20 @@ import { SKILL_DEFINITIONS, apiNameOf } from '../src/skills/definitions.js';
 
 const registry = buildSkills({ table: SKILL_DEFINITIONS });
 const texts = {
-  'web.search': { title: 'Search the web', whenToUse: 'For fresh facts.', whenNotToUse: 'For chat.', args: { query: 'What to look up.', bogus: 'ignored' } },
+  'web.search': {
+    title: 'Search the web',
+    whenToUse: 'For fresh facts.',
+    whenNotToUse: 'For chat.',
+    args: { query: 'What to look up.', bogus: 'ignored' },
+  },
 };
 
 test('buildTools: OpenAI-format entries sorted by API name, one per granted skill', () => {
   const tools = buildTools(['web.search', 'draw.create', 'nope.none', 'draw.create'], { registry, texts });
-  assert.deepEqual(tools.map((t) => t.function.name), ['draw_create', 'web_search']);
+  assert.deepEqual(
+    tools.map((t) => t.function.name),
+    ['draw_create', 'web_search']
+  );
   for (const tool of tools) {
     assert.equal(tool.type, 'function');
     assert.deepEqual(Object.keys(tool), ['function', 'type']);
@@ -39,7 +47,10 @@ test('buildTools: deterministic JSON whatever the order asked for, definitions n
   const b = JSON.stringify(buildTools(['draw.create', 'web.search'], { registry, texts }));
   assert.equal(a, b);
   assert.equal(JSON.stringify(registry.get('web.search').argsSchema), before);
-  assert.equal(JSON.stringify(canonicalJson({ b: 1, a: { d: [{ z: 1, y: 2 }], c: 0 } })), '{"a":{"c":0,"d":[{"y":2,"z":1}]},"b":1}');
+  assert.equal(
+    JSON.stringify(canonicalJson({ b: 1, a: { d: [{ z: 1, y: 2 }], c: 0 } })),
+    '{"a":{"c":0,"d":[{"y":2,"z":1}]},"b":1}'
+  );
 });
 
 test('buildTools: every defined skill with an API name builds', () => {

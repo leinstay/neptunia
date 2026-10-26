@@ -42,7 +42,8 @@ export function createUnitOutbox({ memoryDb, log = { warn: noop, error: noop, de
   }
 
   /** The update of a waiting unit, as the writer takes it. */
-  const updateOf = (owner, item) => (item.op === 'value' ? { op: 'value', owner, value: item.value } : { op: 'lines', owner, lines: item.lines });
+  const updateOf = (owner, item) =>
+    item.op === 'value' ? { op: 'value', owner, value: item.value } : { op: 'lines', owner, lines: item.lines };
 
   /** A failed write back in the outbox: a newer value stays; lines go in front of the ones that came meanwhile. */
   function putBack(owner, item) {
@@ -64,13 +65,18 @@ export function createUnitOutbox({ memoryDb, log = { warn: noop, error: noop, de
       waiting.delete(owner);
       const done = Promise.resolve()
         .then(() => memoryDb.writeUnit(updateOf(owner, item)))
-        .then(() => true, (error) => {
-          putBack(owner, item);
-          failed += 1;
-          code = error?.code ?? null;
-          return false;
-        })
-        .finally(() => { if (sending.get(owner) === done) sending.delete(owner); });
+        .then(
+          () => true,
+          (error) => {
+            putBack(owner, item);
+            failed += 1;
+            code = error?.code ?? null;
+            return false;
+          }
+        )
+        .finally(() => {
+          if (sending.get(owner) === done) sending.delete(owner);
+        });
       sending.set(owner, done);
       started.push(done);
     }
@@ -84,7 +90,7 @@ export function createUnitOutbox({ memoryDb, log = { warn: noop, error: noop, de
     for (let round = 0; round < rounds; round += 1) {
       await Promise.allSettled([...sending.values()]);
       if (waiting.size === 0) break;
-      if (await push() === 0) break;
+      if ((await push()) === 0) break;
     }
     await Promise.allSettled([...sending.values()]);
     return waiting.size;
@@ -96,7 +102,8 @@ export function createUnitOutbox({ memoryDb, log = { warn: noop, error: noop, de
     let code = null;
     for (const [owner, item] of [...waiting]) {
       try {
-        if (typeof memoryDb?.keepPending !== 'function') throw Object.assign(new Error('memory db: no pending folder'), { code: 'NO_PENDING' });
+        if (typeof memoryDb?.keepPending !== 'function')
+          throw Object.assign(new Error('memory db: no pending folder'), { code: 'NO_PENDING' });
         memoryDb.keepPending(updateOf(owner, item));
         waiting.delete(owner);
         kept += 1;

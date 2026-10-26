@@ -386,7 +386,8 @@ export function createSpontaneous({
     for (const channel of readableChannels(guild, config.bot)) {
       if (isChannelDead(channel, t, cfg, discord)) continue;
       if (canSend(channel)) {
-        if (passesFilters(channel, config, cfg, t)) candidates.push({ channel, lastActivity: lastActivity(channel), destination: channel });
+        if (passesFilters(channel, config, cfg, t))
+          candidates.push({ channel, lastActivity: lastActivity(channel), destination: channel });
         continue;
       }
       const destination = sourceDestination(channel, config, cfg, t);
@@ -523,7 +524,9 @@ export function createSpontaneous({
     log.info('spontaneous: firing a turn', { guildId, channel: turnChannel.id, source });
     try {
       const result = await turns.runTurn(
-        noticed ? noticedTurn(channel, turnChannel, cfg, 'tick') : { channel, mode: 'auto', chooseMode: makeChooseMode(cfg, guildId) },
+        noticed
+          ? noticedTurn(channel, turnChannel, cfg, 'tick')
+          : { channel, mode: 'auto', chooseMode: makeChooseMode(cfg, guildId) }
       );
       log.info('spontaneous: turn finished', { guildId, channel: turnChannel.id, source, outcome: result.outcome });
       noteTurn(guildId, result);
@@ -680,7 +683,12 @@ export function createSpontaneous({
     log.info('spontaneous: firing a turn', { guildId, channel: destination.id, source: source.id });
     try {
       const result = await turns.runTurn(noticedTurn(source, destination, cfg, 'eavesdrop'));
-      log.info('spontaneous: turn finished', { guildId, channel: destination.id, source: source.id, outcome: result?.outcome });
+      log.info('spontaneous: turn finished', {
+        guildId,
+        channel: destination.id,
+        source: source.id,
+        outcome: result?.outcome,
+      });
       return result ?? { outcome: 'error' };
     } catch (err) {
       log.error('spontaneous: turn failed', { guildId, source: source.id, error: err });
@@ -696,7 +704,13 @@ export function createSpontaneous({
   function force(channel, mode = null, { requester = null } = {}) {
     const asked = requester ? { requester } : {};
     if (mode) return turns.runTurn({ channel, mode, forced: true, ...asked });
-    return turns.runTurn({ channel, mode: 'auto', forced: true, chooseMode: (history, ts) => forcedMode(history, ts, hot.config.spontaneous ?? {}), ...asked });
+    return turns.runTurn({
+      channel,
+      mode: 'auto',
+      forced: true,
+      chooseMode: (history, ts) => forcedMode(history, ts, hot.config.spontaneous ?? {}),
+      ...asked,
+    });
   }
 
   function status() {

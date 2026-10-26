@@ -19,7 +19,9 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 
 /** HTML fragment -> one line of plain text. */
 function inlineText(value) {
-  return htmlToText(typeof value === 'string' ? value : '').replace(/\s+/g, ' ').trim();
+  return htmlToText(typeof value === 'string' ? value : '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /** Whether `value` is an absolute http(s) URL. */

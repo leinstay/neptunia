@@ -59,25 +59,47 @@ function makeService(env, { keyByRole } = {}) {
   const hot = {
     config: {
       features: { journal: true },
-      llm: { keyByRole: keyByRole ?? { scout: 'OPENROUTER_ERRAND_KEY', server: 'OPENROUTER_ERRAND_KEY', dev: 'OPENROUTER_DEV_KEY' } },
-      agents: { maxOpen: 3, scout: { enabled: true, daily: { tasks: 10 } }, server: { enabled: true, daily: { tasks: 10 } } },
+      llm: {
+        keyByRole: keyByRole ?? {
+          scout: 'OPENROUTER_ERRAND_KEY',
+          server: 'OPENROUTER_ERRAND_KEY',
+          dev: 'OPENROUTER_DEV_KEY',
+        },
+      },
+      agents: {
+        maxOpen: 3,
+        scout: { enabled: true, daily: { tasks: 10 } },
+        server: { enabled: true, daily: { tasks: 10 } },
+      },
     },
   };
   const journalLines = [];
   const journal = { action: async (guildId, line) => journalLines.push(line) };
   const log = fakeLog();
   const client = fakeClient();
-  const stores = createTaskStores({ memoryDb: memoryOf(path.join(rootDir, 'data')), config: () => hot.config, journal, log });
+  const stores = createTaskStores({
+    memoryDb: memoryOf(path.join(rootDir, 'data')),
+    config: () => hot.config,
+    journal,
+    log,
+  });
   const errands = createErrandService({ client, stores, hot, env, getGuildId: () => 'g1', log, defer: (fn) => fn() });
   const cleanup = () => fs.rmSync(rootDir, { recursive: true, force: true });
   return { errands, client, log, journalLines, rootDir, cleanup };
 }
 
-const ask = (agent) => ({ agent, goal: 'find the changelog', requester: { userId: '7', kind: 'member' }, origin: { channelId: 'c1', messageId: 'm1' }, scope: 'group' });
+const ask = (agent) => ({
+  agent,
+  goal: 'find the changelog',
+  requester: { userId: '7', kind: 'member' },
+  origin: { channelId: 'c1', messageId: 'm1' },
+  scope: 'group',
+});
 
 /** Every file under `dir`, read as text and joined. */
 function filesText(dir) {
-  return fs.readdirSync(dir, { recursive: true, withFileTypes: true })
+  return fs
+    .readdirSync(dir, { recursive: true, withFileTypes: true })
     .filter((entry) => entry.isFile())
     .map((entry) => fs.readFileSync(path.join(entry.parentPath ?? entry.path, entry.name), 'utf8'))
     .join('\n');
@@ -91,7 +113,7 @@ const ENV = {
   OPENCODE_WEBSEARCH_KEY: 'search-SECRET',
 };
 
-test('errands service: a scout run carries its role\'s key, the proxy in its http form and the search key; no secret in a log, a journal line or a file', async () => {
+test("errands service: a scout run carries its role's key, the proxy in its http form and the search key; no secret in a log, a journal line or a file", async () => {
   const { errands, client, log, journalLines, rootDir, cleanup } = makeService(ENV);
   try {
     const { logs } = await withCapturedLogs(async () => {
@@ -113,7 +135,7 @@ test('errands service: a scout run carries its role\'s key, the proxy in its htt
   }
 });
 
-test('errands service: a server run carries only its role\'s key; never the persona\'s or the development key', async () => {
+test("errands service: a server run carries only its role's key; never the persona's or the development key", async () => {
   const { errands, client, cleanup } = makeService(ENV);
   try {
     await withCapturedLogs(async () => {
@@ -127,7 +149,12 @@ test('errands service: a server run carries only its role\'s key; never the pers
 });
 
 test('errands service: the key follows llm.keyByRole read now; an http proxy is sent as it is; no search key, none sent', async () => {
-  const env = { ...ENV, OPENROUTER_WEB_ONLY: 'sk-web-only', MEDIA_VIDEO_PROXY: 'http://proxy.example:8000', OPENCODE_WEBSEARCH_KEY: '' };
+  const env = {
+    ...ENV,
+    OPENROUTER_WEB_ONLY: 'sk-web-only',
+    MEDIA_VIDEO_PROXY: 'http://proxy.example:8000',
+    OPENCODE_WEBSEARCH_KEY: '',
+  };
   const { errands, client, cleanup } = makeService(env, { keyByRole: { scout: 'OPENROUTER_WEB_ONLY' } });
   try {
     await withCapturedLogs(async () => {
@@ -140,8 +167,11 @@ test('errands service: the key follows llm.keyByRole read now; an http proxy is 
   }
 });
 
-test('errands service: without the role\'s key no secrets are sent (never the main key); the missing name is logged, never a value', async () => {
-  const env = { OPENROUTER_CORE_KEY: 'sk-persona-SECRET', MEDIA_VIDEO_PROXY: 'socks5h://user:pw-SECRET@proxy.example:1080' };
+test("errands service: without the role's key no secrets are sent (never the main key); the missing name is logged, never a value", async () => {
+  const env = {
+    OPENROUTER_CORE_KEY: 'sk-persona-SECRET',
+    MEDIA_VIDEO_PROXY: 'socks5h://user:pw-SECRET@proxy.example:1080',
+  };
   const { errands, client, log, cleanup } = makeService(env, { keyByRole: { scout: 'OPENROUTER_UNSET_AGENT_KEY' } });
   try {
     const { logs } = await withCapturedLogs(async () => {
@@ -152,7 +182,10 @@ test('errands service: without the role\'s key no secrets are sent (never the ma
     assert.equal(client.runs.length, 2);
     for (const run of client.runs) assert.equal(Object.hasOwn(run, 'secrets'), false, run.agent);
     const missing = logs.filter((entry) => entry.msg === 'llm: role key missing');
-    assert.deepEqual(missing.map((entry) => [entry.role, entry.name]), [['scout', 'OPENROUTER_UNSET_AGENT_KEY']]);
+    assert.deepEqual(
+      missing.map((entry) => [entry.role, entry.name]),
+      [['scout', 'OPENROUTER_UNSET_AGENT_KEY']]
+    );
     const recorded = JSON.stringify({ calls: log.calls, logs });
     for (const secret of SECRETS) assert.ok(!recorded.includes(secret), `${secret} never recorded`);
   } finally {
@@ -160,7 +193,7 @@ test('errands service: without the role\'s key no secrets are sent (never the ma
   }
 });
 
-test('errands service: a task carries context.recent, the origin channel\'s last agents.recentLines lines as of its queuing; a dm task sends none', async () => {
+test("errands service: a task carries context.recent, the origin channel's last agents.recentLines lines as of its queuing; a dm task sends none", async () => {
   const rootDir = tempDir('nep-errands-service-');
   const hot = { config: { agents: { maxOpen: 5, recentLines: 3, scout: { enabled: true, daily: { tasks: 10 } } } } };
   const buffer = [
@@ -174,13 +207,28 @@ test('errands service: a task carries context.recent, the origin channel\'s last
   ];
   // The channel's newest lines with text, oldest first, as src/index.js reads them from the memory database.
   const memory = {
-    recentLines: (guildId, channelId, count) => (guildId === 'g1' ? buffer : [])
-      .filter((line) => line.channelId === channelId && line.content).map((line) => ({ author: line.authorName, text: line.content })).slice(-count),
+    recentLines: (guildId, channelId, count) =>
+      (guildId === 'g1' ? buffer : [])
+        .filter((line) => line.channelId === channelId && line.content)
+        .map((line) => ({ author: line.authorName, text: line.content }))
+        .slice(-count),
   };
   const client = fakeClient();
   const deferred = [];
-  const stores = createTaskStores({ memoryDb: memoryOf(path.join(rootDir, 'data')), config: () => hot.config, log: fakeLog() });
-  const errands = createErrandService({ client, stores, hot, memory, getGuildId: () => 'g1', log: fakeLog(), defer: (fn) => deferred.push(fn) });
+  const stores = createTaskStores({
+    memoryDb: memoryOf(path.join(rootDir, 'data')),
+    config: () => hot.config,
+    log: fakeLog(),
+  });
+  const errands = createErrandService({
+    client,
+    stores,
+    hot,
+    memory,
+    getGuildId: () => 'g1',
+    log: fakeLog(),
+    defer: (fn) => deferred.push(fn),
+  });
   errands.submit(ask('scout'));
   errands.submit({ ...ask('scout'), origin: { channelId: 'dm1', messageId: null }, scope: 'dm' });
   // A line after the queuing is not in the task's context.
@@ -242,9 +290,18 @@ function fakeMirror() {
   };
 }
 
-test('errands service: the ledger mirror is called at the queuing (limits), the start (limits, the role\'s model), each progress, the end, a cancel (who) and a forget; the ledger id is kept on the task', async () => {
+test("errands service: the ledger mirror is called at the queuing (limits), the start (limits, the role's model), each progress, the end, a cancel (who) and a forget; the ledger id is kept on the task", async () => {
   const rootDir = tempDir('nep-errands-service-');
-  const hot = { config: { models: { errands: { scout: 'openrouter/vendor/web-model' } }, agents: { maxOpen: 5, resultMaxChars: 1234, scout: { enabled: true, daily: { tasks: 10 }, limits: { steps: 9, usd: 0.3, seconds: 90 } } } } };
+  const hot = {
+    config: {
+      models: { errands: { scout: 'openrouter/vendor/web-model' } },
+      agents: {
+        maxOpen: 5,
+        resultMaxChars: 1234,
+        scout: { enabled: true, daily: { tasks: 10 }, limits: { steps: 9, usd: 0.3, seconds: 90 } },
+      },
+    },
+  };
   const gates = new Map();
   const listeners = [];
   const client = {
@@ -260,8 +317,20 @@ test('errands service: the ledger mirror is called at the queuing (limits), the 
     },
   };
   const ledger = fakeMirror();
-  const stores = createTaskStores({ memoryDb: memoryOf(path.join(rootDir, 'data')), config: () => hot.config, log: fakeLog() });
-  const errands = createErrandService({ client, stores, hot, getGuildId: () => 'g1', log: fakeLog(), defer: (fn) => fn(), ledger });
+  const stores = createTaskStores({
+    memoryDb: memoryOf(path.join(rootDir, 'data')),
+    config: () => hot.config,
+    log: fakeLog(),
+  });
+  const errands = createErrandService({
+    client,
+    stores,
+    hot,
+    getGuildId: () => 'g1',
+    log: fakeLog(),
+    defer: (fn) => fn(),
+    ledger,
+  });
   try {
     assert.equal(errands.ledger, ledger);
     const done = errands.submit(ask('scout')).task.id;
@@ -278,27 +347,33 @@ test('errands service: the ledger mirror is called at the queuing (limits), the 
     assert.equal(errands.cancel({ guildId: 'g1', id: cancelled, by: 'owner' }).ok, true);
     await errands.idle();
     const limits = { steps: 9, seconds: 90 };
-    assert.deepEqual(ledger.calls, [
-      ['add', done, 'queued', 'g1', limits],
-      ['start', done, 'running', limits, 'openrouter/vendor/web-model'],
-      ['progress', done],
-      ['finish', done, 'done', null, 'L1', 1234],
-      ['add', cancelled, 'queued', 'g1', limits],
-      ['start', cancelled, 'running', limits, 'openrouter/vendor/web-model'],
-      ['cancel', cancelled, 'owner'],
-    ], 'a cancelled task\'s late end is not mirrored twice');
+    assert.deepEqual(
+      ledger.calls,
+      [
+        ['add', done, 'queued', 'g1', limits],
+        ['start', done, 'running', limits, 'openrouter/vendor/web-model'],
+        ['progress', done],
+        ['finish', done, 'done', null, 'L1', 1234],
+        ['add', cancelled, 'queued', 'g1', limits],
+        ['start', cancelled, 'running', limits, 'openrouter/vendor/web-model'],
+        ['cancel', cancelled, 'owner'],
+      ],
+      "a cancelled task's late end is not mirrored twice"
+    );
   } finally {
     fs.rmSync(rootDir, { recursive: true, force: true });
   }
 });
 
-test('errands service: at start the open tasks without a ledger id are mirrored, then each one\'s restart failure; a mirror that throws never stops an errand', async () => {
+test("errands service: at start the open tasks without a ledger id are mirrored, then each one's restart failure; a mirror that throws never stops an errand", async () => {
   const rootDir = tempDir('nep-errands-service-');
   const hot = { config: { agents: { maxOpen: 5, scout: { enabled: true, daily: { tasks: 10 } } } } };
   const dataDir = path.join(rootDir, 'data');
   try {
     // Before the restart: two open tasks, one of them already mirrored.
-    const before = createTaskStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: fakeLog() }).get('g1');
+    const before = createTaskStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: fakeLog() }).get(
+      'g1'
+    );
     const first = before.add(ask('scout')).task.id;
     const second = before.add(ask('scout')).task.id;
     before.start(second);
@@ -306,7 +381,15 @@ test('errands service: at start the open tasks without a ledger id are mirrored,
     await before.flush();
     const ledger = fakeMirror();
     const stores = createTaskStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: fakeLog() });
-    const errands = createErrandService({ client: fakeClient(), stores, hot, getGuildId: () => 'g1', log: fakeLog(), defer: (fn) => fn(), ledger });
+    const errands = createErrandService({
+      client: fakeClient(),
+      stores,
+      hot,
+      getGuildId: () => 'g1',
+      log: fakeLog(),
+      defer: (fn) => fn(),
+      ledger,
+    });
     assert.equal(errands.start('g1'), 2);
     assert.deepEqual(ledger.calls, [
       ['mirrorOpen', [first], 'g1', [errands.limitsOf('scout')]],
@@ -316,12 +399,25 @@ test('errands service: at start the open tasks without a ledger id are mirrored,
     assert.equal(stores.get('g1').get(first).ledgerId, `R-${first}`);
 
     // A mirror that throws at every call: the errand runs and ends as before, the failure is logged.
-    const throwing = Object.fromEntries(['add', 'start', 'progress', 'finish', 'cancel', 'mirrorOpen'].map((name) => [name, () => {
-      throw new Error('mirror down');
-    }]));
+    const throwing = Object.fromEntries(
+      ['add', 'start', 'progress', 'finish', 'cancel', 'mirrorOpen'].map((name) => [
+        name,
+        () => {
+          throw new Error('mirror down');
+        },
+      ])
+    );
     const log = fakeLog();
     const client = fakeClient();
-    const other = createErrandService({ client, stores, hot, getGuildId: () => 'g1', log, defer: (fn) => fn(), ledger: throwing });
+    const other = createErrandService({
+      client,
+      stores,
+      hot,
+      getGuildId: () => 'g1',
+      log,
+      defer: (fn) => fn(),
+      ledger: throwing,
+    });
     const id = other.submit(ask('scout')).task.id;
     await other.idle();
     assert.equal(stores.get('g1').get(id).state, 'done');
@@ -368,18 +464,23 @@ async function pongRunner(sock) {
   });
   await new Promise((resolve) => server.listen(sock, resolve));
   return {
-    close: () => new Promise((resolve) => {
-      for (const conn of connections) conn.destroy();
-      server.close(() => resolve());
-      if (fs.existsSync(sock)) fs.unlinkSync(sock);
-    }),
+    close: () =>
+      new Promise((resolve) => {
+        for (const conn of connections) conn.destroy();
+        server.close(() => resolve());
+        if (fs.existsSync(sock)) fs.unlinkSync(sock);
+      }),
   };
 }
 
 test('errands service: with the runner socket absent the flag goes down, submit refuses runner-down at once and writes no task; a ping that succeeds flips it back', async () => {
   const rootDir = tempDir('nep-errands-service-');
   const sock = path.join(os.tmpdir(), `errand-health-${process.pid}-${Math.random().toString(36).slice(2)}.sock`);
-  const hot = { config: { agents: { maxOpen: 3, scout: { enabled: true, socket: sock, daily: { tasks: 10 } }, server: { enabled: false } } } };
+  const hot = {
+    config: {
+      agents: { maxOpen: 3, scout: { enabled: true, socket: sock, daily: { tasks: 10 } }, server: { enabled: false } },
+    },
+  };
   let clock = 1_000_000;
   const log = fakeLog();
   const client = createErrandClient({ hot, log, setTimer: (fn, ms) => setTimeout(fn, Math.max(ms, 60_000)) });
@@ -406,7 +507,8 @@ test('errands service: with the runner socket absent the flag goes down, submit 
     runner = await pongRunner(sock);
     clock += RUNNER_RECHECK_MS;
     assert.equal(errands.submit(ask('scout')).code, 'runner-down', 'the asking refusal itself still falls back');
-    for (let i = 0; i < 100 && errands.runnerUp('scout') !== true; i += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+    for (let i = 0; i < 100 && errands.runnerUp('scout') !== true; i += 1)
+      await new Promise((resolve) => setTimeout(resolve, 10));
     assert.equal(errands.runnerUp('scout'), true);
     assert.equal(log.calls.filter((c) => c.msg === 'errands: runner up').length, 1);
     const queued = errands.submit(ask('scout'));
@@ -421,13 +523,15 @@ test('errands service: with the runner socket absent the flag goes down, submit 
   }
 });
 
-test('errands service: the connect loop\'s outcomes set the flag; start pings the enabled agents; a fake client without ping or onLink never refuses', async () => {
+test("errands service: the connect loop's outcomes set the flag; start pings the enabled agents; a fake client without ping or onLink never refuses", async () => {
   let linkListener = null;
   const pinged = [];
   const log = fakeLog();
   const client = {
     configured: (agent) => agent === 'scout',
-    onLink: (fn) => { linkListener = fn; },
+    onLink: (fn) => {
+      linkListener = fn;
+    },
     ping: async (agent) => (pinged.push(agent), { ok: false, error: 'disconnected' }),
     run: async () => ({ status: 'done', result: { text: '' }, usage: {} }),
   };
@@ -447,7 +551,11 @@ test('errands service: the connect loop\'s outcomes set the flag; start pings th
     assert.equal(errands.submit(ask('scout')).ok, true);
     linkListener({ agent: 'scout', up: false, code: 'ENOENT' });
     assert.equal(errands.submit(ask('scout')).code, 'runner-down');
-    assert.equal(log.calls.find((c) => c.msg === 'errands: runner down').fields.code, 'disconnected', 'the first down came from the ping');
+    assert.equal(
+      log.calls.find((c) => c.msg === 'errands: runner down').fields.code,
+      'disconnected',
+      'the first down came from the ping'
+    );
     await errands.idle();
 
     const plain = makeService(ENV);
@@ -474,19 +582,43 @@ test('errands service: view lists the open tasks, then the unread finished ones;
   const rootDir = tempDir('nep-errands-service-');
   const hot = { config: { agents: { maxOpen: 5, scout: { enabled: true, daily: { tasks: 10 } } } } };
   try {
-    const stores = createTaskStores({ memoryDb: memoryOf(path.join(rootDir, 'data')), config: () => hot.config, log: fakeLog() });
-    const errands = createErrandService({ client: fakeClient(), stores, hot, getGuildId: () => 'g1', log: fakeLog(), defer: (fn) => fn() });
+    const stores = createTaskStores({
+      memoryDb: memoryOf(path.join(rootDir, 'data')),
+      config: () => hot.config,
+      log: fakeLog(),
+    });
+    const errands = createErrandService({
+      client: fakeClient(),
+      stores,
+      hot,
+      getGuildId: () => 'g1',
+      log: fakeLog(),
+      defer: (fn) => fn(),
+    });
     const store = stores.get('g1');
     const a = finishedTask(store);
     const b = finishedTask(store);
     const open = store.add(ask('scout')).task.id;
-    assert.deepEqual(errands.view({ guildId: 'g1' }).map((task) => task.id), [open, a, b]);
+    assert.deepEqual(
+      errands.view({ guildId: 'g1' }).map((task) => task.id),
+      [open, a, b]
+    );
     errands.markSeen({ guildId: 'g1', ids: [a, b] });
-    assert.deepEqual(errands.view({ guildId: 'g1' }).map((task) => task.id), [open, a, b], 'the result turn having run hides nothing');
+    assert.deepEqual(
+      errands.view({ guildId: 'g1' }).map((task) => task.id),
+      [open, a, b],
+      'the result turn having run hides nothing'
+    );
     assert.equal(errands.markRead({ guildId: 'g1', ids: [a] }), 1);
-    assert.deepEqual(errands.view({ guildId: 'g1' }).map((task) => task.id), [open, b]);
+    assert.deepEqual(
+      errands.view({ guildId: 'g1' }).map((task) => task.id),
+      [open, b]
+    );
     store.resolve(b);
-    assert.deepEqual(errands.view({ guildId: 'g1' }).map((task) => task.id), [open]);
+    assert.deepEqual(
+      errands.view({ guildId: 'g1' }).map((task) => task.id),
+      [open]
+    );
     assert.equal(store.get(b).resolvedAt > 0, true);
     assert.equal(store.resolve(open), null, 'an open task cannot be resolved');
   } finally {
@@ -494,21 +626,40 @@ test('errands service: view lists the open tasks, then the unread finished ones;
   }
 });
 
-test('errands service: a private chat\'s unread result is in the view only in that chat; the unread list survives a restart of the store', async () => {
+test("errands service: a private chat's unread result is in the view only in that chat; the unread list survives a restart of the store", async () => {
   const rootDir = tempDir('nep-errands-service-');
   const hot = { config: { agents: { maxOpen: 5, scout: { enabled: true, daily: { tasks: 10 } } } } };
   const dataDir = path.join(rootDir, 'data');
   try {
     const stores = createTaskStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: fakeLog() });
-    const errands = createErrandService({ client: fakeClient(), stores, hot, getGuildId: () => 'g1', log: fakeLog(), defer: (fn) => fn() });
+    const errands = createErrandService({
+      client: fakeClient(),
+      stores,
+      hot,
+      getGuildId: () => 'g1',
+      log: fakeLog(),
+      defer: (fn) => fn(),
+    });
     const dm = finishedTask(stores.get('g1'), { scope: 'dm', channelId: 'dm1' });
     const group = finishedTask(stores.get('g1'));
-    assert.deepEqual(errands.view({ guildId: 'g1' }).map((task) => task.id), [group]);
-    assert.deepEqual(errands.view({ guildId: 'g1', privateChannelId: 'dm1' }).map((task) => task.id), [dm, group]);
-    assert.deepEqual(errands.view({ guildId: 'g1', privateChannelId: 'dm2' }).map((task) => task.id), [group]);
+    assert.deepEqual(
+      errands.view({ guildId: 'g1' }).map((task) => task.id),
+      [group]
+    );
+    assert.deepEqual(
+      errands.view({ guildId: 'g1', privateChannelId: 'dm1' }).map((task) => task.id),
+      [dm, group]
+    );
+    assert.deepEqual(
+      errands.view({ guildId: 'g1', privateChannelId: 'dm2' }).map((task) => task.id),
+      [group]
+    );
     await stores.get('g1').flush();
     const again = createTaskStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: fakeLog() }).get('g1');
-    assert.deepEqual(again.unread().map((task) => task.id), [dm, group]);
+    assert.deepEqual(
+      again.unread().map((task) => task.id),
+      [dm, group]
+    );
     // A record from before readAt: seen counts as read, unseen as unread.
     const list = JSON.parse(unitFile(memoryOf(dataDir), 'guilds/g1/tasks.json'));
     for (const task of list.tasks) {
@@ -517,8 +668,13 @@ test('errands service: a private chat\'s unread result is in the view only in th
     }
     list.tasks[0].seen = true;
     await memoryOf(dataDir).writeUnit({ op: 'value', owner: 'guilds/g1/tasks.json', value: list });
-    const legacy = createTaskStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: fakeLog() }).get('g1');
-    assert.deepEqual(legacy.unread().map((task) => task.id), [group]);
+    const legacy = createTaskStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: fakeLog() }).get(
+      'g1'
+    );
+    assert.deepEqual(
+      legacy.unread().map((task) => task.id),
+      [group]
+    );
   } finally {
     fs.rmSync(rootDir, { recursive: true, force: true });
   }
@@ -529,7 +685,9 @@ test('errands service: at start the finished errands whose result turn never ran
   const hot = { config: { agents: { maxOpen: 5, scout: { enabled: true, daily: { tasks: 10 } } } } };
   const dataDir = path.join(rootDir, 'data');
   try {
-    const before = createTaskStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: fakeLog() }).get('g1');
+    const before = createTaskStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: fakeLog() }).get(
+      'g1'
+    );
     const unseen = finishedTask(before);
     const seen = finishedTask(before);
     before.markSeen(seen);
@@ -538,33 +696,71 @@ test('errands service: at start the finished errands whose result turn never ran
     await before.flush();
     const reopened = [];
     const stores = createTaskStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: fakeLog() });
-    const errands = createErrandService({ client: fakeClient(), stores, hot, getGuildId: () => 'g1', log: fakeLog(), defer: (fn) => fn(), onFinished: (task, guildId) => reopened.push([task.id, guildId]) });
+    const errands = createErrandService({
+      client: fakeClient(),
+      stores,
+      hot,
+      getGuildId: () => 'g1',
+      log: fakeLog(),
+      defer: (fn) => fn(),
+      onFinished: (task, guildId) => reopened.push([task.id, guildId]),
+    });
     assert.equal(errands.start('g1'), 1);
     await new Promise((resolve) => setImmediate(resolve));
-    assert.deepEqual(reopened.map(([id]) => id).sort(), [running, unseen].sort(), 'the restart-failed task and the unseen one');
-    assert.equal(reopened.every(([, guildId]) => guildId === 'g1'), true);
+    assert.deepEqual(
+      reopened.map(([id]) => id).sort(),
+      [running, unseen].sort(),
+      'the restart-failed task and the unseen one'
+    );
+    assert.equal(
+      reopened.every(([, guildId]) => guildId === 'g1'),
+      true
+    );
   } finally {
     fs.rmSync(rootDir, { recursive: true, force: true });
   }
 });
 
-test('errands service: the file of an expired task is a marker, not a path; a private chat\'s only in that chat', () => {
+test("errands service: the file of an expired task is a marker, not a path; a private chat's only in that chat", () => {
   const rootDir = tempDir('nep-errands-service-');
   const out = path.join(rootDir, 'out');
   fs.mkdirSync(out, { recursive: true });
   const hot = { config: { agents: { maxOpen: 5, scout: { enabled: true, out, daily: { tasks: 10 } } } } };
   try {
-    const stores = createTaskStores({ memoryDb: memoryOf(path.join(rootDir, 'data')), config: () => hot.config, log: fakeLog() });
-    const errands = createErrandService({ client: fakeClient(), stores, hot, getGuildId: () => 'g1', log: fakeLog(), defer: (fn) => fn() });
+    const stores = createTaskStores({
+      memoryDb: memoryOf(path.join(rootDir, 'data')),
+      config: () => hot.config,
+      log: fakeLog(),
+    });
+    const errands = createErrandService({
+      client: fakeClient(),
+      stores,
+      hot,
+      getGuildId: () => 'g1',
+      log: fakeLog(),
+      defer: (fn) => fn(),
+    });
     const store = stores.get('g1');
     const group = finishedTask(store, { result: { text: 'ok', files: [{ path: '/x/a.png', name: 'a.png' }] } });
-    const dm = finishedTask(store, { scope: 'dm', channelId: 'dm1', result: { text: 'ok', files: [{ path: '/x/b.png', name: 'b.png' }] } });
+    const dm = finishedTask(store, {
+      scope: 'dm',
+      channelId: 'dm1',
+      result: { text: 'ok', files: [{ path: '/x/b.png', name: 'b.png' }] },
+    });
     const handle = `file:${group}/a.png`;
     const found = errands.fileOf({ guildId: 'g1', handle });
     assert.equal(found?.expired, true);
     assert.equal(found.path, undefined);
-    assert.equal(errands.fileOf({ guildId: 'g1', handle: `file:${group}/other.png` }), null, 'a name the result does not list');
-    assert.equal(errands.fileOf({ guildId: 'g1', handle: `file:${dm}/b.png` }), null, 'a private chat\'s file elsewhere');
+    assert.equal(
+      errands.fileOf({ guildId: 'g1', handle: `file:${group}/other.png` }),
+      null,
+      'a name the result does not list'
+    );
+    assert.equal(
+      errands.fileOf({ guildId: 'g1', handle: `file:${dm}/b.png` }),
+      null,
+      "a private chat's file elsewhere"
+    );
     assert.equal(errands.fileOf({ guildId: 'g1', handle: `file:${dm}/b.png`, privateChannelId: 'dm1' })?.expired, true);
   } finally {
     fs.rmSync(rootDir, { recursive: true, force: true });

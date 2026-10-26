@@ -48,10 +48,25 @@ export function createThinkStore({ maxPlaces = PLACES_MAX } = {}) {
    * was refused; `isPrivate`: it ran in a private chat; `inner`: an inner turn (tied to the places it
    * posted into only).
    */
-  function record({ turnId = null, at, think = null, failed = false, isPrivate = false, inner = false, ran = null, delivered = [] }) {
+  function record({
+    turnId = null,
+    at,
+    think = null,
+    failed = false,
+    isPrivate = false,
+    inner = false,
+    ran = null,
+    delivered = [],
+  }) {
     const places = new Set(Array.isArray(delivered) ? delivered : []);
     if (!inner && ran) places.add(ran);
-    const entry = { turnId, at, think: typeof think === 'string' && think.trim() ? think : null, failed: failed === true, private: isPrivate === true };
+    const entry = {
+      turnId,
+      at,
+      think: typeof think === 'string' && think.trim() ? think : null,
+      failed: failed === true,
+      private: isPrivate === true,
+    };
     for (const key of places) {
       entries.delete(key);
       entries.set(key, entry);
@@ -72,7 +87,10 @@ export function createThinkStore({ maxPlaces = PLACES_MAX } = {}) {
     if (entry.failed) return { think: null, why: 'failed', turnId: entry.turnId };
     if (entry.private && !isPrivate) return { think: null, why: 'private', turnId: entry.turnId };
     if (!entry.think) return { think: null, why: 'no-think', turnId: entry.turnId };
-    return { think: entry.think, source: { turnId: entry.turnId, relation: 'earlier', ageMs: Math.max(0, now - entry.at) } };
+    return {
+      think: entry.think,
+      source: { turnId: entry.turnId, relation: 'earlier', ageMs: Math.max(0, now - entry.at) },
+    };
   }
 
   return { record, select, size: () => entries.size };

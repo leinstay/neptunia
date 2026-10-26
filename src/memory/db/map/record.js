@@ -36,7 +36,8 @@ const SPEC = [
 function sourceIdOf(line) {
   const kind = typeof line.kind === 'string' ? line.kind : 'unknown';
   const messageId = typeof line.messageId === 'string' ? line.messageId : null;
-  if (REVISIONED_KINDS.has(kind) && messageId && Number.isFinite(line.revision)) return messageSourceId(messageId, line.revision, kind);
+  if (REVISIONED_KINDS.has(kind) && messageId && Number.isFinite(line.revision))
+    return messageSourceId(messageId, line.revision, kind);
   return `src:${IFACE}:${messageId ?? 'none'}:${kind}:${line.id ?? 'unknown'}`;
 }
 

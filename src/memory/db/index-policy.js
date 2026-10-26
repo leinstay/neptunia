@@ -51,21 +51,32 @@ export function indexSettings(config) {
   };
 }
 
-const hasTable = (db, name) => db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) !== undefined;
+const hasTable = (db, name) =>
+  db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) !== undefined;
 
 /** The ids of every source a claim, a claim version or an episode cites (live links). */
 function citedIds(db) {
   const ids = new Set();
-  for (const row of db.prepare('SELECT source_id AS id FROM claim_sources WHERE retired_at IS NULL AND source_id IS NOT NULL').iterate()) ids.add(row.id);
-  for (const row of db.prepare('SELECT source_id AS id FROM episode_sources WHERE retired_at IS NULL AND source_id IS NOT NULL').iterate()) ids.add(row.id);
-  if (hasTable(db, 'claim_version_sources')) for (const row of db.prepare('SELECT source_id AS id FROM claim_version_sources').iterate()) ids.add(row.id);
+  for (const row of db
+    .prepare('SELECT source_id AS id FROM claim_sources WHERE retired_at IS NULL AND source_id IS NOT NULL')
+    .iterate())
+    ids.add(row.id);
+  for (const row of db
+    .prepare('SELECT source_id AS id FROM episode_sources WHERE retired_at IS NULL AND source_id IS NOT NULL')
+    .iterate())
+    ids.add(row.id);
+  if (hasTable(db, 'claim_version_sources'))
+    for (const row of db.prepare('SELECT source_id AS id FROM claim_version_sources').iterate()) ids.add(row.id);
   return ids;
 }
 
 /** The policy rows that hold over a computation: pins, and touches with their expiry. */
 function heldPolicy(db) {
   const held = new Map();
-  for (const row of db.prepare("SELECT node_id, pinned, reason, expires_at FROM index_policy WHERE pinned = 1 OR reason = 'touch'").iterate()) held.set(row.node_id, { ...row });
+  for (const row of db
+    .prepare("SELECT node_id, pinned, reason, expires_at FROM index_policy WHERE pinned = 1 OR reason = 'touch'")
+    .iterate())
+    held.set(row.node_id, { ...row });
   return held;
 }
 
@@ -75,10 +86,12 @@ const SELF_KINDS = new Set([...SELF_SOURCE_KINDS, 'said', 'answer']);
 function tierOf(row, { cited, captured, held, nowIso }) {
   const policy = held.get(nodeOf(row.id));
   if (policy?.pinned === 1) return { tier: 'a', reason: 'pinned' };
-  if (policy?.reason === 'touch' && typeof policy.expires_at === 'string' && policy.expires_at > nowIso) return { tier: 'a', reason: 'touch', expires: policy.expires_at };
+  if (policy?.reason === 'touch' && typeof policy.expires_at === 'string' && policy.expires_at > nowIso)
+    return { tier: 'a', reason: 'touch', expires: policy.expires_at };
   if (row.author_kind === 'self' || SELF_KINDS.has(row.kind)) return { tier: 'a', reason: 'self' };
   if (row.direct === 1) return { tier: 'a', reason: 'addressed' };
-  if (row.scope_kind === 'dm' || (typeof row.audience_id === 'string' && row.audience_id.startsWith('aud:dm:'))) return { tier: 'a', reason: 'dm' };
+  if (row.scope_kind === 'dm' || (typeof row.audience_id === 'string' && row.audience_id.startsWith('aud:dm:')))
+    return { tier: 'a', reason: 'dm' };
   if (cited.has(row.id)) return { tier: 'a', reason: 'cited' };
   if (captured.has(row.id)) return { tier: 'c', reason: 'capture' };
   return { tier: 'b', reason: 'seen' };
@@ -94,47 +107,69 @@ export function classify(handle, { now, config = null, apply = false, evict = fa
   const nowIso = iso(now);
   const cutoff = iso(now - settings.vectorDays * DAY_MS);
   const cited = citedIds(db);
-  const captured = new Set(hasTable(db, 'capture_members') ? db.prepare('SELECT DISTINCT source_id AS id FROM capture_members').all().map((row) => row.id) : []);
+  const captured = new Set(
+    hasTable(db, 'capture_members')
+      ? db
+          .prepare('SELECT DISTINCT source_id AS id FROM capture_members')
+          .all()
+          .map((row) => row.id)
+      : []
+  );
   const held = heldPolicy(db);
   const tiers = { a: 0, b: 0, c: 0 };
   const reasons = {};
   const decided = new Map();
   // A message is cited, pinned or touched when any of its revisions is.
   const keptMessages = new Map();
-  for (const row of db.prepare('SELECT id, kind, author_kind, direct, scope_kind, audience_id, authority_id, native_id FROM sources WHERE id IS NOT NULL').iterate()) {
+  for (const row of db
+    .prepare(
+      'SELECT id, kind, author_kind, direct, scope_kind, audience_id, authority_id, native_id FROM sources WHERE id IS NOT NULL'
+    )
+    .iterate()) {
     const tier = tierOf(row, { cited, captured, held, nowIso });
     decided.set(row.id, tier);
     tiers[tier.tier] += 1;
     reasons[tier.reason] = (reasons[tier.reason] ?? 0) + 1;
-    if (['cited', 'pinned', 'touch'].includes(tier.reason) && row.native_id) keptMessages.set(`${row.authority_id ?? ''}\u0000${row.native_id}`, tier.reason);
+    if (['cited', 'pinned', 'touch'].includes(tier.reason) && row.native_id)
+      keptMessages.set(`${row.authority_id ?? ''}\u0000${row.native_id}`, tier.reason);
   }
   const plan = [];
   const kept = { recent: 0, cited: 0, pinned: 0, touch: 0, consolidated: 0, unlinked: 0 };
   let evicted = 0;
-  for (const row of db.prepare(`SELECT v.rowid AS rowid, v.chunk_key AS chunk_key, v.evicted_at AS evicted_at, v.bytes IS NULL AS empty,
+  for (const row of db
+    .prepare(
+      `SELECT v.rowid AS rowid, v.chunk_key AS chunk_key, v.evicted_at AS evicted_at, v.bytes IS NULL AS empty,
       s.id AS source_id, s.occurred_at AS occurred_at, s.recorded_at AS recorded_at, s.authority_id AS authority_id, s.native_id AS native_id
-    FROM vectors v LEFT JOIN sources s ON s.rowid = v.source_rowid WHERE v.retired_at IS NULL`).iterate()) {
+    FROM vectors v LEFT JOIN sources s ON s.rowid = v.source_rowid WHERE v.retired_at IS NULL`
+    )
+    .iterate()) {
     let keep = null;
     if (/^(?:private:[^:]+:)?archive:/.test(String(row.chunk_key ?? ''))) keep = 'consolidated';
     else if (!row.source_id) keep = 'unlinked';
     else if ((row.occurred_at ?? row.recorded_at ?? '') >= cutoff) keep = 'recent';
     else {
       const reason = decided.get(row.source_id)?.reason;
-      keep = ['cited', 'pinned', 'touch'].includes(reason) ? reason : (keptMessages.get(`${row.authority_id ?? ''}\u0000${row.native_id}`) ?? null);
+      keep = ['cited', 'pinned', 'touch'].includes(reason)
+        ? reason
+        : (keptMessages.get(`${row.authority_id ?? ''}\u0000${row.native_id}`) ?? null);
     }
     if (keep) {
       kept[keep] += 1;
       if (row.evicted_at && !row.empty) plan.push({ rowid: row.rowid, action: 'clear' });
       continue;
     }
-    if (row.evicted_at && row.empty) { evicted += 1; continue; }
+    if (row.evicted_at && row.empty) {
+      evicted += 1;
+      continue;
+    }
     plan.push({ rowid: row.rowid, action: 'evict' });
   }
   const toEvict = plan.filter((entry) => entry.action === 'evict').length;
   let evictedNow = 0;
   if (apply) {
     const write = () => {
-      const upsert = db.prepare(`INSERT INTO index_policy (node_id, tier, reason, pinned, evaluated_at, expires_at) VALUES (?, ?, ?, 0, ?, ?)
+      const upsert =
+        db.prepare(`INSERT INTO index_policy (node_id, tier, reason, pinned, evaluated_at, expires_at) VALUES (?, ?, ?, 0, ?, ?)
         ON CONFLICT(node_id) DO UPDATE SET tier = excluded.tier, reason = excluded.reason, evaluated_at = excluded.evaluated_at,
           expires_at = CASE WHEN excluded.reason = 'touch' THEN index_policy.expires_at ELSE NULL END`);
       const setTier = db.prepare('UPDATE sources SET tier = ? WHERE id = ? AND tier IS NOT ?');
@@ -143,7 +178,9 @@ export function classify(handle, { now, config = null, apply = false, evict = fa
         setTier.run(tier.tier, id, tier.tier);
       }
       if (evict) {
-        const drop = db.prepare('UPDATE vectors SET bytes = NULL, evicted_at = COALESCE(evicted_at, ?) WHERE rowid = ?');
+        const drop = db.prepare(
+          'UPDATE vectors SET bytes = NULL, evicted_at = COALESCE(evicted_at, ?) WHERE rowid = ?'
+        );
         const clear = db.prepare('UPDATE vectors SET evicted_at = NULL WHERE rowid = ? AND bytes IS NOT NULL');
         for (const entry of plan) {
           if (entry.action === 'evict') evictedNow += drop.run(nowIso, entry.rowid).changes;
@@ -168,7 +205,8 @@ export function touch(handle, sourceIds, { now, config = null } = {}) {
   const ids = [...new Set((Array.isArray(sourceIds) ? sourceIds : []).filter((id) => typeof id === 'string' && id))];
   return handle.transaction(() => {
     const { db } = handle;
-    const upsert = db.prepare(`INSERT INTO index_policy (node_id, tier, reason, pinned, evaluated_at, expires_at) VALUES (?, 'a', 'touch', 0, ?, ?)
+    const upsert =
+      db.prepare(`INSERT INTO index_policy (node_id, tier, reason, pinned, evaluated_at, expires_at) VALUES (?, 'a', 'touch', 0, ?, ?)
       ON CONFLICT(node_id) DO UPDATE SET tier = 'a', reason = 'touch', evaluated_at = excluded.evaluated_at, expires_at = excluded.expires_at`);
     let count = 0;
     for (const id of ids) {
@@ -183,18 +221,31 @@ export function touch(handle, sourceIds, { now, config = null } = {}) {
 
 /** The evicted vectors of lines whose touch still lasts, oldest touch first. */
 export function pendingReembed(db, { now, limit = 100 } = {}) {
-  return db.prepare(`SELECT v.rowid AS rowid, v.chunk_key AS chunk_key, v.model AS model, v.dims AS dims, v.context AS context, s.id AS source_id
+  return db
+    .prepare(
+      `SELECT v.rowid AS rowid, v.chunk_key AS chunk_key, v.model AS model, v.dims AS dims, v.context AS context, s.id AS source_id
     FROM vectors v JOIN sources s ON s.rowid = v.source_rowid JOIN index_policy p ON p.node_id = 'source:' || s.id
     WHERE v.bytes IS NULL AND v.retired_at IS NULL AND p.reason = 'touch' AND p.expires_at > ?
-    ORDER BY p.evaluated_at, v.rowid LIMIT ?`).all(iso(now), Math.max(1, limit)).map((row) => ({ ...row }));
+    ORDER BY p.evaluated_at, v.rowid LIMIT ?`
+    )
+    .all(iso(now), Math.max(1, limit))
+    .map((row) => ({ ...row }));
 }
 
 /** Writes re-embedded vectors (`[{ rowid, bytes, scale, norm }]`) on the writer; only a row still evicted is filled. */
 export function applyReembed(handle, { rows }) {
   return handle.transaction(() => {
-    const fill = handle.db.prepare('UPDATE vectors SET bytes = ?, scale = ?, norm = ?, evicted_at = NULL WHERE rowid = ? AND bytes IS NULL');
+    const fill = handle.db.prepare(
+      'UPDATE vectors SET bytes = ?, scale = ?, norm = ?, evicted_at = NULL WHERE rowid = ? AND bytes IS NULL'
+    );
     let written = 0;
-    for (const row of Array.isArray(rows) ? rows : []) written += fill.run(Buffer.from(row.bytes.buffer ?? row.bytes, row.bytes.byteOffset ?? 0, row.bytes.byteLength ?? row.bytes.length), row.scale, row.norm, row.rowid).changes;
+    for (const row of Array.isArray(rows) ? rows : [])
+      written += fill.run(
+        Buffer.from(row.bytes.buffer ?? row.bytes, row.bytes.byteOffset ?? 0, row.bytes.byteLength ?? row.bytes.length),
+        row.scale,
+        row.norm,
+        row.rowid
+      ).changes;
     return { written };
   });
 }
@@ -205,16 +256,36 @@ export function applyReembed(handle, { rows }) {
  */
 export function chunkLinesOf(db, row) {
   let meta = {};
-  try { meta = row.context ? JSON.parse(row.context) : {}; } catch { meta = {}; }
+  try {
+    meta = row.context ? JSON.parse(row.context) : {};
+  } catch {
+    meta = {};
+  }
   const own = db.prepare('SELECT * FROM sources WHERE id = ?').get(row.source_id);
   if (!own || typeof own.text !== 'string' || !own.text.trim()) return null;
   const lineOf = (source) => {
-    const author = source.author_account ? db.prepare('SELECT native_id FROM accounts WHERE id = ?').get(source.author_account)?.native_id ?? null : null;
-    return { kind: source.kind, messageId: source.native_id, revision: source.revision ?? 1, occurredAt: source.occurred_at, by: author, text: source.text };
+    const author = source.author_account
+      ? (db.prepare('SELECT native_id FROM accounts WHERE id = ?').get(source.author_account)?.native_id ?? null)
+      : null;
+    return {
+      kind: source.kind,
+      messageId: source.native_id,
+      revision: source.revision ?? 1,
+      occurredAt: source.occurred_at,
+      by: author,
+      text: source.text,
+    };
   };
-  const ids = Array.isArray(meta.sourceIds) ? meta.sourceIds.filter((id) => typeof id === 'string' && id !== own.native_id) : [];
-  const newest = db.prepare("SELECT * FROM sources WHERE native_id = ? AND authority_id IS ? AND kind IN ('seen', 'said') AND retired_at IS NULL ORDER BY revision DESC LIMIT 1");
-  const context = ids.map((id) => newest.get(id, own.authority_id)).filter((source) => source && typeof source.text === 'string' && source.text.trim()).map(lineOf);
+  const ids = Array.isArray(meta.sourceIds)
+    ? meta.sourceIds.filter((id) => typeof id === 'string' && id !== own.native_id)
+    : [];
+  const newest = db.prepare(
+    "SELECT * FROM sources WHERE native_id = ? AND authority_id IS ? AND kind IN ('seen', 'said') AND retired_at IS NULL ORDER BY revision DESC LIMIT 1"
+  );
+  const context = ids
+    .map((id) => newest.get(id, own.authority_id))
+    .filter((source) => source && typeof source.text === 'string' && source.text.trim())
+    .map(lineOf);
   return { line: lineOf(own), context };
 }
 
@@ -228,20 +299,37 @@ export async function reembedTouched({ db, write, embed, config, now, quantize, 
   const ready = [];
   let skipped = 0;
   for (const row of rows) {
-    if (model && row.model && row.model !== model) { skipped += 1; continue; }
+    if (model && row.model && row.model !== model) {
+      skipped += 1;
+      continue;
+    }
     const lines = chunkLinesOf(db, row);
     const text = lines ? chunkOf(lines.line, lines.context) : '';
-    if (typeof text !== 'string' || !text.trim()) { skipped += 1; continue; }
+    if (typeof text !== 'string' || !text.trim()) {
+      skipped += 1;
+      continue;
+    }
     ready.push({ row, text });
   }
   if (ready.length === 0) return { pending: rows.length, embedded: 0, written: 0, skipped };
-  const vectors = await embed(ready.map((entry) => entry.text), { config, purpose: 'memory-reembed' });
+  const vectors = await embed(
+    ready.map((entry) => entry.text),
+    { config, purpose: 'memory-reembed' }
+  );
   const out = [];
   ready.forEach((entry, index) => {
     const vector = vectors?.[index];
-    if (!vector || vector.length !== entry.row.dims) { skipped += 1; return; }
+    if (!vector || vector.length !== entry.row.dims) {
+      skipped += 1;
+      return;
+    }
     const q = quantize(vector);
-    out.push({ rowid: entry.row.rowid, bytes: new Uint8Array(q.bytes.buffer, q.bytes.byteOffset, q.bytes.byteLength), scale: q.scale, norm: q.norm });
+    out.push({
+      rowid: entry.row.rowid,
+      bytes: new Uint8Array(q.bytes.buffer, q.bytes.byteOffset, q.bytes.byteLength),
+      scale: q.scale,
+      norm: q.norm,
+    });
   });
   const done = out.length > 0 ? await write({ kind: 'reembed', rows: out, now }) : { written: 0 };
   return { pending: rows.length, embedded: out.length, written: done?.written ?? 0, skipped };
@@ -255,19 +343,29 @@ export function checkMedia(handle, { dataDir, apply = false }) {
   const db = handle.db ?? handle;
   const counts = { present: 0, missing: 0, unknown: 0, changed: 0 };
   const marks = [];
-  for (const row of db.prepare('SELECT id, kind, path, bytes, availability FROM media WHERE retired_at IS NULL').iterate()) {
-    if (row.kind !== 'diary' || typeof row.path !== 'string' || !row.path) { counts.unknown += 1; continue; }
+  for (const row of db
+    .prepare('SELECT id, kind, path, bytes, availability FROM media WHERE retired_at IS NULL')
+    .iterate()) {
+    if (row.kind !== 'diary' || typeof row.path !== 'string' || !row.path) {
+      counts.unknown += 1;
+      continue;
+    }
     let state = 'missing';
     try {
       const stat = fs.statSync(path.join(dataDir, row.path));
       if (stat.isFile() && (!Number.isInteger(row.bytes) || stat.size === row.bytes)) state = 'present';
-    } catch { /* no file */ }
+    } catch {
+      /* no file */
+    }
     counts[state] += 1;
     if (state !== row.availability) marks.push([state, row.id]);
   }
   counts.changed = marks.length;
   if (apply && marks.length > 0) {
-    const write = () => { const mark = db.prepare('UPDATE media SET availability = ? WHERE id = ?'); for (const [state, id] of marks) mark.run(state, id); };
+    const write = () => {
+      const mark = db.prepare('UPDATE media SET availability = ? WHERE id = ?');
+      for (const [state, id] of marks) mark.run(state, id);
+    };
     if (typeof handle.transaction === 'function') handle.transaction(write);
     else write();
   }
@@ -280,7 +378,13 @@ export function checkMedia(handle, { dataDir, apply = false }) {
  */
 export function applyIndexWrite(handle, update) {
   if (update?.kind === 'reembed') return applyReembed(handle, update);
-  if (update?.kind === 'touch') return { touched: touch(handle, update.sourceIds, { now: update.now, config: update.config }) };
-  const done = classify(handle, { now: update.now, config: update.config, apply: true, evict: indexSettings(update.config).eviction });
+  if (update?.kind === 'touch')
+    return { touched: touch(handle, update.sourceIds, { now: update.now, config: update.config }) };
+  const done = classify(handle, {
+    now: update.now,
+    config: update.config,
+    apply: true,
+    evict: indexSettings(update.config).eviction,
+  });
   return { tiers: done.tiers, evicted: done.evictedNow };
 }

@@ -59,7 +59,9 @@ export function dmPlaceOfPerson(person, iface = IFACE) {
 /** The interface and partner of a legacy DM place id (`<iface>:dm:<native>`): `{ iface, person, account }`, or null. */
 export function dmPartnerOfPlace(placeId) {
   const match = /^([^:]+):dm:(.+)$/.exec(String(placeId ?? ''));
-  return match ? { iface: match[1], person: `person:${match[1]}:${match[2]}`, account: `${match[1]}:${match[2]}` } : null;
+  return match
+    ? { iface: match[1], person: `person:${match[1]}:${match[2]}`, account: `${match[1]}:${match[2]}` }
+    : null;
 }
 
 /** The native key of a legacy person id (`person:<iface>:<native>`) on its interface: `{ iface, native }`, or null. */
@@ -99,8 +101,10 @@ export const linkId = (account, person) => `link:${text(account)}:${text(person)
 export function canonicalKey(kind, parts = []) {
   const values = [kind, ...(Array.isArray(parts) ? parts : [parts])].map((part) => (part === undefined ? null : part));
   for (const value of values) {
-    if (typeof value === 'string' && value.includes('\u0000')) throw Object.assign(new Error('memory db: a NUL in a node key'), { code: 'NUL_IN_KEY' });
-    if (value !== null && typeof value === 'object') throw Object.assign(new Error('memory db: a node key part must be a scalar'), { code: 'BAD_KEY_PART' });
+    if (typeof value === 'string' && value.includes('\u0000'))
+      throw Object.assign(new Error('memory db: a NUL in a node key'), { code: 'NUL_IN_KEY' });
+    if (value !== null && typeof value === 'object')
+      throw Object.assign(new Error('memory db: a node key part must be a scalar'), { code: 'BAD_KEY_PART' });
   }
   return JSON.stringify(values);
 }
@@ -120,13 +124,18 @@ export const newPersonId = (uuid = randomUUID) => `person:${uuid()}`;
  * valid_to_at }`) when several do or none does; null when the key was never registered. Never "the latest".
  */
 export function resolveAlias(db, authority, kind, nativeKey, atIso = null) {
-  const rows = db.prepare(
-    'SELECT node_id, generation, valid_from_at, valid_to_at FROM external_keys WHERE authority_id = ? AND object_kind = ? AND native_key = ? ORDER BY generation',
-  ).all(String(authority), String(kind), String(nativeKey)).map((row) => ({ ...row }));
+  const rows = db
+    .prepare(
+      'SELECT node_id, generation, valid_from_at, valid_to_at FROM external_keys WHERE authority_id = ? AND object_kind = ? AND native_key = ? ORDER BY generation'
+    )
+    .all(String(authority), String(kind), String(nativeKey))
+    .map((row) => ({ ...row }));
   if (rows.length === 0) return null;
-  const holds = (row) => (atIso === null || atIso === undefined
-    ? row.valid_to_at === null
-    : (row.valid_from_at === null || row.valid_from_at <= atIso) && (row.valid_to_at === null || atIso < row.valid_to_at));
+  const holds = (row) =>
+    atIso === null || atIso === undefined
+      ? row.valid_to_at === null
+      : (row.valid_from_at === null || row.valid_from_at <= atIso) &&
+        (row.valid_to_at === null || atIso < row.valid_to_at);
   const matching = rows.filter(holds);
   const nodes = [...new Set(matching.map((row) => row.node_id))];
   if (nodes.length === 1) return nodes[0];
@@ -163,7 +172,12 @@ export const legacyNativeKind = (iface) => (iface === IFACE ? 'message' : null);
  * arrives later.
  */
 export function externalTargetKey({ authority, kind, key, generation = 1, revision = null }) {
-  return canonicalKey(String(authority), [String(kind), String(key), Number.isInteger(generation) ? generation : 1, Number.isInteger(revision) ? revision : null]);
+  return canonicalKey(String(authority), [
+    String(kind),
+    String(key),
+    Number.isInteger(generation) ? generation : 1,
+    Number.isInteger(revision) ? revision : null,
+  ]);
 }
 /** The key of a relation's target named by our own source id: `source:<id>`. */
 export const sourceTargetKey = (sourceId) => `source:${text(sourceId)}`;
@@ -181,7 +195,8 @@ const LEGACY_PLACE_IDS = { guild: guildPlaceId, channel: channelPlaceId, dm: dmP
 
 /** The importer's account id of a native key (`discord:<user id>`), or null when the tuple is not one it writes. */
 export function legacyAccountIdOf(authority, key, generation = 1) {
-  if (authority !== LEGACY_AUTHORITY_OF_IFACE || (generation ?? 1) !== 1 || typeof key !== 'string' || key === '') return null;
+  if (authority !== LEGACY_AUTHORITY_OF_IFACE || (generation ?? 1) !== 1 || typeof key !== 'string' || key === '')
+    return null;
   return accountId(key);
 }
 
@@ -199,13 +214,22 @@ export function legacyPlaceOf(authority, key, generation = 1) {
 
 /** The importer's source id of an observed line (`src:discord:<message id>:<revision>:<seen|said>`), or null. */
 export function legacySourceIdOf({ authority, kind, key, generation = 1, revision, subtype }) {
-  if (authority !== LEGACY_AUTHORITY_OF_IFACE || kind !== legacyNativeKind(IFACE) || (generation ?? 1) !== 1) return null;
-  if (!Number.isInteger(revision) || revision < 1 || (subtype !== 'seen' && subtype !== 'said') || typeof key !== 'string' || key === '') return null;
+  if (authority !== LEGACY_AUTHORITY_OF_IFACE || kind !== legacyNativeKind(IFACE) || (generation ?? 1) !== 1)
+    return null;
+  if (
+    !Number.isInteger(revision) ||
+    revision < 1 ||
+    (subtype !== 'seen' && subtype !== 'said') ||
+    typeof key !== 'string' ||
+    key === ''
+  )
+    return null;
   return messageSourceId(key, revision, subtype);
 }
 
 /** A message source: `src:discord:<messageId>:<revision>:<kind>`. */
-export const messageSourceId = (messageId, revision, kind) => `src:${IFACE}:${text(messageId)}:${text(revision)}:${kind}`;
+export const messageSourceId = (messageId, revision, kind) =>
+  `src:${IFACE}:${text(messageId)}:${text(revision)}:${kind}`;
 /** Her answer in a turn: `src:turn:<turnId>:<step>`. */
 export const answerSourceId = (turnId, step) => `src:turn:${text(turnId)}:${text(step)}`;
 /** Any other kind of source: `src:<kind>:<its id>`. */
@@ -213,7 +237,10 @@ export const otherSourceId = (kind, id) => `src:${kind}:${text(id)}`;
 
 /** The first 16 hex digits of the SHA-1 of the parts joined by a NUL. */
 export function shortHash(...parts) {
-  return createHash('sha1').update(parts.map((part) => text(part)).join('\u0000')).digest('hex').slice(0, 16);
+  return createHash('sha1')
+    .update(parts.map((part) => text(part)).join('\u0000'))
+    .digest('hex')
+    .slice(0, 16);
 }
 
 /** A claim, episode or description id: the old `itemId` when the item had one, else `<kind>:<owner>:<hash of stable fields>`. */

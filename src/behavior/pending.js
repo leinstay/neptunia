@@ -116,7 +116,8 @@ export function followUpSlot(list, channelId, kind) {
   const waiting = list.find((p) => !p.destination && p.channelId === channelId && SLOT_KINDS.has(p.kind)) ?? null;
   if (!waiting) return { admit: true, replaced: null };
   if (kind === 'followUp') return { admit: true, replaced: waiting };
-  if (kind === 'overheard') return waiting.kind === 'followUp' ? { admit: false, replaced: null } : { admit: true, replaced: waiting };
+  if (kind === 'overheard')
+    return waiting.kind === 'followUp' ? { admit: false, replaced: null } : { admit: true, replaced: waiting };
   if (DIRECT_KINDS.has(kind) && waiting.kind === 'overheard') return { admit: true, replaced: waiting };
   return { admit: true, replaced: null };
 }

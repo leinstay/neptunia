@@ -164,7 +164,8 @@ function offsetAt(ms, timezone) {
 export function zonedEpoch(dateKey, hour, minute, timezone = 'UTC') {
   const match = DATE_KEY_RE.exec(String(dateKey ?? ''));
   if (!match) return NaN;
-  if (!Number.isInteger(hour) || hour < 0 || hour > 23 || !Number.isInteger(minute) || minute < 0 || minute > 59) return NaN;
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23 || !Number.isInteger(minute) || minute < 0 || minute > 59)
+    return NaN;
   const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
   const wall = Date.UTC(year, month - 1, day, hour, minute);
   if (utcDay(wall) !== match[0]) return NaN;

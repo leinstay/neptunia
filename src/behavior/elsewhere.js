@@ -159,7 +159,13 @@ export function recordPing(ring, { messageId, channelId, ts }, { cap, maxAgeMs, 
   const entries = ringEntries(ring).filter((entry) => !isExpired(entry.ts, now, maxAgeMs));
   const id = idOf(messageId);
   const channel = idOf(channelId);
-  if (id && channel && Number.isFinite(ts) && !isExpired(ts, now, maxAgeMs) && !entries.some((entry) => entry.messageId === id)) {
+  if (
+    id &&
+    channel &&
+    Number.isFinite(ts) &&
+    !isExpired(ts, now, maxAgeMs) &&
+    !entries.some((entry) => entry.messageId === id)
+  ) {
     entries.push({ messageId: id, channelId: channel, ts, answeredAt: null, skippedAt: null });
   }
   const keep = Number.isFinite(cap) && cap > 0 ? Math.floor(cap) : 0;
@@ -178,7 +184,7 @@ export function recordPing(ring, { messageId, channelId, ts }, { cap, maxAgeMs, 
 export function markPingAnswered(ring, messageId, now) {
   const id = idOf(messageId);
   return ringEntries(ring).map((entry) =>
-    entry.messageId === id && entry.answeredAt === null ? { ...entry, answeredAt: now } : entry,
+    entry.messageId === id && entry.answeredAt === null ? { ...entry, answeredAt: now } : entry
   );
 }
 
@@ -196,7 +202,9 @@ export function markPingAnswered(ring, messageId, now) {
 export function markPingSkipped(ring, messageId, now) {
   const id = idOf(messageId);
   return ringEntries(ring).map((entry) =>
-    entry.messageId === id && entry.answeredAt === null && entry.skippedAt === null ? { ...entry, skippedAt: now } : entry,
+    entry.messageId === id && entry.answeredAt === null && entry.skippedAt === null
+      ? { ...entry, skippedAt: now }
+      : entry
   );
 }
 
@@ -251,7 +259,9 @@ export function stampPings(ring, stamps, now) {
  */
 export function pingsIn(ring, channelId, { now, maxAgeMs }) {
   const channel = idOf(channelId);
-  return oldestFirst(ringEntries(ring).filter((entry) => entry.channelId === channel && !isExpired(entry.ts, now, maxAgeMs)));
+  return oldestFirst(
+    ringEntries(ring).filter((entry) => entry.channelId === channel && !isExpired(entry.ts, now, maxAgeMs))
+  );
 }
 
 // ---- seen marks -----------------------------------------------------------------------
@@ -497,7 +507,8 @@ export function audienceCovers(dest, source) {
   if (dest.everyone && !source.everyone) return false;
   if (!isSubset(dest.roles, source.roles)) return false;
   if (source.roleDeny.size > 0 && !roleDeniesContained(dest, source)) return false;
-  for (const memberId of dest.memberAllow) if (!memberViewsSource(memberId, source, dest.memberRoles?.get?.(memberId))) return false;
+  for (const memberId of dest.memberAllow)
+    if (!memberViewsSource(memberId, source, dest.memberRoles?.get?.(memberId))) return false;
   return isSubset(source.memberDeny, dest.memberDeny);
 }
 

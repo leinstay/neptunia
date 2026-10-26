@@ -43,23 +43,39 @@ function memoryFs() {
       const n = src.copy(buffer, offset, position, Math.min(src.length, position + length));
       return { bytesRead: n, buffer };
     },
-    async sync() { ctl.syncs += 1; },
+    async sync() {
+      ctl.syncs += 1;
+    },
     async close() {},
   });
   const api = {
     async open(p, flags) {
-      if (flags === 'a') { if (!files.has(p)) files.set(p, Buffer.alloc(0)); }
-      else if (flags === 'w') files.set(p, Buffer.alloc(0));
+      if (flags === 'a') {
+        if (!files.has(p)) files.set(p, Buffer.alloc(0));
+      } else if (flags === 'w') files.set(p, Buffer.alloc(0));
       else get(p);
       return handle(p);
     },
-    async readFile(p) { return get(p); },
-    async writeFile(p, data) { files.set(p, Buffer.from(data)); },
-    async rename(a, b) { files.set(b, get(a)); files.delete(a); },
-    async stat(p) { return { size: get(p).length }; },
-    async truncate(p, len) { files.set(p, get(p).subarray(0, len)); },
+    async readFile(p) {
+      return get(p);
+    },
+    async writeFile(p, data) {
+      files.set(p, Buffer.from(data));
+    },
+    async rename(a, b) {
+      files.set(b, get(a));
+      files.delete(a);
+    },
+    async stat(p) {
+      return { size: get(p).length };
+    },
+    async truncate(p, len) {
+      files.set(p, get(p).subarray(0, len));
+    },
     async mkdir() {},
-    async unlink(p) { files.delete(p); },
+    async unlink(p) {
+      files.delete(p);
+    },
   };
   return { api, files, ctl };
 }
@@ -73,7 +89,10 @@ test('append-store: appends whole lines in order under concurrent calls', async 
   const lines = fs.readFileSync(file, 'utf8').split('\n');
   assert.equal(lines.pop(), '');
   assert.equal(lines.length, 100);
-  assert.deepEqual(lines.map((l) => JSON.parse(l).i), Array.from({ length: 100 }, (_, i) => i));
+  assert.deepEqual(
+    lines.map((l) => JSON.parse(l).i),
+    Array.from({ length: 100 }, (_, i) => i)
+  );
 });
 
 test('append-store: recovers a torn tail on open', async () => {
@@ -146,7 +165,10 @@ test('append-store: a failing fs queues up to retryMax then rejects', async () =
   lines.pop();
   assert.deepEqual(lines, ['first', ...Array.from({ length: 1000 }, (_, i) => `line-${i}`)]);
   const recovered = log.calls.filter((c) => c.msg === 'store: append recovered');
-  assert.deepEqual(recovered.map((c) => c.meta), [{ file: 'day.jsonl', drained: 1000 }]);
+  assert.deepEqual(
+    recovered.map((c) => c.meta),
+    [{ file: 'day.jsonl', drained: 1000 }]
+  );
   await store.append(file, 'after');
   await store.close();
   assert.ok(mem.files.get(file).toString('utf8').endsWith('line-999\nafter\n'));
@@ -163,11 +185,14 @@ test('append-store: rewrite keeps only matching lines and is atomic', async () =
 
   const before = fs.readFileSync(file, 'utf8');
   let seen = 0;
-  await assert.rejects(store.rewrite(file, () => {
-    seen += 1;
-    if (seen === 2) throw new Error('predicate failed');
-    return false;
-  }), /predicate failed/);
+  await assert.rejects(
+    store.rewrite(file, () => {
+      seen += 1;
+      if (seen === 2) throw new Error('predicate failed');
+      return false;
+    }),
+    /predicate failed/
+  );
   assert.equal(fs.readFileSync(file, 'utf8'), before);
   assert.equal(fs.existsSync(`${file}.tmp`), false);
 

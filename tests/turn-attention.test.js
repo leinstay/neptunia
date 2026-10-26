@@ -104,7 +104,15 @@ function fakeHot(configOverrides = {}) {
         gapMarkerMinutes: 20,
         otherProfiles: 6,
         caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 },
-        vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0, maxBytes: 1_500_000, fetchTimeoutMs: 10_000 },
+        vision: {
+          maxImages: 2,
+          tokensPerImage: 400,
+          imageSize: 512,
+          recentImages: 0,
+          recentImageMinutes: 0,
+          maxBytes: 1_500_000,
+          fetchTimeoutMs: 10_000,
+        },
       },
       llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 100, betweenMessagesMs: [0, 0] },
@@ -163,7 +171,6 @@ async function waitForCalls(llm, count) {
   for (let i = 0; i < 200 && llm.calls.length < count; i += 1) await Promise.resolve();
 }
 
-
 // ---------------------------------------------------------------------------
 // isAnyBusy() / busy-elsewhere refusal (mention.oneAtATime)
 
@@ -175,12 +182,30 @@ test('createTurnRunner: a turn in another channel is refused as busy while one i
   const llm = controllableLlm();
   const store = fakeStore();
   const hot = fakeHot({});
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
 
-  const firstPromise = turns.runTurn({ channel: channel1, mode: 'reply', trigger: normalizedTrigger(raw1), triggerKind: 'mention' });
+  const firstPromise = turns.runTurn({
+    channel: channel1,
+    mode: 'reply',
+    trigger: normalizedTrigger(raw1),
+    triggerKind: 'mention',
+  });
   assert.equal(turns.isAnyBusy(), true, 'busy.add happens synchronously before the first await');
 
-  const secondResult = await turns.runTurn({ channel: channel2, mode: 'reply', trigger: normalizedTrigger(raw2), triggerKind: 'mention' });
+  const secondResult = await turns.runTurn({
+    channel: channel2,
+    mode: 'reply',
+    trigger: normalizedTrigger(raw2),
+    triggerKind: 'mention',
+  });
   assert.equal(secondResult.outcome, 'busy');
   assert.equal(channel2.sent.length, 0);
 
@@ -197,10 +222,28 @@ test('createTurnRunner: the SAME channel is still refused as busy exactly as bef
   const llm = controllableLlm();
   const store = fakeStore();
   const hot = fakeHot({});
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
 
-  const firstPromise = turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
-  const secondResult = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+  const firstPromise = turns.runTurn({
+    channel,
+    mode: 'reply',
+    trigger: normalizedTrigger(raw),
+    triggerKind: 'mention',
+  });
+  const secondResult = await turns.runTurn({
+    channel,
+    mode: 'reply',
+    trigger: normalizedTrigger(raw),
+    triggerKind: 'mention',
+  });
   assert.equal(secondResult.outcome, 'busy');
 
   await waitForCalls(llm, 1);
@@ -216,10 +259,28 @@ test("createTurnRunner: mention.oneAtATime=false lets two different channels run
   const llm = controllableLlm();
   const store = fakeStore();
   const hot = fakeHot({ mention: { oneAtATime: false } });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
 
-  const firstPromise = turns.runTurn({ channel: channel1, mode: 'reply', trigger: normalizedTrigger(raw1), triggerKind: 'mention' });
-  const secondPromise = turns.runTurn({ channel: channel2, mode: 'reply', trigger: normalizedTrigger(raw2), triggerKind: 'mention' });
+  const firstPromise = turns.runTurn({
+    channel: channel1,
+    mode: 'reply',
+    trigger: normalizedTrigger(raw1),
+    triggerKind: 'mention',
+  });
+  const secondPromise = turns.runTurn({
+    channel: channel2,
+    mode: 'reply',
+    trigger: normalizedTrigger(raw2),
+    triggerKind: 'mention',
+  });
 
   await waitForCalls(llm, 2);
   assert.equal(llm.calls.length, 2, 'both turns must have reached the model, neither blocked the other');
@@ -239,14 +300,37 @@ test('createTurnRunner: a hot change to mention.oneAtATime is picked up without 
   const llm = controllableLlm();
   const store = fakeStore();
   const hot = fakeHot({});
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
 
-  const firstPromise = turns.runTurn({ channel: channel1, mode: 'reply', trigger: normalizedTrigger(raw1), triggerKind: 'mention' });
-  const busyResult = await turns.runTurn({ channel: channel2, mode: 'reply', trigger: normalizedTrigger(raw2), triggerKind: 'mention' });
+  const firstPromise = turns.runTurn({
+    channel: channel1,
+    mode: 'reply',
+    trigger: normalizedTrigger(raw1),
+    triggerKind: 'mention',
+  });
+  const busyResult = await turns.runTurn({
+    channel: channel2,
+    mode: 'reply',
+    trigger: normalizedTrigger(raw2),
+    triggerKind: 'mention',
+  });
   assert.equal(busyResult.outcome, 'busy', 'oneAtATime true: channel2 is refused');
 
   hot.config.mention = { oneAtATime: false };
-  const secondPromise = turns.runTurn({ channel: channel2, mode: 'reply', trigger: normalizedTrigger(raw2), triggerKind: 'mention' });
+  const secondPromise = turns.runTurn({
+    channel: channel2,
+    mode: 'reply',
+    trigger: normalizedTrigger(raw2),
+    triggerKind: 'mention',
+  });
   await waitForCalls(llm, 2);
   assert.equal(llm.calls.length, 2, 'once flipped off, the second channel is no longer refused');
 
@@ -264,7 +348,15 @@ test('createTurnRunner: setOnIdle fires once a turn finishes, after the channel 
   const llm = fakeLlm('<msg>ok</msg>');
   const store = fakeStore();
   const hot = fakeHot({});
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
 
   let seenBusyOnIdle = null;
   let idleCalls = 0;
@@ -273,7 +365,12 @@ test('createTurnRunner: setOnIdle fires once a turn finishes, after the channel 
     seenBusyOnIdle = turns.isAnyBusy();
   });
 
-  const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+  const result = await turns.runTurn({
+    channel,
+    mode: 'reply',
+    trigger: normalizedTrigger(raw),
+    triggerKind: 'mention',
+  });
   assert.equal(result.outcome, 'spoke');
 
   // onIdle is fired fire-and-forget (a microtask), not awaited by runTurn.
@@ -289,7 +386,15 @@ test('createTurnRunner: a throwing onIdle is logged, never thrown into the calle
   const llm = fakeLlm('<msg>ok</msg>');
   const store = fakeStore();
   const hot = fakeHot({});
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
   turns.setOnIdle(() => {
     throw new Error('boom');
   });
@@ -311,7 +416,15 @@ test('createTurnRunner: with no onIdle set, a turn finishes without throwing', a
   const llm = fakeLlm('<msg>ok</msg>');
   const store = fakeStore();
   const hot = fakeHot({});
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
 
   // The idle notification runs fire-and-forget behind a .catch, so a missing guard would not
   // reject runTurn: it would only log 'turn: onIdle failed'. Capture past that microtask.
@@ -322,7 +435,11 @@ test('createTurnRunner: with no onIdle set, a turn finishes without throwing', a
   });
 
   assert.equal(result.outcome, 'spoke');
-  assert.equal(logs.some((l) => l.msg === 'turn: onIdle failed'), false, 'no idle callback is called when none is set');
+  assert.equal(
+    logs.some((l) => l.msg === 'turn: onIdle failed'),
+    false,
+    'no idle callback is called when none is set'
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -332,10 +449,23 @@ test('createTurnRunner: spokeAfterSeeing is true for a message in the history of
   const raw1 = rawMessage({ id: 'm1' });
   const raw2 = rawMessage({ id: 'm2', authorId: 'u2' });
   const channel = fakeTurnChannel({ id: 'c1', historyMessages: [raw1, raw2] });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({}), store: fakeStore(), llm: fakeLlm('<msg>ok</msg>'), calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: fakeHot({}),
+    store: fakeStore(),
+    llm: fakeLlm('<msg>ok</msg>'),
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
 
   assert.equal(turns.spokeAfterSeeing('c1', 'm2'), false, 'no turn has spoken yet');
-  const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw1), triggerKind: 'mention' });
+  const result = await turns.runTurn({
+    channel,
+    mode: 'reply',
+    trigger: normalizedTrigger(raw1),
+    triggerKind: 'mention',
+  });
 
   assert.equal(result.outcome, 'spoke');
   assert.equal(turns.spokeAfterSeeing('c1', 'm2'), true);
@@ -347,7 +477,10 @@ test('createTurnRunner: spokeAfterSeeing is true for a message in the history of
 // A routed turn: a call from a channel the bot cannot write in, answered in another one.
 
 test('turn: a routed turn marks the destination busy, not the source', async () => {
-  const destination = fakeTurnChannel({ id: 'c1', historyMessages: [rawMessage({ id: 'm1', authorId: 'u2', authorName: 'Bob' })] });
+  const destination = fakeTurnChannel({
+    id: 'c1',
+    historyMessages: [rawMessage({ id: 'm1', authorId: 'u2', authorName: 'Bob' })],
+  });
   const call = { ...rawMessage({ id: 'd1', authorName: 'Éloïse', content: '@Bot εδώ;' }), channelId: 'c2' };
   // The source: a readable text channel of the same guild where the bot may not send.
   const source = {
@@ -360,7 +493,15 @@ test('turn: a routed turn marks the destination busy, not the source', async () 
   };
   destination.guild.channels.cache.set('c2', source);
   const llm = controllableLlm();
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({}), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: fakeHot({}),
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
 
   const running = withCapturedLogs(() =>
     turns.runTurn({
@@ -369,7 +510,7 @@ test('turn: a routed turn marks the destination busy, not the source', async () 
       trigger: normalizedTrigger(call),
       triggerKind: 'mention',
       source: { channelId: 'c2', reason: 'routed' },
-    }),
+    })
   );
   await waitForCalls(llm, 1);
   assert.equal(llm.calls.length, 1, 'the turn reached the model');
@@ -383,8 +524,14 @@ test('turn: a routed turn marks the destination busy, not the source', async () 
 });
 
 test('createTurnRunner: spokeAfterSeeing covers the source lines a routed turn showed, under the source', async () => {
-  const destination = fakeTurnChannel({ id: 'c1', historyMessages: [rawMessage({ id: 'm1', authorId: 'u2', authorName: 'Bob' })] });
-  const earlier = { ...rawMessage({ id: 'd1', authorId: 'u3', authorName: 'Zoë', ts: Date.now() - 5000, content: 'ο κήπος άνθισε' }), channelId: 'c2' };
+  const destination = fakeTurnChannel({
+    id: 'c1',
+    historyMessages: [rawMessage({ id: 'm1', authorId: 'u2', authorName: 'Bob' })],
+  });
+  const earlier = {
+    ...rawMessage({ id: 'd1', authorId: 'u3', authorName: 'Zoë', ts: Date.now() - 5000, content: 'ο κήπος άνθισε' }),
+    channelId: 'c2',
+  };
   const call = { ...rawMessage({ id: 'd2', authorName: 'Éloïse', content: '@Bot εδώ;' }), channelId: 'c2' };
   const source = {
     ...fakeTurnChannel({ id: 'c2', name: 'diary', historyMessages: [earlier, call] }),
@@ -395,10 +542,24 @@ test('createTurnRunner: spokeAfterSeeing covers the source lines a routed turn s
     permissionsFor: () => ({ has: (flag) => flag !== PermissionFlagsBits.SendMessages }),
   };
   destination.guild.channels.cache.set('c2', source);
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({}), store: fakeStore(), llm: fakeLlm('<msg>ok</msg>'), calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: fakeHot({}),
+    store: fakeStore(),
+    llm: fakeLlm('<msg>ok</msg>'),
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
 
   const { result } = await withCapturedLogs(() =>
-    turns.runTurn({ channel: destination, mode: 'reply', trigger: normalizedTrigger(call), triggerKind: 'mention', source: { channelId: 'c2', reason: 'routed' } }),
+    turns.runTurn({
+      channel: destination,
+      mode: 'reply',
+      trigger: normalizedTrigger(call),
+      triggerKind: 'mention',
+      source: { channelId: 'c2', reason: 'routed' },
+    })
   );
 
   assert.equal(result.outcome, 'spoke');
@@ -412,9 +573,22 @@ test('createTurnRunner: spokeAfterSeeing stays false after a turn that chose to 
   const raw1 = rawMessage({ id: 'm1' });
   const raw2 = rawMessage({ id: 'm2', authorId: 'u2' });
   const channel = fakeTurnChannel({ id: 'c1', historyMessages: [raw1, raw2] });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({}), store: fakeStore(), llm: fakeLlm('<skip/>'), calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: fakeHot({}),
+    store: fakeStore(),
+    llm: fakeLlm('<skip/>'),
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
 
-  const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw1), triggerKind: 'mention' });
+  const result = await turns.runTurn({
+    channel,
+    mode: 'reply',
+    trigger: normalizedTrigger(raw1),
+    triggerKind: 'mention',
+  });
 
   assert.equal(result.outcome, 'skip');
   assert.equal(turns.spokeAfterSeeing('c1', 'm2'), false);

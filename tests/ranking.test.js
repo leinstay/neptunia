@@ -22,7 +22,11 @@ test('rank: halfLifeDays not a positive number disables decay -- rank is pure lo
   const ancient = item(5, NOW - 3650 * DAY);
   for (const halfLifeDays of [undefined, 0, 'not a number']) {
     assert.equal(rank(recent, halfLifeDays), Math.log2(5.5));
-    assert.equal(rank(recent, halfLifeDays), rank(ancient, halfLifeDays), `date must not matter when halfLifeDays=${halfLifeDays}`);
+    assert.equal(
+      rank(recent, halfLifeDays),
+      rank(ancient, halfLifeDays),
+      `date must not matter when halfLifeDays=${halfLifeDays}`
+    );
   }
 });
 

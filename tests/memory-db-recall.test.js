@@ -42,46 +42,101 @@ function fixture() {
     handle,
     db,
     /** Inserts one chat line; returns its source id. `at` is epoch ms. */
-    say({ native, at, text, place = MAIN, author = ALICE, kind = 'seen', scope = groupScope(), revision = 1, replyTo = null, extra = null }) {
+    say({
+      native,
+      at,
+      text,
+      place = MAIN,
+      author = ALICE,
+      kind = 'seen',
+      scope = groupScope(),
+      revision = 1,
+      replyTo = null,
+      extra = null,
+    }) {
       rowid += 1;
       const id = messageSourceId(native, revision, kind);
-      db.prepare(`INSERT INTO sources (id, kind, iface, native_id, revision, place_id, author_account, reply_to, occurred_at, recorded_at, text, direct,
-        scope_kind, scope_iface, scope_dm, extra) VALUES (?, ?, 'discord', ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`)
-        .run(id, kind, String(native), revision, place, `discord:${author}`, replyTo, new Date(at).toISOString(), new Date(at).toISOString(), text,
-          scope.scope_kind, scope.scope_iface, scope.scope_dm, extra);
+      db.prepare(
+        `INSERT INTO sources (id, kind, iface, native_id, revision, place_id, author_account, reply_to, occurred_at, recorded_at, text, direct,
+        scope_kind, scope_iface, scope_dm, extra) VALUES (?, ?, 'discord', ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`
+      ).run(
+        id,
+        kind,
+        String(native),
+        revision,
+        place,
+        `discord:${author}`,
+        replyTo,
+        new Date(at).toISOString(),
+        new Date(at).toISOString(),
+        text,
+        scope.scope_kind,
+        scope.scope_iface,
+        scope.scope_dm,
+        extra
+      );
       return id;
     },
     deleted(native, at) {
-      db.prepare(`INSERT INTO sources (id, kind, iface, native_id, place_id, occurred_at, scope_kind, scope_iface)
-        VALUES (?, 'deleted', 'discord', ?, ?, ?, 'group', 'discord')`).run(`src:discord:${native}:none:deleted:x`, String(native), MAIN, new Date(at).toISOString());
+      db.prepare(
+        `INSERT INTO sources (id, kind, iface, native_id, place_id, occurred_at, scope_kind, scope_iface)
+        VALUES (?, 'deleted', 'discord', ?, ?, ?, 'group', 'discord')`
+      ).run(`src:discord:${native}:none:deleted:x`, String(native), MAIN, new Date(at).toISOString());
     },
     account(userId, names) {
-      db.prepare("INSERT INTO accounts (id, iface, native_id, person_id, link, names) VALUES (?, 'discord', ?, ?, 'verified', ?)")
-        .run(`discord:${userId}`, userId, personId(userId), JSON.stringify(names));
+      db.prepare(
+        "INSERT INTO accounts (id, iface, native_id, person_id, link, names) VALUES (?, 'discord', ?, ?, 'verified', ?)"
+      ).run(`discord:${userId}`, userId, personId(userId), JSON.stringify(names));
     },
     /** A vector row for a source (by native id): the vector is stored as int8 the way the engine stores it. */
     vector(native, vector, { scope = groupScope(), at = NOW } = {}) {
-      const source = db.prepare('SELECT rowid AS rowid FROM sources WHERE native_id = ? ORDER BY rowid LIMIT 1').get(String(native));
+      const source = db
+        .prepare('SELECT rowid AS rowid FROM sources WHERE native_id = ? ORDER BY rowid LIMIT 1')
+        .get(String(native));
       const { bytes, scale, norm } = quantize(vector);
-      db.prepare(`INSERT INTO vectors (source_rowid, item_id, chunk_key, model, dims, scale, norm, bytes, context, occurred_at, scope_kind, scope_iface, scope_dm)
-        VALUES (?, ?, ?, 'test/embedder', ?, ?, ?, ?, '{}', ?, ?, ?, ?)`)
-        .run(source.rowid, String(native), `record:${native}:1`, vector.length, scale, norm, bytes, new Date(at).toISOString(), scope.scope_kind, scope.scope_iface, scope.scope_dm);
+      db.prepare(
+        `INSERT INTO vectors (source_rowid, item_id, chunk_key, model, dims, scale, norm, bytes, context, occurred_at, scope_kind, scope_iface, scope_dm)
+        VALUES (?, ?, ?, 'test/embedder', ?, ?, ?, ?, '{}', ?, ?, ?, ?)`
+      ).run(
+        source.rowid,
+        String(native),
+        `record:${native}:1`,
+        vector.length,
+        scale,
+        norm,
+        bytes,
+        new Date(at).toISOString(),
+        scope.scope_kind,
+        scope.scope_iface,
+        scope.scope_dm
+      );
     },
     /** Teaches the stemmer from the filler chat, then stamps every row. */
     stem() {
-      FILLER_STEMS.forEach((stem, i) => FILLER_ENDINGS.forEach((ending, j) => api.say({
-        native: `filler-${i}-${j}`, at: NOW - 400 * DAY, text: `${stem}${ending}`, place: channelPlaceId('filler'), author: BOB,
-      })));
+      FILLER_STEMS.forEach((stem, i) =>
+        FILLER_ENDINGS.forEach((ending, j) =>
+          api.say({
+            native: `filler-${i}-${j}`,
+            at: NOW - 400 * DAY,
+            text: `${stem}${ending}`,
+            place: channelPlaceId('filler'),
+            author: BOB,
+          })
+        )
+      );
       return fillStems(db);
     },
-    done() { handle.close(); },
+    done() {
+      handle.close();
+    },
   };
   return api;
 }
 
 const plan = (forms, extra = {}) => ({ forms, who: [], from: null, to: null, ...extra });
 const ids = (result) => result.hits.map((hit) => hit.messageId);
-const run = (env, forms, { plan: given = {}, ...rest } = {}, ctx = group) => search(env.db, { ctx, plan: plan(forms, given), now: NOW, ...rest });
+const run = (env, forms, { plan: given = {}, ...rest } = {}, ctx = group) =>
+  search(env.db, { ctx, plan: plan(forms, given), now: NOW, ...rest });
 
 test('stems: the unit writes fill them, learns the endings from the database text and stamps again only what changed', () => {
   const root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-stems-'));
@@ -93,24 +148,38 @@ test('stems: the unit writes fill them, learns the endings from the database tex
     const first = seedUnits(handle, data);
     assert.equal(first.errors, 0);
     const db = handle.db;
-    const empty = db.prepare("SELECT COUNT(*) AS n FROM sources WHERE text IS NOT NULL AND stems IS NULL").get().n;
+    const empty = db.prepare('SELECT COUNT(*) AS n FROM sources WHERE text IS NOT NULL AND stems IS NULL').get().n;
     assert.equal(empty, 0, 'every row with text has stems');
     const row = db.prepare("SELECT text, stems FROM sources WHERE text LIKE '%café at noon%'").get();
     assert.equal(row.stems, 'a cafe at noon', 'folded, one key per word');
     assert.ok(db.prepare("SELECT value FROM meta WHERE key = 'stemmer'").get(), 'the learned stemmer is kept in meta');
     // The FTS table reads the stems column.
-    assert.equal(db.prepare("SELECT COUNT(*) AS n FROM sources_fts WHERE sources_fts MATCH '{stems} : \"cafe\"'").get().n, 1);
+    assert.equal(
+      db.prepare('SELECT COUNT(*) AS n FROM sources_fts WHERE sources_fts MATCH \'{stems} : "cafe"\'').get().n,
+      1
+    );
     // A changed text loses its stems and gets new ones; an unchanged row keeps its own.
     db.prepare("UPDATE sources SET stems = 'kept' WHERE text = 'Καλημέρα'").run();
     const again = seedUnits(handle, data);
     assert.equal(again.errors, 0);
-    assert.equal(db.prepare("SELECT stems FROM sources WHERE text = 'Καλημέρα'").get().stems, 'kept', 'a write that changed nothing stems nothing');
+    assert.equal(
+      db.prepare("SELECT stems FROM sources WHERE text = 'Καλημέρα'").get().stems,
+      'kept',
+      'a write that changed nothing stems nothing'
+    );
     const file = path.join(guildDir(data), 'record', '2026-10', '2026-10-20.jsonl');
-    const lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line));
+    const lines = fs
+      .readFileSync(file, 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
     lines.push({ ...lines[0], id: 'r-new', messageId: '400000000000000077', text: 'ένα νέο μήνυμα' });
     fs.writeFileSync(file, `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`);
     seedUnits(handle, data);
-    assert.equal(db.prepare("SELECT stems FROM sources WHERE native_id = '400000000000000077'").get().stems, 'ενα νεο μηνυμα');
+    assert.equal(
+      db.prepare("SELECT stems FROM sources WHERE native_id = '400000000000000077'").get().stems,
+      'ενα νεο μηνυμα'
+    );
     assert.equal(db.prepare("SELECT stems FROM sources WHERE text = 'Καλημέρα'").get().stems, 'kept');
     assert.ok(MEMBER && CHANNEL);
   } finally {
@@ -128,7 +197,10 @@ test('stems: the learned stemmer gives the inflected forms of a word one key, th
     const { stem, endings } = loadStemmer(env.db);
     assert.ok(endings.includes('ου') && endings.includes('ος'));
     assert.equal(stem('σπιτου'), stem('σπιτος'));
-    assert.equal(env.db.prepare("SELECT stems FROM sources WHERE native_id = 'a1'").get().stems, stemsOf(stem, 'ο δασκαλος του σπιτου'));
+    assert.equal(
+      env.db.prepare("SELECT stems FROM sources WHERE native_id = 'a1'").get().stems,
+      stemsOf(stem, 'ο δασκαλος του σπιτου')
+    );
   } finally {
     env.done();
   }
@@ -183,7 +255,10 @@ test('trigram: a part of a word the stems do not hold is found by its letters, a
     assert.equal(parts.stats.words, 0);
     // A form the words find is not searched by letters.
     const whole = run(env, ['ευχαριστιες']);
-    assert.deepEqual(whole.hits.map((hit) => hit.streams), [['words']]);
+    assert.deepEqual(
+      whole.hits.map((hit) => hit.streams),
+      [['words']]
+    );
     assert.equal(whole.stats.trigram, 0);
     // Under three letters there is no trigram.
     assert.deepEqual(ids(run(env, ['ηρ'])), []);
@@ -204,7 +279,13 @@ test('fusion: a line found by two streams outranks lines found by one, and every
     env.vector('f-meaning', [1, 0, 0, 0]);
     env.vector('f-both', [0.9, 0.3, 0, 0]);
     env.vector('f-far', [0, 0, 1, 0]);
-    const found = search(env.db, { ctx: group, plan: plan(['σπιτι', 'δασκαλου']), vector: [1, 0, 0, 0], now: NOW, settings: { ...dbSettings({}), gateShare: 0, minMeaning: 0.5 } });
+    const found = search(env.db, {
+      ctx: group,
+      plan: plan(['σπιτι', 'δασκαλου']),
+      vector: [1, 0, 0, 0],
+      now: NOW,
+      settings: { ...dbSettings({}), gateShare: 0, minMeaning: 0.5 },
+    });
     assert.deepEqual(ids(found), ['f-both', 'f-words', 'f-meaning']);
     const byId = new Map(found.hits.map((hit) => [hit.messageId, hit]));
     assert.deepEqual(byId.get('f-both').streams, ['words', 'meaning']);
@@ -227,9 +308,21 @@ test('gate: a hit far below the best is dropped', () => {
     env.stem();
     env.vector('g1', [1, 0, 0, 0]);
     env.vector('g2', [0.6, 0.8, 0, 0]);
-    const loose = search(env.db, { ctx: group, plan: plan(['σπιτι']), vector: [1, 0, 0, 0], now: NOW, settings: { ...dbSettings({}), gateShare: 0, minMeaning: 0 } });
+    const loose = search(env.db, {
+      ctx: group,
+      plan: plan(['σπιτι']),
+      vector: [1, 0, 0, 0],
+      now: NOW,
+      settings: { ...dbSettings({}), gateShare: 0, minMeaning: 0 },
+    });
     assert.deepEqual(ids(loose).sort(), ['g1', 'g2']);
-    const strict = search(env.db, { ctx: group, plan: plan(['σπιτι']), vector: [1, 0, 0, 0], now: NOW, settings: { ...dbSettings({}), gateShare: 0.9, minMeaning: 0 } });
+    const strict = search(env.db, {
+      ctx: group,
+      plan: plan(['σπιτι']),
+      vector: [1, 0, 0, 0],
+      now: NOW,
+      settings: { ...dbSettings({}), gateShare: 0.9, minMeaning: 0 },
+    });
     assert.deepEqual(ids(strict), ['g1']);
   } finally {
     env.done();
@@ -277,17 +370,32 @@ test('people: a member named by the plan locates their lines; a name that is no 
   }
 });
 
-test('stretches: reply chain, neighbours and the followed conversation come with a hit, and the turn\'s own lines stay out', () => {
+test("stretches: reply chain, neighbours and the followed conversation come with a hit, and the turn's own lines stay out", () => {
   const env = fixture();
   try {
     const minute = (n) => NOW - 3 * DAY + n * 60000;
-    for (let i = 0; i < 12; i += 1) env.say({ native: `s${i}`, at: minute(i), text: i === 6 ? 'το σπιτι του δασκαλου' : `γραμμη ${i}`, replyTo: i === 6 ? 's1' : null });
+    for (let i = 0; i < 12; i += 1)
+      env.say({
+        native: `s${i}`,
+        at: minute(i),
+        text: i === 6 ? 'το σπιτι του δασκαλου' : `γραμμη ${i}`,
+        replyTo: i === 6 ? 's1' : null,
+      });
     env.say({ native: 'later', at: minute(12) + 3 * 3600000, text: 'πολυ αργοτερα' });
     env.stem();
-    const result = search(env.db, { ctx: group, plan: plan(['σπιτι']), now: NOW, settings: { ...dbSettings({}), recordContext: 2, followMessages: 3, followGapMinutes: 5 }, exclude: new Set(['s5']) });
+    const result = search(env.db, {
+      ctx: group,
+      plan: plan(['σπιτι']),
+      now: NOW,
+      settings: { ...dbSettings({}), recordContext: 2, followMessages: 3, followGapMinutes: 5 },
+      exclude: new Set(['s5']),
+    });
     assert.equal(result.windows.length, 1);
     const [one] = result.windows;
-    assert.deepEqual(one.messages.map((message) => message.id), ['s1', 's4', 's6', 's7', 's8', 's9', 's10', 's11']);
+    assert.deepEqual(
+      one.messages.map((message) => message.id),
+      ['s1', 's4', 's6', 's7', 's8', 's9', 's10', 's11']
+    );
     assert.deepEqual([...one.hitIds], ['s6']);
     assert.equal(one.overlapsChat, true);
     assert.ok(!one.messages.some((message) => message.id === 'later'), 'a long silence ends the followed conversation');
@@ -321,13 +429,23 @@ test('scope: a DM line is never in a group result; the group is told a better ma
     const secret = 'μυστικο σπιτι του δασκαλου';
     env.say({ native: 'g1', at: NOW - 2 * DAY, text: 'ενα σπιτι εδω', place: channelPlaceId('c1') });
     env.say({ native: 'dm1', at: NOW - DAY, text: secret, place: dmPlaceId(ALICE), scope: dmScope(personId(ALICE)) });
-    env.say({ native: 'dm2', at: NOW - DAY, text: `${secret} ξανα`, place: dmPlaceId(ALICE), scope: dmScope(personId(ALICE)) });
+    env.say({
+      native: 'dm2',
+      at: NOW - DAY,
+      text: `${secret} ξανα`,
+      place: dmPlaceId(ALICE),
+      scope: dmScope(personId(ALICE)),
+    });
     env.stem();
     const asking = { ...group, asker: [personId(ALICE)] };
     const result = run(env, ['σπιτι του δασκαλου'], {}, asking);
     assert.equal(result.hidden, true);
     assert.equal(run(env, ['σπιτι του δασκαλου']).hidden, false, 'a context with no asker is told nothing');
-    assert.deepEqual(ids(result), [], 'the phrase is only in the DM; the lone word of the group does not match the phrase');
+    assert.deepEqual(
+      ids(result),
+      [],
+      'the phrase is only in the DM; the lone word of the group does not match the phrase'
+    );
     const wide = run(env, ['σπιτι', 'δασκαλου'], {}, asking);
     assert.deepEqual(ids(wide), ['g1']);
     assert.equal(wide.hidden, true);
@@ -356,10 +474,22 @@ test('scope: no marker when the group has the better match, and the meaning stre
   try {
     env.say({ native: 'g1', at: NOW - 2 * DAY, text: 'σπιτι δασκαλου', place: channelPlaceId('c1') });
     env.say({ native: 'dm1', at: NOW - DAY, text: 'σπιτι', place: dmPlaceId(ALICE), scope: dmScope(personId(ALICE)) });
-    env.say({ native: 'dm2', at: NOW - DAY, text: 'κανενα κοινο', place: dmPlaceId(ALICE), scope: dmScope(personId(ALICE)) });
+    env.say({
+      native: 'dm2',
+      at: NOW - DAY,
+      text: 'κανενα κοινο',
+      place: dmPlaceId(ALICE),
+      scope: dmScope(personId(ALICE)),
+    });
     env.stem();
     env.vector('dm2', [1, 0, 0, 0], { scope: dmScope(personId(ALICE)) });
-    const result = search(env.db, { ctx: group, plan: plan(['σπιτι', 'δασκαλου']), vector: [1, 0, 0, 0], now: NOW, settings: { ...dbSettings({}), gateShare: 0, minMeaning: 0 } });
+    const result = search(env.db, {
+      ctx: group,
+      plan: plan(['σπιτι', 'δασκαλου']),
+      vector: [1, 0, 0, 0],
+      now: NOW,
+      settings: { ...dbSettings({}), gateShare: 0, minMeaning: 0 },
+    });
     assert.deepEqual(ids(result), ['g1']);
     assert.equal(result.hidden, false, 'the group line matches more than the DM one');
     assert.equal(result.stats.meaning, 0, 'a DM vector is not scanned for a group');
@@ -393,7 +523,10 @@ test('window: up and down from an anchor in time order, the anchor left out, edg
     const bySource = window(env.db, { ctx: group, anchor: messageSourceId('w5', 1, 'seen'), move: 'up', minutes: 2 });
     assert.deepEqual(idsOf(bySource), ['w3', 'w4']);
     // Both limits: the smaller wins.
-    assert.deepEqual(idsOf(window(env.db, { ctx: group, anchor: 'w9', move: 'up', minutes: 5, messages: 2 })), ['w7', 'w8']);
+    assert.deepEqual(idsOf(window(env.db, { ctx: group, anchor: 'w9', move: 'up', minutes: 5, messages: 2 })), [
+      'w7',
+      'w8',
+    ]);
     // An unknown anchor.
     assert.equal(window(env.db, { ctx: group, anchor: 'nope', move: 'up', messages: 2 }).unknown, true);
     assert.equal(window(env.db, { ctx: group, anchor: '', move: 'up', messages: 2 }).unknown, true);
@@ -409,7 +542,9 @@ test('window: a line the context may not open ends the read there and is never c
     for (let i = 1; i <= 8; i += 1) {
       const hiddenLine = i === 4;
       env.say({
-        native: `h${i}`, at: NOW - (9 - i) * 60000, text: hiddenLine ? 'κρυφη γραμμη' : `γραμμη ${i}`,
+        native: `h${i}`,
+        at: NOW - (9 - i) * 60000,
+        text: hiddenLine ? 'κρυφη γραμμη' : `γραμμη ${i}`,
         ...(hiddenLine ? { scope: dmScope(personId(ALICE)) } : {}),
       });
     }
@@ -428,7 +563,13 @@ test('window: a line the context may not open ends the read there and is never c
     // A hidden anchor is unknown, as if it did not exist.
     assert.equal(window(env.db, { ctx: group, anchor: 'h4', move: 'up', messages: 2 }).unknown, true);
     // A hit's stretch stops at the hidden line too.
-    const found = search(env.db, { ctx: group, plan: plan(['γραμμη']), now: NOW, limit: 1, settings: { ...dbSettings({}), recordContext: 3 } });
+    const found = search(env.db, {
+      ctx: group,
+      plan: plan(['γραμμη']),
+      now: NOW,
+      limit: 1,
+      settings: { ...dbSettings({}), recordContext: 3 },
+    });
     assert.ok(!JSON.stringify(found.windows).includes('κρυφη'));
   } finally {
     env.done();
@@ -447,7 +588,10 @@ test('quotes: windows become the stretches recall returns, with entries per line
     assert.equal(quotes.length, 1);
     assert.equal(quotes[0].channelId, 'main');
     assert.equal(quotes[0].startTs, Date.parse('2026-10-20T10:00:00.000Z'));
-    assert.deepEqual(quotes[0].entries.map((entry) => entry.id), ['q1', 'q2']);
+    assert.deepEqual(
+      quotes[0].entries.map((entry) => entry.id),
+      ['q1', 'q2']
+    );
     assert.ok(quotes[0].lines.includes('Αλίκη') && quotes[0].lines.includes('το σπιτι του δασκαλου'));
     assert.deepEqual(quotesOf([], { render: {}, stretchChars: 1500 }), []);
   } finally {
@@ -460,7 +604,13 @@ test('quotes: windows become the stretches recall returns, with entries per line
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SHIPPED = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
 const DISCORD = createDiscordInterface().capabilities;
-const withHidden = { ...labels, skills: { ...labels.skills, tools: { ...labels.skills.tools, memory: { ...labels.skills.tools.memory, hidden: 'ΚΡΥΦΟ-ΣΗΜΑ' } } } };
+const withHidden = {
+  ...labels,
+  skills: {
+    ...labels.skills,
+    tools: { ...labels.skills.tools, memory: { ...labels.skills.tools.memory, hidden: 'ΚΡΥΦΟ-ΣΗΜΑ' } },
+  },
+};
 
 /**
  * A runner over a fake guild (#general c1, #secret c4 that @everyone cannot see) and the fixture database, whose
@@ -468,18 +618,67 @@ const withHidden = { ...labels, skills: { ...labels.skills, tools: { ...labels.s
  */
 function runner(env, { open = true, meaning = false, embed = null, places = true } = {}) {
   if (places) {
-    insertRows(env.db, {
-      places: [
-        { id: channelPlaceId('c1'), iface: 'discord', kind: 'channel', native_id: 'c1', scope_kind: 'group', name: 'general' },
-        { id: channelPlaceId('c4'), iface: 'discord', kind: 'channel', native_id: 'c4', scope_kind: 'group', name: 'secret' },
-        { id: dmPlaceId(BOB), iface: 'discord', kind: 'dm', native_id: null, scope_kind: 'dm', partner_person: personId(BOB) },
-      ],
-    }, { log: { info() {}, debug() {}, warn() {}, error() {} } });
+    insertRows(
+      env.db,
+      {
+        places: [
+          {
+            id: channelPlaceId('c1'),
+            iface: 'discord',
+            kind: 'channel',
+            native_id: 'c1',
+            scope_kind: 'group',
+            name: 'general',
+          },
+          {
+            id: channelPlaceId('c4'),
+            iface: 'discord',
+            kind: 'channel',
+            native_id: 'c4',
+            scope_kind: 'group',
+            name: 'secret',
+          },
+          {
+            id: dmPlaceId(BOB),
+            iface: 'discord',
+            kind: 'dm',
+            native_id: null,
+            scope_kind: 'dm',
+            partner_person: personId(BOB),
+          },
+        ],
+      },
+      { log: { info() {}, debug() {}, warn() {}, error() {} } }
+    );
   }
   const rest = [];
-  const guild = { id: 'g1', members: { me: { id: 'self' } }, roles: { everyone: { id: 'g1' }, cache: new Map() }, channels: { cache: new Map() }, client: { rest: { get: async (route) => { rest.push(route); return route.endsWith('/members/search') ? [] : { total_results: 0, messages: [] }; } } } };
+  const guild = {
+    id: 'g1',
+    members: { me: { id: 'self' } },
+    roles: { everyone: { id: 'g1' }, cache: new Map() },
+    channels: { cache: new Map() },
+    client: {
+      rest: {
+        get: async (route) => {
+          rest.push(route);
+          return route.endsWith('/members/search') ? [] : { total_results: 0, messages: [] };
+        },
+      },
+    },
+  };
   const addChannel = (id, name, everyone) => {
-    const channel = { id, name, guild, viewable: true, lastMessageId: null, isTextBased: () => true, isThread: () => false, permissionsFor: (target) => ({ has: () => everyone || target?.id === 'self' }), permissionOverwrites: { cache: new Map() }, messages: { fetch: async () => new Map() } };
+    const channel = {
+      id,
+      name,
+      guild,
+      viewable: true,
+      lastMessageId: null,
+      isTextBased: () => true,
+      isThread: () => false,
+      permissionsFor: (target) => ({ has: () => everyone || target?.id === 'self' }),
+      permissionOverwrites: { cache: new Map() },
+      messages: { fetch: async () => new Map() },
+    };
     guild.channels.cache.set(id, channel);
     return channel;
   };
@@ -490,12 +689,50 @@ function runner(env, { open = true, meaning = false, embed = null, places = true
   config.features = { ...config.features, meaningSearch: meaning, recall: true };
   config.models = { ...config.models, base: { ...config.models?.base, embedding: 'test/embedder' } };
   const data = {};
-  const store = { state: { get data() { return data; }, markDirty() {} }, listUserProfiles: () => [] };
+  const store = {
+    state: {
+      get data() {
+        return data;
+      },
+      markDirty() {},
+    },
+    listUserProfiles: () => [],
+  };
   const llmCalls = [];
-  const llm = { capLeft: () => 100, complete: async (...call) => { llmCalls.push(call); return { text: '' }; } };
+  const llm = {
+    capLeft: () => 100,
+    complete: async (...call) => {
+      llmCalls.push(call);
+      return { text: '' };
+    },
+  };
   const hot = { config, prompts: { 'recall-summary': 'x', labels: withHidden } };
-  const recaller = createRecall({ discord: DISCORD, hot, store, llm, now: () => NOW, embed, memoryDb: { database: () => (open ? env.db : null) } });
-  return { recaller, guild, channel, rest, hot, llmCalls, args: { guild, guildId: 'g1', channel, selfId: 'self', selfName: 'Ζωή', history: [], candidate: { id: 'q', content: 'το σπιτι' } } };
+  const recaller = createRecall({
+    discord: DISCORD,
+    hot,
+    store,
+    llm,
+    now: () => NOW,
+    embed,
+    memoryDb: { database: () => (open ? env.db : null) },
+  });
+  return {
+    recaller,
+    guild,
+    channel,
+    rest,
+    hot,
+    llmCalls,
+    args: {
+      guild,
+      guildId: 'g1',
+      channel,
+      selfId: 'self',
+      selfName: 'Ζωή',
+      history: [],
+      candidate: { id: 'q', content: 'το σπιτι' },
+    },
+  };
 }
 
 test('recall.run: the stretches come from the database, in scope and behind the pull rail, with no Discord request and no summary', async () => {
@@ -505,26 +742,57 @@ test('recall.run: the stretches come from the database, in scope and behind the 
     env.say({ native: 'r1', at: NOW - 3 * DAY, text: 'το σπιτι του δασκαλου', place: channelPlaceId('c1') });
     env.say({ native: 'r2', at: NOW - 3 * DAY + 60000, text: 'ναι ηταν μεγαλο', place: channelPlaceId('c1') });
     env.say({ native: 'r3', at: NOW - 2 * DAY, text: 'κρυφο σπιτι', place: channelPlaceId('c4') });
-    env.say({ native: 'r4', at: NOW - DAY, text: 'ιδιωτικο σπιτι', place: dmPlaceId(BOB), scope: dmScope(personId(BOB)) });
+    env.say({
+      native: 'r4',
+      at: NOW - DAY,
+      text: 'ιδιωτικο σπιτι',
+      place: dmPlaceId(BOB),
+      scope: dmScope(personId(BOB)),
+    });
     env.stem();
     const s = runner(env);
-    const found = await s.recaller.run({ ...s.args, candidate: { ...s.args.candidate, authorId: BOB }, server: { forms: ['σπιτι'], who: [], from: null, to: null }, quotes: true });
+    const found = await s.recaller.run({
+      ...s.args,
+      candidate: { ...s.args.candidate, authorId: BOB },
+      server: { forms: ['σπιτι'], who: [], from: null, to: null },
+      quotes: true,
+    });
     assert.equal(found.outcome.kind, 'searched');
-    assert.deepEqual(found.quotes.map((quote) => quote.channelName), ['general']);
-    assert.deepEqual(found.quotes[0].entries.map((entry) => entry.id), ['r1', 'r2']);
+    assert.deepEqual(
+      found.quotes.map((quote) => quote.channelName),
+      ['general']
+    );
+    assert.deepEqual(
+      found.quotes[0].entries.map((entry) => entry.id),
+      ['r1', 'r2']
+    );
     assert.ok(found.quotes[0].lines.includes('Αλίκη'));
     assert.ok(!JSON.stringify(found).includes('κρυφο') && !JSON.stringify(found).includes('ιδιωτικο'));
     assert.deepEqual(s.rest, [], 'no request to Discord');
     assert.equal(s.llmCalls.length, 0, 'no summary');
     // The DM line of the asker matched better than the group's: the marker, nothing else.
     assert.equal(found.hidden, true);
-    const stranger = await s.recaller.run({ ...s.args, candidate: { ...s.args.candidate, authorId: ALICE }, server: { forms: ['σπιτι'], who: [], from: null, to: null }, quotes: true });
-    assert.equal(stranger.hidden, false, 'the DM is another person\'s');
+    const stranger = await s.recaller.run({
+      ...s.args,
+      candidate: { ...s.args.candidate, authorId: ALICE },
+      server: { forms: ['σπιτι'], who: [], from: null, to: null },
+      quotes: true,
+    });
+    assert.equal(stranger.hidden, false, "the DM is another person's");
     // The channel she names is refused by the pull rail.
-    const named = await s.recaller.run({ ...s.args, server: { forms: ['σπιτι'], who: [], from: null, to: null, channelId: 'c4' }, quotes: true });
+    const named = await s.recaller.run({
+      ...s.args,
+      server: { forms: ['σπιτι'], who: [], from: null, to: null, channelId: 'c4' },
+      quotes: true,
+    });
     assert.equal(named.outcome.kind, 'not-visible');
     // The turn's own lines are left out.
-    const seen = await s.recaller.run({ ...s.args, history: [{ id: 'r1', channelId: 'c1', ts: NOW, self: false, bot: false, authorName: 'x', content: 'y' }], server: { forms: ['σπιτι'], who: [], from: null, to: null }, quotes: true });
+    const seen = await s.recaller.run({
+      ...s.args,
+      history: [{ id: 'r1', channelId: 'c1', ts: NOW, self: false, bot: false, authorName: 'x', content: 'y' }],
+      server: { forms: ['σπιτι'], who: [], from: null, to: null },
+      quotes: true,
+    });
     assert.ok(!seen.quotes.some((quote) => quote.entries.some((entry) => entry.id === 'r1')));
   } finally {
     env.done();
@@ -537,12 +805,20 @@ test('recall.run: with no open database the stretches are not configured, and no
     env.say({ native: 'r1', at: NOW - DAY, text: 'το σπιτι', place: channelPlaceId('c1') });
     env.stem();
     const s = runner(env, { open: false });
-    const found = await s.recaller.run({ ...s.args, server: { forms: ['σπιτι'], who: [], from: null, to: null }, quotes: true });
+    const found = await s.recaller.run({
+      ...s.args,
+      server: { forms: ['σπιτι'], who: [], from: null, to: null },
+      quotes: true,
+    });
     assert.equal(found.outcome.kind, 'not-configured');
     assert.equal(found.quotes?.length ?? 0, 0);
     assert.deepEqual(s.rest, []);
     const open = runner(env, { places: false });
-    const again = await open.recaller.run({ ...open.args, server: { forms: ['σπιτι'], who: [], from: null, to: null }, quotes: true });
+    const again = await open.recaller.run({
+      ...open.args,
+      server: { forms: ['σπιτι'], who: [], from: null, to: null },
+      quotes: true,
+    });
     assert.equal(again.quotes.length, 1, 'the open database answers');
   } finally {
     env.done();
@@ -557,13 +833,36 @@ test('recall.run: the question is embedded once for the meaning search, and a fa
     env.stem();
     env.vector('r1', [1, 0, 0, 0]);
     const calls = [];
-    const good = runner(env, { meaning: true, embed: async (texts, options) => { calls.push([texts, options.purpose]); return [Float32Array.from([1, 0, 0, 0])]; } });
-    const found = await good.recaller.run({ ...good.args, server: { forms: ['τιποτα'], who: [], from: null, to: null }, quotes: true });
+    const good = runner(env, {
+      meaning: true,
+      embed: async (texts, options) => {
+        calls.push([texts, options.purpose]);
+        return [Float32Array.from([1, 0, 0, 0])];
+      },
+    });
+    const found = await good.recaller.run({
+      ...good.args,
+      server: { forms: ['τιποτα'], who: [], from: null, to: null },
+      quotes: true,
+    });
     assert.deepEqual(calls, [[['το σπιτι'], 'recall-query']]);
-    assert.deepEqual(found.quotes.flatMap((quote) => quote.entries.map((entry) => entry.id)).sort(), ['r1', 'r2'], 'the meaning hit r1 and its neighbour');
+    assert.deepEqual(
+      found.quotes.flatMap((quote) => quote.entries.map((entry) => entry.id)).sort(),
+      ['r1', 'r2'],
+      'the meaning hit r1 and its neighbour'
+    );
     assert.equal(found.outcome.degraded, false);
-    const bad = runner(env, { meaning: true, embed: async () => { throw new Error('down'); } });
-    const words = await bad.recaller.run({ ...bad.args, server: { forms: ['ασχετο'], who: [], from: null, to: null }, quotes: true });
+    const bad = runner(env, {
+      meaning: true,
+      embed: async () => {
+        throw new Error('down');
+      },
+    });
+    const words = await bad.recaller.run({
+      ...bad.args,
+      server: { forms: ['ασχετο'], who: [], from: null, to: null },
+      quotes: true,
+    });
     assert.equal(words.outcome.degraded, true);
     assert.equal(words.quotes.length, 1);
   } finally {
@@ -574,14 +873,22 @@ test('recall.run: the question is embedded once for the meaning search, and a fa
 test('recall.window: reads up or down from a message through the same rails; an anchor it cannot open is unknown', async () => {
   const env = fixture();
   try {
-    for (let i = 1; i <= 5; i += 1) env.say({ native: `x${i}`, at: NOW - (6 - i) * 60000, text: `γραμμη ${i}`, place: channelPlaceId('c1') });
+    for (let i = 1; i <= 5; i += 1)
+      env.say({ native: `x${i}`, at: NOW - (6 - i) * 60000, text: `γραμμη ${i}`, place: channelPlaceId('c1') });
     env.say({ native: 'y1', at: NOW - 60000, text: 'αλλου', place: channelPlaceId('c4') });
     env.stem();
     const s = runner(env);
     const down = await s.recaller.window({ ...s.args, anchor: 'x2', move: 'down', messages: 2 });
-    assert.deepEqual(down.quotes[0].entries.map((entry) => entry.id), ['x3', 'x4']);
+    assert.deepEqual(
+      down.quotes[0].entries.map((entry) => entry.id),
+      ['x3', 'x4']
+    );
     assert.equal(down.quotes[0].channelName, 'general');
-    assert.equal((await s.recaller.window({ ...s.args, anchor: 'y1', move: 'up', messages: 2 })).outcome.kind, 'unknown-anchor', 'a place the pull rail refuses');
+    assert.equal(
+      (await s.recaller.window({ ...s.args, anchor: 'y1', move: 'up', messages: 2 })).outcome.kind,
+      'unknown-anchor',
+      'a place the pull rail refuses'
+    );
     assert.equal((await s.recaller.window({ ...s.args, anchor: 'zzz', move: 'up' })).outcome.kind, 'unknown-anchor');
     const off = runner(env, { open: false, places: false });
     assert.equal((await off.recaller.window({ ...off.args, anchor: 'x2' })).outcome.kind, 'not-configured');
@@ -593,26 +900,59 @@ test('recall.window: reads up or down from a message through the same rails; an 
 test('recall.window: the place rule reads the place row; a DM place with one opens for its partner, a place with none is refused', async () => {
   const env = fixture();
   try {
-    env.say({ native: 'p1', at: NOW - 120000, text: 'γραμμη ενα', place: dmPlaceId(BOB), scope: dmScope(personId(BOB)) });
-    env.say({ native: 'p2', at: NOW - 60000, text: 'γραμμη δυο', place: dmPlaceId(BOB), scope: dmScope(personId(BOB)) });
+    env.say({
+      native: 'p1',
+      at: NOW - 120000,
+      text: 'γραμμη ενα',
+      place: dmPlaceId(BOB),
+      scope: dmScope(personId(BOB)),
+    });
+    env.say({
+      native: 'p2',
+      at: NOW - 60000,
+      text: 'γραμμη δυο',
+      place: dmPlaceId(BOB),
+      scope: dmScope(personId(BOB)),
+    });
     // A line Bob may read, in a DM place the database holds no row for.
-    env.say({ native: 'u1', at: NOW - 30000, text: 'αγνωστη θεση', place: dmPlaceId(CAROL), scope: dmScope(personId(BOB)) });
+    env.say({
+      native: 'u1',
+      at: NOW - 30000,
+      text: 'αγνωστη θεση',
+      place: dmPlaceId(CAROL),
+      scope: dmScope(personId(BOB)),
+    });
     env.say({ native: 'c1', at: NOW - 60000, text: 'γραμμη στο καναλι', place: channelPlaceId('c1') });
     env.say({ native: 'c2', at: NOW - 30000, text: 'και αλλη', place: channelPlaceId('c1') });
     env.stem();
     const s = runner(env);
     const dm = { ...s.args, channel: { id: 'dm-bob', guild: null }, partner: { id: BOB } };
     const read = await s.recaller.window({ ...dm, anchor: 'p2', move: 'up', messages: 2 });
-    assert.deepEqual(read.quotes[0].entries.map((entry) => entry.id), ['p1']);
-    assert.equal((await s.recaller.window({ ...dm, anchor: 'u1', move: 'up', messages: 2 })).outcome.kind, 'unknown-anchor', 'no row: refused');
-    assert.deepEqual((await s.recaller.window({ ...s.args, anchor: 'c2', move: 'up', messages: 2 })).quotes[0].entries.map((entry) => entry.id), ['c1']);
+    assert.deepEqual(
+      read.quotes[0].entries.map((entry) => entry.id),
+      ['p1']
+    );
+    assert.equal(
+      (await s.recaller.window({ ...dm, anchor: 'u1', move: 'up', messages: 2 })).outcome.kind,
+      'unknown-anchor',
+      'no row: refused'
+    );
+    assert.deepEqual(
+      (await s.recaller.window({ ...s.args, anchor: 'c2', move: 'up', messages: 2 })).quotes[0].entries.map(
+        (entry) => entry.id
+      ),
+      ['c1']
+    );
     // Without the rows, the channel the pull rail lets through is refused all the same.
     const bare = fixture();
     try {
       bare.say({ native: 'c1', at: NOW - 60000, text: 'γραμμη στο καναλι', place: channelPlaceId('c1') });
       bare.say({ native: 'c2', at: NOW - 30000, text: 'και αλλη', place: channelPlaceId('c1') });
       const none = runner(bare, { places: false });
-      assert.equal((await none.recaller.window({ ...none.args, anchor: 'c2', move: 'up', messages: 2 })).outcome.kind, 'unknown-anchor');
+      assert.equal(
+        (await none.recaller.window({ ...none.args, anchor: 'c2', move: 'up', messages: 2 })).outcome.kind,
+        'unknown-anchor'
+      );
     } finally {
       bare.done();
     }
@@ -621,7 +961,7 @@ test('recall.window: the place rule reads the place row; a DM place with one ope
   }
 });
 
-test('recall: the turn\'s execution context is used when it fits the read; a read it does not fit is issued its own', async () => {
+test("recall: the turn's execution context is used when it fits the read; a read it does not fit is issued its own", async () => {
   const env = fixture();
   try {
     env.say({ native: 'r1', at: NOW - DAY, text: 'το σπιτι', place: channelPlaceId('c1') });
@@ -629,41 +969,95 @@ test('recall: the turn\'s execution context is used when it fits the read; a rea
     const s = runner(env);
     const issued = [];
     const recaller = createRecall({
-      discord: DISCORD, hot: s.hot, store: { state: { data: {}, markDirty() {} }, listUserProfiles: () => [] }, llm: { capLeft: () => 100, complete: async () => ({ text: '' }) }, now: () => NOW,
+      discord: DISCORD,
+      hot: s.hot,
+      store: { state: { data: {}, markDirty() {} }, listUserProfiles: () => [] },
+      llm: { capLeft: () => 100, complete: async () => ({ text: '' }) },
+      now: () => NOW,
       memoryDb: {
         database: () => env.db,
-        issueContext: (spec) => { issued.push(spec); return { iface: 'discord', kind: spec.kind, ...(spec.person ? { person: spec.person } : {}), id: `ctx:issued:${issued.length}` }; },
+        issueContext: (spec) => {
+          issued.push(spec);
+          return {
+            iface: 'discord',
+            kind: spec.kind,
+            ...(spec.person ? { person: spec.person } : {}),
+            id: `ctx:issued:${issued.length}`,
+          };
+        },
       },
     });
     const turn = { iface: 'discord', kind: 'group', id: 'ctx:turn' };
-    const found = await recaller.run({ ...s.args, server: { forms: ['σπιτι'], who: [], from: null, to: null }, quotes: true, memoryContext: turn });
+    const found = await recaller.run({
+      ...s.args,
+      server: { forms: ['σπιτι'], who: [], from: null, to: null },
+      quotes: true,
+      memoryContext: turn,
+    });
     assert.equal(found.quotes.length, 1);
-    assert.deepEqual(issued, [], 'the turn\'s own context, none issued');
+    assert.deepEqual(issued, [], "the turn's own context, none issued");
     await recaller.window({ ...s.args, anchor: 'r1', move: 'up', messages: 2, memoryContext: turn, asker: ALICE });
     assert.deepEqual(issued, []);
     // A DM read does not take a group context: it is issued for its partner.
-    await recaller.window({ ...s.args, channel: { id: 'dm-bob', guild: null }, partner: { id: BOB }, anchor: 'r1', move: 'up', messages: 2, memoryContext: turn });
-    assert.deepEqual(issued.map((spec) => [spec.kind, spec.person]), [['dm', personId(BOB)]]);
+    await recaller.window({
+      ...s.args,
+      channel: { id: 'dm-bob', guild: null },
+      partner: { id: BOB },
+      anchor: 'r1',
+      move: 'up',
+      messages: 2,
+      memoryContext: turn,
+    });
+    assert.deepEqual(
+      issued.map((spec) => [spec.kind, spec.person]),
+      [['dm', personId(BOB)]]
+    );
   } finally {
     env.done();
   }
 });
 
 test('memory.search: the hidden marker is one label line, with or without stretches; an anchor makes the call a window read', async () => {
-  const quote = { channelId: 'c1', channelName: 'general', startTs: Date.UTC(2026, 9, 20), lines: '[10:00] Αλίκη: γεια' };
+  const quote = {
+    channelId: 'c1',
+    channelName: 'general',
+    startTs: Date.UTC(2026, 9, 20),
+    lines: '[10:00] Αλίκη: γεια',
+  };
   assert.ok(memorySearchText([quote], { labels: withHidden, hidden: true }).endsWith('ΚΡΥΦΟ-ΣΗΜΑ'));
   assert.equal(memorySearchText([quote], { labels: withHidden }).includes('ΚΡΥΦΟ-ΣΗΜΑ'), false);
   const none = memorySearchText([], { labels: withHidden, hidden: true });
   assert.ok(none.includes(withHidden.skills.tools.memory.none) && none.endsWith('ΚΡΥΦΟ-ΣΗΜΑ'));
-  assert.equal(memorySearchText([], { labels: { skills: { tools: { memory: { none: 'N' } } } }, hidden: true }), 'N', 'a missing label adds nothing');
+  assert.equal(
+    memorySearchText([], { labels: { skills: { tools: { memory: { none: 'N' } } } }, hidden: true }),
+    'N',
+    'a missing label adds nothing'
+  );
 
   const seen = [];
   const recall = {
     available: () => true,
-    run: async (call) => { seen.push(['run', call.server]); return { quotes: [quote], hidden: true, outcome: { kind: 'searched', degraded: false, failed: 0, total: 1 } }; },
-    window: async (call) => { seen.push(['window', call.anchor, call.move, call.messages, call.minutes]); return call.anchor === 'bad' ? { quotes: [], outcome: { kind: 'unknown-anchor' } } : { quotes: [quote], outcome: { kind: 'searched' } }; },
+    run: async (call) => {
+      seen.push(['run', call.server]);
+      return { quotes: [quote], hidden: true, outcome: { kind: 'searched', degraded: false, failed: 0, total: 1 } };
+    },
+    window: async (call) => {
+      seen.push(['window', call.anchor, call.move, call.messages, call.minutes]);
+      return call.anchor === 'bad'
+        ? { quotes: [], outcome: { kind: 'unknown-anchor' } }
+        : { quotes: [quote], outcome: { kind: 'searched' } };
+    },
   };
-  const base = { recall, store: { listUserProfiles: () => [] }, config: { ...SHIPPED, bot: { ...SHIPPED.bot, timezone: 'UTC' } }, labels: withHidden, guild: {}, guildId: 'g1', channel: { guild: {} }, now: NOW };
+  const base = {
+    recall,
+    store: { listUserProfiles: () => [] },
+    config: { ...SHIPPED, bot: { ...SHIPPED.bot, timezone: 'UTC' } },
+    labels: withHidden,
+    guild: {},
+    guildId: 'g1',
+    channel: { guild: {} },
+    now: NOW,
+  };
   const searched = await runMemorySearch({ ...base, args: { question: 'το σπιτι του δασκαλου' } });
   assert.equal(searched.status, 'ok');
   assert.ok(searched.data.text.endsWith('ΚΡΥΦΟ-ΣΗΜΑ'));
@@ -673,8 +1067,16 @@ test('memory.search: the hidden marker is one label line, with or without stretc
   assert.deepEqual(seen.filter(([kind]) => kind === 'run').length, 1, 'the window read did not search');
   const up = await runMemorySearch({ ...base, args: { anchor: 'x2' } });
   assert.deepEqual([up.status, seen.at(-1)], ['ok', ['window', 'x2', 'up', null, null]]);
-  assert.deepEqual(await runMemorySearch({ ...base, args: { anchor: 'bad' } }), { status: 'invalid', code: 'unknown-message', reason: 'args.anchor' });
-  assert.equal((await runMemorySearch({ ...base, recall: { available: () => true, run: recall.run }, args: { anchor: 'x2' } })).status, 'not_configured');
+  assert.deepEqual(await runMemorySearch({ ...base, args: { anchor: 'bad' } }), {
+    status: 'invalid',
+    code: 'unknown-message',
+    reason: 'args.anchor',
+  });
+  assert.equal(
+    (await runMemorySearch({ ...base, recall: { available: () => true, run: recall.run }, args: { anchor: 'x2' } }))
+      .status,
+    'not_configured'
+  );
 });
 
 test('recall-eval: the database is --db, else <data>/memory.db, and the file must exist', async () => {
@@ -684,7 +1086,19 @@ test('recall-eval: the database is --db, else <data>/memory.db, and the file mus
     const data = path.join(root, 'data');
     fs.mkdirSync(path.join(data, 'guilds', '300000000000000001'), { recursive: true });
     const questions = path.join(root, 'questions.json');
-    fs.writeFileSync(questions, JSON.stringify([{ id: 'q1', channelId: '100000000000000001', askerId: '200000000000000001', question: 'πού είναι το κουνέλι;', expected: ['300000000000000001'], kind: 'exact' }]));
+    fs.writeFileSync(
+      questions,
+      JSON.stringify([
+        {
+          id: 'q1',
+          channelId: '100000000000000001',
+          askerId: '200000000000000001',
+          question: 'πού είναι το κουνέλι;',
+          expected: ['300000000000000001'],
+          kind: 'exact',
+        },
+      ])
+    );
     const base = [questions, '--data', data, '--dry'];
     await assert.rejects(main(base), /no database at .*memory\.db/);
     await assert.rejects(main([...base, '--db', path.join(root, 'missing.db')]), /no database at .*missing\.db/);
@@ -696,8 +1110,19 @@ test('recall-eval: the database is --db, else <data>/memory.db, and the file mus
 test('words: a wide pool is ranked by the distinct terms a line holds; relevance beats recency unless the plan names a date', () => {
   const env = fixture();
   try {
-    for (let i = 0; i < 12; i += 1) env.say({ native: `w-new-${i}`, at: NOW - (1 + i / 100) * DAY, text: 'σπιτι σπιτι σπιτι', place: channelPlaceId(`n${i}`) });
-    env.say({ native: 'w-old', at: NOW - 60 * DAY, text: 'το σπιτι, ο δασκαλος και το αυτοκινητο', place: channelPlaceId('old') });
+    for (let i = 0; i < 12; i += 1)
+      env.say({
+        native: `w-new-${i}`,
+        at: NOW - (1 + i / 100) * DAY,
+        text: 'σπιτι σπιτι σπιτι',
+        place: channelPlaceId(`n${i}`),
+      });
+    env.say({
+      native: 'w-old',
+      at: NOW - 60 * DAY,
+      text: 'το σπιτι, ο δασκαλος και το αυτοκινητο',
+      place: channelPlaceId('old'),
+    });
     env.stem();
     const settings = { ...dbSettings({}), gateShare: 0, candidates: 3, wordPool: 100 };
     const forms = ['σπιτι', 'δασκαλος', 'αυτοκινητο'];
@@ -705,9 +1130,15 @@ test('words: a wide pool is ranked by the distinct terms a line holds; relevance
     assert.equal(ids(found)[0], 'w-old', 'three distinct terms beat a recent line of one');
     assert.equal(found.hits[0].terms, 3);
     const one = run(env, forms, { settings, limit: 1 });
-    assert.ok(one.windows[0].messages.some((message) => message.id === 'w-old'), 'the one window kept is the best-ranked hit\'s');
+    assert.ok(
+      one.windows[0].messages.some((message) => message.id === 'w-old'),
+      "the one window kept is the best-ranked hit's"
+    );
     const aimed = run(env, forms, { settings, plan: { from: NOW - 3 * DAY, to: NOW } });
-    assert.ok(ids(aimed).every((id) => id.startsWith('w-new-')), 'a named date ranks toward it');
+    assert.ok(
+      ids(aimed).every((id) => id.startsWith('w-new-')),
+      'a named date ranks toward it'
+    );
   } finally {
     env.done();
   }
@@ -715,7 +1146,12 @@ test('words: a wide pool is ranked by the distinct terms a line holds; relevance
 
 test('gate: a hit holding the most distinct terms passes even under the share of the best fused score', async () => {
   const { passGate } = await import('../src/memory/db/recall.js');
-  const visible = [{ id: 'a', score: 0.032 }, { id: 'b', score: 0.016 }, { id: 'c', score: 0.012 }, { id: 'd', score: 0.011 }];
+  const visible = [
+    { id: 'a', score: 0.032 },
+    { id: 'b', score: 0.016 },
+    { id: 'c', score: 0.012 },
+    { id: 'd', score: 0.011 },
+  ];
   const held = { a: 1, b: 3, c: 1, d: 0 };
   const kept = passGate(visible, (e) => held[e.id], 0.5).map((e) => e.id);
   assert.deepEqual(kept, ['a', 'b']);
@@ -729,19 +1165,48 @@ test('gate: a hit holding the most distinct terms passes even under the share of
 function recording(db) {
   const rows = [];
   const wrap = (statement) => ({
-    all: (...args) => { const out = statement.all(...args); rows.push(...out); return out; },
-    get: (...args) => { const out = statement.get(...args); if (out) rows.push(out); return out; },
-    *iterate(...args) { for (const row of statement.iterate(...args)) { rows.push(row); yield row; } },
+    all: (...args) => {
+      const out = statement.all(...args);
+      rows.push(...out);
+      return out;
+    },
+    get: (...args) => {
+      const out = statement.get(...args);
+      if (out) rows.push(out);
+      return out;
+    },
+    *iterate(...args) {
+      for (const row of statement.iterate(...args)) {
+        rows.push(row);
+        yield row;
+      }
+    },
   });
-  return { rows, db: new Proxy(db, { get: (target, key) => (key === 'prepare' ? (sql) => wrap(target.prepare(sql)) : Reflect.get(target, key)) }) };
+  return {
+    rows,
+    db: new Proxy(db, {
+      get: (target, key) => (key === 'prepare' ? (sql) => wrap(target.prepare(sql)) : Reflect.get(target, key)),
+    }),
+  };
 }
 
 test('place rule: a refused place and a DM never crowd an allowed line out of the candidates', () => {
   const env = fixture();
   try {
     for (let i = 0; i < 6; i += 1) {
-      env.say({ native: `refused-${i}`, at: NOW - DAY, text: 'σπιτι σπιτι σπιτι δασκαλου', place: channelPlaceId('secret') });
-      env.say({ native: `dm-${i}`, at: NOW - DAY, text: 'σπιτι σπιτι σπιτι δασκαλου', place: dmPlaceId(ALICE), scope: dmScope(personId(ALICE)) });
+      env.say({
+        native: `refused-${i}`,
+        at: NOW - DAY,
+        text: 'σπιτι σπιτι σπιτι δασκαλου',
+        place: channelPlaceId('secret'),
+      });
+      env.say({
+        native: `dm-${i}`,
+        at: NOW - DAY,
+        text: 'σπιτι σπιτι σπιτι δασκαλου',
+        place: dmPlaceId(ALICE),
+        scope: dmScope(personId(ALICE)),
+      });
     }
     env.say({ native: 'open', at: NOW - 5 * DAY, text: 'ενα σπιτι', place: channelPlaceId('c1') });
     env.stem();
@@ -753,12 +1218,23 @@ test('place rule: a refused place and a DM never crowd an allowed line out of th
     // The meaning stream: the refused lines are closer to the question than the allowed one.
     for (let i = 0; i < 6; i += 1) env.vector(`refused-${i}`, [1, 0, 0, 0]);
     env.vector('open', [0.8, 0.6, 0, 0]);
-    const meaning = run(env, ['ανυπαρκτο'], { settings: { ...settings, minMeaning: 0 }, allowPlace, vector: [1, 0, 0, 0] });
+    const meaning = run(env, ['ανυπαρκτο'], {
+      settings: { ...settings, minMeaning: 0 },
+      allowPlace,
+      vector: [1, 0, 0, 0],
+    });
     assert.deepEqual(ids(meaning), ['open']);
     assert.equal(meaning.stats.meaning, 1);
     // The people stream.
     env.account(CAROL, ['Μπομπ']);
-    for (let i = 0; i < 6; i += 1) env.say({ native: `bob-secret-${i}`, at: NOW - 60000 * i, text: `ξεχωριστο ${i}`, place: channelPlaceId('secret'), author: CAROL });
+    for (let i = 0; i < 6; i += 1)
+      env.say({
+        native: `bob-secret-${i}`,
+        at: NOW - 60000 * i,
+        text: `ξεχωριστο ${i}`,
+        place: channelPlaceId('secret'),
+        author: CAROL,
+      });
     env.say({ native: 'bob-open', at: NOW - 40 * DAY, text: 'κατι αλλο', place: channelPlaceId('c1'), author: CAROL });
     const talk = run(env, [], { settings, allowPlace, plan: { who: ['Μπομπ'] } });
     assert.deepEqual(ids(talk), ['bob-open']);
@@ -786,32 +1262,60 @@ test('meaning: vectors of another model, an older revision with changed text and
     const any = run(env, ['ανυπαρκτο'], { settings, vector: [1, 0, 0, 0] });
     assert.deepEqual(ids(any).sort(), ['a', 'c'], 'no model asked: matched by dims');
     env.db.prepare('UPDATE vectors SET model = NULL').run();
-    assert.deepEqual(ids(run(env, ['ανυπαρκτο'], { settings, vector: [1, 0, 0, 0], model: 'test/embedder' })).sort(), ['a', 'c'], 'a row with no model is taken by its dims');
+    assert.deepEqual(
+      ids(run(env, ['ανυπαρκτο'], { settings, vector: [1, 0, 0, 0], model: 'test/embedder' })).sort(),
+      ['a', 'c'],
+      'a row with no model is taken by its dims'
+    );
   } finally {
     env.done();
   }
 });
 
-test('hidden marker: only the asker\'s own DM of this interface; another person\'s DM, another interface and internal rows give none', () => {
+test("hidden marker: only the asker's own DM of this interface; another person's DM, another interface and internal rows give none", () => {
   const env = fixture();
   try {
-    env.say({ native: 'own', at: NOW - DAY, text: 'σπιτι δασκαλου μυστικο', place: dmPlaceId(ALICE), scope: dmScope(personId(ALICE)) });
-    env.say({ native: 'foreign', at: NOW - DAY, text: 'βιβλιο κοσμου μυστικο', place: dmPlaceId(BOB), scope: dmScope(personId(BOB)) });
-    env.say({ native: 'abroad', at: NOW - DAY, text: 'παιδι νερου μυστικο', place: 'other:dm:x', scope: dmScope(personId(ALICE), 'other') });
-    env.say({ native: 'inner', at: NOW - DAY, text: 'δρομος καιρου μυστικο', place: dmPlaceId(ALICE), scope: { scope_kind: 'internal', scope_iface: null, scope_dm: null } });
+    env.say({
+      native: 'own',
+      at: NOW - DAY,
+      text: 'σπιτι δασκαλου μυστικο',
+      place: dmPlaceId(ALICE),
+      scope: dmScope(personId(ALICE)),
+    });
+    env.say({
+      native: 'foreign',
+      at: NOW - DAY,
+      text: 'βιβλιο κοσμου μυστικο',
+      place: dmPlaceId(BOB),
+      scope: dmScope(personId(BOB)),
+    });
+    env.say({
+      native: 'abroad',
+      at: NOW - DAY,
+      text: 'παιδι νερου μυστικο',
+      place: 'other:dm:x',
+      scope: dmScope(personId(ALICE), 'other'),
+    });
+    env.say({
+      native: 'inner',
+      at: NOW - DAY,
+      text: 'δρομος καιρου μυστικο',
+      place: dmPlaceId(ALICE),
+      scope: { scope_kind: 'internal', scope_iface: null, scope_dm: null },
+    });
     env.stem();
     const asked = (forms, asker) => run(env, forms, {}, { ...group, asker }).hidden;
     assert.equal(asked(['σπιτι δασκαλου'], [personId(ALICE)]), true);
     assert.equal(asked(['σπιτι δασκαλου'], personId(ALICE)), true, 'one id or a list');
     assert.equal(asked(['σπιτι δασκαλου'], [personId(BOB)]), false, 'the DM is not theirs');
     assert.equal(asked(['σπιτι δασκαλου'], [personId(BOB), personId(ALICE)]), true, 'any of the linked persons');
-    assert.equal(asked(['βιβλιο κοσμου'], [personId(ALICE)]), false, 'another person\'s DM');
-    assert.equal(asked(['παιδι νερου'], [personId(ALICE)]), false, 'another interface\'s DM');
+    assert.equal(asked(['βιβλιο κοσμου'], [personId(ALICE)]), false, "another person's DM");
+    assert.equal(asked(['παιδι νερου'], [personId(ALICE)]), false, "another interface's DM");
     assert.equal(asked(['δρομος καιρου'], [personId(ALICE)]), false, 'an internal row');
     assert.equal(asked(['σπιτι δασκαλου'], []), false);
     // Another person's DM ranking above the asker's own does not hide it: the shared word is in both.
-    assert.equal(asked(['μυστικο'], [personId(ALICE)]), true, 'the asker\'s DM found past a better-ranked foreign DM');
-    assert.equal(asked(['μυστικο'], [personId('100000000000000999')]), false, 'nobody\'s DM of theirs');
+    assert.equal(asked(['μυστικο'], [personId(ALICE)]), true, "the asker's DM found past a better-ranked foreign DM");
+    assert.equal(asked(['μυστικο'], [personId('100000000000000999')]), false, "nobody's DM of theirs");
   } finally {
     env.done();
   }
@@ -823,7 +1327,9 @@ test('window: the text of a line the context may not open is never loaded, at a 
     for (let i = 1; i <= 8; i += 1) {
       const hiddenLine = i === 4;
       env.say({
-        native: `h${i}`, at: NOW - (9 - i) * 60000, text: hiddenLine ? 'κρυφη γραμμη ΜΥΣΤΙΚΟ' : `γραμμη ${i}`,
+        native: `h${i}`,
+        at: NOW - (9 - i) * 60000,
+        text: hiddenLine ? 'κρυφη γραμμη ΜΥΣΤΙΚΟ' : `γραμμη ${i}`,
         ...(hiddenLine ? { scope: dmScope(personId(ALICE)) } : {}),
         ...(i === 5 ? { replyTo: 'h4' } : {}),
       });
@@ -836,8 +1342,13 @@ test('window: the text of a line the context may not open is never loaded, at a 
     window(seen.db, { ctx: group, anchor: 'h4', move: 'up', messages: 2 });
     window(seen.db, { ctx: group, anchor: messageSourceId('h4', 1, 'seen'), move: 'down', messages: 2 });
     assert.equal(leaked(), false, 'windows');
-    search(seen.db, { ctx: group, plan: plan(['γραμμη 5']), now: NOW, settings: { ...dbSettings({}), recordContext: 3 } });
-    assert.equal(leaked(), false, 'a hit\'s stretch, its reply parent and its neighbours');
+    search(seen.db, {
+      ctx: group,
+      plan: plan(['γραμμη 5']),
+      now: NOW,
+      settings: { ...dbSettings({}), recordContext: 3 },
+    });
+    assert.equal(leaked(), false, "a hit's stretch, its reply parent and its neighbours");
     // Control: the partner of that DM does read it, so the recorder sees the text.
     window(seen.db, { ctx: dmContext(personId(ALICE)), anchor: 'h6', move: 'up', messages: 5 });
     assert.equal(leaked(), true);
@@ -854,8 +1365,13 @@ test('names: an alias claim resolves only through verified accounts and only whe
     env.say({ native: 'a1', at: NOW - DAY, text: 'γεια απο την Αλικη', author: ALICE });
     env.say({ native: 'b1', at: NOW - DAY, text: 'γεια απο τον Μπομπ', author: CAROL });
     env.stem();
-    const claim = (id, text, scope, subject) => env.db.prepare(`INSERT INTO claims (id, subject_kind, subject_id, kind, text, scope_kind, scope_iface, scope_dm)
-      VALUES (?, 'person', ?, 'alias', ?, ?, ?, ?)`).run(id, subject, text, scope.scope_kind, scope.scope_iface, scope.scope_dm);
+    const claim = (id, text, scope, subject) =>
+      env.db
+        .prepare(
+          `INSERT INTO claims (id, subject_kind, subject_id, kind, text, scope_kind, scope_iface, scope_dm)
+      VALUES (?, 'person', ?, 'alias', ?, ?, ?, ?)`
+        )
+        .run(id, subject, text, scope.scope_kind, scope.scope_iface, scope.scope_dm);
     claim('c1', 'Λικα', groupScope(), personId(ALICE));
     claim('c2', 'Μπομπακι', dmScope(personId(ALICE)), personId(CAROL));
     const who = (name, ctx = group) => ids(search(env.db, { ctx, plan: plan([], { who: [name] }), now: NOW }));
@@ -864,7 +1380,7 @@ test('names: an alias claim resolves only through verified accounts and only whe
     assert.deepEqual(who('Μπομπακι', dmContext(personId(ALICE))), ['b1']);
     env.db.prepare("UPDATE accounts SET link = 'pending' WHERE id = ?").run(`discord:${ALICE}`);
     assert.deepEqual(who('Λικα'), [], 'an unverified link resolves nothing');
-    assert.deepEqual(who('Αλίκη'), ['a1'], 'the account\'s own name still does');
+    assert.deepEqual(who('Αλίκη'), ['a1'], "the account's own name still does");
   } finally {
     env.done();
   }

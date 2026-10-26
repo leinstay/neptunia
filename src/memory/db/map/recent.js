@@ -10,7 +10,14 @@ import { groupScope } from '../scope.js';
 import { extraText, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './common.js';
 
 const SPEC = [
-  { col: 'subject_id', key: 'channelId', type: 'text', ok: (v) => nativeOf(channelPlaceId(v)) === v, enc: channelPlaceId, dec: nativeOf },
+  {
+    col: 'subject_id',
+    key: 'channelId',
+    type: 'text',
+    ok: (v) => nativeOf(channelPlaceId(v)) === v,
+    enc: channelPlaceId,
+    dec: nativeOf,
+  },
   { col: 'text', key: 'text', type: 'text' },
   { col: 'weight', key: 'weight', type: 'num' },
   { col: 'created_at', key: 'addedAt', type: 'text' },
@@ -25,7 +32,8 @@ export function toRows(rel, value) {
     value.lines.forEach((line, position) => {
       const part = split(line, SPEC);
       const itemId = typeof line.itemId === 'string' && line.itemId ? line.itemId : null;
-      const base = itemId ?? itemOrDerivedId(null, 'recent_line', line.channelId ?? '', line.at ?? '', line.id ?? position);
+      const base =
+        itemId ?? itemOrDerivedId(null, 'recent_line', line.channelId ?? '', line.at ?? '', line.id ?? position);
       const id = uniq(base);
       if (itemId && id === base) delete part.rest.itemId;
       else part.rest.$derived = true;

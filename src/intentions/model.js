@@ -64,7 +64,15 @@ const MOVES = Object.freeze({
 });
 
 /** The defaults of the `intentions` config section (config.json carries the same). */
-export const DEFAULTS = Object.freeze({ expiresDays: 14, recurringExpiresDays: 30, maxOpen: 20, maxCandidates: 5, candidateExpiresHours: 48, waitHours: 2, expiryNoticeDays: 2 });
+export const DEFAULTS = Object.freeze({
+  expiresDays: 14,
+  recurringExpiresDays: 30,
+  maxOpen: 20,
+  maxCandidates: 5,
+  candidateExpiresHours: 48,
+  waitHours: 2,
+  expiryNoticeDays: 2,
+});
 /** The defaults of `innerLife.attention` an attention record needs (config.json carries the same). */
 export const ATTEND_DEFAULTS = Object.freeze({ settleSeconds: 90, perDayDefault: 12 });
 /** The most people one attention names. */
@@ -126,26 +134,40 @@ export function wakeTimeOf(record, jitterMinutes = 0) {
   const dueAt = record?.dueAt;
   if (!Number.isFinite(dueAt)) return NaN;
   if (record.origin !== HEARTBEAT_ORIGIN || !(jitterMinutes > 0)) return dueAt;
-  const base = Math.max(Number.isFinite(record.createdAt) ? record.createdAt : -Infinity, Number.isFinite(record.updatedAt) ? record.updatedAt : -Infinity);
+  const base = Math.max(
+    Number.isFinite(record.createdAt) ? record.createdAt : -Infinity,
+    Number.isFinite(record.updatedAt) ? record.updatedAt : -Infinity
+  );
   const lead = Number.isFinite(base) ? dueAt - base : 0;
   const cap = Math.min(jitterMinutes * 60 * 1000, Math.max(0, lead) / 4);
   if (!(cap > 0)) return dueAt;
   const unit = createHash('sha256').update(`${record.id}:${dueAt}`).digest().readUInt32BE(0) / 2 ** 32;
   let at = Math.round(dueAt + (unit * 2 - 1) * cap);
-  if (Number.isFinite(record.expiresAt) && at >= record.expiresAt) at = dueAt < record.expiresAt ? record.expiresAt - 1 : dueAt;
+  if (Number.isFinite(record.expiresAt) && at >= record.expiresAt)
+    at = dueAt < record.expiresAt ? record.expiresAt - 1 : dueAt;
   return at;
 }
 
 /** The open (pending or waiting) intentions a heartbeat created, among `records`. */
 export function openFromHeartbeat(records) {
-  return (Array.isArray(records) ? records : []).filter((record) => record?.origin === HEARTBEAT_ORIGIN && (record.status === 'pending' || record.status === 'waiting'));
+  return (Array.isArray(records) ? records : []).filter(
+    (record) => record?.origin === HEARTBEAT_ORIGIN && (record.status === 'pending' || record.status === 'waiting')
+  );
 }
 
 /** The `intentions` section's numbers, read from the live config now, each falling back to DEFAULTS. */
 export function intentionSettings(config) {
   const set = config?.intentions ?? {};
   const pick = (key) => (Number.isFinite(set[key]) && set[key] >= 0 ? set[key] : DEFAULTS[key]);
-  return { expiresDays: pick('expiresDays'), recurringExpiresDays: pick('recurringExpiresDays'), maxOpen: pick('maxOpen'), maxCandidates: pick('maxCandidates'), candidateExpiresHours: pick('candidateExpiresHours'), waitHours: pick('waitHours'), expiryNoticeDays: pick('expiryNoticeDays') };
+  return {
+    expiresDays: pick('expiresDays'),
+    recurringExpiresDays: pick('recurringExpiresDays'),
+    maxOpen: pick('maxOpen'),
+    maxCandidates: pick('maxCandidates'),
+    candidateExpiresHours: pick('candidateExpiresHours'),
+    waitHours: pick('waitHours'),
+    expiryNoticeDays: pick('expiryNoticeDays'),
+  };
 }
 
 /**
@@ -155,8 +177,10 @@ export function intentionSettings(config) {
 export function attentionSettings(config) {
   const set = config?.innerLife?.attention ?? {};
   return {
-    settleSeconds: Number.isFinite(set.settleSeconds) && set.settleSeconds >= 0 ? set.settleSeconds : ATTEND_DEFAULTS.settleSeconds,
-    perDayDefault: Number.isInteger(set.perDayDefault) && set.perDayDefault >= 1 ? set.perDayDefault : ATTEND_DEFAULTS.perDayDefault,
+    settleSeconds:
+      Number.isFinite(set.settleSeconds) && set.settleSeconds >= 0 ? set.settleSeconds : ATTEND_DEFAULTS.settleSeconds,
+    perDayDefault:
+      Number.isInteger(set.perDayDefault) && set.perDayDefault >= 1 ? set.perDayDefault : ATTEND_DEFAULTS.perDayDefault,
   };
 }
 
@@ -210,7 +234,12 @@ function weekdayOf(dateKey) {
 
 /** `HH:MM` of the instant `ms` on the wall clock of `timezone`. */
 function wallTime(ms, timezone) {
-  const parts = new Intl.DateTimeFormat('en-US', { timeZone: timezone, hourCycle: 'h23', hour: '2-digit', minute: '2-digit' }).formatToParts(ms);
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    hourCycle: 'h23',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).formatToParts(ms);
   const get = (type) => parts.find((part) => part.type === type)?.value ?? '00';
   return `${String(Number(get('hour')) % 24).padStart(2, '0')}:${get('minute')}`;
 }
@@ -272,7 +301,13 @@ export function parseWhen(text, now, { timezone = 'UTC' } = {}) {
     }
     const weekday = clock[1] ? WEEKDAYS.indexOf(clock[1].toLowerCase()) : -1;
     if (weekday >= 0) day = addDays(day, (weekday - weekdayOf(day) + 7) % 7);
-    const at = nextWallClock({ fromDay: day, ...time, stepDays: weekday >= 0 ? 7 : 1, timezone: timezone || 'UTC', after: now });
+    const at = nextWallClock({
+      fromDay: day,
+      ...time,
+      stepDays: weekday >= 0 ? 7 : 1,
+      timezone: timezone || 'UTC',
+      after: now,
+    });
     return Number.isFinite(at) ? at : null;
   }
   if (!/^\d{4}-\d{2}-\d{2}/.test(value)) return null;
@@ -290,11 +325,14 @@ const INTERVAL_RE = /^(\d{1,4})(h|d)$/i;
  * @returns {{ ok: true, every: { period: string, at: null }|null }|{ ok: false, code: 'bad-every' }}
  */
 export function parseEvery(text) {
-  const value = String(typeof text === 'string' ? text : '').trim().toLowerCase();
+  const value = String(typeof text === 'string' ? text : '')
+    .trim()
+    .toLowerCase();
   if (value === 'none') return { ok: true, every: null };
   if (EVERY_PERIODS.includes(value)) return { ok: true, every: { period: value, at: null } };
   const interval = INTERVAL_RE.exec(value);
-  if (interval && Number(interval[1]) >= 1) return { ok: true, every: { period: `${Number(interval[1])}${interval[2].toLowerCase()}`, at: null } };
+  if (interval && Number(interval[1]) >= 1)
+    return { ok: true, every: { period: `${Number(interval[1])}${interval[2].toLowerCase()}`, at: null } };
   return { ok: false, code: CODE.BAD_EVERY };
 }
 
@@ -354,7 +392,13 @@ export function nextOccurrence(record, now, timezone = 'UTC') {
     const zone = timezone || 'UTC';
     const time = clockOf(every.at ?? wallTime(record.dueAt, zone));
     if (!time) return null;
-    const at = nextWallClock({ fromDay: zonedDay(record.dueAt, zone), ...time, stepDays: every.period === 'week' ? 7 : 1, timezone: zone, after });
+    const at = nextWallClock({
+      fromDay: zonedDay(record.dueAt, zone),
+      ...time,
+      stepDays: every.period === 'week' ? 7 : 1,
+      timezone: zone,
+      after,
+    });
     return Number.isFinite(at) ? at : null;
   } catch {
     return null;
@@ -375,7 +419,13 @@ export function validAttend(attend) {
   if (!(Number.isInteger(attend.perDay) && attend.perDay >= 1)) return false;
   const today = attend.today;
   if (today === null || today === undefined) return true;
-  return Boolean(today) && typeof today === 'object' && typeof today.day === 'string' && Number.isInteger(today.wakes) && today.wakes >= 0;
+  return (
+    Boolean(today) &&
+    typeof today === 'object' &&
+    typeof today.day === 'string' &&
+    Number.isInteger(today.wakes) &&
+    today.wakes >= 0
+  );
 }
 
 /**
@@ -387,12 +437,24 @@ export function validAttend(attend) {
  * @param {{ settleSeconds?: number, perDayDefault?: number }} [settings]
  * @returns {{ place: string, people: string[], settle: number, perDay: number, today: { day: string, wakes: number }|null }|null}
  */
-export function normalizeAttend(input, { settleSeconds = ATTEND_DEFAULTS.settleSeconds, perDayDefault = ATTEND_DEFAULTS.perDayDefault } = {}) {
+export function normalizeAttend(
+  input,
+  { settleSeconds = ATTEND_DEFAULTS.settleSeconds, perDayDefault = ATTEND_DEFAULTS.perDayDefault } = {}
+) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
-  const place = typeof input.place === 'string' ? input.place.trim() : typeof input.place === 'number' ? String(input.place) : '';
+  const place =
+    typeof input.place === 'string' ? input.place.trim() : typeof input.place === 'number' ? String(input.place) : '';
   const raw = input.people === undefined || input.people === null ? [] : input.people;
   if (!Array.isArray(raw)) return null;
-  const people = [...new Set(raw.map((id) => (typeof id === 'string' ? id.trim() : typeof id === 'number' && Number.isFinite(id) ? String(id) : null)))].filter((id) => typeof id === 'string' && id).slice(0, ATTEND_PEOPLE_MAX);
+  const people = [
+    ...new Set(
+      raw.map((id) =>
+        typeof id === 'string' ? id.trim() : typeof id === 'number' && Number.isFinite(id) ? String(id) : null
+      )
+    ),
+  ]
+    .filter((id) => typeof id === 'string' && id)
+    .slice(0, ATTEND_PEOPLE_MAX);
   if (raw.some((id) => typeof id !== 'string' && typeof id !== 'number')) return null;
   const attend = {
     place,
@@ -406,7 +468,12 @@ export function normalizeAttend(input, { settleSeconds = ATTEND_DEFAULTS.settleS
 
 /** True for an attention: a record with an `attend` place. */
 export function isAttend(record) {
-  return Boolean(record?.attend && typeof record.attend === 'object' && typeof record.attend.place === 'string' && record.attend.place);
+  return Boolean(
+    record?.attend &&
+    typeof record.attend === 'object' &&
+    typeof record.attend.place === 'string' &&
+    record.attend.place
+  );
 }
 
 /**
@@ -425,7 +492,11 @@ export function attendCounter(record, day) {
 export function bumpAttend(record, day) {
   if (!isAttend(record)) return { ok: false, code: CODE.NOT_ATTEND };
   const current = attendCounter(record, day);
-  return { ok: true, intention: { ...record, attend: { ...record.attend, today: { day, wakes: current.wakes + 1 } } }, changed: true };
+  return {
+    ok: true,
+    intention: { ...record, attend: { ...record.attend, today: { day, wakes: current.wakes + 1 } } },
+    changed: true,
+  };
 }
 
 /** One line of text cut to `max` characters; '' for nothing. */
@@ -435,12 +506,17 @@ function line(text, max) {
 
 /** A string id or null. */
 function idOrNull(value) {
-  return (typeof value === 'string' && value) || (typeof value === 'number' && Number.isFinite(value)) ? String(value) : null;
+  return (typeof value === 'string' && value) || (typeof value === 'number' && Number.isFinite(value))
+    ? String(value)
+    : null;
 }
 
 /** The distinct non-empty string ids of `list`, at most PARTICIPANTS_MAX. */
 function participantIds(list) {
-  return [...new Set((Array.isArray(list) ? list : []).filter((id) => typeof id === 'string' && id))].slice(0, PARTICIPANTS_MAX);
+  return [...new Set((Array.isArray(list) ? list : []).filter((id) => typeof id === 'string' && id))].slice(
+    0,
+    PARTICIPANTS_MAX
+  );
 }
 
 /**
@@ -494,7 +570,24 @@ function withHistory(record, entry) {
  *   dueAt?: number|null, every?: { period: string, at: string|null }|null, expiresAt?: number|null, destination?: string|null,
  *   completionCondition?: string|null, chainId?: string|null, attend?: object|null, now: number, settings?: object, id?: string, by?: string }} input
  */
-export function createIntention({ purpose, provenance, dueAt = null, every = null, expiresAt = null, destination = null, completionCondition = null, chainId = null, attend = null, origin = null, dropped = false, reason = null, now, settings = DEFAULTS, id = newIntentionId(), by = 'persona' }) {
+export function createIntention({
+  purpose,
+  provenance,
+  dueAt = null,
+  every = null,
+  expiresAt = null,
+  destination = null,
+  completionCondition = null,
+  chainId = null,
+  attend = null,
+  origin = null,
+  dropped = false,
+  reason = null,
+  now,
+  settings = DEFAULTS,
+  id = newIntentionId(),
+  by = 'persona',
+}) {
   const text = line(purpose, PURPOSE_CHARS);
   if (!text) return { ok: false, code: CODE.NO_PURPOSE };
   if (!PROVENANCE_KINDS.includes(provenance?.kind)) return { ok: false, code: CODE.BAD_PROVENANCE };
@@ -529,8 +622,17 @@ export function createIntention({ purpose, provenance, dueAt = null, every = nul
       // A candidate's origin (candidatesFromAnswer): `external` when its words came from outside
       // material, which only her explicit accept in a later ordinary turn activates (acceptRefusal).
       ...(candidate ? { origin: provenance.origin === 'external' ? 'external' : 'own' } : {}),
-      ...(candidate && provenance.origin === 'external' && typeof provenance.originReason === 'string' ? { originReason: provenance.originReason } : {}),
-      ...(candidate && provenance.bornInner === true ? { bornInner: true, ...(line(provenance.innerChainId, CHAIN_CHARS + 16) ? { innerChainId: line(provenance.innerChainId, CHAIN_CHARS + 16) } : {}) } : {}),
+      ...(candidate && provenance.origin === 'external' && typeof provenance.originReason === 'string'
+        ? { originReason: provenance.originReason }
+        : {}),
+      ...(candidate && provenance.bornInner === true
+        ? {
+            bornInner: true,
+            ...(line(provenance.innerChainId, CHAIN_CHARS + 16)
+              ? { innerChainId: line(provenance.innerChainId, CHAIN_CHARS + 16) }
+              : {}),
+          }
+        : {}),
     },
     status,
     createdAt: now,
@@ -621,7 +723,8 @@ export function acceptRefusal(record, { by = 'persona', initiative = false, chai
   if (turnId && provenance.turnId && String(provenance.turnId) === String(turnId)) return 'candidate-same-turn';
   if (!initiative) return null;
   if (provenance.origin === 'external') return 'candidate-external';
-  if (provenance.bornInner === true && chainId && provenance.innerChainId === String(chainId)) return 'candidate-same-chain';
+  if (provenance.bornInner === true && chainId && provenance.innerChainId === String(chainId))
+    return 'candidate-same-chain';
   return null;
 }
 
@@ -640,7 +743,8 @@ export function transition(record, to, { now, by = 'persona', code = null, patch
   const leavingWait = record.status === 'waiting' && to !== 'waiting';
   let next = { ...record, ...patch, status: to, updatedAt: now };
   // Out of a wait the errand stays named in `outcome`/`lastTaskId`, never as an open wait.
-  if (leavingWait) next = { ...next, awaitingTaskId: null, waitDeadline: null, lastTaskId: record.awaitingTaskId ?? null };
+  if (leavingWait)
+    next = { ...next, awaitingTaskId: null, waitDeadline: null, lastTaskId: record.awaitingTaskId ?? null };
   const broken = checkInvariants(next);
   if (broken) return { ok: false, code: broken };
   next = withHistory(next, { at: now, from: record.status, to, by, ...(code ? { code } : {}) });
@@ -659,7 +763,11 @@ export function waitOn(record, { taskId, deadline, now, by = 'persona' }) {
   const patch = { awaitingTaskId: id, waitDeadline: deadline, waitRequested: null };
   if (record?.status === 'waiting') {
     const next = { ...record, ...patch, updatedAt: now };
-    return { ok: true, intention: withHistory(next, { at: now, from: 'waiting', to: 'waiting', by, code: CODE.REWAIT }), changed: true };
+    return {
+      ok: true,
+      intention: withHistory(next, { at: now, from: 'waiting', to: 'waiting', by, code: CODE.REWAIT }),
+      changed: true,
+    };
   }
   return transition(record, 'waiting', { now, by, code: CODE.WAIT, patch });
 }
@@ -674,16 +782,31 @@ const TASK_ENDS = Object.freeze(['done', 'failed', 'cancelled']);
  * -- changes nothing: `{ ok: true, intention: record, changed: false }`.
  */
 export function arrive(record, task, { now }) {
-  if (record?.status !== 'waiting' || !task || record.awaitingTaskId !== String(task.id) || !TASK_ENDS.includes(task.state)) {
+  if (
+    record?.status !== 'waiting' ||
+    !task ||
+    record.awaitingTaskId !== String(task.id) ||
+    !TASK_ENDS.includes(task.state)
+  ) {
     return { ok: true, intention: record, changed: false };
   }
   const at = Number.isFinite(task.endedAt) ? task.endedAt : now;
-  const outcome = { taskId: String(task.id), state: task.state, ...(task.error ? { error: String(task.error) } : {}), at };
+  const outcome = {
+    taskId: String(task.id),
+    state: task.state,
+    ...(task.error ? { error: String(task.error) } : {}),
+    at,
+  };
   // The end is a fresh due moment when the old one has passed: the scheduler's wake id carries
   // the due time, and the old moment was handled when she set the wait, so without this nothing
   // would wake her for the outcome once the result turn leaves the record open.
   const dueAt = Number.isFinite(record.dueAt) && record.dueAt > at ? record.dueAt : at;
-  return transition(record, 'pending', { now, by: 'engine', code: `task-${task.state}`, patch: { outcome, note: `task-${task.state}`, dueAt } });
+  return transition(record, 'pending', {
+    now,
+    by: 'engine',
+    code: `task-${task.state}`,
+    patch: { outcome, note: `task-${task.state}`, dueAt },
+  });
 }
 
 /** `record` expired when it is open and `now` is at or past its `expiresAt`; unchanged otherwise. */
@@ -695,7 +818,7 @@ export function expireAt(record, now) {
 /** When `record` expired: its last history entry's `at` (the expiry's), else `updatedAt`. */
 export function expiredAtOf(record) {
   const last = Array.isArray(record?.history) ? record.history.at(-1) : null;
-  return Number.isFinite(last?.at) ? last.at : record?.updatedAt ?? 0;
+  return Number.isFinite(last?.at) ? last.at : (record?.updatedAt ?? 0);
 }
 
 /**
@@ -710,10 +833,18 @@ export function expiredAtOf(record) {
  */
 export function expiredToShow(records, { max = 5 } = {}) {
   const list = (Array.isArray(records) ? records : [])
-    .filter((record) => record?.status === 'expired' && !Number.isFinite(record.expiredShownAt) && record.provenance?.kind !== 'candidate')
+    .filter(
+      (record) =>
+        record?.status === 'expired' &&
+        !Number.isFinite(record.expiredShownAt) &&
+        record.provenance?.kind !== 'candidate'
+    )
     .sort((a, b) => expiredAtOf(b) - expiredAtOf(a));
   const cap = Math.max(0, Math.floor(max));
-  return { items: list.slice(0, cap).map((record) => ({ id: record.id, purpose: record.purpose, at: expiredAtOf(record) })), more: Math.max(0, list.length - cap) };
+  return {
+    items: list.slice(0, cap).map((record) => ({ id: record.id, purpose: record.purpose, at: expiredAtOf(record) })),
+    more: Math.max(0, list.length - cap),
+  };
 }
 
 /**
@@ -721,7 +852,8 @@ export function expiredToShow(records, { max = 5 } = {}) {
  * move: an expired record not yet marked changes; any other answers unchanged.
  */
 export function markExpiredShown(record, now) {
-  if (record?.status !== 'expired' || Number.isFinite(record.expiredShownAt)) return { ok: true, intention: record, changed: false };
+  if (record?.status !== 'expired' || Number.isFinite(record.expiredShownAt))
+    return { ok: true, intention: record, changed: false };
   return { ok: true, intention: { ...record, expiredShownAt: now }, changed: true };
 }
 
@@ -769,9 +901,21 @@ export function advanceOccurrence(record, { now, timezone = 'UTC', code, by = 'p
 export function reconcileWait(record, { taskOf, now }) {
   if (record?.status !== 'waiting') return { ok: true, intention: record, changed: false };
   const task = typeof taskOf === 'function' ? taskOf(record.awaitingTaskId) : null;
-  if (!task) return transition(record, 'pending', { now, by: 'engine', code: CODE.TASK_MISSING, patch: { note: 'task-missing' } });
+  if (!task)
+    return transition(record, 'pending', {
+      now,
+      by: 'engine',
+      code: CODE.TASK_MISSING,
+      patch: { note: 'task-missing' },
+    });
   if (TASK_ENDS.includes(task.state)) return arrive(record, task, { now });
-  if (now >= record.waitDeadline) return transition(record, 'pending', { now, by: 'engine', code: CODE.WAIT_DEADLINE, patch: { note: 'wait-deadline' } });
+  if (now >= record.waitDeadline)
+    return transition(record, 'pending', {
+      now,
+      by: 'engine',
+      code: CODE.WAIT_DEADLINE,
+      patch: { note: 'wait-deadline' },
+    });
   return { ok: true, intention: record, changed: false };
 }
 
@@ -788,8 +932,10 @@ export function dueList(records, now, jitterMinutes = 0) {
   const out = [];
   for (const record of Array.isArray(records) ? records : []) {
     if (record?.status !== 'pending' && record?.status !== 'waiting') continue;
-    if (record.status === 'waiting' && Number.isFinite(record.waitDeadline) && record.waitDeadline <= now) out.push({ intention: record, reason: 'wait-deadline', at: record.waitDeadline });
-    else if (Number.isFinite(record.dueAt) && wakeTimeOf(record, jitterMinutes) <= now) out.push({ intention: record, reason: 'due', at: record.dueAt });
+    if (record.status === 'waiting' && Number.isFinite(record.waitDeadline) && record.waitDeadline <= now)
+      out.push({ intention: record, reason: 'wait-deadline', at: record.waitDeadline });
+    else if (Number.isFinite(record.dueAt) && wakeTimeOf(record, jitterMinutes) <= now)
+      out.push({ intention: record, reason: 'due', at: record.dueAt });
   }
   return out.sort((a, b) => a.at - b.at);
 }
@@ -809,7 +955,12 @@ export function duplicates(candidate, records) {
   return (Array.isArray(records) ? records : []).some((record) => {
     if (!isOpen(record?.status)) return false;
     if (purpose && foldText(record.purpose) === purpose) return true;
-    return Boolean(candidate?.messageId) && record.provenance?.messageId === candidate.messageId && span && foldText(record.provenance?.span) === span;
+    return (
+      Boolean(candidate?.messageId) &&
+      record.provenance?.messageId === candidate.messageId &&
+      span &&
+      foldText(record.provenance?.span) === span
+    );
   });
 }
 
@@ -840,7 +991,15 @@ export function candidatesFromAnswer(raw, messages, { max, sourcesOf = null, str
   const hers = lines.filter((m) => m.self === true);
   const others = lines.filter((m) => m.self !== true);
   // The members of a line's conversation: the other authors of its channel in the batch.
-  const membersOf = (own) => participantIds(others.filter((m) => String(m.channelId ?? '') === String(own.channelId ?? '') && m.authorId !== undefined && m.authorId !== null).map((m) => String(m.authorId)));
+  const membersOf = (own) =>
+    participantIds(
+      others
+        .filter(
+          (m) =>
+            String(m.channelId ?? '') === String(own.channelId ?? '') && m.authorId !== undefined && m.authorId !== null
+        )
+        .map((m) => String(m.authorId))
+    );
   for (const item of list) {
     const span = line(item?.span, SPAN_CHARS);
     const purpose = line(item?.purpose, PURPOSE_CHARS);
@@ -882,7 +1041,9 @@ export function candidatesFromAnswer(raw, messages, { max, sourcesOf = null, str
       origin: reason ? 'external' : 'own',
       ...(reason ? { originReason: reason } : {}),
       turnId,
-      ...(sources?.inner === true || own.inner ? { bornInner: true, ...(idOrNull(sources?.chainId) ? { innerChainId: idOrNull(sources.chainId) } : {}) } : {}),
+      ...(sources?.inner === true || own.inner
+        ? { bornInner: true, ...(idOrNull(sources?.chainId) ? { innerChainId: idOrNull(sources.chainId) } : {}) }
+        : {}),
     });
   }
   return { candidates, dropped };
@@ -906,11 +1067,18 @@ export function concernsMember(record, { userId, names = [] }) {
   if (Array.isArray(record.attend?.people) && record.attend.people.includes(id)) return true;
   const provenance = record.provenance ?? {};
   if (Array.isArray(provenance.participants) && provenance.participants.includes(id)) return true;
-  const texts = [record.purpose, provenance.span, record.completionCondition, record.chainId, record.reason, record.outcome?.error].filter((text) => typeof text === 'string' && text);
+  const texts = [
+    record.purpose,
+    provenance.span,
+    record.completionCondition,
+    record.chainId,
+    record.reason,
+    record.outcome?.error,
+  ].filter((text) => typeof text === 'string' && text);
   if (texts.some((text) => text.includes(id))) return true;
-  const folded = [...new Set((Array.isArray(names) ? names : []).filter((name) => typeof name === 'string').map(foldName))].filter(
-    (name) => [...name].filter((ch) => isWordChar(ch) && ch !== '_').length >= MIN_FORGET_NAME,
-  );
+  const folded = [
+    ...new Set((Array.isArray(names) ? names : []).filter((name) => typeof name === 'string').map(foldName)),
+  ].filter((name) => [...name].filter((ch) => isWordChar(ch) && ch !== '_').length >= MIN_FORGET_NAME);
   if (folded.length === 0) return false;
   return texts.some((text) => {
     const haystack = foldName(text);

@@ -95,7 +95,11 @@ export function inTransaction(db, fn) {
     db.exec('COMMIT');
     return result;
   } catch (error) {
-    try { db.exec('ROLLBACK'); } catch { /* already rolled back */ }
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      /* already rolled back */
+    }
     throw error;
   }
 }
@@ -123,7 +127,11 @@ export function openMemoryDb(dbPath, opts = {}) {
     db.exec('PRAGMA foreign_keys = ON');
     if (!readOnly) migrate(db, opts.migrations ?? MIGRATIONS, opts.context ?? {});
   } catch (error) {
-    try { db?.close(); } catch { /* not open */ }
+    try {
+      db?.close();
+    } catch {
+      /* not open */
+    }
     release();
     throw error;
   }
@@ -139,7 +147,11 @@ export function openMemoryDb(dbPath, opts = {}) {
     close() {
       if (closed) return;
       closed = true;
-      try { db.close(); } finally { release(); }
+      try {
+        db.close();
+      } finally {
+        release();
+      }
     },
   };
 }

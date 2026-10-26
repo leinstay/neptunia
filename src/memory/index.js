@@ -29,7 +29,14 @@ export { episodeDate, sortEpisodesForDisplay, topEpisodes } from './episodes.js'
 export { matchLore } from './lore.js';
 export { channelActivity, renderChannel } from './channels.js';
 export { mainChannelSet } from './update.js';
-export { PARTICIPATION_DEFAULTS, cutEpisode, earlierEpisodes, episodeHeadlines, participationSettings, selectEpisodes } from './participation.js';
+export {
+  PARTICIPATION_DEFAULTS,
+  cutEpisode,
+  earlierEpisodes,
+  episodeHeadlines,
+  participationSettings,
+  selectEpisodes,
+} from './participation.js';
 export { memberView, normalizeAvatar } from './avatars.js';
 export { rankEmojiUsage } from './emoji-usage.js';
 export { findGif, gifHandleMap, gifHandleOf, gifOpts, normalizeGifs, rankGifs } from './gifs.js';

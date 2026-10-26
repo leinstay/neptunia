@@ -95,7 +95,10 @@ export const rowsOf = (rows, table) => (Array.isArray(rows?.[table]) ? rows[tabl
 
 /** The rows of a table sorted by `position` (stable). */
 export function ordered(rows, table) {
-  return rowsOf(rows, table).map((row, index) => [row, index]).sort((a, b) => (a[0].position ?? 0) - (b[0].position ?? 0) || a[1] - b[1]).map(([row]) => row);
+  return rowsOf(rows, table)
+    .map((row, index) => [row, index])
+    .sort((a, b) => (a[0].position ?? 0) - (b[0].position ?? 0) || a[1] - b[1])
+    .map(([row]) => row);
 }
 
 /** Adds a row to a table of a mapping. */

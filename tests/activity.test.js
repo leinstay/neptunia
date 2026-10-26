@@ -8,7 +8,11 @@ const T = Date.UTC(2026, 8, 20, 12, 0, 0);
 
 test('settleWait: settle off (0, negative, non-number) never waits', () => {
   for (const settleMs of [0, -100, '4000', null, undefined, Number.NaN]) {
-    assert.equal(settleWait({ now: T + 500, triggerAt: T, lastAt: T + 400, settleMs, settleMaxMs: 15000 }), 0, String(settleMs));
+    assert.equal(
+      settleWait({ now: T + 500, triggerAt: T, lastAt: T + 400, settleMs, settleMaxMs: 15000 }),
+      0,
+      String(settleMs)
+    );
   }
 });
 
@@ -21,7 +25,10 @@ test('settleWait: an author who wrote 1 s ago waits the rest of settleMs', () =>
 });
 
 test('settleWait: the wait never runs past settleMaxMs counted from triggerAt', () => {
-  assert.equal(settleWait({ now: T + 13000, triggerAt: T, lastAt: T + 12500, settleMs: 4000, settleMaxMs: 15000 }), 2000);
+  assert.equal(
+    settleWait({ now: T + 13000, triggerAt: T, lastAt: T + 12500, settleMs: 4000, settleMaxMs: 15000 }),
+    2000
+  );
   assert.equal(settleWait({ now: T + 16000, triggerAt: T, lastAt: T + 15500, settleMs: 4000, settleMaxMs: 15000 }), 0);
 });
 

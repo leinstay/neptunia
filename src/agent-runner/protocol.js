@@ -101,10 +101,16 @@ function validateRun(msg) {
     out.context = msg.context;
     if (msg.context.recent !== undefined) {
       const recent = msg.context.recent;
-      if (!Array.isArray(recent) || !recent.every((line) => isPlainObject(line) && typeof line.author === 'string' && typeof line.text === 'string')) return refuse('bad-recent');
+      if (
+        !Array.isArray(recent) ||
+        !recent.every((line) => isPlainObject(line) && typeof line.author === 'string' && typeof line.text === 'string')
+      )
+        return refuse('bad-recent');
       out.context = {
         ...msg.context,
-        recent: recent.slice(-MAX_RECENT_ENTRIES).map((line) => ({ author: line.author.slice(0, RECENT_CHARS), text: line.text.slice(0, RECENT_CHARS) })),
+        recent: recent
+          .slice(-MAX_RECENT_ENTRIES)
+          .map((line) => ({ author: line.author.slice(0, RECENT_CHARS), text: line.text.slice(0, RECENT_CHARS) })),
       };
     }
   }
@@ -119,7 +125,8 @@ function validateRun(msg) {
   }
   if (msg.tools !== undefined) {
     if (!Array.isArray(msg.tools) || !msg.tools.length) return refuse('bad-tools');
-    if (!msg.tools.every((name) => typeof name === 'string' && name && name.length <= MAX_NAME_CHARS)) return refuse('bad-tools');
+    if (!msg.tools.every((name) => typeof name === 'string' && name && name.length <= MAX_NAME_CHARS))
+      return refuse('bad-tools');
     out.tools = [...new Set(msg.tools)];
   }
   if (msg.model !== undefined) {
@@ -131,7 +138,8 @@ function validateRun(msg) {
     out.cost = { input: msg.cost.input, output: msg.cost.output };
   }
   if (msg.searchProvider !== undefined) {
-    if (typeof msg.searchProvider !== 'string' || !/^[a-z][a-z0-9-]{0,31}$/.test(msg.searchProvider)) return refuse('bad-search-provider');
+    if (typeof msg.searchProvider !== 'string' || !/^[a-z][a-z0-9-]{0,31}$/.test(msg.searchProvider))
+      return refuse('bad-search-provider');
     out.searchProvider = msg.searchProvider;
   }
   if (msg.secrets !== undefined) {
@@ -182,7 +190,11 @@ export function validateRequest(msg) {
   if (!OPS.includes(msg.op)) return refuse('bad-op');
   if (msg.op === 'ping') {
     if (msg.ids === undefined) return { ok: true, message: { op: 'ping', ids: [] } };
-    if (!Array.isArray(msg.ids) || msg.ids.length > MAX_PING_IDS || !msg.ids.every((id) => typeof id === 'string' && TASK_ID.test(id))) {
+    if (
+      !Array.isArray(msg.ids) ||
+      msg.ids.length > MAX_PING_IDS ||
+      !msg.ids.every((id) => typeof id === 'string' && TASK_ID.test(id))
+    ) {
       return refuse('bad-ids');
     }
     return { ok: true, message: { op: 'ping', ids: [...new Set(msg.ids)] } };
@@ -239,7 +251,10 @@ export function progressEvent({ id, step, tool = null, note = '' }) {
     event: 'progress',
     step: count(step),
     tool: typeof tool === 'string' && tool ? tool : null,
-    note: String(note ?? '').replace(/\s+/g, ' ').trim().slice(0, MAX_NOTE_CHARS),
+    note: String(note ?? '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, MAX_NOTE_CHARS),
   };
 }
 
@@ -249,21 +264,32 @@ export function progressEvent({ id, step, tool = null, note = '' }) {
  * the runner did not deliver, src/agent-runner/opencode.js; at most MAX_WITHHELD) when any. */
 export function normalizeResult(result) {
   const r = isPlainObject(result) ? result : {};
-  const sources = Array.isArray(r.sources) ? [...new Set(r.sources.filter((url) => typeof url === 'string' && url))] : [];
+  const sources = Array.isArray(r.sources)
+    ? [...new Set(r.sources.filter((url) => typeof url === 'string' && url))]
+    : [];
   const files = Array.isArray(r.files)
-    ? r.files.filter((f) => isPlainObject(f) && typeof f.path === 'string').map((f) => ({
-      path: f.path,
-      name: typeof f.name === 'string' ? f.name : '',
-      contentType: typeof f.contentType === 'string' ? f.contentType : '',
-      bytes: count(f.bytes),
-    }))
+    ? r.files
+        .filter((f) => isPlainObject(f) && typeof f.path === 'string')
+        .map((f) => ({
+          path: f.path,
+          name: typeof f.name === 'string' ? f.name : '',
+          contentType: typeof f.contentType === 'string' ? f.contentType : '',
+          bytes: count(f.bytes),
+        }))
     : [];
   const out = { text: typeof r.text === 'string' ? r.text : '', sources, files };
-  const withheld = Array.isArray(r.withheld) ? [...new Set(r.withheld.filter((p) => typeof p === 'string' && p).map((p) => p.slice(0, MAX_NOTE_CHARS)))].slice(0, MAX_WITHHELD) : [];
+  const withheld = Array.isArray(r.withheld)
+    ? [...new Set(r.withheld.filter((p) => typeof p === 'string' && p).map((p) => p.slice(0, MAX_NOTE_CHARS)))].slice(
+        0,
+        MAX_WITHHELD
+      )
+    : [];
   if (withheld.length > 0) out.withheld = withheld;
   const dropped = Array.isArray(r.filesDropped)
-    ? r.filesDropped.filter((d) => isPlainObject(d) && (d.reason === 'withheld' || d.reason === 'secret'))
-      .map((d) => ({ name: String(d.name ?? '').slice(0, MAX_NOTE_CHARS), reason: d.reason })).slice(0, MAX_WITHHELD)
+    ? r.filesDropped
+        .filter((d) => isPlainObject(d) && (d.reason === 'withheld' || d.reason === 'secret'))
+        .map((d) => ({ name: String(d.name ?? '').slice(0, MAX_NOTE_CHARS), reason: d.reason }))
+        .slice(0, MAX_WITHHELD)
     : [];
   if (dropped.length > 0) out.filesDropped = dropped;
   return out;
@@ -272,7 +298,13 @@ export function normalizeResult(result) {
 /** A usage in its protocol shape: `{ input, output, usd, steps, seconds }` plus `costUnknown` when above 0. */
 export function normalizeUsage(usage) {
   const u = isPlainObject(usage) ? usage : {};
-  const out = { input: count(u.input), output: count(u.output), usd: count(u.usd), steps: count(u.steps), seconds: count(u.seconds) };
+  const out = {
+    input: count(u.input),
+    output: count(u.output),
+    usd: count(u.usd),
+    steps: count(u.steps),
+    seconds: count(u.seconds),
+  };
   if (count(u.costUnknown) > 0) out.costUnknown = count(u.costUnknown);
   return out;
 }

@@ -42,7 +42,20 @@ import { graphPending, projectPending } from './graph.js';
 import { fillStems, markStemsPending, stemsPending } from './stems.js';
 
 /** Tables of an owned unit whose rows carry a `position`. */
-const POSITIONED = ['sources', 'day', 'decisions', 'claims', 'claim_versions', 'description_versions', 'episodes', 'affinity_events', 'diary', 'intentions', 'work', 'work_events'];
+const POSITIONED = [
+  'sources',
+  'day',
+  'decisions',
+  'claims',
+  'claim_versions',
+  'description_versions',
+  'episodes',
+  'affinity_events',
+  'diary',
+  'intentions',
+  'work',
+  'work_events',
+];
 /** The kinds of JSONL unit op `lines` writes. */
 const LINE_KINDS = new Set(['record', 'journal', 'archive', 'intentions', 'tasks']);
 
@@ -58,7 +71,8 @@ export function unitOf(owner, { vectors = false } = {}) {
   return { full, rel: info.unit, kind: info.kind, mapper: info.mapper, format: info.format, guildId: info.guildId };
 }
 
-const hasTable = (db, name) => db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) !== undefined;
+const hasTable = (db, name) =>
+  db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) !== undefined;
 
 /**
  * The next position of a unit: the `files` row's line count when it has one, else one past the highest position its
@@ -82,11 +96,12 @@ export function nextPosition(db, owner) {
  * null (the columns of the files a unit once came from).
  */
 export function noteUnit(db, owner, kind, { lines = null, offset = null, at }) {
-  db.prepare(`INSERT INTO files (path, kind, size, mtime_ms, sha1, offset, synced_at, lines, tail_sha1, bad, gone_at)
+  db.prepare(
+    `INSERT INTO files (path, kind, size, mtime_ms, sha1, offset, synced_at, lines, tail_sha1, bad, gone_at)
       VALUES (?, ?, NULL, NULL, NULL, ?, ?, ?, NULL, NULL, NULL)
     ON CONFLICT(path) DO UPDATE SET kind = excluded.kind, synced_at = excluded.synced_at, gone_at = NULL,
-      lines = COALESCE(excluded.lines, files.lines), offset = COALESCE(excluded.offset, files.offset)`)
-    .run(owner, kind, offset, at, lines);
+      lines = COALESCE(excluded.lines, files.lines), offset = COALESCE(excluded.offset, files.offset)`
+  ).run(owner, kind, offset, at, lines);
 }
 
 /** The month prefix of a record unit (`guilds/<g>/record/<YYYY-MM>/`, a private layer's alike). */
@@ -98,11 +113,19 @@ function recordDuplicate(db, owner, line) {
   if (!messageId) return false;
   const prefix = monthPrefixOf(owner);
   if (line.kind === 'deleted') {
-    return db.prepare("SELECT 1 AS ok FROM sources WHERE native_id = ? AND kind = 'deleted' AND owner_file >= ? AND owner_file < ? AND retired_at IS NULL LIMIT 1")
-      .get(messageId, prefix, `${prefix}￿`) !== undefined;
+    return (
+      db
+        .prepare(
+          "SELECT 1 AS ok FROM sources WHERE native_id = ? AND kind = 'deleted' AND owner_file >= ? AND owner_file < ? AND retired_at IS NULL LIMIT 1"
+        )
+        .get(messageId, prefix, `${prefix}￿`) !== undefined
+    );
   }
   const revision = Number.isInteger(line.revision) && line.revision > 0 ? line.revision : 1;
-  for (const row of db.prepare("SELECT id, revision, origin FROM sources WHERE native_id = ? AND kind IN ('seen', 'said') AND owner_file >= ? AND owner_file < ? AND retired_at IS NULL")
+  for (const row of db
+    .prepare(
+      "SELECT id, revision, origin FROM sources WHERE native_id = ? AND kind IN ('seen', 'said') AND owner_file >= ? AND owner_file < ? AND retired_at IS NULL"
+    )
     .all(messageId, prefix, `${prefix}￿`)) {
     if (row.origin === 'observation') continue;
     if ((Number.isInteger(row.revision) && row.revision > 0 ? row.revision : 1) === revision) return true;
@@ -112,14 +135,19 @@ function recordDuplicate(db, owner, line) {
 
 /** Whether a task transition line is one the unit already holds (the same line: a retried write). */
 function transitionHeld(db, owner, line) {
-  return db.prepare('SELECT 1 AS ok FROM work_events WHERE owner_file = ? AND record = ? AND retired_at IS NULL LIMIT 1')
-    .get(owner, JSON.stringify(line)) !== undefined;
+  return (
+    db
+      .prepare('SELECT 1 AS ok FROM work_events WHERE owner_file = ? AND record = ? AND retired_at IS NULL LIMIT 1')
+      .get(owner, JSON.stringify(line)) !== undefined
+  );
 }
 
 function writeLines(db, update, at) {
   const unit = unitOf(update.owner);
   if (unit.format !== 'jsonl' || !LINE_KINDS.has(unit.kind)) throw coded('UNIT_UNMAPPED');
-  const lines = (Array.isArray(update.lines) ? update.lines : []).filter((line) => line !== null && typeof line === 'object' && !Array.isArray(line));
+  const lines = (Array.isArray(update.lines) ? update.lines : []).filter(
+    (line) => line !== null && typeof line === 'object' && !Array.isArray(line)
+  );
   const result = { written: 0, duplicates: 0, adopted: 0 };
   let position = nextPosition(db, unit.full);
   // An archive line of an item hot memory does not hold brings its retired claim (map/archive.js).
@@ -128,12 +156,24 @@ function writeLines(db, update, at) {
   for (const line of lines) {
     const mapping = unit.mapper.toRows(unit.rel, line, { ...ctx, position });
     const source = unit.kind === 'record' ? mapping.sources?.[0] : null;
-    const found = source ? db.prepare('SELECT owner_file, position, origin, retired_at FROM sources WHERE id = ?').get(source.id) : undefined;
-    if (unit.kind === 'record' && recordDuplicate(db, unit.full, line)) { result.duplicates += 1; continue; }
-    if (unit.kind === 'tasks' && transitionHeld(db, unit.full, line)) { result.duplicates += 1; continue; }
-    if (found && found.origin !== 'observation' && found.retired_at === null) { result.duplicates += 1; continue; }
+    const found = source
+      ? db.prepare('SELECT owner_file, position, origin, retired_at FROM sources WHERE id = ?').get(source.id)
+      : undefined;
+    if (unit.kind === 'record' && recordDuplicate(db, unit.full, line)) {
+      result.duplicates += 1;
+      continue;
+    }
+    if (unit.kind === 'tasks' && transitionHeld(db, unit.full, line)) {
+      result.duplicates += 1;
+      continue;
+    }
+    if (found && found.origin !== 'observation' && found.retired_at === null) {
+      result.duplicates += 1;
+      continue;
+    }
     // The live observation wrote the line first: the line takes the row over, its place in the unit stays.
-    const keep = found && found.origin === 'observation' && found.owner_file === unit.full && Number.isInteger(found.position);
+    const keep =
+      found && found.origin === 'observation' && found.owner_file === unit.full && Number.isInteger(found.position);
     if (keep) source.position = found.position;
     writeMapping(db, qualify(mapping, unit), unit.full, { at, ignoreClaims: archive });
     if (found && found.origin === 'observation') result.adopted += 1;
@@ -155,7 +195,10 @@ function writeValue(db, update, at) {
   const upserted = writeMapping(db, mapping, unit.full, { at });
   const retired = retireAbsent(db, unit.full, mapping, at);
   noteUnit(db, unit.full, unit.kind, { at });
-  const destinations = unit.kind === 'diary' && filled(update.destination) ? assignDiaryDestination(db, update.destination, { owner: unit.full, at }) : 0;
+  const destinations =
+    unit.kind === 'diary' && filled(update.destination)
+      ? assignDiaryDestination(db, update.destination, { owner: unit.full, at })
+      : 0;
   return { upserted, retired, ...(unit.kind === 'diary' ? { destinations } : {}) };
 }
 
@@ -164,14 +207,22 @@ function writeDiary(db, update, at) {
   if (unit.kind !== 'diary') throw coded('UNIT_UNMAPPED');
   const rows = unitRows(db, unit.full);
   const held = rows.operational.length > 0 ? unit.mapper.fromRows(rows) : { posts: [] };
-  const posts = [...(Array.isArray(held.posts) ? held.posts : []), ...(update.post && typeof update.post === 'object' ? [update.post] : [])];
+  const posts = [
+    ...(Array.isArray(held.posts) ? held.posts : []),
+    ...(update.post && typeof update.post === 'object' ? [update.post] : []),
+  ];
   const max = Number.isInteger(update.max) && update.max > 0 ? update.max : posts.length;
-  const value = { posts: posts.slice(-max), updatedAt: Number.isFinite(update.updatedAt) ? update.updatedAt : Date.parse(at) };
+  const value = {
+    posts: posts.slice(-max),
+    updatedAt: Number.isFinite(update.updatedAt) ? update.updatedAt : Date.parse(at),
+  };
   const mapping = qualify(unit.mapper.toRows(unit.rel, value, { guildId: unit.guildId }), unit);
   const upserted = writeMapping(db, mapping, unit.full, { at });
   const retired = retireAbsent(db, unit.full, mapping, at);
   noteUnit(db, unit.full, unit.kind, { at });
-  const destinations = filled(update.destination) ? assignDiaryDestination(db, update.destination, { owner: unit.full, at }) : 0;
+  const destinations = filled(update.destination)
+    ? assignDiaryDestination(db, update.destination, { owner: unit.full, at })
+    : 0;
   return { upserted, retired, posts: value.posts.length, destinations };
 }
 
@@ -197,10 +248,19 @@ function writeVectors(db, update, at) {
   } else {
     const delta = update.delta ?? {};
     manifest = delta.manifest;
-    const stored = db.prepare("SELECT value FROM operational WHERE kind = 'vectors' AND owner = ? AND retired_at IS NULL").get(unit.full);
+    const stored = db
+      .prepare("SELECT value FROM operational WHERE kind = 'vectors' AND owner = ? AND retired_at IS NULL")
+      .get(unit.full);
     let previous = null;
-    try { previous = stored ? JSON.parse(stored.value) : null; } catch { previous = null; }
-    const keys = db.prepare('SELECT chunk_key FROM vectors WHERE owner_file = ?').all(unit.full).map((row) => row.chunk_key);
+    try {
+      previous = stored ? JSON.parse(stored.value) : null;
+    } catch {
+      previous = null;
+    }
+    const keys = db
+      .prepare('SELECT chunk_key FROM vectors WHERE owner_file = ?')
+      .all(unit.full)
+      .map((row) => row.chunk_key);
     const rows = previous ? unit.mapper.appendRows(unit.rel, delta, { previous, keys }) : null;
     if (rows) {
       for (const row of rows.vectors ?? []) row.owner_file = unit.rel;
@@ -209,16 +269,28 @@ function writeVectors(db, update, at) {
     } else {
       // A new month is the delta whole; a stored month that cannot be extended is rebuilt with the delta after its
       // counted rows (a tail past the manifest's count is dropped, as the file append cuts it).
-      let value = { manifest, meta: Buffer.isBuffer(delta.meta) ? delta.meta.toString('utf8') : String(delta.meta ?? ''), i8: Buffer.from(delta.i8 ?? []) };
+      let value = {
+        manifest,
+        meta: Buffer.isBuffer(delta.meta) ? delta.meta.toString('utf8') : String(delta.meta ?? ''),
+        i8: Buffer.from(delta.i8 ?? []),
+      };
       if (previous) {
         const held = unit.mapper.fromRows(unitRows(db, unit.full));
         const counted = Number.isInteger(previous.manifest?.bytes) ? previous.manifest.bytes : held.i8.length;
-        value = { manifest, meta: `${held.meta}${value.meta}`, i8: Buffer.concat([Buffer.from(held.i8).subarray(0, counted), value.i8]) };
+        value = {
+          manifest,
+          meta: `${held.meta}${value.meta}`,
+          i8: Buffer.concat([Buffer.from(held.i8).subarray(0, counted), value.i8]),
+        };
       }
       done = writeMonth(db, unit, value, at);
     }
   }
-  noteUnit(db, unit.full, unit.kind, { lines: Number.isInteger(manifest?.rows) ? manifest.rows : null, offset: Number.isInteger(manifest?.gen) ? manifest.gen : null, at });
+  noteUnit(db, unit.full, unit.kind, {
+    lines: Number.isInteger(manifest?.rows) ? manifest.rows : null,
+    offset: Number.isInteger(manifest?.gen) ? manifest.gen : null,
+    at,
+  });
   return done;
 }
 
@@ -226,7 +298,11 @@ function project(handle, update, at) {
   const out = { units: 0, done: true, stems: 0 };
   if (graphPending(handle)) {
     const slice = Number.isInteger(update.sliceUnits) && update.sliceUnits > 0 ? update.sliceUnits : undefined;
-    const done = projectPending(handle, { at, ...(slice ? { sliceUnits: slice } : {}), maxSlices: Number.isInteger(update.maxSlices) && update.maxSlices > 0 ? update.maxSlices : 1 });
+    const done = projectPending(handle, {
+      at,
+      ...(slice ? { sliceUnits: slice } : {}),
+      maxSlices: Number.isInteger(update.maxSlices) && update.maxSlices > 0 ? update.maxSlices : 1,
+    });
     out.units = done.units;
     out.done = done.done;
   }

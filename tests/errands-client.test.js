@@ -55,18 +55,22 @@ async function fakeRunner(sock) {
   return {
     connections,
     requests,
-    next: (match) => new Promise((resolve) => {
-      const found = requests.find(match);
-      if (found) return resolve(found);
-      waiters.push({ match, resolve });
-    }),
+    next: (match) =>
+      new Promise((resolve) => {
+        const found = requests.find(match);
+        if (found) return resolve(found);
+        waiters.push({ match, resolve });
+      }),
     reply: (obj) => connections[connections.length - 1].write(encodeLine(obj)),
-    dropAll: () => { for (const conn of connections) conn.destroy(); },
-    close: () => new Promise((resolve) => {
+    dropAll: () => {
       for (const conn of connections) conn.destroy();
-      server.close(() => resolve());
-      if (fs.existsSync(sock)) fs.unlinkSync(sock);
-    }),
+    },
+    close: () =>
+      new Promise((resolve) => {
+        for (const conn of connections) conn.destroy();
+        server.close(() => resolve());
+        if (fs.existsSync(sock)) fs.unlinkSync(sock);
+      }),
   };
 }
 
@@ -79,7 +83,13 @@ const fastTimer = (fn, ms) => setTimeout(fn, Math.min(ms, 20));
 
 test('errands client: a profile that is not enabled answers not-configured without connecting', async () => {
   let connects = 0;
-  const client = createErrandClient({ hot: hotFor('/nowhere', { enabled: false }), connect: () => { connects += 1; throw new Error('must not connect'); } });
+  const client = createErrandClient({
+    hot: hotFor('/nowhere', { enabled: false }),
+    connect: () => {
+      connects += 1;
+      throw new Error('must not connect');
+    },
+  });
   const outcome = await client.run({ agent: 'scout', id: 't1', goal: 'look' });
   assert.equal(outcome.status, 'failed');
   assert.equal(outcome.error, 'not-configured');
@@ -99,11 +109,34 @@ test('errands client: a run sends its line, progress reaches the listeners, the 
   client.onProgress((event) => progress.push(event));
   try {
     await withCapturedLogs(async () => {
-      const running = client.run({ agent: 'scout', id: 'task-1', goal: 'find a meme', context: { scope: 'group' }, limits: { steps: 3, seconds: 30 } });
+      const running = client.run({
+        agent: 'scout',
+        id: 'task-1',
+        goal: 'find a meme',
+        context: { scope: 'group' },
+        limits: { steps: 3, seconds: 30 },
+      });
       const request = await runner.next((r) => r.op === 'run');
-      assert.deepEqual(request, { op: 'run', id: 'task-1', goal: 'find a meme', context: { scope: 'group' }, limits: { steps: 3, seconds: 30 }, model: ROLE_DEFAULTS.scout });
+      assert.deepEqual(request, {
+        op: 'run',
+        id: 'task-1',
+        goal: 'find a meme',
+        context: { scope: 'group' },
+        limits: { steps: 3, seconds: 30 },
+        model: ROLE_DEFAULTS.scout,
+      });
       runner.reply({ id: 'task-1', event: 'progress', step: 1, tool: 'search', note: 'looking' });
-      runner.reply({ id: 'task-1', event: 'end', status: 'done', result: { text: 'found', sources: ['https://example.org/a'], files: [{ path: '/out/task-1/a.png', name: 'a.png', contentType: 'image/png', bytes: 10 }] }, usage: { steps: 2, usd: 0.01 } });
+      runner.reply({
+        id: 'task-1',
+        event: 'end',
+        status: 'done',
+        result: {
+          text: 'found',
+          sources: ['https://example.org/a'],
+          files: [{ path: '/out/task-1/a.png', name: 'a.png', contentType: 'image/png', bytes: 10 }],
+        },
+        usage: { steps: 2, usd: 0.01 },
+      });
       const outcome = await running;
       assert.equal(outcome.status, 'done');
       assert.equal(outcome.result.text, 'found');
@@ -119,7 +152,7 @@ test('errands client: a run sends its line, progress reaches the listeners, the 
   }
 });
 
-test('errands client: a run\'s secrets go out on its line and into no log line', async () => {
+test("errands client: a run's secrets go out on its line and into no log line", async () => {
   const sock = socketPath();
   const runner = await fakeRunner(sock);
   const client = createErrandClient({ hot: hotFor(sock) });
@@ -132,7 +165,10 @@ test('errands client: a run\'s secrets go out on its line and into no log line',
       runner.reply({ id: 'task-s', event: 'end', status: 'done', result: { text: 'ok' }, usage: {} });
       await running;
     });
-    assert.ok(logs.some((entry) => entry.msg === 'errands: sent'), 'the run was logged');
+    assert.ok(
+      logs.some((entry) => entry.msg === 'errands: sent'),
+      'the run was logged'
+    );
     assert.ok(!JSON.stringify(logs).includes('SECRET'));
   } finally {
     client.close();
@@ -140,7 +176,7 @@ test('errands client: a run\'s secrets go out on its line and into no log line',
   }
 });
 
-test('errands client: the preamble goes out on a run\'s line only when non-empty, read at each run, and into no log line', async () => {
+test("errands client: the preamble goes out on a run's line only when non-empty, read at each run, and into no log line", async () => {
   const sock = socketPath();
   const runner = await fakeRunner(sock);
   const hot = hotFor(sock);
@@ -160,9 +196,17 @@ test('errands client: the preamble goes out on a run\'s line only when non-empty
       hot.prompts = { preambles: { all: '  SHARED-PREAMBLE for every agent.\n' } };
       assert.equal((await runOnce('task-with')).preamble, 'SHARED-PREAMBLE for every agent.');
       hot.prompts = { agents: 'SHARED-PREAMBLE in the old agents.md' };
-      assert.equal(Object.hasOwn(await runOnce('task-agents-md'), 'preamble'), false, 'prompts.local/agents.md is not a preamble');
+      assert.equal(
+        Object.hasOwn(await runOnce('task-agents-md'), 'preamble'),
+        false,
+        'prompts.local/agents.md is not a preamble'
+      );
       hot.prompts = {};
-      assert.equal(Object.hasOwn(await runOnce('task-gone'), 'preamble'), false, 'the file removed: none sent from the next run');
+      assert.equal(
+        Object.hasOwn(await runOnce('task-gone'), 'preamble'),
+        false,
+        'the file removed: none sent from the next run'
+      );
     });
     const sent = logs.filter((entry) => entry.msg === 'errands: sent');
     assert.equal(sent.length, 5);
@@ -198,14 +242,22 @@ test('errands client: the preamble is composed from prompts.local/preambles/ by 
     const { logs } = await withCapturedLogs(async () => {
       const onRole = await runOnce('task-role');
       assert.equal(onRole.preamble, 'ALL-TEXT\n\nSCOUT-TEXT\n\nKIMI-TEXT', 'the role model picks the model file');
-      assert.equal(onRole.model, 'openrouter/moonshotai/kimi-k3', 'the live role model is sent: the runner cannot read the private config');
+      assert.equal(
+        onRole.model,
+        'openrouter/moonshotai/kimi-k3',
+        'the live role model is sent: the runner cannot read the private config'
+      );
       assert.equal(Object.hasOwn(onRole, 'cost'), false, 'no cost is sent when the live config has none');
 
       hot.config.models = { errands: { scout: 'openrouter/openai/gpt-6-sol' } };
       hot.config.agents.scout.cost = { input: 2, output: 6 };
       hot.prompts = { ...hot.prompts, preambles: { ...hot.prompts.preambles, all: '' } };
       const live = await runOnce('task-live');
-      assert.equal(live.preamble, 'SCOUT-TEXT\n\nSCOUT-SOL-TEXT', 'role and files read at each run; an emptied all.md sends nothing');
+      assert.equal(
+        live.preamble,
+        'SCOUT-TEXT\n\nSCOUT-SOL-TEXT',
+        'role and files read at each run; an emptied all.md sends nothing'
+      );
       assert.equal(live.model, 'openrouter/openai/gpt-6-sol', 'the role model is read at each run');
       assert.deepEqual(live.cost, { input: 2, output: 6 }, 'the live price is sent');
 
@@ -215,13 +267,23 @@ test('errands client: the preamble is composed from prompts.local/preambles/ by 
       assert.equal(unusable.model, 'openrouter/openai/gpt-6-sol');
     });
     const sent = logs.filter((entry) => entry.msg === 'errands: sent');
-    assert.deepEqual(sent.map((entry) => entry.preambleFiles), [
-      ['preambles/all.md', 'preambles/scout.md', 'preambles/@moonshotai-kimi-k3.md'],
-      ['preambles/scout.md', 'preambles/scout@openrouter-openai-gpt-6-sol.md'],
-      ['preambles/scout.md', 'preambles/scout@openrouter-openai-gpt-6-sol.md'],
-    ]);
-    assert.deepEqual(sent.map((entry) => entry.model), ['openrouter/moonshotai/kimi-k3', 'openrouter/openai/gpt-6-sol', 'openrouter/openai/gpt-6-sol'], 'the model id is logged');
-    assert.ok(sent.every((entry) => !Object.hasOwn(entry, 'cost')), 'the cost is not logged');
+    assert.deepEqual(
+      sent.map((entry) => entry.preambleFiles),
+      [
+        ['preambles/all.md', 'preambles/scout.md', 'preambles/@moonshotai-kimi-k3.md'],
+        ['preambles/scout.md', 'preambles/scout@openrouter-openai-gpt-6-sol.md'],
+        ['preambles/scout.md', 'preambles/scout@openrouter-openai-gpt-6-sol.md'],
+      ]
+    );
+    assert.deepEqual(
+      sent.map((entry) => entry.model),
+      ['openrouter/moonshotai/kimi-k3', 'openrouter/openai/gpt-6-sol', 'openrouter/openai/gpt-6-sol'],
+      'the model id is logged'
+    );
+    assert.ok(
+      sent.every((entry) => !Object.hasOwn(entry, 'cost')),
+      'the cost is not logged'
+    );
     assert.equal(sent[0].preambleChars, 'ALL-TEXT\n\nSCOUT-TEXT\n\nKIMI-TEXT'.length);
     assert.ok(!/-TEXT/.test(JSON.stringify(logs)), 'no preamble text in a log line');
   } finally {

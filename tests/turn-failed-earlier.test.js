@@ -22,11 +22,33 @@ const HOUR = 60 * MINUTE;
 const clock = { t: NOW };
 
 function rawMessage({ id, authorId = 'u1', authorName = 'Zoë', ts = NOW - 10 * MINUTE, content = 'καλημέρα' }) {
-  return { id, channelId: '77', author: { id: authorId, bot: false, globalName: authorName, username: authorName }, member: { displayName: authorName }, cleanContent: content, createdTimestamp: ts, reference: null, attachments: new Map(), stickers: new Map() };
+  return {
+    id,
+    channelId: '77',
+    author: { id: authorId, bot: false, globalName: authorName, username: authorName },
+    member: { displayName: authorName },
+    cleanContent: content,
+    createdTimestamp: ts,
+    reference: null,
+    attachments: new Map(),
+    stickers: new Map(),
+  };
 }
 
 function triggerOf(raw) {
-  return { id: raw.id, channelId: raw.channelId, authorId: raw.author.id, authorName: raw.author.globalName, self: false, bot: false, content: raw.cleanContent, ts: raw.createdTimestamp, replyToId: null, attachments: [], stickers: [] };
+  return {
+    id: raw.id,
+    channelId: raw.channelId,
+    authorId: raw.author.id,
+    authorName: raw.author.globalName,
+    self: false,
+    bot: false,
+    content: raw.cleanContent,
+    ts: raw.createdTimestamp,
+    replyToId: null,
+    attachments: [],
+    stickers: [],
+  };
 }
 
 function fakeChannel(historyMessages) {
@@ -39,25 +61,63 @@ function fakeChannel(historyMessages) {
     send: async () => ({ id: 'sent' }),
     messages: {
       cache: new Map(),
-      fetch: async (arg) => (arg && typeof arg === 'object' && 'limit' in arg ? new Map(historyMessages.map((m) => [m.id, m])) : (historyMessages.find((m) => m.id === arg) ?? null)),
+      fetch: async (arg) =>
+        arg && typeof arg === 'object' && 'limit' in arg
+          ? new Map(historyMessages.map((m) => [m.id, m]))
+          : (historyMessages.find((m) => m.id === arg) ?? null),
     },
   };
 }
 
-const store = { getGuild: () => ({}), getUser: () => null, listChannels: () => [], listUserProfiles: () => [], getLore: () => [], state: { data: {}, markDirty() {} } };
+const store = {
+  getGuild: () => ({}),
+  getUser: () => null,
+  listChannels: () => [],
+  listUserProfiles: () => [],
+  getLore: () => [],
+  state: { data: {}, markDirty() {} },
+};
 
 function hotWith(context = {}) {
   return {
     config: {
       bot: { timezone: 'UTC', dryRunChannelId: '' },
-      context: { channelMessages: 100, neighborMessages: 5, neighborMaxAgeMinutes: 60, neighborMaxChannels: 8, maxMessageChars: 800, gapMarkerMinutes: 20, otherProfiles: 6, failedTurnsKept: 3, caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 }, vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0, maxBytes: 1_500_000, fetchTimeoutMs: 10_000 }, ...context },
+      context: {
+        channelMessages: 100,
+        neighborMessages: 5,
+        neighborMaxAgeMinutes: 60,
+        neighborMaxChannels: 8,
+        maxMessageChars: 800,
+        gapMarkerMinutes: 20,
+        otherProfiles: 6,
+        failedTurnsKept: 3,
+        caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 },
+        vision: {
+          maxImages: 2,
+          tokensPerImage: 400,
+          imageSize: 512,
+          recentImages: 0,
+          recentImageMinutes: 0,
+          maxBytes: 1_500_000,
+          fetchTimeoutMs: 10_000,
+        },
+        ...context,
+      },
       llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 100, betweenMessagesMs: [0, 0] },
       features: { typingSimulation: false },
       media: { maxPerTurn: 6, filePreviewChars: 500 },
       mention: { oneAtATime: true },
     },
-    prompts: { 'system-prompt': 'You are a regular member of this chat.', 'character-card': 'You are friendly and terse.', format: 'Use <msg> tags.', reply: 'Someone called you: {{author}}.', interject: 'Jump in.', initiate: 'Start a topic.', labels },
+    prompts: {
+      'system-prompt': 'You are a regular member of this chat.',
+      'character-card': 'You are friendly and terse.',
+      format: 'Use <msg> tags.',
+      reply: 'Someone called you: {{author}}.',
+      interject: 'Jump in.',
+      initiate: 'Start a topic.',
+      labels,
+    },
   };
 }
 
@@ -73,9 +133,22 @@ function setup({ history, context } = {}) {
       return { text: '<skip/>', usage: {}, estimated: 10 };
     },
   };
-  const turns = createTurnRunner({ discord: DISCORD, hot: hotWith(context), store, llm, calibrator: { ratio: 1, apply: (n) => n, observe: () => {} }, client: { user: { id: 'self-id', username: 'Bot' } }, port: createFakeAdapter({ iface: 'fake', selfId: 'self-id' }), now: () => clock.t });
-  const run = (raw, triggerKind = 'mention') => withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: triggerOf(raw), triggerKind }));
-  const taskOf = (call = calls.length - 1) => userText(calls[call][1].content).split('\n').filter((line) => line.startsWith('unanswered:'));
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    hot: hotWith(context),
+    store,
+    llm,
+    calibrator: { ratio: 1, apply: (n) => n, observe: () => {} },
+    client: { user: { id: 'self-id', username: 'Bot' } },
+    port: createFakeAdapter({ iface: 'fake', selfId: 'self-id' }),
+    now: () => clock.t,
+  });
+  const run = (raw, triggerKind = 'mention') =>
+    withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: triggerOf(raw), triggerKind }));
+  const taskOf = (call = calls.length - 1) =>
+    userText(calls[call][1].content)
+      .split('\n')
+      .filter((line) => line.startsWith('unanswered:'));
   return { run, fail, calls, taskOf, turns };
 }
 
@@ -123,7 +196,10 @@ test('at most context.failedTurnsKept entries per channel, the newest; none olde
   fail.on = false;
   clock.t += MINUTE;
   await run(rawMessage({ id: '105' }));
-  assert.deepEqual(taskOf(4).map((line) => line.split(' ')[2]), ['#2', '#3', '#4']);
+  assert.deepEqual(
+    taskOf(4).map((line) => line.split(' ')[2]),
+    ['#2', '#3', '#4']
+  );
 
   const aged = setup({ history: messages });
   await aged.run(messages[0]);
@@ -165,15 +241,33 @@ test('a turn stopped by a rail is kept like an error: told at the next request t
   assert.match(taskOf(1)[0], /^unanswered: Zoë #1 2 min ago \(\S+\)$/);
 });
 
-test('facts kept for the channel (a drop, a hold) reach an addressed request there in a block before the task, once; a private chat\'s and another channel\'s do not', async () => {
+test("facts kept for the channel (a drop, a hold) reach an addressed request there in a block before the task, once; a private chat's and another channel's do not", async () => {
   const first = rawMessage({ id: '101' });
   const { run, fail, calls, turns } = setup({ history: [first] });
   fail.on = false;
   const source = createLocalFacts({ now: () => clock.t });
   turns.setFactsSource(source);
-  const dropped = { kind: 'wakeDropped', wakeId: 'w1', wake: 'intention_due', code: 'stale', why: 'done', intentionId: 'i1', purpose: 'say hi' };
+  const dropped = {
+    kind: 'wakeDropped',
+    wakeId: 'w1',
+    wake: 'intention_due',
+    code: 'stale',
+    why: 'done',
+    intentionId: 'i1',
+    purpose: 'say hi',
+  };
   source.add('55', { ...dropped, channelId: '77', privateChat: false });
-  source.add('55', { kind: 'wakeHeld', wakeId: 'w2', wake: 'intention_due', code: 'per-chain', intentionId: 'i2', purpose: 'later', until: NOW + 6 * HOUR, channelId: null, privateChat: false });
+  source.add('55', {
+    kind: 'wakeHeld',
+    wakeId: 'w2',
+    wake: 'intention_due',
+    code: 'per-chain',
+    intentionId: 'i2',
+    purpose: 'later',
+    until: NOW + 6 * HOUR,
+    channelId: null,
+    privateChat: false,
+  });
   source.add('55', { ...dropped, intentionId: 'i3', purpose: 'in a private chat', channelId: '88', privateChat: true });
   source.add('55', { ...dropped, intentionId: 'i4', purpose: 'elsewhere', channelId: '99', privateChat: false });
   await run(first);
@@ -181,9 +275,16 @@ test('facts kept for the channel (a drop, a hold) reach an addressed request the
   const block = /<wake>\n([\s\S]*?)\n<\/wake>/.exec(text)?.[1] ?? '';
   const lines = block.split('\n');
   assert.equal(lines[0], labels.wake.feedbackInTurn);
-  assert.deepEqual(lines.slice(1), ['* wake intention_due i1 say hi stale is done', `* held intention_due i2 later per-chain until ${formatDate(NOW + 6 * HOUR, 'UTC', 'en-US')} ${formatClock(NOW + 6 * HOUR, 'UTC', 'en-US')}`]);
+  assert.deepEqual(lines.slice(1), [
+    '* wake intention_due i1 say hi stale is done',
+    `* held intention_due i2 later per-chain until ${formatDate(NOW + 6 * HOUR, 'UTC', 'en-US')} ${formatClock(NOW + 6 * HOUR, 'UTC', 'en-US')}`,
+  ]);
   assert.ok(text.indexOf('<wake>') < text.indexOf('<task>'));
-  assert.equal(source.pending(null, { channelId: '88', privateChat: true }).length, 1, 'the private chat\'s fact is still waiting for that chat');
+  assert.equal(
+    source.pending(null, { channelId: '88', privateChat: true }).length,
+    1,
+    "the private chat's fact is still waiting for that chat"
+  );
   assert.equal(source.pending(null, { channelId: '99', privateChat: false }).length, 1);
   // Told once a completed answer carried them.
   await run(first);
@@ -194,7 +295,11 @@ test('facts kept for the channel (a drop, a hold) reach an addressed request the
 test('sendHash and settleUnknownSends: the hash covers the start of the text with whitespace folded; only a later line of hers with that hash settles the fact', () => {
   assert.equal(sendHash('a  b\n c'), sendHash(' a b c '));
   assert.notEqual(sendHash('a b c'), sendHash('a b d'));
-  assert.equal(sendHash(`${'x'.repeat(80)}tail`), sendHash(`${'x'.repeat(80)}other`), 'a trailing link or a cut changes nothing');
+  assert.equal(
+    sendHash(`${'x'.repeat(80)}tail`),
+    sendHash(`${'x'.repeat(80)}other`),
+    'a trailing link or a cut changes nothing'
+  );
   const fact = { id: 'f1', kind: 'sendFailed', unknown: true, hash: sendHash('ένα'), at: NOW };
   const known = { id: 'f2', kind: 'sendFailed', code: 'http-403', at: NOW };
   const line = (over) => ({ self: true, content: 'ένα', ts: NOW + 1000, ...over });
@@ -202,15 +307,34 @@ test('sendHash and settleUnknownSends: the hash covers the start of the text wit
   assert.deepEqual(settleUnknownSends([fact], [line({ self: false })]).kept, [fact], 'not hers');
   assert.deepEqual(settleUnknownSends([fact], [line({ content: 'δύο' })]).kept, [fact], 'another text');
   assert.deepEqual(settleUnknownSends([fact], [line({ ts: NOW - 5 * MINUTE })]).kept, [fact], 'older than the send');
-  assert.deepEqual(settleUnknownSends([known], []), { kept: [known], dropped: [] }, 'a send that failed for sure is never looked for');
+  assert.deepEqual(
+    settleUnknownSends([known], []),
+    { kept: [known], dropped: [] },
+    'a send that failed for sure is never looked for'
+  );
 });
 
 test('a send whose answer never came: her next addressed turn looks for it among her own lines; found, nothing is told; not found, it is told as unclear', async () => {
   const sentText = 'ένα μήνυμα που ίσως έφτασε';
-  const unknownSend = { kind: 'sendFailed', code: 'error', n: 0, total: 1, unknown: true, hash: sendHash(sentText), channelId: '77', privateChat: false, at: NOW - 2 * MINUTE };
+  const unknownSend = {
+    kind: 'sendFailed',
+    code: 'error',
+    n: 0,
+    total: 1,
+    unknown: true,
+    hash: sendHash(sentText),
+    channelId: '77',
+    privateChat: false,
+    at: NOW - 2 * MINUTE,
+  };
   const first = rawMessage({ id: '101' });
 
-  const found = setup({ history: [rawMessage({ id: '100', authorId: 'self-id', authorName: 'Bot', ts: NOW - MINUTE, content: sentText }), first] });
+  const found = setup({
+    history: [
+      rawMessage({ id: '100', authorId: 'self-id', authorName: 'Bot', ts: NOW - MINUTE, content: sentText }),
+      first,
+    ],
+  });
   found.fail.on = false;
   const foundSource = createLocalFacts({ now: () => clock.t });
   found.turns.setFactsSource(foundSource);
@@ -226,5 +350,7 @@ test('a send whose answer never came: her next addressed turn looks for it among
   missingSource.add('55', unknownSend);
   await missing.run(first);
   const block = /<wake>\n([\s\S]*?)\n<\/wake>/.exec(userText(missing.calls[0][1].content))?.[1] ?? '';
-  assert.deepEqual(block.split('\n').slice(1), [`* ${fill(labels.wake.feedback.sendUnknown, { code: 'error', n: '0', total: '1' })}`]);
+  assert.deepEqual(block.split('\n').slice(1), [
+    `* ${fill(labels.wake.feedback.sendUnknown, { code: 'error', n: '0', total: '1' })}`,
+  ]);
 });

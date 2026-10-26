@@ -4,7 +4,13 @@
 // their budget, and the plan request. Fake prompts/config/labels only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildDiaryPlanRequest, buildDrawPrompt, buildRequest, userText as textOf, worldText } from '../src/behavior/prompt.js';
+import {
+  buildDiaryPlanRequest,
+  buildDrawPrompt,
+  buildRequest,
+  userText as textOf,
+  worldText,
+} from '../src/behavior/prompt.js';
 import { fill } from '../src/format.js';
 import { labels } from './fixtures/labels.js';
 
@@ -43,7 +49,15 @@ function fakeConfig(overrides = {}) {
       tempo: { liveMessages10min: 4, deadSilenceMinutes: 45 },
       ...overrides.context,
     },
-    features: { vision: true, relationships: true, episodes: true, lore: true, recent: true, imageGeneration: true, ...overrides.features },
+    features: {
+      vision: true,
+      relationships: true,
+      episodes: true,
+      lore: true,
+      recent: true,
+      imageGeneration: true,
+      ...overrides.features,
+    },
     llm: { maxRequestTokens: 50000, safetyMargin: 0.9, ...overrides.llm },
     lore: { scanMessages: 30, maxMatches: 8 },
     memory: { recentHours: 72 },
@@ -92,13 +106,17 @@ const post = (at, kind, gist, picture = null) => ({ at, kind, gist, picture, mes
 
 test('buildRequest: the world block appears in diary mode with diary.world on only', () => {
   const on = fakeConfig({ diary: { world: true } });
-  const diaryOn = userText(buildRequest(baseInput({ mode: 'diary', config: on, diary: { posts: [], plan: null, found: null } })));
+  const diaryOn = userText(
+    buildRequest(baseInput({ mode: 'diary', config: on, diary: { posts: [], plan: null, found: null } }))
+  );
   assert.ok(diaryOn.includes('<world>\nA world of Nept.\n</world>'), diaryOn);
 
   const reply = userText(buildRequest(baseInput({ mode: 'reply', config: on })));
   assert.ok(!reply.includes('<world>'), 'never in an ordinary turn');
 
-  const off = userText(buildRequest(baseInput({ mode: 'diary', config: fakeConfig({ diary: { world: false } }), diary: {} })));
+  const off = userText(
+    buildRequest(baseInput({ mode: 'diary', config: fakeConfig({ diary: { world: false } }), diary: {} }))
+  );
   assert.ok(!off.includes('<world>'), 'diary.world false');
 
   const missing = fakeConfig();
@@ -106,14 +124,18 @@ test('buildRequest: the world block appears in diary mode with diary.world on on
   const unset = userText(buildRequest(baseInput({ mode: 'diary', config: missing, diary: {} })));
   assert.ok(!unset.includes('<world>'), 'a missing diary.world counts as off');
 
-  const truthy = userText(buildRequest(baseInput({ mode: 'diary', config: fakeConfig({ diary: { world: 'yes' } }), diary: {} })));
+  const truthy = userText(
+    buildRequest(baseInput({ mode: 'diary', config: fakeConfig({ diary: { world: 'yes' } }), diary: {} }))
+  );
   assert.ok(!truthy.includes('<world>'), 'read as === true');
 });
 
 test('buildRequest: no world block without the file', () => {
   const config = fakeConfig({ diary: { world: true } });
   for (const world of [undefined, '', '   \n']) {
-    const text = userText(buildRequest(baseInput({ mode: 'diary', config, prompts: fakePrompts({ world }), diary: {} })));
+    const text = userText(
+      buildRequest(baseInput({ mode: 'diary', config, prompts: fakePrompts({ world }), diary: {} }))
+    );
     assert.ok(!text.includes('<world>'), JSON.stringify(world));
   }
   assert.equal(worldText(config, fakePrompts({ world: undefined }), 'Nept'), '');
@@ -121,7 +143,13 @@ test('buildRequest: no world block without the file', () => {
 
 test('buildDrawPrompt: fills {{when}} when given and leaves no hole when empty', () => {
   const prompts = fakePrompts({ draw: 'Draw for {{name}}.\n\n{{when}}\n\n{{request}}' });
-  const timed = buildDrawPrompt({ prompts, selfName: 'Nept', request: 'a quay at dusk', self: false, when: 'Tue 10 Mar, 21:40' });
+  const timed = buildDrawPrompt({
+    prompts,
+    selfName: 'Nept',
+    request: 'a quay at dusk',
+    self: false,
+    when: 'Tue 10 Mar, 21:40',
+  });
   assert.equal(timed, `Draw for Nept.\n\n${fill(labels.draw.when, { when: 'Tue 10 Mar, 21:40' })}\n\na quay at dusk`);
 
   const untimed = buildDrawPrompt({ prompts, selfName: 'Nept', request: 'a quay at dusk', self: false });
@@ -142,17 +170,32 @@ test('renderSenses: does not name the diary channel when unset', () => {
 });
 
 test('buildRequest: diary mode renders diary, plan and found blocks before the chat and uses prompts.diary as the task', () => {
-  const posts = [post(NOW - 2 * DAY, 'status', 'café au lait again'), post(NOW - DAY, null, 'un phare la nuit', 'a lighthouse at night')];
+  const posts = [
+    post(NOW - 2 * DAY, 'status', 'café au lait again'),
+    post(NOW - DAY, null, 'un phare la nuit', 'a lighthouse at night'),
+  ];
   const plan = { kind: 'selfPicture', brief: 'a rooftop at dawn', picture: true };
   const text = userText(
-    buildRequest(baseInput({ mode: 'diary', diary: { posts, plan, found: 'Une comète passe ce soir.' }, config: fakeConfig({ diary: { world: true } }) })),
+    buildRequest(
+      baseInput({
+        mode: 'diary',
+        diary: { posts, plan, found: 'Une comète passe ce soir.' },
+        config: fakeConfig({ diary: { world: true } }),
+      })
+    )
   );
   const at = (tag) => text.indexOf(`<${tag}>`);
   for (const tag of ['world', 'diary', 'plan', 'found', 'chat', 'task']) assert.ok(at(tag) >= 0, `${tag} present`);
-  assert.ok(at('world') < at('diary') && at('diary') < at('plan') && at('plan') < at('found') && at('found') < at('chat'));
+  assert.ok(
+    at('world') < at('diary') && at('diary') < at('plan') && at('plan') < at('found') && at('found') < at('chat')
+  );
   assert.ok(text.includes(`<diary>\n${labels.diary.intro}\n`));
   assert.ok(text.includes(fill(labels.diary.line, { date: '2026-09-18', kind: 'status', gist: 'café au lait again' })));
-  assert.ok(text.includes(fill(labels.diary.line, { date: '2026-09-19', kind: labels.diary.kindUnknown, gist: 'un phare la nuit' })));
+  assert.ok(
+    text.includes(
+      fill(labels.diary.line, { date: '2026-09-19', kind: labels.diary.kindUnknown, gist: 'un phare la nuit' })
+    )
+  );
   assert.ok(text.includes(`<plan>\n${labels.diary.plan}\n${JSON.stringify(plan)}\n</plan>`));
   assert.ok(text.includes(`<found>\n${labels.diary.found}\nUne comète passe ce soir.\n</found>`));
   assert.ok(text.includes('<task>\nDIARY_TASK for Nept\n</task>'));
@@ -163,46 +206,82 @@ test('buildRequest: a diary post with seeds renders them right after the plan, n
   const seeds = `${labels.diary.seeds}
 - a pier; fog
 - a market; rain`;
-  const posts = Array.from({ length: 40 }, (_, i) => post(NOW - (40 - i) * DAY, 'thought', `σκέψη ${i} ${'λόγος '.repeat(30)}`));
+  const posts = Array.from({ length: 40 }, (_, i) =>
+    post(NOW - (40 - i) * DAY, 'thought', `σκέψη ${i} ${'λόγος '.repeat(30)}`)
+  );
   const full = buildRequest(baseInput({ mode: 'diary', diary: { posts, plan, found: null, seeds } }));
   const text = userText(full);
-  assert.ok(text.includes(`<plan>
+  assert.ok(
+    text.includes(`<plan>
 ${labels.diary.plan}
 ${JSON.stringify(plan)}
 </plan>
 
 <seeds>
 ${seeds}
-</seeds>`));
+</seeds>`)
+  );
   const base = full.stats.used - full.stats.diary.used;
   const tight = buildRequest(
-    baseInput({ mode: 'diary', diary: { posts, plan, found: null, seeds }, config: fakeConfig({ llm: { maxRequestTokens: Math.ceil((base + 60) / 0.9) } }) }),
+    baseInput({
+      mode: 'diary',
+      diary: { posts, plan, found: null, seeds },
+      config: fakeConfig({ llm: { maxRequestTokens: Math.ceil((base + 60) / 0.9) } }),
+    })
   );
   assert.ok(tight.stats.diary.dropped > 0, 'the history is cut');
-  assert.ok(userText(tight).includes(`<seeds>
+  assert.ok(
+    userText(tight).includes(`<seeds>
 ${seeds}
-</seeds>`), 'the seeds are not');
-  assert.ok(!userText(buildRequest(baseInput({ mode: 'diary', diary: { posts, plan, found: null } }))).includes('<seeds>'));
-  assert.ok(!userText(buildRequest(baseInput({ mode: 'reply', diary: { posts, plan, found: null, seeds } }))).includes('<seeds>'));
+</seeds>`),
+    'the seeds are not'
+  );
+  assert.ok(
+    !userText(buildRequest(baseInput({ mode: 'diary', diary: { posts, plan, found: null } }))).includes('<seeds>')
+  );
+  assert.ok(
+    !userText(buildRequest(baseInput({ mode: 'reply', diary: { posts, plan, found: null, seeds } }))).includes(
+      '<seeds>'
+    )
+  );
 });
 
 test('buildRequest: no diary blocks outside diary mode, none without posts or a find', () => {
-  const diary = { posts: [post(NOW - DAY, 'status', 'bonjour')], plan: { kind: 'status', brief: 'x', picture: false }, found: 'y' };
+  const diary = {
+    posts: [post(NOW - DAY, 'status', 'bonjour')],
+    plan: { kind: 'status', brief: 'x', picture: false },
+    found: 'y',
+  };
   const reply = userText(buildRequest(baseInput({ mode: 'reply', diary })));
   for (const tag of ['diary', 'plan', 'found']) assert.ok(!reply.includes(`<${tag}>`), tag);
 
-  const bare = userText(buildRequest(baseInput({ mode: 'diary', diary: { posts: [], plan: { kind: 'status', brief: 'x', picture: false }, found: null } })));
+  const bare = userText(
+    buildRequest(
+      baseInput({
+        mode: 'diary',
+        diary: { posts: [], plan: { kind: 'status', brief: 'x', picture: false }, found: null },
+      })
+    )
+  );
   assert.ok(!bare.includes('<diary>') && !bare.includes('<found>'));
   assert.ok(bare.includes('<plan>'));
 });
 
 test('buildRequest: diary block loses its oldest lines first under budget', () => {
-  const posts = Array.from({ length: 60 }, (_, i) => post(NOW - (60 - i) * DAY, 'thought', `pensée numéro ${i} ${'λόγος '.repeat(30)}`));
+  const posts = Array.from({ length: 60 }, (_, i) =>
+    post(NOW - (60 - i) * DAY, 'thought', `pensée numéro ${i} ${'λόγος '.repeat(30)}`)
+  );
   const full = buildRequest(baseInput({ mode: 'diary', diary: { posts, plan: null, found: null } }));
   const base = full.stats.used - full.stats.diary.used;
   // Room for about a third of the history.
   const limitTokens = Math.ceil((base + full.stats.diary.used / 3 + 60) / 0.9);
-  const tight = buildRequest(baseInput({ mode: 'diary', diary: { posts, plan: null, found: null }, config: fakeConfig({ llm: { maxRequestTokens: limitTokens } }) }));
+  const tight = buildRequest(
+    baseInput({
+      mode: 'diary',
+      diary: { posts, plan: null, found: null },
+      config: fakeConfig({ llm: { maxRequestTokens: limitTokens } }),
+    })
+  );
   const text = userText(tight);
   assert.ok(tight.stats.diary.dropped > 0 && tight.stats.diary.kept > 0, JSON.stringify(tight.stats.diary));
   assert.ok(text.includes('pensée numéro 59 '), 'the newest post stays');
@@ -212,7 +291,9 @@ test('buildRequest: diary block loses its oldest lines first under budget', () =
 
 test('buildDiaryPlanRequest: the plan prompt as system, the blocks in order, kinds and seeds whole', () => {
   const config = fakeConfig({ diary: { world: true } });
-  const channels = [{ id: 'd1', name: 'journal', purpose: 'the persona posts here', topics: '', tone: '', days: {}, topWriters: [] }];
+  const channels = [
+    { id: 'd1', name: 'journal', purpose: 'the persona posts here', topics: '', tone: '', days: {}, topWriters: [] },
+  ];
   const request = buildDiaryPlanRequest({
     config,
     prompts: fakePrompts(),
@@ -237,9 +318,16 @@ test('buildDiaryPlanRequest: the plan prompt as system, the blocks in order, kin
   const order = ['now', 'server', 'about_chat', 'world', 'diary', 'kinds', 'seeds'];
   const positions = order.map((tag) => text.indexOf(`<${tag}>`));
   for (const [i, tag] of order.entries()) assert.ok(positions[i] >= 0, `${tag} present`);
-  assert.deepEqual([...positions].sort((a, b) => a - b), positions, 'in the planned order');
+  assert.deepEqual(
+    [...positions].sort((a, b) => a - b),
+    positions,
+    'in the planned order'
+  );
   assert.ok(text.includes(fill(labels.diary.kindLine, { key: 'status', weight: 3, count: 1, window: 1 })));
-  assert.ok(!text.includes(fill(labels.diary.kindLine, { key: 'picture', weight: 0, count: 0, window: 1 })), 'a weight 0 kind is not offered');
+  assert.ok(
+    !text.includes(fill(labels.diary.kindLine, { key: 'picture', weight: 0, count: 0, window: 1 })),
+    'a weight 0 kind is not offered'
+  );
   assert.ok(text.includes('<seeds>\n' + labels.diary.seeds + '\n- a pier; fog\n</seeds>'));
   assert.ok(!text.includes('<chat>') && !text.includes('<task>'));
 });

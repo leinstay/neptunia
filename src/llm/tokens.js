@@ -38,7 +38,9 @@ export function estimateMessages(messages, tokensPerImage) {
   for (const message of messages) {
     total += MESSAGE_OVERHEAD;
     if (Array.isArray(message.tool_calls)) {
-      for (const call of message.tool_calls) total += estimateTokens(call?.function?.name) + estimateTokens(call?.function?.arguments) + estimateTokens(call?.id);
+      for (const call of message.tool_calls)
+        total +=
+          estimateTokens(call?.function?.name) + estimateTokens(call?.function?.arguments) + estimateTokens(call?.id);
     }
     if (typeof message.content === 'string') {
       total += estimateTokens(message.content);
@@ -72,7 +74,11 @@ export function estimateTools(tools) {
     if (ch.codePointAt(0) < 128) ascii += 1;
     else other += 1;
   }
-  return Math.ceil(ascii / TOOLS_ASCII_CHARS_PER_TOKEN + other / OTHER_CHARS_PER_TOKEN) + tools.length * MESSAGE_OVERHEAD + TOOLS_PREAMBLE;
+  return (
+    Math.ceil(ascii / TOOLS_ASCII_CHARS_PER_TOKEN + other / OTHER_CHARS_PER_TOKEN) +
+    tools.length * MESSAGE_OVERHEAD +
+    TOOLS_PREAMBLE
+  );
 }
 
 const RATIO_MIN = 0.6;

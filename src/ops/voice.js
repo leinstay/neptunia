@@ -11,7 +11,12 @@ import { CODE } from '../skills/codes.js';
 import { log } from '../log.js';
 
 /** The stage of a SpeechError, as the result words it. */
-const STAGE_NAMES = Object.freeze({ cap: 'limit', prepare: 'pronunciation pass', synth: 'synthesis', convert: 'conversion' });
+const STAGE_NAMES = Object.freeze({
+  cap: 'limit',
+  prepare: 'pronunciation pass',
+  synth: 'synthesis',
+  convert: 'conversion',
+});
 
 const handlers = perEnv((env) => {
   const { hot, client, discord, speech, port, assertNotPaused, resolvedGuildId } = env;
@@ -31,14 +36,26 @@ const handlers = perEnv((env) => {
     assertNotPaused();
     const text = String(args?.text ?? '').trim();
     if (!text) throw invalid('text is required');
-    const maxChars = Number.isFinite(hot.config.speech?.maxChars) && hot.config.speech.maxChars > 0 ? hot.config.speech.maxChars : 1500;
-    if (Array.from(text).length > maxChars) throw invalid(`text is too long for a voice message (${maxChars} characters at most)`);
+    const maxChars =
+      Number.isFinite(hot.config.speech?.maxChars) && hot.config.speech.maxChars > 0
+        ? hot.config.speech.maxChars
+        : 1500;
+    if (Array.from(text).length > maxChars)
+      throw invalid(`text is too long for a voice message (${maxChars} characters at most)`);
     const reply = args?.replyTo ? messageRefOf(args.replyTo) : null;
     const given = args?.channelId ? String(args.channelId) : null;
-    if (given && reply?.channelId && given !== reply.channelId) throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
+    if (given && reply?.channelId && given !== reply.channelId)
+      throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
     const target = given ?? reply?.channelId ?? null;
     // Checked before anything is made or paid for.
-    const postTo = await postingConversation({ client, discord, guildId: resolvedGuildId(context), channelId: target, context, need: 'attach' });
+    const postTo = await postingConversation({
+      client,
+      discord,
+      guildId: resolvedGuildId(context),
+      channelId: target,
+      context,
+      need: 'attach',
+    });
 
     let made;
     try {
@@ -47,21 +64,38 @@ const handlers = perEnv((env) => {
       if (!(err instanceof SpeechError)) throw err;
       const status = err.statusCode ? `, HTTP ${err.statusCode}` : '';
       const reason = err.reason ? { data: { stage: err.stage, reason: err.reason } } : {};
-      return { status: 'failed', code: err.code, summary: `voice: ${STAGE_NAMES[err.stage] ?? err.stage} failed (${err.code}${status}${err.reason ? `, ${err.reason}` : ''}); nothing was posted`, ...reason };
+      return {
+        status: 'failed',
+        code: err.code,
+        summary: `voice: ${STAGE_NAMES[err.stage] ?? err.stage} failed (${err.code}${status}${err.reason ? `, ${err.reason}` : ''}); nothing was posted`,
+        ...reason,
+      };
     }
 
     const sent = await port.send(
       { iface: port.iface, conversationId: postTo },
       {
-        attachments: [{ name: `voice-${Date.now().toString(36)}.ogg`, data: made.ogg, contentType: 'audio/ogg', voice: { durationSecs: made.durationSecs, waveform: made.waveform } }],
+        attachments: [
+          {
+            name: `voice-${Date.now().toString(36)}.ogg`,
+            data: made.ogg,
+            contentType: 'audio/ogg',
+            voice: { durationSecs: made.durationSecs, waveform: made.waveform },
+          },
+        ],
         ...(reply ? { replyTo: { iface: port.iface, conversationId: postTo, messageId: reply.messageId } } : {}),
-      },
+      }
     );
     if (sent?.status !== 'ok') {
       const code = String(sent?.error?.code ?? sent?.status ?? CODE.ERROR);
       const unknown = sent?.status === 'unknown';
       log.warn('voice: post failed', { code, unknown });
-      return { status: 'failed', code, summary: `voice: ${unknown ? 'unclear whether the voice message was posted' : 'the voice message was not posted'} (${code})`, data: { unknown, portStatus: sent?.status ?? null } };
+      return {
+        status: 'failed',
+        code,
+        summary: `voice: ${unknown ? 'unclear whether the voice message was posted' : 'the voice message was not posted'} (${code})`,
+        data: { unknown, portStatus: sent?.status ?? null },
+      };
     }
 
     const lines = [
@@ -69,7 +103,12 @@ const handlers = perEnv((env) => {
       `as voiced: ${made.voiced}`,
     ];
     log.info('voice: posted', { seconds: made.durationSecs, chars: made.chars });
-    return { text: lines.join('\n'), ref: sent.ref ?? null, at: sent.at, voice: { text: made.voiced, durationSecs: made.durationSecs } };
+    return {
+      text: lines.join('\n'),
+      ref: sent.ref ?? null,
+      at: sent.at,
+      voice: { text: made.voiced, durationSecs: made.durationSecs },
+    };
   }
 
   return { cmdVoice };

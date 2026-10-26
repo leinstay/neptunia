@@ -2,18 +2,28 @@
   "files": {
     "src/behavior/inner.js": 2555,
     "src/behavior/pipeline.js": 3104,
-    "src/behavior/prompt.js": 4310,
+    "src/behavior/prompt.js": 4903,
+    "src/behavior/recall-run.js": 2347,
     "src/behavior/recall.js": 2508,
     "src/behavior/sandbox.js": 2136,
     "src/behavior/turn.js": 9529,
     "src/memory/store.js": 3346,
     "tests/admin.test.js": 3882,
-    "tests/describe.test.js": 3190,
+    "tests/collect.test.js": 2137,
+    "tests/describe.test.js": 3748,
     "tests/events.test.js": 9310,
-    "tests/openrouter.test.js": 3082,
+    "tests/format.test.js": 2078,
+    "tests/inner.test.js": 2447,
+    "tests/memory-db-session.test.js": 2111,
+    "tests/openrouter.test.js": 3653,
     "tests/prompt.test.js": 7073,
+    "tests/prompts-shipped.test.js": 2069,
+    "tests/recall-run.test.js": 2395,
+    "tests/recall.test.js": 2561,
+    "tests/sandbox.test.js": 2068,
     "tests/store.test.js": 3255,
     "tests/turn.test.js": 13028,
+    "tools/lib/inner-week.mjs": 2204,
     "tools/replay.mjs": 7752
   },
   "functions": {
@@ -97,7 +107,7 @@
     },
     "src/behavior/missed.js": {
       "createMissed": {
-        "function-length": 564
+        "function-length": 659
       },
       "createMissed>onTurnEnd": {
         "complexity": 23
@@ -148,7 +158,7 @@
       },
       "buildRequest": {
         "complexity": 313,
-        "function-length": 1059
+        "function-length": 1320
       },
       "buildRequest>composeTask": {
         "complexity": 22
@@ -171,7 +181,7 @@
     },
     "src/behavior/recall-run.js": {
       "createRecall": {
-        "function-length": 1402
+        "function-length": 1943
       },
       "createRecall>findPeople": {
         "complexity": 36
@@ -181,7 +191,7 @@
       },
       "createRecall>recallWith": {
         "complexity": 75,
-        "function-length": 346
+        "function-length": 500
       },
       "createRecall>run": {
         "complexity": 31
@@ -231,7 +241,7 @@
     },
     "src/behavior/spontaneous.js": {
       "createSpontaneous": {
-        "function-length": 417
+        "function-length": 431
       }
     },
     "src/behavior/turn.js": {
@@ -311,7 +321,7 @@
     },
     "src/errands/client.js": {
       "createErrandClient": {
-        "function-length": 327
+        "function-length": 365
       },
       "createErrandClient>onEvent": {
         "complexity": 26
@@ -319,17 +329,17 @@
     },
     "src/errands/ledger.js": {
       "createLedgerMirror": {
-        "function-length": 397
+        "function-length": 452
       }
     },
     "src/errands/service.js": {
       "createErrandService": {
-        "function-length": 326
+        "function-length": 396
       }
     },
     "src/errands/store.js": {
       "createTaskStore": {
-        "function-length": 473
+        "function-length": 551
       }
     },
     "src/format.js": {
@@ -361,7 +371,7 @@
     },
     "src/intentions/service.js": {
       "createIntentionService": {
-        "function-length": 561
+        "function-length": 743
       },
       "createIntentionService>addCandidates": {
         "complexity": 21
@@ -388,7 +398,7 @@
     },
     "src/llm/openrouter.js": {
       "createLlm": {
-        "function-length": 590
+        "function-length": 631
       },
       "createLlm>complete": {
         "complexity": 46
@@ -409,12 +419,12 @@
     },
     "src/media/fetch-video.js": {
       "createVideoFetcher": {
-        "function-length": 658
+        "function-length": 701
       }
     },
     "src/memory/append-store.js": {
       "createAppendStore": {
-        "function-length": 303
+        "function-length": 344
       }
     },
     "src/memory/archive.js": {
@@ -487,7 +497,7 @@
     },
     "src/memory/db/service.js": {
       "createMemoryDb": {
-        "function-length": 837
+        "function-length": 1147
       },
       "createMemoryDb>sessionJob": {
         "complexity": 30
@@ -525,7 +535,7 @@
     },
     "src/memory/describe.js": {
       "createDescriber": {
-        "function-length": 1348
+        "function-length": 1416
       },
       "createDescriber>fetchVideoMedia": {
         "complexity": 23
@@ -545,7 +555,7 @@
     },
     "src/memory/embedder.js": {
       "createEmbedder": {
-        "function-length": 422
+        "function-length": 487
       },
       "createEmbedder>runFlush": {
         "complexity": 21
@@ -579,7 +589,7 @@
         "complexity": 42
       },
       "createJournal": {
-        "function-length": 562
+        "function-length": 647
       },
       "journalLine": {
         "complexity": 22
@@ -624,7 +634,7 @@
     },
     "src/memory/vectors.js": {
       "createVectors": {
-        "function-length": 480
+        "function-length": 523
       },
       "createVectors>search": {
         "complexity": 35
@@ -642,7 +652,7 @@
     },
     "src/ops/memory.js": {
       "<anonymous>": {
-        "function-length": 414
+        "function-length": 471
       },
       "<anonymous>>cmdMemoryJournal": {
         "complexity": 21
@@ -674,7 +684,7 @@
     },
     "src/ops/status.js": {
       "<anonymous>#2": {
-        "function-length": 567
+        "function-length": 652
       },
       "<anonymous>#2>keyCostsValue": {
         "complexity": 22
@@ -782,7 +792,7 @@
     },
     "src/web/lookup.js": {
       "createLookup": {
-        "function-length": 573
+        "function-length": 659
       },
       "createLookup>search": {
         "complexity": 23
@@ -814,7 +824,8 @@
         "complexity": 25
       },
       "parseFixture": {
-        "complexity": 57
+        "complexity": 57,
+        "function-length": 318
       },
       "parseFixture><anonymous>#5": {
         "complexity": 37
@@ -827,7 +838,7 @@
       },
       "runWeek": {
         "complexity": 23,
-        "function-length": 442
+        "function-length": 642
       },
       "runWeek>act": {
         "complexity": 39
@@ -876,7 +887,7 @@
     "tools/recall-eval.mjs": {
       "main": {
         "complexity": 46,
-        "function-length": 389
+        "function-length": 536
       },
       "main>askClassifier": {
         "complexity": 24
@@ -948,7 +959,8 @@
     },
     "tools/search-compare.mjs": {
       "main": {
-        "complexity": 32
+        "complexity": 32,
+        "function-length": 310
       }
     },
     "tools/search-policy-eval.mjs": {

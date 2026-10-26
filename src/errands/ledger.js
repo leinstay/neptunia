@@ -86,7 +86,12 @@ export function addArgs(task, guildId) {
   return {
     lane: LEDGER_LANE,
     project: null,
-    title: clampChars(String(task.goal ?? '').replace(/\s+/g, ' ').trim(), TITLE_CHARS),
+    title: clampChars(
+      String(task.goal ?? '')
+        .replace(/\s+/g, ' ')
+        .trim(),
+      TITLE_CHARS
+    ),
     description: String(task.goal ?? ''),
     requester: `persona:${task.requester?.userId ?? 'self'}`,
     role: task.agent,
@@ -126,7 +131,13 @@ export function heartbeatArgs(ledgerId, lease) {
 
 /** The args of `attempt.start` on ledger task `ledgerId`: principal `core`, the agent as the role, its model, no worktree. */
 export function attemptStartArgs(ledgerId, task, model) {
-  return { task_id: ledgerId, principal: PRINCIPAL, role: task.agent, model: typeof model === 'string' && model ? model : null, worktree: null };
+  return {
+    task_id: ledgerId,
+    principal: PRINCIPAL,
+    role: task.agent,
+    model: typeof model === 'string' && model ? model : null,
+    worktree: null,
+  };
 }
 
 /** The args of `attempt.end` of attempt `attemptId`: the steps and dollars of the runner's usage, the outcome. */
@@ -147,13 +158,21 @@ export function resultCalls(ledgerId, task, maxChars = DEFAULT_RESULT_MAX_CHARS)
   const text = clampChars(typeof result.text === 'string' ? result.text : '', maxChars);
   const withheld = Array.isArray(result.withheld) ? result.withheld : [];
   if (text || withheld.length > 0) {
-    calls.push({ op: 'task.result:summary', args: { task_id: ledgerId, kind: 'summary', text, ...(withheld.length > 0 ? { metadata: { withheld } } : {}) } });
+    calls.push({
+      op: 'task.result:summary',
+      args: { task_id: ledgerId, kind: 'summary', text, ...(withheld.length > 0 ? { metadata: { withheld } } : {}) },
+    });
   }
   for (const file of Array.isArray(result.files) ? result.files : []) {
     if (!file?.name) continue;
     calls.push({
       op: `task.result:file:${file.name}`,
-      args: { task_id: ledgerId, kind: 'file', uri: fileHandle(task.id, file.name), metadata: { name: file.name, contentType: file.contentType ?? '', bytes: file.bytes ?? 0 } },
+      args: {
+        task_id: ledgerId,
+        kind: 'file',
+        uri: fileHandle(task.id, file.name),
+        metadata: { name: file.name, contentType: file.contentType ?? '', bytes: file.bytes ?? 0 },
+      },
     });
   }
   return calls;
@@ -184,13 +203,25 @@ export function agentCostsOf(result) {
     totals[agent] = {};
     for (const window of COST_WINDOWS) {
       const sums = row[window] && typeof row[window] === 'object' ? row[window] : {};
-      totals[agent][window] = { runs: numberOr0(sums.runs), input: numberOr0(sums.input), output: numberOr0(sums.output), usd: numberOr0(sums.usd) };
+      totals[agent][window] = {
+        runs: numberOr0(sums.runs),
+        input: numberOr0(sums.input),
+        output: numberOr0(sums.output),
+        usd: numberOr0(sums.usd),
+      };
     }
   }
   const wave = result.thinker?.last_wave;
-  totals.thinker.last_wave = wave && typeof wave === 'object' && !Array.isArray(wave)
-    ? { wave: wave.wave ?? null, turns: numberOr0(wave.turns), usd: numberOr0(wave.usd), context_mean: numberOrNull(wave.context_mean), context_peak: numberOrNull(wave.context_peak) }
-    : null;
+  totals.thinker.last_wave =
+    wave && typeof wave === 'object' && !Array.isArray(wave)
+      ? {
+          wave: wave.wave ?? null,
+          turns: numberOr0(wave.turns),
+          usd: numberOr0(wave.usd),
+          context_mean: numberOrNull(wave.context_mean),
+          context_peak: numberOrNull(wave.context_peak),
+        }
+      : null;
   return totals;
 }
 
@@ -311,7 +342,14 @@ export function createLedgerMirror({
   function recordOf(task) {
     let record = records.get(task.id);
     if (!record) {
-      record = { ledgerId: task.ledgerId ? String(task.ledgerId) : null, attemptId: null, attempted: false, lease: null, lastBeat: -Infinity, warned: false };
+      record = {
+        ledgerId: task.ledgerId ? String(task.ledgerId) : null,
+        attemptId: null,
+        attempted: false,
+        lease: null,
+        lastBeat: -Infinity,
+        warned: false,
+      };
       records.set(task.id, record);
     } else if (!record.ledgerId && task.ledgerId) {
       record.ledgerId = String(task.ledgerId);
@@ -501,7 +539,9 @@ export function createLedgerMirror({
     timer.unref?.();
     inFlight = { id, timer };
     try {
-      link.socket.write(`${JSON.stringify({ id, op: entry.method, args, idempotency: idempotencyKey(entry.coreId, entry.op) })}\n`);
+      link.socket.write(
+        `${JSON.stringify({ id, op: entry.method, args, idempotency: idempotencyKey(entry.coreId, entry.op) })}\n`
+      );
     } catch (err) {
       unavailable(err?.code ?? 'write');
       drop();
@@ -511,19 +551,38 @@ export function createLedgerMirror({
 
   /** A call that needs the task's ledger id (`final`: the record forgotten once it is answered or skipped). */
   function call(task, op, method, build, onResult, final = false) {
-    return enqueue({ coreId: task.id, op, method, build: (record) => (record.ledgerId ? build(record) : null), onResult, final });
+    return enqueue({
+      coreId: task.id,
+      op,
+      method,
+      build: (record) => (record.ledgerId ? build(record) : null),
+      onResult,
+      final,
+    });
   }
 
   /** The `task.transition` of `task` to its final state, the record forgotten once it is through or refused. */
   function closeTask(task, to, closeReason) {
-    call(task, `task.transition:${to}`, 'task.transition', (record) => transitionArgs(record.ledgerId, to, closeReason), null, true);
+    call(
+      task,
+      `task.transition:${to}`,
+      'task.transition',
+      (record) => transitionArgs(record.ledgerId, to, closeReason),
+      null,
+      true
+    );
   }
 
   /** The attempt of `task` ended with `outcome`, when this process started one. */
   function endAttempt(task, record, outcome) {
     if (!record.attempted) return;
     record.attempted = false;
-    enqueue({ coreId: task.id, op: 'attempt.end', method: 'attempt.end', build: (r) => (r.attemptId ? attemptEndArgs(r.attemptId, task, outcome) : null) });
+    enqueue({
+      coreId: task.id,
+      op: 'attempt.end',
+      method: 'attempt.end',
+      build: (r) => (r.attemptId ? attemptEndArgs(r.attemptId, task, outcome) : null),
+    });
   }
 
   /** Whether the mirror is on now (`agents.ledger.socket` set). */
@@ -573,10 +632,16 @@ export function createLedgerMirror({
     record.lease = leaseSeconds(limits);
     record.lastBeat = now();
     call(task, 'task.claim', 'task.claim', (r) => claimArgs(r.ledgerId, limits));
-    call(task, 'attempt.start', 'attempt.start', (r) => attemptStartArgs(r.ledgerId, task, model), (result, current) => {
-      const attemptId = idOf(result, 'attempt');
-      if (attemptId && current) current.attemptId = attemptId;
-    });
+    call(
+      task,
+      'attempt.start',
+      'attempt.start',
+      (r) => attemptStartArgs(r.ledgerId, task, model),
+      (result, current) => {
+        const attemptId = idOf(result, 'attempt');
+        if (attemptId && current) current.attemptId = attemptId;
+      }
+    );
     return true;
   }
 
@@ -589,7 +654,9 @@ export function createLedgerMirror({
     if (at - record.lastBeat < HEARTBEAT_MS) return false;
     record.lastBeat = at;
     const lease = record.lease;
-    return call(task, `task.heartbeat:${Math.floor(at / HEARTBEAT_MS)}`, 'task.heartbeat', (r) => heartbeatArgs(r.ledgerId, lease));
+    return call(task, `task.heartbeat:${Math.floor(at / HEARTBEAT_MS)}`, 'task.heartbeat', (r) =>
+      heartbeatArgs(r.ledgerId, lease)
+    );
   }
 
   /**
@@ -633,8 +700,9 @@ export function createLedgerMirror({
     let count = 0;
     for (const task of Array.isArray(tasks) ? tasks : []) {
       if (!task?.id || task.ledgerId || !['queued', 'running'].includes(task.state)) continue;
-      const limits = typeof limitsOf === 'function' ? limitsOf(task) ?? {} : {};
-      if (add(task, { guildId, limits, onLedgerId: onLedgerId ? (ledgerId) => onLedgerId(task, ledgerId) : null })) count += 1;
+      const limits = typeof limitsOf === 'function' ? (limitsOf(task) ?? {}) : {};
+      if (add(task, { guildId, limits, onLedgerId: onLedgerId ? (ledgerId) => onLedgerId(task, ledgerId) : null }))
+        count += 1;
     }
     return count;
   }
@@ -650,7 +718,13 @@ export function createLedgerMirror({
   async function costs({ now: at = now() } = {}) {
     const where = closed ? null : pathNow();
     if (!where) return null;
-    const reply = await requestOnce({ where, op: 'costs.agents', args: { now: at }, connect, timeoutMs: costsTimeoutMs });
+    const reply = await requestOnce({
+      where,
+      op: 'costs.agents',
+      args: { now: at },
+      connect,
+      timeoutMs: costsTimeoutMs,
+    });
     const totals = reply.ok ? agentCostsOf(reply.result) : null;
     if (!totals) unavailable(reply.ok ? 'bad-answer' : reply.code);
     return totals;
@@ -672,5 +746,17 @@ export function createLedgerMirror({
     for (const resolve of waiters.splice(0)) resolve();
   }
 
-  return { enabled, add, start, progress, finish, cancel, mirrorOpen, costs, idle, close: shutdown, queued: () => queue.length };
+  return {
+    enabled,
+    add,
+    start,
+    progress,
+    finish,
+    cancel,
+    mirrorOpen,
+    costs,
+    idle,
+    close: shutdown,
+    queued: () => queue.length,
+  };
 }

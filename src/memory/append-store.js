@@ -50,7 +50,13 @@ const NEWLINE = 0x0a;
  *   only when `retryMax` lines are already queued. `recover` reports `truncated` in bytes moved aside.
  *   `stats().failed` counts failed write attempts since creation.
  */
-export function createAppendStore({ fsyncMs = 500, retryMax = 1000, log = defaultLog, now = Date.now, fs = nodeFs } = {}) {
+export function createAppendStore({
+  fsyncMs = 500,
+  retryMax = 1000,
+  log = defaultLog,
+  now = Date.now,
+  fs = nodeFs,
+} = {}) {
   const files = new Map();
   let failedWrites = 0;
   const createReadStream = typeof fs.createReadStream === 'function' ? fs.createReadStream : nodeCreateReadStream;
@@ -59,8 +65,14 @@ export function createAppendStore({ fsyncMs = 500, retryMax = 1000, log = defaul
     let st = files.get(file);
     if (!st) {
       st = {
-        fd: null, queue: Promise.resolve(), pendingLines: [], dirty: false, lastSync: 0,
-        failing: false, retryTimer: null, syncTimer: null,
+        fd: null,
+        queue: Promise.resolve(),
+        pendingLines: [],
+        dirty: false,
+        lastSync: 0,
+        failing: false,
+        retryTimer: null,
+        syncTimer: null,
       };
       files.set(file, st);
     }
@@ -91,7 +103,10 @@ export function createAppendStore({ fsyncMs = 500, retryMax = 1000, log = defaul
   }
 
   async function syncFile(file, st) {
-    if (st.syncTimer) { clearTimeout(st.syncTimer); st.syncTimer = null; }
+    if (st.syncTimer) {
+      clearTimeout(st.syncTimer);
+      st.syncTimer = null;
+    }
     if (!st.fd || !st.dirty) return;
     try {
       await st.fd.sync();
@@ -104,10 +119,13 @@ export function createAppendStore({ fsyncMs = 500, retryMax = 1000, log = defaul
 
   function scheduleSync(file, st) {
     if (st.syncTimer || !st.dirty) return;
-    st.syncTimer = setTimeout(() => {
-      st.syncTimer = null;
-      enqueue(file, (s) => syncFile(file, s)).catch(() => {});
-    }, Math.max(0, fsyncMs));
+    st.syncTimer = setTimeout(
+      () => {
+        st.syncTimer = null;
+        enqueue(file, (s) => syncFile(file, s)).catch(() => {});
+      },
+      Math.max(0, fsyncMs)
+    );
     st.syncTimer.unref?.();
   }
 
@@ -155,7 +173,10 @@ export function createAppendStore({ fsyncMs = 500, retryMax = 1000, log = defaul
       st.pendingLines.shift();
       drained += 1;
     }
-    if (st.retryTimer) { clearTimeout(st.retryTimer); st.retryTimer = null; }
+    if (st.retryTimer) {
+      clearTimeout(st.retryTimer);
+      st.retryTimer = null;
+    }
     st.failing = false;
     log.info('store: append recovered', { file: path.basename(file), drained });
     await syncFile(file, st);
@@ -195,7 +216,10 @@ export function createAppendStore({ fsyncMs = 500, retryMax = 1000, log = defaul
           break;
         }
         chunks.unshift(buf);
-        if (start === 0) { cut = 0; break; }
+        if (start === 0) {
+          cut = 0;
+          break;
+        }
         end = start;
       }
       tail = Buffer.concat(chunks);
@@ -237,10 +261,14 @@ export function createAppendStore({ fsyncMs = 500, retryMax = 1000, log = defaul
   /** Retry queued lines and fsync `file` (or every open file). */
   async function flush(file) {
     const targets = file === undefined ? [...files.keys()] : [file];
-    await Promise.all(targets.map((f) => enqueue(f, async (st) => {
-      await drain(f, st);
-      await syncFile(f, st);
-    })));
+    await Promise.all(
+      targets.map((f) =>
+        enqueue(f, async (st) => {
+          await drain(f, st);
+          await syncFile(f, st);
+        })
+      )
+    );
   }
 
   /** Stream whole lines of `file` from byte offset `from`; a tail without its newline is skipped. */
@@ -307,7 +335,10 @@ export function createAppendStore({ fsyncMs = 500, retryMax = 1000, log = defaul
             if (keep(line)) {
               kept += 1;
               buffer += `${line}\n`;
-              if (buffer.length >= REWRITE_CHUNK) { await out.write(buffer); buffer = ''; }
+              if (buffer.length >= REWRITE_CHUNK) {
+                await out.write(buffer);
+                buffer = '';
+              }
             } else dropped += 1;
           }
           if (buffer) await out.write(buffer);
@@ -335,20 +366,30 @@ export function createAppendStore({ fsyncMs = 500, retryMax = 1000, log = defaul
 
   /** Try the queued lines once more, fsync and close every file; lines still queued are reported. */
   async function close() {
-    await Promise.all([...files.keys()].map((file) => enqueue(file, async (st) => {
-      if (st.retryTimer) { clearTimeout(st.retryTimer); st.retryTimer = null; }
-      await drain(file, st);
-      if (st.retryTimer) { clearTimeout(st.retryTimer); st.retryTimer = null; }
-      await syncFile(file, st);
-      if (st.fd) {
-        const fd = st.fd;
-        st.fd = null;
-        await fd.close().catch(() => {});
-      }
-      if (st.pendingLines.length) {
-        log.warn('store: closed with pending', { file: path.basename(file), pending: st.pendingLines.length });
-      }
-    })));
+    await Promise.all(
+      [...files.keys()].map((file) =>
+        enqueue(file, async (st) => {
+          if (st.retryTimer) {
+            clearTimeout(st.retryTimer);
+            st.retryTimer = null;
+          }
+          await drain(file, st);
+          if (st.retryTimer) {
+            clearTimeout(st.retryTimer);
+            st.retryTimer = null;
+          }
+          await syncFile(file, st);
+          if (st.fd) {
+            const fd = st.fd;
+            st.fd = null;
+            await fd.close().catch(() => {});
+          }
+          if (st.pendingLines.length) {
+            log.warn('store: closed with pending', { file: path.basename(file), pending: st.pendingLines.length });
+          }
+        })
+      )
+    );
   }
 
   return { append, flush, iterate, rewrite, recover, stats, close };

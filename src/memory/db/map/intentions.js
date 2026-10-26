@@ -60,7 +60,9 @@ export function fromRows(rows, ctx = {}) {
   const records = ordered(rows, 'intentions').map((row) => JSON.parse(row.record));
   if (rowsOf(rows, 'operational').length === 0) {
     const record = records[0];
-    return isPlainObject(record) && Object.hasOwn(record, '$raw') && /^archive-line-/.test(record.id) ? record.$raw : record;
+    return isPlainObject(record) && Object.hasOwn(record, '$raw') && /^archive-line-/.test(record.id)
+      ? record.$raw
+      : record;
   }
   const rest = parseExtra(rows.operational[0].value);
   const has = Array.isArray(rest.$has) ? rest.$has : [];

@@ -37,8 +37,17 @@ export function innerOutputCalls(parsed, { current, turnChannel }) {
     calls.push({ skill: 'message.react.add', args: { emoji: String(reaction.emoji) }, refuse: TARGET_REQUIRED });
   }
   for (const message of parsed?.messages ?? []) {
-    calls.push({ skill: 'message.create', args: { ...place, ...reply(message.replyTo), text: String(message.text ?? '') }, ...refuse });
+    calls.push({
+      skill: 'message.create',
+      args: { ...place, ...reply(message.replyTo), text: String(message.text ?? '') },
+      ...refuse,
+    });
   }
-  if (parsed?.gif?.id) calls.push({ skill: 'message.create', args: { ...place, gif: String(parsed.gif.id), ...reply(parsed.gif.replyTo) }, ...refuse });
+  if (parsed?.gif?.id)
+    calls.push({
+      skill: 'message.create',
+      args: { ...place, gif: String(parsed.gif.id), ...reply(parsed.gif.replyTo) },
+      ...refuse,
+    });
   return calls;
 }

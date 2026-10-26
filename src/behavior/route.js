@@ -216,7 +216,10 @@ export function routeContext({ history, candidate, contextMessages, config, labe
   const text = [...String(candidate.content ?? '')].slice(0, maxChars).join('');
   const candidateBlock = block('candidate', `${candidate.authorName}: ${text}`);
   if (context.length === 0) return { transcriptBlock: '', candidateBlock };
-  return { transcriptBlock: block('transcript', classifierTranscript(context, { config, selfName, labels })), candidateBlock };
+  return {
+    transcriptBlock: block('transcript', classifierTranscript(context, { config, selfName, labels })),
+    candidateBlock,
+  };
 }
 
 /**
@@ -270,7 +273,10 @@ export function parseRouteAnswer(raw, count) {
   if (!first) return answer(null, 'empty');
   const text = first.replace(WRAPPING, '').trim().replace(TRAILING, '').trim();
   if (!text) return answer(null, 'empty');
-  const word = text.split(/\s+/u)[0].replace(/[^\p{L}]/gu, '').toLowerCase();
+  const word = text
+    .split(/\s+/u)[0]
+    .replace(/[^\p{L}]/gu, '')
+    .toLowerCase();
   if (word === 'none') return answer(null, 'none');
   const number = /^#?(\d+)(?:\s+(\p{L}+))?$/u.exec(text);
   if (!number) return answer(null, 'unparsed');

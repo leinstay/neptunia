@@ -53,17 +53,41 @@ export function speechCostOf(chars, config) {
  * @param {() => number} [args.now]
  * @returns {Promise<{ mp3: Buffer, ms: number, model: string, cost: number }>}
  */
-export async function synthesizeSpeech({ text, getConfig, env = {}, mainKey, fetchImpl = fetch, now = () => Date.now() }) {
+export async function synthesizeSpeech({
+  text,
+  getConfig,
+  env = {},
+  mainKey,
+  fetchImpl = fetch,
+  now = () => Date.now(),
+}) {
   const config = getConfig();
   const model = roleModel(config, SPEECH_ROLE);
   const voice = config.speech?.voice;
-  if (!model || typeof voice !== 'string' || !voice) throw new SpeechSynthError('not-configured', 'no voice model or voice configured');
-  const provider = resolveProvider(model, { byModel: config.llm?.providerByModel, fallback: config.llm?.provider, role: SPEECH_ROLE });
-  const body = { model, input: text, voice, response_format: 'mp3', ...(provider ? { provider: providerBodyOf(provider) } : {}) };
-  const timeoutMs = Number.isFinite(config.speech?.timeoutMs) && config.speech.timeoutMs > 0 ? config.speech.timeoutMs : 60000;
+  if (!model || typeof voice !== 'string' || !voice)
+    throw new SpeechSynthError('not-configured', 'no voice model or voice configured');
+  const provider = resolveProvider(model, {
+    byModel: config.llm?.providerByModel,
+    fallback: config.llm?.provider,
+    role: SPEECH_ROLE,
+  });
+  const body = {
+    model,
+    input: text,
+    voice,
+    response_format: 'mp3',
+    ...(provider ? { provider: providerBodyOf(provider) } : {}),
+  };
+  const timeoutMs =
+    Number.isFinite(config.speech?.timeoutMs) && config.speech.timeoutMs > 0 ? config.speech.timeoutMs : 60000;
   const chars = Array.from(text).length;
   const startedAt = now();
-  log.info('speech: request', { model, voice, chars, provider: provider ? Object.keys(providerBodyOf(provider)) : null });
+  log.info('speech: request', {
+    model,
+    voice,
+    chars,
+    provider: provider ? Object.keys(providerBodyOf(provider)) : null,
+  });
 
   const fail = (error) => {
     log.warn('speech: failed', { model, reason: error.reason, status: error.statusCode, chars });
@@ -78,12 +102,19 @@ export async function synthesizeSpeech({ text, getConfig, env = {}, mainKey, fet
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (!response.ok) {
-      throw fail(new SpeechSynthError('http', `OpenRouter speech HTTP ${response.status}`, { statusCode: response.status }));
+      throw fail(
+        new SpeechSynthError('http', `OpenRouter speech HTTP ${response.status}`, { statusCode: response.status })
+      );
     }
     const type = String(response.headers?.get?.('content-type') ?? '');
     const mp3 = Buffer.from(await response.arrayBuffer());
     if (type.includes('json') || mp3.length === 0) {
-      throw fail(new SpeechSynthError(mp3.length === 0 ? 'empty' : 'error', mp3.length === 0 ? 'speech response carried no audio' : 'speech response was not audio'));
+      throw fail(
+        new SpeechSynthError(
+          mp3.length === 0 ? 'empty' : 'error',
+          mp3.length === 0 ? 'speech response carried no audio' : 'speech response was not audio'
+        )
+      );
     }
     const ms = now() - startedAt;
     const cost = speechCostOf(chars, config);
@@ -91,7 +122,8 @@ export async function synthesizeSpeech({ text, getConfig, env = {}, mainKey, fet
     return { mp3, ms, model, cost };
   } catch (err) {
     if (err instanceof SpeechSynthError) throw err;
-    if (isAbort(err)) throw fail(new SpeechSynthError('timeout', `speech synthesis timed out after ${timeoutMs} ms`, { cause: err }));
+    if (isAbort(err))
+      throw fail(new SpeechSynthError('timeout', `speech synthesis timed out after ${timeoutMs} ms`, { cause: err }));
     throw fail(new SpeechSynthError('error', 'speech request failed', { cause: err }));
   }
 }

@@ -64,10 +64,14 @@ test('upsertLore: an analyzer update replaces keys/text of an ANALYZER entry who
 
 test('upsertLore: an analyzer update never touches an existing OWNER entry', () => {
   const existing = [entry({ source: 'owner', text: 'owner-written text', always: true })];
-  const result = upsertLore(existing, [{ title: 'The Great Migration', keys: ['x'], text: 'analyzer tries to overwrite' }], {
-    source: 'analyzer',
-    now: NOW,
-  });
+  const result = upsertLore(
+    existing,
+    [{ title: 'The Great Migration', keys: ['x'], text: 'analyzer tries to overwrite' }],
+    {
+      source: 'analyzer',
+      now: NOW,
+    }
+  );
   assert.equal(result.upserted, 0);
   assert.equal(result.entries[0].text, 'owner-written text');
   assert.equal(result.entries[0].source, 'owner');
@@ -75,10 +79,14 @@ test('upsertLore: an analyzer update never touches an existing OWNER entry', () 
 
 test('upsertLore: an owner update overwrites an existing ANALYZER entry and takes ownership', () => {
   const existing = [entry({ source: 'analyzer' })];
-  const result = upsertLore(existing, [{ title: 'The Great Migration', keys: ['owner-key'], text: 'owner text', always: true }], {
-    source: 'owner',
-    now: NOW,
-  });
+  const result = upsertLore(
+    existing,
+    [{ title: 'The Great Migration', keys: ['owner-key'], text: 'owner text', always: true }],
+    {
+      source: 'owner',
+      now: NOW,
+    }
+  );
   assert.equal(result.upserted, 1);
   assert.equal(result.entries[0].source, 'owner');
   assert.equal(result.entries[0].always, true);
@@ -87,10 +95,14 @@ test('upsertLore: an owner update overwrites an existing ANALYZER entry and take
 
 test('upsertLore: an owner update can overwrite another owner entry (re-editing)', () => {
   const existing = [entry({ source: 'owner', always: true, text: 'first version' })];
-  const result = upsertLore(existing, [{ title: 'The Great Migration', keys: ['xx'], text: 'second version', always: false }], {
-    source: 'owner',
-    now: NOW,
-  });
+  const result = upsertLore(
+    existing,
+    [{ title: 'The Great Migration', keys: ['xx'], text: 'second version', always: false }],
+    {
+      source: 'owner',
+      now: NOW,
+    }
+  );
   assert.equal(result.entries[0].text, 'second version');
   assert.equal(result.entries[0].always, false);
 });
@@ -99,41 +111,65 @@ test('upsertLore: an owner update can overwrite another owner entry (re-editing)
 
 test('upsertLore: an analyzer re-send identical after normalisation is not stamped and counts 0', () => {
   const existing = [entry()];
-  const result = upsertLore(existing, [{ title: 'The Great Migration', keys: ['  Migration ', 'THE MOVE'], text: 'The server moved house in spring.' }], {
-    source: 'analyzer',
-    now: NOW,
-  });
+  const result = upsertLore(
+    existing,
+    [{ title: 'The Great Migration', keys: ['  Migration ', 'THE MOVE'], text: 'The server moved house in spring.' }],
+    {
+      source: 'analyzer',
+      now: NOW,
+    }
+  );
   assert.equal(result.upserted, 0);
   assert.deepEqual(result.entries, existing, 'the stored entry, updatedAt included, is left as it was');
 });
 
 test('upsertLore: only a first write is clamped; a re-send of the clamped text counts 0 and a rewrite is never cut', () => {
-  const clamped = upsertLore([], [{ title: 'X', keys: ['valid'], text: 'x'.repeat(1000) }], { ...CLAMP, source: 'analyzer', now: NOW }).entries;
+  const clamped = upsertLore([], [{ title: 'X', keys: ['valid'], text: 'x'.repeat(1000) }], {
+    ...CLAMP,
+    source: 'analyzer',
+    now: NOW,
+  }).entries;
   assert.equal(clamped[0].text.length, 750, 'the first write is clamped');
-  const same = upsertLore(clamped, [{ title: 'X', keys: ['valid'], text: 'x'.repeat(750) }], { ...CLAMP, source: 'analyzer', now: NOW + 60_000 });
+  const same = upsertLore(clamped, [{ title: 'X', keys: ['valid'], text: 'x'.repeat(750) }], {
+    ...CLAMP,
+    source: 'analyzer',
+    now: NOW + 60_000,
+  });
   assert.equal(same.upserted, 0);
   assert.equal(same.entries[0].updatedAt, new Date(NOW).toISOString());
   // A rewrite over the limit is the caller's to refuse (src/memory/prose.js#acceptProse): stored as given.
-  const rewritten = upsertLore(clamped, [{ title: 'X', keys: ['valid'], text: 'x'.repeat(2000) }], { ...CLAMP, source: 'analyzer', now: NOW + 60_000 });
+  const rewritten = upsertLore(clamped, [{ title: 'X', keys: ['valid'], text: 'x'.repeat(2000) }], {
+    ...CLAMP,
+    source: 'analyzer',
+    now: NOW + 60_000,
+  });
   assert.equal(rewritten.upserted, 1);
   assert.equal(rewritten.entries[0].text.length, 2000);
 });
 
 test('upsertLore: an analyzer re-send that changes only the keys is stamped and counted', () => {
-  const result = upsertLore([entry()], [{ title: 'The Great Migration', keys: ['migration'], text: 'The server moved house in spring.' }], {
-    source: 'analyzer',
-    now: NOW,
-  });
+  const result = upsertLore(
+    [entry()],
+    [{ title: 'The Great Migration', keys: ['migration'], text: 'The server moved house in spring.' }],
+    {
+      source: 'analyzer',
+      now: NOW,
+    }
+  );
   assert.equal(result.upserted, 1);
   assert.deepEqual(result.entries[0].keys, ['migration']);
   assert.equal(result.entries[0].updatedAt, new Date(NOW).toISOString());
 });
 
 test('upsertLore: an analyzer re-send that changes only the title casing is stamped and counted', () => {
-  const result = upsertLore([entry()], [{ title: 'the great migration', keys: ['migration', 'the move'], text: 'The server moved house in spring.' }], {
-    source: 'analyzer',
-    now: NOW,
-  });
+  const result = upsertLore(
+    [entry()],
+    [{ title: 'the great migration', keys: ['migration', 'the move'], text: 'The server moved house in spring.' }],
+    {
+      source: 'analyzer',
+      now: NOW,
+    }
+  );
   assert.equal(result.upserted, 1);
   assert.equal(result.entries[0].title, 'the great migration');
   assert.equal(result.entries[0].updatedAt, new Date(NOW).toISOString());
@@ -141,10 +177,21 @@ test('upsertLore: an analyzer re-send that changes only the title casing is stam
 
 test('upsertLore: an owner re-save of an identical owner entry is still stamped and counted (an explicit save)', () => {
   const existing = [entry({ source: 'owner', always: true })];
-  const result = upsertLore(existing, [{ title: 'The Great Migration', keys: ['migration', 'the move'], text: 'The server moved house in spring.', always: true }], {
-    source: 'owner',
-    now: NOW,
-  });
+  const result = upsertLore(
+    existing,
+    [
+      {
+        title: 'The Great Migration',
+        keys: ['migration', 'the move'],
+        text: 'The server moved house in spring.',
+        always: true,
+      },
+    ],
+    {
+      source: 'owner',
+      now: NOW,
+    }
+  );
   assert.equal(result.upserted, 1);
   assert.equal(result.entries[0].updatedAt, new Date(NOW).toISOString());
 });
@@ -155,7 +202,7 @@ test('upsertLore: keys are lowercased, trimmed, de-duplicated, kept 1-8', () => 
   const result = upsertLore(
     [],
     [{ title: 'X', keys: ['  Foo  ', 'foo', 'BAR', 'k1', 'k2', 'k3', 'k4', 'k5', 'k6', 'k7'], text: 'text' }],
-    { source: 'analyzer', now: NOW },
+    { source: 'analyzer', now: NOW }
   );
   assert.deepEqual(result.entries[0].keys, ['foo', 'bar', 'k1', 'k2', 'k3', 'k4', 'k5', 'k6']);
 });
@@ -215,7 +262,10 @@ test('upsertLore: evicts the oldest analyzer entry once over maxEntries', () => 
     now: NOW,
     maxEntries: 2,
   });
-  assert.deepEqual(result.entries.map((e) => e.title), ['B', 'C']);
+  assert.deepEqual(
+    result.entries.map((e) => e.title),
+    ['B', 'C']
+  );
 });
 
 test('upsertLore: never evicts an owner entry, even if it is the oldest', () => {
@@ -228,7 +278,10 @@ test('upsertLore: never evicts an owner entry, even if it is the oldest', () => 
     now: NOW,
     maxEntries: 2,
   });
-  assert.deepEqual(result.entries.map((e) => e.title), ['A', 'C']);
+  assert.deepEqual(
+    result.entries.map((e) => e.title),
+    ['A', 'C']
+  );
 });
 
 test('upsertLore: never evicts an entry marked always, even an analyzer one', () => {
@@ -241,21 +294,47 @@ test('upsertLore: never evicts an entry marked always, even an analyzer one', ()
     now: NOW,
     maxEntries: 2,
   });
-  assert.deepEqual(result.entries.map((e) => e.title), ['A', 'C']);
+  assert.deepEqual(
+    result.entries.map((e) => e.title),
+    ['A', 'C']
+  );
 });
 
 test('upsertLore: the entry created first and updated last survives the overflow', () => {
   const existing = [
-    entry({ id: 'a', title: 'Η πλημμύρα', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-09-20T00:00:00.000Z' }),
-    entry({ id: 'b', title: 'Το πανηγύρι', createdAt: '2026-01-02T00:00:00.000Z', updatedAt: '2026-01-02T00:00:00.000Z' }),
-    entry({ id: 'c', title: 'Ο σεισμός', createdAt: '2026-01-03T00:00:00.000Z', updatedAt: '2026-03-01T00:00:00.000Z' }),
+    entry({
+      id: 'a',
+      title: 'Η πλημμύρα',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-09-20T00:00:00.000Z',
+    }),
+    entry({
+      id: 'b',
+      title: 'Το πανηγύρι',
+      createdAt: '2026-01-02T00:00:00.000Z',
+      updatedAt: '2026-01-02T00:00:00.000Z',
+    }),
+    entry({
+      id: 'c',
+      title: 'Ο σεισμός',
+      createdAt: '2026-01-03T00:00:00.000Z',
+      updatedAt: '2026-03-01T00:00:00.000Z',
+    }),
   ];
   const incoming = [{ title: 'Το καφενείο', keys: ['καφενείο'], text: 'Άνοιξε ξανά.' }];
 
   const one = upsertLore(existing, incoming, { source: 'analyzer', now: NOW, maxEntries: 3 });
-  assert.deepEqual(one.entries.map((e) => e.title), ['Η πλημμύρα', 'Ο σεισμός', 'Το καφενείο'], 'the stalest goes, not the first created');
+  assert.deepEqual(
+    one.entries.map((e) => e.title),
+    ['Η πλημμύρα', 'Ο σεισμός', 'Το καφενείο'],
+    'the stalest goes, not the first created'
+  );
   const two = upsertLore(existing, incoming, { source: 'analyzer', now: NOW, maxEntries: 2 });
-  assert.deepEqual(two.entries.map((e) => e.title), ['Η πλημμύρα', 'Το καφενείο'], 'then the next stalest');
+  assert.deepEqual(
+    two.entries.map((e) => e.title),
+    ['Η πλημμύρα', 'Το καφενείο'],
+    'then the next stalest'
+  );
 });
 
 test('upsertLore: an entry the same batch rewrote is not the one evicted', () => {
@@ -269,17 +348,32 @@ test('upsertLore: an entry the same batch rewrote is not the one evicted', () =>
       { title: 'A', keys: ['a-key'], text: 'a new text' },
       { title: 'C', keys: ['c-key'], text: 'c text' },
     ],
-    { source: 'analyzer', now: NOW, maxEntries: 2 },
+    { source: 'analyzer', now: NOW, maxEntries: 2 }
   );
-  assert.deepEqual(result.entries.map((e) => [e.title, e.text]), [['A', 'a new text'], ['C', 'c text']]);
+  assert.deepEqual(
+    result.entries.map((e) => [e.title, e.text]),
+    [
+      ['A', 'a new text'],
+      ['C', 'c text'],
+    ]
+  );
   assert.equal(result.upserted, 2);
 });
 
 test('upsertLore: an entry without updatedAt is aged by its createdAt', () => {
-  const stamped = entry({ id: 'b', title: 'B', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-02-01T00:00:00.000Z' });
+  const stamped = entry({
+    id: 'b',
+    title: 'B',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-02-01T00:00:00.000Z',
+  });
   const evictedOf = (createdAt, updatedAt) => {
     const bare = entry({ id: 'a', title: 'A', createdAt, updatedAt });
-    const result = upsertLore([bare, stamped], [{ title: 'C', keys: ['c-key'], text: 'c text' }], { source: 'analyzer', now: NOW, maxEntries: 2 });
+    const result = upsertLore([bare, stamped], [{ title: 'C', keys: ['c-key'], text: 'c text' }], {
+      source: 'analyzer',
+      now: NOW,
+      maxEntries: 2,
+    });
     return ['A', 'B'].filter((title) => !result.entries.some((e) => e.title === title));
   };
 
@@ -319,7 +413,10 @@ test('keywordMatches: scores by distinct keys matched, then most recent match po
   const texts = ['nothing here', 'alpha appears', 'gamma appears', 'beta appears'];
   const result = keywordMatches([a, b], texts);
   // 'a' matches 2 distinct keys (alpha, beta) vs 'b' matches 1 (gamma) -> 'a' first.
-  assert.deepEqual(result.map((e) => e.id), ['a', 'b']);
+  assert.deepEqual(
+    result.map((e) => e.id),
+    ['a', 'b']
+  );
 });
 
 test('keywordMatches: with equal distinct-key counts, the more recent match wins', () => {
@@ -327,7 +424,11 @@ test('keywordMatches: with equal distinct-key counts, the more recent match wins
   const b = entry({ id: 'b', title: 'B', keys: ['beta'], weight: 1 });
   const texts = ['beta appears here', 'alpha appears here'];
   const result = keywordMatches([a, b], texts);
-  assert.deepEqual(result.map((e) => e.id), ['a', 'b'], 'alpha matched the more recent (later index) text');
+  assert.deepEqual(
+    result.map((e) => e.id),
+    ['a', 'b'],
+    'alpha matched the more recent (later index) text'
+  );
 });
 
 test('keywordMatches: with equal distinct-keys and recency, higher weight wins', () => {
@@ -335,7 +436,10 @@ test('keywordMatches: with equal distinct-keys and recency, higher weight wins',
   const b = entry({ id: 'b', title: 'B', keys: ['same'], weight: 5 });
   const texts = ['same appears once here'];
   const result = keywordMatches([a, b], texts);
-  assert.deepEqual(result.map((e) => e.id), ['b', 'a']);
+  assert.deepEqual(
+    result.map((e) => e.id),
+    ['b', 'a']
+  );
 });
 
 test('keywordMatches: an entry with no matched key is excluded entirely', () => {
@@ -347,7 +451,10 @@ test('matchLore: always entries come first and do not count against maxMatches',
   const always = entry({ id: 'always1', title: 'Always', always: true, keys: ['unrelated-key'] });
   const matched = entry({ id: 'matched1', title: 'Matched', keys: ['found'] });
   const result = matchLore([always, matched], ['found it here'], { maxMatches: 1 });
-  assert.deepEqual(result.map((e) => e.id), ['always1', 'matched1']);
+  assert.deepEqual(
+    result.map((e) => e.id),
+    ['always1', 'matched1']
+  );
 });
 
 test('matchLore: caps the non-always matches at maxMatches, most relevant first', () => {
@@ -357,5 +464,9 @@ test('matchLore: caps the non-always matches at maxMatches, most relevant first'
   const texts = ['one appears', 'two appears', 'three appears'];
   const result = matchLore([a, b, c], texts, { maxMatches: 2 });
   assert.equal(result.length, 2);
-  assert.deepEqual(result.map((e) => e.id), ['c', 'b'], 'most recent matches kept first');
+  assert.deepEqual(
+    result.map((e) => e.id),
+    ['c', 'b'],
+    'most recent matches kept first'
+  );
 });

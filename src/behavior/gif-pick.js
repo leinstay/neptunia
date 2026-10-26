@@ -33,7 +33,8 @@ export const GIF_PICK_DEFAULTS = Object.freeze({
  */
 export function gifPickSettings(config) {
   const group = isPlainObject(config?.gifs?.pick) ? config.gifs.pick : {};
-  const read = (key, min) => (Number.isFinite(group[key]) && group[key] >= min ? Math.floor(group[key]) : GIF_PICK_DEFAULTS[key]);
+  const read = (key, min) =>
+    Number.isFinite(group[key]) && group[key] >= min ? Math.floor(group[key]) : GIF_PICK_DEFAULTS[key];
   return {
     maxChars: read('maxChars', 0),
     contextMessages: read('contextMessages', 0),

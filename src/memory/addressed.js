@@ -81,7 +81,12 @@ export function normalizeAddressedAs(value) {
 export function rankAddressed(addressedAs, nowMs, halfLifeDays) {
   const map = normalizeAddressedAs(addressedAs);
   return Object.entries(map)
-    .map(([name, entry], index) => ({ name, index, score: decayedScore(entry, nowMs, halfLifeDays), lastMs: Date.parse(entry.last) }))
+    .map(([name, entry], index) => ({
+      name,
+      index,
+      score: decayedScore(entry, nowMs, halfLifeDays),
+      lastMs: Date.parse(entry.last),
+    }))
     .sort((a, b) => b.score - a.score || b.lastMs - a.lastMs || a.index - b.index)
     .map((item) => item.name);
 }
@@ -116,9 +121,10 @@ export function applyAddressUses(existing, uses, { halfLifeDays, max = MAX_ADDRE
     }
     const gapDays = Math.abs(use.at - stored.lastMs) / DAY_MS;
     const factor = 0.5 ** (gapDays / halfLife);
-    map[key] = use.at >= stored.lastMs
-      ? { score: stored.score * factor + 1, last: new Date(use.at).toISOString() }
-      : { score: stored.score + factor, last: map[key].last };
+    map[key] =
+      use.at >= stored.lastMs
+        ? { score: stored.score * factor + 1, last: new Date(use.at).toISOString() }
+        : { score: stored.score + factor, last: map[key].last };
   }
   const cap = Number.isInteger(max) && max >= 0 ? max : MAX_ADDRESSED;
   const names = Object.keys(map);
@@ -148,7 +154,9 @@ export function addressCandidates(profiles) {
     const userId = String(profile.id);
     const raw = [
       ...(Array.isArray(profile.names) ? profile.names : []),
-      ...(Array.isArray(profile.aliases) ? profile.aliases.filter((item) => isOpen(item)).map((item) => item?.name) : []),
+      ...(Array.isArray(profile.aliases)
+        ? profile.aliases.filter((item) => isOpen(item)).map((item) => item?.name)
+        : []),
     ];
     const seen = new Set();
     const names = [];
@@ -179,7 +187,7 @@ function countableText(content, foldedNames) {
       .replace(CODE_BLOCK_RE, ' ')
       .replace(INLINE_CODE_RE, ' ')
       .replace(URL_RE, ' ')
-      .replace(DISCORD_TOKEN_RE, ' '),
+      .replace(DISCORD_TOKEN_RE, ' ')
   );
   if (text.includes('@')) {
     for (const name of foldedNames) text = text.split(`@${name}`).join(' ');
@@ -219,7 +227,9 @@ export function countAddressUses(messages, candidates) {
     for (const member of members) {
       if (member.userId === authorId) continue;
       // A stem match always starts with the form word's first 4 letters: a cheap pre-check.
-      const matched = member.names.filter(({ form, probe }) => (!probe || text.includes(probe)) && occursAsWordStem(text, form));
+      const matched = member.names.filter(
+        ({ form, probe }) => (!probe || text.includes(probe)) && occursAsWordStem(text, form)
+      );
       if (matched.length === 0) continue;
       // `niko` is a whole word of its own and the stem of `nikos`: the exact name wins.
       const exact = matched.filter(({ form }) => occursAsWholeWord(text, form));

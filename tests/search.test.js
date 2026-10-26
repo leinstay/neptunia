@@ -33,9 +33,16 @@ const raw = (id, extra = {}) => ({
 });
 
 test('searchMessages: sends the query parameters and flattens the nested hit arrays', async () => {
-  const { guild, calls } = fakeGuild(() => ({ total_results: 48, messages: [[raw('m1')], [raw('m2'), raw('m1')], [raw('ctx'), raw('m3', { hit: true })]] }));
+  const { guild, calls } = fakeGuild(() => ({
+    total_results: 48,
+    messages: [[raw('m1')], [raw('m2'), raw('m1')], [raw('ctx'), raw('m3', { hit: true })]],
+  }));
   const signal = new AbortController().signal;
-  const result = await searchMessages(guild, { content: 'κουνέλι', authorId: 'u9', minId: '100', maxId: '200', offset: 25 }, { signal });
+  const result = await searchMessages(
+    guild,
+    { content: 'κουνέλι', authorId: 'u9', minId: '100', maxId: '200', offset: 25 },
+    { signal }
+  );
   assert.equal(calls.length, 1);
   assert.equal(calls[0].route, '/guilds/g1/messages/search');
   assert.equal(calls[0].signal, signal);
@@ -50,7 +57,11 @@ test('searchMessages: sends the query parameters and flattens the nested hit arr
     sort_order: 'desc',
   });
   assert.equal(result.total, 48);
-  assert.deepEqual(result.hits.map((h) => h.id), ['m1', 'm2', 'm3'], 'de-duplicated; a flagged hit wins over its context');
+  assert.deepEqual(
+    result.hits.map((h) => h.id),
+    ['m1', 'm2', 'm3'],
+    'de-duplicated; a flagged hit wins over its context'
+  );
   assert.deepEqual(result.hits[0], {
     id: 'm1',
     channel_id: 'c1',
@@ -72,10 +83,18 @@ test('searchMessages: a failing request or an index not ready resolves null and 
   });
   const first = await withCapturedLogs(() => searchMessages(failing.guild, { content: 'μυστικό' }));
   assert.equal(first.result, null);
-  assert.deepEqual(first.logs.map((l) => [l.msg, l.route, l.status, l.name]), [['search: failed', 'messages', 403, 'DiscordAPIError']]);
+  assert.deepEqual(
+    first.logs.map((l) => [l.msg, l.route, l.status, l.name]),
+    [['search: failed', 'messages', 403, 'DiscordAPIError']]
+  );
   assert.ok(!JSON.stringify(first.logs).includes('μυστικό'));
 
-  const pending = fakeGuild(() => ({ message: 'Index not yet available.', code: 110000, documents_indexed: 0, retry_after: 2 }));
+  const pending = fakeGuild(() => ({
+    message: 'Index not yet available.',
+    code: 110000,
+    documents_indexed: 0,
+    retry_after: 2,
+  }));
   const second = await withCapturedLogs(() => searchMessages(pending.guild, { content: 'x' }));
   assert.equal(second.result, null);
   assert.equal(second.logs[0].name, 'not-indexed');
@@ -140,7 +159,14 @@ test('fetchAround: asks for the messages around an id and returns them normalize
   };
   const messages = await fetchAround(channel, 'm2', 16, { selfId: 'self' });
   assert.deepEqual(queries, [{ around: 'm2', limit: 16 }]);
-  assert.deepEqual(messages.map((m) => [m.id, m.content, m.authorName]), [['m1', 'γραμμή m1', 'Ána'], ['m2', 'γραμμή m2', 'Ána'], ['m3', 'γραμμή m3', 'Ána']]);
+  assert.deepEqual(
+    messages.map((m) => [m.id, m.content, m.authorName]),
+    [
+      ['m1', 'γραμμή m1', 'Ána'],
+      ['m2', 'γραμμή m2', 'Ána'],
+      ['m3', 'γραμμή m3', 'Ána'],
+    ]
+  );
 });
 
 test('fetchAround: a failing fetch resolves null', async () => {
@@ -154,7 +180,10 @@ test('fetchAround: a failing fetch resolves null', async () => {
   };
   const { result, logs } = await withCapturedLogs(() => fetchAround(channel, 'm2', 16, { selfId: 'self' }));
   assert.equal(result, null);
-  assert.deepEqual(logs.map((l) => [l.msg, l.channel, l.status]), [['search: around failed', 'c1', 404]]);
+  assert.deepEqual(
+    logs.map((l) => [l.msg, l.channel, l.status]),
+    [['search: around failed', 'c1', 404]]
+  );
 });
 
 test('fetchAfter: asks for the messages after an id and returns them normalized, oldest first', async () => {
@@ -173,7 +202,13 @@ test('fetchAfter: asks for the messages after an id and returns them normalized,
   };
   const messages = await fetchAfter(channel, 'm4', 24, { selfId: 'self' });
   assert.deepEqual(queries, [{ after: 'm4', limit: 24 }]);
-  assert.deepEqual(messages.map((m) => [m.id, m.content]), [['m5', 'γραμμή m5'], ['m6', 'γραμμή m6']]);
+  assert.deepEqual(
+    messages.map((m) => [m.id, m.content]),
+    [
+      ['m5', 'γραμμή m5'],
+      ['m6', 'γραμμή m6'],
+    ]
+  );
   await fetchAfter(channel, 'm4', 500, { selfId: 'self' });
   assert.equal(queries[1].limit, 100, 'one page at most');
 });
@@ -189,7 +224,10 @@ test('fetchAfter: a failing fetch resolves null', async () => {
   };
   const { result, logs } = await withCapturedLogs(() => fetchAfter(channel, 'm4', 24, { selfId: 'self' }));
   assert.equal(result, null);
-  assert.deepEqual(logs.map((l) => [l.msg, l.channel, l.status]), [['search: after failed', 'c1', 403]]);
+  assert.deepEqual(
+    logs.map((l) => [l.msg, l.channel, l.status]),
+    [['search: after failed', 'c1', 403]]
+  );
 });
 
 test('fetchBefore: asks for the messages before an id and returns them normalized, oldest first; a failing fetch resolves null', async () => {
@@ -208,9 +246,22 @@ test('fetchBefore: asks for the messages before an id and returns them normalize
   };
   const messages = await fetchBefore(channel, 'm4', 24, { selfId: 'self' });
   assert.deepEqual(queries, [{ before: 'm4', limit: 24 }]);
-  assert.deepEqual(messages.map((m) => m.id), ['m2', 'm3']);
-  const broken = { id: 'c1', messages: { fetch: async () => { throw Object.assign(new Error('Missing Access'), { status: 403, name: 'DiscordAPIError' }); } } };
+  assert.deepEqual(
+    messages.map((m) => m.id),
+    ['m2', 'm3']
+  );
+  const broken = {
+    id: 'c1',
+    messages: {
+      fetch: async () => {
+        throw Object.assign(new Error('Missing Access'), { status: 403, name: 'DiscordAPIError' });
+      },
+    },
+  };
   const { result, logs } = await withCapturedLogs(() => fetchBefore(broken, 'm4', 24, { selfId: 'self' }));
   assert.equal(result, null);
-  assert.deepEqual(logs.map((l) => [l.msg, l.channel, l.status]), [['search: before failed', 'c1', 403]]);
+  assert.deepEqual(
+    logs.map((l) => [l.msg, l.channel, l.status]),
+    [['search: before failed', 'c1', 403]]
+  );
 });

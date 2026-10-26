@@ -22,15 +22,26 @@ const MP4 = `data:video/mp4;base64,${Buffer.from('clip').toString('base64')}`;
 /** A live hot view with its own config and prompts; `config` is the object a reload would hold. */
 function liveHot() {
   const config = {
-    models: { base: { core: 'live/voice', vision: 'live/vision', video: 'live/video' }, byPurpose: { describe: 'pinned/describe', reply: 'pinned/reply' } },
+    models: {
+      base: { core: 'live/voice', vision: 'live/vision', video: 'live/video' },
+      byPurpose: { describe: 'pinned/describe', reply: 'pinned/reply' },
+    },
     features: { mediaDescriptions: false },
     llm: { helperTimeoutMs: 1000 },
-    media: { descriptionChars: 300, gif: { maxSeconds: 4, maxPerDay: 1 }, video: { maxPerDay: 1, sites: ['youtube.com'] } },
+    media: {
+      descriptionChars: 300,
+      gif: { maxSeconds: 4, maxPerDay: 1 },
+      video: { maxPerDay: 1, sites: ['youtube.com'] },
+    },
     context: { vision: {} },
   };
   return {
     config,
-    prompts: { describe: 'Describe within {{maxChars}}.', 'describe-gif': 'Watch {{seconds}} s within {{maxChars}}.', 'describe-video': 'Summarise within {{maxChars}}.' },
+    prompts: {
+      describe: 'Describe within {{maxChars}}.',
+      'describe-gif': 'Watch {{seconds}} s within {{maxChars}}.',
+      'describe-video': 'Summarise within {{maxChars}}.',
+    },
   };
 }
 
@@ -47,10 +58,24 @@ function fakeLlm({ text = 'a cat on a sofa', cost = 0.001, fail = null } = {}) {
   };
 }
 
-const imageFetcher = (dataUrl = PNG) => ({ fetchAsDataUrl: async () => (dataUrl ? { dataUrl, bytes: 7, contentType: 'image/png' } : null) });
+const imageFetcher = (dataUrl = PNG) => ({
+  fetchAsDataUrl: async () => (dataUrl ? { dataUrl, bytes: 7, contentType: 'image/png' } : null),
+});
 
 test('vision-compare parseArgs: models, one media source, kinds, numbers and effort', () => {
-  const args = parseArgs(['a/one', 'b/two', 'c/three', '--from-cache', '12', '--kinds', 'gif,picture', '--max-usd', '0.5', '--reasoning', 'low']);
+  const args = parseArgs([
+    'a/one',
+    'b/two',
+    'c/three',
+    '--from-cache',
+    '12',
+    '--kinds',
+    'gif,picture',
+    '--max-usd',
+    '0.5',
+    '--reasoning',
+    'low',
+  ]);
   assert.deepEqual(args.models, ['a/one', 'b/two', 'c/three']);
   assert.equal(args.fromCache, 12);
   assert.equal(args.media, null);
@@ -86,14 +111,17 @@ test('vision-compare parseMediaList: entries become the live describer items, pr
   ];
   const { items, errors } = parseMediaList(raw, { videoSites: ['youtube.com'] });
   assert.deepEqual(errors, []);
-  assert.deepEqual(items.map((i) => [i.kind, i.item.kind, i.item.source]), [
-    ['picture', 'image', 'attachment'],
-    ['gif', 'gif', 'attachment'],
-    ['video', 'link', 'link'],
-    ['video', 'video', 'attachment'],
-    ['emoji', 'emoji', 'emoji'],
-    ['sticker', 'sticker', 'sticker'],
-  ]);
+  assert.deepEqual(
+    items.map((i) => [i.kind, i.item.kind, i.item.source]),
+    [
+      ['picture', 'image', 'attachment'],
+      ['gif', 'gif', 'attachment'],
+      ['video', 'link', 'link'],
+      ['video', 'video', 'attachment'],
+      ['emoji', 'emoji', 'emoji'],
+      ['sticker', 'sticker', 'sticker'],
+    ]
+  );
   assert.equal(items[0].label, 'café');
   assert.equal(items[2].item.site, 'youtube.com');
   assert.equal(new Set(items.map((i) => i.item.itemId)).size, items.length);
@@ -106,13 +134,19 @@ test('vision-compare parseMediaList: entries become the live describer items, pr
       { kind: 'picture', url: 'https://a.example/x.png', label: 'x'.repeat(201) },
       { kind: 'video', url: 'https://unknown.example/watch/1' },
     ],
-    { videoSites: ['youtube.com'] },
+    { videoSites: ['youtube.com'] }
   );
   assert.equal(bad.items.length, 0);
-  assert.deepEqual(bad.errors.map((e) => e.split(':')[0]), ['entry 0', 'entry 1', 'entry 2', 'entry 3', 'entry 4']);
+  assert.deepEqual(
+    bad.errors.map((e) => e.split(':')[0]),
+    ['entry 0', 'entry 1', 'entry 2', 'entry 3', 'entry 4']
+  );
   assert.equal(parseMediaList({}).errors.length, 1);
   const onlyGifs = parseMediaList(raw, { videoSites: ['youtube.com'], kinds: ['gif'] });
-  assert.deepEqual(onlyGifs.items.map((i) => i.kind), ['gif']);
+  assert.deepEqual(
+    onlyGifs.items.map((i) => i.kind),
+    ['gif']
+  );
 });
 
 test('vision-compare pickFromCache: newest first per kind, one kind after another, only real descriptions', () => {
@@ -132,18 +166,24 @@ test('vision-compare pickFromCache: newest first per kind, one kind after anothe
     'search:xyz': { text: 'web', ts: 90 },
   };
   const picked = pickFromCache(cache, { n: 7 });
-  assert.deepEqual(picked.map((p) => p.key), [
-    '222222222222222222',
-    '333333333333333333#e0',
-    'video:video:url:def',
-    'emoji:777',
-    'sticker:888',
-    'link:abc',
-    'video:444444444444444444',
-  ]);
+  assert.deepEqual(
+    picked.map((p) => p.key),
+    [
+      '222222222222222222',
+      '333333333333333333#e0',
+      'video:video:url:def',
+      'emoji:777',
+      'sticker:888',
+      'link:abc',
+      'video:444444444444444444',
+    ]
+  );
   assert.equal(picked[2].itemId, 'video:url:def');
   assert.equal(picked[6].itemId, '444444444444444444');
-  assert.deepEqual(pickFromCache(cache, { n: 10, kinds: ['picture'] }).map((p) => p.key), ['222222222222222222', 'link:abc', 'video:url:999', '111111111111111111']);
+  assert.deepEqual(
+    pickFromCache(cache, { n: 10, kinds: ['picture'] }).map((p) => p.key),
+    ['222222222222222222', 'link:abc', 'video:url:999', '111111111111111111']
+  );
   assert.equal(pickFromCache(cache, { n: 100 }).length, 9);
 });
 
@@ -170,7 +210,18 @@ test('vision-compare describeOne: a picture goes through the live describer with
   const entry = parseMediaList([{ kind: 'picture', url: 'https://cdn.example.com/a.png' }]).items[0];
   let clock = 1000;
   const now = () => (clock += 10);
-  const { result } = await withCapturedLogs(() => describeOne({ base, model: 'cand/model', entry, guildId: 'g1', llm, imageFetcher: imageFetcher(), now, reasoning: 'minimal' }));
+  const { result } = await withCapturedLogs(() =>
+    describeOne({
+      base,
+      model: 'cand/model',
+      entry,
+      guildId: 'g1',
+      llm,
+      imageFetcher: imageFetcher(),
+      now,
+      reasoning: 'minimal',
+    })
+  );
   assert.equal(result.ok, true);
   assert.equal(result.text, 'a cat on a sofa');
   assert.equal(result.error, null);
@@ -195,7 +246,9 @@ test('vision-compare describeOne: a GIF is watched on the video role, each call 
   const llm = fakeLlm({ text: 'reaction: delight\naction: a dog spins\ntext: none' });
   const videoFetcher = { fetchGif: async () => ({ ok: true, dataUrl: MP4, seconds: 3, bytes: 4 }) };
   const entry = parseMediaList([{ kind: 'gif', url: 'https://media.example.com/b.mp4' }]).items[0];
-  const { result } = await withCapturedLogs(() => describeOne({ base, model: 'cand/model', entry, guildId: 'g1', llm, imageFetcher: imageFetcher(), videoFetcher }));
+  const { result } = await withCapturedLogs(() =>
+    describeOne({ base, model: 'cand/model', entry, guildId: 'g1', llm, imageFetcher: imageFetcher(), videoFetcher })
+  );
   assert.equal(result.ok, true);
   assert.equal(result.text, 'a dog spins');
   assert.equal(result.mode, 'watched');
@@ -203,7 +256,11 @@ test('vision-compare describeOne: a GIF is watched on the video role, each call 
   assert.equal(llm.calls[0].options.role, 'video');
   assert.equal(result.preview.dataUrl, MP4);
   // media.gif.maxPerDay is 1: a second call is watched too, its daily counter a fresh one.
-  const again = (await withCapturedLogs(() => describeOne({ base, model: 'cand/model', entry, guildId: 'g1', llm, imageFetcher: imageFetcher(), videoFetcher }))).result;
+  const again = (
+    await withCapturedLogs(() =>
+      describeOne({ base, model: 'cand/model', entry, guildId: 'g1', llm, imageFetcher: imageFetcher(), videoFetcher })
+    )
+  ).result;
   assert.equal(again.mode, 'watched');
 });
 
@@ -211,7 +268,10 @@ test('vision-compare describeOne: a failure carries its code', async () => {
   const base = liveHot();
   const entry = parseMediaList([{ kind: 'picture', url: 'https://cdn.example.com/a.png' }]).items[0];
   const failed = Object.assign(new Error('upstream'), { statusCode: 503 });
-  const run = (llm, fetcher) => withCapturedLogs(() => describeOne({ base, model: 'cand/model', entry, guildId: 'g1', llm, imageFetcher: fetcher }));
+  const run = (llm, fetcher) =>
+    withCapturedLogs(() =>
+      describeOne({ base, model: 'cand/model', entry, guildId: 'g1', llm, imageFetcher: fetcher })
+    );
   const http = (await run(fakeLlm({ fail: failed }), imageFetcher())).result;
   assert.equal(http.ok, false);
   assert.equal(http.error, 'http-503');
@@ -222,12 +282,29 @@ test('vision-compare describeOne: a failure carries its code', async () => {
 });
 
 test('vision-compare runComparison: no item starts once the cost has passed --max-usd', async () => {
-  const items = [1, 2, 3].map((n) => ({ id: `item-${n}`, kind: 'picture', url: 'https://a.example/x.png', label: null }));
+  const items = [1, 2, 3].map((n) => ({
+    id: `item-${n}`,
+    kind: 'picture',
+    url: 'https://a.example/x.png',
+    label: null,
+  }));
   const seen = [];
   const runOne = async (model, item) => {
     seen.push(`${item.id}:${model}`);
     if (item.id === 'item-2' && model === 'b') throw new TypeError('boom');
-    return { model, ok: true, text: 't', error: null, mode: null, latencyMs: 10, requests: 1, promptTokens: 1, completionTokens: 1, costUsd: 0.4, preview: null };
+    return {
+      model,
+      ok: true,
+      text: 't',
+      error: null,
+      mode: null,
+      latencyMs: 10,
+      requests: 1,
+      promptTokens: 1,
+      completionTokens: 1,
+      costUsd: 0.4,
+      preview: null,
+    };
   };
   const outcome = await runComparison({ items, models: ['a', 'b'], maxUsd: 1, runOne });
   assert.deepEqual(seen, ['item-1:a', 'item-1:b', 'item-2:a', 'item-2:b']);
@@ -236,10 +313,13 @@ test('vision-compare runComparison: no item starts once the cost has passed --ma
   assert.equal(outcome.rows.length, 2);
   assert.equal(outcome.rows[1].cells[1].error, 'TypeError');
   const summary = summarizeModels(outcome.rows, ['a', 'b']);
-  assert.deepEqual(summary.map((s) => [s.model, s.items, s.failures, s.costUsd]), [
-    ['a', 2, 0, 0.8],
-    ['b', 2, 1, 0.4],
-  ]);
+  assert.deepEqual(
+    summary.map((s) => [s.model, s.items, s.failures, s.costUsd]),
+    [
+      ['a', 2, 0, 0.8],
+      ['b', 2, 1, 0.4],
+    ]
+  );
   const all = await runComparison({ items, models: ['a'], maxUsd: 5, runOne });
   assert.equal(all.stopped, null);
   assert.equal(all.rows.length, 3);
@@ -249,20 +329,65 @@ test('vision-compare renderHtml: every outside text is escaped and only media da
   const evil = '<script>alert(1)</script>';
   const rows = [
     {
-      item: { id: 'item-1', kind: 'picture', url: 'https://a.example/x.png?a=1&b="2"', label: `"><img src=x onerror=alert(1)>` },
+      item: {
+        id: 'item-1',
+        kind: 'picture',
+        url: 'https://a.example/x.png?a=1&b="2"',
+        label: `"><img src=x onerror=alert(1)>`,
+      },
       preview: { dataUrl: PNG },
       cells: [
-        { model: 'a/one', ok: true, text: evil, error: null, mode: null, latencyMs: 12, promptTokens: 3, completionTokens: 4, costUsd: 0.01 },
-        { model: '<b>two</b>', ok: false, text: null, error: '<i>x</i>', mode: null, latencyMs: 5, promptTokens: 0, completionTokens: 0, costUsd: 0 },
+        {
+          model: 'a/one',
+          ok: true,
+          text: evil,
+          error: null,
+          mode: null,
+          latencyMs: 12,
+          promptTokens: 3,
+          completionTokens: 4,
+          costUsd: 0.01,
+        },
+        {
+          model: '<b>two</b>',
+          ok: false,
+          text: null,
+          error: '<i>x</i>',
+          mode: null,
+          latencyMs: 5,
+          promptTokens: 0,
+          completionTokens: 0,
+          costUsd: 0,
+        },
       ],
     },
     {
       item: { id: 'item-2', kind: 'video', url: 'javascript:alert(1)', label: 'Ελληνικά' },
       preview: { dataUrl: 'data:text/html;base64,PHNjcmlwdD4=' },
-      cells: [{ model: 'a/one', ok: true, text: 'fine', error: null, mode: 'one frame', latencyMs: 1, promptTokens: 1, completionTokens: 1, costUsd: 0 }],
+      cells: [
+        {
+          model: 'a/one',
+          ok: true,
+          text: 'fine',
+          error: null,
+          mode: 'one frame',
+          latencyMs: 1,
+          promptTokens: 1,
+          completionTokens: 1,
+          costUsd: 0,
+        },
+      ],
     },
   ];
-  const html = renderHtml({ at: '2026-10-16T00:00:00.000Z', models: ['a/one', '<b>two</b>'], rows, summary: summarizeModels(rows, ['a/one', '<b>two</b>']), source: 'media file', stopped: 'max-usd', skipped: 2 });
+  const html = renderHtml({
+    at: '2026-10-16T00:00:00.000Z',
+    models: ['a/one', '<b>two</b>'],
+    rows,
+    summary: summarizeModels(rows, ['a/one', '<b>two</b>']),
+    source: 'media file',
+    stopped: 'max-usd',
+    skipped: 2,
+  });
   assert.equal(/<script/i.test(html), false);
   assert.equal(html.includes('<img src=x'), false);
   assert.equal(html.includes('<b>two</b>'), false);

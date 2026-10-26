@@ -154,7 +154,11 @@ export function removeRule(rulesText, n) {
  * @returns {string[]}
  */
 export function splitPath(dottedPath, reference) {
-  const segments = Array.isArray(dottedPath) ? dottedPath.map(String) : String(dottedPath).split('.').filter((part) => part.length > 0);
+  const segments = Array.isArray(dottedPath)
+    ? dottedPath.map(String)
+    : String(dottedPath)
+        .split('.')
+        .filter((part) => part.length > 0);
   for (const part of segments) {
     if (FORBIDDEN_SEGMENTS.has(part)) throw invalid(`forbidden path segment: ${part}`);
   }
@@ -247,7 +251,9 @@ export function withArticle(word) {
 export function touchesOwnerOnlyConfig(parts) {
   const key = parts.join('.');
   if (!key) return false;
-  return OWNER_ONLY_CONFIG_PATHS.some((owned) => key === owned || key.startsWith(`${owned}.`) || owned.startsWith(`${key}.`));
+  return OWNER_ONLY_CONFIG_PATHS.some(
+    (owned) => key === owned || key.startsWith(`${owned}.`) || owned.startsWith(`${key}.`)
+  );
 }
 
 /** `, last YYYY-MM-DD` for `/nep memory show`, or '' when `lastSeen` is unknown. */
@@ -278,7 +284,8 @@ export function reloadNote(ok) {
 /** The weight an item reaches when the owner confirms it at once (`/nep alias add`,
  * `/nep learned add`): `memory.confirmAfter` rounded up, at least 1 (default 2). */
 export function confirmTarget(memoryCfg) {
-  const confirmAfter = Number.isFinite(memoryCfg?.confirmAfter) && memoryCfg.confirmAfter > 0 ? Math.ceil(memoryCfg.confirmAfter) : 2;
+  const confirmAfter =
+    Number.isFinite(memoryCfg?.confirmAfter) && memoryCfg.confirmAfter > 0 ? Math.ceil(memoryCfg.confirmAfter) : 2;
   return Math.max(1, confirmAfter);
 }
 
@@ -414,7 +421,9 @@ export function asStored(text) {
 export function rawMemoryShowView(profile, memoryCfg) {
   const lines = [JSON.stringify(profile, null, 2)];
   const everything = (items, { halfLifeDays, maxShown, formatLine }) =>
-    orderedSectionLines(items, { order: 'rank', limit: Infinity, halfLifeDays, maxShown, formatLine }).map((line) => `  ${line}`);
+    orderedSectionLines(items, { order: 'rank', limit: Infinity, halfLifeDays, maxShown, formatLine }).map(
+      (line) => `  ${line}`
+    );
   const heading = (name) => `${name}: (rank order, everything stored -- see the divider for what the persona is shown)`;
   if (profile.interests?.length) {
     lines.push('', heading('interests'));
@@ -423,7 +432,7 @@ export function rawMemoryShowView(profile, memoryCfg) {
         halfLifeDays: memoryCfg?.interestHalfLifeDays,
         maxShown: memoryCfg?.maxInterests,
         formatLine: (it) => interestLine(it, asStored),
-      }),
+      })
     );
   }
   if (profile.details?.length) {
@@ -433,7 +442,7 @@ export function rawMemoryShowView(profile, memoryCfg) {
         halfLifeDays: memoryCfg?.detailHalfLifeDays,
         maxShown: memoryCfg?.maxDetails,
         formatLine: (d) => detailLine(d, asStored),
-      }),
+      })
     );
   }
   if (profile.aliases?.length) {
@@ -443,7 +452,7 @@ export function rawMemoryShowView(profile, memoryCfg) {
         halfLifeDays: memoryCfg?.aliasHalfLifeDays,
         maxShown: memoryCfg?.maxAliases,
         formatLine: aliasLine,
-      }),
+      })
     );
   }
   if (profile.episodes?.length) {
@@ -497,7 +506,10 @@ export function affinityView(affinity, resolve) {
   const current = affinity ?? emptyAffinity();
   const history = (current.history ?? [])
     .slice(-5)
-    .map((h) => `${h.ts} ${h.delta >= 0 ? '+' : ''}${h.delta} -> ${roundScore(h.score)}${h.reason ? `: ${resolve(h.reason)}` : ''}`)
+    .map(
+      (h) =>
+        `${h.ts} ${h.delta >= 0 ? '+' : ''}${h.delta} -> ${roundScore(h.score)}${h.reason ? `: ${resolve(h.reason)}` : ''}`
+    )
     .join('\n');
   return [
     `score: ${roundScore(current.score)}`,
@@ -655,7 +667,13 @@ export function archivedText(entry, resolve) {
   const parts = [];
   for (const value of Object.values(entry?.text ?? {})) {
     if (typeof value === 'string' && value.trim()) parts.push(value);
-    else if (Array.isArray(value)) parts.push(value.map((message) => (typeof message?.text === 'string' ? message.text : '')).filter(Boolean).join(' / '));
+    else if (Array.isArray(value))
+      parts.push(
+        value
+          .map((message) => (typeof message?.text === 'string' ? message.text : ''))
+          .filter(Boolean)
+          .join(' / ')
+      );
   }
   return oneLine(resolve(parts.filter(Boolean).join(' | ')));
 }
@@ -697,7 +715,12 @@ export async function channelById(client, id) {
 }
 
 /** The skill a channel need stands for, as a wake envelope names it (a read stands for none). */
-const NEED_CAPABILITY = Object.freeze({ send: 'message.create', reply: 'message.create', attach: 'message.create', react: 'message.react.add' });
+const NEED_CAPABILITY = Object.freeze({
+  send: 'message.create',
+  reply: 'message.create',
+  attach: 'message.create',
+  react: 'message.react.add',
+});
 
 /**
  * The conversation an operation acting as the persona aims at (`/nep message`, `/nep draw
@@ -762,5 +785,10 @@ export function portAnswer(name, result, text) {
   if (result?.status === 'ok') return { text, ref: result.ref ?? null, at: result.at };
   const code = String(result?.error?.code ?? result?.status ?? CODE.ERROR);
   const unknown = result?.status === 'unknown';
-  return { status: 'failed', code, summary: `${name}: ${unknown ? 'unclear whether it went through' : 'failed'} (${code})`, data: { unknown, portStatus: result?.status ?? null } };
+  return {
+    status: 'failed',
+    code,
+    summary: `${name}: ${unknown ? 'unclear whether it went through' : 'failed'} (${code})`,
+    data: { unknown, portStatus: result?.status ?? null },
+  };
 }

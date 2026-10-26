@@ -32,13 +32,20 @@ const inTransaction = (db, fn) => {
     db.exec('COMMIT');
     return result;
   } catch (error) {
-    try { db.exec('ROLLBACK'); } catch { /* already rolled back */ }
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      /* already rolled back */
+    }
     throw error;
   }
 };
 
 const metaGet = (db, key) => db.prepare('SELECT value FROM meta WHERE key = ?').get(key)?.value ?? null;
-const metaSet = (db, key, value) => db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
+const metaSet = (db, key, value) =>
+  db
+    .prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+    .run(key, value);
 
 /** The stems of `text` under a key function (`stem`): the keys of its words, space-joined. */
 export function stemsOf(stem, text) {
@@ -63,20 +70,28 @@ export function loadStemmer(db) {
       const saved = JSON.parse(raw);
       const learned = { endings: saved.endings ?? [], productivity: new Map(saved.productivity ?? []) };
       value = { stem: stemmerOf(learned), endings: learned.endings };
-    } catch { /* an unreadable value: the identity stemmer, the next pass learns again */ }
+    } catch {
+      /* an unreadable value: the identity stemmer, the next pass learns again */
+    }
   }
   parsed.set(db, { raw, value });
   return value;
 }
 
 function textRows(db) {
-  return db.prepare(`SELECT COUNT(*) AS n FROM sources WHERE kind IN ${LEARN_KINDS} AND retired_at IS NULL AND text IS NOT NULL`).get().n;
+  return db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM sources WHERE kind IN ${LEARN_KINDS} AND retired_at IS NULL AND text IS NOT NULL`
+    )
+    .get().n;
 }
 
 /** Learns the endings from the database's text and stores them; returns whether the stored value changed. */
 function learn(db) {
   const words = new Set();
-  const select = db.prepare(`SELECT text FROM sources WHERE kind IN ${LEARN_KINDS} AND retired_at IS NULL AND text IS NOT NULL`);
+  const select = db.prepare(
+    `SELECT text FROM sources WHERE kind IN ${LEARN_KINDS} AND retired_at IS NULL AND text IS NOT NULL`
+  );
   for (const row of select.iterate()) for (const word of indexWords(row.text)) words.add(word);
   const { endings, productivity } = learnEndings(words);
   const next = JSON.stringify({ count: textRows(db), endings, productivity: [...productivity] });
@@ -90,7 +105,11 @@ function stale(db) {
   const raw = metaGet(db, META_KEY);
   if (!raw) return true;
   let count = 0;
-  try { count = JSON.parse(raw).count ?? 0; } catch { return true; }
+  try {
+    count = JSON.parse(raw).count ?? 0;
+  } catch {
+    return true;
+  }
   const now = textRows(db);
   return now - count >= MIN_GROWTH_ROWS && now >= count * (1 + GROWTH);
 }

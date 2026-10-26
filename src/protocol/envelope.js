@@ -50,7 +50,8 @@ export function validateEnvelope(value) {
   if (value.v !== ENVELOPE_VERSION) return { ok: false, reason: 'v:unsupported' };
   if (!isId(value.id)) return { ok: false, reason: 'id:type' };
   if (!ENVELOPE_TYPES.includes(value.type)) return { ok: false, reason: 'type:unknown' };
-  if (value.replyTo !== null && value.replyTo !== undefined && !isId(value.replyTo)) return { ok: false, reason: 'replyTo:type' };
+  if (value.replyTo !== null && value.replyTo !== undefined && !isId(value.replyTo))
+    return { ok: false, reason: 'replyTo:type' };
   const answers = value.type === 'ack' || value.type === 'action_result';
   if (answers && !isId(value.replyTo)) return { ok: false, reason: 'replyTo:required' };
   const body = value.body;
@@ -58,8 +59,10 @@ export function validateEnvelope(value) {
   switch (value.type) {
     case 'hello':
       if (!isId(body.iface)) return { ok: false, reason: 'body.iface:type' };
-      if (body.capabilities !== undefined && !(Array.isArray(body.capabilities) && body.capabilities.every(isId))) return { ok: false, reason: 'body.capabilities:type' };
-      if (body.resume !== undefined && body.resume !== null && !isId(body.resume)) return { ok: false, reason: 'body.resume:type' };
+      if (body.capabilities !== undefined && !(Array.isArray(body.capabilities) && body.capabilities.every(isId)))
+        return { ok: false, reason: 'body.capabilities:type' };
+      if (body.resume !== undefined && body.resume !== null && !isId(body.resume))
+        return { ok: false, reason: 'body.resume:type' };
       return { ok: true };
     case 'event': {
       const verdict = validateEvent(body);
@@ -76,7 +79,8 @@ export function validateEnvelope(value) {
       if (typeof body.status !== 'string' || body.status === '') return { ok: false, reason: 'body.status:type' };
       return { ok: true };
     default:
-      if (body.at !== undefined && !(typeof body.at === 'number' && Number.isFinite(body.at))) return { ok: false, reason: 'body.at:type' };
+      if (body.at !== undefined && !(typeof body.at === 'number' && Number.isFinite(body.at)))
+        return { ok: false, reason: 'body.at:type' };
       return { ok: true };
   }
 }

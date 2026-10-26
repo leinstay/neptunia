@@ -8,15 +8,34 @@ const DIR = 'vectors/2026-10';
 const DIMS = 4;
 
 const line = (row, extra = {}) => ({
-  row, kind: 'record', id: `40000000000000000${row}`, revision: 1, occurredAt: '2026-10-01T00:00:16.011Z', channelId: '200000000000000001',
-  by: '100000000000000001', participants: ['100000000000000001', '100000000000000002'], sourceIds: ['400000000000000001'],
-  scale: 0.0008625745421319496, norm: 0.9999999997754667, ...extra,
+  row,
+  kind: 'record',
+  id: `40000000000000000${row}`,
+  revision: 1,
+  occurredAt: '2026-10-01T00:00:16.011Z',
+  channelId: '200000000000000001',
+  by: '100000000000000001',
+  participants: ['100000000000000001', '100000000000000002'],
+  sourceIds: ['400000000000000001'],
+  scale: 0.0008625745421319496,
+  norm: 0.9999999997754667,
+  ...extra,
 });
 
 function month(lines, i8, manifestExtra = {}) {
   const meta = lines.map((l) => `${JSON.stringify(l)}\n`).join('');
   return {
-    manifest: { v: 1, gen: 1, rows: lines.length, bytes: i8.length, metaBytes: Buffer.byteLength(meta), model: 'test/embedder', dims: DIMS, checksum: 'fnv1a32:00000000:00000000', ...manifestExtra },
+    manifest: {
+      v: 1,
+      gen: 1,
+      rows: lines.length,
+      bytes: i8.length,
+      metaBytes: Buffer.byteLength(meta),
+      model: 'test/embedder',
+      dims: DIMS,
+      checksum: 'fnv1a32:00000000:00000000',
+      ...manifestExtra,
+    },
     meta,
     i8,
   };
@@ -53,7 +72,16 @@ test('each jsonl line becomes a vectors row whose bytes are its slice of the int
 
 test('null fields, a different key order and unknown keys keep the file byte-exact', () => {
   const i8 = Buffer.alloc(DIMS * 3, 7);
-  const odd = { norm: 1, scale: 0, id: 'x', row: 1, kind: 'record', revision: null, occurredAt: '2026-10-02T00:00:00.000Z', extra: { deep: [1] } };
+  const odd = {
+    norm: 1,
+    scale: 0,
+    id: 'x',
+    row: 1,
+    kind: 'record',
+    revision: null,
+    occurredAt: '2026-10-02T00:00:00.000Z',
+    extra: { deep: [1] },
+  };
   const value = month([line(0, { channelId: null, by: null, participants: [] }), odd, line(2, { revision: '3' })], i8);
   const { back } = roundTrip(mapper, DIR, value);
   assertSame(value, back);
@@ -97,14 +125,20 @@ test('a jsonl the engine would not have written is kept raw, with its data, and 
 test('a repeated chunk key gets a suffix and the lines still come back', () => {
   const value = month([line(0, { id: 'same' }), line(1, { id: 'same' })], Buffer.alloc(DIMS * 2, 3));
   const { rows, back } = roundTrip(mapper, DIR, value);
-  assert.deepEqual(rows.vectors.map((row) => row.chunk_key), ['record:same:1', 'record:same:1-2']);
+  assert.deepEqual(
+    rows.vectors.map((row) => row.chunk_key),
+    ['record:same:1', 'record:same:1-2']
+  );
   assertSame(value, back);
 });
 
 test('filesOf lists the three files of the month under the generation the manifest names', () => {
   const value = month([line(0)], Buffer.from([1, 2, 3, 4]), { gen: 12 });
   const files = mapper.filesOf(`${DIR}/12.i8`, value);
-  assert.deepEqual(files.map((file) => file.rel), [`${DIR}/manifest.json`, `${DIR}/12.i8`, `${DIR}/12.jsonl`]);
+  assert.deepEqual(
+    files.map((file) => file.rel),
+    [`${DIR}/manifest.json`, `${DIR}/12.i8`, `${DIR}/12.jsonl`]
+  );
   assert.equal(files[0].data.toString(), JSON.stringify(value.manifest));
   assert.ok(files[1].data.equals(value.i8));
   assert.equal(files[2].data.toString(), value.meta);
@@ -116,10 +150,17 @@ const keysOf = (rows) => rows.vectors.map((row) => row.chunk_key);
 
 test('appendRows maps only the rows past the stored ones and keeps the whole month exact', () => {
   const first = month([line(0), line(1)], Buffer.from([1, 1, 1, 1, 2, 2, 2, 2]));
-  const whole = month([line(0), line(1), line(2), line(3, { id: line(0).id })], Buffer.from([1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4]));
+  const whole = month(
+    [line(0), line(1), line(2), line(3, { id: line(0).id })],
+    Buffer.from([1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4])
+  );
   const stored = mapper.toRows(DIR, first);
   const previous = JSON.parse(stored.operational[0].value);
-  const delta = { manifest: whole.manifest, meta: whole.meta.slice(first.manifest.metaBytes), i8: whole.i8.subarray(first.manifest.bytes) };
+  const delta = {
+    manifest: whole.manifest,
+    meta: whole.meta.slice(first.manifest.metaBytes),
+    i8: whole.i8.subarray(first.manifest.bytes),
+  };
   const added = mapper.appendRows(DIR, delta, { previous, keys: keysOf(stored) });
   assert.equal(added.vectors.length, 2);
   assert.deepEqual([...added.vectors[0].bytes], [3, 3, 3, 3]);

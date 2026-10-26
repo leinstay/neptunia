@@ -50,7 +50,8 @@ export function parseArgs(argv) {
     usage: USAGE,
   });
   const models = flags._;
-  if (models.length < 2 || new Set(models).size !== models.length || !models.every((m) => MODEL_RE.test(m))) throw new CliError(USAGE);
+  if (models.length < 2 || new Set(models).size !== models.length || !models.every((m) => MODEL_RE.test(m)))
+    throw new CliError(USAGE);
   const hasMedia = flags['--media'] !== undefined;
   const hasCache = flags['--from-cache'] !== undefined;
   if (hasMedia === hasCache) throw new CliError(`${USAGE}\n(give exactly one of --media and --from-cache)`);
@@ -61,8 +62,12 @@ export function parseArgs(argv) {
   }
   let kinds = [...KINDS];
   if (flags['--kinds'] !== undefined) {
-    kinds = String(flags['--kinds']).split(',').map((k) => k.trim()).filter(Boolean);
-    if (kinds.length === 0 || !kinds.every((k) => KINDS.includes(k))) throw new CliError(`${USAGE}\n(kinds: ${KINDS.join(', ')})`);
+    kinds = String(flags['--kinds'])
+      .split(',')
+      .map((k) => k.trim())
+      .filter(Boolean);
+    if (kinds.length === 0 || !kinds.every((k) => KINDS.includes(k)))
+      throw new CliError(`${USAGE}\n(kinds: ${KINDS.join(', ')})`);
     kinds = KINDS.filter((k) => kinds.includes(k));
   }
   let maxUsd = DEFAULT_MAX_USD;
@@ -71,7 +76,8 @@ export function parseArgs(argv) {
     if (!Number.isFinite(maxUsd) || maxUsd < 0) throw new CliError(USAGE);
   }
   const reasoning = flags['--reasoning'] ?? null;
-  if (reasoning !== null && !REASONING_EFFORTS.includes(reasoning)) throw new CliError(`${USAGE}\n(efforts: ${REASONING_EFFORTS.join(', ')})`);
+  if (reasoning !== null && !REASONING_EFFORTS.includes(reasoning))
+    throw new CliError(`${USAGE}\n(efforts: ${REASONING_EFFORTS.join(', ')})`);
   return {
     models,
     media: hasMedia ? flags['--media'] : null,
@@ -149,7 +155,8 @@ export function parseMediaList(raw, { videoSites = [], kinds = KINDS } = {}) {
     const at = `entry ${index}`;
     if (!isPlainObject(entry)) return errors.push(`${at}: not an object`);
     if (!KINDS.includes(entry.kind)) return errors.push(`${at}: kind must be one of ${KINDS.join(', ')}`);
-    if (typeof entry.url !== 'string' || entry.url.length > MAX_URL_CHARS || !isHttpUrl(entry.url)) return errors.push(`${at}: url must be an http(s) URL`);
+    if (typeof entry.url !== 'string' || entry.url.length > MAX_URL_CHARS || !isHttpUrl(entry.url))
+      return errors.push(`${at}: url must be an http(s) URL`);
     if (entry.label !== undefined && (typeof entry.label !== 'string' || entry.label.length > MAX_LABEL_CHARS)) {
       return errors.push(`${at}: label must be a string of at most ${MAX_LABEL_CHARS} characters`);
     }
@@ -184,13 +191,21 @@ const ATTACHMENT_ID_RE = /^\d+$/;
  * @returns {string|null}
  */
 export function cacheKind(key, entry) {
-  if (typeof key !== 'string' || !isPlainObject(entry) || entry.miss || typeof entry.text !== 'string' || !entry.text.trim()) return null;
+  if (
+    typeof key !== 'string' ||
+    !isPlainObject(entry) ||
+    entry.miss ||
+    typeof entry.text !== 'string' ||
+    !entry.text.trim()
+  )
+    return null;
   if (key.includes(':q:')) return null;
   if (key.startsWith('video:') && !key.startsWith('video:url:')) return entry.watched === true ? 'video' : null;
   if (entry.gif === true) return 'gif';
   if (key.startsWith('emoji:')) return 'emoji';
   if (key.startsWith('sticker:')) return 'sticker';
-  if (ATTACHMENT_ID_RE.test(key) || EMBED_ID_RE.test(key) || key.startsWith('link:') || key.startsWith('video:url:')) return 'picture';
+  if (ATTACHMENT_ID_RE.test(key) || EMBED_ID_RE.test(key) || key.startsWith('link:') || key.startsWith('video:url:'))
+    return 'picture';
   return null;
 }
 
@@ -239,7 +254,10 @@ export function pickFromCache(cache, { n, kinds = KINDS }) {
  * @param {number} nowMs
  */
 export function lookupSince(picked, nowMs) {
-  const times = picked.filter((p) => p.kind !== 'emoji').map((p) => (Number.isFinite(p.ts) ? p.ts : p.usedAt)).filter(Number.isFinite);
+  const times = picked
+    .filter((p) => p.kind !== 'emoji')
+    .map((p) => (Number.isFinite(p.ts) ? p.ts : p.usedAt))
+    .filter(Number.isFinite);
   return (times.length > 0 ? Math.min(...times) : nowMs) - DAY_MS;
 }
 
@@ -260,11 +278,19 @@ export function toolHot(base, { model }) {
       const models = isPlainObject(live.models) ? live.models : {};
       const baseModels = isPlainObject(models.base) ? models.base : {};
       const byPurpose = isPlainObject(models.byPurpose)
-        ? Object.fromEntries(Object.entries(models.byPurpose).filter(([purpose]) => !['vision', 'video'].includes(PURPOSE_ROLES[purpose])))
+        ? Object.fromEntries(
+            Object.entries(models.byPurpose).filter(
+              ([purpose]) => !['vision', 'video'].includes(PURPOSE_ROLES[purpose])
+            )
+          )
         : undefined;
       return {
         ...live,
-        models: { ...models, base: { ...baseModels, vision: model, video: model }, ...(byPurpose ? { byPurpose } : {}) },
+        models: {
+          ...models,
+          base: { ...baseModels, vision: model, video: model },
+          ...(byPurpose ? { byPurpose } : {}),
+        },
         features: { ...(live.features ?? {}), mediaDescriptions: true, videoDescriptions: true },
       };
     },
@@ -304,7 +330,18 @@ function failureCode(entry) {
  *   latencyMs: number, requests: number, promptTokens: number, completionTokens: number, costUsd: number,
  *   sentModels: string[], preview: { dataUrl: string, contentType: string }|null }>}
  */
-export async function describeOne({ base, model, entry, guildId, llm, reasoning = null, imageFetcher, videoFetcher, youtubeApiKey = null, now = Date.now }) {
+export async function describeOne({
+  base,
+  model,
+  entry,
+  guildId,
+  llm,
+  reasoning = null,
+  imageFetcher,
+  videoFetcher,
+  youtubeApiKey = null,
+  now = Date.now,
+}) {
   const hot = toolHot(base, { model });
   const cache = {};
   const store = { getMediaCache: () => cache, markMediaCacheDirty() {} };
@@ -337,7 +374,10 @@ export async function describeOne({ base, model, entry, guildId, llm, reasoning 
         return completion;
       } catch (err) {
         usage.requests += 1;
-        requestFailure = railReason(err, Number.isFinite(err?.statusCode) ? `http-${err.statusCode}` : 'request-failed');
+        requestFailure = railReason(
+          err,
+          Number.isFinite(err?.statusCode) ? `http-${err.statusCode}` : 'request-failed'
+        );
         throw err;
       }
     },
@@ -393,7 +433,8 @@ export async function describeOne({ base, model, entry, guildId, llm, reasoning 
   let error = null;
   if (!text) {
     const blocker = entry.kind === 'video' ? null : describer.pictureBlocker();
-    const videoState = entry.kind === 'video' && result?.state && result.state !== 'watched' ? (result.reason ?? result.state) : null;
+    const videoState =
+      entry.kind === 'video' && result?.state && result.state !== 'watched' ? (result.reason ?? result.state) : null;
     // The describer's own code names the stage; a generic request failure is named by its status.
     const stage = logged === 'llm-error' && requestFailure ? requestFailure : logged;
     error = thrown ?? stage ?? requestFailure ?? videoState ?? blocker ?? 'no-result';
@@ -423,7 +464,19 @@ export async function runComparison({ items, models, maxUsd, runOne, onCell = ()
       try {
         cell = await runOne(model, item);
       } catch (err) {
-        cell = { model, ok: false, text: null, error: err?.name ?? 'Error', mode: null, latencyMs: null, requests: 0, promptTokens: 0, completionTokens: 0, costUsd: 0, preview: null };
+        cell = {
+          model,
+          ok: false,
+          text: null,
+          error: err?.name ?? 'Error',
+          mode: null,
+          latencyMs: null,
+          requests: 0,
+          promptTokens: 0,
+          completionTokens: 0,
+          costUsd: 0,
+          preview: null,
+        };
       }
       spentUsd += Number.isFinite(cell.costUsd) ? cell.costUsd : 0;
       cells.push(cell);
@@ -449,7 +502,10 @@ export function summarizeModels(rows, models) {
       items: cells.length,
       failures: cells.filter((cell) => !cell.ok).length,
       costUsd: Math.round(sum('costUsd') * 1e6) / 1e6,
-      medianLatencyMs: percentile(cells.map((cell) => cell.latencyMs), 50),
+      medianLatencyMs: percentile(
+        cells.map((cell) => cell.latencyMs),
+        50
+      ),
       promptTokens: sum('promptTokens'),
       completionTokens: sum('completionTokens'),
     };
@@ -477,14 +533,17 @@ function safeDataUrl(preview) {
 
 /** A link to `url` when it is http(s), else nothing. */
 function linkHtml(url, text) {
-  return isHttpUrl(url) ? `<a href="${escapeHtml(url)}" rel="noreferrer noopener" target="_blank">${escapeHtml(text)}</a>` : '';
+  return isHttpUrl(url)
+    ? `<a href="${escapeHtml(url)}" rel="noreferrer noopener" target="_blank">${escapeHtml(text)}</a>`
+    : '';
 }
 
 /** The media cell of one row: the inlined picture or clip the describer downloaded, else a link. */
 function mediaHtml(row) {
   const data = safeDataUrl(row.preview);
   const link = linkHtml(row.item.url, row.item.kind === 'video' ? 'open the video' : 'open');
-  if (data?.type.startsWith('video/')) return `<video src="${data.url}" muted loop autoplay playsinline controls></video><div class="meta">${link}</div>`;
+  if (data?.type.startsWith('video/'))
+    return `<video src="${data.url}" muted loop autoplay playsinline controls></video><div class="meta">${link}</div>`;
   if (data) return `<img src="${data.url}" alt=""><div class="meta">${link}</div>`;
   return link;
 }
@@ -496,7 +555,9 @@ function fmt(value, digits = 0) {
 
 /** One model's cell: the description (or the error code), the GIF mode, latency, tokens and cost. */
 function cellHtml(cell) {
-  const body = cell.ok ? `<p>${escapeHtml(cell.text)}</p>` : `<p class="err">error: ${escapeHtml(cell.error ?? 'unknown')}</p>`;
+  const body = cell.ok
+    ? `<p>${escapeHtml(cell.text)}</p>`
+    : `<p class="err">error: ${escapeHtml(cell.error ?? 'unknown')}</p>`;
   const mode = cell.mode ? `<div class="meta">${escapeHtml(cell.mode)}</div>` : '';
   const meta = `<div class="meta">${fmt(cell.latencyMs)} ms · ${fmt(cell.promptTokens)} + ${fmt(cell.completionTokens)} tokens · ${fmt(cell.costUsd, 4)} USD</div>`;
   return `<div class="col"><h4>${escapeHtml(cell.model)}</h4>${body}${mode}${meta}</div>`;
@@ -511,23 +572,40 @@ function cellHtml(cell) {
  *   skipped?: number, source: string, reasoning?: string|null, notes?: string[] }} input
  * @returns {string}
  */
-export function renderHtml({ at, models, rows, summary, stopped = null, skipped = 0, source, reasoning = null, notes = [] }) {
+export function renderHtml({
+  at,
+  models,
+  rows,
+  summary,
+  stopped = null,
+  skipped = 0,
+  source,
+  reasoning = null,
+  notes = [],
+}) {
   const head = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Vision comparison</title><style>${CSS}</style></head><body>`;
   const facts = [`${escapeHtml(at)}`, `source: ${escapeHtml(source)}`, `${rows.length} item(s)`];
   if (reasoning) facts.push(`reasoning: ${escapeHtml(reasoning)}`);
-  if (stopped) facts.push(`<span class="err">stopped: ${escapeHtml(stopped)}, ${fmt(skipped)} item(s) not described</span>`);
+  if (stopped)
+    facts.push(`<span class="err">stopped: ${escapeHtml(stopped)}, ${fmt(skipped)} item(s) not described</span>`);
   const intro = `<h1>${models.map(escapeHtml).join(' vs ')}</h1><p class="note">${facts.join(' · ')}</p>${notes.map((n) => `<p class="note">${escapeHtml(n)}</p>`).join('')}`;
   const table =
     '<section><h3>Summary</h3><div class="wrap"><table><thead><tr><th>model</th><th>items</th><th>failures</th><th>total USD</th><th>median ms</th><th>prompt tokens</th><th>completion tokens</th></tr></thead><tbody>' +
     summary
-      .map((s) => `<tr><td>${escapeHtml(s.model)}</td><td>${fmt(s.items)}</td><td>${fmt(s.failures)}</td><td>${fmt(s.costUsd, 4)}</td><td>${fmt(s.medianLatencyMs)}</td><td>${fmt(s.promptTokens)}</td><td>${fmt(s.completionTokens)}</td></tr>`)
+      .map(
+        (s) =>
+          `<tr><td>${escapeHtml(s.model)}</td><td>${fmt(s.items)}</td><td>${fmt(s.failures)}</td><td>${fmt(s.costUsd, 4)}</td><td>${fmt(s.medianLatencyMs)}</td><td>${fmt(s.promptTokens)}</td><td>${fmt(s.completionTokens)}</td></tr>`
+      )
       .join('') +
     '</tbody></table></div></section>';
   const groups = KINDS.map((kind) => {
     const list = rows.filter((row) => row.item.kind === kind);
     if (list.length === 0) return '';
     const sections = list
-      .map((row) => `<section><h3>${escapeHtml(row.item.label ?? row.item.id)}</h3><div class="media">${mediaHtml(row)}</div><div class="row">${row.cells.map(cellHtml).join('')}</div></section>`)
+      .map(
+        (row) =>
+          `<section><h3>${escapeHtml(row.item.label ?? row.item.id)}</h3><div class="media">${mediaHtml(row)}</div><div class="row">${row.cells.map(cellHtml).join('')}</div></section>`
+      )
       .join('');
     return `<h2>${escapeHtml(kind)}</h2>${sections}`;
   }).join('');

@@ -18,7 +18,9 @@ const MAX_KEYS = 8;
 const DEFAULT_WEIGHT = 3;
 
 function normalizeTitle(title) {
-  return String(title ?? '').trim().toLowerCase();
+  return String(title ?? '')
+    .trim()
+    .toLowerCase();
 }
 
 /**
@@ -36,7 +38,11 @@ function normalizeTitle(title) {
 export function loreVersionKey(title) {
   const identity = normalizeTitle(title);
   const hash = createHash('sha1').update(identity).digest('hex').slice(0, 12);
-  const slug = identity.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40).replace(/-+$/, '');
+  const slug = identity
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+    .replace(/-+$/, '');
   return slug ? `${slug}-${hash}` : hash;
 }
 
@@ -139,7 +145,11 @@ function evictOverflow(entries, maxEntries) {
  *   text this call replaced with a different one (the stored text before, the text after), for the
  *   store's version history; an inserted entry or a change of keys alone adds none.
  */
-export function upsertLore(entries, incoming, { source, now: nowMs = Date.now(), maxEntries = Infinity, textChars, clampTolerance } = {}) {
+export function upsertLore(
+  entries,
+  incoming,
+  { source, now: nowMs = Date.now(), maxEntries = Infinity, textChars, clampTolerance } = {}
+) {
   const stored = Array.isArray(entries) ? [...entries] : [];
   if (!Array.isArray(incoming) || incoming.length === 0) return { entries: stored, upserted: 0, changes: [] };
 
@@ -196,7 +206,8 @@ export function upsertLore(entries, incoming, { source, now: nowMs = Date.now(),
     if (source === 'owner') updated.always = Boolean(raw.always);
     stored[existingIndex] = updated;
     upserted += 1;
-    if (existing.text !== text) changes.push({ title, previousText: typeof existing.text === 'string' ? existing.text : '', nextText: text });
+    if (existing.text !== text)
+      changes.push({ title, previousText: typeof existing.text === 'string' ? existing.text : '', nextText: text });
   }
 
   return { entries: evictOverflow(stored, maxEntries), upserted, changes };

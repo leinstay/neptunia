@@ -56,7 +56,14 @@ export const NOT_GRANTABLE_TO_PERSONA = Object.freeze([
  * -> `features.<key>`): off, they are refused (`feature-off`), never listed to her and never
  * offered to a classifier, so a request is as it was before them.
  */
-export const FEATURE_SKILLS = Object.freeze(Object.fromEntries(SKILL_DEFINITIONS.filter((definition) => definition.feature !== null).map((definition) => [definition.name, definition.feature])));
+export const FEATURE_SKILLS = Object.freeze(
+  Object.fromEntries(
+    SKILL_DEFINITIONS.filter((definition) => definition.feature !== null).map((definition) => [
+      definition.name,
+      definition.feature,
+    ])
+  )
+);
 
 /** The policy version of the wake envelopes (recorded on every wake run). */
 export const WAKE_POLICY_VERSION = 1;
@@ -79,9 +86,17 @@ const capOf = (value) => (Number.isInteger(value) && value >= 0 ? value : null);
  * `tools` `'*'` or a list of names; a missing or malformed value is today's behaviour (`'*'`, no cap).
  */
 export function wakeEnvelope(config, kind) {
-  const given = isPlainObject(config?.innerLife?.wakes) && typeof kind === 'string' && isPlainObject(config.innerLife.wakes[kind]) ? config.innerLife.wakes[kind] : {};
+  const given =
+    isPlainObject(config?.innerLife?.wakes) && typeof kind === 'string' && isPlainObject(config.innerLife.wakes[kind])
+      ? config.innerLife.wakes[kind]
+      : {};
   const tools = Array.isArray(given.tools) ? given.tools.filter((name) => typeof name === 'string' && name) : '*';
-  return { tools, maxActs: capOf(given.maxActs), maxTasks: capOf(given.maxTasks), inputTokens: Number.isInteger(given.inputTokens) && given.inputTokens > 0 ? given.inputTokens : null };
+  return {
+    tools,
+    maxActs: capOf(given.maxActs),
+    maxTasks: capOf(given.maxTasks),
+    inputTokens: Number.isInteger(given.inputTokens) && given.inputTokens > 0 ? given.inputTokens : null,
+  };
 }
 
 /** Whether `envelope.tools` names `skill` (`'*'`, the name itself, or `<family>.*`). */
@@ -107,8 +122,18 @@ export function wakeEnvelopeRefusal({ config, wakeKind = null, skill, actions = 
   if (!envelopeAllows(envelope, skill)) return deny('tools');
   if (nested) return null;
   const done = (Array.isArray(actions) ? actions : []).filter(counted);
-  if (envelope.maxActs !== null && (EFFECTS_OF.get(skill) ?? 'write') !== 'read' && done.filter((action) => (EFFECTS_OF.get(action.skill) ?? 'write') !== 'read').length >= envelope.maxActs) return deny('maxActs');
-  if (envelope.maxTasks !== null && skill === 'task.run' && done.filter((action) => action.skill === 'task.run').length >= envelope.maxTasks) return deny('maxTasks');
+  if (
+    envelope.maxActs !== null &&
+    (EFFECTS_OF.get(skill) ?? 'write') !== 'read' &&
+    done.filter((action) => (EFFECTS_OF.get(action.skill) ?? 'write') !== 'read').length >= envelope.maxActs
+  )
+    return deny('maxActs');
+  if (
+    envelope.maxTasks !== null &&
+    skill === 'task.run' &&
+    done.filter((action) => action.skill === 'task.run').length >= envelope.maxTasks
+  )
+    return deny('maxTasks');
   return null;
 }
 
@@ -170,13 +195,24 @@ export function grantedToPersona(config, selfId, name) {
  *   wakeKind?: string|null, wakeActions?: object[]|null }} args
  * @returns {{ allowed: boolean, reason: string, detail?: string }}
  */
-export function skillAccess({ skill, config, selfId = null, conversationId = null, currentConversationId = null, wakeKind = null, wakeActions = null }) {
+export function skillAccess({
+  skill,
+  config,
+  selfId = null,
+  conversationId = null,
+  currentConversationId = null,
+  wakeKind = null,
+  wakeActions = null,
+}) {
   if (!skillsOn(config)) return { allowed: false, reason: CODE.SKILLS_OFF };
   if (!skillFeatureOn(skill.name, config)) return { allowed: false, reason: CODE.FEATURE_OFF };
   const envelope = wakeEnvelopeRefusal({ config, wakeKind, skill: skill.name, actions: wakeActions });
   if (envelope) return envelope;
   const target = conversationId ?? currentConversationId;
-  const here = target === null || target === undefined ? currentConversationId == null : String(target) === String(currentConversationId);
+  const here =
+    target === null || target === undefined
+      ? currentConversationId == null
+      : String(target) === String(currentConversationId);
   if (CARRIED_OVER.includes(skill.name) && here) return { allowed: true, reason: 'carried-over' };
   if (safeModeOn(config)) return { allowed: false, reason: CODE.SAFE_MODE };
   if (NOT_GRANTABLE_TO_PERSONA.includes(skill.name)) return { allowed: false, reason: CODE.NOT_GRANTABLE };

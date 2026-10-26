@@ -82,7 +82,17 @@ const ACTIVE = Object.freeze(['pending', 'waiting']);
  * @param {() => string} [options.uuid]
  * @param {{ info: Function, warn: Function }} [options.log]
  */
-export function createIntentionService({ stores, hot, tasks = null, journal = null, lineSources = createLineSources(), getGuildId = () => null, now = Date.now, uuid = randomUUID, log = defaultLog }) {
+export function createIntentionService({
+  stores,
+  hot,
+  tasks = null,
+  journal = null,
+  lineSources = createLineSources(),
+  getGuildId = () => null,
+  now = Date.now,
+  uuid = randomUUID,
+  log = defaultLog,
+}) {
   function storeOf(guildId) {
     return stores.get(guildId || getGuildId?.() || '');
   }
@@ -115,7 +125,13 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
    * that chat (`privateChannelId`), any with `all` (an owner's command, the engine).
    */
   function visibleTo(record, { privateChannelId = null, all = false } = {}) {
-    return all || record?.provenance?.scope !== 'dm' || (privateChannelId !== null && privateChannelId !== undefined && record.provenance?.channelId === String(privateChannelId));
+    return (
+      all ||
+      record?.provenance?.scope !== 'dm' ||
+      (privateChannelId !== null &&
+        privateChannelId !== undefined &&
+        record.provenance?.channelId === String(privateChannelId))
+    );
   }
 
   /** How many intentions of `list` count against `maxOpen`. */
@@ -143,7 +159,8 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
   /** `record` with the wait of `plan` applied (a model move), or the record as it is. */
   function applyWait(record, plan, by) {
     if (!plan || plan.none) return { ok: true, intention: record, changed: false };
-    if (plan.requested) return { ok: true, intention: { ...record, waitRequested: plan.requested, updatedAt: now() }, changed: true };
+    if (plan.requested)
+      return { ok: true, intention: { ...record, waitRequested: plan.requested, updatedAt: now() }, changed: true };
     return waitOn(record, { taskId: plan.taskId, deadline: plan.deadline, now: now(), by });
   }
 
@@ -172,13 +189,24 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     if (origin) {
       const refused = heartbeatCapRefusal(store, { recurring: Boolean(input.every) });
       if (refused) {
-        log.info('intentions: heartbeat cap', { guildId: store.guildId, code: refused.code, open: refused.open.length });
+        log.info('intentions: heartbeat cap', {
+          guildId: store.guildId,
+          code: refused.code,
+          open: refused.open.length,
+        });
         return refused;
       }
     }
     const created = createIntention({
       purpose: input.purpose,
-      provenance: { kind: 'self', turnId: input.turnId ?? null, messageId: input.messageId ?? null, channelId: input.channelId ?? null, scope: input.scope, participants: input.participants },
+      provenance: {
+        kind: 'self',
+        turnId: input.turnId ?? null,
+        messageId: input.messageId ?? null,
+        channelId: input.channelId ?? null,
+        scope: input.scope,
+        participants: input.participants,
+      },
       dueAt: input.dueAt ?? null,
       every: pinEvery(input.every ?? null, input.dueAt ?? null, timezone()),
       expiresAt: input.expiresAt ?? null,
@@ -193,12 +221,23 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
       by,
     });
     if (!created.ok) return created;
-    const plan = waitPlan(store.guildId, { taskId: input.taskId ?? null, deadline: input.deadline ?? null, turnId: input.turnId ?? null });
+    const plan = waitPlan(store.guildId, {
+      taskId: input.taskId ?? null,
+      deadline: input.deadline ?? null,
+      turnId: input.turnId ?? null,
+    });
     if (!plan.ok) return plan;
     const waited = applyWait(created.intention, plan, by);
     if (!waited.ok) return waited;
     const added = store.add(waited.intention);
-    if (added.ok) log.info('intentions: set', { guildId: store.guildId, id: added.intention.id, status: added.intention.status, by, ...(origin ? { origin, openFromHeartbeat: openFromHeartbeat(store.list()).length } : {}) });
+    if (added.ok)
+      log.info('intentions: set', {
+        guildId: store.guildId,
+        id: added.intention.id,
+        status: added.intention.status,
+        by,
+        ...(origin ? { origin, openFromHeartbeat: openFromHeartbeat(store.list()).length } : {}),
+      });
     return added;
   }
 
@@ -211,7 +250,8 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     const limits = heartbeatLimits(hot.config);
     const open = openFromHeartbeat(store.list());
     if (open.length >= limits.maxOpen) return { ok: false, code: CODE.HEARTBEAT_CAP, open };
-    if (recurring && open.filter((record) => record.every).length >= limits.maxRecurring) return { ok: false, code: CODE.HEARTBEAT_RECURRING_CAP, open };
+    if (recurring && open.filter((record) => record.every).length >= limits.maxRecurring)
+      return { ok: false, code: CODE.HEARTBEAT_RECURRING_CAP, open };
     return null;
   }
 
@@ -223,7 +263,14 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
   function setDropped(store, input, by) {
     const created = createIntention({
       purpose: input.purpose,
-      provenance: { kind: 'self', turnId: input.turnId ?? null, messageId: input.messageId ?? null, channelId: input.channelId ?? null, scope: input.scope, participants: input.participants },
+      provenance: {
+        kind: 'self',
+        turnId: input.turnId ?? null,
+        messageId: input.messageId ?? null,
+        channelId: input.channelId ?? null,
+        scope: input.scope,
+        participants: input.participants,
+      },
       dropped: true,
       reason: input.reason ?? null,
       now: now(),
@@ -233,7 +280,8 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     });
     if (!created.ok) return created;
     const added = store.add(created.intention);
-    if (added.ok) log.info('intentions: set', { guildId: store.guildId, id: added.intention.id, status: 'dropped', by });
+    if (added.ok)
+      log.info('intentions: set', { guildId: store.guildId, id: added.intention.id, status: 'dropped', by });
     return added;
   }
 
@@ -268,31 +316,47 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     if (!isOpen(current.status)) return { ok: false, code: CODE.TERMINAL };
     const by = patch.by ?? 'persona';
     const dropping = patch.state === 'dropped';
-    if (dropping && !(typeof patch.reason === 'string' && patch.reason.trim())) return { ok: false, code: CODE.REASON_REQUIRED };
+    if (dropping && !(typeof patch.reason === 'string' && patch.reason.trim()))
+      return { ok: false, code: CODE.REASON_REQUIRED };
     // A candidate is accepted only where its origin allows (model.js#acceptRefusal): never in the
     // turn that wrote its line, and from an inner turn neither an external one nor one born in an
     // inner turn of the same chain.
     if (patch.state === 'pending' && current.status === 'proposed') {
-      const refused = acceptRefusal(current, { by, initiative: patch.initiative === true, chainId: patch.callerChain ?? null, turnId: patch.turnId ?? null });
+      const refused = acceptRefusal(current, {
+        by,
+        initiative: patch.initiative === true,
+        chainId: patch.callerChain ?? null,
+        turnId: patch.turnId ?? null,
+      });
       if (refused) {
         log.info('intentions: accept refused', { guildId: store.guildId, id: String(id), code: refused });
         return { ok: false, code: refused };
       }
     }
-    if (patch.state === 'pending' && current.status === 'proposed' && activeCount(store.list()) >= settings().maxOpen) return { ok: false, code: CODE.CAP_OPEN };
+    if (patch.state === 'pending' && current.status === 'proposed' && activeCount(store.list()) >= settings().maxOpen)
+      return { ok: false, code: CODE.CAP_OPEN };
     // A heartbeat's one-off made recurring counts against the recurring cap like a new recurring one.
     if (current.origin === HEARTBEAT_ORIGIN && patch.every && !current.every) {
       const others = openFromHeartbeat(store.list()).filter((record) => record.id !== current.id);
-      if (others.filter((record) => record.every).length >= heartbeatLimits(hot.config).maxRecurring) return { ok: false, code: CODE.HEARTBEAT_RECURRING_CAP, open: others };
+      if (others.filter((record) => record.every).length >= heartbeatLimits(hot.config).maxRecurring)
+        return { ok: false, code: CODE.HEARTBEAT_RECURRING_CAP, open: others };
     }
-    const plan = !dropping && (patch.taskId || Number.isFinite(patch.deadline)) ? waitPlan(store.guildId, { taskId: patch.taskId ?? null, deadline: patch.deadline ?? null, turnId: patch.turnId ?? null }) : null;
+    const plan =
+      !dropping && (patch.taskId || Number.isFinite(patch.deadline))
+        ? waitPlan(store.guildId, {
+            taskId: patch.taskId ?? null,
+            deadline: patch.deadline ?? null,
+            turnId: patch.turnId ?? null,
+          })
+        : null;
     if (plan && !plan.ok) return plan;
     const at = now();
     const result = store.update(id, (record) => {
       let next = record;
       let changed = false;
       const fields = {};
-      if (typeof patch.purpose === 'string' && patch.purpose.trim()) fields.purpose = clampChars(oneLine(patch.purpose), PURPOSE_CHARS);
+      if (typeof patch.purpose === 'string' && patch.purpose.trim())
+        fields.purpose = clampChars(oneLine(patch.purpose), PURPOSE_CHARS);
       if (patch.dueAt !== undefined) fields.dueAt = patch.dueAt;
       if (patch.every !== undefined) fields.every = patch.every;
       if (patch.expiresAt !== undefined && patch.expiresAt !== null) {
@@ -300,30 +364,53 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
         fields.expiresAt = patch.expiresAt;
       }
       if (patch.destination !== undefined) fields.destination = patch.destination ? String(patch.destination) : null;
-      if (typeof patch.completionCondition === 'string') fields.completionCondition = clampChars(oneLine(patch.completionCondition), CONDITION_CHARS) || null;
+      if (typeof patch.completionCondition === 'string')
+        fields.completionCondition = clampChars(oneLine(patch.completionCondition), CONDITION_CHARS) || null;
       if (typeof patch.chainId === 'string') fields.chainId = clampChars(oneLine(patch.chainId), CHAIN_CHARS) || null;
       if (patch.attend !== undefined && patch.attend !== null) {
         if (!isAttend(record)) return { ok: false, code: CODE.NOT_ATTEND };
-        const attend = normalizeAttend({ ...record.attend, ...patch.attend, place: record.attend.place, today: record.attend.today ?? null }, attentionSettings(hot.config));
+        const attend = normalizeAttend(
+          { ...record.attend, ...patch.attend, place: record.attend.place, today: record.attend.today ?? null },
+          attentionSettings(hot.config)
+        );
         if (!attend) return { ok: false, code: CODE.BAD_ATTEND };
         fields.attend = attend;
       }
-      if (isAttend(record) && fields.dueAt !== undefined && fields.dueAt !== null) return { ok: false, code: CODE.ATTEND_WITH_DUE };
+      if (isAttend(record) && fields.dueAt !== undefined && fields.dueAt !== null)
+        return { ok: false, code: CODE.ATTEND_WITH_DUE };
       if (isAttend(record) && fields.every) return { ok: false, code: CODE.ATTEND_WITH_EVERY };
       if (Object.keys(fields).length > 0) {
         next = { ...next, ...fields, updatedAt: at };
         if (next.every && !Number.isFinite(next.dueAt)) return { ok: false, code: CODE.EVERY_WITHOUT_DUE };
         // A recurrence keeps the wall clock of its (new) first occurrence.
-        if (next.every && (fields.every !== undefined || fields.dueAt !== undefined)) next.every = pinEvery({ period: next.every.period, at: fields.every !== undefined ? (fields.every.at ?? null) : null }, next.dueAt, timezone());
+        if (next.every && (fields.every !== undefined || fields.dueAt !== undefined))
+          next.every = pinEvery(
+            { period: next.every.period, at: fields.every !== undefined ? (fields.every.at ?? null) : null },
+            next.dueAt,
+            timezone()
+          );
         // (A recurring one's next occurrence may already lie past its expiry: the expiry wins; only a new due or expiry is checked.)
-        if ((fields.dueAt !== undefined || fields.expiresAt !== undefined) && Number.isFinite(next.dueAt) && next.dueAt > next.expiresAt) return { ok: false, code: CODE.DUE_AFTER_EXPIRY };
+        if (
+          (fields.dueAt !== undefined || fields.expiresAt !== undefined) &&
+          Number.isFinite(next.dueAt) &&
+          next.dueAt > next.expiresAt
+        )
+          return { ok: false, code: CODE.DUE_AFTER_EXPIRY };
         changed = true;
       }
       if (patch.state === 'pending' && next.status !== 'pending') {
         const accepted = next.status === 'proposed';
         // An accepted candidate lives as long as her own (`expiresDays`), not its review window.
-        const expiry = accepted && fields.expiresAt === undefined ? { expiresAt: Math.max(next.expiresAt, at + settings().expiresDays * DAY_MS) } : {};
-        const moved = transition(next, 'pending', { now: at, by, code: accepted ? 'accepted' : 'resumed', patch: expiry });
+        const expiry =
+          accepted && fields.expiresAt === undefined
+            ? { expiresAt: Math.max(next.expiresAt, at + settings().expiresDays * DAY_MS) }
+            : {};
+        const moved = transition(next, 'pending', {
+          now: at,
+          by,
+          code: accepted ? 'accepted' : 'resumed',
+          patch: expiry,
+        });
         if (!moved.ok) return moved;
         next = moved.intention;
         changed = true;
@@ -342,14 +429,17 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
       }
       if (patch.state === 'done') {
         // A recurring one is never done: this closes the occurrence and sets the next.
-        const moved = next.every ? advanceOccurrence(next, { now: at, timezone: timezone(), code: CODE.DONE_OCCURRENCE, by }) : transition(next, 'done', { now: at, by, code: CODE.DONE });
+        const moved = next.every
+          ? advanceOccurrence(next, { now: at, timezone: timezone(), code: CODE.DONE_OCCURRENCE, by })
+          : transition(next, 'done', { now: at, by, code: CODE.DONE });
         if (!moved.ok) return moved;
         next = moved.intention;
         changed = true;
       }
       return { ok: true, intention: next, changed };
     });
-    if (result.ok && result.changed) log.info('intentions: updated', { guildId: store.guildId, id: String(id), status: result.intention.status, by });
+    if (result.ok && result.changed)
+      log.info('intentions: updated', { guildId: store.guildId, id: String(id), status: result.intention.status, by });
     return result;
   }
 
@@ -362,7 +452,9 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     if (!store) return { ok: false, code: CODE.NO_GUILD };
     const current = store.get(id);
     if (current && !visibleTo(current, { privateChannelId, all })) return { ok: false, code: CODE.NOT_FOUND };
-    const result = store.update(id, (record) => transition(record, 'cancelled', { now: now(), by, code: record.status === 'proposed' ? 'rejected' : 'cancelled' }));
+    const result = store.update(id, (record) =>
+      transition(record, 'cancelled', { now: now(), by, code: record.status === 'proposed' ? 'rejected' : 'cancelled' })
+    );
     if (result.ok) log.info('intentions: cancelled', { guildId: store.guildId, id: String(id), by });
     return result;
   }
@@ -389,7 +481,9 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     const store = storeOf(guildId);
     if (!store) return [];
     sweepExpired(store);
-    return store.list().filter((record) => (closed || isOpen(record.status)) && visibleTo(record, { privateChannelId, all }));
+    return store
+      .list()
+      .filter((record) => (closed || isOpen(record.status)) && visibleTo(record, { privateChannelId, all }));
   }
 
   /**
@@ -418,7 +512,14 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     for (const record of store.list()) {
       if (record.status !== 'pending' || record.waitRequested?.turnId !== String(turnId)) continue;
       const deadline = record.waitRequested.deadline;
-      const result = store.update(record.id, (current) => waitOn(current, { taskId, deadline: Number.isFinite(deadline) && deadline > now() ? deadline : now() + settings().waitHours * HOUR_MS, now: now(), by: 'engine' }));
+      const result = store.update(record.id, (current) =>
+        waitOn(current, {
+          taskId,
+          deadline: Number.isFinite(deadline) && deadline > now() ? deadline : now() + settings().waitHours * HOUR_MS,
+          now: now(),
+          by: 'engine',
+        })
+      );
       if (result.ok && result.changed) linked += 1;
     }
     if (linked > 0) log.info('intentions: linked', { guildId: store.guildId, taskId: String(taskId), count: linked });
@@ -441,7 +542,13 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
         if (result.ok && result.changed) moved += 1;
         if (result.ok && result.changed) afterWait(store, result.intention);
       }
-      if (moved > 0) log.info('intentions: errand arrived', { guildId: store.guildId, taskId: String(task.id), state: task.state, count: moved });
+      if (moved > 0)
+        log.info('intentions: errand arrived', {
+          guildId: store.guildId,
+          taskId: String(task.id),
+          state: task.state,
+          count: moved,
+        });
       return moved;
     } catch (err) {
       log.warn('intentions: errand end not applied', { taskId: task?.id ?? null, error: err });
@@ -462,7 +569,9 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
       if (!store) return counts;
       for (const record of store.list()) {
         if (record.status !== 'waiting') continue;
-        const result = store.update(record.id, (current) => reconcileWait(current, { taskOf: (id) => taskOf(store.guildId, id), now: now() }));
+        const result = store.update(record.id, (current) =>
+          reconcileWait(current, { taskOf: (id) => taskOf(store.guildId, id), now: now() })
+        );
         if (!result.ok || !result.changed) continue;
         const note = result.intention.note;
         if (note === 'task-missing') counts.missing += 1;
@@ -472,7 +581,8 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
         if (note !== 'wait-deadline') afterWait(store, result.intention);
       }
       counts.expired = sweepExpired(store);
-      if (counts.arrived + counts.missing + counts.deadline > 0) log.info('intentions: reconciled', { guildId: store.guildId, ...counts });
+      if (counts.arrived + counts.missing + counts.deadline > 0)
+        log.info('intentions: reconciled', { guildId: store.guildId, ...counts });
     } catch (err) {
       log.warn('intentions: reconcile failed', { error: err });
     }
@@ -492,10 +602,19 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
       const store = storeOf(guildId);
       const current = store?.get(id) ?? null;
       const at = now();
-      if (!current?.every || current.status !== 'pending' || !(wakeTimeOf(current, dueJitterMinutes(hot.config)) <= at)) return { ok: true, intention: current, changed: false };
+      if (!current?.every || current.status !== 'pending' || !(wakeTimeOf(current, dueJitterMinutes(hot.config)) <= at))
+        return { ok: true, intention: current, changed: false };
       const code = named ? 'recurred' : 'missed';
-      const result = store.update(id, (record) => advanceOccurrence(record, { now: at, timezone: timezone(), code, by }));
-      if (result.ok && result.changed) log.info('intentions: recurred', { guildId: store.guildId, id: String(id), code, dueAt: result.intention.dueAt });
+      const result = store.update(id, (record) =>
+        advanceOccurrence(record, { now: at, timezone: timezone(), code, by })
+      );
+      if (result.ok && result.changed)
+        log.info('intentions: recurred', {
+          guildId: store.guildId,
+          id: String(id),
+          code,
+          dueAt: result.intention.dueAt,
+        });
       return result;
     } catch (err) {
       log.warn('intentions: advance failed', { id: String(id ?? ''), error: err });
@@ -508,8 +627,22 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     if (!record?.every || record.status !== 'pending') return;
     const at = now();
     if (!(wakeTimeOf(record, dueJitterMinutes(hot.config)) <= at)) return;
-    const result = store.update(record.id, (current) => advanceOccurrence(current, { now: at, timezone: timezone(), code: CODE.RECURRED, by: 'engine', keepWaitEnd: true }));
-    if (result.ok && result.changed) log.info('intentions: recurred', { guildId: store.guildId, id: String(record.id), code: CODE.RECURRED, dueAt: result.intention.dueAt });
+    const result = store.update(record.id, (current) =>
+      advanceOccurrence(current, {
+        now: at,
+        timezone: timezone(),
+        code: CODE.RECURRED,
+        by: 'engine',
+        keepWaitEnd: true,
+      })
+    );
+    if (result.ok && result.changed)
+      log.info('intentions: recurred', {
+        guildId: store.guildId,
+        id: String(record.id),
+        code: CODE.RECURRED,
+        dueAt: result.intention.dueAt,
+      });
   }
 
   /**
@@ -545,7 +678,12 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
       const store = storeOf(guildId);
       if (!store) return { ok: false, code: CODE.NO_GUILD };
       const result = store.update(id, (record) => bumpAttend(record, zonedDay(now(), timezone())));
-      if (result.ok && result.changed) log.info('intentions: attend wake counted', { guildId: store.guildId, id: String(id), wakes: result.intention.attend.today.wakes });
+      if (result.ok && result.changed)
+        log.info('intentions: attend wake counted', {
+          guildId: store.guildId,
+          id: String(id),
+          wakes: result.intention.attend.today.wakes,
+        });
       return result;
     } catch (err) {
       log.warn('intentions: attend count failed', { id: String(id ?? ''), error: err });
@@ -571,13 +709,23 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
    * line's `sources`, else `lineSources`; strict). Never throws; `{ added, external, duplicate, capped, dropped }`.
    */
   async function addCandidates(guildId, raw, messages) {
-    const out = { added: 0, external: 0, duplicate: 0, capped: 0, dropped: { invalid: 0, unanchored: 0, quoted: 0, over: 0 } };
+    const out = {
+      added: 0,
+      external: 0,
+      duplicate: 0,
+      capped: 0,
+      dropped: { invalid: 0, unanchored: 0, quoted: 0, over: 0 },
+    };
     try {
       if (!intentionsOn(hot.config) || !Array.isArray(raw) || raw.length === 0) return out;
       const store = storeOf(guildId);
       if (!store) return out;
       const limits = settings();
-      const { candidates, dropped } = candidatesFromAnswer(raw, messages, { max: limits.maxCandidates, sourcesOf: (line) => line?.sources ?? lineSources?.get?.(String(line?.id ?? '')) ?? null, strict: Boolean(lineSources) });
+      const { candidates, dropped } = candidatesFromAnswer(raw, messages, {
+        max: limits.maxCandidates,
+        sourcesOf: (line) => line?.sources ?? lineSources?.get?.(String(line?.id ?? '')) ?? null,
+        strict: Boolean(lineSources),
+      });
       out.dropped = dropped;
       for (const candidate of candidates) {
         const open = store.list().filter((record) => isOpen(record.status));
@@ -590,9 +738,16 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
           continue;
         }
         let turnId = candidate.turnId ?? null;
-        if (!turnId && typeof journal?.findTurn === 'function' && hot.config?.features?.journal === true && Number.isFinite(candidate.ts)) {
+        if (
+          !turnId &&
+          typeof journal?.findTurn === 'function' &&
+          hot.config?.features?.journal === true &&
+          Number.isFinite(candidate.ts)
+        ) {
           try {
-            turnId = (await journal.findTurn(store.guildId, { messageId: candidate.messageId, at: candidate.ts }))?.turn?.turnId ?? null;
+            turnId =
+              (await journal.findTurn(store.guildId, { messageId: candidate.messageId, at: candidate.ts }))?.turn
+                ?.turnId ?? null;
           } catch {
             turnId = null;
           }
@@ -624,7 +779,15 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
         }
       }
       const skipped = out.duplicate + out.capped + Object.values(out.dropped).reduce((sum, n) => sum + n, 0);
-      if (out.added + skipped > 0) log.info('intentions: candidates', { guildId: store.guildId, added: out.added, external: out.external, duplicate: out.duplicate, capped: out.capped, ...out.dropped });
+      if (out.added + skipped > 0)
+        log.info('intentions: candidates', {
+          guildId: store.guildId,
+          added: out.added,
+          external: out.external,
+          duplicate: out.duplicate,
+          capped: out.capped,
+          ...out.dropped,
+        });
     } catch (err) {
       log.warn('intentions: candidates not stored', { error: err });
     }
@@ -641,5 +804,24 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     return lineSources?.get?.(String(messageId ?? '')) ?? null;
   }
 
-  return { set, update, cancel, list, view, noteLine, lineSources: lineSourcesOfLine, linkTurnTask, onTaskFinished, reconcile, advance, due, attending, attendToday, countAttendWake, markExpiredShown, addCandidates, store: storeOf };
+  return {
+    set,
+    update,
+    cancel,
+    list,
+    view,
+    noteLine,
+    lineSources: lineSourcesOfLine,
+    linkTurnTask,
+    onTaskFinished,
+    reconcile,
+    advance,
+    due,
+    attending,
+    attendToday,
+    countAttendWake,
+    markExpiredShown,
+    addCandidates,
+    store: storeOf,
+  };
 }

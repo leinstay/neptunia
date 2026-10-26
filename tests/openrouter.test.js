@@ -53,7 +53,12 @@ function baseConfig({ model = 'test-model', ...overrides } = {}) {
 }
 
 function fakeState() {
-  return { data: {}, markDirty() { this.dirty = (this.dirty ?? 0) + 1; } };
+  return {
+    data: {},
+    markDirty() {
+      this.dirty = (this.dirty ?? 0) + 1;
+    },
+  };
 }
 
 function fakeCalibrator() {
@@ -85,11 +90,14 @@ test('complete: refuses with TokenLimitError above the cap without calling fetch
     getConfig: () => baseConfig({ maxRequestTokens: 50 }),
     calibrator: fakeCalibrator(),
     state: fakeState(),
-    fetchImpl: async () => { called = true; return okResponse('x'); },
+    fetchImpl: async () => {
+      called = true;
+      return okResponse('x');
+    },
   });
   await assert.rejects(
     llm.complete([{ role: 'user', content: 'a'.repeat(2000) }]),
-    (err) => err instanceof TokenLimitError,
+    (err) => err instanceof TokenLimitError
   );
   assert.equal(called, false);
 });
@@ -118,12 +126,12 @@ test('complete: DailyCapError once the daily cap is reached, without calling fet
     getConfig: () => baseConfig({ maxRequestsPerDay: 1 }),
     calibrator: fakeCalibrator(),
     state,
-    fetchImpl: async () => { calls += 1; return okResponse('x'); },
+    fetchImpl: async () => {
+      calls += 1;
+      return okResponse('x');
+    },
   });
-  await assert.rejects(
-    llm.complete([{ role: 'user', content: 'hi' }]),
-    (err) => err instanceof DailyCapError,
-  );
+  await assert.rejects(llm.complete([{ role: 'user', content: 'hi' }]), (err) => err instanceof DailyCapError);
   assert.equal(calls, 0);
 });
 
@@ -196,7 +204,10 @@ test('complete: a cap that is not a finite number counts as 0 -- every request r
         getConfig: () => baseConfig({ maxRequestsPerDay: cap }),
         calibrator: fakeCalibrator(),
         state,
-        fetchImpl: async () => { calls += 1; return okResponse('x'); },
+        fetchImpl: async () => {
+          calls += 1;
+          return okResponse('x');
+        },
       });
       await assert.rejects(llm.complete([{ role: 'user', content: 'hi' }]), (err) => {
         assert.ok(err instanceof DailyCapError, String(cap));
@@ -280,12 +291,16 @@ test('capLeft: 0 at or past the cap, the cap read live; Infinity while the cap i
   assert.equal(llm.capLeft(), 10);
 });
 
-test('llmCountToday: today\'s counted requests, 0 for a stamp of another day, read only', () => {
-  assert.deepEqual(LLM_DAILY, { dayKey: 'llmDay', countKey: 'llmCount' }, 'the state.json fields of the request counter');
+test("llmCountToday: today's counted requests, 0 for a stamp of another day, read only", () => {
+  assert.deepEqual(
+    LLM_DAILY,
+    { dayKey: 'llmDay', countKey: 'llmCount' },
+    'the state.json fields of the request counter'
+  );
   const noon = Date.UTC(2026, 8, 21, 12, 0, 0);
   const data = { llmDay: '2026-09-21', llmCount: 17 };
   assert.equal(llmCountToday(data, noon), 17);
-  assert.equal(llmCountToday(data, Date.UTC(2026, 8, 22, 0, 0, 0)), 0, 'yesterday\'s count after 00:00 UTC');
+  assert.equal(llmCountToday(data, Date.UTC(2026, 8, 22, 0, 0, 0)), 0, "yesterday's count after 00:00 UTC");
   assert.deepEqual(data, { llmDay: '2026-09-21', llmCount: 17 });
   for (const empty of [undefined, null, {}]) assert.equal(llmCountToday(empty, noon), 0, String(empty));
 });
@@ -353,24 +368,43 @@ test('helperRequestOptions: counted, never calibrated, on llm.helperTimeoutMs un
 
   // A helper with its own clock passes it, with its abort signal.
   const controller = new AbortController();
-  const own = helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: 500, purpose: 'lookup', signal: controller.signal, timeoutMs: 8000 });
+  const own = helperRequestOptions(config, {
+    role: 'analyzer',
+    maxOutputTokens: 500,
+    purpose: 'lookup',
+    signal: controller.signal,
+    timeoutMs: 8000,
+  });
   assert.equal(own.timeoutMs, 8000);
   assert.equal(own.signal, controller.signal);
 
   // The two rails a helper must never opt out of are not the caller's to set.
-  const forced = helperRequestOptions(config, { role: 'analyzer', countAgainstDailyCap: false, skipCalibration: false, model: 'x/y' });
+  const forced = helperRequestOptions(config, {
+    role: 'analyzer',
+    countAgainstDailyCap: false,
+    skipCalibration: false,
+    model: 'x/y',
+  });
   assert.deepEqual([forced.countAgainstDailyCap, forced.skipCalibration], [true, true]);
-  assert.equal('model' in forced, false, 'the model stays the caller\'s own option');
+  assert.equal('model' in forced, false, "the model stays the caller's own option");
 });
 
 test('code fallbacks: the defaults the code applies when a setting is missing equal config.json', () => {
   const shipped = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
   for (const bare of [undefined, null, {}, { llm: null }, { llm: {} }, { llm: { helperTimeoutMs: null } }]) {
-    assert.equal(helperRequestOptions(bare, { role: 'analyzer' }).timeoutMs, shipped.llm.helperTimeoutMs, JSON.stringify(bare));
+    assert.equal(
+      helperRequestOptions(bare, { role: 'analyzer' }).timeoutMs,
+      shipped.llm.helperTimeoutMs,
+      JSON.stringify(bare)
+    );
   }
   assert.equal(VIDEO_TOKENS_PER_SECOND_FALLBACK, shipped.media.video.tokensPerSecond);
   const noCacheBlock = { ...baseConfig(), features: { promptCache: true } };
-  assert.equal(cacheTtlFor(noCacheBlock, shipped.llm.cache.roles[0], shipped.llm.cache.models[0] + 'x'), shipped.llm.cache.ttl, 'a missing llm.cache reads as config.json');
+  assert.equal(
+    cacheTtlFor(noCacheBlock, shipped.llm.cache.roles[0], shipped.llm.cache.models[0] + 'x'),
+    shipped.llm.cache.ttl,
+    'a missing llm.cache reads as config.json'
+  );
 });
 
 test('helperRequestOptions: complete takes the set as it is -- counted, uncalibrated, on the helper timeout, purpose logged and never sent', async () => {
@@ -389,7 +423,10 @@ test('helperRequestOptions: complete takes the set as it is -- counted, uncalibr
     },
   });
   const { result, logs } = await withCapturedLogs(() =>
-    llm.complete([{ role: 'user', content: 'hi' }], { model: 'small/model', ...helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: 60, purpose: 'address' }) }),
+    llm.complete([{ role: 'user', content: 'hi' }], {
+      model: 'small/model',
+      ...helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: 60, purpose: 'address' }),
+    })
   );
   assert.equal(result.text, 'yes');
   assert.equal(state.data.llmCount, 1, 'a helper counts against the daily cap');
@@ -427,7 +464,13 @@ test('complete: an unparsable 200 body is thrown and never retried', async () =>
     state: fakeState(),
     fetchImpl: async () => {
       calls += 1;
-      return { ok: true, status: 200, json: async () => { throw new SyntaxError('Unexpected token'); } };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => {
+          throw new SyntaxError('Unexpected token');
+        },
+      };
     },
   });
   await assert.rejects(llm.complete([{ role: 'user', content: 'hi' }]), (err) => err instanceof SyntaxError);
@@ -441,12 +484,12 @@ test('complete: a non-retryable 4xx throws immediately with statusCode, fetch ca
     getConfig: () => baseConfig(),
     calibrator: fakeCalibrator(),
     state: fakeState(),
-    fetchImpl: async () => { calls += 1; return errorResponse(400, 'bad request'); },
+    fetchImpl: async () => {
+      calls += 1;
+      return errorResponse(400, 'bad request');
+    },
   });
-  await assert.rejects(
-    llm.complete([{ role: 'user', content: 'hi' }]),
-    (err) => err.statusCode === 400,
-  );
+  await assert.rejects(llm.complete([{ role: 'user', content: 'hi' }]), (err) => err.statusCode === 400);
   assert.equal(calls, 1);
 });
 
@@ -478,7 +521,10 @@ test('complete: options.skipCalibration true never feeds the calibrator, even wi
 });
 
 test('complete: a non-retryable HTTP error carries the untrimmed body as .body, for a caller that needs more than the trimmed message', async () => {
-  const longBody = JSON.stringify({ error: { message: 'No endpoints found' }, routing_funnel: [{ step: 'BYOK endpoints', endpoints: 0 }] });
+  const longBody = JSON.stringify({
+    error: { message: 'No endpoints found' },
+    routing_funnel: [{ step: 'BYOK endpoints', endpoints: 0 }],
+  });
   const llm = createLlm({
     apiKey: 'k',
     getConfig: () => baseConfig(),
@@ -488,7 +534,7 @@ test('complete: a non-retryable HTTP error carries the untrimmed body as .body, 
   });
   await assert.rejects(
     llm.complete([{ role: 'user', content: 'hi' }]),
-    (err) => err.statusCode === 404 && err.body === longBody,
+    (err) => err.statusCode === 404 && err.body === longBody
   );
 });
 
@@ -544,7 +590,10 @@ test('complete: countAgainstDailyCap: false neither counts against nor is refuse
     getConfig: () => baseConfig({ maxRequestsPerDay: 1 }), // already at/over cap
     calibrator: fakeCalibrator(),
     state,
-    fetchImpl: async () => { calls += 1; return okResponse('hi'); },
+    fetchImpl: async () => {
+      calls += 1;
+      return okResponse('hi');
+    },
   });
 
   const result = await llm.complete([{ role: 'user', content: 'hi' }], { countAgainstDailyCap: false });
@@ -561,11 +610,14 @@ test('complete: countAgainstDailyCap: false still enforces the per-request token
     getConfig: () => baseConfig({ maxRequestTokens: 50 }),
     calibrator: fakeCalibrator(),
     state: fakeState(),
-    fetchImpl: async () => { called = true; return okResponse('x'); },
+    fetchImpl: async () => {
+      called = true;
+      return okResponse('x');
+    },
   });
   await assert.rejects(
     llm.complete([{ role: 'user', content: 'a'.repeat(2000) }], { countAgainstDailyCap: false }),
-    (err) => err instanceof TokenLimitError,
+    (err) => err instanceof TokenLimitError
   );
   assert.equal(called, false);
 });
@@ -577,7 +629,10 @@ test('complete: options.maxRequestTokens overrides the global cap for one call o
     getConfig: () => baseConfig({ maxRequestTokens: 50 }),
     calibrator: fakeCalibrator(),
     state: fakeState(),
-    fetchImpl: async () => { called = true; return okResponse('x'); },
+    fetchImpl: async () => {
+      called = true;
+      return okResponse('x');
+    },
   });
   const result = await llm.complete([{ role: 'user', content: 'a'.repeat(200) }], { maxRequestTokens: 1000 });
   assert.equal(called, true);
@@ -591,11 +646,14 @@ test('complete: options.maxRequestTokens can also tighten the cap for one call',
     getConfig: () => baseConfig({ maxRequestTokens: 1000 }),
     calibrator: fakeCalibrator(),
     state: fakeState(),
-    fetchImpl: async () => { called = true; return okResponse('x'); },
+    fetchImpl: async () => {
+      called = true;
+      return okResponse('x');
+    },
   });
   await assert.rejects(
     llm.complete([{ role: 'user', content: 'a'.repeat(2000) }], { maxRequestTokens: 50 }),
-    (err) => err instanceof TokenLimitError,
+    (err) => err instanceof TokenLimitError
   );
   assert.equal(called, false);
 });
@@ -619,7 +677,11 @@ test('complete: defaults to llm.timeoutMs for the request signal when options.ti
   assert.equal(result.text, 'hi');
   assert.equal(abortedAtSend, false, 'the request must not go out on an already aborted signal');
   await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.equal(seenSignal.aborted, true, 'without options.timeoutMs, the short llm.timeoutMs must abort the request signal');
+  assert.equal(
+    seenSignal.aborted,
+    true,
+    'without options.timeoutMs, the short llm.timeoutMs must abort the request signal'
+  );
 
   // Second phase: with a long llm.timeoutMs and no options.signal, a successful call must leave the request
   // signal live (the body is read after fetch resolves, so an early abort would break every real response).
@@ -636,7 +698,11 @@ test('complete: defaults to llm.timeoutMs for the request signal when options.ti
   });
   const longResult = await longLlm.complete([{ role: 'user', content: 'hi' }]);
   assert.equal(longResult.text, 'hi');
-  assert.equal(liveSignal.aborted, false, 'a successful call leaves the request signal live; only the timeout aborts it');
+  assert.equal(
+    liveSignal.aborted,
+    false,
+    'a successful call leaves the request signal live; only the timeout aborts it'
+  );
 });
 
 test('complete: omits the provider field when llm.provider is a non-object (e.g. a stray string)', async () => {
@@ -723,19 +789,17 @@ test('complete: options.videoSeconds falls back to the built-in rate when media.
 test('complete: options.videoSeconds counts against the token cap (just below passes, just above refuses)', async () => {
   const messages = [{ role: 'user', content: 'hi' }];
   // raw text estimate: overhead 6 + ceil(2/3.5)=1 -> 7; plus 60 s * 300 = 18000 -> 18007
-  const make = (cap) => createLlm({
-    apiKey: 'k',
-    getConfig: () => ({ ...baseConfig({ maxRequestTokens: cap }), media: { video: { tokensPerSecond: 300 } } }),
-    calibrator: fakeCalibrator(),
-    state: fakeState(),
-    fetchImpl: async () => okResponse('hi'),
-  });
+  const make = (cap) =>
+    createLlm({
+      apiKey: 'k',
+      getConfig: () => ({ ...baseConfig({ maxRequestTokens: cap }), media: { video: { tokensPerSecond: 300 } } }),
+      calibrator: fakeCalibrator(),
+      state: fakeState(),
+      fetchImpl: async () => okResponse('hi'),
+    });
   const ok = await make(18007).complete(messages, { videoSeconds: 60 });
   assert.equal(ok.estimated, 18007);
-  await assert.rejects(
-    make(18006).complete(messages, { videoSeconds: 60 }),
-    (err) => err instanceof TokenLimitError,
-  );
+  await assert.rejects(make(18006).complete(messages, { videoSeconds: 60 }), (err) => err instanceof TokenLimitError);
 });
 
 test('complete: the calibrator is applied to the text estimate plus the video estimate', async () => {
@@ -842,7 +906,10 @@ test('complete: options.signal already aborted before the call is never sent to 
     getConfig: () => baseConfig({ retries: 2 }),
     calibrator: fakeCalibrator(),
     state: fakeState(),
-    fetchImpl: async () => { calls += 1; return okResponse('x'); },
+    fetchImpl: async () => {
+      calls += 1;
+      return okResponse('x');
+    },
   });
 
   await assert.rejects(llm.complete([{ role: 'user', content: 'hi' }], { signal: controller.signal }));
@@ -870,7 +937,11 @@ test('complete: retries once on a 503 then succeeds, logging the retried attempt
   const { result, logs } = await withCapturedLogs(() => llm.complete([{ role: 'user', content: 'hi' }]));
   assert.equal(result.text, 'recovered');
   assert.equal(calls, 2);
-  assert.deepEqual(usageLines(logs).map((l) => l.ms), [800], 'one usage line, timed from the first attempt: the failed one is inside it');
+  assert.deepEqual(
+    usageLines(logs).map((l) => l.ms),
+    [800],
+    'one usage line, timed from the first attempt: the failed one is inside it'
+  );
   const retries = logs.filter((l) => l.msg === 'llm: retry');
   assert.equal(retries.length, 1);
   assert.equal(retries[0].attempt, 1);
@@ -890,7 +961,8 @@ test('complete: a timed-out attempt is retried and logged with its error name', 
     state: fakeState(),
     fetchImpl: async () => {
       calls += 1;
-      if (calls === 1) throw Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' });
+      if (calls === 1)
+        throw Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' });
       return okResponse('recovered');
     },
   });
@@ -898,7 +970,10 @@ test('complete: a timed-out attempt is retried and logged with its error name', 
   assert.equal(result.text, 'recovered');
   assert.equal(calls, 2);
   const retries = logs.filter((l) => l.msg === 'llm: retry');
-  assert.deepEqual(retries.map((l) => [l.attempt, l.status, l.name]), [[1, null, 'TimeoutError']]);
+  assert.deepEqual(
+    retries.map((l) => [l.attempt, l.status, l.name]),
+    [[1, null, 'TimeoutError']]
+  );
   assert.equal('limitSource' in retries[0] || 'provider' in retries[0], false, 'no body, no limit fields');
 });
 
@@ -909,9 +984,14 @@ test('complete: the last failed attempt is thrown, not logged as a retry', async
     getConfig: () => baseConfig({ retries: 0 }),
     calibrator: fakeCalibrator(),
     state: fakeState(),
-    fetchImpl: async () => { calls += 1; return errorResponse(503, 'temporarily unavailable'); },
+    fetchImpl: async () => {
+      calls += 1;
+      return errorResponse(503, 'temporarily unavailable');
+    },
   });
-  const { logs } = await withCapturedLogs(() => assert.rejects(llm.complete([{ role: 'user', content: 'hi' }]), (err) => err.statusCode === 503));
+  const { logs } = await withCapturedLogs(() =>
+    assert.rejects(llm.complete([{ role: 'user', content: 'hi' }]), (err) => err.statusCode === 503)
+  );
   assert.equal(calls, 1);
   assert.equal(logs.filter((l) => l.msg === 'llm: retry').length, 0);
 });
@@ -929,7 +1009,9 @@ function upstreamLimitBody(raw, provider = 'Amazon Bedrock') {
 }
 
 /** OpenRouter's own 429: no provider metadata, even when its text names a day. */
-const OPENROUTER_429 = JSON.stringify({ error: { message: 'Rate limit exceeded: too many requests per day', code: 429 } });
+const OPENROUTER_429 = JSON.stringify({
+  error: { message: 'Rate limit exceeded: too many requests per day', code: 429 },
+});
 
 /** An error shaped as `complete()` throws it for a non-ok answer. */
 function httpError(status, body) {
@@ -971,7 +1053,7 @@ test('providerLimitOf: a 429 saying too many requests is kind rate', () => {
     assert.deepEqual(
       providerLimitOf(httpError(429, upstreamLimitBody(raw))),
       { status: 429, limitSource: 'upstream_provider_account', provider: 'Amazon Bedrock', kind: 'rate' },
-      raw,
+      raw
     );
   }
 });
@@ -1005,7 +1087,14 @@ test('providerLimitOf: another status, an OpenRouter 429, no body or a body that
     assert.deepEqual(providerLimitOf(httpError(429, body)), { status: 429, ...NO_LIMIT }, String(body));
   }
   // Not an HTTP answer at all: no numeric statusCode.
-  for (const err of [undefined, null, new Error('fetch failed'), new DailyCapError('cap'), httpError('429', upstreamLimitBody(DAILY_RAW)), httpError(Number.NaN, '')]) {
+  for (const err of [
+    undefined,
+    null,
+    new Error('fetch failed'),
+    new DailyCapError('cap'),
+    httpError('429', upstreamLimitBody(DAILY_RAW)),
+    httpError(Number.NaN, ''),
+  ]) {
     assert.equal(providerLimitOf(err), null);
   }
 });
@@ -1019,7 +1108,10 @@ test('complete: a daily provider quota 429 is thrown after one attempt and logs 
     getConfig: () => baseConfig({ retries: 2 }),
     calibrator: fakeCalibrator(),
     state,
-    fetchImpl: async () => { calls += 1; return errorResponse(429, body); },
+    fetchImpl: async () => {
+      calls += 1;
+      return errorResponse(429, body);
+    },
   });
   const { logs } = await withCapturedLogs(() =>
     assert.rejects(llm.complete([{ role: 'user', content: 'hi' }], { role: 'core' }), (err) => {
@@ -1027,7 +1119,7 @@ test('complete: a daily provider quota 429 is thrown after one attempt and logs 
       assert.equal(err.body, body, 'the untrimmed body stays on the error');
       assert.ok(err.message.startsWith('OpenRouter HTTP 429: '));
       return true;
-    }),
+    })
   );
   assert.equal(calls, 1, 'a daily quota is not retried');
   assert.equal(state.data.llmCount, 1, 'one request counted');
@@ -1058,22 +1150,26 @@ test('complete: a rate 429, an unknown upstream 429 and an OpenRouter 429 are st
     openrouter: OPENROUTER_429,
   };
   const calls = { rate: 0, unknown: 0, openrouter: 0 };
-  const llmFor = (name) => createLlm({
-    apiKey: 'k',
-    getConfig: () => baseConfig({ retries: 1 }),
-    calibrator: fakeCalibrator(),
-    state: fakeState(),
-    fetchImpl: async () => { calls[name] += 1; return errorResponse(429, bodies[name]); },
-  });
+  const llmFor = (name) =>
+    createLlm({
+      apiKey: 'k',
+      getConfig: () => baseConfig({ retries: 1 }),
+      calibrator: fakeCalibrator(),
+      state: fakeState(),
+      fetchImpl: async () => {
+        calls[name] += 1;
+        return errorResponse(429, bodies[name]);
+      },
+    });
   const { logs } = await withCapturedLogs(() =>
     Promise.all(
       Object.keys(bodies).map((name) =>
         assert.rejects(
           llmFor(name).complete([{ role: 'user', content: 'hi' }], { role: 'core' }),
-          (err) => err.statusCode === 429 && err.body === bodies[name],
-        ),
-      ),
-    ),
+          (err) => err.statusCode === 429 && err.body === bodies[name]
+        )
+      )
+    )
   );
   assert.deepEqual(calls, { rate: 2, unknown: 2, openrouter: 2 }, 'one attempt plus llm.retries');
   assert.equal(logs.filter((l) => l.msg === 'llm: provider limit').length, 0);
@@ -1083,8 +1179,22 @@ test('complete: a rate 429, an unknown upstream 429 and an OpenRouter 429 are st
     .sort((a, b) => (a.kind ?? '').localeCompare(b.kind ?? ''));
   assert.deepEqual(retries, [
     { attempt: 1, status: 429, name: 'Error' },
-    { attempt: 1, status: 429, name: 'Error', limitSource: 'upstream_provider_account', provider: 'Amazon Bedrock', kind: 'rate' },
-    { attempt: 1, status: 429, name: 'Error', limitSource: 'upstream_provider_account', provider: 'Fournisseur Éclair', kind: 'unknown' },
+    {
+      attempt: 1,
+      status: 429,
+      name: 'Error',
+      limitSource: 'upstream_provider_account',
+      provider: 'Amazon Bedrock',
+      kind: 'rate',
+    },
+    {
+      attempt: 1,
+      status: 429,
+      name: 'Error',
+      limitSource: 'upstream_provider_account',
+      provider: 'Fournisseur Éclair',
+      kind: 'unknown',
+    },
   ]);
 });
 
@@ -1097,20 +1207,33 @@ test('complete: llm: retry carries kind when the body names one, never the raw t
     getConfig: () => baseConfig({ retries: 2 }),
     calibrator: fakeCalibrator(),
     state: fakeState(),
-    fetchImpl: async () => { calls += 1; return errorResponse(429, bodies[calls - 1]); },
+    fetchImpl: async () => {
+      calls += 1;
+      return errorResponse(429, bodies[calls - 1]);
+    },
   });
   const { logs } = await withCapturedLogs(() =>
     assert.rejects(
       llm.complete([{ role: 'user', content: 'hi' }], { role: 'core' }),
-      (err) => err.statusCode === 429 && err.body === bodies[1],
-    ),
+      (err) => err.statusCode === 429 && err.body === bodies[1]
+    )
   );
   assert.equal(calls, 2, 'the rate limit was retried, the daily quota after it was not');
   const retries = logs.filter((l) => l.msg === 'llm: retry').map(({ level, time, msg, ...fields }) => fields);
   assert.deepEqual(retries, [
-    { attempt: 1, status: 429, name: 'Error', limitSource: 'upstream_provider_account', provider: 'Amazon Bedrock', kind: 'rate' },
+    {
+      attempt: 1,
+      status: 429,
+      name: 'Error',
+      limitSource: 'upstream_provider_account',
+      provider: 'Amazon Bedrock',
+      kind: 'rate',
+    },
   ]);
-  assert.deepEqual(logs.filter((l) => l.msg === 'llm: provider limit').map((l) => l.kind), ['daily']);
+  assert.deepEqual(
+    logs.filter((l) => l.msg === 'llm: provider limit').map((l) => l.kind),
+    ['daily']
+  );
   const text = JSON.stringify(logs);
   for (const raw of [rateRaw, DAILY_RAW, 'please wait']) assert.ok(!text.includes(raw), raw);
 });
@@ -1167,50 +1290,57 @@ test('complete: an answered request logs exactly one llm: usage line filled from
     getConfig: () => baseConfig(),
     calibrator: fakeCalibrator(),
     state: fakeState(),
-    fetchImpl: async () => jsonResponse({
-      id: 'gen-1700000000-abc',
-      provider: 'Google AI Studio',
-      choices: [{ message: { content: 'the answer itself' }, finish_reason: 'stop' }],
-      usage: {
-        prompt_tokens: 1200,
-        completion_tokens: 80,
-        total_tokens: 1280,
-        prompt_tokens_details: { cached_tokens: 1000, cache_write_tokens: 150 },
-        completion_tokens_details: { reasoning_tokens: 30 },
-        cost: 0.0042,
-        is_byok: true,
-        cost_details: { upstream_inference_cost: 0.0038 },
-      },
-    }),
+    fetchImpl: async () =>
+      jsonResponse({
+        id: 'gen-1700000000-abc',
+        provider: 'Google AI Studio',
+        choices: [{ message: { content: 'the answer itself' }, finish_reason: 'stop' }],
+        usage: {
+          prompt_tokens: 1200,
+          completion_tokens: 80,
+          total_tokens: 1280,
+          prompt_tokens_details: { cached_tokens: 1000, cache_write_tokens: 150 },
+          completion_tokens_details: { reasoning_tokens: 30 },
+          cost: 0.0042,
+          is_byok: true,
+          cost_details: { upstream_inference_cost: 0.0038 },
+        },
+      }),
   });
   const { result, logs } = await withCapturedLogs(() =>
-    llm.complete([{ role: 'user', content: 'the prompt itself' }], { role: 'vision', model: 'google/gemini-x' }),
+    llm.complete([{ role: 'user', content: 'the prompt itself' }], { role: 'vision', model: 'google/gemini-x' })
   );
   assert.equal(result.text, 'the answer itself');
   assert.equal(result.provider, 'Google AI Studio');
-  assert.deepEqual(usageFields(logs), [{
-    role: 'vision',
-    purpose: null, // none was named for this request
-    origin: null,
-    model: 'google/gemini-x',
-    provider: 'Google AI Studio',
-    promptTokens: 1200,
-    completionTokens: 80,
-    reasoningTokens: 30,
-    cachedTokens: 1000,
-    cacheWriteTokens: 150,
-    cache: 'off', // no marker was sent: the counts stay, the code says the bot did not ask for caching
-    cost: 0.0042,
-    upstreamCost: 0.0038,
-    byok: true,
-    id: 'gen-1700000000-abc',
-  }]);
+  assert.deepEqual(usageFields(logs), [
+    {
+      role: 'vision',
+      purpose: null, // none was named for this request
+      origin: null,
+      model: 'google/gemini-x',
+      provider: 'Google AI Studio',
+      promptTokens: 1200,
+      completionTokens: 80,
+      reasoningTokens: 30,
+      cachedTokens: 1000,
+      cacheWriteTokens: 150,
+      cache: 'off', // no marker was sent: the counts stay, the code says the bot did not ask for caching
+      cost: 0.0042,
+      upstreamCost: 0.0038,
+      byok: true,
+      id: 'gen-1700000000-abc',
+    },
+  ]);
   const text = JSON.stringify(logs);
   assert.ok(!text.includes('the prompt itself') && !text.includes('the answer itself'), 'no prompt or answer text');
 });
 
 test('complete: a response without usage logs the usage line with nulls and still answers', async () => {
-  for (const extra of [{}, { usage: null }, { usage: { prompt_tokens_details: null, completion_tokens_details: null, cost_details: null } }]) {
+  for (const extra of [
+    {},
+    { usage: null },
+    { usage: { prompt_tokens_details: null, completion_tokens_details: null, cost_details: null } },
+  ]) {
     const llm = createLlm({
       apiKey: 'k',
       getConfig: () => baseConfig(),
@@ -1226,16 +1356,28 @@ test('complete: a response without usage logs the usage line with nulls and stil
 
 test('complete: a refused, failed or json.error request logs no usage line', async () => {
   const make = (fetchImpl, cfg = {}) =>
-    createLlm({ apiKey: 'k', getConfig: () => baseConfig(cfg), calibrator: fakeCalibrator(), state: fakeState(), fetchImpl });
+    createLlm({
+      apiKey: 'k',
+      getConfig: () => baseConfig(cfg),
+      calibrator: fakeCalibrator(),
+      state: fakeState(),
+      fetchImpl,
+    });
   const { logs } = await withCapturedLogs(async () => {
-    await assert.rejects(make(async () => okResponse('x'), { maxRequestTokens: 1 }).complete([{ role: 'user', content: 'hi' }]));
-    await assert.rejects(make(async () => errorResponse(400, 'bad request')).complete([{ role: 'user', content: 'hi' }]));
-    await assert.rejects(make(async () => jsonResponse({ error: { message: 'refused' } })).complete([{ role: 'user', content: 'hi' }]));
+    await assert.rejects(
+      make(async () => okResponse('x'), { maxRequestTokens: 1 }).complete([{ role: 'user', content: 'hi' }])
+    );
+    await assert.rejects(
+      make(async () => errorResponse(400, 'bad request')).complete([{ role: 'user', content: 'hi' }])
+    );
+    await assert.rejects(
+      make(async () => jsonResponse({ error: { message: 'refused' } })).complete([{ role: 'user', content: 'hi' }])
+    );
   });
   assert.deepEqual(usageFields(logs), []);
 });
 
-test('complete: llm: usage carries the request\'s duration, its purpose and its origin; neither option is sent', async () => {
+test("complete: llm: usage carries the request's duration, its purpose and its origin; neither option is sent", async () => {
   let clock = Date.UTC(2026, 8, 21, 12, 0, 0);
   let answerMs = 1000;
   const bodies = [];
@@ -1275,12 +1417,17 @@ test('complete: llm: usage carries the request\'s duration, its purpose and its 
       { role: 'core', purpose: null, origin: null, ms: 1234 },
       { role: null, purpose: null, origin: null, ms: 1234 },
       { role: 'core', purpose: 'lookup', origin: null, ms: 0 },
-    ],
+    ]
   );
   assert.equal(bodies.length, 5);
   for (const body of bodies) {
-    assert.deepEqual(Object.keys(JSON.parse(body)).sort(), ['max_tokens', 'messages', 'model', 'provider', 'temperature'], 'no purpose, no origin, no role');
-    for (const word of ['rewatch', 'lookup', 'replay', 'purpose', 'origin']) assert.ok(!body.includes(word), `${word} is logged only`);
+    assert.deepEqual(
+      Object.keys(JSON.parse(body)).sort(),
+      ['max_tokens', 'messages', 'model', 'provider', 'temperature'],
+      'no purpose, no origin, no role'
+    );
+    for (const word of ['rewatch', 'lookup', 'replay', 'purpose', 'origin'])
+      assert.ok(!body.includes(word), `${word} is logged only`);
   }
   const text = JSON.stringify(logs);
   assert.ok(!text.includes('the prompt itself') && !text.includes('the answer itself'), 'counts and codes only');
@@ -1350,9 +1497,17 @@ test('resolveProvider: the longest matching prefix is chosen, regardless of key 
 });
 
 test('resolveProvider: a non-object entry is ignored and a shorter valid prefix still matches', () => {
-  const byModel = { 'anthropic/': BEDROCK, 'anthropic/claude-opus-4.6': ['amazon-bedrock'], 'anthropic/claude': null, 'anthropic/c': 'x' };
+  const byModel = {
+    'anthropic/': BEDROCK,
+    'anthropic/claude-opus-4.6': ['amazon-bedrock'],
+    'anthropic/claude': null,
+    'anthropic/c': 'x',
+  };
   assert.equal(resolveProvider('anthropic/claude-opus-4.6', { byModel }), BEDROCK);
-  assert.equal(resolveProvider('anthropic/claude-opus-4.6', { byModel: { 'anthropic/': 'amazon-bedrock' }, fallback: VERTEX }), VERTEX);
+  assert.equal(
+    resolveProvider('anthropic/claude-opus-4.6', { byModel: { 'anthropic/': 'amazon-bedrock' }, fallback: VERTEX }),
+    VERTEX
+  );
 });
 
 function capturingLlm(getConfig) {
@@ -1436,21 +1591,46 @@ test('resolveProvider: an empty prefix with a role matches every model for that 
 test('matchRoute: names the matching key and its role, or null', () => {
   const byModel = { 'google/': VERTEX, 'google/@video': STUDIO };
   assert.deepEqual(matchRoute('google/gemini-3.8-flash', byModel, 'video'), {
-    key: 'google/@video', prefix: 'google/', role: 'video', value: STUDIO,
+    key: 'google/@video',
+    prefix: 'google/',
+    role: 'video',
+    value: STUDIO,
   });
-  assert.deepEqual(matchRoute('google/gemini-3.8-flash', byModel, 'core'), { key: 'google/', prefix: 'google/', role: null, value: VERTEX });
+  assert.deepEqual(matchRoute('google/gemini-3.8-flash', byModel, 'core'), {
+    key: 'google/',
+    prefix: 'google/',
+    role: null,
+    value: VERTEX,
+  });
   assert.equal(matchRoute('openai/gpt-x', byModel, 'core'), null);
   // A key splits at its last @: the role is what follows it, the prefix may hold an @ of its own.
-  assert.deepEqual(matchRoute('a@b/model-x', { 'a@b@core': STUDIO }, 'core'), { key: 'a@b@core', prefix: 'a@b', role: 'core', value: STUDIO });
+  assert.deepEqual(matchRoute('a@b/model-x', { 'a@b@core': STUDIO }, 'core'), {
+    key: 'a@b@core',
+    prefix: 'a@b',
+    role: 'core',
+    value: STUDIO,
+  });
 });
 
-test('matchRoute: a role never takes another role\'s key: the vision role skips an analyzer key for a role-less one', () => {
+test("matchRoute: a role never takes another role's key: the vision role skips an analyzer key for a role-less one", () => {
   const EXTRACT = { only: ['extract-provider'] };
   const byModel = { 'x/': VERTEX, 'x/@analyzer': STUDIO };
-  assert.deepEqual(matchRoute('x/model', byModel, 'vision'), { key: 'x/', prefix: 'x/', role: null, value: VERTEX }, 'the analyzer route is not the vision role\'s');
+  assert.deepEqual(
+    matchRoute('x/model', byModel, 'vision'),
+    { key: 'x/', prefix: 'x/', role: null, value: VERTEX },
+    "the analyzer route is not the vision role's"
+  );
   assert.equal(matchRoute('x/model', { 'x/@analyzer': STUDIO }, 'vision'), null);
-  assert.deepEqual(matchRoute('x/model', { ...byModel, 'x/@vision': EXTRACT }, 'vision')?.value, EXTRACT, 'its own key wins');
-  assert.deepEqual(matchRoute('x/model', { 'x/model@analyzer': STUDIO, 'x/@vision': EXTRACT }, 'vision')?.value, EXTRACT, 'its own key wins whatever the lengths');
+  assert.deepEqual(
+    matchRoute('x/model', { ...byModel, 'x/@vision': EXTRACT }, 'vision')?.value,
+    EXTRACT,
+    'its own key wins'
+  );
+  assert.deepEqual(
+    matchRoute('x/model', { 'x/model@analyzer': STUDIO, 'x/@vision': EXTRACT }, 'vision')?.value,
+    EXTRACT,
+    'its own key wins whatever the lengths'
+  );
   assert.equal(matchRoute('x/model', { 'x/@vision': EXTRACT }, 'analyzer'), null, 'nor the other way round');
   assert.equal(resolveProvider('x/model', { byModel, role: 'vision' }), VERTEX);
 });
@@ -1462,7 +1642,10 @@ test('countLlmRequest: counts one request of the day on the shared counter, refu
   countLlmRequest(state, 2, day);
   assert.equal(llmCountToday(state.data, day), 2);
   assert.equal(state.dirty, 2);
-  assert.throws(() => countLlmRequest(state, 2, day), (err) => err instanceof DailyCapError && err.key === 'llm.maxRequestsPerDay' && err.used === 2 && err.cap === 2);
+  assert.throws(
+    () => countLlmRequest(state, 2, day),
+    (err) => err instanceof DailyCapError && err.key === 'llm.maxRequestsPerDay' && err.used === 2 && err.cap === 2
+  );
   assert.equal(llmCountToday(state.data, day), 2, 'a refusal counts nothing');
   countLlmRequest(state, 2, day + 24 * 3600 * 1000);
   assert.equal(llmCountToday(state.data, day + 24 * 3600 * 1000), 1, 'a new day starts from 0');
@@ -1471,11 +1654,13 @@ test('countLlmRequest: counts one request of the day on the shared counter, refu
 
 test('complete: options.role selects the role key; a call without a role uses the role-less key', async () => {
   const fallback = { ignore: ['some-provider'] };
-  const { llm, bodies } = capturingLlm(() => baseConfig({
-    model: 'google/gemini-3.8-flash',
-    provider: fallback,
-    providerByModel: { 'google/gemini-3.8-flash': VERTEX, 'google/@video': STUDIO },
-  }));
+  const { llm, bodies } = capturingLlm(() =>
+    baseConfig({
+      model: 'google/gemini-3.8-flash',
+      provider: fallback,
+      providerByModel: { 'google/gemini-3.8-flash': VERTEX, 'google/@video': STUDIO },
+    })
+  );
   const msgs = [{ role: 'user', content: 'hi' }];
   await llm.complete(msgs, { role: 'video' });
   await llm.complete(msgs, { role: 'core' });
@@ -1549,7 +1734,11 @@ function cachingLlm(getConfig, { usage = { prompt_tokens: 42 }, calibrator = fak
 test('cacheTtlFor: no marker unless features.promptCache is exactly true', () => {
   assert.equal(cacheTtlFor(cachingConfig(), 'core', LISTED_MODEL), '1h');
   for (const promptCache of [false, undefined, null, 'true', 1, {}]) {
-    assert.equal(cacheTtlFor({ ...cachingConfig(), features: { promptCache } }, 'core', LISTED_MODEL), null, String(promptCache));
+    assert.equal(
+      cacheTtlFor({ ...cachingConfig(), features: { promptCache } }, 'core', LISTED_MODEL),
+      null,
+      String(promptCache)
+    );
   }
   for (const config of [undefined, null, {}, { features: {} }, baseConfig({ cache: CACHE })]) {
     assert.equal(cacheTtlFor(config, 'core', LISTED_MODEL), null, JSON.stringify(config));
@@ -1560,8 +1749,15 @@ test('cacheTtlFor: a role outside llm.cache.roles gets none; a non-array roles r
   for (const role of ['vision', 'analyzer', 'video', undefined, null, 7]) {
     assert.equal(cacheTtlFor(cachingConfig(), role, LISTED_MODEL), null, String(role));
   }
-  assert.equal(cacheTtlFor(cachingConfig({ cache: { ...CACHE, roles: ['core', 'vision'] } }), 'vision', LISTED_MODEL), '1h');
-  assert.equal(cacheTtlFor(cachingConfig({ cache: { ...CACHE, roles: [] } }), 'core', LISTED_MODEL), null, 'an empty list marks nothing');
+  assert.equal(
+    cacheTtlFor(cachingConfig({ cache: { ...CACHE, roles: ['core', 'vision'] } }), 'vision', LISTED_MODEL),
+    '1h'
+  );
+  assert.equal(
+    cacheTtlFor(cachingConfig({ cache: { ...CACHE, roles: [] } }), 'core', LISTED_MODEL),
+    null,
+    'an empty list marks nothing'
+  );
   for (const roles of [undefined, null, 'vision', { analyzer: true }]) {
     const config = cachingConfig({ cache: { ...CACHE, roles } });
     assert.equal(cacheTtlFor(config, 'core', LISTED_MODEL), '1h', JSON.stringify(roles));
@@ -1571,7 +1767,16 @@ test('cacheTtlFor: a role outside llm.cache.roles gets none; a non-array roles r
 
 test('cacheTtlFor: a model outside llm.cache.models gets no marker; a non-array models reads as anthropic/ only', () => {
   // the fallback: Anthropic's ids only, whatever the switch and the role say
-  for (const model of [UNLISTED_MODEL, 'google/gemini-test', 'Anthropic/claude-test-4', 'claude-test-4', '', undefined, null, 7]) {
+  for (const model of [
+    UNLISTED_MODEL,
+    'google/gemini-test',
+    'Anthropic/claude-test-4',
+    'claude-test-4',
+    '',
+    undefined,
+    null,
+    7,
+  ]) {
     assert.equal(cacheTtlFor(cachingConfig(), 'core', model), null, String(model));
   }
   for (const models of [undefined, null, 'openai/', { 'openai/': true }]) {
@@ -1584,7 +1789,10 @@ test('cacheTtlFor: a model outside llm.cache.models gets no marker; a non-array 
   assert.equal(cacheTtlFor(both, 'core', UNLISTED_MODEL), '1h');
   assert.equal(cacheTtlFor(both, 'core', 'google/gemini-test'), null);
   assert.equal(cacheTtlFor(cachingConfig({ cache: { ...CACHE, models: [] } }), 'core', LISTED_MODEL), null);
-  assert.equal(cacheTtlFor(cachingConfig({ cache: { ...CACHE, models: [null, 7, { a: 1 }] } }), 'core', LISTED_MODEL), null);
+  assert.equal(
+    cacheTtlFor(cachingConfig({ cache: { ...CACHE, models: [null, 7, { a: 1 }] } }), 'core', LISTED_MODEL),
+    null
+  );
   // the role gate still applies to a listed model
   assert.equal(cacheTtlFor(cachingConfig(), 'vision', LISTED_MODEL), null);
 });
@@ -1624,9 +1832,13 @@ test('fullPromptTokens: prompt_tokens as reported by default; plus cached and ca
   assert.equal(fullPromptTokens(usage, net, true), 10000);
   assert.equal(fullPromptTokens({ prompt_tokens: 1200 }, net, true), 1200, 'no details add nothing');
   assert.equal(
-    fullPromptTokens({ prompt_tokens: 1200, prompt_tokens_details: { cached_tokens: 'many', cache_write_tokens: -5 } }, net, true),
+    fullPromptTokens(
+      { prompt_tokens: 1200, prompt_tokens_details: { cached_tokens: 'many', cache_write_tokens: -5 } },
+      net,
+      true
+    ),
     1200,
-    'a detail that is not a count adds nothing',
+    'a detail that is not a count adds nothing'
   );
   assert.equal(fullPromptTokens({ prompt_tokens: 0, prompt_tokens_details: { cached_tokens: 900 } }, net, true), 900);
 });
@@ -1644,12 +1856,30 @@ test('fullPromptTokens: an unmarked request keeps prompt_tokens as reported even
 
 test('fullPromptTokens: no reported prompt count gives null', () => {
   const net = cachingConfig({ cache: { ...CACHE, promptIncludesCached: false } });
-  for (const usage of [undefined, null, 5, {}, { prompt_tokens: 0 }, { prompt_tokens: 'many' }, { prompt_tokens: Number.NaN }, { prompt_tokens: -3 }, { prompt_tokens: Infinity }]) {
+  for (const usage of [
+    undefined,
+    null,
+    5,
+    {},
+    { prompt_tokens: 0 },
+    { prompt_tokens: 'many' },
+    { prompt_tokens: Number.NaN },
+    { prompt_tokens: -3 },
+    { prompt_tokens: Infinity },
+  ]) {
     assert.equal(fullPromptTokens(usage, cachingConfig(), true), null, JSON.stringify(usage));
   }
-  assert.equal(fullPromptTokens({ prompt_tokens_details: { cached_tokens: 900 } }, net, true), null, 'details without a prompt count are no count');
+  assert.equal(
+    fullPromptTokens({ prompt_tokens_details: { cached_tokens: 900 } }, net, true),
+    null,
+    'details without a prompt count are no count'
+  );
   assert.equal(fullPromptTokens({ prompt_tokens: 0 }, net, true), null);
-  assert.equal(fullPromptTokens({ prompt_tokens: 0, prompt_tokens_details: { cached_tokens: 900 } }, net, false), null, 'unmarked: nothing is added back');
+  assert.equal(
+    fullPromptTokens({ prompt_tokens: 0, prompt_tokens_details: { cached_tokens: 900 } }, net, false),
+    null,
+    'unmarked: nothing is added back'
+  );
 });
 
 test('withCacheMarker: a string system message becomes one text part with the same text and the marker', () => {
@@ -1665,7 +1895,10 @@ test('withCacheMarker: a string system message becomes one text part with the sa
 test('withCacheMarker: an array system content gets the marker on its last text part', () => {
   const picture = { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } };
   const messages = [
-    { role: 'system', content: [{ type: 'text', text: 'première partie' }, { type: 'text', text: 'dernière partie' }, picture] },
+    {
+      role: 'system',
+      content: [{ type: 'text', text: 'première partie' }, { type: 'text', text: 'dernière partie' }, picture],
+    },
     { role: 'user', content: USER_TEXT },
   ];
   const sent = withCacheMarker(messages, '1h');
@@ -1682,9 +1915,17 @@ test('withCacheMarker: a request without a system message is unchanged', () => {
   assert.deepEqual(withCacheMarker(plain, '1h'), [{ role: 'user', content: 'Γεια σου' }]);
   assert.deepEqual(withCacheMarker(plain, '5m'), [{ role: 'user', content: 'Γεια σου' }]);
   // an empty system text gets no marker either: an empty block carrying a marker would be refused
-  const empty = [{ role: 'system', content: '' }, { role: 'user', content: 'Γεια σου' }];
-  assert.deepEqual(withCacheMarker(empty, '1h'), [{ role: 'system', content: '' }, { role: 'user', content: 'Γεια σου' }]);
-  const noText = [{ role: 'system', content: [{ type: 'image_url', image_url: { url: 'https://example.com/a.png' } }] }];
+  const empty = [
+    { role: 'system', content: '' },
+    { role: 'user', content: 'Γεια σου' },
+  ];
+  assert.deepEqual(withCacheMarker(empty, '1h'), [
+    { role: 'system', content: '' },
+    { role: 'user', content: 'Γεια σου' },
+  ]);
+  const noText = [
+    { role: 'system', content: [{ type: 'image_url', image_url: { url: 'https://example.com/a.png' } }] },
+  ];
   assert.deepEqual(markedParts(withCacheMarker(noText, '1h')), []);
 });
 
@@ -1713,13 +1954,29 @@ test("withCacheMarker: the caller's messages and parts are never mutated", () =>
 test('withCacheMarker: without a ttl every builder-placed cache_control is stripped', () => {
   const messages = [
     { role: 'system', content: [{ type: 'text', text: SYSTEM_TEXT, cache_control: { type: 'ephemeral', ttl: '1h' } }] },
-    { role: 'user', content: [{ type: 'text', text: 'bloc stable', cache_control: { type: 'ephemeral' } }, { type: 'text', text: USER_TEXT }] },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: 'bloc stable', cache_control: { type: 'ephemeral' } },
+        { type: 'text', text: USER_TEXT },
+      ],
+    },
   ];
   for (const ttl of [null, undefined, '2h']) {
-    assert.deepEqual(withCacheMarker(messages, ttl), [
-      { role: 'system', content: [{ type: 'text', text: SYSTEM_TEXT }] },
-      { role: 'user', content: [{ type: 'text', text: 'bloc stable' }, { type: 'text', text: USER_TEXT }] },
-    ], String(ttl));
+    assert.deepEqual(
+      withCacheMarker(messages, ttl),
+      [
+        { role: 'system', content: [{ type: 'text', text: SYSTEM_TEXT }] },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'bloc stable' },
+            { type: 'text', text: USER_TEXT },
+          ],
+        },
+      ],
+      String(ttl)
+    );
   }
   // nothing to strip: the very same messages come back, a string system content stays a string
   const plain = replyMessages();
@@ -1729,11 +1986,20 @@ test('withCacheMarker: without a ttl every builder-placed cache_control is strip
 test('withCacheMarker: a builder-placed marker takes the configured ttl', () => {
   const messages = [
     { role: 'system', content: SYSTEM_TEXT },
-    { role: 'user', content: [{ type: 'text', text: 'bloc stable', cache_control: { type: 'ephemeral', ttl: '1h' } }, { type: 'text', text: USER_TEXT }] },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: 'bloc stable', cache_control: { type: 'ephemeral', ttl: '1h' } },
+        { type: 'text', text: USER_TEXT },
+      ],
+    },
   ];
   const sent = withCacheMarker(messages, '5m');
   assert.deepEqual(sent[0].content, [{ type: 'text', text: SYSTEM_TEXT, cache_control: MARK_5M }]);
-  assert.deepEqual(sent[1].content, [{ type: 'text', text: 'bloc stable', cache_control: MARK_5M }, { type: 'text', text: USER_TEXT }]);
+  assert.deepEqual(sent[1].content, [
+    { type: 'text', text: 'bloc stable', cache_control: MARK_5M },
+    { type: 'text', text: USER_TEXT },
+  ]);
 });
 
 test('withCacheMarker: no more than four markers are sent', () => {
@@ -1745,10 +2011,20 @@ test('withCacheMarker: no more than four markers are sent', () => {
   const sent = withCacheMarker(messages, '5m');
   assert.equal(markedParts(sent).length, 4);
   assert.deepEqual(sent[0].content[0].cache_control, MARK_5M, 'the system marker comes first in message order');
-  assert.deepEqual(sent[1].content.map((p) => 'cache_control' in p), [true, true, true, false, false]);
-  assert.deepEqual(sent[1].content.map((p) => p.text), letters, 'the text is kept on every part');
+  assert.deepEqual(
+    sent[1].content.map((p) => 'cache_control' in p),
+    [true, true, true, false, false]
+  );
+  assert.deepEqual(
+    sent[1].content.map((p) => p.text),
+    letters,
+    'the text is kept on every part'
+  );
   // without a system message the first four builder markers survive
-  assert.deepEqual(withCacheMarker([messages[1]], '1h')[0].content.map((p) => 'cache_control' in p), [true, true, true, true, false]);
+  assert.deepEqual(
+    withCacheMarker([messages[1]], '1h')[0].content.map((p) => 'cache_control' in p),
+    [true, true, true, true, false]
+  );
 });
 
 // --- cache segments: the reply's stable user prefix and its profiles --------------------
@@ -1776,11 +2052,13 @@ function anySegment(messages) {
 
 test('profilesTtlFor: 5m as it is, null or false for no marker, anything else 1h', () => {
   assert.equal(profilesTtlFor({ llm: { cache: { profilesTtl: '5m' } } }), '5m');
-  for (const off of [null, false]) assert.equal(profilesTtlFor({ llm: { cache: { profilesTtl: off } } }), null, String(off));
+  for (const off of [null, false])
+    assert.equal(profilesTtlFor({ llm: { cache: { profilesTtl: off } } }), null, String(off));
   for (const value of ['1h', undefined, '2h', 5, true, '']) {
     assert.equal(profilesTtlFor({ llm: { cache: { profilesTtl: value } } }), '1h', String(value));
   }
-  for (const config of [undefined, null, {}, { llm: {} }]) assert.equal(profilesTtlFor(config), '1h', JSON.stringify(config));
+  for (const config of [undefined, null, {}, { llm: {} }])
+    assert.equal(profilesTtlFor(config), '1h', JSON.stringify(config));
 });
 
 test('withCacheMarker: cacheSegment stable takes the request ttl, profiles its own, and the tag is never sent', () => {
@@ -1798,15 +2076,25 @@ test('withCacheMarker: cacheSegment stable takes the request ttl, profiles its o
   assert.equal(anySegment(sent), false);
   assert.deepEqual(messages, before, 'the caller keeps its tags');
   const hourly = withCacheMarker(segmentedMessages(), '1h', '1h');
-  assert.deepEqual(markedParts(hourly).map((p) => p.cache_control), [MARK_1H, MARK_1H, MARK_1H]);
+  assert.deepEqual(
+    markedParts(hourly).map((p) => p.cache_control),
+    [MARK_1H, MARK_1H, MARK_1H]
+  );
 });
 
 test('withCacheMarker: a profiles ttl never outlasts a 5m request ttl; null leaves the profiles unmarked', () => {
   const short = withCacheMarker(segmentedMessages(), '5m', '1h');
-  assert.deepEqual(markedParts(short).map((p) => p.cache_control), [MARK_5M, MARK_5M, MARK_5M]);
+  assert.deepEqual(
+    markedParts(short).map((p) => p.cache_control),
+    [MARK_5M, MARK_5M, MARK_5M]
+  );
   for (const profilesTtl of [null, undefined]) {
     const sent = withCacheMarker(segmentedMessages(), '1h', profilesTtl);
-    assert.deepEqual(markedParts(sent).map((p) => p.text), [SYSTEM_TEXT, '<self_facts>\n- aime le thé\n</self_facts>\n\n'], String(profilesTtl));
+    assert.deepEqual(
+      markedParts(sent).map((p) => p.text),
+      [SYSTEM_TEXT, '<self_facts>\n- aime le thé\n</self_facts>\n\n'],
+      String(profilesTtl)
+    );
     assert.equal(anySegment(sent), false);
   }
 });
@@ -1817,18 +2105,43 @@ test('withCacheMarker: without a ttl, or with an unknown segment, the tag is str
     assert.deepEqual(markedParts(sent), [], String(ttl));
     assert.equal(anySegment(sent), false, String(ttl));
     assert.equal(sent[0].content, SYSTEM_TEXT, 'the system message stays a string');
-    assert.deepEqual(sent[1].content.map((p) => p.text ?? null), segmentedMessages()[1].content.map((p) => p.text ?? null));
+    assert.deepEqual(
+      sent[1].content.map((p) => p.text ?? null),
+      segmentedMessages()[1].content.map((p) => p.text ?? null)
+    );
   }
-  const odd = [{ role: 'user', content: [{ type: 'text', text: 'α', cacheSegment: 'tail' }, { type: 'text', text: 'β', cacheSegment: '__proto__' }] }];
-  assert.deepEqual(withCacheMarker(odd, '1h', '5m'), [{ role: 'user', content: [{ type: 'text', text: 'α' }, { type: 'text', text: 'β' }] }]);
+  const odd = [
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: 'α', cacheSegment: 'tail' },
+        { type: 'text', text: 'β', cacheSegment: '__proto__' },
+      ],
+    },
+  ];
+  assert.deepEqual(withCacheMarker(odd, '1h', '5m'), [
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: 'α' },
+        { type: 'text', text: 'β' },
+      ],
+    },
+  ]);
 });
 
 test('withCacheMarker: system, stable and profiles are three of the four markers; a fifth is dropped', () => {
   const messages = segmentedMessages();
-  messages[1].content.push({ type: 'text', text: 'γ', cache_control: { type: 'ephemeral' } }, { type: 'text', text: 'δ', cache_control: { type: 'ephemeral' } });
+  messages[1].content.push(
+    { type: 'text', text: 'γ', cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: 'δ', cache_control: { type: 'ephemeral' } }
+  );
   const sent = withCacheMarker(messages, '1h', '5m');
   assert.equal(markedParts(sent).length, 4);
-  assert.deepEqual(sent[1].content.map((p) => 'cache_control' in p), [true, true, false, false, true, false]);
+  assert.deepEqual(
+    sent[1].content.map((p) => 'cache_control' in p),
+    [true, true, false, false, true, false]
+  );
 });
 
 test('complete: a segmented reply is sent with the system, stable and profiles markers, never the tag; off or unlisted, with neither', async () => {
@@ -1845,11 +2158,21 @@ test('complete: a segmented reply is sent with the system, stable and profiles m
   await llm.complete(segmentedMessages(), { role: 'vision' });
   await llm.complete(segmentedMessages(), { role: 'core' });
   const [on, noProfiles, off, unlisted, otherRole, defaulted] = bodies();
-  assert.deepEqual(markedParts(on.messages).map((p) => p.cache_control), [MARK_1H, MARK_1H, MARK_5M]);
-  assert.deepEqual(markedParts(noProfiles.messages).map((p) => p.cache_control), [MARK_1H, MARK_1H]);
+  assert.deepEqual(
+    markedParts(on.messages).map((p) => p.cache_control),
+    [MARK_1H, MARK_1H, MARK_5M]
+  );
+  assert.deepEqual(
+    markedParts(noProfiles.messages).map((p) => p.cache_control),
+    [MARK_1H, MARK_1H]
+  );
   for (const body of [off, unlisted, otherRole]) assert.deepEqual(markedParts(body.messages), []);
   for (const raw of sent) assert.equal(raw.includes('cacheSegment'), false);
-  assert.deepEqual(markedParts(defaulted.messages).map((p) => p.cache_control), [MARK_1H, MARK_1H, MARK_1H], 'a missing llm.cache.profilesTtl reads as 1h');
+  assert.deepEqual(
+    markedParts(defaulted.messages).map((p) => p.cache_control),
+    [MARK_1H, MARK_1H, MARK_1H],
+    'a missing llm.cache.profilesTtl reads as 1h'
+  );
 });
 
 test('complete: the estimate and the token cap count every text part of the user message', async () => {
@@ -1866,7 +2189,10 @@ test('complete: the estimate and the token cap count every text part of the user
     },
   ];
   const { llm } = cachingLlm(() => cachingConfig({ maxRequestTokens: 1000 }));
-  await assert.rejects(llm.complete(messages, { role: 'core' }), (err) => err instanceof TokenLimitError && err.used > 1000);
+  await assert.rejects(
+    llm.complete(messages, { role: 'core' }),
+    (err) => err instanceof TokenLimitError && err.used > 1000
+  );
   const { llm: roomy } = cachingLlm(() => cachingConfig({ maxRequestTokens: 5000 }));
   const answered = await roomy.complete(messages, { role: 'core' });
   const joined = await roomy.complete([messages[0], { role: 'user', content: part.repeat(3) }], { role: 'core' });
@@ -1887,7 +2213,11 @@ test('complete: with promptCache on, a reply request carries the marker on the s
   assert.deepEqual(minutes.messages[0].content, [{ type: 'text', text: SYSTEM_TEXT, cache_control: MARK_5M }]);
   assert.deepEqual(minutes.messages[1], { role: 'user', content: USER_TEXT });
   for (const body of [hour, minutes]) {
-    assert.equal('cache_control' in body, false, 'no top-level marker: it would put the breakpoint after the whole prompt');
+    assert.equal(
+      'cache_control' in body,
+      false,
+      'no top-level marker: it would put the breakpoint after the whole prompt'
+    );
     assert.equal(markedParts(body.messages).length, 1);
   }
 });
@@ -1895,7 +2225,13 @@ test('complete: with promptCache on, a reply request carries the marker on the s
 test("complete: with promptCache off or the role not listed the body is byte-identical to today's", async () => {
   const messages = [
     { role: 'system', content: SYSTEM_TEXT },
-    { role: 'user', content: [{ type: 'text', text: USER_TEXT }, { type: 'image_url', image_url: { url: 'https://example.com/a.png' } }] },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: USER_TEXT },
+        { type: 'image_url', image_url: { url: 'https://example.com/a.png' } },
+      ],
+    },
   ];
   const today = (model) => JSON.stringify({ model, messages, temperature: 1, max_tokens: 100 });
   const configs = [
@@ -1930,7 +2266,10 @@ test('complete: a reply request on a non-listed model is byte-identical with pro
   await llm.complete(messages, { role: 'core', model: LISTED_MODEL });
   config = cachingConfig({ model: UNLISTED_MODEL, cache: { ...CACHE, models: ['openai/'] } });
   await llm.complete(messages, { role: 'core' });
-  assert.deepEqual(sent.slice(3).map((body) => markedParts(JSON.parse(body).messages).length), [1, 1]);
+  assert.deepEqual(
+    sent.slice(3).map((body) => markedParts(JSON.parse(body).messages).length),
+    [1, 1]
+  );
 });
 
 test('complete: options.cache false forbids the marker and true forces it', async () => {
@@ -1955,12 +2294,21 @@ test('complete: the cache policy is read from the live config on every call', as
   await llm.complete(replyMessages(), { role: 'core' });
   config = cachingConfig({ cache: { ...CACHE, roles: ['vision'] } });
   await llm.complete(replyMessages(), { role: 'core' });
-  assert.deepEqual(bodies().map((b) => markedParts(b.messages).length), [0, 1, 0]);
+  assert.deepEqual(
+    bodies().map((b) => markedParts(b.messages).length),
+    [0, 1, 0]
+  );
 });
 
 test('complete: the estimate and the token cap check are the same with and without a marker', async () => {
   const applied = [];
-  const calibrator = { ...fakeCalibrator(), apply: (n) => { applied.push(n); return n; } };
+  const calibrator = {
+    ...fakeCalibrator(),
+    apply: (n) => {
+      applied.push(n);
+      return n;
+    },
+  };
   let config = cachingConfig({ promptCache: false });
   const { llm, sent } = cachingLlm(() => config, { calibrator });
   const plain = await llm.complete(replyMessages(), { role: 'core' });
@@ -2002,11 +2350,20 @@ test('complete: llm: usage carries cache read, write, none or off from the usage
     await llm.complete(replyMessages(), { role: 'core' });
   });
   const lines = usageFields(logs);
-  assert.deepEqual(lines.map((l) => l.cache), ['read', 'write', 'read', 'none', 'none', 'off', 'off', 'off']);
-  assert.deepEqual(lines.map((l) => [l.cachedTokens, l.cacheWriteTokens]).slice(0, 2), [[8900, 0], [0, 8900]]);
+  assert.deepEqual(
+    lines.map((l) => l.cache),
+    ['read', 'write', 'read', 'none', 'none', 'off', 'off', 'off']
+  );
+  assert.deepEqual(lines.map((l) => [l.cachedTokens, l.cacheWriteTokens]).slice(0, 2), [
+    [8900, 0],
+    [0, 8900],
+  ]);
   assert.equal(lines[5].cachedTokens, 8900, 'the counts are logged whether or not a marker was sent');
   const text = JSON.stringify(logs);
-  assert.ok(!text.includes('persona du salon') && !text.includes('Καλημέρα'), 'counts and codes only, never prompt text');
+  assert.ok(
+    !text.includes('persona du salon') && !text.includes('Καλημέρα'),
+    'counts and codes only, never prompt text'
+  );
 });
 
 test('complete: the calibrator observes the full prompt count when the usage reports cached tokens', async () => {
@@ -2027,7 +2384,10 @@ test('complete: the calibrator observes the full prompt count when the usage rep
   }
   // skipCalibration still feeds nothing, and still returns the full count
   const calibrator = fakeCalibrator();
-  const { llm } = cachingLlm(() => cachingConfig({ cache: { ...CACHE, promptIncludesCached: false } }), { usage, calibrator });
+  const { llm } = cachingLlm(() => cachingConfig({ cache: { ...CACHE, promptIncludesCached: false } }), {
+    usage,
+    calibrator,
+  });
   const skipped = await llm.complete(replyMessages(), { role: 'core', skipCalibration: true });
   assert.deepEqual(calibrator.observed, []);
   assert.equal(skipped.promptTokens, 9300);
@@ -2064,7 +2424,10 @@ test('complete: an unmarked request reporting cached tokens feeds prompt_tokens 
 test('complete: the token-cap warning uses the same full prompt count', async () => {
   const usage = { prompt_tokens: 800, prompt_tokens_details: { cached_tokens: 600, cache_write_tokens: 0 } };
   const warned = async (promptIncludesCached) => {
-    const { llm } = cachingLlm(() => cachingConfig({ maxRequestTokens: 1000, cache: { ...CACHE, promptIncludesCached } }), { usage });
+    const { llm } = cachingLlm(
+      () => cachingConfig({ maxRequestTokens: 1000, cache: { ...CACHE, promptIncludesCached } }),
+      { usage }
+    );
     const { logs } = await withCapturedLogs(() => llm.complete(replyMessages(), { role: 'core' }));
     return logs.filter((l) => l.msg === 'llm: provider counted more prompt tokens than the cap').length;
   };
@@ -2117,12 +2480,24 @@ test('modelEndpoints: one GET of the listing with the key and a timeout; nothing
 
 test('modelEndpoints: a non-2xx answer has no json, an unparsable body reads as null, a network failure throws', async () => {
   const make = (fetchImpl) =>
-    createLlm({ apiKey: 'k', getConfig: () => baseConfig(), calibrator: fakeCalibrator(), state: fakeState(), fetchImpl });
+    createLlm({
+      apiKey: 'k',
+      getConfig: () => baseConfig(),
+      calibrator: fakeCalibrator(),
+      state: fakeState(),
+      fetchImpl,
+    });
 
   const missing = make(async () => ({ ok: false, status: 404, json: async () => ({ error: 'x' }) }));
   assert.deepEqual(await missing.modelEndpoints('a/b'), { ok: false, status: 404, json: null });
 
-  const garbled = make(async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError('bad'); } }));
+  const garbled = make(async () => ({
+    ok: true,
+    status: 200,
+    json: async () => {
+      throw new SyntaxError('bad');
+    },
+  }));
   assert.deepEqual(await garbled.modelEndpoints('a/b'), { ok: true, status: 200, json: null });
 
   const down = make(async () => {
@@ -2134,11 +2509,15 @@ test('modelEndpoints: a non-2xx answer has no json, an unparsable body reads as 
 // Restored by the lead: truncation detection, text-free logs and the cache marker's roles are real behaviour.
 test('complete: passes through choices[0].finish_reason as finishReason, undefined when the provider omits it', async () => {
   for (const [label, response, expected] of [
-    ['length', {
-      ok: true,
-      status: 200,
-      json: async () => ({ choices: [{ message: { content: 'cut off' }, finish_reason: 'length' }], usage: {} }),
-    }, 'length'],
+    [
+      'length',
+      {
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: 'cut off' }, finish_reason: 'length' }], usage: {} }),
+      },
+      'length',
+    ],
     ['omitted', okResponse('hi'), undefined], // okResponse's choices carry no finish_reason
   ]) {
     const llm = createLlm({
@@ -2159,20 +2538,21 @@ test('complete: the usage line keeps numbers, booleans and ids only; a value of 
     getConfig: () => baseConfig(),
     calibrator: fakeCalibrator(),
     state: fakeState(),
-    fetchImpl: async () => jsonResponse({
-      id: { text: 'not an id' },
-      provider: ['not a name'],
-      choices: [{ message: { content: 'hi' } }],
-      usage: {
-        prompt_tokens: 'many',
-        completion_tokens: null,
-        prompt_tokens_details: { cached_tokens: 'some', cache_write_tokens: [1] },
-        completion_tokens_details: 'none',
-        cost: '0.1',
-        is_byok: 'yes',
-        cost_details: { upstream_inference_cost: { value: 1 } },
-      },
-    }),
+    fetchImpl: async () =>
+      jsonResponse({
+        id: { text: 'not an id' },
+        provider: ['not a name'],
+        choices: [{ message: { content: 'hi' } }],
+        usage: {
+          prompt_tokens: 'many',
+          completion_tokens: null,
+          prompt_tokens_details: { cached_tokens: 'some', cache_write_tokens: [1] },
+          completion_tokens_details: 'none',
+          cost: '0.1',
+          is_byok: 'yes',
+          cost_details: { upstream_inference_cost: { value: 1 } },
+        },
+      }),
   });
   const { logs } = await withCapturedLogs(() => llm.complete([{ role: 'user', content: 'hi' }], { role: 7 }));
   assert.deepEqual(usageFields(logs), [{ role: null, model: 'test-model', ...NO_USAGE }]);
@@ -2209,8 +2589,8 @@ test('complete: a byok route with is_byok false throws NotByokError after the us
   const { logs } = await withCapturedLogs(() =>
     assert.rejects(
       llm.complete([{ role: 'user', content: 'the prompt itself' }], { role: 'core', model: 'vendor/model-x' }),
-      (err) => err instanceof NotByokError && err.message === 'not byok: vendor/model-x via Some Provider',
-    ),
+      (err) => err instanceof NotByokError && err.message === 'not byok: vendor/model-x via Some Provider'
+    )
   );
   assert.equal(sent.length, 1, 'thrown after the answer: nothing is retried');
   assert.equal(usageLines(logs).length, 1, 'the usage line is logged as usual');
@@ -2218,38 +2598,59 @@ test('complete: a byok route with is_byok false throws NotByokError after the us
   assert.equal(warn.length, 1);
   assert.equal(warn[0].level, 'warn');
   const fieldsOf = ({ level, time, msg, ...fields }) => fields;
-  assert.deepEqual(fieldsOf(warn[0]), fieldsOf(logs.find((l) => l.msg === 'llm: usage')), 'the warning carries the usage line\'s fields');
+  assert.deepEqual(
+    fieldsOf(warn[0]),
+    fieldsOf(logs.find((l) => l.msg === 'llm: usage')),
+    "the warning carries the usage line's fields"
+  );
   assert.equal(warn[0].byok, false);
   const text = JSON.stringify(logs);
   assert.ok(!text.includes('the prompt itself') && !text.includes('the answer itself'), 'no prompt or answer text');
 });
 
 test('complete: a byok route passes an answer with is_byok true, a non-boolean one or no usage block', async () => {
-  for (const usage of [{ prompt_tokens: 10, is_byok: true }, { prompt_tokens: 10 }, { prompt_tokens: 10, is_byok: 'false' }, undefined]) {
+  for (const usage of [
+    { prompt_tokens: 10, is_byok: true },
+    { prompt_tokens: 10 },
+    { prompt_tokens: 10, is_byok: 'false' },
+    undefined,
+  ]) {
     const { llm } = byokLlm(BYOK_ROUTE, usage);
-    const { result, logs } = await withCapturedLogs(() => llm.complete([{ role: 'user', content: 'hi' }], { model: 'vendor/model-x' }));
+    const { result, logs } = await withCapturedLogs(() =>
+      llm.complete([{ role: 'user', content: 'hi' }], { model: 'vendor/model-x' })
+    );
     assert.equal(result.text, 'the answer itself', JSON.stringify(usage));
     assert.equal(logs.filter((l) => l.msg === 'llm: not byok').length, 0, JSON.stringify(usage));
   }
 });
 
 test('complete: without a route marked byok exactly true, an answer with is_byok false passes unchanged', async () => {
-  const routes = [undefined, { only: ['amazon-bedrock'] }, { only: ['amazon-bedrock'], byok: false }, { only: ['amazon-bedrock'], byok: 'true' }, { only: ['amazon-bedrock'], byok: 1 }];
+  const routes = [
+    undefined,
+    { only: ['amazon-bedrock'] },
+    { only: ['amazon-bedrock'], byok: false },
+    { only: ['amazon-bedrock'], byok: 'true' },
+    { only: ['amazon-bedrock'], byok: 1 },
+  ];
   for (const route of routes) {
     const { llm } = byokLlm(route, { prompt_tokens: 10, is_byok: false });
-    const { result, logs } = await withCapturedLogs(() => llm.complete([{ role: 'user', content: 'hi' }], { model: 'vendor/model-x' }));
+    const { result, logs } = await withCapturedLogs(() =>
+      llm.complete([{ role: 'user', content: 'hi' }], { model: 'vendor/model-x' })
+    );
     assert.equal(result.text, 'the answer itself', JSON.stringify(route));
     assert.equal(logs.filter((l) => l.msg === 'llm: not byok').length, 0, JSON.stringify(route));
   }
 });
 
-test('complete: a route that matches another model is not this request\'s: is_byok false passes', async () => {
+test("complete: a route that matches another model is not this request's: is_byok false passes", async () => {
   const { llm } = byokLlm(BYOK_ROUTE, { prompt_tokens: 10, is_byok: false });
-  const { result } = await withCapturedLogs(() => llm.complete([{ role: 'user', content: 'hi' }], { model: 'other/model-y' }));
+  const { result } = await withCapturedLogs(() =>
+    llm.complete([{ role: 'user', content: 'hi' }], { model: 'other/model-y' })
+  );
   assert.equal(result.text, 'the answer itself');
 });
 
-test('complete: the body\'s provider never carries byok, and the configured route is not mutated', async () => {
+test("complete: the body's provider never carries byok, and the configured route is not mutated", async () => {
   const route = { ...BYOK_ROUTE };
   const { llm, sent } = byokLlm(route, { prompt_tokens: 10, is_byok: true });
   await withCapturedLogs(() => llm.complete([{ role: 'user', content: 'hi' }], { model: 'vendor/model-x' }));
@@ -2267,9 +2668,18 @@ test('providerBodyOf: drops byok only, returns a route without it as is, keeps u
 
 test('assertByok: refuses only a route with byok exactly true and is_byok exactly false', async () => {
   const fields = { model: 'm', provider: 'p' };
-  const { logs } = await withCapturedLogs(() => assert.throws(() => assertByok({ byok: true }, { is_byok: false }, fields), NotByokError));
+  const { logs } = await withCapturedLogs(() =>
+    assert.throws(() => assertByok({ byok: true }, { is_byok: false }, fields), NotByokError)
+  );
   assert.equal(logs.filter((l) => l.msg === 'llm: not byok').length, 1);
-  for (const [route, usage] of [[undefined, { is_byok: false }], [{}, { is_byok: false }], [{ byok: 'true' }, { is_byok: false }], [{ byok: true }, {}], [{ byok: true }, { is_byok: true }], [{ byok: true }, undefined]]) {
+  for (const [route, usage] of [
+    [undefined, { is_byok: false }],
+    [{}, { is_byok: false }],
+    [{ byok: 'true' }, { is_byok: false }],
+    [{ byok: true }, {}],
+    [{ byok: true }, { is_byok: true }],
+    [{ byok: true }, undefined],
+  ]) {
     assert.doesNotThrow(() => assertByok(route, usage, fields), JSON.stringify([route, usage]));
   }
 });
@@ -2335,12 +2745,13 @@ function fakeClock(start = Date.UTC(2026, 9, 5, 12, 0, 0)) {
  */
 function deferredTransport({ honourAbort = true } = {}) {
   const calls = [];
-  const fetchImpl = (url, init) => new Promise((resolve, reject) => {
-    calls.push({ body: init.body, signal: init.signal, answer: resolve, fail: reject });
-    if (!honourAbort) return;
-    if (init.signal.aborted) reject(init.signal.reason);
-    init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true });
-  });
+  const fetchImpl = (url, init) =>
+    new Promise((resolve, reject) => {
+      calls.push({ body: init.body, signal: init.signal, answer: resolve, fail: reject });
+      if (!honourAbort) return;
+      if (init.signal.aborted) reject(init.signal.reason);
+      init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true });
+    });
   return { calls, fetchImpl };
 }
 
@@ -2374,7 +2785,7 @@ function watch(promise) {
   const seen = { status: 'pending', value: undefined };
   promise.then(
     (value) => Object.assign(seen, { status: 'resolved', value }),
-    (value) => Object.assign(seen, { status: 'rejected', value }),
+    (value) => Object.assign(seen, { status: 'rejected', value })
   );
   return seen;
 }
@@ -2423,15 +2834,21 @@ test('hedge: a slow first attempt gets a second at afterMs with the same body; t
     assert.equal(calls[winner - 1].signal.aborted, false, 'the winner is left alone');
     assert.equal(calls[2 - winner].signal.aborted, true, 'the loser is aborted');
     assert.equal(state.data.llmCount, 2, 'both attempts were sent and counted');
-    assert.deepEqual(linesOf(logs, 'llm: hedge'), [{ role: 'analyzer', purpose: 'address', model: 'small/model', afterMs: HEDGE.afterMs }]);
+    assert.deepEqual(linesOf(logs, 'llm: hedge'), [
+      { role: 'analyzer', purpose: 'address', model: 'small/model', afterMs: HEDGE.afterMs },
+    ]);
     const usage = linesOf(logs, 'llm: usage');
     assert.equal(usage.length, 1, 'one answer, one usage line');
-    assert.deepEqual([usage[0].hedged, usage[0].attempt, usage[0].ms], [true, winner, HEDGE.afterMs + 300], 'ms from the first attempt\'s start');
+    assert.deepEqual(
+      [usage[0].hedged, usage[0].attempt, usage[0].ms],
+      [true, winner, HEDGE.afterMs + 300],
+      "ms from the first attempt's start"
+    );
     assert.equal(clock.pending(), 0);
   }
 });
 
-test('hedge: the loser\'s late answer or failure is swallowed -- no rejection, no log line', async () => {
+test("hedge: the loser's late answer or failure is swallowed -- no rejection, no log line", async () => {
   const unhandled = [];
   const onUnhandled = (reason) => unhandled.push(reason);
   process.on('unhandledRejection', onUnhandled);
@@ -2488,7 +2905,7 @@ test('hedge: a retryable failure of the first attempt sends the second at once; 
   await early.clock.advance(300);
   early.calls[0].answer(errorResponse(502));
   await drain();
-  assert.equal(early.calls.length, 2, 'the hedge is the call\'s retry');
+  assert.equal(early.calls.length, 2, "the hedge is the call's retry");
   early.calls[1].answer(okResponse('ok'));
   await drain();
   assert.equal(seen.value.text, 'ok');
@@ -2512,7 +2929,10 @@ test('hedge: at timeoutMs both attempts are aborted and a timeout is thrown, wit
   await clock.advance(1);
   assert.equal(seen.status, 'rejected');
   assert.equal(seen.value.name, 'TimeoutError');
-  assert.deepEqual(calls.map((call) => call.signal.aborted), [true, true]);
+  assert.deepEqual(
+    calls.map((call) => call.signal.aborted),
+    [true, true]
+  );
   await clock.advance(HEDGE.timeoutMs * 2);
   assert.equal(calls.length, 2);
   assert.equal(clock.pending(), 0);
@@ -2556,7 +2976,7 @@ test('hedge: the daily counter counts the second attempt only when it is sent, a
   assert.equal(refused.calls.length, 1);
 });
 
-test('hedge: a provider\'s quota of the day is thrown at once, never hedged around', async () => {
+test("hedge: a provider's quota of the day is thrown at once, never hedged around", async () => {
   const { ask, clock, calls } = hedgedLlm();
   const body = upstreamLimitBody(DAILY_RAW);
   const { logs } = await withCapturedLogs(async () => {
@@ -2572,7 +2992,7 @@ test('hedge: a provider\'s quota of the day is thrown at once, never hedged arou
   assert.equal(linesOf(logs, 'llm: provider limit').length, 1);
 });
 
-test('hedge: the caller\'s signal aborts both attempts', async () => {
+test("hedge: the caller's signal aborts both attempts", async () => {
   const { ask, clock, calls } = hedgedLlm();
   const controller = new AbortController();
   const seen = watch(ask({ signal: controller.signal }));
@@ -2581,13 +3001,16 @@ test('hedge: the caller\'s signal aborts both attempts', async () => {
   controller.abort();
   await drain();
   assert.equal(seen.status, 'rejected');
-  assert.deepEqual(calls.map((call) => call.signal.aborted), [true, true]);
+  assert.deepEqual(
+    calls.map((call) => call.signal.aborted),
+    [true, true]
+  );
   await clock.advance(HEDGE.timeoutMs);
   assert.equal(calls.length, 2);
   assert.equal(clock.pending(), 0);
 });
 
-test('hedge: no helper mark, a role not listed, afterMs 0 or no llm.hedge object -- one attempt, today\'s usage line', async () => {
+test("hedge: no helper mark, a role not listed, afterMs 0 or no llm.hedge object -- one attempt, today's usage line", async () => {
   const cases = [
     { name: 'no helper mark', extra: { helper: undefined } },
     { name: 'role not listed', role: 'vision' },
@@ -2616,10 +3039,18 @@ test('hedgeSettings: null without an llm.hedge object; inside the group a missin
   for (const config of [undefined, null, {}, { llm: {} }, { llm: { hedge: null } }, { llm: { hedge: [] } }]) {
     assert.equal(hedgeSettings(config), null, JSON.stringify(config));
   }
-  for (const hedge of [{}, { roles: 'analyzer', afterMs: -1, timeoutMs: 0 }, { afterMs: '1', timeoutMs: Infinity, longTimeoutMs: -5 }]) {
+  for (const hedge of [
+    {},
+    { roles: 'analyzer', afterMs: -1, timeoutMs: 0 },
+    { afterMs: '1', timeoutMs: Infinity, longTimeoutMs: -5 },
+  ]) {
     assert.deepEqual(hedgeSettings({ llm: { hedge } }), shipped.llm.hedge, JSON.stringify(hedge));
   }
-  assert.deepEqual(hedgeSettings({ llm: { hedge: { roles: [], afterMs: 0 } } }), { ...shipped.llm.hedge, roles: [], afterMs: 0 });
+  assert.deepEqual(hedgeSettings({ llm: { hedge: { roles: [], afterMs: 0 } } }), {
+    ...shipped.llm.hedge,
+    roles: [],
+    afterMs: 0,
+  });
 });
 
 test('helperRequestOptions: long true marks the set, anything else leaves the key out', () => {
@@ -2646,7 +3077,10 @@ test('hedge: a set marked long is limited by longTimeoutMs, still hedged at afte
     assert.equal(seen.value.name, 'TimeoutError');
   });
   assert.equal(calls.length, 2, 'no retry past the two attempts');
-  assert.deepEqual(calls.map((call) => call.signal.aborted), [true, true]);
+  assert.deepEqual(
+    calls.map((call) => call.signal.aborted),
+    [true, true]
+  );
   assert.deepEqual(linesOf(logs, 'llm: retry'), []);
   for (const call of calls) {
     assert.deepEqual(Object.keys(JSON.parse(call.body)).sort(), ['max_tokens', 'messages', 'model', 'temperature']);
@@ -2660,7 +3094,10 @@ test('hedge: a set marked long is limited by longTimeoutMs, still hedged at afte
   controller.abort();
   await drain();
   assert.equal(aborted.status, 'rejected');
-  assert.deepEqual(own.calls.map((call) => call.signal.aborted), [true, true]);
+  assert.deepEqual(
+    own.calls.map((call) => call.signal.aborted),
+    [true, true]
+  );
   assert.equal(own.clock.pending(), 0);
 });
 
@@ -2687,7 +3124,8 @@ function replyLlm({ llm = {}, transport = deferredTransport(), state = fakeState
     setTimer: clock.setTimer,
     clearTimer: clock.clearTimer,
   });
-  const ask = (extra = {}) => client.complete(replyMessages(), { ...REPLY_REQUEST, timeoutMs: REPLY_HEDGE.timeoutMs, ...extra });
+  const ask = (extra = {}) =>
+    client.complete(replyMessages(), { ...REPLY_REQUEST, timeoutMs: REPLY_HEDGE.timeoutMs, ...extra });
   return { ask, clock, state, calls: transport.calls };
 }
 
@@ -2710,7 +3148,9 @@ test('hedge: an explicit options.hedge hedges a non-helper request at its afterM
   assert.equal(markedParts(JSON.parse(calls[0].body).messages).length, 1, 'the cache marker is on both attempts');
   assert.deepEqual(Object.keys(JSON.parse(calls[0].body)).sort(), ['max_tokens', 'messages', 'model', 'temperature']);
   assert.equal(state.data.llmCount, 2, 'both attempts counted');
-  assert.deepEqual(linesOf(logs, 'llm: hedge'), [{ role: 'core', purpose: 'reply', model: LISTED_MODEL, afterMs: REPLY_HEDGE.afterMs }]);
+  assert.deepEqual(linesOf(logs, 'llm: hedge'), [
+    { role: 'core', purpose: 'reply', model: LISTED_MODEL, afterMs: REPLY_HEDGE.afterMs },
+  ]);
   const [usage] = linesOf(logs, 'llm: usage');
   assert.deepEqual([usage.hedged, usage.attempt, usage.ms], [true, 2, REPLY_HEDGE.afterMs + 200]);
   assert.equal(clock.pending(), 0);
@@ -2762,7 +3202,10 @@ test('hedge: an explicit hedge keeps the rails -- the token cap before any attem
   assert.equal(seen.status, 'pending');
   await stalled.clock.advance(1);
   assert.equal(seen.value.name, 'TimeoutError');
-  assert.deepEqual(stalled.calls.map((call) => call.signal.aborted), [true, true]);
+  assert.deepEqual(
+    stalled.calls.map((call) => call.signal.aborted),
+    [true, true]
+  );
   assert.equal(stalled.clock.pending(), 0);
 });
 
@@ -2771,16 +3214,18 @@ test('hedge: an explicit hedge keeps the rails -- the token cap before any attem
 const CONTEXT_ERROR_ANSWER = {
   id: 'gen-err',
   provider: 'Google',
-  choices: [{
-    finish_reason: 'error',
-    native_finish_reason: 'INVALID_ARGUMENT',
-    error: {
-      code: 400,
-      message: 'The input token count exceeds the maximum number of tokens allowed 1048576.',
-      metadata: { error_type: 'context_length_exceeded' },
+  choices: [
+    {
+      finish_reason: 'error',
+      native_finish_reason: 'INVALID_ARGUMENT',
+      error: {
+        code: 400,
+        message: 'The input token count exceeds the maximum number of tokens allowed 1048576.',
+        metadata: { error_type: 'context_length_exceeded' },
+      },
+      message: { role: 'assistant', content: null },
     },
-    message: { role: 'assistant', content: null },
-  }],
+  ],
   usage: { prompt_tokens: 0, completion_tokens: 0 },
 };
 
@@ -2798,8 +3243,16 @@ test('complete: a 200 with a choice-level error rejects with the provider messag
     },
   });
   const { result: err, logs } = await withCapturedLogs(() =>
-    llm.complete([{ role: 'user', content: 'the prompt itself' }], { role: 'video', purpose: 'video', model: 'google/gemini-x' })
-      .then(() => assert.fail('expected a rejection'), (e) => e),
+    llm
+      .complete([{ role: 'user', content: 'the prompt itself' }], {
+        role: 'video',
+        purpose: 'video',
+        model: 'google/gemini-x',
+      })
+      .then(
+        () => assert.fail('expected a rejection'),
+        (e) => e
+      )
   );
   assert.ok(err instanceof Error);
   assert.equal(err.message, 'The input token count exceeds the maximum number of tokens allowed 1048576.');
@@ -2836,7 +3289,10 @@ test('complete: finish_reason error without an error object rejects with the fin
     fetchImpl: async () => jsonResponse({ choices: [{ finish_reason: 'error', message: { content: null } }] }),
   });
   const { result: err } = await withCapturedLogs(() =>
-    llm.complete([{ role: 'user', content: 'x' }]).then(() => assert.fail('expected a rejection'), (e) => e),
+    llm.complete([{ role: 'user', content: 'x' }]).then(
+      () => assert.fail('expected a rejection'),
+      (e) => e
+    )
   );
   assert.equal(err.message, 'error');
   assert.equal(err.statusCode, undefined);
@@ -2850,7 +3306,8 @@ test('complete: an ordinary answer with finish_reason stop is unaffected by the 
     getConfig: () => baseConfig(),
     calibrator: fakeCalibrator(),
     state: fakeState(),
-    fetchImpl: async () => jsonResponse({ choices: [{ finish_reason: 'stop', message: { content: 'fine' } }], usage: { prompt_tokens: 5 } }),
+    fetchImpl: async () =>
+      jsonResponse({ choices: [{ finish_reason: 'stop', message: { content: 'fine' } }], usage: { prompt_tokens: 5 } }),
   });
   const { result, logs } = await withCapturedLogs(() => llm.complete([{ role: 'user', content: 'x' }]));
   assert.equal(result.text, 'fine');
@@ -2892,7 +3349,12 @@ test('openrouter: estimate-off and output-cap are reported to the collector', as
   usage = { prompt_tokens: probe.estimated * 2, completion_tokens: 100 };
   const first = await llm.complete(messages, { purpose: 'reply', limits });
   assert.deepEqual(limits.list(), [
-    { kind: 'estimate-off', where: 'reply', lost: first.estimated, detail: `${first.estimated}->${first.estimated * 2}` },
+    {
+      kind: 'estimate-off',
+      where: 'reply',
+      lost: first.estimated,
+      detail: `${first.estimated}->${first.estimated * 2}`,
+    },
     { kind: 'output-cap', where: 'completion', lost: null },
   ]);
 
@@ -2911,7 +3373,7 @@ test('openrouter: estimate-off and output-cap are reported to the collector', as
   await llm.complete(messages);
 });
 
-test('errorCodeOf: the daily-limit 429 of the provider account and OpenRouter\'s own 429 are provider-limit', () => {
+test("errorCodeOf: the daily-limit 429 of the provider account and OpenRouter's own 429 are provider-limit", () => {
   assert.equal(errorCodeOf(httpError(429, upstreamLimitBody(DAILY_RAW))), 'provider-limit');
   assert.equal(errorCodeOf(httpError(429, OPENROUTER_429)), 'provider-limit');
 });
@@ -2923,7 +3385,10 @@ test('errorCodeOf: any other HTTP status and a network failure are provider-erro
 });
 
 test('errorCodeOf: a timed-out or aborted attempt is timeout', () => {
-  assert.equal(errorCodeOf(Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })), 'timeout');
+  assert.equal(
+    errorCodeOf(Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })),
+    'timeout'
+  );
   assert.equal(errorCodeOf(Object.assign(new Error('x'), { name: 'AbortError' })), 'timeout');
   assert.equal(errorCodeOf(new Error('hedged request timed out after 5 ms')), 'timeout');
 });
@@ -2937,7 +3402,16 @@ test('errorCodeOf: a rail refusal or any other exception is plain error', () => 
 
 // ---- native tool calling (transport) -----------------------------------------
 
-const TOOLS = [{ type: 'function', function: { name: 'draw_create', description: 'Draw.', parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } } }];
+const TOOLS = [
+  {
+    type: 'function',
+    function: {
+      name: 'draw_create',
+      description: 'Draw.',
+      parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+    },
+  },
+];
 
 function toolsLlm(response, config = baseConfig()) {
   const sent = [];
@@ -2946,13 +3420,23 @@ function toolsLlm(response, config = baseConfig()) {
     getConfig: () => config,
     calibrator: fakeCalibrator(),
     state: fakeState(),
-    fetchImpl: async (url, init) => { sent.push(JSON.parse(init.body)); return response; },
+    fetchImpl: async (url, init) => {
+      sent.push(JSON.parse(init.body));
+      return response;
+    },
   });
   return { llm, sent };
 }
 
 function toolResponse(toolCalls, { content = null, finish = 'tool_calls' } = {}) {
-  return { ok: true, status: 200, json: async () => ({ choices: [{ finish_reason: finish, message: { content, tool_calls: toolCalls } }], usage: { prompt_tokens: 42 } }) };
+  return {
+    ok: true,
+    status: 200,
+    json: async () => ({
+      choices: [{ finish_reason: finish, message: { content, tool_calls: toolCalls } }],
+      usage: { prompt_tokens: 42 },
+    }),
+  };
 }
 
 test('complete: without tools the body has no tool fields and the result no toolCalls', async () => {
@@ -2972,27 +3456,39 @@ test('complete: tools are sent with tool_choice auto by default and parallel_too
   assert.equal(a.sent[0].tool_choice, 'auto');
   assert.equal('parallel_tool_calls' in a.sent[0], false);
   const b = toolsLlm(okResponse('hi'));
-  await b.llm.complete([{ role: 'user', content: 'x' }], { tools: TOOLS, toolChoice: 'none', parallelToolCalls: false });
+  await b.llm.complete([{ role: 'user', content: 'x' }], {
+    tools: TOOLS,
+    toolChoice: 'none',
+    parallelToolCalls: false,
+  });
   assert.equal(b.sent[0].tool_choice, 'none');
   assert.equal(b.sent[0].parallel_tool_calls, false);
 });
 
 test('complete: tool_calls of the answer come back parsed beside the text, with finishReason', async () => {
-  const { llm } = toolsLlm(toolResponse([
-    { id: 'c1', type: 'function', function: { name: 'draw_create', arguments: '{"text":"a cat"}' } },
-    { id: 'c2', type: 'function', function: { name: 'draw_create', arguments: '{"text":' } },
-    { id: 'c3', type: 'function', function: { name: 'web_search', arguments: '' } },
-    { id: 'c4', type: 'function', function: { name: 'web_search', arguments: '[1]' } },
-  ], { content: '<think>x</think>' }));
+  const { llm } = toolsLlm(
+    toolResponse(
+      [
+        { id: 'c1', type: 'function', function: { name: 'draw_create', arguments: '{"text":"a cat"}' } },
+        { id: 'c2', type: 'function', function: { name: 'draw_create', arguments: '{"text":' } },
+        { id: 'c3', type: 'function', function: { name: 'web_search', arguments: '' } },
+        { id: 'c4', type: 'function', function: { name: 'web_search', arguments: '[1]' } },
+      ],
+      { content: '<think>x</think>' }
+    )
+  );
   const out = await llm.complete([{ role: 'user', content: 'x' }], { tools: TOOLS });
   assert.equal(out.text, '<think>x</think>');
   assert.equal(out.finishReason, 'tool_calls');
-  assert.deepEqual(out.toolCalls.map((c) => [c.id, c.name, c.arguments, c.parsed]), [
-    ['c1', 'draw_create', '{"text":"a cat"}', { text: 'a cat' }],
-    ['c2', 'draw_create', '{"text":', null],
-    ['c3', 'web_search', '', {}],
-    ['c4', 'web_search', '[1]', null],
-  ]);
+  assert.deepEqual(
+    out.toolCalls.map((c) => [c.id, c.name, c.arguments, c.parsed]),
+    [
+      ['c1', 'draw_create', '{"text":"a cat"}', { text: 'a cat' }],
+      ['c2', 'draw_create', '{"text":', null],
+      ['c3', 'web_search', '', {}],
+      ['c4', 'web_search', '[1]', null],
+    ]
+  );
   assert.equal(out.toolCalls[0].parseError, null);
   assert.equal(typeof out.toolCalls[1].parseError, 'string');
   assert.equal(typeof out.toolCalls[3].parseError, 'string');
@@ -3007,14 +3503,22 @@ test('complete: an assistant message with tool_calls and tool messages are sent 
   const messages = [
     { role: 'system', content: 'sys' },
     { role: 'user', content: 'draw a cat' },
-    { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'draw_create', arguments: '{"text":"cat"}' } }] },
+    {
+      role: 'assistant',
+      content: null,
+      tool_calls: [{ id: 'c1', type: 'function', function: { name: 'draw_create', arguments: '{"text":"cat"}' } }],
+    },
     { role: 'tool', tool_call_id: 'c1', content: '{"ok":true}' },
   ];
   const marked = withCacheMarker(messages, '5m');
   assert.equal(marked[0].content[0].cache_control.type, 'ephemeral');
   assert.equal(marked[2], messages[2]);
   // The latest tool message carries the fourth marker; its content is the same text.
-  assert.deepEqual(marked[3], { role: 'tool', tool_call_id: 'c1', content: [{ type: 'text', text: '{"ok":true}', cache_control: { type: 'ephemeral' } }] });
+  assert.deepEqual(marked[3], {
+    role: 'tool',
+    tool_call_id: 'c1',
+    content: [{ type: 'text', text: '{"ok":true}', cache_control: { type: 'ephemeral' } }],
+  });
   assert.equal(withCacheMarker(messages, null), messages);
   const { llm, sent } = toolsLlm(okResponse('done'));
   await llm.complete(messages, { tools: TOOLS });
@@ -3026,12 +3530,30 @@ test('withCacheMarker: steps appended to the first two messages get a short-live
   // The last message is a note (user parts): its last text part carries it, with the 5m marker even under a 1h ttl.
   const withNote = [
     ...base,
-    { role: 'assistant', content: 'before', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'x', arguments: '{}' } }] },
+    {
+      role: 'assistant',
+      content: 'before',
+      tool_calls: [{ id: 'c1', type: 'function', function: { name: 'x', arguments: '{}' } }],
+    },
     { role: 'tool', tool_call_id: 'c1', content: 'result' },
-    { role: 'user', content: [{ type: 'text', text: 'note one' }, { type: 'text', text: 'note two' }] },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: 'note one' },
+        { type: 'text', text: 'note two' },
+      ],
+    },
   ];
   const sent = withCacheMarker(withNote, '1h', '1h');
-  assert.deepEqual(markedParts(sent).map((p) => [p.text.slice(0, 8), p.cache_control]), [[SYSTEM_TEXT.slice(0, 8), MARK_1H], ['<self_fa', MARK_1H], ['<people>', MARK_1H], ['note two', MARK_5M]]);
+  assert.deepEqual(
+    markedParts(sent).map((p) => [p.text.slice(0, 8), p.cache_control]),
+    [
+      [SYSTEM_TEXT.slice(0, 8), MARK_1H],
+      ['<self_fa', MARK_1H],
+      ['<people>', MARK_1H],
+      ['note two', MARK_5M],
+    ]
+  );
   assert.equal(sent[3], withNote[3], 'the tool message before the note is passed on as it is');
   // Two messages only: no fourth marker. No ttl: none at all. Already four placed: no more.
   assert.equal(markedParts(withCacheMarker(base, '1h', '1h')).length, 3);
@@ -3039,36 +3561,76 @@ test('withCacheMarker: steps appended to the first two messages get a short-live
   const full = structuredClone(withNote);
   full[1].content.push({ type: 'text', text: 'δ', cache_control: { type: 'ephemeral' } });
   assert.equal(markedParts(withCacheMarker(full, '1h', '1h')).length, 4);
-  assert.equal(withCacheMarker(full, '1h', '1h')[4].content.some((p) => 'cache_control' in p), false);
+  assert.equal(
+    withCacheMarker(full, '1h', '1h')[4].content.some((p) => 'cache_control' in p),
+    false
+  );
 });
 
 test('complete: the tools count toward the token estimate and the request cap', async () => {
-  const big = [{ type: 'function', function: { name: 'x', description: 'd'.repeat(5000), parameters: { type: 'object', properties: {} } } }];
+  const big = [
+    {
+      type: 'function',
+      function: { name: 'x', description: 'd'.repeat(5000), parameters: { type: 'object', properties: {} } },
+    },
+  ];
   let called = false;
   const llm = createLlm({
     apiKey: 'k',
     getConfig: () => baseConfig({ maxRequestTokens: 1000 }),
     calibrator: fakeCalibrator(),
     state: fakeState(),
-    fetchImpl: async () => { called = true; return okResponse('x'); },
+    fetchImpl: async () => {
+      called = true;
+      return okResponse('x');
+    },
   });
   await llm.complete([{ role: 'user', content: 'hi' }]);
   assert.equal(called, true);
   called = false;
-  await assert.rejects(llm.complete([{ role: 'user', content: 'hi' }], { tools: big }), (err) => err instanceof TokenLimitError);
+  await assert.rejects(
+    llm.complete([{ role: 'user', content: 'hi' }], { tools: big }),
+    (err) => err instanceof TokenLimitError
+  );
   assert.equal(called, false);
 });
 
 test('complete: the tools are added raw to the calibrated estimate and kept out of what the calibrator learns', async () => {
-  const tools = [{ type: 'function', function: { name: 'x', description: 'd'.repeat(700), parameters: { type: 'object', properties: {} } } }];
+  const tools = [
+    {
+      type: 'function',
+      function: { name: 'x', description: 'd'.repeat(700), parameters: { type: 'object', properties: {} } },
+    },
+  ];
   const toolsTokens = estimateTools(tools);
   const messages = [{ role: 'user', content: 'a'.repeat(1400) }];
-  const calibrator = { ratio: 0.5, apply: (n) => Math.ceil(n * 0.5), observed: [], observe(raw, actual) { this.observed.push([raw, actual]); } };
-  const llm = createLlm({ apiKey: 'k', getConfig: () => baseConfig({ maxRequestTokens: 100000 }), calibrator, state: fakeState(), fetchImpl: async () => okResponse('x', { prompt_tokens: 5000 }) });
+  const calibrator = {
+    ratio: 0.5,
+    apply: (n) => Math.ceil(n * 0.5),
+    observed: [],
+    observe(raw, actual) {
+      this.observed.push([raw, actual]);
+    },
+  };
+  const llm = createLlm({
+    apiKey: 'k',
+    getConfig: () => baseConfig({ maxRequestTokens: 100000 }),
+    calibrator,
+    state: fakeState(),
+    fetchImpl: async () => okResponse('x', { prompt_tokens: 5000 }),
+  });
   const rawMessages = estimateMessages(messages);
   const withTools = await llm.complete(messages, { tools });
-  assert.equal(withTools.estimated, Math.ceil(rawMessages * 0.5) + toolsTokens, 'the tools are not scaled by the ratio');
-  assert.deepEqual(calibrator.observed, [[rawMessages, 5000 - toolsTokens]], 'the calibrator sees the messages against the prompt without the tools');
+  assert.equal(
+    withTools.estimated,
+    Math.ceil(rawMessages * 0.5) + toolsTokens,
+    'the tools are not scaled by the ratio'
+  );
+  assert.deepEqual(
+    calibrator.observed,
+    [[rawMessages, 5000 - toolsTokens]],
+    'the calibrator sees the messages against the prompt without the tools'
+  );
   calibrator.observed.length = 0;
   const plain = await llm.complete(messages);
   assert.equal(plain.estimated, Math.ceil(rawMessages * 0.5));
@@ -3077,6 +3639,15 @@ test('complete: the tools are added raw to the calibrated estimate and kept out 
 
 test('complete: the estimate includes the tool_calls of earlier assistant messages', async () => {
   const calls = [{ id: 'c1', type: 'function', function: { name: 'draw_create', arguments: 'a'.repeat(5000) } }];
-  const llm = createLlm({ apiKey: 'k', getConfig: () => baseConfig({ maxRequestTokens: 1000 }), calibrator: fakeCalibrator(), state: fakeState(), fetchImpl: async () => okResponse('x') });
-  await assert.rejects(llm.complete([{ role: 'assistant', content: null, tool_calls: calls }]), (err) => err instanceof TokenLimitError);
+  const llm = createLlm({
+    apiKey: 'k',
+    getConfig: () => baseConfig({ maxRequestTokens: 1000 }),
+    calibrator: fakeCalibrator(),
+    state: fakeState(),
+    fetchImpl: async () => okResponse('x'),
+  });
+  await assert.rejects(
+    llm.complete([{ role: 'assistant', content: null, tool_calls: calls }]),
+    (err) => err instanceof TokenLimitError
+  );
 });
