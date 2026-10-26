@@ -130,7 +130,10 @@ test('resolveMentions: deduplicates authors that appear more than once in histor
 
 test('resolveMentions: a stored multi-word name of a member shown resolves', () => {
   const history = [historyMsg('Whammy', 'u3')];
-  const known = [{ name: 'Más tarde nunca', id: 'u3' }, { name: 'Whammy', id: 'u3' }];
+  const known = [
+    { name: 'Más tarde nunca', id: 'u3' },
+    { name: 'Whammy', id: 'u3' },
+  ];
   const result = resolveMentions('@Más tarde nunca ναι', history, known);
   assert.equal(result.text, '<@u3> ναι');
   assert.deepEqual(result.userIds, ['u3']);
@@ -159,7 +162,12 @@ test('resolveMentions: a stored name containing a shorter transcript name is mat
 });
 
 test('resolveMentions: the first member handed over keeps a stored name two share; empty names are skipped', () => {
-  const known = [{ name: 'Zoé', id: 'z1' }, { name: 'Zoé', id: 'z2' }, { name: '', id: 'z3' }, { name: ' ', id: 'z4' }];
+  const known = [
+    { name: 'Zoé', id: 'z1' },
+    { name: 'Zoé', id: 'z2' },
+    { name: '', id: 'z3' },
+    { name: ' ', id: 'z4' },
+  ];
   const result = resolveMentions('@Zoé @ x', [], known);
   assert.equal(result.text, '<@z1> @ x');
   assert.deepEqual(result.userIds, ['z1']);
@@ -180,23 +188,39 @@ test('resolveMentions: a member the request never showed resolves through the fa
 });
 
 test('resolveMentions: a fallback name two members carry stays text, whatever its case', () => {
-  const directory = [{ name: 'Zoé', id: 'z1' }, { name: 'zoé', id: 'z2' }, { name: 'Zoé', id: 'z1' }];
+  const directory = [
+    { name: 'Zoé', id: 'z1' },
+    { name: 'zoé', id: 'z2' },
+    { name: 'Zoé', id: 'z1' },
+  ];
   const result = resolveMentions('@Zoé @ZOÉ ναι', [], [], directory);
   assert.equal(result.text, '@Zoé @ZOÉ ναι');
   assert.deepEqual(result.userIds, []);
 });
 
-test('resolveMentions: the request\'s own sources win a name the fallback directory also has', () => {
+test("resolveMentions: the request's own sources win a name the fallback directory also has", () => {
   const history = [historyMsg('Bob', 'u2')];
   const known = [{ name: 'Αλίκη', id: 'u1' }];
-  const directory = [{ name: 'Bob', id: 'u7' }, { name: 'bob', id: 'u8' }, { name: 'Αλίκη', id: 'u5' }];
+  const directory = [
+    { name: 'Bob', id: 'u7' },
+    { name: 'bob', id: 'u8' },
+    { name: 'Αλίκη', id: 'u5' },
+  ];
   const result = resolveMentions('@Bob @Αλίκη @bob', history, known, directory);
-  assert.equal(result.text, '<@u2> <@u1> <@u2>', 'a shown member keeps the name in any case; an ambiguous fallback never takes it');
+  assert.equal(
+    result.text,
+    '<@u2> <@u1> <@u2>',
+    'a shown member keeps the name in any case; an ambiguous fallback never takes it'
+  );
   assert.deepEqual(result.userIds, ['u1', 'u2']);
 });
 
 test('resolveMentions: the fallback matches case-insensitively, longest first and only as a whole name', () => {
-  const directory = [{ name: 'Anna María', id: 'long' }, { name: 'Anna', id: 'short' }, { name: 'Kai', id: 'k1' }];
+  const directory = [
+    { name: 'Anna María', id: 'long' },
+    { name: 'Anna', id: 'short' },
+    { name: 'Kai', id: 'k1' },
+  ];
   const result = resolveMentions('@anna maría, @ANNA, @Kaiser', [], [], directory);
   assert.equal(result.text, '<@long>, <@short>, @Kaiser');
   assert.deepEqual(result.userIds, ['long', 'short']);
@@ -221,7 +245,11 @@ test('mentionDirectory: every name of the cached members and of the stored profi
     { id: 'u1', names: ['Alice'], aliases: [{ name: 'Lis' }] },
   ];
   const directory = mentionDirectory({ members, profiles, selfId: 'self-id' });
-  const byId = (id) => directory.filter((entry) => entry.id === id).map((entry) => entry.name).sort();
+  const byId = (id) =>
+    directory
+      .filter((entry) => entry.id === id)
+      .map((entry) => entry.name)
+      .sort();
   assert.deepEqual(byId('u1'), ['Alice', 'Lis', 'alice_01', 'Αλίκη']);
   assert.deepEqual(byId('u2'), ['Bob', 'Bobby']);
   assert.deepEqual(byId('b1'), []);
@@ -278,7 +306,14 @@ function normalizedTrigger(raw) {
 }
 
 /** `dm: true` is a private (DM) channel: no guild, no name, no member permissions. */
-function fakeTurnChannel({ id = 'c1', name = 'general', guildId = 'g1', historyMessages = [], attachFiles = true, dm = false } = {}) {
+function fakeTurnChannel({
+  id = 'c1',
+  name = 'general',
+  guildId = 'g1',
+  historyMessages = [],
+  attachFiles = true,
+  dm = false,
+} = {}) {
   const guild = dm ? null : { id: guildId, members: { me: { displayName: 'Bot' } }, channels: { cache: new Map() } };
   const sent = [];
   const typingCalls = [];
@@ -336,7 +371,14 @@ function fakeLlm(responseText) {
   };
 }
 
-function fakeStore({ guildMemory = {}, userProfiles = {}, channels = [], loreEntries = [], privateProfiles = {}, mediaCache = {} } = {}) {
+function fakeStore({
+  guildMemory = {},
+  userProfiles = {},
+  channels = [],
+  loreEntries = [],
+  privateProfiles = {},
+  mediaCache = {},
+} = {}) {
   const guildCalls = [];
   const privateCalls = [];
   return {
@@ -379,7 +421,6 @@ const SWITCHES_ON = {
   imageRelook: true,
   videoDescriptions: true,
   privateLikeServer: true,
- 
 };
 
 function fakeHot(featureOverrides = {}, botOverrides = {}, configOverrides = {}) {
@@ -424,7 +465,9 @@ function fakeClient(overrides = {}) {
 
 /** A fake createImageFetcher()-shaped dependency (see src/media/fetch-image.js). `result` may be
  * `null` (every download fails), a fixed success object, or `(url, options) => result|null`. */
-function fakeImageFetcher(result = { dataUrl: 'data:image/webp;base64,ZmFrZQ==', bytes: 4, contentType: 'image/webp' }) {
+function fakeImageFetcher(
+  result = { dataUrl: 'data:image/webp;base64,ZmFrZQ==', bytes: 4, contentType: 'image/webp' }
+) {
   const calls = [];
   return {
     calls,
@@ -435,7 +478,6 @@ function fakeImageFetcher(result = { dataUrl: 'data:image/webp;base64,ZmFrZQ==',
   };
 }
 
-
 // /nep pause: no new turn may start while paused -- a reply, an
 // interject, an initiate, an eavesdrop or a forced turn alike, whatever the mode.
 test('runTurn: refuses with outcome "paused" while store.state.data.paused is true, before touching the LLM or busy', async () => {
@@ -445,9 +487,22 @@ test('runTurn: refuses with outcome "paused" while store.state.data.paused is tr
   const store = fakeStore();
   store.state.data.paused = true;
   const hot = fakeHot();
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
 
-  const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+  const result = await turns.runTurn({
+    channel,
+    mode: 'reply',
+    trigger: normalizedTrigger(raw),
+    triggerKind: 'mention',
+  });
 
   assert.equal(result.outcome, 'paused');
   assert.equal(llm.calls.length, 0, 'the LLM must never be called while paused');
@@ -463,7 +518,15 @@ test('runTurn: forced=true appends prompts.forced to the task text sent to the L
   const store = fakeStore();
   const hot = fakeHot();
   hot.prompts.forced = 'FORCED_TASK_TEXT';
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
 
   await turns.runTurn({ channel, mode: 'interject', forced: true });
 
@@ -479,7 +542,15 @@ test('runTurn: forced defaults to false -- prompts.forced is never appended for 
   const store = fakeStore();
   const hot = fakeHot();
   hot.prompts.forced = 'FORCED_TASK_TEXT';
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
 
   await turns.runTurn({ channel, mode: 'interject' });
 
@@ -491,10 +562,20 @@ test('runTurn: forced defaults to false -- prompts.forced is never appended for 
 test('waitIdle: resolves immediately when no turn is in flight', async () => {
   const store = fakeStore();
   const hot = fakeHot();
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm: fakeLlm('<msg>hi</msg>'), calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm: fakeLlm('<msg>hi</msg>'),
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
 
   let resolved = false;
-  turns.waitIdle().then(() => { resolved = true; });
+  turns.waitIdle().then(() => {
+    resolved = true;
+  });
   await Promise.resolve();
   await Promise.resolve();
   assert.equal(resolved, true);
@@ -506,16 +587,36 @@ test('waitIdle: resolves only once every in-flight turn has finished', async () 
   const store = fakeStore();
   const hot = fakeHot();
   let releaseLlm;
-  const llm = { complete: () => new Promise((resolve) => { releaseLlm = () => resolve({ text: '<msg>hi</msg>', usage: {}, estimated: 1 }); }) };
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const llm = {
+    complete: () =>
+      new Promise((resolve) => {
+        releaseLlm = () => resolve({ text: '<msg>hi</msg>', usage: {}, estimated: 1 });
+      }),
+  };
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
 
-  const turnPromise = turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+  const turnPromise = turns.runTurn({
+    channel,
+    mode: 'reply',
+    trigger: normalizedTrigger(raw),
+    triggerKind: 'mention',
+  });
   // Let runTurn's own awaits (fetchHistory, withTextPreviews, fetchNeighbors,
   // buildRequest...) settle before it reaches the still-pending LLM call.
   await new Promise((resolve) => setTimeout(resolve, 0));
 
   let idleResolved = false;
-  const idlePromise = turns.waitIdle().then(() => { idleResolved = true; });
+  const idlePromise = turns.waitIdle().then(() => {
+    idleResolved = true;
+  });
   assert.equal(idleResolved, false, 'must not resolve while the turn is still in flight');
 
   releaseLlm();
@@ -530,9 +631,22 @@ test('createTurnRunner: features.reactions=false drops reactions; nothing else t
   const llm = fakeLlm('<react to="#1">💀</react>');
   const store = fakeStore();
   const hot = fakeHot({ reactions: false });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
 
-  const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+  const result = await turns.runTurn({
+    channel,
+    mode: 'reply',
+    trigger: normalizedTrigger(raw),
+    triggerKind: 'mention',
+  });
 
   assert.equal(result.outcome, 'skip');
   assert.equal(channel.sent.length, 0);
@@ -545,9 +659,22 @@ test('createTurnRunner: features.multiMessage=false keeps only the first <msg>',
   const llm = fakeLlm('<msg>First</msg><msg>Second</msg>');
   const store = fakeStore();
   const hot = fakeHot({ multiMessage: false });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
 
-  const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+  const result = await turns.runTurn({
+    channel,
+    mode: 'reply',
+    trigger: normalizedTrigger(raw),
+    triggerKind: 'mention',
+  });
 
   assert.equal(result.outcome, 'spoke');
   assert.equal(channel.sent.length, 1);
@@ -560,10 +687,23 @@ test('createTurnRunner: features.typingSimulation=false skips sendTyping and eve
   const llm = fakeLlm('<msg>Hello there</msg>');
   const store = fakeStore();
   const hot = fakeHot({ typingSimulation: false });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
 
   const started = Date.now();
-  const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+  const result = await turns.runTurn({
+    channel,
+    mode: 'reply',
+    trigger: normalizedTrigger(raw),
+    triggerKind: 'mention',
+  });
   const elapsed = Date.now() - started;
 
   assert.equal(result.outcome, 'spoke');
@@ -581,7 +721,15 @@ test('createTurnRunner: features.memory=true renders <people> and <about_chat>',
     userProfiles: { u1: { id: 'u1', names: ['Alice'], character: 'friendly' } },
   });
   const hot = fakeHot({});
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -599,9 +747,22 @@ test('createTurnRunner: features.memory=false sends no <people> or <about_chat> 
     userProfiles: { u1: { id: 'u1', names: ['Alice'], character: 'friendly' } },
   });
   const hot = fakeHot({ memory: false });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
 
-  const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+  const result = await turns.runTurn({
+    channel,
+    mode: 'reply',
+    trigger: normalizedTrigger(raw),
+    triggerKind: 'mention',
+  });
 
   assert.equal(result.outcome, 'spoke');
   const userMessage = textOf(llm.calls[0][1].content);
@@ -615,10 +776,30 @@ test('createTurnRunner: features.memory=true renders the <server> channel map', 
   const channel = fakeTurnChannel({ id: 'c1', historyMessages: [raw] });
   const llm = fakeLlm('<msg>ok</msg>');
   const store = fakeStore({
-    channels: [{ id: 'c1', name: 'general', category: null, topic: null, purpose: '', topics: '', tone: '', days: {}, lastMessageAt: null }],
+    channels: [
+      {
+        id: 'c1',
+        name: 'general',
+        category: null,
+        topic: null,
+        purpose: '',
+        topics: '',
+        tone: '',
+        days: {},
+        lastMessageAt: null,
+      },
+    ],
   });
   const hot = fakeHot({});
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -632,10 +813,30 @@ test('createTurnRunner: features.memory=false sends no <server> block, even with
   const channel = fakeTurnChannel({ id: 'c1', historyMessages: [raw] });
   const llm = fakeLlm('<msg>ok</msg>');
   const store = fakeStore({
-    channels: [{ id: 'c1', name: 'general', category: null, topic: null, purpose: '', topics: '', tone: '', days: {}, lastMessageAt: null }],
+    channels: [
+      {
+        id: 'c1',
+        name: 'general',
+        category: null,
+        topic: null,
+        purpose: '',
+        topics: '',
+        tone: '',
+        days: {},
+        lastMessageAt: null,
+      },
+    ],
   });
   const hot = fakeHot({ memory: false });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -647,10 +848,28 @@ test('createTurnRunner: features.memory=true renders <lore> from the guild loreb
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeTurnChannel({ id: 'c1', historyMessages: [raw] });
   const llm = fakeLlm('<msg>ok</msg>');
-  const loreEntries = [{ id: 'l1', title: 'The Great Flood', keys: ['never-mentioned'], text: 'It flooded once.', always: true, source: 'analyzer', weight: 3 }];
+  const loreEntries = [
+    {
+      id: 'l1',
+      title: 'The Great Flood',
+      keys: ['never-mentioned'],
+      text: 'It flooded once.',
+      always: true,
+      source: 'analyzer',
+      weight: 3,
+    },
+  ];
   const store = fakeStore({ loreEntries });
   const hot = fakeHot({});
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -663,10 +882,28 @@ test('createTurnRunner: features.memory=false sends no <lore> block, even with l
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeTurnChannel({ id: 'c1', historyMessages: [raw] });
   const llm = fakeLlm('<msg>ok</msg>');
-  const loreEntries = [{ id: 'l1', title: 'The Great Flood', keys: ['never-mentioned'], text: 'It flooded once.', always: true, source: 'analyzer', weight: 3 }];
+  const loreEntries = [
+    {
+      id: 'l1',
+      title: 'The Great Flood',
+      keys: ['never-mentioned'],
+      text: 'It flooded once.',
+      always: true,
+      source: 'analyzer',
+      weight: 3,
+    },
+  ];
   const store = fakeStore({ loreEntries });
   const hot = fakeHot({ memory: false });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -715,7 +952,16 @@ function videoAttachmentRaw(id, ts, attachmentId, name) {
     id,
     ts,
     attachments: new Map([
-      [attachmentId, { id: attachmentId, contentType: 'video/mp4', name, url: `https://cdn.discordapp.com/attachments/1/2/${name}`, duration: 20 }],
+      [
+        attachmentId,
+        {
+          id: attachmentId,
+          contentType: 'video/mp4',
+          name,
+          url: `https://cdn.discordapp.com/attachments/1/2/${name}`,
+          duration: 20,
+        },
+      ],
     ]),
   });
 }
@@ -731,7 +977,16 @@ test('createTurnRunner: features.videoDescriptions on -- videos newest first, ca
   const llm = fakeLlm('<msg>ok</msg>');
   const hot = fakeHot({ mediaDescriptions: true, videoDescriptions: true }, {}, VIDEO_TURN_CONFIG);
   const describer = fakeVideoDescriber({ va: { state: 'watched', text: 'κάποιος χορεύει' } });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), describer });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    describer,
+  });
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(newer), triggerKind: 'mention' });
 
@@ -741,7 +996,7 @@ test('createTurnRunner: features.videoDescriptions on -- videos newest first, ca
   assert.deepEqual(
     items.map((item) => item.source),
     ['link', 'attachment'],
-    'the newest message first; the typed video link is found because fetchHistory got media.video.sites',
+    'the newest message first; the typed video link is found because fetchHistory got media.video.sites'
   );
   assert.equal(items[1].itemId, 'va');
   assert.deepEqual(options, { maxNew: 1 }, 'every describer request counts: no daily-cap option is passed');
@@ -762,7 +1017,16 @@ test('createTurnRunner: videoDescriptions off, or mediaDescriptions off, never c
     const channel = fakeTurnChannel({ historyMessages: [raw] });
     const hot = fakeHot(features, {}, VIDEO_TURN_CONFIG);
     const describer = fakeVideoDescriber({ va: { state: 'watched', text: 'x' } });
-    const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm: fakeLlm('<msg>ok</msg>'), calibrator: identityCalibrator(), client: fakeClient(), describer });
+    const turns = createTurnRunner({
+      discord: DISCORD,
+      createPort: createDiscordAdapter,
+      hot,
+      store: fakeStore(),
+      llm: fakeLlm('<msg>ok</msg>'),
+      calibrator: identityCalibrator(),
+      client: fakeClient(),
+      describer,
+    });
 
     await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -773,14 +1037,25 @@ test('createTurnRunner: videoDescriptions off, or mediaDescriptions off, never c
 test('createTurnRunner: features.mediaDescriptions off never calls the describer', async () => {
   const raw = rawMessage({
     id: 'm1',
-    attachments: new Map([['img1', { id: 'img1', contentType: 'image/png', name: 'pic.png', url: 'https://cdn/pic.png' }]]),
+    attachments: new Map([
+      ['img1', { id: 'img1', contentType: 'image/png', name: 'pic.png', url: 'https://cdn/pic.png' }],
+    ]),
   });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const llm = fakeLlm('<msg>ok</msg>');
   const store = fakeStore();
   const hot = fakeHot({ mediaDescriptions: false });
   const describer = fakeDescriber({ img1: 'a cat' });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), describer });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    describer,
+  });
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -790,14 +1065,25 @@ test('createTurnRunner: features.mediaDescriptions off never calls the describer
 test('createTurnRunner: features.mediaDescriptions on describes an un-attached picture and it renders imageDescribed', async () => {
   const raw = rawMessage({
     id: 'm1',
-    attachments: new Map([['img1', { id: 'img1', contentType: 'image/png', name: 'pic.png', url: 'https://cdn/pic.png' }]]),
+    attachments: new Map([
+      ['img1', { id: 'img1', contentType: 'image/png', name: 'pic.png', url: 'https://cdn/pic.png' }],
+    ]),
   });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const llm = fakeLlm('<msg>ok</msg>');
   const store = fakeStore();
   const hot = fakeHot({ mediaDescriptions: true });
   const describer = fakeDescriber({ img1: 'a grey cat' });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), describer });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    describer,
+  });
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -816,7 +1102,12 @@ function pictureTurn({ features, media, newer = false }) {
   const history = [raw];
   if (newer) {
     // A picture posted right after the trigger: newer, so captioned first.
-    const other = { id: 'o1', contentType: 'image/png', name: 'other.png', url: 'https://cdn.discordapp.com/x/other.png' };
+    const other = {
+      id: 'o1',
+      contentType: 'image/png',
+      name: 'other.png',
+      url: 'https://cdn.discordapp.com/x/other.png',
+    };
     history.push(rawMessage({ id: 'm3', ts: NOW - 500, attachments: new Map([['o1', other]]) }));
   }
   const channel = fakeTurnChannel({ historyMessages: history });
@@ -858,17 +1149,26 @@ function userText(llm) {
   return textOf(llm.calls[0][1].content);
 }
 
-test('createTurnRunner: the trigger\'s picture is captioned by the describer and never sent as an image_url part', async () => {
+test("createTurnRunner: the trigger's picture is captioned by the describer and never sent as an image_url part", async () => {
   const { channel, llm, describer, turns, trigger } = pictureTurn({ features: { mediaDescriptions: true } });
 
   await turns.runTurn({ channel, mode: 'reply', trigger, triggerKind: 'mention' });
 
   assert.equal(describer.calls.length, 1);
-  assert.deepEqual(describer.calls[0].items.map((item) => item.itemId), ['i1']);
-  assert.ok(llm.calls[0][1].content.every((p) => p.type === 'text'), 'the request is text parts only');
+  assert.deepEqual(
+    describer.calls[0].items.map((item) => item.itemId),
+    ['i1']
+  );
+  assert.ok(
+    llm.calls[0][1].content.every((p) => p.type === 'text'),
+    'the request is text parts only'
+  );
   const text = userText(llm);
   assert.ok(text.includes(labels.transcript.imageDescribed.replace('{text}', 'a grey cat')));
-  assert.ok(!text.includes(labels.transcript.imageAttached.replace('{n}', '1')), 'no line claims the picture is attached');
+  assert.ok(
+    !text.includes(labels.transcript.imageAttached.replace('{n}', '1')),
+    'no line claims the picture is attached'
+  );
 });
 
 test('createTurnRunner: captions go newest message first, media.maxPerTurn still caps new captions', async () => {
@@ -881,7 +1181,11 @@ test('createTurnRunner: captions go newest message first, media.maxPerTurn still
   await turns.runTurn({ channel, mode: 'reply', trigger, triggerKind: 'mention' });
 
   assert.equal(describer.calls.length, 1);
-  assert.deepEqual(describer.calls[0].items.map((item) => item.itemId), ['o1', 'i1'], 'the newest picture first');
+  assert.deepEqual(
+    describer.calls[0].items.map((item) => item.itemId),
+    ['o1', 'i1'],
+    'the newest picture first'
+  );
   assert.equal(describer.calls[0].options.maxNew, 1);
   const text = userText(llm);
   assert.ok(text.includes(labels.transcript.imageDescribed.replace('{text}', 'a red fox')));
@@ -898,7 +1202,16 @@ test('createTurnRunner: features.mediaDescriptions on describes a picture-format
   const store = fakeStore();
   const hot = fakeHot({ mediaDescriptions: true });
   const describer = fakeDescriber({ 'sticker:s1': 'a frog gives a thumbs up' });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), describer });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    describer,
+  });
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -906,7 +1219,9 @@ test('createTurnRunner: features.mediaDescriptions on describes a picture-format
   assert.equal(describer.calls[0].items[0].itemId, 'sticker:s1');
   const userMessage = textOf(llm.calls[0][1].content);
   assert.ok(
-    userMessage.includes(labels.transcript.stickerDescribed.replace('{name}', 'pepe').replace('{text}', 'a frog gives a thumbs up')),
+    userMessage.includes(
+      labels.transcript.stickerDescribed.replace('{name}', 'pepe').replace('{text}', 'a frog gives a thumbs up')
+    )
   );
 });
 
@@ -917,7 +1232,16 @@ test('createTurnRunner: features.mediaDescriptions on describes a custom emoji i
   const store = fakeStore();
   const hot = fakeHot({ mediaDescriptions: true });
   const describer = fakeDescriber({ 'emoji:111': 'a surprised cat face' });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), describer });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    describer,
+  });
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -925,7 +1249,11 @@ test('createTurnRunner: features.mediaDescriptions on describes a custom emoji i
   assert.equal(describer.calls[0].items[0].itemId, 'emoji:111');
   const userMessage = textOf(llm.calls[0][1].content);
   assert.ok(userMessage.includes('nice :pog: job'));
-  assert.ok(userMessage.includes(labels.transcript.emojiDescribed.replace('{name}', 'pog').replace('{text}', 'a surprised cat face')));
+  assert.ok(
+    userMessage.includes(
+      labels.transcript.emojiDescribed.replace('{name}', 'pog').replace('{text}', 'a surprised cat face')
+    )
+  );
 });
 
 // Pictures in a neighbour channel's lines: the captions the describer's cache already holds, never a request.
@@ -1031,7 +1359,9 @@ test('runTurn: features.mediaDescriptions off leaves a neighbour picture blind a
 test('createTurnRunner: a text attachment is fetched lazily and rendered via filePreview', async () => {
   const raw = rawMessage({
     id: 'm1',
-    attachments: new Map([['t1', { id: 't1', contentType: 'text/plain', name: 'notes.txt', url: 'https://cdn/notes.txt' }]]),
+    attachments: new Map([
+      ['t1', { id: 't1', contentType: 'text/plain', name: 'notes.txt', url: 'https://cdn/notes.txt' }],
+    ]),
   });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const llm = fakeLlm('<msg>ok</msg>');
@@ -1042,19 +1372,34 @@ test('createTurnRunner: a text attachment is fetched lazily and rendered via fil
     fetchedUrl = url;
     return { ok: true, headers: { get: () => null }, text: async () => 'the file says hello' };
   };
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), fetchImpl });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    fetchImpl,
+  });
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
   assert.equal(fetchedUrl, 'https://cdn/notes.txt');
   const userMessage = textOf(llm.calls[0][1].content);
-  assert.ok(userMessage.includes(labels.transcript.filePreview.replace('{name}', 'notes.txt').replace('{text}', 'the file says hello')));
+  assert.ok(
+    userMessage.includes(
+      labels.transcript.filePreview.replace('{name}', 'notes.txt').replace('{text}', 'the file says hello')
+    )
+  );
 });
 
 test('createTurnRunner: a text-attachment fetch failure falls back to the plain file form', async () => {
   const raw = rawMessage({
     id: 'm1',
-    attachments: new Map([['t1', { id: 't1', contentType: 'text/plain', name: 'notes.txt', url: 'https://cdn/notes.txt' }]]),
+    attachments: new Map([
+      ['t1', { id: 't1', contentType: 'text/plain', name: 'notes.txt', url: 'https://cdn/notes.txt' }],
+    ]),
   });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const llm = fakeLlm('<msg>ok</msg>');
@@ -1063,7 +1408,16 @@ test('createTurnRunner: a text-attachment fetch failure falls back to the plain 
   const fetchImpl = async () => {
     throw new Error('network down');
   };
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), fetchImpl });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    fetchImpl,
+  });
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -1099,7 +1453,13 @@ function videoTrigger(raw) {
   return {
     ...normalizedTrigger(raw),
     attachments: [
-      { id: 'v1', kind: 'video', url: 'https://cdn.discordapp.com/attachments/1/2/clip.mp4', name: 'clip.mp4', durationSec: 34 },
+      {
+        id: 'v1',
+        kind: 'video',
+        url: 'https://cdn.discordapp.com/attachments/1/2/clip.mp4',
+        name: 'clip.mp4',
+        durationSec: 34,
+      },
     ],
   };
 }
@@ -1120,10 +1480,13 @@ test('createTurnRunner: a 4xx from the provider is not resent, the turn ends in 
   });
 
   const { result } = await withCapturedLogs(() =>
-    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }),
+    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' })
   );
 
-  assert.ok(llm.calls[0][1].content.every((p) => p.type === 'text'), 'the request is text only');
+  assert.ok(
+    llm.calls[0][1].content.every((p) => p.type === 'text'),
+    'the request is text only'
+  );
   assert.equal(result.outcome, 'error');
   assert.equal(llm.calls.length, 1, 'the model is called once, never resent');
   assert.equal(channel.sent.length, 0);
@@ -1137,7 +1500,16 @@ function videoRaw(id = 'm1') {
   return rawMessage({
     id,
     attachments: new Map([
-      ['v1', { id: 'v1', contentType: 'video/mp4', name: 'clip.mp4', url: 'https://cdn.discordapp.com/attachments/1/2/clip.mp4', duration: 34 }],
+      [
+        'v1',
+        {
+          id: 'v1',
+          contentType: 'video/mp4',
+          name: 'clip.mp4',
+          url: 'https://cdn.discordapp.com/attachments/1/2/clip.mp4',
+          duration: 34,
+        },
+      ],
     ]),
   });
 }
@@ -1147,7 +1519,16 @@ test('createTurnRunner: a video in the trigger renders by its tag, nothing is do
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const llm = fakeLlm('<msg>ok</msg>');
   const imageFetcher = fakeImageFetcher();
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({}), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), imageFetcher });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: fakeHot({}),
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    imageFetcher,
+  });
 
   const result = await turns.runTurn({ channel, mode: 'reply', trigger: videoTrigger(raw), triggerKind: 'mention' });
 
@@ -1183,8 +1564,21 @@ async function runPingsTurn(store, answer, features = {}) {
   const bob = rawMessage({ id: 'm0', authorId: 'u2', authorName: 'Bob', ts: NOW - 5000, content: 'ola' });
   const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice' });
   const channel = fakeTurnChannel({ id: 'c1', historyMessages: [bob, raw] });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot(features), store, llm: fakeLlm(answer), calibrator: identityCalibrator(), client: fakeClient() });
-  const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: fakeHot(features),
+    store,
+    llm: fakeLlm(answer),
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
+  const result = await turns.runTurn({
+    channel,
+    mode: 'reply',
+    trigger: normalizedTrigger(raw),
+    triggerKind: 'mention',
+  });
   assert.equal(result.outcome, 'spoke');
   return channel;
 }
@@ -1216,14 +1610,16 @@ test('runTurn: with nobody in pingsOff the reply and the mentions notify as befo
 
 test('runTurn: only an exact @handle mentions; a name and a handle nobody has stay text, the unknown one logged', async () => {
   const unknown = ['@u0000', '@uzzzz'].find((token) => token !== ALICE && token !== BOB);
-  const { result: channel, logs } = await withCapturedLogs(() => runPingsTurn(storeWithPingsOff([]), `<msg>${BOB} @Alice @Bob ${unknown} ναι</msg>`));
+  const { result: channel, logs } = await withCapturedLogs(() =>
+    runPingsTurn(storeWithPingsOff([]), `<msg>${BOB} @Alice @Bob ${unknown} ναι</msg>`)
+  );
 
   assert.equal(channel.sent[0].content, `<@u2> @Alice @Bob ${unknown} ναι`, 'no name is matched, whoever carries it');
   assert.deepEqual(channel.sent[0].allowedMentions, { parse: [], users: ['u2'], repliedUser: true });
   assert.deepEqual(
     logs.filter((entry) => entry.msg === 'turn: unknown handle').map((entry) => [entry.channel, entry.count]),
     [['c1', 1]],
-    'logged once, at the send',
+    'logged once, at the send'
   );
 });
 
@@ -1233,20 +1629,41 @@ test('runTurn: a member of the directory not in view is mentioned by the handle 
   const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice' });
   const channel = fakeTurnChannel({ id: 'c1', historyMessages: [raw] });
   const hot = fakeHot();
-  hot.prompts.labels = { ...labels, directory: { lead: 'DIRECTORY', line: '{handle} {names}', lineAliases: '{handle} {names} aka {aliases}' } };
+  hot.prompts.labels = {
+    ...labels,
+    directory: { lead: 'DIRECTORY', line: '{handle} {names}', lineAliases: '{handle} {names} aka {aliases}' },
+  };
   const llm = fakeLlm(`<msg>@${handleOf('u5')} @Τάκης ναι</msg>`);
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
-  const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
+  const result = await turns.runTurn({
+    channel,
+    mode: 'reply',
+    trigger: normalizedTrigger(raw),
+    triggerKind: 'mention',
+  });
 
   assert.equal(result.outcome, 'spoke');
   const stable = llm.calls[0][1].content.find((part) => part.cacheSegment === 'stable').text;
-  assert.ok(stable.includes(`<directory>\nDIRECTORY\n@${handleOf('u5')} "Ταξιάρχης" aka "Τάκης"\n</directory>`), stable);
+  assert.ok(
+    stable.includes(`<directory>\nDIRECTORY\n@${handleOf('u5')} "Ταξιάρχης" aka "Τάκης"\n</directory>`),
+    stable
+  );
   assert.equal(channel.sent[0].content, '<@u5> @Τάκης ναι', 'the alias written as a name stays text');
   assert.deepEqual(channel.sent[0].allowedMentions, { parse: [], users: ['u5'], repliedUser: true });
 });
 
 test('runTurn: features.mentionHandles off resolves @name as before and leaves a handle as text', async () => {
-  const channel = await runPingsTurn(storeWithPingsOff([]), `<msg reply="#2">@Alice @Bob ${BOB} ναι</msg>`, { mentionHandles: false });
+  const channel = await runPingsTurn(storeWithPingsOff([]), `<msg reply="#2">@Alice @Bob ${BOB} ναι</msg>`, {
+    mentionHandles: false,
+  });
 
   assert.equal(channel.sent[0].content, `<@u1> <@u2> ${BOB} ναι`);
   assert.deepEqual(channel.sent[0].allowedMentions, { parse: [], users: ['u1', 'u2'], repliedUser: true });
@@ -1257,16 +1674,33 @@ async function runDirectoryTurn(store, answer, members) {
   const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice' });
   const channel = fakeTurnChannel({ id: 'c1', historyMessages: [raw] });
   channel.guild.members.cache = new Map(members.map((member) => [member.id, member]));
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({ mentionHandles: false }), store, llm: fakeLlm(answer), calibrator: identityCalibrator(), client: fakeClient() });
-  const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: fakeHot({ mentionHandles: false }),
+    store,
+    llm: fakeLlm(answer),
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
+  const result = await turns.runTurn({
+    channel,
+    mode: 'reply',
+    trigger: normalizedTrigger(raw),
+    triggerKind: 'mention',
+  });
   assert.equal(result.outcome, 'spoke');
   return channel;
 }
 
-test('runTurn: @name of a member nowhere in the request resolves through the guild\'s member cache and stored profiles', async () => {
+test("runTurn: @name of a member nowhere in the request resolves through the guild's member cache and stored profiles", async () => {
   const store = storeWithPingsOff([]);
   store.listUserProfiles = () => [{ id: 'u5', names: ['Ταξιάρχης'], aliases: [] }];
-  const members = [cachedMember('u4', { username: 'zoe', globalName: 'Zoé' }), cachedMember('b1', { username: 'HelperBot', bot: true }), cachedMember('self-id', { username: 'Bot' })];
+  const members = [
+    cachedMember('u4', { username: 'zoe', globalName: 'Zoé' }),
+    cachedMember('b1', { username: 'HelperBot', bot: true }),
+    cachedMember('self-id', { username: 'Bot' }),
+  ];
   const channel = await runDirectoryTurn(store, '<msg>@zoé @Ταξιάρχης @HelperBot @Bot ναι</msg>', members);
 
   assert.equal(channel.sent[0].content, '<@u4> <@u5> @HelperBot @Bot ναι');
@@ -1274,7 +1708,9 @@ test('runTurn: @name of a member nowhere in the request resolves through the gui
 });
 
 test('runTurn: a member resolved through the fallback directory with pings off is mentioned without a ping', async () => {
-  const channel = await runDirectoryTurn(storeWithPingsOff(['u4']), '<msg>@Zoé ναι</msg>', [cachedMember('u4', { username: 'zoe', globalName: 'Zoé' })]);
+  const channel = await runDirectoryTurn(storeWithPingsOff(['u4']), '<msg>@Zoé ναι</msg>', [
+    cachedMember('u4', { username: 'zoe', globalName: 'Zoé' }),
+  ]);
 
   assert.equal(channel.sent[0].content, '<@u4> ναι');
   assert.deepEqual(channel.sent[0].allowedMentions, { parse: [], users: [], repliedUser: true });
@@ -1286,11 +1722,19 @@ test('createTurnRunner: features.dryRun=true sends and reacts nowhere, only logs
   const llm = fakeLlm('<msg reply="#1">Hello there</msg><react to="#1">\u{1F389}</react>');
   const store = fakeStore();
   const hot = fakeHot({ dryRun: true });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
 
   const before = turns.lastPostAt('c1');
   const { result, logs } = await withCapturedLogs(() =>
-    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }),
+    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' })
   );
 
   assert.equal(result.outcome, 'spoke');
@@ -1330,9 +1774,22 @@ test('createTurnRunner: features.dryRun=true mirrors each action into bot.dryRun
       },
     },
   });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client,
+  });
 
-  const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+  const result = await turns.runTurn({
+    channel,
+    mode: 'reply',
+    trigger: normalizedTrigger(raw),
+    triggerKind: 'mention',
+  });
 
   assert.equal(result.outcome, 'spoke');
   assert.equal(mirrorSent.length, 1);
@@ -1346,10 +1803,22 @@ test('createTurnRunner: features.dryRun=true logs a handle resolved, mirrors it 
   const raw = rawMessage({ id: 'm1', authorName: 'Alice' });
   const channel = fakeTurnChannel({ id: 'c1', name: 'general', historyMessages: [raw] });
   const mirrorSent = [];
-  const client = fakeClient({ channels: { fetch: async () => ({ send: async (payload) => (mirrorSent.push(payload), { id: 'mirror-msg-1' }) }) } });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({ dryRun: true }, { dryRunChannelId: 'mirror1' }), store: fakeStore(), llm: fakeLlm(`<msg>hi @${handleOf('u1')}</msg>`), calibrator: identityCalibrator(), client });
+  const client = fakeClient({
+    channels: { fetch: async () => ({ send: async (payload) => (mirrorSent.push(payload), { id: 'mirror-msg-1' }) }) },
+  });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: fakeHot({ dryRun: true }, { dryRunChannelId: 'mirror1' }),
+    store: fakeStore(),
+    llm: fakeLlm(`<msg>hi @${handleOf('u1')}</msg>`),
+    calibrator: identityCalibrator(),
+    client,
+  });
 
-  const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
+  const { result, logs } = await withCapturedLogs(() =>
+    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' })
+  );
 
   assert.equal(result.outcome, 'spoke');
   assert.equal(channel.sent.length, 0);
@@ -1365,10 +1834,30 @@ test('createTurnRunner: features.dryRun=true with no bot.dryRunChannelId configu
   const store = fakeStore();
   const hot = fakeHot({ dryRun: true });
   let fetchCalled = false;
-  const client = fakeClient({ channels: { fetch: async () => { fetchCalled = true; return null; } } });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client });
+  const client = fakeClient({
+    channels: {
+      fetch: async () => {
+        fetchCalled = true;
+        return null;
+      },
+    },
+  });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client,
+  });
 
-  const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+  const result = await turns.runTurn({
+    channel,
+    mode: 'reply',
+    trigger: normalizedTrigger(raw),
+    triggerKind: 'mention',
+  });
 
   assert.equal(result.outcome, 'spoke');
   assert.equal(fetchCalled, false, 'an empty dryRunChannelId must never be fetched');
@@ -1387,10 +1876,18 @@ test('createTurnRunner: features.dryRun=true swallows a mirror channel failure a
       },
     },
   });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client,
+  });
 
   const { result } = await withCapturedLogs(() =>
-    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }),
+    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' })
   );
 
   assert.equal(result.outcome, 'spoke');
@@ -1403,9 +1900,22 @@ test('createTurnRunner: features.dryRun=false sends for real even when bot.dryRu
   const llm = fakeLlm('<msg>hello</msg>');
   const store = fakeStore();
   const hot = fakeHot({ dryRun: false }, { dryRunChannelId: 'mirror1' });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
 
-  const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+  const result = await turns.runTurn({
+    channel,
+    mode: 'reply',
+    trigger: normalizedTrigger(raw),
+    triggerKind: 'mention',
+  });
 
   assert.equal(result.outcome, 'spoke');
   assert.equal(result.dryRun, undefined);
@@ -1420,7 +1930,22 @@ test('createTurnRunner: features.dryRun=false sends for real even when bot.dryRu
 const parseRewatchPick = (raw, count) => parseRewatchPickDetailed(raw, count).pick;
 
 test('parseRewatchPick: none (any case), garbage, an ordinal out of range or an empty question -> null', () => {
-  for (const raw of ['none', 'NONE', '  None  ', '', '1', 'maybe the first one', '3 | what colour?', '0 | what?', '1 |   ', ' | what?', 'va | what?', '1.5 | what?', '-1 | what?', null]) {
+  for (const raw of [
+    'none',
+    'NONE',
+    '  None  ',
+    '',
+    '1',
+    'maybe the first one',
+    '3 | what colour?',
+    '0 | what?',
+    '1 |   ',
+    ' | what?',
+    'va | what?',
+    '1.5 | what?',
+    '-1 | what?',
+    null,
+  ]) {
     assert.equal(parseRewatchPick(raw, 2), null, String(raw));
   }
 });
@@ -1473,7 +1998,10 @@ test('parseRewatchPickDetailed: each null answer carries its reason code; a pick
     pick: { n: 1, question: 'τι χρώμα;', retry: false },
     reason: 'ok',
   });
-  assert.deepEqual(parseRewatchPickDetailed('1 | retry', 2), { pick: { n: 1, question: 'retry', retry: true }, reason: 'ok' });
+  assert.deepEqual(parseRewatchPickDetailed('1 | retry', 2), {
+    pick: { n: 1, question: 'retry', retry: true },
+    reason: 'ok',
+  });
   assert.deepEqual(parseRewatchPickDetailed('1 | x', 0), { pick: null, reason: 'unknown-id' }, 'no candidates');
 });
 
@@ -1525,11 +2053,17 @@ function rewatchHot(features = {}, video = {}, config = {}) {
           sites: ['youtube.com'],
           ...video,
           // The re-watch settings the tests below rely on; a test passing its own `rewatch` overrides single keys.
-          rewatch: { recentMessages: 60, maxCandidates: 6, contextMessages: 50, classifierMaxOutputTokens: 120, ...video.rewatch },
+          rewatch: {
+            recentMessages: 60,
+            maxCandidates: 6,
+            contextMessages: 50,
+            classifierMaxOutputTokens: 120,
+            ...video.rewatch,
+          },
         },
       },
       ...config,
-    },
+    }
   );
   hot.config.llm.timeoutMs = 300_000;
   hot.config.llm.helperTimeoutMs = 25_000;
@@ -1544,10 +2078,27 @@ function rewatchScene(triggerContent = 'τι χρώμα είναι το αυτο
   return { video, trigger, channel: fakeTurnChannel({ historyMessages: [video, trigger] }) };
 }
 
-async function runRewatch({ hot = rewatchHot(), llm = rewatchLlm('1 | τι χρώμα;'), describer, scene = rewatchScene(), turn } = {}) {
+async function runRewatch({
+  hot = rewatchHot(),
+  llm = rewatchLlm('1 | τι χρώμα;'),
+  describer,
+  scene = rewatchScene(),
+  turn,
+} = {}) {
   const d = describer ?? fakeRewatchDescriber({ va: { state: 'watched', text: 'ένα αυτοκίνητο περνά' } });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), describer: d });
-  await turns.runTurn(turn ?? { channel: scene.channel, mode: 'reply', trigger: normalizedTrigger(scene.trigger), triggerKind: 'mention' });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    describer: d,
+  });
+  await turns.runTurn(
+    turn ?? { channel: scene.channel, mode: 'reply', trigger: normalizedTrigger(scene.trigger), triggerKind: 'mention' }
+  );
   return { describer: d, llm };
 }
 
@@ -1556,12 +2107,19 @@ test('createTurnRunner: rewatch -- the classifier gets the watched videos and th
 
   assert.equal(llm.classifierCalls.length, 1);
   const { messages, options } = llm.classifierCalls[0];
-  assert.equal(messages[0].content, 'Pick the video the message to Bot asks about; Bot saw them.', '{{name}} is the persona\'s display name');
+  assert.equal(
+    messages[0].content,
+    'Pick the video the message to Bot asks about; Bot saw them.',
+    "{{name}} is the persona's display name"
+  );
   const [transcriptPart, videosPart] = textOf(messages[1].content).split('\n<media>\n');
-  assert.ok(transcriptPart.startsWith('<transcript>\n') && transcriptPart.endsWith('\n</transcript>'), 'the transcript comes first');
+  assert.ok(
+    transcriptPart.startsWith('<transcript>\n') && transcriptPart.endsWith('\n</transcript>'),
+    'the transcript comes first'
+  );
   assert.equal(
     `<media>\n${videosPart}`,
-    '<media>\n1 | video | clip.mp4 | watched | ένα αυτοκίνητο περνά\n</media>\n<candidate>\nZoë: τι χρώμα είναι το αυτοκίνητο;\n</candidate>',
+    '<media>\n1 | video | clip.mp4 | watched | ένα αυτοκίνητο περνά\n</media>\n<candidate>\nZoë: τι χρώμα είναι το αυτοκίνητο;\n</candidate>'
   );
   assert.equal(options.model, 'x/analyzer', 'the analyzer model');
   assert.equal(options.maxOutputTokens, 120);
@@ -1574,22 +2132,42 @@ test('createTurnRunner: rewatch -- the classifier gets the watched videos and th
   assert.equal(describer.rewatchCalls[0].item.itemId, 'va');
   assert.equal(describer.rewatchCalls[0].question, 'τι χρώμα;');
   const userMessage = textOf(llm.turnCalls[0].messages[1].content);
-  const watched = fill(labels.transcript.videoWatched, { name: 'clip.mp4', duration: '0:20', text: 'ένα αυτοκίνητο περνά' });
+  const watched = fill(labels.transcript.videoWatched, {
+    name: 'clip.mp4',
+    duration: '0:20',
+    text: 'ένα αυτοκίνητο περνά',
+  });
   const answered = fill(labels.transcript.videoAnswered, { question: 'τι χρώμα;', text: 'κόκκινο' });
   assert.ok(userMessage.includes(`${watched} ${answered}`), 'the answer follows the watched tag');
 });
 
 test('createTurnRunner: rewatch -- the classifier model is models.base.analyzer, else its own default; the deprecated keys and a stale rewatch.model are ignored', async () => {
-  const withText = rewatchHot({}, { rewatch: { model: 'x/pick' } }, { models: { base: { analyzer: 'x/text', vision: 'x/haiku' } }, mention: { followUpModel: 'x/older' } });
+  const withText = rewatchHot(
+    {},
+    { rewatch: { model: 'x/pick' } },
+    { models: { base: { analyzer: 'x/text', vision: 'x/haiku' } }, mention: { followUpModel: 'x/older' } }
+  );
   withText.config.llm.classifierModel = 'x/old';
   assert.equal((await runRewatch({ hot: withText })).llm.classifierCalls[0].options.model, 'x/text');
-  const withOld = rewatchHot({}, { rewatch: { model: 'x/pick' } }, { models: { base: { vision: 'x/haiku' } }, mention: { followUpModel: 'x/older' } });
+  const withOld = rewatchHot(
+    {},
+    { rewatch: { model: 'x/pick' } },
+    { models: { base: { vision: 'x/haiku' } }, mention: { followUpModel: 'x/older' } }
+  );
   withOld.config.llm.classifierModel = 'x/old';
-  assert.equal((await runRewatch({ hot: withOld })).llm.classifierCalls[0].options.model, ROLE_DEFAULTS.analyzer, 'its own default: never the vision model or a deprecated key');
+  assert.equal(
+    (await runRewatch({ hot: withOld })).llm.classifierCalls[0].options.model,
+    ROLE_DEFAULTS.analyzer,
+    'its own default: never the vision model or a deprecated key'
+  );
   const staleMedia = rewatchHot({}, { rewatch: { model: 'x/pick' } }, { models: {} });
   staleMedia.config.media.model = 'x/old-media';
   const withNone = await runRewatch({ hot: staleMedia });
-  assert.equal(withNone.llm.classifierCalls[0].options.model, ROLE_DEFAULTS.analyzer, 'the deprecated media.model is no fallback');
+  assert.equal(
+    withNone.llm.classifierCalls[0].options.model,
+    ROLE_DEFAULTS.analyzer,
+    'the deprecated media.model is no fallback'
+  );
 });
 
 test('createTurnRunner: rewatch -- the classifier answer cap is media.video.rewatch.classifierMaxOutputTokens', async () => {
@@ -1618,7 +2196,9 @@ test('createTurnRunner: rewatch -- never on a spontaneous turn (no trigger)', as
 test('createTurnRunner: rewatch -- no watched video in the last rewatch.recentMessages messages -> no classifier call', async () => {
   const outOfWindow = await runRewatch({ hot: rewatchHot({}, { rewatch: { recentMessages: 1 } }) });
   assert.equal(outOfWindow.llm.classifierCalls.length, 0);
-  const notWatched = await runRewatch({ describer: fakeRewatchDescriber({ va: { state: 'limit', reason: 'length' } }) });
+  const notWatched = await runRewatch({
+    describer: fakeRewatchDescriber({ va: { state: 'limit', reason: 'length' } }),
+  });
   assert.equal(notWatched.llm.classifierCalls.length, 0);
   assert.equal(notWatched.describer.rewatchCalls.length, 0);
 });
@@ -1638,13 +2218,19 @@ test('createTurnRunner: rewatch -- a second look that returns null leaves the vi
   const { llm } = await runRewatch({ describer });
   assert.equal(describer.rewatchCalls.length, 1);
   const userMessage = textOf(llm.turnCalls[0].messages[1].content);
-  assert.ok(userMessage.includes(fill(labels.transcript.videoWatched, { name: 'clip.mp4', duration: '0:20', text: 'ένα αυτοκίνητο περνά' })));
+  assert.ok(
+    userMessage.includes(
+      fill(labels.transcript.videoWatched, { name: 'clip.mp4', duration: '0:20', text: 'ένα αυτοκίνητο περνά' })
+    )
+  );
   assert.ok(!userMessage.includes('looked again'));
 });
 
 test('createTurnRunner: rewatch -- logs rewatch: classified with counts only, never the question', async () => {
   const { logs } = await withCapturedLogs(() => runRewatch());
-  const line = logs.find((entry) => entry.msg === 'rewatch: classified' || JSON.stringify(entry).includes('rewatch: classified'));
+  const line = logs.find(
+    (entry) => entry.msg === 'rewatch: classified' || JSON.stringify(entry).includes('rewatch: classified')
+  );
   assert.ok(line);
   const all = JSON.stringify(logs);
   assert.ok(all.includes('"picked":true'));
@@ -1661,7 +2247,11 @@ test('createTurnRunner: rewatch -- the ordinal maps back to the candidate, 1 for
   }
   const trigger = rawMessage({ id: 'mt', ts: NOW - 1000, authorName: 'Zoë', content: 'τι χρώμα;' });
   const scene = { trigger, channel: fakeTurnChannel({ historyMessages: [...messages, trigger] }) };
-  for (const [reply, itemId] of [['1 | τι χρώμα;', 'v3'], ['#2 | τι χρώμα;', 'v2'], ['3. | τι χρώμα;', 'v1']]) {
+  for (const [reply, itemId] of [
+    ['1 | τι χρώμα;', 'v3'],
+    ['#2 | τι χρώμα;', 'v2'],
+    ['3. | τι χρώμα;', 'v1'],
+  ]) {
     const describer = fakeRewatchDescriber(states);
     await runRewatch({ scene, llm: rewatchLlm(reply), describer });
     assert.equal(describer.rewatchCalls.length, 1, reply);
@@ -1686,11 +2276,20 @@ test('createTurnRunner: rewatch -- the <media> block lists at most maxCandidates
 
   const { llm } = await run(rewatchHot());
   const block = llm.classifierCalls[0].messages[1].content.split('<media>\n')[1].split('\n</media>')[0].split('\n');
-  assert.deepEqual(block, [7, 6, 5, 4, 3, 2].map((i, k) => `${k + 1} | video | clip${i}.mp4 | watched | scène ${i}`));
+  assert.deepEqual(
+    block,
+    [7, 6, 5, 4, 3, 2].map((i, k) => `${k + 1} | video | clip${i}.mp4 | watched | scène ${i}`)
+  );
 
   const capped = await run(rewatchHot({}, { rewatch: { maxCandidates: 2 } }));
-  const cappedBlock = capped.llm.classifierCalls[0].messages[1].content.split('<media>\n')[1].split('\n</media>')[0].split('\n');
-  assert.deepEqual(cappedBlock, ['1 | video | clip7.mp4 | watched | scène 7', '2 | video | clip6.mp4 | watched | scène 6']);
+  const cappedBlock = capped.llm.classifierCalls[0].messages[1].content
+    .split('<media>\n')[1]
+    .split('\n</media>')[0]
+    .split('\n');
+  assert.deepEqual(cappedBlock, [
+    '1 | video | clip7.mp4 | watched | scène 7',
+    '2 | video | clip6.mp4 | watched | scène 6',
+  ]);
 });
 
 /**
@@ -1722,8 +2321,8 @@ test('createTurnRunner: rewatch -- a video that did not load is offered as not l
   assert.ok(llm.classifierCalls[0].messages[1].content.startsWith('<transcript>\n'));
   assert.ok(
     llm.classifierCalls[0].messages[1].content.endsWith(
-      '\n</transcript>\n<media>\n1 | video | clip.mp4 | not loaded |\n</media>\n<candidate>\nZoë: τι χρώμα είναι το αυτοκίνητο;\n</candidate>',
-    ),
+      '\n</transcript>\n<media>\n1 | video | clip.mp4 | not loaded |\n</media>\n<candidate>\nZoë: τι χρώμα είναι το αυτοκίνητο;\n</candidate>'
+    )
   );
   assert.equal(describer.retryCalls.length, 0);
 });
@@ -1737,7 +2336,11 @@ test('createTurnRunner: rewatch -- <id> | retry on a video that did not load tri
   assert.equal(describer.retryCalls[0].options.force, true);
   assert.equal(describer.rewatchCalls.length, 0, 'the retry is the one re-watch of this turn');
   const userMessage = textOf(result.llm.turnCalls[0].messages[1].content);
-  assert.ok(userMessage.includes(fill(labels.transcript.videoWatched, { name: 'clip.mp4', duration: '0:20', text: 'τώρα φορτώνει' })));
+  assert.ok(
+    userMessage.includes(
+      fill(labels.transcript.videoWatched, { name: 'clip.mp4', duration: '0:20', text: 'τώρα φορτώνει' })
+    )
+  );
   assert.ok(!userMessage.includes('not watched'));
   const line = logs.find((entry) => entry.msg === 'rewatch: classified');
   assert.equal(line.picked, true);
@@ -1750,7 +2353,9 @@ test('createTurnRunner: rewatch -- a retry that fails again replaces the state w
   assert.equal(describer.retryCalls.length, 1);
   const userMessage = textOf(llm.turnCalls[0].messages[1].content);
   const reason = labels.transcript.videoReason.size;
-  assert.ok(userMessage.includes(fill(labels.transcript.videoNotWatched, { name: 'clip.mp4', duration: '0:20', reason })));
+  assert.ok(
+    userMessage.includes(fill(labels.transcript.videoNotWatched, { name: 'clip.mp4', duration: '0:20', reason }))
+  );
 });
 
 test('createTurnRunner: rewatch -- retry on a watched video, or a question on one that did not load, does nothing', async () => {
@@ -1784,13 +2389,20 @@ test('createTurnRunner: rewatch -- maxCandidates counts watched and not-loaded v
     describer: fakeRetryDescriber(states),
   });
   const block = llm.classifierCalls[0].messages[1].content.split('<media>\n')[1].split('\n</media>')[0].split('\n');
-  assert.deepEqual(block, ['1 | video | clip4.mp4 | not loaded |', '2 | video | clip3.mp4 | watched | scène 3', '3 | video | clip2.mp4 | not loaded |']);
+  assert.deepEqual(block, [
+    '1 | video | clip4.mp4 | not loaded |',
+    '2 | video | clip3.mp4 | watched | scène 3',
+    '3 | video | clip2.mp4 | not loaded |',
+  ]);
 });
 
 test('createTurnRunner: rewatch -- a video that did not load is still offered and retried after this turn spent media.video.maxPerTurn attempts', async () => {
   const describer = fakeRetryDescriber({ va: { state: 'error' } }, undefined, { newCount: 1 });
   const { result, logs } = await withCapturedLogs(() => runRewatch({ describer, llm: rewatchLlm('1 | retry') }));
-  assert.ok(result.llm.classifierCalls[0].messages[1].content.includes('1 | video | clip.mp4 | not loaded |'), 'still offered');
+  assert.ok(
+    result.llm.classifierCalls[0].messages[1].content.includes('1 | video | clip.mp4 | not loaded |'),
+    'still offered'
+  );
   assert.equal(describer.retryCalls.length, 1);
   assert.equal(describer.retryCalls[0].options.force, true);
   assert.ok(!logs.some((entry) => entry.msg === 'rewatch: skipped'));
@@ -1804,8 +2416,14 @@ function rewatchContextScene(fillers) {
   const video = videoAttachmentRaw('m0', NOW - 100_000, 'va', 'clip.mp4');
   const between = Array.from({ length: fillers }, (_, i) =>
     i % 3 === 1
-      ? rawMessage({ id: `f${i}`, ts: NOW - 90_000 + i * 1000, authorId: 'self-id', authorName: 'Bot', content: `ligne ${i}` })
-      : rawMessage({ id: `f${i}`, ts: NOW - 90_000 + i * 1000, authorName: 'Zoë', content: `ligne ${i}` }),
+      ? rawMessage({
+          id: `f${i}`,
+          ts: NOW - 90_000 + i * 1000,
+          authorId: 'self-id',
+          authorName: 'Bot',
+          content: `ligne ${i}`,
+        })
+      : rawMessage({ id: `f${i}`, ts: NOW - 90_000 + i * 1000, authorName: 'Zoë', content: `ligne ${i}` })
   );
   const trigger = rawMessage({ id: 'mt', ts: NOW - 1000, authorName: 'Zoë', content: 'τι χρώμα έχει;' });
   return { trigger, channel: fakeTurnChannel({ historyMessages: [video, ...between, trigger] }) };
@@ -1828,7 +2446,7 @@ test('createTurnRunner: rewatch -- the <transcript> block holds the last context
   assert.equal(items.length, 3);
   const self = fill(labels.self, { name: 'Bot' });
   assert.match(items[0], /^#1 \[\d\d:\d\d\] /);
-  assert.ok(items[0].endsWith(`] ${self}: ligne 7`), 'the persona\'s own line is marked');
+  assert.ok(items[0].endsWith(`] ${self}: ligne 7`), "the persona's own line is marked");
   assert.match(items[1], /^#2 \[\d\d:\d\d\] Zoë: ligne 8$/);
   assert.match(items[2], /^#3 \[\d\d:\d\d\] Zoë: ligne 9$/);
   assert.equal(content.split('τι χρώμα έχει;').length, 2, 'the trigger appears once');
@@ -1851,7 +2469,11 @@ test('createTurnRunner: rewatch -- a video that did not load renders its not-wat
   const { llm } = await runRewatch({ describer, llm: rewatchLlm('none') });
   const items = rewatchTranscriptLines(llm.classifierCalls[0].messages[1].content).slice(1);
   assert.equal(items.length, 1, 'the video message only; the trigger stays in <candidate>');
-  const tag = fill(labels.transcript.videoNotWatched, { name: 'clip.mp4', duration: '0:20', reason: labels.transcript.videoReason.error });
+  const tag = fill(labels.transcript.videoNotWatched, {
+    name: 'clip.mp4',
+    duration: '0:20',
+    reason: labels.transcript.videoReason.error,
+  });
   assert.ok(items[0].endsWith(`Alice: hey bot ${tag}`), items[0]);
 });
 
@@ -1863,7 +2485,12 @@ function pictureRaw(id, ts, attachmentId, name, author = {}) {
     id,
     ts,
     ...author,
-    attachments: new Map([[attachmentId, { id: attachmentId, contentType: 'image/png', name, url: `https://cdn.discordapp.com/attachments/1/2/${name}` }]]),
+    attachments: new Map([
+      [
+        attachmentId,
+        { id: attachmentId, contentType: 'image/png', name, url: `https://cdn.discordapp.com/attachments/1/2/${name}` },
+      ],
+    ]),
   });
 }
 
@@ -1874,7 +2501,8 @@ function pictureRaw(id, ts, attachmentId, name, author = {}) {
 function fakeRelookDescriber(statesById = {}, captions = {}, answer = 'pas de chargeur, un reflet de la fenêtre') {
   const base = fakeRetryDescriber(statesById);
   const relookCalls = [];
-  const captionsOf = (items) => new Map(items.filter((item) => captions[item.itemId]).map((item) => [item.itemId, captions[item.itemId]]));
+  const captionsOf = (items) =>
+    new Map(items.filter((item) => captions[item.itemId]).map((item) => [item.itemId, captions[item.itemId]]));
   return {
     ...base,
     describeMany: async (guildId, items) => ({ descriptions: captionsOf(items), newCount: 0 }),
@@ -1889,7 +2517,12 @@ function fakeRelookDescriber(statesById = {}, captions = {}, answer = 'pas de ch
 
 /** A picture by Alice, then the trigger making a claim about it. */
 function relookScene(history = [pictureRaw('m1', NOW - 5000, 'pa', 'singes.png')]) {
-  const trigger = rawMessage({ id: 'mt', ts: NOW - 1000, authorName: 'Zoë', content: 'il y a un chargeur dans sa pupille' });
+  const trigger = rawMessage({
+    id: 'mt',
+    ts: NOW - 1000,
+    authorName: 'Zoë',
+    content: 'il y a un chargeur dans sa pupille',
+  });
   return { trigger, channel: fakeTurnChannel({ historyMessages: [...history, trigger] }) };
 }
 
@@ -1899,8 +2532,23 @@ async function runRelook({
   describer = fakeRelookDescriber({}, { pa: 'deux singes sur une branche' }),
   scene = relookScene(),
 } = {}) {
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), describer, imageFetcher: fakeImageFetcher() });
-  await turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: normalizedTrigger(scene.trigger), triggerKind: 'mention' });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    describer,
+    imageFetcher: fakeImageFetcher(),
+  });
+  await turns.runTurn({
+    channel: scene.channel,
+    mode: 'reply',
+    trigger: normalizedTrigger(scene.trigger),
+    triggerKind: 'mention',
+  });
   return { describer, llm };
 }
 
@@ -1920,11 +2568,17 @@ test('createTurnRunner: relook -- a claimed detail of a recent picture picks it;
   assert.equal(describer.relookCalls[0].question, 'y a-t-il un chargeur dans la pupille ?');
   assert.equal(describer.rewatchCalls.length, 0);
   const userMessage = textOf(llm.turnCalls[0].messages[1].content);
-  const tag = fill(labels.transcript.imageAnswered, { question: 'y a-t-il un chargeur dans la pupille ?', text: 'pas de chargeur, un reflet de la fenêtre' });
-  assert.ok(userMessage.includes(`${fill(labels.transcript.imageDescribed, { text: 'deux singes sur une branche' })} ${tag}`), 'the answer sits right after the picture tag');
+  const tag = fill(labels.transcript.imageAnswered, {
+    question: 'y a-t-il un chargeur dans la pupille ?',
+    text: 'pas de chargeur, un reflet de la fenêtre',
+  });
+  assert.ok(
+    userMessage.includes(`${fill(labels.transcript.imageDescribed, { text: 'deux singes sur une branche' })} ${tag}`),
+    'the answer sits right after the picture tag'
+  );
 });
 
-test('createTurnRunner: relook -- the persona\'s own posted picture is a candidate', async () => {
+test("createTurnRunner: relook -- the persona's own posted picture is a candidate", async () => {
   const own = pictureRaw('m1', NOW - 5000, 'pa', 'image.png', { authorId: 'self-id', authorName: 'Bot' });
   const { describer, llm } = await runRelook({ scene: relookScene([own]) });
   assert.deepEqual(mediaLines(llm), ['1 | picture | image.png | described | deux singes sur une branche']);
@@ -1952,10 +2606,18 @@ test('createTurnRunner: relook -- imageRelook off removes the pictures; the vide
   const picture = pictureRaw('m2', NOW - 5000, 'pa', 'singes.png');
   const states = { va: { state: 'watched', text: 'ένα αυτοκίνητο περνά' } };
   const run = (hot) =>
-    runRelook({ hot, scene: relookScene([video, picture]), llm: rewatchLlm('1 | τι χρώμα;'), describer: fakeRelookDescriber(states, { pa: 'deux singes' }) });
+    runRelook({
+      hot,
+      scene: relookScene([video, picture]),
+      llm: rewatchLlm('1 | τι χρώμα;'),
+      describer: fakeRelookDescriber(states, { pa: 'deux singes' }),
+    });
 
   const on = await run(rewatchHot({ imageRelook: true }));
-  assert.deepEqual(mediaLines(on.llm), ['1 | video | clip.mp4 | watched | ένα αυτοκίνητο περνά', '2 | picture | singes.png | described | deux singes']);
+  assert.deepEqual(mediaLines(on.llm), [
+    '1 | video | clip.mp4 | watched | ένα αυτοκίνητο περνά',
+    '2 | picture | singes.png | described | deux singes',
+  ]);
 
   {
     const { describer, llm } = await run(rewatchHot({ imageRelook: false }));
@@ -1963,7 +2625,11 @@ test('createTurnRunner: relook -- imageRelook off removes the pictures; the vide
     assert.equal(describer.rewatchCalls.length, 1);
     assert.equal(describer.rewatchCalls[0].item.itemId, 'va');
     assert.equal(describer.relookCalls.length, 0);
-    assert.ok(textOf(llm.turnCalls[0].messages[1].content).includes(fill(labels.transcript.videoAnswered, { question: 'τι χρώμα;', text: 'κόκκινο' })));
+    assert.ok(
+      textOf(llm.turnCalls[0].messages[1].content).includes(
+        fill(labels.transcript.videoAnswered, { question: 'τι χρώμα;', text: 'κόκκινο' })
+      )
+    );
   }
 });
 
@@ -2000,7 +2666,11 @@ test('createTurnRunner: relook -- maxCandidates caps the merged list: the videos
     llm: rewatchLlm('3 | combien de singes ?'),
     describer,
   });
-  assert.deepEqual(mediaLines(llm), ['1 | video | clip2.mp4 | watched | scène 2', '2 | video | clip1.mp4 | watched | scène 1', '3 | picture | two.png | described |']);
+  assert.deepEqual(mediaLines(llm), [
+    '1 | video | clip2.mp4 | watched | scène 2',
+    '2 | video | clip1.mp4 | watched | scène 1',
+    '3 | picture | two.png | described |',
+  ]);
   assert.equal(describer.relookCalls.length, 1);
   assert.equal(describer.relookCalls[0].item.itemId, 'p2');
 });
@@ -2021,7 +2691,7 @@ function gifEmbedRaw(id, ts) {
         video: { url: 'https://media.tenor.com/x/loop.mp4' },
       },
     ],
-    '',
+    ''
   );
 }
 
@@ -2037,7 +2707,11 @@ function fakeGifRewatchDescriber(hot, { states = {}, watched = {}, answer = 'une
     watchedGifs: (guildId, items) =>
       hot.config.media?.gif?.watch === false
         ? new Map()
-        : new Map(items.filter((item) => item.kind === 'gif' && watched[item.itemId]).map((item) => [item.itemId, watched[item.itemId]])),
+        : new Map(
+            items
+              .filter((item) => item.kind === 'gif' && watched[item.itemId])
+              .map((item) => [item.itemId, watched[item.itemId]])
+          ),
     gifRewatchCalls,
     rewatchGif: async (guildId, item, question) => {
       gifRewatchCalls.push({ guildId, item, question });
@@ -2047,14 +2721,39 @@ function fakeGifRewatchDescriber(hot, { states = {}, watched = {}, answer = 'une
 }
 
 function gifRewatchScene(history = [gifEmbedRaw('m1', NOW - 5000)]) {
-  const trigger = rawMessage({ id: 'mt', ts: NOW - 1000, authorName: 'Zoë', content: 'à la fin le miroir montre une autre personne' });
+  const trigger = rawMessage({
+    id: 'mt',
+    ts: NOW - 1000,
+    authorName: 'Zoë',
+    content: 'à la fin le miroir montre une autre personne',
+  });
   return { trigger, channel: fakeTurnChannel({ historyMessages: [...history, trigger] }) };
 }
 
-async function runGifRewatch({ hot = rewatchHot(), llm = rewatchLlm('1 | qui est dans le miroir à la fin ?'), describer, scene = gifRewatchScene() } = {}) {
+async function runGifRewatch({
+  hot = rewatchHot(),
+  llm = rewatchLlm('1 | qui est dans le miroir à la fin ?'),
+  describer,
+  scene = gifRewatchScene(),
+} = {}) {
   const d = describer ?? fakeGifRewatchDescriber(hot, { watched: { 'm1#e0': 'une femme se regarde dans un miroir' } });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), describer: d, imageFetcher: fakeImageFetcher() });
-  await turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: normalizedTrigger(scene.trigger), triggerKind: 'mention' });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    describer: d,
+    imageFetcher: fakeImageFetcher(),
+  });
+  await turns.runTurn({
+    channel: scene.channel,
+    mode: 'reply',
+    trigger: normalizedTrigger(scene.trigger),
+    triggerKind: 'mention',
+  });
   return { describer: d, llm };
 }
 
@@ -2075,8 +2774,14 @@ test('createTurnRunner: rewatch -- a watched GIF is offered as a watched video a
   assert.equal(line.target, 'gif');
   assert.equal(line.picked, true);
   assert.ok(!JSON.stringify(logs).includes('miroir'), 'never the question or the caption');
-  const tag = fill(labels.transcript.videoAnswered, { question: 'qui est dans le miroir à la fin ?', text: 'une autre femme dans le miroir' });
-  assert.ok(textOf(llm.turnCalls[0].messages[1].content).includes(tag), 'the answer sits in the transcript as a video answer');
+  const tag = fill(labels.transcript.videoAnswered, {
+    question: 'qui est dans le miroir à la fin ?',
+    text: 'une autre femme dans le miroir',
+  });
+  assert.ok(
+    textOf(llm.turnCalls[0].messages[1].content).includes(tag),
+    'the answer sits in the transcript as a video answer'
+  );
 });
 
 test('createTurnRunner: rewatch -- a GIF that was not watched, GIF watching off or videoRewatch off offers no GIF', async () => {
@@ -2117,13 +2822,23 @@ test('createTurnRunner: rewatch -- a watched video and a watched GIF: the video 
     states: { va: { state: 'watched', text: 'ένα αυτοκίνητο περνά' } },
     watched: { 'm2#e0': 'une femme se regarde dans un miroir' },
   });
-  const scene = gifRewatchScene([videoAttachmentRaw('m1', NOW - 9000, 'va', 'clip.mp4'), gifEmbedRaw('m2', NOW - 5000)]);
+  const scene = gifRewatchScene([
+    videoAttachmentRaw('m1', NOW - 9000, 'va', 'clip.mp4'),
+    gifEmbedRaw('m2', NOW - 5000),
+  ]);
   const { llm } = await runGifRewatch({ hot, describer, scene, llm: rewatchLlm('1 | τι χρώμα;') });
-  assert.deepEqual(mediaLines(llm), ['1 | video | clip.mp4 | watched | ένα αυτοκίνητο περνά', '2 | video | Tenor | watched | une femme se regarde dans un miroir']);
+  assert.deepEqual(mediaLines(llm), [
+    '1 | video | clip.mp4 | watched | ένα αυτοκίνητο περνά',
+    '2 | video | Tenor | watched | une femme se regarde dans un miroir',
+  ]);
   assert.equal(describer.rewatchCalls.length, 1);
   assert.equal(describer.rewatchCalls[0].item.itemId, 'va');
   assert.equal(describer.gifRewatchCalls.length, 0);
-  assert.ok(textOf(llm.turnCalls[0].messages[1].content).includes(fill(labels.transcript.videoAnswered, { question: 'τι χρώμα;', text: 'κόκκινο' })));
+  assert.ok(
+    textOf(llm.turnCalls[0].messages[1].content).includes(
+      fill(labels.transcript.videoAnswered, { question: 'τι χρώμα;', text: 'κόκκινο' })
+    )
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -2134,10 +2849,24 @@ function linkRaw(id, ts, embeds, content = 'κοίτα αυτό') {
   return { ...rawMessage({ id, ts, content }), embeds };
 }
 
-const PAGE_EMBED = { url: 'https://example.org/a', title: 'Crêpes', description: null, provider: null, thumbnail: null };
+const PAGE_EMBED = {
+  url: 'https://example.org/a',
+  title: 'Crêpes',
+  description: null,
+  provider: null,
+  thumbnail: null,
+};
 
 /** A fake createLookup()-shaped dependency. */
-function fakeLookup({ reads = {}, searchResult = { query: 'q', text: 'ευρήματα', sources: [{ title: 'Un', url: 'https://www.example.com/1', site: 'example.com' }] }, hasKey = true } = {}) {
+function fakeLookup({
+  reads = {},
+  searchResult = {
+    query: 'q',
+    text: 'ευρήματα',
+    sources: [{ title: 'Un', url: 'https://www.example.com/1', site: 'example.com' }],
+  },
+  hasKey = true,
+} = {}) {
   const readCalls = [];
   const searchCalls = [];
   return {
@@ -2190,7 +2919,7 @@ function lookupHot(features = {}, web = {}, config = {}) {
         search: { enabled: true, maxPerTurn: 1, contextMessages: 50, ...web.search },
       },
       ...config,
-    },
+    }
   );
   hot.config.llm.timeoutMs = 300_000;
   hot.config.llm.helperTimeoutMs = 25_000;
@@ -2198,7 +2927,16 @@ function lookupHot(features = {}, web = {}, config = {}) {
   return hot;
 }
 
-async function runLookupTurn({ hot = lookupHot(), llm = lookupLlm(), lookup = fakeLookup(), history, trigger = true, now, triggerKind = 'mention', taskResult = null } = {}) {
+async function runLookupTurn({
+  hot = lookupHot(),
+  llm = lookupLlm(),
+  lookup = fakeLookup(),
+  history,
+  trigger = true,
+  now,
+  triggerKind = 'mention',
+  taskResult = null,
+} = {}) {
   const messages = history ?? [
     linkRaw('m1', NOW - 5000, [
       PAGE_EMBED,
@@ -2208,7 +2946,17 @@ async function runLookupTurn({ hot = lookupHot(), llm = lookupLlm(), lookup = fa
     rawMessage({ id: 'm2', ts: NOW - 1000, authorName: 'Zoë', content: 'ποιος κέρδισε τον τελικό;' }),
   ];
   const channel = fakeTurnChannel({ historyMessages: messages });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), lookup, ...(now ? { now } : {}) });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    lookup,
+    ...(now ? { now } : {}),
+  });
   const last = messages[messages.length - 1];
   const turn = trigger
     ? { channel, mode: 'reply', trigger: normalizedTrigger(last), triggerKind, ...(taskResult ? { taskResult } : {}) }
@@ -2224,7 +2972,10 @@ test('createTurnRunner: lookup -- readable links (no video site, no gif) go to r
   assert.equal(lookup.readCalls.length, 1);
   const { guildId, links, options } = lookup.readCalls[0];
   assert.equal(guildId, 'g1');
-  assert.deepEqual(links.map((l) => l.id), ['m1#e0']);
+  assert.deepEqual(
+    links.map((l) => l.id),
+    ['m1#e0']
+  );
   assert.equal(links[0].url, 'https://example.org/a');
   assert.equal(options.maxNew, 2);
   const userMessage = textOf(llm.turnCalls[0].messages[1].content);
@@ -2239,7 +2990,10 @@ test('createTurnRunner: lookup -- links are offered newest message first', async
     rawMessage({ id: 'm3', ts: NOW - 1000, content: 'λοιπόν;' }),
   ];
   await runLookupTurn({ lookup, history });
-  assert.deepEqual(lookup.readCalls[0].links.map((l) => l.id), ['m2#e0', 'm1#e0']);
+  assert.deepEqual(
+    lookup.readCalls[0].links.map((l) => l.id),
+    ['m2#e0', 'm1#e0']
+  );
 });
 
 test('createTurnRunner: lookup -- the classifier gets the transcript and the candidate; a query becomes a <lookup> block', async () => {
@@ -2272,11 +3026,14 @@ test('createTurnRunner: lookup -- the classifier gets the transcript and the can
 });
 
 test('createTurnRunner: lookup -- the classifier answer cap is web.search.classifierMaxOutputTokens', async () => {
-  const set = await runLookupTurn({ hot: lookupHot({}, { search: { classifierMaxOutputTokens: 45 } }), llm: lookupLlm('none') });
+  const set = await runLookupTurn({
+    hot: lookupHot({}, { search: { classifierMaxOutputTokens: 45 } }),
+    llm: lookupLlm('none'),
+  });
   assert.equal(set.llm.classifierCalls[0].options.maxOutputTokens, 45);
 });
 
-test('createTurnRunner: lookup -- {{today}} in the classifier prompt is the injected clock\'s date in bot.timezone, {{name}} still filled', async () => {
+test("createTurnRunner: lookup -- {{today}} in the classifier prompt is the injected clock's date in bot.timezone, {{name}} still filled", async () => {
   const hot = lookupHot();
   hot.prompts.lookup = 'Decide whether {{name}} needs to look something up. Today is {{today}}; {{name}} again.';
   const llm = lookupLlm('none');
@@ -2284,7 +3041,10 @@ test('createTurnRunner: lookup -- {{today}} in the classifier prompt is the inje
   // the zone the answer's `when:` range is read in.
   hot.config.bot.timezone = 'Asia/Tokyo';
   await runLookupTurn({ hot, llm, now: () => Date.UTC(2031, 11, 31, 23, 30, 0) });
-  assert.equal(llm.classifierCalls[0].messages[0].content, 'Decide whether Bot needs to look something up. Today is 2032-01-01; Bot again.');
+  assert.equal(
+    llm.classifierCalls[0].messages[0].content,
+    'Decide whether Bot needs to look something up. Today is 2032-01-01; Bot again.'
+  );
 });
 
 test('createTurnRunner: lookup -- a classifier prompt without {{today}} passes through unchanged apart from {{name}}', async () => {
@@ -2292,7 +3052,10 @@ test('createTurnRunner: lookup -- a classifier prompt without {{today}} passes t
   hot.prompts.lookup = 'Decide whether {{name}} should search; keep {{other}} as it is.';
   const llm = lookupLlm('none');
   await runLookupTurn({ hot, llm, now: () => Date.UTC(2031, 0, 2, 3, 4, 5) });
-  assert.equal(llm.classifierCalls[0].messages[0].content, 'Decide whether Bot should search; keep {{other}} as it is.');
+  assert.equal(
+    llm.classifierCalls[0].messages[0].content,
+    'Decide whether Bot should search; keep {{other}} as it is.'
+  );
 });
 
 test('createTurnRunner: lookup -- contextMessages 0 omits the <transcript> block', async () => {
@@ -2328,8 +3091,19 @@ test('createTurnRunner: lookup -- only on a direct address: a spontaneous turn r
 
 test('createTurnRunner: lookup -- a turn a returned errand opened runs no engine lookup and has no <lookup> block', async () => {
   const lookup = fakeLookup();
-  const taskResult = { id: 't1', agent: 'scout', goal: 'βρες τον νικητή', state: 'done', result: { text: 'ο νικητής', files: [] } };
-  const { llm, result } = await runLookupTurn({ lookup, llm: lookupLlm('champions final winner 2026'), triggerKind: 'task', taskResult });
+  const taskResult = {
+    id: 't1',
+    agent: 'scout',
+    goal: 'βρες τον νικητή',
+    state: 'done',
+    result: { text: 'ο νικητής', files: [] },
+  };
+  const { llm, result } = await runLookupTurn({
+    lookup,
+    llm: lookupLlm('champions final winner 2026'),
+    triggerKind: 'task',
+    taskResult,
+  });
   assert.equal(result.outcome, 'spoke');
   assert.equal(llm.classifierCalls.length, 0, 'no search classifier on the result turn');
   assert.equal(lookup.searchCalls.length, 0);
@@ -2342,7 +3116,10 @@ test('createTurnRunner: lookup -- one classifier call and at most one search per
   const lookup = fakeLookup();
   const { llm } = await runLookupTurn({ lookup, llm: lookupLlm('first query\nsecond query') });
   assert.equal(llm.classifierCalls.length, 1);
-  assert.deepEqual(lookup.searchCalls.map((c) => c.query), ['first query']);
+  assert.deepEqual(
+    lookup.searchCalls.map((c) => c.query),
+    ['first query']
+  );
 });
 
 test('createTurnRunner: lookup -- no key, no prompt, search disabled or maxPerTurn 0 -> no classifier call', async () => {
@@ -2392,7 +3169,11 @@ test('createTurnRunner: lookup -- senses.search reaches the request only when lo
 const RECALL_TEXT = 'Ana a tiré sur le lapin le 1er octobre.';
 
 /** A fake createRecall()-shaped dependency: `available()` as given; `run()` records its arguments, then resolves `result`. */
-function fakeRecall({ available = true, result = { text: RECALL_TEXT, stretch: null, people: [] }, events = null } = {}) {
+function fakeRecall({
+  available = true,
+  result = { text: RECALL_TEXT, stretch: null, people: [] },
+  events = null,
+} = {}) {
   const runCalls = [];
   return {
     runCalls,
@@ -2408,16 +3189,40 @@ function fakeRecall({ available = true, result = { text: RECALL_TEXT, stretch: n
 }
 
 /** One reply turn (`dm`: a private chat served for g1) with a web lookup and a recall wired. */
-async function runRecallTurn({ hot = lookupHot(), llm, lookup = fakeLookup(), recall = fakeRecall(), dm = false, client = fakeClient() } = {}) {
+async function runRecallTurn({
+  hot = lookupHot(),
+  llm,
+  lookup = fakeLookup(),
+  recall = fakeRecall(),
+  dm = false,
+  client = fakeClient(),
+} = {}) {
   const messages = [
     rawMessage({ id: 'm1', ts: NOW - 5000, content: 'καλημέρα' }),
     rawMessage({ id: 'm2', ts: NOW - 1000, authorName: 'Zoë', content: 'ποιος σκότωσε το κουνέλι;' }),
   ];
   const channel = fakeTurnChannel({ historyMessages: messages, ...(dm ? { id: 'dm1', dm: true } : {}) });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client, lookup, recall, now: () => NOW });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client,
+    lookup,
+    recall,
+    now: () => NOW,
+  });
   const trigger = normalizedTrigger(messages[1]);
   const { result, logs } = await withCapturedLogs(() =>
-    turns.runTurn({ channel, ...(dm ? { guildId: 'g1' } : {}), mode: 'reply', trigger, triggerKind: dm ? 'private' : 'mention' }),
+    turns.runTurn({
+      channel,
+      ...(dm ? { guildId: 'g1' } : {}),
+      mode: 'reply',
+      trigger,
+      triggerKind: dm ? 'private' : 'mention',
+    })
   );
   return { result, logs, llm, lookup, recall, channel, trigger };
 }
@@ -2430,10 +3235,12 @@ function turnLookupOf(llm) {
 
 /** The web part fakeLookup's result renders for `query`, as before recall. */
 function webPartOf(query) {
-  return [fill(labels.lookup.header, { query }), 'ευρήματα', fill(labels.lookup.sources, { list: 'example.com' })].join('\n');
+  return [fill(labels.lookup.header, { query }), 'ευρήματα', fill(labels.lookup.sources, { list: 'example.com' })].join(
+    '\n'
+  );
 }
 
-test('createTurnRunner: recall -- a server: answer runs recall with the trigger, the turn\'s chat and the parsed forms; its text sits under the server header', async () => {
+test("createTurnRunner: recall -- a server: answer runs recall with the trigger, the turn's chat and the parsed forms; its text sits under the server header", async () => {
   const llm = lookupLlm('server: κουνέλι, κουνελιού');
   const { recall, lookup, trigger, channel } = await runRecallTurn({ llm });
   assert.equal(lookup.searchCalls.length, 0, 'no web query was asked');
@@ -2445,8 +3252,15 @@ test('createTurnRunner: recall -- a server: answer runs recall with the trigger,
   assert.equal(args.selfId, 'self-id');
   assert.equal(args.selfName, 'Bot');
   assert.equal(args.candidate.id, trigger.id);
-  assert.deepEqual(args.history.map((m) => m.id), ['m1', 'm2']);
-  assert.deepEqual(args.context.map((m) => m.id), ['m1', 'm2'], 'the summary\'s context: the lines the classifier read');
+  assert.deepEqual(
+    args.history.map((m) => m.id),
+    ['m1', 'm2']
+  );
+  assert.deepEqual(
+    args.context.map((m) => m.id),
+    ['m1', 'm2'],
+    "the summary's context: the lines the classifier read"
+  );
   assert.deepEqual(args.server, { forms: ['κουνέλι', 'κουνελιού'], who: [], from: null, to: null });
   assert.equal(turnLookupOf(llm), [labels.lookup.serverHeader, RECALL_TEXT].join('\n'));
 });
@@ -2465,11 +3279,20 @@ test('createTurnRunner: recall -- web: and server: run both searches in parallel
   const llm = lookupLlm('web: lapin chasse saison\nserver: κουνέλι');
   const { recall } = await runRecallTurn({ llm, lookup, recall: fakeRecall({ events }) });
   assert.equal(recall.runCalls.length, 1);
-  assert.deepEqual(lookup.searchCalls.map((c) => c.query), ['lapin chasse saison']);
+  assert.deepEqual(
+    lookup.searchCalls.map((c) => c.query),
+    ['lapin chasse saison']
+  );
   assert.deepEqual(events.slice(0, 2).sort(), ['server:start', 'web:start'], 'both started before either ended');
   assert.equal(
     turnLookupOf(llm),
-    [labels.lookup.bothNote, labels.lookup.webHeader, webPartOf('lapin chasse saison'), labels.lookup.serverHeader, RECALL_TEXT].join('\n'),
+    [
+      labels.lookup.bothNote,
+      labels.lookup.webHeader,
+      webPartOf('lapin chasse saison'),
+      labels.lookup.serverHeader,
+      RECALL_TEXT,
+    ].join('\n')
   );
 });
 
@@ -2478,7 +3301,11 @@ test('createTurnRunner: recall -- a web-only or an old unlabelled answer runs no
     const llm = lookupLlm(answer);
     const { recall, lookup } = await runRecallTurn({ llm });
     assert.equal(recall.runCalls.length, 0, answer);
-    assert.deepEqual(lookup.searchCalls.map((c) => c.query), ['champions final'], answer);
+    assert.deepEqual(
+      lookup.searchCalls.map((c) => c.query),
+      ['champions final'],
+      answer
+    );
     assert.equal(turnLookupOf(llm), webPartOf('champions final'), answer);
   }
 });
@@ -2490,7 +3317,11 @@ test('createTurnRunner: recall -- unavailable: a server: line is ignored and rec
   assert.equal(lookup.searchCalls.length, 1);
   assert.equal(turnLookupOf(llm), webPartOf('champions final'));
 
-  const none = await runRecallTurn({ llm: lookupLlm('server: κουνέλι'), lookup: fakeLookup({ hasKey: false }), recall: fakeRecall({ available: false }) });
+  const none = await runRecallTurn({
+    llm: lookupLlm('server: κουνέλι'),
+    lookup: fakeLookup({ hasKey: false }),
+    recall: fakeRecall({ available: false }),
+  });
   assert.equal(none.llm.classifierCalls.length, 0);
   assert.equal(none.recall.runCalls.length, 0);
 });
@@ -2518,9 +3349,13 @@ function partnerClient() {
   return { client: fakeClient({ guilds: { cache: new Map([['g1', guild]]) } }), guild, partner };
 }
 
-test('createTurnRunner: recall -- a private chat runs recall on its partner\'s behalf in the served guild', async () => {
+test("createTurnRunner: recall -- a private chat runs recall on its partner's behalf in the served guild", async () => {
   const { client, guild, partner } = partnerClient();
-  const { result, recall, channel, lookup, llm } = await runRecallTurn({ llm: lookupLlm('server: κουνέλι'), dm: true, client });
+  const { result, recall, channel, lookup, llm } = await runRecallTurn({
+    llm: lookupLlm('server: κουνέλι'),
+    dm: true,
+    client,
+  });
   assert.equal(result.outcome, 'spoke');
   assert.equal(recall.runCalls.length, 1);
   const args = recall.runCalls[0];
@@ -2535,7 +3370,12 @@ test('createTurnRunner: recall -- a private chat runs recall on its partner\'s b
 
 test('createTurnRunner: recall -- features.privateLikeServer off: a private chat never runs recall, its partner at hand or not', async () => {
   const { client } = partnerClient();
-  const off = await runRecallTurn({ hot: lookupHot({ privateLikeServer: false }), llm: lookupLlm('web: champions final\nserver: κουνέλι'), dm: true, client });
+  const off = await runRecallTurn({
+    hot: lookupHot({ privateLikeServer: false }),
+    llm: lookupLlm('web: champions final\nserver: κουνέλι'),
+    dm: true,
+    client,
+  });
   assert.equal(off.result.outcome, 'spoke');
   assert.equal(off.recall.runCalls.length, 0);
   assert.equal(off.lookup.searchCalls.length, 1);
@@ -2559,7 +3399,12 @@ test('createTurnRunner: recall -- a private chat without its partner as a guild 
   assert.equal(withWeb.lookup.searchCalls.length, 1);
   assert.equal(turnLookupOf(withWeb.llm), webPartOf('champions final'));
 
-  const noWeb = await runRecallTurn({ hot: lookupHot({ webLookup: false }), llm: lookupLlm('server: κουνέλι'), lookup: null, dm: true });
+  const noWeb = await runRecallTurn({
+    hot: lookupHot({ webLookup: false }),
+    llm: lookupLlm('server: κουνέλι'),
+    lookup: null,
+    dm: true,
+  });
   assert.equal(noWeb.llm.classifierCalls.length, 0, 'nothing can run: no classifier');
   assert.equal(noWeb.recall.runCalls.length, 0);
 });
@@ -2577,11 +3422,20 @@ test('createTurnRunner: recall -- a recall that found nothing leaves no server p
 
 test('createTurnRunner: recall -- senses.recall reaches the request only on a server turn where the runner is available', async () => {
   const sensesHas = ({ llm }) => textOf(llm.turnCalls[0].messages[1].content).includes(labels.senses.recall);
-  const throwing = { ...fakeRecall(), available: () => { throw new Error('boom'); } };
+  const throwing = {
+    ...fakeRecall(),
+    available: () => {
+      throw new Error('boom');
+    },
+  };
   const noRun = { available: () => true };
   const cases = [
     { name: 'available', run: { recall: fakeRecall() }, expected: true },
-    { name: 'available, no web lookup either', run: { hot: lookupHot({ webLookup: false }), lookup: null, recall: fakeRecall() }, expected: true },
+    {
+      name: 'available, no web lookup either',
+      run: { hot: lookupHot({ webLookup: false }), lookup: null, recall: fakeRecall() },
+      expected: true,
+    },
     { name: 'unavailable', run: { recall: fakeRecall({ available: false }) }, expected: false },
     { name: 'not wired', run: { recall: null }, expected: false },
     { name: 'no run function', run: { recall: noRun }, expected: false },
@@ -2596,10 +3450,18 @@ test('createTurnRunner: recall -- senses.recall reaches the request only on a se
 });
 
 test('createTurnRunner: recall -- a stretch from recall reaches the block under its header', async () => {
-  const stretch = { channelId: 'c2', channelName: 'jardin', startTs: NOW - 3 * 24 * 3_600_000, lines: '>> [11:00] Ana: le lapin' };
+  const stretch = {
+    channelId: 'c2',
+    channelName: 'jardin',
+    startTs: NOW - 3 * 24 * 3_600_000,
+    lines: '>> [11:00] Ana: le lapin',
+  };
   const llm = lookupLlm('server: κουνέλι');
   await runRecallTurn({ llm, recall: fakeRecall({ result: { text: RECALL_TEXT, stretch, people: [] } }) });
-  const heading = fill(labels.lookup.stretch, { date: new Date(stretch.startTs).toISOString().slice(0, 10), channel: 'jardin' });
+  const heading = fill(labels.lookup.stretch, {
+    date: new Date(stretch.startTs).toISOString().slice(0, 10),
+    channel: 'jardin',
+  });
   assert.equal(turnLookupOf(llm), [labels.lookup.serverHeader, RECALL_TEXT, heading, stretch.lines].join('\n'));
 });
 
@@ -2635,10 +3497,14 @@ function fakeErrandClient() {
  * errand could be queued if anything tried.
  */
 async function runErrandLaneTurn({ classifier }) {
-  const hot = lookupHot({ typingSimulation: false }, {}, {
-    skills: { safeMode: false, resultMaxChars: 2000 },
-    agents: { maxOpen: 3, scout: { enabled: true, daily: { tasks: 10 } } },
-  });
+  const hot = lookupHot(
+    { typingSimulation: false },
+    {},
+    {
+      skills: { safeMode: false, resultMaxChars: 2000 },
+      agents: { maxOpen: 3, scout: { enabled: true, daily: { tasks: 10 } } },
+    }
+  );
   hot.config.bot.owners = ['o9'];
   hot.config.bot.access = personaGrants(['task.run']);
   const stores = createTaskStores({ dataDir: tempDir('nep-turn-agent-'), config: () => hot.config });
@@ -2654,9 +3520,33 @@ async function runErrandLaneTurn({ classifier }) {
   const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => 'g1', errands });
   const llm = lookupLlm(classifier);
   const lookup = fakeLookup();
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client, lookup, errands, skills: skillRegistry(), runOp: admin.runSkillOp, runOwnOp: admin.runOwnSkillOp, now: () => NOW });
-  const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(messages[1]), triggerKind: 'mention' }));
-  return { result, logs, lookup, errandClient, tasks: errands.store('g1').recent(10), request: llm.turnCalls[0].messages, classified: logs.find((l) => l.msg === 'lookup: classified') };
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client,
+    lookup,
+    errands,
+    skills: skillRegistry(),
+    runOp: admin.runSkillOp,
+    runOwnOp: admin.runOwnSkillOp,
+    now: () => NOW,
+  });
+  const { result, logs } = await withCapturedLogs(() =>
+    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(messages[1]), triggerKind: 'mention' })
+  );
+  return {
+    result,
+    logs,
+    lookup,
+    errandClient,
+    tasks: errands.store('g1').recent(10),
+    request: llm.turnCalls[0].messages,
+    classified: logs.find((l) => l.msg === 'lookup: classified'),
+  };
 }
 
 test('createTurnRunner: an agent: line of the search classifier queues nothing, searches nothing and adds nothing to the request', async () => {
@@ -2669,7 +3559,10 @@ test('createTurnRunner: an agent: line of the search classifier queues nothing, 
   assert.equal(run.lookup.searchCalls.length, 0, 'the task is never a web query');
   assert.deepEqual(run.request, plain.request, 'the request is the one a none answer gives');
   assert.equal(run.classified.route, 'none');
-  assert.ok(!run.logs.some((l) => l.msg === 'skills: called' || l.msg === 'skill: refused'), 'never a call in her name');
+  assert.ok(
+    !run.logs.some((l) => l.msg === 'skills: called' || l.msg === 'skill: refused'),
+    'never a call in her name'
+  );
   assert.ok(!JSON.stringify(run.logs).includes('piano'), 'the task is never logged');
 });
 
@@ -2678,7 +3571,15 @@ test('createTurnRunner: an agent: line of the search classifier queues nothing, 
 const FALLBACK_QUESTION = 'Ποιους χαρακτήρες συζήτησε ο Λευτέρης σήμερα στο παιχνίδι;';
 
 /** One turn on FALLBACK_QUESTION (or `content`) with a member known by the alias Λευτέρης; the classifier answers `classifier`. */
-async function runFallbackTurn({ classifier = new Error('hedged timeout'), content = FALLBACK_QUESTION, recall = fakeRecall(), hot = lookupHot(), triggerKind = 'mention', dm = false, client = fakeClient() } = {}) {
+async function runFallbackTurn({
+  classifier = new Error('hedged timeout'),
+  content = FALLBACK_QUESTION,
+  recall = fakeRecall(),
+  hot = lookupHot(),
+  triggerKind = 'mention',
+  dm = false,
+  client = fakeClient(),
+} = {}) {
   const messages = [
     rawMessage({ id: 'm1', ts: NOW - 5000, content: 'καλημέρα' }),
     rawMessage({ id: 'm2', ts: NOW - 1000, authorName: 'Zoë', content }),
@@ -2691,24 +3592,52 @@ async function runFallbackTurn({ classifier = new Error('hedged timeout'), conte
     },
   });
   const llm = lookupLlm(classifier);
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client, lookup: fakeLookup(), recall, now: () => NOW });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client,
+    lookup: fakeLookup(),
+    recall,
+    now: () => NOW,
+  });
   const trigger = normalizedTrigger(messages[1]);
   const { result, logs } = await withCapturedLogs(() =>
-    turns.runTurn({ channel, ...(dm ? { guildId: 'g1' } : {}), mode: 'reply', trigger, triggerKind: dm ? 'private' : triggerKind }),
+    turns.runTurn({
+      channel,
+      ...(dm ? { guildId: 'g1' } : {}),
+      mode: 'reply',
+      trigger,
+      triggerKind: dm ? 'private' : triggerKind,
+    })
   );
   return { result, logs, llm, recall, trigger };
 }
 
-test('createTurnRunner: recall fallback -- a classifier that throws still runs recall on the question\'s long words, a member named by a stored alias on who', async () => {
+test("createTurnRunner: recall fallback -- a classifier that throws still runs recall on the question's long words, a member named by a stored alias on who", async () => {
   const hot = lookupHot({}, {}, { recall: { maxForms: 3 } });
   const { recall, logs, llm, trigger } = await runFallbackTurn({ hot });
   assert.equal(llm.classifierCalls.length, 1);
   assert.equal(recall.runCalls.length, 1);
   const args = recall.runCalls[0];
   assert.equal(args.candidate.id, trigger.id);
-  assert.deepEqual(args.history.map((m) => m.id), ['m1', 'm2']);
-  assert.deepEqual(args.server, { forms: ['χαρακτήρες', 'συζήτησε', 'παιχνίδι'], who: ['λευτέρης'], from: null, to: null });
-  assert.ok(logs.some((l) => l.msg === 'lookup: classifier failed'), 'the warning stays');
+  assert.deepEqual(
+    args.history.map((m) => m.id),
+    ['m1', 'm2']
+  );
+  assert.deepEqual(args.server, {
+    forms: ['χαρακτήρες', 'συζήτησε', 'παιχνίδι'],
+    who: ['λευτέρης'],
+    from: null,
+    to: null,
+  });
+  assert.ok(
+    logs.some((l) => l.msg === 'lookup: classifier failed'),
+    'the warning stays'
+  );
   const line = logs.find((l) => l.msg === 'lookup: fallback');
   assert.ok(line);
   assert.equal(line.reason, 'classifier-failed');
@@ -2722,11 +3651,16 @@ test('createTurnRunner: recall fallback -- a classifier that throws still runs r
 test('createTurnRunner: recall fallback -- an empty classifier answer runs the same recall, reason empty', async () => {
   const { recall, logs } = await runFallbackTurn({ classifier: '  ' });
   assert.equal(recall.runCalls.length, 1);
-  assert.deepEqual(recall.runCalls[0].server, { forms: ['χαρακτήρες', 'συζήτησε', 'παιχνίδι', 'ποιους', 'σήμερα'], who: ['λευτέρης'], from: null, to: null });
+  assert.deepEqual(recall.runCalls[0].server, {
+    forms: ['χαρακτήρες', 'συζήτησε', 'παιχνίδι', 'ποιους', 'σήμερα'],
+    who: ['λευτέρης'],
+    from: null,
+    to: null,
+  });
   assert.equal(logs.find((l) => l.msg === 'lookup: fallback')?.reason, 'empty');
 });
 
-test('createTurnRunner: recall fallback -- a private chat falls back on its partner\'s behalf', async () => {
+test("createTurnRunner: recall fallback -- a private chat falls back on its partner's behalf", async () => {
   const { client } = partnerClient();
   const { recall } = await runFallbackTurn({ dm: true, client });
   assert.equal(recall.runCalls.length, 1);
@@ -2734,7 +3668,9 @@ test('createTurnRunner: recall fallback -- a private chat falls back on its part
 });
 
 test('createTurnRunner: recall fallback -- recall.fallbackOnClassifierFailure false: no recall', async () => {
-  const { recall, logs } = await runFallbackTurn({ hot: lookupHot({}, {}, { recall: { fallbackOnClassifierFailure: false } }) });
+  const { recall, logs } = await runFallbackTurn({
+    hot: lookupHot({}, {}, { recall: { fallbackOnClassifierFailure: false } }),
+  });
   assert.equal(recall.runCalls.length, 0);
   assert.ok(!logs.some((l) => l.msg === 'lookup: fallback'));
 });
@@ -2770,7 +3706,11 @@ test('createTurnRunner: recall fallback -- no server search this turn (recall un
 const DRAW_IMAGE_CFG = { maxPromptChars: 800, reference: 'avatar', referenceMaxBytes: 4_000_000 };
 
 /** A fake createImageGen()-shaped dependency (see src/llm/images.js). */
-function fakeImages({ error = null, mediaType = 'image/png', quota = { used: 0, cap: 5, userUsed: 0, userCap: 3, spent: false, userSpent: false } } = {}) {
+function fakeImages({
+  error = null,
+  mediaType = 'image/png',
+  quota = { used: 0, cap: 5, userUsed: 0, userCap: 3, spent: false, userSpent: false },
+} = {}) {
   const generateCalls = [];
   const quotaCalls = [];
   return {
@@ -2779,7 +3719,14 @@ function fakeImages({ error = null, mediaType = 'image/png', quota = { used: 0, 
     generate: async (args) => {
       generateCalls.push(args);
       if (error) throw error;
-      return { buffer: Buffer.from('fake picture'), mediaType, cost: 0.02, usage: {}, model: 'fake/model', seconds: 1.5 };
+      return {
+        buffer: Buffer.from('fake picture'),
+        mediaType,
+        cost: 0.02,
+        usage: {},
+        model: 'fake/model',
+        seconds: 1.5,
+      };
     },
     quota: (args) => {
       quotaCalls.push(args);
@@ -2800,7 +3747,9 @@ function sequenceLlm(answers) {
       calls.push(messages);
       options.push(requestOptions ?? {});
       const answer = answers[Math.min(calls.length - 1, answers.length - 1)];
-      return typeof answer === 'string' ? { text: answer, usage: {}, estimated: 10 } : { usage: {}, estimated: 10, ...answer };
+      return typeof answer === 'string'
+        ? { text: answer, usage: {}, estimated: 10 }
+        : { usage: {}, estimated: 10, ...answer };
     },
   };
 }
@@ -2813,11 +3762,30 @@ function drawHot(features = {}, image = {}, bot = {}) {
   return hot;
 }
 
-async function runDrawTurn({ answers, hot = drawHot(), images = fakeImages(), client = fakeClient(), imageFetcher = fakeImageFetcher(), withTrigger = true, attachFiles = true, triggerKind = 'mention' } = {}) {
+async function runDrawTurn({
+  answers,
+  hot = drawHot(),
+  images = fakeImages(),
+  client = fakeClient(),
+  imageFetcher = fakeImageFetcher(),
+  withTrigger = true,
+  attachFiles = true,
+  triggerKind = 'mention',
+} = {}) {
   const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', content: 'draw me a cat' });
   const channel = fakeTurnChannel({ id: 'c1', name: 'general', historyMessages: [raw], attachFiles });
   const llm = sequenceLlm(answers);
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client, images, imageFetcher });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client,
+    images,
+    imageFetcher,
+  });
   const params = withTrigger
     ? { channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind }
     : { channel, mode: 'interject' };
@@ -2831,7 +3799,11 @@ function userTextOf(messages) {
 }
 
 test('runTurn: a draw.create call goes out before her messages, as a file; the messages follow', async () => {
-  const { result, channel, images } = await runDrawTurn({ answers: [toolAnswer('<msg>one sec</msg><msg>here</msg>', [call('draw.create', { reply: '#1', text: 'a cat on a roof' })])] });
+  const { result, channel, images } = await runDrawTurn({
+    answers: [
+      toolAnswer('<msg>one sec</msg><msg>here</msg>', [call('draw.create', { reply: '#1', text: 'a cat on a roof' })]),
+    ],
+  });
 
   assert.equal(result.outcome, 'spoke');
   assert.equal(channel.sent.length, 3);
@@ -2853,12 +3825,18 @@ test('runTurn: a draw.create call goes out before her messages, as a file; the m
 });
 
 test('runTurn: the file name follows the media type (image/jpeg -> .jpg)', async () => {
-  const { channel } = await runDrawTurn({ answers: [toolAnswer('', [call('draw.create', { text: 'a cat' })])], images: fakeImages({ mediaType: 'image/jpeg' }) });
+  const { channel } = await runDrawTurn({
+    answers: [toolAnswer('', [call('draw.create', { text: 'a cat' })])],
+    images: fakeImages({ mediaType: 'image/jpeg' }),
+  });
   assert.equal(channel.sent[0].files[0].name, 'image.jpg');
 });
 
 test('runTurn: the draw request is clamped to image.maxPromptChars', async () => {
-  const { images } = await runDrawTurn({ answers: [toolAnswer('', [call('draw.create', { text: 'abcdefghij' })])], hot: drawHot({}, { maxPromptChars: 4 }) });
+  const { images } = await runDrawTurn({
+    answers: [toolAnswer('', [call('draw.create', { text: 'abcdefghij' })])],
+    hot: drawHot({}, { maxPromptChars: 4 }),
+  });
   assert.ok(images.generateCalls[0].prompt.endsWith('\n\nabcd'));
 });
 
@@ -2869,8 +3847,16 @@ test('runTurn: a self <draw> passes the avatar as reference', async () => {
     avatarCalls.push(options);
     return 'https://cdn.example.com/avatar.png';
   };
-  const imageFetcher = fakeImageFetcher({ dataUrl: 'data:image/png;base64,YXZhdGFy', bytes: 6, contentType: 'image/png' });
-  const { images } = await runDrawTurn({ answers: [toolAnswer('', [call('draw.create', { self: true, text: 'me waving' })])], client, imageFetcher });
+  const imageFetcher = fakeImageFetcher({
+    dataUrl: 'data:image/png;base64,YXZhdGFy',
+    bytes: 6,
+    contentType: 'image/png',
+  });
+  const { images } = await runDrawTurn({
+    answers: [toolAnswer('', [call('draw.create', { self: true, text: 'me waving' })])],
+    client,
+    imageFetcher,
+  });
 
   assert.deepEqual(avatarCalls, [{ extension: 'png', size: 1024, forceStatic: true }]);
   assert.equal(imageFetcher.calls.length, 1);
@@ -2878,7 +3864,10 @@ test('runTurn: a self <draw> passes the avatar as reference', async () => {
   assert.equal(imageFetcher.calls[0].options.maxBytes, DRAW_IMAGE_CFG.referenceMaxBytes);
   assert.equal(imageFetcher.calls[0].options.timeoutMs, 10_000);
   assert.equal(images.generateCalls[0].reference, 'data:image/png;base64,YXZhdGFy');
-  assert.ok(images.generateCalls[0].prompt.includes('Bot wears a green scarf.'), 'a self picture carries the appearance');
+  assert.ok(
+    images.generateCalls[0].prompt.includes('Bot wears a green scarf.'),
+    'a self picture carries the appearance'
+  );
 });
 
 test('runTurn: reference none skips the avatar', async () => {
@@ -2888,7 +3877,11 @@ test('runTurn: reference none skips the avatar', async () => {
     avatarAsked = true;
     return 'https://cdn.example.com/avatar.png';
   };
-  const { images, imageFetcher } = await runDrawTurn({ answers: [toolAnswer('', [call('draw.create', { self: true, text: 'me waving' })])], hot: drawHot({}, { reference: 'none' }), client });
+  const { images, imageFetcher } = await runDrawTurn({
+    answers: [toolAnswer('', [call('draw.create', { self: true, text: 'me waving' })])],
+    hot: drawHot({}, { reference: 'none' }),
+    client,
+  });
 
   assert.equal(avatarAsked, false);
   assert.equal(imageFetcher.calls.length, 0);
@@ -2898,18 +3891,16 @@ test('runTurn: reference none skips the avatar', async () => {
 test('runTurn: an avatar that cannot be fetched is logged and the picture is drawn without it', async () => {
   const client = fakeClient();
   client.user.displayAvatarURL = () => 'https://cdn.example.com/avatar.png';
-  const { images, channel, logs } = await runDrawTurn({ answers: [toolAnswer('', [call('draw.create', { self: true, text: 'me' })])], client, imageFetcher: fakeImageFetcher(null) });
+  const { images, channel, logs } = await runDrawTurn({
+    answers: [toolAnswer('', [call('draw.create', { self: true, text: 'me' })])],
+    client,
+    imageFetcher: fakeImageFetcher(null),
+  });
 
   assert.ok(logs.some((l) => l.msg === 'turn: avatar reference unavailable'));
   assert.equal(images.generateCalls[0].reference, null);
   assert.equal(channel.sent.length, 1);
 });
-
-
-
-
-
-
 
 test('runTurn: features.imageGeneration false takes draw.create out of her tools, and a call of it is refused feature-off', async () => {
   const { result, channel, images, llm } = await runDrawTurn({
@@ -2919,7 +3910,11 @@ test('runTurn: features.imageGeneration false takes draw.create out of her tools
 
   assert.equal(result.outcome, 'spoke');
   assert.equal(images.generateCalls.length, 0);
-  assert.deepEqual(channel.sent.map((sent) => sent.content), ['ok'], 'the first answer\'s speech was held, the refusal came back to her');
+  assert.deepEqual(
+    channel.sent.map((sent) => sent.content),
+    ['ok'],
+    "the first answer's speech was held, the refusal came back to her"
+  );
   assert.ok(!llm.options[0].tools.some((tool) => tool.function.name === 'draw_create'));
   assert.ok(!userTextOf(llm.calls[0]).includes(labels.senses.draw));
 });
@@ -2932,35 +3927,59 @@ test('runTurn: a channel without Attach Files offers no drawing and a call of it
 
   assert.equal(result.outcome, 'spoke');
   assert.equal(images.generateCalls.length, 0, 'nothing is generated (or paid for)');
-  assert.deepEqual(channel.sent.map((sent) => sent.content), ['ok']);
+  assert.deepEqual(
+    channel.sent.map((sent) => sent.content),
+    ['ok']
+  );
   assert.ok(!userTextOf(llm.calls[0]).includes(labels.senses.draw), 'no drawing line in the senses');
   assert.equal(llm.calls.length, 2, 'the refusal came back to her');
 });
 
 test('runTurn: a draw.create alone with the feature off, or without an image client, posts nothing', async () => {
-  const off = await runDrawTurn({ answers: [toolAnswer('', [call('draw.create', { text: 'a cat' })]), '<skip/>'], hot: drawHot({ imageGeneration: false }) });
+  const off = await runDrawTurn({
+    answers: [toolAnswer('', [call('draw.create', { text: 'a cat' })]), '<skip/>'],
+    hot: drawHot({ imageGeneration: false }),
+  });
   assert.equal(off.channel.sent.length, 0);
   assert.equal(off.result.delivered, false);
 
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: drawHot(), store: fakeStore(), llm: sequenceLlm([toolAnswer('', [call('draw.create', { text: 'a cat' })]), '<skip/>']), calibrator: identityCalibrator(), client: fakeClient() });
-  const { result } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: drawHot(),
+    store: fakeStore(),
+    llm: sequenceLlm([toolAnswer('', [call('draw.create', { text: 'a cat' })]), '<skip/>']),
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
+  const { result } = await withCapturedLogs(() =>
+    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' })
+  );
   assert.equal(channel.sent.length, 0);
   assert.equal(result.delivered, false);
 });
 
 test('runTurn: a draw.create alone is a spoken turn', async () => {
-  const { result, channel, llm, images, logs } = await runDrawTurn({ answers: [toolAnswer('', [call('draw.create', { text: 'a cat' })])] });
+  const { result, channel, llm, images, logs } = await runDrawTurn({
+    answers: [toolAnswer('', [call('draw.create', { text: 'a cat' })])],
+  });
 
   assert.equal(result.outcome, 'spoke');
   assert.equal(channel.sent.length, 1);
   assert.equal(channel.sent[0].content, undefined);
   assert.equal(channel.sent[0].files.length, 1);
   assert.equal(channel.typingCalls.length, 0);
-  assert.ok(images.quotaCalls.every((call) => call.userId === 'u1'), 'the quota is read for the member who asked');
+  assert.ok(
+    images.quotaCalls.every((call) => call.userId === 'u1'),
+    'the quota is read for the member who asked'
+  );
   assert.ok(userTextOf(llm.calls[0]).includes(labels.senses.draw), 'the draw sense reaches the request');
-  assert.ok(llm.options[0].tools.some((tool) => tool.function.name === 'draw_create'), 'and the tool');
+  assert.ok(
+    llm.options[0].tools.some((tool) => tool.function.name === 'draw_create'),
+    'and the tool'
+  );
   const drew = logs.find((l) => l.msg === 'turn: drew');
   assert.ok(drew);
   assert.equal(drew.channel, 'c1');
@@ -2972,14 +3991,22 @@ test('runTurn: a draw.create alone is a spoken turn', async () => {
 test('runTurn: a follow-up turn posts the picture without a Discord reply', async () => {
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: drawHot(), store: fakeStore(), llm: sequenceLlm([toolAnswer('', [call('draw.create', { reply: '#1', text: 'a cat' })])]), calibrator: identityCalibrator(), client: fakeClient(), images: fakeImages() });
-  await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'followUp' }));
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: drawHot(),
+    store: fakeStore(),
+    llm: sequenceLlm([toolAnswer('', [call('draw.create', { reply: '#1', text: 'a cat' })])]),
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    images: fakeImages(),
+  });
+  await withCapturedLogs(() =>
+    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'followUp' })
+  );
   assert.equal(channel.sent.length, 1);
   assert.equal(channel.sent[0].reply, undefined);
 });
-
-
-
 
 test('runTurn: a failed drawing without a trigger fires onIdle once, right away', async () => {
   const raw = rawMessage({ id: 'm1' });
@@ -3016,24 +4043,57 @@ function privateHot(features = {}) {
 
 function privateStore() {
   return fakeStore({
-    userProfiles: { u1: { id: 'u1', names: ['Alice'], relationship: 'PUBLIC_REL', affinity: { score: 10, reason: 'public reason', history: [] } } },
-    privateProfiles: { u1: { relationship: 'PRIVATE_REL', details: [{ id: 1, text: 'PRIVATE_DETAIL', weight: 1 }], affinity: { score: 5, reason: '', history: [] } } },
+    userProfiles: {
+      u1: {
+        id: 'u1',
+        names: ['Alice'],
+        relationship: 'PUBLIC_REL',
+        affinity: { score: 10, reason: 'public reason', history: [] },
+      },
+    },
+    privateProfiles: {
+      u1: {
+        relationship: 'PRIVATE_REL',
+        details: [{ id: 1, text: 'PRIVATE_DETAIL', weight: 1 }],
+        affinity: { score: 5, reason: '', history: [] },
+      },
+    },
     channels: [{ id: 'dm1', name: 'dm', lastMessageAt: NOW, days: {} }],
   });
 }
 
 /** The client of a bot serving guild g1, where its display name is `GuildBot`. */
 function guildClient() {
-  return fakeClient({ guilds: { cache: new Map([['g1', { id: 'g1', members: { me: { displayName: 'GuildBot' } } }]]) } });
+  return fakeClient({
+    guilds: { cache: new Map([['g1', { id: 'g1', members: { me: { displayName: 'GuildBot' } } }]]) },
+  });
 }
 
-async function runPrivateTurn({ answers = ['<msg reply="#1">hi</msg>'], hot = privateHot(), store = privateStore(), images = fakeImages(), client = guildClient(), guildId = 'g1', errands = null } = {}) {
+async function runPrivateTurn({
+  answers = ['<msg reply="#1">hi</msg>'],
+  hot = privateHot(),
+  store = privateStore(),
+  images = fakeImages(),
+  client = guildClient(),
+  guildId = 'g1',
+  errands = null,
+} = {}) {
   const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', content: 'hey' });
   const channel = fakeTurnChannel({ id: 'dm1', dm: true, historyMessages: [raw] });
   const llm = sequenceLlm(answers);
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client, images, errands });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client,
+    images,
+    errands,
+  });
   const { result, logs } = await withCapturedLogs(() =>
-    turns.runTurn({ channel, guildId, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'private' }),
+    turns.runTurn({ channel, guildId, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'private' })
   );
   return { result, logs, channel, llm, store, images, turns };
 }
@@ -3047,14 +4107,21 @@ test('runTurn: a private turn takes guildId from params and reads the private la
   assert.deepEqual(store.privateCalls, [{ guildId: 'g1', userId: 'u1' }]);
   assert.equal(channel.sent.length, 1);
   assert.equal(channel.sent[0].content, 'hi');
-  assert.deepEqual(channel.sent[0].reply, { messageReference: 'm1', failIfNotExists: false }, 'a private reply may quote the trigger');
+  assert.deepEqual(
+    channel.sent[0].reply,
+    { messageReference: 'm1', failIfNotExists: false },
+    'a private reply may quote the trigger'
+  );
 });
 
 test('runTurn: a private request carries the private prompt, the private trigger label and the merged profile, no server or neighbours', async () => {
   const { llm } = await runPrivateTurn();
   const user = userTextOf(llm.calls[0]);
 
-  assert.ok(user.includes(`Someone called you: Alice, they ${labels.triggers.private}. You are GuildBot.`), 'selfName comes from the served guild');
+  assert.ok(
+    user.includes(`Someone called you: Alice, they ${labels.triggers.private}. You are GuildBot.`),
+    'selfName comes from the served guild'
+  );
   assert.ok(user.includes('PRIVATE_TASK with Alice as GuildBot'));
   assert.ok(user.includes('PUBLIC_REL') && user.includes('PRIVATE_REL') && user.includes('PRIVATE_DETAIL'));
   assert.ok(user.includes('attitude: 15 '), 'the attitude is the public and private scores added');
@@ -3068,12 +4135,23 @@ test('runTurn: a private turn falls back to the bot user name when the served gu
   assert.ok(userTextOf(llm.calls[0]).includes('You are Bot.'));
 });
 
-test('runTurn: the injected clock stamps lastPostAt and the turn\'s own time', async () => {
+test("runTurn: the injected clock stamps lastPostAt and the turn's own time", async () => {
   const raw = rawMessage({ id: 'm1', ts: NOW - 1000 });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const llm = fakeLlm('<msg>hi</msg>');
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot(), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
-  const { logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: fakeHot(),
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    now: () => NOW,
+  });
+  const { logs } = await withCapturedLogs(() =>
+    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' })
+  );
   assert.equal(channel.sent.length, 1);
   assert.equal(turns.lastPostAt('c1'), NOW);
   assert.equal(logs.find((l) => l.msg === 'turn: sent').secondsSinceTrigger, 0);
@@ -3086,14 +4164,27 @@ test('runTurn: a failing typing indicator does not stop the message', async () =
   channel.sendTyping = async () => {
     throw new Error('Missing Permissions');
   };
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot(), store: fakeStore(), llm: fakeLlm('<msg>hi</msg>'), calibrator: identityCalibrator(), client: fakeClient() });
-  await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: fakeHot(),
+    store: fakeStore(),
+    llm: fakeLlm('<msg>hi</msg>'),
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
+  await withCapturedLogs(() =>
+    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' })
+  );
   assert.equal(channel.sent.length, 1);
 });
 
 test('runTurn: a dry-run private turn is mirrored without a channel name, never as "#null"', async () => {
   const mirrored = [];
-  const client = { ...guildClient(), channels: { fetch: async () => ({ send: async (payload) => mirrored.push(payload) }) } };
+  const client = {
+    ...guildClient(),
+    channels: { fetch: async () => ({ send: async (payload) => mirrored.push(payload) }) },
+  };
   const hot = privateHot({ dryRun: true });
   hot.config.bot.dryRunChannelId = 'mirror1';
   const { channel } = await runPrivateTurn({ hot, client });
@@ -3103,7 +4194,9 @@ test('runTurn: a dry-run private turn is mirrored without a channel name, never 
 });
 
 test('runTurn: a private turn may draw (no Attach Files check in a DM), counted for the DM partner', async () => {
-  const { result, channel, images } = await runPrivateTurn({ answers: [toolAnswer('<msg>sure</msg>', [call('draw.create', { text: 'a cat' })])] });
+  const { result, channel, images } = await runPrivateTurn({
+    answers: [toolAnswer('<msg>sure</msg>', [call('draw.create', { text: 'a cat' })])],
+  });
 
   assert.equal(result.outcome, 'spoke');
   assert.equal(images.generateCalls.length, 1);
@@ -3119,9 +4212,23 @@ test('runTurn: a guild channel keeps its own guild id even when a guildId param 
   const store = fakeStore();
   const hot = fakeHot();
   hot.prompts.private = 'PRIVATE_TASK';
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm: fakeLlm('<skip/>'), calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm: fakeLlm('<skip/>'),
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
 
-  await turns.runTurn({ channel, guildId: 'other', mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+  await turns.runTurn({
+    channel,
+    guildId: 'other',
+    mode: 'reply',
+    trigger: normalizedTrigger(raw),
+    triggerKind: 'mention',
+  });
 
   assert.deepEqual(store.guildCalls, ['g1']);
   assert.equal(store.privateCalls.length, 0, 'a guild turn never reads the private layer');
@@ -3133,7 +4240,15 @@ test('runTurn: a guild turn never carries the private prompt or the private sens
   const llm = fakeLlm('<skip/>');
   const hot = fakeHot({ privateMessages: true });
   hot.prompts.private = 'PRIVATE_TASK';
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -3147,11 +4262,19 @@ test('runTurn: a channel without a guild and no guildId param throws a clear err
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeTurnChannel({ id: 'dm1', dm: true, historyMessages: [raw] });
   const llm = fakeLlm('<msg>hi</msg>');
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot(), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: fakeHot(),
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
 
   await assert.rejects(
     turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'private' }),
-    /guildId/,
+    /guildId/
   );
   assert.equal(llm.calls.length, 0);
   assert.equal(turns.isAnyBusy(), false);
@@ -3172,13 +4295,29 @@ function throwingLlm(error) {
 
 test('runTurn: a daily request cap or a token cap refusal returns outcome refused with the limit', async () => {
   for (const [error, limit] of [
-    [Object.assign(new DailyCapError('cap'), { key: 'llm.maxRequestsPerDay', used: 300, cap: 300 }), { key: 'llm.maxRequestsPerDay', used: 300, cap: 300 }],
-    [Object.assign(new TokenLimitError('tokens'), { key: 'llm.maxRequestTokens', used: 51000, cap: 50000 }), { key: 'llm.maxRequestTokens', used: 51000, cap: 50000 }],
+    [
+      Object.assign(new DailyCapError('cap'), { key: 'llm.maxRequestsPerDay', used: 300, cap: 300 }),
+      { key: 'llm.maxRequestsPerDay', used: 300, cap: 300 },
+    ],
+    [
+      Object.assign(new TokenLimitError('tokens'), { key: 'llm.maxRequestTokens', used: 51000, cap: 50000 }),
+      { key: 'llm.maxRequestTokens', used: 51000, cap: 50000 },
+    ],
   ]) {
     const raw = rawMessage({ id: 'm1' });
     const channel = fakeTurnChannel({ historyMessages: [raw] });
-    const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot(), store: fakeStore(), llm: throwingLlm(error), calibrator: identityCalibrator(), client: fakeClient() });
-    const { result } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
+    const turns = createTurnRunner({
+      discord: DISCORD,
+      createPort: createDiscordAdapter,
+      hot: fakeHot(),
+      store: fakeStore(),
+      llm: throwingLlm(error),
+      calibrator: identityCalibrator(),
+      client: fakeClient(),
+    });
+    const { result } = await withCapturedLogs(() =>
+      turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' })
+    );
 
     assert.deepEqual(result, { outcome: 'refused', limit });
     assert.equal(channel.sent.length, 0, 'the turn itself posts nothing; the caller decides on the notice');
@@ -3188,13 +4327,6 @@ test('runTurn: a daily request cap or a token cap refusal returns outcome refuse
 function imageCap(reason, key, used, cap) {
   return Object.assign(new ImageCapError(reason), { key, used, cap });
 }
-
-
-
-
-
-
-
 
 // The server's custom emoji (features.customEmoji, interfaces/discord/emoji.js).
 function fakeEmojiIndex() {
@@ -3249,7 +4381,12 @@ test('createTurnRunner: an outgoing :name: becomes the custom emoji, next to a r
     emoji: fakeEmojiIndex(),
   });
 
-  const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+  const result = await turns.runTurn({
+    channel,
+    mode: 'reply',
+    trigger: normalizedTrigger(raw),
+    triggerKind: 'mention',
+  });
 
   assert.equal(result.outcome, 'spoke');
   assert.equal(channel.sent[0].content, '<@u1> <a:dance:222222222222222222> ok :unknown:');
@@ -3292,7 +4429,12 @@ test('createTurnRunner: features.customEmoji=false leaves :name: as text and dro
     emoji: fakeEmojiIndex(),
   });
 
-  const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+  const result = await turns.runTurn({
+    channel,
+    mode: 'reply',
+    trigger: normalizedTrigger(raw),
+    triggerKind: 'mention',
+  });
 
   assert.equal(result.outcome, 'spoke');
   assert.equal(channel.sent[0].content, 'ok :dance:');
@@ -3313,7 +4455,12 @@ test('createTurnRunner: only a custom reaction the index does not know means out
     emoji: fakeEmojiIndex(),
   });
 
-  const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+  const result = await turns.runTurn({
+    channel,
+    mode: 'reply',
+    trigger: normalizedTrigger(raw),
+    triggerKind: 'mention',
+  });
 
   assert.equal(result.outcome, 'skip');
   assert.equal(channel.reactCalls.length, 0);
@@ -3330,12 +4477,28 @@ test('createTurnRunner: the persona turn is requested as role core, purpose repl
   // No drop bar (pace.dropAfterMs): with one, the request also carries the bar's timeout and signal.
   const hot = fakeHot();
   hot.config.pace = { dropAfterMs: 0 };
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
   await turns.runTurn({ channel, mode: 'interject' });
   assert.equal(llm.optionCalls.length, 1);
-  assert.deepEqual(withoutTools(llm.optionCalls[0]), { role: 'core', purpose: 'reply' }, 'only the role and the purpose besides her tools: models.base.core and every other setting stay the defaults');
+  assert.deepEqual(
+    withoutTools(llm.optionCalls[0]),
+    { role: 'core', purpose: 'reply' },
+    'only the role and the purpose besides her tools: models.base.core and every other setting stay the defaults'
+  );
   assert.equal(llm.optionCalls[0].toolChoice, 'auto');
-  assert.deepEqual(llm.optionCalls[0].tools.map((tool) => tool.function.name), ['draw_create', 'message_create', 'message_react_add'], 'the carried-over skills, nothing granted');
+  assert.deepEqual(
+    llm.optionCalls[0].tools.map((tool) => tool.function.name),
+    ['draw_create', 'message_create', 'message_react_add'],
+    'the carried-over skills, nothing granted'
+  );
   assert.equal('cache' in llm.optionCalls[0], false, 'the cache policy decides: the reply is the request it marks');
 });
 
@@ -3350,7 +4513,11 @@ test('createTurnRunner: the rewatch classifier and the lookup are requested as a
 
 /** A store with one link GIF `g1` in the library (no other GIF state). */
 function gifStore() {
-  return { ...fakeStore(), findGif: (guildId, id) => (id === 'g1' ? { id: 'g1', kind: 'link', url: 'https://tenor.com/view/chat-qui-danse-1' } : null) };
+  return {
+    ...fakeStore(),
+    findGif: (guildId, id) =>
+      id === 'g1' ? { id: 'g1', kind: 'link', url: 'https://tenor.com/view/chat-qui-danse-1' } : null,
+  };
 }
 
 // ---- format.stripDashes ------------------------------------------------------------------
@@ -3359,8 +4526,18 @@ function gifStore() {
 async function dashTurn(reply, format) {
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({}, {}, { format }), store: fakeStore(), llm: fakeLlm(reply), calibrator: identityCalibrator(), client: fakeClient() });
-  const { logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: fakeHot({}, {}, { format }),
+    store: fakeStore(),
+    llm: fakeLlm(reply),
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
+  const { logs } = await withCapturedLogs(() =>
+    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' })
+  );
   return { sent: channel.sent.map((payload) => payload.content), logs };
 }
 
@@ -3378,7 +4555,10 @@ test('runTurn: format.stripDashes on posts a reply without its em/en dashes, dro
 test('runTurn: format.stripDashes false posts the dashes as written, no log', async () => {
   const { sent, logs } = await dashTurn('<msg>ωραίο — πολύ</msg>', { stripDashes: false });
   assert.deepEqual(sent, ['ωραίο — πολύ']);
-  assert.equal(logs.some((entry) => entry.msg === 'turn: dashes stripped'), false);
+  assert.equal(
+    logs.some((entry) => entry.msg === 'turn: dashes stripped'),
+    false
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -3395,9 +4575,17 @@ test('runTurn: an overheard or follow-up turn ignores reply="#n" and sends plain
   for (const c of cases) {
     const raw = rawMessage({ id: 'm1', authorName: 'Élodie' });
     const channel = fakeTurnChannel({ historyMessages: [raw] });
-    const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot(), store: fakeStore(), llm: fakeLlm('<msg reply="#1">ναι, εγώ</msg>'), calibrator: identityCalibrator(), client: fakeClient() });
+    const turns = createTurnRunner({
+      discord: DISCORD,
+      createPort: createDiscordAdapter,
+      hot: fakeHot(),
+      store: fakeStore(),
+      llm: fakeLlm('<msg reply="#1">ναι, εγώ</msg>'),
+      calibrator: identityCalibrator(),
+      client: fakeClient(),
+    });
     const { result } = await withCapturedLogs(() =>
-      turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: c.triggerKind }),
+      turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: c.triggerKind })
     );
     assert.equal(result.outcome, 'spoke', c.triggerKind);
     assert.equal(channel.sent.length, 1, c.triggerKind);
@@ -3406,11 +4594,24 @@ test('runTurn: an overheard or follow-up turn ignores reply="#n" and sends plain
 });
 
 test('runTurn: an overheard turn posts its GIF plain', async () => {
-  for (const [triggerKind, reply] of [['overheard', undefined], ['mention', { messageReference: 'm1', failIfNotExists: false }]]) {
+  for (const [triggerKind, reply] of [
+    ['overheard', undefined],
+    ['mention', { messageReference: 'm1', failIfNotExists: false }],
+  ]) {
     const raw = rawMessage({ id: 'm1' });
     const channel = fakeTurnChannel({ historyMessages: [raw] });
-    const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot(), store: gifStore(), llm: fakeLlm('<gif reply="#1">g1</gif>'), calibrator: identityCalibrator(), client: fakeClient() });
-    await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind }));
+    const turns = createTurnRunner({
+      discord: DISCORD,
+      createPort: createDiscordAdapter,
+      hot: fakeHot(),
+      store: gifStore(),
+      llm: fakeLlm('<gif reply="#1">g1</gif>'),
+      calibrator: identityCalibrator(),
+      client: fakeClient(),
+    });
+    await withCapturedLogs(() =>
+      turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind })
+    );
     assert.equal(channel.sent.length, 1, triggerKind);
     assert.equal(channel.sent[0].content, 'https://tenor.com/view/chat-qui-danse-1', triggerKind);
     assert.deepEqual(channel.sent[0].reply, reply, triggerKind);
@@ -3418,7 +4619,10 @@ test('runTurn: an overheard turn posts its GIF plain', async () => {
 });
 
 test('runTurn: an overheard turn draws unasked: a plain post, no member charged, the quota read without a member', async () => {
-  const { result, channel, images } = await runDrawTurn({ answers: [toolAnswer('', [call('draw.create', { reply: '#1', text: 'a cat' })])], triggerKind: 'overheard' });
+  const { result, channel, images } = await runDrawTurn({
+    answers: [toolAnswer('', [call('draw.create', { reply: '#1', text: 'a cat' })])],
+    triggerKind: 'overheard',
+  });
 
   assert.equal(result.outcome, 'spoke');
   assert.deepEqual(images.quotaCalls[0], { userId: null }, 'the senses read the quota for no member');
@@ -3429,13 +4633,22 @@ test('runTurn: an overheard turn draws unasked: a plain post, no member charged,
   assert.equal(channel.sent[0].reply, undefined);
 });
 
-
-
 test('runTurn: an overheard turn runs neither the re-watch nor the search classifier; a mention in the same scene runs both', async () => {
-  for (const [triggerKind, expected] of [['mention', { rewatch: 1, lookup: 1 }], ['overheard', { rewatch: 0, lookup: 0 }]]) {
-    const hot = rewatchHot({ webLookup: true }, {}, {
-      web: { maxPerDay: 60, links: { enabled: true, maxPerTurn: 2 }, search: { enabled: true, maxPerTurn: 1, contextMessages: 50 } },
-    });
+  for (const [triggerKind, expected] of [
+    ['mention', { rewatch: 1, lookup: 1 }],
+    ['overheard', { rewatch: 0, lookup: 0 }],
+  ]) {
+    const hot = rewatchHot(
+      { webLookup: true },
+      {},
+      {
+        web: {
+          maxPerDay: 60,
+          links: { enabled: true, maxPerTurn: 2 },
+          search: { enabled: true, maxPerTurn: 1, contextMessages: 50 },
+        },
+      }
+    );
     hot.prompts.lookup = LOOKUP_SYSTEM;
     const classifierCalls = { rewatch: 0, lookup: 0 };
     const llm = {
@@ -3462,7 +4675,7 @@ test('runTurn: an overheard turn runs neither the re-watch nor the search classi
       imageFetcher: fakeImageFetcher(),
     });
     const { result } = await withCapturedLogs(() =>
-      turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: normalizedTrigger(scene.trigger), triggerKind }),
+      turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: normalizedTrigger(scene.trigger), triggerKind })
     );
 
     assert.equal(result.outcome, 'spoke', triggerKind);
@@ -3491,7 +4704,17 @@ function lineIn(channelId, { raw, ...fields }) {
  * message is at `lastTs` (a neighbour when within the last hour of NOW). `readOnly`: the bot
  * cannot send there. `fetchFails`: every history fetch throws. Records every fetch in `fetches`.
  */
-function addChannel(turnChannel, { id, name, messages = [], lastTs = messages.at(-1)?.createdTimestamp ?? NOW - 3 * HOUR, readOnly = false, fetchFails = false }) {
+function addChannel(
+  turnChannel,
+  {
+    id,
+    name,
+    messages = [],
+    lastTs = messages.at(-1)?.createdTimestamp ?? NOW - 3 * HOUR,
+    readOnly = false,
+    fetchFails = false,
+  }
+) {
   const base = fakeTurnChannel({ id, name, historyMessages: messages });
   const fetches = [];
   const other = {
@@ -3519,8 +4742,21 @@ function addChannel(turnChannel, { id, name, messages = [], lastTs = messages.at
 function diaryLines(ago = 3 * HOUR) {
   const wall = { id: 'dp1', contentType: 'image/png', name: 'wall.png', url: 'https://cdn.discordapp.com/x/wall.png' };
   return [
-    lineIn(DIARY, { id: 'd1', authorId: 'u3', authorName: 'Éloïse', ts: NOW - ago, content: 'σήμερα έβαψα τον τοίχο μπλε' }),
-    lineIn(DIARY, { id: 'd2', authorId: 'u3', authorName: 'Éloïse', ts: NOW - ago + MINUTE, content: 'και μετά κοιμήθηκα', attachments: new Map([['dp1', wall]]) }),
+    lineIn(DIARY, {
+      id: 'd1',
+      authorId: 'u3',
+      authorName: 'Éloïse',
+      ts: NOW - ago,
+      content: 'σήμερα έβαψα τον τοίχο μπλε',
+    }),
+    lineIn(DIARY, {
+      id: 'd2',
+      authorId: 'u3',
+      authorName: 'Éloïse',
+      ts: NOW - ago + MINUTE,
+      content: 'και μετά κοιμήθηκα',
+      attachments: new Map([['dp1', wall]]),
+    }),
   ];
 }
 
@@ -3528,14 +4764,47 @@ function diaryLines(ago = 3 * HOUR) {
  * A turn in #general (c1) whose history holds Bob's line naming #diary (DIARY) -- a real `<#id>`
  * token unless `mention` is false -- and Alice's call after it. The guild holds the diary channel.
  */
-function pullScene({ features = {}, context = {}, config = {}, bot = {}, mention = true, diary = {}, between = [], routeChannels, describer, images, store = fakeStore(), llm = fakeLlm('<msg>ok</msg>') } = {}) {
-  const asked = lineIn('c1', { id: 'm1', authorId: 'u2', authorName: 'Bob', ts: NOW - 5 * MINUTE, content: 'είδες το #diary;', raw: mention ? `είδες το <#${DIARY}>;` : 'είδες το #diary;' });
+function pullScene({
+  features = {},
+  context = {},
+  config = {},
+  bot = {},
+  mention = true,
+  diary = {},
+  between = [],
+  routeChannels,
+  describer,
+  images,
+  store = fakeStore(),
+  llm = fakeLlm('<msg>ok</msg>'),
+} = {}) {
+  const asked = lineIn('c1', {
+    id: 'm1',
+    authorId: 'u2',
+    authorName: 'Bob',
+    ts: NOW - 5 * MINUTE,
+    content: 'είδες το #diary;',
+    raw: mention ? `είδες το <#${DIARY}>;` : 'είδες το #diary;',
+  });
   const call = lineIn('c1', { id: 'm9', ts: NOW - 1000, content: 'λοιπόν;' });
   const channel = fakeTurnChannel({ historyMessages: [asked, ...between, call] });
   const other = addChannel(channel, { id: DIARY, name: 'diary', messages: diaryLines(), ...diary });
   const hot = fakeHot(features, bot, config);
   hot.config.context = { ...hot.config.context, ...context };
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), describer, routeChannels, images, imageFetcher: fakeImageFetcher(), now: () => NOW });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    describer,
+    routeChannels,
+    images,
+    imageFetcher: fakeImageFetcher(),
+    now: () => NOW,
+  });
   return { channel, other, hot, llm, store, turns, trigger: normalizedTrigger(call) };
 }
 
@@ -3585,7 +4854,10 @@ function pullDescriber(events = []) {
       const ids = items.map((item) => item.itemId);
       calls.push({ ids, options });
       events.push(`describe:${ids.join(',')}`);
-      return { descriptions: new Map(items.map((item) => [item.itemId, `caption of ${item.itemId}`])), newCount: items.length };
+      return {
+        descriptions: new Map(items.map((item) => [item.itemId, `caption of ${item.itemId}`])),
+        newCount: items.length,
+      };
     },
   };
 }
@@ -3598,7 +4870,9 @@ function callsFor(describer, itemId) {
 test('runTurn: an explicit channel mention in the last scanMessages pulls that channel', async () => {
   const { turns, channel, other, llm, trigger } = pullScene();
 
-  const { result } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger, triggerKind: 'mention' }));
+  const { result } = await withCapturedLogs(() =>
+    turns.runTurn({ channel, mode: 'reply', trigger, triggerKind: 'mention' })
+  );
 
   assert.equal(result.outcome, 'spoke');
   const view = channelViewOf(llm);
@@ -3609,9 +4883,17 @@ test('runTurn: an explicit channel mention in the last scanMessages pulls that c
   assert.equal(other.fetches.length, 1, 'one page of the pulled channel');
 
   // A mention older than the scanned span pulls nothing.
-  const filler = lineIn('c1', { id: 'm5', authorId: 'u2', authorName: 'Bob', ts: NOW - 4 * MINUTE, content: 'τέλος πάντων' });
+  const filler = lineIn('c1', {
+    id: 'm5',
+    authorId: 'u2',
+    authorName: 'Bob',
+    ts: NOW - 4 * MINUTE,
+    content: 'τέλος πάντων',
+  });
   const older = pullScene({ context: { pull: { scanMessages: 1 } }, between: [filler] });
-  await withCapturedLogs(() => older.turns.runTurn({ channel: older.channel, mode: 'reply', trigger: older.trigger, triggerKind: 'mention' }));
+  await withCapturedLogs(() =>
+    older.turns.runTurn({ channel: older.channel, mode: 'reply', trigger: older.trigger, triggerKind: 'mention' })
+  );
   assert.equal(channelViewOf(older.llm), null);
   assert.equal(older.other.fetches.length, 0);
 });
@@ -3619,56 +4901,122 @@ test('runTurn: an explicit channel mention in the last scanMessages pulls that c
 test('runTurn: a channel mention in the trigger itself pulls that channel', async () => {
   const { turns, channel, llm, trigger } = pullScene({ mention: false });
 
-  await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: { ...trigger, mentionedChannelIds: [DIARY] }, triggerKind: 'mention' }));
+  await withCapturedLogs(() =>
+    turns.runTurn({
+      channel,
+      mode: 'reply',
+      trigger: { ...trigger, mentionedChannelIds: [DIARY] },
+      triggerKind: 'mention',
+    })
+  );
 
   assert.ok(channelViewOf(llm)?.includes('σήμερα έβαψα τον τοίχο μπλε'));
 });
 
-test('runTurn: a pulled channel stays for the same author\'s next turns within the limits; another author, a spent limit or the router\'s pick drops or replaces it', async () => {
+test("runTurn: a pulled channel stays for the same author's next turns within the limits; another author, a spent limit or the router's pick drops or replaces it", async () => {
   const kept = pullScene({ mention: false });
   const named = { ...kept.trigger, mentionedChannelIds: [DIARY] };
   const next = (id, extra = {}) => ({ ...kept.trigger, id, ...extra });
-  await withCapturedLogs(() => kept.turns.runTurn({ channel: kept.channel, mode: 'reply', trigger: named, triggerKind: 'mention' }));
+  await withCapturedLogs(() =>
+    kept.turns.runTurn({ channel: kept.channel, mode: 'reply', trigger: named, triggerKind: 'mention' })
+  );
   assert.equal(kept.other.fetches.length, 1, 'pulled by the mention');
   // The follow-up names no channel: the same author keeps the pull; its lines are numbered on after the chat.
   const before = kept.llm.calls.length;
-  await withCapturedLogs(() => kept.turns.runTurn({ channel: kept.channel, mode: 'reply', trigger: next('m10'), triggerKind: 'followUp' }));
+  await withCapturedLogs(() =>
+    kept.turns.runTurn({ channel: kept.channel, mode: 'reply', trigger: next('m10'), triggerKind: 'followUp' })
+  );
   assert.equal(kept.other.fetches.length, 2, 'fetched again for the follow-up');
   const view = channelViewOf({ calls: [kept.llm.calls[before]] });
   assert.ok(view?.includes('σήμερα έβαψα τον τοίχο μπλε') && view.includes('#3 '), view);
   // Another author, no channel named: dropped.
-  await withCapturedLogs(() => kept.turns.runTurn({ channel: kept.channel, mode: 'reply', trigger: next('m11', { authorId: 'u9' }), triggerKind: 'followUp' }));
+  await withCapturedLogs(() =>
+    kept.turns.runTurn({
+      channel: kept.channel,
+      mode: 'reply',
+      trigger: next('m11', { authorId: 'u9' }),
+      triggerKind: 'followUp',
+    })
+  );
   assert.equal(kept.other.fetches.length, 2);
   // And gone for the original author too.
-  await withCapturedLogs(() => kept.turns.runTurn({ channel: kept.channel, mode: 'reply', trigger: next('m12'), triggerKind: 'followUp' }));
+  await withCapturedLogs(() =>
+    kept.turns.runTurn({ channel: kept.channel, mode: 'reply', trigger: next('m12'), triggerKind: 'followUp' })
+  );
   assert.equal(kept.other.fetches.length, 2);
 
   // keepTurns: the pull is kept for that many turns after the one that pulled it.
   const limited = pullScene({ mention: false, context: { pull: { keepTurns: 2 } } });
-  await withCapturedLogs(() => limited.turns.runTurn({ channel: limited.channel, mode: 'reply', trigger: { ...limited.trigger, mentionedChannelIds: [DIARY] }, triggerKind: 'mention' }));
-  for (const id of ['m10', 'm11', 'm12']) await withCapturedLogs(() => limited.turns.runTurn({ channel: limited.channel, mode: 'reply', trigger: { ...limited.trigger, id }, triggerKind: 'followUp' }));
+  await withCapturedLogs(() =>
+    limited.turns.runTurn({
+      channel: limited.channel,
+      mode: 'reply',
+      trigger: { ...limited.trigger, mentionedChannelIds: [DIARY] },
+      triggerKind: 'mention',
+    })
+  );
+  for (const id of ['m10', 'm11', 'm12'])
+    await withCapturedLogs(() =>
+      limited.turns.runTurn({
+        channel: limited.channel,
+        mode: 'reply',
+        trigger: { ...limited.trigger, id },
+        triggerKind: 'followUp',
+      })
+    );
   assert.equal(limited.other.fetches.length, 3, 'the pulling turn and two kept ones');
 
   // keepMinutes 0 and keepTurns 0 keep nothing.
   for (const pull of [{ keepMinutes: 0 }, { keepTurns: 0 }]) {
     const off = pullScene({ mention: false, context: { pull } });
-    await withCapturedLogs(() => off.turns.runTurn({ channel: off.channel, mode: 'reply', trigger: { ...off.trigger, mentionedChannelIds: [DIARY] }, triggerKind: 'mention' }));
-    await withCapturedLogs(() => off.turns.runTurn({ channel: off.channel, mode: 'reply', trigger: { ...off.trigger, id: 'm10' }, triggerKind: 'followUp' }));
+    await withCapturedLogs(() =>
+      off.turns.runTurn({
+        channel: off.channel,
+        mode: 'reply',
+        trigger: { ...off.trigger, mentionedChannelIds: [DIARY] },
+        triggerKind: 'mention',
+      })
+    );
+    await withCapturedLogs(() =>
+      off.turns.runTurn({
+        channel: off.channel,
+        mode: 'reply',
+        trigger: { ...off.trigger, id: 'm10' },
+        triggerKind: 'followUp',
+      })
+    );
     assert.equal(off.other.fetches.length, 1, JSON.stringify(pull));
   }
 });
 
-test('runTurn: the router\'s pick in a later turn replaces the kept channel', async () => {
+test("runTurn: the router's pick in a later turn replaces the kept channel", async () => {
   const answers = [[DIARY], [NOTES]];
   const scene = pullScene({ mention: false, routeChannels: async () => answers.shift() ?? [] });
   const notes = addChannel(scene.channel, {
     id: NOTES,
     name: 'notes',
-    messages: [lineIn(NOTES, { id: 'n1', authorId: 'u4', authorName: 'Zoë', ts: NOW - 2 * HOUR, content: 'σημειώσεις για αύριο' })],
+    messages: [
+      lineIn(NOTES, {
+        id: 'n1',
+        authorId: 'u4',
+        authorName: 'Zoë',
+        ts: NOW - 2 * HOUR,
+        content: 'σημειώσεις για αύριο',
+      }),
+    ],
   });
-  await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
+  await withCapturedLogs(() =>
+    scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
+  );
   const before = scene.llm.calls.length;
-  await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: { ...scene.trigger, id: 'm10' }, triggerKind: 'followUp' }));
+  await withCapturedLogs(() =>
+    scene.turns.runTurn({
+      channel: scene.channel,
+      mode: 'reply',
+      trigger: { ...scene.trigger, id: 'm10' },
+      triggerKind: 'followUp',
+    })
+  );
   assert.equal(notes.fetches.length, 1);
   assert.equal(scene.other.fetches.length, 1, 'the kept channel is not fetched again');
   const view = channelViewOf({ calls: [scene.llm.calls[before]] });
@@ -3688,29 +5036,39 @@ test('runTurn: a spontaneous turn pulls a channel mentioned in its history', asy
         seen.push({ pulled: context.pulled, describeCalls: describer.calls.length });
         return 'interject';
       },
-    }),
+    })
   );
 
   assert.equal(result.outcome, 'spoke');
   assert.ok(channelViewOf(llm)?.includes('και μετά κοιμήθηκα'));
   // The mention is pulled before the mode is chosen, and the chooser sees it.
   assert.equal(seen.length, 1);
-  assert.deepEqual(seen[0].pulled.map((entry) => [entry.channelId, entry.reason]), [[DIARY, 'mention']]);
+  assert.deepEqual(
+    seen[0].pulled.map((entry) => [entry.channelId, entry.reason]),
+    [[DIARY, 'mention']]
+  );
   assert.equal(seen[0].describeCalls, 0, 'no caption was asked before the chooser chose');
 });
 
 test('runTurn: features.channelPull off pulls nothing for a mention and builds the request as without the channel', async () => {
   const off = pullScene({ features: { channelPull: false, mentionHandles: false } });
-  const { logs } = await withCapturedLogs(() => off.turns.runTurn({ channel: off.channel, mode: 'reply', trigger: off.trigger, triggerKind: 'mention' }));
+  const { logs } = await withCapturedLogs(() =>
+    off.turns.runTurn({ channel: off.channel, mode: 'reply', trigger: off.trigger, triggerKind: 'mention' })
+  );
 
   assert.equal(off.other.fetches.length, 0, 'the mentioned channel is never fetched');
   assert.equal(channelViewOf(off.llm), null);
-  assert.equal(logs.some((l) => l.msg.startsWith('pull: ')), false);
+  assert.equal(
+    logs.some((l) => l.msg.startsWith('pull: ')),
+    false
+  );
 
   // The same scene with no mention at all: byte for byte the same request (handles off: a real
   // channel mention carries its handle, which is the mention's own rendering, not a pull).
   const plain = pullScene({ features: { channelPull: false, mentionHandles: false }, mention: false });
-  await withCapturedLogs(() => plain.turns.runTurn({ channel: plain.channel, mode: 'reply', trigger: plain.trigger, triggerKind: 'mention' }));
+  await withCapturedLogs(() =>
+    plain.turns.runTurn({ channel: plain.channel, mode: 'reply', trigger: plain.trigger, triggerKind: 'mention' })
+  );
   assert.deepEqual(off.llm.calls[0], plain.llm.calls[0]);
 });
 
@@ -3719,14 +5077,25 @@ test('runTurn: with nothing to pull the request is the one built without the pul
   const none = pullScene({ mention: false, routeChannels: async (args) => (hook.push(args), []) });
   const off = pullScene({ mention: false, features: { channelPull: false } });
 
-  const { logs } = await withCapturedLogs(() => none.turns.runTurn({ channel: none.channel, mode: 'reply', trigger: none.trigger, triggerKind: 'mention' }));
-  await withCapturedLogs(() => off.turns.runTurn({ channel: off.channel, mode: 'reply', trigger: off.trigger, triggerKind: 'mention' }));
+  const { logs } = await withCapturedLogs(() =>
+    none.turns.runTurn({ channel: none.channel, mode: 'reply', trigger: none.trigger, triggerKind: 'mention' })
+  );
+  await withCapturedLogs(() =>
+    off.turns.runTurn({ channel: off.channel, mode: 'reply', trigger: off.trigger, triggerKind: 'mention' })
+  );
 
   assert.equal(hook.length, 1, 'the hook was asked');
   assert.deepEqual(none.llm.calls[0], off.llm.calls[0]);
-  assert.equal(logs.some((l) => l.msg.startsWith('pull: ')), false);
+  assert.equal(
+    logs.some((l) => l.msg.startsWith('pull: ')),
+    false
+  );
   const answered = logs.find((l) => l.msg === 'turn: model answered');
-  assert.equal('source' in answered || 'pulled' in answered || 'focus' in answered, false, 'no pull fields on an ordinary turn');
+  assert.equal(
+    'source' in answered || 'pulled' in answered || 'focus' in answered,
+    false,
+    'no pull fields on an ordinary turn'
+  );
 });
 
 test('runTurn: route hook ids are pulled after explicit mentions', async () => {
@@ -3741,13 +5110,26 @@ test('runTurn: route hook ids are pulled after explicit mentions', async () => {
   addChannel(scene.channel, {
     id: NOTES,
     name: 'notes',
-    messages: [lineIn(NOTES, { id: 'n1', authorId: 'u4', authorName: 'Zoë', ts: NOW - 2 * HOUR, content: 'σημειώσεις για αύριο' })],
+    messages: [
+      lineIn(NOTES, {
+        id: 'n1',
+        authorId: 'u4',
+        authorName: 'Zoë',
+        ts: NOW - 2 * HOUR,
+        content: 'σημειώσεις για αύριο',
+      }),
+    ],
   });
 
-  await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
+  await withCapturedLogs(() =>
+    scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
+  );
 
   assert.equal(hookCalls.length, 1);
-  assert.deepEqual(hookCalls[0].history.map((m) => m.id), ['m1', 'm9']);
+  assert.deepEqual(
+    hookCalls[0].history.map((m) => m.id),
+    ['m1', 'm9']
+  );
   const view = channelViewOf(scene.llm);
   assert.ok(view.indexOf('channel #diary') < view.indexOf('channel #notes'), view);
   assert.ok(view.includes('σημειώσεις για αύριο'));
@@ -3758,8 +5140,18 @@ test('runTurn: an earlier route pick fetches the page before the oldest line sho
   const scene = pullScene({ mention: false, routeChannels: async () => answers.shift() ?? [] });
 
   const { logs } = await withCapturedLogs(async () => {
-    await scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' });
-    await scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' });
+    await scene.turns.runTurn({
+      channel: scene.channel,
+      mode: 'reply',
+      trigger: scene.trigger,
+      triggerKind: 'mention',
+    });
+    await scene.turns.runTurn({
+      channel: scene.channel,
+      mode: 'reply',
+      trigger: scene.trigger,
+      triggerKind: 'mention',
+    });
   });
 
   const pages = scene.other.fetches.filter((arg) => arg && typeof arg === 'object');
@@ -3767,10 +5159,18 @@ test('runTurn: an earlier route pick fetches the page before the oldest line sho
   assert.equal('before' in pages[0], false, 'the first view is the newest page');
   assert.equal(pages[1].before, 'd1', 'the second starts before the oldest line the first one showed');
   const pulls = logs.filter((l) => l.msg === 'pull: channel');
-  assert.deepEqual(pulls.map((l) => [l.direction, l.beforeId]), [[null, undefined], ['earlier', true]]);
+  assert.deepEqual(
+    pulls.map((l) => [l.direction, l.beforeId]),
+    [
+      [null, undefined],
+      ['earlier', true],
+    ]
+  );
 
   const fresh = pullScene({ mention: false, routeChannels: async () => [{ id: DIARY, direction: 'earlier' }] });
-  const alone = await withCapturedLogs(() => fresh.turns.runTurn({ channel: fresh.channel, mode: 'reply', trigger: fresh.trigger, triggerKind: 'mention' }));
+  const alone = await withCapturedLogs(() =>
+    fresh.turns.runTurn({ channel: fresh.channel, mode: 'reply', trigger: fresh.trigger, triggerKind: 'mention' })
+  );
   const [page] = fresh.other.fetches.filter((arg) => arg && typeof arg === 'object');
   assert.equal('before' in page, false, 'no previous view: the newest page');
   assert.equal(alone.logs.find((l) => l.msg === 'pull: channel').pullDirection, 'earlier-no-previous');
@@ -3786,21 +5186,40 @@ test('runTurn: the route hook is not asked once the mentions fill every slot, no
         return [];
       },
     });
-    await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
+    await withCapturedLogs(() =>
+      scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
+    );
     assert.equal(asked, 0, JSON.stringify(features));
   }
 });
 
 test('runTurn: context.pull.maxChannels caps the pulled channels, the newest mention first', async () => {
-  const newer = lineIn('c1', { id: 'm5', authorId: 'u2', authorName: 'Bob', ts: NOW - 4 * MINUTE, content: 'και το #notes', raw: `και το <#${NOTES}>` });
+  const newer = lineIn('c1', {
+    id: 'm5',
+    authorId: 'u2',
+    authorName: 'Bob',
+    ts: NOW - 4 * MINUTE,
+    content: 'και το #notes',
+    raw: `και το <#${NOTES}>`,
+  });
   const scene = pullScene({ between: [newer] });
   const notes = addChannel(scene.channel, {
     id: NOTES,
     name: 'notes',
-    messages: [lineIn(NOTES, { id: 'n1', authorId: 'u4', authorName: 'Zoë', ts: NOW - 2 * HOUR, content: 'σημειώσεις για αύριο' })],
+    messages: [
+      lineIn(NOTES, {
+        id: 'n1',
+        authorId: 'u4',
+        authorName: 'Zoë',
+        ts: NOW - 2 * HOUR,
+        content: 'σημειώσεις για αύριο',
+      }),
+    ],
   });
 
-  await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
+  await withCapturedLogs(() =>
+    scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
+  );
 
   const view = channelViewOf(scene.llm);
   assert.ok(view.includes('channel #notes') && !view.includes('channel #diary'), view);
@@ -3811,14 +5230,23 @@ test('runTurn: context.pull.maxChannels caps the pulled channels, the newest men
 test('runTurn: a pulled channel is left out of the neighbours', async () => {
   const diary = { messages: diaryLines(10 * MINUTE) };
   const pulled = pullScene({ diary });
-  await withCapturedLogs(() => pulled.turns.runTurn({ channel: pulled.channel, mode: 'reply', trigger: pulled.trigger, triggerKind: 'mention' }));
+  await withCapturedLogs(() =>
+    pulled.turns.runTurn({ channel: pulled.channel, mode: 'reply', trigger: pulled.trigger, triggerKind: 'mention' })
+  );
 
   assert.ok(channelViewOf(pulled.llm)?.includes('σήμερα έβαψα τον τοίχο μπλε'));
   assert.equal(userText(pulled.llm).includes('# diary'), false, 'not shown again among the neighbours');
 
   // Not pulled, the same channel is an ordinary neighbour.
   const neighbour = pullScene({ diary, features: { channelPull: false } });
-  await withCapturedLogs(() => neighbour.turns.runTurn({ channel: neighbour.channel, mode: 'reply', trigger: neighbour.trigger, triggerKind: 'mention' }));
+  await withCapturedLogs(() =>
+    neighbour.turns.runTurn({
+      channel: neighbour.channel,
+      mode: 'reply',
+      trigger: neighbour.trigger,
+      triggerKind: 'mention',
+    })
+  );
   assert.ok(otherChannelsSent(neighbour.llm).includes('# diary'));
 });
 
@@ -3835,23 +5263,33 @@ test('runTurn: a noticed turn passes the pulled source to chooseMode', async () 
         seen.push({ history, now, context });
         return null;
       },
-    }),
+    })
   );
 
   assert.equal(result.outcome, 'not-now');
   assert.equal(llm.calls.length, 0);
   assert.equal(seen.length, 1);
   assert.equal(seen[0].now, NOW);
-  assert.deepEqual(seen[0].history.map((m) => m.id), ['m1', 'm9'], "the chooser still gets the turn channel's history");
+  assert.deepEqual(
+    seen[0].history.map((m) => m.id),
+    ['m1', 'm9'],
+    "the chooser still gets the turn channel's history"
+  );
   const [source] = seen[0].context.pulled;
   assert.equal(seen[0].context.pulled.length, 1);
   assert.equal(source.channelId, DIARY);
   assert.equal(source.reason, 'noticed');
-  assert.deepEqual(source.messages.map((m) => m.id), ['d1', 'd2']);
+  assert.deepEqual(
+    source.messages.map((m) => m.id),
+    ['d1', 'd2']
+  );
 });
 
 test('runTurn: a routed turn whose source cannot be pulled ends in error, a noticed one in not-now', async () => {
-  for (const [reason, outcome] of [['routed', 'error'], ['noticed', 'not-now']]) {
+  for (const [reason, outcome] of [
+    ['routed', 'error'],
+    ['noticed', 'not-now'],
+  ]) {
     const { turns, channel, llm } = pullScene({ mention: false });
     let chosen = 0;
     const { result, logs } = await withCapturedLogs(() =>
@@ -3863,16 +5301,20 @@ test('runTurn: a routed turn whose source cannot be pulled ends in error, a noti
           chosen += 1;
           return 'elsewhere';
         },
-      }),
+      })
     );
 
     assert.equal(result.outcome, outcome, reason);
     assert.equal(llm.calls.length, 0, reason);
     assert.equal(chosen, 0, `${reason}: no chooser without the source`);
     assert.equal(turns.isBusy('c1'), false);
-    assert.ok(logs.some((l) => l.msg === 'pull: skipped' && l.source === 'c9' && l.reason === 'not-found'), reason);
+    assert.ok(
+      logs.some((l) => l.msg === 'pull: skipped' && l.source === 'c9' && l.reason === 'not-found'),
+      reason
+    );
     const unavailable = logs.find((l) => l.msg === 'turn: source unavailable');
-    if (reason === 'routed') assert.deepEqual([unavailable.channel, unavailable.source, unavailable.reason], ['c1', 'c9', 'not-found']);
+    if (reason === 'routed')
+      assert.deepEqual([unavailable.channel, unavailable.source, unavailable.reason], ['c1', 'c9', 'not-found']);
     else assert.equal(unavailable, undefined);
   }
 });
@@ -3881,7 +5323,9 @@ test('runTurn: fresh captions for a pulled channel are asked only once the turn 
   // A chooser that says not-now: nothing is asked, the cache alone was read.
   const quiet = pullDescriber();
   const notNow = pullScene({ features: { mediaDescriptions: true }, describer: quiet });
-  const { result } = await withCapturedLogs(() => notNow.turns.runTurn({ channel: notNow.channel, mode: 'auto', chooseMode: () => null }));
+  const { result } = await withCapturedLogs(() =>
+    notNow.turns.runTurn({ channel: notNow.channel, mode: 'auto', chooseMode: () => null })
+  );
   assert.equal(result.outcome, 'not-now');
   assert.equal(quiet.calls.length, 0);
 
@@ -3897,33 +5341,45 @@ test('runTurn: fresh captions for a pulled channel are asked only once the turn 
         events.push('chooser');
         return 'interject';
       },
-    }),
+    })
   );
-  assert.deepEqual(callsFor(chosen, 'dp1').map((call) => call.options), [{ maxNew: 1 }]);
+  assert.deepEqual(
+    callsFor(chosen, 'dp1').map((call) => call.options),
+    [{ maxNew: 1 }]
+  );
   assert.ok(events.indexOf('chooser') < events.indexOf('describe:dp1'), events.join(' '));
   assert.ok(channelViewOf(live.llm).includes('caption of dp1'));
 
   // No chooser at all: asked with the fetch, once.
   const direct = pullDescriber();
   const reply = pullScene({ features: { mediaDescriptions: true }, describer: direct });
-  await withCapturedLogs(() => reply.turns.runTurn({ channel: reply.channel, mode: 'reply', trigger: reply.trigger, triggerKind: 'mention' }));
+  await withCapturedLogs(() =>
+    reply.turns.runTurn({ channel: reply.channel, mode: 'reply', trigger: reply.trigger, triggerKind: 'mention' })
+  );
   assert.equal(callsFor(direct, 'dp1').length, 1);
   assert.ok(channelViewOf(reply.llm).includes('caption of dp1'));
 });
 
 test('runTurn: a failed, refused or throwing pull never fails the turn', async () => {
   const failing = pullScene({ diary: { fetchFails: true } });
-  const failed = await withCapturedLogs(() => failing.turns.runTurn({ channel: failing.channel, mode: 'reply', trigger: failing.trigger, triggerKind: 'mention' }));
+  const failed = await withCapturedLogs(() =>
+    failing.turns.runTurn({ channel: failing.channel, mode: 'reply', trigger: failing.trigger, triggerKind: 'mention' })
+  );
   assert.equal(failed.result.outcome, 'spoke');
   assert.equal(channelViewOf(failing.llm), null);
   assert.ok(failed.logs.some((l) => l.msg === 'pull: skipped' && l.source === DIARY && l.reason === 'fetch-failed'));
 
   const denied = pullScene({ bot: { dryRunChannelId: DIARY } });
-  const refused = await withCapturedLogs(() => denied.turns.runTurn({ channel: denied.channel, mode: 'reply', trigger: denied.trigger, triggerKind: 'mention' }));
+  const refused = await withCapturedLogs(() =>
+    denied.turns.runTurn({ channel: denied.channel, mode: 'reply', trigger: denied.trigger, triggerKind: 'mention' })
+  );
   assert.equal(refused.result.outcome, 'spoke');
   assert.equal(denied.other.fetches.length, 0, 'a refused channel is never fetched');
   const skipped = refused.logs.find((l) => l.msg === 'pull: skipped');
-  assert.deepEqual([skipped.channel, skipped.source, skipped.reason, skipped.pullReason], ['c1', DIARY, 'dry-run-channel', 'mention']);
+  assert.deepEqual(
+    [skipped.channel, skipped.source, skipped.reason, skipped.pullReason],
+    ['c1', DIARY, 'dry-run-channel', 'mention']
+  );
 
   const throwing = pullScene({
     mention: false,
@@ -3931,7 +5387,14 @@ test('runTurn: a failed, refused or throwing pull never fails the turn', async (
       throw new Error('fixture: route classifier down');
     },
   });
-  const thrown = await withCapturedLogs(() => throwing.turns.runTurn({ channel: throwing.channel, mode: 'reply', trigger: throwing.trigger, triggerKind: 'mention' }));
+  const thrown = await withCapturedLogs(() =>
+    throwing.turns.runTurn({
+      channel: throwing.channel,
+      mode: 'reply',
+      trigger: throwing.trigger,
+      triggerKind: 'mention',
+    })
+  );
   assert.equal(thrown.result.outcome, 'spoke');
   assert.ok(thrown.logs.some((l) => l.msg === 'pull: route failed' && l.channel === 'c1'));
 });
@@ -3957,13 +5420,22 @@ test('runTurn: a private chat whose partner cannot be fetched as a guild member 
   });
 
   const { result, logs } = await withCapturedLogs(() =>
-    turns.runTurn({ channel, guildId: 'g1', mode: 'reply', trigger: { ...normalizedTrigger(raw), mentionedChannelIds: [DIARY] }, triggerKind: 'private' }),
+    turns.runTurn({
+      channel,
+      guildId: 'g1',
+      mode: 'reply',
+      trigger: { ...normalizedTrigger(raw), mentionedChannelIds: [DIARY] },
+      triggerKind: 'private',
+    })
   );
 
   assert.equal(result.outcome, 'spoke');
   assert.equal(asked, 0);
   assert.equal(userTextOf(llm.calls[0]).includes('<channel_view>'), false);
-  assert.equal(logs.some((l) => l.msg.startsWith('pull: ')), false);
+  assert.equal(
+    logs.some((l) => l.msg.startsWith('pull: ')),
+    false
+  );
 });
 
 /**
@@ -3982,8 +5454,15 @@ function privatePullScene({ features = {}, canView = true, mention = false, rout
   };
   const diary = addChannel(server, { id: DIARY, name: 'diary', messages: diaryLines() });
   const botView = diary.permissionsFor;
-  diary.permissionsFor = (target) => (target === partner ? { has: (flag) => canView || flag !== PermissionFlagsBits.ViewChannel } : botView(target));
-  const call = lineIn('dm1', { id: 'p1', authorId: 'u1', authorName: 'Alice', ts: NOW - 1000, content: 'τι γράφει το ημερολόγιο;' });
+  diary.permissionsFor = (target) =>
+    target === partner ? { has: (flag) => canView || flag !== PermissionFlagsBits.ViewChannel } : botView(target);
+  const call = lineIn('dm1', {
+    id: 'p1',
+    authorId: 'u1',
+    authorName: 'Alice',
+    ts: NOW - 1000,
+    content: 'τι γράφει το ημερολόγιο;',
+  });
   const channel = fakeTurnChannel({ id: 'dm1', dm: true, historyMessages: [call] });
   const llm = sequenceLlm(['<msg>ok</msg>']);
   const client = fakeClient({ guilds: { cache: new Map([['g1', guild]]) } });
@@ -4001,7 +5480,8 @@ function privatePullScene({ features = {}, canView = true, mention = false, rout
     now: () => NOW,
   });
   const trigger = { ...normalizedTrigger(call), ...(mention ? { mentionedChannelIds: [DIARY] } : {}) };
-  const run = () => withCapturedLogs(() => turns.runTurn({ channel, guildId: 'g1', mode: 'reply', trigger, triggerKind: 'private' }));
+  const run = () =>
+    withCapturedLogs(() => turns.runTurn({ channel, guildId: 'g1', mode: 'reply', trigger, triggerKind: 'private' }));
   return { channel, diary, guild, partner, memberFetches, llm, run };
 }
 
@@ -4028,7 +5508,10 @@ test('runTurn: a private chat asks the route hook for its partner and pulls the 
   assert.equal(calls[0].guild, scene.guild, 'judged in the served guild');
   assert.equal(calls[0].partner, scene.partner);
   assert.equal(calls[0].triggerKind, 'private');
-  assert.deepEqual(calls[0].history.map((m) => m.id), ['p1']);
+  assert.deepEqual(
+    calls[0].history.map((m) => m.id),
+    ['p1']
+  );
   assert.ok(scene.diary.fetches.length > 0, 'the picked channel was fetched');
   const pulled = logs.find((l) => l.msg === 'pull: channel');
   assert.deepEqual([pulled?.channel, pulled?.source, pulled?.pullReason], ['dm1', DIARY, 'route']);
@@ -4043,7 +5526,10 @@ test('runTurn: a private chat never pulls a picked channel its partner cannot vi
   assert.equal(result.outcome, 'spoke');
   assert.equal(calls.length, 1);
   assert.deepEqual(scene.diary.fetches, []);
-  assert.equal(logs.some((l) => l.msg === 'pull: channel'), false);
+  assert.equal(
+    logs.some((l) => l.msg === 'pull: channel'),
+    false
+  );
   const skipped = logs.find((l) => l.msg === 'pull: skipped');
   assert.deepEqual([skipped?.source, skipped?.reason, skipped?.pullReason], [DIARY, 'audience', 'route']);
 });
@@ -4069,7 +5555,10 @@ test('runTurn: features.privateLikeServer off -- a private chat asks no route ho
   assert.equal(calls.length, 0);
   assert.deepEqual(scene.memberFetches, []);
   assert.deepEqual(scene.diary.fetches, []);
-  assert.equal(logs.some((l) => l.msg.startsWith('pull: ')), false);
+  assert.equal(
+    logs.some((l) => l.msg.startsWith('pull: ')),
+    false
+  );
 });
 
 test('runTurn: a private chat whose partner left the guild pulls nothing and logs the failed fetch', async () => {
@@ -4099,7 +5588,9 @@ function routedScene({
   llm = fakeLlm('<msg>ok</msg>'),
   lookup,
   callAttachments,
-  chat = [lineIn('c1', { id: 'm1', authorId: 'u2', authorName: 'Bob', ts: NOW - 5 * MINUTE, content: 'καλημέρα σε όλους' })],
+  chat = [
+    lineIn('c1', { id: 'm1', authorId: 'u2', authorName: 'Bob', ts: NOW - 5 * MINUTE, content: 'καλημέρα σε όλους' }),
+  ],
   callTs = NOW - 2 * MINUTE,
   before = [],
   after = [],
@@ -4109,11 +5600,41 @@ function routedScene({
   images,
 } = {}) {
   const channel = fakeTurnChannel({ historyMessages: chat });
-  const call = lineIn(DIARY, { id: 'd3', ts: callTs, content: '@Bot τι λες για τον τοίχο;', attachments: callAttachments });
-  const other = addChannel(channel, { id: DIARY, name: 'diary', messages: [...diaryLines(), ...before, call, ...after], readOnly: true });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client, describer, lookup, routeChannels, images, imageFetcher: fakeImageFetcher(), now: () => NOW });
+  const call = lineIn(DIARY, {
+    id: 'd3',
+    ts: callTs,
+    content: '@Bot τι λες για τον τοίχο;',
+    attachments: callAttachments,
+  });
+  const other = addChannel(channel, {
+    id: DIARY,
+    name: 'diary',
+    messages: [...diaryLines(), ...before, call, ...after],
+    readOnly: true,
+  });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client,
+    describer,
+    lookup,
+    routeChannels,
+    images,
+    imageFetcher: fakeImageFetcher(),
+    now: () => NOW,
+  });
   const trigger = { ...normalizedTrigger(call), mentionedUserIds: ['self-id'] };
-  const params = { channel, mode: 'reply', trigger, triggerKind: 'mention', source: { channelId: DIARY, reason: 'routed' } };
+  const params = {
+    channel,
+    mode: 'reply',
+    trigger,
+    triggerKind: 'mention',
+    source: { channelId: DIARY, reason: 'routed' },
+  };
   return { channel, other, hot, llm, store, turns, trigger, params };
 }
 
@@ -4146,7 +5667,13 @@ test('runTurn: a routed turn pulls its source with the call and builds the reque
 test('runTurn: a routed call older than the window is still shown with its source', async () => {
   // Five newer lines fill the window; the call, three hours old, is outside it.
   const after = [0, 1, 2, 3, 4].map((i) =>
-    lineIn(DIARY, { id: `d${4 + i}`, authorId: 'u4', authorName: 'Zoë', ts: NOW - 30 * MINUTE + i * MINUTE, content: `γραμμή ${i + 1} για τον κήπο` }),
+    lineIn(DIARY, {
+      id: `d${4 + i}`,
+      authorId: 'u4',
+      authorName: 'Zoë',
+      ts: NOW - 30 * MINUTE + i * MINUTE,
+      content: `γραμμή ${i + 1} για τον κήπο`,
+    })
   );
   const scene = routedScene({ callTs: NOW - 3 * HOUR + 2 * MINUTE, after });
 
@@ -4160,15 +5687,25 @@ test('runTurn: a routed call older than the window is still shown with its sourc
 });
 
 test("runTurn: a pulled channel shows the ring's earlier unanswered call with its mark", async () => {
-  const earlier = lineIn(DIARY, { id: 'd0', authorId: 'u4', authorName: 'Zoë', ts: NOW - 5 * HOUR, content: '@Bot είσαι εδώ;' });
+  const earlier = lineIn(DIARY, {
+    id: 'd0',
+    authorId: 'u4',
+    authorName: 'Zoë',
+    ts: NOW - 5 * HOUR,
+    content: '@Bot είσαι εδώ;',
+  });
   const diary = { messages: [earlier, ...diaryLines()] };
   const context = { pull: { minMessages: 1 } };
   const earlierHeader = labels.pull.earlierPings.split('{date}')[0];
 
   const store = fakeStore();
-  store.state.data.elsewherePings = [{ messageId: 'd0', channelId: DIARY, ts: NOW - 5 * HOUR, answeredAt: null, skippedAt: null }];
+  store.state.data.elsewherePings = [
+    { messageId: 'd0', channelId: DIARY, ts: NOW - 5 * HOUR, answeredAt: null, skippedAt: null },
+  ];
   const ringed = pullScene({ store, context, diary });
-  await withCapturedLogs(() => ringed.turns.runTurn({ channel: ringed.channel, mode: 'reply', trigger: ringed.trigger, triggerKind: 'mention' }));
+  await withCapturedLogs(() =>
+    ringed.turns.runTurn({ channel: ringed.channel, mode: 'reply', trigger: ringed.trigger, triggerKind: 'mention' })
+  );
   const view = channelViewOf(ringed.llm);
   assert.ok(view.includes('@Bot είσαι εδώ;'), view);
   assert.ok(view.includes(earlierHeader), view);
@@ -4176,9 +5713,17 @@ test("runTurn: a pulled channel shows the ring's earlier unanswered call with it
 
   // Without the ring entry the old line is outside the window and nothing is marked.
   const plain = pullScene({ context, diary });
-  await withCapturedLogs(() => plain.turns.runTurn({ channel: plain.channel, mode: 'reply', trigger: plain.trigger, triggerKind: 'mention' }));
+  await withCapturedLogs(() =>
+    plain.turns.runTurn({ channel: plain.channel, mode: 'reply', trigger: plain.trigger, triggerKind: 'mention' })
+  );
   const plainView = channelViewOf(plain.llm);
-  assert.equal(plainView.includes('@Bot είσαι εδώ;') || plainView.includes(earlierHeader) || plainView.includes(labels.pull.pingUnanswered), false, plainView);
+  assert.equal(
+    plainView.includes('@Bot είσαι εδώ;') ||
+      plainView.includes(earlierHeader) ||
+      plainView.includes(labels.pull.pingUnanswered),
+    false,
+    plainView
+  );
 });
 
 test("runTurn: on a routed turn the search classifier reads the source channel's lines", async () => {
@@ -4195,21 +5740,42 @@ test("runTurn: on a routed turn the search classifier reads the source channel's
 });
 
 test("runTurn: a routed call's pictures are captioned through the pull, never as the chat's attached pictures", async () => {
-  const photo = { id: 'cp1', contentType: 'image/png', name: 'photo.png', url: 'https://cdn.discordapp.com/x/photo.png' };
+  const photo = {
+    id: 'cp1',
+    contentType: 'image/png',
+    name: 'photo.png',
+    url: 'https://cdn.discordapp.com/x/photo.png',
+  };
   const describer = pullDescriber();
-  const scene = routedScene({ features: { mediaDescriptions: true }, describer, callAttachments: new Map([['cp1', photo]]) });
-  scene.params.trigger = { ...scene.params.trigger, attachments: [{ id: 'cp1', kind: 'image', url: photo.url, name: 'photo.png' }] };
+  const scene = routedScene({
+    features: { mediaDescriptions: true },
+    describer,
+    callAttachments: new Map([['cp1', photo]]),
+  });
+  scene.params.trigger = {
+    ...scene.params.trigger,
+    attachments: [{ id: 'cp1', kind: 'image', url: photo.url, name: 'photo.png' }],
+  };
 
   await withCapturedLogs(() => scene.turns.runTurn(scene.params));
 
-  assert.deepEqual(callsFor(describer, 'cp1').map((call) => call.options), [{ maxNew: 1 }]);
-  assert.equal(scene.llm.calls[0][1].content.some((p) => p.type === 'image_url'), false, 'no image part is ever sent');
+  assert.deepEqual(
+    callsFor(describer, 'cp1').map((call) => call.options),
+    [{ maxNew: 1 }]
+  );
+  assert.equal(
+    scene.llm.calls[0][1].content.some((p) => p.type === 'image_url'),
+    false,
+    'no image part is ever sent'
+  );
   assert.ok(channelViewOf(scene.llm).includes('caption of cp1'));
 });
 
 test('runTurn: a focus line reaches the task', async () => {
   const { turns, channel, llm } = pullScene({ mention: false });
-  const focus = normalizedTrigger(lineIn('c1', { id: 'm1', authorId: 'u2', authorName: 'Bob', ts: NOW - 5 * MINUTE, content: 'είδες το #diary;' }));
+  const focus = normalizedTrigger(
+    lineIn('c1', { id: 'm1', authorId: 'u2', authorName: 'Bob', ts: NOW - 5 * MINUTE, content: 'είδες το #diary;' })
+  );
 
   await withCapturedLogs(() => turns.runTurn({ channel, mode: 'interject', focus }));
 
@@ -4219,8 +5785,14 @@ test('runTurn: a focus line reaches the task', async () => {
 test('runTurn: a read-only neighbour is marked in the server map', async () => {
   const store = fakeStore({ channels: [{ id: DIARY, name: 'diary', lastMessageAt: NOW - 10 * MINUTE, days: {} }] });
   for (const readOnly of [true, false]) {
-    const scene = pullScene({ features: { channelPull: false }, diary: { messages: diaryLines(10 * MINUTE), readOnly }, store });
-    await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
+    const scene = pullScene({
+      features: { channelPull: false },
+      diary: { messages: diaryLines(10 * MINUTE), readOnly },
+      store,
+    });
+    await withCapturedLogs(() =>
+      scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
+    );
     const server = userText(scene.llm).split('<server>\n')[1].split('\n</server>')[0];
     assert.ok(server.includes('diary'), server);
     assert.equal(server.includes(labels.server.readOnly), readOnly, server);
@@ -4228,19 +5800,38 @@ test('runTurn: a read-only neighbour is marked in the server map', async () => {
 });
 
 test('runTurn: senses name the main channel where calls from read-only channels are answered', async () => {
-  for (const [features, expected] of [[{}, true], [{ elsewhere: false }, false]]) {
+  for (const [features, expected] of [
+    [{}, true],
+    [{ elsewhere: false }, false],
+  ]) {
     const scene = pullScene({ mention: false, features, config: { memory: { mainChannelIds: ['c1'] } } });
     registerTextChannel(scene.channel);
-    await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
-    assert.equal(userText(scene.llm).includes(fill(labels.senses.elsewhere, { destination: 'general' })), expected, JSON.stringify(features));
+    await withCapturedLogs(() =>
+      scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
+    );
+    assert.equal(
+      userText(scene.llm).includes(fill(labels.senses.elsewhere, { destination: 'general' })),
+      expected,
+      JSON.stringify(features)
+    );
   }
 });
 
 test('runTurn: senses name only a usable main channel, the first one in list order', async () => {
   const sensesPrefix = labels.senses.elsewhere.split('{destination}')[0];
   const cases = [
-    { name: 'cannot send', main: ['c5'], add: (scene) => addChannel(scene.channel, { id: 'c5', name: 'lounge', readOnly: true }), expected: null },
-    { name: 'thread', main: ['c5'], add: (scene) => Object.assign(addChannel(scene.channel, { id: 'c5', name: 'lounge' }), { isThread: () => true }), expected: null },
+    {
+      name: 'cannot send',
+      main: ['c5'],
+      add: (scene) => addChannel(scene.channel, { id: 'c5', name: 'lounge', readOnly: true }),
+      expected: null,
+    },
+    {
+      name: 'thread',
+      main: ['c5'],
+      add: (scene) => Object.assign(addChannel(scene.channel, { id: 'c5', name: 'lounge' }), { isThread: () => true }),
+      expected: null,
+    },
     {
       name: 'first usable',
       main: ['c5', 'c6'],
@@ -4254,7 +5845,9 @@ test('runTurn: senses name only a usable main channel, the first one in list ord
   for (const { name, main, bot = {}, add, expected } of cases) {
     const scene = pullScene({ mention: false, bot, config: { memory: { mainChannelIds: main } } });
     add(scene);
-    await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
+    await withCapturedLogs(() =>
+      scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
+    );
     const text = userText(scene.llm);
     if (expected) assert.ok(text.includes(fill(labels.senses.elsewhere, { destination: expected })), name);
     else assert.equal(text.includes(sensesPrefix), false, name);
@@ -4267,15 +5860,31 @@ test('usableDestination: the first usable main channel, never the excepted one; 
   const config = { bot: {}, features: {}, memory: { mainChannelIds: ['c1', 'c6'] } };
 
   assert.deepEqual(usableDestination(general.guild, config, { discord: DISCORD }), { channel: general, reason: null });
-  assert.deepEqual(usableDestination(general.guild, config, { exceptId: 'c1', discord: DISCORD }), { channel: hall, reason: null });
-  assert.deepEqual(usableDestination(general.guild, { ...config, features: { elsewhere: false } }, { discord: DISCORD }), { channel: null, reason: 'off' });
-  assert.deepEqual(usableDestination(general.guild, { ...config, memory: { mainChannelIds: [] } }, { discord: DISCORD }), { channel: null, reason: 'no-destination' });
-  assert.deepEqual(usableDestination(null, config, { discord: DISCORD }), { channel: null, reason: 'no-destination' }, 'a private chat has none');
+  assert.deepEqual(usableDestination(general.guild, config, { exceptId: 'c1', discord: DISCORD }), {
+    channel: hall,
+    reason: null,
+  });
+  assert.deepEqual(
+    usableDestination(general.guild, { ...config, features: { elsewhere: false } }, { discord: DISCORD }),
+    { channel: null, reason: 'off' }
+  );
+  assert.deepEqual(
+    usableDestination(general.guild, { ...config, memory: { mainChannelIds: [] } }, { discord: DISCORD }),
+    { channel: null, reason: 'no-destination' }
+  );
+  assert.deepEqual(
+    usableDestination(null, config, { discord: DISCORD }),
+    { channel: null, reason: 'no-destination' },
+    'a private chat has none'
+  );
 });
 
 test("runTurn: on a routed turn the re-watch classifier is not asked about the destination's videos", async () => {
   // #general holds a watched clip and one that did not load; the call in #diary asks to try again.
-  const chat = () => [videoAttachmentRaw('m1', NOW - 10 * MINUTE, 'va', 'clip.mp4'), videoAttachmentRaw('m2', NOW - 8 * MINUTE, 'vb', 'other.mp4')];
+  const chat = () => [
+    videoAttachmentRaw('m1', NOW - 10 * MINUTE, 'va', 'clip.mp4'),
+    videoAttachmentRaw('m2', NOW - 8 * MINUTE, 'vb', 'other.mp4'),
+  ];
   const scene = (llm, describer) => routedScene({ hot: rewatchHot(), llm, describer, chat: chat() });
   const states = { va: { state: 'watched', text: 'ένα αυτοκίνητο περνά' }, vb: { state: 'error' } };
 
@@ -4312,22 +5921,41 @@ test("runTurn: on a routed turn the route hook reads the source channel's lines"
   assert.equal(result.outcome, 'spoke');
   assert.equal(hookCalls.length, 1);
   assert.equal(hookCalls[0].channel, scene.channel, 'asked for the destination');
-  assert.deepEqual(hookCalls[0].history.map((m) => m.id), ['d1', 'd2', 'd3'], "the call's channel, not the destination's chat");
+  assert.deepEqual(
+    hookCalls[0].history.map((m) => m.id),
+    ['d1', 'd2', 'd3'],
+    "the call's channel, not the destination's chat"
+  );
 });
-
 
 test('runTurn: a pull that throws never fails an ordinary turn; a routed one ends in error, a noticed one in not-now', async () => {
   // A corrupt media cache throws inside fetchPull; an unreadable ring throws before any fetch.
   // `perChannel`: the failure is caught for its channel alone (the log names it and why it was pulled).
   const scenes = [
-    ['fetchPull throws', (options) => ({ ...options, features: { mediaDescriptions: true }, describer: throwingCacheDescriber() }), true],
+    [
+      'fetchPull throws',
+      (options) => ({ ...options, features: { mediaDescriptions: true }, describer: throwingCacheDescriber() }),
+      true,
+    ],
     ['the pull itself throws', (options) => ({ ...options, store: unreadableRingStore() }), false],
   ];
   const failedLine = (logs, pullReason, perChannel) =>
-    logs.find((l) => l.msg === 'pull: failed' && l.channel === 'c1' && (perChannel ? l.source === DIARY && l.pullReason === pullReason : l.source === undefined));
+    logs.find(
+      (l) =>
+        l.msg === 'pull: failed' &&
+        l.channel === 'c1' &&
+        (perChannel ? l.source === DIARY && l.pullReason === pullReason : l.source === undefined)
+    );
   for (const [name, withFailure, perChannel] of scenes) {
     const ordinary = pullScene(withFailure({}));
-    const plain = await withCapturedLogs(() => ordinary.turns.runTurn({ channel: ordinary.channel, mode: 'reply', trigger: ordinary.trigger, triggerKind: 'mention' }));
+    const plain = await withCapturedLogs(() =>
+      ordinary.turns.runTurn({
+        channel: ordinary.channel,
+        mode: 'reply',
+        trigger: ordinary.trigger,
+        triggerKind: 'mention',
+      })
+    );
     assert.equal(plain.result.outcome, 'spoke', name);
     assert.equal(channelViewOf(ordinary.llm), null, name);
     assert.ok(failedLine(plain.logs, 'mention', perChannel), name);
@@ -4351,18 +5979,29 @@ test('runTurn: a pull that throws never fails an ordinary turn; a routed one end
           chosen += 1;
           return 'interject';
         },
-      }),
+      })
     );
     assert.equal(comment.result.outcome, 'not-now', name);
     assert.equal(chosen, 0, name);
     assert.ok(failedLine(comment.logs, 'noticed', perChannel), name);
-    assert.equal(comment.logs.some((l) => l.msg === 'turn: source unavailable'), false, name);
+    assert.equal(
+      comment.logs.some((l) => l.msg === 'turn: source unavailable'),
+      false,
+      name
+    );
   }
 });
 
 test('runTurn: a pulled channel whose fetch throws costs only that channel', async () => {
   // #diary has a picture and the cache read throws for it; #notes has none and is pulled.
-  const newer = lineIn('c1', { id: 'm5', authorId: 'u2', authorName: 'Bob', ts: NOW - 4 * MINUTE, content: 'και το #notes', raw: `και το <#${NOTES}>` });
+  const newer = lineIn('c1', {
+    id: 'm5',
+    authorId: 'u2',
+    authorName: 'Bob',
+    ts: NOW - 4 * MINUTE,
+    content: 'και το #notes',
+    raw: `και το <#${NOTES}>`,
+  });
   const describer = {
     ...pullDescriber(),
     cachedDescriptions: (guildId, items) => {
@@ -4370,10 +6009,29 @@ test('runTurn: a pulled channel whose fetch throws costs only that channel', asy
       return new Map();
     },
   };
-  const scene = pullScene({ features: { mediaDescriptions: true }, describer, context: { pull: { maxChannels: 2 } }, between: [newer] });
-  addChannel(scene.channel, { id: NOTES, name: 'notes', messages: [lineIn(NOTES, { id: 'n1', authorId: 'u4', authorName: 'Zoë', ts: NOW - 2 * HOUR, content: 'σημειώσεις για αύριο' })] });
+  const scene = pullScene({
+    features: { mediaDescriptions: true },
+    describer,
+    context: { pull: { maxChannels: 2 } },
+    between: [newer],
+  });
+  addChannel(scene.channel, {
+    id: NOTES,
+    name: 'notes',
+    messages: [
+      lineIn(NOTES, {
+        id: 'n1',
+        authorId: 'u4',
+        authorName: 'Zoë',
+        ts: NOW - 2 * HOUR,
+        content: 'σημειώσεις για αύριο',
+      }),
+    ],
+  });
 
-  const { result, logs } = await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
+  const { result, logs } = await withCapturedLogs(() =>
+    scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
+  );
 
   assert.equal(result.outcome, 'spoke');
   const view = channelViewOf(scene.llm);
@@ -4398,7 +6056,9 @@ test('runTurn: fresh captions that fail after a chooser leave the cached ones', 
   };
   const scene = pullScene({ features: { mediaDescriptions: true }, describer, diary: { messages } });
 
-  const { result, logs } = await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'auto', chooseMode: () => 'interject' }));
+  const { result, logs } = await withCapturedLogs(() =>
+    scene.turns.runTurn({ channel: scene.channel, mode: 'auto', chooseMode: () => 'interject' })
+  );
 
   assert.equal(result.outcome, 'spoke');
   assert.equal(reads, 2);
@@ -4409,10 +6069,29 @@ test('runTurn: fresh captions that fail after a chooser leave the cached ones', 
 });
 
 test('runTurn: a pull candidate whose check throws is left out, and a routed turn keeps its source', async () => {
-  const named = lineIn('c1', { id: 'm1', authorId: 'u2', authorName: 'Bob', ts: NOW - 5 * MINUTE, content: 'και το #notes', raw: `και το <#${NOTES}>` });
+  const named = lineIn('c1', {
+    id: 'm1',
+    authorId: 'u2',
+    authorName: 'Bob',
+    ts: NOW - 5 * MINUTE,
+    content: 'και το #notes',
+    raw: `και το <#${NOTES}>`,
+  });
   const scene = routedScene({ chat: [named] });
   scene.hot.config.context.pull = { maxChannels: 2 };
-  const notes = addChannel(scene.channel, { id: NOTES, name: 'notes', messages: [lineIn(NOTES, { id: 'n1', authorId: 'u4', authorName: 'Zoë', ts: NOW - 2 * HOUR, content: 'σημειώσεις για αύριο' })] });
+  const notes = addChannel(scene.channel, {
+    id: NOTES,
+    name: 'notes',
+    messages: [
+      lineIn(NOTES, {
+        id: 'n1',
+        authorId: 'u4',
+        authorName: 'Zoë',
+        ts: NOW - 2 * HOUR,
+        content: 'σημειώσεις για αύριο',
+      }),
+    ],
+  });
   Object.defineProperty(notes, 'permissionOverwrites', {
     get() {
       throw new Error('fixture: broken channel');
@@ -4427,8 +6106,15 @@ test('runTurn: a pull candidate whose check throws is left out, and a routed tur
   assert.equal(notes.fetches.length, 0);
   const failed = logs.find((l) => l.msg === 'pull: failed');
   assert.deepEqual([failed.channel, failed.source, failed.pullReason], ['c1', NOTES, 'mention']);
-  assert.equal(logs.some((l) => l.msg === 'pull: skipped' && l.source === NOTES), false, 'logged once, as a failure');
-  assert.equal(logs.some((l) => l.msg === 'turn: source unavailable'), false);
+  assert.equal(
+    logs.some((l) => l.msg === 'pull: skipped' && l.source === NOTES),
+    false,
+    'logged once, as a failure'
+  );
+  assert.equal(
+    logs.some((l) => l.msg === 'turn: source unavailable'),
+    false
+  );
 });
 
 test('runTurn: without labels.pull.header only the source is pulled, with cached captions only', async () => {
@@ -4448,12 +6134,17 @@ test('runTurn: without labels.pull.header only the source is pulled, with cached
     },
   });
   mention.hot.prompts.labels = unlabelled;
-  const plain = await withCapturedLogs(() => mention.turns.runTurn({ channel: mention.channel, mode: 'reply', trigger: mention.trigger, triggerKind: 'mention' }));
+  const plain = await withCapturedLogs(() =>
+    mention.turns.runTurn({ channel: mention.channel, mode: 'reply', trigger: mention.trigger, triggerKind: 'mention' })
+  );
   assert.equal(plain.result.outcome, 'spoke');
   assert.equal(mention.other.fetches.length, 0);
   assert.equal(asked, 0);
   assert.equal(callsFor(describer, 'dp1').length, 0);
-  assert.deepEqual(plain.logs.filter((l) => l.msg.startsWith('pull: ')).map((l) => [l.msg, l.channel, l.reason]), [['pull: skipped', 'c1', 'no-label']]);
+  assert.deepEqual(
+    plain.logs.filter((l) => l.msg.startsWith('pull: ')).map((l) => [l.msg, l.channel, l.reason]),
+    [['pull: skipped', 'c1', 'no-label']]
+  );
 
   // A routed turn: its source is pulled, no fresh caption is asked.
   const routedDescriber = pullDescriber();
@@ -4469,17 +6160,30 @@ test('runTurn: without labels.pull.header only the source is pulled, with cached
   const noticed = pullScene({ mention: false, features: { mediaDescriptions: true }, describer: noticedDescriber });
   noticed.hot.prompts.labels = unlabelled;
   const comment = await withCapturedLogs(() =>
-    noticed.turns.runTurn({ channel: noticed.channel, mode: 'auto', source: { channelId: DIARY, reason: 'noticed' }, chooseMode: () => 'interject' }),
+    noticed.turns.runTurn({
+      channel: noticed.channel,
+      mode: 'auto',
+      source: { channelId: DIARY, reason: 'noticed' },
+      chooseMode: () => 'interject',
+    })
   );
   assert.equal(comment.result.outcome, 'spoke');
   assert.equal(callsFor(noticedDescriber, 'dp1').length, 0);
-  assert.equal(comment.logs.some((l) => l.msg === 'pull: captions'), false);
+  assert.equal(
+    comment.logs.some((l) => l.msg === 'pull: captions'),
+    false
+  );
 
   // Nothing to pull: no line at all.
   const quiet = pullScene({ mention: false });
   quiet.hot.prompts.labels = unlabelled;
-  const none = await withCapturedLogs(() => quiet.turns.runTurn({ channel: quiet.channel, mode: 'reply', trigger: quiet.trigger, triggerKind: 'mention' }));
-  assert.equal(none.logs.some((l) => l.msg.startsWith('pull: ')), false);
+  const none = await withCapturedLogs(() =>
+    quiet.turns.runTurn({ channel: quiet.channel, mode: 'reply', trigger: quiet.trigger, triggerKind: 'mention' })
+  );
+  assert.equal(
+    none.logs.some((l) => l.msg.startsWith('pull: ')),
+    false
+  );
 });
 
 // --- another channel pulled into a turn (<channel_view>): the outputs ---------------------------
@@ -4507,28 +6211,44 @@ function denyReactions(channel) {
 }
 
 test('runTurn: a reaction to a pulled line reacts in the source channel, one to a chat line stays here', async () => {
-  const scene = pullScene({ features: { typingSimulation: false }, llm: fakeLlm('<react to="#3">🎉</react><react to="#2">👍</react>') });
+  const scene = pullScene({
+    features: { typingSimulation: false },
+    llm: fakeLlm('<react to="#3">🎉</react><react to="#2">👍</react>'),
+  });
 
-  const { result, logs } = await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
+  const { result, logs } = await withCapturedLogs(() =>
+    scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
+  );
 
   assert.equal(result.outcome, 'spoke');
   assert.deepEqual(scene.other.reactCalls, [{ id: 'd1', emoji: '🎉' }]);
   assert.deepEqual(scene.channel.reactCalls, [{ id: 'm9', emoji: '👍' }]);
-  assert.equal(logs.some((l) => l.msg === 'turn: reaction dropped'), false);
+  assert.equal(
+    logs.some((l) => l.msg === 'turn: reaction dropped'),
+    false
+  );
 });
 
 test('runTurn: a reaction to a pulled line is dropped where the bot cannot react', async () => {
-  const scene = pullScene({ features: { typingSimulation: false }, llm: fakeLlm('<react to="#3">🎉</react><react to="#2">👍</react>') });
+  const scene = pullScene({
+    features: { typingSimulation: false },
+    llm: fakeLlm('<react to="#3">🎉</react><react to="#2">👍</react>'),
+  });
   denyReactions(scene.other);
 
-  const { result, logs } = await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
+  const { result, logs } = await withCapturedLogs(() =>
+    scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
+  );
 
   assert.equal(result.outcome, 'spoke');
   assert.ok(channelViewOf(scene.llm), 'the channel is still shown');
   assert.deepEqual(scene.other.reactCalls, []);
   assert.deepEqual(scene.channel.reactCalls, [{ id: 'm9', emoji: '👍' }], 'a reaction on a chat line is unchanged');
   const dropped = logs.filter((l) => l.msg === 'turn: reaction dropped');
-  assert.deepEqual(dropped.map((l) => [l.channel, l.source, l.reason]), [['c1', DIARY, 'cannot-react']]);
+  assert.deepEqual(
+    dropped.map((l) => [l.channel, l.source, l.reason]),
+    [['c1', DIARY, 'cannot-react']]
+  );
 });
 
 test('runTurn: a reply to a pulled line posts plain here with one jump link to that line', async () => {
@@ -4537,7 +6257,9 @@ test('runTurn: a reply to a pulled line posts plain here with one jump link to t
     llm: fakeLlm('<msg reply="#3">ωραίο μπλε</msg><msg reply="#3">πολύ ωραίο</msg><msg reply="#2">ναι, το είδα</msg>'),
   });
 
-  const { result, logs } = await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
+  const { result, logs } = await withCapturedLogs(() =>
+    scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
+  );
 
   assert.equal(result.outcome, 'spoke');
   const [first, second, third] = scene.channel.sent;
@@ -4549,8 +6271,15 @@ test('runTurn: a reply to a pulled line posts plain here with one jump link to t
   assert.equal(third.reply.messageReference, 'm9', 'a reply to a chat line is unchanged');
   assert.equal(scene.other.sent.length, 0, 'nothing is posted in the pulled channel');
   const sent = logs.filter((l) => l.msg === 'turn: sent');
-  assert.deepEqual(sent.map((l) => l.link ?? false), [true, false, false]);
-  assert.equal(sent.some((l) => 'source' in l), false, 'a turn without a source logs none');
+  assert.deepEqual(
+    sent.map((l) => l.link ?? false),
+    [true, false, false]
+  );
+  assert.equal(
+    sent.some((l) => 'source' in l),
+    false,
+    'a turn without a source logs none'
+  );
 });
 
 test('runTurn: a routed turn posts in the destination with the link to the call on its first message', async () => {
@@ -4565,27 +6294,52 @@ test('runTurn: a routed turn posts in the destination with the link to the call 
   assert.deepEqual(
     scene.channel.sent.map((post) => post.content),
     [linked('καλημέρα', 'd3'), 'ναι, μπλε', linked('κι αυτό ωραίο', 'd1')],
-    'the call once, on the first message; another pulled line it answers gets its own',
+    'the call once, on the first message; another pulled line it answers gets its own'
   );
-  assert.ok(scene.channel.sent.every((post) => post.reply === undefined), 'never a Discord reply to the call');
+  assert.ok(
+    scene.channel.sent.every((post) => post.reply === undefined),
+    'never a Discord reply to the call'
+  );
   assert.equal(scene.other.sent.length, 0, 'nothing is posted in the source');
   const sent = logs.filter((l) => l.msg === 'turn: sent');
-  assert.deepEqual(sent.map((l) => [l.channel, l.source, l.link ?? false]), [['c1', DIARY, true], ['c1', DIARY, false], ['c1', DIARY, true]]);
+  assert.deepEqual(
+    sent.map((l) => [l.channel, l.source, l.link ?? false]),
+    [
+      ['c1', DIARY, true],
+      ['c1', DIARY, false],
+      ['c1', DIARY, true],
+    ]
+  );
 });
 
 test('runTurn: a noticed turn links its first message to the newest line of its source shown', async () => {
-  const scene = pullScene({ mention: false, features: { typingSimulation: false }, llm: fakeLlm('<msg>τι ωραίο χρώμα</msg>') });
+  const scene = pullScene({
+    mention: false,
+    features: { typingSimulation: false },
+    llm: fakeLlm('<msg>τι ωραίο χρώμα</msg>'),
+  });
 
   const { result } = await withCapturedLogs(() =>
-    scene.turns.runTurn({ channel: scene.channel, mode: 'auto', source: { channelId: DIARY, reason: 'noticed' }, chooseMode: () => 'interject' }),
+    scene.turns.runTurn({
+      channel: scene.channel,
+      mode: 'auto',
+      source: { channelId: DIARY, reason: 'noticed' },
+      chooseMode: () => 'interject',
+    })
   );
 
   assert.equal(result.outcome, 'spoke');
-  assert.deepEqual(scene.channel.sent.map((post) => [post.content, post.reply]), [[linked('τι ωραίο χρώμα', 'd2'), undefined]]);
+  assert.deepEqual(
+    scene.channel.sent.map((post) => [post.content, post.reply]),
+    [[linked('τι ωραίο χρώμα', 'd2'), undefined]]
+  );
 });
 
 test('runTurn: @name of a pulled author resolves to a mention', async () => {
-  const scene = routedScene({ features: { typingSimulation: false, mentionHandles: false }, llm: fakeLlm('<msg>@Éloïse ωραίος τοίχος</msg>') });
+  const scene = routedScene({
+    features: { typingSimulation: false, mentionHandles: false },
+    llm: fakeLlm('<msg>@Éloïse ωραίος τοίχος</msg>'),
+  });
 
   await withCapturedLogs(() => scene.turns.runTurn(scene.params));
 
@@ -4595,7 +6349,10 @@ test('runTurn: @name of a pulled author resolves to a mention', async () => {
 });
 
 test('runTurn: the author of a pulled line is mentioned by the handle on their line', async () => {
-  const scene = routedScene({ features: { typingSimulation: false }, llm: fakeLlm(`<msg>@${handleOf('u3')} ωραίος τοίχος @Éloïse</msg>`) });
+  const scene = routedScene({
+    features: { typingSimulation: false },
+    llm: fakeLlm(`<msg>@${handleOf('u3')} ωραίος τοίχος @Éloïse</msg>`),
+  });
 
   await withCapturedLogs(() => scene.turns.runTurn(scene.params));
 
@@ -4605,31 +6362,60 @@ test('runTurn: the author of a pulled line is mentioned by the handle on their l
 });
 
 test('runTurn: a GIF answering a pulled line posts plain with its jump link', async () => {
-  const scene = routedScene({ hot: drawHot(), images: fakeImages(), store: gifStore(), llm: fakeLlm('<gif reply="#4">g1</gif>') });
+  const scene = routedScene({
+    hot: drawHot(),
+    images: fakeImages(),
+    store: gifStore(),
+    llm: fakeLlm('<gif reply="#4">g1</gif>'),
+  });
 
   const { result, logs } = await withCapturedLogs(() => scene.turns.runTurn(scene.params));
 
   assert.equal(result.outcome, 'spoke');
   const [gif] = scene.channel.sent;
-  assert.deepEqual([gif.content, gif.reply], [linked('https://tenor.com/view/chat-qui-danse-1', 'd3'), undefined], 'the media URL first, so it still embeds');
+  assert.deepEqual(
+    [gif.content, gif.reply],
+    [linked('https://tenor.com/view/chat-qui-danse-1', 'd3'), undefined],
+    'the media URL first, so it still embeds'
+  );
   assert.equal(logs.find((l) => l.msg === 'turn: gif sent').link, true);
 });
 
 test('runTurn: a GIF alone answering a routed call links the call; after a message it carries none', async () => {
-  const alone = routedScene({ features: { typingSimulation: false }, store: gifStore(), llm: fakeLlm('<gif>g1</gif>') });
+  const alone = routedScene({
+    features: { typingSimulation: false },
+    store: gifStore(),
+    llm: fakeLlm('<gif>g1</gif>'),
+  });
   await withCapturedLogs(() => alone.turns.runTurn(alone.params));
-  assert.deepEqual(alone.channel.sent.map((post) => [post.content, post.reply]), [[linked('https://tenor.com/view/chat-qui-danse-1', 'd3'), undefined]]);
+  assert.deepEqual(
+    alone.channel.sent.map((post) => [post.content, post.reply]),
+    [[linked('https://tenor.com/view/chat-qui-danse-1', 'd3'), undefined]]
+  );
 
-  const after = routedScene({ features: { typingSimulation: false }, store: gifStore(), llm: fakeLlm('<msg>κοίτα</msg><gif>g1</gif>') });
+  const after = routedScene({
+    features: { typingSimulation: false },
+    store: gifStore(),
+    llm: fakeLlm('<msg>κοίτα</msg><gif>g1</gif>'),
+  });
   const { logs } = await withCapturedLogs(() => after.turns.runTurn(after.params));
-  assert.deepEqual(after.channel.sent.map((post) => post.content), [linked('κοίτα', 'd3'), 'https://tenor.com/view/chat-qui-danse-1'], 'one link per turn, on its first post');
+  assert.deepEqual(
+    after.channel.sent.map((post) => post.content),
+    [linked('κοίτα', 'd3'), 'https://tenor.com/view/chat-qui-danse-1'],
+    'one link per turn, on its first post'
+  );
   assert.equal('link' in logs.find((l) => l.msg === 'turn: gif sent'), false);
 });
 
 test('runTurn: a follow-up reply to a pulled line posts plain with its jump link', async () => {
-  const scene = pullScene({ features: { typingSimulation: false }, llm: fakeLlm('<msg reply="#3">ωραίο μπλε</msg><msg reply="#2">ναι</msg>') });
+  const scene = pullScene({
+    features: { typingSimulation: false },
+    llm: fakeLlm('<msg reply="#3">ωραίο μπλε</msg><msg reply="#2">ναι</msg>'),
+  });
 
-  const { result, logs } = await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'followUp' }));
+  const { result, logs } = await withCapturedLogs(() =>
+    scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'followUp' })
+  );
 
   assert.equal(result.outcome, 'spoke');
   assert.deepEqual(
@@ -4638,16 +6424,31 @@ test('runTurn: a follow-up reply to a pulled line posts plain with its jump link
       [linked('ωραίο μπλε', 'd1'), undefined],
       ['ναι', undefined],
     ],
-    'a follow-up quotes nothing, yet links the pulled line it answers',
+    'a follow-up quotes nothing, yet links the pulled line it answers'
   );
-  assert.deepEqual(logs.filter((l) => l.msg === 'turn: sent').map((l) => l.link ?? false), [true, false]);
+  assert.deepEqual(
+    logs.filter((l) => l.msg === 'turn: sent').map((l) => l.link ?? false),
+    [true, false]
+  );
 });
 
 test('runTurn: a chat author wins @name over a pulled author with the same display name', async () => {
-  const namesake = lineIn(DIARY, { id: 'd5', authorId: 'u7', authorName: 'Bob', ts: NOW - 3 * HOUR + 2 * MINUTE, content: 'κι εγώ' });
-  const scene = pullScene({ features: { typingSimulation: false, mentionHandles: false }, diary: { messages: [...diaryLines(), namesake] }, llm: fakeLlm('<msg>@Bob ναι</msg>') });
+  const namesake = lineIn(DIARY, {
+    id: 'd5',
+    authorId: 'u7',
+    authorName: 'Bob',
+    ts: NOW - 3 * HOUR + 2 * MINUTE,
+    content: 'κι εγώ',
+  });
+  const scene = pullScene({
+    features: { typingSimulation: false, mentionHandles: false },
+    diary: { messages: [...diaryLines(), namesake] },
+    llm: fakeLlm('<msg>@Bob ναι</msg>'),
+  });
 
-  await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
+  await withCapturedLogs(() =>
+    scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
+  );
 
   assert.ok(channelViewOf(scene.llm).includes('κι εγώ'), 'the namesake is shown');
   const [post] = scene.channel.sent;
@@ -4657,9 +6458,15 @@ test('runTurn: a chat author wins @name over a pulled author with the same displ
 
 test('runTurn: @name of an author whose pulled block the budget dropped stays text', async () => {
   const caps = { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000, pulled: 1 };
-  const scene = pullScene({ features: { typingSimulation: false, mentionHandles: false }, context: { caps }, llm: fakeLlm('<msg>@Éloïse γεια</msg>') });
+  const scene = pullScene({
+    features: { typingSimulation: false, mentionHandles: false },
+    context: { caps },
+    llm: fakeLlm('<msg>@Éloïse γεια</msg>'),
+  });
 
-  await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
+  await withCapturedLogs(() =>
+    scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
+  );
 
   assert.equal(channelViewOf(scene.llm), null, 'the block was cut');
   const [post] = scene.channel.sent;
@@ -4673,9 +6480,15 @@ function nicknameStore(extra = {}) {
 }
 
 test('runTurn: @name of a pulled author resolves by the stored nickname', async () => {
-  const scene = pullScene({ features: { typingSimulation: false, mentionHandles: false }, store: nicknameStore(), llm: fakeLlm('<msg>@Éloïse de Vaux ωραίο μπλε</msg>') });
+  const scene = pullScene({
+    features: { typingSimulation: false, mentionHandles: false },
+    store: nicknameStore(),
+    llm: fakeLlm('<msg>@Éloïse de Vaux ωραίο μπλε</msg>'),
+  });
 
-  await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
+  await withCapturedLogs(() =>
+    scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
+  );
 
   const [post] = scene.channel.sent;
   assert.equal(post.content, '<@u3> ωραίο μπλε', 'the longer stored name wins over the display name it starts with');
@@ -4683,9 +6496,15 @@ test('runTurn: @name of a pulled author resolves by the stored nickname', async 
 });
 
 test('runTurn: in dry-run the stored nickname of a pulled author resolves the same way', async () => {
-  const scene = pullScene({ features: { typingSimulation: false, dryRun: true, mentionHandles: false }, store: nicknameStore(), llm: fakeLlm('<msg>@Éloïse de Vaux ωραίο μπλε</msg>') });
+  const scene = pullScene({
+    features: { typingSimulation: false, dryRun: true, mentionHandles: false },
+    store: nicknameStore(),
+    llm: fakeLlm('<msg>@Éloïse de Vaux ωραίο μπλε</msg>'),
+  });
 
-  const { logs } = await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
+  const { logs } = await withCapturedLogs(() =>
+    scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
+  );
 
   assert.equal(scene.channel.sent.length, 0);
   assert.equal(logs.find((l) => l.msg === 'dry-run: would send').text, '<@u3> ωραίο μπλε');
@@ -4693,9 +6512,15 @@ test('runTurn: in dry-run the stored nickname of a pulled author resolves the sa
 
 test('runTurn: the stored name of a member the request did not show resolves through the fallback directory', async () => {
   const store = nicknameStore({ u9: { id: 'u9', names: ['Ταξιάρχης Μέγας'], character: 'ήσυχος' } });
-  const scene = pullScene({ features: { typingSimulation: false, mentionHandles: false }, store, llm: fakeLlm('<msg>@Ταξιάρχης Μέγας γεια</msg>') });
+  const scene = pullScene({
+    features: { typingSimulation: false, mentionHandles: false },
+    store,
+    llm: fakeLlm('<msg>@Ταξιάρχης Μέγας γεια</msg>'),
+  });
 
-  await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
+  await withCapturedLogs(() =>
+    scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
+  );
 
   const [post] = scene.channel.sent;
   assert.equal(post.content, '<@u9> γεια');
@@ -4705,9 +6530,16 @@ test('runTurn: the stored name of a member the request did not show resolves thr
 test('runTurn: the stored nickname of an author whose pulled block the budget dropped resolves through the fallback directory', async () => {
   // Her profile holds names only, so `<people>` has nothing to show of her either.
   const caps = { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000, pulled: 1 };
-  const scene = pullScene({ features: { typingSimulation: false, mentionHandles: false }, context: { caps }, store: nicknameStore(), llm: fakeLlm('<msg>@Éloïse de Vaux γεια</msg>') });
+  const scene = pullScene({
+    features: { typingSimulation: false, mentionHandles: false },
+    context: { caps },
+    store: nicknameStore(),
+    llm: fakeLlm('<msg>@Éloïse de Vaux γεια</msg>'),
+  });
 
-  await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
+  await withCapturedLogs(() =>
+    scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
+  );
 
   assert.equal(channelViewOf(scene.llm), null, 'the block was cut');
   const [post] = scene.channel.sent;
@@ -4718,9 +6550,15 @@ test('runTurn: the stored nickname of an author whose pulled block the budget dr
 test('runTurn: @name resolves by a stored name of a member <people> shows', async () => {
   // Bob speaks in the chat under his display name; the persona remembers him by another one.
   const store = fakeStore({ userProfiles: { u2: { id: 'u2', names: ['Bob', 'Roberto Sáenz'], character: 'ήρεμος' } } });
-  const scene = pullScene({ features: { typingSimulation: false, mentionHandles: false }, store, llm: fakeLlm('<msg>@Roberto Sáenz ναι</msg>') });
+  const scene = pullScene({
+    features: { typingSimulation: false, mentionHandles: false },
+    store,
+    llm: fakeLlm('<msg>@Roberto Sáenz ναι</msg>'),
+  });
 
-  await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
+  await withCapturedLogs(() =>
+    scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
+  );
 
   const [post] = scene.channel.sent;
   assert.equal(post.content, '<@u2> ναι');
@@ -4729,15 +6567,28 @@ test('runTurn: @name resolves by a stored name of a member <people> shows', asyn
 
 test('runTurn: a noticed turn whose source block the budget dropped posts no link', async () => {
   const caps = { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000, pulled: 1 };
-  const scene = pullScene({ mention: false, context: { caps }, features: { typingSimulation: false }, llm: fakeLlm('<msg>τι ωραίο χρώμα</msg>') });
+  const scene = pullScene({
+    mention: false,
+    context: { caps },
+    features: { typingSimulation: false },
+    llm: fakeLlm('<msg>τι ωραίο χρώμα</msg>'),
+  });
 
   const { result, logs } = await withCapturedLogs(() =>
-    scene.turns.runTurn({ channel: scene.channel, mode: 'auto', source: { channelId: DIARY, reason: 'noticed' }, chooseMode: () => 'interject' }),
+    scene.turns.runTurn({
+      channel: scene.channel,
+      mode: 'auto',
+      source: { channelId: DIARY, reason: 'noticed' },
+      chooseMode: () => 'interject',
+    })
   );
 
   assert.equal(result.outcome, 'spoke');
   assert.equal(channelViewOf(scene.llm), null, 'nothing of the source was shown');
-  assert.deepEqual(scene.channel.sent.map((post) => post.content), ['τι ωραίο χρώμα']);
+  assert.deepEqual(
+    scene.channel.sent.map((post) => post.content),
+    ['τι ωραίο χρώμα']
+  );
   assert.equal('link' in logs.find((l) => l.msg === 'turn: sent'), false);
 });
 
@@ -4757,14 +6608,24 @@ test('runTurn: a reaction on a pulled line whose channel is gone is dropped as n
     const scene = pullScene({ features: { typingSimulation: false, dryRun }, llm });
     guild = scene.channel.guild;
 
-    const { result, logs } = await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
+    const { result, logs } = await withCapturedLogs(() =>
+      scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
+    );
 
     assert.equal(result.outcome, 'spoke', `dryRun ${dryRun}`);
     assert.ok(channelViewOf(scene.llm), 'the channel was shown');
     assert.deepEqual([scene.other.reactCalls, scene.channel.reactCalls], [[], []], `dryRun ${dryRun}`);
     const dropped = logs.filter((l) => l.msg === 'turn: reaction dropped');
-    assert.deepEqual(dropped.map((l) => [l.channel, l.source, l.reason]), [['c1', DIARY, 'not-found']], `dryRun ${dryRun}`);
-    assert.equal(logs.some((l) => l.msg === 'dry-run: would react' || l.msg === 'turn: reaction failed'), false, `dryRun ${dryRun}`);
+    assert.deepEqual(
+      dropped.map((l) => [l.channel, l.source, l.reason]),
+      [['c1', DIARY, 'not-found']],
+      `dryRun ${dryRun}`
+    );
+    assert.equal(
+      logs.some((l) => l.msg === 'dry-run: would react' || l.msg === 'turn: reaction failed'),
+      false,
+      `dryRun ${dryRun}`
+    );
   }
 });
 
@@ -4779,17 +6640,27 @@ test('runTurn: labels.elsewhere.link is read at the moment of use; without it th
   scene.hot.prompts.labels = { ...withoutElsewhere, elsewhere: { called: elsewhere.called } };
   await run();
 
-  assert.deepEqual(scene.channel.sent.map((post) => post.content), [
-    `ναι [from ${diaryLink('d3')}]`,
-    `ναι -> ${diaryLink('d3')}`,
-    `ναι\n${diaryLink('d3')}`,
-  ]);
+  assert.deepEqual(
+    scene.channel.sent.map((post) => post.content),
+    [`ναι [from ${diaryLink('d3')}]`, `ναι -> ${diaryLink('d3')}`, `ναι\n${diaryLink('d3')}`]
+  );
 });
 
 test('runTurn: a message near the length limit is cut so its link still fits one Discord message', async () => {
   const long = `${'a'.repeat(1850)}${' :dance:'.repeat(5)}`;
   const scene = routedScene({ features: { typingSimulation: false }, llm: fakeLlm(`<msg>${long}</msg>`) });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: scene.hot, store: fakeStore(), llm: scene.llm, calibrator: identityCalibrator(), client: fakeClient(), emoji: fakeEmojiIndex(), imageFetcher: fakeImageFetcher(), now: () => NOW });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: scene.hot,
+    store: fakeStore(),
+    llm: scene.llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    emoji: fakeEmojiIndex(),
+    imageFetcher: fakeImageFetcher(),
+    now: () => NOW,
+  });
 
   const { result } = await withCapturedLogs(() => turns.runTurn(scene.params));
 
@@ -4817,7 +6688,9 @@ test('runTurn: a pulled channel gets its seen mark and its spokeSaw ids', async 
 test('runTurn: a pulled channel the bot can write in gets a seen mark but no spokeSaw ids', async () => {
   const scene = pullScene({ features: { typingSimulation: false } });
 
-  await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
+  await withCapturedLogs(() =>
+    scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
+  );
 
   assert.deepEqual(scene.store.state.data.elsewhereSeen, { [DIARY]: NOW - 3 * HOUR + MINUTE });
   assert.equal(scene.turns.spokeAfterSeeing(DIARY, 'd1'), false, 'a call written there is answered there');
@@ -4834,14 +6707,18 @@ test('runTurn: the seen mark follows the request sent: set on a skip, never for 
   // A channel the bot cannot write in, the one kind that gets spokeSaw ids: shown -> its ids,
   // cut by the budget -> none.
   const kept = pullScene({ diary: { readOnly: true } });
-  const shown = await withCapturedLogs(() => kept.turns.runTurn({ channel: kept.channel, mode: 'reply', trigger: kept.trigger, triggerKind: 'mention' }));
+  const shown = await withCapturedLogs(() =>
+    kept.turns.runTurn({ channel: kept.channel, mode: 'reply', trigger: kept.trigger, triggerKind: 'mention' })
+  );
   assert.equal(shown.result.outcome, 'spoke');
   assert.ok(channelViewOf(kept.llm), 'the control shows the block');
   assert.equal(kept.turns.spokeAfterSeeing(DIARY, 'd1'), true, 'the control records what it showed');
 
   const caps = { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000, pulled: 1 };
   const dropped = pullScene({ diary: { readOnly: true }, context: { caps } });
-  const cut = await withCapturedLogs(() => dropped.turns.runTurn({ channel: dropped.channel, mode: 'reply', trigger: dropped.trigger, triggerKind: 'mention' }));
+  const cut = await withCapturedLogs(() =>
+    dropped.turns.runTurn({ channel: dropped.channel, mode: 'reply', trigger: dropped.trigger, triggerKind: 'mention' })
+  );
   assert.equal(cut.result.outcome, 'spoke');
   assert.equal(dropped.other.fetches.length, 1, 'the channel was pulled');
   assert.equal(channelViewOf(dropped.llm), null, 'and its block cut by the budget');
@@ -4851,16 +6728,22 @@ test('runTurn: the seen mark follows the request sent: set on a skip, never for 
 
 test('runTurn: a dry-run routed turn acts nowhere, yet marks what it saw', async () => {
   const answer = '<react to="#2">🎉</react><react to="#1">👍</react><msg reply="#4">ναι, μπλε</msg>';
-  const scene = routedScene({ hot: fakeHot({ dryRun: true }, { dryRunChannelId: 'mirror1' }), client: mirrorClient([]), llm: fakeLlm(answer) });
+  const scene = routedScene({
+    hot: fakeHot({ dryRun: true }, { dryRunChannelId: 'mirror1' }),
+    client: mirrorClient([]),
+    llm: fakeLlm(answer),
+  });
 
   const { result } = await withCapturedLogs(() => scene.turns.runTurn(scene.params));
 
   assert.deepEqual([result.outcome, result.dryRun], ['spoke', true]);
-  assert.deepEqual([scene.other.reactCalls, scene.channel.reactCalls, scene.channel.sent, scene.other.sent], [[], [], [], []]);
+  assert.deepEqual(
+    [scene.other.reactCalls, scene.channel.reactCalls, scene.channel.sent, scene.other.sent],
+    [[], [], [], []]
+  );
   assert.deepEqual(scene.store.state.data.elsewhereSeen, { [DIARY]: NOW - 2 * MINUTE }, 'dry-run included');
   assert.equal(scene.turns.spokeAfterSeeing(DIARY, 'd3'), true);
 });
-
 
 test('runTurn: a routed turn that only reacts on its call counts as spoke', async () => {
   const scene = routedScene({ features: { typingSimulation: false }, llm: fakeLlm('<react to="#4">👍</react>') });
@@ -4899,7 +6782,11 @@ test('runTurn: a turn whose output never reached the chat reports delivered fals
   assert.ok(failed.logs.some((l) => l.msg === 'turn: reaction failed'));
 
   // A picture an image cap refused: it comes back to her as a result, and a turn that posted nothing delivered nothing.
-  const capped = routedScene({ hot: drawHot(), images: fakeImages({ error: imageCap('userDaily', 'image.maxPerUserPerDay', 3, 3) }), llm: sequenceLlm([toolAnswer('', [call('draw.create', { reply: '#1', text: 'a blue wall' })]), '<skip/>']) });
+  const capped = routedScene({
+    hot: drawHot(),
+    images: fakeImages({ error: imageCap('userDaily', 'image.maxPerUserPerDay', 3, 3) }),
+    llm: sequenceLlm([toolAnswer('', [call('draw.create', { reply: '#1', text: 'a blue wall' })]), '<skip/>']),
+  });
   const refused = await withCapturedLogs(() => capped.turns.runTurn(capped.params));
   assert.deepEqual([refused.result.outcome, refused.result.delivered], ['spoke', false]);
   assert.equal(capped.channel.sent.length, 0, 'no limit notice');
@@ -4907,7 +6794,11 @@ test('runTurn: a turn whose output never reached the chat reports delivered fals
   // A message or a picture reached the chat.
   const said = routedScene({ features: quiet });
   assert.equal((await withCapturedLogs(() => said.turns.runTurn(said.params))).result.delivered, true);
-  const drawn = routedScene({ hot: drawHot(), images: fakeImages(), llm: fakeLlm(toolAnswer('', [call('draw.create', { reply: '#1', text: 'a blue wall' })])) });
+  const drawn = routedScene({
+    hot: drawHot(),
+    images: fakeImages(),
+    llm: fakeLlm(toolAnswer('', [call('draw.create', { reply: '#1', text: 'a blue wall' })])),
+  });
   assert.equal((await withCapturedLogs(() => drawn.turns.runTurn(drawn.params))).result.delivered, true);
 });
 
@@ -4937,8 +6828,20 @@ function markedLines(logs) {
  */
 function ringedDiary(options = {}) {
   const calls = [
-    lineIn(DIARY, { id: 'e1', authorId: 'u4', authorName: 'Zoë', ts: NOW - 3 * HOUR - 10 * MINUTE, content: '@Bot είσαι εδώ;' }),
-    lineIn(DIARY, { id: 'e2', authorId: 'u5', authorName: 'Chloé', ts: NOW - 3 * HOUR - 5 * MINUTE, content: '@Bot καλημέρα' }),
+    lineIn(DIARY, {
+      id: 'e1',
+      authorId: 'u4',
+      authorName: 'Zoë',
+      ts: NOW - 3 * HOUR - 10 * MINUTE,
+      content: '@Bot είσαι εδώ;',
+    }),
+    lineIn(DIARY, {
+      id: 'e2',
+      authorId: 'u5',
+      authorName: 'Chloé',
+      ts: NOW - 3 * HOUR - 5 * MINUTE,
+      content: '@Bot καλημέρα',
+    }),
   ];
   const store = fakeStore();
   store.state.data.elsewherePings = calls.map(ringEntry);
@@ -4958,12 +6861,18 @@ test('runTurn: a turn that showed calls of a read-only channel stamps them: answ
     const scene = pullScene(ringedDiary({ features: quiet, llm: fakeLlm(answer) }));
     scene.store.findGif = gifStore().findGif;
 
-    const { result, logs } = await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
+    const { result, logs } = await withCapturedLogs(() =>
+      scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
+    );
 
     assert.equal(result.outcome, 'spoke', label);
     assert.ok(channelViewOf(scene.llm).includes('@Bot είσαι εδώ;'), label);
     assert.deepEqual(ringStates(scene.store), states, label);
-    assert.deepEqual(markedLines(logs), Object.entries(states).map(([id, status]) => [DIARY, id, status]), label);
+    assert.deepEqual(
+      markedLines(logs),
+      Object.entries(states).map(([id, status]) => [DIARY, id, status]),
+      label
+    );
     for (const entry of scene.store.state.data.elsewherePings) {
       assert.equal(entry.answeredAt ?? entry.skippedAt, NOW, `${label}: stamped at the turn's clock`);
     }
@@ -4971,16 +6880,30 @@ test('runTurn: a turn that showed calls of a read-only channel stamps them: answ
 
   // The reply to e1 posts in the chat with its jump link, never as a Discord reply across channels.
   const replied = pullScene(ringedDiary({ features: quiet, llm: fakeLlm('<msg reply="#3">ναι, εδώ είμαι</msg>') }));
-  await withCapturedLogs(() => replied.turns.runTurn({ channel: replied.channel, mode: 'reply', trigger: replied.trigger, triggerKind: 'mention' }));
-  assert.deepEqual(replied.channel.sent.map((post) => [post.content, post.reply]), [[linked('ναι, εδώ είμαι', 'e1'), undefined]]);
+  await withCapturedLogs(() =>
+    replied.turns.runTurn({ channel: replied.channel, mode: 'reply', trigger: replied.trigger, triggerKind: 'mention' })
+  );
+  assert.deepEqual(
+    replied.channel.sent.map((post) => [post.content, post.reply]),
+    [[linked('ναι, εδώ είμαι', 'e1'), undefined]]
+  );
 });
 
 test('runTurn: a turn that chose silence stamps the calls it showed skipped; a rehearsal, a dropped block or a writable channel stamps none', async () => {
   const silent = pullScene(ringedDiary({ llm: fakeLlm('<skip/>') }));
-  const skip = await withCapturedLogs(() => silent.turns.runTurn({ channel: silent.channel, mode: 'reply', trigger: silent.trigger, triggerKind: 'mention' }));
+  const skip = await withCapturedLogs(() =>
+    silent.turns.runTurn({ channel: silent.channel, mode: 'reply', trigger: silent.trigger, triggerKind: 'mention' })
+  );
   assert.equal(skip.result.outcome, 'skip');
-  assert.deepEqual(ringStates(silent.store), { e1: 'skipped', e2: 'skipped' }, 'she had them in view and chose silence');
-  assert.deepEqual(markedLines(skip.logs), [[DIARY, 'e1', 'skipped'], [DIARY, 'e2', 'skipped']]);
+  assert.deepEqual(
+    ringStates(silent.store),
+    { e1: 'skipped', e2: 'skipped' },
+    'she had them in view and chose silence'
+  );
+  assert.deepEqual(markedLines(skip.logs), [
+    [DIARY, 'e1', 'skipped'],
+    [DIARY, 'e2', 'skipped'],
+  ]);
 
   const caps = { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000, pulled: 1 };
   const cases = [
@@ -4989,11 +6912,17 @@ test('runTurn: a turn that chose silence stamps the calls it showed skipped; a r
     ['the block cut by the budget', ringedDiary({ context: { caps } }), 'spoke'],
     ['a skip whose block was cut', ringedDiary({ context: { caps }, llm: fakeLlm('<skip/>') }), 'skip'],
     // A call written where the bot can write is answered there, not by being shown here.
-    ['a writable channel', ringedDiary({ diary: { readOnly: false }, llm: fakeLlm('<msg reply="#3">ναι</msg>') }), 'spoke'],
+    [
+      'a writable channel',
+      ringedDiary({ diary: { readOnly: false }, llm: fakeLlm('<msg reply="#3">ναι</msg>') }),
+      'spoke',
+    ],
   ];
   for (const [label, options, outcome] of cases) {
     const scene = pullScene(options);
-    const { result, logs } = await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
+    const { result, logs } = await withCapturedLogs(() =>
+      scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
+    );
     assert.equal(result.outcome, outcome, label);
     assert.deepEqual(ringStates(scene.store), { e1: 'unanswered', e2: 'unanswered' }, label);
     assert.deepEqual(markedLines(logs), [], label);
@@ -5005,31 +6934,45 @@ test('runTurn: a turn that chose silence stamps the calls it showed skipped; a r
     paused.store.state.data.paused = true;
     return { text: '<msg reply="#3">ναι</msg>', usage: {}, estimated: 10 };
   };
-  const late = await withCapturedLogs(() => paused.turns.runTurn({ channel: paused.channel, mode: 'reply', trigger: paused.trigger, triggerKind: 'mention' }));
+  const late = await withCapturedLogs(() =>
+    paused.turns.runTurn({ channel: paused.channel, mode: 'reply', trigger: paused.trigger, triggerKind: 'mention' })
+  );
   assert.equal(late.result.outcome, 'spoke');
   assert.deepEqual(ringStates(paused.store), { e1: 'unanswered', e2: 'unanswered' });
 });
 
 test('runTurn: a routed turn stamps the other calls it showed and leaves its own call to its caller', async () => {
   // The diary in the request: #2 d1, #3 d2, #4 e1 (an earlier call by Zoë), #5 d3 (the routed call).
-  const earlier = lineIn(DIARY, { id: 'e1', authorId: 'u4', authorName: 'Zoë', ts: NOW - 4 * MINUTE, content: '@Bot είσαι εδώ;' });
+  const earlier = lineIn(DIARY, {
+    id: 'e1',
+    authorId: 'u4',
+    authorName: 'Zoë',
+    ts: NOW - 4 * MINUTE,
+    content: '@Bot είσαι εδώ;',
+  });
   for (const [label, answer, outcome, states] of [
     ['a reply to the earlier call', '<msg reply="#4">ναι, Zoë</msg>', 'spoke', { e1: 'answered', d3: 'unanswered' }],
     ['a reply to its own call', '<msg reply="#5">ναι</msg>', 'spoke', { e1: 'skipped', d3: 'unanswered' }],
     ['silence', '<skip/>', 'skip', { e1: 'skipped', d3: 'unanswered' }],
   ]) {
     const scene = routedScene({ features: { typingSimulation: false }, before: [earlier], llm: fakeLlm(answer) });
-    scene.store.state.data.elsewherePings = [ringEntry(earlier), ringEntry({ id: 'd3', createdTimestamp: NOW - 2 * MINUTE })];
+    scene.store.state.data.elsewherePings = [
+      ringEntry(earlier),
+      ringEntry({ id: 'd3', createdTimestamp: NOW - 2 * MINUTE }),
+    ];
 
     const { result, logs } = await withCapturedLogs(() => scene.turns.runTurn(scene.params));
 
     assert.equal(result.outcome, outcome, label);
-    assert.deepEqual(ringStates(scene.store), states, `${label}: the routed call is stamped by its caller (src/behavior/pipeline.js)`);
+    assert.deepEqual(
+      ringStates(scene.store),
+      states,
+      `${label}: the routed call is stamped by its caller (src/behavior/pipeline.js)`
+    );
     assert.deepEqual(markedLines(logs), [[DIARY, 'e1', states.e1]], label);
     assert.equal('sourceShownIds' in result, false, label);
   }
 });
-
 
 // --- <recent>: the recent lines a turn may show -------------------------------------------------
 
@@ -5046,7 +6989,13 @@ const STAFF_ROLE = '100000000000000099';
 function audienceGuild(guild) {
   const everyone = { id: guild.id };
   const staff = { id: STAFF_ROLE };
-  guild.roles = { everyone, cache: new Map([[everyone.id, everyone], [staff.id, staff]]) };
+  guild.roles = {
+    everyone,
+    cache: new Map([
+      [everyone.id, everyone],
+      [staff.id, staff],
+    ]),
+  };
   const room = (id, name, viewers) =>
     guild.channels.cache.set(id, {
       id,
@@ -5055,7 +7004,9 @@ function audienceGuild(guild) {
       isTextBased: () => true,
       isThread: () => false,
       permissionsFor: (target) =>
-        target === guild.members.me ? { has: () => true } : { has: (flag) => flag === PermissionFlagsBits.ViewChannel && viewers.includes(target?.id) },
+        target === guild.members.me
+          ? { has: () => true }
+          : { has: (flag) => flag === PermissionFlagsBits.ViewChannel && viewers.includes(target?.id) },
     });
   room(OPEN_ROOM, 'open', [everyone.id, staff.id]);
   room(STAFF_ROOM, 'staff', [staff.id]);
@@ -5093,29 +7044,66 @@ test("turn: <recent> shows this channel's lines and those of channels everyone h
   audienceGuild(channel.guild);
   const store = recentStore(threeRooms(), { channels: [{ id: OPEN_ROOM, name: 'open' }] });
   const llm = fakeLlm('<skip/>');
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot(), store, llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: fakeHot(),
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    now: () => NOW,
+  });
 
-  const { result } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
+  const { result } = await withCapturedLogs(() =>
+    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' })
+  );
 
   assert.equal(result.outcome, 'skip');
   const text = userText(llm);
   const recent = text.split('<recent>\n')[1].split('\n</recent>')[0];
   assert.ok(recent.includes('εδώ το πρωί'), "this channel's line");
   const at = NOW - 2 * HOUR;
-  const openLine = fill(labels.recent.lineIn, { date: formatDate(at, 'UTC', labels.locale), time: formatClock(at, 'UTC', labels.locale), channel: 'open', text: 'στην αυλή' });
+  const openLine = fill(labels.recent.lineIn, {
+    date: formatDate(at, 'UTC', labels.locale),
+    time: formatClock(at, 'UTC', labels.locale),
+    channel: 'open',
+    text: 'στην αυλή',
+  });
   assert.ok(recent.includes(openLine), 'named by its channel');
   assert.ok(!text.includes('στο γραφείο'), 'a channel only the staff can read never reaches #general');
 
   // In #staff, whose readers can all read #general and #open, all three are shown.
-  const staffChannel = { ...fakeTurnChannel({ id: STAFF_ROOM, historyMessages: [{ ...raw, channelId: STAFF_ROOM }] }), guild: channel.guild };
+  const staffChannel = {
+    ...fakeTurnChannel({ id: STAFF_ROOM, historyMessages: [{ ...raw, channelId: STAFF_ROOM }] }),
+    guild: channel.guild,
+  };
   staffChannel.permissionsFor = channel.guild.channels.cache.get(STAFF_ROOM).permissionsFor;
   const staffLlm = fakeLlm('<skip/>');
-  const staffTurns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot(), store, llm: staffLlm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
+  const staffTurns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: fakeHot(),
+    store,
+    llm: staffLlm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    now: () => NOW,
+  });
   registerTextChannel(channel);
   await withCapturedLogs(() =>
-    staffTurns.runTurn({ channel: staffChannel, mode: 'reply', trigger: { ...normalizedTrigger(raw), channelId: STAFF_ROOM }, triggerKind: 'mention' }),
+    staffTurns.runTurn({
+      channel: staffChannel,
+      mode: 'reply',
+      trigger: { ...normalizedTrigger(raw), channelId: STAFF_ROOM },
+      triggerKind: 'mention',
+    })
   );
-  assert.ok(userText(staffLlm).includes('στο γραφείο') && userText(staffLlm).includes('στην αυλή') && userText(staffLlm).includes('εδώ το πρωί'));
+  assert.ok(
+    userText(staffLlm).includes('στο γραφείο') &&
+      userText(staffLlm).includes('στην αυλή') &&
+      userText(staffLlm).includes('εδώ το πρωί')
+  );
 });
 
 test('turn: a private chat shows only the recent lines of channels everyone on the server can read', async () => {
@@ -5127,9 +7115,26 @@ test('turn: a private chat shows only the recent lines of channels everyone on t
   const store = recentStore(threeRooms());
   const llm = fakeLlm('<skip/>');
   const client = fakeClient({ guilds: { cache: new Map([[guild.id, guild]]) } });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot(), store, llm, calibrator: identityCalibrator(), client, now: () => NOW });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: fakeHot(),
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client,
+    now: () => NOW,
+  });
 
-  await withCapturedLogs(() => turns.runTurn({ channel: dm, guildId: guild.id, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'private' }));
+  await withCapturedLogs(() =>
+    turns.runTurn({
+      channel: dm,
+      guildId: guild.id,
+      mode: 'reply',
+      trigger: normalizedTrigger(raw),
+      triggerKind: 'private',
+    })
+  );
 
   const text = userText(llm);
   assert.ok(text.includes('εδώ το πρωί') && text.includes('στην αυλή'), 'channels every member can read');
@@ -5137,11 +7142,38 @@ test('turn: a private chat shows only the recent lines of channels everyone on t
 
   // A role denied on #open hides it from some members: it is no longer every member's.
   guild.channels.cache.get(OPEN_ROOM).permissionOverwrites = {
-    cache: new Map([[STAFF_ROLE, { id: STAFF_ROLE, type: 0, allow: { has: () => false }, deny: { has: (flag) => flag === PermissionFlagsBits.ViewChannel } }]]),
+    cache: new Map([
+      [
+        STAFF_ROLE,
+        {
+          id: STAFF_ROLE,
+          type: 0,
+          allow: { has: () => false },
+          deny: { has: (flag) => flag === PermissionFlagsBits.ViewChannel },
+        },
+      ],
+    ]),
   };
   const deniedLlm = fakeLlm('<skip/>');
-  const denied = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot(), store, llm: deniedLlm, calibrator: identityCalibrator(), client, now: () => NOW });
-  await withCapturedLogs(() => denied.runTurn({ channel: dm, guildId: guild.id, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'private' }));
+  const denied = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: fakeHot(),
+    store,
+    llm: deniedLlm,
+    calibrator: identityCalibrator(),
+    client,
+    now: () => NOW,
+  });
+  await withCapturedLogs(() =>
+    denied.runTurn({
+      channel: dm,
+      guildId: guild.id,
+      mode: 'reply',
+      trigger: normalizedTrigger(raw),
+      triggerKind: 'private',
+    })
+  );
   assert.ok(userText(deniedLlm).includes('εδώ το πρωί') && !userText(deniedLlm).includes('στην αυλή'));
 });
 
@@ -5149,7 +7181,16 @@ test('turn: with no live line <recent> still shows the moments of the last hours
   const nikos = {
     id: 'u9',
     names: ['Nikos'],
-    episodes: [{ date: '2026-09-19', what: 'η στιγμή του Nikos', quote: '', feeling: '', weight: 3, addedAt: new Date(NOW - 20 * HOUR).toISOString() }],
+    episodes: [
+      {
+        date: '2026-09-19',
+        what: 'η στιγμή του Nikos',
+        quote: '',
+        feeling: '',
+        weight: 3,
+        addedAt: new Date(NOW - 20 * HOUR).toISOString(),
+      },
+    ],
   };
   const run = async (lines) => {
     const raw = rawMessage({ id: 'm1' });
@@ -5157,13 +7198,31 @@ test('turn: with no live line <recent> still shows the moments of the last hours
     audienceGuild(channel.guild);
     const llm = fakeLlm('<skip/>');
     const store = recentStore(lines, { userProfiles: { u9: nikos } });
-    const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot(), store, llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
-    const { logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
+    const turns = createTurnRunner({
+      discord: DISCORD,
+      createPort: createDiscordAdapter,
+      hot: fakeHot(),
+      store,
+      llm,
+      calibrator: identityCalibrator(),
+      client: fakeClient(),
+      now: () => NOW,
+    });
+    const { logs } = await withCapturedLogs(() =>
+      turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' })
+    );
     return { text: userText(llm), logs };
   };
   const quiet = await run([]);
-  const moment = fill(labels.recent.episode, { date: formatDate(Date.parse('2026-09-19T12:00:00Z'), 'UTC', labels.locale), name: 'Nikos', what: 'η στιγμή του Nikos' });
-  assert.ok(quiet.text.includes(`<recent>\n${fill(labels.recent.header, { hours: 72 })}\n${moment}\n</recent>`), 'an empty store still shows the moments');
+  const moment = fill(labels.recent.episode, {
+    date: formatDate(Date.parse('2026-09-19T12:00:00Z'), 'UTC', labels.locale),
+    name: 'Nikos',
+    what: 'η στιγμή του Nikos',
+  });
+  assert.ok(
+    quiet.text.includes(`<recent>\n${fill(labels.recent.header, { hours: 72 })}\n${moment}\n</recent>`),
+    'an empty store still shows the moments'
+  );
 
   const staffOnly = await run([threeRooms()[2]]);
   assert.equal(staffOnly.text, quiet.text, 'a line only #staff can read neither switches the moments on nor off');
@@ -5175,15 +7234,29 @@ test('turn: features.recent false, memory off or a store without the recent stor
     const channel = fakeTurnChannel({ historyMessages: [raw] });
     audienceGuild(channel.guild);
     const llm = fakeLlm('<skip/>');
-    const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot(features), store, llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
-    const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
+    const turns = createTurnRunner({
+      discord: DISCORD,
+      createPort: createDiscordAdapter,
+      hot: fakeHot(features),
+      store,
+      llm,
+      calibrator: identityCalibrator(),
+      client: fakeClient(),
+      now: () => NOW,
+    });
+    const { result, logs } = await withCapturedLogs(() =>
+      turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' })
+    );
     return { result, logs, sent: llm.calls[0] };
   };
   const before = await run({ store: fakeStore() });
   assert.equal(before.result.outcome, 'skip', 'a store without getRecent never breaks a turn');
   assert.ok(!userTextOf(before.sent).includes('<recent>'));
 
-  for (const [label, features] of [['recent off', { recent: false }], ['memory off', { memory: false }]]) {
+  for (const [label, features] of [
+    ['recent off', { recent: false }],
+    ['memory off', { memory: false }],
+  ]) {
     const store = recentStore(threeRooms());
     const { result, logs, sent } = await run({ store, features });
     assert.equal(result.outcome, 'skip', label);
@@ -5215,7 +7288,10 @@ test('turn: features.recent false, memory off or a store without the recent stor
 /** Makes #open and #staff of audienceGuild active neighbours (a fresh line each), recording their fetches. */
 function activeRooms(guild) {
   const fetched = [];
-  for (const [id, text] of [[OPEN_ROOM, 'στην αυλή τώρα'], [STAFF_ROOM, 'στο γραφείο τώρα']]) {
+  for (const [id, text] of [
+    [OPEN_ROOM, 'στην αυλή τώρα'],
+    [STAFF_ROOM, 'στο γραφείο τώρα'],
+  ]) {
     const room = guild.channels.cache.get(id);
     const line = lineIn(id, { id: `${id}-1`, authorId: 'u5', authorName: 'Inès', ts: NOW - 2 * MINUTE, content: text });
     Object.assign(room, {
@@ -5246,9 +7322,20 @@ test('runTurn: a neighbour whose audience the channel does not cover is left out
     ],
   });
   const llm = fakeLlm('<skip/>');
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot(), store, llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: fakeHot(),
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    now: () => NOW,
+  });
 
-  const { logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
+  const { logs } = await withCapturedLogs(() =>
+    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' })
+  );
 
   const text = userText(llm);
   assert.ok(text.includes('στην αυλή τώρα'), 'the covered neighbour is shown');
@@ -5264,9 +7351,17 @@ test('usableDestination: the dry-run mirror or a channel the bot cannot read is 
   const general = registerTextChannel(fakeTurnChannel());
   const hall = addChannel(general, { id: 'c6', name: 'hall' });
   const config = { bot: { dryRunChannelId: 'c1' }, features: {}, memory: { mainChannelIds: ['c1', 'c6'] } };
-  assert.equal(usableDestination(general.guild, config, { discord: DISCORD }).channel, hall, 'the mirror is passed over');
+  assert.equal(
+    usableDestination(general.guild, config, { discord: DISCORD }).channel,
+    hall,
+    'the mirror is passed over'
+  );
   hall.permissionsFor = () => ({ has: (flag) => flag !== PermissionFlagsBits.ReadMessageHistory });
-  assert.deepEqual(usableDestination(general.guild, config, { discord: DISCORD }), { channel: null, reason: 'no-destination' }, 'unreadable: not usable');
+  assert.deepEqual(
+    usableDestination(general.guild, config, { discord: DISCORD }),
+    { channel: null, reason: 'no-destination' },
+    'unreadable: not usable'
+  );
 });
 
 /**
@@ -5275,13 +7370,26 @@ test('usableDestination: the dry-run mirror or a channel the bot cannot read is 
  */
 async function followUpTurn({ features = {}, answer = '<msg>ένα</msg><msg>δύο</msg>', configure } = {}) {
   const raw = rawMessage({ id: 'm1' });
-  const channel = fakeTurnChannel({ historyMessages: [rawMessage({ id: 'm0', ts: NOW - 5000, authorId: 'u2', authorName: 'Bob' }), raw] });
+  const channel = fakeTurnChannel({
+    historyMessages: [rawMessage({ id: 'm0', ts: NOW - 5000, authorId: 'u2', authorName: 'Bob' }), raw],
+  });
   const store = fakeStore();
   const hot = fakeHot({ typingSimulation: false, ...features });
   const llm = typeof answer === 'function' ? { complete: answer } : fakeLlm(answer);
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    now: () => NOW,
+  });
   configure?.({ channel, store, hot });
-  const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'followUp' }));
+  const { result, logs } = await withCapturedLogs(() =>
+    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'followUp' })
+  );
   return { result, logs, channel, store, turns };
 }
 
@@ -5297,7 +7405,11 @@ test('runTurn: a second message that fails to send ends the turn as spoke with w
     },
   });
   assert.deepEqual({ outcome: result.outcome, delivered: result.delivered }, { outcome: 'spoke', delivered: true });
-  assert.deepEqual(channel.sent.map((payload) => payload.content), ['ένα'], 'nothing after the failed message');
+  assert.deepEqual(
+    channel.sent.map((payload) => payload.content),
+    ['ένα'],
+    'nothing after the failed message'
+  );
   const failed = logs.find((entry) => entry.msg === 'turn: send failed');
   assert.deepEqual([failed.level, failed.channel, failed.index], ['warn', 'c1', 1]);
   assert.equal(turns.spokeAfterSeeing('c1', 'm1'), true, 'the turn noted what it had in view');
@@ -5305,7 +7417,9 @@ test('runTurn: a second message that fails to send ends the turn as spoke with w
 
 test('runTurn: a message that fails to send ends the turn partial with a sendFailed fact (its code, how many of how many went out), kept for her next request there', async () => {
   const raw = rawMessage({ id: 'm1' });
-  const channel = fakeTurnChannel({ historyMessages: [rawMessage({ id: 'm0', ts: NOW - 5000, authorId: 'u2', authorName: 'Bob' }), raw] });
+  const channel = fakeTurnChannel({
+    historyMessages: [rawMessage({ id: 'm0', ts: NOW - 5000, authorId: 'u2', authorName: 'Bob' }), raw],
+  });
   const send = channel.send;
   channel.send = async (payload) => {
     if (payload.content === 'δύο') throw new Error('fixture: Missing Permissions');
@@ -5313,11 +7427,25 @@ test('runTurn: a message that fails to send ends the turn partial with a sendFai
   };
   const store = fakeStore();
   const hot = fakeHot({ typingSimulation: false });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm: fakeLlm('<msg>ένα</msg><msg>δύο</msg><msg>τρία</msg>'), calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm: fakeLlm('<msg>ένα</msg><msg>δύο</msg><msg>τρία</msg>'),
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    now: () => NOW,
+  });
   const source = createLocalFacts({ now: () => NOW });
   turns.setFactsSource(source);
-  const { result } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'followUp' }));
-  assert.deepEqual({ outcome: result.outcome, delivered: result.delivered, partial: result.partial }, { outcome: 'spoke', delivered: true, partial: true });
+  const { result } = await withCapturedLogs(() =>
+    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'followUp' })
+  );
+  assert.deepEqual(
+    { outcome: result.outcome, delivered: result.delivered, partial: result.partial },
+    { outcome: 'spoke', delivered: true, partial: true }
+  );
   const [fact] = source.pending(null, { channelId: 'c1', privateChat: false });
   assert.equal(fact.kind, 'sendFailed');
   assert.deepEqual([fact.n, fact.total], [1, 3]);
@@ -5340,37 +7468,68 @@ test('runTurn: a first message that fails to send ends spoke with nothing delive
 });
 
 test('runTurn: a post that grew past 2000 characters once its mentions expanded is cut to fit, never inside a mention', async () => {
-  const { channel } = await followUpTurn({ features: { mentionHandles: false }, answer: `<msg>${'α'.repeat(1880)} @Bob @Bob @Bob @Bob</msg>` });
+  const { channel } = await followUpTurn({
+    features: { mentionHandles: false },
+    answer: `<msg>${'α'.repeat(1880)} @Bob @Bob @Bob @Bob</msg>`,
+  });
   const [payload] = channel.sent;
   assert.ok([...payload.content].length <= 2000, String([...payload.content].length));
   assert.ok(payload.content.lastIndexOf('<') <= payload.content.lastIndexOf('>'), 'no half mention at the end');
   assert.ok(payload.content.includes('<@u2>'), 'the mentions that fit stay');
 });
 
-
 test('runTurn: a reaction stamps no lastPostAt, in a dry run or for real', async () => {
   const raw = rawMessage({ id: 'm1', authorName: 'Élodie' });
   const channel = fakeTurnChannel({ id: 'c1', name: 'general', historyMessages: [raw] });
   const hot = fakeHot({ dryRun: true });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm: fakeLlm('<react to="#1">👍</react>'), calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
-  await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store: fakeStore(),
+    llm: fakeLlm('<react to="#1">👍</react>'),
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    now: () => NOW,
+  });
+  await withCapturedLogs(() =>
+    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' })
+  );
   assert.equal(turns.lastPostAt('c1'), 0);
 
   const real = fakeTurnChannel({ id: 'c1', name: 'general', historyMessages: [raw] });
-  const live = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({ typingSimulation: false }), store: fakeStore(), llm: fakeLlm('<react to="#1">👍</react>'), calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
-  await withCapturedLogs(() => live.runTurn({ channel: real, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
+  const live = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: fakeHot({ typingSimulation: false }),
+    store: fakeStore(),
+    llm: fakeLlm('<react to="#1">👍</react>'),
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    now: () => NOW,
+  });
+  await withCapturedLogs(() =>
+    live.runTurn({ channel: real, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' })
+  );
   assert.equal(real.reactCalls.length, 1);
   assert.equal(live.lastPostAt('c1'), 0);
 });
 
 test('runTurn: the search classifier is not asked when no web slot is left today', async () => {
-  for (const [left, asked] of [[0, 0], [3, 1]]) {
+  for (const [left, asked] of [
+    [0, 0],
+    [3, 1],
+  ]) {
     const llm = lookupLlm('champions final winner 2026');
     const lookup = { ...fakeLookup(), webCapLeft: () => left };
     const { logs } = await withCapturedLogs(() => runLookupTurn({ llm, lookup }));
     assert.equal(llm.classifierCalls.length, asked, String(left));
     assert.equal(lookup.searchCalls.length, asked, String(left));
-    assert.equal(logs.some((entry) => entry.msg === 'lookup: skipped' && entry.reason === 'cap'), !asked, String(left));
+    assert.equal(
+      logs.some((entry) => entry.msg === 'lookup: skipped' && entry.reason === 'cap'),
+      !asked,
+      String(left)
+    );
   }
 });
 
@@ -5386,7 +7545,10 @@ test('runTurn: the re-watch classifier is not asked when no video slot is left; 
   const quiet = await withCapturedLogs(() => runRewatch({ describer: noQuestions }));
   assert.equal(quiet.result.llm.classifierCalls.length, 0, 'no retry possible, no question allowed');
 
-  const retry = fakeRewatchDescriber({ va: { state: 'watched', text: 'ένα αυτοκίνητο περνά' }, vb: { state: 'error', reason: 'fetch' } });
+  const retry = fakeRewatchDescriber({
+    va: { state: 'watched', text: 'ένα αυτοκίνητο περνά' },
+    vb: { state: 'error', reason: 'fetch' },
+  });
   retry.describeVideo = async () => null;
   retry.videoCapsLeft = () => ({ video: 5, rewatch: 0 });
   const scene = rewatchScene();
@@ -5395,7 +7557,11 @@ test('runTurn: the re-watch classifier is not asked when no video slot is left; 
   const offered = await withCapturedLogs(() => runRewatch({ describer: retry, scene, llm: rewatchLlm('none') }));
   const [call] = offered.result.llm.classifierCalls;
   const videos = textOf(call.messages[1].content).split('<media>\n')[1].split('\n</media>')[0];
-  assert.deepEqual(videos.split('\n').map((line) => line.split(' | ')[2]), ['broken.mp4'], 'only the video that did not load');
+  assert.deepEqual(
+    videos.split('\n').map((line) => line.split(' | ')[2]),
+    ['broken.mp4'],
+    'only the video that did not load'
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -5438,7 +7604,13 @@ async function settleUntil(done = () => false, rounds = 50) {
 }
 
 // The pace every test below sets for itself; a test passing its own `pace` overrides single keys.
-const TEST_PACE = { prepareMs: 1000, prepareSearchMs: 3000, dropAfterMs: 0, replyHedgeMs: 0, typingWhilePreparing: false };
+const TEST_PACE = {
+  prepareMs: 1000,
+  prepareSearchMs: 3000,
+  dropAfterMs: 0,
+  replyHedgeMs: 0,
+  typingWhilePreparing: false,
+};
 
 function paceHot(features = {}, pace = {}) {
   const hot = lookupHot({ mediaDescriptions: true, ...features });
@@ -5451,11 +7623,20 @@ function paceHot(features = {}, pace = {}) {
  * describer's caption and the lookup's read answer once `caption` / `read` (deferreds) settle,
  * at once without them; the lookup has no search, so no classifier runs.
  */
-function paceScene({ hot = paceHot(), caption = null, read = null, clock = () => NOW, llm = fakeLlm('<msg>ok</msg>'), timers = fakeSchedule() } = {}) {
+function paceScene({
+  hot = paceHot(),
+  caption = null,
+  read = null,
+  clock = () => NOW,
+  llm = fakeLlm('<msg>ok</msg>'),
+  timers = fakeSchedule(),
+} = {}) {
   const picture = rawMessage({
     id: 'm1',
     ts: NOW - 9000,
-    attachments: new Map([['img1', { id: 'img1', contentType: 'image/png', name: 'pic.png', url: 'https://cdn/pic.png' }]]),
+    attachments: new Map([
+      ['img1', { id: 'img1', contentType: 'image/png', name: 'pic.png', url: 'https://cdn/pic.png' }],
+    ]),
   });
   const link = linkRaw('m2', NOW - 5000, [PAGE_EMBED]);
   const trigger = rawMessage({ id: 'm3', ts: NOW - 1000, authorName: 'Zoë', content: 'τι λες;' });
@@ -5476,7 +7657,19 @@ function paceScene({ hot = paceHot(), caption = null, read = null, clock = () =>
       return { reads: new Map([['m2#e0', 'une recette']]), newCount: 1 };
     },
   };
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), describer, lookup, now: clock, schedule: timers.schedule });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    describer,
+    lookup,
+    now: clock,
+    schedule: timers.schedule,
+  });
   const params = { channel, mode: 'reply', trigger: normalizedTrigger(trigger), triggerKind: 'mention' };
   return { turns, params, channel, llm, describer, lookup, timers };
 }
@@ -5500,23 +7693,47 @@ test('paceSettings: 0, a negative value or a non-number turns a limit off; a mis
   for (const off of [0, -5, '500', null, Number.NaN, Infinity]) {
     assert.equal(paceSettings({ pace: { replyHedgeMs: off } }).replyHedgeMs, null, String(off));
   }
-  assert.deepEqual(paceSettings({ pace: { prepareMs: 2500, prepareSearchMs: 7000, prepareMediaMs: 8000, dropAfterMs: 9000, replyHedgeMs: 4000, typingWhilePreparing: false, unpromptedWaits: false, settleMs: 3000, settleMaxMs: 9000 } }), {
-    prepareMs: 2500,
-    prepareSearchMs: 7000,
-    prepareMediaMs: 8000,
-    dropAfterMs: 9000,
-    replyHedgeMs: 4000,
-    typingWhilePreparing: false,
-    unpromptedWaits: false,
-    settleMs: 3000,
-    settleMaxMs: 9000,
-  });
+  assert.deepEqual(
+    paceSettings({
+      pace: {
+        prepareMs: 2500,
+        prepareSearchMs: 7000,
+        prepareMediaMs: 8000,
+        dropAfterMs: 9000,
+        replyHedgeMs: 4000,
+        typingWhilePreparing: false,
+        unpromptedWaits: false,
+        settleMs: 3000,
+        settleMaxMs: 9000,
+      },
+    }),
+    {
+      prepareMs: 2500,
+      prepareSearchMs: 7000,
+      prepareMediaMs: 8000,
+      dropAfterMs: 9000,
+      replyHedgeMs: 4000,
+      typingWhilePreparing: false,
+      unpromptedWaits: false,
+      settleMs: 3000,
+      settleMaxMs: 9000,
+    }
+  );
   assert.deepEqual(paceSettings({ pace: 'fast' }), missing, 'a group that is not an object counts as missing');
 });
 
 // pace.settleMs: a turn answering a person waits, once it holds the attention, until that
 // person has been quiet for settleMs, so a thought posted as several quick messages is read whole.
-const SETTLE_PACE = { prepareMs: 0, prepareSearchMs: 0, prepareMediaMs: 0, dropAfterMs: 0, replyHedgeMs: 0, typingWhilePreparing: false, unpromptedWaits: true, settleMaxMs: 15000 };
+const SETTLE_PACE = {
+  prepareMs: 0,
+  prepareSearchMs: 0,
+  prepareMediaMs: 0,
+  dropAfterMs: 0,
+  replyHedgeMs: 0,
+  typingWhilePreparing: false,
+  unpromptedWaits: true,
+  settleMaxMs: 15000,
+};
 
 /** A reply scene whose `schedule` moves the clock by each delay and fires at once; history fetches are timed. */
 function settleScene({ settleMs, activity }) {
@@ -5538,7 +7755,18 @@ function settleScene({ settleMs, activity }) {
     return () => {};
   };
   const hot = fakeHot({}, {}, { pace: { ...SETTLE_PACE, settleMs } });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm: fakeLlm('<msg>ok</msg>'), calibrator: identityCalibrator(), client: fakeClient(), now: () => clock.t, schedule, activity });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store: fakeStore(),
+    llm: fakeLlm('<msg>ok</msg>'),
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    now: () => clock.t,
+    schedule,
+    activity,
+  });
   return { turns, channel, raw, fetchedAt, waits };
 }
 
@@ -5562,12 +7790,20 @@ test('runTurn: with pace.settleMs the history is read only once the author has b
   };
   const scene = settleScene({ settleMs: 4000, activity });
   const { result, logs } = await withCapturedLogs(() =>
-    scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: normalizedTrigger(scene.raw), triggerKind: 'mention' }),
+    scene.turns.runTurn({
+      channel: scene.channel,
+      mode: 'reply',
+      trigger: normalizedTrigger(scene.raw),
+      triggerKind: 'mention',
+    })
   );
 
   assert.equal(result.outcome, 'spoke');
   // Quiet from NOW - 250 for 4000 ms: the history is read at NOW + 3750, after every pause.
-  assert.equal(scene.waits.reduce((sum, ms) => sum + ms, 0), 3750);
+  assert.equal(
+    scene.waits.reduce((sum, ms) => sum + ms, 0),
+    3750
+  );
   assert.ok(scene.waits.length > 1 && scene.waits.every((ms) => ms > 0 && ms <= 250), String(scene.waits));
   assert.deepEqual(scene.fetchedAt.slice(0, 1), [NOW + 3750]);
   const timings = logs.find((l) => l.msg === 'turn: timings');
@@ -5584,7 +7820,13 @@ test('runTurn: settle off, no tracker or no author to wait for -- no pause befor
   ]) {
     const scene = settleScene({ settleMs, activity });
     const { logs } = await withCapturedLogs(() =>
-      scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: normalizedTrigger(scene.raw), triggerKind: 'mention', ...params }),
+      scene.turns.runTurn({
+        channel: scene.channel,
+        mode: 'reply',
+        trigger: normalizedTrigger(scene.raw),
+        triggerKind: 'mention',
+        ...params,
+      })
     );
     assert.deepEqual(scene.waits, [], name);
     assert.deepEqual(scene.fetchedAt.slice(0, 1), [NOW], name);
@@ -5626,7 +7868,10 @@ test('runTurn: with every helper in time the request is the one built without a 
   const user = userText(withDeadline.llm);
   assert.ok(user.includes(CAPTION_SHOWN) && user.includes(READ_SHOWN), user);
   assert.deepEqual(logs.find((l) => l.msg === 'turn: timings').late, []);
-  assert.ok(withDeadline.timers.timers.every((timer) => timer.cancelled && !timer.fired), 'the deadline is cleared once everything is in');
+  assert.ok(
+    withDeadline.timers.timers.every((timer) => timer.cancelled && !timer.fired),
+    'the deadline is cleared once everything is in'
+  );
 });
 
 test('runTurn: a helper past pace.prepareMs is left out and named in late; its late result changes nothing', async () => {
@@ -5657,7 +7902,7 @@ test('runTurn: a helper past pace.prepareMs is left out and named in late; its l
   assert.equal(scene.channel.sent.length, 1);
   assert.deepEqual(
     after.filter((l) => l.msg === 'turn: stage late').map((l) => [l.stage, typeof l.ms]),
-    [['captions', 'number']],
+    [['captions', 'number']]
   );
 });
 
@@ -5719,7 +7964,10 @@ const UNHURRIED_TURNS = [
 for (const [name, paramsOf] of UNHURRIED_TURNS) {
   test(`runTurn: ${name} with pace.unpromptedWaits on has no deadline and no bar -- it waits for a slow helper`, async () => {
     const caption = deferred();
-    const scene = paceScene({ caption, hot: paceHot({}, { prepareMs: 1000, prepareSearchMs: 3000, dropAfterMs: 5000, unpromptedWaits: true }) });
+    const scene = paceScene({
+      caption,
+      hot: paceHot({}, { prepareMs: 1000, prepareSearchMs: 3000, dropAfterMs: 5000, unpromptedWaits: true }),
+    });
 
     const running = withCapturedLogs(() => scene.turns.runTurn(paramsOf(scene)));
     await settleUntil(() => scene.describer.calls > 0);
@@ -5794,9 +8042,22 @@ test('runTurn: a search the classifier asks for moves the deadline to pace.prepa
   const timers = fakeSchedule();
   const trigger = rawMessage({ id: 'm1', ts: NOW - 1000, authorName: 'Zoë', content: 'ποιος κέρδισε τον τελικό;' });
   const channel = fakeTurnChannel({ historyMessages: [trigger] });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), lookup, now: () => t, schedule: timers.schedule });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    lookup,
+    now: () => t,
+    schedule: timers.schedule,
+  });
 
-  const running = withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(trigger), triggerKind: 'mention' }));
+  const running = withCapturedLogs(() =>
+    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(trigger), triggerKind: 'mention' })
+  );
   await settleUntil(() => timers.timers.length > 1);
   const [first, second] = timers.timers;
   assert.equal(first.ms, TEST_PACE.prepareMs);
@@ -5832,7 +8093,18 @@ function slowClassifierScene(classifierText, verdict) {
   const timers = fakeSchedule();
   const trigger = rawMessage({ id: 'm1', ts: NOW - 1000, authorName: 'Zoë', content: 'ποιος κέρδισε τον τελικό;' });
   const channel = fakeTurnChannel({ historyMessages: [trigger] });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), lookup, now: () => clock.t, schedule: timers.schedule });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    lookup,
+    now: () => clock.t,
+    schedule: timers.schedule,
+  });
   const params = { channel, mode: 'reply', trigger: normalizedTrigger(trigger), triggerKind: 'mention' };
   return { clock, base, timers, turns, params };
 }
@@ -5849,7 +8121,11 @@ async function pastBaseDeadline(scene) {
   assert.equal(scene.base.turnCalls.length, 0, 'no request while the classifier is still out');
   const live = scene.timers.live();
   assert.equal(live.length, 1, 'one deadline at a time');
-  assert.equal(live[0].ms, TEST_PACE.prepareSearchMs - TEST_PACE.prepareMs, 'held at most until pace.prepareSearchMs from the turn start');
+  assert.equal(
+    live[0].ms,
+    TEST_PACE.prepareSearchMs - TEST_PACE.prepareMs,
+    'held at most until pace.prepareSearchMs from the turn start'
+  );
   return { running, first, held: live[0] };
 }
 
@@ -5865,7 +8141,10 @@ test('runTurn: a search classifier slower than pace.prepareMs holds the deadline
   assert.ok(textOf(scene.base.turnCalls[0].messages[1].content).includes('ευρήματα'), 'the search arrived in time');
   assert.deepEqual(logs.find((l) => l.msg === 'turn: timings').late, []);
   assert.ok(!logs.some((l) => l.msg === 'turn: stage late' && l.stage === 'lookup'));
-  assert.ok(scene.timers.timers.every((timer) => !timer.fired || timer === first), 'only the base deadline fired');
+  assert.ok(
+    scene.timers.timers.every((timer) => !timer.fired || timer === first),
+    'only the base deadline fired'
+  );
 });
 
 test('runTurn: a slow search classifier answering no search lets the request go out at its verdict', async () => {
@@ -5910,11 +8189,26 @@ const WATCHED_TEXT = 'ένα ποτάμι κάτω από τη γέφυρα';
  * (`'history'`). The video describer watches it once `watch` (a deferred) settles; `hot`
  * defaults to video vision on with the test pace and `pace` over it.
  */
-function videoPaceScene({ pace = {}, where = 'trigger', watch = null, clock = () => NOW, hot = null, llm = fakeLlm('<msg>ok</msg>'), lookup = undefined, content = 'το βλέπεις;' } = {}) {
+function videoPaceScene({
+  pace = {},
+  where = 'trigger',
+  watch = null,
+  clock = () => NOW,
+  hot = null,
+  llm = fakeLlm('<msg>ok</msg>'),
+  lookup = undefined,
+  content = 'το βλέπεις;',
+} = {}) {
   const turnHot = hot ?? fakeHot({ mediaDescriptions: true, videoDescriptions: true }, {}, VIDEO_TURN_CONFIG);
   turnHot.config.pace = { ...TEST_PACE, ...pace };
-  const older = where === 'trigger' ? rawMessage({ id: 'm1', ts: NOW - 9000, content: 'γεια' }) : videoAttachmentRaw('m1', NOW - 9000, 'va', 'clip.mov');
-  const trigger = where === 'trigger' ? videoAttachmentRaw('m2', NOW - 1000, 'va', 'clip.mov') : rawMessage({ id: 'm2', ts: NOW - 1000 });
+  const older =
+    where === 'trigger'
+      ? rawMessage({ id: 'm1', ts: NOW - 9000, content: 'γεια' })
+      : videoAttachmentRaw('m1', NOW - 9000, 'va', 'clip.mov');
+  const trigger =
+    where === 'trigger'
+      ? videoAttachmentRaw('m2', NOW - 1000, 'va', 'clip.mov')
+      : rawMessage({ id: 'm2', ts: NOW - 1000 });
   trigger.cleanContent = content;
   const channel = fakeTurnChannel({ historyMessages: [older, trigger] });
   const describer = fakeVideoDescriber({});
@@ -5924,7 +8218,19 @@ function videoPaceScene({ pace = {}, where = 'trigger', watch = null, clock = ()
     return { videos: new Map([['va', { state: 'watched', text: WATCHED_TEXT }]]), newCount: 1 };
   };
   const timers = fakeSchedule();
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: turnHot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), describer, lookup, now: clock, schedule: timers.schedule });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: turnHot,
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    describer,
+    lookup,
+    now: clock,
+    schedule: timers.schedule,
+  });
   const called = { ...normalizedTrigger(trigger), replyToId: where === 'replied' ? 'm1' : null };
   const params = { channel, mode: 'reply', trigger: called, triggerKind: 'mention' };
   return { turns, params, channel, llm, describer, timers };
@@ -5940,7 +8246,10 @@ test('runTurn: a video on the trigger moves the deadline to pace.prepareMediaMs;
   const [first] = scene.timers.timers;
   assert.equal(first.ms, 1000);
   assert.equal(first.cancelled, true, 'the first deadline is replaced');
-  assert.deepEqual(scene.timers.live().map((timer) => timer.ms), [5000]);
+  assert.deepEqual(
+    scene.timers.live().map((timer) => timer.ms),
+    [5000]
+  );
   t = NOW + 3000;
   watch.resolve();
   const { result, logs } = await running;
@@ -5959,7 +8268,11 @@ test('runTurn: pace.prepareMediaMs 0 leaves a video on the trigger under pace.pr
   const running = withCapturedLogs(() => scene.turns.runTurn(scene.params));
   await settleUntil(() => scene.describer.videoCalls.length > 0 && scene.timers.live().length > 0);
   await settleUntil();
-  assert.deepEqual(scene.timers.timers.map((timer) => timer.ms), [1000], 'no extension');
+  assert.deepEqual(
+    scene.timers.timers.map((timer) => timer.ms),
+    [1000],
+    'no extension'
+  );
   scene.timers.fire(scene.timers.live()[0]);
   const { result, logs } = await running;
 
@@ -5980,7 +8293,10 @@ test('runTurn: a video whose watch misses the deadline renders not watched, stil
   const running = withCapturedLogs(() => scene.turns.runTurn(scene.params));
   await settleUntil(() => scene.describer.videoCalls.length > 0 && scene.timers.live().length > 0);
   await settleUntil();
-  assert.deepEqual(scene.timers.live().map((timer) => timer.ms), [5000]);
+  assert.deepEqual(
+    scene.timers.live().map((timer) => timer.ms),
+    [5000]
+  );
   scene.timers.fire(scene.timers.live()[0]);
   const { result, logs } = await running;
 
@@ -5993,7 +8309,10 @@ test('runTurn: a video whose watch misses the deadline renders not watched, stil
     .replace('{reason}', labels.transcript.videoReason.pending)
     .replace('{text}', 'μια γέφυρα');
   assert.ok(text.includes(pending), 'the late video is named not watched, still loading, with its frame');
-  const bare = labels.transcript.videoDescribed.replace('{name}', 'clip.mov').replace('{duration}', '0:20').replace('{text}', 'μια γέφυρα');
+  const bare = labels.transcript.videoDescribed
+    .replace('{name}', 'clip.mov')
+    .replace('{duration}', '0:20')
+    .replace('{text}', 'μια γέφυρα');
   assert.ok(!text.includes(bare), 'never the bare still-frame form');
   assert.ok(!text.includes(WATCHED_TEXT));
   watch.resolve();
@@ -6016,11 +8335,28 @@ test('runTurn: a late video stage keeps the states the cache holds; only the vid
     return { videos: new Map([['va', { state: 'watched', text: WATCHED_TEXT }]]), newCount: 1 };
   };
   describer.cachedVideos = async (guildId, items) =>
-    new Map(items.filter((item) => item.itemId === 'vo').map((item) => [item.itemId, { state: 'watched', text: 'ένα παλιό βίντεο' }]));
+    new Map(
+      items
+        .filter((item) => item.itemId === 'vo')
+        .map((item) => [item.itemId, { state: 'watched', text: 'ένα παλιό βίντεο' }])
+    );
   const timers = fakeSchedule();
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), describer, now: () => NOW, schedule: timers.schedule });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    describer,
+    now: () => NOW,
+    schedule: timers.schedule,
+  });
 
-  const running = withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(trigger), triggerKind: 'mention' }));
+  const running = withCapturedLogs(() =>
+    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(trigger), triggerKind: 'mention' })
+  );
   await settleUntil(() => describer.videoCalls.length > 0 && timers.live().length > 0);
   await settleUntil();
   timers.fire(timers.live()[0]);
@@ -6033,7 +8369,10 @@ test('runTurn: a late video stage keeps the states the cache holds; only the vid
     .replace('{duration}', '0:20')
     .replace('{reason}', labels.transcript.videoReason.pending);
   assert.ok(text.includes(pending), 'the video still loading is pending');
-  const watched = labels.transcript.videoWatched.replace('{name}', 'old.mp4').replace('{duration}', '0:20').replace('{text}', 'ένα παλιό βίντεο');
+  const watched = labels.transcript.videoWatched
+    .replace('{name}', 'old.mp4')
+    .replace('{duration}', '0:20')
+    .replace('{text}', 'ένα παλιό βίντεο');
   assert.ok(text.includes(watched), 'the older video keeps its cached watched state');
   watch.resolve();
 });
@@ -6045,7 +8384,11 @@ test('runTurn: a video only on an older line keeps pace.prepareMs; one on the li
   const running = withCapturedLogs(() => scene.turns.runTurn(scene.params));
   await settleUntil(() => scene.describer.videoCalls.length > 0 && scene.timers.live().length > 0);
   await settleUntil();
-  assert.deepEqual(scene.timers.timers.map((timer) => timer.ms), [1000], 'an older video does not extend the deadline');
+  assert.deepEqual(
+    scene.timers.timers.map((timer) => timer.ms),
+    [1000],
+    'an older video does not extend the deadline'
+  );
   scene.timers.fire(scene.timers.live()[0]);
   const { logs } = await running;
   assert.deepEqual(logs.find((l) => l.msg === 'turn: timings').late, ['videos']);
@@ -6053,7 +8396,11 @@ test('runTurn: a video only on an older line keeps pace.prepareMs; one on the li
 
   const replied = videoPaceScene({ pace: { prepareMs: 1000, prepareMediaMs: 5000 }, where: 'replied' });
   const { logs: repliedLogs } = await withCapturedLogs(() => replied.turns.runTurn(replied.params));
-  assert.deepEqual(replied.timers.timers.map((timer) => timer.ms), [1000, 5000], 'the replied-to video extends it');
+  assert.deepEqual(
+    replied.timers.timers.map((timer) => timer.ms),
+    [1000, 5000],
+    'the replied-to video extends it'
+  );
   assert.deepEqual(repliedLogs.find((l) => l.msg === 'turn: timings').late, []);
 });
 
@@ -6081,11 +8428,22 @@ test('runTurn: a search and a video on the trigger both extend the deadline -- t
       },
     };
     const hot = lookupHot({ mediaDescriptions: true, videoDescriptions: true });
-    const scene = videoPaceScene({ pace: { prepareMs: 1000, prepareSearchMs: searchMs, prepareMediaMs: 5000 }, hot, llm, lookup, clock: () => t, content: 'ποιος κέρδισε τον τελικό;' });
+    const scene = videoPaceScene({
+      pace: { prepareMs: 1000, prepareSearchMs: searchMs, prepareMediaMs: 5000 },
+      hot,
+      llm,
+      lookup,
+      clock: () => t,
+      content: 'ποιος κέρδισε τον τελικό;',
+    });
 
     const running = withCapturedLogs(() => scene.turns.runTurn(scene.params));
     await settleUntil(() => searched > 0);
-    assert.deepEqual(scene.timers.timers.map((timer) => timer.ms), expected, `prepareSearchMs ${searchMs}`);
+    assert.deepEqual(
+      scene.timers.timers.map((timer) => timer.ms),
+      expected,
+      `prepareSearchMs ${searchMs}`
+    );
     assert.equal(scene.timers.live().length, 1, 'one deadline at a time');
     assert.equal(scene.timers.live()[0].ms, expected.at(-1));
     search.resolve();
@@ -6120,14 +8478,36 @@ test('runTurn: turn: timings carries every stage, null for one that did not run'
   const { logs } = await running;
 
   const timings = logs.find((l) => l.msg === 'turn: timings');
-  assert.deepEqual(Object.keys(timings.stages), ['history', 'previews', 'captions', 'videos', 'rewatch', 'links', 'lookup', 'neighbors', 'pulled', 'participation', 'record']);
+  assert.deepEqual(Object.keys(timings.stages), [
+    'history',
+    'previews',
+    'captions',
+    'videos',
+    'rewatch',
+    'links',
+    'lookup',
+    'neighbors',
+    'pulled',
+    'participation',
+    'record',
+  ]);
   assert.equal(timings.stages.history, 100);
   assert.equal(timings.stages.captions, 1000);
-  for (const name of ['previews', 'links', 'neighbors', 'pulled']) assert.equal(typeof timings.stages[name], 'number', name);
-  for (const name of ['videos', 'rewatch', 'lookup', 'participation', 'record']) assert.equal(timings.stages[name], null, name);
+  for (const name of ['previews', 'links', 'neighbors', 'pulled'])
+    assert.equal(typeof timings.stages[name], 'number', name);
+  for (const name of ['videos', 'rewatch', 'lookup', 'participation', 'record'])
+    assert.equal(timings.stages[name], null, name);
   assert.deepEqual(
-    [timings.channel, timings.mode, timings.triggerKind, timings.prepareMs, timings.replyMs, timings.totalMs, timings.late],
-    ['c1', 'reply', 'mention', 1100, 2000, 3100, []],
+    [
+      timings.channel,
+      timings.mode,
+      timings.triggerKind,
+      timings.prepareMs,
+      timings.replyMs,
+      timings.totalMs,
+      timings.late,
+    ],
+    ['c1', 'reply', 'mention', 1100, 2000, 3100, []]
   );
   assert.ok(logs.some((l) => l.msg === 'turn: model answered' && 'secondsToAnswer' in l));
 });
@@ -6151,7 +8531,19 @@ test('runTurn: a direct call shows the typing indicator while it prepares and re
   const hot = paceHot({}, { typingWhilePreparing: true });
   const scene = paceScene({ caption, hot });
   const llm = typingAtTalk(scene.channel);
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), describer: scene.describer, lookup: scene.lookup, now: () => NOW, schedule: scene.timers.schedule });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    describer: scene.describer,
+    lookup: scene.lookup,
+    now: () => NOW,
+    schedule: scene.timers.schedule,
+  });
 
   const running = withCapturedLogs(() => turns.runTurn(scene.params));
   await settleUntil(() => scene.describer.calls > 0 && scene.channel.typingCalls.length > 0);
@@ -6173,10 +8565,25 @@ test('runTurn: no typing indicator while preparing an unprompted turn, nor in a 
   const hot = paceHot({}, { typingWhilePreparing: true });
   const spontaneous = paceScene({ hot });
   const llm = typingAtTalk(spontaneous.channel);
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), describer: spontaneous.describer, lookup: spontaneous.lookup, now: () => NOW, schedule: spontaneous.timers.schedule });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    describer: spontaneous.describer,
+    lookup: spontaneous.lookup,
+    now: () => NOW,
+    schedule: spontaneous.timers.schedule,
+  });
   await withCapturedLogs(() => turns.runTurn({ channel: spontaneous.channel, mode: 'interject' }));
   assert.deepEqual(llm.seen, [0]);
-  assert.ok(spontaneous.timers.timers.every((timer) => timer.ms === TEST_PACE.prepareMs), 'no refresh is scheduled');
+  assert.ok(
+    spontaneous.timers.timers.every((timer) => timer.ms === TEST_PACE.prepareMs),
+    'no refresh is scheduled'
+  );
 
   const dry = paceScene({ hot: paceHot({ dryRun: true }, { typingWhilePreparing: true }) });
   const { result } = await withCapturedLogs(() => dry.turns.runTurn(dry.params));
@@ -6214,7 +8621,10 @@ test('runTurn: an answer in hand just before pace.dropAfterMs is posted, the rep
 
   assert.equal(result.outcome, 'spoke');
   assert.equal(scene.channel.sent.length, 1);
-  assert.equal(logs.some((l) => l.msg === 'turn: dropped'), false);
+  assert.equal(
+    logs.some((l) => l.msg === 'turn: dropped'),
+    false
+  );
   const [options] = llm.optionCalls;
   assert.equal(options.role, 'core');
   assert.equal(options.purpose, 'reply');
@@ -6237,7 +8647,10 @@ test('runTurn: a talk request still out at pace.dropAfterMs is aborted; nothing 
   await settleUntil(() => llm.optionCalls.length > 0);
   const bar = scene.timers.live().find((timer) => timer.ms === BAR_MS);
   assert.ok(bar, 'the bar is set from the turn start');
-  assert.ok(scene.timers.live().some((timer) => timer.ms !== BAR_MS), 'the typing indicator is refreshed through the reply request');
+  assert.ok(
+    scene.timers.live().some((timer) => timer.ms !== BAR_MS),
+    'the typing indicator is refreshed through the reply request'
+  );
   scene.timers.fire(bar);
   const { result, logs } = await running;
   await settleUntil(() => idle > 0);
@@ -6248,7 +8661,7 @@ test('runTurn: a talk request still out at pace.dropAfterMs is aborted; nothing 
   const dropped = logs.find((l) => l.msg === 'turn: dropped');
   assert.deepEqual(
     [dropped.channel, dropped.mode, dropped.triggerKind, dropped.reason, typeof dropped.seconds],
-    ['c1', 'reply', 'mention', 'too-slow', 'number'],
+    ['c1', 'reply', 'mention', 'too-slow', 'number']
   );
   assert.deepEqual(scene.timers.live(), [], 'the typing indicator is no longer refreshed');
   assert.equal(idle, 1, 'the pending queue drains as after any finished turn');
@@ -6264,7 +8677,16 @@ test('runTurn: a provider error landing once no time is left before pace.dropAft
   const raw = rawMessage({
     id: 'm1',
     attachments: new Map([
-      ['v1', { id: 'v1', contentType: 'video/mp4', name: 'clip.mp4', url: 'https://cdn.discordapp.com/attachments/1/2/clip.mp4', duration: 34 }],
+      [
+        'v1',
+        {
+          id: 'v1',
+          contentType: 'video/mp4',
+          name: 'clip.mp4',
+          url: 'https://cdn.discordapp.com/attachments/1/2/clip.mp4',
+          duration: 34,
+        },
+      ],
     ]),
   });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
@@ -6277,9 +8699,22 @@ test('runTurn: a provider error landing once no time is left before pace.dropAft
   const hot = fakeHot({});
   hot.config.pace = { ...TEST_PACE, dropAfterMs: BAR_MS };
   const timers = fakeSchedule();
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), imageFetcher: fakeImageFetcher(), now: () => t, schedule: timers.schedule });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    imageFetcher: fakeImageFetcher(),
+    now: () => t,
+    schedule: timers.schedule,
+  });
 
-  const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: videoTrigger(raw), triggerKind: 'mention' }));
+  const { result, logs } = await withCapturedLogs(() =>
+    turns.runTurn({ channel, mode: 'reply', trigger: videoTrigger(raw), triggerKind: 'mention' })
+  );
 
   assert.equal(llm.optionCalls.length, 1, 'nothing is asked again');
   assert.equal(result.outcome, 'error');
@@ -6322,7 +8757,11 @@ test('runTurn: pace.replyHedgeMs 0, or not below the time left to the bar, sends
 
 test('runTurn: an initiate turn with pace.unpromptedWaits on has no bar, so its reply request is never hedged', async () => {
   const llm = barLlm(async () => ({ text: '<msg>ok</msg>', usage: {}, estimated: 10 }));
-  const scene = paceScene({ hot: paceHot({}, { dropAfterMs: BAR_MS, replyHedgeMs: 500, unpromptedWaits: true }), llm, clock: () => NOW });
+  const scene = paceScene({
+    hot: paceHot({}, { dropAfterMs: BAR_MS, replyHedgeMs: 500, unpromptedWaits: true }),
+    llm,
+    clock: () => NOW,
+  });
 
   const { result } = await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'initiate' }));
 
@@ -6343,8 +8782,14 @@ test('runTurn: pace.dropAfterMs 0 sets no bar -- a slow answer is still posted, 
   assert.equal(result.outcome, 'spoke');
   assert.equal(scene.channel.sent.length, 1);
   assert.deepEqual(llm.optionCalls.map(withoutTools), [{ role: 'core', purpose: 'reply' }]);
-  assert.equal(logs.some((l) => l.msg === 'turn: dropped'), false);
-  assert.ok(scene.timers.timers.every((timer) => timer.ms === TEST_PACE.prepareMs), 'only the preparation deadline');
+  assert.equal(
+    logs.some((l) => l.msg === 'turn: dropped'),
+    false
+  );
+  assert.ok(
+    scene.timers.timers.every((timer) => timer.ms === TEST_PACE.prepareMs),
+    'only the preparation deadline'
+  );
 });
 
 test('runTurn: a private chat message shows the typing indicator while its turn prepares', async () => {
@@ -6354,10 +8799,21 @@ test('runTurn: a private chat message shows the typing indicator while its turn 
   const channel = fakeTurnChannel({ id: 'dm1', dm: true, historyMessages: [raw] });
   const llm = typingAtTalk(channel);
   const timers = fakeSchedule();
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: privateStore(), llm, calibrator: identityCalibrator(), client: guildClient(), images: fakeImages(), now: () => NOW, schedule: timers.schedule });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store: privateStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: guildClient(),
+    images: fakeImages(),
+    now: () => NOW,
+    schedule: timers.schedule,
+  });
 
   const { result } = await withCapturedLogs(() =>
-    turns.runTurn({ channel, guildId: 'g1', mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'private' }),
+    turns.runTurn({ channel, guildId: 'g1', mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'private' })
   );
 
   assert.equal(result.outcome, 'spoke');
@@ -6403,7 +8859,7 @@ function splitHot({ features = {}, split = {}, labels: ownLabels } = {}) {
     {
       split: { minChars: 20, minPartChars: 0, maxTasks: 4, contextMessages: 2, maxOutputTokens: 50, ...split },
       pace: { prepareMs: 5000, prepareSearchMs: 5000, dropAfterMs: 60000, typingWhilePreparing: false },
-    },
+    }
   );
   hot.prompts.split = SPLIT_SYSTEM;
   if (ownLabels) hot.prompts.labels = ownLabels;
@@ -6430,12 +8886,39 @@ function manualSchedule() {
 }
 
 /** One reply turn on a call with `content`, under the split settings. */
-async function runSplitTurn({ hot = splitHot(), llm = splitLlm(), content = SPLIT_TEXT, triggerKind = 'mention', extra = {}, turnExtra = {}, schedule = manualSchedule() } = {}) {
+async function runSplitTurn({
+  hot = splitHot(),
+  llm = splitLlm(),
+  content = SPLIT_TEXT,
+  triggerKind = 'mention',
+  extra = {},
+  turnExtra = {},
+  schedule = manualSchedule(),
+} = {}) {
   const raw = rawMessage({ id: 'm2', ts: NOW - 1000, content });
-  const channel = fakeTurnChannel({ historyMessages: [rawMessage({ id: 'm1', ts: NOW - 5000, authorId: 'u2', authorName: 'Léa', content: 'καλημέρα' }), raw] });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), lookup: fakeLookup(), now: () => NOW, schedule, ...extra });
+  const channel = fakeTurnChannel({
+    historyMessages: [
+      rawMessage({ id: 'm1', ts: NOW - 5000, authorId: 'u2', authorName: 'Léa', content: 'καλημέρα' }),
+      raw,
+    ],
+  });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    lookup: fakeLookup(),
+    now: () => NOW,
+    schedule,
+    ...extra,
+  });
   const trigger = normalizedTrigger(raw);
-  const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger, triggerKind, ...turnExtra }));
+  const { result, logs } = await withCapturedLogs(() =>
+    turns.runTurn({ channel, mode: 'reply', trigger, triggerKind, ...turnExtra })
+  );
   return { result, logs, llm, channel, turns, trigger };
 }
 
@@ -6451,7 +8934,10 @@ function taskOf(call) {
 
 /** labels.task.part as the request renders it for part `index` of SPLIT_PARTS (no queued call). */
 function partLabel(index, parts = SPLIT_PARTS) {
-  const others = parts.map((text, i) => (i + 1 === index ? null : `${i + 1}. ${text}`)).filter(Boolean).join('; ');
+  const others = parts
+    .map((text, i) => (i + 1 === index ? null : `${i + 1}. ${text}`))
+    .filter(Boolean)
+    .join('; ');
   return fill(labels.task.part, { index, total: parts.length, part: parts[index - 1], others });
 }
 
@@ -6472,13 +8958,24 @@ test('runTurn: a `one` verdict leaves the turn exactly as without the splitter',
 
   assert.equal(before.llm.calls.split.length, 0);
   assert.equal(after.llm.calls.split.length, 1);
-  assert.deepEqual(after.llm.calls.talk.map((call) => call.messages), before.llm.calls.talk.map((call) => call.messages), 'the same talk request');
-  assert.deepEqual(after.llm.calls.lookup.map((call) => call.messages), before.llm.calls.lookup.map((call) => call.messages), 'the search classifier asked once, the same way');
+  assert.deepEqual(
+    after.llm.calls.talk.map((call) => call.messages),
+    before.llm.calls.talk.map((call) => call.messages),
+    'the same talk request'
+  );
+  assert.deepEqual(
+    after.llm.calls.lookup.map((call) => call.messages),
+    before.llm.calls.lookup.map((call) => call.messages),
+    'the search classifier asked once, the same way'
+  );
   assert.deepEqual(after.channel.sent, before.channel.sent);
   assert.deepEqual(after.result, before.result);
   const verdict = after.logs.find((line) => line.msg === 'split: verdict');
   assert.deepEqual([verdict.channel, verdict.parts, typeof verdict.ms], ['c1', 1, 'number']);
-  assert.equal(after.logs.some((line) => line.msg === 'turn: part'), false);
+  assert.equal(
+    after.logs.some((line) => line.msg === 'turn: part'),
+    false
+  );
 });
 
 test('runTurn: the splitter request fills split.md and carries the transcript and the candidate', async () => {
@@ -6487,7 +8984,10 @@ test('runTurn: the splitter request fills split.md and carries the transcript an
   assert.equal(call.messages[0].content, fillPromptTemplate(SPLIT_SYSTEM, { name: 'Bot', maxTasks: 4 }));
   assert.ok(textOf(call.messages[1].content).startsWith('<transcript>\n'));
   assert.equal(candidateOf(call), SPLIT_TEXT);
-  assert.deepEqual([call.options.role, call.options.purpose, call.options.maxOutputTokens, call.options.helper], ['analyzer', 'split', 50, true]);
+  assert.deepEqual(
+    [call.options.role, call.options.purpose, call.options.maxOutputTokens, call.options.helper],
+    ['analyzer', 'split', 50, true]
+  );
 });
 
 test('runTurn: a failed, empty or unparsable splitter answer is one request', async () => {
@@ -6511,10 +9011,22 @@ test('runTurn: a splitter still thinking at the deadline is one request; its lat
   const llm = splitLlm({ split: () => late });
   const raw = rawMessage({ id: 'm2', ts: NOW - 1000, content: SPLIT_TEXT });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: splitHot(), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), lookup: fakeLookup(), now: () => NOW, schedule });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: splitHot(),
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    lookup: fakeLookup(),
+    now: () => NOW,
+    schedule,
+  });
   const { logs } = await withCapturedLogs(async () => {
     const running = turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
-    for (let i = 0; i < 20 && llm.calls.split.length === 0; i += 1) await new Promise((resolve) => setImmediate(resolve));
+    for (let i = 0; i < 20 && llm.calls.split.length === 0; i += 1)
+      await new Promise((resolve) => setImmediate(resolve));
     assert.equal(llm.calls.talk.length, 0, 'the turn waits for the splitter like any stage');
     schedule.fire(5000);
     const result = await running;
@@ -6533,42 +9045,62 @@ test('runTurn: parts in time become one turn per part, in order, each helper jud
   assert.equal(llm.calls.talk.length, 3);
   // The search classifier: every part asks it with its own text (the whole message's may have started first).
   const candidates = llm.calls.lookup.map(candidateOf);
-  assert.deepEqual(candidates.filter((text) => text !== SPLIT_TEXT), SPLIT_PARTS);
+  assert.deepEqual(
+    candidates.filter((text) => text !== SPLIT_TEXT),
+    SPLIT_PARTS
+  );
   assert.ok(candidates.filter((text) => text === SPLIT_TEXT).length <= 1);
   // The persona's request names the part it answers now and the others.
-  assert.deepEqual(llm.calls.talk.map((call) => taskOf(call).endsWith(partLabel(llm.calls.talk.indexOf(call) + 1))), [true, true, true]);
+  assert.deepEqual(
+    llm.calls.talk.map((call) => taskOf(call).endsWith(partLabel(llm.calls.talk.indexOf(call) + 1))),
+    [true, true, true]
+  );
   // The first answer replies to the message, the later ones post plain.
-  assert.deepEqual(channel.sent.map((payload) => payload.reply?.messageReference ?? null), ['m2', null, null]);
-  assert.deepEqual(logs.filter((line) => line.msg === 'turn: part').map(({ channel: id, index, total, outcome }) => [id, index, total, outcome]), [
-    ['c1', 1, 3, 'spoke'],
-    ['c1', 2, 3, 'spoke'],
-    ['c1', 3, 3, 'spoke'],
-  ]);
+  assert.deepEqual(
+    channel.sent.map((payload) => payload.reply?.messageReference ?? null),
+    ['m2', null, null]
+  );
+  assert.deepEqual(
+    logs
+      .filter((line) => line.msg === 'turn: part')
+      .map(({ channel: id, index, total, outcome }) => [id, index, total, outcome]),
+    [
+      ['c1', 1, 3, 'spoke'],
+      ['c1', 2, 3, 'spoke'],
+      ['c1', 3, 3, 'spoke'],
+    ]
+  );
   assert.deepEqual(result, { outcome: 'spoke', mode: 'reply', delivered: true });
   const lines = logs.filter((line) => line.msg.startsWith('split:') || line.msg === 'turn: part');
   assert.equal(JSON.stringify(lines).includes('Νίκος'), false, 'counts and codes only, never a part');
 });
 
-test('runTurn: the route hook judges each part\'s text', async () => {
+test("runTurn: the route hook judges each part's text", async () => {
   const seen = [];
   const routeChannels = async ({ trigger }) => {
     seen.push(trigger.content);
     return [];
   };
   await runSplitTurn({ extra: { routeChannels } });
-  assert.deepEqual(seen.filter((text) => text !== SPLIT_TEXT), SPLIT_PARTS);
+  assert.deepEqual(
+    seen.filter((text) => text !== SPLIT_TEXT),
+    SPLIT_PARTS
+  );
 });
 
 test('runTurn: the persona may stay silent on a part; a failed part does not stop the next', async () => {
   const talk = (index) => (index === 0 ? new Error('provider down') : index === 1 ? '<skip/>' : '<msg>τρία</msg>');
   const { logs, result, channel } = await runSplitTurn({ llm: splitLlm({ talk }) });
-  assert.deepEqual(logs.filter((line) => line.msg === 'turn: part').map((line) => line.outcome), ['error', 'skip', 'spoke']);
+  assert.deepEqual(
+    logs.filter((line) => line.msg === 'turn: part').map((line) => line.outcome),
+    ['error', 'skip', 'spoke']
+  );
   assert.equal(channel.sent.length, 1);
   assert.equal(channel.sent[0].reply, undefined, 'a later part posts plain');
   assert.equal(result.outcome, 'spoke');
 });
 
-test('runTurn: a chain where no part spoke gives the first skip, else the first part\'s result', async () => {
+test("runTurn: a chain where no part spoke gives the first skip, else the first part's result", async () => {
   const silent = await runSplitTurn({ llm: splitLlm({ talk: '<skip/>' }) });
   assert.deepEqual(silent.result, { outcome: 'skip', mode: 'reply', reason: 'silence' });
   const failing = await runSplitTurn({ llm: splitLlm({ talk: new Error('down') }) });
@@ -6576,7 +9108,10 @@ test('runTurn: a chain where no part spoke gives the first skip, else the first 
 });
 
 test('runTurn: split.maxTasks cuts the parts', async () => {
-  const { llm } = await runSplitTurn({ hot: splitHot({ split: { maxTasks: 2 } }), llm: splitLlm({ split: `${PARTS_ANSWER}\n- και κάτι ακόμα` }) });
+  const { llm } = await runSplitTurn({
+    hot: splitHot({ split: { maxTasks: 2 } }),
+    llm: splitLlm({ split: `${PARTS_ANSWER}\n- και κάτι ακόμα` }),
+  });
   assert.equal(llm.calls.talk.length, 2);
   assert.ok(taskOf(llm.calls.talk[0]).endsWith(partLabel(1, SPLIT_PARTS.slice(0, 2))));
 });
@@ -6586,7 +9121,17 @@ test('runTurn: an overheard line or an unprompted turn never asks the splitter',
   assert.equal(overheard.llm.calls.split.length, 0);
   const llm = splitLlm();
   const channel = fakeTurnChannel({ historyMessages: [rawMessage({ id: 'm2', ts: NOW - 1000, content: SPLIT_TEXT })] });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: splitHot(), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW, schedule: manualSchedule() });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: splitHot(),
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    now: () => NOW,
+    schedule: manualSchedule(),
+  });
   await turns.runTurn({ channel, mode: 'interject' });
   assert.equal(llm.calls.split.length, 0);
 });
@@ -6601,7 +9146,10 @@ test('runTurn: an older labels file without labels.task.part never starts a chai
   delete hot.prompts.split;
   const { logs, llm } = await runSplitTurn({ hot });
   assert.equal(llm.calls.split.length, 0);
-  assert.deepEqual(logs.filter((line) => line.msg === 'split: skipped').map(({ channel, reason }) => [channel, reason]), [['c1', 'no-prompt']]);
+  assert.deepEqual(
+    logs.filter((line) => line.msg === 'split: skipped').map(({ channel, reason }) => [channel, reason]),
+    [['c1', 'no-prompt']]
+  );
 });
 
 test('runTurn: features.splitTasks false asks no splitter', async () => {
@@ -6625,7 +9173,18 @@ test('runTurn: the chain holds the one attention to its end and notifies idle on
   const llm = splitLlm({ talk });
   const raw = rawMessage({ id: 'm2', ts: NOW - 1000, content: SPLIT_TEXT });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
-  turnsRef = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: splitHot(), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), lookup: fakeLookup(), now: () => NOW, schedule: manualSchedule() });
+  turnsRef = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: splitHot(),
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    lookup: fakeLookup(),
+    now: () => NOW,
+    schedule: manualSchedule(),
+  });
   turnsRef.setOnIdle(() => {
     idle += 1;
   });
@@ -6651,10 +9210,28 @@ test('runTurn: a pause ends the chain before its next part', async () => {
   const llm = splitLlm({ talk });
   const raw = rawMessage({ id: 'm2', ts: NOW - 1000, content: SPLIT_TEXT });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: splitHot(), store, llm, calibrator: identityCalibrator(), client: fakeClient(), lookup: fakeLookup(), now: () => NOW, schedule: manualSchedule() });
-  const { logs, result } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: splitHot(),
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    lookup: fakeLookup(),
+    now: () => NOW,
+    schedule: manualSchedule(),
+  });
+  const { logs, result } = await withCapturedLogs(() =>
+    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' })
+  );
   assert.equal(llm.calls.talk.length, 1);
-  assert.deepEqual(logs.filter((line) => line.msg === 'turn: chain stopped').map(({ reason: why, index, total }) => [why, index, total]), [['paused', 2, 3]]);
+  assert.deepEqual(
+    logs
+      .filter((line) => line.msg === 'turn: chain stopped')
+      .map(({ reason: why, index, total }) => [why, index, total]),
+    [['paused', 2, 3]]
+  );
   assert.equal(result.outcome, 'spoke');
   assert.equal(turns.isAnyBusy(), false);
 });
@@ -6663,15 +9240,19 @@ test('runTurn: a dry run mirrors each part with its number in the header', async
   const mirrored = [];
   const hot = splitHot({ features: { dryRun: true } });
   hot.config.bot.dryRunChannelId = 'mirror1';
-  const { result } = await runSplitTurn({ hot, llm: splitLlm({ talk: '<msg>ok</msg>' }), extra: { client: mirrorClient(mirrored) } });
+  const { result } = await runSplitTurn({
+    hot,
+    llm: splitLlm({ talk: '<msg>ok</msg>' }),
+    extra: { client: mirrorClient(mirrored) },
+  });
   assert.deepEqual(result, { outcome: 'spoke', mode: 'reply', dryRun: true });
   assert.deepEqual(
     mirrored.map((payload) => /· part (\d)\/(\d)/.exec(payload.content)?.slice(1).join('/')),
-    ['1/3', '2/3', '3/3'],
+    ['1/3', '2/3', '3/3']
   );
 });
 
-test('runTurn: the parts not started yet are the author\'s waiting items; a message folded into one reaches its request', async () => {
+test("runTurn: the parts not started yet are the author's waiting items; a message folded into one reaches its request", async () => {
   let turnsRef = null;
   const seen = [];
   const talk = (index) => {
@@ -6685,35 +9266,80 @@ test('runTurn: the parts not started yet are the author\'s waiting items; a mess
   const llm = splitLlm({ talk });
   const raw = rawMessage({ id: 'm2', ts: NOW - 1000, content: SPLIT_TEXT });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
-  turnsRef = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: splitHot(), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), lookup: fakeLookup(), now: () => NOW, schedule: manualSchedule() });
+  turnsRef = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: splitHot(),
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    lookup: fakeLookup(),
+    now: () => NOW,
+    schedule: manualSchedule(),
+  });
   await turnsRef.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
-  assert.deepEqual(seen, [[{ index: 2, text: SPLIT_PARTS[1] }, { index: 3, text: SPLIT_PARTS[2] }], [], true, false]);
+  assert.deepEqual(seen, [
+    [
+      { index: 2, text: SPLIT_PARTS[1] },
+      { index: 3, text: SPLIT_PARTS[2] },
+    ],
+    [],
+    true,
+    false,
+  ]);
   assert.ok(taskOf(llm.calls.talk[1]).endsWith(fill(labels.task.added, { added: 'και το δεύτερο;' })));
   assert.equal(taskOf(llm.calls.talk[2]).includes('και το δεύτερο;'), false);
   assert.deepEqual(turnsRef.waitingParts('c1', 'u1'), [], 'nothing waits once the chain is over');
 });
 
-test('runTurn: a part\'s others name the author\'s queued calls after the parts', async () => {
+test("runTurn: a part's others name the author's queued calls after the parts", async () => {
   const queued = () => [{ id: 'm7', text: 'και ένα ακόμα' }];
   const { llm } = await runSplitTurn({ turnExtra: { queued } });
   const others = '2. κοίτα το κανάλι της Ελένης; 3. το μιμίδιο είναι αστείο;; 4. και ένα ακόμα';
-  assert.ok(taskOf(llm.calls.talk[0]).endsWith(fill(labels.task.part, { index: 1, total: 3, part: SPLIT_PARTS[0], others })));
+  assert.ok(
+    taskOf(llm.calls.talk[0]).endsWith(fill(labels.task.part, { index: 1, total: 3, part: SPLIT_PARTS[0], others }))
+  );
 });
 
 test('runTurn: queued calls named in the request are not counted as seen; without labels.task.queued they are', async () => {
-  const history = [rawMessage({ id: 'm1', ts: NOW - 3000, content: 'πρώτο' }), rawMessage({ id: 'm3', ts: NOW - 2000, content: 'δεύτερο' })];
+  const history = [
+    rawMessage({ id: 'm1', ts: NOW - 3000, content: 'πρώτο' }),
+    rawMessage({ id: 'm3', ts: NOW - 2000, content: 'δεύτερο' }),
+  ];
   const run = async (hot) => {
     const llm = splitLlm({ talk: '<msg>ok</msg>' });
     const channel = fakeTurnChannel({ historyMessages: history });
-    const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW, schedule: manualSchedule() });
+    const turns = createTurnRunner({
+      discord: DISCORD,
+      createPort: createDiscordAdapter,
+      hot,
+      store: fakeStore(),
+      llm,
+      calibrator: identityCalibrator(),
+      client: fakeClient(),
+      now: () => NOW,
+      schedule: manualSchedule(),
+    });
     const queued = () => [{ id: 'm3', text: 'δεύτερο' }];
     const added = [{ id: 'm4', text: 'λοιπόν;', ts: NOW }];
-    await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(history[0]), triggerKind: 'mention', queued, added });
+    await turns.runTurn({
+      channel,
+      mode: 'reply',
+      trigger: normalizedTrigger(history[0]),
+      triggerKind: 'mention',
+      queued,
+      added,
+    });
     return { turns, task: taskOf(llm.calls.talk[0]) };
   };
   const named = await run(splitHot());
-  assert.ok(named.task.endsWith([fill(labels.task.queued, { others: '1. δεύτερο' }), fill(labels.task.added, { added: 'λοιπόν;' })].join('\n\n')));
+  assert.ok(
+    named.task.endsWith(
+      [fill(labels.task.queued, { others: '1. δεύτερο' }), fill(labels.task.added, { added: 'λοιπόν;' })].join('\n\n')
+    )
+  );
   assert.equal(named.turns.spokeAfterSeeing('c1', 'm3'), false, 'left to its own turn');
   assert.equal(named.turns.spokeAfterSeeing('c1', 'm1'), true);
 
@@ -6723,7 +9349,7 @@ test('runTurn: queued calls named in the request are not counted as seen; withou
   assert.equal(older.turns.spokeAfterSeeing('c1', 'm3'), true, 'the old rule: seen is answered');
 });
 
-test('runTurn: another member\'s waiting call is named under labels.task.queuedOthers and not counted as seen; without the label it is', async () => {
+test("runTurn: another member's waiting call is named under labels.task.queuedOthers and not counted as seen; without the label it is", async () => {
   const history = [
     rawMessage({ id: 'm1', ts: NOW - 3000, content: 'πρώτο' }),
     rawMessage({ id: 'm2', ts: NOW - 2500, authorId: 'u2', authorName: 'Léa', content: 'άλλο' }),
@@ -6732,24 +9358,47 @@ test('runTurn: another member\'s waiting call is named under labels.task.queuedO
   const run = async (hot) => {
     const llm = splitLlm({ talk: '<msg>ok</msg>' });
     const channel = fakeTurnChannel({ historyMessages: history });
-    const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW, schedule: manualSchedule() });
+    const turns = createTurnRunner({
+      discord: DISCORD,
+      createPort: createDiscordAdapter,
+      hot,
+      store: fakeStore(),
+      llm,
+      calibrator: identityCalibrator(),
+      client: fakeClient(),
+      now: () => NOW,
+      schedule: manualSchedule(),
+    });
     const queued = () => [
       { id: 'm2', text: 'άλλο', author: 'Léa' },
       { id: 'm3', text: 'δεύτερο' },
     ];
-    await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(history[0]), triggerKind: 'mention', queued });
+    await turns.runTurn({
+      channel,
+      mode: 'reply',
+      trigger: normalizedTrigger(history[0]),
+      triggerKind: 'mention',
+      queued,
+    });
     return { turns, task: taskOf(llm.calls.talk[0]) };
   };
   const named = await run(splitHot());
-  assert.ok(named.task.endsWith([fill(labels.task.queued, { others: '1. δεύτερο' }), fill(labels.task.queuedOthers, { others: '1. Léa: άλλο' })].join('\n\n')));
+  assert.ok(
+    named.task.endsWith(
+      [
+        fill(labels.task.queued, { others: '1. δεύτερο' }),
+        fill(labels.task.queuedOthers, { others: '1. Léa: άλλο' }),
+      ].join('\n\n')
+    )
+  );
   assert.equal(named.turns.spokeAfterSeeing('c1', 'm2'), false, 'left to its own turn');
   assert.equal(named.turns.spokeAfterSeeing('c1', 'm3'), false);
 
   const { queuedOthers: _others, ...older } = labels.task;
   const old = await run(splitHot({ labels: { ...labels, task: older } }));
   assert.equal(old.task.includes('άλλο'), false);
-  assert.equal(old.turns.spokeAfterSeeing('c1', 'm2'), true, 'the old rule for another member\'s call');
-  assert.equal(old.turns.spokeAfterSeeing('c1', 'm3'), false, 'the author\'s own call is still named under task.queued');
+  assert.equal(old.turns.spokeAfterSeeing('c1', 'm2'), true, "the old rule for another member's call");
+  assert.equal(old.turns.spokeAfterSeeing('c1', 'm3'), false, "the author's own call is still named under task.queued");
 });
 
 // ---------------------------------------------------------------------------
@@ -6769,7 +9418,16 @@ function pickLibrary() {
   const entries = {};
   const mediaCache = {};
   for (let i = 1; i <= PICK_LIBRARY_SIZE; i += 1) {
-    entries[`k${i}`] = { id: `g${i}`, kind: 'link', url: `https://tenor.com/view/gif-${i}`, itemId: `item-${i}`, messageId: `m-${i}`, channelId: 'c1', count: PICK_LIBRARY_SIZE + 1 - i, last: NOW - i * 3_600_000 };
+    entries[`k${i}`] = {
+      id: `g${i}`,
+      kind: 'link',
+      url: `https://tenor.com/view/gif-${i}`,
+      itemId: `item-${i}`,
+      messageId: `m-${i}`,
+      channelId: 'c1',
+      count: PICK_LIBRARY_SIZE + 1 - i,
+      last: NOW - i * 3_600_000,
+    };
     mediaCache[`item-${i}`] = { text: `λεζάντα ${i}` };
   }
   return { gifs: { nextId: PICK_LIBRARY_SIZE + 1, entries }, mediaCache };
@@ -6801,7 +9459,10 @@ function pickLlm({ reply, pick = 'none' }) {
 
 /** The two chat lines of a picker turn: an older one, then the trigger. */
 function pickHistory() {
-  return [rawMessage({ id: 'm0', ts: NOW - 5000, content: 'καλημέρα' }), rawMessage({ id: 'm1', ts: NOW - 1000, content: 'θα έρθεις απόψε;' })];
+  return [
+    rawMessage({ id: 'm0', ts: NOW - 5000, content: 'καλημέρα' }),
+    rawMessage({ id: 'm1', ts: NOW - 1000, content: 'θα έρθεις απόψε;' }),
+  ];
 }
 
 /** A hot config for the picker: its prompt and its own gifs values. */
@@ -6813,14 +9474,24 @@ function pickHot({ features = {}, prompts = {}, pickSettings = PICK_SETTINGS, ma
       gifs: { maxPerDay, reactionChars: 40, actionChars: 70, ownMarkHours: 24, halfLifeDays: 30, pick: pickSettings },
       models: { base: { analyzer: 'cheap/classifier' } },
       ...(typing ? { typing: { reactionDelayMs: [0, 0], betweenMessagesMs: [0, 0], ...typing } } : {}),
-    },
+    }
   );
   Object.assign(hot.prompts, { 'gif-pick': GIF_PICK_PROMPT }, prompts);
   for (const [name, text] of Object.entries(prompts)) if (text === null) delete hot.prompts[name];
   return hot;
 }
 
-async function runPickTurn({ reply = '<msg reply="#2">ναι, φυσικά, έλα</msg>', pick = 'none', store = pickStore(), typing = null, raws = pickHistory(), triggerRaw = raws.at(-1), failGif = false, journaled = false, ...hotOptions } = {}) {
+async function runPickTurn({
+  reply = '<msg reply="#2">ναι, φυσικά, έλα</msg>',
+  pick = 'none',
+  store = pickStore(),
+  typing = null,
+  raws = pickHistory(),
+  triggerRaw = raws.at(-1),
+  failGif = false,
+  journaled = false,
+  ...hotOptions
+} = {}) {
   const channel = fakeTurnChannel({ historyMessages: raws });
   const sendTimes = [];
   const send = channel.send;
@@ -6834,9 +9505,21 @@ async function runPickTurn({ reply = '<msg reply="#2">ναι, φυσικά, έλ
   // With `journaled`, a journal in memory: `limits` are the turn record's.
   const recorded = journaled ? journalOverMemory() : null;
   if (recorded) hot.config.features.journal = true;
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW, ...(recorded ? { journal: recorded.journal } : {}) });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    now: () => NOW,
+    ...(recorded ? { journal: recorded.journal } : {}),
+  });
   const startedAt = Date.now();
-  const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(triggerRaw), triggerKind: 'mention' }));
+  const { result, logs } = await withCapturedLogs(() =>
+    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(triggerRaw), triggerKind: 'mention' })
+  );
   const picks = llm.calls.filter((call) => call.options?.purpose === 'gif-pick');
   const sent = () => channel.sent.map((payload) => payload.content);
   const limits = recorded?.lines.find(({ record }) => record.kind === 'turn')?.record.limits ?? null;
@@ -6853,19 +9536,35 @@ test('runTurn: a short reply is shown with the whole captioned library; a picked
   assert.equal(user.content.length, 2, 'two text parts');
   assert.equal(user.content[0].cacheSegment, 'stable', 'the library part is the cache segment');
   assert.equal(user.content[1].cacheSegment, undefined, 'the per-turn part is untagged');
-  assert.ok(user.content[0].text.startsWith('<gifs>\n') && user.content[0].text.endsWith('</gifs>\n\n'), 'part 1 is the library block and its separator');
+  assert.ok(
+    user.content[0].text.startsWith('<gifs>\n') && user.content[0].text.endsWith('</gifs>\n\n'),
+    'part 1 is the library block and its separator'
+  );
   assert.ok(user.content[1].text.startsWith('<context>\n'), 'part 2 starts at the context');
   const blocks = textOf(user.content).split('\n\n');
   assert.equal(blocks.length, 3);
-  assert.match(blocks[1], /^<context>\n[\s\S]*καλημέρα[\s\S]*θα έρθεις απόψε;\n<\/context>$/, 'the last contextMessages lines as the transcript renders them');
+  assert.match(
+    blocks[1],
+    /^<context>\n[\s\S]*καλημέρα[\s\S]*θα έρθεις απόψε;\n<\/context>$/,
+    'the last contextMessages lines as the transcript renders them'
+  );
   const marker = fill(labels.transcript.replyTo, { index: 2, author: 'Alice', quote: 'θα έρθεις απόψε;' });
   assert.equal(blocks[2], `<reply>\n${marker} ναι, φυσικά, έλα\n</reply>`, 'the reply names the line it answers');
-  assert.ok(blocks[0].startsWith('<gifs>\n') && blocks[2].endsWith('</reply>'), 'the library leads the request, the reply ends it');
-  const gifLines = blocks[0].replace(/^<gifs>\n/, '').replace(/\n<\/gifs>$/, '').split('\n');
+  assert.ok(
+    blocks[0].startsWith('<gifs>\n') && blocks[2].endsWith('</reply>'),
+    'the library leads the request, the reply ends it'
+  );
+  const gifLines = blocks[0]
+    .replace(/^<gifs>\n/, '')
+    .replace(/\n<\/gifs>$/, '')
+    .split('\n');
   assert.equal(gifLines.length, PICK_LIBRARY_SIZE, 'the whole library, not a top slice');
   assert.deepEqual([gifLines[0], gifLines.at(-1)], ['g1 -- λεζάντα 1', 'g50 -- λεζάντα 50'], 'in rank order');
   const { options } = picks[0];
-  assert.deepEqual([options.role, options.purpose, options.maxOutputTokens, options.model, options.countAgainstDailyCap], ['analyzer', 'gif-pick', 17, 'cheap/classifier', true]);
+  assert.deepEqual(
+    [options.role, options.purpose, options.maxOutputTokens, options.model, options.countAgainstDailyCap],
+    ['analyzer', 'gif-pick', 17, 'cheap/classifier', true]
+  );
 
   assert.deepEqual(sent(), ['https://tenor.com/view/gif-50'], 'the GIF, no text');
   assert.equal(channel.sent[0].reply.messageReference, 'm1', 'replying where the first message would have');
@@ -6873,7 +9572,11 @@ test('runTurn: a short reply is shown with the whole captioned library; a picked
   assert.equal(store.state.data.gifCount, 1, 'counted against gifs.maxPerDay');
   const picked = logs.find((entry) => entry.msg === 'gifs: picked');
   assert.deepEqual([picked.channel, picked.handle, picked.library], ['c1', true, PICK_LIBRARY_SIZE]);
-  assert.equal(JSON.stringify(logs.filter((entry) => entry.msg.startsWith('gifs:'))).includes('λεζάντα'), false, 'counts only');
+  assert.equal(
+    JSON.stringify(logs.filter((entry) => entry.msg.startsWith('gifs:'))).includes('λεζάντα'),
+    false,
+    'counts only'
+  );
 });
 
 test('runTurn: the picker leaves out uncaptioned GIFs and acts only on a listed handle', async () => {
@@ -6909,7 +9612,11 @@ test('runTurn: no pick for a reply over maxChars or a turn posting its own GIF',
   const long = await runPickTurn({ reply: '<msg>ναι, φυσικά, έλα απόψε</msg>', pick: 'g1' });
   assert.equal(long.picks.length, 0, 'over maxChars');
   assert.deepEqual(long.sent(), ['ναι, φυσικά, έλα απόψε']);
-  const wider = await runPickTurn({ reply: '<msg>ναι, φυσικά, έλα απόψε</msg>', pick: 'g1', pickSettings: { ...PICK_SETTINGS, maxChars: 30 } });
+  const wider = await runPickTurn({
+    reply: '<msg>ναι, φυσικά, έλα απόψε</msg>',
+    pick: 'g1',
+    pickSettings: { ...PICK_SETTINGS, maxChars: 30 },
+  });
   assert.equal(wider.picks.length, 1, 'maxChars read now');
 
   const own = await runPickTurn({ reply: '<msg>χα</msg><gif>g2</gif>', pick: 'g1' });
@@ -6918,10 +9625,18 @@ test('runTurn: no pick for a reply over maxChars or a turn posting its own GIF',
 });
 
 test('runTurn: no pick with the daily GIF cap spent, a switch off, no prompt or no captioned GIF', async () => {
-  const spent = await runPickTurn({ pick: 'g1', store: pickStore({ data: { gifDay: '2026-09-20', gifCount: 3 } }), maxPerDay: 3 });
+  const spent = await runPickTurn({
+    pick: 'g1',
+    store: pickStore({ data: { gifDay: '2026-09-20', gifCount: 3 } }),
+    maxPerDay: 3,
+  });
   assert.equal(spent.picks.length, 0, 'gifs.maxPerDay spent');
   assert.deepEqual(spent.sent(), ['ναι, φυσικά, έλα']);
-  const room = await runPickTurn({ pick: 'g1', store: pickStore({ data: { gifDay: '2026-09-20', gifCount: 2 } }), maxPerDay: 3 });
+  const room = await runPickTurn({
+    pick: 'g1',
+    store: pickStore({ data: { gifDay: '2026-09-20', gifCount: 2 } }),
+    maxPerDay: 3,
+  });
   assert.equal(room.picks.length, 1, 'one GIF left today');
 
   const off = await runPickTurn({ pick: 'g1', features: { gifPicker: false } });
@@ -6930,7 +9645,10 @@ test('runTurn: no pick with the daily GIF cap spent, a switch off, no prompt or 
   assert.equal(gifsOff.picks.length, 0, 'features.gifs false');
   const noPrompt = await runPickTurn({ pick: 'g1', prompts: { 'gif-pick': null } });
   assert.equal(noPrompt.picks.length, 0, 'no prompts/gif-pick.md');
-  const empty = await runPickTurn({ pick: 'g1', store: pickStore({ library: { gifs: { nextId: 1, entries: {} }, mediaCache: {} } }) });
+  const empty = await runPickTurn({
+    pick: 'g1',
+    store: pickStore({ library: { gifs: { nextId: 1, entries: {} }, mediaCache: {} } }),
+  });
   assert.equal(empty.picks.length, 0, 'no captioned GIF');
 });
 
@@ -6938,7 +9656,11 @@ test('runTurn: a dry run asks the picker and logs the GIF it would post, posting
   const { channel, picks, logs, store } = await runPickTurn({ pick: 'g50', features: { dryRun: true } });
   assert.equal(picks.length, 1);
   assert.equal(channel.sent.length, 0);
-  assert.equal(logs.some((entry) => entry.msg === 'dry-run: would send'), false, 'no text');
+  assert.equal(
+    logs.some((entry) => entry.msg === 'dry-run: would send'),
+    false,
+    'no text'
+  );
   const gif = logs.find((entry) => entry.msg === 'dry-run: would send gif');
   assert.deepEqual([gif.gif, gif.replyTo], ['g50', 'm1']);
   assert.deepEqual([store.ownGifs, store.state.data.gifCount], [[], undefined], 'nothing counted or stamped');
@@ -6954,12 +9676,16 @@ function laterLinesHistory() {
   ];
 }
 
-test('runTurn: the picker\'s context brings in an older answered trigger, first, and the reply names it', async () => {
+test("runTurn: the picker's context brings in an older answered trigger, first, and the reply names it", async () => {
   const raws = laterLinesHistory();
   const { picks } = await runPickTurn({ raws, triggerRaw: raws[1], reply: '<msg>ναι, φυσικά</msg>' });
   assert.equal(picks.length, 1);
   const [, context, reply] = textOf(picks[0].messages[1].content).split('\n\n');
-  assert.match(context, /^<context>\n[^#\n]*\n#1 [^\n]*Alice: θα έρθεις απόψε;\n#2 [^\n]*κι εγώ ρωτάω\n#3 [^\n]*λοιπόν;\n<\/context>$/, 'the answered line with its author, then the last two lines');
+  assert.match(
+    context,
+    /^<context>\n[^#\n]*\n#1 [^\n]*Alice: θα έρθεις απόψε;\n#2 [^\n]*κι εγώ ρωτάω\n#3 [^\n]*λοιπόν;\n<\/context>$/,
+    'the answered line with its author, then the last two lines'
+  );
   const marker = fill(labels.transcript.replyTo, { index: 1, author: 'Alice', quote: 'θα έρθεις απόψε;' });
   assert.equal(reply, `<reply>\n${marker} ναι, φυσικά\n</reply>`);
 });
@@ -6977,20 +9703,32 @@ test('runTurn: with several messages a picked GIF replaces the first one only; t
   const reply = '<msg reply="#2">χα</msg><msg>και κάτι ακόμα πιο μακρύ από είκοσι</msg><msg>τέλος</msg>';
   const { picks, sent, channel, store } = await runPickTurn({ reply, pick: 'g50' });
   assert.equal(picks.length, 1, 'only the first message counts toward gifs.pick.maxChars');
-  assert.equal(textOf(picks[0].messages[1].content).split('\n\n')[2].endsWith(' χα\n</reply>'), true, 'the picker sees the message it would replace');
+  assert.equal(
+    textOf(picks[0].messages[1].content).split('\n\n')[2].endsWith(' χα\n</reply>'),
+    true,
+    'the picker sees the message it would replace'
+  );
   assert.deepEqual(sent(), ['https://tenor.com/view/gif-50', 'και κάτι ακόμα πιο μακρύ από είκοσι', 'τέλος']);
   assert.equal(channel.sent[0].reply.messageReference, 'm1', 'the GIF replies where the first message would have');
-  assert.deepEqual(store.ownGifs.map((own) => own.key), ['k50']);
+  assert.deepEqual(
+    store.ownGifs.map((own) => own.key),
+    ['k50']
+  );
 
   const dry = await runPickTurn({ reply, pick: 'g50', features: { dryRun: true } });
-  const order = dry.logs.filter((entry) => entry.msg === 'dry-run: would send gif' || entry.msg === 'dry-run: would send').map((entry) => entry.gif ?? entry.text);
+  const order = dry.logs
+    .filter((entry) => entry.msg === 'dry-run: would send gif' || entry.msg === 'dry-run: would send')
+    .map((entry) => entry.gif ?? entry.text);
   assert.deepEqual(order, ['g50', 'και κάτι ακόμα πιο μακρύ από είκοσι', 'τέλος'], 'a dry run mirrors the same order');
 });
 
 test('runTurn: a picked GIF that fails to send leaves the first message to be posted as written, then the rest', async () => {
   const reply = '<msg reply="#2">χα</msg><msg>τέλος</msg>';
   const { sent, channel, logs, store } = await runPickTurn({ reply, pick: 'g50', failGif: true });
-  assert.ok(logs.some((entry) => entry.msg === 'turn: gif failed'), 'the failed GIF is logged');
+  assert.ok(
+    logs.some((entry) => entry.msg === 'turn: gif failed'),
+    'the failed GIF is logged'
+  );
   assert.deepEqual(sent(), ['χα', 'τέλος'], 'nothing is lost');
   assert.equal(channel.sent[0].reply.messageReference, 'm1', 'the first message replies as written');
   assert.deepEqual(store.ownGifs, [], 'no own post recorded');
@@ -7002,45 +9740,95 @@ test('runTurn: gifs.pick.maxChars gates the first message only', async () => {
   assert.deepEqual(long.sent(), ['και κάτι ακόμα πιο μακρύ από είκοσι', 'χα']);
 });
 
-test('runTurn: the picker runs alongside the first message\'s typing time', async () => {
+test("runTurn: the picker runs alongside the first message's typing time", async () => {
   let askedAt = null;
   const pick = () => {
     askedAt = Date.now();
     return new Promise((resolve) => setTimeout(() => resolve('none'), 150));
   };
-  const { sendTimes, sent } = await runPickTurn({ reply: '<msg>ναι</msg>', pick, typing: { msPerChar: [0, 0], minMs: 150, maxMs: 150 }, pickSettings: { ...PICK_SETTINGS, graceMs: null } });
+  const { sendTimes, sent } = await runPickTurn({
+    reply: '<msg>ναι</msg>',
+    pick,
+    typing: { msPerChar: [0, 0], minMs: 150, maxMs: 150 },
+    pickSettings: { ...PICK_SETTINGS, graceMs: null },
+  });
   assert.deepEqual(sent(), ['ναι']);
   assert.ok(askedAt !== null && askedAt <= sendTimes[0], 'the picker is asked before the send');
   const together = sendTimes[0] - askedAt;
   assert.ok(together >= 140 && together < 270, `the picker and the typing ran together (${together} ms)`);
 });
 
-test('runTurn: a picker still out when the first message\'s typing ends is left behind: the text goes, logged and journaled', async () => {
+test("runTurn: a picker still out when the first message's typing ends is left behind: the text goes, logged and journaled", async () => {
   const typing = { msPerChar: [0, 0], minMs: 60, maxMs: 60 };
   const slow = () => new Promise((resolve) => setTimeout(() => resolve('g50'), 400));
-  const late = await runPickTurn({ reply: '<msg>ναι</msg>', pick: slow, typing, pickSettings: { ...PICK_SETTINGS, graceMs: 0 }, journaled: true });
+  const late = await runPickTurn({
+    reply: '<msg>ναι</msg>',
+    pick: slow,
+    typing,
+    pickSettings: { ...PICK_SETTINGS, graceMs: 0 },
+    journaled: true,
+  });
   assert.deepEqual(late.sent(), ['ναι'], 'the text as written, no GIF');
-  assert.ok(late.sendTimes[0] - late.startedAt < 300, `not held for the picker (${late.sendTimes[0] - late.startedAt} ms)`);
+  assert.ok(
+    late.sendTimes[0] - late.startedAt < 300,
+    `not held for the picker (${late.sendTimes[0] - late.startedAt} ms)`
+  );
   const entry = late.logs.find((log) => log.msg === 'gifs: pick late');
   assert.deepEqual([entry?.channel, entry?.graceMs], ['c1', 0]);
   assert.deepEqual(late.store.ownGifs, [], 'nothing posted or stamped');
-  assert.ok(late.limits.some((limit) => limit.kind === 'helper-timeout' && limit.where === 'gif-pick'), 'the turn record names the picker');
+  assert.ok(
+    late.limits.some((limit) => limit.kind === 'helper-timeout' && limit.where === 'gif-pick'),
+    'the turn record names the picker'
+  );
 
-  const graced = await runPickTurn({ reply: '<msg>ναι</msg>', pick: slow, typing, pickSettings: { ...PICK_SETTINGS, graceMs: 1000 } });
-  assert.deepEqual(graced.sent(), ['https://tenor.com/view/gif-50'], 'an answer inside the grace still replaces the text');
-  assert.equal(graced.logs.some((log) => log.msg === 'gifs: pick late'), false);
+  const graced = await runPickTurn({
+    reply: '<msg>ναι</msg>',
+    pick: slow,
+    typing,
+    pickSettings: { ...PICK_SETTINGS, graceMs: 1000 },
+  });
+  assert.deepEqual(
+    graced.sent(),
+    ['https://tenor.com/view/gif-50'],
+    'an answer inside the grace still replaces the text'
+  );
+  assert.equal(
+    graced.logs.some((log) => log.msg === 'gifs: pick late'),
+    false
+  );
 
-  const waits = await runPickTurn({ reply: '<msg>ναι</msg>', pick: slow, typing, pickSettings: { ...PICK_SETTINGS, graceMs: null } });
+  const waits = await runPickTurn({
+    reply: '<msg>ναι</msg>',
+    pick: slow,
+    typing,
+    pickSettings: { ...PICK_SETTINGS, graceMs: null },
+  });
   assert.deepEqual(waits.sent(), ['https://tenor.com/view/gif-50'], 'null waits for the answer');
 
-  const untyped = await runPickTurn({ reply: '<msg>ναι</msg>', pick: slow, pickSettings: { ...PICK_SETTINGS, graceMs: 0 } });
-  assert.deepEqual(untyped.sent(), ['https://tenor.com/view/gif-50'], 'without the typing imitation the answer is waited for, as before');
+  const untyped = await runPickTurn({
+    reply: '<msg>ναι</msg>',
+    pick: slow,
+    pickSettings: { ...PICK_SETTINGS, graceMs: 0 },
+  });
+  assert.deepEqual(
+    untyped.sent(),
+    ['https://tenor.com/view/gif-50'],
+    'without the typing imitation the answer is waited for, as before'
+  );
 });
 
 test('runTurn: a picker that answered during the typing is used with a grace of 0', async () => {
-  const quick = await runPickTurn({ reply: '<msg>ναι</msg>', pick: 'g50', typing: { msPerChar: [0, 0], minMs: 60, maxMs: 60 }, pickSettings: { ...PICK_SETTINGS, graceMs: 0 } });
+  const quick = await runPickTurn({
+    reply: '<msg>ναι</msg>',
+    pick: 'g50',
+    typing: { msPerChar: [0, 0], minMs: 60, maxMs: 60 },
+    pickSettings: { ...PICK_SETTINGS, graceMs: 0 },
+  });
   assert.deepEqual(quick.sent(), ['https://tenor.com/view/gif-50']);
-  assert.equal(quick.logs.some((log) => log.msg === 'gifs: pick late'), false);
+  assert.equal(
+    quick.logs.some((log) => log.msg === 'gifs: pick late'),
+    false
+  );
 });
 
 /**
@@ -7052,8 +9840,25 @@ async function twoPickTurns({ times, between, promptCache = true }) {
   const store = pickStore({ library });
   const llm = pickLlm({ reply: '<msg reply="#2">ναι, φυσικά, έλα</msg>', pick: 'none' });
   let t = times[0];
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: pickHot({ features: { promptCache } }), store, llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => t });
-  const turn = () => withCapturedLogs(() => turns.runTurn({ channel: fakeTurnChannel({ historyMessages: pickHistory() }), mode: 'reply', trigger: normalizedTrigger(pickHistory().at(-1)), triggerKind: 'mention' }));
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: pickHot({ features: { promptCache } }),
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    now: () => t,
+  });
+  const turn = () =>
+    withCapturedLogs(() =>
+      turns.runTurn({
+        channel: fakeTurnChannel({ historyMessages: pickHistory() }),
+        mode: 'reply',
+        trigger: normalizedTrigger(pickHistory().at(-1)),
+        triggerKind: 'mention',
+      })
+    );
   await turn();
   between(library.gifs);
   t = times[1];
@@ -7064,25 +9869,35 @@ async function twoPickTurns({ times, between, promptCache = true }) {
 /** The persona posted g40 at `at`, and it was used enough to lead the ranking. */
 const postG40 = (at) => (gifs) => Object.assign(gifs.entries.k40, { ownLast: at, ownUses: 1, count: 500, last: at });
 
-test('runTurn: with the prompt cache on, the picker\'s cached library is byte-identical within one cache bucket; her post and its age go to the tail', async () => {
+test("runTurn: with the prompt cache on, the picker's cached library is byte-identical within one cache bucket; her post and its age go to the tail", async () => {
   const first = NOW + 60_000;
   const second = NOW + 7 * 60_000;
   const [a, b] = await twoPickTurns({ times: [first, second], between: postG40(first + 1000) });
   assert.equal(a[0].cacheSegment, 'stable');
-  assert.equal(b[0].text, a[0].text, 'the stable part of the second pick is byte for byte the first one\'s');
+  assert.equal(b[0].text, a[0].text, "the stable part of the second pick is byte for byte the first one's");
   assert.equal(b[0].text.includes('(you'), false, 'no own-post mark in the cached library');
-  const gifLines = b[0].text.replace(/^<gifs>\n/, '').replace(/\n<\/gifs>\n\n$/, '').split('\n');
+  const gifLines = b[0].text
+    .replace(/^<gifs>\n/, '')
+    .replace(/\n<\/gifs>\n\n$/, '')
+    .split('\n');
   assert.equal(gifLines[0], 'g1 -- λεζάντα 1', 'the order the bucket started with');
   assert.equal(a[1].text.includes('<gifs_recent>'), false, 'no recent post before it');
   const recent = fill(labels.gifs.ownMark, { ago: formatDuration(second - (first + 1000), labels.units) });
-  assert.ok(b[1].text.startsWith(`<gifs_recent>\ng40 ${recent}\n</gifs_recent>\n\n<context>\n`), 'the post and its age open the per-call tail');
+  assert.ok(
+    b[1].text.startsWith(`<gifs_recent>\ng40 ${recent}\n</gifs_recent>\n\n<context>\n`),
+    'the post and its age open the per-call tail'
+  );
 });
 
-test('runTurn: the picker\'s library follows the library at the next cache bucket, or at once with the prompt cache off', async () => {
+test("runTurn: the picker's library follows the library at the next cache bucket, or at once with the prompt cache off", async () => {
   const first = NOW + 60_000;
   const [, nextBucket] = await twoPickTurns({ times: [first, NOW + 61 * 60_000], between: postG40(first + 1000) });
   assert.ok(nextBucket[0].text.startsWith('<gifs>\ng40 -- λεζάντα 40\n'), 'reranked at the bucket edge');
-  const [, off] = await twoPickTurns({ times: [first, NOW + 2 * 60_000], between: postG40(first + 1000), promptCache: false });
+  const [, off] = await twoPickTurns({
+    times: [first, NOW + 2 * 60_000],
+    between: postG40(first + 1000),
+    promptCache: false,
+  });
   assert.ok(off[0].text.startsWith('<gifs>\ng40 -- λεζάντα 40\n'), 'rendered live without the cache');
   assert.equal(off[0].text.includes('(you'), false, 'never marked in the library');
 });
@@ -7126,13 +9941,30 @@ async function runReplyParentTurn({ hot = replyParentHot(), historyMessages, sto
   const channel = replyParentChannel(historyMessages, stored);
   const llm = fakeLlm('<msg>ok</msg>');
   const describer = fakeVideoDescriber({});
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), describer });
-  const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger, triggerKind: 'mention' }));
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    describer,
+  });
+  const { result, logs } = await withCapturedLogs(() =>
+    turns.runTurn({ channel, mode: 'reply', trigger, triggerKind: 'mention' })
+  );
   return { result, logs, channel, describer, userMessage: textOf(llm.calls[0]?.[1].content) };
 }
 
 test('createTurnRunner: a trigger replying outside the window -- its parent is fetched, prepended, rendered as the reply target, and its link reaches the video stage', async () => {
-  const parent = rawMessage({ id: 'p1', authorId: 'u2', authorName: 'Bob', ts: OLD_PARENT_TS, content: 'δείτε https://www.youtube.com/watch?v=abc' });
+  const parent = rawMessage({
+    id: 'p1',
+    authorId: 'u2',
+    authorName: 'Bob',
+    ts: OLD_PARENT_TS,
+    content: 'δείτε https://www.youtube.com/watch?v=abc',
+  });
   const triggerRaw = rawReplyTo('p1', { id: 'm2', ts: NOW - 1000, content: 'react to the video above' });
   const { result, channel, describer, userMessage } = await runReplyParentTurn({
     historyMessages: [rawMessage({ id: 'm1', ts: NOW - 5000, content: 'καλημέρα' }), triggerRaw],
@@ -7146,7 +9978,11 @@ test('createTurnRunner: a trigger replying outside the window -- its parent is f
   assert.ok(!userMessage.includes(labels.transcript.replyToOld));
   assert.ok(userMessage.indexOf('δείτε') < userMessage.indexOf('καλημέρα'), 'the parent is the oldest line');
   const items = describer.videoCalls[0].items;
-  assert.ok(items.some((item) => item.source === 'link' && item.messageId === 'p1' && item.url === 'https://www.youtube.com/watch?v=abc'));
+  assert.ok(
+    items.some(
+      (item) => item.source === 'link' && item.messageId === 'p1' && item.url === 'https://www.youtube.com/watch?v=abc'
+    )
+  );
 });
 
 test('createTurnRunner: a reply whose parent is inside the window fetches nothing', async () => {
@@ -7163,7 +9999,13 @@ test('createTurnRunner: a reply whose parent is inside the window fetches nothin
 
 test('createTurnRunner: a chain of two outside the window -- the parent and its own parent are both prepended, oldest first', async () => {
   const root = rawMessage({ id: 'p1', authorId: 'u3', authorName: 'Chloé', ts: OLD_PARENT_TS, content: 'ρίζα' });
-  const middle = rawReplyTo('p1', { id: 'p2', authorId: 'u2', authorName: 'Bob', ts: OLD_PARENT_TS + 1000, content: 'μέση' });
+  const middle = rawReplyTo('p1', {
+    id: 'p2',
+    authorId: 'u2',
+    authorName: 'Bob',
+    ts: OLD_PARENT_TS + 1000,
+    content: 'μέση',
+  });
   const triggerRaw = rawReplyTo('p2', { id: 'm2', ts: NOW - 1000 });
   const { channel, userMessage } = await runReplyParentTurn({
     historyMessages: [triggerRaw],
@@ -7178,21 +10020,35 @@ test('createTurnRunner: a chain of two outside the window -- the parent and its 
 });
 
 test('createTurnRunner: context.replyParentsMax caps the fetched parents, context.replyParentsFor picks the window lines asked about', async () => {
-  const stored = ['pa', 'pb', 'pc'].map((id, i) => rawMessage({ id, authorId: 'u2', authorName: 'Bob', ts: OLD_PARENT_TS + i }));
+  const stored = ['pa', 'pb', 'pc'].map((id, i) =>
+    rawMessage({ id, authorId: 'u2', authorName: 'Bob', ts: OLD_PARENT_TS + i })
+  );
   const historyMessages = [
     rawReplyTo('pa', { id: 'm1', ts: NOW - 3000 }),
     rawReplyTo('pb', { id: 'm2', ts: NOW - 2000 }),
     rawReplyTo('pc', { id: 'm3', ts: NOW - 1000 }),
   ];
-  const capped = await runReplyParentTurn({ hot: replyParentHot({ replyParentsMax: 2 }), historyMessages, stored, trigger: { ...normalizedTrigger(historyMessages[2]), replyToId: 'pc' } });
+  const capped = await runReplyParentTurn({
+    hot: replyParentHot({ replyParentsMax: 2 }),
+    historyMessages,
+    stored,
+    trigger: { ...normalizedTrigger(historyMessages[2]), replyToId: 'pc' },
+  });
   assert.deepEqual(capped.channel.fetchedIds, ['pc', 'pb']);
 
-  const lastOne = await runReplyParentTurn({ hot: replyParentHot({ replyParentsFor: 1 }), historyMessages, stored, trigger: { ...normalizedTrigger(historyMessages[2]), replyToId: 'pc' } });
+  const lastOne = await runReplyParentTurn({
+    hot: replyParentHot({ replyParentsFor: 1 }),
+    historyMessages,
+    stored,
+    trigger: { ...normalizedTrigger(historyMessages[2]), replyToId: 'pc' },
+  });
   assert.deepEqual(lastOne.channel.fetchedIds, ['pc']);
 });
 
 test('createTurnRunner: features.anchoredWindow asks the parents of every window line and shows them in <earlier>, not <chat>', async () => {
-  const stored = ['pa', 'pb', 'pc'].map((id, i) => rawMessage({ id, authorId: 'u2', authorName: 'Bob', ts: OLD_PARENT_TS + i, content: `γονέας ${id}` }));
+  const stored = ['pa', 'pb', 'pc'].map((id, i) =>
+    rawMessage({ id, authorId: 'u2', authorName: 'Bob', ts: OLD_PARENT_TS + i, content: `γονέας ${id}` })
+  );
   const historyMessages = [
     rawReplyTo('pa', { id: 'm1', ts: NOW - 3000 }),
     rawReplyTo('pb', { id: 'm2', ts: NOW - 2000 }),
@@ -7200,11 +10056,26 @@ test('createTurnRunner: features.anchoredWindow asks the parents of every window
   ];
   const hot = replyParentHot({ replyParentsFor: 1 });
   hot.config.features.anchoredWindow = true;
-  const { channel, userMessage } = await runReplyParentTurn({ hot, historyMessages, stored, trigger: { ...normalizedTrigger(historyMessages[2]), replyToId: 'pc' } });
-  assert.deepEqual(channel.fetchedIds, ['pc', 'pb', 'pa'], 'every window line, newest first, despite replyParentsFor 1');
+  const { channel, userMessage } = await runReplyParentTurn({
+    hot,
+    historyMessages,
+    stored,
+    trigger: { ...normalizedTrigger(historyMessages[2]), replyToId: 'pc' },
+  });
+  assert.deepEqual(
+    channel.fetchedIds,
+    ['pc', 'pb', 'pa'],
+    'every window line, newest first, despite replyParentsFor 1'
+  );
   const block = (tag) => userMessage.slice(userMessage.indexOf(`<${tag}>`), userMessage.indexOf(`</${tag}>`));
-  assert.ok(['pa', 'pb', 'pc'].every((id) => block('earlier').includes(`γονέας ${id}`)), block('earlier'));
-  assert.ok(!/^#[123] \[/m.test(block('chat')) && /^#4 \[/m.test(block('chat')), 'the parents left the chat, the window kept its numbers');
+  assert.ok(
+    ['pa', 'pb', 'pc'].every((id) => block('earlier').includes(`γονέας ${id}`)),
+    block('earlier')
+  );
+  assert.ok(
+    !/^#[123] \[/m.test(block('chat')) && /^#4 \[/m.test(block('chat')),
+    'the parents left the chat, the window kept its numbers'
+  );
   assert.ok(block('chat').includes('(replying to #3, Bob: '), 'the chat still names a parent by its number');
 });
 
@@ -7218,7 +10089,10 @@ test('createTurnRunner: a deleted reply parent is skipped and logged, the turn s
   assert.equal(result.outcome, 'spoke');
   assert.deepEqual(channel.fetchedIds, ['gone']);
   const missing = logs.filter((entry) => entry.msg === 'collect: parent missing');
-  assert.deepEqual(missing.map((entry) => [entry.channel, entry.messageId]), [['c1', 'gone']]);
+  assert.deepEqual(
+    missing.map((entry) => [entry.channel, entry.messageId]),
+    [['c1', 'gone']]
+  );
   assert.ok(userMessage.includes(labels.transcript.replyToOld));
 });
 
@@ -7240,7 +10114,10 @@ test('createTurnRunner: context.fetchReplyParents off -- no parent is fetched, t
 // Participation: recording the persona's sent lines, the pick classifier, the block.
 
 /** A fake store with the participation store: get returns a copy, set records each write. */
-function participationStore(initial = { episodes: [], nextId: 1 }, base = fakeStore({ channels: [{ id: 'c2', name: 'journal', purpose: 'a reading log' }] })) {
+function participationStore(
+  initial = { episodes: [], nextId: 1 },
+  base = fakeStore({ channels: [{ id: 'c2', name: 'journal', purpose: 'a reading log' }] })
+) {
   let value = structuredClone(initial);
   const writes = [];
   return Object.assign(base, {
@@ -7262,8 +10139,26 @@ function storedEpisode(id, channelId, ageMinutes, ownText, memberText = 'μια 
     channelId,
     continues: null,
     messages: [
-      { id: `${id}-q`, ts: at - 60_000, authorId: 'u9', name: 'Ana', self: false, text: memberText, replyTo: null, caption: null },
-      { id: `${id}-a`, ts: at, authorId: 'self-id', name: 'Bot', self: true, text: ownText, replyTo: null, caption: null },
+      {
+        id: `${id}-q`,
+        ts: at - 60_000,
+        authorId: 'u9',
+        name: 'Ana',
+        self: false,
+        text: memberText,
+        replyTo: null,
+        caption: null,
+      },
+      {
+        id: `${id}-a`,
+        ts: at,
+        authorId: 'self-id',
+        name: 'Bot',
+        self: true,
+        text: ownText,
+        replyTo: null,
+        caption: null,
+      },
     ],
   };
 }
@@ -7271,33 +10166,61 @@ function storedEpisode(id, channelId, ageMinutes, ownText, memberText = 'μια 
 /** The turn's channel c1 with #journal (c2) and #jardin (c3) in its guild, everyone seeing all three. */
 function participationChannel(historyMessages) {
   const channel = fakeTurnChannel({ id: 'c1', name: 'general', historyMessages });
-  for (const [id, name] of [['c2', 'journal'], ['c3', 'jardin']]) {
-    channel.guild.channels.cache.set(id, { id, name, guild: channel.guild, viewable: true, permissionsFor: () => ({ has: () => true }) });
+  for (const [id, name] of [
+    ['c2', 'journal'],
+    ['c3', 'jardin'],
+  ]) {
+    channel.guild.channels.cache.set(id, {
+      id,
+      name,
+      guild: channel.guild,
+      viewable: true,
+      permissionsFor: () => ({ has: () => true }),
+    });
   }
   channel.guild.channels.cache.set('c1', channel);
   return channel;
 }
 
-async function runParticipationTurn({ answers, store = participationStore(), hot = fakeHot({ typingSimulation: false }), history } = {}) {
+async function runParticipationTurn({
+  answers,
+  store = participationStore(),
+  hot = fakeHot({ typingSimulation: false }),
+  history,
+} = {}) {
   const raws = history ?? [
     rawMessage({ id: 'm0', authorId: 'u2', authorName: 'Bob', ts: NOW - 5000, content: 'πρώτη γραμμή' }),
     rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', ts: NOW - 1000, content: 'θυμάσαι το βιβλίο;' }),
   ];
   const channel = participationChannel(raws);
   const llm = sequenceLlm(answers);
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    now: () => NOW,
+  });
   const params = { channel, mode: 'reply', trigger: normalizedTrigger(raws.at(-1)), triggerKind: 'mention' };
   const { result, logs } = await withCapturedLogs(() => turns.runTurn(params));
   return { result, logs, channel, llm, store };
 }
 
 test('runTurn: each message sent is recorded as participation with the history lines before it', async () => {
-  const { result, store, logs } = await runParticipationTurn({ answers: ['<msg reply="#2">στο ράφι</msg><msg>το είδα χθες</msg>'] });
+  const { result, store, logs } = await runParticipationTurn({
+    answers: ['<msg reply="#2">στο ράφι</msg><msg>το είδα χθες</msg>'],
+  });
   assert.equal(result.outcome, 'spoke');
   assert.equal(store.writes.length, 2, 'one write per message sent');
   const [episode] = store.current().episodes;
   assert.equal(episode.channelId, 'c1');
-  assert.deepEqual(episode.messages.map((m) => m.id), ['m0', 'm1', 'sent-1', 'sent-2']);
+  assert.deepEqual(
+    episode.messages.map((m) => m.id),
+    ['m0', 'm1', 'sent-1', 'sent-2']
+  );
   const own = episode.messages.find((m) => m.id === 'sent-1');
   assert.equal(own.self, true);
   assert.equal(own.authorId, 'self-id');
@@ -7323,15 +10246,25 @@ test('runTurn: a reply to a line older than the lines before it records that lin
   ];
   const { store } = await runParticipationTurn({ hot, history: raws, answers: ['<msg reply="#1">ναι, αυτό</msg>'] });
   const [episode] = store.current().episodes;
-  assert.deepEqual(episode.messages.map((m) => m.id), ['m0', 'm1', 'sent-1'], 'm1 is the one line before, m0 the parent; mx is left out');
+  assert.deepEqual(
+    episode.messages.map((m) => m.id),
+    ['m0', 'm1', 'sent-1'],
+    'm1 is the one line before, m0 the parent; mx is left out'
+  );
   assert.equal(episode.messages.find((m) => m.id === 'sent-1').replyTo, 'm0');
 });
 
 test('runTurn: a dry run, the switch off and a private chat record nothing', async () => {
-  const dry = await runParticipationTurn({ hot: fakeHot({ typingSimulation: false, dryRun: true }), answers: ['<msg>ναι</msg>'] });
+  const dry = await runParticipationTurn({
+    hot: fakeHot({ typingSimulation: false, dryRun: true }),
+    answers: ['<msg>ναι</msg>'],
+  });
   assert.equal(dry.result.outcome, 'spoke');
   assert.equal(dry.store.writes.length, 0);
-  const off = await runParticipationTurn({ hot: fakeHot({ typingSimulation: false, participation: false }), answers: ['<msg>ναι</msg>'] });
+  const off = await runParticipationTurn({
+    hot: fakeHot({ typingSimulation: false, participation: false }),
+    answers: ['<msg>ναι</msg>'],
+  });
   assert.equal(off.channel.sent.length, 1);
   assert.equal(off.store.writes.length, 0);
   const store = participationStore({ episodes: [], nextId: 1 }, privateStore());
@@ -7342,7 +10275,10 @@ test('runTurn: a dry run, the switch off and a private chat record nothing', asy
 });
 
 test('runTurn: the pick classifier runs beside the turn and its pick reaches the <participation> block', async () => {
-  const store = participationStore({ episodes: [storedEpisode('p1', 'c2', 120, 'στο ράφι είναι'), storedEpisode('p2', 'c3', 30, 'ωραία λουλούδια')], nextId: 3 });
+  const store = participationStore({
+    episodes: [storedEpisode('p1', 'c2', 120, 'στο ράφι είναι'), storedEpisode('p2', 'c3', 30, 'ωραία λουλούδια')],
+    nextId: 3,
+  });
   const hot = fakeHot({ typingSimulation: false }, {}, { participation: { shown: 1 } });
   hot.prompts['participation-pick'] = 'Pick for {{name}}.';
   const { llm, logs, result } = await runParticipationTurn({ hot, store, answers: ['1', '<msg>ναι</msg>'] });
@@ -7350,11 +10286,16 @@ test('runTurn: the pick classifier runs beside the turn and its pick reaches the
   assert.equal(llm.calls.length, 2);
   assert.equal(llm.calls[0][0].content, 'Pick for Bot.');
   assert.ok(
-    textOf(llm.calls[0][1].content).includes('<episodes>\n1 | #journal | Ana: μια ερώτηση | Bot: στο ράφι είναι\n2 | #jardin | Ana: μια ερώτηση | Bot: ωραία λουλούδια\n</episodes>\n<episode_ages>\n1 | 2 h\n2 | 30 min\n</episode_ages>'),
-    textOf(llm.calls[0][1].content),
+    textOf(llm.calls[0][1].content).includes(
+      '<episodes>\n1 | #journal | Ana: μια ερώτηση | Bot: στο ράφι είναι\n2 | #jardin | Ana: μια ερώτηση | Bot: ωραία λουλούδια\n</episodes>\n<episode_ages>\n1 | 2 h\n2 | 30 min\n</episode_ages>'
+    ),
+    textOf(llm.calls[0][1].content)
   );
   const user = textOf(llm.calls[1][1].content);
-  assert.ok(user.includes('<participation>') && user.includes('#journal (a reading log):') && user.includes('στο ράφι είναι'), 'the picked older episode is shown');
+  assert.ok(
+    user.includes('<participation>') && user.includes('#journal (a reading log):') && user.includes('στο ράφι είναι'),
+    'the picked older episode is shown'
+  );
   assert.ok(!user.includes('ωραία λουλούδια'), 'shown: 1 leaves the newest out for the pick');
   assert.ok(user.includes(labels.senses.participation));
   const answered = logs.find((l) => l.msg === 'turn: model answered');
@@ -7364,7 +10305,10 @@ test('runTurn: the pick classifier runs beside the turn and its pick reaches the
 });
 
 test('runTurn: without the pick prompt the newest episodes are shown and the classifier is skipped', async () => {
-  const store = participationStore({ episodes: [storedEpisode('p1', 'c2', 120, 'στο ράφι είναι'), storedEpisode('p2', 'c3', 30, 'ωραία λουλούδια')], nextId: 3 });
+  const store = participationStore({
+    episodes: [storedEpisode('p1', 'c2', 120, 'στο ράφι είναι'), storedEpisode('p2', 'c3', 30, 'ωραία λουλούδια')],
+    nextId: 3,
+  });
   const hot = fakeHot({ typingSimulation: false }, {}, { participation: { shown: 1 } });
   const { llm, logs } = await runParticipationTurn({ hot, store, answers: ['<msg>ναι</msg>'] });
   assert.equal(llm.calls.length, 1, 'only the reply request');
@@ -7398,7 +10342,13 @@ function journalOverMemory() {
     },
   };
   let n = 0;
-  const journal = createJournal({ memoryDb, dataDir: 'fake-data', config: () => ({ thinkChars: 4000 }), now: () => NOW, uuid: () => `u${(n += 1)}` });
+  const journal = createJournal({
+    memoryDb,
+    dataDir: 'fake-data',
+    config: () => ({ thinkChars: 4000 }),
+    now: () => NOW,
+    uuid: () => `u${(n += 1)}`,
+  });
   return { journal, lines };
 }
 
@@ -7414,10 +10364,15 @@ function usageLlm(text, defaultMax = () => Infinity) {
     complete: async (messages, options = {}) => {
       calls.push(messages);
       const max = options.maxOutputTokens ?? defaultMax();
-      if (options.limits && Number.isFinite(max) && 700 >= max) options.limits.add({ kind: 'output-cap', where: 'completion', lost: null });
+      if (options.limits && Number.isFinite(max) && 700 >= max)
+        options.limits.add({ kind: 'output-cap', where: 'completion', lost: null });
       return {
         text,
-        usage: { prompt_tokens: 1500, completion_tokens: 700, prompt_tokens_details: { cached_tokens: 300, cache_write_tokens: 200 } },
+        usage: {
+          prompt_tokens: 1500,
+          completion_tokens: 700,
+          prompt_tokens_details: { cached_tokens: 300, cache_write_tokens: 200 },
+        },
         promptTokens: 1500,
         estimated: 1400,
       };
@@ -7427,15 +10382,35 @@ function usageLlm(text, defaultMax = () => Infinity) {
 
 test('turn: the memory rows the request carried go to the memoryReads hook with the journal turn id', async () => {
   const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', ts: NOW - 1000 });
-  const profile = { id: 'u1', names: ['Alice'], details: [{ id: 1, text: 'lives in Lyon', weight: 2, itemId: 'de-1' }] };
+  const profile = {
+    id: 'u1',
+    names: ['Alice'],
+    details: [{ id: 1, text: 'lives in Lyon', weight: 2, itemId: 'de-1' }],
+  };
   const run = async ({ journal = true, memoryReads }) => {
-    const hot = fakeHot({ journal, typingSimulation: false }, {}, { llm: { maxRequestTokens: 50000, safetyMargin: 0.9, maxOutputTokens: 700 } });
+    const hot = fakeHot(
+      { journal, typingSimulation: false },
+      {},
+      { llm: { maxRequestTokens: 50000, safetyMargin: 0.9, maxOutputTokens: 700 } }
+    );
     const { journal: journalOver } = journalOverMemory();
     const turns = createTurnRunner({
-      discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore({ userProfiles: { u1: profile } }), llm: usageLlm('<think>x</think><msg reply="#1">γεια</msg>', () => 700),
-      calibrator: identityCalibrator(), client: fakeClient(), journal: journalOver, memoryReads,
+      discord: DISCORD,
+      createPort: createDiscordAdapter,
+      hot,
+      store: fakeStore({ userProfiles: { u1: profile } }),
+      llm: usageLlm('<think>x</think><msg reply="#1">γεια</msg>', () => 700),
+      calibrator: identityCalibrator(),
+      client: fakeClient(),
+      journal: journalOver,
+      memoryReads,
     });
-    return turns.runTurn({ channel: fakeTurnChannel({ historyMessages: [raw] }), mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+    return turns.runTurn({
+      channel: fakeTurnChannel({ historyMessages: [raw] }),
+      mode: 'reply',
+      trigger: normalizedTrigger(raw),
+      triggerKind: 'mention',
+    });
   };
 
   const calls = [];
@@ -7447,7 +10422,11 @@ test('turn: the memory rows the request carried go to the memoryReads hook with 
   assert.ok(calls[0].reads.some((read) => read.kind === 'claim' && read.id === 'de-1'));
 
   // A hook that throws never fails the turn; no hook, or no journal turn id, records nothing.
-  const throwing = await run({ memoryReads: () => { throw new Error('boom'); } });
+  const throwing = await run({
+    memoryReads: () => {
+      throw new Error('boom');
+    },
+  });
   assert.equal(throwing.outcome, 'spoke');
   assert.equal((await run({ memoryReads: null })).outcome, 'spoke');
   const quiet = [];
@@ -7457,15 +10436,33 @@ test('turn: the memory rows the request carried go to the memoryReads hook with 
 
 test('turn: one execution context per turn; its id goes with the memory rows the request carried', async () => {
   const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', ts: NOW - 1000 });
-  const profile = { id: 'u1', names: ['Alice'], details: [{ id: 1, text: 'lives in Lyon', weight: 2, itemId: 'de-1' }] };
-  const hot = fakeHot({ journal: true, typingSimulation: false }, {}, { llm: { maxRequestTokens: 50000, safetyMargin: 0.9, maxOutputTokens: 700 } });
+  const profile = {
+    id: 'u1',
+    names: ['Alice'],
+    details: [{ id: 1, text: 'lives in Lyon', weight: 2, itemId: 'de-1' }],
+  };
+  const hot = fakeHot(
+    { journal: true, typingSimulation: false },
+    {},
+    { llm: { maxRequestTokens: 50000, safetyMargin: 0.9, maxOutputTokens: 700 } }
+  );
   const { journal } = journalOverMemory();
   const calls = [];
   const issued = [];
   const turns = createTurnRunner({
-    discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore({ userProfiles: { u1: profile } }), llm: usageLlm('<think>x</think><msg reply="#1">γεια</msg>', () => 700),
-    calibrator: identityCalibrator(), client: fakeClient(), journal, memoryReads: (args) => calls.push(args),
-    memoryContext: (spec) => { issued.push(spec); return { iface: 'discord', kind: spec.kind, id: `ctx:${issued.length}` }; },
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store: fakeStore({ userProfiles: { u1: profile } }),
+    llm: usageLlm('<think>x</think><msg reply="#1">γεια</msg>', () => 700),
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    journal,
+    memoryReads: (args) => calls.push(args),
+    memoryContext: (spec) => {
+      issued.push(spec);
+      return { iface: 'discord', kind: spec.kind, id: `ctx:${issued.length}` };
+    },
   });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
@@ -7479,17 +10476,41 @@ test('turn: writes turn.start and turn records when the journal is on', async ()
   const earlier = rawMessage({ id: 'm0', authorId: 'u2', authorName: 'Zoé', ts: NOW - 5000, content: 'καλημέρα' });
   const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', ts: NOW - 1000 });
   const channel = fakeTurnChannel({ historyMessages: [earlier, raw] });
-  const hot = fakeHot({ journal: true, typingSimulation: false }, {}, { llm: { maxRequestTokens: 50000, safetyMargin: 0.9, maxOutputTokens: 700 } });
-  const llm = usageLlm('<think>Η Αλίκη με φωνάζει.</think><msg reply="#2">γεια</msg><react to="#1">\u{1F389}</react>', () => hot.config.llm.maxOutputTokens);
+  const hot = fakeHot(
+    { journal: true, typingSimulation: false },
+    {},
+    { llm: { maxRequestTokens: 50000, safetyMargin: 0.9, maxOutputTokens: 700 } }
+  );
+  const llm = usageLlm(
+    '<think>Η Αλίκη με φωνάζει.</think><msg reply="#2">γεια</msg><react to="#1">\u{1F389}</react>',
+    () => hot.config.llm.maxOutputTokens
+  );
   const { journal, lines } = journalOverMemory();
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), journal });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    journal,
+  });
 
-  const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+  const result = await turns.runTurn({
+    channel,
+    mode: 'reply',
+    trigger: normalizedTrigger(raw),
+    triggerKind: 'mention',
+  });
 
   assert.equal(result.outcome, 'spoke');
   // Between them, the action records of the post and the reaction (Task C's tests check those).
   const turnLines = lines.filter(({ record }) => record.kind !== 'action');
-  assert.deepEqual(turnLines.map(({ record }) => record.kind), ['turn.start', 'turn']);
+  assert.deepEqual(
+    turnLines.map(({ record }) => record.kind),
+    ['turn.start', 'turn']
+  );
   const [start, turn] = turnLines.map(({ record }) => record);
   assert.equal(turnLines[0].file, turnLines[1].file);
   assert.ok(turnLines[0].file.endsWith('2026-09-20.jsonl'));
@@ -7508,14 +10529,19 @@ test('turn: writes turn.start and turn records when the journal is on', async ()
   assert.deepEqual(turn.sourceMessageIds, ['m0', 'm1']);
   assert.deepEqual([...turn.participants].sort(), ['u1', 'u2']);
   assert.equal(turn.think, 'Η Αλίκη με φωνάζει.');
-  const opOf = (name) => lines.find(({ record }) => record.kind === 'action' && record.name === name && record.phase === 'started').record.opId;
+  const opOf = (name) =>
+    lines.find(({ record }) => record.kind === 'action' && record.name === name && record.phase === 'started').record
+      .opId;
   assert.deepEqual(turn.posted, [{ opId: opOf('post'), messageId: 'sent-1', replyTo: 'm1' }]);
   assert.deepEqual(turn.reactions, [{ opId: opOf('react'), to: 'm0', emoji: '\u{1F389}' }]);
   assert.deepEqual(turn.actions, [opOf('react'), opOf('post')]);
   // The cache writes are carried as the provider reported them, beside the cached reads.
   assert.deepEqual(turn.usage, { prompt: 1500, cached: 300, cacheWrite: 200, completion: 700 });
   assert.equal(typeof turn.budget.dropped, 'object');
-  assert.deepEqual(turn.limits.filter((limit) => limit.kind === 'output-cap'), [{ kind: 'output-cap', where: 'completion', lost: null }]);
+  assert.deepEqual(
+    turn.limits.filter((limit) => limit.kind === 'output-cap'),
+    [{ kind: 'output-cap', where: 'completion', lost: null }]
+  );
   for (const limit of turn.limits.filter((entry) => entry.kind === 'budget-drop')) {
     assert.equal(turn.budget.dropped[limit.where], limit.lost);
   }
@@ -7533,9 +10559,15 @@ test('turn: writes turn.start and turn records when the journal is on', async ()
   // 500 for the request itself, and what her carried-over tools cost beside it (about 800 with the provider's tool preamble).
   hot.config.llm = { maxRequestTokens: 1300, safetyMargin: 1, maxOutputTokens: 4000 };
   const crowded = [];
-  for (let i = 0; i < 12; i += 1) crowded.push(rawMessage({ id: `k${i}`, authorId: 'u2', ts: NOW - 60_000 + i * 1000, content: 'λέξη '.repeat(30) }));
+  for (let i = 0; i < 12; i += 1)
+    crowded.push(rawMessage({ id: `k${i}`, authorId: 'u2', ts: NOW - 60_000 + i * 1000, content: 'λέξη '.repeat(30) }));
   const last = crowded.at(-1);
-  await turns.runTurn({ channel: fakeTurnChannel({ historyMessages: crowded }), mode: 'reply', trigger: normalizedTrigger(last), triggerKind: 'mention' });
+  await turns.runTurn({
+    channel: fakeTurnChannel({ historyMessages: crowded }),
+    mode: 'reply',
+    trigger: normalizedTrigger(last),
+    triggerKind: 'mention',
+  });
   const tight = lines.at(-1).record;
   assert.equal(tight.kind, 'turn');
   assert.ok(tight.budget.dropped.chat > 0, JSON.stringify(tight.budget));
@@ -7547,10 +10579,28 @@ test('turn: an explicit skip and an empty answer both end in silence, journaled 
   for (const answer of ['<skip/>', '<think>rien</think>']) {
     const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', ts: NOW - 1000 });
     const channel = fakeTurnChannel({ historyMessages: [raw] });
-    const hot = fakeHot({ journal: true, typingSimulation: false }, {}, { llm: { maxRequestTokens: 50000, safetyMargin: 0.9, maxOutputTokens: 700 } });
+    const hot = fakeHot(
+      { journal: true, typingSimulation: false },
+      {},
+      { llm: { maxRequestTokens: 50000, safetyMargin: 0.9, maxOutputTokens: 700 } }
+    );
     const { journal, lines } = journalOverMemory();
-    const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm: fakeLlm(answer), calibrator: identityCalibrator(), client: fakeClient(), journal });
-    const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+    const turns = createTurnRunner({
+      discord: DISCORD,
+      createPort: createDiscordAdapter,
+      hot,
+      store: fakeStore(),
+      llm: fakeLlm(answer),
+      calibrator: identityCalibrator(),
+      client: fakeClient(),
+      journal,
+    });
+    const result = await turns.runTurn({
+      channel,
+      mode: 'reply',
+      trigger: normalizedTrigger(raw),
+      triggerKind: 'mention',
+    });
     assert.equal(result.outcome, 'skip', answer);
     assert.equal(result.reason, 'silence', answer);
     const turn = lines.map(({ record }) => record).find((record) => record.kind === 'turn');
@@ -7564,8 +10614,19 @@ test('turn: logs thinkChars not think when the journal is on', async () => {
   const answer = '<think>Ζωή μιλά</think><msg>γεια</msg>';
   const run = async (features, journal) => {
     const channel = fakeTurnChannel({ historyMessages: [raw] });
-    const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({ typingSimulation: false, ...features }), store: fakeStore(), llm: fakeLlm(answer), calibrator: identityCalibrator(), client: fakeClient(), journal });
-    const { logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
+    const turns = createTurnRunner({
+      discord: DISCORD,
+      createPort: createDiscordAdapter,
+      hot: fakeHot({ typingSimulation: false, ...features }),
+      store: fakeStore(),
+      llm: fakeLlm(answer),
+      calibrator: identityCalibrator(),
+      client: fakeClient(),
+      journal,
+    });
+    const { logs } = await withCapturedLogs(() =>
+      turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' })
+    );
     return logs.find((l) => l.msg === 'turn: model answered');
   };
 
@@ -7597,13 +10658,30 @@ test('turn: a post writes started then succeeded with the messageId and the turn
   };
   const llm = fakeLlm('<msg reply="#2">γεια σου Αλίκη</msg><react to="#1">\u{1F389}</react>');
   const hot = fakeHot({ journal: true, typingSimulation: false });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), journal });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    journal,
+  });
 
-  const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+  const result = await turns.runTurn({
+    channel,
+    mode: 'reply',
+    trigger: normalizedTrigger(raw),
+    triggerKind: 'mention',
+  });
   assert.equal(result.outcome, 'spoke');
 
   const posts = actionsNamed(lines, 'post');
-  assert.deepEqual(posts.map((r) => r.phase), ['started', 'succeeded']);
+  assert.deepEqual(
+    posts.map((r) => r.phase),
+    ['started', 'succeeded']
+  );
   const [started, succeeded] = posts;
   assert.equal(started.opId, succeeded.opId);
   assert.equal(started.by, 'persona');
@@ -7615,7 +10693,10 @@ test('turn: a post writes started then succeeded with the messageId and the turn
   assert.ok(!linesAtSend[0].includes('action:post:succeeded'));
 
   const reacts = actionsNamed(lines, 'react');
-  assert.deepEqual(reacts.map((r) => r.phase), ['started', 'succeeded']);
+  assert.deepEqual(
+    reacts.map((r) => r.phase),
+    ['started', 'succeeded']
+  );
   assert.equal(reacts[0].by, 'persona');
   assert.deepEqual(reacts[1].result, { to: 'm0', emoji: '\u{1F389}' });
 
@@ -7637,13 +10718,22 @@ test('turn: a post writes started then succeeded with the messageId and the turn
     client: fakeClient(),
     journal: dry.journal,
   });
-  const { result: dryResult } = await withCapturedLogs(() => dryTurns.runTurn({ channel: dryChannel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
+  const { result: dryResult } = await withCapturedLogs(() =>
+    dryTurns.runTurn({ channel: dryChannel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' })
+  );
   assert.equal(dryResult.dryRun, true);
   assert.equal(dryChannel.sent.length, 0);
   for (const name of ['post', 'react']) {
     const phases = actionsNamed(dry.lines, name);
-    assert.deepEqual(phases.map((r) => r.phase), ['started', 'succeeded'], name);
-    assert.ok(phases.every((r) => r.dryRun === true), name);
+    assert.deepEqual(
+      phases.map((r) => r.phase),
+      ['started', 'succeeded'],
+      name
+    );
+    assert.ok(
+      phases.every((r) => r.dryRun === true),
+      name
+    );
     assert.equal('messageId' in (phases[1].result ?? {}), false, name);
   }
   const dryTurn = dry.lines.map(({ record }) => record).find((record) => record.kind === 'turn');
@@ -7658,15 +10748,29 @@ test('turn: a send that throws writes unknown', async () => {
       throw error;
     };
     const { journal, lines } = journalOverMemory();
-    const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({ journal: true, typingSimulation: false }), store: fakeStore(), llm: fakeLlm('<msg reply="#1">Ζωή</msg>'), calibrator: identityCalibrator(), client: fakeClient(), journal });
-    const { result } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
+    const turns = createTurnRunner({
+      discord: DISCORD,
+      createPort: createDiscordAdapter,
+      hot: fakeHot({ journal: true, typingSimulation: false }),
+      store: fakeStore(),
+      llm: fakeLlm('<msg reply="#1">Ζωή</msg>'),
+      calibrator: identityCalibrator(),
+      client: fakeClient(),
+      journal,
+    });
+    const { result } = await withCapturedLogs(() =>
+      turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' })
+    );
     return { result, lines };
   };
 
   // The request may have reached Discord: the outcome is unknown, never retried.
   const lost = await run(new Error('socket hang up'));
   const posts = actionsNamed(lost.lines, 'post');
-  assert.deepEqual(posts.map((r) => r.phase), ['started', 'unknown']);
+  assert.deepEqual(
+    posts.map((r) => r.phase),
+    ['started', 'unknown']
+  );
   assert.equal(posts[0].opId, posts[1].opId);
   const turn = lost.lines.map(({ record }) => record).find((record) => record.kind === 'turn');
   assert.deepEqual(turn.posted, []);
@@ -7675,7 +10779,10 @@ test('turn: a send that throws writes unknown', async () => {
   // Discord answered with a refusal: a known failure with its code.
   const refused = Object.assign(new Error('Missing Permissions'), { status: 403, code: 50013 });
   const failed = actionsNamed((await run(refused)).lines, 'post');
-  assert.deepEqual(failed.map((r) => r.phase), ['started', 'failed']);
+  assert.deepEqual(
+    failed.map((r) => r.phase),
+    ['started', 'failed']
+  );
   assert.deepEqual(failed[1].result, { code: 'http-403' });
 });
 
@@ -7683,23 +10790,51 @@ test('turn: an engine preparation step writes action records with by engine', as
   const hot = lookupHot({ journal: true, typingSimulation: false });
   const llm = lookupLlm('champions final winner 2026');
   const lookup = fakeLookup({ reads: { 'm1#e0': 'une recette, trois œufs' } });
-  const messages = [linkRaw('m1', NOW - 5000, [PAGE_EMBED]), rawMessage({ id: 'm2', ts: NOW - 1000, authorName: 'Zoë', content: 'ποιος κέρδισε τον τελικό;' })];
+  const messages = [
+    linkRaw('m1', NOW - 5000, [PAGE_EMBED]),
+    rawMessage({ id: 'm2', ts: NOW - 1000, authorName: 'Zoë', content: 'ποιος κέρδισε τον τελικό;' }),
+  ];
   const channel = fakeTurnChannel({ historyMessages: messages });
   const { journal, lines } = journalOverMemory();
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), lookup, journal });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    lookup,
+    journal,
+  });
 
-  const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(messages[1]), triggerKind: 'mention' });
+  const result = await turns.runTurn({
+    channel,
+    mode: 'reply',
+    trigger: normalizedTrigger(messages[1]),
+    triggerKind: 'mention',
+  });
   assert.equal(result.outcome, 'spoke');
 
   const reads = actionsNamed(lines, 'read-link');
-  assert.deepEqual(reads.map((r) => r.phase), ['started', 'succeeded']);
+  assert.deepEqual(
+    reads.map((r) => r.phase),
+    ['started', 'succeeded']
+  );
   assert.equal(reads[0].by, 'engine');
   assert.equal(reads[0].turnId, result.turnId);
   assert.deepEqual(reads[0].input, { hosts: ['example.org'] });
-  assert.deepEqual(reads[1].result, { hosts: ['example.org'], chars: 'une recette, trois œufs'.length, delivered: true });
+  assert.deepEqual(reads[1].result, {
+    hosts: ['example.org'],
+    chars: 'une recette, trois œufs'.length,
+    delivered: true,
+  });
 
   const searches = actionsNamed(lines, 'lookup');
-  assert.deepEqual(searches.map((r) => r.phase), ['started', 'succeeded']);
+  assert.deepEqual(
+    searches.map((r) => r.phase),
+    ['started', 'succeeded']
+  );
   assert.equal(searches[0].by, 'engine');
   assert.deepEqual(searches[0].input, { query: 'champions final winner 2026' });
   assert.deepEqual(searches[1].result, { results: 1, delivered: true });
@@ -7708,16 +10843,33 @@ test('turn: an engine preparation step writes action records with by engine', as
   for (const opId of [reads[0].opId, searches[0].opId]) assert.ok(turn.actions.includes(opId));
   // Every operation is closed.
   const opened = lines.filter(({ record }) => record.phase === 'started').map(({ record }) => record.opId);
-  const closed = new Set(lines.filter(({ record }) => record.kind === 'action' && record.phase !== 'started').map(({ record }) => record.opId));
+  const closed = new Set(
+    lines
+      .filter(({ record }) => record.kind === 'action' && record.phase !== 'started')
+      .map(({ record }) => record.opId)
+  );
   assert.ok(opened.every((opId) => closed.has(opId)));
 });
 
 test('turn: pulled lines appear in seen.pulled', async () => {
   const scene = pullScene({ features: { journal: true, typingSimulation: false } });
   const { journal, lines } = journalOverMemory();
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: scene.hot, store: scene.store, llm: scene.llm, calibrator: identityCalibrator(), client: fakeClient(), imageFetcher: fakeImageFetcher(), now: () => NOW, journal });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: scene.hot,
+    store: scene.store,
+    llm: scene.llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    imageFetcher: fakeImageFetcher(),
+    now: () => NOW,
+    journal,
+  });
 
-  const { result } = await withCapturedLogs(() => turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
+  const { result } = await withCapturedLogs(() =>
+    turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
+  );
   assert.equal(result.outcome, 'spoke');
   assert.ok(channelViewOf(scene.llm), 'the request carries <channel_view>');
 
@@ -7735,18 +10887,40 @@ test('turn: a successful post writes a said line', async () => {
   const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', ts: NOW - 1000 });
   const channel = fakeTurnChannel({ historyMessages: [earlier, raw] });
   const appended = [];
-  const record = { append: async (guildId, lines, opts) => { appended.push({ guildId, lines, opts }); return { written: lines.length, duplicates: 0 }; } };
+  const record = {
+    append: async (guildId, lines, opts) => {
+      appended.push({ guildId, lines, opts });
+      return { written: lines.length, duplicates: 0 };
+    },
+  };
   const { journal, lines } = journalOverMemory();
   const hot = fakeHot({ journal: true, record: true, typingSimulation: false });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm: fakeLlm('<msg reply="#2">γεια σου Αλίκη</msg>'), calibrator: identityCalibrator(), client: fakeClient(), journal, record });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store: fakeStore(),
+    llm: fakeLlm('<msg reply="#2">γεια σου Αλίκη</msg>'),
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    journal,
+    record,
+  });
 
-  const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+  const result = await turns.runTurn({
+    channel,
+    mode: 'reply',
+    trigger: normalizedTrigger(raw),
+    triggerKind: 'mention',
+  });
   assert.equal(result.outcome, 'spoke');
   assert.equal(appended.length, 1);
   assert.equal(appended[0].guildId, 'g1');
   assert.deepEqual(appended[0].opts, {});
   const [said] = appended[0].lines;
-  const succeeded = lines.map(({ record: r }) => r).find((r) => r.kind === 'action' && r.name === 'post' && r.phase === 'succeeded');
+  const succeeded = lines
+    .map(({ record: r }) => r)
+    .find((r) => r.kind === 'action' && r.name === 'post' && r.phase === 'succeeded');
   assert.equal(said.kind, 'said');
   assert.equal(said.messageId, 'sent-1');
   assert.equal(said.text, 'γεια σου Αλίκη');
@@ -7759,7 +10933,12 @@ test('turn: a successful post writes a said line', async () => {
 
   // features.record off (read at use): nothing is appended.
   hot.config.features.record = false;
-  await turns.runTurn({ channel: fakeTurnChannel({ historyMessages: [earlier, raw] }), mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+  await turns.runTurn({
+    channel: fakeTurnChannel({ historyMessages: [earlier, raw] }),
+    mode: 'reply',
+    trigger: normalizedTrigger(raw),
+    triggerKind: 'mention',
+  });
   assert.equal(appended.length, 1);
 });
 
@@ -7771,7 +10950,16 @@ test('turn: limits lists a message cut at 2000 with the lost length', async () =
   const channel = fakeTurnChannel({ historyMessages: [earlier, raw] });
   const answer = `<msg>${'α'.repeat(1400)}${' @Bob'.repeat(100)}</msg>`;
   const { journal, lines } = journalOverMemory();
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({ journal: true, typingSimulation: false, mentionHandles: false }), store: fakeStore(), llm: fakeLlm(answer), calibrator: identityCalibrator(), client: fakeClient(), journal });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: fakeHot({ journal: true, typingSimulation: false, mentionHandles: false }),
+    store: fakeStore(),
+    llm: fakeLlm(answer),
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    journal,
+  });
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -7780,45 +10968,84 @@ test('turn: limits lists a message cut at 2000 with the lost length', async () =
   assert.ok(posted <= 2000, String(posted));
   const expanded = 1400 + 100 * ` <@${bobId}>`.length;
   const turn = lines.find(({ record }) => record.kind === 'turn').record;
-  assert.deepEqual(turn.limits.filter((limit) => limit.kind === 'message-cut'), [{ kind: 'message-cut', where: 'post', lost: expanded - posted }]);
+  assert.deepEqual(
+    turn.limits.filter((limit) => limit.kind === 'message-cut'),
+    [{ kind: 'message-cut', where: 'post', lost: expanded - posted }]
+  );
 });
 
 test('turn: limits lists a preview cut', async () => {
   const raw = rawMessage({
     id: 'm1',
-    attachments: new Map([['t1', { id: 't1', contentType: 'text/plain', name: 'notes.txt', url: 'https://cdn/notes.txt' }]]),
+    attachments: new Map([
+      ['t1', { id: 't1', contentType: 'text/plain', name: 'notes.txt', url: 'https://cdn/notes.txt' }],
+    ]),
   });
   const short = rawMessage({
     id: 'm0',
     ts: NOW - 5000,
-    attachments: new Map([['t0', { id: 't0', contentType: 'text/plain', name: 'short.txt', url: 'https://cdn/short.txt' }]]),
+    attachments: new Map([
+      ['t0', { id: 't0', contentType: 'text/plain', name: 'short.txt', url: 'https://cdn/short.txt' }],
+    ]),
   });
   const channel = fakeTurnChannel({ historyMessages: [short, raw] });
-  const fetchImpl = async (url) => ({ ok: true, headers: { get: () => null }, text: async () => (url.endsWith('notes.txt') ? 'é'.repeat(800) : 'ένα') });
+  const fetchImpl = async (url) => ({
+    ok: true,
+    headers: { get: () => null },
+    text: async () => (url.endsWith('notes.txt') ? 'é'.repeat(800) : 'ένα'),
+  });
   const { journal, lines } = journalOverMemory();
   const hot = fakeHot({ journal: true, typingSimulation: false });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm: fakeLlm('<msg>ok</msg>'), calibrator: identityCalibrator(), client: fakeClient(), fetchImpl, journal });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store: fakeStore(),
+    llm: fakeLlm('<msg>ok</msg>'),
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    fetchImpl,
+    journal,
+  });
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
   const turn = lines.find(({ record }) => record.kind === 'turn').record;
   assert.equal(hot.config.media.filePreviewChars, 500);
-  assert.deepEqual(turn.limits.filter((limit) => limit.kind === 'preview-cut'), [{ kind: 'preview-cut', where: 'm1', lost: 300, detail: 't1' }]);
+  assert.deepEqual(
+    turn.limits.filter((limit) => limit.kind === 'preview-cut'),
+    [{ kind: 'preview-cut', where: 'm1', lost: 300, detail: 't1' }]
+  );
 });
 
-test('turn: limits lists the search classifier\'s fallback with its reason', async () => {
+test("turn: limits lists the search classifier's fallback with its reason", async () => {
   const raw = rawMessage({ id: 'm1', content: 'ποιος σκότωσε το κουνέλι;' });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const { journal, lines } = journalOverMemory();
   const hot = lookupHot({ journal: true, typingSimulation: false });
   const recall = fakeRecall();
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm: lookupLlm(''), calibrator: identityCalibrator(), client: fakeClient(), lookup: fakeLookup(), recall, journal, now: () => NOW });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store: fakeStore(),
+    llm: lookupLlm(''),
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    lookup: fakeLookup(),
+    recall,
+    journal,
+    now: () => NOW,
+  });
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
   assert.deepEqual(recall.runCalls[0].server.forms, ['σκότωσε', 'κουνέλι', 'ποιος']);
   const turn = lines.find(({ record }) => record.kind === 'turn').record;
-  assert.deepEqual(turn.limits.filter((limit) => limit.kind === 'helper-fallback'), [{ kind: 'helper-fallback', where: 'lookup', lost: null, detail: 'empty' }]);
+  assert.deepEqual(
+    turn.limits.filter((limit) => limit.kind === 'helper-fallback'),
+    [{ kind: 'helper-fallback', where: 'lookup', lost: null, detail: 'empty' }]
+  );
 });
 
 test('turn: a journalled turn dumps its request and raw answer', async () => {
@@ -7832,8 +11059,22 @@ test('turn: a journalled turn dumps its request and raw answer', async () => {
       if (failing) throw Object.assign(new Error('disk'), { code: 'EIO' });
     };
     const llm = usageLlm(answer);
-    const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({ typingSimulation: false, ...features }), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), journal });
-    const result = await turns.runTurn({ channel: fakeTurnChannel({ historyMessages: [raw] }), mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+    const turns = createTurnRunner({
+      discord: DISCORD,
+      createPort: createDiscordAdapter,
+      hot: fakeHot({ typingSimulation: false, ...features }),
+      store: fakeStore(),
+      llm,
+      calibrator: identityCalibrator(),
+      client: fakeClient(),
+      journal,
+    });
+    const result = await turns.runTurn({
+      channel: fakeTurnChannel({ historyMessages: [raw] }),
+      mode: 'reply',
+      trigger: normalizedTrigger(raw),
+      triggerKind: 'mention',
+    });
     await new Promise((resolve) => setImmediate(resolve));
     return { dumps, llm, result };
   };
@@ -7911,7 +11152,8 @@ function plannerLlm(planner = fullPlan) {
   };
   return {
     calls,
-    helperCalls: () => calls.planner.length + calls.route.length + calls.pick.length + calls.rewatch.length + calls.lookup.length,
+    helperCalls: () =>
+      calls.planner.length + calls.route.length + calls.pick.length + calls.rewatch.length + calls.lookup.length,
     complete: async (messages, options) => {
       const kind = kindOf(messages[0].content);
       calls[kind].push({ messages, options });
@@ -7930,19 +11172,41 @@ async function runPlannerTurn({ turnPlanner = true, llm = plannerLlm(), journal 
     { webLookup: true, turnPlanner, typingSimulation: false, journal: Boolean(journal) },
     {},
     {
-      web: { maxPerDay: 60, links: { enabled: true, maxPerTurn: 2 }, search: { enabled: true, maxPerTurn: 1, contextMessages: 50, classifierMaxOutputTokens: 333 } },
+      web: {
+        maxPerDay: 60,
+        links: { enabled: true, maxPerTurn: 2 },
+        search: { enabled: true, maxPerTurn: 1, contextMessages: 50, classifierMaxOutputTokens: 333 },
+      },
       participation: { shown: 1 },
       models: { base: { vision: 'x/haiku', analyzer: 'x/reason' } },
-    },
+    }
   );
-  Object.assign(hot.prompts, { planner: PLANNER_SYSTEM, lookup: LOOKUP_SYSTEM, 'route-channel': ROUTE_SYSTEM, 'participation-pick': PICK_SYSTEM });
+  Object.assign(hot.prompts, {
+    planner: PLANNER_SYSTEM,
+    lookup: LOOKUP_SYSTEM,
+    'route-channel': ROUTE_SYSTEM,
+    'participation-pick': PICK_SYSTEM,
+  });
   const video = videoAttachmentRaw('m1', NOW - 5000, 'va', 'clip.mp4');
-  const triggerRaw = rawMessage({ id: 'm2', ts: NOW - 1000, authorName: 'Zoë', content: 'τι χρώμα είναι το αυτοκίνητο στο βίντεο;' });
+  const triggerRaw = rawMessage({
+    id: 'm2',
+    ts: NOW - 1000,
+    authorName: 'Zoë',
+    content: 'τι χρώμα είναι το αυτοκίνητο στο βίντεο;',
+  });
   const channel = participationChannel([video, triggerRaw]);
   const other = addChannel(channel, { id: DIARY, name: 'diary', messages: diaryLines() });
   const store = participationStore(
-    { episodes: [storedEpisode('p1', 'c2', 120, 'στο ράφι είναι'), storedEpisode('p2', 'c3', 30, 'ωραία λουλούδια')], nextId: 3 },
-    fakeStore({ channels: [{ id: DIARY, name: 'diary', purpose: 'a diary', lastMessageAt: NOW - HOUR }, { id: 'c2', name: 'journal', purpose: 'a reading log' }] }),
+    {
+      episodes: [storedEpisode('p1', 'c2', 120, 'στο ράφι είναι'), storedEpisode('p2', 'c3', 30, 'ωραία λουλούδια')],
+      nextId: 3,
+    },
+    fakeStore({
+      channels: [
+        { id: DIARY, name: 'diary', purpose: 'a diary', lastMessageAt: NOW - HOUR },
+        { id: 'c2', name: 'journal', purpose: 'a reading log' },
+      ],
+    })
   );
   const describer = fakeRewatchDescriber({ va: { state: 'watched', text: 'ένα αυτοκίνητο περνά' } });
   const lookup = fakeLookup();
@@ -7965,7 +11229,9 @@ async function runPlannerTurn({ turnPlanner = true, llm = plannerLlm(), journal 
     now: () => NOW,
     ...(skills ? { skills } : {}),
   });
-  const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(triggerRaw), triggerKind: 'mention' }));
+  const { result, logs } = await withCapturedLogs(() =>
+    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(triggerRaw), triggerKind: 'mention' })
+  );
   const reply = llm.calls.turn.length > 0 ? textOf(llm.calls.turn.at(-1).messages[1].content) : '';
   return { result, logs, llm, other, describer, lookup, recall, reply };
 }
@@ -7983,23 +11249,44 @@ test('turn planner: one request instead of four, and each consumer gets what the
   assert.equal(options.maxOutputTokens, 333);
   assert.equal(messages[0].content, 'Plan the turn for Bot on 2026-09-20.');
   const user = textOf(messages[1].content);
-  const at = ['<channels>\n', '<episodes>\n', '<media>\n', '<transcript>\n', '<candidate>\n'].map((tag) => user.indexOf(tag));
-  assert.ok(at.every((index) => index >= 0), user);
-  assert.deepEqual([...at].sort((a, b) => a - b), at, 'the blocks in the prompt order');
+  const at = ['<channels>\n', '<episodes>\n', '<media>\n', '<transcript>\n', '<candidate>\n'].map((tag) =>
+    user.indexOf(tag)
+  );
+  assert.ok(
+    at.every((index) => index >= 0),
+    user
+  );
+  assert.deepEqual(
+    [...at].sort((a, b) => a - b),
+    at,
+    'the blocks in the prompt order'
+  );
   assert.ok(user.includes('<media>\n1 | video | clip.mp4 | watched | ένα αυτοκίνητο περνά\n</media>'), user);
 
   // The same decisions through the four old classifiers.
   const off = await runPlannerTurn({ turnPlanner: false });
   assert.deepEqual(
     ['route', 'pick', 'rewatch', 'lookup', 'planner'].map((kind) => off.llm.calls[kind].length),
-    [1, 1, 1, 1, 0],
+    [1, 1, 1, 1, 0]
   );
   for (const run of [on, off]) {
     assert.equal(run.other.fetches.length, 1, 'the routed channel is pulled');
-    assert.deepEqual(run.describer.rewatchCalls.map((call) => [call.item.itemId, call.question]), [['va', 'τι χρώμα;']]);
-    assert.deepEqual(run.lookup.searchCalls.map((call) => call.query), ['χρώμα αυτοκινήτου']);
-    assert.deepEqual(run.recall.runCalls.map((call) => call.server.forms), [['αυτοκίνητο']]);
-    assert.ok(run.reply.includes('στο ράφι είναι') && !run.reply.includes('ωραία λουλούδια'), 'the picked #journal episode is shown');
+    assert.deepEqual(
+      run.describer.rewatchCalls.map((call) => [call.item.itemId, call.question]),
+      [['va', 'τι χρώμα;']]
+    );
+    assert.deepEqual(
+      run.lookup.searchCalls.map((call) => call.query),
+      ['χρώμα αυτοκινήτου']
+    );
+    assert.deepEqual(
+      run.recall.runCalls.map((call) => call.server.forms),
+      [['αυτοκίνητο']]
+    );
+    assert.ok(
+      run.reply.includes('στο ράφι είναι') && !run.reply.includes('ωραία λουλούδια'),
+      'the picked #journal episode is shown'
+    );
   }
   assert.equal(on.reply, off.reply, 'the reply request is the same either way');
   const classified = on.logs.find((l) => l.msg === 'planner: classified');
@@ -8007,7 +11294,7 @@ test('turn planner: one request instead of four, and each consumer gets what the
   assert.ok(!JSON.stringify(classified).includes('χρώμα'), 'codes and counts only');
 });
 
-test('turn planner: a failed call runs the search fallback on the question\'s words, every other block keeps its default', async () => {
+test("turn planner: a failed call runs the search fallback on the question's words, every other block keeps its default", async () => {
   const { journal, lines } = journalOverMemory();
   const run = await runPlannerTurn({
     journal,
@@ -8022,18 +11309,23 @@ test('turn planner: a failed call runs the search fallback on the question\'s wo
   assert.equal(run.lookup.searchCalls.length, 0, 'the fallback never searches the web');
   assert.equal(run.recall.runCalls.length, 1);
   assert.ok(run.recall.runCalls[0].server.forms.includes('αυτοκίνητο'));
-  assert.ok(run.reply.includes('ωραία λουλούδια') && !run.reply.includes('στο ράφι είναι'), 'the newest episode is shown');
+  assert.ok(
+    run.reply.includes('ωραία λουλούδια') && !run.reply.includes('στο ράφι είναι'),
+    'the newest episode is shown'
+  );
   assert.equal(run.logs.find((l) => l.msg === 'planner: failed')?.reason, 'classifier-failed');
   assert.equal(run.logs.find((l) => l.msg === 'lookup: fallback')?.reason, 'classifier-failed');
   const turn = lines.find(({ record }) => record.kind === 'turn').record;
   assert.deepEqual(
     turn.limits.filter((limit) => limit.kind === 'helper-fallback').map((limit) => [limit.where, limit.detail]),
-    ['channel', 'episodes', 'rewatch', 'lookup'].map((block) => [`planner:${block}`, 'classifier-failed']),
+    ['channel', 'episodes', 'rewatch', 'lookup'].map((block) => [`planner:${block}`, 'classifier-failed'])
   );
 });
 
 test('turn planner: an invalid or missing block takes its default, a valid one still counts', async () => {
-  const run = await runPlannerTurn({ llm: plannerLlm((user) => `channel: 9\nepisodes: ${listNumber(user, 'episodes', '#journal')}\nlookup: maybe`) });
+  const run = await runPlannerTurn({
+    llm: plannerLlm((user) => `channel: 9\nepisodes: ${listNumber(user, 'episodes', '#journal')}\nlookup: maybe`),
+  });
   assert.equal(run.result.outcome, 'spoke');
   assert.equal(run.other.fetches.length, 0, 'an id outside the list pulls nothing');
   assert.equal(run.describer.rewatchCalls.length, 0, 'a missing re-watch block looks at nothing');
@@ -8056,7 +11348,15 @@ const SKILL_TEXTS = {
 
 /** Stand-ins named as operations (no operation behind them, so no requester's right to check), and an owner-only one. */
 function discoveryRegistry() {
-  const names = ['message.create', 'message.edit', 'message.delete', 'message.react.add', 'message.react.remove', 'lore.list', 'access.list'];
+  const names = [
+    'message.create',
+    'message.edit',
+    'message.delete',
+    'message.react.add',
+    'message.react.remove',
+    'lore.list',
+    'access.list',
+  ];
   const owner = Object.freeze({
     name: 'x.owner',
     family: 'x',
@@ -8070,7 +11370,16 @@ function discoveryRegistry() {
     targets: null,
     interfaceCapability: null,
   });
-  const standIns = loadSkills(names.map((name) => ({ name, op: null, argsSchema: { type: 'object' }, effects: name.endsWith('.list') ? 'read' : 'write', costClass: 'free', targets: null })));
+  const standIns = loadSkills(
+    names.map((name) => ({
+      name,
+      op: null,
+      argsSchema: { type: 'object' },
+      effects: name.endsWith('.list') ? 'read' : 'write',
+      costClass: 'free',
+      targets: null,
+    }))
+  );
   return new Map([...standIns, ['x.owner', owner]]);
 }
 
@@ -8089,8 +11398,21 @@ async function runDiscoveryTurn({ answer, features = {}, journal = null, allowed
   const llm = lookupLlm(answer);
   const raw = rawMessage({ id: 'm2', ts: NOW - 1000, authorName: 'Zoë', content: 'τι μπορείς να κάνεις;' });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), lookup: fakeLookup(), journal, skills: discoveryRegistry() });
-  const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    lookup: fakeLookup(),
+    journal,
+    skills: discoveryRegistry(),
+  });
+  const { result, logs } = await withCapturedLogs(() =>
+    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' })
+  );
   const reply = llm.turnCalls.length > 0 ? llm.turnCalls.at(-1).messages[1].content : [];
   return { result, logs, llm, reply, text: textOf(reply) };
 }
@@ -8116,8 +11438,18 @@ test('skills discovery: the classifier reads the registry; an inventory answer s
   assert.equal(stable.cacheSegment, 'stable');
   assert.ok(!stable.text.includes('<skills>\n'));
   const rows = blockBody(run.reply.at(-1).text, 'skills').split('\n');
-  const line = (name, access) => fill(labels.skills.line, { name, title: SKILL_TEXTS[name]?.title ?? '', whenToUse: SKILL_TEXTS[name]?.whenToUse ?? '', access });
-  assert.deepEqual(rows, [line('message.create', labels.skills.access['carried-over']), line('message.edit', labels.skills.access.allowed), 'message.react.add']);
+  const line = (name, access) =>
+    fill(labels.skills.line, {
+      name,
+      title: SKILL_TEXTS[name]?.title ?? '',
+      whenToUse: SKILL_TEXTS[name]?.whenToUse ?? '',
+      access,
+    });
+  assert.deepEqual(rows, [
+    line('message.create', labels.skills.access['carried-over']),
+    line('message.edit', labels.skills.access.allowed),
+    'message.react.add',
+  ]);
 
   const shown = run.logs.find((l) => l.msg === 'skills: inventory');
   assert.deepEqual([shown.listed, shown.allowed], [discoveryRegistry().size, 3]);
@@ -8126,7 +11458,7 @@ test('skills discovery: the classifier reads the registry; an inventory answer s
   assert.equal('skillsProposed' in turn, false, 'an inventory proposes nothing');
 });
 
-test('skills discovery: a grant moves only the catalogue; the stable part never changes with it, and her tools are the request\'s field', async () => {
+test("skills discovery: a grant moves only the catalogue; the stable part never changes with it, and her tools are the request's field", async () => {
   const closed = await runDiscoveryTurn({ answer: 'skills: inventory' });
   const granted = await runDiscoveryTurn({ answer: 'skills: inventory', allowed: ['message.edit', 'message.delete'] });
   assert.equal(granted.reply[0].text, closed.reply[0].text, 'the stable part is byte-identical');
@@ -8138,10 +11470,22 @@ test('skills discovery: a grant moves only the catalogue; the stable part never 
 
 test('skills discovery: named skills are logged and journaled with the gateway verdict; <skills> shows the allowed ones and names the others', async () => {
   const { journal, lines } = journalOverMemory();
-  const run = await runDiscoveryTurn({ answer: 'none\nskills: message.edit, message.delete, x.owner, draw', allowed: ['message.edit'], journal });
+  const run = await runDiscoveryTurn({
+    answer: 'none\nskills: message.edit, message.delete, x.owner, draw',
+    allowed: ['message.edit'],
+    journal,
+  });
   assert.equal(run.result.outcome, 'spoke');
-  const line = fill(labels.skills.line, { name: 'message.edit', title: SKILL_TEXTS['message.edit'].title, whenToUse: SKILL_TEXTS['message.edit'].whenToUse, access: labels.skills.access.allowed });
-  assert.deepEqual(blockBody(run.reply.at(-1).text, 'skills').split('\n'), [line, fill(labels.skills.proposedOff, { names: 'message.delete, x.owner' })]);
+  const line = fill(labels.skills.line, {
+    name: 'message.edit',
+    title: SKILL_TEXTS['message.edit'].title,
+    whenToUse: SKILL_TEXTS['message.edit'].whenToUse,
+    access: labels.skills.access.allowed,
+  });
+  assert.deepEqual(blockBody(run.reply.at(-1).text, 'skills').split('\n'), [
+    line,
+    fill(labels.skills.proposedOff, { names: 'message.delete, x.owner' }),
+  ]);
   assert.ok(!run.reply[0].text.includes('message.edit'), 'never in the stable part');
   const proposed = run.logs.find((l) => l.msg === 'skills: proposed');
   assert.equal(proposed.count, 3, 'a name outside the registry is no proposal');
@@ -8163,7 +11507,10 @@ test('skills discovery: every turn carries the skills granted to her as tools, w
   const run = await runDiscoveryTurn({ answer: 'none', allowed: ['message.edit', 'lore.list', 'message.delete'] });
   assert.equal(run.result.outcome, 'spoke');
   const [sent] = run.llm.turnCalls;
-  assert.deepEqual(sent.options.tools.map((tool) => tool.function.name), ['lore_list', 'message_create', 'message_delete', 'message_edit', 'message_react_add']);
+  assert.deepEqual(
+    sent.options.tools.map((tool) => tool.function.name),
+    ['lore_list', 'message_create', 'message_delete', 'message_edit', 'message_react_add']
+  );
   assert.ok(!run.text.includes('<skills>\n'), 'the detailed rows stay off without a question or a proposal');
   const off = await runDiscoveryTurn({ answer: 'none', allowed: ['message.edit'], features: { skills: false } });
   assert.equal(off.llm.turnCalls[0].options.tools, undefined, 'skills off: no tools at all');
@@ -8173,14 +11520,21 @@ test('skills discovery: features.skillsDiscovery or features.skills false -- no 
   for (const features of [{ skillsDiscovery: false }, { skills: false }]) {
     const run = await runDiscoveryTurn({ answer: 'skills: inventory', features });
     const where = JSON.stringify(features);
-    assert.equal(run.llm.classifierCalls[0].messages[0].content, 'Decide whether Bot needs to look something up.\n', where);
+    assert.equal(
+      run.llm.classifierCalls[0].messages[0].content,
+      'Decide whether Bot needs to look something up.\n',
+      where
+    );
     assert.ok(!run.text.includes('<skills>\n'), where);
     assert.ok(!run.logs.some((l) => l.msg === 'skills: inventory' || l.msg === 'skills: proposed'), where);
   }
 });
 
-test('skills discovery: with the turn planner its skills line stands in for the search classifier\'s', async () => {
-  const run = await runPlannerTurn({ llm: plannerLlm((user) => `${fullPlan(user)}\nskills: inventory`), skills: discoveryRegistry() });
+test("skills discovery: with the turn planner its skills line stands in for the search classifier's", async () => {
+  const run = await runPlannerTurn({
+    llm: plannerLlm((user) => `${fullPlan(user)}\nskills: inventory`),
+    skills: discoveryRegistry(),
+  });
   assert.equal(run.result.outcome, 'spoke');
   assert.equal(run.llm.calls.lookup.length, 0);
   assert.ok(run.reply.includes('<skills>\nmessage.create\n'), run.reply);
@@ -8205,18 +11559,34 @@ function triggerTurnScene(features = {}) {
   ];
   const channel = fakeTurnChannel({ historyMessages: history });
   const llm = fakeLlm('<msg>ναι</msg><msg>έρχομαι</msg>');
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({ typingSimulation: false, ...features }), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: fakeHot({ typingSimulation: false, ...features }),
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
   return { history, channel, llm, turns };
 }
 
 /** The user text of the requests from call `from` on that show the chat. */
 function chatTexts(llm, from = 0) {
-  return llm.calls.slice(from).map((messages) => textOf(messages[1].content)).filter((text) => text.includes('<chat>'));
+  return llm.calls
+    .slice(from)
+    .map((messages) => textOf(messages[1].content))
+    .filter((text) => text.includes('<chat>'));
 }
 
-test('createTurnRunner: the lines a turn posted name its trigger in the next turn\'s transcript', async () => {
+test("createTurnRunner: the lines a turn posted name its trigger in the next turn's transcript", async () => {
   const { history, channel, llm, turns } = triggerTurnScene();
-  const first = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(history[0]), triggerKind: 'mention' });
+  const first = await turns.runTurn({
+    channel,
+    mode: 'reply',
+    trigger: normalizedTrigger(history[0]),
+    triggerKind: 'mention',
+  });
   assert.equal(first.outcome, 'spoke');
   assert.equal(channel.sent.length, 2);
   // Both lines of the first turn reach the channel after the second question.
@@ -8226,7 +11596,10 @@ test('createTurnRunner: the lines a turn posted name its trigger in the next tur
   const [text] = chatTexts(llm, from);
   assert.ok(text, 'the second turn sent its reply request');
   assert.ok(text.includes('Bot (you) (turn triggered by #1): ναι'), text);
-  assert.ok(text.includes('Bot (you) (turn triggered by #1): έρχομαι'), 'every line of one turn carries the same trigger');
+  assert.ok(
+    text.includes('Bot (you) (turn triggered by #1): έρχομαι'),
+    'every line of one turn carries the same trigger'
+  );
 });
 
 test('createTurnRunner: features.triggerMarkers=false renders her lines exactly as before', async () => {
@@ -8252,23 +11625,18 @@ test('createTurnRunner: a line posted by a spontaneous turn carries no trigger',
   assert.ok(!text.includes('triggered'), text);
 });
 
-test('createTurnRunner: links seeded at start (the journal\'s rebuild) survive a restart; a trigger out of the window is older', async () => {
+test("createTurnRunner: links seeded at start (the journal's rebuild) survive a restart; a trigger out of the window is older", async () => {
   const { history, channel, llm, turns } = triggerTurnScene();
   history.unshift(selfRaw('sent-0', NOW - 90_000, 'πρωί'));
   history.push(selfRaw('sent-1', NOW - 20_000, 'ναι'));
-  turns.seedTriggerLinks([
-    ['sent-0', 'm1'],
-    ['sent-1', 'm98'],
-    [null, 'm98'],
-    ['sent-9'],
-  ]);
+  turns.seedTriggerLinks([['sent-0', 'm1'], ['sent-1', 'm98'], [null, 'm98'], ['sent-9']]);
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(history[2]), triggerKind: 'mention' });
   const [text] = chatTexts(llm);
   assert.ok(text.includes('Bot (you) (turn triggered by an older message): πρωί'), text);
   assert.ok(text.includes('Bot (you) (turn triggered by #2): ναι'), text);
 });
 
-test('createTurnRunner: a helper\'s transcript names the trigger of her lines too', async () => {
+test("createTurnRunner: a helper's transcript names the trigger of her lines too", async () => {
   const llm = lookupLlm('none');
   const history = [
     linkRaw('m1', NOW - 9000, [PAGE_EMBED]),
@@ -8276,7 +11644,16 @@ test('createTurnRunner: a helper\'s transcript names the trigger of her lines to
     rawMessage({ id: 'm2', ts: NOW - 1000, authorName: 'Zoë', content: 'ποιος κέρδισε τον τελικό;' }),
   ];
   const channel = fakeTurnChannel({ historyMessages: history });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: lookupHot(), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), lookup: fakeLookup() });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: lookupHot(),
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    lookup: fakeLookup(),
+  });
   turns.seedTriggerLinks([['sent-1', 'm1']]);
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(history[2]), triggerKind: 'mention' });
   assert.equal(llm.classifierCalls.length, 1);
@@ -8289,7 +11666,15 @@ test('createTurnRunner: a helper\'s transcript names the trigger of her lines to
 // current conversation, refused only under the full stop) and made through the interface port.
 
 /** One mention turn answered with `answer`, through `port` (the default Discord adapter when null). */
-async function gatewayTurn({ answer, features = {}, port = null, skills = null, journal = null, record = null, store = fakeStore() }) {
+async function gatewayTurn({
+  answer,
+  features = {},
+  port = null,
+  skills = null,
+  journal = null,
+  record = null,
+  store = fakeStore(),
+}) {
   const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice' });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const turns = createTurnRunner({
@@ -8306,14 +11691,19 @@ async function gatewayTurn({ answer, features = {}, port = null, skills = null, 
     journal,
     record,
   });
-  const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
+  const { result, logs } = await withCapturedLogs(() =>
+    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' })
+  );
   return { result, logs, channel };
 }
 
 test('skills gateway: a normal reply is carried over and posted through the port exactly as before', async () => {
   const { result, channel, logs } = await gatewayTurn({ answer: `<msg reply="#1">γεια σου @${handleOf('u1')}</msg>` });
   assert.equal(result.outcome, 'spoke');
-  assert.equal(logs.some((entry) => entry.msg === 'skill: refused'), false);
+  assert.equal(
+    logs.some((entry) => entry.msg === 'skill: refused'),
+    false
+  );
   assert.deepEqual(channel.sent, [
     {
       content: 'γεια σου <@u1>',
@@ -8327,31 +11717,53 @@ test('skills gateway: a normal reply is carried over and posted through the port
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id' });
   const other = await gatewayTurn({ answer: `<msg reply="#1">γεια σου @${handleOf('u1')}</msg>`, port });
   assert.equal(other.result.outcome, 'spoke');
-  assert.deepEqual(port.calls.map((call) => call.op), ['typing', 'send']);
+  assert.deepEqual(
+    port.calls.map((call) => call.op),
+    ['typing', 'send']
+  );
   assert.deepEqual(port.calls[1].args, [
     { iface: 'fake', conversationId: 'c1' },
-    { text: 'γεια σου <@u1>', replyTo: { iface: 'fake', conversationId: 'c1', messageId: 'm1' }, mentions: { users: ['u1'], repliedUser: true } },
+    {
+      text: 'γεια σου <@u1>',
+      replyTo: { iface: 'fake', conversationId: 'c1', messageId: 'm1' },
+      mentions: { users: ['u1'], repliedUser: true },
+    },
   ]);
   assert.equal(other.channel.sent.length, 0, 'nothing went around the port');
 });
 
 test('skills gateway: her reply needs no grant and no skill in the registry -- an empty registry changes nothing', async () => {
-  const { result, channel, logs } = await gatewayTurn({ answer: '<msg>γεια</msg><react to="#1">\u{1F389}</react>', skills: new Map() });
+  const { result, channel, logs } = await gatewayTurn({
+    answer: '<msg>γεια</msg><react to="#1">\u{1F389}</react>',
+    skills: new Map(),
+  });
   assert.deepEqual([result.outcome, result.delivered], ['spoke', true]);
   assert.equal(channel.sent.length, 1);
-  assert.equal(logs.some((entry) => entry.msg === 'skill: refused'), false);
+  assert.equal(
+    logs.some((entry) => entry.msg === 'skill: refused'),
+    false
+  );
 });
 
 test('skills gateway: features.skills off silences the whole reply', async () => {
-  const { result, channel, logs } = await gatewayTurn({ answer: '<msg>ένα</msg><msg>δύο</msg><react to="#1">\u{1F389}</react>', features: { skills: false } });
+  const { result, channel, logs } = await gatewayTurn({
+    answer: '<msg>ένα</msg><msg>δύο</msg><react to="#1">\u{1F389}</react>',
+    features: { skills: false },
+  });
   assert.deepEqual([result.outcome, result.delivered], ['spoke', false]);
   assert.deepEqual([channel.sent, channel.reactCalls, channel.typingCalls], [[], [], []]);
   const refused = logs.filter((entry) => entry.msg === 'skill: refused');
   assert.ok(refused.length > 0 && refused.every((entry) => entry.code === 'skills-off'));
-  assert.ok(refused.some((entry) => entry.skill === 'message.create') && refused.some((entry) => entry.skill === 'message.react.add'));
+  assert.ok(
+    refused.some((entry) => entry.skill === 'message.create') &&
+      refused.some((entry) => entry.skill === 'message.react.add')
+  );
 
   // A picture its publication may not have is never generated.
-  const drawn = await runDrawTurn({ answers: [toolAnswer('', [call('draw.create', { reply: '#1', text: 'a cat' })])], hot: drawHot({ skills: false }) });
+  const drawn = await runDrawTurn({
+    answers: [toolAnswer('', [call('draw.create', { reply: '#1', text: 'a cat' })])],
+    hot: drawHot({ skills: false }),
+  });
   assert.equal(drawn.images.generateCalls.length, 0);
   assert.deepEqual(drawn.channel.sent, []);
   assert.ok(drawn.logs.some((entry) => entry.msg === 'skill: refused' && entry.code === 'skills-off'));
@@ -8363,16 +11775,32 @@ test('skills gateway: a send the port answers unknown is journaled unknown, neve
   const { journal, lines } = journalOverMemory();
   const said = [];
   const record = { append: async (...args) => said.push(args) };
-  const { result, logs } = await gatewayTurn({ answer: '<msg>ένα</msg><msg>δύο</msg>', features: { journal: true, record: true, typingSimulation: false }, port, journal, record });
+  const { result, logs } = await gatewayTurn({
+    answer: '<msg>ένα</msg><msg>δύο</msg>',
+    features: { journal: true, record: true, typingSimulation: false },
+    port,
+    journal,
+    record,
+  });
   assert.deepEqual([result.outcome, result.delivered], ['spoke', false]);
-  assert.equal(port.calls.filter((call) => call.op === 'send').length, 1, 'neither that message nor the next one was sent again');
+  assert.equal(
+    port.calls.filter((call) => call.op === 'send').length,
+    1,
+    'neither that message nor the next one was sent again'
+  );
   const posts = actionsNamed(lines, 'post');
-  assert.deepEqual(posts.map((r) => r.phase), ['started', 'unknown']);
+  assert.deepEqual(
+    posts.map((r) => r.phase),
+    ['started', 'unknown']
+  );
   const turn = lines.map(({ record: r }) => r).find((r) => r.kind === 'turn');
   assert.deepEqual(turn.posted, []);
   assert.deepEqual(said, [], 'no said line');
   assert.ok(logs.some((entry) => entry.msg === 'turn: send failed'));
-  assert.equal(logs.some((entry) => entry.msg === 'turn: sent'), false);
+  assert.equal(
+    logs.some((entry) => entry.msg === 'turn: sent'),
+    false
+  );
 });
 
 test('skills gateway: the GIF and the drawing are published through the port', async () => {
@@ -8391,13 +11819,19 @@ test('skills gateway: the GIF and the drawing are published through the port', a
     imageFetcher: fakeImageFetcher(),
     port,
   });
-  const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
+  const { result, logs } = await withCapturedLogs(() =>
+    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' })
+  );
   assert.deepEqual([result.outcome, result.delivered], ['spoke', true]);
   assert.equal(channel.sent.length, 0, 'nothing went around the port');
   const sends = port.calls.filter((call) => call.op === 'send').map((call) => call.args[1]);
   assert.equal(sends.length, 2);
   const [picture, gif] = sends;
-  assert.deepEqual(gif, { text: 'https://tenor.com/view/chat-qui-danse-1' }, 'the GIF as its URL, mentions none, after the picture her call made');
+  assert.deepEqual(
+    gif,
+    { text: 'https://tenor.com/view/chat-qui-danse-1' },
+    'the GIF as its URL, mentions none, after the picture her call made'
+  );
   assert.equal(picture.attachments.length, 1);
   assert.equal(picture.attachments[0].name, 'image.png');
   assert.ok(Buffer.isBuffer(picture.attachments[0].data));
@@ -8423,7 +11857,9 @@ function skillPhases(lines) {
  * (fakeTurnChannel's permissions, or the ones a channel brings).
  */
 function clientWithChannels(...channels) {
-  return fakeClient({ channels: { cache: new Map(channels.map((channel) => [channel.id, { isTextBased: () => true, ...channel }])) } });
+  return fakeClient({
+    channels: { cache: new Map(channels.map((channel) => [channel.id, { isTextBased: () => true, ...channel }])) },
+  });
 }
 
 /**
@@ -8436,7 +11872,24 @@ function clientWithChannels(...channels) {
  * messages that reach #general once the LLM has answered the first request; `labelSet`: the
  * labels in place of the fixture's.
  */
-async function callTurn({ answers, allowed = [], features = {}, skills = {}, owners = ['u1'], images = null, journal = null, store = fakeStore(), beforeSend = null, failNext = null, diary = null, configExtra = {}, turnExtra = {}, emoji = null, later = [], labelSet = null }) {
+async function callTurn({
+  answers,
+  allowed = [],
+  features = {},
+  skills = {},
+  owners = ['u1'],
+  images = null,
+  journal = null,
+  store = fakeStore(),
+  beforeSend = null,
+  failNext = null,
+  diary = null,
+  configExtra = {},
+  turnExtra = {},
+  emoji = null,
+  later = [],
+  labelSet = null,
+}) {
   const history = [
     rawMessage({ id: 'm0', ts: NOW - 5000, authorId: 'self-id', authorName: 'Bot', content: 'πρώτη' }),
     rawMessage({ id: 'm1', ts: NOW - 1000, authorId: 'u1', authorName: 'Alice', content: 'γράψε στο #νέα' }),
@@ -8448,7 +11901,11 @@ async function callTurn({ answers, allowed = [], features = {}, skills = {}, own
   port.seed('c1', { authorId: 'self-id', messageId: 'm0', text: 'πρώτη' });
   port.seed('c1', { authorId: 'u1', messageId: 'm1', text: 'γράψε' });
   if (failNext) port.failNext(...failNext);
-  const hot = fakeHot({ typingSimulation: false, journal: Boolean(journal), ...features }, { owners, access: personaGrants(allowed) }, { skills: { safeMode: false, resultMaxChars: 2000, ...skills }, ...configExtra });
+  const hot = fakeHot(
+    { typingSimulation: false, journal: Boolean(journal), ...features },
+    { owners, access: personaGrants(allowed) },
+    { skills: { safeMode: false, resultMaxChars: 2000, ...skills }, ...configExtra }
+  );
   hot.prompts.draw = 'Drawing for {{name}}.\n\n{{request}}';
   if (labelSet) hot.prompts.labels = labelSet;
   if (beforeSend) {
@@ -8458,9 +11915,21 @@ async function callTurn({ answers, allowed = [], features = {}, skills = {}, own
       return send(...args);
     };
   }
-  const noSend = { ...fakeTurnChannel({ id: 'c8', name: 'αλλού' }), permissionsFor: () => ({ has: (flag) => flag !== PermissionFlagsBits.SendMessages }) };
+  const noSend = {
+    ...fakeTurnChannel({ id: 'c8', name: 'αλλού' }),
+    permissionsFor: () => ({ has: (flag) => flag !== PermissionFlagsBits.SendMessages }),
+  };
   const client = clientWithChannels(fakeTurnChannel({ id: 'c9', name: '💖νέα' }), noSend);
-  const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => 'g1', port, ...(images ? { images } : {}), ...(diary ? { diary: diary(hot) } : {}) });
+  const admin = createAdmin({
+    discord: DISCORD,
+    hot,
+    store,
+    client,
+    getGuildId: () => 'g1',
+    port,
+    ...(images ? { images } : {}),
+    ...(diary ? { diary: diary(hot) } : {}),
+  });
   const llm = sequenceLlm(answers);
   const complete = llm.complete;
   llm.complete = async (...args) => {
@@ -8468,9 +11937,34 @@ async function callTurn({ answers, allowed = [], features = {}, skills = {}, own
     if (llm.calls.length === 1) history.push(...later);
     return answer;
   };
-  const turns = createTurnRunner({ discord: DISCORD, hot, store, llm, calibrator: identityCalibrator(), client, now: () => NOW, port, skills: skillRegistry(), journal, images, runOp: admin.runSkillOp, runOwnOp: admin.runOwnSkillOp, ...(emoji ? { emoji } : {}) });
-  const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(history[1]), triggerKind: 'mention', ...turnExtra }));
-  const sends = port.calls.filter((call) => call.op === 'send').map((call) => ({ to: call.args[0].conversationId, ...call.args[1] }));
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client,
+    now: () => NOW,
+    port,
+    skills: skillRegistry(),
+    journal,
+    images,
+    runOp: admin.runSkillOp,
+    runOwnOp: admin.runOwnSkillOp,
+    ...(emoji ? { emoji } : {}),
+  });
+  const { result, logs } = await withCapturedLogs(() =>
+    turns.runTurn({
+      channel,
+      mode: 'reply',
+      trigger: normalizedTrigger(history[1]),
+      triggerKind: 'mention',
+      ...turnExtra,
+    })
+  );
+  const sends = port.calls
+    .filter((call) => call.op === 'send')
+    .map((call) => ({ to: call.args[0].conversationId, ...call.args[1] }));
   return { result, logs, llm, port, sends, channel, store, hot };
 }
 
@@ -8481,20 +11975,40 @@ function requestText(llm, i) {
 
 /** The text of a message's content, parts joined. */
 function contentOf(message) {
-  return typeof message?.content === 'string' ? message.content : (message?.content ?? []).map((part) => part.text ?? '').join('');
+  return typeof message?.content === 'string'
+    ? message.content
+    : (message?.content ?? []).map((part) => part.text ?? '').join('');
 }
 
 /** What she read of her call number `n` (0-based) in request `i`: the content of its tool message. */
 function followUpTool(llm, i, n = 0) {
   const message = llm.calls[i].filter((item) => item.role === 'tool')[n];
-  return typeof message?.content === 'string' ? message.content : (message?.content ?? []).map((part) => part.text ?? '').join('');
+  return typeof message?.content === 'string'
+    ? message.content
+    : (message?.content ?? []).map((part) => part.text ?? '').join('');
 }
 
 test('skill call: message.create to another channel where the bot may send runs before her reply, journaled proposed, started, succeeded, with its invocation id; it covers her speech, so no step follows', async () => {
   const { journal, lines } = journalOverMemory();
-  const run = await callTurn({ answers: [toolAnswer('<msg reply="#2">εντάξει</msg>\n', [call('message.create', { channel: '#🍡νέα', text: 'καλημέρα :wave:' })]), '<skip/>'], allowed: ['message.create'], journal });
+  const run = await callTurn({
+    answers: [
+      toolAnswer('<msg reply="#2">εντάξει</msg>\n', [
+        call('message.create', { channel: '#🍡νέα', text: 'καλημέρα :wave:' }),
+      ]),
+      '<skip/>',
+    ],
+    allowed: ['message.create'],
+    journal,
+  });
   assert.deepEqual([run.result.outcome, run.result.delivered], ['spoke', true]);
-  assert.deepEqual(run.sends.map((send) => [send.to, send.text]), [['c9', 'καλημέρα :wave:'], ['c1', 'εντάξει']], 'her call runs first, her speech after it');
+  assert.deepEqual(
+    run.sends.map((send) => [send.to, send.text]),
+    [
+      ['c9', 'καλημέρα :wave:'],
+      ['c1', 'εντάξει'],
+    ],
+    'her call runs first, her speech after it'
+  );
   assert.deepEqual(run.sends[0].mentions, { users: [], repliedUser: false }, 'nobody is notified');
   assert.equal(run.llm.calls.length, 1, 'a post that went out needs no reading: no step');
   assert.deepEqual(skillPhases(lines), ['proposed', 'started', 'succeeded']);
@@ -8506,7 +12020,11 @@ test('skill call: message.create to another channel where the bot may send runs 
   assert.ok(!JSON.stringify(actions).includes('καλημέρα'), 'the journal names ids, never the text');
   const turn = lines.map(({ record }) => record).find((record) => record.kind === 'turn');
   assert.ok(turn.actions.includes(started.opId));
-  assert.ok(run.logs.some((entry) => entry.msg === 'skills: called' && entry.skill === 'message.create' && entry.status === 'ok'));
+  assert.ok(
+    run.logs.some(
+      (entry) => entry.msg === 'skills: called' && entry.skill === 'message.create' && entry.status === 'ok'
+    )
+  );
 });
 
 test('skill call: her message.create and message.edit text goes out like a <msg> -- a handle pings, a name, an unknown handle and @everyone stay text and ping nobody; custom emoji, #N and channel links', async () => {
@@ -8514,135 +12032,307 @@ test('skill call: her message.create and message.edit text goes out like a <msg>
   const unknown = alice === '@uzzzz' ? '@u0000' : '@uzzzz';
   const written = `${alice} @Alice ${unknown} @everyone :dance: #2 #αλλού`;
   const rendered = `<@u1> @Alice ${unknown} @everyone <a:dance:222222222222222222> https://discord.com/channels/g1/c1/m1 <#c8>`;
-  const created = await callTurn({ answers: [toolAnswer(``, [call('message.create', { channel: `#νέα`, text: `${written}` })])], allowed: ['message.create'], emoji: fakeEmojiIndex() });
+  const created = await callTurn({
+    answers: [toolAnswer(``, [call('message.create', { channel: `#νέα`, text: `${written}` })])],
+    allowed: ['message.create'],
+    emoji: fakeEmojiIndex(),
+  });
   assert.equal(created.result.outcome, 'spoke');
-  assert.deepEqual(created.sends.map((send) => [send.to, send.text]), [['c9', rendered]]);
-  assert.deepEqual(created.sends[0].mentions, { users: ['u1'], repliedUser: false }, 'only the resolved member is notified');
+  assert.deepEqual(
+    created.sends.map((send) => [send.to, send.text]),
+    [['c9', rendered]]
+  );
+  assert.deepEqual(
+    created.sends[0].mentions,
+    { users: ['u1'], repliedUser: false },
+    'only the resolved member is notified'
+  );
   // A reply keeps working, its author notified as before.
-  const replied = await callTurn({ answers: [toolAnswer(``, [call('message.create', { reply: `#2`, text: `${alice} :dance:` })])], emoji: fakeEmojiIndex() });
-  assert.deepEqual(replied.sends.map((send) => [send.to, send.text, send.replyTo?.messageId, send.mentions]), [['c1', '<@u1> <a:dance:222222222222222222>', 'm1', { users: ['u1'], repliedUser: true }]]);
+  const replied = await callTurn({
+    answers: [toolAnswer(``, [call('message.create', { reply: `#2`, text: `${alice} :dance:` })])],
+    emoji: fakeEmojiIndex(),
+  });
+  assert.deepEqual(
+    replied.sends.map((send) => [send.to, send.text, send.replyTo?.messageId, send.mentions]),
+    [['c1', '<@u1> <a:dance:222222222222222222>', 'm1', { users: ['u1'], repliedUser: true }]]
+  );
   // Pings off: the mention stays in the text and notifies nobody.
-  const quiet = await callTurn({ answers: [toolAnswer(``, [call('message.create', { channel: `#νέα`, text: `${alice}` })])], allowed: ['message.create'], store: storeWithPingsOff(['u1']) });
-  assert.deepEqual(quiet.sends.map((send) => [send.text, send.mentions]), [['<@u1>', { users: [], repliedUser: false }]]);
+  const quiet = await callTurn({
+    answers: [toolAnswer(``, [call('message.create', { channel: `#νέα`, text: `${alice}` })])],
+    allowed: ['message.create'],
+    store: storeWithPingsOff(['u1']),
+  });
+  assert.deepEqual(
+    quiet.sends.map((send) => [send.text, send.mentions]),
+    [['<@u1>', { users: [], repliedUser: false }]]
+  );
   // The edit path: the same rendering, the same mentions.
-  const edited = await callTurn({ answers: [toolAnswer(``, [call('message.edit', { message: `#1`, text: `${written}` })]), '<skip/>'], allowed: ['message.edit'], emoji: fakeEmojiIndex() });
-  const edits = edited.port.calls.filter((call) => call.op === 'edit').map((call) => [call.args[0].messageId, call.args[1]]);
+  const edited = await callTurn({
+    answers: [toolAnswer(``, [call('message.edit', { message: `#1`, text: `${written}` })]), '<skip/>'],
+    allowed: ['message.edit'],
+    emoji: fakeEmojiIndex(),
+  });
+  const edits = edited.port.calls
+    .filter((call) => call.op === 'edit')
+    .map((call) => [call.args[0].messageId, call.args[1]]);
   assert.deepEqual(edits, [['m0', { text: rendered, mentions: { users: ['u1'], repliedUser: false } }]]);
   assert.equal(edited.llm.calls.length, 1, 'an edit that went out needs no reading');
 });
 
 test('skill call: a quiet success in an addressed turn ends the turn: no step, nothing more to say; her speech goes out after it', async () => {
-  const addressed = await callTurn({ answers: [toolAnswer('', [call('message.edit', { message: '#1', text: 'διορθωμένη' })]), '<skip/>'], allowed: ['message.edit'] });
+  const addressed = await callTurn({
+    answers: [toolAnswer('', [call('message.edit', { message: '#1', text: 'διορθωμένη' })]), '<skip/>'],
+    allowed: ['message.edit'],
+  });
   assert.equal(addressed.result.outcome, 'spoke');
   assert.equal(addressed.llm.calls.length, 1);
   assert.deepEqual(addressed.sends, []);
   assert.equal(addressed.result.delivered, true, 'the edit went out');
-  const task = { id: 'tabc', agent: 'scout', state: 'done', goal: 'find a meme', requester: { userId: null, kind: 'persona' }, origin: { channelId: 'c1', messageId: null }, result: { text: 'found', files: [] } };
-  const spontaneous = await callTurn({ answers: [toolAnswer('<msg>κι αυτό</msg>', [call('message.create', { channel: '#🍡νέα', text: 'να το' })]), '<msg>δεν θα ειπωθεί</msg>'], allowed: ['message.create'], turnExtra: { mode: 'interject', trigger: null, triggerKind: 'task', taskResult: task } });
+  const task = {
+    id: 'tabc',
+    agent: 'scout',
+    state: 'done',
+    goal: 'find a meme',
+    requester: { userId: null, kind: 'persona' },
+    origin: { channelId: 'c1', messageId: null },
+    result: { text: 'found', files: [] },
+  };
+  const spontaneous = await callTurn({
+    answers: [
+      toolAnswer('<msg>κι αυτό</msg>', [call('message.create', { channel: '#🍡νέα', text: 'να το' })]),
+      '<msg>δεν θα ειπωθεί</msg>',
+    ],
+    allowed: ['message.create'],
+    turnExtra: { mode: 'interject', trigger: null, triggerKind: 'task', taskResult: task },
+  });
   assert.equal(spontaneous.llm.calls.length, 1);
-  assert.deepEqual(spontaneous.sends.map((send) => send.text), ['να το', 'κι αυτό']);
+  assert.deepEqual(
+    spontaneous.sends.map((send) => send.text),
+    ['να το', 'κι αυτό']
+  );
 });
 
 test('skill call: a call alone is no skip; here it needs no grant and replies to a line of this conversation', async () => {
   const here = await callTurn({ answers: [toolAnswer('', [call('message.create', { reply: '#2', text: 'ναι' })])] });
   assert.equal(here.result.outcome, 'spoke');
   // The current conversation: carried over, the replied author notified.
-  assert.deepEqual(here.sends.map((send) => [send.to, send.text, send.replyTo?.messageId, send.mentions.repliedUser]), [['c1', 'ναι', 'm1', true]]);
+  assert.deepEqual(
+    here.sends.map((send) => [send.to, send.text, send.replyTo?.messageId, send.mentions.repliedUser]),
+    [['c1', 'ναι', 'm1', true]]
+  );
   // A reply target outside the channel she named: the line's own channel wins, the call posts there, never refused.
-  const across = await callTurn({ answers: [toolAnswer('', [call('message.create', { channel: '#νέα', reply: '#2', text: 'ναι' })]), '<msg>όχι τελικά</msg>'], allowed: ['message.create'] });
-  assert.deepEqual(across.sends.map((send) => [send.to, send.text]), [['c1', 'ναι']]);
+  const across = await callTurn({
+    answers: [
+      toolAnswer('', [call('message.create', { channel: '#νέα', reply: '#2', text: 'ναι' })]),
+      '<msg>όχι τελικά</msg>',
+    ],
+    allowed: ['message.create'],
+  });
+  assert.deepEqual(
+    across.sends.map((send) => [send.to, send.text]),
+    [['c1', 'ναι']]
+  );
 });
 
 test('skill call: not granted, or a channel where the bot may not send -- refused with a result, her speech held; the corrected call and her words go out in the next answer', async () => {
   const { journal, lines } = journalOverMemory();
   const run = await callTurn({
-    answers: [toolAnswer('<msg>μισό</msg>', [call('message.create', { channel: '#νέα', text: 'γεια' })]), toolAnswer('<msg>δεν μπορώ εκεί</msg>', [call('message.create', { text: 'ξανά' })])],
+    answers: [
+      toolAnswer('<msg>μισό</msg>', [call('message.create', { channel: '#νέα', text: 'γεια' })]),
+      toolAnswer('<msg>δεν μπορώ εκεί</msg>', [call('message.create', { text: 'ξανά' })]),
+    ],
     journal,
   });
-  assert.deepEqual(run.sends.map((send) => [send.to, send.text]), [['c1', 'ξανά'], ['c1', 'δεν μπορώ εκεί']], 'the held "μισό" never went out');
+  assert.deepEqual(
+    run.sends.map((send) => [send.to, send.text]),
+    [
+      ['c1', 'ξανά'],
+      ['c1', 'δεν μπορώ εκεί'],
+    ],
+    'the held "μισό" never went out'
+  );
   assert.equal(run.llm.calls.length, 2, 'one more request, no third');
   const followUp = run.llm.calls[1];
   const first = run.llm.calls[0];
   assert.deepEqual(followUp[0], first[0], 'the same system prompt');
   assert.equal(followUp[1], first[1], 'the first user message is the same object');
-  assert.equal(followUpTool(run.llm, 1), fill(labels.skills.result.refused, { reason: labels.skills.result.reasons['not-allowed'] }));
+  assert.equal(
+    followUpTool(run.llm, 1),
+    fill(labels.skills.result.refused, { reason: labels.skills.result.reasons['not-allowed'] })
+  );
   assert.deepEqual(skillPhases(lines), ['proposed', 'failed', 'proposed', 'started', 'succeeded']);
   assert.equal(actionsNamed(lines, 'skill')[1].result.code, 'not-allowed');
 
   // Granted, but the bot may not send in that channel: the operation's own rule, its own words.
-  const closed = await callTurn({ answers: [toolAnswer('', [call('message.create', { channel: '#αλλού', text: 'γεια' })]), '<skip/>'], allowed: ['message.create'] });
+  const closed = await callTurn({
+    answers: [toolAnswer('', [call('message.create', { channel: '#αλλού', text: 'γεια' })]), '<skip/>'],
+    allowed: ['message.create'],
+  });
   assert.deepEqual(closed.sends, []);
   const text = followUpTool(closed.llm, 1);
-  assert.ok(text.startsWith(fill(labels.skills.result.refused, { reason: labels.skills.result.reasons['channel-no-permission'] })), text);
+  assert.ok(
+    text.startsWith(
+      fill(labels.skills.result.refused, { reason: labels.skills.result.reasons['channel-no-permission'] })
+    ),
+    text
+  );
   assert.ok(text.includes('channel c8'), text);
 });
 
 test('skill call: edit and delete reach only her own message', async () => {
-  const edited = await callTurn({ answers: [toolAnswer('', [call('message.edit', { message: '#1', text: 'πρώτη, διορθωμένη' })]), '<skip/>'], allowed: ['message.edit'] });
-  assert.deepEqual(edited.port.calls.filter((call) => call.op === 'edit').map((call) => [call.args[0].messageId, call.args[1].text]), [['m0', 'πρώτη, διορθωμένη']]);
+  const edited = await callTurn({
+    answers: [toolAnswer('', [call('message.edit', { message: '#1', text: 'πρώτη, διορθωμένη' })]), '<skip/>'],
+    allowed: ['message.edit'],
+  });
+  assert.deepEqual(
+    edited.port.calls.filter((call) => call.op === 'edit').map((call) => [call.args[0].messageId, call.args[1].text]),
+    [['m0', 'πρώτη, διορθωμένη']]
+  );
   assert.equal(edited.llm.calls.length, 1);
-  const deleted = await callTurn({ answers: [toolAnswer('', [call('message.delete', { message: '#1' })]), '<skip/>'], allowed: ['message.delete'] });
-  assert.deepEqual(deleted.port.calls.filter((call) => call.op === 'delete').map((call) => call.args[0].messageId), ['m0']);
-  for (const answer of [toolAnswer('', [call('message.edit', { message: '#2', text: 'όχι' })]), toolAnswer('', [call('message.delete', { message: '#2' })])]) {
+  const deleted = await callTurn({
+    answers: [toolAnswer('', [call('message.delete', { message: '#1' })]), '<skip/>'],
+    allowed: ['message.delete'],
+  });
+  assert.deepEqual(
+    deleted.port.calls.filter((call) => call.op === 'delete').map((call) => call.args[0].messageId),
+    ['m0']
+  );
+  for (const answer of [
+    toolAnswer('', [call('message.edit', { message: '#2', text: 'όχι' })]),
+    toolAnswer('', [call('message.delete', { message: '#2' })]),
+  ]) {
     const run = await callTurn({ answers: [answer, '<skip/>'], allowed: ['message.edit', 'message.delete'] });
-    assert.deepEqual(run.port.calls.filter((call) => call.op === 'edit' || call.op === 'delete'), [], answer);
+    assert.deepEqual(
+      run.port.calls.filter((call) => call.op === 'edit' || call.op === 'delete'),
+      [],
+      answer
+    );
     const reason = fill(labels.transcript.callReasons['not-own-message'], { arg: 'message' });
-    assert.equal(followUpTool(run.llm, 1), fill(labels.skills.result.refused, { reason }), 'she reads whose message it was not');
+    assert.equal(
+      followUpTool(run.llm, 1),
+      fill(labels.skills.result.refused, { reason }),
+      'she reads whose message it was not'
+    );
   }
 });
 
 test('skill call: the result turn of her own errand (requester kind persona, nobody behind it) is her own initiative: her grants decide, no requester-denied', async () => {
-  const task = { id: 'tabc', agent: 'scout', state: 'done', goal: 'find a meme', requester: { userId: null, kind: 'persona' }, origin: { channelId: 'c1', messageId: null }, result: { text: 'found', files: [] } };
+  const task = {
+    id: 'tabc',
+    agent: 'scout',
+    state: 'done',
+    goal: 'find a meme',
+    requester: { userId: null, kind: 'persona' },
+    origin: { channelId: 'c1', messageId: null },
+    result: { text: 'found', files: [] },
+  };
   const answer = toolAnswer('', [call('message.create', { channel: '#🍡νέα', text: 'να το' })]);
   // Without an origin message the turn is an interjection with a task result: her call runs.
-  const own = await callTurn({ answers: [answer, '<skip/>'], allowed: ['message.create'], turnExtra: { mode: 'interject', trigger: null, triggerKind: 'task', taskResult: task } });
-  assert.deepEqual(own.sends.map((send) => [send.to, send.text]), [['c9', 'να το']], own.logs.filter((e) => e.msg === 'skills: called').map((e) => e.code));
+  const own = await callTurn({
+    answers: [answer, '<skip/>'],
+    allowed: ['message.create'],
+    turnExtra: { mode: 'interject', trigger: null, triggerKind: 'task', taskResult: task },
+  });
+  assert.deepEqual(
+    own.sends.map((send) => [send.to, send.text]),
+    [['c9', 'να το']],
+    own.logs.filter((e) => e.msg === 'skills: called').map((e) => e.code)
+  );
   // The same turn without the persona requester (the errand's origin lost its kind) is nobody's: a write is refused `no-requester`.
-  const nobody = await callTurn({ answers: [answer, '<skip/>'], allowed: ['message.create'], turnExtra: { mode: 'interject', trigger: null, triggerKind: 'task', taskResult: { ...task, requester: { userId: null, kind: 'member' } } } });
+  const nobody = await callTurn({
+    answers: [answer, '<skip/>'],
+    allowed: ['message.create'],
+    turnExtra: {
+      mode: 'interject',
+      trigger: null,
+      triggerKind: 'task',
+      taskResult: { ...task, requester: { userId: null, kind: 'member' } },
+    },
+  });
   assert.deepEqual(nobody.sends, [], 'no requester, no write');
 });
 
-
-test('skill call: a read brings the operation\'s answer back in one more request; a member without the right is refused before it runs', async () => {
+test("skill call: a read brings the operation's answer back in one more request; a member without the right is refused before it runs", async () => {
   const store = fakeStore({ loreEntries: [] });
-  const run = await callTurn({ answers: [toolAnswer('', [call('lore.list')]), '<msg>τίποτα</msg>'], allowed: ['lore.list'], store });
+  const run = await callTurn({
+    answers: [toolAnswer('', [call('lore.list')]), '<msg>τίποτα</msg>'],
+    allowed: ['lore.list'],
+    store,
+  });
   assert.equal(run.llm.calls.length, 2);
   assert.ok(followUpTool(run.llm, 1).startsWith(labels.skills.result.ok), followUpTool(run.llm, 1));
   assert.ok(!run.llm.calls[0].some((message) => message.role === 'tool'), 'the first request carries no result');
-  assert.deepEqual(run.sends.map((send) => send.text), ['τίποτα']);
+  assert.deepEqual(
+    run.sends.map((send) => send.text),
+    ['τίποτα']
+  );
   // Alice not an owner and not granted lore.list: refused before anything runs, and told so.
-  const denied = await callTurn({ answers: [toolAnswer('', [call('lore.list')]), '<skip/>'], allowed: ['lore.list'], owners: [], store });
-  assert.equal(followUpTool(denied.llm, 1), fill(labels.skills.result.refused, { reason: labels.skills.result.reasons['requester-denied'] }));
+  const denied = await callTurn({
+    answers: [toolAnswer('', [call('lore.list')]), '<skip/>'],
+    allowed: ['lore.list'],
+    owners: [],
+    store,
+  });
+  assert.equal(
+    followUpTool(denied.llm, 1),
+    fill(labels.skills.result.refused, { reason: labels.skills.result.reasons['requester-denied'] })
+  );
 });
 
 test('skill call: a turn answering several people runs no write', async () => {
   const run = await callTurn({
     answers: [toolAnswer('', [call('message.create', { channel: '#νέα', text: 'γεια' })]), '<skip/>'],
     allowed: ['message.create'],
-    turnExtra: { missed: [{ author: 'Alice', text: 'γράψε στο #νέα' }, { author: 'Zoë', text: 'κι εγώ' }] },
+    turnExtra: {
+      missed: [
+        { author: 'Alice', text: 'γράψε στο #νέα' },
+        { author: 'Zoë', text: 'κι εγώ' },
+      ],
+    },
   });
   assert.deepEqual(run.sends, []);
   assert.ok(run.logs.some((entry) => entry.msg === 'skill: refused' && entry.reason === 'mixed-requesters'));
 });
 
 test('skill call: features.skills off does nothing at all; safe mode lets only the carried-over reply through', async () => {
-  const off = await callTurn({ answers: [toolAnswer('<msg>γεια</msg>', [call('message.create', { channel: '#νέα', text: 'γεια' })])], allowed: ['message.create'], features: { skills: false } });
+  const off = await callTurn({
+    answers: [toolAnswer('<msg>γεια</msg>', [call('message.create', { channel: '#νέα', text: 'γεια' })])],
+    allowed: ['message.create'],
+    features: { skills: false },
+  });
   assert.deepEqual(off.port.calls, []);
   assert.equal(off.llm.calls.length, 1, 'no request after the full stop');
   assert.equal(off.llm.options[0].tools, undefined, 'and no tools');
-  const safe = await callTurn({ answers: [toolAnswer('<msg>γεια</msg>', [call('message.create', { channel: '#νέα', text: 'γεια' })]), '<msg>μόνο εδώ</msg>'], allowed: ['message.create'], skills: { safeMode: true } });
-  assert.deepEqual(safe.sends.map((send) => send.to), ['c1'], 'the post elsewhere was refused, her words here go out in the next answer');
+  const safe = await callTurn({
+    answers: [
+      toolAnswer('<msg>γεια</msg>', [call('message.create', { channel: '#νέα', text: 'γεια' })]),
+      '<msg>μόνο εδώ</msg>',
+    ],
+    allowed: ['message.create'],
+    skills: { safeMode: true },
+  });
+  assert.deepEqual(
+    safe.sends.map((send) => send.to),
+    ['c1'],
+    'the post elsewhere was refused, her words here go out in the next answer'
+  );
   assert.ok(safe.logs.some((entry) => entry.msg === 'skill: refused' && entry.code === 'safe-mode'));
-  assert.deepEqual(safe.llm.options[0].tools.map((tool) => tool.function.name), ['draw_create', 'message_create', 'message_react_add'], 'safe mode exposes the carried-over ones alone');
+  assert.deepEqual(
+    safe.llm.options[0].tools.map((tool) => tool.function.name),
+    ['draw_create', 'message_create', 'message_react_add'],
+    'safe mode exposes the carried-over ones alone'
+  );
 });
-
 
 test('skill call: draw.create elsewhere generates once and the operation posts it there; a post of unknown fate is unknown, never redone', async () => {
   const withFamily = (images) => Object.assign(images, { familyOf: () => 'fake' });
   const images = withFamily(fakeImages());
   const { journal, lines } = journalOverMemory();
   const run = await callTurn({
-    answers: [toolAnswer('', [call('draw.create', { channel: '#νέα', text: 'a lighthouse at dusk' })]), '<msg>δεν ξέρω αν βγήκε</msg>'],
+    answers: [
+      toolAnswer('', [call('draw.create', { channel: '#νέα', text: 'a lighthouse at dusk' })]),
+      '<msg>δεν ξέρω αν βγήκε</msg>',
+    ],
     allowed: ['draw.create'],
     images,
     journal,
@@ -8654,27 +12344,44 @@ test('skill call: draw.create elsewhere generates once and the operation posts i
   assert.equal(run.port.calls.filter((call) => call.op === 'send').length, 2, 'the picture once, then her answer here');
   assert.ok(followUpTool(run.llm, 1).startsWith(labels.skills.result.unknown.split(':')[0]), followUpTool(run.llm, 1));
 
-  const delivered = await callTurn({ answers: [toolAnswer('', [call('draw.create', { channel: '#νέα', text: 'a lighthouse' })]), '<skip/>'], allowed: ['draw.create'], images: withFamily(fakeImages()) });
-  assert.deepEqual(delivered.sends.map((send) => [send.to, send.attachments.length]), [['c9', 1]]);
+  const delivered = await callTurn({
+    answers: [toolAnswer('', [call('draw.create', { channel: '#νέα', text: 'a lighthouse' })]), '<skip/>'],
+    allowed: ['draw.create'],
+    images: withFamily(fakeImages()),
+  });
+  assert.deepEqual(
+    delivered.sends.map((send) => [send.to, send.attachments.length]),
+    [['c9', 1]]
+  );
   assert.equal(delivered.llm.calls.length, 1, 'a picture that went out needs no reading');
-  const capped = await callTurn({ answers: [toolAnswer('', [call('draw.create', { channel: '#νέα', text: 'x' })]), '<skip/>'], allowed: ['draw.create'], images: withFamily(fakeImages({ quota: { spent: true, userSpent: false } })) });
+  const capped = await callTurn({
+    answers: [toolAnswer('', [call('draw.create', { channel: '#νέα', text: 'x' })]), '<skip/>'],
+    allowed: ['draw.create'],
+    images: withFamily(fakeImages({ quota: { spent: true, userSpent: false } })),
+  });
   assert.deepEqual(capped.sends, []);
   assert.ok(capped.logs.some((entry) => entry.msg === 'skill: refused' && entry.code === 'daily-cap'));
 });
 
 test('skill call: a dry run only logs the call', async () => {
-  const run = await callTurn({ answers: [toolAnswer('<msg>ναι</msg>', [call('message.create', { channel: '#νέα', text: 'γεια' })])], allowed: ['message.create'], features: { dryRun: true } });
+  const run = await callTurn({
+    answers: [toolAnswer('<msg>ναι</msg>', [call('message.create', { channel: '#νέα', text: 'γεια' })])],
+    allowed: ['message.create'],
+    features: { dryRun: true },
+  });
   assert.deepEqual(run.port.calls, []);
   assert.equal(run.llm.calls.length, 1);
   assert.ok(run.logs.some((entry) => entry.msg === 'dry-run: would call' && entry.skill === 'message.create'));
 });
 
-
 test('skill call: a call that did not work comes back as a result with its reason, her speech is held, the corrected call goes through and the journal keeps both', async () => {
   const { journal, lines } = journalOverMemory();
   const run = await callTurn({
     // The live failure: a deletion announced, called without the message to delete.
-    answers: [toolAnswer('<msg>σβήνω και το ξαναγράφω</msg>', [call('message.delete')]), toolAnswer('<msg>έσβησα το πρώτο</msg>', [call('message.delete', { message: '#1' })])],
+    answers: [
+      toolAnswer('<msg>σβήνω και το ξαναγράφω</msg>', [call('message.delete')]),
+      toolAnswer('<msg>έσβησα το πρώτο</msg>', [call('message.delete', { message: '#1' })]),
+    ],
     allowed: ['message.delete'],
     journal,
   });
@@ -8682,8 +12389,16 @@ test('skill call: a call that did not work comes back as a result with its reaso
   assert.equal(run.llm.calls.length, 2, 'one more request, never a third');
   const reason = fill(labels.transcript.callReasons['missing-arg'], { arg: 'message' });
   assert.equal(followUpTool(run.llm, 1), fill(labels.skills.result.refused, { reason }), 'she reads what was missing');
-  assert.deepEqual(run.port.calls.filter((call) => call.op === 'delete').map((call) => call.args[0].messageId), ['m0'], 'the corrected call ran');
-  assert.deepEqual(run.sends.map((send) => send.text), ['έσβησα το πρώτο'], 'the announcement of the first answer was held, never posted');
+  assert.deepEqual(
+    run.port.calls.filter((call) => call.op === 'delete').map((call) => call.args[0].messageId),
+    ['m0'],
+    'the corrected call ran'
+  );
+  assert.deepEqual(
+    run.sends.map((send) => send.text),
+    ['έσβησα το πρώτο'],
+    'the announcement of the first answer was held, never posted'
+  );
   assert.deepEqual(skillPhases(lines), ['proposed', 'failed', 'proposed', 'started', 'succeeded']);
   // The journal: the one turn record, the failure with its reason; the call's mark rebuilt from it covers the post.
   const records = lines.map(({ record }) => record);
@@ -8691,27 +12406,44 @@ test('skill call: a call that did not work comes back as a result with its reaso
   assert.equal(turn.posted.length, 1);
   assert.equal(turn.steps, 1);
   const failed = actionsNamed(lines, 'skill')[1];
-  assert.deepEqual([failed.result.code, failed.result.status, failed.result.reason], ['invalid-args', 'invalid', 'args.message:required']);
+  assert.deepEqual(
+    [failed.result.code, failed.result.status, failed.result.reason],
+    ['invalid-args', 'invalid', 'args.message:required']
+  );
   const marks = callMarksOf(records).calls;
-  assert.deepEqual(marks.map((mark) => mark.status), ['invalid', 'ok']);
+  assert.deepEqual(
+    marks.map((mark) => mark.status),
+    ['invalid', 'ok']
+  );
 });
 
-test('skill call: the next request shows a read\'s data as its tool message, a message that came meanwhile as a numbered line in the note, the cached parts unchanged', async () => {
+test("skill call: the next request shows a read's data as its tool message, a message that came meanwhile as a numbered line in the note, the cached parts unchanged", async () => {
   const store = fakeStore({ loreEntries: [] });
   const meanwhile = rawMessage({ id: 'm2', ts: NOW - 500, authorId: 'u2', authorName: 'Zoë', content: 'κι εγώ θέλω' });
-  const run = await callTurn({ answers: [toolAnswer('<msg>κοιτάζω</msg>', [call('lore.list')]), '<msg>τίποτα ακόμα</msg>'], allowed: ['lore.list'], store, later: [meanwhile] });
+  const run = await callTurn({
+    answers: [toolAnswer('<msg>κοιτάζω</msg>', [call('lore.list')]), '<msg>τίποτα ακόμα</msg>'],
+    allowed: ['lore.list'],
+    store,
+    later: [meanwhile],
+  });
   assert.equal(run.llm.calls.length, 2);
   // The prompt cache: the system prompt and the whole first user message are the previous request's, not rebuilt.
   assert.equal(run.llm.calls[1][0], run.llm.calls[0][0], 'the same system prompt');
   assert.equal(run.llm.calls[1][1], run.llm.calls[0][1], 'the same user message');
-  assert.ok(!requestText(run.llm, 1).includes('κι εγώ θέλω'), 'it came after the first request; the message itself is not rebuilt');
+  assert.ok(
+    !requestText(run.llm, 1).includes('κι εγώ θέλω'),
+    'it came after the first request; the message itself is not rebuilt'
+  );
   const [assistant, tool, note] = run.llm.calls[1].slice(2);
   assert.equal(assistant.content, '<msg>κοιτάζω</msg>');
   assert.ok(contentOf(tool).startsWith(labels.skills.result.ok), contentOf(tool));
   const noteText = contentOf(note);
   assert.ok(noteText.includes(labels.task.step.held), noteText);
   assert.match(noteText, /#\d+ \[[^\]]*\] Zoë: κι εγώ θέλω/);
-  assert.deepEqual(run.sends.map((send) => send.text), ['τίποτα ακόμα']);
+  assert.deepEqual(
+    run.sends.map((send) => send.text),
+    ['τίποτα ακόμα']
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -8738,22 +12470,48 @@ function callMarkScene({ answers, allowed = ['message.create'], features = {}, j
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
   port.seed('c1', { authorId: 'self-id', messageId: 'm0', text: 'πρώτη' });
   port.seed('c1', { authorId: 'u1', messageId: 'm1', text: 'γράψε' });
-  const hot = fakeHot({ typingSimulation: false, journal: Boolean(journal), ...features }, { owners: ['u1'], access: personaGrants(allowed) }, { skills: { safeMode: false, resultMaxChars: 2000 } });
+  const hot = fakeHot(
+    { typingSimulation: false, journal: Boolean(journal), ...features },
+    { owners: ['u1'], access: personaGrants(allowed) },
+    { skills: { safeMode: false, resultMaxChars: 2000 } }
+  );
   const store = fakeStore();
   const client = clientWithChannels(news);
   const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => 'g1', port });
   const llm = sequenceLlm(answers);
   const clock = { ms: NOW };
-  const runner = () => createTurnRunner({ discord: DISCORD, hot, store, llm, calibrator: identityCalibrator(), client, now: () => clock.ms, port, skills: skillRegistry(), journal, runOp: admin.runSkillOp, runOwnOp: admin.runOwnSkillOp });
+  const runner = () =>
+    createTurnRunner({
+      discord: DISCORD,
+      hot,
+      store,
+      llm,
+      calibrator: identityCalibrator(),
+      client,
+      now: () => clock.ms,
+      port,
+      skills: skillRegistry(),
+      journal,
+      runOp: admin.runSkillOp,
+      runOwnOp: admin.runOwnSkillOp,
+    });
   const turns = runner();
-  const run = (where, raw, on = turns) => withCapturedLogs(() => on.runTurn({ channel: where, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
+  const run = (where, raw, on = turns) =>
+    withCapturedLogs(() =>
+      on.runTurn({ channel: where, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' })
+    );
   return { history, channel, news, port, llm, clock, turns, runner, run };
 }
 
 /** Her own line of `c` as the fake port holds it, as a raw message of that channel. */
 function ownRaw(port, channelId, ts) {
-  const [message] = port.messagesIn(channelId).filter((m) => m.authorId === 'self-id' && !['m0'].includes(m.ref.messageId));
-  return { ...rawMessage({ id: message.ref.messageId, ts, authorId: 'self-id', authorName: 'Bot', content: message.text }), channelId };
+  const [message] = port
+    .messagesIn(channelId)
+    .filter((m) => m.authorId === 'self-id' && !['m0'].includes(m.ref.messageId));
+  return {
+    ...rawMessage({ id: message.ref.messageId, ts, authorId: 'self-id', authorName: 'Bot', content: message.text }),
+    channelId,
+  };
 }
 
 /** The `<chat>` block of the LLM's last request. */
@@ -8763,7 +12521,12 @@ function lastChat(llm) {
 }
 
 test('call marks: a later turn shows the call on her last line of the turn that made it, the post elsewhere linked; the post there names where it came from', async () => {
-  const scene = callMarkScene({ answers: [toolAnswer('<msg reply="#2">εντάξει</msg>\n', [call('message.create', { channel: '#🍡νέα', text: 'καλημέρα' })]), '<skip/>'] });
+  const scene = callMarkScene({
+    answers: [
+      toolAnswer('<msg reply="#2">εντάξει</msg>\n', [call('message.create', { channel: '#🍡νέα', text: 'καλημέρα' })]),
+      '<skip/>',
+    ],
+  });
   const first = await scene.run(scene.channel, scene.history[1]);
   assert.equal(first.result.outcome, 'spoke');
   const [posted] = scene.port.calls.filter((call) => call.op === 'send');
@@ -8776,7 +12539,10 @@ test('call marks: a later turn shows the call on her last line of the turn that 
   await scene.run(scene.channel, m2);
   const chat = lastChat(scene.llm);
   const line = chat.split('\n').find((text) => text.includes('εντάξει'));
-  assert.ok(line.endsWith(`[called message.create in #💖νέα: done, posted as https://discord.com/channels/g1/c9/${there.id}]`), chat);
+  assert.ok(
+    line.endsWith(`[called message.create in #💖νέα: done, posted as https://discord.com/channels/g1/c9/${there.id}]`),
+    chat
+  );
   assert.equal(chat.match(/\[called /g).length, 1, chat);
 
   // In #💖νέα her post says which channel's turn posted it; the call itself is not shown there.
@@ -8784,12 +12550,17 @@ test('call marks: a later turn shows the call on her last line of the turn that 
   scene.news.messages.fetch = async () => new Map([there, n1].map((m) => [m.id, m]));
   await scene.run(scene.news, n1);
   const newsChat = lastChat(scene.llm);
-  assert.ok(newsChat.includes('Bot (you) (posted from #general) (turn triggered by an older message): καλημέρα'), newsChat);
+  assert.ok(
+    newsChat.includes('Bot (you) (posted from #general) (turn triggered by an older message): καλημέρα'),
+    newsChat
+  );
   assert.ok(!newsChat.includes('[called '), newsChat);
 });
 
 test('call marks: a turn that only called shows the call as a line of hers at its time, after the last line before it', async () => {
-  const scene = callMarkScene({ answers: [toolAnswer('', [call('message.create', { channel: '#🍡νέα', text: 'γεια' })]), '<skip/>'] });
+  const scene = callMarkScene({
+    answers: [toolAnswer('', [call('message.create', { channel: '#🍡νέα', text: 'γεια' })]), '<skip/>'],
+  });
   await scene.run(scene.channel, scene.history[1]);
   const there = ownRaw(scene.port, 'c9', NOW);
   scene.clock.ms = NOW + 60_000;
@@ -8806,21 +12577,37 @@ test('call marks: a turn that only called shows the call as a line of hers at it
 });
 
 test('call marks: a refused call shows its status and why on the line its turn posted', async () => {
-  const scene = callMarkScene({ answers: [toolAnswer('<msg>μια στιγμή</msg>', [call('message.create', { channel: '#🍡νέα', text: 'γεια' })]), '<msg>μια στιγμή</msg>'], allowed: [] });
+  const scene = callMarkScene({
+    answers: [
+      toolAnswer('<msg>μια στιγμή</msg>', [call('message.create', { channel: '#🍡νέα', text: 'γεια' })]),
+      '<msg>μια στιγμή</msg>',
+    ],
+    allowed: [],
+  });
   await scene.run(scene.channel, scene.history[1]);
   scene.history.push(ownRaw(scene.port, 'c1', NOW));
   scene.clock.ms = NOW + 60_000;
   const m2 = rawMessage({ id: 'm2', ts: NOW + 30_000, authorName: 'Alice', content: 'και;' });
   scene.history.push(m2);
   await scene.run(scene.channel, m2);
-  const line = lastChat(scene.llm).split('\n').find((text) => text.includes('μια στιγμή'));
-  const status = fill(labels.transcript.callStatusReason, { status: labels.transcript.callStatus.denied, reason: labels.skills.result.reasons['not-allowed'] });
+  const line = lastChat(scene.llm)
+    .split('\n')
+    .find((text) => text.includes('μια στιγμή'));
+  const status = fill(labels.transcript.callStatusReason, {
+    status: labels.transcript.callStatus.denied,
+    reason: labels.skills.result.reasons['not-allowed'],
+  });
   assert.ok(line.endsWith(`[called message.create in #general: ${status}]`), line);
 });
 
 test('call marks: seeded from the journal after a restart, a call that did not work keeps why', async () => {
   const { journal, lines } = journalOverMemory();
-  const scene = callMarkScene({ answers: [toolAnswer('<msg>μια στιγμή</msg>', [call('message.delete')]), '<msg>μια στιγμή</msg>'], allowed: ['message.delete'], features: { journal: true }, journal });
+  const scene = callMarkScene({
+    answers: [toolAnswer('<msg>μια στιγμή</msg>', [call('message.delete')]), '<msg>μια στιγμή</msg>'],
+    allowed: ['message.delete'],
+    features: { journal: true },
+    journal,
+  });
   await scene.run(scene.channel, scene.history[1]);
   scene.history.push(ownRaw(scene.port, 'c1', NOW));
   const m2 = rawMessage({ id: 'm2', ts: NOW + 30_000, authorName: 'Alice', content: 'και;' });
@@ -8829,14 +12616,26 @@ test('call marks: seeded from the journal after a restart, a call that did not w
   const restarted = scene.runner();
   restarted.seedCallMarks(callMarksOf(lines.map(({ record }) => record)));
   await scene.run(scene.channel, m2, restarted);
-  const line = lastChat(scene.llm).split('\n').find((text) => text.includes('μια στιγμή'));
-  const status = fill(labels.transcript.callStatusReason, { status: labels.transcript.callStatus.invalid, reason: fill(labels.transcript.callReasons['missing-arg'], { arg: 'message' }) });
+  const line = lastChat(scene.llm)
+    .split('\n')
+    .find((text) => text.includes('μια στιγμή'));
+  const status = fill(labels.transcript.callStatusReason, {
+    status: labels.transcript.callStatus.invalid,
+    reason: fill(labels.transcript.callReasons['missing-arg'], { arg: 'message' }),
+  });
   assert.ok(line.endsWith(`[called message.delete in #general: ${status}]`), line);
 });
 
 test('call marks: seeded from the journal after a restart, the calls show as they did; with features.callMarkers off nothing shows', async () => {
   const { journal, lines } = journalOverMemory();
-  const scene = callMarkScene({ answers: [toolAnswer('<msg reply="#2">εντάξει</msg>\n', [call('message.create', { channel: '#🍡νέα', text: 'καλημέρα' })]), '<skip/>'], features: { journal: true }, journal });
+  const scene = callMarkScene({
+    answers: [
+      toolAnswer('<msg reply="#2">εντάξει</msg>\n', [call('message.create', { channel: '#🍡νέα', text: 'καλημέρα' })]),
+      '<skip/>',
+    ],
+    features: { journal: true },
+    journal,
+  });
   await scene.run(scene.channel, scene.history[1]);
   const there = ownRaw(scene.port, 'c9', NOW);
   scene.history.push(ownRaw(scene.port, 'c1', NOW));
@@ -8847,14 +12646,25 @@ test('call marks: seeded from the journal after a restart, the calls show as the
   const restarted = scene.runner();
   restarted.seedCallMarks(callMarksOf(lines.map(({ record }) => record)));
   await scene.run(scene.channel, m2, restarted);
-  const line = lastChat(scene.llm).split('\n').find((text) => text.includes('εντάξει'));
-  assert.ok(line.endsWith(`[called message.create in #💖νέα: done, posted as https://discord.com/channels/g1/c9/${there.id}]`), line);
+  const line = lastChat(scene.llm)
+    .split('\n')
+    .find((text) => text.includes('εντάξει'));
+  assert.ok(
+    line.endsWith(`[called message.create in #💖νέα: done, posted as https://discord.com/channels/g1/c9/${there.id}]`),
+    line
+  );
 
   const unseeded = scene.runner();
   await scene.run(scene.channel, m2, unseeded);
   assert.ok(!lastChat(scene.llm).includes('[called '), 'nothing seeded, nothing shown');
 
-  const off = callMarkScene({ answers: [toolAnswer('<msg reply="#2">εντάξει</msg>\n', [call('message.create', { channel: '#🍡νέα', text: 'καλημέρα' })]), '<skip/>'], features: { callMarkers: false } });
+  const off = callMarkScene({
+    answers: [
+      toolAnswer('<msg reply="#2">εντάξει</msg>\n', [call('message.create', { channel: '#🍡νέα', text: 'καλημέρα' })]),
+      '<skip/>',
+    ],
+    features: { callMarkers: false },
+  });
   await off.run(off.channel, off.history[1]);
   off.history.push(ownRaw(off.port, 'c1', NOW));
   off.clock.ms = NOW + 60_000;
@@ -8878,22 +12688,45 @@ function endHookScene(answer = '<msg reply="#1">ναι</msg>') {
   const channel = fakeTurnChannel({ historyMessages: history });
   const llm = fakeLlm(answer);
   const store = fakeStore();
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({ typingSimulation: false }), store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: fakeHot({ typingSimulation: false }),
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+  });
   const ends = [];
   turns.setOnTurnEnd((end) => ends.push(end));
   return { history, channel, llm, store, turns, ends };
 }
 
-test('createTurnRunner: the end hook hears every turn\'s outcome, its trigger and what its posts replied to', async () => {
+test("createTurnRunner: the end hook hears every turn's outcome, its trigger and what its posts replied to", async () => {
   const { history, channel, store, turns, ends } = endHookScene();
-  const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(history[1]), triggerKind: 'mention' });
+  const result = await turns.runTurn({
+    channel,
+    mode: 'reply',
+    trigger: normalizedTrigger(history[1]),
+    triggerKind: 'mention',
+  });
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(result.outcome, 'spoke');
   assert.equal(ends.length, 1);
   const [end] = ends;
   assert.deepEqual(
-    [end.guildId, end.channelId, end.privateChat, end.routed, end.mode, end.triggerKind, end.outcome, end.reason, end.dryRun],
-    ['g1', 'c1', false, false, 'reply', 'mention', 'spoke', null, false],
+    [
+      end.guildId,
+      end.channelId,
+      end.privateChat,
+      end.routed,
+      end.mode,
+      end.triggerKind,
+      end.outcome,
+      end.reason,
+      end.dryRun,
+    ],
+    ['g1', 'c1', false, false, 'reply', 'mention', 'spoke', null, false]
   );
   assert.deepEqual([end.trigger.id, end.trigger.authorId, end.trigger.ts], ['m99', 'u2', NOW - 30_000]);
   assert.deepEqual(end.replyTargets, ['m98']);
@@ -8913,7 +12746,16 @@ test('createTurnRunner: a turn dropped at its bar reaches the end hook as an err
   const raw = rawMessage({
     id: 'm1',
     attachments: new Map([
-      ['v1', { id: 'v1', contentType: 'video/mp4', name: 'clip.mp4', url: 'https://cdn.discordapp.com/attachments/1/2/clip.mp4', duration: 34 }],
+      [
+        'v1',
+        {
+          id: 'v1',
+          contentType: 'video/mp4',
+          name: 'clip.mp4',
+          url: 'https://cdn.discordapp.com/attachments/1/2/clip.mp4',
+          duration: 34,
+        },
+      ],
     ]),
   });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
@@ -8926,12 +12768,28 @@ test('createTurnRunner: a turn dropped at its bar reaches the end hook as an err
   const hot = fakeHot({});
   hot.config.pace = { ...TEST_PACE, dropAfterMs: BAR_MS };
   const timers = fakeSchedule();
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), imageFetcher: fakeImageFetcher(), now: () => t, schedule: timers.schedule });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    imageFetcher: fakeImageFetcher(),
+    now: () => t,
+    schedule: timers.schedule,
+  });
   const ends = [];
   turns.setOnTurnEnd((end) => ends.push(end));
-  await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: videoTrigger(raw), triggerKind: 'mention' }));
+  await withCapturedLogs(() =>
+    turns.runTurn({ channel, mode: 'reply', trigger: videoTrigger(raw), triggerKind: 'mention' })
+  );
   await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(ends.map((end) => [end.outcome, end.reason, end.trigger.id]), [['error', 'too-slow', 'm1']]);
+  assert.deepEqual(
+    ends.map((end) => [end.outcome, end.reason, end.trigger.id]),
+    [['error', 'too-slow', 'm1']]
+  );
 });
 
 test('runTurn: a missed turn names its messages under labels.task.missed and posts', async () => {
@@ -8940,11 +12798,21 @@ test('runTurn: a missed turn names its messages under labels.task.missed and pos
     { id: 'm98', author: 'Alice', text: 'tu viens ce soir ?' },
     { id: 'm99', author: 'Zoë', text: 'et le lapin ?' },
   ];
-  const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(history[0]), triggerKind: 'missed', missed, stillDue: () => true });
+  const result = await turns.runTurn({
+    channel,
+    mode: 'reply',
+    trigger: normalizedTrigger(history[0]),
+    triggerKind: 'missed',
+    missed,
+    stillDue: () => true,
+  });
   assert.equal(result.outcome, 'spoke');
   assert.equal(channel.sent.length, 1);
   const task = taskOf({ messages: llm.calls[0] });
-  assert.ok(task.includes(fill(labels.task.missed, { missed: '1. Alice: tu viens ce soir ?; 2. Zoë: et le lapin ?' })), task);
+  assert.ok(
+    task.includes(fill(labels.task.missed, { missed: '1. Alice: tu viens ce soir ?; 2. Zoë: et le lapin ?' })),
+    task
+  );
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(ends[0].triggerKind, 'missed');
 });
@@ -8963,7 +12831,7 @@ test('runTurn: a missed turn whose messages no longer wait posts nothing and end
         asked += 1;
         return false;
       },
-    }),
+    })
   );
   assert.equal(asked, 1);
   assert.deepEqual([result.outcome, result.reason], ['not-now', 'answered-meanwhile']);
@@ -8977,18 +12845,37 @@ test('runTurn: a missed turn whose messages no longer wait posts nothing and end
 // written before the cut are kept. A `stop` answer is read as before.
 
 /** A completion cut off at the cap after 2000 tokens. */
-const cut = (text) => ({ text, finishReason: 'length', usage: { prompt_tokens: 900, completion_tokens: 2000 }, promptTokens: 900, estimated: 900 });
+const cut = (text) => ({
+  text,
+  finishReason: 'length',
+  usage: { prompt_tokens: 900, completion_tokens: 2000 },
+  promptTokens: 900,
+  estimated: 900,
+});
 
 /** A runner with the journal on over one call of Alice in c1, answering `answers` in turn. */
 function cutScene(answers) {
-  const history = [rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', ts: NOW - 1000, content: 'tu viens ce soir ?' })];
+  const history = [
+    rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', ts: NOW - 1000, content: 'tu viens ce soir ?' }),
+  ];
   const channel = fakeTurnChannel({ historyMessages: history });
   const { journal, lines } = journalOverMemory();
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({ journal: true, typingSimulation: false }), store: fakeStore(), llm: sequenceLlm(answers), calibrator: identityCalibrator(), client: fakeClient(), journal });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: fakeHot({ journal: true, typingSimulation: false }),
+    store: fakeStore(),
+    llm: sequenceLlm(answers),
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    journal,
+  });
   const ends = [];
   turns.setOnTurnEnd((end) => ends.push(end));
   const run = async () => {
-    const out = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(history[0]), triggerKind: 'mention' }));
+    const out = await withCapturedLogs(() =>
+      turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(history[0]), triggerKind: 'mention' })
+    );
     await new Promise((resolve) => setImmediate(resolve));
     return { ...out, turn: lines.map(({ record }) => record).find((record) => record.kind === 'turn') };
   };
@@ -9002,8 +12889,15 @@ test('turn: a reply cut off inside its <think> ends error with reason cut-off, p
   assert.equal(channel.sent.length, 0);
   const line = logs.find((entry) => entry.msg === 'turn: cut off');
   assert.deepEqual([line.completionTokens, line.kept, line.followUp], [2000, false, false]);
-  assert.deepEqual([turn.outcome, turn.reason, turn.think, turn.usage.completion], ['error', 'cut-off', 'Η Αλίκη ρωτά για απόψε. Θα της πω ότι', 2000]);
-  assert.deepEqual(ends.map((end) => [end.outcome, end.reason, end.trigger.id]), [['error', 'cut-off', 'm1']], 'the end hook makes it a turn-error candidate');
+  assert.deepEqual(
+    [turn.outcome, turn.reason, turn.think, turn.usage.completion],
+    ['error', 'cut-off', 'Η Αλίκη ρωτά για απόψε. Θα της πω ότι', 2000]
+  );
+  assert.deepEqual(
+    ends.map((end) => [end.outcome, end.reason, end.trigger.id]),
+    [['error', 'cut-off', 'm1']],
+    'the end hook makes it a turn-error candidate'
+  );
 });
 
 test('turn: a cut-off answer with no tag after its think is a fragment: error cut-off, nothing posted', async () => {
@@ -9018,11 +12912,17 @@ test('turn: a cut-off answer keeps its complete messages, drops the open one and
   const { channel, ends, run } = cutScene([cut('<think>σχέδιο</think><msg>ναι</msg><msg>θα έρθω αλ')]);
   const { result, logs, turn } = await run();
   assert.equal(result.outcome, 'spoke');
-  assert.deepEqual(channel.sent.map((sent) => sent.content), ['ναι']);
+  assert.deepEqual(
+    channel.sent.map((sent) => sent.content),
+    ['ναι']
+  );
   const line = logs.find((entry) => entry.msg === 'turn: cut off');
   assert.deepEqual([line.completionTokens, line.kept], [2000, true]);
   assert.deepEqual([turn.outcome, turn.reason], ['spoke', null]);
-  assert.deepEqual(ends.map((end) => [end.outcome, end.reason]), [['spoke', null]]);
+  assert.deepEqual(
+    ends.map((end) => [end.outcome, end.reason]),
+    [['spoke', null]]
+  );
 });
 
 test('turn: an answer that stopped on its own is read as before: an open think is a skip, no cut-off', async () => {
@@ -9036,22 +12936,36 @@ test('turn: an answer that stopped on its own is read as before: an open think i
 });
 
 test('turn: a step cut off with nothing complete ends error cut-off when nothing reached the chat', async () => {
-  const lone = await callTurn({ answers: [toolAnswer('', [call('lore.list')]), cut('<think>δεν βρήκα τίποτα, θα')], allowed: ['lore.list'] });
+  const lone = await callTurn({
+    answers: [toolAnswer('', [call('lore.list')]), cut('<think>δεν βρήκα τίποτα, θα')],
+    allowed: ['lore.list'],
+  });
   assert.deepEqual([lone.result.outcome, lone.result.reason], ['error', 'cut-off']);
   assert.deepEqual(lone.sends, []);
   const line = lone.logs.find((entry) => entry.msg === 'turn: cut off');
   assert.deepEqual([line.completionTokens, line.kept, line.followUp], [2000, false, true]);
 
   // What she wrote before the read was held for the answer that never came: nothing reached the chat, a lost answer.
-  const after = await callTurn({ answers: [toolAnswer('<msg>μια στιγμή</msg>', [call('lore.list')]), cut('<think>δεν βρήκα')], allowed: ['lore.list'] });
+  const after = await callTurn({
+    answers: [toolAnswer('<msg>μια στιγμή</msg>', [call('lore.list')]), cut('<think>δεν βρήκα')],
+    allowed: ['lore.list'],
+  });
   assert.deepEqual([after.result.outcome, after.result.reason], ['error', 'cut-off']);
   assert.deepEqual(after.sends, []);
-  assert.ok(after.logs.some((entry) => entry.msg === 'turn: cut off' && entry.followUp === true && entry.kept === false));
+  assert.ok(
+    after.logs.some((entry) => entry.msg === 'turn: cut off' && entry.followUp === true && entry.kept === false)
+  );
 
   // A follow-up cut after a complete message: the message is posted.
-  const kept = await callTurn({ answers: [toolAnswer('', [call('lore.list')]), cut('<msg>τίποτα</msg><msg>κι αυτό')], allowed: ['lore.list'] });
+  const kept = await callTurn({
+    answers: [toolAnswer('', [call('lore.list')]), cut('<msg>τίποτα</msg><msg>κι αυτό')],
+    allowed: ['lore.list'],
+  });
   assert.equal(kept.result.outcome, 'spoke');
-  assert.deepEqual(kept.sends.map((send) => send.text), ['τίποτα']);
+  assert.deepEqual(
+    kept.sends.map((send) => send.text),
+    ['τίποτα']
+  );
   assert.ok(kept.logs.some((entry) => entry.msg === 'turn: cut off' && entry.followUp === true && entry.kept === true));
 });
 
@@ -9066,27 +12980,49 @@ test('createTurnRunner: a message the record holds as deleted appears in the win
     { kind: 'deleted', messageId: 'd2', occurredAt: iso(NOW - 400), participants: ['u2'], scope: { channel: 'c1' } },
   ];
   const queries = [];
-  const record = { async *iterate(guildId, query) { queries.push(query); yield* lines; }, append: async () => ({ written: 1 }) };
+  const record = {
+    async *iterate(guildId, query) {
+      queries.push(query);
+      yield* lines;
+    },
+    append: async () => ({ written: 1 }),
+  };
   const run = async (deletedLinesMax) => {
     const hot = fakeHot({ record: true });
     hot.config.context.deletedLinesMax = deletedLinesMax;
     const channel = fakeTurnChannel({ historyMessages: [first, last] });
     const llm = fakeLlm('<msg>ok</msg>');
-    const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), record });
-    const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(last), triggerKind: 'mention' }));
+    const turns = createTurnRunner({
+      discord: DISCORD,
+      createPort: createDiscordAdapter,
+      hot,
+      store: fakeStore(),
+      llm,
+      calibrator: identityCalibrator(),
+      client: fakeClient(),
+      record,
+    });
+    const { result, logs } = await withCapturedLogs(() =>
+      turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(last), triggerKind: 'mention' })
+    );
     return { result, logs, userMessage: textOf(llm.calls[0]?.[1].content) };
   };
   const both = await run(10);
   assert.equal(queries[0].channelIds.length, 1, 'one channel');
-  assert.ok(queries[0].from, 'the read starts at the window\'s oldest line');
+  assert.ok(queries[0].from, "the read starts at the window's oldest line");
   const text = both.userMessage;
   const at = (needle) => text.indexOf(needle);
-  assert.ok(at('πρώτο') < at(`${labels.transcript.deleted}`) && at(labels.transcript.deleted) < at('τελευταίο'), 'the placeholders sit between the lines');
+  assert.ok(
+    at('πρώτο') < at(`${labels.transcript.deleted}`) && at(labels.transcript.deleted) < at('τελευταίο'),
+    'the placeholders sit between the lines'
+  );
   assert.equal(text.split(labels.transcript.deleted).length - 1, 2);
-  assert.ok(/#3 \[[^\]]+\] [^\n]*: message deleted/.test(text) || /#\d \[[^\]]+\] [^\n]*: message deleted/.test(text), 'numbered like a line');
+  assert.ok(
+    /#3 \[[^\]]+\] [^\n]*: message deleted/.test(text) || /#\d \[[^\]]+\] [^\n]*: message deleted/.test(text),
+    'numbered like a line'
+  );
   const timings = both.logs.find((entry) => entry.msg === 'turn: timings');
   assert.equal(typeof timings.stages.record, 'number');
   const capped = await run(1);
   assert.equal(capped.userMessage.split(labels.transcript.deleted).length - 1, 1, 'the newest one only');
 });
-

@@ -71,7 +71,8 @@ function discordHarness({ operations = null } = {}) {
       },
     };
     message.reactions = {
-      resolve: (key) => (message.reacted.has(key) ? { users: { remove: async () => message.reacted.delete(key) } } : null),
+      resolve: (key) =>
+        message.reacted.has(key) ? { users: { remove: async () => message.reacted.delete(key) } } : null,
     };
     store.set(id, message);
     return message;
@@ -155,9 +156,18 @@ for (const [name, make] of [
   test(`port contract (${name}): a reply carries its target and the mentions it names`, async () => {
     const h = make();
     const target = h.foreign();
-    const result = await h.port.send(room(h.port), { text: 'ναι', replyTo: target, mentions: { users: [OTHER], repliedUser: true } });
+    const result = await h.port.send(room(h.port), {
+      text: 'ναι',
+      replyTo: target,
+      mentions: { users: [OTHER], repliedUser: true },
+    });
     assert.equal(result.status, 'ok');
-    assert.deepEqual(h.lastSent(), { text: 'ναι', replyToId: target.messageId, mentions: { users: [OTHER], repliedUser: true }, attachments: [] });
+    assert.deepEqual(h.lastSent(), {
+      text: 'ναι',
+      replyToId: target.messageId,
+      mentions: { users: [OTHER], repliedUser: true },
+      attachments: [],
+    });
   });
 
   test(`port contract (${name}): mentions default to none`, async () => {
@@ -169,7 +179,9 @@ for (const [name, make] of [
 
   test(`port contract (${name}): an attachment is sent by name`, async () => {
     const h = make();
-    const result = await h.port.send(room(h.port), { attachments: [{ name: 'image.png', data: Buffer.from('png'), contentType: 'image/png' }] });
+    const result = await h.port.send(room(h.port), {
+      attachments: [{ name: 'image.png', data: Buffer.from('png'), contentType: 'image/png' }],
+    });
     assert.equal(result.status, 'ok');
     assert.deepEqual(h.lastSent().attachments, ['image.png']);
   });
@@ -230,7 +242,9 @@ for (const [name, make] of [
   });
 
   test(`port contract (${name}): an operation whose capability is off is unsupported and does nothing`, async () => {
-    const h = make({ operations: Object.values(CAPABILITIES).filter((capability) => capability !== CAPABILITIES.edit) });
+    const h = make({
+      operations: Object.values(CAPABILITIES).filter((capability) => capability !== CAPABILITIES.edit),
+    });
     const own = (await h.port.send(room(h.port), { text: 'μένει' })).ref;
     const result = await h.port.edit(own, { text: 'αλλαγμένο' });
     assert.equal(result.status, 'unsupported');
@@ -274,16 +288,26 @@ test('discord adapter: absent mentions are allowedMentions { parse: [] }, given 
   const h = discordHarness();
   await h.port.send({ iface: 'discord', conversationId: ROOM }, { text: 'α' });
   assert.deepEqual(h.payloads[0], { content: 'α', reply: undefined, allowedMentions: { parse: [] } });
-  await h.port.send({ iface: 'discord', conversationId: ROOM }, { text: 'β', mentions: { users: ['u1'], repliedUser: false } });
+  await h.port.send(
+    { iface: 'discord', conversationId: ROOM },
+    { text: 'β', mentions: { users: ['u1'], repliedUser: false } }
+  );
   assert.deepEqual(h.payloads[1].allowedMentions, { parse: [], users: ['u1'], repliedUser: false });
 });
 
 test('discord adapter: a channel the caller holds is used before the client', async () => {
   const sent = [];
   const held = { id: 'c9', send: async (payload) => (sent.push(payload), { id: 'x1', createdTimestamp: 42 }) };
-  const port = createDiscordAdapter({ client: { user: { id: SELF } }, lookupChannel: (id) => (id === 'c9' ? held : null) });
+  const port = createDiscordAdapter({
+    client: { user: { id: SELF } },
+    lookupChannel: (id) => (id === 'c9' ? held : null),
+  });
   const result = await port.send({ iface: 'discord', conversationId: 'c9' }, { text: 'ναι' });
-  assert.deepEqual(result, { status: 'ok', ref: { iface: 'discord', conversationId: 'c9', messageId: 'x1', memberId: SELF }, at: 42 });
+  assert.deepEqual(result, {
+    status: 'ok',
+    ref: { iface: 'discord', conversationId: 'c9', messageId: 'x1', memberId: SELF },
+    at: 42,
+  });
   assert.equal(sent.length, 1);
 });
 
@@ -303,18 +327,50 @@ test('createDiscordInterface: the port is the Discord adapter over the given cli
   assert.equal(built.client, client);
   assert.equal(built.port.iface, 'discord');
   const result = await built.port.send({ iface: 'discord', conversationId: 'c9' }, { text: 'ναι' });
-  assert.deepEqual(result, { status: 'ok', ref: { iface: 'discord', conversationId: 'c9', messageId: 'x1', memberId: SELF }, at: 42 });
+  assert.deepEqual(result, {
+    status: 'ok',
+    ref: { iface: 'discord', conversationId: 'c9', messageId: 'x1', memberId: SELF },
+    at: 42,
+  });
   assert.deepEqual(sent, [{ content: 'ναι', reply: undefined, allowedMentions: { parse: [] } }]);
 });
 
-test('createDiscordInterface: the capabilities are the package\'s own functions, by name, frozen', () => {
+test("createDiscordInterface: the capabilities are the package's own functions, by name, frozen", () => {
   const { capabilities } = createDiscordInterface({ client: { user: { id: SELF } } });
   assert.deepEqual(Object.keys(capabilities), [
-    'canRead', 'canSend', 'canAttach', 'canReact', 'isReadableChannel', 'isWritableChannel', 'readableChannels',
-    'channelDirectoryOf', 'lastActivity', 'snowflakeTime', 'audienceOf', 'fetchHistory', 'fetchHistoryWindow', 'fetchMessage',
-    'fetchReplyParents', 'fetchNeighbors', 'withTextPreviews', 'normalizeMessage', 'normalizeOptions', 'PAGE',
-    'audienceAllows', 'captionPulled', 'checkPull', 'createPullViews', 'fetchPull', 'searchMessages', 'searchMembers',
-    'fetchAround', 'fetchAfter', 'fetchBefore', 'reactorIdsOf', 'normalizedOf', 'toEvent',
+    'canRead',
+    'canSend',
+    'canAttach',
+    'canReact',
+    'isReadableChannel',
+    'isWritableChannel',
+    'readableChannels',
+    'channelDirectoryOf',
+    'lastActivity',
+    'snowflakeTime',
+    'audienceOf',
+    'fetchHistory',
+    'fetchHistoryWindow',
+    'fetchMessage',
+    'fetchReplyParents',
+    'fetchNeighbors',
+    'withTextPreviews',
+    'normalizeMessage',
+    'normalizeOptions',
+    'PAGE',
+    'audienceAllows',
+    'captionPulled',
+    'checkPull',
+    'createPullViews',
+    'fetchPull',
+    'searchMessages',
+    'searchMembers',
+    'fetchAround',
+    'fetchAfter',
+    'fetchBefore',
+    'reactorIdsOf',
+    'normalizedOf',
+    'toEvent',
   ]);
   for (const [name, value] of Object.entries(capabilities)) assert.equal(value, discordInterface[name], name);
   assert.ok(Object.isFrozen(capabilities));
@@ -326,7 +382,11 @@ test('snowflakeTime and createDiscordClient: the creation time of an id, and the
   const plain = discordInterface.createDiscordClient();
   const wide = discordInterface.createDiscordClient({ presences: true, members: true });
   try {
-    assert.equal(wide.options.intents.bitfield - plain.options.intents.bitfield, (1 << 8) + (1 << 1), 'presences and members add their intents');
+    assert.equal(
+      wide.options.intents.bitfield - plain.options.intents.bitfield,
+      (1 << 8) + (1 << 1),
+      'presences and members add their intents'
+    );
     assert.equal(plain.options.partials.length, 4);
   } finally {
     plain.destroy();
@@ -343,7 +403,11 @@ test('discordFailure: Discord answers are normalised', () => {
   assert.deepEqual(view(discordFailure(http(502), { sent: true })), ['unknown', 'http-502', false]);
   assert.deepEqual(view(discordFailure(http(502), { sent: false })), ['failed', 'http-502', true]);
   assert.deepEqual(view(discordFailure(new Error('socket hang up'), { sent: true })), ['unknown', 'error', false]);
-  assert.deepEqual(view(discordFailure(Object.assign(new Error('t'), { code: 'ETIMEDOUT' }), { sent: false })), ['failed', 'timeout', true]);
+  assert.deepEqual(view(discordFailure(Object.assign(new Error('t'), { code: 'ETIMEDOUT' }), { sent: false })), [
+    'failed',
+    'timeout',
+    true,
+  ]);
   assert.ok(discordFailure(http(403), { sent: true }).error.cause instanceof Error, 'the cause is kept for the logs');
 });
 
@@ -363,7 +427,11 @@ test('fake adapter: a malformed action is refused as failed invalid-action, reco
     ['typing', () => h.port.typing(null)],
   ]) {
     const result = await call();
-    assert.deepEqual([result.status, result.error.code, result.error.retryable], ['failed', 'invalid-action', false], op);
+    assert.deepEqual(
+      [result.status, result.error.code, result.error.retryable],
+      ['failed', 'invalid-action', false],
+      op
+    );
     assert.equal(h.port.calls.at(-1).op, op);
   }
   assert.equal(h.effects(), before + 1, 'only the seeded message');
@@ -371,7 +439,7 @@ test('fake adapter: a malformed action is refused as failed invalid-action, reco
   assert.deepEqual(h.port.typings, []);
 });
 
-test('fake adapter: a well-formed action keeps the port\'s own refusal codes', async () => {
+test("fake adapter: a well-formed action keeps the port's own refusal codes", async () => {
   const h = fakeHarness();
   const foreign = await h.port.send({ iface: 'elsewhere', conversationId: ROOM }, { text: 'όχι' });
   assert.equal(foreign.error.code, 'foreign-reference');

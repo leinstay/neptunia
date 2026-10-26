@@ -29,7 +29,16 @@ const GIF_HANDLE_RE = /^g(\d{1,9})$/i;
 // call tag and the draw tag: both are tool calls now.
 const RETIRED_TAGS = Object.freeze(['call', 'draw']);
 const RETIRED_TAG_RES = Object.freeze(
-  Object.fromEntries(RETIRED_TAGS.map((tag) => [tag, [new RegExp(`<${tag}\\b[^>]*?/>`, 'gi'), new RegExp(`<${tag}\\b[^>]*?>[\\s\\S]*?</${tag}\\s*>`, 'gi'), new RegExp(`<${tag}\\b[^>]*>`, 'gi')]])),
+  Object.fromEntries(
+    RETIRED_TAGS.map((tag) => [
+      tag,
+      [
+        new RegExp(`<${tag}\\b[^>]*?/>`, 'gi'),
+        new RegExp(`<${tag}\\b[^>]*?>[\\s\\S]*?</${tag}\\s*>`, 'gi'),
+        new RegExp(`<${tag}\\b[^>]*>`, 'gi'),
+      ],
+    ])
+  )
 );
 
 /**
@@ -84,7 +93,17 @@ function parseIndex(value) {
  *   plain text of an answer with no tag (the fallback), not a `<msg>`.
  */
 export function parseOutput(raw, { limits = null } = {}) {
-  const result = { skip: false, messages: [], reactions: [], untargetedReactions: [], think: '', gif: null, thinkOpen: false, untagged: false, diagnostics: [] };
+  const result = {
+    skip: false,
+    messages: [],
+    reactions: [],
+    untargetedReactions: [],
+    think: '',
+    gif: null,
+    thinkOpen: false,
+    untagged: false,
+    diagnostics: [],
+  };
   let text = String(raw ?? '');
 
   text = text.replace(/<think>([\s\S]*?)<\/think>/gi, (all, inner) => {
@@ -148,7 +167,12 @@ export function parseOutput(raw, { limits = null } = {}) {
     break;
   }
 
-  if (result.messages.length === 0 && result.reactions.length === 0 && result.untargetedReactions.length === 0 && !result.gif) {
+  if (
+    result.messages.length === 0 &&
+    result.reactions.length === 0 &&
+    result.untargetedReactions.length === 0 &&
+    !result.gif
+  ) {
     const leftover = text.replace(/<skip\s*\/?>/gi, '').trim();
     const hasTags = /<\/?(msg|react|skip|draw|gif|call|tool_call)\b/i.test(text);
     if (!hasTags && leftover && leftover.length <= MAX_FALLBACK_CHARS) {

@@ -42,7 +42,11 @@ export async function replayFixture(fixture, door, { port = null } = {}) {
 }
 
 /** The fake's default limits. */
-export const FAKE_LIMITS = Object.freeze({ maxTextLength: 2000, maxAttachments: 10, maxAttachmentBytes: 8 * 1024 * 1024 });
+export const FAKE_LIMITS = Object.freeze({
+  maxTextLength: 2000,
+  maxAttachments: 10,
+  maxAttachmentBytes: 8 * 1024 * 1024,
+});
 
 /**
  * An in-memory port.
@@ -61,7 +65,13 @@ export const FAKE_LIMITS = Object.freeze({ maxTextLength: 2000, maxAttachments: 
  *   `failNext(op, result)` queues `result` as the answer of the next call of `op` (`send`,
  *   `edit`, ...), in place of doing it; queued results are answered in order.
  */
-export function createFakeAdapter({ iface = 'fake', selfId = 'self', operations = null, limits = {}, now = Date.now } = {}) {
+export function createFakeAdapter({
+  iface = 'fake',
+  selfId = 'self',
+  operations = null,
+  limits = {},
+  now = Date.now,
+} = {}) {
   const offered = new Set(operations ? [...operations] : Object.values(CAPABILITIES));
   const caps = { ...FAKE_LIMITS, ...limits };
   const calls = [];
@@ -104,7 +114,9 @@ export function createFakeAdapter({ iface = 'fake', selfId = 'self', operations 
       authorId,
       at: now(),
       text: typeof content.text === 'string' ? content.text : '',
-      attachments: Array.isArray(content.attachments) ? content.attachments.map((attachment) => ({ ...attachment })) : [],
+      attachments: Array.isArray(content.attachments)
+        ? content.attachments.map((attachment) => ({ ...attachment }))
+        : [],
       replyTo: content.replyTo ?? null,
       mentions: mentionsOf(content),
       reactions: new Set(),
@@ -121,7 +133,9 @@ export function createFakeAdapter({ iface = 'fake', selfId = 'self', operations 
     typings,
 
     seed(conversationId, { authorId, text = '', messageId = null }) {
-      return { ...store(String(conversationId), String(authorId), { text }, messageId === null ? null : String(messageId)).ref };
+      return {
+        ...store(String(conversationId), String(authorId), { text }, messageId === null ? null : String(messageId)).ref,
+      };
     },
 
     failNext(op, result) {
@@ -130,7 +144,9 @@ export function createFakeAdapter({ iface = 'fake', selfId = 'self', operations 
     },
 
     messagesIn(conversationId) {
-      return [...messages.values()].filter((message) => message.ref.conversationId === conversationId && !message.deleted);
+      return [...messages.values()].filter(
+        (message) => message.ref.conversationId === conversationId && !message.deleted
+      );
     },
 
     async send(conversation, content) {
@@ -151,7 +167,8 @@ export function createFakeAdapter({ iface = 'fake', selfId = 'self', operations 
       if (result) return result;
       if (message.authorId !== selfId) return notOk('forbidden', CODE.NOT_OWN_MESSAGE);
       if (typeof content.text === 'string') message.text = content.text;
-      if (Array.isArray(content.attachments)) message.attachments = content.attachments.map((attachment) => ({ ...attachment }));
+      if (Array.isArray(content.attachments))
+        message.attachments = content.attachments.map((attachment) => ({ ...attachment }));
       message.mentions = mentionsOf(content);
       return ok({ ...message.ref }, now());
     },
@@ -201,7 +218,11 @@ export function createFakeAdapter({ iface = 'fake', selfId = 'self', operations 
       const out = (Array.isArray(messageIds) ? messageIds : []).map((id) => {
         const message = messages.get(`${conversation.conversationId}/${id}`);
         if (!message || message.deleted) return { messageId: String(id), missing: true };
-        return { messageId: String(id), text: message.text, attachments: message.attachments.map((attachment) => ({ ...attachment })) };
+        return {
+          messageId: String(id),
+          text: message.text,
+          attachments: message.attachments.map((attachment) => ({ ...attachment })),
+        };
       });
       return { ...ok(), messages: out };
     },
