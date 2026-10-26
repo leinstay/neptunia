@@ -62,17 +62,16 @@ test('parseOutput: three messages stay as they are, nothing recorded', async () 
   assert.deepEqual(limits.list(), []);
 });
 
-test('parseOutput: a merged message over 1900 characters is cut like any message, the cut recorded', async () => {
+// PR 2: the parser no longer cuts a message at 1900 characters; the adapter splits it for the platform. The merge of
+// the third and later messages stays, and it reports only the merge.
+test('parseOutput: a merged message over 1900 characters stays whole, only the merge recorded', async () => {
   const { createLimits } = await import('../src/llm/limits.js');
   const limits = createLimits();
   const third = 'γ'.repeat(1000);
   const fourth = 'δ'.repeat(1000);
   const result = parseOutput(`<msg>a</msg><msg>b</msg><msg>${third}</msg><msg>${fourth}</msg>`, { limits });
-  assert.equal(result.messages[2].text, `${third}\n${'δ'.repeat(899)}`);
-  assert.deepEqual(limits.list(), [
-    { kind: 'message-merge', where: 'parse', lost: 1 },
-    { kind: 'message-cut', where: 'parse', lost: 101 },
-  ]);
+  assert.equal(result.messages[2].text, `${third}\n${fourth}`);
+  assert.deepEqual(limits.list(), [{ kind: 'message-merge', where: 'parse', lost: 1 }]);
 });
 
 test('parseOutput: <think> is stripped from output and returned separately', () => {
@@ -173,9 +172,10 @@ test('parseOutput: only empty <msg> tags and no reactions results in skip, not a
   assert.deepEqual(result.messages, []);
 });
 
-test('parseOutput: messages longer than MAX_MESSAGE_CHARS are truncated', () => {
+// PR 2: a 2000-character message used to come out at 1900; the core no longer cuts her text.
+test('parseOutput: a 2000-character message comes out whole', () => {
   const result = parseOutput(`<msg>${'a'.repeat(2000)}</msg>`);
-  assert.equal(result.messages[0].text.length, 1900);
+  assert.equal(result.messages[0].text.length, 2000);
 });
 
 test('parseOutput: <msg> and <react> can appear together', () => {
@@ -205,16 +205,15 @@ test('parseJsonObject: throws when there is no JSON object at all', () => {
   assert.throws(() => parseJsonObject('no json here'), /no JSON object in the model reply/);
 });
 
-test('parse: a message cut at 1900 reports message-cut with the lost length', async () => {
+// PR 2: nothing is cut at parse time, so no `message-cut` is reported for a long message.
+test('parse: a message of 1950 characters comes out whole and reports no message-cut', async () => {
   const { createLimits } = await import('../src/llm/limits.js');
   const limits = createLimits();
   const long = 'α'.repeat(1950);
   const result = parseOutput(`<msg>${long}</msg><msg>short</msg>`, { limits });
-  assert.equal(result.messages[0].text.length, 1900);
+  assert.equal(result.messages[0].text, long);
   assert.equal(result.messages[1].text, 'short');
-  assert.deepEqual(limits.list(), [{ kind: 'message-cut', where: 'parse', lost: 50 }]);
-  // Without a collector the cut stays as it was.
-  assert.equal(parseOutput(`<msg>${long}</msg>`).messages[0].text.length, 1900);
+  assert.deepEqual(limits.list(), []);
 });
 
 // ---- <call>: one skill call at the top level of the output ------------------------------
@@ -232,9 +231,10 @@ test('parseOutput: untagged marks the plain-text fallback message only', () => {
   assert.equal(parseOutput('<skip/>').untagged, false);
 });
 
-test('parseOutput: a cut message, joined messages and an unclosed <think> are diagnostics', () => {
-  const cut = parseOutput(`<msg>${'α'.repeat(1950)}</msg>`);
-  assert.deepEqual(cut.diagnostics, [{ kind: 'messageCut', chars: 50 }]);
+// PR 2: a long message is no longer cut, so it leaves no `messageCut` diagnostic.
+test('parseOutput: a long message is no diagnostic, joined messages and an unclosed <think> are', () => {
+  const long = parseOutput(`<msg>${'α'.repeat(1950)}</msg>`);
+  assert.deepEqual(long.diagnostics, []);
   const merged = parseOutput('<msg>1</msg><msg>2</msg><msg>3</msg><msg>4</msg><msg>5</msg>');
   assert.deepEqual(merged.diagnostics, [{ kind: 'messagesMerged', count: 2 }]);
   assert.deepEqual(parseOutput('<think>σχέδιο').diagnostics, [{ kind: 'thinkUnclosed' }]);

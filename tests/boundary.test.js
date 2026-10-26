@@ -362,15 +362,22 @@ describe('a delivery that changes no character', () => {
   const BLOCK = 'Καλημέρα κόσμε \u2014 ώρα για καφέ \u2615\u{1F31E}  \nδεύτερη γραμμή με κενά  \nτρίτη';
   const GENERATED = `${BLOCK}\n${BLOCK}\n${BLOCK}`;
 
-  /** One reply turn whose model answer is `<msg>` + `text`, on a fake interface with `limits`; the texts she sent. */
-  /** @param {string} text @param {object} [limits] */
-  async function deliver(text, limits = {}) {
-    const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => START, limits });
+  /** One reply turn whose model answer is `<msg>` + `text`, on a fake interface with `capabilities`; the port after it. */
+  /** @param {string} text @param {object} [capabilities] */
+  async function runDelivery(text, capabilities = {}) {
+    const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => START, capabilities });
     // format.stripDashes is the one character swap the core makes; this test is about the delivery, so it is off.
     const hot = hotWith({ config: { format: { stripDashes: false } } });
     const turns = runnerOver({ port, hot, llm: sequenceLlm([`<msg>${text}</msg>`]) });
     port.seed('c1', { authorId: 'u1', messageId: 'm1', text: 'hey' });
     await replyTo(turns, [], { id: 'm1', content: 'hey', at: START });
+    return port;
+  }
+
+  /** The texts she handed to the interface, one per `send` call. */
+  /** @param {string} text */
+  async function deliver(text) {
+    const port = await runDelivery(text);
     return port.calls
       .filter((call) => call.op === 'send')
       .map((call) => /** @type {{ text: string }} */ (call.args[1]).text);
@@ -389,11 +396,15 @@ describe('a delivery that changes no character', () => {
     assert.deepEqual(await deliver(GENERATED), [GENERATED]);
   });
 
-  // Stage 2, item "the adapter contract of 4.2": `capabilities()` declares `maxChars` and the adapter splits. Today the
-  // core cuts a post at Discord's 2000 characters and the fake refuses longer text (`text-too-long`), so nothing splits.
-  test.todo('a text longer than the interface limit arrives as parts that join to the original', async () => {
+  // One `send` call posts several parts when the text outgrows the interface, so counting calls says nothing.
+  // The test reads the parts the interface stored: her messages of the conversation, in the order they landed.
+  test('a text longer than the interface limit arrives as parts that join to the original', async () => {
     const limit = 60;
-    const parts = await deliver(GENERATED, { maxTextLength: limit });
+    const port = await runDelivery(GENERATED, { maxChars: limit });
+    const parts = port
+      .messagesIn('c1')
+      .filter((message) => /** @type {{ authorId: string }} */ (message).authorId === 'self-id')
+      .map((message) => /** @type {{ text: string }} */ (message).text);
     assert.ok(parts.length > 1, 'the text needed splitting');
     assert.ok(parts.every((part) => Array.from(part).length <= limit));
     assert.equal(parts.join(''), GENERATED);
