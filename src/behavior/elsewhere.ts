@@ -326,7 +326,7 @@ export function hasUnseen(lastTs: number, seenTs: number | null | undefined): bo
 type LiveMessage = { ts: number; self?: boolean; bot?: boolean };
 
 function isMemberMessage(message: LiveMessage | null | undefined): message is LiveMessage {
-  return Boolean(message) && !message.self && !message.bot;
+  return message !== null && message !== undefined && !message.self && !message.bot;
 }
 
 /**
@@ -453,7 +453,8 @@ export type Audience = {
 function isAudience(value: unknown): value is Audience {
   const audience = value as Partial<Audience> | null | undefined;
   return (
-    Boolean(audience) &&
+    audience !== null &&
+    audience !== undefined &&
     typeof audience === 'object' &&
     typeof audience.everyone === 'boolean' &&
     audience.roles instanceof Set &&

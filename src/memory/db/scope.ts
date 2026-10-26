@@ -243,7 +243,7 @@ export function scopeOfAudience(id: unknown, lookup: unknown = null): Scope {
   if (!parts || parts.kind === 'internal') return { ...SCOPE_INTERNAL };
   if (parts.kind === 'none') return { ...SCOPE_NONE };
   if (parts.kind === 'group') return groupScope(parts.iface);
-  const found = typeof look === 'function' ? look(parts.place_id) : null;
+  const found = typeof look === 'function' && parts.place_id !== null ? look(parts.place_id) : null;
   const partner = found?.partner_person
     ? { iface: found.iface as string, person: found.partner_person as string }
     : dmPartnerOfPlace(parts.place_id);

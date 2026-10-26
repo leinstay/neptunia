@@ -120,8 +120,8 @@ function needOrFail(env, key) {
  *   paths: ReturnType<typeof import('./paths.js').resolvePaths>,
  *   env: Readonly<Record<string, string | undefined>>,
  *   interfaces: ReadonlyArray<{ name: string, start(host: import('./protocol/host.ts').InterfaceHost): Promise<import('./protocol/host.ts').RunningInterface> }>,
- *   llm?: ReturnType<typeof createLlm>,
- *   embedder?: ReturnType<typeof createEmbedder>,
+ *   llm?: Pick<ReturnType<typeof createLlm>, 'complete'> & Partial<ReturnType<typeof createLlm>>,
+ *   embedder?: Pick<ReturnType<typeof createEmbedder>, 'embed'> & Partial<ReturnType<typeof createEmbedder>>,
  *   now?: () => number,
  * }} options
  * @returns {Promise<{ door: ReturnType<typeof createEventDoor>, stop(signal?: string): Promise<void> }>}
