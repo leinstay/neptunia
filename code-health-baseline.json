@@ -1,0 +1,1080 @@
+{
+  "files": {
+    "src/behavior/pipeline.js": 2869,
+    "src/behavior/prompt.js": 4310,
+    "src/behavior/recall.js": 2202,
+    "src/behavior/turn.js": 7570,
+    "src/memory/store.js": 3226,
+    "tests/admin.test.js": 3255,
+    "tests/describe.test.js": 3190,
+    "tests/events.test.js": 7865,
+    "tests/openrouter.test.js": 3082,
+    "tests/prompt.test.js": 5060,
+    "tests/store.test.js": 2547,
+    "tests/turn.test.js": 9092,
+    "tools/replay.mjs": 5604
+  },
+  "functions": {
+    "interfaces/discord/collect.js": {
+      "audienceOf": {
+        "complexity": 22
+      }
+    },
+    "interfaces/discord/pull-fetch.js": {
+      "fetchPull": {
+        "complexity": 41
+      }
+    },
+    "src/agent-runner/opencode.js": {
+      "createOpencodeRunner": {
+        "function-length": 302
+      },
+      "createOpencodeRunner>run": {
+        "complexity": 42
+      },
+      "createOpencodeRunner>run><anonymous>#2>handleEvent": {
+        "complexity": 29
+      }
+    },
+    "src/agent-runner/policy.js": {
+      "withheldInToolUse": {
+        "complexity": 29
+      }
+    },
+    "src/agent-runner/profiles.js": {
+      "validateProfile": {
+        "complexity": 26
+      }
+    },
+    "src/agent-runner/protocol.js": {
+      "validateRun": {
+        "complexity": 42
+      }
+    },
+    "src/behavior/around.js": {
+      "liveFields": {
+        "complexity": 24
+      }
+    },
+    "src/behavior/catch-up.js": {
+      "createOfflineCatchUp>run": {
+        "complexity": 23
+      }
+    },
+    "src/behavior/deleted-lines.js": {
+      "deletedLinesOf": {
+        "complexity": 34
+      }
+    },
+    "src/behavior/heartbeat-view.js": {
+      "scanRecord": {
+        "complexity": 43
+      }
+    },
+    "src/behavior/inner.js": {
+      "createInnerLife": {
+        "function-length": 1204
+      },
+      "createInnerLife>drain": {
+        "complexity": 108,
+        "function-length": 301
+      },
+      "createInnerLife>refreshPlaces": {
+        "complexity": 23
+      },
+      "createInnerLife>status": {
+        "complexity": 25
+      },
+      "createInnerLife>tick": {
+        "complexity": 24
+      },
+      "feedbackFacts": {
+        "complexity": 40
+      }
+    },
+    "src/behavior/missed.js": {
+      "createMissed": {
+        "function-length": 564
+      },
+      "createMissed>onTurnEnd": {
+        "complexity": 23
+      },
+      "createMissed>recover": {
+        "complexity": 21
+      },
+      "reconcileFromRecords": {
+        "complexity": 32
+      }
+    },
+    "src/behavior/participation-pick.js": {
+      "createParticipationPicker>pickParticipation": {
+        "complexity": 21
+      }
+    },
+    "src/behavior/pipeline.js": {
+      "createMessageHandler": {
+        "function-length": 2598
+      },
+      "createMessageHandler>classifyFollowUp": {
+        "complexity": 21
+      },
+      "createMessageHandler>drainPending": {
+        "complexity": 43
+      },
+      "createMessageHandler>handleMessage": {
+        "complexity": 40
+      },
+      "createMessageHandler>onMessageUpdate": {
+        "complexity": 26
+      }
+    },
+    "src/behavior/prefetch.js": {
+      "prefetchLanes": {
+        "complexity": 24
+      }
+    },
+    "src/behavior/prompt.js": {
+      "anchorsView": {
+        "complexity": 22
+      },
+      "assembleUser": {
+        "complexity": 22
+      },
+      "buildDiaryPlanRequest": {
+        "complexity": 28
+      },
+      "buildRequest": {
+        "complexity": 313,
+        "function-length": 1059
+      },
+      "buildRequest>composeTask": {
+        "complexity": 22
+      },
+      "participationView": {
+        "complexity": 25
+      },
+      "renderProfileShown": {
+        "complexity": 37
+      },
+      "renderSenses": {
+        "complexity": 72
+      },
+      "renderTasks": {
+        "complexity": 26
+      },
+      "splitPeople": {
+        "complexity": 31
+      }
+    },
+    "src/behavior/recall-run.js": {
+      "createRecall": {
+        "function-length": 1402
+      },
+      "createRecall>findPeople": {
+        "complexity": 36
+      },
+      "createRecall>prefetch": {
+        "complexity": 43
+      },
+      "createRecall>recallWith": {
+        "complexity": 75,
+        "function-length": 346
+      },
+      "createRecall>run": {
+        "complexity": 31
+      },
+      "createRecall>storedMemory": {
+        "complexity": 47
+      }
+    },
+    "src/behavior/recall.js": {
+      "archivedItem": {
+        "complexity": 26
+      },
+      "fallbackLookupPlan": {
+        "complexity": 24
+      },
+      "matchMemory": {
+        "complexity": 48
+      },
+      "matchRecord": {
+        "complexity": 68
+      },
+      "memorySearchPlan": {
+        "complexity": 22
+      },
+      "parseRange": {
+        "complexity": 33
+      },
+      "parseSearchLines": {
+        "complexity": 35
+      },
+      "searchPlan": {
+        "complexity": 21
+      }
+    },
+    "src/behavior/route-channel.js": {
+      "createChannelRouter>routeChannels": {
+        "complexity": 23
+      }
+    },
+    "src/behavior/sandbox.js": {
+      "runSkillLoop": {
+        "complexity": 42
+      },
+      "sandboxRequestInput": {
+        "complexity": 38
+      }
+    },
+    "src/behavior/spontaneous.js": {
+      "createSpontaneous": {
+        "function-length": 417
+      }
+    },
+    "src/behavior/turn.js": {
+      "callViewOf": {
+        "complexity": 33
+      },
+      "createTurnRunner": {
+        "function-length": 5732
+      },
+      "createTurnRunner>act": {
+        "complexity": 76
+      },
+      "createTurnRunner>applyRewatch": {
+        "complexity": 23
+      },
+      "createTurnRunner>drawTool": {
+        "complexity": 57
+      },
+      "createTurnRunner>dryAct": {
+        "complexity": 28
+      },
+      "createTurnRunner>lateMediaTeller><anonymous>": {
+        "complexity": 22
+      },
+      "createTurnRunner>maybeLookup": {
+        "complexity": 29
+      },
+      "createTurnRunner>noteFailedTurn": {
+        "complexity": 24
+      },
+      "createTurnRunner>pickGif": {
+        "complexity": 29
+      },
+      "createTurnRunner>planToolCall": {
+        "complexity": 25
+      },
+      "createTurnRunner>prepareDiary": {
+        "complexity": 54
+      },
+      "createTurnRunner>pullChannels": {
+        "complexity": 29
+      },
+      "createTurnRunner>rewatchOffer": {
+        "complexity": 41
+      },
+      "createTurnRunner>runCall": {
+        "complexity": 94
+      },
+      "createTurnRunner>runStepsIn": {
+        "complexity": 97
+      },
+      "createTurnRunner>runTurnAttempt": {
+        "complexity": 378,
+        "function-length": 1449
+      },
+      "journalTurnRecord": {
+        "complexity": 21
+      }
+    },
+    "src/behavior/wake.js": {
+      "feedbackFactText": {
+        "complexity": 43
+      },
+      "heartbeatBody": {
+        "complexity": 51
+      },
+      "wakeBlockText": {
+        "complexity": 74
+      }
+    },
+    "src/errands/blocks.js": {
+      "taskResultText": {
+        "complexity": 25
+      }
+    },
+    "src/errands/client.js": {
+      "createErrandClient": {
+        "function-length": 327
+      },
+      "createErrandClient>onEvent": {
+        "complexity": 26
+      }
+    },
+    "src/errands/ledger.js": {
+      "createLedgerMirror": {
+        "function-length": 397
+      }
+    },
+    "src/errands/service.js": {
+      "createErrandService": {
+        "function-length": 326
+      }
+    },
+    "src/errands/store.js": {
+      "createTaskStore": {
+        "function-length": 473
+      }
+    },
+    "src/format.js": {
+      "formatTranscript": {
+        "complexity": 80
+      },
+      "mediaTags": {
+        "complexity": 23
+      },
+      "withCalls": {
+        "complexity": 25
+      }
+    },
+    "src/intentions/blocks.js": {
+      "activeLine": {
+        "complexity": 25
+      }
+    },
+    "src/intentions/model.js": {
+      "candidatesFromAnswer": {
+        "complexity": 23
+      },
+      "checkInvariants": {
+        "complexity": 22
+      },
+      "createIntention": {
+        "complexity": 49
+      }
+    },
+    "src/intentions/service.js": {
+      "createIntentionService": {
+        "function-length": 561
+      },
+      "createIntentionService>addCandidates": {
+        "complexity": 21
+      },
+      "createIntentionService>set": {
+        "complexity": 27
+      },
+      "createIntentionService>update": {
+        "complexity": 31
+      },
+      "createIntentionService>update><anonymous>#3": {
+        "complexity": 50
+      }
+    },
+    "src/llm/embed.js": {
+      "createEmbedder>embed": {
+        "complexity": 32
+      }
+    },
+    "src/llm/images.js": {
+      "createImageGen>generate": {
+        "complexity": 34
+      }
+    },
+    "src/llm/openrouter.js": {
+      "createLlm": {
+        "function-length": 590
+      },
+      "createLlm>complete": {
+        "complexity": 46
+      }
+    },
+    "src/llm/parse.js": {
+      "parseOutput": {
+        "complexity": 28
+      }
+    },
+    "src/media/classify.js": {
+      "classifyEmbed": {
+        "complexity": 22
+      },
+      "mediaLabelFor": {
+        "complexity": 41
+      }
+    },
+    "src/media/fetch-video.js": {
+      "createVideoFetcher": {
+        "function-length": 658
+      }
+    },
+    "src/memory/append-store.js": {
+      "createAppendStore": {
+        "function-length": 303
+      }
+    },
+    "src/memory/archive.js": {
+      "createArchive>iterate": {
+        "complexity": 23
+      }
+    },
+    "src/memory/db/describe.js": {
+      "gatherReview": {
+        "complexity": 27
+      },
+      "reviewDescription": {
+        "complexity": 25
+      }
+    },
+    "src/memory/db/diary-media.js": {
+      "createDiaryMedia>handleRow": {
+        "complexity": 30
+      }
+    },
+    "src/memory/db/focus.js": {
+      "decideFocus": {
+        "complexity": 59
+      },
+      "recountDaily><anonymous>": {
+        "complexity": 23
+      }
+    },
+    "src/memory/db/index-policy.js": {
+      "classify": {
+        "complexity": 25
+      }
+    },
+    "src/memory/db/observe-event.js": {
+      "observationOf": {
+        "complexity": 29
+      }
+    },
+    "src/memory/db/observe.js": {
+      "checkEnvelope": {
+        "complexity": 104
+      },
+      "participantOf": {
+        "complexity": 25
+      },
+      "placeOf": {
+        "complexity": 41
+      },
+      "writeObservation": {
+        "complexity": 41
+      }
+    },
+    "src/memory/db/recall.js": {
+      "search": {
+        "complexity": 23
+      },
+      "window": {
+        "complexity": 23
+      }
+    },
+    "src/memory/db/rows.js": {
+      "deriveRow": {
+        "complexity": 43
+      }
+    },
+    "src/memory/db/scope.js": {
+      "narrowest": {
+        "complexity": 24
+      }
+    },
+    "src/memory/db/service.js": {
+      "createMemoryDb": {
+        "function-length": 837
+      },
+      "createMemoryDb>sessionJob": {
+        "complexity": 30
+      },
+      "turnReadRows": {
+        "complexity": 23
+      }
+    },
+    "src/memory/db/session-write.js": {
+      "applyClaim": {
+        "complexity": 21
+      },
+      "applyMemoryWrite><anonymous>": {
+        "complexity": 45
+      }
+    },
+    "src/memory/db/session.js": {
+      "buildSessionRequest": {
+        "complexity": 36
+      },
+      "peopleOf": {
+        "complexity": 24
+      },
+      "runBatch": {
+        "complexity": 25
+      },
+      "validateAnswer": {
+        "complexity": 53
+      }
+    },
+    "src/memory/db/unit-write.js": {
+      "writeLines": {
+        "complexity": 23
+      }
+    },
+    "src/memory/describe.js": {
+      "createDescriber": {
+        "function-length": 1348
+      },
+      "createDescriber>fetchVideoMedia": {
+        "complexity": 23
+      },
+      "createDescriber>relookImage": {
+        "complexity": 22
+      },
+      "createDescriber>rewatchGif": {
+        "complexity": 22
+      },
+      "createDescriber>rewatchVideo": {
+        "complexity": 26
+      },
+      "createDescriber>watchVideo": {
+        "complexity": 28
+      }
+    },
+    "src/memory/embedder.js": {
+      "createEmbedder": {
+        "function-length": 422
+      },
+      "createEmbedder>runFlush": {
+        "complexity": 21
+      }
+    },
+    "src/memory/gif-backfill.js": {
+      "createGifBackfill>run": {
+        "complexity": 21
+      }
+    },
+    "src/memory/gif-recache.js": {
+      "createGifRecache>workMedia>run": {
+        "complexity": 22
+      }
+    },
+    "src/memory/gifs.js": {
+      "mergeGifs": {
+        "complexity": 23
+      },
+      "normalizeGifs": {
+        "complexity": 30
+      }
+    },
+    "src/memory/interests.js": {
+      "applyRankedOps>sight": {
+        "complexity": 21
+      }
+    },
+    "src/memory/journal.js": {
+      "callMarksOf": {
+        "complexity": 42
+      },
+      "createJournal": {
+        "function-length": 562
+      },
+      "journalLine": {
+        "complexity": 22
+      },
+      "offPeriods": {
+        "complexity": 22
+      },
+      "turnOfMessage": {
+        "complexity": 26
+      }
+    },
+    "src/memory/lore.js": {
+      "upsertLore": {
+        "complexity": 28
+      }
+    },
+    "src/memory/recent.js": {
+      "recentView": {
+        "complexity": 26
+      }
+    },
+    "src/memory/record-index.js": {
+      "indexQuery": {
+        "complexity": 25
+      },
+      "searchRecordIndex": {
+        "complexity": 21
+      }
+    },
+    "src/memory/record.js": {
+      "toRecordLine": {
+        "complexity": 27
+      }
+    },
+    "src/memory/store.js": {
+      "createStore": {
+        "function-length": 2244
+      },
+      "normalizePrivate": {
+        "complexity": 21
+      }
+    },
+    "src/memory/vectors.js": {
+      "createVectors": {
+        "function-length": 480
+      },
+      "createVectors>search": {
+        "complexity": 35
+      }
+    },
+    "src/ops/draw.js": {
+      "<anonymous>>cmdDraw": {
+        "complexity": 37
+      }
+    },
+    "src/ops/intent.js": {
+      "<anonymous>>cmdUpdate": {
+        "complexity": 22
+      }
+    },
+    "src/ops/memory.js": {
+      "<anonymous>": {
+        "function-length": 414
+      },
+      "<anonymous>>cmdMemoryJournal": {
+        "complexity": 21
+      },
+      "<anonymous>>cmdMemoryShow": {
+        "complexity": 29
+      }
+    },
+    "src/ops/message.js": {
+      "<anonymous>>mediaFile": {
+        "complexity": 30
+      },
+      "<anonymous>>post": {
+        "complexity": 41
+      }
+    },
+    "src/ops/metrics.js": {
+      "metricsTap><anonymous>": {
+        "complexity": 29
+      }
+    },
+    "src/ops/shared.js": {
+      "buildProfileSummary": {
+        "complexity": 22
+      }
+    },
+    "src/ops/status.js": {
+      "<anonymous>#2": {
+        "function-length": 567
+      },
+      "<anonymous>#2>keyCostsValue": {
+        "complexity": 22
+      },
+      "innerLines": {
+        "complexity": 24
+      }
+    },
+    "src/ops/task.js": {
+      "<anonymous>>cmdRead": {
+        "complexity": 26
+      }
+    },
+    "src/ops/usage.js": {
+      "keyLine": {
+        "complexity": 30
+      }
+    },
+    "src/ops/voice.js": {
+      "<anonymous>>cmdVoice": {
+        "complexity": 29
+      }
+    },
+    "src/protocol/envelope.js": {
+      "validateEnvelope": {
+        "complexity": 32
+      }
+    },
+    "src/skills/conversation-read.js": {
+      "conversationText": {
+        "complexity": 29
+      },
+      "readSelection": {
+        "complexity": 26
+      },
+      "recordMessages": {
+        "complexity": 27
+      },
+      "runConversationRead": {
+        "complexity": 37
+      }
+    },
+    "src/skills/definitions.js": {
+      "validateDefinitions": {
+        "complexity": 30
+      }
+    },
+    "src/skills/executors.js": {
+      "executeCall": {
+        "complexity": 58
+      },
+      "outcomeDetail": {
+        "complexity": 25
+      },
+      "resolveCall": {
+        "complexity": 72
+      }
+    },
+    "src/skills/gateway.js": {
+      "checkSkill": {
+        "complexity": 31
+      },
+      "requesterRefusal": {
+        "complexity": 21
+      }
+    },
+    "src/skills/registry.js": {
+      "loadSkills": {
+        "complexity": 28
+      }
+    },
+    "src/skills/schema.js": {
+      "schemaError": {
+        "complexity": 38
+      }
+    },
+    "src/skills/tool-calls.js": {
+      "toolResultText": {
+        "complexity": 27
+      }
+    },
+    "src/skills/tools.js": {
+      "memorySearchText": {
+        "complexity": 35
+      },
+      "runMediaLook": {
+        "complexity": 47
+      },
+      "runMemorySearch": {
+        "complexity": 36
+      },
+      "runWebRead": {
+        "complexity": 23
+      }
+    },
+    "src/web/exa.js": {
+      "createExaSearch>search": {
+        "complexity": 21
+      }
+    },
+    "src/web/fetch-page.js": {
+      "createPageFetcher>fetchText": {
+        "complexity": 34
+      }
+    },
+    "src/web/lookup.js": {
+      "createLookup": {
+        "function-length": 573
+      },
+      "createLookup>search": {
+        "complexity": 23
+      },
+      "createLookup>searchResults": {
+        "complexity": 22
+      }
+    },
+    "src/web/readable.js": {
+      "attributes": {
+        "complexity": 23
+      }
+    },
+    "tests/errands-ledger.test.js": {
+      "machine>refuse": {
+        "complexity": 25
+      }
+    },
+    "tests/fault-injection.test.js": {
+      "assertNoSilentFailure": {
+        "complexity": 23
+      }
+    },
+    "tools/lib/inner-week.mjs": {
+      "computeGates": {
+        "complexity": 61
+      },
+      "createStubVoice>plan": {
+        "complexity": 25
+      },
+      "parseFixture": {
+        "complexity": 57
+      },
+      "parseFixture><anonymous>#5": {
+        "complexity": 37
+      },
+      "parseFixture>intentionOf": {
+        "complexity": 32
+      },
+      "renderReport": {
+        "complexity": 49
+      },
+      "runWeek": {
+        "complexity": 23,
+        "function-length": 442
+      },
+      "runWeek>act": {
+        "complexity": 39
+      },
+      "runWeek>runTurn": {
+        "complexity": 31
+      },
+      "runWeek>tickCandidates": {
+        "complexity": 22
+      }
+    },
+    "tools/lib/labels-catalogue.mjs": {
+      "catalogueProblems": {
+        "complexity": 26
+      }
+    },
+    "tools/lib/recall-eval.mjs": {
+      "parseQuestions><anonymous>": {
+        "complexity": 26
+      }
+    },
+    "tools/lib/report.mjs": {
+      "tally": {
+        "complexity": 34
+      }
+    },
+    "tools/lib/vision-compare.mjs": {
+      "describeOne": {
+        "complexity": 29
+      },
+      "parseArgs": {
+        "complexity": 22
+      }
+    },
+    "tools/memory-session.mjs": {
+      "compareMain": {
+        "complexity": 23
+      },
+      "main": {
+        "complexity": 39
+      },
+      "runCompare": {
+        "complexity": 21
+      }
+    },
+    "tools/recall-eval.mjs": {
+      "main": {
+        "complexity": 46,
+        "function-length": 389
+      },
+      "main>askClassifier": {
+        "complexity": 24
+      },
+      "traces": {
+        "complexity": 33
+      }
+    },
+    "tools/replay-compare.mjs": {
+      "readOldSide": {
+        "complexity": 24
+      }
+    },
+    "tools/replay.mjs": {
+      "loopCall><anonymous>": {
+        "complexity": 22
+      },
+      "loopLines": {
+        "complexity": 36
+      },
+      "parseArgs": {
+        "complexity": 254
+      },
+      "parseScenarios><anonymous>": {
+        "complexity": 50
+      },
+      "parseSteps><anonymous>": {
+        "complexity": 27
+      },
+      "preTurnLookup": {
+        "complexity": 43
+      },
+      "runDiary": {
+        "complexity": 55
+      },
+      "runDiaryDay": {
+        "complexity": 36
+      },
+      "runInner": {
+        "complexity": 63
+      },
+      "runMain": {
+        "complexity": 160,
+        "function-length": 535
+      },
+      "runRecall": {
+        "complexity": 70,
+        "function-length": 306
+      },
+      "runRecall><anonymous>#2": {
+        "complexity": 21
+      },
+      "runRecord": {
+        "complexity": 21
+      },
+      "runSkills": {
+        "complexity": 61
+      },
+      "runSplit": {
+        "complexity": 28
+      },
+      "runTriggerLoops": {
+        "complexity": 56
+      }
+    },
+    "tools/search-compare.mjs": {
+      "main": {
+        "complexity": 32
+      }
+    },
+    "tools/search-policy-eval.mjs": {
+      "main": {
+        "complexity": 23
+      }
+    },
+    "tools/vision-compare.mjs": {
+      "resolveFromCache": {
+        "complexity": 25
+      }
+    }
+  },
+  "structure": {
+    "imports": {
+      "interfaces/discord/around.js": [
+        "src/behavior/around.js"
+      ],
+      "interfaces/discord/audience-warm.js": [
+        "src/log.js"
+      ],
+      "interfaces/discord/collect.js": [
+        "src/behavior/emoji.js",
+        "src/log.js",
+        "src/media/classify.js",
+        "src/media/video-sites.js",
+        "src/memory/mentions.js",
+        "src/time.js"
+      ],
+      "interfaces/discord/commands.js": [
+        "src/llm/roles.js",
+        "src/log.js",
+        "src/ops/catalog.js",
+        "src/ops/grants.js",
+        "src/time.js"
+      ],
+      "interfaces/discord/emoji.js": [
+        "src/behavior/emoji.js"
+      ],
+      "interfaces/discord/port.js": [
+        "src/interface/port.js",
+        "src/skills/codes.js"
+      ],
+      "interfaces/discord/pull-fetch.js": [
+        "src/behavior/elsewhere.js",
+        "src/behavior/pull.js",
+        "src/log.js",
+        "src/memory/mentions.js",
+        "src/time.js"
+      ],
+      "interfaces/discord/reactors.js": [
+        "src/format.js"
+      ],
+      "interfaces/discord/search.js": [
+        "src/log.js"
+      ],
+      "src/interface/discord.js": [
+        "@neptunia/interface-discord"
+      ]
+    },
+    "tests": [
+      "interfaces/discord/gateway.js",
+      "interfaces/discord/index.js",
+      "interfaces/discord/port.js",
+      "src/behavior/pipeline.js",
+      "src/behavior/random.js",
+      "src/behavior/route-channel.js",
+      "src/behavior/wake.js",
+      "src/errands/blocks.js",
+      "src/errands/turns.js",
+      "src/handles-text.js",
+      "src/index.js",
+      "src/intentions/blocks.js",
+      "src/intentions/sources.js",
+      "src/interface/discord.js",
+      "src/interface/fake.js",
+      "src/interface/port.js",
+      "src/log.js",
+      "src/media/classify.js",
+      "src/media/gif-post.js",
+      "src/memory/avatar-queue.js",
+      "src/memory/db/export.js",
+      "src/memory/db/graph-manifest.js",
+      "src/memory/db/ids.js",
+      "src/memory/db/map/channel.js",
+      "src/memory/db/map/common.js",
+      "src/memory/db/map/index.js",
+      "src/memory/db/map/intentions.js",
+      "src/memory/db/map/lists.js",
+      "src/memory/db/map/requests.js",
+      "src/memory/db/map/scope-parts.js",
+      "src/memory/db/map/scope-string.js",
+      "src/memory/db/map/tasks.js",
+      "src/memory/db/map/versions.js",
+      "src/memory/db/readers/common.js",
+      "src/memory/db/rows.js",
+      "src/memory/db/schema.js",
+      "src/memory/db/session-write.js",
+      "src/memory/db/stems.js",
+      "src/memory/db/unit-outbox.js",
+      "src/memory/db/unit-write.js",
+      "src/memory/db/upsert.js",
+      "src/memory/db/writer-switch.js",
+      "src/memory/db/writer-worker.js",
+      "src/memory/index.js",
+      "src/memory/update.js",
+      "src/ops/alias.js",
+      "src/ops/catalog.js",
+      "src/ops/draw.js",
+      "src/ops/effects.js",
+      "src/ops/env.js",
+      "src/ops/grants.js",
+      "src/ops/index.js",
+      "src/ops/intent.js",
+      "src/ops/learning.js",
+      "src/ops/memory.js",
+      "src/ops/message.js",
+      "src/ops/model.js",
+      "src/ops/pause.js",
+      "src/ops/pings.js",
+      "src/ops/places.js",
+      "src/ops/registry.js",
+      "src/ops/rights.js",
+      "src/ops/rule.js",
+      "src/ops/shared.js",
+      "src/ops/status.js",
+      "src/ops/voice.js",
+      "src/protocol/actions.js",
+      "src/protocol/envelope.js",
+      "src/protocol/index.js",
+      "src/protocol/origin.js",
+      "src/protocol/validate.js",
+      "src/skills/call-args.js",
+      "src/skills/gateway.js",
+      "src/skills/registry.js",
+      "src/skills/schema.js",
+      "src/speech/index.js",
+      "src/speech/synth.js"
+    ]
+  }
+}

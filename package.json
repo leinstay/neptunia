@@ -32,7 +32,9 @@
     "lint:prune": "eslint . --prune-suppressions",
     "typecheck": "node tools/type-baseline.mjs",
     "typecheck:update": "node tools/type-baseline.mjs --update",
-    "format:check": "prettier --check"
+    "format:check": "prettier --check",
+    "health": "node tools/code-health.mjs && node tools/code-health.mjs --check-docs",
+    "health:update": "node tools/code-health.mjs --update"
   },
   "workspaces": [
     "interfaces/*"

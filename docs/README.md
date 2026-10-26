@@ -40,6 +40,7 @@ The persona's inner life (heartbeat wakes, intentions, the diary) runs the same 
 | [Development agents](development-agents.md) | The dev and thinker agents, profiles, the two run paths |
 | [Interfaces](interfaces.md) | The interface port and protocol, the Discord adapter, adding an interface |
 | [Media](media.md) | Pictures, video, drawing, voice messages, GIFs, custom emoji, web and server search |
+| [Repository structure](structure.md) | The generated table of every folder and file pattern of the tracked tree: purpose, layer, what it may import, whether its modules need a test |
 | [Configuration reference](configuration.md) | Every key in config.json |
 | [Owner commands](owner-commands.md) | The /nep command tree and the access model |
 | [Prompt contract](prompt-contract.md) | The contract between prompt files and code: files, placeholders, labels, output tags |
