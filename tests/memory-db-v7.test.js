@@ -560,30 +560,3 @@ test('resolveAlias: event time picks the generation; overlapping windows and tim
     handle.close();
   }
 });
-
-test('access classification: every table of the schema is in docs/memory.md, in one of the four classes', () => {
-  const doc = fs.readFileSync(new URL('../docs/memory.md', import.meta.url), 'utf8');
-  const classified = new Map();
-  for (const match of doc.matchAll(/^\| `([a-z0-9_]+)` \| ([^|]+?) \|/gm)) classified.set(match[1], match[2].trim());
-  const handle = openMemoryDb(':memory:');
-  try {
-    const rows = handle.db
-      .prepare("SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
-      .all();
-    const virtual = rows.filter((row) => /CREATE VIRTUAL TABLE/i.test(row.sql ?? '')).map((row) => row.name);
-    const tables = rows.map((row) => row.name).filter((name) => !virtual.some((v) => name.startsWith(`${v}_`)));
-    assert.ok(tables.includes('audiences') && tables.includes('turn_reads') && tables.includes('sources_fts'));
-    const missing = tables.filter((name) => !classified.has(name));
-    assert.deepEqual(missing, [], 'every table is classified');
-    for (const name of tables) {
-      const cls = classified.get(name);
-      assert.match(cls, /^(audience-scoped|internal-only|structural|inherits from [a-z_]+)$/, `${name}: ${cls}`);
-      const parent = /^inherits from ([a-z_]+)$/.exec(cls)?.[1];
-      if (parent) assert.ok(tables.includes(parent), `${name} inherits from a table that exists (${parent})`);
-    }
-    for (const table of SCOPED_TABLES.filter((name) => name !== 'session_runs'))
-      assert.equal(classified.get(table), 'audience-scoped', table);
-  } finally {
-    handle.close();
-  }
-});

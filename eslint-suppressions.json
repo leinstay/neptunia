@@ -6373,19 +6373,19 @@
   },
   "tests/memory-db-v7.test.js": {
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 6
+      "count": 3
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 22
+      "count": 17
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 97
+      "count": 84
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 95
+      "count": 80
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 15
+      "count": 12
     }
   },
   "tests/memory-db-v8.test.js": {
@@ -7327,7 +7327,7 @@
       "count": 10
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 14
+      "count": 13
     },
     "@typescript-eslint/no-unsafe-call": {
       "count": 2

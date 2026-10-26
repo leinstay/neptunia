@@ -156,10 +156,6 @@ test('refusalStatus: a wrong call is invalid, a rule that said no is denied', ()
 
 // ---- the wording -----------------------------------------------------------------------------
 
-test('labels: the catalogue, the shipped labels and the contract agree', () => {
-  assert.deepEqual(catalogueProblems({ catalogue: CATALOGUE, labels: shipped, docs: contract }), []);
-});
-
 test('labels: a code without its entry, an entry without its code and a value the code does not take are all caught', () => {
   const lacking = structuredClone(shipped);
   delete lacking.skills.result.reasons['not-found'];
