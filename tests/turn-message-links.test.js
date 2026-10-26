@@ -4,13 +4,11 @@
 // LLM and store.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PermissionFlagsBits } from 'discord.js';
-import { createTurnRunner } from '../src/behavior/turn.js';
+import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.js';
 import { labels } from './fixtures/labels.js';
-import { createDiscordAdapter, createDiscordInterface } from '../interfaces/discord/index.js';
+import { onWorld, world } from './fixtures/turn-world.ts';
 
-// The Discord interface's capabilities object, as src/index.js injects it.
-const DISCORD = createDiscordInterface().capabilities;
+const createTurnRunner = onWorld(createRealTurnRunner);
 
 const NOW = Date.UTC(2026, 8, 20, 12, 0, 0);
 const MESSAGE_ID = '900000000000000001';
@@ -45,30 +43,16 @@ function normalizedTrigger(raw) {
   };
 }
 
+/** @param {Array<Record<string, unknown>>} historyMessages */
 function fakeTurnChannel(historyMessages, { dm = false } = {}) {
-  const guild = { id: 'g1', members: { me: { displayName: 'Bot' } }, channels: { cache: new Map() } };
-  const sent = [];
-  const channel = {
+  return world().channel({
     id: 'c1',
     name: 'chat',
-    viewable: true,
-    permissionsFor: () => ({ has: (flag) => flag !== PermissionFlagsBits.AttachFiles }),
-    sendTyping: async () => {},
-    send: async (payload) => {
-      sent.push(payload);
-      return { id: `sent-${sent.length}` };
-    },
-    messages: {
-      cache: new Map(),
-      fetch: async (arg) => {
-        if (arg && typeof arg === 'object' && 'limit' in arg) return new Map(historyMessages.map((m) => [m.id, m]));
-        throw new Error(`fixture message not found: ${arg}`);
-      },
-    },
-    sent,
-  };
-  if (!dm) channel.guild = guild;
-  return channel;
+    guildId: 'g1',
+    dm,
+    historyMessages,
+    permissions: { attach: false },
+  });
 }
 
 function fakeStore() {
@@ -136,13 +120,10 @@ async function runLinkTurn(messageLinks, responseText, { dm = false } = {}) {
   const raw = rawMessage({ id: MESSAGE_ID });
   const channel = fakeTurnChannel([raw], { dm });
   const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
     hot: fakeHot(messageLinks),
     store: fakeStore(),
     llm: { complete: async () => ({ text: responseText, usage: {}, estimated: 10 }) },
     calibrator: { ratio: 1, apply: (n) => n, observe: () => {} },
-    client: { user: { id: 'self-id', username: 'Bot' } },
   });
   const result = await turns.runTurn({
     channel,
@@ -183,8 +164,6 @@ test('runTurn: a message link in the window reads as the #n of the message it na
   /** @type {string[]} */
   const requests = [];
   const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
     hot: fakeHot(true),
     store: fakeStore(),
     llm: {
@@ -194,7 +173,6 @@ test('runTurn: a message link in the window reads as the #n of the message it na
       },
     },
     calibrator: { ratio: 1, apply: (/** @type {number} */ n) => n, observe: () => {} },
-    client: { user: { id: 'self-id', username: 'Bot' } },
   });
   await turns.runTurn({
     channel,

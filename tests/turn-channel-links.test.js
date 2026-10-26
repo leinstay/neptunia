@@ -4,18 +4,15 @@
 // features.channelLinks. Fake discord.js-shaped objects, a fake LLM and store.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PermissionFlagsBits } from 'discord.js';
-import { createTurnRunner } from '../src/behavior/turn.js';
+import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.js';
 import { handleOf } from '../src/behavior/handles.js';
 import { labels } from './fixtures/labels.js';
-import { createDiscordAdapter, createDiscordInterface } from '../interfaces/discord/index.js';
+import { onWorld, world } from './fixtures/turn-world.ts';
 
-// The Discord interface's capabilities object, as src/index.js injects it.
-const DISCORD = createDiscordInterface().capabilities;
+const createTurnRunner = onWorld(createRealTurnRunner);
 
 const NOW = Date.UTC(2026, 8, 20, 12, 0, 0);
 const LINKED_ID = '323456789012345678';
-const VOICE_ID = '423456789012345678';
 
 function rawMessage({ id, content = 'γεια' }) {
   return {
@@ -47,34 +44,11 @@ function normalizedTrigger(raw) {
   };
 }
 
-/** A guild channel whose guild knows one text channel `γενικά` and one non-text channel `φωνή`, neither viewable (no neighbour reads). */
+/** A guild channel whose guild knows one text channel `γενικά`, which she cannot read (no neighbour reads); the non-text `φωνή` is no conversation. */
+/** @param {Array<Record<string, unknown>>} historyMessages */
 function fakeTurnChannel(historyMessages) {
-  const guildChannels = new Map([
-    [LINKED_ID, { id: LINKED_ID, name: 'γενικά', isTextBased: () => true, isThread: () => false, viewable: false }],
-    [VOICE_ID, { id: VOICE_ID, name: 'φωνή', isTextBased: () => false, isThread: () => false, viewable: false }],
-  ]);
-  const guild = { id: 'g1', members: { me: { displayName: 'Bot' } }, channels: { cache: guildChannels } };
-  const sent = [];
-  return {
-    id: 'c1',
-    name: 'chat',
-    guild,
-    viewable: true,
-    permissionsFor: () => ({ has: (flag) => flag !== PermissionFlagsBits.AttachFiles }),
-    sendTyping: async () => {},
-    send: async (payload) => {
-      sent.push(payload);
-      return { id: `sent-${sent.length}` };
-    },
-    messages: {
-      cache: new Map(),
-      fetch: async (arg) => {
-        if (arg && typeof arg === 'object' && 'limit' in arg) return new Map(historyMessages.map((m) => [m.id, m]));
-        throw new Error(`fixture message not found: ${arg}`);
-      },
-    },
-    sent,
-  };
+  world().channel({ id: LINKED_ID, name: 'γενικά', permissions: { read: false } });
+  return world().channel({ id: 'c1', name: 'chat', guildId: 'g1', historyMessages, permissions: { attach: false } });
 }
 
 function fakeLlm(responseText) {
@@ -146,13 +120,10 @@ async function runLinkTurn(channelLinks, answer = '<msg>δες στο #γενι�
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeTurnChannel([raw]);
   const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
     hot: fakeHot(channelLinks),
     store: fakeStore(),
     llm: fakeLlm(answer),
     calibrator: { ratio: 1, apply: (n) => n, observe: () => {} },
-    client: { user: { id: 'self-id', username: 'Bot' } },
   });
   const result = await turns.runTurn({
     channel,

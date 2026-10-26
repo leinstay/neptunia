@@ -4,10 +4,10 @@
 // the pull rail hides is refused. Over a real admin and the fake interface adapter; no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createTurnRunner } from '../src/behavior/turn.js';
+import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.js';
 import { userText } from '../src/behavior/prompt.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
-import { createDiscordInterface } from '../interfaces/discord/index.js';
+import { onWorld, useIface, world } from './fixtures/turn-world.ts';
 import '../src/ops/index.js';
 import { skillRegistry } from '../src/skills/registry.js';
 import { createAdmin } from '../src/admin.js';
@@ -16,7 +16,10 @@ import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
 
-const DISCORD = createDiscordInterface().capabilities;
+// The conversations are held by a fake interface named `fake`.
+useIface('fake');
+const createTurnRunner = onWorld(createRealTurnRunner);
+
 const NOW = Date.parse('2026-10-17T12:00:00Z');
 const HOUR = 3_600_000;
 const L = {
@@ -74,36 +77,21 @@ function normalizedTrigger(raw) {
   };
 }
 
-/** The server: #general (c1, the turn's), #jardin (c2, readable), #secret (c3, the bot cannot read it). `fetches` records what the history was asked. */
+/**
+ * The server: #general (c1, the turn's), #jardin (c2, readable), #secret (c3, the bot cannot read it), in the world of
+ * the test. `fetches` lists the history reads made of each.
+ */
 function fakeServer(history, jardinLive = []) {
   const fetches = { c1: [], c2: [], c3: [] };
-  const channels = new Map();
-  const guild = { id: 'g1', members: { me: { displayName: 'Bot' } }, channels: { cache: channels } };
-  const make = (id, name, extra = {}, live = []) => ({
-    id,
-    name,
-    guild,
-    isTextBased: () => true,
-    isThread: () => false,
-    isDMBased: () => false,
-    viewable: true,
-    permissionsFor: () => ({ has: () => true }),
-    sendTyping: async () => {},
-    send: async () => ({ id: 'sent' }),
-    messages: {
-      cache: new Map(),
-      fetch: async (arg) => {
-        fetches[id].push(arg);
-        if (arg && typeof arg === 'object') return new Map((id === 'c1' ? history : live).map((m) => [m.id, m]));
-        return null;
-      },
-    },
-    ...extra,
+  world().tap('history', ([ref, query]) => {
+    fetches[ref.conversationId]?.push(query);
   });
-  channels.set('c1', make('c1', 'general'));
-  channels.set('c2', make('c2', 'jardin', {}, jardinLive));
-  channels.set('c3', make('c3', 'secret', { viewable: false }));
-  return { guild, channels, fetches };
+  const channels = new Map([
+    ['c1', world().channel({ id: 'c1', name: 'general', guildId: 'g1', historyMessages: history })],
+    ['c2', world().channel({ id: 'c2', name: 'jardin', guildId: 'g1', historyMessages: jardinLive })],
+    ['c3', world().channel({ id: 'c3', name: 'secret', guildId: 'g1', permissions: { read: false } })],
+  ]);
+  return { channels, fetches };
 }
 
 function fakeStore() {
@@ -265,21 +253,17 @@ async function turn({
   const hot = hotWith(allowed, features);
   const server = fakeServer(history, jardinLive);
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
-  port.seed('c1', { authorId: 'u2', messageId: 'm0', text: 'καλημέρα' });
-  port.seed('c1', { authorId: 'u1', messageId: 'm1', text: 'διάβασε το jardin' });
   for (const seed of seeds) port.seed(seed.conversationId, seed);
-  const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: server.channels } };
+  const client = { user: { id: 'self-id', username: 'Bot' } };
   const store = fakeStore();
-  const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => 'g1', port });
+  const admin = createAdmin({ hot, store, client, getGuildId: () => 'g1', reads: world().adopt(port), port });
   const llm = sequenceLlm(answers);
   const calibrator = { ratio: 1, apply: (value) => value, observe: () => {} };
   const turns = createTurnRunner({
-    discord: DISCORD,
     hot,
     store,
     llm,
     calibrator,
-    client,
     now: () => NOW,
     port,
     skills: skillRegistry(),

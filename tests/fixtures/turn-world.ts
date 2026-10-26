@@ -168,6 +168,13 @@ function create(): World {
     iface: worldIface,
     selfId: SELF,
     now: () => clock(),
+    // A message is addressed as the Discord interface addresses one, as the tests of the turn were written against it.
+    capabilities: {
+      messageUrl: {
+        community: 'https://discord.com/channels/{community}/{conversation}/{message}',
+        direct: 'https://discord.com/channels/@me/{conversation}/{message}',
+      },
+    },
     messageId: (_conversationId, count) => `sent-${count}`,
   });
   // The history of a conversation is what a test seeds, as the arrays it passes were before: her own sends stay out.
