@@ -9,6 +9,8 @@ import globals from 'globals';
 import { importX } from 'eslint-plugin-import-x';
 import tseslint from 'typescript-eslint';
 
+import { plugin as testRules } from './tools/eslint-test-rules.mjs';
+
 const code = ['**/*.js', '**/*.mjs', '**/*.ts'];
 const typeSyntax = ['**/*.ts'];
 
@@ -51,6 +53,16 @@ export default tseslint.config(
     // wanted, so the rule would fire on every test file.
     files: ['tests/**/*.js', 'tests/**/*.ts'],
     rules: { '@typescript-eslint/no-floating-promises': 'off' },
+  },
+  {
+    // The test method of AGENTS.md (section Tests), as rules from tools/eslint-test-rules.mjs.
+    files: ['tests/**/*.js', 'tests/**/*.ts'],
+    plugins: { tests: testRules },
+    rules: {
+      'tests/assertion-in-test': 'error',
+      'tests/no-presence-assertion': 'error',
+      'tests/no-wide-deep-equal': 'error',
+    },
   },
   {
     files: typeSyntax,

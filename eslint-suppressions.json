@@ -4082,6 +4082,9 @@
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 11
+    },
+    "tests/no-presence-assertion": {
+      "count": 1
     }
   },
   "tests/agent-runner-protocol.test.js": {
@@ -4379,6 +4382,9 @@
     },
     "@typescript-eslint/restrict-template-expressions": {
       "count": 2
+    },
+    "tests/no-wide-deep-equal": {
+      "count": 2
     }
   },
   "tests/config.test.js": {
@@ -4436,6 +4442,9 @@
     },
     "require-yield": {
       "count": 1
+    },
+    "tests/no-presence-assertion": {
+      "count": 1
     }
   },
   "tests/describe.test.js": {
@@ -4462,6 +4471,12 @@
     },
     "@typescript-eslint/restrict-template-expressions": {
       "count": 1
+    },
+    "tests/no-presence-assertion": {
+      "count": 3
+    },
+    "tests/no-wide-deep-equal": {
+      "count": 2
     }
   },
   "tests/details.test.js": {
@@ -4522,6 +4537,9 @@
     },
     "@typescript-eslint/restrict-template-expressions": {
       "count": 2
+    },
+    "tests/no-wide-deep-equal": {
+      "count": 1
     }
   },
   "tests/discord-port-voice.test.js": {
@@ -4590,6 +4608,9 @@
     },
     "@typescript-eslint/require-await": {
       "count": 4
+    },
+    "tests/no-wide-deep-equal": {
+      "count": 1
     }
   },
   "tests/embedder.test.js": {
@@ -4819,6 +4840,12 @@
     },
     "@typescript-eslint/unbound-method": {
       "count": 1
+    },
+    "tests/no-presence-assertion": {
+      "count": 2
+    },
+    "tests/no-wide-deep-equal": {
+      "count": 1
     }
   },
   "tests/exa.test.js": {
@@ -4839,6 +4866,9 @@
     },
     "@typescript-eslint/require-await": {
       "count": 2
+    },
+    "tests/no-presence-assertion": {
+      "count": 1
     }
   },
   "tests/fault-injection.test.js": {
@@ -5326,6 +5356,9 @@
     },
     "@typescript-eslint/require-await": {
       "count": 5
+    },
+    "tests/no-presence-assertion": {
+      "count": 1
     }
   },
   "tests/inner-turn.test.js": {
@@ -5503,6 +5536,9 @@
     },
     "@typescript-eslint/restrict-template-expressions": {
       "count": 13
+    },
+    "tests/no-presence-assertion": {
+      "count": 2
     }
   },
   "tests/interface-door.test.js": {
@@ -5585,6 +5621,9 @@
     },
     "@typescript-eslint/require-await": {
       "count": 12
+    },
+    "tests/no-presence-assertion": {
+      "count": 3
     }
   },
   "tests/limits.test.js": {
@@ -5627,6 +5666,9 @@
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 11
+    },
+    "tests/no-presence-assertion": {
+      "count": 1
     }
   },
   "tests/media-draw.test.js": {
@@ -5835,6 +5877,9 @@
     },
     "@typescript-eslint/require-await": {
       "count": 2
+    },
+    "tests/no-presence-assertion": {
+      "count": 3
     }
   },
   "tests/memory-db-map-archive.test.js": {
@@ -5851,6 +5896,9 @@
       "count": 38
     },
     "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    },
+    "tests/assertion-in-test": {
       "count": 1
     }
   },
@@ -5869,6 +5917,9 @@
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 1
+    },
+    "tests/assertion-in-test": {
+      "count": 2
     }
   },
   "tests/memory-db-map-journal.test.js": {
@@ -5886,6 +5937,9 @@
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 1
+    },
+    "tests/assertion-in-test": {
+      "count": 1
     }
   },
   "tests/memory-db-map-media.test.js": {
@@ -5897,6 +5951,9 @@
     },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 18
+    },
+    "tests/assertion-in-test": {
+      "count": 2
     }
   },
   "tests/memory-db-map-place.test.js": {
@@ -5914,6 +5971,9 @@
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 9
+    },
+    "tests/assertion-in-test": {
+      "count": 3
     }
   },
   "tests/memory-db-map-record.test.js": {
@@ -5928,6 +5988,9 @@
     },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 44
+    },
+    "tests/assertion-in-test": {
+      "count": 1
     }
   },
   "tests/memory-db-map-user.test.js": {
@@ -5945,6 +6008,9 @@
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 8
+    },
+    "tests/assertion-in-test": {
+      "count": 2
     }
   },
   "tests/memory-db-map-vectors.test.js": {
@@ -5973,6 +6039,12 @@
     },
     "no-compare-neg-zero": {
       "count": 1
+    },
+    "tests/assertion-in-test": {
+      "count": 1
+    },
+    "tests/no-presence-assertion": {
+      "count": 1
     }
   },
   "tests/memory-db-map-work.test.js": {
@@ -5984,6 +6056,9 @@
     },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 31
+    },
+    "tests/assertion-in-test": {
+      "count": 1
     }
   },
   "tests/memory-db-observe-event.test.js": {
@@ -6018,6 +6093,9 @@
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 10
+    },
+    "tests/no-wide-deep-equal": {
+      "count": 1
     }
   },
   "tests/memory-db-only-start.test.js": {
@@ -6055,6 +6133,9 @@
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 11
+    },
+    "tests/assertion-in-test": {
+      "count": 1
     }
   },
   "tests/memory-db-paths.test.js": {
@@ -6086,6 +6167,9 @@
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 8
+    },
+    "tests/no-wide-deep-equal": {
+      "count": 1
     }
   },
   "tests/memory-db-readers-archive.test.js": {
@@ -6260,6 +6344,9 @@
       "count": 7
     },
     "@typescript-eslint/restrict-template-expressions": {
+      "count": 1
+    },
+    "tests/no-wide-deep-equal": {
       "count": 1
     }
   },
@@ -6436,6 +6523,12 @@
     },
     "@typescript-eslint/require-await": {
       "count": 8
+    },
+    "tests/no-presence-assertion": {
+      "count": 1
+    },
+    "tests/no-wide-deep-equal": {
+      "count": 1
     }
   },
   "tests/openrouter-role-keys.test.js": {
@@ -6485,6 +6578,9 @@
     },
     "@typescript-eslint/require-await": {
       "count": 81
+    },
+    "tests/no-presence-assertion": {
+      "count": 4
     }
   },
   "tests/ops-task.test.js": {
@@ -6522,6 +6618,9 @@
     },
     "@typescript-eslint/require-await": {
       "count": 9
+    },
+    "tests/no-presence-assertion": {
+      "count": 2
     }
   },
   "tests/participation-pick.test.js": {
@@ -6675,6 +6774,9 @@
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 4
+    },
+    "tests/no-presence-assertion": {
+      "count": 1
     }
   },
   "tests/prompt-diary.test.js": {
@@ -6828,6 +6930,9 @@
     },
     "@typescript-eslint/restrict-template-expressions": {
       "count": 1
+    },
+    "tests/no-presence-assertion": {
+      "count": 2
     }
   },
   "tests/protocol.test.js": {
@@ -6852,6 +6957,9 @@
       "count": 24
     },
     "@typescript-eslint/require-await": {
+      "count": 1
+    },
+    "tests/no-presence-assertion": {
       "count": 1
     }
   },
@@ -6884,6 +6992,9 @@
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 11
+    },
+    "tests/no-wide-deep-equal": {
+      "count": 1
     }
   },
   "tests/ranking.test.js": {
@@ -6920,6 +7031,9 @@
   "tests/readable.test.js": {
     "@typescript-eslint/restrict-template-expressions": {
       "count": 1
+    },
+    "tests/no-presence-assertion": {
+      "count": 1
     }
   },
   "tests/recall-run.test.js": {
@@ -6946,6 +7060,9 @@
     },
     "@typescript-eslint/require-await": {
       "count": 8
+    },
+    "tests/no-presence-assertion": {
+      "count": 1
     }
   },
   "tests/recall.test.js": {
@@ -6969,6 +7086,9 @@
     },
     "@typescript-eslint/require-await": {
       "count": 2
+    },
+    "tests/no-presence-assertion": {
+      "count": 1
     }
   },
   "tests/recent.test.js": {
@@ -7037,6 +7157,9 @@
       "count": 4
     },
     "@typescript-eslint/require-await": {
+      "count": 1
+    },
+    "tests/no-wide-deep-equal": {
       "count": 1
     }
   },
@@ -7115,6 +7238,9 @@
     },
     "@typescript-eslint/require-await": {
       "count": 1
+    },
+    "tests/no-wide-deep-equal": {
+      "count": 1
     }
   },
   "tests/roles.test.js": {
@@ -7155,6 +7281,9 @@
     },
     "@typescript-eslint/require-await": {
       "count": 1
+    },
+    "tests/no-presence-assertion": {
+      "count": 1
     }
   },
   "tests/sandbox.test.js": {
@@ -7181,6 +7310,9 @@
     },
     "@typescript-eslint/restrict-template-expressions": {
       "count": 1
+    },
+    "tests/no-presence-assertion": {
+      "count": 6
     }
   },
   "tests/search.test.js": {
@@ -7349,6 +7481,9 @@
     },
     "@typescript-eslint/restrict-template-expressions": {
       "count": 1
+    },
+    "tests/no-presence-assertion": {
+      "count": 1
     }
   },
   "tests/speech-convert.test.js": {
@@ -7393,6 +7528,9 @@
       "count": 29
     },
     "prefer-const": {
+      "count": 1
+    },
+    "tests/no-presence-assertion": {
       "count": 1
     }
   },
@@ -7454,6 +7592,9 @@
     },
     "@typescript-eslint/restrict-template-expressions": {
       "count": 1
+    },
+    "tests/no-wide-deep-equal": {
+      "count": 1
     }
   },
   "tests/stored-links.test.js": {
@@ -7481,6 +7622,9 @@
       "count": 2
     },
     "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    },
+    "tests/no-presence-assertion": {
       "count": 1
     }
   },
@@ -7552,6 +7696,9 @@
     },
     "@typescript-eslint/require-await": {
       "count": 9
+    },
+    "tests/no-presence-assertion": {
+      "count": 1
     }
   },
   "tests/tools-json.test.js": {
@@ -7623,6 +7770,9 @@
     },
     "@typescript-eslint/require-await": {
       "count": 2
+    },
+    "tests/no-presence-assertion": {
+      "count": 1
     }
   },
   "tests/tools-report.test.js": {
@@ -7910,6 +8060,12 @@
     },
     "@typescript-eslint/restrict-template-expressions": {
       "count": 4
+    },
+    "tests/no-presence-assertion": {
+      "count": 8
+    },
+    "tests/no-wide-deep-equal": {
+      "count": 1
     }
   },
   "tests/usage.test.js": {
@@ -8021,6 +8177,9 @@
     },
     "@typescript-eslint/require-await": {
       "count": 5
+    },
+    "tests/no-presence-assertion": {
+      "count": 1
     }
   },
   "tools/inner-week.mjs": {

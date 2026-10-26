@@ -102,7 +102,13 @@
       "path": "eslint.config.js",
       "purpose": "The ESLint flat configuration.",
       "layer": "public",
-      "imports": ["@eslint/js", "globals", "eslint-plugin-import-x", "typescript-eslint"],
+      "imports": [
+        "@eslint/js",
+        "globals",
+        "eslint-plugin-import-x",
+        "typescript-eslint",
+        "tools/eslint-test-rules.mjs"
+      ],
       "test": "none"
     },
     {
@@ -221,7 +227,7 @@
       "path": "tests/",
       "purpose": "The node:test files, one per module.",
       "layer": "public",
-      "imports": ["discord.js", "node:*", "src/**", "interfaces/**", "tools/**", "bin/**", "tests/**"],
+      "imports": ["discord.js", "eslint", "node:*", "src/**", "interfaces/**", "tools/**", "bin/**", "tests/**"],
       "test": "none"
     },
     {
