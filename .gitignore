@@ -40,3 +40,4 @@ temp.txt
 /.secrets/
 /.workspace.git/
 /CLAUDE.local.md
+/.eslintcache
