@@ -146,6 +146,8 @@ The core's own events (`scheduler.tick`, `task.completed`, `inner.wake`) carry n
 
 The door also accepts the wire envelope form (`{ v, id, type, replyTo, body }`), designed for the future process boundary between the core and its adapters. Envelope types: `hello`, `event`, `ack`, `action`, `action_result`, `ping`. Today everything runs in one process, so events go through the door as plain objects.
 
+An envelope travels as one line of JSON ending in a newline. `encodeEnvelope` and `decodeEnvelope` (`src/protocol/wire.ts`) write a `Uint8Array` as `{ "$bytes": base64 }` and read it back as a `Buffer`. A `Transport` sends envelopes, reports incoming ones and reports its close with a reason. `createLoopback` gives two connected ends in one process for tests, with every envelope passing the codec. `connectSocket` is the client of a Unix socket and `listenSocket` (`src/interface/socket.ts`) is the server: it creates its folder at mode `0700`, sets the socket to `0600`, removes a stale file before listening and removes the file on close. A line longer than `maxFrameBytes` closes the link with the reason `frame-too-large`. A line that is not a valid envelope is skipped and the link stays open. Nothing listens yet.
+
 ### The typing lease
 
 The typing indicator is held as a lease (`src/interface/typing.js`). The turn starts it; the lease refreshes the platform's indicator on a timer until the turn stops it. If the turn hangs or a code path forgets, the lease expires on its own after 5 minutes (`TYPING_LEASE_MS`).
@@ -243,4 +245,4 @@ To wire up a new chat platform:
 
 ## Not built yet
 
-The core and its adapters run in one process. The wire envelope protocol (`src/protocol/envelope.js`) defines the format for when they become separate processes. Several gateway events (voice state updates, presence updates, member updates) still bypass the event door and go straight to their stores. The scheduler tick is still a direct call, not a `scheduler.tick` event through the door.
+The core and its adapters run in one process. The wire envelope protocol (`src/protocol/envelope.js`) and its transports (`src/protocol/wire.ts`) define the format for when they become separate processes. Several gateway events (voice state updates, presence updates, member updates) still bypass the event door and go straight to their stores. The scheduler tick is still a direct call, not a `scheduler.tick` event through the door.
