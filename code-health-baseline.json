@@ -3,16 +3,16 @@
     "src/behavior/inner.js": 2529,
     "src/behavior/pipeline.js": 3104,
     "src/behavior/prompt.js": 4903,
-    "src/behavior/recall-run.js": 2347,
+    "src/behavior/recall-run.js": 2346,
     "src/behavior/recall.js": 2508,
     "src/behavior/sandbox.js": 2136,
-    "src/behavior/turn.js": 9500,
+    "src/behavior/turn.js": 9485,
     "src/memory/store.js": 3346,
     "tests/admin.test.js": 3882,
-    "tests/collect.test.js": 2137,
-    "tests/describe.test.js": 3748,
+    "tests/collect.test.js": 2098,
+    "tests/describe.test.js": 3705,
     "tests/events.test.js": 9301,
-    "tests/format.test.js": 2078,
+    "tests/format.test.js": 2060,
     "tests/inner.test.js": 2447,
     "tests/memory-db-session.test.js": 2111,
     "tests/openrouter.test.js": 3653,
@@ -347,7 +347,7 @@
         "complexity": 80
       },
       "mediaTags": {
-        "complexity": 23
+        "complexity": 22
       },
       "withCalls": {
         "complexity": 25
@@ -490,11 +490,6 @@
         "complexity": 43
       }
     },
-    "src/memory/db/scope.js": {
-      "narrowest": {
-        "complexity": 24
-      }
-    },
     "src/memory/db/service.js": {
       "createMemoryDb": {
         "function-length": 1147
@@ -535,7 +530,7 @@
     },
     "src/memory/describe.js": {
       "createDescriber": {
-        "function-length": 1416
+        "function-length": 1413
       },
       "createDescriber>fetchVideoMedia": {
         "complexity": 23
@@ -982,9 +977,8 @@
       "interfaces/discord/collect.js": [
         "src/behavior/emoji.js",
         "src/log.js",
-        "src/media/classify.js",
         "src/media/video-sites.js",
-        "src/memory/mentions.js",
+        "src/memory/mentions.ts",
         "src/time.js"
       ],
       "interfaces/discord/commands.js": [
@@ -1002,10 +996,10 @@
         "src/skills/codes.js"
       ],
       "interfaces/discord/pull-fetch.js": [
-        "src/behavior/elsewhere.js",
+        "src/behavior/elsewhere.ts",
         "src/behavior/pull.js",
         "src/log.js",
-        "src/memory/mentions.js",
+        "src/memory/mentions.ts",
         "src/time.js"
       ],
       "interfaces/discord/reactors.js": [
@@ -1013,9 +1007,6 @@
       ],
       "interfaces/discord/search.js": [
         "src/log.js"
-      ],
-      "src/interface/discord.js": [
-        "@neptunia/interface-discord"
       ]
     },
     "tests": [
@@ -1031,7 +1022,6 @@
       "src/handles-text.js",
       "src/intentions/blocks.js",
       "src/intentions/sources.js",
-      "src/interface/discord.js",
       "src/interface/fake.js",
       "src/interface/port.js",
       "src/log.js",
@@ -1040,7 +1030,6 @@
       "src/memory/avatar-queue.js",
       "src/memory/db/export.js",
       "src/memory/db/graph-manifest.js",
-      "src/memory/db/ids.js",
       "src/memory/db/map/channel.js",
       "src/memory/db/map/common.js",
       "src/memory/db/map/index.js",

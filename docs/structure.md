@@ -38,7 +38,7 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `bin/` | public | Entry points that run as their own process. | `node:*`, `src/**` | none |
 | `deploy/` | public | The systemd units and the install script. | nothing | none |
 | `interfaces/README.md` | public | The overview of the interface packages. | nothing | none |
-| `interfaces/discord/` | public | The Discord interface: the only code that imports discord.js, translating between the platform and the protocol. | `node:*`, `discord.js`, `src/protocol/**` | required |
+| `interfaces/discord/` | public | The Discord interface: the only code that imports discord.js, translating between the platform and the protocol. It reads the core's media classifier, a pure module. | `node:*`, `discord.js`, `src/media/classify.js`, `src/protocol/**` | required |
 | `tests/` | public | The node:test files, one per module. | `discord.js`, `eslint`, `node:*`, `src/**`, `interfaces/**`, `tools/**`, `bin/**`, `tests/**` | none |
 | `tests/fixtures/` | public | Fakes, harnesses and sample data the tests share. | `discord.js`, `node:*`, `src/**`, `interfaces/**`, `tools/**`, `bin/**`, `tests/**` | none |
 | `tools/` | public | Scripts for development and measurement, never run by the engine. | `node:*`, `src/**`, `interfaces/**`, `tools/**`, `typescript`, `discord.js` | none |
@@ -47,7 +47,7 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `tools/prompts/` | public | Example scenario files for the tools. | nothing | none |
 | `src/*.js` | public | The small modules every part uses: settings, hot reload, logging, paths, time and text formatting. | `node:*`, `src/**` | required |
 | `src/index.js` | public | The entry point: reads the paths and the environment, loads the Discord package by path, starts the core and owns the process signals and exit. It imports no Discord. | `node:*`, `src/*.js` | none |
-| `src/core.js` | public | The composition root: `startCore` builds the core over the paths, the environment and the interfaces it is given. Proved by the slice test. It imports no Discord. | `node:*`, `src/*.js`, `src/agent-runner/**`, `src/behavior/**`, `src/errands/**`, `src/intentions/**`, `src/llm/**`, `src/media/**`, `src/memory/**`, `src/ops/**`, `src/protocol/**`, `src/skills/**`, `src/speech/**`, `src/web/**`, `src/interface/directory.ts`, `src/interface/door.js`, `src/interface/link.ts`, `src/interface/socket.ts` | none |
+| `src/core.js` | public | The composition root: `startCore` builds the core over the paths, the environment and the interfaces it is given. Proved by the slice test. It imports no Discord. | `node:*`, `src/*.js`, `src/agent-runner/**`, `src/behavior/**`, `src/errands/**`, `src/intentions/**`, `src/llm/**`, `src/media/**`, `src/memory/**`, `src/ops/**`, `src/protocol/**`, `src/skills/**`, `src/speech/**`, `src/web/**`, `src/interface/directory.ts`, `src/interface/door.js`, `src/interface/link.ts`, `src/interface/members.ts`, `src/interface/socket.ts` | none |
 | `src/agent-runner/` | public | The process that works errands: the socket server, the profiles, the OpenCode driver and the sweep. | `node:*`, `src/**` | required |
 | `src/behavior/` | public | What a turn does: the pipeline, triggers, prefetch, prompt assembly, recall, the inner turn and the heartbeat. | `node:*`, `src/**` | required |
 | `src/errands/` | public | The errand service: the ledger, the store, the client to the runner and the turns that bring results back. | `node:*`, `src/**` | required |

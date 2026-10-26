@@ -157,6 +157,8 @@ Every content row carries an `audience_id`. A read always names an execution con
 
 When a message comes in (live or through the start-up catch-up of the newest 50 per channel), the adapter's event becomes a versioned observation. `observe()` resolves the authority, place and author (an account or participant, never a person: promotion is her session's job), then writes the source with its audience, its relations and its graph projection in one transaction. A replay of the same native tuple writes nothing.
 
+The interface of every id the core builds comes from the event's `iface` (`src/memory/db/ids.ts` takes it as its first argument). A Discord event gives the strings stored since the first import (`person:discord:<id>`, `discord:channel:<id>`, `src:discord:<message>:<revision>:<kind>`, `discord/global`), and an event of the command line or the fake gives `person:cli:<id>`, `src:fake:<message>:...` and so on. The legacy record files and the migrations that read them name their namespace through `LEGACY_IFACE` in `src/memory/db/legacy-namespace.ts`. A member inside a stored text is the core's own token `<@id>` (`src/memory/mentions.ts`), whatever the interface, and a name written in the text is replaced with the current name when the text is shown.
+
 The audience comes from the place's conversation: `group` becomes `aud:group:<interface>`, `dm` becomes `aud:dm:<place>`. Anything else becomes `aud:internal`.
 
 ### 2. Her turn
