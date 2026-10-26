@@ -120,7 +120,7 @@ Tests are written by agents, so the quality lives in the method, not in a review
 
 Nothing from `.agents/` goes into a pull request. A script used a second time stops being scratch: it moves to `tools/` when it is generic and holds nothing private, otherwise to `.agents/tools/`.
 
-## Rule files
+## Protected
 
 `AGENTS.md`, `CLAUDE.md`, `STYLEGUIDE.md`, `WRITING.md` and `CONTRIBUTING.md` at the root, and `.agents/AGENTS.md` of a deployment, change only with the maintainer's explicit approval of that one change. An agent that thinks one of them is wrong stops and says what it would change and why. It does not edit the file, and it does not write the change somewhere else instead.
 
