@@ -38,9 +38,29 @@ import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { CliError, REFUSED_EXIT, defaultDataDir, parseFlags, privateDirOf, runCli, simKey, spendGate } from './lib/cli.mjs';
+import {
+  CliError,
+  REFUSED_EXIT,
+  defaultDataDir,
+  parseFlags,
+  privateDirOf,
+  runCli,
+  simKey,
+  spendGate,
+} from './lib/cli.mjs';
 import { readOnlyMemory } from './lib/memory-read.mjs';
-import { computeGates, gatesTable, loadFixtures, parseDays, parseFixture, renderReport, reportOf, runWeek, turnsOnDays, withChannelMap } from './lib/inner-week.mjs';
+import {
+  computeGates,
+  gatesTable,
+  loadFixtures,
+  parseDays,
+  parseFixture,
+  renderReport,
+  reportOf,
+  runWeek,
+  turnsOnDays,
+  withChannelMap,
+} from './lib/inner-week.mjs';
 import { onLog } from '../src/log.js';
 import '../src/ops/index.js';
 import { skillRegistry } from '../src/skills/registry.js';
@@ -59,7 +79,12 @@ const USAGE =
 
 /** The argv of the tool, checked. */
 export function parseArgs(argv) {
-  const flags = parseFlags(argv, { values: ['--out', '--days', '--channel', '--data', '--spend'], lists: ['--fixture'], switches: ['--all', '--live', '--keep'], usage: USAGE });
+  const flags = parseFlags(argv, {
+    values: ['--out', '--days', '--channel', '--data', '--spend'],
+    lists: ['--fixture'],
+    switches: ['--all', '--live', '--keep'],
+    usage: USAGE,
+  });
   if (flags._.length > 0) throw new CliError(USAGE);
   const out = {
     all: flags['--all'] === true,
@@ -72,7 +97,7 @@ export function parseArgs(argv) {
     data: flags['--data'] ?? null,
     spend: flags['--spend'],
   };
-  if (out.all === (out.fixtures.length > 0)) throw new CliError(USAGE);
+  if (out.all === out.fixtures.length > 0) throw new CliError(USAGE);
   if (out.live) {
     if (out.all || out.fixtures.length !== 1) throw new CliError(`${USAGE}\n(--live runs one fixture)`);
     if (!out.days || !out.channel) throw new CliError(`${USAGE}\n(--live needs --days and --channel)`);
@@ -134,7 +159,10 @@ function writeReport(outDir, report) {
  * out, so they stay channels she cannot write in.
  */
 export function liveChannelMap(fixture, channel) {
-  const target = { id: String(channel.id), name: typeof channel.name === 'string' && channel.name ? channel.name : null };
+  const target = {
+    id: String(channel.id),
+    name: typeof channel.name === 'string' && channel.name ? channel.name : null,
+  };
   return Object.fromEntries(fixture.channels.filter((c) => c.writable !== false).map((c) => [c.id, target]));
 }
 
@@ -156,7 +184,7 @@ export function addFixturePeople(store, guildId, people, at) {
 
 /** A Discord snowflake of `ts` (ms) with `seq` in its low bits: ids that sort as the lines do. */
 function snowflakeOf(ts, seq) {
-  return ((BigInt(Math.max(ts, 1420070400000)) - 1420070400000n) << 22n | BigInt(seq & 0x3fffff)).toString();
+  return (((BigInt(Math.max(ts, 1420070400000)) - 1420070400000n) << 22n) | BigInt(seq & 0x3fffff)).toString();
 }
 
 /**
@@ -225,12 +253,22 @@ async function createLiveVoice({ args, fixture, clock, budget, log }) {
   });
   let client = null;
   try {
-    const { store, state } = replay.unflushedStore(mods.createStore({ dataDir, memoryDb: readOnlyMemory(dataDir).memoryDb }));
+    const { store, state } = replay.unflushedStore(
+      mods.createStore({ dataDir, memoryDb: readOnlyMemory(dataDir).memoryDb })
+    );
     const calibrator = mods.createCalibrator(state.data.calibration);
     const calls = [];
-    const llm = replay.recordingLlm(mods.createLlm({ apiKey, getConfig: () => hot.config, calibrator, state }), calls, { noCache: true });
+    const llm = replay.recordingLlm(mods.createLlm({ apiKey, getConfig: () => hot.config, calibrator, state }), calls, {
+      noCache: true,
+    });
     const discord = createRequire(path.join(ROOT, 'package.json'))('discord.js');
-    const connection = await replay.connectDiscord({ discord, token, configuredGuildId: hot.config.bot?.guildId || '', resolveGuild: mods.resolveGuild, log });
+    const connection = await replay.connectDiscord({
+      discord,
+      token,
+      configuredGuildId: hot.config.bot?.guildId || '',
+      resolveGuild: mods.resolveGuild,
+      log,
+    });
     client = connection.client;
     const { guildId, self } = connection;
     const queueRequest = client.rest.queueRequest.bind(client.rest);
@@ -240,7 +278,8 @@ async function createLiveVoice({ args, fixture, clock, budget, log }) {
       return queueRequest(request);
     };
     const channel = await client.channels.fetch(args.channel).catch(() => null);
-    if (!channel || String(channel.guildId ?? channel.guild?.id ?? '') !== String(guildId)) throw new CliError('inner-week: --channel is not a channel of the served guild');
+    if (!channel || String(channel.guildId ?? channel.guild?.id ?? '') !== String(guildId))
+      throw new CliError('inner-week: --channel is not a channel of the served guild');
     const refuse = (name) => async () => {
       throw new Error(`inner-week: channel.${name} refused (read-only tool)`);
     };
@@ -253,26 +292,73 @@ async function createLiveVoice({ args, fixture, clock, budget, log }) {
     const capabilities = mods.createDiscordInterface({ client }).capabilities;
     const scriptedCapabilities = {
       ...capabilities,
-      fetchHistory: async (_channel, options = {}) => scriptedHistory(scripted.lines, { channel: { id: channel.id, name: scripted.name ?? channel.name }, selfId: self.id, selfName: self.name, now: clock.now(), limit: options.limit ?? 30 }),
+      fetchHistory: async (_channel, options = {}) =>
+        scriptedHistory(scripted.lines, {
+          channel: { id: channel.id, name: scripted.name ?? channel.name },
+          selfId: self.id,
+          selfName: self.name,
+          now: clock.now(),
+          limit: options.limit ?? 30,
+        }),
     };
-    const port = mods.createFakeAdapter({ iface: 'inner-week', selfId: self.id, now: clock.now, limits: { maxAttachmentBytes: 64 * 1024 * 1024 } });
+    const port = mods.createFakeAdapter({
+      iface: 'inner-week',
+      selfId: self.id,
+      now: clock.now,
+      limits: { maxAttachmentBytes: 64 * 1024 * 1024 },
+    });
     let week = null;
     // The week's intention service (rebound after a restart); errands: none shown, an open budget
     // (a proposed task.run is checked by the gateway as live, against no real caps).
-    const intentions = new Proxy({}, {
-      get(_target, prop) {
-        const service = week?.intentions;
-        const value = service?.[prop];
-        return typeof value === 'function' ? value.bind(service) : value;
+    const intentions = new Proxy(
+      {},
+      {
+        get(_target, prop) {
+          const service = week?.intentions;
+          const value = service?.[prop];
+          return typeof value === 'function' ? value.bind(service) : value;
+        },
+      }
+    );
+    const errands = { view: () => [], markSeen: () => {}, budget: () => ({ spent: false }), store: () => null };
+    const admin = mods.createAdmin({
+      hot,
+      store,
+      client,
+      discord: scriptedCapabilities,
+      port,
+      intentions,
+      errands,
+      getGuildId: () => guildId,
+      dataDir: null,
+    });
+    const turns = replay.diaryTurnRunner(mods, {
+      hot,
+      store,
+      llm,
+      calibrator,
+      client,
+      guildId,
+      self,
+      images: null,
+      state,
+      port,
+      now: clock.now,
+      extra: {
+        discord: scriptedCapabilities,
+        skills: skillRegistry(),
+        runOp: admin.runSkillOp,
+        runOwnOp: admin.runOwnSkillOp,
+        runInitiativeOp: admin.runInitiativeSkillOp,
+        intentions,
+        errands,
       },
     });
-    const errands = { view: () => [], markSeen: () => {}, budget: () => ({ spent: false }), store: () => null };
-    const admin = mods.createAdmin({ hot, store, client, discord: scriptedCapabilities, port, intentions, errands, getGuildId: () => guildId, dataDir: null });
-    const turns = replay.diaryTurnRunner(mods, {
-      hot, store, llm, calibrator, client, guildId, self, images: null, state, port, now: clock.now,
-      extra: { discord: scriptedCapabilities, skills: skillRegistry(), runOp: admin.runSkillOp, runOwnOp: admin.runOwnSkillOp, runInitiativeOp: admin.runInitiativeSkillOp, intentions, errands },
-    });
-    const spent = () => calls.reduce((sum, call) => sum + (Number(call.usage?.cost_details?.upstream_inference_cost ?? call.usage?.cost ?? 0) || 0), 0);
+    const spent = () =>
+      calls.reduce(
+        (sum, call) => sum + (Number(call.usage?.cost_details?.upstream_inference_cost ?? call.usage?.cost ?? 0) || 0),
+        0
+      );
     const voice = {
       kind: 'live',
       bind(service) {
@@ -284,11 +370,25 @@ async function createLiveVoice({ args, fixture, clock, budget, log }) {
         const before = calls.length;
         let result;
         try {
-          result = await turns.runTurn({ channel, guildId, mode: 'inner', triggerKind: 'inner', inner: { ...params.inner, shadow: true } });
+          result = await turns.runTurn({
+            channel,
+            guildId,
+            mode: 'inner',
+            triggerKind: 'inner',
+            inner: { ...params.inner, shadow: true },
+          });
         } catch (err) {
           result = { outcome: 'error', reason: `${err?.name ?? 'Error'}: ${err?.message ?? err}` };
         }
-        const answers = calls.slice(before).filter((call) => call.purpose === 'reply').map((call) => ({ text: call.text, toolCalls: call.toolCalls ?? [], finishReason: call.finishReason ?? null, transport: mods.transportOf(hot.config) }));
+        const answers = calls
+          .slice(before)
+          .filter((call) => call.purpose === 'reply')
+          .map((call) => ({
+            text: call.text,
+            toolCalls: call.toolCalls ?? [],
+            finishReason: call.finishReason ?? null,
+            transport: mods.transportOf(hot.config),
+          }));
         return { ...result, answers };
       },
     };
@@ -318,7 +418,8 @@ export async function main(argv, { cwd = process.cwd() } = {}) {
   if (args.out) {
     const out = path.resolve(cwd, args.out);
     const data = path.resolve(defaultDataDir(ROOT));
-    if (out === data || out.startsWith(`${data}${path.sep}`)) throw new CliError('inner-week: --out may not be under the data directory');
+    if (out === data || out.startsWith(`${data}${path.sep}`))
+      throw new CliError('inner-week: --out may not be under the data directory');
   }
 
   if (!args.live) {
@@ -336,10 +437,18 @@ export async function main(argv, { cwd = process.cwd() } = {}) {
   const fixture = fixtures[0];
   const liveDays = parseDays(args.days, fixture.days);
   if (!liveDays) throw new CliError(`inner-week: --days must name days 1..${fixture.days}`);
-  const dry = await weekOf(withChannelMap(fixture, liveChannelMap(fixture, { id: args.channel, name: null })), { effectsOf, mode: 'shadow' });
+  const dry = await weekOf(withChannelMap(fixture, liveChannelMap(fixture, { id: args.channel, name: null })), {
+    effectsOf,
+    mode: 'shadow',
+  });
   const turns = turnsOnDays(dry.run, liveDays);
   const requests = turns * INNER_REQUESTS;
-  const gate = spendGate({ estimateUsd: requests * USD_PER_ANSWER, requests, spend: args.spend, detail: `${turns} inner turn(s) on day(s) ${liveDays.join(',')} in the stub pass, up to ${INNER_REQUESTS} requests each at ~${USD_PER_ANSWER} USD` });
+  const gate = spendGate({
+    estimateUsd: requests * USD_PER_ANSWER,
+    requests,
+    spend: args.spend,
+    detail: `${turns} inner turn(s) on day(s) ${liveDays.join(',')} in the stub pass, up to ${INNER_REQUESTS} requests each at ~${USD_PER_ANSWER} USD`,
+  });
   if (!gate.ok) throw new CliError(`inner-week: ${gate.text}`, { exitCode: REFUSED_EXIT });
   process.stderr.write(`inner-week: ${gate.text}\n`);
   const clockBox = { now: () => fixture.startMs };
@@ -364,7 +473,10 @@ export async function main(argv, { cwd = process.cwd() } = {}) {
         },
       });
       const gates = computeGates(run, liveFixture, effectsOf);
-      const report = { ...reportOf(run, liveFixture, gates, effectsOf), live: { days: liveDays, spentUsd: Math.round(live.spent() * 10000) / 10000, budgetUsd: gate.budget } };
+      const report = {
+        ...reportOf(run, liveFixture, gates, effectsOf),
+        live: { days: liveDays, spentUsd: Math.round(live.spent() * 10000) / 10000, budgetUsd: gate.budget },
+      };
       if (args.out) writeReport(path.resolve(cwd, args.out), report);
       return `${gatesTable([report])}\nlive days ${liveDays.join(',')}: ${run.turns.filter((t) => t.voice === 'live').length} live inner turn(s), ${report.live.spentUsd} USD reported\n`;
     } finally {
