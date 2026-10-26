@@ -15,6 +15,7 @@ import { parseWhen } from '../intentions/model.js';
 import { DAY_MS } from '../time.js';
 import { oneLine } from '../memory/clamp.js';
 import { CODE } from './codes.js';
+import { lineOf } from '../behavior/line-of.js';
 
 /** The newest messages a read without `last` returns, and the most one read may return. */
 export const READ_LAST_DEFAULT = 20;
@@ -360,19 +361,28 @@ export function conversationText(
 }
 
 /**
- * The interface's history for one selection (`discord`: the Discord interface's capabilities;
- * `live`: `{ selfId, embedTextChars, videoSites, maxUrlChars }` for normalizing): the newest
- * `limit` lines, the ones around / before / after `anchor`, or the lines since `minTs`,
- * normalized, oldest first; null when `source` is missing or the fetch failed. Never throws.
+ * The interface's history for one selection (`reads`: the core's reads of the interface, src/interface/reads.ts;
+ * `ref`: the conversation's reference): the newest `limit` lines, the ones around / before / after `anchor`, or the
+ * lines since `minTs`, as lines, oldest first; null when `ref` is missing or the read failed. Never throws.
+ * @param {import('../interface/reads.ts').Reads} reads
+ * @param {import('../protocol/adapter.ts').ConversationRef|null|undefined} ref
+ * @param {{ mode?: string, anchor?: string, limit?: number, minTs?: number }} request
  */
-export async function fetchSpan(discord, source, { mode, anchor, limit, minTs }, live) {
-  if (!source) return null;
+export async function fetchSpan(reads, ref, { mode, anchor, limit, minTs }) {
+  if (!ref) return null;
   try {
-    if (mode === 'around') return await discord.fetchAround(source, anchor, limit, live);
-    if (mode === 'before') return await discord.fetchBefore(source, anchor, limit, live);
-    if (mode === 'after') return await discord.fetchAfter(source, anchor, limit, live);
-    if (mode === 'since') return await discord.fetchHistoryWindow(source, { limit: 100, minTs, ...live });
-    return await discord.fetchHistory(source, { limit, ...live });
+    const query =
+      mode === 'around'
+        ? { limit, around: anchor }
+        : mode === 'before'
+          ? { limit, before: anchor }
+          : mode === 'after'
+            ? { limit, after: anchor }
+            : mode === 'since'
+              ? { limit: 100, since: minTs }
+              : { limit };
+    const page = await reads.history(ref, query);
+    return page === null ? null : page.events.map((event) => lineOf(event));
   } catch {
     return null;
   }

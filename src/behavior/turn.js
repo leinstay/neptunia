@@ -44,6 +44,12 @@ import {
 } from './diary.js';
 import { channelPullOn, pullPictures, pullSettings, pullTargets } from './pull.js';
 import { audienceCovers, createLinker, markSeen, messageLinkOf, resolveDestination, stampPings } from './elsewhere.ts';
+import { captionPulled, checkPull, createPullViews, fetchPull } from './pull-fetch.ts';
+import { audienceAllows, everyMemberAudience, isReadable, isWritable, railAudience, takeSnapshot } from './snapshot.ts';
+import { fetchNeighbors } from './neighbors.ts';
+import { fetchReplyParents } from './reply-parents.ts';
+import { historyLines } from './lines.ts';
+import { withTextPreviews } from '../media/text-preview.ts';
 import { isTaggedCall } from './mention.js';
 import { resolveHandles, untaggedNames } from './handles.js';
 import { roleModel } from '../llm/roles.js';
@@ -73,7 +79,7 @@ import {
   sleep,
 } from '../llm/openrouter.js';
 import { ImageCapError, ImageGenError, UnsupportedImageModelError } from '../llm/images.js';
-import { channelById, messageRefOf, postingConversation } from '../ops/shared.js';
+import { messageRefOf, postingConversation } from '../ops/shared.js';
 import { limitOf, mirrorChannelLabel, mirrorDryRun } from './limits.js';
 import { portIface, portLimit } from '../interface/capabilities.ts';
 import { between, typingMs } from './random.js';
@@ -155,6 +161,9 @@ import {
 } from './tool-step.js';
 import { parseToolCallBlocks, toolsBlockText } from '../llm/tool-text.js';
 import { estimateMessages, estimateTools } from '../llm/tokens.js';
+
+/** @typedef {import('../protocol/adapter.ts').ConversationInfo} Conv */
+/** @typedef {import('./snapshot.ts').Snapshot} Snap */
 
 /**
  * How a turn ended. `spoke` and `skip` reached the model (a skip chose
@@ -713,12 +722,12 @@ function resolveFallback(part, fallback, userIds) {
 
 /**
  * The fallback directory `@name` resolves by after the request's own sources (resolveMentions):
- * every name of every member of the served guild the bot knows without asking Discord -- the
- * guild's member cache (`members`: display name, nickname, global name, username) and the
- * stored profiles (`profiles`: names and aliases). Never a bot (by the cache) nor the persona
- * herself (`selfId`).
+ * every name of every member of the served community the core knows without asking the interface --
+ * the member directory (`members`: `{ id, name, bot }` as `membership.changed` reported them, a member's
+ * other names too when the record carries them) and the stored profiles (`profiles`: names and aliases).
+ * Never a bot nor the persona herself (`selfId`).
  * @param {{ members?: Iterable<object>, profiles?: Iterable<object>, selfId?: string|null }} [sources]
- *   `members`: discord.js GuildMembers; `profiles`: stored member profiles (store.listUserProfiles).
+ *   `members`: the directory's members; `profiles`: stored member profiles (store.listUserProfiles).
  * @returns {{ name: string, id: string }[]}
  */
 export function mentionDirectory({ members = [], profiles = [], selfId = null } = {}) {
@@ -736,13 +745,19 @@ export function mentionDirectory({ members = [], profiles = [], selfId = null } 
   const cached = [...members].filter((member) => member && typeof member === 'object');
   for (const member of cached) {
     const id = member.id ?? member.user?.id;
-    if (id !== undefined && id !== null && member.user?.bot === true) bots.add(String(id));
+    if (id !== undefined && id !== null && (member.bot === true || member.user?.bot === true)) bots.add(String(id));
   }
   const counts = (id) => id !== undefined && id !== null && String(id) !== self && !bots.has(String(id));
   for (const member of cached) {
     const id = member.id ?? member.user?.id;
     if (!counts(id)) continue;
-    for (const name of [member.displayName, member.nickname, member.user?.globalName, member.user?.username])
+    for (const name of [
+      member.name,
+      member.displayName,
+      member.nickname,
+      member.user?.globalName,
+      member.user?.username,
+    ])
       add(name, String(id));
   }
   for (const profile of profiles) {
@@ -804,23 +819,6 @@ export function pickOtherProfiles(store, guildId, history, exceptId, count) {
 /** No `<recent>` input: no store's lines handed over, so the request builder builds no block. */
 const NO_RECENT = Object.freeze({ lines: undefined, audience: undefined });
 
-/**
- * The audience of "every member of the server" in the shape
- * src/behavior/elsewhere.ts#audienceCovers compares: @everyone views it and no
- * role or member is held back. A source covers it only when every member can
- * read that source -- the private chat's rail for recent lines.
- */
-function everyMemberAudience() {
-  return {
-    everyone: true,
-    roles: new Set(),
-    roleAllow: new Set(),
-    roleDeny: new Set(),
-    memberAllow: new Set(),
-    memberDeny: new Set(),
-  };
-}
-
 /** Display name of the author of `messageId` in `history`, or null when the message is not there. */
 function authorNameFor(history, messageId) {
   const message = history.find((m) => m.id === messageId);
@@ -845,20 +843,21 @@ function replyTarget(replyTo, { plain, idByIndex, pulledIds }) {
 }
 
 /**
- * Where a reaction on line `targetId` goes: this channel for a chat line; for
- * a pulled line (`pulledIds`) its own channel, looked up in this channel's
- * guild, while the bot may react there now (canReact). Otherwise `target` is
- * null and `reason` is the code the drop is logged with: `not-found` (the
- * channel is gone) or `cannot-react`. `source` is the pulled channel's id,
- * null for a chat line. `canReact` comes from the turn's `discord` capabilities.
+ * Where a reaction on line `targetId` goes: this channel for a chat line; for a pulled line (`pulledIds`) its own
+ * channel, read from the turn's `snapshot` of this channel's community, while the persona may react there now
+ * (`permissions.react`). A private chat holds no pulled channel to react in. Otherwise `target` is null and `reason`
+ * is the code the drop is logged with: `not-found` (the channel is gone) or `cannot-react`. `source` is the pulled
+ * channel's id, null for a chat line.
  * @returns {{ target: object|null, source: string|null, reason: 'not-found'|'cannot-react'|null }}
+ * @param {Snap|null} snapshot
+ * @param {Conv} channel
  */
-function reactionChannel(channel, targetId, pulledIds, { canReact }) {
+function reactionChannel(snapshot, channel, targetId, pulledIds) {
   const source = pulledIds.get(targetId) ?? null;
   if (!source) return { target: channel, source: null, reason: null };
-  const target = channel.guild?.channels?.cache?.get?.(source) ?? null;
+  const target = channel.communityId === null ? null : (snapshot?.get(String(source)) ?? null);
   if (!target) return { target: null, source, reason: 'not-found' };
-  return canReact(target) ? { target, source, reason: null } : { target: null, source, reason: 'cannot-react' };
+  return target.permissions.react ? { target, source, reason: null } : { target: null, source, reason: 'cannot-react' };
 }
 
 /**
@@ -918,30 +917,26 @@ function readableLinkCandidates(history, sites) {
 
 /**
  * `history` with the messages its replies answer from outside it prepended as its oldest lines
- * (interfaces/discord/collect.js#fetchReplyParents): the parent of `trigger` when it lives in this
+ * (src/behavior/reply-parents.ts#fetchReplyParents): the parent of `trigger` when it lives in this
  * channel, one level of that parent's own parent, and the parents of the last
  * `context.replyParentsFor` lines (every line of the window with `features.anchoredWindow`
  * exactly true: the request then shows the parents as anchors in `<earlier>`), at most
  * `context.replyParentsMax` in all, each marked `replyParent: true`. Off with
  * `context.fetchReplyParents` false (a missing key counts as on); `history` as it is then.
- * @param {object} channel
+ * @param {object} reads  The core's reads of the interface (src/interface/reads.ts).
+ * @param {import('../protocol/adapter.ts').ConversationInfo} channel
  * @param {object[]} history
- * @param {{ trigger: object|null, selfId: string, config: object, discord: object }} options
- *   `discord` the turn's capabilities object (its `fetchReplyParents`).
+ * @param {{ trigger: object|null, config: object }} options
  * @returns {Promise<object[]>}
  */
-async function withReplyParents(channel, history, { trigger, selfId, config, discord }) {
+async function withReplyParents(reads, channel, history, { trigger, config }) {
   const context = config.context ?? {};
   if (context.fetchReplyParents === false) return history;
   const own = trigger && (!trigger.channelId || trigger.channelId === channel.id) ? trigger : null;
-  const parents = await discord.fetchReplyParents(channel, history, {
+  const parents = await fetchReplyParents(reads, { iface: channel.iface, conversationId: channel.id }, history, {
     trigger: own,
     recent: config.features?.anchoredWindow === true ? history.length : (context.replyParentsFor ?? 3),
     max: context.replyParentsMax ?? 4,
-    selfId,
-    embedTextChars: config.media?.embedTextChars,
-    videoSites: config.media?.video?.sites,
-    maxUrlChars: config.context?.maxUrlChars,
   });
   // Marked, so the request can say which of its lines came from outside the window (the journal's `seen.parents`).
   return parents.length > 0 ? [...parents.map((parent) => ({ ...parent, replyParent: true })), ...history] : history;
@@ -1088,54 +1083,46 @@ function triggerBringsMedia(trigger, captionItems, videoItems) {
  * Where the persona's words about a channel it cannot write in go (a call
  * from there, a remark on it), read from `config` (the live config) at the
  * call: the first id of `memory.mainChannelIds`
- * (src/behavior/elsewhere.ts#resolveDestination) that is a channel of
- * `guild` the persona may write in (interfaces/discord/collect.js#isWritableChannel:
- * a text channel, not a thread, never the dry-run mirror, its history
- * readable, the bot can send) and not `exceptId` (the
+ * (src/behavior/elsewhere.ts#resolveDestination) that is a conversation of
+ * `snapshot` the persona may write in (src/behavior/snapshot.ts#isWritable:
+ * a channel, not a thread, never the dry-run mirror, its history
+ * readable, she can send) and not `exceptId` (the
  * channel the words are about). The one copy of the rule: `<senses>` names
  * this channel, and whatever routes a call there asks the same function.
- * @param {object|null} guild  The discord.js guild; none (a private chat) has no destination.
+ * @param {import('./snapshot.ts').Snapshot|null} snapshot  The turn's listing of the community; none (a private chat) has no destination.
  * @param {object} config      The live config.
- * @param {{ exceptId?: string|null, discord: object }} options  `discord` the Discord interface's
- *   capabilities object (its `isWritableChannel`), passed by the caller.
- * @returns {{ channel: object, reason: null } | { channel: null, reason: 'off'|'no-destination' }}
+ * @param {{ exceptId?: string|null }} [options]
+ * @returns {{ channel: import('../protocol/adapter.ts').ConversationInfo, reason: null } | { channel: null, reason: 'off'|'no-destination' }}
  *   `reason` is resolveDestination's code: `off` with features.elsewhere false, else `no-destination`.
  */
-export function usableDestination(guild, config, { exceptId = null, discord } = {}) {
-  const channelOf = (id) => guild?.channels?.cache?.get?.(id) ?? null;
+export function usableDestination(snapshot, config, { exceptId = null } = {}) {
   const usable = (id) => {
-    const target = channelOf(id);
-    return (
-      Boolean(target) &&
-      id !== exceptId &&
-      typeof target.isTextBased === 'function' &&
-      discord.isWritableChannel(target, config?.bot ?? {})
-    );
+    const target = snapshot?.get(String(id)) ?? null;
+    return target !== null && id !== exceptId && isWritable(target, asObject(config?.bot ?? {}));
   };
   const { destinationId, reason } = resolveDestination(config, usable);
-  return destinationId ? { channel: channelOf(destinationId), reason: null } : { channel: null, reason };
+  return destinationId ? { channel: snapshot.get(String(destinationId)), reason: null } : { channel: null, reason };
 }
 
 /**
- * Where the persona's words about `source` (a channel the bot cannot send
+ * Where the persona's words about `source` (a channel the persona cannot send
  * in) go, read from `config` (the live config) now: `{ destination, reason:
- * null }` with the discord.js channel, or `{ destination: null, reason }`
+ * null }` with the conversation, or `{ destination: null, reason }`
  * with the code logged as `route`: `off` (features.elsewhere false),
  * `no-destination` (no usable memory.mainChannelIds entry other than the
  * source, `usableDestination`) or `audience` (someone who
  * can view the destination cannot view the source,
- * interfaces/discord/pull-fetch.js#audienceAllows). The one copy of the route of a
+ * src/behavior/snapshot.ts#audienceAllows). The one copy of the route of a
  * routed call and of a noticed comment.
- * @param {object} source  A discord.js guild channel.
+ * @param {import('../protocol/adapter.ts').ConversationInfo} source  A conversation of `snapshot`, with its audience.
+ * @param {import('./snapshot.ts').Snapshot|null} snapshot
  * @param {object} config  The live config.
- * @param {object} discord  The Discord interface's capabilities object (`isWritableChannel`,
- *   `audienceAllows`), passed by the caller.
  * @returns {{ destination: object, reason: null } | { destination: null, reason: 'off'|'no-destination'|'audience' }}
  */
-export function routeFor(source, config, discord) {
-  const { channel: destination, reason } = usableDestination(source.guild, config, { exceptId: source.id, discord });
+export function routeFor(source, snapshot, config) {
+  const { channel: destination, reason } = usableDestination(snapshot, config, { exceptId: source.id });
   if (!destination) return { destination: null, reason };
-  if (!discord.audienceAllows(destination, source, config)) return { destination: null, reason: 'audience' };
+  if (!audienceAllows(destination, source, config)) return { destination: null, reason: 'audience' };
   return { destination, reason: null };
 }
 
@@ -1262,28 +1249,26 @@ function postedOf(result) {
 const PERSONA = Object.freeze({ kind: 'persona' });
 
 /**
- * The requester of a skill call: `trigger`'s author (`{ id, roleIds }`, the role ids from the
- * guild's member cache of `channel`, none when the member is not cached), or null when nobody
+ * The requester of a skill call: `trigger`'s author (`{ id, roleIds }`, `roleIds` the ids of the groups
+ * the interface says they hold, none when it does not know the member), or null when nobody
  * asked (a turn without a trigger author). Exported for the replay's skill scenarios
  * (tools/replay.mjs `--skills`), which build their requester exactly so.
- * @param {{ authorId?: string }|null} trigger
- * @param {object} channel
+ * @param {*} trigger  `{ authorId?: string }` or null.
+ * @param {*} [roleIds]  A list of group ids.
  * @returns {{ id: string, roleIds: string[] }|null}
  */
-export function requesterOf(trigger, channel) {
+export function requesterOf(trigger, roleIds = []) {
   if (!trigger?.authorId) return null;
-  const id = String(trigger.authorId);
-  const roles = channel?.guild?.members?.cache?.get?.(id)?.roles?.cache;
-  return { id, roleIds: roles && typeof roles.keys === 'function' ? [...roles.keys()].map(String) : [] };
+  return { id: String(trigger.authorId), roleIds: roleIds.map(String) };
 }
 
 /**
  * What a `<call>` of the persona is resolved against (src/skills/executors.js#resolveCall), read
- * now: the turn's channel as the current conversation, the channels she can name (the guild's
- * text channels, then the stored channel notes, the turn's own channel; where she may act is the
+ * now: the turn's channel as the current conversation, the channels she can name (the conversations of the
+ * turn's `snapshot`, then the stored channel notes, the turn's own channel; where she may act is the
  * operation's rule, src/ops/shared.js#postingConversation), this turn's transcript numbers (`idByIndex`;
  * a pulled line lives in its own channel, `pulledIds`; its author from `lines`), the stored
- * profiles (only with memory on), her own id (`selfId`), the guild's roles, the request's channel
+ * profiles (only with memory on), her own id (`selfId`), the community's groups, the request's channel
  * handles (`channelHandles`: handle -> channel id, a `#handle` resolved exactly before any name), the request's
  * member handles (`memberHandles`: handle -> member id, her `@handle` in a member argument) and the skill registry
  * (`skills`: a skill's options are resolved by its dispatch), `searchRefs` (the turn's quoted lines
@@ -1295,6 +1280,7 @@ export function requesterOf(trigger, channel) {
  */
 export function callViewOf({
   channel,
+  snapshot = null,
   guildId,
   idByIndex,
   lines,
@@ -1311,12 +1297,10 @@ export function callViewOf({
   searchRefs = null,
 }) {
   const conversations = [];
-  const cache = channel?.guild?.channels?.cache;
-  if (cache && typeof cache.values === 'function') {
-    for (const ch of cache.values()) {
-      const textBased = typeof ch?.isTextBased === 'function' ? ch.isTextBased() : ch?.type === 0;
-      if (textBased && ch.id && typeof ch.name === 'string') conversations.push({ id: String(ch.id), name: ch.name });
-    }
+  // A private chat shows no channel of the community: only the turn's own.
+  const listing = channel?.communityId === null ? null : snapshot;
+  for (const entry of listing?.conversations ?? []) {
+    if (entry.id && typeof entry.name === 'string') conversations.push({ id: String(entry.id), name: entry.name });
   }
   if (guildId && typeof store?.listChannels === 'function') {
     for (const note of store.listChannels(guildId) ?? [])
@@ -1324,12 +1308,10 @@ export function callViewOf({
   }
   if (typeof channel.name === 'string' && channel.name)
     conversations.push({ id: String(channel.id), name: channel.name });
-  // The guild's roles a skill's role option may name.
+  // The community's groups a skill's role option may name.
   const roles = [];
-  const roleCache = channel?.guild?.roles?.cache;
-  if (roleCache && typeof roleCache.values === 'function') {
-    for (const role of roleCache.values())
-      if (role?.id && typeof role.name === 'string') roles.push({ id: String(role.id), name: role.name });
+  for (const group of listing?.groups ?? []) {
+    if (group.id && typeof group.name === 'string') roles.push({ id: String(group.id), name: group.name });
   }
   return {
     currentConversationId: String(channel.id),
@@ -1530,6 +1512,7 @@ function callEnvelope({
   added = null,
   missed = null,
   requester: asked = null,
+  requesterGroups = [],
   turnId = null,
   idempotencyKey = null,
   ownInitiative = false,
@@ -1538,7 +1521,7 @@ function callEnvelope({
 }) {
   const requester = asked?.id
     ? { id: String(asked.id), roleIds: Array.isArray(asked.roleIds) ? asked.roleIds.map(String) : [] }
-    : requesterOf(trigger, channel);
+    : requesterOf(trigger, requesterGroups);
   const authors = new Set(
     (Array.isArray(missed) ? missed : [])
       .map((line) => line?.author)
@@ -1574,13 +1557,57 @@ function sendArgs({ text = null, media = null, replyId = null }) {
   return { ...(text ? { text } : {}), ...(media ? { media } : {}), ...(replyId ? { replyTo: replyId } : {}) };
 }
 
+/**
+ * A value of the untyped parts of the turn (the live config, a draft) as the object a typed helper takes.
+ * @param {*} value
+ * @returns {object}
+ */
+function asObject(value) {
+  return value;
+}
+
+/**
+ * A list of the untyped parts of the turn as the list a typed helper takes.
+ * @param {*} value
+ * @returns {object[]}
+ */
+function asList(value) {
+  return value;
+}
+
+/**
+ * The snapshot a turn attempt took, kept on its draft.
+ * @param {*} draft
+ * @returns {Snap|null}
+ */
+function snapshotOfDraft(draft) {
+  return draft?.snapshot ?? null;
+}
+
+/**
+ * `<channel_directory>`'s input: every channel of the snapshot's community the persona may read (never a thread, never the
+ * dry-run mirror), as `{ id, name, category }`. None without a listing (a private chat, an interface that offers none).
+ * @param {import('./snapshot.ts').Snapshot|null} snapshot
+ * @param {object} bot  The live `config.bot`.
+ * @returns {{ id: string, name: string, category: string|null }[]}
+ */
+function channelDirectoryOf(snapshot, bot) {
+  return (snapshot?.conversations ?? [])
+    .filter((entry) => isReadable(entry, bot))
+    .map((entry) => ({
+      id: entry.id,
+      name: entry.name,
+      category: typeof entry.category === 'string' ? entry.category : null,
+    }));
+}
+
+/** Whether a conversation belongs to a community (a channel or a thread), not a private chat. */
+const inCommunity = (channel) => channel?.communityId !== null && channel?.communityId !== undefined;
+
 /** The skill registry a runner checks against when none is injected: every operation's (src/skills/registry.js). */
 function defaultSkills() {
   return skillRegistry();
 }
-
-/** The most channels a runner's default adapter keeps a handle on (the oldest go first). */
-const HELD_CHANNELS_MAX = 500;
 
 /** The distinct hosts of `links` (`{ url }` items), in order; a URL that does not parse is left out. */
 function linkHosts(links) {
@@ -2049,9 +2076,7 @@ export function taskInput({ part, queued, added, missed = null, failedEarlier = 
  * -- features.skills false, she goes silent; each refusal logs `skill: refused` (`skill`, `code`,
  * `reason`) and nothing is done; no picture or diary set is generated for a post the check
  * already refuses, and no typing indicator shows), then made through the interface port `port`
- * (src/interface/port.js; without one, the adapter `createPort({ client, lookupChannel })` builds
- * -- the Discord adapter's factory, as the tests and the tools pass it --, holding the channels the
- * turn hands it). Nothing counts as posted (journal, record, stats, lastPostAt) unless the port
+ * (src/interface/port.js). Nothing counts as posted (journal, record, stats, lastPostAt) unless the port
  * answered `ok`; `unknown` is journaled as unknown and never sent again. A dry run calls neither
  * the gateway nor the port.
  *
@@ -2071,23 +2096,26 @@ export function taskInput({ part, queued, added, missed = null, failedEarlier = 
  * results come back to her in one more request (runSteps), bounded by `skills.loop`. A dry run only
  * logs the call (`dry-run: would call`).
  *
- * Reactors: `reactors` (interfaces/discord/reactors.js#createReactorStore, null: none) is the store of
- * who reacted to her messages; the turn's history fetch names them on her lines (historyOptions).
+ * Reactors: `reactors` (src/behavior/reactor-store.ts#createReactorStore, null: none) is the store of
+ * who reacted to her messages, fed by `reaction.changed`; the turn's history read names them on her lines
+ * (reactorNames).
  *
  * Intentions: `intentions` (src/intentions/service.js#createIntentionService, null: none) gives the
  * `<intentions>` block of every turn but a diary post while features.intentions is exactly true.
  *
- * Discord:`discord` is the Discord interface's capabilities object
- * (interfaces/discord/index.js#createDiscordInterface, injected by src/index.js): the permission
- * checks, the history, reply-parent and neighbour fetches, the pulled channels and the audience
- * rules a turn asks Discord for. Nothing here imports the interface.
+ * The interface: `reads` (src/interface/reads.ts#createReads over the port) is how a turn asks the interface
+ * about a conversation, its lines, a member and the reactors: `runTurn` takes a conversation reference and reads
+ * its info (the permissions, the audience) and one snapshot of the community's conversations per attempt. A read the
+ * interface does not offer leaves its block out of the request; a conversation it no longer knows ends the turn
+ * `unavailable` before any model call. `selfId()` is the persona's id on the interface (from `hello`), `getSelfName`
+ * her name in a community, `memberOf(communityId, memberId)` the name and kind of a member the core has been told of,
+ * `membersOf(communityId)` all of them and `conversationName(id)` the name the interface gave a conversation.
  */
 export function createTurnRunner({
   hot,
   store,
   llm,
   calibrator,
-  client,
   rng = Math.random,
   describer,
   fetchImpl = fetch,
@@ -2097,17 +2125,19 @@ export function createTurnRunner({
   images,
   speech = null,
   emoji,
-  getSelfName = (guildId) =>
-    client.guilds?.cache?.get(guildId)?.members?.me?.displayName ?? client.user?.username ?? 'bot',
+  getSelfName = () => 'bot',
+  selfId: selfIdOf = () => '',
+  reads: readsDep,
+  memberOf = () => null,
+  membersOf = null,
+  conversationName = () => null,
   routeChannels,
   now: clock = Date.now,
   schedule = scheduleTimer,
   activity = null,
   journal = null,
   record = null,
-  port = null,
-  createPort = null,
-  discord,
+  port,
   skills = null,
   runOp = null,
   runOwnOp = null,
@@ -2123,20 +2153,8 @@ export function createTurnRunner({
   // The execution context of a turn (src/memory/db/service.js#issueContext, `(spec) => ctx`); null: none.
   memoryContext = null,
 }) {
-  const {
-    audienceAllows,
-    audienceOf,
-    canAttach,
-    canSend,
-    captionPulled,
-    channelDirectoryOf,
-    checkPull,
-    createPullViews,
-    fetchHistory,
-    fetchNeighbors,
-    fetchPull,
-    withTextPreviews,
-  } = discord;
+  /** @type {import('../interface/reads.ts').Reads} */
+  const ifaceReads = readsDep;
   const busy = new Set();
 
   /**
@@ -2144,13 +2162,14 @@ export function createTurnRunner({
    * (a memory search, the request's record) and kept on the draft, so recall and the turn's read record carry one id.
    * A private chat reads as a DM of its partner, anything else as the interface's group. Null without the dependency
    * or the draft, for a private chat whose partner is unknown, or when issuing fails (never a turn's failure).
+   * @param {Conv} channel
    */
   function turnContextOf(draft, channel) {
     if (!draft || typeof memoryContext !== 'function') return null;
     if (draft.memoryContext !== undefined) return draft.memoryContext;
     let ctx = null;
     try {
-      const isPrivate = !channel?.guild;
+      const isPrivate = !inCommunity(channel);
       const partner = isPrivate ? (draft.privateUserId ?? null) : null;
       if (!isPrivate || partner) {
         ctx =
@@ -2174,21 +2193,20 @@ export function createTurnRunner({
     if (!stableFreezes.has(key)) stableFreezes.set(key, new Map());
     return stableFreezes.get(key);
   };
-  // The channels the default adapter may resolve by id without the client (the turn's own and a
-  // pulled line's), in process, the oldest dropped past HELD_CHANNELS_MAX.
-  const heldChannels = new Map();
-  const iface = port ?? createPort({ client, lookupChannel: (id) => heldChannels.get(id) ?? null });
+  const iface = port;
 
-  /** The port reference of `channel` (the default adapter now holds that object). */
+  /**
+   * The port reference of a conversation (its info, a snapshot entry, anything with an `id`).
+   * @param {Conv} channel
+   */
   function conversationOf(channel) {
-    const id = String(channel.id);
-    heldChannels.delete(id);
-    heldChannels.set(id, channel);
-    while (heldChannels.size > HELD_CHANNELS_MAX) heldChannels.delete(heldChannels.keys().next().value);
-    return { iface: iface.iface, conversationId: id };
+    return { iface: iface.iface, conversationId: String(channel.id) };
   }
 
-  /** The port reference of message `messageId` in `channel`. */
+  /**
+   * The port reference of message `messageId` in `channel`.
+   * @param {Conv} channel
+   */
   function messageOf(channel, messageId) {
     return { ...conversationOf(channel), messageId: String(messageId) };
   }
@@ -2199,6 +2217,9 @@ export function createTurnRunner({
    * current conversation, refused only under the full stop. `args` and `trigger` name the effect
    * for the reader; the check needs neither. A refusal logs `skill: refused`.
    * @returns {{ ok: boolean, code?: string, reason?: string }}
+   * @param {*} skill
+   * @param {*} _args
+   * @param {{ channel: Conv }} context
    */
   function checkEffect(skill, _args, { channel }) {
     const verdict = checkReplyEffect({ skill, principal: PERSONA, config: hot.config });
@@ -2236,6 +2257,7 @@ export function createTurnRunner({
    * are returned marked `proposed` (`<skills>` then shows the allowed ones and names the others).
    * Null otherwise. Names and codes only, never a message.
    * @returns {object[]|null}
+   * @param {{ channel: Conv, snapshot?: Snap|null, [key: string]: * }} params
    */
   function discoverSkills({ config, channel, trigger, answer, draft }) {
     if (!answer || !discoveryOn(config)) return null;
@@ -2243,9 +2265,9 @@ export function createTurnRunner({
     if (answer.inventory !== true && named.length === 0) return null;
     const rows = listSkills({
       config,
-      selfId: client?.user?.id ?? null,
+      selfId: selfIdOf() || null,
       texts: hot.prompts?.skills,
-      requester: requesterOf(trigger, channel),
+      requester: requesterOf(trigger, draft?.requesterGroups ?? []),
       audience: { conversationId: String(channel.id) },
       registry: skills ?? defaultSkills(),
     });
@@ -2263,7 +2285,10 @@ export function createTurnRunner({
     return proposedRows(proposals, rows);
   }
 
-  /** The tasks `<tasks>` lists: her open errands and unread results (`errands.view`), the one `taskResult` brings left out. */
+  /**
+   * The tasks `<tasks>` lists: her open errands and unread results (`errands.view`), the one `taskResult` brings left out.
+   * @param {{ channel: Conv, snapshot?: Snap|null, [key: string]: * }} params
+   */
   function listedTasks({ guildId, channel, isPrivate, taskResult }) {
     let shown = [];
     try {
@@ -2284,6 +2309,7 @@ export function createTurnRunner({
    * errand's end opened (`taskResult`, trigger kind `task`), the `<task_result>` body cut to
    * `agents.resultMaxChars` (read now). Showing a task marks nothing: it is read by the result
    * turn that completed (src/errands/turns.js) or by `task.read`. Null when there is nothing to show.
+   * @param {{ channel: Conv, snapshot?: Snap|null, [key: string]: * }} params
    */
   function errandsInputFor({ guildId, channel, isPrivate, taskResult, config, labels, now }) {
     const listed = listedTasks({ guildId, channel, isPrivate, taskResult });
@@ -2299,8 +2325,9 @@ export function createTurnRunner({
    * intentions and the candidates proposed from her lines (`intentions.view`: a private chat's
    * own only in that chat), cut to `context.caps.intentions` tokens (src/intentions/blocks.js).
    * '' with the switch off, without the service, or with nothing to show.
+   * @param {{ snapshot?: Snap|null, [key: string]: * }} params
    */
-  function intentionsInputFor({ guildId, channel, isPrivate, config, labels, now }) {
+  function intentionsInputFor({ guildId, channel, snapshot = null, isPrivate, config, labels, now }) {
     if (!intentions || config.features?.intentions !== true) return '';
     let shown = [];
     try {
@@ -2309,7 +2336,7 @@ export function createTurnRunner({
       log.warn('turn: intentions view failed', { channel: channel.id, error: err });
       return '';
     }
-    const channelNameOf = (id) => channel.guild?.channels?.cache?.get?.(String(id))?.name ?? null;
+    const channelNameOf = (id) => (inCommunity(channel) ? (snapshot?.get(String(id))?.name ?? null) : null);
     const nameOf = (id) =>
       typeof store?.getUser === 'function' ? (store.getUser(guildId, String(id))?.names?.[0] ?? null) : null;
     return intentionsBlockText(shown, labels, {
@@ -2343,6 +2370,7 @@ export function createTurnRunner({
   /** What a `<call>` of the persona is resolved against: callViewOf over this runner's store, id and registry. */
   function callView({
     channel,
+    snapshot = null,
     guildId,
     idByIndex,
     lines,
@@ -2356,17 +2384,19 @@ export function createTurnRunner({
   }) {
     const fileOf =
       typeof errands?.fileOf === 'function'
-        ? (handle) => errands.fileOf({ guildId, handle, privateChannelId: channel.guild ? null : String(channel.id) })
+        ? (handle) =>
+            errands.fileOf({ guildId, handle, privateChannelId: inCommunity(channel) ? null : String(channel.id) })
         : null;
     return callViewOf({
       channel,
+      snapshot,
       guildId,
       idByIndex,
       lines,
       pulledIds,
       memoryOn,
       store,
-      selfId: client?.user?.id ?? null,
+      selfId: selfIdOf() || null,
       skills: skills ?? defaultSkills(),
       channelHandles,
       memberHandles,
@@ -2383,6 +2413,8 @@ export function createTurnRunner({
    * turn's channel as the audience, the last run of a destructive skill from the origin channel
    * (`destructiveRuns`), the image client's caps as the drawing budget. A refusal logs
    * `skill: refused`.
+   * @param {*} resolved
+   * @param {{ channel: Conv, [key: string]: * }} context
    */
   function checkCall(resolved, { channel, envelope, draft = null }) {
     const verdict = checkSkill({
@@ -2393,7 +2425,7 @@ export function createTurnRunner({
       audience: { conversationId: String(channel.id) },
       context: {
         config: hot.config,
-        selfId: client?.user?.id ?? null,
+        selfId: selfIdOf() || null,
         registry: skills ?? defaultSkills(),
         mixedRequesters: envelope.mixed,
         // An inner turn, or the result turn of her own errand, is her own initiative: nobody asked, her grants alone decide.
@@ -2408,7 +2440,7 @@ export function createTurnRunner({
         ...(speech ? { speech } : {}),
         // An errand's caps are its budget (src/errands/service.js#budget), in the turn's guild.
         ...(errands
-          ? { tasks: { budget: (agent) => errands.budget({ guildId: channel.guild?.id ?? null, agent }) } }
+          ? { tasks: { budget: (agent) => errands.budget({ guildId: channel.communityId ?? null, agent }) } }
           : {}),
       },
     });
@@ -2432,6 +2464,7 @@ export function createTurnRunner({
    * destination for a picture --, resolved on the server's side (`view`: callView's) and checked (checkCall). Resolves
    * `{ call, op, envelope, resolved, refusal }`: `resolved` null and `refusal` (`{ code, reason }`) when anything said
    * no -- logged `skill: refused`. Nothing runs here.
+   * @param {{ channel: Conv, snapshot?: Snap|null, [key: string]: * }} params
    */
   async function planToolCall({ call: given, channel, envelope, draft, view }) {
     let call = given;
@@ -2573,6 +2606,9 @@ export function createTurnRunner({
    * runs; live, a stopped inner life (`mayAct`, asked now) refuses it (`inner-stopped`). No count of posts refuses a call.
    * `public` says whether a call that runs is a public post.
    * @returns {{ proposed?: true, refusal?: { code: string, reason: string }, public?: boolean }|null}
+   * @param {*} inner
+   * @param {*} skill
+   * @param {{ channel: Conv, [key: string]: * }} context
    */
   function innerVerdict(inner, skill, { channel, args }) {
     const effects = (skills ?? defaultSkills()).get(skill)?.effects ?? null;
@@ -2580,7 +2616,8 @@ export function createTurnRunner({
     if (inner.shadow) return { proposed: true };
     if (typeof inner.mayAct === 'function' && !inner.mayAct())
       return { refusal: { code: CODE.INNER_STOPPED, reason: 'innerLife' } };
-    const isPublic = POSTING_SKILLS.includes(skill) && (Boolean(channel.guild) || typeof args?.channel === 'string');
+    const isPublic =
+      POSTING_SKILLS.includes(String(skill)) && (inCommunity(channel) || typeof args?.channel === 'string');
     return { public: isPublic };
   }
 
@@ -2626,6 +2663,7 @@ export function createTurnRunner({
     const renderText = (text) =>
       (rendered = renderPost(text, {
         channel,
+        snapshot: draft?.snapshot ?? null,
         guildId,
         privateChat,
         idByIndex,
@@ -2808,28 +2846,32 @@ export function createTurnRunner({
   }
 
   /**
-   * The options of a turn's history fetch (interfaces/discord/collect.js#fetchHistory) under `config`:
-   * with the reactor store (`reactors`), features.reactionNames and features.seeReactions on (a
+   * The lines of `channel` a turn reads under `config` (src/behavior/lines.ts#historyLines over the interface's
+   * `history`): with the reactor store (`reactors`), features.reactionNames and features.seeReactions on (a
    * missing key counts as on), the persona's lines carry who reacted to them, the missing reactors
-   * fetched within `context.reactions.fetchTimeoutMs`.
+   * read within `context.reactions.fetchTimeoutMs`. An inner turn reads a bounded recent slice (innerLife.chatMessages).
+   * Throws when the interface cannot read the history.
+   * @param {Conv} channel
    */
-  function historyOptions(config, inner = false) {
+  function readHistory(channel, config, { inner = false, draft = null, guildId = null } = {}) {
     const namesOn = reactors && config.features?.reactionNames !== false && config.features?.seeReactions !== false;
-    return {
-      // An inner turn reads a bounded recent slice (innerLife.chatMessages).
+    const communityId = channel.communityId ?? guildId;
+    const names = namesOn
+      ? {
+          store: reactors,
+          budgetMs: config.context.reactions?.fetchTimeoutMs ?? 2000,
+          fetchUsers: config.context.reactions?.fetchUsers ?? 10,
+          known: (memberId) => (communityId ? memberOf(communityId, memberId) : null),
+          cache: draft ? (draft.reactorNames ??= new Map()) : new Map(),
+          selfId: selfIdOf(),
+          communityId: communityId ?? null,
+          log,
+        }
+      : null;
+    return historyLines(ifaceReads, conversationOf(channel), {
       limit: inner ? innerSettings(config).chatMessages : config.context.channelMessages,
-      selfId: client.user.id,
-      embedTextChars: config.media?.embedTextChars,
-      videoSites: config.media?.video?.sites,
-      maxUrlChars: config.context?.maxUrlChars,
-      reactors: namesOn
-        ? {
-            store: reactors,
-            budgetMs: config.context.reactions?.fetchTimeoutMs ?? 2000,
-            fetchUsers: config.context.reactions?.fetchUsers ?? 10,
-          }
-        : null,
-    };
+      names,
+    });
   }
 
   /**
@@ -2857,6 +2899,7 @@ export function createTurnRunner({
   function inTurnTools({
     channel,
     guild,
+    snapshot = null,
     guildId,
     partner = null,
     selfId,
@@ -2919,15 +2962,14 @@ export function createTurnRunner({
           selfId,
           selfName,
           history,
-          decorate: (lines) => linkCalls(lines, { channel, guildId }),
+          decorate: (lines) => linkCalls(lines, { channel, snapshot, guildId }),
           asker: trigger?.authorId ?? null,
           memoryContext: turnContextOf(draft, channel),
           args,
           now: clock(),
           ...(draft ? { refs: searchHandles(draft) } : {}),
         }),
-      'conversation.read': (args) =>
-        readConversation({ args, channel, guild, guildId, partner, selfId, selfName, draft }),
+      'conversation.read': (args) => readConversation({ args, channel, snapshot, guildId, partner, selfName, draft }),
     };
   }
 
@@ -2937,23 +2979,22 @@ export function createTurnRunner({
    * the span, rendered like the chat with each line's `#N` handle in the turn's registry
    * (searchHandles). Another channel passes the pull rail (checkPull: readable, the audience rule
    * toward this turn's channel, a private chat on its partner's behalf); this channel always does.
-   * `not_configured` without a guild or in a private chat without its partner. Never throws.
+   * `not_configured` without the community's snapshot or in a private chat without its partner. Never throws.
+   * @param {{ channel: Conv, snapshot?: Snap|null, [key: string]: * }} params
    */
-  async function readConversation({ args, channel, guild, guildId, partner, selfId, selfName, draft }) {
-    if (!guild || (!channel.guild && !partner)) return { status: 'not_configured', code: CODE.UNSUPPORTED };
+  async function readConversation({ args, channel, snapshot, guildId, partner, selfName, draft }) {
+    if (!snapshot || (!inCommunity(channel) && !partner)) return { status: 'not_configured', code: CODE.UNSUPPORTED };
     const config = hot.config;
     const labels = hot.prompts?.labels ?? {};
-    const channelOf = (id) =>
-      String(id) === String(channel.id) ? channel : (guild.channels?.cache?.get?.(String(id)) ?? null);
+    const channelOf = (id) => (String(id) === String(channel.id) ? channel : (snapshot.get(String(id)) ?? null));
     const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [];
     const stored = new Map(profiles.filter((p) => p?.id).map((p) => [String(p.id), p]));
     const nameOf = (id) =>
       (typeof stored.get(String(id))?.names?.[0] === 'string' ? stored.get(String(id)).names[0] : null) ??
-      guild.members?.cache?.get?.(id)?.displayName ??
+      memberOf(guildId, String(id))?.name ??
       null;
     const settings = recallSettings(config);
     const timezone = config.bot?.timezone ?? 'UTC';
-    const options = typeof discord.normalizeOptions === 'function' ? discord.normalizeOptions(config) : {};
     return runConversationRead({
       args,
       labels,
@@ -2961,11 +3002,17 @@ export function createTurnRunner({
       channelId: String(channel.id),
       channelNameOf: (id) => channelOf(id)?.name ?? null,
       allowed: (id) => {
-        if (String(id) === String(channel.id) && channel.guild) return true;
+        if (String(id) === String(channel.id) && inCommunity(channel)) return true;
         try {
           return (
-            checkPull({ guild, channelId: String(id), destination: channel, partner, config, now: clock() }).skip ===
-            null
+            checkPull({
+              snapshot,
+              channelId: String(id),
+              destination: channel,
+              partnerId: partner?.id ?? null,
+              config,
+              now: clock(),
+            }).skip === null
           );
         } catch {
           return false;
@@ -2975,7 +3022,10 @@ export function createTurnRunner({
         config.features?.record === true
           ? recordMessages(record, guildId, { channelId, from, nameOf, selfName })
           : Promise.resolve([]),
-      fetchLive: (request) => fetchSpan(discord, channelOf(request.channelId), request, { selfId, ...options }),
+      fetchLive: (request) => {
+        const source = channelOf(request.channelId);
+        return fetchSpan(ifaceReads, source ? conversationOf(source) : null, request);
+      },
       render: (slice) => {
         let descriptions;
         if (config.features?.mediaDescriptions === true && typeof describer?.cachedDescriptions === 'function') {
@@ -3024,6 +3074,7 @@ export function createTurnRunner({
   function startPrefetch({
     config,
     channel,
+    snapshot = null,
     guildId,
     guild,
     partner,
@@ -3082,7 +3133,7 @@ export function createTurnRunner({
           history,
           lanes,
           asker: candidate?.authorId ?? null,
-          decorate: (lines) => linkCalls(lines, { channel, guildId }),
+          decorate: (lines) => linkCalls(lines, { channel, snapshot, guildId }),
         });
         op?.succeeded({ status: found?.status ?? null, excerpts: found?.excerpts?.length ?? 0, ms: found?.ms ?? null });
         return found;
@@ -3286,6 +3337,9 @@ export function createTurnRunner({
     }
   }
 
+  /**
+   * @param {{ channel: Conv, [key: string]: * }} params
+   */
   async function runStepsIn({
     channel,
     guildId,
@@ -3375,7 +3429,7 @@ export function createTurnRunner({
       const none = { text: '', lines: [], idByIndex: new Map() };
       let fetched;
       try {
-        fetched = await fetchHistory(channel, historyOptions(hot.config, inner));
+        fetched = await readHistory(channel, hot.config, { inner, draft, guildId });
       } catch (err) {
         log.warn('skills: continuation fetch failed', { channel: channel.id, error: err });
         return none;
@@ -3924,9 +3978,15 @@ export function createTurnRunner({
     return hot.config.features?.previousThink !== false;
   }
 
-  /** The key of the place a channel is (interface + server or private chat + channel). */
+  /**
+   * The key of the place a channel is (interface + server or private chat + channel).
+   * @param {Conv} channel
+   */
   function placeOf(channel, guildId = null) {
-    return placeKey({ guildId: channel.guild ? (guildId ?? channel.guild.id ?? null) : null, channelId: channel.id });
+    return placeKey({
+      guildId: inCommunity(channel) ? (guildId ?? channel.communityId ?? null) : null,
+      channelId: channel.id,
+    });
   }
 
   /**
@@ -3934,6 +3994,7 @@ export function createTurnRunner({
    * `turn: previous think` with the source (turn id, relation, age) or why there is none. Null when
    * nothing is carried.
    * @returns {{ text: string, relation: 'earlier', ageMs: number }|null}
+   * @param {{ channel: Conv, snapshot?: Snap|null, [key: string]: * }} params
    */
   function earlierThinkFor({ channel, guildId, isPrivate, draft, mode }) {
     if (!previousThinkOn() || draft.inner || mode === 'diary') return null;
@@ -3962,21 +4023,22 @@ export function createTurnRunner({
   /** The turn ended: its final think goes to the places it ran in and delivered to (previous-think.js#record). Never throws. */
   function recordTurnThink(args, draft, result) {
     try {
-      const channel = args.channel;
+      /** @type {Conv|undefined} */
+      const channel = draft.info;
       const outcome = result?.outcome ?? 'error';
       if (!channel || result?.dryRun === true || !previousThinkOn()) return;
       const failed = outcome === 'error' || outcome === 'refused';
       if (!failed && outcome !== 'spoke' && outcome !== 'skip') return;
-      const guildId = args.guildId ?? channel.guild?.id ?? null;
+      const guildId = args.guildId ?? channel.communityId ?? null;
       const delivered = [...(draft.deliveredIn ?? [])].map((id) =>
-        placeKey({ guildId: channel.guild ? guildId : null, channelId: id })
+        placeKey({ guildId: inCommunity(channel) ? guildId : null, channelId: id })
       );
       thinks.record({
         turnId: draft.started?.turnId ?? draft.turnKey?.turnId ?? null,
         at: clock(),
         think: draft.finalThink ?? null,
         failed,
-        isPrivate: !channel.guild,
+        isPrivate: !inCommunity(channel),
         inner: Boolean(args.inner),
         ran: placeOf(channel, guildId),
         delivered,
@@ -4005,17 +4067,19 @@ export function createTurnRunner({
    * channel names read live from the guild of `channel` (the turn's), the message links built in
    * `guildId` (`@me` for a message of the private chat itself). `lines` as they are with
    * features.callMarkers off (a missing key counts as on, read now).
+   * @param {*} lines
+   * @param {{ channel: Conv, snapshot?: Snap|null, [key: string]: * }} options
    */
-  function linkCalls(lines, { channel, guildId, extra = null }) {
+  function linkCalls(lines, { channel, snapshot = null, guildId, extra = null }) {
     if (hot.config.features?.callMarkers === false) return lines;
     const turnMarks = Array.isArray(extra) ? extra : [];
     if (callMarks.length === 0 && turnMarks.length === 0 && postedFromLinks.size === 0) return lines;
-    const privateId = channel.guild ? null : String(channel.id);
+    const privateId = inCommunity(channel) ? null : String(channel.id);
     return withCalls(
       lines,
       { calls: turnMarks.length > 0 ? [...callMarks, ...turnMarks] : callMarks, postedFrom: postedFromLinks },
       {
-        nameOf: liveChannelName(channel),
+        nameOf: liveChannelName(channel, snapshot),
         linkOf: (channel, message) => messageLinkOf(iface, channel === privateId ? null : guildId, channel, message),
       }
     );
@@ -4104,9 +4168,7 @@ export function createTurnRunner({
   }) {
     if (!record || hot.config.features?.record !== true) return;
     if (typeof posted?.id !== 'string' || !posted.id) return;
-    const privateUserId = privateChat
-      ? (draft?.privateUserId ?? trigger?.authorId ?? channel.recipientId ?? null)
-      : null;
+    const privateUserId = privateChat ? (draft?.privateUserId ?? trigger?.authorId ?? channel.partnerId ?? null) : null;
     if (privateChat && !privateUserId) return;
     const line = toRecordLine(
       {
@@ -4181,19 +4243,16 @@ export function createTurnRunner({
   /**
    * `text` with every `#handle` of `channelHandles` (the request's handle -> channel id) and, with
    * features.channelLinks on (read now; a missing key counts as on), every `#name` of one of the
-   * guild's text channels turned into its `<#id>` link (src/memory/mentions.ts#linkChannels; a
+   * community's text channels (the turn's snapshot) turned into its `<#id>` link (src/memory/mentions.ts#linkChannels; a
    * handle first, exactly). A private chat has no guild: only its handles, if any, are linked.
+   * @param {Conv} channel
+   * @param {Snap|null} snapshot
    */
-  function withChannelLinks(channel, text, channelHandles = null) {
+  function withChannelLinks(channel, text, channelHandles = null, snapshot = null) {
     const handles = channelHandles instanceof Map ? channelHandles : null;
     if (hot.config.features?.channelLinks === false) return handles ? linkChannels(text, [], handles) : text;
-    const cache = channel?.guild?.channels?.cache;
-    if (!cache || typeof cache.values !== 'function') return handles ? linkChannels(text, [], handles) : text;
-    const channels = [];
-    for (const ch of cache.values()) {
-      const textBased = typeof ch?.isTextBased === 'function' ? ch.isTextBased() : ch?.type === 0;
-      if (textBased) channels.push({ id: ch.id, name: ch.name });
-    }
+    if (!snapshot || !inCommunity(channel)) return handles ? linkChannels(text, [], handles) : text;
+    const channels = snapshot.conversations.map((entry) => ({ id: entry.id, name: entry.name }));
     return linkChannels(text, channels, handles);
   }
 
@@ -4221,6 +4280,7 @@ export function createTurnRunner({
     written,
     {
       channel,
+      snapshot = null,
       guildId,
       privateChat,
       idByIndex,
@@ -4248,7 +4308,8 @@ export function createTurnRunner({
       withChannelLinks(
         channel,
         withMessageLinks(spoken, { guildId, channelId: channel.id, privateChat, idByIndex, pulledIds }),
-        channelHandles
+        channelHandles,
+        snapshot
       ),
       link,
       hot.prompts?.labels
@@ -4292,20 +4353,20 @@ export function createTurnRunner({
 
   /**
    * The bare name of the diary channel (`diary.channelId`, in `config`: the turn's live config)
-   * for `<senses>`: null with no channel set, `features.diary` off, or a channel the served
-   * guild's cache (else the client's) does not know by name.
+   * for `<senses>`: null with no channel set, `features.diary` off, or a channel neither the turn's snapshot
+   * nor the conversation directory knows by name.
+   * @param {Snap|null} snapshot
    */
-  function diaryChannelName(guildId, config) {
+  function diaryChannelName(guildId, config, snapshot = null) {
     const id = config.diary?.channelId;
     if (!id || config.features?.diary === false) return null;
-    const found =
-      client.guilds?.cache?.get?.(guildId)?.channels?.cache?.get?.(id) ?? client.channels?.cache?.get?.(id) ?? null;
-    return typeof found?.name === 'string' && found.name ? found.name : null;
+    const name = snapshot?.get(String(id))?.name ?? conversationName(id) ?? null;
+    return typeof name === 'string' && name ? name : null;
   }
 
   /** One dry-run mirror message (src/behavior/limits.js#mirrorDryRun), `bot.dryRunChannelId` read now. */
   function mirror(header, body) {
-    return mirrorDryRun({ client, dryRunChannelId: hot.config.bot?.dryRunChannelId || '', header, body });
+    return mirrorDryRun({ port: iface, dryRunChannelId: hot.config.bot?.dryRunChannelId || '', header, body });
   }
 
   /**
@@ -4313,6 +4374,7 @@ export function createTurnRunner({
    * stops it. Sent through the port; one that does not answer `ok` logs `turn: typing failed`. `preparing` tells the
    * log which wait it covers (the preparation, or the tool loop's calls).
    * @returns {() => void}  Stops the lease.
+   * @param {Conv} channel
    */
   function startChannelTyping(channel, preparing) {
     const send = () =>
@@ -4338,6 +4400,7 @@ export function createTurnRunner({
    * an inner or a diary turn, with features.typingSimulation on, where the bot can send, in no dry run, with skills on.
    * Not gated by pace.typingWhilePreparing (that one is the preparation's).
    * @returns {() => void}  Stops the lease; `() => {}` when it does not show.
+   * @param {Conv} channel
    */
   function typingWhileCalls(channel, triggerKind, draft) {
     const off = () => {};
@@ -4345,12 +4408,7 @@ export function createTurnRunner({
     const config = hot.config;
     if (config.features?.typingSimulation === false || config.features?.dryRun === true || !skillsOn(config))
       return off;
-    let sendable = false;
-    try {
-      sendable = typeof channel.sendTyping === 'function' && canSend(channel);
-    } catch {
-      sendable = false;
-    }
+    const sendable = channel.permissions?.send === true;
     return sendable ? startChannelTyping(channel, false) : off;
   }
 
@@ -4365,18 +4423,14 @@ export function createTurnRunner({
    * is silent). Sent through the port; one that does not answer `ok` logs
    * `turn: typing failed` and changes nothing else.
    * @returns {() => void}  Stops the indicator's refresh.
+   * @param {Conv} channel
    */
   function typingWhilePreparing(channel, triggerKind, config) {
     const off = () => {};
     if (!DIRECT_CALLS.has(triggerKind) || config.features?.typingSimulation === false) return off;
     if (!paceSettings(config).typingWhilePreparing || hot.config.features?.dryRun === true || !skillsOn(hot.config))
       return off;
-    let sendable = false;
-    try {
-      sendable = typeof channel.sendTyping === 'function' && canSend(channel);
-    } catch {
-      sendable = false;
-    }
+    const sendable = channel.permissions?.send === true;
     if (!sendable) return off;
     return startChannelTyping(channel, true);
   }
@@ -4401,7 +4455,7 @@ export function createTurnRunner({
    * first, as the GIF that would be posted in place of the first message, then
    * the other messages. `history`: the chat lines the picker's `<context>`
    * reads; `trigger`: the message the turn answers (the picker's answered line).
-   * @param {{ channel: object, guildId: string, parsed: object, idByIndex: Map<number, string>,
+   * @param {{ channel: Conv, guildId: string, parsed: object, idByIndex: Map<number, string>,
    *   history?: object[], mode: string, triggerKind: TriggerKind|null, trigger?: object|null, plain: boolean, selfName: string, pulledIds: Map<string, string>,
    *   lines: object[], knownNames: { name: string, id: string }[], directory?: (() => { name: string, id: string }[])|null,
    *   linkFor: (pulledId: string|null) => string|null, part?: { index: number, total: number }|null, diaryDraws?: object[]|null, diarySet?: boolean }} args
@@ -4455,7 +4509,7 @@ export function createTurnRunner({
     for (const reaction of parsed.reactions) {
       const targetId = idByIndex.get(reaction.to);
       if (!targetId) continue;
-      const route = reactionChannel(channel, targetId, pulledIds, discord);
+      const route = reactionChannel(snapshotOfDraft(draft), channel, targetId, pulledIds);
       if (!route.target) {
         log.info('turn: reaction dropped', { channel: channel.id, source: route.source, reason: route.reason });
         continue;
@@ -4523,6 +4577,7 @@ export function createTurnRunner({
       // Same deliberate exception as above: the persona's own output, dry-run only.
       const { text } = renderPost(message.text, {
         channel,
+        snapshot: draft?.snapshot ?? null,
         guildId,
         privateChat: false,
         idByIndex,
@@ -4597,11 +4652,15 @@ export function createTurnRunner({
    * counts it (null: nobody's); `avatar` the holder a diary set reuses the avatar through.
    * Throws what the image client throws (ImageCapError, ImageGenError).
    */
-  function makePicture({ scene, self, selfName, userId = null, avatar = null }) {
+  function makePicture({ scene, self, selfName, guildId = null, userId = null, avatar = null }) {
     return drawPicture({
       images,
       hot,
-      client,
+      // The persona's large avatar, asked of the interface only when the picture needs the reference.
+      avatarUrl: async () => {
+        const found = await ifaceReads.memberInfo({ communityId: guildId, memberId: selfIdOf() });
+        return found?.member?.avatar.largeUrl ?? null;
+      },
       imageFetcher,
       now: clock,
       input: { scene, selfName, self, withTime: true, userId, avatar },
@@ -4625,6 +4684,8 @@ export function createTurnRunner({
    * diaryPictureGate) while the post may carry none, `loop-cap` past what the post's kind takes
    * (one picture, or `diary.set.pictures[1]` for a set kind: `draft.diary.set`). Never throws.
    * @returns {Promise<{ status: string, code?: string, ref?: object|null, at?: number, error?: object|null, data: { text: string } }>}
+   * @param {*} args
+   * @param {{ channel: Conv, [key: string]: * }} context
    */
   async function drawTool(
     args,
@@ -4655,8 +4716,7 @@ export function createTurnRunner({
         const given = args?.channelId ? String(args.channelId) : null;
         if (given && reply?.channelId && given !== reply.channelId) return failed('invalid', CODE.UNKNOWN_MESSAGE);
         channelId = await postingConversation({
-          client,
-          discord,
+          reads: ifaceReads,
           guildId,
           channelId: given ?? reply?.channelId ?? null,
           context: { channelId: String(channel.id) },
@@ -4664,7 +4724,7 @@ export function createTurnRunner({
         });
         replyId = reply?.messageId ?? null;
         // The current channel: where no file can be posted nothing is generated (or paid for).
-        if (channelId === String(channel.id) && !canAttach(channel))
+        if (channelId === String(channel.id) && !channel.permissions.attach)
           return failed('failed', CODE.CHANNEL_NO_PERMISSION);
       }
       // Nothing is paid for a picture its publication may not have.
@@ -4679,6 +4739,7 @@ export function createTurnRunner({
           scene,
           self,
           selfName,
+          guildId,
           userId: asked ? (trigger.authorId ?? null) : null,
           ...(staging && draft ? { avatar: (draft.avatar ??= {}) } : {}),
         });
@@ -4722,8 +4783,7 @@ export function createTurnRunner({
       // Checked again right before the publication: generated or not, a refused picture is not posted.
       const after = checkEffect('message.create', sendArgs({ media: name, replyId }), { channel, trigger });
       if (!after.ok) return failed(refusalStatus(after.code), after.code, { reason: after.reason });
-      const target =
-        channelId === String(channel.id) ? channel : ((await channelById(client, channelId)) ?? { id: channelId });
+      const target = channelId === String(channel.id) ? channel : { id: channelId };
       const result = await iface.send(conversationOf(target), {
         attachments: [{ name, data: picture.buffer, contentType: picture.mediaType }],
         ...(replyId ? { replyTo: messageOf(target, replyId) } : {}),
@@ -4801,11 +4861,12 @@ export function createTurnRunner({
    * A fresh URL of an attached GIF: its original message is fetched again
    * (Discord attachment URLs expire) and the attachment found by id, in the
    * message itself or in a forwarded snapshot. Null when anything fails.
+   * @param {Conv} channel
    */
   async function freshAttachmentUrl(channel, entry) {
     return sharedFreshAttachmentUrl({
-      client,
-      channel,
+      reads: ifaceReads,
+      channel: conversationOf(channel),
       entry,
       onError: (err) => log.warn('turn: gif refetch failed', { channel: channel.id, gif: entry.id, error: err }),
     });
@@ -4828,6 +4889,7 @@ export function createTurnRunner({
    * null; `link`: the jump link it carries after its URL (withLink, so the
    * URL comes first and still embeds), or null; `trigger`: the turn's (the requester).
    * @returns {Promise<{ message: object, op: object }|null>}
+   * @param {Conv} channel
    */
   async function postGif(channel, guildId, gif, replyId, link, { openOp = () => NO_OP, trigger = null } = {}) {
     const { entry } = gif;
@@ -5163,7 +5225,7 @@ export function createTurnRunner({
     for (const reaction of parsed.reactions) {
       const targetId = idByIndex.get(reaction.to);
       if (!targetId) continue;
-      const route = reactionChannel(channel, targetId, pulledIds, discord);
+      const route = reactionChannel(snapshotOfDraft(draft), channel, targetId, pulledIds);
       if (!route.target) {
         log.info('turn: reaction dropped', { channel: channel.id, source: route.source, reason: route.reason });
         continue;
@@ -5231,6 +5293,7 @@ export function createTurnRunner({
       const { replyId } = replyTarget(head.replyTo, { plain, idByIndex, pulledIds });
       const { spoken: first, text: firstText } = renderPost(head.text, {
         channel,
+        snapshot: draft?.snapshot ?? null,
         guildId,
         privateChat,
         idByIndex,
@@ -5305,6 +5368,7 @@ export function createTurnRunner({
       // Links on the text sent; the typing time stays on the text before them.
       const { text, spoken, userIds } = renderPost(message.text, {
         channel,
+        snapshot: draft?.snapshot ?? null,
         guildId,
         privateChat,
         idByIndex,
@@ -5387,7 +5451,7 @@ export function createTurnRunner({
         ts: Number.isFinite(posted?.createdTimestamp) ? posted.createdTimestamp : clock(),
         channelId: channel.id,
         self: true,
-        authorId: client.user?.id ?? '',
+        authorId: selfIdOf(),
         content: message.text,
         replyToId: replyId,
       };
@@ -5804,21 +5868,20 @@ export function createTurnRunner({
 
   /**
    * The fallback directory of one turn (mentionDirectory) as a thunk, built on its first call
-   * and kept for the turn: the served guild's member cache (the client's guild, else the
-   * channel's; only the members Discord already sent, no fetch) and, with memory on, the stored
+   * and kept for the turn: the members of the served community the member directory holds (only the members
+   * the interface already told the core of, no read) and, with memory on, the stored
    * profiles. A failure to build it logs `turn: directory failed` and gives an empty one.
    * @returns {() => { name: string, id: string }[]}
    */
-  function turnDirectory({ guildId, channel, memoryOn }) {
+  function turnDirectory({ guildId, memoryOn }) {
     let built = null;
     return () => {
       if (built) return built;
       try {
-        const cache = (client.guilds?.cache?.get?.(guildId) ?? channel?.guild)?.members?.cache;
-        const members = cache && typeof cache.values === 'function' ? [...cache.values()] : [];
+        const members = typeof membersOf === 'function' ? membersOf(guildId) : [];
         const profiles =
           memoryOn && typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [];
-        built = mentionDirectory({ members, profiles, selfId: client?.user?.id ?? null });
+        built = mentionDirectory({ members, profiles, selfId: selfIdOf() || null });
       } catch (err) {
         log.warn('turn: directory failed', { guildId, error: err });
         built = [];
@@ -5828,22 +5891,18 @@ export function createTurnRunner({
   }
 
   /**
-   * A private chat's partner as a member of the served guild (a discord.js
-   * GuildMember), for a private chat that works like a server turn on their
-   * behalf: features.privateLikeServer (read from `config`, the turn's live
-   * config; a missing key counts as on, only false turns it off). The member
-   * is fetched from the pinned guild (`guild.members.fetch`, the cache first).
-   * Null with the switch off, without a user id, a cached guild or a member
-   * fetch; a fetch that fails (the member left) logs `turn: partner failed`
-   * and is null too. Never rejects.
-   * @returns {Promise<object|null>}
+   * A private chat's partner as a member of the served community (`memberInfo`), for a private chat that works
+   * like a server turn on their behalf: features.privateLikeServer (read from `config`, the turn's live
+   * config; a missing key counts as on, only false turns it off). Null with the switch off, without a user id,
+   * a read the interface does not answer or a user who is no member (the member left); a read that fails
+   * (the interface answers an error) logs `turn: partner failed` and is null too. Never rejects.
+   * @returns {Promise<{ id: string, name: string|null, bot: boolean, groupIds: string[] }|null>}
    */
   async function privatePartner({ guildId, userId, config }) {
     if (config.features?.privateLikeServer === false || !userId) return null;
-    const guild = client.guilds?.cache?.get?.(guildId) ?? null;
-    if (typeof guild?.members?.fetch !== 'function') return null;
     try {
-      return (await guild.members.fetch(userId)) ?? null;
+      const found = await ifaceReads.memberInfo({ communityId: guildId, memberId: String(userId) });
+      return found?.member ?? null;
     } catch (err) {
       log.warn('turn: partner failed', { guildId, userId, error: err });
       return null;
@@ -6037,7 +6096,8 @@ export function createTurnRunner({
     config,
     guildId,
     channel,
-    guild = channel.guild,
+    snapshot = null,
+    guild = null,
     partner = null,
     selfId,
     selfName,
@@ -6226,7 +6286,7 @@ export function createTurnRunner({
                   candidate: trigger,
                   server,
                   // Her lines in the found stretches show her skill calls like her chat lines.
-                  decorate: (lines) => linkCalls(lines, { channel, guildId }),
+                  decorate: (lines) => linkCalls(lines, { channel, snapshot, guildId }),
                   // The turn's execution context, issued when the search runs.
                   ...(typeof turnContext === 'function' ? { memoryContext: turnContext() } : {}),
                 }),
@@ -6314,12 +6374,12 @@ export function createTurnRunner({
   }
 
   /**
-   * fetchPull (interfaces/discord/pull-fetch.js) that never throws: an unexpected
+   * fetchPull (src/behavior/pull-fetch.ts) that never throws: an unexpected
    * failure is logged (`pull: failed`) and counts as a skip with code `error`.
    */
   async function pullSafely(args) {
     try {
-      return await fetchPull(args);
+      return await fetchPull({ reads: ifaceReads, ...args });
     } catch (err) {
       log.warn('pull: failed', {
         channel: args.destination?.id ?? null,
@@ -6358,28 +6418,30 @@ export function createTurnRunner({
    * and features.participation on (`config`, the turn's live config; a missing key counts as on),
    * a server channel that is not the diary channel (`diary.channelId`), and a store that keeps
    * one. Recording, the pick classifier and the `<participation>` block all ask this.
+   * @param {Conv} channel
    */
   function participationOn(channel, config) {
     const features = config.features ?? {};
     if (features.memory === false || features.participation === false) return false;
-    if (!channel?.guild || typeof store.getParticipation !== 'function') return false;
+    if (!inCommunity(channel) || typeof store.getParticipation !== 'function') return false;
     const diaryId = config.diary?.channelId;
     return !(diaryId && channel.id === diaryId);
   }
 
   /**
-   * Which channels a turn in `channel` may show participation episodes from: a channel of its
-   * guild whose audience passes the rail the neighbours and the pulls pass
-   * (interfaces/discord/pull-fetch.js#audienceAllows, `context.pull.sameAudience`: everyone who can
-   * read this channel can read that one). A channel the guild does not hold, or a check that
+   * Which channels a turn in `channel` may show participation episodes from: a conversation of its
+   * community (the turn's snapshot) whose audience passes the rail the neighbours and the pulls pass
+   * (src/behavior/snapshot.ts#audienceAllows, `context.pull.sameAudience`: everyone who can
+   * read this channel can read that one). A conversation the snapshot does not hold, or a check that
    * throws, is refused.
    * @returns {(channelId: string) => boolean}
+   * @param {Conv} channel
+   * @param {Snap|null} snapshot
    */
-  function participationAudience(channel, config) {
-    const cache = channel.guild?.channels?.cache;
+  function participationAudience(channel, config, snapshot = null) {
     return (channelId) => {
       try {
-        const other = cache?.get?.(channelId) ?? null;
+        const other = snapshot?.get(String(channelId)) ?? null;
         return Boolean(other) && audienceAllows(channel, other, config);
       } catch {
         return false;
@@ -6393,24 +6455,28 @@ export function createTurnRunner({
    * she never names who sits in a room this chat cannot see. Null without the store, with
    * `features.around` off (a missing key counts as on), in a private chat and in a diary post.
    * Read at the moment of the request; nothing of it is kept.
+   * @param {{ snapshot?: Snap|null, [key: string]: * }} params
    */
-  function aroundInputFor({ channel, config, mode, isPrivate }) {
+  function aroundInputFor({ config, mode, isPrivate, snapshot = null }) {
     if (!around || config.features?.around === false || isPrivate || mode === 'diary') return null;
-    const guild = channel.guild;
     return {
       snapshot: around.view(),
       channelNameOf: (channelId) => {
-        const voice = guild?.channels?.cache?.get?.(channelId);
-        const visible = voice?.permissionsFor?.(guild.roles?.everyone)?.has?.('ViewChannel') === true;
+        const voice = snapshot?.get(String(channelId));
+        const visible = voice?.voice === true && voice.public === true;
         return visible && typeof voice.name === 'string' && voice.name ? voice.name : null;
       },
     };
   }
 
-  /** A channel's live name in `channel`'s guild, for a participation episode whose channel has no stored note. */
-  function liveChannelName(channel) {
+  /**
+   * A channel's live name in `channel`'s guild, for a participation episode whose channel has no stored note.
+   * @param {Conv} channel
+   * @param {Snap|null} snapshot
+   */
+  function liveChannelName(channel, snapshot = null) {
     return (channelId) => {
-      const name = channel.guild?.channels?.cache?.get?.(channelId)?.name;
+      const name = inCommunity(channel) ? snapshot?.get(String(channelId))?.name : undefined;
       return typeof name === 'string' && name ? name : null;
     };
   }
@@ -6452,6 +6518,7 @@ export function createTurnRunner({
    * something changed, then logged `participation: recorded` (`channel`, `episodes`: how many
    * the store holds). Never throws: a failure logs `participation: failed` (`reason:
    * 'record-error'`).
+   * @param {{ channel: Conv, snapshot?: Snap|null, [key: string]: * }} params
    */
   function recordOwnParticipation({ channel, guildId, history, earlier, own, replyId, selfName, descriptions }) {
     try {
@@ -6488,7 +6555,7 @@ export function createTurnRunner({
    * `memory.recentHours` (src/memory/store.js#getRecent, read now) and which
    * source channels this turn may show them from. On a server turn: the
    * channel the turn posts in, and every channel whose audience covers it
-   * (interfaces/discord/collect.js#audienceOf, src/behavior/elsewhere.ts#audienceCovers:
+   * (the snapshot's audiences, src/behavior/elsewhere.ts#audienceCovers:
    * everyone who can read this channel can read that one). In a private chat:
    * the channels every member of the served guild can read. A channel the
    * guild does not hold is never covered. No live line: an empty list (the
@@ -6498,20 +6565,20 @@ export function createTurnRunner({
    * a read that throws is logged (`recent: failed`) and is nothing either: the
    * block is never worth a turn.
    * @returns {{ lines: object[]|undefined, audience: ((channelId: string|null) => boolean)|undefined }}
+   * @param {{ channel: Conv, snapshot?: Snap|null, [key: string]: * }} params
    */
-  function recentInput({ channel, guildId, isPrivate, config, now }) {
+  function recentInput({ channel, snapshot = null, guildId, isPrivate, config, now }) {
     const settings = recentSettings(config);
     if (!settings || typeof store.getRecent !== 'function') return NO_RECENT;
     try {
       const lines = liveRecent(store.getRecent(guildId)?.lines, { now, hours: settings.hours });
       if (lines.length === 0) return { lines, audience: undefined };
-      const guild = isPrivate ? (client.guilds?.cache?.get?.(guildId) ?? null) : channel.guild;
-      const here = isPrivate ? everyMemberAudience() : audienceOf(channel);
+      const here = isPrivate ? everyMemberAudience() : railAudience(channel.audience);
       const allowed = new Set();
       for (const id of new Set(lines.map((line) => line.channelId))) {
         if (typeof id !== 'string' || !id) continue;
         if (!isPrivate && id === channel.id) allowed.add(id);
-        else if (audienceCovers(here, audienceOf(guild?.channels?.cache?.get?.(id) ?? null))) allowed.add(id);
+        else if (audienceCovers(here, railAudience(snapshot?.get(String(id))?.audience))) allowed.add(id);
       }
       return { lines, audience: (channelId) => allowed.has(channelId) };
     } catch (err) {
@@ -6551,6 +6618,7 @@ export function createTurnRunner({
    * `<seeds>` body; '' for any other kind). Settings come from `config`, the turn's live config.
    * @returns {Promise<{ posts: object[], plan: { kind: string|null, brief: string, search: string,
    *   picture: boolean, fallback: boolean, topic?: string }, found: string|null, pictureAllowed: boolean, seeds: string }>}
+   * @param {{ channel: Conv, snapshot?: Snap|null, [key: string]: * }} params
    */
   async function prepareDiary({ config, guildId, channel, selfName, history, now, params, memoryOn, draft = null }) {
     const prompts = hot.prompts;
@@ -6572,7 +6640,9 @@ export function createTurnRunner({
     let answer = null;
     const planPrompt = prompts?.['diary-plan'];
     if (typeof planPrompt === 'string' && planPrompt.trim() && labels) {
-      const recent = memoryOn ? recentInput({ channel, guildId, isPrivate: false, config, now }) : NO_RECENT;
+      const recent = memoryOn
+        ? recentInput({ channel, snapshot: draft?.snapshot ?? null, guildId, isPrivate: false, config, now })
+        : NO_RECENT;
       const seedsText = renderSeedsBlock(
         pickSeeds(parseSeedFamilies(prompts['diary-seeds']), diaryCfg.seedSets ?? 2, rng),
         labels
@@ -6695,11 +6765,12 @@ export function createTurnRunner({
    * daily cap (`image.maxPerDay`); a closed cap names its key and counts. Settings come
    * from `config`, the turn's live config.
    * @returns {{ allowed: boolean, limit: { key: string, used: number, cap: number }|null }}
+   * @param {Conv} channel
    */
   function diaryPictureGate(config, channel, now) {
     const closed = (limit = null) => ({ allowed: false, limit });
     const imageQuota = images && typeof images.quota === 'function' ? images.quota({}) : null;
-    if (!imageQuota || config.features?.imageGeneration === false || !canAttach(channel)) return closed();
+    if (!imageQuota || config.features?.imageGeneration === false || !channel.permissions.attach) return closed();
     const picturesToday = countToday(store.state.data, DIARY_PICTURES_DAILY, now);
     const diaryCap = config.diary?.maxPicturesPerDay ?? 8;
     if (picturesToday >= diaryCap)
@@ -6777,8 +6848,8 @@ export function createTurnRunner({
    * `candidate` (default: the trigger) is what the route hook judges: on a
    * turn answering one part of a split message, the trigger with that part's text.
    * A private chat with its `partner` (privatePartner) pulls the same way from
-   * `guild`, the served guild, every rail judged against the partner instead of
-   * an audience (checkPull: their View Channel on the candidate); it has no
+   * `snapshot`, the served community's listing, every rail judged against the partner instead of
+   * an audience (checkPull: their view of the candidate); it has no
    * source. `routePlan` (the turn planner's route step, runTurnAttempt; null
    * without features.turnPlanner): `({ lines, routed }) => Promise<{ id,
    * direction }[]>`, asked where the route hook would be, instead of it.
@@ -6788,14 +6859,13 @@ export function createTurnRunner({
   async function pullChannels({
     channel,
     guildId,
-    guild = channel.guild,
+    snapshot = null,
     partner = null,
     history,
     trigger,
     candidate = trigger,
     triggerKind = null,
     source,
-    selfId,
     selfName,
     config,
     now,
@@ -6810,7 +6880,8 @@ export function createTurnRunner({
     let judging = 'mention';
     const judge = (id) => {
       try {
-        return checkPull({ guild, channelId: id, destination: channel, partner, config, now }).skip;
+        return checkPull({ snapshot, channelId: id, destination: channel, partnerId: partner?.id ?? null, config, now })
+          .skip;
       } catch (err) {
         log.warn('pull: failed', { channel: channel.id, source: id, pullReason: judging, error: err });
         return 'error';
@@ -6859,17 +6930,16 @@ export function createTurnRunner({
     };
     const pullOne = (target) =>
       pullSafely({
-        guild,
+        snapshot,
         guildId,
         channelId: target.channelId,
         destination: channel,
-        partner,
+        partnerId: partner?.id ?? null,
         reason: target.reason,
         trigger: target.reason === 'routed' ? trigger : null,
         ...pageOf(target.channelId),
         pings,
         config,
-        selfId,
         now,
         describer: describer ?? null,
         turnCertain: certain && labelled,
@@ -6895,7 +6965,7 @@ export function createTurnRunner({
         : await routeIds({
             guildId,
             channel,
-            guild,
+            snapshot,
             partner,
             history: routedLines ?? history,
             trigger: candidate,
@@ -6979,7 +7049,7 @@ export function createTurnRunner({
   }
 
   /**
-   * Fresh captions (interfaces/discord/pull-fetch.js#captionPulled) for channels
+   * Fresh captions (src/behavior/pull-fetch.ts#captionPulled) for channels
    * pulled before a chooser, once the turn is certain to run; only with
    * features.mediaDescriptions on and a describer. Never rejects: a channel
    * whose captions fail keeps the cached ones (`pull: captions failed`).
@@ -7208,7 +7278,7 @@ export function createTurnRunner({
     // Every attempt that started in the journal (runTurnOnce), closed here, at the one exit.
     const attempts = [];
     // What every attempt posted in reply to and why it ended (runTurnOnce), for the end hook.
-    const ends = { replyTargets: [], reasons: [], factsShown: null };
+    const ends = { replyTargets: [], reasons: [], factsShown: null, info: null };
     const tracked = { ...params, journalAttempts: attempts, turnEnds: ends };
     let result;
     let thrown = null;
@@ -7234,10 +7304,11 @@ export function createTurnRunner({
    */
   function noteFailedTurn(params, result, ends, thrown) {
     try {
-      const { channel, trigger = null, triggerKind = null, mode = null } = params ?? {};
+      const { trigger = null, triggerKind = null, mode = null } = params ?? {};
+      const channel = ends.info;
       if (!channel || mode !== 'reply' || !askedFor(trigger, triggerKind) || !trigger?.id) return;
-      const guildId = params.guildId ?? channel.guild?.id ?? null;
-      const scope = { channelId: String(channel.id), privateChat: !channel.guild };
+      const guildId = params.guildId ?? channel.communityId ?? null;
+      const scope = { channelId: String(channel.id), privateChat: !inCommunity(channel) };
       const at = clock();
       const outcome = result?.outcome ?? 'error';
       if (outcome !== 'error' && outcome !== 'busy' && outcome !== 'paused') {
@@ -7275,7 +7346,7 @@ export function createTurnRunner({
    */
   function recordTurnFacts(args, draft, result) {
     try {
-      const channel = args.channel;
+      const channel = draft.info;
       if (!channel || result?.dryRun === true) return;
       const entries = [];
       if (draft.sendFailure) entries.push({ kind: 'sendFailed', ...draft.sendFailure });
@@ -7291,10 +7362,10 @@ export function createTurnRunner({
       for (const { kind, ...rest } of untoldDiagnostics(draft))
         entries.push({ kind: 'diagnostic', diagnostic: kind, ...rest });
       if (entries.length === 0) return;
-      const guildId = args.guildId ?? channel.guild?.id ?? null;
+      const guildId = args.guildId ?? channel.communityId ?? null;
       const at = clock();
       for (const entry of entries)
-        facts().add(guildId, { ...entry, channelId: String(channel.id), privateChat: !channel.guild, at });
+        facts().add(guildId, { ...entry, channelId: String(channel.id), privateChat: !inCommunity(channel), at });
     } catch (err) {
       log.warn('turn: facts not kept', { error: err });
     }
@@ -7310,7 +7381,9 @@ export function createTurnRunner({
    */
   function noteTurnEnd(params, result, ends) {
     if (typeof onTurnEnd !== 'function') return;
-    const { channel, trigger = null, triggerKind = null, mode = null, source = null } = params ?? {};
+    const { trigger = null, triggerKind = null, mode = null, source = null } = params ?? {};
+    const channel = ends.info;
+    const channelId = channel?.id ?? params?.conversation?.conversationId ?? null;
     const outcome = result?.outcome ?? 'error';
     const reason =
       typeof result?.reason === 'string'
@@ -7319,16 +7392,16 @@ export function createTurnRunner({
           ? 'too-slow'
           : null;
     const end = {
-      guildId: channel?.guild?.id ?? params?.guildId ?? null,
-      channelId: channel?.id ?? null,
-      privateChat: !channel?.guild,
+      guildId: channel?.communityId ?? params?.guildId ?? null,
+      channelId,
+      privateChat: channel ? !inCommunity(channel) : false,
       routed: Boolean(source),
       mode,
       trigger: trigger
         ? {
             id: trigger.id ?? null,
             authorId: trigger.authorId ?? null,
-            channelId: trigger.channelId ?? channel?.id ?? null,
+            channelId: trigger.channelId ?? channelId,
             ts: trigger.ts ?? null,
             content: trigger.content ?? '',
           }
@@ -7372,7 +7445,8 @@ export function createTurnRunner({
    * result for the message (chainOutcome).
    */
   async function runChain(params, { parts, history }) {
-    const { channel, trigger } = params;
+    const { trigger } = params;
+    const channel = { id: params.conversation.conversationId };
     const total = parts.length;
     const chain = { authorId: trigger?.authorId ?? null, parts, next: 0, added: new Map() };
     chains.set(channel.id, chain);
@@ -7477,6 +7551,7 @@ export function createTurnRunner({
       // whatever it returned (a throw counts as `error`).
       if (draft.started) args.journalAttempts?.push({ draft, result: result ?? { outcome: 'error' } });
       if (args.turnEnds) {
+        if (draft.info) args.turnEnds.info = draft.info;
         args.turnEnds.replyTargets.push(...(draft.replyTargets ?? []));
         if (typeof draft.reason === 'string') args.turnEnds.reasons.push(draft.reason);
         if (draft.factsShown) args.turnEnds.factsShown = draft.factsShown;
@@ -7505,10 +7580,14 @@ export function createTurnRunner({
       : { ...result, ...innerPart };
   }
 
-  /** runTurnOnce's body; `draft` collects what the journal's turn record needs (journalTurnRecord). */
+  /**
+   * runTurnOnce's body; `draft` collects what the journal's turn record needs (journalTurnRecord).
+   * @param {{ conversation: import('../protocol/adapter.ts').ConversationRef, guildId?: string|null, [key: string]: * }} params
+   * @param {*} draft
+   */
   async function runTurnAttempt(
     {
-      channel,
+      conversation,
       guildId: guildIdParam = null,
       mode,
       trigger = null,
@@ -7534,9 +7613,6 @@ export function createTurnRunner({
     },
     draft = {}
   ) {
-    // A server channel carries its guild; a private chat is served on behalf of the pinned one.
-    const guildId = channel.guild?.id ?? guildIdParam;
-    if (!guildId) throw new Error('runTurn: a channel without a guild needs a guildId');
     // The journal's preparation steps of this attempt (createPrepLedger): each an operation of
     // the engine, closed with whether its result reached the request.
     const prep = createPrepLedger();
@@ -7544,7 +7620,6 @@ export function createTurnRunner({
       const op = journalOp(draft, name, 'engine', fields);
       return op.opId ? prep.step(stage, op, offeredOf) : null;
     };
-    const isPrivate = !channel.guild;
     // An inner turn (mode `inner`, src/behavior/inner.js): her calls pass its gate (innerVerdict).
     if (inner && mode === 'inner') draft.inner = inner;
     // The turn a finished errand of her own opens (asked in an inner turn: requester kind
@@ -7558,6 +7633,19 @@ export function createTurnRunner({
     // requested is left to finish naturally; admin.js's pause handler waits
     // for it via waitIdle() below instead of aborting it here.
     if (store.state.data.paused) return { outcome: 'paused' };
+    // The conversation as the interface describes it now: its permissions, its audience, when it last heard from
+    // anyone. One the interface no longer knows ends the turn before anything is asked of the model.
+    const found = await ifaceReads.conversationInfo(conversation, { audience: true, viewers: [] });
+    if (found === null) {
+      log.warn('turn: conversation unavailable', { channel: conversation.conversationId });
+      return { outcome: 'unavailable' };
+    }
+    const channel = found.conversation;
+    draft.info = channel;
+    // A conversation of a community carries it; a private chat is served on behalf of the pinned one.
+    const guildId = channel.communityId ?? guildIdParam;
+    if (!guildId) throw new Error('runTurn: a private chat needs a guildId');
+    const isPrivate = !inCommunity(channel);
     // A turn of a chain runs under the attention the chain already holds.
     if (!owned) {
       if (busy.has(channel.id)) return { outcome: 'busy' };
@@ -7575,7 +7663,7 @@ export function createTurnRunner({
     if (journalOn()) {
       draft.guildId = guildId;
       draft.channelId = channel.id;
-      draft.privateUserId = isPrivate ? (trigger?.authorId ?? channel.recipientId ?? null) : null;
+      draft.privateUserId = isPrivate ? (trigger?.authorId ?? channel.partnerId ?? null) : null;
       draft.mode = mode;
       draft.started = journal.start(guildId, {
         channelId: channel.id,
@@ -7614,7 +7702,7 @@ export function createTurnRunner({
       const transport = transportOf(config);
       draft.transport = transport;
       const memoryOn = features.memory !== false;
-      const selfId = client.user.id;
+      const selfId = selfIdOf();
       const selfName = getSelfName(guildId);
       const now = turnStartedAt;
       const startedAt = now;
@@ -7685,9 +7773,22 @@ export function createTurnRunner({
       // A private chat's partner as a guild member (features.privateLikeServer), fetched beside
       // the history; null on a server turn, with the switch off or when the fetch fails.
       const partnerPending = isPrivate
-        ? privatePartner({ guildId, userId: trigger?.authorId ?? channel.recipientId ?? null, config })
+        ? privatePartner({ guildId, userId: trigger?.authorId ?? channel.partnerId ?? null, config })
         : Promise.resolve(null);
+      // The groups the requester holds in the community, read once for the attempt: the rights of her calls are
+      // checked against them. None for a private chat, for a turn nobody asked or an interface that does not say.
+      const requesterPending =
+        !isPrivate && trigger?.authorId
+          ? ifaceReads.memberInfo({ communityId: guildId, memberId: String(trigger.authorId) })
+          : Promise.resolve(null);
+      // The listing of the community, once for the attempt: the neighbours, the pulls, the routing, the places she
+      // is shown and the audience rails all read it. A private chat is listed for the partner's sake: which
+      // conversations they can view.
+      const partnerHint = isPrivate ? (trigger?.authorId ?? channel.partnerId ?? null) : null;
+      const snapshotPending = takeSnapshot(ifaceReads, guildId, partnerHint ? [String(partnerHint)] : []);
       const historyStartedAt = clock();
+      const snapshot = /** @type {Snap|null} */ (await beforeBar(snapshotPending));
+      draft.snapshot = snapshot;
       // The first part of a split message reuses the history its message's turn fetched.
       // Part of the history: the messages replies of the window answer from outside it
       // (context.fetchReplyParents), prepended as its oldest lines (withReplyParents). The
@@ -7698,22 +7799,22 @@ export function createTurnRunner({
         linkTriggers(
           reuseHistory ??
             (await beforeBar(
-              fetchHistory(channel, historyOptions(config, Boolean(draft.inner))).then((lines) =>
-                withReplyParents(channel, lines, { trigger, selfId, config, discord })
+              readHistory(channel, config, { inner: Boolean(draft.inner), draft, guildId }).then((lines) =>
+                withReplyParents(ifaceReads, channel, lines, { trigger, config })
               )
             ))
         ),
-        { channel, guildId }
+        { channel, snapshot, guildId }
       );
       const historyMs = clock() - historyStartedAt;
       const partner = await beforeBar(partnerPending);
-      // A private chat on its partner's behalf: pulls and the server search from the served guild.
+      draft.requesterGroups = (await beforeBar(requesterPending))?.member?.groupIds ?? [];
+      // A private chat on its partner's behalf: pulls and the server search from the served community.
       const likeServer = isPrivate && partner !== null;
-      const servedGuild = isPrivate
-        ? likeServer
-          ? (client.guilds?.cache?.get?.(guildId) ?? null)
-          : null
-        : channel.guild;
+      // The served community as the server search takes it: its id, none for a private chat that does not work like
+      // a server turn. `servedSnapshot` is its listing under the same condition.
+      const servedGuild = isPrivate && !likeServer ? null : { id: guildId };
+      const servedSnapshot = servedGuild ? snapshot : null;
       // What the helpers judge: the trigger, or on a part of a split message the trigger with
       // that part's text (same id, author and time).
       const candidate =
@@ -7725,6 +7826,7 @@ export function createTurnRunner({
       const prefetching = startPrefetch({
         config,
         channel,
+        snapshot: servedSnapshot,
         guildId,
         guild: servedGuild,
         partner: isPrivate ? partner : null,
@@ -7811,7 +7913,8 @@ export function createTurnRunner({
               store,
               guildId,
               channel,
-              audience: participationAudience(channel, config),
+              snapshot,
+              audience: participationAudience(channel, config, snapshot),
               config,
               units,
               selfName,
@@ -7846,7 +7949,7 @@ export function createTurnRunner({
       const routePlan = planner
         ? async ({ lines, routed }) => {
             const settings = routeSettings(config);
-            const allowed = channel.guild
+            const allowed = inCommunity(channel)
               ? routeAllowed({ triggerKind })
               : Boolean(servedGuild && partner) && triggerKind === 'private';
             const judged = routeCandidate(lines, candidate);
@@ -7857,13 +7960,12 @@ export function createTurnRunner({
                     store,
                     guildId,
                     channel,
-                    guild: servedGuild,
-                    partner,
+                    snapshot: servedSnapshot,
+                    partnerId: partner?.id ?? null,
                     candidate: judged,
                     config,
                     settings,
                     now: clock(),
-                    discord,
                   })
                 );
               } catch (err) {
@@ -7899,14 +8001,13 @@ export function createTurnRunner({
           : pullChannels({
               channel,
               guildId,
-              guild: servedGuild,
+              snapshot: servedSnapshot,
               partner,
               history,
               trigger,
               candidate,
               triggerKind,
               source,
-              selfId,
               selfName,
               config,
               now,
@@ -7981,7 +8082,11 @@ export function createTurnRunner({
       // never fetched during plain normalization or while just buffered. Read by the
       // transcripts alone: the request's and the two classifiers'.
       const previews = track('previews', () =>
-        withTextPreviews(rawHistory, config.media?.filePreviewChars ?? 10000, fetchImpl)
+        withTextPreviews(
+          asList(rawHistory),
+          Number(config.media?.filePreviewChars ?? 10000),
+          /** @type {typeof fetch} */ (fetchImpl)
+        )
       );
       const previewed = () => (previews.done && Array.isArray(previews.value) ? previews.value : rawHistory);
 
@@ -8288,6 +8393,7 @@ export function createTurnRunner({
                     config,
                     guildId,
                     channel,
+                    snapshot: servedSnapshot,
                     guild: servedGuild,
                     partner,
                     selfId,
@@ -8385,12 +8491,15 @@ export function createTurnRunner({
         ? null
         : track('neighbors', async () => {
             let hidden = 0;
-            const accept = (other) => {
+            const accept = (/** @type {Conv} */ other) => {
               const allowed = audienceAllows(channel, other, config);
               if (!allowed) hidden += 1;
               return allowed;
             };
-            const found = await fetchNeighbors(channel, config, selfId, now, { accept });
+            // Without the listing (the interface does not offer it) there are no neighbours to show.
+            const found = snapshot
+              ? await fetchNeighbors(ifaceReads, snapshot, channel, asObject(config), now, { accept })
+              : [];
             return { neighbors: found, hidden };
           });
       // The pulled channels started earlier: timed from their own start.
@@ -8399,7 +8508,7 @@ export function createTurnRunner({
       // the pick classifier's choice among them (src/behavior/participation-pick.js; it asks
       // nothing when there is no episode to offer). Late or failed, the newest are shown.
       const participationShown = participationOn(channel, config) && finalMode !== 'diary';
-      const participationAudienceOf = participationShown ? participationAudience(channel, config) : null;
+      const participationAudienceOf = participationShown ? participationAudience(channel, config, snapshot) : null;
       const participationStage = participationShown
         ? track('participation', () =>
             planner
@@ -8412,6 +8521,7 @@ export function createTurnRunner({
               : pickParticipation({
                   guildId,
                   channel,
+                  snapshot,
                   history: rawHistory,
                   trigger: candidate,
                   triggerKind,
@@ -8573,7 +8683,7 @@ export function createTurnRunner({
       const drawOn =
         Boolean(images) &&
         features.imageGeneration !== false &&
-        canAttach(channel) &&
+        channel.permissions.attach &&
         (!diaryPrep || diaryPrep.pictureAllowed);
       const drawQuota = drawOn ? images.quota({ userId: asked ? (trigger.authorId ?? null) : null }) : undefined;
       // Neighbours the bot can read but not write in, marked in `<server>` (a pulled channel's
@@ -8583,9 +8693,9 @@ export function createTurnRunner({
         neighbors.filter((neighbor) => neighbor.readOnly === true).map((neighbor) => neighbor.channelId)
       );
       // Where a call from a read-only channel is answered, for `<senses>`.
-      const destination = isPrivate ? null : usableDestination(channel.guild, config, { discord }).channel;
+      const destination = isPrivate ? null : usableDestination(snapshot, asObject(config)).channel;
       // `<recent>`: the guild's live recent lines (none: an empty list) and the channels this turn may show them from.
-      const recent = memoryOn ? recentInput({ channel, guildId, isPrivate, config, now }) : NO_RECENT;
+      const recent = memoryOn ? recentInput({ channel, snapshot, guildId, isPrivate, config, now }) : NO_RECENT;
       // The prompts this request is built from, read once: the task labels below decide what it names.
       const prompts = hot.prompts;
       // A part of a split message, the author's other calls still queued, the messages folded into this one.
@@ -8725,7 +8835,7 @@ export function createTurnRunner({
         nameOf: memoryOn ? (id) => store.getUser(guildId, id)?.names?.[0] ?? null : null,
         channels: memoryOn ? store.listChannels(guildId) : [],
         // `<channel_directory>`: every text channel the persona can read, with its handle (none in a private chat).
-        channelDirectory: channelDirectoryOf(channel.guild, config.bot),
+        channelDirectory: channelDirectoryOf(isPrivate ? null : snapshot, asObject(config.bot)),
         loreEntries: memoryOn ? store.getLore(guildId) : [],
         currentChannelId: channel.id,
         descriptions: descriptions ?? null,
@@ -8758,7 +8868,7 @@ export function createTurnRunner({
         pulled: withSeenBefore(
           pulled.map((entry) =>
             Array.isArray(entry?.messages)
-              ? { ...entry, messages: linkCalls(linkTriggers(entry.messages), { channel, guildId }) }
+              ? { ...entry, messages: linkCalls(linkTriggers(entry.messages), { channel, snapshot, guildId }) }
               : entry
           ),
           channel.id,
@@ -8779,11 +8889,11 @@ export function createTurnRunner({
               pickedIds:
                 participationStage?.done && Array.isArray(participationStage.value) ? participationStage.value : [],
               audience: participationAudienceOf,
-              channelName: liveChannelName(channel),
+              channelName: liveChannelName(channel, snapshot),
             }
           : null,
         // `<senses>`: where the persona keeps its diary, when one is set.
-        diaryChannel: diaryChannelName(guildId, config),
+        diaryChannel: diaryChannelName(guildId, config, snapshot),
         // A diary post: its past posts, its plan and what its search found.
         diary: diaryPrep
           ? { posts: diaryPrep.posts, plan: diaryPrep.plan, found: diaryPrep.found, seeds: diaryPrep.seeds ?? '' }
@@ -8796,7 +8906,7 @@ export function createTurnRunner({
         toolsBlock,
         toolsTokens,
         // `<people_now>`'s live part: the voice and status snapshot (null: none).
-        around: aroundInputFor({ channel, config, mode: finalMode, isPrivate }),
+        around: aroundInputFor({ config, mode: finalMode, isPrivate, snapshot }),
         // `<tasks>` and `<task_result>`: her errands (none on a diary post).
         errands:
           finalMode === 'diary'
@@ -8806,7 +8916,7 @@ export function createTurnRunner({
         intentions:
           finalMode === 'diary'
             ? ''
-            : intentionsInputFor({ guildId, channel, isPrivate, config, labels: prompts?.labels, now }),
+            : intentionsInputFor({ guildId, channel, snapshot, isPrivate, config, labels: prompts?.labels, now }),
         // `<wake>`: an inner turn's reason to be awake (src/behavior/wake.js); none on any other turn.
         wake: draft.inner ? wakeTextOf(heartbeatHandleBase) : factsText || null,
         // An inner turn's wake kind: a heartbeat takes `prompts.heartbeat` as its task text.
@@ -9085,7 +9195,7 @@ export function createTurnRunner({
           ? storedNames(request.peopleShown, shownLines, (userId) => store.getUser(guildId, userId))
           : [];
       // Behind those, every member of the served guild the bot knows (built once, on the first `@`).
-      const directory = handles ? null : turnDirectory({ guildId, channel, memoryOn });
+      const directory = handles ? null : turnDirectory({ guildId, memoryOn });
       const linkFor = createLinker({
         linkOf: (channelId, messageId) => messageLinkOf(iface, guildId, channelId, messageId),
         pulledIds,
@@ -9235,6 +9345,7 @@ export function createTurnRunner({
         inTurn: inTurnTools({
           channel,
           guild: servedGuild,
+          snapshot: servedSnapshot,
           guildId,
           partner: isPrivate ? partner : null,
           selfId,

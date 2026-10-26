@@ -6,23 +6,33 @@
 import { bumpDaily } from '../time.js';
 
 /**
- * A fresh URL of an attached GIF: its original message is fetched again (Discord attachment
- * URLs expire) and the attachment found by id, in the message itself or in a forwarded
- * snapshot. Null when the entry has no message or anything fails (`onError` told the error).
- * @param {{ client: object, channel: { id: string }, entry: object, onError?: (err: unknown) => void }} input
+ * A fresh URL of an attached GIF: its original message is read again (attachment URLs of a platform expire)
+ * through the interface's `fetchMessages` and the attachment found by id, in the message itself or in a forwarded
+ * message. Null when the entry has no message or anything fails (`onError` told the error).
+ * @param {{ reads: import('../interface/reads.ts').Reads, channel: { iface: string, conversationId: string },
+ *   entry: { messageId?: string, channelId?: string, itemId?: string }, onError?: (err: unknown) => void }} input
+ *   `channel`: the reference of the conversation the turn is in, where an entry of no other conversation is read.
  * @returns {Promise<string|null>}
  */
-export async function freshAttachmentUrl({ client, channel, entry, onError = () => {} }) {
+export async function freshAttachmentUrl({ reads, channel, entry, onError = () => {} }) {
   if (!entry.messageId) return null;
   try {
-    const source =
-      entry.channelId && entry.channelId !== channel.id ? await client.channels.fetch(entry.channelId) : channel;
-    const message = await source?.messages?.fetch(entry.messageId);
-    const own = message?.attachments?.get?.(entry.itemId);
-    if (own?.url) return own.url;
-    for (const snapshot of message?.messageSnapshots?.values?.() ?? []) {
-      const forwarded = snapshot?.attachments?.get?.(entry.itemId);
-      if (forwarded?.url) return forwarded.url;
+    const ref =
+      entry.channelId && entry.channelId !== channel.conversationId
+        ? { ...channel, conversationId: entry.channelId }
+        : channel;
+    const found = await reads.fetchMessages(ref, [entry.messageId]);
+    const message = found?.messages[0]?.event?.message;
+    /** @type {(attachments: unknown) => string|null} */
+    const urlIn = (attachments) => {
+      const list = /** @type {Array<{ id?: string, url?: string }>} */ (Array.isArray(attachments) ? attachments : []);
+      return list.find((item) => item.id === entry.itemId)?.url ?? null;
+    };
+    const own = urlIn(message?.attachments);
+    if (own) return own;
+    for (const forwarded of /** @type {Array<{ attachments?: unknown }>} */ (message?.forwarded ?? [])) {
+      const url = urlIn(forwarded.attachments);
+      if (url) return url;
     }
     return null;
   } catch (err) {

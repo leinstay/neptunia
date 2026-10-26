@@ -42,7 +42,8 @@ export function drawPromptOf({ hot, selfName, scene, self = false, withTime = fa
  * @param {object} deps
  * @param {{ generate: Function }} deps.images  src/llm/images.js#createImageGen: the boundary.
  * @param {{ config: object, prompts: object }} deps.hot
- * @param {object} [deps.client]  The Discord client (the bot's avatar URL), for the reference.
+ * @param {() => (string|null|Promise<string|null>)} [deps.avatarUrl]  The address of the persona's large avatar
+ *   (`memberInfo(self).avatar.largeUrl`), asked only when a picture needs the reference.
  * @param {{ fetchAsDataUrl: Function }|null} [deps.imageFetcher]
  * @param {() => number} [deps.now]
  * @param {DrawInput} deps.input
@@ -57,7 +58,7 @@ export function drawPromptOf({ hot, selfName, scene, self = false, withTime = fa
  * @property {{ reference?: string|null }} [avatar]  A holder the avatar is fetched into once and
  *   reused (a diary set): a `reference` of null counts as fetched, absent as not yet.
  */
-export async function drawPicture({ images, hot, client = null, imageFetcher = null, now = Date.now, input }) {
+export async function drawPicture({ images, hot, avatarUrl = null, imageFetcher = null, now = Date.now, input }) {
   const { scene, selfName, self = false, withTime = false, userId = null, avatar = null } = input;
   const prompt = drawPromptOf({ hot, selfName, scene, self, withTime, now });
   let reference = null;
@@ -65,7 +66,11 @@ export async function drawPicture({ images, hot, client = null, imageFetcher = n
   if (self === true && hot.config.image?.reference === 'avatar') {
     if (avatar && avatar.reference !== undefined) reference = avatar.reference;
     else {
-      reference = await avatarReference({ client, imageFetcher, config: hot.config });
+      reference = await avatarReference({
+        url: typeof avatarUrl === 'function' ? await avatarUrl() : null,
+        imageFetcher,
+        config: hot.config,
+      });
       referenceMissing = reference === null;
       if (avatar) avatar.reference = reference;
     }

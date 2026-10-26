@@ -5,12 +5,13 @@
 // phase can show it in `<channel_view>`. The decisions live in
 // src/behavior/route.js; this module reads the live config and prompts, the
 // store's channel map and profiles, judges each listed channel with the pull
-// phase's own rails (interfaces/discord/pull-fetch.js#checkPull, no request) and
+// phase's own rails (src/behavior/pull-fetch.ts#checkPull over the turn's snapshot, no read) and
 // sends the one request through the rails of src/llm/openrouter.js.
 
 import { log } from '../log.js';
 import { helperRequestOptions, railReason } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
+import { checkPull } from './pull-fetch.ts';
 import {
   buildRouteRequest,
   parseRouteAnswer,
@@ -26,32 +27,29 @@ import {
  * The numbered `<channels>` list of one route decision, shared by the route
  * hook below and the turn planner (src/behavior/planner.js): the stored
  * channels of `guildId` other than `channel` and the candidate's own, each
- * judged with the pull phase's rails (checkPull against `channel`, `partner`
- * for a private chat; a check that throws drops that channel), at most
+ * judged with the pull phase's rails (checkPull against `channel` over `snapshot`,
+ * `partnerId` for a private chat; a check that throws drops that channel), at most
  * `settings.maxChannels` (routeEntries), rendered by routeChannelList.
- * `ids[n - 1]` is the channel of line `n`. No request, no log. `discord` is the Discord
- * interface's capabilities object (its `checkPull`), passed by the caller.
- * @param {{ store: object, guildId: string, channel: object, guild?: object|null, partner?: object|null,
- *   candidate: object, config: object, settings: { maxChannels: number, purposeChars: number }, now: number,
- *   discord: object }} params
+ * `ids[n - 1]` is the channel of line `n`. No read, no log.
+ * @param {{ store: object, guildId: string, channel: import('../protocol/adapter.ts').ConversationInfo,
+ *   snapshot?: import('./snapshot.ts').Snapshot|null, partnerId?: string|null,
+ *   candidate: object, config: object, settings: { maxChannels: number, purposeChars: number }, now: number }} params
  * @returns {{ lines: string[], ids: string[] }}
  */
 export function routeChannelOffer({
   store,
   guildId,
   channel,
-  guild = channel?.guild ?? null,
-  partner = null,
+  snapshot = null,
+  partnerId = null,
   candidate,
   config,
   settings,
   now,
-  discord,
 }) {
-  const { checkPull } = discord;
   const check = (id) => {
     try {
-      const judged = checkPull({ guild, channelId: id, destination: channel, partner, config, now });
+      const judged = checkPull({ snapshot, channelId: id, destination: channel, partnerId, config, now });
       return judged.skip === null ? judged.channel : null;
     } catch {
       return null;
@@ -72,8 +70,8 @@ export function routeChannelOffer({
  * The route hook for createTurnRunner. Per call, with `hot.config` /
  * `hot.prompts` read at that moment: nothing (`[]`, no log) with
  * `features.channelRoute` off or on a turn routeAllowed refuses -- a private
- * chat asks only on behalf of its partner (`partner`, the discord.js
- * GuildMember of the served `guild` the turn runner passes with
+ * chat asks only on behalf of its partner (`partner`, the member of the served
+ * community the turn runner passes with
  * features.privateLikeServer on), for a `private` turn, and lists the
  * channels that member can view (checkPull's private-chat rule); `route:
  * skipped` (`reason: 'no-prompt'`) without `prompts['route-channel']`, (`reason:
@@ -89,17 +87,17 @@ export function routeChannelOffer({
  * code of a refused or failed request, `error` for anything else). Counts,
  * ids and codes only: never a message text, never a channel name.
  * @param {{ hot: { config: object, prompts: object }, store: object, llm: { complete: Function },
- *   discord: object, now?: () => number }} deps  `discord`: the Discord interface's capabilities
- *   object (src/index.js injects it), for routeChannelOffer's checkPull.
- * @returns {(args: { guildId: string, channel: object, guild?: object|null, partner?: object|null,
+ *   now?: () => number }} deps
+ * @returns {(args: { guildId: string, channel: import('../protocol/adapter.ts').ConversationInfo,
+ *   snapshot?: import('./snapshot.ts').Snapshot|null, partner?: { id: string }|null,
  *   history: object[], trigger: object|null, triggerKind?: string|null, selfName: string,
- *   config?: object }) => Promise<Array<string|{ id: string, direction: 'earlier' }>>}  `guild`: the served guild (default: the channel's).
+ *   config?: object }) => Promise<Array<string|{ id: string, direction: 'earlier' }>>}  `snapshot`: the turn's listing of the served community.
  */
-export function createChannelRouter({ hot, store, llm, discord, now = Date.now }) {
+export function createChannelRouter({ hot, store, llm, now = Date.now }) {
   return async function routeChannels({
     guildId,
     channel,
-    guild = channel?.guild ?? null,
+    snapshot = null,
     partner = null,
     history,
     trigger = null,
@@ -111,9 +109,10 @@ export function createChannelRouter({ hot, store, llm, discord, now = Date.now }
       const config = hot.config;
       const settings = routeSettings(config);
       if (!settings) return [];
-      const allowed = channel?.guild
-        ? routeAllowed({ triggerKind })
-        : Boolean(guild && partner) && triggerKind === 'private';
+      const allowed =
+        channel?.communityId !== null && channel?.communityId !== undefined
+          ? routeAllowed({ triggerKind })
+          : Boolean(snapshot && partner) && triggerKind === 'private';
       if (!allowed) return [];
       const prompt = hot.prompts?.['route-channel'];
       if (typeof prompt !== 'string' || !prompt.trim()) {
@@ -131,13 +130,12 @@ export function createChannelRouter({ hot, store, llm, discord, now = Date.now }
         store,
         guildId,
         channel,
-        guild,
-        partner,
+        snapshot,
+        partnerId: partner?.id ?? null,
         candidate,
         config,
         settings,
         now: at,
-        discord,
       });
       if (lines.length === 0) return [];
 

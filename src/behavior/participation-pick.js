@@ -202,10 +202,20 @@ export function parseParticipationPick(raw, count) {
  * the headlines before a nameless channel's are left out; `ages` are the
  * per-turn `<episode_ages>` lines. No request, no log.
  * @param {{ store: object, guildId: string, channel: object, audience: (channelId: string) => boolean,
- *   config: object, units: object, selfName: string, now: number }} params
+ *   snapshot?: import('./snapshot.ts').Snapshot|null, config: object, units: object, selfName: string, now: number }} params
  * @returns {{ headlines: number, lines: string[], ages: string[], ids: string[] }}
  */
-export function participationEpisodeOffer({ store, guildId, channel, audience, config, units, selfName, now }) {
+export function participationEpisodeOffer({
+  store,
+  guildId,
+  channel,
+  snapshot = null,
+  audience,
+  config,
+  units,
+  selfName,
+  now,
+}) {
   const state = store.getParticipation(guildId);
   const headlines = episodeHeadlines(
     state,
@@ -216,7 +226,7 @@ export function participationEpisodeOffer({ store, guildId, channel, audience, c
   const stored = typeof store.listChannels === 'function' ? store.listChannels(guildId) : [];
   const channelNameOf = (id) =>
     oneLine((Array.isArray(stored) ? stored.find((entry) => entry?.id === id)?.name : '') ?? '') ||
-    oneLine(channel?.guild?.channels?.cache?.get?.(id)?.name ?? '') ||
+    oneLine(snapshot?.get(String(id))?.name ?? '') ||
     null;
   const { lines, ages, ids } = participationEpisodeList(headlines, { state, channelNameOf, units, selfName });
   return { headlines: headlines.length, lines, ages, ids };
@@ -251,7 +261,7 @@ export function participationEpisodeOffer({ store, guildId, channel, audience, c
  *   now?: () => number, schedule?: (fn: () => void, ms: number) => () => void }} deps
  *   `schedule`: runs `fn` once after `ms`, resolving a cancel function (default: setTimeout).
  * @returns {(args: { guildId: string, channel: object, history: object[], trigger: object|null,
- *   triggerKind?: string|null, mode?: string, selfName: string,
+ *   triggerKind?: string|null, mode?: string, selfName: string, snapshot?: import('./snapshot.ts').Snapshot|null,
  *   audience: (channelId: string) => boolean, limits?: { add: Function }|null }) => Promise<string[]>}
  */
 export function createParticipationPicker({ hot, store, llm, now = Date.now, schedule = scheduleTimer }) {
@@ -264,6 +274,7 @@ export function createParticipationPicker({ hot, store, llm, now = Date.now, sch
     mode = 'reply',
     selfName,
     audience,
+    snapshot = null,
     limits = null,
   }) {
     const channelId = channel?.id ?? null;
@@ -271,7 +282,7 @@ export function createParticipationPicker({ hot, store, llm, now = Date.now, sch
       const config = hot.config;
       const settings = participationPickSettings(config);
       if (!settings) return [];
-      if (!participationPickAllowed({ mode, triggerKind, privateChat: !channel?.guild })) return [];
+      if (!participationPickAllowed({ mode, triggerKind, privateChat: channel?.communityId == null })) return [];
       if (typeof store?.getParticipation !== 'function') return [];
       const at = now();
       const labels = hot.prompts?.labels;
@@ -279,6 +290,7 @@ export function createParticipationPicker({ hot, store, llm, now = Date.now, sch
         store,
         guildId,
         channel,
+        snapshot,
         audience,
         config,
         units: labels?.units,
