@@ -70,9 +70,9 @@ describe('inner turns with no interface', () => {
     );
   });
 
-  // Stage 3, item "The inner life and the diary" (inner.js without client.channels): today a heartbeat needs a channel
-  // object from the Discord client to run in, so with nothing connected it is dropped as `no-channel`.
-  test.todo('a heartbeat turn runs to the end with no interface connected and its run is in memory', async () => {
+  // Stage 3, item "The inner life and the diary": with no interface to describe a conversation, the heartbeat runs its
+  // turn with no conversation, in the served community, the way the selfreflection wake does.
+  test('a heartbeat turn runs to the end with no interface connected and its run is in memory', async () => {
     const core = await rig({ interface: false });
     await core.beat();
     await core.settle();

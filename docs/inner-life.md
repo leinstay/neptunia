@@ -24,7 +24,7 @@ A wake with no outside reason. It runs on its own timer: `innerLife.heartbeat.ev
 
 The heartbeat is never coalesced with another wake and goes before others in the queue. A running turn holds it to the next tick. Its chain is its own, so no chain cap of another kind touches it.
 
-The heartbeat has no current channel. The turn runs in a channel she spoke in lately, and posts need `message.create` with a channel argument.
+The heartbeat has no current channel. The turn runs in a channel she spoke in lately, and posts need `message.create` with a channel argument. With no interface connected, none offers the `conversation.info` read, and the turn runs in a stand-in of the served community with no history, as the `selfreflection` wake does (`src/behavior/inner/drain.ts`). A post then fails at the port with its usual code.
 
 #### What the heartbeat shows her
 

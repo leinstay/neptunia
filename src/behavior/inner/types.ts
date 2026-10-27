@@ -6,7 +6,7 @@
 import type { Obj } from '../../tools/types.ts';
 import type { Due, Intention } from '../../intentions/types.ts';
 import type { Reads } from '../../interface/reads.ts';
-import type { ConversationRef } from '../../protocol/adapter.ts';
+import type { ConversationInfo, ConversationRef } from '../../protocol/adapter.ts';
 import type { HeartbeatFacts } from '../heartbeat-view.ts';
 import type { WAKE_KINDS } from './settings.ts';
 
@@ -288,9 +288,12 @@ export type WakeItem = {
 /** How many turns a chain had on the local day and how many are left under its cap. */
 export type ChainBudget = { used: number; cap: number; left: number };
 
-/** What the drain asks the turn runner for. Without a conversation it is the heartbeat's own, in the served community. */
+/** What the drain asks the turn runner for: the conversation of the turn (a stand-in for the heartbeat with no interface). */
 export type InnerTurnParams = {
   conversation?: ConversationRef;
+  /** The heartbeat's stand-in when no interface is connected, and its history (none). */
+  standIn?: ConversationInfo;
+  reuseHistory?: Array<never>;
   guildId: string;
   mode: 'inner';
   triggerKind: 'inner';
@@ -350,7 +353,7 @@ export type InnerContext = {
   placesOf: ((guildId: string) => unknown) | null;
   nameOf: ((guildId: string, memberId: string) => unknown) | null;
   journal: InnerJournal | null;
-  reads: Pick<Reads, 'conversationInfo'> | null;
+  reads: (Pick<Reads, 'conversationInfo'> & { offers?(wire: string): boolean }) | null;
   iface: () => string;
   conversationName: (conversationId: string) => string | null;
   submit: ((event: InnerWakeEvent) => Promise<unknown>) | null;

@@ -85,7 +85,7 @@
     "src/behavior/inner/drain.ts": {
       "drain": {
         "complexity": 93,
-        "function-length": 403
+        "function-length": 402
       }
     },
     "src/behavior/inner/facts.ts": {

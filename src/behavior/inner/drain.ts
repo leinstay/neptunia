@@ -225,11 +225,43 @@ export function createCostMeter({
 }
 
 /** The conversation a turn runs in, or why there is none. */
-export type ConversationFound = { channel: ConversationInfo | null; why: string | null };
+export type ConversationFound = {
+  channel: ConversationInfo | null;
+  why: string | null;
+  /** What the turn runner is handed beside it: for the heartbeat with no interface, its stand-in and no history. */
+  turn: { standIn?: ConversationInfo; reuseHistory?: Array<never> };
+};
+
+/** Whether an interface answers the conversation reads (one is connected); reads that cannot say are taken as one. */
+const interfaceAnswers = (reads: InnerContext['reads']): boolean =>
+  reads !== null && (typeof reads.offers !== 'function' || reads.offers('conversation.info'));
+
+/**
+ * The stand-in the heartbeat's turn runs in when no interface is connected: no conversation of an interface's, the
+ * served community, every permission, so her posting tools reach the port and fail there with their own codes (the
+ * selfreflection wake's stand-in, src/behavior/diary-turn.ts#wakeInputs, is built the same way).
+ */
+function heartbeatStandIn(iface: string, guildId: string): ConversationInfo {
+  return {
+    iface,
+    id: 'heartbeat',
+    kind: 'channel',
+    name: 'heartbeat',
+    communityId: guildId,
+    category: null,
+    topic: null,
+    permissions: { read: true, send: true, attach: true, react: false },
+    owner: null,
+    lastMessageAt: null,
+    voice: false,
+    public: true,
+  };
+}
 
 /**
  * The conversation an inner turn of `group` runs in, or null. An attend wake's place may be one
- * she can only read: she listens there and posts, if at all, through a call elsewhere.
+ * she can only read: she listens there and posts, if at all, through a call elsewhere. The heartbeat with no
+ * interface connected runs in its stand-in (heartbeatStandIn) with no history.
  */
 export async function conversationFor(
   life: InnerContext,
@@ -238,6 +270,10 @@ export async function conversationFor(
 ): Promise<ConversationFound> {
   const { hot, reads, iface } = life;
   const anchor = group.find((wake) => !channelless(wake)) ?? null;
+  if (!anchor && group.some((wake) => wake.kind === 'heartbeat') && !interfaceAnswers(reads)) {
+    const standIn = heartbeatStandIn(iface(), guildId);
+    return { channel: standIn, why: null, turn: { standIn, reuseHistory: [] } };
+  }
   const candidates: ReadonlyArray<string | null> = anchor ? [anchor.channelId] : await recentChannels(life, guildId);
   const readOnlyOk = anchor?.kind === 'attend';
   // Why the first candidate failed (`dm-off`, `not-writable`, `unavailable`); a review with no channel at all: `no-review-channel`.
@@ -265,9 +301,9 @@ export async function conversationFor(
       fail(CODE.NOT_WRITABLE);
       continue;
     }
-    return { channel, why: null };
+    return { channel, why: null, turn: {} };
   }
-  return { channel: null, why };
+  return { channel: null, why, turn: {} };
 }
 
 /** What a turn of a group ended in: its outcome, its calls and the intentions they named. */
@@ -666,7 +702,7 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
   const chainId = anchor.chainId;
   const chain = chainOf(chainId);
 
-  const { channel, why: noChannelWhy } = await conversationFor(life, guildId, group);
+  const { channel, why: noChannelWhy, turn } = await conversationFor(life, guildId, group);
   if (!channel) {
     // The day's review rides with a server wake only for company: when that wake's conversation is gone the
     // review stays queued and goes on alone at the next drain.
@@ -747,6 +783,7 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
     measured = await costs.run(() =>
       turns.runTurn({
         conversation: { iface: channel.iface, conversationId: channel.id },
+        ...turn,
         guildId,
         mode: 'inner',
         triggerKind: 'inner',
@@ -775,9 +812,7 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
   endWakeRun(life, turnKey, listOf(inner.actions), outcome);
   if (HELD.has(outcome)) {
     // Stopped while it waited: its wakes go with the rest of the queue.
-    if (after.stopped) {
-      markHandled(life, after, group, 'stopped', now(), { guildId });
-    }
+    if (after.stopped) markHandled(life, after, group, 'stopped', now(), { guildId });
     // The turn never ran: its mark goes.
     save(life, guildId);
     log.info('inner: turn held', { guildId, outcome, wakes: group.length });
