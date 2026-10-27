@@ -111,7 +111,7 @@ The table is written from `src/protocol/adapter.ts`. `portAction` builds the wir
 |---|---|---|---|
 | `conversationInfo` | `conversation.info` | a conversation, optional `audience` and `viewers` | `conversation`, a conversation with `iface`, `permissions` (`read`, `send`, `attach`, `react`), `owner`, `lastMessageAt`, `voice`, `public` and, when asked, `audience` and `viewers` |
 | `conversations` | `conversations.list` | `communityId`, optional `audience` and `viewers` | `conversations` as above and `groups`, each `{ id, name }` |
-| `fetchMessages` | `messages.fetch` | a conversation, `messageIds` | `messages`, one for each id: `missing`, or `text`, `attachments` and the whole `event` |
+| `fetchMessages` | `messages.fetch` | a conversation, `messageIds` | `messages`, one for each id: `missing`, or `text`, `attachments` (each with the platform's `id`) and the whole `event` |
 | `history` | `messages.history` | a conversation, `limit` (1 to 10,000), at most one of `before`, `after` and `around`, optional `since` | `events` oldest first, and `complete` |
 | `memberInfo` | `member.info` | `communityId` or null, `memberId` | `member` or null: `id`, `name`, `bot`, `groupIds`, `avatar` with `hash`, `url` and `largeUrl` |
 | `searchMessages` | `messages.search` | `communityId`, optional `text`, `authorId`, `after`, `before`, `offset` | `total` and `hits`, each with a message reference, `at`, `text` and the author |
@@ -136,7 +136,7 @@ Every action returns a result. An adapter never throws.
 
 When the status is not `ok`, the result carries `error: { code, retryable }`. The code is a kebab-case string (`empty-content`, `text-too-long`, `not-own-message`, `timeout`, etc.) or `http-<status>`. An adapter may add `cause` for its own logs; it never reaches the model.
 
-A `send` answers with a delivery, which is the result above plus `parts` (every message posted) and an `idempotencyKey` that names the send. Its `ref` is the first message posted. A text longer than `maxChars` is split by the adapter into several messages that join to the text, so `send` is never refused as `text-too-long`. The reply target and the files go with the first part. If a later part fails, the status is `unknown` and `parts` lists the messages already posted. `edit` cannot split and still refuses a longer text as `text-too-long`. The core cuts no text of hers.
+A `send` answers with a delivery, which is the result above plus `parts` (every message posted), `attachments` (a `{ messageId, attachmentId }` for every file posted, when there were files) and an `idempotencyKey` that names the send. Its `ref` is the first message posted. A text longer than `maxChars` is split by the adapter into several messages that join to the text, so `send` is never refused as `text-too-long`. The reply target and the files go with the first part. If a later part fails, the status is `unknown` and `parts` lists the messages already posted. `edit` cannot split and still refuses a longer text as `text-too-long`. The core cuts no text of hers.
 
 An adapter edits and deletes only the persona's own messages (returning `forbidden` otherwise) and refuses a reference of another interface as `foreign-reference`.
 

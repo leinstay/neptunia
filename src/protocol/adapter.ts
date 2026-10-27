@@ -26,6 +26,9 @@ export type Delivery = {
   at: number | null;
   idempotencyKey: string;
   error: PortError | null;
+  // The files the send posted, each named by the platform's attachment id with the message that carries it, in the
+  // order they were given; absent when the interface does not say.
+  attachments?: ReadonlyArray<{ messageId: string; attachmentId: string }>;
 };
 
 /**
@@ -155,6 +158,8 @@ export type FetchedMessage = {
   missing?: boolean;
   text?: string;
   attachments?: ReadonlyArray<{
+    // The platform's own id of the attachment.
+    id?: string;
     url?: string;
     name?: string;
     contentType?: string;
