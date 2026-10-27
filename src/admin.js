@@ -202,6 +202,9 @@ export function createAdmin(deps) {
   /**
    * One operation run for the persona by its name (src/tools/impl/index.ts#runOp), the requester's full
    * rights check included; no command key is resolved. Never throws.
+   * @param {string} op
+   * @param {Record<string, unknown>} [args]
+   * @param {Record<string, unknown>} [context]  the caller and the turn, `idempotencyKey` among them
    * @returns {Promise<{ status: string, code: string, summary: string, data: unknown }>}
    */
   async function runSkillOp(op, args = {}, context = {}) {
