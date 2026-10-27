@@ -7228,7 +7228,7 @@ export function createTurnRunner({
     try {
       result = await runTurnAttempt(args, draft);
     } finally {
-      await publishHeldDiary({ mirrors, store, config: hot.config, now: clock(), turnId: draft.turnKey?.turnId });
+      await publishHeldDiary({ mirrors, turnId: draft.turnKey?.turnId });
       // An attempt whose turn.start was written closes with its turn record at runTurn's exit,
       // whatever it returned (a throw counts as `error`).
       if (draft.started) args.journalAttempts?.push({ draft, result: result ?? { outcome: 'error' } });
@@ -8432,10 +8432,10 @@ export function createTurnRunner({
       // Skills discovery on a turn someone asked for: the catalogue when the question was what the
       // persona can do; named skills only logged and journaled (shadow).
       const skillsInventory = asked ? discoverSkills({ config, channel, trigger, answer: skillsAnswer, draft }) : null;
-      // Her tools, pinned for the turn (a grant removed meanwhile is caught at each call): the skills granted to her
-      // and the carried-over ones; a diary post runs only `draw.create` (runSteps) and is not offered message.create.
-      const exposed = exposedSkillNames({ config, selfId, registry: skills ?? defaultSkills() });
-      draft.toolNames = exposed.filter((name) => finalMode !== 'diary' || name !== 'message.create');
+      // Her tools, the same for every turn kind and pinned for this one (a grant removed meanwhile is still caught at each call):
+      // the skills granted to her and the carried-over ones, as native tool definitions (or `<tools>` text). A diary post
+      // has the same tools; only `draw.create` runs there (runSteps).
+      draft.toolNames = exposedSkillNames({ config, selfId, registry: skills ?? defaultSkills() });
       draft.tools = buildTools(draft.toolNames, {
         registry: skills ?? defaultSkills(),
         texts: prompts?.tools,
