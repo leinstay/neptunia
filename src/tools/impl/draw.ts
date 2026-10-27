@@ -3,7 +3,7 @@
 // the operation's `ctx` as the command context.
 
 import { drawPicture } from '../../media/draw.js';
-import { imageFileName } from '../../behavior/turn.js';
+import { imageFileName } from '../../behavior/mirror.ts';
 import { ImageCapError, ImageGenError, UnsupportedImageModelError } from '../../llm/images.js';
 import { roleModel } from '../../llm/roles.js';
 import { log } from '../../log.js';

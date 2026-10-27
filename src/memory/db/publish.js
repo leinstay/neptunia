@@ -4,6 +4,9 @@
 // (if one was needed), its state (`queued` | `sent` | `failed` | `unknown`), an idempotency key and the interface's
 // receipts. Schema v10.
 //
+// A `diary` row to a place with an enabled diary mirror (schema v15, `mirrors`) needs no grant row: the mirror the owner
+// set up is his standing grant for every entry to that place.
+//
 // The rule (item 4): an outward act opens a destination context and publishes only what that context produced, or
 // what the owner granted. A text produced in an internal context (an internal wake) is publishable only through an
 // unrevoked `publication_grants` row that binds this very content hash to this very destination; an edit changes the
@@ -28,8 +31,8 @@
 // `assignDiaryDestination` gives the diary's publications that name no destination the deployment's diary channel (the
 // v12 data step for the legacy mirrors, and the diary writer under authority `db`, unit-write.js).
 // Every write projects the publication into the graph in the same transaction (graph.js#projectRow). No live writer
-// uses preparePublication yet: under authority `db` the diary's own write (a post, then its row and the mirror's
-// `sent` publication, unit-write.js) derives them like the sync. Logs: none; a caller logs codes.
+// uses preparePublication but the diary's mirrors (src/behavior/mirror.ts); the legacy diary posts derive their
+// `sent` publications on the diary's own write like the sync (unit-write.js). Logs: none; a caller logs codes.
 
 import { createHash } from 'node:crypto';
 import { legacyNativeKind, nativeAuthorityOf } from './ids.ts';
@@ -103,6 +106,22 @@ export function grantFor(handle, { rowKind, rowId, hash, destination }) {
   );
 }
 
+/**
+ * Whether the owner set up an enabled `diary` mirror of `destination` (schema v15): his standing grant for every diary
+ * entry to that place. A disabled mirror, or a database before v15, grants nothing.
+ */
+/** @param {unknown} connection  read as a connection that can `prepare(...).get`  @param {unknown} destination */
+function mirroredTo(connection, destination) {
+  const db = /** @type {{ prepare(sql: string): { get(...args: Array<unknown>): unknown } }} */ (connection);
+  const table = db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'mirrors'").get();
+  if (table === undefined) return false;
+  return (
+    db
+      .prepare("SELECT 1 AS ok FROM mirrors WHERE row_kind = 'diary' AND place_id = ? AND enabled = 1 LIMIT 1")
+      .get(String(destination)) !== undefined
+  );
+}
+
 /** Where the text came from: `internal` (an internal context, or none named: fail closed) or the outward destination. */
 function producedOf(producedIn) {
   if (producedIn && typeof producedIn === 'object')
@@ -128,6 +147,7 @@ function sendRefusal(db, { context, rowKind, rowId, hash, destination, producedI
   if (!filled(destination) || context.destination !== destination) return { code: 'destination-mismatch' };
   const produced = producedOf(producedIn);
   if (produced.outward === destination) return { code: null, grant: null };
+  if (rowKind === 'diary' && mirroredTo(db, destination)) return { code: null, grant: null };
   const grant = grantFor(db, { rowKind, rowId, hash, destination });
   return grant ? { code: null, grant } : { code: 'no-grant' };
 }
@@ -296,6 +316,31 @@ export function revokeGrant(handle, id, { now = Date.now } = {}) {
           .run(isoOf(now), String(id)).changes
       ) > 0
   );
+}
+
+/**
+ * One write of the diary's mirrors on the writer connection (session-write.js, kind `publication`): `prepare` queues
+ * a publication (`input`: preparePublication's), `sent` marks it with its `receipts`, `failed` and `unknown` mark it.
+ * Returns what the call it names returns.
+ * @param {unknown} writer  an `openMemoryDb` handle (the writer)
+ * @param {unknown} given  `{ op, id?, input?, receipts?, now? }`
+ * @returns {unknown}
+ */
+export function applyPublicationWrite(writer, given) {
+  const handle = /** @type {object} */ (writer);
+  const update =
+    /** @type {{ op?: unknown, id?: unknown, input?: object, receipts?: Array<object>, now?: unknown }} */ (
+      given ?? {}
+    );
+  const now = typeof update.now === 'number' && Number.isFinite(update.now) ? update.now : Date.now();
+  const id = String(update.id);
+  if (update.op === 'prepare') return preparePublication(handle, { ...(update.input ?? {}), now });
+  if (update.op === 'sent') return markSent(handle, id, update.receipts ?? [], { now });
+  if (update.op === 'failed') return markFailed(handle, id);
+  if (update.op === 'unknown') return markUnknown(handle, id);
+  throw Object.assign(new Error('memory db: a publication write names prepare, sent, failed or unknown'), {
+    code: 'BAD_UPDATE',
+  });
 }
 
 // ---------- the diary's mirrors ----------

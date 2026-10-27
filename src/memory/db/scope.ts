@@ -3,9 +3,11 @@
 // `none` has no source and may be shown anywhere; `internal` (a row derived from two different DMs) is never shown
 // outward. A read always names its context; a read without one throws.
 //
-// Contexts: `{ iface, kind: 'group' }`, `{ iface, kind: 'dm', person, place }`, `{ internal: true }`. A context the core
-// issues (`issueContext`) also carries an `id` and is recorded in `execution_contexts` by the service; a context with
-// `audienceColumn: true` is read through `audience_id` instead of the three columns (`memoryDb.audienceColumn`).
+// Contexts: `{ iface, kind: 'group' }`, `{ iface, kind: 'dm', person, place }`, `{ internal: true }`, and
+// `{ groups: true }` (`groupsContext`, the diary's entry: `none` and the groups of every interface, never a DM or an
+// internal row). A context the core issues (`issueContext`) also carries an `id` and is recorded in
+// `execution_contexts` by the service; a context with `audienceColumn: true` is read through `audience_id` instead of
+// the three columns (`memoryDb.audienceColumn`).
 //
 // Audiences (schema v7, spec 2026-10-24-memory-schema-v7 sections 2 and 11.2): every scoped row also carries
 // `audience_id`, the normalised twin of its three columns: `aud:none`, `aud:internal`, `aud:group:<iface>` and
@@ -22,6 +24,7 @@ type Partial3 = { scope_kind?: string | null; scope_iface?: string | null; scope
 /** A read context: `internal`, or a group or DM of an interface; an issued one also carries an id and its mode. */
 export type Context = {
   internal?: true;
+  groups?: true;
   kind?: 'group' | 'dm';
   iface?: string;
   person?: string;
@@ -70,6 +73,8 @@ export const dmContext = <P extends string, T extends string>(
   place: place ?? dmPlaceOfPerson(person, iface),
 });
 export const internalContext = (): Context => ({ internal: true });
+/** The context of the diary's entry: `none` and the groups of every interface; no direct chat, nothing internal. */
+export const groupsContext = (): Context => ({ groups: true });
 
 /**
  * The scope columns of an old scope object (`{ channel }`, `{ guild: true }`, `{ user }`, `{}`).
@@ -98,7 +103,7 @@ export function dmUserOf(row: unknown): string | null {
 function check(value: unknown): asserts value is Context {
   if (!value || typeof value !== 'object') throw new Error('memory db: a read needs a scope context');
   const ctx = value as Context;
-  if (ctx.internal === true) return;
+  if (ctx.internal === true || ctx.groups === true) return;
   if (ctx.kind === 'group' && typeof ctx.iface === 'string' && ctx.iface) return;
   if (ctx.kind === 'dm' && typeof ctx.iface === 'string' && ctx.iface && typeof ctx.person === 'string' && ctx.person)
     return;
@@ -112,6 +117,7 @@ export function allowed(value: unknown, ctx: unknown): boolean {
   const row = value as Partial3 | null | undefined;
   const kind = row?.scope_kind;
   if (kind === 'none') return true;
+  if (ctx.groups === true) return kind === 'group' && filled(row?.scope_iface);
   if (kind === 'group') return row?.scope_iface === ctx.iface;
   if (kind === 'dm') return ctx.kind === 'dm' && row?.scope_iface === ctx.iface && row?.scope_dm === ctx.person;
   return false;
@@ -125,6 +131,11 @@ export function whereFor(ctx: unknown, alias = ''): { sql: string; params: Array
   check(ctx);
   if (ctx.internal === true) return { sql: '1 = 1', params: [] };
   const p = alias ? `${alias}.` : '';
+  if (ctx.groups === true)
+    return {
+      sql: `(${p}scope_kind = 'none' OR (${p}scope_kind = 'group' AND ${p}scope_iface IS NOT NULL AND ${p}scope_iface <> ''))`,
+      params: [],
+    };
   let sql = `(${p}scope_kind = 'none' OR (${p}scope_kind = 'group' AND ${p}scope_iface = ?)`;
   const params: Array<string> = [ctx.iface ?? ''];
   if (ctx.kind === 'dm') {
@@ -169,7 +180,8 @@ export function narrowest(scopes: unknown): Scope {
 
 export const AUD_NONE = 'aud:none';
 export const AUD_INTERNAL = 'aud:internal';
-export const groupAudienceId = (iface: unknown): string => `aud:group:${String(iface)}`;
+const GROUP_PREFIX = 'aud:group:';
+export const groupAudienceId = (iface: unknown): string => `${GROUP_PREFIX}${String(iface)}`;
 export const dmAudienceId = (placeId: unknown): string => `aud:dm:${String(placeId)}`;
 
 const filled = (value: unknown): value is string => typeof value === 'string' && value !== '';
@@ -250,10 +262,15 @@ export function scopeOfAudience(id: unknown, lookup: unknown = null): Scope {
   return partner ? dmScope(partner.person, partner.iface) : { ...SCOPE_INTERNAL };
 }
 
-/** The audience ids a context may read (null: every one, the internal context). Throws without a valid context. */
+/**
+ * The audience ids a context may read (null: every one, the internal context). Throws without a valid context, and for
+ * the groups context, whose groups no list names (`allowedAudience` and `audienceWhere` read it).
+ */
 export function audiencesOf(ctx: unknown): Array<string> | null {
   check(ctx);
   if (ctx.internal === true) return null;
+  if (ctx.groups === true)
+    throw new Error('memory db: the groups context has no audience list; read it with audienceWhere');
   const ids = [AUD_NONE, groupAudienceId(ctx.iface ?? '')];
   if (ctx.kind === 'dm') {
     const place = filled(ctx.place) ? ctx.place : dmPlaceOfPerson(ctx.person, ctx.iface ?? '');
@@ -264,6 +281,12 @@ export function audiencesOf(ctx: unknown): Array<string> | null {
 
 /** `allowed` on `audience_id`: whether a row may be shown in a context. Throws without a valid context. */
 export function allowedAudience(row: unknown, ctx: unknown): boolean {
+  if ((ctx as Context | null | undefined)?.groups === true) {
+    const id = (row as Row | null | undefined)?.audience_id;
+    return (
+      id === AUD_NONE || (typeof id === 'string' && id.startsWith(GROUP_PREFIX) && id.length > GROUP_PREFIX.length)
+    );
+  }
   const ids = audiencesOf(ctx);
   return ids === null || ids.includes((row as Row | null | undefined)?.audience_id as string);
 }
@@ -273,9 +296,14 @@ export function allowedAudience(row: unknown, ctx: unknown): boolean {
  * as a fragment and its parameters. Throws without a valid context.
  */
 export function audienceWhere(ctx: unknown, alias = ''): { sql: string; params: Array<string> } {
+  const p = alias ? `${alias}.` : '';
+  if ((ctx as Context | null | undefined)?.groups === true)
+    return {
+      sql: `(${p}audience_id = ? OR (substr(${p}audience_id, 1, ${GROUP_PREFIX.length}) = ? AND length(${p}audience_id) > ${GROUP_PREFIX.length}))`,
+      params: [AUD_NONE, GROUP_PREFIX],
+    };
   const ids = audiencesOf(ctx);
   if (ids === null) return { sql: '1 = 1', params: [] };
-  const p = alias ? `${alias}.` : '';
   return { sql: `${p}audience_id IN (${ids.map(() => '?').join(', ')})`, params: ids };
 }
 

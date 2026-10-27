@@ -163,6 +163,10 @@ import {
 } from './tool-step.js';
 import { parseToolCallBlocks, toolsBlockText } from '../llm/tool-text.js';
 import { estimateMessages, estimateTools } from '../llm/tokens.js';
+import { chunkPictures, filesPerMessage, imageFileName, pictureAttachments } from './mirror.ts';
+
+// A set's pictures are split and named as the diary's mirrors send them (src/behavior/mirror.ts).
+export { chunkPictures };
 
 /** @typedef {import('../protocol/adapter.ts').ConversationInfo} Conv */
 /** @typedef {import('./snapshot.ts').Snapshot} Snap */
@@ -890,49 +894,6 @@ function gifRewatchItems(history) {
   return out;
 }
 
-/** Upload file name for a generated picture: `image/jpeg` -> `image.jpg`, else `image.<subtype>`; `/nep draw` names its picture the same way. */
-export function imageFileName(mediaType) {
-  const subtype =
-    String(mediaType ?? '')
-      .split('/')[1]
-      ?.split(';')[0]
-      ?.trim()
-      .toLowerCase() || 'png';
-  return `image.${subtype === 'jpeg' ? 'jpg' : subtype}`;
-}
-
-// The files of one message when the adapter names no limit (`capabilities().maxFiles`).
-const DEFAULT_FILES_PER_MESSAGE = 10;
-
-/**
- * A diary set's pictures split into messages, in order: a message holds at
- * most `maxFiles` files, and a picture whose bytes would take its message past
- * `maxBytes` (`diary.set.maxMessageBytes`) starts the next one; a picture
- * larger than `maxBytes` on its own goes alone. Pure.
- * @template {{ buffer: { length: number } }} T
- * @param {T[]} pictures
- * @param {number} maxBytes
- * @param {number} [maxFiles]
- * @returns {T[][]}
- */
-export function chunkPictures(pictures, maxBytes, maxFiles = DEFAULT_FILES_PER_MESSAGE) {
-  const chunks = [];
-  let current = [];
-  let bytes = 0;
-  for (const picture of Array.isArray(pictures) ? pictures : []) {
-    const size = picture?.buffer?.length ?? 0;
-    if (current.length > 0 && (current.length >= maxFiles || bytes + size > maxBytes)) {
-      chunks.push(current);
-      current = [];
-      bytes = 0;
-    }
-    current.push(picture);
-    bytes += size;
-  }
-  if (current.length > 0) chunks.push(current);
-  return chunks;
-}
-
 // The characters of one message when the adapter names no limit (`capabilities().maxChars`); the part mark is
 // ` (n/m)` on the header plus the newline.
 const DEFAULT_MESSAGE_CHARS = 2000;
@@ -941,8 +902,6 @@ const MIRROR_PART_MARK_CHARS = 16;
 /** The room for the text of one part of a mirrored prompt: a message of `port` less its header and the part mark. */
 const mirrorPartChars = (port, headerChars) =>
   portLimit(port, 'maxChars', DEFAULT_MESSAGE_CHARS) - headerChars - MIRROR_PART_MARK_CHARS;
-/** How many files one message of `port` holds. */
-const filesPerMessage = (port) => portLimit(port, 'maxFiles', DEFAULT_FILES_PER_MESSAGE);
 
 /**
  * `text` in pieces of at most `max` code points, each cut at its last newline
@@ -5315,11 +5274,7 @@ export function createTurnRunner({
       for (const [index, chunk] of chunks.entries()) {
         let message;
         const bytes = chunk.reduce((sum, picture) => sum + (picture.buffer?.length ?? 0), 0);
-        const attachments = chunk.map((picture) => ({
-          name: imageFileName(picture.mediaType),
-          data: picture.buffer,
-          contentType: picture.mediaType,
-        }));
+        const attachments = pictureAttachments(chunk);
         // A message of files is a `message.create` with them as its media, checked right before it.
         if (
           !checkEffect(

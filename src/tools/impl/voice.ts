@@ -5,6 +5,7 @@
 // resolve as `draw.create` resolves them (src/tools/impl/shared.ts#postingConversation, need `attach`).
 
 import { SpeechError } from '../../speech/index.js';
+import { voiceAttachment } from '../../behavior/mirror.ts';
 import { messageRefOf, postingConversation } from './shared.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
 import { CODE } from '../codes.ts';
@@ -85,12 +86,7 @@ const handlers = perEnv((env) => {
       { iface: port.iface, conversationId: postTo },
       {
         attachments: [
-          {
-            name: `voice-${Date.now().toString(36)}.ogg`,
-            data: made.ogg,
-            contentType: 'audio/ogg',
-            voice: { durationSecs: made.durationSecs, waveform: made.waveform },
-          },
+          voiceAttachment({ ogg: made.ogg, durationSecs: made.durationSecs, waveform: made.waveform }, Date.now()),
         ],
         ...(reply ? { replyTo: { iface: port.iface, conversationId: postTo, messageId: reply.messageId } } : {}),
       }

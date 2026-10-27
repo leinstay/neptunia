@@ -28,6 +28,8 @@
 //   { kind: 'wake', op, ... } | { kind: 'skills', entries, now } | { kind: 'index-policy' | 'touch' | 'reembed', ... }
 //       Schema v11: handed to wakes.js#applyWakeWrite, skills.js#applySkillsWrite and index-policy.js#applyIndexWrite.
 //       Bookkeeping of the database itself, not her memory: no mode.
+//   { kind: 'publication', op: 'prepare' | 'sent' | 'failed' | 'unknown', ... }
+//       The diary's mirrors (src/behavior/mirror.ts), handed to publish.js#applyPublicationWrite.
 //   { kind: 'unit', op, ... }
 //       The memory units (record and journal lines, the store's cache, the module stores, participation, the diary,
 //       the vectors) and the projection the writers finish, handed to unit-write.js#applyUnitWrite.
@@ -79,6 +81,7 @@ import { applyWakeWrite } from './wakes.js';
 import { applySkillsWrite } from './skills.js';
 import { applyIndexWrite } from './index-policy.js';
 import { applyUnitWrite } from './unit-write.js';
+import { applyPublicationWrite } from './publish.js';
 import { writeBackup } from './backup.js';
 
 /**
@@ -602,15 +605,16 @@ function guard(update) {
 
 /** Applies one write on the writer connection; returns counts. */
 export function applyMemoryWrite(handle, update) {
-  if (update?.kind === 'context') return writeContext(handle, update);
-  if (update?.kind === 'description') return writeDescription(handle, update);
+  const kind = /** @type {unknown} */ (update?.kind);
+  if (kind === 'context') return writeContext(handle, update);
+  if (kind === 'description') return writeDescription(handle, update);
   // Schema v11: the writers of wake runs, the skills registry and the index policy share this one writer path.
-  if (update?.kind === 'wake') return applyWakeWrite(handle, update);
-  if (update?.kind === 'skills') return applySkillsWrite(handle, update);
-  if (update?.kind === 'index-policy' || update?.kind === 'touch' || update?.kind === 'reembed')
-    return applyIndexWrite(handle, update);
-  if (update?.kind === 'unit') return applyUnitWrite(handle, update);
-  if (update?.kind === 'backup') {
+  if (kind === 'wake') return applyWakeWrite(handle, update);
+  if (kind === 'skills') return applySkillsWrite(handle, update);
+  if (kind === 'index-policy' || kind === 'touch' || kind === 'reembed') return applyIndexWrite(handle, update);
+  if (kind === 'unit') return applyUnitWrite(handle, update);
+  if (kind === 'publication') return applyPublicationWrite(handle, update);
+  if (kind === 'backup') {
     return writeBackup(handle, {
       to: update.to,
       dataDir: update.dataDir,
@@ -619,7 +623,7 @@ export function applyMemoryWrite(handle, update) {
       configHash: update.configHash ?? null,
     });
   }
-  if (update?.kind !== 'session') throw coded('BAD_UPDATE');
+  if (kind !== 'session') throw coded('BAD_UPDATE');
   const { mode, run, plan, advance, pending, now } = update;
   const at = iso(now ?? Date.now());
   return handle.transaction(() => {

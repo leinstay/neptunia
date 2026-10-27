@@ -8,7 +8,7 @@
 
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
-import { MIGRATIONS, finishDiaryDestination } from './schema.js';
+import { MIGRATIONS, finishDiaryDestination, finishDiaryMirror } from './schema.js';
 
 const originalListeners = process.listeners('warning');
 process.removeAllListeners('warning');
@@ -69,8 +69,8 @@ export function schemaVersion(db) {
 
 /**
  * Applies every migration above the current version, in one transaction. An entry is SQL text or a function of the
- * connection and `context` (what only the opener knows: `diaryPlaceId`, the deployment's diary channel, for v12). A
- * data step v12 could not finish without the context is finished by the first open that has it.
+ * connection and `context` (what only the opener knows: `diaryPlaceId`, the deployment's diary channel, for v12 and
+ * v15). A data step v12 or v15 could not finish without the context is finished by the first open that has it.
  */
 export function migrate(db, migrations = MIGRATIONS, context = {}) {
   inTransaction(db, () => {
@@ -83,7 +83,10 @@ export function migrate(db, migrations = MIGRATIONS, context = {}) {
       version += 1;
       db.prepare('INSERT INTO schema_version (version) VALUES (?)').run(version);
     }
-    if (migrations === MIGRATIONS && schemaVersion(db) >= MIGRATIONS.length) finishDiaryDestination(db, context);
+    if (migrations === MIGRATIONS && schemaVersion(db) >= MIGRATIONS.length) {
+      finishDiaryDestination(db, context);
+      finishDiaryMirror(db, context);
+    }
   });
 }
 
