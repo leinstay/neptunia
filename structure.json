@@ -301,6 +301,13 @@
       "test": "required"
     },
     {
+      "path": "src/config-moves.ts",
+      "purpose": "The config keys of an earlier name and the new name each one is read under, applied to the local config before it is laid over config.json.",
+      "layer": "public",
+      "imports": [],
+      "test": "required"
+    },
+    {
       "path": "src/index.js",
       "purpose": "The entry point: reads the paths and the environment, loads the Discord package by path, starts the core and owns the process signals and exit. It imports no Discord.",
       "layer": "public",
