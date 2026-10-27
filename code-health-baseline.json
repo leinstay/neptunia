@@ -6,7 +6,7 @@
     "src/behavior/recall-run.js": 2331,
     "src/behavior/recall.js": 2491,
     "src/behavior/sandbox.js": 2136,
-    "src/behavior/turn.js": 9361,
+    "src/behavior/turn.js": 9246,
     "src/memory/store.js": 3346,
     "tests/admin.test.js": 3880,
     "tests/describe.test.js": 3705,
@@ -120,7 +120,7 @@
     },
     "src/behavior/pipeline.js": {
       "createMessageHandler": {
-        "function-length": 2806
+        "function-length": 2805
       },
       "createMessageHandler>classifyFollowUp": {
         "complexity": 21
@@ -240,11 +240,11 @@
         "complexity": 30
       },
       "createTurnRunner": {
-        "function-length": 7350
+        "function-length": 7271
       },
       "createTurnRunner>act": {
-        "complexity": 75,
-        "function-length": 399
+        "complexity": 62,
+        "function-length": 335
       },
       "createTurnRunner>applyRewatch": {
         "complexity": 23
@@ -905,7 +905,7 @@
       },
       "runMain": {
         "complexity": 160,
-        "function-length": 763
+        "function-length": 761
       },
       "runRecall": {
         "complexity": 70,
