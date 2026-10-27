@@ -1,9 +1,7 @@
-// Tests for src/behavior/turn.js: the pure helpers (between, typingMs,
-// resolveMentions) plus one integration-style suite for createTurnRunner
-// itself, driven with fake discord.js-shaped objects, a fake LLM and a fake
-// store -- proving the feature switches (reactions, multiMessage,
-// typingSimulation, memory) are applied where this module is responsible for
-// them.
+// Tests for src/behavior/turn.js: the pure helpers (between, typingMs, resolveMentions) plus one integration-style
+// suite for createTurnRunner itself, driven with fake discord.js-shaped objects, a fake LLM and a fake store --
+// proving the feature switches (reactions, multiMessage, typingSimulation, memory) are applied where this module is
+// responsible for them.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
@@ -3301,7 +3299,6 @@ test("createTurnRunner: recall -- a private chat runs recall on its partner's be
   const args = recall.runCalls[0];
   assert.equal(args.channel.id, channel.id);
   assert.equal(args.guildId, 'g1');
-  // The recall runner takes the partner's id (`partnerId`) and the turn's snapshot, no member object: it reads through the interface.
   assert.equal(args.partnerId, 'u1');
   assert.deepEqual(args.server, { forms: ['κουνέλι'], who: [], from: null, to: null });
   assert.equal(lookup.searchCalls.length, 0);
@@ -4278,11 +4275,8 @@ function fakeEmojiIndex() {
     { id: '111111111111111111', name: 'pepe_cry', animated: false },
     { id: '222222222222222222', name: 'dance', animated: true },
   ];
-  return {
-    refresh: async () => {},
-    byName: (name) => emojis.find((e) => e.name === name) ?? null,
-    list: () => emojis.map((e) => ({ ...e })),
-  };
+  const byName = (name) => emojis.find((e) => e.name === name) ?? null;
+  return { refresh: () => Promise.resolve(), byName, list: () => emojis.map((e) => ({ ...e })) };
 }
 
 test('createTurnRunner: the request carries <emoji> ranked by guild.emojiUsage, with cached captions', async () => {

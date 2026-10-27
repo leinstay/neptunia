@@ -17,9 +17,45 @@ import * as nodeFs from 'node:fs';
 import path from 'node:path';
 import { MINUTE_MS, DAY_MS, utcDay, utcMinute } from '../../time.js';
 import { fill } from '../../format.js';
-import { isPlainObject } from '../../config.js';
 import { log as defaultLog } from '../../log.js';
 import { IMAGE_ROLE } from '../../llm/images.js';
+import { isObj, objOf } from '../types.ts';
+import type { Obj, Untyped } from '../types.ts';
+
+/** A role's counters: requests, tokens and dollars. */
+export type Counters = {
+  requests: number;
+  promptTokens: number;
+  cachedTokens: number;
+  completionTokens: number;
+  cost: number;
+};
+
+/** One role's row of the accumulator. */
+export type RoleRow = Counters & { role: string };
+
+/** What a sum over days answers. */
+export type DaysSum = { rows: Array<RoleRow>; total: Counters; since: string; partial: boolean };
+
+/** One request as the accumulator records it. */
+export type UsageEntry = {
+  role?: string | null;
+  promptTokens?: unknown;
+  cachedTokens?: unknown;
+  completionTokens?: unknown;
+  cost?: unknown;
+};
+
+/** The accumulator `createUsage` builds. */
+export type Usage = {
+  record(entry?: UsageEntry): void;
+  byRole(): Array<RoleRow>;
+  sumDays(days: number, filter?: { only?: ReadonlyArray<string>; except?: ReadonlyArray<string> }): DaysSum;
+  save(opts?: { force?: boolean }): Promise<boolean>;
+};
+
+/** An account or activity read: the answer's data, or why there is none. */
+export type AccountRead = { ok: true; data: Untyped } | { ok: false; reason: string; status?: number | null };
 
 /** The file under `data/` the per-day accumulator persists in. */
 export const USAGE_FILE = 'usage.json';
@@ -39,24 +75,31 @@ const DRAWING_ROLE = IMAGE_ROLE;
 /** The role code of a usage line that names none. */
 const NO_ROLE = 'other';
 
-const COUNTERS = Object.freeze(['requests', 'promptTokens', 'cachedTokens', 'completionTokens', 'cost']);
+const COUNTERS: ReadonlyArray<keyof Counters> = Object.freeze([
+  'requests',
+  'promptTokens',
+  'cachedTokens',
+  'completionTokens',
+  'cost',
+]);
 
-const isAmount = (value) => typeof value === 'number' && Number.isFinite(value) && value >= 0;
-const amountOr0 = (value) => (isAmount(value) ? value : 0);
+const isAmount = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0;
+const amountOr0 = (value: unknown): number => (isAmount(value) ? value : 0);
 
 /** A UTC day key, `YYYY-MM-DD`. */
 const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Role rows by cost, then requests (both descending), then role name. */
-function sortRows(rows) {
+function sortRows(rows: Array<RoleRow>): Array<RoleRow> {
   return rows.sort(
     (a, b) => b.cost - a.cost || b.requests - a.requests || (a.role < b.role ? -1 : a.role > b.role ? 1 : 0)
   );
 }
 
 /** A role's counters with every field a finite number >= 0 (0 for anything else). */
-function cleanRow(row) {
-  return Object.fromEntries(COUNTERS.map((key) => [key, amountOr0(row?.[key])]));
+function cleanRow(row: unknown): Counters {
+  const given = objOf(row);
+  return Object.fromEntries(COUNTERS.map((key) => [key, amountOr0(given[key])])) as Counters;
 }
 
 /**
@@ -64,18 +107,8 @@ function cleanRow(row) {
  * starts empty; days older than the last KEEP_DAYS, or after today, are dropped). A file of the
  * older two-day format loads as it is.
  *
- * @param {object} options
- * @param {string} options.dataDir  The `data/` directory.
- * @param {() => number} [options.now=Date.now]
- * @param {object} [options.fs]  A `node:fs`-shaped API (`readFileSync`, `promises.mkdir|writeFile|rename`).
- * @param {{ warn: Function }} [options.log]
- * @returns {{
- *   record(entry: { role?: string|null, promptTokens?: number, cachedTokens?: number, completionTokens?: number, cost?: number }): void,
- *   byRole(): Array<{ role: string, requests: number, promptTokens: number, cachedTokens: number, completionTokens: number, cost: number }>,
- *   sumDays(days: number, filter?: { only?: string[], except?: string[] }): { rows: object[], total: object, since: string, partial: boolean },
- *   save(opts?: { force?: boolean }): Promise<boolean>,
- * }}
- *   `record` adds one request to today's row of its role (`other` without one; a count that is
+ * `dataDir` is the `data/` directory, `fs` a `node:fs`-shaped API (`readFileSync`, `promises.mkdir|writeFile|rename`).
+ * `record` adds one request to today's row of its role (`other` without one; a count that is
  *   not a finite number >= 0 adds 0). `byRole` lists today's roles by cost, then requests (both
  *   descending), then role name. `sumDays` sums the last `days` UTC days, today included (at most
  *   KEEP_DAYS), over the roles in `only` (when given) and not in `except`: `rows` per role in
@@ -85,46 +118,58 @@ function cleanRow(row) {
  *   and, unless `force`, a minute has passed since it; resolves whether it wrote. A failed write
  *   is logged (`usage: save failed`, its code) and tried again on the next call.
  */
-export function createUsage({ dataDir, now = Date.now, fs = nodeFs, log = defaultLog }) {
+export function createUsage({
+  dataDir,
+  now = Date.now,
+  fs = nodeFs,
+  log = defaultLog,
+}: {
+  dataDir: string;
+  now?: () => number;
+  fs?: typeof nodeFs;
+  log?: { warn: (message: string, fields?: Obj) => void };
+}): Usage {
   const file = path.join(dataDir, USAGE_FILE);
-  let days = {}; // day -> role -> counters
+  const days: Record<string, Record<string, Counters>> = {}; // day -> role -> counters
   let dirty = false;
   let lastSaveAt = -Infinity;
-  let chain = Promise.resolve();
+  let chain: Promise<void> = Promise.resolve();
 
   /** Only the last KEEP_DAYS UTC days, today included, stay. */
-  function prune() {
+  function prune(): void {
     const nowMs = now();
     const today = utcDay(nowMs);
     const first = utcDay(nowMs - (KEEP_DAYS - 1) * DAY_MS);
     for (const day of Object.keys(days)) if (!DAY_KEY.test(day) || day < first || day > today) delete days[day];
   }
 
-  function load() {
-    let parsed;
+  function load(): void {
+    let parsed: unknown;
     try {
-      parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+      parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as unknown;
     } catch (error) {
-      if (error?.code !== 'ENOENT') log.warn('usage: load failed', { code: error?.code ?? null });
+      const code = objOf(error).code;
+      if (code !== 'ENOENT') log.warn('usage: load failed', { code: code ?? null });
       return;
     }
-    if (!isPlainObject(parsed?.days)) return;
-    for (const [day, roles] of Object.entries(parsed.days)) {
-      if (!isPlainObject(roles)) continue;
+    const stored = objOf(parsed).days;
+    if (!isObj(stored)) return;
+    for (const [day, roles] of Object.entries(stored)) {
+      if (!isObj(roles)) continue;
       days[day] = Object.fromEntries(
         Object.entries(roles)
-          .filter(([, row]) => isPlainObject(row))
+          .filter(([, row]) => isObj(row))
           .map(([role, row]) => [role, cleanRow(row)])
       );
     }
     prune();
   }
 
-  function record({ role, promptTokens, cachedTokens, completionTokens, cost } = {}) {
+  function record({ role, promptTokens, cachedTokens, completionTokens, cost }: UsageEntry = {}): void {
     const day = utcDay(now());
     const key = typeof role === 'string' && role ? role : NO_ROLE;
-    days[day] ??= {};
-    const row = (days[day][key] ??= cleanRow(null));
+    const today = (days[day] ??= {});
+    const row = (today[key] ??= cleanRow(null));
     row.requests += 1;
     row.promptTokens += amountOr0(promptTokens);
     row.cachedTokens += amountOr0(cachedTokens);
@@ -134,12 +179,15 @@ export function createUsage({ dataDir, now = Date.now, fs = nodeFs, log = defaul
     dirty = true;
   }
 
-  function byRole() {
+  function byRole(): Array<RoleRow> {
     const today = days[utcDay(now())] ?? {};
     return sortRows(Object.entries(today).map(([role, row]) => ({ role, ...row })));
   }
 
-  function sumDays(count, { only, except } = {}) {
+  function sumDays(
+    count: number,
+    { only, except }: { only?: ReadonlyArray<string>; except?: ReadonlyArray<string> } = {}
+  ): DaysSum {
     const nowMs = now();
     const today = utcDay(nowMs);
     const span = Number.isInteger(count) && count > 0 ? Math.min(count, KEEP_DAYS) : 1;
@@ -147,10 +195,11 @@ export function createUsage({ dataDir, now = Date.now, fs = nodeFs, log = defaul
     const kept = Object.keys(days)
       .filter((day) => day <= today)
       .sort();
-    const since = kept.length === 0 ? today : kept[0] > start ? kept[0] : start;
+    const first = kept[0];
+    const since = first === undefined ? today : first > start ? first : start;
     const onlySet = Array.isArray(only) ? new Set(only) : null;
     const exceptSet = new Set(Array.isArray(except) ? except : []);
-    const sums = {};
+    const sums: Record<string, Counters> = {};
     for (const [day, roles] of Object.entries(days)) {
       if (day < start || day > today) continue;
       for (const [role, row] of Object.entries(roles)) {
@@ -165,7 +214,7 @@ export function createUsage({ dataDir, now = Date.now, fs = nodeFs, log = defaul
     return { rows, total, since, partial: since !== start };
   }
 
-  async function write() {
+  async function write(): Promise<void> {
     prune();
     const text = JSON.stringify({ v: VERSION, days });
     const tmp = `${file}.tmp`;
@@ -174,8 +223,8 @@ export function createUsage({ dataDir, now = Date.now, fs = nodeFs, log = defaul
     await fs.promises.rename(tmp, file);
   }
 
-  function save({ force = false } = {}) {
-    const run = chain.then(async () => {
+  function save({ force = false }: { force?: boolean } = {}): Promise<boolean> {
+    const run = chain.then(async (): Promise<boolean> => {
       if (!dirty || (!force && now() - lastSaveAt < SAVE_EVERY_MS)) return false;
       dirty = false;
       try {
@@ -184,11 +233,14 @@ export function createUsage({ dataDir, now = Date.now, fs = nodeFs, log = defaul
         return true;
       } catch (error) {
         dirty = true;
-        log.warn('usage: save failed', { code: error?.code ?? null });
+        log.warn('usage: save failed', { code: objOf(error).code ?? null });
         return false;
       }
     });
-    chain = run.catch(() => {});
+    chain = run.then(
+      () => {},
+      () => {}
+    );
     return run;
   }
 
@@ -203,24 +255,23 @@ export function createUsage({ dataDir, now = Date.now, fs = nodeFs, log = defaul
  * request of the `drawing` role with its `cost` and no tokens, and every `speech: synthesized` line
  * (src/speech/synth.js): one request of the `speech` role, its estimated `cost`.
  * Never throws on an odd entry.
- * @param {{ record: Function }} usage
- * @returns {(entry: object) => void}
  */
-export function usageTap(usage) {
-  return (entry) => {
-    if (!entry || typeof entry !== 'object') return;
+export function usageTap(usage: Pick<Usage, 'record'>): (entry: unknown) => void {
+  return (given) => {
+    if (!isObj(given)) return;
+    const entry = given;
     if (entry.msg === 'images: generated') {
       usage.record({ role: DRAWING_ROLE, cost: entry.cost });
       return;
     }
     // A voice synthesis (src/speech/synth.js): one request of the `speech` role with its estimated cost and no tokens.
     if (entry.msg === 'speech: synthesized') {
-      usage.record({ role: entry.role, cost: entry.cost });
+      usage.record({ role: typeof entry.role === 'string' ? entry.role : null, cost: entry.cost });
       return;
     }
     if (entry.msg !== 'llm: usage') return;
     usage.record({
-      role: entry.role,
+      role: typeof entry.role === 'string' ? entry.role : null,
       promptTokens: entry.promptTokens,
       cachedTokens: entry.cachedTokens,
       completionTokens: entry.completionTokens,
@@ -234,35 +285,36 @@ export function usageTap(usage) {
  * reduced to `{ ok: true, data }` (the answer's `data` object) or `{ ok: false, reason, status? }`
  * with `reason` one of `no-client` (no such method), `http` (a non-2xx answer, with its status),
  * `bad-answer` (no `data` object), `timeout`, `network`. Never rejects.
- * @param {(() => Promise<{ ok: boolean, status: number, json: object|null }>)|null|undefined} call
- * @returns {Promise<{ ok: true, data: object } | { ok: false, reason: string, status?: number }>}
  */
-export async function readAccount(call) {
-  return readData(call, isPlainObject);
+export async function readAccount(call: AccountCall): Promise<AccountRead> {
+  return readData(call, isObj);
 }
+
+/** An account GET of the llm client: its status and parsed body. */
+export type AccountCall = (() => Promise<{ ok: boolean; status: number; json: Obj | null }>) | null | undefined;
 
 /**
  * One activity GET of the llm client (`activity`, src/llm/openrouter.js), reduced like
  * `readAccount`, its `data` being the answer's array of rows. Never rejects.
- * @param {(() => Promise<{ ok: boolean, status: number, json: object|null }>)|null|undefined} call
- * @returns {Promise<{ ok: true, data: object[] } | { ok: false, reason: string, status?: number }>}
  */
-export async function readActivity(call) {
+export async function readActivity(call: AccountCall): Promise<AccountRead> {
   return readData(call, Array.isArray);
 }
 
 /** `readAccount` / `readActivity`: the answer's `data` when `accept` takes it. */
-async function readData(call, accept) {
+async function readData(call: AccountCall, accept: (value: unknown) => boolean): Promise<AccountRead> {
   if (typeof call !== 'function') return { ok: false, reason: 'no-client' };
-  let answer;
+  let answer: Awaited<ReturnType<NonNullable<AccountCall>>>;
   try {
     answer = await call();
   } catch (err) {
-    return { ok: false, reason: err?.name === 'TimeoutError' || err?.name === 'AbortError' ? 'timeout' : 'network' };
+    const name = objOf(err).name;
+    return { ok: false, reason: name === 'TimeoutError' || name === 'AbortError' ? 'timeout' : 'network' };
   }
-  if (!answer?.ok) return { ok: false, reason: 'http', status: answer?.status ?? null };
-  if (!accept(answer.json?.data)) return { ok: false, reason: 'bad-answer' };
-  return { ok: true, data: answer.json.data };
+  if (!answer.ok) return { ok: false, reason: 'http', status: answer.status };
+  const data = answer.json?.data;
+  if (!accept(data)) return { ok: false, reason: 'bad-answer' };
+  return { ok: true, data };
 }
 
 /**
@@ -270,16 +322,15 @@ async function readData(call, accept) {
  * before `today`) from its activity rows (GET /activity's `data`: one row per day, model and
  * endpoint, `date` `YYYY-MM-DD ...`); a day's spend is `usage + byok_usage_inference` summed over
  * its rows (a field that is not a finite number >= 0 counts 0). Null when `rows` is no array. Pure.
- * @param {object[]} rows
- * @param {string} today  `YYYY-MM-DD`, UTC.
- * @returns {{ last7: number, last30: number }|null}
+ * `today` is `YYYY-MM-DD`, UTC.
  */
-export function activitySums(rows, today) {
+export function activitySums(rows: unknown, today: string): { last7: number; last30: number } | null {
   if (!Array.isArray(rows)) return null;
   const todayMs = Date.parse(`${today}T00:00:00.000Z`);
   const sums = { last7: 0, last30: 0 };
-  for (const row of rows) {
-    const day = typeof row?.date === 'string' ? row.date.slice(0, 10) : '';
+  for (const entry of rows as Array<unknown>) {
+    const row = objOf(entry);
+    const day = typeof row.date === 'string' ? row.date.slice(0, 10) : '';
     if (!DAY_KEY.test(day)) continue;
     const back = Math.round((todayMs - Date.parse(`${day}T00:00:00.000Z`)) / DAY_MS);
     if (!(back >= 1 && back <= 29)) continue;
@@ -291,7 +342,7 @@ export function activitySums(rows, today) {
 }
 
 /** A token count for the card: `812`, `9.3k`, `974k`, `1.23M`. */
-export function compactTokens(n) {
+export function compactTokens(n: unknown): string {
   const value = amountOr0(n);
   if (value < 1000) return String(Math.round(value));
   if (value < 10_000) return `${(value / 1000).toFixed(1)}k`;
@@ -300,38 +351,53 @@ export function compactTokens(n) {
 }
 
 /** Dollars with two decimals. */
-const usd = (value) => amountOr0(value).toFixed(2);
+const usd = (value: unknown): string => amountOr0(value).toFixed(2);
 
 /** Dollars per request with three decimals, a half rounded up (a float quotient lands just under it). */
-const perRequest = (cost, requests) => (Math.round((amountOr0(cost) / requests) * 1000 + 1e-6) / 1000).toFixed(3);
+const perRequest = (cost: unknown, requests: number): string =>
+  (Math.round((amountOr0(cost) / requests) * 1000 + 1e-6) / 1000).toFixed(3);
 
 /** `fill` of a label that is a non-empty string; null otherwise (the line is left out). */
-function line(template, values) {
+function line(template: unknown, values: Obj): string | null {
   return typeof template === 'string' && template ? fill(template, values) : null;
 }
 
+/** \`labels.status.costs\`, or null when the labels hold none. */
+function costsLabels(labels: unknown): Untyped {
+  const costs = objOf(objOf(labels).status).costs;
+  return isObj(costs) ? (costs as Untyped) : null;
+}
+
 /** Why an account read failed, through `labels.reasons`. */
-function reasonText(outcome, L) {
-  const reasons = isPlainObject(L.reasons) ? L.reasons : {};
-  const key =
-    { timeout: 'timeout', network: 'network', http: 'http', 'no-client': 'noClient', 'bad-answer': 'badAnswer' }[
-      outcome.reason
-    ] ?? 'badAnswer';
+function reasonText(outcome: { reason: string; status?: number | null }, L: Untyped): string {
+  const reasons = objOf(L.reasons);
+  const keys: Record<string, string> = {
+    timeout: 'timeout',
+    network: 'network',
+    http: 'http',
+    'no-client': 'noClient',
+    'bad-answer': 'badAnswer',
+  };
+  const key = keys[outcome.reason] ?? 'badAnswer';
   return line(reasons[key], { status: outcome.status ?? '-' }) ?? outcome.reason;
 }
 
 /** The budget that describes the key's limit: the `key_limit` one, else the effective budget, else the first. */
-function keyBudget(data) {
-  const budgets = Array.isArray(data.budgets) ? data.budgets.filter(isPlainObject) : [];
+function keyBudget(data: Untyped): Untyped {
+  const budgets: Array<Untyped> = Array.isArray(data.budgets) ? (data.budgets as Array<unknown>).filter(isObj) : [];
   return (
     budgets.find((budget) => budget.scope === 'key_limit') ??
-    (isPlainObject(data.effective_budget) ? data.effective_budget : null) ??
+    (isObj(data.effective_budget) ? data.effective_budget : null) ??
     budgets[0] ??
     null
   );
 }
 
-const INTERVAL_USAGE = Object.freeze({ daily: 'usage_daily', weekly: 'usage_weekly', monthly: 'usage_monthly' });
+const INTERVAL_USAGE: Readonly<Record<string, string>> = Object.freeze({
+  daily: 'usage_daily',
+  weekly: 'usage_weekly',
+  monthly: 'usage_monthly',
+});
 
 /** The rolling windows of a usage line, in order: the `sumDays` result's key and its label. */
 const WINDOWS = Object.freeze([
@@ -345,8 +411,18 @@ const CALENDAR = Object.freeze([
   ['usage_monthly', 'usageMonthCal'],
 ]);
 
+/** What the key has spent against `limit`: the budget's own figure, else the limit less what remains, else the usage of its window. */
+function spentOf(data: Untyped, budget: Untyped, limit: number, interval: unknown): number | null {
+  if (isAmount(budget?.spend_usd)) return budget.spend_usd as number;
+  const remaining = isAmount(budget?.remaining_usd) ? budget.remaining_usd : data.limit_remaining;
+  if (isAmount(remaining)) return Math.max(0, limit - remaining);
+  if (interval === null && isAmount(data.usage)) return data.usage as number;
+  const field = typeof interval === 'string' ? INTERVAL_USAGE[interval] : undefined;
+  return field !== undefined && isAmount(data[field]) ? data[field] : null;
+}
+
 /** The key line (src: GET /key's `data`): spend over limit with its notes, or no limit with the total used. */
-function keyLine(data, L, lead) {
+function keyLine(data: Untyped, L: Untyped, lead: string): string | null {
   const budget = keyBudget(data);
   const limit = isAmount(budget?.limit_usd) ? budget.limit_usd : data.limit;
   if (!isAmount(limit)) {
@@ -354,19 +430,13 @@ function keyLine(data, L, lead) {
   }
   const hasReset = budget && Object.hasOwn(budget, 'reset_interval') ? true : Object.hasOwn(data, 'limit_reset');
   const interval = budget && Object.hasOwn(budget, 'reset_interval') ? budget.reset_interval : data.limit_reset;
-  const remaining = isAmount(budget?.remaining_usd) ? budget.remaining_usd : data.limit_remaining;
-  let spent = null;
-  if (isAmount(budget?.spend_usd)) spent = budget.spend_usd;
-  else if (isAmount(remaining)) spent = Math.max(0, limit - remaining);
-  else if (interval === null && isAmount(data.usage)) spent = data.usage;
-  else if (typeof interval === 'string' && isAmount(data[INTERVAL_USAGE[interval]]))
-    spent = data[INTERVAL_USAGE[interval]];
+  const spent = spentOf(data, budget, limit, interval);
 
-  const notes = [];
+  const notes: Array<string | null> = [];
   if (hasReset) {
     if (typeof interval === 'string' && interval) {
       const word =
-        (isPlainObject(L.intervals) && typeof L.intervals[interval] === 'string' && L.intervals[interval]) || interval;
+        (isObj(L.intervals) && typeof L.intervals[interval] === 'string' && L.intervals[interval]) || interval;
       const at = budget?.resets_at ? utcMinute(budget.resets_at) : null;
       notes.push(at && at !== '-' ? line(L.resetsAt, { interval: word, at }) : line(L.resets, { interval: word }));
     } else {
@@ -384,7 +454,7 @@ function keyLine(data, L, lead) {
 }
 
 /** The usage line of `parts` (the null ones dropped), or null when none is left. */
-function partsLine(parts, L) {
+function partsLine(parts: ReadonlyArray<string | null>, L: Untyped): string | null {
   const kept = parts.filter(Boolean);
   return kept.length > 0 ? line(L.usage, { parts: kept.join(L.partSeparator ?? '') }) : null;
 }
@@ -392,22 +462,22 @@ function partsLine(parts, L) {
 /** The usage line: today from GET /key's `data` (null: not read), then the rolling last 7 and
  * last 30 days from the bot's own accumulator (`windows`, `sumDays` results), each only when
  * present; a window shorter than asked carries its first day through `since`. */
-function usageLine(data, windows, L) {
-  const parts = [];
-  if (isPlainObject(data) && isAmount(data.usage_daily)) parts.push(line(L.usageToday, { usd: usd(data.usage_daily) }));
+function usageLine(data: Untyped, windows: Untyped, L: Untyped): string | null {
+  const parts: Array<string | null> = [];
+  if (isObj(data) && isAmount(data.usage_daily)) parts.push(line(L.usageToday, { usd: usd(data.usage_daily) }));
   for (const [key, label] of WINDOWS) {
-    const window = isPlainObject(windows) ? windows[key] : null;
-    if (!isPlainObject(window)) continue;
+    const window = isObj(windows) ? windows[key] : null;
+    if (!isObj(window)) continue;
     const since = window.partial ? (line(L.since, { day: window.since }) ?? '') : '';
-    parts.push(line(L[label], { usd: usd(window.total?.cost), since }));
+    parts.push(line(L[label], { usd: usd(objOf(window.total).cost), since }));
   }
   return partsLine(parts, L);
 }
 
 /** The usage line with the key's activity (`activitySums`): today from GET /key's `data`, then
  * the last 7 and 30 days as today plus their completed days. Null without today's figure. */
-function activityLine(data, activity, L) {
-  if (!isPlainObject(data) || !isAmount(data.usage_daily)) return null;
+function activityLine(data: Untyped, activity: Untyped, L: Untyped): string | null {
+  if (!isObj(data) || !isAmount(data.usage_daily)) return null;
   const today = data.usage_daily;
   return partsLine(
     [
@@ -420,16 +490,16 @@ function activityLine(data, activity, L) {
 }
 
 /** A key's usage line: with its activity (`activityLine`), else `fallback()`. */
-function keyUsageLine(data, activity, L, fallback) {
-  return (isPlainObject(activity) ? activityLine(data, activity, L) : null) ?? fallback();
+function keyUsageLine(data: Untyped, activity: Untyped, L: Untyped, fallback: () => string | null): string | null {
+  return (isObj(activity) ? activityLine(data, activity, L) : null) ?? fallback();
 }
 
 /** The simulator key's usage line without its activity, all from its own GET /key `data` (the
  * bot's accumulator never sees the tools' spend): today, then the calendar week and month as
  * OpenRouter reports them, each only when reported. */
-function ownUsageLine(data, L) {
-  if (!isPlainObject(data)) return null;
-  const parts = [];
+function ownUsageLine(data: Untyped, L: Untyped): string | null {
+  if (!isObj(data)) return null;
+  const parts: Array<string | null> = [];
   if (isAmount(data.usage_daily)) parts.push(line(L.usageToday, { usd: usd(data.usage_daily) }));
   for (const [field, label] of CALENDAR)
     if (isAmount(data[field])) parts.push(line(L[label], { usd: usd(data[field]) }));
@@ -439,9 +509,9 @@ function ownUsageLine(data, L) {
 /** One role row through `template`; a row with no token at all (a drawing) shows its
  * token counts as `-`; `{avg}` is the cost per request through `L.avg` (three decimals), empty
  * with no request or no label. */
-function rowLine(template, row, L) {
+function rowLine(template: unknown, row: RoleRow, L: Untyped): string | null {
   const tokens = row.promptTokens + row.cachedTokens + row.completionTokens > 0;
-  const count = (n) => (tokens ? compactTokens(n) : '-');
+  const count = (n: number): string => (tokens ? compactTokens(n) : '-');
   return line(template, {
     role: row.role,
     requests: row.requests,
@@ -455,11 +525,11 @@ function rowLine(template, row, L) {
 
 /** The roles of an extra key as its lead names them: each through `names` (`roleNames`, a role ->
  * shown name map; a role it lacks shows as itself), each shown name once, in order. */
-function shownRoles(roles, names) {
-  const nameOf = (role) =>
-    isPlainObject(names) && Object.hasOwn(names, role) && typeof names[role] === 'string' && names[role]
-      ? names[role]
-      : role;
+function shownRoles(roles: ReadonlyArray<string>, names: unknown): Array<string> {
+  const nameOf = (role: string): string => {
+    const shown = objOf(names)[role];
+    return Object.hasOwn(objOf(names), role) && typeof shown === 'string' && shown ? shown : role;
+  };
   return [...new Set(roles.map(nameOf))];
 }
 
@@ -479,13 +549,9 @@ function shownRoles(roles, names) {
  * read: no usage line). A key with its activity (the management key's read, `activitySums`)
  * shows instead `usageToday`, then `last7` and `last30` as today plus the completed days (no
  * `since`), when its record gives today's figure. The key's label is never read. Pure.
- * @param {{ key: object, activity?: object|null, sim?: object|null, simActivity?: object|null, labels: object,
- *   windows?: { last7?: object, last30?: object }|null,
- *   roleKeys?: Array<{ roles: string[], key: object, activity?: object|null, windows?: { last7?: object, last30?: object }|null }> }} params
- *   `key`, `sim` (null: not set) and each role key's `key` as `readAccount` resolves; each
+ * `key`, `sim` (null: not set) and each role key's `key` as `readAccount` resolves; each
  *   `activity` as `activitySums` returns (null: not read); `windows` as `createUsage().sumDays`
  *   returns, the main key's over the roles no extra key takes.
- * @returns {string[]}
  */
 export function keyCostsLines({
   key,
@@ -495,16 +561,27 @@ export function keyCostsLines({
   labels,
   windows = null,
   roleKeys = [],
-}) {
-  const L = labels?.status?.costs;
-  if (!isPlainObject(L)) return [];
-  const lines = [];
+}: {
+  key: AccountRead;
+  activity?: Untyped;
+  sim?: AccountRead | null;
+  simActivity?: Untyped;
+  labels: unknown;
+  windows?: Untyped;
+  roleKeys?: ReadonlyArray<{ roles: ReadonlyArray<string>; key: AccountRead; activity?: Untyped; windows?: Untyped }>;
+}): Array<string> {
+  const L = costsLabels(labels);
+  if (!L) return [];
+  const lines: Array<string | null> = [];
   const lead = typeof L.keyLead === 'string' ? L.keyLead : '';
   const simLead = typeof L.simKeyLead === 'string' ? L.simKeyLead : '';
-  const unavailable = (outcome, word) =>
-    line(L.keyUnavailable, { lead: word, reason: reasonText(outcome ?? { reason: 'bad-answer' }, L) });
-  lines.push(key?.ok ? keyLine(key.data, L, lead) : unavailable(key, lead));
-  const dataOf = (outcome) => (outcome?.ok ? outcome.data : null);
+  const unavailable = (outcome: AccountRead | null | undefined, word: string): string | null =>
+    line(L.keyUnavailable, {
+      lead: word,
+      reason: reasonText(outcome && !outcome.ok ? outcome : { reason: 'bad-answer' }, L),
+    });
+  lines.push(key.ok ? keyLine(key.data, L, lead) : unavailable(key, lead));
+  const dataOf = (outcome: AccountRead | null | undefined): Untyped => (outcome?.ok ? outcome.data : null);
   lines.push(keyUsageLine(dataOf(key), activity, L, () => usageLine(dataOf(key), windows, L)));
   if (sim)
     lines.push(
@@ -513,36 +590,41 @@ export function keyCostsLines({
     );
   else lines.push(line(L.simKeyNotSet, {}));
   for (const extra of Array.isArray(roleKeys) ? roleKeys : []) {
-    const roles = Array.isArray(extra?.roles) ? extra.roles : [];
+    const roles = Array.isArray(extra.roles) ? extra.roles : [];
     const roleLead = line(L.roleKeyLead, {
       roles: shownRoles(roles, L.roleNames).join(typeof L.roleSeparator === 'string' ? L.roleSeparator : ', '),
     });
     if (!roleLead) continue;
-    lines.push(extra.key?.ok ? keyLine(extra.key.data, L, roleLead) : unavailable(extra.key, roleLead));
+    lines.push(extra.key.ok ? keyLine(extra.key.data, L, roleLead) : unavailable(extra.key, roleLead));
     lines.push(
       keyUsageLine(dataOf(extra.key), extra.activity, L, () => usageLine(dataOf(extra.key), extra.windows, L))
     );
   }
-  return lines.filter(Boolean);
+  return lines.filter((text): text is string => Boolean(text));
 }
 
 /**
  * The `costs.base` field's lines, every word from `labels.status.costs` (no
  * `status.costs` gives []): one `role` line per row in the given order, each with `{avg}`, the
  * cost per request; `byRoleEmpty` alone when there is no row. No header and no total. Pure.
- * @param {{ rows: object[], labels: object }} params  `rows` as `createUsage().byRole()` returns.
- * @returns {string[]}
+ * `rows` are as `createUsage().byRole()` returns.
  */
-export function roleCostsLines({ rows, labels }) {
-  const L = labels?.status?.costs;
-  if (!isPlainObject(L)) return [];
+export function roleCostsLines({
+  rows,
+  labels,
+}: {
+  rows: ReadonlyArray<RoleRow> | null;
+  labels: unknown;
+}): Array<string> {
+  const L = costsLabels(labels);
+  if (!L) return [];
   const list = Array.isArray(rows) ? rows : [];
   const lines = list.length === 0 ? [line(L.byRoleEmpty, {})] : list.map((row) => rowLine(L.role, row, L));
-  return lines.filter(Boolean);
+  return lines.filter((text): text is string => Boolean(text));
 }
 
 /** The windows of an agent's spend line, in order (src/errands/costs.js#COST_WINDOWS's names). */
-const AGENT_WINDOWS = Object.freeze(['today', 'last7', 'last30']);
+const AGENT_WINDOWS: ReadonlyArray<string> = Object.freeze(['today', 'last7', 'last30']);
 
 /**
  * The `costs.errands` and `costs.development` fields' lines, every word from `labels.status.costs` (no `status.costs`
@@ -553,24 +635,31 @@ const AGENT_WINDOWS = Object.freeze(['today', 'last7', 'last30']);
  * totals carry a `last_wave` with a context figure (the thinker's, from the ledger) is followed by
  * `agentContext` ({agent} {wave} {turns} {mean} {peak} {usd}; the context in compact tokens, `-`
  * for a missing one); then `agentEstimate`, the note that the dollars are OpenCode's estimate. Pure.
- * @param {{ agents: string[], totals: object|null, labels: object }} params  `totals` as
- *   src/errands/costs.js#agentCosts returns, the ledger's agents merged in
- *   (src/errands/ledger.js#agentCostsOf); an agent it lacks has no run.
- * @returns {string[]}
+ * `totals` is as src/errands/costs.js#agentCosts returns, the ledger's agents merged in
+ * (src/errands/ledger.js#agentCostsOf); an agent it lacks has no run.
  */
-export function agentCostsLines({ agents, totals, labels }) {
-  const L = labels?.status?.costs;
-  if (!isPlainObject(L)) return [];
-  const names = isPlainObject(L.agentWindows) ? L.agentWindows : {};
-  const lines = (Array.isArray(agents) ? agents : []).flatMap((agent) => {
-    const row = isPlainObject(totals) && isPlainObject(totals[agent]) ? totals[agent] : null;
+export function agentCostsLines({
+  agents,
+  totals,
+  labels,
+}: {
+  agents: ReadonlyArray<string>;
+  totals: Untyped;
+  labels: unknown;
+}): Array<string> {
+  const L = costsLabels(labels);
+  if (!L) return [];
+  const names = objOf(L.agentWindows);
+  const lines = (Array.isArray(agents) ? agents : []).flatMap((agent): Array<string | null> => {
+    const row = isObj(totals) && isObj(totals[agent]) ? (totals[agent] as Untyped) : null;
     const context = contextLine(L, agent, row?.last_wave);
     const counted =
       row && AGENT_WINDOWS.some((window) => amountOr0(row[window]?.runs) > 0 || amountOr0(row[window]?.usd) > 0);
     if (!counted) return [line(L.agentNoRuns, { agent }), context];
     const parts = AGENT_WINDOWS.map((window) => {
-      const sums = isPlainObject(row[window]) ? row[window] : {};
-      const name = typeof names[window] === 'string' && names[window] ? names[window] : window;
+      const sums = objOf(row[window]);
+      const shown = names[window];
+      const name = typeof shown === 'string' && shown ? shown : window;
       return line(L.agentWindow, {
         window: name,
         runs: amountOr0(sums.runs),
@@ -581,13 +670,14 @@ export function agentCostsLines({ agents, totals, labels }) {
     }).filter(Boolean);
     return [parts.length > 0 ? line(L.agentLine, { agent, parts: parts.join(L.partSeparator ?? '') }) : null, context];
   });
-  return [...lines, line(L.agentEstimate, {})].filter(Boolean);
+  return [...lines, line(L.agentEstimate, {})].filter((text): text is string => Boolean(text));
 }
 
 /** An agent's `agentContext` line from its `last_wave`, or null when the wave has no context figure. */
-function contextLine(L, agent, wave) {
-  if (!isPlainObject(wave)) return null;
-  const figure = (value) => (typeof value === 'number' && Number.isFinite(value) ? compactTokens(value) : '-');
+function contextLine(L: Untyped, agent: string, wave: unknown): string | null {
+  if (!isObj(wave)) return null;
+  const figure = (value: unknown): string =>
+    typeof value === 'number' && Number.isFinite(value) ? compactTokens(value) : '-';
   const mean = wave.context_mean;
   const peak = wave.context_peak;
   if (!(typeof mean === 'number' && Number.isFinite(mean)) && !(typeof peak === 'number' && Number.isFinite(peak)))

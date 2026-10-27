@@ -24,6 +24,8 @@ import { fileHandle, isOpenState } from '../../errands/store.js';
 import { DEFAULT_RESULT_MAX_CHARS } from '../../errands/blocks.js';
 import { defineOp, perEnv, invalid, denied } from './registry.ts';
 import { CODE } from '../codes.ts';
+import { idText, textOf } from '../types.ts';
+import type { Obj, OpContext, Untyped } from '../types.ts';
 
 /** How many tasks `task.list` shows. */
 export const TASK_LIST_COUNT = 10;
@@ -51,31 +53,31 @@ const handlers = perEnv((env) => {
   }
 
   /** Whether the caller is an owner (`bot.owners`, read now). */
-  function ownerCalls(context) {
+  function ownerCalls(context: OpContext) {
     return isOwnerId(hot.config, context?.userId);
   }
 
   /** Who asks: an owner, a member, or the persona on her own (her call with nobody asking). */
-  function requesterOf(context) {
-    const userId = context?.userId ? String(context.userId) : null;
+  function requesterOf(context: OpContext) {
+    const userId = context?.userId ? idText(context.userId) : null;
     if (!userId) return { userId: null, kind: context?.actor === 'persona' ? 'persona' : 'member' };
     return { userId, kind: ownerCalls(context) ? 'owner' : 'member' };
   }
 
   /** Whether the conversation the command runs in is a private chat. */
-  function inPrivate(context) {
+  function inPrivate(context: OpContext) {
     if (context?.privateChat === true) return true;
-    return context?.channelId ? env.directory.isPrivate(String(context.channelId)) : false;
+    return context?.channelId ? env.directory.isPrivate(idText(context.channelId)) : false;
   }
 
   /** Whether the caller may see `task`: a group task anyone; a private chat's only its requester or an owner. */
-  function mayView(task, context) {
+  function mayView(task: Untyped, context: OpContext): boolean {
     if (task.scope !== 'dm') return true;
-    return ownerCalls(context) || (Boolean(context?.userId) && String(context.userId) === task.requester?.userId);
+    return ownerCalls(context) || (Boolean(context?.userId) && idText(context.userId) === task.requester?.userId);
   }
 
   /** One line of a task: id, agent, state (with the error code and `files-expired`), age, goal. */
-  function taskLine(task) {
+  function taskLine(task: Untyped): string {
     const minutes = Math.max(0, Math.floor((now() - (task.createdAt ?? now())) / MINUTE_MS));
     const codes = [
       ...(task.error && task.state !== 'done' ? [task.error] : []),
@@ -86,17 +88,17 @@ const handlers = perEnv((env) => {
   }
 
   /** A refusal of the store or the service as the operation's result. */
-  function refusal(code, task) {
+  function refusal(code: string, task?: Untyped): Obj {
     const status = REFUSALS[code] ?? 'failed';
     return { status, code, summary: `task not started: ${code}`, data: task ? { task } : null };
   }
 
   /** `/nep task run agent goal`: a new errand, answered at once with its id and `queued`. */
-  function cmdRun(args, context) {
+  function cmdRun(args: Obj, context: OpContext) {
     assertNotPaused();
-    const agent = String(args?.agent ?? '').trim();
+    const agent = textOf(args.agent).trim();
     if (!TASK_AGENTS.includes(agent)) throw invalid(`agent must be one of: ${TASK_AGENTS.join(', ')}`);
-    const goal = String(args?.goal ?? '').trim();
+    const goal = textOf(args.goal).trim();
     if (!goal) throw invalid('a goal is required');
     const requester = requesterOf(context);
     // Only an owner may have this machine read, through the persona or not.
@@ -106,9 +108,9 @@ const handlers = perEnv((env) => {
     // Her own call carries its turn and its idempotency key (src/tools/executors.ts); a command neither.
     const persona = context?.actor === 'persona';
     const origin = {
-      channelId: context?.channelId ? String(context.channelId) : null,
-      messageId: context?.sourceMessageId ? String(context.sourceMessageId) : null,
-      ...(persona && context?.turnId ? { turnId: String(context.turnId) } : {}),
+      channelId: context?.channelId ? idText(context.channelId) : null,
+      messageId: context?.sourceMessageId ? idText(context.sourceMessageId) : null,
+      ...(persona && context?.turnId ? { turnId: idText(context.turnId) } : {}),
     };
     const idempotencyKey = persona && typeof context?.idempotencyKey === 'string' ? context.idempotencyKey : null;
     const submitted = errands().submit({
@@ -135,10 +137,10 @@ const handlers = perEnv((env) => {
   }
 
   /** `/nep task status [id]`: one task, or every open one. */
-  function cmdStatus(args, context) {
+  function cmdStatus(args: Obj, context: OpContext) {
     const store = errands().store(resolvedGuildId(context));
     if (!store) throw Object.assign(new Error('no guild'), { code: CODE.NO_GUILD });
-    const id = String(args?.id ?? '').trim();
+    const id = textOf(args.id).trim();
     if (id) {
       const task = store.get(id);
       if (!task || !mayView(task, context)) throw invalid(`no task ${id}`, CODE.NOT_FOUND);
@@ -157,17 +159,17 @@ const handlers = perEnv((env) => {
       return lines.join('\n');
     }
     // The open tasks, then the finished ones she has not read (their result is still waiting).
-    const listed = [...store.open(), ...store.unread()].filter((task) => mayView(task, context));
+    const listed = [...store.open(), ...store.unread()].filter((task: Untyped) => mayView(task, context));
     return listed.length > 0
       ? listed.map((task) => (isOpenState(task.state) ? taskLine(task) : `${taskLine(task)} (unread)`)).join('\n')
       : 'no open tasks';
   }
 
   /** A finished task of the caller's view, or an `invalid` error: not found, not viewable, still open. */
-  function finishedTask(args, context) {
+  function finishedTask(args: Obj, context: OpContext) {
     const store = errands().store(resolvedGuildId(context));
     if (!store) throw Object.assign(new Error('no guild'), { code: CODE.NO_GUILD });
-    const id = String(args?.id ?? '').trim();
+    const id = textOf(args.id).trim();
     if (!id) throw invalid('an id is required');
     const task = store.get(id);
     if (!task || !mayView(task, context)) throw invalid(`no task ${id}`, CODE.NOT_FOUND);
@@ -176,20 +178,20 @@ const handlers = perEnv((env) => {
   }
 
   /** `task.read id [from]`: a finished task's result in a page of `agents.resultMaxChars` characters. */
-  function cmdRead(args, context) {
+  function cmdRead(args: Obj, context: OpContext) {
     const { store, task } = finishedTask(args, context);
     const configured = hot.config?.agents?.resultMaxChars;
     const page = Number.isInteger(configured) && configured > 0 ? configured : DEFAULT_RESULT_MAX_CHARS;
     const text = typeof task.result?.text === 'string' ? task.result.text : '';
-    const from = args?.from === undefined || args?.from === null || args?.from === '' ? 0 : Number(args.from);
+    const from = args.from === undefined || args.from === null || args.from === '' ? 0 : Number(args.from);
     if (!Number.isInteger(from) || from < 0 || (from > 0 && from >= text.length))
       throw invalid(`from must be between 0 and ${Math.max(0, text.length - 1)}`);
     const to = Math.min(text.length, from + page);
     const lines = [taskLine(task)];
     if (from === 0) {
       if (task.error && task.state !== 'done') lines.push(`error: ${task.error}`);
-      const sources = Array.isArray(task.result?.sources)
-        ? task.result.sources.filter((url) => typeof url === 'string' && url)
+      const sources: Array<string> = Array.isArray(task.result?.sources)
+        ? (task.result.sources as Array<unknown>).filter((url): url is string => typeof url === 'string' && url !== '')
         : [];
       for (const [i, url] of sources.entries()) lines.push(`source ${i + 1}: ${url}`);
       for (const file of Array.isArray(task.result?.files) ? task.result.files : []) {
@@ -212,7 +214,7 @@ const handlers = perEnv((env) => {
   }
 
   /** `task.resolve id`: a finished task closed, its result dealt with. */
-  function cmdResolve(args, context) {
+  function cmdResolve(args: Obj, context: OpContext) {
     const { store, task } = finishedTask(args, context);
     store.resolve(task.id);
     store.markRead(task.id);
@@ -220,14 +222,14 @@ const handlers = perEnv((env) => {
   }
 
   /** `/nep task cancel id`: for the requester of the task or an owner. */
-  function cmdCancel(args, context) {
-    const id = String(args?.id ?? '').trim();
+  function cmdCancel(args: Obj, context: OpContext) {
+    const id = textOf(args.id).trim();
     if (!id) throw invalid('an id is required');
     const service = errands();
     const store = service.store(resolvedGuildId(context));
     const task = store?.get(id) ?? null;
     if (!task || !mayView(task, context)) throw invalid(`no task ${id}`, CODE.NOT_FOUND);
-    const own = Boolean(context?.userId) && String(context.userId) === task.requester?.userId;
+    const own = Boolean(context?.userId) && idText(context.userId) === task.requester?.userId;
     const hers = context?.actor === 'persona' && task.requester?.kind === 'persona';
     if (!ownerCalls(context) && !own && !hers)
       throw denied('only the requester of the task or an owner may cancel it', CODE.NOT_REQUESTER);
@@ -245,14 +247,14 @@ const handlers = perEnv((env) => {
   }
 
   /** `/nep task list`: the latest TASK_LIST_COUNT tasks, newest first. */
-  function cmdList(args, context) {
+  function cmdList(args: Obj, context: OpContext) {
     const store = errands().store(resolvedGuildId(context));
     if (!store) throw Object.assign(new Error('no guild'), { code: CODE.NO_GUILD });
     const tasks = store
       .recent(TASK_LIST_COUNT * 3)
-      .filter((task) => mayView(task, context))
+      .filter((task: Untyped) => mayView(task, context))
       .slice(0, TASK_LIST_COUNT);
-    return tasks.length > 0 ? tasks.map(taskLine).join('\n') : 'no tasks yet';
+    return tasks.length > 0 ? (tasks as Array<Untyped>).map((task) => taskLine(task)).join('\n') : 'no tasks yet';
   }
 
   return { cmdRun, cmdStatus, cmdCancel, cmdList, cmdRead, cmdResolve };

@@ -97,6 +97,7 @@ import {
 import { createImageFetcher } from '../media/fetch-image.js';
 import { drawPicture, drawPromptOf } from '../media/draw.js';
 import { renderCustomEmoji, resolveReactionEmoji } from './emoji.js';
+import { refreshEmojiIfOn } from './emoji-index.ts';
 import { callReason, fill, formatTranscript, replyMarker, withCalls, withTriggers } from '../format.js';
 import { log } from '../log.js';
 import { clampWithEllipsis, countDashes, oneLine, stripDashes } from '../memory/clamp.js';
@@ -127,7 +128,7 @@ import { createThinkStore, placeKey } from './previous-think.js';
 import { discoveryOn, exposedSkillNames, proposalVerdicts, proposedRows, skillsIndex } from '../tools/discovery.ts';
 import { skillFeatureOn, skillsOn } from '../tools/access.ts';
 import { skillRegistry } from '../tools/registry.ts';
-import { executeCall, linkKey, outcomeDetail, refusalStatus, resolveCall } from '../tools/executors.ts';
+import { executeCall, linksOfCalls, outcomeDetail, refusalStatus, resolveCall } from '../tools/executors.ts';
 import { fetchSpan, runConversationRead, recordMessages } from '../tools/conversation-read.ts';
 import {
   IN_TURN_TOOLS,
@@ -340,7 +341,7 @@ export function coreToolsOn(config) {
  * reaches an inner turn, `innerLife.loop` never an ordinary one. Pure.
  * @param {object} config
  * @param {{ inner?: boolean }} [options]
- * @returns {{ maxSteps: number, timeBudgetMs: number, maxCallsPerStep: number, callTimeoutMs?: number }}
+ * @returns {{ maxSteps: number, timeBudgetMs: number, maxCallsPerStep: number, callTimeoutMs?: number, stepReserveTokens?: number }}
  */
 export function loopSettings(config, { inner = false, diary = false } = {}) {
   if (inner) return { ...innerSettings(config).loop };
@@ -1215,7 +1216,6 @@ export function callViewOf({
   triggerText = null,
   deletedIds = null,
   searchRefs = null,
-  links = null,
 }) {
   const conversations = [];
   // A private chat shows no channel of the community: only the turn's own.
@@ -1272,29 +1272,9 @@ export function callViewOf({
     ...(deletedIds instanceof Set && deletedIds.size > 0 ? { deletedIds } : {}),
     // A file handle of one of her errands (`file:<task id>/<name>`), resolved for this conversation.
     ...(typeof fileOf === 'function' ? { fileOf } : {}),
-    // The message links the interface read in this step's calls: link text -> message reference (null: not a message).
-    ...(links instanceof Map ? { links } : {}),
     // The trigger message's text: a channel it names may take an errand's file.
     ...(typeof triggerText === 'string' && triggerText ? { triggerText } : {}),
   };
-}
-
-/**
- * The message links in the arguments of `calls` that the interface can read, for one step: link text (as
- * src/tools/executors.ts#linkKey writes it) -> the message it names, or null when it names none. One `parseLinks` read
- * for all of them (at most 50 links of 2,000 characters); null when there is no link or the interface does not read links.
- */
-async function linksOfCalls(reads, calls) {
-  const found = new Set();
-  for (const call of calls ?? [])
-    for (const value of Object.values(call?.args ?? {})) {
-      const text = linkKey(value);
-      if (/^https?:\/\//i.test(text) && text.length <= 2000) found.add(text);
-    }
-  const texts = [...found].slice(0, 50);
-  if (texts.length === 0 || !reads) return null;
-  const parsed = await reads.parseLinks(texts);
-  return parsed === null ? null : new Map(texts.map((text, i) => [text, parsed.refs[i] ?? null]));
 }
 
 /** The numbers left free between a request's own lines and the handles of a memory.search of the turn (its later steps add a few lines). */
@@ -2291,7 +2271,6 @@ export function createTurnRunner({
     trigger = null,
     deletedIds = null,
     searchRefs = null,
-    links = null,
   }) {
     const fileOf =
       typeof errands?.fileOf === 'function'
@@ -2315,7 +2294,6 @@ export function createTurnRunner({
       triggerText: typeof trigger?.content === 'string' ? trigger.content : null,
       deletedIds,
       searchRefs,
-      links,
     });
   }
 
@@ -3239,7 +3217,7 @@ export function createTurnRunner({
         .filter((id) => typeof id === 'string' && id)
     );
     if (trigger?.id) knownIds.add(String(trigger.id));
-    const viewOf = async (r, calls) =>
+    const viewOf = (r) =>
       callView({
         channel,
         snapshot: snapshotOfDraft(draft),
@@ -3253,7 +3231,6 @@ export function createTurnRunner({
         trigger,
         deletedIds: draft.deletedIds,
         searchRefs: draft.searchRefs ?? null,
-        links: await linksOfCalls(ifaceReads, calls),
       });
     const contextOf = (r, timeoutMs = null) => ({
       ...callContext,
@@ -3325,7 +3302,7 @@ export function createTurnRunner({
           typing.started = true;
           typing.stop = typingWhileCalls(channel, triggerKind, draft);
         }
-        const view = await viewOf(routed, records);
+        const view = { ...viewOf(routed), links: await linksOfCalls(ifaceReads, records) };
         // A heartbeat turn makes one intention change: the first intent call of a step is planned, a second one is refused.
         let changePlanned = false;
         for (const record of records) {
@@ -3635,7 +3612,7 @@ export function createTurnRunner({
       const out = { acted, loweredResults: [], deliveries: [] };
       if (loweredCalls.length === 0) return out;
       // The tags of an inner turn are her speech: each planned (the journal, the gate) and made like a call, with no result to give back.
-      const view = await viewOf(routed, loweredCalls);
+      const view = { ...viewOf(routed), links: await linksOfCalls(ifaceReads, loweredCalls) };
       const lowered = [];
       for (const call of loweredCalls)
         lowered.push(await planToolCall({ call, channel, envelope: envelopeOf(), draft, view }));
@@ -5866,8 +5843,8 @@ export function createTurnRunner({
    * The searches on a question: the web search (`webOn`: features.webLookup,
    * web.search.enabled, a lookup with `search`) and the search of the
    * server's own history (`serverOn`: recall wired and available, a server
-   * turn or a private chat with its `partner`; `guild` is the guild searched,
-   * the served one in a private chat). One cheap classifier call (prompts.lookup, `{{name}}` = the
+   * turn or a private chat with its `partner`; the community searched is the
+   * `snapshot`'s). One cheap classifier call (prompts.lookup, `{{name}}` = the
    * persona's display name, `{{today}}` = the injected clock's date
    * `YYYY-MM-DD` in `bot.timezone`, the zone its `when:` range is read in;
    * on the helper model (roleModel, role `analyzer`), its answer capped at
@@ -5924,7 +5901,6 @@ export function createTurnRunner({
     guildId,
     channel,
     snapshot = null,
-    guild = null,
     partner = null,
     selfId,
     selfName,
@@ -7576,8 +7552,7 @@ export function createTurnRunner({
       // chat is listed for its partner's sake.
       const partnerHint = isPrivate ? (trigger?.authorId ?? channel.partnerId ?? null) : null;
       const snapshotPending = takeSnapshot(ifaceReads, guildId, partnerHint ? [String(partnerHint)] : []);
-      // The community's custom emoji, read again when the index is older than a minute (the `<emoji>` block and her `:name:`).
-      const emojiPending = emoji && config.features?.customEmoji !== false ? emoji.refresh() : Promise.resolve();
+      const emojiPending = refreshEmojiIfOn(emoji, config);
       const historyStartedAt = clock();
       const snapshot = /** @type {Snap|null} */ (await beforeBar(snapshotPending));
       draft.snapshot = snapshot;
@@ -8185,7 +8160,6 @@ export function createTurnRunner({
                     guildId,
                     channel,
                     snapshot: servedSnapshot,
-                    guild: servedGuild,
                     partner,
                     selfId,
                     selfName,

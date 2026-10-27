@@ -329,16 +329,25 @@ async function sample(flags, { dataDir, guildId, now, cwd }) {
 /**
  * The reads and the scope (`channel` and `snapshot`) a recall run is handed for `channel` of `guild`: the local guild's
  * own, or Discord's over REST.
+ * @param {*} guild
+ * @param {*} channel
+ * @param {*} guildId
+ * @param {() => unknown} config
+ * @returns {Promise<{ reads: import('../src/interface/reads.ts').Reads, scope: { channel: object, snapshot: object } }>}
  */
 async function recallParts(guild, channel, guildId, config) {
-  if (guild.local === true) {
-    const channelNameOf = (id) => guild.channels.cache.get(id)?.name ?? null;
+  /** @type {{ local?: boolean, client?: unknown, channels: { cache: { get: (id: string) => { name?: string|null }|undefined } } }} */
+  const found = guild;
+  const { id: channelId } = channel;
+  if (found.local === true) {
+    /** @param {string} id */
+    const channelNameOf = (id) => found.channels.cache.get(id)?.name ?? null;
     return {
       reads: localReads({ guildId, channelNameOf }),
-      scope: localScope({ guildId, channelId: String(channel.id), channelNameOf }),
+      scope: localScope({ guildId, channelId: String(channelId), channelNameOf }),
     };
   }
-  const { reads } = discordReads(guild.client, config);
+  const { reads } = discordReads(found.client, config);
   return { reads, scope: await recallScope(reads, channel, String(guildId)) };
 }
 

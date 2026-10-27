@@ -5,6 +5,8 @@
 import { normalizeTopic, applyAliasOps } from '../../memory/index.js';
 import { confirmTarget, formatAliasList } from './shared.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
+import { idText, textOf } from '../types.ts';
+import type { Obj, OpContext, Untyped } from '../types.ts';
 
 const handlers = perEnv((env) => {
   const { hot, store, assertNotPaused, requireGuildId, requireProfile } = env;
@@ -23,13 +25,13 @@ const handlers = perEnv((env) => {
    * both src/memory/aliases.js#applyAliasOps's own behaviour; the stored form
    * is worked out through that same function. A member with no profile is an error.
    */
-  function cmdAliasAdd(args, context) {
+  function cmdAliasAdd(args: Obj, context: OpContext) {
     assertNotPaused();
-    const userId = args?.userId;
+    const userId = idText(args.userId);
     if (!userId) throw invalid('a user is required');
     const guildId = requireGuildId(context);
 
-    const name = String(args?.name ?? '').trim();
+    const name = textOf(args.name).trim();
     if (!name) throw invalid('a name is required');
 
     const before = requireProfile(guildId, userId);
@@ -37,8 +39,10 @@ const handlers = perEnv((env) => {
     const target = confirmTarget(memoryCfg);
 
     // The identity the store keeps for `name` (clamped the store's way), to find it once stored.
-    const key = normalizeTopic(applyAliasOps([], { add: [name] }, [])[0]?.name ?? name);
-    const currentWeight = before.aliases?.find((a) => normalizeTopic(a.name) === key)?.weight ?? 0;
+    const key = normalizeTopic(
+      (applyAliasOps([], { add: [name] }, [])[0] as { name?: string } | undefined)?.name ?? name
+    );
+    const currentWeight = before.aliases?.find((a: Untyped) => normalizeTopic(a.name) === key)?.weight ?? 0;
     const needed = Math.max(0, target - currentWeight);
 
     const now = Date.now();
@@ -65,13 +69,13 @@ const handlers = perEnv((env) => {
   /** `/nep alias remove`: removes by name, case-insensitively (store.applyProfileOps
    * matches an alias's identity the same way, see src/memory/interests.js#normalizeTopic).
    * A member with no profile is an error. */
-  function cmdAliasRemove(args, context) {
+  function cmdAliasRemove(args: Obj, context: OpContext) {
     assertNotPaused();
-    const userId = args?.userId;
+    const userId = idText(args.userId);
     if (!userId) throw invalid('a user is required');
     const guildId = requireGuildId(context);
 
-    const name = String(args?.name ?? '').trim();
+    const name = textOf(args.name).trim();
     if (!name) throw invalid('a name is required');
 
     requireProfile(guildId, userId);

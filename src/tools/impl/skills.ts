@@ -12,13 +12,16 @@ import { describeRows } from '../discovery.ts';
 import { skillRegistry } from '../registry.ts';
 import { CODE } from '../codes.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
+import { objOf } from '../types.ts';
+import type { Obj } from '../types.ts';
 
 const handlers = perEnv((env) => {
   const { hot } = env;
 
   /** `/nep task skills name`. */
-  function cmdDescribe(args) {
-    const name = typeof args?.name === 'string' ? args.name.trim() : '';
+  function cmdDescribe(args: unknown): Obj {
+    const said = objOf(args).name;
+    const name = typeof said === 'string' ? said.trim() : '';
     if (!name) throw invalid('name: a skill name or a family');
     const labels = hot.prompts?.labels ?? {};
     const { rows, closest } = describeRows({
@@ -44,5 +47,5 @@ const handlers = perEnv((env) => {
 defineOp({
   name: 'skills.describe',
   rights: { kind: 'read', member: true },
-  run: (args, ctx) => handlers(ctx.env).cmdDescribe(args, ctx),
+  run: (args, ctx) => handlers(ctx.env).cmdDescribe(args),
 });

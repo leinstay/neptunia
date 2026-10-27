@@ -548,7 +548,7 @@ function scopeOf({ privateUserId = null, channelId = null } = {}) {
  * Create the journal.
  *
  * @param {object} options
- * @param {{ flush?: Function, stats?: Function }|null} [options.appendStore]  src/memory/append-store.js, optional:
+ * @param {{ append?: Function, iterate?: Function, flush?: Function, stats?: Function }|null} [options.appendStore]  src/memory/append-store.js, optional:
  *   flushed by `withWriterLock`; its `stats().stalled` is `stalled()`
  * @param {string} options.dataDir  the `data/` directory
  * @param {() => ({ thinkChars?: number }|undefined)} [options.config]  the live `journal` config

@@ -695,15 +695,17 @@ function runner(env, { open = true, meaning = false, embed = null, places = true
   // The interface is asked for nothing here: every search answers empty and every history read nothing, and each ask is noted.
   const rest = [];
   const reads = {
-    searchMessages: async (scope) => {
+    /** @param {{ communityId: string }} scope */
+    searchMessages: (scope) => {
       rest.push(`/guilds/${scope.communityId}/messages/search`);
-      return { total: 0, hits: [] };
+      return Promise.resolve({ total: 0, hits: [] });
     },
-    searchMembers: async (scope) => {
+    /** @param {{ communityId: string }} scope */
+    searchMembers: (scope) => {
       rest.push(`/guilds/${scope.communityId}/members/search`);
-      return { members: [] };
+      return Promise.resolve({ members: [] });
     },
-    history: async () => ({ events: [], complete: true }),
+    history: () => Promise.resolve({ events: [], complete: true }),
   };
   // #general (c1) and #secret (c4), which the community's everyone cannot view; Bob's private chat is the partner's.
   const channel = channelInfo('c1', { name: 'general' });
@@ -1006,7 +1008,11 @@ test("recall: the turn's execution context is used when it fits the read; a read
     const s = runner(env);
     const issued = [];
     const recaller = createRecall({
-      reads: { searchMessages: async () => null, searchMembers: async () => null, history: async () => null },
+      reads: {
+        searchMessages: () => Promise.resolve(null),
+        searchMembers: () => Promise.resolve(null),
+        history: () => Promise.resolve(null),
+      },
       hot: s.hot,
       store: { state: { data: {}, markDirty() {} }, listUserProfiles: () => [] },
       llm: { capLeft: () => 100, complete: async () => ({ text: '' }) },

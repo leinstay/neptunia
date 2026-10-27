@@ -37,7 +37,11 @@ function config(overrides = {}) {
 
 const silentLog = { info() {}, warn() {}, error() {} };
 
-/** The event of a message in `room` that mentions the persona when `mention` is set. */
+/**
+ * The event of a message in `room` that mentions the persona when `mention` is set.
+ * @param {import('../src/protocol/adapter.ts').ConversationInfo} room
+ * @param {{ id: string, ts: number, content?: string, authorId?: string, mention?: boolean }} fields
+ */
 function eventIn(room, { id, ts, content = 'γεια σου', authorId = 'u1', mention = false }) {
   const event = message(room, id, ts, content, { authorId, authorName: 'Ελένη' });
   if (mention) {

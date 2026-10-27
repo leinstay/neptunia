@@ -7,10 +7,13 @@
 // Pure; every registered operation must have its row (a test holds it).
 
 /** The effect classes, from the mildest. */
-export const EFFECT_CLASSES = Object.freeze(['read', 'write', 'destructive', 'administrative', 'paid']);
+export const EFFECT_CLASSES = Object.freeze(['read', 'write', 'destructive', 'administrative', 'paid'] as const);
+
+/** One of the effect classes. */
+export type EffectClass = (typeof EFFECT_CLASSES)[number];
 
 /** Operation name -> effect class. */
-export const OP_EFFECTS = Object.freeze({
+export const OP_EFFECTS: Readonly<Record<string, EffectClass>> = Object.freeze({
   'status.show': 'read',
   'config.set': 'administrative',
   'config.unset': 'administrative',
@@ -88,7 +91,7 @@ export const OP_EFFECTS = Object.freeze({
  * post only where she may write), and so do the rules on who asked: no write when a turn answers
  * several people, only a read when nobody asked.
  */
-export const SELF_OWNED_OPS = Object.freeze([
+export const SELF_OWNED_OPS: ReadonlyArray<string> = Object.freeze([
   'message.create',
   'message.edit',
   'message.delete',

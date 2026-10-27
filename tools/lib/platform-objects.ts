@@ -8,6 +8,8 @@ import { createReads } from '../../src/interface/reads.ts';
 import { takeSnapshot } from '../../src/behavior/snapshot.ts';
 import { createFakeAdapter } from '../../src/interface/fake.js';
 import { createDiscordAdapter } from '../../interfaces/discord/index.js';
+import { createEmojiIndex } from '../../src/behavior/emoji-index.ts';
+import type { IndexedEmoji } from '../../src/behavior/emoji-index.ts';
 
 type Obj = Record<string, unknown>;
 
@@ -89,6 +91,31 @@ export async function recallScope(
     takeSnapshot(reads, communityId, []),
   ]);
   return { channel: found?.conversation ?? conversationOfChannel(channel, communityId), snapshot };
+}
+
+/** The scope of a recall run, asked of the interface at the first call and kept: `() => Promise<scope>`. */
+export function lazyRecallScope(
+  reads: Reads,
+  channel: unknown,
+  communityId: string
+): () => Promise<{ channel: unknown; snapshot: unknown }> {
+  let scope: Promise<{ channel: unknown; snapshot: unknown }> | null = null;
+  return () => (scope ??= recallScope(reads, channel, communityId));
+}
+
+/** The community's custom emoji as the turn lists them, read once through the interface. */
+export async function customEmojiOf(reads: Reads, communityId: string): Promise<Array<IndexedEmoji>> {
+  const index = createEmojiIndex({ reads, communityId: () => communityId, now: Date.now });
+  await index.refresh();
+  return index.list();
+}
+
+/** What the engine asks of the interface about the persona herself: her member id and the name she goes by. */
+export function identityOf(self: { id: string; name: string }): {
+  selfId: () => string;
+  getSelfName: () => string;
+} {
+  return { selfId: () => self.id, getSelfName: () => self.name };
 }
 
 const quiet = { info() {}, warn() {}, error() {} };

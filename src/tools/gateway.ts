@@ -11,6 +11,7 @@
 // refusal code), never wording.
 
 import { getOp as registryGetOp } from './impl/registry.ts';
+import type { Op } from './impl/registry.ts';
 import { rightsRefusal } from './impl/rights.ts';
 import { skillRegistry, describeSkill } from './registry.ts';
 import { CARRIED_OVER, skillAccess, skillFeatureOn, skillsOn } from './access.ts';
@@ -19,16 +20,50 @@ import { skillArgs } from './discovery.ts';
 import { MINUTE_MS } from '../time.js';
 import { SELF_OWNED_OPS } from './impl/effects.ts';
 import { CODE } from './codes.ts';
+import { idText, isObj, objOf } from './types.ts';
+import type { Skill, SkillMap } from './types.ts';
+import type { WakeAction } from './access.ts';
 
-/** A refusal. */
-function refused(code, reason) {
+/** A refusal of a call: its code and a short machine-readable detail. */
+export type Refusal = { ok: false; code: string; reason: string };
+
+/** The member whose message led to a call. */
+export type Requester = { id?: string | null; roleIds?: ReadonlyArray<string> };
+
+/** Where a call is made: the current conversation and who is in it. */
+export type Audience = { conversationId?: string | null; memberIds?: ReadonlyArray<string> };
+
+/** What a budget answers: whether a cap is spent, and which one when it is not the drawing's. */
+type Budget = { spent?: boolean; userSpent?: boolean; code?: string; key?: string };
+
+/**
+ * What the gateway reads from the caller beside the config: the registry and operation lookup, the clients whose
+ * caps are the budgets, the turn's wake and its last destructive run. Every field is optional but `config`.
+ */
+export type GateContext = {
+  config?: unknown;
+  selfId?: string | null;
+  images?: { quota?: (who: { userId: string | null }) => unknown };
+  speech?: { quota?: () => unknown };
+  tasks?: { budget?: (agent: unknown) => unknown };
+  registry?: SkillMap;
+  getOp?: (name: string) => Pick<Op, 'name' | 'rights'> | null;
+  mixedRequesters?: boolean;
+  ownInitiative?: boolean;
+  wakeKind?: string;
+  wakeActions?: ReadonlyArray<WakeAction>;
+  lastRunAt?: number | null;
+  now?: number;
+};
+
+function refused(code: string, reason: string): Refusal {
   return { ok: false, code, reason };
 }
 
 /** The conversation a call aims at: its `channel` argument (an id the server resolved), else the current one. */
-function targetConversation(args, audience) {
-  const given = args && typeof args === 'object' ? args.channel : undefined;
-  return given === undefined || given === null ? (audience?.conversationId ?? null) : given;
+function targetConversation(args: unknown, audience: Audience | null): string | null {
+  const given = isObj(args) ? args.channel : undefined;
+  return given === undefined || given === null ? (audience?.conversationId ?? null) : idText(given);
 }
 
 /**
@@ -37,9 +72,12 @@ function targetConversation(args, audience) {
  * is lifted in requesterRefusal: there her grants alone decide (the owner's decision, 2026-10-18).
  * Null when `skill` may run, else the refusal.
  */
-function noRequesterRefusal(skill) {
+function noRequesterRefusal(skill: Skill): Refusal | null {
   return skill.kind === 'read' ? null : refused(CODE.NO_REQUESTER, CODE.NO_REQUESTER);
 }
+
+/** Whether `op` is one of the persona's own expressive operations (no requester's right asked). */
+const isSelfOwned = (op: string | null): boolean => op !== null && SELF_OWNED_OPS.includes(op);
 
 /**
  * Null when the requester may have this skill run for them, else the refusal (`requester-denied`
@@ -54,7 +92,12 @@ function noRequesterRefusal(skill) {
  * on its operation; with none the persona acts on her own. A carried-over skill aimed at the current
  * conversation (`carriedOver`) runs with no requester too, as the reply tags did.
  */
-function requesterRefusal(skill, requester, context, carriedOver = false) {
+function requesterRefusal(
+  skill: Skill,
+  requester: Requester | null,
+  context: GateContext | undefined,
+  carriedOver = false
+): Refusal | null {
   // A turn answering several people at once: no write runs on their mixed authority.
   if (context?.mixedRequesters === true && skill.kind !== 'read')
     return refused(CODE.MIXED_REQUESTERS, CODE.MIXED_REQUESTERS);
@@ -67,7 +110,7 @@ function requesterRefusal(skill, requester, context, carriedOver = false) {
   if (!requester && carriedOver) return null;
   const unasked = owners && !requester ? noRequesterRefusal(skill) : null;
   if (unasked) return unasked;
-  if (SELF_OWNED_OPS.includes(skill.op)) return null;
+  if (isSelfOwned(skill.op)) return null;
   const getOp = context?.getOp ?? registryGetOp;
   const op = skill.op ? getOp(skill.op) : null;
   if (!op) return refused(CODE.REQUESTER_DENIED, 'no-operation');
@@ -85,14 +128,16 @@ function requesterRefusal(skill, requester, context, carriedOver = false) {
  * naming the refusal and the cap that is spent when they are not the drawing's), or null when
  * unavailable.
  */
-const drawBudget = (context, requester) =>
-  typeof context?.images?.quota === 'function' ? context.images.quota({ userId: requester?.id ?? null }) : null;
+const drawBudget = (context: GateContext, requester: Requester | null): unknown =>
+  typeof context.images?.quota === 'function' ? context.images.quota({ userId: requester?.id ?? null }) : null;
 /** An errand's budget: its agent's caps (open tasks, tasks and dollars a day), `context.tasks`. */
-const taskBudget = (context, requester, args) =>
-  typeof context?.tasks?.budget === 'function' ? context.tasks.budget(args?.agent) : null;
+const taskBudget = (context: GateContext, _requester: Requester | null, args: unknown): unknown =>
+  typeof context.tasks?.budget === 'function' ? context.tasks.budget(objOf(args).agent) : null;
 /** A voice message's budget: today's count against `speech.maxPerDay`, `context.speech`. */
-const speechBudget = (context) => (typeof context?.speech?.quota === 'function' ? context.speech.quota() : null);
-const BUDGETS = Object.freeze({ 'draw.create': drawBudget, 'voice.say': speechBudget, 'task.run': taskBudget });
+const speechBudget = (context: GateContext): unknown =>
+  typeof context.speech?.quota === 'function' ? context.speech.quota() : null;
+const BUDGETS: Readonly<Record<string, (context: GateContext, requester: Requester | null, args: unknown) => unknown>> =
+  Object.freeze({ 'draw.create': drawBudget, 'voice.say': speechBudget, 'task.run': taskBudget });
 
 /** Minutes between two destructive calls from one channel (`skills.destructiveCooldownMinutes`; config.json's value). */
 const DESTRUCTIVE_COOLDOWN_MINUTES = 10;
@@ -102,20 +147,22 @@ const DESTRUCTIVE_COOLDOWN_MINUTES = 10;
  * `skills.destructiveCooldownMinutes` ago (`context.lastRunAt`, the caller's record, against
  * `context.now`), else `cooldown`.
  */
-function cooldownRefusal(skill, context) {
-  if (skill.effects !== 'destructive' || !Number.isFinite(context?.lastRunAt) || !Number.isFinite(context?.now))
-    return null;
-  const minutes = context.config?.skills?.destructiveCooldownMinutes ?? DESTRUCTIVE_COOLDOWN_MINUTES;
-  return context.now - context.lastRunAt < minutes * MINUTE_MS
-    ? refused(CODE.COOLDOWN, 'skills.destructiveCooldownMinutes')
-    : null;
+function cooldownRefusal(skill: Skill, context: GateContext): Refusal | null {
+  const { lastRunAt, now } = context;
+  if (skill.effects !== 'destructive' || typeof lastRunAt !== 'number' || typeof now !== 'number') return null;
+  if (!Number.isFinite(lastRunAt) || !Number.isFinite(now)) return null;
+  const given = objOf(objOf(context.config).skills).destructiveCooldownMinutes;
+  const minutes = typeof given === 'number' ? given : DESTRUCTIVE_COOLDOWN_MINUTES;
+  return now - lastRunAt < minutes * MINUTE_MS ? refused(CODE.COOLDOWN, 'skills.destructiveCooldownMinutes') : null;
 }
 
 /** Null when a paid skill still has budget today, else the refusal. Fails closed. */
-function budgetRefusal(skill, requester, context, args) {
+function budgetRefusal(skill: Skill, requester: Requester | null, context: GateContext, args: unknown): Refusal | null {
   if (skill.costClass !== 'paid') return null;
-  const budget = Object.hasOwn(BUDGETS, skill.name) ? BUDGETS[skill.name](context, requester, args) : null;
-  if (!budget || typeof budget !== 'object') return refused(CODE.NO_BUDGET, 'unavailable');
+  const ask = BUDGETS[skill.name];
+  const answer = Object.hasOwn(BUDGETS, skill.name) && ask !== undefined ? ask(context, requester, args) : null;
+  if (!isObj(answer)) return refused(CODE.NO_BUDGET, 'unavailable');
+  const budget: Budget = answer;
   if (budget.spent === true)
     return refused(
       typeof budget.code === 'string' && budget.code ? budget.code : CODE.DAILY_CAP,
@@ -136,19 +183,29 @@ function budgetRefusal(skill, requester, context, args) {
  * destructive skill's cooldown in this channel (`context.lastRunAt`, `context.now`); a paid
  * skill's budget. Where a message may go and whose message may be changed is
  * the operation's own rule (src/tools/impl/message.ts), checked when it runs. Never throws.
- * @param {{ skill: string, args: object, principal: { kind: string }, requester: { id: string, roleIds?: string[] } | null,
- *   audience: { conversationId: string, memberIds?: string[] }, context: { config: object, selfId?: string,
- *   images?: object, speech?: object, tasks?: { budget(agent: string): object|null }, registry?: Map<string, object>, getOp?: Function, mixedRequesters?: boolean, ownInitiative?: boolean,
- *   wakeKind?: string, wakeActions?: object[], lastRunAt?: number|null, now?: number } }} call
- *   `wakeKind` and `wakeActions` (an inner turn, with `ownInitiative`): the wake envelope is checked with the access.
- * @returns {{ ok: true } | { ok: false, code: string, reason: string }}
+ * `wakeKind` and `wakeActions` (an inner turn, with `ownInitiative`): the wake envelope is checked with the access.
  */
-export function checkSkill({ skill: name, args, principal, requester = null, audience, context = {} }) {
-  if (principal?.kind !== 'persona') return refused(CODE.UNKNOWN_PRINCIPAL, String(principal?.kind ?? ''));
+export function checkSkill({
+  skill: name,
+  args,
+  principal,
+  requester = null,
+  audience,
+  context = {},
+}: {
+  skill: string;
+  args: unknown;
+  principal: { kind?: string } | null | undefined;
+  requester?: Requester | null;
+  audience?: Audience | null;
+  context?: GateContext;
+}): { ok: true } | Refusal {
+  if (principal?.kind !== 'persona') return refused(CODE.UNKNOWN_PRINCIPAL, idText(principal?.kind));
   if (!skillsOn(context.config)) return refused(CODE.SKILLS_OFF, 'features.skills');
   const registry = context.registry ?? skillRegistry();
   const skill = registry.get(name);
-  if (!skill) return refused(CODE.UNKNOWN_SKILL, String(name ?? ''));
+  if (!skill) return refused(CODE.UNKNOWN_SKILL, idText(name));
+  const given = objOf(args);
 
   const access = skillAccess({
     skill,
@@ -164,15 +221,15 @@ export function checkSkill({ skill: name, args, principal, requester = null, aud
     return refused(access.reason, access.detail ?? (access.reason === CODE.SAFE_MODE ? 'skills.safeMode' : skill.name));
 
   // A file-only post: her text (the body argument) left empty beside a file (src/tools/executors.ts#resolveCall); a GIF-only post: no text beside a `gif`.
-  const bodyArg = skill.dispatch?.body;
+  const bodyArg = skill.dispatch?.body ?? null;
+  const body = bodyArg === null ? undefined : given[bodyArg];
   const gifOnly =
-    Boolean(bodyArg) &&
-    (args?.[bodyArg] === '' || args?.[bodyArg] === undefined) &&
-    ((typeof args?.gif === 'string' && args.gif !== '') || (typeof args?.media === 'string' && args.media !== ''));
-  const fileOnly =
-    gifOnly || (Boolean(bodyArg) && args?.[bodyArg] === '' && typeof args?.file === 'string' && args.file !== '');
+    bodyArg !== null &&
+    (body === '' || body === undefined) &&
+    ((typeof given.gif === 'string' && given.gif !== '') || (typeof given.media === 'string' && given.media !== ''));
+  const fileOnly = gifOnly || (bodyArg !== null && body === '' && typeof given.file === 'string' && given.file !== '');
   const argsError = fileOnly
-    ? schemaError(Object.fromEntries(Object.entries(args).filter(([key]) => key !== bodyArg)), {
+    ? schemaError(Object.fromEntries(Object.entries(given).filter(([key]) => key !== bodyArg)), {
         ...skill.argsSchema,
         required: (skill.argsSchema.required ?? []).filter((key) => key !== bodyArg),
       })
@@ -192,13 +249,19 @@ export function checkSkill({ skill: name, args, principal, requester = null, aud
  * current conversation: carried over without a grant (src/tools/access.ts#CARRIED_OVER), even in
  * safe mode; refused only under the full stop (`features.skills` false: she goes silent). Never
  * throws.
- * @param {{ skill: string, principal: { kind: string }, config: object }} effect
- * @returns {{ ok: true } | { ok: false, code: string, reason: string }}
  */
-export function checkReplyEffect({ skill, principal, config }) {
-  if (principal?.kind !== 'persona') return refused(CODE.UNKNOWN_PRINCIPAL, String(principal?.kind ?? ''));
+export function checkReplyEffect({
+  skill,
+  principal,
+  config,
+}: {
+  skill: string;
+  principal: { kind?: string } | null | undefined;
+  config: unknown;
+}): { ok: true } | Refusal {
+  if (principal?.kind !== 'persona') return refused(CODE.UNKNOWN_PRINCIPAL, idText(principal?.kind));
   if (!skillsOn(config)) return refused(CODE.SKILLS_OFF, 'features.skills');
-  if (!CARRIED_OVER.includes(skill)) return refused(CODE.UNKNOWN_SKILL, String(skill ?? ''));
+  if (!CARRIED_OVER.includes(skill)) return refused(CODE.UNKNOWN_SKILL, idText(skill));
   return { ok: true };
 }
 
@@ -212,9 +275,6 @@ export function checkReplyEffect({ skill, principal, config }) {
  * have run (requesterRefusal). `args` is what the skill takes (src/tools/discovery.ts#skillArgs:
  * the command's option names, for `<skills>` to list); the arguments' values, targets and budget
  * are per call and left to `checkSkill`.
- * @param {{ config: object, selfId?: string|null, texts?: object, requester?: object|null, audience?: { conversationId?: string },
- *   registry?: Map<string, object>, getOp?: Function }} args
- * @returns {{ name: string, title: string, whenToUse: string, allowed: boolean, reason: string, args: object[] }[]}
  */
 export function listSkills({
   config,
@@ -224,8 +284,16 @@ export function listSkills({
   audience = {},
   registry = skillRegistry(),
   getOp,
-}) {
-  const rows = [];
+}: {
+  config: unknown;
+  selfId?: string | null;
+  texts?: unknown;
+  requester?: Requester | null;
+  audience?: Audience;
+  registry?: SkillMap;
+  getOp?: GateContext['getOp'];
+}): Array<ListedSkill> {
+  const rows: Array<ListedSkill> = [];
   for (const skill of registry.values()) {
     // A skill whose feature switch is off does not exist for her: no row.
     if (!skillFeatureOn(skill.name, config)) continue;
@@ -238,7 +306,7 @@ export function listSkills({
       conversationId: current,
       currentConversationId: current,
     });
-    if (allowed && requesterRefusal(skill, requester, { config, getOp })) {
+    if (allowed && requesterRefusal(skill, requester, { config, ...(getOp ? { getOp } : {}) })) {
       allowed = false;
       reason = CODE.REQUESTER_DENIED;
     }
@@ -246,3 +314,13 @@ export function listSkills({
   }
   return rows;
 }
+
+/** One row of the catalogue as she would see it. */
+export type ListedSkill = {
+  name: string;
+  title: string;
+  whenToUse: string;
+  allowed: boolean;
+  reason: string;
+  args: ReturnType<typeof skillArgs>;
+};

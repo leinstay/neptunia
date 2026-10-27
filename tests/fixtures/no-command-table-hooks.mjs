@@ -15,9 +15,9 @@ function load(url, context, nextLoad) {
   if (!String(loaded.format).startsWith("module") || (!CATALOG.test(path) && !OPS_INDEX.test(path))) return loaded;
   let source = String(loaded.source);
   if (CATALOG.test(path)) {
-    const marker = 'export const COMMAND_TABLE = Object.freeze(';
+    const marker = 'export const COMMAND_TABLE: ReadonlyArray<CommandNode> = Object.freeze(';
     if (!source.includes(marker)) throw new Error('no-command-table hooks: COMMAND_TABLE declaration not found');
-    source = `${source.replace(marker, 'const COMMAND_TABLE_REAL = Object.freeze(')}\nexport const COMMAND_TABLE = Object.freeze([]);\n`;
+    source = `${source.replace(marker, 'const COMMAND_TABLE_REAL: ReadonlyArray<CommandNode> = Object.freeze(')}\nexport const COMMAND_TABLE = Object.freeze([]);\n`;
   } else {
     const marker = 'export function resolveCommand(';
     if (!source.includes(marker)) throw new Error('no-command-table hooks: resolveCommand declaration not found');

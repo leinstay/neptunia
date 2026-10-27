@@ -558,9 +558,12 @@ import { promptLayersHot } from './lib/prompt-layers.mjs';
 import { readOnlyMemory } from './lib/memory-read.mjs';
 import {
   conversationRef,
+  customEmojiOf,
   discordReads,
   guildListing,
   hiddenReads,
+  identityOf,
+  lazyRecallScope,
   recallScope,
   requesterOfChannel,
 } from './lib/platform-objects.ts';
@@ -1680,7 +1683,8 @@ async function runRecall({
     const clock = () => Date.now() + offset;
     const t = Date.now();
     try {
-      const { reads } = discordReads(guild.client, () => hot.config);
+      const { client: guildClient } = guild;
+      const { reads } = discordReads(guildClient, () => hot.config);
       const recall = createRecall({
         hot: recallHot,
         store: recallStore,
@@ -2390,7 +2394,7 @@ export function diaryTurnRunner(
     images,
     recall: mods.createRecall({ hot, store, llm, reads, describer }),
     emoji: mods.createEmojiIndex({ reads, communityId: () => guildId, now: Date.now }),
-    getSelfName: () => self.name,
+    getSelfName: /** @returns {unknown} */ () => self.name,
     selfId: () => self.id,
     reads,
     port: port ?? discord.port,
@@ -3212,8 +3216,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
       hot,
       store,
       reads,
-      selfId: () => self.id,
-      getSelfName: () => self.name,
+      ...identityOf(self),
       port,
       intentions,
       errands,
@@ -4295,8 +4298,7 @@ export function createReplayTools({
   const data = store.state?.data ?? {};
   const media = structuredClone(mediaCache ?? {});
   // The conversation and the community's listing a recall run is handed, asked of the interface at the first call.
-  let scope = null;
-  const scopeOf = () => (scope ??= recallScope(reads, channel, String(guildId)));
+  const scopeOf = lazyRecallScope(reads, channel, String(guildId));
   // The second looks media.look took (the per-turn count of the live turn).
   let looks = 0;
   const webStore = { getMediaCache: () => media, markMediaCacheDirty() {} };
@@ -7260,10 +7262,7 @@ async function runMain(args, { root, signal, rng, answers }) {
       hot.config.features?.gifs !== false && typeof store.getGifs === 'function'
         ? (store.getGifs(guildId) ?? null)
         : null;
-    // The guild's custom emoji as the turn lists them (the platform's own cache, as the replay holds it).
-    const customEmoji = [...guild.emojis.cache.values()]
-      .filter((emoji) => emoji?.id && emoji.name && emoji.available !== false)
-      .map((emoji) => ({ id: emoji.id, name: emoji.name, animated: Boolean(emoji.animated) }));
+    const customEmoji = await customEmojiOf(discordReads(client, () => hot.config).reads, String(guildId));
     // Her tools that only read (web.search, memory.search) run for real over this guild, read only (createReplayTools).
     const loopDeps = loopWanted
       ? await loopDepsOf({

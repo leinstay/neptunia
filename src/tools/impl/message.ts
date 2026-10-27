@@ -35,58 +35,104 @@ import { freshAttachmentUrl, gifPostUrl, countGifPost } from '../../media/gif-po
 import { gifPostsToday } from '../../memory/gif-watch.js';
 import { utcDay } from '../../time.js';
 import { CODE } from '../codes.ts';
+import { idText, objOf, textOf } from '../types.ts';
+import type { Obj, OpContext, Untyped } from '../types.ts';
+import type { Adapter, ConversationRef } from '../../protocol/adapter.ts';
+import type { Content } from '../../protocol/actions.js';
+import type { Reads } from '../../interface/reads.ts';
+import type { Env } from './env.ts';
 
 /** How far back `last` looks for her own message: Discord's most messages per history request. */
 const LAST_LOOKBACK = 100;
 
 /** True when a message reference is `last`: the persona's own most recent message (any case). */
-function isLast(value) {
+function isLast(value: unknown): boolean {
   return typeof value === 'string' && value.trim().toLowerCase() === 'last';
 }
 
+/** A file a post carries, read for upload. */
+type Upload = { name: string; data: Uint8Array; contentType?: string };
+
+/** What the bot needs to be allowed in the conversation an operation acts in (src/tools/impl/shared.ts#CHANNEL_NEEDS). */
+type Need = Parameters<typeof postingConversation>[0]['need'];
+
+/** The message an operation acts on and the conversation it is in. */
+type Target = {
+  channelId: string;
+  messageId: string;
+  ref: { iface: string; conversationId: string; messageId: string };
+};
+
+/** The core's reads of the interface, or an Error naming what is missing. */
+function needReads(reads: Reads | null): Reads {
+  if (!reads) throw Object.assign(new Error("the persona's interface is not available"), { code: CODE.NOT_CONFIGURED });
+  return reads;
+}
+
+/**
+ * The attachment of a post's `file` handle bound for `channelId`, or null without one: the
+ * errand's file (src/errands/service.js#fileOf), its size checked against the interface's
+ * `maxFileBytes` before it is read.
+ */
+async function errandFile(
+  env: Env,
+  args: Obj,
+  context: OpContext,
+  channelId: string,
+  p: Adapter
+): Promise<Upload | null> {
+  const handle = textOf(args.file).trim();
+  if (!handle) return null;
+  const file =
+    typeof env.errands?.fileOf === 'function'
+      ? env.errands.fileOf({ guildId: env.resolvedGuildId(context), handle, privateChannelId: channelId })
+      : null;
+  if (file?.expired) throw invalid(`files of ${handle} have expired`, CODE.FILE_EXPIRED);
+  if (!file) throw invalid(`no file ${handle}`, CODE.UNKNOWN_FILE);
+  const limit = p.capabilities?.()?.maxFileBytes ?? Infinity;
+  const stat = await fsp.stat(file.path as string).catch(() => null);
+  if (!stat?.isFile()) throw Object.assign(new Error(`cannot read ${handle}`), { code: CODE.FILE_UNREADABLE });
+  if (Number.isFinite(limit) && stat.size > limit)
+    throw Object.assign(new Error(`${handle} is ${stat.size} bytes, over the ${limit} this interface takes`), {
+      code: CODE.ATTACHMENT_TOO_LARGE,
+    });
+  const data = await fsp.readFile(file.path as string).catch(() => null);
+  if (!data) throw Object.assign(new Error(`cannot read ${handle}`), { code: CODE.FILE_UNREADABLE });
+  return { name: file.name, data, ...(file.contentType ? { contentType: file.contentType } : {}) };
+}
+
+/**
+ * The library entry of a post's `gif` handle in `guildId`, or null without a handle: unknown
+ * here (or `features.gifs` off) is `invalid` with `unknown-gif`, checked before anything is posted.
+ */
+function gifEntry(env: Env, args: Obj, guildId: string | null): Untyped {
+  const handle = textOf(args.gif).trim();
+  if (!handle) return null;
+  const entry =
+    env.hot.config.features?.gifs === false || typeof env.store?.findGif !== 'function'
+      ? null
+      : env.store.findGif(guildId, handle);
+  if (!entry) throw invalid(`no GIF ${handle} in the library`, CODE.UNKNOWN_GIF);
+  return entry;
+}
+
 const handlers = perEnv((env) => {
-  const { hot, store, spontaneous, turns, port, errands, assertNotPaused, resolvedGuildId } = env;
-  /** @type {import('../../interface/reads.ts').Reads} */
-  const reads = env.reads;
+  const { hot, store, spontaneous, turns, assertNotPaused, resolvedGuildId } = env;
+  const { reads } = env;
+  const port = env.port as Adapter | null | undefined;
   const fetchImpl = typeof env.fetchImpl === 'function' ? env.fetchImpl : fetch;
   const clock = typeof env.now === 'function' ? env.now : Date.now;
 
   /** True when member `userId` turned pings off here. */
-  function pingsOff(context, userId) {
+  function pingsOff(context: OpContext, userId: unknown): boolean {
     if (!userId || typeof store?.isPingsOff !== 'function') return false;
-    return store.isPingsOff(resolvedGuildId(context), String(userId)) === true;
+    return store.isPingsOff(resolvedGuildId(context), idText(userId)) === true;
   }
 
   /** The members her rendered text mentions (`context.mentionUserIds`, her own calls only), less those with pings off. */
-  function mentionedUsers(context) {
+  function mentionedUsers(context: OpContext) {
     if (context?.actor !== 'persona' || !Array.isArray(context.mentionUserIds)) return [];
-    return context.mentionUserIds.map(String).filter((id) => id && !pingsOff(context, id));
-  }
-
-  /**
-   * The attachment of a post's `file` handle bound for `channelId`, or null without one: the
-   * errand's file (src/errands/service.js#fileOf), its size checked against the interface's
-   * `maxFileBytes` before it is read.
-   */
-  async function errandFile(args, context, channelId, p) {
-    const handle = String(args?.file ?? '').trim();
-    if (!handle) return null;
-    const file =
-      typeof errands?.fileOf === 'function'
-        ? errands.fileOf({ guildId: resolvedGuildId(context), handle, privateChannelId: channelId })
-        : null;
-    if (file?.expired) throw invalid(`files of ${handle} have expired`, CODE.FILE_EXPIRED);
-    if (!file) throw invalid(`no file ${handle}`, CODE.UNKNOWN_FILE);
-    const limit = p.capabilities?.()?.maxFileBytes;
-    const stat = await fsp.stat(file.path).catch(() => null);
-    if (!stat?.isFile()) throw Object.assign(new Error(`cannot read ${handle}`), { code: CODE.FILE_UNREADABLE });
-    if (Number.isFinite(limit) && stat.size > limit)
-      throw Object.assign(new Error(`${handle} is ${stat.size} bytes, over the ${limit} this interface takes`), {
-        code: CODE.ATTACHMENT_TOO_LARGE,
-      });
-    const data = await fsp.readFile(file.path).catch(() => null);
-    if (!data) throw Object.assign(new Error(`cannot read ${handle}`), { code: CODE.FILE_UNREADABLE });
-    return { name: file.name, data, ...(file.contentType ? { contentType: file.contentType } : {}) };
+    return (context.mentionUserIds as Array<unknown>).map(idText).filter((id) => id && !pingsOff(context, id));
   }
 
   /**
@@ -95,41 +141,41 @@ const handlers = perEnv((env) => {
    * fetched again, so its attachment URL is fresh. Refusals are listed in this module's header;
    * nothing is posted before they are told.
    */
-  async function mediaFile(args, context, p) {
-    const raw = String(args?.media ?? '').trim();
+  async function mediaFile(args: Obj, context: OpContext, p: Adapter): Promise<Upload | null> {
+    const raw = textOf(args.media).trim();
     if (!raw) return null;
-    if (String(args?.file ?? '').trim() || String(args?.gif ?? '').trim())
+    if (textOf(args.file).trim() || textOf(args.gif).trim())
       throw invalid('one attachment per post', CODE.INVALID_ARGS);
     const ref = await messageRefOf(raw, reads);
     const sourceId = await postingConversation({
       reads,
-      iface: port?.iface,
+      iface: p.iface,
       guildId: resolvedGuildId(context),
       channelId: ref.channelId,
       context,
       need: 'read',
     });
-    const found = await reads.fetchMessages({ iface: port.iface, conversationId: sourceId }, [ref.messageId]);
+    const found = await needReads(reads).fetchMessages({ iface: p.iface, conversationId: sourceId }, [ref.messageId]);
     const message = found?.messages[0] ?? null;
     if (message?.missing === true) throw invalid(`message ${ref.messageId} was deleted`, CODE.MESSAGE_DELETED);
     if (!message?.event) throw invalid(`no message ${ref.messageId} in ${sourceId}`, CODE.UNKNOWN_MESSAGE);
-    if (message.event.message.author.self !== true) throw invalid('that message is not hers', CODE.NOT_OWN_MESSAGE);
-    const attachments = [...(message.attachments ?? [])];
-    const given = args?.item === undefined || args?.item === null || args?.item === '' ? 1 : Number(args.item);
+    if (message.event.message.author?.self !== true) throw invalid('that message is not hers', CODE.NOT_OWN_MESSAGE);
+    const attachments: Array<Untyped> = [...(message.attachments ?? [])];
+    const given = args.item === undefined || args.item === null || args.item === '' ? 1 : Number(args.item);
     if (attachments.length === 0) throw invalid('that message holds no attachment', CODE.NO_MEDIA);
     if (!Number.isInteger(given) || given < 1 || given > attachments.length)
       throw invalid('item is out of range', CODE.NO_MEDIA);
     const item = attachments[given - 1];
     if (!item?.url) throw invalid('that attachment has no address', CODE.NO_MEDIA);
-    const limit = p.capabilities?.()?.maxFileBytes;
-    const tooLarge = (size) => Number.isFinite(limit) && size > limit;
-    const large = (size) =>
+    const limit = p.capabilities?.()?.maxFileBytes ?? Infinity;
+    const tooLarge = (size: number): boolean => Number.isFinite(limit) && size > limit;
+    const large = (size: number): Error =>
       Object.assign(new Error(`the picture is ${size} bytes, over the ${limit} this interface takes`), {
         code: CODE.ATTACHMENT_TOO_LARGE,
       });
     if (tooLarge(Number(item.size))) throw large(Number(item.size));
     const unreadable = () => Object.assign(new Error('cannot download the picture'), { code: CODE.FILE_UNREADABLE });
-    let data = null;
+    let data: Buffer | null = null;
     try {
       const response = await fetchImpl(item.url, { method: 'GET', signal: AbortSignal.timeout(30_000) });
       if (!response?.ok) throw unreadable();
@@ -137,7 +183,7 @@ const handlers = perEnv((env) => {
       if (tooLarge(declared)) throw large(declared);
       data = Buffer.from(await response.arrayBuffer());
     } catch (err) {
-      throw err?.code === CODE.ATTACHMENT_TOO_LARGE ? err : unreadable();
+      throw objOf(err).code === CODE.ATTACHMENT_TOO_LARGE ? err : unreadable();
     }
     if (tooLarge(data.byteLength)) throw large(data.byteLength);
     return {
@@ -145,21 +191,6 @@ const handlers = perEnv((env) => {
       data,
       ...(item.contentType ? { contentType: String(item.contentType).split(';')[0] } : {}),
     };
-  }
-
-  /**
-   * The library entry of a post's `gif` handle in `guildId`, or null without a handle: unknown
-   * here (or `features.gifs` off) is `invalid` with `unknown-gif`, checked before anything is posted.
-   */
-  function gifEntry(args, guildId) {
-    const handle = String(args?.gif ?? '').trim();
-    if (!handle) return null;
-    const entry =
-      hot.config.features?.gifs === false || typeof store?.findGif !== 'function'
-        ? null
-        : store.findGif(guildId, handle);
-    if (!entry) throw invalid(`no GIF ${handle} in the library`, CODE.UNKNOWN_GIF);
-    return entry;
   }
 
   /** Whether today's GIF posts are spent against `gifs.maxPerDay` (read now). */
@@ -175,19 +206,14 @@ const handlers = perEnv((env) => {
    * hers, counted against `gifs.maxPerDay` and stamped on its entry. The day's cap spent: refused
    * `gif-cap` before anything is posted.
    */
-  async function post(args, context) {
+  async function post(args: Obj, context: OpContext) {
     const p = requirePort();
-    const text = String(args?.text ?? '').trim();
+    const text = textOf(args.text).trim();
     // A file-only or GIF-only post: an errand's file or a GIF of hers with no text.
-    if (
-      !text &&
-      !String(args?.file ?? '').trim() &&
-      !String(args?.gif ?? '').trim() &&
-      !String(args?.media ?? '').trim()
-    )
+    if (!text && !textOf(args.file).trim() && !textOf(args.gif).trim() && !textOf(args.media).trim())
       throw invalid('text is required');
-    const reply = args?.replyTo ? await messageRefOf(args.replyTo, reads) : null;
-    const given = args?.channelId ? String(args.channelId) : null;
+    const reply = args.replyTo ? await messageRefOf(args.replyTo, reads) : null;
+    const given = args.channelId ? idText(args.channelId) : null;
     if (given && reply?.channelId && given !== reply.channelId)
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
     const channelId = await postingConversation({
@@ -200,19 +226,19 @@ const handlers = perEnv((env) => {
     });
     const repliedUser = Boolean(reply) && !pingsOff(context, context?.repliedAuthorId);
     const guildId = resolvedGuildId(context);
-    const entry = gifEntry(args, guildId);
+    const entry = gifEntry(env, args, guildId);
     const capped = entry ? gifCapSpent() : false;
     // Over the day's cap nothing is posted, the text included: she may call again without the GIF.
     if (capped) throw invalid('the GIF limit for today is used up', CODE.GIF_CAP);
-    const attachment = (await errandFile(args, context, channelId, p)) ?? (await mediaFile(args, context, p));
+    const attachment = (await errandFile(env, args, context, channelId, p)) ?? (await mediaFile(args, context, p));
     const to = { iface: p.iface, conversationId: channelId };
-    const content = {
+    const content: Content = {
       text,
       ...(attachment ? { attachments: [attachment] } : {}),
       ...(reply ? { replyTo: { iface: p.iface, conversationId: channelId, messageId: reply.messageId } } : {}),
       mentions: { users: mentionedUsers(context), repliedUser },
     };
-    let result = null;
+    let result: Untyped = null;
     if (text || attachment) {
       result = await p.send(to, content);
       if (result?.status !== 'ok' || !entry)
@@ -245,10 +271,21 @@ const handlers = perEnv((env) => {
    * attachment. Counted once sent and stamped on its entry. A GIF-only post carries the reply
    * and mentions (`lead`); one after a text carries none.
    */
-  async function postGif(p, to, entry, guildId, channelId, lead) {
+  async function postGif(
+    p: Adapter,
+    to: ConversationRef,
+    entry: Untyped,
+    guildId: string | null,
+    channelId: string,
+    lead: Content | null
+  ): Promise<Untyped> {
     const fresh =
       entry.kind === 'attachment'
-        ? await freshAttachmentUrl({ reads, channel: { iface: p.iface, conversationId: channelId }, entry })
+        ? await freshAttachmentUrl({
+            reads: needReads(reads),
+            channel: { iface: p.iface, conversationId: channelId },
+            entry,
+          })
         : null;
     const content = lead
       ? { ...lead, text: gifPostUrl(entry, fresh) }
@@ -263,23 +300,25 @@ const handlers = perEnv((env) => {
   }
 
   /** One turn of hers in the channel, now, for a person: an answer to the named message, else her own pick. */
-  async function turn(args, context) {
-    const channelId = args?.channelId || context?.channelId;
+  async function turn(args: Obj, context: OpContext) {
+    const channelId = idText(args.channelId) || context.channelId;
     if (!channelId) throw invalid('a channel is required');
-    const ref = { iface: port.iface, conversationId: String(channelId) };
-    if ((await reads.conversationInfo(ref)) === null) throw invalid(`no channel ${channelId}`, CODE.NOT_FOUND);
+    const p = requirePort();
+    const ref = { iface: p.iface, conversationId: channelId };
+    if ((await needReads(reads).conversationInfo(ref)) === null)
+      throw invalid(`no channel ${channelId}`, CODE.NOT_FOUND);
     // The person who ran the command is the requester of what she does in that turn.
-    const requester = context?.userId
-      ? { id: String(context.userId), roleIds: Array.isArray(context.roleIds) ? context.roleIds.map(String) : [] }
+    const requester = context.userId
+      ? { id: context.userId, roleIds: Array.isArray(context.roleIds) ? context.roleIds.map(idText) : [] }
       : null;
-    if (!args?.replyTo) {
+    if (!args.replyTo) {
       const result = await spontaneous.force(ref, null, { requester });
       return `message create on ${ref.conversationId}: ${JSON.stringify(result) ?? 'ok'}`;
     }
     const reply = await messageRefOf(args.replyTo, reads);
     if (reply.channelId && reply.channelId !== ref.conversationId)
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
-    const fetched = await reads.fetchMessages(ref, [reply.messageId]);
+    const fetched = await needReads(reads).fetchMessages(ref, [reply.messageId]);
     const event = fetched?.messages[0]?.event;
     if (!event) throw invalid(`no message ${reply.messageId} in ${ref.conversationId}`, CODE.UNKNOWN_MESSAGE);
     const trigger = lineOf(event);
@@ -295,13 +334,13 @@ const handlers = perEnv((env) => {
   }
 
   /** `/nep message create [channel] [reply]`: her turn for a person, her own text when she acts. */
-  async function cmdCreate(args, context) {
+  async function cmdCreate(args: Obj, context: OpContext) {
     assertNotPaused();
     return context?.actor === 'persona' ? post(args, context) : turn(args, context);
   }
 
   /** The port, or an Error naming what is missing. */
-  function requirePort() {
+  function requirePort(): Adapter {
     if (!port || typeof port.edit !== 'function')
       throw Object.assign(new Error("the persona's interface is not available"), { code: CODE.NOT_CONFIGURED });
     return port;
@@ -311,15 +350,21 @@ const handlers = perEnv((env) => {
    * The message `args.messageId` names, in the conversation it may be acted on in -- the bot
    * holding there the permissions `need` names (src/tools/impl/shared.ts#CHANNEL_NEEDS): `{ channelId, ref }`.
    */
-  async function target(args, context, need, { last = false } = {}) {
-    if (last && isLast(args?.messageId)) return lastTarget(args, context, need);
-    const message = await messageRefOf(args?.messageId, reads);
-    const given = args?.channelId ? String(args.channelId) : null;
+  async function target(
+    args: Obj,
+    context: OpContext,
+    need: Need,
+    { last = false }: { last?: boolean } = {}
+  ): Promise<Target> {
+    const p = requirePort();
+    if (last && isLast(args.messageId)) return lastTarget(args, context, need);
+    const message = await messageRefOf(args.messageId, reads);
+    const given = args.channelId ? idText(args.channelId) : null;
     if (given && message.channelId && given !== message.channelId)
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
     const channelId = await postingConversation({
       reads,
-      iface: port?.iface,
+      iface: p.iface,
       guildId: resolvedGuildId(context),
       channelId: given ?? message.channelId,
       context,
@@ -328,7 +373,7 @@ const handlers = perEnv((env) => {
     return {
       channelId,
       messageId: message.messageId,
-      ref: { iface: port.iface, conversationId: channelId, messageId: message.messageId },
+      ref: { iface: p.iface, conversationId: channelId, messageId: message.messageId },
     };
   }
 
@@ -337,32 +382,36 @@ const handlers = perEnv((env) => {
    * conversation (`args.channelId`, else the one the command runs in), read through the interface;
    * none of hers there is `invalid` with `no-own-message`.
    */
-  async function lastTarget(args, context, need) {
+  async function lastTarget(args: Obj, context: OpContext, need: Need): Promise<Target> {
+    const p = requirePort();
     const channelId = await postingConversation({
       reads,
-      iface: port?.iface,
+      iface: p.iface,
       guildId: resolvedGuildId(context),
-      channelId: args?.channelId ? String(args.channelId) : null,
+      channelId: args.channelId ? idText(args.channelId) : null,
       context,
       need,
     });
-    const page = await reads.history({ iface: port.iface, conversationId: channelId }, { limit: LAST_LOOKBACK });
-    let newest = null;
+    const page = await needReads(reads).history(
+      { iface: p.iface, conversationId: channelId },
+      { limit: LAST_LOOKBACK }
+    );
+    let newest: NonNullable<typeof page>['events'][number] | null = null;
     for (const event of page?.events ?? []) {
-      if (event.message.author.self !== true) continue;
-      if (!newest || event.message.at >= newest.message.at) newest = event;
+      if (event.message?.author?.self !== true) continue;
+      if (!newest || (event.message.at ?? 0) >= (newest.message?.at ?? 0)) newest = event;
     }
     if (!newest)
       throw invalid(`no message of the persona among the last ${LAST_LOOKBACK} in ${channelId}`, CODE.NO_OWN_MESSAGE);
-    const messageId = String(newest.message.id);
-    return { channelId, messageId, ref: { iface: port.iface, conversationId: channelId, messageId } };
+    const messageId = idText(newest.message?.id);
+    return { channelId, messageId, ref: { iface: p.iface, conversationId: channelId, messageId } };
   }
 
   /** `/nep message edit`: one of the persona's own messages gets `text`. */
-  async function cmdEdit(args, context) {
+  async function cmdEdit(args: Obj, context: OpContext) {
     assertNotPaused();
     const p = requirePort();
-    const text = String(args?.text ?? '').trim();
+    const text = textOf(args.text).trim();
     if (!text) throw invalid('text is required');
     const { channelId, messageId, ref } = await target(args, context, 'read', { last: true });
     const users = mentionedUsers(context);
@@ -371,7 +420,7 @@ const handlers = perEnv((env) => {
   }
 
   /** `/nep message delete`: one of the persona's own messages, deleted. */
-  async function cmdDelete(args, context) {
+  async function cmdDelete(args: Obj, context: OpContext) {
     assertNotPaused();
     const p = requirePort();
     const { channelId, messageId, ref } = await target(args, context, 'read', { last: true });
@@ -379,10 +428,10 @@ const handlers = perEnv((env) => {
   }
 
   /** `/nep message react action:add|remove`: the persona's reaction `emoji` on a message, put or taken back. */
-  async function cmdReact(add, args, context) {
+  async function cmdReact(add: boolean, args: Obj, context: OpContext): Promise<Obj> {
     assertNotPaused();
     const p = requirePort();
-    const emoji = String(args?.emoji ?? '').trim();
+    const emoji = textOf(args.emoji).trim();
     if (!emoji) throw invalid('an emoji is required');
     const { channelId, messageId, ref } = await target(args, context, add ? 'react' : 'read');
     const result = add ? await p.react(ref, emoji) : await p.unreact(ref, emoji);

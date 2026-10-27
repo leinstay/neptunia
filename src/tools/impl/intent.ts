@@ -32,6 +32,8 @@ import { HEARTBEAT_ORIGIN, intentionsOn, isIntentionId, parseEvery, parseWhen } 
 import { isOwnerId } from './grants.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
 import { CODE } from '../codes.ts';
+import { idText } from '../types.ts';
+import type { Obj, OpContext, Untyped } from '../types.ts';
 
 /** The purpose's length in an answer line (characters). */
 const PURPOSE_LINE_CHARS = 80;
@@ -76,24 +78,24 @@ const handlers = perEnv((env) => {
   }
 
   /** Whether the conversation the command runs in is a private chat. */
-  function inPrivate(context) {
+  function inPrivate(context: OpContext) {
     if (context?.privateChat === true) return true;
-    return context?.channelId ? env.directory.isPrivate(String(context.channelId)) : false;
+    return context?.channelId ? env.directory.isPrivate(idText(context.channelId)) : false;
   }
 
   /** `args[key]` as a moment (parseWhen, the wall-clock forms in `bot.timezone`), undefined when not given; an `invalid` error when it does not parse. */
-  function moment(args, key) {
-    const text = args?.[key];
-    if (text === undefined || text === null || text === '') return undefined;
-    const at = parseWhen(text, now(), { timezone: hot.config?.bot?.timezone ?? 'UTC' });
+  function moment(args: Obj, key: string): number | undefined {
+    const given = args[key];
+    if (given === undefined || given === null || given === '') return undefined;
+    const at = parseWhen(idText(given), now(), { timezone: hot.config?.bot?.timezone ?? 'UTC' });
     if (at === null)
       throw invalid(`${key}: a time like 30m, 6h, 2d, 21:00, mon 20:00 or an ISO date-time`, CODE.BAD_TIME);
     return at;
   }
 
   /** `args.every` as the record's recurrence (parseEvery), undefined when not given; an `invalid` error when it does not parse. */
-  function every(args) {
-    const text = args?.every;
+  function every(args: Obj) {
+    const text = args.every;
     if (text === undefined || text === null || text === '') return undefined;
     const parsed = parseEvery(text);
     if (!parsed.ok) throw invalid('every: day, week, <n>h, <n>d or none', CODE.BAD_EVERY);
@@ -101,13 +103,13 @@ const handlers = perEnv((env) => {
   }
 
   /** A text argument trimmed, undefined when not given. */
-  function text(args, key) {
-    const value = args?.[key];
+  function text(args: Obj, key: string): string | undefined {
+    const value = args[key];
     return typeof value === 'string' && value.trim() ? value.trim() : undefined;
   }
 
   /** `args.people` as ids (comma or space separated; `<@id>` unwrapped), undefined when not given. */
-  function peopleOf(args) {
+  function peopleOf(args: Obj) {
     const value = text(args, 'people');
     if (value === undefined) return undefined;
     return value
@@ -117,17 +119,17 @@ const handlers = perEnv((env) => {
   }
 
   /** `args[key]` as a whole number >= `min`, undefined when not given; an `invalid` error (`bad-attend`) otherwise. */
-  function integer(args, key, min) {
-    const value = args?.[key];
+  function integer(args: Obj, key: string, min: number): number | undefined {
+    const value = args[key];
     if (value === undefined || value === null || value === '') return undefined;
-    const n =
-      typeof value === 'number' ? value : /^\d{1,9}$/.test(String(value).trim()) ? Number(String(value).trim()) : NaN;
+    const written = idText(value).trim();
+    const n = typeof value === 'number' ? value : /^\d{1,9}$/.test(written) ? Number(written) : NaN;
     if (!Number.isInteger(n) || n < min) throw invalid(`${key}: a whole number of at least ${min}`, CODE.BAD_ATTEND);
     return n;
   }
 
   /** The attention arguments given (`people`, `settle`, `perday`), or null when none is. */
-  function attendPatch(args) {
+  function attendPatch(args: Obj) {
     const people = peopleOf(args);
     const settle = integer(args, 'settle', 0);
     const perDay = integer(args, 'perday', 1);
@@ -145,7 +147,7 @@ const handlers = perEnv((env) => {
    * the id in the body and nothing else. Any other body stays what it is (the update's purpose).
    * Returns `{ id, args }`, the args without the text that was the id.
    */
-  function idOf(args) {
+  function idOf(args: Obj) {
     const id = text(args, 'id');
     if (id) return { id, args };
     const body = text(args, 'text');
@@ -158,14 +160,14 @@ const handlers = perEnv((env) => {
    * `<intentions>` block writes them (src/intentions/blocks.js#when), so a due she set reads
    * against the clock her prompt shows and never as a UTC figure she takes for a past moment.
    */
-  function stamp(ts) {
+  function stamp(ts: number): string {
     const timezone = hot.config?.bot?.timezone ?? 'UTC';
     const locale = hot.prompts?.labels?.locale ?? 'en-US';
     return `${formatDate(ts, timezone, locale)} ${formatClock(ts, timezone, locale)}`;
   }
 
   /** One intention as an answer line. */
-  function lineOf(record) {
+  function lineOf(record: Untyped): string {
     const parts = [`${record.id} ${record.status}`];
     // A dropped one is over: its reason and its purpose only, no due or expiry to act on.
     if (record.status === 'dropped')
@@ -189,7 +191,7 @@ const handlers = perEnv((env) => {
   }
 
   /** A service answer as the operation's result. */
-  function answer(result, verb) {
+  function answer(result: Untyped, verb: string): Obj {
     if (result.ok) {
       const line = lineOf(result.intention);
       return {
@@ -206,13 +208,13 @@ const handlers = perEnv((env) => {
     // A heartbeat's cap names the open ones from heartbeats, so she can update or cancel one instead.
     const open =
       Array.isArray(result.open) && result.open.length > 0
-        ? `; open from heartbeats: ${result.open.map((record) => `${record.id} (${clampWithEllipsis(oneLine(record.purpose), PURPOSE_LINE_CHARS)}${record.every?.period ? `, every ${record.every.period}` : ''})`).join('; ')}`
+        ? `; open from heartbeats: ${(result.open as Array<Untyped>).map((record: Untyped) => `${record.id} (${clampWithEllipsis(oneLine(record.purpose), PURPOSE_LINE_CHARS)}${record.every?.period ? `, every ${record.every.period}` : ''})`).join('; ')}`
         : '';
     return { status, code: result.code, summary: `intention not ${verb}: ${result.code}${open}`, data: null };
   }
 
   /** The members of the call's conversation: who asked, whom her turn answered, whom she mentioned. */
-  function participantsOf(context) {
+  function participantsOf(context: OpContext) {
     const ids = [
       context?.userId,
       context?.repliedAuthorId,
@@ -225,22 +227,22 @@ const handlers = perEnv((env) => {
    * Where the caller is, for the service's visibility rule: an owner's own command sees every
    * intention; anyone else (her own call included) a private chat's only in that chat.
    */
-  function whereOf(context) {
+  function whereOf(context: OpContext) {
     const owner = context?.actor !== 'persona' && isOwnerId(hot.config, context?.userId);
     return {
       all: owner,
-      privateChannelId: !owner && inPrivate(context) && context?.channelId ? String(context.channelId) : null,
+      privateChannelId: !owner && inPrivate(context) && context?.channelId ? idText(context.channelId) : null,
     };
   }
 
   /** What the caller's context says about where and when the call came from. */
-  function origin(context) {
+  function origin(context: OpContext) {
     const persona = context?.actor === 'persona';
     return {
       by: persona ? 'persona' : isOwnerId(hot.config, context?.userId) ? 'owner' : 'member',
-      turnId: persona && context?.turnId ? String(context.turnId) : null,
-      messageId: context?.sourceMessageId ? String(context.sourceMessageId) : null,
-      channelId: context?.channelId ? String(context.channelId) : null,
+      turnId: persona && context?.turnId ? idText(context.turnId) : null,
+      messageId: context?.sourceMessageId ? idText(context.sourceMessageId) : null,
+      channelId: context?.channelId ? idText(context.channelId) : null,
       scope: inPrivate(context) ? 'dm' : 'group',
       participants: participantsOf(context),
       // The engine's stamp: what her heartbeat turn creates (the wake kind comes from the envelope, never from her words).
@@ -249,7 +251,7 @@ const handlers = perEnv((env) => {
   }
 
   /** `intent.set`: a new intention, its purpose the text; with `attend` an attention on that place. */
-  function cmdSet(args, context) {
+  function cmdSet(args: Obj, context: OpContext): Obj {
     const refused = off();
     if (refused) return refused;
     const place = text(args, 'attend');
@@ -276,7 +278,7 @@ const handlers = perEnv((env) => {
   }
 
   /** `intent.update id ...` (the id alone in the body counts as `id`, idOf). */
-  function cmdUpdate(given, context) {
+  function cmdUpdate(given: Obj, context: OpContext): Obj {
     const refused = off();
     if (refused) return refused;
     const { id, args } = idOf(given);
@@ -305,7 +307,7 @@ const handlers = perEnv((env) => {
       by: from.by,
       // An inner turn's call (her own initiative) and its chain: which candidates it may accept.
       ...(context?.ownInitiative === true
-        ? { initiative: true, callerChain: context?.chainId ? String(context.chainId) : null }
+        ? { initiative: true, callerChain: context?.chainId ? idText(context.chainId) : null }
         : {}),
       ...whereOf(context),
     });
@@ -313,7 +315,7 @@ const handlers = perEnv((env) => {
   }
 
   /** `intent.cancel id` (the id alone in the body counts as `id`, idOf). */
-  function cmdCancel(given, context) {
+  function cmdCancel(given: Obj, context: OpContext): Obj {
     const refused = off();
     if (refused) return refused;
     const { id } = idOf(given);
@@ -325,7 +327,7 @@ const handlers = perEnv((env) => {
   }
 
   /** `intent.list`: the open intentions, a private chat's own only in that chat (an owner's command sees all). */
-  function cmdList(args, context) {
+  function cmdList(args: Obj, context: OpContext): Obj | string {
     const refused = off();
     if (refused) return refused;
     const records = intentions().list(resolvedGuildId(context), whereOf(context));

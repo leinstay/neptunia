@@ -53,6 +53,53 @@ import {
 } from './shared.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
 import { CODE } from '../codes.ts';
+import { idText, objOf, textOf } from '../types.ts';
+import type { Obj, OpContext, Untyped } from '../types.ts';
+
+/** The list sections of `memory show` (aliases, interests, details): the profile field, the config keys and the line. */
+const LIST_SECTIONS: Readonly<
+  Record<
+    string,
+    {
+      field: string;
+      halfLife: string;
+      shown: string;
+      line: (item: Untyped, resolve: (text: unknown) => string) => string;
+    }
+  >
+> = Object.freeze({
+  aliases: { field: 'aliases', halfLife: 'aliasHalfLifeDays', shown: 'maxAliases', line: (item) => aliasLine(item) },
+  interests: { field: 'interests', halfLife: 'interestHalfLifeDays', shown: 'maxInterests', line: interestLine },
+  details: { field: 'details', halfLife: 'detailHalfLifeDays', shown: 'maxDetails', line: detailLine },
+});
+
+/** One list section of `memory show` in the order asked and cut at `limit`; `(none)` when it holds nothing. */
+function listSectionText(
+  items: ReadonlyArray<Untyped> | null | undefined,
+  {
+    order,
+    limit,
+    halfLifeDays,
+    maxShown,
+    formatLine,
+  }: {
+    order: 'rank' | 'recent';
+    limit: number;
+    halfLifeDays?: number;
+    maxShown?: number;
+    formatLine: (item: Untyped) => string;
+  }
+): string {
+  const lines = orderedSectionLines(items ?? [], {
+    order,
+    limit,
+    ...(halfLifeDays === undefined ? {} : { halfLifeDays }),
+    ...(maxShown === undefined ? {} : { maxShown }),
+    formatLine,
+    dateOf: (item: Untyped) => dateMs(item.lastSeen ?? item.firstSeen),
+  });
+  return lines.length ? lines.join('\n') : NONE;
+}
 
 const handlers = perEnv((env) => {
   const {
@@ -81,20 +128,22 @@ const handlers = perEnv((env) => {
    * in free text via `fromTokens(..., 'analyzer')`, the same as the analyzer's
    * own input view.
    */
-  function cmdMemoryShow(args, context) {
+  function cmdMemoryShow(args: Obj, context: OpContext) {
     freshenIfPaused();
-    const userId = args?.userId;
+    const userId = idText(args.userId);
     if (!userId) throw invalid('a user is required');
 
     const guildId = requireGuildId(context);
     const profile = requireProfile(guildId, userId);
 
     const memoryCfg = hot.config?.memory ?? {};
-    const section = MEMORY_SHOW_SECTIONS.includes(args?.section) ? args.section : 'summary';
-    const order = args?.order === 'recent' ? 'recent' : 'rank';
+    const requested = typeof args.section === 'string' ? args.section : '';
+    const section = MEMORY_SHOW_SECTIONS.includes(requested) ? requested : 'summary';
+    const order = args.order === 'recent' ? 'recent' : 'rank';
+    const asked = args.limit;
     const limit =
-      Number.isInteger(args?.limit) && args.limit >= 1 && args.limit <= MEMORY_SHOW_MAX_LIMIT
-        ? args.limit
+      typeof asked === 'number' && Number.isInteger(asked) && asked >= 1 && asked <= MEMORY_SHOW_MAX_LIMIT
+        ? asked
         : MEMORY_SHOW_DEFAULT_LIMIT;
     const { nameOf, resolve } = tokenResolver(guildId);
 
@@ -106,40 +155,15 @@ const handlers = perEnv((env) => {
 
     if (section === 'affinity') return affinityView(profile.affinity, resolve);
 
-    if (section === 'aliases') {
-      const lines = orderedSectionLines(profile.aliases ?? [], {
+    const list = LIST_SECTIONS[section];
+    if (list) {
+      return listSectionText(profile[list.field], {
         order,
         limit,
-        halfLifeDays: memoryCfg.aliasHalfLifeDays,
-        maxShown: memoryCfg.maxAliases,
-        formatLine: aliasLine,
-        dateOf: (a) => dateMs(a.lastSeen ?? a.firstSeen),
+        halfLifeDays: memoryCfg[list.halfLife],
+        maxShown: memoryCfg[list.shown],
+        formatLine: (item: Untyped) => list.line(item, resolve),
       });
-      return lines.length ? lines.join('\n') : NONE;
-    }
-
-    if (section === 'interests') {
-      const lines = orderedSectionLines(profile.interests ?? [], {
-        order,
-        limit,
-        halfLifeDays: memoryCfg.interestHalfLifeDays,
-        maxShown: memoryCfg.maxInterests,
-        formatLine: (it) => interestLine(it, resolve),
-        dateOf: (it) => dateMs(it.lastSeen ?? it.firstSeen),
-      });
-      return lines.length ? lines.join('\n') : NONE;
-    }
-
-    if (section === 'details') {
-      const lines = orderedSectionLines(profile.details ?? [], {
-        order,
-        limit,
-        halfLifeDays: memoryCfg.detailHalfLifeDays,
-        maxShown: memoryCfg.maxDetails,
-        formatLine: (d) => detailLine(d, resolve),
-        dateOf: (d) => dateMs(d.lastSeen ?? d.firstSeen),
-      });
-      return lines.length ? lines.join('\n') : NONE;
     }
 
     if (section === 'episodes') {
@@ -171,7 +195,7 @@ const handlers = perEnv((env) => {
    * `<@id>` tokens in `purpose`/`topics`/`tone` are resolved the same way `memory.show` resolves
    * free-text fields (`fromTokens(..., 'analyzer')`).
    */
-  function cmdMemoryChannel(args, context) {
+  function cmdMemoryChannel(args: Obj, context: OpContext) {
     freshenIfPaused();
     const guildId = requireGuildId(context);
 
@@ -179,13 +203,13 @@ const handlers = perEnv((env) => {
     const now = Date.now();
     const { nameOf, resolve } = tokenResolver(guildId);
 
-    const channelId = args?.channelId;
+    const channelId = idText(args.channelId);
     if (channelId) {
       const channel = store.getChannel(guildId, channelId);
       if (!channel) throw invalid(`no channel entry for ${channelId}`, CODE.NOT_FOUND);
 
       const activity = channelActivity(channel, now, activityCfg);
-      const isMain = mainChannelIdSet().has(String(channelId));
+      const isMain = mainChannelIdSet().has(channelId);
       const writers = channelTopWritersText(channel.topWriters, nameOf);
 
       return [
@@ -220,7 +244,7 @@ const handlers = perEnv((env) => {
    * stored (profiles, channel notes, lore entries) and when the guild notes were last updated.
    * `<@id>` tokens are resolved the same way `memory.show`/`memory.channel` resolve free text.
    */
-  function cmdMemoryServer(_args, context) {
+  function cmdMemoryServer(_args: Obj, context: OpContext): string {
     freshenIfPaused();
     const guildId = requireGuildId(context);
 
@@ -247,19 +271,22 @@ const handlers = perEnv((env) => {
    * only, so it works while paused (`freshenIfPaused`); the reply is chunked by
    * interfaces/discord/commands.js#respond like every long view.
    */
-  function cmdMemoryRecent(_args, context) {
+  function cmdMemoryRecent(_args: Obj, context: OpContext): string {
     freshenIfPaused();
     const guildId = requireGuildId(context);
 
     const settings = recentSettings(hot.config);
     if (!settings) return 'recent memory is off';
 
-    const live = liveRecent(store.getRecent(guildId).lines, { now: Date.now(), hours: settings.hours });
+    const live = liveRecent(store.getRecent(guildId).lines, {
+      now: Date.now(),
+      hours: settings.hours,
+    }) as Array<Untyped>;
     if (live.length === 0) return 'no live recent lines';
 
     const timezone = hot.config?.bot?.timezone || 'UTC';
     const { resolve } = tokenResolver(guildId);
-    const channelText = (channelId) => {
+    const channelText = (channelId: string): string => {
       const name = store.getChannel(guildId, channelId)?.name;
       return name ? `#${name}` : String(channelId);
     };
@@ -280,15 +307,17 @@ const handlers = perEnv((env) => {
    * the kind, the item id and its text (tokens resolved, cut to 160 characters). Read only; the
    * archive is streamed and only the newest `n` are kept in memory.
    */
-  async function cmdMemoryArchive(args, context) {
+  async function cmdMemoryArchive(args: Obj, context: OpContext) {
     const guildId = requireGuildId(context);
     if (!archive) return 'the archive is not available';
-    const kind = args?.kind ?? null;
-    if (kind !== null && !ARCHIVE_KINDS.includes(kind))
+    const given = args.kind ?? null;
+    const kind = typeof given === 'string' ? given : null;
+    if (given !== null && (kind === null || !ARCHIVE_KINDS.includes(kind)))
       throw invalid(`unknown kind; one of: ${ARCHIVE_KINDS.join(', ')}`);
-    const n = Number.isInteger(args?.n) ? Math.min(100, Math.max(1, args.n)) : 20;
-    const userId = args?.userId ? String(args.userId) : null;
-    const newest = [];
+    const asked = args.n;
+    const n = typeof asked === 'number' && Number.isInteger(asked) ? Math.min(100, Math.max(1, asked)) : 20;
+    const userId = args.userId ? idText(args.userId) : null;
+    const newest: Array<Untyped> = [];
     for await (const entry of archive.iterate(guildId, {
       scope: userId ? { user: userId } : null,
       kinds: kind ? [kind] : null,
@@ -314,13 +343,15 @@ const handlers = perEnv((env) => {
    * (by `owner`). Idempotent: an item already hot changes nothing and writes nothing. Refused
    * while paused.
    */
-  async function cmdMemoryRestore(args, context) {
+  async function cmdMemoryRestore(args: Obj, context: OpContext) {
     assertNotPaused();
     const guildId = requireGuildId(context);
-    const itemId = String(args?.itemId ?? '').trim();
+    const itemId = textOf(args.itemId).trim();
     if (!itemId) throw invalid('an item id is required');
     if (!archive || typeof store.restoreArchived !== 'function') throw new Error('the archive is not available');
-    const versions = (await archive.find(guildId, itemId)).filter((entry) => entry.event !== 'restored');
+    const versions = ((await archive.find(guildId, itemId)) as Array<Untyped>).filter(
+      (entry: Untyped) => entry.event !== 'restored'
+    );
     if (versions.length === 0) throw invalid(`no archived item ${itemId}`, CODE.NOT_FOUND);
     const latest = versions.at(-1);
     const result = store.restoreArchived(guildId, latest);
@@ -341,9 +372,32 @@ const handlers = perEnv((env) => {
     try {
       await archive.append(guildId, [line], privateUserId ? { privateUserId } : {});
     } catch (error) {
-      return `restored ${latest.itemKind} ${itemId}; the archive line failed (${error?.code ?? 'error'})`;
+      return `restored ${latest.itemKind} ${itemId}; the archive line failed (${idText(objOf(error).code) || 'error'})`;
     }
     return `restored ${latest.itemKind} ${itemId}`;
+  }
+
+  /**
+   * The turn that posted the message `reference` names (an id or a link), whole: the turn is searched in the day the
+   * message was posted, which the interface says (`fetchMessages`).
+   */
+  async function turnOfMessage(guildId: string, reference: unknown, context: OpContext): Promise<string> {
+    const ref = await messageRefOf(reference, reads);
+    const { messageId } = ref;
+    const conversationId = ref.channelId ?? (context.channelId ? idText(context.channelId) : null);
+    const fetched =
+      conversationId !== null && reads && port
+        ? await reads.fetchMessages({ iface: port.iface, conversationId }, [messageId])
+        : null;
+    const at = fetched?.messages[0]?.event?.message.at ?? null;
+    if (at === null) throw invalid(`no message ${messageId} to date its turn by`, CODE.UNKNOWN_MESSAGE);
+    const found = typeof journal.findTurn === 'function' ? await journal.findTurn(guildId, { messageId, at }) : null;
+    if (!found)
+      throw invalid(
+        `no turn of the persona posted message ${messageId} (searched ${utcDay(at)} and ${utcDay(at + DAY_MS)})`,
+        CODE.NOT_FOUND
+      );
+    return turnView(found);
   }
 
   /**
@@ -355,34 +409,19 @@ const handlers = perEnv((env) => {
    * options ignored; a message no turn of the guild journal posted is `not-found`.
    * Owner-only (src/tools/impl/grants.ts); read only, so it works while paused.
    */
-  async function cmdMemoryJournal(args, context) {
+  async function cmdMemoryJournal(args: Obj, context: OpContext) {
     if (!journal) return 'the journal is not available';
     const guildId = requireGuildId(context);
-    if (args?.messageId !== undefined && args?.messageId !== null && args?.messageId !== '') {
-      const ref = await messageRefOf(args.messageId, reads);
-      const { messageId } = ref;
-      // The turn is searched in the day the message was posted: its own time, as the interface reads it.
-      const conversationId = ref.channelId ?? (context?.channelId ? String(context.channelId) : null);
-      const fetched =
-        conversationId !== null && reads && port
-          ? await reads.fetchMessages({ iface: port.iface, conversationId }, [messageId])
-          : null;
-      const at = fetched?.messages[0]?.event?.message.at ?? null;
-      if (at === null) throw invalid(`no message ${messageId} to date its turn by`, CODE.UNKNOWN_MESSAGE);
-      const found = typeof journal.findTurn === 'function' ? await journal.findTurn(guildId, { messageId, at }) : null;
-      if (!found)
-        throw invalid(
-          `no turn of the persona posted message ${messageId} (searched ${utcDay(at)} and ${utcDay(at + DAY_MS)})`,
-          CODE.NOT_FOUND
-        );
-      return turnView(found);
-    }
-    const day = args?.day ?? utcDay(Date.now());
+    if (args.messageId !== undefined && args.messageId !== null && args.messageId !== '')
+      return turnOfMessage(guildId, args.messageId, context);
+    const day = args.day ?? utcDay(Date.now());
     if (typeof day !== 'string' || !JOURNAL_DAY_RE.test(day)) throw invalid('day must be YYYY-MM-DD');
-    const kind = args?.kind ?? 'all';
+    const wantedKind = args.kind ?? 'all';
+    const kind = typeof wantedKind === 'string' ? wantedKind : '';
     if (!JOURNAL_KINDS.includes(kind)) throw invalid(`kind must be one of: ${JOURNAL_KINDS.join(', ')}`);
-    const n = args?.n ?? JOURNAL_N_DEFAULT;
-    if (!Number.isInteger(n) || n < 1 || n > JOURNAL_N_MAX) throw invalid(`n must be 1..${JOURNAL_N_MAX}`);
+    const n = args.n ?? JOURNAL_N_DEFAULT;
+    if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > JOURNAL_N_MAX)
+      throw invalid(`n must be 1..${JOURNAL_N_MAX}`);
 
     const records = await journal.read(guildId, { day, kind: kind === 'all' ? null : kind, n });
     if (records.length === 0) return `no journal records on ${day}${kind === 'all' ? '' : ` (${kind})`}`;
@@ -434,9 +473,9 @@ const handlers = perEnv((env) => {
    * divider: in a DM the private items are ranked together with the public
    * ones. No private layer -> a plain answer, not an error.
    */
-  function cmdPrivateShow(args, context) {
+  function cmdPrivateShow(args: Obj, context: OpContext) {
     freshenIfPaused();
-    const userId = args?.userId;
+    const userId = idText(args.userId);
     if (!userId) throw invalid('a user is required');
     const guildId = requireGuildId(context);
 
@@ -461,7 +500,7 @@ const handlers = perEnv((env) => {
       today: todayUtc(),
     });
 
-    const section = (title, items, lines) => [
+    const section = (title: string, items: ReadonlyArray<unknown>, lines: ReadonlyArray<string>): Array<string> => [
       `${title} (${items.length} stored):`,
       ...lines.map((line) => `  ${line}`),
     ];
@@ -484,7 +523,7 @@ const handlers = perEnv((env) => {
           limit: MEMORY_SHOW_DEFAULT_LIMIT,
           halfLifeDays: memoryCfg.interestHalfLifeDays,
           formatLine: (it) => interestLine(it, resolve),
-          dateOf: (it) => dateMs(it.lastSeen ?? it.firstSeen),
+          dateOf: (it: Untyped) => dateMs(it.lastSeen ?? it.firstSeen),
         })
       ),
       ...section(
@@ -495,7 +534,7 @@ const handlers = perEnv((env) => {
           limit: MEMORY_SHOW_DEFAULT_LIMIT,
           halfLifeDays: memoryCfg.detailHalfLifeDays,
           formatLine: (d) => detailLine(d, resolve),
-          dateOf: (d) => dateMs(d.lastSeen ?? d.firstSeen),
+          dateOf: (d: Untyped) => dateMs(d.lastSeen ?? d.firstSeen),
         })
       ),
       ...section(
@@ -510,8 +549,8 @@ const handlers = perEnv((env) => {
 
   /** `/nep memory affinity`: the attitude view (`affinityView`) of a member who has a profile.
    * Read only: the attitude changes only through the memory analyzer, for nobody by hand. */
-  function cmdMemoryAffinity(args, context) {
-    const userId = args?.userId;
+  function cmdMemoryAffinity(args: Obj, context: OpContext) {
+    const userId = idText(args.userId);
     if (!userId) throw invalid('a user is required');
     const guildId = requireGuildId(context);
     freshenIfPaused();
@@ -557,7 +596,7 @@ defineOp({
 defineOp({
   name: 'memory.affinity.read',
   rights: { kind: 'read' },
-  run: (args, ctx) => handlers(ctx.env).cmdMemoryAffinity({ userId: args?.userId }, ctx),
+  run: (args, ctx) => handlers(ctx.env).cmdMemoryAffinity({ userId: args.userId }, ctx),
 });
 defineOp({
   name: 'memory.journal.read',

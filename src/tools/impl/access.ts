@@ -20,23 +20,23 @@ import {
   revoke as accessRevoke,
   hasGrant,
 } from './grants.ts';
-import { isPlainObject } from '../../config.js';
 import { log } from '../../log.js';
 import { NONE, reloadNote } from './shared.ts';
 import { skillNames, skillRegistry } from '../registry.ts';
 import { NOT_GRANTABLE_TO_PERSONA } from '../access.ts';
 import { defineOp, perEnv, invalid, denied, listOps } from './registry.ts';
 import { CODE } from '../codes.ts';
+import type { Env } from './env.ts';
+import { idText, isObj, objOf, textOf } from '../types.ts';
+import type { Access, GrantTarget, Obj, OpContext, OpInfo } from '../types.ts';
 
 /**
  * Every key `/nep access grant` accepts, for the autocomplete: `*`, each group (a dotted prefix
  * of an operation name) that covers at least one grantable read operation, then every grantable
  * operation name. Pure over `ops` (src/tools/impl/registry.ts#listOps).
- * @param {{ name: string, rights: object }[]} ops
- * @returns {string[]}
  */
-export function grantKeys(ops) {
-  const groups = new Set();
+export function grantKeys(ops: ReadonlyArray<OpInfo>): Array<string> {
+  const groups = new Set<string>();
   for (const op of ops) {
     if (!isGrantableOp(op) || op.rights.kind !== 'read') continue;
     const parts = op.name.split('.');
@@ -46,30 +46,34 @@ export function grantKeys(ops) {
 }
 
 /** Operations merged under another name: an old grant on the key holds on the value now. */
-export const RENAMED_OPS = Object.freeze({ 'talk.interject': 'message.create', 'talk.initiate': 'message.create' });
+export const RENAMED_OPS: Readonly<Record<string, string>> = Object.freeze({
+  'talk.interject': 'message.create',
+  'talk.initiate': 'message.create',
+});
 
 /**
  * `access` with every grant on a key of `renames` moved under its new name, each target (everyone,
  * a role, a user) kept and joined with what the new name already held; null when nothing was
  * renamed. Pure; never mutates `access`.
- * @param {object} access
- * @param {Record<string, string>} [renames]
- * @returns {object|null}
  */
-export function renameGrants(access, renames = RENAMED_OPS) {
-  if (!isPlainObject(access)) return null;
-  const old = Object.keys(renames).filter((key) => isPlainObject(access[key]));
+export function renameGrants(access: unknown, renames: Readonly<Record<string, string>> = RENAMED_OPS): Access | null {
+  if (!isObj(access)) return null;
+  const old = Object.keys(renames).filter((key) => isObj(access[key]));
   if (old.length === 0) return null;
-  let next = { ...access };
+  let next: Access = { ...access };
   for (const key of old) {
-    const entry = access[key];
-    const targets = [
+    const entry = objOf(access[key]);
+    const targets: Array<GrantTarget> = [
       ...(entry.everyone === true ? [{ everyone: true }] : []),
-      ...(Array.isArray(entry.roles) ? entry.roles.map((roleId) => ({ roleId: String(roleId) })) : []),
-      ...(Array.isArray(entry.users) ? entry.users.map((userId) => ({ userId: String(userId) })) : []),
+      ...(Array.isArray(entry.roles)
+        ? (entry.roles as Array<unknown>).map((roleId) => ({ roleId: idText(roleId) }))
+        : []),
+      ...(Array.isArray(entry.users)
+        ? (entry.users as Array<unknown>).map((userId) => ({ userId: idText(userId) }))
+        : []),
     ];
     delete next[key];
-    for (const what of targets) next = accessGrant(next, renames[key], what);
+    for (const what of targets) next = accessGrant(next, renames[key] ?? key, what);
   }
   return next;
 }
@@ -81,10 +85,10 @@ export function renameGrants(access, renames = RENAMED_OPS) {
  * name) or `*` is every read skill under it, owner-only ones included (they run only when an
  * owner asks), with `from` the pattern.
  * Null when `key` names no skill.
- * @param {string} key
- * @returns {{ from: string|null, names: string[], refused: string[] } | null}
  */
-export function expandPersonaGrant(key) {
+export function expandPersonaGrant(
+  key: string
+): { from: string | null; names: Array<string>; refused: Array<string> } | null {
   if (skillNames().includes(key))
     return NOT_GRANTABLE_TO_PERSONA.includes(key)
       ? { from: null, names: [], refused: [key] }
@@ -100,34 +104,33 @@ export function expandPersonaGrant(key) {
 }
 
 /** True when a stored key can only be the persona's: a skill name no grant to a person opens. */
-function personaOnlyKey(key, ops) {
+function personaOnlyKey(key: string, ops: ReadonlyArray<OpInfo>): boolean {
   return skillNames().includes(key) && !isGrantableOp(ops.find((op) => op.name === key));
 }
 
 const handlers = perEnv((env) => {
   const { writeLocalPath, localOrLive } = env;
-  /** @type {import('../../interface/reads.ts').Reads|null} */
-  const reads = env.reads;
+  const { reads } = env;
 
   /** The persona's own member id (the persona as a grant target), or null before the interface has said who she is. */
-  function personaId() {
+  function personaId(): string | null {
     const id = env.selfId();
-    return id === undefined || id === null || id === '' ? null : String(id);
+    return id === undefined || id === null || id === '' ? null : id;
   }
 
   /** True when `what` (accessTargetArgs') targets the persona herself. */
-  function targetsPersona(what) {
+  function targetsPersona(what: GrantTarget | null | undefined): boolean {
     const id = personaId();
-    return id !== null && what?.userId != null && String(what.userId) === id;
+    return id !== null && what?.userId != null && idText(what.userId) === id;
   }
 
   /** The ids of the groups the persona holds in the served community (the interface's member info), [] when unknown. */
-  async function personaRoleIds(context) {
+  async function personaRoleIds(context: OpContext): Promise<Array<string>> {
     const guildId = env.resolvedGuildId(context);
     const self = personaId();
     if (!reads || !guildId || self === null) return [];
     const found = await reads.memberInfo({ communityId: guildId, memberId: self });
-    return found?.member?.groupIds.map(String) ?? [];
+    return found?.member?.groupIds ?? [];
   }
 
   /**
@@ -135,12 +138,12 @@ const handlers = perEnv((env) => {
    * reaches her -- herself, everyone, or a role she holds -- is refused, whoever asked: she never
    * changes her own effective authority, directly or indirectly.
    */
-  async function refuseSelfChange(name, what, context) {
-    if (context?.actor !== 'persona') return;
+  async function refuseSelfChange(name: string, what: GrantTarget, context: OpContext): Promise<void> {
+    if (context.actor !== 'persona') return;
     const reachesHer =
       targetsPersona(what) ||
-      what?.everyone === true ||
-      (what?.roleId != null && (await personaRoleIds(context)).includes(String(what.roleId)));
+      what.everyone === true ||
+      (what.roleId != null && (await personaRoleIds(context)).includes(idText(what.roleId)));
     if (reachesHer) throw denied(`${name}: the persona never changes rights that reach her`, CODE.SELF_GRANT);
   }
 
@@ -149,13 +152,13 @@ const handlers = perEnv((env) => {
    * first keeps repeated grant/revoke/list calls consistent even a moment before the next reload
    * lands. Falls back to `hot.config.bot.access` (the base config.json default, `{}`) before
    * anything has ever been written locally. */
-  function effectiveAccess() {
-    return localOrLive('bot.access') ?? {};
+  function effectiveAccess(): Access {
+    return objOf(localOrLive('bot.access'));
   }
 
   /** Writes `nextAccess` to `bot.access` in config.local.json and reloads config -- the same
    * mechanism cmdSet uses; the reload's outcome. */
-  function writeAccess(nextAccess) {
+  function writeAccess(nextAccess: Access): boolean {
     return writeLocalPath('bot.access', nextAccess);
   }
 
@@ -163,17 +166,17 @@ const handlers = perEnv((env) => {
    * argument of src/tools/impl/grants.ts#grant/#revoke/#hasGrant, `label` reads `role id:<id>`,
    * `user id:<id>` or `everyone` (plain text: a multi-line reply is code-fenced, where a mention
    * would show as raw markup). */
-  function accessTargetArgs(args) {
-    const roleId = args?.roleId;
-    const userId = args?.userId;
+  function accessTargetArgs(args: Obj): { what: GrantTarget; label: string } {
+    const roleId = idText(args.roleId);
+    const userId = idText(args.userId);
     if (roleId && userId) throw invalid('give a role or a user, not both');
-    if (roleId) return { what: { roleId: String(roleId) }, label: `role id:${roleId}` };
-    if (userId) return { what: { userId: String(userId) }, label: `user id:${userId}` };
+    if (roleId) return { what: { roleId }, label: `role id:${roleId}` };
+    if (userId) return { what: { userId }, label: `user id:${userId}` };
     return { what: { everyone: true }, label: 'everyone' };
   }
 
   /** A grant to the persona (expandPersonaGrant): every skill by name, a group or `*` its reads. */
-  function grantToPersona(key, target) {
+  function grantToPersona(key: string, target: { what: GrantTarget; label: string }): string {
     const expanded = expandPersonaGrant(key);
     if (!expanded) throw invalid(`unknown skill: ${key}`, CODE.UNKNOWN_SKILL);
     if (expanded.refused.length > 0)
@@ -187,8 +190,8 @@ const handlers = perEnv((env) => {
     return `Granted ${key} to ${target.label} ${reloadNote(ok)}`;
   }
 
-  async function cmdAccessGrant(args, context) {
-    const key = String(args?.command ?? '').trim();
+  async function cmdAccessGrant(args: Obj, context: OpContext): Promise<string> {
+    const key = textOf(args.command).trim();
     if (!key) throw invalid('an operation name is required');
     const target = accessTargetArgs(args);
     await refuseSelfChange('access.grant', target.what, context);
@@ -198,7 +201,7 @@ const handlers = perEnv((env) => {
     if (!expanded) throw invalid(`unknown operation: ${key}`);
     if (expanded.refused.length > 0) {
       const op = ops.find((o) => o.name === key);
-      if (op?.rights?.member === true) throw invalid(`${key} is open to every member and cannot be granted`);
+      if (op?.rights.member === true) throw invalid(`${key} is open to every member and cannot be granted`);
       throw invalid(`${key} is owner-only and cannot be granted`);
     }
     if (expanded.names.length === 0)
@@ -209,13 +212,13 @@ const handlers = perEnv((env) => {
     const ok = writeAccess(next);
 
     const byName = new Map(ops.map((op) => [op.name, op]));
-    const lines = [];
+    const lines: Array<string> = [];
     if (expanded.from) {
       lines.push(`Granted ${key} to ${target.label} as ${expanded.names.join(', ')} ${reloadNote(ok)}`);
       lines.push('Note: a group or * opens only the read operations that exist now; grant a write by its name.');
     } else {
       lines.push(`Granted ${key} to ${target.label} ${reloadNote(ok)}`);
-      if (byName.get(key)?.rights?.kind === 'write')
+      if (byName.get(key)?.rights.kind === 'write')
         lines.push('Note: this opens commands that change memory or config.');
     }
     return lines.join('\n');
@@ -223,21 +226,21 @@ const handlers = perEnv((env) => {
 
   /** The stored keys a revoke of `key` touches: every one for `*`, the ones under a group, else
    * the key itself. */
-  function storedKeysFor(key, access) {
-    const keys = Object.keys(access ?? {});
+  function storedKeysFor(key: string, access: Access): Array<string> {
+    const keys = Object.keys(access);
     if (key === '*') return keys;
     const under = keys.filter((stored) => stored.startsWith(`${key}.`));
-    return Object.hasOwn(access ?? {}, key) ? [key, ...under] : under;
+    return Object.hasOwn(access, key) ? [key, ...under] : under;
   }
 
-  async function cmdAccessRevoke(args, context) {
-    const key = String(args?.command ?? '').trim();
+  async function cmdAccessRevoke(args: Obj, context: OpContext): Promise<string> {
+    const key = textOf(args.command).trim();
     if (!key) throw invalid('an operation name is required');
     const target = accessTargetArgs(args);
     await refuseSelfChange('access.revoke', target.what, context);
     const currentAccess = effectiveAccess();
     const known = expandGrant(key, listOps()) || (targetsPersona(target.what) && expandPersonaGrant(key));
-    if (!known && !Object.hasOwn(currentAccess ?? {}, key)) throw invalid(`unknown operation: ${key}`);
+    if (!known && !Object.hasOwn(currentAccess, key)) throw invalid(`unknown operation: ${key}`);
 
     const touched = storedKeysFor(key, currentAccess).filter((stored) => hasGrant(currentAccess, stored, target.what));
     if (touched.length === 0) return 'Nothing to revoke';
@@ -253,18 +256,17 @@ const handlers = perEnv((env) => {
    * granted (owner-only ones: her user id alone, a stale grant to anyone else opens nothing), one
    * line each, every target with its source (see src/tools/impl/grants.ts#describeGrants); stale keys
    * open nothing and are left out. */
-  function cmdAccessList() {
+  function cmdAccessList(): string {
     const ops = listOps();
-    const access = { ...effectiveAccess() };
+    const access: Access = { ...effectiveAccess() };
     const selfId = personaId();
-    const alsoKeys = [];
+    const alsoKeys: Array<string> = [];
     for (const key of skillNames().filter((name) => personaOnlyKey(name, ops))) {
-      const users = isPlainObject(access[key]) && Array.isArray(access[key].users) ? access[key].users.map(String) : [];
+      const entry = objOf(access[key]);
+      const users = Array.isArray(entry.users) ? (entry.users as Array<unknown>).map(idText) : [];
       if (selfId && users.includes(selfId)) {
-        const via =
-          isPlainObject(access[key].via) && access[key].via[`user:${selfId}`]
-            ? { via: { [`user:${selfId}`]: access[key].via[`user:${selfId}`] } }
-            : {};
+        const kept = objOf(entry.via)[`user:${selfId}`];
+        const via = isObj(entry.via) && kept ? { via: { [`user:${selfId}`]: kept } } : {};
         access[key] = { everyone: false, roles: [], users: [selfId], ...via };
         alsoKeys.push(key);
       }
@@ -279,11 +281,11 @@ const handlers = perEnv((env) => {
    * (src/tools/impl/grants.ts#migrateGrants with `legacy`, src/tools/impl/index.ts#legacyGrantOps), written
    * back to config.local.json when they changed, and a journal `system` record `access-migrated`
    * whose note lists what each grant covers now and the owner-only operations dropped.
-   * @param {string} guildId
-   * @param {(key: string) => ({ from: string|null, names: string[] } | null)} legacy
-   * @returns {Promise<{ migrated: boolean, note?: string }>}
    */
-  async function migrateStoredGrants(guildId, legacy) {
+  async function migrateStoredGrants(
+    guildId: string | null,
+    legacy: (key: string) => { from: string | null; names: Array<string> } | null
+  ): Promise<{ migrated: boolean; note?: string }> {
     const { store } = env;
     // Renamed operations first, every start: a no-op once nothing is stored under an old name.
     const renamed = renameGrants(effectiveAccess());
@@ -295,12 +297,12 @@ const handlers = perEnv((env) => {
     const before = effectiveAccess();
     const ops = listOps();
     // The persona's grants on skills no person may hold are hers as they are: never migrated.
-    const kept = {};
-    const rest = {};
-    for (const [key, entry] of Object.entries(before ?? {})) (personaOnlyKey(key, ops) ? kept : rest)[key] = entry;
+    const kept: Access = {};
+    const rest: Access = {};
+    for (const [key, entry] of Object.entries(before)) (personaOnlyKey(key, ops) ? kept : rest)[key] = entry;
     const { access: migrated, report, note } = migrateGrants({ access: rest, ops, legacy });
     const access = { ...migrated, ...kept };
-    if (JSON.stringify(access) !== JSON.stringify(before ?? {})) writeAccess(access);
+    if (JSON.stringify(access) !== JSON.stringify(before)) writeAccess(access);
     store.updateGuild(guildId, { accessMigrated: 1 });
     const dropped = report.reduce((sum, line) => sum + line.dropped.length, 0);
     log.info('access: migrated', { guildId, grants: report.length, dropped });
@@ -322,11 +324,12 @@ const handlers = perEnv((env) => {
 /**
  * The one-time migration of the stored grants for `guildId` (see `migrateStoredGrants` above),
  * against the ops env `env` (src/tools/impl/env.ts#createOpsEnv).
- * @param {object} env
- * @param {string} guildId
- * @param {(key: string) => ({ from: string|null, names: string[] } | null)} legacy
  */
-export function migrateStoredGrants(env, guildId, legacy) {
+export function migrateStoredGrants(
+  env: Env,
+  guildId: string | null,
+  legacy: (key: string) => { from: string | null; names: Array<string> } | null
+): Promise<{ migrated: boolean; note?: string }> {
   return handlers(env).migrateStoredGrants(guildId, legacy);
 }
 

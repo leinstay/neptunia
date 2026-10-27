@@ -895,7 +895,7 @@ test('createReplayTools: web.search and web.read through the lookup and memory.s
     linkOfMessage,
     discord: {},
     // The interface describes nothing: the recall scope falls back to the replay's own channel and has no listing.
-    reads: { conversationInfo: async () => null, conversations: async () => null },
+    reads: { conversationInfo: () => Promise.resolve(null), conversations: () => Promise.resolve(null) },
     mediaCache,
   });
   assert.equal(tools.recallAvailable(), true);
@@ -1250,7 +1250,7 @@ test('createReplayTools.prefetch: the live lanes of the trigger, run as of the m
       runWebSearch,
       runMemorySearch,
       discord: {},
-      reads: { conversationInfo: async () => null, conversations: async () => null },
+      reads: { conversationInfo: () => Promise.resolve(null), conversations: () => Promise.resolve(null) },
       prefetchLanes,
       prefetchOn,
       recallSettings,

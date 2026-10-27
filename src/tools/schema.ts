@@ -6,13 +6,17 @@
 // `minLength` / `maxLength` (code points), `minimum` / `maximum`, `enum`, `items`, `minItems` /
 // `maxItems`, `anyOf`.
 
-import { isPlainObject } from '../config.js';
+import { isObj, objOf } from './types.ts';
+import type { Obj } from './types.ts';
+
+/** A finite number, as a type guard. */
+const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 
 /** True when `value` has the schema type `type`. */
-function hasType(value, type) {
+function hasType(value: unknown, type: unknown): boolean {
   switch (type) {
     case 'object':
-      return isPlainObject(value);
+      return isObj(value);
     case 'array':
       return Array.isArray(value);
     case 'string':
@@ -20,7 +24,7 @@ function hasType(value, type) {
     case 'integer':
       return Number.isInteger(value);
     case 'number':
-      return typeof value === 'number' && Number.isFinite(value);
+      return finite(value);
     case 'boolean':
       return typeof value === 'boolean';
     default:
@@ -30,41 +34,39 @@ function hasType(value, type) {
 
 /**
  * The first way `value` breaks `schema`, as `<path>:<rule>` (`args.text:max-length`,
- * `args.messageId:type`, `args.extra:unknown`, `args:any-of`), or null when it holds.
- * @param {unknown} value
- * @param {object} schema
- * @param {string} [where]  The path of `value`, `args` at the top.
- * @returns {string|null}
+ * `args.messageId:type`, `args.extra:unknown`, `args:any-of`), or null when it holds. `where` is the path of
+ * `value`, `args` at the top.
  */
-export function schemaError(value, schema, where = 'args') {
-  if (!isPlainObject(schema)) return `${where}:schema`;
-  const fail = (rule) => `${where}:${rule}`;
+export function schemaError(value: unknown, schema: unknown, where = 'args'): string | null {
+  if (!isObj(schema)) return `${where}:schema`;
+  const fail = (rule: string): string => `${where}:${rule}`;
 
   if (schema.type !== undefined && !hasType(value, schema.type)) return fail('type');
   if (Array.isArray(schema.enum) && !schema.enum.includes(value)) return fail('enum');
 
   if (typeof value === 'string') {
     const length = Array.from(value).length;
-    if (Number.isFinite(schema.minLength) && length < schema.minLength) return fail('min-length');
-    if (Number.isFinite(schema.maxLength) && length > schema.maxLength) return fail('max-length');
+    if (finite(schema.minLength) && length < schema.minLength) return fail('min-length');
+    if (finite(schema.maxLength) && length > schema.maxLength) return fail('max-length');
   }
   if (typeof value === 'number') {
-    if (Number.isFinite(schema.minimum) && value < schema.minimum) return fail('minimum');
-    if (Number.isFinite(schema.maximum) && value > schema.maximum) return fail('maximum');
+    if (finite(schema.minimum) && value < schema.minimum) return fail('minimum');
+    if (finite(schema.maximum) && value > schema.maximum) return fail('maximum');
   }
   if (Array.isArray(value)) {
-    if (Number.isFinite(schema.minItems) && value.length < schema.minItems) return fail('min-items');
-    if (Number.isFinite(schema.maxItems) && value.length > schema.maxItems) return fail('max-items');
-    if (isPlainObject(schema.items)) {
+    if (finite(schema.minItems) && value.length < schema.minItems) return fail('min-items');
+    if (finite(schema.maxItems) && value.length > schema.maxItems) return fail('max-items');
+    if (isObj(schema.items)) {
       for (let i = 0; i < value.length; i += 1) {
         const error = schemaError(value[i], schema.items, `${where}.${i}`);
         if (error) return error;
       }
     }
   }
-  if (isPlainObject(value)) {
-    const properties = isPlainObject(schema.properties) ? schema.properties : {};
+  if (isObj(value)) {
+    const properties: Obj = objOf(schema.properties);
     for (const key of Array.isArray(schema.required) ? schema.required : []) {
+      if (typeof key !== 'string') continue;
       if (!Object.hasOwn(value, key) || value[key] === undefined) return `${where}.${key}:required`;
     }
     for (const key of Object.keys(value)) {

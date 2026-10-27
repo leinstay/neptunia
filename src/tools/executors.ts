@@ -20,31 +20,99 @@ import { foldText } from '../memory/recent.js';
 import { SELF_OWNED_OPS } from './impl/effects.ts';
 import { CODE, INVALID_CODES, NOT_CONFIGURED_CODES, WHAT } from './codes.ts';
 import { nestedRefusal } from './access.ts';
+import { idText, isObj, listOf, objOf, textOf } from './types.ts';
+import type { Obj, Skill, SkillMap } from './types.ts';
+import type { Refusal } from './gateway.ts';
+import type { Reads } from '../interface/reads.ts';
 
+/** A message of this turn's transcript as the view finds it by its number. */
+export type ViewLine = {
+  id: string;
+  conversationId: string;
+  authorId?: string | null;
+  self?: boolean;
+  deleted?: boolean;
+};
+
+/** What the server knows of the turn that resolves a call: the skills, the names it may resolve and the transcript. */
+export type CallView = {
+  skills?: SkillMap;
+  conversations?: ReadonlyArray<{ id: unknown; name?: unknown }>;
+  channelHandles?: ReadonlyMap<string, string> | null;
+  memberHandles?: ReadonlyMap<string, string> | null;
+  links?: ReadonlyMap<string, { conversationId: string; messageId: string } | null> | null;
+  messageAt?: (n: number) => ViewLine | null;
+  members?: ReadonlyArray<{ id: unknown; names?: ReadonlyArray<unknown>; aliases?: ReadonlyArray<{ name?: unknown }> }>;
+  roles?: ReadonlyArray<{ id: unknown; name?: unknown }>;
+  selfId?: string | null;
+  fileOf?: (handle: string) => { expired?: boolean; task?: Obj | null } | null;
+  triggerText?: string | null;
+  deletedIds?: ReadonlySet<string>;
+};
+
+/** A call resolved to the arguments of its operation. */
+export type Resolved = {
+  ok: true;
+  skill: string;
+  args: Obj;
+  dispatch: NonNullable<Skill['dispatch']>;
+  repliedAuthorId: string | null;
+  channelFixed?: true;
+};
+
+/** What a call came to: its status and what she reads of it. Further fields carry the operation's answer. */
+export type CallResult = { status: string; code?: string; reason?: string; data?: Obj; [key: string]: unknown };
+
+/** The text of a value an argument may carry: a string, a number or a boolean; else empty. */
+const argText = (value: unknown): string =>
+  typeof value === 'string' ? value : typeof value === 'number' || typeof value === 'boolean' ? String(value) : '';
 /** The options whose value may be a transcript number `#N`: a message she can see. */
-const MESSAGE_OPTIONS = Object.freeze(['message', 'reply', 'around', 'anchor', 'media']);
+const MESSAGE_OPTIONS: ReadonlyArray<string> = Object.freeze(['message', 'reply', 'around', 'anchor', 'media']);
 
 /**
  * The options of conversation.read that are a message when written as `#N` or a link and a count
  * otherwise (`before=#40`, `before=5`).
  */
-const ANCHOR_OPTIONS = Object.freeze({ 'conversation.read': ['before', 'after'] });
+const ANCHOR_OPTIONS: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze({
+  'conversation.read': ['before', 'after'],
+});
 
 /** The text of a pasted link as the view's `links` keys it: without angle brackets. */
-export function linkKey(text) {
-  return String(text ?? '')
+export function linkKey(text: unknown): string {
+  return argText(text)
     .trim()
     .replace(/^<(.*)>$/, '$1');
 }
 
+/**
+ * The message links in the arguments of `calls` that the interface can read, for one step: link text (as `linkKey`
+ * writes it) -> the message it names, or null when it names none. One `parseLinks` read for all of them (at most 50
+ * links of 2,000 characters); null when there is no link or the interface does not read links.
+ */
+export async function linksOfCalls(
+  reads: Reads | null | undefined,
+  calls: unknown
+): Promise<Map<string, { conversationId: string; messageId: string } | null> | null> {
+  const found = new Set<string>();
+  for (const call of listOf(calls))
+    for (const value of Object.values(objOf(objOf(call).args))) {
+      const text = linkKey(value);
+      if (/^https?:\/\//i.test(text) && text.length <= 2000) found.add(text);
+    }
+  const texts = [...found].slice(0, 50);
+  if (texts.length === 0 || !reads) return null;
+  const parsed = await reads.parseLinks(texts);
+  return parsed === null ? null : new Map(texts.map((text, i) => [text, parsed.refs[i] ?? null]));
+}
+
 /** The message a pasted link names, from the view's `links` (the interface read it), or null. */
-function linkedMessage(view, text) {
+function linkedMessage(view: CallView | undefined, text: string): { channelId: string; messageId: string } | null {
   const ref = view?.links instanceof Map ? (view.links.get(linkKey(text)) ?? null) : null;
-  return ref ? { channelId: String(ref.conversationId), messageId: String(ref.messageId) } : null;
+  return ref ? { channelId: idText(ref.conversationId), messageId: idText(ref.messageId) } : null;
 }
 
 /** Whether `option` of `skill` given as `text` names a message (a transcript number or a link). */
-function namesMessage(skill, option, text, view) {
+function namesMessage(skill: string, option: string, text: string, view: CallView | undefined): boolean {
   if (MESSAGE_OPTIONS.includes(option)) return true;
   return (ANCHOR_OPTIONS[skill] ?? []).includes(option) && (text.startsWith('#') || linkedMessage(view, text) !== null);
 }
@@ -53,31 +121,30 @@ function namesMessage(skill, option, text, view) {
 const MEDIA_OPTION = 'media';
 
 /** The core's own form of a message in a conversation, carrying the channel with the id (src/tools/impl/shared.ts#messageRefOf reads it). */
-function mediaRef(channelId, messageId) {
+function mediaRef(channelId: string, messageId: string): string {
   return `ref:${channelId}/${messageId}`;
 }
 
 /** Whether the transcript line `line` is the persona's own (`self`, else its author is `selfId`). */
-function isOwnLine(line, selfId) {
+function isOwnLine(line: ViewLine, selfId: string | null | undefined): boolean {
   return (
-    line.self === true ||
-    (selfId !== null && selfId !== undefined && selfId !== '' && String(line.authorId) === String(selfId))
+    line.self === true || (selfId !== null && selfId !== undefined && selfId !== '' && idText(line.authorId) === selfId)
   );
 }
 
 /** The options whose value is a file handle of one of her errands (`file:<task id>/<name>`). */
-const FILE_OPTIONS = Object.freeze(['file']);
+const FILE_OPTIONS: ReadonlyArray<string> = Object.freeze(['file']);
 
 /** The skill whose `agent` she must name: refused `agent-required` (with the agents) when left out. */
 const AGENT_SKILL = 'task.run';
 /** The skills whose `people` option is a list of members (ids, names, `@handle`s, comma or space separated), resolved one by one. */
-const PEOPLE_LIST_SKILLS = Object.freeze(['intent.set', 'intent.update']);
+const PEOPLE_LIST_SKILLS: ReadonlyArray<string> = Object.freeze(['intent.set', 'intent.update']);
 
 /** The operations whose `text` is the persona's own writing, posted as a `<msg>` of hers is (mentions, custom emoji, links). */
-const WRITTEN = Object.freeze(['message.create', 'message.edit']);
+const WRITTEN: ReadonlyArray<string> = Object.freeze(['message.create', 'message.edit']);
 
 /** Every status a call result may have. */
-export const RESULT_STATUSES = Object.freeze([
+export const RESULT_STATUSES: ReadonlyArray<string> = Object.freeze([
   'ok',
   'denied',
   'not_configured',
@@ -88,7 +155,7 @@ export const RESULT_STATUSES = Object.freeze([
 ]);
 
 /** What a timed-out in-turn tool was doing (`{what}` of the `timeout` reason); the operations of the chat answer `chat`. */
-const TIMEOUT_WHAT = Object.freeze({
+const TIMEOUT_WHAT: Readonly<Record<string, string | undefined>> = Object.freeze({
   'web.search': WHAT.search,
   'memory.search': WHAT.search,
   'web.read': WHAT.page,
@@ -101,30 +168,25 @@ const CALL_TIMEOUT_MS = 120_000;
 /**
  * The structured status of a refusal made before anything ran (resolveCall's, the gateway's):
  * `invalid` for a call that was not right, else `denied`.
- * @param {string} code
- * @returns {'invalid'|'denied'}
  */
-export function refusalStatus(code) {
+export function refusalStatus(code: string): 'invalid' | 'denied' {
   return INVALID_CODES.includes(code) ? 'invalid' : 'denied';
 }
 
 /** A refusal of the call before or instead of its execution. */
-function refused(code, reason = '') {
+function refused(code: string, reason = ''): Refusal {
   return { ok: false, code, reason };
 }
 
 /** NFC, lower case, trimmed: how names are compared. */
-function folded(value) {
-  return String(value ?? '')
-    .normalize('NFC')
-    .trim()
-    .toLocaleLowerCase();
+function folded(value: unknown): string {
+  return argText(value).normalize('NFC').trim().toLocaleLowerCase();
 }
 
 /** The id inside a channel reference `<#id>` or a bare id of digits, else null. */
-function channelIdOf(reference) {
+function channelIdOf(reference: string): string | null {
   const match = /^<#(\d+)>$/.exec(reference) ?? /^(\d+)$/.exec(reference);
-  return match ? match[1] : null;
+  return match?.[1] ?? null;
 }
 
 /**
@@ -134,38 +196,42 @@ function channelIdOf(reference) {
  * src/memory/mentions.ts#matchChannel (the exact name, else the one channel with the same core:
  * other or no leading emoji, any case and accents). `'ambiguous'` when several share it, null when none.
  */
-function conversationIdOf(reference, conversations, channelHandles = null) {
-  const given = String(reference ?? '').trim();
+function conversationIdOf(
+  reference: unknown,
+  conversations: CallView['conversations'],
+  channelHandles: CallView['channelHandles'] = null
+): string | null {
+  const given = argText(reference).trim();
   if (!given) return null;
   const id = channelIdOf(given);
   if (id) return id;
   const byHandle = channelHandles instanceof Map ? channelHandles.get(given.replace(/^#/, '')) : undefined;
-  if (byHandle !== undefined && byHandle !== null && String(byHandle) !== '') return String(byHandle);
-  const unique = new Map();
+  if (byHandle !== undefined && byHandle !== null && idText(byHandle) !== '') return idText(byHandle);
+  const unique = new Map<string, { id: string; name: string }>();
   for (const c of conversations ?? [])
-    if (c && c.id !== undefined && c.id !== null && !unique.has(String(c.id)))
-      unique.set(String(c.id), { id: String(c.id), name: c.name });
+    if (c && c.id !== undefined && c.id !== null && !unique.has(idText(c.id)))
+      unique.set(idText(c.id), { id: idText(c.id), name: textOf(c.name) });
   const match = matchChannel(given.replace(/^#/, ''), unique.values());
-  return match === 'ambiguous' ? 'ambiguous' : (match?.id ?? null);
+  return match === 'ambiguous' ? 'ambiguous' : idText(match?.id) || null;
 }
 
 /** The id of a role reference (`<@&id>` or an id), or of the one role of `roles` by that name; else null. */
-function roleIdOf(reference, roles) {
-  const given = String(reference ?? '').trim();
+function roleIdOf(reference: unknown, roles: CallView['roles']): string | null {
+  const given = argText(reference).trim();
   const match = /^<@&(\d+)>$/.exec(given) ?? /^(\d+)$/.exec(given);
-  if (match) return match[1];
+  if (match) return match[1] ?? null;
   const name = folded(given.replace(/^@/, ''));
   const ids = new Set(
     (Array.isArray(roles) ? roles : [])
-      .filter((role) => typeof role?.name === 'string' && folded(role.name) === name)
-      .map((role) => String(role.id))
+      .filter((role) => typeof role.name === 'string' && folded(role.name) === name)
+      .map((role) => idText(role.id))
   );
-  return ids.size === 1 ? [...ids][0] : null;
+  return ids.size === 1 ? ([...ids][0] ?? null) : null;
 }
 
 /** The transcript number of `#N` / `N` (six digits at most: never a platform id), else null. */
-function transcriptNumber(value) {
-  const match = /^#?(\d{1,6})$/.exec(String(value ?? '').trim());
+function transcriptNumber(value: unknown): number | null {
+  const match = /^#?(\d{1,6})$/.exec(argText(value).trim());
   return match ? Number(match[1]) : null;
 }
 
@@ -173,34 +239,43 @@ function transcriptNumber(value) {
  * The stored member a name or mention (`<@id>`, `<@!id>`, `@name`, an id) names, or a `@handle` of
  * `handles` (the request's, handle -> member id: resolved exactly, before any name), `{ id }` or a refusal.
  */
-function memberOf(reference, members, handles = null) {
-  const given = String(reference ?? '').trim();
-  const list = Array.isArray(members) ? members : [];
+function memberOf(
+  reference: unknown,
+  members: CallView['members'],
+  handles: CallView['memberHandles'] = null
+): { id: string } | Refusal {
+  const given = argText(reference).trim();
+  const list = Array.isArray(members) ? (members as NonNullable<CallView['members']>) : [];
   const mention = /^<@!?(\d+)>$/.exec(given) ?? /^(\d+)$/.exec(given);
-  if (mention)
-    return list.some((member) => String(member?.id) === mention[1])
-      ? { id: mention[1] }
-      : refused(CODE.UNKNOWN_MEMBER, 'id');
+  if (mention?.[1] !== undefined) {
+    const wanted = mention[1];
+    return list.some((member) => idText(member.id) === wanted) ? { id: wanted } : refused(CODE.UNKNOWN_MEMBER, 'id');
+  }
   const byHandle = handles instanceof Map && given.startsWith('@') ? handles.get(given.slice(1)) : undefined;
-  if (byHandle) return { id: String(byHandle) };
+  if (byHandle) return { id: idText(byHandle) };
   const name = folded(given.replace(/^@/, ''));
   if (!name) return refused(CODE.UNKNOWN_MEMBER, 'empty');
-  const ids = new Set();
+  const ids = new Set<string>();
   for (const member of list) {
-    const names = [
-      ...(Array.isArray(member?.names) ? member.names : []),
-      ...(Array.isArray(member?.aliases) ? member.aliases.map((alias) => alias?.name) : []),
+    const names: Array<unknown> = [
+      ...(Array.isArray(member.names) ? member.names : []),
+      ...(Array.isArray(member.aliases) ? member.aliases.map((alias) => alias.name) : []),
     ];
     if (names.some((candidate) => typeof candidate === 'string' && folded(candidate) === name))
-      ids.add(String(member.id));
+      ids.add(idText(member.id));
   }
-  if (ids.size === 1) return { id: [...ids][0] };
+  if (ids.size === 1) return { id: [...ids][0] ?? '' };
   return refused(CODE.UNKNOWN_MEMBER, ids.size > 1 ? 'ambiguous' : 'name');
 }
 
 /** Whether `text` names the channel `channelId`: its mention `<#id>`, one of its handles, or its name (by its core: any case, accents, emoji) as a whole word. */
-function namesChannel(text, channelId, names, handles) {
-  const raw = String(text ?? '');
+function namesChannel(
+  text: unknown,
+  channelId: string,
+  names: ReadonlyArray<string>,
+  handles: ReadonlyArray<string>
+): boolean {
+  const raw = argText(text);
   if (!raw.trim()) return false;
   if (raw.includes(`<#${channelId}>`)) return true;
   const folded = foldText(raw);
@@ -216,15 +291,15 @@ function namesChannel(text, channelId, names, handles) {
  * trigger message of the turn (`view.triggerText`) names by its mention, a handle of
  * `view.channelHandles` or a name of `view.conversations`.
  */
-function fileMayGo(task, channelId, view) {
-  const origin = task?.origin?.channelId;
-  if (origin === undefined || origin === null || origin === '' || String(origin) === channelId) return true;
+function fileMayGo(task: Obj, channelId: string, view: CallView | undefined): boolean {
+  const origin = objOf(task.origin).channelId;
+  if (origin === undefined || origin === null || origin === '' || idText(origin) === channelId) return true;
   const names = (view?.conversations ?? [])
-    .filter((c) => c && String(c.id) === channelId && typeof c.name === 'string' && c.name)
-    .map((c) => c.name);
+    .filter((c) => idText(c.id) === channelId && typeof c.name === 'string' && c.name)
+    .map((c) => textOf(c.name));
   const handles =
     view?.channelHandles instanceof Map
-      ? [...view.channelHandles].filter(([, id]) => String(id) === channelId).map(([handle]) => handle)
+      ? [...view.channelHandles].filter(([, id]) => idText(id) === channelId).map(([handle]) => handle)
       : [];
   return [task.goal, view?.triggerText].some((text) => namesChannel(text, channelId, names, handles));
 }
@@ -248,41 +323,36 @@ function fileMayGo(task, channelId, view) {
  * any other value -- a raw message id -- is passed on as written. An errand
  * (`task.run`) without its `agent` is refused `agent-required`, the reason the agents she may
  * name, comma-separated (the schema's choices). Pure.
- * @param {{ skill: string, args: Record<string, string> }} call
- * A channel option resolves a `#handle` of `view.channelHandles` (the request's, handle -> channel
+ * `call` is `{ skill, args }`, `args` the strings she wrote. A channel option resolves a `#handle` of `view.channelHandles` (the request's, handle -> channel
  * id) exactly before any name; a member option a `@handle` of `view.memberHandles` (handle -> member
  * id) the same way. The `people` option of PEOPLE_LIST_SKILLS is a list of members (comma or space
  * separated), each resolved like a member option; the ids come out comma-separated.
- * @param {{ skills: Map<string, object>, conversations?: { id: string, name: string }[], channelHandles?: Map<string, string>|null, memberHandles?: Map<string, string>|null,
- *   links?: Map<string, { conversationId: string, messageId: string }|null>|null,
- *   messageAt?: (n: number) => ({ id: string, conversationId: string, authorId: string|null, self?: boolean } | null),
- *   members?: { id: string, names?: string[], aliases?: { name: string }[] }[], roles?: { id: string, name: string }[],
- *   selfId?: string|null, fileOf?: (handle: string) => object|null, triggerText?: string|null }} view
- * @returns {{ ok: true, skill: string, args: object, dispatch: object, repliedAuthorId: string|null, channelFixed?: true }
- *   | { ok: false, code: string, reason: string }}
  */
-export function resolveCall(call, view) {
-  const name = String(call?.skill ?? '');
-  const skill = view?.skills?.get?.(name);
+export function resolveCall(
+  call: { skill?: unknown; args?: unknown } | null | undefined,
+  view: CallView | undefined
+): Resolved | Refusal {
+  const name = argText(call?.skill);
+  const skill = view?.skills?.get(name);
   if (!skill?.dispatch) return refused(CODE.UNKNOWN_SKILL, name);
   const { dispatch } = skill;
   const byName = new Map(dispatch.options.map((option) => [option.name, option]));
-  const given = { ...(call?.args ?? {}) };
+  const given: Obj = { ...objOf(call?.args) };
   for (const key of Object.keys(given)) if (!byName.has(key)) return refused(CODE.INVALID_ARGS, `args.${key}:unknown`);
   // An errand without its agent: refused naming the agents she may pick (the schema's choices), so
   // the refusal she reads says which, never a bare missing argument.
   if (name === AGENT_SKILL && !Object.hasOwn(given, 'agent') && byName.has('agent')) {
-    const agents = skill.argsSchema?.properties?.agent?.enum;
+    const agents = skill.argsSchema.properties?.agent?.enum;
     return refused(CODE.AGENT_REQUIRED, Array.isArray(agents) ? agents.join(',') : '');
   }
 
-  const args = {};
-  const lines = {};
-  const linked = {}; // option -> the channel id of the message link it was given
-  const errandFiles = []; // the errands whose files the call carries
+  const args: Obj = {};
+  const lines: Record<string, ViewLine> = {};
+  const linked: Record<string, string> = {}; // option -> the channel id of the message link it was given
+  const errandFiles: Array<Obj> = []; // the errands whose files the call carries
   for (const [option, raw] of Object.entries(given)) {
-    const text = String(raw ?? '').trim();
-    switch (byName.get(option).kind) {
+    const text = argText(raw).trim();
+    switch (byName.get(option)?.kind ?? '') {
       case 'integer':
         args[option] = /^[+-]?\d{1,15}$/.test(text) ? Number(text) : raw;
         break;
@@ -294,7 +364,7 @@ export function resolveCall(call, view) {
         break;
       case 'user': {
         const member = memberOf(text, view?.members, view?.memberHandles);
-        if (member.ok === false) return member;
+        if ('ok' in member) return member;
         args[option] = member.id;
         break;
       }
@@ -314,10 +384,10 @@ export function resolveCall(call, view) {
       default: {
         // A list of people: each token a member reference, resolved as a member option is.
         if (option === 'people' && PEOPLE_LIST_SKILLS.includes(name)) {
-          const ids = [];
+          const ids: Array<string> = [];
           for (const token of text.split(/[\s,]+/).filter(Boolean)) {
             const member = memberOf(token, view?.members, view?.memberHandles);
-            if (member.ok === false) return member;
+            if ('ok' in member) return member;
             if (!ids.includes(member.id)) ids.push(member.id);
           }
           args[option] = ids.join(',');
@@ -337,7 +407,8 @@ export function resolveCall(call, view) {
         // A message link (in angle brackets too) names the message and its channel, as the interface read it.
         const link = isMessage && n === null ? linkedMessage(view, text) : null;
         // A message the record holds as deleted and the history does not: refused as deleted.
-        const deletedHere = (id) => isMessage && view?.deletedIds instanceof Set && view.deletedIds.has(String(id));
+        const deletedHere = (id: string): boolean =>
+          isMessage && view?.deletedIds instanceof Set && view.deletedIds.has(id);
         if (link) {
           if (deletedHere(link.messageId)) return refused(CODE.UNKNOWN_MESSAGE, CODE.MESSAGE_DELETED);
           if (option === MEDIA_OPTION) {
@@ -364,7 +435,7 @@ export function resolveCall(call, view) {
           break;
         }
         lines[option] = line;
-        args[option] = String(line.id);
+        args[option] = idText(line.id);
       }
     }
   }
@@ -375,13 +446,13 @@ export function resolveCall(call, view) {
   }
 
   // A line names its channel: the one the call gave must be it, else it fills the channel option.
-  let repliedAuthorId = null;
+  let repliedAuthorId: string | null = null;
   let channelFixed = false;
   for (const [option, line] of Object.entries(lines)) {
-    const at = String(line.conversationId);
+    const at = idText(line.conversationId);
     if (byName.has('channel')) {
       if (args.channel === undefined) args.channel = at;
-      else if (String(args.channel) !== at) {
+      else if (idText(args.channel) !== at) {
         if (!messageChannelWins(name, option)) return refused(CODE.UNKNOWN_MESSAGE, 'conversation');
         args.channel = at;
         channelFixed = true;
@@ -396,7 +467,7 @@ export function resolveCall(call, view) {
   for (const at of Object.values(linked)) {
     if (!byName.has('channel')) continue;
     if (args.channel === undefined) args.channel = at;
-    else if (String(args.channel) !== at) {
+    else if (idText(args.channel) !== at) {
       if (!Object.keys(linked).every((option) => messageChannelWins(name, option)))
         return refused(CODE.UNKNOWN_MESSAGE, 'conversation');
       args.channel = at;
@@ -406,13 +477,13 @@ export function resolveCall(call, view) {
   // An errand's file goes where the errand was asked; elsewhere only where its goal or the trigger names.
   if (args.channel !== undefined) {
     for (const task of errandFiles)
-      if (!fileMayGo(task, String(args.channel), view)) return refused(CODE.FILE_ELSEWHERE, 'channel');
+      if (!fileMayGo(task, idText(args.channel), view)) return refused(CODE.FILE_ELSEWHERE, 'channel');
   }
   return { ok: true, skill: name, args, dispatch, repliedAuthorId, ...(channelFixed ? { channelFixed: true } : {}) };
 }
 
 /** The calls where the message's own channel wins over a `channel` that does not hold it. */
-const OWN_CHANNEL_SKILLS = Object.freeze({
+const OWN_CHANNEL_SKILLS: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze({
   'message.react.add': ['message'],
   'message.react.remove': ['message'],
   'message.edit': ['message'],
@@ -421,46 +492,59 @@ const OWN_CHANNEL_SKILLS = Object.freeze({
 });
 
 /** Whether, for `skill`, the channel of the message in `option` wins over the one the call gave. */
-function messageChannelWins(skill, option) {
+function messageChannelWins(skill: string, option: string): boolean {
   return (OWN_CHANNEL_SKILLS[skill] ?? []).includes(option);
 }
 
 /** The structured status of an operation's result (src/tools/impl/index.ts#runOp): `ok`; one that may
  * have taken effect (`data.unknown`) `unknown`; a not-configured code `not_configured`; `denied`
  * and `approval_required` `denied`; `invalid` `invalid`; `partial` `partial`; else `failed`. */
-function callStatus(result) {
-  if (result?.status === 'ok') return 'ok';
-  if (result?.data?.unknown === true) return 'unknown';
-  if (NOT_CONFIGURED_CODES.includes(result?.code)) return 'not_configured';
-  if (result?.status === 'denied' || result?.status === 'approval_required') return 'denied';
-  if (result?.status === 'invalid') return 'invalid';
-  if (result?.status === 'partial') return 'partial';
+function callStatus(answer: unknown): string {
+  const result = objOf(answer);
+  if (result.status === 'ok') return 'ok';
+  if (objOf(result.data).unknown === true) return 'unknown';
+  if (typeof result.code === 'string' && NOT_CONFIGURED_CODES.includes(result.code)) return 'not_configured';
+  if (result.status === 'denied' || result.status === 'approval_required') return 'denied';
+  if (result.status === 'invalid') return 'invalid';
+  if (result.status === 'partial') return 'partial';
   return 'failed';
 }
 
 /** `promise`, or `{ timedOut: true }` after `ms` (a timer that never holds the process open). */
-function withTimeout(promise, ms) {
+function withTimeout(promise: Promise<unknown>, ms: number): Promise<unknown> {
   if (!Number.isFinite(ms) || ms <= 0) return promise;
-  let timer;
-  const timeout = new Promise((resolve) => {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<{ timedOut: true }>((resolve) => {
     timer = setTimeout(() => resolve({ timedOut: true }), ms);
-    timer.unref?.();
+    timer.unref();
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
 /** A status card (`data.embeds`) as text: one `name: value` line per field. */
-function cardText(result) {
-  const card = Array.isArray(result?.data?.embeds) ? result.data.embeds[0] : null;
-  const fields = Array.isArray(card?.fields) ? card.fields : [];
-  return fields.map((field) => `${field.name}: ${field.value}`).join('\n');
+function cardText(result: unknown): string {
+  const embeds = objOf(objOf(result).data).embeds;
+  const card = objOf(Array.isArray(embeds) ? (embeds[0] as unknown) : null);
+  const fields = Array.isArray(card.fields) ? (card.fields as Array<unknown>) : [];
+  return fields
+    .map((entry) => {
+      const field = objOf(entry);
+      return `${argText(field.name)}: ${argText(field.value)}`;
+    })
+    .join('\n');
 }
 
 /** A port result as a call result: `ok` with the message reference, else its status and code. */
-function fromPort(result) {
-  if (result?.status === 'ok') return { status: 'ok', ref: result.ref ?? null, at: result.at };
-  const status = result?.status === 'unknown' ? 'unknown' : 'failed';
-  return { status, code: result?.error?.code ?? result?.status ?? CODE.ERROR, error: result?.error ?? null };
+function fromPort(answer: unknown): CallResult {
+  const result = objOf(answer);
+  if (result.status === 'ok') return { status: 'ok', ref: result.ref ?? null, at: result.at };
+  const status = result.status === 'unknown' ? 'unknown' : 'failed';
+  const error = objOf(result.error);
+  return {
+    status,
+    code: textOf(error.code) || textOf(result.status) || CODE.ERROR,
+    error: result.error ?? null,
+  };
 }
 
 /**
@@ -491,36 +575,37 @@ function fromPort(result) {
  * known status is `failed`). On her own initiative (an inner turn) the wake envelope of `envelope.wakeKind`
  * (src/tools/access.ts#nestedRefusal, over `deps.config`, the live config) is checked at the capabilities the skill
  * reaches inside its operation, before it runs and again before its files are posted: `denied` `not-allowed`.
- * @returns {Promise<{ status: string, code?: string, data?: { text: string }, ref?: object|null, taskId?: string }>}
  */
-export async function executeCall(resolved, deps) {
+export async function executeCall(resolved: Resolved, deps: ExecuteDeps): Promise<CallResult> {
   try {
-    const args = { ...resolved.args };
+    const args: Obj = { ...resolved.args };
     const tool = deps.inTurn && Object.hasOwn(deps.inTurn, resolved.skill) ? deps.inTurn[resolved.skill] : null;
     if (typeof tool === 'function') {
       // The operation's own arguments, mapped by its command as for the owner's command.
       const mapped = resolved.dispatch ? resolved.dispatch.toOp(args) : { op: resolved.skill, args };
       if (!mapped.args || mapped.op !== resolved.skill)
         return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'command' };
-      const answered = await withTimeout(Promise.resolve(tool(mapped.args)), deps.timeoutMs ?? CALL_TIMEOUT_MS);
-      if (answered?.timedOut === true)
+      const answered = objOf(await withTimeout(Promise.resolve(tool(mapped.args)), deps.timeoutMs ?? CALL_TIMEOUT_MS));
+      if (answered.timedOut === true)
         return {
           status: 'unknown',
           code: CODE.TIMEOUT,
           values: { what: TIMEOUT_WHAT[resolved.skill] ?? WHAT.chat },
           data: { text: '' },
         };
-      return RESULT_STATUSES.includes(answered?.status) ? answered : { status: 'failed', code: CODE.ERROR };
+      return typeof answered.status === 'string' && RESULT_STATUSES.includes(answered.status)
+        ? (answered as CallResult)
+        : { status: 'failed', code: CODE.ERROR };
     }
     // Her own writing as a `<msg>` of hers is posted: the members its mentions resolved to ride along.
-    let mentionUserIds = [];
+    let mentionUserIds: Array<string> = [];
     if (WRITTEN.includes(resolved.skill) && typeof args.text === 'string' && typeof deps.renderText === 'function') {
       const rendered = deps.renderText(args.text);
       if (typeof rendered === 'string') args.text = rendered;
-      else if (typeof rendered?.text === 'string') {
+      else if (typeof rendered.text === 'string') {
         args.text = rendered.text;
         if (Array.isArray(rendered.userIds))
-          mentionUserIds = rendered.userIds.filter((id) => typeof id === 'string' && id);
+          mentionUserIds = rendered.userIds.filter((id): id is string => typeof id === 'string' && id !== '');
       }
     }
     const call = resolved.dispatch.toOp(args);
@@ -528,7 +613,7 @@ export async function executeCall(resolved, deps) {
       return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'command' };
     // Her own expressive operations run on her grant alone; any other on the requester's right too,
     // except on her own initiative (an inner turn, nobody asked): her grant alone, the gateway's.
-    const envelope = deps.envelope ?? {};
+    const envelope: CallEnvelope = deps.envelope ?? {};
     const requester = envelope.requester ?? null;
     const initiative = envelope.ownInitiative === true && !requester;
     const run = SELF_OWNED_OPS.includes(resolved.skill)
@@ -542,58 +627,66 @@ export async function executeCall(resolved, deps) {
     const wakeKind = initiative && typeof envelope.wakeKind === 'string' ? envelope.wakeKind : null;
     const nested = nestedRefusal({ config: deps.config, wakeKind, skill: resolved.skill });
     if (nested) return { status: 'denied', code: nested.reason, reason: nested.detail, data: { text: '' } };
-    const result = await withTimeout(
-      run(call.op, call.args, {
-        ...deps.opContext,
-        userId: requester?.id ?? null,
-        roleIds: Array.isArray(requester?.roleIds) ? [...requester.roleIds] : [],
-        actor: 'persona',
-        ...(envelope.invocationId ? { invocationId: envelope.invocationId } : {}),
-        // Her turn and the call's place in it: an errand records the turn, and a retry of the same
-        // call cannot queue a second one (src/errands/store.js#add).
-        ...(envelope.turnId ? { turnId: envelope.turnId } : {}),
-        ...(envelope.idempotencyKey ? { idempotencyKey: envelope.idempotencyKey } : {}),
-        // Her own initiative (an inner turn) and its causal chain: which of her candidates the call
-        // may accept (src/intentions/model.js#acceptRefusal).
-        ...(initiative
-          ? {
-              ownInitiative: true,
-              ...(envelope.chainId ? { chainId: String(envelope.chainId) } : {}),
-              ...(envelope.wakeKind ? { wakeKind: String(envelope.wakeKind) } : {}),
-            }
-          : {}),
-        // The message her turn answers: where an errand she starts brings its result back (src/tools/impl/task.ts).
-        ...(Array.isArray(envelope.sourceMessageIds) && envelope.sourceMessageIds.length > 0
-          ? { sourceMessageId: String(envelope.sourceMessageIds[0]) }
-          : {}),
-        ...(resolved.repliedAuthorId ? { repliedAuthorId: String(resolved.repliedAuthorId) } : {}),
-        ...(mentionUserIds.length > 0 ? { mentionUserIds } : {}),
-      }),
-      deps.timeoutMs ?? CALL_TIMEOUT_MS
+    const result = objOf(
+      await withTimeout(
+        Promise.resolve(
+          run(call.op, call.args, {
+            ...deps.opContext,
+            userId: requester?.id ?? null,
+            roleIds: Array.isArray(requester?.roleIds) ? [...requester.roleIds] : [],
+            actor: 'persona',
+            ...(envelope.invocationId ? { invocationId: envelope.invocationId } : {}),
+            // Her turn and the call's place in it: an errand records the turn, and a retry of the same
+            // call cannot queue a second one (src/errands/store.js#add).
+            ...(envelope.turnId ? { turnId: envelope.turnId } : {}),
+            ...(envelope.idempotencyKey ? { idempotencyKey: envelope.idempotencyKey } : {}),
+            // Her own initiative (an inner turn) and its causal chain: which of her candidates the call
+            // may accept (src/intentions/model.js#acceptRefusal).
+            ...(initiative
+              ? {
+                  ownInitiative: true,
+                  ...(envelope.chainId ? { chainId: String(envelope.chainId) } : {}),
+                  ...(envelope.wakeKind ? { wakeKind: String(envelope.wakeKind) } : {}),
+                }
+              : {}),
+            // The message her turn answers: where an errand she starts brings its result back (src/tools/impl/task.ts).
+            ...(Array.isArray(envelope.sourceMessageIds) && envelope.sourceMessageIds.length > 0
+              ? { sourceMessageId: String(envelope.sourceMessageIds[0]) }
+              : {}),
+            ...(resolved.repliedAuthorId ? { repliedAuthorId: String(resolved.repliedAuthorId) } : {}),
+            ...(mentionUserIds.length > 0 ? { mentionUserIds } : {}),
+          })
+        ),
+        deps.timeoutMs ?? CALL_TIMEOUT_MS
+      )
     );
     // Dispatched and not back in time: it may have taken effect. Never retried.
-    if (result?.timedOut === true)
+    if (result.timedOut === true)
       return { status: 'unknown', code: CODE.TIMEOUT, values: { what: WHAT.chat }, data: { text: '' } };
     const status = callStatus(result);
-    const embeds = Array.isArray(result?.data?.embeds) && result.data.embeds.length > 0;
-    const text = embeds ? cardText(result) : String(result?.summary ?? '');
-    const out = {
+    const resultData = objOf(result.data);
+    const taskId = objOf(resultData.task).id;
+    const intentionId = objOf(resultData.intention).id;
+    const embeds = Array.isArray(resultData.embeds) && resultData.embeds.length > 0;
+    const text = embeds ? cardText(result) : argText(result.summary);
+    const out: CallResult = {
       status,
-      ...(status === 'ok' ? {} : { code: String(result?.code ?? CODE.ERROR) }),
+      ...(status === 'ok' ? {} : { code: argText(result.code ?? CODE.ERROR) }),
       data: { text },
-      ...(result?.data?.ref ? { ref: result.data.ref } : {}),
-      ...(result?.data?.voice ? { voice: result.data.voice } : {}),
-      ...(status === 'ok' && typeof result?.data?.task?.id === 'string' ? { taskId: result.data.task.id } : {}),
-      ...(status === 'ok' && typeof result?.data?.intention?.id === 'string'
-        ? { intentionId: result.data.intention.id }
-        : {}),
+      ...(resultData.ref ? { ref: resultData.ref } : {}),
+      ...(resultData.voice ? { voice: resultData.voice } : {}),
+      ...(status === 'ok' && typeof taskId === 'string' ? { taskId } : {}),
+      ...(status === 'ok' && typeof intentionId === 'string' ? { intentionId } : {}),
     };
-    const files = status === 'ok' && Array.isArray(result?.data?.files) ? result.data.files : [];
+    const files: Array<unknown> = status === 'ok' && Array.isArray(resultData.files) ? resultData.files : [];
     if (files.length === 0) return out;
     // The post of the files is a post of hers: the wake envelope is asked again right where it happens.
     const posting = nestedRefusal({ config: deps.config, wakeKind, capability: 'message.create' });
     if (posting) return { status: 'denied', code: posting.reason, reason: posting.detail, data: { text } };
-    const attachments = files.map((file) => ({ name: String(file?.name ?? 'file'), data: file?.attachment }));
+    const attachments = files.map((entry) => {
+      const file = objOf(entry);
+      return { name: argText(file.name ?? 'file'), data: file.attachment };
+    });
     const sent = fromPort(await deps.port.send(deps.refOf(deps.opContext?.channelId), { attachments }));
     return { ...sent, data: { text } };
   } catch (err) {
@@ -602,7 +695,7 @@ export async function executeCall(resolved, deps) {
 }
 
 /** The rule of a schema path (src/tools/schema.ts#schemaError, resolveCall) -> the kind of its detail. */
-const ARG_RULE_KINDS = Object.freeze({
+const ARG_RULE_KINDS: Readonly<Record<string, string>> = Object.freeze({
   required: 'missing-arg',
   unknown: 'unknown-arg',
   twice: 'arg-twice',
@@ -632,21 +725,19 @@ const ARG_RULE_KINDS = Object.freeze({
  * line, cut to `textChars` with an ellipsis (src/memory/clamp.js) -- what the mark says when no
  * specific label words the kind, ahead of the generic phrase of the code. Null for an `ok`
  * outcome or one without a code. Pure.
- * @param {{ status?: string, code?: string|null, reason?: string|null, data?: { text?: string }|null }|null|undefined} outcome
- * @param {{ textChars?: number, argNames?: string[]|null }} [options]
- * @returns {{ kind: string, code: string, arg: string|null, text?: string, values?: string[], fields?: object }|null}
  */
-export function outcomeDetail(outcome, { textChars = 0, argNames = null } = {}) {
-  const code = typeof outcome?.code === 'string' ? outcome.code : '';
-  if (!code || outcome.status === 'ok') return null;
-  const reason = typeof outcome.reason === 'string' ? outcome.reason : '';
-  const said =
-    Number.isFinite(textChars) && textChars > 0 ? clampWithEllipsis(oneLine(outcome.data?.text), textChars) : '';
-  const fields =
-    outcome.values && typeof outcome.values === 'object' && !Array.isArray(outcome.values)
-      ? { ...outcome.values }
-      : null;
-  const of = (kind, arg = null) => ({
+export function outcomeDetail(
+  outcome:
+    | { status?: string; code?: string | null; reason?: string | null; values?: unknown; data?: unknown }
+    | null
+    | undefined,
+  { textChars = 0, argNames = null }: { textChars?: number; argNames?: ReadonlyArray<unknown> | null } = {}
+): OutcomeDetail | null {
+  const { code, status, reason, values, data } = outcomePartsOf(outcome);
+  if (!code || status === 'ok') return null;
+  const said = Number.isFinite(textChars) && textChars > 0 ? clampWithEllipsis(oneLine(data.text), textChars) : '';
+  const fields = isObj(values) ? { ...values } : null;
+  const of = (kind: string, arg: string | null = null): OutcomeDetail => ({
     kind,
     code,
     arg,
@@ -656,12 +747,13 @@ export function outcomeDetail(outcome, { textChars = 0, argNames = null } = {}) 
   if (code === CODE.INVALID_ARGS) {
     const path = /^args\.([^.:]+)(?:\.[^:]*)?:(.+)$/.exec(reason);
     if (path) {
-      const kind = ARG_RULE_KINDS[path[2]] ?? 'wrong-arg';
+      const kind = ARG_RULE_KINDS[idText(path[2])] ?? 'wrong-arg';
+      const arg = path[1] ?? null;
       const known =
         kind === 'unknown-arg' && Array.isArray(argNames)
-          ? argNames.filter((name) => typeof name === 'string' && name)
+          ? argNames.filter((name): name is string => typeof name === 'string' && name !== '')
           : [];
-      return known.length > 0 ? { ...of(kind, path[1]), values: known } : of(kind, path[1]);
+      return known.length > 0 ? { ...of(kind, arg), values: known } : of(kind, arg);
     }
     return of(code);
   }
@@ -681,3 +773,61 @@ export function outcomeDetail(outcome, { textChars = 0, argNames = null } = {}) 
   }
   return of(code);
 }
+
+/** The fields of an outcome `outcomeDetail` reads, each empty when it is missing or of another type. */
+function outcomePartsOf(outcome: unknown): {
+  code: string;
+  status: string;
+  reason: string;
+  values: unknown;
+  data: Obj;
+} {
+  const given = objOf(outcome);
+  return {
+    code: textOf(given.code),
+    status: textOf(given.status),
+    reason: textOf(given.reason),
+    values: given.values,
+    data: objOf(given.data),
+  };
+}
+
+/** The concrete detail of a call's outcome that is not `ok` (see `outcomeDetail`). */
+export type OutcomeDetail = {
+  kind: string;
+  code: string;
+  arg: string | null;
+  text?: string;
+  values?: Array<string>;
+  fields?: Obj;
+};
+
+/** The envelope of one call, built by the turn: who asked, the invocation and the wake it belongs to. */
+export type CallEnvelope = {
+  requester?: { id?: string | null; roleIds?: ReadonlyArray<string> } | null;
+  ownInitiative?: boolean;
+  wakeKind?: string | null;
+  invocationId?: string | null;
+  turnId?: string | null;
+  idempotencyKey?: string | null;
+  chainId?: string | null;
+  sourceMessageIds?: ReadonlyArray<unknown>;
+};
+
+/** How an operation is run for a call: its name, the arguments and the context of the call. */
+export type RunOperation = (op: string, args: Obj, context: Obj) => unknown;
+
+/** What `executeCall` needs from the turn. */
+export type ExecuteDeps = {
+  inTurn?: Record<string, (args: Obj) => unknown>;
+  renderText?: (text: string) => string | { text?: unknown; userIds?: unknown };
+  envelope?: CallEnvelope;
+  runOp?: RunOperation;
+  runOwnOp?: RunOperation;
+  runInitiativeOp?: RunOperation;
+  config?: unknown;
+  opContext?: Obj & { channelId?: unknown };
+  timeoutMs?: number;
+  port: { send(ref: unknown, body: unknown): Promise<unknown> };
+  refOf(channelId: unknown): unknown;
+};

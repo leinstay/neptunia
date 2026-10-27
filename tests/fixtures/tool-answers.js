@@ -5,12 +5,22 @@
 // answer holding them. A plain string is a speech-only answer and needs none of this.
 import { apiNameOf, skillNameOfApi } from '../../src/tools/definitions.ts';
 
-/** A tool call of `name` (dotted) with `args`; `id` is hers (omitted: the engine makes `s<step>c<n>`). */
+/**
+ * A tool call of `name` (dotted) with `args`; `id` is hers (omitted: the engine makes `s<step>c<n>`).
+ * @param {string} name
+ * @param {object} [args]
+ * @param {{ id?: string|null }} [options]
+ */
 export function call(name, args = {}, { id = null } = {}) {
   return { id, name: apiNameOf(name) ?? name, arguments: JSON.stringify(args), parsed: args, parseError: null };
 }
 
-/** A tool call whose arguments `raw` are not a JSON object (`error` the parser's message). */
+/**
+ * A tool call whose arguments `raw` are not a JSON object (`error` the parser's message).
+ * @param {string} name
+ * @param {string} [raw]
+ * @param {{ id?: string|null, error?: string }} [options]
+ */
 export function badCall(name, raw = '{"text": ', { id = null, error = 'Unexpected end of JSON input' } = {}) {
   return { id, name: apiNameOf(name) ?? name, arguments: raw, parsed: null, parseError: error };
 }

@@ -128,7 +128,7 @@ export function createAvatarQueue({
     const self = selfId();
     for (const profile of store.listUserProfiles(guildId)) {
       counts.profiles += 1;
-      const id = typeof profile?.id === 'string' ? profile.id : null;
+      const id = typeof profile?.id === 'string' ? String(profile.id) : null;
       if (!id || id === self) continue;
       const found = await reads.memberInfo({ communityId: guildId, memberId: id });
       const member = found?.member ?? null;

@@ -62,15 +62,21 @@ function rawMessage(n, { authorId = 'a', bot = false, embeds = [], gifFile = nul
   };
 }
 
-/** A conversation holding `historyAsc` (raw messages, oldest first), read into the events the interface would deliver. */
+/**
+ * A conversation holding `historyAsc` (raw messages, oldest first), read into the events the interface would deliver.
+ * @param {string} id
+ * @param {Array<object>} historyAsc
+ * @param {{ readable?: boolean }} [options]
+ */
 function fakeChannel(id, historyAsc, { readable = true } = {}) {
   const stub = { id, name: id, parent: null, guild: { id: 'g1' }, isThread: () => false };
   const events = historyAsc.map((raw) => {
-    const { raw: _raw, ...event } = toEvent(
+    const event = toEvent(
       { ...raw, channel: stub, channelId: id, guild: stub.guild },
       'selfUser',
       normalizeOptions({ media: { embedTextChars: 200 } })
     );
+    delete event.raw;
     return event;
   });
   const info = channel(id, { permissions: { read: readable, send: readable, attach: readable, react: readable } });
@@ -87,7 +93,10 @@ function fakeClient(rooms) {
   return world;
 }
 
-/** What the backfill takes of the interface. */
+/**
+ * What the backfill takes of the interface.
+ * @param {ReturnType<typeof rig>} world
+ */
 const depsOf = (world) => ({ reads: world.reads, iface: () => IFACE });
 
 function fakeHot({ gifs = {}, features = {} } = {}) {
@@ -453,9 +462,7 @@ test('gif backfill startIfNeeded: an error is logged, never thrown', async () =>
   await withStore(async (store) => {
     const log = fakeLog();
     const reads = {
-      conversations: async () => {
-        throw new Error('boom');
-      },
+      conversations: () => Promise.reject(new Error('boom')),
     };
     const backfill = createGifBackfill({ reads, iface: () => IFACE, hot: fakeHot(), store, log });
 

@@ -4,28 +4,34 @@
 // reads at the moment of use; imports nothing that registers operations, so any module may use it.
 
 import { isAllowed } from './grants.ts';
+import { listOf, objOf } from '../types.ts';
+import type { OpInfo } from '../types.ts';
+
+/** The refusal code of a caller who may not run an operation. */
+export type RightsRefusal = 'owner-only' | 'not-grantable' | 'not-granted';
 
 /**
  * Null when the caller may run `op`, else the refusal code: src/tools/impl/grants.ts#isAllowed over
  * `bot.owners`, `bot.access` and `features`. `owner-only` for an owner-only operation,
  * `not-grantable` for one no grant opens (a member operation while `features.memberCommands` is
  * off included), else `not-granted`.
- * @param {{ name: string, rights: object }} op
- * @param {{ userId?: unknown, roleIds?: unknown[], config?: object }} caller
- * @returns {'owner-only'|'not-grantable'|'not-granted'|null}
  */
-export function rightsRefusal(op, { userId, roleIds, config } = {}) {
+export function rightsRefusal(
+  op: Partial<OpInfo> | null | undefined,
+  { userId, roleIds, config }: { userId?: unknown; roleIds?: ReadonlyArray<unknown>; config?: unknown } = {}
+): RightsRefusal | null {
+  const bot = objOf(objOf(config).bot);
   const allowed = isAllowed({
     op,
-    member: { userId, roleIds },
-    access: config?.bot?.access ?? {},
-    owners: config?.bot?.owners ?? [],
-    features: config?.features,
+    member: { userId, roleIds: listOf(roleIds) },
+    access: bot.access ?? {},
+    owners: bot.owners ?? [],
+    features: objOf(config).features,
   });
   if (allowed) return null;
-  const rights = op?.rights ?? {};
-  if (rights.ownerOnly === true) return 'owner-only';
-  if (rights.grantable === false || rights.member === true) return 'not-grantable';
+  const rights = op?.rights;
+  if (rights?.ownerOnly === true) return 'owner-only';
+  if (rights?.grantable === false || rights?.member === true) return 'not-grantable';
   return 'not-granted';
 }
 
@@ -38,7 +44,7 @@ export function rightsRefusal(op, { userId, roleIds, config } = {}) {
  * `innerLife.*`). The one list behind the non-delegable rule: she never changes her
  * effective authority, directly or indirectly (src/tools/impl/config.ts, src/tools/impl/access.ts).
  */
-export const PERSONA_GOVERNED_CONFIG = Object.freeze([
+export const PERSONA_GOVERNED_CONFIG: ReadonlyArray<string> = Object.freeze([
   'bot.owners',
   'bot.access',
   'features.adminCommands',
@@ -54,11 +60,9 @@ export const PERSONA_GOVERNED_CONFIG = Object.freeze([
 /**
  * True when the dotted config path `key` is one of PERSONA_GOVERNED_CONFIG, lies under one, or
  * holds one (a whole section).
- * @param {string} key
- * @returns {boolean}
  */
-export function governsPersona(key) {
-  const path = String(key ?? '');
+export function governsPersona(key: unknown): boolean {
+  const path = typeof key === 'string' ? key : '';
   if (!path) return false;
   return PERSONA_GOVERNED_CONFIG.some(
     (governed) => path === governed || path.startsWith(`${governed}.`) || governed.startsWith(`${path}.`)

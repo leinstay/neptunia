@@ -6,6 +6,7 @@
 import type { EmojiInfo } from '../protocol/adapter.ts';
 import type { Reads } from '../interface/reads.ts';
 import { matchEmojiName } from './emoji.js';
+import { objOf } from '../tools/types.ts';
 
 /** How long a read of the list stands (a decision of 2026-10-26: the interface sends no change event). */
 const EMOJI_TTL_MS = 60_000;
@@ -22,6 +23,12 @@ export type EmojiIndex = {
   /** The address of the picture of the emoji with this id. */
   urlOf(id: string): string | null;
 };
+
+/** Reads the community's custom emoji again when `features.customEmoji` is not off (the `<emoji>` block and her `:name:`). */
+export function refreshEmojiIfOn(emoji: EmojiIndex | null | undefined, config: unknown): Promise<void> {
+  const features = objOf(objOf(config).features);
+  return emoji && features.customEmoji !== false ? emoji.refresh() : Promise.resolve();
+}
 
 export function createEmojiIndex({
   reads,

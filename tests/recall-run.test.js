@@ -15,12 +15,8 @@ import { DailyCapError } from '../src/llm/openrouter.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { tempDir } from './fixtures/tmp.js';
-import { IFACE, channel as channelInfo, message as messageEvent, privateChannel } from './fixtures/reads-rig.ts';
-
-// How a time becomes the id a platform bounds a search by (what interfaces/discord/reads.ts does with `after` and `before`).
-const ID_EPOCH_MS = 1_420_070_400_000;
-const snowflakeAt = (ms) =>
-  Number.isFinite(ms) && ms > ID_EPOCH_MS ? ((BigInt(Math.floor(ms)) - BigInt(ID_EPOCH_MS)) << 22n).toString() : '0';
+import { channel as channelInfo, privateChannel } from './fixtures/reads-rig.ts';
+import { eventOfLine, line, neutralMembers, neutralSearch, rawHit, snowflakeAt } from './fixtures/recall-lines.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SHIPPED_CONFIG = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
@@ -65,53 +61,6 @@ function config(overrides = {}) {
   return base;
 }
 
-/** One stored line of a fake channel: `{ id, ts, author, content, bot, attachment }`. */
-function line(id, ts, { author = 'u1', name = 'Ana', content = `line ${id}`, bot = false, attachment = null } = {}) {
-  return { id, ts, author, name, content, bot, attachment };
-}
-
-/** A raw API search hit of a stored line. */
-function rawHit(channelId, l) {
-  return {
-    id: l.id,
-    channel_id: channelId,
-    timestamp: new Date(l.ts).toISOString(),
-    author: { id: l.author, username: l.name.toLowerCase(), global_name: l.name, bot: l.bot },
-    content: l.content,
-  };
-}
-
-/** The stored line `l` of conversation `info` as the event the interface reads for it. */
-function eventOfLine(info, l) {
-  const event = messageEvent(info, l.id, l.ts, l.content, {
-    authorId: l.author,
-    authorName: l.name,
-    bot: l.bot,
-  });
-  event.message.author.self = l.author === 'self';
-  if (l.attachment) {
-    event.message.attachments = [
-      { id: l.attachment.id, kind: 'image', name: 'x.png', url: 'https://cdn.example/x.png', size: 10 },
-    ];
-  }
-  return event;
-}
-
-/** A raw API search hit as the neutral hit the interface answers. */
-function neutralHit(hit) {
-  return {
-    ref: { iface: IFACE, conversationId: hit.channel_id, messageId: hit.id },
-    at: Date.parse(hit.timestamp),
-    text: hit.content,
-    author: {
-      id: hit.author?.id ?? null,
-      handle: hit.author?.username ?? null,
-      displayName: hit.author?.global_name ?? null,
-      bot: hit.author?.bot === true,
-    },
-  };
-}
-
 /**
  * A scene: a community with #general (c1, the turn's conversation), #garden (c2) and #private (c4, which the community's
  * everyone cannot view, so the audience rail refuses it here); `lines` per conversation id; `answers(route, query)` gives
@@ -151,6 +100,10 @@ function scene({
   // The history reads of a conversation, which a test may break (`broken`).
   const broken = new Set();
   const reads = {
+    /**
+     * @param {{ communityId: string }} scope
+     * @param {{ text?: string, authorId?: string, after?: number, before?: number, offset?: number }} query
+     */
     searchMessages: async (scope, query) => {
       const rest = {
         ...(query.text ? { content: query.text } : {}),
@@ -169,22 +122,16 @@ function scene({
       inFlight -= 1;
       let body;
       try {
-        body = await answers(route, rest, signal);
+        body = await Promise.resolve(answers(route, rest, signal));
       } catch {
         return null;
       }
-      if (!Array.isArray(body?.messages)) return null;
-      const seen = new Set();
-      const hits = [];
-      for (const group of body.messages) {
-        for (const raw of Array.isArray(group) ? group : [group]) {
-          if (!raw?.id || seen.has(raw.id)) continue;
-          seen.add(raw.id);
-          hits.push(neutralHit(raw));
-        }
-      }
-      return { total: Number.isFinite(body.total_results) ? body.total_results : hits.length, hits };
+      return neutralSearch(body);
     },
+    /**
+     * @param {{ communityId: string }} scope
+     * @param {{ prefix: string, limit: number }} query
+     */
     searchMembers: async (scope, query) => {
       const route = `/guilds/${scope.communityId}/members/search`;
       const rest = { query: query.prefix, limit: String(query.limit) };
@@ -192,23 +139,18 @@ function scene({
       calls.push({ route, query: rest, signal });
       let body;
       try {
-        body = await answers(route, rest, signal);
+        body = await Promise.resolve(answers(route, rest, signal));
       } catch {
         return null;
       }
-      return {
-        members: (Array.isArray(body) ? body : [])
-          .filter((member) => member?.user?.id)
-          .map((member) => ({
-            id: member.user.id,
-            handle: member.user.username ?? null,
-            displayName: member.user.global_name ?? null,
-            nickname: member.nick ?? null,
-            bot: member.user.bot === true,
-          })),
-      };
+      return neutralMembers(body);
     },
+    /**
+     * @param {{ conversationId: string }} ref
+     * @param {{ after?: string, around?: string, limit: number }} query
+     */
     history: async (ref, query) => {
+      await Promise.resolve();
       const stored = lines[ref.conversationId] ?? [];
       const info = infos[ref.conversationId];
       if (!info || broken.has(ref.conversationId)) return null;

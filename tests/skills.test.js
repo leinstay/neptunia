@@ -981,15 +981,17 @@ function makeEnv({ cfg = config(), roles = [] } = {}) {
   // The interface says who the persona is and which groups she holds (`memberInfo`).
   const client = {};
   const reads = {
-    memberInfo: async ({ memberId }) => ({
-      member: {
-        id: memberId,
-        name: null,
-        bot: false,
-        groupIds: roles,
-        avatar: { hash: null, url: null, largeUrl: null },
-      },
-    }),
+    /** @param {{ memberId: string }} ask */
+    memberInfo: ({ memberId }) =>
+      Promise.resolve({
+        member: {
+          id: memberId,
+          name: null,
+          bot: false,
+          groupIds: roles,
+          avatar: { hash: null, url: null, largeUrl: null },
+        },
+      }),
   };
   const env = createOpsEnv({
     discord: DISCORD,

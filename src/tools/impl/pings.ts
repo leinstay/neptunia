@@ -5,6 +5,8 @@
 import { PINGS_MODES } from './catalog.ts';
 import { log } from '../../log.js';
 import { defineOp, perEnv, invalid } from './registry.ts';
+import { objOf } from '../types.ts';
+import type { Obj, OpContext } from '../types.ts';
 
 const handlers = perEnv((env) => {
   const { store, freshenIfPaused, requireGuildId } = env;
@@ -13,21 +15,22 @@ const handlers = perEnv((env) => {
    * (store.setPingsOff; src/behavior/turn.js reads them when it posts). No mode shows the state.
    * A member's own switch, not memory: it works while paused too (read fresh off disk then, and
    * written at once by the store). */
-  function cmdPings(args, context) {
+  function cmdPings(args: Obj, context: OpContext): string {
     const guildId = requireGuildId(context);
-    const userId = context?.userId;
+    const userId = context.userId;
     if (!userId) throw invalid('no user');
-    const mode = args?.mode;
+    const mode = objOf(args).mode;
     freshenIfPaused();
     if (mode === undefined || mode === null || mode === '') return pingsText(!store.isPingsOff(guildId, userId));
-    if (!PINGS_MODES.includes(mode)) throw invalid(`mode must be one of: ${PINGS_MODES.join(', ')}`);
+    if (typeof mode !== 'string' || !PINGS_MODES.includes(mode))
+      throw invalid(`mode must be one of: ${PINGS_MODES.join(', ')}`);
     const off = store.setPingsOff(guildId, userId, mode === 'off');
     log.info('admin: pings set', { guildId, userId, off });
     return pingsText(!off);
   }
 
   /** The one reply of `/nep pings`: the caller's state after the call. */
-  function pingsText(on) {
+  function pingsText(on: boolean): string {
     return on ? 'Pings: on' : 'Pings: off';
   }
 

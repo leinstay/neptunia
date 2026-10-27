@@ -7,11 +7,13 @@
 
 import { skillRegistry, describeSkill, skillArgTexts } from './registry.ts';
 import { apiNameOf, skillNameOfApi } from './definitions.ts';
+import { idText, isObj, objOf } from './types.ts';
+import type { Obj, Skill, SkillMap } from './types.ts';
 
 /** `value` with every object's keys in sorted order (arrays keep theirs): one stable JSON per definition set. */
-export function canonicalJson(value) {
+export function canonicalJson(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalJson);
-  if (value && typeof value === 'object') {
+  if (isObj(value)) {
     return Object.fromEntries(
       Object.keys(value)
         .sort()
@@ -22,10 +24,10 @@ export function canonicalJson(value) {
 }
 
 /** `text` with every `{{key}}` of `fill` replaced (an own key with a non-null value); other placeholders stay. */
-function filled(text, fill) {
-  if (!fill || typeof fill !== 'object') return text;
-  return String(text).replace(/\{\{(\w+)\}\}/g, (all, key) =>
-    Object.hasOwn(fill, key) && fill[key] != null ? String(fill[key]) : all
+function filled(text: string, fill: unknown): string {
+  if (!isObj(fill)) return text;
+  return text.replace(/\{\{(\w+)\}\}/g, (all: string, key: string) =>
+    Object.hasOwn(fill, key) && fill[key] != null ? idText(fill[key]) : all
   );
 }
 
@@ -36,15 +38,15 @@ const DEFAULT_STRING_MAX = 6000;
  * (`minLength: 1`, the default `maxLength` of 6000, `additionalProperties: false`) are left out;
  * type, enum, bounds, required and descriptions stay. The engine still validates with the full one.
  */
-function leanSchema(node) {
+function leanSchema(node: unknown): unknown {
   if (Array.isArray(node)) return node.map(leanSchema);
-  if (!node || typeof node !== 'object') return node;
-  const out = {};
+  if (!isObj(node)) return node;
+  const out: Obj = {};
   for (const [key, value] of Object.entries(node)) {
     if (key === 'minLength' && value === 1) continue;
     if (key === 'maxLength' && value === DEFAULT_STRING_MAX) continue;
     if (key === 'additionalProperties' && value === false) continue;
-    if (key === 'properties' && value && typeof value === 'object') {
+    if (key === 'properties' && isObj(value)) {
       out[key] = Object.fromEntries(Object.entries(value).map(([name, sub]) => [name, leanSchema(sub)]));
     } else {
       out[key] = key === 'enum' || key === 'required' ? value : leanSchema(value);
@@ -54,18 +56,18 @@ function leanSchema(node) {
 }
 
 /** The skill's lean parameter schema with each argument's `description` from the skills layer, when it has one. */
-function parametersOf(skill, texts, fill) {
-  const schema = JSON.parse(JSON.stringify(skill.argsSchema));
+function parametersOf(skill: Skill, texts: unknown, fill: unknown): unknown {
+  const schema = JSON.parse(JSON.stringify(skill.argsSchema)) as Obj;
   const described = skillArgTexts(skill, texts);
+  const properties = objOf(schema.properties);
   for (const [name, text] of Object.entries(described)) {
-    if (schema.properties && Object.hasOwn(schema.properties, name))
-      schema.properties[name].description = filled(text, fill);
+    if (Object.hasOwn(properties, name)) objOf(properties[name]).description = filled(text, fill);
   }
   return leanSchema(schema);
 }
 
 /** Title, when to use and when not to, one per line, the empty ones left out. */
-function descriptionOf(skill, texts, fill) {
+function descriptionOf(skill: Skill, texts: unknown, fill: unknown): string {
   const { title, whenToUse, whenNotToUse } = describeSkill(skill, texts);
   return filled([title, whenToUse, whenNotToUse].filter(Boolean).join('\n'), fill);
 }
@@ -74,13 +76,14 @@ function descriptionOf(skill, texts, fill) {
  * The `tools` array for the skills in `names`: `[{ type: 'function', function: { name, description,
  * parameters } }]` sorted by API name, keys in a fixed order. A name with no skill in `registry` or
  * no API name is left out. Same input, same bytes.
- * @param {string[]} names  Dotted skill names granted to the persona.
- * @param {{ registry?: Map<string, object>, texts?: object, fill?: object }} [options]  `texts`: `hot.prompts.skills`;
- *   `fill`: values for the `{{key}}` placeholders of the texts (`{ drawChars }`).
- * @returns {object[]}
+ * `names` are the dotted skill names granted to the persona. `texts` is `hot.prompts.skills`;
+ * `fill` holds the values for the `{{key}}` placeholders of the texts (`{ drawChars }`).
  */
-export function buildTools(names, { registry = skillRegistry(), texts, fill } = {}) {
-  const tools = [];
+export function buildTools(
+  names: Iterable<string> | null | undefined,
+  { registry = skillRegistry(), texts, fill }: { registry?: SkillMap; texts?: unknown; fill?: unknown } = {}
+): Array<ToolDefinition> {
+  const tools: Array<ToolDefinition> = [];
   for (const name of new Set(names ?? [])) {
     const skill = registry.get(name);
     const api = skill ? (skill.api ?? apiNameOf(name)) : null;
@@ -93,13 +96,19 @@ export function buildTools(names, { registry = skillRegistry(), texts, fill } = 
           description: descriptionOf(skill, texts, fill),
           parameters: parametersOf(skill, texts, fill),
         },
-      })
+      }) as ToolDefinition
     );
   }
   return tools.sort((a, b) => (a.function.name < b.function.name ? -1 : a.function.name > b.function.name ? 1 : 0));
 }
 
 /** The dotted skill name of a tool call's API name, or null when no skill has it. */
-export function skillNameOfToolCall(apiName) {
+export function skillNameOfToolCall(apiName: unknown): string | null {
   return typeof apiName === 'string' ? skillNameOfApi(apiName) : null;
 }
+
+/** One native tool definition as the request carries it. */
+export type ToolDefinition = {
+  type: 'function';
+  function: { name: string; description: string; parameters: unknown };
+};

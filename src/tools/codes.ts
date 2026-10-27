@@ -7,7 +7,7 @@
 // block and the facts read the same label with the same values), a `wake` code by
 // `labels.wake.feedback.codes.<code>`; `internal` codes are history or transport details the
 // persona is never told by themselves. `tools/labels-catalogue.mjs --check` compares this table,
-// the labels and the contract's list. This module imports nothing, so any module may import it.
+// the labels and the contract's list. This module imports only the leaf `types.ts`, so any module may import it.
 //
 // Fields of an entry: `status` the result status the code is reported under by default (`ok`,
 // `denied`, `invalid`, `not_configured`, `failed`, `partial`, `unknown`); `group` where the wording
@@ -15,11 +15,20 @@
 // an HTTP status, `{what}`: what timed out or ran out, `{feature}`: what is not set up). A value of
 // `what` or `feature` is a key of `labels.skills.result.params.<param>` (else the value as it is).
 
-const entry = (status, group = 'skill', params = []) =>
+import { idText, objOf } from './types.ts';
+
+/** The result status a code is reported under by default. */
+export type CodeStatus = 'ok' | 'denied' | 'invalid' | 'not_configured' | 'failed' | 'partial' | 'unknown';
+/** Where the wording of a code lives. */
+export type CodeGroup = 'skill' | 'wake' | 'internal' | 'ok';
+/** One code of the catalogue: its default status, where its wording lives and the values its label may name. */
+export type CodeEntry = Readonly<{ status: CodeStatus; group: CodeGroup; params: ReadonlyArray<string> }>;
+
+const entry = (status: CodeStatus, group: CodeGroup = 'skill', params: ReadonlyArray<string> = []): CodeEntry =>
   Object.freeze({ status, group, params: Object.freeze([...params]) });
-const skill = (status, params) => entry(status, 'skill', params);
-const wake = (status = 'failed') => entry(status, 'wake');
-const internal = (status = 'failed') => entry(status, 'internal');
+const skill = (status: CodeStatus, params?: ReadonlyArray<string>): CodeEntry => entry(status, 'skill', params);
+const wake = (status: CodeStatus = 'failed'): CodeEntry => entry(status, 'wake');
+const internal = (status: CodeStatus = 'failed'): CodeEntry => entry(status, 'internal');
 
 /** code -> `{ status, group, params }`. */
 export const CATALOGUE = Object.freeze({
@@ -191,40 +200,47 @@ export const CATALOGUE = Object.freeze({
 });
 
 /** The names of the codes that have wording, by group. */
-export const codesOf = (group) => Object.keys(CATALOGUE).filter((code) => CATALOGUE[code].group === group);
+export const codesOf = (group: CodeGroup): Array<string> =>
+  Object.keys(CATALOGUE).filter((code) => entryOf(code)?.group === group);
+
+/** The entry of a code the catalogue holds, else undefined. */
+const entryOf = (code: string): CodeEntry | undefined =>
+  Object.hasOwn(CATALOGUE, code) ? CATALOGUE_BY_NAME[code] : undefined;
+const CATALOGUE_BY_NAME: Readonly<Record<string, CodeEntry>> = CATALOGUE;
 
 /** `NOT_FOUND` for `not-found`: the constant's name. */
-const nameOf = (code) => code.toUpperCase().replaceAll('-', '_');
+const nameOf = (code: string): string => code.toUpperCase().replaceAll('-', '_');
 
 /**
  * `CODE.NOT_FOUND === 'not-found'`: the one way an emitter spells a code. A name the catalogue does
  * not have throws, so a typo stops at the first use instead of becoming a code nobody words.
  */
-export const CODE = new Proxy(
+export const CODE: Readonly<Record<string, string>> = new Proxy(
   Object.freeze(Object.fromEntries(Object.keys(CATALOGUE).map((code) => [nameOf(code), code]))),
   {
-    get(table, name) {
-      if (typeof name === 'symbol' || name === 'then' || name === 'toJSON') return table[name];
-      if (!Object.hasOwn(table, name)) throw new Error(`not a catalogued code: ${String(name)}`);
+    get(table: Record<string, string>, name: string | symbol): string | undefined {
+      if (typeof name === 'symbol') return undefined;
+      if (name === 'then' || name === 'toJSON') return table[name];
+      if (!Object.hasOwn(table, name)) throw new Error(`not a catalogued code: ${name}`);
       return table[name];
     },
   }
 );
 
 /** Whether `code` is in the catalogue. */
-export const isCode = (code) => typeof code === 'string' && Object.hasOwn(CATALOGUE, code);
+export const isCode = (code: unknown): code is string => typeof code === 'string' && Object.hasOwn(CATALOGUE, code);
 
 /** The statuses of a refusal made before anything ran, per code: `invalid` for a call that was not right. */
-export const INVALID_CODES = Object.freeze(
-  Object.keys(CATALOGUE).filter((code) => CATALOGUE[code].status === 'invalid')
+export const INVALID_CODES: ReadonlyArray<string> = Object.freeze(
+  Object.keys(CATALOGUE).filter((code) => entryOf(code)?.status === 'invalid')
 );
 /** The codes that mean what a call needs is not set up. */
-export const NOT_CONFIGURED_CODES = Object.freeze(
-  Object.keys(CATALOGUE).filter((code) => CATALOGUE[code].status === 'not_configured')
+export const NOT_CONFIGURED_CODES: ReadonlyArray<string> = Object.freeze(
+  Object.keys(CATALOGUE).filter((code) => entryOf(code)?.status === 'not_configured')
 );
 
 /** What a timeout, a cap or a missing feature is about: the values of `{what}`. */
-export const WHAT = Object.freeze({
+export const WHAT: Readonly<Record<string, string>> = Object.freeze({
   chat: 'chat',
   page: 'page',
   search: 'search',
@@ -233,25 +249,25 @@ export const WHAT = Object.freeze({
 });
 
 /** What a `not-configured` result may name: the values of `{feature}`. */
-export const FEATURE = Object.freeze({ web: 'web' });
+export const FEATURE: Readonly<Record<string, string>> = Object.freeze({ web: 'web' });
 
 const HTTP_CODE_RE = /^http-(\d{3})$/;
 
 /** The code of an HTTP answer: `http-<status>` (a port's, Discord's refusals); normalised to `http` + `{status}` by {@link normalCode}. */
-export const httpCode = (status) => `http-${status}`;
+export const httpCode = (status: unknown): string => `http-${idText(status)}`;
 
 /**
  * A code as the catalogue knows it, with its values: `http-404` is `http` with `{ status: '404' }`.
  * Any other code is itself with `values` as given.
- * @param {string} code
- * @param {object|null} [values]
- * @returns {{ code: string, values: object }}
  */
-export function normalCode(code, values = null) {
-  const given = values && typeof values === 'object' ? values : {};
+export function normalCode(code: string, values: Record<string, unknown> | null = null): NormalCode {
+  const given = values !== null && typeof values === 'object' ? values : {};
   const match = typeof code === 'string' ? HTTP_CODE_RE.exec(code) : null;
   return match ? { code: CODE.HTTP, values: { status: match[1], ...given } } : { code, values: given };
 }
+
+/** A code as the catalogue knows it with the values its label may name. */
+export type NormalCode = { code: string; values: Record<string, unknown> };
 
 /**
  * The words of a code: `labels.skills.result.reasons[<code>]` with the code's values filled
@@ -260,28 +276,23 @@ export function normalCode(code, values = null) {
  * block (src/tools/tool-calls.ts#toolResultText) share, so a restart that reseeds the mark from
  * the journal tells the same text. `null` when the code has no wording or a value its label names
  * is missing.
- * @param {object} labels
- * @param {string} code
- * @param {object|null} [values]
- * @param {(template: string, values: object) => string} fill
- * @returns {string|null}
  */
-export function reasonText(labels, code, values, fill) {
+export function reasonText(
+  labels: unknown,
+  code: string,
+  values: Record<string, unknown> | null,
+  fill: (template: string, values: Record<string, string>) => string
+): string | null {
   const normal = normalCode(code, values);
-  const table = labels?.skills?.result?.reasons;
-  const template = table && typeof table === 'object' && Object.hasOwn(table, normal.code) ? table[normal.code] : null;
+  const result = objOf(objOf(objOf(labels).skills).result);
+  const table = objOf(result.reasons);
+  const template = Object.hasOwn(table, normal.code) ? table[normal.code] : null;
   if (typeof template !== 'string' || !template) return null;
-  const params = labels?.skills?.result?.params;
-  const words = {};
+  const params = objOf(result.params);
+  const words: Record<string, string> = {};
   for (const [key, value] of Object.entries(normal.values)) {
-    const named =
-      params &&
-      typeof params === 'object' &&
-      params[key] &&
-      typeof params[key] === 'object' &&
-      Object.hasOwn(params[key], String(value))
-        ? params[key][String(value)]
-        : null;
+    const wording = objOf(params[key]);
+    const named = Object.hasOwn(wording, String(value)) ? wording[String(value)] : null;
     words[key] = typeof named === 'string' && named ? named : String(value);
   }
   const text = fill(template, words);

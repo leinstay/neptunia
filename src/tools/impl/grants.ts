@@ -11,32 +11,31 @@
 // `access list` can say where a right came from. `migrateGrants` re-expands the old command-key
 // grants under the operation names once (src/tools/impl/access.ts#migrateStoredGrants).
 
+import { idText, isObj, listOf, objOf } from '../types.ts';
+import type { Access, GrantEntry, GrantTarget, Obj, OpInfo } from '../types.ts';
+
 /** True when `owners` (ids, numbers or strings) lists `userId`; ids compared as strings. */
-function listsOwner(owners, userId) {
+function listsOwner(owners: unknown, userId: unknown): boolean {
   if (userId === undefined || userId === null) return false;
-  return (Array.isArray(owners) ? owners : []).map(String).includes(String(userId));
+  return listOf(owners).map(idText).includes(idText(userId));
 }
 
 /**
  * True when `userId` is one of `config.bot.owners`: the one owner check of the owner commands
- * (src/admin.js, src/tools/impl/index.ts) and of `isAllowed` below. No user, no owner.
- * @param {object} config  The live merged config (hot.config).
- * @param {unknown} userId
- * @returns {boolean}
+ * (src/admin.js, src/tools/impl/index.ts) and of `isAllowed` below. No user, no owner. `config` is the live merged
+ * config (hot.config).
  */
-export function isOwnerId(config, userId) {
-  return listsOwner(config?.bot?.owners, userId);
+export function isOwnerId(config: unknown, userId: unknown): boolean {
+  return listsOwner(objOf(objOf(config).bot).owners, userId);
 }
 
 /**
  * True when a grant may ever open `op`: not owner-only, not `grantable: false`, not a member
  * operation (open without a grant).
- * @param {{ rights?: object } | null | undefined} op
- * @returns {boolean}
  */
-export function isGrantableOp(op) {
+export function isGrantableOp(op: Partial<OpInfo> | null | undefined): boolean {
   const rights = op?.rights;
-  return Boolean(rights) && rights.ownerOnly !== true && rights.grantable !== false && rights.member !== true;
+  return rights !== undefined && rights.ownerOnly !== true && rights.grantable !== false && rights.member !== true;
 }
 
 /**
@@ -45,27 +44,36 @@ export function isGrantableOp(op) {
  * `features.memberCommands` is not false (read by the caller at the moment of use), else only an
  * owner; anything else passes on a grant stored on the exact operation name (everyone, one of the
  * caller's roles, or the caller). No descriptor or an access that is not an object: refused.
- * @param {{ op: { name: string, rights: object } | null, member?: { userId?: string, roleIds?: (string|number)[] },
- *   access?: object, owners?: (string|number)[], features?: object }} args
- * @returns {boolean}
  */
-export function isAllowed({ op, member, access, owners, features }) {
+export function isAllowed({
+  op,
+  member,
+  access,
+  owners,
+  features,
+}: {
+  op: Partial<OpInfo> | null | undefined;
+  member?: { userId?: unknown; roleIds?: ReadonlyArray<unknown> };
+  access?: unknown;
+  owners?: unknown;
+  features?: unknown;
+}): boolean {
   const userId = member?.userId;
   if (listsOwner(owners, userId)) return true;
 
   const rights = op?.rights;
-  if (!rights || typeof op.name !== 'string') return false;
+  if (rights === undefined || typeof op?.name !== 'string') return false;
   if (rights.ownerOnly === true) return false;
-  if (rights.member === true) return features?.memberCommands !== false;
+  if (rights.member === true) return objOf(features).memberCommands !== false;
   if (rights.grantable === false) return false;
-  if (!access || typeof access !== 'object' || Array.isArray(access)) return false;
+  if (!isObj(access)) return false;
 
   const entry = access[op.name];
-  if (!entry || typeof entry !== 'object') return false;
+  if (!isObj(entry)) return false;
   if (entry.everyone === true) return true;
-  if (Array.isArray(entry.users) && entry.users.map(String).includes(String(userId))) return true;
-  const roleSet = new Set((Array.isArray(member?.roleIds) ? member.roleIds : []).map(String));
-  return Array.isArray(entry.roles) && entry.roles.some((roleId) => roleSet.has(String(roleId)));
+  if (Array.isArray(entry.users) && entry.users.map(idText).includes(idText(userId))) return true;
+  const roleSet = new Set(listOf(member?.roleIds).map(idText));
+  return Array.isArray(entry.roles) && entry.roles.some((roleId) => roleSet.has(idText(roleId)));
 }
 
 /**
@@ -74,12 +82,12 @@ export function isAllowed({ op, member, access, owners, features }) {
  * grant may open it, `refused`; a group (a whole dotted prefix of some operation, `memory`,
  * `memory.affinity`) or `*` is every grantable READ operation under it, with `from` the pattern.
  * Null when `key` names nothing.
- * @param {string} key
- * @param {{ name: string, rights: object }[]} ops
- * @returns {{ from: string|null, names: string[], refused: string[] } | null}
  */
-export function expandGrant(key, ops) {
-  const list = Array.isArray(ops) ? ops : [];
+export function expandGrant(
+  key: string,
+  ops: ReadonlyArray<OpInfo>
+): { from: string | null; names: Array<string>; refused: Array<string> } | null {
+  const list = ops;
   const exact = list.find((op) => op.name === key);
   if (exact)
     return isGrantableOp(exact) ? { from: null, names: [key], refused: [] } : { from: null, names: [], refused: [key] };
@@ -94,7 +102,7 @@ export function expandGrant(key, ops) {
 }
 
 /** The `via` key of one grant target: `everyone`, `role:<id>` or `user:<id>`; null for none. */
-function targetKey({ everyone, roleId, userId } = {}) {
+function targetKey({ everyone, roleId, userId }: GrantTarget = {}): string | null {
   if (everyone) return 'everyone';
   if (roleId != null) return `role:${roleId}`;
   if (userId != null) return `user:${userId}`;
@@ -102,28 +110,27 @@ function targetKey({ everyone, roleId, userId } = {}) {
 }
 
 /** `access[key]`, normalized to `{ everyone, roles, users, via }` with fresh arrays and a fresh `via` (never the caller's own). */
-function entryOf(access, key) {
-  const raw = access?.[key];
-  const via = raw?.via && typeof raw.via === 'object' && !Array.isArray(raw.via) ? { ...raw.via } : {};
+function entryOf(access: unknown, key: string): GrantEntry {
+  const raw = objOf(objOf(access)[key]);
   return {
-    everyone: raw?.everyone === true,
-    roles: Array.isArray(raw?.roles) ? [...raw.roles] : [],
-    users: Array.isArray(raw?.users) ? [...raw.users] : [],
-    via,
+    everyone: raw.everyone === true,
+    roles: [...listOf(raw.roles)],
+    users: [...listOf(raw.users)],
+    via: { ...objOf(raw.via) },
   };
 }
 
 /** `entry` as stored: `via` only when it names something. */
-function stored(entry) {
+function stored(entry: GrantEntry): Obj {
   const { via, ...rest } = entry;
   return Object.keys(via).length > 0 ? { ...rest, via } : rest;
 }
 
 /** True when `entry` already holds the target `what` names. */
-function holds(entry, { everyone, roleId, userId } = {}) {
+function holds(entry: GrantEntry, { everyone, roleId, userId }: GrantTarget = {}): boolean {
   if (everyone) return entry.everyone;
-  if (roleId != null) return entry.roles.map(String).includes(String(roleId));
-  if (userId != null) return entry.users.map(String).includes(String(userId));
+  if (roleId != null) return entry.roles.map(idText).includes(idText(roleId));
+  if (userId != null) return entry.users.map(idText).includes(idText(userId));
   return false;
 }
 
@@ -133,58 +140,54 @@ function holds(entry, { everyone, roleId, userId } = {}) {
  * that a direct grant (no `from`) of a target that came from a group or `*` makes it direct.
  * `from` (the group or `*` this grant was expanded from) is kept for `describeGrants`; it never
  * replaces a direct grant. `key` is used as given (see `expandGrant`).
- * @param {object} access
- * @param {string} key
- * @param {{ everyone?: boolean, roleId?: (string|number), userId?: (string|number) }} what
- * @param {{ from?: string|null }} [options]
- * @returns {object}
  */
-export function grant(access, key, what = {}, { from = null } = {}) {
+export function grant(
+  access: unknown,
+  key: string,
+  what: GrantTarget = {},
+  { from = null }: { from?: string | null } = {}
+): Access {
   const next = entryOf(access, key);
   const target = targetKey(what);
   const had = holds(next, what);
   if (what.everyone) {
     next.everyone = true;
   } else if (what.roleId != null) {
-    const id = String(what.roleId);
-    if (!next.roles.map(String).includes(id)) next.roles.push(id);
+    const id = idText(what.roleId);
+    if (!next.roles.map(idText).includes(id)) next.roles.push(id);
   } else if (what.userId != null) {
-    const id = String(what.userId);
-    if (!next.users.map(String).includes(id)) next.users.push(id);
+    const id = idText(what.userId);
+    if (!next.users.map(idText).includes(id)) next.users.push(id);
   }
   if (target) {
     if (!from) delete next.via[target];
     else if (!had) next.via[target] = from;
   }
-  return { ...(access ?? {}), [key]: stored(next) };
+  return { ...objOf(access), [key]: stored(next) };
 }
 
 /**
  * `access` with exactly one of `{ everyone: true }`, `{ roleId }` or `{ userId }` removed from
  * `key`'s grant, its source with it -- never mutates `access`. An entry left with nothing set is
  * deleted outright. Revoking something not present, or from a key with no entry, is a no-op.
- * @param {object} access
- * @param {string} key
- * @param {{ everyone?: boolean, roleId?: (string|number), userId?: (string|number) }} what
- * @returns {object}
  */
-export function revoke(access, key, what = {}) {
-  if (!access?.[key]) return { ...(access ?? {}) };
+export function revoke(access: unknown, key: string, what: GrantTarget = {}): Access {
+  if (!objOf(access)[key]) return { ...objOf(access) };
 
   const next = entryOf(access, key);
   if (what.everyone) {
     next.everyone = false;
   } else if (what.roleId != null) {
-    const id = String(what.roleId);
-    next.roles = next.roles.filter((r) => String(r) !== id);
+    const id = idText(what.roleId);
+    next.roles = next.roles.filter((r) => idText(r) !== id);
   } else if (what.userId != null) {
-    const id = String(what.userId);
-    next.users = next.users.filter((u) => String(u) !== id);
+    const id = idText(what.userId);
+    next.users = next.users.filter((u) => idText(u) !== id);
   }
   const target = targetKey(what);
   if (target) delete next.via[target];
 
-  const out = { ...(access ?? {}) };
+  const out: Access = { ...objOf(access) };
   if (!next.everyone && next.roles.length === 0 && next.users.length === 0) {
     delete out[key];
   } else {
@@ -197,22 +200,18 @@ export function revoke(access, key, what = {}) {
  * True when `key`'s grant holds the one thing `what` names (`{ everyone: true }`, `{ roleId }`
  * or `{ userId }`, ids compared as strings) -- whether `revoke` with the same arguments would
  * change anything.
- * @param {object} access
- * @param {string} key
- * @param {{ everyone?: boolean, roleId?: (string|number), userId?: (string|number) }} what
- * @returns {boolean}
  */
-export function hasGrant(access, key, what = {}) {
-  if (!access?.[key]) return false;
+export function hasGrant(access: unknown, key: string, what: GrantTarget = {}): boolean {
+  if (!objOf(access)[key]) return false;
   return holds(entryOf(access, key), what);
 }
 
 /** Every target `entry` holds, as `grant`'s `what` argument. */
-function targetsOf(entry) {
-  const out = [];
+function targetsOf(entry: GrantEntry): Array<GrantTarget> {
+  const out: Array<GrantTarget> = [];
   if (entry.everyone) out.push({ everyone: true });
-  for (const roleId of entry.roles) out.push({ roleId: String(roleId) });
-  for (const userId of entry.users) out.push({ userId: String(userId) });
+  for (const roleId of entry.roles) out.push({ roleId: idText(roleId) });
+  for (const userId of entry.users) out.push({ userId: idText(userId) });
   return out;
 }
 
@@ -224,22 +223,29 @@ function targetsOf(entry) {
  * pattern) -- decides: an old exact key keeps every grantable operation it ran, read or write; an
  * old group or `*` keeps only the grantable READ ones; whatever is owner-only, or a key that runs
  * no operation any more, is dropped and named. Pure; running it again on its result changes nothing.
- * @param {{ access: object, ops: { name: string, rights: object }[],
- *   legacy: (key: string) => ({ from: string|null, names: string[] } | null) }} args
- * @returns {{ access: object, report: { key: string, covers: string[], dropped: string[] }[], note: string }}
  */
-export function migrateGrants({ access, ops, legacy }) {
-  const list = Array.isArray(ops) ? ops : [];
+export function migrateGrants({
+  access,
+  ops,
+  legacy,
+}: {
+  access: unknown;
+  ops: ReadonlyArray<OpInfo>;
+  legacy: ((key: string) => { from: string | null; names: Array<string> } | null) | null;
+}): { access: Access; report: Array<GrantReport>; note: string } {
+  const list = ops;
   const byName = new Map(list.map((op) => [op.name, op]));
-  let next = {};
-  const report = [];
-  const source = access && typeof access === 'object' && !Array.isArray(access) ? access : {};
+  let next: Access = {};
+  const report: Array<GrantReport> = [];
+  const source = objOf(access);
+  /** The operation `name` of the list; a name taken from `byName` always has one. */
+  const opOf = (name: string): OpInfo => byName.get(name) ?? { name, rights: { kind: 'write', ownerOnly: true } };
 
   for (const [key, raw] of Object.entries(source)) {
-    if (!raw || typeof raw !== 'object') continue;
+    if (!isObj(raw)) continue;
     const entry = entryOf(source, key);
     if (byName.has(key)) {
-      const op = byName.get(key);
+      const op = opOf(key);
       if (isGrantableOp(op)) {
         next = { ...next, [key]: mergeEntry(next[key], entry) };
         report.push({ key, covers: [key], dropped: [] });
@@ -251,12 +257,10 @@ export function migrateGrants({ access, ops, legacy }) {
     const mapped = typeof legacy === 'function' ? legacy(key) : null;
     const names = [...new Set(mapped?.names ?? [])].filter((name) => byName.has(name));
     const from = mapped?.from ?? null;
-    const covers = names.filter(
-      (name) => isGrantableOp(byName.get(name)) && (!from || byName.get(name).rights.kind === 'read')
-    );
+    const covers = names.filter((name) => isGrantableOp(opOf(name)) && (!from || opOf(name).rights.kind === 'read'));
     // A member operation is open without a grant: nothing is lost, so it is not named as dropped.
     const dropped = mapped
-      ? names.filter((name) => !isGrantableOp(byName.get(name)) && byName.get(name).rights.member !== true)
+      ? names.filter((name) => !isGrantableOp(opOf(name)) && opOf(name).rights.member !== true)
       : [key];
     for (const name of covers) {
       for (const what of targetsOf(entry)) next = grant(next, name, what, { from });
@@ -273,11 +277,14 @@ export function migrateGrants({ access, ops, legacy }) {
   return { access: next, report, note };
 }
 
+/** What the migration did with one stored key: the operations it now covers and the ones it dropped. */
+export type GrantReport = { key: string; covers: Array<string>; dropped: Array<string> };
+
 /** `incoming` (an already-migrated entry) merged over `current`, its sources kept. */
-function mergeEntry(current, incoming) {
+function mergeEntry(current: unknown, incoming: GrantEntry): Obj {
   const base = entryOf({ e: current }, 'e');
-  const roles = [...new Set([...base.roles, ...incoming.roles].map(String))];
-  const users = [...new Set([...base.users, ...incoming.users].map(String))];
+  const roles = [...new Set([...base.roles, ...incoming.roles].map(idText))];
+  const users = [...new Set([...base.users, ...incoming.users].map(idText))];
   return stored({ everyone: base.everyone || incoming.everyone, roles, users, via: { ...incoming.via, ...base.via } });
 }
 
@@ -286,29 +293,27 @@ function mergeEntry(current, incoming) {
  * persona's skills no person may hold, src/tools/impl/access.ts); stale keys and owner-only ones open
  * nothing for a person and are left out: `<op>: everyone, role id:<id>, user id:<id>`, a target
  * that came from a group or `*` followed by `(expanded from <pattern>, reads only)`.
- * @param {object} access
- * @param {{ name: string, rights: object }[]} ops
- * @param {{ alsoKeys?: string[] }} [options]
- * @returns {string[]}
  */
-export function describeGrants(access, ops, { alsoKeys = [] } = {}) {
-  const byName = new Map((Array.isArray(ops) ? ops : []).map((op) => [op.name, op]));
-  const source = access && typeof access === 'object' && !Array.isArray(access) ? access : {};
+export function describeGrants(
+  access: unknown,
+  ops: ReadonlyArray<OpInfo>,
+  { alsoKeys = [] }: { alsoKeys?: ReadonlyArray<string> } = {}
+): Array<string> {
+  const byName = new Map(ops.map((op) => [op.name, op]));
+  const source = objOf(access);
   return Object.keys(source)
-    .filter(
-      (key) =>
-        (isGrantableOp(byName.get(key)) || alsoKeys.includes(key)) && source[key] && typeof source[key] === 'object'
-    )
+    .filter((key) => (isGrantableOp(byName.get(key)) || alsoKeys.includes(key)) && isObj(source[key]))
     .map((key) => {
       const entry = entryOf(source, key);
-      const label = (text, what) => {
-        const from = entry.via[targetKey(what)];
-        return from ? `${text} (expanded from ${from}, reads only)` : text;
+      const label = (text: string, what: GrantTarget): string => {
+        const target = targetKey(what);
+        const from = target === null ? undefined : entry.via[target];
+        return from ? `${text} (expanded from ${idText(from)}, reads only)` : text;
       };
-      const parts = [];
+      const parts: Array<string> = [];
       if (entry.everyone) parts.push(label('everyone', { everyone: true }));
-      for (const id of entry.roles) parts.push(label(`role id:${id}`, { roleId: id }));
-      for (const id of entry.users) parts.push(label(`user id:${id}`, { userId: id }));
+      for (const id of entry.roles) parts.push(label(`role id:${idText(id)}`, { roleId: idText(id) }));
+      for (const id of entry.users) parts.push(label(`user id:${idText(id)}`, { userId: idText(id) }));
       return `${key}: ${parts.join(', ')}`;
     });
 }

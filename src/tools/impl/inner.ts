@@ -7,10 +7,13 @@
 
 import { defineOp, perEnv } from './registry.ts';
 import { CODE } from '../codes.ts';
+import type { Obj, OpContext, Untyped } from '../types.ts';
 
 /** The time of `ts` for an answer line (UTC, minutes), or `-`. */
-function stamp(ts) {
-  return Number.isFinite(ts) ? new Date(ts).toISOString().slice(0, 16).replace('T', ' ') : '-';
+function stamp(ts: number | null | undefined): string {
+  return typeof ts === 'number' && Number.isFinite(ts)
+    ? new Date(ts).toISOString().slice(0, 16).replace('T', ' ')
+    : '-';
 }
 
 const handlers = perEnv((env) => {
@@ -23,7 +26,7 @@ const handlers = perEnv((env) => {
     return env.inner;
   }
 
-  function cmdStop(args, context) {
+  function cmdStop(args: Obj, context: OpContext) {
     const result = inner().stop(resolvedGuildId(context), { by: context?.userId ?? null });
     if (!result.ok)
       return { status: 'failed', code: result.code, summary: `inner life not stopped: ${result.code}`, data: null };
@@ -33,7 +36,7 @@ const handlers = perEnv((env) => {
     return { status: 'ok', code: CODE.OK, summary: text, data: { text, dropped: result.dropped } };
   }
 
-  function cmdStart(args, context) {
+  function cmdStart(args: Obj, context: OpContext) {
     const result = inner().start(resolvedGuildId(context), { by: context?.userId ?? null });
     if (!result.ok)
       return { status: 'failed', code: result.code, summary: `inner life not started: ${result.code}`, data: null };
@@ -41,13 +44,13 @@ const handlers = perEnv((env) => {
     return { status: 'ok', code: CODE.OK, summary: text, data: { text } };
   }
 
-  function cmdStatus(args, context) {
+  function cmdStatus(args: Obj, context: OpContext) {
     const s = inner().status(resolvedGuildId(context));
     const lines = [
       `inner life: ${s.on ? 'on' : 'off (features.innerLife)'}, mode ${s.mode}, ${s.stopped ? `stopped since ${stamp(s.stoppedAt)}` : 'running'}`,
     ];
     lines.push(
-      `queue: ${s.queue.length}${s.queue.length > 0 ? ` (${s.queue.map((wake) => `${wake.kind} due ${stamp(wake.dueAt)}${wake.capped ? ` capped ${wake.capped}` : ''}`).join('; ')})` : ''}`
+      `queue: ${s.queue.length}${s.queue.length > 0 ? ` (${s.queue.map((wake: Untyped) => `${wake.kind} due ${stamp(wake.dueAt)}${wake.capped ? ` capped ${wake.capped}` : ''}`).join('; ')})` : ''}`
     );
     lines.push(
       `review: ${s.review ? `${s.review.day} ${s.review.done ? 'done' : `at ${stamp(s.review.at)}`}` : 'not drawn'}`

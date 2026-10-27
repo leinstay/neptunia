@@ -119,20 +119,23 @@ const ARCHIVE_CHOICES = 25;
  *
  * `run(commandKey, args, context)` throws a plain `Error` (operator-facing
  * message) on bad input; `runCommand` never throws; neither touches discord.js.
+ * @param {import('./tools/impl/env.ts').OpsDeps} deps
  */
 export function createAdmin(deps) {
   const env = createOpsEnv(deps);
   const { hot, resolvedGuildId } = env;
 
   /** The operation descriptor a command key runs with `args` (src/tools/impl/index.ts#COMMAND_TO_OP);
-   * a command with no operation (an unknown key) is owner-only. */
+   * a command with no operation (an unknown key) is owner-only.
+   * @param {string} commandKey */
   function opForCommand(commandKey, args = {}) {
     const target = resolveCommand(commandKey, args);
     return (target?.op && getOp(target.op)) ?? { name: commandKey, rights: { kind: 'write', ownerOnly: true } };
   }
 
   /** The operation name `commandKey` runs with `args`, or null (a command with no operation, or
-   * arguments that pick none): interfaces/discord/commands.js defers and shows replies by operation. */
+   * arguments that pick none): interfaces/discord/commands.js defers and shows replies by operation.
+   * @param {string} commandKey */
   function operationFor(commandKey, args = {}) {
     return resolveCommand(commandKey, args)?.op ?? null;
   }
@@ -171,6 +174,7 @@ export function createAdmin(deps) {
    * or a thrown operator-facing `Error`. `commandKey` is `'<name>'` for a top-level command or
    * `'<group>.<name>'` for a grouped one. The tests drive the handlers through it; the slash
    * commands use `runCommand`, which checks the rights.
+   * @param {string} commandKey
    */
   async function run(commandKey, args = {}, context = {}) {
     const target = resolveCommand(commandKey, args);
@@ -184,6 +188,7 @@ export function createAdmin(deps) {
    * command key mapped to its operation (src/tools/impl/index.ts#COMMAND_TO_OP) and run through
    * src/tools/impl/index.ts#runOp, the full rights check included; a key with no operation is
    * `invalid`. Never throws: `{ status, code, summary, data }`.
+   * @param {string} commandKey
    * @returns {Promise<{ status: string, code: string, summary: string, data: unknown }>}
    */
   async function runCommand(commandKey, args = {}, context = {}) {

@@ -74,7 +74,6 @@ import { DAY_MS, bumpDaily, countToday } from '../time.js';
 import { audienceCovers } from './elsewhere.ts';
 import { audienceAllows, railAudience } from './snapshot.ts';
 import { checkPull } from './pull-fetch.ts';
-import { lineOf } from './line-of.js';
 import { roleModel } from '../llm/roles.js';
 import { pullPictures } from './pull.js';
 import {
@@ -109,6 +108,7 @@ import { dbSettings, quotesOf, search as dbSearch, window as dbWindow } from '..
 import { channelPlaceId, nativeAuthorityOf, personId } from '../memory/db/ids.ts';
 import { issueContext } from '../memory/db/scope.ts';
 import { LEGACY_IFACE } from '../memory/db/legacy-namespace.ts';
+import { hitFrom, inCommunity, linesOf, searchQueryOf, untilAborted } from './recall-reads.ts';
 
 /** The state.json fields of the daily recall counter. */
 export const RECALL_DAILY = Object.freeze({ dayKey: 'recallDay', countKey: 'recallCount' });
@@ -122,7 +122,12 @@ const MEANING_MIN_WORDS = 3;
 /** How many lines apart the hits marked in one prefetch excerpt may lie (focusHits). */
 const FOCUS_LINES = 6;
 const DEFAULT_TIMERS = Object.freeze({
+  /**
+   * @param {() => void} fn
+   * @param {number} ms
+   */
   set: (fn, ms) => setTimeout(fn, ms),
+  /** @param {ReturnType<typeof setTimeout>} timer */
   clear: (timer) => clearTimeout(timer),
 });
 // A name form a prefix search of members can match: Latin letters (at least one), digits, `.`, `_`, `'`, `-`, spaces.
@@ -152,52 +157,6 @@ function locatorOf(server, settings) {
     decayDays: settings.locatorDecayDays,
     broadShare: settings.locatorBroadShare,
   };
-}
-
-/** A search hit of the interface (a message reference, a time, a text, an author) as the clustering reads it; `queries` the keys of the queries that found it. */
-function hitFrom(hit) {
-  return {
-    id: hit.ref.messageId,
-    channelId: hit.ref.conversationId,
-    ts: hit.at,
-    authorId: hit.author.id ?? null,
-    bot: hit.author.bot === true,
-    username: hit.author.handle ?? null,
-    queries: new Set(),
-  };
-}
-
-/** Whether the conversation belongs to a community (a private chat does not). */
-const inCommunity = (channel) => channel?.communityId != null;
-
-/** A search plan entry (src/behavior/recall.js#searchPlan) as the interface's message search takes it. */
-function searchQueryOf(query) {
-  return {
-    ...(query.kind === 'form' || query.kind === 'who' ? { text: query.content } : {}),
-    ...(query.kind === 'author' ? { authorId: query.authorId } : {}),
-    ...(Number.isFinite(query.after) ? { after: query.after } : {}),
-    ...(Number.isFinite(query.before) ? { before: query.before } : {}),
-    ...(Number.isInteger(query.offset) && query.offset > 0 ? { offset: query.offset } : {}),
-  };
-}
-
-/** `promise` unless `signal` aborts first, then null: a read cannot be cancelled, only left behind. */
-function untilAborted(signal, promise) {
-  if (signal.aborted) return Promise.resolve(null);
-  return new Promise((resolve) => {
-    const onAbort = () => resolve(null);
-    signal.addEventListener('abort', onAbort, { once: true });
-    promise.then(
-      (value) => {
-        signal.removeEventListener('abort', onAbort);
-        resolve(value);
-      },
-      () => {
-        signal.removeEventListener('abort', onAbort);
-        resolve(null);
-      }
-    );
-  });
 }
 
 /** A fresh stats record of one run. */
@@ -415,7 +374,7 @@ function summaryFailure(err) {
  * @param {object} deps.llm        From createLlm(): `complete`, `capLeft`.
  * @param {import('../interface/reads.ts').Reads} deps.reads  The core's reads of the interface: the message and member
  *   searches and the history windows around a hit.
- * @param {(communityId: string, memberId: string) => (string|null)} [deps.memberName]  The name the member directory
+ * @param {(communityId: unknown, memberId: unknown) => (string|null)} [deps.memberName]  The name the member directory
  *   holds for a member, the last resort for a person no stored profile names.
  * @param {object|null} [deps.describer]  From createDescriber (src/memory/describe.js): only its
  *   `cachedDescriptions` is used, never a fresh caption.
@@ -452,12 +411,6 @@ export function createRecall({
   now = Date.now,
   timers = DEFAULT_TIMERS,
 }) {
-  /** The messages of a read of a conversation's history as lines, oldest first; null when the read failed. */
-  async function linesOf(entry, query) {
-    const found = await reads.history({ iface: entry.iface, conversationId: entry.id }, query);
-    return found === null ? null : found.events.map((event) => lineOf(event));
-  }
-
   /** Whether `llm.maxRequestsPerDay` is spent today: the summary would be refused. */
   function capSpent() {
     return typeof llm?.capLeft === 'function' && llm.capLeft() <= 0;
@@ -566,11 +519,13 @@ export function createRecall({
     if (!settings || typeof store.getRecent !== 'function') return [];
     const lines = liveRecent(store.getRecent(guildId)?.lines, { now: now(), hours: settings.hours });
     if (lines.length === 0) return [];
-    const here = inCommunity(channel) ? railAudience(channel.audience) : null;
+    const here = inCommunity(channel) ? railAudience(/** @type {object|null|undefined} */ (channel.audience)) : null;
     const covers = (source) =>
       inCommunity(channel)
-        ? audienceCovers(here, railAudience(source?.audience))
-        : audienceAllows(channel, source, config, { partnerId });
+        ? audienceCovers(here, railAudience(/** @type {object|null|undefined} */ (source?.audience)))
+        : audienceAllows(/** @type {object} */ (channel), /** @type {object} */ (source), config, {
+            partnerId,
+          });
     const allowed = new Map();
     const shown = (id) => {
       if (typeof id !== 'string' || !id) return false;
@@ -1345,12 +1300,8 @@ export function createRecall({
     });
 
     // The pull rail toward this turn's channel and the private-owner rule (scopeOf).
-    const { judged, sourceOf, privateUserId, allowEntry, allowLine } = scopeOf({
-      config,
-      snapshot,
-      channel,
-      partnerId,
-    });
+    const scope = scopeOf({ config, snapshot, channel, partnerId });
+    const { judged, sourceOf, privateUserId, allowEntry, allowLine } = scope;
     const recent = isRecentCue(server, { now: now(), recordDays: settings.recordDays });
     // A `when:` that only locates the event: it ranks, it bounds no local source (locatorOf).
     const locator = locatorOf(server, settings);
@@ -1570,13 +1521,13 @@ export function createRecall({
     const followOf = async (source, messages) => {
       const last = messages[messages.length - 1];
       if (settings.followMessages <= 0 || !last || ownIds.has(last.id)) return [];
-      const after = await linesOf(source, { after: last.id, limit: settings.followMessages });
+      const after = await linesOf(reads, source, { after: last.id, limit: settings.followMessages });
       return after ? followConversation(last.ts, after, settings) : [];
     };
     const fetched = await Promise.all(
       candidates.map(async (cluster) => {
         const source = judged.get(cluster.channelId);
-        const around = await linesOf(source, { around: cluster.middleId, limit: settings.windowMessages });
+        const around = await linesOf(reads, source, { around: cluster.middleId, limit: settings.windowMessages });
         if (!around) return null;
         const messages = [...around, ...(await followOf(source, around))];
         const shown = messages.filter((m) => !m.bot && !ownIds.has(m.id));

@@ -428,7 +428,12 @@ export function localGuild({ guildId, selfId = null, channelNameOf = () => null 
   return guild;
 }
 
-/** A conversation of the local guild as the interface describes it: readable, writable and viewable by everyone. */
+/**
+ * A conversation of the local guild as the interface describes it: readable, writable and viewable by everyone.
+ * @param {string} guildId
+ * @param {string} id
+ * @param {string} name
+ */
 function localInfo(guildId, id, name) {
   return {
     id,
@@ -463,19 +468,22 @@ function localInfo(guildId, id, name) {
  * @param {{ guildId: string, channelNameOf?: (id: string) => string|null }} options
  */
 export function localReads({ guildId, channelNameOf = () => null }) {
+  /** @param {string} id */
   const info = (id) => localInfo(guildId, id, channelNameOf(id) ?? id);
   return {
     offers: () => true,
-    conversationInfo: async (ref) => ({ conversation: info(ref.conversationId) }),
-    conversations: async () => ({ conversations: [], groups: [] }),
-    fetchMessages: async () => null,
-    history: async () => null,
-    memberInfo: async () => null,
-    searchMessages: async () => ({ total: 0, hits: [] }),
-    searchMembers: async () => ({ members: [] }),
-    emoji: async () => ({ emoji: [] }),
-    parseLinks: async (texts) => ({ refs: texts.map(() => null) }),
-    reactors: async () => ({ memberIds: [] }),
+    /** @param {{ conversationId: string }} ref */
+    conversationInfo: (ref) => Promise.resolve({ conversation: info(ref.conversationId) }),
+    conversations: () => Promise.resolve({ conversations: [], groups: [] }),
+    fetchMessages: () => Promise.resolve(null),
+    history: () => Promise.resolve(null),
+    memberInfo: () => Promise.resolve(null),
+    searchMessages: () => Promise.resolve({ total: 0, hits: [] }),
+    searchMembers: () => Promise.resolve({ members: [] }),
+    emoji: () => Promise.resolve({ emoji: [] }),
+    /** @param {string[]} texts */
+    parseLinks: (texts) => Promise.resolve({ refs: texts.map(() => null) }),
+    reactors: () => Promise.resolve({ memberIds: [] }),
   };
 }
 
@@ -485,6 +493,7 @@ export function localReads({ guildId, channelNameOf = () => null }) {
  * @param {{ guildId: string, channelId: string, channelNameOf?: (id: string) => string|null }} options
  */
 export function localScope({ guildId, channelId, channelNameOf = () => null }) {
+  /** @param {string} id */
   const info = (id) => localInfo(guildId, id, channelNameOf(id) ?? id);
   return {
     channel: info(channelId),

@@ -345,7 +345,7 @@ test('recall-eval: the local guild runs the record stage of the real recall, sur
   const { result: out } = await withCapturedLogs(() =>
     recall.run({
       guildId: 'g1',
-      ...localScope({ guildId: 'g1', channelId: channel.id, channelNameOf }),
+      ...localScope({ guildId: 'g1', channelId: C1, channelNameOf }),
       selfId: SELF,
       selfName: 'Zoë',
       history: [candidate],

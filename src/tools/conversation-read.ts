@@ -16,7 +16,32 @@ import { DAY_MS } from '../time.js';
 import { oneLine } from '../memory/clamp.js';
 import { CODE } from './codes.ts';
 import { lineOf } from '../behavior/line-of.js';
+import { idText, isObj, listOf, objOf } from './types.ts';
+import type { Obj } from './types.ts';
+import type { Reads } from '../interface/reads.ts';
+import type { ConversationRef, HistoryQuery } from '../protocol/adapter.ts';
 
+/** One message of a channel as the transcript renders it: the record's or the interface's line. */
+export type ReadMessage = { id: unknown; ts: number; [key: string]: unknown };
+
+/** What her arguments ask of a channel: how the span is picked and its size. */
+export type ReadSelection = {
+  mode: 'around' | 'before' | 'after' | 'since' | 'last';
+  n?: number;
+  before?: number;
+  after?: number;
+  anchor?: string;
+  since?: number;
+};
+
+/** A span of the channel and whether the lines held cover all of it. */
+export type Span = { slice: Array<ReadMessage>; enough: boolean };
+
+/** One rendered line of a transcript (src/format.js#formatTranscript). */
+type TranscriptItem = { id: unknown; index: number; ts: number; text: string };
+
+/** The handle registry of the turn: the next number, and where the lines shown are registered. */
+export type HandleRefs = { next(): number; take(shown: Array<Obj>): void };
 /** The newest messages a read without `last` returns, and the most one read may return. */
 export const READ_LAST_DEFAULT = 20;
 export const READ_LAST_MAX = 60;
@@ -29,12 +54,12 @@ export const READ_LADDER_DAYS = Object.freeze([2, 14, 90]);
 const MAX_CHARS_FALLBACK = 9000;
 
 /** A string argument trimmed, '' when absent. */
-function text(value) {
-  return typeof value === 'string' ? value.trim() : value === undefined || value === null ? '' : String(value).trim();
+function text(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : typeof value === 'number' ? String(value) : '';
 }
 
 /** A count argument (one to three digits: never a message id), else null. */
-function countOf(value) {
+function countOf(value: unknown): number | null {
   const given = text(value);
   return /^\d{1,3}$/.test(given) ? Number(given) : null;
 }
@@ -46,16 +71,12 @@ const WEEKDAY_CLOCK_RE = /^[a-z]{3}\s+\d{1,2}:\d{2}$/i;
  * A moment in the past, as epoch ms: a delay back from `now` (`30m`, `2h`, `3d`), a wall-clock
  * time `HH:MM` (the latest such time not after `now`, in `timezone`), `<weekday> HH:MM` (the
  * latest such weekday), or an ISO date or date-time. Null for anything else.
- * @param {unknown} value
- * @param {number} now
- * @param {string} [timezone]
- * @returns {number|null}
  */
-export function sinceMoment(value, now, timezone = 'UTC') {
+export function sinceMoment(value: unknown, now: number, timezone = 'UTC'): number | null {
   const given = text(value);
   if (!given) return null;
   const ahead = parseWhen(given, now, { timezone });
-  if (!Number.isFinite(ahead)) return null;
+  if (ahead === null || !Number.isFinite(ahead)) return null;
   if (RELATIVE_RE.test(given)) return now - (ahead - now);
   if (/^\d{1,2}:\d{2}$/.test(given)) return ahead - DAY_MS;
   if (WEEKDAY_CLOCK_RE.test(given)) return ahead - 7 * DAY_MS;
@@ -68,16 +89,17 @@ export function sinceMoment(value, now, timezone = 'UTC') {
  * `last` lines; `since` with `last` lines from that moment on; else the newest `last` lines.
  * Only one of around / since / a message-valued before or after may be given. A count that is
  * not a number, or a `before`/`after` count without `around`, is refused.
- * @param {{ around?: unknown, before?: unknown, after?: unknown, since?: unknown, last?: unknown }} args
- * @param {{ now: number, timezone?: string }} context
- * @returns {{ mode: string, n?: number, before?: number, after?: number, anchor?: string, since?: number } | { error: string }}
  */
-export function readSelection(args, { now, timezone = 'UTC' }) {
-  const around = text(args?.around);
-  const since = text(args?.since);
-  const before = text(args?.before);
-  const after = text(args?.after);
-  const lastGiven = args?.last === undefined || args?.last === null || args?.last === '' ? null : Number(args.last);
+export function readSelection(
+  args: unknown,
+  { now, timezone = 'UTC' }: { now: number; timezone?: string }
+): ReadSelection | { error: string } {
+  const given = objOf(args);
+  const around = text(given.around);
+  const since = text(given.since);
+  const before = text(given.before);
+  const after = text(given.after);
+  const lastGiven = given.last === undefined || given.last === null || given.last === '' ? null : Number(given.last);
   if (lastGiven !== null && !(Number.isInteger(lastGiven) && lastGiven >= 1)) return { error: 'args.last:range' };
   const last = Math.min(READ_LAST_MAX, lastGiven ?? READ_LAST_DEFAULT);
   const beforeCount = countOf(before);
@@ -110,54 +132,56 @@ export function readSelection(args, { now, timezone = 'UTC' }) {
  * the lines asked on a side of it (or the newest `n`) are not all there -- the caller then
  * reads further back, or asks the interface. `since` is enough when it holds any line from that
  * moment on. Pure.
- * @param {object[]} all
- * @param {ReturnType<typeof readSelection>} selection
- * @returns {{ slice: object[], enough: boolean }}
  */
-export function pickSpan(all, selection) {
+export function pickSpan(all: ReadonlyArray<ReadMessage>, selection: ReadSelection): Span {
   const list = Array.isArray(all) ? all : [];
-  const at = (id) => list.findIndex((message) => String(message.id) === String(id));
+  const at = (id: unknown): number => list.findIndex((message) => idText(message.id) === idText(id));
+  const n = selection.n ?? 0;
+  const before = selection.before ?? 0;
+  const after = selection.after ?? 0;
   switch (selection.mode) {
     case 'around': {
       const i = at(selection.anchor);
       if (i < 0) return { slice: [], enough: false };
       return {
-        slice: list.slice(Math.max(0, i - selection.before), i + selection.after + 1),
-        enough: i - selection.before >= 0 && i + selection.after < list.length,
+        slice: list.slice(Math.max(0, i - before), i + after + 1),
+        enough: i - before >= 0 && i + after < list.length,
       };
     }
     case 'before': {
       const i = at(selection.anchor);
       if (i < 0) return { slice: [], enough: false };
-      return { slice: list.slice(Math.max(0, i - selection.n), i), enough: i - selection.n >= 0 };
+      return { slice: list.slice(Math.max(0, i - n), i), enough: i - n >= 0 };
     }
     case 'after': {
       const i = at(selection.anchor);
       if (i < 0) return { slice: [], enough: false };
-      return { slice: list.slice(i + 1, i + 1 + selection.n), enough: i + selection.n < list.length };
+      return { slice: list.slice(i + 1, i + 1 + n), enough: i + n < list.length };
     }
     case 'since': {
-      const from = list.findIndex((message) => message.ts >= selection.since);
+      const from = list.findIndex((message) => message.ts >= (selection.since ?? 0));
       if (from < 0) return { slice: [], enough: false };
-      return { slice: list.slice(from, from + selection.n), enough: true };
+      return { slice: list.slice(from, from + n), enough: true };
     }
-    default:
-      return { slice: list.slice(-selection.n), enough: list.length >= selection.n };
+    case 'last':
+      return { slice: list.slice(-n), enough: list.length >= n };
   }
 }
 
 /** Messages by id, the later list's copy winning, oldest first. */
-function mergeById(...lists) {
-  const byId = new Map();
+function mergeById(...lists: Array<ReadonlyArray<ReadMessage> | null>): Array<ReadMessage> {
+  const byId = new Map<string, ReadMessage>();
   for (const list of lists)
-    for (const message of Array.isArray(list) ? list : [])
-      if (message?.id !== undefined && message?.id !== null)
-        byId.set(String(message.id), { ...(byId.get(String(message.id)) ?? {}), ...message });
-  return [...byId.values()].sort((a, b) => a.ts - b.ts || (String(a.id) < String(b.id) ? -1 : 1));
+    for (const message of Array.isArray(list) ? (list as ReadonlyArray<ReadMessage>) : [])
+      if (message.id !== undefined && message.id !== null) {
+        const key = idText(message.id);
+        byId.set(key, { ...byId.get(key), ...message });
+      }
+  return [...byId.values()].sort((a, b) => a.ts - b.ts || (idText(a.id) < idText(b.id) ? -1 : 1));
 }
 
 /** A string, else ''. */
-const str = (value) => (typeof value === 'string' ? value : '');
+const str = (value: unknown): string => (typeof value === 'string' ? value : '');
 
 /**
  * The messages of one channel the record holds from `from` (epoch ms) on, oldest first: the
@@ -165,49 +189,59 @@ const str = (value) => (typeof value === 'string' ? value : '');
  * placeholder (`deleted: true`, no text) at the time of the message it replaced. `said` lines are
  * the persona's own. Media rides as kinds only (the record keeps no more): one attachment of that
  * kind per entry. A line `allowLine` refuses is skipped. Never throws: a failed read gives [].
- * @param {{ iterate: Function }} record
- * @param {string} guildId
- * @param {{ channelId: string, from: number, nameOf?: ((id: string) => string|null)|null, selfName?: string, allowLine?: ((line: object) => boolean)|null }} options
- * @returns {Promise<object[]>}
  */
 export async function recordMessages(
-  record,
-  guildId,
-  { channelId, from, nameOf = null, selfName = '', allowLine = null }
-) {
+  record: { iterate?: (guildId: string, query: Obj) => AsyncIterable<unknown> } | null | undefined,
+  guildId: string,
+  {
+    channelId,
+    from,
+    nameOf = null,
+    selfName = '',
+    allowLine = null,
+  }: {
+    channelId: string;
+    from: number;
+    nameOf?: ((id: string) => string | null) | null;
+    selfName?: string;
+    allowLine?: ((line: Obj) => boolean) | null;
+  }
+): Promise<Array<ReadMessage>> {
   if (!record || typeof record.iterate !== 'function') return [];
-  const latest = new Map();
-  const gone = new Map();
+  const latest = new Map<string, { line: Obj; revision: number }>();
+  const gone = new Map<string, Obj>();
   try {
-    for await (const line of record.iterate(guildId, {
+    for await (const entry of record.iterate(guildId, {
       from: new Date(from).toISOString(),
-      channelIds: [String(channelId)],
+      channelIds: [idText(channelId)],
     })) {
-      const id = str(line?.messageId);
+      const line = objOf(entry);
+      const id = str(line.messageId);
       if (!id || (typeof allowLine === 'function' && !allowLine(line))) continue;
       if (line.kind === 'deleted') {
         gone.set(id, line);
         continue;
       }
-      if ((line.kind !== 'seen' && line.kind !== 'said') || !Number.isFinite(Date.parse(line.occurredAt))) continue;
-      const revision = Number.isInteger(line.revision) && line.revision > 0 ? line.revision : 1;
+      if ((line.kind !== 'seen' && line.kind !== 'said') || !Number.isFinite(Date.parse(str(line.occurredAt))))
+        continue;
+      const revision = Number.isInteger(line.revision) && (line.revision as number) > 0 ? (line.revision as number) : 1;
       const known = latest.get(id);
       if (known && known.revision >= revision) continue;
-      latest.set(id, { line, revision, first: known?.first ?? line });
+      latest.set(id, { line, revision });
     }
   } catch {
     return [];
   }
-  const out = [];
-  const messageOf = (line, revision) => {
+  const out: Array<ReadMessage> = [];
+  const messageOf = (line: Obj, revision: number): ReadMessage => {
     const self = line.kind === 'said';
     const by = str(line.by) || null;
     const name = self ? oneLine(selfName) : by && typeof nameOf === 'function' ? oneLine(nameOf(by) ?? '') : '';
-    const ts = Date.parse(line.occurredAt);
-    const recordedAt = Date.parse(line.recordedAt);
+    const ts = Date.parse(str(line.occurredAt));
+    const recordedAt = Date.parse(str(line.recordedAt));
     return {
       id: line.messageId,
-      channelId: String(channelId),
+      channelId: idText(channelId),
       authorId: by,
       authorName: name || '-',
       self,
@@ -215,15 +249,16 @@ export async function recordMessages(
       content: str(line.text),
       ts,
       replyToId: str(line.replyTo) || null,
-      mentionedUserIds: Array.isArray(line.mentions) ? line.mentions : [],
+      mentionedUserIds: listOf(line.mentions),
       mentionedChannelIds: [],
-      attachments: (Array.isArray(line.media) ? line.media : [])
-        .filter((kind) => typeof kind === 'string' && kind)
-        .map((kind, i) => ({ id: `${line.messageId}#m${i}`, kind, name: kind })),
-      links: (Array.isArray(line.links) ? line.links : [])
-        .filter((link) => link && typeof link === 'object' && (str(link.title) || str(link.description)))
+      attachments: listOf(line.media)
+        .filter((kind): kind is string => typeof kind === 'string' && kind !== '')
+        .map((kind, i) => ({ id: `${idText(line.messageId)}#m${i}`, kind, name: kind })),
+      links: listOf(line.links)
+        .filter(isObj)
+        .filter((link) => str(link.title) || str(link.description))
         .map((link, i) => ({
-          id: str(link.id) || `${line.messageId}#l${i}`,
+          id: str(link.id) || `${idText(line.messageId)}#l${i}`,
           kind: 'link',
           site: str(link.site),
           title: str(link.title),
@@ -246,18 +281,18 @@ export async function recordMessages(
   }
   // A deletion whose message the span does not hold: a placeholder from the deletion's own line.
   for (const [id, line] of gone) {
-    if (latest.has(id) || !Number.isFinite(Date.parse(line.occurredAt))) continue;
-    const by = str(line.participants?.[0]) || null;
+    if (latest.has(id) || !Number.isFinite(Date.parse(str(line.occurredAt)))) continue;
+    const by = str(listOf(line.participants)[0]) || null;
     const name = by && typeof nameOf === 'function' ? oneLine(nameOf(by) ?? '') : '';
     out.push({
       id,
-      channelId: String(channelId),
+      channelId: idText(channelId),
       authorId: by,
       authorName: name || '-',
       self: false,
       bot: false,
       content: '',
-      ts: Date.parse(line.occurredAt),
+      ts: Date.parse(str(line.occurredAt)),
       deleted: true,
       mentionedUserIds: [],
       mentionedChannelIds: [],
@@ -282,13 +317,9 @@ export async function recordMessages(
  * handle registry) each line starts with its `#N` handle numbered on from `refs.next()` and the
  * lines that stayed in the text are registered (`{ n, id, channelId, authorId, self, deleted,
  * message }`); a line cut away never is. Otherwise pure.
- * @param {object[]} slice
- * @param {{ labels: object, channelId: string, channelName?: string, render: object|((slice: object[]) => object), maxChars?: number,
- *   refs?: { next(): number, take(shown: object[]): void }|null, earlier?: boolean, later?: boolean, keep?: 'newest'|'oldest' }} options
- * @returns {string}
  */
 export function conversationText(
-  slice,
+  slice: ReadonlyArray<ReadMessage>,
   {
     labels,
     channelId,
@@ -299,28 +330,38 @@ export function conversationText(
     earlier = true,
     later = false,
     keep = 'oldest',
+  }: {
+    labels: unknown;
+    channelId: string;
+    channelName?: string;
+    render: Obj | ((slice: ReadonlyArray<ReadMessage>) => Obj);
+    maxChars?: number;
+    refs?: HandleRefs | null;
+    earlier?: boolean;
+    later?: boolean;
+    keep?: 'newest' | 'oldest';
   }
-) {
-  const l =
-    labels?.skills?.tools?.conversation && typeof labels.skills.tools.conversation === 'object'
-      ? labels.skills.tools.conversation
-      : {};
-  const lines = [];
+): string {
+  const l = objOf(objOf(objOf(objOf(labels).skills).tools).conversation) as Record<string, string | undefined>;
+  const lines: Array<string> = [];
   if (l.source) lines.push(fill(l.source, { channel: channelName }));
   if (!Array.isArray(slice) || slice.length === 0) {
     if (l.none) lines.push(l.none);
     return lines.join('\n');
   }
   const offset = refs ? refs.next() - 1 : 0;
-  const items = formatTranscript(slice, {
-    ...(typeof render === 'function' ? render(slice) : render),
-    indexOffset: offset,
-  });
-  const byId = new Map(slice.map((message) => [String(message.id), message]));
+  const items = formatTranscript(
+    slice as Array<ReadMessage>,
+    {
+      ...(typeof render === 'function' ? render(slice) : render),
+      indexOffset: offset,
+    } as Parameters<typeof formatTranscript>[1]
+  );
+  const byId = new Map(slice.map((message) => [idText(message.id), message]));
   // The room: whole items, from the far end of the span (the newest are kept for a read of the newest lines).
   const bounded = Number.isFinite(maxChars) && maxChars > 0;
   const used = lines.join('\n').length + 400;
-  let kept = items;
+  let kept: Array<TranscriptItem> = items;
   if (bounded) {
     kept = [];
     let size = used;
@@ -344,11 +385,11 @@ export function conversationText(
     if ((later || (dropped > 0 && keep === 'oldest')) && l.later) lines.push(fill(l.later, { n: String(lastIndex) }));
     refs.take(
       kept.map((item) => {
-        const message = byId.get(String(item.id));
+        const message = byId.get(idText(item.id));
         return {
           n: item.index,
-          id: String(item.id),
-          channelId: String(channelId),
+          id: idText(item.id),
+          channelId: idText(channelId),
           authorId: message?.authorId ?? null,
           self: message?.self === true,
           ...(message?.deleted === true ? { deleted: true } : {}),
@@ -364,28 +405,35 @@ export function conversationText(
  * The interface's history for one selection (`reads`: the core's reads of the interface, src/interface/reads.ts;
  * `ref`: the conversation's reference): the newest `limit` lines, the ones around / before / after `anchor`, or the
  * lines since `minTs`, as lines, oldest first; null when `ref` is missing or the read failed. Never throws.
- * @param {import('../interface/reads.ts').Reads} reads
- * @param {import('../protocol/adapter.ts').ConversationRef|null|undefined} ref
- * @param {{ mode?: string, anchor?: string, limit?: number, minTs?: number }} request
  */
-export async function fetchSpan(reads, ref, { mode, anchor, limit, minTs }) {
+export async function fetchSpan(
+  reads: Reads,
+  ref: ConversationRef | null | undefined,
+  { mode, anchor, limit, minTs }: { mode?: string; anchor?: string; limit?: number; minTs?: number }
+): Promise<Array<ReadMessage> | null> {
   if (!ref) return null;
   try {
-    const query =
-      mode === 'around'
-        ? { limit, around: anchor }
-        : mode === 'before'
-          ? { limit, before: anchor }
-          : mode === 'after'
-            ? { limit, after: anchor }
-            : mode === 'since'
+    const size = limit ?? 0;
+    const query: HistoryQuery =
+      mode === 'around' && anchor !== undefined
+        ? { limit: size, around: anchor }
+        : mode === 'before' && anchor !== undefined
+          ? { limit: size, before: anchor }
+          : mode === 'after' && anchor !== undefined
+            ? { limit: size, after: anchor }
+            : mode === 'since' && minTs !== undefined
               ? { limit: 100, since: minTs }
-              : { limit };
+              : { limit: size };
     const page = await reads.history(ref, query);
-    return page === null ? null : page.events.map((event) => lineOf(event));
+    return page === null ? null : page.events.map((event) => lineOf(event) as ReadMessage);
   } catch {
     return null;
   }
+}
+
+/** How many lines a selection asks the interface for: both sides of the anchor and the anchor, or the newest `n`. */
+function askedLines(selection: ReadSelection): number {
+  return selection.mode === 'around' ? (selection.before ?? 0) + (selection.after ?? 0) + 1 : (selection.n ?? 0);
 }
 
 /**
@@ -400,7 +448,6 @@ export async function fetchSpan(reads, ref, { mode, anchor, limit, minTs }) {
  * `invalid` (`unknown-message`) when the anchor is not in the channel; `denied`
  * (`channel-not-visible`) for a hidden channel; `failed` when nothing could be read at all;
  * else `ok` with conversationText. Never throws.
- * @returns {Promise<{ status: string, code?: string, reason?: string, data?: { text: string } }>}
  */
 export async function runConversationRead({
   args,
@@ -416,26 +463,50 @@ export async function runConversationRead({
   now = Date.now(),
   timezone = 'UTC',
   maxChars = MAX_CHARS_FALLBACK,
-}) {
+}: {
+  args: unknown;
+  labels: unknown;
+  config?: unknown;
+  channelId?: unknown;
+  channelNameOf?: ((id: string) => string | null | undefined) | null;
+  allowed?: ((id: string) => boolean) | null;
+  readRecord?: ((request: { channelId: string; from: number }) => Promise<Array<ReadMessage>>) | null;
+  fetchLive?:
+    | ((request: {
+        channelId: string;
+        mode: string;
+        anchor: string | null;
+        limit: number;
+        minTs: number;
+      }) => Promise<Array<ReadMessage> | null>)
+    | null;
+  render: Obj | ((slice: ReadonlyArray<ReadMessage>) => Obj);
+  refs?: HandleRefs | null;
+  now?: number;
+  timezone?: string;
+  maxChars?: number;
+}): Promise<{ status: string; code?: string; reason?: string; data?: { text: string } }> {
   try {
-    const target = text(args?.channelId) || String(channelId ?? '');
+    const target = text(objOf(args).channelId) || idText(channelId);
     if (!target) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.channel:required' };
-    const selection = readSelection(args, { now, timezone: config?.bot?.timezone ?? timezone });
-    if (selection.error) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: selection.error };
+    const zone = objOf(objOf(config).bot).timezone;
+    const selection = readSelection(args, { now, timezone: typeof zone === 'string' ? zone : timezone });
+    if ('error' in selection) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: selection.error };
     if (typeof allowed === 'function' && !allowed(target)) return { status: 'denied', code: CODE.CHANNEL_NOT_VISIBLE };
-    let all = [];
-    let picked = { slice: [], enough: false };
-    const rungs = selection.mode === 'since' ? [selection.since] : READ_LADDER_DAYS.map((days) => now - days * DAY_MS);
+    let all: Array<ReadMessage> = [];
+    let picked: Span = { slice: [], enough: false };
+    const rungs =
+      selection.mode === 'since' ? [selection.since ?? 0] : READ_LADDER_DAYS.map((days) => now - days * DAY_MS);
     for (const from of rungs) {
       all = typeof readRecord === 'function' ? await readRecord({ channelId: target, from }) : [];
       picked = pickSpan(all, selection);
       if (picked.enough) break;
     }
-    let live = null;
+    let live: Array<ReadMessage> | null = null;
     let asked = false;
     if (!picked.enough && typeof fetchLive === 'function') {
       asked = true;
-      const limit = selection.mode === 'around' ? selection.before + selection.after + 1 : selection.n;
+      const limit = askedLines(selection);
       live = await fetchLive({
         channelId: target,
         mode: selection.mode,
@@ -449,11 +520,11 @@ export async function runConversationRead({
       }
     }
     if (picked.slice.length === 0 && asked && live === null) return { status: 'failed', code: CODE.ERROR };
-    if (selection.anchor && !all.some((message) => String(message.id) === String(selection.anchor)))
+    if (selection.anchor && !all.some((message) => idText(message.id) === selection.anchor))
       return { status: 'invalid', code: CODE.UNKNOWN_MESSAGE, reason: `args.${selection.mode}` };
     const reachedStart =
       Array.isArray(live) &&
-      live.length < (selection.mode === 'around' ? selection.before + selection.after + 1 : selection.n) &&
+      live.length < askedLines(selection) &&
       (selection.mode === 'last' || selection.mode === 'before');
     const truncated = picked.slice.length >= (selection.n ?? 0);
     const earlier = !reachedStart;

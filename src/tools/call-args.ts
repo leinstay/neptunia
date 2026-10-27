@@ -5,7 +5,7 @@
 // bounded, and never a field whose name suggests a secret. Pure.
 
 /** The arguments worth showing per skill, in order. The target (message, channel) is shown by the mark itself where it can. */
-const SHOWN = Object.freeze({
+const SHOWN: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze({
   'web.search': ['query', 'goal'],
   'web.read': ['url'],
   'media.look': ['question', 'url', 'item'],
@@ -37,7 +37,7 @@ const SHOWN = Object.freeze({
 });
 
 /** Arguments shown for a skill with no row above. */
-const DEFAULT_SHOWN = Object.freeze(['query', 'name', 'id', 'part']);
+const DEFAULT_SHOWN: ReadonlyArray<string> = Object.freeze(['query', 'name', 'id', 'part']);
 
 /** An argument whose name suggests a secret is never shown. */
 const SECRET_NAME = /key|token|secret|password|passwd|credential|auth|value|confirm/i;
@@ -47,8 +47,8 @@ const ALL_MAX = 160;
 const CUT = '…';
 
 /** One value as a short single-line string; '' when it has nothing to show. */
-function valueText(value) {
-  let text;
+function valueText(value: unknown): string {
+  let text: string;
   if (typeof value === 'string') text = value;
   else if (typeof value === 'number' || typeof value === 'boolean') text = String(value);
   else if (Array.isArray(value)) text = value.filter((item) => ['string', 'number'].includes(typeof item)).join(', ');
@@ -66,15 +66,13 @@ function valueText(value) {
 }
 
 /**
- * The call's main arguments as `name: value, name: value`, or '' when there are none to show.
- * @param {string} skill
- * @param {Record<string, unknown>|null|undefined} args  The resolved arguments the call ran with.
- * @returns {string}
+ * The call's main arguments as `name: value, name: value`, or '' when there are none to show. `args` are the resolved
+ * arguments the call ran with.
  */
-export function callArgsText(skill, args) {
+export function callArgsText(skill: string, args: Record<string, unknown> | null | undefined): string {
   if (!args || typeof args !== 'object') return '';
   const names = Object.hasOwn(SHOWN, skill) ? SHOWN[skill] : DEFAULT_SHOWN;
-  const parts = [];
+  const parts: Array<string> = [];
   for (const name of names) {
     if (SECRET_NAME.test(name) || !Object.hasOwn(args, name)) continue;
     const text = valueText(args[name]);

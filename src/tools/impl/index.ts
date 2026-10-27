@@ -34,11 +34,22 @@ import './skills.ts';
 import './inner.ts';
 import './search.ts';
 import { CODE } from '../codes.ts';
+import { idText, isObj, objOf } from '../types.ts';
+import type { Obj, OpContext, Rights } from '../types.ts';
+
+/** What a command key resolves to: an operation with its arguments, or why its arguments pick none. */
+export type Resolved = { op: string; args: Obj | undefined } | { invalid: string };
+
+/** One entry of a command table: an operation name (same arguments), or a function of the arguments. */
+type Target = string | ((args: Obj | undefined) => Resolved);
+
+/** The result of an operation as `runOp` answers it. */
+export type OpResult = { status: string; code: string; summary: string; data: unknown };
 
 export { defineOp, listOps, OpError, invalid, denied } from './registry.ts';
 
 /** `args` with `kind` set, for the media commands that became one operation per action. */
-function withKind(kind) {
+function withKind(kind: string): (op: string) => (args: Obj | undefined) => Resolved {
   return (op) => (args) => ({ op, args: { ...args, kind } });
 }
 
@@ -46,7 +57,7 @@ const emoji = withKind('emoji');
 const gifs = withKind('gifs');
 
 /** True when an optional argument was not given (absent, null or empty text). */
-function absent(value) {
+function absent(value: unknown): boolean {
   return value === undefined || value === null || value === '';
 }
 
@@ -55,16 +66,18 @@ function absent(value) {
  * operation with the arguments as given, or `{ invalid }` naming the values when the argument is
  * missing or unknown. `byAction` reads `action` (with `kind` for media).
  */
-function byOption(option, table) {
+function byOption(option: string, table: Record<string, string>): (args: Obj | undefined) => Resolved {
   return (args) => {
-    const value = args?.[option];
-    if (!Object.hasOwn(table, String(value)))
+    const value = idText(objOf(args)[option]);
+    const op = table[value];
+    if (!Object.hasOwn(table, value) || op === undefined)
       return { invalid: `${option} must be one of: ${Object.keys(table).join(', ')}` };
-    return { op: table[value], args };
+    return { op, args };
   };
 }
 
-const byAction = (actions) => byOption('action', actions);
+const byAction = (actions: Record<string, string>): ((args: Obj | undefined) => Resolved) =>
+  byOption('action', actions);
 
 /**
  * The command keys of the tree (src/tools/impl/catalog.ts#COMMAND_TABLE, `<group>.<name>` or a bare
@@ -73,14 +86,14 @@ const byAction = (actions) => byOption('action', actions);
  * `pings` by `mode`), or `{ invalid }` when they cannot. A key not listed
  * here runs nothing.
  */
-export const COMMAND_TO_OP = Object.freeze({
+export const COMMAND_TO_OP: Readonly<Record<string, Target>> = Object.freeze({
   status: 'status.show',
   set: 'config.set',
   unset: 'config.unset',
   pause: 'bot.pause',
   resume: 'bot.resume',
   draw: 'draw.create',
-  pings: (args) => ({ op: absent(args?.mode) ? 'pings.get' : 'pings.set', args }),
+  pings: (args) => ({ op: absent(objOf(args).mode) ? 'pings.get' : 'pings.set', args }),
   media: byAction({ status: 'media.status', rescan: 'media.rescan', recache: 'media.recache' }),
   'model.show': 'model.show',
   'model.set': 'model.set',
@@ -118,7 +131,7 @@ export const COMMAND_TO_OP = Object.freeze({
   'task.run': 'task.run',
   // Her own call adds `action`: read or resolve a finished task (src/tools/impl/catalog.ts, the leaf's persona-only options).
   'task.status': (args) =>
-    args?.action === undefined
+    objOf(args).action === undefined
       ? { op: 'task.status', args }
       : byAction({ read: 'task.read', resolve: 'task.resolve' })(args),
   'task.cancel': 'task.cancel',
@@ -140,7 +153,7 @@ export const COMMAND_TO_OP = Object.freeze({
  * COMMAND_TO_OP: kept only so `legacyGrantOps` can read the grants stored under those keys (the
  * one-time migration, src/tools/impl/grants.ts#migrateGrants). Never dispatched.
  */
-const LEGACY_COMMAND_TO_OP = Object.freeze({
+const LEGACY_COMMAND_TO_OP: Readonly<Record<string, Target>> = Object.freeze({
   status: 'status.show',
   set: 'config.set',
   unset: 'config.unset',
@@ -149,7 +162,7 @@ const LEGACY_COMMAND_TO_OP = Object.freeze({
   interject: 'message.create',
   initiate: 'message.create',
   draw: 'draw.create',
-  pings: (args) => ({ op: absent(args?.mode) ? 'pings.get' : 'pings.set', args }),
+  pings: (args) => ({ op: absent(objOf(args).mode) ? 'pings.get' : 'pings.set', args }),
   'emoji.status': emoji('media.status'),
   'emoji.rescan': emoji('media.rescan'),
   'gifs.status': gifs('media.status'),
@@ -187,21 +200,18 @@ const LEGACY_COMMAND_TO_OP = Object.freeze({
 });
 
 /** `table[key]` resolved with `args`; null for a key the table does not hold. */
-function resolveIn(table, key, args) {
-  if (!Object.hasOwn(table, key)) return null;
+function resolveIn(table: Readonly<Record<string, Target>>, key: string, args: Obj | undefined): Resolved | null {
   const target = table[key];
+  if (!Object.hasOwn(table, key) || target === undefined) return null;
   return typeof target === 'function' ? target(args) : { op: target, args };
 }
 
 /**
  * The operation and arguments a command key runs, `{ invalid }` (an operator-facing message)
  * when its arguments pick none, or null for a key with no operation.
- * @param {string} commandKey
- * @param {object} [args]
- * @returns {{ op: string, args: object } | { invalid: string } | null}
  */
-export function resolveCommand(commandKey, args = {}) {
-  return resolveIn(COMMAND_TO_OP, commandKey, args);
+export function resolveCommand(commandKey: unknown, args: unknown = {}): Resolved | null {
+  return resolveIn(COMMAND_TO_OP, idText(commandKey), objOf(args));
 }
 
 /**
@@ -211,20 +221,21 @@ export function resolveCommand(commandKey, args = {}) {
  * `memory.affinity.read`); an old group -> its keys' operations (`from` the group); a key with
  * no operation (`ping`, `reload`, `learned.list` and the other removed commands) -> null: such a
  * grant is dropped.
- * @param {string} key
- * @returns {{ from: string|null, names: string[] } | null}
  */
-export function legacyGrantOps(key) {
+export function legacyGrantOps(key: string): { from: string | null; names: Array<string> } | null {
   if (key === '*') return { from: '*', names: listOps().map((op) => op.name) };
-  if (Object.hasOwn(LEGACY_COMMAND_TO_OP, key))
-    return { from: null, names: [resolveIn(LEGACY_COMMAND_TO_OP, key, {}).op] };
+  const opOf = (full: string): string => {
+    const resolved = resolveIn(LEGACY_COMMAND_TO_OP, full, {});
+    return resolved !== null && 'op' in resolved ? resolved.op : '';
+  };
+  if (Object.hasOwn(LEGACY_COMMAND_TO_OP, key)) return { from: null, names: [opOf(key)] };
   const under = Object.keys(LEGACY_COMMAND_TO_OP).filter((full) => full.startsWith(`${key}.`));
   if (under.length === 0) return null;
-  return { from: key, names: [...new Set(under.map((full) => resolveIn(LEGACY_COMMAND_TO_OP, full, {}).op))] };
+  return { from: key, names: [...new Set(under.map(opOf))] };
 }
 
 /** A refusal result. */
-function refusal(status, code, summary) {
+function refusal(status: string, code: string, summary: string): OpResult {
   return { status, code, summary, data: null };
 }
 
@@ -234,7 +245,7 @@ function refusal(status, code, summary) {
  * read now. `owner-only` for an owner-only operation, `not-grantable` for one no grant opens (a
  * member operation while `features.memberCommands` is off included), else `not-granted`.
  */
-function checkRights(op, ctx) {
+function checkRights(op: { name: string; rights: Rights }, ctx: Partial<OpContext> | undefined): OpResult | null {
   const code = rightsRefusal(op, { userId: ctx?.userId, roleIds: ctx?.roleIds, config: ctx?.env?.hot?.config });
   if (code === null) return null;
   if (code === CODE.NOT_GRANTED) return refusal('denied', code, 'Not allowed');
@@ -244,11 +255,10 @@ function checkRights(op, ctx) {
 /** What an operation's `run` returned, as a result: a full result passes through; a reply text
  * or `{ text, files }` is an `ok` whose summary is the text and whose data holds the value.
  * Exported for the tests' fake admin, which answers in the same shape. */
-export function asResult(value) {
-  if (value && typeof value === 'object' && STATUSES.includes(value.status)) return value;
-  if (value && typeof value === 'object')
-    return { status: 'ok', code: CODE.OK, summary: String(value.text ?? ''), data: value };
-  const text = String(value ?? '');
+export function asResult(value: unknown): OpResult {
+  if (isObj(value) && typeof value.status === 'string' && STATUSES.includes(value.status)) return value as OpResult;
+  if (isObj(value)) return { status: 'ok', code: CODE.OK, summary: idText(value.text), data: value };
+  const text = idText(value);
   return { status: 'ok', code: CODE.OK, summary: text, data: { text } };
 }
 
@@ -256,32 +266,28 @@ export function asResult(value) {
  * Runs `name` WITHOUT the rights check: only for src/admin.js#run, which the tests drive directly
  * and the slash commands no longer use for an operation (they call `runOp`, rights included).
  * Same result shape as `runOp`; never throws.
- * @param {string} name
- * @param {object} args
- * @param {object} ctx  `{ env, guildId, channelId, userId, roleIds }`
- * @returns {Promise<{ status: string, code: string, summary: string, data: unknown }>}
+ * `ctx` is `{ env, guildId, channelId, userId, roleIds }`.
  */
-export async function runOpPrechecked(name, args = {}, ctx = {}) {
+export async function runOpPrechecked(name: string, args: Obj = {}, ctx: Partial<OpContext> = {}): Promise<OpResult> {
   const op = getOp(name);
   if (!op) return refusal('invalid', CODE.UNKNOWN_OP, `unknown operation: ${name}`);
   try {
-    return asResult(await op.run(args ?? {}, ctx));
+    return asResult(await op.run(args ?? {}, ctx as OpContext));
   } catch (err) {
     if (err instanceof OpError) return refusal(err.status, err.code, err.message);
-    const code = typeof err?.code === 'string' && err.code ? err.code : CODE.ERROR;
+    const given = objOf(err);
+    const code = typeof given.code === 'string' && given.code ? given.code : CODE.ERROR;
     log.warn('ops: failed', { name, code });
-    return refusal('failed', code, String(err?.message ?? err));
+    return refusal('failed', code, err instanceof Error ? err.message : idText(given.message) || idText(err));
   }
 }
 
 /**
  * Runs one operation for a caller: rights first (see `checkRights`), then the operation.
  * Never throws: `{ status: 'ok'|'denied'|'approval_required'|'invalid'|'failed', code, summary, data }`.
- * @param {string} name
- * @param {object} args
- * @param {object} ctx  `{ env, guildId, channelId, userId, roleIds }`; `env` from src/tools/impl/env.ts#createOpsEnv
+ * `ctx` is `{ env, guildId, channelId, userId, roleIds }`; `env` from src/tools/impl/env.ts#createOpsEnv.
  */
-export async function runOp(name, args = {}, ctx = {}) {
+export async function runOp(name: string, args: Obj = {}, ctx: Partial<OpContext> = {}): Promise<OpResult> {
   const op = getOp(name);
   if (!op) return refusal('invalid', CODE.UNKNOWN_OP, `unknown operation: ${name}`);
   const refused = checkRights(op, ctx);

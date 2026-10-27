@@ -34,7 +34,7 @@ import { askPlanner } from '../src/behavior/planner.js';
 import { createTagHistory } from '../src/behavior/mention.js';
 import { createMissed } from '../src/behavior/missed.js';
 import { createMessageHandler } from '../src/behavior/pipeline.js';
-import { createDiscordInterface, normalizeMessage, normalizeOptions, toEvent } from '../interfaces/discord/index.js';
+import { normalizeMessage, normalizeOptions, toEvent } from '../interfaces/discord/index.js';
 import { takeSnapshot } from '../src/behavior/snapshot.ts';
 import { onWorld, onWorldIface, useIface, useSelf, world, worldChannels } from './fixtures/turn-world.ts';
 
@@ -53,9 +53,6 @@ import { feedbackInTurnText, wakeBlockText } from '../src/behavior/wake.js';
 import { labels as contractLabels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { tempDir } from './fixtures/tmp.js';
-
-// The Discord interface's capabilities object, as src/index.js injects it (the recall runner still takes it).
-const DISCORD = createDiscordInterface().capabilities;
 
 // The conversations of the turns, the pipeline and the classifiers are held by a fake interface named `fake`, the
 // persona being `SELF_ID`; the recall runner keeps reading the platform's own objects through the recall bridge.
@@ -1372,18 +1369,6 @@ function discordGuild(channels) {
   return guild;
 }
 
-/** The client of `guild` (the persona's user, the guild cached). @param {{ channels: { cache: Map<string, unknown> } }} guild */
-function discordClient(guild) {
-  return {
-    user: { id: SELF_ID, username: SELF_NAME },
-    guilds: { cache: new Map([[GUILD, guild]]) },
-    channels: {
-      cache: guild.channels.cache,
-      fetch: async (/** @type {string} */ id) => guild.channels.cache.get(id) ?? null,
-    },
-  };
-}
-
 /** The guild of a message the pipeline reads: its id and the persona's name there. */
 const MESSAGE_GUILD = { id: GUILD, members: { me: { displayName: SELF_NAME } } };
 
@@ -1425,7 +1410,6 @@ test('createTurnRunner: a reply turn fills the describer, re-watch, link, search
         route.endsWith('/messages/search') ? { total_results: 1, messages: [[{ ...hit, hit: true }]] } : [],
     },
   };
-  const client = discordClient(guild);
   const channels = worldChannelsOf([
     [GENERAL_INFO, generalRaws()],
     [GARDEN_INFO, [old]],

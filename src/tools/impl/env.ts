@@ -13,21 +13,36 @@ import { log } from '../../log.js';
 import { invalid } from './registry.ts';
 import { NO_GUILD, splitPath, setPath, ownValueAt, readLocalConfig, writeLocalConfig } from './shared.ts';
 import { CODE } from '../codes.ts';
+import { idText, objOf } from '../types.ts';
+import type { Untyped } from '../types.ts';
+import type { Reads } from '../../interface/reads.ts';
+
+/** What `createOpsEnv` is given: the persona's subsystems, the reads of the interface and the clock. */
+export type OpsDeps = {
+  hot: Untyped;
+  store: Untyped;
+  /** The core's reads of the interface. */
+  reads?: Reads | null;
+  /** The persona's own member id, null before the interface has said it. */
+  selfId?: () => string | null;
+  /** The name the persona goes by in a community. */
+  getSelfName?: (communityId: string | null) => string;
+  /** A member's name in the member directory. */
+  memberNameOf?: (communityId: string, memberId: string) => string | null;
+  /** The conversations the interface reported. */
+  directory?: { isPrivate: (conversationId: string) => boolean };
+  /** When the interface's link to its platform last came back (the core fills it from `connection.changed`). */
+  connection?: { lastReconnectAt: number | null };
+  now?: () => number;
+  dataDir?: string | null;
+  [subsystem: string]: Untyped;
+};
 
 /**
  * The operations' environment over `deps` (src/admin.js#createAdmin's dependencies, the same
  * defaults): the dependencies themselves plus the shared helpers.
- * @param {object} deps
- * @param {import('../../interface/reads.ts').Reads|null} [deps.reads]  The core's reads of the interface.
- * @param {() => (string|null)} [deps.selfId]  The persona's own member id, null before the interface has said it.
- * @param {(communityId: string|null) => string} [deps.getSelfName]  The name the persona goes by in a community.
- * @param {(communityId: string, memberId: string) => (string|null)} [deps.memberNameOf]  A member's name in the member directory.
- * @param {{ isPrivate: (conversationId: string) => boolean }} [deps.directory]  The conversations the interface reported.
- * @param {{ lastReconnectAt: number|null }} [deps.connection]  When the interface's link to its platform last came back
- *   (the core fills it from `connection.changed`).
- * @returns {object}
  */
-export function createOpsEnv({
+function buildEnv({
   hot,
   store,
   reads = null,
@@ -68,23 +83,24 @@ export function createOpsEnv({
   inner = null,
   now = Date.now,
   // The data directory src/index.js resolved (src/paths.js); `<hot.rootDir>/data` when not given.
-  dataDir = hot?.rootDir ? path.join(hot.rootDir, 'data') : null,
-} = {}) {
+  dataDir = hot?.rootDir ? path.join(hot.rootDir as string, 'data') : null,
+}: OpsDeps) {
   /** `/<command name> <rest>`, the command name read now (`bot.commandName`, default `nep`):
    * every reply that points the owner at another command says it this way. */
-  function slash(rest) {
+  function slash(rest: string): string {
     return `/${hot.config?.bot?.commandName || 'nep'} ${rest}`;
   }
 
   /** The refusal of a data/ write while paused. */
-  function pausedText() {
+  function pausedText(): string {
     return `paused -- run ${slash('resume')} first`;
   }
 
   /** A background job's skip reason as the owner reads it: the job's own `skips` first, then the
    * reasons every job shares (paused, no guild), else `fallback`. */
-  function skipText(skips, reason, fallback) {
-    if (Object.hasOwn(skips, String(reason))) return skips[reason];
+  function skipText(skips: Record<string, string>, reason: unknown, fallback: string): string {
+    const known = skips[idText(reason)];
+    if (Object.hasOwn(skips, idText(reason)) && known !== undefined) return known;
     if (reason === 'paused') return pausedText();
     if (reason === 'no-guild') return NO_GUILD;
     return fallback;
@@ -97,7 +113,7 @@ export function createOpsEnv({
    * learned.remove, emoji.rescan, gifs.rescan, gifs.recache and draw (it counts against the image rail
    * in state.json).
    */
-  function assertNotPaused() {
+  function assertNotPaused(): void {
     if (store.state.data.paused) {
       throw Object.assign(new Error(pausedText()), { code: CODE.PAUSED });
     }
@@ -110,17 +126,17 @@ export function createOpsEnv({
    * /media/buffer), so this is safe to call before every read while paused.
    * A no-op when not paused, so callers can call it unconditionally.
    */
-  function freshenIfPaused() {
+  function freshenIfPaused(): void {
     if (store.state.data.paused && typeof store.dropCaches === 'function') store.dropCaches();
   }
 
   /** The served guild: the interaction's, else the one this instance resolved; null before then. */
-  function resolvedGuildId(context) {
-    return context?.guildId ?? getGuildId?.() ?? null;
+  function resolvedGuildId(context: { guildId?: string | null } | null | undefined): string | null {
+    return context?.guildId ?? (getGuildId?.() as string | null | undefined) ?? null;
   }
 
   /** The served guild, or an Error before it resolves. */
-  function requireGuildId(context) {
+  function requireGuildId(context: { guildId?: string | null } | null | undefined): string {
     const guildId = resolvedGuildId(context);
     if (!guildId) throw Object.assign(new Error(NO_GUILD), { code: CODE.NO_GUILD });
     return guildId;
@@ -129,46 +145,50 @@ export function createOpsEnv({
   /** `nameOf` (a member's current stored name, or null) and `resolve` (`<@id>` -> `name (id:…)`,
    * an id with no stored name keeping its token) for this guild: the resolution every view of
    * analyzer-written text uses (src/memory/mentions.ts#fromTokens, mode `'analyzer'`). */
-  function tokenResolver(guildId) {
-    const nameOf = (id) => store.getUser(guildId, id)?.names?.[0] ?? null;
-    const resolve = (text) => fromTokens(typeof text === 'string' ? text : '', nameOf, 'analyzer');
+  function tokenResolver(guildId: string): {
+    nameOf: (id: string) => string | null;
+    resolve: (text: unknown) => string;
+  } {
+    const nameOf = (id: string): string | null =>
+      (store.getUser(guildId, id)?.names?.[0] as string | undefined) ?? null;
+    const resolve = (text: unknown): string => fromTokens(typeof text === 'string' ? text : '', nameOf, 'analyzer');
     return { nameOf, resolve };
   }
 
   /** A `system` journal record of `guildId` (features.journal exactly true, read now); never throws. */
-  async function journalSystem(guildId, record) {
+  async function journalSystem(guildId: string | null, record: unknown): Promise<void> {
     if (!journal || !guildId || hot.config?.features?.journal !== true) return;
     try {
       await journal.system(guildId, record);
     } catch (err) {
-      log.warn('admin: journal record failed', { code: err?.code ?? null, guildId });
+      log.warn('admin: journal record failed', { code: objOf(err).code ?? null, guildId });
     }
   }
 
   /** config.local.json in the private directory the live config reads it from (`hot.privateDir`,
    * the checkout root unless set apart; a hot without one falls back to `hot.rootDir`). */
-  function localConfigFile() {
-    return path.join(hot.privateDir ?? hot.rootDir, 'config.local.json');
+  function localConfigFile(): string {
+    return path.join((hot.privateDir ?? hot.rootDir) as string, 'config.local.json');
   }
 
   /** config.local.json passed through `edit` (object in, object out), written back, and the
    * config reloaded; the reload's outcome. Every config writer goes through here. */
-  function editLocalConfig(edit) {
+  function editLocalConfig(edit: (local: Untyped) => unknown): boolean {
     const file = localConfigFile();
     writeLocalConfig(file, edit(readLocalConfig(file)));
-    return hot.reloadConfig();
+    return hot.reloadConfig() as boolean;
   }
 
   /** `value` written at `dottedPath` (or an array of keys, src/tools/impl/shared.ts#splitPath) of
    * config.local.json, then reloaded; the reload's outcome. */
-  function writeLocalPath(dottedPath, value) {
+  function writeLocalPath(dottedPath: string | ReadonlyArray<string>, value: unknown): boolean {
     return editLocalConfig((local) => setPath(local, dottedPath, value));
   }
 
   /** The value at `dottedPath` as of the last write: config.local.json's when it holds the path,
    * else the live config's -- so a read right after a write sees it even a moment before the
    * reload lands. */
-  function localOrLive(dottedPath) {
+  function localOrLive(dottedPath: string | ReadonlyArray<string>): unknown {
     const parts = splitPath(dottedPath, hot.config);
     const local = ownValueAt(readLocalConfig(localConfigFile()), parts);
     return local.found ? local.value : ownValueAt(hot.config, parts).value;
@@ -176,7 +196,7 @@ export function createOpsEnv({
 
   /** The stored profile of `userId`, or an Error `no profile for <id>`: a write command never
    * creates a profile for a member the persona has not met. */
-  function requireProfile(guildId, userId) {
+  function requireProfile(guildId: string, userId: string): Untyped {
     const profile = store.getUser(guildId, userId);
     if (!profile) throw invalid(`no profile for ${userId}`, CODE.NOT_FOUND);
     return profile;
@@ -184,7 +204,7 @@ export function createOpsEnv({
 
   /** The drawing model (`models.base.drawing`) for status and model show, `-` when unset, flagged when src/llm/images.js
    * has no request mapping for its family (every generation would be refused). */
-  function imageModelLabel(cfg) {
+  function imageModelLabel(cfg: object): string {
     const model = roleModel(cfg, 'drawing');
     if (!model) return '-';
     const family = (images?.familyOf ?? imageFamilyOf)(model);
@@ -261,4 +281,12 @@ export function createOpsEnv({
     requireProfile,
     imageModelLabel,
   };
+}
+
+/** The environment an operation runs against: what `createOpsEnv` builds. */
+export type Env = ReturnType<typeof buildEnv>;
+
+/** The operations' environment over `deps` (src/admin.js#createAdmin's dependencies): the dependencies plus the shared helpers. */
+export function createOpsEnv(deps: OpsDeps): Env {
+  return buildEnv(deps);
 }

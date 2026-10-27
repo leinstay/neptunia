@@ -9,6 +9,9 @@ import { messageRefOf, postingConversation } from './shared.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
 import { CODE } from '../codes.ts';
 import { log } from '../../log.js';
+import { idText, objOf } from '../types.ts';
+import type { Adapter } from '../../protocol/adapter.ts';
+import type { OpContext } from '../types.ts';
 
 /** The stage of a SpeechError, as the result words it. */
 const STAGE_NAMES = Object.freeze({
@@ -18,12 +21,16 @@ const STAGE_NAMES = Object.freeze({
   convert: 'conversion',
 });
 
+/** The longest text a voice message may hold: `speech.maxChars` when it is a positive number, else 1500. */
+function maxCharsOf(config: unknown): number {
+  const configured = objOf(objOf(config).speech).maxChars;
+  return typeof configured === 'number' && Number.isFinite(configured) && configured > 0 ? configured : 1500;
+}
+
 const handlers = perEnv((env) => {
   const { hot, speech, assertNotPaused, resolvedGuildId } = env;
-  /** @type {import('../../interface/reads.ts').Reads} */
-  const reads = env.reads;
-  /** @type {import('../../protocol/adapter.ts').Adapter|null|undefined} */
-  const port = env.port;
+  const { reads } = env;
+  const port = env.port as Adapter | null | undefined;
 
   /**
    * One voice message. Answers `{ text, ref, at }` when it was posted: the duration, the
@@ -33,24 +40,22 @@ const handlers = perEnv((env) => {
    * sent, with the pass's reason (timeout, error, empty, mismatch, no-prompt) in `data.reason`; a post that may have gone out is `data.unknown`: never
    * made again.
    */
-  async function cmdVoice(args, context) {
+  async function cmdVoice(args: unknown, context: OpContext): Promise<unknown> {
+    const given = objOf(args);
     if (!speech || !port || typeof port.send !== 'function') {
       return { status: 'failed', code: CODE.SPEECH_NOT_CONFIGURED, summary: 'voice: not available here' };
     }
     assertNotPaused();
-    const text = String(args?.text ?? '').trim();
+    const text = (typeof given.text === 'string' ? given.text : '').trim();
     if (!text) throw invalid('text is required');
-    const maxChars =
-      Number.isFinite(hot.config.speech?.maxChars) && hot.config.speech.maxChars > 0
-        ? hot.config.speech.maxChars
-        : 1500;
+    const maxChars = maxCharsOf(hot.config);
     if (Array.from(text).length > maxChars)
       throw invalid(`text is too long for a voice message (${maxChars} characters at most)`);
-    const reply = args?.replyTo ? await messageRefOf(args.replyTo, reads) : null;
-    const given = args?.channelId ? String(args.channelId) : null;
-    if (given && reply?.channelId && given !== reply.channelId)
+    const reply = given.replyTo ? await messageRefOf(given.replyTo, reads) : null;
+    const inChannel = given.channelId ? idText(given.channelId) : null;
+    if (inChannel && reply?.channelId && inChannel !== reply.channelId)
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
-    const target = given ?? reply?.channelId ?? null;
+    const target = inChannel ?? reply?.channelId ?? null;
     // Checked before anything is made or paid for.
     const postTo = await postingConversation({
       reads,

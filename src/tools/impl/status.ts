@@ -45,12 +45,17 @@ import { missedCounts, missedStatusLine } from '../../behavior/missed.js';
 import { SPEED_METRICS } from './metrics.ts';
 import { activitySums, agentCostsLines, keyCostsLines, roleCostsLines, readAccount, readActivity } from './usage.ts';
 import { PROFILES } from '../../agent-runner/profiles.js';
-import { isPlainObject } from '../../config.js';
 import { fill } from '../../format.js';
 import { innerOn } from '../../behavior/inner.js';
 import { log } from '../../log.js';
 import { modelForRole } from './shared.ts';
 import { defineOp, perEnv } from './registry.ts';
+import { idText, isObj, objOf } from '../types.ts';
+import type { Obj, Untyped } from '../types.ts';
+import type { AccountRead } from './usage.ts';
+
+/** The tokens line of the `inner` field: the core role's tokens today. */
+type InnerTokens = { prompt: number; cached: number; completion: number };
 
 /** The card's field names, in order (src/tools/impl/catalog.ts#STATUS_FIELDS, the `field` option's choices). */
 export { STATUS_FIELDS };
@@ -59,7 +64,7 @@ export { STATUS_FIELDS };
  * The card's fields each part of her `status.show part=` call shows, in card order (STATUS_PARTS; `all` is the whole
  * card). `features` is no card field: the switches of `features` in the live config, one per line (featuresValue).
  */
-export const PART_FIELDS = Object.freeze({
+export const PART_FIELDS: Readonly<Record<string, ReadonlyArray<string> | null>> = Object.freeze({
   overview: ['state', 'limits'],
   limits: ['limits', 'costs.base'],
   models: ['models.base', 'models.errands', 'models.development'],
@@ -83,7 +88,10 @@ const OWNER_FIELDS = new Set([
 
 /** The model roles of the errand agents (src/agent-runner/profiles.js) and `drawing`, which shares
  * their key: a key only they use is the errands' key, which `keys.base` leaves out. */
-const ERRAND_KEY_ROLES = new Set([...Object.values(PROFILES).map((profile) => profile.modelRole), 'drawing']);
+const ERRAND_KEY_ROLES = new Set([
+  ...(Object.values(PROFILES) as Array<Untyped>).map((profile) => profile.modelRole as string),
+  'drawing',
+]);
 
 /**
  * The `models.base` field's groups before drawing, in order: one line per role, then the
@@ -101,12 +109,14 @@ const MODEL_GROUPS = Object.freeze([
 ]);
 
 /** The time of `ts` for the inner field (UTC, minutes). */
-function innerStamp(ts) {
-  return Number.isFinite(ts) ? `${new Date(ts).toISOString().slice(0, 16).replace('T', ' ')} UTC` : '-';
+function innerStamp(ts: unknown): string {
+  return typeof ts === 'number' && Number.isFinite(ts)
+    ? `${new Date(ts).toISOString().slice(0, 16).replace('T', ' ')} UTC`
+    : '-';
 }
 
 /** A label that is a non-empty string, filled; null otherwise (the line is left out). */
-function labelLine(template, values) {
+function labelLine(template: unknown, values: Obj): string | null {
   return typeof template === 'string' && template ? fill(template, values) : null;
 }
 
@@ -115,11 +125,16 @@ function labelLine(template, values) {
  * from `labels.status.inner`; `tokens` (`{ prompt, cached, completion }`, the core role's today from
  * the usage accumulator) adds the tokens line.
  */
-export function innerLines(s, labels, { tokens = null } = {}) {
-  const L = labels?.status?.inner;
-  if (!isPlainObject(L)) return [];
+export function innerLines(
+  s: Untyped,
+  labels: unknown,
+  { tokens = null }: { tokens?: InnerTokens | null } = {}
+): Array<string> {
+  const raw = objOf(objOf(labels).status).inner;
+  if (!isObj(raw)) return [];
+  const L: Untyped = raw;
   const state = s.stopped ? labelLine(L.stopped, { at: innerStamp(s.stoppedAt) }) : labelLine(L.running, {});
-  const kinds = isPlainObject(L.nextKinds) ? L.nextKinds : {};
+  const kinds = objOf(L.nextKinds);
   const intentions = s.intentions;
   return [
     labelLine(L.modeLine, { mode: s.mode, state: state ?? '' }),
@@ -148,7 +163,7 @@ export function innerLines(s, labels, { tokens = null } = {}) {
           completion: tokens.completion ?? 0,
         })
       : null,
-  ].filter(Boolean);
+  ].filter((text): text is string => Boolean(text));
 }
 
 /**
@@ -156,45 +171,48 @@ export function innerLines(s, labels, { tokens = null } = {}) {
  * `unavailable` (the database not open), else `ok` with `{rows}` and `{files}` (the units it holds). Null when
  * the label is missing or blank.
  */
-export function memoryDbStatusLine(s, labels) {
-  const L = labels?.status?.memoryDb;
-  if (!isPlainObject(L) || !isPlainObject(s)) return null;
+export function memoryDbStatusLine(s: Untyped, labels: unknown): string | null {
+  const raw = objOf(objOf(labels).status).memoryDb;
+  if (!isObj(raw) || !isObj(s)) return null;
+  const L: Untyped = raw;
   if (!s.open) return labelLine(L.unavailable, {});
   return labelLine(L.ok, { rows: s.rows ?? 0, files: s.files ?? 0 });
 }
 
 /** `<role> · <model>`: each role shows its own model, never another role's. */
-function roleHead(role, model) {
+function roleHead(role: string, model: string): string {
   return `${role} · ${model}`;
 }
 
 /** An OpenCode agent role's line: its model (an OpenCode worker runs it, so it is never probed). */
-function agentLine(role, cfg) {
+function agentLine(role: string, cfg: Untyped): string {
   return roleHead(role, roleModel(cfg, role) ?? 'no model configured');
 }
 
 /** The `models.errands` or `models.development` field: each role's `agentLine`. */
-function agentModels(cfg, roles) {
+function agentModels(cfg: Untyped, roles: ReadonlyArray<string>): string {
   return roles.map((role) => agentLine(role, cfg)).join('\n');
 }
 
 /** The `models.byPurpose` overrides of the live config whose purpose goes out on one of `roles`
  * (with `unlisted`, also those of a purpose PURPOSE_ROLES does not list), one
  * `byPurpose <purpose> · <model>` line each. */
-function byPurposeLines(cfg, roles, unlisted) {
-  const byPurpose = cfg?.models?.byPurpose;
-  if (!isPlainObject(byPurpose)) return [];
+function byPurposeLines(cfg: Untyped, roles: ReadonlyArray<string>, unlisted?: boolean): Array<string> {
+  const byPurpose: unknown = cfg?.models?.byPurpose;
+  if (!isObj(byPurpose)) return [];
   return Object.entries(byPurpose)
     .filter(([, model]) => typeof model === 'string' && model)
     .filter(([purpose]) =>
-      Object.hasOwn(PURPOSE_ROLES, purpose) ? roles.includes(PURPOSE_ROLES[purpose]) : unlisted === true
+      Object.hasOwn(PURPOSE_ROLES, purpose)
+        ? roles.includes((PURPOSE_ROLES as Record<string, string>)[purpose] ?? '')
+        : unlisted === true
     )
-    .map(([purpose, model]) => `byPurpose ${purpose} · ${model}`);
+    .map(([purpose, model]) => `byPurpose ${purpose} · ${idText(model)}`);
 }
 
 /** The `models.base` field: `lineOf(role)` per role, each group's per-purpose overrides after its role. */
-function groupedModels(cfg, lineOf) {
-  const lines = [];
+function groupedModels(cfg: Untyped, lineOf: (role: string) => string): string {
+  const lines: Array<string> = [];
   for (const group of MODEL_GROUPS) {
     for (const role of group.roles) lines.push(lineOf(role));
     lines.push(...byPurposeLines(cfg, group.roles, group.unlistedPurposes));
@@ -212,7 +230,7 @@ const PROBE_ERROR_CHARS = 100;
 const FIELD_MAX_CHARS = 1024;
 
 /** `value` within Discord's field cap, cut after its last whole line that fits. */
-function fitField(value) {
+function fitField(value: string): string {
   if (value.length <= FIELD_MAX_CHARS) return value;
   const cut = value.slice(0, FIELD_MAX_CHARS);
   const end = cut.lastIndexOf('\n');
@@ -220,18 +238,18 @@ function fitField(value) {
 }
 
 /** `entry.step`/`.name`/`.stage`, or `'step'` when a routing-funnel entry names itself none of those. */
-function funnelStepName(entry) {
+function funnelStepName(entry: Untyped): string {
   return entry?.step ?? entry?.name ?? entry?.stage ?? 'step';
 }
 
 /** `entry.endpoint_count` (OpenRouter's key) first, then a few other plausible spellings. */
-function funnelEndpointCount(entry) {
+function funnelEndpointCount(entry: Untyped): unknown {
   return entry?.endpoint_count ?? entry?.endpoints ?? entry?.count ?? entry?.remaining ?? entry?.endpointCount;
 }
 
-function describeFunnelStep(entry) {
+function describeFunnelStep(entry: Untyped): string {
   const count = funnelEndpointCount(entry);
-  return count == null ? funnelStepName(entry) : `${funnelStepName(entry)} -> ${count} endpoints`;
+  return count == null ? funnelStepName(entry) : `${funnelStepName(entry)} -> ${idText(count)} endpoints`;
 }
 
 /**
@@ -239,19 +257,20 @@ function describeFunnelStep(entry) {
  * first), with the step that first hit 0 endpoints when that is an earlier one: what tells wrong
  * provider keys apart from an outage. Null for a body that is not JSON or carries no funnel.
  */
-function extractRoutingFunnel(rawBody) {
-  if (!rawBody) return null;
-  let parsed;
+function extractRoutingFunnel(rawBody: unknown): string | null {
+  if (typeof rawBody !== 'string' || !rawBody) return null;
+  let parsed: Untyped;
   try {
     parsed = JSON.parse(rawBody);
   } catch {
     return null;
   }
-  const funnel = parsed?.error?.metadata?.routing_funnel ?? parsed?.routing_funnel ?? parsed?.error?.routing_funnel;
+  const funnel: unknown =
+    parsed?.error?.metadata?.routing_funnel ?? parsed?.routing_funnel ?? parsed?.error?.routing_funnel;
   if (!Array.isArray(funnel) || funnel.length === 0) return null;
-  const last = funnel[funnel.length - 1];
+  const last: Untyped = funnel[funnel.length - 1];
   if (!last || typeof last !== 'object') return null;
-  const firstZero = funnel.find((entry) => funnelEndpointCount(entry) === 0);
+  const firstZero: Untyped = funnel.find((entry: Untyped) => funnelEndpointCount(entry) === 0);
   const lastLine = `funnel: ${describeFunnelStep(last)}`;
   return firstZero && firstZero !== last ? `${lastLine} (first hit 0 at ${describeFunnelStep(firstZero)})` : lastLine;
 }
@@ -259,7 +278,7 @@ function extractRoutingFunnel(rawBody) {
 /** One role's probe line: `<head> · <provider> · ok <ms> ms` (`-` when the answer names no
  * provider, as an embedding's does not), or `<head> · failed: <short reason>` with the routing
  * funnel in brackets when the error body has one; `head` is `<role> · <model>` (roleHead). */
-function probeLine(head, outcome) {
+function probeLine(head: string, outcome: Untyped): string {
   if (!outcome.ok) {
     const message = clampChars(oneLine(outcome.err?.message ?? outcome.err ?? 'error'), PROBE_ERROR_CHARS);
     const funnel = extractRoutingFunnel(outcome.err?.body);
@@ -269,12 +288,12 @@ function probeLine(head, outcome) {
 }
 
 /** `used/cap`, the cap `-` when it is not a number. */
-function usedOf(used, cap) {
-  return `${used}/${Number.isFinite(cap) ? cap : '-'}`;
+function usedOf(used: unknown, cap: unknown): string {
+  return `${idText(used)}/${typeof cap === 'number' && Number.isFinite(cap) ? cap : '-'}`;
 }
 
 /** `3d 4h 12m`, `4h 12m` or `12m` for a span in ms. */
-function span(ms) {
+function span(ms: number): string {
   const safe = Math.max(0, ms);
   const days = Math.floor(safe / DAY_MS);
   const hours = Math.floor((safe % DAY_MS) / HOUR_MS);
@@ -293,33 +312,60 @@ const CATCH_UP_HOURS = 72;
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** The days from `from` to `to` (both `YYYY-MM-DD`), both counted. */
-function daysBetween(from, to) {
+function daysBetween(from: string, to: string): number {
   return Math.floor((Date.parse(`${to}T00:00:00.000Z`) - Date.parse(`${from}T00:00:00.000Z`)) / DAY_MS) + 1;
 }
 
 /** `part` of `whole` as a whole percent, `-` of nothing. */
-function percent(part, whole) {
+function percent(part: number, whole: number): string {
   return whole > 0 ? `${Math.round((part / whole) * 100)}%` : '-';
 }
 
 /** A duration for the speed field: `N ms` below a second, else `N.N s`. */
-function duration(ms) {
+function duration(ms: number): string {
   return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`;
 }
 
 /** The length of a list, 0 for anything else. */
-function countOf(list) {
+function countOf(list: unknown): number {
   return Array.isArray(list) ? list.length : 0;
 }
 
 /** `<name>: <count> · <oldest>..<newest>`: the oldest of `starts` to the newest of `ends` (epoch
  * ms, the non-numbers skipped), the count alone when there is no time. */
-function datedLine(name, count, starts, ends) {
-  const from = starts.filter((ms) => Number.isFinite(ms));
-  const to = ends.filter((ms) => Number.isFinite(ms));
+function datedLine(name: string, count: number, starts: ReadonlyArray<unknown>, ends: ReadonlyArray<unknown>): string {
+  const from = starts.filter((ms): ms is number => typeof ms === 'number' && Number.isFinite(ms));
+  const to = ends.filter((ms): ms is number => typeof ms === 'number' && Number.isFinite(ms));
   if (from.length === 0 || to.length === 0) return `${name}: ${count}`;
   return `${name}: ${count} · ${utcDay(Math.min(...from))}..${utcDay(Math.max(...to))}`;
 }
+
+/** The state field: running, or paused with since when and by whom (`pausedBy`, when known);
+ * the owner's card adds the storage line (storageLine). */
+function stateValue(data: Untyped): string {
+  if (!data.paused) return 'running';
+  const by = typeof data.pausedBy === 'string' && data.pausedBy ? ` by <@${data.pausedBy}>` : '';
+  return `paused since ${utcMinute(data.pausedAt)}${by}`;
+}
+
+/** The features part: each `features` switch of the live config that is a plain true or false, `<name> on|off`, sorted by name. */
+function featuresValue(cfg: Untyped): string {
+  const features = objOf(cfg?.features);
+  const lines = Object.keys(features)
+    .filter((name) => typeof features[name] === 'boolean')
+    .sort()
+    .map((name) => `${name} ${features[name] ? 'on' : 'off'}`);
+  return lines.length > 0 ? lines.join('\n') : '-';
+}
+
+/** One field of the status card. */
+type CardField = { name: string; value: string; inline: boolean };
+
+/** What the status card asks: for an owner or a member, one field, or one of her parts. */
+type CardRequest = { owner: boolean; field?: string | null; part?: string | null };
+
+/** `status` of an account read, null when it was read. */
+const statusOfRead = (read: AccountRead): number | null => (read.ok ? null : (read.status ?? null));
 
 const handlers = perEnv((env) => {
   const {
@@ -347,32 +393,24 @@ const handlers = perEnv((env) => {
   // The card's clock (the coverage cache, the storage line): the environment's, else the wall clock.
   const clock = typeof env.now === 'function' ? env.now : Date.now;
   // guildId -> { at, value }: the memory field, reused for COVERAGE_CACHE_MS.
-  const coverageCache = new Map();
-
-  /** The state field: running, or paused with since when and by whom (`pausedBy`, when known);
-   * the owner's card adds the storage line (storageLine). */
-  function stateValue(data) {
-    if (!data.paused) return 'running';
-    const by = typeof data.pausedBy === 'string' && data.pausedBy ? ` by <@${data.pausedBy}>` : '';
-    return `paused since ${utcMinute(data.pausedAt)}${by}`;
-  }
+  const coverageCache = new Map<string, { at: number; value: string }>();
 
   /** The connection field: when the interface's link to its platform last came back. */
-  function connectionValue() {
+  function connectionValue(): string {
     const last = env.connection?.lastReconnectAt;
     return `last reconnect ${last ? utcMinute(last) : 'none'}`;
   }
 
   /** What the archive's pending queue holds for `guildId` (0 without an archive or a guild). */
-  function archivePending(guildId) {
-    const pending = guildId ? archive?.stats?.(guildId)?.pending : 0;
-    return Number.isFinite(pending) ? pending : 0;
+  function archivePending(guildId: string | null): number {
+    const pending: unknown = guildId ? archive?.stats?.(guildId)?.pending : 0;
+    return typeof pending === 'number' && Number.isFinite(pending) ? pending : 0;
   }
 
   /** The long-tasks field: the history backfills and the GIF recache running, and what the archive
    * drain still holds; `none` when nothing runs. */
-  function longTasksValue(guildId) {
-    const parts = [];
+  function longTasksValue(guildId: string | null): string {
+    const parts: Array<string> = [];
     for (const [job, name] of [
       [emojiBackfill, 'emoji backfill'],
       [gifBackfill, 'GIF backfill'],
@@ -387,9 +425,9 @@ const handlers = perEnv((env) => {
 
   /** When the journal was last written (today's lines, else yesterday's: the first hour after midnight), as epoch ms,
    * or null (no journal, nothing written): the journal's own `stats`. */
-  async function journalLastWrite(guildId, nowMs) {
+  async function journalLastWrite(guildId: string, nowMs: number): Promise<number | null> {
     if (typeof journal?.stats !== 'function') return null;
-    return (await journal.stats(guildId, { now: nowMs }))?.lastWriteMs ?? null;
+    return ((await journal.stats(guildId, { now: nowMs }))?.lastWriteMs as number | undefined) ?? null;
   }
 
   /**
@@ -398,8 +436,8 @@ const handlers = perEnv((env) => {
    * for over an hour while turns happen (features.journal exactly true, read now; a reply posted
    * in the last hour per the metrics; nothing is judged without them).
    */
-  async function storageLine(guildId, cfg) {
-    const problems = [];
+  async function storageLine(guildId: string | null, cfg: Untyped): Promise<string> {
+    const problems: Array<string> = [];
     if (typeof journal?.stalled === 'function' && journal.stalled() === true) problems.push('append store stalled');
     const pending = archivePending(guildId);
     if (pending > 0) problems.push(`${pending} archive copies pending`);
@@ -418,7 +456,7 @@ const handlers = perEnv((env) => {
   }
 
   /** The `models.base` field unprobed (a member's card): every role's own model, the drawing model last. */
-  function modelsValue(cfg) {
+  function modelsValue(cfg: Untyped): string {
     const image = roleHead(IMAGE_ROLE, roleModel(cfg, 'drawing') ? imageModelLabel(cfg) : 'no model configured');
     return [groupedModels(cfg, (role) => roleHead(role, modelForRole(role, cfg) ?? 'no model configured')), image].join(
       '\n'
@@ -427,7 +465,7 @@ const handlers = perEnv((env) => {
 
   /** The embedding role's probe: one embedding request of one input (the probe label), never
    * counted against the daily cap. Never rejects. */
-  async function embedProbe(cfg, promptText, timeoutMs) {
+  async function embedProbe(cfg: Untyped, promptText: string, timeoutMs: number): Promise<Untyped> {
     const start = Date.now();
     try {
       const [vector] = await embedder.embed([promptText], {
@@ -445,15 +483,16 @@ const handlers = perEnv((env) => {
 
   /** The drawing model's state from the provider's public listing: one free GET, no generation,
    * no cap counted, no state written. Never rejects. */
-  async function imageListing(model, timeoutMs) {
+  async function imageListing(model: string, timeoutMs: number): Promise<string> {
     if (!(images?.familyOf ?? imageFamilyOf)(model)) return 'unsupported family';
     if (typeof llm?.modelEndpoints !== 'function') return 'not checked (the llm client has no listing)';
     const start = Date.now();
-    let listing;
+    let listing: Untyped;
     try {
       listing = await llm.modelEndpoints(model, { timeoutMs });
     } catch (err) {
-      return `failed: ${err?.name === 'TimeoutError' || err?.name === 'AbortError' ? 'timeout' : 'network'}`;
+      const name = objOf(err).name;
+      return `failed: ${name === 'TimeoutError' || name === 'AbortError' ? 'timeout' : 'network'}`;
     }
     if (listing.status === 404) return 'not listed (HTTP 404)';
     if (!listing.ok) return `failed: HTTP ${listing.status}`;
@@ -465,7 +504,7 @@ const handlers = perEnv((env) => {
 
   /** The drawing model's line (`drawing · no model configured` when none is set); notes when
    * drawing is switched off (features.imageGeneration false; a missing key counts as on). */
-  async function imageProbeLine(cfg, timeoutMs) {
+  async function imageProbeLine(cfg: Untyped, timeoutMs: number): Promise<string> {
     const model = roleModel(cfg, 'drawing');
     if (!model) return roleHead(IMAGE_ROLE, 'no model configured');
     const off = cfg?.features?.imageGeneration === false ? ' (features.imageGeneration is off)' : '';
@@ -482,21 +521,21 @@ const handlers = perEnv((env) => {
    * needs it. Never counted against the daily cap, never calibrated, never writes under data/.
    * Logs `status: probed` with the counts.
    */
-  async function probedModelsValue(cfg) {
+  async function probedModelsValue(cfg: Untyped): Promise<string> {
     const timeoutMs = cfg?.llm?.probeTimeoutMs ?? PROBE_TIMEOUT_MS;
     const labels = hot.prompts?.labels;
-    const modelOf = new Map(MODEL_ROLES.map((role) => [role, modelForRole(role, cfg)]));
+    const modelOf = new Map<string, string | undefined>(MODEL_ROLES.map((role) => [role, modelForRole(role, cfg)]));
     // An embedding probe is another kind of request: never shared with a chat probe of the same model.
-    const targetOf = (role) => {
+    const targetOf = (role: string): string => {
       const model = modelOf.get(role);
       const route = resolveProvider(model, { byModel: cfg?.llm?.providerByModel, fallback: cfg?.llm?.provider, role });
       return `${role === EMBED_ROLE ? 'embed' : 'chat'}\n${model}\n${JSON.stringify(route ?? null)}`;
     };
     const promptText = labels?.status?.probe;
     const canEmbed = typeof embedder?.embed === 'function';
-    const results = new Map();
+    const results = new Map<string, Untyped>();
     if (promptText) {
-      const targets = new Map();
+      const targets = new Map<string, { model: string; role: string }>();
       for (const role of MODEL_ROLES) {
         const model = modelOf.get(role);
         if (role === EMBED_ROLE && !canEmbed) continue;
@@ -535,7 +574,7 @@ const handlers = perEnv((env) => {
       failed: outcomes.filter((outcome) => !outcome.ok).length,
       reason: promptText ? null : 'no-label',
     });
-    const lineOf = (role) => {
+    const lineOf = (role: string): string => {
       const model = modelOf.has(role) ? modelOf.get(role) : modelForRole(role, cfg);
       if (!model) return roleHead(role, 'no model configured');
       const head = roleHead(role, model);
@@ -549,7 +588,7 @@ const handlers = perEnv((env) => {
   }
 
   /** The limits field: every daily rail's used/cap, the web search engine, then when they reset. */
-  function limitsValue(cfg, data) {
+  function limitsValue(cfg: Untyped, data: Untyped): string {
     const nowMs = Date.now();
     const parts = [`requests ${usedOf(llmCountToday(data, nowMs), cfg?.llm?.maxRequestsPerDay)}`];
     if (images) {
@@ -583,7 +622,7 @@ const handlers = perEnv((env) => {
    * OPENROUTER_SIM_KEY, compared by hash) gets no line of its own: the simulator line is its line.
    * Logs `status: account read` with the outcomes' codes. `-` when the labels give no line.
    */
-  async function keyCostsValue(cfg) {
+  async function keyCostsValue(cfg: Untyped): Promise<string> {
     const timeoutMs = cfg?.llm?.probeTimeoutMs ?? PROBE_TIMEOUT_MS;
     const readKey = readAccount(typeof llm?.keyInfo === 'function' ? () => llm.keyInfo({ timeoutMs }) : null);
     const simKey = typeof env.simKey === 'string' && env.simKey ? env.simKey : null;
@@ -592,14 +631,16 @@ const handlers = perEnv((env) => {
       simKey && typeof llm?.keyInfo === 'function'
         ? readAccount(() => llm.keyInfo({ timeoutMs, apiKey: simKey }))
         : null;
-    const allGroups = typeof llm?.roleKeys === 'function' && typeof llm?.keyInfo === 'function' ? llm.roleKeys() : [];
+    const allGroups: Array<Untyped> =
+      typeof llm?.roleKeys === 'function' && typeof llm?.keyInfo === 'function' ? llm.roleKeys() : [];
     // The errand agents' key is not the core's: their spend is the costs.errands field.
-    const agentsOnly = (group) => group.roles.length > 0 && group.roles.every((role) => ERRAND_KEY_ROLES.has(role));
+    const agentsOnly = (group: Untyped): boolean =>
+      group.roles.length > 0 && group.roles.every((role: string) => ERRAND_KEY_ROLES.has(role));
     const agentRoles = allGroups.filter(agentsOnly).flatMap((group) => group.roles);
     const keyGroups = allGroups.filter((group) => !agentsOnly(group));
     // A role on the simulator key is shown on the simulator line, never on a line of its own.
     const simHash = simKey && typeof llm?.keyHash === 'function' ? keyHashOf(simKey) : null;
-    const onSim = (group) => simHash !== null && llm.keyHash({ role: group.roles[0] }) === simHash;
+    const onSim = (group: Untyped): boolean => simHash !== null && llm.keyHash({ role: group.roles[0] }) === simHash;
     const groups = keyGroups.filter((group) => !onSim(group));
     const simRoles = keyGroups.filter(onSim).flatMap((group) => group.roles);
     const readRoleKeys = Promise.all(
@@ -608,7 +649,7 @@ const handlers = perEnv((env) => {
     // The management key reads each key's activity by its hash, for these GETs only; never logged.
     const managementKey = typeof env.managementKey === 'string' && env.managementKey ? env.managementKey : null;
     const canActivity = managementKey && typeof llm?.activity === 'function' && typeof llm?.keyHash === 'function';
-    const readActivityOf = (hashOf) =>
+    const readActivityOf = (hashOf: () => string): Promise<AccountRead> | null =>
       canActivity ? readActivity(() => llm.activity({ apiKey: managementKey, keyHash: hashOf(), timeoutMs })) : null;
     const activityReads = Promise.all([
       readActivityOf(() => llm.keyHash()),
@@ -621,7 +662,9 @@ const handlers = perEnv((env) => {
       readRoleKeys,
       activityReads,
     ]);
-    const activityRead = [mainActivity, simActivity, ...roleActivity].filter(Boolean);
+    const activityRead = [mainActivity, simActivity, ...roleActivity].filter(
+      (outcome): outcome is AccountRead => outcome !== null
+    );
     log.info('status: account read', {
       key: key.ok ? 'ok' : key.reason,
       simKey: sim ? (sim.ok ? 'ok' : sim.reason) : 'not-set',
@@ -629,13 +672,14 @@ const handlers = perEnv((env) => {
       roleKeysOk: roleReads.filter((outcome) => outcome.ok).length,
       activity: canActivity ? activityRead.length : 'not-set',
       activityOk: activityRead.filter((outcome) => outcome.ok).length,
-      status: key.status ?? null,
+      status: statusOfRead(key),
     });
     const today = utcDay(clock());
-    const sumsOf = (outcome) => (outcome?.ok ? activitySums(outcome.data, today) : null);
+    const sumsOf = (outcome: AccountRead | null | undefined) =>
+      outcome?.ok ? activitySums(outcome.data, today) : null;
     // Rolling sums per key: an extra key over its own roles, the main key over every other role.
     const sums = typeof usage?.sumDays === 'function';
-    const windowsOf = (filter) =>
+    const windowsOf = (filter: { only?: ReadonlyArray<string>; except?: ReadonlyArray<string> }) =>
       sums ? { last7: usage.sumDays(7, filter), last30: usage.sumDays(30, filter) } : null;
     const taken = [...groups.flatMap((group) => group.roles), ...simRoles, ...agentRoles];
     const roleKeys = groups.map((group, i) => ({
@@ -668,7 +712,7 @@ const handlers = perEnv((env) => {
    * runs, tokens and estimated dollars today and over the last 7 and 30 days, from the guild's
    * task store (src/errands/store.js#costs; none without the errands or a guild). An agent with
    * no figures shows no runs. `-` when the labels give no line. */
-  function errandCostsValue(guildId) {
+  function errandCostsValue(guildId: string | null): string {
     const tasks = guildId && typeof errands?.store === 'function' ? errands.store(guildId) : null;
     const totals = typeof tasks?.costs === 'function' ? tasks.costs(ERRAND_ROLES) : {};
     const lines = agentCostsLines({ agents: ERRAND_ROLES, totals, labels: hot.prompts?.labels });
@@ -680,7 +724,7 @@ const handlers = perEnv((env) => {
    * line). An agent with no figures shows no runs: a ledger that is not configured, refuses, fails
    * or does not answer in time never fails the field. `-` when the labels give no line. */
   async function developmentCostsValue() {
-    let ledgerTotals = null;
+    let ledgerTotals: Untyped = null;
     try {
       ledgerTotals = typeof errands?.ledger?.costs === 'function' ? await errands.ledger.costs() : null;
     } catch (err) {
@@ -694,10 +738,11 @@ const handlers = perEnv((env) => {
   }
 
   /** The owner's `inner` field: the inner life's status (the same data as `/nep task inner status`); `-` without it. */
-  function innerValue(guildId) {
+  function innerValue(guildId: string | null): string {
     if (typeof env.inner?.status !== 'function') return '-';
     // The core role's tokens today (prompt, cached, completion), from the same accumulator costs.base reads.
-    const row = typeof usage?.byRole === 'function' ? usage.byRole().find((entry) => entry.role === CORE_ROLE) : null;
+    const row =
+      typeof usage?.byRole === 'function' ? usage.byRole().find((entry: Untyped) => entry.role === CORE_ROLE) : null;
     const tokens = row
       ? { prompt: row.promptTokens, cached: row.cachedTokens, completion: row.completionTokens }
       : null;
@@ -707,7 +752,7 @@ const handlers = perEnv((env) => {
 
   /** The record line: its messages (the distinct message ids), its first day to today, and the share of those days
    * with lines: the record's own `stats`. */
-  async function recordLine(guildId, today) {
+  async function recordLine(guildId: string, today: string): Promise<string> {
     if (typeof record?.stats !== 'function') return 'record: not available';
     const { messages, days, first } = await record.stats(guildId);
     if (first === null) return `record: ${messages} messages`;
@@ -718,7 +763,7 @@ const handlers = perEnv((env) => {
   /** The meaning index line: `off` unless features.meaningSearch and features.embedIndex are both
    * exactly true; else its rows (the guild's and every private layer's), the share of the record
    * messages of the last `embed.catchUpHours` it holds and the day of the oldest one missing. */
-  async function indexLine(guildId, cfg) {
+  async function indexLine(guildId: string, cfg: Untyped): Promise<string> {
     if (cfg?.features?.meaningSearch !== true || cfg?.features?.embedIndex !== true) return 'index: off';
     if (typeof embedQueue?.indexSummary !== 'function') return 'index: not available';
     const { rows } = await embedQueue.indexSummary(guildId);
@@ -736,12 +781,12 @@ const handlers = perEnv((env) => {
 
   /** The archive line: its entries by event (ARCHIVE_EVENTS order), and the days the oldest and
    * the newest of them were observed. */
-  async function archiveLine(guildId) {
+  async function archiveLine(guildId: string): Promise<string> {
     if (typeof archive?.iterate !== 'function') return 'archive: not available';
-    const byEvent = new Map();
+    const byEvent = new Map<string, number>();
     let entries = 0;
-    let oldest = null;
-    let newest = null;
+    let oldest: string | null = null;
+    let newest: string | null = null;
     for await (const entry of archive.iterate(guildId)) {
       entries += 1;
       const event = typeof entry?.event === 'string' ? entry.event : 'other';
@@ -751,7 +796,8 @@ const handlers = perEnv((env) => {
       if (oldest === null || day < oldest) oldest = day;
       if (newest === null || day > newest) newest = day;
     }
-    const order = (event) => (ARCHIVE_EVENTS.includes(event) ? ARCHIVE_EVENTS.indexOf(event) : ARCHIVE_EVENTS.length);
+    const order = (event: string): number =>
+      ARCHIVE_EVENTS.includes(event) ? ARCHIVE_EVENTS.indexOf(event) : ARCHIVE_EVENTS.length;
     const kinds = [...byEvent].sort(([a], [b]) => order(a) - order(b)).map(([event, count]) => `${event} ${count}`);
     const parts = [`archive: ${entries} entries`];
     if (kinds.length > 0) parts.push(kinds.join(', '));
@@ -761,7 +807,7 @@ const handlers = perEnv((env) => {
 
   /** The profiles line: their count, the share with a portrait (`character`), their episodes
    * (total and per profile), details, aliases and real names set. */
-  function profilesLine(guildId) {
+  function profilesLine(guildId: string): string {
     const profiles = store.listUserProfiles(guildId) ?? [];
     let portraits = 0;
     let episodes = 0;
@@ -788,15 +834,15 @@ const handlers = perEnv((env) => {
   }
 
   /** The server notes line: lore entries, lessons (`learned`), self facts and in-jokes. */
-  function serverNotesLine(guildId) {
+  function serverNotesLine(guildId: string): string {
     const guild = store.getGuild(guildId) ?? {};
     return `server notes: ${countOf(store.getLore(guildId))} lore entries · ${countOf(guild.learned)} lessons · ${countOf(guild.self)} self facts · ${countOf(guild.injokes)} in-jokes`;
   }
 
   /** The channels line: the channels with notes (a purpose, topics or a tone) of those seen. */
-  function channelsLine(guildId) {
+  function channelsLine(guildId: string): string {
     const channels = store.listChannels(guildId) ?? [];
-    const noted = channels.filter((channel) =>
+    const noted = (channels as Array<Untyped>).filter((channel) =>
       ['purpose', 'topics', 'tone'].some((key) => typeof channel?.[key] === 'string' && channel[key].trim())
     ).length;
     return `channels: ${noted} with notes / ${channels.length} seen (${percent(noted, channels.length)})`;
@@ -804,50 +850,40 @@ const handlers = perEnv((env) => {
 
   /** The recent lines (from the oldest `at` to the newest) and the participation fragments (from
    * the first message of the oldest to the last message of the newest). */
-  function recentLine(guildId) {
-    const lines = store.getRecent?.(guildId)?.lines ?? [];
-    const at = lines.map((line) => line?.at);
+  function recentLine(guildId: string): string {
+    const lines: Array<Untyped> = store.getRecent?.(guildId)?.lines ?? [];
+    const at = lines.map((line: Untyped) => line?.at as unknown);
     return datedLine('recent lines', lines.length, at, at);
   }
 
-  function participationLine(guildId) {
-    const episodes = store.getParticipation?.(guildId)?.episodes ?? [];
+  function participationLine(guildId: string): string {
+    const episodes: Array<Untyped> = store.getParticipation?.(guildId)?.episodes ?? [];
     return datedLine(
       'participation fragments',
       episodes.length,
-      episodes.map((episode) => episode?.startAt),
-      episodes.map((episode) => episode?.lastAt)
+      episodes.map((episode: Untyped) => episode?.startAt as unknown),
+      episodes.map((episode: Untyped) => episode?.lastAt as unknown)
     );
   }
 
   /** One coverage line through `compute`; `<name>: unreadable` (and a warn with the code) when it throws. */
-  async function safeLine(name, compute) {
+  async function safeLine(name: string, compute: () => Promise<string> | string): Promise<string> {
     try {
       return await compute();
     } catch (err) {
-      log.warn('status: coverage failed', { name, code: err?.code ?? null });
+      log.warn('status: coverage failed', { name, code: objOf(err).code ?? null });
       return `${name}: unreadable`;
     }
   }
 
-  /** The features part: each `features` switch of the live config that is a plain true or false, `<name> on|off`, sorted by name. */
-  function featuresValue(cfg) {
-    const features = isPlainObject(cfg?.features) ? cfg.features : {};
-    const lines = Object.keys(features)
-      .filter((name) => typeof features[name] === 'boolean')
-      .sort()
-      .map((name) => `${name} ${features[name] ? 'on' : 'off'}`);
-    return lines.length > 0 ? lines.join('\n') : '-';
-  }
-
   /** The memory database's one line (words from `labels.status.memoryDb`; a missing or blank label leaves the line out). */
-  function memoryDbLine() {
+  function memoryDbLine(): string | null {
     if (typeof memoryDb?.status !== 'function') return null;
     return memoryDbStatusLine(memoryDb.status(), hot.prompts?.labels);
   }
 
   /** The memory field (the coverage of every kind of memory), one line per kind. */
-  async function computeMemory(guildId) {
+  async function computeMemory(guildId: string): Promise<string> {
     const cfg = hot.config;
     const today = utcDay(clock());
     return [
@@ -866,11 +902,11 @@ const handlers = perEnv((env) => {
   }
 
   /** The guild's memory field, computed at most once per COVERAGE_CACHE_MS (the cached text in between). */
-  async function memoryValue(guildId) {
+  async function memoryValue(guildId: string): Promise<string> {
     // The chat window is read live (a config edit shows at once), ahead of the cached coverage.
     const size = hot.config?.context?.channelMessages;
     const windowLine = Number.isFinite(size) ? `chat window: last ${size} messages in the active channel` : null;
-    const withWindow = (value) => [windowLine, value].filter(Boolean).join('\n');
+    const withWindow = (value: string): string => [windowLine, value].filter(Boolean).join('\n');
     const cached = coverageCache.get(guildId);
     if (cached && clock() - cached.at < COVERAGE_CACHE_MS) return withWindow(cached.value);
     const value = await computeMemory(guildId);
@@ -880,7 +916,7 @@ const handlers = perEnv((env) => {
 
   /** The speed field: each metric's median and mean over the last 24 h with the sample count in
    * brackets, `-` without a sample; the planner only while features.turnPlanner is on. */
-  function speedValue(cfg) {
+  function speedValue(cfg: Untyped): string {
     if (typeof metrics?.summary !== 'function') return 'not available';
     return SPEED_METRICS.filter((name) => name !== 'planner' || plannerOn(cfg))
       .map((name) => {
@@ -895,13 +931,13 @@ const handlers = perEnv((env) => {
    * records (src/behavior/missed.js#missedCounts). Null -- no line -- without a journal that
    * reads, without a guild, or with features.journal off; `missed: unreadable` when the read fails.
    */
-  async function missedLine(guildId, cfg) {
+  async function missedLine(guildId: string | null, cfg: Untyped): Promise<string | null> {
     if (!guildId || typeof journal?.read !== 'function' || cfg.features?.journal !== true) return null;
     try {
       const records = await journal.read(guildId, { day: utcDay(clock()), kind: 'answer', n: Number.MAX_SAFE_INTEGER });
       return missedStatusLine(missedCounts(records));
     } catch (err) {
-      log.warn('status: missed unread', { code: err?.code ?? null });
+      log.warn('status: missed unread', { code: objOf(err).code ?? null });
       return 'missed: unreadable';
     }
   }
@@ -915,7 +951,11 @@ const handlers = perEnv((env) => {
    * coverage for another field); any other `field` gives the whole card. Reads the freshest data/
    * even mid-pause.
    */
-  async function cmdStatusCard({ owner, field = null, part = null }) {
+  async function cmdStatusCard({
+    owner,
+    field = null,
+    part = null,
+  }: CardRequest): Promise<{ fields: Array<CardField> }> {
     freshenIfPaused();
     const cfg = hot.config;
     const data = store.state.data ?? {};
@@ -928,15 +968,15 @@ const handlers = perEnv((env) => {
     const partFields =
       typeof part === 'string' && Object.hasOwn(PART_FIELDS, part) && part !== 'all' ? PART_FIELDS[part] : null;
     const probe = partFields === null && part !== 'all';
-    const shown = partFields
+    const shown: Array<string> = partFields
       ? partFields.filter((name) => name === 'features' || visible.includes(name))
-      : visible.includes(field)
+      : field !== null && visible.includes(field)
         ? [field]
-        : visible;
-    if (partFields && shown.length === 0) return { fields: [{ name: part, value: '-', inline: false }] };
+        : [...visible];
+    if (partFields && shown.length === 0) return { fields: [{ name: part ?? '', value: '-', inline: false }] };
     // Each field's work, run only for the fields shown, all at once: the account reads go out
     // alongside the model probes.
-    const compute = {
+    const compute: Record<string, () => Promise<string> | string> = {
       // The state, then the gateway connection, then the uptime.
       state: async () =>
         [
@@ -963,7 +1003,7 @@ const handlers = perEnv((env) => {
       memory: () => (guildId ? memoryValue(guildId) : unresolved),
       speed: async () => [speedValue(cfg), await missedLine(guildId, cfg)].filter(Boolean).join('\n'),
     };
-    const values = await Promise.all(shown.map((name) => compute[name]()));
+    const values = await Promise.all(shown.map(async (name) => (await compute[name]?.()) ?? '-'));
     const fields = shown.map((name, i) => ({ name, value: fitField(values[i] || '-'), inline: false }));
     return { fields };
   }
@@ -976,9 +1016,9 @@ defineOp({
   rights: { kind: 'read' },
   run: async (args, ctx) => {
     const owner = isOwnerId(ctx.env.hot.config, ctx?.userId);
-    const field = typeof args?.field === 'string' ? args.field : null;
+    const field = typeof args.field === 'string' ? args.field : null;
     // Her own call without a part gets the short overview; the owner's command without a field, the whole card.
-    const asked = typeof args?.part === 'string' && STATUS_PARTS.includes(args.part) ? args.part : null;
+    const asked = typeof args.part === 'string' && STATUS_PARTS.includes(args.part) ? args.part : null;
     const part = asked ?? (ctx?.actor === 'persona' && !field ? 'overview' : null);
     const card = await handlers(ctx.env).cmdStatusCard({ owner, field, part });
     return { text: '', embeds: [card] };

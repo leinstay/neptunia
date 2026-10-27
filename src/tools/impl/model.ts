@@ -14,6 +14,7 @@ import {
 } from '../../llm/roles.js';
 import { onOff, reloadNote, setPath, MODEL_ID_RE, modelForRole } from './shared.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
+import { objOf } from '../types.ts';
 
 /** The roles whose model writes the media cache's descriptions: a change re-describes them (media.recacheBefore). */
 const MEDIA_ROLES = new Set(['vision', 'video']);
@@ -24,7 +25,7 @@ const handlers = perEnv((env) => {
   /** One `<role>: <model>` line per role: the base roles (the core, the helpers, drawing), then the errand and development roles each under a group line (`errands:`, `development:`). */
   function cmdModelShow() {
     const cfg = hot.config;
-    const lineOf = (role) => `${role}: ${modelForRole(role, cfg) ?? '-'}`;
+    const lineOf = (role: string): string => `${role}: ${modelForRole(role, cfg) ?? '-'}`;
     const lines = [
       'base:',
       lineOf(CORE_ROLE),
@@ -39,14 +40,15 @@ const handlers = perEnv((env) => {
     return lines.join('\n');
   }
 
-  function cmdModelSet(args) {
-    const role = String(args?.role ?? '');
+  function cmdModelSet(args: unknown): string {
+    const given = objOf(args);
+    const role = typeof given.role === 'string' ? given.role : '';
     const dottedPath = Object.hasOwn(MODEL_SET_PATHS, role) ? MODEL_SET_PATHS[role] : null;
     if (!dottedPath) throw invalid(`unknown role: ${role} (${MODEL_SET_ROLES.join(', ')})`);
     // `models.<group>.<role>`.
-    const keys = roleConfigKeys(role);
+    const keys = roleConfigKeys(role) ?? [];
 
-    const id = String(args?.id ?? '').trim();
+    const id = (typeof given.id === 'string' ? given.id : '').trim();
     if (!MODEL_ID_RE.test(id))
       throw invalid('id must look like a model id, e.g. anthropic/claude-haiku-4.5 (3-100 chars)');
 

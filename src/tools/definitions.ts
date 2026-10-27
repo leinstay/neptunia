@@ -4,51 +4,100 @@
 // `params`, the JSON Schema of her arguments), how a call reaches the operation (`op`, `body`,
 // `toArgs`), and what the operation costs and changes (`effects`, `costClass`, `feature`,
 // `result`). Nothing here reads the owner's slash commands; `toArgs` maps her arguments to the
-// operation's arguments by hand. Pure: no imports, no state.
+// operation's arguments by hand. Pure: no state, and it imports only types.
+
+import { idText, isObj, objOf } from './types.ts';
+import type { Obj } from './types.ts';
+import type { EffectClass } from './impl/effects.ts';
 
 const STRING_MAX = 6000;
 const API_NAME = /^[a-zA-Z0-9_-]{1,64}$/;
 
-const EFFECT_NAMES = Object.freeze(['read', 'write', 'destructive', 'administrative', 'paid']);
-const COST_NAMES = Object.freeze(['free', 'paid']);
-const RESULT_NAMES = Object.freeze(['effect', 'job', 'data']);
-const REF_KINDS = Object.freeze(['channel', 'user', 'role']);
+const EFFECT_NAMES: ReadonlyArray<string> = Object.freeze(['read', 'write', 'destructive', 'administrative', 'paid']);
+const COST_NAMES: ReadonlyArray<string> = Object.freeze(['free', 'paid']);
+const RESULT_NAMES: ReadonlyArray<string> = Object.freeze(['effect', 'job', 'data']);
+const REF_KINDS: ReadonlyArray<string> = Object.freeze(['channel', 'user', 'role']);
+
+/** The JSON Schema of an argument, in the few keywords src/tools/schema.ts reads. */
+export type Schema = {
+  type: string;
+  properties?: Record<string, Schema>;
+  required?: ReadonlyArray<string>;
+  additionalProperties?: boolean;
+  minLength?: number;
+  maxLength?: number;
+  minimum?: number;
+  maximum?: number;
+  enum?: ReadonlyArray<string>;
+};
+
+/** Her arguments by name, as the model sent them. */
+export type Given = Record<string, unknown> | null | undefined;
+
+/** The operation's arguments for her `given`, or null when they map to nothing. */
+export type ToArgs = (given: Given) => Obj | null;
+
+/** What a reference argument names: a channel, a member or a role the server resolves to an id. */
+export type RefKind = 'channel' | 'user' | 'role';
+
+/** One skill as the table defines it. */
+export type Definition = {
+  name: string;
+  /** Its name in a tool-calling API. */
+  api: string;
+  op: string;
+  params: Schema;
+  refs: Readonly<Record<string, RefKind>>;
+  /** The string argument her call may carry as its text, or null. */
+  body: string | null;
+  effects: EffectClass;
+  costClass: 'free' | 'paid';
+  feature: string | null;
+  result: 'effect' | 'job' | 'data';
+  toArgs: ToArgs;
+};
 
 /** An object schema: `properties` in order, `required` names, nothing else allowed. */
-export const obj = (properties, required = []) => ({
+export const obj = (properties: Record<string, Schema>, required: ReadonlyArray<string> = []): Schema => ({
   type: 'object',
   properties,
   required,
   additionalProperties: false,
 });
 /** A free string, 1 to `max` characters. */
-export const str = (max = STRING_MAX) => ({ type: 'string', minLength: 1, maxLength: max });
+export const str = (max: number = STRING_MAX): Schema => ({ type: 'string', minLength: 1, maxLength: max });
 /** One of `values`, as a string. */
-export const oneOf = (values) => ({ type: 'string', minLength: 1, maxLength: STRING_MAX, enum: [...values] });
+export const oneOf = (values: ReadonlyArray<string>): Schema => ({
+  type: 'string',
+  minLength: 1,
+  maxLength: STRING_MAX,
+  enum: [...values],
+});
 /** An integer, with the bounds given. */
-export const int = (min, max) => ({
+export const int = (min?: number, max?: number): Schema => ({
   type: 'integer',
   ...(Number.isFinite(min) ? { minimum: min } : {}),
   ...(Number.isFinite(max) ? { maximum: max } : {}),
 });
 /** A yes/no. */
-export const bool = () => ({ type: 'boolean' });
+export const bool = (): Schema => ({ type: 'boolean' });
 /** An opaque reference (a member, a channel, a role) the server resolves to an id. */
-export const ref = () => ({ type: 'string', minLength: 1, maxLength: 100 });
+export const ref = (): Schema => ({ type: 'string', minLength: 1, maxLength: 100 });
 
 /** Her argument `name`, or null when she did not give it. */
-export const val = (given, name) =>
+export const val = (given: Given, name: string): unknown =>
   given && Object.hasOwn(given, name) && given[name] !== undefined ? given[name] : null;
 /** Her argument `name` as an id string, or undefined when she did not give it. */
-export const idOf = (given, name) => (val(given, name) === null ? undefined : String(val(given, name)));
+export const idOf = (given: Given, name: string): string | undefined =>
+  val(given, name) === null ? undefined : idText(val(given, name));
 /** A yes/no value as a boolean (`true`/`false` as a boolean or a string, any case), else null. */
-export function flag(value) {
+export function flag(value: unknown): boolean | null {
   if (typeof value === 'boolean') return value;
   const text = typeof value === 'string' ? value.trim().toLowerCase() : '';
   return text === 'true' ? true : text === 'false' ? false : null;
 }
 /** Her argument `name`, or undefined when she did not give it. */
-const opt = (given, name) => val(given, name) ?? undefined;
+const opt = (given: Given, name: string): unknown => val(given, name) ?? undefined;
 
 /**
  * The arguments of each `intent.*` skill: only the fields its operation reads (src/tools/impl/intent.ts).
@@ -97,9 +146,9 @@ export const INTENT_PARAMS = Object.freeze({
 });
 
 /** The operation's arguments for an `intent.*` call with `action`: what she gave, nothing else. */
-export function intentArgs(action) {
+export function intentArgs(action: string): ToArgs {
   return (a) => {
-    const out = { action };
+    const out: Obj = { action };
     for (const name of [
       'text',
       'id',
@@ -128,7 +177,7 @@ export function intentArgs(action) {
 }
 
 /** The name each skill has in a tool-calling API (letters, digits, `_`, `-`; up to 64), one per skill. */
-export const API_NAMES = Object.freeze({
+export const API_NAMES: Readonly<Record<string, string>> = Object.freeze({
   'status.show': 'status_show',
   'config.set': 'config_set',
   'config.unset': 'config_unset',
@@ -198,20 +247,30 @@ export const API_NAMES = Object.freeze({
   'conversation.read': 'conversation_read',
 });
 
-const NO_REFS = Object.freeze({});
-const JOBS = Object.freeze(['task.run', 'media.recache']);
+const NO_REFS: Readonly<Record<string, RefKind>> = Object.freeze({});
+const JOBS: ReadonlyArray<string> = Object.freeze(['task.run', 'media.recache']);
 const ROUTE_ROLES = ['core', 'analyzer', 'vision', 'video', 'embedding', 'speech', 'drawing'];
-const MEDIA_PARAMS = (kinds) => obj({ kind: oneOf(kinds) }, ['kind']);
+const MEDIA_PARAMS = (kinds: ReadonlyArray<string>): Schema => obj({ kind: oneOf(kinds) }, ['kind']);
 const ACCESS_PARAMS = () => obj({ command: str(), role: ref(), user: ref() }, ['command']);
 const REACT_PARAMS = () => obj({ message: str(), emoji: str(100), channel: ref() }, ['message', 'emoji']);
 const USER_ONLY = () => obj({ user: ref() }, ['user']);
 const EMPTY = () => obj({});
 
+/** What a row of the table says; `def` works out the rest. */
+type Row = {
+  params: Schema;
+  refs?: Readonly<Record<string, RefKind>>;
+  body?: string | null;
+  effects: EffectClass;
+  feature?: string | null;
+  toArgs: ToArgs;
+};
+
 /** One entry: the table row with the fields every row shares worked out from `effects` and the name. */
-function def(name, { params, refs = NO_REFS, body = null, effects, feature = null, toArgs }) {
+function def(name: string, { params, refs = NO_REFS, body = null, effects, feature = null, toArgs }: Row): Definition {
   return {
     name,
-    api: API_NAMES[name],
+    api: API_NAMES[name] ?? '',
     op: name,
     params,
     refs,
@@ -224,27 +283,35 @@ function def(name, { params, refs = NO_REFS, body = null, effects, feature = nul
   };
 }
 
-const mediaArgs = (action) => (a) => ({
-  kind: val(a, 'kind'),
-  action,
-  ...(val(a, 'days') == null ? {} : { days: val(a, 'days') }),
-});
-const accessArgs = (a) => ({ command: val(a, 'command'), roleId: idOf(a, 'role'), userId: idOf(a, 'user') });
-const reactArgs = (action) => (a) => ({
-  action,
-  messageId: val(a, 'message'),
-  emoji: val(a, 'emoji'),
-  channelId: idOf(a, 'channel'),
-});
-const taskStatusArgs = (action) => (a) => ({ id: opt(a, 'id'), action, from: opt(a, 'from') });
+const mediaArgs =
+  (action: string): ToArgs =>
+  (a) => ({
+    kind: val(a, 'kind'),
+    action,
+    ...(val(a, 'days') == null ? {} : { days: val(a, 'days') }),
+  });
+const accessArgs: ToArgs = (a) => ({ command: val(a, 'command'), roleId: idOf(a, 'role'), userId: idOf(a, 'user') });
+const reactArgs =
+  (action: string): ToArgs =>
+  (a) => ({
+    action,
+    messageId: val(a, 'message'),
+    emoji: val(a, 'emoji'),
+    channelId: idOf(a, 'channel'),
+  });
+const taskStatusArgs =
+  (action: string | undefined): ToArgs =>
+  (a) => ({ id: opt(a, 'id'), action, from: opt(a, 'from') });
 // A member the operation needs: no member, no call.
-const forMember = (build) => (a) => {
-  const userId = idOf(a, 'user');
-  return userId === undefined ? null : build(userId, a);
-};
+const forMember =
+  (build: (userId: string, given: Given) => Obj): ToArgs =>
+  (a) => {
+    const userId = idOf(a, 'user');
+    return userId === undefined ? null : build(userId, a);
+  };
 const none = () => ({});
 
-const ENTRIES = [
+const ENTRIES: Array<Definition> = [
   def('status.show', {
     params: obj({
       field: oneOf([
@@ -714,7 +781,7 @@ const ENTRIES = [
     refs: { channel: 'channel' },
     effects: 'read',
     toArgs: (a) => {
-      const out = {};
+      const out: Obj = {};
       for (const name of ['around', 'before', 'after', 'since']) {
         const value = val(a, name);
         if (value !== null) out[name] = value;
@@ -729,55 +796,83 @@ const ENTRIES = [
   }),
 ];
 
+function checkIdentity(definition: Obj, names: Set<string>, apis: Set<string>): string {
+  const name = definition.name;
+  if (typeof name !== 'string' || !name) throw new Error('a skill definition needs a name');
+  if (names.has(name)) throw new Error(`skill defined twice: ${name}`);
+  names.add(name);
+  const { api } = definition;
+  if (typeof api !== 'string' || !API_NAME.test(api))
+    throw new Error(`skill ${name}: api name must match ${String(API_NAME)}`);
+  if (apis.has(api)) throw new Error(`skill ${name}: api name ${api} is used twice`);
+  apis.add(api);
+  if (typeof definition.op !== 'string' || !definition.op) throw new Error(`skill ${name}: op is required`);
+  return name;
+}
+
+/** The arguments a definition's `params` schema holds, and which of them are required. */
+function checkSchema(name: string, definition: Obj): { properties: Obj; required: Array<unknown> } {
+  const schema = objOf(definition.params);
+  const properties = objOf(schema.properties);
+  const required = Array.isArray(schema.required) ? (schema.required as Array<unknown>) : null;
+  if (!isObj(definition.params) || schema.type !== 'object' || !isObj(schema.properties) || required === null)
+    throw new Error(`skill ${name}: params must be an object schema`);
+  return { properties, required };
+}
+
+function checkKinds(name: string, definition: Obj): void {
+  if (typeof definition.effects !== 'string' || !EFFECT_NAMES.includes(definition.effects))
+    throw new Error(`skill ${name}: effects must be one of ${EFFECT_NAMES.join(', ')}`);
+  if (typeof definition.costClass !== 'string' || !COST_NAMES.includes(definition.costClass))
+    throw new Error(`skill ${name}: costClass must be free or paid`);
+  if (typeof definition.result !== 'string' || !RESULT_NAMES.includes(definition.result))
+    throw new Error(`skill ${name}: result must be one of ${RESULT_NAMES.join(', ')}`);
+}
+
+function checkArguments(name: string, definition: Obj, properties: Obj, required: ReadonlyArray<unknown>): void {
+  if (
+    definition.body !== null &&
+    objOf(typeof definition.body === 'string' ? properties[definition.body] : null).type !== 'string'
+  )
+    throw new Error(`skill ${name}: body must be null or a string argument`);
+  for (const [argument, kind] of Object.entries(objOf(definition.refs))) {
+    if (!Object.hasOwn(properties, argument)) throw new Error(`skill ${name}: ref ${argument} is not an argument`);
+    if (typeof kind !== 'string' || !REF_KINDS.includes(kind))
+      throw new Error(`skill ${name}: ref ${argument} has an unknown kind ${String(kind)}`);
+  }
+  for (const entry of required)
+    if (typeof entry !== 'string' || !Object.hasOwn(properties, entry))
+      throw new Error(`skill ${name}: required ${String(entry)} is not an argument`);
+}
+
 /**
  * Checks a list of definitions; throws on the first problem (a programming error, found at
  * start): a missing or repeated name, a missing or repeated or ill-formed API name, an unknown
  * effect, cost class or result, a body that is not a string argument, a reference that is not
  * an argument or has an unknown kind, a feature that is not a name, a missing `params` or `toArgs`.
- * @param {object[]} [definitions]
- * @returns {object[]} the same list
  */
-export function validateDefinitions(definitions = SKILL_DEFINITIONS) {
+export function validateDefinitions(
+  definitions: ReadonlyArray<unknown> = SKILL_DEFINITIONS
+): ReadonlyArray<Definition> {
   if (!Array.isArray(definitions)) throw new Error('skill definitions must be a list');
-  const names = new Set();
-  const apis = new Set();
-  for (const definition of definitions) {
-    const name = definition?.name;
-    if (typeof name !== 'string' || !name) throw new Error('a skill definition needs a name');
-    if (names.has(name)) throw new Error(`skill defined twice: ${name}`);
-    names.add(name);
-    const { api, params } = definition;
-    if (typeof api !== 'string' || !API_NAME.test(api))
-      throw new Error(`skill ${name}: api name must match ${API_NAME}`);
-    if (apis.has(api)) throw new Error(`skill ${name}: api name ${api} is used twice`);
-    apis.add(api);
-    if (typeof definition.op !== 'string' || !definition.op) throw new Error(`skill ${name}: op is required`);
-    if (!params || params.type !== 'object' || typeof params.properties !== 'object' || !Array.isArray(params.required))
-      throw new Error(`skill ${name}: params must be an object schema`);
-    if (!EFFECT_NAMES.includes(definition.effects))
-      throw new Error(`skill ${name}: effects must be one of ${EFFECT_NAMES.join(', ')}`);
-    if (!COST_NAMES.includes(definition.costClass)) throw new Error(`skill ${name}: costClass must be free or paid`);
-    if (!RESULT_NAMES.includes(definition.result))
-      throw new Error(`skill ${name}: result must be one of ${RESULT_NAMES.join(', ')}`);
-    if (definition.body !== null && params.properties[definition.body]?.type !== 'string')
-      throw new Error(`skill ${name}: body must be null or a string argument`);
-    for (const [argument, kind] of Object.entries(definition.refs ?? {})) {
-      if (!Object.hasOwn(params.properties, argument))
-        throw new Error(`skill ${name}: ref ${argument} is not an argument`);
-      if (!REF_KINDS.includes(kind)) throw new Error(`skill ${name}: ref ${argument} has an unknown kind ${kind}`);
-    }
-    for (const required of params.required)
-      if (!Object.hasOwn(params.properties, required))
-        throw new Error(`skill ${name}: required ${required} is not an argument`);
+  const names = new Set<string>();
+  const apis = new Set<string>();
+  for (const candidate of definitions) {
+    const definition = objOf(candidate);
+    const name = checkIdentity(definition, names, apis);
+    const { properties, required } = checkSchema(name, definition);
+    checkKinds(name, definition);
+    checkArguments(name, definition, properties, required);
     if (definition.feature !== null && (typeof definition.feature !== 'string' || !definition.feature))
       throw new Error(`skill ${name}: feature must be null or a name`);
     if (typeof definition.toArgs !== 'function') throw new Error(`skill ${name}: toArgs is required`);
   }
-  return definitions;
+  // Every entry passed the checks above, which are the whole of the `Definition` type.
+  return definitions as ReadonlyArray<Definition>;
 }
 
-function deepFreeze(value) {
-  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
     Object.freeze(value);
     for (const inner of Object.values(value)) deepFreeze(inner);
   }
@@ -785,23 +880,23 @@ function deepFreeze(value) {
 }
 
 /** Every skill, one per operation, in the operations registry's order. */
-export const SKILL_DEFINITIONS = deepFreeze(validateDefinitions(ENTRIES));
+export const SKILL_DEFINITIONS: ReadonlyArray<Definition> = deepFreeze(validateDefinitions(ENTRIES));
 
 /** The API name of skill `name`, or null. */
-export function apiNameOf(name) {
-  return Object.hasOwn(API_NAMES, name) ? API_NAMES[name] : null;
+export function apiNameOf(name: string): string | null {
+  return Object.hasOwn(API_NAMES, name) ? (API_NAMES[name] ?? null) : null;
 }
 
 /** The skill whose API name is `api`, or null. */
-export function skillNameOfApi(api) {
+export function skillNameOfApi(api: unknown): string | null {
   for (const [name, candidate] of Object.entries(API_NAMES)) if (candidate === api) return name;
   return null;
 }
 
 /** The arguments of a definition as `{ name, kind }` in order: `string`, `integer`, `boolean`, or the kind of reference. */
-export function optionsOfDefinition(definition) {
-  return Object.entries(definition.params.properties).map(([name, schema]) => ({
+export function optionsOfDefinition(definition: Definition): Array<{ name: string; kind: string }> {
+  return Object.entries(definition.params.properties ?? {}).map(([name, schema]) => ({
     name,
-    kind: definition.refs?.[name] ?? schema.type,
+    kind: definition.refs[name] ?? schema.type,
   }));
 }

@@ -849,9 +849,9 @@ export function turnsToday(state, { now, timezone }) {
 }
 
 /**
- * What becomes of the wakes of `group` after a turn that ended in an error at `at`: `requeue` with
- * the next delay of `settings.retry.delaysMinutes` (the last one repeats) as long as the first
- * failure is younger than `retry.maxHours`, else `drop`. `n` is the attempt number that failed.
+ * What becomes of the wakes of `group` after a turn that failed at `at`: `requeue` after the next delay of
+ * `settings.retry.delaysMinutes` while the first failure is under `retry.maxHours` old, else `drop`; `n` counts attempts.
+ * @param {unknown} [code]  The failure's code.
  * @returns {{ action: 'requeue'|'drop', n: number, firstFailedAt: number, notBefore: number|null }}
  */
 export function planRetry(group, at, settings, code = CODE.ERROR) {

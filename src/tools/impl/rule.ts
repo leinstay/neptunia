@@ -7,6 +7,7 @@ import path from 'node:path';
 import { NONE, listRules, appendRule, removeRule, reloadNote } from './shared.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
 import { CODE } from '../codes.ts';
+import { objOf } from '../types.ts';
 
 const handlers = perEnv((env) => {
   const { hot } = env;
@@ -29,15 +30,16 @@ const handlers = perEnv((env) => {
 
   /** Write `text` to prompts.local/rules.md, creating the directory when needed, and reload the
    * prompts; the reload's outcome. The tracked base file is never touched. */
-  function writeLocalRules(text) {
+  function writeLocalRules(text: string): boolean {
     const file = localRulesFile();
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, text);
     return hot.reloadPrompts();
   }
 
-  function cmdRuleAdd(args) {
-    const rule = String(args?.text ?? '').trim();
+  function cmdRuleAdd(args: unknown): string {
+    const said = objOf(args).text;
+    const rule = (typeof said === 'string' ? said : '').trim();
     if (!rule) throw invalid('rule text is required');
     const ok = writeLocalRules(appendRule(readRules(), rule));
     return `Rule added: ${rule} ${reloadNote(ok)}`;
@@ -49,9 +51,9 @@ const handlers = perEnv((env) => {
     return rules.map((rule, i) => `${i + 1}. ${rule}`).join('\n');
   }
 
-  function cmdRuleRemove(args) {
-    const n = args?.number;
-    if (!Number.isInteger(n)) throw invalid('a rule number is required');
+  function cmdRuleRemove(args: unknown): string {
+    const n = objOf(args).number;
+    if (typeof n !== 'number' || !Number.isInteger(n)) throw invalid('a rule number is required');
     const result = removeRule(readRules(), n);
     if (!result) throw invalid(`no rule #${n}`, CODE.NOT_FOUND);
     const ok = writeLocalRules(result.text);

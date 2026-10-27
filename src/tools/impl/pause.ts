@@ -4,9 +4,11 @@
 
 import { log } from '../../log.js';
 import { defineOp, perEnv } from './registry.ts';
+import { objOf } from '../types.ts';
+import type { OpContext } from '../types.ts';
 
 const handlers = perEnv((env) => {
-  const { hot, store, turns, pending, gifRecache, slash, resolvedGuildId, journalSystem, embedQueue } = env;
+  const { slash, resolvedGuildId, journalSystem } = env;
 
   /**
    * Sets `paused`/`pausedAt` (and `pausedBy`, the caller) in state.json FIRST (so a crash or restart
@@ -19,8 +21,8 @@ const handlers = perEnv((env) => {
    * state. Then the journal's `pause` record; nothing is posted to the chat (the persona learns
    * of the pause from the journal, src/memory/journal.js#offPeriods).
    */
-  async function cmdPause(context) {
-    const state = store.state.data;
+  async function cmdPause(context: OpContext): Promise<string> {
+    const state = env.store.state.data;
     if (state.paused) {
       return [
         `Already paused (since ${state.pausedAt ?? '?'}).`,
@@ -32,28 +34,28 @@ const handlers = perEnv((env) => {
     state.pausedAt = new Date().toISOString();
     // Who paused, for the status card; absent when the caller is unknown.
     if (context?.userId) state.pausedBy = String(context.userId);
-    store.state.markDirty();
-    store.flush();
+    env.store.state.markDirty();
+    env.store.flush();
 
-    if (turns && typeof turns.waitIdle === 'function') {
-      await turns.waitIdle();
+    if (env.turns && typeof env.turns.waitIdle === 'function') {
+      await env.turns.waitIdle();
     }
 
     // A GIF recache in flight writes the media cache: it stops before its
     // next GIF once `paused` is seen; wait for the one in flight.
-    if (gifRecache && typeof gifRecache.waitIdle === 'function') {
-      await gifRecache.waitIdle();
+    if (env.gifRecache && typeof env.gifRecache.waitIdle === 'function') {
+      await env.gifRecache.waitIdle();
     }
 
-    if (pending && typeof pending.clear === 'function') {
-      pending.clear();
+    if (env.pending && typeof env.pending.clear === 'function') {
+      env.pending.clear();
     }
 
     // A file held for the archive (an item rewritten in place) waits up to archive.holdMaxMs, then is written.
-    if (typeof store.flushSettled === 'function')
-      await store.flushSettled({ holdMaxMs: hot.config?.archive?.holdMaxMs ?? 5000 });
-    else store.flush();
-    const dropped = typeof store.dropCaches === 'function' ? store.dropCaches() : 0;
+    if (typeof env.store.flushSettled === 'function')
+      await env.store.flushSettled({ holdMaxMs: env.hot.config?.archive?.holdMaxMs ?? 5000 });
+    else env.store.flush();
+    const dropped = typeof env.store.dropCaches === 'function' ? env.store.dropCaches() : 0;
 
     log.info('admin: paused', { dropped });
 
@@ -75,19 +77,19 @@ const handlers = perEnv((env) => {
    * catch-up pass starts in the background (`embedQueue.catchUp`, never awaited; it does nothing
    * with the index switches off).
    */
-  async function cmdResume(context) {
-    if (!store.state.data.paused) return 'Not paused.';
+  async function cmdResume(context: OpContext): Promise<string> {
+    if (!env.store.state.data.paused) return 'Not paused.';
 
-    const badFiles = typeof store.validate === 'function' ? store.validate() : [];
+    const badFiles = typeof env.store.validate === 'function' ? env.store.validate() : [];
     if (badFiles.length > 0) {
       return [
         'Still paused: found invalid JSON under data/, fix or restore these files and try again:',
-        ...badFiles.map((file) => `  ${file}`),
+        ...(badFiles as Array<string>).map((file) => `  ${file}`),
       ].join('\n');
     }
 
-    if (typeof store.reloadState === 'function') store.reloadState();
-    const state = store.state.data;
+    if (typeof env.store.reloadState === 'function') env.store.reloadState();
+    const state = env.store.state.data;
     if (!state.paused) {
       return 'Not paused.';
     }
@@ -95,18 +97,18 @@ const handlers = perEnv((env) => {
     delete state.paused;
     delete state.pausedAt;
     delete state.pausedBy;
-    store.state.markDirty();
-    store.flush();
+    env.store.state.markDirty();
+    env.store.flush();
 
     log.info('admin: resumed', {});
 
     const guildId = resolvedGuildId(context);
     await journalSystem(guildId, { event: 'resume', by: 'owner' });
 
-    if (guildId && typeof embedQueue?.catchUp === 'function') {
+    if (guildId && typeof env.embedQueue?.catchUp === 'function') {
       Promise.resolve()
-        .then(() => embedQueue.catchUp(guildId))
-        .catch((err) => log.warn('admin: embed catch-up failed', { code: err?.code ?? null, guildId }));
+        .then(() => env.embedQueue.catchUp(guildId))
+        .catch((err: unknown) => log.warn('admin: embed catch-up failed', { code: objOf(err).code ?? null, guildId }));
     }
 
     return 'Resumed.';

@@ -10,13 +10,14 @@ import { log } from '../../log.js';
 import { messageRefOf, postingConversation } from './shared.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
 import { CODE } from '../codes.ts';
+import { idText, textOf } from '../types.ts';
+import type { Obj, OpContext, Untyped } from '../types.ts';
+import type { Adapter } from '../../protocol/adapter.ts';
 
 const handlers = perEnv((env) => {
   const { hot, images, imageFetcher, assertNotPaused, resolvedGuildId } = env;
-  /** @type {import('../../interface/reads.ts').Reads} */
-  const reads = env.reads;
-  /** @type {import('../../protocol/adapter.ts').Adapter|null|undefined} */
-  const port = env.port;
+  const { reads } = env;
+  const port = env.port as Adapter | null | undefined;
 
   /**
    * `/nep draw`: one picture (src/media/draw.js), the same prompt
@@ -31,14 +32,14 @@ const handlers = perEnv((env) => {
    * before anything is generated); the answer is then the line alone, or a `failed` result when the post did not go
    * through (`data.unknown` when it may have: never generated again).
    */
-  async function cmdDraw(args, context) {
+  async function cmdDraw(args: Obj, context: OpContext): Promise<unknown> {
     if (!images) return { status: 'failed', code: CODE.NOT_CONFIGURED, summary: 'image generation is not available' };
     assertNotPaused();
-    const request = String(args?.text ?? '').trim();
+    const request = textOf(args.text).trim();
     if (!request) throw invalid('text is required');
     // A reply is a message to quote: it follows that message's channel, as message.create does.
-    const reply = args?.replyTo ? await messageRefOf(args.replyTo, reads) : null;
-    const given = args?.channelId ? String(args.channelId) : null;
+    const reply = args.replyTo ? await messageRefOf(args.replyTo, reads) : null;
+    const given = args.channelId ? idText(args.channelId) : null;
     if (given && reply?.channelId && given !== reply.channelId)
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
     const target = given ?? reply?.channelId ?? null;
@@ -46,7 +47,7 @@ const handlers = perEnv((env) => {
       target || reply
         ? await postingConversation({
             reads,
-            iface: port?.iface,
+            iface: port?.iface ?? '',
             guildId: resolvedGuildId(context),
             channelId: target,
             context,
@@ -65,11 +66,11 @@ const handlers = perEnv((env) => {
       };
     }
 
-    const self = args?.self === true;
+    const self = args.self === true;
     const guildId = resolvedGuildId(context);
     const selfName = env.getSelfName(guildId);
 
-    let picture;
+    let picture: Untyped;
     let referenceMissing = false;
     try {
       ({ picture, referenceMissing } = await drawPicture({
@@ -77,7 +78,7 @@ const handlers = perEnv((env) => {
         hot,
         // The persona's large avatar, asked of the interface only when the picture needs the reference.
         avatarUrl: async () => {
-          const found = await reads.memberInfo({ communityId: guildId, memberId: String(env.selfId() ?? '') });
+          const found = await reads?.memberInfo({ communityId: guildId, memberId: String(env.selfId() ?? '') });
           return found?.member?.avatar.largeUrl ?? null;
         },
         imageFetcher,
@@ -86,7 +87,7 @@ const handlers = perEnv((env) => {
       if (referenceMissing) log.warn('admin: draw avatar reference unavailable', {});
     } catch (err) {
       if (err instanceof ImageCapError || err instanceof ImageGenError) {
-        const status = err.statusCode ? `, HTTP ${err.statusCode}` : '';
+        const status = 'statusCode' in err && err.statusCode ? `, HTTP ${err.statusCode}` : '';
         throw new Error(`draw failed (${err.reason}${status}): ${err.message}`);
       }
       if (err instanceof UnsupportedImageModelError) throw new Error(`draw failed: ${err.message}`);
@@ -106,6 +107,7 @@ const handlers = perEnv((env) => {
     if (referenceMissing) parts.push('no avatar reference');
     const file = { attachment: picture.buffer, name: imageFileName(picture.mediaType) };
     if (!postTo) return { text: parts.join(' · '), files: [file] };
+    if (!port) throw new Error("the persona's interface is not available");
     const sent = await port.send(
       { iface: port.iface, conversationId: postTo },
       {

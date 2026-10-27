@@ -8,7 +8,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import path from 'node:path';
 
 import {
   createGifRecache,
@@ -230,17 +229,21 @@ function fakeClient(messages) {
   const stub = { id: 'c1', name: 'c1', parent: null, guild: { id: 'g1' }, isThread: () => false };
   world.fake.seedConversation(channel('c1'));
   for (const raw of messages) {
-    const { raw: _raw, ...event } = toEvent(
+    const event = toEvent(
       { ...raw, channel: stub, channelId: 'c1', guild: stub.guild },
       'self',
       normalizeOptions({ media: { embedTextChars: 200 } })
     );
+    delete event.raw;
     world.fake.seedEvent(event);
   }
   return world;
 }
 
-/** What the recache takes of the interface: its reads, its name and the emoji index (the address of an emoji's picture). */
+/**
+ * What the recache takes of the interface: its reads, its name and the emoji index (the address of an emoji's picture).
+ * @param {ReturnType<typeof rig>} world
+ */
 const depsOf = (world) => ({
   reads: world.reads,
   iface: () => IFACE,
@@ -249,6 +252,7 @@ const depsOf = (world) => ({
 
 /** A describer whose watchGif follows `outcome(item)` (watched by default) and writes the watched caption. */
 function fakeDescriber(store, { outcome, blocker = null, gate } = {}) {
+  /** @type {Array<{ guildId: string, item: { itemId: string }, opts: unknown }>} */
   const calls = [];
   return {
     calls,
@@ -278,6 +282,7 @@ function fakeHot(gifs = {}) {
 }
 
 function silentLog() {
+  /** @type {Array<{ level: string, message: string, fields: { done?: number, unlocated?: number, stopped?: unknown } }>} */
   const entries = [];
   const push = (level) => (message, fields) => entries.push({ level, message, fields });
   return { entries, info: push('info'), warn: push('warn'), error: push('error') };
@@ -641,11 +646,17 @@ function mediaHot(media = {}) {
 
 /** A clock and a sleep that moves it, recording every wait. */
 function fakeTime(start = NOW) {
-  const clock = { at: start, sleeps: [] };
-  clock.now = () => clock.at;
-  clock.sleep = async (ms) => {
-    clock.sleeps.push(ms);
-    clock.at += ms;
+  /** @type {number[]} */
+  const sleeps = [];
+  const clock = {
+    at: start,
+    sleeps,
+    now: () => clock.at,
+    /** @param {number} ms */
+    sleep: async (ms) => {
+      sleeps.push(ms);
+      clock.at += ms;
+    },
   };
   return clock;
 }

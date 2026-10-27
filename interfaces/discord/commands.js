@@ -70,7 +70,10 @@ function nodeJson(node, type) {
   return options ? { type, ...rest, options } : { type, ...rest };
 }
 
-/** Every leaf's command key (`<group>.<name>` or a bare `<name>`) -> its `args` mapper. */
+/**
+ * Every leaf's command key (`<group>.<name>` or a bare `<name>`) -> its `args` mapper.
+ * @type {Map<string, (options: *) => object>}
+ */
 const OPTION_MAPPERS = new Map(
   COMMAND_TABLE.flatMap((node) =>
     node.subcommands ? node.subcommands.map((sub) => [`${node.name}.${sub.name}`, sub.args]) : [[node.name, node.args]]
@@ -203,6 +206,7 @@ function commandKeyFor(interaction) {
   return group ? `${group}.${sub}` : sub;
 }
 
+/** @param {string} commandKey */
 function buildArgs(commandKey, interaction) {
   const mapper = OPTION_MAPPERS.get(commandKey);
   return mapper ? mapper(interaction.options) : {};

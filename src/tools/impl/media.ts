@@ -22,13 +22,15 @@ import {
   PICTURES_RECACHE_SKIPS,
 } from './shared.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
+import type { Obj, OpContext, Untyped } from '../types.ts';
 
 /** The handler of `args.kind` among `byKindHandlers`, or an `invalid` error naming the kinds. */
-function byKind(args, byKindHandlers) {
-  const kind = args?.kind;
-  if (!Object.hasOwn(byKindHandlers, String(kind)))
+function byKind<TRun>(args: Obj, byKindHandlers: Record<string, TRun>): TRun {
+  const kind = typeof args.kind === 'string' ? args.kind : '';
+  const handler = byKindHandlers[kind];
+  if (!Object.hasOwn(byKindHandlers, kind) || handler === undefined)
     throw invalid(`kind must be one of: ${Object.keys(byKindHandlers).join(', ')}`);
-  return byKindHandlers[kind];
+  return handler;
 }
 
 const handlers = perEnv((env) => {
@@ -47,7 +49,7 @@ const handlers = perEnv((env) => {
 
   /** `/nep emoji status`: how many emoji the ranking holds, the top 10 (rank order,
    * `context.customEmoji.halfLifeDays`) with their counts, and the history backfill stamp. */
-  function cmdEmojiStatus(_args, context) {
+  function cmdEmojiStatus(_args: Obj, context: OpContext): string {
     freshenIfPaused();
     const guildId = requireGuildId(context);
 
@@ -64,7 +66,7 @@ const handlers = perEnv((env) => {
 
   /** `/nep emoji rescan`: clears `emojiUsage` and recounts it from channel history (the backfill
    * with `force`), awaited to the end. Writes under data/, so refused while paused. */
-  async function cmdEmojiRescan(_args, context) {
+  async function cmdEmojiRescan(_args: Obj, context: OpContext): Promise<string> {
     if (!emojiBackfill) return 'the emoji backfill is not available';
     assertNotPaused();
     const guildId = requireGuildId(context);
@@ -83,15 +85,15 @@ const handlers = perEnv((env) => {
    * one-frame / failed watch / none, see src/memory/gif-recache.js#gifCaptionCounts) with a
    * note while a recache runs, then the move to three-field captions (watched with fields /
    * watched in the old format, still to re-describe / unwatched, gifFormatCounts). Counts only. */
-  function cmdGifsStatus(_args, context) {
+  function cmdGifsStatus(_args: Obj, context: OpContext): string {
     freshenIfPaused();
     const guildId = requireGuildId(context);
 
     const library = store.getGifs(guildId);
-    const ranked = rankGifs(library, hot.config?.gifs?.halfLifeDays ?? 30);
+    const ranked = rankGifs(library, hot.config?.gifs?.halfLifeDays ?? 30) as Array<Untyped>;
     const cache = store.getMediaCache(guildId);
-    const captionOf = (entry) => {
-      const cached = cache?.[entry.itemId];
+    const captionOf = (entry: Untyped): string => {
+      const cached = (cache as Record<string, { miss?: boolean; text?: unknown } | undefined> | null)?.[entry.itemId];
       return cached && !cached.miss && typeof cached.text === 'string' ? cached.text.trim() : '';
     };
     const running = gifBackfill?.isRunning?.() ? ' (running now)' : '';
@@ -124,7 +126,7 @@ const handlers = perEnv((env) => {
   /** `/nep gifs rescan`: resets the library's use counts (every entry and handle is kept) and
    * recounts them from channel history, then captions the top ones (the backfill with `force`),
    * awaited to the end. Writes under data/, so refused while paused. */
-  async function cmdGifsRescan(_args, context) {
+  async function cmdGifsRescan(_args: Obj, context: OpContext): Promise<string> {
     if (!gifBackfill) return 'the GIF backfill is not available';
     assertNotPaused();
     const guildId = requireGuildId(context);
@@ -137,7 +139,7 @@ const handlers = perEnv((env) => {
   /** `/nep gifs recache`: drops the one-frame GIF captions outside the library at once, then
    * re-describes up to `gifs.recachePerRun` library GIFs by watching them, in the background
    * (src/memory/gif-recache.js). Replies at once. Writes under data/, so refused while paused. */
-  function cmdGifsRecache(_args, context) {
+  function cmdGifsRecache(_args: Obj, context: OpContext): string {
     if (!gifRecache) return 'the GIF recache is not available';
     assertNotPaused();
     const guildId = requireGuildId(context);
@@ -158,10 +160,10 @@ const handlers = perEnv((env) => {
    * cached picture descriptions (GIFs, stickers and emoji included) last used within the last
    * `days` (default 7, 1..60) that an older model wrote (src/memory/gif-recache.js#startMedia).
    * Replies at once with how many were picked. Writes under data/, so refused while paused. */
-  function cmdPicturesRecache(args, context) {
+  function cmdPicturesRecache(args: Obj, context: OpContext): string {
     if (typeof gifRecache?.startMedia !== 'function') return PICTURES_RECACHE_SKIPS.unavailable;
-    const days = args?.days ?? RECACHE_DAYS.default;
-    if (!Number.isInteger(days) || days < RECACHE_DAYS.min || days > RECACHE_DAYS.max) {
+    const days = args.days ?? RECACHE_DAYS.default;
+    if (typeof days !== 'number' || !Number.isInteger(days) || days < RECACHE_DAYS.min || days > RECACHE_DAYS.max) {
       throw invalid(`days must be a whole number from ${RECACHE_DAYS.min} to ${RECACHE_DAYS.max}`);
     }
     assertNotPaused();

@@ -5,13 +5,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import path from 'node:path';
 
 import { createEmojiBackfill } from '../src/memory/emoji-backfill.js';
 import { createStore } from '../src/memory/store.js';
 import { tempDir } from './fixtures/tmp.js';
 import { openTestMemory } from './fixtures/memory-db/service.js';
-import { COMMUNITY, IFACE, SELF_ID, channel, message, rig } from './fixtures/reads-rig.ts';
+import { IFACE, SELF_ID, channel, message, rig } from './fixtures/reads-rig.ts';
 
 const T0 = Date.UTC(2026, 8, 1);
 
@@ -273,9 +272,7 @@ test('emoji backfill startIfNeeded: an error is logged, never thrown', async () 
   await withStore(async (store) => {
     const log = fakeLog();
     const reads = {
-      conversations: async () => {
-        throw new Error('boom');
-      },
+      conversations: () => Promise.reject(new Error('boom')),
     };
     const backfill = createEmojiBackfill({ reads, iface: () => IFACE, hot: fakeHot(), store, log });
 

@@ -6,6 +6,8 @@ import { normalizeTopic } from '../../memory/index.js';
 import { confirmTarget, learnedLine } from './shared.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
 import { CODE } from '../codes.ts';
+import { textOf } from '../types.ts';
+import type { Obj, OpContext, Untyped } from '../types.ts';
 
 const handlers = perEnv((env) => {
   const { hot, store, assertNotPaused, requireGuildId, tokenResolver } = env;
@@ -19,11 +21,11 @@ const handlers = perEnv((env) => {
    * analyzer seeing it again would give. Every other limit is the live `config.memory`. Replies
    * with the resulting item's line.
    */
-  function cmdLearnedAdd(args, context) {
+  function cmdLearnedAdd(args: Obj, context: OpContext): string {
     assertNotPaused();
     const guildId = requireGuildId(context);
 
-    const text = String(args?.text ?? '').trim();
+    const text = textOf(args.text).trim();
     if (!text) throw invalid('text is required');
 
     const memoryCfg = hot.config?.memory ?? {};
@@ -31,18 +33,18 @@ const handlers = perEnv((env) => {
 
     const key = normalizeTopic(text);
     const before = store.getGuild(guildId).learned ?? [];
-    const beforeIds = new Set(before.map((item) => item.id));
+    const beforeIds = new Set((before as Array<Untyped>).map((item) => item.id as number));
     const seenAt = Date.now();
     const seenIso = new Date(seenAt).toISOString();
     // The item this command added or sighted: a fresh id, else the same text, else the one
     // stamped just now (a text the store clamped no longer matches `key`).
-    const locate = (items) =>
-      items.find((it) => !beforeIds.has(it.id)) ??
-      items.find((it) => normalizeTopic(it.text) === key) ??
-      items.find((it) => it.lastSeen === seenIso);
+    const locate = (items: Array<Untyped>): Untyped =>
+      items.find((it: Untyped) => !beforeIds.has(it.id)) ??
+      items.find((it: Untyped) => normalizeTopic(it.text) === key) ??
+      items.find((it: Untyped) => it.lastSeen === seenIso);
 
-    const existing = before.find((it) => normalizeTopic(it.text) === key);
-    let item;
+    const existing = (before as Array<Untyped>).find((it: Untyped) => normalizeTopic(it.text) === key);
+    let item: Untyped;
     if (existing && existing.weight >= target) {
       item = locate(store.applyLearnedOps(guildId, { add: [{ text }] }, { ...memoryCfg, seenAt }));
     } else {
@@ -58,13 +60,13 @@ const handlers = perEnv((env) => {
   }
 
   /** `/nep learned remove`: deletes one item by id; an id that is not stored is an error. */
-  function cmdLearnedRemove(args, context) {
+  function cmdLearnedRemove(args: Obj, context: OpContext): string {
     assertNotPaused();
     const guildId = requireGuildId(context);
 
-    const id = args?.id;
-    if (!Number.isInteger(id)) throw invalid('an item id is required');
-    const existing = (store.getGuild(guildId).learned ?? []).find((item) => item.id === id);
+    const id = args.id;
+    if (typeof id !== 'number' || !Number.isInteger(id)) throw invalid('an item id is required');
+    const existing = (store.getGuild(guildId).learned ?? []).find((item: Untyped) => item.id === id);
     if (!existing) throw invalid(`no learned item #${id}`, CODE.NOT_FOUND);
 
     store.applyLearnedOps(guildId, { remove: [id] }, { ...(hot.config?.memory ?? {}), seenAt: Date.now() });

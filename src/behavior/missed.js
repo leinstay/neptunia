@@ -767,7 +767,7 @@ export function createMissed({
    */
   function noteFact({ reason, message, replacedBy = null, failure = null, turnId = null } = {}) {
     try {
-      if (!enabled() || !MISSED_REASONS.includes(reason) || !message?.id || !message.channelId) return;
+      if (!enabled() || !MISSED_REASONS.includes(String(reason)) || !message?.id || !message.channelId) return;
       const at = Number.isFinite(message.ts) ? message.ts : now();
       const authorId = message.authorId ?? null;
       const question = isQuestion(message.content);

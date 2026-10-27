@@ -23,8 +23,8 @@ import { readAction } from './reads.ts';
  */
 
 /**
- * One attachment: its bytes (`data`) or where to take them (`url`).
- * @typedef {{ name: string, data?: Uint8Array, url?: string, contentType?: string }} Attachment
+ * One attachment: its bytes (`data`) or where to take them (`url`). `voice` marks a voice message (its length and waveform).
+ * @typedef {{ name: string, data?: Uint8Array, url?: string, contentType?: string, voice?: { durationSecs: number, waveform: string } }} Attachment
  */
 
 /**

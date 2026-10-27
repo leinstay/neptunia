@@ -11,8 +11,32 @@
 // `args` mapper) and one src/tools/impl/index.ts#COMMAND_TO_OP entry, plus a
 // DEFERRED_OPS entry when its operation may outlast the reply window.
 
-import { isPlainObject } from '../../config.js';
 import { CORE_ROLES, OPENCODE_ROLES, ROLES, roleConfigKeys } from '../../llm/roles.js';
+import { idText, isObj, listOf, objOf } from '../types.ts';
+import type { Obj } from '../types.ts';
+
+/** What a leaf's `args` reads from an interaction's options: the shape discord.js gives, with the required form never null. */
+export type CommandOptions = {
+  getString(name: string, required: true): string;
+  getString(name: string, required?: boolean): string | null;
+  getInteger(name: string, required: true): number;
+  getInteger(name: string, required?: boolean): number | null;
+  getUser(name: string, required: true): { id: string };
+  getUser(name: string, required?: boolean): { id: string } | null;
+  getChannel(name: string, required?: boolean): { id: string } | null;
+  getRole(name: string, required?: boolean): { id: string } | null;
+};
+
+/** One node of the command table: a leaf (`args` maps its options onto the operation's arguments) or a group (`subcommands`). */
+export type CommandNode = {
+  name: string;
+  description: string;
+  options?: ReadonlyArray<Obj>;
+  args?: (options: CommandOptions) => Obj;
+  subcommands?: ReadonlyArray<CommandNode>;
+  personaOnly?: boolean;
+  personaOptions?: ReadonlyArray<Obj>;
+};
 
 // Raw Discord API option-type numbers (application-command-option-type):
 // https://discord.com/developers/docs/interactions/application-commands
@@ -53,7 +77,7 @@ export const DEFERRED_OPS = Object.freeze(
  * take no chat completion.
  */
 export const MODEL_ROLE_PATHS = Object.freeze(
-  Object.fromEntries(CORE_ROLES.map((role) => [role, roleConfigKeys(role).join('.')]))
+  Object.fromEntries(CORE_ROLES.map((role) => [role, (roleConfigKeys(role) ?? []).join('.')]))
 );
 
 /** The roles of `MODEL_ROLE_PATHS`, in order. */
@@ -66,7 +90,7 @@ export const MODEL_ROLES = Object.freeze(Object.keys(MODEL_ROLE_PATHS));
  * (OpenCode workers run them). Drawing (src/llm/images.js#IMAGE_ROLE) takes no chat completion.
  */
 export const MODEL_SET_PATHS = Object.freeze(
-  Object.fromEntries(ROLES.map((role) => [role, roleConfigKeys(role).join('.')]))
+  Object.fromEntries(ROLES.map((role) => [role, (roleConfigKeys(role) ?? []).join('.')]))
 );
 
 /** The roles of `MODEL_SET_PATHS`, in order: the choices of `/nep model set`. */
@@ -124,7 +148,7 @@ export const STATUS_PARTS = Object.freeze([
 ]);
 
 /** `{ name, value }` choices, one per entry of `values`, the name being the value itself. */
-function choicesOf(values) {
+function choicesOf(values: ReadonlyArray<string>): Array<{ name: string; value: string }> {
   return values.map((value) => ({ name: value, value }));
 }
 
@@ -152,7 +176,7 @@ export const INTENT_ACTIONS = Object.freeze(['add', 'update', 'cancel', 'list'])
 // The table
 // ---------------------------------------------------------------------------
 
-const channelOption = (description, required = false) => ({
+const channelOption = (description: string, required = false): Obj => ({
   type: CHANNEL,
   name: 'channel',
   description,
@@ -160,7 +184,7 @@ const channelOption = (description, required = false) => ({
   channel_types: [GUILD_TEXT],
 });
 const userOption = (description = 'Member.', required = true) => ({ type: USER, name: 'user', description, required });
-const userId = (options) => options.getUser('user', true).id;
+const userId = (options: CommandOptions): string => options.getUser('user', true).id;
 const none = () => ({});
 
 /**
@@ -173,7 +197,7 @@ export const FLAG_CHOICES = Object.freeze([
 ]);
 
 /** A yes/no option: a STRING with FLAG_CHOICES. */
-function flagOption(name, description) {
+function flagOption(name: string, description: string): Obj {
   return { type: STRING, name, description, required: false, choices: FLAG_CHOICES.map((choice) => ({ ...choice })) };
 }
 
@@ -181,11 +205,8 @@ function flagOption(name, description) {
  * A yes/no option's value as a boolean: `true` / `'true'` -> true, `false` / `'false'` ->
  * false (any case, trimmed), anything else (absent included) -> null. Reads the option as a
  * string (a Discord interaction) or as the boolean a persona's call carries.
- * @param {{ getString: (name: string) => unknown }} options
- * @param {string} name
- * @returns {boolean|null}
  */
-export function readFlag(options, name) {
+export function readFlag(options: { getString: (name: string) => unknown }, name: string): boolean | null {
   const value = options.getString(name);
   if (typeof value === 'boolean') return value;
   const text = typeof value === 'string' ? value.trim().toLowerCase() : '';
@@ -202,7 +223,7 @@ export function readFlag(options, name) {
  * with `personaOnly` is her skill alone and is left out of the Discord tree. Option names are lowercase;
  * no name carries a hyphen; `action` only where every action takes the same options.
  */
-export const COMMAND_TABLE = Object.freeze([
+export const COMMAND_TABLE: ReadonlyArray<CommandNode> = Object.freeze([
   {
     name: 'status',
     description: 'What the bot is doing now: one card.',
@@ -697,7 +718,7 @@ export const COMMAND_TABLE = Object.freeze([
           { type: STRING, name: 'reason', description: 'Why it is dropped.', required: false, max_length: 300 },
         ],
         args: (options) => {
-          const out = { action: options.getString('action', true) };
+          const out: Obj = { action: options.getString('action', true) };
           for (const name of [
             'text',
             'id',
@@ -789,7 +810,7 @@ export const COMMAND_TABLE = Object.freeze([
         ],
         args: (options) => {
           const last = options.getInteger('last');
-          const out = {};
+          const out: Obj = {};
           for (const name of ['around', 'before', 'after', 'since']) {
             const value = options.getString(name);
             if (value !== null && value !== undefined) out[name] = value;
@@ -1178,28 +1199,31 @@ export const COMMAND_TABLE = Object.freeze([
  * application command: the length of every `name` and `description`, of the
  * command and every group, subcommand and option below it, plus every choice's
  * `name` and `value` (a number counted by its decimal form). Pure.
- * @param {object} command  one entry of `buildCommandTree`
- * @returns {number}
+ * `command` is one entry of `buildCommandTree`.
  */
-export function commandSize(command) {
-  const text = (value) => (value === undefined || value === null ? 0 : String(value).length);
-  let size = text(command?.name) + text(command?.description);
-  for (const choice of command?.choices ?? []) size += text(choice.name) + text(choice.value);
-  for (const option of command?.options ?? []) size += commandSize(option);
+export function commandSize(command: unknown): number {
+  const node = objOf(command);
+  const text = (value: unknown): number => (value === undefined || value === null ? 0 : idText(value).length);
+  let size = text(node.name) + text(node.description);
+  for (const entry of listOf(node.choices)) {
+    const choice = objOf(entry);
+    size += text(choice.name) + text(choice.value);
+  }
+  for (const option of listOf(node.options)) size += commandSize(option);
   return size;
 }
 
 /** `^[a-z0-9_-]{1,32}$` — Discord's rule for a command name. */
-export function isValidCommandName(name) {
+export function isValidCommandName(name: unknown): boolean {
   return typeof name === 'string' && /^[a-z0-9_-]{1,32}$/.test(name);
 }
 
 /** Every dotted leaf path of a plain config object, depth-first in key order; an empty object or an array is a leaf. */
-export function leafPaths(config, prefix = '') {
-  const out = [];
-  for (const [key, value] of Object.entries(config ?? {})) {
+export function leafPaths(config: unknown, prefix = ''): Array<string> {
+  const out: Array<string> = [];
+  for (const [key, value] of Object.entries(objOf(config))) {
     const full = prefix ? `${prefix}.${key}` : key;
-    if (isPlainObject(value) && Object.keys(value).length > 0) {
+    if (isObj(value) && Object.keys(value).length > 0) {
       out.push(...leafPaths(value, full));
     } else {
       out.push(full);

@@ -85,7 +85,7 @@ function compareIds(a, b) {
  * @param {import('../interface/reads.ts').Reads} deps.reads  The core's reads: `conversationInfo` says whether the bot
  *   can read the conversation now and the time of its newest message (null when unknown), `history` gives its newest
  *   `maxMessages` events.
- * @param {(event: object, options: { trigger: boolean }) => Promise<string>} deps.deliver  One
+ * @param {(event: import('../protocol/adapter.ts').MessageEvent, options: { trigger: boolean }) => Promise<string>} deps.deliver  One
  *   event to the live handler's catch-up path; resolves to its outcome
  *   ('duplicate' | 'ignored' | 'observed' | 'triggered').
  * @param {{ system?: Function }|null} [deps.journal]

@@ -22,6 +22,10 @@ const DATA = path.join('fake-root', 'data');
 
 /** The id of a message sent at `ms` on a platform whose ids carry their time (the first possible id of that millisecond), `n` keeping ids of the same millisecond apart. */
 const ID_EPOCH_MS = 1_420_070_400_000n;
+/**
+ * @param {number} ms
+ * @param {number} [n]
+ */
 const idAt = (ms, n = 1) => (((BigInt(ms) - ID_EPOCH_MS) << 22n) + BigInt(n)).toString();
 
 function fakeAppendStore() {
@@ -156,18 +160,25 @@ function makeAdmin(journal) {
   };
   // The interface says when a message was written (`fetchMessages`); the ids of these tests carry their time.
   const reads = {
-    parseLinks: async (texts) => ({
-      refs: texts.map((text) => {
-        const found = /^https:\/\/discord\.com\/channels\/\d+\/(\d+)\/(\d+)$/.exec(text);
-        return found ? { iface: 'fake', conversationId: found[1], messageId: found[2] } : null;
+    /** @param {string[]} texts */
+    parseLinks: (texts) =>
+      Promise.resolve({
+        refs: texts.map((text) => {
+          const found = /^https:\/\/discord\.com\/channels\/\d+\/(\d+)\/(\d+)$/.exec(text);
+          return found ? { iface: 'fake', conversationId: found[1], messageId: found[2] } : null;
+        }),
       }),
-    }),
-    fetchMessages: async (ref, ids) => ({
-      messages: ids.map((id) => ({
-        messageId: id,
-        event: { message: { id, at: Number((BigInt(id) >> 22n) + ID_EPOCH_MS) } },
-      })),
-    }),
+    /**
+     * @param {unknown} ref
+     * @param {string[]} ids
+     */
+    fetchMessages: (ref, ids) =>
+      Promise.resolve({
+        messages: ids.map((id) => ({
+          messageId: id,
+          event: { message: { id, at: Number((BigInt(id) >> 22n) + ID_EPOCH_MS) } },
+        })),
+      }),
   };
   return createAdmin({
     hot,
@@ -304,10 +315,8 @@ test('memory.journal.read: by message id or link, the turn record whole; not her
   });
   const admin = makeAdmin(journal);
 
-  const byId = await admin.run(
-    'memory.journal',
-    { messageId: postedId },
-    { guildId: 'g1', channelId: 'c1', userId: OWNER }
+  const byId = String(
+    await admin.run('memory.journal', { messageId: postedId }, { guildId: 'g1', channelId: 'c1', userId: OWNER })
   );
   assert.ok(byId.includes(THINK), 'the think whole, not its first 80 characters');
   assert.ok(byId.includes(started.turnId));

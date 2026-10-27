@@ -111,14 +111,19 @@ function view(id, hash, extra = {}) {
   };
 }
 
-/** The core's reads over `members` (id -> view): `memberInfo` answers the member and their avatar, or a member who is not one. */
+/**
+ * The core's reads over `members` (id -> view): `memberInfo` answers the member and their avatar, or a member who is not one.
+ * @param {Record<string, 'failed' | { id: string, bot: boolean, hash: string | null, url: string | null } | undefined>} members
+ * @param {string[]} [asked]
+ */
 function readsOf(members, asked = []) {
   return {
-    memberInfo: async ({ memberId }) => {
+    /** @param {{ memberId: string }} ask */
+    memberInfo: ({ memberId }) => {
       asked.push(memberId);
       const found = members[memberId];
-      if (found === 'failed') return null;
-      return {
+      if (found === 'failed') return Promise.resolve(null);
+      return Promise.resolve({
         member: found
           ? {
               id: found.id,
@@ -128,7 +133,7 @@ function readsOf(members, asked = []) {
               avatar: { hash: found.hash, url: found.url, largeUrl: null },
             }
           : null,
-      };
+      });
     },
   };
 }

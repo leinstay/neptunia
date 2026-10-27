@@ -9,17 +9,19 @@
 
 import { defineOp, perEnv, invalid } from './registry.ts';
 import { CODE } from '../codes.ts';
+import { textOf } from '../types.ts';
+import type { Obj, OpContext, Untyped } from '../types.ts';
 
 /** The orders `sort` may name. */
 export const PLACE_SORTS = Object.freeze(['recent', 'name', 'lines']);
 
 /** The time of `ts` for an answer line (UTC, minutes). */
-function stamp(ts) {
+function stamp(ts: number): string {
   return new Date(ts).toISOString().slice(0, 16).replace('T', ' ');
 }
 
 /** One place as an answer line. */
-export function placeLine(place) {
+export function placeLine(place: Untyped): string {
   const parts = [`${place.name ?? place.id} (${place.id})`, `${place.lines} lines`, `${place.people} people`];
   if (Number.isFinite(place.newestAt)) parts.push(`last ${stamp(place.newestAt)}`);
   if (place.writable === false) parts.push('read-only');
@@ -38,14 +40,14 @@ const handlers = perEnv((env) => {
     return env.inner;
   }
 
-  function cmdList(args, context) {
-    const filter = typeof args?.filter === 'string' && args.filter.trim() ? args.filter.trim() : null;
+  function cmdList(args: Obj, context: OpContext) {
+    const filter = typeof args.filter === 'string' && args.filter.trim() ? args.filter.trim() : null;
     const sort =
-      args?.sort === undefined || args?.sort === null || args?.sort === ''
+      args.sort === undefined || args.sort === null || args.sort === ''
         ? 'recent'
-        : String(args.sort).trim().toLowerCase();
+        : textOf(args.sort).trim().toLowerCase();
     if (!PLACE_SORTS.includes(sort)) throw invalid(`sort: ${PLACE_SORTS.join(', ')}`, CODE.BAD_SORT);
-    const raw = args?.page === undefined || args?.page === null || args?.page === '' ? 1 : Number(args.page);
+    const raw = args.page === undefined || args.page === null || args.page === '' ? 1 : Number(args.page);
     if (!Number.isInteger(raw) || raw < 1) throw invalid('page: a whole number from 1', CODE.BAD_PAGE);
     const result = places().places(resolvedGuildId(context), { filter, sort, page: raw });
     const lines = result.items.map(placeLine);
