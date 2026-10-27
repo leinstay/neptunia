@@ -590,7 +590,7 @@ function withCarriedSlots(fresh, previous, nowMs, graceMinutes) {
  * turn still runs. Hot values are read at every call.
  * @param {{ hot: object, store: object, reads: import('../interface/reads.ts').Reads|null, turns: object,
  *   getGuildId: () => (string|null), backfill?: ((args: object) => Promise<number>)|null,
- *   mirrors?: { publishEntry: (entry: import('./mirror.ts').DiaryEntry) => Promise<unknown> }|null,
+ *   mirrors?: { publishEntry: (entry: unknown) => Promise<unknown> }|null,
  *   rng?: () => number, now?: () => number, delay?: (ms: number) => Promise<void> }} deps
  *   `delay`: resolves after `ms` (a timer that never holds the process open); injected by tests.
  *   `reads`: the core's reads of the interface (the backfill's history), null when none is connected.
@@ -710,7 +710,7 @@ export function createDiary({
     if (entry && mirrors) {
       try {
         // The entry's row is in memory before its media and its publications name it.
-        await store.flushSettled?.({});
+        await settled(store);
         await mirrors.publishEntry(entry);
       } catch (err) {
         log.warn('diary: publication failed', { guildId, error: err });
@@ -812,7 +812,6 @@ export function createDiary({
   }
 
   function status() {
-    const config = hot.config;
     const t = now();
     const guildId = getGuildId();
     const plan = guildId ? (store.state.data.diary?.[guildId] ?? null) : null;
@@ -870,6 +869,16 @@ export async function backfillDiary({ store, reads, conversation, guildId, confi
   store.setDiaryPosts(guildId, posts, { max });
   log.info('diary: backfill', { count: posts.length });
   return posts.length;
+}
+
+/**
+ * Waits for the store's writes to land (`flushSettled`), when it has them.
+ * @param {unknown} store
+ * @returns {Promise<unknown>}
+ */
+function settled(store) {
+  const flush = /** @type {{ flushSettled?: (opts: object) => Promise<unknown> } | null} */ (store)?.flushSettled;
+  return typeof flush === 'function' ? flush.call(store, {}) : Promise.resolve();
 }
 
 /** A delay whose timer never keeps the process alive (createDiary's default `delay`). */

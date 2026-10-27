@@ -115,7 +115,7 @@ import { routeAllowed, routeCandidate, routeSettings } from './route.js';
 import { routeChannelOffer } from './route-channel.js';
 import { deletedLinesMax, deletedLinesOf, withDeletedLines } from './deleted-lines.js';
 import { freshAttachmentUrl as sharedFreshAttachmentUrl, gifPostUrl, countGifPost } from '../media/gif-post.js';
-import { DAY_MS, bumpDaily, countToday, utcDay, zonedDay } from '../time.js';
+import { DAY_MS, bumpDaily, utcDay, zonedDay } from '../time.js';
 import { isPlainObject } from '../config.js';
 import { budgetDrops, requestTokenLimit } from '../llm/budget.js';
 import { createLimits } from '../llm/limits.js';
@@ -4135,8 +4135,7 @@ export function createTurnRunner({
 
   /**
    * The bare name of her diary's place for `<senses>`: a diary turn's own conversation (`own`), else the first of
-   * src/behavior/mirror.ts#diaryPlaces, as the turn's snapshot, the conversation directory or memory names it; null
-   * with no place or `features.diary` off.
+   * mirror.ts#diaryPlaces, as the snapshot, the directory or memory names it; null with none or `features.diary` off.
    */
   function diaryChannelName(guildId, config, snapshot = null, own = null) {
     const found = own ? { conversationId: String(own.id), name: own.name } : readMirrors(store, diaryPlaces, [])[0];
@@ -4872,9 +4871,10 @@ export function createTurnRunner({
   }
 
   /**
-   * A diary post's speech, held where act would send it: her messages as she wrote them and as act renders them
-   * (renderPost) with the members they may notify (a member with pings off left out), and the staged pictures. Nothing
-   * reaches a chat: the turn records the entry (src/behavior/diary-turn.ts#recordEntry) and its mirrors publish it.
+   * A diary post's speech held where act would send it: her messages as written and as renderPost renders them (pings
+   * off left out) and the staged pictures; the turn records the entry (diary-turn.ts#recordEntry), its mirrors post it.
+   * @param {{ channel: Conv, guildId: string, privateChat: boolean, parsed: { messages: Array<{ text: string }> },
+   *   set: { pictures: Array<import('./diary-turn.ts').StagedPicture & Record<string, *>> } | null, [key: string]: * }} args
    */
   function holdSpeech({ channel, guildId, privateChat, parsed, set, draft = null, ...routing }) {
     const options = { channel, snapshot: snapshotOfDraft(draft), guildId, privateChat, ...routing, link: null };
@@ -4897,7 +4897,7 @@ export function createTurnRunner({
     }
     const files = chunkPictures(staged, setSettings(hot.config.diary).maxMessageBytes, filesPerMessage(iface)).length;
     if (files > 0) log.info('turn: set posted', { channel: channel.id, pictures: staged.length, messages: files });
-    return { held: true, delivered: false, answered: new Set(), texts, rendered, staged };
+    return { held: true, delivered: false, answered: new Set(), texts, rendered, staged, posts: [], reacted: [] };
   }
 
   /**
@@ -7264,7 +7264,7 @@ export function createTurnRunner({
 
   /**
    * runTurnOnce's body; `draft` collects what the journal's turn record needs (journalTurnRecord).
-   * @param {{ conversation: import('../protocol/adapter.ts').ConversationRef, guildId?: string|null, [key: string]: * }} params
+   * @param {{ conversation: import('../protocol/adapter.ts').ConversationRef, guildId?: string|null, standIn?: Conv|null, [key: string]: * }} params
    * @param {*} draft
    */
   async function runTurnAttempt(
