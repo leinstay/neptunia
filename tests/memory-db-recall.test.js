@@ -8,8 +8,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRecall } from '../src/behavior/recall-run.js';
-import { createDiscordInterface } from '../interfaces/discord/index.js';
-import { memorySearchText, runMemorySearch } from '../src/skills/tools.js';
+import { snapshotOf } from '../src/behavior/snapshot.ts';
+import { channel as channelInfo, privateChannel } from './fixtures/reads-rig.ts';
+import { memorySearchText, runMemorySearch } from '../src/tools/tools.ts';
 import { openMemoryDb } from '../src/memory/db/open.js';
 import { search, window, quotesOf, dbSettings } from '../src/memory/db/recall.js';
 import { fillStems, loadStemmer, stemsOf } from '../src/memory/db/stems.js';
@@ -644,12 +645,11 @@ test('quotes: windows become the stretches recall returns, with entries per line
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SHIPPED = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
-const DISCORD = createDiscordInterface().capabilities;
 const withHidden = {
   ...labels,
-  skills: {
-    ...labels.skills,
-    tools: { ...labels.skills.tools, memory: { ...labels.skills.tools.memory, hidden: 'ΚΡΥΦΟ-ΣΗΜΑ' } },
+  tools: {
+    ...labels.tools,
+    tools: { ...labels.tools.tools, memory: { ...labels.tools.tools.memory, hidden: 'ΚΡΥΦΟ-ΣΗΜΑ' } },
   },
 };
 
@@ -692,39 +692,26 @@ function runner(env, { open = true, meaning = false, embed = null, places = true
       { log: { info() {}, debug() {}, warn() {}, error() {} } }
     );
   }
+  // The interface is asked for nothing here: every search answers empty and every history read nothing, and each ask is noted.
   const rest = [];
-  const guild = {
-    id: 'g1',
-    members: { me: { id: 'self' } },
-    roles: { everyone: { id: 'g1' }, cache: new Map() },
-    channels: { cache: new Map() },
-    client: {
-      rest: {
-        get: async (route) => {
-          rest.push(route);
-          return route.endsWith('/members/search') ? [] : { total_results: 0, messages: [] };
-        },
-      },
+  const reads = {
+    /** @param {{ communityId: string }} scope */
+    searchMessages: (scope) => {
+      rest.push(`/guilds/${scope.communityId}/messages/search`);
+      return Promise.resolve({ total: 0, hits: [] });
     },
+    /** @param {{ communityId: string }} scope */
+    searchMembers: (scope) => {
+      rest.push(`/guilds/${scope.communityId}/members/search`);
+      return Promise.resolve({ members: [] });
+    },
+    history: () => Promise.resolve({ events: [], complete: true }),
   };
-  const addChannel = (id, name, everyone) => {
-    const channel = {
-      id,
-      name,
-      guild,
-      viewable: true,
-      lastMessageId: null,
-      isTextBased: () => true,
-      isThread: () => false,
-      permissionsFor: (target) => ({ has: () => everyone || target?.id === 'self' }),
-      permissionOverwrites: { cache: new Map() },
-      messages: { fetch: async () => new Map() },
-    };
-    guild.channels.cache.set(id, channel);
-    return channel;
-  };
-  const channel = addChannel('c1', 'general', true);
-  addChannel('c4', 'secret', false);
+  // #general (c1) and #secret (c4), which the community's everyone cannot view; Bob's private chat is the partner's.
+  const channel = channelInfo('c1', { name: 'general' });
+  const secret = { ...privateChannel('c4', []), name: 'secret' };
+  const snapshot = snapshotOf('g1', { conversations: [channel, secret], groups: [] });
+  const dm = channelInfo('dm-bob', { kind: 'dm', communityId: null, chatType: 'dm', partnerId: BOB, audience: null });
   const config = structuredClone(SHIPPED);
   config.bot = { ...config.bot, timezone: 'UTC' };
   config.features = { ...config.features, meaningSearch: meaning, recall: true };
@@ -749,7 +736,7 @@ function runner(env, { open = true, meaning = false, embed = null, places = true
   };
   const hot = { config, prompts: { 'recall-summary': 'x', labels: withHidden } };
   const recaller = createRecall({
-    discord: DISCORD,
+    reads,
     hot,
     store,
     llm,
@@ -759,15 +746,16 @@ function runner(env, { open = true, meaning = false, embed = null, places = true
   });
   return {
     recaller,
-    guild,
     channel,
+    dm,
     rest,
     hot,
     llmCalls,
     args: {
-      guild,
       guildId: 'g1',
+      snapshot,
       channel,
+      partnerId: null,
       selfId: 'self',
       selfName: 'Ζωή',
       history: [],
@@ -977,7 +965,7 @@ test('recall.window: the place rule reads the place row; a DM place with one ope
     env.say({ native: 'c2', at: NOW - 30000, text: 'και αλλη', place: channelPlaceId('discord', 'c1') });
     env.stem();
     const s = runner(env);
-    const dm = { ...s.args, channel: { id: 'dm-bob', guild: null }, partner: { id: BOB } };
+    const dm = { ...s.args, channel: s.dm, partnerId: BOB };
     const read = await s.recaller.window({ ...dm, anchor: 'p2', move: 'up', messages: 2 });
     assert.deepEqual(
       read.quotes[0].entries.map((entry) => entry.id),
@@ -1020,7 +1008,11 @@ test("recall: the turn's execution context is used when it fits the read; a read
     const s = runner(env);
     const issued = [];
     const recaller = createRecall({
-      discord: DISCORD,
+      reads: {
+        searchMessages: () => Promise.resolve(null),
+        searchMembers: () => Promise.resolve(null),
+        history: () => Promise.resolve(null),
+      },
       hot: s.hot,
       store: { state: { data: {}, markDirty() {} }, listUserProfiles: () => [] },
       llm: { capLeft: () => 100, complete: async () => ({ text: '' }) },
@@ -1052,8 +1044,8 @@ test("recall: the turn's execution context is used when it fits the read; a read
     // A DM read does not take a group context: it is issued for its partner.
     await recaller.window({
       ...s.args,
-      channel: { id: 'dm-bob', guild: null },
-      partner: { id: BOB },
+      channel: s.dm,
+      partnerId: BOB,
       anchor: 'r1',
       move: 'up',
       messages: 2,
@@ -1078,9 +1070,9 @@ test('memory.search: the hidden marker is one label line, with or without stretc
   assert.ok(memorySearchText([quote], { labels: withHidden, hidden: true }).endsWith('ΚΡΥΦΟ-ΣΗΜΑ'));
   assert.equal(memorySearchText([quote], { labels: withHidden }).includes('ΚΡΥΦΟ-ΣΗΜΑ'), false);
   const none = memorySearchText([], { labels: withHidden, hidden: true });
-  assert.ok(none.includes(withHidden.skills.tools.memory.none) && none.endsWith('ΚΡΥΦΟ-ΣΗΜΑ'));
+  assert.ok(none.includes(withHidden.tools.tools.memory.none) && none.endsWith('ΚΡΥΦΟ-ΣΗΜΑ'));
   assert.equal(
-    memorySearchText([], { labels: { skills: { tools: { memory: { none: 'N' } } } }, hidden: true }),
+    memorySearchText([], { labels: { tools: { tools: { memory: { none: 'N' } } } }, hidden: true }),
     'N',
     'a missing label adds nothing'
   );
@@ -1104,7 +1096,6 @@ test('memory.search: the hidden marker is one label line, with or without stretc
     store: { listUserProfiles: () => [] },
     config: { ...SHIPPED, bot: { ...SHIPPED.bot, timezone: 'UTC' } },
     labels: withHidden,
-    guild: {},
     guildId: 'g1',
     // Changed with the contract: the channel is the conversation's info (a community conversation has `communityId`).
     channel: { communityId: 'g1' },

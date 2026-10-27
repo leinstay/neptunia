@@ -11,7 +11,7 @@ import path from 'node:path';
 
 /** `memory.vaultDir` when it is missing (config.json carries the same). */
 export const DEFAULT_VAULT_DIR = 'vault';
-/** The directory under `data/` `/nep memory snapshot` writes to (src/ops/memory.js). */
+/** The directory under `data/` `/nep memory snapshot` writes to (src/tools/impl/memory.ts). */
 export const SNAPSHOTS_DIR = 'snapshots';
 
 /**

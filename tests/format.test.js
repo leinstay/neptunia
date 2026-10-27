@@ -1911,24 +1911,24 @@ test("formatTranscript: a call that did not work says why: its argument, its mes
     ),
     channel
   );
-  // A phrase whose placeholder cannot be filled gives way to the code's reason in skills.result.reasons.
+  // A phrase whose placeholder cannot be filled gives way to the code's reason in tools.result.reasons.
   const unnamed = ended(
     { kind: 'channel-no-permission', code: 'channel-no-permission', arg: null },
     { target: { messageId: null, channelId: 'c5' } }
   );
   assert.ok(
-    unnamed.endsWith(`[called message.edit: ${withReason(labels.skills.result.reasons['channel-no-permission'])}]`),
+    unnamed.endsWith(`[called message.edit: ${withReason(labels.tools.result.reasons['channel-no-permission'])}]`),
     unnamed
   );
   // A kind without a phrase of its own: the code's reason, else reasons.other.
   assert.ok(
     ended({ kind: 'target-ambiguous', code: 'target-ambiguous', arg: null }).endsWith(
-      `: ${withReason(labels.skills.result.reasons['target-ambiguous'])}]`
+      `: ${withReason(labels.tools.result.reasons['target-ambiguous'])}]`
     )
   );
   assert.ok(
     ended({ kind: 'strange', code: 'strange', arg: null }).endsWith(
-      `: ${withReason(labels.skills.result.reasons.other)}]`
+      `: ${withReason(labels.tools.result.reasons.other)}]`
     )
   );
   // The operation's own message: after the specific phrase, before the generic phrase of the code and reasons.other.
@@ -1962,7 +1962,7 @@ test("formatTranscript: a call that did not work says why: its argument, its mes
   );
 });
 
-test('formatTranscript: an errand without its agent says so through skills.refusals.agentRequired, naming the agents', () => {
+test('formatTranscript: an errand without its agent says so through tools.refusals.agentRequired, naming the agents', () => {
   const ended = (detail, over = labels) =>
     formatTranscript(
       withCalls(
@@ -1980,15 +1980,15 @@ test('formatTranscript: an errand without its agent says so through skills.refus
   const said = ended(detail);
   assert.ok(
     said.endsWith(
-      `: ${withReason(fill(labels.skills.refusals.agentRequired, { arg: 'agent', agents: 'web, server' }))}]`
+      `: ${withReason(fill(labels.tools.refusals.agentRequired, { arg: 'agent', agents: 'web, server' }))}]`
     ),
     said
   );
   assert.ok(said.includes('web, server'), said);
   // Without the agents to name, or without the label, the generic reason as for any other code.
-  assert.ok(ended({ ...detail, values: undefined }).endsWith(`: ${withReason(labels.skills.result.reasons.other)}]`));
-  const unlabelled = { ...labels, skills: { ...labels.skills, refusals: {} } };
-  assert.ok(ended(detail, unlabelled).endsWith(`: ${withReason(labels.skills.result.reasons.other)}]`));
+  assert.ok(ended({ ...detail, values: undefined }).endsWith(`: ${withReason(labels.tools.result.reasons.other)}]`));
+  const unlabelled = { ...labels, tools: { ...labels.tools, refusals: {} } };
+  assert.ok(ended(detail, unlabelled).endsWith(`: ${withReason(labels.tools.result.reasons.other)}]`));
 });
 
 test('formatTranscript: a call target out of view renders as its link, else its channel, else nothing', () => {

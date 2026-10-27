@@ -49,7 +49,7 @@ import {
   spendGate,
 } from './lib/cli.mjs';
 import { readOnlyMemory } from './lib/memory-read.mjs';
-import { scriptedChatOf, scriptedReads } from './lib/platform-objects.ts';
+import { discordReads, scriptedChatOf, scriptedReads } from './lib/platform-objects.ts';
 import {
   computeGates,
   gatesTable,
@@ -63,8 +63,8 @@ import {
   withChannelMap,
 } from './lib/inner-week.mjs';
 import { onLog } from '../src/log.js';
-import '../src/ops/index.js';
-import { skillRegistry } from '../src/skills/registry.js';
+import '../src/tools/impl/index.ts';
+import { skillRegistry } from '../src/tools/registry.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const FIXTURES = path.join(ROOT, 'tools', 'fixtures', 'inner-week');
@@ -290,7 +290,6 @@ async function createLiveVoice({ args, fixture, clock, budget, log }) {
 
     // The turn's history: the fixture's chat of the conversation the scheduler picked.
     let scripted = { lines: [], name: null };
-    const capabilities = mods.createDiscordInterface({ client }).capabilities;
     // The turn's history is the fixture's chat, as the interface's history read gives it.
     /**
      * @param {*} found
@@ -329,8 +328,9 @@ async function createLiveVoice({ args, fixture, clock, budget, log }) {
     const admin = mods.createAdmin({
       hot,
       store,
-      client,
-      discord: capabilities,
+      reads: discordReads(client, () => hot.config).reads,
+      selfId: () => self.id,
+      getSelfName: () => self.name,
       port,
       intentions,
       errands,

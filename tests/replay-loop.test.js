@@ -8,8 +8,8 @@ import assert from 'node:assert/strict';
 
 import fs from 'node:fs';
 import path from 'node:path';
-import '../src/ops/index.js';
-import { skillRegistry } from '../src/skills/registry.js';
+import '../src/tools/impl/index.ts';
+import { skillRegistry } from '../src/tools/registry.ts';
 import {
   IN_TURN_TOOLS,
   lookPerTurn,
@@ -18,8 +18,8 @@ import {
   runMemorySearch,
   runWebRead,
   runWebSearch,
-} from '../src/skills/tools.js';
-import { runConversationRead, fetchSpan, recordMessages } from '../src/skills/conversation-read.js';
+} from '../src/tools/tools.ts';
+import { runConversationRead, fetchSpan, recordMessages } from '../src/tools/conversation-read.ts';
 import { pullPictures } from '../src/behavior/pull.js';
 import {
   callViewOf,
@@ -30,7 +30,7 @@ import {
   lookupClassifierInput,
   requesterOf,
 } from '../src/behavior/turn.js';
-import { transportOf } from '../src/skills/tool-calls.js';
+import { transportOf } from '../src/tools/tool-calls.ts';
 import { createTaskStore } from '../src/errands/store.js';
 import { createImageGen } from '../src/llm/images.js';
 import { tempDir } from './fixtures/tmp.js';
@@ -103,8 +103,8 @@ function toolConfig({ loop = { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep
     },
     models: { base: { core: 'x/chat' } },
     llm: { maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000 },
-    skills: { safeMode: false, loop },
-    features: { skills: true, webLookup: true },
+    tools: { safeMode: false, loop },
+    features: { tools: true, webLookup: true },
   });
   // A test's own switches last: `coreTools: false` turns the switch off again.
   return personaGrantsConfig({ ...base, features: { ...base.features, ...features } }, SELF, TOOLS);
@@ -316,10 +316,10 @@ test('replay flags: --core-tools goes with --skills only; --pair-transport and -
   assert.throws(() => parseArgs(['--loop-triggers', '--triggers', 't.txt', '--transport', 'carrier-pigeon']), /usage/);
   assert.throws(() => parseArgs(['--loop-triggers', '--triggers', 't.txt', '--samples', '2']), /usage/);
   assert.throws(() => parseArgs(['123456789012345678', '223456789012345678', '--transport', 'text']), /usage/);
-  assert.deepEqual(withTransport({ skills: { loop: { maxSteps: 3 } } }, 'text'), {
-    skills: { loop: { maxSteps: 3 }, transport: 'text' },
+  assert.deepEqual(withTransport({ tools: { loop: { maxSteps: 3 } } }, 'text'), {
+    tools: { loop: { maxSteps: 3 }, transport: 'text' },
   });
-  const same = { skills: {} };
+  const same = { tools: {} };
   assert.equal(withTransport(same, null), same);
 });
 
@@ -382,7 +382,7 @@ test('the step engine: the first request leaves the step reserve under the promp
   const config = toolConfig();
   // The output budget does not come off the prompt rail.
   config.llm = { maxRequestTokens: 14000, maxOutputTokens: 4000, safetyMargin: 0.9, timeoutMs: 1000 };
-  config.skills.loop.stepReserveTokens = 2500;
+  config.tools.loop.stepReserveTokens = 2500;
   const hot = {
     config,
     prompts: {
@@ -452,7 +452,7 @@ test('the step engine: the first request leaves the step reserve under the promp
 test('the step engine: with the production limits (50000 cap, 0.9 margin, 10000 output) the chat keeps its lines and the request fits the prompt rail less tools and reserve', async () => {
   const config = toolConfig();
   config.llm = { maxRequestTokens: 50000, maxOutputTokens: 10000, safetyMargin: 0.9, timeoutMs: 1000 };
-  config.skills.loop.stepReserveTokens = 6000;
+  config.tools.loop.stepReserveTokens = 6000;
   const hot = {
     config,
     prompts: {
@@ -757,7 +757,7 @@ test('the step engine: unreadable and unknown calls get a refusal she reads; arg
   );
   const results = llm.calls[1].messages.filter((message) => message.role === 'tool');
   assert.equal(results.length, 3, 'one result for every call, refused ones included');
-  assert.ok(results[0].content.includes(labels.skills.result.reasons['malformed-call']));
+  assert.ok(results[0].content.includes(labels.tools.result.reasons['malformed-call']));
 });
 
 test('loopCall: a tool past its time answers the live timeout; one that throws fails; a refused call never runs; a task.run is recorded only', async () => {
@@ -894,6 +894,8 @@ test('createReplayTools: web.search and web.read through the lookup and memory.s
     pageFetcher: {},
     linkOfMessage,
     discord: {},
+    // The interface describes nothing: the recall scope falls back to the replay's own channel and has no listing.
+    reads: { conversationInfo: () => Promise.resolve(null), conversations: () => Promise.resolve(null) },
     mediaCache,
   });
   assert.equal(tools.recallAvailable(), true);
@@ -1248,6 +1250,7 @@ test('createReplayTools.prefetch: the live lanes of the trigger, run as of the m
       runWebSearch,
       runMemorySearch,
       discord: {},
+      reads: { conversationInfo: () => Promise.resolve(null), conversations: () => Promise.resolve(null) },
       prefetchLanes,
       prefetchOn,
       recallSettings,
@@ -1494,10 +1497,10 @@ test('--pair-transport: the native side as A, the text side as B, a blind sheet 
 test('createReplayTools: conversation.read runs the live reader over the REST history, its handles continuing the request numbering; no tool fails silently', async () => {
   const conversationLabels = {
     ...labels,
-    skills: {
-      ...labels.skills,
+    tools: {
+      ...labels.tools,
       tools: {
-        ...labels.skills.tools,
+        ...labels.tools.tools,
         conversation: {
           source: 'from #{channel}',
           handles: 'numbered lines',

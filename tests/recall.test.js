@@ -34,7 +34,6 @@ import {
   sampleOffsets,
   scanArchive,
   searchPlan,
-  snowflakeAt,
 } from '../src/behavior/recall.js';
 import { estimateTokens } from '../src/llm/tokens.js';
 import { createRecord, toRecordLine } from '../src/memory/record.js';
@@ -52,7 +51,6 @@ const NOW = Date.UTC(2026, 9, 5, 12, 0, 0);
 const BERLIN = 'Europe/Berlin';
 
 /** The snowflake's timestamp back in ms. */
-const tsOf = (id) => Number((BigInt(id) >> 22n) + 1420070400000n);
 
 // ---- settings ------------------------------------------------------------------------------
 
@@ -203,20 +201,13 @@ test('parseLookupAnswer: an open side is allowed; an unparsable side gives no ra
 
 // ---- the plan ------------------------------------------------------------------------------
 
-test('snowflakeAt: a time maps to the first snowflake of its millisecond', () => {
-  const at = Date.UTC(2026, 9, 1, 18, 44, 0, 123);
-  assert.equal(tsOf(snowflakeAt(at)), at);
-  assert.equal(snowflakeAt(0), '0');
-  assert.equal(snowflakeAt(NaN), '0');
-});
-
 test('searchPlan: content forms round-robin server and who forms up to maxForms, then authors', () => {
   const plan = searchPlan({ forms: ['α', 'β', 'γ'], who: ['δ', 'α'], memberIds: ['u1', 'u1', 'u2'], maxForms: 4 });
   assert.deepEqual(
     plan.map((q) => q.content ?? q.authorId),
     ['α', 'δ', 'β', 'γ', 'u1', 'u2']
   );
-  assert.ok(plan.every((q) => q.minId === null && q.maxId === null));
+  assert.ok(plan.every((q) => q.after === null && q.before === null));
 });
 
 test('searchPlan: each content query carries its kind, form for a server form and who for a name form', () => {
@@ -240,10 +231,11 @@ test('searchPlan: the range alone bounds every query; a range that ends before i
   const from = Date.UTC(2025, 11, 31, 18);
   const to = Date.UTC(2026, 0, 1, 6);
   const [query] = searchPlan({ forms: ['α'], from, to, maxForms: 8 });
-  assert.equal(tsOf(query.minId), from);
-  assert.equal(tsOf(query.maxId), to + 1);
+  // The range is in milliseconds now; the interface turns it into whatever its platform bounds a search by.
+  assert.equal(query.after, from);
+  assert.equal(query.before, to + 1);
   const [open] = searchPlan({ forms: ['α'], maxForms: 8, before: Date.UTC(2026, 9, 5, 11) });
-  assert.deepEqual([open.minId, open.maxId], [null, null], 'no bound without a range; before is not a parameter');
+  assert.deepEqual([open.after, open.before], [null, null], 'no bound without a range; before is not a parameter');
   assert.deepEqual(searchPlan({ forms: ['α'], from: to + HOUR, to, maxForms: 8 }), []);
 });
 
@@ -303,13 +295,13 @@ function found(id, ts, keys, channelId = 'c1') {
 }
 
 test('queryKey: one key per search query by kind, every sampled page of a range under one', () => {
-  assert.equal(queryKey({ kind: 'form', content: 'κουνέλι', minId: null, maxId: null }), 'form:κουνέλι');
-  assert.equal(queryKey({ kind: 'who', content: 'éloïse', minId: null, maxId: null }), 'who:éloïse');
-  assert.equal(queryKey({ kind: 'author', authorId: 'u7', minId: null, maxId: null }), 'author:u7');
-  assert.equal(queryKey({ kind: 'range', minId: '1', maxId: '2' }), 'range');
+  assert.equal(queryKey({ kind: 'form', content: 'κουνέλι', after: null, before: null }), 'form:κουνέλι');
+  assert.equal(queryKey({ kind: 'who', content: 'éloïse', after: null, before: null }), 'who:éloïse');
+  assert.equal(queryKey({ kind: 'author', authorId: 'u7', after: null, before: null }), 'author:u7');
+  assert.equal(queryKey({ kind: 'range', after: 1, before: 2 }), 'range');
   assert.equal(
-    queryKey({ kind: 'range', minId: '1', maxId: '2' }),
-    queryKey({ kind: 'range', minId: '1', maxId: '2', offset: 528 })
+    queryKey({ kind: 'range', after: 1, before: 2 }),
+    queryKey({ kind: 'range', after: 1, before: 2, offset: 528 })
   );
   assert.notEqual(queryKey({ kind: 'form', content: 'u7' }), queryKey({ kind: 'author', authorId: 'u7' }));
   assert.notEqual(queryKey({ kind: 'form', content: 'ana' }), queryKey({ kind: 'who', content: 'ana' }));
@@ -2514,7 +2506,7 @@ test('buildRecallRequest: a time cue goes in <time_cue> right before <question> 
   assert.ok(!unlabelled.includes('<time_cue>'), 'a blank label adds nothing');
 });
 
-// memory.search (the persona's own call, src/skills/tools.js): her arguments, read without a helper.
+// memory.search (the persona's own call, src/tools/tools.ts): her arguments, read without a helper.
 
 test("memorySearchPlan: her terms and people first, then the question's long words and a stored name it holds; a time range bounds; a channel is kept", () => {
   const now = Date.UTC(2026, 9, 17, 12);

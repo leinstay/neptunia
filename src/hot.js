@@ -8,9 +8,9 @@
 // prompts/ is the tracked, generic layer; prompts.local/ is a deployment's
 // own, gitignored overrides — it may be entirely absent. A local file
 // replaces the base file of the same name once it is non-empty; the JSON
-// layers (labels.json, and skills.json: the persona's skill texts,
-// src/skills/registry.js) are deep-merged instead of replaced, each under its
-// own name in `hot.prompts`. A file that fails to parse (half
+// layers are deep-merged instead of replaced, each under its own name in
+// `hot.prompts`: labels.json (prompts/ and prompts.local/) and tools.json, the
+// persona's tool texts (config/ and config.local/, src/tools/registry.ts). A file that fails to parse (half
 // -written JSON, editor temp state) is ignored on reload: the previous good
 // value stays live and the error is logged. On the very first load, invalid
 // JSON still throws so a broken deployment fails fast at startup.
@@ -43,10 +43,20 @@ const DEBOUNCE_MS = 250;
 const BASE_CONFIG_FILE = 'config.json';
 const LOCAL_CONFIG_FILE = 'config.local.json';
 const LOCAL_PROMPTS_DIRNAME = 'prompts.local';
+const LOCAL_TOOLS_DIRNAME = 'config.local';
 /** The subfolder of prompts.local/ holding the errand agents' preambles, loaded as `hot.prompts.preambles`. */
 const PREAMBLES_DIRNAME = 'preambles';
-/** The JSON files of the prompt layers, by name: `<name>.json`, deep-merged local over base. */
-const JSON_LAYERS = Object.freeze(['labels', 'skills']);
+/**
+ * The JSON files of the prompt layers, by name: `<name>.json` in `dir` under the checkout and `localDir` under the private
+ * directory, deep-merged local over base.
+ */
+const JSON_LAYERS = Object.freeze([
+  { name: 'labels', dir: 'prompts', localDir: LOCAL_PROMPTS_DIRNAME },
+  { name: 'tools', dir: 'config', localDir: LOCAL_TOOLS_DIRNAME },
+]);
+
+/** Where an earlier version kept the tool texts, which the start refuses to find (tools/tools-file-move.mjs moves it). */
+const OLD_TOOLS_FILE = path.join(LOCAL_PROMPTS_DIRNAME, 'skills.json');
 
 /**
  * Config keys a deployment may still carry that are no longer read, each with what is read
@@ -164,7 +174,12 @@ function computePromptFiles(promptsDir, localPromptsDir, prevPrompts, prevSource
   return { prompts, sources, keptPrevious };
 }
 
-/** Parsed `<dir>/<name>.json`, or `undefined` when the file is absent or blank. Throws on invalid JSON. */
+/**
+ * Parsed `<dir>/<name>.json`, or `undefined` when the file is absent or blank. Throws on invalid JSON.
+ * @param {string} dir
+ * @param {string} name
+ * @returns {Record<string, unknown> | undefined}
+ */
 function readJsonFile(dir, name) {
   const file = path.join(dir, `${name}.json`);
   if (!fs.existsSync(file)) return undefined;
@@ -174,14 +189,17 @@ function readJsonFile(dir, name) {
 }
 
 /**
- * `{ value, source }` for one deep-merged JSON layer (a name of JSON_LAYERS). A
+ * `{ value, source }` for one deep-merged JSON layer (an entry of JSON_LAYERS). A
  * missing base file defaults to `{}`. Throws when either file exists and is
  * not valid JSON — callers on a reload path must catch this and keep the
  * previous value.
+ * @param {{ name: string, dir: string, localDir: string }} layer
+ * @param {string} rootDir
+ * @param {string} privateDir
  */
-function computeJsonLayer(name, promptsDir, localPromptsDir) {
-  const base = readJsonFile(promptsDir, name);
-  const local = readJsonFile(localPromptsDir, name);
+function computeJsonLayer({ name, dir, localDir }, rootDir, privateDir) {
+  const base = readJsonFile(path.join(rootDir, dir), name);
+  const local = readJsonFile(path.join(privateDir, localDir), name);
   if (local !== undefined) return { value: deepMerge(base ?? {}, local), source: 'merged' };
   return { value: base ?? {}, source: 'base' };
 }
@@ -199,14 +217,30 @@ function computePreambles(dir) {
   return out;
 }
 
-function loadPromptLayers(promptsDir, localPromptsDir, prevPrompts, prevSources) {
+/**
+ * @param {unknown} value
+ * @returns {object}
+ */
+function objectOf(value) {
+  return typeof value === 'object' && value !== null ? value : {};
+}
+
+/**
+ * @param {string} rootDir
+ * @param {string} privateDir
+ * @param {Record<string, unknown>} prevPrompts
+ * @param {Record<string, string>} prevSources
+ */
+function loadPromptLayers(rootDir, privateDir, prevPrompts, prevSources) {
+  const promptsDir = path.join(rootDir, 'prompts');
+  const localPromptsDir = path.join(privateDir, LOCAL_PROMPTS_DIRNAME);
   const { prompts, sources, keptPrevious } = computePromptFiles(promptsDir, localPromptsDir, prevPrompts, prevSources);
   prompts.preambles = computePreambles(path.join(localPromptsDir, PREAMBLES_DIRNAME));
   sources.preambles = 'local';
-  for (const name of JSON_LAYERS) {
-    const { value, source } = computeJsonLayer(name, promptsDir, localPromptsDir);
-    prompts[name] = value;
-    sources[name] = source;
+  for (const layer of JSON_LAYERS) {
+    const { value, source } = computeJsonLayer(layer, rootDir, privateDir);
+    prompts[layer.name] = value;
+    sources[layer.name] = source;
   }
   return { prompts, sources, keptPrevious };
 }
@@ -227,6 +261,8 @@ export function createHot({ rootDir, privateDir = rootDir, watchImpl = fs.watch 
   const promptsDir = path.join(rootDir, 'prompts');
   const localPromptsDir = path.join(privateDir, LOCAL_PROMPTS_DIRNAME);
   const preamblesDir = path.join(localPromptsDir, PREAMBLES_DIRNAME);
+  const toolsDir = path.join(rootDir, 'config');
+  const localToolsDir = path.join(privateDir, LOCAL_TOOLS_DIRNAME);
   // Whether the private layer sits in a directory of its own, which then needs its own watcher.
   const privateApart = path.resolve(privateDir) !== path.resolve(rootDir);
   const hot = new EventEmitter();
@@ -234,6 +270,7 @@ export function createHot({ rootDir, privateDir = rootDir, watchImpl = fs.watch 
   const timers = new Map();
   let localWatcher = null;
   let preamblesWatcher = null;
+  let localToolsWatcher = null;
 
   hot.config = readConfig(rootDir, { privateDir });
   // The retired keys reported for the config now live: one warning when a key appears (at
@@ -250,8 +287,15 @@ export function createHot({ rootDir, privateDir = rootDir, watchImpl = fs.watch 
     }
   };
   reportRetiredKeys();
-  // Initial load: an invalid JSON layer (labels, skills) throws so a broken deployment fails at startup.
-  const initial = loadPromptLayers(promptsDir, localPromptsDir, {}, {});
+  // Initial load: an invalid JSON layer (labels, tools) throws so a broken deployment fails at startup, and so does
+  // the tool texts still in their old place: left there they would stop counting without a word.
+  if (fs.existsSync(path.join(privateDir, OLD_TOOLS_FILE)))
+    throw new Error(`${OLD_TOOLS_FILE} is where the tool texts were: run node tools/tools-file-move.mjs --apply`);
+  const initial = loadPromptLayers(rootDir, privateDir, {}, {});
+  if (Object.hasOwn(objectOf(initial.prompts.labels), 'skills'))
+    log.warn('hot: labels.json carries a `skills` section, which no code reads', {
+      move: 'tools/tools-file-move.mjs',
+    });
   hot.prompts = initial.prompts;
   hot.promptSources = initial.sources;
   hot.promptsDir = promptsDir;
@@ -298,11 +342,12 @@ export function createHot({ rootDir, privateDir = rootDir, watchImpl = fs.watch 
       // Each JSON layer on its own: a broken one keeps its previous value, the rest still reload.
       const json = {};
       const jsonSources = {};
-      for (const name of JSON_LAYERS) {
+      for (const layer of JSON_LAYERS) {
+        const { name } = layer;
         json[name] = hot.prompts[name];
         jsonSources[name] = hot.promptSources[name];
         try {
-          const computed = computeJsonLayer(name, promptsDir, localPromptsDir);
+          const computed = computeJsonLayer(layer, rootDir, privateDir);
           json[name] = computed.value;
           jsonSources[name] = computed.source;
         } catch (err) {
@@ -417,11 +462,42 @@ export function createHot({ rootDir, privateDir = rootDir, watchImpl = fs.watch 
     }
   }
 
+  /** Close and forget the config.local/ watcher, so a directory created again gets a new one. */
+  function stopLocalToolsWatch() {
+    const watcher = localToolsWatcher;
+    if (!watcher) return;
+    localToolsWatcher = null;
+    dropWatcher(watcher);
+  }
+
+  function startLocalToolsWatch() {
+    if (localToolsWatcher) return;
+    try {
+      const watcher = watchImpl(localToolsDir, (event, file) => {
+        if (isPromptFile(file)) schedule('prompts', hot.reloadPrompts);
+      });
+      localToolsWatcher = watcher;
+      watchers.push(watcher);
+      attachErrorHandler(watcher, () => {
+        if (localToolsWatcher === watcher) stopLocalToolsWatch();
+      });
+    } catch (err) {
+      log.warn('hot: failed to watch config.local', { error: err });
+    }
+  }
+
   /** An entry of the private directory changed: config.local.json reloads the config;
-   * prompts.local/ appearing or going away starts or drops its watcher. */
+   * prompts.local/ and config.local/ appearing or going away start or drop their watchers. */
   function onPrivateEntry(name) {
     if (name === LOCAL_CONFIG_FILE) {
       schedule('config', hot.reloadConfig);
+    } else if (name === LOCAL_TOOLS_DIRNAME) {
+      if (!fs.existsSync(localToolsDir)) {
+        stopLocalToolsWatch();
+      } else if (!localToolsWatcher) {
+        startLocalToolsWatch();
+        schedule('prompts', hot.reloadPrompts);
+      }
     } else if (name === LOCAL_PROMPTS_DIRNAME) {
       if (!fs.existsSync(localPromptsDir)) {
         // Deleted (or moved away by an rsync): its watcher is dead, a recreated directory gets a new one.
@@ -455,6 +531,15 @@ export function createHot({ rootDir, privateDir = rootDir, watchImpl = fs.watch 
     watchers.push(baseWatcher);
     attachErrorHandler(baseWatcher);
 
+    // The tool texts: config/ under the checkout, config.local/ under the private directory (either may be absent).
+    if (fs.existsSync(toolsDir)) {
+      const toolsWatcher = watchImpl(toolsDir, (event, file) => {
+        if (isPromptFile(file)) schedule('prompts', hot.reloadPrompts);
+      });
+      watchers.push(toolsWatcher);
+      attachErrorHandler(toolsWatcher);
+    }
+    if (fs.existsSync(localToolsDir)) startLocalToolsWatch();
     if (fs.existsSync(localPromptsDir)) startLocalWatch();
 
     return hot;
@@ -467,6 +552,7 @@ export function createHot({ rootDir, privateDir = rootDir, watchImpl = fs.watch 
     timers.clear();
     localWatcher = null;
     preamblesWatcher = null;
+    localToolsWatcher = null;
   };
 
   return hot;

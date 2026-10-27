@@ -10,7 +10,7 @@ const LOG_PREFIX = '{"level"';
  * even if `fn` throws. Writes that are not log lines reach the real stdout.
  * @template T
  * @param {() => T | Promise<T>} fn
- * @returns {Promise<{ result: T, logs: object[] }>} `fn`'s resolved value and the parsed log entries.
+ * @returns {Promise<{ result: T, logs: Array<Record<string, *>> }>} `fn`'s resolved value and the parsed log entries.
  */
 export async function withCapturedLogs(fn) {
   const original = process.stdout.write;

@@ -1,13 +1,13 @@
 // Tests for the tag that names a member without the handle: the helper that finds it
 // (src/behavior/handles.js#untaggedNames), a mention in a line's text reading as the member's
 // handle (withUserHandles, formatTranscript), the mark on her own line (transcript.untagged) and the
-// note in the result of her message.create / message.edit (skills.result.untaggedNote). Pure,
+// note in the result of her message.create / message.edit (tools.result.untaggedNote). Pure,
 // except the one turn over the fake adapter.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { memberNameMap, untaggedNames, withUserHandles } from '../src/behavior/handles.js';
 import { formatTranscript } from '../src/format.js';
-import { toolResultText } from '../src/skills/tool-calls.js';
+import { toolResultText } from '../src/tools/tool-calls.ts';
 import { untaggedNote } from '../src/behavior/turn.js';
 import { labels as fixtureLabels } from './fixtures/labels.js';
 import { call, toolAnswer } from './fixtures/tool-answers.js';
@@ -153,7 +153,7 @@ test('untaggedNote: one note per untagged name with the handle, nothing without 
   );
   assert.equal(untaggedNote('@Yob', { ...request, mentionedIds: [YOB] }, labels), '');
   assert.equal(untaggedNote('@Yob', { ...request, handles: null }, labels), '');
-  assert.equal(untaggedNote('@Yob', request, { skills: { result: {} } }), '');
+  assert.equal(untaggedNote('@Yob', request, { tools: { result: {} } }), '');
   const result = { status: 'ok', note: 'NOTE' };
   assert.ok(toolResultText(result, labels).endsWith('\nNOTE'));
 });
@@ -167,5 +167,5 @@ test('a turn: message.create with @name tells her in the next request; the post 
   assert.equal(run.sends[0].text, 'hello @Zoë', 'her text goes out as she wrote it');
   const result = contentText(appended(run.llm, 1).find((message) => message.role === 'tool').content);
   assert.match(result, /@Zoë tagged nobody; handle @u[0-9a-z]{4,}/);
-  assert.match(result, new RegExp(labels.skills.result.ok.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.match(result, new RegExp(labels.tools.result.ok.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 });

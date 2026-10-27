@@ -3,7 +3,7 @@
 // with a long history the `<emoji>` block would show the server's first emoji
 // in server order until enough lines pass. This reads the last
 // `context.customEmoji.backfillMessages` messages of every readable channel
-// over the Discord API -- no LLM, no token budget -- and counts them into
+// through the interface's history reads -- no LLM, no token budget -- and counts them into
 // guild.json's `emojiUsage` at once (src/memory/emoji-usage.js), starting from
 // a cleared ranking, then stamps `emojiBackfill: { at, channels, messages }`
 // so it never counts the same history twice. Runs once at startup
@@ -11,6 +11,8 @@
 // with `force`).
 
 import { emojiUsageOpts } from './emoji-usage.js';
+import { lineOf } from '../behavior/line-of.js';
+import { isReadable } from '../behavior/snapshot.ts';
 import { log as defaultLog } from '../log.js';
 
 /** How many messages one `store.recordEmojiUsage` call takes. */
@@ -20,39 +22,32 @@ const CHUNK = 500;
 const DEFAULT_BACKFILL_MESSAGES = 500;
 
 /**
- * The newest `limit` messages of every readable channel of `guild`, read one channel after
- * another over the Discord API (interfaces/discord/collect.js#fetchHistoryWindow, 100 per page;
- * discord.js waits out rate limits), without the persona's and other bots' messages. A channel
- * whose read fails is logged (`<prefix>: channel read failed`) and skipped. The history read
- * of both backfills (this one and src/memory/gif-backfill.js).
- * @param {object} guild  A discord.js Guild.
+ * The newest `limit` messages of every readable conversation of the community `communityId`, read one conversation
+ * after another through the interface's `history` (it pages), as lines, without the persona's and other bots'
+ * messages. A conversation whose read fails is logged (`<prefix>: channel read failed`) and skipped. The history read
+ * of both backfills (this one and src/memory/gif-backfill.js). Null when the interface lists no conversation of the community
+ * the persona may read: a backfill clears and recounts, so it never runs over nothing.
+ * @param {import('../interface/reads.ts').Reads} reads
+ * @param {string} communityId
  * @param {number} limit
- * @param {{ config: object, discord: object, selfId?: string, log?: object, prefix: string }} deps
- *   `config` is the live config (`bot`, `media.embedTextChars`, `media.video.sites`); `discord` the
- *   Discord interface's capabilities object (`readableChannels`, `fetchHistoryWindow`), passed by
- *   the caller.
- * @returns {Promise<{ channels: number, messages: object[] }>}  `messages` normalized, in read order.
+ * @param {{ config: object, iface: string, log?: object, prefix: string }} deps  `config` is the live config (`bot`).
+ * @returns {Promise<{ channels: number, messages: object[] }|null>}  `messages` as lines, in read order.
  */
-export async function readMemberHistory(guild, limit, { config, discord, selfId, log = defaultLog, prefix }) {
-  const { readableChannels, fetchHistoryWindow } = discord;
-  const channels = readableChannels(guild, config.bot);
+export async function readMemberHistory(reads, communityId, limit, { config, iface, log = defaultLog, prefix }) {
+  const listing = await reads.conversations({ communityId });
+  if (listing === null) return null;
+  const channels = listing.conversations.filter((entry) => isReadable(entry, config.bot));
+  if (channels.length === 0) return null;
   const messages = [];
   for (const channel of channels) {
-    let window = [];
-    try {
-      window = await fetchHistoryWindow(channel, {
-        limit,
-        minTs: 0,
-        selfId,
-        embedTextChars: config.media?.embedTextChars,
-        videoSites: config.media?.video?.sites,
-        maxUrlChars: config.context?.maxUrlChars,
-      });
-    } catch (err) {
-      log.warn(`${prefix}: channel read failed`, { channelId: channel.id, error: err });
+    const found = await reads.history({ iface, conversationId: channel.id }, { limit });
+    if (found === null) {
+      log.warn(`${prefix}: channel read failed`, { channelId: channel.id });
+      continue;
     }
-    for (const message of window) {
-      if (!message.self && !message.bot) messages.push(message);
+    for (const event of found.events) {
+      const line = lineOf(event);
+      if (!line.self && !line.bot) messages.push(line);
     }
   }
   return { channels: channels.length, messages };
@@ -64,11 +59,11 @@ export async function readMemberHistory(guild, limit, { config, discord, selfId,
  * @param {object} deps.hot     src/hot.js view; `config.context.customEmoji`, `config.bot`,
  *   `config.media.embedTextChars`, `config.features.customEmoji` read at use.
  * @param {object} deps.store   src/memory/store.js.
- * @param {object} deps.client  The discord.js Client (`user.id`, `guilds.cache`).
- * @param {object} deps.discord  The Discord interface's capabilities object (src/index.js injects it): readMemberHistory's reads.
+ * @param {import('../interface/reads.ts').Reads} deps.reads  The core's reads of the interface (readMemberHistory's).
+ * @param {() => string} deps.iface  The interface's name, read when a run starts.
  * @param {object} [deps.log]   src/log.js-shaped logger.
  */
-export function createEmojiBackfill({ hot, store, client, discord, log = defaultLog }) {
+export function createEmojiBackfill({ hot, store, reads, iface, log = defaultLog }) {
   let running = false;
 
   function skipped(reason) {
@@ -85,14 +80,12 @@ export function createEmojiBackfill({ hot, store, client, discord, log = default
    * `force` that happens only on the first run -- it is a no-op once
    * `emojiBackfill.at` is set (the startup run). With `force` it ignores the
    * stamp: the owner's explicit `/nep emoji rescan`.
-   * Channels are read one after another, 100 messages per page (see
-   * interfaces/discord/collect.js#fetchHistoryWindow; discord.js waits out rate
-   * limits). Messages of bots and of the persona are skipped, as are those
+   * Channels are read one after another (readMemberHistory). Messages of bots and of the persona are skipped, as are those
    * still in the analyzer buffer (the analyzer counts them when it consumes
    * them). Clearing, counting and stamping happen together after every
    * channel is read. Skips (never throws) when paused, when
    * `backfillMessages` is 0, when already stamped (no `force`), while another
-   * run is in flight, or when the guild is not in the client's cache; an
+   * run is in flight, or when the interface lists no readable conversation of the community; an
    * unexpected error is thrown.
    * @param {string} guildId
    * @param {{ force?: boolean }} [opts]
@@ -107,16 +100,13 @@ export function createEmojiBackfill({ hot, store, client, discord, log = default
 
     running = true;
     try {
-      const guild = client.guilds.cache.get(guildId);
-      if (!guild) return skipped('no-guild');
-
-      const history = await readMemberHistory(guild, limit, {
+      const history = await readMemberHistory(reads, guildId, limit, {
         config: hot.config,
-        discord,
-        selfId: client.user?.id,
+        iface: iface(),
         log,
         prefix: 'emoji-backfill',
       });
+      if (history === null) return skipped('no-guild');
       const channels = history.channels;
       const collected = history.messages.map((message) => ({
         id: message.id,

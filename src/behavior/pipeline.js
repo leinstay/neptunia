@@ -17,7 +17,7 @@
 // messages, a message by id, a member) it asks the interface through the core's `reads`
 // (src/interface/reads.ts), and a conversation is the info the interface gave of it.
 
-import { isOwnerId } from '../ops/grants.js';
+import { isOwnerId } from '../tools/impl/grants.ts';
 import {
   collectPictures,
   collectEmojiItems,
@@ -42,7 +42,7 @@ import { roleModel } from '../llm/roles.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { fill, formatTranscript, renderTranscript } from '../format.js';
 import { topByRank } from '../memory/ranking.js';
-import { CODE } from '../skills/codes.js';
+import { CODE } from '../tools/codes.ts';
 import {
   addPending,
   authorCalls,

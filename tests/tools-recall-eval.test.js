@@ -12,6 +12,8 @@ import {
   recordMessage,
   renderSummary,
   localGuild,
+  localReads,
+  localScope,
   parseQuestions,
   percentile,
   costOf,
@@ -30,14 +32,10 @@ import { createRecall } from '../src/behavior/recall-run.js';
 import { toRecordLine } from '../src/memory/record.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { createDiscordInterface } from '../interfaces/discord/index.js';
 import { createLookup } from '../src/web/lookup.js';
 import { createBraveSearch } from '../src/web/brave.js';
 import { createExaSearch } from '../src/web/exa.js';
 import { webSearchKeys, webSearchReady } from '../tools/recall-eval.mjs';
-
-// The Discord interface's capabilities object, as src/index.js injects it.
-const DISCORD = createDiscordInterface().capabilities;
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SHIPPED_CONFIG = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
@@ -324,8 +322,9 @@ test('recall-eval: the local guild runs the record stage of the real recall, sur
     capLeft: () => 100,
     complete: async (messages) => (calls.push(messages), { text: 'stretch: 1\nIn the garden.' }),
   };
+  const channelNameOf = (cid) => (cid === C1 ? 'garden' : null);
   const recall = createRecall({
-    discord: DISCORD,
+    reads: localReads({ guildId: 'g1', channelNameOf }),
     hot: { config, prompts: { 'recall-summary': 'You are {{name}}; {{answerChars}}.', labels } },
     store,
     llm,
@@ -345,9 +344,8 @@ test('recall-eval: the local guild runs the record stage of the real recall, sur
   };
   const { result: out } = await withCapturedLogs(() =>
     recall.run({
-      guild,
       guildId: 'g1',
-      channel,
+      ...localScope({ guildId: 'g1', channelId: C1, channelNameOf }),
       selfId: SELF,
       selfName: 'Zoë',
       history: [candidate],

@@ -13,7 +13,7 @@ import { createEventDoor } from '../src/interface/door.js';
 import { createFakeAdapter, replayFixture } from '../src/interface/fake.js';
 import { createDiary } from '../src/behavior/diary.js';
 import { heartbeatWake } from '../src/behavior/inner.js';
-import { skillRegistry } from '../src/skills/registry.js';
+import { skillRegistry } from '../src/tools/registry.ts';
 import { createTurnRunner, fakeStore, hotWith, sequenceLlm } from './fixtures/turn-harness.js';
 import { GUILD, MINUTE, START, innerRig, newHistory, replyTo, rowsOf } from './fixtures/boundary.js';
 import { tempDataDir } from './fixtures/memory-db/service.js';

@@ -1,4 +1,4 @@
-// The pure side of tools/labels-catalogue.mjs: the code catalogue (src/skills/codes.js) against the
+// The pure side of tools/labels-catalogue.mjs: the code catalogue (src/tools/codes.ts) against the
 // shipped labels (prompts/labels.json) and the contract's list of reason codes (docs/prompt-contract.md).
 // Every `skill` code needs a `skills.result.reasons.<code>`, every `wake` code a `wake.feedback.codes.<code>`,
 // no label may lack its code (`other` is the one fallback), and a label may only name values its code takes.
@@ -39,16 +39,16 @@ export function renderCodesTable(catalogue) {
  */
 export function catalogueProblems({ catalogue, labels, docs = null }) {
   const problems = [];
-  const reasons = labels?.skills?.result?.reasons ?? {};
+  const reasons = labels?.tools?.result?.reasons ?? {};
   const wake = labels?.wake?.feedback?.codes ?? {};
   for (const [code, entry] of Object.entries(catalogue)) {
     if (entry.group === 'skill') {
       if (!own(reasons, code) || typeof reasons[code] !== 'string' || !reasons[code])
-        problems.push(`code ${code} has no labels.skills.result.reasons.${code}`);
+        problems.push(`code ${code} has no labels.tools.result.reasons.${code}`);
       else
         for (const name of placeholdersOf(reasons[code]))
           if (!entry.params.includes(name))
-            problems.push(`labels.skills.result.reasons.${code} names {${name}}, which the code does not take`);
+            problems.push(`labels.tools.result.reasons.${code} names {${name}}, which the code does not take`);
     } else if (entry.group === 'wake') {
       if (!own(wake, code)) problems.push(`code ${code} has no labels.wake.feedback.codes.${code}`);
     } else if (own(reasons, code) || own(wake, code)) {
@@ -56,13 +56,13 @@ export function catalogueProblems({ catalogue, labels, docs = null }) {
     }
     for (const param of entry.params) {
       if (param === 'status') continue;
-      if (!own(labels?.skills?.result?.params, param))
-        problems.push(`code ${code} takes {${param}} but labels.skills.result.params.${param} is missing`);
+      if (!own(labels?.tools?.result?.params, param))
+        problems.push(`code ${code} takes {${param}} but labels.tools.result.params.${param} is missing`);
     }
   }
   for (const code of Object.keys(reasons))
     if (code !== 'other' && catalogue[code]?.group !== 'skill')
-      problems.push(`labels.skills.result.reasons.${code} has no catalogue code`);
+      problems.push(`labels.tools.result.reasons.${code} has no catalogue code`);
   for (const code of Object.keys(wake))
     if (catalogue[code]?.group !== 'wake') problems.push(`labels.wake.feedback.codes.${code} has no catalogue code`);
   if (docs !== null) {

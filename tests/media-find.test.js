@@ -1,15 +1,15 @@
-// Tests for media.find (src/skills/tools.js#findGifs, #runMediaFind): the persona's search of her GIF
+// Tests for media.find (src/tools/tools.ts#findGifs, #runMediaFind): the persona's search of her GIF
 // library by the stored descriptions, ranked by words, returning the library's own handles.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { findGif, normalizeGifs } from '../src/memory/gifs.js';
 import { renderGifLibrary } from '../src/behavior/gif-pick.js';
-import { findGifs, mediaFindText, runMediaFind } from '../src/skills/tools.js';
+import { findGifs, mediaFindText, runMediaFind } from '../src/tools/tools.ts';
 
 const labels = {
   gifs: { entry: '{id}: {text}', entryNoText: '{id}', entryFields: '{id}: {reaction} / {action} / {text}' },
-  skills: { tools: { find: { source: 'Source: media.find "{query}", {count} found.', none: 'Nothing matched.' } } },
+  tools: { tools: { find: { source: 'Source: media.find "{query}", {count} found.', none: 'Nothing matched.' } } },
 };
 
 /** A library of entries g1.. with these descriptions (cache fields), the first used most. */

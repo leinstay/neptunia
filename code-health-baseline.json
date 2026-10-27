@@ -3,25 +3,25 @@
     "src/behavior/inner.js": 2523,
     "src/behavior/pipeline.js": 3090,
     "src/behavior/prompt.js": 4903,
-    "src/behavior/recall-run.js": 2346,
-    "src/behavior/recall.js": 2508,
+    "src/behavior/recall-run.js": 2331,
+    "src/behavior/recall.js": 2491,
     "src/behavior/sandbox.js": 2136,
-    "src/behavior/turn.js": 9362,
+    "src/behavior/turn.js": 9361,
     "src/memory/store.js": 3346,
-    "tests/admin.test.js": 3882,
+    "tests/admin.test.js": 3880,
     "tests/describe.test.js": 3705,
     "tests/events.test.js": 9301,
     "tests/format.test.js": 2060,
     "tests/inner.test.js": 2447,
     "tests/memory-db-session.test.js": 2111,
     "tests/openrouter.test.js": 3653,
-    "tests/prompt.test.js": 7073,
-    "tests/prompts-shipped.test.js": 2069,
-    "tests/recall-run.test.js": 2395,
-    "tests/recall.test.js": 2561,
+    "tests/prompt.test.js": 7072,
+    "tests/prompts-shipped.test.js": 2063,
+    "tests/recall-run.test.js": 2384,
+    "tests/recall.test.js": 2553,
     "tests/sandbox.test.js": 2068,
     "tests/store.test.js": 3255,
-    "tests/turn.test.js": 12882,
+    "tests/turn.test.js": 12881,
     "tools/lib/inner-week.mjs": 2199,
     "tools/replay.mjs": 7745
   },
@@ -65,7 +65,7 @@
     },
     "src/behavior/catch-up.js": {
       "createOfflineCatchUp>run": {
-        "complexity": 23
+        "complexity": 21
       }
     },
     "src/behavior/deleted-lines.js": {
@@ -175,20 +175,20 @@
     },
     "src/behavior/recall-run.js": {
       "createRecall": {
-        "function-length": 1943
+        "function-length": 1934
       },
       "createRecall>findPeople": {
         "complexity": 36
       },
       "createRecall>prefetch": {
-        "complexity": 43
+        "complexity": 42
       },
       "createRecall>recallWith": {
         "complexity": 75,
-        "function-length": 500
+        "function-length": 497
       },
       "createRecall>run": {
-        "complexity": 31
+        "complexity": 30
       },
       "createRecall>storedMemory": {
         "complexity": 47
@@ -215,9 +215,6 @@
       },
       "parseSearchLines": {
         "complexity": 35
-      },
-      "searchPlan": {
-        "complexity": 21
       }
     },
     "src/behavior/route-channel.js": {
@@ -243,7 +240,7 @@
         "complexity": 30
       },
       "createTurnRunner": {
-        "function-length": 7352
+        "function-length": 7350
       },
       "createTurnRunner>act": {
         "complexity": 75,
@@ -626,110 +623,37 @@
         "complexity": 35
       }
     },
-    "src/ops/draw.js": {
-      "<anonymous>>cmdDraw": {
-        "complexity": 37
-      }
-    },
-    "src/ops/intent.js": {
-      "<anonymous>>cmdUpdate": {
-        "complexity": 22
-      }
-    },
-    "src/ops/memory.js": {
-      "<anonymous>": {
-        "function-length": 471
-      },
-      "<anonymous>>cmdMemoryJournal": {
-        "complexity": 21
-      },
-      "<anonymous>>cmdMemoryShow": {
-        "complexity": 29
-      }
-    },
-    "src/ops/message.js": {
-      "<anonymous>": {
-        "function-length": 351
-      },
-      "<anonymous>>mediaFile": {
-        "complexity": 28
-      },
-      "<anonymous>>post": {
-        "complexity": 41
-      }
-    },
-    "src/ops/metrics.js": {
-      "metricsTap><anonymous>": {
-        "complexity": 29
-      }
-    },
-    "src/ops/shared.js": {
-      "buildProfileSummary": {
-        "complexity": 22
-      }
-    },
-    "src/ops/status.js": {
-      "<anonymous>#2": {
-        "function-length": 652
-      },
-      "<anonymous>#2>keyCostsValue": {
-        "complexity": 22
-      },
-      "innerLines": {
-        "complexity": 24
-      }
-    },
-    "src/ops/task.js": {
-      "<anonymous>>cmdRead": {
-        "complexity": 26
-      }
-    },
-    "src/ops/usage.js": {
-      "keyLine": {
-        "complexity": 30
-      }
-    },
-    "src/ops/voice.js": {
-      "<anonymous>>cmdVoice": {
-        "complexity": 29
-      }
-    },
     "src/protocol/envelope.js": {
       "validateEnvelope": {
         "complexity": 25
       }
     },
-    "src/skills/conversation-read.js": {
+    "src/tools/conversation-read.ts": {
       "conversationText": {
-        "complexity": 29
+        "complexity": 27
       },
       "readSelection": {
         "complexity": 26
       },
       "recordMessages": {
-        "complexity": 27
+        "complexity": 26
       },
       "runConversationRead": {
-        "complexity": 37
+        "complexity": 35
       }
     },
-    "src/skills/definitions.js": {
-      "validateDefinitions": {
-        "complexity": 30
-      }
-    },
-    "src/skills/executors.js": {
+    "src/tools/executors.ts": {
       "executeCall": {
         "complexity": 58
       },
       "outcomeDetail": {
-        "complexity": 25
+        "complexity": 22
       },
       "resolveCall": {
-        "complexity": 72
+        "complexity": 70
       }
     },
-    "src/skills/gateway.js": {
+    "src/tools/gateway.ts": {
       "checkSkill": {
         "complexity": 31
       },
@@ -737,22 +661,87 @@
         "complexity": 21
       }
     },
-    "src/skills/registry.js": {
-      "loadSkills": {
-        "complexity": 28
+    "src/tools/impl/draw.ts": {
+      "<anonymous>>cmdDraw": {
+        "complexity": 37
       }
     },
-    "src/skills/schema.js": {
+    "src/tools/impl/intent.ts": {
+      "<anonymous>>cmdUpdate": {
+        "complexity": 22
+      }
+    },
+    "src/tools/impl/memory.ts": {
+      "<anonymous>": {
+        "function-length": 471
+      },
+      "<anonymous>>cmdMemoryShow": {
+        "complexity": 23
+      }
+    },
+    "src/tools/impl/message.ts": {
+      "<anonymous>": {
+        "function-length": 328
+      },
+      "<anonymous>>mediaFile": {
+        "complexity": 26
+      },
+      "<anonymous>>post": {
+        "complexity": 37
+      }
+    },
+    "src/tools/impl/metrics.ts": {
+      "metricsTap><anonymous>": {
+        "complexity": 26
+      }
+    },
+    "src/tools/impl/shared.ts": {
+      "buildProfileSummary": {
+        "complexity": 22
+      }
+    },
+    "src/tools/impl/status.ts": {
+      "<anonymous>#2": {
+        "function-length": 643
+      },
+      "<anonymous>#2>keyCostsValue": {
+        "complexity": 21
+      },
+      "innerLines": {
+        "complexity": 23
+      }
+    },
+    "src/tools/impl/task.ts": {
+      "<anonymous>>cmdRead": {
+        "complexity": 26
+      }
+    },
+    "src/tools/impl/usage.ts": {
+      "keyLine": {
+        "complexity": 23
+      }
+    },
+    "src/tools/impl/voice.ts": {
+      "<anonymous>>cmdVoice": {
+        "complexity": 27
+      }
+    },
+    "src/tools/registry.ts": {
+      "loadSkills": {
+        "complexity": 26
+      }
+    },
+    "src/tools/schema.ts": {
       "schemaError": {
         "complexity": 38
       }
     },
-    "src/skills/tool-calls.js": {
+    "src/tools/tool-calls.ts": {
       "toolResultText": {
         "complexity": 27
       }
     },
-    "src/skills/tools.js": {
+    "src/tools/tools.ts": {
       "memorySearchText": {
         "complexity": 35
       },
@@ -760,7 +749,7 @@
         "complexity": 47
       },
       "runMemorySearch": {
-        "complexity": 36
+        "complexity": 35
       },
       "runWebRead": {
         "complexity": 23
@@ -974,16 +963,13 @@
       "interfaces/discord/commands.js": [
         "src/llm/roles.js",
         "src/log.js",
-        "src/ops/catalog.js",
-        "src/ops/grants.js",
-        "src/time.js"
-      ],
-      "interfaces/discord/emoji.js": [
-        "src/behavior/emoji.js"
+        "src/time.js",
+        "src/tools/impl/catalog.ts",
+        "src/tools/impl/grants.ts"
       ],
       "interfaces/discord/port.js": [
         "src/interface/port.js",
-        "src/skills/codes.js"
+        "src/tools/codes.ts"
       ],
       "interfaces/discord/pull-fetch.js": [
         "src/behavior/elsewhere.ts",
@@ -1036,38 +1022,38 @@
       "src/memory/db/writer-worker.js",
       "src/memory/index.js",
       "src/memory/update.js",
-      "src/ops/alias.js",
-      "src/ops/catalog.js",
-      "src/ops/draw.js",
-      "src/ops/effects.js",
-      "src/ops/env.js",
-      "src/ops/grants.js",
-      "src/ops/index.js",
-      "src/ops/intent.js",
-      "src/ops/learning.js",
-      "src/ops/memory.js",
-      "src/ops/message.js",
-      "src/ops/model.js",
-      "src/ops/pause.js",
-      "src/ops/pings.js",
-      "src/ops/places.js",
-      "src/ops/registry.js",
-      "src/ops/rights.js",
-      "src/ops/rule.js",
-      "src/ops/shared.js",
-      "src/ops/status.js",
-      "src/ops/voice.js",
       "src/protocol/actions.js",
       "src/protocol/envelope.js",
       "src/protocol/index.js",
       "src/protocol/origin.js",
       "src/protocol/validate.js",
-      "src/skills/call-args.js",
-      "src/skills/gateway.js",
-      "src/skills/registry.js",
-      "src/skills/schema.js",
       "src/speech/index.js",
-      "src/speech/synth.js"
+      "src/speech/synth.js",
+      "src/tools/call-args.ts",
+      "src/tools/gateway.ts",
+      "src/tools/impl/alias.ts",
+      "src/tools/impl/catalog.ts",
+      "src/tools/impl/draw.ts",
+      "src/tools/impl/effects.ts",
+      "src/tools/impl/env.ts",
+      "src/tools/impl/grants.ts",
+      "src/tools/impl/index.ts",
+      "src/tools/impl/intent.ts",
+      "src/tools/impl/learning.ts",
+      "src/tools/impl/memory.ts",
+      "src/tools/impl/message.ts",
+      "src/tools/impl/model.ts",
+      "src/tools/impl/pause.ts",
+      "src/tools/impl/pings.ts",
+      "src/tools/impl/places.ts",
+      "src/tools/impl/registry.ts",
+      "src/tools/impl/rights.ts",
+      "src/tools/impl/rule.ts",
+      "src/tools/impl/shared.ts",
+      "src/tools/impl/status.ts",
+      "src/tools/impl/voice.ts",
+      "src/tools/registry.ts",
+      "src/tools/schema.ts"
     ]
   }
 }

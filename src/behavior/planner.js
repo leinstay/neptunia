@@ -19,7 +19,7 @@ import { parseParticipationPick } from './participation-pick.js';
 import { block, fillPromptTemplate, stableThenTail } from './prompt.js';
 import { parseLookupAnswer, recallSettings } from './recall.js';
 import { parseRouteAnswer } from './route.js';
-import { parseSkillsLines } from '../skills/discovery.js';
+import { parseSkillsLines } from '../tools/discovery.ts';
 
 /** The four blocks of a planner answer, in the order the prompt lists them. */
 export const PLANNER_BLOCKS = Object.freeze(['channel', 'episodes', 'rewatch', 'lookup']);
@@ -80,7 +80,7 @@ export function parseRewatchPickDetailed(raw, count) {
 /**
  * The planner's request: the system message is `prompt` with `{{name}}` (the
  * persona's display name), `{{today}}` (`YYYY-MM-DD`) and `{{skills}}` (the
- * registry's lines for skills discovery, src/skills/discovery.js#skillsIndex;
+ * registry's lines for skills discovery, src/tools/discovery.ts#skillsIndex;
  * '' with discovery off) filled; the user
  * message carries the input blocks in the prompt's order -- `<channels>`,
  * `<episodes>`, `<media>`, the transcript, `<candidate>` -- each left out when
@@ -220,7 +220,7 @@ function lookupBlock(heads, labelled, options) {
  * `channel:`, `episodes:`, `rewatch:`, `lookup:`, the lookup block's
  * labelled lines and `skills:`; any other line is counted in `unknown` and
  * changes nothing. `skills` is no block of PLANNER_BLOCKS: an optional line
- * (skills discovery, src/skills/discovery.js#parseSkillsLines over
+ * (skills discovery, src/tools/discovery.ts#parseSkillsLines over
  * `skillNames`), `missing` when absent, never a fallback.
  * Each block has a `state`: `ok` (a usable pick), `none` (the model said
  * none), `invalid` (present but unparsable, a number outside its list, a

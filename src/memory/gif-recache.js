@@ -8,8 +8,8 @@
 // watched, or watched in the older one-line format (no `reaction` field, so
 // the library moves to the three-field captions run by run) -- oldest-described
 // first, so repeated runs work through the whole library -- are watched again
-// from their message, re-read over the Discord
-// API for a fresh animation URL. A failed watch keeps the old caption, marked
+// from their message, re-read through the
+// interface for a fresh animation URL. A failed watch keeps the old caption, marked
 // `watchFailed`, which sends it to the back of the queue. One run at a time;
 // refused while paused or while GIFs are not watched; a run stops before the
 // next GIF once the bot is paused or a daily rail is spent. Logs carry counts only.
@@ -21,11 +21,11 @@
 // by an older model: skipped are the ones described at or after
 // `media.recacheBefore` when it is set, and the ones whose `model` is the
 // current one for their kind (the video role for a watched GIF, else the
-// vision role). An emoji is fetched from its id; a library GIF from its
+// vision role). An emoji is fetched from the address the emoji index holds for its id; a library GIF from its
 // library entry's message; any other picture from the messages the record
 // (src/memory/record.js) says may hold it -- an attachment id or a gif
 // embed's message id dates the message, a link thumbnail or a sticker is
-// looked for in the window -- read again over the Discord API, newest first.
+// looked for in the window -- read again through the interface, newest first.
 // One description at a time (src/memory/describe.js#redescribe: the normal
 // path, a failure keeps the old text), at least `media.recacheIntervalMs`
 // apart. It shares the one-run-at-a-time rule and the stops of the GIF run,
@@ -33,7 +33,8 @@
 // message cannot be found is left as it is (counted `unlocated`); with
 // `media.recacheBefore` set it is still described again when it comes up.
 
-import { collectPictures, emojiUrl } from '../media/classify.js';
+import { collectPictures } from '../media/classify.js';
+import { lineOf } from '../behavior/line-of.js';
 import { collectGifItems, normalizeGifs } from './gifs.js';
 import { isStaleDescription, recacheCutoffMs } from './describe.js';
 import { roleModel } from '../llm/roles.js';
@@ -52,8 +53,8 @@ const EMBED_ID_RE = /#e\d+$/;
 const ATTACHMENT_ID_RE = /^\d+$/;
 // The other picture item ids (src/media/classify.js#collectPictures, collectEmojiItems).
 const PICTURE_KEY_PREFIXES = ['emoji:', 'sticker:', 'link:', 'video:url:'];
-// The start of Discord's snowflake clock.
-const DISCORD_EPOCH_MS = 1_420_070_400_000;
+// The start of the snowflake clock that dates an attachment id of the media cache keys (the keys keep the platform's own ids).
+const SNOWFLAKE_EPOCH_MS = 1_420_070_400_000;
 // How long before its message an attachment may be uploaded (its snowflake is the upload's).
 const UPLOAD_LEAD_MS = 30 * MINUTE_MS;
 
@@ -64,7 +65,7 @@ const UPLOAD_LEAD_MS = 30 * MINUTE_MS;
  */
 export function snowflakeMs(id) {
   if (typeof id !== 'string' || !/^\d{15,20}$/.test(id)) return null;
-  return Number(BigInt(id) >> 22n) + DISCORD_EPOCH_MS;
+  return Number(BigInt(id) >> 22n) + SNOWFLAKE_EPOCH_MS;
 }
 
 /**
@@ -157,8 +158,10 @@ export function recordFinder(keys, sinceMs) {
     if (!Array.isArray(line.media) || line.media.length === 0) return false;
     if (messageIds.has(line.messageId)) return true;
     const occurredMs = Date.parse(line.occurredAt);
-    const at = snowflakeMs(line.messageId) ?? occurredMs;
-    if (Number.isFinite(at) && uploads.some((upload) => upload <= at + MINUTE_MS && upload >= at - UPLOAD_LEAD_MS))
+    if (
+      Number.isFinite(occurredMs) &&
+      uploads.some((upload) => upload <= occurredMs + MINUTE_MS && upload >= occurredMs - UPLOAD_LEAD_MS)
+    )
       return true;
     return untimed && Number.isFinite(occurredMs) && occurredMs >= sinceMs;
   };
@@ -287,8 +290,10 @@ function realSleep(ms) {
  * @param {object} deps.hot        src/hot.js view; `config.gifs.recachePerRun`, `config.media.embedTextChars`,
  *   `config.media.recacheBefore`, `config.media.recacheIntervalMs` and the roles read at use.
  * @param {object} deps.store      src/memory/store.js.
- * @param {object} deps.client     The discord.js Client (`user.id`, `channels.fetch`).
- * @param {object} deps.discord    The Discord interface's capabilities object (src/index.js injects it): `normalizeMessage` of a message read again.
+ * @param {import('../interface/reads.ts').Reads} deps.reads  The core's reads of the interface: a message read again.
+ * @param {() => string} deps.iface  The interface's name, read at each run.
+ * @param {{ refresh: () => Promise<void>, urlOf: (id: string) => (string|null) }} deps.emoji  The core's emoji index
+ *   (src/behavior/emoji-index.ts): the address of a custom emoji's picture.
  * @param {object} [deps.describer]  From createDescriber(): `watchGif`, `gifWatchBlocker`, `redescribe`,
  *   `pictureBlocker`. Absent -> never runs.
  * @param {object|null} [deps.record]  src/memory/record.js (`iterate`), where the media recache finds the
@@ -300,32 +305,26 @@ function realSleep(ms) {
 export function createGifRecache({
   hot,
   store,
-  client,
-  discord,
+  reads,
+  iface,
+  emoji,
   describer = null,
   record = null,
   now = Date.now,
   sleep = realSleep,
   log = defaultLog,
 }) {
-  const { normalizeMessage } = discord;
   let running = null;
 
-  /** One message read again over the Discord API and normalized; null when it is gone or the read fails. */
+  /** One message read again through the interface, as a line; null when it is gone or the read fails. */
   async function readMessage(channelId, messageId) {
-    try {
-      const channel = await client.channels.fetch(channelId);
-      const message = await channel?.messages?.fetch(messageId);
-      if (!message) return null;
-      return normalizeMessage(message, client.user?.id, {
-        embedTextChars: hot.config.media?.embedTextChars,
-        videoSites: hot.config.media?.video?.sites,
-        maxUrlChars: hot.config.context?.maxUrlChars,
-      });
-    } catch (err) {
-      log.warn('gif-recache: message read failed', { channelId, error: err });
+    const found = await reads.fetchMessages({ iface: iface(), conversationId: String(channelId) }, [messageId]);
+    const event = found?.messages[0]?.event;
+    if (!event) {
+      log.warn('gif-recache: message read failed', { channelId });
       return null;
     }
+    return lineOf(event);
   }
 
   /**
@@ -444,12 +443,14 @@ export function createGifRecache({
     };
 
     const run = async () => {
-      // A custom emoji's picture comes from its id alone.
+      // A custom emoji's picture comes from the emoji index; one the community no longer lists cannot be fetched.
+      await emoji.refresh();
       for (const key of keys) {
         if (!key.startsWith('emoji:')) continue;
+        const url = emoji.urlOf(key.slice('emoji:'.length));
+        if (url === null) continue;
         wanted.delete(key);
-        if (!(await one({ source: 'emoji', itemId: key, kind: 'emoji', url: emojiUrl(key.slice('emoji:'.length)) })))
-          return;
+        if (!(await one({ source: 'emoji', itemId: key, kind: 'emoji', url }))) return;
       }
       // A library GIF from its library entry's message.
       for (const entry of Object.values(normalizeGifs(store.getGifs(guildId)).entries)) {
@@ -467,7 +468,7 @@ export function createGifRecache({
       const messages = new Map();
       for await (const line of record.iterate(guildId, { from: new Date(finder.fromMs).toISOString() })) {
         if (!finder.matches(line)) continue;
-        const at = snowflakeMs(line.messageId) ?? Date.parse(line.occurredAt);
+        const at = Date.parse(line.occurredAt);
         messages.set(line.messageId, {
           messageId: line.messageId,
           channelId: line.scope.channel,

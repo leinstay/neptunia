@@ -1,11 +1,11 @@
 // Tests for her one previous think: the choice (src/behavior/previous-think.js), the block it
 // renders in a request (src/behavior/prompt.js#buildRequest, `<previous_think>`) and the main
-// arguments of a call on its transcript line (src/skills/call-args.js, src/format.js#withCalls).
+// arguments of a call on its transcript line (src/tools/call-args.ts, src/format.js#withCalls).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createThinkStore, inertThink, placeKey } from '../src/behavior/previous-think.js';
 import { buildRequest, userText as contentText } from '../src/behavior/prompt.js';
-import { callArgsText } from '../src/skills/call-args.js';
+import { callArgsText } from '../src/tools/call-args.ts';
 import { formatTranscript, withCalls } from '../src/format.js';
 import { labels } from './fixtures/labels.js';
 

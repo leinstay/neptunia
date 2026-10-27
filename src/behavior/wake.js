@@ -25,7 +25,7 @@ export const WAKE_PURPOSE_CHARS = 200;
 
 /**
  * One diagnostic of the parser (src/llm/parse.js: what it dropped, cut or joined in her output) as a
- * line: `labels.skills.diagnostics.<kind>` filled -- `{tag}` (`retiredTag`), `{chars}` (`messageCut`),
+ * line: `labels.tools.diagnostics.<kind>` filled -- `{tag}` (`retiredTag`), `{chars}` (`messageCut`),
  * `{count}` (`messagesMerged`). `kind` is the diagnostic's own (`retiredTag`, ...), or `diagnostic` of a
  * kept fact, whose own is `fact.diagnostic`. '' without the kind's label.
  * @param {object} diagnostic
@@ -33,7 +33,7 @@ export const WAKE_PURPOSE_CHARS = 200;
  * @returns {string}
  */
 export function diagnosticText(diagnostic, labels) {
-  const words = labels?.skills?.diagnostics;
+  const words = labels?.tools?.diagnostics;
   const kind = diagnostic?.kind === 'diagnostic' ? diagnostic.diagnostic : diagnostic?.kind;
   const template =
     words && typeof words === 'object' && typeof kind === 'string' && Object.hasOwn(words, kind) ? words[kind] : null;

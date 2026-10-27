@@ -16,7 +16,7 @@ The picture is downloaded first (`src/media/fetch-image.js`) and sent to the mod
 
 When someone asks about a picture the persona has already seen, a re-look happens. With `features.imageRelook` on (default `true`), the rewatch classifier offers recent pictures alongside videos and the vision model looks at the picture again with the person's question. The answer appears in the transcript alongside the original caption. Picture re-looks share the daily counter `media.video.rewatch.maxPerDay` (default 20) with video rewatches.
 
-With `features.coreTools` on, the persona can look at a picture herself by calling the `media.look` skill with a message reference and her own question (at most `media.look.maxPerTurn` per turn, default 2).
+With `features.coreTools` on, the persona can look at a picture herself by calling the `media.look` tool with a message reference and her own question (at most `media.look.maxPerTurn` per turn, default 2).
 
 Switch: `features.mediaDescriptions` (default `true`).
 
@@ -74,7 +74,7 @@ A link (http/https, private addresses refused, video-site and `web.links.skipSit
 
 With `web.links.prefill` on (default `true`), links are read as messages arrive so the next turn finds them cached. The prefill is capped at `web.links.prefillPerUserPerDay` (default 10) per member per day. During a turn, at most `web.links.maxPerTurn` (default 2) fetches. Link reads and web searches share a daily counter capped at `web.maxPerDay` (default 60).
 
-With `features.coreTools` on, posted links show an opening of the page's extracted text (cut at `web.links.previewChars`, default 700), no model request. The persona reads further by calling her own `web.read` skill.
+With `features.coreTools` on, posted links show an opening of the page's extracted text (cut at `web.links.previewChars`, default 700), no model request. The persona reads further by calling her own `web.read` tool.
 
 Model role: `analyzer`.
 
@@ -107,11 +107,11 @@ Stickers appear in the transcript as their name. Frequently used stickers are de
 
 ### Edits and deletes
 
-The persona can edit and delete her own messages through her skills (`message.edit`, `message.delete`). She can only touch her own messages; the adapter returns `forbidden` for anyone else's. On Discord, an edited message shows Discord's "edited" marker.
+The persona can edit and delete her own messages through her tools (`message.edit`, `message.delete`). She can only touch her own messages; the adapter returns `forbidden` for anyone else's. On Discord, an edited message shows Discord's "edited" marker.
 
 ### Drawings
 
-When `features.imageGeneration` is on (default `false`; a missing key counts as on), the persona can draw pictures. She calls the `draw.create` skill with a scene description, and the engine generates one picture through OpenRouter's Images API on the `drawing` role (`models.base.drawing`, default `openai/gpt-image-2.5-flare`). The picture is posted as a file attachment in a separate message before her speech goes out. If the picture fails, her speech for that step is held so she does not claim a picture that does not exist.
+When `features.imageGeneration` is on (default `false`; a missing key counts as on), the persona can draw pictures. She calls the `draw.create` tool with a scene description, and the engine generates one picture through OpenRouter's Images API on the `drawing` role (`models.base.drawing`, default `openai/gpt-image-2.5-flare`). The picture is posted as a file attachment in a separate message before her speech goes out. If the picture fails, her speech for that step is held so she does not claim a picture that does not exist.
 
 The drawing prompt is `prompts/draw.md`. The scene text is clamped to `image.maxPromptChars` (default 1600) characters. When the persona is in the picture (`self: true` in the call) and `image.reference` is `'avatar'`, the bot's Discord avatar is sent as a visual reference so the model knows what she looks like.
 
@@ -124,7 +124,7 @@ Model role: `drawing`.
 
 ### Voice messages
 
-When `features.speech` is on (default `true`; needs the system `ffmpeg`), the persona can send a voice message. She calls the `voice.say` skill with text, and the engine runs a three-step pipeline:
+When `features.speech` is on (default `true`; needs the system `ffmpeg`), the persona can send a voice message. She calls the `voice.say` tool with text, and the engine runs a three-step pipeline:
 
 1. A preparation pass on the `analyzer` role (`prompts/speech-prepare.md`): dropped letters restored, stress marked on ambiguous words, bracketed directions rewritten as short audio tags. The pass may add marks and rewrite brackets, never touch a word. When its answer changes even one word (checked by `sameWords`), or the pass times out, errors or answers nothing, the call fails with `speech-prepare-failed` (the reason is in the result): nothing is synthesized, sent or counted against the daily limit, and she learns of it in her turn.
 

@@ -21,7 +21,7 @@
 import { MESSAGES_FETCH, READ_ACTIONS, deliveryOf, portAction, splitText, validateAction } from '../protocol/index.js';
 import { CAPABILITIES, contentRefusal, declaredHooks, mentionsOf, notOk, ok, refRefusal } from './port.js';
 import { createFakeReads } from './fake-reads.ts';
-import { CODE } from '../skills/codes.js';
+import { CODE } from '../tools/codes.ts';
 
 /**
  * Replays a recorded fixture of inbound events through an event door (src/interface/door.js), in

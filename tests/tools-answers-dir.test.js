@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import '../src/ops/index.js';
+import '../src/tools/impl/index.ts';
 import { answerSkillScenario, liveView, personaGrantsConfig } from '../src/behavior/sandbox.js';
 import {
   requestJson,

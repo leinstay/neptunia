@@ -8,8 +8,8 @@ import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.j
 import { userText } from '../src/behavior/prompt.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
 import { onWorld, useIface, world } from './fixtures/turn-world.ts';
-import '../src/ops/index.js';
-import { skillRegistry } from '../src/skills/registry.js';
+import '../src/tools/impl/index.ts';
+import { skillRegistry } from '../src/tools/registry.ts';
 import { createAdmin } from '../src/admin.js';
 import { fill } from '../src/format.js';
 import { labels } from './fixtures/labels.js';
@@ -24,10 +24,10 @@ const NOW = Date.parse('2026-10-17T12:00:00Z');
 const HOUR = 3_600_000;
 const L = {
   ...labels,
-  skills: {
-    ...labels.skills,
+  tools: {
+    ...labels.tools,
     tools: {
-      ...labels.skills.tools,
+      ...labels.tools.tools,
       conversation: {
         source: 'from conversation.read #{channel}',
         handles: 'lines carry message numbers',
@@ -154,7 +154,7 @@ function hotWith(allowed, features) {
       models: { base: { analyzer: 'x/text' } },
       media: { maxPerTurn: 6, filePreviewChars: 500 },
       gifs: { maxPerDay: 40 },
-      skills: {
+      tools: {
         safeMode: false,
         resultMaxChars: 2000,
         callTimeoutMs: 120000,
@@ -298,7 +298,7 @@ test('conversation.read in a turn: the channel comes from the record with the ed
     answers: [toolAnswer('', [call('conversation.read', { channel: 'jardin', last: 6 })]), '<skip/>'],
   });
   const text = requestText(run.llm, 1);
-  assert.ok(text.startsWith(labels.skills.result.ok), text);
+  assert.ok(text.startsWith(labels.tools.result.ok), text);
   assert.ok(text.includes('from conversation.read #jardin'), text);
   assert.ok(text.includes('lines carry message numbers'), text);
   assert.match(text, /^#\d+ \[\d\d:\d\d\] Éloïse: μετά την αλλαγή \(edited\)$/m);
@@ -353,7 +353,7 @@ test('around a transcript number: #N of the chat she sees names the message and 
     record,
   });
   const text = requestText(run.llm, 1);
-  assert.ok(text.startsWith(labels.skills.result.ok), text);
+  assert.ok(text.startsWith(labels.tools.result.ok), text);
   assert.ok(
     text.includes('from conversation.read #general') && text.includes('καλημέρα') && text.includes('μετά'),
     text
@@ -387,9 +387,7 @@ test('a channel the pull rail hides is refused channel-not-visible and nothing o
   });
   const text = requestText(run.llm, 1);
   assert.ok(
-    text.startsWith(
-      fill(labels.skills.result.refused, { reason: labels.skills.result.reasons['channel-not-visible'] })
-    ),
+    text.startsWith(fill(labels.tools.result.refused, { reason: labels.tools.result.reasons['channel-not-visible'] })),
     'a refusal is a result with its reason, no data'
   );
   assert.ok(!text.includes('from conversation.read'), text);
@@ -413,5 +411,5 @@ test('not granted: the call is refused before anything is read', async () => {
     'the record of #jardin was not read'
   );
   assert.deepEqual(run.server.fetches.c2, []);
-  assert.ok(!requestText(run.llm, 1).startsWith(labels.skills.result.ok));
+  assert.ok(!requestText(run.llm, 1).startsWith(labels.tools.result.ok));
 });

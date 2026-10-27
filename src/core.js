@@ -3,8 +3,7 @@
 // client and the turn, spontaneous and memory subsystems together, starts each interface over the link, and owns the
 // core's lifecycle (startup checks, timers, graceful shutdown). No decision logic lives here: everything is imported
 // from src/behavior, src/memory and src/llm. Nothing here builds, logs in or listens to a platform client: the
-// interface does, and hands back `legacy`, the list of platform seams the subsystems still read (src/interface/legacy.ts;
-// stage 3 of the core extraction removes them). The entry (src/index.js) reads the paths and the environment, loads
+// interface does, and hands back `legacy`, which holds the slash command handler (src/interface/legacy.ts). The entry (src/index.js) reads the paths and the environment, loads
 // the Discord package and handles the process signals; a test calls `startCore` with a scripted model and the fake
 // interface.
 //
@@ -17,8 +16,8 @@ import path from 'node:path';
 
 import { createHot } from './hot.js';
 import { log, onLog } from './log.js';
-import { createMetrics, metricsTap } from './ops/metrics.js';
-import { createUsage, usageTap } from './ops/usage.js';
+import { createMetrics, metricsTap } from './tools/impl/metrics.ts';
+import { createUsage, usageTap } from './tools/impl/usage.ts';
 import { createMemoryDb } from './memory/db/service.js';
 import {
   createStore,
@@ -47,7 +46,9 @@ import { ffmpegAvailable } from './speech/convert.js';
 import { createTurnRunner } from './behavior/turn.js';
 import { createActivity } from './behavior/activity.js';
 import { createMissed } from './behavior/missed.js';
-import { createCatchUpDeliver, createOfflineCatchUp } from './behavior/catch-up.js';
+import { createOfflineCatchUp } from './behavior/catch-up.js';
+import { createEmojiIndex } from './behavior/emoji-index.ts';
+import { ownMessagesOf } from './behavior/own-messages.ts';
 import { hasRequiredLabels } from './behavior/prompt.js';
 import { createChannelRouter } from './behavior/route-channel.js';
 import { createRecall } from './behavior/recall-run.js';
@@ -70,7 +71,6 @@ import { createTaskTurns, taskCompletedEvent } from './errands/turns.js';
 import { createEventDoor } from './interface/door.js';
 import { createConversationDirectory } from './interface/directory.ts';
 import { isReadable, takeSnapshot } from './behavior/snapshot.ts';
-import { bridgeRecall } from './interface/recall-bridge.ts';
 import { openAdapterLink } from './interface/link.ts';
 import { listenSocket } from './interface/socket.ts';
 import { connectSocket } from './protocol/wire.ts';
@@ -80,12 +80,12 @@ import { createReactorStore, applyReactionChanged } from './behavior/reactor-sto
 import { createReads } from './interface/reads.ts';
 import { createIntentionStores } from './intentions/store.js';
 import { createIntentionService } from './intentions/service.js';
-import { skillRegistry, missingDefinitions } from './skills/registry.js';
-import { grantedSkillNames } from './skills/discovery.js';
+import { skillRegistry, missingDefinitions } from './tools/registry.ts';
+import { grantedSkillNames } from './tools/discovery.ts';
 import { PROFILES as AGENT_PROFILES } from './agent-runner/profiles.js';
 import { createTagHistory, deprecatedModelKeys } from './behavior/mention.js';
 import { createMessageHandler } from './behavior/pipeline.js';
-import { isValidCommandName } from './ops/catalog.js';
+import { isValidCommandName } from './tools/impl/catalog.ts';
 
 const REQUIRED_PROMPTS = ['system-prompt', 'character-card', 'format', 'reply', 'interject', 'initiate'];
 
@@ -226,12 +226,12 @@ async function buildCore(options, cleanups) {
   const identity = { iface: '', selfId: '', selfName: 'bot' };
   // The names of the members of the served community, fed by `membership.changed` (a nickname change included).
   const members = createMemberDirectory();
-  // The speed figures of /nep status (src/ops/metrics.js): the durations the log lines carry,
+  // The speed figures of /nep status (src/tools/impl/metrics.ts): the durations the log lines carry,
   // kept for 24 h in data/metrics.json (loaded now, written every minute and on shutdown).
   const metrics = createMetrics({ dataDir, log });
   const untapMetrics = onLog(metricsTap(metrics));
   cleanups.push(untapMetrics);
-  // The costs field of /nep status (src/ops/usage.js): today's requests per role from the `llm: usage`
+  // The costs field of /nep status (src/tools/impl/usage.ts): today's requests per role from the `llm: usage`
   // lines, kept for today and yesterday in data/usage.json (loaded now, written every minute and on shutdown).
   const usage = createUsage({ dataDir, log });
   const untapUsage = onLog(usageTap(usage));
@@ -371,20 +371,6 @@ async function buildCore(options, cleanups) {
   const videoFetcher = createVideoFetcher();
   // state: the daily video counter lives next to the LLM client's daily counter.
   const describer = createDescriber({ hot, store, llm, imageFetcher, videoFetcher, state: store.state, youtubeApiKey });
-  // What each profiled member's avatar looks like (features.avatars, off by default): a throttled
-  // background queue on the vision role, its daily counter next to the LLM client's. Members are
-  // read from the cache first, else one REST fetch each; a member who left reads as gone.
-  const avatars = createAvatarQueue({
-    hot,
-    store,
-    llm,
-    imageFetcher,
-    state: store.state,
-    getGuildId,
-    selfId: () => identity.selfId,
-    paused: () => store.state.data.paused === true,
-    resolveMember: (guildId, userId) => legacy.resolveMember?.(guildId, userId) ?? Promise.resolve(null),
-  });
   // The web lookup (features.webLookup, off by default): link reader + search on a question.
   // state: the daily web counter lives next to the LLM client's daily counter.
   const lookup = createLookup({
@@ -456,23 +442,32 @@ async function buildCore(options, cleanups) {
   // fed by the interface's voice, presence and connection events through the door below, never written anywhere.
   const around = createAroundStore({ presences: hello.capabilities.presence === true });
   // The persona's interface (src/interface/port.js): every effect of her replies goes through it,
-  // after the skill gateway (src/skills/gateway.js) let the call pass.
+  // after the skill gateway (src/tools/gateway.ts) let the call pass.
   const iface = coreLink.adapter;
 
-  // What the subsystems of PR 2b still read from the platform, as the interface hands it over (none for an
-  // interface that has none, like the fake). Each field is a seam that goes with its reader:
-  //   client            the admin, the operations and the memory backfills (the conversation reads of the tools)
-  //   capabilities      the functions asked of Discord by name, passed to the recall runner, the operations and the backfills
-  //   resolveMember     one member by REST, as the avatar queue reads it
-  //   catchUp           channelInfo, fetchRecent and eventOf (the offline catch-up)
-  //   fetchOwnMessages  the persona's last messages of a channel (the journal's reconciliation)
-  //   emoji             the served guild's custom emoji (the turn runner)
-  //   serveCommands     the slash command interactions (the command handler)
+  // What the interface hands over besides its adapter: `serveCommands`, the slash command interactions (the command
+  // handler). An interface that has none, like the fake, serves no commands.
   const legacy = /** @type {Partial<import('./interface/legacy.ts').InterfaceLegacy>} */ (running.legacy ?? {});
-  const { client, capabilities: discord = {}, emoji = null } = legacy;
   instance.guildId = hello.community?.id ?? null;
   // The core's reads of the interface: each answers its body or null, and a block that needs one is left out when it is null.
   const reads = createReads(iface, log);
+  // The custom emoji of the served community, read from the interface and kept 60 seconds: the turn lists them to her
+  // and turns her `:name:` into the platform's markup through it.
+  const emoji = createEmojiIndex({ reads, communityId: () => instance.guildId, now: Date.now });
+  // What each profiled member's avatar looks like (features.avatars, off by default): a throttled
+  // background queue on the vision role, its daily counter next to the LLM client's. Each member is one read of the
+  // interface; a member who left reads as gone.
+  const avatars = createAvatarQueue({
+    hot,
+    store,
+    llm,
+    imageFetcher,
+    state: store.state,
+    getGuildId,
+    selfId: () => identity.selfId,
+    reads,
+    paused: () => store.state.data.paused === true,
+  });
   // Who reacted to her messages, fed by `reaction.changed` (the door below) and by the `reactors` read.
   const reactors = createReactorStore({
     maxMessages: () => Number(hot.config.context?.reactions?.maxMessages ?? 500),
@@ -486,7 +481,8 @@ async function buildCore(options, cleanups) {
     hot,
     store,
     llm,
-    discord,
+    reads,
+    memberName: (communityId, memberId) => members.nameOf(communityId, memberId),
     describer,
     archive,
     record,
@@ -495,7 +491,6 @@ async function buildCore(options, cleanups) {
     memoryDb,
     iface: identity.iface,
   });
-  const platformRecall = bridgeRecall(recall, client);
   // When each person last wrote in each channel (fed by the message handler): a turn answering
   // someone waits until they stop writing (pace.settleMs).
   const activity = createActivity();
@@ -552,6 +547,8 @@ async function buildCore(options, cleanups) {
   // The conversations the interface reported (`conversation.changed`) and the direct chats it showed in messages:
   // their names for the inner life and the turn, the direct chat of a member for a memory session failure.
   const directory = createConversationDirectory();
+  // When the interface's link to its platform last came back, for /nep status.
+  const connection = { lastReconnectAt: null };
   const turns = createTurnRunner({
     hot,
     store,
@@ -564,8 +561,7 @@ async function buildCore(options, cleanups) {
     describer,
     imageFetcher,
     lookup,
-    // The recall runner still takes the platform's objects (PR 2b): it is called through the bridge until it reads the core's reads.
-    recall: platformRecall,
+    recall,
     images,
     speech,
     emoji,
@@ -587,7 +583,7 @@ async function buildCore(options, cleanups) {
     // Her skills run by operation name, the requester's rights checked again
     // (src/admin.js#runSkillOp); read at call time, the admin being created below.
     runOp: (op, args, context) => admin.runSkillOp(op, args, context),
-    // Her own messages, drawings and diary run on her grant alone (src/ops/effects.js#SELF_OWNED_OPS).
+    // Her own messages, drawings and diary run on her grant alone (src/tools/impl/effects.ts#SELF_OWNED_OPS).
     runOwnOp: (op, args, context) => admin.runOwnSkillOp(op, args, context),
     // An inner turn's calls (her own initiative, nobody asked) run on her grant alone too.
     runInitiativeOp: (op, args, context) => admin.runInitiativeSkillOp(op, args, context),
@@ -715,14 +711,23 @@ async function buildCore(options, cleanups) {
   });
   turns.setOnTurnEnd((end) => missed.onTurnEnd(end));
   // The custom emoji ranking read from history (Discord API only, no LLM): once at startup, again on /nep emoji rescan.
-  const emojiBackfill = createEmojiBackfill({ hot, store, client, discord, log });
+  const emojiBackfill = createEmojiBackfill({ hot, store, reads, iface: () => identity.iface, log });
   // The GIF library read from history (Discord API; the describer captions the top ones): once at
   // startup, again on /nep gifs rescan.
-  const gifBackfill = createGifBackfill({ hot, store, client, discord, describer, log });
+  const gifBackfill = createGifBackfill({ hot, store, reads, iface: () => identity.iface, describer, log });
   // The GIF library re-described by watching (src/memory/gif-recache.js): only on /nep gifs recache;
   // and the pictures an older model described, found through the record: only on /nep media
   // kind:pictures action:recache.
-  const gifRecache = createGifRecache({ hot, store, client, discord, describer, record, log });
+  const gifRecache = createGifRecache({
+    hot,
+    store,
+    reads,
+    iface: () => identity.iface,
+    emoji,
+    describer,
+    record,
+    log,
+  });
 
   const onMessage = createMessageHandler({
     hot,
@@ -753,20 +758,16 @@ async function buildCore(options, cleanups) {
     port: iface,
   });
 
-  // The messages posted while the bot was down (src/behavior/catch-up.js): once at start, fetched
-  // over REST after the last message seen per channel and handed to the handler's catch-up path.
+  // The messages posted while the bot was down (src/behavior/catch-up.js): once at start, read through the interface's
+  // history after the last message seen per channel and handed to the handler's catch-up path.
   const offlineCatchUp = createOfflineCatchUp({
     hot,
     store,
     journal,
-    selfId: () => identity.selfId,
-    channelInfo: (channelId) => legacy.catchUp.channelInfo(channelId),
-    fetchRecent: (channelId, limit) => legacy.catchUp.fetchRecent(channelId, limit),
+    iface: identity.iface,
+    reads,
     // A caught-up message is observed once, by the handler's catch-up path, never emitted as a live event.
-    deliver: createCatchUpDeliver({
-      eventOf: (message) => legacy.catchUp.eventOf(message),
-      onCatchUp: (event, options) => onMessage.catchUp(event, options),
-    }),
+    deliver: (event, options) => onMessage.catchUp(event, options),
   });
 
   // One attention (mention.oneAtATime): once a turn frees its channel, answer
@@ -776,11 +777,15 @@ async function buildCore(options, cleanups) {
   const admin = createAdmin({
     hot,
     store,
-    client,
-    // The operations' `env.discord`: permission checks, the diary backfill, the private purge.
-    discord,
     // The operations' `env.reads`: the conversation they post in, a message's event.
     reads,
+    // Who the persona is, and the names of members and conversations the interface reported.
+    selfId: () => identity.selfId,
+    getSelfName,
+    memberNameOf: (communityId, memberId) => members.nameOf(communityId, memberId),
+    directory,
+    // /nep status: when the interface's link to its platform last came back.
+    connection,
     // /nep message and /nep draw channel: post through the persona's interface, as her.
     port: iface,
     // /nep task: the persona's errands.
@@ -939,7 +944,7 @@ async function buildCore(options, cleanups) {
     const counts = await journal.reconcile(guildId, {
       days,
       before: startedAt,
-      fetchOwnMessages: (channelId, count) => legacy.fetchOwnMessages(channelId, count),
+      fetchOwnMessages: ownMessagesOf(reads, identity.iface),
     });
     log.info('journal: reconciled', { guildId, succeeded: counts.succeeded, unknown: counts.unknown });
   }
@@ -1096,7 +1101,10 @@ async function buildCore(options, cleanups) {
         around.snapshot(event);
         log.info('around: seeded', { guildId: instance.guildId, ...around.counts() });
       },
-      'connection.changed': (event) => around.connection(event),
+      'connection.changed': (event) => {
+        if (event.state === 'resumed') connection.lastReconnectAt = event.at;
+        return around.connection(event);
+      },
       // The names of the conversations (the inner life shows them), and a changed avatar of a member.
       'conversation.changed': (event) => {
         directory.apply(event);
@@ -1239,7 +1247,7 @@ async function buildCore(options, cleanups) {
   await startupStep('embed.catchUp', () => embedQueue.catchUp(instance.guildId));
 
   // Once per guild after the deploy that keyed access by operation: the stored grants re-expanded
-  // under the operation names, a journal record of what each covers now (src/ops/access.js).
+  // under the operation names, a journal record of what each covers now (src/tools/impl/access.ts).
   await startupStep('access.migrate', () => admin.migrateAccess(instance.guildId), { wait: true });
 
   // The side effects a crash or a restart left without an outcome. Fire-and-forget: a turn

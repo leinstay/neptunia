@@ -5,8 +5,11 @@
 import type { MessageEvent } from '../../src/protocol/adapter.ts';
 import type { Reads } from '../../src/interface/reads.ts';
 import { createReads } from '../../src/interface/reads.ts';
+import { takeSnapshot } from '../../src/behavior/snapshot.ts';
 import { createFakeAdapter } from '../../src/interface/fake.js';
 import { createDiscordAdapter } from '../../interfaces/discord/index.js';
+import { createEmojiIndex } from '../../src/behavior/emoji-index.ts';
+import type { IndexedEmoji } from '../../src/behavior/emoji-index.ts';
 
 type Obj = Record<string, unknown>;
 
@@ -73,18 +76,46 @@ export function conversationOfChannel(
   };
 }
 
-type Recall = { run?: unknown; window?: unknown };
-
 /**
- * The recall runner, which still reads the platform's channel and guild, with the channel and guild this replay holds
- * put into whatever a call names.
+ * The conversation this replay runs in as the interface describes it, and the community's listing taken once: what a
+ * live turn hands the recall runner (`channel` and `snapshot`).
  */
-export function onPlatformChannel<T extends Recall>(recall: T, platform: { guild: unknown; channel: unknown }): T {
-  const bound = (method: unknown) =>
-    typeof method === 'function'
-      ? (args: Obj): unknown => (method as (args: Obj) => unknown).call(recall, { ...args, ...platform })
-      : method;
-  return { ...recall, run: bound(recall.run), ...('window' in recall ? { window: bound(recall.window) } : {}) };
+export async function recallScope(
+  reads: Reads,
+  channel: unknown,
+  communityId: string
+): Promise<{ channel: unknown; snapshot: unknown }> {
+  const ref = conversationRef(channel);
+  const [found, snapshot] = await Promise.all([
+    reads.conversationInfo(ref, { audience: true }),
+    takeSnapshot(reads, communityId, []),
+  ]);
+  return { channel: found?.conversation ?? conversationOfChannel(channel, communityId), snapshot };
+}
+
+/** The scope of a recall run, asked of the interface at the first call and kept: `() => Promise<scope>`. */
+export function lazyRecallScope(
+  reads: Reads,
+  channel: unknown,
+  communityId: string
+): () => Promise<{ channel: unknown; snapshot: unknown }> {
+  let scope: Promise<{ channel: unknown; snapshot: unknown }> | null = null;
+  return () => (scope ??= recallScope(reads, channel, communityId));
+}
+
+/** The community's custom emoji as the turn lists them, read once through the interface. */
+export async function customEmojiOf(reads: Reads, communityId: string): Promise<Array<IndexedEmoji>> {
+  const index = createEmojiIndex({ reads, communityId: () => communityId, now: Date.now });
+  await index.refresh();
+  return index.list();
+}
+
+/** What the engine asks of the interface about the persona herself: her member id and the name she goes by. */
+export function identityOf(self: { id: string; name: string }): {
+  selfId: () => string;
+  getSelfName: () => string;
+} {
+  return { selfId: () => self.id, getSelfName: () => self.name };
 }
 
 const quiet = { info() {}, warn() {}, error() {} };

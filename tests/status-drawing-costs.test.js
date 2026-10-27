@@ -5,11 +5,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { runOp } from '../src/ops/index.js';
-import { createOpsEnv } from '../src/ops/env.js';
+import { runOp } from '../src/tools/impl/index.ts';
+import { createOpsEnv } from '../src/tools/impl/env.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.js';
 import { createTaskStore } from '../src/errands/store.js';
-import { usageTap, createUsage } from '../src/ops/usage.js';
+import { usageTap, createUsage } from '../src/tools/impl/usage.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { tempDir } from './fixtures/tmp.js';
 

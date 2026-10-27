@@ -1122,7 +1122,7 @@ export function createLlm({
    * callers use it to tell a cut-off completion (`'length'`) from a genuinely
    * bad answer. `provider` is OpenRouter's name for the upstream provider that
    * served the request (`json.provider`), or `undefined` when the response omits it.
-   * `options.tools` -- native tool definitions (OpenAI format, src/skills/tools-json.js); a non-empty
+   * `options.tools` -- native tool definitions (OpenAI format, src/tools/tools-json.ts); a non-empty
    * array is sent as `tools` with `tool_choice` = `options.toolChoice` (default 'auto') and, when
    * boolean, `parallel_tool_calls` = `options.parallelToolCalls`; the estimate and the token cap
    * count them. Only then the result carries `toolCalls` (`toolCallsOf`), beside `text`. `messages`

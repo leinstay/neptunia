@@ -5,8 +5,8 @@
 // passing evaluation of one version never counts for another. Nothing here writes or changes a skill.
 //
 //   skillVersionsOf({ definitions, nested, sourceOf, commit })   pure: one entry per definition of
-//       src/skills/definitions.js with its hashes and manifest. `nested` is the skills a skill reaches inside its own
-//       operation (src/skills/access.js#NESTED_CAPABILITIES), `sourceOf(op)` the text of the operation's source file
+//       src/tools/definitions.ts with its hashes and manifest. `nested` is the skills a skill reaches inside its own
+//       operation (src/tools/access.ts#NESTED_CAPABILITIES), `sourceOf(op)` the text of the operation's source file
 //       ('' when unknown), `commit` the engine commit (`unknown` when there is none).
 //   registerSkills(handle, entries, { at })   at start-up: a `skills` row per name (lifecycle `active`; a name no
 //       longer defined becomes `stale`), a `skill_versions` row per new (content, manifest, commit). A skill's first

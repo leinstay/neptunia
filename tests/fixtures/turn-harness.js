@@ -13,8 +13,8 @@ import { createTaskStores } from '../../src/errands/store.js';
 import { createErrandService } from '../../src/errands/service.js';
 import { tempDir } from './tmp.js';
 import { openTestMemorySync } from './memory-db/service.js';
-import '../../src/ops/index.js';
-import { skillRegistry } from '../../src/skills/registry.js';
+import '../../src/tools/impl/index.ts';
+import { skillRegistry } from '../../src/tools/registry.ts';
 import { createAdmin } from '../../src/admin.js';
 import { labels } from './labels.js';
 import { withCapturedLogs } from './capture-logs.js';
@@ -82,7 +82,7 @@ export function fakeStore({ profiles = [] } = {}) {
   };
 }
 
-export function hotWith({ features = {}, skills = {}, access = {}, config = {} } = {}) {
+export function hotWith({ features = {}, tools = {}, access = {}, config = {} } = {}) {
   return {
     config: {
       bot: { timezone: 'UTC', dryRunChannelId: '', owners: ['u1'], access },
@@ -98,7 +98,7 @@ export function hotWith({ features = {}, skills = {}, access = {}, config = {} }
       models: { base: { analyzer: 'x/text' } },
       media: { maxPerTurn: 6, filePreviewChars: 500 },
       gifs: { maxPerDay: 40 },
-      skills: { safeMode: false, resultMaxChars: 2000, callTimeoutMs: 120000, ...skills },
+      tools: { safeMode: false, resultMaxChars: 2000, callTimeoutMs: 120000, ...tools },
       ...config,
     },
     prompts: {
@@ -172,7 +172,7 @@ export function journalOverMemory() {
 
 /**
  * One mention by Alice (u1, an owner) in #general (c1) answered with `answers` in turn, with the
- * tool loop on (`coreTools`) and `loop` as skills.loop; `allowed` skills granted to the persona;
+ * tool loop on (`coreTools`) and `loop` as tools.loop; `allowed` skills granted to the persona;
  * `wrapCommand` wraps the admin's runSkillOp; `runner` and `adminExtra` go to the runner and the
  * admin as they are.
  */
@@ -180,7 +180,7 @@ export async function coreTurn({ answers, allowed = ['lore.list', 'memory.server
   const history = [...earlier, rawMessage({ id: 'm0', ts: NOW - 5000, authorId: 'u2', authorName: 'Zoë', content: 'καλημέρα', attachments: firstAttachments }), rawMessage({ id: 'm1', content })];
   const hot = hotWith({
     features: { coreTools, journal: Boolean(journal), ...features },
-    skills: { loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4, ...loop } },
+    tools: { loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4, ...loop } },
     access: personaGrants(allowed),
     config,
   });

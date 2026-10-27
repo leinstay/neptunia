@@ -7,8 +7,8 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.js';
 import { createAdmin } from '../src/admin.js';
-import '../src/ops/index.js';
-import { skillRegistry } from '../src/skills/registry.js';
+import '../src/tools/impl/index.ts';
+import { skillRegistry } from '../src/tools/registry.ts';
 import { familyOf } from '../src/llm/images.js';
 import { onWorld, world } from './fixtures/turn-world.ts';
 import { labels as baseLabels } from './fixtures/labels.js';
@@ -281,6 +281,8 @@ test("/nep draw: one picture for the owner; a cap makes the command fail with th
       hot: value,
       store: store(),
       client: client(),
+      selfId: () => 'self-id',
+      getSelfName: () => 'Bot',
       spontaneous: {},
       calibrator: { ratio: 1 },
       getGuildId: () => 'g1',
@@ -312,7 +314,7 @@ test("/nep draw: one picture for the owner; a cap makes the command fail with th
 test("draw.create from a member's mention: the picture is charged to the member; a cap comes back as a result, with no notice", async () => {
   const hotValue = hot();
   hotValue.config.bot.access = { 'draw.create': { everyone: false, roles: [], users: ['self-id'] } };
-  hotValue.config.skills = { safeMode: false, resultMaxChars: 2000, callTimeoutMs: 120000 };
+  hotValue.config.tools = { safeMode: false, resultMaxChars: 2000, callTimeoutMs: 120000 };
   for (const [capAfter, expected] of [
     [Infinity, 'ok'],
     [0, 'image-cap-daily'],
@@ -340,6 +342,8 @@ test("draw.create from a member's mention: the picture is charged to the member;
         hot: hotCase,
         store: store(),
         client: client(),
+        selfId: () => 'self-id',
+        getSelfName: () => 'Bot',
         getGuildId: () => 'g1',
       }).runSkillOp,
     });
@@ -372,6 +376,8 @@ test("draw.create operation quotes the message it replies to, in that message's 
     hot: hotValue,
     store: store(),
     client: client(),
+    selfId: () => 'self-id',
+    getSelfName: () => 'Bot',
     spontaneous: {},
     calibrator: { ratio: 1 },
     getGuildId: () => 'g1',

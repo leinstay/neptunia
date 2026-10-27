@@ -8,14 +8,29 @@ Any string value in the merged config may hold `${env:NAME}` (`NAME` is letters,
 
 ## Where the private files live
 
-By default everything sits in the checkout: `config.json` and `prompts/` (tracked), your `.env`, `config.local.json` and `prompts.local/`, and the `data/` directory the bot writes to. Two environment variables move the private parts out of the checkout:
+By default everything sits in the checkout: `config.json`, `config/` and `prompts/` (tracked), your `.env`, `config.local.json`, `config.local/` and `prompts.local/`, and the `data/` directory the bot writes to. Two environment variables move the private parts out of the checkout:
 
 | Variable | Default | What lives there |
 |---|---|---|
-| `NEPTUNIA_PRIVATE_DIR` | the checkout | `.env`, `config.local.json`, `prompts.local/` |
+| `NEPTUNIA_PRIVATE_DIR` | the checkout | `.env`, `config.local.json`, `config.local/`, `prompts.local/` |
 | `NEPTUNIA_DATA_DIR` | `data/` in the checkout | everything the bot writes: `guilds/`, `state.json`, `usage.json`, `metrics.json`, caches |
 
 Set them in the process environment (for example `Environment=` in the systemd unit), not in `.env`: the bot reads `.env` from the private directory, so it needs to know that directory first. A relative path is resolved against the checkout. An edit to `config.local.json` or a file in `prompts.local/` inside the private directory still reloads live. The tools read the same two variables; `--data` overrides the data path. At start the bot logs the three resolved directories (`index: paths`). `deploy/neptunia-bot.service` shows the recommended layout.
+
+## Keys that moved
+
+The persona's skills are tools in the settings. `src/config-moves.ts` holds the old names as an ordered list, and `src/config.js` applies it to `config.local.json` before the file is laid over `config.json`, so an old key still sets the value of its new name. Each load that moves a key logs one warning with the counts. Where both names are set, the new one wins.
+
+| Old key | New key |
+|---|---|
+| `skills.*` | `tools.*` |
+| `features.skills` | `features.tools` |
+| `features.skillsDiscovery` | `features.toolsDiscovery` |
+| `bot.access."skills.describe"` | `bot.access."tools.describe"` |
+
+`node tools/config-migrate.mjs --dry-run` prints each move for `config.local.json` (or `--file <path>`) and `--apply` writes them into the file. A second run finds nothing to move.
+
+The tool texts moved too: `prompts/skills.json` is `config/tools.json`, and a deployment's `prompts.local/skills.json` is `config.local/tools.json` with the entry `skills.describe` renamed `tools.describe`. The `skills` section of `prompts.local/labels.json` is the section `tools`. `node tools/tools-file-move.mjs --dry-run` and `--apply` do both, read `--dir` or `NEPTUNIA_PRIVATE_DIR`, and change no file when either half is refused. The engine refuses to start while `prompts.local/skills.json` exists.
 
 ## Rails
 
@@ -88,8 +103,8 @@ On/off switches. A missing key counts as on, except the ones that need `=== true
 | `pauseNotice` | `true` | Post a short notice when the persona is called while paused. See `mention.pauseNoticeMinutes` |
 | `adminCommands` | `true` | Owner slash commands. `false` unregisters them |
 | `memberCommands` | `true` | The commands every member may run (`/nep pings`, `/nep task`, `/nep memory search`). `false` restricts them to owners |
-| `skills` | `true` | The persona's skill gateway. `false` refuses every skill call |
-| `skillsDiscovery` | `true` | The lookup classifier and the turn planner can name skills or request the full list. Off when `skills` is off |
+| `tools` | `true` | The persona's tool gateway. `false` refuses every tool call |
+| `toolsDiscovery` | `true` | The lookup classifier and the turn planner can name tools or request the full list. Off when `tools` is off |
 | `coreTools` | `false` | Her own tools replace the classifiers before her reply. She looks things up herself with `web.search`, `web.read`, `media.look` and `memory.search`, each granted to her by name. See [Core](core.md) |
 | `memoryPrefetch` | `true` | With `coreTools` on: before a turn, search the record and stored memory once with the trigger message and put the relevant excerpts in `<retrieved>`. See `recall.prefetch.*` |
 | `missedAnswers` | `true` | Track messages that may have been left unanswered |
@@ -807,16 +822,16 @@ Settings for voice messages (`features.speech`). The persona's `voice.say` skill
 | `voice` | `"jessica"` | Voice name passed to the speech endpoint |
 | `maxPerDay` | `100` | Daily voice messages |
 | `maxChars` | `1500` | Max text characters per voice message |
-| `usdPerMillionChars` | `40` | Estimated cost for the skill gateway's budget |
+| `usdPerMillionChars` | `40` | Estimated cost for the tool gateway's budget |
 | `timeoutMs` | `60000` | Speech request timeout (ms) |
 | `prepareMaxOutputTokens` | `1500` | Max output tokens for the pronunciation preparation pass |
 
-## `skills`
+## `tools`
 
 | Key | Default | What it does |
 |---|---|---|
-| `safeMode` | `false` | Only the persona's reply effects pass; every other skill is refused |
-| `resultMaxChars` | `4500` | Characters of a skill's returned data shown in a call's result |
+| `safeMode` | `false` | Only the persona's reply effects pass; every other tool is refused |
+| `resultMaxChars` | `4500` | Characters of a tool's returned data shown in a call's result |
 | `markTextMaxChars` | `200` | Characters of the operation's own error message shown in the transcript mark. `0` = never show it |
 | `destructiveCooldownMinutes` | `10` | Minutes between two destructive skill calls from the same channel |
 | `callTimeoutMs` | `120000` | How long a skill call may run before its outcome is `unknown` |

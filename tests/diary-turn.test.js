@@ -18,7 +18,7 @@ import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
 import { contentText } from './fixtures/turn-harness.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
-import '../src/ops/index.js';
+import '../src/tools/impl/index.ts';
 import { attachmentCount, onWorld, useIface, useSelf, world } from './fixtures/turn-world.ts';
 
 // The diary channel is held by a fake interface named `fake`; the persona is `self-id`.
@@ -1147,7 +1147,7 @@ test('diary: a call other than draw.create is refused diary-draw-only and never 
   assert.equal(llm.calls.length, 3, 'the refusal is a result she reads');
   assert.ok(
     contentText(llm.calls[2].find((message) => message.role === 'tool').content).includes(
-      labels.skills.result.reasons['diary-draw-only']
+      labels.tools.result.reasons['diary-draw-only']
     )
   );
 });

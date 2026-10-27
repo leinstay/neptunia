@@ -23,8 +23,8 @@ import { readAction } from './reads.ts';
  */
 
 /**
- * One attachment: its bytes (`data`) or where to take them (`url`).
- * @typedef {{ name: string, data?: Uint8Array, url?: string, contentType?: string }} Attachment
+ * One attachment: its bytes (`data`) or where to take them (`url`). `voice` marks a voice message (its length and waveform).
+ * @typedef {{ name: string, data?: Uint8Array, url?: string, contentType?: string, voice?: { durationSecs: number, waveform: string } }} Attachment
  */
 
 /**
@@ -95,7 +95,7 @@ export const STATUSES = Object.freeze(['ok', 'failed', 'unknown', 'unsupported',
 
 /**
  * The capability name of each port operation; the skills registry's `interfaceCapability` uses
- * the same names (src/skills/registry.js), and each is the `action` of the operation's action
+ * the same names (src/tools/registry.ts), and each is the `action` of the operation's action
  * object.
  */
 export const CAPABILITIES = Object.freeze({

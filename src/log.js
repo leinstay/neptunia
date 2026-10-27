@@ -1,6 +1,6 @@
 // Minimal structured logger: one JSON object per line, written to stdout.
 // No dependency, no levels config — callers filter downstream (journald, etc).
-// `onLog` lets a listener read each entry after it is written (src/ops/metrics.js takes the
+// `onLog` lets a listener read each entry after it is written (src/tools/impl/metrics.ts takes the
 // durations the log lines already carry); a listener never changes or stops the logging.
 
 // JSON.stringify(new Error()) is "{}" — serialise errors explicitly, also when nested in meta

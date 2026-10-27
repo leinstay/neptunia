@@ -32,8 +32,8 @@
 //       `memoryDb.wakeRuns`: `recordWake(update)` is the inner life's one way to write its wake runs (src/behavior/
 //       inner.js), through the writer; at each open the runs a dead process left `running` longer than the inner
 //       turn's time budget (`innerLife.loop.timeBudgetMs`) become `interrupted`.
-//       `memoryDb.skillsRegistry`: at each open every skill of src/skills/definitions.js is registered with its
-//       content hash (its definition and its operation's source file under src/ops/), its manifest and the engine
+//       `memoryDb.skillsRegistry`: at each open every skill of src/tools/definitions.ts is registered with its
+//       content hash (its definition and its operation's source file under src/tools/impl/), its manifest and the engine
 //       commit (`git rev-parse HEAD`, else `unknown`; `commit` injects it).
 //       `recall.db.vectorEviction`: once per UTC day, at a tick, the index policy classifies every line and evicts
 //       the vectors outside the owner's classes, through the writer; the sources a turn's request carried
@@ -122,15 +122,15 @@ const DEFAULT_TURN_BUDGET_MS = 180_000;
 const REEMBED_EVERY_MS = 60_000;
 /** The least time between a failed daily backup and the next try. */
 const BACKUP_RETRY_MS = 3_600_000;
-const OPS_DIR = new URL('../../ops/', import.meta.url);
+const OPS_DIR = new URL('../../tools/impl/', import.meta.url);
 const ENGINE_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 
-/** The source text of each operation's module under src/ops/ (op name -> the file's text). */
+/** The source text of each operation's module under src/tools/impl/ (op name -> the file's text). */
 export function opSources(dir = OPS_DIR) {
   const out = new Map();
   for (const name of fs
     .readdirSync(dir)
-    .filter((file) => file.endsWith('.js'))
+    .filter((file) => file.endsWith('.ts'))
     .sort()) {
     const text = fs.readFileSync(new URL(name, dir), 'utf8');
     for (const match of text.matchAll(/defineOp\(\{\s*name:\s*'([^']+)'/g)) out.set(match[1], text);
@@ -669,8 +669,8 @@ export function createMemoryDb({
       Promise.resolve()
         .then(async () => {
           const [{ SKILL_DEFINITIONS }, { NESTED_CAPABILITIES }] = await Promise.all([
-            import('../../skills/definitions.js'),
-            import('../../skills/access.js'),
+            import('../../tools/definitions.ts'),
+            import('../../tools/access.ts'),
           ]);
           const sources = opSources();
           const entries = skillVersionsOf({

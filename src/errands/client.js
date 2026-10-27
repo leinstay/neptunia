@@ -28,7 +28,7 @@ import { encodeLine, normalizeResult, normalizeUsage, MAX_PREAMBLE_CHARS } from 
 import { profileOf } from '../agent-runner/profiles.js';
 import { roleModel } from '../llm/roles.js';
 import { composePreamble } from './preambles.js';
-import { CODE } from '../skills/codes.js';
+import { CODE } from '../tools/codes.ts';
 
 /** The first reconnect delay and its ceiling (ms); the delay doubles after each failed attempt. */
 export const RECONNECT_MIN_MS = 1000;

@@ -1,5 +1,5 @@
 // The persona's intentions at work (docs/inner-life.md): her own calls (`intent.set`,
-// `intent.update`, `intent.cancel`, `intent.list`, src/ops/intent.js) create and move them, the
+// `intent.update`, `intent.cancel`, `intent.list`, src/tools/impl/intent.ts) create and move them, the
 // memory analyzer's candidates from her own lines arrive as `proposed` ones (`addCandidates`),
 // an errand's end reaches the intention waiting on it (`onTaskFinished`), and a reconciliation
 // (`reconcile`, at start and for the scheduler of step 2) finds every wait whose errand already
@@ -60,7 +60,7 @@ import {
   PURPOSE_CHARS,
 } from './model.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
-import { CODE } from '../skills/codes.js';
+import { CODE } from '../tools/codes.ts';
 
 /** Statuses counted against `intentions.maxOpen` (her active ones; candidates have their own cap). */
 const ACTIVE = Object.freeze(['pending', 'waiting']);

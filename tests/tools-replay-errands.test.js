@@ -8,8 +8,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import '../src/ops/index.js';
-import { skillRegistry } from '../src/skills/registry.js';
+import '../src/tools/impl/index.ts';
+import { skillRegistry } from '../src/tools/registry.ts';
 import { callViewOf, requesterOf } from '../src/behavior/turn.js';
 import { call, toolAnswer } from './fixtures/tool-answers.js';
 import {
@@ -86,9 +86,9 @@ function scenarioConfig(grants, { agents = {} } = {}) {
       },
       models: { base: { core: 'x/chat' } },
       llm: { maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000 },
-      skills: { safeMode: false },
+      tools: { safeMode: false },
       agents: { maxOpen: 3, scout: { daily: { tasks: 2 } }, server: { daily: { tasks: 1 } }, ...agents },
-      features: { skills: true },
+      features: { tools: true },
     },
     SELF,
     grants

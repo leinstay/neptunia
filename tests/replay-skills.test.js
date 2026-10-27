@@ -10,10 +10,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import '../src/ops/index.js';
-import { expandPersonaGrant } from '../src/ops/access.js';
-import { skillRegistry } from '../src/skills/registry.js';
-import { FEATURE_SKILLS, NOT_GRANTABLE_TO_PERSONA } from '../src/skills/access.js';
+import '../src/tools/impl/index.ts';
+import { expandPersonaGrant } from '../src/tools/impl/access.ts';
+import { skillRegistry } from '../src/tools/registry.ts';
+import { FEATURE_SKILLS, NOT_GRANTABLE_TO_PERSONA } from '../src/tools/access.ts';
 import { callViewOf, requesterOf } from '../src/behavior/turn.js';
 import { fill } from '../src/format.js';
 import { createHot } from '../src/hot.js';
@@ -157,7 +157,7 @@ test('scenarioGrants: expanded as /nep access grant expands them for her; a not-
 
 test("personaGrantsConfig: her grants are exactly the given ones; people's grants and the live config untouched", () => {
   const live = {
-    features: { skills: true },
+    features: { tools: true },
     bot: {
       owners: [OWNER],
       access: {
@@ -198,7 +198,7 @@ function fakeChannel({ memberRoles = [] } = {}) {
 /** The live-like config: skills on, the owner, people's `access`; her grants laid over it. */
 function scenarioConfig(grants, { access = {}, features = {} } = {}) {
   return personaGrantsConfig(
-    { features: { skills: true, ...features }, skills: { safeMode: false }, bot: { owners: [OWNER], access } },
+    { features: { tools: true, ...features }, tools: { safeMode: false }, bot: { owners: [OWNER], access } },
     SELF,
     grants
   );
@@ -315,7 +315,7 @@ test('simulateCall: a call the server cannot resolve, a spent drawing budget, th
   assert.equal(left.result.status, 'ok');
   const off = simulate(
     { skill: 'rule.add', args: { text: 'κανόνας' } },
-    { grants: ['rule.add'], features: { skills: false } }
+    { grants: ['rule.add'], features: { tools: false } }
   );
   assert.equal(off.verdict.code, 'skills-off');
 });
@@ -325,7 +325,7 @@ test("scenarioInventory: the requester's catalogue as live discovery lists it: w
   const texts = { 'rule.add': { title: 'Add a rule', whenToUse: 'when asked' } };
   const input = { config, selfId: SELF, texts, conversationId: HERE, registry: skillRegistry() };
   const whole = scenarioInventory({ ...input, requester: { id: OWNER, roleIds: [] } });
-  // A skill behind a feature switch that is off has no row (src/skills/access.js#FEATURE_SKILLS).
+  // A skill behind a feature switch that is off has no row (src/tools/access.ts#FEATURE_SKILLS).
   assert.equal(whole.length, [...skillRegistry().keys()].filter((name) => !Object.hasOwn(FEATURE_SKILLS, name)).length);
   assert.deepEqual(
     whole.find((row) => row.name === 'rule.add'),
@@ -359,7 +359,7 @@ test("scenarioInventory: the requester's catalogue as live discovery lists it: w
   assert.equal(
     scenarioInventory({
       ...input,
-      config: { ...config, features: { skills: true, skillsDiscovery: false } },
+      config: { ...config, features: { tools: true, toolsDiscovery: false } },
       requester: null,
     }),
     null
@@ -472,8 +472,8 @@ function sequenceConfig(grants, features = {}, nameTriggers = []) {
       },
       models: { base: { core: 'x/chat' } },
       llm: { maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000 },
-      skills: { safeMode: false },
-      features: { skills: true, ...features },
+      tools: { safeMode: false },
+      features: { tools: true, ...features },
     },
     SELF,
     grants
@@ -1350,7 +1350,7 @@ test('replay --skills --prompts: the directory is laid over a copy of prompts.lo
     fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
     fs.writeFileSync(path.join(root, rel), text);
   };
-  write('config.json', JSON.stringify({ features: { skills: true } }));
+  write('config.json', JSON.stringify({ features: { tools: true } }));
   write('prompts/reply.md', 'tracked reply');
   write('prompts/format.md', 'tracked format');
   write(
@@ -1442,7 +1442,7 @@ test('replay --skills --prompts: a prompts.local/ that links to the live layer i
       fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
       fs.writeFileSync(path.join(dir, rel), text);
     };
-    write(root, 'config.json', JSON.stringify({ features: { skills: true } }));
+    write(root, 'config.json', JSON.stringify({ features: { tools: true } }));
     write(root, 'prompts/reply.md', 'tracked reply');
     write(root, 'prompts/labels.json', JSON.stringify({ task: { queued: 'tracked queued' } }));
     const liveLabels = JSON.stringify({ task: { queued: 'live queued', queuedOthers: 'live others' } });

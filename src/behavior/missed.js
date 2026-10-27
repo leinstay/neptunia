@@ -41,7 +41,7 @@ import { clampChars, oneLine } from '../memory/clamp.js';
 import { fillPromptTemplate } from './prompt.js';
 import { historyLines } from './lines.ts';
 import { log as defaultLog } from '../log.js';
-import { CODE } from '../skills/codes.js';
+import { CODE } from '../tools/codes.ts';
 import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay } from '../time.js';
 
 /** Why a message became a candidate. */
@@ -767,7 +767,7 @@ export function createMissed({
    */
   function noteFact({ reason, message, replacedBy = null, failure = null, turnId = null } = {}) {
     try {
-      if (!enabled() || !MISSED_REASONS.includes(reason) || !message?.id || !message.channelId) return;
+      if (!enabled() || !MISSED_REASONS.includes(String(reason)) || !message?.id || !message.channelId) return;
       const at = Number.isFinite(message.ts) ? message.ts : now();
       const authorId = message.authorId ?? null;
       const question = isQuestion(message.content);

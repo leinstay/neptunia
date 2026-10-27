@@ -12,17 +12,17 @@ Owners (`bot.owners`) can always run everything. Everyone else needs a grant on 
 
 Owner-only operations are never opened by any grant, `*` included: `access.*`, `memory.private.read`, `memory.journal.read`, `memory.snapshot`, `memory.archive.read`, `memory.restore`, `inner.*`.
 
-Operations with `member: true` are open to every member while `features.memberCommands` is on, without needing a grant: `pings.*`, `task.run`, `task.status`, `task.cancel`, `task.list`, `task.read`, `task.resolve`, `web.search`, `web.read`, `media.look`, `media.find`, `memory.search`, `conversation.read`, `places.list`, `skills.describe`.
+Operations with `member: true` are open to every member while `features.memberCommands` is on, without needing a grant: `pings.*`, `task.run`, `task.status`, `task.cancel`, `task.list`, `task.read`, `task.resolve`, `web.search`, `web.read`, `media.look`, `media.find`, `memory.search`, `conversation.read`, `places.list`, `tools.describe`.
 
 ## The operations layer
 
-Every `/nep` command runs one named operation through `src/ops/`. The same operations are the persona's skills when granted to her (`/nep access grant <operation> user:@bot`). A skill call from the persona passes the same rights check, the same arguments and the same gateway. See the granting rules in the table notes.
+Every `/nep` command runs one named operation through `src/tools/impl/`. The same operations are the persona's tools when granted to her (`/nep access grant <operation> user:@bot`). A tool call from the persona passes the same rights check, the same arguments and the same gateway. See the granting rules in the table notes.
 
-Each operation has a kind (`read` or `write`) and an effect (`src/ops/effects.js`): the kind gates access (a `*` or group grant stores only the reads), the effect governs cooldowns and cost labels.
+Each operation has a kind (`read` or `write`) and an effect (`src/tools/impl/effects.ts`): the kind gates access (a `*` or group grant stores only the reads), the effect governs cooldowns and cost labels.
 
 ## Command table
 
-The table follows the command tree in `src/ops/catalog.js`. Options that autocomplete are marked (ac). Several options autocomplete: `set`/`unset` autocomplete `path`, `access grant`/`access revoke` autocomplete `command`, `model set` autocompletes `id`, `route set`/`route remove` autocomplete `model`, `memory restore` autocompletes `id`.
+The table follows the command tree in `src/tools/impl/catalog.ts`. Options that autocomplete are marked (ac). Several options autocomplete: `set`/`unset` autocomplete `path`, `access grant`/`access revoke` autocomplete `command`, `model set` autocompletes `id`, `route set`/`route remove` autocomplete `model`, `memory restore` autocompletes `id`.
 
 | Command | Operation | Kind | What it does |
 |---|---|---|---|
@@ -81,20 +81,20 @@ The table follows the command tree in `src/ops/catalog.js`. Options that autocom
 
 ## Persona-only operations
 
-These operations have no slash command (the Discord command tree is at its size limit). They exist only as the persona's skills, granted by name.
+These operations have no slash command (the Discord command tree is at its size limit). They exist only as the persona's tools, granted by name.
 
 | Operation | Kind | What it does |
 |---|---|---|
 | `voice.say` | write | Speak her text aloud as a voice message. Needs `features.speech` and the `speech` model configured |
 | `conversation.read` | read | Read a channel in order. `around`, `before`, `after`, `since`, `last` parameters |
-| `skills.describe` | read | Describe one skill or a family |
+| `tools.describe` | read | Describe one tool or a family |
 | `media.find` | read | Search the GIF library by stored descriptions |
 | `task.read` | read | Read a finished task's result in pages |
 | `task.resolve` | write | Close a finished task |
 
-## Granting skills to the persona
+## Granting tools to the persona
 
-The persona's skills are the same operations behind `/nep` commands. Every skill is closed until the owner grants it with `/nep access grant <operation> user:@bot`.
+The persona's tools are the same operations behind `/nep` commands. Every tool is closed until the owner grants it with `/nep access grant <operation> user:@bot`.
 
 - A group name or `*` stores the read operations under it, one entry each, the same rule as for people. A write must be granted by its exact name.
 - The persona's normal reply (speech, reactions, drawings aimed at the current conversation) counts without a grant.

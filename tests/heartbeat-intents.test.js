@@ -11,8 +11,8 @@ import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.j
 import { userText } from '../src/behavior/prompt.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
 import { createDiscordInterface } from '../interfaces/discord/index.js';
-import '../src/ops/index.js';
-import { skillRegistry } from '../src/skills/registry.js';
+import '../src/tools/impl/index.ts';
+import { skillRegistry } from '../src/tools/registry.ts';
 import { createAdmin } from '../src/admin.js';
 import { createIntentionStores } from '../src/intentions/store.js';
 import { createIntentionService } from '../src/intentions/service.js';
@@ -99,7 +99,7 @@ function hotWith({ features = {}, access = {}, innerLife = {} } = {}) {
       models: { base: { analyzer: 'x/text' } },
       media: { maxPerTurn: 6, filePreviewChars: 500 },
       gifs: { maxPerDay: 40 },
-      skills: {
+      tools: {
         safeMode: false,
         resultMaxChars: 2000,
         callTimeoutMs: 120000,
@@ -189,7 +189,7 @@ async function liveTurn({
     access: personaGrants(GRANTS),
     innerLife: { mode: 'live', heartbeat: beat },
   });
-  hot.config.skills.transport = transport;
+  hot.config.tools.transport = transport;
   hot.config.intentions = { expiresDays: 14, maxOpen: 20, ...intentionsCfg };
   const intentions = intentionService(hot);
   seed?.(intentions);
@@ -250,7 +250,7 @@ test('heartbeat turn: a post is refused and a memory read succeeds, she reads wh
   ]);
   assert.deepEqual(run.sends, [], 'nothing was posted');
   assert.equal(run.llm.calls.length, 2, 'the refusal step, and no request after the change');
-  assert.ok(readOf(run, 1).includes(labels.skills.result.reasons['heartbeat-only']), 'she reads the refusal');
+  assert.ok(readOf(run, 1).includes(labels.tools.result.reasons['heartbeat-only']), 'she reads the refusal');
   assert.equal(run.list().length, 1);
   assert.ok(
     !run.logs.some((log) => log.msg === 'heartbeat: call refused' && log.skill === 'lore.list'),

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Operations tool: the code catalogue (src/skills/codes.js) against the shipped labels
+// Operations tool: the code catalogue (src/tools/codes.ts) against the shipped labels
 // (prompts/labels.json, the tracked layer only) and the contract's table of reason codes
 // (docs/prompt-contract.md). Reads three files, sends nothing, spends nothing.
 //
@@ -12,7 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CATALOGUE } from '../src/skills/codes.js';
+import { CATALOGUE } from '../src/tools/codes.ts';
 import { TABLE_BEGIN, TABLE_END, catalogueProblems, renderCodesTable } from './lib/labels-catalogue.mjs';
 import { CliError, parseFlags, runCli } from './lib/cli.mjs';
 

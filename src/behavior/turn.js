@@ -80,7 +80,7 @@ import {
   sleep,
 } from '../llm/openrouter.js';
 import { ImageCapError, ImageGenError, UnsupportedImageModelError } from '../llm/images.js';
-import { messageRefOf, postingConversation } from '../ops/shared.js';
+import { messageRefOf, postingConversation } from '../tools/impl/shared.ts';
 import { limitOf, mirrorChannelLabel, mirrorDryRun } from './limits.js';
 import { portIface, portLimit } from '../interface/capabilities.ts';
 import { between, typingMs } from './random.js';
@@ -97,6 +97,7 @@ import {
 import { createImageFetcher } from '../media/fetch-image.js';
 import { drawPicture, drawPromptOf } from '../media/draw.js';
 import { renderCustomEmoji, resolveReactionEmoji } from './emoji.js';
+import { refreshEmojiIfOn } from './emoji-index.ts';
 import { callReason, fill, formatTranscript, replyMarker, withCalls, withTriggers } from '../format.js';
 import { log } from '../log.js';
 import { clampWithEllipsis, countDashes, oneLine, stripDashes } from '../memory/clamp.js';
@@ -121,14 +122,14 @@ import { DAY_MS, bumpDaily, countToday, utcDay, zonedDay } from '../time.js';
 import { isPlainObject } from '../config.js';
 import { budgetDrops, requestTokenLimit } from '../llm/budget.js';
 import { createLimits } from '../llm/limits.js';
-import { checkReplyEffect, checkSkill, listSkills } from '../skills/gateway.js';
-import { callArgsText } from '../skills/call-args.js';
+import { checkReplyEffect, checkSkill, listSkills } from '../tools/gateway.ts';
+import { callArgsText } from '../tools/call-args.ts';
 import { createThinkStore, placeKey } from './previous-think.js';
-import { discoveryOn, exposedSkillNames, proposalVerdicts, proposedRows, skillsIndex } from '../skills/discovery.js';
-import { skillFeatureOn, skillsOn } from '../skills/access.js';
-import { skillRegistry } from '../skills/registry.js';
-import { executeCall, outcomeDetail, refusalStatus, resolveCall } from '../skills/executors.js';
-import { fetchSpan, runConversationRead, recordMessages } from '../skills/conversation-read.js';
+import { discoveryOn, exposedSkillNames, proposalVerdicts, proposedRows, skillsIndex } from '../tools/discovery.ts';
+import { skillFeatureOn, skillsOn } from '../tools/access.ts';
+import { skillRegistry } from '../tools/registry.ts';
+import { executeCall, linksOfCalls, outcomeDetail, refusalStatus, resolveCall } from '../tools/executors.ts';
+import { fetchSpan, runConversationRead, recordMessages } from '../tools/conversation-read.ts';
 import {
   IN_TURN_TOOLS,
   firstLinkIn,
@@ -138,7 +139,7 @@ import {
   runMemorySearch,
   runWebRead,
   runWebSearch,
-} from '../skills/tools.js';
+} from '../tools/tools.ts';
 import { channelPlaceId, personId } from '../memory/db/ids.ts';
 import { prefetchLanes, prefetchOn, wakeLanes } from './prefetch.js';
 import { FACTS_SHOWN_MAX, POSTING_SKILLS, createLocalFacts, factPayload, innerSettings } from './inner.js';
@@ -147,9 +148,9 @@ import { SOURCE_CHARS_MAX, lineSourcesOf, textsOf } from '../intentions/sources.
 import { intentionSettings, isIntentionId } from '../intentions/model.js';
 import { WAKE_PURPOSE_CHARS } from './wake.js';
 import { diagnosticText, feedbackInTurnText, placesBlockText, wakeBlockText } from './wake.js';
-import { CODE } from '../skills/codes.js';
-import { coerceArgs, coversSpeech, normalizeCalls, toolResultText, transportOf } from '../skills/tool-calls.js';
-import { buildTools } from '../skills/tools-json.js';
+import { CODE } from '../tools/codes.ts';
+import { coerceArgs, coversSpeech, normalizeCalls, toolResultText, transportOf } from '../tools/tool-calls.ts';
+import { buildTools } from '../tools/tools-json.ts';
 import {
   appendStep,
   cutToFit,
@@ -274,7 +275,7 @@ export function paceSettings(config) {
   };
 }
 
-/** skills.loop's values when a key is missing (config.json's). */
+/** tools.loop's values when a key is missing (config.json's). */
 const LOOP_FALLBACK = Object.freeze({ maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4, stepReserveTokens: 6000 });
 /** `diary.loop`'s values when a key is missing (config.json's). */
 const DIARY_LOOP_FALLBACK = Object.freeze({ maxSteps: 2, timeBudgetMs: 600000 });
@@ -306,7 +307,7 @@ const HEARTBEAT_READ_SKILLS = Object.freeze([
   'intent.list',
   'lore.list',
   'lore.show',
-  'skills.describe',
+  'tools.describe',
 ]);
 /** An inner turn's loop end state when no tool loop ran (`inner.loop`). */
 const NO_LOOP = Object.freeze({ steps: 0, cut: null, droppedCalls: 0 });
@@ -327,7 +328,7 @@ export function coreToolsOn(config) {
 }
 
 /**
- * The tool loop's bounds under `config` (`skills.loop`, read by the caller now): `maxSteps`, the
+ * The tool loop's bounds under `config` (`tools.loop`, read by the caller now): `maxSteps`, the
  * most follow-up requests after her calls in one turn (a whole number of at least 1);
  * `timeBudgetMs`, how long the loop may run from its first call before the next request is
  * her last (a positive number); `maxCallsPerStep`, the most calls of one answer that run (a
@@ -336,11 +337,11 @@ export function coreToolsOn(config) {
  * bounds, `innerLife.loop` (src/behavior/inner.js#innerSettings; nobody waits for it, so its
  * budget is generous): the same three, plus `callTimeoutMs`, the most one call of hers may run. A diary
  * post (`diary`) has `diary.loop`, and its calls per step are `diary.set.pictures[1]`.
- * `skills.loop` never
+ * `tools.loop` never
  * reaches an inner turn, `innerLife.loop` never an ordinary one. Pure.
  * @param {object} config
  * @param {{ inner?: boolean }} [options]
- * @returns {{ maxSteps: number, timeBudgetMs: number, maxCallsPerStep: number, callTimeoutMs?: number }}
+ * @returns {{ maxSteps: number, timeBudgetMs: number, maxCallsPerStep: number, callTimeoutMs?: number, stepReserveTokens?: number }}
  */
 export function loopSettings(config, { inner = false, diary = false } = {}) {
   if (inner) return { ...innerSettings(config).loop };
@@ -357,7 +358,7 @@ export function loopSettings(config, { inner = false, diary = false } = {}) {
       maxCallsPerStep: setSettings(config?.diary).pictures[1],
     };
   }
-  const loop = isPlainObject(config?.skills?.loop) ? config.skills.loop : {};
+  const loop = isPlainObject(config?.tools?.loop) ? config.tools.loop : {};
   const whole = (value, fallback) => (Number.isInteger(value) && value >= 1 ? value : fallback);
   return {
     maxSteps: whole(loop.maxSteps, LOOP_FALLBACK.maxSteps),
@@ -394,12 +395,12 @@ const DIRECT_CALLS = new Set(['mention', 'reply', 'name', 'followUp', 'private']
 /**
  * The most characters of a skill result's data the follow-up request carries, read from `config`: a
  * memory.search result is cut by the tool itself, window by window, at `recall.quoteMaxChars`, and
- * is bounded there; every other result at `skills.resultMaxChars`.
+ * is bounded there; every other result at `tools.resultMaxChars`.
  */
 function resultCharsFor(result, config) {
   if (result?.skill === 'memory.search' || result?.skill === 'conversation.read')
     return recallSettings(config)?.quoteMaxChars ?? RECALL_DEFAULTS.quoteMaxChars;
-  return config?.skills?.resultMaxChars ?? 4500;
+  return config?.tools?.resultMaxChars ?? 4500;
 }
 
 /**
@@ -1165,7 +1166,7 @@ function postedOf(result) {
   };
 }
 
-/** The persona as the principal of her skill calls (src/skills/gateway.js). */
+/** The persona as the principal of her skill calls (src/tools/gateway.ts). */
 const PERSONA = Object.freeze({ kind: 'persona' });
 
 /**
@@ -1183,10 +1184,10 @@ export function requesterOf(trigger, roleIds = []) {
 }
 
 /**
- * What a `<call>` of the persona is resolved against (src/skills/executors.js#resolveCall), read
+ * What a `<call>` of the persona is resolved against (src/tools/executors.ts#resolveCall), read
  * now: the turn's channel as the current conversation, the channels she can name (the conversations of the
  * turn's `snapshot`, then the stored channel notes, the turn's own channel; where she may act is the
- * operation's rule, src/ops/shared.js#postingConversation), this turn's transcript numbers (`idByIndex`;
+ * operation's rule, src/tools/impl/shared.ts#postingConversation), this turn's transcript numbers (`idByIndex`;
  * a pulled line lives in its own channel, `pulledIds`; its author from `lines`), the stored
  * profiles (only with memory on), her own id (`selfId`), the community's groups, the request's channel
  * handles (`channelHandles`: handle -> channel id, a `#handle` resolved exactly before any name), the request's
@@ -1339,7 +1340,7 @@ export function journalResultOf(result) {
 const WRITTEN_SKILLS = Object.freeze(['message.create', 'message.edit']);
 
 /**
- * What a post of hers tells her about the tags that went nowhere: one `labels.skills.result.untaggedNote`
+ * What a post of hers tells her about the tags that went nowhere: one `labels.tools.result.untaggedNote`
  * (`{name}`, `{handle}`) per member whose name she wrote after `@` instead of their handle
  * (src/behavior/handles.js#untaggedNames over the request's handles and names), joined by a space.
  * '' without handles (`handles`: handle -> member id), without the label or when nothing went nowhere. Pure.
@@ -1349,7 +1350,7 @@ const WRITTEN_SKILLS = Object.freeze(['message.create', 'message.edit']);
  * @returns {string}
  */
 export function untaggedNote(text, { handles = null, memberNames = null, mentionedIds = [] }, labels) {
-  const template = labels?.skills?.result?.untaggedNote;
+  const template = labels?.tools?.result?.untaggedNote;
   if (typeof template !== 'string' || !template || !(handles instanceof Map) || !(memberNames instanceof Map))
     return '';
   const handleById = new Map([...handles].map(([handle, id]) => [String(id), handle]));
@@ -1509,7 +1510,7 @@ function callEnvelope({
     // The turn whose call this is and the call's index in it: one errand per call, whatever retries.
     ...(turnId ? { turnId: String(turnId) } : {}),
     ...(idempotencyKey ? { idempotencyKey: String(idempotencyKey) } : {}),
-    // An inner turn: her own initiative, nobody asked (src/skills/executors.js#executeCall), and
+    // An inner turn: her own initiative, nobody asked (src/tools/executors.ts#executeCall), and
     // its causal chain (which of her candidates it may accept, src/intentions/model.js#acceptRefusal).
     ...(ownInitiative
       ? {
@@ -1573,7 +1574,7 @@ function channelDirectoryOf(snapshot, bot) {
 /** Whether a conversation belongs to a community (a channel or a thread), not a private chat. */
 const inCommunity = (channel) => channel?.communityId !== null && channel?.communityId !== undefined;
 
-/** The skill registry a runner checks against when none is injected: every operation's (src/skills/registry.js). */
+/** The skill registry a runner checks against when none is injected: every operation's (src/tools/registry.ts). */
 function defaultSkills() {
   return skillRegistry();
 }
@@ -1714,7 +1715,7 @@ export function journalTurnRecord(draft, result) {
  * One answer of the model split into its speech and its tool calls. Native: the speech text is `completion.text` and
  * the calls are `completion.toolCalls`. Text: the calls are the `<tool_call>` blocks of the text (src/llm/tool-text.js)
  * and the speech text is what is left of it. The calls come out as records, ids made unique within the answer
- * (src/skills/tool-calls.js#normalizeCalls; `step` numbers them `s<step>c<n>`, 1 for the reply's answer). Pure.
+ * (src/tools/tool-calls.ts#normalizeCalls; `step` numbers them `s<step>c<n>`, 1 for the reply's answer). Pure.
  * @param {{ text?: string, toolCalls?: object[], finishReason?: string|null }} completion
  * @param {{ transport?: 'native'|'text', step?: number, registry?: Map<string, object> }} [options]
  * @returns {{ rawText: string, speechText: string, calls: object[] }}
@@ -1763,7 +1764,7 @@ const CALL_STATUS_NAMES = new Set([
   'timeout',
 ]);
 
-/** The operation's own words of a call that did not work, as `{ text }` (one line, cut to `skills.markTextMaxChars`), or {}. */
+/** The operation's own words of a call that did not work, as `{ text }` (one line, cut to `tools.markTextMaxChars`), or {}. */
 function callTextOf(result, maxChars = 200) {
   const text = clampWithEllipsis(oneLine(typeof result?.data?.text === 'string' ? result.data.text : ''), maxChars);
   return text ? { text } : {};
@@ -1856,7 +1857,7 @@ export function taskInput({ part, queued, added, missed = null, failedEarlier = 
  * `now` (default Date.now) is the turn's clock: its own time, `{{today}}` of
  * the search classifier, the daily GIF counter and every `lastPostAt` stamp.
  *
- * `emoji` (interfaces/discord/emoji.js#createEmojiIndex) is optional: absent, or
+ * `emoji` (src/behavior/emoji-index.ts#createEmojiIndex) is optional: absent, or
  * `features.customEmoji` false (a missing key counts as on), no `:name:` is
  * turned into a custom emoji and a `<react>` with a custom one is dropped.
  *
@@ -1967,30 +1968,30 @@ export function taskInput({ part, queued, added, missed = null, failedEarlier = 
  *
  * Skills and the interface: every effect of a reply -- a message with its reply target and
  * mentions, the GIF, the picture's publication after its generation, a diary set's pictures, a
- * reaction, the typing indicator -- is checked by src/skills/gateway.js#checkReplyEffect right
+ * reaction, the typing indicator -- is checked by src/tools/gateway.ts#checkReplyEffect right
  * before it runs (`message.create`, a picture or GIF being one with its media or URL, and
  * `message.react.add`: carried over in the current conversation, refused only under the full stop
- * -- features.skills false, she goes silent; each refusal logs `skill: refused` (`skill`, `code`,
+ * -- features.tools false, she goes silent; each refusal logs `skill: refused` (`skill`, `code`,
  * `reason`) and nothing is done; no picture or diary set is generated for a post the check
  * already refuses, and no typing indicator shows), then made through the interface port `port`
  * (src/interface/port.js). Nothing counts as posted (journal, record, stats, lastPostAt) unless the port
  * answered `ok`; `unknown` is journaled as unknown and never sent again. A dry run calls neither
  * the gateway nor the port.
  *
- * Skill calls: her skills are the owner's /nep commands (src/skills/registry.js; `skills`: the
+ * Skill calls: her skills are the owner's /nep commands (src/tools/registry.ts; `skills`: the
  * registry checked against, default skillRegistry()). Her tools -- the skills granted to her and the
- * carried-over ones (src/skills/discovery.js#exposedSkillNames) -- travel with every request of a
- * turn, as native tool definitions or, with `skills.transport` `text`, as a `<tools>` block. Every
+ * carried-over ones (src/tools/discovery.ts#exposedSkillNames) -- travel with every request of a
+ * turn, as native tool definitions or, with `tools.transport` `text`, as a `<tools>` block. Every
  * call of an answer is planned in her order (planToolCall: on an immutable envelope built by code,
  * callEnvelope; journaled `proposed` with its invocation id and tool call id, repaired where the
  * schema allows (coerceArgs), resolved on the server's side, checked) and made in segments (runCall:
- * checked again right before, then run by src/skills/executors.js through `runOp(op, args,
+ * checked again right before, then run by src/tools/executors.ts through `runOp(op, args,
  * context)` -- src/admin.js#runSkillOp, the command's own path, the requester's rights checked
  * again; absent, a call is `not_configured`; her own expressive operations through
  * `runOwnOp`, src/admin.js#runOwnSkillOp, her grant alone; an inner turn's calls through
  * `runInitiativeOp`, src/admin.js#runInitiativeSkillOp, her grant alone). Her speech goes out after
  * the calls, when all of them worked and none gave her something to read; else it is held and the
- * results come back to her in one more request (runSteps), bounded by `skills.loop`. A dry run only
+ * results come back to her in one more request (runSteps), bounded by `tools.loop`. A dry run only
  * logs the call (`dry-run: would call`).
  *
  * Reactors: `reactors` (src/behavior/reactor-store.ts#createReactorStore, null: none) is the store of
@@ -2107,7 +2108,7 @@ export function createTurnRunner({
 
   /**
    * The gateway's verdict on one effect of the persona's reply in `channel`
-   * (src/skills/gateway.js#checkReplyEffect, the live config read now): carried over in the
+   * (src/tools/gateway.ts#checkReplyEffect, the live config read now): carried over in the
    * current conversation, refused only under the full stop. `args` and `trigger` name the effect
    * for the reader; the check needs neither. A refusal logs `skill: refused`.
    * @returns {{ ok: boolean, code?: string, reason?: string }}
@@ -2122,27 +2123,27 @@ export function createTurnRunner({
   }
 
   /**
-   * What skills discovery gives a classifier (src/skills/discovery.js, the live config read by
+   * What skills discovery gives a classifier (src/tools/discovery.ts, the live config read by
    * the caller now): `index` fills its prompt's `{{skills}}` (skillsIndex over the registry and
-   * `hot.prompts.skills`: static texts, no grant), `names` are the registry's skills its `skills:`
+   * `hot.prompts.tools`: static texts, no grant), `names` are the registry's skills its `skills:`
    * line may name. With discovery off, '' and none.
    * @returns {{ index: string, names: string[] }}
    */
   function discoveryPrompt(config) {
     if (!discoveryOn(config)) return { index: '', names: [] };
     // Her in-turn tools are hers to call (features.coreTools, where no classifier runs): never offered to one.
-    // A skill whose feature switch is off is not offered either (src/skills/access.js#skillFeatureOn).
+    // A skill whose feature switch is off is not offered either (src/tools/access.ts#skillFeatureOn).
     const registry = new Map(
       [...(skills ?? defaultSkills())].filter(([name]) => !IN_TURN_TOOLS.includes(name) && skillFeatureOn(name, config))
     );
     const names = [...registry.keys()];
-    return { index: skillsIndex(registry, hot.prompts?.skills), names };
+    return { index: skillsIndex(registry, hot.prompts?.tools), names };
   }
 
   /**
    * What a classifier's `skills:` line (`answer`: parseSkillsLines' result, null when it gave
    * none) does on a turn someone asked for, with discovery on (read by the caller now). The
-   * catalogue of this requester (`trigger`'s author) in `channel` (src/skills/gateway.js#listSkills,
+   * catalogue of this requester (`trigger`'s author) in `channel` (src/tools/gateway.ts#listSkills,
    * the state read now) decides both: on `inventory` its rows are returned for the request's
    * `<skills>` (logged `skills: inventory` with counts); on named skills (at most four) each name
    * with the gateway's verdict is logged `skills: proposed` and noted in the draft's
@@ -2158,7 +2159,7 @@ export function createTurnRunner({
     const rows = listSkills({
       config,
       selfId: selfIdOf() || null,
-      texts: hot.prompts?.skills,
+      texts: hot.prompts?.tools,
       requester: requesterOf(trigger, draft?.requesterGroups ?? []),
       audience: { conversationId: String(channel.id) },
       registry: skills ?? defaultSkills(),
@@ -2297,7 +2298,7 @@ export function createTurnRunner({
   }
 
   /**
-   * The gateway's verdict on a resolved `<call>` (src/skills/gateway.js#checkSkill, the live
+   * The gateway's verdict on a resolved `<call>` (src/tools/gateway.ts#checkSkill, the live
    * config read now): the persona as principal, the envelope's requester (callEnvelope), the
    * turn's channel as the audience, the last run of a destructive skill from the origin channel
    * (`destructiveRuns`), the image client's caps as the drawing budget. A refusal logs
@@ -2440,7 +2441,7 @@ export function createTurnRunner({
         reason: resolved.reason,
         channel: channel.id,
       });
-      // An errand's file bound for a channel nobody named (src/skills/executors.js#resolveCall).
+      // An errand's file bound for a channel nobody named (src/tools/executors.ts#resolveCall).
       if (resolved.code === CODE.FILE_ELSEWHERE)
         log.info('skills: file elsewhere refused', {
           skill: call.skill,
@@ -2512,8 +2513,8 @@ export function createTurnRunner({
    * closed `failed` with its code (status `invalid` or `denied`, refusalStatus); otherwise the
    * gateway is asked again right before the call (the owner may have revoked it meanwhile), the
    * operation writes `started` with the ids it aims at, a destructive one is stamped for its
-   * cooldown, and src/skills/executors.js#executeCall runs it on the envelope through
-   * `runOp` (`skills.callTimeoutMs`, read now); her written text (`message.create`,
+   * cooldown, and src/tools/executors.ts#executeCall runs it on the envelope through
+   * `runOp` (`tools.callTimeoutMs`, read now); her written text (`message.create`,
    * `message.edit`) is rendered first exactly as a `<msg>` of this turn (renderPost over the
    * turn's `handles`, or `lines`, `knownNames`, `directory`, and `idByIndex`, `pulledIds`), its mentions the only members
    * notified. The operation closes `succeeded` (with the
@@ -2597,10 +2598,10 @@ export function createTurnRunner({
           runOwnOp,
           runInitiativeOp,
           opContext: { guildId, channelId: String(channel.id), ...(privateChat ? { privateChat: true } : {}) },
-          // The live config, for the wake envelope's check at the capabilities a skill reaches (src/skills/access.js).
+          // The live config, for the wake envelope's check at the capabilities a skill reaches (src/tools/access.ts).
           config: hot.config,
           timeoutMs:
-            Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : (hot.config.skills?.callTimeoutMs ?? 120000),
+            Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : (hot.config.tools?.callTimeoutMs ?? 120000),
           // Her in-turn tools (features.coreTools): run here, in the turn, over its context.
           ...(inTurn ? { inTurn } : {}),
         });
@@ -2626,7 +2627,7 @@ export function createTurnRunner({
         status: innerGate?.proposed ? 'proposed' : ran ? 'executed' : 'refused',
         result: result.status,
         ...(result.code ? { code: result.code } : {}),
-        ...(result.status !== 'ok' ? callTextOf(result, hot.config.skills?.markTextMaxChars ?? 200) : {}),
+        ...(result.status !== 'ok' ? callTextOf(result, hot.config.tools?.markTextMaxChars ?? 200) : {}),
         target: callTarget(plan.resolved?.args ?? {}),
         ...(named ? { intentionId: named } : {}),
         ...(skill === 'intent.set' && ran && result.status === 'ok' && typeof result.intentionId === 'string'
@@ -2700,16 +2701,16 @@ export function createTurnRunner({
       status: result.status,
       // Why it did not work, when it did not (the mark words it through labels.transcript.callReasons;
       // without a specific phrase, the operation's own message before the generic one: one line,
-      // skills.markTextMaxChars, read now). In process only: the journal keeps the code and reason,
+      // tools.markTextMaxChars, read now). In process only: the journal keeps the code and reason,
       // never that message.
       detail: outcomeDetail(result, {
-        textChars: hot.config.skills?.markTextMaxChars ?? 200,
+        textChars: hot.config.tools?.markTextMaxChars ?? 200,
         argNames: (skills ?? defaultSkills()).get(skill)?.dispatch?.options?.map((option) => option.name) ?? null,
       }),
       target: { messageId: idText(args.message) ?? idText(args.reply), channelId: where ?? idText(args.channel) },
       postedId: posted?.id ?? null,
       posted: turnPosts,
-      // The main arguments the call ran with, for the mark's line (src/skills/call-args.js).
+      // The main arguments the call ran with, for the mark's line (src/tools/call-args.ts).
       args: callArgsText(skill, args),
     });
     log.info('skills: called', {
@@ -2771,19 +2772,18 @@ export function createTurnRunner({
   }
 
   /**
-   * Her in-turn tools for one turn (src/skills/tools.js, whatever features.coreTools says): skill name
-   * -> `(args) => result`, run by src/skills/executors.js#executeCall in place of the operation's
+   * Her in-turn tools for one turn (src/tools/tools.ts, whatever features.coreTools says): skill name
+   * -> `(args) => result`, run by src/tools/executors.ts#executeCall in place of the operation's
    * command, over the turn's own context -- `web.search` through the turn's `lookup`, `web.read`
    * too (a `#N` message she names read as its first link in `history`: an embedded one, else one
    * written in its text), `media.look` through the turn's `describer` (a `#N` message she names
    * found in `history`; at most `media.look.maxPerTurn` second looks in the turn, read at each call),
-   * `memory.search` through its `recall` over the served guild (`guild`; a private chat on its
+   * `memory.search` through its `recall` over the served community (`snapshot`; a private chat on its
    * `partner`'s behalf), the turn's `history` left out of the hits and her call marks on the
    * quoted lines (linkCalls), and `draw.create` through drawTool.
    */
   function inTurnTools({
     channel,
-    guild,
     snapshot = null,
     guildId,
     partner = null,
@@ -2840,10 +2840,10 @@ export function createTurnRunner({
           store,
           config: hot.config,
           labels: hot.prompts?.labels ?? {},
-          guild,
           guildId,
+          snapshot,
           channel,
-          partner,
+          partnerId: partner?.id ?? null,
           selfId,
           selfName,
           history,
@@ -2859,7 +2859,7 @@ export function createTurnRunner({
   }
 
   /**
-   * One conversation.read of hers (src/skills/conversation-read.js): the channel she names (default
+   * One conversation.read of hers (src/tools/conversation-read.ts): the channel she names (default
    * this one) read in order from the record first, the interface's history when the record lacks
    * the span, rendered like the chat with each line's `#N` handle in the turn's registry
    * (searchHandles). Another channel passes the pull rail (checkPull: readable, the audience rule
@@ -3008,10 +3008,10 @@ export function createTurnRunner({
       await op?.started();
       try {
         const found = await recall.prefetch({
-          guild,
           guildId,
+          snapshot,
           channel,
-          partner,
+          partnerId: partner?.id ?? null,
           selfId,
           selfName,
           history,
@@ -3053,7 +3053,7 @@ export function createTurnRunner({
 
   /**
    * The intention one call of an inner turn names: `args.id` of `intent.update` / `intent.cancel`,
-   * or its body (`args.text`) when that is the id alone (src/ops/intent.js takes it the same way);
+   * or its body (`args.text`) when that is the id alone (src/tools/impl/intent.ts takes it the same way);
    * null for any other call.
    * @param {string} skill
    * @param {Record<string, unknown>} args
@@ -3139,7 +3139,7 @@ export function createTurnRunner({
    * (src/behavior/tool-step.js#roomLeft): the previous messages, her answer, one result for every call, and a note
    * (the speech held, the lines that came in meanwhile numbered past every number in use, the messages that did not go
    * out, the last-step notice, an inner turn's open intentions, what the parser did with her answer). The first user
-   * message is never rebuilt. `skills.loop.maxSteps` (an inner turn's: `innerLife.loop`) counts those requests and the
+   * message is never rebuilt. `tools.loop.maxSteps` (an inner turn's: `innerLife.loop`) counts those requests and the
    * last of them is always the final one, which cannot call: its calls get a `loop-cap` result that only the journal
    * keeps, and its speech is held unless it has no calls (an inner turn's one terminal call, if it went through,
    * lets it go out). The same goes for a request the time budget (`timeBudgetMs`, from the first call) or the room
@@ -3191,8 +3191,8 @@ export function createTurnRunner({
       diary && (draft.staged?.length ?? 0) > 0
         ? { pictures: draft.staged.map(({ picture, self, text }) => ({ ...picture, self, text })) }
         : null;
-    // The most one call may run: an inner turn's own (innerLife.loop.callTimeoutMs), else skills.callTimeoutMs (read now).
-    const callTimeoutCap = inner ? settings.callTimeoutMs : (hot.config.skills?.callTimeoutMs ?? 120000);
+    // The most one call may run: an inner turn's own (innerLife.loop.callTimeoutMs), else tools.callTimeoutMs (read now).
+    const callTimeoutCap = inner ? settings.callTimeoutMs : (hot.config.tools?.callTimeoutMs ?? 120000);
     const tools = transport === 'native' && draft.tools.length > 0 ? { tools: draft.tools, toolChoice: 'auto' } : {};
     const acts = [];
     let messages = requestMessages;
@@ -3302,7 +3302,7 @@ export function createTurnRunner({
           typing.started = true;
           typing.stop = typingWhileCalls(channel, triggerKind, draft);
         }
-        const view = viewOf(routed);
+        const view = { ...viewOf(routed), links: await linksOfCalls(ifaceReads, records) };
         // A heartbeat turn makes one intention change: the first intent call of a step is planned, a second one is refused.
         let changePlanned = false;
         for (const record of records) {
@@ -3414,7 +3414,7 @@ export function createTurnRunner({
       // that left nothing to read earns one request of its own for them, once per turn.
       const openLine = inner && posted && !isFinal ? openIntentionsText(draft, labels) : '';
       const openAlone = openLine !== '' && !fresh && !openTaken && left.run && left.next !== 'none';
-      // Under the full stop (features.skills off) she is silent: nothing more is asked of her.
+      // Under the full stop (features.tools off) she is silent: nothing more is asked of her.
       const stopped = results.some((result) => result.code === CODE.SKILLS_OFF);
       const next =
         isFinal || stopped || heartbeatChanged(draft, stepResults) ? 'none' : fresh || openAlone ? left.next : 'none';
@@ -3489,7 +3489,7 @@ export function createTurnRunner({
         if (cost(sent) > limit) {
           log.warn('skills: loop cap', { channel: channel.id, reason, step, dropped: results.length });
           draft.loopCut = { reason, dropped: (draft.loopCut?.dropped ?? 0) + results.length };
-          draft.limits?.add({ kind: 'loop-cap', where: 'skills.loop', lost: results.length, detail: reason });
+          draft.limits?.add({ kind: 'loop-cap', where: 'tools.loop', lost: results.length, detail: reason });
           unseen = stepResults;
           break;
         }
@@ -3557,7 +3557,7 @@ export function createTurnRunner({
     if (dropped.length > 0) {
       const why = finalReason ?? LOOP_WHY.extraCall;
       log.info('skills: loop cap', { channel: channel.id, reason: why, step, dropped: dropped.length });
-      draft.limits?.add({ kind: 'loop-cap', where: 'skills.loop', lost: dropped.length, detail: why });
+      draft.limits?.add({ kind: 'loop-cap', where: 'tools.loop', lost: dropped.length, detail: why });
       draft.loopCut = { reason: draft.loopCut?.reason ?? why, dropped: (draft.loopCut?.dropped ?? 0) + dropped.length };
     }
     // A final answer whose speech was held with no call capped (only calls that ran): nothing was dropped, she still wrote it.
@@ -3570,7 +3570,7 @@ export function createTurnRunner({
             skill: result.skill,
             status: CALL_STATUS_NAMES.has(result.status) ? result.status : 'failed',
             code: typeof result.code === 'string' && result.code ? result.code : null,
-            ...callTextOf(result, hot.config.skills?.markTextMaxChars ?? 200),
+            ...callTextOf(result, hot.config.tools?.markTextMaxChars ?? 200),
           }))
       );
     }
@@ -3612,7 +3612,7 @@ export function createTurnRunner({
       const out = { acted, loweredResults: [], deliveries: [] };
       if (loweredCalls.length === 0) return out;
       // The tags of an inner turn are her speech: each planned (the journal, the gate) and made like a call, with no result to give back.
-      const view = viewOf(routed);
+      const view = { ...viewOf(routed), links: await linksOfCalls(ifaceReads, loweredCalls) };
       const lowered = [];
       for (const call of loweredCalls)
         lowered.push(await planToolCall({ call, channel, envelope: envelopeOf(), draft, view }));
@@ -3692,7 +3692,7 @@ export function createTurnRunner({
   }
   const lastPostAt = new Map(); // channelId -> ts of the persona's last message
   // `${skill}:${originChannelId}` -> when a destructive skill call of hers was last dispatched
-  // from that channel (skills.destructiveCooldownMinutes, src/skills/gateway.js); in process.
+  // from that channel (tools.destructiveCooldownMinutes, src/tools/gateway.ts); in process.
   const destructiveRuns = new Map();
   let onIdle = null; // set via setOnIdle(); see the finally block of runTurn below
   let onTurnEnd = null; // set via setOnTurnEnd(); see noteTurnEnd
@@ -4232,7 +4232,7 @@ export function createTurnRunner({
    * answering a direct call (DIRECT_CALLS: no unprompted turn, no overheard
    * line), with features.typingSimulation and pace.typingWhilePreparing on
    * (`config`, the turn's live config), never in a dry run (read now), never
-   * where the bot cannot send, never with features.skills off (read now: she
+   * where the bot cannot send, never with features.tools off (read now: she
    * is silent). Sent through the port; one that does not answer `ok` logs
    * `turn: typing failed` and changes nothing else.
    * @returns {() => void}  Stops the indicator's refresh.
@@ -4484,7 +4484,7 @@ export function createTurnRunner({
    * the picture through makePicture, the scene verbatim, with the local time, then one upload through
    * the port. It posts where `message.create` would: the channel she names, else the replied message's
    * (a link names it; a channel and a reply that disagree are refused `unknown-message`), else this one,
-   * checked before anything is generated (src/ops/shared.js#postingConversation, `attach`). A reply
+   * checked before anything is generated (src/tools/impl/shared.ts#postingConversation, `attach`). A reply
    * quotes the message in that channel. The picture is charged to the asking member's rail when the turn
    * was asked (askedFor), to nobody's otherwise. Every failure is a result she reads, never a limit
    * notice: an image cap is `image-cap-daily` or `image-cap-user-daily`, a
@@ -4523,7 +4523,7 @@ export function createTurnRunner({
       let replyId = null;
       if (!staging) {
         // A turn that quotes no chat line (a follow-up, an overheard line, a later part of a split message) posts its picture plain.
-        const reply = args?.replyTo && !plain ? messageRefOf(args.replyTo) : null;
+        const reply = args?.replyTo && !plain ? await messageRefOf(args.replyTo, ifaceReads) : null;
         const given = args?.channelId ? String(args.channelId) : null;
         if (given && reply?.channelId && given !== reply.channelId) return failed('invalid', CODE.UNKNOWN_MESSAGE);
         channelId = await postingConversation({
@@ -5843,8 +5843,8 @@ export function createTurnRunner({
    * The searches on a question: the web search (`webOn`: features.webLookup,
    * web.search.enabled, a lookup with `search`) and the search of the
    * server's own history (`serverOn`: recall wired and available, a server
-   * turn or a private chat with its `partner`; `guild` is the guild searched,
-   * the served one in a private chat). One cheap classifier call (prompts.lookup, `{{name}}` = the
+   * turn or a private chat with its `partner`; the community searched is the
+   * `snapshot`'s). One cheap classifier call (prompts.lookup, `{{name}}` = the
    * persona's display name, `{{today}}` = the injected clock's date
    * `YYYY-MM-DD` in `bot.timezone`, the zone its `when:` range is read in;
    * on the helper model (roleModel, role `analyzer`), its answer capped at
@@ -5901,7 +5901,6 @@ export function createTurnRunner({
     guildId,
     channel,
     snapshot = null,
-    guild = null,
     partner = null,
     selfId,
     selfName,
@@ -5995,7 +5994,7 @@ export function createTurnRunner({
       maxForms: recallSettings(config)?.maxForms,
       skillNames: discovery.names,
     });
-    // The `skills:` line goes to the turn, whatever the searches do (src/skills/discovery.js).
+    // The `skills:` line goes to the turn, whatever the searches do (src/tools/discovery.ts).
     if (parsed.skills) onSkills?.(parsed.skills);
     const { web, server } = parsed;
     const route =
@@ -6078,10 +6077,10 @@ export function createTurnRunner({
               () =>
                 recall.run({
                   ...(recallOp ? { op: recallOp } : {}),
-                  guild,
                   guildId,
+                  snapshot,
                   channel,
-                  partner,
+                  partnerId: partner?.id ?? null,
                   selfId,
                   selfName,
                   history: chatHistory,
@@ -6987,7 +6986,7 @@ export function createTurnRunner({
    *   still untouched, the steps make one open follow-up request (runSteps: the open line in its note,
    *   once per turn). The last step still runs one terminal action call of hers (a post, an
    *   intention change). The steps of an inner turn run under `innerLife.loop`
-   *   (loopSettings with `inner`), not `skills.loop`. The result carries `inner: { actions, intentIds, loop,
+   *   (loopSettings with `inner`), not `tools.loop`. The result carries `inner: { actions, intentIds, loop,
    *   openFollowUp?, turnId }` (`openFollowUp: true` when that
    *   step was made; `shadow: true` in shadow mode). A
    *   call that did not work in shadow mode is marked for the rest of the turn only (`turnMarks`).
@@ -7022,7 +7021,7 @@ export function createTurnRunner({
    *   (trigger kind `missed`, src/behavior/missed.js), the trigger first: `labels.task.missed`
    *   names them.
    * @param {{ id: string, roleIds?: string[] }|null} [params.requester]  The person who asked for
-   *   this turn when it is not the trigger's author (`/nep message create`, src/ops/message.js):
+   *   this turn when it is not the trigger's author (`/nep message create`, src/tools/impl/message.ts):
    *   the requester of any skill call she makes in it (callEnvelope).
    * @param {(() => boolean)|null} [params.stillDue]  Asked right before anything is posted (dry
    *   run included); false ends the turn `not-now` (`reason: 'answered-meanwhile'`), nothing posted.
@@ -7485,7 +7484,7 @@ export function createTurnRunner({
     try {
       const config = hot.config;
       const features = config.features ?? {};
-      // How her tools travel this turn (skills.transport, read once): native tool calls, or text blocks.
+      // How her tools travel this turn (tools.transport, read once): native tool calls, or text blocks.
       const transport = transportOf(config);
       draft.transport = transport;
       const memoryOn = features.memory !== false;
@@ -7553,6 +7552,7 @@ export function createTurnRunner({
       // chat is listed for its partner's sake.
       const partnerHint = isPrivate ? (trigger?.authorId ?? channel.partnerId ?? null) : null;
       const snapshotPending = takeSnapshot(ifaceReads, guildId, partnerHint ? [String(partnerHint)] : []);
+      const emojiPending = refreshEmojiIfOn(emoji, config);
       const historyStartedAt = clock();
       const snapshot = /** @type {Snap|null} */ (await beforeBar(snapshotPending));
       draft.snapshot = snapshot;
@@ -7575,6 +7575,7 @@ export function createTurnRunner({
       );
       const historyMs = clock() - historyStartedAt;
       const partner = await beforeBar(partnerPending);
+      await beforeBar(emojiPending);
       draft.requesterGroups = (await beforeBar(requesterPending))?.member?.groupIds ?? [];
       // A private chat on its partner's behalf: pulls and the server search from the served community (none otherwise).
       const likeServer = isPrivate && partner !== null;
@@ -8159,7 +8160,6 @@ export function createTurnRunner({
                     guildId,
                     channel,
                     snapshot: servedSnapshot,
-                    guild: servedGuild,
                     partner,
                     selfId,
                     selfName,
@@ -8556,7 +8556,7 @@ export function createTurnRunner({
       draft.toolNames = exposedSkillNames({ config, selfId, registry: skills ?? defaultSkills() });
       draft.tools = buildTools(draft.toolNames, {
         registry: skills ?? defaultSkills(),
-        texts: prompts?.skills,
+        texts: prompts?.tools,
         fill: { drawChars: config.image?.maxPromptChars ?? 1600 },
       });
       const toolsBlock = transport === 'text' ? toolsBlockText(draft.tools, prompts?.labels) : null;
@@ -9109,7 +9109,6 @@ export function createTurnRunner({
         channelHandles,
         inTurn: inTurnTools({
           channel,
-          guild: servedGuild,
           snapshot: servedSnapshot,
           guildId,
           partner: isPrivate ? partner : null,

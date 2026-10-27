@@ -36,7 +36,7 @@ One function (`src/behavior/heartbeat-view.js`) reads the stores with no model. 
 
 **Her life.** What she did in the last day: her posts (place and preview), executed calls of her inner turns, her errands with their goal, her diary posts. Her open intentions and attentions, and the latest `heartbeat.closedShown` (default 10) closed intentions of any state, newest first, each with its outcome or reason, the rest counted.
 
-**What she can do.** Her granted skills by family, and the errand agents.
+**What she can do.** Her granted tools by family, and the errand agents.
 
 **Since the last heartbeat** (the last day for the first one): counts of what was done; what was not done or counted on (expired or missed intentions, failed errands, sends with unknown outcome, turns that ended in error, the facts already told as one count); and what was filtered without her (the missed helper's dismissals and the address helper's "not to her" verdicts with place, time, author and a preview, at most `heartbeat.filteredShown` (default 10), the rest counted).
 
@@ -44,7 +44,7 @@ The whole block is capped at `heartbeat.maxTokens` (default 2500). Over that lim
 
 #### What a heartbeat may do
 
-With `innerLife.heartbeat.intentionsOnly` (default `true`), the heartbeat accepts only memory reads and intention calls: `memory.search`, `memory.profile.read`, `memory.affinity.read`, `memory.channel.read`, `memory.server.read`, `memory.recent.read`, `memory.archive.read`, `memory.journal.read`, `conversation.read`, `intent.list`, `lore.list`, `lore.show` and `skills.describe`. These calls still pass the usual permissions.
+With `innerLife.heartbeat.intentionsOnly` (default `true`), the heartbeat accepts only memory reads and intention calls: `memory.search`, `memory.profile.read`, `memory.affinity.read`, `memory.channel.read`, `memory.server.read`, `memory.recent.read`, `memory.archive.read`, `memory.journal.read`, `conversation.read`, `intent.list`, `lore.list`, `lore.show` and `tools.describe`. These calls still pass the usual permissions.
 
 The prompt asks her to follow a memory thread before choosing. The wake finishes with one successful `intent.set`, `intent.update` or `intent.cancel`, or `<skip/>`. The first successful change ends the turn without another model request. A second intention call in the same step is refused. Posts, reactions, web reads and errands are refused `heartbeat-only`. A refusal or failed read may be corrected within the loop limits.
 
@@ -66,7 +66,7 @@ Her last look is her last own line in that place or the last attend wake handled
 
 The lines come from the record, indexed incrementally at each tick over the last `innerLife.attention.lookbackHours` (default 24) hours.
 
-**The places view.** Her `places.list` skill lists every place the interface publishes: its address, name, whether she can write there, lines and distinct people since her last look, the newest line, and whether she attends it. `filter=<text>`, `sort=recent|name|lines` (default `recent`), `page=<n>` turns pages of `innerLife.attention.pageSize` (default 12). Every inner turn's `<wake>` carries a short page of it (`innerLife.attention.placesInWake`, default 8, by recent activity, with the total).
+**The places view.** Her `places.list` tool lists every place the interface publishes: its address, name, whether she can write there, lines and distinct people since her last look, the newest line, and whether she attends it. `filter=<text>`, `sort=recent|name|lines` (default `recent`), `page=<n>` turns pages of `innerLife.attention.pageSize` (default 12). Every inner turn's `<wake>` carries a short page of it (`innerLife.attention.placesInWake`, default 8, by recent activity, with the total).
 
 ### Feedback on her own turn
 
@@ -179,7 +179,7 @@ Every intention keeps the members of the conversation it came from. `/nep memory
 
 ### Turning it on
 
-Set `features.intentions` to `true`, and grant her the skills by name (`/nep access grant`: `intent.set`, `intent.update`, `intent.cancel`, `intent.list`).
+Set `features.intentions` to `true`, and grant her the tools by name (`/nep access grant`: `intent.set`, `intent.update`, `intent.cancel`, `intent.list`).
 
 ## Bounds
 
@@ -206,7 +206,7 @@ On a retried run that succeeds, each wake in `<wake>` carries a line noting how 
 
 ## What she found goes to her memory
 
-What she reads on her own in an inner turn joins the memory analyzer's path. When an inner turn ends and at least one read returned something, or the turn has something to answer for (a call, a call that failed, text outside a call, a loop cut), the turn hands an episode to the analyzer: lines of hers, in the first person. One line with her thinking, her executed calls, proposed or refused ones, and what did not go through. One line per read in `innerLife.memory.skills` (by default `web.search`, `web.read`, `memory.search`, `task.status`, `task.list`), at most `innerLife.memory.maxFindings`, with the query, the result cut to `innerLife.memory.resultChars`, and links as sources.
+What she reads on her own in an inner turn joins the memory analyzer's path. When an inner turn ends and at least one read returned something, or the turn has something to answer for (a call, a call that failed, text outside a call, a loop cut), the turn hands an episode to the analyzer: lines of hers, in the first person. One line with her thinking, her executed calls, proposed or refused ones, and what did not go through. One line per read in `innerLife.memory.tools` (by default `web.search`, `web.read`, `memory.search`, `task.status`, `task.list`), at most `innerLife.memory.maxFindings`, with the query, the result cut to `innerLife.memory.resultChars`, and links as sources.
 
 Each line is marked with provenance `inner`. Where it belongs decides where it goes: a server inner turn buffers it with the server's lines; one in a private chat buffers it in that member's private layer only. The record keeps chat only, so these lines never reach it.
 

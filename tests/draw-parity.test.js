@@ -304,6 +304,8 @@ test('draw parity: /nep draw with self', async () => {
     hot: hot(),
     store: store(),
     client: client(),
+    selfId: () => 'self-id',
+    getSelfName: () => 'Bot',
     spontaneous: {},
     calibrator: { ratio: 1 },
     getGuildId: () => 'g1',

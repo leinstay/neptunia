@@ -3,7 +3,6 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createEmojiIndex } from '../interfaces/discord/index.js';
 import { CUSTOM_EMOJI_MARKUP, matchEmojiName, renderCustomEmoji, resolveReactionEmoji } from '../src/behavior/emoji.js';
 
 const EMOJIS = [
@@ -110,49 +109,4 @@ test('resolveReactionEmoji: <:name:id> resolves through the index by name, falls
 test('resolveReactionEmoji: any custom form without a lookup is dropped', () => {
   assert.equal(resolveReactionEmoji(':dance:', null), null);
   assert.equal(resolveReactionEmoji('<a:dance:222222222222222222>', null), null);
-});
-
-function fakeClient(guildId, emojis) {
-  const cache = new Map(emojis.map((e) => [e.id, { ...e }]));
-  return { cache, client: { guilds: { cache: new Map([[guildId, { emojis: { cache } }]]) } } };
-}
-
-test('createEmojiIndex: reads the guild cache on demand, so later changes are seen', () => {
-  const { cache, client } = fakeClient('g1', EMOJIS.slice(0, 2));
-  const index = createEmojiIndex(client, 'g1');
-  assert.deepEqual(index.list(), [
-    { id: '111111111111111111', name: 'pepe_cry', animated: false },
-    { id: '222222222222222222', name: 'dance', animated: true },
-  ]);
-  assert.deepEqual(index.byName('dance'), { id: '222222222222222222', name: 'dance', animated: true });
-  cache.set('6', { id: '6', name: 'fresh', animated: false });
-  cache.delete('222222222222222222');
-  assert.equal(index.byName('dance'), null);
-  assert.equal(index.byName('fresh').id, '6');
-  assert.deepEqual(
-    index.list().map((e) => e.name),
-    ['pepe_cry', 'fresh']
-  );
-});
-
-test('createEmojiIndex: the guild id may be a getter read at use; no guild -> empty', () => {
-  const { client } = fakeClient('g1', EMOJIS);
-  let current = null;
-  const index = createEmojiIndex(client, () => current);
-  assert.deepEqual(index.list(), []);
-  assert.equal(index.byName('dance'), null);
-  current = 'g1';
-  assert.equal(index.list().length, EMOJIS.length);
-});
-
-test('createEmojiIndex: list leaves out unavailable emoji', () => {
-  const { client } = fakeClient('g1', [
-    ...EMOJIS.slice(0, 2),
-    { id: '9', name: 'gone', animated: false, available: false },
-  ]);
-  const index = createEmojiIndex(client, 'g1');
-  assert.deepEqual(
-    index.list().map((e) => e.name),
-    ['pepe_cry', 'dance']
-  );
 });

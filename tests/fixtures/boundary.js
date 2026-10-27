@@ -5,7 +5,7 @@
 import { createInnerLife } from '../../src/behavior/inner.js';
 import { createEventDoor } from '../../src/interface/door.js';
 import { createFakeAdapter } from '../../src/interface/fake.js';
-import { skillRegistry } from '../../src/skills/registry.js';
+import { skillRegistry } from '../../src/tools/registry.ts';
 import { createTurnRunner, fakeChannel, fakeStore, hotWith, rawMessage, sequenceLlm } from './turn-harness.js';
 import { freshWorld, world } from './turn-world.ts';
 import { tempDir } from './tmp.js';
@@ -57,7 +57,7 @@ export async function innerRig({ answers = ['<skip/>'], interface: connected = t
   }
   const hot = hotWith({
     features: { innerLife: true, intentions: false, journal: false, coreTools: true },
-    skills: { loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 } },
+    tools: { loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 } },
     config: {
       mention: { oneAtATime: true },
       memoryDb: { wakeRuns: true },

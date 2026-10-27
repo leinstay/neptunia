@@ -1,16 +1,16 @@
 // Tests for the persona's view of her intentions: the `<intentions>` block's body
 // (src/intentions/blocks.js) -- her active ones with their wait, due time and outcome, then the
 // candidates with the line they came from, cut to the token budget -- and the switch that hides
-// the `intent.*` skills from her entirely while features.intentions is off (src/skills/access.js).
+// the `intent.*` skills from her entirely while features.intentions is off (src/tools/access.ts).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { intentionsBlockText } from '../src/intentions/blocks.js';
 import { createIntention, transition, waitOn } from '../src/intentions/model.js';
 import { formatClock, formatDate } from '../src/format.js';
-import '../src/ops/index.js';
-import { skillRegistry } from '../src/skills/registry.js';
-import { checkSkill, listSkills } from '../src/skills/gateway.js';
-import { grantedSkillNames, skillsIndex } from '../src/skills/discovery.js';
+import '../src/tools/impl/index.ts';
+import { skillRegistry } from '../src/tools/registry.ts';
+import { checkSkill, listSkills } from '../src/tools/gateway.ts';
+import { grantedSkillNames, skillsIndex } from '../src/tools/discovery.ts';
 
 const T0 = Date.parse('2026-10-18T10:00:00Z');
 const HOUR = 60 * 60 * 1000;
@@ -201,7 +201,7 @@ function config(features = {}) {
   const access = Object.fromEntries(
     ['intent.set', 'intent.list', 'lore.list'].map((name) => [name, { everyone: false, roles: [], users: [SELF] }])
   );
-  return { bot: { owners: [OWNER], access }, features: { skills: true, ...features } };
+  return { bot: { owners: [OWNER], access }, features: { tools: true, ...features } };
 }
 
 test('skills: with features.intentions off the intent skills are refused, never listed, never offered; on, they are hers once granted', () => {

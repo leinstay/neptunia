@@ -15,8 +15,10 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `.agents/` | local | The working folder of the agents of one deployment. | nothing | none |
 | `prompts.local/` | local | A deployment prompt layer that shadows the tracked prompts. | nothing | none |
 | `config.local.json` | local | A deployment settings layer over config.json. | nothing | none |
+| `config.local/` | local | A deployment's tool texts, laid over the tracked ones. | nothing | none |
 | `data/` | local | A deployment memory, state and logs. | nothing | none |
 | `config.json` | public | The tracked default settings. | nothing | none |
+| `config/` | public | The tracked texts of the persona's tools. | nothing | none |
 | `package.json` | public | The root package: scripts, workspaces and development dependencies. | nothing | none |
 | `package-lock.json` | public | The locked dependency tree. | nothing | none |
 | `tsconfig.json` | public | The TypeScript compiler options used for type checking. | nothing | none |
@@ -46,8 +48,9 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `tools/fixtures/` | public | Sample data for the virtual-week harness. | nothing | none |
 | `tools/prompts/` | public | Example scenario files for the tools. | nothing | none |
 | `src/*.js` | public | The small modules every part uses: settings, hot reload, logging, paths, time and text formatting. | `node:*`, `src/**` | required |
+| `src/config-moves.ts` | public | The config keys of an earlier name and the new name each one is read under, applied to the local config before it is laid over config.json. | nothing | required |
 | `src/index.js` | public | The entry point: reads the paths and the environment, loads the Discord package by path, starts the core and owns the process signals and exit. It imports no Discord. | `node:*`, `src/*.js` | none |
-| `src/core.js` | public | The composition root: `startCore` builds the core over the paths, the environment and the interfaces it is given. Proved by the slice test. It imports no Discord. | `node:*`, `src/*.js`, `src/agent-runner/**`, `src/behavior/**`, `src/errands/**`, `src/intentions/**`, `src/llm/**`, `src/media/**`, `src/memory/**`, `src/ops/**`, `src/protocol/**`, `src/skills/**`, `src/speech/**`, `src/web/**`, `src/interface/directory.ts`, `src/interface/door.js`, `src/interface/link.ts`, `src/interface/members.ts`, `src/interface/reads.ts`, `src/interface/recall-bridge.ts`, `src/interface/socket.ts` | none |
+| `src/core.js` | public | The composition root: `startCore` builds the core over the paths, the environment and the interfaces it is given. Proved by the slice test. It imports no Discord. | `node:*`, `src/*.js`, `src/agent-runner/**`, `src/behavior/**`, `src/errands/**`, `src/intentions/**`, `src/llm/**`, `src/media/**`, `src/memory/**`, `src/protocol/**`, `src/speech/**`, `src/tools/**`, `src/web/**`, `src/interface/directory.ts`, `src/interface/door.js`, `src/interface/link.ts`, `src/interface/members.ts`, `src/interface/reads.ts`, `src/interface/socket.ts` | none |
 | `src/agent-runner/` | public | The process that works errands: the socket server, the profiles, the OpenCode driver and the sweep. | `node:*`, `src/**` | required |
 | `src/behavior/` | public | What a turn does: the pipeline, triggers, prefetch, prompt assembly, recall, the inner turn and the heartbeat. | `node:*`, `src/**` | required |
 | `src/errands/` | public | The errand service: the ledger, the store, the client to the runner and the turns that bring results back. | `node:*`, `src/**` | required |
@@ -59,10 +62,10 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `src/memory/db/` | public | The memory database: schema, the single writer, sessions, wakes and the read paths. | `node:*`, `src/**` | required |
 | `src/memory/db/map/` | public | The mapping of memory rows to records and back. | `node:*`, `src/**` | required |
 | `src/memory/db/readers/` | public | The read queries of the memory database. | `node:*`, `src/**` | required |
-| `src/ops/` | public | The owner operations behind the /nep commands. | `node:*`, `src/**` | required |
+| `src/tools/impl/` | public | The owner operations behind the /nep commands. | `node:*`, `src/**` | required |
 | `src/protocol/` | public | The neutral protocol of events, actions and envelopes between the core and its interfaces, and the serving side of the link. | `node:*`, `src/**` | required |
 | `src/interface/legacy.ts` | public | The types of what the core reads from an interface's `legacy`, one field per seam stage 3 removes. Types only. | nothing | none |
 | `src/protocol/host.ts` | public | The types of what the core hands an interface when it starts one and what the interface hands back. Types only. | `src/protocol/**` | none |
-| `src/skills/` | public | The tools the persona can call: definitions, registry, executors and the gateway. | `node:*`, `src/**` | required |
+| `src/tools/` | public | The tools the persona can call: definitions, registry, executors and the gateway. | `node:*`, `src/**` | required |
 | `src/speech/` | public | Voice messages: text preparation, synthesis and audio conversion. | `node:*`, `src/**` | required |
 | `src/web/` | public | Web search, page fetching and link reading. | `node:*`, `src/**` | required |

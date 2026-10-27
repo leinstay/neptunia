@@ -1,10 +1,10 @@
-// Tests for src/skills/tools-json.js: the skills as native tool definitions.
+// Tests for src/tools/tools-json.ts: the skills as native tool definitions.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildTools, canonicalJson, skillNameOfToolCall } from '../src/skills/tools-json.js';
-import '../src/ops/index.js';
-import { buildSkills } from '../src/skills/registry.js';
-import { SKILL_DEFINITIONS, apiNameOf } from '../src/skills/definitions.js';
+import { buildTools, canonicalJson, skillNameOfToolCall } from '../src/tools/tools-json.ts';
+import '../src/tools/impl/index.ts';
+import { buildSkills } from '../src/tools/registry.ts';
+import { SKILL_DEFINITIONS, apiNameOf } from '../src/tools/definitions.ts';
 
 const registry = buildSkills({ table: SKILL_DEFINITIONS });
 const texts = {

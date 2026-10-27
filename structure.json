@@ -64,6 +64,13 @@
       "test": "none"
     },
     {
+      "path": "config.local/",
+      "purpose": "A deployment's tool texts, laid over the tracked ones.",
+      "layer": "local",
+      "imports": [],
+      "test": "none"
+    },
+    {
       "path": "data/",
       "purpose": "A deployment memory, state and logs.",
       "layer": "local",
@@ -73,6 +80,13 @@
     {
       "path": "config.json",
       "purpose": "The tracked default settings.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "config/",
+      "purpose": "The tracked texts of the persona's tools.",
       "layer": "public",
       "imports": [],
       "test": "none"
@@ -287,6 +301,13 @@
       "test": "required"
     },
     {
+      "path": "src/config-moves.ts",
+      "purpose": "The config keys of an earlier name and the new name each one is read under, applied to the local config before it is laid over config.json.",
+      "layer": "public",
+      "imports": [],
+      "test": "required"
+    },
+    {
       "path": "src/index.js",
       "purpose": "The entry point: reads the paths and the environment, loads the Discord package by path, starts the core and owns the process signals and exit. It imports no Discord.",
       "layer": "public",
@@ -307,17 +328,15 @@
         "src/llm/**",
         "src/media/**",
         "src/memory/**",
-        "src/ops/**",
         "src/protocol/**",
-        "src/skills/**",
         "src/speech/**",
+        "src/tools/**",
         "src/web/**",
         "src/interface/directory.ts",
         "src/interface/door.js",
         "src/interface/link.ts",
         "src/interface/members.ts",
         "src/interface/reads.ts",
-        "src/interface/recall-bridge.ts",
         "src/interface/socket.ts"
       ],
       "test": "none"
@@ -400,7 +419,7 @@
       "test": "required"
     },
     {
-      "path": "src/ops/",
+      "path": "src/tools/impl/",
       "purpose": "The owner operations behind the /nep commands.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
@@ -428,7 +447,7 @@
       "test": "none"
     },
     {
-      "path": "src/skills/",
+      "path": "src/tools/",
       "purpose": "The tools the persona can call: definitions, registry, executors and the gateway.",
       "layer": "public",
       "imports": ["node:*", "src/**"],

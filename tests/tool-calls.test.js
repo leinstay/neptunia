@@ -1,13 +1,13 @@
-// Tests for src/skills/tool-calls.js: the calls of an answer as records, the narrow coercion of
+// Tests for src/tools/tool-calls.ts: the calls of an answer as records, the narrow coercion of
 // argument types, the words of a call's result, and when a finished call covers speech.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import '../src/ops/index.js';
-import { buildSkills } from '../src/skills/registry.js';
-import { SKILL_DEFINITIONS } from '../src/skills/definitions.js';
-import { schemaError } from '../src/skills/schema.js';
+import '../src/tools/impl/index.ts';
+import { buildSkills } from '../src/tools/registry.ts';
+import { SKILL_DEFINITIONS } from '../src/tools/definitions.ts';
+import { schemaError } from '../src/tools/schema.ts';
 import { toolCallsOf } from '../src/llm/openrouter.js';
-import { coerceArgs, coversSpeech, normalizeCalls, toolResultText } from '../src/skills/tool-calls.js';
+import { coerceArgs, coversSpeech, normalizeCalls, toolResultText } from '../src/tools/tool-calls.ts';
 import { labels } from './fixtures/labels.js';
 
 const registry = buildSkills({ table: SKILL_DEFINITIONS });
@@ -158,14 +158,14 @@ test('schema refusals the engine relies on: an unknown key and an enum violation
 
 test('toolResultText: the status words, the reason from the code, the data cut to maxChars', () => {
   const ok = toolResultText({ status: 'ok', data: { text: 'result data' } }, labels);
-  assert.equal(ok, `${labels.skills.result.ok}\nresult data`);
+  assert.equal(ok, `${labels.tools.result.ok}\nresult data`);
   const refused = toolResultText({ status: 'denied', code: 'not-allowed' }, labels);
-  assert.ok(refused.includes(labels.skills.result.reasons['not-allowed']), refused);
+  assert.ok(refused.includes(labels.tools.result.reasons['not-allowed']), refused);
   assert.ok(toolResultText({ status: 'ok', data: { text: 'x'.repeat(100) } }, labels, { maxChars: 20 }).endsWith('…'));
   assert.equal(toolResultText(null, labels), '');
   // Unknown status reads as failed; a code with no wording falls to the other-reason words.
   assert.ok(
-    toolResultText({ status: 'weird', code: 'no-such-code' }, labels).includes(labels.skills.result.reasons.other)
+    toolResultText({ status: 'weird', code: 'no-such-code' }, labels).includes(labels.tools.result.reasons.other)
   );
 });
 
@@ -183,9 +183,9 @@ test('toolResultText: a coerced value is told in the result text, before the out
     ],
   });
   const lines = text.split('\n');
-  assert.equal(lines[0], labels.skills.result.coerced.replace('{arg}', 'self').replace('{value}', 'true'));
-  assert.equal(lines[1], labels.skills.result.coerced.replace('{arg}', 'settle').replace('{value}', '5'));
-  assert.equal(lines[2], labels.skills.result.ok);
+  assert.equal(lines[0], labels.tools.result.coerced.replace('{arg}', 'self').replace('{value}', 'true'));
+  assert.equal(lines[1], labels.tools.result.coerced.replace('{arg}', 'settle').replace('{value}', '5'));
+  assert.equal(lines[2], labels.tools.result.ok);
 });
 
 test('coversSpeech: an ok effect or job covers speech, data and any other status do not', () => {
@@ -201,7 +201,7 @@ test('coversSpeech: an ok effect or job covers speech, data and any other status
 
 test('toolResultText: reasonOf words a call that did not work in detail; a result that went well keeps its lead', () => {
   const labels = {
-    skills: {
+    tools: {
       result: {
         ok: 'worked',
         failed: 'failed: {reason}',

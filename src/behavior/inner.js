@@ -100,8 +100,8 @@ import {
 } from '../intentions/model.js';
 import { foldText } from '../memory/recent.js';
 import { errorCodeOf } from '../llm/openrouter.js';
-import { CODE } from '../skills/codes.js';
-import { WAKE_POLICY_VERSION } from '../skills/access.js';
+import { CODE } from '../tools/codes.ts';
+import { WAKE_POLICY_VERSION } from '../tools/access.ts';
 import { buildHeartbeatFacts } from './heartbeat-view.js';
 
 /** The wake kinds, as the `<wake>` block names them. */
@@ -191,7 +191,7 @@ export const FEEDBACK_KINDS = Object.freeze([
   'interrupted',
   'diagnostic',
 ]);
-/** The statuses of a call that did not go well (src/skills/executors.js), as `callFailed` names them. */
+/** The statuses of a call that did not go well (src/tools/executors.ts), as `callFailed` names them. */
 const CALL_STATUSES = new Set([
   'failed',
   'partial',
@@ -368,7 +368,7 @@ const positive = (value, fallback) =>
  * takes the default). `mode` is `live` only when it says so exactly. `loop`: the tool loop's
  * bounds of an inner turn (src/behavior/turn.js#loopSettings with `inner`; nobody waits for
  * one, so its budget is generous): `maxSteps`, `timeBudgetMs`, `maxCallsPerStep` as
- * `skills.loop`'s, `callTimeoutMs` the most one call of hers may run.
+ * `tools.loop`'s, `callTimeoutMs` the most one call of hers may run.
  * @param {object} config
  */
 export function innerSettings(config) {
@@ -849,9 +849,9 @@ export function turnsToday(state, { now, timezone }) {
 }
 
 /**
- * What becomes of the wakes of `group` after a turn that ended in an error at `at`: `requeue` with
- * the next delay of `settings.retry.delaysMinutes` (the last one repeats) as long as the first
- * failure is younger than `retry.maxHours`, else `drop`. `n` is the attempt number that failed.
+ * What becomes of the wakes of `group` after a turn that failed at `at`: `requeue` after the next delay of
+ * `settings.retry.delaysMinutes` while the first failure is under `retry.maxHours` old, else `drop`; `n` counts attempts.
+ * @param {unknown} [code]  The failure's code.
  * @returns {{ action: 'requeue'|'drop', n: number, firstFailedAt: number, notBefore: number|null }}
  */
 export function planRetry(group, at, settings, code = CODE.ERROR) {

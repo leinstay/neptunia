@@ -4,16 +4,16 @@
 // operation name. Fakes only. Exits 0 and prints "ok" when every check holds; any failure throws.
 import assert from 'node:assert/strict';
 
-import { COMMAND_TABLE } from '../../src/ops/catalog.js';
-import { resolveCommand } from '../../src/ops/index.js';
+import { COMMAND_TABLE } from '../../src/tools/impl/catalog.ts';
+import { resolveCommand } from '../../src/tools/impl/index.ts';
 import { createAdmin } from '../../src/admin.js';
 import { createDiscordInterface } from '../../interfaces/discord/index.js';
 import { createFakeAdapter } from '../../src/interface/fake.js';
 import { createReads } from '../../src/interface/reads.ts';
-import { skillRegistry } from '../../src/skills/registry.js';
-import { SKILL_DEFINITIONS } from '../../src/skills/definitions.js';
-import { checkSkill } from '../../src/skills/gateway.js';
-import { executeCall, resolveCall } from '../../src/skills/executors.js';
+import { skillRegistry } from '../../src/tools/registry.ts';
+import { SKILL_DEFINITIONS } from '../../src/tools/definitions.ts';
+import { checkSkill } from '../../src/tools/gateway.ts';
+import { executeCall, resolveCall } from '../../src/tools/executors.ts';
 import { singleScene } from './core-tools-scenes.js';
 import { call, toolAnswer } from './tool-answers.js';
 
@@ -34,14 +34,14 @@ const GRANTED = [
   'memory.affinity.read', 'memory.journal.read', 'memory.archive.read',
   'memory.snapshot', 'memory.private.read', 'message.create', 'message.edit', 'message.delete', 'message.react.add',
   'message.react.remove', 'task.run', 'task.status', 'task.read', 'task.resolve', 'task.cancel', 'task.list', 'web.search',
-  'memory.search', 'skills.describe', 'conversation.read', 'media.find', 'web.read', 'intent.set', 'intent.update', 'intent.cancel',
+  'memory.search', 'tools.describe', 'conversation.read', 'media.find', 'web.read', 'intent.set', 'intent.update', 'intent.cancel',
   'intent.list', 'media.look',
 ];
 assert.equal(GRANTED.length, 50);
 const SELF = 'self-1';
 const OWNER = '42';
 const grants = Object.fromEntries(GRANTED.map((name) => [name, { everyone: false, roles: [], users: [SELF] }]));
-const config = { features: { skills: true, journal: true, coreTools: true, intentions: true, innerLife: true }, skills: { safeMode: false }, bot: { owners: [OWNER], access: grants } };
+const config = { features: { tools: true, journal: true, coreTools: true, intentions: true, innerLife: true }, tools: { safeMode: false }, bot: { owners: [OWNER], access: grants } };
 const ID = '123456789012345678';
 
 /** A value that satisfies one property schema. */
@@ -109,7 +109,7 @@ const CALLS = [
   ['task.run', { agent: 'scout', goal: 'look at the weather' }, ''],
   ['intent.set', {}, 'remember to say hi'],
   ['web.search', {}, 'weather'],
-  ['skills.describe', { name: 'lore.list' }, ''],
+  ['tools.describe', { name: 'lore.list' }, ''],
 ];
 for (const [skill, args, body] of CALLS) {
   const resolved = resolveCall({ skill, args, body }, view);

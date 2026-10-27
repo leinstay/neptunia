@@ -17,9 +17,9 @@ import type {
   PortError,
 } from '../protocol/adapter.ts';
 import { notOk, refRefusal } from './port.js';
-import { CODE as CODES } from '../skills/codes.js';
+import { CODE as CODES } from '../tools/codes.ts';
 
-const CODE: Record<string, string> = CODES as Record<string, string>;
+const CODE: Record<string, string> = CODES;
 
 /** A message the fake keeps. `seq` is its arrival order, `event` the whole event it was seeded with, if any. */
 export type StoredMessage = {

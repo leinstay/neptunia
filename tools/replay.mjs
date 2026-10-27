@@ -115,7 +115,7 @@
 // persona's grants are exactly `grants` in a copy of the config (never
 // written; src/behavior/sandbox.js#personaGrantsConfig): skill names, groups
 // and `*` expanded as `/nep access grant` expands them for her
-// (src/ops/access.js#expandPersonaGrant: a group or `*` is its read skills); a
+// (src/tools/impl/access.ts#expandPersonaGrant: a group or `*` is its read skills); a
 // name no grant opens for her is kept, so the gateway refuses it as live.
 // An errand (`task.run`) passes the gateway's budget exactly as live: the
 // open tasks against `agents.maxOpen` and today's tasks and dollars against
@@ -129,8 +129,8 @@
 // (`discovery` a list of up to four names, as after `skills: <names>`), or
 // none ("none"). Answered `runs` times (1..10, default 1) in the sandbox
 // (src/behavior/sandbox.js#answerSkillScenario). A tool call is resolved and
-// checked as live (#simulateCall: src/skills/executors.js#resolveCall over
-// the guild's channels, roles and stored members, src/skills/gateway.js#checkSkill
+// checked as live (#simulateCall: src/tools/executors.ts#resolveCall over
+// the guild's channels, roles and stored members, src/tools/gateway.ts#checkSkill
 // with the requester's real role ids, the image quota read from a copy of
 // the state); the operation never runs: a call that passed is recorded and
 // answered `ok` with `result` (the text an operation would have answered,
@@ -194,16 +194,16 @@
 // src/behavior/sandbox.js#runSkillLoop, mirroring src/behavior/turn.js#runSteps): her tools are
 // sent with every request as a live turn sends them (src/behavior/sandbox.js#sandboxToolset: the
 // skills granted to her and the carried-over ones, as the `tools` field on the native transport or
-// as the `<tools>` block and `<tool_call>` blocks on the text one, `skills.transport` or `--transport`);
+// as the `<tools>` block and `<tool_call>` blocks on the text one, `tools.transport` or `--transport`);
 // her answer is split into speech and tool calls (src/behavior/turn.js#answerOf); each call is
 // refused before it runs when unreadable, unknown, cut off or past the step's cap
-// (`skills.loop.maxCallsPerStep`), repaired by coerceArgs, and put through the real resolution and
+// (`tools.loop.maxCallsPerStep`), repaired by coerceArgs, and put through the real resolution and
 // gateway (loopCall), the reads together, every other call alone in her order; her speech of a step
 // stands only when every call worked and its result is an effect or an accepted errand, else it is
 // held and never posted; a step that left something to read is followed by one request that appends her
 // answer, one result per call and a note to the first messages (nothing rebuilt), up to
-// `skills.loop.maxSteps` follow-ups, the last of them final (its calls get `loop-cap` results), and
-// `skills.loop.timeBudgetMs`. features.coreTools is only the pre-reply classifiers' switch: on, no
+// `tools.loop.maxSteps` follow-ups, the last of them final (its calls get `loop-cap` results), and
+// `tools.loop.timeBudgetMs`. features.coreTools is only the pre-reply classifiers' switch: on, no
 // search classifier runs (no `<skills>` block whatever `discovery` says) and the memory prefetch and the
 // server search's senses line stand in every request; off, the search classifier names her skills.
 // Her `web.search` and `memory.search` that passed run for real and read only
@@ -244,7 +244,7 @@
 // requests), which tools/replay-score.mjs tallies.
 //
 // `--loop-triggers`: the same triggers answered on one side, `--transport native|text` (default:
-// `skills.transport` of the config), and every turn recorded. `--out` (default
+// `tools.transport` of the config), and every turn recorded. `--out` (default
 // ./replay-loop-triggers-<time>/) gets `runs.jsonl` (one line per trigger: the trigger, its mode and
 // kind, the chat before it, the counts and the run record with every step -- calls with names and
 // statuses, held, thinkMissing, coerced, capped, requests, tokens in and out and from the cache,
@@ -254,7 +254,7 @@
 //
 // `--prompts <dir>`: every scenario answered with `<dir>` laid over a copy of
 // the live prompts.local/ (a file of the same name replaces the private one,
-// the others stay; labels.json and skills.json deep-merge over the private
+// the others stay; labels.json and tools.json deep-merge over the private
 // ones as src/hot.js merges its layers). `--pair-prompts <dirA> <dirB>`: every
 // scenario answered under both layers, each laid over prompts.local/ the same
 // way, over the same fetched chat, config and memory, the same number of
@@ -290,7 +290,7 @@
 // each side its directory alone as prompts.local/; `--diary --prompts <dir>`
 // lays the directory over the live prompts.local/ (a file of the same name
 // replaces it whole, labels.json included); `--skills --prompts` and
-// `--pair-prompts` lay it the same way but merge labels.json and skills.json
+// `--pair-prompts` lay it the same way but merge labels.json and tools.json
 // (overlayPromptsHot). The live config.local.json and prompts.local/ are the
 // private directory's (NEPTUNIA_PRIVATE_DIR, else the checkout; privateDirOf).
 // Nothing in the checkout changes. A prompts.local/ (or a
@@ -557,12 +557,14 @@ import { pairOrder, parseTriggers, renderSheet } from './lib/pair.mjs';
 import { promptLayersHot } from './lib/prompt-layers.mjs';
 import { readOnlyMemory } from './lib/memory-read.mjs';
 import {
-  conversationOfChannel,
   conversationRef,
+  customEmojiOf,
   discordReads,
   guildListing,
   hiddenReads,
-  onPlatformChannel,
+  identityOf,
+  lazyRecallScope,
+  recallScope,
   requesterOfChannel,
 } from './lib/platform-objects.ts';
 
@@ -1357,7 +1359,6 @@ async function loadRecallMods(load) {
     createLookup: lookup.createLookup,
     collectReadableLinks: media.collectReadableLinks,
     checkPull: pull.checkPull,
-    createDiscordInterface: pull.createDiscordInterface,
     isVideoVisionOn: youtube.isVideoVisionOn,
   };
   for (const [name, fn] of Object.entries(mods)) {
@@ -1470,7 +1471,6 @@ async function runRecall({
     createLookup,
     collectReadableLinks,
     checkPull,
-    createDiscordInterface,
     isVideoVisionOn,
   } = mods;
   const config = hot.config;
@@ -1683,19 +1683,20 @@ async function runRecall({
     const clock = () => Date.now() + offset;
     const t = Date.now();
     try {
+      const { client: guildClient } = guild;
+      const { reads } = discordReads(guildClient, () => hot.config);
       const recall = createRecall({
         hot: recallHot,
         store: recallStore,
         llm: recording,
-        discord: createDiscordInterface().capabilities,
+        reads,
         describer,
         now: clock,
         timers,
       });
       found = await recall.run({
-        guild,
         guildId,
-        channel,
+        ...(await recallScope(reads, channel, String(guildId))),
         selfId: self.id,
         selfName,
         history,
@@ -2095,7 +2096,7 @@ export function diaryPromptLayers(root, promptsDir, env = process.env) {
  * A hot view whose private layer is a copy of the live prompts.local/ with `promptsDir` laid over
  * it (diaryPromptLayers, then tools/lib/prompt-layers.mjs): a file of the directory replaces the
  * private one of the same name, the rest stay. `mergeJson` (src/config.js#deepMerge) merges the
- * directory's labels.json / skills.json over the private ones as src/hot.js merges its layers
+ * directory's labels.json / tools.json over the private ones as src/hot.js merges its layers
  * (`--skills --prompts` and `--pair-prompts`); without it they replace them whole (`--diary
  * --prompts`). The live prompts.local/ is only read. Returns `{ hot, dir }`: the caller closes
  * the view and removes `dir`.
@@ -2212,7 +2213,7 @@ export async function loadDiaryMods(load) {
     ...(await load('../interfaces/discord/index.js')),
     ...(await load('interface/fake.js')),
     ...(await load('interface/reads.ts')),
-    ...(await load('interface/recall-bridge.ts')),
+    ...(await load('behavior/emoji-index.ts')),
     ...(await load('memory/describe.js')),
     ...(await load('media/fetch-image.js')),
     ...(await load('media/fetch-video.js')),
@@ -2221,7 +2222,7 @@ export async function loadDiaryMods(load) {
     ...(await load('web/exa.js')),
     ...(await load('web/lookup.js')),
     ...(await load('llm/parse.js')),
-    ...(await load('skills/tool-calls.js')),
+    ...(await load('tools/tool-calls.ts')),
     ...(await load('memory/clamp.js')),
     ...(await load('time.js')),
   };
@@ -2378,10 +2379,8 @@ export function diaryTurnRunner(
     searches: { brave: mods.createBraveSearch(), exa: mods.createExaSearch() },
     keys: { brave: process.env.BRAVE_SEARCH_API_KEY || null, exa: process.env.EXA_API_KEY || null },
   });
-  // The Discord interface over `client`: its adapter reads for the turn and writes unless a port is given; its
-  // capabilities are what the recall runner (which still takes the platform's objects) is given.
+  // The Discord interface over `client`: its adapter reads for the turn and writes unless a port is given.
   const discord = mods.createDiscordInterface({ client, config: () => hot.config });
-  const capabilities = discord.capabilities;
   const found = mods.createReads(discord.port, { info() {}, warn() {}, error() {} });
   const reads = wrapReads ? wrapReads(found) : found;
   return mods.createTurnRunner({
@@ -2393,9 +2392,9 @@ export function diaryTurnRunner(
     imageFetcher,
     lookup,
     images,
-    recall: mods.bridgeRecall(mods.createRecall({ hot, store, llm, discord: capabilities, describer }), client),
-    emoji: mods.createEmojiIndex(client, () => guildId),
-    getSelfName: () => self.name,
+    recall: mods.createRecall({ hot, store, llm, reads, describer }),
+    emoji: mods.createEmojiIndex({ reads, communityId: () => guildId, now: Date.now }),
+    getSelfName: /** @returns {unknown} */ () => self.name,
     selfId: () => self.id,
     reads,
     port: port ?? discord.port,
@@ -2977,12 +2976,12 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     ...(await load('memory/record.js')),
     ...(await load('memory/journal.js')),
     ...(await load('admin.js')),
-    ...(await load('skills/registry.js')),
+    ...(await load('tools/registry.ts')),
     ...(await load('behavior/prompt.js')),
   };
-  await load('ops/index.js');
+  await load('tools/impl/index.ts');
   const { createJournal } = await load('memory/journal.js');
-  const { grantedSkillNames } = await load('skills/discovery.js');
+  const { grantedSkillNames } = await load('tools/discovery.ts');
   const { PROFILES: AGENT_PROFILES } = await load('agent-runner/profiles.js');
   const { deepMerge } = await load('config.js');
   const {
@@ -3216,8 +3215,8 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     const admin = createAdmin({
       hot,
       store,
-      client,
-      discord: capabilities,
+      reads,
+      ...identityOf(self),
       port,
       intentions,
       errands,
@@ -3756,7 +3755,7 @@ const SCENARIO_ID = /^[A-Za-z0-9._-]{1,64}$/;
 const MAX_RUNS = 10;
 /** Discord's longest message: the most a scenario's text or canned result may hold. */
 const MAX_SCENARIO_TEXT = 4000;
-/** The most skills a classifier's `skills:` line names (src/skills/discovery.js#MAX_PROPOSED). */
+/** The most skills a classifier's `skills:` line names (src/tools/discovery.ts#MAX_PROPOSED). */
 const MAX_DISCOVERY_NAMES = 4;
 /** How long after the anchor message the invented one is written. */
 const SCENARIO_AFTER_MS = 60_000;
@@ -4015,7 +4014,7 @@ export function loopRequestEstimate(settings) {
 
 /**
  * The skill names a scenario's `grants` store for the persona, in order, de-duplicated: each
- * key expanded by `expand` (src/ops/access.js#expandPersonaGrant: a skill by name, a group or
+ * key expanded by `expand` (src/tools/impl/access.ts#expandPersonaGrant: a skill by name, a group or
  * `*` as its read skills), a name no grant opens for her kept (`refused`) so the gateway
  * refuses it as live. A key that names no skill is a CliError naming the scenario.
  * @param {{ id: string, grants: string[] }} scenario
@@ -4151,7 +4150,7 @@ export function scenarioFileOf(task, parseFileHandle) {
 }
 
 /**
- * The errands' budget the sandbox gateway reads (src/skills/gateway.js, `context.tasks`), read
+ * The errands' budget the sandbox gateway reads (src/tools/gateway.ts, `context.tasks`), read
  * only: a task store of `guildId` over `dataDir` (src/errands/store.js#createTaskStore: its
  * tasks.json and tasks.jsonl read once, the live data/ or a snapshot) whose `budget(agent)` -- the open tasks
  * against `agents.maxOpen`, today's tasks and dollars against `agents.<agent>.daily` (the
@@ -4179,7 +4178,7 @@ export function withCoreTools(config) {
   return { ...config, features: { ...(config?.features ?? {}), coreTools: true } };
 }
 
-/** The result of an in-turn tool that ran past its time (src/skills/executors.js#executeCall's). */
+/** The result of an in-turn tool that ran past its time (src/tools/executors.ts#executeCall's). */
 const TOOL_TIMEOUT_RESULT = Object.freeze({ status: 'unknown', code: 'timeout', data: Object.freeze({ text: '' }) });
 
 /**
@@ -4252,14 +4251,14 @@ export function loopCall({ simulate, runTool = null, inTurn, now = Date.now, log
  * `memory.search` through the live recall runner (src/behavior/recall-run.js#createRecall over a
  * private copy of the daily recall counter, the store's read methods, `sources` -- the record, the
  * archive and the vector index of the data read, iterated only -- and `embed`), each by its
- * src/skills/tools.js runner. `run(skill, args, { history, at })` resolves `{ result, usage }`
+ * src/tools/tools.ts runner. `run(skill, args, { history, at })` resolves `{ result, usage }`
  * (`usage`: the requests the call itself sent, their tokens and cost); `recallAvailable()` whether
  * the server search could run now (its senses line). `prefetch({ trigger, triggerKind, mode,
  * history, at })` the automatic memory prefetch a live turn with features.coreTools runs for that
  * trigger (src/behavior/prefetch.js#prefetchLanes and the recall runner's `prefetch`, as of `at`:
  * nothing after it is read), null when none would run or the engine has none (`prefetchLanes`,
  * `prefetchOn`, `recallSettings` its pure parts). `conversation.read` runs the live reader
- * (src/skills/conversation-read.js, `conversation`: its runConversationRead, fetchSpan, recordMessages,
+ * (src/tools/conversation-read.ts, `conversation`: its runConversationRead, fetchSpan, recordMessages,
  * searchHandles and pullPictures) over `record` (iterated only) and the REST channel (GET only), its
  * handles numbered on past the request's own (`idByIndex`). Nothing reaches the store or data/.
  */
@@ -4298,6 +4297,8 @@ export function createReplayTools({
 }) {
   const data = store.state?.data ?? {};
   const media = structuredClone(mediaCache ?? {});
+  // The conversation and the community's listing a recall run is handed, asked of the interface at the first call.
+  const scopeOf = lazyRecallScope(reads, channel, String(guildId));
   // The second looks media.look took (the per-turn count of the live turn).
   let looks = 0;
   const webStore = { getMediaCache: () => media, markMediaCacheDirty() {} };
@@ -4315,7 +4316,7 @@ export function createReplayTools({
       hot,
       store: recallStore,
       llm: client,
-      discord,
+      reads,
       describer,
       archive: sources.archive ?? null,
       record: sources.record ?? null,
@@ -4456,7 +4457,7 @@ export function createReplayTools({
       if (skip) return null;
       const recall = recallOf(llm);
       if (typeof recall.prefetch !== 'function') return null;
-      return recall.prefetch({ guild, guildId, channel, partner: null, selfId, selfName, history, lanes, at });
+      return recall.prefetch({ guildId, ...(await scopeOf()), partnerId: null, selfId, selfName, history, lanes, at });
     },
     async run(skill, args, { history = [], at = Date.now(), idByIndex = null } = {}) {
       const { usage, client } = metered();
@@ -4484,14 +4485,13 @@ export function createReplayTools({
       }
       if (skill === 'memory.search') {
         const result = await runMemorySearch({
-          recall: onPlatformChannel(recallOf(client), { guild, channel }),
+          recall: recallOf(client),
           store,
           config: hot.config,
           labels,
-          guild,
           guildId,
-          channel: conversationOfChannel(channel, String(guildId)),
-          partner: null,
+          ...(await scopeOf()),
+          partnerId: null,
           selfId,
           selfName,
           history,
@@ -5739,7 +5739,7 @@ async function runSkills({
           : scenarioInventory({
               config: scenarioConfig,
               selfId: self.id,
-              texts: sideHot.prompts?.skills,
+              texts: sideHot.prompts?.tools,
               requester,
               conversationId: channel.id,
               registry,
@@ -6190,10 +6190,10 @@ export function requestBlocks(user, labels) {
 /** The two sides of `--pair-transport`: the native transport (A) and the text one (B). */
 const TRANSPORT_SIDES = Object.freeze({ A: 'native', B: 'text' });
 
-/** `config` with her tools' transport set (`skills.transport`): a shallow copy, the live config untouched; `transport` null leaves it. Pure. */
+/** `config` with her tools' transport set (`tools.transport`): a shallow copy, the live config untouched; `transport` null leaves it. Pure. */
 export function withTransport(config, transport) {
   if (transport !== 'native' && transport !== 'text') return config;
-  return { ...config, skills: { ...(config?.skills ?? {}), transport } };
+  return { ...config, tools: { ...(config?.tools ?? {}), transport } };
 }
 
 /**
@@ -6417,7 +6417,7 @@ export async function runTriggerLoops({
           llm: searchers.client,
           lookup: searchers.lookup,
           recall: searchers.recall,
-          discovery: loopDeps.discoveryOf(baseConfig, registry, hot.prompts?.skills),
+          discovery: loopDeps.discoveryOf(baseConfig, registry, hot.prompts?.tools),
           guild,
           guildId,
           channel,
@@ -6442,7 +6442,7 @@ export async function runTriggerLoops({
         const inventory = scenarioInventory({
           config: baseConfig,
           selfId: self.id,
-          texts: hot.prompts?.skills,
+          texts: hot.prompts?.tools,
           requester,
           conversationId: channel.id,
           registry,
@@ -6749,7 +6749,7 @@ async function loopDepsOf({
     runMediaFind = null,
     lookPerTurn = null,
     IN_TURN_TOOLS,
-  } = await load('skills/tools.js');
+  } = await load('tools/tools.ts');
   // media.look and media.find (absent from an older engine: refused honestly).
   const mediaTools =
     typeof runMediaLook === 'function' ? { createDescriber, runMediaLook, runMediaFind, lookPerTurn } : null;
@@ -6761,7 +6761,7 @@ async function loopDepsOf({
     (typeof collectReadableLinks === 'function' ? collectReadableLinks(message)[0]?.url : null) ??
     (typeof firstLinkIn === 'function' ? firstLinkIn(message?.content) : null);
   // conversation.read (absent from an older engine: its calls fail as an unknown tool's).
-  const conversationMod = await load('skills/conversation-read.js').catch(() => null);
+  const conversationMod = await load('tools/conversation-read.ts').catch(() => null);
   const { pullPictures = null } = await load('behavior/pull.js').catch(() => ({}));
   const conversation =
     conversationMod &&
@@ -6776,8 +6776,8 @@ async function loopDepsOf({
           pullPictures,
         }
       : null;
-  const { transportOf } = await load('skills/tool-calls.js');
-  const { skillsIndex, discoveryOn } = await load('skills/discovery.js');
+  const { transportOf } = await load('tools/tool-calls.ts');
+  const { skillsIndex, discoveryOn } = await load('tools/discovery.ts');
   // The automatic memory prefetch a live turn with the tool loop runs (absent from an older engine: none).
   const { prefetchLanes = null, prefetchOn = null } = await load('behavior/prefetch.js').catch(() => ({}));
   // The search classifier's path before her reply with features.coreTools off (preTurnLookup).
@@ -6990,9 +6990,9 @@ async function runMain(args, { root, signal, rng, answers }) {
   const hot = createHot({ rootDir: root, privateDir: privateDirOf(root) });
   // Her turns run on the step engine in every mode that answers as a skill scenario (--skills, --pair-transport,
   // --loop-triggers); its bounds are read now for the estimate. (The operations register first, as for the skills
-  // below: src/ops/index.js.)
+  // below: src/tools/impl/index.ts.)
   const loopWanted = Boolean(scenarios || args.pairTransport || args.loopTriggers);
-  if (loopWanted) await load('ops/index.js');
+  if (loopWanted) await load('tools/impl/index.ts');
   const turnMod = loopWanted ? await load('behavior/turn.js') : null;
   if (loopWanted && (typeof turnMod.coreToolsOn !== 'function' || typeof turnMod.loopSettings !== 'function')) {
     hot.close();
@@ -7152,7 +7152,7 @@ async function runMain(args, { root, signal, rng, answers }) {
     seededSelfLine,
   } = await load('behavior/sandbox.js');
   const discordPackage = /** @type {Record<string, unknown>} */ (await load('../interfaces/discord/index.js'));
-  const { channelDirectoryOf, fetchHistoryWindow, fetchMessage, createEmojiIndex, resolveGuild } = discordPackage;
+  const { channelDirectoryOf, fetchHistoryWindow, fetchMessage, resolveGuild } = discordPackage;
   const viewMods = { liveView, momentView, momentCutoff, hiddenLater };
   const splitMods = args.split
     ? {
@@ -7163,15 +7163,15 @@ async function runMain(args, { root, signal, rng, answers }) {
       }
     : null;
   const recallMods = args.recall ? await loadRecallMods(load) : null;
-  // --skills: the operations register themselves and the command tree the skills derive from (src/ops/index.js).
+  // --skills: the operations register themselves and the command tree the skills derive from (src/tools/impl/index.ts).
   let skillMods = null;
   if (loopWanted) {
-    await load('ops/index.js');
-    const { skillRegistry } = await load('skills/registry.js');
-    const { expandPersonaGrant } = await load('ops/access.js');
+    await load('tools/impl/index.ts');
+    const { skillRegistry } = await load('tools/registry.ts');
+    const { expandPersonaGrant } = await load('tools/impl/access.ts');
     const { requesterOf, callViewOf } = await load('behavior/turn.js');
     const { createImageGen } = await load('llm/images.js');
-    const { grantedSkillNames } = await load('skills/discovery.js');
+    const { grantedSkillNames } = await load('tools/discovery.ts');
     // The errands' budget (every scenario: a task.run is checked as live) and the handles of an errand's files.
     const { createTaskStore, parseFileHandle } = await load('errands/store.js');
     skillMods = {
@@ -7262,7 +7262,7 @@ async function runMain(args, { root, signal, rng, answers }) {
       hot.config.features?.gifs !== false && typeof store.getGifs === 'function'
         ? (store.getGifs(guildId) ?? null)
         : null;
-    const customEmoji = createEmojiIndex(client, guildId).list();
+    const customEmoji = await customEmojiOf(discordReads(client, () => hot.config).reads, String(guildId));
     // Her tools that only read (web.search, memory.search) run for real over this guild, read only (createReplayTools).
     const loopDeps = loopWanted
       ? await loopDepsOf({

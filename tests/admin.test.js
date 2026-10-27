@@ -22,9 +22,9 @@ import { buildDrawPrompt } from '../src/behavior/prompt.js';
 import { familyOf, ImageGenError } from '../src/llm/images.js';
 import { createLlm } from '../src/llm/openrouter.js';
 import { ROLE_DEFAULTS } from '../src/llm/roles.js';
-import { createMetrics } from '../src/ops/metrics.js';
-import { getOp } from '../src/ops/registry.js';
-import { splitPath } from '../src/ops/shared.js';
+import { createMetrics } from '../src/tools/impl/metrics.ts';
+import { getOp } from '../src/tools/impl/registry.ts';
+import { splitPath } from '../src/tools/impl/shared.ts';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createDiscordInterface } from '../interfaces/discord/index.js';
@@ -350,7 +350,8 @@ function makeAdmin(rootDir, extra = {}) {
     store,
     reads: extra.reads ?? world().reads,
     port: extra.port ?? world().port,
-    client: extra.client ?? {},
+    selfId: extra.selfId ?? (() => 'self-id'),
+    getSelfName: extra.getSelfName ?? (() => 'Persona'),
     spontaneous: extra.spontaneous ?? {},
     calibrator: extra.calibrator ?? { ratio: 1 },
     getGuildId: extra.getGuildId ?? (() => 'g1'),
@@ -1840,17 +1841,18 @@ test('status: the card carries the fields in order and the member variant drops 
   const value = (name) => fields.find((f) => f.name === name).value;
   const stateLines = value('state').split('\n');
   assert.deepEqual(
-    stateLines.slice(0, 4),
+    stateLines.slice(0, 3),
     [
       'paused since 2026-10-13 08:30 UTC by <@42>',
       'storage: append store stalled; 3 archive copies pending',
-      'gateway 42 ms',
+      // The gateway's latency is no longer shown (the interface gives the core no such figure): the connection field
+      // is the last reconnect alone.
       'last reconnect none',
     ],
     'the state, then the connection'
   );
-  assert.match(stateLines[4], /^uptime (\d+d )?(\d+h )?\d+m$/, 'the uptime last');
-  assert.equal(stateLines.length, 5);
+  assert.match(stateLines[3], /^uptime (\d+d )?(\d+h )?\d+m$/, 'the uptime last');
+  assert.equal(stateLines.length, 4);
   assert.equal(value('tasks'), 'archive drain: 3 pending');
   assert.equal(
     value('models.base'),
@@ -1906,7 +1908,7 @@ test('status: the card carries the fields in order and the member variant drops 
   );
   assert.deepEqual(
     memberFields[0].value.split('\n').slice(0, 2),
-    ['paused since 2026-10-13 08:30 UTC by <@42>', 'gateway 42 ms'],
+    ['paused since 2026-10-13 08:30 UTC by <@42>', 'last reconnect none'],
     'no storage line for a member'
   );
   assert.equal(member.text, '', 'a member never gets the long form');
@@ -2356,13 +2358,9 @@ test('status: the card lists one item per line in every field, the models one li
       'speed',
     ]
   );
-  assert.deepEqual(lines('state').slice(0, 4), [
-    'running',
-    'storage: 2 archive copies pending',
-    'gateway 12 ms',
-    'last reconnect none',
-  ]);
-  assert.match(lines('state')[4], /^uptime /);
+  // No gateway latency any more (the interface gives the core no such figure): the connection field is the last reconnect.
+  assert.deepEqual(lines('state').slice(0, 3), ['running', 'storage: 2 archive copies pending', 'last reconnect none']);
+  assert.match(lines('state')[3], /^uptime /);
   assert.deepEqual(lines('tasks'), ['emoji backfill running', 'GIF backfill running', 'archive drain: 2 pending']);
   assert.deepEqual(
     lines('limits').map((line) => line.replace(/^requests \d+/, 'requests N')),

@@ -34,7 +34,7 @@ import { log as defaultLog } from '../log.js';
 import { clampChars } from '../memory/clamp.js';
 import { DEFAULT_RESULT_MAX_CHARS } from './blocks.js';
 import { fileHandle } from './store.js';
-import { CODE } from '../skills/codes.js';
+import { CODE } from '../tools/codes.ts';
 
 /** The ledger lane of the persona's errands. */
 export const LEDGER_LANE = 'errand';

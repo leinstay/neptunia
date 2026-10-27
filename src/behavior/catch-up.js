@@ -3,12 +3,12 @@
 // stays unanswered, and the missed-answer registry (src/behavior/missed.js) cannot help: it only
 // knows messages the bot saw.
 //
-// Once at start, after the gateway is ready and the store is loaded: for every channel the
+// Once at start, after the interface is connected and the store is loaded: for every channel the
 // store knows (`store.listChannels`, the channels the persona reads) with a last observed message
-// (`lastMessageAt`, written live by src/memory/update.js#touchMemory), when Discord says the
-// channel has a newer message (its last message id; unknown -> looked at anyway), the newest
-// `offlineCatchUp.maxMessages` messages are fetched over REST and those posted after the last one
-// the bot saw are kept. All of them, across channels, oldest first and one at a time, go through
+// (`lastMessageAt`, written live by src/memory/update.js#touchMemory), when the interface says the
+// conversation has a newer message (`conversationInfo`'s `lastMessageAt`; unknown -> looked at anyway), the newest
+// `offlineCatchUp.maxMessages` messages are read through `history` (whole `message.received` events) and those
+// posted after the last one the bot saw are kept. All of them, across channels, oldest first and one at a time, go through
 // the live message handler (src/behavior/pipeline.js#catchUpMessage): observed into memory like
 // live messages, and the ones that would have started a turn live -- a mention, a reply to the
 // persona, her name, by the live trigger classification -- take the ordinary call path when they
@@ -23,10 +23,11 @@
 
 import { log as defaultLog } from '../log.js';
 import { MINUTE_MS } from '../time.js';
+import { isReadable } from './snapshot.ts';
 
 /** `offlineCatchUp.*` when a key is missing or broken: config.json's values. */
 const CATCH_UP_FALLBACK = Object.freeze({ windowMinutes: 15, maxMessages: 50 });
-/** Discord serves at most this many messages per fetch. */
+/** The most messages one conversation's catch-up reads. */
 const MAX_FETCH = 100;
 
 /**
@@ -47,29 +48,29 @@ export function catchUpSettings(config) {
 }
 
 /**
- * The fetched messages of one channel posted after the last one the bot saw, oldest first, each
- * with whether it may still start a turn: younger than `windowMs` at `nowMs`, and no message of
- * the persona after it (she already spoke there since). Pure.
- * @param {{ id: string, createdTimestamp: number, author?: { id?: string } }[]} messages  Any order.
- * @param {{ lastSeenAt: number, nowMs: number, windowMs: number, selfId: string|null }} options
- * @returns {{ message: object, ts: number, trigger: boolean }[]}
+ * The events of one conversation posted after the last message the bot saw, oldest first, each with whether it may
+ * still start a turn: younger than `windowMs` at `nowMs`, and no message of the persona after it (she already spoke
+ * there since). The events are the interface's own; their time and author are theirs. Pure.
+ * @param {import('../protocol/adapter.ts').MessageEvent[]} events  Any order.
+ * @param {{ lastSeenAt: number, nowMs: number, windowMs: number }} options
+ * @returns {{ event: import('../protocol/adapter.ts').MessageEvent, ts: number, trigger: boolean }[]}
  */
-export function planChannel(messages, { lastSeenAt, nowMs, windowMs, selfId }) {
-  const fresh = (Array.isArray(messages) ? messages : [])
-    .filter((message) => message && Number.isFinite(message.createdTimestamp) && message.createdTimestamp > lastSeenAt)
-    .sort((a, b) => a.createdTimestamp - b.createdTimestamp || compareIds(a.id, b.id));
+export function planChannel(events, { lastSeenAt, nowMs, windowMs }) {
+  const fresh = (Array.isArray(events) ? events : [])
+    .filter((event) => Number.isFinite(event?.message?.at) && event.message.at > lastSeenAt)
+    .sort((a, b) => a.message.at - b.message.at || compareIds(a.message.id, b.message.id));
   let lastOwn = -1;
-  fresh.forEach((message, i) => {
-    if (selfId && message.author?.id === selfId) lastOwn = i;
+  fresh.forEach((event, i) => {
+    if (event.message.author?.self === true) lastOwn = i;
   });
-  return fresh.map((message, i) => ({
-    message,
-    ts: message.createdTimestamp,
-    trigger: i > lastOwn && nowMs - message.createdTimestamp <= windowMs,
+  return fresh.map((event, i) => ({
+    event,
+    ts: event.message.at,
+    trigger: i > lastOwn && nowMs - event.message.at <= windowMs,
   }));
 }
 
-/** Two snowflake ids in posting order (a shorter id is older). */
+/** Two message ids at the same moment in a stable order: a shorter id first, then by their characters. */
 function compareIds(a, b) {
   const x = String(a ?? '');
   const y = String(b ?? '');
@@ -80,14 +81,12 @@ function compareIds(a, b) {
  * @param {object} deps
  * @param {{ config: object }} deps.hot  Read at the moment of use.
  * @param {{ state: { data: object }, listChannels: (guildId: string) => object[] }} deps.store
- * @param {() => string|null} deps.selfId  The persona's user id.
- * @param {(channelId: string) => { available: boolean, latestAt: number|null }} deps.channelInfo
- *   Whether the bot can see the channel now, and the time of its last message as Discord knows
- *   it (null when unknown).
- * @param {(channelId: string, limit: number) => Promise<object[]>} deps.fetchRecent  The newest
- *   `limit` messages of the channel (discord.js messages), any order.
- * @param {(message: object, options: { trigger: boolean }) => Promise<string>} deps.deliver  One
- *   message to the live handler's catch-up path; resolves to its outcome
+ * @param {string} deps.iface  The interface's name.
+ * @param {import('../interface/reads.ts').Reads} deps.reads  The core's reads: `conversationInfo` says whether the bot
+ *   can read the conversation now and the time of its newest message (null when unknown), `history` gives its newest
+ *   `maxMessages` events.
+ * @param {(event: import('../protocol/adapter.ts').MessageEvent, options: { trigger: boolean }) => Promise<string>} deps.deliver  One
+ *   event to the live handler's catch-up path; resolves to its outcome
  *   ('duplicate' | 'ignored' | 'observed' | 'triggered').
  * @param {{ system?: Function }|null} [deps.journal]
  * @param {() => number} [deps.now]
@@ -96,9 +95,8 @@ function compareIds(a, b) {
 export function createOfflineCatchUp({
   hot,
   store,
-  selfId,
-  channelInfo,
-  fetchRecent,
+  iface,
+  reads,
   deliver,
   journal = null,
   now = Date.now,
@@ -122,36 +120,24 @@ export function createOfflineCatchUp({
         (channel) => channel?.id && Number.isFinite(channel.lastMessageAt) && channel.id !== dryRunChannelId
       );
       const startedAt = now();
-      const self = selfId();
       const planned = [];
       const tallies = new Map();
       let failed = 0;
       for (const channel of channels) {
-        let info;
-        try {
-          info = channelInfo(channel.id) ?? { available: false, latestAt: null };
-        } catch {
-          info = { available: false, latestAt: null };
-        }
-        if (!info.available) continue;
-        if (Number.isFinite(info.latestAt) && info.latestAt <= channel.lastMessageAt) continue;
-        let messages;
-        try {
-          messages = await fetchRecent(channel.id, maxMessages);
-        } catch (err) {
+        const ref = { iface, conversationId: channel.id };
+        const info = (await reads.conversationInfo(ref))?.conversation ?? null;
+        if (info === null || !isReadable(info, config.bot)) continue;
+        if (Number.isFinite(info.lastMessageAt) && info.lastMessageAt <= channel.lastMessageAt) continue;
+        const page = await reads.history(ref, { limit: maxMessages });
+        if (page === null) {
           failed += 1;
-          log.warn('catch-up: fetch failed', {
-            channelId: channel.id,
-            code: err?.code ?? null,
-            name: err?.name ?? null,
-          });
+          log.warn('catch-up: fetch failed', { channelId: channel.id });
           continue;
         }
-        const items = planChannel(messages, {
+        const items = planChannel(page.events, {
           lastSeenAt: channel.lastMessageAt,
           nowMs: startedAt,
           windowMs: windowMinutes * MINUTE_MS,
-          selfId: self,
         });
         if (items.length === 0) continue;
         tallies.set(channel.id, {
@@ -164,12 +150,12 @@ export function createOfflineCatchUp({
         });
         for (const item of items) planned.push({ ...item, channelId: channel.id });
       }
-      planned.sort((a, b) => a.ts - b.ts || compareIds(a.message.id, b.message.id));
+      planned.sort((a, b) => a.ts - b.ts || compareIds(a.event.message.id, b.event.message.id));
       for (const item of planned) {
         const tally = tallies.get(item.channelId);
         let outcome;
         try {
-          outcome = await deliver(item.message, { trigger: item.trigger });
+          outcome = await deliver(item.event, { trigger: item.trigger });
         } catch {
           outcome = 'ignored';
         }
@@ -196,29 +182,4 @@ export function createOfflineCatchUp({
   }
 
   return { run };
-}
-
-/**
- * The `deliver` of createOfflineCatchUp: one fetched message built into its protocol event, and the event handed
- * to the handler's catch-up path, which answers with the outcome. The event is never emitted as a live message: a
- * caught-up message is observed once, by the catch-up path, not by the live one. A message whose event cannot be
- * built is `ignored`.
- * @param {object} deps
- * @param {(message: object) => object} deps.eventOf  The interface's event of a fetched message (it throws for one it cannot read).
- * @param {(event: object, options: { trigger: boolean }) => Promise<string>} deps.onCatchUp  The message handler's `catchUp`.
- * @param {{ warn: (message: string, meta?: object) => void }} [deps.log]
- * @returns {(message: object, options: { trigger: boolean }) => Promise<string>}
- */
-export function createCatchUpDeliver({ eventOf, onCatchUp, log = defaultLog }) {
-  return async (message, options) => {
-    /** @type {object} */
-    let event;
-    try {
-      event = eventOf(message);
-    } catch {
-      log.warn('catch-up: event not built', {});
-      return 'ignored';
-    }
-    return onCatchUp(event, options);
-  };
 }

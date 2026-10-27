@@ -1,7 +1,7 @@
-// Tests for src/skills/: the persona's skills ARE the owner's /nep commands (one skill per
+// Tests for src/tools/: the persona's skills ARE the owner's /nep commands (one skill per
 // operation, derived from the command that runs it), the rights gateway, the catalogue view, the
 // effect table, and how the owner opens a skill for her (`/nep access grant|revoke` with her as
-// the user, src/ops/access.js), with the rule she never changes her own authority. Nothing here
+// the user, src/tools/impl/access.ts), with the rule she never changes her own authority. Nothing here
 // executes a skill: the gateway only answers whether one may run.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -9,12 +9,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { runOp } from '../src/ops/index.js';
-import { listOps } from '../src/ops/registry.js';
-import { createOpsEnv } from '../src/ops/env.js';
-import { EFFECT_CLASSES, OP_EFFECTS, SELF_OWNED_OPS } from '../src/ops/effects.js';
-import { PERSONA_GOVERNED_CONFIG, governsPersona } from '../src/ops/rights.js';
-import { RENAMED_OPS, renameGrants } from '../src/ops/access.js';
+import { runOp } from '../src/tools/impl/index.ts';
+import { listOps } from '../src/tools/impl/registry.ts';
+import { createOpsEnv } from '../src/tools/impl/env.ts';
+import { EFFECT_CLASSES, OP_EFFECTS, SELF_OWNED_OPS } from '../src/tools/impl/effects.ts';
+import { PERSONA_GOVERNED_CONFIG, governsPersona } from '../src/tools/impl/rights.ts';
+import { RENAMED_OPS, renameGrants } from '../src/tools/impl/access.ts';
 import { createAdmin } from '../src/admin.js';
 import { createDiscordInterface, createInteractionHandler } from '../interfaces/discord/index.js';
 import {
@@ -24,7 +24,7 @@ import {
   describeSkill,
   skillArgTexts,
   missingDefinitions,
-} from '../src/skills/registry.js';
+} from '../src/tools/registry.ts';
 import {
   CARRIED_OVER,
   FEATURE_SKILLS,
@@ -33,11 +33,11 @@ import {
   grantedToPersona,
   skillAccess,
   wakeEnvelope,
-} from '../src/skills/access.js';
-import { executeCall } from '../src/skills/executors.js';
-import { postingConversation } from '../src/ops/shared.js';
-import { schemaError } from '../src/skills/schema.js';
-import { checkReplyEffect, checkSkill, listSkills } from '../src/skills/gateway.js';
+} from '../src/tools/access.ts';
+import { executeCall } from '../src/tools/executors.ts';
+import { postingConversation } from '../src/tools/impl/shared.ts';
+import { schemaError } from '../src/tools/schema.ts';
+import { checkReplyEffect, checkSkill, listSkills } from '../src/tools/gateway.ts';
 import { tempDir } from './fixtures/tmp.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
@@ -51,10 +51,10 @@ const persona = Object.freeze({ kind: 'persona' });
 const audience = Object.freeze({ conversationId: HERE, memberIds: [MEMBER] });
 
 /** A config with the settings these tests read, each set here (never the shipped defaults). */
-function config({ features = {}, skills = {}, access = {} } = {}) {
+function config({ features = {}, tools = {}, access = {} } = {}) {
   return {
-    features: { skills: true, journal: true, ...features },
-    skills: { safeMode: false, ...skills },
+    features: { tools: true, journal: true, ...features },
+    tools: { safeMode: false, ...tools },
     bot: { owners: [OWNER], access },
   };
 }
@@ -229,7 +229,7 @@ test('skills registry: a definition is checked at load; an owner-only operation 
   );
 });
 
-test('skills registry: the texts come from prompts/skills.json by operation name; a skill without them has empty texts', () => {
+test('skills registry: the texts come from config/tools.json by operation name; a skill without them has empty texts', () => {
   const skill = skillRegistry().get('message.edit');
   const texts = { 'message.edit': { title: 'Διόρθωση', whenToUse: 'όταν', whenNotToUse: 'ποτέ' } };
   assert.deepEqual(
@@ -243,8 +243,8 @@ test('skills registry: the texts come from prompts/skills.json by operation name
   assert.equal(describeSkill(skill, undefined).title, '');
 });
 
-test('skills registry: every `args` key of prompts/skills.json names a property of its skill (skillArgTexts keeps them all)', () => {
-  const file = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'prompts', 'skills.json');
+test('skills registry: every `args` key of config/tools.json names a property of its skill (skillArgTexts keeps them all)', () => {
+  const file = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'config', 'tools.json');
   const texts = JSON.parse(fs.readFileSync(file, 'utf8'));
   for (const [name, entry] of Object.entries(texts)) {
     if (entry?.args === undefined) continue;
@@ -264,8 +264,8 @@ test('skills registry: missingDefinitions names the table entries with no regist
   assert.deepEqual(missingDefinitions(partial).sort(), ['lore.list', 'task.run']);
 });
 
-test('skills registry: prompts/skills.json has the title and when-to-use of every operation (when-not-to-use optional), and no key that is not one', () => {
-  const file = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'prompts', 'skills.json');
+test('skills registry: config/tools.json has the title and when-to-use of every operation (when-not-to-use optional), and no key that is not one', () => {
+  const file = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'config', 'tools.json');
   const texts = JSON.parse(fs.readFileSync(file, 'utf8'));
   const ops = listOps().map((op) => op.name);
   for (const name of ops) {
@@ -394,7 +394,7 @@ test('skills access: the irreversible and administrative operations are never op
   ]);
   assert.equal(NOT_GRANTABLE_TO_PERSONA.includes('rule.add'), false, 'adding a rule stays grantable');
   for (const name of NOT_GRANTABLE_TO_PERSONA) {
-    // The inner life's switch on, so its kill switch exists to be refused (src/skills/access.js#FEATURE_SKILLS).
+    // The inner life's switch on, so its kill switch exists to be refused (src/tools/access.ts#FEATURE_SKILLS).
     assert.deepEqual(
       skillAccess({
         skill: skillRegistry().get(name),
@@ -417,13 +417,13 @@ test('skills access: her reply tags are carried over in the current conversation
   for (const skill of CARRIED_OVER) {
     assert.deepEqual(checkReplyEffect({ skill, principal: persona, config: config() }), { ok: true }, skill);
     assert.deepEqual(
-      checkReplyEffect({ skill, principal: persona, config: config({ skills: { safeMode: true } }) }),
+      checkReplyEffect({ skill, principal: persona, config: config({ tools: { safeMode: true } }) }),
       { ok: true },
       skill
     );
     assert.deepEqual(
-      checkReplyEffect({ skill, principal: persona, config: config({ features: { skills: false } }) }),
-      { ok: false, code: 'skills-off', reason: 'features.skills' },
+      checkReplyEffect({ skill, principal: persona, config: config({ features: { tools: false } }) }),
+      { ok: false, code: 'skills-off', reason: 'features.tools' },
       skill
     );
   }
@@ -644,16 +644,16 @@ test('skills gateway: a turn answering several people runs no write; a read stil
   assert.deepEqual(check({ skill: 'lore.list', granted: ['lore.list'], mixedRequesters: true }), { ok: true });
 });
 
-test('skills gateway: a destructive skill waits out its cooldown in a channel (skills.destructiveCooldownMinutes)', () => {
-  const remove = (lastRunAt, cfg = config({ skills: { destructiveCooldownMinutes: 10 } })) =>
+test('skills gateway: a destructive skill waits out its cooldown in a channel (tools.destructiveCooldownMinutes)', () => {
+  const remove = (lastRunAt, cfg = config({ tools: { destructiveCooldownMinutes: 10 } })) =>
     check({ skill: 'lore.remove', args: { id: 'l1' }, granted: ['lore.remove'], lastRunAt, now: 1_000_000, cfg });
   assert.deepEqual(remove(null), { ok: true });
   assert.deepEqual(remove(1_000_000 - 5 * 60_000), {
     ok: false,
     code: 'cooldown',
-    reason: 'skills.destructiveCooldownMinutes',
+    reason: 'tools.destructiveCooldownMinutes',
   });
-  assert.deepEqual(remove(1_000_000 - 5 * 60_000, config({ skills: { destructiveCooldownMinutes: 4 } })), { ok: true });
+  assert.deepEqual(remove(1_000_000 - 5 * 60_000, config({ tools: { destructiveCooldownMinutes: 4 } })), { ok: true });
   // a write is no destructive call
   assert.deepEqual(
     check({
@@ -688,19 +688,19 @@ test("skills gateway: draw.create is paid -- the drawing budget applies, the req
   assert.equal(asked, OWNER, "the per-member cap is the requester's");
 });
 
-test('skills gateway: features.skills off refuses everything; safe mode lets only the carried-over calls pass', () => {
-  const off = config({ features: { skills: false } });
+test('skills gateway: features.tools off refuses everything; safe mode lets only the carried-over calls pass', () => {
+  const off = config({ features: { tools: false } });
   assert.deepEqual(check({ cfg: off, granted: ['lore.list'] }), {
     ok: false,
     code: 'skills-off',
-    reason: 'features.skills',
+    reason: 'features.tools',
   });
   assert.equal(check({ skill: 'message.pin', cfg: off }).code, 'skills-off');
-  const safe = config({ skills: { safeMode: true } });
+  const safe = config({ tools: { safeMode: true } });
   assert.deepEqual(check({ granted: ['lore.list'], cfg: safe }), {
     ok: false,
     code: 'safe-mode',
-    reason: 'skills.safeMode',
+    reason: 'tools.safeMode',
   });
   assert.deepEqual(check({ skill: 'message.create', args: { text: 'γεια' }, cfg: safe }), { ok: true });
   // a missing switch counts as on
@@ -888,7 +888,7 @@ test('skills list: one row per skill with its texts, allowed or not and why', ()
   const cfg = granting(['message.edit', 'memory.restore', 'draw.create', 'memory.private.read']);
   const texts = { 'message.create': { title: 'Στείλε', whenToUse: 'όταν θέλεις', whenNotToUse: 'όχι' } };
   const rows = listSkills({ config: cfg, selfId: SELF, texts, requester: { id: OWNER }, audience });
-  // A skill behind a feature switch that is off has no row (src/skills/access.js#FEATURE_SKILLS).
+  // A skill behind a feature switch that is off has no row (src/tools/access.ts#FEATURE_SKILLS).
   assert.equal(rows.length, skillNames().filter((name) => !Object.hasOwn(FEATURE_SKILLS, name)).length);
   const byName = new Map(rows.map((row) => [row.name, row]));
   const channel = { name: 'channel', required: false };
@@ -950,7 +950,7 @@ test('skills list: one row per skill with its texts, allowed or not and why', ()
     [true, 'allowed']
   );
   const off = listSkills({
-    config: granting(['message.edit'], config({ features: { skills: false } })),
+    config: granting(['message.edit'], config({ features: { tools: false } })),
     selfId: SELF,
     texts,
     requester: null,
@@ -965,7 +965,7 @@ function makeEnv({ cfg = config(), roles = [] } = {}) {
   const rootDir = tempDir('nep-skills-');
   const hot = {
     config: cfg,
-    prompts: { labels: {}, skills: {} },
+    prompts: { labels: {}, tools: {} },
     promptSources: {},
     rootDir,
     reloadConfig: () => true,
@@ -978,13 +978,27 @@ function makeEnv({ cfg = config(), roles = [] } = {}) {
     getGuild: () => ({}),
     updateGuild() {},
   };
-  const me = { roles: { cache: new Map(roles.map((id) => [id, { id }])) } };
-  const client = { user: { id: SELF }, guilds: { cache: new Map([['g1', { members: { me } }]]) } };
+  // The interface says who the persona is and which groups she holds (`memberInfo`).
+  const client = {};
+  const reads = {
+    /** @param {{ memberId: string }} ask */
+    memberInfo: ({ memberId }) =>
+      Promise.resolve({
+        member: {
+          id: memberId,
+          name: null,
+          bot: false,
+          groupIds: roles,
+          avatar: { hash: null, url: null, largeUrl: null },
+        },
+      }),
+  };
   const env = createOpsEnv({
     discord: DISCORD,
     hot,
     store,
-    client,
+    reads,
+    selfId: () => SELF,
     getGuildId: () => 'g1',
     now: () => Date.UTC(2026, 9, 14, 10, 0, 0),
   });
@@ -1101,9 +1115,9 @@ test('persona grants: she never changes her effective authority -- not herself, 
     for (const key of [
       'bot.owners',
       'bot.access',
-      'features.skills',
-      'skills.safeMode',
-      'skills.callTimeoutMs',
+      'features.tools',
+      'tools.safeMode',
+      'tools.callTimeoutMs',
       'features.journal',
       'features.memberCommands',
       'bot',
@@ -1111,10 +1125,10 @@ test('persona grants: she never changes her effective authority -- not herself, 
       assert.ok(governsPersona(key), key);
     for (const key of ['llm.maxRequestsPerDay', 'features.diary', 'bot.timezone'])
       assert.equal(governsPersona(key), false, key);
-    assert.ok(PERSONA_GOVERNED_CONFIG.includes('features.skills'));
-    const set = await runOp('config.set', { path: 'skills.safeMode', value: 'false' }, asPersona);
+    assert.ok(PERSONA_GOVERNED_CONFIG.includes('features.tools'));
+    const set = await runOp('config.set', { path: 'tools.safeMode', value: 'false' }, asPersona);
     assert.deepEqual([set.status, set.code], ['denied', 'self-grant']);
-    const unset = await runOp('config.unset', { path: 'features.skills' }, asPersona);
+    const unset = await runOp('config.unset', { path: 'features.tools' }, asPersona);
     assert.deepEqual([unset.status, unset.code], ['denied', 'self-grant']);
     // someone else's role, for an owner who asked her: the normal path
     const other = await runOp('access.grant', { command: 'lore.add', roleId: 'r-other' }, asPersona);

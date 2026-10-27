@@ -1,5 +1,5 @@
-// Tests for src/behavior/recall-run.js: the recall runner over a fake guild
-// (REST search, member search, channels with history), a fake store, a fake
+// Tests for src/behavior/recall-run.js: the recall runner over the interface's reads (a fake guild whose search and
+// history answer the way Discord's REST does, read into the neutral hits and events the runner takes), a fake store, a fake
 // LLM and a fake describer. No network, no real data.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -8,16 +8,15 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRecall } from '../src/behavior/recall-run.js';
 import { createStore } from '../src/memory/store.js';
-import { HIT_MARK, snowflakeAt } from '../src/behavior/recall.js';
+import { HIT_MARK } from '../src/behavior/recall.js';
+import { snapshotOf } from '../src/behavior/snapshot.ts';
 import { toRecordLine } from '../src/memory/record.js';
 import { DailyCapError } from '../src/llm/openrouter.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { createDiscordInterface } from '../interfaces/discord/index.js';
 import { tempDir } from './fixtures/tmp.js';
-
-// The Discord interface's capabilities object, as src/index.js injects it.
-const DISCORD = createDiscordInterface().capabilities;
+import { channel as channelInfo, privateChannel } from './fixtures/reads-rig.ts';
+import { eventOfLine, line, neutralMembers, neutralSearch, rawHit, snowflakeAt } from './fixtures/recall-lines.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SHIPPED_CONFIG = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
@@ -62,52 +61,11 @@ function config(overrides = {}) {
   return base;
 }
 
-/** One stored line of a fake channel: `{ id, ts, author, content, bot, attachment }`. */
-function line(id, ts, { author = 'u1', name = 'Ana', content = `line ${id}`, bot = false, attachment = null } = {}) {
-  return { id, ts, author, name, content, bot, attachment };
-}
-
-/** A discord.js-shaped message of `channelId` from a stored line. */
-function djs(channelId, l) {
-  const attachments = new Map();
-  if (l.attachment)
-    attachments.set(l.attachment.id, {
-      id: l.attachment.id,
-      contentType: 'image/png',
-      name: 'x.png',
-      url: 'https://cdn.example/x.png',
-      size: 10,
-    });
-  return {
-    id: l.id,
-    channelId,
-    createdTimestamp: l.ts,
-    cleanContent: l.content,
-    content: l.content,
-    author: { id: l.author, username: l.name.toLowerCase(), bot: l.bot },
-    member: { displayName: l.name },
-    attachments,
-    embeds: [],
-    stickers: new Map(),
-    reactions: { cache: new Map() },
-    mentions: { users: new Map() },
-  };
-}
-
-/** A raw API search hit of a stored line. */
-function rawHit(channelId, l) {
-  return {
-    id: l.id,
-    channel_id: channelId,
-    timestamp: new Date(l.ts).toISOString(),
-    author: { id: l.author, username: l.name.toLowerCase(), global_name: l.name, bot: l.bot },
-    content: l.content,
-  };
-}
-
 /**
- * A scene: a guild with #general (c1, the turn's channel), #garden (c2) and #private (c4, which @everyone cannot
- * view, so the audience rail refuses it here); `lines` per channel id; `answers(route, query)` gives the REST body.
+ * A scene: a community with #general (c1, the turn's conversation), #garden (c2) and #private (c4, which the community's
+ * everyone cannot view, so the audience rail refuses it here); `lines` per conversation id; `answers(route, query)` gives
+ * the REST body the interface would read a search from (the neutral query is shown to it the way Discord's REST takes
+ * it: `content`, `author_id`, `min_id`, `max_id`, `offset`).
  */
 function scene({
   lines = {},
@@ -130,58 +88,94 @@ function scene({
   const calls = [];
   let inFlight = 0;
   let maxInFlight = 0;
-  const guild = {
-    id: GUILD,
-    members: { me: { id: 'self' } },
-    roles: { everyone: { id: GUILD }, cache: new Map() },
-    channels: { cache: new Map() },
-    client: {
-      rest: {
-        get: async (route, { query, signal }) => {
-          calls.push({ route, query: Object.fromEntries(query), signal });
-          inFlight += 1;
-          maxInFlight = Math.max(maxInFlight, inFlight);
-          await Promise.resolve();
-          inFlight -= 1;
-          return answers(route, Object.fromEntries(query), signal);
-        },
-      },
-    },
-  };
   const fetches = [];
   const follows = [];
-  const addChannel = (id, name, { everyone = true } = {}) => {
-    const stored = lines[id] ?? [];
-    const channel = {
-      id,
-      name,
-      guild,
-      viewable: true,
-      lastMessageId: null,
-      isTextBased: () => true,
-      isThread: () => false,
-      permissionsFor: (target) => ({ has: () => everyone || target?.id === 'self' }),
-      permissionOverwrites: { cache: new Map() },
-      messages: {
-        fetch: async ({ around, after, limit }) => {
-          if (after !== undefined) {
-            follows.push({ channel: id, after, limit });
-            const from = stored.findIndex((l) => l.id === after) + 1;
-            return new Map(stored.slice(from, from + limit).map((l) => [l.id, djs(id, l)]));
-          }
-          fetches.push({ channel: id, around, limit });
-          const at = stored.findIndex((l) => l.id === around);
-          const from = Math.max(0, at - Math.floor(limit / 2));
-          return new Map(stored.slice(from, from + limit).map((l) => [l.id, djs(id, l)]));
-        },
-      },
-    };
-    guild.channels.cache.set(id, channel);
-    return channel;
+  // The conversations of the community: the partner u5 views #general and #garden, not #private.
+  const infos = {
+    c1: channelInfo('c1', { name: 'general', viewers: { u5: true } }),
+    c2: channelInfo('c2', { name: 'garden', viewers: { u5: true } }),
+    c4: { ...privateChannel('c4', []), name: 'private', viewers: { u5: false } },
   };
-  const channel = addChannel('c1', 'general');
-  addChannel('c2', 'garden');
-  addChannel('c4', 'private', { everyone: false });
+  const snapshot = snapshotOf(GUILD, { conversations: Object.values(infos), groups: [] });
+  // The history reads of a conversation, which a test may break (`broken`).
+  const broken = new Set();
+  const reads = {
+    /**
+     * @param {{ communityId: string }} scope
+     * @param {{ text?: string, authorId?: string, after?: number, before?: number, offset?: number }} query
+     */
+    searchMessages: async (scope, query) => {
+      const rest = {
+        ...(query.text ? { content: query.text } : {}),
+        ...(query.authorId ? { author_id: query.authorId } : {}),
+        ...(Number.isFinite(query.after) ? { min_id: snowflakeAt(query.after) } : {}),
+        ...(Number.isFinite(query.before) ? { max_id: snowflakeAt(query.before) } : {}),
+        ...(query.offset ? { offset: String(query.offset) } : {}),
+      };
+      const route = `/guilds/${scope.communityId}/messages/search`;
+      // A read cannot be cancelled: the signal the answer may wait on never fires.
+      const signal = new AbortController().signal;
+      calls.push({ route, query: rest, signal });
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await Promise.resolve();
+      inFlight -= 1;
+      let body;
+      try {
+        body = await Promise.resolve(answers(route, rest, signal));
+      } catch {
+        return null;
+      }
+      return neutralSearch(body);
+    },
+    /**
+     * @param {{ communityId: string }} scope
+     * @param {{ prefix: string, limit: number }} query
+     */
+    searchMembers: async (scope, query) => {
+      const route = `/guilds/${scope.communityId}/members/search`;
+      const rest = { query: query.prefix, limit: String(query.limit) };
+      const signal = new AbortController().signal;
+      calls.push({ route, query: rest, signal });
+      let body;
+      try {
+        body = await Promise.resolve(answers(route, rest, signal));
+      } catch {
+        return null;
+      }
+      return neutralMembers(body);
+    },
+    /**
+     * @param {{ conversationId: string }} ref
+     * @param {{ after?: string, around?: string, limit: number }} query
+     */
+    history: async (ref, query) => {
+      await Promise.resolve();
+      const stored = lines[ref.conversationId] ?? [];
+      const info = infos[ref.conversationId];
+      if (!info || broken.has(ref.conversationId)) return null;
+      const events = (rows) => rows.map((l) => eventOfLine(info, l));
+      if (query.after !== undefined) {
+        follows.push({ channel: ref.conversationId, after: query.after, limit: query.limit });
+        const from = stored.findIndex((l) => l.id === query.after) + 1;
+        return { events: events(stored.slice(from, from + query.limit)), complete: true };
+      }
+      fetches.push({ channel: ref.conversationId, around: query.around, limit: query.limit });
+      const at = stored.findIndex((l) => l.id === query.around);
+      const from = Math.max(0, at - Math.floor(query.limit / 2));
+      return { events: events(stored.slice(from, from + query.limit)), complete: true };
+    },
+  };
+  const guild = {
+    reads,
+    /** Makes every history read of conversation `id` fail. */
+    breakHistory: (id) => broken.add(id),
+    /** Replaces the history read of the conversation (`replace(query)`). */
+    history: (replace) => {
+      const original = reads.history;
+      reads.history = async (ref, query) => replace(ref, query, () => original(ref, query));
+    },
+  };
 
   const data = { ...state };
   let dirty = 0;
@@ -213,7 +207,7 @@ function scene({
     prompts: { 'recall-summary': PROMPT, labels },
   };
   const recaller = createRecall({
-    discord: DISCORD,
+    reads,
     hot,
     store,
     llm,
@@ -245,10 +239,23 @@ function scene({
       content: 'ποιος σκότωσε το κουνέλι;',
     },
   ];
-  const args = { guild, guildId: GUILD, channel, selfId: 'self', selfName: 'Zoë', history, candidate: history[1] };
+  // A private chat with the member u5, as the interface describes it (no community, no audience).
+  const dm = channelInfo('dm1', { kind: 'dm', communityId: null, chatType: 'dm', partnerId: 'u5', audience: null });
+  const args = {
+    guildId: GUILD,
+    channel: infos.c1,
+    snapshot,
+    partnerId: null,
+    selfId: 'self',
+    selfName: 'Zoë',
+    history,
+    candidate: history[1],
+  };
   return {
     recaller,
     args,
+    dm,
+    guild,
     calls,
     fetches,
     follows,
@@ -483,9 +490,7 @@ test('recall: the switch off, a private chat or nothing asked make no request', 
   assert.equal(off.recaller.available(), false);
 
   const dm = scene();
-  const priv = await withCapturedLogs(() =>
-    dm.recaller.run({ ...dm.args, channel: { id: 'dm1' }, server: RABBIT_SERVER })
-  );
+  const priv = await withCapturedLogs(() => dm.recaller.run({ ...dm.args, channel: dm.dm, server: RABBIT_SERVER }));
   assert.deepEqual(
     priv.logs.map((l) => l.reason),
     ['private-chat']
@@ -514,8 +519,6 @@ test('recall: a private chat with its partner searches the server, keeps only wh
       }),
     },
   });
-  const dm = { id: 'dm1', guild: null };
-  const partner = { id: 'u5', guild: s.args.guild };
   const history = [
     {
       id: 'p1',
@@ -528,7 +531,7 @@ test('recall: a private chat with its partner searches the server, keeps only wh
     },
   ];
   const { result } = await withCapturedLogs(() =>
-    s.recaller.run({ ...s.args, channel: dm, partner, history, candidate: history[0], server: RABBIT_SERVER })
+    s.recaller.run({ ...s.args, channel: s.dm, partnerId: 'u5', history, candidate: history[0], server: RABBIT_SERVER })
   );
   assert.deepEqual(
     searches(s.calls).map((c) => c.query.content),
@@ -608,7 +611,7 @@ test('recall: a search still out at 60 % of the budget is cut; with nothing foun
     return running;
   });
   assert.deepEqual([result.text, result.stretch], [null, null]);
-  assert.ok(s.calls[0].signal.aborted);
+  // A read cannot be cancelled: the runner stops waiting for it and goes on without its answer.
   assert.equal(searches(s.calls).length, 1, 'no further search after the cut');
   assert.deepEqual([result.stats.queries, result.stats.failed], [1, 1]);
   assert.ok(logs.some((l) => l.msg === 'recall: skipped' && l.reason === 'no-hits'));
@@ -681,17 +684,13 @@ test('recall: the windows of the kept clusters are fetched together', async () =
   const s = scene({ lines: { c1: RABBIT_LINES, c2: GARDEN_LINES }, answers: rabbitAnswers });
   let inFlight = 0;
   let most = 0;
-  for (const id of ['c1', 'c2']) {
-    const messages = s.args.guild.channels.cache.get(id).messages;
-    const fetch = messages.fetch;
-    messages.fetch = async (options) => {
-      inFlight += 1;
-      most = Math.max(most, inFlight);
-      await new Promise((resolve) => setImmediate(resolve));
-      inFlight -= 1;
-      return fetch(options);
-    };
-  }
+  s.guild.history(async (ref, query, original) => {
+    inFlight += 1;
+    most = Math.max(most, inFlight);
+    await new Promise((resolve) => setImmediate(resolve));
+    inFlight -= 1;
+    return original();
+  });
   await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
   assert.equal(s.fetches.length, 2);
   assert.equal(most, 2, 'both windows were out at once');
@@ -881,12 +880,10 @@ test('recall: the run budget running out before the windows are read abandons it
   const timers = manualTimers();
   const reading = deferred();
   const s = scene({ lines: RANKED_LINES, answers: rankedAnswers, recall: BUDGET, timers });
-  for (const id of ['c1', 'c2']) {
-    s.args.guild.channels.cache.get(id).messages.fetch = () => {
-      reading.resolve();
-      return new Promise(() => {});
-    };
-  }
+  s.guild.history(() => {
+    reading.resolve();
+    return new Promise(() => {});
+  });
   const { result, logs } = await withCapturedLogs(async () => {
     const running = s.recaller.run({ ...s.args, server: RABBIT_SERVER });
     await reading.promise;
@@ -1650,7 +1647,6 @@ test('recall-run: private entries match only for their owner', async () => {
   });
   const ask = async (who) => {
     const s = scene({ profiles: MEMORY_PROFILES, ...sources() });
-    const dm = { id: 'dm1', guild: null };
     const history = [
       {
         id: 'p1',
@@ -1667,8 +1663,8 @@ test('recall-run: private entries match only for their owner', async () => {
         ? { ...s.args, server: RECENT_SERVER }
         : {
             ...s.args,
-            channel: dm,
-            partner: { id: who, guild: s.args.guild },
+            channel: s.dm,
+            partnerId: who,
             history,
             candidate: history[0],
             server: RECENT_SERVER,
@@ -1780,15 +1776,9 @@ test('recall-run: followGapMinutes and followMessages stop the follow sooner, fo
 
 test('recall-run: a failing follow fetch keeps the window as it was', async () => {
   const s = scene({ lines: { c2: NAME_LINES }, answers: nameAnswers, recall: { windowMessages: 4 } });
-  const messages = s.args.guild.channels.cache.get('c2').messages;
-  const fetch = messages.fetch;
-  messages.fetch = async (options) => {
-    if (options.after !== undefined)
-      throw Object.assign(new Error('Missing Access'), { status: 403, name: 'DiscordAPIError' });
-    return fetch(options);
-  };
-  const { result, logs } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: NAME_SERVER }));
-  assert.ok(logs.some((l) => l.msg === 'search: after failed'));
+  // The read that follows the window fails: the interface answers nothing for it (and its own log says so).
+  s.guild.history(async (ref, query, original) => (query.after !== undefined ? null : original()));
+  const { result } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: NAME_SERVER }));
   assert.deepEqual(foundIds(s), ['n0', 'n1', 'n2', 'n3']);
   assert.equal(result.stats.windows, 1);
 });
@@ -2163,7 +2153,6 @@ test("recall-run: a private turn searches its partner's private layer and the gu
     vectors,
     embed,
   });
-  const dm = { id: 'dm1', guild: null };
   const history = [
     {
       id: 'p1',
@@ -2178,8 +2167,8 @@ test("recall-run: a private turn searches its partner's private layer and the gu
   await withCapturedLogs(() =>
     s.recaller.run({
       ...s.args,
-      channel: dm,
-      partner: { id: 'u5', guild: s.args.guild },
+      channel: s.dm,
+      partnerId: 'u5',
       history,
       candidate: history[0],
       server: MEANING_SERVER,
@@ -2357,7 +2346,7 @@ test('recall-run: a locator whose record reaches past the decay margin sends no 
   );
 });
 
-// The persona's own memory.search (src/skills/tools.js): what she is told when it finds nothing.
+// The persona's own memory.search (src/tools/tools.ts): what she is told when it finds nothing.
 
 test('recall-run outcome: a spent daily limit is named, for the day count and for the request cap', async () => {
   const day = scene({ recall: { maxPerDay: 3 }, state: { recallDay: '2026-10-05', recallCount: 3 } });

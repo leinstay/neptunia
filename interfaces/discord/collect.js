@@ -12,7 +12,6 @@ import { ID_DIGITS, URL_PATTERN } from '../../src/memory/mentions.ts';
 import {
   classifyAttachment,
   classifyEmbed,
-  emojiUrl,
   linkThumbnailCacheKey,
   siteOf,
   positiveDimension,
@@ -28,6 +27,18 @@ import { DISCORD_IFACE } from './port.js';
 
 /** Discord's REST page size for a message list. */
 export const PAGE = 100;
+
+// Verified against the live CDN: this exact host+path+size serves both a static and an animated custom emoji as image/webp.
+const EMOJI_SIZE = 96;
+
+/**
+ * A custom emoji's picture address from just its id. The same address serves a static and an animated emoji alike
+ * (image/webp either way).
+ * @param {string} id
+ */
+export function emojiUrl(id) {
+  return `https://cdn.discordapp.com/emojis/${id}.webp?size=${EMOJI_SIZE}`;
+}
 const MAX_EMOJIS_PER_MESSAGE = 5;
 // Groups: the animated flag (`a` or empty), the name, the id.
 const CUSTOM_EMOJI_RE = new RegExp(CUSTOM_EMOJI_MARKUP, 'g');

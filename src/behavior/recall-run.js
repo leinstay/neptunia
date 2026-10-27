@@ -1,18 +1,16 @@
 // The recall runner: the server part of a lookup. When the lookup classifier
 // names word forms, name forms or a date range (src/behavior/recall.js
 // parseLookupAnswer), this module searches the server's own history through
-// Discord's search (interfaces/discord/search.js) and has one helper request
+// the interface's message search (reads.searchMessages) and has one helper request
 // (prompts/recall-summary.md) say what that history answers, optionally
 // singling out one stretch the persona gets verbatim. Steps: the people the
-// name forms point at (stored profiles, Discord's member search for a Latin
-// form), the queries one after another (discord.js's REST client runs the
-// requests of one guild's search route strictly one at a time -- a
-// SequentialHandler per route bucket and guild in @discordjs/rest -- so
-// sending them together would only queue them there), the hits filtered
-// (other bots, channels the pull rail refuses for this destination, the
-// turn's own chat), clustered, the windows around the clusters fetched
-// together (channel routes, queued per channel), each followed past its last
-// line while its conversation goes on (one more page of the channel, cut by
+// name forms point at (stored profiles, the interface's member search for a Latin
+// form), the queries one after another (the interface may serialise its search
+// route, so sending them together would only queue them there), the hits filtered
+// (other bots, conversations the pull rail refuses for this destination, the
+// turn's own chat), clustered, the windows around the clusters read
+// together (one history read each), each followed past its last
+// line while its conversation goes on (one more history read, cut by
 // recall.js followConversation: `recall.followMessages` lines at most, up to
 // the first silence longer than `recall.followGapMinutes`), captioned from
 // the media cache only, then the summary. Rails: `features.recall`, server turns and
@@ -25,7 +23,7 @@
 // `recall.minSummaryMs` is left. A summary that fails, times out or is
 // skipped never costs the result: the verbatim stretch of the first-ranked
 // window (recall.js fallbackWindow) is returned without a text.
-// Before any Discord request the same forms are matched against the
+// Before any search request the same forms are matched against the
 // persona's stored memory (recall.js matchMemory; read-only store calls, no
 // request), under the gates the reply prompt applies to each store, and the
 // items go to the summary as `<memory>`: they alone are enough to ask it,
@@ -33,7 +31,7 @@
 // archive (src/memory/archive.js) is a fifth source of those items, streamed
 // over the months asked (recall.js scanArchive); the record
 // (src/memory/record.js) of the last days is read for a dated or "recently"
-// question (recall.js matchRecord) and its windows join Discord's. Before any
+// question (recall.js matchRecord) and its windows join the search's. Before any
 // archive entry or record line is matched, the audience rule of the turn's
 // channel refuses what the pull rail would (by the entry's `scope.channel`,
 // the line's channel), and a private entry or line passes only on a private
@@ -52,17 +50,17 @@
 // `locator: true`, a date that only helps find the event) bounds none of the
 // local sources: the record is read over its last `recall.recordDays` days
 // (and the locator's own days), the archive over its usual months, the
-// vector index over every month; their windows and items, and the Discord
+// vector index over every month; their windows and items, and the search
 // clusters, are kept by recall.js locatorKeep (`recall.locatorBroadShare` of
 // the slots by content alone, the rest with `recall.locatorBonus` falling
-// over `recall.locatorDecayDays`). Discord searches the range as before,
+// over `recall.locatorDecayDays`). The search covers the range as before,
 // plus one broad page of the first query over the past the record does not
 // hold, unless the record covers the range and its decay margin. The summary
 // reads the cue as an estimate (`<time_cue>`).
 // The persona's own search (`quotes`), its window reads (`window`) and the memory prefetch read the memory database
 // (src/memory/db/recall.js): the stretches scope-checked by the read context. While the database is not open they find
 // nothing (`not-configured`, or a prefetch of the stored memory alone). The server part of a turn's lookup (a run
-// without `quotes`) searches Discord's history and asks the summary, as above.
+// without `quotes`) searches the server's history and asks the summary, as above.
 // Logs carry counts, ids and codes only: never a form, a name or a message.
 // What a run found and chose is diagnosed from the trace file instead
 // (`features.recallTrace`, data/guilds/<id>/recall-trace.jsonl, see traceLine):
@@ -74,6 +72,8 @@ import { clampChars, oneLine } from '../memory/clamp.js';
 import { foldText, liveRecent, recentSettings } from '../memory/recent.js';
 import { DAY_MS, bumpDaily, countToday } from '../time.js';
 import { audienceCovers } from './elsewhere.ts';
+import { audienceAllows, railAudience } from './snapshot.ts';
+import { checkPull } from './pull-fetch.ts';
 import { roleModel } from '../llm/roles.js';
 import { pullPictures } from './pull.js';
 import {
@@ -100,15 +100,15 @@ import {
   sampleOffsets,
   scanArchive,
   searchPlan,
-  snowflakeAt,
 } from './recall.js';
 import { fitExcerpts, focusHits, lanePlan, lexicalKeep, rankPrefetch } from './prefetch.js';
 import { indexWords } from '../memory/record-index.js';
-import { CODE } from '../skills/codes.js';
+import { CODE } from '../tools/codes.ts';
 import { dbSettings, quotesOf, search as dbSearch, window as dbWindow } from '../memory/db/recall.js';
 import { channelPlaceId, nativeAuthorityOf, personId } from '../memory/db/ids.ts';
 import { issueContext } from '../memory/db/scope.ts';
 import { LEGACY_IFACE } from '../memory/db/legacy-namespace.ts';
+import { hitFrom, inCommunity, linesOf, searchQueryOf, untilAborted } from './recall-reads.ts';
 
 /** The state.json fields of the daily recall counter. */
 export const RECALL_DAILY = Object.freeze({ dayKey: 'recallDay', countKey: 'recallCount' });
@@ -122,10 +122,15 @@ const MEANING_MIN_WORDS = 3;
 /** How many lines apart the hits marked in one prefetch excerpt may lie (focusHits). */
 const FOCUS_LINES = 6;
 const DEFAULT_TIMERS = Object.freeze({
+  /**
+   * @param {() => void} fn
+   * @param {number} ms
+   */
   set: (fn, ms) => setTimeout(fn, ms),
+  /** @param {ReturnType<typeof setTimeout>} timer */
   clear: (timer) => clearTimeout(timer),
 });
-// A name form Discord's member search can match: Latin letters (at least one), digits, `.`, `_`, `'`, `-`, spaces.
+// A name form a prefix search of members can match: Latin letters (at least one), digits, `.`, `_`, `'`, `-`, spaces.
 const LATIN_FORM_RE = /^[\p{Script=Latin}\p{N} ._'-]+$/u;
 const LATIN_LETTER_RE = /\p{Script=Latin}/u;
 /** The characters of a stored-memory item's text the trace keeps when the item has no itemId. */
@@ -151,19 +156,6 @@ function locatorOf(server, settings) {
     bonus: settings.locatorBonus,
     decayDays: settings.locatorDecayDays,
     broadShare: settings.locatorBroadShare,
-  };
-}
-
-/** A raw search hit (interfaces/discord/search.js) as the clustering reads it; `queries` the keys of the queries that found it. */
-function hitFrom(raw) {
-  return {
-    id: raw.id,
-    channelId: raw.channel_id,
-    ts: Date.parse(raw.timestamp),
-    authorId: raw.author?.id ?? null,
-    bot: raw.author?.bot === true,
-    username: raw.author?.username ?? null,
-    queries: new Set(),
   };
 }
 
@@ -380,8 +372,10 @@ function summaryFailure(err) {
  * @param {object} deps.store      `state` (`data`, `markDirty`) and `listUserProfiles` (src/memory/store.js);
  *   read only, when present: `getLore`, `getGuild` (its `learned`), `getRecent`. Never `getPrivate`.
  * @param {object} deps.llm        From createLlm(): `complete`, `capLeft`.
- * @param {object} deps.discord    The Discord interface's capabilities object (src/index.js injects
- *   it): the message and member searches, the windows around a hit and the audience rules.
+ * @param {import('../interface/reads.ts').Reads} deps.reads  The core's reads of the interface: the message and member
+ *   searches and the history windows around a hit.
+ * @param {(communityId: unknown, memberId: unknown) => (string|null)} [deps.memberName]  The name the member directory
+ *   holds for a member, the last resort for a person no stored profile names.
  * @param {object|null} [deps.describer]  From createDescriber (src/memory/describe.js): only its
  *   `cachedDescriptions` is used, never a fresh caption.
  * @param {{ iterate: Function }|null} [deps.archive]  From createArchive (src/memory/archive.js): only `iterate` is used (read only); without it the archive is not searched.
@@ -394,7 +388,7 @@ function summaryFailure(err) {
  * @param {string} [deps.iface]  The interface the persona's ids belong to (`hello.iface`); the legacy namespace without one.
  * @param {() => number} [deps.now]
  * @param {{ set: Function, clear: Function }} [deps.timers]  setTimeout / clearTimeout (tests inject fakes).
- * @returns {{ run: (args: { guild: object, guildId?: string, channel: object, partner?: object|null, selfId: string, selfName: string,
+ * @returns {{ run: (args: { guildId?: string, channel: object, partnerId?: string|null, snapshot?: object|null, selfId: string, selfName: string,
  *   history?: object[], candidate: { authorName?: string, content?: string }, server: { forms: string[], who: string[],
  *   from: number|null, to: number|null, recent?: true, locator?: true }|null }) => Promise<{ text: string|null, stretch: RecallStretch|null,
  *   people: { id: string, name: string, username: string, count: number, newestTs: number|null }[], stats: object }>,
@@ -405,7 +399,8 @@ export function createRecall({
   hot,
   store,
   llm,
-  discord,
+  reads,
+  memberName = () => null,
   describer = null,
   archive = null,
   record = null,
@@ -416,7 +411,6 @@ export function createRecall({
   now = Date.now,
   timers = DEFAULT_TIMERS,
 }) {
-  const { audienceAllows, audienceOf, checkPull, fetchAfter, fetchAround, searchMembers, searchMessages } = discord;
   /** Whether `llm.maxRequestsPerDay` is spent today: the summary would be refused. */
   function capSpent() {
     return typeof llm?.capLeft === 'function' && llm.capLeft() <= 0;
@@ -451,23 +445,13 @@ export function createRecall({
    * The people the `who` forms point at, at most `maxPeople`: per form, the
    * stored profiles one of whose names or alias names equals the whole form
    * (both folded, src/memory/recent.js#foldText), the persona's own profile
-   * never; then -- for a Latin form no profile matched -- Discord's member
+   * never; then -- for a Latin form no profile matched -- the interface's member
    * search (prefix match), other bots left out. A member search is not sent
    * once `searchUntil` is past; `beforeRequest` runs before each one.
    * `via` (an optional Map) gets, per member found, `{ form, how }`: `how`
    * `stored` or `member-search`.
    */
-  async function findPeople({
-    guild,
-    guildId,
-    who,
-    maxPeople,
-    selfId,
-    signal,
-    searchUntil,
-    beforeRequest,
-    via = null,
-  }) {
+  async function findPeople({ guildId, who, maxPeople, selfId, signal, searchUntil, beforeRequest, via = null }) {
     const found = new Map();
     if (maxPeople <= 0 || !Array.isArray(who) || who.length === 0) return [];
     let profiles = null;
@@ -499,19 +483,22 @@ export function createRecall({
       )
         continue;
       beforeRequest();
-      const members = await searchMembers(guild, form, maxPeople, { signal });
-      for (const member of members ?? []) {
+      const searched = await untilAborted(
+        signal,
+        reads.searchMembers({ communityId: guildId }, { prefix: form, limit: maxPeople })
+      );
+      for (const member of searched?.members ?? []) {
         if (member.bot && member.id !== selfId) continue;
         const known = found.get(member.id);
         if (known) {
-          known.username ||= member.username ?? '';
+          known.username ||= member.handle ?? '';
           continue;
         }
         if (found.size >= maxPeople) break;
         found.set(member.id, {
           id: member.id,
-          name: member.nick ?? member.globalName ?? member.username ?? '',
-          username: member.username ?? '',
+          name: member.nickname ?? member.displayName ?? member.handle ?? '',
+          username: member.handle ?? '',
         });
         via?.set(member.id, { form, how: 'member-search' });
       }
@@ -524,22 +511,26 @@ export function createRecall({
    * none with `features.recent` off), from the turn's own channel or a channel
    * whose audience covers it -- the rule of the turn's `<recent>` block
    * (src/behavior/turn.js recentInput, server side). In a private chat: from
-   * a channel its `partner` can view (the pull rail's private-chat rule,
-   * interfaces/discord/pull-fetch.js#audienceAllows), as its hits are.
+   * a channel its `partnerId` can view (the pull rail's private-chat rule,
+   * src/behavior/snapshot.ts#audienceAllows), as its hits are.
    */
-  function shownRecentLines(config, guild, guildId, channel, partner) {
+  function shownRecentLines(config, snapshot, guildId, channel, partnerId) {
     const settings = recentSettings(config);
     if (!settings || typeof store.getRecent !== 'function') return [];
     const lines = liveRecent(store.getRecent(guildId)?.lines, { now: now(), hours: settings.hours });
     if (lines.length === 0) return [];
-    const here = channel.guild ? audienceOf(channel) : null;
+    const here = inCommunity(channel) ? railAudience(/** @type {object|null|undefined} */ (channel.audience)) : null;
     const covers = (source) =>
-      channel.guild ? audienceCovers(here, audienceOf(source)) : audienceAllows(channel, source, config, { partner });
+      inCommunity(channel)
+        ? audienceCovers(here, railAudience(/** @type {object|null|undefined} */ (source?.audience)))
+        : audienceAllows(/** @type {object} */ (channel), /** @type {object} */ (source), config, {
+            partnerId,
+          });
     const allowed = new Map();
     const shown = (id) => {
       if (typeof id !== 'string' || !id) return false;
       if (id === channel.id) return true;
-      if (!allowed.has(id)) allowed.set(id, covers(guild?.channels?.cache?.get?.(id) ?? null));
+      if (!allowed.has(id)) allowed.set(id, covers(snapshot?.get(id) ?? null));
       return allowed.get(id);
     };
     return lines.filter((line) => shown(line.channelId));
@@ -575,10 +566,10 @@ export function createRecall({
   async function storedMemory({
     config,
     settings,
-    guild,
+    snapshot,
     guildId,
     channel,
-    partner,
+    partnerId,
     server,
     recent,
     allowEntry,
@@ -669,7 +660,7 @@ export function createRecall({
         profiles: features.episodes !== false ? profiles : profiles.map((p) => ({ ...p, episodes: [] })),
         lore: features.lore !== false && typeof store.getLore === 'function' ? (store.getLore(guildId) ?? []) : [],
         learned: typeof store.getGuild === 'function' ? (store.getGuild(guildId)?.learned ?? []) : [],
-        recentLines: shownRecentLines(config, guild, guildId, channel, partner),
+        recentLines: shownRecentLines(config, snapshot, guildId, channel, partnerId),
         archived,
         meaning: meant,
         from: bounds.from,
@@ -705,7 +696,7 @@ export function createRecall({
    */
   async function recordWindowsFor({
     settings,
-    guild,
+    snapshot,
     guildId,
     server,
     people,
@@ -758,12 +749,12 @@ export function createRecall({
           const profile = stored.get(String(id));
           return (
             (typeof profile?.names?.[0] === 'string' ? profile.names[0] : null) ??
-            guild?.members?.cache?.get?.(id)?.displayName ??
+            memberName(guildId, String(id)) ??
             null
           );
         },
         selfName,
-        channelNameOf: (id) => guild?.channels?.cache?.get?.(id)?.name ?? null,
+        channelNameOf: (id) => snapshot?.get(id)?.name ?? null,
         meaning,
         signal,
       });
@@ -794,7 +785,6 @@ export function createRecall({
   async function meaningSearch({
     config,
     settings,
-    guild,
     guildId,
     channel,
     candidate,
@@ -817,7 +807,7 @@ export function createRecall({
     const stored = new Map(
       profiles.filter((p) => p?.id).map((p) => [String(p.id), typeof p.names?.[0] === 'string' ? p.names[0] : null])
     );
-    const nameOf = (id) => stored.get(String(id)) ?? guild?.members?.cache?.get?.(id)?.displayName ?? null;
+    const nameOf = (id) => stored.get(String(id)) ?? memberName(guildId, String(id)) ?? null;
     const query = meaningQuery({ candidate, lines, withReply: settings.meaningWithReply, nameOf });
     if (!query) return null;
     const started = now();
@@ -893,7 +883,7 @@ export function createRecall({
   /**
    * The one broad Discord page of a locator run, or null: the first planned
    * query (not a range sample) without the range's bounds, over the past the
-   * record does not hold (`max_id` at the start of the record's last
+   * record does not hold (`before` the start of the record's last
    * `recall.recordDays` days; no bound without a record), newest first,
    * marked `broad`. None without a locator, or when the record reaches back
    * to the locator's start minus `recall.locatorDecayDays` days: the record,
@@ -906,7 +896,7 @@ export function createRecall({
       typeof record?.iterate === 'function' && settings.recordDays > 0 ? now() - settings.recordDays * DAY_MS : null;
     const margin = Number.isFinite(locator.from) ? locator.from - settings.locatorDecayDays * DAY_MS : -Infinity;
     if (recordStart !== null && recordStart <= margin) return null;
-    return { ...first, minId: null, maxId: recordStart !== null ? snowflakeAt(recordStart) : null, broad: true };
+    return { ...first, after: null, before: recordStart, broad: true };
   }
 
   /** The cached captions of the windows' pictures and custom emoji, or undefined (cache only, never a request). */
@@ -927,7 +917,7 @@ export function createRecall({
   }
 
   /**
-   * What a run may read toward `channel` (the turn's; a private chat on behalf of `partner`):
+   * What a run may read toward `channel` (the turn's; a private chat on behalf of `partnerId`):
    * `sourceOf(channelId)`, the pull rail's verdict judged once per channel (`judged`): the
    * channel when its lines may reach this turn, else null -- Discord hits, record lines, archived
    * items and meaning rows of a refused channel never reach the turn; `privateUserId`, the partner
@@ -935,13 +925,13 @@ export function createRecall({
    * private turn with that member; `allowEntry` (an archive entry, by its `scope`) and
    * `allowLine` (a record line: a channel line by its channel, a private one by its member).
    */
-  function scopeOf({ config, guild, channel, partner }) {
+  function scopeOf({ config, snapshot, channel, partnerId }) {
     const judged = new Map();
     const sourceOf = (id) => {
       if (!judged.has(id)) {
         let source = null;
         try {
-          const verdict = checkPull({ guild, channelId: id, destination: channel, partner, config, now: now() });
+          const verdict = checkPull({ snapshot, channelId: id, destination: channel, partnerId, config, now: now() });
           source = verdict.skip === null ? verdict.channel : null;
         } catch {
           source = null;
@@ -950,7 +940,7 @@ export function createRecall({
       }
       return judged.get(id);
     };
-    const privateUserId = !channel.guild && typeof partner?.id === 'string' && partner.id ? partner.id : null;
+    const privateUserId = !inCommunity(channel) && typeof partnerId === 'string' && partnerId ? partnerId : null;
     const allowScope = (scope) => {
       if (scope?.private === true) return privateUserId !== null && scope.user === privateUserId;
       return typeof scope?.channel !== 'string' || sourceOf(scope.channel) !== null;
@@ -986,13 +976,13 @@ export function createRecall({
    * chat's own (the context decides whose); a group place is shown only where the pull rail lets this turn read its
    * channel; a place the database does not hold, or of another authority, is refused.
    */
-  function dbReader({ db = null, config, guild, guildId, channel, partner, asker = null, memoryContext = null }) {
-    const { sourceOf, privateUserId } = scopeOf({ config, guild, channel, partner });
+  function dbReader({ db = null, config, snapshot, guildId, channel, partnerId, asker = null, memoryContext = null }) {
+    const { sourceOf, privateUserId } = scopeOf({ config, snapshot, channel, partnerId });
     const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [];
     const stored = new Map(profiles.filter((profile) => profile?.id).map((profile) => [String(profile.id), profile]));
     const nameOf = (id) => {
       const name = stored.get(String(id))?.names?.[0];
-      return (typeof name === 'string' && name ? name : null) ?? guild?.members?.cache?.get?.(id)?.displayName ?? null;
+      return (typeof name === 'string' && name ? name : null) ?? memberName(guildId, String(id)) ?? null;
     };
     const ctx = readContext({ config, channel, privateUserId, asker, memoryContext });
     return {
@@ -1000,7 +990,7 @@ export function createRecall({
       nameOf,
       ctx,
       model: roleModel(config, 'embedding', 'recall-query') ?? null,
-      channelNameOf: (id) => guild?.channels?.cache?.get?.(id)?.name ?? null,
+      channelNameOf: (id) => snapshot?.get(id)?.name ?? null,
       allowPlace: placeRule(db, ctx, sourceOf),
     };
   }
@@ -1089,10 +1079,10 @@ export function createRecall({
     db,
     config,
     settings,
-    guild,
+    snapshot,
     guildId,
     channel,
-    partner,
+    partnerId,
     selfName,
     history,
     candidate,
@@ -1105,10 +1095,10 @@ export function createRecall({
     const reader = dbReader({
       db,
       config,
-      guild,
+      snapshot,
       guildId,
       channel,
-      partner,
+      partnerId,
       asker: candidate?.authorId ?? null,
       memoryContext,
     });
@@ -1141,7 +1131,7 @@ export function createRecall({
         }
       }
     }
-    const own = channel.guild && Array.isArray(history) ? history.filter((m) => m?.id).map((m) => m.id) : [];
+    const own = inCommunity(channel) && Array.isArray(history) ? history.filter((m) => m?.id).map((m) => m.id) : [];
     const found = dbSearch(db, {
       ctx: reader.ctx,
       plan: server,
@@ -1191,10 +1181,10 @@ export function createRecall({
    * whoever asked and `memoryContext` the turn's execution context, as for `run`.
    */
   async function window({
-    guild,
-    guildId = guild?.id ?? null,
+    guildId = null,
+    snapshot = null,
     channel,
-    partner = null,
+    partnerId = null,
     selfName = '',
     history = [],
     anchor,
@@ -1219,9 +1209,9 @@ export function createRecall({
       const settings = recallSettings(config);
       const db = dbOf();
       if (!settings || !db) return out({ outcome: { kind: 'not-configured' } });
-      if (!guild || (!channel?.guild && !partner)) return out({ outcome: { kind: 'not-configured' } });
-      const reader = dbReader({ db, config, guild, guildId, channel, partner, asker, memoryContext });
-      const own = channel.guild && Array.isArray(history) ? history.filter((m) => m?.id).map((m) => m.id) : [];
+      if (!guildId || (!inCommunity(channel) && !partnerId)) return out({ outcome: { kind: 'not-configured' } });
+      const reader = dbReader({ db, config, snapshot, guildId, channel, partnerId, asker, memoryContext });
+      const own = inCommunity(channel) && Array.isArray(history) ? history.filter((m) => m?.id).map((m) => m.id) : [];
       const found = dbWindow(db, {
         ctx: reader.ctx,
         anchor,
@@ -1261,7 +1251,7 @@ export function createRecall({
 
   /**
    * The search, the windows and the summary; null once `signal` is aborted
-   * (the run was abandoned). The Discord searches carry `searchSignal`
+   * (the run was abandoned). The message searches carry `searchSignal`
    * (aborted with `signal`, or at the PREPARE_SHARE mark: a search cut there
    * counts as failed and ends the searching). Once the windows are read,
    * `progress.fallback(kind)` gives the answer without a summary. `trace`
@@ -1272,10 +1262,10 @@ export function createRecall({
     config,
     settings,
     prompt,
-    guild,
+    snapshot,
     guildId,
     channel,
-    partner,
+    partnerId,
     selfId,
     selfName,
     history,
@@ -1310,13 +1300,14 @@ export function createRecall({
     });
 
     // The pull rail toward this turn's channel and the private-owner rule (scopeOf).
-    const { judged, sourceOf, privateUserId, allowEntry, allowLine } = scopeOf({ config, guild, channel, partner });
+    const scope = scopeOf({ config, snapshot, channel, partnerId });
+    const { judged, sourceOf, privateUserId, allowEntry, allowLine } = scope;
     const recent = isRecentCue(server, { now: now(), recordDays: settings.recordDays });
     // A `when:` that only locates the event: it ranks, it bounds no local source (locatorOf).
     const locator = locatorOf(server, settings);
     // The turn's own chat: its lines are dropped by id from every source (a private chat is not part of
     // the server: it drops nothing).
-    const own = channel.guild && Array.isArray(history) ? history.filter((m) => m?.id) : [];
+    const own = inCommunity(channel) && Array.isArray(history) ? history.filter((m) => m?.id) : [];
     const ownIds = new Set(own.map((m) => m.id));
 
     // 0a. Meaning (features.meaningSearch): one embedding, the vector index; a failure leaves words only.
@@ -1324,7 +1315,6 @@ export function createRecall({
     const meaning = await meaningSearch({
       config,
       settings,
-      guild,
       guildId,
       channel,
       candidate,
@@ -1343,17 +1333,17 @@ export function createRecall({
       if (trace) trace.meaning = meaning.trace;
     }
 
-    // The time of each step, for `recall: searched` (src/ops/metrics.js reads them off the log).
-    const took = { memoryMs: 0, recordMs: 0, discordMs: 0 };
+    // The time of each step, for `recall: searched` (src/tools/impl/metrics.ts reads them off the log).
+    const took = { memoryMs: 0, recordMs: 0, searchMs: 0 };
     let stepAt = now();
     // 0. Stored memory (the archive included): no request, before the first Discord one so it always fits the budget.
     const memory = await storedMemory({
       config,
       settings,
-      guild,
+      snapshot,
       guildId,
       channel,
-      partner,
+      partnerId,
       server,
       recent,
       allowEntry,
@@ -1372,7 +1362,6 @@ export function createRecall({
     const via = new Map();
     stepAt = now();
     const people = await findPeople({
-      guild,
       guildId,
       who: server.who ?? [],
       maxPeople: settings.maxPeople,
@@ -1383,7 +1372,7 @@ export function createRecall({
       via,
     });
     if (signal.aborted) return null;
-    took.discordMs += now() - stepAt;
+    took.searchMs += now() - stepAt;
     if (trace)
       trace.people = people.map((p) => ({
         id: p.id,
@@ -1407,7 +1396,7 @@ export function createRecall({
     stepAt = now();
     const recordWindows = await recordWindowsFor({
       settings,
-      guild,
+      snapshot,
       guildId,
       server,
       people,
@@ -1462,7 +1451,10 @@ export function createRecall({
       if (searchSignal.aborted || (stats.queries > 0 && now() >= searchUntil)) break;
       const query = queue.shift();
       beforeRequest();
-      const page = await searchMessages(guild, query, { signal: searchSignal });
+      const page = await untilAborted(
+        searchSignal,
+        reads.searchMessages({ communityId: guildId }, searchQueryOf(query))
+      );
       stats.queries += 1;
       const traced = planned.get(query);
       if (traced) {
@@ -1480,8 +1472,9 @@ export function createRecall({
       // Rarity is judged on the asked range: the broad page's total counts for nothing.
       if (!query.offset && !query.broad) totals.set(key, page.total);
       for (const raw of page.hits) {
-        if (!hits.has(raw.id)) hits.set(raw.id, hitFrom(raw));
-        hits.get(raw.id).queries.add(key);
+        const hit = hitFrom(raw);
+        if (!hits.has(hit.id)) hits.set(hit.id, hit);
+        hits.get(hit.id).queries.add(key);
       }
       if (query.kind === 'range' && !query.offset) {
         const more = sampleOffsets(page.total, settings.dateSamples)
@@ -1492,7 +1485,7 @@ export function createRecall({
         stats.planned += more.length;
       }
     }
-    took.discordMs += now() - stepAt;
+    took.searchMs += now() - stepAt;
     stats.hits = hits.size;
 
     // 4. Dropped: other bots, the turn's own chat, channels the pull rail refuses here (sourceOf, judged once each).
@@ -1523,24 +1516,18 @@ export function createRecall({
       rareForms: rareFormKeys(totals, settings.rareHits),
       locator,
     });
-    const normalizeOptions = {
-      selfId,
-      embedTextChars: config.media?.embedTextChars,
-      videoSites: config.media?.video?.sites,
-      maxUrlChars: config.context?.maxUrlChars,
-    };
     // The lines after a window's last one that continue its conversation; none when the follow is off,
     // the window already ends in the turn's own chat (what follows is that chat) or the fetch fails.
     const followOf = async (source, messages) => {
       const last = messages[messages.length - 1];
       if (settings.followMessages <= 0 || !last || ownIds.has(last.id)) return [];
-      const after = await fetchAfter(source, last.id, settings.followMessages, normalizeOptions);
+      const after = await linesOf(reads, source, { after: last.id, limit: settings.followMessages });
       return after ? followConversation(last.ts, after, settings) : [];
     };
     const fetched = await Promise.all(
       candidates.map(async (cluster) => {
         const source = judged.get(cluster.channelId);
-        const around = await fetchAround(source, cluster.middleId, settings.windowMessages, normalizeOptions);
+        const around = await linesOf(reads, source, { around: cluster.middleId, limit: settings.windowMessages });
         if (!around) return null;
         const messages = [...around, ...(await followOf(source, around))];
         const shown = messages.filter((m) => !m.bot && !ownIds.has(m.id));
@@ -1618,7 +1605,7 @@ export function createRecall({
       meaningMs: stats.meaningMs,
       memoryMs: took.memoryMs,
       recordMs: took.recordMs,
-      discordMs: took.discordMs,
+      searchMs: took.searchMs,
       planned: stats.planned,
       queries: stats.queries,
       failed: stats.failed,
@@ -1787,8 +1774,8 @@ export function createRecall({
    * the search's, also on `recall: searched`): matched memory or a record
    * window alone still asks the summary. `stats.meaning` the rows the meaning
    * search kept and `stats.meaningMs` its time (both 0 without it, also on
-   * `recall: searched`, beside `memoryMs`, `recordMs` and `discordMs`, the time of
-   * the stored-memory match, the record match and the Discord searches; `recall:
+   * `recall: searched`, beside `memoryMs`, `recordMs` and `searchMs`, the time of
+   * the stored-memory match, the record match and the message searches; `recall:
    * summary` carries `totalMs`, the run's time so far). The first
    * request of a run (a Discord one, or the summary of a run on memory
    * alone) bumps `recallDay`/`recallCount` once. Never rejects: a failure logs `recall:
@@ -1819,7 +1806,7 @@ export function createRecall({
    * or `timeout` when the run ran out yet left its fallback stretch), `hits`
    * (the search hits), `kept`, `summaryChars` and `stretch` (whether a
    * stretch is returned); `failed` with `timeout` (nothing left) or `error`.
-   * `quotes` (the persona's own memory.search, src/skills/tools.js): the memory database's search
+   * `quotes` (the persona's own memory.search, src/tools/tools.ts): the memory database's search
    * (runDbQuotes): no summary is asked and the prompt is not needed; the run resolves `quotes`, the
    * stretches in rank order, with `text` and `stretch` null, and logs `recall: quoted`; while the
    * database is not open its `outcome` is `not-configured`.
@@ -1834,10 +1821,10 @@ export function createRecall({
    * fits the read (see dbReader), so the reads of one turn carry one context id.
    */
   async function run({
-    guild,
-    guildId = guild?.id ?? null,
+    guildId = null,
+    snapshot = null,
     channel,
-    partner = null,
+    partnerId = null,
     selfId,
     selfName,
     history = [],
@@ -1892,7 +1879,7 @@ export function createRecall({
         trace = newTrace({ started, channelId, candidate, server });
         traceMaxLines = settings.traceMaxLines;
       }
-      if (!guild || (!channel?.guild && !partner)) return skip('private-chat');
+      if (!guildId || (!inCommunity(channel) && !partnerId)) return skip('private-chat');
       if (!asksServer(server)) return skip('no-query');
       const prompt = summaryPrompt();
       if (!prompt && !quotes) return skip('no-prompt');
@@ -1911,10 +1898,10 @@ export function createRecall({
           db,
           config,
           settings,
-          guild,
+          snapshot,
           guildId,
           channel,
-          partner,
+          partnerId,
           selfName,
           history,
           candidate,
@@ -1942,10 +1929,10 @@ export function createRecall({
         config,
         settings,
         prompt,
-        guild,
+        snapshot,
         guildId,
         channel,
-        partner,
+        partnerId,
         selfId,
         selfName,
         history,
@@ -2048,10 +2035,10 @@ export function createRecall({
    * @returns {Promise<object|null>}
    */
   async function prefetch({
-    guild,
-    guildId = guild?.id ?? null,
+    guildId = null,
+    snapshot = null,
     channel,
-    partner = null,
+    partnerId = null,
     selfId,
     selfName,
     history = [],
@@ -2086,25 +2073,23 @@ export function createRecall({
       const config = hot.config;
       const settings = recallSettings(config);
       if (!settings || list.length === 0) return null;
-      if (!guild || (!channel?.guild && !partner)) return finish('unavailable', { reason: 'private-chat' });
+      if (!guildId || (!inCommunity(channel) && !partnerId)) return finish('unavailable', { reason: 'private-chat' });
       const p = settings.prefetch;
       const until = Number.isFinite(at) ? at : now();
       const bounded = Number.isFinite(at);
       const controller = new AbortController();
       const signal = controller.signal;
-      const scope = scopeOf({ config, guild, channel, partner });
+      const scope = scopeOf({ config, snapshot, channel, partnerId });
       const { sourceOf, privateUserId, allowEntry, allowLine } = scope;
-      const own = channel.guild && Array.isArray(history) ? history.filter((m) => m?.id) : [];
+      const own = inCommunity(channel) && Array.isArray(history) ? history.filter((m) => m?.id) : [];
       const ownIds = new Set(own.map((m) => m.id));
       const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [];
       const stored = new Map(profiles.filter((profile) => profile?.id).map((profile) => [String(profile.id), profile]));
       const nameOf = (id) => {
         const name = stored.get(String(id))?.names?.[0];
-        return (
-          (typeof name === 'string' && name ? name : null) ?? guild?.members?.cache?.get?.(id)?.displayName ?? null
-        );
+        return (typeof name === 'string' && name ? name : null) ?? memberName(guildId, String(id)) ?? null;
       };
-      const channelNameOf = (id) => guild?.channels?.cache?.get?.(id)?.name ?? null;
+      const channelNameOf = (id) => snapshot?.get(id)?.name ?? null;
       // A replay's moment bounds the archive too: an entry recorded after it did not exist yet.
       const archiveShared = sharedSource(
         bounded && typeof archive?.iterate === 'function'
@@ -2180,10 +2165,10 @@ export function createRecall({
               storedMemory({
                 config,
                 settings,
-                guild,
+                snapshot,
                 guildId,
                 channel,
-                partner,
+                partnerId,
                 server: { forms, who: used.who, from: null, to: bounded ? until : null },
                 recent: false,
                 allowEntry,
@@ -2203,7 +2188,7 @@ export function createRecall({
         // One search of the database per lane: words, letters, meaning and people fused, the stretches built around the
         // hits. A word hit is relevant by lexicalKeep (its terms and phrases, its cosine when the meaning search found
         // it); a meaning hit by the same floors the vector files use, with a term of the lane or a strong cosine.
-        const reader = dbReader({ db, config, guild, guildId, channel, partner, asker, memoryContext });
+        const reader = dbReader({ db, config, snapshot, guildId, channel, partnerId, asker, memoryContext });
         list.forEach((lane, i) => {
           const plan = plans[i];
           const forms = plan ? [...plan.phrases, ...plan.forms] : [];

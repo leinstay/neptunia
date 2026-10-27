@@ -1,0 +1,480 @@
+{
+  "status.show": {
+    "title": "Runtime state",
+    "whenToUse": "Read state. Pick a section with part.",
+    "args": {
+      "part": "Group of fields.",
+      "field": "One card field."
+    }
+  },
+  "config.set": {
+    "title": "Set a config value",
+    "whenToUse": "Override one config key in the local file; takes effect on the next reload.",
+    "whenNotToUse": "Administrative, not grantable to you."
+  },
+  "config.unset": {
+    "title": "Remove a config override",
+    "whenToUse": "Drop a local override so the key falls back to its default.",
+    "whenNotToUse": "Administrative, not grantable to you."
+  },
+  "bot.pause": {
+    "title": "Pause the persona",
+    "whenToUse": "Stop the persona from speaking and flush memory to disk.",
+    "whenNotToUse": "Administrative, not grantable to you."
+  },
+  "bot.resume": {
+    "title": "Resume the persona",
+    "whenToUse": "Restart the persona after a pause; refuses if a data file is invalid.",
+    "whenNotToUse": "Administrative, not grantable to you."
+  },
+  "draw.create": {
+    "title": "Draw a picture",
+    "whenToUse": "Generate one picture. Costs money; a failed picture is still paid. English, {{drawChars}} chars max (cut at last fitting sentence). Order: who and action, setting and light, camera position and direction. Faces: direction and eye target; 'facing the viewer' for selfie or portrait. Every figure: where the limbs inside the frame are, what carries its weight; in a side view, the far limb shows behind the near one. Name contacts the action needs. Camera: side for face plus action toward a target, three-quarters behind for depth; avoid target side (becomes viewer-facing). Keep the camera in profile, not turning the figure for the viewer at the cost of the action. Equipment: type and one layout fact. Ask about place if none obvious; clothes, expression, pose, time you decide. Generic people are not you. Fresh scene; restate setting when continuing.",
+    "args": {
+      "text": "English, {{drawChars}} chars max.",
+      "self": "True when you appear. Omit appearance. Think first: where, time, clothes, camera, direction (or facing viewer), expression as features not mood (several, pick one new), pose, action. Write all into the scene.",
+      "channel": "Target #handle.",
+      "reply": "#N or link to reply to."
+    }
+  },
+  "voice.say": {
+    "title": "Send a voice message",
+    "whenToUse": "Say something aloud instead of typing it: your words are spoken in your voice and posted as a voice message. Write the text as you would say it. Directions in square brackets shape the delivery and are not spoken: a tone ([tired], [playful], [whispers]), a reaction ([sighs], [laughs], [gasps]), a [pause]. Any short direction in brackets works.",
+    "whenNotToUse": "Long texts: a voice message over a minute is rarely listened to.",
+    "args": {
+      "text": "What you say, with directions in brackets.",
+      "channel": "Target #handle.",
+      "reply": "#N or link to reply to."
+    }
+  },
+  "pings.get": {
+    "title": "Notification setting",
+    "whenToUse": "The caller's ping setting."
+  },
+  "pings.set": {
+    "title": "Change notification setting",
+    "whenToUse": "Toggle pings on or off.",
+    "whenNotToUse": "One member per call.",
+    "args": {
+      "mode": "on or off."
+    }
+  },
+  "media.status": {
+    "title": "Emoji and GIF state",
+    "whenToUse": "Emoji ranking and GIF counts."
+  },
+  "media.rescan": {
+    "title": "Rescan emoji or GIFs",
+    "whenToUse": "Recount usage from history.",
+    "whenNotToUse": "Background; blocks a second scan."
+  },
+  "media.recache": {
+    "title": "Recache GIFs",
+    "whenToUse": "Re-watch GIFs for descriptions.",
+    "whenNotToUse": "Background; needs video descriptions.",
+    "args": {
+      "days": "Days back (1 to 60)."
+    }
+  },
+  "model.show": {
+    "title": "Current models",
+    "whenToUse": "Model per role."
+  },
+  "model.set": {
+    "title": "Set a model",
+    "whenToUse": "Change the model for one role; takes effect on the next request.",
+    "whenNotToUse": "Administrative, not grantable to you."
+  },
+  "route.list": {
+    "title": "Provider routes",
+    "whenToUse": "Routes and models."
+  },
+  "route.set": {
+    "title": "Set a route",
+    "whenToUse": "Route a model prefix to specific providers, for one role or all.",
+    "whenNotToUse": "Administrative, not grantable to you."
+  },
+  "route.remove": {
+    "title": "Remove a route",
+    "whenToUse": "Delete a model prefix's provider route.",
+    "whenNotToUse": "Administrative, not grantable to you."
+  },
+  "rule.add": {
+    "title": "Add a rule",
+    "whenToUse": "Append a correction.",
+    "whenNotToUse": "Writes to rules file."
+  },
+  "rule.list": {
+    "title": "List rules",
+    "whenToUse": "The owner's corrections, numbered."
+  },
+  "rule.remove": {
+    "title": "Remove a rule",
+    "whenToUse": "Delete by number.",
+    "whenNotToUse": "Irreversible."
+  },
+  "access.grant": {
+    "title": "Grant access",
+    "whenToUse": "Open an operation or group to a user, a role or everyone.",
+    "whenNotToUse": "Administrative, not grantable to you; you never change rights that reach you."
+  },
+  "access.revoke": {
+    "title": "Revoke access",
+    "whenToUse": "Close an operation or group for a user, a role or everyone.",
+    "whenNotToUse": "Administrative, not grantable to you; you never change rights that reach you."
+  },
+  "access.list": {
+    "title": "List grants",
+    "whenToUse": "Access grants."
+  },
+  "alias.add": {
+    "title": "Add an alias",
+    "whenToUse": "Record a nickname for a member.",
+    "whenNotToUse": "Only record names people actually use in conversation.",
+    "args": {
+      "user": "@handle.",
+      "name": "The alias to store."
+    }
+  },
+  "alias.remove": {
+    "title": "Remove an alias",
+    "whenToUse": "Delete a stored alias.",
+    "whenNotToUse": "Irreversible.",
+    "args": {
+      "user": "@handle.",
+      "name": "The alias to remove."
+    }
+  },
+  "learning.add": {
+    "title": "Add a lesson",
+    "whenToUse": "Record something taught to you.",
+    "whenNotToUse": "Only what someone taught you directly."
+  },
+  "learning.remove": {
+    "title": "Remove a lesson",
+    "whenToUse": "Delete by number.",
+    "whenNotToUse": "Irreversible."
+  },
+  "lore.add": {
+    "title": "Add a lore entry",
+    "whenToUse": "Create or overwrite a lorebook entry.",
+    "whenNotToUse": "Stored like an owner entry.",
+    "args": {
+      "keys": "Trigger words, comma-separated.",
+      "always": "true: show even with no key match."
+    }
+  },
+  "lore.list": {
+    "title": "List lore",
+    "whenToUse": "List entries.",
+    "whenNotToUse": "lore.show for full text.",
+    "args": {
+      "query": "Filter by title or key."
+    }
+  },
+  "lore.show": {
+    "title": "Show a lore entry",
+    "whenToUse": "One entry in full."
+  },
+  "lore.remove": {
+    "title": "Remove a lore entry",
+    "whenToUse": "Delete by id.",
+    "whenNotToUse": "Irreversible."
+  },
+  "memory.profile.read": {
+    "title": "Read a profile",
+    "whenToUse": "Member's stored profile.",
+    "whenNotToUse": "Does not include DM memory.",
+    "args": {
+      "section": "summary, character, style, relationship, affinity, aliases, interests, details, episodes, raw.",
+      "limit": "Items shown (default 25, max 100).",
+      "order": "rank (weight) or recent.",
+      "user": "@handle or name."
+    }
+  },
+  "memory.channel.read": {
+    "title": "Read channel notes",
+    "whenToUse": "One channel's notes, or all channels."
+  },
+  "memory.server.read": {
+    "title": "Read server notes",
+    "whenToUse": "Stored patterns about the server."
+  },
+  "memory.recent.read": {
+    "title": "Read recent events",
+    "whenToUse": "Recent notes."
+  },
+  "memory.affinity.read": {
+    "title": "Read attitude",
+    "whenToUse": "Attitude toward a member.",
+    "args": {
+      "user": "@handle or name."
+    }
+  },
+  "memory.journal.read": {
+    "title": "Read journal",
+    "whenToUse": "Day's records or a turn behind your message.",
+    "args": {
+      "kind": "turn, action, memory, system, answer, inner, all.",
+      "message": "#N or link of your message.",
+      "day": "YYYY-MM-DD (default today).",
+      "n": "Count (default 20, max 50)."
+    }
+  },
+  "memory.archive.read": {
+    "title": "Read archive",
+    "whenToUse": "Archived items.",
+    "args": {
+      "kind": "Item kind.",
+      "n": "Count (default 20, max 100).",
+      "user": "@handle to scope to."
+    }
+  },
+  "memory.restore": {
+    "title": "Restore from archive",
+    "whenToUse": "Put an archived item back into active memory, replacing what is stored at its position.",
+    "whenNotToUse": "Destructive, not grantable to you."
+  },
+  "memory.snapshot": {
+    "title": "Snapshot data",
+    "whenToUse": "Copy data for tools."
+  },
+  "memory.private.read": {
+    "title": "Read private memory",
+    "whenToUse": "DM memory for a member.",
+    "whenNotToUse": "Owner sees reply."
+  },
+  "message.create": {
+    "title": "Post a message",
+    "whenToUse": "For another channel, errand file, or media repost. <msg> covers this channel. One GIF, file, or repost per post; they do not combine.",
+    "whenNotToUse": "Your conversations only.",
+    "args": {
+      "media": "Your #N or link; reposts its attachment.",
+      "item": "Which attachment (1 to 20).",
+      "channel": "Target #handle.",
+      "reply": "#N or link to reply to.",
+      "text": "Message text.",
+      "file": "file:<task-id>/<name>.",
+      "gif": "Library GIF handle."
+    }
+  },
+  "message.edit": {
+    "title": "Edit your message",
+    "whenToUse": "Change the text of any message you sent, any time after sending: a typo, a tag that tagged nobody, a wrong fact, a line you want to word differently. Others see the message marked as edited. A tag you add by editing sends no notification; when someone was missed, edit the message and send a follow-up that tags them.",
+    "whenNotToUse": "Your messages only.",
+    "args": {
+      "message": "#N, link, or \"last\" (most recent in channel).",
+      "channel": "Required with \"last\"."
+    }
+  },
+  "message.delete": {
+    "title": "Delete your message",
+    "whenToUse": "Remove any message you sent that you regret or posted by mistake.",
+    "whenNotToUse": "Irreversible.",
+    "args": {
+      "message": "#N, link, or \"last\".",
+      "channel": "#handle, required with \"last\"."
+    }
+  },
+  "message.react.add": {
+    "title": "Add a reaction",
+    "whenToUse": "React to a message.",
+    "whenNotToUse": "Your conversations.",
+    "args": {
+      "emoji": "Unicode or custom :name:.",
+      "message": "#N or link.",
+      "channel": "#handle."
+    }
+  },
+  "message.react.remove": {
+    "title": "Remove your reaction",
+    "whenToUse": "Remove your reaction.",
+    "args": {
+      "message": "#N or link.",
+      "emoji": "Unicode or custom :name:.",
+      "channel": "#handle."
+    }
+  },
+  "task.run": {
+    "title": "Hand off an errand",
+    "whenToUse": "Background job; result later. Costs money. scout: multi-step research, finding and downloading files and images, sites that need navigation. server: read-only questions about this machine. Files for message.create. Several at once, each agent one at a time. Form the full goal first. Agent sees only the goal.",
+    "whenNotToUse": "Not for what you can answer; daily limits.",
+    "args": {
+      "goal": "What to do. Agent sees only this."
+    }
+  },
+  "task.status": {
+    "title": "Check an errand",
+    "whenToUse": "Errand state by id or open ones.",
+    "whenNotToUse": "Tasks block shows open ones."
+  },
+  "task.read": {
+    "title": "Read an errand's result",
+    "whenToUse": "Full result in pages. Marks the errand as read.",
+    "args": {
+      "from": "Page offset."
+    }
+  },
+  "task.resolve": {
+    "title": "Close a finished errand",
+    "whenToUse": "Mark resolved; leaves tasks block.",
+    "whenNotToUse": "Not needed once you report its result."
+  },
+  "task.cancel": {
+    "title": "Cancel an errand",
+    "whenToUse": "Stop an open errand.",
+    "whenNotToUse": "Only the requester or the owner."
+  },
+  "task.list": {
+    "title": "List errands",
+    "whenToUse": "Latest ten with states.",
+    "whenNotToUse": "Results not included; use task.read."
+  },
+  "web.search": {
+    "title": "Search the web",
+    "whenToUse": "Look up a fact or check something quickly. Returns in this turn.",
+    "whenNotToUse": "For multi-step research or downloading files, task.run scout.",
+    "args": {
+      "goal": "What the search should establish."
+    }
+  },
+  "web.read": {
+    "title": "Read a web page",
+    "whenToUse": "Read one page by link. Same turn.",
+    "whenNotToUse": "For multi-step research or downloading files, task.run scout.",
+    "args": {
+      "message": "#N; opens its first link."
+    }
+  },
+  "media.look": {
+    "title": "Look more closely",
+    "whenToUse": "Closer look at a picture, GIF or video in the chat. Watches a video by link before you share or talk about it. Same turn.",
+    "whenNotToUse": "Not when the first look answers.",
+    "args": {
+      "message": "#N to look at.",
+      "url": "A video link from a supported site, instead of a message.",
+      "item": "Which attachment of the message (1 to 20).",
+      "question": "What to look for."
+    }
+  },
+  "media.find": {
+    "title": "Find a GIF",
+    "whenToUse": "Search GIF library. Handles for <gif> or message.create.",
+    "whenNotToUse": "Your library only.",
+    "args": {
+      "n": "Results (1 to 10)."
+    }
+  },
+  "memory.search": {
+    "title": "Search this server's messages",
+    "whenToUse": "Find what was said. With anchor, read lines around a known line instead. Quoted sample with time and author.",
+    "whenNotToUse": "Not for what chat shows.",
+    "args": {
+      "when": "YYYY-MM-DD or range (A..B).",
+      "people": "Names or @handles.",
+      "terms": "Exact words to match.",
+      "channel": "#handle.",
+      "anchor": "#N from a result or the chat, or a message id. Reads nearby lines instead of searching.",
+      "move": "up for earlier, down for later.",
+      "messages": "How many lines (1 to 60).",
+      "minutes": "Lines within this many minutes of the anchor (1 to 1440)."
+    }
+  },
+  "conversation.read": {
+    "title": "Read a channel",
+    "whenToUse": "Any channel. around (#N), since (delay, time, date-time), last (default 20, max 60). Returns #N lines.",
+    "whenNotToUse": "memory.search for topics.",
+    "args": {
+      "around": "#N or link; before/after for range (default 10).",
+      "since": "Delay (2h), clock (12:00), date-time.",
+      "last": "N messages (1 to 60).",
+      "before": "With around: count before (default 10). Alone: #N or link, read last lines before it.",
+      "after": "With around: count after (default 10). Alone: #N or link, read last lines after it.",
+      "channel": "#handle."
+    }
+  },
+  "intent.set": {
+    "title": "Set an intention",
+    "whenToUse": "Schedule something for later; must be called in this turn. Agreement alone creates nothing. Tell people only after the call succeeds.",
+    "whenNotToUse": "Not for what you can do directly in this turn. To change an existing one: intent.update.",
+    "args": {
+      "due": "Delay (30m; 0m: right away), date, clock (21:00), weekday+time (mon 20:00).",
+      "deadline": "Wait time. Without task, links this turn's errand.",
+      "attend": "Listen to a place; wakes on new lines. due/every ignored.",
+      "text": "The purpose, up to 300 characters.",
+      "channel": "Where it happens.",
+      "every": "day, week, <n>h, <n>d.",
+      "expires": "When it lapses; time like due.",
+      "task": "Errand id to wait on.",
+      "chain": "Links related intentions.",
+      "condition": "Done when met.",
+      "people": "With attend: only these people's lines wake you.",
+      "settle": "Quiet seconds before waking.",
+      "perday": "Daily wake limit.",
+      "state": "dropped: a desire let go.",
+      "reason": "Why; required with dropped."
+    }
+  },
+  "intent.update": {
+    "title": "Update an intention",
+    "whenToUse": "Change an intention. done: one occurrence. dropped+reason: let go. Accept candidate: state pending. intent.cancel ends repeating.",
+    "whenNotToUse": "Reject a candidate or an intention: intent.cancel.",
+    "args": {
+      "state": "pending, done, or dropped.",
+      "reason": "Required with dropped.",
+      "id": "Intention id, or as bare text.",
+      "text": "New purpose.",
+      "every": "day, week, <n>h, <n>d, or none.",
+      "expires": "When it lapses; time like due.",
+      "due": "Same formats as intent.set due.",
+      "task": "Errand id to wait on.",
+      "deadline": "Wait time for the errand.",
+      "chain": "Links related intentions.",
+      "condition": "Completion condition.",
+      "channel": "Destination #handle.",
+      "people": "@handles or ids, comma-separated.",
+      "settle": "Quiet seconds before waking.",
+      "perday": "Daily wake limit."
+    }
+  },
+  "intent.cancel": {
+    "title": "Cancel an intention",
+    "whenToUse": "Drop one you reject or no longer need. Rejects a proposed candidate.",
+    "whenNotToUse": "Finished: intent.update state=done.",
+    "args": {
+      "id": "Intention or candidate id."
+    }
+  },
+  "inner.stop": {
+    "title": "Stop the inner life",
+    "whenToUse": "Stop the persona's own wake-ups and drop the queued ones.",
+    "whenNotToUse": "Administrative, not grantable to you."
+  },
+  "inner.start": {
+    "title": "Start the inner life",
+    "whenToUse": "Let the persona's own wake-ups run again after a stop.",
+    "whenNotToUse": "Administrative, not grantable to you."
+  },
+  "inner.status": {
+    "title": "Inner life status",
+    "whenToUse": "Show whether the persona's own wake-ups run, what is queued and what is left of their caps.",
+    "whenNotToUse": "Administrative, not grantable to you."
+  },
+  "intent.list": {
+    "title": "List intentions",
+    "whenToUse": "Open intentions with states and times.",
+    "whenNotToUse": "Intentions block shows them."
+  },
+  "places.list": {
+    "title": "See the server's places",
+    "whenToUse": "Counts, access, listening. To listen: intent.set with attend.",
+    "whenNotToUse": "For what was said: chat or memory.search."
+  },
+  "tools.describe": {
+    "title": "Describe a skill",
+    "whenToUse": "Full description, or family for all in it. Use when unsure about arguments.",
+    "args": {
+      "name": "Skill (memory.search) or family (memory)."
+    }
+  }
+}
