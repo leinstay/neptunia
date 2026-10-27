@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createMirrors, guardMirrorPort } from '../src/behavior/mirror.ts';
+import type { PublishOutcome } from '../src/behavior/mirror.ts';
 import { DIARY_DAILY } from '../src/behavior/diary.js';
 import { createTurnRunner } from '../src/behavior/turn.js';
 import { createAdmin } from '../src/admin.js';
@@ -146,7 +147,13 @@ async function turnOf(
     answers,
     mode = 'reply',
     onAnswer = null,
-  }: { answers: Array<unknown>; mode?: 'reply' | 'inner' | 'diary'; onAnswer?: ((index: number) => void) | null }
+    mirrors = core.mirrors,
+  }: {
+    answers: Array<unknown>;
+    mode?: 'reply' | 'inner' | 'diary';
+    onAnswer?: ((index: number) => void) | null;
+    mirrors?: Community['mirrors'];
+  }
 ) {
   const hot = settings();
   const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } };
@@ -159,7 +166,7 @@ async function turnOf(
     port: core.port,
     reads: core.reads,
     // The diary's publisher: an entry she writes goes to every enabled mirror.
-    mirrors: core.mirrors,
+    mirrors,
     errands: core.errands,
     // The download of her own picture a media repost takes.
     fetchImpl: () =>
@@ -184,7 +191,7 @@ async function turnOf(
     getSelfName: () => 'Bot',
     skills: skillRegistry(),
     journal: null,
-    mirrors: core.mirrors,
+    mirrors,
     // Her errands' files, which a post may carry.
     errands: core.errands,
     runOp: admin.runSkillOp,
@@ -253,16 +260,11 @@ const receivedIn = (core: Community, conversationId: string) =>
 
 test('two diary calls of an ordinary turn make one entry, published to every mirror once when the turn ends', async () => {
   const core = await community();
-  let sentDuringTurn = -1;
+  // Both calls in one answer, two tool calls of one step: a post is an effect, and an effect ends the turn's steps.
   const { logs } = await turnOf(core, {
     answers: [toDiary({ text: 'μια σκέψη' }, { text: 'και μια ακόμη' }), '<skip/>'],
-    // Her second request comes after the calls ran, before the turn ended.
-    onAnswer: (index) => {
-      if (index === 1) sentDuringTurn = core.adapter.messagesIn('d1').length + core.adapter.messagesIn('d2').length;
-    },
   });
   assert.deepEqual(calledOf(logs), ['message.create:ok', 'message.create:ok']);
-  assert.equal(sentDuringTurn, 0, 'nothing is sent while the turn runs');
   assert.deepEqual(
     diaryRows(core.memory.memoryDb).map((row) => row.text),
     ['μια σκέψη\nκαι μια ακόμη']
@@ -347,11 +349,48 @@ test("over diary.maxPerDay the turn's first diary call is refused cap-diary and 
   assert.deepEqual([core.texts('d1'), core.texts('d2')], [[], []]);
 });
 
-test('the diary turn does not offer message.create, and writes its entry itself', async () => {
+// The diary turn keeps its requests byte for byte (section 4): its writer request carries `message.create` as it does
+// today, and a call of it there is refused as today's diary turn refuses any call but a picture or a voice.
+test('the diary turn offers message.create as today and refuses a diary call as today', async () => {
   const core = await community();
   const plan = JSON.stringify({ kind: 'status', brief: 'a quiet day', search: '', picture: false });
-  const { llm } = await turnOf(core, { mode: 'diary', answers: [plan, '<msg>μια ήσυχη μέρα</msg>'] });
-  const writer: unknown = llm.options.at(-1);
-  assert.ok(writer, 'the diary turn made its writer request');
-  assert.ok(!offeredIn(writer).includes('message_create'));
+  const { llm, logs } = await turnOf(core, {
+    mode: 'diary',
+    answers: [
+      plan,
+      toolAnswer('<msg>μια ήσυχη μέρα</msg>', [call('message.create', { diary: 'true', text: 'x' })]),
+      '<msg>μια ήσυχη μέρα</msg>',
+    ],
+  });
+  const writer: unknown = llm.options[1];
+  assert.ok(offeredIn(writer).includes('message_create'), 'the writer request carries the tool');
+  assert.deepEqual(calledOf(logs), ['message.create:denied/diary-draw-only']);
+});
+
+// Section 10: the entry is in memory before anything is sent. A process that stops after her diary call answered and
+// before the turn's end published it leaves the entry and its queued publications; the next start sends them.
+test("a diary entry whose turn stopped before it was published goes out once from the next start's queue", async () => {
+  const core = await community();
+  // The same publisher, whose publication at the turn's end never happens: the process stopped first.
+  const stopped = {
+    ...core.mirrors,
+    publishEntry: (): Promise<Array<PublishOutcome>> => Promise.reject(new Error('the process stopped')),
+  };
+  const { logs } = await turnOf(core, { answers: [toDiary({ text: 'πριν σβήσει' }), '<skip/>'], mirrors: stopped });
+  assert.deepEqual(calledOf(logs).slice(0, 1), ['message.create:ok']);
+  assert.deepEqual(
+    diaryRows(core.memory.memoryDb).map((row) => row.text),
+    ['πριν σβήσει'],
+    'the entry is in memory'
+  );
+  assert.deepEqual([core.texts('d1'), core.texts('d2')], [[], []], 'nothing went out');
+  const restarted = createMirrors({
+    memoryDb: core.memory.memoryDb,
+    port: () => core.adapter,
+    now: () => NOW,
+    dataDir: core.memory.dataDir,
+  });
+  assert.equal(await restarted.drainQueued(), 2, 'one publication for each mirror');
+  assert.equal(await restarted.drainQueued(), 0, 'sent once');
+  assert.deepEqual([core.texts('d1'), core.texts('d2')], [['πριν σβήσει'], ['πριν σβήσει']]);
 });

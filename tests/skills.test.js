@@ -299,6 +299,8 @@ test('skills schemas: her own table gives each skill its arguments', () => {
     'gif',
     'media',
     'item',
+    // Stage 3 design, section 10: her diary in place of a channel.
+    'diary',
   ]);
   assert.deepEqual(create.argsSchema.required, []);
   assert.equal(create.dispatch.body, 'text');
@@ -908,6 +910,8 @@ test('skills list: one row per skill with its texts, allowed or not and why', ()
       { name: 'gif', required: false },
       { name: 'media', required: false },
       { name: 'item', required: false, minimum: 1, maximum: 20 },
+      // Stage 3 design, section 10: her diary in place of a channel, a string choice.
+      { name: 'diary', required: false, values: ['true', 'false'] },
     ],
   });
   assert.deepEqual(byName.get('message.edit'), {
