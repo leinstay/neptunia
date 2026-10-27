@@ -1,8 +1,8 @@
 // The decision table of the persona's tools (tests/fixtures/tool-decisions.mjs): what the gateway answers for every tool
 // in every context, regenerated from the code and compared with the table committed from the code before the tools moved
-// to src/tools/. The comparison goes through TOOL_ALIASES, the one list of strings the rename changed (the tool
-// `skills.describe` and the config keys named in a refusal's detail), applied to both sides, so a move that changes
-// no answer passes before and after it.
+// to src/tools/. The comparison goes through TOOL_ALIASES, the one list of strings the renames changed (the tool
+// `skills.describe`, the ten tools of the errands and intentions, and the config keys named in a refusal's detail),
+// applied to both sides, so a move that changes no answer passes before and after it.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -16,6 +16,19 @@ const TOOL_ALIASES: Readonly<Record<string, string>> = {
   'features.skills': 'features.tools',
   'skills.safeMode': 'tools.safeMode',
   'skills.destructiveCooldownMinutes': 'tools.destructiveCooldownMinutes',
+  'task.run': 'errand.run',
+  'task.status': 'errand.status',
+  'task.read': 'errand.read',
+  'task.resolve': 'errand.resolve',
+  'task.cancel': 'errand.cancel',
+  'task.list': 'errand.list',
+  'intent.set': 'intention.set',
+  'intent.update': 'intention.update',
+  'intent.cancel': 'intention.cancel',
+  'intent.list': 'intention.list',
+  // The key a refused errand names when the open-errand cap is spent (the daily cap names
+  // `agents.<agent>.daily.tasks`, which no row of the table holds).
+  'agents.maxOpen': 'errands.maxOpen',
 };
 
 const pattern = new RegExp(

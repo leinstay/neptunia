@@ -4,6 +4,10 @@
 // new name, and the loader (src/config.js#readConfig) does it to the local file before that file is laid over
 // config.json: an old key then overrides the shipped default of its new name, and a move is one warning line per load.
 // `tools/config-migrate.mjs` shows (`--dry-run`) or writes (`--apply`) the same moves on a copy of a local file.
+// The errand and intention names add more of the same kind: the grants of `bot.access` on the ten tools renamed from
+// `task.*` and `intent.*`, the nine settings of `agents` that every errand reads (they live under `errands`),
+// `agents.<name>.search.provider` (now `searchProvider`), and the keys nothing reads any more, which are removed and
+// listed as `dropped` by their dotted path.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -63,13 +67,14 @@ test('leaves every key it does not move exactly where it was', () => {
     diary: { channelId: 'c9' },
     recall: { maxPerDay: 3 },
   };
-  const { config, moved, shadowed } = moveConfigKeys(given);
+  const { config, moved, shadowed, dropped } = moveConfigKeys(given);
   assert.deepEqual(config, given);
-  assert.deepEqual([moved, shadowed], [[], []]);
+  assert.deepEqual([moved, shadowed, dropped], [[], [], []]);
 });
 
 test('moves an empty config to an empty config', () => {
-  assert.deepEqual(moveConfigKeys({}), { config: {}, moved: [], shadowed: [] });
+  // `dropped` joins the result (the keys nothing reads any more); an empty config drops nothing.
+  assert.deepEqual(moveConfigKeys({}), { config: {}, moved: [], shadowed: [], dropped: [] });
 });
 
 test('removes the old section once everything in it has moved', () => {
@@ -102,7 +107,8 @@ test('moves nothing the second time', () => {
     bot: { access: { 'skills.describe': GRANT } },
   });
   const second = moveConfigKeys(first.config);
-  assert.deepEqual(second, { config: first.config, moved: [], shadowed: [] });
+  // `dropped` joins the result; nothing is left to drop the second time either.
+  assert.deepEqual(second, { config: first.config, moved: [], shadowed: [], dropped: [] });
 });
 
 test('does not change the config it is given', () => {
@@ -219,4 +225,185 @@ test('refuses to run without --dry-run or --apply, and touches nothing', () => {
   assert.equal(run.code, 1);
   assert.equal(run.err.includes('--apply') && run.err.includes('--dry-run'), true);
   assert.equal(fs.readFileSync(file, 'utf8'), before);
+});
+
+// ---- the errand and intention names ---------------------------------------------------------------------------
+
+const TOOL_GRANT_MOVES: Array<[string, string]> = [
+  ['task.run', 'errand.run'],
+  ['task.status', 'errand.status'],
+  ['task.read', 'errand.read'],
+  ['task.resolve', 'errand.resolve'],
+  ['task.cancel', 'errand.cancel'],
+  ['task.list', 'errand.list'],
+  ['intent.set', 'intention.set'],
+  ['intent.update', 'intention.update'],
+  ['intent.cancel', 'intention.cancel'],
+  ['intent.list', 'intention.list'],
+];
+
+for (const [from, to] of TOOL_GRANT_MOVES) {
+  test(`moves the grant on ${from} to ${to}`, () => {
+    const { config, moved } = moveConfigKeys({ bot: { access: { [from]: GRANT } } });
+    assert.deepEqual(config, { bot: { access: { [to]: GRANT } } });
+    assert.deepEqual(moved, [{ from: `bot.access.${from}`, to: `bot.access.${to}` }]);
+  });
+}
+
+test('drops the three stale memory.refresh grants, lists them as dropped and keeps the other grants', () => {
+  const other = { everyone: true, roles: [], users: [] };
+  const { config, moved, dropped } = moveConfigKeys({
+    bot: {
+      access: {
+        'memory.refresh.channel': GRANT,
+        'memory.refresh.server': GRANT,
+        'memory.refresh.user': GRANT,
+        'message.edit': other,
+      },
+    },
+  });
+  assert.deepEqual(config, { bot: { access: { 'message.edit': other } } });
+  assert.deepEqual(moved, []);
+  assert.deepEqual(dropped.sort(), [
+    'bot.access.memory.refresh.channel',
+    'bot.access.memory.refresh.server',
+    'bot.access.memory.refresh.user',
+  ]);
+});
+
+const ERRAND_KEYS: Array<[string, unknown]> = [
+  ['opencodePath', '/opt/opencode/bin/opencode'],
+  ['toolResultChars', 6000],
+  ['keepFilesHours', 24],
+  ['recentLines', 6],
+  ['maxOpen', 3],
+  ['resultMaxChars', 3000],
+  ['unreadShown', 5],
+  ['resultRetrySeconds', 30],
+  ['resultCooldownSeconds', 60],
+];
+
+for (const [key, value] of ERRAND_KEYS) {
+  test(`moves agents.${key} to errands.${key}`, () => {
+    const { config, moved } = moveConfigKeys({ agents: { [key]: value } });
+    assert.deepEqual(config, { errands: { [key]: value } });
+    assert.deepEqual(moved, [{ from: `agents.${key}`, to: `errands.${key}` }]);
+  });
+}
+
+test('moves a zero or false-like setting of agents and keeps the agents that are left', () => {
+  const scout = { enabled: true, socket: '/run/custom/scout.sock' };
+  const { config } = moveConfigKeys({ agents: { maxOpen: 0, scout } });
+  assert.deepEqual(config, { errands: { maxOpen: 0 }, agents: { scout } });
+});
+
+test('lets errands.maxOpen win over agents.maxOpen and reports the old key as shadowed', () => {
+  const { config, shadowed } = moveConfigKeys({ agents: { maxOpen: 9 }, errands: { maxOpen: 4 } });
+  assert.deepEqual(config, { errands: { maxOpen: 4 } });
+  assert.deepEqual(shadowed, [{ from: 'agents.maxOpen', to: 'errands.maxOpen' }]);
+});
+
+test('writes agents.<name>.search.provider as agents.<name>.searchProvider for every agent', () => {
+  const { config, moved } = moveConfigKeys({
+    agents: { scout: { search: { provider: 'exa' }, enabled: true }, server: { search: { provider: 'brave' } } },
+  });
+  assert.deepEqual(config, {
+    agents: { scout: { enabled: true, searchProvider: 'exa' }, server: { searchProvider: 'brave' } },
+  });
+  assert.deepEqual(moved, [
+    { from: 'agents.scout.search.provider', to: 'agents.scout.searchProvider' },
+    { from: 'agents.server.search.provider', to: 'agents.server.searchProvider' },
+  ]);
+});
+
+test('keeps what else sits beside search.provider', () => {
+  const { config } = moveConfigKeys({ agents: { scout: { search: { provider: 'exa', depth: 2 } } } });
+  assert.deepEqual(config, { agents: { scout: { searchProvider: 'exa', search: { depth: 2 } } } });
+});
+
+test('drops agents.maxDownloadBytes and the two thinker context keys and lists their paths', () => {
+  const { config, dropped } = moveConfigKeys({
+    agents: {
+      maxDownloadBytes: 20_000_000,
+      thinker: { contextLimit: 1, contextHard: 2, cost: { input: 5, output: 9 } },
+    },
+  });
+  assert.deepEqual(config, { agents: { thinker: { cost: { input: 5, output: 9 } } } });
+  assert.deepEqual(dropped.sort(), [
+    'agents.maxDownloadBytes',
+    'agents.thinker.contextHard',
+    'agents.thinker.contextLimit',
+  ]);
+});
+
+test('keeps agents.ledger where it is', () => {
+  const given = { agents: { ledger: { socket: '/run/ledger/sock' } } };
+  const { config, moved, dropped } = moveConfigKeys(given);
+  assert.deepEqual(config, given);
+  assert.deepEqual([moved, dropped], [[], []]);
+});
+
+test('lets the new grant key win when a file holds the task grant and the errand grant, and reports the old one as shadowed', () => {
+  const newer = { everyone: true, roles: [], users: [] };
+  const { config, moved, shadowed } = moveConfigKeys({
+    bot: { access: { 'task.run': GRANT, 'errand.run': newer } },
+  });
+  assert.deepEqual(config, { bot: { access: { 'errand.run': newer } } });
+  assert.deepEqual(moved, []);
+  assert.deepEqual(shadowed, [{ from: 'bot.access.task.run', to: 'bot.access.errand.run' }]);
+});
+
+test('a production-shaped file moves every key once and a second pass finds nothing', () => {
+  const given = {
+    skills: { transport: 'text' },
+    bot: {
+      owners: ['o1'],
+      access: { 'skills.describe': GRANT, 'task.run': GRANT, 'intent.set': GRANT, 'memory.refresh.user': GRANT },
+    },
+    agents: {
+      resultRetrySeconds: 45,
+      ledger: { socket: null },
+      scout: { enabled: true, search: { provider: 'exa' } },
+      server: { enabled: false },
+    },
+  };
+  const first = moveConfigKeys(given);
+  assert.deepEqual(first.config, {
+    tools: { transport: 'text' },
+    bot: { owners: ['o1'], access: { 'tools.describe': GRANT, 'errand.run': GRANT, 'intention.set': GRANT } },
+    errands: { resultRetrySeconds: 45 },
+    agents: { ledger: { socket: null }, scout: { enabled: true, searchProvider: 'exa' }, server: { enabled: false } },
+  });
+  assert.deepEqual(first.dropped, ['bot.access.memory.refresh.user']);
+  const second = moveConfigKeys(first.config);
+  assert.deepEqual(second, { config: first.config, moved: [], shadowed: [], dropped: [] });
+});
+
+test('says in its one warning line how many keys it dropped', async () => {
+  const root = deployment({ bot: { access: { 'memory.refresh.user': GRANT } }, agents: { maxDownloadBytes: 1 } });
+  const { logs } = await withCapturedLogs(() => readConfig(root, { privateDir: root }));
+  const lines = warnings(logs);
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0]?.dropped, 2);
+});
+
+test('reads the grants and settings of an old local file under their new names at load', async () => {
+  const root = deployment({
+    bot: { access: { 'task.run': GRANT } },
+    agents: { maxOpen: 5, scout: { search: { provider: 'tavily' } } },
+  });
+  const { result } = await withCapturedLogs(() => readConfig(root, { privateDir: root }) as Settings);
+  assert.deepEqual((result.bot as Settings).access, { 'errand.run': GRANT });
+  assert.equal((result.errands as Settings).maxOpen, 5);
+  assert.deepEqual((result.agents as Settings).scout, { searchProvider: 'tavily' });
+});
+
+test('prints each dropped key as `<path> dropped (no reader)` on a dry run and removes it on --apply', () => {
+  const file = localCopy({ agents: { maxDownloadBytes: 1 }, bot: { owners: ['o1'] } });
+  const dry = migrate(['--dry-run'], file);
+  assert.equal(dry.code, 0);
+  assert.equal(dry.out.includes('agents.maxDownloadBytes dropped (no reader)'), true);
+  const applied = migrate(['--apply'], file);
+  assert.equal(applied.code, 0);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { bot: { owners: ['o1'] } });
 });
