@@ -76,7 +76,8 @@ test('leaves every key it does not move exactly where it was', () => {
 
 test('moves an empty config to an empty config', () => {
   // `dropped` joins the result (the keys nothing reads any more); an empty config drops nothing.
-  assert.deepEqual(moveConfigKeys({}), { config: {}, moved: [], shadowed: [], dropped: [] });
+  // Stage 3 design, section 5: every result names the keys that moved to the database, none here.
+  assert.deepEqual(moveConfigKeys({}), { config: {}, moved: [], shadowed: [], dropped: [], toDatabase: [] });
 });
 
 test('removes the old section once everything in it has moved', () => {
@@ -110,7 +111,8 @@ test('moves nothing the second time', () => {
   });
   const second = moveConfigKeys(first.config);
   // `dropped` joins the result; nothing is left to drop the second time either.
-  assert.deepEqual(second, { config: first.config, moved: [], shadowed: [], dropped: [] });
+  // Stage 3 design, section 5: every result names the keys that moved to the database, none here.
+  assert.deepEqual(second, { config: first.config, moved: [], shadowed: [], dropped: [], toDatabase: [] });
 });
 
 test('does not change the config it is given', () => {
@@ -378,7 +380,8 @@ test('a production-shaped file moves every key once and a second pass finds noth
   });
   assert.deepEqual(first.dropped, ['bot.access.memory.refresh.user']);
   const second = moveConfigKeys(first.config);
-  assert.deepEqual(second, { config: first.config, moved: [], shadowed: [], dropped: [] });
+  // Stage 3 design, section 5: every result names the keys that moved to the database, none here.
+  assert.deepEqual(second, { config: first.config, moved: [], shadowed: [], dropped: [], toDatabase: [] });
 });
 
 test('says in its one warning line how many keys it dropped', async () => {

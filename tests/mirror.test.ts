@@ -7,7 +7,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createMirrors } from '../src/behavior/mirror.ts';
-import { createDiary } from '../src/behavior/diary.ts';
+import { createDiary } from '../src/behavior/diary.js';
 import { createStore } from '../src/memory/store.js';
 import { openMemoryDb } from '../src/memory/db/open.js';
 import { insertRows } from '../src/memory/db/rows.js';
@@ -53,6 +53,8 @@ async function scene({
     memoryDb: memory.memoryDb,
     port: () => (link.connected ? world().port : null),
     now: () => NOW,
+    // Where the entry's pictures and voice are kept until they are sent (the memory service's data directory).
+    dataDir: memory.dataDir,
   });
   const turns = sceneRunner(sceneLlm(), store);
   const diary = createDiary({
@@ -228,14 +230,11 @@ function setAndVoiceLlm() {
   };
 }
 
-// The order is the one a diary post goes out in from the turn today: the voice is sent while the step's calls run, her
-// message and the staged pictures after them (src/behavior/turn.js, the act path). The publisher sends all three one
-// after another.
-test('an entry with two pictures and a voice reaches the mirror as the voice, the message, then the pictures', async () => {
-  const core = await scene({ mirrors: [{ conversationId: 'd1' }] });
-  const turns = onWorld(createTurnRunner)({
+/** The turn runner of an entry with two pictures and a voice, over the scene's store. */
+function setAndVoiceTurns(store: Awaited<ReturnType<typeof scene>>['store']) {
+  return onWorld(createTurnRunner)({
     hot: setAndVoiceHot(),
-    store: core.store,
+    store,
     llm: setAndVoiceLlm(),
     calibrator: { ratio: 1, apply: (n: number) => n, observe: () => {} },
     images: {
@@ -258,10 +257,56 @@ test('an entry with two pictures and a voice reaches the mirror as the voice, th
     rng: () => 0.5,
     now: () => NOW,
   });
+}
+
+// The order is the one a diary post goes out in from the turn today: the voice is sent while the step's calls run, her
+// message and the staged pictures after them (src/behavior/turn.js, the act path). The publisher sends all three one
+// after another.
+test('an entry with two pictures and a voice reaches the mirror as the voice, the message, then the pictures', async () => {
+  const core = await scene({ mirrors: [{ conversationId: 'd1' }] });
+  const turns = setAndVoiceTurns(core.store);
   const result = await turns.runTurn({ mode: 'diary', diary: { kind: 'tour', forced: true }, guildId: GUILD });
   await core.store.flushSettled({});
   assert.deepEqual(world().port.messagesIn('d1'), [], 'the turn itself sends nothing');
   await core.mirrors.publishEntry(entryOf(result));
+  const sent = world().port.messagesIn('d1');
+  assert.deepEqual(
+    sent.map((message) => [message.text, message.attachments.map((attachment) => attachment.contentType)]),
+    [
+      ['', ['audio/ogg']],
+      [WALK, []],
+      ['', ['image/png', 'image/png']],
+    ],
+    'the voice, then the message, then one message of both pictures'
+  );
+  assert.deepEqual(
+    diaryPublications(core.memory.memoryDb).map((row) => row.receiptKeys),
+    [sent.map((message) => message.ref.messageId)],
+    'the receipts name every message, the voice included'
+  );
+});
+
+// Stage 3 design, section 3 item 5: a row still queued is sent when the interface connects, also after a restart. The
+// entry's pictures and voice are on disk, so the restarted publisher sends the whole entry, not its text alone.
+test('an entry with pictures and a voice queued before a restart goes out whole when the interface connects', async () => {
+  const core = await scene({ mirrors: [{ conversationId: 'd1' }], connected: false });
+  const result = await setAndVoiceTurns(core.store).runTurn({
+    mode: 'diary',
+    diary: { kind: 'tour', forced: true },
+    guildId: GUILD,
+  });
+  await core.store.flushSettled({});
+  await core.mirrors.publishEntry(entryOf(result));
+  assert.deepEqual(world().port.messagesIn('d1'), [], 'queued while no interface is connected');
+  // The process restarts: a new publisher over the same memory and data directory, then the interface connects.
+  const restarted = createMirrors({
+    memoryDb: core.memory.memoryDb,
+    port: () => world().port,
+    now: () => NOW,
+    dataDir: core.memory.dataDir,
+  });
+  assert.equal(await restarted.drainQueued(), 1);
+  assert.equal(await restarted.drainQueued(), 0, 'sent once');
   const sent = world().port.messagesIn('d1');
   assert.deepEqual(
     sent.map((message) => [message.text, message.attachments.map((attachment) => attachment.contentType)]),

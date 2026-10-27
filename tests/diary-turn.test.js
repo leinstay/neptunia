@@ -918,7 +918,15 @@ test('diary: a single picture is staged while the post is composed, then posted 
   assert.deepEqual(calledOf(logs), ['draw.create:ok/staged']);
   assert.equal(llm.calls.length, 2, 'the plan and one post request');
   assert.equal(channel.sent.at(-1).files.length, 1);
-  assert.deepEqual(result.diary, { kind: 'selfPicture', picture: true, search: false, messages: 1, pictures: 1 });
+  // Stage 3 design, section 3 item 6: the outcome names the entry it recorded; the entry itself is checked by its publication.
+  assert.deepEqual(result.diary, {
+    kind: 'selfPicture',
+    picture: true,
+    search: false,
+    messages: 1,
+    pictures: 1,
+    entry: entryOf(result),
+  });
   assert.equal(store.appended[0].post.picture, 'a pier at night');
   assert.equal('pictures' in store.appended[0].post, false, 'a single-picture kind records no count');
   assert.equal(countToday(store.state.data, DIARY_PICTURES_DAILY, NOW), 1, 'counted when generated');
@@ -969,7 +977,15 @@ test('diary set: six draw.create calls in one answer are generated before anythi
   assert.equal(drew.length, 6);
   assert.ok(drew.every((l) => l.set === true));
   assert.equal(logs.find((l) => l.msg === 'turn: set posted').pictures, 6);
-  assert.deepEqual(result.diary, { kind: 'tour', picture: true, search: false, messages: 2, pictures: 6 });
+  // Stage 3 design, section 3 item 6: the outcome names the entry it recorded; the entry itself is checked by its publication.
+  assert.deepEqual(result.diary, {
+    kind: 'tour',
+    picture: true,
+    search: false,
+    messages: 2,
+    pictures: 6,
+    entry: entryOf(result),
+  });
   const { post } = store.appended[0];
   assert.equal(post.picture, 'scene 1');
   assert.equal(post.pictures, 6);

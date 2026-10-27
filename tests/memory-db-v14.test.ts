@@ -195,8 +195,9 @@ test('changes nothing when the database is opened a second time', () => {
   const second = openCurrent(file);
   try {
     assert.deepEqual(dumpTables(second.db), settled);
-    assert.equal(column(second.db, 'SELECT MAX(version) FROM schema_version')[0], 14);
-    assert.equal(MIGRATIONS.length, 14);
+    // Stage 3 design, section 5: schema v15 follows v14, so the count of steps is the v15 test's; this one asks only
+    // that the second open found the database at the last step and took none again.
+    assert.equal(column(second.db, 'SELECT MAX(version) FROM schema_version')[0], MIGRATIONS.length);
   } finally {
     second.close();
   }

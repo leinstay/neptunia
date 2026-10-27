@@ -7,6 +7,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { openMemoryDb } from '../src/memory/db/open.js';
+import { insertRows } from '../src/memory/db/rows.js';
+import { channelPlaceId } from '../src/memory/db/ids.ts';
 import { seedUnits } from './fixtures/memory-db/seed.js';
 import { createDiaryMedia, applyDiaryUpdate, GAP_MS } from '../src/memory/db/diary-media.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
@@ -28,6 +30,33 @@ function setup({ posts, config = {} } = {}) {
   const dbFile = path.join(data, 'memory.db');
   const handle = openMemoryDb(dbFile);
   seedUnits(handle, data);
+  // Stage 3 design, section 5: the posts' place is the diary's mirror (a `mirrors` row of schema v15), no longer
+  // `diary.channelId`; the job asks the interface for the posts in that place.
+  const placeId = channelPlaceId('discord', CHANNEL);
+  insertRows(
+    handle.db,
+    {
+      places: [
+        {
+          id: placeId,
+          iface: 'discord',
+          kind: 'channel',
+          native_id: CHANNEL,
+          parent_id: null,
+          scope_kind: 'group',
+          name: 'journal',
+        },
+      ],
+    },
+    { at: '2026-10-27T00:00:00.000Z' }
+  );
+  // open.js answers its node:sqlite connection untyped; the fixture needs prepare and run.
+  const writer = /** @type {{ prepare(sql: string): { run(...params: unknown[]): unknown } }} */ (handle.db);
+  writer
+    .prepare(
+      "INSERT INTO mirrors (id, row_kind, place_id, enabled, created_at, created_by, extra) VALUES ('mirror-1', 'diary', ?, 1, '2026-10-27T00:00:00.000Z', 'owner', NULL)"
+    )
+    .run(placeId);
   const port = createFakeAdapter({ iface: 'discord', selfId: 'self' });
   const downloads = [];
   const files = new Map();
@@ -41,7 +70,6 @@ function setup({ posts, config = {} } = {}) {
   };
   const hot = {
     config: {
-      diary: { channelId: CHANNEL },
       image: { referenceMaxBytes: 1000 },
       context: { vision: { fetchTimeoutMs: 5000 } },
       ...config,
@@ -129,6 +157,9 @@ function setup({ posts, config = {} } = {}) {
     row: (id) => handle.db.prepare('SELECT * FROM diary WHERE id = ?').get(id),
     media: () => handle.db.prepare("SELECT * FROM media WHERE kind = 'diary' ORDER BY id").all(),
     writeUnits: () => seedUnits(handle, data),
+    /** Turns the diary's mirror on or off. */
+    mirrored: (/** @type {boolean} */ enabled) =>
+      writer.prepare("UPDATE mirrors SET enabled = ? WHERE id = 'mirror-1'").run(enabled ? 1 : 0),
     done: () => {
       handle.close();
       fs.rmSync(root, { recursive: true, force: true });
@@ -285,6 +316,7 @@ test('a picture over the cap is skipped without a download; a failed download le
   }
 });
 
+// Stage 3 design, section 5: "only with a diary channel" is only with a place for her diary, the enabled mirror.
 test('rows are fetched at most one a second, only with a diary channel, and a new post is picked up by the next run', async () => {
   const env = setup({ posts: [post('d-1', ['x'])] });
   try {
@@ -292,12 +324,12 @@ test('rows are fetched at most one a second, only with a diary channel, and a ne
     const b = env.say('two');
     env.writePosts([post('d-1', [a]), post('d-2', [b])]);
     env.writeUnits();
-    env.hot.config.diary.channelId = '';
+    env.mirrored(false);
     const job = env.job();
     assert.equal(job.hasWork(), true);
     assert.deepEqual(await job.run(), { done: 0, failed: 0 });
     assert.equal(env.port.calls.length, 0);
-    env.hot.config.diary.channelId = CHANNEL;
+    env.mirrored(true);
     assert.deepEqual(await job.run(), { done: 2, failed: 0 });
     assert.deepEqual(env.sleeps, [GAP_MS]);
     const c = env.say('three');

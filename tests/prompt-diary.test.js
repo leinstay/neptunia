@@ -354,7 +354,9 @@ test('buildRequest: the server block marks the diary channel', () => {
   const input = { channels, currentChannelId: 'c-talk', neighbors: [{ channelId: 'c-diary', messages: [] }] };
   const mark = fill(labels.server.diary, { channel: 'journal-κ' });
 
-  const on = userText(buildRequest(baseInput({ ...input, config: fakeConfig({ diary: { channelId: 'c-diary' } }) })));
+  // Stage 3 design, section 5: the places of her diary are its mirrors, which the turn reads from memory and hands the
+  // builder as `diaryChannelIds`; `diary.channelId` is only a seed.
+  const on = userText(buildRequest(baseInput({ ...input, diaryChannelIds: ['c-diary'] })));
   const entries = on.slice(on.indexOf('<server>'), on.indexOf('</server>')).split('\n\n');
   const diaryEntry = entries.find((entry) => entry.includes('# journal-κ'));
   const talkEntry = entries.find((entry) => entry.includes('# agora'));
@@ -362,5 +364,5 @@ test('buildRequest: the server block marks the diary channel', () => {
   assert.ok(talkEntry && !talkEntry.includes(mark), 'another channel does not carry the mark');
 
   const off = userText(buildRequest(baseInput({ ...input })));
-  assert.ok(off.includes('# journal-κ') && !off.includes(mark), 'no mark without diary.channelId');
+  assert.ok(off.includes('# journal-κ') && !off.includes(mark), 'no mark without a mirror on it');
 });
