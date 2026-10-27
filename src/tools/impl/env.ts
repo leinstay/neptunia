@@ -82,6 +82,7 @@ function buildEnv({
   fetchImpl = null,
   intentions = null,
   inner = null,
+  mirrors = null,
   now = Date.now,
   // The data directory src/index.js resolved (src/paths.js); `<hot.rootDir>/data` when not given.
   dataDir = hot?.rootDir ? path.join(hot.rootDir as string, 'data') : null,
@@ -270,6 +271,8 @@ function buildEnv({
     intentions,
     // The persona's inner life (src/behavior/inner.js): `/nep task inner`.
     inner,
+    // The diary's publisher (src/behavior/mirror.ts): what she writes to her diary with message.create is held there.
+    mirrors: mirrors as unknown,
     now,
     dataDir,
     connection,

@@ -240,7 +240,7 @@
         "complexity": 30
       },
       "createTurnRunner": {
-        "function-length": 7271
+        "function-length": 7264
       },
       "createTurnRunner>act": {
         "complexity": 62,
@@ -683,13 +683,13 @@
     },
     "src/tools/impl/message.ts": {
       "<anonymous>": {
-        "function-length": 328
+        "function-length": 321
       },
       "<anonymous>>mediaFile": {
         "complexity": 26
       },
       "<anonymous>>post": {
-        "complexity": 37
+        "complexity": 36
       }
     },
     "src/tools/impl/metrics.ts": {

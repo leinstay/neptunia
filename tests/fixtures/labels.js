@@ -465,6 +465,8 @@ export const labels = {
         'malformed-call': 'call unreadable',
         'truncated-call': 'call cut off',
         'diary-draw-only': 'a diary post takes only draw.create',
+        'diary-mirror': 'the diary\'s mirror: write to the diary with message.create and diary',
+        'cap-diary': 'no diary entry left today',
         other: 'other failure',
       },
     },

@@ -168,7 +168,14 @@ import {
   imageFileName,
   readMirrors,
 } from './mirror.ts';
-import { diaryVoiceTool, forcedPictureRefusal, pictureGate, recordEntry, wakeInputs } from './diary-turn.ts';
+import {
+  diaryVoiceTool,
+  forcedPictureRefusal,
+  pictureGate,
+  publishHeldDiary,
+  recordEntry,
+  wakeInputs,
+} from './diary-turn.ts';
 
 // A set's pictures are split and named as the diary's mirrors send them (src/behavior/mirror.ts).
 export { chunkPictures };
@@ -2007,6 +2014,7 @@ export function createTurnRunner({
   around = null,
   reactors = null,
   errands = null,
+  mirrors = null,
   intentions = null,
   // The places view of the inner life (src/behavior/inner.js#places): `<places>` on an addressed turn with `context.places` on.
   places = null,
@@ -2766,7 +2774,6 @@ export function createTurnRunner({
     const quotedMessage = (messageId) => draft?.searchRefs?.byId.get(String(messageId))?.message ?? null;
     return {
       'draw.create': (args) => drawTool(args, { channel, guildId, trigger, triggerKind, selfName, draft, mode, plain }),
-      // A diary post keeps her voice message for its entry (src/behavior/diary-turn.ts#diaryVoiceTool).
       ...(mode === 'diary' ? diaryVoiceTool({ speech, held: draft }) : {}),
       'web.search': (args) =>
         runWebSearch({ lookup: lookup ?? null, config: hot.config, labels: hot.prompts?.labels ?? {}, guildId, args }),
@@ -4885,15 +4892,8 @@ export function createTurnRunner({
     const texts = parsed.messages.map((message) => message.text);
     const staged = set?.pictures ?? [];
     for (const picture of staged) {
-      const { seconds, cost, self } = picture;
-      log.info('turn: drew', {
-        channel: channel.id,
-        seconds,
-        cost,
-        self,
-        bytes: picture.buffer?.length ?? 0,
-        set: true,
-      });
+      const { seconds, cost, self, buffer } = picture;
+      log.info('turn: drew', { channel: channel.id, seconds, cost, self, bytes: buffer?.length ?? 0, set: true });
     }
     const files = chunkPictures(staged, setSettings(hot.config.diary).maxMessageBytes, filesPerMessage(iface)).length;
     if (files > 0) log.info('turn: set posted', { channel: channel.id, pictures: staged.length, messages: files });
@@ -6964,8 +6964,7 @@ export function createTurnRunner({
    * The `selfreflection` wake (a diary turn with no conversation): the conversation, channel and history memory holds of
    * her diary's place (diary-turn.ts#wakeInputs). Only it is awaited before a turn takes its attention.
    */
-  async function selfreflectionOf(params) {
-    const guildId = params.guildId;
+  async function selfreflectionOf({ guildId }) {
     const { conversation, channel, history } = await wakeInputs({
       store,
       conversationInfo: (ref) => ifaceReads.conversationInfo(ref, { audience: true, viewers: [] }),
@@ -7229,6 +7228,7 @@ export function createTurnRunner({
     try {
       result = await runTurnAttempt(args, draft);
     } finally {
+      await publishHeldDiary({ mirrors, store, config: hot.config, now: clock(), turnId: draft.turnKey?.turnId });
       // An attempt whose turn.start was written closes with its turn record at runTurn's exit,
       // whatever it returned (a throw counts as `error`).
       if (draft.started) args.journalAttempts?.push({ draft, result: result ?? { outcome: 'error' } });
@@ -8432,10 +8432,10 @@ export function createTurnRunner({
       // Skills discovery on a turn someone asked for: the catalogue when the question was what the
       // persona can do; named skills only logged and journaled (shadow).
       const skillsInventory = asked ? discoverSkills({ config, channel, trigger, answer: skillsAnswer, draft }) : null;
-      // Her tools, the same for every turn kind and pinned for this one (a grant removed meanwhile is still caught at each call):
-      // the skills granted to her and the carried-over ones, as native tool definitions (or `<tools>` text). A diary post
-      // has the same tools; only `draw.create` runs there (runSteps).
-      draft.toolNames = exposedSkillNames({ config, selfId, registry: skills ?? defaultSkills() });
+      // Her tools, pinned for the turn (a grant removed meanwhile is caught at each call): the skills granted to her
+      // and the carried-over ones; a diary post runs only `draw.create` (runSteps) and is not offered message.create.
+      const exposed = exposedSkillNames({ config, selfId, registry: skills ?? defaultSkills() });
+      draft.toolNames = exposed.filter((name) => finalMode !== 'diary' || name !== 'message.create');
       draft.tools = buildTools(draft.toolNames, {
         registry: skills ?? defaultSkills(),
         texts: prompts?.tools,

@@ -593,6 +593,8 @@ async function buildCore(options, cleanups) {
     runInitiativeOp: (op, args, context) => admin.runInitiativeSkillOp(op, args, context),
     // `<errands>`: her open and newly finished errands; an errand's caps are its skill's budget.
     errands,
+    // What a turn writes to her diary with message.create, published by the diary's mirrors when it ends.
+    mirrors,
     // `<intentions>`: her open intentions and the candidates from her lines (features.intentions).
     intentions,
     // `<places>` on an addressed turn (context.places): the inner life's places view, read at call time.
@@ -798,6 +800,8 @@ async function buildCore(options, cleanups) {
     intentions,
     // /nep task inner: the inner life's kill switch and status.
     inner,
+    // Her message.create to her diary: held for the turn's entry by the diary's publisher.
+    mirrors,
     spontaneous,
     calibrator,
     getGuildId,

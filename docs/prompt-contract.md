@@ -854,6 +854,7 @@ catalogue, the labels and the table disagree.
 | `channel-not-visible` | denied | - | `tools.result.reasons.channel-not-visible` |
 | `cap-open` | denied | - | `tools.result.reasons.cap-open` |
 | `cap-tasks` | denied | - | `tools.result.reasons.cap-tasks` |
+| `cap-diary` | denied | - | `tools.result.reasons.cap-diary` |
 | `heartbeat-only` | denied | - | `tools.result.reasons.heartbeat-only` |
 | `heartbeat-cap` | denied | - | `tools.result.reasons.heartbeat-cap` |
 | `heartbeat-recurring-cap` | denied | - | `tools.result.reasons.heartbeat-recurring-cap` |
@@ -1458,6 +1459,8 @@ The persona's own messages in a place of her diary count toward the channel's `d
 ### A mirror place
 
 A place of an enabled diary mirror is written only by the diary's publisher. The core's outbound port refuses every send there (a message, a file, a GIF, a picture, a voice message) from a turn, a wake or a tool with the code `diary-mirror`, worded by `tools.result.reasons.diary-mirror`, and an event there opens no turn. Reactions are not refused.
+
+`message.create` takes `diary` (`true` or `false`, a string choice). With `true` the post goes to her diary in place of a channel ([Diary](diary.md#writing-to-the-diary-from-other-turns)), and `channel` or `reply` beside it is `invalid-args`. The turn's first such call is refused `cap-diary`, worded by `tools.result.reasons.cap-diary`, when `diary.maxPerDay` entries are counted today. The diary turn's writer request does not offer `message.create`. `tools.result.reasons.diary-mirror` tells her to write to her diary with `message.create` and `diary`.
 
 ### Logs
 
