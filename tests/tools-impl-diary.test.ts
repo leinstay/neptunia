@@ -153,7 +153,12 @@ async function turnOf(
     store: core.store,
     llm,
     calibrator: { ratio: 1, apply: (n: number) => n, observe: () => {} },
-    client,
+    // What the runner takes and this scene has none of: no describer, search, emoji or routes.
+    describer: undefined,
+    lookup: undefined,
+    emoji: undefined,
+    routeChannels: undefined,
+    images: undefined,
     now: () => NOW,
     port: core.port,
     reads: core.reads,
@@ -182,22 +187,23 @@ async function turnOf(
     attachments: [],
     stickers: [],
   };
-  type Params = Parameters<typeof turns.runTurn>[0];
-  // runTurn's JSDoc names `conversation` as required; the selfreflection wake runs without one (section 3 item 2).
-  const wakeParams = { mode: 'diary', diary: { kind: 'status', forced: true }, guildId: GUILD } as unknown as Params;
-  const params: Params =
-    mode === 'inner'
-      ? {
-          conversation,
-          guildId: GUILD,
-          mode: 'inner',
-          triggerKind: 'inner',
-          inner: { wake: INTENTION_WAKE, shadow: false, mayAct: () => true },
-        }
-      : mode === 'diary'
-        ? wakeParams
-        : { conversation, mode: 'reply', triggerKind: 'mention', trigger };
-  const { logs } = await withCapturedLogs(() => turns.runTurn(params));
+  // The params are written in the call, so runTurn's declared parameter types them; the selfreflection wake has no
+  // conversation (section 3 item 2).
+  const { logs } = await withCapturedLogs(() =>
+    turns.runTurn(
+      mode === 'inner'
+        ? {
+            conversation,
+            guildId: GUILD,
+            mode: 'inner',
+            triggerKind: 'inner',
+            inner: { wake: INTENTION_WAKE, shadow: false, mayAct: () => true },
+          }
+        : mode === 'diary'
+          ? { mode: 'diary', diary: { kind: 'status', forced: true }, guildId: GUILD }
+          : { conversation, mode: 'reply', triggerKind: 'mention', trigger }
+    )
+  );
   await core.store.flushSettled({});
   return { logs: logs as Array<Record<string, unknown>>, llm };
 }
