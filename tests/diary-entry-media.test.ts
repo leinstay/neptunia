@@ -42,7 +42,7 @@ function scene({
 }: {
   entries: Array<{ id: string; text: string | null; messageIds: Array<string> }>;
   described?: Record<string, string>;
-  messages: Array<{ id: string; text: string; attachment?: { id: string; name: string } }>;
+  messages: Array<{ id: string; text: string; attachment?: { id?: string; name: string } }>;
   media?: Array<{ id: string; owner: string; nativeRef: object }>;
 }) {
   const dataDir = tempDir('nep-entry-media-');
@@ -117,10 +117,11 @@ function scene({
     const stored = port.messages.get(`d1/${ref.messageId}`);
     if (stored && message.attachment) {
       const url = `https://cdn.example/${message.attachment.name}`;
-      pictures.set(url, Buffer.from(`png-${message.attachment.id}`));
-      // The adapter's read of a message names each attachment by the platform's id.
+      pictures.set(url, Buffer.from(`png-${message.attachment.name}`));
+      // The adapter's read of a message names each attachment by the platform's id, when the platform gives one.
+      const named = message.attachment.id ? { id: message.attachment.id } : {};
       stored.attachments = [
-        { id: message.attachment.id, name: message.attachment.name, url, contentType: 'image/png', size: 64 },
+        { ...named, name: message.attachment.name, url, contentType: 'image/png', size: 64 },
       ] as typeof stored.attachments;
     }
   }
@@ -210,4 +211,17 @@ test('an older picture row with only its url and message is completed once, and 
   assert.equal(s.fetches(), asked, 'a second start asks the interface for nothing');
   assert.deepEqual(s.dump(), settled);
   assert.ok(fs.existsSync(s.dataDir));
+});
+
+test('an older picture row the read cannot name is still read exactly once across two starts', async () => {
+  const s = scene({
+    entries: [{ id: 'd-3', text: 'παλιό', messageIds: ['m4'] }],
+    messages: [{ id: 'm4', text: 'παλιό', attachment: { name: 'harbour.png' } }],
+    media: [
+      { id: 'media:diary:d-3-1', owner: 'd-3', nativeRef: { url: 'https://cdn.example/harbour.png', messageId: 'm4' } },
+    ],
+  });
+  await s.job().run();
+  await s.job().run();
+  assert.equal(s.fetches(), 1, 'the interface is asked for the older entry once');
 });

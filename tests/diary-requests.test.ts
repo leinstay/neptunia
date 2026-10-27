@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import { GUILD, NOW, sceneLlm, sceneMemory, sceneRunner, sceneWorld } from './fixtures/diary-requests.ts';
 import type { SceneMemory } from './fixtures/diary-requests.ts';
 import { chatBlock, historyMemory, historyRunner, historyWorld } from './fixtures/diary-history.ts';
-import type { HistoryMemory } from './fixtures/diary-history.ts';
+import type { Changes, HistoryMemory } from './fixtures/diary-history.ts';
 import { createFakeAdapter } from '../src/interface/fake.js';
 
 const RECORDED_FILE = new URL('./fixtures/diary-requests.json', import.meta.url);
@@ -73,18 +73,21 @@ after(async () => {
 });
 
 /** The writer's `<chat>` recorded on the code before the change, over her seven messages without Alice's line. */
-function recordedChat(): string {
+function recordedChat(key: 'chat' | 'edited' | 'deleted' = 'chat'): string {
   const parsed: unknown = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf8'));
-  // This test's own fixture, written by the recording of the history scene.
-  return (parsed as { chat: string }).chat;
+  // This test's own fixture, written by the recording of the history scene: one block per kind of history.
+  return (parsed as Record<typeof key, string>)[key];
 }
 
 /** The writer's `<chat>` of the history scene's wake; `port` replaces the world's interface. */
-async function wakeChat(port: ReturnType<typeof createFakeAdapter> | null = null): Promise<string> {
-  const scene = await historyMemory();
+async function wakeChat(
+  port: ReturnType<typeof createFakeAdapter> | null = null,
+  changes: Changes = {}
+): Promise<string> {
+  const scene = await historyMemory(changes);
   HISTORIES.push(scene);
   // The interface knows the diary channel with Alice's line in it: it is there, and it is not hers.
-  historyWorld({ history: true, alice: true });
+  historyWorld({ history: true, alice: true, ...changes });
   const llm = sceneLlm();
   const result = await historyRunner(llm, scene.store, port).runTurn({
     mode: 'diary',
@@ -103,4 +106,12 @@ test("with no interface connected the wake's <chat> is the same, because it come
   // An interface that answers no read and takes no action: what a turn has when nothing is connected.
   const silent = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW, reads: [], operations: [] });
   assert.equal(await wakeChat(silent), recordedChat());
+});
+
+test("an edited message of hers shows its newest text with the edit mark in the wake's <chat>", async () => {
+  assert.equal(await wakeChat(null, { edited: true }), recordedChat('edited'));
+});
+
+test("a deleted message of an entry is left out of the wake's <chat>, as the channel leaves it out", async () => {
+  assert.equal(await wakeChat(null, { deleted: true }), recordedChat('deleted'));
 });

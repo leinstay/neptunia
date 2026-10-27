@@ -64,6 +64,13 @@ const ENTRIES: ReadonlyArray<{ kind: string; posts: ReadonlyArray<Post> }> = [
   },
   { kind: 'status', posts: [{ id: 'm7', at: NOW - DAY, text: 'ήσυχη μέρα', attachments: [] }] },
 ];
+/** What happened to her messages after she posted them: `m7` edited to a newer text, `m4` deleted. */
+export type Changes = { edited?: boolean; deleted?: boolean };
+/** The newer text of `m7` and when she changed it. */
+const EDIT = { id: 'm7', at: NOW - DAY + 2 * HOUR, text: 'ήσυχη μέρα, τελικά βροχή' } as const;
+/** The message of the fourth entry she deleted, and when. */
+const DELETED = { id: 'm4', at: NOW - 2 * DAY + 3 * HOUR } as const;
+
 /** Alice's line in the diary channel, after the fourth entry. */
 const ALICE = { id: 'a1', at: NOW - 2 * DAY + HOUR, text: 'ωραία φωτογραφία!' } as const;
 
@@ -72,7 +79,10 @@ const isVoice = (post: { text: string; attachments?: ReadonlyArray<Attachment> }
   post.text === '' && post.attachments?.length === 1 && post.attachments[0]?.contentType.startsWith('audio/') === true;
 
 /** A message as discord.js hands it over: hers, or Alice's. */
-function stub(post: { id: string; at: number; text: string; attachments?: ReadonlyArray<Attachment> }, self: boolean) {
+function stub(
+  post: { id: string; at: number; text: string; attachments?: ReadonlyArray<Attachment>; editedAt?: number },
+  self: boolean
+) {
   const author = self
     ? { id: 'self-id', bot: true, globalName: 'Bot', username: 'Bot' }
     : { id: 'u1', bot: false, globalName: 'Alice', username: 'Alice' };
@@ -83,6 +93,7 @@ function stub(post: { id: string; at: number; text: string; attachments?: Readon
     member: { displayName: author.globalName },
     cleanContent: post.text,
     createdTimestamp: post.at,
+    editedTimestamp: post.editedAt ?? null,
     reference: null,
     attachments: new Map((post.attachments ?? []).map((attachment) => [attachment.id, attachment])),
     stickers: new Map(),
@@ -95,9 +106,18 @@ function stub(post: { id: string; at: number; text: string; attachments?: Readon
  * The world of the scene: the community's other conversation and the diary channel. With `history`, `d1` holds her
  * seven messages, and Alice's line too when `alice`; without it `d1` is empty, so a history can only come from memory.
  */
-export function historyWorld({ history, alice = false }: { history: boolean; alice?: boolean }): void {
+export function historyWorld({
+  history,
+  alice = false,
+  edited = false,
+  deleted = false,
+}: { history: boolean; alice?: boolean } & Changes): void {
   world().channel({ id: 'c1', name: 'general', guildId: GUILD });
-  const own = ENTRIES.flatMap((entry) => entry.posts).map((post) => stub(post, true));
+  // The channel shows what the platform holds now: an edited message's newest text, no deleted message.
+  const own = ENTRIES.flatMap((entry) => entry.posts)
+    .filter((post) => !(deleted && post.id === DELETED.id))
+    .map((post) => (edited && post.id === EDIT.id ? { ...post, text: EDIT.text, editedAt: EDIT.at } : post))
+    .map((post) => stub(post, true));
   const lines = alice ? [...own, stub(ALICE, false)].sort((a, b) => a.createdTimestamp - b.createdTimestamp) : own;
   world().channel({ id: 'd1', name: 'journal', guildId: GUILD, historyMessages: history ? lines : [] });
 }
@@ -150,7 +170,7 @@ export type HistoryMemory = {
  * Memory as her diary keeps it (see the head of this file). The mirror is seeded only once the `mirrors` table exists,
  * so before schema v15 the scene fails where the turn needs its conversation.
  */
-export async function historyMemory(): Promise<HistoryMemory> {
+export async function historyMemory({ edited = false, deleted = false }: Changes = {}): Promise<HistoryMemory> {
   const memory = await openTestMemory({ now: () => NOW });
   const store = createStore({ dataDir: memory.dataDir, memoryDb: memory.memoryDb });
   store.touchChannel(GUILD, 'd1', { name: 'journal' }, NOW - DAY);
@@ -189,6 +209,37 @@ export async function historyMemory(): Promise<HistoryMemory> {
       lines: [recordLine(post.post, post.self)],
     });
   }
+  // The record keeps what happened later: the edit as her line's second revision, the deletion as a `deleted` line.
+  const later = (at: number, line: Record<string, unknown>) => {
+    const day = new Date(at).toISOString().slice(0, 10);
+    return memory.memoryDb.writeUnit({
+      kind: 'unit',
+      op: 'lines',
+      owner: `guilds/${GUILD}/record/${day.slice(0, 7)}/${day}.jsonl`,
+      iface: 'fake',
+      lines: [line],
+    });
+  };
+  if (edited) {
+    const first = ENTRIES.flatMap((entry) => entry.posts).find((post) => post.id === EDIT.id);
+    if (first)
+      await later(EDIT.at, {
+        ...recordLine({ ...first, text: EDIT.text }, true),
+        id: `rec-${EDIT.id}-2`,
+        revision: 2,
+        recordedAt: new Date(EDIT.at).toISOString(),
+      });
+  }
+  if (deleted)
+    await later(DELETED.at, {
+      v: 1,
+      id: `rec-${DELETED.id}-deleted`,
+      kind: 'deleted',
+      messageId: DELETED.id,
+      occurredAt: new Date(DELETED.at).toISOString(),
+      guildId: GUILD,
+      scope: { channel: 'd1' },
+    });
   const db = dbOf(memory.memoryDb);
   // Each entry's full text, as the diary media job fills it in: her messages of the entry, in order.
   for (const entry of ENTRIES) {

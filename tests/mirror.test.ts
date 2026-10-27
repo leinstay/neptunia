@@ -181,7 +181,7 @@ test('two enabled mirrors of different places each get the entry once, also when
 const WALK = 'une promenade au port';
 
 /** The scene's settings with `tour` as a set kind of two or three pictures (three calls a step), drawing and speech on. */
-function setAndVoiceHot() {
+function setAndVoiceHot(maxMessageBytes = 1_000_000) {
   const base = sceneHot();
   // sceneHot's sections are plain objects; the test lays its own keys over them.
   const section = (name: string) => base.config[name] as Record<string, unknown>;
@@ -195,7 +195,7 @@ function setAndVoiceHot() {
         pictureKinds: ['tour'],
         setKinds: ['tour'],
         maxPicturesPerDay: 10,
-        set: { pictures: [2, 3], minPosted: 2, seedSets: 1, maxMessageBytes: 1_000_000 },
+        set: { pictures: [2, 3], minPosted: 2, seedSets: 1, maxMessageBytes },
       },
     },
     prompts: { ...base.prompts, draw: 'DRAW for {{name}}\n{{when}}\n{{request}}' },
@@ -231,9 +231,9 @@ function setAndVoiceLlm() {
 }
 
 /** The turn runner of an entry with two pictures and a voice, over the scene's store. */
-function setAndVoiceTurns(store: Awaited<ReturnType<typeof scene>>['store']) {
+function setAndVoiceTurns(store: Awaited<ReturnType<typeof scene>>['store'], maxMessageBytes?: number) {
   return onWorld(createTurnRunner)({
-    hot: setAndVoiceHot(),
+    hot: setAndVoiceHot(maxMessageBytes),
     store,
     llm: setAndVoiceLlm(),
     calibrator: { ratio: 1, apply: (n: number) => n, observe: () => {} },
@@ -374,6 +374,69 @@ test("a publication keeps the port's attachment ids in its receipts and on the e
           .attachmentId
     );
   assert.deepEqual([...rows].sort(), named, "the entry's media rows carry the ids");
+});
+
+// A post whose pictures do not fit one message goes out as several messages of files (diary.set.maxMessageBytes): each
+// attachment the port names keeps the message that carried it, in the receipts and on its media row.
+test('a picture set sent across two messages keeps every attachment id with the message that carried it', async () => {
+  const core = await scene({ mirrors: [{ conversationId: 'd1' }] });
+  // Each picture is 3 bytes: a message of 3 bytes holds one, so the two pictures need two messages.
+  const result = await setAndVoiceTurns(core.store, 3).runTurn({
+    mode: 'diary',
+    diary: { kind: 'tour', forced: true },
+    guildId: GUILD,
+  });
+  await core.store.flushSettled({});
+  const carried: Array<{ messageId: string; attachmentId: string }> = [];
+  const naming = {
+    iface: 'fake',
+    send: async (
+      conversation: { iface: string; conversationId: string },
+      content: { attachments?: Array<unknown> }
+    ) => {
+      const delivery = await world().port.send(conversation, content);
+      const messageId = delivery.ref?.messageId ?? '';
+      const attachments = (content.attachments ?? []).map(() => {
+        const named = { messageId, attachmentId: `att-${carried.length + 1}` };
+        carried.push(named);
+        return named;
+      });
+      return { ...delivery, attachments };
+    },
+  };
+  const mirrors = createMirrors({
+    memoryDb: core.memory.memoryDb,
+    port: () => naming,
+    now: () => NOW,
+    dataDir: core.memory.dataDir,
+  });
+  await mirrors.publishEntry(entryOf(result));
+  const pictureMessages = world()
+    .port.messagesIn('d1')
+    .filter((message) => message.attachments.some((attachment) => attachment.contentType === 'image/png'));
+  assert.equal(pictureMessages.length, 2, 'the pictures went out in two messages');
+  const [publication] = diaryPublications(core.memory.memoryDb);
+  assert.ok(publication, 'the entry was published');
+  const ids = carried.map((item) => item.attachmentId);
+  assert.deepEqual(
+    ids.filter((id) => publication.receiptKeys.includes(id)),
+    ids,
+    'every attachment id is in the receipts'
+  );
+  const rows = dbOf(core.memory.memoryDb)
+    .prepare("SELECT native_ref FROM media WHERE kind = 'diary' AND owner = ? ORDER BY id")
+    .all(entryOf(result).id)
+    .map(
+      (row) =>
+        JSON.parse(typeof row.native_ref === 'string' ? row.native_ref : '{}') as {
+          messageId?: unknown;
+          attachmentId?: unknown;
+        }
+    )
+    .map((ref) => ({ messageId: ref.messageId, attachmentId: ref.attachmentId }));
+  const byId = (list: Array<{ attachmentId?: unknown }>) =>
+    [...list].sort((a, b) => String(a.attachmentId).localeCompare(String(b.attachmentId)));
+  assert.deepEqual(byId(rows), byId(carried), 'each media row names its attachment and the message that carried it');
 });
 
 // ---- preparePublication and the mirror grant --------------------------------------------------------------------
