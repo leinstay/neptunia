@@ -1,0 +1,32 @@
+{
+  "plan": [
+    {
+      "role": "system",
+      "content": "PLAN_SYSTEM for Bot"
+    },
+    {
+      "role": "user",
+      "content": "<now>\nTuesday, October 6, 2026, 22:30 (Europe/Athens)\n</now>\n\n<server>\n# journal ← you are here\npurpose: her own diary\nYour diary.\nlast message: 2 h ago\nactivity: slow\n\n# general\npurpose: everyday talk\nlast message: 2 h ago\nactivity: slow\n</server>\n\n<about_chat>\nhow people talk here: people greet each other in Greek\n</about_chat>\n\n<recent>\nwhat you remember from the last 24 hours, oldest first:\nTue, October 6 20:30: a quiet harbour\nTue, October 6 20:30 in #general: Alice is planning a trip to Thessaloniki\n</recent>\n\n<world>\nWORLD of Bot\n</world>\n\n<diary>\nYour latest diary posts, oldest first:\n- 2026-10-04 status: χθες βράδυ στο λιμάνι\n- 2026-10-05 status: une journée grise au port\n</diary>\n\n<kinds>\nPost kinds and their recent use:\nstatus weight 1, used 2 of the last 2\nnews weight 1, used 0 of the last 2\n</kinds>\n\n<seeds>\nRandom seeds (place; setting; detail; activity; subject; twist):\n- a pier; fog\n</seeds>"
+    }
+  ],
+  "writer": [
+    {
+      "role": "system",
+      "content": "SYSTEM for Bot\n\nCARD_TEXT\n\nFORMAT_TEXT"
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "<senses>\npictures not attached to you are just [image] tags, you cannot see them\ngifs you do not see yourself are just [gif] tags\nyou cannot see or hear videos, only their [video] tag\nstickers you do not see yourself are just a name\nan animated built-in sticker only ever shows its name\nyou cannot hear voice messages, only their length\nlinks show their site, title, snippet and address; you cannot open the page\nfiles show only their name, or a short preview for plain text ones\nTimes and ages test line.\nyou see only the channels shown here\nYou keep a diary in #journal; you post there yourself, nobody asked, and people here read it.\n</senses>\n\n<about_chat>\nhow people talk here: people greet each other in Greek\n</about_chat>\n\n<channel_directory>\nchannels by handle:\n#c54zm \"general\"\n#cbvp1 \"journal\"\n</channel_directory>\n\n",
+          "cacheSegment": "stable"
+        },
+        {
+          "type": "text",
+          "text": "<server>\n# journal ← you are here\npurpose: her own diary\nYour diary.\nlast message: 2 h ago\nactivity: slow\n</server>\n\n<recent>\nwhat you remember from the last 24 hours, oldest first:\nTue, October 6 20:30: a quiet harbour\nTue, October 6 20:30 in #general: Alice is planning a trip to Thessaloniki\n</recent>\n\n<world>\nWORLD of Bot\n</world>\n\n<diary>\nYour latest diary posts, oldest first:\n- 2026-10-04 status: χθες βράδυ στο λιμάνι\n- 2026-10-05 status: une journée grise au port\n</diary>\n\n<plan>\nPlan for this post:\n{\"kind\":\"status\",\"brief\":\"a calm evening\",\"picture\":false}\n</plan>\n\n<chat>\n=== Sun, October 4 ===\n#1 [22:30 · 2 d ago] Bot (you): χθες βράδυ στο λιμάνι\n--- 1 d passed · Mon, October 5 ---\n#2 [22:30 · 1 d ago] Bot (you): une journée grise au port\n</chat>\n\n<now>\nTuesday, October 6, 2026, 22:30 (Europe/Athens)\n</now>\n\n<tempo>\nmessages in the last 10 min: 0, last hour: 0, last day: 1\ndistinct people in the last hour: 0\nthe last message in the channel was: 1 d ago\nyou last wrote here: 1 d ago\nthe last message in the channel is yours, nobody answered it\nverdict: a dead chat\n</tempo>\n\n<task>\nDIARY_TASK for Bot\n</task>"
+        }
+      ]
+    }
+  ]
+}
