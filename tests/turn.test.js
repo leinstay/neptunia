@@ -3428,10 +3428,9 @@ function fakeErrandClient() {
 }
 
 /**
- * One mention by the member u1 (Alice, m2) in c1 whose search classifier answers `classifier`,
- * over a real errand service and task store (a temp data/ directory), a fake errand client and a
- * real admin's runSkillOp; `errand.run` granted to the persona and the scout agent enabled, so an
- * errand could be queued if anything tried.
+ * One mention by the member u1 (Alice, m2) in c1 whose search classifier answers `classifier`, over a real errand
+ * service and task store (a temp data/ directory), a fake errand client and a real admin's runSkillOp; `errand.run`
+ * granted to the persona and the scout agent enabled, so an errand could be queued if anything tried.
  */
 async function runErrandLaneTurn({ classifier }) {
   const hot = lookupHot(

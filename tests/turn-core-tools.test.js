@@ -417,8 +417,10 @@ test('errand.run in the loop: after a search she hands off the errand, it is que
     ['το στέλνω να ψάξει']
   );
   // The same call made again (a retry): the same errand, nothing new queued or run.
+  // runCommand takes the slash command's key, which keeps the name `task.run` until stage 7 removes `/nep`; the
+  // operation it runs is `errand.run`.
   const again = await run.admin.runCommand(
-    'errand.run',
+    'task.run',
     { agent: 'scout', goal: brief },
     {
       guildId: 'g1',

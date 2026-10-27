@@ -22,7 +22,7 @@
     "tests/sandbox.test.js": 2068,
     "tests/store.test.js": 3255,
     "tests/turn.test.js": 12881,
-    "tools/lib/inner-week.mjs": 2199,
+    "tools/lib/inner-week.mjs": 2196,
     "tools/replay.mjs": 7745
   },
   "functions": {
@@ -309,7 +309,7 @@
     },
     "src/errands/client.js": {
       "createErrandClient": {
-        "function-length": 365
+        "function-length": 364
       },
       "createErrandClient>onEvent": {
         "complexity": 26
@@ -327,7 +327,7 @@
     },
     "src/errands/store.js": {
       "createTaskStore": {
-        "function-length": 551
+        "function-length": 547
       }
     },
     "src/format.js": {
@@ -813,7 +813,7 @@
       },
       "runWeek": {
         "complexity": 23,
-        "function-length": 636
+        "function-length": 631
       },
       "runWeek>act": {
         "complexity": 39
