@@ -1,5 +1,5 @@
-// Tests for the persona's view of her errands in a turn (src/errands/blocks.js, src/behavior/turn.js)
-// and the turn an errand's end opens (src/errands/turns.js): the `<errands>` block is in the
+// Tests for the persona's view of her errands in a turn (src/errands/blocks.ts, src/behavior/turn.js)
+// and the turn an errand's end opens (src/errands/turns.ts): the `<errands>` block is in the
 // request's tail while she has an open or newly finished errand and gone when she has none; a
 // finished errand opens her own turn in the conversation it was asked in, with `<errand_result>`
 // (its text, its sources numbered, its files as handles), through the fake interface
@@ -9,8 +9,8 @@ import assert from 'node:assert/strict';
 import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.js';
 import { userText } from '../src/behavior/prompt.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
-import { tasksBlockText, taskResultText } from '../src/errands/blocks.js';
-import { createTaskTurns, errandDoneEvent } from '../src/errands/turns.js';
+import { errandsBlockText, errandResultText } from '../src/errands/blocks.ts';
+import { createErrandTurns, errandDoneEvent } from '../src/errands/turns.ts';
 import { createEventDoor } from '../src/interface/door.js';
 import { validateEvent } from '../src/protocol/index.js';
 import { labels } from './fixtures/labels.js';
@@ -174,15 +174,15 @@ const doneTask = {
   usage: { usd: 0.02, steps: 4 },
 };
 
-test('tasksBlockText / taskResultText: every word from labels.errands; none without tasks or labels', () => {
-  const text = tasksBlockText([runningTask], labels, { now: NOW });
+test('errandsBlockText / errandResultText: every word from labels.errands; none without tasks or labels', () => {
+  const text = errandsBlockText([runningTask], labels, { now: NOW });
   const [header, line] = text.split('\n');
   assert.equal(header, labels.errands.header);
   assert.ok(line.startsWith('tab01 | scout | running | 7 min | find the release notes'));
   assert.ok(line.length < 200, 'the goal is cut to 120 characters');
-  assert.equal(tasksBlockText([], labels, { now: NOW }), '');
-  assert.equal(tasksBlockText([runningTask], {}, { now: NOW }), '');
-  const result = taskResultText(doneTask, labels, { maxChars: 30 }).split('\n');
+  assert.equal(errandsBlockText([], labels, { now: NOW }), '');
+  assert.equal(errandsBlockText([runningTask], {}, { now: NOW }), '');
+  const result = errandResultText(doneTask, labels, { maxChars: 30 }).split('\n');
   assert.equal(result[0], 'errand tab02 (scout) ended done: find a meme');
   assert.equal(result[1], labels.errands.result.text);
   assert.ok(result[2].length <= 31, 'the result text cut to maxChars');
@@ -193,7 +193,7 @@ test('tasksBlockText / taskResultText: every word from labels.errands; none with
     'files:',
     'file:tab02/meme.png | image/png | 2048 bytes',
   ]);
-  const failed = taskResultText({ ...doneTask, state: 'failed', error: 'withheld-path', result: null }, labels).split(
+  const failed = errandResultText({ ...doneTask, state: 'failed', error: 'withheld-path', result: null }, labels).split(
     '\n'
   );
   assert.deepEqual(failed, [
@@ -201,44 +201,46 @@ test('tasksBlockText / taskResultText: every word from labels.errands; none with
     'no result text',
     'error: withheld-path',
   ]);
-  assert.equal(taskResultText(doneTask, {}), '');
+  assert.equal(errandResultText(doneTask, {}), '');
 });
 
-test('tasksBlockText / taskResultText: expired files show the expired state word and no handle', () => {
+test('errandsBlockText / errandResultText: expired files show the expired state word and no handle', () => {
   const expired = { ...doneTask, filesExpired: true };
   const withWord = {
     ...labels,
     errands: { ...labels.errands, states: { ...labels.errands.states, expired: 'done, files gone' } },
   };
   assert.ok(
-    tasksBlockText([expired], withWord, { now: NOW })
+    errandsBlockText([expired], withWord, { now: NOW })
       .split('\n')[1]
       .startsWith('tab02 | scout | done, files gone | 3 min')
   );
-  const result = taskResultText(expired, withWord).split('\n');
+  const result = errandResultText(expired, withWord).split('\n');
   assert.equal(result[0], 'errand tab02 (scout) ended done, files gone: find a meme');
   assert.ok(
     !result.includes('files:') && !result.some((line) => line.startsWith('file:')),
     'no handle of an expired file'
   );
   // Without the label, the state's own word.
-  assert.ok(tasksBlockText([expired], labels, { now: NOW }).split('\n')[1].startsWith('tab02 | scout | done | 3 min'));
-  assert.equal(taskResultText(expired, labels).split('\n')[0], 'errand tab02 (scout) ended done: find a meme');
+  assert.ok(
+    errandsBlockText([expired], labels, { now: NOW }).split('\n')[1].startsWith('tab02 | scout | done | 3 min')
+  );
+  assert.equal(errandResultText(expired, labels).split('\n')[0], 'errand tab02 (scout) ended done: find a meme');
 });
 
-test('taskResultText: the withheld paths close the block in labels.errands.result.withheld; without the label, no line', () => {
+test('errandResultText: the withheld paths close the block in labels.errands.result.withheld; without the label, no line', () => {
   const withheld = { ...doneTask, result: { ...doneTask.result, withheld: ['/etc/shadow', '/srv/app/.env'] } };
   const withLabel = {
     ...labels,
     errands: { ...labels.errands, result: { ...labels.errands.result, withheld: 'not readable here: {paths}' } },
   };
-  const lines = taskResultText(withheld, withLabel).split('\n');
+  const lines = errandResultText(withheld, withLabel).split('\n');
   assert.equal(lines.at(-1), 'not readable here: /etc/shadow, /srv/app/.env');
   assert.equal(lines.at(-2), 'file:tab02/meme.png | image/png | 2048 bytes', 'after the text and the files');
-  const without = taskResultText(withheld, labels).split('\n');
+  const without = errandResultText(withheld, labels).split('\n');
   assert.equal(without.at(-1), 'file:tab02/meme.png | image/png | 2048 bytes');
-  assert.equal(taskResultText(doneTask, withLabel), taskResultText(doneTask, labels), 'no withheld path, no line');
-  const failed = taskResultText(
+  assert.equal(errandResultText(doneTask, withLabel), errandResultText(doneTask, labels), 'no withheld path, no line');
+  const failed = errandResultText(
     { ...withheld, state: 'failed', error: 'withheld-path', result: { text: '', withheld: ['/etc/shadow'] } },
     withLabel
   ).split('\n');
@@ -250,7 +252,7 @@ test('taskResultText: the withheld paths close the block in labels.errands.resul
   ]);
 });
 
-test('taskResultText: the files the runner held back follow the withheld line in labels.errands.result.held, with no handle; without the label, no line', () => {
+test('errandResultText: the files the runner held back follow the withheld line in labels.errands.result.held, with no handle; without the label, no line', () => {
   const held = {
     ...doneTask,
     result: { ...doneTask.result, withheld: ['/etc/shadow'], filesDropped: [{ name: 'x.env', reason: 'secret' }] },
@@ -262,19 +264,19 @@ test('taskResultText: the files the runner held back follow the withheld line in
       result: { ...labels.errands.result, withheld: 'not readable here: {paths}', held: 'not delivered: {names}' },
     },
   };
-  const lines = taskResultText(held, withLabels).split('\n');
+  const lines = errandResultText(held, withLabels).split('\n');
   assert.deepEqual(lines.slice(-2), ['not readable here: /etc/shadow', 'not delivered: x.env']);
   assert.ok(!lines.some((line) => line.includes('file:tab02/x.env')), 'no handle for a held-back file');
   const names = { ...held, result: { ...held.result, filesDropped: ['x.env', 'id_rsa', '', 7] } };
   assert.equal(
-    taskResultText(names, withLabels).split('\n').at(-1),
+    errandResultText(names, withLabels).split('\n').at(-1),
     'not delivered: x.env, id_rsa',
     'the record keeps names'
   );
   const noLabel = { ...labels, errands: { ...labels.errands, result: { ...labels.errands.result, held: undefined } } };
-  assert.ok(!taskResultText(held, noLabel).includes('x.env'));
+  assert.ok(!errandResultText(held, noLabel).includes('x.env'));
   assert.equal(
-    taskResultText({ ...held, result: { ...held.result, filesDropped: [] } }, withLabels)
+    errandResultText({ ...held, result: { ...held.result, filesDropped: [] } }, withLabels)
       .split('\n')
       .at(-1),
     'not readable here: /etc/shadow',
@@ -358,7 +360,7 @@ test('task turns: a finished errand opens her turn where it was asked, with <err
     errands,
     now: () => NOW,
   });
-  const taskTurns = createTaskTurns({
+  const taskTurns = createErrandTurns({
     hot,
     reads: world().reads,
     iface: () => 'fake',
@@ -407,7 +409,7 @@ test('task turns: held back while the attention is taken, tried again after erra
   const timers = [];
   const errands = fakeErrands();
   fakeChannel({ historyMessages: [rawMessage({ id: 'm1' })] });
-  const taskTurns = createTaskTurns({
+  const taskTurns = createErrandTurns({
     hot: fakeHot(),
     reads: world().reads,
     iface: () => 'fake',
@@ -448,7 +450,7 @@ test('task turns: an errand end enters through the event door as errand.done, on
   };
   fakeChannel({ historyMessages: [rawMessage({ id: 'm1' })] });
   const errands = fakeErrands();
-  const taskTurns = createTaskTurns({
+  const taskTurns = createErrandTurns({
     hot: fakeHot(),
     reads: world().reads,
     iface: () => 'fake',
@@ -491,7 +493,7 @@ test("task turns: an event without the task in hand asks the guild's task store;
     ...fakeErrands(),
     store: (guildId) => (guildId === 'g1' ? { get: (id) => (id === 'tab02' ? doneTask : null) } : null),
   };
-  const taskTurns = createTaskTurns({
+  const taskTurns = createErrandTurns({
     hot: fakeHot(),
     reads: world().reads,
     iface: () => 'fake',
@@ -514,25 +516,25 @@ async function flush() {
   for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setImmediate(resolve));
 }
 
-test('tasksBlockText: unread results carry the marker, the error code and the failed-turn note; the cap counts the rest', () => {
+test('errandsBlockText: unread results carry the marker, the error code and the failed-turn note; the cap counts the rest', () => {
   const withError = { ...labels, errands: { ...labels.errands, line: '{id} | {state} {error} | {goal}' } };
   const failed = { ...doneTask, id: 'tab03', state: 'failed', error: 'timeout', resultTurnFailed: true, result: null };
-  const lines = tasksBlockText([runningTask, failed], withError, { now: NOW }).split('\n');
+  const lines = errandsBlockText([runningTask, failed], withError, { now: NOW }).split('\n');
   assert.ok(lines[1].startsWith('tab01 | running  | find the release notes'));
   assert.ok(!lines[1].includes('[unread]'));
   assert.equal(lines[2], 'tab03 | failed timeout | find a meme [unread] [result turn failed]');
   const many = ['a1', 'a2', 'a3', 'a4'].map((id, i) => ({ ...doneTask, id, createdAt: NOW - (10 - i) * MINUTE }));
-  const capped = tasksBlockText([runningTask, ...many], labels, { now: NOW, unreadShown: 2 }).split('\n');
+  const capped = errandsBlockText([runningTask, ...many], labels, { now: NOW, unreadShown: 2 }).split('\n');
   assert.deepEqual(capped.map((line) => line.split(' | ')[0]).slice(1), ['tab01', 'a1', 'a2', '[2 more unread]']);
-  const noMore = tasksBlockText(
+  const noMore = errandsBlockText(
     many,
     { ...labels, errands: { ...labels.errands, unreadMore: undefined } },
     { now: NOW, unreadShown: 1 }
   ).split('\n');
   assert.equal(noMore.length, 2, 'without the label, no count line');
-  assert.equal(tasksBlockText(many, labels, { now: NOW }).split('\n').length, 5, 'the default shows five or fewer');
+  assert.equal(errandsBlockText(many, labels, { now: NOW }).split('\n').length, 5, 'the default shows five or fewer');
   assert.equal(
-    tasksBlockText(
+    errandsBlockText(
       Array.from({ length: 7 }, (_, i) => ({ ...doneTask, id: `b${i}` })),
       labels,
       { now: NOW }
@@ -548,7 +550,7 @@ test('task turns: a result turn that spoke or chose silence marks the task seen 
     const errands = fakeErrands();
     const turns = { isBusy: () => false, isAnyBusy: () => false, runTurn: async () => ({ outcome }) };
     fakeChannel({ historyMessages: [rawMessage({ id: 'm1' })] });
-    const taskTurns = createTaskTurns({
+    const taskTurns = createErrandTurns({
       hot: fakeHot(),
       reads: world().reads,
       iface: () => 'fake',
@@ -577,7 +579,7 @@ test('task turns: a result turn that ended error or refused marks nothing and is
   const timers = [];
   const errands = fakeErrands();
   fakeChannel({ historyMessages: [rawMessage({ id: 'm1' })] });
-  const taskTurns = createTaskTurns({
+  const taskTurns = createErrandTurns({
     hot: fakeHot(),
     reads: world().reads,
     iface: () => 'fake',
@@ -602,7 +604,7 @@ test('task turns: a result turn that ended error or refused marks nothing and is
   assert.equal(runs.length, 3);
   assert.deepEqual(errands.read, [{ guildId: 'g1', ids: ['tab02'] }], 'the third try spoke: read');
   const dry = fakeErrands();
-  const dryTurns = createTaskTurns({
+  const dryTurns = createErrandTurns({
     hot: fakeHot(),
     reads: world().reads,
     iface: () => 'fake',
@@ -620,7 +622,7 @@ test('task turns: after the attempts a result that never got its turn stays unre
   const timers = [];
   const errands = fakeErrands();
   fakeChannel({ historyMessages: [rawMessage({ id: 'm1' })] });
-  const taskTurns = createTaskTurns({
+  const taskTurns = createErrandTurns({
     hot: fakeHot(),
     reads: world().reads,
     iface: () => 'fake',

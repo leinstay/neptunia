@@ -1,4 +1,4 @@
-// Tests for src/errands/client.js: the core's client of the agent runners' sockets, against a
+// Tests for src/errands/client.ts: the core's client of the agent runners' sockets, against a
 // FAKE runner -- a plain Unix-socket server in the test that reads the client's lines and answers
 // what the test tells it to. A run resolves on its `end`, progress reaches the listeners, cancel
 // and ping go out as lines, a dropped connection fails its tasks with `disconnected` and is
@@ -14,7 +14,7 @@ import net from 'node:net';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createErrandClient } from '../src/errands/client.js';
+import { createErrandClient } from '../src/errands/client.ts';
 import { encodeLine, MAX_PREAMBLE_CHARS } from '../src/agent-runner/protocol.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { ROLE_DEFAULTS } from '../src/llm/roles.js';

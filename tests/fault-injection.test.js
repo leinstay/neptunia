@@ -20,9 +20,9 @@ import { createDiscordInterface } from '../interfaces/discord/index.js';
 import { createEventDoor } from '../src/interface/door.js';
 import { createJournal } from '../src/memory/journal.js';
 import { createStore } from '../src/memory/store.js';
-import { createTaskStores } from '../src/errands/store.js';
-import { createErrandService } from '../src/errands/service.js';
-import { RESULT_ATTEMPTS, createTaskTurns } from '../src/errands/turns.js';
+import { createErrandStores } from '../src/errands/store.ts';
+import { createErrandService } from '../src/errands/service.ts';
+import { RESULT_ATTEMPTS, createErrandTurns } from '../src/errands/turns.ts';
 import { runOp } from '../src/tools/impl/index.ts';
 import { createOpsEnv } from '../src/tools/impl/env.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
@@ -412,7 +412,7 @@ function boot(
             : admin.runSkillOp(op, args, context);
 
   // The errand service over the real task store; its runner is a fake that ends at once.
-  const stores = createTaskStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: SILENT });
+  const stores = createErrandStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: SILENT });
   let taskTurns = null;
   const errands = createErrandService({
     client: {
@@ -466,7 +466,7 @@ function boot(
       return result;
     },
   };
-  taskTurns = createTaskTurns({
+  taskTurns = createErrandTurns({
     hot,
     reads,
     iface: () => 'fake',
@@ -874,7 +874,7 @@ test("row 3: the process dies after an errand's result was stored and before its
   await before.errands.idle();
   // The result is stored: its write reached the database before the process died.
   await before.errands.store(GUILD).flush();
-  const id = submitted.task.id;
+  const id = submitted.errand.id;
   assert.equal(before.errands.store(GUILD).get(id).state, 'done');
   assert.equal(chat.llm.calls.length, 0, 'the result turn never ran');
 
@@ -1249,7 +1249,7 @@ test('row 11: an errand completes and its result turn fails every time -- the ta
     origin: { channelId: 'c1', messageId: origin.id },
     scope: 'group',
   });
-  const id = submitted.task.id;
+  const id = submitted.errand.id;
   await withCapturedLogs(async () => {
     await run.errands.idle();
     for (let i = 0; i < RESULT_ATTEMPTS + 5 && run.timers.length > 0; i += 1) {

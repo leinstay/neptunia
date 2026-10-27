@@ -18,7 +18,20 @@ import { fill, formatClock, formatDate } from '../format.js';
 import { estimateTokens } from '../llm/tokens.js';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { DAY_MS } from '../time.js';
-import { DEFAULTS } from './model.js';
+import { DEFAULTS } from './model.ts';
+import { isFiniteNumber, listOf, objOf } from '../tools/types.ts';
+import type { Untyped } from '../tools/types.ts';
+import type { Intention } from './types.ts';
+
+/** What the lines of the block read from the caller: the clock, the names and the expiry notice. */
+type LineOptions = {
+  timezone: string;
+  locale: string;
+  channelNameOf: (id: string) => string | null;
+  nameOf: (id: string) => string | null;
+  now: number | null;
+  noticeMs: number;
+};
 
 /** `context.caps.intentions` when it is missing (config.json carries the same). */
 export const DEFAULT_INTENTIONS_CAP = 600;
@@ -28,12 +41,12 @@ export const PURPOSE_LINE_CHARS = 200;
 export const SPAN_LINE_CHARS = 160;
 
 /** A moment in words: the date and the clock in `timezone`. */
-function when(ts, timezone, locale) {
-  return `${formatDate(ts, timezone, locale)} ${formatClock(ts, timezone, locale)}`;
+function when(ts: number | null, timezone: string, locale: string): string {
+  return `${formatDate(ts ?? 0, timezone, locale)} ${formatClock(ts ?? 0, timezone, locale)}`;
 }
 
 /** A label of `l` filled, or '' when it is missing. */
-function part(l, key, values) {
+function part(l: Untyped, key: string, values: Record<string, unknown>): string {
   return typeof l?.[key] === 'string' && l[key] ? fill(l[key], values) : '';
 }
 
@@ -42,15 +55,19 @@ function part(l, key, values) {
  * due time, a wait nor an attention, the no-date part with its expiry), its attention, its wait,
  * its outcome or note, its destination, and its expiry when that is within `noticeMs` of `now`.
  */
-function activeLine(record, l, { timezone, locale, channelNameOf, nameOf, now, noticeMs }) {
+function activeLine(
+  record: Intention,
+  l: Untyped,
+  { timezone, locale, channelNameOf, nameOf, now, noticeMs }: LineOptions
+): string {
   const state = typeof l.states?.[record.status] === 'string' ? l.states[record.status] : record.status;
   const pieces = [
     fill(l.line, { id: record.id, state, purpose: clampWithEllipsis(oneLine(record.purpose), PURPOSE_LINE_CHARS) }),
   ];
-  const dateless = !Number.isFinite(record.dueAt) && record.status !== 'waiting' && !record.attend?.place;
+  const dateless = !isFiniteNumber(record.dueAt) && record.status !== 'waiting' && !record.attend?.place;
   let noDue = '';
-  if (Number.isFinite(record.dueAt)) pieces.push(part(l, 'due', { when: when(record.dueAt, timezone, locale) }));
-  else if (dateless && Number.isFinite(record.expiresAt)) {
+  if (isFiniteNumber(record.dueAt)) pieces.push(part(l, 'due', { when: when(record.dueAt, timezone, locale) }));
+  else if (dateless && isFiniteNumber(record.expiresAt)) {
     noDue = part(l, 'noDue', { expires: when(record.expiresAt, timezone, locale) });
     pieces.push(noDue);
   }
@@ -79,7 +96,7 @@ function activeLine(record, l, { timezone, locale, channelNameOf, nameOf, now, n
     pieces.push(fill(l.notes[record.note], { errand: record.lastErrandId ?? '' }));
   if (record.destination)
     pieces.push(part(l, 'destination', { channel: channelNameOf(record.destination) || record.destination }));
-  if (!noDue && Number.isFinite(record.expiresAt) && Number.isFinite(now) && record.expiresAt - now <= noticeMs)
+  if (!noDue && isFiniteNumber(record.expiresAt) && isFiniteNumber(now) && record.expiresAt - now <= noticeMs)
     pieces.push(part(l, 'expiresSoon', { when: when(record.expiresAt, timezone, locale) }));
   return pieces.filter(Boolean).join(' · ');
 }
@@ -89,7 +106,7 @@ function activeLine(record, l, { timezone, locale, channelNameOf, nameOf, now, n
  * words came from outside material (`provenance.origin` `external`: only an ordinary turn of hers
  * may accept it), empty for her own.
  */
-function candidateLine(record, l) {
+function candidateLine(record: Intention, l: Untyped): string {
   const external = record.provenance?.origin === 'external';
   const marker = external && typeof l.externalMarker === 'string' ? l.externalMarker : '';
   return part(l, 'candidate', {
@@ -101,22 +118,18 @@ function candidateLine(record, l) {
 }
 
 /**
- * The `<intentions>` block's body for `records` (src/intentions/service.js#view's order), within
+ * The `<intentions>` block's body for `records` (src/intentions/service.ts#view's order), within
  * `maxTokens` (`cost` the estimate; whole lines, in order): `labels.intentions.header`, a line per
  * active one, then `candidates` and a `candidate` line per proposed one. '' when nothing fits or
  * the labels are missing.
- * @param {Array<object|null|undefined>} records
- * @param {object} labels
  * `channelNameOf(id)` names a destination or attended channel (its id when it gives nothing);
  * `nameOf(id)` names an attended person (the id when it gives nothing). `now` (epoch ms) and
  * `expiryNoticeDays` (`intentions.expiryNoticeDays`, read by the caller now) decide which lines
  * end with their expiry; without `now` none does.
- * @param {{ timezone?: string, locale?: string, maxTokens?: number, cost?: (text: string) => number, channelNameOf?: (id: string) => string|null, nameOf?: (id: string) => string|null, now?: number|null, expiryNoticeDays?: number }} [options]
- * @returns {string}
  */
 export function intentionsBlockText(
-  records,
-  labels,
+  records: unknown,
+  labels: Untyped,
   {
     timezone = 'UTC',
     locale = 'en-US',
@@ -126,21 +139,29 @@ export function intentionsBlockText(
     nameOf = () => null,
     now = null,
     expiryNoticeDays = DEFAULTS.expiryNoticeDays,
+  }: {
+    timezone?: string;
+    locale?: string;
+    maxTokens?: number;
+    cost?: (text: string) => number;
+    channelNameOf?: (id: string) => string | null;
+    nameOf?: (id: string) => string | null;
+    now?: number | null;
+    expiryNoticeDays?: number;
   } = {}
-) {
+): string {
   const l = labels?.intentions;
-  const list = Array.isArray(records) ? records.filter((record) => record && typeof record.id === 'string') : [];
+  const list = listOf(records).filter((record): record is Intention => typeof objOf(record).id === 'string');
   if (list.length === 0 || typeof l?.header !== 'string' || typeof l?.line !== 'string') return '';
   const out = [l.header];
   let used = cost(l.header);
-  const fits = (text) => used + cost(text) + 1 <= maxTokens;
-  const take = (text) => {
+  const fits = (text: string): boolean => used + cost(text) + 1 <= maxTokens;
+  const take = (text: string): void => {
     out.push(text);
     used += cost(text) + 1;
   };
   const noticeMs =
-    (Number.isFinite(expiryNoticeDays) && expiryNoticeDays >= 0 ? expiryNoticeDays : DEFAULTS.expiryNoticeDays) *
-    DAY_MS;
+    (isFiniteNumber(expiryNoticeDays) && expiryNoticeDays >= 0 ? expiryNoticeDays : DEFAULTS.expiryNoticeDays) * DAY_MS;
   for (const record of list.filter((r) => r.status !== 'proposed')) {
     const text = activeLine(record, l, { timezone, locale, channelNameOf, nameOf, now, noticeMs });
     if (!fits(text)) break;

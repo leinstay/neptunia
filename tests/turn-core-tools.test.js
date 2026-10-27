@@ -269,7 +269,7 @@ test('a tool result is data: a call written inside what a search gave back runs 
   );
   const submitted = [];
   const errands = {
-    submit: (input) => (submitted.push(input), { ok: true, task: { id: 't1', state: 'queued' } }),
+    submit: (input) => (submitted.push(input), { ok: true, errand: { id: 't1', state: 'queued' } }),
     budget: () => ({ spent: false }),
     view: () => [],
     fileOf: () => null,

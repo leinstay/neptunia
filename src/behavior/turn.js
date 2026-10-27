@@ -65,8 +65,8 @@ import {
   renderGifLibrary,
 } from './gif-pick.js';
 import { turnRequestInput } from './turn-input.js';
-import { DEFAULT_RESULT_MAX_CHARS, tasksBlockText, taskResultText } from '../errands/blocks.js';
-import { DEFAULT_INTENTIONS_CAP, intentionsBlockText } from '../intentions/blocks.js';
+import { DEFAULT_RESULT_MAX_CHARS, errandsBlockText, errandResultText } from '../errands/blocks.ts';
+import { DEFAULT_INTENTIONS_CAP, intentionsBlockText } from '../intentions/blocks.ts';
 import { parseJsonObject, parseOutput } from '../llm/parse.js';
 import {
   DailyCapError,
@@ -144,8 +144,8 @@ import { channelPlaceId, personId } from '../memory/db/ids.ts';
 import { prefetchLanes, prefetchOn, wakeLanes } from './prefetch.js';
 import { FACTS_SHOWN_MAX, POSTING_SKILLS, createLocalFacts, factPayload, innerSettings } from './inner.js';
 import { DESTINATION_REQUIRED, innerOutputCalls } from './inner-output.js';
-import { SOURCE_CHARS_MAX, lineSourcesOf, textsOf } from '../intentions/sources.js';
-import { intentionSettings, isIntentionId } from '../intentions/model.js';
+import { SOURCE_CHARS_MAX, lineSourcesOf, textsOf } from '../intentions/sources.ts';
+import { intentionSettings, isIntentionId } from '../intentions/model.ts';
 import { WAKE_PURPOSE_CHARS } from './wake.js';
 import { diagnosticText, feedbackInTurnText, placesBlockText, wakeBlockText } from './wake.js';
 import { CODE } from '../tools/codes.ts';
@@ -1473,7 +1473,7 @@ function journalStartOf({ draft, channel, trigger, triggerKind, mode, journalTur
  * requester.
  * `turnId` (the journal's turn, else one id per attempt) and `idempotencyKey` (that turn, its
  * attempt and the call's index in it) go with every call: an errand records the turn, and the
- * same call made twice queues one errand (src/errands/store.js#add).
+ * same call made twice queues one errand (src/errands/store.ts#add).
  * @returns {Readonly<{ actor: 'persona', requester: object|null, mixed: boolean, sourceMessageIds: string[], originChannelId: string, invocationId: string, turnId?: string, idempotencyKey?: string }>}
  */
 function callEnvelope({
@@ -1511,7 +1511,7 @@ function callEnvelope({
     ...(turnId ? { turnId: String(turnId) } : {}),
     ...(idempotencyKey ? { idempotencyKey: String(idempotencyKey) } : {}),
     // An inner turn: her own initiative, nobody asked (src/tools/executors.ts#executeCall), and
-    // its causal chain (which of her candidates it may accept, src/intentions/model.js#acceptRefusal).
+    // its causal chain (which of her candidates it may accept, src/intentions/model.ts#acceptRefusal).
     ...(ownInitiative
       ? {
           ownInitiative: true,
@@ -1998,7 +1998,7 @@ export function taskInput({ part, queued, added, missed = null, failedEarlier = 
  * who reacted to her messages, fed by `reaction.changed`; the turn's history read names them on her lines
  * (reactorNames).
  *
- * Intentions: `intentions` (src/intentions/service.js#createIntentionService, null: none) gives the
+ * Intentions: `intentions` (src/intentions/service.ts#createIntentionService, null: none) gives the
  * `<intentions>` block of every turn but a diary post while features.intentions is exactly true.
  *
  * The interface: `reads` (src/interface/reads.ts#createReads over the port) is how a turn asks the interface
@@ -2200,13 +2200,13 @@ export function createTurnRunner({
    * `errands.unreadShown` of them), the one `taskResult` brings left out -- and, on the turn an
    * errand's end opened (`taskResult`, trigger kind `errand`), the `<errand_result>` body cut to
    * `errands.resultMaxChars` (read now). Showing a task marks nothing: it is read by the result
-   * turn that completed (src/errands/turns.js) or by `errand.read`. Null when there is nothing to show.
+   * turn that completed (src/errands/turns.ts) or by `errand.read`. Null when there is nothing to show.
    */
   function errandsInputFor({ guildId, channel, isPrivate, taskResult, config, labels, now }) {
     const listed = listedTasks({ guildId, channel, isPrivate, taskResult });
-    const list = tasksBlockText(listed, labels, { now, unreadShown: config.errands?.unreadShown });
+    const list = errandsBlockText(listed, labels, { now, unreadShown: config.errands?.unreadShown });
     const result = taskResult
-      ? taskResultText(taskResult, labels, { maxChars: config.errands?.resultMaxChars ?? DEFAULT_RESULT_MAX_CHARS })
+      ? errandResultText(taskResult, labels, { maxChars: config.errands?.resultMaxChars ?? DEFAULT_RESULT_MAX_CHARS })
       : '';
     return list || result ? { list, result } : null;
   }
@@ -2214,7 +2214,7 @@ export function createTurnRunner({
   /**
    * The request's `<intentions>` body (features.intentions exactly true, read now): her open
    * intentions and the candidates proposed from her lines (`intentions.view`: a private chat's
-   * own only in that chat), cut to `context.caps.intentions` tokens (src/intentions/blocks.js).
+   * own only in that chat), cut to `context.caps.intentions` tokens (src/intentions/blocks.ts).
    * '' with the switch off, without the service, or with nothing to show.
    */
   function intentionsInputFor({ guildId, channel, snapshot = null, isPrivate, config, labels, now }) {
@@ -2327,7 +2327,7 @@ export function createTurnRunner({
         now: clock(),
         ...(images ? { images } : {}),
         ...(speech ? { speech } : {}),
-        // An errand's caps are its budget (src/errands/service.js#budget), in the turn's guild.
+        // An errand's caps are its budget (src/errands/service.ts#budget), in the turn's guild.
         ...(errands
           ? { tasks: { budget: (agent) => errands.budget({ guildId: channel.communityId ?? null, agent }) } }
           : {}),
@@ -3719,7 +3719,7 @@ export function createTurnRunner({
   const triggerLinks = new Map();
 
   /**
-   * Outside text the attempt `draft` has seen (src/intentions/sources.js): someone's message, the
+   * Outside text the attempt `draft` has seen (src/intentions/sources.ts): someone's message, the
    * retrieved memory, a read's result; `read` marks outside material (a read, a page, a lookup, an
    * errand's result). At most SOURCE_CHARS_MAX characters in all.
    */
@@ -3735,7 +3735,7 @@ export function createTurnRunner({
 
   /**
    * Where her line `postedId` (its `text` as she wrote it) came from, noted with the intention
-   * service for the candidates the analyzer may find in it (src/intentions/sources.js#lineSourcesOf:
+   * service for the candidates the analyzer may find in it (src/intentions/sources.ts#lineSourcesOf:
    * what the turn had seen before it went out, its turn, an inner turn's chain). Never throws.
    */
   function noteLineSources(draft, postedId, text) {

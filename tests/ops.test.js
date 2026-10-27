@@ -10,7 +10,7 @@ import { legacyGrantOps, listOps, runOp } from '../src/tools/impl/index.ts';
 import { createOpsEnv } from '../src/tools/impl/env.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.js';
 import { tempDir } from './fixtures/tmp.js';
-import { createTaskStore } from '../src/errands/store.js';
+import { createErrandStore } from '../src/errands/store.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
@@ -388,14 +388,14 @@ test("status keys.base and costs.errands: the errand agents' key has no line and
     },
   };
   const clock = { t: NOW - 10 * 24 * 60 * 60 * 1000 };
-  const tasks = createTaskStore({
+  const tasks = createErrandStore({
     dataDir: tempDir('nep-ops-data-'),
     guildId: 'g1',
     now: () => clock.t,
     config: () => config,
   });
   const run = (agent, usage) => {
-    const { task } = tasks.add({
+    const { errand: task } = tasks.add({
       agent,
       goal: 'look it up',
       requester: { userId: 'u1', kind: 'member' },

@@ -1,6 +1,6 @@
 // The memory a tool reads: the memory database of a data directory (`<dataDir>/memory.db`, or the file given), opened
 // read only with no writer lock, as the `memoryDb` the memory modules take (src/memory/record.js, archive.js,
-// vectors.js, store.js, src/intentions/store.js, src/errands/store.js, the recall runner). The seam has no writer, so a
+// vectors.js, store.js, src/intentions/store.ts, src/errands/store.ts, the recall runner). The seam has no writer, so a
 // module built on it reads the database and writes nothing to it. A database that is not there is no memory:
 // `memoryDb` is null, and the modules find nothing (the store and the module stores keep their cache only; the
 // record's, the archive's and the index's reads answer `DB_CLOSED`).

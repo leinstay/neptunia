@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { runOp } from '../src/tools/impl/index.ts';
 import { createOpsEnv } from '../src/tools/impl/env.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.js';
-import { createTaskStore } from '../src/errands/store.js';
+import { createErrandStore } from '../src/errands/store.ts';
 import { usageTap, createUsage } from '../src/tools/impl/usage.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { tempDir } from './fixtures/tmp.js';
@@ -49,7 +49,7 @@ function setup() {
     promptSources: {},
     rootDir: tempDir('nep-status-drawing-'),
   };
-  const tasks = createTaskStore({
+  const tasks = createErrandStore({
     dataDir: tempDir('nep-status-drawing-data-'),
     guildId: 'g1',
     now: () => NOW,

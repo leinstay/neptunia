@@ -302,31 +302,31 @@
         "complexity": 74
       }
     },
-    "src/errands/blocks.js": {
-      "taskResultText": {
+    "src/errands/blocks.ts": {
+      "errandResultText": {
         "complexity": 25
       }
     },
-    "src/errands/client.js": {
+    "src/errands/client.ts": {
       "createErrandClient": {
-        "function-length": 364
+        "function-length": 358
       },
       "createErrandClient>onEvent": {
         "complexity": 26
       }
     },
-    "src/errands/ledger.js": {
+    "src/errands/ledger.ts": {
       "createLedgerMirror": {
-        "function-length": 452
+        "function-length": 449
       }
     },
-    "src/errands/service.js": {
+    "src/errands/service.ts": {
       "createErrandService": {
-        "function-length": 396
+        "function-length": 369
       }
     },
-    "src/errands/store.js": {
-      "createTaskStore": {
+    "src/errands/store.ts": {
+      "createErrandStore": {
         "function-length": 547
       }
     },
@@ -341,12 +341,12 @@
         "complexity": 25
       }
     },
-    "src/intentions/blocks.js": {
+    "src/intentions/blocks.ts": {
       "activeLine": {
         "complexity": 25
       }
     },
-    "src/intentions/model.js": {
+    "src/intentions/model.ts": {
       "candidatesFromAnswer": {
         "complexity": 23
       },
@@ -357,9 +357,9 @@
         "complexity": 49
       }
     },
-    "src/intentions/service.js": {
+    "src/intentions/service.ts": {
       "createIntentionService": {
-        "function-length": 743
+        "function-length": 718
       },
       "createIntentionService>addCandidates": {
         "complexity": 21
@@ -371,7 +371,7 @@
         "complexity": 31
       },
       "createIntentionService>update><anonymous>#3": {
-        "complexity": 50
+        "complexity": 49
       }
     },
     "src/llm/embed.js": {
@@ -987,11 +987,11 @@
       "src/behavior/random.js",
       "src/behavior/route-channel.js",
       "src/behavior/wake.js",
-      "src/errands/blocks.js",
-      "src/errands/turns.js",
+      "src/errands/blocks.ts",
+      "src/errands/turns.ts",
       "src/handles-text.js",
-      "src/intentions/blocks.js",
-      "src/intentions/sources.js",
+      "src/intentions/blocks.ts",
+      "src/intentions/sources.ts",
       "src/interface/fake.js",
       "src/interface/port.js",
       "src/log.js",

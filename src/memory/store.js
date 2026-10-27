@@ -35,7 +35,7 @@
 //                                            guild/guild, lore/<key> (src/memory/lore.js#loreVersionKey);
 //                                            capped per field
 //
-// The errand tasks (src/errands/store.js) and the intentions (src/intentions/store.js) are units of their own
+// The errand tasks (src/errands/store.ts) and the intentions (src/intentions/store.ts) are units of their own
 // stores, not cached here. Everything is cached in memory, marked dirty on change and flushed on a timer and on
 // shutdown: a memory unit's whole value goes to the database's writer through an outbox (src/memory/db/unit-outbox.js),
 // an operational file is written atomically (temp file + rename; when the OS refuses the rename the file is written

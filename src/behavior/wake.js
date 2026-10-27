@@ -551,7 +551,7 @@ export function placesBlockText(page, labels) {
 /**
  * The `<wake>` body for `wake` (src/behavior/inner.js's turn record: `items`, `intentions`, `notes`
  * -- an intention id to a `labels.intentions.notes` code, `last-occurrence`, joined to its line by
- * ` · ` -- `expired` (a review: src/intentions/model.js#expiredToShow's `{ items, more }`, after
+ * ` · ` -- `expired` (a review: src/intentions/model.ts#expiredToShow's `{ items, more }`, after
  * the wake lines as `labels.wake.expired`, one `labels.wake.expiredItem` per item with `{id}`,
  * `{purpose}`, `{when}`, then `labels.wake.expiredMore` with `{more}` when more follow; left out
  * without its two labels or an item), `now`, `timezone`, `channels`, `places`, `budgets`), ''

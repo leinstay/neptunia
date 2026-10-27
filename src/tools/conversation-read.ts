@@ -11,7 +11,7 @@
 // channel the audience rule or her rights hide is refused `channel-not-visible`.
 
 import { fill, formatTranscript } from '../format.js';
-import { parseWhen } from '../intentions/model.js';
+import { parseWhen } from '../intentions/model.ts';
 import { DAY_MS } from '../time.js';
 import { oneLine } from '../memory/clamp.js';
 import { CODE } from './codes.ts';

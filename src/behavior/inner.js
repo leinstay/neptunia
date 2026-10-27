@@ -42,7 +42,7 @@
 // feedback wake is never held by a cap, never coalesced with another wake and does not count
 // against the chain; a feedback turn's own misses are facts but queue no second wake (no loops).
 //
-// A recurring intention (`every`, src/intentions/model.js) is advanced to its next occurrence
+// A recurring intention (`every`, src/intentions/model.ts) is advanced to its next occurrence
 // whenever a wake naming it is marked handled -- her turn ended (whatever its outcome), or the
 // engine dropped the wake (`no-channel`, `overflow`, `stale`, the stop) --
 // through the intention service's `advance`: `recurred` when a call of the turn named it (the
@@ -51,7 +51,7 @@
 // last occurrence before its expiry carries the note `last-occurrence` on its `<wake>` line.
 //
 // Her attention (docs/inner-life.md "Her attention"): an open intention of kind `attend`
-// (src/intentions/model.js) names a place; the tick counts the place's lines in the record since
+// (src/intentions/model.ts) names a place; the tick counts the place's lines in the record since
 // her last look there -- her last own line in that place, or the last attend wake handled for
 // that place, whichever is later, and never before the attention was set -- and, once the newest
 // line is `settle` seconds old, lists one `attend` wake (`inner.wake:attend:<intentionId>:<newestLineId>`,
@@ -97,7 +97,7 @@ import {
   openFromHeartbeat,
   wakeTimeOf,
   HEARTBEAT_ORIGIN,
-} from '../intentions/model.js';
+} from '../intentions/model.ts';
 import { foldText } from '../memory/recent.js';
 import { errorCodeOf } from '../llm/openrouter.js';
 import { CODE } from '../tools/codes.ts';
@@ -578,7 +578,7 @@ export function currentChannelOf(group, records = []) {
 }
 
 /**
- * The wake of one entry of src/intentions/model.js#dueList (`{ intention, reason, at }`): an `errand_deadline` for a
+ * The wake of one entry of src/intentions/model.ts#dueList (`{ intention, reason, at }`): an `errand_deadline` for a
  * wait past its deadline (its id names the errand), else an `intention_due` (its id names the due time), so the same
  * due item is always the same wake and a new due time is a new one. Its chain is the intention's `chainId`, else the
  * intention -- or, for a recurring intention (`every`), this occurrence of it: each occurrence is its own chain.
@@ -929,7 +929,7 @@ export function createCostMeter({ subscribe = onLog } = {}) {
  * @param {{ config: object }} options.hot
  * @param {string} options.dataDir
  * @param {{ runTurn: Function, isAnyBusy?: Function, isBusy?: Function }} options.turns
- * @param {object|null} [options.intentions]  src/intentions/service.js
+ * @param {object|null} [options.intentions]  src/intentions/service.ts
  * @param {{ iterate: Function }|null} [options.record]  The record: her own lines for the review's
  *   hours, every place's lines for her attention.
  * @param {((guildId: string) => { id: string, name?: string|null, writable?: boolean|null }[])|null} [options.places]

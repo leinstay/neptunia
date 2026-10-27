@@ -29,9 +29,9 @@ import {
   WAKE_KINDS,
 } from '../src/behavior/inner.js';
 import { createEventDoor } from '../src/interface/door.js';
-import { createIntentionStores } from '../src/intentions/store.js';
-import { createIntentionService } from '../src/intentions/service.js';
-import { createIntention } from '../src/intentions/model.js';
+import { createIntentionStores } from '../src/intentions/store.ts';
+import { createIntentionService } from '../src/intentions/service.ts';
+import { createIntention } from '../src/intentions/model.ts';
 import { localHour } from '../src/format.js';
 import { HOUR_MS, MINUTE_MS, DAY_MS, zonedEpoch } from '../src/time.js';
 import { tempDir } from './fixtures/tmp.js';

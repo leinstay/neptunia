@@ -1,5 +1,5 @@
 // The persona's intentions, one store per guild: the unit `guilds/<id>/intentions.json` of the memory database
-// holds `{ intentions: [...] }` (the records of src/intentions/model.js), written whole on every change, so a restart
+// holds `{ intentions: [...] }` (the records of src/intentions/model.ts), written whole on every change, so a restart
 // reads back exactly what was there. The list keeps every open intention and the latest KEEP_CLOSED closed ones (done,
 // cancelled, expired, dropped). An older closed record is never deleted: it moves to the unit
 // `intentions-archive.jsonl` (append-only, one record per line), which only tools read (`archived`). A record that
@@ -7,11 +7,15 @@
 // change is a pure transition of the model applied through `update`. Logs carry ids and counts, never text.
 
 import { log as defaultLog } from '../log.js';
-import { checkInvariants, isOpen } from './model.js';
+import { checkInvariants, isOpen } from './model.ts';
 import { CODE } from '../tools/codes.ts';
 import { createReadSeam } from '../memory/db/readers/common.js';
 import { intentionsArchiveLines, intentionsValue } from '../memory/db/readers/intentions.js';
 import { createUnitOutbox } from '../memory/db/unit-outbox.js';
+import { errorCode, idText } from '../tools/types.ts';
+import type { Untyped } from '../tools/types.ts';
+import type { FlushCounts, Logger } from '../errands/types.ts';
+import type { Created, Intention, IntentionStore, IntentionStores, Moved } from './types.ts';
 
 /** The closed intentions the list keeps besides the open ones. */
 export const KEEP_CLOSED = 50;
@@ -25,11 +29,19 @@ export const KEEP_CLOSED = 50;
  * next change or `flush`, and `flush({ final: true })` (the shutdown) keeps what still fails in `memory-pending/`,
  * replayed by the service at its next start. Without a `memoryDb` (tests, a tool's dry run) nothing is read or written:
  * the list lives in memory only.
- * @param {{ guildId: string, now?: () => number, log?: object, memoryDb?: object|null }} options
  */
-export function createIntentionStore({ guildId, log = defaultLog, memoryDb = null }) {
+export function createIntentionStore({
+  guildId,
+  log = defaultLog,
+  memoryDb = null,
+}: {
+  guildId: string;
+  now?: () => number;
+  log?: Logger;
+  memoryDb?: Untyped;
+}): IntentionStore {
   const seam = createReadSeam({ memoryDb, log, reader: 'intentions' });
-  const state = { list: load(), archived: [] };
+  const state: { list: Array<Intention>; archived: Array<Intention> } = { list: load(), archived: [] };
   const outbox =
     memoryDb && typeof memoryDb.writeUnit === 'function'
       ? createUnitOutbox({ memoryDb, log, name: 'intentions' })
@@ -38,7 +50,7 @@ export function createIntentionStore({ guildId, log = defaultLog, memoryDb = nul
   const archiveOwner = `guilds/${String(guildId)}/intentions-archive.jsonl`;
 
   /** The list read once from the database (none without a `memoryDb`). */
-  function load() {
+  function load(): Array<Intention> {
     if (!memoryDb) return [];
     const db = seam.db();
     const found = seam.run(() => intentionsValue(db, guildId));
@@ -46,16 +58,18 @@ export function createIntentionStore({ guildId, log = defaultLog, memoryDb = nul
   }
 
   /** The records of a loaded value that keep the model's invariants. */
-  function valid(raw) {
-    const list = Array.isArray(raw?.intentions) ? raw.intentions : [];
-    const kept = list.filter((record) => record && typeof record.id === 'string' && checkInvariants(record) === null);
+  function valid(raw: Untyped): Array<Intention> {
+    const list: Array<Untyped> = Array.isArray(raw?.intentions) ? raw.intentions : [];
+    const kept: Array<Intention> = list.filter(
+      (record) => record && typeof record.id === 'string' && checkInvariants(record) === null
+    );
     if (kept.length < list.length)
       log.warn('intentions: records left out on load', { guildId: String(guildId), count: list.length - kept.length });
     return kept;
   }
 
   /** The list kept (every open record, then the latest KEEP_CLOSED closed ones) and the closed records beyond them. */
-  function split(list) {
+  function split(list: Array<Intention>): { kept: Array<Intention>; moved: Array<Intention> } {
     const closed = list.filter((record) => !isOpen(record.status));
     if (closed.length <= KEEP_CLOSED) return { kept: list, moved: [] };
     const keep = new Set([...closed].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)).slice(0, KEEP_CLOSED));
@@ -71,7 +85,7 @@ export function createIntentionStore({ guildId, log = defaultLog, memoryDb = nul
    * cannot take it (the caller's change is then not made). Without a `memoryDb` the moved records are
    * kept in memory.
    */
-  function persist(list, moved = []) {
+  function persist(list: Array<Intention>, moved: Array<Intention> = []): void {
     if (!memoryDb) {
       state.archived.push(...moved.map(copy));
       return;
@@ -83,15 +97,15 @@ export function createIntentionStore({ guildId, log = defaultLog, memoryDb = nul
   }
 
   /** The archived records, oldest first (a line that does not parse is skipped). Tools only. */
-  function archived() {
+  function archived(): Array<Intention> {
     if (!memoryDb) return state.archived.map(copy);
     const db = seam.db();
     const raw = seam.run(() => intentionsArchiveLines(db, guildId)).join('\n');
-    const out = [];
+    const out: Array<Intention> = [];
     for (const line of raw.split('\n')) {
       if (!line.trim()) continue;
       try {
-        out.push(JSON.parse(line));
+        out.push(JSON.parse(line) as Intention);
       } catch {
         // a torn line is left alone
       }
@@ -99,25 +113,27 @@ export function createIntentionStore({ guildId, log = defaultLog, memoryDb = nul
     return out;
   }
 
-  function copy(record) {
-    return record ? JSON.parse(JSON.stringify(record)) : null;
+  function copy(record: Intention): Intention {
+    // A stored record is plain JSON, so a round trip through JSON gives the same shape.
+    return JSON.parse(JSON.stringify(record)) as Intention;
   }
 
   /** Every record, oldest first (copies). */
-  function list() {
+  function list(): Array<Intention> {
     return state.list.map(copy);
   }
 
   /** The record `id` (a copy), or null. */
-  function get(id) {
-    return copy(state.list.find((record) => record.id === String(id ?? '')) ?? null);
+  function get(id: unknown): Intention | null {
+    const found = state.list.find((record) => record.id === idText(id));
+    return found ? copy(found) : null;
   }
 
   /**
    * A new record added and written; `{ ok: false, code }` for one that breaks an invariant
    * (`checkInvariants`' code) or repeats an id (`duplicate-id`), or `write-failed`.
    */
-  function add(record) {
+  function add(record: Intention): Created {
     const broken = checkInvariants(record);
     if (broken) return { ok: false, code: broken };
     if (state.list.some((kept) => kept.id === record.id)) return { ok: false, code: CODE.DUPLICATE_ID };
@@ -125,7 +141,7 @@ export function createIntentionStore({ guildId, log = defaultLog, memoryDb = nul
     try {
       persist(next, moved);
     } catch (err) {
-      log.warn('intentions: write failed', { guildId: String(guildId), code: err?.code ?? null });
+      log.warn('intentions: write failed', { guildId: String(guildId), code: errorCode(err) });
       return { ok: false, code: CODE.WRITE_FAILED };
     }
     state.list = next;
@@ -137,8 +153,8 @@ export function createIntentionStore({ guildId, log = defaultLog, memoryDb = nul
    * changed }`): a change is written, then kept; the move's refusal or `not-found` /
    * `write-failed` as `{ ok: false, code }`; an unchanged answer writes nothing.
    */
-  function update(id, move) {
-    const index = state.list.findIndex((record) => record.id === String(id ?? ''));
+  function update(id: unknown, move: (record: Intention) => Moved): Moved {
+    const index = state.list.findIndex((record) => record.id === idText(id));
     if (index < 0) return { ok: false, code: CODE.NOT_FOUND };
     const result = move(copy(state.list[index]));
     if (!result?.ok) return result ?? { ok: false, code: CODE.BAD_MOVE };
@@ -147,7 +163,7 @@ export function createIntentionStore({ guildId, log = defaultLog, memoryDb = nul
     try {
       persist(next, moved);
     } catch (err) {
-      log.warn('intentions: write failed', { guildId: String(guildId), id: String(id), code: err?.code ?? null });
+      log.warn('intentions: write failed', { guildId: String(guildId), id: idText(id), code: errorCode(err) });
       return { ok: false, code: CODE.WRITE_FAILED };
     }
     state.list = next;
@@ -157,9 +173,8 @@ export function createIntentionStore({ guildId, log = defaultLog, memoryDb = nul
   /**
    * The writes still waiting sent again and awaited; with `final` (the shutdown) what still fails is kept in
    * `memory-pending/`. Nothing without a `memoryDb`.
-   * @returns {Promise<{ waiting: number, pending: number }>}
    */
-  async function flush({ final = false } = {}) {
+  async function flush({ final = false }: { final?: boolean } = {}): Promise<FlushCounts> {
     if (!outbox) return { waiting: 0, pending: 0 };
     const waiting = await outbox.flush();
     return { waiting, pending: final ? outbox.keep() : 0 };
@@ -171,22 +186,32 @@ export function createIntentionStore({ guildId, log = defaultLog, memoryDb = nul
 /**
  * One intention store per guild, created on first use. `memoryDb` goes to every store (createIntentionStore); a
  * store whose load failed is not kept, so the next `get` tries again.
- * @param {{ dataDir?: string, now?: () => number, log?: object, memoryDb?: object|null }} options  `dataDir` is read by
- *   no one: the units live in the memory database.
- * @returns {{ get(guildId: string): ReturnType<typeof createIntentionStore>|null,
- *   flush(options?: { final?: boolean }): Promise<{ waiting: number, pending: number }> }}
+ * `dataDir` is read by no one: the units live in the memory database.
  */
-export function createIntentionStores({ now = Date.now, log = defaultLog, memoryDb = null }) {
-  const stores = new Map();
-  const api = {
-    get(guildId) {
-      const key = String(guildId ?? '');
+export function createIntentionStores({
+  now = Date.now,
+  log = defaultLog,
+  memoryDb = null,
+}: {
+  dataDir?: string;
+  now?: () => number;
+  log?: Logger;
+  memoryDb?: Untyped;
+}): IntentionStores {
+  const stores = new Map<string, IntentionStore>();
+  const api: IntentionStores = {
+    get(guildId: unknown): IntentionStore | null {
+      const key = typeof guildId === 'string' || typeof guildId === 'number' ? String(guildId) : '';
       if (!key) return null;
-      if (!stores.has(key)) stores.set(key, createIntentionStore({ guildId: key, now, log, memoryDb }));
-      return stores.get(key);
+      let store = stores.get(key);
+      if (!store) {
+        store = createIntentionStore({ guildId: key, now, log, memoryDb });
+        stores.set(key, store);
+      }
+      return store;
     },
     /** Every store's `flush` (the writes waiting for the database; `final` at the shutdown). */
-    async flush(options = {}) {
+    async flush(options: { final?: boolean } = {}): Promise<FlushCounts> {
       let waiting = 0;
       let pending = 0;
       for (const store of stores.values()) {

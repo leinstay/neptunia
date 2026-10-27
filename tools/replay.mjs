@@ -121,7 +121,7 @@
 // open tasks against `errands.maxOpen` and today's tasks and dollars against
 // `agents.<agent>.daily` (agents.scout, agents.server; the profile's defaults under them), from the guild's
 // data/guilds/<id>/errands.json of the data read (--snapshot's when given) and the config, read only
-// (sandboxErrandBudget, src/errands/store.js#budget); nothing is ever queued.
+// (sandboxErrandBudget, src/errands/store.ts#budget); nothing is ever queued.
 // Her `<skills>` block is the catalogue of that requester as the live turn
 // lists it (src/behavior/sandbox.js#scenarioInventory): whole, as after
 // `skills: inventory` (`discovery` "inventory", the default), the named ones
@@ -176,10 +176,10 @@
 // one of her errands ended `done` or `failed` -- what was asked, what it
 // brought back, the files it saved (`{ name, contentType?, bytes? }`), the
 // member who asked; its origin channel is the scenario's `channelId`. Instead
-// of a mention it runs the turn an errand's end opens (src/errands/turns.js):
+// of a mention it runs the turn an errand's end opens (src/errands/turns.ts):
 // one minute after the anchor (now, without `before`), in that channel, an
 // interjection of trigger kind `errand` (no message of the chat to reply to) whose request carries the
-// `<errand_result>` block (src/errands/blocks.js#taskResultText), the asker its requester. The
+// `<errand_result>` block (src/errands/blocks.ts#errandResultText), the asker its requester. The
 // errand is named `t<8 hex>` from the scenario's id (scenarioTaskId) and its
 // files by their live handles `file:<task id>/<name>`, which her calls
 // resolve to as live (scenarioFileOf; the files are not on disk and nothing
@@ -592,7 +592,7 @@ const USAGE =
 export const INNER_KINDS = Object.freeze(['intention_due', 'errand_deadline', 'review', 'heartbeat']);
 /** An inner turn's requests at most: her answer and up to four tool-loop steps (innerLife.loop.maxSteps' default). */
 const INNER_REQUESTS = 5;
-/** An intention id (src/intentions/model.js#newIntentionId). */
+/** An intention id (src/intentions/model.ts#newIntentionId). */
 const INTENTION_ID = /^[A-Za-z0-9_-]{1,20}$/;
 /** The diary kinds a brief is asked of: the ones that draw. */
 const DIARY_KINDS = Object.freeze(['selfPicture', 'picture']);
@@ -2969,9 +2969,9 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
   const mods = {
     ...(await loadDiaryMods(load)),
     ...(await load('behavior/inner.js')),
-    ...(await load('intentions/store.js')),
-    ...(await load('intentions/service.js')),
-    ...(await load('errands/store.js')),
+    ...(await load('intentions/store.ts')),
+    ...(await load('intentions/service.ts')),
+    ...(await load('errands/store.ts')),
     ...(await load('memory/append-store.js')),
     ...(await load('memory/record.js')),
     ...(await load('memory/journal.js')),
@@ -2992,7 +2992,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     createFakeAdapter,
     createIntentionStores,
     createIntentionService,
-    createTaskStore,
+    createErrandStore,
     createAppendStore,
     createRecord,
     createAdmin,
@@ -3063,7 +3063,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     const reads = hiddenReads(mods.createReads(discordPort, log), hide);
 
     // Her intentions and errands, read only; her inner state as it stands.
-    const taskStore = createTaskStore({
+    const taskStore = createErrandStore({
       guildId,
       config: () => hot.config,
       journal: null,
@@ -3730,15 +3730,15 @@ const SCENARIO_KEYS = Object.freeze([
 /** The fields of a task-result scenario's errand, and those of one of its files. */
 const TASK_RESULT_KEYS = Object.freeze(['agent', 'goal', 'state', 'text', 'files', 'asker']);
 const TASK_FILE_KEYS = Object.freeze(['name', 'contentType', 'bytes']);
-/** The ends an errand's result turn follows (src/errands/store.js: a cancelled one opens none). */
+/** The ends an errand's result turn follows (src/errands/store.ts: a cancelled one opens none). */
 const TASK_RESULT_STATES = Object.freeze(['done', 'failed']);
 /** An agent's name (src/agent-runner/profiles.js: the profile's key), the longest result text, the most files. */
 const AGENT_NAME = /^[A-Za-z0-9_-]{1,32}$/;
 const MAX_TASK_TEXT = 20_000;
 const MAX_TASK_FILES = 10;
-/** A file name a handle may carry (src/errands/store.js#parseFileHandle): no slash, no line break. */
+/** A file name a handle may carry (src/errands/store.ts#parseFileHandle): no slash, no line break. */
 const TASK_FILE_NAME = /^[^/\\\r\n]{1,200}$/;
-/** The error code of a failed errand when it gives none (src/errands/store.js#finish's). */
+/** The error code of a failed errand when it gives none (src/errands/store.ts#finish's). */
 const TASK_FAILED_CODE = 'failed';
 /** The fields a step of a multi-step scenario may have, and those of a burst message. */
 const STEP_KEYS = Object.freeze(['author', 'text', 'gapMinutes', 'burst', 'result', 'self']);
@@ -4079,7 +4079,7 @@ export function scenarioTrigger({ text, authorId, authorName, channel, selfId, a
 }
 
 /**
- * The id of a task-result scenario's errand: `t` and 8 hex digits, as src/errands/store.js names
+ * The id of a task-result scenario's errand: `t` and 8 hex digits, as src/errands/store.ts names
  * a task, taken from the scenario's id so every run (and both sides of a pair) names the same
  * files. Pure.
  * @param {string} scenarioId
@@ -4090,9 +4090,9 @@ export function scenarioTaskId(scenarioId) {
 }
 
 /**
- * A task-result scenario's errand as src/errands/store.js keeps a finished task: its id
+ * A task-result scenario's errand as src/errands/store.ts keeps a finished task: its id
  * (scenarioTaskId), agent and goal; asked by `asker` (a member) in the scenario's channel, from
- * no message she can reply to (src/errands/turns.js then opens an interjection); `group` scope;
+ * no message she can reply to (src/errands/turns.ts then opens an interjection); `group` scope;
  * ended at `at` in `state` (`failed` with the store's default code), its result's text and files
  * (no sources), not seen. A file has no path: nothing is on disk, and nothing reads one. Pure.
  * @param {{ id: string, channelId: string, taskResult: { agent: string, goal: string, state: string, text: string,
@@ -4131,9 +4131,9 @@ export function scenarioTask(scenario, { at }) {
 
 /**
  * The call view's `fileOf` for a task-result scenario (src/behavior/turn.js#callViewOf): a handle
- * `file:<task id>/<name>` (read by `parseFileHandle`, src/errands/store.js's) that names a file of
- * `task` resolves as src/errands/service.js#fileOf resolves a live one -- `{ path, name,
- * contentType, bytes, task }`, `path` null --, any other handle to null. Pure.
+ * `file:<task id>/<name>` (read by `parseFileHandle`, src/errands/store.ts's) that names a file of
+ * `task` resolves as src/errands/service.ts#fileOf resolves a live one -- `{ path, name,
+ * contentType, bytes, errand }`, `path` null --, any other handle to null. Pure.
  * @param {object} task  scenarioTask's.
  * @param {(handle: string) => ({ id: string, name: string }|null)} parseFileHandle
  * @returns {(handle: string) => object|null}
@@ -4144,25 +4144,25 @@ export function scenarioFileOf(task, parseFileHandle) {
     if (!parsed || parsed.id !== task.id) return null;
     const file = task.result.files.find((entry) => entry.name === parsed.name);
     return file
-      ? { path: null, name: file.name, contentType: file.contentType, bytes: file.bytes, task: structuredClone(task) }
+      ? { path: null, name: file.name, contentType: file.contentType, bytes: file.bytes, errand: structuredClone(task) }
       : null;
   };
 }
 
 /**
  * The errands' budget the sandbox gateway reads (src/tools/gateway.ts, `context.tasks`), read
- * only: a task store of `guildId` over `dataDir` (src/errands/store.js#createTaskStore: its
+ * only: a task store of `guildId` over `dataDir` (src/errands/store.ts#createErrandStore: its
  * errands.json and errands.jsonl read once, the live data/ or a snapshot) whose `budget(agent)` -- the open tasks
  * against `errands.maxOpen`, today's tasks and dollars against `agents.<agent>.daily` (the
  * profile's defaults under them), read from `config()` at the moment of use -- answers a
- * `errand.run` exactly as a live turn's (src/errands/service.js#budget). Only `budget` is handed
+ * `errand.run` exactly as a live turn's (src/errands/service.ts#budget). Only `budget` is handed
  * out: nothing is ever queued, and the store writes nothing for it.
- * @param {{ createTaskStore: Function, guildId: string, config: () => object, now?: () => number, log?: object,
+ * @param {{ createErrandStore: Function, guildId: string, config: () => object, now?: () => number, log?: object,
  *   memoryDb?: object|null }} input  `memoryDb`: the memory read (tools/lib/memory-read.mjs); without it no task is known
  * @returns {{ budget(agent: string): { spent: boolean, key: string|null, code: string|null } }}
  */
-export function sandboxErrandBudget({ createTaskStore, guildId, config, now = Date.now, log, memoryDb = null }) {
-  const store = createTaskStore({
+export function sandboxErrandBudget({ createErrandStore, guildId, config, now = Date.now, log, memoryDb = null }) {
+  const store = createErrandStore({
     guildId: String(guildId),
     config,
     now,
@@ -5466,7 +5466,7 @@ async function runSkills({
     expandPersonaGrant,
     createImageGen,
     grantedSkillNames,
-    createTaskStore,
+    createErrandStore,
     parseFileHandle,
   } = mods;
   // Her tools run for real where they only read (web.search, memory.search: `loopDeps`); `coreOn` (features.coreTools in the
@@ -5614,7 +5614,7 @@ async function runSkills({
         selfName: self.name,
         channel: channelOf(channel),
       });
-    // An errand's end (a task-result scenario): the turn src/errands/turns.js opens at `at` in its
+    // An errand's end (a task-result scenario): the turn src/errands/turns.ts opens at `at` in its
     // origin channel -- no message of the chat to reply to, so an interjection of kind `task` --,
     // asked for by its asker (the requester a live result turn hands in: the id, no roles).
     const task = scenario.taskResult ? scenarioTask(scenario, { at }) : null;
@@ -5637,7 +5637,7 @@ async function runSkills({
     };
     // An errand's budget as live: the guild's errands.json of the data read (live or --snapshot) against the scenario's config, never queued into.
     const tasks = sandboxErrandBudget({
-      createTaskStore,
+      createErrandStore,
       guildId,
       config: () => scenarioConfig,
       log,
@@ -5731,7 +5731,7 @@ async function runSkills({
       });
       // One decision's request inputs: the requester's catalogue (the trigger's author), the media of the channel so far.
       const turnInput = (turnMoment, turnAt, turnTrigger) => {
-        // An errand's end: who asked for it, as src/errands/turns.js hands them in (no roles: src/behavior/turn.js#callEnvelope).
+        // An errand's end: who asked for it, as src/errands/turns.ts hands them in (no roles: src/behavior/turn.js#callEnvelope).
         const requester = task ? { id: task.requester.userId, roleIds: [] } : requesterOf(turnTrigger, channel);
         // With features.coreTools on no search classifier runs before her reply, so none names her skills: no <skills> (as live).
         const inventory = coreOn
@@ -6305,7 +6305,7 @@ export async function runTriggerLoops({
     requesterOf,
     skillRegistry,
     createImageGen,
-    createTaskStore,
+    createErrandStore,
     replayMedia,
     momentMode,
     momentKind,
@@ -6474,7 +6474,7 @@ export async function runTriggerLoops({
         quota: createImageGen({ apiKey: '', getConfig: () => config, state: frozenState, fetchImpl: refusing }).quota,
       };
       const tasks = sandboxErrandBudget({
-        createTaskStore,
+        createErrandStore,
         guildId,
         config: () => config,
         log,
@@ -7173,7 +7173,7 @@ async function runMain(args, { root, signal, rng, answers }) {
     const { createImageGen } = await load('llm/images.js');
     const { grantedSkillNames } = await load('tools/discovery.ts');
     // The errands' budget (every scenario: an errand.run is checked as live) and the handles of an errand's files.
-    const { createTaskStore, parseFileHandle } = await load('errands/store.js');
+    const { createErrandStore, parseFileHandle } = await load('errands/store.ts');
     skillMods = {
       answerSkillScenario,
       skillScenarioRequest,
@@ -7188,7 +7188,7 @@ async function runMain(args, { root, signal, rng, answers }) {
       expandPersonaGrant,
       createImageGen,
       grantedSkillNames,
-      createTaskStore,
+      createErrandStore,
       parseFileHandle,
       // Only a multi-step scenario carries a turn into the next one, and plays its bursts as the live queue does.
       ...(scenarios?.some((scenario) => scenario.steps) ? { afterScenarioTurn, burstTurns } : {}),

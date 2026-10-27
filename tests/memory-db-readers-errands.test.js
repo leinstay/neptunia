@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { createTaskStores } from '../src/errands/store.js';
+import { createErrandStores } from '../src/errands/store.ts';
 import { GUILD, GUILD_2, readerEnv } from './fixtures/memory-db/readers.js';
 
 const NOW = 1792000600000;
@@ -18,7 +18,12 @@ const ids = (tasks) => tasks.map((task) => task.id);
 test('tasks db reader: the list and the spend records come from the database', async () => {
   const env = await readerEnv();
   try {
-    const stores = createTaskStores({ log: env.log, memoryDb: env.memoryDb, config: config(env.root), now: () => NOW });
+    const stores = createErrandStores({
+      log: env.log,
+      memoryDb: env.memoryDb,
+      config: config(env.root),
+      now: () => NOW,
+    });
     for (const [guildId, id] of [
       [GUILD, 't1'],
       [GUILD_2, 't1.g2'],
@@ -61,7 +66,7 @@ test('tasks db reader: a closed database fails the load with a code, logged; the
   try {
     let open = false;
     const memoryDb = { readHandle: () => (open ? env.handle : null), database: () => (open ? env.handle.db : null) };
-    const stores = createTaskStores({ log: env.log, memoryDb, config: config(env.root), now: () => NOW });
+    const stores = createErrandStores({ log: env.log, memoryDb, config: config(env.root), now: () => NOW });
     assert.throws(
       () => stores.get(GUILD),
       (error) => error.code === 'DB_CLOSED'

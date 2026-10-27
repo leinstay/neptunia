@@ -1,11 +1,11 @@
 // Tests for the persona's view of her intentions: the `<intentions>` block's body
-// (src/intentions/blocks.js) -- her active ones with their wait, due time and outcome, then the
+// (src/intentions/blocks.ts) -- her active ones with their wait, due time and outcome, then the
 // candidates with the line they came from, cut to the token budget -- and the switch that hides
 // the `intention.*` skills from her entirely while features.intentions is off (src/tools/access.ts).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { intentionsBlockText } from '../src/intentions/blocks.js';
-import { createIntention, transition, waitOn } from '../src/intentions/model.js';
+import { intentionsBlockText } from '../src/intentions/blocks.ts';
+import { createIntention, transition, waitOn } from '../src/intentions/model.ts';
 import { formatClock, formatDate } from '../src/format.js';
 import '../src/tools/impl/index.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
@@ -41,8 +41,8 @@ const at = (ts) => `${formatDate(ts, 'UTC')} ${formatClock(ts, 'UTC')}`;
 
 test('intentionsBlockText: active lines with due, wait, outcome and note, then the candidates with their line', () => {
   const pending = own('i1', { dueAt: T0 + HOUR, destination: 'c9' });
-  const waiting = waitOn(own('i2'), { taskId: 't7', deadline: T0 + 2 * HOUR, now: T0 }).intention;
-  const back = transition(waitOn(own('i3'), { taskId: 't8', deadline: T0 + HOUR, now: T0 }).intention, 'pending', {
+  const waiting = waitOn(own('i2'), { errandId: 't7', deadline: T0 + 2 * HOUR, now: T0 }).intention;
+  const back = transition(waitOn(own('i3'), { errandId: 't8', deadline: T0 + HOUR, now: T0 }).intention, 'pending', {
     now: T0 + HOUR,
     patch: { note: 'wait-deadline' },
   }).intention;
@@ -136,7 +136,7 @@ test('intentionsBlockText: an intention with no due time and no wait says so wit
   // Inside the notice window (2 days by default) a dated line, a waiting one and a recurring one show their expiry at the end.
   const soon = own('i3', { dueAt: T0 + HOUR, expiresAt: T0 + DAY, destination: 'c9' });
   const waiting = waitOn(own('i4', { expiresAt: T0 + 36 * HOUR }), {
-    taskId: 't7',
+    errandId: 't7',
     deadline: T0 + 2 * HOUR,
     now: T0,
   }).intention;

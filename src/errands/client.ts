@@ -1,19 +1,19 @@
 // The core's side of the errand agents' sockets (src/agent-runner/server.js): one Unix-socket
 // connection per agent profile (`scout`, `server`), opened on first use, speaking the JSON-lines
-// protocol of src/agent-runner/protocol.js. `run` sends one task and resolves on its `end` event;
+// protocol of src/agent-runner/protocol.js. `run` sends one errand and resolves on its `end` event;
 // `progress` events go to the `onProgress` listeners; `cancel` and `ping` are fire-and-answer.
 // Each outcome of the connect loop goes to the `onLink` listeners: `{ agent, up: true }` once a
 // connection opens, `{ agent, up: false, code }` when one fails (`code` the socket's error code)
 // or an open one closes (`disconnected`) -- the errand service's health flag of each runner.
 // A connection that closes is reopened with a growing backoff while its profile stays enabled;
-// the tasks it carried resolve `failed` with `error: CODE.DISCONNECTED` at once (the runner sends a
-// task's end on the connection that brought it, so nothing more can arrive for them). A profile
+// the errands it carried resolve `failed` with `error: CODE.DISCONNECTED` at once (the runner sends a
+// errand's end on the connection that brought it, so nothing more can arrive for them). A profile
 // that is not set up (its `enabled` not true, or no socket) answers `failed`, `not-configured`, without
 // connecting. The settings are the profile's with the deployment's `agents.<profile>` override over it
-// (agentSettings), read at the moment of use. Logs carry the profile, ids and codes, never a goal, a result or a task's `secrets`
+// (agentSettings), read at the moment of use. Logs carry the profile, ids and codes, never a goal, a result or an errand's `secrets`
 // (sent on the `run` line and nowhere else). A `run` also carries the deployment's preamble when
 // one matches: the files of prompts.local/preambles/ picked by agent and by the agent's model
-// (src/errands/preambles.js; `hot.prompts.preambles`, read live; no tracked default). The model
+// (src/errands/preambles.ts; `hot.prompts.preambles`, read live; no tracked default). The model
 // is the agent's role model (`models.errands.scout`, `models.errands.server`), resolved here at send
 // time and sent on the `run` line as `model`, with the deployment's own price (`agents.<profile>.cost` of the live
 // config, when it has finite input and output) as `cost`: the runners cannot read the private config, so without it a
@@ -26,62 +26,75 @@ import { log as defaultLog } from '../log.js';
 import { encodeLine, normalizeResult, normalizeUsage, MAX_PREAMBLE_CHARS } from '../agent-runner/protocol.js';
 import { agentSettings, profileOf } from '../agent-runner/profiles.js';
 import { roleModel } from '../llm/roles.js';
-import { composePreamble } from './preambles.js';
+import { composePreamble } from './preambles.ts';
 import { CODE } from '../tools/codes.ts';
+import { errorCode, objOf, textOf } from '../tools/types.ts';
+import type { Untyped } from '../tools/types.ts';
+import type { ErrandClient, ErrandClientOptions, PingAnswer, RunOutcome, RunRequest, TimerHandle } from './types.ts';
+
+/** One agent's connection to its runner. */
+type Link = {
+  socket: net.Socket | null;
+  path: string;
+  open: boolean;
+  opening: Promise<Link> | null;
+  backoffMs: number;
+  timer: TimerHandle | null;
+  buffer: string;
+};
 
 /** The first reconnect delay and its ceiling (ms); the delay doubles after each failed attempt. */
 export const RECONNECT_MIN_MS = 1000;
 export const RECONNECT_MAX_MS = 30_000;
 /** How long a `ping` waits for its `pong` (ms). */
 export const PING_TIMEOUT_MS = 5000;
-/** Added to a task's own time cap before the core stops waiting for its `end` (ms). */
+/** Added to an errand's own time cap before the core stops waiting for its `end` (ms). */
 const END_GRACE_MS = 60_000;
-/** The time cap a task without `limits.seconds` is waited for (s). */
-const DEFAULT_TASK_SECONDS = 600;
+/** The time cap an errand without `limits.seconds` is waited for (s). */
+const DEFAULT_ERRAND_SECONDS = 600;
 
 /** A failed outcome with `error`, in the shape `run` resolves. */
-function failed(error) {
+function failed(error: string): RunOutcome {
   return { status: 'failed', result: normalizeResult(null), usage: normalizeUsage(null), error };
 }
 
+/** The role model of `agent`, read now from the live config, or null. */
+function runModelFor(agent: string, config: Untyped): string | null {
+  const model = roleModel(config, textOf(objOf(profileOf(agent)).modelRole));
+  return typeof model === 'string' && model ? model : null;
+}
+
+/** The price the deployment sets for `agent` (`agents.<agent>.cost`) when both fields are usable, else null: the runner has the profile's. */
+function costFor(agent: string, config: Untyped): { input: number; output: number } | null {
+  const cost = config?.agents?.[agent]?.cost;
+  const usable = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0;
+  if (!cost || typeof cost !== 'object' || !usable(cost.input) || !usable(cost.output)) return null;
+  return { input: cost.input, output: cost.output };
+}
+
 /**
- * @param {object} options
- * @param {{ config: object, prompts?: object }} options.hot  The live config (`agents.<profile>.enabled`,
- *   `.socket`, the agent roles' models) and prompts (`preambles`: read at each run).
- * @param {{ info: Function, warn: Function }} [options.log]
- * @param {(path: string) => import('node:net').Socket} [options.connect]  Opens a socket (tests inject one).
- * @param {(fn: Function, ms: number) => unknown} [options.setTimer]
- * @param {(timer: unknown) => void} [options.clearTimer]
- * @returns {{
- *   run(task: { agent: string, id: string, goal: string, context?: object, limits?: object, secrets?: object }):
- *     Promise<{ status: 'done'|'failed'|'cancelled', result: object, usage: object, error?: string }>,
- *   cancel(task: { agent: string, id: string }): boolean,
- *   ping(agent: string): Promise<{ ok: true, profile: string, busy: boolean, queued: number } | { ok: false, error: string }>,
- *   onProgress(fn: (event: { agent: string, id: string, step: number, tool: string|null, note: string }) => void): () => void,
- *   onLink(fn: (event: { agent: string, up: boolean, code?: string }) => void): () => void,
- *   configured(agent: string): boolean,
- *   close(): void,
- * }}
+ * `hot` holds the live config (`agents.<profile>.enabled`, `.socket`, the agent roles' models) and prompts
+ * (`preambles`: read at each run). `connect` opens a socket (tests inject one).
  */
 export function createErrandClient({
   hot,
   log = defaultLog,
   connect = (socketPath) => net.createConnection(socketPath),
   setTimer = (fn, ms) => setTimeout(fn, ms),
-  clearTimer = (timer) => clearTimeout(timer),
-} = {}) {
-  // agent -> { socket, path, open, opening, backoffMs, timer, buffer }
-  const links = new Map();
-  // task id -> { agent, resolve, timer }
-  const pending = new Map();
-  // agent -> [{ resolve, timer }] waiting for a pong
-  const pings = new Map();
-  const progressListeners = new Set();
-  const linkListeners = new Set();
+  clearTimer = (timer) => clearTimeout(timer ?? undefined),
+}: ErrandClientOptions = {}): ErrandClient {
+  // agent -> its connection
+  const links = new Map<string, Link>();
+  // errand id -> the run waiting for its end
+  const pending = new Map<string, { agent: string; resolve: (outcome: RunOutcome) => void; timer: TimerHandle }>();
+  // agent -> the pings waiting for a pong
+  const pings = new Map<string, Array<{ resolve: (answer: PingAnswer) => void; timer: TimerHandle | null }>>();
+  const progressListeners = new Set<Parameters<ErrandClient['onProgress']>[0]>();
+  const linkListeners = new Set<Parameters<ErrandClient['onLink']>[0]>();
   let closed = false;
 
   /** The socket path of `agent` when its profile is set up and enabled now, else null. */
-  function socketOf(agent) {
+  function socketOf(agent: string): string | null {
     const profile = profileOf(agent);
     if (!profile) return null;
     const settings = agentSettings(agent, hot?.config);
@@ -90,7 +103,7 @@ export function createErrandClient({
   }
 
   /** One outcome of `agent`'s connect loop to the `onLink` listeners. */
-  function emitLink(agent, up, code = null) {
+  function emitLink(agent: string, up: boolean, code: string | null = null): void {
     if (closed) return;
     const event = up ? { agent, up: true } : { agent, up: false, code: code ?? CODE.DISCONNECTED };
     for (const fn of linkListeners) {
@@ -102,8 +115,8 @@ export function createErrandClient({
     }
   }
 
-  /** Every task and ping of `agent` answered `disconnected`. */
-  function dropPending(agent) {
+  /** Every errand and ping of `agent` answered `disconnected`. */
+  function dropPending(agent: string): void {
     for (const [id, entry] of pending) {
       if (entry.agent !== agent) continue;
       pending.delete(id);
@@ -118,7 +131,7 @@ export function createErrandClient({
   }
 
   /** One decoded line from `agent`'s runner. */
-  function onEvent(agent, event) {
+  function onEvent(agent: string, event: Untyped): void {
     if (!event || typeof event !== 'object') return;
     if (event.event === 'pong') {
       const waiters = pings.get(agent) ?? [];
@@ -134,7 +147,7 @@ export function createErrandClient({
       }
       return;
     }
-    const id = typeof event.id === 'string' ? event.id : null;
+    const id = textOf(event.id) || null;
     if (event.event === 'progress' && id) {
       for (const fn of progressListeners) {
         try {
@@ -152,14 +165,15 @@ export function createErrandClient({
       return;
     }
     if ((event.event === 'end' || event.event === 'error') && id && pending.has(id)) {
-      const entry = pending.get(id);
+      // `has` was just checked, so the entry is there.
+      const entry = pending.get(id)!;
       pending.delete(id);
       clearTimer(entry.timer);
       if (event.event === 'error') {
         entry.resolve(failed(typeof event.error === 'string' && event.error ? event.error : 'runner-error'));
         return;
       }
-      const outcome = {
+      const outcome: RunOutcome = {
         status: ['done', 'failed', 'cancelled'].includes(event.status) ? event.status : 'failed',
         result: normalizeResult(event.result),
         usage: normalizeUsage(event.usage),
@@ -170,7 +184,7 @@ export function createErrandClient({
   }
 
   /** Reopen `agent`'s link after its backoff, while it is still wanted and enabled. */
-  function scheduleReconnect(agent, link) {
+  function scheduleReconnect(agent: string, link: Link): void {
     if (closed || link.timer) return;
     const wait = link.backoffMs;
     link.backoffMs = Math.min(RECONNECT_MAX_MS, link.backoffMs * 2);
@@ -189,14 +203,14 @@ export function createErrandClient({
    * The open link of `agent`: an existing one, else a new connection. Resolves the link once
    * connected; rejects (and arms a reconnect) when the connection fails.
    */
-  function open(agent) {
+  function open(agent: string): Promise<Link> {
     const socketPath = socketOf(agent);
     if (!socketPath) return Promise.reject(Object.assign(new Error('not configured'), { code: CODE.NOT_CONFIGURED }));
     let link = links.get(agent);
     if (link?.open && link.path === socketPath) return Promise.resolve(link);
     if (link?.opening && link.path === socketPath) return link.opening;
     if (link?.timer) clearTimer(link.timer);
-    // A link to another path (the socket setting changed): its tasks can no longer end.
+    // A link to another path (the socket setting changed): its errands can no longer end.
     if (link?.open) dropPending(agent);
     if (link?.socket && !link.socket.destroyed) link.socket.destroy();
     link = {
@@ -210,13 +224,13 @@ export function createErrandClient({
     };
     links.set(agent, link);
     const current = link;
-    current.opening = new Promise((resolve, reject) => {
-      let socket;
+    current.opening = new Promise<Link>((resolve, reject) => {
+      let socket: net.Socket;
       try {
         socket = connect(socketPath);
       } catch (err) {
         current.opening = null;
-        emitLink(agent, false, err?.code ?? null);
+        emitLink(agent, false, errorCode(err));
         scheduleReconnect(agent, current);
         reject(err);
         return;
@@ -231,14 +245,14 @@ export function createErrandClient({
         emitLink(agent, true);
         resolve(current);
       });
-      socket.on('data', (chunk) => {
-        current.buffer += chunk;
+      socket.on('data', (chunk: string | Buffer) => {
+        current.buffer += String(chunk);
         let nl;
         while ((nl = current.buffer.indexOf('\n')) !== -1) {
           const line = current.buffer.slice(0, nl);
           current.buffer = current.buffer.slice(nl + 1);
           if (!line.trim()) continue;
-          let event;
+          let event: unknown;
           try {
             event = JSON.parse(line);
           } catch {
@@ -250,8 +264,8 @@ export function createErrandClient({
       });
       socket.on('error', (err) => {
         if (current.open) return;
-        log.warn('errands: connect failed', { agent, code: err?.code ?? null });
-        if (links.get(agent) === current) emitLink(agent, false, err?.code ?? null);
+        log.warn('errands: connect failed', { agent, code: errorCode(err) });
+        if (links.get(agent) === current) emitLink(agent, false, errorCode(err));
       });
       socket.on('close', () => {
         const wasOpen = current.open;
@@ -276,7 +290,7 @@ export function createErrandClient({
   }
 
   /** Write one request to `agent`'s open link; false when it is not open. */
-  function send(agent, request) {
+  function send(agent: string, request: object): boolean {
     const link = links.get(agent);
     if (!link?.open || !link.socket || link.socket.destroyed) return false;
     try {
@@ -287,25 +301,11 @@ export function createErrandClient({
     }
   }
 
-  /** The role model of `agent`, read now from the live config, or null. */
-  function runModelOf(agent) {
-    const model = roleModel(hot?.config, profileOf(agent)?.modelRole);
-    return typeof model === 'string' && model ? model : null;
-  }
-
-  /** The price the deployment sets for `agent` (`agents.<agent>.cost`) when both fields are usable, else null: the runner has the profile's. */
-  function costOf(agent) {
-    const cost = hot?.config?.agents?.[agent]?.cost;
-    const usable = (value) => typeof value === 'number' && Number.isFinite(value) && value >= 0;
-    if (!cost || typeof cost !== 'object' || !usable(cost.input) || !usable(cost.output)) return null;
-    return { input: cost.input, output: cost.output };
-  }
-
   /**
    * The preamble of a run of `agent` on `runModel`: `{ text, files, chars }`.
    * Over MAX_PREAMBLE_CHARS, a warning names the files sent and left out.
    */
-  function preambleOf(agent, runModel) {
+  function preambleOf(agent: string, runModel: string | null): ReturnType<typeof composePreamble> {
     const composed = composePreamble({ prompts: hot?.prompts, agent, model: runModel, maxChars: MAX_PREAMBLE_CHARS });
     if (composed.dropped.length > 0) {
       log.warn('errands: preamble over the cap', {
@@ -320,16 +320,19 @@ export function createErrandClient({
     return composed;
   }
 
-  async function run({ agent, id, goal, context = {}, limits = {}, secrets = null } = {}) {
+  async function run({ agent, id, goal, context = {}, limits = {}, secrets = null }: RunRequest): Promise<RunOutcome> {
     if (closed || !socketOf(agent)) return failed(CODE.NOT_CONFIGURED);
     if (pending.has(id)) return failed(CODE.DUPLICATE_ID);
     try {
       await open(agent);
     } catch (err) {
-      return failed(err?.code === CODE.NOT_CONFIGURED ? CODE.NOT_CONFIGURED : CODE.DISCONNECTED);
+      return failed(errorCode(err) === CODE.NOT_CONFIGURED ? CODE.NOT_CONFIGURED : CODE.DISCONNECTED);
     }
-    return new Promise((resolve) => {
-      const seconds = Number.isFinite(limits?.seconds) && limits.seconds > 0 ? limits.seconds : DEFAULT_TASK_SECONDS;
+    return new Promise<RunOutcome>((resolve) => {
+      const seconds =
+        typeof limits?.seconds === 'number' && Number.isFinite(limits.seconds) && limits.seconds > 0
+          ? limits.seconds
+          : DEFAULT_ERRAND_SECONDS;
       const timer = setTimer(
         () => {
           if (!pending.has(id)) return;
@@ -342,12 +345,12 @@ export function createErrandClient({
       );
       timer?.unref?.();
       pending.set(id, { agent, resolve, timer });
-      const request = { op: 'run', id, goal, context };
+      const request: Record<string, unknown> = { op: 'run', id, goal, context };
       if (limits && Object.keys(limits).length > 0) request.limits = limits;
       if (secrets) request.secrets = secrets;
-      const model = runModelOf(agent);
+      const model = runModelFor(agent, hot?.config);
       if (model) request.model = model;
-      const cost = costOf(agent);
+      const cost = costFor(agent, hot?.config);
       if (cost) request.cost = cost;
       const preamble = preambleOf(agent, model);
       if (preamble.text) request.preamble = preamble.text;
@@ -361,20 +364,20 @@ export function createErrandClient({
     });
   }
 
-  function cancel({ agent, id } = {}) {
+  function cancel({ agent, id }: { agent: string; id: string }): boolean {
     if (!socketOf(agent)) return false;
     return send(agent, { op: 'cancel', id });
   }
 
-  async function ping(agent) {
+  async function ping(agent: string): Promise<PingAnswer> {
     if (closed || !socketOf(agent)) return { ok: false, error: CODE.NOT_CONFIGURED };
     try {
       await open(agent);
     } catch (err) {
-      return { ok: false, error: err?.code === CODE.NOT_CONFIGURED ? CODE.NOT_CONFIGURED : CODE.DISCONNECTED };
+      return { ok: false, error: errorCode(err) === CODE.NOT_CONFIGURED ? CODE.NOT_CONFIGURED : CODE.DISCONNECTED };
     }
-    return new Promise((resolve) => {
-      const waiter = { resolve, timer: null };
+    return new Promise<PingAnswer>((resolve) => {
+      const waiter: { resolve: (answer: PingAnswer) => void; timer: TimerHandle | null } = { resolve, timer: null };
       waiter.timer = setTimer(() => {
         const list = pings.get(agent) ?? [];
         pings.set(
@@ -385,7 +388,7 @@ export function createErrandClient({
       }, PING_TIMEOUT_MS);
       waiter.timer?.unref?.();
       pings.set(agent, [...(pings.get(agent) ?? []), waiter]);
-      const ids = [...pending.entries()].filter(([, entry]) => entry.agent === agent).map(([taskId]) => taskId);
+      const ids = [...pending.entries()].filter(([, entry]) => entry.agent === agent).map(([errandId]) => errandId);
       if (!send(agent, { op: 'ping', ids })) {
         clearTimer(waiter.timer);
         pings.set(
@@ -397,20 +400,24 @@ export function createErrandClient({
     });
   }
 
-  function onProgress(fn) {
+  function onProgress(fn: Parameters<ErrandClient['onProgress']>[0]): () => void {
     if (typeof fn !== 'function') return () => {};
     progressListeners.add(fn);
-    return () => progressListeners.delete(fn);
+    return () => {
+      progressListeners.delete(fn);
+    };
   }
 
-  function onLink(fn) {
+  function onLink(fn: Parameters<ErrandClient['onLink']>[0]): () => void {
     if (typeof fn !== 'function') return () => {};
     linkListeners.add(fn);
-    return () => linkListeners.delete(fn);
+    return () => {
+      linkListeners.delete(fn);
+    };
   }
 
-  /** Close every link, stop reconnecting; open tasks resolve `disconnected`. */
-  function close() {
+  /** Close every link, stop reconnecting; open errands resolve `disconnected`. */
+  function close(): void {
     closed = true;
     for (const [agent, link] of links) {
       if (link.timer) clearTimer(link.timer);

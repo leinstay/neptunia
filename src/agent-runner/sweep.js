@@ -1,5 +1,5 @@
 // The runner's sweep of old task output: every task works in `<outDir>/<id>/` and leaves its
-// files there for the core to attach (src/errands/store.js#fileOf). The directory belongs to the
+// files there for the core to attach (src/errands/store.ts#fileOf). The directory belongs to the
 // agent's own Unix user, so the core can list and read it but not delete it: the runner does.
 // A sweep removes each task directory under the out dir whose newest entry (the directory
 // itself, any file or subdirectory inside, never following a link) is older than

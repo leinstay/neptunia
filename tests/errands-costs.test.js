@@ -1,10 +1,10 @@
-// Tests for src/errands/costs.js: the agents' spend from the errand records, per agent and per
+// Tests for src/errands/costs.ts: the agents' spend from the errand records, per agent and per
 // window (today, the last 7 and the last 30 UTC days, today included). A run counts on the day
 // its task was queued, its tokens and dollars on the day it ended; the transition lines of one
 // task fold into its last one.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { COST_WINDOWS, KEEP_DAYS, agentCosts, costRecord, emptyTotals } from '../src/errands/costs.js';
+import { COST_WINDOWS, KEEP_DAYS, agentCosts, costRecord, emptyTotals } from '../src/errands/costs.ts';
 
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = Date.parse('2026-10-18T12:00:00Z');

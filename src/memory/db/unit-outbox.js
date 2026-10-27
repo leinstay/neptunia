@@ -1,5 +1,5 @@
 // The writes of memory units waiting for the database (spec 2026-10-24-memory-authority, section 6 item 3): the
-// store's cache (src/memory/store.js) and the module stores (src/intentions/store.js, src/errands/store.js) hand the
+// store's cache (src/memory/store.js) and the module stores (src/intentions/store.ts, src/errands/store.ts) hand the
 // units they changed to an outbox, and the outbox sends them
 // through the writer (`memoryDb.writeUnit`, unit-write.js). A unit stays in the outbox until its write resolved, so the
 // caller's in-process value is the truth meanwhile and a failed write is never lost:

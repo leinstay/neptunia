@@ -6,7 +6,7 @@
 // it runs). The effects of her ordinary reply pass `checkReplyEffect`, carried over. Pure: the
 // caller passes the live config (her grants included, `bot.access`) read at the moment of use,
 // the bot's own user id, the image client whose daily caps are the drawing budget, and the errand
-// tasks whose caps are an errand's budget (src/errands/store.js#budget). Codes are
+// tasks whose caps are an errand's budget (src/errands/store.ts#budget). Codes are
 // kebab-case; `reason` is a short machine-readable detail (a schema path, a config key, an ops
 // refusal code), never wording.
 

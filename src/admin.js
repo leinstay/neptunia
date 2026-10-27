@@ -107,9 +107,9 @@ const ARCHIVE_CHOICES = 25;
  * `port` — the persona's interface (src/interface/port.js), optional: what `/nep message
  *   send|edit|delete|react` and `/nep draw channel:` post through, as the persona. Absent -> those
  *   report they are not available.
- * `errands` — from createErrandService() (src/errands/service.js), optional: what `/nep task
+ * `errands` — from createErrandService() (src/errands/service.ts), optional: what `/nep task
  *   run|status|cancel|list` submit to and read. Absent -> those report they are not available.
- * `intentions` — from createIntentionService() (src/intentions/service.js), optional: what `/nep
+ * `intentions` — from createIntentionService() (src/intentions/service.ts), optional: what `/nep
  *   task intent` and her `intent.*` calls change and read. Absent -> those report they are not available.
  * `inner` — from createInnerLife() (src/behavior/inner.js), optional: what `/nep task inner`
  *   stops, starts and reports. Absent -> those report it is not running.

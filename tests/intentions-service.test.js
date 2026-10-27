@@ -1,4 +1,4 @@
-// Tests for the persona's intentions at work: src/intentions/service.js and store.js behind the
+// Tests for the persona's intentions at work: src/intentions/service.ts and store.js behind the
 // `/nep task intent` operations (src/tools/impl/intent.ts), over a real task store and errand service (a
 // temp data/ directory) with a FAKE errand client and a fake clock. Reliable waiting: a failed
 // launch leaves nothing waiting, an errand of the same turn is linked whichever call came first,
@@ -12,12 +12,12 @@ import path from 'node:path';
 
 import { runOp } from '../src/tools/impl/index.ts';
 import { createOpsEnv } from '../src/tools/impl/env.ts';
-import { createTaskStores } from '../src/errands/store.js';
-import { createErrandService } from '../src/errands/service.js';
-import { createTaskTurns, errandDoneEvent } from '../src/errands/turns.js';
+import { createErrandStores } from '../src/errands/store.ts';
+import { createErrandService } from '../src/errands/service.ts';
+import { createErrandTurns, errandDoneEvent } from '../src/errands/turns.ts';
 import { createEventDoor } from '../src/interface/door.js';
-import { createIntentionStores } from '../src/intentions/store.js';
-import { createIntentionService } from '../src/intentions/service.js';
+import { createIntentionStores } from '../src/intentions/store.ts';
+import { createIntentionService } from '../src/intentions/service.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createDiscordInterface } from '../interfaces/discord/index.js';
 import { useIface, world } from './fixtures/turn-world.ts';
@@ -93,7 +93,7 @@ function makeEnv({
   const now = () => clock.t;
   const client = fakeClient();
   const dataDir = path.join(rootDir, 'data');
-  const stores = createTaskStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, now });
+  const stores = createErrandStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, now });
   const intentionStores = createIntentionStores({ memoryDb: memoryOf(dataDir), now });
   let intentions = null;
   // An errand's end goes the way src/index.js sends it: an errand.done event through the event
@@ -124,12 +124,12 @@ function makeEnv({
   intentions = createIntentionService({
     stores: intentionStores,
     hot,
-    tasks: errands,
+    errands,
     journal,
     getGuildId: () => 'g1',
     now,
   });
-  const taskTurns = createTaskTurns({
+  const taskTurns = createErrandTurns({
     hot,
     reads: world().reads,
     iface: () => 'fake',
@@ -274,7 +274,7 @@ test('reliable waiting: the errand of the same turn is linked, intention first; 
     const before = JSON.stringify(record);
     // The same end delivered again changes nothing: the door drops the repeat, the service moves nothing.
     assert.equal((await door.submit(errandDoneEvent({ id: taskId, state: 'done' }, 'g1'))).status, 'duplicate');
-    assert.equal(intentions.onTaskFinished({ id: taskId, state: 'done' }, 'g1'), 0);
+    assert.equal(intentions.onErrandFinished({ id: taskId, state: 'done' }, 'g1'), 0);
     assert.equal(JSON.stringify(onlyIntention(intentions)), before);
     assert.equal(turnSaw.length, 1);
   });
@@ -921,8 +921,8 @@ test("intent dropped: a drop from a recurring or waiting one ends it; a private 
 });
 
 test('store: a closed record beyond KEEP_CLOSED moves to the archive, never lost', async () => {
-  const { KEEP_CLOSED } = await import('../src/intentions/store.js');
-  const { createIntention } = await import('../src/intentions/model.js');
+  const { KEEP_CLOSED } = await import('../src/intentions/store.ts');
+  const { createIntention } = await import('../src/intentions/model.ts');
   const MEMBER = '987654321';
   const dataDir = tempDir('intent-archive');
   const stores = createIntentionStores({ memoryDb: memoryOf(dataDir), now: () => T0 });

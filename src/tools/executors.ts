@@ -45,7 +45,7 @@ export type CallView = {
   members?: ReadonlyArray<{ id: unknown; names?: ReadonlyArray<unknown>; aliases?: ReadonlyArray<{ name?: unknown }> }>;
   roles?: ReadonlyArray<{ id: unknown; name?: unknown }>;
   selfId?: string | null;
-  fileOf?: (handle: string) => { expired?: boolean; task?: Obj | null } | null;
+  fileOf?: (handle: string) => { expired?: boolean; errand?: Obj | null } | null;
   triggerText?: string | null;
   deletedIds?: ReadonlySet<string>;
 };
@@ -398,7 +398,7 @@ export function resolveCall(
           const file = typeof view?.fileOf === 'function' ? view.fileOf(text) : null;
           if (file?.expired) return refused(CODE.FILE_EXPIRED, option);
           if (!file) return refused(CODE.UNKNOWN_FILE, option);
-          if (file.task) errandFiles.push(file.task);
+          if (file.errand) errandFiles.push(file.errand);
           args[option] = text;
           break;
         }
@@ -637,11 +637,11 @@ export async function executeCall(resolved: Resolved, deps: ExecuteDeps): Promis
             actor: 'persona',
             ...(envelope.invocationId ? { invocationId: envelope.invocationId } : {}),
             // Her turn and the call's place in it: an errand records the turn, and a retry of the same
-            // call cannot queue a second one (src/errands/store.js#add).
+            // call cannot queue a second one (src/errands/store.ts#add).
             ...(envelope.turnId ? { turnId: envelope.turnId } : {}),
             ...(envelope.idempotencyKey ? { idempotencyKey: envelope.idempotencyKey } : {}),
             // Her own initiative (an inner turn) and its causal chain: which of her candidates the call
-            // may accept (src/intentions/model.js#acceptRefusal).
+            // may accept (src/intentions/model.ts#acceptRefusal).
             ...(initiative
               ? {
                   ownInitiative: true,

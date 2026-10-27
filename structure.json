@@ -370,6 +370,20 @@
       "test": "required"
     },
     {
+      "path": "src/errands/types.ts",
+      "purpose": "The shapes the errand modules share. Types only: nothing runs, so nothing is tested.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/intentions/types.ts",
+      "purpose": "The shapes the intention modules share. Types only: nothing runs, so nothing is tested.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/interface/",
       "purpose": "The core side of the interface port: the door that admits events, the link to an interface, the socket server, the fake interface and typing leases.",
       "layer": "public",
