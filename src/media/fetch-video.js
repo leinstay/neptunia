@@ -1,5 +1,5 @@
 // Turns a video the persona is shown into something a video-capable model can
-// take: a Discord attachment is downloaded and, when short and small enough,
+// take: an attachment is downloaded and, when short and small enough,
 // inlined as-is; otherwise ffmpeg cuts it to the first `maxSeconds` at 360p.
 // A video-site link goes through yt-dlp: a metadata-only probe (duration,
 // title) and a clip download of the first `maxSeconds` (whole when it is no
@@ -42,7 +42,7 @@
 // only once the tool has closed (or a short grace period ran out) -- so an
 // ffmpeg that yt-dlp started never writes into a directory being removed.
 // Log lines carry codes only: source, reason, the host and path (never a
-// query string -- a Discord CDN signature, tracking ids), an exit code,
+// query string: a signed media address, tracking ids), an exit code,
 // signal or errno, an HTTP status. Never tool output, never an error
 // message, never file contents, never the Data API key (its request is
 // logged under a fixed key-free location). stderr is read only by the audio

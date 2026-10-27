@@ -246,9 +246,9 @@
     },
     {
       "path": "interfaces/discord/",
-      "purpose": "The Discord interface: the only code that imports discord.js, translating between the platform and the protocol. It reads the core's media classifier, a pure module.",
+      "purpose": "The Discord interface: the only code that imports discord.js, translating between the platform and the protocol. It reads the core's media classifier and video-site matcher, pure modules, and classifies Discord's embeds and media addresses itself.",
       "layer": "public",
-      "imports": ["node:*", "discord.js", "src/media/classify.js", "src/protocol/**"],
+      "imports": ["node:*", "discord.js", "src/media/classify.js", "src/media/video-sites.js", "src/protocol/**"],
       "test": "required"
     },
     {
