@@ -12,7 +12,7 @@ Every event enters through one door (`src/interface/door.js`). An interface adap
 
 The door validates each event against the protocol's schema and deduplicates by event id. An id that was already handled gets a `duplicate` status and its handler does not run again. An id whose handler threw is not remembered, so redelivery gets another try. Nothing throws out of the door: the answer is always a status with a reason.
 
-The behaviours' clock is one such event. `src/behavior/scheduler.ts` keeps one timer for the earliest of its beats: `spontaneous.tick` and `diary.tick` every 30 seconds and the inner life's tick every `innerLife.tickSeconds` (default 60), read before each wait. A wait ends in a `scheduler.tick` event submitted through the door, and the door's handler starts every beat that is due without waiting for it. A beat that throws is logged and the others still run. The housekeeping timers (store flush, memory database tick, embedding and avatar queues, metrics, usage, archive drain, affinity decay) are plain intervals in `src/core.js`.
+The behaviours' clock is one such event. `src/behavior/scheduler.ts` keeps one timer for the earliest of its beats: `spontaneous.tick` and `diary.tick` (which also sends what the diary's mirrors hold queued) every 30 seconds and the inner life's tick every `innerLife.tickSeconds` (default 60), read before each wait. A wait ends in a `scheduler.tick` event submitted through the door, and the door's handler starts every beat that is due without waiting for it. A beat that throws is logged and the others still run. The housekeeping timers (store flush, memory database tick, embedding and avatar queues, metrics, usage, archive drain, affinity decay) are plain intervals in `src/core.js`.
 
 ## The pipeline
 
@@ -142,4 +142,4 @@ Both errors reach the persona through their turn result: a `token-limit` or `dai
 
 ### How failures reach the persona
 
-Every action the persona takes is answered by a result (the interface port's contract). The result's status is `ok`, `failed`, `unknown`, `unsupported` or `forbidden`. A failed drawing, a refused tool call, a daily cap are all reported this way. The persona's tool loop sees the result of each call and can decide what to do next.
+Every action the persona takes is answered by a result (the interface port's contract). The port the core hands to her turns, wakes and tools is guarded (`src/behavior/mirror.ts#guardMirrorPort`): a send to a place of an enabled diary mirror goes nowhere and fails with the code `diary-mirror`. Only the diary's mirrors hold the interface's own port. The result's status is `ok`, `failed`, `unknown`, `unsupported` or `forbidden`. A failed drawing, a refused tool call, a daily cap are all reported this way. The persona's tool loop sees the result of each call and can decide what to do next.

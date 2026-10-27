@@ -88,7 +88,8 @@ Schema version 14 (`src/memory/db/schema.js`; migrations appended, never edited)
 | `affinity_events` | Each change of her attitude to a person |
 | `day` | What she did, turn by turn |
 | `diary` | Her diary entries |
-| `diary_mirrors` | Where an entry was posted on an interface |
+| `diary_mirrors` | Where an entry made before schema v15 was posted on an interface |
+| `mirrors` | The places the diary's entries are posted to, one row each, set up by the owner (schema v15) |
 | `publications` | Every outward send of something of hers: the exact rendered text, its SHA-256 hash, the destination, the state and the receipts. Append-only; the content hash is immutable once set |
 | `publication_grants` | The owner's exceptions allowing specific content to specific destinations |
 | `media` | Pictures and audio she keeps |
@@ -163,7 +164,7 @@ The audience comes from the place's conversation: `group` becomes `aud:group:<in
 
 ### 2. Her turn
 
-Her turn writes her `said` lines with turn and operation ids, her day events, participation episodes, the diary row and its publication when she posts to the diary, and the turn's read record.
+Her turn writes her `said` lines with turn and operation ids, her day events, participation episodes and the turn's read record. A diary turn writes her entry as a `diary` row with its full text before anything is posted, and the diary's mirrors (`src/behavior/mirror.ts`) write one `publications` row for each mirror they post it to, through the same writer (`memoryWrite`, kind `publication`).
 
 ### 3. The embedder
 
@@ -371,7 +372,9 @@ the class says how a row's visibility in that context is decided.
 
 - **audience-scoped**: the row carries its own audience (`audience_id`, and the scope columns `scope_kind`,
   `scope_iface`, `scope_dm` that it replaces). A group context of interface I reads `aud:none` and `aud:group:I`; a DM
-  context also reads `aud:dm:<its DM place>`; only the internal context reads `aud:internal`.
+  context also reads `aud:dm:<its DM place>`; only the internal context reads `aud:internal`. The groups context of the
+  diary's entry (`groupsContext` in `src/memory/db/scope.ts`) reads `aud:none` and the groups of every interface, no DM
+  and nothing internal.
 - **inherits from &lt;parent&gt;**: the row has no audience of its own and is read only through its parent row, with
   the parent's audience.
 - **internal-only**: never shown in an outward context (a group or a DM); the persona's own bookkeeping.
@@ -402,7 +405,8 @@ The full-text tables' own storage tables (`sources_fts_*`, `sources_tri_*`) belo
 | `affinity_events` | audience-scoped | each change of her attitude to a person |
 | `day` | audience-scoped | what she did, turn by turn |
 | `diary` | audience-scoped | her diary entries |
-| `diary_mirrors` | inherits from diary | where an entry was posted |
+| `diary_mirrors` | inherits from diary | where an entry made before schema v15 was posted |
+| `mirrors` | internal-only | the places the diary's entries are posted to, an enabled row being the owner's grant for every entry to its place |
 | `publications` | internal-only | every outward send of something of hers: the exact text and its hash, the destination, the context, the grant, the state and the receipts; what was sent is read outward through the lines it became, never through this table |
 | `publication_grants` | internal-only | the owner's exceptions: one content hash of one row allowed to these destinations |
 | `media` | audience-scoped | pictures and audio she keeps, with the audience of what they belong to |
