@@ -61,6 +61,8 @@ import { log as engineLog } from '../../log.js';
 import {
   LEGACY_AUTHORITY,
   canonicalKey,
+  interfaceAccountId,
+  interfacePlaceOf,
   legacyAccountIdOf,
   legacyPlaceOf,
   legacySourceIdOf,
@@ -394,7 +396,7 @@ function accountOf(db, iface, { authority, key, display = null, generation = nul
   }
   const gen = Number.isInteger(generation) ? generation : 1;
   const legacy = found ? null : legacyAccountIdOf(authority, String(key), gen);
-  const id = found ?? legacy ?? nodeId('account', [authority, String(key), gen]);
+  const id = found ?? interfaceAccountId(authority, String(key), gen);
   const row = deriveRow(
     db,
     'accounts',
@@ -482,7 +484,8 @@ function placeOf(db, envelope, at) {
   }
   const partner = declared === 'dm' ? partnerOf(db, envelope, at) : null;
   const legacy = legacyPlaceOf(p.authority, p.key, 1);
-  const placeId = legacy?.id ?? nodeId('place', [p.authority, p.key, 1]);
+  const spelled = interfacePlaceOf(p.authority, p.key, 1);
+  const placeId = spelled.id;
   const row = deriveRow(
     db,
     'places',
@@ -490,7 +493,7 @@ function placeOf(db, envelope, at) {
       id: placeId,
       iface: envelope.iface,
       kind: p.kind,
-      native_id: legacy ? legacy.native_id : p.key,
+      native_id: spelled.native_id,
       parent_id: parent,
       scope_kind: declared,
       name: filled(p.title) ? p.title : null,

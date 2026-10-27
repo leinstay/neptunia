@@ -11,6 +11,7 @@
 //     (`person:<uuid>`). A new id is a stable spelling, never parsed: the tuple it hashes is stored in columns.
 // Schema v8 adds the relation target keys (`externalTargetKey`, `sourceTargetKey`) and `survivorOf` (merged people).
 // Stage 8a adds the legacy spelling of an observed tuple (`legacyAccountIdOf`, `legacyPlaceOf`, `legacySourceIdOf`).
+// Stage 4 adds `interfaceAccountId` and `interfacePlaceOf`, the one spelling the observation and the unit mappers share.
 
 import { createHash, randomUUID } from 'node:crypto';
 import { LEGACY_IFACE } from './legacy-namespace.ts';
@@ -326,4 +327,41 @@ export function uniqueIds(): (id: unknown) => string {
     seen.set(id, n);
     return n === 1 ? id : `${id}-${n}`;
   };
+}
+
+// ---------- one id per account and place of an interface ----------
+// The observation (observe.js) and the store's unit mappers (map/) name a generation-1 account and a channel, guild or
+// DM place of the same interface with the same id: the spelling the mappers write (`accountId`, `channelPlaceId`,
+// `guildPlaceId`, `dmPlaceId`), so a unit write that brings a row the observation made lands on that row and a reopen
+// replays no conflict. On the legacy interface that spelling is `legacyAccountIdOf` and `legacyPlaceOf`, whose stored
+// bytes are frozen. Anything else (a thread, a later generation, the core's own authority) is a node id.
+
+/** The interface of a native authority (`<iface>/global`, `<iface>/local`), or null for the core's and the legacy one. */
+function ifaceOfAuthority(authority: unknown): string | null {
+  const match = /^([^/]+)\/(?:global|local)$/.exec(text(authority ?? ''));
+  const iface = match?.[1] ?? null;
+  return iface === null || authority === CORE_AUTHORITY || authority === LEGACY_AUTHORITY ? null : iface;
+}
+
+/** The account id the observation and the unit mappers both give member `key` of `authority`. */
+export function interfaceAccountId(authority: unknown, key: unknown, generation: unknown = 1): string {
+  const gen = Number.isInteger(generation) ? generation : 1;
+  const iface = ifaceOfAuthority(authority);
+  if (gen === 1 && iface !== null && typeof key === 'string' && key !== '') return accountId(iface, key);
+  return nodeId('account', [text(authority), text(key), gen]);
+}
+
+/** The place the observation and the unit mappers both give place key `key` (`channel:<id>`, ...) of `authority`. */
+export function interfacePlaceOf(
+  authority: unknown,
+  key: unknown,
+  generation: unknown = 1
+): { id: string; native_id: string | null } {
+  const gen = Number.isInteger(generation) ? generation : 1;
+  const iface = ifaceOfAuthority(authority);
+  const match = /^([a-z_]+):(.+)$/.exec(text(key ?? ''));
+  const spell = match?.[1] ? LEGACY_PLACE_IDS[match[1]] : undefined;
+  if (gen === 1 && iface !== null && match && spell)
+    return { id: spell(iface, match[2] ?? ''), native_id: match[1] === 'dm' ? null : (match[2] ?? null) };
+  return { id: nodeId('place', [text(authority), text(key), gen]), native_id: text(key) };
 }
