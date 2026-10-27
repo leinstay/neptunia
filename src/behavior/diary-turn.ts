@@ -9,8 +9,9 @@
 import { randomUUID } from 'node:crypto';
 import { DIARY_DAILY, DIARY_PICTURES_DAILY, gistOf, isPictureKind, setSettings } from './diary.js';
 import { lineOf } from './line-of.js';
+import { log } from '../log.js';
 import { diaryPlaces, readMirrors } from './mirror.ts';
-import type { DiaryEntry, DiaryPlace, EntryPicture, EntryVoice } from './mirror.ts';
+import type { DiaryEntry, DiaryPlace, EntryPicture, EntryVoice, HeldDiary } from './mirror.ts';
 import { bumpDaily, countToday } from '../time.js';
 import { CODE } from '../tools/codes.ts';
 import type { ConversationInfo, ConversationRef, MessageEvent } from '../protocol/adapter.ts';
@@ -219,6 +220,61 @@ export function recordEntry({
     pictures: staged.length,
     entry,
   };
+}
+
+/** The part of the diary's publisher a turn's end uses: what the turn wrote to her diary, and the publication. */
+type DiaryPublisher = {
+  takeDiary(turnId: string): HeldDiary | null;
+  publishEntry(entry: DiaryEntry): Promise<unknown>;
+};
+
+/**
+ * What the turn `turnId` wrote to her diary (`message.create` with `diary`, held by `mirrors`,
+ * src/behavior/mirror.ts#holdDiary): one entry, recorded as a diary turn records its own (recordEntry: its text,
+ * counted toward the day) with her messages' files, then published to every enabled mirror once the store's writes have
+ * landed. Nothing when the turn wrote nothing. Never throws: a failure is logged.
+ */
+export async function publishHeldDiary({
+  mirrors,
+  store,
+  config,
+  now,
+  turnId,
+}: {
+  mirrors: unknown;
+  store: unknown;
+  config: Config;
+  now: number;
+  turnId: unknown;
+}): Promise<void> {
+  const publisher = mirrors as Partial<DiaryPublisher> | null;
+  if (typeof turnId !== 'string' || !turnId || typeof publisher?.takeDiary !== 'function') return;
+  const held = publisher.takeDiary(turnId);
+  if (!held || held.messages.length === 0 || typeof publisher.publishEntry !== 'function') return;
+  try {
+    const texts = held.messages.map((message) => message.text);
+    const recorded = recordEntry({
+      store: store as DiaryStore,
+      config,
+      guildId: held.guildId,
+      now,
+      plan: { kind: null, search: null },
+      held: {
+        texts,
+        rendered: held.messages.map((message) => ({ text: message.text, userIds: [...message.mentions] })),
+      },
+      staged: [],
+      set: false,
+      voice: null,
+    });
+    const files = held.messages.flatMap((message, index) => message.files.map((file) => ({ message: index, ...file })));
+    const flush = (store as { flushSettled?: (opts: object) => Promise<unknown> } | null)?.flushSettled;
+    if (typeof flush === 'function') await flush.call(store, {});
+    await publisher.publishEntry({ ...recorded.entry, ...(files.length > 0 ? { files } : {}) });
+    log.info('diary: written from a turn', { messages: texts.length, files: files.length });
+  } catch (err) {
+    log.warn('diary: not written from a turn', { error: err });
+  }
 }
 
 /** One message of her diary as memory holds it: a message of the platform's shape, and its addressing. */

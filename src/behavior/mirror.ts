@@ -50,6 +50,9 @@ export type EntryPicture = { buffer: Uint8Array; mediaType: string };
 /** The voice message of an entry: the ogg file, its length and its waveform. */
 export type EntryVoice = { ogg: Uint8Array; durationSecs: number; waveform: string };
 
+/** A file one of her messages carries (a file of an errand, a picture she reposts): its name, bytes and type. */
+export type EntryFile = { message: number; name: string; data: Uint8Array; contentType: string | null };
+
 /**
  * A diary entry as it is published: its `diary` row's id, her messages as they are sent, the members each message may
  * notify (`mentions[i]` for `messages[i]`, none when absent), the pictures and the voice message.
@@ -60,6 +63,8 @@ export type DiaryEntry = {
   mentions?: ReadonlyArray<ReadonlyArray<string>>;
   pictures?: ReadonlyArray<EntryPicture>;
   voice?: EntryVoice | null;
+  /** The files her messages carry, each with the index of its message in `messages`. */
+  files?: ReadonlyArray<EntryFile>;
   /** The bytes of one message of pictures (`diary.set.maxMessageBytes` when the entry was recorded). */
   maxMessageBytes?: number;
 };
@@ -89,6 +94,16 @@ export type MirrorPort = {
   iface: string;
   send(conversation: ConversationRef, content: Content): Promise<Delivery>;
 };
+
+/** One message she wrote to her diary in a turn (`message.create` with `diary`), held until the turn ends. */
+export type HeldDiaryMessage = {
+  text: string;
+  mentions: ReadonlyArray<string>;
+  files: ReadonlyArray<{ name: string; data: Uint8Array; contentType: string | null }>;
+};
+
+/** What one turn wrote to her diary: the community it was written in and its messages, in order. */
+export type HeldDiary = { guildId: string; messages: Array<HeldDiaryMessage> };
 
 /** One mirror as `listMirrors` answers it. */
 export type Mirror = { id: string; placeId: string; enabled: boolean };
@@ -169,6 +184,11 @@ export function pictureAttachments(chunk: ReadonlyArray<EntryPicture>): Array<At
   }));
 }
 
+/** The upload of a file one of her messages carries, under its own name. */
+function fileAttachment(file: EntryFile): Attachment {
+  return { name: file.name, data: file.data, ...(file.contentType ? { contentType: file.contentType } : {}) };
+}
+
 /** The one file of a voice message: an ogg named by `at` (ms since the epoch), with its length and waveform. */
 export function voiceAttachment(voice: EntryVoice, at: number): Attachment {
   return {
@@ -201,9 +221,17 @@ export async function sendEntry(
   const sends: Array<{ content: Content; items: Array<number> }> = [];
   if (entry.voice)
     sends.push({ content: { attachments: [voiceAttachment(entry.voice, now())] }, items: [pictures.length] });
+  // A message's own files go with it, numbered after the pictures and the voice file.
+  const filesFrom = pictures.length + (entry.voice ? 1 : 0);
+  const files = (entry.files ?? []).map((file, index) => ({ file, item: filesFrom + index }));
   entry.messages.forEach((text, index) => {
-    const content = { text, mentions: { users: [...(entry.mentions?.[index] ?? [])], repliedUser: false } };
-    sends.push({ content, items: [] });
+    const own = files.filter(({ file }) => file.message === index);
+    const content: Content = {
+      text,
+      mentions: { users: [...(entry.mentions?.[index] ?? [])], repliedUser: false },
+      ...(own.length > 0 ? { attachments: own.map(({ file }) => fileAttachment(file)) } : {}),
+    };
+    sends.push({ content, items: own.map(({ item }) => item) });
   });
   let next = 0;
   for (const chunk of chunkPictures(pictures, maxMessageBytes, filesPerMessage(port))) {
@@ -283,13 +311,18 @@ type MediaItem = {
   ref?: { messageId: string; attachmentId: string | null };
 };
 
-/** The entry's files in the order memory numbers them: the pictures, then the voice file. */
+/** The entry's files in the order memory numbers them: the pictures, the voice file, then her messages' files. */
 function mediaItems(entry: DiaryEntry): Array<MediaItem> {
   return [
     ...(entry.pictures ?? []).map((picture) => ({ data: picture.buffer, mime: picture.mediaType, extra: null })),
     ...(entry.voice
       ? [{ data: entry.voice.ogg, mime: 'audio/ogg', extra: { voice: true, ...voiceExtra(entry.voice) } }]
       : []),
+    ...(entry.files ?? []).map((file) => ({
+      data: file.data,
+      mime: file.contentType ?? 'application/octet-stream',
+      extra: { file: { message: file.message, name: file.name } },
+    })),
   ];
 }
 
@@ -324,7 +357,8 @@ const mediaNumber = (id: unknown): number => Number(/-(\d+)$/.exec(String(id))?.
 /**
  * The entry of a queued publication as memory holds it: its `diary` row's `send` (her messages as sent, their mentions,
  * the set's byte limit; the rendered text as one message when it has none) and its `media` rows with their files under
- * `dataDir`, pictures first and the voice file last, in their numbering. A file that cannot be read is left out.
+ * `dataDir` in their numbering: the pictures, the voice file, and the files of her messages (`extra.file` names the
+ * message and the file's name). A file that cannot be read is left out.
  */
 function storedEntry(db: Db, publication: Publication, dataDir: string | null): DiaryEntry {
   const row = db.prepare('SELECT extra FROM diary WHERE id = ?').get(publication.row_id);
@@ -342,11 +376,22 @@ function storedEntry(db: Db, publication: Publication, dataDir: string | null): 
     .all(publication.row_id)
     .sort((a, b) => mediaNumber(a.id) - mediaNumber(b.id));
   const pictures: Array<EntryPicture> = [];
+  const files: Array<EntryFile> = [];
   for (const item of media) {
     const file = dataDir && typeof item.path === 'string' ? path.join(dataDir, item.path) : null;
     if (!file || !fs.existsSync(file)) continue;
     const buffer = fs.readFileSync(file);
     const mime = String(item.mime);
+    const own = objectOf(item.extra).file as { message?: unknown; name?: unknown } | undefined;
+    if (own && typeof own.message === 'number') {
+      files.push({
+        message: own.message,
+        name: typeof own.name === 'string' ? own.name : 'file',
+        data: buffer,
+        contentType: mime,
+      });
+      continue;
+    }
     if (!mime.startsWith('audio/')) {
       pictures.push({ buffer, mediaType: mime });
       continue;
@@ -355,7 +400,7 @@ function storedEntry(db: Db, publication: Publication, dataDir: string | null): 
     const durationSecs = typeof extra.durationSec === 'number' ? extra.durationSec : 0;
     entry.voice = { ogg: buffer, durationSecs, waveform: typeof extra.waveform === 'string' ? extra.waveform : '' };
   }
-  return pictures.length > 0 ? { ...entry, pictures } : entry;
+  return { ...entry, ...(pictures.length > 0 ? { pictures } : {}), ...(files.length > 0 ? { files } : {}) };
 }
 
 /**
@@ -380,7 +425,31 @@ export function createMirrors({
   listMirrors(): Array<Mirror>;
   publishEntry(entry: DiaryEntry): Promise<Array<PublishOutcome>>;
   drainQueued(): Promise<number>;
+  holdDiary(turnId: string, guildId: string, message: HeldDiaryMessage): number;
+  heldDiary(turnId: string): number;
+  takeDiary(turnId: string): HeldDiary | null;
 } {
+  // What each running turn wrote to her diary, by its turn id: one entry per turn, recorded when the turn ends.
+  const held = new Map<string, HeldDiary>();
+
+  /** Holds one diary message of the turn `turnId`; answers how many the turn holds. */
+  function holdDiary(turnId: string, guildId: string, message: HeldDiaryMessage): number {
+    const entry = held.get(turnId) ?? { guildId, messages: [] };
+    held.set(turnId, entry);
+    entry.messages.push(message);
+    return entry.messages.length;
+  }
+
+  /** How many diary messages the turn `turnId` holds. */
+  const heldDiary = (turnId: string): number => held.get(turnId)?.messages.length ?? 0;
+
+  /** What the turn `turnId` wrote to her diary, taken once (null when it wrote nothing). */
+  function takeDiary(turnId: string): HeldDiary | null {
+    const entry = held.get(turnId) ?? null;
+    held.delete(turnId);
+    return entry;
+  }
+
   function database(): Db | null {
     const handle = memoryDb.readHandle();
     return handle ? (handle.db as Db) : null; // the service's read connection is node:sqlite's
@@ -490,5 +559,5 @@ export function createMirrors({
     return sent;
   }
 
-  return { listMirrors, publishEntry, drainQueued };
+  return { listMirrors, publishEntry, drainQueued, holdDiary, heldDiary, takeDiary };
 }
