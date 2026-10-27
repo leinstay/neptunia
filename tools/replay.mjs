@@ -296,9 +296,9 @@
 // layer -- is read through it and copied as files, never linked to or written.
 //
 // `--diary <kind>`: `--count` briefs (1..50) of one diary kind, each one
-// `runTurn({ channel, mode: 'diary', diary: { kind, [topic], forced: false } })`
+// `runTurn({ guildId, mode: 'diary', diary: { kind, [topic], forced: false } })`
 // of the real turn runner (src/behavior/turn.js, wired as src/index.js wires
-// it) in the diary channel (`diary.channelId`): the plan request on the
+// it) with no conversation, as the live diary runs it: the plan request on the
 // classifier model with the given kind the only one offered (as `/nep diary
 // post <kind>` does; `forced: false` keeps the compose request a scheduled
 // post's), then the compose request on the voice model. Not the sandbox: the
@@ -2408,7 +2408,7 @@ export function diaryTurnRunner(
 async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv, log, signal, rng }) {
   const mods = await loadDiaryMods(load);
   const { DIARY_PICTURES_DAILY, diaryTopic, isPictureKind, isSetKind, stripUrls, validatePlan } = mods;
-  const { createStore, createCalibrator, createLlm, createImageGen, canAttach, canSend, resolveGuild } = mods;
+  const { createStore, createCalibrator, createLlm, createImageGen, resolveGuild } = mods;
   const { parseJsonObject, parseOutput, stripDashes, countToday } = mods;
 
   const params = diaryTurnParams(args, { diaryTopic });
@@ -2434,8 +2434,6 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     }
     const hot = dryRunHot(layered?.hot ?? liveHot);
     const config = hot.config;
-    const diaryChannelId = config.diary?.channelId;
-    if (!diaryChannelId) throw new CliError('replay-cli: diary.channelId is not set');
     if (config.features?.diary === false)
       log.warn('replay-cli: features.diary is off; the live diary would not post', {});
     const weight = config.diary?.kinds?.[kind];
@@ -2486,13 +2484,11 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     });
     client = connection.client;
     const { guildId, self } = connection;
-    const channel = await openDiaryChannel({ client, guildId, diaryChannelId, canSend, canAttach, log });
 
     // The engine, wired as src/index.js wires it.
     const turns = diaryTurnRunner(mods, { hot, store, llm, calibrator, client, guildId, self, images, state });
     log.info('replay-cli: diary ready', {
       guildId,
-      channelId: channel.id,
       kind,
       count: args.count,
       topicChars: topic ? topic.length : 0,
@@ -2505,7 +2501,7 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
       const from = calls.length;
       let result;
       try {
-        result = await turns.runTurn({ conversation: conversationRef(channel), ...params });
+        result = await turns.runTurn({ guildId, ...params });
       } catch (err) {
         result = { outcome: 'error', reason: `${err?.name ?? 'Error'}: ${err?.message ?? err}` };
       }
