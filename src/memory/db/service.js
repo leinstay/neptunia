@@ -111,7 +111,7 @@ import { graphPending } from './graph.js';
 import { stemsPending } from './stems.js';
 import { createHash } from 'node:crypto';
 import { backupName, backupOn, backupSettings, configHash, partialOf, pruneBackups } from './backup.js';
-import { mirrorPlaces, readMirrors } from '../../behavior/mirror.ts';
+import { mirrorPlaces, readMirrors } from './mirrors.ts';
 
 /** The folder of the unit writes that failed at a shutdown (stage W2b), under the data directory. */
 export const PENDING_DIR = 'memory-pending';
@@ -505,7 +505,7 @@ export function createMemoryDb({
   /** The stamped unit write as `writeUnit` sends it (the time, a diary's destination). */
   function stampUnit(update) {
     const stamped = { ...update, kind: 'unit', now: Number.isFinite(update?.now) ? update.now : now() };
-    // A diary post's destination is the place of the diary's first enabled mirror (src/behavior/mirror.ts).
+    // A diary post's destination is the place of the diary's first enabled mirror (mirrors.ts).
     if (
       (stamped.op === 'diary' ||
         (stamped.op === 'value' && /^guilds\/[^/]+\/diary\.json$/.test(String(stamped.owner ?? '')))) &&

@@ -16,9 +16,9 @@
 // still queued after a restart goes out whole: `drainQueued` rebuilds the entry from its `diary` row (`send`: her
 // messages as sent, their mentions, the set's byte limit) and its media.
 //
-// `mirrorPlaces(db)` reads the places of the enabled diary mirrors; `diaryPlaces(db)` is the read every diary-channel
-// check uses: those places, oldest first, or, with none, the place the last entry was published to. A mirror place is
-// not hers to write in (the owner, 2026-10-27): `guardMirrorPort` is the core's outbound port, which refuses every send
+// The reads of the mirrors (`mirrorPlaces`, `diaryPlaces`, `isMirrorPlace`, `diaryConversationIds`) live with the memory
+// database (src/memory/db/mirrors.ts) and are passed on from here to the behaviour modules. A mirror place is not hers
+// to write in (the owner, 2026-10-27): `guardMirrorPort` is the core's outbound port, which refuses every send
 // there with the code `diary-mirror`, and the message handler opens no turn for an event there (src/behavior/
 // pipeline.js). Logs carry counts and codes, never a text.
 
@@ -29,6 +29,16 @@ import { portLimit } from '../interface/capabilities.ts';
 import { issueContext } from '../memory/db/scope.ts';
 import { mirrorReceipts } from '../memory/db/publish.js';
 import { setSettings } from './diary.js';
+import {
+  diaryConversationIds,
+  diaryPlaces,
+  hasMirrors,
+  isMirrorPlace,
+  mirrorPlaces,
+  placeOf,
+  readMirrors,
+} from '../memory/db/mirrors.ts';
+import type { DiaryPlace } from '../memory/db/mirrors.ts';
 import { CODE } from '../tools/codes.ts';
 import type { Attachment, Content } from '../protocol/actions.js';
 import type { ConversationRef, Delivery } from '../protocol/adapter.ts';
@@ -68,9 +78,6 @@ export type Mirror = { id: string; placeId: string; enabled: boolean };
 
 /** What `publishEntry` answers for each enabled mirror: its place, the publication's state and the port's code. */
 export type PublishOutcome = { placeId: string; status: 'queued' | 'sent' | 'failed' | 'unknown'; code: string | null };
-
-/** A place an entry is posted to: the place id, its interface, the conversation it is and its name. */
-export type DiaryPlace = { placeId: string; iface: string; conversationId: string; name: string | null };
 
 /** The part of the memory service the publisher uses: the read connection and the one writer. */
 export type MirrorMemory = {
@@ -193,94 +200,14 @@ export async function sendEntry(
   return { status: 'sent', code: null, messageIds };
 }
 
-const text = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null);
-
-/** Whether the database has the `mirrors` table (schema v15). */
-function hasMirrors(db: Db): boolean {
-  return db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'mirrors'").get() !== undefined;
-}
-
-/** A place row as a diary place, or null when it names no interface or conversation. */
-function placeOf(row: Row | undefined): DiaryPlace | null {
-  const placeId = text(row?.id);
-  const iface = text(row?.iface);
-  const conversationId = text(row?.native_id);
-  return placeId && iface && conversationId ? { placeId, iface, conversationId, name: text(row?.name) } : null;
-}
-
-/**
- * The places her diary is posted to, read on `connection` (a node:sqlite connection of the memory database): the
- * places of the enabled `diary` mirrors, oldest mirror first; with none, the place the last entry was published to;
- * with neither, none.
- */
-export function diaryPlaces(connection: unknown): Array<DiaryPlace> {
-  const db = connection as Db; // a node:sqlite connection; the queries below read it
-  const mirrored = mirrorPlaces(db);
-  if (mirrored.length > 0) return mirrored;
-  const last = placeOf(
-    db
-      .prepare(
-        `SELECT p.id, p.iface, p.native_id, p.name FROM publications x JOIN places p ON p.id = x.destination_place_id
-          WHERE x.row_kind = 'diary' AND x.retired_at IS NULL ORDER BY x.created_at DESC, x.id DESC LIMIT 1`
-      )
-      .get()
-  );
-  return last ? [last] : [];
-}
-
-/** The places of the enabled `diary` mirrors, read on `connection`, oldest mirror first; none before schema v15. */
-export function mirrorPlaces(connection: unknown): Array<DiaryPlace> {
-  const db = connection as Db; // a node:sqlite connection; the query below reads it
-  if (!hasMirrors(db)) return [];
-  return db
-    .prepare(
-      `SELECT p.id, p.iface, p.native_id, p.name FROM mirrors m JOIN places p ON p.id = m.place_id
-        WHERE m.row_kind = 'diary' AND m.enabled = 1 ORDER BY m.created_at, m.id`
-    )
-    .all()
-    .map(placeOf)
-    .filter((place): place is DiaryPlace => place !== null);
-}
-
-/** What the mirrors are read from: the memory service (its read connection), or the store (`readMemory`). */
-type MemorySource = Partial<MirrorMemory> & { readMemory?: <TValue>(read: (db: unknown) => TValue) => TValue | null };
-
-/**
- * `read(db)` on the memory database of `source` (the memory service's read connection, else the store's
- * `readMemory`), or `none` when there is none or the read fails.
- */
-export function readMirrors<TValue>(source: unknown, read: (db: unknown) => TValue, none: TValue): TValue {
-  try {
-    const given = source as MemorySource | null | undefined;
-    const handle = given?.readHandle?.() ?? null;
-    if (handle) return read(handle.db);
-    return given?.readMemory?.(read) ?? none;
-  } catch (error) {
-    log.warn('mirror: read failed', { code: (error as { code?: unknown } | null)?.code ?? 'ERROR' });
-    return none;
-  }
-}
-
-/** The conversation ids of her diary's places in `memoryDb` (diaryPlaces): where she keeps her diary. */
-export function diaryConversationIds(memoryDb: unknown): Set<string> {
-  return readMirrors(
-    memoryDb,
-    (db) => new Set(diaryPlaces(db).map((place) => place.conversationId)),
-    new Set<string>()
-  );
-}
-
 /** The places of her diary a sandbox's view names (`memory.diaryChannelIds`, src/behavior/sandbox.js), else none. */
 export function viewDiaryIds(view: unknown): Array<string> {
   const read = (view as { memory?: { diaryChannelIds?: unknown } } | null | undefined)?.memory?.diaryChannelIds;
   return typeof read === 'function' ? (read as () => Array<string>)() : [];
 }
 
-/** Whether `conversationId` of `iface` is the place of an enabled diary mirror in `memoryDb`. */
-export function isMirrorPlace(memoryDb: unknown, iface: unknown, conversationId: unknown): boolean {
-  const here = (place: DiaryPlace): boolean => place.iface === iface && place.conversationId === String(conversationId);
-  return readMirrors(memoryDb, (db) => mirrorPlaces(db).some(here), false);
-}
+export { diaryConversationIds, diaryPlaces, isMirrorPlace, mirrorPlaces, readMirrors };
+export type { DiaryPlace };
 
 /**
  * The core's outbound port: `port` with every `send` to the place of an enabled diary mirror refused with the code

@@ -419,6 +419,13 @@
       "test": "required"
     },
     {
+      "path": "src/memory/db/mirrors.ts",
+      "purpose": "The reads of the diary's mirrors over the memory database: the places her diary is posted to and whether a conversation is one. Tested through tests/mirror.test.ts and tests/diary-mirror-*.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/memory/db/map/",
       "purpose": "The mapping of memory rows to records and back.",
       "layer": "public",

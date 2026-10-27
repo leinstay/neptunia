@@ -28,7 +28,7 @@ import { createHash } from 'node:crypto';
 import { audienceOf } from './scope.ts';
 import { ensureAudience } from './rows.js';
 import { projectRow } from './graph.js';
-import { diaryPlaces } from '../../behavior/mirror.ts';
+import { diaryPlaces } from './mirrors.ts';
 
 export const GAP_MS = 1000;
 const MEDIA_DIR = path.join('media', 'diary');
@@ -63,7 +63,7 @@ function audioExtension(mime, name) {
  * The diary rows still to fill: live, mirrored, and either no text yet or (a post saved before audio was
  * kept) a `voice` field in its extra with no audio media row. Each carries the post's `voice` object, if any, and the
  * conversation it was posted to: the place its publication names, else the place her diary is posted to
- * (src/behavior/mirror.ts#diaryPlaces, the first), else null.
+ * (mirrors.ts#diaryPlaces, the first), else null.
  * @returns {Array<Record<string, unknown> & { id: string, conversationId: string | null, messageIds: string[], voice: object | null }>}
  */
 export function pendingDiaryRows(db) {

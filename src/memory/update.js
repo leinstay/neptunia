@@ -10,7 +10,7 @@ import { DEFAULT_ADDRESS_HALF_LIFE_DAYS, addressCandidates, countAddressUses } f
 import { emojiUsageOpts } from './emoji-usage.js';
 import { gifOpts } from './gifs.js';
 import { recordLinks } from './record.js';
-import { diaryConversationIds } from '../behavior/mirror.ts';
+import { diaryConversationIds } from './db/mirrors.ts';
 
 /**
  * The log `error` field of a failure: the error's name only (`SyntaxError`, `TypeError`, `Error`), never its message.
@@ -72,7 +72,7 @@ export function recordAddressing(store, guildId, messages, cfg = {}) {
  *   callers are expected to have already dropped other bots' messages.
  * @param {object} [memoryCfg]  The live `config.memory`, for the tally's settings
  *   (`channelWritersStored`, `channelWritersHalfLifeDays`); omitted -> the store's fallbacks.
- *   `diaryChannelIds` (the caller adds the places of her diary, src/behavior/mirror.ts#diaryConversationIds) names
+ *   `diaryChannelIds` (the caller adds the places of her diary, src/memory/db/mirrors.ts#diaryConversationIds) names
  *   the channels where the persona's own messages count as a writer.
  */
 export function touchMemory(store, guildId, normalized, memoryCfg) {
