@@ -884,7 +884,7 @@ export function chainBudget(state, chainId, cap, { now, timezone }) {
 /**
  * The cost of whatever runs inside `run(fn)`: every `llm: usage` line (its `upstreamCost`, else
  * `cost`; the `core` role counted apart, as `voice`, the journal field's name since the role was called so) and `images: generated` line logged in its async context
- * (AsyncLocalStorage over the log listeners, src/log.js#onLog), side requests it starts included;
+ * (AsyncLocalStorage over the log listeners, src/log.js#onLog), requests on model roles other than `core` it starts included;
  * `running()`, asked inside it, says what it has cost so far and its costliest single request.
  * @param {{ subscribe?: (listener: Function) => Function }} [options]
  */

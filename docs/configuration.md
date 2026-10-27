@@ -46,7 +46,7 @@ The tool texts moved too: `prompts/skills.json` is `config/tools.json`, and a de
 Two hard rails that must stay on:
 
 - **50 000 tokens per request** (`llm.maxRequestTokens`). Every request the bot sends is budgeted against this cap. The prompt builder trims sections by priority to fit.
-- **Daily request cap** (`llm.maxRequestsPerDay`, default 5000). Every model request counts (side requests, probes, tools, hedged duplicates).
+- **Daily request cap** (`llm.maxRequestsPerDay`, default 5000). Every model request counts (requests on every model role, probes, tools, hedged duplicates).
 
 ## `features`
 
@@ -365,7 +365,7 @@ Her focus set: the people her attention is on. Computed by the `memoryDb.focus` 
 | `previousThink.minutes` | `30` | How long after a finished turn a new turn there still carries its think. `0` carries none |
 | `channelActivity.liveMessagesPerDay` | `20` | Daily messages for an active channel |
 | `channelActivity.deadAfterDays` | `7` | Days without messages for a dead channel |
-| `vision.tokensPerImage` | `400` | Tokens charged per image part of a side request |
+| `vision.tokensPerImage` | `400` | Tokens charged per image part of a request on a model role other than `core` |
 | `vision.maxBytes` | `1500000` | Max picture file size (bytes) |
 | `vision.fetchTimeoutMs` | `10000` | Download timeout per picture (ms) |
 
@@ -465,7 +465,7 @@ Messages posted while the bot was down, read once at start (`features.offlineCat
 
 ## `pace`
 
-How long each stage of a turn may take. A side request that misses its deadline is dropped. A turn whose answer is not in hand by `dropAfterMs` is dropped entirely.
+How long each stage of a turn may take. A request on a model role other than `core` that misses its deadline is dropped. A turn whose answer is not in hand by `dropAfterMs` is dropped entirely.
 
 | Key | Default | What it does |
 |---|---|---|

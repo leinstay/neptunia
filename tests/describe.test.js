@@ -22,7 +22,7 @@ import {
 import { createHash } from 'node:crypto';
 import {
   createLlm,
-  sideRequestOptions,
+  roleRequestOptions,
   TokenLimitError,
   DailyCapError,
   VIDEO_TOKENS_PER_SECOND_FALLBACK,
@@ -458,7 +458,7 @@ test('describe: a helper request -- llm.analyzerTimeoutMs, never llm.timeoutMs, 
   assert.equal(tuned.role, 'vision');
   assert.equal(tuned.maxOutputTokens, 120);
   const unset = await run({ timeoutMs: 90000 });
-  assert.equal(unset.timeoutMs, sideRequestOptions({}).timeoutMs, 'the helper fallback, not the reply timeout');
+  assert.equal(unset.timeoutMs, roleRequestOptions({}).timeoutMs, 'the helper fallback, not the reply timeout');
 });
 
 test('describe: the picture model is models.base.vision; the deprecated media.model is ignored', async () => {

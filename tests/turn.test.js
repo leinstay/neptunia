@@ -8623,7 +8623,7 @@ test('runTurn: a direct call with a bar passes pace.replyHedgeMs to the reply re
   const [options] = llm.optionCalls;
   assert.equal(options.timeoutMs, BAR_MS);
   assert.deepEqual(options.hedge, { afterMs: 500, timeoutMs: BAR_MS }, 'attempt 2 at 500 ms, both ended at the bar');
-  assert.equal(options.isSide, undefined, 'still no helper request');
+  assert.equal(options.isRoleRequest, undefined, 'still no helper request');
 });
 
 test('runTurn: pace.replyHedgeMs 0, or not below the time left to the bar, sends the reply request without a hedge', async () => {
@@ -8872,7 +8872,7 @@ test('runTurn: the splitter request fills split.md and carries the transcript an
   assert.ok(textOf(call.messages[1].content).startsWith('<transcript>\n'));
   assert.equal(candidateOf(call), SPLIT_TEXT);
   assert.deepEqual(
-    [call.options.role, call.options.purpose, call.options.maxOutputTokens, call.options.isSide],
+    [call.options.role, call.options.purpose, call.options.maxOutputTokens, call.options.isRoleRequest],
     ['analyzer', 'split', 50, true]
   );
 });

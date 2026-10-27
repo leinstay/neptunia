@@ -280,7 +280,7 @@ test("askPlanner: one request on the analyzer role, purpose planner, capped at t
   assert.equal(options.model, 'x/text');
   assert.equal(options.maxOutputTokens, 321);
   assert.equal(options.timeoutMs, 25_000);
-  assert.equal(options.isSide, true);
+  assert.equal(options.isRoleRequest, true);
   assert.equal(messages[0].content, 'Plan for Zoë; today is 2026-10-14.');
   assert.equal(result.outcome, 'classified');
   assert.deepEqual(

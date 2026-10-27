@@ -1,7 +1,7 @@
 // The model roles: every LLM request names the model role it goes out on, and each model role has its own
 // model with a built-in default (the same value config.json ships). The models sit in three
 // groups, matching the status card:
-// - `models.base.<role>`: her core and side roles, the model roles the bot's own requests go out on;
+// - `models.base.<role>`: her `core` and the other model roles, the model roles the bot's own requests go out on;
 // - `models.errands.<role>`: the delegated agents, each with its own OpenCode loop, async;
 // - `models.development.<role>`: the agents outside her, working on this repository.
 // A model role never takes another model role's model: an unset model role is its own default, so
@@ -48,13 +48,13 @@ export const MEMORY_ROLE = 'memory';
 /** The memory role's model while `models.base.memory` is unset: the core's built-in default, as config.json ships it. */
 export const MEMORY_ROLE_DEFAULT = 'anthropic/claude-opus-4.6';
 
-/** The side roles, the model roles a turn calls beside the core's, in display order. */
-export const SIDE_ROLES = Object.freeze(['analyzer', 'vision', 'video', 'embedding', 'speech']);
+/** The model roles other than `core` that a turn calls, in display order. */
+export const NON_CORE_ROLES = Object.freeze(['analyzer', 'vision', 'video', 'embedding', 'speech']);
 
-/** The model roles the bot's chat and embedding requests go out on, in display order: the core, then the side roles. */
-export const CORE_ROLES = Object.freeze([CORE_ROLE, ...SIDE_ROLES]);
+/** The model roles the bot's chat and embedding requests go out on, in display order: the core, then the model roles other than `core`. */
+export const CORE_ROLES = Object.freeze([CORE_ROLE, ...NON_CORE_ROLES]);
 
-/** The base model roles, in display order: the core, the side roles, then drawing. Their models sit under `models.base`. */
+/** The base model roles, in display order: the core, NON_CORE_ROLES, then drawing. Their models sit under `models.base`. */
 export const BASE_ROLES = Object.freeze([...CORE_ROLES, 'drawing']);
 
 /** The errand model roles: their models sit under `models.errands`. */

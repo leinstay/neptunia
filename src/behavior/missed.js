@@ -35,7 +35,7 @@
 import path from 'node:path';
 import * as nodeFs from 'node:fs/promises';
 import { formatTranscript, renderTranscript, withTriggers } from '../format.js';
-import { sideRequestOptions } from '../llm/openrouter.js';
+import { roleRequestOptions } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { fillPromptTemplate } from './prompt.js';
@@ -943,7 +943,7 @@ export function createMissed({
         ],
         {
           model: roleModel(config, 'analyzer', 'missed'),
-          ...sideRequestOptions(config, {
+          ...roleRequestOptions(config, {
             role: 'analyzer',
             maxOutputTokens: settings.maxOutputTokens,
             purpose: 'missed',

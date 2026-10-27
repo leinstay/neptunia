@@ -167,7 +167,7 @@ test('search-policy-eval: three rows -> decisions, results.jsonl, the confusion 
   assert.equal(options.role, 'analyzer');
   assert.equal(options.purpose, 'lookup');
   assert.equal(options.maxOutputTokens, 300);
-  assert.equal(options.isSide, true);
+  assert.equal(options.isRoleRequest, true);
   assert.equal(options.timeoutMs, 9000);
   assert.equal(options.origin, 'search-policy-eval');
   assert.equal(options.countAgainstDailyCap, false);

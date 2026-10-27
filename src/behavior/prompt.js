@@ -1496,7 +1496,7 @@ function assembleUser({
 }
 
 /**
- * A side request's user content in two cache parts: the `stable` block (the
+ * An `analyzer` request's user content in two cache parts: the `stable` block (the
  * bulk that repeats between calls) tagged `cacheSegment: 'stable'` and
  * followed by `separator`, then the per-turn blocks joined with `separator`
  * and untagged. Empty blocks are left out; with no per-turn block the stable

@@ -9,13 +9,13 @@
 // through the day's request cap of the chat: the operations tools
 // (tools/replay.mjs through src/behavior/sandbox.js), run by hand behind
 // their own spend gate, never by the bot.
-// Every other request counts: the reply and every side request before it, the
+// Every other request counts: the reply and every request on a model role other than `core` before it, the
 // analyzer, her memory session. The per-request token cap
 // (`TokenLimitError`) always applies, with no exception.
 //
 // The same module holds the read-only side of that counter (`capLeft`,
 // `llmCountToday`), the reason code of a rail refusal (`railReason`) and the
-// one spelling of an in-turn side request (`sideRequestOptions`), whose
+// one spelling of an in-turn request on a model role other than `core` (`roleRequestOptions`), whose
 // requests on the model roles `llm.hedge` lists are hedged: a second attempt after a
 // short wait, the first answer taken (see `complete`).
 //
@@ -198,17 +198,17 @@ export function countLlmRequest(state, configured, nowMs) {
 const ANALYZER_TIMEOUT_MS_FALLBACK = 30000;
 
 /**
- * The options of one in-turn side request, a request on a model role other than the core's: a short call
+ * The options of one in-turn request on a model role other than `core`: a short call
  * made on the way to a reply (the `analyzer` passes: address, re-watch, search, link read, search summary;
- * the picture describer), so every side request is
+ * the picture describer), so every such request is
  * spelled the same way: counted against `llm.maxRequestsPerDay`, never fed to
  * the calibration (a short or a vision prompt says nothing about the text
  * ratio), and cut at `llm.analyzerTimeoutMs` per attempt instead of the
- * turn-length `llm.timeoutMs`: while a side request is out it holds the persona's
+ * turn-length `llm.timeoutMs`: while such a request is out it holds the persona's
  * lease. `countAgainstDailyCap` and `skipCalibration` are not the
  * caller's to set. The model is not part of the set: the caller adds its own
- * (`{ model, ...sideRequestOptions(config, { ... }) }`). The set carries the
- * side request mark `isSide: true` (never sent): only a marked request on a model role
+ * (`{ model, ...roleRequestOptions(config, { ... }) }`). The set carries the
+ * mark `isRoleRequest: true` (never sent): only a marked request on a model role
  * `llm.hedge.roles` lists is hedged by `complete` (see `hedgeSettings`), so the
  * memory session, the describers never are; the
  * reply only through an explicit `options.hedge` (see `complete`).
@@ -221,17 +221,17 @@ const ANALYZER_TIMEOUT_MS_FALLBACK = 30000;
  *   `llm: usage` line (`address`, `rewatch`, `lookup`, `read-link`, `search-summary`, `route-channel`,
  *   `describe`); never sent.
  * @param {AbortSignal} [request.signal]      The caller's own abort signal, if it has one.
- * @param {number} [request.timeoutMs]        A side request with a clock of its own; else
+ * @param {number} [request.timeoutMs]        A request with a clock of its own; else
  *   `llm.analyzerTimeoutMs`, else 30000 (config.json's value).
- * @param {boolean} [request.long]            True for a side request whose answer is a summary of several
+ * @param {boolean} [request.long]            True for a request whose answer is a summary of several
  *   hundred tokens (recall, link read, search summary): hedged, its whole call is limited by
  *   `llm.hedge.longTimeoutMs` instead of `llm.hedge.timeoutMs`. Only `true` puts `long: true` in the
  *   set (never sent); anything else leaves the key out.
  * @returns {{ role: string|undefined, maxOutputTokens: number|undefined, countAgainstDailyCap: true,
- *   skipCalibration: true, timeoutMs: number, purpose: string|undefined, signal: AbortSignal|undefined, isSide: true,
+ *   skipCalibration: true, timeoutMs: number, purpose: string|undefined, signal: AbortSignal|undefined, isRoleRequest: true,
  *   long?: true }}
  */
-export function sideRequestOptions(config, { role, maxOutputTokens, purpose, signal, timeoutMs, long } = {}) {
+export function roleRequestOptions(config, { role, maxOutputTokens, purpose, signal, timeoutMs, long } = {}) {
   return {
     role,
     maxOutputTokens,
@@ -240,7 +240,7 @@ export function sideRequestOptions(config, { role, maxOutputTokens, purpose, sig
     timeoutMs: timeoutMs ?? config?.llm?.analyzerTimeoutMs ?? ANALYZER_TIMEOUT_MS_FALLBACK,
     purpose,
     signal,
-    isSide: true,
+    isRoleRequest: true,
     ...(long === true ? { long: true } : {}),
   };
 }
@@ -256,10 +256,10 @@ const HEDGE_FALLBACK = Object.freeze({
 /**
  * The hedge settings of the live config, or null when `llm.hedge` is not an object (no hedge at
  * all, every request as without it). Inside the group a key that is missing or invalid reads as
- * config.json's: `roles` (the `options.role` values whose side requests are hedged; not an array -> `['analyzer']`), `afterMs` (how long the first attempt is given before a second one is
+ * config.json's: `roles` (the `options.role` values whose requests from roleRequestOptions are hedged; not an array -> `['analyzer']`), `afterMs` (how long the first attempt is given before a second one is
  * sent; a finite number >= 0, 0 = no hedge; else 2500), `timeoutMs` (the limit of the whole
  * hedged call, both attempts included; a finite number > 0, else 8000) and `longTimeoutMs` (the
- * same limit for a side request marked `long`, whose answer is a summary of several hundred tokens; a
+ * same limit for a request marked `long`, whose answer is a summary of several hundred tokens; a
  * finite number > 0, else 20000). Exists because the tail of a tiny request belongs to the
  * provider: one slow classifier must not hold a whole turn.
  * Pure; `config` is the whole live config read at the moment of use.
@@ -282,7 +282,7 @@ export function hedgeSettings(config) {
 // The hedge of one request, or null to send it as ever. An explicit `options.hedge` (a plain
 // object whose `afterMs` and `timeoutMs` are finite numbers above 0; never sent) wins, whatever
 // the request: the reply of a turn with a bar carries one (`pace.replyHedgeMs`). Else only a
-// side request's set (`options.isSide === true`, from `sideRequestOptions`) on a model role
+// roleRequestOptions set (`options.isRoleRequest === true`, from `roleRequestOptions`) on a model role
 // `llm.hedge.roles` lists, with `afterMs` above 0. `timeoutMs` is the limit of this call:
 // `longTimeoutMs` for a set marked `long`.
 function hedgeOf(config, options) {
@@ -291,7 +291,7 @@ function hedgeOf(config, options) {
   if (isPlainObject(explicit) && positive(explicit.afterMs) && positive(explicit.timeoutMs)) {
     return { afterMs: explicit.afterMs, timeoutMs: explicit.timeoutMs };
   }
-  if (options.isSide !== true || typeof options.role !== 'string') return null;
+  if (options.isRoleRequest !== true || typeof options.role !== 'string') return null;
   const hedge = hedgeSettings(config);
   if (!hedge || hedge.afterMs <= 0 || !hedge.roles.includes(options.role)) return null;
   return { afterMs: hedge.afterMs, timeoutMs: options.long === true ? hedge.longTimeoutMs : hedge.timeoutMs };
@@ -751,7 +751,7 @@ function cacheCode(marked, usage) {
 
 // The fields of one `llm: usage` line, so a day's spend can be split by model role and, inside a
 // role, by what the request was for: who asked (`role`, `model`; `purpose` = the caller's
-// `options.purpose`, which tells apart the side requests that share one model role; `origin` = the caller's
+// `options.purpose`, which tells apart the requests that share one model role; `origin` = the caller's
 // `options.origin`, e.g. `replay` for a request that is not live chat traffic), who served it
 // (`provider`, `id`), what it cost, read from OpenRouter's `usage` and its detail objects, what
 // the prompt cache did (`cache`, see `cacheCode`; `marked` = the sent request carried a marker)
@@ -963,7 +963,7 @@ export function createLlm({
    * back at 00:00 UTC), never below 0. `state.data` is never touched and nothing is logged:
    * the pair is rolled over by the next counted request. Infinity while the cap is not a finite
    * number -- that misconfiguration is `complete()`'s own to refuse and report (`dailyCapOf`),
-   * not a reader's to answer for. For a side request that would otherwise download, reserve or cache
+   * not a reader's to answer for. For a request on a model role other than `core` that would otherwise download, reserve or cache
    * something before `complete()` refuses it: `capLeft() <= 0` means the next counted request
    * throws a `DailyCapError`. Only a look: a request sent in between can take the last slot.
    * @param {number} [nowMs]  Defaults to the client's clock.
@@ -1155,7 +1155,7 @@ export function createLlm({
    * answer; null where the response or the caller omits a value), whatever its
    * role -- see `usageLogFields`.
    * Hedged calls (`llm.hedge`, see `hedgeSettings`): a request carrying the
-   * side request mark (`options.isSide === true`, set by `sideRequestOptions` only;
+   * `isRoleRequest` mark (`options.isRoleRequest === true`, set by `roleRequestOptions` only;
    * never sent) whose `options.role` is listed in `llm.hedge.roles`, while
    * `llm.hedge.afterMs` is above 0, never enters the retry loop above: attempt 1
    * is sent; one answering before `afterMs` (a success or a non-retryable error)
@@ -1176,8 +1176,8 @@ export function createLlm({
    * `options.hedge` — an explicit hedge for this one call, `{ afterMs, timeoutMs }` (both finite
    * numbers above 0; never sent): any request carrying one is hedged as above, with attempt 2
    * at its `afterMs` and the whole call cut at its `timeoutMs`, whatever its model role and with or
-   * without the side request mark or an `llm.hedge` group; the rails, the counting of attempt 2 and
-   * the cache marker (the same body twice) are as above. Anything else leaves the side request rule
+   * without the `isRoleRequest` mark or an `llm.hedge` group; the rails, the counting of attempt 2 and
+   * the cache marker (the same body twice) are as above. Anything else leaves the `isRoleRequest` rule
    * in charge. Exists for the reply of a turn with a bar (`pace.replyHedgeMs`): a provider stall
    * must not let a direct call pass its bar unanswered.
    * `options.purpose` — what the request is for, a kebab-case code (`reply`,
@@ -1429,7 +1429,7 @@ export function createLlm({
       };
     };
 
-    // A side request on a hedged model role, or a request with an explicit hedge: two attempts at most,
+    // A request marked `isRoleRequest` on a hedged model role, or a request with an explicit hedge: two attempts at most,
     // never the retry loop below.
     const hedge = hedgeOf(getConfig(), options);
     if (hedge) {

@@ -37,7 +37,7 @@ import {
   isTaggedCall,
   roomPreFilter,
 } from './mention.js';
-import { sideRequestOptions, railReason } from '../llm/openrouter.js';
+import { roleRequestOptions, railReason } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { fill, formatTranscript, renderTranscript } from '../format.js';
@@ -975,10 +975,10 @@ export function createMessageHandler({
           ],
           {
             model,
-            // A side request: on llm.analyzerTimeoutMs, never the turn-length llm.timeoutMs, and
+            // An `analyzer` request: on llm.analyzerTimeoutMs, never the turn-length llm.timeoutMs, and
             // hedged (llm.hedge) -- while this call is in flight it holds the channel's follow-up
             // slot, and every untagged line there is only held.
-            ...sideRequestOptions(config, {
+            ...roleRequestOptions(config, {
               role: 'analyzer',
               maxOutputTokens: mentionCfg.followUpMaxOutputTokens,
               purpose: 'address',
@@ -1144,7 +1144,7 @@ export function createMessageHandler({
 
   /**
    * One room classifier call for `normalized` in `channel`: the request from
-   * buildClassifierRequest with `prompt` (room.md), sent with the side request
+   * buildClassifierRequest with `prompt` (room.md), sent with the `analyzer` request
    * request options (role analyzer, mention.followUpMaxOutputTokens, the
    * daily cap, llm.analyzerTimeoutMs, purpose `room`). Resolves to `'yes'` or
    * `'no'` (`room: verdict`; the first word, read as the address
@@ -1187,7 +1187,7 @@ export function createMessageHandler({
         ],
         {
           model,
-          ...sideRequestOptions(config, {
+          ...roleRequestOptions(config, {
             role: 'analyzer',
             maxOutputTokens: config.mention?.followUpMaxOutputTokens,
             purpose: 'room',
@@ -1800,7 +1800,7 @@ export function createMessageHandler({
    * One merge classifier call: is `trigger` (a call of an author with `items`
    * waiting) about one of them? System = prompts.merge with `{{name}}`; user
    * = `<waiting>` (the items as `<n>. <text>` lines from 1) then
-   * `<candidate>` (`<author>: <text>`). A side request (model role analyzer,
+   * `<candidate>` (`<author>: <text>`). An `analyzer` request (
    * mention.followUpMaxOutputTokens, purpose `merge`). Resolves the item's
    * 1-based index (`merge: verdict`, `answer: 'item'`), or null for `new`
    * (`answer: 'new'`) and for every other outcome, logged as `merge: failed`
@@ -1832,7 +1832,7 @@ export function createMessageHandler({
         ],
         {
           model: roleModel(config, 'analyzer', 'merge'),
-          ...sideRequestOptions(config, {
+          ...roleRequestOptions(config, {
             role: 'analyzer',
             maxOutputTokens: config.mention?.followUpMaxOutputTokens,
             purpose: 'merge',

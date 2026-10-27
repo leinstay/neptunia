@@ -67,7 +67,7 @@
 // it is memory about real people, kept under data/ only.
 
 import { log } from '../log.js';
-import { sideRequestOptions, railReason } from '../llm/openrouter.js';
+import { roleRequestOptions, railReason } from '../llm/openrouter.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { foldText, liveRecent, recentSettings } from '../memory/recent.js';
 import { DAY_MS, bumpDaily, countToday } from '../time.js';
@@ -1716,7 +1716,7 @@ export function createRecall({
     try {
       completion = await llm.complete(messages, {
         model: roleModel(config, 'analyzer', 'recall-summary'),
-        ...sideRequestOptions(config, {
+        ...roleRequestOptions(config, {
           role: 'analyzer',
           maxOutputTokens: settings.maxOutputTokens,
           purpose: 'recall-summary',

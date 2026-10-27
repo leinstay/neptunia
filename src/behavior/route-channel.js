@@ -9,7 +9,7 @@
 // sends the one request through the rails of src/llm/openrouter.js.
 
 import { log } from '../log.js';
-import { sideRequestOptions, railReason } from '../llm/openrouter.js';
+import { roleRequestOptions, railReason } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
 import { checkPull } from './pull-fetch.ts';
 import {
@@ -154,7 +154,7 @@ export function createChannelRouter({ hot, store, llm, now = Date.now }) {
       try {
         completion = await llm.complete(messages, {
           model: roleModel(config, 'analyzer', 'route-channel'),
-          ...sideRequestOptions(config, {
+          ...roleRequestOptions(config, {
             role: 'analyzer',
             maxOutputTokens: settings.maxOutputTokens,
             purpose: 'route-channel',

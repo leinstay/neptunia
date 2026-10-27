@@ -15,7 +15,7 @@
 import { isPlainObject } from '../config.js';
 import { log } from '../log.js';
 import { formatDuration } from '../format.js';
-import { sideRequestOptions, railReason } from '../llm/openrouter.js';
+import { roleRequestOptions, railReason } from '../llm/openrouter.js';
 import { oneLine } from '../memory/clamp.js';
 import { PARTICIPATION_DEFAULTS, episodeHeadlines, participationSettings } from '../memory/index.js';
 import { roleModel } from '../llm/roles.js';
@@ -341,7 +341,7 @@ export function createParticipationPicker({ hot, store, llm, now = Date.now, sch
       try {
         completion = await llm.complete(messages, {
           model: roleModel(config, 'analyzer', 'participation-pick'),
-          ...sideRequestOptions(config, {
+          ...roleRequestOptions(config, {
             role: 'analyzer',
             maxOutputTokens: settings.maxOutputTokens,
             purpose: 'participation-pick',

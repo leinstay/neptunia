@@ -13,7 +13,7 @@
 // built by the old classifiers' own builders; no wording of ours goes in.
 
 import { log } from '../log.js';
-import { sideRequestOptions, railReason } from '../llm/openrouter.js';
+import { roleRequestOptions, railReason } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
 import { parseParticipationPick } from './participation-pick.js';
 import { block, fillPromptTemplate, stableThenTail } from './prompt.js';
@@ -284,7 +284,7 @@ function allMissing() {
  * classifier would have been asked). One request on the reasoning
  * model role (roleModel, role `analyzer`, purpose `planner`), its
  * answer capped at `web.search.classifierMaxOutputTokens`, a role
- * request (sideRequestOptions: the daily cap, the analyzer timeout, the
+ * request (roleRequestOptions: the daily cap, the analyzer timeout, the
  * hedge). Resolves `{ outcome, reason, blocks }`, never rejects:
  * - `skipped` (`reason` `no-prompt`: no planner prompt; `nothing`: no block
  *   offered; `no-candidate`): no request, every block missing, no fallback
@@ -370,7 +370,7 @@ export async function askPlanner({
   try {
     completion = await llm.complete(messages, {
       model,
-      ...sideRequestOptions(config, {
+      ...roleRequestOptions(config, {
         role: 'analyzer',
         maxOutputTokens: config?.web?.search?.classifierMaxOutputTokens ?? 2000,
         purpose: 'planner',

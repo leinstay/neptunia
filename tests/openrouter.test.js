@@ -16,7 +16,7 @@ import {
   LLM_DAILY,
   llmCountToday,
   railReason,
-  sideRequestOptions,
+  roleRequestOptions,
   hedgeSettings,
   resolveProvider,
   matchRoute,
@@ -348,11 +348,11 @@ test('railReason: daily-cap for a DailyCapError, token-limit for a TokenLimitErr
   }
 });
 
-// --- sideRequestOptions: the one spelling of an in-turn helper request ---
+// --- roleRequestOptions: the one spelling of an in-turn helper request ---
 
-test('sideRequestOptions: counted, never calibrated, on llm.analyzerTimeoutMs unless the caller says otherwise', () => {
+test('roleRequestOptions: counted, never calibrated, on llm.analyzerTimeoutMs unless the caller says otherwise', () => {
   const config = { llm: { timeoutMs: 300000, analyzerTimeoutMs: 12000 } };
-  assert.deepEqual(sideRequestOptions(config, { role: 'analyzer', maxOutputTokens: 60, purpose: 'lookup' }), {
+  assert.deepEqual(roleRequestOptions(config, { role: 'analyzer', maxOutputTokens: 60, purpose: 'lookup' }), {
     role: 'analyzer',
     maxOutputTokens: 60,
     countAgainstDailyCap: true,
@@ -360,15 +360,15 @@ test('sideRequestOptions: counted, never calibrated, on llm.analyzerTimeoutMs un
     timeoutMs: 12000, // never the turn-length llm.timeoutMs
     purpose: 'lookup',
     signal: undefined,
-    isSide: true, // the mark a hedge looks for; never sent
+    isRoleRequest: true, // the mark a hedge looks for; never sent
   });
 
   config.llm.analyzerTimeoutMs = 7000; // a hot edit between two calls: nothing is remembered
-  assert.equal(sideRequestOptions(config, { role: 'vision' }).timeoutMs, 7000);
+  assert.equal(roleRequestOptions(config, { role: 'vision' }).timeoutMs, 7000);
 
   // A helper with its own clock passes it, with its abort signal.
   const controller = new AbortController();
-  const own = sideRequestOptions(config, {
+  const own = roleRequestOptions(config, {
     role: 'analyzer',
     maxOutputTokens: 500,
     purpose: 'lookup',
@@ -379,7 +379,7 @@ test('sideRequestOptions: counted, never calibrated, on llm.analyzerTimeoutMs un
   assert.equal(own.signal, controller.signal);
 
   // The two rails a helper must never opt out of are not the caller's to set.
-  const forced = sideRequestOptions(config, {
+  const forced = roleRequestOptions(config, {
     role: 'analyzer',
     countAgainstDailyCap: false,
     skipCalibration: false,
@@ -393,7 +393,7 @@ test('code fallbacks: the defaults the code applies when a setting is missing eq
   const shipped = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
   for (const bare of [undefined, null, {}, { llm: null }, { llm: {} }, { llm: { analyzerTimeoutMs: null } }]) {
     assert.equal(
-      sideRequestOptions(bare, { role: 'analyzer' }).timeoutMs,
+      roleRequestOptions(bare, { role: 'analyzer' }).timeoutMs,
       shipped.llm.analyzerTimeoutMs,
       JSON.stringify(bare)
     );
@@ -407,7 +407,7 @@ test('code fallbacks: the defaults the code applies when a setting is missing eq
   );
 });
 
-test('sideRequestOptions: complete takes the set as it is -- counted, uncalibrated, on the helper timeout, purpose logged and never sent', async () => {
+test('roleRequestOptions: complete takes the set as it is -- counted, uncalibrated, on the helper timeout, purpose logged and never sent', async () => {
   const state = fakeState();
   const calibrator = fakeCalibrator();
   const sent = [];
@@ -425,7 +425,7 @@ test('sideRequestOptions: complete takes the set as it is -- counted, uncalibrat
   const { result, logs } = await withCapturedLogs(() =>
     llm.complete([{ role: 'user', content: 'hi' }], {
       model: 'small/model',
-      ...sideRequestOptions(config, { role: 'analyzer', maxOutputTokens: 60, purpose: 'address' }),
+      ...roleRequestOptions(config, { role: 'analyzer', maxOutputTokens: 60, purpose: 'address' }),
     })
   );
   assert.equal(result.text, 'yes');
@@ -436,7 +436,11 @@ test('sideRequestOptions: complete takes the set as it is -- counted, uncalibrat
   const [line] = logs.filter((l) => l.msg === 'llm: usage');
   assert.deepEqual([line.role, line.purpose, line.model], ['analyzer', 'address', 'small/model']);
   await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.equal(sent[0].signal.aborted, true, 'the request signal is cut at llm.analyzerTimeoutMs, not llm.timeoutMs');
+  assert.equal(
+    sent[0].signal.aborted,
+    true,
+    'the request signal is cut at llm.analyzerTimeoutMs, not at llm.timeoutMs'
+  );
 });
 
 test('complete: a json.error body after a 200 is thrown and never retried', async () => {
@@ -2774,7 +2778,7 @@ function hedgedLlm({ hedge = HEDGE, llm = {}, transport = deferredTransport(), s
   const ask = ({ role = 'analyzer', signal, long, extra = {} } = {}) =>
     client.complete([{ role: 'user', content: 'Ναι ή όχι;' }], {
       model: 'small/model',
-      ...sideRequestOptions(config, { role, maxOutputTokens: 5, purpose: 'address', signal, long }),
+      ...roleRequestOptions(config, { role, maxOutputTokens: 5, purpose: 'address', signal, long }),
       ...extra,
     });
   return { ask, clock, state, calls: transport.calls };
@@ -3012,7 +3016,7 @@ test("hedge: the caller's signal aborts both attempts", async () => {
 
 test("hedge: no helper mark, a role not listed, afterMs 0 or no llm.hedge object -- one attempt, today's usage line", async () => {
   const cases = [
-    { name: 'no helper mark', extra: { isSide: undefined } },
+    { name: 'no helper mark', extra: { isRoleRequest: undefined } },
     { name: 'role not listed', role: 'vision' },
     { name: 'afterMs 0', hedge: { ...HEDGE, afterMs: 0 } },
     { name: 'no group', hedge: 'none' },
@@ -3053,11 +3057,11 @@ test('hedgeSettings: null without an llm.hedge object; inside the group a missin
   });
 });
 
-test('sideRequestOptions: long true marks the set, anything else leaves the key out', () => {
+test('roleRequestOptions: long true marks the set, anything else leaves the key out', () => {
   const config = { llm: { analyzerTimeoutMs: 12000 } };
-  assert.equal(sideRequestOptions(config, { role: 'analyzer', long: true }).long, true);
+  assert.equal(roleRequestOptions(config, { role: 'analyzer', long: true }).long, true);
   for (const long of [undefined, false, 1, 'yes']) {
-    assert.equal('long' in sideRequestOptions(config, { role: 'analyzer', long }), false, String(long));
+    assert.equal('long' in roleRequestOptions(config, { role: 'analyzer', long }), false, String(long));
   }
 });
 

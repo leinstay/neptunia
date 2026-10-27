@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createLookup, normalizeQuery, cleanQuery } from '../src/web/lookup.js';
-import { DailyCapError, sideRequestOptions, TokenLimitError } from '../src/llm/openrouter.js';
+import { DailyCapError, roleRequestOptions, TokenLimitError } from '../src/llm/openrouter.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 const NOW = Date.UTC(2026, 8, 20, 12, 0, 0);
@@ -786,7 +786,7 @@ test('search: engine openrouter -- one analyzer request with the Exa web plugin;
   assert.equal(options.model, 'x/reason');
   assert.equal(options.role, 'analyzer');
   assert.equal(options.purpose, 'search-summary');
-  assert.equal(options.isSide, false, 'never hedged: the search is billed once');
+  assert.equal(options.isRoleRequest, false, 'never hedged: the search is billed once');
   assert.ok(Object.keys(store.getMediaCache('g1')).some((k) => k.startsWith('search:')));
 
   const bare = engineSetup({ engine: 'openrouter' });
@@ -1001,7 +1001,7 @@ test('lookup: the link read and the search summary are helper requests (llm.anal
   await readOne(unset.lookup, LINK);
   assert.equal(
     unset.llm.calls[0].options.timeoutMs,
-    sideRequestOptions({}).timeoutMs,
+    roleRequestOptions({}).timeoutMs,
     'the helper fallback, never llm.timeoutMs'
   );
 });
@@ -1092,7 +1092,7 @@ test('searchResults: engine openrouter -- one analyzer request (purpose web-sear
       options.role,
       options.purpose,
       options.maxOutputTokens,
-      options.isSide,
+      options.isRoleRequest,
       options.countAgainstDailyCap,
     ],
     ['x/reason', 'analyzer', 'web-search', 64, false, true]

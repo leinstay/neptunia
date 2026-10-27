@@ -70,7 +70,7 @@ export const DEFERRED_OPS = Object.freeze(
 );
 
 /**
- * The core's model roles (src/llm/roles.js#CORE_ROLES: the core, then the side roles), each with the
+ * The core's model roles (src/llm/roles.js#CORE_ROLES: the core, then the model roles other than `core`), each with the
  * config path of its model (src/tools/impl/model.ts): the roles the status card probes; with the other
  * roles they make `MODEL_SET_PATHS`; every role choice list is derived from this one. `core` is
  * the one model that speaks as the persona: its replies. `embedding` serves the embeddings (src/llm/embed.js), which
@@ -86,7 +86,7 @@ export const MODEL_ROLES = Object.freeze(Object.keys(MODEL_ROLE_PATHS));
 /**
  * The roles whose model `/nep model show|set` lists and changes, each with the config path
  * `set` writes (`models.<group>.<role>`, src/llm/roles.js#ROLES): the base roles (the core, the
- * side roles, drawing), then the errand and development roles, which take no request of the bot
+ * other model roles, drawing), then the errand and development roles, which take no request of the bot
  * (OpenCode workers run them). Drawing (src/llm/images.js#IMAGE_ROLE) takes no chat completion.
  */
 export const MODEL_SET_PATHS = Object.freeze(

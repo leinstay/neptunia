@@ -59,7 +59,7 @@ import { isGifHostUrl, siteOf } from '../media/classify.js';
 import { videoSiteFor, safeLocation } from '../media/video-sites.js';
 import { roleModel } from '../llm/roles.js';
 import { fillPromptTemplate } from '../behavior/prompt.js';
-import { dailyCapOf, sideRequestOptions, railReason } from '../llm/openrouter.js';
+import { dailyCapOf, roleRequestOptions, railReason } from '../llm/openrouter.js';
 import { clampText, oneLine } from '../memory/clamp.js';
 import { log } from '../log.js';
 import { bumpDaily, countToday, dailyCounter, MINUTE_MS, utcDay } from '../time.js';
@@ -432,7 +432,7 @@ export function createLookup({
         ],
         {
           model: roleModel(config, 'analyzer', 'read-link'),
-          ...sideRequestOptions(config, {
+          ...roleRequestOptions(config, {
             role: 'analyzer',
             maxOutputTokens: linksCfg.maxOutputTokens,
             purpose: 'read-link',
@@ -644,7 +644,7 @@ export function createLookup({
       },
       options: {
         model: roleModel(config, 'analyzer', 'search-summary'),
-        ...sideRequestOptions(config, {
+        ...roleRequestOptions(config, {
           role: 'analyzer',
           maxOutputTokens: searchCfg.maxOutputTokens,
           purpose: 'search-summary',
@@ -670,7 +670,7 @@ export function createLookup({
         completion = await llm.complete([system, { role: 'user', content: asked }], {
           ...options,
           // No hedge: a second attempt would run (and bill) the web search twice.
-          isSide: false,
+          isRoleRequest: false,
           plugins: webSearchPlugins(searchCfg.results),
         });
       } catch (err) {
@@ -807,13 +807,13 @@ export function createLookup({
       try {
         completion = await llm.complete([{ role: 'user', content: asked }], {
           model: roleModel(config, 'analyzer', 'web-search'),
-          ...sideRequestOptions(config, {
+          ...roleRequestOptions(config, {
             role: 'analyzer',
             maxOutputTokens: positiveOr(searchCfg.rawOutputTokens, RAW_OUTPUT_TOKENS_FALLBACK),
             purpose: 'web-search',
           }),
           // No hedge: a second attempt would run (and bill) the web search twice.
-          isSide: false,
+          isRoleRequest: false,
           plugins: webSearchPlugins(searchCfg.results),
         });
       } catch (err) {

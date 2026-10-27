@@ -2156,7 +2156,7 @@ test('follow-up: the classifier request is address.md as system and a <candidate
     'llm.analyzerTimeoutMs, never the turn-length llm.timeoutMs'
   );
   assert.equal(options.purpose, 'address', 'named on the usage line');
-  assert.equal(options.isSide, true, 'spelled by sideRequestOptions, so llm.hedge applies');
+  assert.equal(options.isRoleRequest, true, 'spelled by roleRequestOptions, so llm.hedge applies');
   assert.equal('long' in options, false, 'a one-word answer: the short hedge limit');
 
   llm.respond('no');
@@ -2166,7 +2166,10 @@ test('follow-up: the classifier request is address.md as system and a <candidate
 test('follow-up: the address classifier timeout is llm.analyzerTimeoutMs, read at each call; a missing key falls back to the config.json value', async () => {
   const llm = fakeFollowUpLlm();
   // Every answer below is "no": the streak limit is kept out of the way.
-  const config = baseConfig({ llm: { timeoutMs: 3e5, analyzerTimeoutMs: 12000 }, mention: { followUpNoStreak: 10 } });
+  const config = baseConfig({
+    llm: { timeoutMs: 300000, analyzerTimeoutMs: 12000 },
+    mention: { followUpNoStreak: 10 },
+  });
   const handler = makeHandler({ config, llm, prompts: fakeAddressPrompts() });
   const guild = fakeGuild('g1', 'Neptunia');
   const t0 = Date.now();
@@ -7481,7 +7484,7 @@ test('events: a failed eavesdrop roll may roll roomQuestionChance and ask the ro
       timeoutMs: config.llm.analyzerTimeoutMs,
       purpose: 'room',
       signal: undefined,
-      isSide: true,
+      isRoleRequest: true,
     },
     'the helper request options: the analyzer role, mention.followUpMaxOutputTokens, the daily cap, llm.analyzerTimeoutMs'
   );
@@ -8394,7 +8397,10 @@ test("events: a call the merge classifier folds into a waiting call gets no turn
     merge.messages[1].content,
     '<waiting>\n1. ποιος είναι ο Νίκος;\n</waiting>\n<candidate>\nAlice: λοιπόν, ο Νίκος;\n</candidate>'
   );
-  assert.deepEqual([merge.options.role, merge.options.purpose, merge.options.isSide], ['analyzer', 'merge', true]);
+  assert.deepEqual(
+    [merge.options.role, merge.options.purpose, merge.options.isRoleRequest],
+    ['analyzer', 'merge', true]
+  );
   const verdict = logs.find((line) => line.msg === 'merge: verdict');
   assert.deepEqual([verdict.channel, verdict.waiting, verdict.answer, typeof verdict.ms], ['c1', 1, 'item', 'number']);
   assert.equal(scene.tagHistory.hits, 3, 'the folded call still counts toward the repeat and spam counters');

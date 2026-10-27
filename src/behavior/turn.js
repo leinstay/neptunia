@@ -75,7 +75,7 @@ import {
   cacheTtlMs,
   errorCodeOf,
   hedgeSettings,
-  sideRequestOptions,
+  roleRequestOptions,
   railReason,
   sleep,
 } from '../llm/openrouter.js';
@@ -1924,11 +1924,11 @@ export function taskInput({ part, queued, added, missed = null, failedEarlier = 
  * start, `pace.prepareSearchMs` once the search classifier asked for a
  * search -- and at most that long while its verdict is still out --,
  * `pace.prepareMediaMs` for a direct call that brought media to look
- * at; the larger of the two with both). A side request still running then
+ * at; the larger of the two with both). A request on a model role other than `core` still running then
  * contributes nothing to this turn --
  * its block is absent, as when it fails -- and keeps running for its cache.
  * A turn nobody waits for (unhurried, `pace.unpromptedWaits`) has no such
- * deadline and no bar: it waits for every side request. Every turn that reaches the reply request logs `turn: timings`.
+ * deadline and no bar: it waits for every request on a model role other than `core`. Every turn that reaches the reply request logs `turn: timings`.
  * `schedule(fn, ms)` (default: setTimeout) runs that deadline and the typing
  * indicator's refresh; it resolves a function that cancels it.
  * `activity` (src/behavior/activity.js#createActivity, fed by src/behavior/pipeline.js; optional)
@@ -4747,7 +4747,7 @@ export function createTurnRunner({
    * under `gifs.maxPerDay` (gifsToday) and pickCandidates saying yes (a first
    * message of at most `gifs.pick.maxChars` code points, no `<gif>` of the
    * turn's own -- the model's own GIF is never second-guessed --, at least one
-   * captioned entry), ONE side request on the classifier model
+   * captioned entry), ONE `analyzer` request on the classifier model
    * (role `analyzer`, purpose `gif-pick`, its answer capped at
    * `gifs.pick.maxOutputTokens`): system = the prompt with `{{name}}`, user =
    * `<gifs>` (renderGifLibrary over the WHOLE captioned library in rank order, with no own-post
@@ -4855,7 +4855,7 @@ export function createTurnRunner({
         ],
         {
           model: roleModel(config, 'analyzer', 'gif-pick'),
-          ...sideRequestOptions(config, {
+          ...roleRequestOptions(config, {
             role: 'analyzer',
             maxOutputTokens: settings.maxOutputTokens,
             purpose: 'gif-pick',
@@ -5425,7 +5425,7 @@ export function createTurnRunner({
    * at (no second-look slot left -- one counter for every kind) and no GIF
    * can be re-watched (no second-look or no GIF watch slot left) -- with only
    * the second-look slots spent, only the videos that did not load are
-   * offered. The classifier's request is a side request (sideRequestOptions).
+   * offered. The classifier's request is an `analyzer` request (roleRequestOptions).
    */
   async function maybeRewatch({
     config,
@@ -5482,7 +5482,7 @@ export function createTurnRunner({
         ],
         {
           model: roleModel(config, 'analyzer', 'rewatch'),
-          ...sideRequestOptions(config, {
+          ...roleRequestOptions(config, {
             role: 'analyzer',
             maxOutputTokens: rewatchCfg.classifierMaxOutputTokens ?? 2000,
             purpose: 'rewatch',
@@ -5875,7 +5875,7 @@ export function createTurnRunner({
    * runs the server search on the question's own words instead
    * (fallbackLookupPlan over the stored profiles; `lookup: fallback` with
    * `reason` `classifier-failed` | `empty` and the counts, a `helper-fallback`
-   * entry on `limits`); never the web search; else no search. Its request is a side request (sideRequestOptions). `onSearch()`
+   * entry on `limits`); never the web search; else no search. Its request is an `analyzer` request (roleRequestOptions). `onSearch()`
    * is called once the answer asks for a search that runs, before it starts
    * (the turn's deadline grows to pace.prepareSearchMs; until the answer the
    * turn holds its deadline on this call, see createDeadline's `hold`).
@@ -5971,7 +5971,7 @@ export function createTurnRunner({
         ],
         {
           model,
-          ...sideRequestOptions(config, {
+          ...roleRequestOptions(config, {
             role: 'analyzer',
             maxOutputTokens: searchCfg.classifierMaxOutputTokens ?? 2000,
             purpose: 'lookup',
@@ -6117,7 +6117,7 @@ export function createTurnRunner({
    * several requests. One cheap classifier call (`prompt`, prompts/split.md,
    * `{{name}}` = the persona's display name, `{{maxTasks}}` = split.maxTasks;
    * on the `analyzer` model role (roleModel), its answer capped at split.maxOutputTokens, a
-   * side request: sideRequestOptions, purpose `split`) reads the last
+   * `analyzer` request: roleRequestOptions, purpose `split`) reads the last
    * `split.contextMessages` messages of `history` before the trigger (the
    * captions this turn has at its start) and the trigger itself, and answers
    * `one` or 2..maxTasks lines `- <part>` (parseSplitAnswer). Resolves the
@@ -6155,7 +6155,7 @@ export function createTurnRunner({
         ],
         {
           model: roleModel(config, 'analyzer', 'split'),
-          ...sideRequestOptions(config, {
+          ...roleRequestOptions(config, {
             role: 'analyzer',
             maxOutputTokens: settings.maxOutputTokens,
             purpose: 'split',
@@ -6476,7 +6476,7 @@ export function createTurnRunner({
       try {
         completion = await llm.complete(request.messages, {
           model: roleModel(config, 'analyzer', 'diary-plan'),
-          ...sideRequestOptions(config, {
+          ...roleRequestOptions(config, {
             role: 'analyzer',
             maxOutputTokens: diaryCfg.planMaxOutputTokens ?? 2000,
             purpose: 'diary-plan',
@@ -7223,7 +7223,7 @@ export function createTurnRunner({
   /**
    * A message that holds several requests (the splitter's `parts`), answered
    * part by part: one ordinary turn per part, in order, each with its own
-   * deadline and bar. Turn k's side requests (the search classifier, recall, the
+   * deadline and bar. Turn k's `analyzer` requests (the search classifier, recall, the
    * route hook, the re-watch) judge part k's text instead of the whole
    * message, and its request names the part and the others
    * (buildRequest's `tasks.part`, `labels.task.part`). The first part reuses

@@ -13,7 +13,7 @@
 // scan (no tight loop). Nothing here ever throws into a gateway handler or blocks a turn.
 // Logs carry counts and codes, never the description or a URL.
 
-import { dailyCapOf, sideRequestOptions, railReason } from '../llm/openrouter.js';
+import { dailyCapOf, roleRequestOptions, railReason } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
 import { fillPromptTemplate } from '../behavior/prompt.js';
 import { clampText, oneLine } from './clamp.js';
@@ -224,7 +224,7 @@ export function createAvatarQueue({
         ],
         {
           model: roleModel(config, 'vision', 'avatar'),
-          ...sideRequestOptions(config, {
+          ...roleRequestOptions(config, {
             role: 'vision',
             maxOutputTokens: config.media?.maxOutputTokens,
             purpose: 'avatar',
