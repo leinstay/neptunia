@@ -1,16 +1,16 @@
 // The core's side of the errand agents' sockets (src/agent-runner/server.js): one Unix-socket
 // connection per agent profile (`scout`, `server`), opened on first use, speaking the JSON-lines
-// protocol of src/agent-runner/protocol.js. `run` sends one task and resolves on its `end` event;
+// protocol of src/agent-runner/protocol.js. `run` sends one errand and resolves on its `end` event;
 // `progress` events go to the `onProgress` listeners; `cancel` and `ping` are fire-and-answer.
 // Each outcome of the connect loop goes to the `onLink` listeners: `{ agent, up: true }` once a
 // connection opens, `{ agent, up: false, code }` when one fails (`code` the socket's error code)
 // or an open one closes (`disconnected`) -- the errand service's health flag of each runner.
 // A connection that closes is reopened with a growing backoff while its profile stays enabled;
-// the tasks it carried resolve `failed` with `error: CODE.DISCONNECTED` at once (the runner sends a
-// task's end on the connection that brought it, so nothing more can arrive for them). A profile
+// the errands it carried resolve `failed` with `error: CODE.DISCONNECTED` at once (the runner sends a
+// errand's end on the connection that brought it, so nothing more can arrive for them). A profile
 // that is not set up (its `enabled` not true, or no socket) answers `failed`, `not-configured`, without
 // connecting. The settings are the profile's with the deployment's `agents.<profile>` override over it
-// (agentSettings), read at the moment of use. Logs carry the profile, ids and codes, never a goal, a result or a task's `secrets`
+// (agentSettings), read at the moment of use. Logs carry the profile, ids and codes, never a goal, a result or an errand's `secrets`
 // (sent on the `run` line and nowhere else). A `run` also carries the deployment's preamble when
 // one matches: the files of prompts.local/preambles/ picked by agent and by the agent's model
 // (src/errands/preambles.ts; `hot.prompts.preambles`, read live; no tracked default). The model
@@ -48,10 +48,10 @@ export const RECONNECT_MIN_MS = 1000;
 export const RECONNECT_MAX_MS = 30_000;
 /** How long a `ping` waits for its `pong` (ms). */
 export const PING_TIMEOUT_MS = 5000;
-/** Added to a task's own time cap before the core stops waiting for its `end` (ms). */
+/** Added to an errand's own time cap before the core stops waiting for its `end` (ms). */
 const END_GRACE_MS = 60_000;
-/** The time cap a task without `limits.seconds` is waited for (s). */
-const DEFAULT_TASK_SECONDS = 600;
+/** The time cap an errand without `limits.seconds` is waited for (s). */
+const DEFAULT_ERRAND_SECONDS = 600;
 
 /** A failed outcome with `error`, in the shape `run` resolves. */
 function failed(error: string): RunOutcome {
@@ -85,7 +85,7 @@ export function createErrandClient({
 }: ErrandClientOptions = {}): ErrandClient {
   // agent -> its connection
   const links = new Map<string, Link>();
-  // task id -> the run waiting for its end
+  // errand id -> the run waiting for its end
   const pending = new Map<string, { agent: string; resolve: (outcome: RunOutcome) => void; timer: TimerHandle }>();
   // agent -> the pings waiting for a pong
   const pings = new Map<string, Array<{ resolve: (answer: PingAnswer) => void; timer: TimerHandle | null }>>();
@@ -115,7 +115,7 @@ export function createErrandClient({
     }
   }
 
-  /** Every task and ping of `agent` answered `disconnected`. */
+  /** Every errand and ping of `agent` answered `disconnected`. */
   function dropPending(agent: string): void {
     for (const [id, entry] of pending) {
       if (entry.agent !== agent) continue;
@@ -210,7 +210,7 @@ export function createErrandClient({
     if (link?.open && link.path === socketPath) return Promise.resolve(link);
     if (link?.opening && link.path === socketPath) return link.opening;
     if (link?.timer) clearTimer(link.timer);
-    // A link to another path (the socket setting changed): its tasks can no longer end.
+    // A link to another path (the socket setting changed): its errands can no longer end.
     if (link?.open) dropPending(agent);
     if (link?.socket && !link.socket.destroyed) link.socket.destroy();
     link = {
@@ -332,7 +332,7 @@ export function createErrandClient({
       const seconds =
         typeof limits?.seconds === 'number' && Number.isFinite(limits.seconds) && limits.seconds > 0
           ? limits.seconds
-          : DEFAULT_TASK_SECONDS;
+          : DEFAULT_ERRAND_SECONDS;
       const timer = setTimer(
         () => {
           if (!pending.has(id)) return;
@@ -388,7 +388,7 @@ export function createErrandClient({
       }, PING_TIMEOUT_MS);
       waiter.timer?.unref?.();
       pings.set(agent, [...(pings.get(agent) ?? []), waiter]);
-      const ids = [...pending.entries()].filter(([, entry]) => entry.agent === agent).map(([taskId]) => taskId);
+      const ids = [...pending.entries()].filter(([, entry]) => entry.agent === agent).map(([errandId]) => errandId);
       if (!send(agent, { op: 'ping', ids })) {
         clearTimer(waiter.timer);
         pings.set(
@@ -416,7 +416,7 @@ export function createErrandClient({
     };
   }
 
-  /** Close every link, stop reconnecting; open tasks resolve `disconnected`. */
+  /** Close every link, stop reconnecting; open errands resolve `disconnected`. */
   function close(): void {
     closed = true;
     for (const [agent, link] of links) {

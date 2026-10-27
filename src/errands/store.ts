@@ -1,25 +1,25 @@
-// The persona's errand tasks, one store per guild, in the memory database: the unit `guilds/<id>/errands.json` holds
-// the current list (the open tasks, then the finished ones she has not seen yet and the latest
+// The persona's errands, one store per guild, in the memory database: the unit `guilds/<id>/errands.json` holds
+// the current list (the open errands, then the finished ones she has not seen yet and the latest
 // others, at most KEEP_FINISHED of them), written whole on every change; the unit `guilds/<id>/errands.jsonl` gets one
-// line per transition (the task as it stands after it), appended, never rewritten. A task moves `queued` ->
+// line per transition (the errand as it stands after it), appended, never rewritten. An errand moves `queued` ->
 // `running` -> `done` | `failed` | `cancelled` (a queued one may also be cancelled or failed
-// directly); a finished task is never reopened, and an end that arrives after a cancel is
+// directly); a finished errand is never reopened, and an end that arrives after a cancel is
 // ignored. The caps are enforced here, on `add`, read from the live config at the moment of use:
-// `errands.maxOpen` open tasks at once (`cap-open`), `agents.<profile>.daily.tasks` (the profile's `daily`, overridable there) tasks per UTC day (`cap-tasks`; a task counts on
+// `errands.maxOpen` open errands at once (`cap-open`), `agents.<profile>.daily.tasks` (the profile's `daily`, overridable there) errands per UTC day (`cap-tasks`; an errand counts on
 // the day it was queued). That daily number
 // and the owner card's `costs.errands` come from one place: src/errands/costs.ts#agentCosts over
-// the store's spend records, one per task of the last KEEP_DAYS days (read from errands.jsonl at
+// the store's spend records, one per errand of the last KEEP_DAYS days (read from errands.jsonl at
 // load, then kept with every transition).
 // Every transition is also an `action` line of the
-// journal (src/memory/journal.js), shaped like a skill call's operation: one `opId` per task,
+// journal (src/memory/journal.js), shaped like a skill call's operation: one `opId` per errand,
 // `proposed` when queued, `started` when running, then one closing `succeeded` or `failed`
-// (with the code), counts only -- never the goal or the result. A task's files are named to the
-// persona by a handle `file:<task id>/<name>` (fileOf resolves it, only for a name the task's
-// result lists, inside the profile's `out`). The runner deletes a task's directory after
-// `errands.keepFilesHours` (src/agent-runner/sweep.js); a finished task whose result lists files
+// (with the code), counts only -- never the goal or the result. An errand's files are named to the
+// persona by a handle `file:<errand id>/<name>` (fileOf resolves it, only for a name the errand's
+// result lists, inside the profile's `out`). The runner deletes an errand's directory after
+// `errands.keepFilesHours` (src/agent-runner/sweep.js); a finished errand whose result lists files
 // is marked `filesExpired` once its directory is gone from an out dir that is still there (checked
-// when the tasks are read), and its handles name nothing from then on.
-// A task mirrored into the ledger (src/errands/ledger.ts) carries the ledger's id as `ledgerId`
+// when the errands are read), and its handles name nothing from then on.
+// An errand mirrored into the ledger (src/errands/ledger.ts) carries the ledger's id as `ledgerId`
 // (optional; set once the ledger answers, so the transition lines after it carry it too).
 // A finished errand's result stays until she has read it: the record carries `readAt` (null until a
 // turn that showed its `<errand_result>` completed, or `errand.read` returned it, src/tools/impl/errand.ts) and
@@ -60,31 +60,31 @@ import type {
   RequesterKind,
 } from './types.ts';
 
-/** Every state a task may be in. */
-export const TASK_STATES: ReadonlyArray<ErrandState> = Object.freeze([
+/** Every state an errand may be in. */
+export const ERRAND_STATES: ReadonlyArray<ErrandState> = Object.freeze([
   'queued',
   'running',
   'done',
   'failed',
   'cancelled',
 ] as const);
-/** The states of a task still under way. */
+/** The states of an errand still under way. */
 export const OPEN_STATES: ReadonlyArray<string> = Object.freeze(['queued', 'running'] as const);
-/** Who asked for a task. */
+/** Who asked for an errand. */
 export const REQUESTER_KINDS: ReadonlyArray<RequesterKind> = Object.freeze(['owner', 'member', 'persona'] as const);
 /** `errands.maxOpen` when it is missing (config.json carries the same). */
 export const DEFAULT_MAX_OPEN = 3;
-/** The finished tasks errands.json keeps besides the open ones (errands.jsonl keeps every transition). */
+/** The finished errands errands.json keeps besides the open ones (errands.jsonl keeps every transition). */
 export const KEEP_FINISHED = 50;
-/** The prefix of a task file handle. */
+/** The prefix of an errand file handle. */
 export const FILE_HANDLE_PREFIX = 'file:';
 
 const FILE_HANDLE_RE = /^file:([A-Za-z0-9_-]{1,64})\/([^/\\]{1,200})$/;
 
 /** The state names as text, to test a value read from the database. */
-const STATE_NAMES: ReadonlyArray<string> = TASK_STATES;
+const STATE_NAMES: ReadonlyArray<string> = ERRAND_STATES;
 
-/** A file handle for `name` of task `id`. */
+/** A file handle for `name` of errand `id`. */
 export function fileHandle(id: string, name: string): string {
   return `${FILE_HANDLE_PREFIX}${id}/${name}`;
 }
@@ -96,7 +96,7 @@ export function parseFileHandle(handle: unknown): { id: string; name: string } |
   return { id: match[1], name: match[2] };
 }
 
-/** True for a state of a task still under way. */
+/** True for a state of an errand still under way. */
 export function isOpenState(state: unknown): boolean {
   return typeof state === 'string' && OPEN_STATES.includes(state);
 }
@@ -139,7 +139,7 @@ type StoreOptions = {
  *   still fails in `memory-pending/`. Without a `memoryDb` (tests) nothing is read or written: the list lives in
  *   memory only.
  */
-export function createTaskStore({
+export function createErrandStore({
   guildId,
   now = Date.now,
   config = () => ({}),
@@ -150,28 +150,29 @@ export function createTaskStore({
 }: StoreOptions): ErrandStore {
   const seam = createReadSeam({ memoryDb, log, reader: 'tasks' });
   const db = memoryDb ? seam.db() : null;
-  const state: { tasks: Array<ErrandRecord> } = load();
+  const state: { errands: Array<ErrandRecord> } = load();
   const outbox =
     db && typeof memoryDb?.writeUnit === 'function' ? createUnitOutbox({ memoryDb, log, name: 'tasks' }) : null;
   const listOwner = `guilds/${String(guildId)}/errands.json`;
   const logOwner = `guilds/${String(guildId)}/errands.jsonl`;
-  // id -> the spend record of each task of the last KEEP_DAYS days (src/errands/costs.ts#costRecord).
+  // id -> the spend record of each errand of the last KEEP_DAYS days (src/errands/costs.ts#costRecord).
   const spend = loadSpend();
 
   /** The list read once from the database (none without a `memoryDb`). */
-  function load(): { tasks: Array<ErrandRecord> } {
+  function load(): { errands: Array<ErrandRecord> } {
     let raw: Untyped = null;
     if (db) {
       const found = seam.run(() => errandsValue(db, guildId));
       raw = found.found ? found.value : null;
     }
-    const tasks: Array<ErrandRecord> = Array.isArray(raw?.errands) ? raw.errands.filter(isStoredErrand) : [];
-    for (const task of tasks) {
+    const errands: Array<ErrandRecord> = Array.isArray(raw?.errands) ? raw.errands.filter(isStoredErrand) : [];
+    for (const errand of errands) {
       // Records from before readAt: a seen one was read, an unseen one is still unread.
-      if (task.readAt === undefined) task.readAt = task.seen === true ? (task.endedAt ?? task.createdAt ?? 0) : null;
-      if (task.resolvedAt === undefined) task.resolvedAt = null;
+      if (errand.readAt === undefined)
+        errand.readAt = errand.seen === true ? (errand.endedAt ?? errand.createdAt ?? 0) : null;
+      if (errand.resolvedAt === undefined) errand.resolvedAt = null;
     }
-    return { tasks };
+    return { errands };
   }
 
   /** Whether a spend record is older than the last KEEP_DAYS days (by its later time). */
@@ -180,7 +181,7 @@ export function createTaskStore({
     return last < at - KEEP_DAYS * DAY_MS;
   }
 
-  /** The spend records read once: the last line of each task in errands.jsonl (a line that does not
+  /** The spend records read once: the last line of each errand in errands.jsonl (a line that does not
    * parse is skipped), then the list's own copies over them; the stale ones left out. */
   function loadSpend(): Map<string, CostRecord> {
     const records = new Map<string, CostRecord>();
@@ -196,8 +197,8 @@ export function createTaskStore({
       const record = costRecord(value);
       if (record) records.set(record.id, record);
     }
-    for (const task of state.tasks) {
-      const record = costRecord(task);
+    for (const errand of state.errands) {
+      const record = costRecord(errand);
       if (record) records.set(record.id, record);
     }
     const at = now();
@@ -205,23 +206,23 @@ export function createTaskStore({
     return records;
   }
 
-  /** `task`'s spend record updated, the stale ones dropped. */
-  function noteSpend(task: ErrandRecord): void {
-    const record = costRecord(task);
+  /** `errand`'s spend record updated, the stale ones dropped. */
+  function noteSpend(errand: ErrandRecord): void {
+    const record = costRecord(errand);
     if (record) spend.set(record.id, record);
     const at = now();
     for (const [id, kept] of spend) if (stale(kept, at)) spend.delete(id);
   }
 
-  /** Whether `task` is a finished errand whose result she has not read nor closed. */
-  function isUnread(task: ErrandRecord): boolean {
-    return !isOpenState(task.state) && !task.readAt && !task.resolvedAt;
+  /** Whether `errand` is a finished errand whose result she has not read nor closed. */
+  function isUnread(errand: ErrandRecord): boolean {
+    return !isOpenState(errand.state) && !errand.readAt && !errand.resolvedAt;
   }
 
-  /** The list kept: every open task, then the finished ones, the unread first, at most KEEP_FINISHED. */
-  function pruned(tasks: Array<ErrandRecord>): Array<ErrandRecord> {
-    const finished = tasks.filter((task) => !isOpenState(task.state));
-    if (finished.length <= KEEP_FINISHED) return tasks;
+  /** The list kept: every open errand, then the finished ones, the unread first, at most KEEP_FINISHED. */
+  function pruned(errands: Array<ErrandRecord>): Array<ErrandRecord> {
+    const finished = errands.filter((errand) => !isOpenState(errand.state));
+    if (finished.length <= KEEP_FINISHED) return errands;
     // The unread first, then the latest to end.
     const keep = new Set(
       [...finished]
@@ -230,52 +231,52 @@ export function createTaskStore({
         )
         .slice(0, KEEP_FINISHED)
     );
-    return tasks.filter((task) => isOpenState(task.state) || keep.has(task));
+    return errands.filter((errand) => isOpenState(errand.state) || keep.has(errand));
   }
 
-  /** The list handed to the outbox whole, and the transition of `task` as a line of errands.jsonl. */
-  function persist(task: ErrandRecord | null): void {
-    state.tasks = pruned(state.tasks);
-    if (task) noteSpend(task);
+  /** The list handed to the outbox whole, and the transition of `errand` as a line of errands.jsonl. */
+  function persist(errand: ErrandRecord | null): void {
+    state.errands = pruned(state.errands);
+    if (errand) noteSpend(errand);
     if (!memoryDb) return;
     if (!outbox) {
       log.warn('errands: tasks write failed', { guildId: String(guildId), code: 'DB_CLOSED' });
       return;
     }
-    outbox.value(listOwner, JSON.parse(JSON.stringify({ errands: state.tasks })));
-    if (task) outbox.lines(logOwner, [JSON.parse(JSON.stringify({ at: now(), ...task }))]);
+    outbox.value(listOwner, JSON.parse(JSON.stringify({ errands: state.errands })));
+    if (errand) outbox.lines(logOwner, [JSON.parse(JSON.stringify({ at: now(), ...errand }))]);
     outbox.push();
   }
 
-  /** One journal `action` line of the task's operation (features.journal exactly true, read now); never throws. */
-  function journalLine(task: ErrandRecord, phase: string, extra: Record<string, unknown> = {}): void {
+  /** One journal `action` line of the errand's operation (features.journal exactly true, read now); never throws. */
+  function journalLine(errand: ErrandRecord, phase: string, extra: Record<string, unknown> = {}): void {
     if (!journal || typeof journal.action !== 'function' || config()?.features?.journal !== true) return;
-    const privateUserId = task.scope === 'dm' ? (task.requester?.userId ?? null) : null;
+    const privateUserId = errand.scope === 'dm' ? (errand.requester?.userId ?? null) : null;
     Promise.resolve(
       journal.action(String(guildId), {
-        opId: task.opId,
+        opId: errand.opId,
         name: 'errand',
         // Her errand, whoever asked for it: the requester is in `participants`.
         by: 'persona',
-        ...(privateUserId ? { privateUserId } : { channelId: task.origin?.channelId ?? null }),
-        participants: task.requester?.userId ? [task.requester.userId] : [],
-        sourceMessageIds: task.origin?.messageId ? [task.origin.messageId] : [],
+        ...(privateUserId ? { privateUserId } : { channelId: errand.origin?.channelId ?? null }),
+        participants: errand.requester?.userId ? [errand.requester.userId] : [],
+        sourceMessageIds: errand.origin?.messageId ? [errand.origin.messageId] : [],
         phase,
         ...extra,
       })
-    ).catch((err: unknown) => log.warn('errands: journal failed', { id: task.id, code: errorCode(err) }));
+    ).catch((err: unknown) => log.warn('errands: journal failed', { id: errand.id, code: errorCode(err) }));
   }
 
-  /** The counts of a finished task for its closing journal line: never its text. */
-  function journalResult(task: ErrandRecord): Record<string, unknown> {
-    const result = task.result;
-    const out: Record<string, unknown> = { errandId: task.id, state: task.state };
+  /** The counts of a finished errand for its closing journal line: never its text. */
+  function journalResult(errand: ErrandRecord): Record<string, unknown> {
+    const result = errand.result;
+    const out: Record<string, unknown> = { errandId: errand.id, state: errand.state };
     const chars = typeof result?.text === 'string' ? result.text.length : 0;
     if (chars > 0) out.chars = chars;
     if (Array.isArray(result?.sources) && result.sources.length > 0) out.sources = result.sources.length;
     if (Array.isArray(result?.files) && result.files.length > 0) out.files = result.files.length;
-    if (task.usage)
-      out.usage = { usd: task.usage.usd ?? 0, steps: task.usage.steps ?? 0, seconds: task.usage.seconds ?? 0 };
+    if (errand.usage)
+      out.usage = { usd: errand.usage.usd ?? 0, steps: errand.usage.steps ?? 0, seconds: errand.usage.seconds ?? 0 };
     return out;
   }
 
@@ -295,18 +296,18 @@ export function createTaskStore({
   }
 
   /**
-   * The finished tasks whose files the runner has deleted, marked `filesExpired` (and the list
-   * written once when any is): a task with files whose `<out>/<id>/` is gone while `<out>` itself
+   * The finished errands whose files the runner has deleted, marked `filesExpired` (and the list
+   * written once when any is): an errand with files whose `<out>/<id>/` is gone while `<out>` itself
    * is there (an out dir missing altogether, as on a host without the runner, expires nothing).
    */
   function expireFiles(): number {
     let changed = 0;
-    for (const task of state.tasks) {
-      if (isOpenState(task.state) || task.filesExpired === true) continue;
-      if (!Array.isArray(task.result?.files) || task.result.files.length === 0) continue;
-      const outDir = outDirOf(task.agent);
-      if (!outDir || missing(outDir) || !missing(path.join(outDir, task.id))) continue;
-      task.filesExpired = true;
+    for (const errand of state.errands) {
+      if (isOpenState(errand.state) || errand.filesExpired === true) continue;
+      if (!Array.isArray(errand.result?.files) || errand.result.files.length === 0) continue;
+      const outDir = outDirOf(errand.agent);
+      if (!outDir || missing(outDir) || !missing(path.join(outDir, errand.id))) continue;
+      errand.filesExpired = true;
       changed += 1;
     }
     if (changed > 0) {
@@ -333,7 +334,7 @@ export function createTaskStore({
     return agentCosts(spend.values(), { now: now(), agents });
   }
 
-  /** Today's tasks and dollars of `agent`: the `today` window of `costs`. */
+  /** Today's errands and dollars of `agent`: the `today` window of `costs`. */
   function usedToday(agent: string): { tasks: number; usd: number } {
     const { today: row } = costs([agent])[agent];
     return { tasks: row.runs, usd: row.usd };
@@ -350,30 +351,30 @@ export function createTaskStore({
     return null;
   }
 
-  /** A fresh task id, unique in the list. */
+  /** A fresh errand id, unique in the list. */
   function freshId(): string {
     for (;;) {
       const id = `t${uuid().replace(/-/g, '').slice(0, 8)}`;
-      if (!state.tasks.some((task) => task.id === id)) return id;
+      if (!state.errands.some((errand) => errand.id === id)) return id;
     }
   }
 
-  /** The task `id` (the stored object), or null. */
+  /** The errand `id` (the stored object), or null. */
   function find(id: unknown): ErrandRecord | null {
-    return state.tasks.find((task) => task.id === idText(id)) ?? null;
+    return state.errands.find((errand) => errand.id === idText(id)) ?? null;
   }
 
-  /** A copy of a stored task, as the store hands it out (a stored record is plain JSON). */
-  function copy(task: ErrandRecord): ErrandRecord {
-    return JSON.parse(JSON.stringify(task)) as ErrandRecord;
+  /** A copy of a stored errand, as the store hands it out (a stored record is plain JSON). */
+  function copy(errand: ErrandRecord): ErrandRecord {
+    return JSON.parse(JSON.stringify(errand)) as ErrandRecord;
   }
 
   /**
-   * A new task, `queued`, or the cap it hits: `{ ok: true, task }` | `{ ok: false, code }`
+   * A new errand, `queued`, or the cap it hits: `{ ok: true, errand }` | `{ ok: false, code }`
    * (`unknown-agent`, `bad-goal`, `cap-open`, `cap-tasks`). The persona's own call
    * brings its `idempotencyKey` (her turn and the call's index in it, src/behavior/turn.js) and
-   * its turn (`origin.turnId`): a task the store still holds under the same key is answered as it
-   * is, `{ ok: true, task, duplicate: true }`, before any cap -- a retried call never queues a
+   * its turn (`origin.turnId`): an errand the store still holds under the same key is answered as it
+   * is, `{ ok: true, errand, duplicate: true }`, before any cap -- a retried call never queues a
    * second errand. The goal is kept as she wrote it (trimmed).
    */
   function add({ agent, goal, requester, origin, scope, idempotencyKey = null }: Partial<AddInput> = {}): AddResult {
@@ -381,15 +382,15 @@ export function createTaskStore({
     const text = String(goal ?? '').trim();
     if (!text) return { ok: false, code: CODE.BAD_GOAL };
     const key = typeof idempotencyKey === 'string' && idempotencyKey ? idempotencyKey : null;
-    const same = key ? state.tasks.find((task) => task.idempotencyKey === key) : null;
+    const same = key ? state.errands.find((errand) => errand.idempotencyKey === key) : null;
     if (same) {
       log.info('errands: duplicate', { guildId: String(guildId), id: same.id, agent: same.agent });
-      return { ok: true, task: copy(same), duplicate: true };
+      return { ok: true, errand: copy(same), duplicate: true };
     }
     const cap = capHit(agent);
     if (cap) return { ok: false, code: cap };
     const at = now();
-    const task: ErrandRecord = {
+    const errand: ErrandRecord = {
       id: freshId(),
       agent,
       goal: text,
@@ -417,148 +418,147 @@ export function createTaskStore({
       resolvedAt: null,
       opId: `op-${uuid()}`,
     };
-    state.tasks.push(task);
-    persist(task);
-    journalLine(task, 'proposed', {
-      input: { errandId: task.id, agent, goalChars: text.length, requester: task.requester.kind },
+    state.errands.push(errand);
+    persist(errand);
+    journalLine(errand, 'proposed', {
+      input: { errandId: errand.id, agent, goalChars: text.length, requester: errand.requester.kind },
     });
-    log.info('errands: task queued', { guildId: String(guildId), id: task.id, agent });
-    return { ok: true, task: copy(task) };
+    log.info('errands: task queued', { guildId: String(guildId), id: errand.id, agent });
+    return { ok: true, errand: copy(errand) };
   }
 
-  /** Task `id` moved from `queued` to `running`; null when it is not queued. */
+  /** Errand `id` moved from `queued` to `running`; null when it is not queued. */
   function start(id: unknown): ErrandRecord | null {
-    const task = find(id);
-    if (!task || task.state !== 'queued') return null;
-    task.state = 'running';
-    task.startedAt = now();
-    persist(task);
-    journalLine(task, 'started', { target: { errandId: task.id } });
-    return copy(task);
+    const errand = find(id);
+    if (!errand || errand.state !== 'queued') return null;
+    errand.state = 'running';
+    errand.startedAt = now();
+    persist(errand);
+    journalLine(errand, 'started', { target: { errandId: errand.id } });
+    return copy(errand);
   }
 
   /**
-   * Task `id` ended with the runner's outcome (`status` done | failed | cancelled, its result,
-   * usage and error code): its dollars counted for today. Null when the task is not open (a
+   * Errand `id` ended with the runner's outcome (`status` done | failed | cancelled, its result,
+   * usage and error code): its dollars counted for today. Null when the errand is not open (a
    * cancel came first: the late end is ignored).
    */
   function finish(id: unknown, { status, result, usage, error }: FinishOutcome = {}): ErrandRecord | null {
-    const task = find(id);
-    if (!task || !isOpenState(task.state)) return null;
+    const errand = find(id);
+    if (!errand || !isOpenState(errand.state)) return null;
     const at = now();
-    task.state = endStateOf(status);
-    task.endedAt = at;
-    task.usage = normalizeUsage(usage);
+    errand.state = endStateOf(status);
+    errand.endedAt = at;
+    errand.usage = normalizeUsage(usage);
     // The record keeps only the names of the files the runner held back (the persona is told).
-    if (task.state === 'done' || result) {
+    errand.result = null;
+    if (errand.state === 'done' || result) {
       const { filesDropped, ...kept }: NormalizedResult = normalizeResult(result);
       const held = filesDropped ? filesDropped.map((entry) => entry.name).filter(Boolean) : [];
-      task.result = held.length > 0 ? { ...kept, filesDropped: held } : kept;
-    } else {
-      task.result = null;
+      errand.result = held.length > 0 ? { ...kept, filesDropped: held } : kept;
     }
-    task.error =
-      task.state === 'done'
+    errand.error =
+      errand.state === 'done'
         ? null
         : typeof error === 'string' && error
           ? error
-          : task.state === 'cancelled'
+          : errand.state === 'cancelled'
             ? 'cancelled'
             : 'failed';
-    task.seen = false;
-    persist(task);
-    if (task.state === 'done') journalLine(task, 'succeeded', { result: journalResult(task) });
-    else journalLine(task, 'failed', { result: { ...journalResult(task), code: task.error } });
+    errand.seen = false;
+    persist(errand);
+    if (errand.state === 'done') journalLine(errand, 'succeeded', { result: journalResult(errand) });
+    else journalLine(errand, 'failed', { result: { ...journalResult(errand), code: errand.error } });
     log.info('errands: task ended', {
       guildId: String(guildId),
-      id: task.id,
-      agent: task.agent,
-      state: task.state,
-      ...(task.error ? { code: task.error } : {}),
+      id: errand.id,
+      agent: errand.agent,
+      state: errand.state,
+      ...(errand.error ? { code: errand.error } : {}),
     });
-    return copy(task);
+    return copy(errand);
   }
 
-  /** Task `id` cancelled when it is open (the caller tells the runner); null otherwise. */
+  /** Errand `id` cancelled when it is open (the caller tells the runner); null otherwise. */
   function cancel(id: unknown): ErrandRecord | null {
-    const task = find(id);
-    if (!task || !isOpenState(task.state)) return null;
+    const errand = find(id);
+    if (!errand || !isOpenState(errand.state)) return null;
     return finish(id, { status: 'cancelled', error: 'cancelled' });
   }
 
-  /** Task `id` marked as seen by the persona; null when there is none. */
+  /** Errand `id` marked as seen by the persona; null when there is none. */
   function markSeen(id: unknown): ErrandRecord | null {
-    const task = find(id);
-    if (!task) return null;
-    if (task.seen !== true) {
-      task.seen = true;
+    const errand = find(id);
+    if (!errand) return null;
+    if (errand.seen !== true) {
+      errand.seen = true;
       persist(null);
     }
-    return copy(task);
+    return copy(errand);
   }
 
-  /** Task `id` marked as read by the persona (its result was shown to her or returned to her); null when there is none. */
+  /** Errand `id` marked as read by the persona (its result was shown to her or returned to her); null when there is none. */
   function markRead(id: unknown): ErrandRecord | null {
-    const task = find(id);
-    if (!task) return null;
-    if (!task.readAt) {
-      task.readAt = now();
+    const errand = find(id);
+    if (!errand) return null;
+    if (!errand.readAt) {
+      errand.readAt = now();
       persist(null);
     }
-    return copy(task);
+    return copy(errand);
   }
 
-  /** Task `id` noted as one whose result turn never completed (it stays unread); null when there is none. */
+  /** Errand `id` noted as one whose result turn never completed (it stays unread); null when there is none. */
   function markResultFailed(id: unknown): ErrandRecord | null {
-    const task = find(id);
-    if (!task) return null;
-    if (task.resultTurnFailed !== true) {
-      task.resultTurnFailed = true;
+    const errand = find(id);
+    if (!errand) return null;
+    if (errand.resultTurnFailed !== true) {
+      errand.resultTurnFailed = true;
       persist(null);
     }
-    return copy(task);
+    return copy(errand);
   }
 
-  /** Task `id` closed by the persona (read too); null when there is none or it is still open. */
+  /** Errand `id` closed by the persona (read too); null when there is none or it is still open. */
   function resolve(id: unknown): ErrandRecord | null {
-    const task = find(id);
-    if (!task || isOpenState(task.state)) return null;
-    if (!task.resolvedAt) {
-      task.resolvedAt = now();
+    const errand = find(id);
+    if (!errand || isOpenState(errand.state)) return null;
+    if (!errand.resolvedAt) {
+      errand.resolvedAt = now();
       persist(null);
     }
-    return copy(task);
+    return copy(errand);
   }
 
   /**
-   * Task `id` given the ledger's id of its mirror (src/errands/ledger.ts), errands.json written when
-   * it changes; null when there is no such task (forgotten or wiped meanwhile) or no id.
+   * Errand `id` given the ledger's id of its mirror (src/errands/ledger.ts), errands.json written when
+   * it changes; null when there is no such errand (forgotten or wiped meanwhile) or no id.
    */
   function setLedgerId(id: unknown, ledgerId: unknown): ErrandRecord | null {
-    const task = find(id);
+    const errand = find(id);
     const value =
       typeof ledgerId === 'string' || (typeof ledgerId === 'number' && Number.isFinite(ledgerId))
         ? String(ledgerId)
         : '';
-    if (!task || !value) return null;
-    if (task.ledgerId !== value) {
-      task.ledgerId = value;
+    if (!errand || !value) return null;
+    if (errand.ledgerId !== value) {
+      errand.ledgerId = value;
       persist(null);
     }
-    return copy(task);
+    return copy(errand);
   }
 
   /** The open errands (queued and running), oldest first. */
   function open(): Array<ErrandRecord> {
-    return state.tasks.filter((task) => isOpenState(task.state)).map(copy);
+    return state.errands.filter((errand) => isOpenState(errand.state)).map(copy);
   }
 
   /** The latest `n` errands, newest first. */
   function recent(n = 10): Array<ErrandRecord> {
     expireFiles();
     const count = Number.isInteger(n) && n > 0 ? n : 10;
-    // Reversed first, so tasks of the same millisecond keep the later one first.
-    return state.tasks
+    // Reversed first, so errands of the same millisecond keep the later one first.
+    return state.errands
       .slice()
       .reverse()
       .sort((a, b) => b.createdAt - a.createdAt)
@@ -566,22 +566,22 @@ export function createTaskStore({
       .map(copy);
   }
 
-  /** The finished tasks the persona has not seen yet, oldest first. */
+  /** The finished errands the persona has not seen yet, oldest first. */
   function unseen(): Array<ErrandRecord> {
     expireFiles();
-    return state.tasks.filter((task) => !isOpenState(task.state) && task.seen !== true).map(copy);
+    return state.errands.filter((errand) => !isOpenState(errand.state) && errand.seen !== true).map(copy);
   }
 
   /** The finished errands whose result she has not read nor closed, oldest first (to end). */
   function unread(): Array<ErrandRecord> {
     expireFiles();
-    return state.tasks
+    return state.errands
       .filter(isUnread)
       .sort((a, b) => (a.endedAt ?? 0) - (b.endedAt ?? 0))
       .map(copy);
   }
 
-  /** Task `id`, or null. */
+  /** Errand `id`, or null. */
   function get(id: unknown): ErrandRecord | null {
     expireFiles();
     const found = find(id);
@@ -590,7 +590,7 @@ export function createTaskStore({
 
   /**
    * The budget of `agent` for the skills gateway (src/tools/gateway.ts): `{ spent, key }`, spent
-   * when a cap would refuse a new task now (`key` the setting).
+   * when a cap would refuse a new errand now (`key` the setting).
    */
   function budget(agent: string): Budget {
     const code = profileOf(agent) ? capHit(agent) : CODE.UNKNOWN_AGENT;
@@ -605,21 +605,21 @@ export function createTaskStore({
   }
 
   /**
-   * The file a handle `file:<task id>/<name>` names: `{ path, name, contentType, bytes, task }`
-   * when the task exists, its files have not expired and its result lists that name, the path
+   * The file a handle `file:<errand id>/<name>` names: `{ path, name, contentType, bytes, errand }`
+   * when the errand exists, its files have not expired and its result lists that name, the path
    * inside the agent's out directory (the agent's `out`, the profile's under the deployment's override); null otherwise.
    */
   function fileOf(handle: unknown): ErrandFileRef | null {
     const parsed = parseFileHandle(handle);
     if (!parsed) return null;
     expireFiles();
-    const task = find(parsed.id);
-    if (!task || task.filesExpired === true) return null;
-    const file = task.result?.files?.find((entry) => entry?.name === parsed.name) ?? null;
+    const errand = find(parsed.id);
+    if (!errand || errand.filesExpired === true) return null;
+    const file = errand.result?.files?.find((entry) => entry?.name === parsed.name) ?? null;
     if (!file) return null;
-    const outDir = outDirOf(task.agent);
+    const outDir = outDirOf(errand.agent);
     if (!outDir) return null;
-    const base = path.resolve(outDir, task.id);
+    const base = path.resolve(outDir, errand.id);
     const full = path.resolve(base, parsed.name);
     if (path.dirname(full) !== base) return null;
     return {
@@ -627,25 +627,25 @@ export function createTaskStore({
       name: parsed.name,
       contentType: file.contentType ?? '',
       bytes: file.bytes ?? 0,
-      task: copy(task),
+      errand: copy(errand),
     };
   }
 
-  /** Whether the handle names a file of a task whose files have expired (`file-expired`); false otherwise. */
+  /** Whether the handle names a file of an errand whose files have expired (`file-expired`); false otherwise. */
   function fileExpired(handle: unknown): boolean {
     const parsed = parseFileHandle(handle);
     if (!parsed) return false;
     expireFiles();
-    const task = find(parsed.id);
-    return task?.filesExpired === true && Boolean(task.result?.files?.some((entry) => entry?.name === parsed.name));
+    const errand = find(parsed.id);
+    return errand?.filesExpired === true && Boolean(errand.result?.files?.some((entry) => entry?.name === parsed.name));
   }
 
   /**
-   * Every open task failed with `code` (a restart of the core: no runner's end can reach this
+   * Every open errand failed with `code` (a restart of the core: no runner's end can reach this
    * process for them any more). Their failures stay unseen, for the `<errands>` block. Returns how many.
    */
   function failOpen(code: string): number {
-    const ids = state.tasks.filter((task) => isOpenState(task.state)).map((task) => task.id);
+    const ids = state.errands.filter((errand) => isOpenState(errand.state)).map((errand) => errand.id);
     for (const id of ids) finish(id, { status: 'failed', error: code });
     return ids.length;
   }
@@ -688,10 +688,10 @@ export function createTaskStore({
 }
 
 /**
- * One task store per guild, created on first use over the same live config and journal (createTaskStore).
+ * One errand store per guild, created on first use over the same live config and journal (createErrandStore).
  * `memoryDb` goes to every store; a store whose load failed is not kept, so the next `get` tries again.
  */
-export function createTaskStores({
+export function createErrandStores({
   config = () => ({}),
   journal = null,
   now = Date.now,
@@ -699,13 +699,13 @@ export function createTaskStores({
   memoryDb = null,
 }: Omit<StoreOptions, 'guildId' | 'uuid'>): ErrandStores {
   const stores = new Map<string, ErrandStore>();
-  const tasks: ErrandStores = {
+  const errands: ErrandStores = {
     get(guildId: unknown): ErrandStore | null {
       const key = typeof guildId === 'string' || typeof guildId === 'number' ? String(guildId) : '';
       if (!key) return null;
       let store = stores.get(key);
       if (!store) {
-        store = createTaskStore({ guildId: key, config, journal, now, log, memoryDb });
+        store = createErrandStore({ guildId: key, config, journal, now, log, memoryDb });
         stores.set(key, store);
       }
       return store;
@@ -722,5 +722,5 @@ export function createTaskStores({
       return { waiting, pending };
     },
   };
-  return tasks;
+  return errands;
 }

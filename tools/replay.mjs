@@ -179,7 +179,7 @@
 // of a mention it runs the turn an errand's end opens (src/errands/turns.ts):
 // one minute after the anchor (now, without `before`), in that channel, an
 // interjection of trigger kind `errand` (no message of the chat to reply to) whose request carries the
-// `<errand_result>` block (src/errands/blocks.ts#taskResultText), the asker its requester. The
+// `<errand_result>` block (src/errands/blocks.ts#errandResultText), the asker its requester. The
 // errand is named `t<8 hex>` from the scenario's id (scenarioTaskId) and its
 // files by their live handles `file:<task id>/<name>`, which her calls
 // resolve to as live (scenarioFileOf; the files are not on disk and nothing
@@ -2992,7 +2992,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     createFakeAdapter,
     createIntentionStores,
     createIntentionService,
-    createTaskStore,
+    createErrandStore,
     createAppendStore,
     createRecord,
     createAdmin,
@@ -3063,7 +3063,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     const reads = hiddenReads(mods.createReads(discordPort, log), hide);
 
     // Her intentions and errands, read only; her inner state as it stands.
-    const taskStore = createTaskStore({
+    const taskStore = createErrandStore({
       guildId,
       config: () => hot.config,
       journal: null,
@@ -4133,7 +4133,7 @@ export function scenarioTask(scenario, { at }) {
  * The call view's `fileOf` for a task-result scenario (src/behavior/turn.js#callViewOf): a handle
  * `file:<task id>/<name>` (read by `parseFileHandle`, src/errands/store.ts's) that names a file of
  * `task` resolves as src/errands/service.ts#fileOf resolves a live one -- `{ path, name,
- * contentType, bytes, task }`, `path` null --, any other handle to null. Pure.
+ * contentType, bytes, errand }`, `path` null --, any other handle to null. Pure.
  * @param {object} task  scenarioTask's.
  * @param {(handle: string) => ({ id: string, name: string }|null)} parseFileHandle
  * @returns {(handle: string) => object|null}
@@ -4144,25 +4144,25 @@ export function scenarioFileOf(task, parseFileHandle) {
     if (!parsed || parsed.id !== task.id) return null;
     const file = task.result.files.find((entry) => entry.name === parsed.name);
     return file
-      ? { path: null, name: file.name, contentType: file.contentType, bytes: file.bytes, task: structuredClone(task) }
+      ? { path: null, name: file.name, contentType: file.contentType, bytes: file.bytes, errand: structuredClone(task) }
       : null;
   };
 }
 
 /**
  * The errands' budget the sandbox gateway reads (src/tools/gateway.ts, `context.tasks`), read
- * only: a task store of `guildId` over `dataDir` (src/errands/store.ts#createTaskStore: its
+ * only: a task store of `guildId` over `dataDir` (src/errands/store.ts#createErrandStore: its
  * errands.json and errands.jsonl read once, the live data/ or a snapshot) whose `budget(agent)` -- the open tasks
  * against `errands.maxOpen`, today's tasks and dollars against `agents.<agent>.daily` (the
  * profile's defaults under them), read from `config()` at the moment of use -- answers a
  * `errand.run` exactly as a live turn's (src/errands/service.ts#budget). Only `budget` is handed
  * out: nothing is ever queued, and the store writes nothing for it.
- * @param {{ createTaskStore: Function, guildId: string, config: () => object, now?: () => number, log?: object,
+ * @param {{ createErrandStore: Function, guildId: string, config: () => object, now?: () => number, log?: object,
  *   memoryDb?: object|null }} input  `memoryDb`: the memory read (tools/lib/memory-read.mjs); without it no task is known
  * @returns {{ budget(agent: string): { spent: boolean, key: string|null, code: string|null } }}
  */
-export function sandboxErrandBudget({ createTaskStore, guildId, config, now = Date.now, log, memoryDb = null }) {
-  const store = createTaskStore({
+export function sandboxErrandBudget({ createErrandStore, guildId, config, now = Date.now, log, memoryDb = null }) {
+  const store = createErrandStore({
     guildId: String(guildId),
     config,
     now,
@@ -5466,7 +5466,7 @@ async function runSkills({
     expandPersonaGrant,
     createImageGen,
     grantedSkillNames,
-    createTaskStore,
+    createErrandStore,
     parseFileHandle,
   } = mods;
   // Her tools run for real where they only read (web.search, memory.search: `loopDeps`); `coreOn` (features.coreTools in the
@@ -5637,7 +5637,7 @@ async function runSkills({
     };
     // An errand's budget as live: the guild's errands.json of the data read (live or --snapshot) against the scenario's config, never queued into.
     const tasks = sandboxErrandBudget({
-      createTaskStore,
+      createErrandStore,
       guildId,
       config: () => scenarioConfig,
       log,
@@ -6305,7 +6305,7 @@ export async function runTriggerLoops({
     requesterOf,
     skillRegistry,
     createImageGen,
-    createTaskStore,
+    createErrandStore,
     replayMedia,
     momentMode,
     momentKind,
@@ -6474,7 +6474,7 @@ export async function runTriggerLoops({
         quota: createImageGen({ apiKey: '', getConfig: () => config, state: frozenState, fetchImpl: refusing }).quota,
       };
       const tasks = sandboxErrandBudget({
-        createTaskStore,
+        createErrandStore,
         guildId,
         config: () => config,
         log,
@@ -7173,7 +7173,7 @@ async function runMain(args, { root, signal, rng, answers }) {
     const { createImageGen } = await load('llm/images.js');
     const { grantedSkillNames } = await load('tools/discovery.ts');
     // The errands' budget (every scenario: an errand.run is checked as live) and the handles of an errand's files.
-    const { createTaskStore, parseFileHandle } = await load('errands/store.ts');
+    const { createErrandStore, parseFileHandle } = await load('errands/store.ts');
     skillMods = {
       answerSkillScenario,
       skillScenarioRequest,
@@ -7188,7 +7188,7 @@ async function runMain(args, { root, signal, rng, answers }) {
       expandPersonaGrant,
       createImageGen,
       grantedSkillNames,
-      createTaskStore,
+      createErrandStore,
       parseFileHandle,
       // Only a multi-step scenario carries a turn into the next one, and plays its bursts as the live queue does.
       ...(scenarios?.some((scenario) => scenario.steps) ? { afterScenarioTurn, burstTurns } : {}),

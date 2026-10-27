@@ -9,7 +9,7 @@ import { userText } from '../../src/behavior/prompt.js';
 import { createFakeAdapter } from '../../src/interface/fake.js';
 import { createDiscordInterface } from '../../interfaces/discord/index.js';
 import { createJournal } from '../../src/memory/journal.js';
-import { createTaskStores } from '../../src/errands/store.ts';
+import { createErrandStores } from '../../src/errands/store.ts';
 import { createErrandService } from '../../src/errands/service.ts';
 import { tempDir } from './tmp.js';
 import { openTestMemorySync } from './memory-db/service.js';
@@ -240,7 +240,7 @@ export function noteText(llm, i) {
 export function errandService(hot) {
   const runs = [];
   const client = { configured: () => true, run: (task) => (runs.push(task), new Promise(() => {})), cancel: () => true };
-  const stores = createTaskStores({ dataDir: tempDir('nep-core-tools-'), config: () => hot.config });
+  const stores = createErrandStores({ dataDir: tempDir('nep-core-tools-'), config: () => hot.config });
   const service = createErrandService({ client, stores, hot, getGuildId: () => 'g1', defer: (fn) => fn() });
   return { service, runs };
 }

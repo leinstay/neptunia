@@ -204,7 +204,7 @@ export type SetInput = {
   destination?: string | null;
   completionCondition?: string | null;
   chainId?: string | null;
-  taskId?: string | null;
+  errandId?: string | null;
   deadline?: number | null;
   turnId?: string | null;
   messageId?: string | null;
@@ -228,7 +228,7 @@ export type UpdatePatch = {
   attend?: { people?: Array<string>; settle?: number; perDay?: number } | null;
   state?: string;
   reason?: string | null;
-  taskId?: string | null;
+  errandId?: string | null;
   deadline?: number | null;
   turnId?: string | null;
   by?: string;
@@ -264,8 +264,8 @@ export type IntentionService = {
   view: (guildId: unknown, options?: { privateChannelId?: string | null }) => Array<Intention>;
   noteLine: (messageId: unknown, sources: LineNote) => void;
   lineSources: (messageId: unknown) => LineNote | null;
-  linkTurnTask: (guildId: unknown, link: { turnId: unknown; taskId: unknown }) => number;
-  onTaskFinished: (task: ErrandRecord, guildId: unknown) => number;
+  linkTurnErrand: (guildId: unknown, link: { turnId: unknown; errandId: unknown }) => number;
+  onErrandFinished: (errand: ErrandRecord, guildId: unknown) => number;
   reconcile: (guildId: unknown) => ReconcileCounts;
   advance: (guildId: unknown, id: unknown, options?: { named?: boolean; by?: string }) => Advanced;
   due: (guildId: unknown) => Array<Due>;
@@ -277,12 +277,12 @@ export type IntentionService = {
   store: (guildId?: unknown) => IntentionStore | null;
 };
 
-/** What `createIntentionService` is given. `tasks` is the errand service a wait is checked against, `journal` is where a
+/** What `createIntentionService` is given. `errands` is the errand service a wait is checked against, `journal` is where a
  * candidate's turn is looked up, `lineSources` holds the notes of where her lines came from. */
 export type IntentionServiceOptions = {
   stores: IntentionStores;
   hot: Untyped;
-  tasks?: Pick<ErrandService, 'store'> | null;
+  errands?: Pick<ErrandService, 'store'> | null;
   journal?: Untyped;
   lineSources?: LineSources | null;
   getGuildId?: () => string | null;

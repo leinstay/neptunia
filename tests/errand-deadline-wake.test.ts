@@ -47,7 +47,7 @@ function setup() {
   const service = createIntentionService({
     stores: createIntentionStores({ dataDir: tempDir('nep-deadline-'), now: () => clock.t, log: SILENT }),
     hot,
-    tasks: errands,
+    errands,
     getGuildId: () => GUILD,
     now: () => clock.t,
     log: SILENT,
@@ -93,7 +93,7 @@ function waitingIntention(service: ReturnType<typeof setup>['service']): string 
     purpose: 'tell what the errand found',
     dueAt: null,
     channelId: 'c1',
-    taskId: ERRAND,
+    errandId: ERRAND,
     deadline: START + 10 * MINUTE,
   }) as { ok: boolean; intention: { id: string } };
   assert.equal(made.ok, true);

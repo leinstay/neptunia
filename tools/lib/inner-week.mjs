@@ -1024,7 +1024,7 @@ export async function runWeek({
       if (args.state) patch.state = args.state;
       if (args.due) patch.dueAt = when(args.due);
       if (everyOf(args.every) !== undefined) patch.every = everyOf(args.every);
-      if (args.errand) patch.taskId = args.errand;
+      if (args.errand) patch.errandId = args.errand;
       if (args.deadline) patch.deadline = when(args.deadline);
       if (Object.keys(attendOf()).length > 0) patch.attend = attendOf();
       const moved = intentions.update(guildId, String(args.id ?? ''), patch);
@@ -1047,7 +1047,7 @@ export async function runWeek({
       });
       if (typeof args.wait === 'string' && typeof args.id === 'string' && args.id) {
         const waited = intentions.update(guildId, args.id, {
-          taskId: id,
+          errandId: id,
           deadline: at + (parseDuration(args.wait) ?? 2 * HOUR_MS),
           by: 'persona',
           turnId,
@@ -1079,7 +1079,7 @@ export async function runWeek({
     intentions = createIntentionService({
       stores,
       hot,
-      tasks: { store: () => taskStore },
+      errands: { store: () => taskStore },
       getGuildId: () => guildId,
       now: clock.now,
       uuid: world.uuid ?? (world.uuid = counterUuid()),
@@ -1154,7 +1154,7 @@ export async function runWeek({
       channelId: item.channel,
       chainId: item.chain,
       completionCondition: item.condition,
-      taskId,
+      errandId: taskId,
       deadline,
       scope: 'group',
       turnId: null,
@@ -1215,7 +1215,7 @@ export async function runWeek({
       const task = world.tasks.get(event.task) ?? { id: event.task, agent: 'scout', origin: {}, createdAt: at };
       const ended = { ...task, state: event.state, endedAt: at, usage: { usd: event.usd } };
       world.tasks.set(event.task, ended);
-      intentions.onTaskFinished(ended, guildId);
+      intentions.onErrandFinished(ended, guildId);
       if (inner.onTaskFinished(ended, guildId)) errandCosts.push({ at, taskId: event.task, usd: event.usd });
       // The turn its end opens holds the attention like a people's turn.
       world.busyUntil = Math.max(world.busyUntil, at) + fixture.turnSeconds * 1000;

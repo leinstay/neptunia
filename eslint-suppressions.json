@@ -7234,16 +7234,16 @@
   },
   "tests/turn-core-tools.test.js": {
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 12
+      "count": 11
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 30
+      "count": 26
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 46
+      "count": 43
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 134
+      "count": 123
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 24

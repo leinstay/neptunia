@@ -31,7 +31,7 @@ import { createFakeAdapter } from '../src/interface/fake.js';
 import '../src/tools/impl/index.ts';
 import { loadSkills, skillRegistry } from '../src/tools/registry.ts';
 import { createAdmin } from '../src/admin.js';
-import { createTaskStores } from '../src/errands/store.ts';
+import { createErrandStores } from '../src/errands/store.ts';
 import { createErrandService } from '../src/errands/service.ts';
 import { createDiscordAdapter, createDiscordInterface } from '../interfaces/discord/index.js';
 import { createLocalFacts } from '../src/behavior/inner.js';
@@ -3444,7 +3444,7 @@ async function runErrandLaneTurn({ classifier }) {
   );
   hot.config.bot.owners = ['o9'];
   hot.config.bot.access = personaGrants(['errand.run']);
-  const stores = createTaskStores({ dataDir: tempDir('nep-turn-agent-'), config: () => hot.config });
+  const stores = createErrandStores({ dataDir: tempDir('nep-turn-agent-'), config: () => hot.config });
   const errandClient = fakeErrandClient();
   const errands = createErrandService({ client: errandClient, stores, hot, getGuildId: () => 'g1' });
   const messages = [

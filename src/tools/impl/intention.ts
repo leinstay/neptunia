@@ -9,7 +9,7 @@
 // candidate), `intention.list`. Her own state, so her own calls run on her grant alone
 // (src/tools/impl/effects.ts#SELF_OWNED_OPS) under the gateway's rules on who asked; for people they are
 // owner operations an owner may grant (no `member` right). A call never widens anything: a wait
-// names only an errand the task store holds, and a destination is only recorded; a candidate is
+// names only an errand the errand store holds, and a destination is only recorded; a candidate is
 // accepted only where its origin allows (src/intentions/model.ts#acceptRefusal). An update or a
 // cancel without `id=` whose body is one bare intention id takes that as the id (isIntentionId);
 // any other body stays the update's purpose (or is ignored by the cancel). Off unless
@@ -271,7 +271,7 @@ const handlers = perEnv((env) => {
       destination: text(args, 'channelId') ?? null,
       completionCondition: text(args, 'condition') ?? null,
       chainId: text(args, 'chain') ?? null,
-      taskId: text(args, 'errand') ?? null,
+      errandId: text(args, 'errand') ?? null,
       deadline: moment(args, 'deadline') ?? null,
       ...from,
     });
@@ -300,7 +300,7 @@ const handlers = perEnv((env) => {
       ...(text(args, 'channelId') ? { destination: text(args, 'channelId') } : {}),
       ...(text(args, 'condition') ? { completionCondition: text(args, 'condition') } : {}),
       ...(text(args, 'chain') ? { chainId: text(args, 'chain') } : {}),
-      ...(text(args, 'errand') ? { taskId: text(args, 'errand') } : {}),
+      ...(text(args, 'errand') ? { errandId: text(args, 'errand') } : {}),
       ...(moment(args, 'deadline') !== undefined ? { deadline: moment(args, 'deadline') } : {}),
       ...(state ? { state } : {}),
       ...(state === 'dropped' ? { reason: text(args, 'reason') ?? null } : {}),

@@ -20,7 +20,7 @@ import { createJournal } from '../src/memory/journal.js';
 import { createVectors } from '../src/memory/vectors.js';
 import { createEmbedder } from '../src/memory/embedder.js';
 import { createIntentionStores } from '../src/intentions/store.ts';
-import { createTaskStores } from '../src/errands/store.ts';
+import { createErrandStores } from '../src/errands/store.ts';
 import { CHANNEL, GUILD, MEMBER, buildDataDir } from './fixtures/memory-db/datadir.js';
 import { seedUnits } from './fixtures/memory-db/seed.js';
 
@@ -80,7 +80,7 @@ function engine(data, log = quiet) {
   });
   const store = createStore({ dataDir: data, record, recordOn: () => true, archive, archiveOn: () => true, memoryDb });
   const embedQueue = createEmbedder({ hot, vectors, embed: async () => [], record, log, now: () => NOW, memoryDb });
-  const taskStores = createTaskStores({ config: () => config, journal, log, now: () => NOW, memoryDb });
+  const taskStores = createErrandStores({ config: () => config, journal, log, now: () => NOW, memoryDb });
   const intentionStores = createIntentionStores({ log, now: () => NOW, memoryDb });
   return {
     memoryDb,
@@ -211,7 +211,7 @@ test('the memory starts from memory.db and the operational files alone, writes o
           (entry) => entry.kind === 'system' && entry.event === 'pause'
         )
       );
-      assert.ok(second.taskStores.get(GUILD).get(task.task.id), 'the task');
+      assert.ok(second.taskStores.get(GUILD).get(task.errand.id), 'the task');
     } finally {
       await second.close();
     }

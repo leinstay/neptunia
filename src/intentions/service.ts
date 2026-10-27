@@ -1,12 +1,12 @@
 // The persona's intentions at work (docs/inner-life.md): her own calls (`intention.set`,
 // `intention.update`, `intention.cancel`, `intention.list`, src/tools/impl/intention.ts) create and move them, the
 // memory analyzer's candidates from her own lines arrive as `proposed` ones (`addCandidates`),
-// an errand's end reaches the intention waiting on it (`onTaskFinished`), and a reconciliation
+// an errand's end reaches the intention waiting on it (`onErrandFinished`), and a reconciliation
 // (`reconcile`, at start and for the scheduler of step 2) finds every wait whose errand already
 // ended, is gone, or passed its deadline. Reliable waiting: `waiting` needs a real errand id and
-// a deadline (the model's invariant); an errand is linked only once the task store holds it --
+// a deadline (the model's invariant); an errand is linked only once the errand store holds it --
 // given by id, or handed off in the same turn (a wait asked before the errand was queued is kept
-// as `waitRequested` on a `pending` intention and linked by `linkTurnTask` when that turn's
+// as `waitRequested` on a `pending` intention and linked by `linkTurnErrand` when that turn's
 // `errand.run` queues one; a failed launch links nothing, so nothing waits on it). Completion is
 // idempotent: a second end of the same errand finds nothing waiting. A recurring intention
 // (`every`, src/intentions/model.ts) is advanced to its next occurrence when the scheduler disposes
@@ -89,7 +89,7 @@ const ACTIVE: ReadonlyArray<string> = Object.freeze(['pending', 'waiting'] as co
 type WaitPlan =
   | { ok: false; code: string }
   | { ok: true; none: true }
-  | { ok: true; taskId: string; deadline: number }
+  | { ok: true; errandId: string; deadline: number }
   | { ok: true; requested: { turnId: string; deadline: number } };
 
 /**
@@ -116,7 +116,7 @@ function applyWait(record: Intention, plan: WaitPlan | null, by: string, at: num
   if (!plan || !plan.ok || 'none' in plan) return { ok: true, intention: record, changed: false };
   if ('requested' in plan)
     return { ok: true, intention: { ...record, waitRequested: plan.requested, updatedAt: at }, changed: true };
-  return waitOn(record, { taskId: plan.taskId, deadline: plan.deadline, now: at, by });
+  return waitOn(record, { errandId: plan.errandId, deadline: plan.deadline, now: at, by });
 }
 
 /**
@@ -138,7 +138,7 @@ function heartbeatCapRefusal(
 }
 
 /**
- * `hot` holds the live config. `tasks` is the errand service (src/errands/service.ts): the task store a wait is
+ * `hot` holds the live config. `errands` is the errand service (src/errands/service.ts): the errand store a wait is
  * checked against. `journal` is where a candidate's turn is looked up. `lineSources` holds the notes of where her
  * lines came from (src/intentions/sources.ts#createLineSources, one of its own by default): the turn runner notes
  * each line she posts (`noteLine`), the memory buffer takes the note with the line (`lineSources`), and a candidate
@@ -147,7 +147,7 @@ function heartbeatCapRefusal(
 export function createIntentionService({
   stores,
   hot,
-  tasks = null,
+  errands = null,
   journal = null,
   lineSources = createLineSources(),
   getGuildId = () => null,
@@ -168,40 +168,40 @@ export function createIntentionService({
     return hot.config?.bot?.timezone ?? 'UTC';
   }
 
-  /** The errand `id` of the guild's task store, or null. */
-  function taskOf(guildId: unknown, id: unknown): ErrandRecord | null {
-    const store = tasks?.store?.(guildId) ?? null;
-    const task = id && store ? store.get(idText(id)) : null;
-    return task ?? null;
+  /** The errand `id` of the guild's errand store, or null. */
+  function errandOf(guildId: unknown, id: unknown): ErrandRecord | null {
+    const store = errands?.store?.(guildId) ?? null;
+    const errand = id && store ? store.get(idText(id)) : null;
+    return errand ?? null;
   }
 
-  /** The latest errand of turn `turnId` in the guild's task store, or null. */
-  function taskOfTurn(guildId: unknown, turnId: unknown): ErrandRecord | null {
-    const store = tasks?.store?.(guildId) ?? null;
+  /** The latest errand of turn `turnId` in the guild's errand store, or null. */
+  function errandOfTurn(guildId: unknown, turnId: unknown): ErrandRecord | null {
+    const store = errands?.store?.(guildId) ?? null;
     if (!store || !turnId || typeof store.recent !== 'function') return null;
-    return store.recent(50).find((task) => task.origin?.turnId === idText(turnId)) ?? null;
+    return store.recent(50).find((errand) => errand.origin?.turnId === idText(turnId)) ?? null;
   }
 
-  /** The wait `move` adds to a record: on errand `taskId` (checked) or the turn's errand, else requested. */
+  /** The wait `move` adds to a record: on errand `errandId` (checked) or the turn's errand, else requested. */
   function waitPlan(
     guildId: string,
     {
-      taskId = null,
+      errandId = null,
       deadline = null,
       turnId = null,
-    }: { taskId?: string | null; deadline?: number | null; turnId?: string | null }
+    }: { errandId?: string | null; deadline?: number | null; turnId?: string | null }
   ): WaitPlan {
     const at = now();
     const until = isFiniteNumber(deadline) ? deadline : at + settings().waitHours * HOUR_MS;
-    if (taskId) {
-      const task = taskOf(guildId, taskId);
-      if (!task) return { ok: false, code: CODE.NO_ERRAND };
-      if (!isOpenState(task.state)) return { ok: false, code: CODE.ERRAND_ENDED };
-      return { ok: true, taskId: task.id, deadline: until };
+    if (errandId) {
+      const errand = errandOf(guildId, errandId);
+      if (!errand) return { ok: false, code: CODE.NO_ERRAND };
+      if (!isOpenState(errand.state)) return { ok: false, code: CODE.ERRAND_ENDED };
+      return { ok: true, errandId: errand.id, deadline: until };
     }
     if (!isFiniteNumber(deadline)) return { ok: true, none: true };
-    const same = taskOfTurn(guildId, turnId);
-    if (same && isOpenState(same.state)) return { ok: true, taskId: same.id, deadline: until };
+    const same = errandOfTurn(guildId, turnId);
+    if (same && isOpenState(same.state)) return { ok: true, errandId: same.id, deadline: until };
     if (!turnId) return { ok: false, code: CODE.WAIT_WITHOUT_ERRAND };
     return { ok: true, requested: { turnId: idText(turnId), deadline: until } };
   }
@@ -259,7 +259,7 @@ export function createIntentionService({
     });
     if (!created.ok) return created;
     const plan = waitPlan(store.guildId, {
-      taskId: input.taskId ?? null,
+      errandId: input.errandId ?? null,
       deadline: input.deadline ?? null,
       turnId: input.turnId ?? null,
     });
@@ -323,7 +323,7 @@ export function createIntentionService({
    * one-off; `every-without-due` without a due time), `expiresAt`, `destination`,
    * `completionCondition`, `chainId` edit an open one; `attend` (`{ people?, settle?, perDay? }`)
    * edits an attention (`not-attend` on any other; a due time or a recurrence on an attention is
-   * `attend-with-due` / `attend-with-every`); `taskId` / `deadline` set it waiting (as in
+   * `attend-with-due` / `attend-with-every`); `errandId` / `deadline` set it waiting (as in
    * `set`). `{ ok, intention }` or `{ ok: false, code }` (`not-found`, `terminal`, `cap-open`,
    * `bad-move`, the model's and the wait's codes). `patch.privateChannelId` / `patch.all`: where the
    * caller is (a private chat's intention is `not-found` anywhere else, see `list`).
@@ -365,9 +365,9 @@ export function createIntentionService({
         return { ok: false, code: CODE.HEARTBEAT_RECURRING_CAP, open: others };
     }
     const plan =
-      !dropping && (patch.taskId || isFiniteNumber(patch.deadline))
+      !dropping && (patch.errandId || isFiniteNumber(patch.deadline))
         ? waitPlan(store.guildId, {
-            taskId: patch.taskId ?? null,
+            errandId: patch.errandId ?? null,
             deadline: patch.deadline ?? null,
             turnId: patch.turnId ?? null,
           })
@@ -531,19 +531,19 @@ export function createIntentionService({
   }
 
   /**
-   * Errand `taskId`, just queued by turn `turnId`, linked to every `pending` intention of that turn
+   * Errand `errandId`, just queued by turn `turnId`, linked to every `pending` intention of that turn
    * whose wait was asked before the errand existed (`waitRequested`). How many.
    */
-  function linkTurnTask(guildId: unknown, { turnId, taskId }: { turnId: unknown; taskId: unknown }): number {
+  function linkTurnErrand(guildId: unknown, { turnId, errandId }: { turnId: unknown; errandId: unknown }): number {
     const store = storeOf(guildId);
-    if (!store || !turnId || !taskId) return 0;
+    if (!store || !turnId || !errandId) return 0;
     let linked = 0;
     for (const record of store.list()) {
       if (record.status !== 'pending' || record.waitRequested?.turnId !== idText(turnId)) continue;
       const deadline = record.waitRequested.deadline;
       const result = store.update(record.id, (current) =>
         waitOn(current, {
-          taskId,
+          errandId,
           deadline: isFiniteNumber(deadline) && deadline > now() ? deadline : now() + settings().waitHours * HOUR_MS,
           now: now(),
           by: 'engine',
@@ -551,7 +551,7 @@ export function createIntentionService({
       );
       if (result.ok && result.changed) linked += 1;
     }
-    if (linked > 0) log.info('intentions: linked', { guildId: store.guildId, taskId: idText(taskId), count: linked });
+    if (linked > 0) log.info('intentions: linked', { guildId: store.guildId, taskId: idText(errandId), count: linked });
     return linked;
   }
 
@@ -560,34 +560,34 @@ export function createIntentionService({
    * to `pending` with its outcome. Idempotent: the same end twice moves nothing the second time.
    * Never throws; how many moved.
    */
-  function onTaskFinished(task: ErrandRecord, guildId: unknown): number {
+  function onErrandFinished(errand: ErrandRecord, guildId: unknown): number {
     try {
       const store = storeOf(guildId);
-      if (!store || !task?.id) return 0;
+      if (!store || !errand?.id) return 0;
       let moved = 0;
       for (const record of store.list()) {
-        if (record.status !== 'waiting' || record.awaitingErrandId !== String(task.id)) continue;
-        const result = store.update(record.id, (current) => arrive(current, task, { now: now() }));
+        if (record.status !== 'waiting' || record.awaitingErrandId !== String(errand.id)) continue;
+        const result = store.update(record.id, (current) => arrive(current, errand, { now: now() }));
         if (result.ok && result.changed) moved += 1;
         if (result.ok && result.changed) afterWait(store, result.intention);
       }
       if (moved > 0)
         log.info('intentions: errand arrived', {
           guildId: store.guildId,
-          taskId: String(task.id),
-          state: task.state,
+          taskId: String(errand.id),
+          state: errand.state,
           count: moved,
         });
       return moved;
     } catch (err) {
-      log.warn('intentions: errand end not applied', { taskId: task?.id ?? null, error: err });
+      log.warn('intentions: errand end not applied', { taskId: errand?.id ?? null, error: err });
       return 0;
     }
   }
 
   /**
    * The reconciliation (at start, and the scheduler's tick of step 2): every `waiting` intention
-   * whose errand already ended (`arrived`), is gone from the task store (`missing`), or passed its
+   * whose errand already ended (`arrived`), is gone from the errand store (`missing`), or passed its
    * wait deadline (`deadline`) moved to `pending` with a note; then every open one past its expiry
    * expired. Counts; never throws.
    */
@@ -599,7 +599,7 @@ export function createIntentionService({
       for (const record of store.list()) {
         if (record.status !== 'waiting') continue;
         const result = store.update(record.id, (current) =>
-          reconcileWait(current, { taskOf: (id) => taskOf(store.guildId, id), now: now() })
+          reconcileWait(current, { errandOf: (id) => errandOf(store.guildId, id), now: now() })
         );
         if (!result.ok || !result.changed) continue;
         const note = result.intention.note;
@@ -850,8 +850,8 @@ export function createIntentionService({
     view,
     noteLine,
     lineSources: lineSourcesOfLine,
-    linkTurnTask,
-    onTaskFinished,
+    linkTurnErrand,
+    onErrandFinished,
     reconcile,
     advance,
     due,

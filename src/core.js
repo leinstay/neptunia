@@ -63,11 +63,11 @@ import { createExaSearch } from './web/exa.js';
 import { createLookup } from './web/lookup.js';
 import { createAdmin } from './admin.js';
 import { createErrandClient } from './errands/client.ts';
-import { createTaskStores } from './errands/store.ts';
+import { createErrandStores } from './errands/store.ts';
 import { createErrandService } from './errands/service.ts';
 import { channelPlaceId } from './memory/db/ids.ts';
 import { createMemberDirectory } from './interface/members.ts';
-import { createTaskTurns, errandDoneEvent } from './errands/turns.ts';
+import { createErrandTurns, errandDoneEvent } from './errands/turns.ts';
 import { createEventDoor } from './interface/door.js';
 import { createConversationDirectory } from './interface/directory.ts';
 import { isReadable, takeSnapshot } from './behavior/snapshot.ts';
@@ -497,7 +497,7 @@ async function buildCore(options, cleanups) {
   // The persona's errands (`errands.*`, `agents.<profile>` overrides): a task she or a member asks for goes to its agent runner over
   // its socket in the background (src/errands/); the tasks live in data/guilds/<id>/errands.json.
   const errandClient = createErrandClient({ hot, log });
-  const taskStores = createTaskStores({ config: () => hot.config, journal, log, memoryDb });
+  const taskStores = createErrandStores({ config: () => hot.config, journal, log, memoryDb });
   // An errand's end opens her own turn where it was asked (the task turns, created below the runner).
   // An errand's end is an `errand.done` event through the event door (`door`, created below with
   // the gateway's handlers); the door's handler (src/errands/turns.ts#onEvent) first moves the
@@ -543,7 +543,7 @@ async function buildCore(options, cleanups) {
   // `intent.*` calls, the analyzer's candidates from her lines, and the waits on her errands.
   // Both stores send their writes to the database; `flush` is their retry and shutdown step.
   const intentionStores = createIntentionStores({ log, memoryDb });
-  const intentions = createIntentionService({ stores: intentionStores, hot, tasks: errands, journal, getGuildId, log });
+  const intentions = createIntentionService({ stores: intentionStores, hot, errands, journal, getGuildId, log });
   // The conversations the interface reported (`conversation.changed`) and the direct chats it showed in messages:
   // their names for the inner life and the turn, the direct chat of a member for a memory session failure.
   const directory = createConversationDirectory();
@@ -601,7 +601,7 @@ async function buildCore(options, cleanups) {
   // The code-only memory of the live message path (src/memory/update.js): counters, GIF library, emoji, names.
   const memory = createMemoryUpdater({ hot, store });
   // The turn an errand's end opens, through the one attention and a cooldown per conversation.
-  const taskTurns = createTaskTurns({
+  const taskTurns = createErrandTurns({
     hot,
     reads,
     iface: () => identity.iface,
@@ -1087,7 +1087,7 @@ async function buildCore(options, cleanups) {
       'errand.done': (event) => {
         // An errand an inner turn handed off counts its cost against the inner life's dollars.
         inner.onTaskFinished(
-          event?.raw?.task ?? errands.store?.(event?.communityId ?? null)?.get?.(event?.errandId) ?? null,
+          event?.raw?.errand ?? errands.store?.(event?.communityId ?? null)?.get?.(event?.errandId) ?? null,
           event?.communityId ?? instance.guildId
         );
         return taskTurns.onEvent(event);

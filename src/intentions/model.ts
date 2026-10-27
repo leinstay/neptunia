@@ -803,7 +803,7 @@ export function acceptRefusal(
 /**
  * `record` moved to `to`: `{ ok: true, intention, changed: true }`, or `{ ok: false, code }`
  * (`terminal` out of a terminal status, `bad-move` for a move its status does not allow, or the
- * invariant the result would break). `patch` sets fields along with the move (a wait's task and
+ * invariant the result would break). `patch` sets fields along with the move (a wait's errand and
  * deadline, an outcome, a note); `by` and `code` go to the history entry.
  */
 export function transition(
@@ -830,20 +830,20 @@ export function transition(
 }
 
 /**
- * `record` set waiting on errand `taskId` until `deadline` (epoch ms, after `now`): from `pending`,
+ * `record` set waiting on errand `errandId` until `deadline` (epoch ms, after `now`): from `pending`,
  * or from `waiting` on another errand (the wait moves to the new one). `{ ok: false, code }`:
  * `wait-without-errand`, `bad-deadline`, or transition's codes.
  */
 export function waitOn(
   record: Intention,
   {
-    taskId,
+    errandId,
     deadline,
     now,
     by = 'persona',
-  }: { taskId: unknown; deadline: number | null | undefined; now: number; by?: string }
+  }: { errandId: unknown; deadline: number | null | undefined; now: number; by?: string }
 ): Moved {
-  const id = idOrNull(taskId);
+  const id = idOrNull(errandId);
   if (!id) return { ok: false, code: CODE.WAIT_WITHOUT_ERRAND };
   if (!isFiniteNumber(deadline) || deadline <= now) return { ok: false, code: CODE.BAD_DEADLINE };
   const patch = { awaitingErrandId: id, waitDeadline: deadline, waitRequested: null };
@@ -858,29 +858,29 @@ export function waitOn(
   return transition(record, 'waiting', { now, by, code: CODE.WAIT, patch });
 }
 
-/** The terminal task states (src/errands/store.ts#TASK_STATES less the open ones). */
-const TASK_ENDS: ReadonlyArray<string> = Object.freeze(['done', 'failed', 'cancelled'] as const);
+/** The terminal errand states (src/errands/store.ts#ERRAND_STATES less the open ones). */
+const ERRAND_ENDS: ReadonlyArray<string> = Object.freeze(['done', 'failed', 'cancelled'] as const);
 
 /**
- * The end of errand `task` reaching `record`: a `waiting` record awaiting that very task moves to
+ * The end of errand `errand` reaching `record`: a `waiting` record awaiting that very errand moves to
  * `pending` with `outcome: { errandId, state, error?, at }` (`code` `errand-<state>`). Anything else
- * -- another task, a record no longer waiting (the same end delivered twice), a task still open
+ * -- another errand, a record no longer waiting (the same end delivered twice), an errand still open
  * -- changes nothing: `{ ok: true, intention: record, changed: false }`.
  */
-export function arrive(record: Intention, task: ErrandRecord, { now }: { now: number }): Moved {
+export function arrive(record: Intention, errand: ErrandRecord, { now }: { now: number }): Moved {
   if (
     record?.status !== 'waiting' ||
-    !task ||
-    record.awaitingErrandId !== String(task.id) ||
-    !TASK_ENDS.includes(task.state)
+    !errand ||
+    record.awaitingErrandId !== String(errand.id) ||
+    !ERRAND_ENDS.includes(errand.state)
   ) {
     return { ok: true, intention: record, changed: false };
   }
-  const at = isFiniteNumber(task.endedAt) ? task.endedAt : now;
+  const at = isFiniteNumber(errand.endedAt) ? errand.endedAt : now;
   const outcome = {
-    errandId: String(task.id),
-    state: task.state,
-    ...(task.error ? { error: String(task.error) } : {}),
+    errandId: String(errand.id),
+    state: errand.state,
+    ...(errand.error ? { error: String(errand.error) } : {}),
     at,
   };
   // The end is a fresh due moment when the old one has passed: the scheduler's wake id carries
@@ -890,8 +890,8 @@ export function arrive(record: Intention, task: ErrandRecord, { now }: { now: nu
   return transition(record, 'pending', {
     now,
     by: 'engine',
-    code: `errand-${task.state}`,
-    patch: { outcome, note: `errand-${task.state}`, dueAt },
+    code: `errand-${errand.state}`,
+    patch: { outcome, note: `errand-${errand.state}`, dueAt },
   });
 }
 
@@ -989,24 +989,24 @@ export function advanceOccurrence(
 }
 
 /**
- * One `waiting` record reconciled against the task store (`taskOf(id)`: the task, or null when
- * the store has none): the task gone -> `pending` with note `errand-missing`; the task ended ->
+ * One `waiting` record reconciled against the errand store (`errandOf(id)`: the errand, or null when
+ * the store has none): the errand gone -> `pending` with note `errand-missing`; the errand ended ->
  * as `arrive`; the wait deadline passed -> `pending` with note `wait-deadline`; else unchanged.
  */
 export function reconcileWait(
   record: Intention,
-  { taskOf, now }: { taskOf: ((id: string | null) => ErrandRecord | null) | null | undefined; now: number }
+  { errandOf, now }: { errandOf: ((id: string | null) => ErrandRecord | null) | null | undefined; now: number }
 ): Moved {
   if (record?.status !== 'waiting') return { ok: true, intention: record, changed: false };
-  const task = typeof taskOf === 'function' ? taskOf(record.awaitingErrandId) : null;
-  if (!task)
+  const errand = typeof errandOf === 'function' ? errandOf(record.awaitingErrandId) : null;
+  if (!errand)
     return transition(record, 'pending', {
       now,
       by: 'engine',
       code: CODE.ERRAND_MISSING,
       patch: { note: 'errand-missing' },
     });
-  if (TASK_ENDS.includes(task.state)) return arrive(record, task, { now });
+  if (ERRAND_ENDS.includes(errand.state)) return arrive(record, errand, { now });
   if (isFiniteNumber(record.waitDeadline) && now >= record.waitDeadline)
     return transition(record, 'pending', {
       now,

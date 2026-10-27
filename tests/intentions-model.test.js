@@ -85,9 +85,9 @@ test('createIntention: refuses an empty purpose, an unknown provenance, a past e
 
 test('waitOn: waiting needs a real errand id and a deadline after now; the invariant holds on every record', () => {
   const own = mine();
-  assert.equal(waitOn(own, { taskId: '', deadline: T0 + HOUR, now: T0 }).code, 'wait-without-errand');
-  assert.equal(waitOn(own, { taskId: 'tabc', deadline: T0, now: T0 }).code, 'bad-deadline');
-  const waited = waitOn(own, { taskId: 'tabc', deadline: T0 + HOUR, now: T0 });
+  assert.equal(waitOn(own, { errandId: '', deadline: T0 + HOUR, now: T0 }).code, 'wait-without-errand');
+  assert.equal(waitOn(own, { errandId: 'tabc', deadline: T0, now: T0 }).code, 'bad-deadline');
+  const waited = waitOn(own, { errandId: 'tabc', deadline: T0 + HOUR, now: T0 });
   assert.equal(waited.intention.status, 'waiting');
   assert.equal(waited.intention.awaitingErrandId, 'tabc');
   assert.equal(checkInvariants(waited.intention), null);
@@ -113,7 +113,7 @@ test('transition: terminal statuses are final; a move its status does not allow 
 });
 
 test('arrive: the awaited errand ending moves the wait back to pending once; a second delivery changes nothing', () => {
-  const waiting = waitOn(mine(), { taskId: 'tabc', deadline: T0 + HOUR, now: T0 }).intention;
+  const waiting = waitOn(mine(), { errandId: 'tabc', deadline: T0 + HOUR, now: T0 }).intention;
   const other = arrive(waiting, { id: 'tzzz', state: 'done' }, { now: T0 + 1 });
   assert.equal(other.changed, false);
   const stillOpen = arrive(waiting, { id: 'tabc', state: 'running' }, { now: T0 + 1 });
@@ -131,13 +131,13 @@ test('arrive: the awaited errand ending moves the wait back to pending once; a s
 
 test('arrive: the end is a fresh due moment when the old one has passed; a due still ahead stays', () => {
   // She waited at T0 on an intention due at T0 (the wake that set the wait): the end at T0 + 5 is the new due.
-  const past = waitOn(mine({ dueAt: T0 }), { taskId: 'tabc', deadline: T0 + HOUR, now: T0 }).intention;
+  const past = waitOn(mine({ dueAt: T0 }), { errandId: 'tabc', deadline: T0 + HOUR, now: T0 }).intention;
   assert.equal(arrive(past, { id: 'tabc', state: 'done', endedAt: T0 + 5 }, { now: T0 + 10 }).intention.dueAt, T0 + 5);
   // No due time at all: the end is one now.
-  const none = waitOn(mine(), { taskId: 'tabc', deadline: T0 + HOUR, now: T0 }).intention;
+  const none = waitOn(mine(), { errandId: 'tabc', deadline: T0 + HOUR, now: T0 }).intention;
   assert.equal(arrive(none, { id: 'tabc', state: 'done' }, { now: T0 + 10 }).intention.dueAt, T0 + 10);
   // A due ahead of the end is hers to keep.
-  const ahead = waitOn(mine({ dueAt: T0 + 2 * HOUR }), { taskId: 'tabc', deadline: T0 + HOUR, now: T0 }).intention;
+  const ahead = waitOn(mine({ dueAt: T0 + 2 * HOUR }), { errandId: 'tabc', deadline: T0 + HOUR, now: T0 }).intention;
   assert.equal(
     arrive(ahead, { id: 'tabc', state: 'done', endedAt: T0 + 5 }, { now: T0 + 10 }).intention.dueAt,
     T0 + 2 * HOUR
@@ -145,18 +145,18 @@ test('arrive: the end is a fresh due moment when the old one has passed; a due s
 });
 
 test('reconcileWait: a gone errand, an ended one and a passed deadline each move the wait to pending with its note', () => {
-  const waiting = waitOn(mine(), { taskId: 'tabc', deadline: T0 + HOUR, now: T0 }).intention;
-  assert.equal(reconcileWait(waiting, { taskOf: () => null, now: T0 + 1 }).intention.note, 'errand-missing');
+  const waiting = waitOn(mine(), { errandId: 'tabc', deadline: T0 + HOUR, now: T0 }).intention;
+  assert.equal(reconcileWait(waiting, { errandOf: () => null, now: T0 + 1 }).intention.note, 'errand-missing');
   assert.equal(
-    reconcileWait(waiting, { taskOf: () => ({ id: 'tabc', state: 'done' }), now: T0 + 1 }).intention.note,
+    reconcileWait(waiting, { errandOf: () => ({ id: 'tabc', state: 'done' }), now: T0 + 1 }).intention.note,
     'errand-done'
   );
   assert.equal(
-    reconcileWait(waiting, { taskOf: () => ({ id: 'tabc', state: 'running' }), now: T0 + 1 }).changed,
+    reconcileWait(waiting, { errandOf: () => ({ id: 'tabc', state: 'running' }), now: T0 + 1 }).changed,
     false
   );
   assert.equal(
-    reconcileWait(waiting, { taskOf: () => ({ id: 'tabc', state: 'running' }), now: T0 + HOUR }).intention.note,
+    reconcileWait(waiting, { errandOf: () => ({ id: 'tabc', state: 'running' }), now: T0 + HOUR }).intention.note,
     'wait-deadline'
   );
 });
@@ -165,7 +165,7 @@ test('expireAt and dueList: the clock expires an open record; due and overdue ar
   const own = mine({ dueAt: T0 + HOUR });
   assert.equal(expireAt(own, own.expiresAt - 1).changed, false);
   assert.equal(expireAt(own, own.expiresAt).intention.status, 'expired');
-  const waiting = waitOn(mine({ id: 'i2' }), { taskId: 't1', deadline: T0 + 30 * 60 * 1000, now: T0 }).intention;
+  const waiting = waitOn(mine({ id: 'i2' }), { errandId: 't1', deadline: T0 + 30 * 60 * 1000, now: T0 }).intention;
   const proposed = createIntention({ purpose: 'y', provenance: { kind: 'candidate' }, dueAt: T0, now: T0 }).intention;
   assert.deepEqual(dueList([own, waiting, proposed], T0), []);
   assert.deepEqual(
@@ -572,7 +572,7 @@ test('advanceOccurrence: the due moves past now, skipping missed occurrences; th
   assert.equal(missed.intention.history.at(-1).code, 'missed');
   assert.equal(missed.intention.history.at(-1).by, 'engine');
   // A waiting occurrence closes its wait on the way (the errand kept as lastErrandId).
-  const waiting = waitOn(record, { taskId: 'tabc', deadline: first + HOUR, now: first }).intention;
+  const waiting = waitOn(record, { errandId: 'tabc', deadline: first + HOUR, now: first }).intention;
   const closed = advanceOccurrence(waiting, { now: first + 10, timezone: 'UTC', code: 'done-occurrence' });
   assert.equal(closed.intention.status, 'pending');
   assert.equal(closed.intention.awaitingErrandId, null);
@@ -798,7 +798,7 @@ test('dropped: any open record can be dropped with a reason; it is final, never 
   assert.equal(dropIntention(dropped.intention, { reason: 'again', now: T0 + 2 }).code, 'terminal');
   assert.deepEqual(dueList([dropped.intention], T0 + 2 * HOUR), []);
   assert.equal(expireAt(dropped.intention, dropped.intention.expiresAt + 1).changed, false);
-  const waiting = waitOn(mine({ id: 'i2' }), { taskId: 't1', deadline: T0 + HOUR, now: T0 }).intention;
+  const waiting = waitOn(mine({ id: 'i2' }), { errandId: 't1', deadline: T0 + HOUR, now: T0 }).intention;
   const fromWait = dropIntention(waiting, { reason: 'not needed', now: T0 + 5 }).intention;
   assert.deepEqual([fromWait.status, fromWait.awaitingErrandId, fromWait.waitDeadline], ['dropped', null, null]);
   const candidate = createIntention({ purpose: 'y', provenance: { kind: 'candidate' }, now: T0, id: 'i3' }).intention;

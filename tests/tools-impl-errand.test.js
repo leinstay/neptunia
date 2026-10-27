@@ -10,7 +10,7 @@ import path from 'node:path';
 
 import { runOp } from '../src/tools/impl/index.ts';
 import { createOpsEnv } from '../src/tools/impl/env.ts';
-import { createTaskStores } from '../src/errands/store.ts';
+import { createErrandStores } from '../src/errands/store.ts';
 import { createErrandService } from '../src/errands/service.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createDiscordInterface } from '../interfaces/discord/index.js';
@@ -66,7 +66,7 @@ function makeEnv({ errandSettings = {}, agents = {}, configured = true } = {}) {
   };
   const client = fakeClient({ configured });
   const finished = [];
-  const stores = createTaskStores({ dataDir: path.join(rootDir, 'data'), config: () => hot.config });
+  const stores = createErrandStores({ dataDir: path.join(rootDir, 'data'), config: () => hot.config });
   const errands = createErrandService({
     client,
     stores,

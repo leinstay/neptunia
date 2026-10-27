@@ -15,7 +15,7 @@
 // Undelivered calls wait in memory (at most MAX_QUEUE; one more is dropped and logged) while the
 // connection is reopened with a growing backoff, and are replayed in order once it answers; a call
 // the ledger refuses is logged with its code and dropped; the calls after it are still sent (a
-// later one may pass), and only the first refused or dropped call of a task is logged. A call
+// later one may pass), and only the first refused or dropped call of an errand is logged. A call
 // whose ledger id never came (its `task.add` refused) is dropped too. A queued errand goes
 // `proposed -> triaged -> approved` (the ledger's machine has no shorter way). A refused or unreachable socket is logged at most once per
 // UNAVAILABLE_LOG_MS. With `agents.ledger.socket` null (config.json's default) the mirror is
@@ -61,7 +61,7 @@ export const TITLE_CHARS = 120;
 export const HEARTBEAT_MS = 60_000;
 /** At most one `errands: ledger unavailable` line in this window (ms). */
 export const UNAVAILABLE_LOG_MS = 60_000;
-/** Added to a task's `limits.seconds` for its claim's lease (s). */
+/** Added to an errand's `limits.seconds` for its claim's lease (s). */
 export const LEASE_GRACE_SECONDS = 60;
 /** The first reconnect delay and its ceiling (ms); the delay doubles after each failure. */
 export const RECONNECT_MIN_MS = 1000;
@@ -72,8 +72,8 @@ export const REPLY_TIMEOUT_MS = 10_000;
 export const COSTS_TIMEOUT_MS = 3000;
 /** The agents whose spend the ledger's `costs.agents` counts, in order. */
 export const LEDGER_AGENTS = Object.freeze(['thinker', 'dev']);
-/** The time cap of a task without `limits.seconds` (s), as the errand client waits for it. */
-const DEFAULT_TASK_SECONDS = 600;
+/** The time cap of an errand without `limits.seconds` (s), as the errand client waits for it. */
+const DEFAULT_ERRAND_SECONDS = 600;
 /** The ledger's principal the core is. */
 const PRINCIPAL = 'core';
 
@@ -114,9 +114,9 @@ export function idempotencyKey(coreId: unknown, op: unknown): string {
   return `errand:${idText(coreId)}:${idText(op)}`;
 }
 
-/** The lease of a claim (s): the task's `limits.seconds` (else the client's default) plus LEASE_GRACE_SECONDS. */
+/** The lease of a claim (s): the errand's `limits.seconds` (else the client's default) plus LEASE_GRACE_SECONDS. */
 export function leaseSeconds(limits: Limits | null | undefined): number {
-  const seconds = isPositive(limits?.seconds) ? limits.seconds : DEFAULT_TASK_SECONDS;
+  const seconds = isPositive(limits?.seconds) ? limits.seconds : DEFAULT_ERRAND_SECONDS;
   return Math.ceil(seconds) + LEASE_GRACE_SECONDS;
 }
 
@@ -126,22 +126,22 @@ export function leaseSeconds(limits: Limits | null | undefined): number {
  * for her own errand), the agent as the role, the conversation as the subscriber
  * (`core:<guildId>:<channelId>`), and `{ coreId, scope, agent }` as metadata.
  */
-export function addArgs(task: ErrandRecord, guildId: string): Obj {
-  const channel = task.origin?.channelId ?? null;
+export function addArgs(errand: ErrandRecord, guildId: string): Obj {
+  const channel = errand.origin?.channelId ?? null;
   return {
     lane: LEDGER_LANE,
     project: null,
     title: clampChars(
-      String(task.goal ?? '')
+      String(errand.goal ?? '')
         .replace(/\s+/g, ' ')
         .trim(),
       TITLE_CHARS
     ),
-    description: String(task.goal ?? ''),
-    requester: `persona:${task.requester?.userId ?? 'self'}`,
-    role: task.agent,
+    description: String(errand.goal ?? ''),
+    requester: `persona:${errand.requester?.userId ?? 'self'}`,
+    role: errand.agent,
     subscriber: channel ? `core:${guildId}:${channel}` : `core:${guildId}`,
-    metadata: { coreId: task.id, scope: task.scope, agent: task.agent },
+    metadata: { coreId: errand.id, scope: errand.scope, agent: errand.agent },
   };
 }
 
@@ -156,10 +156,10 @@ export function transitionArgs(ledgerId: string, to: string, closeReason: string
  * client's default) in whole minutes as `estimate_minutes`. No dollar budget: the engine has no dollar limits.
  * A limit that is not a positive number is left out.
  */
-export function triageArgs(ledgerId: string, task: ErrandRecord, limits: Limits | null | undefined): Obj {
-  const set: Obj = { role: task.agent };
+export function triageArgs(ledgerId: string, errand: ErrandRecord, limits: Limits | null | undefined): Obj {
+  const set: Obj = { role: errand.agent };
   if (isPositive(limits?.steps)) set.step_cap = Math.floor(limits.steps);
-  const seconds = isPositive(limits?.seconds) ? limits.seconds : DEFAULT_TASK_SECONDS;
+  const seconds = isPositive(limits?.seconds) ? limits.seconds : DEFAULT_ERRAND_SECONDS;
   set.estimate_minutes = Math.ceil(seconds / 60);
   return { id: ledgerId, to: 'triaged', set };
 }
@@ -175,19 +175,19 @@ export function heartbeatArgs(ledgerId: string, lease: number | null): Obj {
 }
 
 /** The args of `attempt.start` on ledger task `ledgerId`: principal `core`, the agent as the role, its model, no worktree. */
-export function attemptStartArgs(ledgerId: string, task: ErrandRecord, model: unknown): Obj {
+export function attemptStartArgs(ledgerId: string, errand: ErrandRecord, model: unknown): Obj {
   return {
     task_id: ledgerId,
     principal: PRINCIPAL,
-    role: task.agent,
+    role: errand.agent,
     model: typeof model === 'string' && model ? model : null,
     worktree: null,
   };
 }
 
 /** The args of `attempt.end` of attempt `attemptId`: the steps and dollars of the runner's usage, the outcome. */
-export function attemptEndArgs(attemptId: string, task: ErrandRecord, outcome: string = task.state): Obj {
-  return { id: attemptId, outcome, steps: Number(task.usage?.steps) || 0, cost_usd: Number(task.usage?.usd) || 0 };
+export function attemptEndArgs(attemptId: string, errand: ErrandRecord, outcome: string = errand.state): Obj {
+  return { id: attemptId, outcome, steps: Number(errand.usage?.steps) || 0, cost_usd: Number(errand.usage?.usd) || 0 };
 }
 
 /**
@@ -198,10 +198,10 @@ export function attemptEndArgs(attemptId: string, task: ErrandRecord, outcome: s
  */
 export function resultCalls(
   ledgerId: string,
-  task: ErrandRecord,
+  errand: ErrandRecord,
   maxChars: number = DEFAULT_RESULT_MAX_CHARS
 ): Array<{ op: string; args: Obj }> {
-  const result = task.result;
+  const result = errand.result;
   if (!result) return [];
   const calls: Array<{ op: string; args: Obj }> = [];
   const text = clampChars(typeof result.text === 'string' ? result.text : '', maxChars);
@@ -219,7 +219,7 @@ export function resultCalls(
       args: {
         task_id: ledgerId,
         kind: 'file',
-        uri: fileHandle(task.id, file.name),
+        uri: fileHandle(errand.id, file.name),
         metadata: { name: file.name, contentType: file.contentType ?? '', bytes: file.bytes ?? 0 },
       },
     });
@@ -392,21 +392,21 @@ export function createLedgerMirror({
     return typeof value === 'string' && value ? value : null;
   }
 
-  /** The record of `task`, created on first use (its stored `ledgerId` taken over). */
-  function recordOf(task: ErrandRecord): LedgerRecord {
-    let record = records.get(task.id);
+  /** The record of `errand`, created on first use (its stored `ledgerId` taken over). */
+  function recordOf(errand: ErrandRecord): LedgerRecord {
+    let record = records.get(errand.id);
     if (!record) {
       record = {
-        ledgerId: task.ledgerId ? String(task.ledgerId) : null,
+        ledgerId: errand.ledgerId ? String(errand.ledgerId) : null,
         attemptId: null,
         attempted: false,
         lease: null,
         lastBeat: -Infinity,
         warned: false,
       };
-      records.set(task.id, record);
-    } else if (!record.ledgerId && task.ledgerId) {
-      record.ledgerId = String(task.ledgerId);
+      records.set(errand.id, record);
+    } else if (!record.ledgerId && errand.ledgerId) {
+      record.ledgerId = String(errand.ledgerId);
     }
     return record;
   }
@@ -420,7 +420,7 @@ export function createLedgerMirror({
   }
 
   /**
-   * A refused or skipped call of a task logged, once per task: the calls after a refused one
+   * A refused or skipped call of an errand logged, once per errand: the calls after a refused one
    * (a later transition, the claim, the attempt) are still sent, and their own refusals, which
    * follow from the first, are not logged again.
    */
@@ -605,10 +605,10 @@ export function createLedgerMirror({
     }
   }
 
-  /** A call that needs the task's ledger id (`final`: the record forgotten once it is answered or skipped). */
-  function call(task: ErrandRecord, op: string, method: string, build: Build, onResult?: OnResult, final = false) {
+  /** A call that needs the errand's ledger id (`final`: the record forgotten once it is answered or skipped). */
+  function call(errand: ErrandRecord, op: string, method: string, build: Build, onResult?: OnResult, final = false) {
     return enqueue({
-      coreId: task.id,
+      coreId: errand.id,
       op,
       method,
       build: (record) => (record.ledgerId ? build(record.ledgerId) : null),
@@ -617,10 +617,10 @@ export function createLedgerMirror({
     });
   }
 
-  /** The `task.transition` of `task` to its final state, the record forgotten once it is through or refused. */
-  function closeTask(task: ErrandRecord, to: string, closeReason: string | null): void {
+  /** The `task.transition` of `errand` to its final state, the record forgotten once it is through or refused. */
+  function closeTask(errand: ErrandRecord, to: string, closeReason: string | null): void {
     call(
-      task,
+      errand,
       `task.transition:${to}`,
       'task.transition',
       (ledgerId) => transitionArgs(ledgerId, to, closeReason),
@@ -629,15 +629,15 @@ export function createLedgerMirror({
     );
   }
 
-  /** The attempt of `task` ended with `outcome`, when this process started one. */
-  function endAttempt(task: ErrandRecord, record: LedgerRecord, outcome: string): void {
+  /** The attempt of `errand` ended with `outcome`, when this process started one. */
+  function endAttempt(errand: ErrandRecord, record: LedgerRecord, outcome: string): void {
     if (!record.attempted) return;
     record.attempted = false;
     enqueue({
-      coreId: task.id,
+      coreId: errand.id,
       op: 'attempt.end',
       method: 'attempt.end',
-      build: (r) => (r.attemptId ? attemptEndArgs(r.attemptId, task, outcome) : null),
+      build: (r) => (r.attemptId ? attemptEndArgs(r.attemptId, errand, outcome) : null),
     });
   }
 
@@ -649,16 +649,16 @@ export function createLedgerMirror({
   /**
    * A queued errand mirrored: `task.add` (its ledger id handed to `onLedgerId`), then
    * `task.transition` to `triaged` (the triage fields from `limits`, triageArgs), then to
-   * `approved` (the ledger's machine has no `proposed -> approved`). Nothing for a task that
+   * `approved` (the ledger's machine has no `proposed -> approved`). Nothing for an errand that
    * already has its ledger id.
    */
-  function add(task: ErrandRecord, { guildId, limits = {}, onLedgerId = null }: LedgerAddOptions = {}): boolean {
-    if (!enabled() || !task?.id) return false;
-    const record = recordOf(task);
+  function add(errand: ErrandRecord, { guildId, limits = {}, onLedgerId = null }: LedgerAddOptions = {}): boolean {
+    if (!enabled() || !errand?.id) return false;
+    const record = recordOf(errand);
     if (record.ledgerId) return false;
-    const args = addArgs(task, String(guildId));
+    const args = addArgs(errand, String(guildId));
     enqueue({
-      coreId: task.id,
+      coreId: errand.id,
       op: 'task.add',
       method: 'task.add',
       build: () => args,
@@ -669,29 +669,29 @@ export function createLedgerMirror({
         if (typeof onLedgerId === 'function') onLedgerId(ledgerId);
       },
     });
-    call(task, 'task.transition:triaged', 'task.transition', (ledgerId) => triageArgs(ledgerId, task, limits));
-    call(task, 'task.transition:approved', 'task.transition', (ledgerId) => transitionArgs(ledgerId, 'approved'));
+    call(errand, 'task.transition:triaged', 'task.transition', (ledgerId) => triageArgs(ledgerId, errand, limits));
+    call(errand, 'task.transition:approved', 'task.transition', (ledgerId) => transitionArgs(ledgerId, 'approved'));
     return true;
   }
 
   /**
-   * The runner took `task`: `task.claim` with its lease, then `attempt.start`.
+   * The runner took `errand`: `task.claim` with its lease, then `attempt.start`.
    */
   function start(
-    task: ErrandRecord,
+    errand: ErrandRecord,
     { limits = {}, model = null }: { limits?: Limits; model?: string | null } = {}
   ): boolean {
-    if (!enabled() || !task?.id) return false;
-    const record = recordOf(task);
+    if (!enabled() || !errand?.id) return false;
+    const record = recordOf(errand);
     record.attempted = true;
     record.lease = leaseSeconds(limits);
     record.lastBeat = now();
-    call(task, 'task.claim', 'task.claim', (ledgerId) => claimArgs(ledgerId, limits));
+    call(errand, 'task.claim', 'task.claim', (ledgerId) => claimArgs(ledgerId, limits));
     call(
-      task,
+      errand,
       'attempt.start',
       'attempt.start',
-      (ledgerId) => attemptStartArgs(ledgerId, task, model),
+      (ledgerId) => attemptStartArgs(ledgerId, errand, model),
       (result, current) => {
         const attemptId = idOf(result, 'attempt');
         if (attemptId && current) current.attemptId = attemptId;
@@ -700,45 +700,45 @@ export function createLedgerMirror({
     return true;
   }
 
-  /** A `progress` of the runner for `task`: `task.heartbeat`, at most once per HEARTBEAT_MS. */
-  function progress(task: ErrandRecord): boolean {
-    if (!enabled() || !task?.id) return false;
-    const record = records.get(task.id);
+  /** A `progress` of the runner for `errand`: `task.heartbeat`, at most once per HEARTBEAT_MS. */
+  function progress(errand: ErrandRecord): boolean {
+    if (!enabled() || !errand?.id) return false;
+    const record = records.get(errand.id);
     if (!record?.attempted) return false;
     const at = now();
     if (at - record.lastBeat < HEARTBEAT_MS) return false;
     record.lastBeat = at;
     const lease = record.lease;
-    return call(task, `task.heartbeat:${Math.floor(at / HEARTBEAT_MS)}`, 'task.heartbeat', (ledgerId) =>
+    return call(errand, `task.heartbeat:${Math.floor(at / HEARTBEAT_MS)}`, 'task.heartbeat', (ledgerId) =>
       heartbeatArgs(ledgerId, lease)
     );
   }
 
   /**
-   * `task` ended (done, failed, or cancelled by its runner): `attempt.end` when this process
+   * `errand` ended (done, failed, or cancelled by its runner): `attempt.end` when this process
    * started one, its `task.result` calls (the summary cut to `maxChars`, the files), then
    * `task.transition` to its state (`close_reason` its error code unless done).
    */
-  function finish(task: ErrandRecord, { maxChars = DEFAULT_RESULT_MAX_CHARS }: { maxChars?: number } = {}): boolean {
-    if (!enabled() || !task?.id) return false;
-    const record = recordOf(task);
-    endAttempt(task, record, task.state);
-    for (const { op, args } of resultCalls('', task, maxChars)) {
-      call(task, op, 'task.result', (ledgerId) => ({ ...args, task_id: ledgerId }));
+  function finish(errand: ErrandRecord, { maxChars = DEFAULT_RESULT_MAX_CHARS }: { maxChars?: number } = {}): boolean {
+    if (!enabled() || !errand?.id) return false;
+    const record = recordOf(errand);
+    endAttempt(errand, record, errand.state);
+    for (const { op, args } of resultCalls('', errand, maxChars)) {
+      call(errand, op, 'task.result', (ledgerId) => ({ ...args, task_id: ledgerId }));
     }
-    closeTask(task, task.state, task.state === 'done' ? null : (task.error ?? task.state));
+    closeTask(errand, errand.state, errand.state === 'done' ? null : (errand.error ?? errand.state));
     return true;
   }
 
   /**
-   * `task` cancelled in the core (`by`: who cancelled it): its attempt ended `cancelled` when this
+   * `errand` cancelled in the core (`by`: who cancelled it): its attempt ended `cancelled` when this
    * process started one, then `task.transition` to `cancelled` (`close_reason: cancelled-by-<by>`).
    */
-  function cancel(task: ErrandRecord, { by = 'unknown' }: { by?: string } = {}): boolean {
-    if (!enabled() || !task?.id) return false;
-    const record = recordOf(task);
-    endAttempt(task, record, 'cancelled');
-    closeTask(task, 'cancelled', `cancelled-by-${by}`);
+  function cancel(errand: ErrandRecord, { by = 'unknown' }: { by?: string } = {}): boolean {
+    if (!enabled() || !errand?.id) return false;
+    const record = recordOf(errand);
+    endAttempt(errand, record, 'cancelled');
+    closeTask(errand, 'cancelled', `cancelled-by-${by}`);
     return true;
   }
 
@@ -747,15 +747,15 @@ export function createLedgerMirror({
    * idempotency key, so one half delivered before the restart is not doubled). Returns how many.
    */
   function mirrorOpen(
-    tasks: Array<ErrandRecord>,
+    errands: Array<ErrandRecord>,
     { guildId, limitsOf = null, onLedgerId = null }: MirrorOpenOptions = {}
   ): number {
     if (!enabled()) return 0;
     let count = 0;
-    for (const task of Array.isArray(tasks) ? tasks : []) {
-      if (!task?.id || task.ledgerId || !['queued', 'running'].includes(task.state)) continue;
-      const limits = typeof limitsOf === 'function' ? (limitsOf(task) ?? {}) : {};
-      if (add(task, { guildId, limits, onLedgerId: onLedgerId ? (ledgerId) => onLedgerId(task, ledgerId) : null }))
+    for (const errand of Array.isArray(errands) ? errands : []) {
+      if (!errand?.id || errand.ledgerId || !['queued', 'running'].includes(errand.state)) continue;
+      const limits = typeof limitsOf === 'function' ? (limitsOf(errand) ?? {}) : {};
+      if (add(errand, { guildId, limits, onLedgerId: onLedgerId ? (ledgerId) => onLedgerId(errand, ledgerId) : null }))
         count += 1;
     }
     return count;

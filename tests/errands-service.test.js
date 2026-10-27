@@ -13,7 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
 
-import { createTaskStores } from '../src/errands/store.ts';
+import { createErrandStores } from '../src/errands/store.ts';
 import { createErrandService, RUNNER_RECHECK_MS } from '../src/errands/service.ts';
 import { createErrandClient } from '../src/errands/client.ts';
 import { encodeLine } from '../src/agent-runner/protocol.js';
@@ -74,7 +74,7 @@ function makeService(env, { keyByRole } = {}) {
   const journal = { action: async (guildId, line) => journalLines.push(line) };
   const log = fakeLog();
   const client = fakeClient();
-  const stores = createTaskStores({
+  const stores = createErrandStores({
     memoryDb: memoryOf(path.join(rootDir, 'data')),
     config: () => hot.config,
     journal,
@@ -214,7 +214,7 @@ test("errands service: a task carries context.recent, the origin channel's last 
   };
   const client = fakeClient();
   const deferred = [];
-  const stores = createTaskStores({
+  const stores = createErrandStores({
     memoryDb: memoryOf(path.join(rootDir, 'data')),
     config: () => hot.config,
     log: fakeLog(),
@@ -313,7 +313,7 @@ test("errands service: the ledger mirror is called at the queuing (limits), the 
     },
   };
   const ledger = fakeMirror();
-  const stores = createTaskStores({
+  const stores = createErrandStores({
     memoryDb: memoryOf(path.join(rootDir, 'data')),
     config: () => hot.config,
     log: fakeLog(),
@@ -329,7 +329,7 @@ test("errands service: the ledger mirror is called at the queuing (limits), the 
   });
   try {
     assert.equal(errands.ledger, ledger);
-    const done = errands.submit(ask('scout')).task.id;
+    const done = errands.submit(ask('scout')).errand.id;
     assert.equal(errands.store('g1').get(done).ledgerId, 'L1', 'the ledger id is kept');
     await new Promise((resolve) => setImmediate(resolve));
     for (const fn of listeners) fn({ agent: 'scout', id: done, step: 1, tool: 'fetch', note: '' });
@@ -338,7 +338,7 @@ test("errands service: the ledger mirror is called at the queuing (limits), the 
     await errands.idle();
     // After its end, a late progress is not mirrored.
     for (const fn of listeners) fn({ agent: 'scout', id: done, step: 3, tool: null, note: '' });
-    const cancelled = errands.submit(ask('scout')).task.id;
+    const cancelled = errands.submit(ask('scout')).errand.id;
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(errands.cancel({ guildId: 'g1', id: cancelled, by: 'owner' }).ok, true);
     await errands.idle();
@@ -367,16 +367,16 @@ test("errands service: at start the open tasks without a ledger id are mirrored,
   const dataDir = path.join(rootDir, 'data');
   try {
     // Before the restart: two open tasks, one of them already mirrored.
-    const before = createTaskStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: fakeLog() }).get(
+    const before = createErrandStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: fakeLog() }).get(
       'g1'
     );
-    const first = before.add(ask('scout')).task.id;
-    const second = before.add(ask('scout')).task.id;
+    const first = before.add(ask('scout')).errand.id;
+    const second = before.add(ask('scout')).errand.id;
     before.start(second);
     before.setLedgerId(second, 'L5');
     await before.flush();
     const ledger = fakeMirror();
-    const stores = createTaskStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: fakeLog() });
+    const stores = createErrandStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: fakeLog() });
     const errands = createErrandService({
       client: fakeClient(),
       stores,
@@ -414,7 +414,7 @@ test("errands service: at start the open tasks without a ledger id are mirrored,
       defer: (fn) => fn(),
       ledger: throwing,
     });
-    const id = other.submit(ask('scout')).task.id;
+    const id = other.submit(ask('scout')).errand.id;
     await other.idle();
     assert.equal(stores.get('g1').get(id).state, 'done');
     assert.ok(log.calls.some((call) => call.msg === 'errands: ledger mirror failed' && call.fields.id === id));
@@ -481,7 +481,7 @@ test('errands service: with the runner socket absent the flag goes down, submit 
   let clock = 1_000_000;
   const log = fakeLog();
   const client = createErrandClient({ hot, log, setTimer: (fn, ms) => setTimeout(fn, Math.max(ms, 60_000)) });
-  const stores = createTaskStores({ memoryDb: memoryOf(path.join(rootDir, 'data')), config: () => hot.config, log });
+  const stores = createErrandStores({ memoryDb: memoryOf(path.join(rootDir, 'data')), config: () => hot.config, log });
   const errands = createErrandService({ client, stores, hot, getGuildId: () => 'g1', log, now: () => clock });
   let runner = null;
   try {
@@ -511,7 +511,7 @@ test('errands service: with the runner socket absent the flag goes down, submit 
     const queued = errands.submit(ask('scout'));
     assert.equal(queued.ok, true);
     assert.equal(errands.store('g1').recent(10).length, 1);
-    errands.cancel({ guildId: 'g1', id: queued.task.id, by: 'owner' });
+    errands.cancel({ guildId: 'g1', id: queued.errand.id, by: 'owner' });
   } finally {
     client.close();
     await errands.idle();
@@ -534,7 +534,7 @@ test("errands service: the connect loop's outcomes set the flag; start pings the
   };
   const rootDir = tempDir('nep-errands-service-');
   const hot = { config: { errands: { maxOpen: 3 }, agents: { scout: { enabled: true, daily: { tasks: 10 } } } } };
-  const stores = createTaskStores({ memoryDb: memoryOf(path.join(rootDir, 'data')), config: () => hot.config, log });
+  const stores = createErrandStores({ memoryDb: memoryOf(path.join(rootDir, 'data')), config: () => hot.config, log });
   const errands = createErrandService({ client, stores, hot, getGuildId: () => 'g1', log, defer: (fn) => fn() });
   try {
     errands.start('g1');
@@ -569,7 +569,7 @@ test("errands service: the connect loop's outcomes set the flag; start pings the
 
 /** A store with one finished task of `agent` (done), asked in `scope`. */
 function finishedTask(store, { scope = 'group', channelId = 'c1', result = { text: 'found it' } } = {}) {
-  const id = store.add({ ...ask('scout'), scope, origin: { channelId, messageId: 'm1' } }).task.id;
+  const id = store.add({ ...ask('scout'), scope, origin: { channelId, messageId: 'm1' } }).errand.id;
   store.start(id);
   store.finish(id, { status: 'done', result, usage: { usd: 0.01 } });
   return id;
@@ -579,7 +579,7 @@ test('errands service: view lists the open tasks, then the unread finished ones;
   const rootDir = tempDir('nep-errands-service-');
   const hot = { config: { errands: { maxOpen: 5 }, agents: { scout: { enabled: true, daily: { tasks: 10 } } } } };
   try {
-    const stores = createTaskStores({
+    const stores = createErrandStores({
       memoryDb: memoryOf(path.join(rootDir, 'data')),
       config: () => hot.config,
       log: fakeLog(),
@@ -595,7 +595,7 @@ test('errands service: view lists the open tasks, then the unread finished ones;
     const store = stores.get('g1');
     const a = finishedTask(store);
     const b = finishedTask(store);
-    const open = store.add(ask('scout')).task.id;
+    const open = store.add(ask('scout')).errand.id;
     assert.deepEqual(
       errands.view({ guildId: 'g1' }).map((task) => task.id),
       [open, a, b]
@@ -628,7 +628,7 @@ test("errands service: a private chat's unread result is in the view only in tha
   const hot = { config: { errands: { maxOpen: 5 }, agents: { scout: { enabled: true, daily: { tasks: 10 } } } } };
   const dataDir = path.join(rootDir, 'data');
   try {
-    const stores = createTaskStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: fakeLog() });
+    const stores = createErrandStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: fakeLog() });
     const errands = createErrandService({
       client: fakeClient(),
       stores,
@@ -652,7 +652,9 @@ test("errands service: a private chat's unread result is in the view only in tha
       [group]
     );
     await stores.get('g1').flush();
-    const again = createTaskStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: fakeLog() }).get('g1');
+    const again = createErrandStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: fakeLog() }).get(
+      'g1'
+    );
     assert.deepEqual(
       again.unread().map((task) => task.id),
       [dm, group]
@@ -665,7 +667,7 @@ test("errands service: a private chat's unread result is in the view only in tha
     }
     list.errands[0].seen = true;
     await memoryOf(dataDir).writeUnit({ op: 'value', owner: 'guilds/g1/errands.json', value: list });
-    const legacy = createTaskStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: fakeLog() }).get(
+    const legacy = createErrandStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: fakeLog() }).get(
       'g1'
     );
     assert.deepEqual(
@@ -682,17 +684,17 @@ test('errands service: at start the finished errands whose result turn never ran
   const hot = { config: { errands: { maxOpen: 5 }, agents: { scout: { enabled: true, daily: { tasks: 10 } } } } };
   const dataDir = path.join(rootDir, 'data');
   try {
-    const before = createTaskStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: fakeLog() }).get(
+    const before = createErrandStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: fakeLog() }).get(
       'g1'
     );
     const unseen = finishedTask(before);
     const seen = finishedTask(before);
     before.markSeen(seen);
-    const running = before.add(ask('scout')).task.id;
+    const running = before.add(ask('scout')).errand.id;
     before.start(running);
     await before.flush();
     const reopened = [];
-    const stores = createTaskStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: fakeLog() });
+    const stores = createErrandStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: fakeLog() });
     const errands = createErrandService({
       client: fakeClient(),
       stores,
@@ -724,7 +726,7 @@ test("errands service: the file of an expired task is a marker, not a path; a pr
   fs.mkdirSync(out, { recursive: true });
   const hot = { config: { errands: { maxOpen: 5 }, agents: { scout: { enabled: true, out, daily: { tasks: 10 } } } } };
   try {
-    const stores = createTaskStores({
+    const stores = createErrandStores({
       memoryDb: memoryOf(path.join(rootDir, 'data')),
       config: () => hot.config,
       log: fakeLog(),

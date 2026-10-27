@@ -20,7 +20,7 @@ import { createJournal } from '../src/memory/journal.js';
 import { createArchive } from '../src/memory/archive.js';
 import { createStore } from '../src/memory/store.js';
 import { createIntentionStore } from '../src/intentions/store.ts';
-import { createTaskStore } from '../src/errands/store.ts';
+import { createErrandStore } from '../src/errands/store.ts';
 import { touchMemory } from '../src/memory/update.js';
 import { CHANNEL, GUILD, MEMBER, buildDataDir } from './fixtures/memory-db/datadir.js';
 import { createUnitOutbox } from '../src/memory/db/unit-outbox.js';
@@ -134,7 +134,7 @@ function modules(data, { log = quiet, memoryDb = null } = {}) {
       memoryDb: service,
     }));
   const tasks = () =>
-    (lazy.tasks ??= createTaskStore({
+    (lazy.tasks ??= createErrandStore({
       dataDir: data,
       guildId: GUILD,
       now: () => NOW,
@@ -232,8 +232,8 @@ async function day(m) {
     scope: 'group',
   });
   if (!task.ok) throw new Error(`task add: ${task.code}`);
-  tasks.start(task.task.id);
-  tasks.finish(task.task.id, {
+  tasks.start(task.errand.id);
+  tasks.finish(task.errand.id, {
     status: 'done',
     result: { text: 'nine to five', sources: [], files: [] },
     usage: { input: 1, output: 1, usd: 0, steps: 1, seconds: 1 },
@@ -567,16 +567,16 @@ test('a task transition or an intention whose write committed and whose answer w
         scope: 'group',
       });
       await settle();
-      tasks.start(added.task.id);
+      tasks.start(added.errand.id);
       await settle();
-      tasks.finish(added.task.id, {
+      tasks.finish(added.errand.id, {
         status: 'done',
         result: { text: 'found', sources: [], files: [] },
         usage: { input: 0, output: 0, usd: 0, steps: 1, seconds: 1 },
       });
       // Retried until nothing waits (each retry sends the same lines again).
       for (let round = 0; round < 6 && (await tasks.flush()).waiting > 0; round += 1) await settle();
-      return added.task.id;
+      return added.errand.id;
     };
     const control = await run(0);
     const faulted = await run(3);

@@ -19,7 +19,7 @@ import {
   simulateCall,
   skillScenarioRequest,
 } from '../src/behavior/sandbox.js';
-import { createTaskStore, parseFileHandle } from '../src/errands/store.ts';
+import { createErrandStore, parseFileHandle } from '../src/errands/store.ts';
 import {
   parseScenarios,
   guildListing,
@@ -202,7 +202,7 @@ test('replay --skills: errand.run passes the sandbox gateway under the live erra
   const dataDir = scratchData(t, { tasks: [ended('w1', 'scout'), ended('s1', 'server')] });
   const before = treeOf(dataDir);
   const tasks = sandboxErrandBudget({
-    createTaskStore,
+    createErrandStore,
     memoryDb: MEMORY.get(dataDir),
     guildId: GUILD,
     config: () => config,
@@ -229,7 +229,7 @@ test('replay --skills: errand.run passes the sandbox gateway under the live erra
   // The caps are read at the moment of use: a lower scout cap refuses it the next time.
   const lowered = scenarioConfig(['errand.run'], { agents: { scout: { daily: { tasks: 1 } } } });
   const live = sandboxErrandBudget({
-    createTaskStore,
+    createErrandStore,
     memoryDb: MEMORY.get(dataDir),
     guildId: GUILD,
     config: () => lowered,
@@ -242,7 +242,7 @@ test('replay --skills: errand.run passes the sandbox gateway under the live erra
     tasks: ['a', 'b', 'c'].map((id) => ({ id, agent: 'scout', goal: 'x', state: 'running' })),
   });
   const busy = sandboxErrandBudget({
-    createTaskStore,
+    createErrandStore,
     memoryDb: MEMORY.get(busyDir),
     guildId: GUILD,
     config: () => config,
@@ -256,7 +256,7 @@ test('replay --skills: errand.run passes the sandbox gateway under the live erra
   // A guild without tasks.json starts empty: nothing spent, and no file appears.
   const emptyDir = scratchData(t, null);
   const empty = sandboxErrandBudget({
-    createTaskStore,
+    createErrandStore,
     memoryDb: MEMORY.get(emptyDir),
     guildId: GUILD,
     config: () => config,
@@ -340,7 +340,7 @@ test('scenarioTask: the errand as the store keeps a finished task; its files res
   const fileOf = scenarioFileOf(task, parseFileHandle);
   const found = fileOf(`file:${task.id}/programme.pdf`);
   assert.deepEqual(
-    [found.name, found.contentType, found.bytes, found.task.id],
+    [found.name, found.contentType, found.bytes, found.errand.id],
     ['programme.pdf', 'application/pdf', 2048, task.id]
   );
   assert.equal(fileOf(`file:${task.id}/other.pdf`), null);
@@ -401,7 +401,7 @@ test("replay --skills taskResult: the turn an errand's end opens; her message.cr
   const dataDir = scratchData(t, { tasks: [] });
   const before = treeOf(dataDir);
   const tasks = sandboxErrandBudget({
-    createTaskStore,
+    createErrandStore,
     memoryDb: MEMORY.get(dataDir),
     guildId: GUILD,
     config: () => config,

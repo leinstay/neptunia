@@ -11,8 +11,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createErrandService } from '../src/errands/service.ts';
-import { createTaskStores } from '../src/errands/store.ts';
-import { tasksBlockText } from '../src/errands/blocks.ts';
+import { createErrandStores } from '../src/errands/store.ts';
+import { errandsBlockText } from '../src/errands/blocks.ts';
 import { createInnerLife } from '../src/behavior/inner.js';
 import { wakeBlockText } from '../src/behavior/wake.js';
 import { createEventDoor } from '../src/interface/door.js';
@@ -283,7 +283,7 @@ async function start(dataDir: string) {
   fs.mkdirSync(path.join(out, 't0000000a'), { recursive: true });
   fs.writeFileSync(path.join(out, 't0000000a', 'a.txt'), 'pier');
   const config = (): Settings => ({ agents: { scout: { out } } });
-  const stores = createTaskStores({ config, memoryDb: memory.memoryDb, now: () => NOW, log: SILENT });
+  const stores = createErrandStores({ config, memoryDb: memory.memoryDb, now: () => NOW, log: SILENT });
   const hot = { config: { features: { intentions: true }, bot: { timezone: 'UTC' }, agents: { scout: { out } } } };
   const finished: Called = [];
   const errands = createErrandService({
@@ -305,7 +305,7 @@ async function start(dataDir: string) {
   const intentions = createIntentionService({
     stores: intentionStores,
     hot,
-    tasks: errands,
+    errands,
     getGuildId: () => GUILD,
     now: () => NOW,
     log: SILENT,
@@ -351,8 +351,8 @@ test('the errand store lists the three errands and resolves a file handle of the
 test('the <errands> and <intentions> texts of the migrated records equal the texts built from the seeded values', async () => {
   const run = await start(seededDataDir());
   try {
-    const live = tasksBlockText(run.storeOf().recent(100), SHIPPED_LABELS, { now: NOW });
-    const seeded = tasksBlockText([READ, UNREAD, RUNNING].slice().reverse(), SHIPPED_LABELS, { now: NOW });
+    const live = errandsBlockText(run.storeOf().recent(100), SHIPPED_LABELS, { now: NOW });
+    const seeded = errandsBlockText([READ, UNREAD, RUNNING].slice().reverse(), SHIPPED_LABELS, { now: NOW });
     assert.equal(live, seeded);
     assert.equal(live.includes('t0000000b'), true, 'the unread result is listed');
     const records = run.intentions.list(GUILD, { all: true });

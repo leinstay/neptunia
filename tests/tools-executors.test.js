@@ -552,7 +552,7 @@ test('resolveCall and executeCall: a file handle of one of her errands attaches 
   assert.equal(refusalStatus('unknown-file'), 'invalid', 'a call that was not right');
   assert.equal(resolve('message.create', { file: known }, 'βρήκα').code, 'unknown-file', 'no errands in view, no file');
   const expired = resolve('message.create', { file: 'file:tab1/old.png' }, 'βρήκα', {
-    fileOf: (handle) => (handle === 'file:tab1/old.png' ? { expired: true, task: { id: 'tab1' } } : null),
+    fileOf: (handle) => (handle === 'file:tab1/old.png' ? { expired: true, errand: { id: 'tab1' } } : null),
   });
   assert.deepEqual(
     [expired.ok, expired.code, expired.reason],
@@ -599,7 +599,7 @@ test('resolveCall and executeCall: a file handle of one of her errands attaches 
 test("resolveCall: an errand's file goes to the channel the errand was asked in, elsewhere only to a channel its goal or the trigger names", async () => {
   const handle = 'file:tab2/meme.png';
   const task = (goal) => ({ id: 'tab2', goal, origin: { channelId: HERE, messageId: '1001' } });
-  const fileOf = (goal) => (given) => (given === handle ? { name: 'meme.png', task: task(goal) } : null);
+  const fileOf = (goal) => (given) => (given === handle ? { name: 'meme.png', errand: task(goal) } : null);
   const here = { fileOf: fileOf('φέρε μια εικόνα εδώ') };
   // To the origin channel (the result turn's own): passes.
   const origin = resolve('message.create', { file: handle, channel: '#γενικά' }, 'βρήκα', here);
@@ -652,7 +652,7 @@ test("resolveCall: an errand's file goes to the channel the errand was asked in,
   const errands = {
     fileOf: ({ handle: given }) =>
       given === handle
-        ? { path: filePath, name: 'meme.png', contentType: 'image/png', bytes: 3, task: task('') }
+        ? { path: filePath, name: 'meme.png', contentType: 'image/png', bytes: 3, errand: task('') }
         : null,
   };
   const { admin, port } = makeAdmin({ extra: { errands } });

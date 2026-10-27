@@ -45,7 +45,7 @@
 // turn run for it. A task-result scenario hands in a finished errand of hers
 // (`taskResult`, a task as src/errands/store.ts keeps one): the turn its end
 // opens is built as src/errands/turns.ts opens it -- trigger kind `errand`, the
-// `<errand_result>` block (src/errands/blocks.ts#taskResultText) -- and the
+// `<errand_result>` block (src/errands/blocks.ts#errandResultText) -- and the
 // caller resolves her calls with its files' handles (`file:<task id>/<name>`)
 // as a live turn does; the gateway reads an errand's budget through `tasks`
 // (simulateCall).
@@ -81,7 +81,7 @@ import { requestTokenLimit } from '../llm/budget.js';
 import { estimateMessages, estimateTools } from '../llm/tokens.js';
 import { isPlainObject } from '../config.js';
 import { utcDay } from '../time.js';
-import { DEFAULT_RESULT_MAX_CHARS, taskResultText } from '../errands/blocks.ts';
+import { DEFAULT_RESULT_MAX_CHARS, errandResultText } from '../errands/blocks.ts';
 import { CODE } from '../tools/codes.ts';
 
 // Token estimates taken as they are: the calibrator of a view built without a live one.
@@ -691,7 +691,7 @@ function sandboxChannels(given, view, channel) {
  * the view's stored channel map with the turn's channel (sandboxChannels). `taskResult`
  * (a finished task, as src/errands/store.ts keeps one) makes it the turn that errand's end
  * opens, as src/errands/turns.ts runs it: trigger kind `errand` whatever the mode, and `errands`
- * carrying its `<errand_result>` body (src/errands/blocks.ts#taskResultText, cut to
+ * carrying its `<errand_result>` body (src/errands/blocks.ts#errandResultText, cut to
  * `errands.resultMaxChars` read now) with no `<errands>` list -- a replay knows no other errand of
  * hers. `coreTools` (`{ recallAvailable, prefetch? }`, a skill scenario run with features.coreTools on)
  * hands in whether the server search could run (`recallAvailable`) and the automatic memory prefetch of
@@ -732,7 +732,7 @@ export function sandboxRequestInput({
   const memory = view.memory;
   // The turn an errand's end opens: its `<errand_result>` body, as src/behavior/turn.js#errandsInputFor renders it.
   const resultText = taskResult
-    ? taskResultText(taskResult, view.prompts?.labels, {
+    ? errandResultText(taskResult, view.prompts?.labels, {
         maxChars: config.errands?.resultMaxChars ?? DEFAULT_RESULT_MAX_CHARS,
       })
     : '';

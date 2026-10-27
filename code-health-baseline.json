@@ -303,7 +303,7 @@
       }
     },
     "src/errands/blocks.ts": {
-      "taskResultText": {
+      "errandResultText": {
         "complexity": 25
       }
     },
@@ -326,7 +326,7 @@
       }
     },
     "src/errands/store.ts": {
-      "createTaskStore": {
+      "createErrandStore": {
         "function-length": 547
       }
     },

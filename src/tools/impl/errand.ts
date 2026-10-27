@@ -4,17 +4,17 @@
 // is on (rights.member); the rest is ruled here, for every caller alike -- the owner's command,
 // a member's, and the persona's own call (her skills: the requester of her turn is the caller).
 // `errand.run` with `agent: server` reads this machine, so only an owner may ask for it
-// (`owner-only`); `agent: scout` is any member's. A task asked in a private chat is `dm`-scoped,
+// (`owner-only`); `agent: scout` is any member's. An errand asked in a private chat is `dm`-scoped,
 // else `group`, and the runner withholds more in a filtered scope. `errand.run` answers at once
 // with the id and `queued`: the errand runs in the background (src/errands/service.ts) and its
-// end opens her own turn where it was asked. `errand.cancel` is for the requester of the task or an
-// owner; `errand.status` and `errand.list` show a private chat's tasks only to their requester or an
-// owner. A finished task's result stays until she has read it: `errand.status` without an id lists the
-// open tasks and the finished ones not read yet; `errand.read id [from]` returns the whole result in
+// end opens her own turn where it was asked. `errand.cancel` is for the requester of the errand or an
+// owner; `errand.status` and `errand.list` show a private chat's errands only to their requester or an
+// owner. A finished errand's result stays until she has read it: `errand.status` without an id lists the
+// open errands and the finished ones not read yet; `errand.read id [from]` returns the whole result in
 // pages of `errands.resultMaxChars` (the error, the sources and the files with their handles and
-// whether they expired come with the first page) and marks the task read when its last page is
-// returned; `errand.resolve id` closes a finished task (read too). Both follow the same view rule. Answers are operator lines (ids, agents, states, ages), the goal cut to one short line;
-// `errand.status` of one task adds `ledger: <id>` when the task is mirrored into the ledger. A
+// whether they expired come with the first page) and marks the errand read when its last page is
+// returned; `errand.resolve id` closes a finished errand (read too). Both follow the same view rule. Answers are operator lines (ids, agents, states, ages), the goal cut to one short line;
+// `errand.status` of one errand adds `ledger: <id>` when the errand is mirrored into the ledger. A
 // `errand.run` of her turn links the intentions of that turn waiting for its errand (src/intentions/).
 
 import { isOwnerId } from './grants.ts';
@@ -29,12 +29,12 @@ import { idText, textOf } from '../types.ts';
 import type { Obj, OpContext } from '../types.ts';
 import type { ErrandRecord, ErrandService } from '../../errands/types.ts';
 
-/** How many tasks `errand.list` shows. */
-export const TASK_LIST_COUNT = 10;
+/** How many errands `errand.list` shows. */
+export const ERRAND_LIST_COUNT = 10;
 /** The goal's length in an answer line (characters). */
 const GOAL_LINE_CHARS = 80;
 
-/** The refusal codes of the task store and service, as an operation's status. */
+/** The refusal codes of the errand store and service, as an operation's status. */
 const REFUSALS = Object.freeze({
   [CODE.CAP_OPEN]: 'failed',
   [CODE.CAP_TASKS]: 'failed',
@@ -72,27 +72,27 @@ const handlers = perEnv((env) => {
     return context?.channelId ? env.directory.isPrivate(idText(context.channelId)) : false;
   }
 
-  /** Whether the caller may see `task`: a group task anyone; a private chat's only its requester or an owner. */
-  function mayView(task: ErrandRecord, context: OpContext): boolean {
-    if (task.scope !== 'dm') return true;
-    return ownerCalls(context) || (Boolean(context?.userId) && idText(context.userId) === task.requester?.userId);
+  /** Whether the caller may see `errand`: a group errand anyone; a private chat's only its requester or an owner. */
+  function mayView(errand: ErrandRecord, context: OpContext): boolean {
+    if (errand.scope !== 'dm') return true;
+    return ownerCalls(context) || (Boolean(context?.userId) && idText(context.userId) === errand.requester?.userId);
   }
 
-  /** One line of a task: id, agent, state (with the error code and `files-expired`), age, goal. */
-  function taskLine(task: ErrandRecord): string {
-    const minutes = Math.max(0, Math.floor((now() - (task.createdAt ?? now())) / MINUTE_MS));
+  /** One line of an errand: id, agent, state (with the error code and `files-expired`), age, goal. */
+  function errandLine(errand: ErrandRecord): string {
+    const minutes = Math.max(0, Math.floor((now() - (errand.createdAt ?? now())) / MINUTE_MS));
     const codes = [
-      ...(task.error && task.state !== 'done' ? [task.error] : []),
-      ...(task.filesExpired === true ? ['files-expired'] : []),
+      ...(errand.error && errand.state !== 'done' ? [errand.error] : []),
+      ...(errand.filesExpired === true ? ['files-expired'] : []),
     ];
-    const state = codes.length > 0 ? `${task.state} (${codes.join(', ')})` : task.state;
-    return `${task.id} ${task.agent} ${state} ${minutes}m: ${clampWithEllipsis(oneLine(task.goal), GOAL_LINE_CHARS)}`;
+    const state = codes.length > 0 ? `${errand.state} (${codes.join(', ')})` : errand.state;
+    return `${errand.id} ${errand.agent} ${state} ${minutes}m: ${clampWithEllipsis(oneLine(errand.goal), GOAL_LINE_CHARS)}`;
   }
 
   /** A refusal of the store or the service as the operation's result. */
-  function refusal(code: string, task?: ErrandRecord): Obj {
+  function refusal(code: string, errand?: ErrandRecord): Obj {
     const status = REFUSALS[code] ?? 'failed';
-    return { status, code, summary: `task not started: ${code}`, data: task ? { task } : null };
+    return { status, code, summary: `task not started: ${code}`, data: errand ? { task: errand } : null };
   }
 
   /** `/nep task run agent goal`: a new errand, answered at once with its id and `queued`. */
@@ -125,86 +125,88 @@ const handlers = perEnv((env) => {
       idempotencyKey,
     });
     if (!submitted.ok) return refusal(submitted.code);
-    const { task } = submitted;
+    const { errand } = submitted;
     // An intention of the same turn waiting for the errand it hands off is linked to it now
-    // (src/intentions/service.ts#linkTurnTask); a refused errand above links nothing.
+    // (src/intentions/service.ts#linkTurnErrand); a refused errand above links nothing.
     if (origin.turnId)
-      env.intentions?.linkTurnTask?.(resolvedGuildId(context), { turnId: origin.turnId, taskId: task.id });
+      env.intentions?.linkTurnErrand?.(resolvedGuildId(context), { turnId: origin.turnId, errandId: errand.id });
     return {
       status: 'ok',
       code: CODE.OK,
-      summary: `task ${task.id}: queued (${agent})`,
-      data: { text: `task ${task.id}: queued (${agent})`, task: { id: task.id, agent, state: task.state } },
+      summary: `task ${errand.id}: queued (${agent})`,
+      data: { text: `task ${errand.id}: queued (${agent})`, task: { id: errand.id, agent, state: errand.state } },
     };
   }
 
-  /** `/nep task status [id]`: one task, or every open one. */
+  /** `/nep task status [id]`: one errand, or every open one. */
   function cmdStatus(args: Obj, context: OpContext) {
     const store = errands().store(resolvedGuildId(context));
     if (!store) throw Object.assign(new Error('no guild'), { code: CODE.NO_GUILD });
     const id = textOf(args.id).trim();
     if (id) {
-      const task = store.get(id);
-      if (!task || !mayView(task, context)) throw invalid(`no task ${id}`, CODE.NOT_FOUND);
-      const lines = [taskLine(task)];
-      if (task.state === 'done' && task.result) {
+      const errand = store.get(id);
+      if (!errand || !mayView(errand, context)) throw invalid(`no task ${id}`, CODE.NOT_FOUND);
+      const lines = [errandLine(errand)];
+      if (errand.state === 'done' && errand.result) {
         lines.push(
-          `result: ${task.result.text ? `${task.result.text.length} chars` : 'empty'}, ${task.result.sources?.length ?? 0} sources, ${task.result.files?.length ?? 0} files`
+          `result: ${errand.result.text ? `${errand.result.text.length} chars` : 'empty'}, ${errand.result.sources?.length ?? 0} sources, ${errand.result.files?.length ?? 0} files`
         );
       }
-      if (task.usage)
+      if (errand.usage)
         lines.push(
-          `usage: ${task.usage.steps ?? 0} steps, ${(task.usage.usd ?? 0).toFixed(3)} USD, ${Math.round(task.usage.seconds ?? 0)} s`
+          `usage: ${errand.usage.steps ?? 0} steps, ${(errand.usage.usd ?? 0).toFixed(3)} USD, ${Math.round(errand.usage.seconds ?? 0)} s`
         );
-      // The ledger's id of the task's mirror (src/errands/ledger.ts), when it has one.
-      if (task.ledgerId) lines.push(`ledger: ${task.ledgerId}`);
+      // The ledger's id of the errand's mirror (src/errands/ledger.ts), when it has one.
+      if (errand.ledgerId) lines.push(`ledger: ${errand.ledgerId}`);
       return lines.join('\n');
     }
-    // The open tasks, then the finished ones she has not read (their result is still waiting).
-    const listed = [...store.open(), ...store.unread()].filter((task) => mayView(task, context));
+    // The open errands, then the finished ones she has not read (their result is still waiting).
+    const listed = [...store.open(), ...store.unread()].filter((errand) => mayView(errand, context));
     return listed.length > 0
-      ? listed.map((task) => (isOpenState(task.state) ? taskLine(task) : `${taskLine(task)} (unread)`)).join('\n')
+      ? listed
+          .map((errand) => (isOpenState(errand.state) ? errandLine(errand) : `${errandLine(errand)} (unread)`))
+          .join('\n')
       : 'no open tasks';
   }
 
-  /** A finished task of the caller's view, or an `invalid` error: not found, not viewable, still open. */
-  function finishedTask(args: Obj, context: OpContext) {
+  /** A finished errand of the caller's view, or an `invalid` error: not found, not viewable, still open. */
+  function finishedErrand(args: Obj, context: OpContext) {
     const store = errands().store(resolvedGuildId(context));
     if (!store) throw Object.assign(new Error('no guild'), { code: CODE.NO_GUILD });
     const id = textOf(args.id).trim();
     if (!id) throw invalid('an id is required');
-    const task = store.get(id);
-    if (!task || !mayView(task, context)) throw invalid(`no task ${id}`, CODE.NOT_FOUND);
-    if (isOpenState(task.state)) throw invalid(`task ${id} is still ${task.state}`);
-    return { store, task };
+    const errand = store.get(id);
+    if (!errand || !mayView(errand, context)) throw invalid(`no task ${id}`, CODE.NOT_FOUND);
+    if (isOpenState(errand.state)) throw invalid(`task ${id} is still ${errand.state}`);
+    return { store, errand };
   }
 
-  /** `errand.read id [from]`: a finished task's result in a page of `errands.resultMaxChars` characters. */
+  /** `errand.read id [from]`: a finished errand's result in a page of `errands.resultMaxChars` characters. */
   function cmdRead(args: Obj, context: OpContext) {
-    const { store, task } = finishedTask(args, context);
+    const { store, errand } = finishedErrand(args, context);
     const configured = hot.config?.errands?.resultMaxChars;
     const page = Number.isInteger(configured) && configured > 0 ? configured : DEFAULT_RESULT_MAX_CHARS;
-    const text = typeof task.result?.text === 'string' ? task.result.text : '';
+    const text = typeof errand.result?.text === 'string' ? errand.result.text : '';
     const from = args.from === undefined || args.from === null || args.from === '' ? 0 : Number(args.from);
     if (!Number.isInteger(from) || from < 0 || (from > 0 && from >= text.length))
       throw invalid(`from must be between 0 and ${Math.max(0, text.length - 1)}`);
     const to = Math.min(text.length, from + page);
-    const lines = [taskLine(task)];
+    const lines = [errandLine(errand)];
     if (from === 0) {
-      if (task.error && task.state !== 'done') lines.push(`error: ${task.error}`);
-      const listedSources = task.result?.sources;
+      if (errand.error && errand.state !== 'done') lines.push(`error: ${errand.error}`);
+      const listedSources = errand.result?.sources;
       const sources = Array.isArray(listedSources)
         ? listedSources.filter((url) => typeof url === 'string' && url !== '')
         : [];
       for (const [i, url] of sources.entries()) lines.push(`source ${i + 1}: ${url}`);
-      const listedFiles = task.result?.files;
+      const listedFiles = errand.result?.files;
       for (const file of Array.isArray(listedFiles) ? listedFiles : []) {
         if (!file || typeof file.name !== 'string') continue;
         const meta = `${file.contentType || '-'}, ${Number(file.bytes) || 0} bytes`;
         lines.push(
-          task.filesExpired === true
+          errand.filesExpired === true
             ? `file: ${file.name} (${meta}) expired, no handle`
-            : `file: ${fileHandle(task.id, file.name)} (${meta})`
+            : `file: ${fileHandle(errand.id, file.name)} (${meta})`
         );
       }
     }
@@ -213,28 +215,28 @@ const handlers = perEnv((env) => {
     const more = to < text.length;
     if (more) lines.push(`next: from=${to}`);
     // Read when the last page is in her hands.
-    else store.markRead(task.id);
+    else store.markRead(errand.id);
     return lines.join('\n');
   }
 
-  /** `errand.resolve id`: a finished task closed, its result dealt with. */
+  /** `errand.resolve id`: a finished errand closed, its result dealt with. */
   function cmdResolve(args: Obj, context: OpContext) {
-    const { store, task } = finishedTask(args, context);
-    store.resolve(task.id);
-    store.markRead(task.id);
-    return `task ${task.id}: resolved`;
+    const { store, errand } = finishedErrand(args, context);
+    store.resolve(errand.id);
+    store.markRead(errand.id);
+    return `task ${errand.id}: resolved`;
   }
 
-  /** `/nep task cancel id`: for the requester of the task or an owner. */
+  /** `/nep task cancel id`: for the requester of the errand or an owner. */
   function cmdCancel(args: Obj, context: OpContext) {
     const id = textOf(args.id).trim();
     if (!id) throw invalid('an id is required');
     const service = errands();
     const store = service.store(resolvedGuildId(context));
-    const task = store?.get(id) ?? null;
-    if (!task || !mayView(task, context)) throw invalid(`no task ${id}`, CODE.NOT_FOUND);
-    const own = Boolean(context?.userId) && idText(context.userId) === task.requester?.userId;
-    const hers = context?.actor === 'persona' && task.requester?.kind === 'persona';
+    const errand = store?.get(id) ?? null;
+    if (!errand || !mayView(errand, context)) throw invalid(`no task ${id}`, CODE.NOT_FOUND);
+    const own = Boolean(context?.userId) && idText(context.userId) === errand.requester?.userId;
+    const hers = context?.actor === 'persona' && errand.requester?.kind === 'persona';
     if (!ownerCalls(context) && !own && !hers)
       throw denied('only the requester of the task or an owner may cancel it', CODE.NOT_REQUESTER);
     // Who cancelled it, for the ledger's close reason.
@@ -244,21 +246,21 @@ const handlers = perEnv((env) => {
       return {
         status: 'failed',
         code: cancelled.code,
-        summary: `task ${id}: ${cancelled.code === CODE.NOT_OPEN ? `already ${task.state}` : cancelled.code}`,
+        summary: `task ${id}: ${cancelled.code === CODE.NOT_OPEN ? `already ${errand.state}` : cancelled.code}`,
         data: null,
       };
     return `task ${id}: cancelled`;
   }
 
-  /** `/nep task list`: the latest TASK_LIST_COUNT tasks, newest first. */
+  /** `/nep task list`: the latest ERRAND_LIST_COUNT errands, newest first. */
   function cmdList(args: Obj, context: OpContext) {
     const store = errands().store(resolvedGuildId(context));
     if (!store) throw Object.assign(new Error('no guild'), { code: CODE.NO_GUILD });
-    const tasks = store
-      .recent(TASK_LIST_COUNT * 3)
-      .filter((task) => mayView(task, context))
-      .slice(0, TASK_LIST_COUNT);
-    return tasks.length > 0 ? tasks.map((task) => taskLine(task)).join('\n') : 'no tasks yet';
+    const latest = store
+      .recent(ERRAND_LIST_COUNT * 3)
+      .filter((errand) => mayView(errand, context))
+      .slice(0, ERRAND_LIST_COUNT);
+    return latest.length > 0 ? latest.map((errand) => errandLine(errand)).join('\n') : 'no tasks yet';
   }
 
   return { cmdRun, cmdStatus, cmdCancel, cmdList, cmdRead, cmdResolve };

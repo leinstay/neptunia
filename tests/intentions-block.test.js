@@ -41,8 +41,8 @@ const at = (ts) => `${formatDate(ts, 'UTC')} ${formatClock(ts, 'UTC')}`;
 
 test('intentionsBlockText: active lines with due, wait, outcome and note, then the candidates with their line', () => {
   const pending = own('i1', { dueAt: T0 + HOUR, destination: 'c9' });
-  const waiting = waitOn(own('i2'), { taskId: 't7', deadline: T0 + 2 * HOUR, now: T0 }).intention;
-  const back = transition(waitOn(own('i3'), { taskId: 't8', deadline: T0 + HOUR, now: T0 }).intention, 'pending', {
+  const waiting = waitOn(own('i2'), { errandId: 't7', deadline: T0 + 2 * HOUR, now: T0 }).intention;
+  const back = transition(waitOn(own('i3'), { errandId: 't8', deadline: T0 + HOUR, now: T0 }).intention, 'pending', {
     now: T0 + HOUR,
     patch: { note: 'wait-deadline' },
   }).intention;
@@ -136,7 +136,7 @@ test('intentionsBlockText: an intention with no due time and no wait says so wit
   // Inside the notice window (2 days by default) a dated line, a waiting one and a recurring one show their expiry at the end.
   const soon = own('i3', { dueAt: T0 + HOUR, expiresAt: T0 + DAY, destination: 'c9' });
   const waiting = waitOn(own('i4', { expiresAt: T0 + 36 * HOUR }), {
-    taskId: 't7',
+    errandId: 't7',
     deadline: T0 + 2 * HOUR,
     now: T0,
   }).intention;

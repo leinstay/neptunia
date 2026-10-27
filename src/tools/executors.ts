@@ -45,7 +45,7 @@ export type CallView = {
   members?: ReadonlyArray<{ id: unknown; names?: ReadonlyArray<unknown>; aliases?: ReadonlyArray<{ name?: unknown }> }>;
   roles?: ReadonlyArray<{ id: unknown; name?: unknown }>;
   selfId?: string | null;
-  fileOf?: (handle: string) => { expired?: boolean; task?: Obj | null } | null;
+  fileOf?: (handle: string) => { expired?: boolean; errand?: Obj | null } | null;
   triggerText?: string | null;
   deletedIds?: ReadonlySet<string>;
 };
@@ -398,7 +398,7 @@ export function resolveCall(
           const file = typeof view?.fileOf === 'function' ? view.fileOf(text) : null;
           if (file?.expired) return refused(CODE.FILE_EXPIRED, option);
           if (!file) return refused(CODE.UNKNOWN_FILE, option);
-          if (file.task) errandFiles.push(file.task);
+          if (file.errand) errandFiles.push(file.errand);
           args[option] = text;
           break;
         }

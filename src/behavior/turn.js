@@ -65,7 +65,7 @@ import {
   renderGifLibrary,
 } from './gif-pick.js';
 import { turnRequestInput } from './turn-input.js';
-import { DEFAULT_RESULT_MAX_CHARS, tasksBlockText, taskResultText } from '../errands/blocks.ts';
+import { DEFAULT_RESULT_MAX_CHARS, errandsBlockText, errandResultText } from '../errands/blocks.ts';
 import { DEFAULT_INTENTIONS_CAP, intentionsBlockText } from '../intentions/blocks.ts';
 import { parseJsonObject, parseOutput } from '../llm/parse.js';
 import {
@@ -2204,9 +2204,9 @@ export function createTurnRunner({
    */
   function errandsInputFor({ guildId, channel, isPrivate, taskResult, config, labels, now }) {
     const listed = listedTasks({ guildId, channel, isPrivate, taskResult });
-    const list = tasksBlockText(listed, labels, { now, unreadShown: config.errands?.unreadShown });
+    const list = errandsBlockText(listed, labels, { now, unreadShown: config.errands?.unreadShown });
     const result = taskResult
-      ? taskResultText(taskResult, labels, { maxChars: config.errands?.resultMaxChars ?? DEFAULT_RESULT_MAX_CHARS })
+      ? errandResultText(taskResult, labels, { maxChars: config.errands?.resultMaxChars ?? DEFAULT_RESULT_MAX_CHARS })
       : '';
     return list || result ? { list, result } : null;
   }

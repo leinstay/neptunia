@@ -112,8 +112,8 @@ export type AddInput = {
 
 /** `add` and `submit` answer a queued errand, an errand already held under the key (`duplicate`), or a refusal. */
 export type AddResult =
-  | { ok: true; task: ErrandRecord; duplicate?: true; code?: undefined }
-  | { ok: false; code: string; task?: undefined; duplicate?: undefined };
+  | { ok: true; errand: ErrandRecord; duplicate?: true; code?: undefined }
+  | { ok: false; code: string; errand?: undefined; duplicate?: undefined };
 
 /** The runner's outcome of one run, as the store finishes an errand with it. */
 export type FinishOutcome = {
@@ -129,10 +129,10 @@ export type ErrandFileRef = {
   name: string;
   contentType: string;
   bytes: number;
-  task: ErrandRecord;
+  errand: ErrandRecord;
 };
 /** The marker for a handle whose files the runner has deleted (`file-expired`). */
-export type ExpiredFileRef = { expired: true; task: ErrandRecord };
+export type ExpiredFileRef = { expired: true; errand: ErrandRecord };
 
 /** What the store's `budget` says to the skills gateway. */
 export type Budget = { spent: boolean; key: string | null; code: string | null };
@@ -140,7 +140,7 @@ export type Budget = { spent: boolean; key: string | null; code: string | null }
 /** The writes still waiting for the memory database, and the ones kept in `memory-pending/`. */
 export type FlushCounts = { waiting: number; pending: number };
 
-/** The errands of one guild, in the memory database (src/errands/store.ts#createTaskStore). */
+/** The errands of one guild, in the memory database (src/errands/store.ts#createErrandStore). */
 export type ErrandStore = {
   add: (input: AddInput) => AddResult;
   start: (id: unknown) => ErrandRecord | null;
@@ -195,19 +195,19 @@ export type LedgerAddOptions = {
 /** What `mirrorOpen` is given: as `add`, with the limits and the id handler per errand. */
 export type MirrorOpenOptions = {
   guildId?: string;
-  limitsOf?: ((task: ErrandRecord) => Limits) | null;
-  onLedgerId?: ((task: ErrandRecord, ledgerId: string) => void) | null;
+  limitsOf?: ((errand: ErrandRecord) => Limits) | null;
+  onLedgerId?: ((errand: ErrandRecord, ledgerId: string) => void) | null;
 };
 
 /** The mirror of the errands into the ledger (src/errands/ledger.ts#createLedgerMirror). */
 export type LedgerMirror = {
   enabled: () => boolean;
-  add: (task: ErrandRecord, options?: LedgerAddOptions) => boolean;
-  start: (task: ErrandRecord, options?: { limits?: Limits; model?: string | null }) => boolean;
-  progress: (task: ErrandRecord) => boolean;
-  finish: (task: ErrandRecord, options?: { maxChars?: number }) => boolean;
-  cancel: (task: ErrandRecord, options?: { by?: string }) => boolean;
-  mirrorOpen: (tasks: Array<ErrandRecord>, options: MirrorOpenOptions) => number;
+  add: (errand: ErrandRecord, options?: LedgerAddOptions) => boolean;
+  start: (errand: ErrandRecord, options?: { limits?: Limits; model?: string | null }) => boolean;
+  progress: (errand: ErrandRecord) => boolean;
+  finish: (errand: ErrandRecord, options?: { maxChars?: number }) => boolean;
+  cancel: (errand: ErrandRecord, options?: { by?: string }) => boolean;
+  mirrorOpen: (errands: Array<ErrandRecord>, options: MirrorOpenOptions) => number;
   costs: (options?: { now?: number }) => Promise<LedgerCosts | null>;
   idle: () => Promise<void>;
   close: () => void;
@@ -259,7 +259,7 @@ export type ErrandClient = {
 /** What a caller of the service asks for. */
 export type SubmitInput = AddInput & { guildId?: string | null };
 export type CancelResult =
-  { ok: true; task: ErrandRecord | null; code?: undefined } | { ok: false; code: string; task?: ErrandRecord };
+  { ok: true; errand: ErrandRecord | null; code?: undefined } | { ok: false; code: string; errand?: ErrandRecord };
 export type IdsInput = { guildId?: string | null; ids?: ReadonlyArray<string> };
 
 /** The errands in the background (src/errands/service.ts#createErrandService). */
@@ -319,7 +319,7 @@ export type ErrandServiceOptions = {
     recentLines: (guildId: string, channelId: string, count: number) => Array<{ author?: unknown; text?: unknown }>;
   } | null;
   getGuildId?: () => string | null;
-  onFinished?: ((task: ErrandRecord, guildId: string) => unknown) | null;
+  onFinished?: ((errand: ErrandRecord, guildId: string) => unknown) | null;
   log?: Logger;
   defer?: (fn: () => unknown) => unknown;
   ledger?: LedgerMirror | null;
