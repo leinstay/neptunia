@@ -300,7 +300,7 @@ function extraOf(...extras) {
 
 /**
  * Choose which `labels.transcript.*` key (and fill values) renders one media
- * item, in priority order: described (the helper's caption, the only way a
+ * item, in priority order: described (the `vision` caption, the only way a
  * picture reaches the persona) > blind. `item` is a normalized attachment or
  * link/embed item (src/protocol/events.js#Message): `{ kind, name?, site?,
  * title?, text?, durationSec?, previewText? }`.

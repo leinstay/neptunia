@@ -1,4 +1,4 @@
-// Pure helpers for the measured audio map of a downloaded video clip. A video
+// Pure functions for the measured audio map of a downloaded video clip. A video
 // model told nothing about the sound tends to invent it for a clip with no
 // audio stream, a silent track or a mostly silent one; the fetcher
 // (src/media/fetch-video.js) therefore measures the clip it sends with one

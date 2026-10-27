@@ -92,7 +92,7 @@ export function createSpeech({
       prompt: getPrompts()['speech-prepare'],
       model: roleModel(config, 'analyzer', 'speech'),
       maxOutputTokens: config.speech?.prepareMaxOutputTokens,
-      timeoutMs: config.llm?.helperTimeoutMs,
+      timeoutMs: config.llm?.analyzerTimeoutMs,
     });
 
     if (!prepared.prepared) {

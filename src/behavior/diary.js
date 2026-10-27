@@ -588,7 +588,7 @@ function writable(channel) {
  * at a time. `force({ kind, topic })` runs one post now, outside the plan and
  * the quiet day, under the same rails; a topic (diaryTopic: one line, 1000
  * characters at most; blank is none) reaches the turn as `diary.topic`, and
- * no topic leaves the field out; while another turn holds the one attention
+ * no topic leaves the field out; while another turn holds the lease
  * (`turns.isAnyBusy()`, or a `busy` outcome) it waits for `turns.waitIdle()`
  * at most `diary.forceWaitMs` and posts then, `{ outcome: 'busy' }` when the
  * turn still runs. Hot values are read at every call.
@@ -797,7 +797,7 @@ export function createDiary({
     if (block) return { outcome: 'not-now', reason: block };
     await backfillOnce(channel, guildId, config);
     const params = { kind: typeof kind === 'string' && kind ? kind : null, topic: diaryTopic(topic), forced: true };
-    // One attention: a running turn is waited for (diary.forceWaitMs at most), once.
+    // One lease: a running turn is waited for (diary.forceWaitMs at most), once.
     let waited = false;
     if (turns.isAnyBusy?.() === true) {
       waited = true;

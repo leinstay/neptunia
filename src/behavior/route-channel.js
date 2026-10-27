@@ -9,7 +9,7 @@
 // sends the one request through the rails of src/llm/openrouter.js.
 
 import { log } from '../log.js';
-import { helperRequestOptions, railReason } from '../llm/openrouter.js';
+import { sideRequestOptions, railReason } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
 import { checkPull } from './pull-fetch.ts';
 import {
@@ -78,8 +78,8 @@ export function routeChannelOffer({
  * 'no-candidate'`) without a message to judge (routeCandidate); nothing (no
  * call, no log) when no stored channel other than this one (and the
  * candidate's own) passes checkPull -- a check that throws drops that
- * channel. Else one request on the `analyzer` helper model (roleModel), its answer capped at
- * `route.maxOutputTokens`, with the helper timeout, logged `route:
+ * channel. Else one request on the `analyzer` model role (roleModel), its answer capped at
+ * `route.maxOutputTokens`, with the analyzer timeout, logged `route:
  * classified` (`kind`, `channels` = the list length, `pick` = the channel id
  * or null, `parse` = the parse code, `direction`, `ms`). Resolves `[id]` for a
  * pick, `[{ id, direction: 'earlier' }]` for a pick that asks for the page
@@ -154,7 +154,7 @@ export function createChannelRouter({ hot, store, llm, now = Date.now }) {
       try {
         completion = await llm.complete(messages, {
           model: roleModel(config, 'analyzer', 'route-channel'),
-          ...helperRequestOptions(config, {
+          ...sideRequestOptions(config, {
             role: 'analyzer',
             maxOutputTokens: settings.maxOutputTokens,
             purpose: 'route-channel',

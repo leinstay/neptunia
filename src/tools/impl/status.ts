@@ -4,10 +4,10 @@
 // for the others. A member (anyone not in `bot.owners`) gets the card without the storage line,
 // the keys, costs, memory and speed fields. Every field lists one item per line; the state field ends
 // with the gateway and the uptime. The card keeps three groups, matching the model config: the base
-// (`models.base`, `keys.base`, `costs.base`: her core and organs), the errands (`models.errands`,
+// (`models.base`, `keys.base`, `costs.base`: her core and side roles), the errands (`models.errands`,
 // `costs.errands`: the delegated agents) and the development agents (`models.development`,
 // `costs.development`: outside her). The models sit in three fields, one line per role, `<role> · <model> ...`:
-// `models.base` (core, memory, then the helpers analyzer, vision, video, embedding, speech, then drawing),
+// `models.base` (core, memory, then the side roles analyzer, vision, video, embedding, speech, then drawing),
 // `models.errands` (scout, server) and `models.development` (thinker, dev), which an OpenCode worker runs,
 // so they are never probed. The owner's card probes on every call: one minimal chat completion per
 // distinct chat model and route (`labels.status.probe`, `llm.probeTimeoutMs`, never counted

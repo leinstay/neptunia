@@ -1,7 +1,7 @@
 // The recall runner: the server part of a lookup. When the lookup classifier
 // names word forms, name forms or a date range (src/behavior/recall.js
 // parseLookupAnswer), this module searches the server's own history through
-// the interface's message search (reads.searchMessages) and has one helper request
+// the interface's message search (reads.searchMessages) and has one analyzer request
 // (prompts/recall-summary.md) say what that history answers, optionally
 // singling out one stretch the persona gets verbatim. Steps: the people the
 // name forms point at (stored profiles, the interface's member search for a Latin
@@ -67,7 +67,7 @@
 // it is memory about real people, kept under data/ only.
 
 import { log } from '../log.js';
-import { helperRequestOptions, railReason } from '../llm/openrouter.js';
+import { sideRequestOptions, railReason } from '../llm/openrouter.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { foldText, liveRecent, recentSettings } from '../memory/recent.js';
 import { DAY_MS, bumpDaily, countToday } from '../time.js';
@@ -291,7 +291,7 @@ function traceRecordWindow(window) {
  * `answer` `text` | `nothing` | `fallback` (null when no summary was asked
  * or reached), `stretch` null or `{ n, channelId, channelName, lines }` (the
  * `<found>` section number and the very lines the persona gets), `text` the
- * summary's text, `note` the helper's whole answer as written (null without
+ * summary's text, `note` the analyzer's whole answer as written (null without
  * one). `lookupChars`: the characters the run hands to the turn (the text and
  * the stretch lines; the turn's own labels around them not counted).
  * `skipped`: the reason code of a run skipped before its summary (a gate of
@@ -1716,7 +1716,7 @@ export function createRecall({
     try {
       completion = await llm.complete(messages, {
         model: roleModel(config, 'analyzer', 'recall-summary'),
-        ...helperRequestOptions(config, {
+        ...sideRequestOptions(config, {
           role: 'analyzer',
           maxOutputTokens: settings.maxOutputTokens,
           purpose: 'recall-summary',
@@ -1788,9 +1788,9 @@ export function createRecall({
    * (fallbackWindow), `stats.summary` `failed` | `timeout` | `skipped`, and
    * logs `recall: summary` with `answer: 'fallback'`; an answered summary
    * sets `stats.summary` `answered`. Resolves `text` null when nothing was
-   * found or the helper answered `nothing` (and when the summary of a run
+   * found or the analyzer answered `nothing` (and when the summary of a run
    * on stored memory alone gives no answer); `stretch` is the window the
-   * helper named, else null; `people` the members the name forms found,
+   * analyzer named, else null; `people` the members the name forms found,
    * with how many of their messages were kept and the newest one's time.
    * `history` is the turn's own chat (the window and the reply parents it
    * fetched): its ids are left out of the hits (`stats.inChatDropped`) and

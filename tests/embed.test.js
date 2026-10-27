@@ -15,7 +15,7 @@ function config(overrides = {}) {
       baseUrl: 'https://openrouter.ai/api/v1/',
       maxRequestTokens: 1000,
       maxRequestsPerDay: 10,
-      helperTimeoutMs: 4000,
+      analyzerTimeoutMs: 4000,
       retries: 2,
       providerByModel: { 'openai/@embedding': { only: ['openai'] } },
       ...overrides.llm,
@@ -292,9 +292,9 @@ test("embed: the body's provider never carries byok", async () => {
   assert.deepEqual(sent[0].body.provider, { only: ['openai'], allow_fallbacks: false });
 });
 
-test('embed: the attempt is cut at llm.helperTimeoutMs; an external abort is never retried', async () => {
+test('embed: the attempt is cut at llm.analyzerTimeoutMs; an external abort is never retried', async () => {
   const { embedder, sent } = makeEmbedder([embeddingsOf([[1]])]);
-  await embedder.embed(['a'], { config: config({ llm: { helperTimeoutMs: 5 } }) });
+  await embedder.embed(['a'], { config: config({ llm: { analyzerTimeoutMs: 5 } }) });
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(sent[0].init.signal.aborted, true);
 

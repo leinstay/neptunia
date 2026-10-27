@@ -237,7 +237,7 @@ function pickerScene({
   pickTimeoutMs = 1500,
 } = {}) {
   const hot = {
-    config: config({ features, llm: { helperTimeoutMs: 4321 }, participation: { pickTimeoutMs } }),
+    config: config({ features, llm: { analyzerTimeoutMs: 4321 }, participation: { pickTimeoutMs } }),
     prompts: { 'participation-pick': prompt, labels },
   };
   const store = {

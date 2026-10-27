@@ -9,14 +9,14 @@
 // through the day's request cap of the chat: the operations tools
 // (tools/replay.mjs through src/behavior/sandbox.js), run by hand behind
 // their own spend gate, never by the bot.
-// Every other request counts: the reply and every helper before it, the
+// Every other request counts: the reply and every side request before it, the
 // analyzer, her memory session. The per-request token cap
 // (`TokenLimitError`) always applies, with no exception.
 //
 // The same module holds the read-only side of that counter (`capLeft`,
 // `llmCountToday`), the reason code of a rail refusal (`railReason`) and the
-// one spelling of an in-turn helper request (`helperRequestOptions`), whose
-// requests on the roles `llm.hedge` lists are hedged: a second attempt after a
+// one spelling of an in-turn side request (`sideRequestOptions`), whose
+// requests on the model roles `llm.hedge` lists are hedged: a second attempt after a
 // short wait, the first answer taken (see `complete`).
 //
 // It is also the one place the prompt-cache marker is put on a request (see
@@ -82,8 +82,8 @@ export function apiUrl(baseUrl, path) {
 export const ROLE_KEY_NAME = /^OPENROUTER_[A-Z0-9_]+$/;
 
 /**
- * The roles that never go out on the main key: an unset or blank variable gives an empty key (`roleApiKey`), and a
- * request of such a role is refused before it is sent (`complete` throws `ROLE_KEY_MISSING`). Her memory session
+ * The model roles that never go out on the main key: an unset or blank variable gives an empty key (`roleApiKey`), and a
+ * request of such a model role is refused before it is sent (`complete` throws `ROLE_KEY_MISSING`). Her memory session
  * (`memory`) spends its own key or nothing.
  */
 export const STRICT_KEY_ROLES = Object.freeze(['memory']);
@@ -133,7 +133,7 @@ export function keyHashOf(key) {
 
 /**
  * The extra keys `llm.keyByRole` puts in use, one entry per distinct key other than `mainKey`
- * (a role whose key falls back, or names the main key's value, stays on the main key), with the
+ * (a model role whose key falls back, or names the main key's value, stays on the main key), with the
  * roles on it sorted by name, in the order the map first names each key. For the status card.
  * @param {object} config
  * @param {Record<string, string|undefined>|null|undefined} env
@@ -194,53 +194,53 @@ export function countLlmRequest(state, configured, nowMs) {
   state.markDirty();
 }
 
-/** `llm.helperTimeoutMs` when it is missing: config.json's value. */
-const HELPER_TIMEOUT_MS_FALLBACK = 30000;
+/** `llm.analyzerTimeoutMs` when it is missing: config.json's value. */
+const ANALYZER_TIMEOUT_MS_FALLBACK = 30000;
 
 /**
- * The options of one in-turn helper request -- a short call made on the way to
- * a reply (the `analyzer` passes: address, re-watch, search,
- * link read, search summary; the picture describer) -- so every helper is
+ * The options of one in-turn side request, a request on a model role other than the core's: a short call
+ * made on the way to a reply (the `analyzer` passes: address, re-watch, search, link read, search summary;
+ * the picture describer), so every side request is
  * spelled the same way: counted against `llm.maxRequestsPerDay`, never fed to
  * the calibration (a short or a vision prompt says nothing about the text
- * ratio), and cut at `llm.helperTimeoutMs` per attempt instead of the
- * turn-length `llm.timeoutMs`: while a helper is out it holds the persona's
- * one attention. `countAgainstDailyCap` and `skipCalibration` are not the
+ * ratio), and cut at `llm.analyzerTimeoutMs` per attempt instead of the
+ * turn-length `llm.timeoutMs`: while a side request is out it holds the persona's
+ * lease. `countAgainstDailyCap` and `skipCalibration` are not the
  * caller's to set. The model is not part of the set: the caller adds its own
- * (`{ model, ...helperRequestOptions(config, { ... }) }`). The set carries the
- * helper mark `helper: true` (never sent): only a marked request on a role
+ * (`{ model, ...sideRequestOptions(config, { ... }) }`). The set carries the
+ * side request mark `isSide: true` (never sent): only a marked request on a model role
  * `llm.hedge.roles` lists is hedged by `complete` (see `hedgeSettings`), so the
  * memory session, the describers never are; the
  * reply only through an explicit `options.hedge` (see `complete`).
  * Pure; `config` is the live config read at the moment of use.
  * @param {object|null|undefined} config  The whole live config.
  * @param {object} [request]
- * @param {string} [request.role]             The subprocess, e.g. `analyzer` (see `complete`).
+ * @param {string} [request.role]             The model role, `analyzer` say (see `complete`).
  * @param {number} [request.maxOutputTokens]  Undefined leaves `llm.maxOutputTokens` in charge.
  * @param {string} [request.purpose]          What the request is for, a kebab-case code for the
  *   `llm: usage` line (`address`, `rewatch`, `lookup`, `read-link`, `search-summary`, `route-channel`,
  *   `describe`); never sent.
  * @param {AbortSignal} [request.signal]      The caller's own abort signal, if it has one.
- * @param {number} [request.timeoutMs]        A helper with a clock of its own; else
- *   `llm.helperTimeoutMs`, else 30000 (config.json's value).
- * @param {boolean} [request.long]            True for a helper whose answer is a summary of several
+ * @param {number} [request.timeoutMs]        A side request with a clock of its own; else
+ *   `llm.analyzerTimeoutMs`, else 30000 (config.json's value).
+ * @param {boolean} [request.long]            True for a side request whose answer is a summary of several
  *   hundred tokens (recall, link read, search summary): hedged, its whole call is limited by
  *   `llm.hedge.longTimeoutMs` instead of `llm.hedge.timeoutMs`. Only `true` puts `long: true` in the
  *   set (never sent); anything else leaves the key out.
  * @returns {{ role: string|undefined, maxOutputTokens: number|undefined, countAgainstDailyCap: true,
- *   skipCalibration: true, timeoutMs: number, purpose: string|undefined, signal: AbortSignal|undefined, helper: true,
+ *   skipCalibration: true, timeoutMs: number, purpose: string|undefined, signal: AbortSignal|undefined, isSide: true,
  *   long?: true }}
  */
-export function helperRequestOptions(config, { role, maxOutputTokens, purpose, signal, timeoutMs, long } = {}) {
+export function sideRequestOptions(config, { role, maxOutputTokens, purpose, signal, timeoutMs, long } = {}) {
   return {
     role,
     maxOutputTokens,
     countAgainstDailyCap: true,
     skipCalibration: true,
-    timeoutMs: timeoutMs ?? config?.llm?.helperTimeoutMs ?? HELPER_TIMEOUT_MS_FALLBACK,
+    timeoutMs: timeoutMs ?? config?.llm?.analyzerTimeoutMs ?? ANALYZER_TIMEOUT_MS_FALLBACK,
     purpose,
     signal,
-    helper: true,
+    isSide: true,
     ...(long === true ? { long: true } : {}),
   };
 }
@@ -256,10 +256,10 @@ const HEDGE_FALLBACK = Object.freeze({
 /**
  * The hedge settings of the live config, or null when `llm.hedge` is not an object (no hedge at
  * all, every request as without it). Inside the group a key that is missing or invalid reads as
- * config.json's: `roles` (the `options.role` values whose helper requests are hedged; not an array -> `['analyzer']`), `afterMs` (how long the first attempt is given before a second one is
+ * config.json's: `roles` (the `options.role` values whose side requests are hedged; not an array -> `['analyzer']`), `afterMs` (how long the first attempt is given before a second one is
  * sent; a finite number >= 0, 0 = no hedge; else 2500), `timeoutMs` (the limit of the whole
  * hedged call, both attempts included; a finite number > 0, else 8000) and `longTimeoutMs` (the
- * same limit for a helper marked `long`, whose answer is a summary of several hundred tokens; a
+ * same limit for a side request marked `long`, whose answer is a summary of several hundred tokens; a
  * finite number > 0, else 20000). Exists because the tail of a tiny request belongs to the
  * provider: one slow classifier must not hold a whole turn.
  * Pure; `config` is the whole live config read at the moment of use.
@@ -282,7 +282,7 @@ export function hedgeSettings(config) {
 // The hedge of one request, or null to send it as ever. An explicit `options.hedge` (a plain
 // object whose `afterMs` and `timeoutMs` are finite numbers above 0; never sent) wins, whatever
 // the request: the reply of a turn with a bar carries one (`pace.replyHedgeMs`). Else only a
-// helper's set (`options.helper === true`, from `helperRequestOptions`) on a role
+// side request's set (`options.isSide === true`, from `sideRequestOptions`) on a model role
 // `llm.hedge.roles` lists, with `afterMs` above 0. `timeoutMs` is the limit of this call:
 // `longTimeoutMs` for a set marked `long`.
 function hedgeOf(config, options) {
@@ -291,7 +291,7 @@ function hedgeOf(config, options) {
   if (isPlainObject(explicit) && positive(explicit.afterMs) && positive(explicit.timeoutMs)) {
     return { afterMs: explicit.afterMs, timeoutMs: explicit.timeoutMs };
   }
-  if (options.helper !== true || typeof options.role !== 'string') return null;
+  if (options.isSide !== true || typeof options.role !== 'string') return null;
   const hedge = hedgeSettings(config);
   if (!hedge || hedge.afterMs <= 0 || !hedge.roles.includes(options.role)) return null;
   return { afterMs: hedge.afterMs, timeoutMs: options.long === true ? hedge.longTimeoutMs : hedge.timeoutMs };
@@ -377,14 +377,14 @@ export function dailyCapOf(value, key) {
 
 /**
  * The `llm.complete` options that name the persona's reply (src/behavior/turn.js, and its replay
- * in src/behavior/sandbox.js): role `core`, the one role on `models.base.core`, purpose `reply`. Spread
+ * in src/behavior/sandbox.js): role `core`, the one model role on `models.base.core`, purpose `reply`. Spread
  * into a request's own options, never mutated.
  */
 export const REPLY_REQUEST = Object.freeze({ role: 'core', purpose: 'reply' });
 
 /**
- * One `llm.providerByModel` key split into its model prefix and its role:
- * `"<prefix>@<role>"` applies to that role only, a key without `@` to any
+ * One `llm.providerByModel` key split into its model prefix and its model role:
+ * `"<prefix>@<role>"` applies to that model role only, a key without `@` to any
  * role (`role: null`). Split at the last `@`; model ids carry none.
  * @param {string} key
  * @returns {{ prefix: string, role: string|null }}
@@ -397,10 +397,10 @@ export function parseRouteKey(key) {
 
 /**
  * The `byModel` entry that routes `model` for `role`, or null: among the keys
- * for exactly this role, the longest case-sensitive prefix of `model` (an
+ * for exactly this model role, the longest case-sensitive prefix of `model` (an
  * exact id is simply the longest prefix); when none matches, the same among
  * the role-less keys. A role-specific key beats a role-less one whatever their
- * lengths; a role never takes another role's keys. A non-string or empty `role` matches
+ * lengths; a model role never takes another model role's keys. A non-string or empty `role` matches
  * role-less keys only. A key's
  * role is the text after the last `@`; `role` itself is taken as given.
  * Non-object entries and maps are ignored.
@@ -433,7 +433,7 @@ export function matchRoute(model, byModel, role) {
  * The OpenRouter provider routing for one request, or undefined to send none.
  * Precedence: a plain-object `override` (a caller pinning its own route), then
  * the `byModel` entry chosen by `matchRoute` for `model` and `role` (the
- * longest matching prefix among the keys for this role, else among the
+ * longest matching prefix among the keys for this model role, else among the
  * role-less keys), then a plain-object `fallback`. Non-object entries, maps
  * and values are ignored. Exists because a provider restriction (e.g. `only`)
  * must differ per model family -- and per subprocess using the model -- when
@@ -475,11 +475,11 @@ const countOrZero = (value) => (typeof value === 'number' && Number.isFinite(val
 // the day). `complete()` is the one policy point: it puts a cache marker on the system message
 // (and on the user text parts a builder tagged with a neutral `cacheSegment`: the reply's stable
 // prefix and its profiles, see `withCacheMarker`)
-// for the roles `llm.cache.roles` lists, on the model families `llm.cache.models` lists, while
+// for the model roles `llm.cache.roles` lists, on the model families `llm.cache.models` lists, while
 // `features.promptCache` is on, AFTER the token estimate was taken, so the 50k rail and the
 // calibration see exactly what they saw without it. The model gate exists because the engine is
 // generic: a route that does not take `cache_control` parts could refuse every marked request, so
-// a model outside the list is sent exactly as without caching, whatever the role.
+// a model outside the list is sent exactly as without caching, whatever the model role.
 
 /** The part field OpenRouter reads a cache breakpoint from. */
 const CACHE_CONTROL = 'cache_control';
@@ -494,7 +494,7 @@ const DEFAULT_CACHE_MODELS = Object.freeze(['anthropic/']);
 
 /**
  * The cache TTL to mark one request with, or null for no marker. `force === false` -> null;
- * `force === true` -> the TTL whatever the switch, the role list and the model list say (one
+ * `force === true` -> the TTL whatever the switch, the model role list and the model list say (one
  * call that must be cached, e.g. a probe); anything else -> null unless
  * `config.features.promptCache === true` (missing = off), `role` is in `config.llm.cache.roles`
  * (not an array -> `['core']`) and `model` starts with one of the strings in
@@ -749,9 +749,9 @@ function cacheCode(marked, usage) {
   return 'none';
 }
 
-// The fields of one `llm: usage` line, so a day's spend can be split by role and, inside a
+// The fields of one `llm: usage` line, so a day's spend can be split by model role and, inside a
 // role, by what the request was for: who asked (`role`, `model`; `purpose` = the caller's
-// `options.purpose`, which tells apart the helpers that share one role; `origin` = the caller's
+// `options.purpose`, which tells apart the side requests that share one model role; `origin` = the caller's
 // `options.origin`, e.g. `replay` for a request that is not live chat traffic), who served it
 // (`provider`, `id`), what it cost, read from OpenRouter's `usage` and its detail objects, what
 // the prompt cache did (`cache`, see `cacheCode`; `marked` = the sent request carried a marker)
@@ -935,7 +935,7 @@ function hedgeTimeoutError(ms) {
 
 /**
  * @param {object} deps
- * @param {string} deps.apiKey           `OPENROUTER_CORE_KEY`: every role `llm.keyByRole` does not map elsewhere.
+ * @param {string} deps.apiKey           `OPENROUTER_CORE_KEY`: every model role `llm.keyByRole` does not map elsewhere.
  * @param {Record<string, string|undefined>} [deps.env]  The parsed `.env` the role keys are looked up in (`roleApiKey`).
  * @param {() => object} deps.getConfig   Returns the live config (hot-reloaded).
  * @param {object} deps.calibrator        From createCalibrator().
@@ -963,7 +963,7 @@ export function createLlm({
    * back at 00:00 UTC), never below 0. `state.data` is never touched and nothing is logged:
    * the pair is rolled over by the next counted request. Infinity while the cap is not a finite
    * number -- that misconfiguration is `complete()`'s own to refuse and report (`dailyCapOf`),
-   * not a reader's to answer for. For a helper that would otherwise download, reserve or cache
+   * not a reader's to answer for. For a side request that would otherwise download, reserve or cache
    * something before `complete()` refuses it: `capLeft() <= 0` means the next counted request
    * throws a `DailyCapError`. Only a look: a request sent in between can take the last slot.
    * @param {number} [nowMs]  Defaults to the client's clock.
@@ -1155,7 +1155,7 @@ export function createLlm({
    * answer; null where the response or the caller omits a value), whatever its
    * role -- see `usageLogFields`.
    * Hedged calls (`llm.hedge`, see `hedgeSettings`): a request carrying the
-   * helper mark (`options.helper === true`, set by `helperRequestOptions` only;
+   * side request mark (`options.isSide === true`, set by `sideRequestOptions` only;
    * never sent) whose `options.role` is listed in `llm.hedge.roles`, while
    * `llm.hedge.afterMs` is above 0, never enters the retry loop above: attempt 1
    * is sent; one answering before `afterMs` (a success or a non-retryable error)
@@ -1175,14 +1175,14 @@ export function createLlm({
    * `options.timeoutMs` still cuts each attempt on its own.
    * `options.hedge` — an explicit hedge for this one call, `{ afterMs, timeoutMs }` (both finite
    * numbers above 0; never sent): any request carrying one is hedged as above, with attempt 2
-   * at its `afterMs` and the whole call cut at its `timeoutMs`, whatever its role and with or
-   * without the helper mark or an `llm.hedge` group; the rails, the counting of attempt 2 and
-   * the cache marker (the same body twice) are as above. Anything else leaves the helper rule
+   * at its `afterMs` and the whole call cut at its `timeoutMs`, whatever its model role and with or
+   * without the side request mark or an `llm.hedge` group; the rails, the counting of attempt 2 and
+   * the cache marker (the same body twice) are as above. Anything else leaves the side request rule
    * in charge. Exists for the reply of a turn with a bar (`pace.replyHedgeMs`): a provider stall
    * must not let a direct call pass its bar unanswered.
    * `options.purpose` — what the request is for, a kebab-case code (`reply`,
    * `address`, `rewatch`, `lookup`, `read-link`,
-   * `search-summary`, `describe`, ...): the requests that share one role are told
+   * `search-summary`, `describe`, ...): the requests that share one model role are told
    * apart by it in the journal.
    * `options.origin` — where the request comes from when it is not live chat
    * traffic (e.g. `replay`), so a day's count can leave it out. Both are
@@ -1230,9 +1230,9 @@ export function createLlm({
    * configured routing in charge. Exists for the video describer, which pins
    * the provider that can fetch a public video URL.
    * `options.role` — which subprocess makes the request (`core`, `analyzer`,
-   * `vision`, `video`; the roles of src/llm/roles.js and
+   * `vision`, `video`; the model roles of src/llm/roles.js and
    * `/nep model`), so a `"<prefix>@<role>"` key of
-   * `llm.providerByModel` can route it; never sent. A call without a role
+   * `llm.providerByModel` can route it; never sent. A call without a model role
    * matches only role-less keys.
    * `options.reasoning` — OpenRouter's reasoning settings for this one call
    * (e.g. `{ enabled: false }`); a plain object is sent verbatim as
@@ -1255,7 +1255,7 @@ export function createLlm({
    * provider does not count the video as prompt tokens and the per-second cost
    * is far lower (`media.video.directUrlTokensPerSecond`).
    * `options.limits` — a collector (src/llm/limits.js#createLimits; never sent) told the limits
-   * this answered request hit: `estimate-off` (`where`: the purpose, else the role, else
+   * this answered request hit: `estimate-off` (`where`: the purpose, else the model role, else
    * `request`; `lost`: the tokens over the estimate; `detail`: `estimate->actual`) when the
    * provider counted the whole prompt above the estimate by more than `1 - llm.safetyMargin` of
    * it (the room the margin leaves), and `output-cap` (`where: 'completion'`) when the
@@ -1429,7 +1429,7 @@ export function createLlm({
       };
     };
 
-    // A helper request on a hedged role, or a request with an explicit hedge: two attempts at most,
+    // A side request on a hedged model role, or a request with an explicit hedge: two attempts at most,
     // never the retry loop below.
     const hedge = hedgeOf(getConfig(), options);
     if (hedge) {
@@ -1467,7 +1467,7 @@ export function createLlm({
           const error = await httpErrorOf(response);
           if (!RETRY_STATUS.has(response.status)) throw error;
           // A provider's quota of the day: it comes back in minutes, not within the seconds of
-          // `backoffMs`, so a retry only holds the caller (the persona's one attention).
+          // `backoffMs`, so a retry only holds the caller (the persona's lease).
           const limit = providerLimitOf(error);
           if (limit.kind === 'daily') {
             logProviderLimit(options, body.model, limit);
@@ -1513,7 +1513,7 @@ export function createLlm({
    * the parsed body of a 2xx answer (null when it is not JSON, or on any other status). Never
    * counted against `llm.maxRequestsPerDay`, never calibrated, never retried, nothing logged. A
    * network failure or the `timeoutMs` abort (default `llm.timeoutMs`) throws as fetch throws it.
-   * `apiKey` replaces the client's key for this GET; else `role` reads that role's key (`roleApiKey`).
+   * `apiKey` replaces the client's key for this GET; else `role` reads that model role's key (`roleApiKey`).
    */
   async function getFree(endpoint, { timeoutMs, apiKey: keyOverride, role } = {}) {
     const cfg = getConfig().llm;
@@ -1534,7 +1534,7 @@ export function createLlm({
   /**
    * The API key's own record (`<llm.baseUrl>/key`: its limit, reset, budgets and usage), one free
    * GET (see `getFree`). For the costs field of the owner's `/nep status` card. `apiKey` reads
-   * another key's record (the simulator key's), `role` the record of the key that role goes out on
+   * another key's record (the simulator key's), `role` the record of the key that model role goes out on
    * (`llm.keyByRole`), for this one GET only.
    * @param {{ timeoutMs?: number, apiKey?: string, role?: string }} [options]
    * @returns {Promise<{ ok: boolean, status: number, json: object|null }>}
@@ -1550,7 +1550,7 @@ export function createLlm({
   const credits = (options) => getFree('credits', options);
 
   /**
-   * The extra keys `llm.keyByRole` puts in use now (`roleKeyGroups`), each as the roles on it --
+   * The extra keys `llm.keyByRole` puts in use now (`roleKeyGroups`), each as the model roles on it --
    * never the key itself. The status card reads each one's record with `keyInfo({ role })`.
    * @returns {Array<{ roles: string[] }>}
    */

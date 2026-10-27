@@ -600,7 +600,7 @@ async function buildCore(options, cleanups) {
   const diary = createDiary({ hot, store, reads, iface: () => identity.iface, turns, getGuildId });
   // The code-only memory of the live message path (src/memory/update.js): counters, GIF library, emoji, names.
   const memory = createMemoryUpdater({ hot, store });
-  // The turn an errand's end opens, through the one attention and a cooldown per conversation.
+  // The turn an errand's end opens, through the lease and a cooldown per conversation.
   const taskTurns = createErrandTurns({
     hot,
     reads,
@@ -770,7 +770,7 @@ async function buildCore(options, cleanups) {
     deliver: (event, options) => onMessage.catchUp(event, options),
   });
 
-  // One attention (mention.oneAtATime): once a turn frees its channel, answer
+  // One lease (mention.oneAtATime): once a turn frees its channel, answer
   // the oldest pending direct ping it may have collected while busy elsewhere.
   turns.setOnIdle(() => onMessage.drainPending());
 

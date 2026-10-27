@@ -20,7 +20,7 @@ A `message.received` event enters the message pipeline (`src/behavior/pipeline.j
 
 1. **Filter.** Bot messages, system messages, empty messages and messages from the bot itself are ignored.
 2. **Private-chat gate.** A direct message goes through `src/behavior/private.js`: it needs `features.privateMessages`, server membership, a profile and a passing affinity check.
-3. **Trigger detection.** The pipeline checks whether the message is a mention, a reply, a name trigger or a follow-up to an earlier exchange (`src/behavior/mention.js`). An address classifier (a helper LLM call with `prompts/address.md`) decides ambiguous cases.
+3. **Trigger detection.** The pipeline checks whether the message is a mention, a reply, a name trigger or a follow-up to an earlier exchange (`src/behavior/mention.js`). An address classifier (an `analyzer` call with `prompts/address.md`) decides ambiguous cases.
 4. **Spontaneous interest.** A message that is not addressed to the persona may still trigger a spontaneous answer: eavesdropping, random interjection, or a question put to the whole room.
 5. **Pending queue.** When the persona is already answering someone, a new call goes into the pending queue. One turn runs at a time across the whole server. Calls are answered in order, any number per channel and author, up to `mention.maxPending` (default 6). A new message about something already waiting is folded into that pending item instead of queueing separately.
 6. **Turn.** A call that passes the queue starts a turn.
@@ -29,7 +29,7 @@ A `message.received` event enters the message pipeline (`src/behavior/pipeline.j
 
 A turn (`src/behavior/turn.js`) has four stages:
 
-**Collect.** The turn gathers the context it needs: channel history, memory profiles, the persona's recent participation on other channels, media descriptions (pictures, video) from helper models, lorebook entries matched by the transcript, and recall hits if a search classifier or the automatic prefetch found anything relevant.
+**Collect.** The turn gathers the context it needs: channel history, memory profiles, the persona's recent participation on other channels, media descriptions (pictures, video) from the `vision` and `video` model roles, lorebook entries matched by the transcript, and recall hits if a search classifier or the automatic prefetch found anything relevant.
 
 **Build.** `src/behavior/prompt.js` assembles one LLM request under the token budget. The budget is spent in priority order (see "Prompt assembly" below). What does not fit is trimmed by `src/llm/budget.js`, lowest priority first.
 
@@ -85,7 +85,7 @@ Every LLM request goes out on a named role, and each role has its own model. The
 
 | Group | Roles | What they do |
 |---|---|---|
-| `models.base` | `core`, `analyzer`, `vision`, `video`, `embedding`, `speech`, `drawing` | The persona's own requests: the core speaks, the helpers classify, describe, embed, speak and draw |
+| `models.base` | `core`, `analyzer`, `vision`, `video`, `embedding`, `speech`, `drawing` | The persona's own requests: the core speaks, the other model roles classify, describe, embed, speak and draw |
 | `models.errands` | `scout`, `server` | The errand agents, run asynchronously through a separate runner |
 | `models.development` | `thinker`, `dev` | Development agents (outside the engine, working on the repository) |
 
@@ -103,7 +103,7 @@ The persona can search the web and read pages behind links. Both require `featur
 
 There are two paths, depending on whether `features.coreTools` is on.
 
-With `features.coreTools` off (the default), a lookup classifier (`prompts/lookup.md`, run on the `analyzer` role) reads the recent chat and decides whether the question needs a web search, a server history search, or both. Its output is a plan with labelled lines (`web:` a query, `server:` word forms, `who:` name forms, `when:` a date range). A helper model then condenses the search results through `prompts/search-summary.md` into one note with inline sources.
+With `features.coreTools` off (the default), a lookup classifier (`prompts/lookup.md`, run on the `analyzer` role) reads the recent chat and decides whether the question needs a web search, a server history search, or both. Its output is a plan with labelled lines (`web:` a query, `server:` word forms, `who:` name forms, `when:` a date range). The `analyzer` then condenses the search results through `prompts/search-summary.md` into one note with inline sources.
 
 With `features.coreTools` on, the lookup classifier does not run. The persona calls `web.search` and `web.read` as tools in the tool loop. `web.search` returns the results raw (title, URL, site, snippet, date) with no summary request. `web.read` fetches a single page through the SSRF-guarded fetcher (`src/web/fetch-page.js`) and returns its extracted main text, cut at `web.links.readChars` (default 4,000 characters).
 
@@ -121,7 +121,7 @@ When the turn planner is on (`features.turnPlanner`), its lookup block replaces 
 
 ### Link reading
 
-When `features.webLookup` is on and a message contains a link, the engine reads the page. With `features.coreTools` off, a helper model condenses the page through `prompts/read-link.md` into an excerpt of at most `web.links.summaryChars` (default 700). With `features.coreTools` on, the excerpt is the opening of the page's own extracted text, cut at `web.links.previewChars` (default 700), with no model request.
+When `features.webLookup` is on and a message contains a link, the engine reads the page. With `features.coreTools` off, the `analyzer` condenses the page through `prompts/read-link.md` into an excerpt of at most `web.links.summaryChars` (default 700). With `features.coreTools` on, the excerpt is the opening of the page's own extracted text, cut at `web.links.previewChars` (default 700), with no model request.
 
 ### Limits
 

@@ -232,7 +232,7 @@ function fakeLlm(text) {
 
 const CONFIG = {
   bot: { timezone: 'UTC' },
-  llm: { helperTimeoutMs: 25_000 },
+  llm: { analyzerTimeoutMs: 25_000 },
   models: { base: { analyzer: 'x/text' } },
   web: { search: { classifierMaxOutputTokens: 321 } },
   recall: { maxForms: 6 },
@@ -280,7 +280,7 @@ test("askPlanner: one request on the analyzer role, purpose planner, capped at t
   assert.equal(options.model, 'x/text');
   assert.equal(options.maxOutputTokens, 321);
   assert.equal(options.timeoutMs, 25_000);
-  assert.equal(options.helper, true);
+  assert.equal(options.isSide, true);
   assert.equal(messages[0].content, 'Plan for Zoë; today is 2026-10-14.');
   assert.equal(result.outcome, 'classified');
   assert.deepEqual(

@@ -27,7 +27,7 @@ function liveHot() {
       byPurpose: { describe: 'pinned/describe', reply: 'pinned/reply' },
     },
     features: { mediaDescriptions: false },
-    llm: { helperTimeoutMs: 1000 },
+    llm: { analyzerTimeoutMs: 1000 },
     media: {
       descriptionChars: 300,
       gif: { maxSeconds: 4, maxPerDay: 1 },

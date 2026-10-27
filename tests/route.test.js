@@ -373,7 +373,7 @@ async function routerScene({ answer = '1', features = {}, prompt = 'You are {{na
   const { channel } = fakeGuild();
   const snapshot = await takeSnapshot(world().reads, GUILD);
   const hot = {
-    config: config({ features, llm: { helperTimeoutMs: 12345 } }),
+    config: config({ features, llm: { analyzerTimeoutMs: 12345 } }),
     prompts: { 'route-channel': prompt, labels },
   };
   const llm = fakeLlm(answer);

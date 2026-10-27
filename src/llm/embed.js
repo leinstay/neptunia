@@ -1,9 +1,9 @@
 // OpenRouter embeddings client on the built-in fetch: a list of texts in, one unit-length
-// Float32Array per text out, for search by meaning. It goes out on the helper role
+// Float32Array per text out, for search by meaning. It goes out on the `embedding` model role
 // `embedding` and keeps every rail of the chat client (src/llm/openrouter.js): the token
 // cap per request, the shared daily request count (`llm.maxRequestsPerDay`, the same counter the
-// chat requests spend), the helper timeout, the same retries and the same transport bits (the
-// key of the role, base URL, provider routing by model and role). A request logs one `llm: usage` line with counts
+// chat requests spend), the analyzer timeout, the same retries and the same transport bits (the
+// key of the model role, base URL, provider routing by model and role). A request logs one `llm: usage` line with counts
 // and cost, never the texts.
 
 import { estimateTokens } from './tokens.js';
@@ -24,13 +24,13 @@ import { roleModel } from './roles.js';
 import { isPlainObject } from '../config.js';
 import { log } from '../log.js';
 
-/** The role an embedding request goes out on: `/nep model`, `llm.providerByModel` keys `"<prefix>@embedding"`. */
+/** The model role an embedding request goes out on: `/nep model`, `llm.providerByModel` keys `"<prefix>@embedding"`. */
 export const EMBED_ROLE = 'embedding';
 
 /** `embed.dimensions` when it is missing or invalid: config.json's value. */
 const DIMENSIONS_FALLBACK = 1024;
-/** `llm.helperTimeoutMs` when it is missing: config.json's value. */
-const HELPER_TIMEOUT_MS_FALLBACK = 30000;
+/** `llm.analyzerTimeoutMs` when it is missing: config.json's value. */
+const ANALYZER_TIMEOUT_MS_FALLBACK = 30000;
 
 const numberOrNull = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : null);
 const stringOrNull = (value) => (typeof value === 'string' && value ? value : null);
@@ -95,12 +95,12 @@ export function createEmbedder({ apiKey, env = {}, state, fetchImpl = fetch, now
    * The model is `roleModel(config, 'embedding', purpose)` (a
    * `models.byPurpose` entry, else `models.base.embedding`, else its default); no model throws before any request.
    * Body: `{ model, input, dimensions }` (`embed.dimensions`, default 1024) plus the provider
-   * routing `resolveProvider` picks for the model and the role (without its `byok` mark, see
+   * routing `resolveProvider` picks for the model and the model role (without its `byok` mark, see
    * `providerBodyOf`). Rails, in order, before anything
    * is sent: the token cap (`llm.maxRequestTokens`, the inputs' raw estimate, a `TokenLimitError`)
    * and the daily request cap (counted once per call, retries included, a `DailyCapError`;
    * `countAgainstDailyCap: false` for the status probe only, never refused by it). Each attempt is
-   * cut at `timeoutMs` (default `llm.helperTimeoutMs`); a network failure, a timeout or a status in
+   * cut at `timeoutMs` (default `llm.analyzerTimeoutMs`); a network failure, a timeout or a status in
    * `RETRY_STATUS` is retried up to `llm.retries` times after `backoffMs` (`llm: retry`), an
    * external `signal` abort never is. A 200 with an error body or the wrong number of vectors is
    * thrown, never retried. So is a 200 OpenRouter served from its own capacity on a route marked
@@ -138,7 +138,7 @@ export function createEmbedder({ apiKey, env = {}, state, fetchImpl = fetch, now
     const body = { model, input: texts, dimensions };
     const provider = resolveProvider(model, { byModel: cfg.providerByModel, fallback: cfg.provider, role: EMBED_ROLE });
     if (provider) body.provider = providerBodyOf(provider);
-    const attemptMs = timeoutMs ?? cfg.helperTimeoutMs ?? HELPER_TIMEOUT_MS_FALLBACK;
+    const attemptMs = timeoutMs ?? cfg.analyzerTimeoutMs ?? ANALYZER_TIMEOUT_MS_FALLBACK;
     const retries = Number.isInteger(cfg.retries) && cfg.retries > 0 ? cfg.retries : 0;
     const requestKey = roleApiKey(config, env, EMBED_ROLE, apiKey);
     const startedAt = now();

@@ -38,7 +38,7 @@ One function (`src/behavior/heartbeat-view.js`) reads the stores with no model. 
 
 **What she can do.** Her granted tools by family, and the errand agents.
 
-**Since the last heartbeat** (the last day for the first one): counts of what was done; what was not done or counted on (expired or missed intentions, failed errands, sends with unknown outcome, turns that ended in error, the facts already told as one count); and what was filtered without her (the missed helper's dismissals and the address helper's "not to her" verdicts with place, time, author and a preview, at most `heartbeat.filteredShown` (default 10), the rest counted).
+**Since the last heartbeat** (the last day for the first one): counts of what was done; what was not done or counted on (expired or missed intentions, failed errands, sends with unknown outcome, turns that ended in error, the facts already told as one count); and what was filtered without her (the missed check's dismissals and the address check's "not to her" verdicts with place, time, author and a preview, at most `heartbeat.filteredShown` (default 10), the rest counted).
 
 The whole block is capped at `heartbeat.maxTokens` (default 2500). Over that limit, lists shed their last items in this order: filtered lines, lines of her life, places beyond 3, people beyond 5. The count line says how many were cut.
 
@@ -96,7 +96,7 @@ Before an inner turn runs, the engine writes a mark to the state (`state.infligh
 
 ## When she wakes
 
-**People first.** A wake waits while a turn holds the one attention or a direct ping waits in the queue. Its due time stays the same.
+**People first.** A wake waits while a turn holds the lease or a direct ping waits in the queue. Its due time stays the same.
 
 **Coalescing.** Wakes of the same conversation run as one inner turn. The day's review joins any server wake. Wakes elsewhere wait for their own turn. A heartbeat is never coalesced.
 

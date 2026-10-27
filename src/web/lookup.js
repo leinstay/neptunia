@@ -10,9 +10,9 @@
 //   never a `web.links.skipSites` host, never a URL whose path ends
 //   with a picture/video/audio/archive/pdf extension) is fetched through the
 //   SSRF-guarded page fetcher (src/web/fetch-page.js; `web.acceptLanguage`
-//   sent as its Accept-Language) and condensed by the helper model (`analyzer`, purpose
+//   sent as its Accept-Language) and condensed by the `analyzer` model role (purpose
 //   `read-link`) through prompts/read-link.md into one excerpt of at most
-//   `web.links.summaryChars`. With features.coreTools (read now) no helper condenses it:
+//   `web.links.summaryChars`. With features.coreTools (read now) no model role condenses it:
 //   the excerpt is the opening of the page's own extracted text, cut at
 //   `web.links.previewChars` -- what a link preview shows -- cached apart
 //   (`preview:<link id>`), no model request.
@@ -59,7 +59,7 @@ import { isGifHostUrl, siteOf } from '../media/classify.js';
 import { videoSiteFor, safeLocation } from '../media/video-sites.js';
 import { roleModel } from '../llm/roles.js';
 import { fillPromptTemplate } from '../behavior/prompt.js';
-import { dailyCapOf, helperRequestOptions, railReason } from '../llm/openrouter.js';
+import { dailyCapOf, sideRequestOptions, railReason } from '../llm/openrouter.js';
 import { clampText, oneLine } from '../memory/clamp.js';
 import { log } from '../log.js';
 import { bumpDaily, countToday, dailyCounter, MINUTE_MS, utcDay } from '../time.js';
@@ -153,7 +153,7 @@ function webOn(config) {
 
 /**
  * Whether a link posted in the chat is read as a preview (features.coreTools exactly true):
- * the opening of the page's own text, no helper condensing it.
+ * the opening of the page's own text, no model role condensing it.
  */
 function previewOn(config) {
   return config?.features?.coreTools === true;
@@ -432,7 +432,7 @@ export function createLookup({
         ],
         {
           model: roleModel(config, 'analyzer', 'read-link'),
-          ...helperRequestOptions(config, {
+          ...sideRequestOptions(config, {
             role: 'analyzer',
             maxOutputTokens: linksCfg.maxOutputTokens,
             purpose: 'read-link',
@@ -644,7 +644,7 @@ export function createLookup({
       },
       options: {
         model: roleModel(config, 'analyzer', 'search-summary'),
-        ...helperRequestOptions(config, {
+        ...sideRequestOptions(config, {
           role: 'analyzer',
           maxOutputTokens: searchCfg.maxOutputTokens,
           purpose: 'search-summary',
@@ -670,7 +670,7 @@ export function createLookup({
         completion = await llm.complete([system, { role: 'user', content: asked }], {
           ...options,
           // No hedge: a second attempt would run (and bill) the web search twice.
-          helper: false,
+          isSide: false,
           plugins: webSearchPlugins(searchCfg.results),
         });
       } catch (err) {
@@ -807,13 +807,13 @@ export function createLookup({
       try {
         completion = await llm.complete([{ role: 'user', content: asked }], {
           model: roleModel(config, 'analyzer', 'web-search'),
-          ...helperRequestOptions(config, {
+          ...sideRequestOptions(config, {
             role: 'analyzer',
             maxOutputTokens: positiveOr(searchCfg.rawOutputTokens, RAW_OUTPUT_TOKENS_FALLBACK),
             purpose: 'web-search',
           }),
           // No hedge: a second attempt would run (and bill) the web search twice.
-          helper: false,
+          isSide: false,
           plugins: webSearchPlugins(searchCfg.results),
         });
       } catch (err) {

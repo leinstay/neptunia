@@ -63,7 +63,7 @@ const OLD_TOOLS_FILE = path.join(LOCAL_PROMPTS_DIRNAME, 'skills.json');
  * instead: `memory.voiceModel` (the memory wording runs on `models.base.core`, the persona's one model);
  * `features.vision` and `features.attachedDescriptions` (pictures never go into the persona's own
  * request any more: she sees through the describer's captions, `features.mediaDescriptions`, and
- * her second look, `features.imageRelook`, both on the `vision` helper model); `innerLife.loop.strayFollowUps`
+ * her second look, `features.imageRelook`, both on the `vision` model role); `innerLife.loop.strayFollowUps`
  * (an inner turn's output tags act as calls now, so nothing is left to follow up). No bound in the
  * engine is in dollars: `innerLife.caps.usdPerDay`, `innerLife.estimatedTurnUsd`,
  * `innerLife.errandReserveMaxMinutes`, `agents.<agent>.daily.usd` and `agents.<agent>.limits.usd` are

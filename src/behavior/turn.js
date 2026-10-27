@@ -75,7 +75,7 @@ import {
   cacheTtlMs,
   errorCodeOf,
   hedgeSettings,
-  helperRequestOptions,
+  sideRequestOptions,
   railReason,
   sleep,
 } from '../llm/openrouter.js';
@@ -1431,7 +1431,7 @@ function replyOptionsOf(config, { draft, bar, barAbort }) {
 }
 
 /**
- * Takes the attention for `id` when the turn may start: not while a turn runs there, and with one attention
+ * Takes the attention for `id` when the turn may start: not while a turn runs there, and with one lease
  * (`mention.oneAtATime`, default on) not while one runs anywhere (src/behavior/pipeline.js is the only caller that turns
  * a direct ping caught by this into a pending one). True when taken.
  */
@@ -1528,7 +1528,7 @@ function sendArgs({ text = null, media = null, replyId = null }) {
 }
 
 /**
- * A value of the untyped parts of the turn (the live config, a draft) as the object a typed helper takes.
+ * A value of the untyped parts of the turn (the live config, a draft) as the object a typed function takes.
  * @param {*} value
  * @returns {object}
  */
@@ -1537,7 +1537,7 @@ function asObject(value) {
 }
 
 /**
- * A list of the untyped parts of the turn as the list a typed helper takes.
+ * A list of the untyped parts of the turn as the list a typed function takes.
  * @param {*} value
  * @returns {object[]}
  */
@@ -1924,11 +1924,11 @@ export function taskInput({ part, queued, added, missed = null, failedEarlier = 
  * start, `pace.prepareSearchMs` once the search classifier asked for a
  * search -- and at most that long while its verdict is still out --,
  * `pace.prepareMediaMs` for a direct call that brought media to look
- * at; the larger of the two with both). A helper still running then
+ * at; the larger of the two with both). A side request still running then
  * contributes nothing to this turn --
  * its block is absent, as when it fails -- and keeps running for its cache.
  * A turn nobody waits for (unhurried, `pace.unpromptedWaits`) has no such
- * deadline and no bar: it waits for every helper. Every turn that reaches the reply request logs `turn: timings`.
+ * deadline and no bar: it waits for every side request. Every turn that reaches the reply request logs `turn: timings`.
  * `schedule(fn, ms)` (default: setTimeout) runs that deadline and the typing
  * indicator's refresh; it resolves a function that cancels it.
  * `activity` (src/behavior/activity.js#createActivity, fed by src/behavior/pipeline.js; optional)
@@ -1955,7 +1955,7 @@ export function taskInput({ part, queued, added, missed = null, failedEarlier = 
  * kept from before a restart). With features.triggerMarkers on (a missing key counts as on, read
  * per turn) the persona's own lines of the turn's history and of its pulled channels carry it
  * (src/format.js#withTriggers), so the request's `<chat>` and `<channel_view>` and every
- * helper transcript built from that history name the message that started the turn which posted
+ * analyzer transcript built from that history name the message that started the turn which posted
  * each line (`transcript.triggeredBy` / `triggeredByOlder`). The neighbours' lines show no `#n`
  * and carry none. A spontaneous turn, a diary post or a dry run links nothing.
  *
@@ -4747,7 +4747,7 @@ export function createTurnRunner({
    * under `gifs.maxPerDay` (gifsToday) and pickCandidates saying yes (a first
    * message of at most `gifs.pick.maxChars` code points, no `<gif>` of the
    * turn's own -- the model's own GIF is never second-guessed --, at least one
-   * captioned entry), ONE helper request on the classifier model
+   * captioned entry), ONE side request on the classifier model
    * (role `analyzer`, purpose `gif-pick`, its answer capped at
    * `gifs.pick.maxOutputTokens`): system = the prompt with `{{name}}`, user =
    * `<gifs>` (renderGifLibrary over the WHOLE captioned library in rank order, with no own-post
@@ -4855,7 +4855,7 @@ export function createTurnRunner({
         ],
         {
           model: roleModel(config, 'analyzer', 'gif-pick'),
-          ...helperRequestOptions(config, {
+          ...sideRequestOptions(config, {
             role: 'analyzer',
             maxOutputTokens: settings.maxOutputTokens,
             purpose: 'gif-pick',
@@ -5425,7 +5425,7 @@ export function createTurnRunner({
    * at (no second-look slot left -- one counter for every kind) and no GIF
    * can be re-watched (no second-look or no GIF watch slot left) -- with only
    * the second-look slots spent, only the videos that did not load are
-   * offered. The classifier's request is a helper's (helperRequestOptions).
+   * offered. The classifier's request is a side request (sideRequestOptions).
    */
   async function maybeRewatch({
     config,
@@ -5482,7 +5482,7 @@ export function createTurnRunner({
         ],
         {
           model: roleModel(config, 'analyzer', 'rewatch'),
-          ...helperRequestOptions(config, {
+          ...sideRequestOptions(config, {
             role: 'analyzer',
             maxOutputTokens: rewatchCfg.classifierMaxOutputTokens ?? 2000,
             purpose: 'rewatch',
@@ -5847,7 +5847,7 @@ export function createTurnRunner({
    * `snapshot`'s). One cheap classifier call (prompts.lookup, `{{name}}` = the
    * persona's display name, `{{today}}` = the injected clock's date
    * `YYYY-MM-DD` in `bot.timezone`, the zone its `when:` range is read in;
-   * on the helper model (roleModel, role `analyzer`), its answer capped at
+   * on the `analyzer` model role (roleModel), its answer capped at
    * `web.search.classifierMaxOutputTokens`) reads the last
    * `web.search.contextMessages` messages of `history` before the trigger
    * (with the pictures' captions, the video states and the read links this
@@ -5875,7 +5875,7 @@ export function createTurnRunner({
    * runs the server search on the question's own words instead
    * (fallbackLookupPlan over the stored profiles; `lookup: fallback` with
    * `reason` `classifier-failed` | `empty` and the counts, a `helper-fallback`
-   * entry on `limits`); never the web search; else no search. Its request is a helper's (helperRequestOptions). `onSearch()`
+   * entry on `limits`); never the web search; else no search. Its request is a side request (sideRequestOptions). `onSearch()`
    * is called once the answer asks for a search that runs, before it starts
    * (the turn's deadline grows to pace.prepareSearchMs; until the answer the
    * turn holds its deadline on this call, see createDeadline's `hold`).
@@ -5971,7 +5971,7 @@ export function createTurnRunner({
         ],
         {
           model,
-          ...helperRequestOptions(config, {
+          ...sideRequestOptions(config, {
             role: 'analyzer',
             maxOutputTokens: searchCfg.classifierMaxOutputTokens ?? 2000,
             purpose: 'lookup',
@@ -6116,8 +6116,8 @@ export function createTurnRunner({
    * The splitter (src/behavior/split.js): whether the call `trigger` holds
    * several requests. One cheap classifier call (`prompt`, prompts/split.md,
    * `{{name}}` = the persona's display name, `{{maxTasks}}` = split.maxTasks;
-   * on the `analyzer` helper model (roleModel), its answer capped at split.maxOutputTokens, a
-   * helper's request: helperRequestOptions, purpose `split`) reads the last
+   * on the `analyzer` model role (roleModel), its answer capped at split.maxOutputTokens, a
+   * side request: sideRequestOptions, purpose `split`) reads the last
    * `split.contextMessages` messages of `history` before the trigger (the
    * captions this turn has at its start) and the trigger itself, and answers
    * `one` or 2..maxTasks lines `- <part>` (parseSplitAnswer). Resolves the
@@ -6155,7 +6155,7 @@ export function createTurnRunner({
         ],
         {
           model: roleModel(config, 'analyzer', 'split'),
-          ...helperRequestOptions(config, {
+          ...sideRequestOptions(config, {
             role: 'analyzer',
             maxOutputTokens: settings.maxOutputTokens,
             purpose: 'split',
@@ -6476,7 +6476,7 @@ export function createTurnRunner({
       try {
         completion = await llm.complete(request.messages, {
           model: roleModel(config, 'analyzer', 'diary-plan'),
-          ...helperRequestOptions(config, {
+          ...sideRequestOptions(config, {
             role: 'analyzer',
             maxOutputTokens: diaryCfg.planMaxOutputTokens ?? 2000,
             purpose: 'diary-plan',
@@ -7223,7 +7223,7 @@ export function createTurnRunner({
   /**
    * A message that holds several requests (the splitter's `parts`), answered
    * part by part: one ordinary turn per part, in order, each with its own
-   * deadline and bar. Turn k's helpers (the search classifier, recall, the
+   * deadline and bar. Turn k's side requests (the search classifier, recall, the
    * route hook, the re-watch) judge part k's text instead of the whole
    * message, and its request names the part and the others
    * (buildRequest's `tasks.part`, `labels.task.part`). The first part reuses
@@ -7333,7 +7333,7 @@ export function createTurnRunner({
    * outcome `split`, `{ parts, history }`, still holding the attention for
    * runChain), `owned` (a turn of the chain: the chain holds the attention and
    * fires the idle notifications), `part` (`{ index, total, parts }`: its
-   * helpers judge that part's text, its request names it), `reuseHistory` (the
+   * analyzer requests judge that part's text, its request names it), `reuseHistory` (the
    * first part's history, already fetched) and `plainPosts` (a later part
    * posts plain).
    */
@@ -7560,7 +7560,7 @@ export function createTurnRunner({
       // Part of the history: the messages replies of the window answer from outside it
       // (context.fetchReplyParents), prepended as its oldest lines (withReplyParents). The
       // persona's own lines carry the message that started their turn (linkTriggers) and the
-      // skill calls she made (linkCalls), so the request and every helper transcript built from
+      // skill calls she made (linkCalls), so the request and every analyzer transcript built from
       // this history name them.
       const rawHistory = linkCalls(
         linkTriggers(
@@ -7581,7 +7581,7 @@ export function createTurnRunner({
       const likeServer = isPrivate && partner !== null;
       const servedGuild = isPrivate && !likeServer ? null : { id: guildId };
       const servedSnapshot = servedGuild ? snapshot : null;
-      // What the helpers judge: the trigger, or on a part of a split message the trigger with
+      // What the analyzer requests judge: the trigger, or on a part of a split message the trigger with
       // that part's text (same id, author and time).
       const candidate =
         part && trigger ? { ...trigger, content: part.parts[part.index - 1] ?? trigger.content } : trigger;
@@ -7856,7 +7856,7 @@ export function createTurnRunner({
       );
       const previewed = () => (previews.done && Array.isArray(previews.value) ? previews.value : rawHistory);
 
-      // The pictures of the window get a helper's caption, newest first, capped at
+      // The pictures of the window get a `vision` caption, newest first, capped at
       // media.maxPerTurn; cached captions are free (see src/memory/describe.js). The caption is
       // the only way a picture reaches the persona: none goes into her request as an image. A
       // routed call's own pictures are captioned with its pulled channel instead.

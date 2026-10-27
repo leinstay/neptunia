@@ -111,7 +111,7 @@
     "safetyMargin": 0.9,
     "timeoutMs": 300000,
     "probeTimeoutMs": 30000,
-    "helperTimeoutMs": 30000,
+    "analyzerTimeoutMs": 30000,
     "retries": 2,
     "maxRequestsPerDay": 5000,
     "provider": null,

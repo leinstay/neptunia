@@ -104,7 +104,7 @@ export const DEFAULTS: Readonly<IntentionSettings> = Object.freeze({
 });
 /** The defaults of `innerLife.attention` an attention record needs (config.json carries the same). */
 export const ATTEND_DEFAULTS: Readonly<AttentionSettings> = Object.freeze({ settleSeconds: 90, perDayDefault: 12 });
-/** The most people one attention names. */
+/** The most people an attention record names. */
 export const ATTEND_PEOPLE_MAX = 20;
 /** The periods `every` names by a word; `<n>h` and `<n>d` are the interval forms. */
 export const EVERY_PERIODS: ReadonlyArray<string> = Object.freeze(['day', 'week'] as const);

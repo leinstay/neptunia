@@ -1,5 +1,5 @@
 // The environment every operation runs against: the dependencies src/admin.js#createAdmin is
-// given (see its JSDoc for each one) and the helpers several operations share -- the slash
+// given (see its JSDoc for each one) and the functions several operations share -- the slash
 // wording of a pointer to another command, the paused / no-guild refusals, the token
 // resolver of analyzer text, the journal's system records and the config.local.json
 // writers (under `hot.privateDir`, the deployment's private directory). Built once per admin; an operation reads it as `ctx.env`. Hot
@@ -41,7 +41,7 @@ export type OpsDeps = {
 
 /**
  * The operations' environment over `deps` (src/admin.js#createAdmin's dependencies, the same
- * defaults): the dependencies themselves plus the shared helpers.
+ * defaults): the dependencies themselves plus the shared functions.
  */
 function buildEnv({
   hot,
@@ -294,7 +294,7 @@ function buildEnv({
 /** The environment an operation runs against: what `createOpsEnv` builds. */
 export type Env = ReturnType<typeof buildEnv>;
 
-/** The operations' environment over `deps` (src/admin.js#createAdmin's dependencies): the dependencies plus the shared helpers. */
+/** The operations' environment over `deps` (src/admin.js#createAdmin's dependencies): the dependencies plus the shared functions. */
 export function createOpsEnv(deps: OpsDeps): Env {
   return buildEnv(deps);
 }

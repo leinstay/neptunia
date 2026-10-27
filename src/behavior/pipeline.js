@@ -37,7 +37,7 @@ import {
   isTaggedCall,
   roomPreFilter,
 } from './mention.js';
-import { helperRequestOptions, railReason } from '../llm/openrouter.js';
+import { sideRequestOptions, railReason } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { fill, formatTranscript, renderTranscript } from '../format.js';
@@ -379,7 +379,7 @@ export function createMessageHandler({
 
   /**
    * Whether a turn blocks a new one in `channelId` (config read by the caller
-   * now): with one attention (mention.oneAtATime, default on) a turn running
+   * now): with one lease (mention.oneAtATime, default on) a turn running
    * anywhere, otherwise one running in this channel -- the rule runTurn applies.
    */
   function turnBlocked(channelId, config) {
@@ -975,10 +975,10 @@ export function createMessageHandler({
           ],
           {
             model,
-            // A helper's request: on llm.helperTimeoutMs, never the turn-length llm.timeoutMs, and
+            // A side request: on llm.analyzerTimeoutMs, never the turn-length llm.timeoutMs, and
             // hedged (llm.hedge) -- while this call is in flight it holds the channel's follow-up
             // slot, and every untagged line there is only held.
-            ...helperRequestOptions(config, {
+            ...sideRequestOptions(config, {
               role: 'analyzer',
               maxOutputTokens: mentionCfg.followUpMaxOutputTokens,
               purpose: 'address',
@@ -1144,9 +1144,9 @@ export function createMessageHandler({
 
   /**
    * One room classifier call for `normalized` in `channel`: the request from
-   * buildClassifierRequest with `prompt` (room.md), sent with the helper
+   * buildClassifierRequest with `prompt` (room.md), sent with the side request
    * request options (role analyzer, mention.followUpMaxOutputTokens, the
-   * daily cap, llm.helperTimeoutMs, purpose `room`). Resolves to `'yes'` or
+   * daily cap, llm.analyzerTimeoutMs, purpose `room`). Resolves to `'yes'` or
    * `'no'` (`room: verdict`; the first word, read as the address
    * classifier's answer is: anything but a yes is a no), or null when no
    * verdict came: a request that could not be built (`room: skipped`,
@@ -1187,7 +1187,7 @@ export function createMessageHandler({
         ],
         {
           model,
-          ...helperRequestOptions(config, {
+          ...sideRequestOptions(config, {
             role: 'analyzer',
             maxOutputTokens: config.mention?.followUpMaxOutputTokens,
             purpose: 'room',
@@ -1450,7 +1450,7 @@ export function createMessageHandler({
 
   // --- Pending direct pings ---------------------------------------------------
   // A @mention, a reply to the persona or her name that arrives while a turn is running
-  // in its own channel (mention.pendingSameChannel) or, with one attention
+  // in its own channel (mention.pendingSameChannel) or, with one lease
   // (mention.oneAtATime), in another channel is remembered here instead of
   // dropped, and answered once the turn frees up -- every one of them, in
   // arrival order (src/behavior/pending.js), unless the turn that spoke there
@@ -1677,9 +1677,9 @@ export function createMessageHandler({
 
   /**
    * Remember a direct ping (mention/reply/name/private message) that arrived while
-   * a turn is running in its own channel or, with one attention, elsewhere --
+   * a turn is running in its own channel or, with one lease, elsewhere --
    * or a routed call (`destination`: the channel its turn posts in) while a
-   * turn runs there or, with one attention, anywhere. Every call waits, in
+   * turn runs there or, with one lease, anywhere. Every call waits, in
    * arrival order (`arrivedAt`, default now): none replaces another, of its
    * channel or of its author; a routed call carries the calls its settle wait
    * took the place of (src/behavior/pending.js `superseded`). At most
@@ -1800,7 +1800,7 @@ export function createMessageHandler({
    * One merge classifier call: is `trigger` (a call of an author with `items`
    * waiting) about one of them? System = prompts.merge with `{{name}}`; user
    * = `<waiting>` (the items as `<n>. <text>` lines from 1) then
-   * `<candidate>` (`<author>: <text>`). A helper's request (role analyzer,
+   * `<candidate>` (`<author>: <text>`). A side request (model role analyzer,
    * mention.followUpMaxOutputTokens, purpose `merge`). Resolves the item's
    * 1-based index (`merge: verdict`, `answer: 'item'`), or null for `new`
    * (`answer: 'new'`) and for every other outcome, logged as `merge: failed`
@@ -1832,7 +1832,7 @@ export function createMessageHandler({
         ],
         {
           model: roleModel(config, 'analyzer', 'merge'),
-          ...helperRequestOptions(config, {
+          ...sideRequestOptions(config, {
             role: 'analyzer',
             maxOutputTokens: config.mention?.followUpMaxOutputTokens,
             purpose: 'merge',
@@ -2160,7 +2160,7 @@ export function createMessageHandler({
    *  - a turn is running in that channel (mention.pendingSameChannel, default
    *    on, regardless of mention.oneAtATime) -- that turn may already have
    *    fetched its history without this message;
-   *  - one attention (mention.oneAtATime, default on): a turn is running in
+   *  - one lease (mention.oneAtATime, default on): a turn is running in
    *    another channel.
    * A direct call is held through holdCall: queued, or folded into an item
    * its author already waits for there (the merge classifier).
@@ -2243,7 +2243,7 @@ export function createMessageHandler({
   // src/behavior/turn.js#routeFor), the
   // call is recorded in the ring (state.json `elsewherePings`: ids and a time,
   // no author, no text) and a settle wait is armed for the source: one timer
-  // per source, never a busy mark, so the one attention stays free while it
+  // per source, never a busy mark, so the lease stays free while it
   // waits. Every message observed in the source moves the wait
   // (elsewhere.settleSeconds after the last one, at most
   // elsewhere.settleMaxSeconds after the call that armed it); a newer call
@@ -2564,7 +2564,7 @@ export function createMessageHandler({
       if (observing) await observing;
     }
 
-    // One attention: busy anywhere (or, with oneAtATime off, in this very
+    // One lease: busy anywhere (or, with oneAtATime off, in this very
     // chat) -> pending, answered by drainPending once the turn frees up.
     if (turnBlocked(channel.id, config)) {
       holdCall(channel, normalized, 'private');

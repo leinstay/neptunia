@@ -88,7 +88,7 @@ The world file never appears in an ordinary chat turn.
 
 ## Forced posts
 
-`/nep diary post` runs one post now, outside the plan and the quiet day, under the same rails (daily caps, channel permissions). An optional `topic` (one line, at most 1000 characters) reaches the compose request. While another turn holds the one attention, the command waits up to `diary.forceWaitMs` (default 120000 ms).
+`/nep diary post` runs one post now, outside the plan and the quiet day, under the same rails (daily caps, channel permissions). An optional `topic` (one line, at most 1000 characters) reaches the compose request. While another turn holds the lease, the command waits up to `diary.forceWaitMs` (default 120000 ms).
 
 ## Where entries are stored
 

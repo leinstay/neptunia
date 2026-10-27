@@ -1,4 +1,4 @@
-// Pure helpers and constants of the owner operations (src/tools/impl/*.ts), moved from src/admin.js:
+// Pure functions and constants of the owner operations (src/tools/impl/*.ts), moved from src/admin.js:
 // the rules-file and config-path functions, the profile views, the ping/route formatters, the
 // media wording tables and the line formatters several operations share. No I/O but
 // `treeSize` (a directory walk for the memory snapshot) and `postingConversation` (a channel
@@ -562,7 +562,7 @@ export function writeLocalConfig(localPath: string, value: unknown): void {
 }
 
 // ---------------------------------------------------------------------------
-// Model roles and `/nep route`: pure helpers
+// Model roles and `/nep route`: pure functions
 // ---------------------------------------------------------------------------
 
 export const MODEL_ID_RE = /^[\w.:/-]{3,100}$/;
@@ -633,7 +633,7 @@ export function routeRoleArg(args: unknown): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// Access and the media commands: pure helpers
+// Access and the media commands: pure functions
 // ---------------------------------------------------------------------------
 
 /** Why `/nep emoji rescan` did not run, by src/memory/emoji-backfill.js's skip reason (the

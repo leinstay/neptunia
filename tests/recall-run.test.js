@@ -203,7 +203,7 @@ function scene({
     },
   };
   const hot = {
-    config: config({ features, recall: { ...recall }, llm: { helperTimeoutMs: 30000 } }),
+    config: config({ features, recall: { ...recall }, llm: { analyzerTimeoutMs: 30000 } }),
     prompts: { 'recall-summary': PROMPT, labels },
   };
   const recaller = createRecall({

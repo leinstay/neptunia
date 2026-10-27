@@ -131,7 +131,7 @@ import { createVideoFetcher } from '../media/fetch-video.js';
 import { audioMapSettings, videoAudioNote, withAudioNote } from '../media/audio-map.js';
 import { isDirectUrlSite, proxyFor, publicVideoUrl, safeLocation, youtubeVideoId } from '../media/video-sites.js';
 import {
-  helperRequestOptions,
+  sideRequestOptions,
   railReason,
   VIDEO_TOKENS_PER_SECOND_FALLBACK as STATIC_TOKENS_PER_SECOND_FALLBACK,
 } from '../llm/openrouter.js';
@@ -650,12 +650,12 @@ export function createDescriber({
           },
           { role: 'user', content: [{ type: 'image_url', image_url: { url: downloaded.dataUrl } }] },
         ],
-        // An in-turn helper (llm.helperTimeoutMs, counted, never calibrated: the
+        // An in-turn side request (llm.analyzerTimeoutMs, counted, never calibrated: the
         // rail estimates the picture at a flat context.vision.tokensPerImage while
         // the vision model counts far more).
         {
           model,
-          ...helperRequestOptions(hot.config, {
+          ...sideRequestOptions(hot.config, {
             role: 'vision',
             maxOutputTokens: mediaCfg.maxOutputTokens,
             purpose: 'describe',
@@ -1570,7 +1570,7 @@ export function createDescriber({
    * The second look at a picture on a question (features.imageRelook, a missing
    * key counts as on): download `item` the way a caption does (pictureImageUrl,
    * `context.vision.maxBytes`) and ask the
-   * media model (`vision`, a helper request, `purpose: 'relook'`,
+   * media model (`vision`, a side request, `purpose: 'relook'`,
    * output capped at `media.video.rewatch.maxOutputTokens`) `question`: the
    * `rewatch-answer` prompt is the system message (`{{maxChars}}` =
    * `media.video.rewatch.answerChars`; a `{{question}}` still in it is filled
@@ -1663,7 +1663,7 @@ export function createDescriber({
         ],
         {
           model: roleModel(hot.config, 'vision', 'relook'),
-          ...helperRequestOptions(hot.config, {
+          ...sideRequestOptions(hot.config, {
             role: 'vision',
             maxOutputTokens: rewatchCfg.maxOutputTokens,
             purpose: 'relook',

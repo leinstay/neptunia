@@ -25,7 +25,7 @@ function hotFixture() {
   return {
     config: {
       models: { base: { analyzer: 'test/analyzer' } },
-      llm: { helperTimeoutMs: 9000 },
+      llm: { analyzerTimeoutMs: 9000 },
       web: {
         maxPerDay: 0,
         search: {
@@ -251,7 +251,7 @@ test('search-compare: two queries x three engines -> results, summary, blind she
   assert.equal(summaryCall.countAgainstDailyCap, false);
   const pluginCall = calls.llm.find((c) => c.options.plugins).options;
   assert.deepEqual(pluginCall.plugins, [{ id: 'web', engine: 'exa', max_results: 5 }]);
-  assert.equal(pluginCall.helper, false);
+  assert.equal(pluginCall.isSide, false);
   assert.equal(pluginCall.countAgainstDailyCap, false);
 
   const summary = fs.readFileSync(path.join(dir, 'out', 'summary.md'), 'utf8');

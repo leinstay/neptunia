@@ -446,7 +446,7 @@
 // fetched messages before the trigger (src/behavior/prompt.js#classifierTranscript,
 // the describer's cached captions when features.mediaDescriptions is on)
 // and the `<candidate>` line; on the analyzer model (roleModel) with
-// helperRequestOptions (role `analyzer`, `split.maxOutputTokens`,
+// sideRequestOptions (role `analyzer`, `split.maxOutputTokens`,
 // purpose `split`); each answer parsed by src/behavior/split.js#parseSplitAnswer.
 // `--text "<candidate text>"` replaces the trigger's content (same author,
 // same time, same lines before it), so an invented message is tested in the
@@ -465,7 +465,7 @@
 //    messages before the trigger (cached captions with
 //    features.mediaDescriptions on, cached video states with video vision on,
 //    cached link reads with features.webLookup and web.links on) and the
-//    `<candidate>` line; on the analyzer model (roleModel) with helperRequestOptions
+//    `<candidate>` line; on the analyzer model (roleModel) with sideRequestOptions
 //    (role `analyzer`, `web.search.classifierMaxOutputTokens`, purpose
 //    `lookup`); the answer parsed by src/behavior/recall.js#parseLookupAnswer
 //    at the trigger's time;
@@ -1199,7 +1199,7 @@ async function runSplit({
     fillPromptTemplate,
     classifierTranscript,
     roleModel,
-    helperRequestOptions,
+    sideRequestOptions,
     railReason,
   } = mods;
   const config = hot.config;
@@ -1249,7 +1249,7 @@ async function runSplit({
         ],
         {
           model,
-          ...helperRequestOptions(config, {
+          ...sideRequestOptions(config, {
             role: 'analyzer',
             maxOutputTokens: settings.maxOutputTokens,
             purpose: 'split',
@@ -1348,7 +1348,7 @@ async function loadRecallMods(load) {
     classifierTranscript: prompt.classifierTranscript,
     fillPromptTemplate: prompt.fillPromptTemplate,
     roleModel: roles.roleModel,
-    helperRequestOptions: openrouter.helperRequestOptions,
+    sideRequestOptions: openrouter.sideRequestOptions,
     railReason: openrouter.railReason,
     zonedDay: time.zonedDay,
     countToday: time.countToday,
@@ -1460,7 +1460,7 @@ async function runRecall({
     classifierTranscript,
     fillPromptTemplate,
     roleModel,
-    helperRequestOptions,
+    sideRequestOptions,
     railReason,
     zonedDay,
     countToday,
@@ -1555,7 +1555,7 @@ async function runRecall({
       ],
       {
         model,
-        ...helperRequestOptions(config, {
+        ...sideRequestOptions(config, {
           role: 'analyzer',
           maxOutputTokens: searchCfg.classifierMaxOutputTokens ?? 200,
           purpose: 'lookup',
@@ -5979,7 +5979,7 @@ const DIRECT_CALL_KINDS = Object.freeze(['mention', 'reply', 'name', 'followUp',
  * What a live turn with features.coreTools off runs before her reply (src/behavior/turn.js#maybeLookup,
  * the classifier path; the turn planner's is not reproduced): the search classifier -- prompts.lookup
  * with `{{name}}`, `{{today}}` (`at`'s day in `bot.timezone`) and `{{skills}}` (`discovery.index`), the
- * user part lookupClassifierInput builds, on the `analyzer` (roleModel, helperRequestOptions, purpose
+ * user part lookupClassifierInput builds, on the `analyzer` (roleModel, sideRequestOptions, purpose
  * `lookup`) -- asked when its prompt is there and a side can run: the web side under
  * features.webLookup, web.search.enabled, `web.search.maxPerTurn` >= 1, the lookup's search and its
  * daily slots; the server side when the recall runner is available. Its answer (parseLookupAnswer) runs
@@ -6018,7 +6018,7 @@ export async function preTurnLookup({
     fillPromptTemplate,
     zonedDay,
     roleModel,
-    helperRequestOptions,
+    sideRequestOptions,
     parseLookupAnswer,
     recallSettings,
     fallbackLookupPlan,
@@ -6079,7 +6079,7 @@ export async function preTurnLookup({
       ],
       {
         model: roleModel(config, 'analyzer', 'lookup'),
-        ...helperRequestOptions(config, {
+        ...sideRequestOptions(config, {
           role: 'analyzer',
           maxOutputTokens: searchCfg.classifierMaxOutputTokens ?? 2000,
           purpose: 'lookup',
@@ -6785,14 +6785,14 @@ async function loopDepsOf({
   const { parseLookupAnswer, recallSettings } = await load('behavior/recall.js');
   const { zonedDay } = await load('time.js');
   const { roleModel } = await load('llm/roles.js');
-  const { helperRequestOptions } = await load('llm/openrouter.js');
+  const { sideRequestOptions } = await load('llm/openrouter.js');
   const preTurnDeps = {
     lookupClassifierInput: turnMod.lookupClassifierInput,
     fallbackLookupPlan: turnMod.fallbackLookupPlan,
     fillPromptTemplate,
     zonedDay,
     roleModel,
-    helperRequestOptions,
+    sideRequestOptions,
     parseLookupAnswer,
     recallSettings,
   };

@@ -5,7 +5,7 @@
 // Two families live here (schema v7, spec 2026-10-24-memory-schema-v7 sections 1.2 and 11.3):
 //   - the legacy-shaped ids (`person:<iface>:<id>`, `<iface>:<id>`, `<iface>:channel:<id>`, `src:<iface>:...`): every
 //     builder takes the interface as its first argument, so `discord` gives the strings stored today and another
-//     interface its own namespace; `nativeOf` and the helpers below that read them are the one place an id is taken
+//     interface its own namespace; `nativeOf` and the functions below that read them are the one place an id is taken
 //     apart, and only for the legacy spellings (src/memory/db/legacy-namespace.ts);
 //   - the new ids: `nodeId(kind, parts)` (`<kind>:<32 hex of SHA-256 over the canonical key>`) and `newPersonId()`
 //     (`person:<uuid>`). A new id is a stable spelling, never parsed: the tuple it hashes is stored in columns.

@@ -245,7 +245,7 @@ export function roomPreFilter(normalized) {
   return (normalized.mentionedUserIds ?? []).length === 0;
 }
 
-// The helper models are resolved by src/llm/roles.js#roleModel (one resolver for every role).
+// The model roles are resolved by src/llm/roles.js#roleModel (one resolver for every model role).
 // The per-feature model keys older than the `classifier` block are never read;
 // deprecatedModelKeys lets startup warn about them.
 

@@ -15,7 +15,7 @@
 import { isPlainObject } from '../config.js';
 import { log } from '../log.js';
 import { formatDuration } from '../format.js';
-import { helperRequestOptions, railReason } from '../llm/openrouter.js';
+import { sideRequestOptions, railReason } from '../llm/openrouter.js';
 import { oneLine } from '../memory/clamp.js';
 import { PARTICIPATION_DEFAULTS, episodeHeadlines, participationSettings } from '../memory/index.js';
 import { roleModel } from '../llm/roles.js';
@@ -243,7 +243,7 @@ export function participationEpisodeOffer({
  * 'no-candidate'`) without a message to judge (src/behavior/route.js#routeCandidate).
  * Else one request on the classifier model (role `analyzer`, purpose
  * `participation-pick`, its answer capped at `participation.maxOutputTokens`,
- * the helper timeout and the client's hedge): the last
+ * the analyzer timeout and the client's hedge): the last
  * `participation.contextMessages` lines before the candidate as
  * `<transcript>` (src/behavior/route.js#routeContext), the candidate, the
  * numbered `<episodes>` (participationEpisodeList: a channel's stored note
@@ -341,7 +341,7 @@ export function createParticipationPicker({ hot, store, llm, now = Date.now, sch
       try {
         completion = await llm.complete(messages, {
           model: roleModel(config, 'analyzer', 'participation-pick'),
-          ...helperRequestOptions(config, {
+          ...sideRequestOptions(config, {
             role: 'analyzer',
             maxOutputTokens: settings.maxOutputTokens,
             purpose: 'participation-pick',

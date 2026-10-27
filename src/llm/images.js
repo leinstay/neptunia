@@ -28,7 +28,7 @@ import { roleModel } from './roles.js';
 const MODERATION_STATUS = new Set([400, 403]);
 const MODERATION_MARKERS = /moderation|content_policy|safety/i;
 
-/** The role a generation routes as: `"<prefix>@drawing"` keys of `llm.providerByModel` apply to it. */
+/** The model role a generation routes as: `"<prefix>@drawing"` keys of `llm.providerByModel` apply to it. */
 export const IMAGE_ROLE = 'drawing';
 /** The state.json fields of the instance-wide daily picture counter. */
 const IMAGE_DAILY = { dayKey: 'imageDay', countKey: 'imageCount' };

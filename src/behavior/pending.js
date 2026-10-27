@@ -1,6 +1,6 @@
 // Pure queue of "pending" calls: a @mention, a reply or the persona's name
 // that arrived while a turn was running in its own channel
-// (config.mention.pendingSameChannel) or, with one attention
+// (config.mention.pendingSameChannel) or, with one lease
 // (config.mention.oneAtATime), somewhere else; a private message waiting for
 // the same reason; a follow-up the address classifier said `yes` to, the
 // same way; a call from a channel the persona cannot write in, routed

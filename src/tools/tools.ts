@@ -1,6 +1,6 @@
 // The persona's in-turn tools (features.coreTools): `web.search`, `web.read`, `media.look` and `memory.search`,
 // skills she calls herself in a turn whose result comes back in the same turn (src/behavior/turn.js,
-// the tool loop). No helper model chooses for her or reads for her: her query goes to the existing
+// the tool loop). No model role chooses for her or reads for her: her query goes to the existing
 // web search engines as she wrote it and their results come back raw (src/web/lookup.js#searchResults:
 // title, link, site, date, the engine's snippet; no summary), a page she reads comes back as its
 // own extracted text, cut (src/web/lookup.js#readPage), her question, people, channel, time range and exact
@@ -155,7 +155,7 @@ function cleanLink(raw: unknown): { href: string; key: string } | null {
 
 /**
  * The text of a web.search result (`found`: src/web/lookup.js#searchResults' `{ query, results }`,
- * raw, no helper between): `labels.tools.tools.web.source` (`{query}`), `.goal` (`{goal}`) when
+ * raw, no model role between): `labels.tools.tools.web.source` (`{query}`), `.goal` (`{goal}`) when
  * she named what she needs to establish, then each result as the engine gave it -- `<n>. <title>`,
  * its link (cleanLink; a result without an http(s) link and a page listed twice are left out),
  * `<site> · <date>` (the date only when the engine gave one), its snippet cut at `snippetChars`

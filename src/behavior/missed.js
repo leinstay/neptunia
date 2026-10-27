@@ -17,7 +17,7 @@
 // looked at once per channel, `missed.sweepDelaySeconds` after the last candidate there, pushed
 // back by every new message in the channel but never past `missed.sweepMaxDelaySeconds`: code
 // first (resolved by the channel's history, expired after `missed.expireMinutes`, or
-// `missed.questionExpireMinutes` for a message carrying a question mark), then one helper call
+// `missed.questionExpireMinutes` for a message carrying a question mark), then one analyzer call
 // for the channel (`prompts/missed.md`, role `analyzer`, purpose `missed`) answering one verdict
 // per candidate: owed, resolved, intentional-skip, stale or uncertain; a failed call is
 // `unchecked`, never owed. With `features.missedRecovery` exactly true the owed ones of a channel
@@ -35,7 +35,7 @@
 import path from 'node:path';
 import * as nodeFs from 'node:fs/promises';
 import { formatTranscript, renderTranscript, withTriggers } from '../format.js';
-import { helperRequestOptions } from '../llm/openrouter.js';
+import { sideRequestOptions } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { fillPromptTemplate } from './prompt.js';
@@ -57,7 +57,7 @@ export const MISSED_REASONS = Object.freeze([
   CODE.PENDING_OUTRANKED,
 ]);
 
-/** The helper's verdicts, then the one code gives a check that did not complete. */
+/** The analyzer's verdicts, then the one code gives a check that did not complete. */
 export const MISSED_VERDICTS = Object.freeze(['owed', 'resolved', 'intentional-skip', 'stale', 'uncertain']);
 export const UNCHECKED = 'unchecked';
 
@@ -84,7 +84,7 @@ const KEEP_MS = DAY_MS;
 export const MAX_CANDIDATES = 500;
 /** How far back the start reads the journal. */
 const RECONCILE_WINDOW_MS = HOUR_MS;
-/** How many lines before the earliest candidate the helper's transcript keeps. */
+/** How many lines before the earliest candidate the analyzer's transcript keeps. */
 const LINES_BEFORE = 5;
 /** The registry file's schema version. */
 const FILE_VERSION = 1;
@@ -246,12 +246,12 @@ export function expiryMs(candidate, settings) {
 }
 
 /**
- * The code's part of a channel's sweep, before any helper call: of the channel's `pending`
+ * The code's part of a channel's sweep, before any analyzer call: of the channel's `pending`
  * candidates, which are `expired` (older than expiryMs at `now`), which the channel's `history`
  * shows answered (`resolved`, resolvedInHistory), which it does not show at all (`notShown`: the
  * talk moved past the window fetched), which carry an `owed` verdict already (`owed`: a recovery
  * held back by its cooldown or a busy attention, never asked about twice) and which go to the
- * helper (`check`). Pure.
+ * analyzer (`check`). Pure.
  * @param {object[]} list
  * @param {string} channelId
  * @param {{ now: number, settings: object, history: object[], triggerOf?: (id: string) => string|null }} options
@@ -276,7 +276,7 @@ export function sweepPlan(list, channelId, { now, settings, history, triggerOf }
 }
 
 /**
- * The helper's answer (prompts/missed.md) for `count` candidates: one line per candidate,
+ * The analyzer's answer (prompts/missed.md) for `count` candidates: one line per candidate,
  * `<n>: <verdict>` (a period, a parenthesis or a dash may stand for the colon; any case). A
  * candidate no line names, or named twice with different words, is `uncertain`; an empty
  * answer leaves every one `unchecked` (`empty`). Pure.
@@ -498,7 +498,7 @@ export function missedStatusLine(counts) {
 }
 
 /**
- * The helper's request for one channel: system = `prompt` (`{{name}}` filled), user = the
+ * The analyzer's request for one channel: system = `prompt` (`{{name}}` filled), user = the
  * channel's transcript from LINES_BEFORE lines before the earliest candidate on (the persona's
  * lines naming the message that started their turn, through `triggerOf`), then a
  * `<candidates>` block, one line per candidate: `<n>: #<line> <reason>`. Null without a prompt
@@ -544,7 +544,7 @@ export function buildCheckRequest({ prompt, labels, config, selfName, history, c
  * @param {{ state: { data: object } }} deps.store  Only `state.data.paused` is read.
  * @param {object|null} [deps.journal]  src/memory/journal.js: `answer` records written while
  *   features.journal is exactly true; `read` at start for the reconciliation.
- * @param {{ complete: Function }|null} [deps.llm]  The helper's client; absent, every check is `unchecked`.
+ * @param {{ complete: Function }|null} [deps.llm]  The analyzer's client; absent, every check is `unchecked`.
  * @param {object} deps.turns  The turn runner: `runTurn`, `triggerOf`, `lastPostAt`, `isBusy`, `isAnyBusy`.
  * @param {import('../interface/reads.ts').Reads} deps.reads  The core's reads of the interface.
  * @param {() => string} [deps.iface]  The interface the conversations belong to (from `hello`).
@@ -738,7 +738,7 @@ export function createMissed({
   }
 
   /**
-   * The address helper's "no" on a normalized message: one `answer` record (`event` `address`,
+   * The address check's "no" on a normalized message: one `answer` record (`event` `address`,
    * `verdict` `not-addressed`; ids and time, never the text) for the heartbeat view's list of
    * what was filtered without her. Not a candidate. Never throws.
    */
@@ -911,7 +911,7 @@ export function createMissed({
     return (await reads.conversationInfo({ iface: iface(), conversationId: String(channelId) }))?.conversation ?? null;
   }
 
-  /** The helper's verdicts for `list` (one call), each `unchecked` when it fails. */
+  /** The analyzer's verdicts for `list` (one call), each `unchecked` when it fails. */
   async function classify(list, { channel, history, config }) {
     const unchecked = () => list.map(() => UNCHECKED);
     const prompts = hot.prompts;
@@ -943,7 +943,7 @@ export function createMissed({
         ],
         {
           model: roleModel(config, 'analyzer', 'missed'),
-          ...helperRequestOptions(config, {
+          ...sideRequestOptions(config, {
             role: 'analyzer',
             maxOutputTokens: settings.maxOutputTokens,
             purpose: 'missed',
@@ -961,7 +961,7 @@ export function createMissed({
   }
 
   /**
-   * One channel's sweep (the timer's, or a test's): the code's filter (sweepPlan), the helper
+   * One channel's sweep (the timer's, or a test's): the code's filter (sweepPlan), the analyzer
    * for what is left, then a recovery turn for the owed ones (features.missedRecovery) or, in
    * shadow mode, nothing posted. Skipped while paused.
    */

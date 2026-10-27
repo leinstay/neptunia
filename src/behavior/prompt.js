@@ -1032,7 +1032,7 @@ function loreItems(loreEntries, history, trigger, labels, loreCfg, nameOf, ids =
  * src/memory/emoji-usage.js#rankEmojiUsage) that the index still has, topped
  * up with the rest of the index in its own order (a fresh install with no
  * ranking yet shows the first `max` of the index), at most `max` lines. The
- * name is the index's current one. A helper caption cached under
+ * name is the index's current one. A `vision` caption cached under
  * `emoji:<id>` (the describer's cache; a `miss` entry has no text) renders
  * through `labels.emoji.entry` (`{name}`/`{text}`), otherwise
  * `labels.emoji.entryNoText` (`{name}`); a caption this request's
@@ -1227,7 +1227,7 @@ export function gifFieldChars(gifsCfg) {
 }
 
 /**
- * The one-line caption of a GIF library entry: the helper caption cached
+ * The one-line caption of a GIF library entry: the `vision` caption cached
  * under its `itemId` (the describer's cache; a `miss` entry has none), cut to
  * `actionChars` (0 = whole) at a word boundary, a cut marked with an ellipsis
  * (src/memory/clamp.js#clampWithEllipsis, a hard limit); '' when there is
@@ -1496,7 +1496,7 @@ function assembleUser({
 }
 
 /**
- * A helper request's user content in two cache parts: the `stable` block (the
+ * A side request's user content in two cache parts: the `stable` block (the
  * bulk that repeats between calls) tagged `cacheSegment: 'stable'` and
  * followed by `separator`, then the per-turn blocks joined with `separator`
  * and untagged. Empty blocks are left out; with no per-turn block the stable
@@ -1554,7 +1554,7 @@ export function fillPromptTemplate(template, values) {
 }
 
 /**
- * The transcript body of a helper classifier's `<transcript>` block (the
+ * The transcript body of an analyzer classifier's `<transcript>` block (the
  * route classifier, src/behavior/route.js#routeContext; the re-watch and
  * lookup classifiers, src/behavior/turn.js#classifierContext): `messages`
  * (already chosen by the caller, oldest first) rendered as the chat renders
@@ -3826,7 +3826,7 @@ export function buildRequest(input) {
   const limit = Math.max(0, requestTokenLimit(config) - TAG_OVERHEAD - toolsTokens - stepReserve);
 
   const episodesOpt = { enabled: episodesOn, cap: caps.interlocutor, cost };
-  // The avatar line of every profile (features.avatars, exactly true: a paid helper writes it).
+  // The avatar line of every profile (features.avatars, exactly true: a paid `vision` request writes it).
   const avatarsOn = config.features?.avatars === true;
   const interlocutorShown = renderProfileShown(interlocutor, labels, {
     interlocutor: true,

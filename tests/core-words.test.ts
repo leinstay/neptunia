@@ -1,7 +1,7 @@
-// The core's words: no line of src/ names Discord, except the lines this file allows. The allowlist holds what stays
-// on purpose: the frozen migrations, the readers of the legacy namespace and the stored values they read, the `/nep`
-// command surface that stage 7 of the core extraction removes, the entry point that loads the Discord package, and the
-// fake interface's jump links that the tests read. An entry names a file and a pattern of the line,
+// The core's words: no line of src/ names Discord, a "helper" model or an "organ", except the lines this file
+// allows. The allowlist holds what stays on purpose: the frozen migrations, the readers of the legacy namespace and the
+// stored values they read, the `/nep` command surface that stage 7 of the core extraction removes, the entry point that
+// loads the Discord package, and the limit kinds the journal stores. An entry names a file and a pattern of the line,
 // never a line number, and every entry must still match a line, so a stale entry fails too.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -35,6 +35,15 @@ const DISCORD_ALLOWED: ReadonlyArray<Allowed> = [
     pattern: /https:\/\/discord\.com\/channels\//,
     why: "the fake's jump links the tests read",
   },
+];
+
+const HELPER_ALLOWED: ReadonlyArray<Allowed> = [
+  { file: 'src/llm/limits.js', pattern: /'helper-(timeout|fallback)'/, why: 'limit kinds the journal stores' },
+  { file: 'src/behavior/turn.js', pattern: /`?helper-(timeout|fallback)`?/, why: 'a limit kind the journal stores' },
+  { file: 'src/behavior/planner.js', pattern: /`?helper-fallback`?/, why: 'a limit kind the journal stores' },
+  { file: 'src/behavior/participation-pick.js', pattern: /`?helper-timeout`?/, why: 'a limit kind the journal stores' },
+  { file: 'src/behavior/missed.js', pattern: /'missed: helper failed'/, why: 'a log line name' },
+  { file: 'src/config-moves.ts', pattern: /helperTimeoutMs/, why: 'the old name of a moved config key' },
 ];
 
 function sourceFiles(dir: string): Array<string> {
@@ -74,4 +83,12 @@ function checkWord(word: RegExp, allowed: ReadonlyArray<Allowed>): void {
 
 test('names Discord in src/ only on the allowed lines', () => {
   checkWord(/discord/i, DISCORD_ALLOWED);
+});
+
+test('names no helper model in src/ outside the stored limit kinds, a log name and a moved key', () => {
+  checkWord(/helper/i, HELPER_ALLOWED);
+});
+
+test('names no organ in src/', () => {
+  checkWord(/\borgans?\b/i, []);
 });

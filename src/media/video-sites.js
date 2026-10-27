@@ -1,4 +1,4 @@
-// Pure helpers for the persona's video vision: which links point at a video
+// Pure functions for the persona's video vision: which links point at a video
 // site, a stable cache key for a video URL (so a repost of the same video
 // shares one cache entry), the exact yt-dlp / ffmpeg argument arrays the
 // fetcher (src/media/fetch-video.js) runs (a GIF's conversion to a short

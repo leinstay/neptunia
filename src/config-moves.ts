@@ -1,7 +1,8 @@
 // The config keys that moved: the settings under `skills.*`, the switches `features.skills` and
 // `features.skillsDiscovery`, the owner's grants on the tools that were renamed (`skills.describe`, the six `task.*` and
-// the four `intent.*`), the nine settings of `agents` that every errand reads (they live under `errands`) and
-// `agents.<name>.search.provider` (now `searchProvider`). A local config written with the old keys keeps its meaning
+// the four `intent.*`), the nine settings of `agents` that every errand reads (they live under `errands`),
+// `agents.<name>.search.provider` (now `searchProvider`) and the analyzer timeout `llm.helperTimeoutMs` (now
+// `llm.analyzerTimeoutMs`). A local config written with the old keys keeps its meaning
 // because `moveConfigKeys` writes each old key under its new name, and the loader (src/config.js#readConfig) applies it to
 // the local file before that file is laid over config.json, so an old key overrides the shipped default of its new name.
 // `tools/config-migrate.mjs` writes the same moves into the file.
@@ -221,6 +222,7 @@ export function moveConfigKeys(config: Config): MovedConfig {
   dropGrants(report.config, report);
   moveErrandKeys(report.config, report);
   moveSearchProvider(report.config, report);
+  renameKey(report.config, 'llm', 'helperTimeoutMs', 'analyzerTimeoutMs', report);
   dropKeys(report.config, report);
   return report;
 }
