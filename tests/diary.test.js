@@ -815,6 +815,8 @@ function diaryHarness({
   delay,
 } = {}) {
   let clock = D_NOW;
+  /** The turns the scheduler asked for: the arguments, and the plan's done slots when it asked. */
+  /** @type {Array<{ params: { mode?: unknown, conversation?: unknown, guildId?: unknown, diary?: unknown }, done: number[] }>} */
   const turnCalls = [];
   const hot = {
     config: {
@@ -838,7 +840,9 @@ function diaryHarness({
     state: { data: { ...data }, markDirty() {} },
     getDiary: () => ({ posts, updatedAt: 0 }),
     // The store's read of the memory database (src/memory/store.js#readMemory), where the mirrors are.
-    readMemory: (/** @type {(db: unknown) => unknown} */ read) => read(memory.memoryDb.readHandle()?.db),
+    // The service's handle is untyped JS; its `db` is the node:sqlite connection the read takes.
+    readMemory: (/** @type {(db: unknown) => unknown} */ read) =>
+      read(/** @type {{ db?: unknown } | null} */ (memory.memoryDb.readHandle())?.db),
   };
   // The diary channel is a conversation of the fake interface (none when the test gives none).
   if (channel)
