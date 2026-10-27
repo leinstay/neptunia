@@ -28,6 +28,7 @@ import { createHash } from 'node:crypto';
 import { audienceOf } from './scope.ts';
 import { ensureAudience } from './rows.js';
 import { projectRow } from './graph.js';
+import { diaryPlaces } from './mirrors.ts';
 
 export const GAP_MS = 1000;
 const MEDIA_DIR = path.join('media', 'diary');
@@ -59,30 +60,43 @@ function audioExtension(mime, name) {
 }
 
 /**
- * The diary rows still to fill: live, mirrored, and either no text yet or (a post saved before audio was
- * kept) a `voice` field in its extra with no audio media row. Each carries the post's `voice` object, if any.
+ * The diary rows still to fill: live, mirrored or made by the v15 step from her past messages (`mediaPending` in its
+ * extra, diary-past.ts), and either no text yet, files not read yet (`mediaPending`), a media row that names no
+ * attachment id, or (a post saved before audio was kept) a `voice` field in its extra with no audio media row. Each
+ * carries the messages it was sent as (messageIdsOf), the post's `voice` object, if any, and the
+ * conversation it was posted to: the place its publication names, else the place her diary is posted to
+ * (mirrors.ts#diaryPlaces, the first), else null.
+ * @returns {Array<Record<string, unknown> & { id: string, conversationId: string | null, messageIds: string[], voice: object | null }>}
  */
 export function pendingDiaryRows(db) {
-  const rows = db
-    .prepare(
-      `SELECT d.id AS id, d.scope_kind AS scope_kind, d.scope_iface AS scope_iface, d.scope_dm AS scope_dm, m.native_ids AS native_ids, d.extra AS extra
-       FROM diary d JOIN diary_mirrors m ON m.diary_id = d.id
-      WHERE d.retired_at IS NULL AND m.retired_at IS NULL
+  const fallbackId = diaryPlaces(db)[0]?.conversationId ?? null;
+  const rows = /** @type {Array<Record<string, unknown>>} */ (
+    db
+      .prepare(
+        `SELECT d.id AS id, d.scope_kind AS scope_kind, d.scope_iface AS scope_iface, d.scope_dm AS scope_dm, d.extra AS extra,
+         (SELECT m.native_ids FROM diary_mirrors m WHERE m.diary_id = d.id AND m.retired_at IS NULL ORDER BY m.rowid LIMIT 1) AS native_ids,
+         (SELECT x.receipts FROM publications x WHERE x.row_kind = 'diary' AND x.row_id = d.id AND x.status = 'sent'
+           AND x.retired_at IS NULL ORDER BY x.created_at, x.id LIMIT 1) AS receipts,
+         (SELECT p.native_id FROM publications x JOIN places p ON p.id = x.destination_place_id
+           WHERE x.row_kind = 'diary' AND x.row_id = d.id ORDER BY x.created_at, x.id LIMIT 1) AS conversation_id
+       FROM diary d
+      WHERE d.retired_at IS NULL
+        AND (EXISTS (SELECT 1 FROM diary_mirrors m WHERE m.diary_id = d.id AND m.retired_at IS NULL)
+          OR json_extract(d.extra, '$.mediaPending') = 1)
         AND (d.text IS NULL
+          OR json_extract(d.extra, '$.mediaPending') = 1
+          OR EXISTS (SELECT 1 FROM media y WHERE y.kind = 'diary' AND y.owner = d.id
+            AND json_type(y.native_ref, '$.attachmentId') IS NULL)
           OR (json_type(d.extra, '$.voice') = 'object'
             AND NOT EXISTS (SELECT 1 FROM media x WHERE x.kind = 'diary' AND x.owner = d.id AND x.mime LIKE 'audio/%')))
       ORDER BY d.position, d.rowid`
-    )
-    .all();
+      )
+      .all()
+  );
   const out = [];
   for (const row of rows) {
-    let ids;
-    try {
-      ids = JSON.parse(row.native_ids);
-    } catch {
-      continue;
-    }
-    if (!Array.isArray(ids) || ids.length === 0 || !ids.every((id) => typeof id === 'string')) continue;
+    const ids = messageIdsOf(row.native_ids, row.receipts);
+    if (ids.length === 0) continue;
     let voice = null;
     try {
       const parsed = JSON.parse(row.extra ?? 'null')?.voice;
@@ -90,10 +104,46 @@ export function pendingDiaryRows(db) {
     } catch {
       /* an unreadable extra means no voice field */
     }
-    const { extra: _extra, ...rest } = row;
-    out.push({ ...rest, messageIds: ids, voice });
+    const { conversation_id: conversationId } = row;
+    out.push({
+      id: String(row.id),
+      scope_kind: row.scope_kind,
+      scope_iface: row.scope_iface,
+      scope_dm: row.scope_dm,
+      native_ids: row.native_ids,
+      conversationId: typeof conversationId === 'string' ? conversationId : fallbackId,
+      messageIds: ids,
+      voice,
+    });
   }
   return out;
+}
+
+/**
+ * The messages a post was sent as: its mirror's ids, then the message receipts of its sent publication that the
+ * mirror does not name (a message the v15 step joined to it, diary-past.ts), each once.
+ * @param {unknown} nativeIds  the mirror's `native_ids` JSON, or null
+ * @param {unknown} receipts  the publication's `receipts` JSON, or null
+ * @returns {string[]}
+ */
+function messageIdsOf(nativeIds, receipts) {
+  /** @param {unknown} json  @returns {Array<unknown>} */
+  const parse = (json) => {
+    try {
+      const parsed = /** @type {unknown} */ (typeof json === 'string' ? JSON.parse(json) : null);
+      return Array.isArray(parsed) ? /** @type {Array<unknown>} */ (parsed) : [];
+    } catch {
+      return [];
+    }
+  };
+  const ids = parse(nativeIds)
+    .filter((id) => typeof id === 'string' && id !== '')
+    .map(String);
+  for (const item of parse(receipts)) {
+    const receipt = /** @type {{ key?: unknown, kind?: unknown } | null} */ (item);
+    if (typeof receipt?.key === 'string' && receipt.key && receipt.kind !== 'attachment') ids.push(receipt.key);
+  }
+  return [...new Set(ids)];
 }
 
 /**
@@ -106,13 +156,17 @@ export function applyDiaryUpdate(handle, update) {
     const diary = db.prepare('SELECT scope_kind, scope_iface, scope_dm FROM diary WHERE id = ?').get(update.id);
     if (!diary) return;
     // A refetch (for audio) never replaces a text the row already holds: only an empty or missing text is filled.
+    // An entry the v15 step made from her past messages has its files read once: its `mediaPending` mark goes.
     db.prepare(
-      "UPDATE diary SET text = CASE WHEN text IS NOT NULL AND text <> '' THEN text ELSE ? END WHERE id = ?"
+      `UPDATE diary SET text = CASE WHEN text IS NOT NULL AND text <> '' THEN text ELSE ? END,
+         extra = CASE WHEN json_type(extra, '$.mediaPending') IS NULL THEN extra ELSE json_remove(extra, '$.mediaPending') END
+       WHERE id = ?`
     ).run(update.text ?? '', update.id);
     const insert = db.prepare(
-      `INSERT INTO media (id, kind, owner, path, native_ref, sha1, bytes, mime, scope_kind, scope_iface, scope_dm, extra, retired_at, audience_id)
-       VALUES (?, 'diary', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+      `INSERT INTO media (id, kind, owner, path, native_ref, description, sha1, bytes, mime, scope_kind, scope_iface, scope_dm, extra, retired_at, audience_id)
+       VALUES (?, 'diary', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
        ON CONFLICT(id) DO UPDATE SET path = excluded.path, native_ref = excluded.native_ref, sha1 = excluded.sha1,
+         description = COALESCE(excluded.description, description),
          bytes = excluded.bytes, mime = excluded.mime, scope_kind = excluded.scope_kind, scope_iface = excluded.scope_iface,
          scope_dm = excluded.scope_dm, extra = excluded.extra, retired_at = NULL, audience_id = excluded.audience_id`
     );
@@ -124,6 +178,7 @@ export function applyDiaryUpdate(handle, update) {
         update.id,
         item.path,
         item.nativeRef,
+        item.description ?? null,
         item.sha1,
         item.bytes,
         item.mime,
@@ -136,6 +191,89 @@ export function applyDiaryUpdate(handle, update) {
       projectRow(db, 'media', { id: item.id });
     }
   });
+}
+
+/**
+ * The pictures and the voice file of an entry the diary turn recorded (src/behavior/diary-turn.ts), kept as the job
+ * keeps an older post's: each file written atomically to `data/media/diary/<entry id>-<n>.<ext>` (`update.dataDir`, the
+ * service's data directory) in the entry's order, then its `media` row (applyDiaryUpdate: the diary row's scope, an
+ * audio row's `extra` `{ voice: true, text, durationSec, waveform }`). Runs on the writer connection; a repeat writes the
+ * same files and rows. Returns how many files were kept.
+ * @param {unknown} handle  an `openMemoryDb` handle (the writer)
+ * @param {unknown} given  `{ dataDir, id, items: [{ data, mime, extra? }] }`
+ */
+export function applyEntryMedia(handle, given) {
+  const update =
+    /** @type {{ dataDir: string, id: string, items?: Array<{ data: Uint8Array, mime: string, extra?: object|null, ref?: { messageId: string, attachmentId: string|null } }> }} */ (
+      given
+    );
+  const db =
+    /** @type {{ db: { prepare(sql: string): { get(id: string): { description?: unknown } | undefined } } }} */ (handle)
+      .db;
+  const base = safeName(update.id);
+  const media = (update.items ?? []).map((item, index) => {
+    const buffer = Buffer.from(item.data);
+    const audio = /^audio\//i.test(item.mime);
+    const rel = path.join(
+      MEDIA_DIR,
+      `${base}-${index + 1}.${audio ? audioExtension(item.mime, '') : (EXTENSIONS[item.mime] ?? 'bin')}`
+    );
+    writeAtomic(path.join(update.dataDir, rel), buffer);
+    return {
+      id: `media:diary:${base}-${index + 1}`,
+      path: rel.split(path.sep).join('/'),
+      // Once the file is posted: the message and the attachment it became, and what memory saw in that attachment.
+      nativeRef: item.ref ? JSON.stringify(item.ref) : null,
+      description: describedAs(db, item.ref?.attachmentId ?? null),
+      sha1: createHash('sha1').update(buffer).digest('hex'),
+      bytes: buffer.byteLength,
+      mime: item.mime,
+      extra: item.extra ? JSON.stringify(item.extra) : null,
+    };
+  });
+  if (media.length > 0) applyDiaryUpdate(handle, { id: update.id, media });
+  return media.length;
+}
+
+/**
+ * How a media row of her post names its file on the platform: `native_ref` `{ url, messageId, attachmentId }` (the
+ * attachment's own id, as the read's message event gives it) and the description the media cache keeps of that
+ * attachment (`media:attachment:<id>`), when it has one.
+ * @param {unknown} connection  a connection that can read
+ * @param {unknown} fetched  the message a read found (FetchedMessage)
+ * @param {unknown} file  one of its attachments as the read lists them
+ */
+function platformOf(connection, fetched, file) {
+  const database =
+    /** @type {{ prepare(sql: string): { get(id: string): { description?: unknown } | undefined } } | null} */ (
+      connection
+    );
+  const message =
+    /** @type {{ messageId: string, event?: { message?: { attachments?: Array<{ id?: unknown, url?: unknown }> } } }} */ (
+      fetched
+    );
+  const attachment = /** @type {{ id?: unknown, url?: string }} */ (file);
+  // The read names each attachment's own id; the message event names it too.
+  const found = (message.event?.message?.attachments ?? []).find((item) => item?.url === attachment.url);
+  const named = typeof attachment.id === 'string' && attachment.id ? attachment.id : found?.id;
+  const attachmentId = typeof named === 'string' && named ? named : null;
+  return {
+    nativeRef: JSON.stringify({ url: attachment.url, messageId: message.messageId, attachmentId }),
+    description: describedAs(database, attachmentId),
+  };
+}
+
+/**
+ * What memory saw in the attachment `attachmentId`: the description of its media cache row
+ * (`media:attachment:<id>`), or null.
+ * @param {{ prepare(sql: string): { get(id: string): { description?: unknown } | undefined } } | null} database
+ * @param {string | null} attachmentId
+ * @returns {string | null}
+ */
+function describedAs(database, attachmentId) {
+  if (!attachmentId || !database) return null;
+  const cached = database.prepare('SELECT description FROM media WHERE id = ?').get(`media:attachment:${attachmentId}`);
+  return typeof cached?.description === 'string' && cached.description ? cached.description : null;
 }
 
 /** Writes `buffer` to `abs` atomically. */
@@ -221,7 +359,6 @@ export function createDiaryMedia({
   function settings() {
     const cfg = config() ?? {};
     return {
-      channelId: typeof cfg.diary?.channelId === 'string' ? cfg.diary.channelId : '',
       maxBytes: cfg.image?.referenceMaxBytes,
       timeoutMs: cfg.context?.vision?.fetchTimeoutMs,
       audioMaxBytes: Number.isFinite(cfg.memoryDb?.diaryAudioMaxBytes)
@@ -231,8 +368,9 @@ export function createDiaryMedia({
   }
 
   /** One row: fetch, download, write. Returns 'done' or 'failed'. */
-  async function handleRow(row, { channelId, maxBytes, timeoutMs, audioMaxBytes }, adapter, fetcher) {
-    const result = await adapter.fetchMessages({ iface: adapter.iface, conversationId: channelId }, row.messageIds);
+  async function handleRow(row, { maxBytes, timeoutMs, audioMaxBytes }, adapter, fetcher) {
+    const conversation = { iface: adapter.iface, conversationId: row.conversationId };
+    const result = await adapter.fetchMessages(conversation, row.messageIds);
     if (result?.status !== 'ok' || !Array.isArray(result.messages)) {
       log.warn('diary media: fetch failed', { code: result?.error?.code ?? result?.status ?? 'ERROR' });
       return 'failed';
@@ -280,7 +418,7 @@ export function createDiaryMedia({
           media.push({
             id: `media:diary:${base}-${n}`,
             path: rel.split(path.sep).join('/'),
-            nativeRef: JSON.stringify({ url: attachment.url, messageId: message.messageId }),
+            ...platformOf(db(), message, attachment),
             sha1: createHash('sha1').update(got.buffer).digest('hex'),
             bytes: got.buffer.byteLength,
             mime,
@@ -307,7 +445,7 @@ export function createDiaryMedia({
         media.push({
           id: `media:diary:${base}-${n}`,
           path: rel.split(path.sep).join('/'),
-          nativeRef: JSON.stringify({ url: attachment.url, messageId: message.messageId }),
+          ...platformOf(db(), message, attachment),
           sha1: createHash('sha1').update(buffer).digest('hex'),
           bytes: buffer.byteLength,
           mime,
@@ -324,10 +462,11 @@ export function createDiaryMedia({
     const adapter = port();
     const fetcher = imageFetcher();
     const given = settings();
-    if (!database || !adapter?.fetchMessages || !fetcher || !given.channelId) return counts;
+    if (!database || !adapter?.fetchMessages || !fetcher) return counts;
     let rows;
     try {
-      rows = pendingDiaryRows(database).filter((row) => !attempted.has(row.id));
+      // A post with no place is never asked of the interface: there is no conversation to ask.
+      rows = pendingDiaryRows(database).filter((row) => row.conversationId !== null && !attempted.has(row.id));
     } catch (error) {
       log.warn('diary media: read failed', { code: codeOf(error) });
       return counts;

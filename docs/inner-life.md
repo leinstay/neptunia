@@ -68,6 +68,10 @@ The lines come from the record, indexed incrementally at each tick over the last
 
 **The places view.** Her `places.list` tool lists every place the interface publishes: its address, name, whether she can write there, lines and distinct people since her last look, the newest line, and whether she attends it. `filter=<text>`, `sort=recent|name|lines` (default `recent`), `page=<n>` turns pages of `innerLife.attention.pageSize` (default 12). Every inner turn's `<wake>` carries a short page of it (`innerLife.attention.placesInWake`, default 8, by recent activity, with the total).
 
+### Her diary
+
+The diary is a wake of its own, `selfreflection`, behind `features.diary` rather than `features.innerLife`. Its day plan runs on the scheduler's `diary.tick` (`src/behavior/diary.js`), and each due slot runs a diary turn with no conversation: it reads every group conversation and no direct chat, writes her entry into memory, and the diary's mirrors post it (`src/behavior/mirror.ts`). A mirror place is written only by the diary: an event there opens no turn, and every send there from another turn, wake or tool is refused `diary-mirror`. See [Diary](diary.md).
+
 ### Feedback on her own turn
 
 When a turn ends, some of what she did may not have gone through. The engine keeps each of these as a durable fact in the state and tells her at the first opportunity.

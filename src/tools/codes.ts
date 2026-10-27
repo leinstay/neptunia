@@ -59,6 +59,7 @@ export const CATALOGUE = Object.freeze({
   'channel-not-visible': skill('denied'),
   'cap-open': skill('denied'),
   'cap-tasks': skill('denied'),
+  'cap-diary': skill('denied'),
   'heartbeat-only': skill('denied'),
   'heartbeat-cap': skill('denied'),
   'heartbeat-recurring-cap': skill('denied'),
@@ -152,6 +153,8 @@ export const CATALOGUE = Object.freeze({
   'gif-cap': skill('failed'),
   'no-result': skill('failed'),
   'send-failed': skill('failed'),
+  // A send to a diary mirror's place, refused by the guarded port (src/behavior/mirror.ts#guardMirrorPort).
+  'diary-mirror': skill('failed'),
   'link-closed': skill('unknown'),
   'link-busy': skill('failed'),
   'adapter-threw': skill('unknown'),

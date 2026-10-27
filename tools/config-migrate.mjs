@@ -4,8 +4,12 @@
 // live under `errands`, and `agents.<name>.search.provider`). The engine applies the same moves when it loads the file, so
 // an unmigrated file still works and logs one warning line per load; this tool settles the file itself.
 //
-//   node tools/config-migrate.mjs --dry-run [--file <config.local.json>] [--compare-with <config.json> [--self <id>]]
-//   node tools/config-migrate.mjs --apply [--file <config.local.json>]
+//   node tools/config-migrate.mjs --dry-run [--file <config.local.json>] [--db <memory.db>] [--compare-with <config.json> [--self <id>]]
+//   node tools/config-migrate.mjs --apply [--file <config.local.json>] [--db <memory.db>]
+//
+// `diary.channelId` is the seed of the diary's mirror (schema v15): it moves to the database only when the memory
+// database given with `--db` (opened read-only) has an enabled `diary` mirror, printed as `diary.channelId -> memory
+// database`. Without that mirror, or without `--db`, the key stays and one line says so.
 //
 // The file is `--file`, else `config.local.json` of `NEPTUNIA_PRIVATE_DIR`, else of the checkout (src/paths.js).
 // `--dry-run` prints each move as `from -> to`, each key nothing reads any more as `<path> dropped (no reader)`, and
@@ -23,10 +27,31 @@ import { DROPPED_GRANTS, ERRAND_KEYS, GRANT_MOVES, moveConfigKeys } from '../src
 import { ROOT_DIR, deepMerge } from '../src/config.js';
 import { agentSettings } from '../src/agent-runner/profiles.js';
 import { grantedToPersona } from '../src/tools/access.ts';
+import { openMemoryDb } from '../src/memory/db/open.js';
 import { CliError, parseFlags, privateDirOf, runCli } from './lib/cli.mjs';
 
 const USAGE =
-  'usage: node tools/config-migrate.mjs --dry-run|--apply [--file <config.local.json>] [--compare-with <config.json> [--self <id>]]';
+  'usage: node tools/config-migrate.mjs --dry-run|--apply [--file <config.local.json>] [--db <memory.db>] [--compare-with <config.json> [--self <id>]]';
+
+/**
+ * Whether the memory database `file` (opened read-only) has an enabled `diary` mirror; false without a file.
+ * @param {unknown} file
+ * @returns {boolean}
+ */
+function hasDiaryMirror(file) {
+  if (typeof file !== 'string') return false;
+  const handle = openMemoryDb(path.resolve(file), { readOnly: true });
+  try {
+    const db = /** @type {{ prepare(sql: string): { get(): unknown } }} */ (handle.db);
+    if (db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'mirrors'").get() === undefined)
+      return false;
+    return (
+      db.prepare("SELECT 1 AS ok FROM mirrors WHERE row_kind = 'diary' AND enabled = 1 LIMIT 1").get() !== undefined
+    );
+  } finally {
+    handle.close();
+  }
+}
 
 /** The agents of the profiles and the keys of their settings that are compared, per kind. */
 const WORKER_SETTINGS = ['enabled', 'cost', 'socket', 'out', 'limits', 'daily', 'searchProvider'];
@@ -157,7 +182,7 @@ export function main(argv) {
 function migrate(argv) {
   /** @type {Record<string, unknown>} */
   const flags = parseFlags(argv, {
-    values: ['--file', '--compare-with', '--self'],
+    values: ['--file', '--db', '--compare-with', '--self'],
     switches: ['--dry-run', '--apply'],
     usage: USAGE,
   });
@@ -183,14 +208,19 @@ function migrate(argv) {
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed))
     throw new CliError(`${file} must hold a JSON object; nothing was changed`);
-  const { config, moved, shadowed, dropped } = moveConfigKeys(parsed);
+  const diaryMirror = hasDiaryMirror(flags['--db']);
+  const { config, moved, shadowed, dropped, toDatabase } = moveConfigKeys(parsed, { diaryMirror });
   const lines = [
     ...moved.map((move) => `${move.from} -> ${move.to}`),
     ...shadowed.map((move) => `${move.from} -> ${move.to} (already set; the old key is dropped)`),
     ...dropped.map((key) => `${key} dropped (no reader)`),
+    ...toDatabase.map((key) => `${key} -> memory database (its diary mirror)`),
   ];
   if (flags['--apply'] && lines.length > 0) fs.writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`);
-  const moves = lines.length === 0 ? 'nothing to move\n' : `${lines.join('\n')}\n`;
+  const kept = Object.hasOwn(objectOf(config.diary), 'channelId')
+    ? `diary.channelId kept: the memory database ${typeof flags['--db'] === 'string' ? 'has no diary mirror yet' : 'was not given (--db)'}\n`
+    : '';
+  const moves = `${lines.length === 0 ? 'nothing to move\n' : `${lines.join('\n')}\n`}${kept}`;
   if (typeof flags['--compare-with'] !== 'string') return moves;
   const report = compared(
     parsed,

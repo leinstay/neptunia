@@ -1,15 +1,15 @@
 # Diary
 
-The persona posts in one channel on its own, at random times, without anyone asking. The posts look like a personal feed: drawings, memes, reflections, retold news, curious facts, one-line moods. Before each post the persona reviews its own recent history and picks something it has not done yet. The owner points the diary at a channel and tunes the schedule and kinds through config.
+The persona keeps a diary on its own, at random times, without anyone asking. The entries look like a personal feed: drawings, memes, reflections, retold news, curious facts, one-line moods. Before each entry the persona reviews its own recent history and picks something it has not done yet. Each entry is written into memory first and then posted to the diary's mirrors, the places the owner set up for it. The owner tunes the schedule and kinds through config.
 
 Behind `features.diary` (default `true`, a missing key counts as on).
 
 ## Setup
 
 1. Create a channel on your server. The bot needs View Channel, Send Messages, Read Message History and Attach Files there.
-2. Set `diary.channelId` to the channel's id (`/nep set diary.channelId <id>`, or in `config.local.json`). Read at every tick; an empty value means no diary.
-3. Clearing `diary.channelId` stops the diary while the history file stays, so setting it again keeps the persona's memory of what it posted.
-4. The first tick with a channel fills an empty diary history from the persona's past posts in that channel. Posting starts on the next tick (every 30 seconds). The first post may take a few minutes, depending on when the next planned slot falls.
+2. Set `diary.channelId` to the channel's id (`/nep set diary.channelId <id>`, or in `config.local.json`). The key is the seed of the diary's first mirror: the memory database's schema step v15 makes the channel's place a `diary` mirror the first time it opens with the key set and the place stored.
+3. Once the mirror exists, `node tools/config-migrate.mjs --dry-run --db data/memory.db` and then `--apply --db data/memory.db` take the key out of `config.local.json`. Without the mirror the tool keeps the key and says so in one line.
+4. The diary runs with or without a mirror. With none, its entries stay in memory and nothing is posted. Posting starts on the next tick (every 30 seconds), and the first entry may take a few minutes, depending on when the next planned slot falls.
 
 ## Windows
 
@@ -88,15 +88,29 @@ The world file never appears in an ordinary chat turn.
 
 ## Forced posts
 
-`/nep diary post` runs one post now, outside the plan and the quiet day, under the same rails (daily caps, channel permissions). An optional `topic` (one line, at most 1000 characters) reaches the compose request. While another turn holds the lease, the command waits up to `diary.forceWaitMs` (default 120000 ms).
+`/nep diary post` runs one post now, outside the plan and the quiet day, under the same daily caps. An optional `topic` (one line, at most 1000 characters) reaches the compose request. While another turn holds the lease, the command waits up to `diary.forceWaitMs` (default 120000 ms).
 
-## Where entries are stored
+## How an entry is written and posted
 
-Each diary post is recorded in `data/guilds/<id>/diary.json`: its timestamp, kind, a one-line gist (at most `diary.gistChars`, default 200, characters), the Discord message ids it was sent as, the search query (when one ran) and the picture's scene text (when one was drawn).
+A due slot runs the diary turn as the `selfreflection` wake (`src/behavior/diary.js`, then `src/behavior/turn.js` in mode `diary`). The wake has no conversation. It writes from the place the diary is posted to: the first enabled mirror, or, with none, the place the last entry was published to. The turn takes that place as its conversation, and its history is her diary as memory holds it (`src/behavior/diary-turn.ts`): the newest `context.channelMessages` messages her entries posted, each built by the same line builder as a live message. A message's text, time and reply come from her line in the record, the newest revision, marked edited from the second revision on. Its pictures and voice come from the entry's `media` rows, with the description the media cache holds for the attachment. Nobody else's line is in it, and a message she deleted is left out. An entry with no line in the record is its text as one message.
 
-The memory database (`data/memory.db`) stores each entry as a `diary` row with its full text, and each picture as a `media` row (kind `diary`, the diary entry as owner) with the image file saved to `data/media/diary/`. Audio attachments (voice messages) are saved alongside the pictures.
+The turn sends nothing. Her messages, the pictures she drew and her voice message are held, and the entry is recorded in memory before anything else happens: a `diary` row in `data/memory.db` with its full text, kind, gist (at most `diary.gistChars`, default 200, characters), search query and the first picture's scene. The daily post count counts the recorded entry. With no interface connected the entry is written all the same.
 
-The diary channel is a mirror of the database rows. The publication system (`src/memory/db/publish.js`) tracks each send with an idempotency key and a content hash, so a crash between queuing and sending never sends twice.
+`src/behavior/mirror.ts` then publishes the entry once to every enabled mirror. Each mirror gets one `publications` row (`src/memory/db/publish.js`) with the key `diary:<entry id>:<place id>`. The row is prepared `queued` under the mirror's standing grant and sent through the interface: the voice message first, then her messages one by one, then the pictures in messages of files split by `diary.set.maxMessageBytes` and the interface's file limit. The row ends `sent` with the message ids and the attachment ids (kind `attachment`) as its receipts, `failed` with the interface's code, or `unknown` when the interface could not say. A second publication of the same entry to the same place reuses the row and sends nothing. Before any send, the entry's pictures and voice file are kept as files under `data/media/diary/` with their `media` rows, and the entry's post keeps her messages as sent. After the send each `media` row takes the message id and the attachment id the interface gave its file. A row still `queued` (no interface was connected) is sent when the interface connects and on each diary tick, after a restart too, rebuilt whole from memory: voice, messages, pictures.
+
+The posts made before the mirrors existed stay as they were: `data/guilds/<id>/diary.json` names their message ids, and the diary media job (`memoryDb.diaryMedia`) fetches their text, pictures and audio from the place their publication names into `diary.text` and `media` rows (`data/media/diary/`). Each row keeps the file's `url`, `messageId` and `attachmentId` in `native_ref`, the attachment id as the platform's read gives it, and the description the media cache holds under `media:attachment:<attachmentId>`. A row written before it kept the attachment id is fetched once more; after that the job asks nothing.
+
+When schema v15 seeds the mirror, her messages in its place that no entry names become entries (`src/memory/db/diary-past.ts`). An entry names a message through its `diary_mirrors` ids or a receipt of its diary publication. The messages of one turn make one entry. A message with no turn joins the entry nearest to it in time when one of that entry's messages is within two minutes of it, an entry already held included, and is an entry of its own otherwise. The two minutes are a constant of the step, not a setting. A new entry's text is its messages' texts, the empty ones left out, one per line, and its publication to the place is `sent` with the messages as receipts, so nothing is posted again. A held entry keeps its text, and its mirror and its publication gain the message that joined it. A message she deleted stays out. Her messages are those she has a `said` line of and those seen from her own account, since a message of files only is recorded as seen. The record keeps none of her attachments, so every entry the step writes or extends is marked `mediaPending` in its `extra`, and the diary media job reads its files and their descriptions once, by the messages its publication names. A second open finds every message named and writes nothing.
+
+## Writing to the diary from other turns
+
+Outside the diary turn she writes to her diary with `message.create` and `diary` set to `true`, carrying what a channel post carries: text, a GIF, a file of an errand or a repost of her own picture. The call names no channel and no reply. Every diary call of one turn goes into that turn's one entry, and each is kept in memory before the call answers `ok` with `tools.result.diaryWritten` (`src/behavior/diary-turn.ts#writeDiaryMessage`). The first call records the entry and counts it toward `diary.maxPerDay` (default 12); past the cap it is refused `cap-diary` and nothing is recorded. Each later call extends the entry, whose text is its messages joined by line breaks. After every call the entry's files are `media` rows and the entry has one `queued` publication for each enabled mirror (`src/behavior/mirror.ts#queueEntry`), queued `pending`: its content is filled when it is sent. Nothing is sent while the turn runs. When the turn ends, the mirrors send those publications, each message as its own send with its files (`publishHeldDiary`). After a stop, `drainQueued` of the next start sends them once. A GIF in the diary counts toward `gifs.maxPerDay` as a channel GIF does. In the diary turn a diary call is refused `diary-draw-only`, as every call but `draw.create` and `voice.say` is.
+
+## Mirrors
+
+A mirror is one row of the `mirrors` table (schema v15): a place, whether it is enabled, and who set it up. There may be none or many. An enabled mirror is the owner's standing permission to post every entry there. A disabled row is kept and grants nothing.
+
+A mirror place is written only by the diary. A message there opens no turn of hers (its line is still recorded in memory), and the core's outbound port (`guardMirrorPort`) refuses every send there from a turn, a wake or a tool with the code `diary-mirror`, which her tool result names. Reactions are not refused. Every mirror place carries the `labels.server.diary` mark in `<server>`, and the `<senses>` line names the first.
 
 ## Config reference
 

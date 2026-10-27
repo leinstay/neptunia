@@ -40,7 +40,7 @@
 //        [--snapshot <dir>] [--out <dir>] [--spend <usd>]
 //   cd /opt/neptunia/app && node tools/replay.mjs --show-request <turnId> [--steps] [--snapshot <dir>] [--before 40] [--as-of-moment]
 //   cd /opt/neptunia/app && node tools/replay.mjs --diary <selfPicture|picture> [--count 1] [--topic "<text>"]
-//        [--prompts <dir>] [--out <file>] [--spend <usd>]
+//        [--diary-own-history] [--prompts <dir>] [--out <file>] [--spend <usd>]
 //   cd /opt/neptunia/app && node tools/replay.mjs --skills <scenarios.json>
 //        [--prompts <dir> | --pair-prompts <dirA> <dirB>] [--out <dir>] [--before 40]
 //        [--as-of-moment] [--snapshot <dir>] [--dry] [--core-tools] [--transport native|text] [--spend <usd>]
@@ -81,18 +81,18 @@
 // stderr. `--spend` also stops the samples: none starts when the cost reported so far plus the
 // last sample's would pass it.
 //
-// `--answers-dir <dir> [--answers-first-only] [--answers-timeout-min 20]` (any mode that sends requests): the offline model
-// (`--answers-first-only`: only a turn's first answer comes from the files, its tool-loop steps go to the real model,
-// so a frozen first answer is continued live).
-// Every request to an Anthropic model (`anthropic/claude-*`) is not sent: it is written to
+// `--answers-dir <dir> [--answers-first-only] [--answers-all] [--answers-timeout-min 20]` (any mode that sends requests):
+// the offline model (`--answers-first-only`: only a turn's first answer comes from the files, its tool-loop steps go
+// live; `--answers-all`: every model answers from the files, a diary's plan request on the analyzer model too).
+// Every request to an Anthropic model (`anthropic/claude-*`), with `--answers-all` to any model, is not sent: it goes to
 // `<dir>/req-<n>.json` (exact strings: model, purpose, system, messages) and `<dir>/req-<n>.md` (n from 1 per run, 3 digits: the model id and the purpose, then every message
 // under `## system` / `## user` / `## assistant`, verbatim) and the run waits (polling, up to the
 // timeout) for `<dir>/ans-<n>.txt`, whose content is the model's text (and, optionally, `<dir>/ans-<n>.tool-calls.json`:
 // a JSON array of `{ id?, name, arguments }` -- `arguments` an object or a string -- for the answer's native tool calls; a
 // request that had tools also lists them, with its tool choice, in `req-<n>.json`) (no cost; the result carries
 // `answersDir: { dir, requests }`). `<dir>/done` (`exit <code>`) is written when the run ends. Other
-// models still go to OpenRouter. The directory must hold no files of an earlier run. Such a run
-// needs no `--spend` (only other models are billed; with `--spend` they are capped as usual).
+// models still go to OpenRouter (none with `--answers-all`). The directory must hold no files of an earlier run. Such a
+// run needs no `--spend` (only other models are billed; with `--spend` they are capped as usual).
 // The spend gate (tools/lib/cli.mjs#spendGate): every mode that sends model
 // requests prints its estimate first (~USD_PER_ANSWER per request: a persona
 // answer, a splitter sample, the recall classifier and its summary, a diary
@@ -295,56 +295,40 @@
 // directory given) that is a link -- a separate checkout linking to the live
 // layer -- is read through it and copied as files, never linked to or written.
 //
-// `--diary <kind>`: `--count` briefs (1..50) of one diary kind, each one
-// `runTurn({ channel, mode: 'diary', diary: { kind, [topic], forced: false } })`
-// of the real turn runner (src/behavior/turn.js, wired as src/index.js wires
-// it) in the diary channel (`diary.channelId`): the plan request on the
-// classifier model with the given kind the only one offered (as `/nep diary
-// post <kind>` does; `forced: false` keeps the compose request a scheduled
-// post's), then the compose request on the voice model. Not the sandbox: the
-// sandbox never builds a diary post (src/behavior/sandbox.js#SANDBOX_OMITS).
-// `--topic`: the owner's topic as `/nep diary post <kind> <topic>` threads it
-// (trimmed, blank is none, then src/behavior/diary.js#diaryTopic). What keeps
-// the bot and its memory untouched here: hot is seen with
-// `features.dryRun = true` and `bot.dryRunChannelId = ''` (the turn ends in
-// its dry-run branch: nothing acted, drawn, recorded or mirrored); every
-// Discord REST call but GET is refused and the channel's send / sendTyping
-// throw; the store is the real one with an in-memory copy of its state that
-// is never flushed (flush, forget, wipe and reload methods throw); the image
-// client keeps its quota and refuses to generate; in that in-memory state
-// only, today's diary picture and image counts read 0 so the picture gate
-// opens. Requests carry `origin: 'replay'` and never count against
-// `llm.maxRequestsPerDay`. Output: the briefs `[{ kind, plan, self, request,
-// messages, outcome }]` (request = the first `<draw>` scene text, self its
-// self flag, messages the post's `<msg>` texts after the diary's filters) to
-// `--out <file>` (rewritten after each brief; refused under data/) with a
-// summary on stdout, else on stdout. Exit code 1 when no brief drew.
+// `--diary <kind>`: `--count` briefs (1..50) of one diary kind, each one `runTurn({ guildId, mode: 'diary', diary: {
+// kind, [topic], forced: false } })` of the real turn runner (src/behavior/turn.js, wired as src/index.js wires it)
+// with no conversation, as the live diary runs it: the plan request on the classifier model with the given kind the
+// only one offered (as `/nep diary post <kind>` does; `forced: false` keeps the compose request a scheduled post's),
+// then the compose request on the voice model. `--diary-own-history` keeps only her own messages in the history of a
+// channel her diary posted in, as the data directory's memory names it: the code before the selfreflection wake read
+// its diary history from the channel, and so compares with her diary. Not the sandbox: the sandbox never
+// builds a diary post (src/behavior/sandbox.js#SANDBOX_OMITS). `--topic`: the owner's topic as `/nep diary post <kind>
+// <topic>` threads it (trimmed, blank is none, then src/behavior/diary.js#diaryTopic). What keeps the bot and its
+// memory untouched here: hot is seen with `features.dryRun = true` and `bot.dryRunChannelId = ''` (the turn ends in its
+// dry-run branch: nothing acted, drawn, recorded or mirrored); every Discord REST call but GET is refused; the store is
+// the real one with an in-memory copy of its state that is never flushed (flush, forget, wipe and reload methods
+// throw); the image client keeps its quota and refuses to generate; in that in-memory state only, today's diary picture
+// and image counts read 0 so the picture gate opens. Requests carry `origin: 'replay'` and never count against
+// `llm.maxRequestsPerDay`. Output: the briefs `[{ kind, plan, self, request, messages, outcome }]` (request = the first
+// `<draw>` scene text, self its self flag, messages the post's `<msg>` texts after the diary's filters) to `--out
+// <file>` (rewritten after each brief; refused under data/) with a summary on stdout, else on stdout. Exit code 1 when
+// no brief drew.
 //
-// `--diary-day`: one day of the diary as the live diary runs it
-// (src/behavior/diary.js#createDiary's tick), for the record of what it would
-// draw. The day plan: planDay for the local date `--date` (default today in
-// `bot.timezone`) at its local midnight, with no hunger carried in, on a random
-// stream seeded by `--seed` (default a fresh one, printed and kept in the
-// report): the same config, date and seed give the same slots
-// (tools/lib/diary-day.mjs#planDiaryDay). The turns draw from a second stream
-// of the same seed. Then, slot by slot in order, the clock of the turn runner
-// and the image client set to the slot (and running on from there), the diary's
-// own checks as the tick makes them (the day's posts under `diary.maxPerDay`,
-// else `skip` with reason `cap`), and `runTurn({ channel, mode: 'diary', diary:
-// { kind: null, forced: false } })` of the real turn runner in the diary
-// channel: the plan request, its search, the compose request, then the post
-// acted to the end -- the single picture or the set generated, as a live post
-// is -- into an in-memory interface port (src/interface/fake.js), never into
-// Discord. A post a slot made is kept in the in-memory diary and counters, so
-// the next slot sees it as the live diary would (not in the chat history, which
-// is fetched from Discord). What keeps the bot and its memory untouched: every
-// Discord REST call but GET is refused and the channel's send / sendTyping
-// throw; the turn's posts go to the in-memory port only; hot is seen with
-// `features.dryRun` off (the engine's dry-run branch generates no picture, the
-// very thing recorded here), `features.typingSimulation` off and
-// `bot.dryRunChannelId` empty; the store is the real one over an in-memory copy
-// of its state that is never flushed, with today's diary post, diary picture
-// and image counts at 0; no journal and no record are wired; requests carry
+// `--diary-day`: one day of the diary as the live diary runs it (src/behavior/diary.js#createDiary's tick), for the
+// record of what it would draw. The day plan: planDay for the local date `--date` (default today in `bot.timezone`) at
+// its local midnight, with no hunger carried in, on a random stream seeded by `--seed` (default a fresh one, printed
+// and kept in the report): the same config, date and seed give the same slots (tools/lib/diary-day.mjs#planDiaryDay).
+// The turns draw from a second stream of the same seed. Then, slot by slot in order, the clock of the turn runner and
+// the image client set to the slot (and running on from there), the diary's own checks as the tick makes them (the
+// day's posts under `diary.maxPerDay`, else `skip` with reason `cap`), and `runTurn({ guildId, mode: 'diary', diary: {
+// kind: null, forced: false } })` of the real turn runner with no conversation: the plan request, its search, the
+// compose request, the pictures generated, and the entry recorded, which the slot reports as what its publication would
+// send. A post a slot made is kept in the in-memory diary and counters, so the next slot sees it as the live diary
+// would. What keeps the bot and its memory untouched: every Discord REST call but GET is refused; the turn acts through
+// an in-memory interface port only (src/interface/fake.js); hot is seen with `features.dryRun` off (the engine's
+// dry-run branch generates no picture, the very thing recorded here), `features.typingSimulation` off and
+// `bot.dryRunChannelId` empty; the store is the real one over an in-memory copy of its state that is never flushed,
+// with today's diary post, diary picture and image counts at 0; no journal and no record are wired; requests carry
 // `origin: 'replay'` and never count against `llm.maxRequestsPerDay`.
 // `--draw fake` (the default): the image client is the real one
 // (src/llm/images.js#createImageGen, its caps and model check) over a fetch that
@@ -562,6 +546,7 @@ import {
   hiddenReads,
   identityOf,
   lazyRecallScope,
+  ownHistoryReads,
   recallScope,
   requesterOfChannel,
 } from './lib/platform-objects.ts';
@@ -581,13 +566,13 @@ const USAGE =
   '       node tools/replay.mjs <channelId> <triggerMessageId> --recall [--text "<candidate text>"] [--before <context.channelMessages - 1>] [--budget <ms>] [--show-request] [--spend <usd>]\n' +
   '       node tools/replay.mjs --pair <promptsDirA> <promptsDirB> (--triggers <file> | <channelId> <triggerMessageId>) [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
   '       node tools/replay.mjs --show-request <turnId> [--steps] [--snapshot <dir>] [--before 40] [--as-of-moment]\n' +
-  '       node tools/replay.mjs --diary <selfPicture|picture> [--count 1] [--topic "<text>"] [--prompts <dir>] [--out <file>] [--spend <usd>]\n' +
+  '       node tools/replay.mjs --diary <selfPicture|picture> [--count 1] [--topic "<text>"] [--diary-own-history] [--prompts <dir>] [--out <file>] [--spend <usd>]\n' +
   '       node tools/replay.mjs --skills <scenarios.json> [--prompts <dir> | --pair-prompts <dirA> <dirB>] [--out <dir>] [--before 40] [--as-of-moment] [--snapshot <dir>] [--dry] [--core-tools] [--transport native|text] [--spend <usd>]\n' +
   '       node tools/replay.mjs --pair-transport (--triggers <file> | <channelId> <triggerMessageId>) [--no-cache] [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
   '       node tools/replay.mjs --loop-triggers (--triggers <file> | <channelId> <triggerMessageId>) [--transport native|text] [--no-cache] [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
   '       node tools/replay.mjs --diary-day [--seed <text>] [--date YYYY-MM-DD] [--draw fake|live] [--max-pictures <n>] [--out <dir>] [--spend <usd>]   (cwd: the bot directory)\n' +
   '       node tools/replay.mjs --inner <intention_due|errand_deadline|review|heartbeat> [--intention <id> | --review] [--snapshot <dir>] [--show-request] [--samples n] [--prompts <dir>] [--out <file>] [--spend <usd>] [--hide-channel <id>]... [--hide-message <id>]...\n' +
-  '       (any mode that sends requests also takes: [--answers-dir <dir> [--answers-first-only] [--answers-timeout-min 20]])';
+  '       (any mode that sends requests also takes: [--answers-dir <dir> [--answers-first-only] [--answers-all] [--answers-timeout-min 20]])';
 /** The wake kinds `--inner` runs (src/behavior/inner.js#WAKE_KINDS). */
 export const INNER_KINDS = Object.freeze(['intention_due', 'errand_deadline', 'review', 'heartbeat']);
 /** An inner turn's requests at most: her answer and up to four tool-loop steps (innerLife.loop.maxSteps' default). */
@@ -2295,42 +2280,40 @@ function addUsage(usage, mine) {
 }
 
 /**
- * The diary channel over REST, in the served guild (else a CliError), with Discord's every
- * write refused: the REST queue passes GET only, the channel's send and sendTyping throw. Warns
- * when the bot could not send or attach there (the live diary would skip it).
+ * Discord over `client` with every write refused: the REST queue passes GET only, so a diary run reads the platform
+ * and never posts, edits or types there.
+ * @param {unknown} given  a discord.js client
  */
-async function openDiaryChannel({ client, guildId, diaryChannelId, canSend, canAttach, log }) {
+function refuseDiscordWrites(given) {
+  // discord.js's client: its REST manager queues every request.
+  const client = /** @type {{ rest: { queueRequest: (request: { method?: string }) => Promise<unknown> } }} */ (given);
   const queueRequest = client.rest.queueRequest.bind(client.rest);
   client.rest.queueRequest = (request) => {
     const method = String(request?.method ?? 'GET').toUpperCase();
     if (method !== 'GET') return Promise.reject(new Error(`replay-cli: Discord ${method} refused (read-only tool)`));
     return queueRequest(request);
   };
-  let channel = null;
-  try {
-    channel = await client.channels.fetch(diaryChannelId);
-  } catch {
-    channel = null;
-  }
-  if (!channel || String(channel.guildId ?? channel.guild?.id ?? '') !== String(guildId))
-    throw new CliError('replay-cli: the diary channel is not in the served guild');
-  const refuse = (name) => async () => {
-    throw new Error(`replay-cli: channel.${name} refused (read-only tool)`);
+}
+
+/** `--diary-own-history`: reads keeping only her diary's messages in the history of its channel (ownHistoryReads). */
+const ownReadsOf = (args, dataDir) => (args.diaryOwnHistory ? ownHistoryReads(memoryFor(dataDir)) : null);
+
+/**
+ * What a diary turn's entry would send (the turn itself sends nothing; its publication does): her messages, and how many
+ * files go with them (the pictures and a voice message).
+ * @param {unknown} result  the turn's outcome
+ * @returns {{ messages: string[], attachments: number }}
+ */
+function entrySends(result) {
+  const entry =
+    /** @type {{ diary?: { entry?: { messages?: unknown[], pictures?: unknown[], voice?: unknown } } } | null} */ (
+      result
+    )?.diary?.entry;
+  const messages = (entry?.messages ?? []).filter((text) => typeof text === 'string' && text !== '');
+  return {
+    messages: /** @type {string[]} */ (messages),
+    attachments: (entry?.pictures?.length ?? 0) + (entry?.voice ? 1 : 0),
   };
-  channel.send = refuse('send');
-  channel.sendTyping = refuse('sendTyping');
-  let writable = false;
-  try {
-    writable = canSend(channel) && canAttach(channel);
-  } catch {
-    writable = false;
-  }
-  if (!writable)
-    log.warn(
-      'replay-cli: the bot cannot send or attach in the diary channel; the live diary would skip it (not-writable)',
-      {}
-    );
-  return channel;
 }
 
 /**
@@ -2408,7 +2391,7 @@ export function diaryTurnRunner(
 async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv, log, signal, rng }) {
   const mods = await loadDiaryMods(load);
   const { DIARY_PICTURES_DAILY, diaryTopic, isPictureKind, isSetKind, stripUrls, validatePlan } = mods;
-  const { createStore, createCalibrator, createLlm, createImageGen, canAttach, canSend, resolveGuild } = mods;
+  const { createStore, createCalibrator, createLlm, createImageGen, resolveGuild } = mods;
   const { parseJsonObject, parseOutput, stripDashes, countToday } = mods;
 
   const params = diaryTurnParams(args, { diaryTopic });
@@ -2434,8 +2417,6 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     }
     const hot = dryRunHot(layered?.hot ?? liveHot);
     const config = hot.config;
-    const diaryChannelId = config.diary?.channelId;
-    if (!diaryChannelId) throw new CliError('replay-cli: diary.channelId is not set');
     if (config.features?.diary === false)
       log.warn('replay-cli: features.diary is off; the live diary would not post', {});
     const weight = config.diary?.kinds?.[kind];
@@ -2485,14 +2466,15 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
       log,
     });
     client = connection.client;
+    refuseDiscordWrites(client);
     const { guildId, self } = connection;
-    const channel = await openDiaryChannel({ client, guildId, diaryChannelId, canSend, canAttach, log });
 
     // The engine, wired as src/index.js wires it.
-    const turns = diaryTurnRunner(mods, { hot, store, llm, calibrator, client, guildId, self, images, state });
+    const wrapReads = ownReadsOf(args, liveData);
+    const runner = { hot, store, llm, calibrator, client, guildId, self, images, state, wrapReads };
+    const turns = diaryTurnRunner(mods, runner);
     log.info('replay-cli: diary ready', {
       guildId,
-      channelId: channel.id,
       kind,
       count: args.count,
       topicChars: topic ? topic.length : 0,
@@ -2505,7 +2487,7 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
       const from = calls.length;
       let result;
       try {
-        result = await turns.runTurn({ conversation: conversationRef(channel), ...params });
+        result = await turns.runTurn({ guildId, ...params });
       } catch (err) {
         result = { outcome: 'error', reason: `${err?.name ?? 'Error'}: ${err?.message ?? err}` };
       }
@@ -3448,17 +3430,8 @@ export function diaryDayGate(args, config, { planDay, zonedEpoch, localDayKey },
 async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, signal }) {
   const mods = await loadDiaryMods(load);
   const { DIARY_DAILY, DIARY_PICTURES_DAILY, localDayKey, planDay } = mods;
-  const {
-    createStore,
-    createCalibrator,
-    createLlm,
-    createImageGen,
-    ImageCapError,
-    canAttach,
-    canSend,
-    resolveGuild,
-    createFakeAdapter,
-  } = mods;
+  const { createStore, createCalibrator, createLlm, createImageGen, ImageCapError, resolveGuild, createFakeAdapter } =
+    mods;
   const { parseJsonObject, countToday, zonedEpoch } = mods;
 
   // The day plan, before anything is read from Discord or sent: its slots are the estimate.
@@ -3529,8 +3502,6 @@ async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, si
   try {
     const hot = noPostHot(liveHot);
     const config = hot.config;
-    const diaryChannelId = config.diary?.channelId;
-    if (!diaryChannelId) throw new CliError('replay-cli: diary.channelId is not set');
     if (config.features?.diary === false)
       log.warn('replay-cli: features.diary is off; the live diary would not post', {});
 
@@ -3582,8 +3553,8 @@ async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, si
       log,
     });
     client = connection.client;
+    refuseDiscordWrites(client);
     const { guildId, self } = connection;
-    const channel = await openDiaryChannel({ client, guildId, diaryChannelId, canSend, canAttach, log });
     const port = createFakeAdapter({
       iface: 'discord',
       selfId: self.id,
@@ -3606,7 +3577,6 @@ async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, si
     });
     log.info('replay-cli: diary day ready', {
       guildId,
-      channelId: channel.id,
       date,
       slots: day.slots.length,
       draw: args.draw,
@@ -3645,14 +3615,10 @@ async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, si
       }
       const fromCalls = calls.length;
       const fromDraws = images.calls.length;
-      const fromPort = port.calls.length;
       let result;
       try {
-        result = await turns.runTurn({
-          conversation: conversationRef(channel),
-          mode: 'diary',
-          diary: { kind: null, forced: false },
-        });
+        // As the live diary runs it: the selfreflection wake, no conversation.
+        result = await turns.runTurn({ guildId, mode: 'diary', diary: { kind: null, forced: false } });
       } catch (err) {
         result = { outcome: 'error', reason: `${err?.name ?? 'Error'}: ${err?.message ?? err}` };
       }
@@ -3666,10 +3632,6 @@ async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, si
           plan = null;
         }
       }
-      const sends = port.calls
-        .slice(fromPort)
-        .filter((c) => c.op === 'send')
-        .map((c) => c.args[1] ?? {});
       const draws = images.calls.slice(fromDraws);
       const pictureCost = draws.reduce((sum, d) => sum + (Number.isFinite(d.result?.cost) ? d.result.cost : 0), 0);
       const before = report.usage;
@@ -3685,11 +3647,7 @@ async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, si
         plan,
         ...(planCall?.error ? { planError: planCall.error } : {}),
         diary: result?.diary ?? null,
-        messages: sends.map((content) => content.text).filter((text) => typeof text === 'string' && text !== ''),
-        attachments: sends.reduce(
-          (sum, content) => sum + (Array.isArray(content.attachments) ? content.attachments.length : 0),
-          0
-        ),
+        ...entrySends(result),
         draws,
         requests: mine.length,
         cost: Math.round((report.usage.cost - before.cost) * 10000) / 10000,
@@ -6914,7 +6872,10 @@ async function loopDepsOf({
  * @param {{ root?: string, signal?: AbortSignal, rng?: () => number }} [options]
  */
 export async function main(argv, { root = process.cwd(), signal, rng = Math.random } = {}) {
-  const args = parseArgs(argv);
+  const all = argv.includes('--answers-all');
+  const own = argv.includes('--diary-own-history');
+  const flags = argv.filter((arg) => arg !== '--answers-all' && arg !== '--diary-own-history');
+  const args = { ...parseArgs(flags), answersAll: all, diaryOwnHistory: own };
   if (args.answersDir === null) return runMain(args, { root, signal, rng, answers: null });
   // `--answers-dir`: Anthropic models are answered through files (tools/lib/answers-dir.mjs); `done` ends the run.
   const { estimateMessages } = await import(pathToFileURL(path.join(root, 'src', 'llm', 'tokens.js')).href);
@@ -6922,8 +6883,9 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
     dir: path.resolve(root, args.answersDir),
     timeoutMin: args.answersTimeoutMin,
     estimate: (messages) => estimateMessages(messages),
+    firstOnly: args.answersFirstOnly,
+    all,
   });
-  answers.firstOnly = args.answersFirstOnly;
   let code = 1;
   try {
     const out = await runMain(args, { root, signal, rng, answers });
@@ -6951,9 +6913,7 @@ async function runMain(args, { root, signal, rng, answers }) {
       return rel === 'llm/openrouter.js'
         ? {
             ...mod,
-            createLlm: withAnswersDir(mod.createLlm, answers, (config, purpose) => roleModel(config, 'core', purpose), {
-              firstOnly: Boolean(answers.firstOnly),
-            }),
+            createLlm: withAnswersDir(mod.createLlm, answers, (config, purpose) => roleModel(config, 'core', purpose)),
           }
         : mod;
     };

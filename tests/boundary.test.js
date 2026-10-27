@@ -16,7 +16,8 @@ import { heartbeatWake } from '../src/behavior/inner.js';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { createTurnRunner, fakeStore, hotWith, sequenceLlm } from './fixtures/turn-harness.js';
 import { GUILD, MINUTE, START, innerRig, newHistory, replyTo, rowsOf } from './fixtures/boundary.js';
-import { tempDataDir } from './fixtures/memory-db/service.js';
+import { openTestMemory, tempDataDir } from './fixtures/memory-db/service.js';
+import { createStore } from '../src/memory/store.js';
 
 const SILENT = { info() {}, warn() {}, error() {}, debug() {} };
 
@@ -82,24 +83,17 @@ describe('inner turns with no interface', () => {
     );
   });
 
-  // Stage 3, same item: the diary becomes the `selfreflection` wake. Today this drives the diary's scheduler,
-  // `createDiary(...).force()` (src/behavior/diary.js), which posts to a Discord channel through `turns.runTurn` in
-  // mode `diary` and stops with `no-channel` when the client has none. The entry is the store's diary post today; the
-  // stage reads it as a memory row.
-  test.todo('a selfreflection turn leaves its entry in memory with no interface connected', async () => {
-    /** @type {object[]} */
-    const posts = [];
-    const store = fakeStore();
-    Object.assign(store, {
-      getDiary: () => ({ posts, updatedAt: 0 }),
-      appendDiaryPost: (/** @type {string} */ _guildId, /** @type {object} */ post) => posts.push(post),
-    });
-    store.state.data = {};
+  // Stage 3, same item: the diary is the `selfreflection` wake. The turn runs with no conversation and records the entry
+  // in memory before anything is published: a `diary` row with her full text. No mirror is set up and no reads of an
+  // interface are given to the scheduler, so nothing is sent anywhere, and no `diary.channelId` is set.
+  test('a selfreflection turn leaves its entry in memory with no interface connected', async () => {
+    const memory = await openTestMemory({ now: () => START });
+    OPEN.push(memory);
+    const store = createStore({ dataDir: memory.dataDir, memoryDb: memory.memoryDb });
     const hot = hotWith({
       features: { diary: true },
       config: {
         diary: {
-          channelId: 'd1',
           world: false,
           kinds: { status: 1 },
           maxPerDay: 3,
@@ -122,7 +116,7 @@ describe('inner turns with no interface', () => {
     const llm = {
       complete: (/** @type {unknown} */ _messages, /** @type {{ purpose?: string }} */ options) =>
         Promise.resolve({
-          text: options?.purpose === 'diary-plan' ? plan : '<msg>a quiet day</msg>',
+          text: options?.purpose === 'diary-plan' ? plan : '<msg>μια ήσυχη μέρα</msg>',
           usage: {},
           estimated: 5,
         }),
@@ -138,7 +132,17 @@ describe('inner turns with no interface', () => {
       now: () => START,
     });
     await diary.force({ kind: 'status' });
-    assert.equal(posts.length, 1, 'the entry exists although no interface is connected');
+    await store.flushSettled({});
+    assert.deepEqual(
+      rowsOf(memory.memoryDb, 'SELECT kind, text FROM diary'),
+      [{ kind: 'status', text: 'μια ήσυχη μέρα' }],
+      'the entry exists in memory with its text'
+    );
+    assert.deepEqual(
+      port.calls.filter((call) => call.op === 'send'),
+      [],
+      'nothing is sent'
+    );
   });
 });
 

@@ -59,6 +59,7 @@ export const TURN_INPUT_KEYS = Object.freeze([
   'recentAudience',
   'participation',
   'diaryChannel',
+  'diaryChannelIds',
   'diary',
   'offPeriods',
   'skillsInventory',

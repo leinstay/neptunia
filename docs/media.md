@@ -134,7 +134,7 @@ When `features.speech` is on (default `true`; needs the system `ffmpeg`), the pe
 
 The result is posted as a Discord voice message (no text, with the voice flag). At most `speech.maxPerDay` (default 100) messages per day, counted only when the synthesis request is sent. At most `speech.maxChars` (default 1500) characters per message.
 
-The result tells her the duration, the characters, the estimated cost and the text as spoken. A diary turn may send one; the diary post keeps a `voice` field with the id, the text as voiced and the length.
+The result tells her the duration, the characters, the estimated cost and the text as spoken. A diary turn may make one: it is not posted from the turn but kept in the entry, whose post keeps a `voice` field with the text as voiced and the length, and the diary's mirrors send it before her messages (`src/behavior/mirror.ts`).
 
 Switch: `features.speech` (default `true`).
 Model roles: `analyzer` (pronunciation pass), `speech` (synthesis).

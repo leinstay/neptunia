@@ -4,19 +4,23 @@
 // (if one was needed), its state (`queued` | `sent` | `failed` | `unknown`), an idempotency key and the interface's
 // receipts. Schema v10.
 //
+// A `diary` row to a place with an enabled diary mirror (schema v15, `mirrors`) needs no grant row: the mirror the owner
+// set up is his standing grant for every entry to that place.
+//
 // The rule (item 4): an outward act opens a destination context and publishes only what that context produced, or
 // what the owner granted. A text produced in an internal context (an internal wake) is publishable only through an
 // unrevoked `publication_grants` row that binds this very content hash to this very destination; an edit changes the
 // hash and needs a new grant. Contexts are the core's own objects (scope.ts#issueContext), never tool arguments, and
 // `recheck` checks a queued row again at send time.
 //
-//   preparePublication(handle, { context, rowKind, rowId, rendered, destination, producedIn, idempotencyKey?, now? })
+//   preparePublication(handle, { context, rowKind, rowId, rendered, destination, producedIn, idempotencyKey?, pending?, now? })
 //       refuses with a code and writes nothing when the context is not outward (`not-outward`), its destination is not
 //       the publication's (`destination-mismatch`), or the text was produced elsewhere (an internal context, or an
 //       outward context of another destination) and no grant binds its hash to this destination (`no-grant`).
 //       Otherwise writes one `queued` row. The idempotency key (by default `<row kind>:<row id>:<destination>`) is
 //       unique: a second call with the same key returns the first row (`reused: true`) and writes nothing, so a crash
 //       between queueing and sending never sends twice.
+//       `pending` queues it with no content yet (an entry she is still writing): the `sent` write fills it once.
 //   markSent / markFailed / markUnknown / reconcile   the send's outcome. `unknown` is a send whose outcome a crash
 //       or a timeout hid; `reconcile(handle, id, found)` makes it `sent` with the receipts found, never sending again,
 //       or `failed` when the interface has no trace of it.
@@ -28,8 +32,8 @@
 // `assignDiaryDestination` gives the diary's publications that name no destination the deployment's diary channel (the
 // v12 data step for the legacy mirrors, and the diary writer under authority `db`, unit-write.js).
 // Every write projects the publication into the graph in the same transaction (graph.js#projectRow). No live writer
-// uses preparePublication yet: under authority `db` the diary's own write (a post, then its row and the mirror's
-// `sent` publication, unit-write.js) derives them like the sync. Logs: none; a caller logs codes.
+// uses preparePublication but the diary's mirrors (src/behavior/mirror.ts); the legacy diary posts derive their
+// `sent` publications on the diary's own write like the sync (unit-write.js). Logs: none; a caller logs codes.
 
 import { createHash } from 'node:crypto';
 import { legacyNativeKind, nativeAuthorityOf } from './ids.ts';
@@ -103,6 +107,22 @@ export function grantFor(handle, { rowKind, rowId, hash, destination }) {
   );
 }
 
+/**
+ * Whether the owner set up an enabled `diary` mirror of `destination` (schema v15): his standing grant for every diary
+ * entry to that place. A disabled mirror, or a database before v15, grants nothing.
+ */
+/** @param {unknown} connection  read as a connection that can `prepare(...).get`  @param {unknown} destination */
+function mirroredTo(connection, destination) {
+  const db = /** @type {{ prepare(sql: string): { get(...args: Array<unknown>): unknown } }} */ (connection);
+  const table = db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'mirrors'").get();
+  if (table === undefined) return false;
+  return (
+    db
+      .prepare("SELECT 1 AS ok FROM mirrors WHERE row_kind = 'diary' AND place_id = ? AND enabled = 1 LIMIT 1")
+      .get(String(destination)) !== undefined
+  );
+}
+
 /** Where the text came from: `internal` (an internal context, or none named: fail closed) or the outward destination. */
 function producedOf(producedIn) {
   if (producedIn && typeof producedIn === 'object')
@@ -128,6 +148,7 @@ function sendRefusal(db, { context, rowKind, rowId, hash, destination, producedI
   if (!filled(destination) || context.destination !== destination) return { code: 'destination-mismatch' };
   const produced = producedOf(producedIn);
   if (produced.outward === destination) return { code: null, grant: null };
+  if (rowKind === 'diary' && mirroredTo(db, destination)) return { code: null, grant: null };
   const grant = grantFor(db, { rowKind, rowId, hash, destination });
   return grant ? { code: null, grant } : { code: 'no-grant' };
 }
@@ -158,11 +179,22 @@ function ensureContext(db, ctx) {
  */
 export function preparePublication(
   handle,
-  { context, rowKind, rowId, rendered, destination, producedIn = null, idempotencyKey = null, now = Date.now } = {}
+  {
+    context,
+    rowKind,
+    rowId,
+    rendered,
+    destination,
+    producedIn = null,
+    idempotencyKey = null,
+    pending = false,
+    now = Date.now,
+  } = {}
 ) {
   const db = dbOf(handle);
-  if (!filled(rowKind) || !filled(rowId) || typeof rendered !== 'string') return refused('bad-input');
-  const hash = contentHash(rendered);
+  if (!filled(rowKind) || !filled(rowId) || (typeof rendered !== 'string' && !pending)) return refused('bad-input');
+  // A pending publication (an entry she is still writing) has no content yet: its send fills it (fillContent).
+  const hash = pending ? null : contentHash(rendered);
   const check = sendRefusal(db, { context, rowKind, rowId, hash, destination, producedIn });
   if (check.code) return refused(check.code);
   const key = filled(idempotencyKey) ? idempotencyKey : publicationKey(rowKind, rowId, destination);
@@ -175,7 +207,18 @@ export function preparePublication(
     db.prepare(
       `INSERT INTO publications (id, row_kind, row_id, content_hash, rendered, destination_place_id, context_id, grant_id, status, idempotency_key, receipts, created_at, sent_at, owner_file, retired_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, ?, NULL, NULL, NULL)`
-    ).run(id, rowKind, rowId, hash, rendered, destination, context.id, check.grant ?? null, key, isoOf(now));
+    ).run(
+      id,
+      rowKind,
+      rowId,
+      hash,
+      pending ? null : rendered,
+      destination,
+      context.id,
+      check.grant ?? null,
+      key,
+      isoOf(now)
+    );
     projectRow(db, 'publications', { id });
     return { ok: true, publication: publicationOf(db, id), reused: false };
   });
@@ -222,6 +265,17 @@ function move(handle, id, status, from, fields = {}) {
 
 const receiptsText = (receipts) =>
   JSON.stringify(Array.isArray(receipts) ? receipts : receipts === null || receipts === undefined ? [] : [receipts]);
+
+/**
+ * The content of a publication queued `pending`, set once as it is sent; a publication with content keeps it.
+ * @param {unknown} handle  an `openMemoryDb` handle or its connection  @param {unknown} id  @param {string} rendered
+ */
+function fillContent(handle, id, rendered) {
+  const given = /** @type {{ db?: unknown }} */ (handle);
+  const db = /** @type {{ prepare(sql: string): { run(...args: Array<unknown>): unknown } }} */ (given.db ?? handle);
+  const sql = 'UPDATE publications SET rendered = ?, content_hash = ? WHERE id = ? AND content_hash IS NULL';
+  db.prepare(sql).run(rendered, contentHash(rendered), String(id));
+}
 
 /**
  * The send went out: `sent` with the interface's receipts (`[{ authority, kind, key }]`, the native objects it became)
@@ -296,6 +350,35 @@ export function revokeGrant(handle, id, { now = Date.now } = {}) {
           .run(isoOf(now), String(id)).changes
       ) > 0
   );
+}
+
+/**
+ * One write of the diary's mirrors on the writer connection (session-write.js, kind `publication`): `prepare` queues
+ * a publication (`input`: preparePublication's), `sent` marks it with its `receipts`, `failed` and `unknown` mark it.
+ * Returns what the call it names returns.
+ * @param {unknown} writer  an `openMemoryDb` handle (the writer)
+ * @param {unknown} given  `{ op, id?, input?, receipts?, now? }`
+ * @returns {unknown}
+ */
+export function applyPublicationWrite(writer, given) {
+  const handle = /** @type {object} */ (writer);
+  const update =
+    /** @type {{ op?: unknown, id?: unknown, input?: object, receipts?: Array<object>, rendered?: unknown, now?: unknown }} */ (
+      given ?? {}
+    );
+  const now = typeof update.now === 'number' && Number.isFinite(update.now) ? update.now : Date.now();
+  const id = String(update.id);
+  if (update.op === 'prepare') return preparePublication(handle, { ...(update.input ?? {}), now });
+  if (update.op === 'sent') {
+    // A publication queued while its entry was still being written gets its content as it was sent (`pending`).
+    if (typeof update.rendered === 'string') fillContent(handle, id, update.rendered);
+    return markSent(handle, id, update.receipts ?? [], { now });
+  }
+  if (update.op === 'failed') return markFailed(handle, id);
+  if (update.op === 'unknown') return markUnknown(handle, id);
+  throw Object.assign(new Error('memory db: a publication write names prepare, sent, failed or unknown'), {
+    code: 'BAD_UPDATE',
+  });
 }
 
 // ---------- the diary's mirrors ----------

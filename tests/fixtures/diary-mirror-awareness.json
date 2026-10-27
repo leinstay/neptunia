@@ -1,0 +1,3 @@
+{
+  "server": "<server>\n# general ← you are here\npurpose: general purpose\nlast message: 5 min ago\nactivity: slow\n\n# journal\npurpose: journal purpose\nYour diary.\nlast message: 5 min ago\nactivity: slow\n\n# notes\npurpose: notes purpose\nlast message: 5 min ago\nactivity: slow\n</server>"
+}

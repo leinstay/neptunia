@@ -1006,7 +1006,7 @@ function normalizeChannel(channel) {
 /**
  * The store over one data directory.
  * @param {{ dataDir: string, newId?: () => string, record?: { append: Function }|null,
- *   recordOn?: () => boolean }} options  `newId`: the source of the UUID in every new `itemId`
+ *   recordOn?: () => boolean, archive?: *, archiveOn?: () => boolean, memoryDb?: * }} options  `newId`: the source of the UUID in every new `itemId`
  *   (`ITEM_ID_PREFIX`); node:crypto's `randomUUID` unless a test injects one. `record`
  *   (src/memory/record.js#createRecord, optional): while `recordOn()` (read at each write;
  *   src/index.js passes features.record exactly true) every feeling stored on an episode -- with
@@ -2895,9 +2895,8 @@ export function createStore({
     // ---- the diary: the persona's own posts in its diary channel (src/behavior/diary.js) ----
 
     /**
-     * A copy of the guild's diary (data/guilds/<id>/diary.json): `{ posts, updatedAt }`, posts
-     * newest last; the empty diary (`{ posts: [], updatedAt: 0 }`) when there is no file, never
-     * null. Reading never creates the file.
+     * A copy of the guild's diary (data/guilds/<id>/diary.json): `{ posts, updatedAt }`, posts newest last; the empty
+     * diary (`{ posts: [], updatedAt: 0 }`) when there is no file, never null. Reading never creates the file.
      * @param {string} guildId
      * @returns {{ posts: Array<{ at: number, kind: string|null, gist: string, picture: string|boolean|null,
      *   pictures?: number, messageIds: string[], search: string }>, updatedAt: number }}
@@ -2907,34 +2906,35 @@ export function createStore({
     },
 
     /**
-     * Append one post to the guild's diary, keep the newest `max` (diary.historyPosts) and stamp
-     * `updatedAt` with `now` (epoch ms, the clock when omitted).
+     * Append one post to the guild's diary, keep the newest `max` (diary.historyPosts), stamp `updatedAt` with `now`.
      * @param {string} guildId
-     * @param {{ at: number, kind: string|null, gist: string, picture: string|boolean|null,
-     *   pictures?: number, messageIds: string[], search: string }} post  `pictures`: a set post's count
-     *   (`picture` is then its first scene).
+     * @param {{ at: number, kind: string|null, gist: string, picture: string|boolean|null, pictures?: number,
+     *   messageIds?: string[], search: string, text?: string, itemId?: string }} post  `pictures`: a set's count
+     *   (`picture` its first scene); `text`: the entry in full; `itemId`: the entry's id.
      * @param {{ max?: number, now?: number }} [opts]
      * @returns {{ dropped: object[] }}  The posts that fell past `max` (see `writeDiary`).
      */
     appendDiaryPost(guildId, post, opts = {}) {
       const done = writeDiary(guildId, [...diaryEntry(guildId).value.posts, structuredClone(post)], opts);
-      // The post goes to the database at once (the diary unit, its mirror's publication); a failed write waits in
-      // the outbox like any unit, and in `memory-pending/` past a shutdown.
+      // The post goes to the database at once; a failed write waits in the outbox, past a shutdown in `memory-pending/`.
       flushEntry(diaryFile(guildId), diaryEntry(guildId));
       if (outbox) outbox.push();
       return done;
     },
 
     /**
-     * Replace the guild's post list (the backfill, run only on an empty diary), keeping the newest
-     * `max` (diary.historyPosts) and stamping `updatedAt` with `now`.
-     * @param {string} guildId
-     * @param {Array<object>} posts  Oldest first.
-     * @param {{ max?: number, now?: number }} [opts]
-     * @returns {{ dropped: object[] }}  The posts that fell past `max` (see `writeDiary`).
+     * Replace the guild's post list (the backfill, run only on an empty diary, posts oldest first), keeping the newest
+     * `max` (diary.historyPosts), stamping `updatedAt` with `now`; returns the posts that fell past `max` (`writeDiary`).
+     * @param {string} guildId @param {Array<object>} posts @param {{ max?: number, now?: number }} [opts]
      */
     setDiaryPosts(guildId, posts, opts = {}) {
       return writeDiary(guildId, Array.isArray(posts) ? structuredClone(posts) : [], opts);
+    },
+
+    /** `read(db)` on the memory database's read connection, null without one (src/behavior/mirror.ts reads its mirrors).
+     * @template T @param {(db: unknown) => T} read @returns {T | null} */
+    readMemory(read) {
+      return memoryDb ? seam.run(() => read(/** @type {unknown} */ (seam.db()))) : null;
     },
 
     // ---- the recent store: short dated lines about the last days (src/memory/recent.js) ----

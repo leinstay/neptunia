@@ -4,9 +4,10 @@
 //
 // A post's id is its `itemId` (a derived one, marked `$derived`, when it has none); `at` is at_ms, `picture` is
 // picture_prompt, `search` the search column (null stays null through the `$null` list). `pictures` (a count) and
-// anything else no column names stay in `extra`. The post's `text` and `lost` columns are not set here (a re-map leaves
-// them alone): src/memory/db/diary-media.js fills them from the interface, with the pictures, and the old JSON has no
-// such fields, so the export ignores them.
+// anything else no column names stay in `extra`. A post that carries its `text` (an entry recorded before it is sent,
+// src/behavior/diary-turn.ts) sets the `text` column; any other leaves `text` and `lost` alone (a re-map does too):
+// src/memory/db/diary-media.js fills them for the older posts from the interface, with the pictures. The old JSON has
+// no such fields, so the export leaves them out.
 // The diary is public: scope group.
 //
 // toRows(rel, value, ctx) -> { diary, diary_mirrors, operational }     fromRows(rows, ctx) -> the file's value
@@ -36,8 +37,12 @@ export function toRows(rel, value, ctx = {}) {
       const body = { ...post };
       const mirrored = isIds(post.messageIds);
       if (mirrored) delete body.messageIds;
+      // The entry's text, when the post carries it (a post recorded before it is sent), is the row's.
+      const given = /** @type {{ text?: unknown, itemId?: unknown }} */ (post);
+      const text = typeof given.text === 'string' ? given.text : null;
+      if (text !== null) delete body.text;
       const part = split(body, SPEC);
-      const itemId = typeof post.itemId === 'string' && post.itemId ? post.itemId : null;
+      const itemId = typeof given.itemId === 'string' && given.itemId ? given.itemId : null;
       const base = itemId ?? itemOrDerivedId(null, 'diary', '', post.at ?? '', post.gist ?? position);
       const id = uniq(base);
       if (itemId && id === base) delete part.rest.itemId;
@@ -45,6 +50,7 @@ export function toRows(rel, value, ctx = {}) {
       put(rows, 'diary', {
         id,
         ...part.cols,
+        ...(text !== null ? { text } : {}),
         topic: null,
         world: null,
         status: null,

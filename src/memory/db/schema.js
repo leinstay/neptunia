@@ -9,6 +9,7 @@
 // There is no `now` table and no `states` table: the owner dropped both.
 
 import { assignDiaryDestination, deriveAllMirrorPublications } from './publish.js';
+import { pastEntries } from './diary-past.ts';
 
 const SCOPE = 'scope_kind TEXT, scope_iface TEXT, scope_dm TEXT';
 
@@ -1078,9 +1079,68 @@ function V14(connection) {
   }
 }
 
+// Version 15 (stage 3 design, 2026-10-27, section 5): the diary's mirrors. A `mirrors` row is one place the diary's
+// entries are posted to, set up by the owner (`created_by`): his standing permission to post every entry there
+// (publish.js#preparePublication). A disabled row is kept. The data step seeds one `diary` row from the deployment's
+// diary channel, the same `context.diaryPlaceId` v12 reads, once that place is stored. When the channel is not named
+// (a tool's open) or its place is not stored yet, a database that holds diary entries or names the channel keeps the
+// meta key `diary_mirror_pending`, and the next open that knows the stored channel seeds the row (open.js#migrate).
+// Seeding the row also makes her past messages in that place entries (diary-past.ts#pastEntries).
+
+/** The meta key of a diary mirror the v15 step could not seed yet. */
+export const DIARY_MIRROR_PENDING = 'diary_mirror_pending';
+
+const V15_SQL = `CREATE TABLE mirrors (
+  id TEXT PRIMARY KEY, row_kind TEXT NOT NULL, place_id TEXT NOT NULL REFERENCES places(id),
+  enabled INTEGER NOT NULL, created_at TEXT NOT NULL, created_by TEXT NOT NULL, extra JSON,
+  UNIQUE (row_kind, place_id)
+);`;
+
+/** @typedef {{ exec(sql: string): void, prepare(sql: string): { get(...args: Array<unknown>): Record<string, unknown> | undefined, run(...args: Array<unknown>): { changes: number | bigint } } }} MirrorDb */
+
+/**
+ * Seeds the diary's mirror on the channel's place, once, when the opener knows it and the place is stored.
+ * @param {unknown} connection  The migration's connection, read as a `MirrorDb`.
+ * @param {{ diaryPlaceId?: string | null }} [context]
+ * @returns {number}  The mirror rows written (0 or 1).
+ */
+export function finishDiaryMirror(connection, context = {}) {
+  const db = /** @type {MirrorDb} */ (connection);
+  if (db.prepare('SELECT 1 AS ok FROM meta WHERE key = ?').get(DIARY_MIRROR_PENDING) === undefined) return 0;
+  const place = typeof context?.diaryPlaceId === 'string' && context.diaryPlaceId ? context.diaryPlaceId : null;
+  if (!place || db.prepare('SELECT 1 AS ok FROM places WHERE id = ?').get(place) === undefined) return 0;
+  const at = db.prepare(`SELECT ${NOW_SQL} AS at`).get()?.at;
+  const seeded = db
+    .prepare(
+      "INSERT OR IGNORE INTO mirrors (id, row_kind, place_id, enabled, created_at, created_by, extra) VALUES (?, 'diary', ?, 1, ?, 'owner', NULL)"
+    )
+    .run(`mirror:diary:${place}`, place, at).changes;
+  // Her messages there that no entry names become entries (diary-past.ts).
+  pastEntries(db, place, { at: String(at) });
+  db.prepare('DELETE FROM meta WHERE key = ?').run(DIARY_MIRROR_PENDING);
+  return Number(seeded);
+}
+
+/**
+ * @param {unknown} connection  The migration's connection, read as a `MirrorDb`.
+ * @param {{ diaryPlaceId?: string | null }} [context]
+ */
+function V15(connection, context = {}) {
+  const db = /** @type {MirrorDb} */ (connection);
+  db.exec(V15_SQL);
+  // Only a deployment with a diary (a channel named, or entries already held) has a mirror to wait for.
+  const named = typeof context?.diaryPlaceId === 'string' && context.diaryPlaceId !== '';
+  if (!named && db.prepare('SELECT 1 AS ok FROM diary LIMIT 1').get() === undefined) return;
+  db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(
+    DIARY_MIRROR_PENDING,
+    '1'
+  );
+  finishDiaryMirror(db, context);
+}
+
 /** Each entry moves the schema one version up: SQL text, or a function of the connection (and the opener's context)
  * for a step SQL cannot do. Never edit a shipped entry: append a new one. */
-export const MIGRATIONS = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14];
+export const MIGRATIONS = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15];
 
 /** Every table schema v8 adds. */
 export const V8_TABLES = [

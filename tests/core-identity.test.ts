@@ -197,7 +197,8 @@ test('the rows of her turn carry the interface of the event, not a fixed one', a
   await withCapturedLogs(() =>
     withIdentityCore(async (ctx) => {
       await ctx.emit(ctx.mentionEvent({ id: 'm1', content: 'hello', at: Date.now() }));
-      await until(() => ctx.posted().length === 1 && ctx.rows('said').length === 1);
+      // The answer row is written at the turn's end, after the said row: wait for both before reading them.
+      await until(() => ctx.posted().length === 1 && ctx.rows('said').length === 1 && ctx.rows('answer').length === 1);
       const [said] = ctx.rows('said');
       assert.equal(said?.iface, 'fake');
       assert.equal(said?.id, `src:fake:${String(said?.native_id)}:1:said`);

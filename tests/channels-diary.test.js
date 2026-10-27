@@ -10,6 +10,9 @@ import { touchMemory } from '../src/memory/update.js';
 import { createStore } from '../src/memory/store.js';
 import { labels } from './fixtures/labels.js';
 import { tempDir } from './fixtures/tmp.js';
+import { openTestMemory } from './fixtures/memory-db/service.js';
+import { seedMirror } from './fixtures/diary-mirror.ts';
+import { diaryConversationIds } from '../src/behavior/mirror.ts';
 
 const channel = { id: 'c1', name: 'journal', category: null, topic: null, purpose: '', topics: '', tone: '' };
 
@@ -55,16 +58,25 @@ const own = (channelId) => ({
   ts: Date.UTC(2026, 8, 20, 12),
 });
 
-test("touchMemory: the persona's lines count as a writer only in the diary channel", () => {
-  withStore((store) => {
-    touchMemory(store, 'g1', own('diary'), { diaryChannelId: 'diary' });
-    touchMemory(store, 'g1', own('other'), { diaryChannelId: 'diary' });
-    touchMemory(store, 'g1', own('nowhere'), {});
-    assert.deepEqual(store.getChannel('g1', 'diary').topWriters, [{ id: 'self1', count: 1 }]);
-    assert.deepEqual(store.getChannel('g1', 'other').topWriters, []);
-    assert.deepEqual(store.getChannel('g1', 'nowhere').topWriters, []);
-    assert.equal(store.getChannel('g1', 'diary').days['2026-09-20'], 1, 'the day tally counts the post');
-  });
+// Stage 3 design, section 5: the diary's places are its mirrors in memory, no longer `diary.channelId`; the caller
+// passes them as `diaryChannelIds` (src/behavior/mirror.ts#diaryConversationIds).
+test("touchMemory: the persona's lines count as a writer only in the diary channel", async () => {
+  const memory = await openTestMemory();
+  try {
+    seedMirror(memory.memoryDb, { iface: 'fake', conversationId: 'diary', at: Date.UTC(2026, 8, 20) });
+    const diaryChannelIds = diaryConversationIds(memory.memoryDb);
+    withStore((store) => {
+      touchMemory(store, 'g1', own('diary'), { diaryChannelIds });
+      touchMemory(store, 'g1', own('other'), { diaryChannelIds });
+      touchMemory(store, 'g1', own('nowhere'), {});
+      assert.deepEqual(store.getChannel('g1', 'diary').topWriters, [{ id: 'self1', count: 1 }]);
+      assert.deepEqual(store.getChannel('g1', 'other').topWriters, []);
+      assert.deepEqual(store.getChannel('g1', 'nowhere').topWriters, []);
+      assert.equal(store.getChannel('g1', 'diary').days['2026-09-20'], 1, 'the day tally counts the post');
+    });
+  } finally {
+    await memory.close();
+  }
 });
 
 test('touchMemory: other bots never count, even in the diary channel', () => {

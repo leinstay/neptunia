@@ -235,7 +235,9 @@ function fetchedFile(file: Obj): NonNullable<FetchedMessage['attachments']>[numb
   const finite = (value: unknown): number | undefined =>
     typeof value === 'number' && Number.isFinite(value) ? value : undefined;
   const duration = finite(file.duration);
+  const id = text(file.id);
   return {
+    ...(id === null ? {} : { id }),
     url: text(file.url) ?? undefined,
     name: text(file.name) ?? undefined,
     contentType: text(file.contentType) ?? undefined,

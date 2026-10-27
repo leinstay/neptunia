@@ -591,6 +591,8 @@ const ENTRIES: Array<Definition> = [
         gif: str(40),
         media: str(300),
         item: int(1, 20),
+        // Her diary in place of a channel: a string choice, as every yes or no of hers.
+        diary: oneOf(['true', 'false']),
       },
       []
     ),
@@ -605,6 +607,7 @@ const ENTRIES: Array<Definition> = [
       gif: opt(a, 'gif'),
       media: opt(a, 'media'),
       item: opt(a, 'item'),
+      ...(flag(val(a, 'diary')) === true ? { diary: true } : {}),
     }),
   }),
   def('message.edit', {

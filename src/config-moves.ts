@@ -10,7 +10,9 @@
 // The moves are one ordered list. A move whose old key is absent does nothing, so applying the list twice gives the
 // same config. Where the old and the new key are both set, the new one wins and the old one is dropped and reported as
 // shadowed. Keys nothing reads any more (three grants of `bot.access`, `agents.maxDownloadBytes` and the two context
-// keys of `agents.thinker`) are removed and reported as dropped. Nothing here reads a file.
+// keys of `agents.thinker`) are removed and reported as dropped. `diary.channelId` is the seed of the diary's mirror
+// (schema v15): once the memory database has that mirror (`diaryMirror`, told by the caller) the key is removed and
+// reported as moved to the database (`toDatabase`). Nothing here reads a file.
 
 type Config = Record<string, unknown>;
 
@@ -25,6 +27,8 @@ export type MovedConfig = {
   shadowed: Array<Move>;
   /** The dotted paths of the keys removed because nothing reads them. */
   dropped: Array<string>;
+  /** The dotted paths of the keys removed because the memory database holds them (`diary.channelId`). */
+  toDatabase: Array<string>;
 };
 
 const isObject = (value: unknown): value is Config =>
@@ -212,9 +216,21 @@ function dropKeys(config: Config, report: MovedConfig): void {
   }
 }
 
-/** `config` with the old keys written under their new names. The argument is not changed. */
-export function moveConfigKeys(config: Config): MovedConfig {
-  const report: MovedConfig = { config: structuredClone(config), moved: [], shadowed: [], dropped: [] };
+/** `diary.channelId` removed once the memory database has the diary's mirror; a `diary` section it empties goes too. */
+function moveDiarySeed(config: Config, diaryMirror: boolean, report: MovedConfig): void {
+  const diary = sectionOf(config, 'diary', false);
+  if (!diaryMirror || diary === null || !Object.hasOwn(diary, 'channelId')) return;
+  delete diary.channelId;
+  if (Object.keys(diary).length === 0) delete config.diary;
+  report.toDatabase.push('diary.channelId');
+}
+
+/**
+ * `config` with the old keys written under their new names. `diaryMirror`: the memory database has the diary's mirror,
+ * so `diary.channelId` goes and `toDatabase` names it (empty otherwise). The argument is not changed.
+ */
+export function moveConfigKeys(config: Config, { diaryMirror = false }: { diaryMirror?: boolean } = {}): MovedConfig {
+  const report: MovedConfig = { config: structuredClone(config), moved: [], shadowed: [], dropped: [], toDatabase: [] };
   moveSection(report.config, report);
   renameKey(report.config, 'features', 'skills', 'tools', report);
   renameKey(report.config, 'features', 'skillsDiscovery', 'toolsDiscovery', report);
@@ -224,5 +240,6 @@ export function moveConfigKeys(config: Config): MovedConfig {
   moveSearchProvider(report.config, report);
   renameKey(report.config, 'llm', 'helperTimeoutMs', 'analyzerTimeoutMs', report);
   dropKeys(report.config, report);
+  moveDiarySeed(report.config, diaryMirror, report);
   return report;
 }

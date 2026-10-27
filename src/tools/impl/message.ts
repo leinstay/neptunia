@@ -26,21 +26,123 @@
 // uploaded as a real file (never a link). Refused: another's message (`not-own-message`), an unknown or
 // deleted one (`unknown-message`, `message-deleted`), no such attachment (`no-media`), over the interface's
 // byte cap (`attachment-too-large`), a failed download (`file-unreadable`), or together with `file`/`gif`.
+// With `diary` the post goes to her diary in place of a channel, everything above included (diaryPort).
 
 import fsp from 'node:fs/promises';
 import { messageRefOf, portAnswer, postingConversation } from './shared.ts';
 import { lineOf } from '../../behavior/line-of.js';
-import { defineOp, perEnv, invalid } from './registry.ts';
+import { defineOp, perEnv, invalid, denied } from './registry.ts';
+import { DIARY_DAILY } from '../../behavior/diary.js';
+import type { createMirrors } from '../../behavior/mirror.ts';
+import { writeDiaryMessage } from '../../behavior/diary-turn.ts';
 import { freshAttachmentUrl, gifPostUrl, countGifPost } from '../../media/gif-post.js';
 import { gifPostsToday } from '../../memory/gif-watch.js';
-import { utcDay } from '../../time.js';
+import { countToday, utcDay } from '../../time.js';
 import { CODE } from '../codes.ts';
 import { idText, objOf, textOf } from '../types.ts';
 import type { Obj, OpContext, Untyped } from '../types.ts';
-import type { Adapter, ConversationRef } from '../../protocol/adapter.ts';
+import type { Adapter, ConversationRef, Delivery } from '../../protocol/adapter.ts';
 import type { Content } from '../../protocol/actions.js';
 import type { Reads } from '../../interface/reads.ts';
 import type { Env } from './env.ts';
+
+/** The conversation a diary post names where a channel post names its channel. */
+const DIARY_TARGET = 'diary';
+const DEFAULT_DIARY_PER_DAY = 12; // diary.maxPerDay
+
+/** The ports that hold what is sent for her diary (diaryPort). */
+const DIARY_PORTS = new WeakSet<Adapter>();
+
+/** The diary hold of the mirrors' publisher (src/behavior/mirror.ts). */
+type DiaryHold = Pick<ReturnType<typeof createMirrors>, 'holdDiary' | 'heldDiary'>;
+
+/** A positive whole number setting, else `fallback`. */
+function positive(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
+/**
+ * The port her post to her diary (`diary`) goes through: `real` whose `send` holds each message for the turn's one
+ * entry (`env.mirrors`, src/behavior/mirror.ts#holdDiary), which the turn records and the mirrors publish when it ends
+ * (src/behavior/diary-turn.ts#publishHeldDiary). Refused: a channel or a reply beside it (`invalid-args`), and the
+ * turn's first diary message when `diary.maxPerDay` (default 12) entries are counted today (`cap-diary`).
+ */
+function diaryPort(env: Env, args: Obj, context: OpContext, real: Adapter): Adapter {
+  if (args.channelId || args.replyTo) throw invalid('a diary message goes to your diary, with no channel or reply');
+  const hold = env.mirrors as DiaryHold | null | undefined;
+  const turnId = textOf(context.turnId);
+  const guildId = env.resolvedGuildId(context);
+  if (typeof hold?.holdDiary !== 'function' || !turnId || !guildId)
+    throw Object.assign(new Error('your diary is not available here'), { code: CODE.NOT_CONFIGURED });
+  // The live config and the store's counters, untyped in the env.
+  const config = objOf(env.hot as unknown).config;
+  const counters = objOf(objOf(objOf(env.store as unknown).state).data);
+  const cap = positive(objOf(objOf(config).diary).maxPerDay, DEFAULT_DIARY_PER_DAY);
+  const clock = typeof env.now === 'function' ? env.now : Date.now;
+  if (hold.heldDiary(turnId) === 0 && countToday(counters, DIARY_DAILY, clock()) >= cap)
+    throw denied(`your diary holds ${cap} entries a day at most`, CODE.CAP_DIARY);
+  const held = Object.create(real) as Adapter;
+  // Each send is one message of the turn's entry, kept in memory before the call answers.
+  held.send = async (_to: ConversationRef, content: Content): Promise<Delivery> => {
+    // A file the port would fetch by its address has no bytes to keep: only files with their bytes go in.
+    const files = (content.attachments ?? []).flatMap((file) =>
+      file.data ? [{ name: file.name, data: file.data, contentType: file.contentType ?? null }] : []
+    );
+    const message = { text: content.text ?? '', mentions: [...(content.mentions?.users ?? [])], files };
+    await writeDiaryMessage({
+      mirrors: hold,
+      store: env.store as unknown,
+      config: objOf(config),
+      turnId,
+      guildId,
+      message,
+    });
+    return { status: 'ok', ref: null, parts: [], at: clock(), idempotencyKey: '', error: null };
+  };
+  DIARY_PORTS.add(held);
+  return held;
+}
+
+/**
+ * Where a post of hers through `p` goes: her diary for a diary port (no channel), else the conversation `channelId`
+ * names, checked for what a post (a reply when `reply`) needs there (src/tools/impl/shared.ts#postingConversation).
+ */
+async function postTarget(
+  env: Env,
+  p: Adapter,
+  context: OpContext,
+  channelId: string | null,
+  reply: boolean
+): Promise<string> {
+  if (DIARY_PORTS.has(p)) return DIARY_TARGET;
+  const iface = p.iface;
+  const guildId = env.resolvedGuildId(context);
+  const need = reply ? 'reply' : 'send';
+  return postingConversation({ reads: env.reads, iface, guildId, channelId, context, need });
+}
+
+/** Her post through `real`, or with `diary` to her diary through its port (diaryPort), answered as diaryAnswer words it. */
+async function postOf(
+  env: Env,
+  args: Obj,
+  context: OpContext,
+  real: Adapter,
+  post: (args: Obj, context: OpContext, p: Adapter) => Promise<unknown>
+): Promise<unknown> {
+  if (args.diary !== true) return post(args, context, real);
+  return diaryAnswer(env, await post(args, context, diaryPort(env, args, context, real)));
+}
+
+/**
+ * The answer of a post to her diary: a refusal or a failure as `post` gave it, else `ok` worded by
+ * `labels.tools.result.diaryWritten` (no message is posted yet: the mirrors post the entry when the turn ends).
+ */
+function diaryAnswer(env: Env, answer: unknown): unknown {
+  const given = objOf(answer);
+  if (typeof given.status === 'string' && given.status !== 'ok') return answer;
+  const result = objOf(objOf(objOf(objOf(objOf(env.hot as unknown).prompts).labels).tools).result);
+  return { text: textOf(result.diaryWritten) };
+}
 
 /** How far back `last` looks for her own message: the most messages one history read returns on the platform (100). */
 const LAST_LOOKBACK = 100;
@@ -206,8 +308,7 @@ const handlers = perEnv((env) => {
    * hers, counted against `gifs.maxPerDay` and stamped on its entry. The day's cap spent: refused
    * `gif-cap` before anything is posted.
    */
-  async function post(args: Obj, context: OpContext) {
-    const p = requirePort();
+  async function post(args: Obj, context: OpContext, p: Adapter) {
     const text = textOf(args.text).trim();
     // A file-only or GIF-only post: an errand's file or a GIF of hers with no text.
     if (!text && !textOf(args.file).trim() && !textOf(args.gif).trim() && !textOf(args.media).trim())
@@ -216,14 +317,7 @@ const handlers = perEnv((env) => {
     const given = args.channelId ? idText(args.channelId) : null;
     if (given && reply?.channelId && given !== reply.channelId)
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
-    const channelId = await postingConversation({
-      reads,
-      iface: p.iface,
-      guildId: resolvedGuildId(context),
-      channelId: given ?? reply?.channelId ?? null,
-      context,
-      need: reply ? 'reply' : 'send',
-    });
+    const channelId = await postTarget(env, p, context, given ?? reply?.channelId ?? null, reply !== null);
     const repliedUser = Boolean(reply) && !pingsOff(context, context?.repliedAuthorId);
     const guildId = resolvedGuildId(context);
     const entry = gifEntry(env, args, guildId);
@@ -336,7 +430,7 @@ const handlers = perEnv((env) => {
   /** `/nep message create [channel] [reply]`: her turn for a person, her own text when she acts. */
   async function cmdCreate(args: Obj, context: OpContext) {
     assertNotPaused();
-    return context?.actor === 'persona' ? post(args, context) : turn(args, context);
+    return context?.actor === 'persona' ? postOf(env, args, context, requirePort(), post) : turn(args, context);
   }
 
   /** The port, or an Error naming what is missing. */

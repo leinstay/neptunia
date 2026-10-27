@@ -661,6 +661,7 @@
     "result": {
       "coerced": "{arg} was read as {value}.",
       "untaggedNote": "{name} tagged nobody; their handle is @{handle}. Editing the message fixes the tag.",
+      "diaryWritten": "Written to your diary. Your diary's mirrors get it when this turn ends.",
       "ok": "Call succeeded:",
       "refused": "Call did not run: {reason}.",
       "denied": "Call was blocked: {reason}.",
@@ -778,6 +779,7 @@
         "write-failed": "it could not be saved",
         "no-result": "nothing came back",
         "send-failed": "the message did not go out",
+        "diary-mirror": "this place is your diary's mirror, and only your diary posts there: write to your diary with message.create and diary set to true",
         "refused": "the request was refused",
         "image-cap": "the picture limit is used up",
         "image-cap-daily": "the picture limit for today is used up",
@@ -796,6 +798,7 @@
         "malformed-call": "the call could not be read",
         "truncated-call": "the call was cut off before it was complete",
         "diary-draw-only": "only draw.create runs in a diary turn",
+        "cap-diary": "the diary entry limit for today is used up",
         "other": "something went wrong"
       },
       "params": {

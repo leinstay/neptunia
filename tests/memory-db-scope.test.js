@@ -7,10 +7,12 @@ import {
   SCOPE_INTERNAL,
   SCOPE_NONE,
   allowed,
+  allowedAudience,
   dmContext,
   dmScope,
   groupContext,
   groupScope,
+  groupsContext,
   internalContext,
   narrowest,
   scopeColumns,
@@ -130,6 +132,51 @@ test('the SQL filter returns exactly the rows allowed() lets through', () => {
     .map((row) => row.name);
   assert.deepEqual(got, ['dmAlice', 'group', 'none']);
   handle.close();
+});
+
+// The diary's entry is written for every group conversation and no direct chat (stage 3 design, section 5): the
+// context reads `none` and the groups of every interface, never a DM or an internal row.
+test('groupsContext reads the groups of every interface and no direct chat', () => {
+  const want = {
+    none: true,
+    group: true,
+    groupOther: true,
+    dmAlice: false,
+    dmBob: false,
+    dmOtherIface: false,
+    internal: false,
+  };
+  for (const [rowName, expected] of Object.entries(want)) {
+    assert.equal(allowed(ROWS[rowName], groupsContext()), expected, rowName);
+  }
+});
+
+test('the SQL filter of groupsContext returns the same rows as allowed()', () => {
+  const handle = openMemoryDb(':memory:');
+  // open.js answers its node:sqlite connection untyped; the probe needs exec, run and all.
+  const db =
+    /** @type {{ exec(sql: string): void, prepare(sql: string): { run(...params: unknown[]): unknown, all(...params: unknown[]): Array<{ name: string }> } }} */ (
+      handle.db
+    );
+  db.exec('CREATE TABLE probe (name TEXT, scope_kind TEXT, scope_iface TEXT, scope_dm TEXT)');
+  for (const [name, row] of Object.entries(ROWS)) {
+    db.prepare('INSERT INTO probe VALUES (?, ?, ?, ?)').run(name, row.scope_kind, row.scope_iface, row.scope_dm);
+  }
+  const { sql, params } = whereFor(groupsContext());
+  const got = db
+    .prepare(`SELECT name FROM probe WHERE ${sql} ORDER BY name`)
+    .all(...params)
+    .map((row) => row.name);
+  assert.deepEqual(got, ['group', 'groupOther', 'none']);
+  handle.close();
+});
+
+test('groupsContext on the audience column reads none and every group audience, no DM and nothing internal', () => {
+  const ctx = { ...groupsContext(), audienceColumn: true };
+  const verdicts = ['aud:none', 'aud:group:discord', 'aud:group:other', 'aud:dm:discord:dm:1', 'aud:internal'].map(
+    (audience_id) => allowedAudience({ audience_id }, ctx)
+  );
+  assert.deepEqual(verdicts, [true, true, true, false, false]);
 });
 
 test('a read with no context, or an invalid one, throws', () => {

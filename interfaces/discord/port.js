@@ -88,6 +88,24 @@ function reactionKey(emoji) {
 }
 
 /**
+ * The files a posted message carries, each named by its attachment id with the message's id.
+ * @param {unknown} posted  the discord.js message the send answered
+ * @returns {Array<{ messageId: string, attachmentId: string }>}
+ */
+function postedFiles(posted) {
+  const message = /** @type {{ id?: unknown, attachments?: { values?: () => Iterable<{ id?: unknown }> } } | null} */ (
+    posted
+  );
+  const values = message?.attachments?.values;
+  if (typeof values !== 'function' || typeof message?.id !== 'string') return [];
+  const messageId = message.id;
+  return [...values.call(message.attachments)]
+    .map((file) => file?.id)
+    .filter((id) => typeof id === 'string')
+    .map((attachmentId) => ({ messageId, attachmentId: /** @type {string} */ (attachmentId) }));
+}
+
+/**
  * The Discord adapter over a discord.js client.
  * @param {{ client: object, config?: () => object, lookupChannel?: ((id: string) => object|null)|null,
  *   operations?: Iterable<string>|null, limits?: Partial<typeof DISCORD_LIMITS>, now?: () => number }} options
@@ -227,17 +245,21 @@ export function createDiscordAdapter({
       // The reply and the files go with the first part; the rest of the text follows as plain messages.
       const texts = splitText(typeof content.text === 'string' ? content.text : '', caps.maxChars);
       const results = [];
+      // The files the platform posted, each by its attachment id with the message that carries it.
+      const files = [];
       for (const [index, text] of texts.entries()) {
         const part = index === 0 ? { ...content, text } : { text, mentions: content.mentions };
         try {
           const posted = await channel.send(payloadOf(part));
           results.push(ok(refOf(posted, conversation.conversationId), posted?.createdTimestamp));
+          files.push(...postedFiles(posted));
         } catch (err) {
           results.push(discordFailure(err, { sent: true }));
           break;
         }
       }
-      return deliveryOf(results, key);
+      const delivery = deliveryOf(results, key);
+      return files.length > 0 ? { ...delivery, attachments: files } : delivery;
     },
 
     async edit(message, content) {

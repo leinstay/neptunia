@@ -13,6 +13,7 @@ import { familyOf } from '../src/llm/images.js';
 import { onWorld, world } from './fixtures/turn-world.ts';
 import { labels as baseLabels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { publishTo } from './fixtures/diary-mirror.ts';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
 import { drawPicture, drawPromptOf } from '../src/media/draw.js';
 import { ImageCapError, ImageGenError, UnsupportedImageModelError } from '../src/llm/images.js';
@@ -268,6 +269,10 @@ test('diary set: the avatar is fetched once; a cap ends the set like an image ca
   );
   const refused = logs.find((l) => l.msg === 'turn: draw refused by a limit');
   assert.deepEqual([refused.key, refused.asked], ['image.maxPerDay', false]);
+  // Stage 3 design, section 3 item 4: the turn records the entry and sends nothing; the mirror's publication of the
+  // entry posts what came out.
+  assert.equal(target.sent.length, 0, 'the turn itself sends nothing');
+  await publishTo(result, world().port, { now: NOW });
   assert.equal(target.sent.at(-1).files.length, 2, 'what came out is posted (diary.set.minPosted is 2)');
 });
 

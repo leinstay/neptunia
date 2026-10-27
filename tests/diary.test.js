@@ -2,7 +2,7 @@
 // plan, due slots, kind choice, plan validation, the <diary> / <kinds> /
 // <seeds> renderings, URL stripping, gists), the store's diary file and the
 // scheduler's factory (createDiary) over fakes.
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -34,7 +34,8 @@ import { labels } from './fixtures/labels.js';
 import { createStore } from '../src/memory/store.js';
 import { useIface, world } from './fixtures/turn-world.ts';
 import { tempDir } from './fixtures/tmp.js';
-import { openTestMemory, unitFile } from './fixtures/memory-db/service.js';
+import { openTestMemory, openTestMemorySync, unitFile } from './fixtures/memory-db/service.js';
+import { seedMirror } from './fixtures/diary-mirror.ts';
 
 // The diary channel is held by a fake interface named `fake`.
 useIface('fake');
@@ -789,7 +790,20 @@ function diaryChannelFake({ send = true, attach = true, guildId = 'g1' } = {}) {
   return { send, attach, guildId };
 }
 
+/** The memory databases the harnesses opened, closed when the file is done. */
+/** @type {Array<{ close(): unknown }>} */
+const OPENED = [];
+after(async () => {
+  for (const memory of OPENED.splice(0)) await memory.close();
+});
+
+/**
+ * Stage 3 design, sections 3 and 5: the diary's place is its mirror in memory, no longer `diary.channelId`. The
+ * harness's store reads a memory database holding an enabled `diary` mirror on `d1` of the fake interface (`mirror`),
+ * or none; the config sets no `diary.channelId`.
+ */
 function diaryHarness({
+  mirror = true,
   diary = {},
   features = {},
   data = {},
@@ -801,13 +815,14 @@ function diaryHarness({
   delay,
 } = {}) {
   let clock = D_NOW;
+  /** The turns the scheduler asked for: the arguments, and the plan's done slots when it asked. */
+  /** @type {Array<{ params: { mode?: unknown, conversation?: unknown, guildId?: unknown, diary?: unknown }, done: number[] }>} */
   const turnCalls = [];
   const hot = {
     config: {
       bot: { timezone: 'UTC' },
       features: { diary: true, ...features },
       diary: {
-        channelId: 'd1',
         windows: [{ from: 18, to: 1, posts: [1, 1] }],
         quietDayChance: 0,
         minGapMinutes: 0,
@@ -818,9 +833,16 @@ function diaryHarness({
     },
     prompts: { labels },
   };
+  const memory = openTestMemorySync({ now: () => D_NOW });
+  OPENED.push(memory);
+  if (mirror) seedMirror(memory.memoryDb, { iface: 'fake', conversationId: 'd1', name: 'journal', at: D_NOW });
   const store = {
     state: { data: { ...data }, markDirty() {} },
     getDiary: () => ({ posts, updatedAt: 0 }),
+    // The store's read of the memory database (src/memory/store.js#readMemory), where the mirrors are.
+    // The service's handle is untyped JS; its `db` is the node:sqlite connection the read takes.
+    readMemory: (/** @type {(db: unknown) => unknown} */ read) =>
+      read(/** @type {{ db?: unknown } | null} */ (memory.memoryDb.readHandle())?.db),
   };
   // The diary channel is a conversation of the fake interface (none when the test gives none).
   if (channel)
@@ -854,9 +876,10 @@ function diaryHarness({
   return { hot, store, turnCalls, diary: diaryFactory, setNow: (t) => (clock = t) };
 }
 
-test('tick: no-op without a channel id, with features.diary false, when paused', async () => {
+// Stage 3 design, section 3 item 1: `diary.channelId` no longer gates the tick, so the case without it is gone; the
+// tick with no channel and no mirror is "posts with zero mirrors" below.
+test('tick: no-op with features.diary false, when paused', async () => {
   const cases = [
-    ['no-channel', { diary: { channelId: '' } }],
     ['off', { features: { diary: false } }],
     ['paused', { data: { paused: true } }],
   ];
@@ -935,7 +958,9 @@ test('tick: fires the due slot through runTurn with mode diary and marks it done
   assert.equal(h.turnCalls.length, 1);
   const { params, done } = h.turnCalls[0];
   assert.equal(params.mode, 'diary');
-  assert.equal(params.conversation.conversationId, 'd1');
+  // Stage 3 design, section 3 item 2: the post is the selfreflection wake, with no conversation, for the served guild.
+  assert.equal(params.conversation, undefined);
+  assert.equal(params.guildId, 'g1');
   assert.deepEqual(params.diary, { kind: null, forced: false });
   assert.deepEqual(done, [SLOT], 'marked before the turn ran');
   assert.ok(logs.some((l) => l.msg === 'diary: due'));
@@ -1047,6 +1072,7 @@ test('tick: backfills an empty history before the first post', async () => {
   assert.equal(calls[0].turns, 0, 'before the post');
   assert.equal(calls[0].args.guildId, 'g1');
   // Changed with the contract: the backfill gets the conversation and the reads, not a channel object and her id.
+  // Stage 3 design, section 5: that conversation is the place of the diary's mirror.
   assert.equal(calls[0].args.conversation.conversationId, 'd1');
   assert.equal(calls[0].args.labels, labels);
   assert.ok(logs.some((l) => l.msg === 'diary: backfill' && l.count === 4));
@@ -1072,24 +1098,26 @@ test('tick: refuses when the daily post cap is reached', async () => {
   assert.deepEqual(h.store.state.data.diary.g1.done, [SLOT], 'the slot is spent');
 });
 
-test('tick: refuses a channel the bot cannot send or attach in', async () => {
+// Stage 3 design, sections 3 and 5: the entry is recorded first and the mirror's capability is read only when it is
+// published, so a mirror place she cannot send or attach in no longer refuses the post.
+test('tick: a mirror place she cannot send or attach in does not refuse the post', async () => {
   for (const channel of [diaryChannelFake({ attach: false }), diaryChannelFake({ send: false })]) {
     const h = diaryHarness({ channel });
     h.setNow(SLOT + MINUTE_MS);
     const { logs } = await withCapturedLogs(() => h.diary.tick());
-    assert.equal(h.turnCalls.length, 0);
-    assert.ok(logs.some((l) => l.msg === 'diary: skip' && l.reason === 'not-writable'));
+    assert.equal(h.turnCalls.length, 1);
+    assert.ok(!logs.some((l) => l.msg === 'diary: skip' && l.reason === 'not-writable'));
   }
 });
 
-test('tick: a channel that cannot be found, or of another guild, is no channel', async () => {
-  for (const channel of [null, diaryChannelFake({ guildId: 'g2' })]) {
-    const h = diaryHarness({ channel });
-    h.setNow(SLOT + MINUTE_MS);
-    const { logs } = await withCapturedLogs(() => h.diary.tick());
-    assert.equal(h.turnCalls.length, 0);
-    assert.ok(logs.some((l) => l.msg === 'diary: skip' && l.reason === 'no-channel'));
-  }
+// Stage 3 design, section 3 item 6 ("zero mirrors"): with no mirror and no channel the due post still runs; the entry
+// exists in memory and nothing is sent.
+test('tick: posts with zero mirrors and no channel', async () => {
+  const h = diaryHarness({ channel: null, mirror: false });
+  h.setNow(SLOT + MINUTE_MS);
+  const { logs } = await withCapturedLogs(() => h.diary.tick());
+  assert.equal(h.turnCalls.length, 1);
+  assert.ok(!logs.some((l) => l.msg === 'diary: skip' && l.reason === 'no-channel'));
 });
 
 test('force: runs now with the kind, ignores the plan and the quiet day, obeys the caps', async () => {
@@ -1107,8 +1135,9 @@ test('force: runs now with the kind, ignores the plan and the quiet day, obeys t
 
   const paused = diaryHarness({ data: { paused: true } });
   assert.deepEqual(await paused.diary.force({}), { outcome: 'paused' });
-  const unset = diaryHarness({ diary: { channelId: '' } });
-  assert.deepEqual(await unset.diary.force({}), { outcome: 'not-now', reason: 'no-channel' });
+  // Stage 3 design, section 3 item 1: a forced post needs no channel; with zero mirrors it still runs.
+  const unset = diaryHarness({ channel: null, mirror: false });
+  assert.equal((await unset.diary.force({})).outcome, 'spoke');
 });
 
 test('force: passes kind and topic to the turn', async () => {
@@ -1138,6 +1167,7 @@ test('status: the channel, the day plan, the counts of today and the history siz
     data: { diaryDay: '2026-10-06', diaryPosts: 1, diaryPicturesDay: '2026-10-06', diaryPictures: 1 },
   });
   await h.diary.tick();
+  // Stage 3 design, section 5: `channelId` is the conversation of the diary's first mirror.
   assert.deepEqual(h.diary.status(), {
     channelId: 'd1',
     day: '2026-10-06',

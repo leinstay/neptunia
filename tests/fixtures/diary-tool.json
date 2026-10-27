@@ -1,0 +1,13 @@
+{
+  "outcome": "spoke",
+  "requests": 3,
+  "writerHasTools": true,
+  "writerTools": [
+    "draw_create",
+    "message_create",
+    "message_react_add"
+  ],
+  "called": [
+    "message.create:denied/diary-draw-only"
+  ]
+}

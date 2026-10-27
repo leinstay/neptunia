@@ -107,7 +107,7 @@ On/off switches. A missing key counts as on, except the ones that need `=== true
 | `messageLinks` | `true` | When the persona writes `#93`, the posted text carries a Discord message link to that transcript line |
 | `mentionHandles` | `true` | Every member with a stored profile gets a short handle (`@u7k2f`), listed in `<directory>`. The persona mentions people by handle |
 | `elsewhere` | `true` | Answer a call from a channel where the bot can read but not send. The answer goes to the first usable channel in `memory.mainChannelIds` |
-| `diary` | `true` | The persona posts in one owner-chosen channel on its own. With no `diary.channelId` set, nothing happens. See [Diary](diary.md) |
+| `diary` | `true` | The persona keeps a diary on its own and posts each entry to the diary's mirrors. See [Diary](diary.md) |
 | `typingSimulation` | `true` | Simulate typing speed |
 | `pauseNotice` | `true` | Post a short notice when the persona is called while paused. See `mention.pauseNoticeMinutes` |
 | `adminCommands` | `true` | Owner slash commands. `false` unregisters them |
@@ -227,7 +227,7 @@ The memory database. One SQLite file, kept in sync with the stored memory. See [
 | `closeTimeoutMs` | `10000` | At shutdown, how long to wait for the pass under way before the worker is terminated |
 | `turnReads` | `true` | After a turn's request is built, record which memory rows it carried in the database |
 | `audienceColumn` | `false` | Filter memory rows by their `audience_id` column instead of the three scope columns. Both give the same rows |
-| `diaryMedia` | `false` | Fetch diary posts' messages and save their text and pictures in the database. Needs `diary.channelId` |
+| `diaryMedia` | `false` | Fetch the messages of the diary posts made before the mirrors and save their text and pictures in the database, from the place each post's publication names |
 | `diaryAudioMaxBytes` | `8388608` | Size cap for an audio attachment of a diary post saved next to the pictures |
 | `focus.enabled` | `false` | Compute the focus set (the people her attention is on) once per UTC day from the relationship counts |
 | `wakeRuns` | `false` | Record each inner turn as a wake run in the database |
@@ -852,11 +852,11 @@ Settings for voice messages (`features.speech`). The persona's `voice.say` skill
 
 ## `diary`
 
-Settings for the diary channel (`features.diary`). See [Diary](diary.md).
+Settings for the diary (`features.diary`). See [Diary](diary.md).
 
 | Key | Default | What it does |
 |---|---|---|
-| `channelId` | `""` | The diary channel. Empty means no diary |
+| `channelId` | `""` | The seed of the diary's first mirror: schema v15 makes this channel's place a `diary` mirror, and `tools/config-migrate.mjs --apply --db <memory.db>` then takes the key out of the local file. Nothing else reads it |
 | `world` | `false` | Include `prompts/world.md` as a `<world>` block in diary requests |
 | `windows` | see below | Posting windows in `bot.timezone`. Each has `from`, `to` (hours) and `posts: [min, max]` |
 | `quietDayChance` | `0.3` | Chance of no posts for the whole day |

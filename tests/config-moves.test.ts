@@ -18,6 +18,8 @@ import { readConfig } from '../src/config.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { tempDir } from './fixtures/tmp.js';
 import { moveConfigKeys } from '../src/config-moves.ts';
+import { openMemoryDb } from '../src/memory/db/open.js';
+import { insertRows } from '../src/memory/db/rows.js';
 
 type Settings = Record<string, unknown>;
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -74,7 +76,8 @@ test('leaves every key it does not move exactly where it was', () => {
 
 test('moves an empty config to an empty config', () => {
   // `dropped` joins the result (the keys nothing reads any more); an empty config drops nothing.
-  assert.deepEqual(moveConfigKeys({}), { config: {}, moved: [], shadowed: [], dropped: [] });
+  // Stage 3 design, section 5: every result names the keys that moved to the database, none here.
+  assert.deepEqual(moveConfigKeys({}), { config: {}, moved: [], shadowed: [], dropped: [], toDatabase: [] });
 });
 
 test('removes the old section once everything in it has moved', () => {
@@ -108,7 +111,8 @@ test('moves nothing the second time', () => {
   });
   const second = moveConfigKeys(first.config);
   // `dropped` joins the result; nothing is left to drop the second time either.
-  assert.deepEqual(second, { config: first.config, moved: [], shadowed: [], dropped: [] });
+  // Stage 3 design, section 5: every result names the keys that moved to the database, none here.
+  assert.deepEqual(second, { config: first.config, moved: [], shadowed: [], dropped: [], toDatabase: [] });
 });
 
 test('does not change the config it is given', () => {
@@ -376,7 +380,8 @@ test('a production-shaped file moves every key once and a second pass finds noth
   });
   assert.deepEqual(first.dropped, ['bot.access.memory.refresh.user']);
   const second = moveConfigKeys(first.config);
-  assert.deepEqual(second, { config: first.config, moved: [], shadowed: [], dropped: [] });
+  // Stage 3 design, section 5: every result names the keys that moved to the database, none here.
+  assert.deepEqual(second, { config: first.config, moved: [], shadowed: [], dropped: [], toDatabase: [] });
 });
 
 test('says in its one warning line how many keys it dropped', async () => {
@@ -426,4 +431,76 @@ test('reads an old llm.helperTimeoutMs of the local file as the analyzer timeout
   const root = deployment({ llm: { helperTimeoutMs: 4321 } });
   const { result } = await withCapturedLogs(() => readConfig(root, { privateDir: root }) as Settings);
   assert.deepEqual(result.llm, { analyzerTimeoutMs: 4321 });
+});
+
+// ---- diary.channelId, a seed of the diary's mirror (stage 3 design, section 5) ----------------------------------
+
+test('drops diary.channelId and reports it moved to the database once the database has a diary mirror', () => {
+  const { config, toDatabase } = moveConfigKeys(
+    { diary: { channelId: 'c9', maxPerDay: 3 }, bot: { owners: ['o1'] } },
+    { diaryMirror: true }
+  );
+  assert.deepEqual(config, { diary: { maxPerDay: 3 }, bot: { owners: ['o1'] } });
+  assert.deepEqual(toDatabase, ['diary.channelId']);
+});
+
+test('keeps diary.channelId while the database has no diary mirror', () => {
+  const { config, toDatabase } = moveConfigKeys({ diary: { channelId: 'c9' } }, { diaryMirror: false });
+  assert.deepEqual(config, { diary: { channelId: 'c9' } });
+  assert.deepEqual(toDatabase, []);
+});
+
+/** A memory database file with the diary's mirror on the place of channel c9, or with no mirror. */
+function memoryFile({ mirror }: { mirror: boolean }): string {
+  const file = path.join(tempDir('nep-migrate-db-'), 'memory.db');
+  const handle = openMemoryDb(file);
+  try {
+    const at = '2026-11-03T12:00:00.000Z';
+    insertRows(
+      handle.db,
+      {
+        places: [
+          {
+            id: 'discord:channel:c9',
+            iface: 'discord',
+            kind: 'channel',
+            native_id: 'c9',
+            parent_id: null,
+            scope_kind: 'group',
+            name: 'journal',
+          },
+        ],
+      },
+      { at }
+    );
+    // open.js answers its node:sqlite connection untyped; this needs `prepare(...).run`.
+    const db = handle.db as { prepare(sql: string): { run(...params: Array<unknown>): unknown } };
+    if (mirror)
+      db.prepare(
+        "INSERT INTO mirrors (id, row_kind, place_id, enabled, created_at, created_by, extra) VALUES ('m1', 'diary', 'discord:channel:c9', 1, ?, 'owner', NULL)"
+      ).run(at);
+  } finally {
+    handle.close();
+  }
+  return file;
+}
+
+test('config-migrate drops diary.channelId on --apply when the database it is given has the diary mirror', () => {
+  const file = localCopy({ diary: { channelId: 'c9', maxPerDay: 3 } });
+  const db = memoryFile({ mirror: true });
+  const dry = migrate(['--dry-run', '--db', db], file);
+  assert.equal(dry.code, 0);
+  assert.equal(dry.out.includes('diary.channelId'), true, 'the dry run names the key');
+  const applied = migrate(['--apply', '--db', db], file);
+  assert.equal(applied.code, 0);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { diary: { maxPerDay: 3 } });
+});
+
+test('config-migrate keeps diary.channelId and says so in one line when the database has no diary mirror', () => {
+  const file = localCopy({ diary: { channelId: 'c9' } });
+  const before = fs.readFileSync(file, 'utf8');
+  const run = migrate(['--apply', '--db', memoryFile({ mirror: false })], file);
+  assert.equal(fs.readFileSync(file, 'utf8'), before);
+  const lines = `${run.out}${run.err}`.split('\n').filter((line) => line.includes('diary.channelId'));
+  assert.equal(lines.length, 1, `${run.out}${run.err}`);
 });
