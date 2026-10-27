@@ -88,10 +88,13 @@
 import { randomUUID } from 'node:crypto';
 import { log as defaultLog } from '../log.js';
 import { intentionsOn } from '../intentions/model.ts';
+import { errorCode } from '../tools/types.ts';
 import { createCostMeter, drain, onTaskFinished } from './inner/drain.ts';
+import type { DrainAnswer } from './inner/drain.ts';
 import { markFactsTold, pendingFactsOf } from './inner/facts.ts';
 import { heartbeatDue } from './inner/heartbeat.ts';
 import { attendWakes, places, refreshPlaces } from './inner/places.ts';
+import type { PlacesQuery } from './inner/places.ts';
 import {
   addFact,
   deadlineWakes,
@@ -105,9 +108,28 @@ import {
   wakeFields,
   wakeOfDue,
 } from './inner/queue.ts';
+import type { WakeAnswer } from './inner/queue.ts';
 import { reviewDue } from './inner/review.ts';
 import { innerOn, innerSettings } from './inner/settings.ts';
 import { start, status, stop } from './inner/status.ts';
+import type { InnerStatus, SwitchAnswer, SwitchOptions } from './inner/status.ts';
+import type {
+  CostMeter,
+  FactsApi,
+  HeartbeatSources,
+  InnerContext,
+  InnerIntentions,
+  InnerJournal,
+  InnerState,
+  InnerStore,
+  InnerTurns,
+  InnerWakeEvent,
+  Logger,
+  PlacesPage,
+  RecordSource,
+  Wake,
+  WakeUpdate,
+} from './inner/types.ts';
 
 export {
   DELIVERY_SKILLS,
@@ -123,41 +145,82 @@ export { PLACE_SORTS, attendWake, placesPage } from './inner/places.ts';
 export { drawHeartbeatAt, heartbeatWake } from './inner/heartbeat.ts';
 export { drawReviewAt, hourWeights, reviewWake } from './inner/review.ts';
 export { chainBudget, createCostMeter, currentChannelOf, turnsToday } from './inner/drain.ts';
+export type * from './inner/types.ts';
 
-/**
- * @param {object} options
- * @param {{ config: object }} options.hot
- * @param {string} options.dataDir
- * @param {{ runTurn: Function, isAnyBusy?: Function, isBusy?: Function }} options.turns
- * @param {object|null} [options.intentions]  src/intentions/service.ts
- * @param {{ iterate: Function }|null} [options.record]  The record: her own lines for the review's
- *   hours, every place's lines for her attention.
- * @param {((guildId: string) => { id: string, name?: string|null, writable?: boolean|null }[])|null} [options.places]
- *   The places the interface publishes for the guild (opaque addresses, names, whether she can
- *   write there), for `places`; without it the places are the ones the record shows.
- * @param {((guildId: string, memberId: string) => string|null)|null} [options.nameOf]  A member's
- *   name for the `<wake>` lines (null: the id is shown).
- * @param {{ inner?: Function }|null} [options.journal]
- * @param {import('../interface/reads.ts').Reads|null} [options.reads]  The core's reads of the interface: the conversation a turn runs in.
- * @param {() => string} [options.iface]  The interface the conversations belong to (from `hello`).
- * @param {(conversationId: string) => string|null} [options.conversationName]  The name an interface reported for a
- *   conversation (src/interface/directory.ts); null when it reported none, and the id is shown.
- * @param {(event: object) => Promise<object>} [options.submit]  The event door's submit (src/index.js).
- * @param {{ state: { data: object } }|null} [options.store]  The memory store (its pause).
- * @param {() => string|null} [options.getGuildId]
- * @param {() => boolean} [options.peopleWaiting]  Calls queued for the attention (people first).
- * @param {() => Promise<unknown>} [options.ready]  Resolves once the journal's start-up reconciliation is done (src/index.js);
- *   a turn that a restart cut off is resolved from the journal only after it.
- * @param {() => string} [options.uuid]  Ids for the turns this life starts (the in-flight mark names the turn before it runs).
- * @param {{ run: Function }} [options.meter]  createCostMeter's.
- * @param {{ tasks?: (guildId: string) => object[], skills?: () => string[], agents?: () => string[], selfId?: () => string|null, focusPeople?: (guildId: string) => object|null }} [options.heartbeat]
- *   The sources of the heartbeat's facts that are not the stores above (src/behavior/heartbeat-view.ts).
- * @param {{ recordWake?: (update: object) => Promise<unknown>|null }|null} [options.memoryDb]  The memory database
- *   (src/memory/db/service.js): with `memoryDb.wakeRuns` on, each inner turn is recorded as a wake run with its actions.
- * @param {() => number} [options.rng]
- * @param {() => number} [options.now]
- * @param {{ info: Function, warn: Function }} [options.log]
- */
+/** What createInnerLife is given. */
+export type InnerLifeOptions = {
+  hot: { readonly config: unknown };
+  dataDir: string;
+  turns: InnerTurns;
+  /** src/intentions/service.ts. */
+  intentions?: InnerIntentions | null;
+  /** The record: her own lines for the review's hours, every place's lines for her attention. */
+  record?: RecordSource | null;
+  /**
+   * The places the interface publishes for the guild (opaque addresses, names, whether she can write there), for
+   * `places`; without it the places are the ones the record shows.
+   */
+  places?: ((guildId: string) => unknown) | null;
+  /** A member's name for the `<wake>` lines (null: the id is shown). */
+  nameOf?: ((guildId: string, memberId: string) => unknown) | null;
+  journal?: InnerJournal | null;
+  /** The core's reads of the interface: the conversation a turn runs in. */
+  reads?: InnerContext['reads'];
+  /** The interface the conversations belong to (from `hello`). */
+  iface?: () => string;
+  /**
+   * The name an interface reported for a conversation (src/interface/directory.ts); null when it reported none, and
+   * the id is shown.
+   */
+  conversationName?: (conversationId: string) => string | null;
+  /** The event door's submit (src/index.js). */
+  submit?: ((event: InnerWakeEvent) => Promise<unknown>) | null;
+  /** The memory store (its pause). */
+  store?: InnerStore | null;
+  getGuildId?: () => string | null;
+  /** Calls queued for the attention (people first). */
+  peopleWaiting?: () => boolean;
+  /**
+   * Resolves once the journal's start-up reconciliation is done (src/index.js); a turn that a restart cut off is
+   * resolved from the journal only after it.
+   */
+  ready?: () => Promise<unknown>;
+  /** Ids for the turns this life starts (the in-flight mark names the turn before it runs). */
+  uuid?: () => string;
+  /** createCostMeter's. */
+  meter?: CostMeter | null;
+  /** The sources of the heartbeat's facts that are not the stores above (src/behavior/heartbeat-view.ts). */
+  heartbeat?: HeartbeatSources;
+  /**
+   * The memory database (src/memory/db/service.js): with `memoryDb.wakeRuns` on, each inner turn is recorded as a wake
+   * run with its actions.
+   */
+  memoryDb?: { recordWake?(update: WakeUpdate): unknown } | null;
+  rng?: () => number;
+  now?: () => number;
+  log?: Logger;
+};
+
+/** What one tick did: whether it ran, why not, and what it listed, handed to the door and drained. */
+export type TickAnswer =
+  { ran: false; reason: string } | { ran: true; listed: number; submitted: number; drained: DrainAnswer };
+
+/** The persona's inner life (createInnerLife). */
+export type InnerLife = {
+  tick: () => Promise<TickAnswer>;
+  drain: (guildId: string) => Promise<DrainAnswer>;
+  onWake: (event: unknown) => WakeAnswer;
+  onTaskFinished: (task: unknown, guildId?: string | null) => boolean;
+  mayAct: (guildId: unknown) => boolean;
+  stop: (guildId?: string | null, options?: SwitchOptions) => SwitchAnswer;
+  start: (guildId?: string | null, options?: SwitchOptions) => SwitchAnswer;
+  status: (guildId?: string | null) => InnerStatus;
+  places: (guildId?: string | null, options?: PlacesQuery) => PlacesPage;
+  state: (guildId: unknown) => InnerState;
+  facts: FactsApi;
+};
+
+/** The persona's inner life over the stores and sources it is given (see the head of this file). */
 export function createInnerLife({
   hot,
   dataDir,
@@ -182,8 +245,8 @@ export function createInnerLife({
   rng = Math.random,
   now = Date.now,
   log = defaultLog,
-}) {
-  const life = {
+}: InnerLifeOptions): InnerLife {
+  const life: InnerContext = {
     hot,
     dataDir,
     turns,
@@ -208,9 +271,7 @@ export function createInnerLife({
     now,
     log,
     states: new Map(),
-    // Per guild: the place index (the record's lines per place over the lookback window).
     placeIndexes: new Map(),
-    // The ids of the wakes an inner turn is running for now (a stop leaves them to that turn).
     running: new Set(),
     ticking: false,
     factSeq: 0,
@@ -222,7 +283,7 @@ export function createInnerLife({
    * reconciled, then the queue is drained by one inner turn when the attention is free. Never
    * throws; answers what it did.
    */
-  async function tick() {
+  async function tick(): Promise<TickAnswer> {
     const config = hot.config;
     if (!innerOn(config)) return { ran: false, reason: 'off' };
     const guildId = getGuildId();
@@ -234,20 +295,20 @@ export function createInnerLife({
     try {
       const settings = innerSettings(config);
       const at = now();
-      const listed = [];
+      const listed: Array<Wake> = [];
       if (intentions && intentionsOn(config)) {
-        let due = [];
+        let due: ReadonlyArray<Parameters<typeof wakeOfDue>[0]> = [];
         try {
-          due = intentions.due(guildId) ?? [];
+          due = intentions.due?.(guildId) ?? [];
         } catch (err) {
-          log.warn('inner: due list failed', { guildId, code: err?.code ?? null });
+          log.warn('inner: due list failed', { guildId, code: errorCode(err) });
         }
         listed.push(...due.map(wakeOfDue));
         try {
-          intentions.reconcile(guildId);
-          listed.push(...deadlineWakes(intentions.list(guildId, { all: true })));
+          intentions.reconcile?.(guildId);
+          listed.push(...deadlineWakes(intentions.list?.(guildId, { all: true })));
         } catch (err) {
-          log.warn('inner: reconcile failed', { guildId, code: err?.code ?? null });
+          log.warn('inner: reconcile failed', { guildId, code: errorCode(err) });
         }
       }
       const review = await reviewDue(life, guildId, settings, at);
@@ -296,7 +357,7 @@ export function createInnerLife({
    * (`scope`: `{ channelId, privateChat }`; a private chat's only in it), `markTold` the ones a completed
    * answer carried. `enabled` follows the switch; without it the turn runner keeps its own in process.
    */
-  const factsApi = {
+  const factsApi: FactsApi = {
     enabled: () => innerOn(hot.config),
     add(guildId, fact) {
       const key = guildId ?? getGuildId();

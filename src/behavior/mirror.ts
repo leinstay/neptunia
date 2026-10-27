@@ -131,9 +131,6 @@ type Publication = {
 };
 type Prepared = { ok: true; publication: Publication; reused: boolean } | { ok: false; code: string };
 
-// diary.js is JS; `setSettings` as the publisher calls it, on a `diary` section of unknown shape.
-const setOf = setSettings as (diaryCfg: unknown) => { maxMessageBytes: number };
-
 // The files of one message when the adapter names no limit (`capabilities().maxFiles`).
 const DEFAULT_FILES_PER_MESSAGE = 10;
 
@@ -500,7 +497,7 @@ export function createMirrors({
     if (!connected || connected.iface !== place.iface) return { placeId: place.placeId, status: 'queued', code: null };
     const diary = (config() as { diary?: unknown } | null)?.diary ?? null;
     const sent = await sendEntry(connected, { iface: place.iface, conversationId: place.conversationId }, entry, {
-      maxMessageBytes: entry.maxMessageBytes ?? setOf(diary).maxMessageBytes,
+      maxMessageBytes: entry.maxMessageBytes ?? setSettings(diary).maxMessageBytes,
       now,
     });
     if (sent.status === 'sent') {

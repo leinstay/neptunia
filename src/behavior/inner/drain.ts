@@ -15,11 +15,15 @@ import {
   intentionsOn,
   nextOccurrence,
 } from '../../intentions/model.ts';
+import type { Intention } from '../../intentions/types.ts';
 import { errorCodeOf } from '../../llm/openrouter.js';
 import { CODE } from '../../tools/codes.ts';
 import { WAKE_POLICY_VERSION } from '../../tools/access.ts';
-import { listOf } from '../../tools/types.ts';
-import { factPayload, feedbackFacts, markFactsTold, pendingFactsOf } from './facts.ts';
+import { errorCode as codeOf, isFiniteNumber, listOf, objOf } from '../../tools/types.ts';
+import type { Obj } from '../../tools/types.ts';
+import type { ConversationInfo } from '../../protocol/adapter.ts';
+import type { HeartbeatFacts } from '../heartbeat-view.ts';
+import { asText, factPayload, feedbackFacts, idOrNull, markFactsTold, pendingFactsOf } from './facts.ts';
 import { heartbeatFacts, logHeartbeatOutcome } from './heartbeat.ts';
 import { attendFactsOf, placeNameOf, placesInWakeOf } from './places.ts';
 import {
@@ -40,12 +44,28 @@ import {
 } from './queue.ts';
 import { channelNames, recentChannels } from './review.ts';
 import { FACTS_SHOWN_MAX, innerSettings } from './settings.ts';
+import type {
+  ChainBudget,
+  CostMeter,
+  Fact,
+  FactPayload,
+  InnerContext,
+  InnerSettings,
+  InnerState,
+  Measured,
+  TurnAction,
+  Wake,
+  WakeInfo,
+} from './types.ts';
 
 /** The error codes of a failed turn whose wakes are retried; any other error is handled as an ended turn. */
-const RETRY_CODES = new Set(['provider-limit', 'provider-error', 'timeout']);
+const RETRY_CODES: ReadonlySet<string> = new Set(['provider-limit', 'provider-error', 'timeout']);
 
 /** The outcomes of runTurn that mean the turn never ran: the wake waits. */
-const HELD = new Set(['busy', 'paused']);
+const HELD: ReadonlySet<unknown> = new Set(['busy', 'paused']);
+
+/** The current channel of a turn, and the machine word for why it is that one. */
+export type CurrentChannel = { channelId: string | null; why: string | null };
 
 /**
  * The current channel of an inner turn for `group` (the coalesced wakes) and why it is that one,
@@ -56,21 +76,20 @@ const HELD = new Set(['busy', 'paused']);
  * the current channel of the turn it reports (`here`, null when that turn had none). A review, or
  * a wake with no channel: none. `why` is a short machine word (`destination`, `asked`, `attend`,
  * `errand`, `feedback`), null with no channel.
- * @param {object[]} group
- * @param {object[]} [records]  The open intentions of the group, for the destination.
- * @returns {{ channelId: string|null, why: string|null }}
+ * `records` are the open intentions of the group, for the destination.
  */
-export function currentChannelOf(group, records = []) {
-  const cause = listOf(group).find((wake) => wake && !channelless(wake)) ?? null;
+export function currentChannelOf(group: ReadonlyArray<Wake>, records: ReadonlyArray<unknown> = []): CurrentChannel {
+  const cause = group.find((wake) => Boolean(wake) && !channelless(wake)) ?? null;
   if (!cause) return { channelId: null, why: null };
-  const pick = (id, why) =>
-    id !== null && id !== undefined && String(id) !== ''
-      ? { channelId: String(id), why }
+  const pick = (id: unknown, why: string): CurrentChannel =>
+    id !== null && id !== undefined && asText(id) !== ''
+      ? { channelId: asText(id), why }
       : { channelId: null, why: null };
   switch (cause.kind) {
     case 'intention_due': {
-      const record = listOf(records).find((item) => item && String(item.id) === String(listOf(cause.intentionIds)[0]));
-      return pick(cause.channelId, record?.destination && !cause.privateChat ? 'destination' : 'asked');
+      const first = asText(listOf(cause.intentionIds)[0]);
+      const record = objOf(listOf(records).find((item) => item && asText(objOf(item).id) === first));
+      return pick(cause.channelId, record.destination && !cause.privateChat ? 'destination' : 'asked');
     }
     case 'attend':
       return pick(cause.channelId, 'attend');
@@ -84,29 +103,49 @@ export function currentChannelOf(group, records = []) {
 }
 
 /** The start of the local day of `now` and of the next one. */
-export function dayBounds(now, timezone) {
+export function dayBounds(now: number, timezone: string): { day: string; start: number; next: number } {
   const day = zonedDay(now, timezone);
   const start = zonedEpoch(day, 0, 0, timezone);
   const next = zonedEpoch(zonedDay(start + 26 * HOUR_MS, timezone), 0, 0, timezone);
   return { day, start, next };
 }
 
+/** The clock a count of the day is read at: the moment and the timezone. */
+export type DayClock = { now: number; timezone: string };
+
 /** How many inner turns ran at `now`'s local day in `timezone`, a failed one (provider or engine error: its wakes retry) not counted. */
-export function turnsToday(state, { now, timezone }) {
+export function turnsToday(state: Pick<InnerState, 'turns'>, { now, timezone }: DayClock): number {
   const { start } = dayBounds(now, timezone);
   return state.turns.filter((turn) => turn.failed !== true && turn.at >= start).length;
 }
 
+/** What becomes of the wakes of a failed turn: requeued after a delay, or dropped. */
+export type RetryPlan = {
+  action: 'requeue' | 'drop';
+  n: number;
+  firstFailedAt: number;
+  notBefore: number | null;
+  code: string;
+};
+
 /**
  * What becomes of the wakes of `group` after a turn that failed at `at`: `requeue` after the next delay of
  * `settings.retry.delaysMinutes` while the first failure is under `retry.maxHours` old, else `drop`; `n` counts attempts.
- * @param {unknown} [code]  The failure's code.
- * @returns {{ action: 'requeue'|'drop', n: number, firstFailedAt: number, notBefore: number|null }}
+ * `code` is the failure's code.
  */
-export function planRetry(group, at, settings, code = CODE.ERROR) {
-  const n = group.reduce((most, wake) => Math.max(most, Number.isInteger(wake.retry) ? wake.retry : 0), 0) + 1;
+export function planRetry(
+  group: ReadonlyArray<Wake>,
+  at: number,
+  settings: Pick<InnerSettings, 'retry'>,
+  code: string = CODE.ERROR
+): RetryPlan {
+  const n =
+    group.reduce(
+      (most, wake) => Math.max(most, typeof wake.retry === 'number' && Number.isInteger(wake.retry) ? wake.retry : 0),
+      0
+    ) + 1;
   const firstFailedAt = group.reduce(
-    (first, wake) => Math.min(first, Number.isFinite(wake.firstFailedAt) ? wake.firstFailedAt : at),
+    (first, wake) => Math.min(first, isFiniteNumber(wake.firstFailedAt) ? wake.firstFailedAt : at),
     at
   );
   const { delaysMinutes, maxHours } = settings.retry;
@@ -120,9 +159,14 @@ export function planRetry(group, at, settings, code = CODE.ERROR) {
  * how many are left under `cap`. A chain at its cap waits for the next local day. A feedback turn (one that
  * ran for feedback wakes only) is not counted.
  */
-export function chainBudget(state, chainId, cap, { now, timezone }) {
+export function chainBudget(
+  state: Pick<InnerState, 'turns'>,
+  chainId: string,
+  cap: number,
+  { now, timezone }: DayClock
+): ChainBudget {
   const { start } = dayBounds(now, timezone);
-  const feedbackOnly = (turn) =>
+  const feedbackOnly = (turn: InnerState['turns'][number]) =>
     Array.isArray(turn.kinds) && turn.kinds.length > 0 && turn.kinds.every((kind) => kind === 'feedback');
   const used = state.turns.filter(
     (turn) => turn.chainId === chainId && turn.failed !== true && !feedbackOnly(turn) && turn.at >= start
@@ -130,20 +174,27 @@ export function chainBudget(state, chainId, cap, { now, timezone }) {
   return { used, cap, left: Math.max(0, cap - used) };
 }
 
+/** What a run has cost so far, while it runs. */
+type CostBox = { usd: number; peak: number; requests: number; voice: number };
+
 /**
  * The cost of whatever runs inside `run(fn)`: every `llm: usage` line (its `upstreamCost`, else
  * `cost`; the `core` role counted apart, as `voice`, the journal field's name since the role was called so) and `images: generated` line logged in its async context
  * (AsyncLocalStorage over the log listeners, src/log.js#onLog), requests on model roles other than `core` it starts included;
  * `running()`, asked inside it, says what it has cost so far and its costliest single request.
- * @param {{ subscribe?: (listener: Function) => Function }} [options]
  */
-export function createCostMeter({ subscribe = onLog } = {}) {
-  const scope = new AsyncLocalStorage();
-  const round = (value) => Math.round(value * 1_000_000) / 1_000_000;
-  const amount = (value) => (typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0);
-  subscribe((entry) => {
+export function createCostMeter({
+  subscribe = onLog,
+}: { subscribe?: (listener: (entry: unknown) => void) => unknown } = {}): CostMeter & {
+  running(): { usd: number; peak: number };
+} {
+  const scope = new AsyncLocalStorage<CostBox>();
+  const round = (value: number) => Math.round(value * 1_000_000) / 1_000_000;
+  const amount = (value: unknown) => (isFiniteNumber(value) && value >= 0 ? value : 0);
+  subscribe((given) => {
     const box = scope.getStore();
-    if (!box || !entry || typeof entry !== 'object') return;
+    if (!box || !given || typeof given !== 'object') return;
+    const entry = objOf(given);
     if (entry.msg === 'llm: usage') {
       const usd = amount(typeof entry.upstreamCost === 'number' ? entry.upstreamCost : entry.cost);
       box.usd += usd;
@@ -157,9 +208,9 @@ export function createCostMeter({ subscribe = onLog } = {}) {
     }
   });
   return {
-    async run(fn) {
-      const box = { usd: 0, peak: 0, requests: 0, voice: 0 };
-      const result = await scope.run(box, fn);
+    async run(fn: () => unknown): Promise<Measured> {
+      const box: CostBox = { usd: 0, peak: 0, requests: 0, voice: 0 };
+      const result: unknown = await scope.run(box, fn);
       return { result, usd: round(box.usd), requests: box.requests, voice: box.voice };
     },
     /**
@@ -173,21 +224,28 @@ export function createCostMeter({ subscribe = onLog } = {}) {
   };
 }
 
+/** The conversation a turn runs in, or why there is none. */
+export type ConversationFound = { channel: ConversationInfo | null; why: string | null };
+
 /**
  * The conversation an inner turn of `group` runs in, or null. An attend wake's place may be one
  * she can only read: she listens there and posts, if at all, through a call elsewhere.
  */
-export async function conversationFor(life, guildId, group) {
+export async function conversationFor(
+  life: InnerContext,
+  guildId: string,
+  group: ReadonlyArray<Wake>
+): Promise<ConversationFound> {
   const { hot, reads, iface } = life;
   const anchor = group.find((wake) => !channelless(wake)) ?? null;
-  const candidates = anchor ? [anchor.channelId] : await recentChannels(life, guildId);
+  const candidates: ReadonlyArray<string | null> = anchor ? [anchor.channelId] : await recentChannels(life, guildId);
   const readOnlyOk = anchor?.kind === 'attend';
   // Why the first candidate failed (`dm-off`, `not-writable`, `unavailable`); a review with no channel at all: `no-review-channel`.
-  let why = anchor ? 'unavailable' : 'no-review-channel';
+  let why: string = anchor ? 'unavailable' : 'no-review-channel';
   let first = true;
   for (const channelId of candidates) {
     if (!channelId) continue;
-    const fail = (code) => {
+    const fail = (code: string) => {
       if (first) why = code;
       first = false;
     };
@@ -199,7 +257,7 @@ export async function conversationFor(life, guildId, group) {
       continue;
     }
     // A private chat only while private chats are on (features.privateMessages, read now).
-    if (channel.communityId === null && hot.config?.features?.privateMessages !== true) {
+    if (channel.communityId === null && objOf(objOf(hot.config).features).privateMessages !== true) {
       fail(CODE.DM_OFF);
       continue;
     }
@@ -212,17 +270,25 @@ export async function conversationFor(life, guildId, group) {
   return { channel: null, why };
 }
 
+/** What a turn of a group ended in: its outcome, its calls and the intentions they named. */
+type TurnEnd = { outcome: unknown; actions: ReadonlyArray<TurnAction>; named: ReadonlyArray<unknown> };
+
 /**
  * The outcome of an `intention_due` turn for an intention a heartbeat made, logged (id and codes, never text):
  * `failed` (the turn erred or was refused), `done` (she closed it), `acted` (another call went through) or
  * `no-op`. Never throws.
  */
-export function logDueOutcome(life, guildId, group, { outcome, actions, named }) {
+export function logDueOutcome(
+  life: InnerContext,
+  guildId: string,
+  group: ReadonlyArray<Wake>,
+  { outcome, actions, named }: TurnEnd
+): void {
   const { intentions, log } = life;
   try {
     if (!intentions || typeof intentions.store !== 'function') return;
     for (const wake of group.filter((w) => w.kind === 'intention_due')) {
-      const id = listOf(wake.intentionIds)[0];
+      const id = listOf(wake.intentionIds).map(String)[0];
       const record = id ? intentions.store(guildId)?.get?.(id) : null;
       if (record?.origin !== HEARTBEAT_ORIGIN) continue;
       const closing = actions.some(
@@ -253,17 +319,17 @@ export function logDueOutcome(life, guildId, group, { outcome, actions, named })
       });
     }
   } catch (err) {
-    log.warn('inner: due outcome not logged', { guildId, code: err?.code ?? null });
+    log.warn('inner: due outcome not logged', { guildId, code: codeOf(err) });
   }
 }
 
 /** What an operation of a cut-off turn is called in the `interrupted` fact. */
-const opLabel = (op) =>
+const opLabel = (op: Obj): string =>
   (op.name === 'skill'
-    ? `skill ${op.skill ?? ''}`
+    ? `skill ${asText(op.skill ?? '')}`
     : op.name === 'post' && op.text
-      ? `post "${op.text}"`
-      : String(op.name ?? 'operation')
+      ? `post "${asText(op.text)}"`
+      : asText(op.name ?? 'operation')
   ).trim();
 
 /**
@@ -273,7 +339,7 @@ const opLabel = (op) =>
  * again, and an `interrupted` fact tells her what was done; if nothing went out (or the journal cannot say), the mark
  * is cleared and the wakes run again as before. Never throws.
  */
-export async function resolveInflight(life, guildId) {
+export async function resolveInflight(life: InnerContext, guildId: string): Promise<void> {
   const { hot, journal, ready, now, log } = life;
   const state = stateOf(life, guildId);
   const mark = state.inflight;
@@ -283,23 +349,24 @@ export async function resolveInflight(life, guildId) {
   } catch (err) {
     log.warn('inner: journal reconciliation failed before an interrupted turn was resolved', {
       guildId,
-      code: err?.code ?? null,
+      code: codeOf(err),
     });
   }
-  let ops = [];
-  if (hot.config?.features?.journal === true && typeof journal?.turnOperations === 'function') {
+  let ops: Array<Obj> = [];
+  if (objOf(objOf(hot.config).features).journal === true && typeof journal?.turnOperations === 'function') {
     try {
       const at = now();
-      ops = await journal.turnOperations(guildId, {
+      const read = await journal.turnOperations(guildId, {
         turnId: mark.turnId,
         days: [...new Set([utcDay(mark.startedAt), utcDay(at)])],
         privateUserId: mark.privateUserId,
       });
+      ops = listOf(read).map(objOf);
     } catch (err) {
-      log.warn('inner: journal could not say what an interrupted turn did', { guildId, code: err?.code ?? null });
+      log.warn('inner: journal could not say what an interrupted turn did', { guildId, code: codeOf(err) });
     }
   }
-  const done = [];
+  const done: Array<string> = [];
   for (const op of ops) {
     if (op.by !== 'persona' || op.dryRun || op.shadow) continue;
     if (op.phase === 'succeeded') done.push(opLabel(op));
@@ -341,36 +408,172 @@ export async function resolveInflight(life, guildId) {
   });
 }
 
+/** An intention of the guild's store that is still open (pending or waiting), else null. */
+function openRecordOf(life: InnerContext, guildId: string, id: string): Intention | null {
+  const intention = life.intentions?.store?.(guildId)?.get?.(id) ?? null;
+  return intention && ['pending', 'waiting'].includes(intention.status) ? intention : null;
+}
+
+/** What `<wake>` of a group is built from, beside the group itself. */
+type WakeView = {
+  anchor: Wake;
+  at: number;
+  timezone: string;
+  settings: InnerSettings;
+  records: Array<Intention>;
+  notes: Record<string, string>;
+  expired: ReturnType<typeof expiredToShow> | null;
+  isReview: boolean;
+  chain: ChainBudget;
+  shownFacts: Array<Fact>;
+  heartbeat: HeartbeatFacts | null;
+  here: CurrentChannel;
+};
+
+/** The `<wake>` facts of an inner turn for `group` (src/behavior/wake.ts words them). */
+function wakeInfoOf(life: InnerContext, guildId: string, group: ReadonlyArray<Wake>, view: WakeView): WakeInfo {
+  const { anchor, at, timezone, settings, records, notes, expired, isReview, chain, shownFacts, heartbeat, here } =
+    view;
+  const state = stateOf(life, guildId);
+  // The facts a feedback wake carries that are still untold.
+  const factsOfWake = (wake: Wake): Array<FactPayload> =>
+    listOf(wake.factIds).length > 0
+      ? state.facts.filter((fact) => !fact.told && listOf(wake.factIds).includes(fact.id)).map(factPayload)
+      : Array.isArray(wake.facts)
+        ? wake.facts
+        : [];
+  const placesInWake = settings.attention.placesInWake;
+  return {
+    kind: anchor.kind,
+    items: group.map((wake) => ({
+      kind: wake.kind,
+      reason: wake.reason,
+      intentionIds: wake.intentionIds,
+      errandId: wake.errandId ?? null,
+      ...attendFactsOf(life, guildId, wake),
+      ...(wake.retry
+        ? {
+            delayed: {
+              minutes: Math.max(0, Math.round((at - (wake.dueAt ?? at)) / MINUTE_MS)),
+              code: wake.lastCode ?? 'error',
+            },
+          }
+        : {}),
+      ...(wake.kind === 'feedback' ? { facts: factsOfWake(wake), turnId: wake.turnId ?? null } : {}),
+    })),
+    ...(shownFacts.length > 0 ? { facts: shownFacts.map(factPayload) } : {}),
+    intentions: records,
+    ...(Object.keys(notes).length > 0 ? { notes } : {}),
+    ...(expired && expired.items.length > 0 ? { expired } : {}),
+    now: at,
+    timezone,
+    channels: isReview ? channelNames(life, guildId) : [],
+    // The places page: where life is, beyond this conversation (0 keeps it to her places.list skill).
+    ...(placesInWake > 0 ? { places: placesInWakeOf(life, guildId, settings) } : {}),
+    budgets: { chain },
+    chainId: anchor.chainId,
+    ...(heartbeat ? { heartbeat } : {}),
+    // The current channel: where her output tags act, and why it is that one (`<wake>`).
+    here: here.channelId ? { channel: placeNameOf(life, guildId, here.channelId), why: here.why } : null,
+  };
+}
+
+/** The wake run of a turn as it starts (memoryDb.wakeRuns): what its view showed, ids with their versions. */
+function startWakeRun(
+  life: InnerContext,
+  run: { turnKey: string; anchor: Wake; group: ReadonlyArray<Wake>; at: number; records: Array<Intention> },
+  facts: Array<string>,
+  { channelId, heartbeat }: { channelId: string | null; heartbeat: boolean }
+): void {
+  const { turnKey, anchor, group, at, records } = run;
+  wakeWrite(life, {
+    kind: 'wake',
+    op: 'start',
+    run: {
+      id: turnKey,
+      kind: anchor.kind,
+      trigger: anchor.id,
+      scheduledAt: isFiniteNumber(anchor.dueAt) ? anchor.dueAt : null,
+      startedAt: at,
+      policyVersion: WAKE_POLICY_VERSION,
+      inputs: {
+        wakes: group.map((wake) => wake.id),
+        intentions: records.map((record) => ({
+          id: record.id,
+          updatedAt: isFiniteNumber(record.updatedAt) ? record.updatedAt : null,
+        })),
+        facts,
+        channelId,
+        ...(heartbeat ? { heartbeat: true } : {}),
+      },
+    },
+  });
+}
+
+/** The end of a turn's wake run: its actions, each once by its number (a restarted run records nothing twice), then its end. */
+function endWakeRun(life: InnerContext, turnKey: string, actions: Array<unknown>, outcome: unknown): void {
+  const { now } = life;
+  if (actions.length > 0) {
+    wakeWrite(life, {
+      kind: 'wake',
+      op: 'actions',
+      actions: actions.map(objOf).map((action, index) => ({
+        runId: turnKey,
+        n: index + 1,
+        kind: asText(action.skill ?? 'unknown'),
+        target: action.target ?? null,
+        status: asText(action.status ?? 'unknown'),
+        at: now(),
+      })),
+    });
+  }
+  wakeWrite(life, {
+    kind: 'wake',
+    op: 'finish',
+    finish: {
+      id: turnKey,
+      status: outcome === 'error' || HELD.has(outcome) ? 'failed' : 'succeeded',
+      outcome,
+      finishedAt: now(),
+    },
+  });
+}
+
+/** What drain answers: why nothing ran, or the turn that did. */
+export type DrainAnswer =
+  | { deferred: unknown }
+  | { dropped: number }
+  | { told: number }
+  | { refused: string | undefined }
+  | { outcome: unknown; wakes: number; usd: number; feedback?: string }
+  | null;
+
 /**
  * One inner turn for the queue's first coalesced group, when the attention is free and no cap
  * refuses; a turn held back (`busy`, `paused`) leaves the group queued with its due times.
  */
-
-export async function drain(life, guildId) {
+export async function drain(life: InnerContext, guildId: string): Promise<DrainAnswer> {
   const { hot, turns, intentions, peopleWaiting, uuid, costs, now, log, running } = life;
   const state = stateOf(life, guildId);
   if (state.inflight) await resolveInflight(life, guildId);
   if (state.queue.length === 0) return null;
   if (state.stopped || paused(life)) return { deferred: 'stopped' };
-  const oneAtATime = hot.config?.mention?.oneAtATime !== false;
+  const oneAtATime = objOf(objOf(hot.config).mention).oneAtATime !== false;
   if (oneAtATime && typeof turns?.isAnyBusy === 'function' && turns.isAnyBusy()) return { deferred: 'busy' };
   if (peopleWaiting()) return { deferred: 'people' };
   const settings = innerSettings(hot.config);
   const at = now();
 
   // An intention closed since its wake was queued (done, cancelled, expired): the wake is stale.
-  const openOf = (id) => {
-    const intention = intentions?.store?.(guildId)?.get?.(id) ?? null;
-    return intention && ['pending', 'waiting'].includes(intention.status) ? intention : null;
-  };
+  const openOf = (id: string) => openRecordOf(life, guildId, id);
   const stale = state.queue.filter(
     (wake) => wake.kind !== 'review' && wake.intentionIds.length > 0 && wake.intentionIds.every((id) => !openOf(id))
   );
   if (stale.length > 0) {
     // Why it is stale: the status the intention ended in; one that is gone or never began is `forgotten`.
-    const staleWhy = (wake) => {
+    const staleWhy = (wake: Wake) => {
       const status = intentions?.store?.(guildId)?.get?.(wake.intentionIds[0])?.status;
-      return ['done', 'cancelled', 'expired'].includes(status) ? status : 'forgotten';
+      return status === 'done' || status === 'cancelled' || status === 'expired' ? status : 'forgotten';
     };
     markHandled(life, state, stale, 'stale', at, { guildId, why: staleWhy });
     save(life, guildId);
@@ -379,13 +582,12 @@ export async function drain(life, guildId) {
   }
 
   // A feedback wake whose facts a turn of hers already carried has nothing left to say.
-  const untold = new Set(
-    listOf(state.facts)
-      .filter((fact) => !fact.told)
-      .map((fact) => fact.id)
-  );
+  const untold = new Set(state.facts.filter((fact) => !fact.told).map((fact) => fact.id));
   const spent = state.queue.filter(
-    (wake) => wake.kind === 'feedback' && listOf(wake.factIds).length > 0 && !wake.factIds.some((id) => untold.has(id))
+    (wake) =>
+      wake.kind === 'feedback' &&
+      listOf(wake.factIds).length > 0 &&
+      !listOf(wake.factIds).some((id) => untold.has(asText(id)))
   );
   if (spent.length > 0) {
     markHandled(life, state, spent, 'told', at, { guildId });
@@ -397,19 +599,19 @@ export async function drain(life, guildId) {
   // An attention past its own per-day bound, or a chain past its per-chain bound: its wakes wait for the next
   // local day, the rest go on.
   const day = zonedDay(at, timezone);
-  const overDay = (wake) => {
+  const overDay = (wake: Wake) => {
     if (wake.kind !== 'attend') return false;
     const record = openOf(wake.intentionIds[0]);
-    return Boolean(record?.attend) && attendCounter(record, day).wakes >= record.attend.perDay;
+    return record?.attend ? attendCounter(record, day).wakes >= record.attend.perDay : false;
   };
-  const chainOf = (chainId) => chainBudget(state, chainId, settings.caps.perChain, { now: at, timezone });
-  const overChain = (wake) => chainOf(wake.chainId).left <= 0;
+  const chainOf = (chainId: string) => chainBudget(state, chainId, settings.caps.perChain, { now: at, timezone });
+  const overChain = (wake: Wake) => chainOf(wake.chainId).left <= 0;
   // A feedback wake is never held: what it carries must reach her.
-  const holdOf = (wake) =>
+  const holdOf = (wake: Wake) =>
     wake.kind === 'feedback' ? null : overDay(wake) ? 'attend-per-day' : overChain(wake) ? 'per-chain' : null;
-  const held = [];
-  const heldFresh = {};
-  const freshHolds = [];
+  const held: Array<Wake> = [];
+  const heldFresh: Record<string, number> = {};
+  const freshHolds: Array<{ wake: Wake; fact: Fact }> = [];
   for (const wake of state.queue) {
     const cap = holdOf(wake);
     if (!cap) {
@@ -435,7 +637,7 @@ export async function drain(life, guildId) {
   for (const cap of freshCaps) log.info('inner: capped', { guildId, cap, wakes: heldFresh[cap] });
   if (freshCaps.length > 0) save(life, guildId);
   // A wake of a failed turn waits for its retry time (`notBefore`).
-  const eligible = state.queue.filter((wake) => !held.includes(wake) && !(wake.notBefore > at));
+  const eligible = state.queue.filter((wake) => !held.includes(wake) && !(Number(wake.notBefore) > at));
   if (eligible.length === 0) {
     if (held.length === 0) return { deferred: 'retry' };
     // No turn is coming to carry the new holds of an intention's wake: a feedback wake in its conversation tells her.
@@ -476,13 +678,15 @@ export async function drain(life, guildId) {
     return { dropped: dropping.length };
   }
 
-  const records = [...new Set(group.flatMap((wake) => wake.intentionIds))].map(openOf).filter(Boolean);
+  const records = [...new Set(group.flatMap((wake) => wake.intentionIds))]
+    .map(openOf)
+    .filter((record): record is Intention => record !== null);
   // A recurring intention whose next occurrence would fall past its expiry: this is its last one.
-  const notes = {};
+  const notes: Record<string, string> = {};
   for (const record of records) {
     if (!record.every) continue;
     const next = nextOccurrence(record, at, timezone);
-    if (!Number.isFinite(next) || next > record.expiresAt) notes[record.id] = 'last-occurrence';
+    if (!isFiniteNumber(next) || next > record.expiresAt) notes[record.id] = 'last-occurrence';
   }
   // A review tells her once which intentions of hers expired untouched: the expired records not yet
   // shown (never a candidate), the newest first, `review.expiredMax` of them; marked shown once the turn ran.
@@ -492,16 +696,9 @@ export async function drain(life, guildId) {
       ? expiredToShow(intentions.store?.(guildId)?.list?.() ?? [], { max: settings.review.expiredMax })
       : null;
   const shadow = settings.mode !== 'live';
-  const placesInWake = settings.attention.placesInWake;
   const current = currentChannelOf(group, records);
-  // The facts a feedback wake carries that are still untold, and the other facts this conversation may be shown (not told yet).
+  // The facts a feedback wake carries, and the other facts this conversation may be shown (not told yet).
   const ownFactIds = new Set(group.filter((wake) => wake.kind === 'feedback').flatMap((wake) => listOf(wake.factIds)));
-  const factsOfWake = (wake) =>
-    listOf(wake.factIds).length > 0
-      ? listOf(state.facts)
-          .filter((fact) => !fact.told && wake.factIds.includes(fact.id))
-          .map(factPayload)
-      : listOf(wake.facts);
   const shownFacts = pendingFactsOf(state, {
     channelId: String(channel.id),
     privateChat: channel.communityId === null,
@@ -512,39 +709,20 @@ export async function drain(life, guildId) {
   const heartbeat = group.some((wake) => wake.kind === 'heartbeat')
     ? await heartbeatFacts(life, guildId, settings, at)
     : null;
-  const info = {
-    kind: anchor.kind,
-    items: group.map((wake) => ({
-      kind: wake.kind,
-      reason: wake.reason,
-      intentionIds: wake.intentionIds,
-      errandId: wake.errandId ?? null,
-      ...attendFactsOf(life, guildId, wake),
-      ...(wake.retry
-        ? {
-            delayed: {
-              minutes: Math.max(0, Math.round((at - (wake.dueAt ?? at)) / MINUTE_MS)),
-              code: wake.lastCode ?? 'error',
-            },
-          }
-        : {}),
-      ...(wake.kind === 'feedback' ? { facts: factsOfWake(wake), turnId: wake.turnId ?? null } : {}),
-    })),
-    ...(shownFacts.length > 0 ? { facts: shownFacts.map(factPayload) } : {}),
-    intentions: records,
-    ...(Object.keys(notes).length > 0 ? { notes } : {}),
-    ...(expired && expired.items.length > 0 ? { expired } : {}),
-    now: at,
+  const info = wakeInfoOf(life, guildId, group, {
+    anchor,
+    at,
     timezone,
-    channels: isReview ? channelNames(life, guildId) : [],
-    // The places page: where life is, beyond this conversation (0 keeps it to her places.list skill).
-    ...(placesInWake > 0 ? { places: placesInWakeOf(life, guildId, settings) } : {}),
-    budgets: { chain },
-    chainId,
-    ...(heartbeat ? { heartbeat } : {}),
-    // The current channel: where her output tags act, and why it is that one (`<wake>`).
-    here: current.channelId ? { channel: placeNameOf(life, guildId, current.channelId), why: current.why } : null,
-  };
+    settings,
+    records,
+    notes,
+    expired,
+    isReview,
+    chain,
+    shownFacts,
+    heartbeat,
+    here: current,
+  });
   for (const wake of group) running.add(wake.id);
   // The turn is on record before it runs: a process that dies in it leaves this mark (resolveInflight).
   const turnKey = `t-${uuid()}`;
@@ -555,34 +733,16 @@ export async function drain(life, guildId) {
     startedAt: at,
     channelId: String(channel.id),
     privateChat: channel.communityId === null,
-    privateUserId: channel.communityId !== null ? null : channel.partnerId == null ? null : String(channel.partnerId),
+    privateUserId: channel.communityId !== null ? null : idOrNull(channel.partnerId),
   };
   save(life, guildId);
-  // The wake run (memoryDb.wakeRuns): what this turn's view showed, ids with their versions; the journal and the
-  // `day` rows stay as they are.
-  wakeWrite(life, {
-    kind: 'wake',
-    op: 'start',
-    run: {
-      id: turnKey,
-      kind: anchor.kind,
-      trigger: anchor.id,
-      scheduledAt: Number.isFinite(anchor.dueAt) ? anchor.dueAt : null,
-      startedAt: at,
-      policyVersion: WAKE_POLICY_VERSION,
-      inputs: {
-        wakes: group.map((wake) => wake.id),
-        intentions: records.map((record) => ({
-          id: record.id,
-          updatedAt: Number.isFinite(record.updatedAt) ? record.updatedAt : null,
-        })),
-        facts: [...shownFacts.map((fact) => fact.id), ...ownFactIds],
-        channelId: current.channelId ?? null,
-        ...(heartbeat ? { heartbeat: true } : {}),
-      },
-    },
+  // The wake run (memoryDb.wakeRuns): what this turn's view showed; the journal and the `day` rows stay as they are.
+  const shownIds = [...shownFacts.map((fact) => fact.id), ...[...ownFactIds].map(asText)];
+  startWakeRun(life, { turnKey, anchor, group, at, records }, shownIds, {
+    channelId: current.channelId ?? null,
+    heartbeat: Boolean(heartbeat),
   });
-  let measured;
+  let measured: Measured;
   try {
     measured = await costs.run(() =>
       turns.runTurn({
@@ -606,36 +766,13 @@ export async function drain(life, guildId) {
   } finally {
     for (const wake of group) running.delete(wake.id);
   }
-  const result = measured.result ?? { outcome: 'error' };
+  const result = objOf(measured.result ?? { outcome: 'error' });
+  const inner = objOf(result.inner);
   const outcome = result.outcome ?? 'error';
+  const named = listOf(inner.intentIds ?? []);
   const after = stateOf(life, guildId);
   after.inflight = null;
-  // The run's actions, each once by its number (a restarted run records nothing twice), then its end.
-  const runActions = listOf(result.inner?.actions);
-  if (runActions.length > 0) {
-    wakeWrite(life, {
-      kind: 'wake',
-      op: 'actions',
-      actions: runActions.map((action, index) => ({
-        runId: turnKey,
-        n: index + 1,
-        kind: String(action?.skill ?? 'unknown'),
-        target: action?.target ?? null,
-        status: String(action?.status ?? 'unknown'),
-        at: now(),
-      })),
-    });
-  }
-  wakeWrite(life, {
-    kind: 'wake',
-    op: 'finish',
-    finish: {
-      id: turnKey,
-      status: outcome === 'error' || HELD.has(outcome) ? 'failed' : 'succeeded',
-      outcome,
-      finishedAt: now(),
-    },
-  });
+  endWakeRun(life, turnKey, listOf(inner.actions), outcome);
   if (HELD.has(outcome)) {
     // Stopped while it waited: its wakes go with the rest of the queue.
     if (after.stopped) {
@@ -655,7 +792,7 @@ export async function drain(life, guildId) {
     usd: measured.usd,
     outcome,
     kinds: [...new Set(group.map((wake) => wake.kind))],
-    ...(errorCode ? { code: errorCode, failed: true } : {}),
+    ...(errorCode ? { code: errorCode, failed: true as const } : {}),
   });
   // Each attention woken for counts the wake on its day (its own per-day bound).
   if (typeof intentions?.countAttendWake === 'function') {
@@ -663,15 +800,15 @@ export async function drain(life, guildId) {
       intentions.countAttendWake(guildId, id);
   }
   if (measured.usd > 0) after.spend.push({ at: ended, usd: measured.usd });
-  const turnId = result.inner?.turnId ?? result.turnId ?? null;
-  if (turnId) after.turnIds.push(String(turnId));
+  const turnId = inner.turnId ?? result.turnId ?? null;
+  if (turnId) after.turnIds.push(asText(turnId));
   // The facts this turn showed are told once a model answer carried them (not after an error).
-  if (outcome !== 'error') markFactsTold(after, [...shownFacts.map((fact) => fact.id), ...ownFactIds], ended);
+  if (outcome !== 'error') markFactsTold(after, shownIds, ended);
   const retry =
     errorCode && RETRY_CODES.has(errorCode) && !after.stopped ? planRetry(group, ended, settings, errorCode) : null;
   // A wake of hers that comes back (a retry, or the one more try of a one-off) carries the facts of this turn.
   let comesBack = false;
-  const requeue = (wakes, fields) => {
+  const requeue = (wakes: ReadonlyArray<Wake>, fields: Partial<Wake>) => {
     const ids = new Set(wakes.map((wake) => wake.id));
     for (const wake of after.queue.filter((queued) => ids.has(queued.id))) Object.assign(wake, fields);
     comesBack = comesBack || wakes.length > 0;
@@ -680,8 +817,8 @@ export async function drain(life, guildId) {
     requeue(group, {
       retry: retry.n,
       firstFailedAt: retry.firstFailedAt,
-      notBefore: retry.notBefore,
-      lastCode: errorCode,
+      notBefore: retry.notBefore ?? undefined,
+      lastCode: errorCode ?? undefined,
     });
     log.info('inner: turn failed, wakes retried', {
       guildId,
@@ -709,10 +846,10 @@ export async function drain(life, guildId) {
       });
     } else if (errorCode && !after.stopped) {
       // An error that is not a provider failure: a one-off intention's due moment gets one more try, then she is told.
-      const oneOff = (wake) =>
+      const oneOff = (wake: Wake) =>
         (wake.kind === 'intention_due' || wake.kind === 'errand_deadline') &&
         wake.retry !== 'error' &&
-        !intentions?.store?.(guildId)?.get?.(listOf(wake.intentionIds)[0])?.every;
+        !intentions?.store?.(guildId)?.get?.(String(listOf(wake.intentionIds)[0]))?.every;
       const again = group.filter(oneOff);
       if (again.length > 0) {
         requeue(again, {
@@ -733,23 +870,19 @@ export async function drain(life, guildId) {
         life,
         after,
         group.filter((wake) => !again.includes(wake)),
-        outcome,
+        asText(outcome),
         ended,
-        { guildId, named: result.inner?.intentIds ?? [], why: errorCode }
+        { guildId, named, why: errorCode }
       );
     } else {
-      markHandled(life, after, group, outcome, ended, {
-        guildId,
-        named: result.inner?.intentIds ?? [],
-        why: errorCode,
-      });
+      markHandled(life, after, group, asText(outcome), ended, { guildId, named, why: errorCode });
     }
   }
   // What did not go through (feedbackFacts), and a failed turn itself: kept as facts. A feedback turn's own
   // misses queue no second wake; any other turn's queue one feedback wake in its chain and conversation, due at
   // the next tick, unless its own wakes come back and carry them.
   const isFeedback = anchor.kind === 'feedback';
-  const failure =
+  const failure: Array<FactPayload> =
     outcome === 'error' || outcome === 'refused'
       ? [
           {
@@ -759,10 +892,7 @@ export async function drain(life, guildId) {
           },
         ]
       : [];
-  const feedback = [
-    ...failure,
-    ...feedbackFacts(result, { named: result.inner?.intentIds ?? [], intentions: records }),
-  ];
+  const feedback = [...failure, ...feedbackFacts(result, { named, intentions: records })];
   const keptFacts = feedback.map((fact) =>
     addFact(life, after, {
       at: ended,
@@ -772,9 +902,9 @@ export async function drain(life, guildId) {
     })
   );
   save(life, guildId);
-  let feedbackWakeId = null;
+  let feedbackWakeId: string | null = null;
   if (feedback.length > 0 && !isFeedback && !comesBack) {
-    feedbackWakeId = `inner.wake:feedback:${turnId ?? ended}`;
+    feedbackWakeId = `inner.wake:feedback:${asText(turnId ?? ended)}`;
     await enqueue(life, guildId, {
       id: feedbackWakeId,
       kind: 'feedback',
@@ -785,7 +915,7 @@ export async function drain(life, guildId) {
       channelId: String(channel.id),
       privateChat: channel.communityId === null,
       here: current.channelId,
-      turnId: turnId ? String(turnId) : null,
+      turnId: turnId ? asText(turnId) : null,
       facts: feedback,
       factIds: keptFacts.map((fact) => fact.id),
     });
@@ -794,16 +924,17 @@ export async function drain(life, guildId) {
   if (expired && outcome !== 'error' && typeof intentions?.markExpiredShown === 'function') {
     for (const item of expired.items) intentions.markExpiredShown(guildId, item.id);
   }
-  const actions = result.inner?.actions ?? [];
-  if (anchor.kind === 'heartbeat') logHeartbeatOutcome(life, guildId, { outcome, actions });
-  else logDueOutcome(life, guildId, group, { outcome, actions, named: result.inner?.intentIds ?? [] });
+  const actions = inner.actions ?? [];
+  const calls = listOf(actions).map(objOf);
+  if (anchor.kind === 'heartbeat') logHeartbeatOutcome(life, guildId, { outcome, actions: calls });
+  else logDueOutcome(life, guildId, group, { outcome, actions: calls, named });
   log.info('inner: turn', {
     guildId,
     outcome,
     reason: result.reason ?? null,
     wakes: group.length,
     shadow,
-    actions: actions.length,
+    actions: calls.length,
     usd: measured.usd,
     voice: measured.voice,
   });
@@ -817,7 +948,7 @@ export async function drain(life, guildId) {
     wakes: group.map(wakeFields),
     coalesced: group.map((wake) => wake.id),
     actions,
-    loop: result.inner?.loop ?? null,
+    loop: inner.loop ?? null,
     feedback: { facts: feedback, wake: feedbackWakeId },
     ...(errorCode ? { error: { code: errorCode } } : {}),
     cost: { usd: measured.usd, requests: measured.requests, voice: measured.voice },
@@ -829,14 +960,16 @@ export async function drain(life, guildId) {
  * An errand's end: one an inner turn handed off has its cost recorded in the day's spend.
  * Answers whether a cost was counted. Never throws.
  */
-export function onTaskFinished(life, task, guildId = life.getGuildId()) {
+export function onTaskFinished(life: InnerContext, task: unknown, guildId: string | null = life.getGuildId()): boolean {
   const { now, log } = life;
   try {
-    if (!guildId || !task?.id) return false;
+    const errand = objOf(task);
+    if (!guildId || !errand.id) return false;
     const state = stateOf(life, guildId);
-    const id = String(task.id);
-    const handedOff = task.origin?.turnId && state.turnIds.includes(String(task.origin.turnId));
-    const usd = Number(task.usage?.usd);
+    const id = asText(errand.id);
+    const turnId = objOf(errand.origin).turnId;
+    const handedOff = turnId && state.turnIds.includes(asText(turnId));
+    const usd = Number(objOf(errand.usage).usd);
     const counted = Boolean(handedOff) && Number.isFinite(usd) && usd > 0;
     if (counted) state.spend.push({ at: now(), usd });
     if (!counted) return false;
@@ -844,7 +977,7 @@ export function onTaskFinished(life, task, guildId = life.getGuildId()) {
     note(life, guildId, { event: 'errand-cost', taskId: id, usd: counted ? usd : 0 });
     return counted;
   } catch (err) {
-    log.warn('inner: errand cost not counted', { code: err?.code ?? null });
+    log.warn('inner: errand cost not counted', { code: codeOf(err) });
     return false;
   }
 }

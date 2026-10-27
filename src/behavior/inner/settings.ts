@@ -2,6 +2,9 @@
 // `innerSettings`, which checks every number of that section against them. The scheduler's modules
 // (src/behavior/inner/) and the turn runner (src/behavior/turn.js) read them. Nothing here keeps state.
 
+import { isPositive, objOf } from '../../tools/types.ts';
+import type { InnerSettings } from './types.ts';
+
 /** The wake kinds, as the `<wake>` block names them. */
 export const WAKE_KINDS = Object.freeze([
   'intention_due',
@@ -10,7 +13,7 @@ export const WAKE_KINDS = Object.freeze([
   'attend',
   'feedback',
   'heartbeat',
-]);
+] as const);
 
 /** The defaults of the `innerLife` section (config.json carries the same). */
 export const INNER_DEFAULTS = Object.freeze({
@@ -66,16 +69,20 @@ export const FEEDBACK_KINDS = Object.freeze([
 export const FACTS_SHOWN_MAX = 12;
 
 /** Whether the inner life runs (`features.innerLife` exactly true). */
-export function innerOn(config) {
-  return config?.features?.innerLife === true;
+export function innerOn(config: unknown): boolean {
+  return objOf(objOf(config).features).innerLife === true;
 }
 
-const count = (value, fallback) => (Number.isFinite(value) && value >= 0 ? value : fallback);
+const count = (value: unknown, fallback: number): number =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback;
 /** A whole number of at least `min`, else `fallback`. */
-const whole = (value, fallback, min = 1) => (Number.isInteger(value) && value >= min ? value : fallback);
+const whole = (value: unknown, fallback: number, min = 1): number =>
+  typeof value === 'number' && Number.isInteger(value) && value >= min ? value : fallback;
 /** A positive finite number, else `fallback`. */
-const positive = (value, fallback) =>
-  typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback;
+const positive = (value: unknown, fallback: number): number => (isPositive(value) ? value : fallback);
+/** Whether `value` is a list of positive numbers with at least one in it. */
+const isDelayList = (value: unknown): value is Array<number> =>
+  Array.isArray(value) && value.length > 0 && value.every((m) => positive(m, 0) > 0);
 
 /**
  * The `innerLife` section with every number checked against INNER_DEFAULTS (a missing or bad value
@@ -83,16 +90,15 @@ const positive = (value, fallback) =>
  * bounds of an inner turn (src/behavior/turn.js#loopSettings with `inner`; nobody waits for
  * one, so its budget is generous): `maxSteps`, `timeBudgetMs`, `maxCallsPerStep` as
  * `tools.loop`'s, `callTimeoutMs` the most one call of hers may run.
- * @param {object} config
  */
-export function innerSettings(config) {
-  const raw = config?.innerLife ?? {};
-  const caps = raw.caps ?? {};
-  const heartbeat = raw.heartbeat ?? {};
-  const review = raw.review ?? {};
-  const attention = raw.attention ?? {};
-  const loop = raw.loop ?? {};
-  const retry = raw.retry ?? {};
+export function innerSettings(config: unknown): InnerSettings {
+  const raw = objOf(objOf(config).innerLife);
+  const caps = objOf(raw.caps);
+  const heartbeat = objOf(raw.heartbeat);
+  const review = objOf(raw.review);
+  const attention = objOf(raw.attention);
+  const loop = objOf(raw.loop);
+  const retry = objOf(raw.retry);
   const d = INNER_DEFAULTS;
   return {
     mode: raw.mode === 'live' ? 'live' : 'shadow',
@@ -141,12 +147,7 @@ export function innerSettings(config) {
     factsKeepDays: positive(raw.factsKeepDays, d.factsKeepDays),
     // A failed turn's wakes come back after the next of these delays while the first failure is younger than maxHours.
     retry: {
-      delaysMinutes:
-        Array.isArray(retry.delaysMinutes) &&
-        retry.delaysMinutes.length > 0 &&
-        retry.delaysMinutes.every((m) => positive(m, 0) > 0)
-          ? [...retry.delaysMinutes]
-          : [...d.retry.delaysMinutes],
+      delaysMinutes: isDelayList(retry.delaysMinutes) ? [...retry.delaysMinutes] : [...d.retry.delaysMinutes],
       maxHours: positive(retry.maxHours, d.retry.maxHours),
     },
   };

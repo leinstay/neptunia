@@ -8,6 +8,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { DIARY_DAILY, DIARY_PICTURES_DAILY, gistOf, isPictureKind, setSettings } from './diary.ts';
+import type { Daily } from './diary.ts';
 import { lineOf } from './line-of.js';
 import { log } from '../log.js';
 import { diaryPlaces, readMirrors } from './mirror.ts';
@@ -21,16 +22,10 @@ type Row = Record<string, unknown>;
 type Db = { prepare(sql: string): { all(...params: Array<unknown>): Array<Row> } };
 /** The day counters of the store's state (`store.state.data`). */
 type Counters = Record<string, unknown>;
-type Daily = { dayKey: string; countKey: string };
 
-// diary.js and time.js are JS; these are their functions as this module calls them, with its own value types.
-const gist = gistOf as (text: string, chars: number) => string;
-const pictureKind = isPictureKind as (kind: string, pictureKinds: unknown) => boolean;
+// time.js is JS; these are its functions as this module calls them, with its own value types.
 const today = countToday as (state: Counters, keys: Daily, nowMs: number) => number;
 const bump = bumpDaily as (state: Counters, keys: Daily, nowMs: number) => void;
-const setOf = setSettings as (diaryCfg: unknown) => { maxMessageBytes: number };
-const POSTS_DAILY: Daily = DIARY_DAILY;
-const PICTURES_DAILY: Daily = DIARY_PICTURES_DAILY;
 
 const sectionOf = (config: Config, name: string): Config => {
   const found = config[name];
@@ -62,7 +57,7 @@ export function pictureGate({
 }): PictureGate {
   const closed = (limit: PictureGate['limit'] = null): PictureGate => ({ allowed: false, limit });
   if (!imageQuota || sectionOf(config, 'features').imageGeneration === false || !attach) return closed();
-  const picturesToday = today(data, PICTURES_DAILY, now);
+  const picturesToday = today(data, DIARY_PICTURES_DAILY, now);
   const diaryCap = numberOr(sectionOf(config, 'diary').maxPicturesPerDay, 8);
   if (picturesToday >= diaryCap) return closed({ key: 'diary.maxPicturesPerDay', used: picturesToday, cap: diaryCap });
   if (imageQuota.used >= imageQuota.cap)
@@ -83,7 +78,7 @@ export function forcedPictureRefusal({
   kind: unknown;
   gate: () => PictureGate;
 }): { outcome: 'refused'; reason: 'pictures'; limit: PictureGate['limit'] } | null {
-  if (typeof kind !== 'string' || !pictureKind(kind, sectionOf(config, 'diary').pictureKinds)) return null;
+  if (typeof kind !== 'string' || !isPictureKind(kind, sectionOf(config, 'diary').pictureKinds)) return null;
   const closed = gate();
   return closed.allowed ? null : { outcome: 'refused', reason: 'pictures', limit: closed.limit };
 }
@@ -170,7 +165,7 @@ function diaryPostOf({
   const diaryCfg = sectionOf(config, 'diary');
   const gistChars = numberOr(diaryCfg.gistChars, 200);
   const first = staged[0];
-  const maxMessageBytes = setOf(diaryCfg).maxMessageBytes;
+  const maxMessageBytes = setSettings(diaryCfg).maxMessageBytes;
   const rendered = {
     messages: held.rendered.map((part) => part.text),
     mentions: held.rendered.map((part) => part.userIds),
@@ -178,8 +173,8 @@ function diaryPostOf({
   const post = {
     at,
     kind: plan.kind,
-    gist: gist(held.texts.join(' '), gistChars),
-    picture: first ? gist(first.text, gistChars) : null,
+    gist: gistOf(held.texts.join(' '), gistChars),
+    picture: first ? gistOf(first.text, gistChars) : null,
     ...(set ? { pictures: staged.length } : {}),
     search: plan.search || null,
     text: held.texts.join('\n'),
@@ -243,7 +238,7 @@ export function recordEntry({
   });
   if (typeof store.appendDiaryPost === 'function')
     store.appendDiaryPost(guildId, post, { max: numberOr(diaryCfg.historyPosts, 150) });
-  bump(store.state.data, POSTS_DAILY, now);
+  bump(store.state.data, DIARY_DAILY, now);
   store.state.markDirty();
   const entry: DiaryEntry = {
     id,

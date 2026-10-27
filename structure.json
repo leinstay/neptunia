@@ -356,6 +356,13 @@
       "test": "required"
     },
     {
+      "path": "src/behavior/inner/types.ts",
+      "purpose": "The shapes the inner life modules share. Types only: nothing runs, so nothing is tested.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/behavior/inner/settings.ts",
       "purpose": "The inner life's settings: the wake kinds, the `innerLife` defaults and `innerSettings`. Tested through the inner life tests.",
       "layer": "public",

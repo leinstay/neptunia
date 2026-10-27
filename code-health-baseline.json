@@ -79,28 +79,28 @@
     },
     "src/behavior/inner.ts": {
       "createInnerLife>tick": {
-        "complexity": 24
+        "complexity": 22
       }
     },
     "src/behavior/inner/drain.ts": {
       "drain": {
-        "complexity": 108,
-        "function-length": 478
+        "complexity": 93,
+        "function-length": 403
       }
     },
     "src/behavior/inner/facts.ts": {
       "feedbackFacts": {
-        "complexity": 40
+        "complexity": 36
       }
     },
     "src/behavior/inner/places.ts": {
       "refreshPlaces": {
-        "complexity": 23
+        "complexity": 22
       }
     },
     "src/behavior/inner/status.ts": {
       "status": {
-        "complexity": 25
+        "complexity": 24
       }
     },
     "src/behavior/missed.js": {
@@ -299,11 +299,8 @@
       "feedbackFactText": {
         "complexity": 43
       },
-      "heartbeatBody": {
-        "complexity": 51
-      },
       "wakeBlockText": {
-        "complexity": 74
+        "complexity": 70
       }
     },
     "src/errands/blocks.ts": {

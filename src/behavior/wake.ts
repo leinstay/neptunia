@@ -19,20 +19,31 @@
 import { fill, formatClock, formatDate, formatNow } from '../format.js';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { estimateTokens } from '../llm/tokens.js';
+import { isFiniteNumber, listOf, objOf } from '../tools/types.ts';
+import type { Obj } from '../tools/types.ts';
+import type { HeartbeatFacts } from './heartbeat-view.ts';
+import type { ChainBudget, PlacesPage } from './inner/types.ts';
+
+/** `value` as text (String over a value of any type). */
+const asText = (value: unknown): string => String(value);
+
+/** A wake of `inner.json` as the queue keeps it: a record with its id and kind. */
+export type StoredWake = Obj & { id: string; kind: string };
 
 /**
  * The queued wakes of `inner.json` as they are kept now: the ones with an id and a kind of `kinds`. A wake stored before
  * the errand rename names its errand `taskId`, which is read as `errandId` and dropped, so the next save writes the new
  * shape. The wake's id and the handled ids keep their bytes, so a wake handled before the upgrade is not run again.
- * @param {unknown} queue
- * @param {readonly string[]} kinds
- * @returns {Array<Record<string, unknown>>}
  */
-export function storedWakes(queue, kinds) {
-  /** @type {Array<Record<string, unknown>>} */
-  const known = Array.isArray(queue) ? queue : [];
-  return known
-    .filter((wake) => wake && typeof wake.id === 'string' && typeof wake.kind === 'string' && kinds.includes(wake.kind))
+export function storedWakes(queue: unknown, kinds: ReadonlyArray<string>): Array<StoredWake> {
+  return listOf(queue)
+    .filter(
+      (wake): wake is StoredWake =>
+        Boolean(wake) &&
+        typeof objOf(wake).id === 'string' &&
+        typeof objOf(wake).kind === 'string' &&
+        kinds.includes(String(objOf(wake).kind))
+    )
     .map((wake) => {
       if (!Object.hasOwn(wake, 'taskId')) return wake;
       const { taskId, ...rest } = wake;
@@ -47,30 +58,30 @@ export const WAKE_PURPOSE_CHARS = 200;
  * One diagnostic of the parser (src/llm/parse.js: what it dropped, cut or joined in her output) as a
  * line: `labels.tools.diagnostics.<kind>` filled -- `{tag}` (`retiredTag`), `{chars}` (`messageCut`),
  * `{count}` (`messagesMerged`). `kind` is the diagnostic's own (`retiredTag`, ...), or `diagnostic` of a
- * kept fact, whose own is `fact.diagnostic`. '' without the kind's label.
- * @param {object} diagnostic
- * @param {object} labels  The whole labels object.
- * @returns {string}
+ * kept fact, whose own is `fact.diagnostic`. '' without the kind's label. `labels` is the whole labels object.
  */
-export function diagnosticText(diagnostic, labels) {
-  const words = labels?.tools?.diagnostics;
-  const kind = diagnostic?.kind === 'diagnostic' ? diagnostic.diagnostic : diagnostic?.kind;
+export function diagnosticText(diagnostic: unknown, labels: unknown): string {
+  const given = objOf(diagnostic);
+  const words = objOf(objOf(labels).tools).diagnostics;
+  const known = objOf(words);
+  const kind = given.kind === 'diagnostic' ? given.diagnostic : given.kind;
   const template =
-    words && typeof words === 'object' && typeof kind === 'string' && Object.hasOwn(words, kind) ? words[kind] : null;
+    words && typeof words === 'object' && typeof kind === 'string' && Object.hasOwn(known, kind) ? known[kind] : null;
   if (typeof template !== 'string' || !template) return '';
+  const reasons = objOf(known.reasons);
   const reason =
-    typeof diagnostic.reason === 'string' && diagnostic.reason
-      ? typeof words.reasons?.[diagnostic.reason] === 'string'
-        ? words.reasons[diagnostic.reason]
-        : diagnostic.reason
+    typeof given.reason === 'string' && given.reason
+      ? typeof reasons[given.reason] === 'string'
+        ? reasons[given.reason]
+        : given.reason
       : '';
-  const count = (value) => String(Number.isFinite(value) ? value : 0);
+  const count = (value: unknown) => String(isFiniteNumber(value) ? value : 0);
   return fill(template, {
     reason,
-    skill: String(diagnostic.skill ?? ''),
-    tag: String(diagnostic.tag ?? ''),
-    chars: count(diagnostic.chars),
-    count: count(diagnostic.count),
+    skill: asText(given.skill ?? ''),
+    tag: asText(given.tag ?? ''),
+    chars: count(given.chars),
+    count: count(given.count),
   })
     .replace(/\s+/g, ' ')
     .trim();
@@ -79,21 +90,22 @@ export function diagnosticText(diagnostic, labels) {
 /**
  * The lines of a step's diagnostics for its task: `labels.task.diagnostics` as the lead, then one
  * diagnosticText line each (those without a label left out). [] without the lead or a line.
- * @param {object[]} diagnostics
- * @param {object} labels  The whole labels object.
- * @returns {string[]}
+ * `labels` is the whole labels object.
  */
-export function diagnosticLines(diagnostics, labels) {
-  const lead = labels?.task?.diagnostics;
+export function diagnosticLines(diagnostics: unknown, labels: unknown): Array<string> {
+  const lead = objOf(objOf(labels).task).diagnostics;
   if (typeof lead !== 'string' || !lead.trim()) return [];
-  const lines = (Array.isArray(diagnostics) ? diagnostics : [])
+  const lines = listOf(diagnostics)
     .map((diagnostic) => diagnosticText(diagnostic, labels))
     .filter(Boolean);
   return lines.length > 0 ? [lead, ...lines.map((line) => `- ${line}`)] : [];
 }
 
+/** How the `<wake>` words a moment. */
+type When = (ts: unknown) => string;
+
 /**
- * One feedback fact (src/behavior/inner.ts#feedbackFacts and the facts kept in the state) as a line:
+ * One feedback fact (src/behavior/inner/facts.ts#feedbackFacts and the facts kept in the state) as a line:
  * `l.feedback.<kind>` filled -- `callFailed`: `{skill}`, `{status}` (`failed`, `partial`, `invalid`,
  * `denied`, `not_configured`, `refused`, `unknown`, `timeout`), `{code}`, `{text}` (the operation's own);
  * `doneWithoutDelivery`: `{id}`, `{purpose}`; `loopCut`: `{cut}` (`steps`, `time`, `no-continuation`,
@@ -102,139 +114,146 @@ export function diagnosticLines(diagnostics, labels) {
  * `l.feedback.wakeDroppedKind` (`{kind}`, `{code}`, `{why}`) for a wake with no intention (a review, a feedback wake);
  * `wakeHeld`: the same and `{until}` (when it is expected to run, `when`); `turnFailed`: `{code}`, `{kind}`;
  * `diagnostic`: a kept diagnostic of the parser, worded by diagnosticText when `options.labels` (the whole labels) is given; `sendFailed`: `{code}`, `{n}`, `{total}` (`l.feedback.sendUnknown` when the send's answer never came and it was not found in the channel); `stateLost`: `{code}` (the inner state file could not be read and she started empty); `memoryFailed`: `{code}`, `{n}` (a memory batch could not be applied; `n` lines wait for a new try); `interrupted`: `{kind}`, `{done}` (a turn cut off by a restart after it did what `done` lists). '' without the fact's label.
- * @param {object} fact
- * @param {object} l  `labels.wake`.
- * @param {{ when?: (ts: number) => string }} [options]
- * @returns {string}
+ * `l` is `labels.wake`.
  */
-export function feedbackFactText(fact, l, { when = () => '', labels = null } = {}) {
-  if (fact?.kind === 'diagnostic') return labels ? diagnosticText(fact, labels) : '';
+export function feedbackFactText(
+  fact: unknown,
+  l: unknown,
+  { when = () => '', labels = null }: { when?: When; labels?: unknown } = {}
+): string {
+  const given = objOf(fact);
+  const feedback = objOf(objOf(l).feedback);
+  if (given.kind === 'diagnostic') return labels ? diagnosticText(given, labels) : '';
   const unclear =
-    fact?.kind === 'sendFailed' &&
-    fact.unknown === true &&
-    typeof l?.feedback?.sendUnknown === 'string' &&
-    l.feedback.sendUnknown !== '';
+    given.kind === 'sendFailed' &&
+    given.unknown === true &&
+    typeof feedback.sendUnknown === 'string' &&
+    feedback.sendUnknown !== '';
   const key = unclear
     ? 'sendUnknown'
-    : (fact?.kind === 'wakeDropped' || fact?.kind === 'wakeHeld') &&
-        !fact.intentionId &&
-        typeof l?.feedback?.[`${fact.kind}Kind`] === 'string'
-      ? `${fact.kind}Kind`
-      : fact?.kind;
-  const template = l?.feedback?.[key];
+    : (given.kind === 'wakeDropped' || given.kind === 'wakeHeld') &&
+        !given.intentionId &&
+        typeof feedback[`${given.kind}Kind`] === 'string'
+      ? `${given.kind}Kind`
+      : asText(given.kind);
+  const template = feedback[key];
   if (typeof template !== 'string' || !template) return '';
-  const n = (value) => String(Number.isFinite(value) ? value : 0);
-  const purpose = clampWithEllipsis(oneLine(String(fact.purpose ?? '')), WAKE_PURPOSE_CHARS);
+  const n = (value: unknown) => String(isFiniteNumber(value) ? value : 0);
+  const purpose = clampWithEllipsis(oneLine(asText(given.purpose ?? '')), WAKE_PURPOSE_CHARS);
+  const codes = objOf(feedback.codes);
   const why =
-    typeof fact.why === 'string' && fact.why
-      ? typeof l.feedback.codes?.[fact.why] === 'string'
-        ? l.feedback.codes[fact.why]
-        : fact.why
+    typeof given.why === 'string' && given.why
+      ? typeof codes[given.why] === 'string'
+        ? codes[given.why]
+        : given.why
       : '';
-  const text = (line) => line.replace(/\s+/g, ' ').trim();
-  switch (fact.kind) {
+  const text = (line: string) => line.replace(/\s+/g, ' ').trim();
+  switch (given.kind) {
     case 'callFailed':
       return text(
         fill(template, {
-          skill: String(fact.skill ?? ''),
-          status: String(fact.status ?? ''),
-          code: String(fact.code ?? ''),
-          text: oneLine(String(fact.text ?? '')),
+          skill: asText(given.skill ?? ''),
+          status: asText(given.status ?? ''),
+          code: asText(given.code ?? ''),
+          text: oneLine(asText(given.text ?? '')),
         })
       );
     case 'doneWithoutDelivery':
-      return fill(template, { id: String(fact.intentionId ?? ''), purpose });
+      return fill(template, { id: asText(given.intentionId ?? ''), purpose });
     case 'loopCut':
-      return fill(template, { cut: String(fact.cut ?? ''), dropped: n(fact.droppedCalls), steps: n(fact.steps) });
+      return fill(template, { cut: asText(given.cut ?? ''), dropped: n(given.droppedCalls), steps: n(given.steps) });
     case 'wakeDropped':
     case 'wakeHeld':
       return text(
         fill(template, {
-          kind: String(fact.wake ?? ''),
-          code: String(fact.code ?? ''),
+          kind: asText(given.wake ?? ''),
+          code: asText(given.code ?? ''),
           why,
-          id: String(fact.intentionId ?? ''),
+          id: asText(given.intentionId ?? ''),
           purpose,
-          until: when(fact.until),
+          until: when(given.until),
         })
       );
     case 'turnFailed':
-      return fill(template, { code: String(fact.code ?? ''), kind: String(fact.wake ?? '') });
+      return fill(template, { code: asText(given.code ?? ''), kind: asText(given.wake ?? '') });
     case 'sendFailed':
-      return fill(template, { code: String(fact.code ?? ''), n: n(fact.n), total: n(fact.total) });
+      return fill(template, { code: asText(given.code ?? ''), n: n(given.n), total: n(given.total) });
     case 'stateLost':
-      return fill(template, { code: String(fact.code ?? '') });
+      return fill(template, { code: asText(given.code ?? '') });
     case 'memoryFailed':
-      return fill(template, { code: String(fact.code ?? ''), n: n(fact.waiting) });
+      return fill(template, { code: asText(given.code ?? ''), n: n(given.waiting) });
     case 'interrupted':
-      return text(fill(template, { kind: String(fact.wake ?? ''), done: oneLine(String(fact.done ?? '')) }));
+      return text(fill(template, { kind: asText(given.wake ?? ''), done: oneLine(asText(given.done ?? '')) }));
     default:
       return '';
   }
 }
 
+/** `when` of `<wake>`: a moment as a date and a clock in `timezone`, '' for none. */
+function whenOf(timezone: string, locale: string): When {
+  return (ts) => (isFiniteNumber(ts) ? `${formatDate(ts, timezone, locale)} ${formatClock(ts, timezone, locale)}` : '');
+}
+
 /**
  * The facts kept for her and not told yet as a block: `l.feedbackInTurn`, then one `l.feedbackItem` per fact
  * (`facts` without a label are left out). '' without the header, the item label or a fact with text.
- * @param {object[]} facts  Fact payloads (src/behavior/inner.ts#factPayload).
- * @param {object} labels
- * @param {{ timezone?: string, locale?: string }} [options]
- * @returns {string}
+ * `facts` are fact payloads (src/behavior/inner/facts.ts#factPayload).
  */
-export function feedbackInTurnText(facts, labels, { timezone = 'UTC', locale = 'en-US' } = {}) {
-  const l = labels?.wake;
-  if (
-    typeof l?.feedbackInTurn !== 'string' ||
-    !l.feedbackInTurn ||
-    typeof l.feedbackItem !== 'string' ||
-    !l.feedbackItem
-  )
-    return '';
-  const when = (ts) =>
-    Number.isFinite(ts) ? `${formatDate(ts, timezone, locale)} ${formatClock(ts, timezone, locale)}` : '';
-  const lines = (Array.isArray(facts) ? facts : [])
+export function feedbackInTurnText(
+  facts: unknown,
+  labels: unknown,
+  { timezone = 'UTC', locale = 'en-US' }: { timezone?: string; locale?: string } = {}
+): string {
+  const l = objOf(objOf(labels).wake);
+  const header = l.feedbackInTurn;
+  const item = l.feedbackItem;
+  if (typeof header !== 'string' || !header || typeof item !== 'string' || !item) return '';
+  const when = whenOf(timezone, locale);
+  const lines = listOf(facts)
     .map((fact) => feedbackFactText(fact, l, { when, labels }))
     .filter(Boolean)
-    .map((text) => fill(l.feedbackItem, { fact: text }));
-  return lines.length > 0 ? [l.feedbackInTurn, ...lines].join('\n') : '';
+    .map((text) => fill(item, { fact: text }));
+  return lines.length > 0 ? [header, ...lines].join('\n') : '';
 }
 
 /** The budgets the block names, in order. */
-export const WAKE_BUDGETS = Object.freeze(['chain']);
+export const WAKE_BUDGETS: ReadonlyArray<'chain'> = Object.freeze(['chain'] as const);
 
 /** A label of `l` filled, or '' when it is missing. */
-function part(l, key, values) {
-  return typeof l?.[key] === 'string' && l[key] ? fill(l[key], values) : '';
+function part(l: Obj, key: string, values: object): string {
+  const template = l[key];
+  return typeof template === 'string' && template ? fill(template, values) : '';
 }
 
 /**
- * The lines of a places page (src/behavior/inner.ts#places: `{ total, more, items }`): the lead
+ * The lines of a places page (src/behavior/inner/places.ts#places: `{ total, more, items }`): the lead
  * `labels.wake.places` (`{total}`), one `labels.wake.place` per item (`{name}`, `{lines}`,
  * `{people}`, `{flags}`: `labels.wake.placeReadOnly` when she cannot write there and
  * `labels.wake.placeAttended` when she attends it, joined), then `labels.wake.placesMore`
- * (`{more}`) when more follow. [] without the lead label or a page.
- * @param {{ total: number, more: number, items: object[] }|null} page
- * @param {object} l  `labels.wake`.
- * @returns {string[]}
+ * (`{more}`) when more follow. [] without the lead label or a page. `l` is `labels.wake`.
  */
-export function placesLines(page, l) {
-  if (!page || !Array.isArray(page.items) || typeof l?.places !== 'string' || !l.places) return [];
-  const lines = [fill(l.places, { total: String(page.total ?? page.items.length) })];
-  for (const item of page.items) {
+export function placesLines(page: unknown, l: unknown): Array<string> {
+  const given = objOf(page);
+  const words = objOf(l);
+  if (!page || !Array.isArray(given.items) || typeof words.places !== 'string' || !words.places) return [];
+  const items = listOf(given.items);
+  const lines = [fill(words.places, { total: asText(given.total ?? items.length) })];
+  for (const entry of items) {
+    const item = objOf(entry);
     const flags = [
-      item.writable === false ? part(l, 'placeReadOnly', {}) : '',
-      item.attended ? part(l, 'placeAttended', {}) : '',
+      item.writable === false ? part(words, 'placeReadOnly', {}) : '',
+      item.attended ? part(words, 'placeAttended', {}) : '',
     ].join('');
-    const line = part(l, 'place', {
-      name: String(item.name ?? item.id ?? ''),
-      lines: String(item.lines ?? 0),
-      people: String(item.people ?? 0),
+    const line = part(words, 'place', {
+      name: asText(item.name ?? item.id ?? ''),
+      lines: asText(item.lines ?? 0),
+      people: asText(item.people ?? 0),
       flags,
     });
     if (line) lines.push(line);
   }
-  if (page.more > 0) {
-    const more = part(l, 'placesMore', { more: String(page.more) });
+  if (Number(given.more) > 0) {
+    const more = part(words, 'placesMore', { more: asText(given.more) });
     if (more) lines.push(more);
   }
   return lines;
@@ -243,6 +262,18 @@ export function placesLines(page, l) {
 /** The places and people the budget never sheds below. */
 const KEEP_PLACES = 3;
 const KEEP_PEOPLE = 5;
+
+/** The lists a heartbeat's block sheds from, in the order it sheds them. */
+type ShedKey = 'filtered' | 'life' | 'places' | 'people';
+/** One row of her life with the kind it is worded as. */
+type LifeRow = { kind: 'action' | 'post' | 'errand' | 'diary'; row: Obj };
+/** What the body of a heartbeat's block is built with. */
+type BodyOptions = {
+  handleBase: number | null;
+  used: Set<number>;
+  caps: Record<ShedKey, number>;
+  lifeRows: Array<LifeRow>;
+};
 
 /**
  * The lines of a heartbeat's facts (src/behavior/heartbeat-view.ts), every word from `labels.wake.heartbeat`
@@ -261,31 +292,41 @@ const KEEP_PEOPLE = 5;
  * gets the indexes of the refs the final block shows. When the block is over `facts.maxTokens` (the
  * estimate of src/llm/tokens.js) its lists shed their last items, in this order: the filtered lines, the lines of
  * her life, the places beyond 3, the people beyond 5; what is shed is counted in the list's `more`.
- * @param {object|null} facts
- * @param {object} l  `labels.wake.heartbeat`.
- * @param {(ts: number) => string} when
- * @param {string[]} [placesBlock]  The places page's lines (placesLines), shown right after the people when the facts have no `activity`.
- * @param {{ handleBase?: number|null, onRefs?: (refs: number[]) => void }} [options]
- * @returns {string[]}
+ * `placesBlock` is the places page's lines (placesLines), shown right after the people when the facts have no
+ * `activity`.
  */
-export function heartbeatLines(facts, l, when, placesBlock = [], { handleBase = null, onRefs = null } = {}) {
+export function heartbeatLines(
+  facts: HeartbeatFacts | null | undefined,
+  l: unknown,
+  when: When,
+  placesBlock: ReadonlyArray<string> = [],
+  {
+    handleBase = null,
+    onRefs = null,
+  }: { handleBase?: number | null; onRefs?: ((refs: Array<number>) => void) | null } = {}
+): Array<string> {
   if (!facts || typeof facts !== 'object' || !l || typeof l !== 'object') return [];
-  const people = Array.isArray(facts.people) ? facts.people : [];
-  const places = Array.isArray(facts.activity?.items) ? facts.activity.items : [];
-  const life = facts.life ?? {};
-  const lifeRows = lifeItems(life);
-  const filtered = Array.isArray(facts.since?.filtered?.items) ? facts.since.filtered.items : [];
-  const caps = { filtered: filtered.length, life: lifeRows.length, places: places.length, people: people.length };
-  const limit = Number.isFinite(facts.maxTokens) && facts.maxTokens > 0 ? facts.maxTokens : Infinity;
-  const stages = [
+  const words = objOf(l);
+  const people = listOf(facts.people);
+  const places = listOf(facts.activity?.items);
+  const lifeRows = lifeItems(objOf(facts.life));
+  const filtered = listOf(facts.since?.filtered?.items);
+  const caps: Record<ShedKey, number> = {
+    filtered: filtered.length,
+    life: lifeRows.length,
+    places: places.length,
+    people: people.length,
+  };
+  const limit = isFiniteNumber(facts.maxTokens) && facts.maxTokens > 0 ? facts.maxTokens : Infinity;
+  const stages: Array<[ShedKey, number]> = [
     ['filtered', 0],
     ['life', 0],
     ['places', KEEP_PLACES],
     ['people', KEEP_PEOPLE],
   ];
   for (;;) {
-    const used = new Set();
-    const out = heartbeatBody(facts, l, when, placesBlock, { handleBase, used, caps, lifeRows });
+    const used = new Set<number>();
+    const out = heartbeatBody(objOf(facts), words, when, placesBlock, { handleBase, used, caps, lifeRows });
     const stage = stages.find(([key, keep]) => caps[key] > keep);
     if (!stage || estimateTokens(out.join('\n')) <= limit) {
       if (typeof onRefs === 'function') onRefs([...used].sort((a, b) => a - b));
@@ -296,8 +337,9 @@ export function heartbeatLines(facts, l, when, placesBlock = [], { handleBase = 
 }
 
 /** The rows of her life in the order they are worded: actions, posts, errands, diary posts. */
-function lifeItems(life) {
-  const take = (cap, kind) => (Array.isArray(cap?.items) ? cap.items.map((row) => ({ kind, row })) : []);
+function lifeItems(life: Obj): Array<LifeRow> {
+  const take = (cap: unknown, kind: LifeRow['kind']): Array<LifeRow> =>
+    listOf(objOf(cap).items).map((row) => ({ kind, row: objOf(row) }));
   return [
     ...take(life.actions, 'action'),
     ...take(life.posts, 'post'),
@@ -306,80 +348,98 @@ function lifeItems(life) {
   ];
 }
 
-function heartbeatBody(facts, l, when, placesBlock, { handleBase, used, caps, lifeRows }) {
-  const one = (value) => oneLine(String(value ?? ''));
-  const make = (key, values) => part(l, key, values);
+/** `more` of a capped list of the facts, 0 when it has none. */
+const moreOf = (cap: unknown): number => Number(objOf(cap).more ?? 0);
+/** The rows of a capped list of the facts mapped by `fn`. */
+const rowsOf = (cap: unknown, fn: (row: Obj) => string): Array<string> => listOf(objOf(cap).items).map(objOf).map(fn);
+
+function heartbeatBody(
+  facts: Obj,
+  l: Obj,
+  when: When,
+  placesBlock: ReadonlyArray<string>,
+  { handleBase, used, caps, lifeRows }: BodyOptions
+): Array<string> {
+  const one = (value: unknown) => oneLine(asText(value ?? ''));
+  const make = (key: string, values: object) => part(l, key, values);
   // A line made of optional pieces (a handle, a media marker) that may be empty: single spaces, no edges.
-  const tidy = (key, values) => make(key, values).replace(/ {2,}/g, ' ').trim();
-  const handle = (ref) => {
-    if (!Number.isInteger(ref) || ref < 0 || !Number.isFinite(handleBase)) return '';
+  const tidy = (key: string, values: object) => make(key, values).replace(/ {2,}/g, ' ').trim();
+  const handle = (ref: unknown) => {
+    if (typeof ref !== 'number' || !Number.isInteger(ref) || ref < 0 || !isFiniteNumber(handleBase)) return '';
     used.add(ref);
     return `#${handleBase + ref}`;
   };
-  const mediaText = (media) => {
+  const mediaText = (media: unknown) => {
     if (!media) return '';
-    const kinds = Array.isArray(media.kinds) ? media.kinds.map(one).filter(Boolean).join('/') : '';
-    return media.title ? part(l, 'mediaTitled', { kinds, title: one(media.title) }) : part(l, 'media', { kinds });
+    const given = objOf(media);
+    const kinds = Array.isArray(given.kinds) ? listOf(given.kinds).map(one).filter(Boolean).join('/') : '';
+    return given.title ? part(l, 'mediaTitled', { kinds, title: one(given.title) }) : part(l, 'media', { kinds });
   };
-  const lineValues = (item) => ({
+  const lineValues = (item: Obj) => ({
     handle: handle(item.ref),
     when: when(item.at),
     text: one(item.text),
     media: mediaText(item.media),
   });
-  const out = [];
-  const block = (lead, rows, moreCount) => {
-    const lines = rows.filter(Boolean);
-    if (lines.length === 0 || typeof l[lead] !== 'string' || !l[lead]) return;
-    out.push(l[lead], ...lines);
+  const out: Array<string> = [];
+  const block = (lead: string, rows: Array<string | false>, moreCount: number) => {
+    const lines = rows.filter((row): row is string => Boolean(row));
+    const leadText = l[lead];
+    if (lines.length === 0 || typeof leadText !== 'string' || !leadText) return;
+    out.push(leadText, ...lines);
     if (moreCount > 0) out.push(make('more', { more: String(moreCount) }));
   };
-  const allPeople = Array.isArray(facts.people) ? facts.people : [];
+  const allPeople = listOf(facts.people).map(objOf);
   const people = allPeople.slice(0, caps.people);
   // The places first (the handles are numbered in the order they are worded).
   const activity = facts.activity ?? null;
-  const placeRows = [];
-  if (activity && Array.isArray(activity.items)) {
-    for (const place of activity.items.slice(0, caps.places)) {
+  const activityItems = listOf(objOf(activity).items).map(objOf);
+  const placeRows: Array<string> = [];
+  if (activity && Array.isArray(objOf(activity).items)) {
+    for (const place of activityItems.slice(0, caps.places)) {
       placeRows.push(
         tidy('activityPlace', {
           name: one(place.name ?? place.id),
-          lines: String(place.lines ?? 0),
-          people: (place.people ?? []).map(one).join(', '),
+          lines: asText(place.lines ?? 0),
+          people: listOf(place.people ?? [])
+            .map(one)
+            .join(', '),
         })
       );
-      for (const preview of Array.isArray(place.previews) ? place.previews : [])
+      for (const preview of listOf(place.previews).map(objOf))
         placeRows.push(tidy('activityLine', { ...lineValues(preview), who: one(preview.by ?? '') }));
     }
   }
   const placesShed =
-    activity && Array.isArray(activity.items)
-      ? activity.items.length - Math.min(caps.places, activity.items.length)
+    activity && Array.isArray(objOf(activity).items)
+      ? activityItems.length - Math.min(caps.places, activityItems.length)
       : 0;
-  if (activity) block('activity', placeRows, (activity.more ?? 0) + placesShed);
+  if (activity) block('activity', placeRows, moreOf(activity) + placesShed);
   else out.push(...placesBlock);
   block(
     'people',
     people.map((p) => {
+      const lastWrote = objOf(p.lastWrote);
       const wrote = p.lastWrote
-        ? tidy('lastWrote', { ...lineValues(p.lastWrote), place: one(p.lastWrote.place ?? '') })
+        ? tidy('lastWrote', { ...lineValues(lastWrote), place: one(lastWrote.place ?? '') })
         : '';
+      const interests = listOf(p.interests);
+      const places = listOf(p.places);
       const parts = [
-        Number.isFinite(p.lastAt)
+        isFiniteNumber(p.lastAt)
           ? p.lastPlace
             ? make('contact', { when: when(p.lastAt), place: one(p.lastPlace) })
             : make('contactNoPlace', { when: when(p.lastAt) })
           : '',
         wrote,
-        p.interests?.length > 0 ? make('interests', { interests: p.interests.map(one).join(', ') }) : '',
-        p.places?.length > 0 ? make('activeIn', { places: p.places.map(one).join(', ') }) : '',
+        interests.length > 0 ? make('interests', { interests: interests.map(one).join(', ') }) : '',
+        places.length > 0 ? make('activeIn', { places: places.map(one).join(', ') }) : '',
       ].filter(Boolean);
-      return make('person', { name: one(p.name ?? p.id), parts: parts.join(l.partsJoin ?? '; ') });
+      return make('person', { name: one(p.name ?? p.id), parts: parts.join(asText(l.partsJoin ?? '; ')) });
     }),
     allPeople.length - people.length
   );
-  const life = facts.life ?? {};
-  const rows = (cap, fn) => (Array.isArray(cap?.items) ? cap.items.map(fn) : []);
+  const life = objOf(facts.life);
   const shownLife = lifeRows.slice(0, caps.life);
   const lifeText = shownLife.map(({ kind, row }) => {
     if (kind === 'action')
@@ -407,38 +467,38 @@ function heartbeatBody(facts, l, when, placesBlock, { handleBase, used, caps, li
   block(
     'life',
     lifeText,
-    (life.actions?.more ?? 0) +
-      (life.posts?.more ?? 0) +
-      (life.errands?.more ?? 0) +
-      (life.diary?.more ?? 0) +
+    moreOf(life.actions) +
+      moreOf(life.posts) +
+      moreOf(life.errands) +
+      moreOf(life.diary) +
       (lifeRows.length - shownLife.length)
   );
   block(
     'open',
-    rows(life.open, (i) =>
+    rowsOf(life.open, (i) =>
       make('openItem', {
         id: one(i.id),
         purpose: clampWithEllipsis(one(i.purpose), WAKE_PURPOSE_CHARS),
-        due: Number.isFinite(i.dueAt) ? make('due', { when: when(i.dueAt) }) : '',
+        due: isFiniteNumber(i.dueAt) ? make('due', { when: when(i.dueAt) }) : '',
         origin: i.origin === 'heartbeat' ? make('openOrigin', {}) : '',
       })
     ),
-    life.open?.more ?? 0
+    moreOf(life.open)
   );
   block(
     'attending',
-    rows(life.attending, (i) =>
+    rowsOf(life.attending, (i) =>
       make('attendingItem', {
         id: one(i.id),
         purpose: clampWithEllipsis(one(i.purpose), WAKE_PURPOSE_CHARS),
         place: one(i.place),
       })
     ),
-    life.attending?.more ?? 0
+    moreOf(life.attending)
   );
   block(
     'closed',
-    rows(life.closed, (i) =>
+    rowsOf(life.closed, (i) =>
       make('closedItem', {
         id: one(i.id),
         state: one(i.state),
@@ -447,109 +507,138 @@ function heartbeatBody(facts, l, when, placesBlock, { handleBase, used, caps, li
         when: when(i.at),
       })
     ),
-    life.closed?.more ?? 0
+    moreOf(life.closed)
   );
   // What this wake accepts (innerLife.heartbeat.intentionsOnly), before the list of what she can do.
   if (facts.intentionsOnly === true) {
     const only = make('intentionsOnly', {});
     if (only) out.push(only);
   }
-  const skills = Array.isArray(facts.skills) ? facts.skills : [];
-  const agents = Array.isArray(facts.agents) ? facts.agents : [];
+  const skills = listOf(facts.skills).map(objOf);
+  const agents = listOf(facts.agents);
   block(
     'skills',
     [
-      ...skills.map((s) => make('skill', { family: one(s.family), names: s.names.map(one).join(', ') })),
+      ...skills.map((s) => make('skill', { family: one(s.family), names: listOf(s.names).map(one).join(', ') })),
       agents.length > 0 ? make('agentsLine', { agents: agents.map(one).join(', ') }) : '',
     ],
     0
   );
-  const since = facts.since;
-  if (since) {
-    const done = since.done ?? {};
-    const doneLine =
-      (done.posts ?? 0) + (done.errands ?? 0) + (done.intentions ?? 0) > 0 &&
-      make('done', {
-        posts: String(done.posts ?? 0),
-        errands: String(done.errands ?? 0),
-        intentions: String(done.intentions ?? 0),
-      });
-    const nd = since.notDone ?? {};
-    const notDone = [
-      ...rows(nd.expired, (i) =>
-        make('expired', {
-          id: one(i.id),
-          purpose: clampWithEllipsis(one(i.purpose), WAKE_PURPOSE_CHARS),
-          when: when(i.at),
-        })
-      ),
-      ...rows(nd.missed, (i) =>
-        make('missed', {
-          id: one(i.id),
-          purpose: clampWithEllipsis(one(i.purpose), WAKE_PURPOSE_CHARS),
-          when: when(i.at),
-        })
-      ),
-      ...rows(nd.failedErrands, (e) =>
-        make('failedErrand', { id: one(e.id), agent: one(e.agent), code: one(e.code ?? ''), when: when(e.at) })
-      ),
-      ...rows(nd.lateErrands, (i) =>
-        make('lateErrand', {
-          id: one(i.id),
-          purpose: clampWithEllipsis(one(i.purpose), WAKE_PURPOSE_CHARS),
-          when: when(i.at),
-        })
-      ),
-      ...rows(nd.unknownSends, (x) =>
-        make('unknownSend', { skill: one(x.skill ?? ''), place: one(x.place ?? ''), when: when(x.at) })
-      ),
-      ...rows(nd.failedTurns, (x) => make('failedTurn', { code: one(x.code ?? ''), when: when(x.at) })),
-    ];
-    const notDoneMore = ['expired', 'missed', 'failedErrands', 'lateErrands', 'unknownSends', 'failedTurns'].reduce(
-      (sum, key) => sum + (nd[key]?.more ?? 0),
-      0
-    );
-    const told = nd.told > 0 ? make('told', { count: String(nd.told) }) : '';
-    const filtered = since.filtered ?? {};
-    const allFiltered = Array.isArray(filtered.items) ? filtered.items : [];
-    const shownFiltered = allFiltered.slice(0, caps.filtered);
-    const filteredRows = shownFiltered.map((x) => {
-      const key = x.by === 'address' ? 'filteredAddress' : 'filteredMissed';
-      const values = { when: when(x.at), place: one(x.place ?? ''), verdict: one(x.verdict ?? '') };
-      // A line found in the record is worded with its author, its words and its handle; else the plain line.
-      if (x.ref !== undefined && x.ref !== null && typeof l[`${key}Line`] === 'string' && l[`${key}Line`])
-        return tidy(`${key}Line`, { ...values, ...lineValues(x), who: one(x.who ?? '') });
-      return make(key, values);
-    });
-    if (
-      typeof l.since === 'string' &&
-      l.since &&
-      (doneLine || notDone.some(Boolean) || told || filteredRows.some(Boolean))
-    ) {
-      out.push(make('since', { from: when(since.from) }));
-      if (doneLine) out.push(doneLine);
-      block('notDone', notDone, notDoneMore);
-      if (told) out.push(told);
-      block('filtered', filteredRows, (filtered.more ?? 0) + (allFiltered.length - shownFiltered.length));
-    }
-  }
+  if (facts.since) sinceLines(objOf(facts.since), { l, when, caps, make, tidy, one, lineValues, block, out });
   return out;
+}
+
+/** What the since part of a heartbeat's block is worded with: the functions heartbeatBody lends it. */
+type SinceTools = {
+  l: Obj;
+  when: When;
+  caps: Record<ShedKey, number>;
+  make: (key: string, values: object) => string;
+  tidy: (key: string, values: object) => string;
+  one: (value: unknown) => string;
+  lineValues: (item: Obj) => { handle: string; when: string; text: string; media: string };
+  block: (lead: string, rows: Array<string | false>, moreCount: number) => void;
+  out: Array<string>;
+};
+
+/** What happened since her previous heartbeat, as lines of the heartbeat's block. */
+function sinceLines(since: Obj, { l, when, caps, make, tidy, one, lineValues, block, out }: SinceTools): void {
+  const done = objOf(since.done);
+  const count = (value: unknown) => Number(value ?? 0);
+  const doneLine =
+    count(done.posts) + count(done.errands) + count(done.intentions) > 0 &&
+    make('done', {
+      posts: asText(done.posts ?? 0),
+      errands: asText(done.errands ?? 0),
+      intentions: asText(done.intentions ?? 0),
+    });
+  const nd = objOf(since.notDone);
+  const notDone = [
+    ...rowsOf(nd.expired, (i) =>
+      make('expired', {
+        id: one(i.id),
+        purpose: clampWithEllipsis(one(i.purpose), WAKE_PURPOSE_CHARS),
+        when: when(i.at),
+      })
+    ),
+    ...rowsOf(nd.missed, (i) =>
+      make('missed', {
+        id: one(i.id),
+        purpose: clampWithEllipsis(one(i.purpose), WAKE_PURPOSE_CHARS),
+        when: when(i.at),
+      })
+    ),
+    ...rowsOf(nd.failedErrands, (e) =>
+      make('failedErrand', { id: one(e.id), agent: one(e.agent), code: one(e.code ?? ''), when: when(e.at) })
+    ),
+    ...rowsOf(nd.lateErrands, (i) =>
+      make('lateErrand', {
+        id: one(i.id),
+        purpose: clampWithEllipsis(one(i.purpose), WAKE_PURPOSE_CHARS),
+        when: when(i.at),
+      })
+    ),
+    ...rowsOf(nd.unknownSends, (x) =>
+      make('unknownSend', { skill: one(x.skill ?? ''), place: one(x.place ?? ''), when: when(x.at) })
+    ),
+    ...rowsOf(nd.failedTurns, (x) => make('failedTurn', { code: one(x.code ?? ''), when: when(x.at) })),
+  ];
+  const notDoneMore = ['expired', 'missed', 'failedErrands', 'lateErrands', 'unknownSends', 'failedTurns'].reduce(
+    (sum, key) => sum + moreOf(nd[key]),
+    0
+  );
+  const told = Number(nd.told) > 0 ? make('told', { count: asText(nd.told) }) : '';
+  const filtered = objOf(since.filtered);
+  const allFiltered = listOf(filtered.items).map(objOf);
+  const shownFiltered = allFiltered.slice(0, caps.filtered);
+  const filteredRows = shownFiltered.map((x) => {
+    const key = x.by === 'address' ? 'filteredAddress' : 'filteredMissed';
+    const values = { when: when(x.at), place: one(x.place ?? ''), verdict: one(x.verdict ?? '') };
+    // A line found in the record is worded with its author, its words and its handle; else the plain line.
+    const lineLabel = l[`${key}Line`];
+    if (x.ref !== undefined && x.ref !== null && typeof lineLabel === 'string' && lineLabel)
+      return tidy(`${key}Line`, { ...values, ...lineValues(x), who: one(x.who ?? '') });
+    return make(key, values);
+  });
+  if (
+    typeof l.since === 'string' &&
+    l.since &&
+    (doneLine || notDone.some(Boolean) || told || filteredRows.some(Boolean))
+  ) {
+    out.push(make('since', { from: when(since.from) }));
+    if (doneLine) out.push(doneLine);
+    block('notDone', notDone, notDoneMore);
+    if (told) out.push(told);
+    block('filtered', filteredRows, moreOf(filtered) + (allFiltered.length - shownFiltered.length));
+  }
 }
 
 /**
  * The `<places>` body of an addressed turn (`context.places`): the places page alone, '' without
  * its lead label or a page.
- * @param {object|null} page
- * @param {object} labels
  */
-export function placesBlockText(page, labels) {
-  return placesLines(page, labels?.wake).join('\n');
+export function placesBlockText(page: unknown, labels: unknown): string {
+  return placesLines(page, objOf(labels).wake).join('\n');
 }
 
-/** @typedef {{ kind: string, reason?: string, intentionIds?: string[], errandId?: string|null, delayed?: { minutes?: number, code?: string }, facts?: object[], attend?: { placeName?: string, place: string, lines: number, peopleNames?: string[], people: string[], since?: number|null } }} WakeItem */
+/** What wakeBlockText reads of an inner turn's wake (src/behavior/inner/types.ts#WakeInfo, or a test's record). */
+export type WakeBlockInput = {
+  items?: ReadonlyArray<unknown>;
+  intentions?: ReadonlyArray<unknown>;
+  notes?: Readonly<Record<string, string>>;
+  expired?: { items: ReadonlyArray<{ id: string; purpose: string; at: number }>; more: number } | null;
+  now?: number;
+  timezone?: string;
+  channels?: ReadonlyArray<string>;
+  places?: PlacesPage | null;
+  budgets?: { chain?: ChainBudget & { resetAt?: number } };
+  heartbeat?: HeartbeatFacts | null;
+  facts?: ReadonlyArray<unknown>;
+  here?: { channel: string; why: string | null } | null;
+};
 
 /**
- * The `<wake>` body for `wake` (src/behavior/inner.ts's turn record: `items`, `intentions`, `notes`
+ * The `<wake>` body for `wake` (src/behavior/inner/drain.ts's turn record: `items`, `intentions`, `notes`
  * -- an intention id to a `labels.intentions.notes` code, `last-occurrence`, joined to its line by
  * ` · ` -- `expired` (a review: src/intentions/model.ts#expiredToShow's `{ items, more }`, after
  * the wake lines as `labels.wake.expired`, one `labels.wake.expiredItem` per item with `{id}`,
@@ -564,62 +653,65 @@ export function placesBlockText(page, labels) {
  * kept, untold ones) follow the same way under `labels.wake.feedbackInTurn`.
  * The current channel (`wake.here`: `{ channel, why }`) follows the wake lines as `labels.wake.here`
  * (`{channel}`, `{why}`), or `labels.wake.hereNone` when the turn has none (`here` null; absent: no line).
- * @param {{ items: Array<Record<string, unknown>|undefined>,
- *   intentions?: object[], notes?: Record<string, string>, expired?: { items: { id: string, purpose: string, at: number }[], more: number }|null,
- *   now?: number, timezone?: string, channels?: string[], places?: object|null, budgets?: object }} wake  `now` absent:
- *   the present moment; `timezone` absent: UTC.
- * @param {object} labels
- * @param {{ locale?: string, handleBase?: number|null, onRefs?: (refs: number[]) => void }} [options]  `handleBase`: the number of a heartbeat's first line handle, `onRefs` gets the heartbeat lines' refs that stayed in (heartbeatLines).
- * @returns {string}
+ * `now` absent: the present moment; `timezone` absent: UTC. `options.handleBase` is the number of a heartbeat's first
+ * line handle, `options.onRefs` gets the heartbeat lines' refs that stayed in (heartbeatLines).
  */
-export function wakeBlockText(wake, labels, { locale = 'en-US', handleBase = null, onRefs = null } = {}) {
-  const l = labels?.wake;
-  if (!wake || typeof l?.header !== 'string' || !l.header) return '';
+export function wakeBlockText(
+  wake: WakeBlockInput | null | undefined,
+  labels: unknown,
+  {
+    locale = 'en-US',
+    handleBase = null,
+    onRefs = null,
+  }: { locale?: string; handleBase?: number | null; onRefs?: ((refs: Array<number>) => void) | null } = {}
+): string {
+  const all = objOf(labels);
+  const l = objOf(all.wake);
+  if (!wake || typeof l.header !== 'string' || !l.header) return '';
   const timezone = wake.timezone || 'UTC';
-  const when = (ts) =>
-    Number.isFinite(ts) ? `${formatDate(ts, timezone, locale)} ${formatClock(ts, timezone, locale)}` : '';
-  const byId = new Map((Array.isArray(wake.intentions) ? wake.intentions : []).map((record) => [record.id, record]));
+  const when = whenOf(timezone, locale);
+  const byId = new Map(listOf(wake.intentions).map((record) => [objOf(record).id, objOf(record)]));
   const lines = [l.header];
-  for (const entry of (Array.isArray(wake.items) ? wake.items : []).filter(Boolean)) {
-    const item = /** @type {WakeItem} */ entry;
-    const template = l.kinds?.[item.kind];
+  const kinds = objOf(l.kinds);
+  const notes = objOf(objOf(all.intentions).notes);
+  for (const entry of listOf(wake.items).filter(Boolean)) {
+    const item = objOf(entry);
+    const template = kinds[asText(item.kind)];
     if (typeof template !== 'string' || !template) continue;
-    const ids = Array.isArray(item.intentionIds) && item.intentionIds.length > 0 ? item.intentionIds : [null];
+    const ids: Array<unknown> =
+      Array.isArray(item.intentionIds) && item.intentionIds.length > 0 ? item.intentionIds : [null];
     for (const id of ids) {
       const record = id ? byId.get(id) : null;
       if (id && !record) continue;
-      const attend = item.attend ?? null;
+      const attend = item.attend ? objOf(item.attend) : null;
       const line = fill(template, {
         id: id ?? '',
         purpose: record ? clampWithEllipsis(oneLine(record.purpose ?? ''), WAKE_PURPOSE_CHARS) : '',
         errand: item.errandId ?? '',
         due: when(record?.dueAt),
-        place: attend ? oneLine(String(attend.placeName ?? attend.place ?? '')) : '',
-        lines: attend ? String(attend.lines ?? 0) : '',
+        place: attend ? oneLine(asText(attend.placeName ?? attend.place ?? '')) : '',
+        lines: attend ? asText(attend.lines ?? 0) : '',
         people: attend
           ? (Array.isArray(attend.peopleNames) && attend.peopleNames.length > 0
-              ? attend.peopleNames
-              : (attend.people ?? [])
+              ? listOf(attend.peopleNames)
+              : listOf(attend.people ?? [])
             )
-              .map((name) => oneLine(String(name)))
+              .map((name) => oneLine(asText(name)))
               .join(', ')
           : '',
         since: attend ? when(attend.since) : '',
       });
-      const code = id ? wake.notes?.[id] : null;
-      const note =
-        code && typeof labels?.intentions?.notes?.[code] === 'string'
-          ? fill(labels.intentions.notes[code], { task: '' })
-          : '';
+      const code = id ? wake.notes?.[asText(id)] : null;
+      const noteLabel = code ? notes[code] : undefined;
+      const note = typeof noteLabel === 'string' ? fill(noteLabel, { task: '' }) : '';
       lines.push(note ? `${line} · ${note}` : line);
     }
     // A wake that ran late because its first turn failed: how long since it was due, and the failure's code.
+    const delayed = objOf(item.delayed);
     if (item.delayed && typeof l.delayed === 'string' && l.delayed)
-      lines.push(
-        fill(l.delayed, { minutes: String(item.delayed.minutes ?? 0), code: String(item.delayed.code ?? '') })
-      );
+      lines.push(fill(l.delayed, { minutes: asText(delayed.minutes ?? 0), code: asText(delayed.code ?? '') }));
     if (item.kind === 'feedback' && typeof l.feedbackItem === 'string' && l.feedbackItem) {
-      for (const fact of Array.isArray(item.facts) ? item.facts : []) {
+      for (const fact of listOf(item.facts)) {
         const text = feedbackFactText(fact, l, { when, labels });
         if (text) lines.push(fill(l.feedbackItem, { fact: text }));
       }
@@ -630,39 +722,39 @@ export function wakeBlockText(wake, labels, { locale = 'en-US', handleBase = nul
   if (kept) lines.push(kept);
   // The current channel her output tags act in and why it is that one, or that there is none.
   const here = wake.here
-    ? part(l, 'here', { channel: oneLine(String(wake.here.channel ?? '')), why: String(wake.here.why ?? '') })
+    ? part(l, 'here', { channel: oneLine(asText(wake.here.channel ?? '')), why: asText(wake.here.why ?? '') })
     : wake.here === null
       ? part(l, 'hereNone', {})
       : '';
   if (here) lines.push(here);
   const expired = wake.expired;
+  const expiredItems = listOf(expired?.items).map(objOf);
   if (
-    Array.isArray(expired?.items) &&
-    expired.items.length > 0 &&
+    expiredItems.length > 0 &&
     typeof l.expired === 'string' &&
     l.expired &&
     typeof l.expiredItem === 'string' &&
     l.expiredItem
   ) {
     lines.push(l.expired);
-    for (const item of expired.items)
+    for (const item of expiredItems)
       lines.push(
         fill(l.expiredItem, {
-          id: String(item.id ?? ''),
-          purpose: clampWithEllipsis(oneLine(String(item.purpose ?? '')), WAKE_PURPOSE_CHARS),
+          id: asText(item.id ?? ''),
+          purpose: clampWithEllipsis(oneLine(asText(item.purpose ?? '')), WAKE_PURPOSE_CHARS),
           when: when(item.at),
         })
       );
-    if (expired.more > 0) {
-      const more = part(l, 'expiredMore', { more: String(expired.more) });
+    if (Number(expired?.more) > 0) {
+      const more = part(l, 'expiredMore', { more: asText(expired?.more) });
       if (more) lines.push(more);
     }
   }
-  const nowLine = part(l, 'now', { now: formatNow(wake.now, timezone, locale), timezone });
+  const nowLine = part(l, 'now', { now: formatNow(wake.now ?? Date.now(), timezone, locale), timezone });
   if (nowLine) lines.push(nowLine);
-  const channels = (Array.isArray(wake.channels) ? wake.channels : []).filter(Boolean);
+  const channels = listOf(wake.channels).filter(Boolean);
   if (channels.length > 0) {
-    const line = part(l, 'channels', { channels: channels.map((name) => `#${name}`).join(', ') });
+    const line = part(l, 'channels', { channels: channels.map((name) => `#${asText(name)}`).join(', ') });
     if (line) lines.push(line);
   }
   const placesBlock = placesLines(wake.heartbeat?.places ?? wake.places ?? null, l);
@@ -670,9 +762,10 @@ export function wakeBlockText(wake, labels, { locale = 'en-US', handleBase = nul
     lines.push(...heartbeatLines(wake.heartbeat, l.heartbeat, when, placesBlock, { handleBase, onRefs }));
   else lines.push(...placesBlock);
   const budgets = wake.budgets ?? {};
+  const budget = objOf(l.budget);
   const budgetLines = WAKE_BUDGETS.map((key) => {
     const entry = budgets[key];
-    const template = l.budget?.[key];
+    const template = budget[key];
     if (!entry || typeof template !== 'string' || !template) return '';
     return fill(template, { left: String(entry.left), cap: String(entry.cap), reset: when(entry.resetAt) });
   }).filter(Boolean);

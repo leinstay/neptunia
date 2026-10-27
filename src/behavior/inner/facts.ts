@@ -3,12 +3,13 @@
 // (src/behavior/inner/drain.ts) keeps a turn's facts, the turn runner (src/behavior/turn.js) shows the kept ones on
 // an addressed turn, and `createLocalFacts` keeps them in process when no inner life runs. Pure.
 
-import { listOf } from '../../tools/types.ts';
+import { isFiniteNumber, listOf, objOf } from '../../tools/types.ts';
 import { CODE } from '../../tools/codes.ts';
 import { DELIVERY_SKILLS } from './settings.ts';
+import type { Fact, FactInput, FactPayload, FactScope, FactsApi } from './types.ts';
 
 /** The statuses of a call that did not go well (src/tools/executors.ts), as `callFailed` names them. */
-const CALL_STATUSES = new Set([
+const CALL_STATUSES: ReadonlySet<string> = new Set([
   'failed',
   'partial',
   'invalid',
@@ -31,20 +32,28 @@ const CALL_STATUSES = new Set([
  * `purpose` from `intentions` when known); `loopCut` when the loop ended by its step or time
  * bound with calls dropped (`cut`, `droppedCalls`, `steps`); one `diagnostic` per parser diagnostic of her output that
  * no later step showed her (`inner.diagnostics`; `diagnostic` its kind). [] when nothing is wrong. Pure.
- * @param {object|null} turnResult
- * @param {{ named?: string[], posting?: readonly string[], intentions?: object[] }} [options]
- * @returns {object[]}
  */
-export function feedbackFacts(turnResult, { named = null, posting = DELIVERY_SKILLS, intentions = [] } = {}) {
-  const inner = turnResult?.inner ?? {};
-  const actions = listOf(inner.actions);
-  const facts = [];
-  const purposeOf = (id) => {
-    const record = listOf(intentions).find((item) => item && String(item.id) === String(id));
-    return typeof record?.purpose === 'string' ? record.purpose : '';
+export function feedbackFacts(
+  turnResult: unknown,
+  {
+    named = null,
+    posting = DELIVERY_SKILLS,
+    intentions = [],
+  }: {
+    named?: ReadonlyArray<unknown> | null;
+    posting?: ReadonlyArray<unknown>;
+    intentions?: ReadonlyArray<unknown>;
+  } = {}
+): Array<FactPayload> {
+  const inner = objOf(objOf(turnResult).inner);
+  const actions = listOf(inner.actions).map(objOf);
+  const facts: Array<FactPayload> = [];
+  const purposeOf = (id: string) => {
+    const record = objOf(listOf(intentions).find((item) => item && String(objOf(item).id) === String(id)));
+    return typeof record.purpose === 'string' ? record.purpose : '';
   };
   for (const action of actions) {
-    if (!action || typeof action.skill !== 'string') continue;
+    if (typeof action.skill !== 'string') continue;
     // A call whose result a later step of the turn showed her is told already.
     if (action.status === 'proposed' || action.presented === true) continue;
     const refused = action.status === 'refused';
@@ -66,14 +75,14 @@ export function feedbackFacts(turnResult, { named = null, posting = DELIVERY_SKI
     });
   }
   const delivered = actions.some(
-    (action) => action?.status === 'executed' && action.result === 'ok' && posting.includes(action.skill)
+    (action) => action.status === 'executed' && action.result === 'ok' && posting.includes(action.skill)
   );
   if (!delivered) {
     const ids = listOf(named ?? inner.intentIds).map(String);
-    const closed = [];
+    const closed: Array<string> = [];
     for (const action of actions) {
       if (
-        action?.skill !== 'intention.update' ||
+        action.skill !== 'intention.update' ||
         action.status !== 'executed' ||
         action.result !== 'ok' ||
         action.state !== 'done'
@@ -89,18 +98,19 @@ export function feedbackFacts(turnResult, { named = null, posting = DELIVERY_SKI
     }
     for (const id of closed) facts.push({ kind: 'doneWithoutDelivery', intentionId: id, purpose: purposeOf(id) });
   }
-  const loop = inner.loop;
-  if (loop && typeof loop.cut === 'string' && loop.cut && Number.isFinite(loop.droppedCalls) && loop.droppedCalls > 0) {
+  const loop = objOf(inner.loop);
+  if (typeof loop.cut === 'string' && loop.cut && isFiniteNumber(loop.droppedCalls) && loop.droppedCalls > 0) {
     facts.push({
       kind: 'loopCut',
       cut: loop.cut,
       droppedCalls: loop.droppedCalls,
-      steps: Number.isFinite(loop.steps) ? loop.steps : 0,
+      steps: isFiniteNumber(loop.steps) ? loop.steps : 0,
     });
   }
   // What the parser did with her output that no later step told her (src/llm/parse.js diagnostics).
-  for (const diagnostic of listOf(inner.diagnostics)) {
-    if (diagnostic && typeof diagnostic.kind === 'string') {
+  for (const entry of listOf(inner.diagnostics)) {
+    const diagnostic = objOf(entry);
+    if (typeof diagnostic.kind === 'string') {
       const { kind, ...rest } = diagnostic;
       facts.push({ kind: 'diagnostic', diagnostic: kind, ...rest });
     }
@@ -108,10 +118,24 @@ export function feedbackFacts(turnResult, { named = null, posting = DELIVERY_SKI
   return facts;
 }
 
+/** `value` as text (String over a value of any type). */
+export const asText = (value: unknown): string => String(value);
+
+/** An id as text, or null for none (`null` or `undefined`). */
+export const idOrNull = (value: unknown): string | null =>
+  value === null || value === undefined ? null : asText(value);
+
+/** The facts a state holds: its list, or none. */
+const factsOf = (state: { facts?: Array<Fact> } | null | undefined): Array<Fact> =>
+  Array.isArray(state?.facts) ? state.facts : [];
+
 /** The state's facts that `scope` may see and that are not told yet, oldest first (the callers cut them to FACTS_SHOWN_MAX). `scope`: `{ channelId, privateChat, anywhere }`. */
-export function pendingFactsOf(state, { channelId = null, privateChat = false, anywhere = false } = {}) {
-  const here = channelId === null || channelId === undefined ? null : String(channelId);
-  return listOf(state?.facts).filter((fact) => {
+export function pendingFactsOf(
+  state: { facts?: Array<Fact> } | null | undefined,
+  { channelId = null, privateChat = false, anywhere = false }: FactScope = {}
+): Array<Fact> {
+  const here = idOrNull(channelId);
+  return factsOf(state).filter((fact) => {
     if (fact.told) return false;
     if (privateChat === true) return fact.privateChat === true && here !== null && fact.channelId === here;
     if (fact.privateChat === true) return false;
@@ -120,45 +144,48 @@ export function pendingFactsOf(state, { channelId = null, privateChat = false, a
 }
 
 /** `fact` (`{ kind, channelId, privateChat, at, ...payload }`) appended to `state.facts` (an id given). Returns the stored fact. */
-export function addFactTo(state, fact, id) {
+export function addFactTo(state: { facts?: Array<Fact> }, fact: FactInput, id: string): Fact {
   const { channelId = null, privateChat = false, at, ...payload } = fact;
-  const stored = {
+  const stored: Fact = {
     ...payload,
     id,
-    channelId: channelId === null || channelId === undefined ? null : String(channelId),
+    channelId: idOrNull(channelId),
     privateChat: privateChat === true,
-    at: Number.isFinite(at) ? at : 0,
+    at: isFiniteNumber(at) ? at : 0,
     told: false,
   };
-  state.facts = [...listOf(state.facts), stored];
+  state.facts = [...factsOf(state), stored];
   return stored;
 }
 
 /** The facts of `ids` marked told at `at`. */
-export function markFactsTold(state, ids, at) {
+export function markFactsTold(state: { facts?: Array<Fact> } | null | undefined, ids: unknown, at: number): void {
   const set = new Set(listOf(ids).map(String));
-  for (const fact of listOf(state?.facts)) if (set.has(fact.id) && !fact.told) fact.told = at;
+  for (const fact of factsOf(state)) if (set.has(fact.id) && !fact.told) fact.told = at;
 }
 
+/** The fields of a kept fact that are its bookkeeping, not its payload. */
+const BOOKKEEPING = ['id', 'channelId', 'privateChat', 'at', 'told'] as const;
+
 /** A fact as the prompt shows it: its payload without the bookkeeping. */
-export function factPayload(fact) {
-  const { id, channelId, privateChat, at, told, ...payload } = fact;
+export function factPayload(fact: Fact): FactPayload {
+  const payload: FactPayload = { ...fact };
+  for (const key of BOOKKEEPING) delete payload[key];
   return payload;
 }
 
 /**
  * The facts of an addressed turn when no inner life keeps them (and of tests): the same three
  * calls as the inner life's `facts`, in process only, one list for every guild.
- * @param {{ now?: () => number }} [options]
  */
-export function createLocalFacts({ now = Date.now } = {}) {
-  const state = { facts: [] };
+export function createLocalFacts({ now = Date.now }: { now?: () => number } = {}): FactsApi {
+  const state: { facts: Array<Fact> } = { facts: [] };
   let n = 0;
   return {
     enabled: () => true,
-    add: (guildId, fact) => addFactTo(state, { at: now(), ...fact }, `local-${++n}`),
-    pending: (guildId, scope) => pendingFactsOf(state, scope),
-    markTold: (guildId, ids) => {
+    add: (_guildId, fact) => addFactTo(state, { at: now(), ...fact }, `local-${++n}`),
+    pending: (_guildId, scope) => pendingFactsOf(state, scope),
+    markTold: (_guildId, ids) => {
       markFactsTold(state, ids, now());
       state.facts = state.facts.filter((fact) => !fact.told);
     },

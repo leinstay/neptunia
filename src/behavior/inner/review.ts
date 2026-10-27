@@ -4,22 +4,30 @@
 
 import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../../time.js';
 import { localHour } from '../../format.js';
-import { listOf } from '../../tools/types.ts';
+import { errorCode, isFiniteNumber, objOf } from '../../tools/types.ts';
+import type { Obj } from '../../tools/types.ts';
 import { markHandled, note, save, stateOf, timezoneOf } from './queue.ts';
 import { innerSettings } from './settings.ts';
+import type { InnerContext, InnerSettings, Wake } from './types.ts';
+
+/** The time of a record line: Date.parse over its text. */
+const parseAt = (value: unknown): number => Date.parse(String(value));
+/** Her lines, the newest first, by their record time. */
+const newestFirst = (a: Obj, b: Obj): number => parseAt(b.occurredAt) - parseAt(a.occurredAt);
 
 /** The channels of her recent lines a review remembers, newest first. */
 const REVIEW_CHANNELS_MAX = 3;
 
-/** The day's review wake. */
-export function reviewWake(day, at) {
+/** The day's review wake (`day` the local date, `at` its moment). */
+export function reviewWake(day: unknown, at: unknown): Wake {
   return {
-    id: `inner.wake:review:${day}`,
+    id: `inner.wake:review:${String(day)}`,
     kind: 'review',
     reason: 'review',
     intentionIds: [],
-    chainId: `review:${day}`,
-    dueAt: at,
+    chainId: `review:${String(day)}`,
+    // The review's drawn moment, a number; a JavaScript caller hands it in untyped and it is kept as given.
+    dueAt: at as number,
     channelId: null,
     privateChat: false,
   };
@@ -27,14 +35,13 @@ export function reviewWake(day, at) {
 
 /**
  * Her lines per local hour of `timezone` (24 counts): the `said` lines of `lines` (the record's).
- * @param {Iterable<object>} lines
- * @param {string} timezone
  */
-export function hourWeights(lines, timezone) {
-  const weights = new Array(24).fill(0);
-  for (const line of lines ?? []) {
-    if (line?.kind !== 'said') continue;
-    const at = Date.parse(line.occurredAt);
+export function hourWeights(lines: Iterable<unknown> | null | undefined, timezone: string): Array<number> {
+  const weights = new Array<number>(24).fill(0);
+  for (const entry of lines ?? []) {
+    const line = objOf(entry);
+    if (line.kind !== 'said') continue;
+    const at = parseAt(line.occurredAt);
     if (Number.isFinite(at)) weights[localHour(at, timezone)] += 1;
   }
   return weights;
@@ -45,12 +52,22 @@ export function hourWeights(lines, timezone) {
  * (`weights`, hourWeights'; all hours alike when she has none), then a minute in it, never before
  * `notBefore` (the hours already past on the day it is drawn are not offered). Null when no hour
  * of the day is left. `rng` in [0, 1).
- * @param {{ day: string, weights: number[], timezone: string, rng: () => number, notBefore?: number }} input
- * @returns {number|null}
  */
-export function drawReviewAt({ day, weights, timezone, rng, notBefore = -Infinity }) {
-  const total = listOf(weights).reduce((sum, value) => sum + (value > 0 ? value : 0), 0);
-  const hours = [];
+export function drawReviewAt({
+  day,
+  weights,
+  timezone,
+  rng,
+  notBefore = -Infinity,
+}: {
+  day: string;
+  weights: ReadonlyArray<number>;
+  timezone: string;
+  rng: () => number;
+  notBefore?: number;
+}): number | null {
+  const total = weights.reduce((sum, value) => sum + (value > 0 ? value : 0), 0);
+  const hours: Array<{ hour: number; weight: number }> = [];
   for (let hour = 0; hour < 24; hour += 1) {
     const end = zonedEpoch(day, hour, 59, timezone) + MINUTE_MS - 1;
     if (!Number.isFinite(end) || end < notBefore) continue;
@@ -75,21 +92,29 @@ export function drawReviewAt({ day, weights, timezone, rng, notBefore = -Infinit
 }
 
 /** Her `said` lines of the last `days` from the record, as the review's hours and channels. */
-export async function ownLines(life, guildId, days) {
+export async function ownLines(life: InnerContext, guildId: string, days: number): Promise<Array<Obj>> {
   const { record, now, log } = life;
-  const lines = [];
+  const lines: Array<Obj> = [];
   if (typeof record?.iterate !== 'function') return lines;
   const from = new Date(now() - days * DAY_MS).toISOString();
   try {
-    for await (const line of record.iterate(guildId, { from })) if (line?.kind === 'said') lines.push(line);
+    for await (const raw of record.iterate(guildId, { from })) {
+      const line = objOf(raw);
+      if (line.kind === 'said') lines.push(line);
+    }
   } catch (err) {
-    log.warn('inner: record read failed', { guildId, code: err?.code ?? null });
+    log.warn('inner: record read failed', { guildId, code: errorCode(err) });
   }
   return lines;
 }
 
 /** Today's review drawn (once per local day, persisted); the wake when its moment came. */
-export async function reviewDue(life, guildId, settings, at) {
+export async function reviewDue(
+  life: InnerContext,
+  guildId: string,
+  settings: InnerSettings,
+  at: number
+): Promise<Wake | null> {
   const { rng, log } = life;
   if (!settings.review.enabled) return null;
   const state = stateOf(life, guildId);
@@ -97,14 +122,14 @@ export async function reviewDue(life, guildId, settings, at) {
   const day = zonedDay(at, timezone);
   if (state.review?.day !== day) {
     const previous = state.review;
-    if (previous && previous.done !== true && Number.isFinite(previous.at))
+    if (previous && previous.done !== true && isFiniteNumber(previous.at))
       note(life, guildId, { event: 'review-missed', day: previous.day });
     const lines = await ownLines(life, guildId, settings.review.historyDays);
     const weights = hourWeights(lines, timezone);
     const reviewAt = drawReviewAt({ day, weights, timezone, rng, notBefore: at });
-    const channels = [];
-    for (const line of [...lines].sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt))) {
-      const channelId = line.scope?.channel;
+    const channels: Array<string> = [];
+    for (const line of [...lines].sort(newestFirst)) {
+      const channelId = objOf(line.scope).channel;
       if (typeof channelId === 'string' && channelId && !channels.includes(channelId)) channels.push(channelId);
       if (channels.length >= REVIEW_CHANNELS_MAX) break;
     }
@@ -121,19 +146,19 @@ export async function reviewDue(life, guildId, settings, at) {
     }
   }
   const review = stateOf(life, guildId).review;
-  if (!review || review.done || !Number.isFinite(review.at) || review.at > at) return null;
+  if (!review || review.done || !isFiniteNumber(review.at) || review.at > at) return null;
   return reviewWake(day, review.at);
 }
 
 /** The channels a review or a heartbeat turn may run in: where she spoke lately (the review's remembered ones, else the record's). */
-export async function recentChannels(life, guildId) {
+export async function recentChannels(life: InnerContext, guildId: string): Promise<Array<string>> {
   const { hot } = life;
   const known = stateOf(life, guildId).review?.channels ?? [];
   if (known.length > 0) return known;
-  const channels = [];
+  const channels: Array<string> = [];
   const lines = await ownLines(life, guildId, innerSettings(hot.config).review.historyDays);
-  for (const line of lines.sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt))) {
-    const id = line.scope?.channel;
+  for (const line of lines.sort(newestFirst)) {
+    const id = objOf(line.scope).channel;
     if (typeof id === 'string' && id && !channels.includes(id)) channels.push(id);
     if (channels.length >= REVIEW_CHANNELS_MAX) break;
   }
@@ -141,8 +166,8 @@ export async function recentChannels(life, guildId) {
 }
 
 /** The channel names of the review's recent channels, for `<wake>`. */
-export function channelNames(life, guildId) {
+export function channelNames(life: InnerContext, guildId: string): Array<string> {
   const { conversationName } = life;
   const ids = stateOf(life, guildId).review?.channels ?? [];
-  return ids.map((id) => conversationName(String(id))).filter(Boolean);
+  return ids.map((id) => conversationName(String(id))).filter((name): name is string => Boolean(name));
 }
