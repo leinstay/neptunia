@@ -941,6 +941,7 @@ catalogue, the labels and the table disagree.
 | `gif-cap` | failed | - | `tools.result.reasons.gif-cap` |
 | `no-result` | failed | - | `tools.result.reasons.no-result` |
 | `send-failed` | failed | - | `tools.result.reasons.send-failed` |
+| `diary-mirror` | failed | - | `tools.result.reasons.diary-mirror` |
 | `link-closed` | unknown | - | `tools.result.reasons.link-closed` |
 | `link-busy` | failed | - | `tools.result.reasons.link-busy` |
 | `adapter-threw` | unknown | - | `tools.result.reasons.adapter-threw` |

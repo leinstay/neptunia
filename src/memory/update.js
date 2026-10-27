@@ -10,6 +10,7 @@ import { DEFAULT_ADDRESS_HALF_LIFE_DAYS, addressCandidates, countAddressUses } f
 import { emojiUsageOpts } from './emoji-usage.js';
 import { gifOpts } from './gifs.js';
 import { recordLinks } from './record.js';
+import { diaryConversationIds } from '../behavior/mirror.ts';
 
 /**
  * The log `error` field of a failure: the error's name only (`SyntaxError`, `TypeError`, `Error`), never its message.
@@ -71,8 +72,8 @@ export function recordAddressing(store, guildId, messages, cfg = {}) {
  *   callers are expected to have already dropped other bots' messages.
  * @param {object} [memoryCfg]  The live `config.memory`, for the tally's settings
  *   (`channelWritersStored`, `channelWritersHalfLifeDays`); omitted -> the store's fallbacks.
- *   `diaryChannelId` (the caller adds `diary.channelId`) names the one channel where the persona's
- *   own messages count as a writer.
+ *   `diaryChannelIds` (the caller adds the places of her diary, src/behavior/mirror.ts#diaryConversationIds) names
+ *   the channels where the persona's own messages count as a writer.
  */
 export function touchMemory(store, guildId, normalized, memoryCfg) {
   if (!normalized.self) {
@@ -80,10 +81,10 @@ export function touchMemory(store, guildId, normalized, memoryCfg) {
   }
   // The persona's own messages and other bots never count toward a channel's
   // top writers -- see src/memory/store.js#touchChannel.
-  // The one exception is the configured diary channel (`memoryCfg.diaryChannelId`, from
-  // `diary.channelId`): the persona is its writer, so the map does not show it as dead.
-  const diaryChannelId = memoryCfg?.diaryChannelId || null;
-  const inDiary = diaryChannelId !== null && normalized.channelId === diaryChannelId;
+  // The one exception is a place of her diary (`memoryCfg.diaryChannelIds`): the persona is its writer, so the map
+  // does not show it as dead.
+  const diaryIds = /** @type {Set<string> | undefined} */ (memoryCfg?.diaryChannelIds);
+  const inDiary = diaryIds?.has(String(normalized.channelId)) === true;
   const writerId = !normalized.bot && (!normalized.self || inDiary) ? normalized.authorId : null;
   store.touchChannel(
     guildId,
@@ -189,7 +190,7 @@ export function createMemoryUpdater({ hot, store }) {
     if (privateUserId) return;
     touchMemory(store, guildId, normalized, {
       ...hot.config.memory,
-      diaryChannelId: hot.config.diary?.channelId || null,
+      diaryChannelIds: diaryConversationIds(store),
     });
     // The GIF library (src/memory/gifs.js) is fed here: it needs the GIF's URL, which no slim message keeps.
     if (hot.config.features?.gifs !== false) {

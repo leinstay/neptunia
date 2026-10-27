@@ -75,6 +75,7 @@ import {
 import { log } from '../log.js';
 import { MINUTE_MS, utcDay } from '../time.js';
 import { observationOf } from '../memory/db/observe-event.js';
+import { diaryConversationIds, isMirrorPlace } from './mirror.ts';
 
 /** @typedef {import('../protocol/adapter.ts').ConversationInfo} Conv */
 /** @typedef {import('../protocol/events.js').Message} Msg */
@@ -310,6 +311,10 @@ export function createMessageHandler({
 
   /** The conversation as the interface describes it now, else the one given. */
   const currentOf = async (/** @type {Conv} */ channel) => (await infoNow(channel.iface, channel.id)) ?? channel;
+
+  /** The conversation of `event` a turn may open in, or null: unknown to the interface, or a diary mirror's place. */
+  const turnPlaceOf = ({ iface, conversation: { id } }) =>
+    isMirrorPlace(memoryDb, iface, id) ? null : infoNow(iface, id);
 
   /** The conversation as the interface describes it now, with its audience, or null. */
   async function infoNow(iface, conversationId) {
@@ -2659,21 +2664,19 @@ export function createMessageHandler({
   }
 
   /**
-   * A member's line in a server channel right after the persona spoke there: it joins the
-   * channel's newest participation episode (src/memory/participation.js#recordFollowing,
-   * settings read now) and the store is written only when it changed (`participation:
-   * recorded`, `following: true`). Cheap: nothing is fetched and no profile read, and the store
-   * is not even read unless the persona's last post here (turns.lastPostAt) is within
+   * A member's line in a server channel right after the persona spoke there: it joins the channel's newest
+   * participation episode (src/memory/participation.js#recordFollowing, settings read now) and the store is written
+   * only when it changed (`participation: recorded`, `following: true`). Cheap: nothing is fetched and no profile
+   * read, and the store is not even read unless the persona's last post here (turns.lastPostAt) is within
    * `participation.followMinutes`. Off with features.memory or features.participation false (a
-   * missing key counts as on), in the diary channel, or for a store without the participation
-   * store. Never throws: a failure logs `participation: failed` (`reason: 'following-error'`).
+   * missing key counts as on), in a place of her diary (src/behavior/mirror.ts#diaryConversationIds), or for a store
+   * without the participation store. Never throws: `participation: failed` (`reason: 'following-error'`).
    */
   function noteFollowingLine(guildId, normalized, config) {
     try {
       const features = config.features ?? {};
       if (features.memory === false || features.participation === false) return;
-      const diaryId = config.diary?.channelId;
-      if (diaryId && normalized.channelId === diaryId) return;
+      if (diaryConversationIds(memoryDb).has(String(normalized.channelId))) return;
       const settings = participationSettings(config);
       const lastOwn = typeof turns.lastPostAt === 'function' ? turns.lastPostAt(normalized.channelId) : 0;
       if (!(lastOwn > 0) || normalized.ts - lastOwn > settings.followMinutes * MINUTE_MS) return;
@@ -2856,21 +2859,18 @@ export function createMessageHandler({
         if (observing) await observing;
       }
 
-      // 9b. A channel whose call waits to be answered elsewhere is still
-      // talking: its settle wait moves (touchSettle).
+      // 9b. A channel whose call waits to be answered elsewhere is still talking: its settle wait moves (touchSettle).
       touchSettle(event.conversation.id);
 
-      // 10. No trigger: maybe a follow-up (features.followUp) inside a
-      // window the persona itself opened by answering -- fully handled by
-      // maybeFollowUp either way (a computed verdict or a deliberate no-op,
-      // see its own header comment); otherwise let the spontaneous scheduler
-      // eavesdrop, nothing more. In a channel the bot cannot send in, an
-      // eavesdrop hit there arms a noticed settle wait (maybeNotice). A
-      // line the eavesdrop roll did not schedule may still be put to the
-      // whole room (maybeRoom). A caught-up line stops here: no follow-up, eavesdrop or room
-      // question for chatter from before the start; so does a caught-up call not to be answered.
+      // 10. No trigger: maybe a follow-up (features.followUp) inside a window the persona itself opened by answering --
+      // fully handled by maybeFollowUp either way (a computed verdict or a deliberate no-op, see its own header
+      // comment); otherwise let the spontaneous scheduler eavesdrop, nothing more. In a channel the bot cannot send in,
+      // an eavesdrop hit there arms a noticed settle wait (maybeNotice). A line the eavesdrop roll did not schedule may
+      // still be put to the whole room (maybeRoom). A caught-up line stops here: no follow-up, eavesdrop or room
+      // question for chatter from before the start; so does a caught-up call not to be answered. Nothing opens a
+      // turn in a diary mirror's place: only her diary writes there (src/behavior/mirror.ts).
       if (catchUp && (!kind || !catchUp.trigger)) return 'observed';
-      const channel = await infoNow(event.iface, event.conversation.id);
+      const channel = await turnPlaceOf(event);
       if (!channel) return 'observed';
       if (!kind) {
         const followedUp = await maybeFollowUp(channel, normalized, selfId, ownPrefill);

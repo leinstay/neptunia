@@ -14,14 +14,18 @@
 // its file with `voiceAttachment`. The entry's pictures and voice live in this process until the row is sent; a row
 // still queued after a restart goes out as its rendered text alone.
 //
-// `diaryPlaces(db)` is the read every diary-channel check uses: the places of the enabled diary mirrors, oldest first,
-// or, with none, the place the last entry was published to. Logs carry counts and codes, never a text.
+// `mirrorPlaces(db)` reads the places of the enabled diary mirrors; `diaryPlaces(db)` is the read every diary-channel
+// check uses: those places, oldest first, or, with none, the place the last entry was published to. A mirror place is
+// not hers to write in (the owner, 2026-10-27): `guardMirrorPort` is the core's outbound port, which refuses every send
+// there with the code `diary-mirror`, and the message handler opens no turn for an event there (src/behavior/
+// pipeline.js). Logs carry counts and codes, never a text.
 
 import { log } from '../log.js';
 import { portLimit } from '../interface/capabilities.ts';
 import { issueContext } from '../memory/db/scope.ts';
 import { mirrorReceipts } from '../memory/db/publish.js';
 import { setSettings } from './diary.js';
+import { CODE } from '../tools/codes.ts';
 import type { Attachment, Content } from '../protocol/actions.js';
 import type { ConversationRef, Delivery } from '../protocol/adapter.ts';
 import type { Context } from '../memory/db/scope.ts';
@@ -42,6 +46,8 @@ export type DiaryEntry = {
   mentions?: ReadonlyArray<ReadonlyArray<string>>;
   pictures?: ReadonlyArray<EntryPicture>;
   voice?: EntryVoice | null;
+  /** The bytes of one message of pictures (`diary.set.maxMessageBytes` when the entry was recorded). */
+  maxMessageBytes?: number;
 };
 
 /** What a send of an entry came to: every message posted, and the code of the send that stopped it. */
@@ -80,6 +86,9 @@ type Publication = {
   destination_place_id: string;
 };
 type Prepared = { ok: true; publication: Publication; reused: boolean } | { ok: false; code: string };
+
+// diary.js is JS; its JSDoc gives `setSettings` this shape, which the type checker cannot always follow through it.
+const setOf = setSettings as (diaryCfg: unknown) => { maxMessageBytes: number };
 
 // The files of one message when the adapter names no limit (`capabilities().maxFiles`).
 const DEFAULT_FILES_PER_MESSAGE = 10;
@@ -202,17 +211,8 @@ function placeOf(row: Row | undefined): DiaryPlace | null {
  */
 export function diaryPlaces(connection: unknown): Array<DiaryPlace> {
   const db = connection as Db; // a node:sqlite connection; the queries below read it
-  if (hasMirrors(db)) {
-    const mirrored = db
-      .prepare(
-        `SELECT p.id, p.iface, p.native_id, p.name FROM mirrors m JOIN places p ON p.id = m.place_id
-          WHERE m.row_kind = 'diary' AND m.enabled = 1 ORDER BY m.created_at, m.id`
-      )
-      .all()
-      .map(placeOf)
-      .filter((place): place is DiaryPlace => place !== null);
-    if (mirrored.length > 0) return mirrored;
-  }
+  const mirrored = mirrorPlaces(db);
+  if (mirrored.length > 0) return mirrored;
   const last = placeOf(
     db
       .prepare(
@@ -224,10 +224,87 @@ export function diaryPlaces(connection: unknown): Array<DiaryPlace> {
   return last ? [last] : [];
 }
 
+/** The places of the enabled `diary` mirrors, read on `connection`, oldest mirror first; none before schema v15. */
+export function mirrorPlaces(connection: unknown): Array<DiaryPlace> {
+  const db = connection as Db; // a node:sqlite connection; the query below reads it
+  if (!hasMirrors(db)) return [];
+  return db
+    .prepare(
+      `SELECT p.id, p.iface, p.native_id, p.name FROM mirrors m JOIN places p ON p.id = m.place_id
+        WHERE m.row_kind = 'diary' AND m.enabled = 1 ORDER BY m.created_at, m.id`
+    )
+    .all()
+    .map(placeOf)
+    .filter((place): place is DiaryPlace => place !== null);
+}
+
+/** What the mirrors are read from: the memory service (its read connection), or the store (`readMemory`). */
+type MemorySource = Partial<MirrorMemory> & { readMemory?: <TValue>(read: (db: unknown) => TValue) => TValue | null };
+
+/**
+ * `read(db)` on the memory database of `source` (the memory service's read connection, else the store's
+ * `readMemory`), or `none` when there is none or the read fails.
+ */
+export function readMirrors<TValue>(source: unknown, read: (db: unknown) => TValue, none: TValue): TValue {
+  try {
+    const given = source as MemorySource | null | undefined;
+    const handle = given?.readHandle?.() ?? null;
+    if (handle) return read(handle.db);
+    return given?.readMemory?.(read) ?? none;
+  } catch (error) {
+    log.warn('mirror: read failed', { code: (error as { code?: unknown } | null)?.code ?? 'ERROR' });
+    return none;
+  }
+}
+
+/** The conversation ids of her diary's places in `memoryDb` (diaryPlaces): where she keeps her diary. */
+export function diaryConversationIds(memoryDb: unknown): Set<string> {
+  return readMirrors(
+    memoryDb,
+    (db) => new Set(diaryPlaces(db).map((place) => place.conversationId)),
+    new Set<string>()
+  );
+}
+
+/** Whether `conversationId` of `iface` is the place of an enabled diary mirror in `memoryDb`. */
+export function isMirrorPlace(memoryDb: unknown, iface: unknown, conversationId: unknown): boolean {
+  const here = (place: DiaryPlace): boolean => place.iface === iface && place.conversationId === String(conversationId);
+  return readMirrors(memoryDb, (db) => mirrorPlaces(db).some(here), false);
+}
+
+/**
+ * The core's outbound port: `port` with every `send` to the place of an enabled diary mirror refused with the code
+ * `diary-mirror` (nothing reaches the interface), read in `memoryDb` at each send. Only the mirrors' publisher, which
+ * holds the interface's own port, writes there. Everything else passes through.
+ */
+export function guardMirrorPort<TPort extends MirrorPort>(port: TPort, { memoryDb }: { memoryDb: unknown }): TPort {
+  async function send(conversation: ConversationRef, content: Content): Promise<Delivery> {
+    if (!isMirrorPlace(memoryDb, conversation.iface, conversation.conversationId))
+      return port.send(conversation, content);
+    log.info('mirror: send refused', { code: CODE.DIARY_MIRROR });
+    return {
+      status: 'failed',
+      ref: null,
+      parts: [],
+      at: null,
+      idempotencyKey: '',
+      error: { code: CODE.DIARY_MIRROR, retryable: false, retryAfterMs: null },
+    };
+  }
+  return new Proxy(port, {
+    get(target, key) {
+      if (key === 'send') return send;
+      const value: unknown = Reflect.get(target, key, target);
+      // A port's methods are its own: bound to it, as a call on the port itself would be.
+      return typeof value === 'function' ? (value as (...args: Array<unknown>) => unknown).bind(target) : value;
+    },
+  });
+}
+
 /**
  * The publisher of the diary's mirrors over the memory service `memoryDb` and the connected interface's port
- * (`port()`: null when none is connected). `config()` is the live config (`diary.set.maxMessageBytes`, read at each
- * send).
+ * (`port()`: null when none is connected). `config()` is the live config, read at each send for an entry that names
+ * no `maxMessageBytes` (`diary.set.maxMessageBytes`).
  */
 export function createMirrors({
   memoryDb,
@@ -282,7 +359,7 @@ export function createMirrors({
     if (!connected || connected.iface !== place.iface) return { placeId: place.placeId, status: 'queued', code: null };
     const diary = (config() as { diary?: unknown } | null)?.diary ?? null;
     const sent = await sendEntry(connected, { iface: place.iface, conversationId: place.conversationId }, entry, {
-      maxMessageBytes: setSettings(diary).maxMessageBytes,
+      maxMessageBytes: entry.maxMessageBytes ?? setOf(diary).maxMessageBytes,
       now,
     });
     held.delete(publication.id);

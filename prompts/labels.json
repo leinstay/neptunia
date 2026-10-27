@@ -778,6 +778,7 @@
         "write-failed": "it could not be saved",
         "no-result": "nothing came back",
         "send-failed": "the message did not go out",
+        "diary-mirror": "this place is a mirror of your diary: only your diary writes there",
         "refused": "the request was refused",
         "image-cap": "the picture limit is used up",
         "image-cap-daily": "the picture limit for today is used up",

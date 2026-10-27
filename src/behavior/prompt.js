@@ -879,7 +879,7 @@ function serverItems(
   labels,
   nameOf,
   readOnlyIds = new Set(),
-  diaryChannelId = null,
+  diaryChannelIds = new Set(),
   ids = null
 ) {
   const byId = new Map(channels.map((channel) => [channel.id, channel]));
@@ -906,8 +906,8 @@ function serverItems(
         now,
         nameOf,
         readOnly: readOnlyIds.has(channel.id),
-        // The persona's own diary (diary.channelId): marked so it is found by name like any channel.
-        diary: diaryChannelId !== null && channel.id === diaryChannelId,
+        // A place of the persona's own diary (its mirrors): marked so it is found by name like any channel.
+        diary: diaryChannelIds.has(channel.id),
       }
     )
   );
@@ -3258,7 +3258,7 @@ function seenOf({ history, keptChat, anchoredIds = [] }) {
  *   `earlier` right after the pulled block, capped by `context.caps.earlier` (2500 when unset).
  * @param {string|null} [input.diaryChannel]  The bare name of the diary channel (the persona's
  *   own, src/behavior/diary.js) when one is set: `<senses>` gains `senses.diary` with
- *   `{channel}`. Omitted or null -> no line.
+ *   `{channel}`. Omitted or null -> no line. `input.diaryChannelIds` (ids) are its places, marked in `<server>`.
  * @param {{ posts?: object[], plan?: { kind: string|null, brief: string, picture: boolean, topic?: string }|null,
  *   found?: string|null, seeds?: string }|null} [input.diary]  A diary post's own input, read only with `mode:
  *   'diary'` (whose task text is `prompts.diary`): `<world>` (prompts/world.md, `{{name}}` filled,
@@ -3951,7 +3951,7 @@ export function buildRequest(input) {
         labels,
         nameOf,
         readOnlyIds,
-        config.diary?.channelId || null,
+        new Set(input.diaryChannelIds ?? []),
         serverIds
       );
   // The sections fitted ahead of the chat, in priority order.
@@ -4849,7 +4849,7 @@ export function buildDiaryPlanRequest(input) {
           labels,
           nameOf,
           new Set(),
-          config.diary?.channelId || null
+          new Set(input.diaryChannelIds ?? [])
         ),
       },
       {

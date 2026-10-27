@@ -152,6 +152,8 @@ export const CATALOGUE = Object.freeze({
   'gif-cap': skill('failed'),
   'no-result': skill('failed'),
   'send-failed': skill('failed'),
+  // A send to a diary mirror's place, refused by the guarded port (src/behavior/mirror.ts#guardMirrorPort).
+  'diary-mirror': skill('failed'),
   'link-closed': skill('unknown'),
   'link-busy': skill('failed'),
   'adapter-threw': skill('unknown'),
