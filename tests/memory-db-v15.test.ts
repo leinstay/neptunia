@@ -125,8 +125,9 @@ const LINES: ReadonlyArray<Line> = [
   { id: 'p1', at: T0 + HOUR + MINUTE, text: '', turnId: null, image: true },
   // A message with no turn and no entry within two minutes: an entry of its own.
   { id: 'l1', at: T0 + 3 * HOUR, text: 'μόνο', turnId: null },
-  // The message of the entry the diary already holds.
+  // The message of the entry the diary already holds, and a picture with no turn a minute after it, which joins it.
   { id: 'e1', at: T0 - 24 * HOUR, text: 'παλιό', turnId: 'turn-old' },
+  { id: 'q1', at: T0 - 24 * HOUR + MINUTE, text: '', turnId: null, image: true },
   // Not hers, and hers elsewhere: no part of her diary.
   { id: 'x1', at: T0 + 2 * HOUR, text: 'όχι δικό της', by: '100000000000000009' },
   { id: 'o1', at: T0 + 2 * HOUR, text: 'αλλού', turnId: 'turn-else', channel: '300000000000000888' },
@@ -266,9 +267,16 @@ function dumpOf(file: string): Record<string, Array<Row>> {
   }
 }
 
+// The lone message (`l1`, three hours from any other) is the case of a turnless message more than two minutes from every
+// entry: it becomes an entry of its own.
 test("the v15 step turns her mirror place's messages of no entry into entries, one per turn, nothing sent", () => {
   const file = pastFile();
   const before = entriesOf(file).find((entry) => entry.id === 'old-1');
+  assert.deepEqual(
+    before?.publications.map((publication) => publication.keys),
+    [['e1']],
+    'the fixture: the held entry is published as e1'
+  );
   openMemoryDb(file, { context: { diaryPlaceId: MIRROR_PLACE } }).close();
   const entries = entriesOf(file);
   assert.deepEqual(
@@ -280,10 +288,14 @@ test("the v15 step turns her mirror place's messages of no entry into entries, o
     ],
     'an inner turn, an ordinary turn with the picture next to it, and the lone message'
   );
+  // The coordinator, 2026-10-27: a turnless message within two minutes of a held entry's message joins it. The held
+  // entry keeps its text and its receipts; its publication gains the joined message.
+  const held = entries.find((entry) => entry.id === 'old-1');
+  assert.equal(held?.text, before?.text, 'the held entry keeps its text');
   assert.deepEqual(
-    entries.find((entry) => entry.id === 'old-1'),
-    before,
-    'the entry the diary held is left as it was'
+    held?.publications.map((publication) => publication.keys),
+    before?.publications.map((publication) => [...publication.keys, 'q1'].sort()),
+    'its publication keeps its receipts and gains the picture message'
   );
 });
 
