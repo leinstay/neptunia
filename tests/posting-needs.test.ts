@@ -39,15 +39,14 @@ for (const need of Object.keys(REQUIRES) as Array<Need>) {
     for (const permissions of combinations()) {
       const { reads, fake } = rig();
       fake.seedConversation(channel('c2', { permissions }));
-      const allowed = await shared
-        .postingConversation({
-          reads,
-          iface: IFACE,
-          guildId: COMMUNITY,
-          channelId: 'c2',
-          context: { channelId: 'c1' },
-          need,
-        })
+      const allowed = await postingConversation({
+        reads,
+        iface: IFACE,
+        guildId: COMMUNITY,
+        channelId: 'c2',
+        context: { channelId: 'c1' },
+        need,
+      })
         .then(() => true)
         .catch((error: { status?: string; code?: string }) => {
           assert.deepEqual([error.status, error.code], ['denied', 'channel-no-permission']);
