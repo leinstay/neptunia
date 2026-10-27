@@ -76,6 +76,8 @@ export function pendingDiaryRows(db) {
        FROM diary d JOIN diary_mirrors m ON m.diary_id = d.id
       WHERE d.retired_at IS NULL AND m.retired_at IS NULL
         AND (d.text IS NULL
+          OR EXISTS (SELECT 1 FROM media y WHERE y.kind = 'diary' AND y.owner = d.id
+            AND json_type(y.native_ref, '$.attachmentId') IS NULL)
           OR (json_type(d.extra, '$.voice') = 'object'
             AND NOT EXISTS (SELECT 1 FROM media x WHERE x.kind = 'diary' AND x.owner = d.id AND x.mime LIKE 'audio/%')))
       ORDER BY d.position, d.rowid`
@@ -122,9 +124,10 @@ export function applyDiaryUpdate(handle, update) {
       "UPDATE diary SET text = CASE WHEN text IS NOT NULL AND text <> '' THEN text ELSE ? END WHERE id = ?"
     ).run(update.text ?? '', update.id);
     const insert = db.prepare(
-      `INSERT INTO media (id, kind, owner, path, native_ref, sha1, bytes, mime, scope_kind, scope_iface, scope_dm, extra, retired_at, audience_id)
-       VALUES (?, 'diary', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+      `INSERT INTO media (id, kind, owner, path, native_ref, description, sha1, bytes, mime, scope_kind, scope_iface, scope_dm, extra, retired_at, audience_id)
+       VALUES (?, 'diary', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
        ON CONFLICT(id) DO UPDATE SET path = excluded.path, native_ref = excluded.native_ref, sha1 = excluded.sha1,
+         description = COALESCE(excluded.description, description),
          bytes = excluded.bytes, mime = excluded.mime, scope_kind = excluded.scope_kind, scope_iface = excluded.scope_iface,
          scope_dm = excluded.scope_dm, extra = excluded.extra, retired_at = NULL, audience_id = excluded.audience_id`
     );
@@ -136,6 +139,7 @@ export function applyDiaryUpdate(handle, update) {
         update.id,
         item.path,
         item.nativeRef,
+        item.description ?? null,
         item.sha1,
         item.bytes,
         item.mime,
@@ -161,9 +165,12 @@ export function applyDiaryUpdate(handle, update) {
  */
 export function applyEntryMedia(handle, given) {
   const update =
-    /** @type {{ dataDir: string, id: string, items?: Array<{ data: Uint8Array, mime: string, extra?: object|null }> }} */ (
+    /** @type {{ dataDir: string, id: string, items?: Array<{ data: Uint8Array, mime: string, extra?: object|null, ref?: { messageId: string, attachmentId: string|null } }> }} */ (
       given
     );
+  const db =
+    /** @type {{ db: { prepare(sql: string): { get(id: string): { description?: unknown } | undefined } } }} */ (handle)
+      .db;
   const base = safeName(update.id);
   const media = (update.items ?? []).map((item, index) => {
     const buffer = Buffer.from(item.data);
@@ -176,7 +183,9 @@ export function applyEntryMedia(handle, given) {
     return {
       id: `media:diary:${base}-${index + 1}`,
       path: rel.split(path.sep).join('/'),
-      nativeRef: null,
+      // Once the file is posted: the message and the attachment it became, and what memory saw in that attachment.
+      nativeRef: item.ref ? JSON.stringify(item.ref) : null,
+      description: describedAs(db, item.ref?.attachmentId ?? null),
       sha1: createHash('sha1').update(buffer).digest('hex'),
       bytes: buffer.byteLength,
       mime: item.mime,
@@ -185,6 +194,47 @@ export function applyEntryMedia(handle, given) {
   });
   if (media.length > 0) applyDiaryUpdate(handle, { id: update.id, media });
   return media.length;
+}
+
+/**
+ * How a media row of her post names its file on the platform: `native_ref` `{ url, messageId, attachmentId }` (the
+ * attachment's own id, as the read's message event gives it) and the description the media cache keeps of that
+ * attachment (`media:attachment:<id>`), when it has one.
+ * @param {unknown} connection  a connection that can read
+ * @param {unknown} fetched  the message a read found (FetchedMessage)
+ * @param {unknown} file  one of its attachments as the read lists them
+ */
+function platformOf(connection, fetched, file) {
+  const database =
+    /** @type {{ prepare(sql: string): { get(id: string): { description?: unknown } | undefined } } | null} */ (
+      connection
+    );
+  const message =
+    /** @type {{ messageId: string, event?: { message?: { attachments?: Array<{ id?: unknown, url?: unknown }> } } }} */ (
+      fetched
+    );
+  const attachment = /** @type {{ id?: unknown, url?: string }} */ (file);
+  // The read names each attachment's own id; the message event names it too.
+  const found = (message.event?.message?.attachments ?? []).find((item) => item?.url === attachment.url);
+  const named = typeof attachment.id === 'string' && attachment.id ? attachment.id : found?.id;
+  const attachmentId = typeof named === 'string' && named ? named : null;
+  return {
+    nativeRef: JSON.stringify({ url: attachment.url, messageId: message.messageId, attachmentId }),
+    description: describedAs(database, attachmentId),
+  };
+}
+
+/**
+ * What memory saw in the attachment `attachmentId`: the description of its media cache row
+ * (`media:attachment:<id>`), or null.
+ * @param {{ prepare(sql: string): { get(id: string): { description?: unknown } | undefined } } | null} database
+ * @param {string | null} attachmentId
+ * @returns {string | null}
+ */
+function describedAs(database, attachmentId) {
+  if (!attachmentId || !database) return null;
+  const cached = database.prepare('SELECT description FROM media WHERE id = ?').get(`media:attachment:${attachmentId}`);
+  return typeof cached?.description === 'string' && cached.description ? cached.description : null;
 }
 
 /** Writes `buffer` to `abs` atomically. */
@@ -329,7 +379,7 @@ export function createDiaryMedia({
           media.push({
             id: `media:diary:${base}-${n}`,
             path: rel.split(path.sep).join('/'),
-            nativeRef: JSON.stringify({ url: attachment.url, messageId: message.messageId }),
+            ...platformOf(db(), message, attachment),
             sha1: createHash('sha1').update(got.buffer).digest('hex'),
             bytes: got.buffer.byteLength,
             mime,
@@ -356,7 +406,7 @@ export function createDiaryMedia({
         media.push({
           id: `media:diary:${base}-${n}`,
           path: rel.split(path.sep).join('/'),
-          nativeRef: JSON.stringify({ url: attachment.url, messageId: message.messageId }),
+          ...platformOf(db(), message, attachment),
           sha1: createHash('sha1').update(buffer).digest('hex'),
           bytes: buffer.byteLength,
           mime,

@@ -64,8 +64,25 @@ export type DiaryEntry = {
   maxMessageBytes?: number;
 };
 
-/** What a send of an entry came to: every message posted, and the code of the send that stopped it. */
-export type EntrySent = { status: 'sent' | 'failed' | 'unknown'; code: string | null; messageIds: Array<string> };
+/** One message an entry's send posted: its id and time, its text, and the entry's files it carries with their ids. */
+export type PostedMessage = {
+  messageId: string;
+  at: number | null;
+  text: string | null;
+  files: Array<{ item: number; attachmentId: string | null }>;
+};
+
+/**
+ * What a send of an entry came to: every message posted, the attachment ids the port named, each message as posted,
+ * and the code of the send that stopped it.
+ */
+export type EntrySent = {
+  status: 'sent' | 'failed' | 'unknown';
+  code: string | null;
+  messageIds: Array<string>;
+  attachmentIds: Array<string>;
+  posted: Array<PostedMessage>;
+};
 
 /** The part of an interface port the publisher uses. */
 export type MirrorPort = {
@@ -179,25 +196,45 @@ export async function sendEntry(
   entry: DiaryEntry,
   { maxMessageBytes, now }: { maxMessageBytes: number; now: () => number }
 ): Promise<EntrySent> {
-  const contents: Array<Content> = [];
-  if (entry.voice) contents.push({ attachments: [voiceAttachment(entry.voice, now())] });
+  // Each send with the entry's files it carries, numbered as the entry keeps them: the pictures, then the voice.
+  const pictures = entry.pictures ?? [];
+  const sends: Array<{ content: Content; items: Array<number> }> = [];
+  if (entry.voice)
+    sends.push({ content: { attachments: [voiceAttachment(entry.voice, now())] }, items: [pictures.length] });
   entry.messages.forEach((text, index) => {
-    contents.push({ text, mentions: { users: [...(entry.mentions?.[index] ?? [])], repliedUser: false } });
+    const content = { text, mentions: { users: [...(entry.mentions?.[index] ?? [])], repliedUser: false } };
+    sends.push({ content, items: [] });
   });
-  for (const chunk of chunkPictures(entry.pictures ?? [], maxMessageBytes, filesPerMessage(port)))
-    contents.push({ attachments: pictureAttachments(chunk) });
-  const messageIds: Array<string> = [];
-  for (const content of contents) {
+  let next = 0;
+  for (const chunk of chunkPictures(pictures, maxMessageBytes, filesPerMessage(port))) {
+    sends.push({ content: { attachments: pictureAttachments(chunk) }, items: chunk.map(() => next++) });
+  }
+  const out: EntrySent = { status: 'sent', code: null, messageIds: [], attachmentIds: [], posted: [] };
+  for (const { content, items } of sends) {
     const sent = await port.send(conversation, content);
-    for (const part of sent.parts.length > 0 ? sent.parts : sent.ref ? [sent.ref] : []) messageIds.push(part.messageId);
+    for (const part of sent.parts.length > 0 ? sent.parts : sent.ref ? [sent.ref] : [])
+      out.messageIds.push(part.messageId);
     if (sent.status !== 'ok')
       return {
+        ...out,
         status: sent.status === 'unknown' ? 'unknown' : 'failed',
         code: sent.error?.code ?? sent.status,
-        messageIds,
       };
+    out.posted.push(postedOf(sent, content, items));
+    for (const file of sent.attachments ?? []) out.attachmentIds.push(file.attachmentId);
   }
-  return { status: 'sent', code: null, messageIds };
+  return out;
+}
+
+/** One send of an entry as posted: its message, its time, its text and the entry's files with the ids the port named. */
+function postedOf(sent: Delivery, content: Content, items: Array<number>): PostedMessage {
+  const named = sent.attachments ?? [];
+  return {
+    messageId: sent.ref?.messageId ?? '',
+    at: sent.at,
+    text: content.text ?? null,
+    files: items.map((item, index) => ({ item, attachmentId: named[index]?.attachmentId ?? null })),
+  };
 }
 
 /** The places of her diary a sandbox's view names (`memory.diaryChannelIds`, src/behavior/sandbox.js), else none. */
@@ -236,6 +273,33 @@ export function guardMirrorPort<TPort extends MirrorPort>(port: TPort, { memoryD
       return typeof value === 'function' ? (value as (...args: Array<unknown>) => unknown).bind(target) : value;
     },
   });
+}
+
+/** One file of an entry as memory keeps it: its bytes, its type, what an audio file is, and once sent its platform ids. */
+type MediaItem = {
+  data: Uint8Array;
+  mime: string;
+  extra: Row | null;
+  ref?: { messageId: string; attachmentId: string | null };
+};
+
+/** The entry's files in the order memory numbers them: the pictures, then the voice file. */
+function mediaItems(entry: DiaryEntry): Array<MediaItem> {
+  return [
+    ...(entry.pictures ?? []).map((picture) => ({ data: picture.buffer, mime: picture.mediaType, extra: null })),
+    ...(entry.voice
+      ? [{ data: entry.voice.ogg, mime: 'audio/ogg', extra: { voice: true, ...voiceExtra(entry.voice) } }]
+      : []),
+  ];
+}
+
+/** The receipts of the attachments a publication posted: one `{ authority, kind: 'attachment', key }` per id. */
+function attachmentReceipts(
+  iface: string,
+  ids: ReadonlyArray<string>
+): Array<{ authority: string; kind: string; key: string }> {
+  const authority = mirrorReceipts(iface, ['x'])[0]?.authority ?? iface;
+  return ids.map((key) => ({ authority, kind: 'attachment', key }));
 }
 
 /** What an audio `media` row of an entry keeps of its voice message: its length and its waveform. */
@@ -347,13 +411,14 @@ export function createMirrors({
     memoryDb.memoryWrite({ kind: 'publication', ...update });
 
   /** The entry's pictures, then its voice file, kept in memory before anything is sent (in that order: numbered so). */
-  async function keepMedia(entry: DiaryEntry): Promise<void> {
-    const items = [
-      ...(entry.pictures ?? []).map((picture) => ({ data: picture.buffer, mime: picture.mediaType, extra: null })),
-      ...(entry.voice
-        ? [{ data: entry.voice.ogg, mime: 'audio/ogg', extra: { voice: true, ...voiceExtra(entry.voice) } }]
-        : []),
-    ];
+  async function keepMedia(entry: DiaryEntry, sent: EntrySent | null = null): Promise<void> {
+    const items = mediaItems(entry);
+    // Once sent, each file names the message and the platform's attachment it became.
+    for (const message of sent?.posted ?? [])
+      for (const file of message.files) {
+        const item = items[file.item];
+        if (item) item.ref = { messageId: message.messageId, attachmentId: file.attachmentId };
+      }
     if (items.length > 0) await memoryDb.memoryWrite({ kind: 'entry-media', id: entry.id, items });
   }
 
@@ -366,14 +431,14 @@ export function createMirrors({
       maxMessageBytes: entry.maxMessageBytes ?? setOf(diary).maxMessageBytes,
       now,
     });
-    if (sent.status === 'sent')
-      await write({
-        op: 'sent',
-        id: publication.id,
-        receipts: mirrorReceipts(place.iface, sent.messageIds),
-        now: now(),
-      });
-    else await write({ op: sent.status, id: publication.id });
+    if (sent.status === 'sent') {
+      const receipts = [
+        ...mirrorReceipts(place.iface, sent.messageIds),
+        ...attachmentReceipts(place.iface, sent.attachmentIds),
+      ];
+      await write({ op: 'sent', id: publication.id, receipts, now: now() });
+      await keepMedia(entry, sent);
+    } else await write({ op: sent.status, id: publication.id });
     log.info('mirror: published', { status: sent.status, messages: sent.messageIds.length, code: sent.code });
     return { placeId: place.placeId, status: sent.status, code: sent.code };
   }
