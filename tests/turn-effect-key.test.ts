@@ -64,7 +64,8 @@ test('a second attempt of a turn whose first attempt failed before its send carr
   const recording =
     (run: RunOp): RunOp =>
     (key, args, context) => {
-      const given: unknown = context?.idempotencyKey;
+      // The admin types a call's context loosely; the key is read from it as data.
+      const given: unknown = (context as Record<string, unknown> | undefined)?.idempotencyKey;
       if (key === 'message.create') callKeys.push(typeof given === 'string' ? given : null);
       return run(key, args, context);
     };
