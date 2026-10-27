@@ -149,6 +149,43 @@ export function applyDiaryUpdate(handle, update) {
   });
 }
 
+/**
+ * The pictures and the voice file of an entry the diary turn recorded (src/behavior/diary-turn.ts), kept as the job
+ * keeps an older post's: each file written atomically to `data/media/diary/<entry id>-<n>.<ext>` (`update.dataDir`, the
+ * service's data directory) in the entry's order, then its `media` row (applyDiaryUpdate: the diary row's scope, an
+ * audio row's `extra` `{ voice: true, text, durationSec, waveform }`). Runs on the writer connection; a repeat writes the
+ * same files and rows. Returns how many files were kept.
+ * @param {unknown} handle  an `openMemoryDb` handle (the writer)
+ * @param {unknown} given  `{ dataDir, id, items: [{ data, mime, extra? }] }`
+ */
+export function applyEntryMedia(handle, given) {
+  const update =
+    /** @type {{ dataDir: string, id: string, items?: Array<{ data: Uint8Array, mime: string, extra?: object|null }> }} */ (
+      given
+    );
+  const base = safeName(update.id);
+  const media = (update.items ?? []).map((item, index) => {
+    const buffer = Buffer.from(item.data);
+    const audio = /^audio\//i.test(item.mime);
+    const rel = path.join(
+      MEDIA_DIR,
+      `${base}-${index + 1}.${audio ? audioExtension(item.mime, '') : (EXTENSIONS[item.mime] ?? 'bin')}`
+    );
+    writeAtomic(path.join(update.dataDir, rel), buffer);
+    return {
+      id: `media:diary:${base}-${index + 1}`,
+      path: rel.split(path.sep).join('/'),
+      nativeRef: null,
+      sha1: createHash('sha1').update(buffer).digest('hex'),
+      bytes: buffer.byteLength,
+      mime: item.mime,
+      extra: item.extra ? JSON.stringify(item.extra) : null,
+    };
+  });
+  if (media.length > 0) applyDiaryUpdate(handle, { id: update.id, media });
+  return media.length;
+}
+
 /** Writes `buffer` to `abs` atomically. */
 function writeAtomic(abs, buffer) {
   fs.mkdirSync(path.dirname(abs), { recursive: true });

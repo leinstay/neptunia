@@ -709,6 +709,8 @@ export function createDiary({
     const entry = result?.diary?.entry;
     if (entry && mirrors) {
       try {
+        // The entry's row is in memory before its media and its publications name it.
+        await store.flushSettled?.({});
         await mirrors.publishEntry(entry);
       } catch (err) {
         log.warn('diary: publication failed', { guildId, error: err });

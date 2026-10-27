@@ -139,8 +139,9 @@ export type DiaryStore = {
 /**
  * A diary post recorded before anything is sent: one post in the guild's diary (`store.appendDiaryPost`, the newest
  * `diary.historyPosts` (150) kept) with its gist and its first picture's scene cut to `diary.gistChars` (200), her
- * full text, the entry's id as its `itemId`, its search query and, with a voice message, the text as voiced and its
- * length; the day's diary post counted. Every picture was counted when it was generated. Returns the outcome's `diary`
+ * full text, the entry's id as its `itemId`, its search query, how it is sent (`send`: her messages as sent, their
+ * mentions, the set's byte limit) and, with a voice message, the text as voiced and its length; the day's diary post
+ * counted. Every picture was counted when it was generated. Returns the outcome's `diary`
  * field: the counts and the entry the mirrors publish.
  */
 export function recordEntry({
@@ -177,6 +178,11 @@ export function recordEntry({
   const gistChars = numberOr(diaryCfg.gistChars, 200);
   const id = newId();
   const first = staged[0];
+  const maxMessageBytes = setOf(diaryCfg).maxMessageBytes;
+  const rendered = {
+    messages: held.rendered.map((part) => part.text),
+    mentions: held.rendered.map((part) => part.userIds),
+  };
   if (typeof store.appendDiaryPost === 'function') {
     store.appendDiaryPost(
       guildId,
@@ -190,6 +196,8 @@ export function recordEntry({
         text: held.texts.join('\n'),
         itemId: id,
         ...(voice ? { voice: { text: voice.text, durationSec: voice.durationSecs } } : {}),
+        // How the entry goes out, kept so a publication sent after a restart sends it whole (src/behavior/mirror.ts).
+        send: { ...rendered, maxMessageBytes },
       },
       { max: numberOr(diaryCfg.historyPosts, 150) }
     );
@@ -198,11 +206,10 @@ export function recordEntry({
   store.state.markDirty();
   const entry: DiaryEntry = {
     id,
-    messages: held.rendered.map((part) => part.text),
-    mentions: held.rendered.map((part) => part.userIds),
+    ...rendered,
     pictures: staged.map((item) => ({ buffer: item.buffer, mediaType: item.mediaType })),
     voice: voice?.ogg ? { ogg: voice.ogg, durationSecs: voice.durationSecs, waveform: voice.waveform ?? '' } : null,
-    maxMessageBytes: setOf(diaryCfg).maxMessageBytes,
+    maxMessageBytes,
   };
   const counts = {
     kind: plan.kind,

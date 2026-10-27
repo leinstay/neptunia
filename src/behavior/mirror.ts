@@ -11,8 +11,10 @@
 // An entry goes out in the order a diary post goes out from the turn: the voice message, her messages one by one, then
 // the pictures in messages of files (`sendEntry`). The turn's act path (src/behavior/turn.js#act) splits a set with
 // the same `chunkPictures` and names its files with `pictureAttachments`; `voice.say` (src/tools/impl/voice.ts) builds
-// its file with `voiceAttachment`. The entry's pictures and voice live in this process until the row is sent; a row
-// still queued after a restart goes out as its rendered text alone.
+// its file with `voiceAttachment`. Before any send the entry's pictures and voice file are kept in memory as files
+// under the data directory and `media` rows (memoryWrite kind `entry-media`, src/memory/db/diary-media.js), so a row
+// still queued after a restart goes out whole: `drainQueued` rebuilds the entry from its `diary` row (`send`: her
+// messages as sent, their mentions, the set's byte limit) and its media.
 //
 // `mirrorPlaces(db)` reads the places of the enabled diary mirrors; `diaryPlaces(db)` is the read every diary-channel
 // check uses: those places, oldest first, or, with none, the place the last entry was published to. A mirror place is
@@ -20,6 +22,8 @@
 // there with the code `diary-mirror`, and the message handler opens no turn for an event there (src/behavior/
 // pipeline.js). Logs carry counts and codes, never a text.
 
+import fs from 'node:fs';
+import path from 'node:path';
 import { log } from '../log.js';
 import { portLimit } from '../interface/capabilities.ts';
 import { issueContext } from '../memory/db/scope.ts';
@@ -70,6 +74,8 @@ export type DiaryPlace = { placeId: string; iface: string; conversationId: strin
 
 /** The part of the memory service the publisher uses: the read connection and the one writer. */
 export type MirrorMemory = {
+  /** Where the entries' media files are kept (the service's data directory). */
+  dataDir?: string;
   readHandle(): { db: unknown } | null;
   memoryWrite(update: Record<string, unknown>): Promise<unknown>;
 };
@@ -307,6 +313,62 @@ export function guardMirrorPort<TPort extends MirrorPort>(port: TPort, { memoryD
   });
 }
 
+/** What an audio `media` row of an entry keeps of its voice message: its length and its waveform. */
+function voiceExtra(voice: EntryVoice): { durationSec: number; waveform: string } {
+  return { durationSec: voice.durationSecs, waveform: voice.waveform };
+}
+
+/** The JSON object of `text`, or an empty object. */
+function objectOf(text: unknown): Row {
+  try {
+    const parsed: unknown = typeof text === 'string' ? JSON.parse(text) : null;
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? (parsed as Row) : {};
+  } catch {
+    // An unreadable extra holds nothing of the entry.
+    return {};
+  }
+}
+
+/** The number at the end of a media id (`media:diary:<entry>-<n>`): its place in the entry. */
+const mediaNumber = (id: unknown): number => Number(/-(\d+)$/.exec(String(id))?.[1] ?? 0);
+
+/**
+ * The entry of a queued publication as memory holds it: its `diary` row's `send` (her messages as sent, their mentions,
+ * the set's byte limit; the rendered text as one message when it has none) and its `media` rows with their files under
+ * `dataDir`, pictures first and the voice file last, in their numbering. A file that cannot be read is left out.
+ */
+function storedEntry(db: Db, publication: Publication, dataDir: string | null): DiaryEntry {
+  const row = db.prepare('SELECT extra FROM diary WHERE id = ?').get(publication.row_id);
+  const send = objectOf(row?.extra).send as
+    { messages?: unknown; mentions?: unknown; maxMessageBytes?: unknown } | undefined;
+  const messages = Array.isArray(send?.messages) ? (send.messages as Array<string>) : [publication.rendered ?? ''];
+  const entry: DiaryEntry = {
+    id: publication.row_id,
+    messages,
+    ...(Array.isArray(send?.mentions) ? { mentions: send.mentions as Array<Array<string>> } : {}),
+    ...(typeof send?.maxMessageBytes === 'number' ? { maxMessageBytes: send.maxMessageBytes } : {}),
+  };
+  const media = db
+    .prepare("SELECT id, path, mime, extra FROM media WHERE kind = 'diary' AND owner = ? AND retired_at IS NULL")
+    .all(publication.row_id)
+    .sort((a, b) => mediaNumber(a.id) - mediaNumber(b.id));
+  const pictures: Array<EntryPicture> = [];
+  for (const item of media) {
+    const file = dataDir && typeof item.path === 'string' ? path.join(dataDir, item.path) : null;
+    if (!file || !fs.existsSync(file)) continue;
+    const buffer = fs.readFileSync(file);
+    const mime = String(item.mime);
+    if (!mime.startsWith('audio/')) {
+      pictures.push({ buffer, mediaType: mime });
+      continue;
+    }
+    const extra = objectOf(item.extra);
+    const durationSecs = typeof extra.durationSec === 'number' ? extra.durationSec : 0;
+    entry.voice = { ogg: buffer, durationSecs, waveform: typeof extra.waveform === 'string' ? extra.waveform : '' };
+  }
+  return pictures.length > 0 ? { ...entry, pictures } : entry;
+}
+
 /**
  * The publisher of the diary's mirrors over the memory service `memoryDb` and the connected interface's port
  * (`port()`: null when none is connected). `config()` is the live config, read at each send for an entry that names
@@ -327,9 +389,6 @@ export function createMirrors({
   publishEntry(entry: DiaryEntry): Promise<Array<PublishOutcome>>;
   drainQueued(): Promise<number>;
 } {
-  // The entries whose publication is still queued, by publication id: their pictures and voice live only here.
-  const held = new Map<string, DiaryEntry>();
-
   function database(): Db | null {
     const handle = memoryDb.readHandle();
     return handle ? (handle.db as Db) : null; // the service's read connection is node:sqlite's
@@ -359,6 +418,17 @@ export function createMirrors({
   const write = (update: Record<string, unknown>): Promise<unknown> =>
     memoryDb.memoryWrite({ kind: 'publication', ...update });
 
+  /** The entry's pictures, then its voice file, kept in memory before anything is sent (in that order: numbered so). */
+  async function keepMedia(entry: DiaryEntry): Promise<void> {
+    const items = [
+      ...(entry.pictures ?? []).map((picture) => ({ data: picture.buffer, mime: picture.mediaType, extra: null })),
+      ...(entry.voice
+        ? [{ data: entry.voice.ogg, mime: 'audio/ogg', extra: { voice: true, ...voiceExtra(entry.voice) } }]
+        : []),
+    ];
+    if (items.length > 0) await memoryDb.memoryWrite({ kind: 'entry-media', id: entry.id, items });
+  }
+
   /** A queued publication sent to its place, when the port of its interface is connected; its outcome. */
   async function send(publication: Publication, place: DiaryPlace, entry: DiaryEntry): Promise<PublishOutcome> {
     const connected = port();
@@ -368,7 +438,6 @@ export function createMirrors({
       maxMessageBytes: entry.maxMessageBytes ?? setOf(diary).maxMessageBytes,
       now,
     });
-    held.delete(publication.id);
     if (sent.status === 'sent')
       await write({
         op: 'sent',
@@ -384,6 +453,7 @@ export function createMirrors({
   async function publishEntry(entry: DiaryEntry): Promise<Array<PublishOutcome>> {
     const db = database();
     if (!db) return [];
+    await keepMedia(entry);
     const outcomes: Array<PublishOutcome> = [];
     for (const mirror of listMirrors().filter((one) => one.enabled)) {
       const place = mirroredPlace(db, mirror.placeId);
@@ -404,7 +474,6 @@ export function createMirrors({
         outcomes.push({ placeId: place.placeId, status: publication.status as PublishOutcome['status'], code: null });
         continue;
       }
-      held.set(publication.id, entry);
       outcomes.push(await send(publication, place, entry));
     }
     return outcomes;
@@ -422,7 +491,7 @@ export function createMirrors({
     for (const publication of queued) {
       const place = mirroredPlace(db, publication.destination_place_id);
       if (!place) continue;
-      const entry = held.get(publication.id) ?? { id: publication.row_id, messages: [publication.rendered ?? ''] };
+      const entry = storedEntry(db, publication, memoryDb.dataDir ?? null);
       if ((await send(publication, place, entry)).status === 'sent') sent += 1;
     }
     return sent;

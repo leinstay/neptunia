@@ -1397,12 +1397,17 @@ export function createMemoryDb({
    */
   async function memoryWrite(update) {
     if (!handle || closing) throw Object.assign(new Error('memory db is not open'), { code: 'DB_CLOSED' });
-    // The read predicate of the target check is the live config's.
-    const stamped = { ...update, audienceColumn: hot.config?.memoryDb?.audienceColumn === true };
+    const kind = /** @type {unknown} */ (update?.kind);
+    // The read predicate of the target check is the live config's; a diary entry's media go under the data directory.
+    const stamped = {
+      ...update,
+      audienceColumn: hot.config?.memoryDb?.audienceColumn === true,
+      ...(kind === 'entry-media' ? { dataDir } : {}),
+    };
     // A session's batch read its lines: touched while eviction is on.
-    if (update?.kind === 'session' && Array.isArray(update.reads))
+    if (kind === 'session' && Array.isArray(update.reads))
       touchSources(update.reads.filter((row) => row?.row_kind === 'sources').map((row) => row.row_id));
-    const applies = update?.kind === 'session' && update.mode === 'apply';
+    const applies = kind === 'session' && update.mode === 'apply';
     try {
       if (engine) return await engine.call('memoryWrite', { update: stamped });
       return applyMemoryWrite(handle, stamped);
@@ -1498,6 +1503,8 @@ export function createMemoryDb({
 
   return {
     tick,
+    // The data directory: where a diary entry's media files are kept and read (src/behavior/mirror.ts).
+    dataDir,
     database,
     readHandle,
     recordTurnReads,

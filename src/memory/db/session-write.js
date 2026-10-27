@@ -30,6 +30,8 @@
 //       Bookkeeping of the database itself, not her memory: no mode.
 //   { kind: 'publication', op: 'prepare' | 'sent' | 'failed' | 'unknown', ... }
 //       The diary's mirrors (src/behavior/mirror.ts), handed to publish.js#applyPublicationWrite.
+//   { kind: 'entry-media', id, items, dataDir }
+//       A diary entry's pictures and voice file, kept as files and `media` rows (diary-media.js#applyEntryMedia).
 //   { kind: 'unit', op, ... }
 //       The memory units (record and journal lines, the store's cache, the module stores, participation, the diary,
 //       the vectors) and the projection the writers finish, handed to unit-write.js#applyUnitWrite.
@@ -82,6 +84,7 @@ import { applySkillsWrite } from './skills.js';
 import { applyIndexWrite } from './index-policy.js';
 import { applyUnitWrite } from './unit-write.js';
 import { applyPublicationWrite } from './publish.js';
+import { applyEntryMedia } from './diary-media.js';
 import { writeBackup } from './backup.js';
 
 /**
@@ -614,6 +617,7 @@ export function applyMemoryWrite(handle, update) {
   if (kind === 'index-policy' || kind === 'touch' || kind === 'reembed') return applyIndexWrite(handle, update);
   if (kind === 'unit') return applyUnitWrite(handle, update);
   if (kind === 'publication') return applyPublicationWrite(handle, update);
+  if (kind === 'entry-media') return applyEntryMedia(handle, update);
   if (kind === 'backup') {
     return writeBackup(handle, {
       to: update.to,
