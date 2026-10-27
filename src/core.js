@@ -447,7 +447,7 @@ async function buildCore(options, cleanups) {
   // mirror's place goes nowhere (`diary-mirror`); only the mirrors' publisher below holds the link's own adapter.
   const iface = guardMirrorPort(coreLink.adapter, { memoryDb });
   // The diary's mirrors (src/behavior/mirror.ts): each recorded entry published once to every enabled mirror.
-  const mirrors = createMirrors({ memoryDb, port: () => coreLink.adapter, now: Date.now });
+  const mirrors = createMirrors({ memoryDb, port: () => coreLink.adapter, now: Date.now, dataDir });
 
   // What the interface hands over besides its adapter: `serveCommands`, the slash command interactions (the command
   // handler). An interface that has none, like the fake, serves no commands.

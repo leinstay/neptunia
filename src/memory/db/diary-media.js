@@ -64,6 +64,7 @@ function audioExtension(mime, name) {
  * kept) a `voice` field in its extra with no audio media row. Each carries the post's `voice` object, if any, and the
  * conversation it was posted to: the place its publication names, else the place her diary is posted to
  * (src/behavior/mirror.ts#diaryPlaces, the first), else null.
+ * @returns {Array<Record<string, unknown> & { id: string, conversationId: string | null, messageIds: string[], voice: object | null }>}
  */
 export function pendingDiaryRows(db) {
   const fallbackId = diaryPlaces(db)[0]?.conversationId ?? null;
@@ -375,7 +376,8 @@ export function createDiaryMedia({
     if (!database || !adapter?.fetchMessages || !fetcher) return counts;
     let rows;
     try {
-      rows = pendingDiaryRows(database).filter((row) => !attempted.has(row.id));
+      // A post with no place is never asked of the interface: there is no conversation to ask.
+      rows = pendingDiaryRows(database).filter((row) => row.conversationId !== null && !attempted.has(row.id));
     } catch (error) {
       log.warn('diary media: read failed', { code: codeOf(error) });
       return counts;

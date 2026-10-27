@@ -74,8 +74,6 @@ export type DiaryPlace = { placeId: string; iface: string; conversationId: strin
 
 /** The part of the memory service the publisher uses: the read connection and the one writer. */
 export type MirrorMemory = {
-  /** Where the entries' media files are kept (the service's data directory). */
-  dataDir?: string;
   readHandle(): { db: unknown } | null;
   memoryWrite(update: Record<string, unknown>): Promise<unknown>;
 };
@@ -93,7 +91,7 @@ type Publication = {
 };
 type Prepared = { ok: true; publication: Publication; reused: boolean } | { ok: false; code: string };
 
-// diary.js is JS; its JSDoc gives `setSettings` this shape, which the type checker cannot always follow through it.
+// diary.js is JS; `setSettings` as the publisher calls it, on a `diary` section of unknown shape.
 const setOf = setSettings as (diaryCfg: unknown) => { maxMessageBytes: number };
 
 // The files of one message when the adapter names no limit (`capabilities().maxFiles`).
@@ -371,18 +369,21 @@ function storedEntry(db: Db, publication: Publication, dataDir: string | null): 
 
 /**
  * The publisher of the diary's mirrors over the memory service `memoryDb` and the connected interface's port
- * (`port()`: null when none is connected). `config()` is the live config, read at each send for an entry that names
- * no `maxMessageBytes` (`diary.set.maxMessageBytes`).
+ * (`port()`: null when none is connected). `dataDir` is the memory service's data directory, where the entries' media
+ * files are kept (null: a queued entry goes out without them). `config()` is the live config, read at each send for an
+ * entry that names no `maxMessageBytes` (`diary.set.maxMessageBytes`).
  */
 export function createMirrors({
   memoryDb,
   port,
   now,
+  dataDir = null,
   config = () => ({}),
 }: {
   memoryDb: MirrorMemory;
   port: () => MirrorPort | null;
   now: () => number;
+  dataDir?: string | null;
   config?: () => unknown;
 }): {
   listMirrors(): Array<Mirror>;
@@ -491,7 +492,7 @@ export function createMirrors({
     for (const publication of queued) {
       const place = mirroredPlace(db, publication.destination_place_id);
       if (!place) continue;
-      const entry = storedEntry(db, publication, memoryDb.dataDir ?? null);
+      const entry = storedEntry(db, publication, dataDir);
       if ((await send(publication, place, entry)).status === 'sent') sent += 1;
     }
     return sent;
