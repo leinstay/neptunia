@@ -1,11 +1,11 @@
 // Tests for the persona's view of her intentions: the `<intentions>` block's body
-// (src/intentions/blocks.js) -- her active ones with their wait, due time and outcome, then the
+// (src/intentions/blocks.ts) -- her active ones with their wait, due time and outcome, then the
 // candidates with the line they came from, cut to the token budget -- and the switch that hides
 // the `intention.*` skills from her entirely while features.intentions is off (src/tools/access.ts).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { intentionsBlockText } from '../src/intentions/blocks.js';
-import { createIntention, transition, waitOn } from '../src/intentions/model.js';
+import { intentionsBlockText } from '../src/intentions/blocks.ts';
+import { createIntention, transition, waitOn } from '../src/intentions/model.ts';
 import { formatClock, formatDate } from '../src/format.js';
 import '../src/tools/impl/index.ts';
 import { skillRegistry } from '../src/tools/registry.ts';

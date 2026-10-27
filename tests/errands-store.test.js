@@ -1,4 +1,4 @@
-// Tests for src/errands/store.js: the persona's errand tasks, per guild, in the memory database of a
+// Tests for src/errands/store.ts: the persona's errand tasks, per guild, in the memory database of a
 // temp data/ directory. A task moves queued -> running -> done | failed | cancelled, the unit
 // errands.json holds the list and errands.jsonl one line per transition, the caps refuse with their codes (open at
 // once, tasks and dollars per UTC day), the journal gets one operation per task with counts
@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createTaskStore, fileHandle, parseFileHandle } from '../src/errands/store.js';
+import { createTaskStore, fileHandle, parseFileHandle } from '../src/errands/store.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { tempDir } from './fixtures/tmp.js';
 import { openTestMemorySync, unitFile } from './fixtures/memory-db/service.js';

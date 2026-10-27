@@ -1,8 +1,8 @@
 // The costs fields of the owner's `/nep status` card: `keys.base`, what each OpenRouter key of the
 // core allows and has spent; `costs.base`, today's requests per model role from the bot's own
 // accounting (drawing's row included); `costs.errands`, the errand agents' runs and estimated spend (scout and
-// server from the errand records, src/errands/costs.js); `costs.development`, thinker and dev from
-// the ledger (src/errands/ledger.js#costs); both rendered here by agentCostsLines. The
+// server from the errand records, src/errands/costs.ts); `costs.development`, thinker and dev from
+// the ledger (src/errands/ledger.ts#costs); both rendered here by agentCostsLines. The
 // accumulator is fed by the `llm: usage` log lines (src/log.js#onLog, subscribed in src/index.js
 // via `usageTap`), the one place every chat completion and embedding request reports its tokens
 // and cost, and by the `images: generated` lines (a picture: the `drawing` role, a cost and no
@@ -623,7 +623,7 @@ export function roleCostsLines({
   return lines.filter((text): text is string => Boolean(text));
 }
 
-/** The windows of an agent's spend line, in order (src/errands/costs.js#COST_WINDOWS's names). */
+/** The windows of an agent's spend line, in order (src/errands/costs.ts#COST_WINDOWS's names). */
 const AGENT_WINDOWS: ReadonlyArray<string> = Object.freeze(['today', 'last7', 'last30']);
 
 /**
@@ -635,8 +635,8 @@ const AGENT_WINDOWS: ReadonlyArray<string> = Object.freeze(['today', 'last7', 'l
  * totals carry a `last_wave` with a context figure (the thinker's, from the ledger) is followed by
  * `agentContext` ({agent} {wave} {turns} {mean} {peak} {usd}; the context in compact tokens, `-`
  * for a missing one); then `agentEstimate`, the note that the dollars are OpenCode's estimate. Pure.
- * `totals` is as src/errands/costs.js#agentCosts returns, the ledger's agents merged in
- * (src/errands/ledger.js#agentCostsOf); an agent it lacks has no run.
+ * `totals` is as src/errands/costs.ts#agentCosts returns, the ledger's agents merged in
+ * (src/errands/ledger.ts#agentCostsOf); an agent it lacks has no run.
  */
 export function agentCostsLines({
   agents,

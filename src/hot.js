@@ -21,7 +21,7 @@
 // one, so an edit there reloads exactly as an edit in the checkout does.
 //
 // prompts.local/preambles/ (a subfolder of the private layer only; no tracked default) holds the
-// errand agents' preambles, picked by agent and model (src/errands/preambles.js): every `*.md`
+// errand agents' preambles, picked by agent and model (src/errands/preambles.ts): every `*.md`
 // directly in it is loaded under its base name into `hot.prompts.preambles` (`{}` without the
 // folder). Unlike the top-level files, a preamble file that reads empty (or whitespace only) loads
 // as '' at once, with no keep-the-previous-text guard: emptying a file is how the owner switches

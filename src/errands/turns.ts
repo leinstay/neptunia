@@ -1,4 +1,4 @@
-// The turn an errand's end opens: when a task of the persona's finishes (src/errands/service.js
+// The turn an errand's end opens: when a task of the persona's finishes (src/errands/service.ts
 // calls `onFinished`), she gets a turn of her own in the conversation it was asked in, the way
 // the missed-answer recovery opens one (src/behavior/missed.js): through the turn runner's one
 // attention (a turn running anywhere holds it back; mention.oneAtATime), a cooldown per
@@ -6,7 +6,7 @@
 // silence. The turn's trigger is the message the errand was asked in (her answer replies to it),
 // else -- a slash command, or a message gone since -- an interjection; its kind is `errand`, its
 // requester the person who asked, and its request carries the `<errand_result>` block
-// (src/errands/blocks.js). A turn held back is retried every `errands.resultRetrySeconds`, at
+// (src/errands/blocks.ts). A turn held back is retried every `errands.resultRetrySeconds`, at
 // most RESULT_ATTEMPTS times, then left for her `<errands>` block (marked `resultTurnFailed`, so
 // the line says the turn never ran); a turn that failed on its own (`error`, `refused`, or any
 // outcome but spoke and skip) is retried the same way. Only a turn that spoke or chose silence
@@ -18,7 +18,7 @@
 // task itself rides along in-process under `raw.task` (the event holds its id and status), and
 // when it does not, the task store of the event's guild is asked for it. Before the result turn,
 // the end reaches the persona's intentions waiting on that errand (`intentions.onTaskFinished`,
-// src/intentions/service.js), so the turn already shows them back to pending with the outcome.
+// src/intentions/service.ts), so the turn already shows them back to pending with the outcome.
 
 import { log as defaultLog } from '../log.js';
 import { lineOf } from '../behavior/line-of.js';

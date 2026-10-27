@@ -19,8 +19,8 @@ import { createArchive } from '../src/memory/archive.js';
 import { createJournal } from '../src/memory/journal.js';
 import { createVectors } from '../src/memory/vectors.js';
 import { createEmbedder } from '../src/memory/embedder.js';
-import { createIntentionStores } from '../src/intentions/store.js';
-import { createTaskStores } from '../src/errands/store.js';
+import { createIntentionStores } from '../src/intentions/store.ts';
+import { createTaskStores } from '../src/errands/store.ts';
 import { CHANNEL, GUILD, MEMBER, buildDataDir } from './fixtures/memory-db/datadir.js';
 import { seedUnits } from './fixtures/memory-db/seed.js';
 

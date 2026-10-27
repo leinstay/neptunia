@@ -1,7 +1,7 @@
-// The agents' spend from the errand records (src/errands/store.js): per agent, over today, the
+// The agents' spend from the errand records (src/errands/store.ts): per agent, over today, the
 // last 7 and the last 30 UTC days (today included), its runs, input and output tokens and
 // dollars. The dollars are the runner's own estimate (OpenCode's step costs, priced by the live
-// `agents.<agent>.cost` the task was sent with, src/errands/client.js), never an OpenRouter key's
+// `agents.<agent>.cost` the task was sent with, src/errands/client.ts), never an OpenRouter key's
 // figure. A run counts on the UTC day its task was queued (an open task included), its tokens and
 // dollars on the day it ended. The same numbers are the daily caps' (`agents.<agent>.daily.tasks`
 // and `.usd`, the `today` window) and the owner card's `costs.errands` field. Pure; the clock is

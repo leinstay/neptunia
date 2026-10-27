@@ -9,7 +9,7 @@
 // as `waitRequested` on a `pending` intention and linked by `linkTurnTask` when that turn's
 // `errand.run` queues one; a failed launch links nothing, so nothing waits on it). Completion is
 // idempotent: a second end of the same errand finds nothing waiting. A recurring intention
-// (`every`, src/intentions/model.js) is advanced to its next occurrence when the scheduler disposes
+// (`every`, src/intentions/model.ts) is advanced to its next occurrence when the scheduler disposes
 // of its wake (`advance`: `recurred` when a call of hers named it, `missed` otherwise), when her
 // `state=done` closes the occurrence (`done-occurrence`), and when a wait of its ends with the
 // errand (the outcome kept); its wall-clock time is pinned in `bot.timezone`. An attention
@@ -24,8 +24,8 @@
 import { randomUUID } from 'node:crypto';
 import { log as defaultLog } from '../log.js';
 import { DAY_MS, HOUR_MS, zonedDay } from '../time.js';
-import { isOpenState } from '../errands/store.js';
-import { createLineSources } from './sources.js';
+import { isOpenState } from '../errands/store.ts';
+import { createLineSources } from './sources.ts';
 import {
   acceptRefusal,
   advanceOccurrence,
@@ -58,7 +58,7 @@ import {
   CHAIN_CHARS,
   CONDITION_CHARS,
   PURPOSE_CHARS,
-} from './model.js';
+} from './model.ts';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { CODE } from '../tools/codes.ts';
 
@@ -67,13 +67,13 @@ const ACTIVE = Object.freeze(['pending', 'waiting']);
 
 /**
  * @param {object} options
- * @param {{ get(guildId: string): object|null }} options.stores  src/intentions/store.js#createIntentionStores
+ * @param {{ get(guildId: string): object|null }} options.stores  src/intentions/store.ts#createIntentionStores
  * @param {{ config: object }} options.hot
  * @param {{ store(guildId: string): ({ get(id: string): object|null }|null) }|null} [options.tasks]  The errand
- *   service (src/errands/service.js): the task store a wait is checked against.
+ *   service (src/errands/service.ts): the task store a wait is checked against.
  * @param {{ findTurn?: Function }|null} [options.journal]  Where a candidate's turn is looked up.
  * @param {{ note: Function, get: Function }|null} [options.lineSources]  The notes of where her lines
- *   came from (src/intentions/sources.js#createLineSources; one of its own by default): the turn
+ *   came from (src/intentions/sources.ts#createLineSources; one of its own by default): the turn
  *   runner notes each line she posts (`noteLine`), the memory buffer takes the note with the line
  *   (`lineSources`), and a candidate is judged by it (`addCandidates`, strict: a line of hers with
  *   no note counts as external).
@@ -527,7 +527,7 @@ export function createIntentionService({
   }
 
   /**
-   * An errand's end (src/errands/service.js's `onFinished`): every intention waiting on it moves
+   * An errand's end (src/errands/service.ts's `onFinished`): every intention waiting on it moves
    * to `pending` with its outcome. Idempotent: the same end twice moves nothing the second time.
    * Never throws; how many moved.
    */
@@ -590,7 +590,7 @@ export function createIntentionService({
   }
 
   /**
-   * Recurring intention `id` advanced past its current occurrence (src/intentions/model.js#advanceOccurrence)
+   * Recurring intention `id` advanced past its current occurrence (src/intentions/model.ts#advanceOccurrence)
    * when that occurrence is due or past (`dueAt <= now`) and the record is `pending`: the scheduler calls
    * it when the occurrence's wake is disposed of (her turn ended, or the wake was dropped). `named`: a
    * call of hers in that turn named it (code `recurred`), else `missed`. A one-off, a waiting one (its
@@ -646,7 +646,7 @@ export function createIntentionService({
   }
 
   /**
-   * Expired intention `id` marked as shown to her (`expiredShownAt`, src/intentions/model.js#markExpiredShown):
+   * Expired intention `id` marked as shown to her (`expiredShownAt`, src/intentions/model.ts#markExpiredShown):
    * the scheduler calls it once the review turn that listed it ran. An unexpired, unknown or already
    * marked record changes nothing. `{ ok, intention, changed }` or `{ ok: false, code }`.
    */
@@ -691,7 +691,7 @@ export function createIntentionService({
     }
   }
 
-  /** What is due now (src/intentions/model.js#dueList) for the guild, its expired swept first. */
+  /** What is due now (src/intentions/model.ts#dueList) for the guild, its expired swept first. */
   function due(guildId) {
     const store = storeOf(guildId);
     if (!store) return [];
@@ -794,7 +794,7 @@ export function createIntentionService({
     return out;
   }
 
-  /** Note where her posted line `messageId` came from (src/intentions/sources.js#lineSourcesOf's note). */
+  /** Note where her posted line `messageId` came from (src/intentions/sources.ts#lineSourcesOf's note). */
   function noteLine(messageId, sources) {
     lineSources?.note?.(String(messageId ?? ''), sources);
   }

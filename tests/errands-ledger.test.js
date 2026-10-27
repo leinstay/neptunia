@@ -1,4 +1,4 @@
-// Tests for src/errands/ledger.js: the persona's errands mirrored into the ledger over its Unix
+// Tests for src/errands/ledger.ts: the persona's errands mirrored into the ledger over its Unix
 // socket. A FAKE ledger (a net server on a socket in a temp directory) records every request and
 // answers like the ledger's wire protocol ({ id, ok, result | error }), returning the same task id
 // for the same idempotency key. Covered: the mapping of every transition with its idempotency
@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 
-import { createLedgerMirror, MAX_QUEUE, TITLE_CHARS, agentCostsOf, idempotencyKey } from '../src/errands/ledger.js';
+import { createLedgerMirror, MAX_QUEUE, TITLE_CHARS, agentCostsOf, idempotencyKey } from '../src/errands/ledger.ts';
 import { tempDir } from './fixtures/tmp.js';
 
 const T0 = Date.parse('2026-10-17T10:00:00Z');

@@ -1,13 +1,13 @@
 // The persona's view of her errands in a request, as text: the `<errands>` block (her open errands
 // and the finished ones she has not seen, one line each) and the `<errand_result>` block of the
-// turn an errand's end opens (src/errands/turns.js). Pure: every word comes from
+// turn an errand's end opens (src/errands/turns.ts). Pure: every word comes from
 // `labels.errands` (prompts/labels.json); a block whose labels are missing is left out (''). Ids,
 // agent names, states' codes, URLs, file handles, content types and sizes are data, not wording.
 
 import { fill } from '../format.js';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { MINUTE_MS } from '../time.js';
-import { fileHandle, isOpenState } from './store.js';
+import { fileHandle, isOpenState } from './store.ts';
 
 /** The goal's length on a `<errands>` line (characters). */
 export const TASK_GOAL_CHARS = 120;

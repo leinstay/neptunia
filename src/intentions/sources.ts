@@ -1,7 +1,7 @@
 // Where a line of the persona's came from, for the injection guard of her intentions
 // (docs/inner-life.md). A goal planted in a web page, a
 // memory result or a tool's output can reach her own words -- she quotes or paraphrases it in a
-// line of hers -- and then the analyzer's quote check (src/intentions/model.js#candidatesFromAnswer)
+// line of hers -- and then the analyzer's quote check (src/intentions/model.ts#candidatesFromAnswer)
 // passes, because nobody else's line holds those words. So each line she posts is noted with what
 // her turn had in front of it when she wrote it (`lineSourcesOf`):
 //
@@ -17,7 +17,7 @@
 // `externalOrigin` judges a candidate against its anchor line. A line marked `line.inner` (what
 // her reads returned in an inner turn) is always outside material. Pure, except the small
 // in-process registry (`createLineSources`) that holds the notes from her post for the candidates
-// judged against it (src/intentions/service.js#addCandidates).
+// judged against it (src/intentions/service.ts#addCandidates).
 
 /** Words per shingle. */
 export const SHINGLE_WORDS = 3;

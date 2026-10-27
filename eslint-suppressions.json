@@ -852,7 +852,7 @@
       "count": 1
     }
   },
-  "src/errands/blocks.js": {
+  "src/errands/blocks.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 14
     },
@@ -869,7 +869,7 @@
       "count": 2
     }
   },
-  "src/errands/client.js": {
+  "src/errands/client.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 8
     },
@@ -892,7 +892,7 @@
       "count": 1
     }
   },
-  "src/errands/costs.js": {
+  "src/errands/costs.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 1
     },
@@ -903,7 +903,7 @@
       "count": 15
     }
   },
-  "src/errands/ledger.js": {
+  "src/errands/ledger.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 10
     },
@@ -923,7 +923,7 @@
       "count": 1
     }
   },
-  "src/errands/preambles.js": {
+  "src/errands/preambles.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 1
     },
@@ -940,7 +940,7 @@
       "count": 2
     }
   },
-  "src/errands/service.js": {
+  "src/errands/service.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 17
     },
@@ -957,7 +957,7 @@
       "count": 15
     }
   },
-  "src/errands/store.js": {
+  "src/errands/store.ts": {
     "@typescript-eslint/no-floating-promises": {
       "count": 1
     },
@@ -977,7 +977,7 @@
       "count": 25
     }
   },
-  "src/errands/turns.js": {
+  "src/errands/turns.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 5
     },
@@ -1054,7 +1054,7 @@
       "count": 1
     }
   },
-  "src/intentions/blocks.js": {
+  "src/intentions/blocks.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 12
     },
@@ -1068,7 +1068,7 @@
       "count": 71
     }
   },
-  "src/intentions/model.js": {
+  "src/intentions/model.ts": {
     "@typescript-eslint/no-base-to-string": {
       "count": 1
     },
@@ -1091,7 +1091,7 @@
       "count": 1
     }
   },
-  "src/intentions/service.js": {
+  "src/intentions/service.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 25
     },
@@ -1108,7 +1108,7 @@
       "count": 16
     }
   },
-  "src/intentions/sources.js": {
+  "src/intentions/sources.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 2
     },
@@ -1122,7 +1122,7 @@
       "count": 2
     }
   },
-  "src/intentions/store.js": {
+  "src/intentions/store.ts": {
     "@typescript-eslint/no-floating-promises": {
       "count": 1
     },

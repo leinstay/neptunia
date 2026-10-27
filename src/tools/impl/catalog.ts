@@ -499,7 +499,7 @@ export const COMMAND_TABLE: ReadonlyArray<CommandNode> = Object.freeze([
         ],
         // When the persona herself calls it, she gives her text: an argument only she has
         // (her skills' own table, src/tools/definitions.ts, carries them now), never shown to Discord; the operation picks its mode by who acts.
-        // With it, a file one of her errands brought back (`file:<task id>/<name>`, src/errands/store.js),
+        // With it, a file one of her errands brought back (`file:<task id>/<name>`, src/errands/store.ts),
         // and a GIF of her library (`gif`, a handle: src/media/gif-post.js).
         personaOptions: [
           { type: STRING, name: 'text', description: 'Her text.', required: true, max_length: 2000 },

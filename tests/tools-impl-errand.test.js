@@ -10,8 +10,8 @@ import path from 'node:path';
 
 import { runOp } from '../src/tools/impl/index.ts';
 import { createOpsEnv } from '../src/tools/impl/env.ts';
-import { createTaskStores } from '../src/errands/store.js';
-import { createErrandService } from '../src/errands/service.js';
+import { createTaskStores } from '../src/errands/store.ts';
+import { createErrandService } from '../src/errands/service.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createDiscordInterface } from '../interfaces/discord/index.js';
 import { tempDir } from './fixtures/tmp.js';

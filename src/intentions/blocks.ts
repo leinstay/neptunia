@@ -18,7 +18,7 @@ import { fill, formatClock, formatDate } from '../format.js';
 import { estimateTokens } from '../llm/tokens.js';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { DAY_MS } from '../time.js';
-import { DEFAULTS } from './model.js';
+import { DEFAULTS } from './model.ts';
 
 /** `context.caps.intentions` when it is missing (config.json carries the same). */
 export const DEFAULT_INTENTIONS_CAP = 600;
@@ -101,7 +101,7 @@ function candidateLine(record, l) {
 }
 
 /**
- * The `<intentions>` block's body for `records` (src/intentions/service.js#view's order), within
+ * The `<intentions>` block's body for `records` (src/intentions/service.ts#view's order), within
  * `maxTokens` (`cost` the estimate; whole lines, in order): `labels.intentions.header`, a line per
  * active one, then `candidates` and a `candidate` line per proposed one. '' when nothing fits or
  * the labels are missing.

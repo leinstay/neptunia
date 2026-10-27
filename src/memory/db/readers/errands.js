@@ -1,4 +1,4 @@
-// The errand store's reads from the database (src/errands/store.js reads through them). `errands.json` is the unit of
+// The errand store's reads from the database (src/errands/store.ts reads through them). `errands.json` is the unit of
 // `work` rows and one `operational` row, `errands.jsonl` the unit of `work_events` rows (map/errands.js); both come back
 // rebuilt by the export. Pure functions over a read connection.
 

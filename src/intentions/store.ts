@@ -1,5 +1,5 @@
 // The persona's intentions, one store per guild: the unit `guilds/<id>/intentions.json` of the memory database
-// holds `{ intentions: [...] }` (the records of src/intentions/model.js), written whole on every change, so a restart
+// holds `{ intentions: [...] }` (the records of src/intentions/model.ts), written whole on every change, so a restart
 // reads back exactly what was there. The list keeps every open intention and the latest KEEP_CLOSED closed ones (done,
 // cancelled, expired, dropped). An older closed record is never deleted: it moves to the unit
 // `intentions-archive.jsonl` (append-only, one record per line), which only tools read (`archived`). A record that
@@ -7,7 +7,7 @@
 // change is a pure transition of the model applied through `update`. Logs carry ids and counts, never text.
 
 import { log as defaultLog } from '../log.js';
-import { checkInvariants, isOpen } from './model.js';
+import { checkInvariants, isOpen } from './model.ts';
 import { CODE } from '../tools/codes.ts';
 import { createReadSeam } from '../memory/db/readers/common.js';
 import { intentionsArchiveLines, intentionsValue } from '../memory/db/readers/intentions.js';

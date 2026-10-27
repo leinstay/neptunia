@@ -9,8 +9,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createInnerLife, deadlineWakes } from '../src/behavior/inner.js';
 import { createEventDoor } from '../src/interface/door.js';
-import { createIntentionService } from '../src/intentions/service.js';
-import { createIntentionStores } from '../src/intentions/store.js';
+import { createIntentionService } from '../src/intentions/service.ts';
+import { createIntentionStores } from '../src/intentions/store.ts';
 import { tempDir } from './fixtures/tmp.js';
 import { useIface, world } from './fixtures/turn-world.ts';
 

@@ -37,8 +37,8 @@ import { fill, formatClock, formatDate } from '../src/format.js';
 import { CHANNEL_HANDLE_PREFIX, HANDLE_DIGITS, handleOf } from '../src/behavior/handles.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
-import { createTaskStores } from '../src/errands/store.js';
-import { createErrandService } from '../src/errands/service.js';
+import { createTaskStores } from '../src/errands/store.ts';
+import { createErrandService } from '../src/errands/service.ts';
 import { tempDir } from './fixtures/tmp.js';
 import { onWorld, useIface, world } from './fixtures/turn-world.ts';
 

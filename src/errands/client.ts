@@ -13,7 +13,7 @@
 // (agentSettings), read at the moment of use. Logs carry the profile, ids and codes, never a goal, a result or a task's `secrets`
 // (sent on the `run` line and nowhere else). A `run` also carries the deployment's preamble when
 // one matches: the files of prompts.local/preambles/ picked by agent and by the agent's model
-// (src/errands/preambles.js; `hot.prompts.preambles`, read live; no tracked default). The model
+// (src/errands/preambles.ts; `hot.prompts.preambles`, read live; no tracked default). The model
 // is the agent's role model (`models.errands.scout`, `models.errands.server`), resolved here at send
 // time and sent on the `run` line as `model`, with the deployment's own price (`agents.<profile>.cost` of the live
 // config, when it has finite input and output) as `cost`: the runners cannot read the private config, so without it a
@@ -26,7 +26,7 @@ import { log as defaultLog } from '../log.js';
 import { encodeLine, normalizeResult, normalizeUsage, MAX_PREAMBLE_CHARS } from '../agent-runner/protocol.js';
 import { agentSettings, profileOf } from '../agent-runner/profiles.js';
 import { roleModel } from '../llm/roles.js';
-import { composePreamble } from './preambles.js';
+import { composePreamble } from './preambles.ts';
 import { CODE } from '../tools/codes.ts';
 
 /** The first reconnect delay and its ceiling (ms); the delay doubles after each failed attempt. */

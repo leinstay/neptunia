@@ -2,7 +2,7 @@
 // failed load is an error with a code that the next `get` tries again.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createIntentionStores } from '../src/intentions/store.js';
+import { createIntentionStores } from '../src/intentions/store.ts';
 import { GUILD, GUILD_2, readerEnv } from './fixtures/memory-db/readers.js';
 
 const ids = (records) => records.map((record) => record.id);

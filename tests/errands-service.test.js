@@ -1,4 +1,4 @@
-// Tests for src/errands/service.js: the secrets every run carries to its agent runner. Over a real
+// Tests for src/errands/service.ts: the secrets every run carries to its agent runner. Over a real
 // task store (a temp data/ directory) with a FAKE journal, a FAKE errand client and a FAKE log:
 // a run carries the key of its agent's model role as the bot resolves a role's key
 // (`llm.keyByRole`), never the persona's main key; the scout agent also gets the proxy in its http
@@ -13,9 +13,9 @@ import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
 
-import { createTaskStores } from '../src/errands/store.js';
-import { createErrandService, RUNNER_RECHECK_MS } from '../src/errands/service.js';
-import { createErrandClient } from '../src/errands/client.js';
+import { createTaskStores } from '../src/errands/store.ts';
+import { createErrandService, RUNNER_RECHECK_MS } from '../src/errands/service.ts';
+import { createErrandClient } from '../src/errands/client.ts';
 import { encodeLine } from '../src/agent-runner/protocol.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { tempDir } from './fixtures/tmp.js';
@@ -251,7 +251,7 @@ test("errands service: a task carries context.recent, the origin channel's last 
   fs.rmSync(rootDir, { recursive: true, force: true });
 });
 
-/** A fake ledger mirror (src/errands/ledger.js's shape): records each call; `add` answers a ledger id at once. */
+/** A fake ledger mirror (src/errands/ledger.ts's shape): records each call; `add` answers a ledger id at once. */
 function fakeMirror() {
   const calls = [];
   let n = 0;

@@ -10,7 +10,7 @@ import { legacyGrantOps, listOps, runOp } from '../src/tools/impl/index.ts';
 import { createOpsEnv } from '../src/tools/impl/env.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.js';
 import { tempDir } from './fixtures/tmp.js';
-import { createTaskStore } from '../src/errands/store.js';
+import { createTaskStore } from '../src/errands/store.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.

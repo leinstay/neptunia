@@ -1,4 +1,4 @@
-// Tests for src/intentions/sources.js: where a line of the persona's came from. Her line's note
+// Tests for src/intentions/sources.ts: where a line of the persona's came from. Her line's note
 // keeps only the hashed word shingles it shares with the outside text her turn saw (no text), the
 // read flag, the turn and an inner turn's chain; the outside text is read from nested results
 // within a bound; the registry keeps the newest notes.
@@ -11,7 +11,7 @@ import {
   shinglesOf,
   textsOf,
   wordsOf,
-} from '../src/intentions/sources.js';
+} from '../src/intentions/sources.ts';
 
 test('wordsOf / shinglesOf: accents and case folded, punctuation dropped; three-word shingles, none for fewer words', () => {
   assert.deepEqual(wordsOf('Καλημέρα, ΚΌΣΜΕ! café-crème'), ['καλημερα', 'κοσμε', 'cafe', 'creme']);

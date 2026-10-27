@@ -1,11 +1,11 @@
 // The persona's errands in the background: a task the `errand.run` operation accepted (queued in
-// the guild's task store, src/errands/store.js) is handed to its agent runner through the client
-// (src/errands/client.js) right after the operation answered -- nobody waits for it. The task is
+// the guild's task store, src/errands/store.ts) is handed to its agent runner through the client
+// (src/errands/client.ts) right after the operation answered -- nobody waits for it. The task is
 // `running` from the moment it is sent, with the limits of the profile (`limits`, overridable under `agents.<profile>`; the
 // profile's defaults under them) and a context the runner applies its scope policy to
 // (`scope`: `dm` for a task asked in a private chat, else `group`; the origin channel; who
 // asked). Its `end` writes the result into the store and calls `onFinished(task)` -- the turn
-// that brings it back to the persona (src/errands/turns.js); a task cancelled meanwhile ends
+// that brings it back to the persona (src/errands/turns.ts); a task cancelled meanwhile ends
 // without one. At start the tasks a restart left open are failed (`restarted`): the runner sends
 // a task's end on the connection that brought it, which is gone. Every run carries the task's
 // secrets (`secrets` of src/agent-runner/protocol.js), since every key lives in the core's .env
@@ -20,7 +20,7 @@
 // (display names and text on one line, cut to RECENT_CHARS), read from the memory's buffer
 // (the memory database's newest lines of the channel) at the moment the task is queued and kept in memory only until it is sent;
 // a `dm`-scoped task sends `recent: []` (nothing of a private chat reaches a runner this way).
-// Every errand is also mirrored into the ledger (src/errands/ledger.js, `agents.ledger.socket`,
+// Every errand is also mirrored into the ledger (src/errands/ledger.ts, `agents.ledger.socket`,
 // disabled while null): at its queuing (with its limits, for the ledger's triage), its start (with its limits and the model of its agent's
 // role), the runner's progress, its end and its cancel (`by` who cancelled it), and at start the
 // open tasks a restart found without a ledger id; the ledger's id is kept on the task
@@ -40,9 +40,9 @@ import { roleApiKey } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
 import { MAX_RECENT_ENTRIES, RECENT_CHARS, httpProxyForm } from '../agent-runner/protocol.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
-import { isOpenState } from './store.js';
-import { createLedgerMirror } from './ledger.js';
-import { DEFAULT_RESULT_MAX_CHARS } from './blocks.js';
+import { isOpenState } from './store.ts';
+import { createLedgerMirror } from './ledger.ts';
+import { DEFAULT_RESULT_MAX_CHARS } from './blocks.ts';
 import { CODE } from '../tools/codes.ts';
 
 /** The limit keys a task may carry to its runner (src/agent-runner/protocol.js#LIMIT_KEYS). */
@@ -54,8 +54,8 @@ export const RUNNER_RECHECK_MS = 10_000;
 
 /**
  * @param {object} options
- * @param {Partial<ReturnType<import('./client.js').createErrandClient>>} options.client
- * @param {ReturnType<import('./store.js').createTaskStores>} options.stores
+ * @param {Partial<ReturnType<import('./client.ts').createErrandClient>>} options.client
+ * @param {ReturnType<import('./store.ts').createTaskStores>} options.stores
  * @param {{ config: object }} options.hot
  * @param {Record<string, string|undefined>} [options.env]  The parsed environment (src/config.js#env):
  *   the keys and the proxy a run carries.
@@ -357,7 +357,7 @@ export function createErrandService({
   }
 
   /**
-   * The file a handle `file:<task id>/<name>` names (src/errands/store.js#fileOf), for a
+   * The file a handle `file:<task id>/<name>` names (src/errands/store.ts#fileOf), for a
    * conversation that may see its task (view's rule: a private chat's task only in that chat);
    * null otherwise.
    */

@@ -36,7 +36,7 @@ Both workers are disabled by default (`enabled: false` in the profile, `agents/<
 
 ### Queuing
 
-`errand.run` accepts `agent` (one of `scout`, `server`) and `goal`. The errand service (`src/errands/service.js`) queues the task in the guild's store (`data/guilds/<id>/errands.json`) and answers at once with the id and `queued`. Nobody waits for the errand.
+`errand.run` accepts `agent` (one of `scout`, `server`) and `goal`. The errand service (`src/errands/service.ts`) queues the task in the guild's store (`data/guilds/<id>/errands.json`) and answers at once with the id and `queued`. Nobody waits for the errand.
 
 An idempotency key ties the task to the turn and the call's index within it: the same call made twice returns the task already queued, never a second errand.
 

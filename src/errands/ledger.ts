@@ -1,6 +1,6 @@
 // The persona's errands mirrored into the ledger (the task service of the development side, its
 // `core` principal's Unix socket, `agents.ledger.socket`): every errand of the core's store
-// (src/errands/store.js) becomes a task of the `errand` lane there, with the same transitions,
+// (src/errands/store.ts) becomes a task of the `errand` lane there, with the same transitions,
 // one attempt per run and its results, so the errands show beside the development tasks. The
 // mirror is only a copy in this stage: the core's store stays the system of record, the turn
 // logic reads it alone, and a ledger that refuses or does not answer never touches an errand.
@@ -32,8 +32,8 @@
 import net from 'node:net';
 import { log as defaultLog } from '../log.js';
 import { clampChars } from '../memory/clamp.js';
-import { DEFAULT_RESULT_MAX_CHARS } from './blocks.js';
-import { fileHandle } from './store.js';
+import { DEFAULT_RESULT_MAX_CHARS } from './blocks.ts';
+import { fileHandle } from './store.ts';
 import { CODE } from '../tools/codes.ts';
 
 /** The ledger lane of the persona's errands. */

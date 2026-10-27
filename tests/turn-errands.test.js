@@ -1,5 +1,5 @@
-// Tests for the persona's view of her errands in a turn (src/errands/blocks.js, src/behavior/turn.js)
-// and the turn an errand's end opens (src/errands/turns.js): the `<errands>` block is in the
+// Tests for the persona's view of her errands in a turn (src/errands/blocks.ts, src/behavior/turn.js)
+// and the turn an errand's end opens (src/errands/turns.ts): the `<errands>` block is in the
 // request's tail while she has an open or newly finished errand and gone when she has none; a
 // finished errand opens her own turn in the conversation it was asked in, with `<errand_result>`
 // (its text, its sources numbered, its files as handles), through the fake interface
@@ -9,8 +9,8 @@ import assert from 'node:assert/strict';
 import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.js';
 import { userText } from '../src/behavior/prompt.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
-import { tasksBlockText, taskResultText } from '../src/errands/blocks.js';
-import { createTaskTurns, errandDoneEvent } from '../src/errands/turns.js';
+import { tasksBlockText, taskResultText } from '../src/errands/blocks.ts';
+import { createTaskTurns, errandDoneEvent } from '../src/errands/turns.ts';
 import { createEventDoor } from '../src/interface/door.js';
 import { validateEvent } from '../src/protocol/index.js';
 import { labels } from './fixtures/labels.js';

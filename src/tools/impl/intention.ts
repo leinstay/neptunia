@@ -10,12 +10,12 @@
 // (src/tools/impl/effects.ts#SELF_OWNED_OPS) under the gateway's rules on who asked; for people they are
 // owner operations an owner may grant (no `member` right). A call never widens anything: a wait
 // names only an errand the task store holds, and a destination is only recorded; a candidate is
-// accepted only where its origin allows (src/intentions/model.js#acceptRefusal). An update or a
+// accepted only where its origin allows (src/intentions/model.ts#acceptRefusal). An update or a
 // cancel without `id=` whose body is one bare intention id takes that as the id (isIntentionId);
 // any other body stays the update's purpose (or is ignored by the cancel). Off unless
 // `features.intentions` is exactly true (read now): every action answers `feature-off`. Times are
 // `<n>m`, `<n>h`, `<n>d` from now, an ISO date-time, or a wall clock in `bot.timezone` --
-// `HH:MM`, `<weekday> HH:MM` (src/intentions/model.js#parseWhen); `every=` (`day`, `week`, `<n>h`,
+// `HH:MM`, `<weekday> HH:MM` (src/intentions/model.ts#parseWhen); `every=` (`day`, `week`, `<n>h`,
 // `<n>d`; `none` on an update) makes an intention recurring (model.js#parseEvery). `attend=<place>`
 // makes an attention (docs/inner-life.md "Her attention"): the place's address (a channel option,
 // so her `#handle` resolves as any channel argument does), `people=` (ids, comma or space
@@ -29,7 +29,7 @@
 
 import { formatClock, formatDate } from '../../format.js';
 import { clampWithEllipsis, oneLine } from '../../memory/clamp.js';
-import { HEARTBEAT_ORIGIN, intentionsOn, isIntentionId, parseEvery, parseWhen } from '../../intentions/model.js';
+import { HEARTBEAT_ORIGIN, intentionsOn, isIntentionId, parseEvery, parseWhen } from '../../intentions/model.ts';
 import { isOwnerId } from './grants.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
 import { CODE } from '../codes.ts';
@@ -158,7 +158,7 @@ const handlers = perEnv((env) => {
 
   /**
    * The time of `ts` for an answer line: the date and the clock in `bot.timezone`, as the
-   * `<intentions>` block writes them (src/intentions/blocks.js#when), so a due she set reads
+   * `<intentions>` block writes them (src/intentions/blocks.ts#when), so a due she set reads
    * against the clock her prompt shows and never as a UTC figure she takes for a past moment.
    */
   function stamp(ts: number): string {

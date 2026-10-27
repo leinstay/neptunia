@@ -1,4 +1,4 @@
-// Tests for src/intentions/model.js: the persona's intentions as pure data. A record is created
+// Tests for src/intentions/model.ts: the persona's intentions as pure data. A record is created
 // with an expiry, moves only along the allowed transitions, never out of a terminal status, waits
 // only on a real errand with a deadline, comes back to pending once (and only once) its errand
 // ends, expires by the clock, and is listed when due. Candidates are anchored to her own lines.
@@ -34,8 +34,8 @@ import {
   reconcileWait,
   transition,
   waitOn,
-} from '../src/intentions/model.js';
-import { lineSourcesOf } from '../src/intentions/sources.js';
+} from '../src/intentions/model.ts';
+import { lineSourcesOf } from '../src/intentions/sources.ts';
 import { zonedEpoch } from '../src/time.js';
 
 const T0 = Date.parse('2026-10-18T10:00:00Z');

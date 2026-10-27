@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { createTaskStores } from '../src/errands/store.js';
+import { createTaskStores } from '../src/errands/store.ts';
 import { GUILD, GUILD_2, readerEnv } from './fixtures/memory-db/readers.js';
 
 const NOW = 1792000600000;

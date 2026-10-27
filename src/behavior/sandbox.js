@@ -43,9 +43,9 @@
 // named under the task labels, one follow-up slot per channel). A line of hers
 // the scenario seeds is shaped as her live lines (`seededSelfLine`) without a
 // turn run for it. A task-result scenario hands in a finished errand of hers
-// (`taskResult`, a task as src/errands/store.js keeps one): the turn its end
-// opens is built as src/errands/turns.js opens it -- trigger kind `errand`, the
-// `<errand_result>` block (src/errands/blocks.js#taskResultText) -- and the
+// (`taskResult`, a task as src/errands/store.ts keeps one): the turn its end
+// opens is built as src/errands/turns.ts opens it -- trigger kind `errand`, the
+// `<errand_result>` block (src/errands/blocks.ts#taskResultText) -- and the
 // caller resolves her calls with its files' handles (`file:<task id>/<name>`)
 // as a live turn does; the gateway reads an errand's budget through `tasks`
 // (simulateCall).
@@ -81,7 +81,7 @@ import { requestTokenLimit } from '../llm/budget.js';
 import { estimateMessages, estimateTools } from '../llm/tokens.js';
 import { isPlainObject } from '../config.js';
 import { utcDay } from '../time.js';
-import { DEFAULT_RESULT_MAX_CHARS, taskResultText } from '../errands/blocks.js';
+import { DEFAULT_RESULT_MAX_CHARS, taskResultText } from '../errands/blocks.ts';
 import { CODE } from '../tools/codes.ts';
 
 // Token estimates taken as they are: the calibrator of a view built without a live one.
@@ -689,9 +689,9 @@ function sandboxChannels(given, view, channel) {
  * owner-forced turn. `<channel_directory>` lists `channelDirectory` (the guild's readable text
  * channels, interfaces/discord/collect.js#channelDirectoryOf, as a live turn passes them) when given, else
  * the view's stored channel map with the turn's channel (sandboxChannels). `taskResult`
- * (a finished task, as src/errands/store.js keeps one) makes it the turn that errand's end
- * opens, as src/errands/turns.js runs it: trigger kind `errand` whatever the mode, and `errands`
- * carrying its `<errand_result>` body (src/errands/blocks.js#taskResultText, cut to
+ * (a finished task, as src/errands/store.ts keeps one) makes it the turn that errand's end
+ * opens, as src/errands/turns.ts runs it: trigger kind `errand` whatever the mode, and `errands`
+ * carrying its `<errand_result>` body (src/errands/blocks.ts#taskResultText, cut to
  * `errands.resultMaxChars` read now) with no `<errands>` list -- a replay knows no other errand of
  * hers. `coreTools` (`{ recallAvailable, prefetch? }`, a skill scenario run with features.coreTools on)
  * hands in whether the server search could run (`recallAvailable`) and the automatic memory prefetch of
@@ -758,7 +758,7 @@ export function sandboxRequestInput({
     selfId: selfId ?? null,
     history,
     trigger,
-    // An errand's end opens a turn of kind `task` (src/errands/turns.js), with or without a trigger.
+    // An errand's end opens a turn of kind `task` (src/errands/turns.ts), with or without a trigger.
     triggerKind: taskResult ? 'errand' : triggerKind,
     // As a live turn reads it: an untagged reply takes the follow-up task.
     taggedCall: trigger ? isTaggedCall(trigger, selfId) : null,
@@ -1164,8 +1164,8 @@ const SANDBOX_SPEECH = Object.freeze({ quota: () => ({ used: 0, cap: 1, spent: f
  * checked by the gateway (src/tools/gateway.ts#checkSkill: the persona as principal, `requester`,
  * `conversationId` as the audience, `config` with her grants, `selfId`, the registry of `view`,
  * no mixed requesters, no earlier destructive run, `now`, the image quota of `images`, the
- * errands' budget of `tasks` -- `{ budget(agent) }`, src/errands/store.js#budget's answer, as a
- * live turn hands in src/errands/service.js#budget; without it an `errand.run` is refused
+ * errands' budget of `tasks` -- `{ budget(agent) }`, src/errands/store.ts#budget's answer, as a
+ * live turn hands in src/errands/service.ts#budget; without it an `errand.run` is refused
  * `no-budget`), then
  * mapped by its dispatch (`dispatch.toOp` must reach this very operation). The operation never
  * runs, whatever it is -- a write, a paid effect (`draw.create` included): a call that passed is

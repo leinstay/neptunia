@@ -2,7 +2,7 @@
 // own call (`intention.set`, provenance `self`, born `pending`) or proposed by the memory analyzer
 // from one of her own lines (provenance `candidate`, born `proposed`, never active until she
 // accepts it). Pure: every function takes the record and the clock (`now`, epoch ms) and answers
-// a new record, never mutating its input; the store (src/intentions/store.js) persists them.
+// a new record, never mutating its input; the store (src/intentions/store.ts) persists them.
 //
 // Statuses: `proposed` -> `pending` (accepted) | `cancelled` (rejected) | `expired`;
 // `pending` -> `waiting` | `done` | `cancelled` | `expired`; `waiting` -> `pending` (the awaited
@@ -40,7 +40,7 @@ import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../time.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { isWordChar, occursAsWholeWord } from '../memory/mentions.ts';
 import { foldText as foldName } from '../memory/recent.js';
-import { externalOrigin } from './sources.js';
+import { externalOrigin } from './sources.ts';
 import { CODE } from '../tools/codes.ts';
 
 /** Every status an intention may have. */
@@ -772,7 +772,7 @@ export function waitOn(record, { taskId, deadline, now, by = 'persona' }) {
   return transition(record, 'waiting', { now, by, code: CODE.WAIT, patch });
 }
 
-/** The terminal task states (src/errands/store.js#TASK_STATES less the open ones). */
+/** The terminal task states (src/errands/store.ts#TASK_STATES less the open ones). */
 const TASK_ENDS = Object.freeze(['done', 'failed', 'cancelled']);
 
 /**
@@ -972,7 +972,7 @@ export function duplicates(candidate, records) {
  * (`participants`, left out when none); a span found in none of her lines is dropped (`unanchored`),
  * and one that also occurs in another author's line of the batch is dropped as a quote of
  * someone else (`quoted`). At most `max` are kept (`over`). Each kept one carries its `origin`
- * (src/intentions/sources.js#externalOrigin over the line and its note, `sourcesOf(line)`, the
+ * (src/intentions/sources.ts#externalOrigin over the line and its note, `sourcesOf(line)`, the
  * line's own `sources` by default; `strict`: a line of hers with no note counts as external):
  * `external` with its `originReason`, else `own`; and the turn that wrote the line (`turnId`), and
  * whether it was an inner turn of which chain (`bornInner`, `innerChainId`). Never throws.

@@ -1,9 +1,9 @@
-// Tests for src/errands/preambles.js: the preamble of one errand run, picked from the files of
+// Tests for src/errands/preambles.ts: the preamble of one errand run, picked from the files of
 // prompts.local/preambles/ by agent and model, composed in order (all, agent, model,
 // agent+model), prompts.local/agents.md never read, and capped by whole files.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { modelSlugs, preambleNames, composePreamble } from '../src/errands/preambles.js';
+import { modelSlugs, preambleNames, composePreamble } from '../src/errands/preambles.ts';
 
 test('modelSlugs: lowercased, every character outside [a-z0-9.] a dash, the openrouter/ prefix also dropped', () => {
   assert.deepEqual(modelSlugs('openrouter/moonshotai/kimi-k3'), [

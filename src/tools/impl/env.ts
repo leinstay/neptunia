@@ -262,11 +262,11 @@ function buildEnv({
     // The management key, read only by the status card's activity GETs; never logged.
     managementKey,
     port,
-    // The persona's errands (src/errands/service.js): `/nep task`.
+    // The persona's errands (src/errands/service.ts): `/nep task`.
     errands,
     // The HTTP fetch a post's `media` download uses (default: the global fetch).
     fetchImpl,
-    // The persona's intentions (src/intentions/service.js): `/nep task intent`.
+    // The persona's intentions (src/intentions/service.ts): `/nep task intent`.
     intentions,
     // The persona's inner life (src/behavior/inner.js): `/nep task inner`.
     inner,

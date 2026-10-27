@@ -6,7 +6,7 @@
 // `errand.run` with `agent: server` reads this machine, so only an owner may ask for it
 // (`owner-only`); `agent: scout` is any member's. A task asked in a private chat is `dm`-scoped,
 // else `group`, and the runner withholds more in a filtered scope. `errand.run` answers at once
-// with the id and `queued`: the errand runs in the background (src/errands/service.js) and its
+// with the id and `queued`: the errand runs in the background (src/errands/service.ts) and its
 // end opens her own turn where it was asked. `errand.cancel` is for the requester of the task or an
 // owner; `errand.status` and `errand.list` show a private chat's tasks only to their requester or an
 // owner. A finished task's result stays until she has read it: `errand.status` without an id lists the
@@ -21,8 +21,8 @@ import { isOwnerId } from './grants.ts';
 import { TASK_AGENTS } from './catalog.ts';
 import { clampWithEllipsis, oneLine } from '../../memory/clamp.js';
 import { MINUTE_MS } from '../../time.js';
-import { fileHandle, isOpenState } from '../../errands/store.js';
-import { DEFAULT_RESULT_MAX_CHARS } from '../../errands/blocks.js';
+import { fileHandle, isOpenState } from '../../errands/store.ts';
+import { DEFAULT_RESULT_MAX_CHARS } from '../../errands/blocks.ts';
 import { defineOp, perEnv, invalid, denied } from './registry.ts';
 import { CODE } from '../codes.ts';
 import { idText, textOf } from '../types.ts';
@@ -126,7 +126,7 @@ const handlers = perEnv((env) => {
     if (!submitted.ok) return refusal(submitted.code);
     const { task } = submitted;
     // An intention of the same turn waiting for the errand it hands off is linked to it now
-    // (src/intentions/service.js#linkTurnTask); a refused errand above links nothing.
+    // (src/intentions/service.ts#linkTurnTask); a refused errand above links nothing.
     if (origin.turnId)
       env.intentions?.linkTurnTask?.(resolvedGuildId(context), { turnId: origin.turnId, taskId: task.id });
     return {
@@ -155,7 +155,7 @@ const handlers = perEnv((env) => {
         lines.push(
           `usage: ${task.usage.steps ?? 0} steps, ${(task.usage.usd ?? 0).toFixed(3)} USD, ${Math.round(task.usage.seconds ?? 0)} s`
         );
-      // The ledger's id of the task's mirror (src/errands/ledger.js), when it has one.
+      // The ledger's id of the task's mirror (src/errands/ledger.ts), when it has one.
       if (task.ledgerId) lines.push(`ledger: ${task.ledgerId}`);
       return lines.join('\n');
     }

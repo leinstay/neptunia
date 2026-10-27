@@ -637,11 +637,11 @@ export async function executeCall(resolved: Resolved, deps: ExecuteDeps): Promis
             actor: 'persona',
             ...(envelope.invocationId ? { invocationId: envelope.invocationId } : {}),
             // Her turn and the call's place in it: an errand records the turn, and a retry of the same
-            // call cannot queue a second one (src/errands/store.js#add).
+            // call cannot queue a second one (src/errands/store.ts#add).
             ...(envelope.turnId ? { turnId: envelope.turnId } : {}),
             ...(envelope.idempotencyKey ? { idempotencyKey: envelope.idempotencyKey } : {}),
             // Her own initiative (an inner turn) and its causal chain: which of her candidates the call
-            // may accept (src/intentions/model.js#acceptRefusal).
+            // may accept (src/intentions/model.ts#acceptRefusal).
             ...(initiative
               ? {
                   ownInitiative: true,

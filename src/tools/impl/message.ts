@@ -16,7 +16,7 @@
 // id or its link; for an edit or a deletion also by `last`, her own most recent message in that
 // channel. A port answer that may have taken effect is `failed` with `data.unknown` true:
 // never retried. Her post may carry one file an errand of hers brought back (`file`, a handle
-// `file:<task id>/<name>`, src/errands/store.js): read from the agent's out directory, refused
+// `file:<task id>/<name>`, src/errands/store.ts): read from the agent's out directory, refused
 // when unknown here (`unknown-file`: a private chat's file goes only back to that chat), larger
 // than the interface takes (`attachment-too-large`) or unreadable (`file-unreadable`). It may also
 // carry one GIF of her library (`gif`, a handle), posted after the text or alone, counted like a
@@ -71,7 +71,7 @@ function needReads(reads: Reads | null): Reads {
 
 /**
  * The attachment of a post's `file` handle bound for `channelId`, or null without one: the
- * errand's file (src/errands/service.js#fileOf), its size checked against the interface's
+ * errand's file (src/errands/service.ts#fileOf), its size checked against the interface's
  * `maxFileBytes` before it is read.
  */
 async function errandFile(

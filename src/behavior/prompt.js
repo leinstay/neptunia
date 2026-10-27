@@ -3307,11 +3307,11 @@ function seenOf({ history, keptChat, anchoredIds = [] }) {
  *   the entries separated by a blank line. `features.around` off, a private chat, a diary post,
  *   an omitted or null input or no `labels.peopleNow`: no live fields, the fields of memory alone.
  * @param {{ list?: string, result?: string }|null} [input.errands]  The persona's errands
- *   (src/errands/blocks.js, rendered by the turn): `list`, the `<errands>` block's body (her open
+ *   (src/errands/blocks.ts, rendered by the turn): `list`, the `<errands>` block's body (her open
  *   errands and the finished ones she has not seen), and `result`, the `<errand_result>` block's
  *   body on the turn an errand's end opened. Both sit in the tail right before `<people_now>`,
  *   paid for with the fixed part and never cut; '' or a missing key leaves its block out.
- * @param {string|null} [input.intentions]  The `<intentions>` block's body (src/intentions/blocks.js,
+ * @param {string|null} [input.intentions]  The `<intentions>` block's body (src/intentions/blocks.ts,
  *   rendered and cut to `context.caps.intentions` by the turn; features.intentions): in the tail
  *   right after `<errand_result>`, paid for with the fixed part and never cut here; '' or a missing
  *   key leaves the block out, so with the switch off the request is as it was.
@@ -3800,12 +3800,12 @@ export function buildRequest(input) {
     ...pulledChannels.filter((channel) => channel.entry.readOnly === true).map((channel) => channel.channelId),
   ]);
 
-  // `<errands>` and `<errand_result>`: rendered by the turn (src/errands/blocks.js), never cut.
+  // `<errands>` and `<errand_result>`: rendered by the turn (src/errands/blocks.ts), never cut.
   const errandsText = {
     list: typeof input.errands?.list === 'string' ? input.errands.list : '',
     result: typeof input.errands?.result === 'string' ? input.errands.result : '',
   };
-  // `<intentions>`: rendered and cut to its own budget by the turn (src/intentions/blocks.js), never cut here.
+  // `<intentions>`: rendered and cut to its own budget by the turn (src/intentions/blocks.ts), never cut here.
   const intentionsText = typeof input.intentions === 'string' ? input.intentions : '';
   // `<wake>`: an inner turn's reason to be awake, rendered by the turn (src/behavior/wake.js), never cut.
   const wakeText = typeof input.wake === 'string' ? input.wake : '';

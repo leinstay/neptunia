@@ -21,8 +21,8 @@
 // field reads the limit of each API key of the core (one free GET per key; the errand agents' key
 // is left out: their spend is `costs.errands`) and the rolling 7/30-day sums per key; `costs.base`
 // reads today's per-role accumulator (src/tools/impl/usage.ts, drawing's row included); `costs.errands` the errand records' spend
-// per agent (src/errands/costs.js through the guild's task store); `costs.development` the development agents'
-// (thinker, dev) from the ledger (src/errands/ledger.js#costs, with the thinker's last-wave
+// per agent (src/errands/costs.ts through the guild's task store); `costs.development` the development agents'
+// (thinker, dev) from the ledger (src/errands/ledger.ts#costs, with the thinker's last-wave
 // context), both shown with no runs when the ledger does not answer. The owner's `inner`
 // field (only while features.innerLife is on) is the inner life's own status (src/behavior/inner.js#status,
 // the data `/nep task inner status` reads): its mode and switch, the day's turns, chains, dollars, public
@@ -710,7 +710,7 @@ const handlers = perEnv((env) => {
 
   /** The owner's `costs.errands` field (src/tools/impl/usage.ts#agentCostsLines): each errand agent's
    * runs, tokens and estimated dollars today and over the last 7 and 30 days, from the guild's
-   * task store (src/errands/store.js#costs; none without the errands or a guild). An agent with
+   * task store (src/errands/store.ts#costs; none without the errands or a guild). An agent with
    * no figures shows no runs. `-` when the labels give no line. */
   function errandCostsValue(guildId: string | null): string {
     const tasks = guildId && typeof errands?.store === 'function' ? errands.store(guildId) : null;
@@ -720,7 +720,7 @@ const handlers = perEnv((env) => {
   }
 
   /** The owner's `costs.development` field (src/tools/impl/usage.ts#agentCostsLines): thinker and dev
-   * from the ledger (src/errands/ledger.js#costs; the thinker's last wave adds its context
+   * from the ledger (src/errands/ledger.ts#costs; the thinker's last wave adds its context
    * line). An agent with no figures shows no runs: a ledger that is not configured, refuses, fails
    * or does not answer in time never fails the field. `-` when the labels give no line. */
   async function developmentCostsValue() {

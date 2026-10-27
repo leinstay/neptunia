@@ -1,6 +1,6 @@
 // The virtual-week harness of the persona's inner life (tools/inner-week.mjs, docs/inner-life.md
 // "Testing it over a week"): the production scheduler (src/behavior/inner.js) and the production
-// intention service (src/intentions/service.js) over a temporary data directory, driven by a fake
+// intention service (src/intentions/service.ts) over a temporary data directory, driven by a fake
 // clock that jumps from one moment that matters to the next (an event of the fixture, a due time,
 // a wait deadline, an expiry, the day's review, a local midnight, the end of a people's turn, a
 // cap's reset) instead of ticking every second. Every jump
@@ -39,7 +39,7 @@
 // `returns`, which the week's simulated analyzer reads beside the chat as her inner-turn
 // findings, `world.episodes`) and through her own lines that repeat what her ordinary turn
 // read or saw (a `self` event's `read` and `seen`): each line of hers carries the note of where it
-// came from (src/intentions/sources.js), as the turn runner writes it live. Nothing here touches
+// came from (src/intentions/sources.ts), as the turn runner writes it live. Nothing here touches
 // the live data or the network.
 
 import fs from 'node:fs';
@@ -54,10 +54,10 @@ import {
   POSTING_SKILLS,
 } from '../../src/behavior/inner.js';
 import { createEventDoor } from '../../src/interface/door.js';
-import { createIntentionStores } from '../../src/intentions/store.js';
-import { createIntentionService } from '../../src/intentions/service.js';
-import { dueList, parseEvery, parseWhen, isAttend, isOpen, OCCURRENCE_CODES } from '../../src/intentions/model.js';
-import { lineSourcesOf } from '../../src/intentions/sources.js';
+import { createIntentionStores } from '../../src/intentions/store.ts';
+import { createIntentionService } from '../../src/intentions/service.ts';
+import { dueList, parseEvery, parseWhen, isAttend, isOpen, OCCURRENCE_CODES } from '../../src/intentions/model.ts';
+import { lineSourcesOf } from '../../src/intentions/sources.ts';
 import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../../src/time.js';
 import { parseOutput } from '../../src/llm/parse.js';
 import { answerOf } from '../../src/behavior/turn.js';
@@ -316,7 +316,7 @@ export function parseFixture(raw, { name = 'fixture' } = {}) {
       // made it (its id and text become the record's provenance, as her memory of the week has them).
       at: item.at === undefined || item.at === null ? null : time(item.at, `${where}.at`),
       span: typeof item.span === 'string' && item.span ? item.span : null,
-      // A recurrence, as her own `every=` argument (src/intentions/model.js#parseEvery).
+      // A recurrence, as her own `every=` argument (src/intentions/model.ts#parseEvery).
       every: null,
       // An attention: she listens to `channel` (the people by their fixture names, the settle seconds, her per-day bound).
       attend: null,
@@ -536,7 +536,7 @@ export function parseFixture(raw, { name = 'fixture' } = {}) {
       kept: Number.isInteger(expect.kept) ? expect.kept : null,
       planted: Number.isInteger(expect.planted) ? expect.planted : null,
       accepted: Number.isInteger(expect.accepted) ? expect.accepted : null,
-      // Occurrence codes of recurring intentions, each an exact count over the week (src/intentions/model.js#OCCURRENCE_CODES).
+      // Occurrence codes of recurring intentions, each an exact count over the week (src/intentions/model.ts#OCCURRENCE_CODES).
       occurrences: isObject(expect.occurrences)
         ? Object.fromEntries(
             Object.entries(expect.occurrences).filter(

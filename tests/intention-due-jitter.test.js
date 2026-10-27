@@ -1,14 +1,14 @@
-// Tests for the due jitter of heartbeat intentions (src/intentions/model.js#wakeTimeOf): an
+// Tests for the due jitter of heartbeat intentions (src/intentions/model.ts#wakeTimeOf): an
 // intention a heartbeat set wakes her at its due time moved by a deterministic random offset;
 // every other intention stays exact; the offset never reaches before the moment the record was
 // last seen as not yet due, never past its expiry, and the scheduler fires the shifted moment.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createIntention, dueJitterMinutes, dueList, wakeTimeOf, HEARTBEAT_ORIGIN } from '../src/intentions/model.js';
+import { createIntention, dueJitterMinutes, dueList, wakeTimeOf, HEARTBEAT_ORIGIN } from '../src/intentions/model.ts';
 import { createInnerLife } from '../src/behavior/inner.js';
 import { createEventDoor } from '../src/interface/door.js';
-import { createIntentionStores } from '../src/intentions/store.js';
-import { createIntentionService } from '../src/intentions/service.js';
+import { createIntentionStores } from '../src/intentions/store.ts';
+import { createIntentionService } from '../src/intentions/service.ts';
 import { HOUR_MS, MINUTE_MS } from '../src/time.js';
 import { tempDir } from './fixtures/tmp.js';
 import { useIface, world } from './fixtures/turn-world.ts';

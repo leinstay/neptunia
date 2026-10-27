@@ -7,7 +7,7 @@
 // ignored. The caps are enforced here, on `add`, read from the live config at the moment of use:
 // `errands.maxOpen` open tasks at once (`cap-open`), `agents.<profile>.daily.tasks` (the profile's `daily`, overridable there) tasks per UTC day (`cap-tasks`; a task counts on
 // the day it was queued). That daily number
-// and the owner card's `costs.errands` come from one place: src/errands/costs.js#agentCosts over
+// and the owner card's `costs.errands` come from one place: src/errands/costs.ts#agentCosts over
 // the store's spend records, one per task of the last KEEP_DAYS days (read from errands.jsonl at
 // load, then kept with every transition).
 // Every transition is also an `action` line of the
@@ -19,7 +19,7 @@
 // `errands.keepFilesHours` (src/agent-runner/sweep.js); a finished task whose result lists files
 // is marked `filesExpired` once its directory is gone from an out dir that is still there (checked
 // when the tasks are read), and its handles name nothing from then on.
-// A task mirrored into the ledger (src/errands/ledger.js) carries the ledger's id as `ledgerId`
+// A task mirrored into the ledger (src/errands/ledger.ts) carries the ledger's id as `ledgerId`
 // (optional; set once the ledger answers, so the transition lines after it carry it too).
 // A finished errand's result stays until she has read it: the record carries `readAt` (null until a
 // turn that showed its `<errand_result>` completed, or `errand.read` returned it, src/tools/impl/errand.ts) and
@@ -33,7 +33,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { log as defaultLog } from '../log.js';
 import { DAY_MS } from '../time.js';
-import { agentCosts, costRecord, KEEP_DAYS } from './costs.js';
+import { agentCosts, costRecord, KEEP_DAYS } from './costs.ts';
 import { normalizeResult, normalizeUsage } from '../agent-runner/protocol.js';
 import { createReadSeam } from '../memory/db/readers/common.js';
 import { errandEventLines, errandsValue } from '../memory/db/readers/errands.js';
@@ -105,7 +105,7 @@ export function createTaskStore({
     db && typeof memoryDb?.writeUnit === 'function' ? createUnitOutbox({ memoryDb, log, name: 'tasks' }) : null;
   const listOwner = `guilds/${String(guildId)}/errands.json`;
   const logOwner = `guilds/${String(guildId)}/errands.jsonl`;
-  // id -> the spend record of each task of the last KEEP_DAYS days (src/errands/costs.js#costRecord).
+  // id -> the spend record of each task of the last KEEP_DAYS days (src/errands/costs.ts#costRecord).
   const spend = loadSpend();
 
   /** The list read once from the database (none without a `memoryDb`). */
@@ -276,7 +276,7 @@ export function createTaskStore({
   }
 
   /**
-   * The spend of every agent with a record, and of each of `agents` (src/errands/costs.js#agentCosts):
+   * The spend of every agent with a record, and of each of `agents` (src/errands/costs.ts#agentCosts):
    * per window (`today`, `last7`, `last30`) its runs, input and output tokens and dollars.
    * @param {string[]} [agents]
    */
@@ -482,7 +482,7 @@ export function createTaskStore({
   }
 
   /**
-   * Task `id` given the ledger's id of its mirror (src/errands/ledger.js), errands.json written when
+   * Task `id` given the ledger's id of its mirror (src/errands/ledger.ts), errands.json written when
    * it changes; null when there is no such task (forgotten or wiped meanwhile) or no id.
    */
   function setLedgerId(id, ledgerId) {

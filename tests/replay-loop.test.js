@@ -31,7 +31,7 @@ import {
   requesterOf,
 } from '../src/behavior/turn.js';
 import { transportOf } from '../src/tools/tool-calls.ts';
-import { createTaskStore } from '../src/errands/store.js';
+import { createTaskStore } from '../src/errands/store.ts';
 import { createImageGen } from '../src/llm/images.js';
 import { tempDir } from './fixtures/tmp.js';
 import { fill } from '../src/format.js';

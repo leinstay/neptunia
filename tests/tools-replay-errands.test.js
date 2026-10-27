@@ -19,7 +19,7 @@ import {
   simulateCall,
   skillScenarioRequest,
 } from '../src/behavior/sandbox.js';
-import { createTaskStore, parseFileHandle } from '../src/errands/store.js';
+import { createTaskStore, parseFileHandle } from '../src/errands/store.ts';
 import {
   parseScenarios,
   guildListing,

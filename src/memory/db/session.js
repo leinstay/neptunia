@@ -40,7 +40,7 @@
 // A chat line's revisions are matched by the line's native tuple (authority, native kind, generation, native id).
 
 import { block, fillPromptTemplate, renderProfile } from '../../behavior/prompt.js';
-import { concernsMember, isOpen } from '../../intentions/model.js';
+import { concernsMember, isOpen } from '../../intentions/model.ts';
 import { ROLE_KEY_NAME } from '../../llm/openrouter.js';
 import { MEMORY_ROLE, roleModel } from '../../llm/roles.js';
 import { estimateMessages } from '../../llm/tokens.js';
