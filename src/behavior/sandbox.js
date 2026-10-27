@@ -80,6 +80,7 @@ import { toolsBlockText } from '../llm/tool-text.js';
 import { requestTokenLimit } from '../llm/budget.js';
 import { estimateMessages, estimateTools } from '../llm/tokens.js';
 import { isPlainObject } from '../config.js';
+import { diaryConversationIds } from './mirror.ts';
 import { utcDay } from '../time.js';
 import { DEFAULT_RESULT_MAX_CHARS, errandResultText } from '../errands/blocks.ts';
 import { CODE } from '../tools/codes.ts';
@@ -549,6 +550,8 @@ export function liveView({ hot, store, guildId, calibrator }) {
       listChannels: () => store.listChannels(guildId),
       getLore: () => store.getLore(guildId),
       getRecent: () => (typeof store.getRecent === 'function' ? store.getRecent(guildId) : null),
+      // The places of her diary (src/behavior/mirror.ts#diaryConversationIds), marked in `<server>` as a live turn marks them.
+      diaryChannelIds: () => [...diaryConversationIds(store)],
     },
   };
 }
@@ -669,6 +672,16 @@ function sandboxChannels(given, view, channel) {
   )
     list.push({ id: String(channel.id), name: channel.name, category: null });
   return list;
+}
+
+/**
+ * The places of her diary a view names (`memory.diaryChannelIds`), none when it names none.
+ * @param {unknown} view
+ * @returns {string[]}
+ */
+function diaryIdsOf(view) {
+  const read = /** @type {{ memory?: { diaryChannelIds?: () => string[] } } | null} */ (view)?.memory?.diaryChannelIds;
+  return typeof read === 'function' ? read() : [];
 }
 
 /**
@@ -812,6 +825,7 @@ export function sandboxRequestInput({
     recentAudience: null,
     participation: null,
     diaryChannel: null,
+    diaryChannelIds: diaryIdsOf(view),
     diary: null,
     offPeriods: null,
     around: null,

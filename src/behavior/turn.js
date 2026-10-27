@@ -6942,7 +6942,9 @@ export function createTurnRunner({
     const attempts = [];
     // What every attempt posted in reply to and why it ended (runTurnOnce), for the end hook.
     const ends = { replyTargets: [], reasons: [], factsShown: null, info: null };
-    const tracked = { ...params, ...(await selfreflectionOf(params)), journalAttempts: attempts, turnEnds: ends };
+    // A turn takes its attention before its first await; only the selfreflection wake reads its place first.
+    const wake = params?.mode === 'diary' && !params.conversation ? await selfreflectionOf(params) : {};
+    const tracked = { ...params, ...wake, journalAttempts: attempts, turnEnds: ends };
     let result;
     let thrown = null;
     try {
@@ -6961,10 +6963,9 @@ export function createTurnRunner({
 
   /**
    * A diary turn with no conversation is the `selfreflection` wake: its conversation, the channel and the history are
-   * what memory holds of the place her diary is posted to (src/behavior/diary-turn.ts#wakeInputs). Any other: nothing.
+   * what memory holds of the place her diary is posted to (src/behavior/diary-turn.ts#wakeInputs).
    */
   async function selfreflectionOf(params) {
-    if (params?.mode !== 'diary' || params.conversation) return {};
     const guildId = params.guildId;
     const { conversation, channel, history } = await wakeInputs({
       store,
