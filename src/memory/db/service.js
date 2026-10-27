@@ -30,7 +30,7 @@
 //     view on the read connection (an internal reader), with `focus.exploringShare`; null while the database is closed.
 //   - schema v11 (wakes.js, skills.js, index-policy.js), every part behind its own switch, all off by default:
 //       `memoryDb.wakeRuns`: `recordWake(update)` is the inner life's one way to write its wake runs (src/behavior/
-//       inner.js), through the writer; at each open the runs a dead process left `running` longer than the inner
+//       inner.ts), through the writer; at each open the runs a dead process left `running` longer than the inner
 //       turn's time budget (`innerLife.loop.timeBudgetMs`) become `interrupted`.
 //       `memoryDb.skillsRegistry`: at each open every skill of src/tools/definitions.ts is registered with its
 //       content hash (its definition and its operation's source file under src/tools/impl/), its manifest and the engine

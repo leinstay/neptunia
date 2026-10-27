@@ -20,7 +20,7 @@
 //   the native tool-calling transport (A) and the text one (B), on a blind sheet;
 // - a loop run (`--loop-triggers`): real triggers answered on one transport,
 //   every step of the turn recorded (calls, held speech, tokens, latency);
-// - an inner turn (`--inner`): one turn of her inner life (src/behavior/inner.js) built
+// - an inner turn (`--inner`): one turn of her inner life (src/behavior/inner.ts) built
 //   from the live data and run in shadow, her proposed actions reported.
 // Exists so a prompt or profile change can be checked against real moments
 // before it is deployed.
@@ -68,7 +68,7 @@
 // whole request), her answers, her proposed and executed actions, the cost.
 //
 // `--inner heartbeat`: the heartbeat's turn. The wake is built by the scheduler itself (a real
-// src/behavior/inner.js life over a throwaway copy of inner.json, with a turn runner that only
+// src/behavior/inner.ts life over a throwaway copy of inner.json, with a turn runner that only
 // records the wake and the conversation it was handed), so its `<wake>` is the one the live
 // heartbeat would carry now: the heartbeat view over the stores, read only. Takes neither
 // `--intention` nor `--review`. Every `--inner` kind takes `--samples n` (n independent runs of
@@ -303,7 +303,7 @@
 // channel her diary posted in, as the data directory's memory names it: the code before the selfreflection wake read
 // its diary history from the channel, and so compares with her diary. Not the sandbox: the sandbox never
 // builds a diary post (src/behavior/sandbox.js#SANDBOX_OMITS). `--topic`: the owner's topic as `/nep diary post <kind>
-// <topic>` threads it (trimmed, blank is none, then src/behavior/diary.js#diaryTopic). What keeps the bot and its
+// <topic>` threads it (trimmed, blank is none, then src/behavior/diary.ts#diaryTopic). What keeps the bot and its
 // memory untouched here: hot is seen with `features.dryRun = true` and `bot.dryRunChannelId = ''` (the turn ends in its
 // dry-run branch: nothing acted, drawn, recorded or mirrored); every Discord REST call but GET is refused; the store is
 // the real one with an in-memory copy of its state that is never flushed (flush, forget, wipe and reload methods
@@ -314,7 +314,7 @@
 // <file>` (rewritten after each brief; refused under data/) with a summary on stdout, else on stdout. Exit code 1 when
 // no brief drew.
 //
-// `--diary-day`: one day of the diary as the live diary runs it (src/behavior/diary.js#createDiary's tick), for the
+// `--diary-day`: one day of the diary as the live diary runs it (src/behavior/diary.ts#createDiary's tick), for the
 // record of what it would draw. The day plan: planDay for the local date `--date` (default today in `bot.timezone`) at
 // its local midnight, with no hunger carried in, on a random stream seeded by `--seed` (default a fresh one, printed
 // and kept in the report): the same config, date and seed give the same slots (tools/lib/diary-day.mjs#planDiaryDay).
@@ -573,7 +573,7 @@ const USAGE =
   '       node tools/replay.mjs --diary-day [--seed <text>] [--date YYYY-MM-DD] [--draw fake|live] [--max-pictures <n>] [--out <dir>] [--spend <usd>]   (cwd: the bot directory)\n' +
   '       node tools/replay.mjs --inner <intention_due|errand_deadline|review|heartbeat> [--intention <id> | --review] [--snapshot <dir>] [--show-request] [--samples n] [--prompts <dir>] [--out <file>] [--spend <usd>] [--hide-channel <id>]... [--hide-message <id>]...\n' +
   '       (any mode that sends requests also takes: [--answers-dir <dir> [--answers-first-only] [--answers-all] [--answers-timeout-min 20]])';
-/** The wake kinds `--inner` runs (src/behavior/inner.js#WAKE_KINDS). */
+/** The wake kinds `--inner` runs (src/behavior/inner.ts#WAKE_KINDS). */
 export const INNER_KINDS = Object.freeze(['intention_due', 'errand_deadline', 'review', 'heartbeat']);
 /** An inner turn's requests at most: her answer and up to four tool-loop steps (innerLife.loop.maxSteps' default). */
 const INNER_REQUESTS = 5;
@@ -586,7 +586,7 @@ const DIARY_REQUESTS_PER_BRIEF = 2;
 const MAX_DIARY_COUNT = 50;
 /** The longest `--seed` of a `--diary-day` run. */
 const MAX_SEED_CHARS = 200;
-/** `diary.maxPerDay` when the config has none (src/behavior/diary.js's default, config.json's value). */
+/** `diary.maxPerDay` when the config has none (src/behavior/diary.ts's default, config.json's value). */
 const DEFAULT_DIARY_MAX_PER_DAY = 12;
 /** The estimate per model request this tool sends: about what a persona answer costs on the live key. */
 const USD_PER_ANSWER = 0.15;
@@ -2049,7 +2049,7 @@ export function storedDumps(journalDir, turnId, { steps = false } = {}) {
 /**
  * The turn a `--diary` brief runs: `{ mode: 'diary', diary: { kind, [topic],
  * forced: false } }`. The topic as `/nep diary post` threads it: trimmed,
- * blank is none, then `diaryTopic` (src/behavior/diary.js), on the params
+ * blank is none, then `diaryTopic` (src/behavior/diary.ts), on the params
  * only when present.
  * @param {{ diary: string, topic: string|null }} args  From parseArgs.
  * @param {{ diaryTopic: (text: string|null) => string|null }} mods
@@ -2185,7 +2185,7 @@ export function unflushedStore(store) {
 /** The engine modules a diary run (`--diary`, `--diary-day`) wires, from the checkout at `load`. */
 export async function loadDiaryMods(load) {
   return {
-    ...(await load('behavior/diary.js')),
+    ...(await load('behavior/diary.ts')),
     ...(await load('memory/store.js')),
     ...(await load('llm/tokens.js')),
     ...(await load('llm/openrouter.js')),
@@ -2619,10 +2619,10 @@ export function innerReplayHot(hot) {
 
 /**
  * The wake an `--inner` turn runs for, as the scheduler's drain builds it
- * (src/behavior/inner.js#createInnerLife): the intention's wake (`intention`, for
+ * (src/behavior/inner.ts#createInnerLife): the intention's wake (`intention`, for
  * `intention_due` / `errand_deadline`) or the day's review, the budgets from `state` (the guild's
  * inner.json as read) under `settings`, the review's channel names. `inner` is
- * src/behavior/inner.js's module. Pure.
+ * src/behavior/inner.ts's module. Pure.
  * @returns {{ wake: object, info: object }}
  */
 export function innerReplayWake({
@@ -2743,15 +2743,15 @@ export function hiddenPlaces(places, hide) {
 }
 
 /**
- * The heartbeat's wake, built by the scheduler itself: a real inner life (src/behavior/inner.js#createInnerLife)
+ * The heartbeat's wake, built by the scheduler itself: a real inner life (src/behavior/inner.ts#createInnerLife)
  * over a throwaway data directory holding a copy of the guild's inner.json (`dataDir` is only read), the
  * stores and sources it was given, the heartbeat wake queued for `now` and one drain; its turn runner only
  * records what it was handed (the `<wake>` facts, the conversation, the current channel) and ends the turn
- * as a skip. So the facts are the ones the live heartbeat would carry now (heartbeat-view.js over the
+ * as a skip. So the facts are the ones the live heartbeat would carry now (heartbeat-view.ts over the
  * stores). Nothing is written under `dataDir`; the throwaway directory is removed. A CliError when the drain
  * ran no turn (stopped, paused, no conversation).
  * @param {object} input
- * @param {object} input.inner  src/behavior/inner.js's module.
+ * @param {object} input.inner  src/behavior/inner.ts's module.
  * @param {object} input.hot
  * @param {string} input.dataDir
  * @param {string} input.guildId
@@ -2950,7 +2950,7 @@ export function innerReportMarkdown(result) {
 async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv, log, budget = null }) {
   const mods = {
     ...(await loadDiaryMods(load)),
-    ...(await load('behavior/inner.js')),
+    ...(await load('behavior/inner.ts')),
     ...(await load('intentions/store.ts')),
     ...(await load('intentions/service.ts')),
     ...(await load('errands/store.ts')),
@@ -3397,7 +3397,7 @@ function pictureExtension(mediaType) {
  * with exit code REFUSED_EXIT. Returns `{ timezone, date, seed, day, estimate, gate }`.
  * @param {object} args  From parseArgs.
  * @param {object} config  The live config (hot.config).
- * @param {{ planDay: Function, zonedEpoch: Function, localDayKey: Function }} mods  src/behavior/diary.js, src/time.js.
+ * @param {{ planDay: Function, zonedEpoch: Function, localDayKey: Function }} mods  src/behavior/diary.ts, src/time.js.
  * @param {number} [nowMs]
  */
 export function diaryDayGate(args, config, { planDay, zonedEpoch, localDayKey }, nowMs = Date.now()) {

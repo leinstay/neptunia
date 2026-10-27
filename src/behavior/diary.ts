@@ -19,15 +19,125 @@
 // day plan in state.json and runs the post through the turn runner.
 
 import { fill } from '../format.js';
-import { historyLines } from './lines.ts';
 import { log } from '../log.js';
 import { oneLine, clampText, stripUrls } from '../memory/clamp.js';
 import { MINUTE_MS, countToday, zonedDay, zonedEpoch, utcDay } from '../time.js';
+import { isFiniteNumber, listOf, objOf } from '../tools/types.ts';
+import type { Obj } from '../tools/types.ts';
+import type { Reads } from '../interface/reads.ts';
+import type { createStore } from '../memory/store.js';
+import type { ConversationRef } from '../protocol/adapter.ts';
+import { historyLines } from './lines.ts';
 import { diaryPlaces, readMirrors } from './mirror.ts';
+
+/** A day counter of the store's state (src/time.js#countToday): the key of its day and the key of its count. */
+export type Daily = { dayKey: string; countKey: string };
+
 /** The daily counter of diary posts in state.json (src/time.js dailyCounter / bumpDaily). */
-export const DIARY_DAILY = { dayKey: 'diaryDay', countKey: 'diaryPosts' };
+export const DIARY_DAILY: Daily = { dayKey: 'diaryDay', countKey: 'diaryPosts' };
 /** The daily counter of diary pictures in state.json (src/time.js dailyCounter / bumpDaily). */
-export const DIARY_PICTURES_DAILY = { dayKey: 'diaryPicturesDay', countKey: 'diaryPictures' };
+export const DIARY_PICTURES_DAILY: Daily = { dayKey: 'diaryPicturesDay', countKey: 'diaryPictures' };
+
+/** The diary's plan of one local day, as state.json keeps it (`diary[guildId]`). */
+export type DayPlan = {
+  day: string;
+  slots: Array<number>;
+  quiet: boolean;
+  done: Array<number>;
+  posted: Array<number>;
+  hunger: Array<number>;
+  quietStreak: number;
+};
+
+/** The hunger a day plan starts with (nextHunger): one count per window, and the quiet days in a row. */
+export type Carry = { hunger: Array<number>; quietStreak: number };
+
+/** A slot due now (dueSlot) and the slots missed past the grace. */
+export type Due = { slot: number | null; dropped: Array<number> };
+
+/** The settings of a set post (setSettings). */
+export type SetSettings = {
+  pictures: [number, number];
+  minPosted: number;
+  seedSets: number;
+  maxMessageBytes: number;
+};
+
+/** The plan request's answer, normalised (validatePlan). */
+export type DiaryPlan = { kind: string | null; brief: string; search: string; picture: boolean; fallback: boolean };
+
+/** What createDiary's turns run: one diary turn, the selfreflection wake. */
+export type DiaryTurnParams = {
+  mode: 'diary';
+  diary: { kind: string | null; topic?: string; forced: boolean };
+  guildId: string;
+};
+
+/** The store as the diary reads it: the state file (its pause and the day plans), her diary and its writes. */
+export type DiaryStore = Pick<ReturnType<typeof createStore>, 'state' | 'getDiary' | 'setDiaryPosts' | 'flushSettled'>;
+
+/** The state file's data as the diary reads it (`store.state.data`, untyped in the store). */
+function stateData(store: DiaryStore): Obj {
+  const data: unknown = store.state.data;
+  return objOf(data);
+}
+
+/** The day plans of the state file (`diary`), created empty when `create` and missing. */
+function plansOf(store: DiaryStore, create: boolean): Record<string, DayPlan | undefined> {
+  const data = stateData(store);
+  if (create) data.diary ??= {};
+  // state.json's `diary` is what currentPlan wrote: one day plan per guild.
+  return objOf(data.diary) as Record<string, DayPlan | undefined>;
+}
+
+/** One post the backfill writes to diary.json. */
+export type BackfillPost = {
+  at: number;
+  kind: null;
+  gist: string;
+  picture: unknown;
+  messageIds: Array<string>;
+  search: null;
+};
+
+/** What the backfill is given (backfillDiary). */
+export type BackfillArgs = {
+  store: DiaryStore;
+  reads: Reads;
+  conversation: ConversationRef;
+  guildId: string;
+  config: unknown;
+  labels: unknown;
+};
+
+/** The diary's day as the owner's status shows it (createDiary's `status`). */
+export type DiaryStatus = {
+  channelId: string;
+  day: string | null;
+  slots: Array<number>;
+  done: Array<number>;
+  quiet: boolean;
+  hunger: Array<number>;
+  quietStreak: number;
+  posts: number;
+  pictures: number;
+  history: number;
+};
+
+/** The diary's scheduler (createDiary). */
+export type Diary = {
+  tick: () => Promise<void>;
+  force: (opts?: { kind?: string | null; topic?: string | null }) => Promise<unknown>;
+  status: () => DiaryStatus;
+  stop: () => void;
+};
+
+/** A section of a record, `{}` when it is not a record. */
+const sectionOf = (value: unknown, key: string): Obj => objOf(objOf(value)[key]);
+/** A label read from the labels, '' when it is not a string (fill answers '' for it). */
+const labelOf = (value: unknown): string => (typeof value === 'string' ? value : '');
+/** The diary's words: `labels.diary`. */
+const diaryWords = (labels: unknown): Obj => sectionOf(labels, 'diary');
 
 const BRIEF_CHARS = 300;
 const TOPIC_CHARS = 1000;
@@ -39,12 +149,12 @@ const DEFAULT_HUNGER_BOOST = 0.5; // diary.hungerBoost
 const DEFAULT_FORCE_WAIT_MS = 120000; // diary.forceWaitMs
 const DEFAULT_HISTORY_POSTS = 150; // diary.historyPosts
 const DEFAULT_GIST_CHARS = 200; // diary.gistChars
-const DEFAULT_SEARCH_KINDS = ['news', 'facts']; // diary.searchKinds
+const DEFAULT_SEARCH_KINDS: Array<string> = ['news', 'facts']; // diary.searchKinds
 /** The kinds that mean a picture when `diary.pictureKinds` is not a list. */
-export const DEFAULT_PICTURE_KINDS = ['selfPicture', 'picture', 'meme', 'photoset', 'randomSet']; // diary.pictureKinds
+export const DEFAULT_PICTURE_KINDS: Array<string> = ['selfPicture', 'picture', 'meme', 'photoset', 'randomSet']; // diary.pictureKinds
 /** The kinds whose post is a set of pictures when `diary.setKinds` is not a list. */
-export const DEFAULT_SET_KINDS = ['photoset', 'randomSet']; // diary.setKinds
-const DEFAULT_SET_PICTURES = [4, 6]; // diary.set.pictures
+export const DEFAULT_SET_KINDS: Array<string> = ['photoset', 'randomSet']; // diary.setKinds
+const DEFAULT_SET_PICTURES: [number, number] = [4, 6]; // diary.set.pictures
 const DEFAULT_SET_MIN_POSTED = 2; // diary.set.minPosted
 const DEFAULT_SET_SEED_SETS = 6; // diary.set.seedSets
 const DEFAULT_SET_MAX_MESSAGE_BYTES = 8000000; // diary.set.maxMessageBytes
@@ -52,52 +162,50 @@ const DEFAULT_FAMILY = 'seed';
 
 /**
  * The local date key (`YYYY-MM-DD`) of `nowMs` in `timezone` (UTC when missing).
- * @param {number} nowMs
- * @param {string} [timezone]  IANA zone name.
- * @returns {string}
  */
-export function localDayKey(nowMs, timezone) {
+export function localDayKey(nowMs: number, timezone?: string): string {
   return zonedDay(nowMs, timezone || 'UTC');
 }
 
 /** The date key one day after `dayKey`. */
-function nextDayKey(dayKey) {
+function nextDayKey(dayKey: string): string {
   const [year, month, day] = dayKey.split('-').map(Number);
   return utcDay(Date.UTC(year, month - 1, day + 1));
 }
 
 /** A whole hour 0..24, or null. */
-function hourOf(value) {
-  return Number.isInteger(value) && value >= 0 && value <= 24 ? value : null;
+function hourOf(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 24 ? value : null;
 }
 
 /** A non-negative whole count, or 0. */
-function countOf(value) {
-  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+function countOf(value: unknown): number {
+  return isFiniteNumber(value) && value > 0 ? Math.floor(value) : 0;
 }
 
 /** `value` clamped to 0..1, or `fallback` when it is not a finite number. */
-function fractionOf(value, fallback) {
-  return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : fallback;
+function fractionOf(value: unknown, fallback: number): number {
+  return isFiniteNumber(value) ? Math.min(1, Math.max(0, value)) : fallback;
 }
 
 /** The `[min, max]` post count of a window (`posts`), both whole and non-negative. */
-function postRange(window) {
-  const min = countOf(window?.posts?.[0]);
-  return [min, Math.max(min, countOf(window?.posts?.[1]))];
+function postRange(window: unknown): [number, number] {
+  const posts = listOf(objOf(window).posts);
+  const min = countOf(posts[0]);
+  return [min, Math.max(min, countOf(posts[1]))];
 }
 
 /** The instant of `hour`:00 local on `dayKey`, 24 meaning the next day's midnight. */
-function hourInstant(dayKey, hour, timezone) {
+function hourInstant(dayKey: string, hour: number, timezone: string): number {
   return hour === 24 ? zonedEpoch(nextDayKey(dayKey), 0, 0, timezone) : zonedEpoch(dayKey, hour, 0, timezone);
 }
 
 /** `[start, end)` of one window on the local day `dayKey`, or null for a malformed window. A window
  * whose `to` is not after `from` ends the next day (18 -> 1 runs 18:00 to 01:00); `from === to` is a
  * whole day. */
-function windowSpan(window, dayKey, timezone) {
-  const from = hourOf(window?.from);
-  const to = hourOf(window?.to);
+function windowSpan(window: unknown, dayKey: string, timezone: string): [number, number] | null {
+  const from = hourOf(objOf(window).from);
+  const to = hourOf(objOf(window).to);
   if (from === null || to === null || from === 24) return null;
   const start = hourInstant(dayKey, from, timezone);
   const end = to > from ? hourInstant(dayKey, to, timezone) : hourInstant(nextDayKey(dayKey), to, timezone);
@@ -122,28 +230,30 @@ function windowSpan(window, dayKey, timezone) {
  * `maxPerDay` remain one of them, chosen at random (one roll each), is
  * dropped, so the cap does not always cost the latest window. Slots already
  * past at planning time are kept: dueSlot decides what still fires.
- * @param {{ windows?: Array<{ from: number, to: number, posts: [number, number] }>, quietDayChance?: number,
- *   quietCarry?: number, hungerBoost?: number, minGapMinutes?: number, maxPerDay?: number }} cfg  config.diary
- * @param {number} nowMs
- * @param {string} [timezone]  bot.timezone
- * @param {() => number} rng
- * @param {{ hunger?: number[], quietStreak?: number }} [carry]  nextHunger's result; zeros when missing.
- * @returns {{ day: string, slots: number[], quiet: boolean, done: number[], posted: number[], hunger: number[],
- *   quietStreak: number }}  `hunger` one whole count per window, `posted` empty.
+ * `cfg` is `config.diary` (`windows`, `quietDayChance`, `quietCarry`, `hungerBoost`, `minGapMinutes`, `maxPerDay`),
+ * `timezone` is `bot.timezone`, `carry` is nextHunger's result (zeros when missing). The result's `hunger` has one
+ * whole count per window, `posted` is empty.
  */
-export function planDay(cfg, nowMs, timezone, rng, carry = {}) {
+export function planDay(
+  cfg: unknown,
+  nowMs: number,
+  timezone: string | undefined,
+  rng: () => number,
+  carry: Partial<Carry> | null = {}
+): DayPlan {
   const zone = timezone || 'UTC';
   const day = localDayKey(nowMs, zone);
-  const windows = Array.isArray(cfg?.windows) ? cfg.windows : [];
+  const c = objOf(cfg);
+  const windows = listOf(c.windows);
   const hunger = windows.map((_, i) => countOf(Array.isArray(carry?.hunger) ? carry.hunger[i] : 0));
   const quietStreak = countOf(carry?.quietStreak);
   const kept = { posted: [], hunger, quietStreak };
-  const quietCarry = fractionOf(cfg?.quietCarry, DEFAULT_QUIET_CARRY);
-  const quiet = rng() < (cfg?.quietDayChance ?? DEFAULT_QUIET_DAY_CHANCE) * quietCarry ** quietStreak;
+  const quietCarry = fractionOf(c.quietCarry, DEFAULT_QUIET_CARRY);
+  const quiet = rng() < Number(c.quietDayChance ?? DEFAULT_QUIET_DAY_CHANCE) * quietCarry ** quietStreak;
   if (quiet) return { day, slots: [], quiet: true, done: [], ...kept };
 
-  const boost = fractionOf(cfg?.hungerBoost, DEFAULT_HUNGER_BOOST);
-  const placed = [];
+  const boost = fractionOf(c.hungerBoost, DEFAULT_HUNGER_BOOST);
+  const placed: Array<number> = [];
   let deficit = 0;
   windows.forEach((window, index) => {
     const [min, max] = postRange(window);
@@ -163,18 +273,21 @@ export function planDay(cfg, nowMs, timezone, rng, carry = {}) {
   });
   placed.sort((a, b) => a - b);
 
-  const gapMs = Math.max(0, cfg?.minGapMinutes ?? 90) * MINUTE_MS;
-  const slots = [];
+  const gapMs = Math.max(0, Number(c.minGapMinutes ?? 90)) * MINUTE_MS;
+  const slots: Array<number> = [];
   for (const slot of placed) {
     if (slots.length > 0 && slot - slots[slots.length - 1] < gapMs) continue;
     slots.push(slot);
   }
-  const cap = countOf(cfg?.maxPerDay ?? DEFAULT_MAX_PER_DAY);
+  const cap = countOf(c.maxPerDay ?? DEFAULT_MAX_PER_DAY);
   while (slots.length > cap) {
     slots.splice(Math.min(slots.length - 1, Math.floor(rng() * slots.length)), 1);
   }
   return { day, slots, quiet: false, done: [], ...kept };
 }
+
+/** The finite numbers of `value` when it is a list, else []. */
+const numbersOf = (value: unknown): Array<number> => listOf(value).filter(isFiniteNumber);
 
 /**
  * The hunger a new day plan starts with, from `previous` (the stored plan of
@@ -188,39 +301,41 @@ export function planDay(cfg, nowMs, timezone, rng, carry = {}) {
  * window running past midnight); a fed window goes back to 0, an unfed one
  * grows by 1. A window that can never post (`max === 0`) or a malformed one
  * stays at 0. The result has one entry per window of `windows`, so a changed
- * windows list pads with 0 or drops the tail. Pure.
- * @param {{ day?: string, slots?: number[], done?: number[], posted?: number[], quiet?: boolean,
- *   hunger?: number[], quietStreak?: number }|null|undefined} previous
- * @param {Array<{ from: number, to: number, posts: [number, number] }>} windows  config.diary.windows
- * @param {string} [timezone]  bot.timezone
- * @param {number} nowMs
- * @param {number} [graceMinutes]  diary.slotGraceMinutes
- * @returns {{ hunger: number[], quietStreak: number }}
+ * windows list pads with 0 or drops the tail. `windows` is `config.diary.windows`, `timezone` is `bot.timezone`,
+ * `graceMinutes` is `diary.slotGraceMinutes`. Pure.
  */
-export function nextHunger(previous, windows, timezone, nowMs, graceMinutes) {
+export function nextHunger(
+  previous: unknown,
+  windows: unknown,
+  timezone: string | undefined,
+  nowMs: number,
+  graceMinutes?: unknown
+): Carry {
   const zone = timezone || 'UTC';
-  const list = Array.isArray(windows) ? windows : [];
+  const list = listOf(windows);
   const zeros = { hunger: list.map(() => 0), quietStreak: 0 };
   if (!previous || typeof previous !== 'object') return zeros;
-  const before = (i) => countOf(Array.isArray(previous.hunger) ? previous.hunger[i] : 0);
-  const day = typeof previous.day === 'string' ? previous.day : null;
-  const spanOf = (window) => (day && postRange(window)[1] > 0 ? windowSpan(window, day, zone) : null);
-  if (previous.quiet === true) {
+  const stored = objOf(previous);
+  const before = (i: number) => countOf(Array.isArray(stored.hunger) ? listOf(stored.hunger)[i] : 0);
+  const day = typeof stored.day === 'string' ? stored.day : null;
+  const spanOf = (window: unknown) => (day && postRange(window)[1] > 0 ? windowSpan(window, day, zone) : null);
+  if (stored.quiet === true) {
     return {
       hunger: list.map((window, i) => (spanOf(window) ? before(i) + 1 : 0)),
-      quietStreak: countOf(previous.quietStreak) + 1,
+      quietStreak: countOf(stored.quietStreak) + 1,
     };
   }
-  if (!Array.isArray(previous.posted) || !Array.isArray(previous.slots)) return zeros;
-  const posted = new Set(previous.posted);
-  const done = new Set(Array.isArray(previous.done) ? previous.done : []);
-  const graceMs = Math.max(0, graceMinutes ?? DEFAULT_GRACE_MINUTES) * MINUTE_MS;
-  const fed = (slot) => posted.has(slot) || (!done.has(slot) && slot >= nowMs - graceMs);
+  if (!Array.isArray(stored.posted) || !Array.isArray(stored.slots)) return zeros;
+  const posted = new Set(listOf(stored.posted));
+  const done = new Set(listOf(stored.done));
+  const graceMs = Math.max(0, Number(graceMinutes ?? DEFAULT_GRACE_MINUTES)) * MINUTE_MS;
+  const fed = (slot: number) => posted.has(slot) || (!done.has(slot) && slot >= nowMs - graceMs);
+  const slots = numbersOf(stored.slots);
   const hunger = list.map((window, i) => {
     const span = spanOf(window);
     if (!span) return 0;
     const [start, end] = span;
-    const inside = previous.slots.filter((slot) => Number.isFinite(slot) && slot >= start && slot < end);
+    const inside = slots.filter((slot) => slot >= start && slot < end);
     return inside.some(fed) ? 0 : before(i) + 1;
   });
   return { hunger, quietStreak: 0 };
@@ -228,20 +343,17 @@ export function nextHunger(previous, windows, timezone, nowMs, graceMinutes) {
 
 /**
  * The slot of `plan` to run at `nowMs`. Among the slots at or before `nowMs`
- * that are not in `plan.done`, those older than `graceMinutes` are `dropped`
+ * that are not in `plan.done`, those older than `graceMinutes` (`diary.slotGraceMinutes`) are `dropped`
  * (the caller marks them done without firing them) and the oldest remaining
  * one is the `slot`. Null when nothing is due and nothing is dropped;
  * `{ slot: null, dropped }` when every due slot was missed.
- * @param {{ slots?: number[], done?: number[] }} plan
- * @param {number} nowMs
- * @param {number} [graceMinutes]  diary.slotGraceMinutes
- * @returns {{ slot: number|null, dropped: number[] }|null}
  */
-export function dueSlot(plan, nowMs, graceMinutes) {
-  const done = new Set(Array.isArray(plan?.done) ? plan.done : []);
-  const graceMs = Math.max(0, graceMinutes ?? DEFAULT_GRACE_MINUTES) * MINUTE_MS;
-  const due = (Array.isArray(plan?.slots) ? plan.slots : [])
-    .filter((slot) => Number.isFinite(slot) && slot <= nowMs && !done.has(slot))
+export function dueSlot(plan: unknown, nowMs: number, graceMinutes?: unknown): Due | null {
+  const stored = objOf(plan);
+  const done = new Set(listOf(stored.done));
+  const graceMs = Math.max(0, Number(graceMinutes ?? DEFAULT_GRACE_MINUTES)) * MINUTE_MS;
+  const due = numbersOf(stored.slots)
+    .filter((slot) => slot <= nowMs && !done.has(slot))
     .sort((a, b) => a - b);
   const dropped = due.filter((slot) => nowMs - slot > graceMs);
   const live = due.filter((slot) => nowMs - slot <= graceMs);
@@ -250,20 +362,19 @@ export function dueSlot(plan, nowMs, graceMinutes) {
 }
 
 /** The `[key, weight]` pairs of `kinds` with a finite positive weight, in key order. */
-function weightedKinds(kinds) {
+function weightedKinds(kinds: unknown): Array<[string, number]> {
   if (!kinds || typeof kinds !== 'object' || Array.isArray(kinds)) return [];
-  return Object.entries(kinds).filter(([, weight]) => Number.isFinite(weight) && weight > 0);
+  return Object.entries(objOf(kinds)).filter(
+    (entry): entry is [string, number] => isFiniteNumber(entry[1]) && entry[1] > 0
+  );
 }
 
 /**
  * One kind key drawn from `kinds` (`{ key: weight }`, `diary.kinds`) in
  * proportion to its weight; a kind with a weight of 0 or less is never drawn.
  * Null when no kind has a positive weight.
- * @param {Record<string, number>} kinds
- * @param {() => number} rng
- * @returns {string|null}
  */
-export function pickKind(kinds, rng) {
+export function pickKind(kinds: unknown, rng: () => number): string | null {
   const entries = weightedKinds(kinds);
   if (entries.length === 0) return null;
   const total = entries.reduce((sum, [, weight]) => sum + weight, 0);
@@ -275,47 +386,44 @@ export function pickKind(kinds, rng) {
   return entries[entries.length - 1][0];
 }
 
+/** `value` when it is a list, else `fallback`. */
+const listOr = (value: unknown, fallback: ReadonlyArray<string>): ReadonlyArray<unknown> =>
+  Array.isArray(value) ? listOf(value) : fallback;
+
 /**
  * Whether `kind` is a picture kind: listed in `pictureKinds` (`diary.pictureKinds`),
  * DEFAULT_PICTURE_KINDS when that is not a list.
- * @param {string|null} kind
- * @param {string[]|undefined} pictureKinds
- * @returns {boolean}
  */
-export function isPictureKind(kind, pictureKinds) {
-  const drawable = Array.isArray(pictureKinds) ? pictureKinds : DEFAULT_PICTURE_KINDS;
+export function isPictureKind(kind: unknown, pictureKinds: unknown): boolean {
+  const drawable = listOr(pictureKinds, DEFAULT_PICTURE_KINDS);
   return typeof kind === 'string' && drawable.includes(kind);
 }
 
 /**
  * Whether `kind` posts a set of pictures: listed in `setKinds`
  * (`diary.setKinds`), DEFAULT_SET_KINDS when that is not a list.
- * @param {string|null} kind
- * @param {string[]|null|undefined} setKinds
- * @returns {boolean}
  */
-export function isSetKind(kind, setKinds) {
-  const sets = Array.isArray(setKinds) ? setKinds : DEFAULT_SET_KINDS;
+export function isSetKind(kind: unknown, setKinds: unknown): boolean {
+  const sets = listOr(setKinds, DEFAULT_SET_KINDS);
   return typeof kind === 'string' && sets.includes(kind);
 }
 
 /**
- * The settings of a set post (`diary.set`), each one replaced by its default
+ * The settings of a set post (`diary.set` of `diaryCfg`, config.diary), each one replaced by its default
  * when missing or invalid: `pictures` `[min, max]` whole counts (max never
  * below min; the engine stages at most `max` draw.create pictures, `min` is for the
  * prompt), `minPosted` (fewer pictures generated and nothing is posted; at
  * least 1), `seedSets` (the compose request's seed combinations, 0 allowed)
  * and `maxMessageBytes` (the attachment bytes of one message, positive).
- * @param {object|null|undefined} diaryCfg  config.diary
- * @returns {{ pictures: [number, number], minPosted: number, seedSets: number, maxMessageBytes: number }}
  */
-export function setSettings(diaryCfg) {
-  const set = diaryCfg?.set && typeof diaryCfg.set === 'object' ? diaryCfg.set : {};
-  const whole = (value, min) => (Number.isFinite(value) && value >= min ? Math.floor(value) : null);
-  const range = Array.isArray(set.pictures) ? set.pictures : [];
+export function setSettings(diaryCfg: unknown): SetSettings {
+  const set = sectionOf(diaryCfg, 'set');
+  const whole = (value: unknown, min: number) => (isFiniteNumber(value) && value >= min ? Math.floor(value) : null);
+  const range = listOf(set.pictures);
   const low = whole(range[0], 1);
   const high = whole(range[1], 1);
-  const pictures = low !== null && high !== null ? [low, Math.max(low, high)] : [...DEFAULT_SET_PICTURES];
+  const pictures: [number, number] =
+    low !== null && high !== null ? [low, Math.max(low, high)] : [...DEFAULT_SET_PICTURES];
   return {
     pictures,
     minPosted: whole(set.minPosted, 1) ?? DEFAULT_SET_MIN_POSTED,
@@ -325,115 +433,121 @@ export function setSettings(diaryCfg) {
 }
 
 /**
- * `kinds` (`diary.kinds`) without its picture kinds (isPictureKind), the other
+ * `kinds` (`diary.kinds`) without its picture kinds (isPictureKind over `pictureKinds`, diary.pictureKinds), the other
  * weights kept; a new object, the input untouched. What the planner and the
  * random fallback get while a post may not carry a picture.
- * @param {Record<string, number>|null|undefined} kinds
- * @param {string[]|undefined} pictureKinds  diary.pictureKinds
- * @returns {Record<string, number>}
  */
-export function withoutPictureKinds(kinds, pictureKinds) {
+export function withoutPictureKinds(kinds: unknown, pictureKinds: unknown): Record<string, unknown> {
   if (!kinds || typeof kinds !== 'object' || Array.isArray(kinds)) return {};
-  return Object.fromEntries(Object.entries(kinds).filter(([key]) => !isPictureKind(key, pictureKinds)));
+  return Object.fromEntries(Object.entries(objOf(kinds)).filter(([key]) => !isPictureKind(key, pictureKinds)));
 }
 
 /**
- * The plan request's answer, normalised. `kind` must be a key of `kinds` with
+ * The plan request's answer `parsed` (the JSON the model answered, untrusted), normalised. `kind` must be a key of
+ * `kinds` (diary.kinds) with
  * a positive weight, else the whole answer is replaced by a weighted random
  * kind (pickKind; null when no kind is weighted) with an empty brief and
  * search (`fallback: true`). Otherwise `brief` is one line, at most 300
- * characters; `search` is kept only for a kind in `searchKinds`. With
- * `pictureAllowed`, a kind in `pictureKinds` always draws (a picture kind
+ * characters; `search` is kept only for a kind in `searchKinds` (diary.searchKinds). With
+ * `pictureAllowed`, a kind in `pictureKinds` (diary.pictureKinds) always draws (a picture kind
  * means a picture, whatever the answer said) and any other kind draws only
  * when the answer says `picture: true`; without it nothing draws.
- * @param {unknown} parsed  The JSON the model answered (untrusted).
- * @param {Record<string, number>} kinds  diary.kinds
- * @param {{ pictureAllowed?: boolean, searchKinds?: string[], pictureKinds?: string[] }} opts
- *   searchKinds: diary.searchKinds; pictureKinds: diary.pictureKinds
- * @param {() => number} rng
- * @returns {{ kind: string|null, brief: string, search: string, picture: boolean, fallback: boolean }}
  */
-export function validatePlan(parsed, kinds, { pictureAllowed = false, searchKinds, pictureKinds } = {}, rng) {
-  const answer = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-  const valid = weightedKinds(kinds).some(([key]) => key === answer.kind);
-  const drawable = Array.isArray(pictureKinds) ? pictureKinds : DEFAULT_PICTURE_KINDS;
-  if (!valid) {
+export function validatePlan(
+  parsed: unknown,
+  kinds: unknown,
+  {
+    pictureAllowed = false,
+    searchKinds,
+    pictureKinds,
+  }: { pictureAllowed?: boolean; searchKinds?: unknown; pictureKinds?: unknown } = {},
+  rng: () => number
+): DiaryPlan {
+  const answer = objOf(parsed);
+  const named = typeof answer.kind === 'string' ? answer.kind : null;
+  const valid = weightedKinds(kinds).some(([key]) => key === named);
+  const drawable = listOr(pictureKinds, DEFAULT_PICTURE_KINDS);
+  if (!valid || named === null) {
     const kind = pickKind(kinds, rng);
     const picture = pictureAllowed === true && kind !== null && drawable.includes(kind);
     return { kind, brief: '', search: '', picture, fallback: true };
   }
-  const picture = pictureAllowed === true && (drawable.includes(answer.kind) || answer.picture === true);
-  const searchable = Array.isArray(searchKinds) ? searchKinds : DEFAULT_SEARCH_KINDS;
+  const picture = pictureAllowed === true && (drawable.includes(named) || answer.picture === true);
+  const searchable = listOr(searchKinds, DEFAULT_SEARCH_KINDS);
   const brief = typeof answer.brief === 'string' ? clampText(oneLine(answer.brief), BRIEF_CHARS, { tolerance: 1 }) : '';
-  const search = typeof answer.search === 'string' && searchable.includes(answer.kind) ? oneLine(answer.search) : '';
-  return { kind: answer.kind, brief, search, picture, fallback: false };
+  const search = typeof answer.search === 'string' && searchable.includes(named) ? oneLine(answer.search) : '';
+  return { kind: named, brief, search, picture, fallback: false };
 }
 
 /** The picture suffix of one post: the scene, `pictureUnknown` for a picture with no recorded
  * scene (`true` or ''), nothing for no picture. A set (`pictures` above 1) shows its first
  * scene with the count (`labels.diary.pictureSet`; `picture` when that label is missing). */
-function pictureSuffix(picture, labels, pictures) {
+function pictureSuffix(picture: unknown, labels: unknown, pictures: unknown): string {
+  const words = diaryWords(labels);
   const count = countOf(pictures);
   if (typeof picture === 'string' && picture.trim()) {
-    if (count > 1 && labels.diary?.pictureSet) return fill(labels.diary.pictureSet, { count, scene: oneLine(picture) });
-    return fill(labels.diary?.picture, { scene: oneLine(picture) });
+    if (count > 1 && words.pictureSet) return fill(labelOf(words.pictureSet), { count, scene: oneLine(picture) });
+    return fill(labelOf(words.picture), { scene: oneLine(picture) });
   }
-  if (picture === true || picture === '')
-    return fill(labels.diary?.picture, { scene: labels.diary?.pictureUnknown ?? '' });
+  if (picture === true || picture === '') return fill(labelOf(words.picture), { scene: words.pictureUnknown ?? '' });
   return '';
 }
 
 /**
- * The body of the `<diary>` block: `labels.diary.intro`, then one
+ * The body of the `<diary>` block over `posts` (oldest first; each `{ at, kind, gist, picture, pictures }`):
+ * `labels.diary.intro`, then one
  * `labels.diary.line` per post (`{date}` the post's local date in
  * `timezone`, `{kind}` its kind key or `labels.diary.kindUnknown`, `{gist}`)
  * with `labels.diary.picture` appended when the post had a picture
  * (`labels.diary.pictureSet` with the count for a set: `pictures` above 1). The
- * newest `max` posts, oldest first. '' when there is no post.
- * @param {Array<{ at: number, kind: string|null, gist: string, picture?: string|boolean|null, pictures?: number }>} posts  Oldest first.
- * @param {object} labels
- * @param {{ timezone?: string, max?: number }} [opts]  max: diary.historyPosts
- * @returns {string}
+ * newest `max` (diary.historyPosts) posts, oldest first. '' when there is no post.
  */
-export function renderDiaryBlock(posts, labels, { timezone, max } = {}) {
-  const list = Array.isArray(posts) ? posts : [];
+export function renderDiaryBlock(
+  posts: unknown,
+  labels: unknown,
+  { timezone, max }: { timezone?: string; max?: unknown } = {}
+): string {
+  const words = diaryWords(labels);
+  const list = listOf(posts);
   const limit = countOf(max ?? DEFAULT_HISTORY_POSTS);
   const shown = limit > 0 ? list.slice(-limit) : [];
   if (shown.length === 0) return '';
-  const lines = shown.map((post) => {
-    const date = Number.isFinite(post?.at) ? localDayKey(post.at, timezone) : '';
-    const kind = typeof post?.kind === 'string' && post.kind ? post.kind : (labels.diary?.kindUnknown ?? '');
-    const line = fill(labels.diary?.line, { date, kind, gist: oneLine(post?.gist) });
-    return line + pictureSuffix(post?.picture, labels, post?.pictures);
+  const lines = shown.map((entry) => {
+    const post = objOf(entry);
+    const date = isFiniteNumber(post.at) ? localDayKey(post.at, timezone) : '';
+    const kind = typeof post.kind === 'string' && post.kind ? post.kind : (words.kindUnknown ?? '');
+    const line = fill(labelOf(words.line), { date, kind, gist: oneLine(post.gist) });
+    return line + pictureSuffix(post.picture, labels, post.pictures);
   });
-  return [labels.diary?.intro, ...lines].filter(Boolean).join('\n');
+  return [words.intro, ...lines].filter(Boolean).join('\n');
 }
 
 /**
  * The body of the `<kinds>` block: `labels.diary.kinds`, then one
- * `labels.diary.kindLine` per kind with a positive weight (`{key}`,
- * `{weight}`, `{count}` its uses among the newest `window` posts, `{window}`
+ * `labels.diary.kindLine` per kind of `kinds` (diary.kinds) with a positive weight (`{key}`,
+ * `{weight}`, `{count}` its uses among the newest `window` (diary.historyPosts) of `posts` (oldest first), `{window}`
  * how many posts that is). '' when no kind is weighted.
- * @param {Record<string, number>} kinds  diary.kinds
- * @param {Array<{ kind: string|null }>} posts  Oldest first.
- * @param {object} labels
- * @param {{ window?: number }} [opts]  window: diary.historyPosts
- * @returns {string}
  */
-export function renderKindsBlock(kinds, posts, labels, { window } = {}) {
+export function renderKindsBlock(
+  kinds: unknown,
+  posts: unknown,
+  labels: unknown,
+  { window }: { window?: unknown } = {}
+): string {
+  const words = diaryWords(labels);
   const entries = weightedKinds(kinds);
   if (entries.length === 0) return '';
   const limit = countOf(window ?? DEFAULT_HISTORY_POSTS);
-  const recent = limit > 0 && Array.isArray(posts) ? posts.slice(-limit) : [];
+  const recent = limit > 0 && Array.isArray(posts) ? listOf(posts).slice(-limit) : [];
   const lines = entries.map(([key, weight]) =>
-    fill(labels.diary?.kindLine, {
+    fill(labelOf(words.kindLine), {
       key,
       weight,
-      count: recent.filter((post) => post?.kind === key).length,
+      count: recent.filter((post) => objOf(post).kind === key).length,
       window: recent.length,
     })
   );
-  return [labels.diary?.kinds, ...lines].filter(Boolean).join('\n');
+  return [words.kinds, ...lines].filter(Boolean).join('\n');
 }
 
 /**
@@ -441,13 +555,11 @@ export function renderKindsBlock(kinds, posts, labels, { window } = {}) {
  * family, every other non-blank line (trimmed) is one seed of the current
  * family; lines before the first header belong to the family `seed`. Families
  * keep their header order; a header with no lines is an empty family.
- * @param {unknown} text
- * @returns {Record<string, string[]>}
  */
-export function parseSeedFamilies(text) {
-  const families = {};
+export function parseSeedFamilies(text: unknown): Record<string, Array<string>> {
+  const families: Record<string, Array<string>> = {};
   if (typeof text !== 'string') return families;
-  let current = null;
+  let current: string | null = null;
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim();
     if (!line) continue;
@@ -467,21 +579,18 @@ export function parseSeedFamilies(text) {
 }
 
 /**
- * `sets` seed combinations: each one random line of every non-empty family,
+ * `sets` (diary.seedSets) seed combinations from `families` (parseSeedFamilies): each one random line of every
+ * non-empty family,
  * in the families' order. [] when no family has a line or `sets` is not a
  * positive count.
- * @param {Record<string, string[]>} families  parseSeedFamilies
- * @param {number} sets  diary.seedSets
- * @param {() => number} rng
- * @returns {string[][]}
  */
-export function pickSeeds(families, sets, rng) {
-  const lists = Object.values(families && typeof families === 'object' ? families : {}).filter(
-    (lines) => Array.isArray(lines) && lines.length > 0
-  );
+export function pickSeeds(families: unknown, sets: unknown, rng: () => number): Array<Array<unknown>> {
+  const source: object = families && typeof families === 'object' ? families : {};
+  const values: Array<unknown> = Object.values(source);
+  const lists = values.filter((lines): lines is Array<unknown> => Array.isArray(lines) && lines.length > 0);
   const count = countOf(sets);
   if (lists.length === 0 || count === 0) return [];
-  const result = [];
+  const result: Array<Array<unknown>> = [];
   for (let i = 0; i < count; i += 1) {
     result.push(lists.map((lines) => lines[Math.min(lines.length - 1, Math.floor(rng() * lines.length))]));
   }
@@ -490,27 +599,22 @@ export function pickSeeds(families, sets, rng) {
 
 /**
  * The body of the `<seeds>` block: `labels.diary.seeds`, then one `- a; b; c`
- * line per combination. '' when there is none.
- * @param {string[][]} sets  pickSeeds
- * @param {object} labels
- * @returns {string}
+ * line per combination of `sets` (pickSeeds). '' when there is none.
  */
-export function renderSeedsBlock(sets, labels) {
-  const lines = (Array.isArray(sets) ? sets : [])
-    .filter((set) => Array.isArray(set) && set.length > 0)
+export function renderSeedsBlock(sets: unknown, labels: unknown): string {
+  const lines = listOf(sets)
+    .filter((set): set is Array<unknown> => Array.isArray(set) && set.length > 0)
     .map((set) => `- ${set.join('; ')}`);
   if (lines.length === 0) return '';
-  return [labels.diary?.seeds, ...lines].filter(Boolean).join('\n');
+  return [diaryWords(labels).seeds, ...lines].filter(Boolean).join('\n');
 }
 
 /**
  * The owner's topic for a forced post (`/nep diary post topic`): one line,
  * cut at a word boundary to at most 1000 characters. Null for a missing,
  * non-string or blank topic.
- * @param {unknown} text
- * @returns {string|null}
  */
-export function diaryTopic(text) {
+export function diaryTopic(text: unknown): string | null {
   if (typeof text !== 'string') return null;
   return clampText(oneLine(text), TOPIC_CHARS, { tolerance: 1 }) || null;
 }
@@ -518,14 +622,11 @@ export function diaryTopic(text) {
 /**
  * The body of the plan request's `<topic>` block: `labels.diary.topic`, then
  * the topic (diaryTopic). '' without a topic.
- * @param {unknown} topic
- * @param {object} labels
- * @returns {string}
  */
-export function renderTopicBlock(topic, labels) {
+export function renderTopicBlock(topic: unknown, labels: unknown): string {
   const text = diaryTopic(topic);
   if (!text) return '';
-  return [labels?.diary?.topic, text].filter(Boolean).join('\n');
+  return [diaryWords(labels).topic, text].filter(Boolean).join('\n');
 }
 
 // A diary post's text loses its URLs through the one shared sanitizer (src/memory/clamp.js#stripUrls).
@@ -534,11 +635,8 @@ export { stripUrls };
 /**
  * A post's one-line gist for diary.json: whitespace collapsed, then cut at a
  * word boundary to at most `chars` characters (diary.gistChars).
- * @param {unknown} text
- * @param {number} [chars]
- * @returns {string}
  */
-export function gistOf(text, chars) {
+export function gistOf(text: unknown, chars?: number): string {
   return clampText(oneLine(text), chars ?? DEFAULT_GIST_CHARS, { tolerance: 1 });
 }
 
@@ -549,15 +647,39 @@ export function gistOf(text, chars) {
  * midnight, and its slots after midnight belong to the plan that placed them.
  * Pure.
  */
-function withCarriedSlots(fresh, previous, nowMs, graceMinutes) {
-  if (!previous || !Array.isArray(previous.slots)) return { plan: fresh, carried: 0 };
-  const done = new Set(Array.isArray(previous.done) ? previous.done : []);
-  const graceMs = Math.max(0, graceMinutes ?? DEFAULT_GRACE_MINUTES) * MINUTE_MS;
-  const carried = previous.slots.filter((slot) => Number.isFinite(slot) && !done.has(slot) && slot >= nowMs - graceMs);
+function withCarriedSlots(
+  fresh: DayPlan,
+  previous: unknown,
+  nowMs: number,
+  graceMinutes: unknown
+): { plan: DayPlan; carried: number } {
+  const stored = objOf(previous);
+  if (!previous || !Array.isArray(stored.slots)) return { plan: fresh, carried: 0 };
+  const done = new Set(listOf(stored.done));
+  const graceMs = Math.max(0, Number(graceMinutes ?? DEFAULT_GRACE_MINUTES)) * MINUTE_MS;
+  const carried = numbersOf(stored.slots).filter((slot) => !done.has(slot) && slot >= nowMs - graceMs);
   if (carried.length === 0) return { plan: fresh, carried: 0 };
   const slots = [...new Set([...carried, ...fresh.slots])].sort((a, b) => a - b);
   return { plan: { ...fresh, slots }, carried: carried.length };
 }
+
+/** What createDiary is given. */
+export type DiaryDeps = {
+  hot: { readonly config: unknown; readonly prompts?: unknown };
+  store: DiaryStore;
+  reads: Reads | null;
+  turns: {
+    runTurn(params: DiaryTurnParams): Promise<unknown>;
+    isAnyBusy?(): boolean;
+    waitIdle?(): Promise<unknown>;
+  };
+  getGuildId: () => string | null;
+  backfill?: ((args: BackfillArgs) => Promise<number>) | null;
+  mirrors?: { publishEntry(entry: unknown): Promise<unknown> } | null;
+  rng?: () => number;
+  now?: () => number;
+  delay?: (ms: number) => Promise<void>;
+};
 
 /**
  * The diary's scheduler and its owner-facing edge. `tick()` (every 30 s,
@@ -588,18 +710,10 @@ function withCarriedSlots(fresh, previous, nowMs, graceMinutes) {
  * (`turns.isAnyBusy()`, or a `busy` outcome) it waits for `turns.waitIdle()`
  * at most `diary.forceWaitMs` and posts then, `{ outcome: 'busy' }` when the
  * turn still runs. Hot values are read at every call.
- * @param {{ hot: object, store: object, reads: import('../interface/reads.ts').Reads|null, turns: object,
- *   getGuildId: () => (string|null), backfill?: ((args: object) => Promise<number>)|null,
- *   mirrors?: { publishEntry(entry: any): Promise<unknown> }|null,
- *   rng?: () => number, now?: () => number, delay?: (ms: number) => Promise<void> }} deps
- *   `delay`: resolves after `ms` (a timer that never holds the process open); injected by tests.
- *   `reads`: the core's reads of the interface (the backfill's history), null when none is connected.
- *   `backfill`: src/behavior/diary.js#backfillDiary's shape (`{ store, reads, conversation, guildId,
- *   config, labels }` -> the count written); null skips the backfill. `mirrors`: the diary's publisher
- *   (`{ publishEntry }`), null publishes nothing.
- * @returns {{ tick: () => Promise<void>, force: (opts?: { kind?: string|null, topic?: string|null }) => Promise<object>,
- *   status: () => { channelId: string, day: string|null, slots: number[], done: number[], quiet: boolean,
- *   hunger: number[], quietStreak: number, posts: number, pictures: number, history: number }, stop: () => void }}
+ * `delay` resolves after `ms` (a timer that never holds the process open); injected by tests.
+ * `reads` are the core's reads of the interface (the backfill's history), null when none is connected.
+ * `backfill` has backfillDiary's shape (the count written); null skips the backfill. `mirrors` is the diary's
+ * publisher (`{ publishEntry }`), null publishes nothing.
  */
 export function createDiary({
   hot,
@@ -612,37 +726,41 @@ export function createDiary({
   rng = Math.random,
   now = Date.now,
   delay = unrefDelay,
-}) {
+}: DiaryDeps): Diary {
   let stopped = false;
   let inFlight = false;
   // reason -> the local day it was last logged on: one `diary: skip` per reason and day.
-  const skipped = new Map();
+  const skipped = new Map<string, string>();
   // `${guildId}:${channelId}` the backfill was tried for in this process.
-  const backfillTried = new Set();
+  const backfillTried = new Set<string>();
 
-  function skip(reason, day, extra = {}) {
+  function skip(reason: string, day: string, extra: Obj = {}) {
     if (skipped.get(reason) === day) return;
     skipped.set(reason, day);
     log.info('diary: skip', { reason, ...extra });
   }
 
   /** Why no post may run now, or null. */
-  function gate(config) {
-    if (config.features?.diary === false) return 'off';
-    if (store.state.data.paused) return 'paused';
+  function gate(config: unknown) {
+    if (sectionOf(config, 'features').diary === false) return 'off';
+    if (stateData(store).paused) return 'paused';
     return null;
   }
 
+  /** `bot.timezone` of `config`, UTC when it is missing or empty. */
+  const zoneOf = (config: unknown): string => labelOf(sectionOf(config, 'bot').timezone) || 'UTC';
+
   /** The plan of the local day of `t` for `guildId`, planned (and stored) when the stored one is older. */
-  function currentPlan(guildId, config, t) {
-    const timezone = config.bot?.timezone || 'UTC';
+  function currentPlan(guildId: string, config: unknown, t: number): DayPlan {
+    const timezone = zoneOf(config);
+    const diaryCfg = sectionOf(config, 'diary');
     const day = localDayKey(t, timezone);
-    const plans = (store.state.data.diary ??= {});
-    const stored = plans[guildId];
+    const plans = plansOf(store, true);
+    const stored: DayPlan | undefined = plans[guildId];
     if (stored && stored.day === day && Array.isArray(stored.slots)) return stored;
-    const hunger = nextHunger(stored, config.diary?.windows, timezone, t, config.diary?.slotGraceMinutes);
-    const fresh = planDay(config.diary ?? {}, t, timezone, rng, hunger);
-    const { plan, carried } = withCarriedSlots(fresh, stored, t, config.diary?.slotGraceMinutes);
+    const hunger = nextHunger(stored, diaryCfg.windows, timezone, t, diaryCfg.slotGraceMinutes);
+    const fresh = planDay(diaryCfg, t, timezone, rng, hunger);
+    const { plan, carried } = withCarriedSlots(fresh, stored, t, diaryCfg.slotGraceMinutes);
     plans[guildId] = plan;
     store.state.markDirty();
     log.info('diary: plan', {
@@ -657,9 +775,12 @@ export function createDiary({
     return plan;
   }
 
+  /** `diary.maxPerDay` of `config`, its default when missing. */
+  const capOf = (config: unknown): unknown => sectionOf(config, 'diary').maxPerDay ?? DEFAULT_MAX_PER_DAY;
+
   /** Why the post may not run now (`cap`: the day's posts reached `diary.maxPerDay`), or null. */
-  function postBlock(config, t) {
-    if (countToday(store.state.data, DIARY_DAILY, t) >= (config.diary?.maxPerDay ?? DEFAULT_MAX_PER_DAY)) return 'cap';
+  function postBlock(config: unknown, t: number) {
+    if (countToday(stateData(store), DIARY_DAILY, t) >= Number(capOf(config))) return 'cap';
     return null;
   }
 
@@ -667,7 +788,7 @@ export function createDiary({
    * The history backfilled from the place her diary is posted to (mirror.ts#diaryPlaces, the first), once per place
    * and process, while diary.json is empty; nothing without the interface's reads or such a place.
    */
-  async function backfillOnce(guildId, config) {
+  async function backfillOnce(guildId: string, config: unknown) {
     const place = readMirrors(store, diaryPlaces, [])[0];
     if (typeof backfill !== 'function' || !reads || !place) return;
     const channel = { iface: place.iface, id: place.conversationId };
@@ -675,14 +796,14 @@ export function createDiary({
     if (backfillTried.has(key)) return;
     backfillTried.add(key);
     try {
-      if ((store.getDiary(guildId)?.posts ?? []).length > 0) return;
+      if (listOf(store.getDiary(guildId)?.posts).length > 0) return;
       const count = await backfill({
         store,
         reads,
         conversation: { iface: channel.iface, conversationId: channel.id },
         guildId,
         config,
-        labels: hot.prompts?.labels,
+        labels: objOf(hot.prompts).labels,
       });
       log.info('diary: backfill', { guildId, channelId: channel.id, count: Number.isFinite(count) ? count : 0 });
     } catch (err) {
@@ -691,22 +812,27 @@ export function createDiary({
   }
 
   /** One post through the turn runner (the selfreflection wake), logged with its outcome; its entry published. */
-  async function post(guildId, { kind, topic = null, forced }) {
+  async function post(
+    guildId: string,
+    { kind, topic = null, forced }: { kind: string | null; topic?: string | null; forced: boolean }
+  ): Promise<unknown> {
     const diary = { kind: kind ?? null, ...(topic ? { topic } : {}), forced };
     const result = await turns.runTurn({ mode: 'diary', diary, guildId });
+    const answer = objOf(result);
+    const made = objOf(answer.diary);
     log.info('diary: post', {
       guildId,
-      kind: result?.diary?.kind ?? kind ?? null,
-      messages: result?.diary?.messages ?? 0,
-      picture: result?.diary?.picture ?? false,
-      pictures: result?.diary?.pictures ?? 0,
-      search: result?.diary?.search ?? false,
-      outcome: result?.outcome ?? null,
-      ...(result?.reason ? { reason: result.reason } : {}),
+      kind: made.kind ?? kind ?? null,
+      messages: made.messages ?? 0,
+      picture: made.picture ?? false,
+      pictures: made.pictures ?? 0,
+      search: made.search ?? false,
+      outcome: answer.outcome ?? null,
+      ...(answer.reason ? { reason: answer.reason } : {}),
       forced,
-      ...(result?.dryRun ? { dryRun: true } : {}),
+      ...(answer.dryRun ? { dryRun: true } : {}),
     });
-    const entry = result?.diary?.entry;
+    const entry = made.entry;
     if (entry && mirrors) {
       try {
         // The entry's row is in memory before its media and its publications name it.
@@ -719,11 +845,11 @@ export function createDiary({
     return result;
   }
 
-  async function tick() {
+  async function tick(): Promise<void> {
     if (stopped || inFlight) return;
     const config = hot.config;
     const t = now();
-    const day = localDayKey(t, config.bot?.timezone || 'UTC');
+    const day = localDayKey(t, zoneOf(config));
     const blocked = gate(config);
     if (blocked) {
       skip(blocked, day);
@@ -732,7 +858,7 @@ export function createDiary({
     const guildId = getGuildId();
     if (!guildId) return;
     const plan = currentPlan(guildId, config, t);
-    const due = dueSlot(plan, t, config.diary?.slotGraceMinutes);
+    const due = dueSlot(plan, t, sectionOf(config, 'diary').slotGraceMinutes);
     if (!due) return;
     if (due.dropped.length > 0) {
       plan.done = [...(plan.done ?? []), ...due.dropped];
@@ -740,13 +866,14 @@ export function createDiary({
       log.info('diary: skip', { reason: 'grace', count: due.dropped.length });
     }
     if (due.slot === null) return;
+    const slot = due.slot;
 
     inFlight = true;
     try {
       const block = postBlock(config, t);
       if (block) {
         // Not this slot: it is spent, the next one tries again.
-        plan.done = [...(plan.done ?? []), due.slot];
+        plan.done = [...(plan.done ?? []), slot];
         store.state.markDirty();
         skip(block, day);
         return;
@@ -754,17 +881,17 @@ export function createDiary({
       await backfillOnce(guildId, config);
       if (stopped) return;
       // Marked before the turn runs, like the spontaneous scheduler reschedules first.
-      plan.done = [...(plan.done ?? []), due.slot];
+      plan.done = [...(plan.done ?? []), slot];
       store.state.markDirty();
-      log.info('diary: due', { guildId, slot: due.slot });
-      const result = await post(guildId, { kind: null, forced: false });
-      if (result?.outcome === 'busy') {
-        plan.done = plan.done.filter((slot) => slot !== due.slot);
+      log.info('diary: due', { guildId, slot });
+      const outcome = objOf(await post(guildId, { kind: null, forced: false })).outcome;
+      if (outcome === 'busy') {
+        plan.done = plan.done.filter((done) => done !== slot);
         store.state.markDirty();
-        log.info('diary: skip', { reason: 'busy', slot: due.slot });
-      } else if (result?.outcome === 'spoke') {
+        log.info('diary: skip', { reason: 'busy', slot });
+      } else if (outcome === 'spoke') {
         // Feeds the slot's window (nextHunger); force() never records here.
-        plan.posted = [...(Array.isArray(plan.posted) ? plan.posted : []), due.slot];
+        plan.posted = [...(Array.isArray(plan.posted) ? plan.posted : []), slot];
         store.state.markDirty();
       }
     } finally {
@@ -772,7 +899,10 @@ export function createDiary({
     }
   }
 
-  async function force({ kind = null, topic = null } = {}) {
+  async function force({
+    kind = null,
+    topic = null,
+  }: { kind?: string | null; topic?: string | null } = {}): Promise<unknown> {
     const config = hot.config;
     const t = now();
     const blocked = gate(config);
@@ -782,11 +912,11 @@ export function createDiary({
     if (!guildId) return { outcome: 'not-now', reason: 'no-guild' };
     const block = postBlock(config, t);
     if (block === 'cap') {
-      const cap = config.diary?.maxPerDay ?? DEFAULT_MAX_PER_DAY;
+      const cap = capOf(config);
       return {
         outcome: 'refused',
         reason: 'cap',
-        limit: { key: 'diary.maxPerDay', used: countToday(store.state.data, DIARY_DAILY, t), cap },
+        limit: { key: 'diary.maxPerDay', used: countToday(stateData(store), DIARY_DAILY, t), cap },
       };
     }
     await backfillOnce(guildId, config);
@@ -798,24 +928,24 @@ export function createDiary({
       if (!(await waitIdle(config))) return { outcome: 'busy' };
     }
     const result = await post(guildId, params);
-    if (result?.outcome !== 'busy' || waited) return result;
+    if (objOf(result).outcome !== 'busy' || waited) return result;
     if (!(await waitIdle(config))) return { outcome: 'busy' };
     return post(guildId, params);
   }
 
   /** Whether the turn runner went idle within `diary.forceWaitMs` (read from `config`, the live one). */
-  async function waitIdle(config) {
+  async function waitIdle(config: unknown) {
     if (typeof turns.waitIdle !== 'function') return false;
-    const cap = config.diary?.forceWaitMs ?? DEFAULT_FORCE_WAIT_MS;
+    const cap = Number(sectionOf(config, 'diary').forceWaitMs ?? DEFAULT_FORCE_WAIT_MS);
     const idle = await Promise.race([turns.waitIdle().then(() => true), delay(cap).then(() => false)]);
     return idle && turns.isAnyBusy?.() !== true;
   }
 
-  function status() {
+  function status(): DiaryStatus {
     const t = now();
     const guildId = getGuildId();
-    const plan = guildId ? (store.state.data.diary?.[guildId] ?? null) : null;
-    const history = guildId && typeof store.getDiary === 'function' ? (store.getDiary(guildId)?.posts ?? []).length : 0;
+    const plan = guildId ? (plansOf(store, false)[guildId] ?? null) : null;
+    const history = guildId && typeof store.getDiary === 'function' ? listOf(store.getDiary(guildId)?.posts).length : 0;
     return {
       channelId: readMirrors(store, diaryPlaces, [])[0]?.conversationId ?? '',
       day: plan?.day ?? null,
@@ -824,13 +954,13 @@ export function createDiary({
       quiet: plan?.quiet === true,
       hunger: Array.isArray(plan?.hunger) ? plan.hunger.map(countOf) : [],
       quietStreak: countOf(plan?.quietStreak),
-      posts: countToday(store.state.data, DIARY_DAILY, t),
-      pictures: countToday(store.state.data, DIARY_PICTURES_DAILY, t),
+      posts: countToday(stateData(store), DIARY_DAILY, t),
+      pictures: countToday(stateData(store), DIARY_PICTURES_DAILY, t),
       history,
     };
   }
 
-  function stop() {
+  function stop(): void {
     stopped = true;
   }
 
@@ -843,46 +973,47 @@ export function createDiary({
  * `kind: null`, a one-line gist, and `labels.diary.pictureUnknown` as the scene of a message that
  * carried a picture. A history that already has posts is left alone (the posts are never rewritten by
  * code). This and the factory are the module's interface-aware edge; everything above stays pure.
- * @param {{ store: object, reads: import('../interface/reads.ts').Reads, conversation: { iface: string, conversationId: string },
- *   guildId: string, config: object, labels: object }} deps  `config` is the live merged
- *   config (`diary` read now); `labels` the live labels; `reads` the core's reads of the interface.
- * @returns {Promise<number>}  The number of posts written (0 when the history was not empty).
+ * `config` is the live merged config (`diary` read now); `labels` the live labels; `reads` the core's reads of the
+ * interface. Answers the number of posts written (0 when the history was not empty).
  */
-export async function backfillDiary({ store, reads, conversation, guildId, config, labels }) {
-  if (store.getDiary(guildId).posts.length > 0) return 0;
-  const max = config?.diary?.historyPosts ?? DEFAULT_HISTORY_POSTS;
-  const gistChars = config?.diary?.gistChars ?? DEFAULT_GIST_CHARS;
-  const history = await historyLines(reads, conversation, { limit: max });
-  const posts = history
+export async function backfillDiary({
+  store,
+  reads,
+  conversation,
+  guildId,
+  config,
+  labels,
+}: BackfillArgs): Promise<number> {
+  if (listOf(store.getDiary(guildId)?.posts).length > 0) return 0;
+  const diaryCfg = sectionOf(config, 'diary');
+  const max = diaryCfg.historyPosts ?? DEFAULT_HISTORY_POSTS;
+  const gistChars = diaryCfg.gistChars ?? DEFAULT_GIST_CHARS;
+  const history = await historyLines(reads, conversation, { limit: Number(max) });
+  const posts: Array<BackfillPost> = history
     .filter((message) => message.self === true)
     .map((message) => ({
       at: message.ts,
       kind: null,
-      gist: gistOf(message.content, gistChars),
-      picture: (message.attachments ?? []).some((a) => a.kind === 'image')
-        ? (labels?.diary?.pictureUnknown ?? '')
+      gist: gistOf(message.content, Number(gistChars)),
+      picture: listOf(message.attachments).some((a) => objOf(a).kind === 'image')
+        ? (diaryWords(labels).pictureUnknown ?? '')
         : null,
       messageIds: [message.id],
       search: null,
     }));
   if (posts.length === 0) return 0;
-  store.setDiaryPosts(guildId, posts, { max });
+  store.setDiaryPosts(guildId, posts, { max: Number(max) });
   log.info('diary: backfill', { count: posts.length });
   return posts.length;
 }
 
-/**
- * Waits for the store's writes to land (`flushSettled`), when it has them.
- * @param {unknown} store
- * @returns {Promise<unknown>}
- */
-function settled(store) {
-  const flush = /** @type {{ flushSettled?: (opts: object) => Promise<unknown> } | null} */ (store)?.flushSettled;
-  return typeof flush === 'function' ? flush.call(store, {}) : Promise.resolve();
+/** Waits for the store's writes to land (`flushSettled`), when it has them. */
+function settled(store: DiaryStore): Promise<unknown> {
+  return typeof store.flushSettled === 'function' ? store.flushSettled({}) : Promise.resolve();
 }
 
 /** A delay whose timer never keeps the process alive (createDiary's default `delay`). */
-function unrefDelay(ms) {
+function unrefDelay(ms: number): Promise<void> {
   return new Promise((resolve) => {
     const timer = setTimeout(resolve, ms);
     timer.unref?.();

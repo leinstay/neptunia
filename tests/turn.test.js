@@ -34,7 +34,7 @@ import { createAdmin } from '../src/admin.js';
 import { createErrandStores } from '../src/errands/store.ts';
 import { createErrandService } from '../src/errands/service.ts';
 import { createDiscordAdapter, createDiscordInterface } from '../interfaces/discord/index.js';
-import { createLocalFacts } from '../src/behavior/inner.js';
+import { createLocalFacts } from '../src/behavior/inner.ts';
 import { tempDir } from './fixtures/tmp.js';
 import { freshWorld, onWorld, world } from './fixtures/turn-world.ts';
 import { snapshotOf } from '../src/behavior/snapshot.ts';

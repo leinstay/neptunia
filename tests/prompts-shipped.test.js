@@ -24,7 +24,7 @@ import {
   hasRequiredLabels,
   userText,
 } from '../src/behavior/prompt.js';
-import { parseSeedFamilies, pickSeeds, renderSeedsBlock } from '../src/behavior/diary.js';
+import { parseSeedFamilies, pickSeeds, renderSeedsBlock } from '../src/behavior/diary.ts';
 import { fill, formatDate } from '../src/format.js';
 import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.js';
 import { createRecall } from '../src/behavior/recall-run.js';
@@ -49,7 +49,7 @@ import { loadSkills } from '../src/tools/registry.ts';
 import { listSkills } from '../src/tools/gateway.ts';
 import { CATALOGUE } from '../src/tools/codes.ts';
 import { catalogueProblems } from '../tools/lib/labels-catalogue.mjs';
-import { feedbackInTurnText, wakeBlockText } from '../src/behavior/wake.js';
+import { feedbackInTurnText, wakeBlockText } from '../src/behavior/wake.ts';
 import { labels as contractLabels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { tempDir } from './fixtures/tmp.js';
@@ -97,9 +97,9 @@ const NOT_BUILT = {
   // Built inside the createMessageHandler closure of src/behavior/pipeline.js (buildFollowUpRequest),
   // which fetches its own history: no seam reaches it (owner decision O-9).
   address: 'built inside the src/behavior/pipeline.js closure (O-9)',
-  // Split into families and drawn from line by line (src/behavior/diary.js#pickSeeds): the plan
+  // Split into families and drawn from line by line (src/behavior/diary.ts#pickSeeds): the plan
   // request carries a few random lines in <seeds>, never the file whole.
-  'diary-seeds': 'drawn from line by line into <seeds> (src/behavior/diary.js#pickSeeds), never sent whole',
+  'diary-seeds': 'drawn from line by line into <seeds> (src/behavior/diary.ts#pickSeeds), never sent whole',
   // Her memory session and the description review build their requests over the memory database, not from a turn:
   // tests/memory-db-session.test.js and tests/memory-db-describe.test.js check what they load.
   'memory-session': 'built over the memory database (src/memory/db/session.js)',

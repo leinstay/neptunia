@@ -24,7 +24,7 @@ import '../src/tools/impl/index.ts';
 import { parseOutput } from '../src/llm/parse.js';
 import { answerOf } from '../src/behavior/turn.js';
 import { call as toolCall } from './fixtures/tool-answers.js';
-import * as inner from '../src/behavior/inner.js';
+import * as inner from '../src/behavior/inner.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
 
 // The conversations the scheduler runs in are held by a fake interface named `fake`.

@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import { guardMirrorPort, createMirrors } from '../src/behavior/mirror.ts';
 import { createMessageHandler } from '../src/behavior/pipeline.js';
 import { createTagHistory } from '../src/behavior/mention.js';
-import { heartbeatWake } from '../src/behavior/inner.js';
+import { heartbeatWake } from '../src/behavior/inner.ts';
 import { createSpontaneous } from '../src/behavior/spontaneous.js';
 import { createTurnRunner } from '../src/behavior/turn.js';
 import { createAdmin } from '../src/admin.js';

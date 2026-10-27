@@ -30,7 +30,7 @@ export const CONNECTION_CHANGED = 'connection.changed';
 export const SCHEDULER_TICK = 'scheduler.tick';
 /** One of the persona's errands ended. */
 export const ERRAND_DONE = 'errand.done';
-/** The inner-life scheduler found something due for the persona (src/behavior/inner.js). */
+/** The inner-life scheduler found something due for the persona (src/behavior/inner.ts). */
 export const INNER_WAKE = 'inner.wake';
 
 /** Every inbound event kind. */
@@ -244,7 +244,7 @@ export const CONNECTION_STATES = Object.freeze(['lost', 'resumed']);
  */
 
 /**
- * `inner.wake`: the core's inner-life scheduler (src/behavior/inner.js) found something due: an
+ * `inner.wake`: the core's inner-life scheduler (src/behavior/inner.ts) found something due: an
  * intention, a deadline of an errand she waits for, or her daily review. `id` is always given
  * (the wake's own, so a second listing of the same due item is the same event); `wake` is the
  * scheduler's record (`kind` one of `intention_due`, `review`, `errand_deadline`, `attend`, `feedback`, `heartbeat`).

@@ -116,7 +116,7 @@ import {
   renderChannelDirectory,
   renderDirectory,
 } from './handles.js';
-import { renderDiaryBlock, renderKindsBlock } from './diary.js';
+import { renderDiaryBlock, renderKindsBlock } from './diary.ts';
 import { IN_TURN_TOOLS, byFamily, discoveryOn } from '../tools/discovery.ts';
 import { inertThink } from './previous-think.js';
 import { isPlainObject } from '../config.js';
@@ -1464,9 +1464,9 @@ function assembleUser({
     block('errand_result', errands?.result ?? ''),
     // Her intentions and the candidates proposed from her own lines (features.intentions): per turn.
     block('intentions', intentions),
-    // An inner turn's reason to be awake (src/behavior/wake.js, mode `inner` only): per turn.
+    // An inner turn's reason to be awake (src/behavior/wake.ts, mode `inner` only): per turn.
     block('wake', wake),
-    // The places page of an addressed turn (`context.places`; src/behavior/wake.js#placesBlockText): per turn.
+    // The places page of an addressed turn (`context.places`; src/behavior/wake.ts#placesBlockText): per turn.
     block('places', places),
     // Her one previous think (src/behavior/previous-think.js): per turn, right before the people it concerns.
     block('previous_think', previousThink),
@@ -3257,13 +3257,13 @@ function seenOf({ history, keptChat, anchoredIds = [] }) {
  *   first line, beside the reply parents of `history`, which then leave `<chat>`; budget section
  *   `earlier` right after the pulled block, capped by `context.caps.earlier` (2500 when unset).
  * @param {string|null} [input.diaryChannel]  The bare name of the diary channel (the persona's
- *   own, src/behavior/diary.js) when one is set: `<senses>` gains `senses.diary` with
+ *   own, src/behavior/diary.ts) when one is set: `<senses>` gains `senses.diary` with
  *   `{channel}`. Omitted or null -> no line. `input.diaryChannelIds` (ids) are its places, marked in `<server>`.
  * @param {{ posts?: object[], plan?: { kind: string|null, brief: string, picture: boolean, topic?: string }|null,
  *   found?: string|null, seeds?: string }|null} [input.diary]  A diary post's own input, read only with `mode:
  *   'diary'` (whose task text is `prompts.diary`): `<world>` (prompts/world.md, `{{name}}` filled,
  *   only with `diary.world === true`, see `worldText`; one piece, fitted right after `<attitudes>`),
- *   `<diary>` (the past posts through src/behavior/diary.js#renderDiaryBlock, the newest
+ *   `<diary>` (the past posts through src/behavior/diary.ts#renderDiaryBlock, the newest
  *   `diary.historyPosts` (150 when unset) oldest first, fitted after `<world>` and losing its
  *   oldest lines first), `<plan>` (`labels.diary.plan`, then the plan as one JSON line with `kind`,
  *   `brief`, `picture` and, with an owner's topic, `topic`; never cut), `<seeds>` (`seeds`, a set
@@ -3315,14 +3315,14 @@ function seenOf({ history, keptChat, anchoredIds = [] }) {
  *   rendered and cut to `context.caps.intentions` by the turn; features.intentions): in the tail
  *   right after `<errand_result>`, paid for with the fixed part and never cut here; '' or a missing
  *   key leaves the block out, so with the switch off the request is as it was.
- * @param {string|null} [input.wake]  An inner turn's `<wake>` body (src/behavior/wake.js, rendered
+ * @param {string|null} [input.wake]  An inner turn's `<wake>` body (src/behavior/wake.ts, rendered
  *   by the turn; mode `inner`, docs/inner-life.md): in the tail right after `<intentions>`, paid for
  *   with the fixed part and never cut; '' or null leaves it out, so every other turn is as it was.
  *   The task of mode `inner` is `prompts.inner`, like any mode's; on a heartbeat wake (`input.wakeKind`)
  *   it is `prompts.heartbeat` when that file is present and non-blank.
  * @param {string|null} [input.wakeKind]  An inner turn's wake kind (`heartbeat`, ...): a heartbeat takes
  *   `prompts.heartbeat` as its task text in place of `prompts.inner`; null or any other kind keeps the mode's.
- * @param {string|null} [input.places]  An addressed turn's `<places>` body (src/behavior/wake.js#placesBlockText,
+ * @param {string|null} [input.places]  An addressed turn's `<places>` body (src/behavior/wake.ts#placesBlockText,
  *   rendered by the turn with `context.places` on; an inner turn carries the page inside `<wake>`):
  *   in the tail right after `<wake>`, paid for with the fixed part and never cut; '' or null leaves it out.
  * @param {{ text: string, relation: 'same'|'earlier', ageMs?: number }|null} [input.previousThink]  Her one
@@ -3786,7 +3786,7 @@ export function buildRequest(input) {
     diaryInput && typeof diaryInput.found === 'string' && diaryInput.found.trim()
       ? [labels.diary?.found, diaryInput.found.trim()].filter(Boolean).join('\n')
       : '';
-  // A set post's seed combinations (already rendered by src/behavior/diary.js#renderSeedsBlock).
+  // A set post's seed combinations (already rendered by src/behavior/diary.ts#renderSeedsBlock).
   const seedsText = diaryInput && typeof diaryInput.seeds === 'string' ? diaryInput.seeds.trim() : '';
   const diaryParts = diaryMode ? { intro: diaryIntro, plan: planText, seeds: seedsText } : null;
 
@@ -3807,7 +3807,7 @@ export function buildRequest(input) {
   };
   // `<intentions>`: rendered and cut to its own budget by the turn (src/intentions/blocks.ts), never cut here.
   const intentionsText = typeof input.intentions === 'string' ? input.intentions : '';
-  // `<wake>`: an inner turn's reason to be awake, rendered by the turn (src/behavior/wake.js), never cut.
+  // `<wake>`: an inner turn's reason to be awake, rendered by the turn (src/behavior/wake.ts), never cut.
   const wakeText = typeof input.wake === 'string' ? input.wake : '';
   // `<places>`: an addressed turn's places page (context.places), rendered by the turn, never cut.
   const placesText = typeof input.places === 'string' ? input.places : '';
@@ -4759,11 +4759,11 @@ function planBody(plan, labels) {
  * `labels.recent.header` and `line`), `<lore>` (the entries the diary
  * channel's lines match), `<world>` (`worldText`, under `diary.world`),
  * `<diary>` (the past posts, as in the post request), `<kinds>`
- * (src/behavior/diary.js#renderKindsBlock over `kinds`, the use counted among
+ * (src/behavior/diary.ts#renderKindsBlock over `kinds`, the use counted among
  * the newest `diary.historyPosts`) and `<seeds>` (`seedsText`, already
- * rendered by src/behavior/diary.js#renderSeedsBlock), then `<topic>`
+ * rendered by src/behavior/diary.ts#renderSeedsBlock), then `<topic>`
  * (`topicText`, the owner's topic already rendered by
- * src/behavior/diary.js#renderTopicBlock; absent without one). Under the
+ * src/behavior/diary.ts#renderTopicBlock; absent without one). Under the
  * request token limit `<now>`, `<kinds>`, `<seeds>` and `<topic>` are never cut, then in
  * priority order: `<diary>` (the oldest lines first), `<world>` (whole),
  * `<about_chat>`, `<server>`, `<recent>`, `<lore>` (each under its

@@ -53,8 +53,8 @@ import { hasRequiredLabels } from './behavior/prompt.js';
 import { createChannelRouter } from './behavior/route-channel.js';
 import { createRecall } from './behavior/recall-run.js';
 import { createSpontaneous } from './behavior/spontaneous.js';
-import { createInnerLife, innerSettings } from './behavior/inner.js';
-import { createDiary } from './behavior/diary.js';
+import { createInnerLife, innerSettings } from './behavior/inner.ts';
+import { createDiary } from './behavior/diary.ts';
 import { createMirrors, guardMirrorPort } from './behavior/mirror.ts';
 import { createImageFetcher } from './media/fetch-image.js';
 import { createVideoFetcher } from './media/fetch-video.js';
@@ -639,7 +639,7 @@ async function buildCore(options, cleanups) {
   // hands each as an `inner.wake` event through the door, and runs an inner turn when the one
   // attention is free and no cap refuses. Its tick is a beat of the scheduler below; a no-op with the switch off.
   // Resolved once the journal's start-up reconciliation is done (or failed): an inner turn that the last run left in flight is
-  // resolved from the journal only after it (src/behavior/inner.js, `ready`).
+  // resolved from the journal only after it (src/behavior/inner.ts, `ready`).
   let journalReconciled = () => {};
   const journalReconciledPromise = new Promise((resolve) => {
     journalReconciled = resolve;
@@ -666,7 +666,7 @@ async function buildCore(options, cleanups) {
     submit: (event) => door.submit(event),
     // Each inner turn as a wake run in the memory database (memoryDb.wakeRuns).
     memoryDb,
-    // The heartbeat's facts (src/behavior/heartbeat-view.js): her errands, what she can do. No presence or
+    // The heartbeat's facts (src/behavior/heartbeat-view.ts): her errands, what she can do. No presence or
     // do-not-disturb state (owner, 2026-10-20: she must not read those markers).
     heartbeat: {
       tasks: (guildId) => taskStores.get(guildId).recent(100),

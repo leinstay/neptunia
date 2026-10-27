@@ -269,7 +269,7 @@ function buildEnv({
     fetchImpl,
     // The persona's intentions (src/intentions/service.ts): `/nep task intent`.
     intentions,
-    // The persona's inner life (src/behavior/inner.js): `/nep task inner`.
+    // The persona's inner life (src/behavior/inner.ts): `/nep task inner`.
     inner,
     // The diary's publisher (src/behavior/mirror.ts): what she writes to her diary with message.create is held there.
     mirrors: mirrors as unknown,

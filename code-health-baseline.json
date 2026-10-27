@@ -1,6 +1,5 @@
 {
   "files": {
-    "src/behavior/inner.js": 2523,
     "src/behavior/pipeline.js": 3090,
     "src/behavior/prompt.js": 4903,
     "src/behavior/recall-run.js": 2331,
@@ -73,30 +72,35 @@
         "complexity": 34
       }
     },
-    "src/behavior/heartbeat-view.js": {
+    "src/behavior/heartbeat-view.ts": {
       "scanRecord": {
         "complexity": 43
       }
     },
-    "src/behavior/inner.js": {
-      "createInnerLife": {
-        "function-length": 1563
-      },
-      "createInnerLife>drain": {
-        "complexity": 108,
-        "function-length": 485
-      },
-      "createInnerLife>refreshPlaces": {
-        "complexity": 23
-      },
-      "createInnerLife>status": {
-        "complexity": 25
-      },
+    "src/behavior/inner.ts": {
       "createInnerLife>tick": {
-        "complexity": 24
-      },
+        "complexity": 22
+      }
+    },
+    "src/behavior/inner/drain.ts": {
+      "drain": {
+        "complexity": 93,
+        "function-length": 402
+      }
+    },
+    "src/behavior/inner/facts.ts": {
       "feedbackFacts": {
-        "complexity": 40
+        "complexity": 36
+      }
+    },
+    "src/behavior/inner/places.ts": {
+      "refreshPlaces": {
+        "complexity": 22
+      }
+    },
+    "src/behavior/inner/status.ts": {
+      "status": {
+        "complexity": 24
       }
     },
     "src/behavior/missed.js": {
@@ -291,15 +295,12 @@
         "complexity": 21
       }
     },
-    "src/behavior/wake.js": {
+    "src/behavior/wake.ts": {
       "feedbackFactText": {
         "complexity": 43
       },
-      "heartbeatBody": {
-        "complexity": 51
-      },
       "wakeBlockText": {
-        "complexity": 74
+        "complexity": 70
       }
     },
     "src/errands/blocks.ts": {
@@ -982,7 +983,7 @@
       "src/behavior/pipeline.js",
       "src/behavior/random.js",
       "src/behavior/route-channel.js",
-      "src/behavior/wake.js",
+      "src/behavior/wake.ts",
       "src/errands/blocks.ts",
       "src/errands/turns.ts",
       "src/handles-text.js",

@@ -1,5 +1,5 @@
 // The virtual-week harness of the persona's inner life (tools/inner-week.mjs, docs/inner-life.md
-// "Testing it over a week"): the production scheduler (src/behavior/inner.js) and the production
+// "Testing it over a week"): the production scheduler (src/behavior/inner.ts) and the production
 // intention service (src/intentions/service.ts) over a temporary data directory, driven by a fake
 // clock that jumps from one moment that matters to the next (an event of the fixture, a due time,
 // a wait deadline, an expiry, the day's review, a local midnight, the end of a people's turn, a
@@ -22,7 +22,7 @@
 // The inner turns run on a voice: the stub (`createStubVoice`, deterministic: canned actions per
 // wake kind, per intention, cycled by how often the same thing woke her; an action with a
 // `"refuse": "<code>"` is a call the turn runner would refuse with that code (an output tag with
-// no current channel, say), so the scheduler's feedback wake (src/behavior/inner.js#feedbackFacts)
+// no current channel, say), so the scheduler's feedback wake (src/behavior/inner.ts#feedbackFacts)
 // can be exercised) for the cheap runs, or
 // the real voice in shadow (tools/inner-week.mjs `--live`) on selected days. The stub's calls pass
 // a gate that mirrors the turn runner's inner gate (src/behavior/turn.js#innerVerdict: a read
@@ -52,7 +52,7 @@ import {
   wakeOfDue,
   reviewWake,
   POSTING_SKILLS,
-} from '../../src/behavior/inner.js';
+} from '../../src/behavior/inner.ts';
 import { createEventDoor } from '../../src/interface/door.js';
 import { createIntentionStores } from '../../src/intentions/store.ts';
 import { createIntentionService } from '../../src/intentions/service.ts';

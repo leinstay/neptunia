@@ -52,7 +52,7 @@ const SCANNED = [
   'src/intentions',
   'src/behavior/turn.js',
   'src/behavior/inner-output.js',
-  'src/behavior/inner.js',
+  'src/behavior/inner.ts',
   'src/behavior/recall-run.js',
   'src/behavior/sandbox.js',
   'src/behavior/pipeline.js',

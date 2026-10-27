@@ -1,11 +1,11 @@
-// Tests for the heartbeat's facts (src/behavior/heartbeat-view.js) and their words in `<wake>`
-// (src/behavior/wake.js#heartbeatLines): the people block (affinity order, cap, last contact from the
+// Tests for the heartbeat's facts (src/behavior/heartbeat-view.ts) and their words in `<wake>`
+// (src/behavior/wake.ts#heartbeatLines): the people block (affinity order, cap, last contact from the
 // record, interests, places), her life, what she can do, and what happened since the last
 // heartbeat, every list capped with the rest counted. Fake stores; no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildHeartbeatFacts } from '../src/behavior/heartbeat-view.js';
-import { wakeBlockText } from '../src/behavior/wake.js';
+import { buildHeartbeatFacts } from '../src/behavior/heartbeat-view.ts';
+import { wakeBlockText } from '../src/behavior/wake.ts';
 import { labels } from './fixtures/labels.js';
 import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay } from '../src/time.js';
 

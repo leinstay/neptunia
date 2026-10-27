@@ -230,7 +230,7 @@ export function prefetchLanes({
 }
 
 /**
- * The prefetch lane of an inner turn (src/behavior/inner.js: no message opened it): the purposes
+ * The prefetch lane of an inner turn (src/behavior/inner.ts: no message opened it): the purposes
  * of the intentions its wakes concern, one per line, as one `wake` lane. None (`skip`
  * `no-trigger`) when no intention is concerned (a review alone). Pure.
  * @param {string[]} purposes

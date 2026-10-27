@@ -38,7 +38,7 @@ import {
   stripUrls,
   validatePlan,
   withoutPictureKinds,
-} from './diary.js';
+} from './diary.ts';
 import { channelPullOn, pullPictures, pullSettings, pullTargets } from './pull.js';
 import { createDeadline, createPrepLedger, lateMediaTeller } from './turn-parts.ts';
 import { audienceCovers, createLinker, markSeen, messageLinkOf, resolveDestination, stampPings } from './elsewhere.ts';
@@ -139,12 +139,12 @@ import {
 } from '../tools/tools.ts';
 import { channelPlaceId, personId } from '../memory/db/ids.ts';
 import { prefetchLanes, prefetchOn, wakeLanes } from './prefetch.js';
-import { FACTS_SHOWN_MAX, POSTING_SKILLS, createLocalFacts, factPayload, innerSettings } from './inner.js';
+import { FACTS_SHOWN_MAX, POSTING_SKILLS, createLocalFacts, factPayload, innerSettings } from './inner.ts';
 import { DESTINATION_REQUIRED, innerOutputCalls } from './inner-output.js';
 import { SOURCE_CHARS_MAX, lineSourcesOf, textsOf } from '../intentions/sources.ts';
 import { intentionSettings, isIntentionId } from '../intentions/model.ts';
-import { WAKE_PURPOSE_CHARS } from './wake.js';
-import { diagnosticText, feedbackInTurnText, placesBlockText, wakeBlockText } from './wake.js';
+import { WAKE_PURPOSE_CHARS } from './wake.ts';
+import { diagnosticText, feedbackInTurnText, placesBlockText, wakeBlockText } from './wake.ts';
 import { CODE } from '../tools/codes.ts';
 import { coerceArgs, coversSpeech, normalizeCalls, toolResultText, transportOf } from '../tools/tool-calls.ts';
 import { buildTools } from '../tools/tools-json.ts';
@@ -196,7 +196,7 @@ export { chunkPictures };
 /**
  * The `reason` codes of a `skip` outcome, journaled with the turn: she chose not to speak (an
  * explicit skip, or an answer with nothing to act on), or an inner turn (mode `inner`,
- * src/behavior/inner.js) ended with no action of hers -- silence is a valid answer there.
+ * src/behavior/inner.ts) ended with no action of hers -- silence is a valid answer there.
  */
 export const SKIP_SILENCE = 'silence';
 export const SKIP_NOTHING_TO_DO = 'nothing-to-do';
@@ -350,7 +350,7 @@ export function coreToolsOn(config) {
  * her last (a positive number); `maxCallsPerStep`, the most calls of one answer that run (a
  * whole number of at least 1; the rest are dropped and logged). A missing or unusable value
  * takes config.json's. An inner turn (`inner`: mode `inner`, docs/inner-life.md) has its own
- * bounds, `innerLife.loop` (src/behavior/inner.js#innerSettings; nobody waits for it, so its
+ * bounds, `innerLife.loop` (src/behavior/inner.ts#innerSettings; nobody waits for it, so its
  * budget is generous): the same three, plus `callTimeoutMs`, the most one call of hers may run. A diary
  * post (`diary`) has `diary.loop`, and its calls per step are `diary.set.pictures[1]`.
  * `tools.loop` never
@@ -2016,7 +2016,7 @@ export function createTurnRunner({
   errands = /** @type {any} */ (null),
   mirrors = /** @type {any} */ (null),
   intentions = null,
-  // The places view of the inner life (src/behavior/inner.js#places): `<places>` on an addressed turn with `context.places` on.
+  // The places view of the inner life (src/behavior/inner.ts#places): `<places>` on an addressed turn with `context.places` on.
   places = null,
   // The per-turn record of the memory rows a request carried (src/memory/db/service.js#recordTurnReads); null: none.
   memoryReads = null,
@@ -2213,7 +2213,7 @@ export function createTurnRunner({
   }
 
   /**
-   * The request's `<places>` body (context.places exactly true, read now; src/behavior/wake.js#placesBlockText):
+   * The request's `<places>` body (context.places exactly true, read now; src/behavior/wake.ts#placesBlockText):
    * the first `innerLife.attention.placesInWake` places by recent activity (0: none), from the inner
    * life's places view. '' with the switch off, without the view, or when it fails.
    */
@@ -2541,7 +2541,7 @@ export function createTurnRunner({
       ...(refusal.reason ? { reason: refusal.reason } : {}),
       ...(refusal.values ? { values: refusal.values } : {}),
     });
-    // An inner turn (src/behavior/inner.js): anything but a read is only proposed in shadow mode,
+    // An inner turn (src/behavior/inner.ts): anything but a read is only proposed in shadow mode,
     // refused once the kill switch stopped it (asked right here, before the action), and a public
     // post past the day's cap is refused too.
     const inner = draft?.inner ?? null;
@@ -2591,7 +2591,7 @@ export function createTurnRunner({
     if (inner) {
       // The intention a call of hers named, however it went: the open-intentions line of the next
       // step (openIntentionsText) no longer lists it; the action record carries it, and the state
-      // an intention.update set (`done`, `pending`), for the feedback facts (src/behavior/inner.js#feedbackFacts).
+      // an intention.update set (`done`, `pending`), for the feedback facts (src/behavior/inner.ts#feedbackFacts).
       const named = intentionNamed(skill, plan.resolved?.args ?? call.args ?? {});
       const state = skill === 'intention.update' ? (plan.resolved?.args?.state ?? call.args?.state ?? null) : null;
       (draft.innerActions ??= []).push({
@@ -3627,7 +3627,7 @@ export function createTurnRunner({
   // in progress (`next`, 1-based; 0 before the first) and the messages folded into a later part.
   const chains = new Map();
   // The facts kept for her next request in a conversation: the inner life keeps them in its state when it is on
-  // (src/behavior/inner.js, `setFactsSource`), else they are kept in process. An addressed reply turn that ended
+  // (src/behavior/inner.ts, `setFactsSource`), else they are kept in process. An addressed reply turn that ended
   // `error` or `refused` (`failedTurn`: `{ messageId, authorId, code }`, kept `FAILED_TURN_KEEP_MS` and at most
   // `context.failedTurnsKept`, told by `labels.task.failedEarlier`) and what a turn lost (`sendFailed`, `loopCut`,
   // `callFailed`, `wakeDropped`, ...: `labels.wake.feedbackInTurn`). A fact is told once a completed answer carried it.
@@ -6320,13 +6320,13 @@ export function createTurnRunner({
    * `llm.hedge` hedges `analyzer`, the hedged call is limited by
    * `diary.planTimeoutMs` rather than `llm.hedge.timeoutMs`) with
    * `<seeds>` drawn from prompts/diary-seeds.md (`diary.seedSets`, 2) and,
-   * with an owner's topic (`params.topic`, src/behavior/diary.js#diaryTopic),
+   * with an owner's topic (`params.topic`, src/behavior/diary.ts#diaryTopic),
    * a `<topic>` block after them; the topic also rides on the plan as its
-   * `topic` field (the `<plan>` block of the post). The answer goes through parseJsonObject and src/behavior/diary.js#validatePlan
+   * `topic` field (the `<plan>` block of the post). The answer goes through parseJsonObject and src/behavior/diary.ts#validatePlan
    * (a weighted random kind when it is missing, broken or names no weighted
    * kind; `diary.searchKinds`, `diary.pictureKinds`). While the post may not
    * carry a picture, the kinds in `diary.pictureKinds` are dropped before the
-   * plan request and validatePlan (src/behavior/diary.js#withoutPictureKinds),
+   * plan request and validatePlan (src/behavior/diary.ts#withoutPictureKinds),
    * so neither the planner nor the random fallback picks one, and the
    * `diary: planned` line carries `picturesOff: true`. A forced kind
    * (`params.kind`) is the only kind offered and replaces the answer's kind,
@@ -6836,9 +6836,9 @@ export function createTurnRunner({
    * @param {'reply'|'interject'|'initiate'|'auto'|'diary'|'inner'} params.mode  'auto' lets `chooseMode` pick
    *   between interject/initiate/nothing once the history is known (spontaneous turns); 'inner'
    *   is an inner turn (with `params.inner`).
-   * @param {{ wake: object, shadow: boolean, mayAct?: () => boolean, currentChannel?: string|null }|null} [params.inner]  An inner turn (src/behavior/inner.js,
+   * @param {{ wake: import('./inner/types.ts').TurnWake, shadow: boolean, mayAct?: () => boolean, currentChannel?: string|null }|null} [params.inner]  An inner turn (src/behavior/inner.ts,
    *   docs/inner-life.md), with `mode: 'inner'` and no trigger: nobody's message is fabricated; its
-   *   request carries `<wake>` (src/behavior/wake.js over `wake`) and the task `prompts.inner`, its
+   *   request carries `<wake>` (src/behavior/wake.ts over `wake`) and the task `prompts.inner`, its
    *   history is the last `innerLife.chatMessages` lines of `channel`, its prefetch searches the
    *   purposes of the intentions it woke for, no planner runs. What she writes in tags (a `<msg>`,
    *   a `<gif>`, a `<react to>`) is lowered into the calls they stand for, in the current channel
@@ -6892,7 +6892,7 @@ export function createTurnRunner({
    * @param {(() => boolean)|null} [params.stillDue]  Asked right before anything is posted (dry
    *   run included); false ends the turn `not-now` (`reason: 'answered-meanwhile'`), nothing posted.
    * @param {{ kind?: string|null, topic?: string|null, forced?: boolean }|null} [params.diary]  With `mode: 'diary'`
-   *   (src/behavior/diary.js, no trigger; with no `conversation` the selfreflection wake, selfreflectionOf, whose
+   *   (src/behavior/diary.ts, no trigger; with no `conversation` the selfreflection wake, selfreflectionOf, whose
    *   conversation and history memory gives): the post is planned first
    *   (prepareDiary: the plan request, then the search it asks for; `kind` forces the kind --
    *   a picture kind while the post may not carry a picture is refused before any request,
@@ -7303,7 +7303,7 @@ export function createTurnRunner({
       const op = journalOp(draft, name, 'engine', fields);
       return op.opId ? prep.step(stage, op, offeredOf) : null;
     };
-    // An inner turn (mode `inner`, src/behavior/inner.js): her calls pass its gate (innerVerdict).
+    // An inner turn (mode `inner`, src/behavior/inner.ts): her calls pass its gate (innerVerdict).
     if (inner && mode === 'inner') draft.inner = inner;
     // The turn a finished errand of her own opens (asked in an inner turn: requester kind
     // `persona`, no person behind it) is her own initiative too: her grants alone decide her calls.
@@ -8565,7 +8565,7 @@ export function createTurnRunner({
           finalMode === 'diary'
             ? ''
             : intentionsInputFor({ guildId, channel, snapshot, isPrivate, config, labels: prompts?.labels, now }),
-        // `<wake>`: an inner turn's reason to be awake (src/behavior/wake.js); none on any other turn.
+        // `<wake>`: an inner turn's reason to be awake (src/behavior/wake.ts); none on any other turn.
         wake: draft.inner ? wakeTextOf(heartbeatHandleBase) : factsText || null,
         // An inner turn's wake kind: a heartbeat takes `prompts.heartbeat` as its task text.
         wakeKind: draft.inner?.wake?.kind ?? null,
@@ -9221,7 +9221,7 @@ export function createTurnRunner({
       onIdle = fn;
     },
     /**
-     * The facts kept for her next request in a conversation (src/behavior/inner.js's `facts`: `enabled`, `add`,
+     * The facts kept for her next request in a conversation (src/behavior/inner.ts's `facts`: `enabled`, `add`,
      * `pending`, `markTold`); used while its `enabled()` says so, else the runner keeps its own in process.
      */
     setFactsSource: (source) => {

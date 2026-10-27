@@ -7,7 +7,7 @@
 // errand store; a temporary data directory.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createInnerLife, deadlineWakes } from '../src/behavior/inner.js';
+import { createInnerLife, deadlineWakes } from '../src/behavior/inner.ts';
 import { createEventDoor } from '../src/interface/door.js';
 import { createIntentionService } from '../src/intentions/service.ts';
 import { createIntentionStores } from '../src/intentions/store.ts';

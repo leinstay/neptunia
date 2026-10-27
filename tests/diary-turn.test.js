@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { chunkPictures, createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.js';
-import { DIARY_DAILY, DIARY_PICTURES_DAILY } from '../src/behavior/diary.js';
+import { DIARY_DAILY, DIARY_PICTURES_DAILY } from '../src/behavior/diary.ts';
 import { ImageCapError, ImageGenError } from '../src/llm/images.js';
 import { DailyCapError } from '../src/llm/openrouter.js';
 import { fill, formatNow } from '../src/format.js';

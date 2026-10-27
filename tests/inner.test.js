@@ -1,4 +1,4 @@
-// Tests for the inner life's scheduler (src/behavior/inner.js): what is due is listed and handed
+// Tests for the inner life's scheduler (src/behavior/inner.ts): what is due is listed and handed
 // through the event door as wakes, compatible wakes coalesce into one inner turn, a wake waits
 // while the attention is held, the state survives a restart, the daily review falls inside her
 // active hours, the caps refuse a turn, the kill switch stops and drops, and the journal records
@@ -27,7 +27,7 @@ import {
   DELIVERY_SKILLS,
   turnsToday,
   WAKE_KINDS,
-} from '../src/behavior/inner.js';
+} from '../src/behavior/inner.ts';
 import { createEventDoor } from '../src/interface/door.js';
 import { createIntentionStores } from '../src/intentions/store.ts';
 import { createIntentionService } from '../src/intentions/service.ts';

@@ -26,7 +26,7 @@
 //                                            episodes: slices of channels around her own lines over the last
 //                                            `participation.hours` (src/memory/participation.js)
 //   guilds/<guildId>/diary.json              the persona's diary posts, newest last, one-line gists
-//                                            (src/behavior/diary.js); never deleted by code
+//                                            (src/behavior/diary.ts); never deleted by code
 //   data/guilds/<guildId>/recall-trace.jsonl  (a file) one JSON line per recall run when `features.recallTrace` is on
 //                                            (appendRecallTrace): the newest `recall.traceMaxLines`, written
 //                                            at once, not cached
@@ -2892,7 +2892,7 @@ export function createStore({
       return removed;
     },
 
-    // ---- the diary: the persona's own posts in its diary channel (src/behavior/diary.js) ----
+    // ---- the diary: the persona's own posts in its diary channel (src/behavior/diary.ts) ----
 
     /**
      * A copy of the guild's diary (data/guilds/<id>/diary.json): `{ posts, updatedAt }`, posts newest last; the empty

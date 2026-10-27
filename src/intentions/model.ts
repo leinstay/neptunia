@@ -32,7 +32,7 @@
 // per-day bound and the day's counter (`today: { day, wakes }`, the local day of `bot.timezone`,
 // reset by the service when the day changes). It has no due time and no recurrence (invariants
 // `attend-with-due`, `attend-with-every`); the scheduler wakes her on the place's lines
-// (src/behavior/inner.js). normalizeAttend fills the defaults (ATTEND_DEFAULTS, or
+// (src/behavior/inner.ts). normalizeAttend fills the defaults (ATTEND_DEFAULTS, or
 // `innerLife.attention.*` through attentionSettings); validAttend checks the shape.
 
 import { createHash, randomUUID } from 'node:crypto';

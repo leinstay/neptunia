@@ -355,7 +355,7 @@ export function callMarksOf(records) {
     else if (record.kind === 'action') addPosted(record.turnId, succeededIdOf(record));
   }
   const ops = new Map(); // opId -> what its lines said
-  // A call an inner turn only proposed (shadow mode, src/behavior/inner.js) never ran: no mark.
+  // A call an inner turn only proposed (shadow mode, src/behavior/inner.ts) never ran: no mark.
   const shadowOps = new Set(
     list
       .filter((record) => record.kind === 'action' && record.shadow === true && text(record.opId))
@@ -759,7 +759,7 @@ export function createJournal({
   const memory = (guildId, record) => write(guildId, 'memory', { ...record, channelId: null });
   const system = (guildId, record) => write(guildId, 'system', { ...record, channelId: null });
   const answer = (guildId, record) => write(guildId, 'answer', record);
-  // The inner life's scheduler and turns (src/behavior/inner.js): `event` `wake`, `turn`,
+  // The inner life's scheduler and turns (src/behavior/inner.ts): `event` `wake`, `turn`,
   // `capped`, `overflow`, `stale`, `no-channel`, `review-drawn`, `review-missed`, `errand-cost`,
   // `stopped`, `started`. Ids, codes, counts and costs only.
   const inner = (guildId, record) => write(guildId, 'inner', record);

@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHot } from '../src/hot.js';
-import { diaryTopic, localDayKey, planDay } from '../src/behavior/diary.js';
+import { diaryTopic, localDayKey, planDay } from '../src/behavior/diary.ts';
 import { zonedEpoch } from '../src/time.js';
 import { ImageCapError, createImageGen } from '../src/llm/images.js';
 import { createLookup } from '../src/web/lookup.js';

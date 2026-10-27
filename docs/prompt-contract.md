@@ -1413,7 +1413,7 @@ plan step and a compose step. A third request is added when the plan asks for a 
 `kind` must be a key of `diary.kinds` with a positive weight (a picture kind counts only when the post can carry a picture). `search` is kept only for a kind in `diary.searchKinds`.
 `picture` is true only when the answer says `true` and the picture caps allow it.
 
-**Validation and fallback.** `validatePlan` (in `src/behavior/diary.js`) normalises the answer. When the kind is missing,
+**Validation and fallback.** `validatePlan` (in `src/behavior/diary.ts`) normalises the answer. When the kind is missing,
 unknown or has weight 0, the whole answer is replaced by a weighted random kind with an empty brief and search
 (`fallback: true`). `brief` is clamped to 300 characters. When the kind is in `diary.pictureKinds`, `picture` is forced true if the day's picture caps allow it, whatever the planner answered. For other kinds, `picture` is kept as the planner set it. `picture` is forced false when
 `diary.maxPicturesPerDay` or `image.maxPerDay` is spent. When the post cannot carry a picture (those caps spent, drawing off, no image model, or no Attach Files), the picture kinds are dropped before the plan request, so the random fallback cannot pick one. A forced picture kind is refused before any request (`reason: 'pictures'`).
