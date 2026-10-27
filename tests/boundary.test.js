@@ -10,6 +10,8 @@ import { createMemoryDb } from '../src/memory/db/service.js';
 import { lockPathOf, openMemoryDb } from '../src/memory/db/open.js';
 import { createAdmin } from '../src/admin.js';
 import { createEventDoor } from '../src/interface/door.js';
+import { openAdapterLink } from '../src/interface/link.ts';
+import { createLoopback, envelope } from '../src/protocol/index.js';
 import { createFakeAdapter, replayFixture } from '../src/interface/fake.js';
 import { createDiary } from '../src/behavior/diary.ts';
 import { heartbeatWake } from '../src/behavior/inner.ts';
@@ -305,36 +307,59 @@ describe('a replay after a reconnect', () => {
 });
 
 describe('an adapter that claims the owner', () => {
-  // Stage 4, item "The core as a process on its socket with client tokens": today the owner is whoever's id is in
-  // `bot.owners`, so a caller that supplies that id is the owner, and the door has no notion of a connection's
-  // authority. When the core authenticates clients, a `hello` that names the owner's id gains nothing, and only the
-  // connection authenticated with the owner's local token runs an owner-only operation. The handler below believes
-  // the requester's id as the core does today; that stage replaces it, with `connect`, by the real wiring.
-  test.todo('a hello that names the owner gains no owner authority', async () => {
+  // The core authenticates each client by its token: the token stands for a principal, and only the `cli` principal
+  // reaches commands. An interface that holds its own token and says in `hello` that it is the owner's cli, naming
+  // the owner's id, gains nothing. The handler below believes the requester's id, so it would pause the persona if
+  // the command reached it: the link must refuse the command before the door.
+  test('a hello that names the owner gains no owner authority', async () => {
     const OWNER = 'owner-1';
     const store = Object.assign(fakeStore(), { flush: () => Promise.resolve() });
     const hot = hotWith({ config: { bot: { timezone: 'UTC', owners: [OWNER], access: {} } } });
     const client = { user: { id: 'self-id' }, channels: { cache: new Map() } };
     const admin = createAdmin({ hot, store, client, getGuildId: () => GUILD });
+    /** @type {string[]} */
+    const ran = [];
     const door = createEventDoor({
       handlers: {
         'command.requested': (event) => {
           const { name, args, requester } = /** @type {{ name: string, args: object, requester: { id: string } }} */ (
             event
           );
+          ran.push(name);
           return admin.runCommand(name, args, { guildId: GUILD, userId: requester.id });
         },
       },
       log: SILENT,
     });
-    const connect = (/** @type {string} */ iface, token = null) =>
-      door.receive({
-        v: 1,
-        id: `hello:${iface}`,
-        type: 'hello',
-        replyTo: null,
-        body: { iface, ownerId: OWNER, token },
-      });
+    const HOSTILE = { name: 'hostile', kind: 'interface', iface: 'hostile', permissions: [] };
+    const ends = createLoopback();
+    const link = openAdapterLink({
+      transport: ends.core,
+      door,
+      principalOf: (/** @type {string} */ token) => (token === 'hostile-token' ? HOSTILE : null),
+      log: SILENT,
+    });
+    /** @type {Array<{ replyTo: string|null, body: { status?: string } }>} */
+    const acks = [];
+    ends.client.onEnvelope((value) => {
+      if (value.type === 'ack') acks.push(/** @type {{ replyTo: string|null, body: { status?: string } }} */ (value));
+    });
+    const connect = (/** @type {string} */ iface, /** @type {string} */ token) =>
+      ends.client.send(
+        envelope(
+          'hello',
+          {
+            iface,
+            self: { id: 'self-id', name: 'Nova' },
+            community: null,
+            kind: 'cli',
+            owner: true,
+            ownerId: OWNER,
+            token,
+          },
+          { id: `hello:${iface}` }
+        )
+      );
     const pause = (/** @type {string} */ iface) => ({
       kind: 'command.requested',
       iface,
@@ -346,14 +371,21 @@ describe('an adapter that claims the owner', () => {
       replyRef: 'r1',
       requester: { id: OWNER, name: 'Owner', roles: [], owner: true },
     });
-    await connect('hostile');
-    const refused = await door.submit(pause('hostile'));
-    assert.notEqual(
-      /** @type {{ status: string }} */ (refused.result).status,
-      'ok',
-      'the owner-only operation was refused'
-    );
+    connect('hostile', 'hostile-token');
+    // A link that never answers hello fails here rather than hanging the file.
+    await Promise.race([
+      link.hello,
+      new Promise((_resolve, reject) => setTimeout(() => reject(new Error('hello never answered')), 2000)),
+    ]);
+    ends.client.send(envelope('event', pause('hostile'), { id: 'command:hostile' }));
+    const deadline = Date.now() + 2000;
+    while (!acks.some((ack) => ack.replyTo === 'command:hostile') && Date.now() < deadline)
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    const ack = acks.find((item) => item.replyTo === 'command:hostile');
+    assert.notEqual(ack?.body.status, 'ok', 'the owner-only operation was refused');
+    assert.deepEqual(ran, [], 'the command never reached the door');
     assert.notEqual(/** @type {{ paused?: boolean }} */ (store.state.data).paused, true, 'nothing was paused');
+    link.close();
   });
 });
 
