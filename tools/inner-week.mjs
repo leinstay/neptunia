@@ -313,7 +313,7 @@ async function createLiveVoice({ args, fixture, clock, budget, log }) {
     });
     let week = null;
     // The week's intention service (rebound after a restart); errands: none shown, an open budget
-    // (a proposed task.run is checked by the gateway as live, against no real caps).
+    // (a proposed errand.run is checked by the gateway as live, against no real caps).
     const intentions = new Proxy(
       {},
       {

@@ -2,19 +2,19 @@
 // calls `onFinished`), she gets a turn of her own in the conversation it was asked in, the way
 // the missed-answer recovery opens one (src/behavior/missed.js): through the turn runner's one
 // attention (a turn running anywhere holds it back; mention.oneAtATime), a cooldown per
-// conversation between two such turns (`agents.resultCooldownSeconds`), and she may answer with
+// conversation between two such turns (`errands.resultCooldownSeconds`), and she may answer with
 // silence. The turn's trigger is the message the errand was asked in (her answer replies to it),
-// else -- a slash command, or a message gone since -- an interjection; its kind is `task`, its
-// requester the person who asked, and its request carries the `<task_result>` block
-// (src/errands/blocks.js). A turn held back is retried every `agents.resultRetrySeconds`, at
-// most RESULT_ATTEMPTS times, then left for her `<tasks>` block (marked `resultTurnFailed`, so
+// else -- a slash command, or a message gone since -- an interjection; its kind is `errand`, its
+// requester the person who asked, and its request carries the `<errand_result>` block
+// (src/errands/blocks.js). A turn held back is retried every `errands.resultRetrySeconds`, at
+// most RESULT_ATTEMPTS times, then left for her `<errands>` block (marked `resultTurnFailed`, so
 // the line says the turn never ran); a turn that failed on its own (`error`, `refused`, or any
 // outcome but spoke and skip) is retried the same way. Only a turn that spoke or chose silence
-// marks the task seen and read (`readAt`: its `<task_result>` was in front of her); a task not
-// read stays in her `<tasks>` block until `task.read` or `task.resolve`. Settings are read at the moment of
+// marks the task seen and read (`readAt`: its `<errand_result>` was in front of her); a task not
+// read stays in her `<errands>` block until `errand.read` or `errand.resolve`. Settings are read at the moment of
 // use; logs carry ids and outcomes, never a goal or a result. An errand's end reaches this module
-// as a `task.completed` event through the core's event door (src/interface/door.js): the service
-// calls `taskCompletedEvent(task, guildId)` and submits it, the door's handler is `onEvent`; the
+// as an `errand.done` event through the core's event door (src/interface/door.js): the service
+// calls `errandDoneEvent(task, guildId)` and submits it, the door's handler is `onEvent`; the
 // task itself rides along in-process under `raw.task` (the event holds its id and status), and
 // when it does not, the task store of the event's guild is asked for it. Before the result turn,
 // the end reaches the persona's intentions waiting on that errand (`intentions.onTaskFinished`,
@@ -23,26 +23,26 @@
 import { log as defaultLog } from '../log.js';
 import { lineOf } from '../behavior/line-of.js';
 
-/** `agents.resultRetrySeconds` and `agents.resultCooldownSeconds` when missing (config.json carries the same). */
+/** `errands.resultRetrySeconds` and `errands.resultCooldownSeconds` when missing (config.json carries the same). */
 export const DEFAULT_RETRY_SECONDS = 30;
 export const DEFAULT_COOLDOWN_SECONDS = 60;
-/** How many times a result turn is tried before the task is left to the `<tasks>` block. */
+/** How many times a result turn is tried before the task is left to the `<errands>` block. */
 export const RESULT_ATTEMPTS = 20;
 
 /**
- * The `task.completed` event of a finished task (src/protocol/events.js): the whole task
+ * The `errand.done` event of a finished task (src/protocol/events.js): the whole task
  * rides along as `raw.task`, which validation never reads. Its id is left to the door (task and
  * status), so a second delivery of the same end is the same event.
  * @param {{ id: string, state: string }} task
  * @param {string|null} [guildId]
  * @param {() => number} [now]
  */
-export function taskCompletedEvent(task, guildId = null, now = Date.now) {
+export function errandDoneEvent(task, guildId = null, now = Date.now) {
   return {
-    kind: 'task.completed',
+    kind: 'errand.done',
     at: now(),
     communityId: guildId ?? null,
-    taskId: task.id,
+    errandId: task.id,
     status: task.state,
     raw: { task },
   };
@@ -86,7 +86,7 @@ export function createTaskTurns({
   const waiting = new Map();
 
   function seconds(key, fallback) {
-    const value = hot.config?.agents?.[key];
+    const value = hot.config?.errands?.[key];
     return Number.isFinite(value) && value >= 0 ? value : fallback;
   }
 
@@ -164,7 +164,7 @@ export function createTaskTurns({
         guildId: guildId ?? getGuildId?.() ?? null,
         mode: trigger ? 'reply' : 'interject',
         trigger,
-        triggerKind: 'task',
+        triggerKind: 'errand',
         taskResult: task,
         ...(requester ? { requester } : {}),
       });
@@ -199,15 +199,15 @@ export function createTaskTurns({
   }
 
   /**
-   * The door's handler of `task.completed`: the intentions waiting on the task the event names
+   * The door's handler of `errand.done`: the intentions waiting on the task the event names
    * moved first, then its result turn (never throws); null when the task cannot be found.
-   * @param {ReturnType<typeof taskCompletedEvent>} event
+   * @param {ReturnType<typeof errandDoneEvent>} event
    */
   function onEvent(event) {
     const guildId = event?.communityId ?? null;
-    const task = event?.raw?.task ?? errands?.store?.(guildId)?.get?.(event?.taskId) ?? null;
+    const task = event?.raw?.task ?? errands?.store?.(guildId)?.get?.(event?.errandId) ?? null;
     if (!task) {
-      log.warn('errands: finished task not found', { id: event?.taskId ?? null });
+      log.warn('errands: finished task not found', { id: event?.errandId ?? null });
       return Promise.resolve(null);
     }
     try {

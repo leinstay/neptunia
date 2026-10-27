@@ -3,7 +3,10 @@
 // it would do and writes nothing, `--apply` does it, and a rerun finds nothing left to do. With the old file only, it
 // moves it. With the new one only, it does nothing. With both and the same content, it deletes the old one. With both
 // and different content, it refuses, lists the keys that differ and changes nothing at all. A start with the old file
-// still in place refuses with one line that names this tool (src/hot.js).
+// still in place refuses with one line that names this tool (src/hot.js). The tool also renames what the errand and
+// intention names changed in a local layer: the label keys `tasks`, `triggers.task`, `intentions.notes.task-missing`
+// and the code keys under `tools.result.reasons`, the placeholder `{task}` in the label texts that carry it, and the ten
+// tool keys of the tool texts (`task.*` and `intent.*`), in place whichever file holds them.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -103,6 +106,128 @@ test('refuses to run without --dry-run or --apply, and moves nothing', () => {
   assert.equal(run.err.includes('--apply') && run.err.includes('--dry-run'), true);
   assert.deepEqual(home.json(OLD), { 'message.create': SEND });
   assert.equal(home.bytes(NEW), null);
+});
+
+// ---- the errand and intention names -------------------------------------------------------------------------
+
+const LABELS = 'prompts.local/labels.json';
+const TOOL_KEYS: Array<[string, string]> = [
+  ['task.run', 'errand.run'],
+  ['task.status', 'errand.status'],
+  ['task.read', 'errand.read'],
+  ['task.resolve', 'errand.resolve'],
+  ['task.cancel', 'errand.cancel'],
+  ['task.list', 'errand.list'],
+  ['intent.set', 'intention.set'],
+  ['intent.update', 'intention.update'],
+  ['intent.cancel', 'intention.cancel'],
+  ['intent.list', 'intention.list'],
+];
+
+const OLD_LABELS = {
+  locale: 'en-US',
+  tasks: { header: 'my errands:', line: '{id} | {agent} | {goal}' },
+  triggers: { mention: 'tagged me', task: 'asked for the errand that ended' },
+  intentions: {
+    header: 'my intentions:',
+    waiting: 'waiting for errand {task} until {deadline}',
+    outcome: 'errand {task} ended {state}',
+    notes: { 'wait-deadline': 'the wait for errand {task} ran out', 'task-missing': 'errand {task} is gone' },
+  },
+  wake: { kinds: { errand_deadline: 'deadline: {id} errand {task}', review: 'review' } },
+  tools: {
+    result: { reasons: { 'no-task': 'no such errand', 'task-ended': 'it ended', 'cap-tasks': 'too many today' } },
+  },
+};
+const NEW_LABELS = {
+  locale: 'en-US',
+  errands: { header: 'my errands:', line: '{id} | {agent} | {goal}' },
+  triggers: { mention: 'tagged me', errand: 'asked for the errand that ended' },
+  intentions: {
+    header: 'my intentions:',
+    waiting: 'waiting for errand {errand} until {deadline}',
+    outcome: 'errand {errand} ended {state}',
+    notes: { 'wait-deadline': 'the wait for errand {errand} ran out', 'errand-missing': 'errand {errand} is gone' },
+  },
+  wake: { kinds: { errand_deadline: 'deadline: {id} errand {errand}', review: 'review' } },
+  tools: {
+    result: { reasons: { 'no-errand': 'no such errand', 'errand-ended': 'it ended', 'cap-tasks': 'too many today' } },
+  },
+};
+
+test('renames the errand label keys, the code keys and the placeholder of a local labels file, and nothing else', () => {
+  const home = layer();
+  home.write(LABELS, OLD_LABELS);
+  const run = moveTool(home, ['--apply']);
+  assert.equal(run.code, 0);
+  assert.deepEqual(home.json(LABELS), NEW_LABELS);
+});
+
+test('renames the ten tool keys of a local tool texts file that is already at its new place', () => {
+  const home = layer();
+  const texts = Object.fromEntries(TOOL_KEYS.map(([old], index) => [old, { title: `title ${index}` }]));
+  home.write(NEW, { 'message.create': SEND, ...texts });
+  const run = moveTool(home, ['--apply']);
+  assert.equal(run.code, 0);
+  assert.deepEqual(home.json(NEW), {
+    'message.create': SEND,
+    ...Object.fromEntries(TOOL_KEYS.map(([, now], index) => [now, { title: `title ${index}` }])),
+  });
+});
+
+test('moves the old tool texts file and renames the tool keys in it in the same run', () => {
+  const home = layer();
+  home.write(OLD, {
+    'message.create': SEND,
+    'skills.describe': LOOK,
+    'task.run': { title: 'Ask' },
+    'intent.set': { title: 'Want' },
+  });
+  const run = moveTool(home, ['--apply']);
+  assert.equal(run.code, 0);
+  assert.deepEqual(home.json(NEW), {
+    'message.create': SEND,
+    'tools.describe': LOOK,
+    'errand.run': { title: 'Ask' },
+    'intention.set': { title: 'Want' },
+  });
+  assert.equal(home.bytes(OLD), null);
+});
+
+test('refuses when a labels file holds both `tasks` and `errands` and they differ, naming the section, and changes nothing', () => {
+  const home = layer();
+  home.write(LABELS, { tasks: { header: 'a' }, errands: { header: 'b' } });
+  const before = home.bytes(LABELS);
+  const run = moveTool(home, ['--apply']);
+  assert.equal(run.code, 1);
+  assert.equal(run.err.includes('tasks') && run.err.includes('errands'), true);
+  assert.equal(home.bytes(LABELS), before);
+});
+
+test('refuses a run whole when one file is refused, so the other file keeps its old keys', () => {
+  const home = layer();
+  home.write(LABELS, { tasks: { header: 'a' }, errands: { header: 'b' } });
+  home.write(NEW, { 'task.run': { title: 'Ask' } });
+  const before = home.bytes(NEW);
+  assert.equal(moveTool(home, ['--apply']).code, 1);
+  assert.equal(home.bytes(NEW), before);
+});
+
+test('says what it would rename on a dry run, writes nothing, and finds nothing left to do after --apply', () => {
+  const home = layer();
+  home.write(LABELS, OLD_LABELS);
+  home.write(NEW, { 'task.run': { title: 'Ask' } });
+  const [labelsBefore, textsBefore] = [home.bytes(LABELS), home.bytes(NEW)];
+  const dry = moveTool(home, ['--dry-run']);
+  assert.equal(dry.code, 0);
+  assert.equal(dry.out.includes(LABELS) && dry.out.includes(NEW), true);
+  assert.deepEqual([home.bytes(LABELS), home.bytes(NEW)], [labelsBefore, textsBefore]);
+  moveTool(home, ['--apply']);
+  const settled = [home.bytes(LABELS), home.bytes(NEW)];
+  const again = moveTool(home, ['--apply']);
+  assert.equal(again.code, 0);
+  assert.equal(again.out, 'nothing to move\n');
+  assert.deepEqual([home.bytes(LABELS), home.bytes(NEW)], settled);
 });
 
 // ---- what the engine reads afterwards ------------------------------------------------------------------------

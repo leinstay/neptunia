@@ -299,15 +299,11 @@ test('model: each profile runs on its model role, whose default is its default m
   assert.equal(SERVER.defaultModel, ROLE_DEFAULTS.server);
   const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8')).agents;
   for (const name of ['scout', 'server']) {
+    // The agent's settings are its profile's now, so config.json may hold no section for it at all.
     assert.equal(
-      Object.hasOwn(shipped[name], 'model'),
-      false,
+      shipped?.[name]?.model,
+      undefined,
       `${name}: the model is models.errands.${profileOf(name).modelRole}`
-    );
-    assert.deepEqual(
-      shipped[name].cost,
-      { input: 2, output: 6 },
-      `${name}: the cost stays (OpenCode's price table is off)`
     );
   }
 });
@@ -1232,6 +1228,8 @@ function workerProfile(id, changes = {}) {
     limits: { steps: 5, seconds: 60 },
     daily: { tasks: 3 },
     searchProvider: null,
+    enabled: false,
+    cost: { input: 2, output: 6 },
     socket: `/run/test-${id}/sock`,
     out: `/var/lib/test-${id}/out`,
     env: ['OPENROUTER_ERRAND_KEY'],
@@ -1348,6 +1346,35 @@ test('loadProfiles: a missing key or an unknown one is refused, nested keys too'
   }
 });
 
+test('loadProfiles: enabled must be a boolean and cost two prices that are finite and not negative, a zero price included', () => {
+  for (const [changes, key] of [
+    [{ enabled: 'yes' }, 'enabled'],
+    [{ enabled: undefined }, 'enabled'],
+    [{ cost: 'cheap' }, 'cost'],
+    [{ cost: undefined }, 'cost'],
+    [{ cost: { input: -1, output: 6 } }, 'cost.input'],
+    [{ cost: { input: 2 } }, 'cost.output'],
+    [{ cost: { input: 2, output: null } }, 'cost.output'],
+    [{ cost: { input: 2, output: 6, cached: 1 } }, 'cost.cached'],
+  ]) {
+    withAgentsTree({ probe: workerProfile('probe', changes) }, (rootDir) => assertRefused(rootDir, 'probe', key));
+  }
+  withAgentsTree({ probe: workerProfile('probe', { cost: { input: 0, output: 0 }, enabled: true }) }, (rootDir) =>
+    assert.deepEqual(Object.keys(loadProfiles({ rootDir, env: {} })), ['probe'])
+  );
+});
+
+test('development profiles: cost must be two prices that are finite and not negative, and a development agent has no enabled key', () => {
+  for (const [changes, key] of [
+    [{ cost: 'cheap' }, 'cost'],
+    [{ cost: { input: -1, output: 10 } }, 'cost.input'],
+    [{ cost: { input: 2 } }, 'cost.output'],
+    [{ enabled: true }, 'enabled'],
+  ]) {
+    withAgentsTree({ build: developmentProfile('build', changes) }, (rootDir) => assertRefused(rootDir, 'build', key));
+  }
+});
+
 test('a consultation is skipped by loadProfiles and listed by listAgents with the workers', () => {
   const consult = {
     id: 'consult',
@@ -1390,6 +1417,7 @@ function developmentProfile(id, changes = {}) {
     permission: { bash: { '*': 'allow', '*node --test*': 'deny' }, edit: 'allow' },
     effort: 'medium',
     limits: { steps: 50, minutes: 30 },
+    cost: { input: 2, output: 10 },
     description: 'A test development agent.',
   };
   const merged = { ...base, ...changes };
@@ -1481,15 +1509,6 @@ test('the real agents/ folder: scout and server workers, two development agents,
     assert.ok(SHELL_CLASSES[profile.shell].tools.length >= profile.tools.length);
   }
   assert.equal(fs.existsSync(path.join(ROOT, 'prompts', 'agent-scout.md')), false, 'the agent prompts left prompts/');
-  const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8')).agents;
-  for (const name of ['scout', 'server']) {
-    assert.equal(
-      shipped[name].socket,
-      profileOf(name).defaultSocket,
-      `${name}: config.json and the profile agree on the socket`
-    );
-    assert.equal(shipped[name].out, profileOf(name).defaultOut, `${name}: and on the out dir`);
-  }
 });
 
 test('a profile of the retired kind `tool` is refused at load, naming the agent and the kind', () => {

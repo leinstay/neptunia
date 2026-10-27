@@ -1,20 +1,21 @@
-// Operations: `/nep task run|status|cancel|list|result|resolve`: the persona's errands handed to her agents
+// Operations `errand.run`, `errand.status`, `errand.cancel`, `errand.list`, `errand.read` and `errand.resolve`, reached by
+// `/nep task run|status|cancel|list|result|resolve`: the persona's errands handed to her agents
 // (src/errands/, src/agent-runner/). Every member may use them while `features.memberCommands`
 // is on (rights.member); the rest is ruled here, for every caller alike -- the owner's command,
 // a member's, and the persona's own call (her skills: the requester of her turn is the caller).
-// `task.run` with `agent: server` reads this machine, so only an owner may ask for it
+// `errand.run` with `agent: server` reads this machine, so only an owner may ask for it
 // (`owner-only`); `agent: scout` is any member's. A task asked in a private chat is `dm`-scoped,
-// else `group`, and the runner withholds more in a filtered scope. `task.run` answers at once
+// else `group`, and the runner withholds more in a filtered scope. `errand.run` answers at once
 // with the id and `queued`: the errand runs in the background (src/errands/service.js) and its
-// end opens her own turn where it was asked. `task.cancel` is for the requester of the task or an
-// owner; `task.status` and `task.list` show a private chat's tasks only to their requester or an
-// owner. A finished task's result stays until she has read it: `task.status` without an id lists the
-// open tasks and the finished ones not read yet; `task.read id [from]` returns the whole result in
-// pages of `agents.resultMaxChars` (the error, the sources and the files with their handles and
+// end opens her own turn where it was asked. `errand.cancel` is for the requester of the task or an
+// owner; `errand.status` and `errand.list` show a private chat's tasks only to their requester or an
+// owner. A finished task's result stays until she has read it: `errand.status` without an id lists the
+// open tasks and the finished ones not read yet; `errand.read id [from]` returns the whole result in
+// pages of `errands.resultMaxChars` (the error, the sources and the files with their handles and
 // whether they expired come with the first page) and marks the task read when its last page is
-// returned; `task.resolve id` closes a finished task (read too). Both follow the same view rule. Answers are operator lines (ids, agents, states, ages), the goal cut to one short line;
-// `task.status` of one task adds `ledger: <id>` when the task is mirrored into the ledger. A
-// `task.run` of her turn links the intentions of that turn waiting for its errand (src/intentions/).
+// returned; `errand.resolve id` closes a finished task (read too). Both follow the same view rule. Answers are operator lines (ids, agents, states, ages), the goal cut to one short line;
+// `errand.status` of one task adds `ledger: <id>` when the task is mirrored into the ledger. A
+// `errand.run` of her turn links the intentions of that turn waiting for its errand (src/intentions/).
 
 import { isOwnerId } from './grants.ts';
 import { TASK_AGENTS } from './catalog.ts';
@@ -27,7 +28,7 @@ import { CODE } from '../codes.ts';
 import { idText, textOf } from '../types.ts';
 import type { Obj, OpContext, Untyped } from '../types.ts';
 
-/** How many tasks `task.list` shows. */
+/** How many tasks `errand.list` shows. */
 export const TASK_LIST_COUNT = 10;
 /** The goal's length in an answer line (characters). */
 const GOAL_LINE_CHARS = 80;
@@ -177,10 +178,10 @@ const handlers = perEnv((env) => {
     return { store, task };
   }
 
-  /** `task.read id [from]`: a finished task's result in a page of `agents.resultMaxChars` characters. */
+  /** `errand.read id [from]`: a finished task's result in a page of `errands.resultMaxChars` characters. */
   function cmdRead(args: Obj, context: OpContext) {
     const { store, task } = finishedTask(args, context);
-    const configured = hot.config?.agents?.resultMaxChars;
+    const configured = hot.config?.errands?.resultMaxChars;
     const page = Number.isInteger(configured) && configured > 0 ? configured : DEFAULT_RESULT_MAX_CHARS;
     const text = typeof task.result?.text === 'string' ? task.result.text : '';
     const from = args.from === undefined || args.from === null || args.from === '' ? 0 : Number(args.from);
@@ -213,7 +214,7 @@ const handlers = perEnv((env) => {
     return lines.join('\n');
   }
 
-  /** `task.resolve id`: a finished task closed, its result dealt with. */
+  /** `errand.resolve id`: a finished task closed, its result dealt with. */
   function cmdResolve(args: Obj, context: OpContext) {
     const { store, task } = finishedTask(args, context);
     store.resolve(task.id);
@@ -261,32 +262,32 @@ const handlers = perEnv((env) => {
 });
 
 defineOp({
-  name: 'task.run',
+  name: 'errand.run',
   rights: { kind: 'write', member: true },
   run: (args, ctx) => handlers(ctx.env).cmdRun(args, ctx),
 });
 defineOp({
-  name: 'task.status',
+  name: 'errand.status',
   rights: { kind: 'read', member: true },
   run: (args, ctx) => handlers(ctx.env).cmdStatus(args, ctx),
 });
 defineOp({
-  name: 'task.cancel',
+  name: 'errand.cancel',
   rights: { kind: 'write', member: true },
   run: (args, ctx) => handlers(ctx.env).cmdCancel(args, ctx),
 });
 defineOp({
-  name: 'task.list',
+  name: 'errand.list',
   rights: { kind: 'read', member: true },
   run: (args, ctx) => handlers(ctx.env).cmdList(args, ctx),
 });
 defineOp({
-  name: 'task.read',
+  name: 'errand.read',
   rights: { kind: 'read', member: true },
   run: (args, ctx) => handlers(ctx.env).cmdRead(args, ctx),
 });
 defineOp({
-  name: 'task.resolve',
+  name: 'errand.resolve',
   rights: { kind: 'write', member: true },
   run: (args, ctx) => handlers(ctx.env).cmdResolve(args, ctx),
 });

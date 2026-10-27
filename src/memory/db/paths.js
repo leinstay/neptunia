@@ -16,7 +16,8 @@
 //                         `channels/`, `versions/`, `vectors/`, `forgetting/` and `private/` trees (but the operational
 //                         paths of a private layer), `record/` (but the backfill cursor), `archive/` (but the pending
 //                         queue), the journal's day files only, `guild.json`, `lore.json`, `recent.json`, `diary.json`,
-//                         `buffer.json`, `voice.json`, `forgotten.json`, `intentions*.json[l]` and `tasks*.json[l]`.
+//                         `buffer.json`, `voice.json`, `forgotten.json`, `intentions*.json[l]`, `errands*.json[l]` and `tasks*.json[l]` (the
+//                         names an errand unit had before `errands.json`).
 // The two lists never share a path (tests/memory-db-paths.test.js enumerates every path the mappers map or skip and the
 // data layout, and fails on a path in neither or both). A path in neither is unknown: not memory the mappers map, and
 // not on the allowlist.
@@ -85,6 +86,7 @@ export const MEMORY_PATTERNS = Object.freeze([
     `${NOT_LEFTOVER}${G}private/(?![^/]+/${PRIVATE_OPERATIONAL}$).+`
   ),
   pattern('guilds/*/intentions*.json[l]', `${NOT_LEFTOVER}${G}intentions[^/]*\\.jsonl?`),
+  pattern('guilds/*/errands*.json[l]', `${NOT_LEFTOVER}${G}errands[^/]*\\.jsonl?`),
   pattern('guilds/*/tasks*.json[l]', `${NOT_LEFTOVER}${G}tasks[^/]*\\.jsonl?`),
   pattern('guilds/*/vectors/**', `${NOT_LEFTOVER}${G}vectors/.+`),
 ]);
@@ -103,6 +105,18 @@ export function isOperational(rel) {
 /** Whether a path is a memory path (a unit of the database, never a file). */
 export function isMemoryPath(rel) {
   return matches(MEMORY_PATTERNS, normal(rel));
+}
+
+/**
+ * The current name of a unit path: the errand units of an earlier release, `guilds/<g>/tasks.json` and `tasks.jsonl`,
+ * become `errands.json` and `errands.jsonl`. Only a path directly under a guild maps (a private layer's path and every
+ * other path stay as they are). The one alias table for unit paths: the unit writer and the importers read an owner
+ * through it.
+ * @param {unknown} rel
+ * @returns {string}
+ */
+export function currentUnitPath(rel) {
+  return String(rel).replace(/^(guilds\/[^/]+\/)tasks(\.jsonl?)$/, '$1errands$2');
 }
 
 /**

@@ -1771,6 +1771,8 @@ const channelNames = new Map([
 ]);
 const LINK = (channelId, messageId) => `https://discord.com/channels/g1/${channelId}/${messageId}`;
 const resolvers = { nameOf: (id) => channelNames.get(id) ?? null, linkOf: LINK };
+/** A call that names no message and no conversation. */
+const NO_TARGET = { messageId: null, channelId: null };
 const call = (overrides = {}) => ({
   channelId: 'c1',
   at: CALL_T0 + 2 * MIN + 10_000,
@@ -1809,9 +1811,7 @@ test('withCalls: a turn that posted nothing here shows the call as a standalone 
   const out = withCalls(
     lines,
     {
-      calls: [
-        call({ posted: [], at: CALL_T0 + 3 * MIN, skill: 'lore.list', target: { messageId: null, channelId: null } }),
-      ],
+      calls: [call({ posted: [], at: CALL_T0 + 3 * MIN, skill: 'lore.list', target: NO_TARGET })],
     },
     resolvers
   );
@@ -1968,7 +1968,7 @@ test('formatTranscript: an errand without its agent says so through tools.refusa
       withCalls(
         callScene(),
         {
-          calls: [call({ skill: 'task.run', status: 'invalid', detail, target: { messageId: null, channelId: null } })],
+          calls: [call({ skill: 'errand.run', status: 'invalid', detail, target: NO_TARGET })],
         },
         resolvers
       ),

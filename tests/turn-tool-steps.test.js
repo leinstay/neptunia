@@ -175,17 +175,17 @@ test('dependent diary announcement: a failed picture and a post to the diary cha
   assert.ok(noteText(run.llm, 1).includes(labels.task.step.held));
 });
 
-test('an accepted background job covers the speech: task.run ok, the speech goes out after it, no extra request', async () => {
+test('an accepted background job covers the speech: errand.run ok, the speech goes out after it, no extra request', async () => {
   const hot = hotWith({ config: { ...WEB_CONFIG, ...AGENTS } });
   const { service, runs } = errandService(hot);
   const run = await coreTurn({
     answers: [
       toolAnswer('<think>x</think><msg>το στέλνω να ψάξει</msg>', [
-        call('task.run', { agent: 'scout', goal: 'βρες κάτι' }),
+        call('errand.run', { agent: 'scout', goal: 'βρες κάτι' }),
       ]),
       '<msg>ποτέ</msg>',
     ],
-    allowed: ['task.run'],
+    allowed: ['errand.run'],
     config: { ...WEB_CONFIG, ...AGENTS },
     runner: { errands: service },
     adminExtra: { errands: service },

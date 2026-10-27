@@ -10,7 +10,7 @@ No model decides when she wakes. The scheduler lists what is due; she decides wh
 
 With `features.intentions` on, an open intention whose due time has passed produces an `intention_due` wake. A wait for an errand past its deadline produces an `errand_deadline` wake. The same due time never wakes her twice; a new due time she sets creates a new wake.
 
-A recurring intention (`every`: `day`, `week`, or an interval like `12h`, `3d`) wakes her once per occurrence. Its due time is the current occurrence, pinned to the wall clock of `bot.timezone` for `day` and `week`. When the wake is handled (her turn ended, or the engine dropped it), the record stays open and the due time moves to the next occurrence after now. Occurrences already past are skipped. The history gets `recurred` when a call of the turn named the intention, `missed` when none did. Closing with `intent.update state=done` closes only the occurrence (`done-occurrence`). The intention expires after `intentions.recurringExpiresDays` (default 30) days; the last occurrence before expiry carries the note `last-occurrence` in her `<wake>` line.
+A recurring intention (`every`: `day`, `week`, or an interval like `12h`, `3d`) wakes her once per occurrence. Its due time is the current occurrence, pinned to the wall clock of `bot.timezone` for `day` and `week`. When the wake is handled (her turn ended, or the engine dropped it), the record stays open and the due time moves to the next occurrence after now. Occurrences already past are skipped. The history gets `recurred` when a call of the turn named the intention, `missed` when none did. Closing with `intention.update state=done` closes only the occurrence (`done-occurrence`). The intention expires after `intentions.recurringExpiresDays` (default 30) days; the last occurrence before expiry carries the note `last-occurrence` in her `<wake>` line.
 
 ### The daily review
 
@@ -44,15 +44,15 @@ The whole block is capped at `heartbeat.maxTokens` (default 2500). Over that lim
 
 #### What a heartbeat may do
 
-With `innerLife.heartbeat.intentionsOnly` (default `true`), the heartbeat accepts only memory reads and intention calls: `memory.search`, `memory.profile.read`, `memory.affinity.read`, `memory.channel.read`, `memory.server.read`, `memory.recent.read`, `memory.archive.read`, `memory.journal.read`, `conversation.read`, `intent.list`, `lore.list`, `lore.show` and `tools.describe`. These calls still pass the usual permissions.
+With `innerLife.heartbeat.intentionsOnly` (default `true`), the heartbeat accepts only memory reads and intention calls: `memory.search`, `memory.profile.read`, `memory.affinity.read`, `memory.channel.read`, `memory.server.read`, `memory.recent.read`, `memory.archive.read`, `memory.journal.read`, `conversation.read`, `intention.list`, `lore.list`, `lore.show` and `tools.describe`. These calls still pass the usual permissions.
 
-The prompt asks her to follow a memory thread before choosing. The wake finishes with one successful `intent.set`, `intent.update` or `intent.cancel`, or `<skip/>`. The first successful change ends the turn without another model request. A second intention call in the same step is refused. Posts, reactions, web reads and errands are refused `heartbeat-only`. A refusal or failed read may be corrected within the loop limits.
+The prompt asks her to follow a memory thread before choosing. The wake finishes with one successful `intention.set`, `intention.update` or `intention.cancel`, or `<skip/>`. The first successful change ends the turn without another model request. A second intention call in the same step is refused. Posts, reactions, web reads and errands are refused `heartbeat-only`. A refusal or failed read may be corrected within the loop limits.
 
 With the switch `false`, the heartbeat can act freely; the origin and caps below still apply.
 
 **Origin.** An intention a heartbeat turn creates carries `origin: heartbeat`, stamped by the engine from the wake kind. Updates keep it. It changes no priority and no schedule.
 
-**Caps.** At most `innerLife.heartbeat.maxOpen` (default 3) open intentions with heartbeat origin, of them at most `maxRecurring` (default 1) recurring. At the cap, `intent.set` from a heartbeat is refused `heartbeat-cap` (or `heartbeat-recurring-cap`) and the result names the open ones so she can update or cancel one.
+**Caps.** At most `innerLife.heartbeat.maxOpen` (default 3) open intentions with heartbeat origin, of them at most `maxRecurring` (default 1) recurring. At the cap, `intention.set` from a heartbeat is refused `heartbeat-cap` (or `heartbeat-recurring-cap`) and the result names the open ones so she can update or cancel one.
 
 **Due-time jitter.** An intention a heartbeat created is shifted off its round clock time by an offset derived from a hash of the intention's id and due time, uniform in `+-dueJitterMinutes` (default 20), never more than a quarter of the lead time and never past `expiresAt`.
 
@@ -60,9 +60,9 @@ With the switch `false`, the heartbeat can act freely; the origin and caps below
 
 ### Her attention
 
-She chooses where to listen. `intent.set attend=<place>` makes an open intention of kind `attend`: while it is open, the engine wakes her on new lines in that place.
+She chooses where to listen. `intention.set attend=<place>` makes an open intention of kind `attend`: while it is open, the engine wakes her on new lines in that place.
 
-Her last look is her last own line in that place or the last attend wake handled for it, whichever is later. Nothing from before the attention was set counts. `settle=<seconds>` (default `innerLife.attention.settleSeconds`, 90) waits until the place has been quiet that long. The queue holds one wake per attention; a newer burst replaces the queued one (the turn's history is the place's lines, so nothing is lost). `people=<handles>` makes only their lines count for the wake; the turn's history stays the whole conversation. `perday=<n>` (default `innerLife.attention.perDayDefault`, 12) is her own daily bound: past it the wake waits and runs the next local day. Other wakes are not held by it. `intent.update` changes `people`, `settle`, `perday` and `expires`. Setting `due=` or `every=` on an attention is refused.
+Her last look is her last own line in that place or the last attend wake handled for it, whichever is later. Nothing from before the attention was set counts. `settle=<seconds>` (default `innerLife.attention.settleSeconds`, 90) waits until the place has been quiet that long. The queue holds one wake per attention; a newer burst replaces the queued one (the turn's history is the place's lines, so nothing is lost). `people=<handles>` makes only their lines count for the wake; the turn's history stays the whole conversation. `perday=<n>` (default `innerLife.attention.perDayDefault`, 12) is her own daily bound: past it the wake waits and runs the next local day. Other wakes are not held by it. `intention.update` changes `people`, `settle`, `perday` and `expires`. Setting `due=` or `every=` on an attention is refused.
 
 The lines come from the record, indexed incrementally at each tick over the last `innerLife.attention.lookbackHours` (default 24) hours.
 
@@ -111,18 +111,18 @@ The same voice, memory prefetch and tools as any turn, with nobody's message in 
 - `<wake>`: why she is awake, with each wake's intention, the current channel and why it was chosen, her budget lines, and the places page.
 - The last `innerLife.chatMessages` (default 30) messages of the conversation.
 - `<retrieved>`: the prefetch, searched with the purposes of the wake's intentions.
-- Her `<intentions>` and `<tasks>`.
+- Her `<intentions>` and `<errands>`.
 - The task prompt `prompts/inner.md`; on a heartbeat wake, `prompts/heartbeat.md` instead.
 
-Her `<msg>`, `<gif>` and `<react>` act in the current channel. Without a current channel these tags are refused; `message.create` with a channel argument is the way to post elsewhere or when there is no current channel. `<react>` needs a `to="#N"` target. She may also call her tools (`web.search`, `web.read`, `memory.search`, `intent.*`, `task.run`, and the rest) or end silent (`<skip/>`).
+Her `<msg>`, `<gif>` and `<react>` act in the current channel. Without a current channel these tags are refused; `message.create` with a channel argument is the way to post elsewhere or when there is no current channel. `<react>` needs a `to="#N"` target. She may also call her tools (`web.search`, `web.read`, `memory.search`, `intention.*`, `errand.run`, and the rest) or end silent (`<skip/>`).
 
-The tool loop runs under `innerLife.loop`: at most `maxSteps` (default 4) further requests, `timeBudgetMs` (default 180000) from the first call, `maxCallsPerStep` (default 4) calls per answer, each call at most `callTimeoutMs` (default 60000). On her last step, one terminal action call still runs (the first `message.create`, `intent.set`, `intent.update` or `intent.cancel`); reads and other calls on the last step get a `loop-cap` result.
+The tool loop runs under `innerLife.loop`: at most `maxSteps` (default 4) further requests, `timeBudgetMs` (default 180000) from the first call, `maxCallsPerStep` (default 4) calls per answer, each call at most `callTimeoutMs` (default 60000). On her last step, one terminal action call still runs (the first `message.create`, `intention.set`, `intention.update` or `intention.cancel`); reads and other calls on the last step get a `loop-cap` result.
 
-When a step's `message.create` went through and one of the wake's intentions has not been named by any `intent.*` call, the loop makes one more step listing them.
+When a step's `message.create` went through and one of the wake's intentions has not been named by any `intention.*` call, the loop makes one more step listing them.
 
 ## Shadow and live modes
 
-**Shadow mode** (`innerLife.mode: "shadow"`, the default): reads run normally (`web.search`, `web.read`, `memory.search`, `intent.list`); every other call is proposed and never executed. Journalled with `shadow: true`, nothing marked seen. A stretch of shadow shows what she would have done.
+**Shadow mode** (`innerLife.mode: "shadow"`, the default): reads run normally (`web.search`, `web.read`, `memory.search`, `intention.list`); every other call is proposed and never executed. Journalled with `shadow: true`, nothing marked seen. A stretch of shadow shows what she would have done.
 
 **Live mode** (`"live"`): calls go through the gateway and take effect. The kill switch is checked before each action.
 
@@ -134,9 +134,9 @@ Things she means to do later, kept across restarts. Behind `features.intentions`
 
 ### Where they come from
 
-**Her own call.** `intent.set` with the purpose as the body. Options: `due` (a delay, a date, a clock time, or a weekday and time in `bot.timezone`), `every` (day, week, or an interval), `expires`, `channel` (where it is meant to land), `chain`, `condition` (when it counts as done), and `task` plus `deadline` to wait for an errand. `attend=<place>` makes it an attention instead (see "Her attention" above).
+**Her own call.** `intention.set` with the purpose as the body. Options: `due` (a delay, a date, a clock time, or a weekday and time in `bot.timezone`), `every` (day, week, or an interval), `expires`, `channel` (where it is meant to land), `chain`, `condition` (when it counts as done), and `errand` plus `deadline` to wait for an errand. `attend=<place>` makes it an attention instead (see "Her attention" above).
 
-**The memory analyzer.** A guild batch also returns candidates from her own lines (a promise, a thing to come back to, a question for someone later). Code keeps a candidate only when its quoted words appear in one of her lines of the batch and in nobody else's. A candidate is `proposed`: it does nothing until she accepts it (`intent.update state=pending`) or rejects it (`intent.cancel`). Untouched, it expires after `intentions.candidateExpiresHours` (default 48) hours. Each carries its origin: `own`, or `external` when its words came from outside material (a web page, a memory-search result, an errand's output).
+**The memory analyzer.** A guild batch also returns candidates from her own lines (a promise, a thing to come back to, a question for someone later). Code keeps a candidate only when its quoted words appear in one of her lines of the batch and in nobody else's. A candidate is `proposed`: it does nothing until she accepts it (`intention.update state=pending`) or rejects it (`intention.cancel`). Untouched, it expires after `intentions.candidateExpiresHours` (default 48) hours. Each carries its origin: `own`, or `external` when its words came from outside material (a web page, a memory-search result, an errand's output).
 
 **The owner.** `/nep task intent` runs the same operations.
 
@@ -159,7 +159,7 @@ Every intention has an expiry (`intentions.expiresDays`, default 14). An intenti
 
 At most `intentions.maxOpen` (default 20) open at once, and `intentions.maxCandidates` (default 5) candidates.
 
-`intent.update state=dropped reason=...` lets go of an open intention. `intent.set state=dropped reason=...` records one considered and let go at once. A reason is required. A dropped record never wakes her and is not counted as open.
+`intention.update state=dropped reason=...` lets go of an open intention. `intention.set state=dropped reason=...` records one considered and let go at once. A reason is required. A dropped record never wakes her and is not counted as open.
 
 ### Waiting for an errand
 
@@ -179,7 +179,7 @@ Every intention keeps the members of the conversation it came from. `/nep memory
 
 ### Turning it on
 
-Set `features.intentions` to `true`, and grant her the tools by name (`/nep access grant`: `intent.set`, `intent.update`, `intent.cancel`, `intent.list`).
+Set `features.intentions` to `true`, and grant her the tools by name (`/nep access grant`: `intention.set`, `intention.update`, `intention.cancel`, `intention.list`).
 
 ## Bounds
 
@@ -206,7 +206,7 @@ On a retried run that succeeds, each wake in `<wake>` carries a line noting how 
 
 ## What she found goes to her memory
 
-What she reads on her own in an inner turn joins the memory analyzer's path. When an inner turn ends and at least one read returned something, or the turn has something to answer for (a call, a call that failed, text outside a call, a loop cut), the turn hands an episode to the analyzer: lines of hers, in the first person. One line with her thinking, her executed calls, proposed or refused ones, and what did not go through. One line per read in `innerLife.memory.tools` (by default `web.search`, `web.read`, `memory.search`, `task.status`, `task.list`), at most `innerLife.memory.maxFindings`, with the query, the result cut to `innerLife.memory.resultChars`, and links as sources.
+What she reads on her own in an inner turn joins the memory analyzer's path. When an inner turn ends and at least one read returned something, or the turn has something to answer for (a call, a call that failed, text outside a call, a loop cut), the turn hands an episode to the analyzer: lines of hers, in the first person. One line with her thinking, her executed calls, proposed or refused ones, and what did not go through. One line per read in `innerLife.memory.tools` (by default `web.search`, `web.read`, `memory.search`, `errand.status`, `errand.list`), at most `innerLife.memory.maxFindings`, with the query, the result cut to `innerLife.memory.resultChars`, and links as sources.
 
 Each line is marked with provenance `inner`. Where it belongs decides where it goes: a server inner turn buffers it with the server's lines; one in a private chat buffers it in that member's private layer only. The record keeps chat only, so these lines never reach it.
 

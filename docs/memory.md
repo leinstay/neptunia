@@ -32,7 +32,7 @@ interface adapter                         engine core
 normalised event  ──────────▶ observe()                       ─┐
                                store cache                     ─┼─▶ unit outbox ─▶ writer worker ─▶ memory.db
 her turn / inner turn / diary  record, journal, participation,  │    (one worker,
-                               vectors, intentions, tasks      ─┘     one transaction
+                               vectors, intentions, errands    ─┘     one transaction
 her memory session ──────────▶ validated plan ─▶ session-write ──────▶ per write, graph
                                                                       projected in it)
 readers ◀─ read connection ◀─ execution context (audience filter)
@@ -44,7 +44,7 @@ The module seams stay as they were before the database: `record`, `journal`, `ar
 
 ## Data model
 
-Schema version 13 (`src/memory/db/schema.js`; migrations appended, never edited).
+Schema version 14 (`src/memory/db/schema.js`; migrations appended, never edited). Version 14 renames the errand units (`guilds/<g>/tasks.json` and `tasks.jsonl` become `errands.json` and `errands.jsonl`) in every table that stores a unit path, and renames the errand fields of the open intention records. `currentUnitPath` in `src/memory/db/paths.js` maps the old unit names on the way in, so a write that waited in `memory-pending/` across the upgrade lands in the current unit.
 
 ### Identity
 
@@ -93,8 +93,8 @@ Schema version 13 (`src/memory/db/schema.js`; migrations appended, never edited)
 | `publication_grants` | The owner's exceptions allowing specific content to specific destinations |
 | `media` | Pictures and audio she keeps |
 | `intentions` | What she means to do |
-| `work` | Errands and tasks |
-| `work_events` | The steps of a task |
+| `work` | Errands |
+| `work_events` | The steps of an errand |
 
 ### Internal bookkeeping
 
@@ -281,7 +281,7 @@ Operational state that the process writes stays on disk as JSON files. The exact
 - `media/diary/` (her diary pictures and voice files)
 - `memory.db*` (the database's own files)
 
-Everything else (profiles, places, channels, lore, the record's day files, the journal's day files, the archive months, vectors, intentions, tasks) lives only in the database.
+Everything else (profiles, places, channels, lore, the record's day files, the journal's day files, the archive months, vectors, intentions, errands) lives only in the database.
 
 ## The derived graph
 
@@ -407,8 +407,8 @@ The full-text tables' own storage tables (`sources_fts_*`, `sources_tri_*`) belo
 | `publication_grants` | internal-only | the owner's exceptions: one content hash of one row allowed to these destinations |
 | `media` | audience-scoped | pictures and audio she keeps, with the audience of what they belong to |
 | `intentions` | audience-scoped | what she means to do |
-| `work` | audience-scoped | errands and tasks |
-| `work_events` | inherits from work | the steps of a task |
+| `work` | audience-scoped | errands |
+| `work_events` | inherits from work | the steps of an errand |
 | `session_runs` | internal-only | one row per memory session request; its audience names the scope the run read |
 | `decisions` | internal-only | why the engine or she changed memory (proposals, rejections, quarantines) |
 | `turn_reads` | internal-only | which rows each request carried, in which context and by which reader |

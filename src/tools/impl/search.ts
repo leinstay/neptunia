@@ -8,7 +8,7 @@
 // Her own calls of them run inside her turn with its context (src/behavior/turn.js, the tool
 // loop of features.coreTools); a command runs the same code (src/tools/tools.ts) over what an
 // operation knows: the channel it was typed in, no chat window to leave out. Reads, open to
-// every member while features.memberCommands is on (rights.member), as `task.status` is.
+// every member while features.memberCommands is on (rights.member), as `errand.status` is.
 
 import { firstLinkIn, runMediaFind, runMediaLook, runMemorySearch, runWebRead, runWebSearch } from '../tools.ts';
 import { fetchSpan, recordMessages, runConversationRead } from '../conversation-read.ts';

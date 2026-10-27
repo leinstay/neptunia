@@ -15,7 +15,7 @@
 // service and scheduler, and the report counts their codes (`recurred`, `missed`,
 // `done-occurrence`). An intention may be an attention (`attend: true`: it listens to its `channel`,
 // with `people`, `settle`, `perDay`; docs/inner-life.md "Her attention"), and the stub may set one
-// (`intent.set` with `attend`, `people`, `settle`, `perday`); the week's chat is the record the scheduler counts the place's lines
+// (`intention.set` with `attend`, `people`, `settle`, `perday`); the week's chat is the record the scheduler counts the place's lines
 // from, so an attended channel's bursts wake her as they would live. The scheduler reads no
 // presence, so a fixture has no "member online" event.
 //
@@ -64,7 +64,9 @@ import { answerOf } from '../../src/behavior/turn.js';
 import { weekReads } from './platform-objects.ts';
 
 /** The read skills whose results the week's simulated analyzer reads as her inner-turn findings. */
-const FINDING_SKILLS = Object.freeze(['web.search', 'web.read', 'memory.search', 'task.status', 'task.list']);
+const FINDING_SKILLS = Object.freeze(['web.search', 'web.read', 'memory.search', 'errand.status', 'errand.list']);
+/** The intention calls that name an intention by `id`. */
+const ID_SKILLS = Object.freeze(['intention.update', 'intention.cancel']);
 
 /** A queued wake older than this at the end of the week, never refused by a cap, counts as starved. */
 export const STARVED_MS = 6 * HOUR_MS;
@@ -680,7 +682,7 @@ export function createStubVoice(fixture) {
         const record = records.find((r) => r.id === intentionId) ?? null;
         const values = {
           $intention: intentionId,
-          $task: item.taskId ?? null,
+          $task: item.errandId ?? null,
           $chain: record?.chainId ?? null,
           $channel: channelId,
         };
@@ -918,18 +920,18 @@ export async function runWeek({
       const verdict = call.refuse
         ? { status: 'refused', code: call.refuse }
         : stubVerdict({ effects, skill: call.skill, shadow: params.inner.shadow, mayAct: params.inner.mayAct });
-      // The intention an intent.* call named and the state an intent.update set, as the turn runner records them.
+      // The intention an intention.* call named and the state an intention.update set, as the turn runner records them.
       const named =
-        ['intent.update', 'intent.cancel'].includes(call.skill) && typeof call.args?.id === 'string' && call.args.id
-          ? call.args.id
-          : null;
+        ID_SKILLS.includes(call.skill) && typeof call.args?.id === 'string' && call.args.id ? call.args.id : null;
       const action = {
         skill: call.skill,
         status: verdict.status,
         ...(verdict.code ? { code: verdict.code } : {}),
         args: call.args,
         ...(named ? { intentionId: named } : {}),
-        ...(call.skill === 'intent.update' && typeof call.args?.state === 'string' ? { state: call.args.state } : {}),
+        ...(call.skill === 'intention.update' && typeof call.args?.state === 'string'
+          ? { state: call.args.state }
+          : {}),
       };
       if (verdict.status === 'executed') {
         const done = act(call, { turnId, channelId: entry.channelId, at, chainId: wake.chainId ?? null, seen, key });
@@ -960,16 +962,11 @@ export async function runWeek({
       });
     });
     const acted = actions.some((a) => a.status !== 'refused');
-    // The intentions her intent.* calls named, however they went (src/behavior/turn.js's `inner.intentIds`).
+    // The intentions her intention.* calls named, however they went (src/behavior/turn.js's `inner.intentIds`).
     const intentIds = [
       ...new Set(
         planned
-          .filter(
-            (call) =>
-              ['intent.update', 'intent.cancel'].includes(call.skill) &&
-              typeof call.args?.id === 'string' &&
-              call.args.id
-          )
+          .filter((call) => ID_SKILLS.includes(call.skill) && typeof call.args?.id === 'string' && call.args.id)
           .map((call) => call.args.id)
       ),
     ];
@@ -1002,7 +999,7 @@ export async function runWeek({
       ...(args.settle !== undefined ? { settle: Number(args.settle) } : {}),
       ...(perDay !== undefined ? { perDay: Number(perDay) } : {}),
     });
-    if (call.skill === 'intent.set') {
+    if (call.skill === 'intention.set') {
       const created = intentions.set(guildId, {
         purpose: String(args.purpose ?? args.attend ?? ''),
         dueAt: args.due ? when(args.due) : null,
@@ -1021,23 +1018,23 @@ export async function runWeek({
       }
       return created.ok ? { ok: true } : { ok: false, code: created.code };
     }
-    if (call.skill === 'intent.update') {
+    if (call.skill === 'intention.update') {
       // An inner turn's call: her own initiative, in its chain (which candidates it may accept).
       const patch = { by: 'persona', turnId, initiative: true, callerChain: chainId };
       if (args.state) patch.state = args.state;
       if (args.due) patch.dueAt = when(args.due);
       if (everyOf(args.every) !== undefined) patch.every = everyOf(args.every);
-      if (args.task) patch.taskId = args.task;
+      if (args.errand) patch.taskId = args.errand;
       if (args.deadline) patch.deadline = when(args.deadline);
       if (Object.keys(attendOf()).length > 0) patch.attend = attendOf();
       const moved = intentions.update(guildId, String(args.id ?? ''), patch);
       return moved.ok ? { ok: true } : { ok: false, code: moved.code };
     }
-    if (call.skill === 'intent.cancel') {
+    if (call.skill === 'intention.cancel') {
       const cancelled = intentions.cancel(guildId, String(args.id ?? ''), { by: 'persona' });
       return cancelled.ok ? { ok: true } : { ok: false, code: cancelled.code };
     }
-    if (call.skill === 'task.run') {
+    if (call.skill === 'errand.run') {
       world.taskSeq += 1;
       const id = `task-${world.taskSeq}`;
       world.tasks.set(id, {
@@ -1853,7 +1850,7 @@ const ENGINE_DROPS = Object.freeze(['no-channel', 'overflow', 'stale']);
 
 /**
  * The week's due intentions sorted for the `live-reasons` gate: `reasoned` (a live turn of hers
- * carried an intent.* call on it with her reason: a `reason` argument, a body, or the step's
+ * carried an intention.* call on it with her reason: a `reason` argument, a body, or the step's
  * think), else `missing` (she was woken for it in a live turn -- the turn's items name it -- and
  * left it without one), else `disposed` by the engine before any turn of hers (an ENGINE_DROPS
  * event in the journal, or an expiry while it was never woken; `event` says which), else
@@ -1868,7 +1865,7 @@ export function liveReasons(run) {
     steps.some((step) =>
       step.calls.some(
         (call) =>
-          String(call.skill).startsWith('intent.') &&
+          String(call.skill).startsWith('intention.') &&
           String(call.args?.id ?? '') === id &&
           (String(call.args?.reason ?? '').trim() || String(call.args?.text ?? '').trim() || step.think.trim())
       )

@@ -336,13 +336,8 @@ function hotWith({ features = {}, innerLife = {}, timezone = 'UTC', grants = [],
         caps: { perChain: 3 },
         ...innerLife,
       },
-      agents: {
-        maxOpen: 3,
-        scout: { enabled: true, daily: { tasks: 10 } },
-        resultMaxChars: 1000,
-        resultCooldownSeconds: 60,
-        resultRetrySeconds: 30,
-      },
+      errands: { maxOpen: 3, resultMaxChars: 1000, resultCooldownSeconds: 60, resultRetrySeconds: 30 },
+      agents: { scout: { enabled: true, daily: { tasks: 10 } } },
       ...config,
     },
     prompts: {
@@ -576,7 +571,7 @@ async function dieDuring(chat, start) {
 }
 
 /** The task of a request's text as a list of lines, for the tasks block. */
-const tasksBlockOf = (text) => /<tasks>\n([\s\S]*?)\n<\/tasks>/.exec(text)?.[1] ?? '';
+const tasksBlockOf = (text) => /<errands>\n([\s\S]*?)\n<\/errands>/.exec(text)?.[1] ?? '';
 
 // ---- the invariant ----
 
@@ -856,7 +851,7 @@ test('row 2: the process dies in an inner turn before anything went out -- the r
   assertNoSilentFailure(after, { accepted: [wake.id] });
 });
 
-test("row 3: the process dies after an errand's result was stored and before its result turn ran -- the turn is reopened after the reload and task.read gives the whole text", async () => {
+test("row 3: the process dies after an errand's result was stored and before its result turn ran -- the turn is reopened after the reload and errand.read gives the whole text", async () => {
   const dataDir = tempDir('nep-fault-');
   const chat = makeChat();
   const text = Array.from({ length: 250 }, (_, i) => `line${i}`).join(' ');
@@ -890,11 +885,11 @@ test("row 3: the process dies after an errand's result was stored and before its
     await flush();
   });
   assert.equal(chat.llm.calls.length, 1, 'the result turn is reopened after the reload');
-  assert.ok(requestText(chat, 0).includes('<task_result>'), 'with the result in front of her');
+  assert.ok(requestText(chat, 0).includes('<errand_result>'), 'with the result in front of her');
   const task = after.errands.store(GUILD).get(id);
   assert.ok(task.seen && task.readAt, 'a turn that completed marks the task seen and read');
 
-  // task.read pages through the whole text.
+  // errand.read pages through the whole text.
   const env = createOpsEnv({
     discord: DISCORD,
     hot: after.hot,
@@ -909,7 +904,7 @@ test("row 3: the process dies after an errand's result was stored and before its
   let from = 0;
   let got = '';
   for (let page = 0; page < 10; page += 1) {
-    const read = await runOp('task.read', from > 0 ? { id, from } : { id }, {
+    const read = await runOp('errand.read', from > 0 ? { id, from } : { id }, {
       env,
       guildId: GUILD,
       channelId: 'c1',
@@ -924,7 +919,7 @@ test("row 3: the process dies after an errand's result was stored and before its
     if (!next) break;
     from = Number(next.slice('next: from='.length));
   }
-  assert.equal(got, text, 'task.read returned the full text');
+  assert.equal(got, text, 'errand.read returned the full text');
 
   // A second restart does not open the same turn again.
   const third = boot(chat, { dataDir, runErrand });
@@ -1236,7 +1231,7 @@ test('row 10: the text goes out and the GIF fails -- the turn is partial, the te
   assertNoSilentFailure(inner);
 });
 
-test('row 11: an errand completes and its result turn fails every time -- the task stays unread with the failed-turn note and task.read returns it', async () => {
+test('row 11: an errand completes and its result turn fails every time -- the task stays unread with the failed-turn note and errand.read returns it', async () => {
   const dataDir = tempDir('nep-fault-');
   const chat = makeChat();
   const text = 'the changelog says: nothing breaking, two fixes, one new switch';
@@ -1277,7 +1272,7 @@ test('row 11: an errand completes and its result turn fails every time -- the ta
   await run.ask('c1', 'anything new?');
   const line = tasksBlockOf(requestText(chat, chat.requests.length - 1));
   assert.ok(
-    line.includes(id) && line.includes(labels.tasks.unread) && line.includes(labels.tasks.resultTurnFailed),
+    line.includes(id) && line.includes(labels.errands.unread) && line.includes(labels.errands.resultTurnFailed),
     line
   );
   const env = createOpsEnv({
@@ -1291,9 +1286,9 @@ test('row 11: an errand completes and its result turn fails every time -- the ta
     getGuildId: () => GUILD,
     errands: run.errands,
   });
-  const read = await runOp('task.read', { id }, { env, guildId: GUILD, channelId: 'c1', userId: 'u1', roleIds: [] });
+  const read = await runOp('errand.read', { id }, { env, guildId: GUILD, channelId: 'c1', userId: 'u1', roleIds: [] });
   assert.equal(read.status, 'ok');
-  assert.ok(read.summary.includes(text), 'task.read returns the result');
+  assert.ok(read.summary.includes(text), 'errand.read returns the result');
   assertNoSilentFailure(run);
 });
 

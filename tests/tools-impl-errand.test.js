@@ -47,14 +47,14 @@ function fakeClient({ configured = true } = {}) {
   };
 }
 
-function makeEnv({ agents = {}, configured = true } = {}) {
+function makeEnv({ errandSettings = {}, agents = {}, configured = true } = {}) {
   const rootDir = tempDir('nep-ops-task-');
   const hot = {
     config: {
       bot: { owners: [OWNER], access: {} },
       features: {},
+      errands: { maxOpen: 3, ...errandSettings },
       agents: {
-        maxOpen: 3,
         scout: { enabled: true, daily: { tasks: 10 } },
         server: { enabled: true, daily: { tasks: 10 } },
         ...agents,
@@ -90,11 +90,11 @@ function makeEnv({ agents = {}, configured = true } = {}) {
 
 const ctx = (env, userId, extra = {}) => ({ env, guildId: 'g1', channelId: 'c1', userId, roleIds: [], ...extra });
 
-test('task.run: a member may run the scout agent; the answer is at once, the errand runs in the background', async () => {
+test('errand.run: a member may run the scout agent; the answer is at once, the errand runs in the background', async () => {
   const { env, client, errands, finished, stores } = makeEnv();
   await withCapturedLogs(async () => {
     const result = await runOp(
-      'task.run',
+      'errand.run',
       { agent: 'scout', goal: 'find the changelog' },
       ctx(env, MEMBER, { sourceMessageId: 'm5' })
     );
@@ -127,27 +127,27 @@ test('task.run: a member may run the scout agent; the answer is at once, the err
   });
 });
 
-test('task.run: a member may not run the server agent; an owner may', async () => {
+test('errand.run: a member may not run the server agent; an owner may', async () => {
   const { env, client } = makeEnv();
   await withCapturedLogs(async () => {
-    const refused = await runOp('task.run', { agent: 'server', goal: 'list the units' }, ctx(env, MEMBER));
+    const refused = await runOp('errand.run', { agent: 'server', goal: 'list the units' }, ctx(env, MEMBER));
     assert.equal(refused.status, 'denied');
     assert.equal(refused.code, 'owner-only');
     // Through the persona's call too: the requester of her turn is the caller.
     const viaPersona = await runOp(
-      'task.run',
+      'errand.run',
       { agent: 'server', goal: 'list the units' },
       ctx(env, MEMBER, { actor: 'persona' })
     );
     assert.equal(viaPersona.code, 'owner-only');
     const nobody = await runOp(
-      'task.run',
+      'errand.run',
       { agent: 'server', goal: 'list the units' },
       ctx(env, null, { actor: 'persona' })
     );
     assert.equal(nobody.code, 'owner-only');
     const allowed = await runOp(
-      'task.run',
+      'errand.run',
       { agent: 'server', goal: 'list the units' },
       ctx(env, OWNER, { actor: 'persona', privateChat: true, channelId: 'dm1' })
     );
@@ -158,34 +158,34 @@ test('task.run: a member may not run the server agent; an owner may', async () =
   });
 });
 
-test('task.run: a cap refuses with its code; a runner that is not set up is not-configured', async () => {
-  const { env } = makeEnv({ agents: { maxOpen: 1 } });
+test('errand.run: a cap refuses with its code; a runner that is not set up is not-configured', async () => {
+  const { env } = makeEnv({ errandSettings: { maxOpen: 1 } });
   await withCapturedLogs(async () => {
-    assert.equal((await runOp('task.run', { agent: 'scout', goal: 'one' }, ctx(env, MEMBER))).status, 'ok');
-    const second = await runOp('task.run', { agent: 'scout', goal: 'two' }, ctx(env, MEMBER));
+    assert.equal((await runOp('errand.run', { agent: 'scout', goal: 'one' }, ctx(env, MEMBER))).status, 'ok');
+    const second = await runOp('errand.run', { agent: 'scout', goal: 'two' }, ctx(env, MEMBER));
     assert.equal(second.status, 'failed');
     assert.equal(second.code, 'cap-open');
-    const bad = await runOp('task.run', { agent: 'mail', goal: 'x' }, ctx(env, MEMBER));
+    const bad = await runOp('errand.run', { agent: 'mail', goal: 'x' }, ctx(env, MEMBER));
     assert.equal(bad.status, 'invalid');
   });
   const off = makeEnv({ configured: false });
   await withCapturedLogs(async () => {
-    const result = await runOp('task.run', { agent: 'scout', goal: 'x' }, ctx(off.env, MEMBER));
+    const result = await runOp('errand.run', { agent: 'scout', goal: 'x' }, ctx(off.env, MEMBER));
     assert.equal(result.status, 'failed');
     assert.equal(result.code, 'not-configured');
   });
 });
 
-test('task.cancel: only the requester of the task or an owner', async () => {
+test('errand.cancel: only the requester of the task or an owner', async () => {
   const { env, client, stores } = makeEnv();
   await withCapturedLogs(async () => {
-    const first = (await runOp('task.run', { agent: 'scout', goal: 'one' }, ctx(env, MEMBER))).data.task.id;
-    const second = (await runOp('task.run', { agent: 'scout', goal: 'two' }, ctx(env, MEMBER))).data.task.id;
+    const first = (await runOp('errand.run', { agent: 'scout', goal: 'one' }, ctx(env, MEMBER))).data.task.id;
+    const second = (await runOp('errand.run', { agent: 'scout', goal: 'two' }, ctx(env, MEMBER))).data.task.id;
     await new Promise((r) => setImmediate(r));
-    const refused = await runOp('task.cancel', { id: first }, ctx(env, OTHER));
+    const refused = await runOp('errand.cancel', { id: first }, ctx(env, OTHER));
     assert.equal(refused.status, 'denied');
     assert.equal(refused.code, 'not-requester');
-    const own = await runOp('task.cancel', { id: first }, ctx(env, MEMBER));
+    const own = await runOp('errand.cancel', { id: first }, ctx(env, MEMBER));
     assert.equal(own.status, 'ok');
     assert.equal(stores.get('g1').get(first).state, 'cancelled');
     assert.deepEqual(
@@ -193,45 +193,45 @@ test('task.cancel: only the requester of the task or an owner', async () => {
       [first],
       'the runner is told'
     );
-    const byOwner = await runOp('task.cancel', { id: second }, ctx(env, OWNER));
+    const byOwner = await runOp('errand.cancel', { id: second }, ctx(env, OWNER));
     assert.equal(byOwner.status, 'ok');
-    const again = await runOp('task.cancel', { id: second }, ctx(env, OWNER));
+    const again = await runOp('errand.cancel', { id: second }, ctx(env, OWNER));
     assert.equal(again.status, 'failed');
     assert.equal(again.code, 'not-open');
-    const unknown = await runOp('task.cancel', { id: 'tnope' }, ctx(env, OWNER));
+    const unknown = await runOp('errand.cancel', { id: 'tnope' }, ctx(env, OWNER));
     assert.equal(unknown.status, 'invalid');
   });
 });
 
-test("task.status and task.list: the open ones, one by id, a private chat's only for its requester or an owner", async () => {
+test("errand.status and errand.list: the open ones, one by id, a private chat's only for its requester or an owner", async () => {
   const { env } = makeEnv();
   await withCapturedLogs(async () => {
-    const group = (await runOp('task.run', { agent: 'scout', goal: 'public errand' }, ctx(env, MEMBER))).data.task.id;
+    const group = (await runOp('errand.run', { agent: 'scout', goal: 'public errand' }, ctx(env, MEMBER))).data.task.id;
     const dm = (
       await runOp(
-        'task.run',
+        'errand.run',
         { agent: 'scout', goal: 'private errand' },
         ctx(env, MEMBER, { privateChat: true, channelId: 'dm1' })
       )
     ).data.task.id;
-    const open = await runOp('task.status', {}, ctx(env, OTHER));
+    const open = await runOp('errand.status', {}, ctx(env, OTHER));
     assert.equal(open.status, 'ok');
     assert.ok(open.summary.includes(group));
     assert.ok(!open.summary.includes(dm), "another member does not see a private chat's task");
-    const one = await runOp('task.status', { id: dm }, ctx(env, MEMBER));
+    const one = await runOp('errand.status', { id: dm }, ctx(env, MEMBER));
     assert.ok(one.summary.startsWith(`${dm} scout`));
-    assert.equal((await runOp('task.status', { id: dm }, ctx(env, OTHER))).code, 'not-found');
-    const listed = await runOp('task.list', {}, ctx(env, OWNER));
+    assert.equal((await runOp('errand.status', { id: dm }, ctx(env, OTHER))).code, 'not-found');
+    const listed = await runOp('errand.list', {}, ctx(env, OWNER));
     assert.ok(listed.summary.includes(group) && listed.summary.includes(dm));
     assert.ok(listed.summary.split('\n')[0].startsWith(dm), 'newest first');
   });
 });
 
-test('task.status: a finished task whose files the runner deleted says files-expired', async () => {
+test('errand.status: a finished task whose files the runner deleted says files-expired', async () => {
   const out = tempDir('nep-ops-task-out-');
   const { env, client, errands } = makeEnv({ agents: { scout: { enabled: true, out, daily: { tasks: 10 } } } });
   await withCapturedLogs(async () => {
-    const id = (await runOp('task.run', { agent: 'scout', goal: 'a meme' }, ctx(env, MEMBER))).data.task.id;
+    const id = (await runOp('errand.run', { agent: 'scout', goal: 'a meme' }, ctx(env, MEMBER))).data.task.id;
     while (client.runs.length === 0) await new Promise((resolve) => setImmediate(resolve));
     client.end(id, {
       status: 'done',
@@ -239,34 +239,34 @@ test('task.status: a finished task whose files the runner deleted says files-exp
       usage: { usd: 0.01 },
     });
     await errands.idle();
-    const one = await runOp('task.status', { id }, ctx(env, MEMBER));
+    const one = await runOp('errand.status', { id }, ctx(env, MEMBER));
     assert.ok(one.summary.startsWith(`${id} scout done (files-expired) `), one.summary);
   });
 });
 
-test('task.status: a task mirrored into the ledger shows its ledger id; task.cancel tells the service who cancelled', async () => {
+test('errand.status: a task mirrored into the ledger shows its ledger id; errand.cancel tells the service who cancelled', async () => {
   const { env, errands, stores } = makeEnv();
   await withCapturedLogs(async () => {
-    const id = (await runOp('task.run', { agent: 'scout', goal: 'mirrored' }, ctx(env, MEMBER))).data.task.id;
-    const plain = await runOp('task.status', { id }, ctx(env, MEMBER));
+    const id = (await runOp('errand.run', { agent: 'scout', goal: 'mirrored' }, ctx(env, MEMBER))).data.task.id;
+    const plain = await runOp('errand.status', { id }, ctx(env, MEMBER));
     assert.ok(!plain.summary.includes('ledger:'), 'no line without a ledger id');
     stores.get('g1').setLedgerId(id, 'L42');
-    const one = await runOp('task.status', { id }, ctx(env, MEMBER));
+    const one = await runOp('errand.status', { id }, ctx(env, MEMBER));
     assert.ok(one.summary.split('\n').includes('ledger: L42'), one.summary);
-    const listed = await runOp('task.list', {}, ctx(env, MEMBER));
-    assert.ok(!listed.summary.includes('ledger:'), 'task.list unchanged');
+    const listed = await runOp('errand.list', {}, ctx(env, MEMBER));
+    assert.ok(!listed.summary.includes('ledger:'), 'errand.list unchanged');
     const seen = [];
     const cancel = errands.cancel;
     errands.cancel = (args) => {
       seen.push(args.by);
       return cancel(args);
     };
-    const other = (await runOp('task.run', { agent: 'scout', goal: 'two' }, ctx(env, MEMBER))).data.task.id;
-    const hers = (await runOp('task.run', { agent: 'scout', goal: 'three' }, ctx(env, null, { actor: 'persona' }))).data
-      .task.id;
-    await runOp('task.cancel', { id }, ctx(env, MEMBER));
-    await runOp('task.cancel', { id: other }, ctx(env, OWNER));
-    await runOp('task.cancel', { id: hers }, ctx(env, null, { actor: 'persona' }));
+    const other = (await runOp('errand.run', { agent: 'scout', goal: 'two' }, ctx(env, MEMBER))).data.task.id;
+    const hers = (await runOp('errand.run', { agent: 'scout', goal: 'three' }, ctx(env, null, { actor: 'persona' })))
+      .data.task.id;
+    await runOp('errand.cancel', { id }, ctx(env, MEMBER));
+    await runOp('errand.cancel', { id: other }, ctx(env, OWNER));
+    await runOp('errand.cancel', { id: hers }, ctx(env, null, { actor: 'persona' }));
     assert.deepEqual(seen, ['requester', 'owner', 'persona']);
     await errands.idle();
   });
@@ -276,35 +276,38 @@ test('task.status: a task mirrored into the ledger shows its ledger id; task.can
 async function finishedTask(fixture, goal, result, extra = {}) {
   const { env, client, errands } = fixture;
   const before = client.runs.length;
-  const id = (await runOp('task.run', { agent: 'scout', goal }, ctx(env, MEMBER, extra))).data.task.id;
+  const id = (await runOp('errand.run', { agent: 'scout', goal }, ctx(env, MEMBER, extra))).data.task.id;
   while (client.runs.length === before) await new Promise((resolve) => setImmediate(resolve));
   client.end(id, { status: 'done', result, usage: { usd: 0.01 } });
   await errands.idle();
   return id;
 }
 
-test('task.status without an id lists the open tasks and the finished ones not read yet; task.read marks one read', async () => {
+test('errand.status without an id lists the open tasks and the finished ones not read yet; errand.read marks one read', async () => {
   const fixture = makeEnv();
   const { env, stores } = fixture;
   await withCapturedLogs(async () => {
     const done = await finishedTask(fixture, 'first', { text: 'the answer' });
-    const listed = await runOp('task.status', {}, ctx(env, MEMBER));
+    const listed = await runOp('errand.status', {}, ctx(env, MEMBER));
     assert.ok(listed.summary.includes(`${done} scout done`) && listed.summary.includes('(unread)'), listed.summary);
-    const read = await runOp('task.read', { id: done }, ctx(env, MEMBER));
+    const read = await runOp('errand.read', { id: done }, ctx(env, MEMBER));
     assert.equal(read.status, 'ok');
     assert.ok(read.summary.includes('the answer'));
     assert.equal(stores.get('g1').get(done).readAt > 0, true);
     assert.equal(
-      (await runOp('task.status', {}, ctx(env, MEMBER))).summary,
+      (await runOp('errand.status', {}, ctx(env, MEMBER))).summary,
       'no open tasks',
       'read, so no longer listed'
     );
   });
 });
 
-test('task.read: pages of agents.resultMaxChars, the last page marks it read; sources, the error and the file manifest come with the first page', async () => {
+test('errand.read: pages of errands.resultMaxChars, the last page marks it read; sources, the error and the file manifest come with the first page', async () => {
   const out = tempDir('nep-ops-task-out-');
-  const fixture = makeEnv({ agents: { resultMaxChars: 10, scout: { enabled: true, out, daily: { tasks: 10 } } } });
+  const fixture = makeEnv({
+    errandSettings: { resultMaxChars: 10 },
+    agents: { scout: { enabled: true, out, daily: { tasks: 10 } } },
+  });
   const { env, stores } = fixture;
   await withCapturedLogs(async () => {
     const id = await finishedTask(fixture, 'long one', {
@@ -313,26 +316,26 @@ test('task.read: pages of agents.resultMaxChars, the last page marks it read; so
       files: [{ path: '/x/a.png', name: 'a.png', contentType: 'image/png', bytes: 12 }],
     });
     fs.mkdirSync(path.join(out, id), { recursive: true });
-    const first = (await runOp('task.read', { id }, ctx(env, MEMBER))).summary.split('\n');
+    const first = (await runOp('errand.read', { id }, ctx(env, MEMBER))).summary.split('\n');
     assert.ok(first.includes('source 1: https://example.org/a'));
     assert.ok(first.includes(`file: file:${id}/a.png (image/png, 12 bytes)`));
     assert.ok(first.includes('result: characters 0-10 of 25'));
     assert.ok(first.includes('abcdefghij') && first.includes('next: from=10'));
     assert.equal(stores.get('g1').get(id).readAt, null, 'not read until the last page');
-    const second = (await runOp('task.read', { id, from: 10 }, ctx(env, MEMBER))).summary.split('\n');
+    const second = (await runOp('errand.read', { id, from: 10 }, ctx(env, MEMBER))).summary.split('\n');
     assert.ok(second.includes('klmnopqrst') && second.includes('next: from=20'));
     assert.ok(
       !second.some((line) => line.startsWith('source') || line.startsWith('file:')),
       'only the first page carries them'
     );
-    const last = (await runOp('task.read', { id, from: 20 }, ctx(env, MEMBER))).summary.split('\n');
+    const last = (await runOp('errand.read', { id, from: 20 }, ctx(env, MEMBER))).summary.split('\n');
     assert.ok(last.includes('uvwxy') && !last.some((line) => line.startsWith('next:')));
     assert.equal(stores.get('g1').get(id).readAt > 0, true);
-    assert.equal((await runOp('task.read', { id, from: 99 }, ctx(env, MEMBER))).status, 'invalid');
+    assert.equal((await runOp('errand.read', { id, from: 99 }, ctx(env, MEMBER))).status, 'invalid');
   });
 });
 
-test("task.read: an expired file is marked and has no handle; a failed task shows its error; an open or unknown task, and a private chat's task for another member, are refused", async () => {
+test("errand.read: an expired file is marked and has no handle; a failed task shows its error; an open or unknown task, and a private chat's task for another member, are refused", async () => {
   const out = tempDir('nep-ops-task-out-');
   const fixture = makeEnv({ agents: { scout: { enabled: true, out, daily: { tasks: 10 } } } });
   const { env, client, errands } = fixture;
@@ -341,40 +344,40 @@ test("task.read: an expired file is marked and has no handle; a failed task show
       text: 'ok',
       files: [{ path: '/x/a.png', name: 'a.png', contentType: 'image/png', bytes: 5 }],
     });
-    const lines = (await runOp('task.read', { id }, ctx(env, MEMBER))).summary.split('\n');
+    const lines = (await runOp('errand.read', { id }, ctx(env, MEMBER))).summary.split('\n');
     assert.ok(lines.includes('file: a.png (image/png, 5 bytes) expired, no handle'), lines.join('\n'));
     assert.ok(!lines.some((line) => line.includes(`file:${id}`)));
-    const failed = (await runOp('task.run', { agent: 'scout', goal: 'will fail' }, ctx(env, MEMBER))).data.task.id;
-    const open = await runOp('task.read', { id: failed }, ctx(env, MEMBER));
+    const failed = (await runOp('errand.run', { agent: 'scout', goal: 'will fail' }, ctx(env, MEMBER))).data.task.id;
+    const open = await runOp('errand.read', { id: failed }, ctx(env, MEMBER));
     assert.equal(open.status, 'invalid');
     while (client.runs.length < 2) await new Promise((resolve) => setImmediate(resolve));
     client.end(failed, { status: 'failed', error: 'timeout' });
     await errands.idle();
-    const reason = (await runOp('task.read', { id: failed }, ctx(env, MEMBER))).summary.split('\n');
+    const reason = (await runOp('errand.read', { id: failed }, ctx(env, MEMBER))).summary.split('\n');
     assert.ok(reason.includes('error: timeout') && reason.includes('result: empty'));
-    assert.equal((await runOp('task.read', { id: 'tnope' }, ctx(env, MEMBER))).code, 'not-found');
+    assert.equal((await runOp('errand.read', { id: 'tnope' }, ctx(env, MEMBER))).code, 'not-found');
     const dm = await finishedTask(fixture, 'private', { text: 'secret' }, { privateChat: true, channelId: 'dm1' });
-    assert.equal((await runOp('task.read', { id: dm }, ctx(env, OTHER))).code, 'not-found');
+    assert.equal((await runOp('errand.read', { id: dm }, ctx(env, OTHER))).code, 'not-found');
     assert.equal(
-      (await runOp('task.read', { id: dm }, ctx(env, MEMBER, { channelId: 'dm1', privateChat: true }))).status,
+      (await runOp('errand.read', { id: dm }, ctx(env, MEMBER, { channelId: 'dm1', privateChat: true }))).status,
       'ok'
     );
   });
 });
 
-test('task.resolve: closes a finished task of her view so the list drops it; an open one is refused; resolving twice is fine', async () => {
+test('errand.resolve: closes a finished task of her view so the list drops it; an open one is refused; resolving twice is fine', async () => {
   const fixture = makeEnv();
   const { env, stores } = fixture;
   await withCapturedLogs(async () => {
     const id = await finishedTask(fixture, 'done one', { text: 'x' });
-    const answer = await runOp('task.resolve', { id }, ctx(env, MEMBER));
+    const answer = await runOp('errand.resolve', { id }, ctx(env, MEMBER));
     assert.equal(answer.status, 'ok');
     assert.equal(answer.summary, `task ${id}: resolved`);
     assert.equal(stores.get('g1').get(id).resolvedAt > 0, true);
-    assert.equal((await runOp('task.status', {}, ctx(env, MEMBER))).summary, 'no open tasks');
-    assert.equal((await runOp('task.resolve', { id }, ctx(env, MEMBER))).status, 'ok');
-    const open = (await runOp('task.run', { agent: 'scout', goal: 'still going' }, ctx(env, MEMBER))).data.task.id;
-    assert.equal((await runOp('task.resolve', { id: open }, ctx(env, MEMBER))).status, 'invalid');
-    assert.equal((await runOp('task.resolve', { id: 'tnope' }, ctx(env, OTHER))).code, 'not-found');
+    assert.equal((await runOp('errand.status', {}, ctx(env, MEMBER))).summary, 'no open tasks');
+    assert.equal((await runOp('errand.resolve', { id }, ctx(env, MEMBER))).status, 'ok');
+    const open = (await runOp('errand.run', { agent: 'scout', goal: 'still going' }, ctx(env, MEMBER))).data.task.id;
+    assert.equal((await runOp('errand.resolve', { id: open }, ctx(env, MEMBER))).status, 'invalid');
+    assert.equal((await runOp('errand.resolve', { id: 'tnope' }, ctx(env, OTHER))).code, 'not-found');
   });
 });

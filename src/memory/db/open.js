@@ -107,7 +107,7 @@ export function inTransaction(db, fn) {
 /**
  * Opens a memory database.
  * @param {string} dbPath  A file path, or ':memory:' (no lock, no file).
- * @param {{ readOnly?: boolean, migrations?: string[], pid?: number, now?: () => number, alive?: (pid: number) => boolean,
+ * @param {{ readOnly?: boolean, migrations?: Array<string | ((db: never, context: never) => void)>, pid?: number, now?: () => number, alive?: (pid: number) => boolean,
  *   context?: { diaryPlaceId?: string|null } }} [opts]  `context`: what a migration step needs from the opener (migrate)
  * @returns {{ db: object, path: string, readOnly: boolean, transaction: (fn: () => any) => any, close: () => void }}
  */

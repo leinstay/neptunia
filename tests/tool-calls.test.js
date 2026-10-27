@@ -122,7 +122,7 @@ test('coerceArgs: "true" and "5" are read as a boolean and an integer, and each 
   assert.deepEqual(out.coerced, [{ arg: 'self', to: true }]);
   assert.deepEqual(given, { text: 'a', self: 'true' });
   assert.deepEqual(coerceArgs({ self: ' FALSE ' }, schema).args, { self: false });
-  const intSchema = registry.get('intent.set').argsSchema;
+  const intSchema = registry.get('intention.set').argsSchema;
   const number = coerceArgs({ settle: '5', perday: ' 12 ' }, intSchema);
   assert.deepEqual(number.args, { settle: 5, perday: 12 });
   assert.deepEqual(number.coerced, [
@@ -138,7 +138,7 @@ test('coerceArgs: "yes", "1", null, a number for a boolean and a decimal for an 
     assert.deepEqual(out.coerced, []);
     assert.equal(schemaError(out.args, schema), 'args.self:type', String(value));
   }
-  const intSchema = registry.get('intent.set').argsSchema;
+  const intSchema = registry.get('intention.set').argsSchema;
   assert.deepEqual(coerceArgs({ settle: '5.5', perday: 'five' }, intSchema).coerced, []);
 });
 
@@ -195,7 +195,7 @@ test('coversSpeech: an ok effect or job covers speech, data and any other status
   assert.equal(coversSpeech({ result: 'effect' }, { status: 'failed' }), false);
   assert.equal(coversSpeech({ result: 'effect' }, { status: 'unknown' }), false);
   assert.equal(coversSpeech(null, { status: 'ok' }), false);
-  assert.equal(coversSpeech(registry.get('task.run'), { status: 'ok' }), true);
+  assert.equal(coversSpeech(registry.get('errand.run'), { status: 'ok' }), true);
   assert.equal(coversSpeech(registry.get('web.search'), { status: 'ok' }), false);
 });
 

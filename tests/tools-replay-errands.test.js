@@ -1,7 +1,7 @@
 // Tests for the errands in tools/replay.mjs's skill scenarios (`--skills`): the errand budget the
 // sandbox gateway reads from a read-only task store (sandboxErrandBudget), and the task-result
 // scenario (`taskResult`) that runs the turn an errand's end opens -- trigger kind `task`, the
-// `<task_result>` block, the files named by their live handles -- with her calls through the real
+// `<errand_result>` block, the files named by their live handles -- with her calls through the real
 // resolution and gateway, all against fakes and a scratch data directory: no network, no data/.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -87,7 +87,8 @@ function scenarioConfig(grants, { agents = {} } = {}) {
       models: { base: { core: 'x/chat' } },
       llm: { maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000 },
       tools: { safeMode: false },
-      agents: { maxOpen: 3, scout: { daily: { tasks: 2 } }, server: { daily: { tasks: 1 } }, ...agents },
+      errands: { maxOpen: 3 },
+      agents: { scout: { daily: { tasks: 2 } }, server: { daily: { tasks: 1 } }, ...agents },
       features: { tools: true },
     },
     SELF,
@@ -159,11 +160,11 @@ function treeOf(dir) {
   return out;
 }
 
-/** A `task.run` call as she writes one, taken through the real resolution and gateway with `tasks` as the budget. */
+/** A `errand.run` call as she writes one, taken through the real resolution and gateway with `tasks` as the budget. */
 function runTask({ config, tasks, agent = 'scout', author = OWNER }) {
   const channel = fakeChannel();
   return simulateCall({
-    call: { skill: 'task.run', args: { agent, goal: 'Βρες το πρόγραμμα' }, body: '' },
+    call: { skill: 'errand.run', args: { agent, goal: 'Βρες το πρόγραμμα' }, body: '' },
     view: callViewOf({
       channel,
       snapshot: guildListing(channel),
@@ -186,8 +187,8 @@ function runTask({ config, tasks, agent = 'scout', author = OWNER }) {
   });
 }
 
-test('replay --skills: task.run passes the sandbox gateway under the live errand budget, is refused at a spent cap, and nothing is written', (t) => {
-  const config = scenarioConfig(['task.run']);
+test('replay --skills: errand.run passes the sandbox gateway under the live errand budget, is refused at a spent cap, and nothing is written', (t) => {
+  const config = scenarioConfig(['errand.run']);
   // One scout and one server task asked today (the daily caps count them from the task records).
   const ended = (id, agent) => ({
     id,
@@ -212,7 +213,7 @@ test('replay --skills: task.run passes the sandbox gateway under the live errand
   // Under the cap (1 of 2 scout tasks today): it passes and is only recorded.
   const passed = runTask({ config, tasks });
   assert.deepEqual(passed.verdict, { stage: 'gateway', ok: true });
-  assert.deepEqual(passed.executed, { skill: 'task.run', args: { agent: 'scout', goal: 'Βρες το πρόγραμμα' } });
+  assert.deepEqual(passed.executed, { skill: 'errand.run', args: { agent: 'scout', goal: 'Βρες το πρόγραμμα' } });
 
   // The server agent's cap is spent (1 of 1): refused as live, naming the setting.
   const spent = runTask({ config, tasks, agent: 'server' });
@@ -221,12 +222,12 @@ test('replay --skills: task.run passes the sandbox gateway under the live errand
     ['gateway', 'cap-tasks', 'agents.server.daily.tasks', null]
   );
 
-  // Without the budget (the night's sandbox): every task.run was refused `no-budget`.
+  // Without the budget (the night's sandbox): every errand.run was refused `no-budget`.
   const unbudgeted = runTask({ config, tasks: null });
   assert.deepEqual([unbudgeted.verdict.code, unbudgeted.verdict.reason], ['no-budget', 'unavailable']);
 
   // The caps are read at the moment of use: a lower scout cap refuses it the next time.
-  const lowered = scenarioConfig(['task.run'], { agents: { scout: { daily: { tasks: 1 } } } });
+  const lowered = scenarioConfig(['errand.run'], { agents: { scout: { daily: { tasks: 1 } } } });
   const live = sandboxErrandBudget({
     createTaskStore,
     memoryDb: MEMORY.get(dataDir),
@@ -236,7 +237,7 @@ test('replay --skills: task.run passes the sandbox gateway under the live errand
   });
   assert.equal(runTask({ config: lowered, tasks: live }).verdict.code, 'cap-tasks');
 
-  // Open tasks count against agents.maxOpen as live.
+  // Open tasks count against errands.maxOpen as live.
   const busyDir = scratchData(t, {
     tasks: ['a', 'b', 'c'].map((id) => ({ id, agent: 'scout', goal: 'x', state: 'running' })),
   });
@@ -249,7 +250,7 @@ test('replay --skills: task.run passes the sandbox gateway under the live errand
   });
   assert.deepEqual(
     [runTask({ config, tasks: busy }).verdict.code, runTask({ config, tasks: busy }).verdict.reason],
-    ['cap-open', 'agents.maxOpen']
+    ['cap-open', 'errands.maxOpen']
   );
 
   // A guild without tasks.json starts empty: nothing spent, and no file appears.
@@ -411,13 +412,13 @@ test("replay --skills taskResult: the turn an errand's end opens; her message.cr
   const requester = { id: MEMBER, roleIds: [] };
   const input = { view, situation, selfId: SELF, selfName: 'Persona', channel: here, at, taskResult: task };
 
-  // What --dry builds: the request of the turn, with <task_result> and the file's handle in it.
+  // What --dry builds: the request of the turn, with <errand_result> and the file's handle in it.
   const dry = skillScenarioRequest(input);
-  assert.ok(dry.user.includes('<task_result>'), dry.user);
+  assert.ok(dry.user.includes('<errand_result>'), dry.user);
   assert.ok(dry.user.includes(`errand ${task.id} (scout) ended done: Βρες το πρόγραμμα των αγώνων`));
   assert.ok(dry.user.includes(`${handle} | application/pdf | 2048 bytes`));
   assert.ok(dry.user.includes('INTERJECT asked for the errand that just ended'), 'trigger kind task, an interjection');
-  assert.ok(!dry.user.includes('<tasks>'), 'no other errand of hers is known');
+  assert.ok(!dry.user.includes('<errands>'), 'no other errand of hers is known');
 
   const calls = [];
   const llm = {

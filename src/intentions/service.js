@@ -1,5 +1,5 @@
-// The persona's intentions at work (docs/inner-life.md): her own calls (`intent.set`,
-// `intent.update`, `intent.cancel`, `intent.list`, src/tools/impl/intent.ts) create and move them, the
+// The persona's intentions at work (docs/inner-life.md): her own calls (`intention.set`,
+// `intention.update`, `intention.cancel`, `intention.list`, src/tools/impl/intention.ts) create and move them, the
 // memory analyzer's candidates from her own lines arrive as `proposed` ones (`addCandidates`),
 // an errand's end reaches the intention waiting on it (`onTaskFinished`), and a reconciliation
 // (`reconcile`, at start and for the scheduler of step 2) finds every wait whose errand already
@@ -7,7 +7,7 @@
 // a deadline (the model's invariant); an errand is linked only once the task store holds it --
 // given by id, or handed off in the same turn (a wait asked before the errand was queued is kept
 // as `waitRequested` on a `pending` intention and linked by `linkTurnTask` when that turn's
-// `task.run` queues one; a failed launch links nothing, so nothing waits on it). Completion is
+// `errand.run` queues one; a failed launch links nothing, so nothing waits on it). Completion is
 // idempotent: a second end of the same errand finds nothing waiting. A recurring intention
 // (`every`, src/intentions/model.js) is advanced to its next occurrence when the scheduler disposes
 // of its wake (`advance`: `recurred` when a call of hers named it, `missed` otherwise), when her
@@ -145,14 +145,14 @@ export function createIntentionService({
     const until = Number.isFinite(deadline) ? deadline : at + settings().waitHours * HOUR_MS;
     if (taskId) {
       const task = taskOf(guildId, taskId);
-      if (!task) return { ok: false, code: CODE.NO_TASK };
-      if (!isOpenState(task.state)) return { ok: false, code: CODE.TASK_ENDED };
+      if (!task) return { ok: false, code: CODE.NO_ERRAND };
+      if (!isOpenState(task.state)) return { ok: false, code: CODE.ERRAND_ENDED };
       return { ok: true, taskId: task.id, deadline: until };
     }
     if (!Number.isFinite(deadline)) return { ok: true, none: true };
     const same = taskOfTurn(guildId, turnId);
     if (same && isOpenState(same.state)) return { ok: true, taskId: same.id, deadline: until };
-    if (!turnId) return { ok: false, code: CODE.WAIT_WITHOUT_TASK };
+    if (!turnId) return { ok: false, code: CODE.WAIT_WITHOUT_ERRAND };
     return { ok: true, requested: { turnId: String(turnId), deadline: until } };
   }
 
@@ -166,8 +166,8 @@ export function createIntentionService({
 
   /**
    * A new intention of hers (or an owner's command), `pending`: `{ ok: true, intention }` or
-   * `{ ok: false, code }` (`no-guild`, `cap-open`, the model's codes, the wait's: `no-task`,
-   * `task-ended`, `wait-without-task`, `bad-deadline`; `write-failed`).
+   * `{ ok: false, code }` (`no-guild`, `cap-open`, the model's codes, the wait's: `no-errand`,
+   * `errand-ended`, `wait-without-errand`, `bad-deadline`; `write-failed`).
    * @param {string|null} guildId
    * @param {{ purpose: string, dueAt?: number|null, every?: { period: string, at?: string|null }|null, expiresAt?: number|null, destination?: string|null,
    *   completionCondition?: string|null, chainId?: string|null, taskId?: string|null, deadline?: number|null,
@@ -537,7 +537,7 @@ export function createIntentionService({
       if (!store || !task?.id) return 0;
       let moved = 0;
       for (const record of store.list()) {
-        if (record.status !== 'waiting' || record.awaitingTaskId !== String(task.id)) continue;
+        if (record.status !== 'waiting' || record.awaitingErrandId !== String(task.id)) continue;
         const result = store.update(record.id, (current) => arrive(current, task, { now: now() }));
         if (result.ok && result.changed) moved += 1;
         if (result.ok && result.changed) afterWait(store, result.intention);
@@ -574,7 +574,7 @@ export function createIntentionService({
         );
         if (!result.ok || !result.changed) continue;
         const note = result.intention.note;
-        if (note === 'task-missing') counts.missing += 1;
+        if (note === 'errand-missing') counts.missing += 1;
         else if (note === 'wait-deadline') counts.deadline += 1;
         else counts.arrived += 1;
         // A passed deadline wakes her (an `errand_deadline` wake); that wake's disposition advances it.

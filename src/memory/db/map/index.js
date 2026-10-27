@@ -12,6 +12,7 @@
 import * as archive from './archive.js';
 import * as channel from './channel.js';
 import * as diary from './diary.js';
+import * as errands from './errands.js';
 import * as gifs from './gifs.js';
 import * as guild from './guild.js';
 import * as intentions from './intentions.js';
@@ -23,7 +24,6 @@ import * as privateLayer from './private.js';
 import * as recent from './recent.js';
 import * as record from './record.js';
 import * as requests from './requests.js';
-import * as tasks from './tasks.js';
 import * as user from './user.js';
 import * as vectors from './vectors.js';
 import * as verbatim from './verbatim.js';
@@ -41,7 +41,7 @@ export const MAPPERS = {
   recent,
   diary,
   intentions,
-  tasks,
+  errands,
   archive,
   versions,
   vectors,
@@ -86,8 +86,8 @@ const KINDS = [
   [re('diary\\.json'), 'diary', 'json'],
   [re('intentions\\.json'), 'intentions', 'json'],
   [re('intentions-archive\\.jsonl'), 'intentions', 'jsonl'],
-  [re('tasks\\.json'), 'tasks', 'json'],
-  [re('tasks\\.jsonl'), 'tasks', 'jsonl'],
+  [re('errands\\.json'), 'errands', 'json'],
+  [re('errands\\.jsonl'), 'errands', 'jsonl'],
   [re('media\\.json'), 'media', 'json'],
   [re('gifs\\.json'), 'gifs', 'json'],
   [re('recall-trace\\.jsonl'), 'verbatim', 'jsonl'],

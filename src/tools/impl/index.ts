@@ -27,8 +27,8 @@ import './learning.ts';
 import './lore.ts';
 import './memory.ts';
 import './message.ts';
-import './task.ts';
-import './intent.ts';
+import './errand.ts';
+import './intention.ts';
 import './places.ts';
 import './skills.ts';
 import './inner.ts';
@@ -79,6 +79,21 @@ function byOption(option: string, table: Record<string, string>): (args: Obj | u
 const byAction = (actions: Record<string, string>): ((args: Obj | undefined) => Resolved) =>
   byOption('action', actions);
 
+const intentionByAction = byAction({
+  add: 'intention.set',
+  update: 'intention.update',
+  cancel: 'intention.cancel',
+  list: 'intention.list',
+});
+
+/** `/nep task intent`: the slash option `task` (the errand to wait for) reaches the operation as `errand`. */
+function intentionOf(args: Obj | undefined): Resolved {
+  const picked = intentionByAction(args);
+  if ('invalid' in picked) return picked;
+  const { task, ...rest } = objOf(args);
+  return { op: picked.op, args: task === undefined ? picked.args : { ...rest, errand: rest.errand ?? task } };
+}
+
 /**
  * The command keys of the tree (src/tools/impl/catalog.ts#COMMAND_TABLE, `<group>.<name>` or a bare
  * `<name>`) -> operation: an operation name (same arguments), or `(args) => ({ op, args })` where
@@ -128,19 +143,19 @@ export const COMMAND_TO_OP: Readonly<Record<string, Target>> = Object.freeze({
   'message.edit': 'message.edit',
   'message.delete': 'message.delete',
   'message.react': byAction({ add: 'message.react.add', remove: 'message.react.remove' }),
-  'task.run': 'task.run',
-  // Her own call adds `action`: read or resolve a finished task (src/tools/impl/catalog.ts, the leaf's persona-only options).
+  'task.run': 'errand.run',
+  // Her own call adds `action`: read or resolve a finished errand (src/tools/impl/catalog.ts, the leaf's persona-only options).
   'task.status': (args) =>
     objOf(args).action === undefined
-      ? { op: 'task.status', args }
-      : byAction({ read: 'task.read', resolve: 'task.resolve' })(args),
-  'task.cancel': 'task.cancel',
-  'task.list': 'task.list',
+      ? { op: 'errand.status', args }
+      : byAction({ read: 'errand.read', resolve: 'errand.resolve' })(args),
+  'task.cancel': 'errand.cancel',
+  'task.list': 'errand.list',
   'task.search': 'web.search',
   'task.read': 'web.read',
   'task.look': 'media.look',
   'task.find': 'media.find',
-  'task.intent': byAction({ add: 'intent.set', update: 'intent.update', cancel: 'intent.cancel', list: 'intent.list' }),
+  'task.intent': intentionOf,
   'task.inner': byAction({ stop: 'inner.stop', start: 'inner.start', status: 'inner.status' }),
   'task.places': 'places.list',
   'task.skills': 'tools.describe',

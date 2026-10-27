@@ -44,8 +44,8 @@
 // the scenario seeds is shaped as her live lines (`seededSelfLine`) without a
 // turn run for it. A task-result scenario hands in a finished errand of hers
 // (`taskResult`, a task as src/errands/store.js keeps one): the turn its end
-// opens is built as src/errands/turns.js opens it -- trigger kind `task`, the
-// `<task_result>` block (src/errands/blocks.js#taskResultText) -- and the
+// opens is built as src/errands/turns.js opens it -- trigger kind `errand`, the
+// `<errand_result>` block (src/errands/blocks.js#taskResultText) -- and the
 // caller resolves her calls with its files' handles (`file:<task id>/<name>`)
 // as a live turn does; the gateway reads an errand's budget through `tasks`
 // (simulateCall).
@@ -162,7 +162,7 @@ export const SANDBOX_OMITS = Object.freeze({
   toolsBlock: 'a request built without a tools set: no <tools> block (the text transport describes the tools there)',
   toolsTokens: 'a request built without a tools set: nothing taken off the room the sections share',
   errands:
-    'no task store: a replay knows no errands of hers, so no <tasks> or <task_result> block (a task-result scenario hands in the one errand whose end opens its turn: `taskResult`)',
+    'no task store: a replay knows no errands of hers, so no <errands> or <errand_result> block (a task-result scenario hands in the one errand whose end opens its turn: `taskResult`)',
   intentions: 'no intention store: a replay knows no intentions of hers, so no <intentions> block',
   wake: 'an inner turn only (tools/replay.mjs --inner runs the live turn runner instead of this sandbox)',
   wakeKind: 'an inner turn only: no wake, so no heartbeat task text',
@@ -690,9 +690,9 @@ function sandboxChannels(given, view, channel) {
  * channels, interfaces/discord/collect.js#channelDirectoryOf, as a live turn passes them) when given, else
  * the view's stored channel map with the turn's channel (sandboxChannels). `taskResult`
  * (a finished task, as src/errands/store.js keeps one) makes it the turn that errand's end
- * opens, as src/errands/turns.js runs it: trigger kind `task` whatever the mode, and `errands`
- * carrying its `<task_result>` body (src/errands/blocks.js#taskResultText, cut to
- * `agents.resultMaxChars` read now) with no `<tasks>` list -- a replay knows no other errand of
+ * opens, as src/errands/turns.js runs it: trigger kind `errand` whatever the mode, and `errands`
+ * carrying its `<errand_result>` body (src/errands/blocks.js#taskResultText, cut to
+ * `errands.resultMaxChars` read now) with no `<errands>` list -- a replay knows no other errand of
  * hers. `coreTools` (`{ recallAvailable, prefetch? }`, a skill scenario run with features.coreTools on)
  * hands in whether the server search could run (`recallAvailable`) and the automatic memory prefetch of
  * the trigger (`prefetch`, `<retrieved>`), which every other sandbox turn leaves out (SANDBOX_OMITS). The view is
@@ -730,10 +730,10 @@ export function sandboxRequestInput({
 }) {
   const config = view.config;
   const memory = view.memory;
-  // The turn an errand's end opens: its `<task_result>` body, as src/behavior/turn.js#errandsInputFor renders it.
+  // The turn an errand's end opens: its `<errand_result>` body, as src/behavior/turn.js#errandsInputFor renders it.
   const resultText = taskResult
     ? taskResultText(taskResult, view.prompts?.labels, {
-        maxChars: config.agents?.resultMaxChars ?? DEFAULT_RESULT_MAX_CHARS,
+        maxChars: config.errands?.resultMaxChars ?? DEFAULT_RESULT_MAX_CHARS,
       })
     : '';
   // A burst's calls still waiting, named as a live turn names its queued calls; absent otherwise.
@@ -759,7 +759,7 @@ export function sandboxRequestInput({
     history,
     trigger,
     // An errand's end opens a turn of kind `task` (src/errands/turns.js), with or without a trigger.
-    triggerKind: taskResult ? 'task' : triggerKind,
+    triggerKind: taskResult ? 'errand' : triggerKind,
     // As a live turn reads it: an untagged reply takes the follow-up task.
     taggedCall: trigger ? isTaggedCall(trigger, selfId) : null,
     guildMemory: memoryOn ? memory.getGuild() : {},
@@ -822,7 +822,7 @@ export function sandboxRequestInput({
     toolsBlock: typeof toolset?.block === 'string' && toolset.block ? toolset.block : null,
     toolsTokens: Number.isFinite(toolset?.tokens) && toolset.tokens > 0 ? toolset.tokens : null,
     // Absent (a replay has no task store: SANDBOX_OMITS) but on a task-result scenario's turn.
-    errands: resultText ? { tasks: '', result: resultText } : null,
+    errands: resultText ? { list: '', result: resultText } : null,
     // No intention store (SANDBOX_OMITS): no <intentions> block.
     intentions: null,
     // Not an inner turn (SANDBOX_OMITS): no <wake> block.
@@ -1165,7 +1165,7 @@ const SANDBOX_SPEECH = Object.freeze({ quota: () => ({ used: 0, cap: 1, spent: f
  * `conversationId` as the audience, `config` with her grants, `selfId`, the registry of `view`,
  * no mixed requesters, no earlier destructive run, `now`, the image quota of `images`, the
  * errands' budget of `tasks` -- `{ budget(agent) }`, src/errands/store.js#budget's answer, as a
- * live turn hands in src/errands/service.js#budget; without it a `task.run` is refused
+ * live turn hands in src/errands/service.js#budget; without it an `errand.run` is refused
  * `no-budget`), then
  * mapped by its dispatch (`dispatch.toOp` must reach this very operation). The operation never
  * runs, whatever it is -- a write, a paid effect (`draw.create` included): a call that passed is

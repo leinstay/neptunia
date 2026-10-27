@@ -6,7 +6,7 @@
 // her turn had in front of it when she wrote it (`lineSourcesOf`):
 //
 // - `read`: her turn read outside material before the line went out -- a read call that returned
-//   text (web.search, web.read, memory.search, task.status, ...), a page read from a link, a web
+//   text (web.search, web.read, memory.search, errand.status, ...), a page read from a link, a web
 //   lookup, an errand's result. A paraphrase cannot be traced by its words, so this alone makes a
 //   candidate from that line `external`.
 // - `overlap`: the word shingles of her line that also occur in the outside text of her turn

@@ -20,6 +20,26 @@ import { fill, formatClock, formatDate, formatNow } from '../format.js';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { estimateTokens } from '../llm/tokens.js';
 
+/**
+ * The queued wakes of `inner.json` as they are kept now: the ones with an id and a kind of `kinds`. A wake stored before
+ * the errand rename names its errand `taskId`, which is read as `errandId` and dropped, so the next save writes the new
+ * shape. The wake's id and the handled ids keep their bytes, so a wake handled before the upgrade is not run again.
+ * @param {unknown} queue
+ * @param {readonly string[]} kinds
+ * @returns {Array<Record<string, unknown>>}
+ */
+export function storedWakes(queue, kinds) {
+  /** @type {Array<Record<string, unknown>>} */
+  const known = Array.isArray(queue) ? queue : [];
+  return known
+    .filter((wake) => wake && typeof wake.id === 'string' && typeof wake.kind === 'string' && kinds.includes(wake.kind))
+    .map((wake) => {
+      if (!Object.hasOwn(wake, 'taskId')) return wake;
+      const { taskId, ...rest } = wake;
+      return typeof rest.errandId === 'string' || typeof taskId !== 'string' ? rest : { ...rest, errandId: taskId };
+    });
+}
+
 /** A purpose's length on a wake line (characters). */
 export const WAKE_PURPOSE_CHARS = 200;
 
@@ -526,6 +546,8 @@ export function placesBlockText(page, labels) {
   return placesLines(page, labels?.wake).join('\n');
 }
 
+/** @typedef {{ kind: string, reason?: string, intentionIds?: string[], errandId?: string|null, delayed?: { minutes?: number, code?: string }, facts?: object[], attend?: { placeName?: string, place: string, lines: number, peopleNames?: string[], people: string[], since?: number|null } }} WakeItem */
+
 /**
  * The `<wake>` body for `wake` (src/behavior/inner.js's turn record: `items`, `intentions`, `notes`
  * -- an intention id to a `labels.intentions.notes` code, `last-occurrence`, joined to its line by
@@ -542,9 +564,10 @@ export function placesBlockText(page, labels) {
  * kept, untold ones) follow the same way under `labels.wake.feedbackInTurn`.
  * The current channel (`wake.here`: `{ channel, why }`) follows the wake lines as `labels.wake.here`
  * (`{channel}`, `{why}`), or `labels.wake.hereNone` when the turn has none (`here` null; absent: no line).
- * @param {{ items: { kind: string, intentionIds?: string[], taskId?: string|null, attend?: { placeName?: string, place: string, lines: number, peopleNames?: string[], people: string[], since?: number|null } }[],
+ * @param {{ items: Array<Record<string, unknown>|undefined>,
  *   intentions?: object[], notes?: Record<string, string>, expired?: { items: { id: string, purpose: string, at: number }[], more: number }|null,
- *   now: number, timezone: string, channels?: string[], places?: object|null, budgets?: object }} wake
+ *   now?: number, timezone?: string, channels?: string[], places?: object|null, budgets?: object }} wake  `now` absent:
+ *   the present moment; `timezone` absent: UTC.
  * @param {object} labels
  * @param {{ locale?: string, handleBase?: number|null, onRefs?: (refs: number[]) => void }} [options]  `handleBase`: the number of a heartbeat's first line handle, `onRefs` gets the heartbeat lines' refs that stayed in (heartbeatLines).
  * @returns {string}
@@ -557,7 +580,8 @@ export function wakeBlockText(wake, labels, { locale = 'en-US', handleBase = nul
     Number.isFinite(ts) ? `${formatDate(ts, timezone, locale)} ${formatClock(ts, timezone, locale)}` : '';
   const byId = new Map((Array.isArray(wake.intentions) ? wake.intentions : []).map((record) => [record.id, record]));
   const lines = [l.header];
-  for (const item of Array.isArray(wake.items) ? wake.items : []) {
+  for (const entry of (Array.isArray(wake.items) ? wake.items : []).filter(Boolean)) {
+    const item = /** @type {WakeItem} */ (entry);
     const template = l.kinds?.[item.kind];
     if (typeof template !== 'string' || !template) continue;
     const ids = Array.isArray(item.intentionIds) && item.intentionIds.length > 0 ? item.intentionIds : [null];
@@ -568,7 +592,7 @@ export function wakeBlockText(wake, labels, { locale = 'en-US', handleBase = nul
       const line = fill(template, {
         id: id ?? '',
         purpose: record ? clampWithEllipsis(oneLine(record.purpose ?? ''), WAKE_PURPOSE_CHARS) : '',
-        task: item.taskId ?? '',
+        errand: item.errandId ?? '',
         due: when(record?.dueAt),
         place: attend ? oneLine(String(attend.placeName ?? attend.place ?? '')) : '',
         lines: attend ? String(attend.lines ?? 0) : '',

@@ -245,6 +245,6 @@ export function errandService(hot) {
   return { service, runs };
 }
 
-export const AGENTS = { agents: { maxOpen: 3, resultMaxChars: 400, scout: { enabled: true, daily: { tasks: 10 } } } };
+export const AGENTS = { errands: { maxOpen: 3, resultMaxChars: 400 }, agents: { scout: { enabled: true, daily: { tasks: 10 } } } };
 
 export const WEB_CONFIG = { web: { maxPerDay: 60, links: { enabled: false }, search: { enabled: true, maxPerTurn: 1, contextMessages: 50 } }, recall: { maxForms: 4 } };

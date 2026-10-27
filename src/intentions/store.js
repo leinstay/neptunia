@@ -171,7 +171,8 @@ export function createIntentionStore({ guildId, log = defaultLog, memoryDb = nul
 /**
  * One intention store per guild, created on first use. `memoryDb` goes to every store (createIntentionStore); a
  * store whose load failed is not kept, so the next `get` tries again.
- * @param {{ now?: () => number, log?: object, memoryDb?: object|null }} options
+ * @param {{ dataDir?: string, now?: () => number, log?: object, memoryDb?: object|null }} options  `dataDir` is read by
+ *   no one: the units live in the memory database.
  * @returns {{ get(guildId: string): ReturnType<typeof createIntentionStore>|null,
  *   flush(options?: { final?: boolean }): Promise<{ waiting: number, pending: number }> }}
  */

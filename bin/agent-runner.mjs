@@ -15,12 +15,13 @@
 // this process cannot read. Its own environment (the unit's optional
 // EnvironmentFile: OPENROUTER_ERRAND_KEY, OPENCODE_WEBSEARCH_KEY, PROXY_URL) is
 // used only for what a task does not bring. Caps and the model's
-// cost come from `agents.<profile>` in config; the model from the profile's
+// cost come from the profile (agentSettings: `agents/<name>/profile.json` with the `agents.<profile>` override of the
+// config over it); the model from the profile's
 // model role (`models.errands.scout`, `models.errands.server`), read again at each task
 // so a `/nep model set` reaches the next one. It prints one ready line
 // (a log line) when it is listening, and on SIGTERM ends open tasks and
 // exits. At start and then hourly it deletes the task directories under its
-// out dir older than `agents.keepFilesHours` (read from the config at each
+// out dir older than `errands.keepFilesHours` (read from the config at each
 // sweep; src/agent-runner/sweep.js): the core can read them, not delete them.
 
 import fs from 'node:fs';
@@ -29,7 +30,7 @@ import { readConfig } from '../src/config.js';
 import { log } from '../src/log.js';
 import { createRunnerServer } from '../src/agent-runner/server.js';
 import { createOpencodeRunner, DEFAULT_OPENCODE_PATH } from '../src/agent-runner/opencode.js';
-import { profileOf } from '../src/agent-runner/profiles.js';
+import { agentSettings, profileOf } from '../src/agent-runner/profiles.js';
 import { startSweeper } from '../src/agent-runner/sweep.js';
 
 /** Parse `--flag value` and `--flag=value` into a plain object. */
@@ -69,14 +70,14 @@ async function main() {
   // the keys come with each task. Config `${env:NAME}` references it cannot resolve become empty
   // strings with one warning each.
   const config = readConfig();
-  const agents = config.agents ?? {};
-  const settings = agents[name] ?? {};
+  const errands = config.errands ?? {};
+  const settings = agentSettings(name, config) ?? {};
 
   const socketPath = args.socket || settings.socket;
-  if (!socketPath) fail('no socket path (--socket or agents.<profile>.socket)');
+  if (!socketPath) fail("no socket path (--socket or the profile's socket)");
   const outDir = args.out || settings.out;
-  if (!outDir) fail('no out dir (--out or agents.<profile>.out)');
-  const opencodePath = args.opencode || agents.opencodePath || DEFAULT_OPENCODE_PATH;
+  if (!outDir) fail("no out dir (--out or the profile's out)");
+  const opencodePath = args.opencode || errands.opencodePath || DEFAULT_OPENCODE_PATH;
   const journalFile = typeof args.journal === 'string' ? args.journal : null;
 
   // No key of its own is needed: the core sends one with each task. A task that brings none
@@ -131,7 +132,7 @@ async function main() {
   const limitsDefault = {
     ...profile.defaultLimits,
     ...(settings.limits ?? {}),
-    toolResultChars: agents.toolResultChars,
+    toolResultChars: errands.toolResultChars,
   };
   const runner = {
     run(task) {
@@ -142,7 +143,7 @@ async function main() {
           limits: { ...limitsDefault, ...(task.limits ?? {}) },
           model: task.model,
           cost: task.cost ?? settings.cost,
-          searchProvider: task.searchProvider ?? settings.search?.provider,
+          searchProvider: task.searchProvider ?? settings.searchProvider,
         })
         .then((outcome) => {
           journalWrite({ event: 'task-end', id: task.id, profile: name, status: outcome.status, usage: outcome.usage });
@@ -159,7 +160,7 @@ async function main() {
   const sweeper = startSweeper({
     profile: name,
     outDir,
-    keepHours: () => currentConfig()?.agents?.keepFilesHours,
+    keepHours: () => currentConfig()?.errands?.keepFilesHours,
     liveIds: () => server.liveIds(),
   });
 

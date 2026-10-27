@@ -24,10 +24,10 @@
   },
   "stub": {
     "review": [
-      [{ "skill": "intent.set", "args": { "purpose": "listen to the garden talk", "attend": "c-garden", "perday": 2, "key": "garden" } }],
+      [{ "skill": "intention.set", "args": { "purpose": "listen to the garden talk", "attend": "c-garden", "perday": 2, "key": "garden" } }],
       [],
       [],
-      [{ "skill": "intent.cancel", "args": { "id": "$key:garden" } }],
+      [{ "skill": "intention.cancel", "args": { "id": "$key:garden" } }],
       []
     ],
     "attend": [

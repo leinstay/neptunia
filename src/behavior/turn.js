@@ -191,7 +191,7 @@ export const SKIP_NOTHING_TO_DO = 'nothing-to-do';
  * address classifier found to be about the persona but said to someone else
  * or to the room (`overheard`), a private chat message, or a message to the persona left unanswered
  * earlier (`missed`, src/behavior/missed.js). Each has a `labels.triggers` entry.
- * @typedef {'mention'|'reply'|'name'|'followUp'|'overheard'|'private'|'missed'|'task'} TriggerKind
+ * @typedef {'mention'|'reply'|'name'|'followUp'|'overheard'|'private'|'missed'|'errand'} TriggerKind
  */
 
 /**
@@ -282,17 +282,17 @@ const DIARY_LOOP_FALLBACK = Object.freeze({ maxSteps: 2, timeBudgetMs: 600000 })
 /** The least time one call of the tool loop gets, whatever is left of its budget. */
 const LOOP_MIN_CALL_MS = 2000;
 /**
- * The terminal actions of an inner turn (docs/inner-life.md): the one call its last loop step
- * still runs -- a post, or a change of an intention of hers. A read or any other skill on the
- * last step is dropped as on every turn.
- */
-const INNER_TERMINAL_SKILLS = Object.freeze(['message.create', 'intent.set', 'intent.update', 'intent.cancel']);
-/**
  * The calls a heartbeat turn accepts while `innerLife.heartbeat.intentionsOnly` is on (docs/inner-life.md
  * "What a heartbeat may do"): memory inspection, then one change of an intention. Other calls are refused `heartbeat-only`;
  * `<skip/>` is no call.
  */
-const HEARTBEAT_INTENT_SKILLS = Object.freeze(['intent.set', 'intent.update', 'intent.cancel']);
+const HEARTBEAT_INTENT_SKILLS = Object.freeze(['intention.set', 'intention.update', 'intention.cancel']);
+/**
+ * The terminal actions of an inner turn (docs/inner-life.md): the one call its last loop step
+ * still runs -- a post, or a change of an intention of hers. A read or any other skill on the
+ * last step is dropped as on every turn.
+ */
+const INNER_TERMINAL_SKILLS = Object.freeze(['message.create', ...HEARTBEAT_INTENT_SKILLS]);
 /** Memory inspection available while deciding a heartbeat; external reads and other effects remain deferred. */
 const HEARTBEAT_READ_SKILLS = Object.freeze([
   'memory.search',
@@ -304,7 +304,7 @@ const HEARTBEAT_READ_SKILLS = Object.freeze([
   'memory.archive.read',
   'memory.journal.read',
   'conversation.read',
-  'intent.list',
+  'intention.list',
   'lore.list',
   'lore.show',
   'tools.describe',
@@ -314,7 +314,7 @@ const NO_LOOP = Object.freeze({ steps: 0, cut: null, droppedCalls: 0 });
 /** Why a call of a step did not run (`loop-cap`): too many in one answer, or the steps, the time or the room spent. For the journal and the log. */
 const LOOP_WHY = Object.freeze({ extraCall: 'extra-call', steps: 'steps', time: 'time', tokens: 'tokens' });
 /** The intention calls of an inner turn that name an intention (`id`, or the id alone in the body). */
-const INTENT_ID_SKILLS = Object.freeze(['intent.update', 'intent.cancel']);
+const INTENT_ID_SKILLS = Object.freeze(['intention.update', 'intention.cancel']);
 
 /**
  * Whether her own tools replace the classifiers before her reply (features.coreTools exactly true; tracked
@@ -2179,7 +2179,7 @@ export function createTurnRunner({
   }
 
   /**
-   * The tasks `<tasks>` lists: her open errands and unread results (`errands.view`), the one `taskResult` brings left out.
+   * The errands `<errands>` lists: her open errands and unread results (`errands.view`), the one `taskResult` brings left out.
    */
   function listedTasks({ guildId, channel, isPrivate, taskResult }) {
     let shown = [];
@@ -2195,20 +2195,20 @@ export function createTurnRunner({
   }
 
   /**
-   * The request's `errands` input (buildRequest): the `<tasks>` body -- her open errands and the
+   * The request's `errands` input (buildRequest): the `<errands>` body -- her open errands and the
    * finished ones she has not read (`errands.view`: a private chat's only in that chat; at most
-   * `agents.unreadShown` of them), the one `taskResult` brings left out -- and, on the turn an
-   * errand's end opened (`taskResult`, trigger kind `task`), the `<task_result>` body cut to
-   * `agents.resultMaxChars` (read now). Showing a task marks nothing: it is read by the result
-   * turn that completed (src/errands/turns.js) or by `task.read`. Null when there is nothing to show.
+   * `errands.unreadShown` of them), the one `taskResult` brings left out -- and, on the turn an
+   * errand's end opened (`taskResult`, trigger kind `errand`), the `<errand_result>` body cut to
+   * `errands.resultMaxChars` (read now). Showing a task marks nothing: it is read by the result
+   * turn that completed (src/errands/turns.js) or by `errand.read`. Null when there is nothing to show.
    */
   function errandsInputFor({ guildId, channel, isPrivate, taskResult, config, labels, now }) {
     const listed = listedTasks({ guildId, channel, isPrivate, taskResult });
-    const tasks = tasksBlockText(listed, labels, { now, unreadShown: config.agents?.unreadShown });
+    const list = tasksBlockText(listed, labels, { now, unreadShown: config.errands?.unreadShown });
     const result = taskResult
-      ? taskResultText(taskResult, labels, { maxChars: config.agents?.resultMaxChars ?? DEFAULT_RESULT_MAX_CHARS })
+      ? taskResultText(taskResult, labels, { maxChars: config.errands?.resultMaxChars ?? DEFAULT_RESULT_MAX_CHARS })
       : '';
-    return tasks || result ? { tasks, result } : null;
+    return list || result ? { list, result } : null;
   }
 
   /**
@@ -2619,9 +2619,9 @@ export function createTurnRunner({
     if (inner) {
       // The intention a call of hers named, however it went: the open-intentions line of the next
       // step (openIntentionsText) no longer lists it; the action record carries it, and the state
-      // an intent.update set (`done`, `pending`), for the feedback facts (src/behavior/inner.js#feedbackFacts).
+      // an intention.update set (`done`, `pending`), for the feedback facts (src/behavior/inner.js#feedbackFacts).
       const named = intentionNamed(skill, plan.resolved?.args ?? call.args ?? {});
-      const state = skill === 'intent.update' ? (plan.resolved?.args?.state ?? call.args?.state ?? null) : null;
+      const state = skill === 'intention.update' ? (plan.resolved?.args?.state ?? call.args?.state ?? null) : null;
       (draft.innerActions ??= []).push({
         skill,
         status: innerGate?.proposed ? 'proposed' : ran ? 'executed' : 'refused',
@@ -2630,7 +2630,7 @@ export function createTurnRunner({
         ...(result.status !== 'ok' ? callTextOf(result, hot.config.tools?.markTextMaxChars ?? 200) : {}),
         target: callTarget(plan.resolved?.args ?? {}),
         ...(named ? { intentionId: named } : {}),
-        ...(skill === 'intent.set' && ran && result.status === 'ok' && typeof result.intentionId === 'string'
+        ...(skill === 'intention.set' && ran && result.status === 'ok' && typeof result.intentionId === 'string'
           ? { createdId: result.intentionId }
           : {}),
         ...(typeof state === 'string' && state ? { state } : {}),
@@ -3052,8 +3052,8 @@ export function createTurnRunner({
   }
 
   /**
-   * The intention one call of an inner turn names: `args.id` of `intent.update` / `intent.cancel`,
-   * or its body (`args.text`) when that is the id alone (src/tools/impl/intent.ts takes it the same way);
+   * The intention one call of an inner turn names: `args.id` of `intention.update` / `intention.cancel`,
+   * or its body (`args.text`) when that is the id alone (src/tools/impl/intention.ts takes it the same way);
    * null for any other call.
    * @param {string} skill
    * @param {Record<string, unknown>} args
@@ -3073,7 +3073,7 @@ export function createTurnRunner({
   /**
    * The open-intentions line of an inner turn's continuation (`labels.task.continueInnerOpen`,
    * `{list}`): the intentions the turn woke for (the wake's `intentionIds`, their records in
-   * `wake.intentions`) that no `intent.*` call of the turn has named yet (intentionNamed), as
+   * `wake.intentions`) that no `intention.*` call of the turn has named yet (intentionNamed), as
    * `<id>: <purpose>` items joined by `; `. '' when none is left or the label is missing.
    * @param {object|null} draft
    * @param {object} labels
@@ -5891,7 +5891,7 @@ export function createTurnRunner({
    * (parseLookupAnswer's `skills`) is handed to `onSkills` before any search
    * runs; with the planner the turn reads the planner's own `skills:` line.
    * An `agent:` line of the answer (a classifier prompt that still has one) is ignored: the
-   * classifier never creates or suggests an errand, only the persona's own `task.run` call does.
+   * classifier never creates or suggests an errand, only the persona's own `errand.run` call does.
    * `lookup: classified` carries `route` -- what runs: `fast` (a web search), `memory` (a server
    * search), `+`-joined in that order, else `none`. `turnContext()` (optional) gives the turn's
    * execution context for the server search's database reads (turnContextOf).
@@ -7529,7 +7529,7 @@ export function createTurnRunner({
       // A turn a returned errand opened answers with its result: the engine's own search
       // (the classifier, the planner's lookup block) is not run on the original request, so no
       // <lookup> block stands beside the result. Her own recall call still runs.
-      const answersTask = triggerKind === 'task';
+      const answersTask = triggerKind === 'errand';
       // features.coreTools (read now): she calls her own tools in the turn, so no search classifier
       // (nor the planner's lookup or skills block) runs before her reply.
       const coreTools = coreToolsOn(config);
@@ -8672,7 +8672,7 @@ export function createTurnRunner({
         toolsTokens,
         // `<people_now>`'s live part: the voice and status snapshot (null: none).
         around: aroundInputFor({ config, mode: finalMode, isPrivate, snapshot }),
-        // `<tasks>` and `<task_result>`: her errands (none on a diary post).
+        // `<errands>` and `<errand_result>`: her errands (none on a diary post).
         errands:
           finalMode === 'diary'
             ? null

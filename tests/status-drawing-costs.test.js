@@ -41,7 +41,7 @@ function setup() {
       probeTimeoutMs: 50,
       keyByRole: { scout: 'OPENROUTER_ERRAND_KEY', drawing: 'OPENROUTER_ERRAND_KEY' },
     },
-    agents: { maxOpen: 3 },
+    errands: { maxOpen: 3 },
   };
   const hot = {
     config,

@@ -115,18 +115,18 @@ test('the expected differences: draw.create takes reply, message.create requires
 
 test('the intent skills carry only what their operation reads', () => {
   const names = (skill) => Object.keys(BY_NAME.get(skill).params.properties);
-  assert.deepEqual(names('intent.cancel'), ['id']);
-  assert.deepEqual(BY_NAME.get('intent.cancel').params.required, ['id']);
-  assert.deepEqual(names('intent.list'), []);
+  assert.deepEqual(names('intention.cancel'), ['id']);
+  assert.deepEqual(BY_NAME.get('intention.cancel').params.required, ['id']);
+  assert.deepEqual(names('intention.list'), []);
   assert.ok(
-    !names('intent.set').includes('id') &&
-      names('intent.set').includes('state') &&
-      names('intent.set').includes('reason')
+    !names('intention.set').includes('id') &&
+      names('intention.set').includes('state') &&
+      names('intention.set').includes('reason')
   );
-  assert.ok(!names('intent.update').includes('attend'));
-  assert.deepEqual(BY_NAME.get('intent.update').params.required, [], 'the id may be the bare text');
-  assert.deepStrictEqual(BY_NAME.get('intent.cancel').toArgs({ id: 'i1' }), { action: 'cancel', id: 'i1' });
-  assert.deepStrictEqual(BY_NAME.get('intent.list').toArgs({}), { action: 'list' });
+  assert.ok(!names('intention.update').includes('attend'));
+  assert.deepEqual(BY_NAME.get('intention.update').params.required, [], 'the id may be the bare text');
+  assert.deepStrictEqual(BY_NAME.get('intention.cancel').toArgs({ id: 'i1' }), { action: 'cancel', id: 'i1' });
+  assert.deepStrictEqual(BY_NAME.get('intention.list').toArgs({}), { action: 'list' });
 });
 
 test('the members a leaf needs are required: without one the arguments are null', () => {
@@ -157,7 +157,7 @@ test('the quirks of the mapping are kept', () => {
     self: false,
     channelId: '5',
   });
-  assert.deepStrictEqual(BY_NAME.get('task.read').toArgs({ id: 'i' }), { id: 'i', action: 'read', from: undefined });
+  assert.deepStrictEqual(BY_NAME.get('errand.read').toArgs({ id: 'i' }), { id: 'i', action: 'read', from: undefined });
   assert.deepStrictEqual(BY_NAME.get('media.status').toArgs({ kind: 'gifs' }), { kind: 'gifs', action: 'status' });
   assert.deepStrictEqual(intentArgs('add')({ text: 't', settle: 0, channel: 7 }), {
     action: 'add',
@@ -165,13 +165,13 @@ test('the quirks of the mapping are kept', () => {
     settle: 0,
     channelId: '7',
   });
-  assert.equal(BY_NAME.get('intent.set').params, INTENT_PARAMS.set);
-  assert.equal(BY_NAME.get('intent.update').params, INTENT_PARAMS.update);
+  assert.equal(BY_NAME.get('intention.set').params, INTENT_PARAMS.set);
+  assert.equal(BY_NAME.get('intention.update').params, INTENT_PARAMS.update);
 });
 
 test('the result of a skill: job for the two background ones, data for a read, effect for the rest', () => {
   for (const definition of SKILL_DEFINITIONS) {
-    const expected = ['task.run', 'media.recache'].includes(definition.name)
+    const expected = ['errand.run', 'media.recache'].includes(definition.name)
       ? 'job'
       : definition.effects === 'read'
         ? 'data'

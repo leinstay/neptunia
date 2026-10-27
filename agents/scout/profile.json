@@ -6,6 +6,8 @@
   "override": "agent-scout.md",
   "tools": ["websearch", "webfetch", "read", "glob", "list", "bash"],
   "shell": "scout-download",
+  "enabled": false,
+  "cost": { "input": 2, "output": 6 },
   "limits": { "steps": 25, "seconds": 300 },
   "daily": { "tasks": 40 },
   "searchProvider": "exa",

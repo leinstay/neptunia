@@ -6,6 +6,8 @@
   "override": "agent-server.md",
   "tools": ["read", "grep", "glob", "list", "bash"],
   "shell": "server-read-only",
+  "enabled": false,
+  "cost": { "input": 2, "output": 6 },
   "limits": { "steps": 20, "seconds": 120 },
   "daily": { "tasks": 40 },
   "searchProvider": null,

@@ -205,7 +205,7 @@ test('skills effects: one effect class per operation, by its actual effect, in o
     'bot.resume',
   ])
     assert.equal(OP_EFFECTS[name], 'administrative', name);
-  assert.deepEqual(of('paid'), ['draw.create', 'task.run', 'voice.say']);
+  assert.deepEqual(of('paid'), ['draw.create', 'errand.run', 'voice.say']);
   for (const op of listOps()) if (op.rights.kind === 'read') assert.equal(OP_EFFECTS[op.name], 'read', op.name);
   // a skill carries its operation's class
   assert.equal(skillRegistry().get('memory.restore').effects, 'destructive');
@@ -260,8 +260,8 @@ test('skills registry: every `args` key of config/tools.json names a property of
 
 test('skills registry: missingDefinitions names the table entries with no registered skill, none when whole', () => {
   assert.deepEqual(missingDefinitions(skillRegistry()), []);
-  const partial = new Map([...skillRegistry()].filter(([name]) => name !== 'lore.list' && name !== 'task.run'));
-  assert.deepEqual(missingDefinitions(partial).sort(), ['lore.list', 'task.run']);
+  const partial = new Map([...skillRegistry()].filter(([name]) => name !== 'lore.list' && name !== 'errand.run'));
+  assert.deepEqual(missingDefinitions(partial).sort(), ['errand.run', 'lore.list']);
 });
 
 test('skills registry: config/tools.json has the title and when-to-use of every operation (when-not-to-use optional), and no key that is not one', () => {
@@ -452,10 +452,10 @@ test('skills access: her reply tags are carried over in the current conversation
 test('skills gateway: her own expressive operations need only her grant, whoever asked; the rules on who asked still hold', () => {
   assert.deepEqual([...SELF_OWNED_OPS].sort(), [
     'draw.create',
-    'intent.cancel',
-    'intent.list',
-    'intent.set',
-    'intent.update',
+    'intention.cancel',
+    'intention.list',
+    'intention.set',
+    'intention.update',
     'message.create',
     'message.delete',
     'message.edit',
@@ -746,7 +746,7 @@ test('wake envelope: "*" with no caps, or no envelope at all, is today\'s behavi
 });
 
 test('wake envelope: a tool outside the allowlist is refused at the call, carried-over tags included; a family entry opens the family', () => {
-  const wakes = { heartbeat: { tools: ['lore.list', 'intent.*'] } };
+  const wakes = { heartbeat: { tools: ['lore.list', 'intention.*'] } };
   assert.deepEqual(innerCheck({ skill: 'message.create', args: { text: 'γεια' }, wakes }), {
     ok: false,
     code: 'not-allowed',
@@ -755,9 +755,9 @@ test('wake envelope: a tool outside the allowlist is refused at the call, carrie
   assert.deepEqual(innerCheck({ skill: 'lore.list', granted: ['lore.list'], wakes }), { ok: true });
   assert.deepEqual(
     innerCheck({
-      skill: 'intent.set',
+      skill: 'intention.set',
       args: { text: 'ρωτήσω αύριο' },
-      granted: ['intent.set'],
+      granted: ['intention.set'],
       features: { intentions: true },
       wakes,
     }),
@@ -786,7 +786,7 @@ test('wake envelope: maxActs counts the calls that changed something, maxTasks t
   const wakes = { improvement: { maxActs: 1, maxTasks: 0 } };
   const done = [
     { skill: 'lore.list', status: 'executed' },
-    { skill: 'intent.set', status: 'proposed' },
+    { skill: 'intention.set', status: 'proposed' },
     { skill: 'message.create', status: 'refused' },
   ];
   assert.deepEqual(
@@ -809,9 +809,9 @@ test('wake envelope: maxActs counts the calls that changed something, maxTasks t
   );
   assert.deepEqual(
     innerCheck({
-      skill: 'task.run',
+      skill: 'errand.run',
       args: { agent: 'scout', goal: 'βρες' },
-      granted: ['task.run'],
+      granted: ['errand.run'],
       wakes: { improvement: { maxTasks: 0 } },
       wakeKind: 'improvement',
     }),
@@ -1073,7 +1073,7 @@ test('persona grants: a group or * opens her read skills under it, owner-only re
       .filter((skill) => skill.kind === 'read' && !NOT_GRANTABLE_TO_PERSONA.includes(skill.name))
       .map((skill) => skill.name);
     assert.deepEqual(Object.keys(access).sort(), [...reads].sort());
-    for (const name of ['status.show', 'lore.list', 'memory.profile.read', 'memory.private.read', 'intent.list'])
+    for (const name of ['status.show', 'lore.list', 'memory.profile.read', 'memory.private.read', 'intention.list'])
       assert.ok(access[name], name);
     for (const name of ['message.edit', 'lore.add', 'memory.restore', 'draw.create'])
       assert.equal(access[name], undefined, name);

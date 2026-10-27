@@ -38,7 +38,7 @@ The twelve event kinds:
 | `conversation.changed` | adapter | A conversation was created, updated or deleted. Carries the `conversation` and a `change` of `created`, `updated` or `deleted`. The Discord interface also sends `updated` for every readable channel and cached thread at connect, so the core knows their names. |
 | `connection.changed` | adapter | The adapter lost its link to the platform (`state: 'lost'`) or got it back (`'resumed'`). |
 | `scheduler.tick` | core | The engine's own clock tick (`at` only). The scheduler (`src/behavior/scheduler.ts`) submits one when its earliest beat is due. |
-| `task.completed` | core | One of the persona's errands ended, with a `taskId`, `status` and `result`. |
+| `errand.done` | core | One of the persona's errands ended, with an `errandId`, `status` and `result`. |
 | `inner.wake` | core | The inner-life scheduler found something due (an intention, a review, a heartbeat, an errand deadline). See [inner life](inner-life.md). |
 
 The last three are the core's own events. An adapter never sends them. They carry no `iface`, no `id` and no `conversation`.
@@ -176,7 +176,7 @@ All inbound events enter the core through one door (`src/interface/door.js`). Th
 
 The door keeps the newest 10,000 ids in memory. A restart forgets them; the interface resumes from what it last acknowledged.
 
-The core's own events (`scheduler.tick`, `task.completed`, `inner.wake`) carry no id. The door derives one: an errand's end by its task id and status, a tick by its time. A second delivery of the same end is the same event.
+The core's own events (`scheduler.tick`, `errand.done`, `inner.wake`) carry no id. The door derives one: an errand's end by its errand id and status, a tick by its time. A second delivery of the same end is the same event.
 
 The door also accepts the wire envelope form, `{ v, id, type, replyTo, body }`. Envelope types are `hello`, `event`, `ack`, `action`, `action_result` and `ping`. The core's own events go through `door.submit` as plain objects, and an interface's events arrive as `event` envelopes over the link.
 

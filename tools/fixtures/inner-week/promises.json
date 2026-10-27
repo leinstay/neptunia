@@ -13,12 +13,12 @@
   "people": { "Ivo": "u-201", "Sanne": "u-202" },
   "history": { "selfHours": [12, 13, 20], "channel": "c-general" },
   "stub": {
-    "review": [[{ "skill": "intent.update", "args": { "id": "$candidates", "state": "pending" } }]],
-    "intention_due": [[{ "skill": "intent.update", "args": { "id": "$intention", "state": "done" } }]]
+    "review": [[{ "skill": "intention.update", "args": { "id": "$candidates", "state": "pending" } }]],
+    "intention_due": [[{ "skill": "intention.update", "args": { "id": "$intention", "state": "done" } }]]
   },
   "intentions": [
     { "key": "kept-quiz", "purpose": "post the quiz answers for Ivo", "channel": "c-general", "at": "1 10:02", "span": "fun one, I will post the answers here tomorrow at noon", "due": "2 12:00" },
-    { "key": "kept-map", "purpose": "send Sanne the map link", "channel": "c-games", "at": "1 16:02", "span": "sure, I will send you the map link on Wednesday evening", "due": "3 20:30", "stub": { "intention_due": [[{ "skill": "message.create", "args": { "channel": "$channel", "text": "here is the map" } }, { "skill": "intent.update", "args": { "id": "$intention", "state": "done" } }]] } },
+    { "key": "kept-map", "purpose": "send Sanne the map link", "channel": "c-games", "at": "1 16:02", "span": "sure, I will send you the map link on Wednesday evening", "due": "3 20:30", "stub": { "intention_due": [[{ "skill": "message.create", "args": { "channel": "$channel", "text": "here is the map" } }, { "skill": "intention.update", "args": { "id": "$intention", "state": "done" } }]] } },
     { "key": "forgotten-book", "purpose": "ask Ivo how the book ended", "channel": "c-general", "at": "1 14:02", "span": "no spoilers now, I will ask you how it ended tomorrow afternoon", "due": "2 15:00", "expires": "4 00:00", "stub": { "intention_due": [[]] } },
     { "key": "unwritable", "purpose": "announce the game night", "channel": "c-news", "at": "1 18:02", "span": "will do, I will announce the game night in announcements on Friday evening", "due": "5 18:00" }
   ],

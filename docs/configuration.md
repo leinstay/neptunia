@@ -27,10 +27,18 @@ The persona's skills are tools in the settings. `src/config-moves.ts` holds the 
 | `features.skills` | `features.tools` |
 | `features.skillsDiscovery` | `features.toolsDiscovery` |
 | `bot.access."skills.describe"` | `bot.access."tools.describe"` |
+| `bot.access."task.run"`, `"task.status"`, `"task.read"`, `"task.resolve"`, `"task.cancel"`, `"task.list"` | `bot.access."errand.run"`, `"errand.status"`, `"errand.read"`, `"errand.resolve"`, `"errand.cancel"`, `"errand.list"` |
+| `bot.access."intent.set"`, `"intent.update"`, `"intent.cancel"`, `"intent.list"` | `bot.access."intention.set"`, `"intention.update"`, `"intention.cancel"`, `"intention.list"` |
+| `agents.opencodePath`, `toolResultChars`, `keepFilesHours`, `recentLines`, `maxOpen`, `resultMaxChars`, `unreadShown`, `resultRetrySeconds`, `resultCooldownSeconds` | the same names under `errands.*` |
+| `agents.<name>.search.provider` | `agents.<name>.searchProvider` |
 
-`node tools/config-migrate.mjs --dry-run` prints each move for `config.local.json` (or `--file <path>`) and `--apply` writes them into the file. A second run finds nothing to move.
+Six keys have no reader any more and are dropped: the grants `bot.access."memory.refresh.channel"`, `"memory.refresh.server"` and `"memory.refresh.user"`, `agents.maxDownloadBytes`, and `agents.thinker.contextLimit` and `contextHard`. The load log line counts them as `dropped` beside `moved` and `shadowed`.
 
-The tool texts moved too: `prompts/skills.json` is `config/tools.json`, and a deployment's `prompts.local/skills.json` is `config.local/tools.json` with the entry `skills.describe` renamed `tools.describe`. The `skills` section of `prompts.local/labels.json` is the section `tools`. `node tools/tools-file-move.mjs --dry-run` and `--apply` do both, read `--dir` or `NEPTUNIA_PRIVATE_DIR`, and change no file when either half is refused. The engine refuses to start while `prompts.local/skills.json` exists.
+`node tools/config-migrate.mjs --dry-run` prints each move for `config.local.json` (or `--file <path>`), each dropped key as `<path> dropped (no reader)`, and `--apply` writes the result into the file. A second run finds nothing to move. `--dry-run --compare-with <config.json>` reads the settings the moves touch twice, once the old way over the given `config.json` and once through the current readers over this checkout's, and prints `equal: <n>, differ: <n>` with one line per difference. It exits 1 on any difference. `--self <id>` names the persona's user id when `bot.self` is not set, so the grants can be compared.
+
+The owner commands that edit `config.local.json` (`set`, `access grant`, `access revoke`) apply the same moves to the file before they read it, so a write never leaves a key of an old name beside the new one.
+
+The tool texts moved too: `prompts/skills.json` is `config/tools.json`, and a deployment's `prompts.local/skills.json` is `config.local/tools.json` with the entry `skills.describe` renamed `tools.describe`. The `skills` section of `prompts.local/labels.json` is the section `tools`. The errand and intention names changed in the same layer: the ten tool entries `task.*` and `intent.*` of the tool texts are `errand.*` and `intention.*`, and in `labels.json` the section `tasks` is `errands`, the trigger `task` is `errand`, the note `task-missing` is `errand-missing`, the reason codes `no-task`, `task-ended` and `wait-without-task` are `no-errand`, `errand-ended` and `wait-without-errand`, and the placeholder `{task}` is `{errand}` in the texts that carry it. `node tools/tools-file-move.mjs --dry-run` and `--apply` do all of it, read `--dir` or `NEPTUNIA_PRIVATE_DIR`, and change no file when any part is refused. The engine refuses to start while `prompts.local/skills.json` exists.
 
 ## Rails
 
@@ -927,57 +935,38 @@ Settings for private chat (`features.privateMessages`).
 | `maxPerUserPerDay` | `20` | DM turns per member per day |
 | `maxPerOwnerPerDay` | `200` | DM turns per day for owners |
 
-## `agents`
+## `errands`
 
-The persona's errand agents. See [Errands](errands.md).
+The settings every errand reads, whichever agent runs it. See [Errands](errands.md).
 
 | Key | Default | What it does |
 |---|---|---|
 | `opencodePath` | `"/opt/opencode/bin/opencode"` | Path to the OpenCode binary |
 | `toolResultChars` | `6000` | Cap on each tool result the agent sees |
-| `maxDownloadBytes` | `20000000` | Size cap for a downloaded file (bytes) |
 | `keepFilesHours` | `24` | Hours a task's output files are kept |
 | `recentLines` | `6` | Lines of the channel given to the runner as context |
-| `maxOpen` | `3` | Errands open at once, both agents together |
-| `resultMaxChars` | `3000` | Characters of an errand's result in the `<task_result>` block |
-| `unreadShown` | `5` | Finished errands with unread results in `<tasks>` |
+| `maxOpen` | `3` | Errands open at once, all agents together |
+| `resultMaxChars` | `3000` | Characters of an errand's result in the `<errand_result>` block |
+| `unreadShown` | `5` | Finished errands with unread results in `<errands>` |
 | `resultRetrySeconds` | `30` | Seconds before a result turn is tried again |
 | `resultCooldownSeconds` | `60` | Seconds between result turns in the same conversation |
-| `ledger.socket` | `null` | Unix socket for the ledger mirror. `null` = not mirrored |
 
-### `agents.scout`
+## `agents`
 
-| Key | Default | What it does |
-|---|---|---|
-| `enabled` | `false` | Run the scout errand agent |
-| `cost` | `{ "input": 2, "output": 6 }` | Model price (USD per million tokens) for OpenCode's estimate |
-| `socket` | `"/run/neptunia-agent-scout/sock"` | Unix socket for the runner |
-| `out` | `"/var/lib/neptunia-agent-scout/out"` | Directory for output files |
-| `limits` | `{ "steps": 25, "seconds": 300 }` | Per-task caps |
-| `daily` | `{ "tasks": 40 }` | Per-day task cap |
-| `search` | `{ "provider": "exa" }` | Web search provider: `exa` or `parallel` |
-
-### `agents.server`
+The settings of one agent live in its profile, `agents/<name>/profile.json` (see [the agents folder](../agents/README.md)). A deployment overrides a setting under `agents.<name>` of `config.local.json`, and `agentSettings(name, config)` in `src/agent-runner/profiles.js` lays the override over the profile, a nested object merged key by key. The core, the agent runner and the dispatcher all read an agent's settings through it. The table lists the keys and the values the profiles carry.
 
 | Key | Default | What it does |
 |---|---|---|
-| `enabled` | `false` | Run the server errand agent |
-| `cost` | `{ "input": 2, "output": 6 }` | Model price for OpenCode's estimate |
-| `socket` | `"/run/neptunia-agent-server/sock"` | Unix socket for the runner |
-| `out` | `"/var/lib/neptunia-agent-server/out"` | Directory for output files |
-| `limits` | `{ "steps": 20, "seconds": 120 }` | Per-task caps |
-| `daily` | `{ "tasks": 40 }` | Per-day task cap |
+| `enabled` | `false` for `scout` and `server` | Runs the worker. Workers only |
+| `cost` | `scout` and `server` `{ "input": 2, "output": 6 }`, `thinker` `{ "input": 4, "output": 20 }`, `dev` `{ "input": 2, "output": 10 }` | Model price (USD per million tokens) for OpenCode's estimate and the spend figures |
+| `socket` | `"/run/neptunia-agent-scout/sock"`, `"/run/neptunia-agent-server/sock"` | Unix socket of the runner. Workers only |
+| `out` | `"/var/lib/neptunia-agent-scout/out"`, `"/var/lib/neptunia-agent-server/out"` | Directory for output files. Workers only |
+| `limits` | `scout` `{ "steps": 25, "seconds": 300 }`, `server` `{ "steps": 20, "seconds": 120 }`, `thinker` `{ "steps": 400, "minutes": 60 }`, `dev` `{ "steps": 300, "minutes": 60 }` | Caps of one run |
+| `daily` | `{ "tasks": 40 }` for `scout` and `server` | Tasks per day. Workers only |
+| `searchProvider` | `"exa"` for `scout`, `null` for `server` | Web search provider, `exa` or `parallel`. Workers only |
+| `ledger.socket` | `null` | Unix socket for the ledger mirror, under `agents.ledger`. `null` means not mirrored |
 
-### `agents.thinker`, `agents.dev`
-
-Development agents. They run outside the engine; the bot only shows their spend on the status card.
-
-| Key | Default | What it does |
-|---|---|---|
-| `cost` | thinker `{ "input": 4, "output": 20 }`, dev `{ "input": 2, "output": 10 }` | Model price for OpenCode's estimate |
-| `limits` | thinker `{ "steps": 400, "minutes": 60 }`, dev `{ "steps": 300, "minutes": 60 }` | Caps of one run |
-| `contextLimit` | `350000` | Thinker only: context size for OpenCode |
-| `contextHard` | `400000` | Thinker only: context above which a handover is forced |
+The thinker and the dev agent run outside the engine; the bot only shows their spend on the status card.
 
 ## `intentions`
 

@@ -13,7 +13,7 @@
   "history": { "selfHours": [18, 19, 20, 21, 22], "channel": "c-general" },
   "stub": {
     "review": [[], [{ "skill": "message.create", "args": { "channel": "$channel", "text": "evening, everyone" } }], []],
-    "intention_due": [[{ "skill": "message.create", "args": { "channel": "$channel", "text": "as promised" } }, { "skill": "intent.update", "args": { "id": "$intention", "state": "done" } }]]
+    "intention_due": [[{ "skill": "message.create", "args": { "channel": "$channel", "text": "as promised" } }, { "skill": "intention.update", "args": { "id": "$intention", "state": "done" } }]]
   },
   "events": [
     { "kind": "message", "at": "1 18:05", "channel": "c-general", "author": "Mira", "text": "anyone up for a co-op run tonight?" },

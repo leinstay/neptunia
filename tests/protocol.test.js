@@ -80,7 +80,7 @@ const EVENTS = {
     replyRef: 'i1',
   },
   'scheduler.tick': { kind: 'scheduler.tick', at: 1000 },
-  'task.completed': { kind: 'task.completed', at: 1000, taskId: 't1', status: 'done', result: { text: 'έτοιμο' } },
+  'errand.done': { kind: 'errand.done', at: 1000, errandId: 't1', status: 'done', result: { text: 'έτοιμο' } },
   'membership.changed': {
     kind: 'membership.changed',
     iface: 'discord',
@@ -171,7 +171,7 @@ test('protocol: the kinds, conversation kinds and actions are the contract', () 
       'reaction.changed',
       'command.requested',
       'scheduler.tick',
-      'task.completed',
+      'errand.done',
       'membership.changed',
       'voice.changed',
       'inner.wake',
@@ -182,7 +182,7 @@ test('protocol: the kinds, conversation kinds and actions are the contract', () 
       'connection.changed',
     ]
   );
-  assert.deepEqual([...CORE_KINDS], ['scheduler.tick', 'task.completed', 'inner.wake']);
+  assert.deepEqual([...CORE_KINDS], ['scheduler.tick', 'errand.done', 'inner.wake']);
   assert.deepEqual([...CONVERSATION_KINDS], ['channel', 'dm', 'thread']);
   assert.deepEqual([...ACTIONS], [...Object.values(CAPABILITIES), COMMAND_RESULT]);
   assert.deepEqual(Object.keys(ACTION_SAMPLES).sort(), [...ACTIONS].sort());
@@ -326,7 +326,7 @@ test('validateEvent: invalid shapes are refused with the field and the problem',
     ],
     [{ ...EVENTS['command.requested'], replyRef: '' }, 'replyRef:type'],
     [{ kind: 'scheduler.tick' }, 'at:required'],
-    [{ ...EVENTS['task.completed'], taskId: undefined }, 'taskId:required'],
+    [{ ...EVENTS['errand.done'], errandId: undefined }, 'errandId:required'],
   ];
   for (const [event, reason] of cases) assert.deepEqual(validateEvent(event), { ok: false, reason }, reason);
 });

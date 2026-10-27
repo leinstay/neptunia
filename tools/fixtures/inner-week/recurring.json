@@ -45,7 +45,7 @@
         "intention_due": [
           [
             {
-              "skill": "intent.update",
+              "skill": "intention.update",
               "args": {
                 "id": "$intention",
                 "state": "done"
@@ -54,7 +54,7 @@
           ],
           [
             {
-              "skill": "intent.update",
+              "skill": "intention.update",
               "args": {
                 "id": "$intention",
                 "state": "done"
@@ -64,7 +64,7 @@
           [],
           [
             {
-              "skill": "intent.update",
+              "skill": "intention.update",
               "args": {
                 "id": "$intention",
                 "state": "done"

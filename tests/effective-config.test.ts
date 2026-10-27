@@ -4,6 +4,10 @@
 // names, and the functions that read the settings answer what the owner set: the tool transport, the tool loop's bounds,
 // safe mode, the switches, and the names of the tools granted to the persona. The shape is that of a production local
 // file: a few settings under `skills`, a switch off, grants for her user id on tools and on the tool `skills.describe`.
+// A second production-shaped file carries the errand and intention names of an earlier release: grants on `task.*` and
+// `intent.*`, a stale `memory.refresh.*` grant, `agents.resultRetrySeconds` and the `agents.scout`, `agents.server` and
+// `agents.ledger` sections. It gives the tools granted to her under the new names, the `errands.*` settings and the
+// agent settings the old files gave, so her errand tools stay open after the deploy.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -17,18 +21,20 @@ import { transportOf } from '../src/tools/tool-calls.ts';
 import { safeModeOn, skillsOn } from '../src/tools/access.ts';
 import { discoveryOn, grantedSkillNames } from '../src/tools/discovery.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
+import { agentSettings } from '../src/agent-runner/profiles.js';
 
 type Settings = Record<string, unknown>;
 const SELF = 'self-1';
 const grant = { everyone: false, roles: [], users: [SELF] };
 
 /** A checkout whose config.json has the new names only, and a private folder with `local` as config.local.json. */
-function load(local: Settings): Settings {
+function load(local: Settings, features: Settings = {}): Settings {
   const root = tempDir('nep-effective-');
   fs.writeFileSync(
     path.join(root, 'config.json'),
     JSON.stringify({
-      features: { tools: true, toolsDiscovery: true, innerLife: false, intentions: false },
+      features: { tools: true, toolsDiscovery: true, innerLife: false, intentions: false, ...features },
+      errands: ERRAND_DEFAULTS,
       tools: {
         safeMode: false,
         transport: 'native',
@@ -40,6 +46,19 @@ function load(local: Settings): Settings {
   fs.writeFileSync(path.join(root, 'config.local.json'), JSON.stringify(local));
   return readConfig(root, { privateDir: root }) as Settings;
 }
+
+/** The errand settings config.json carries, the ones every errand reads. */
+const ERRAND_DEFAULTS = {
+  opencodePath: '/opt/opencode/bin/opencode',
+  toolResultChars: 6000,
+  keepFilesHours: 24,
+  recentLines: 6,
+  maxOpen: 3,
+  resultMaxChars: 3000,
+  unreadShown: 5,
+  resultRetrySeconds: 30,
+  resultCooldownSeconds: 60,
+};
 
 const granted = (config: Settings): Array<string> =>
   grantedSkillNames({ config, selfId: SELF, registry: skillRegistry() });
@@ -103,4 +122,106 @@ test('gives the same config as the file written by hand with the new names', asy
   const old = await withCapturedLogs(() => load(OLD_SHAPED));
   const written = await withCapturedLogs(() => load(NEW_SHAPED));
   assert.deepEqual(old.result, written.result);
+});
+
+/** A production-shaped local file written before the errand and intention names. */
+const ERRAND_ERA = {
+  bot: {
+    owners: ['o1'],
+    access: {
+      'task.run': grant,
+      'task.status': grant,
+      'task.read': grant,
+      'intent.set': grant,
+      'intent.update': grant,
+      'intent.list': grant,
+      'message.edit': grant,
+      'memory.refresh.user': grant,
+    },
+  },
+  agents: {
+    resultRetrySeconds: 45,
+    ledger: { socket: null },
+    scout: {
+      enabled: true,
+      cost: { input: 3, output: 9 },
+      socket: '/run/neptunia-agent-scout/sock',
+      limits: { steps: 30 },
+      search: { provider: 'tavily' },
+    },
+    server: { enabled: true },
+  },
+};
+
+test('lists the errand and intention tools of an old local file under their new names, the stale grant gone', async () => {
+  const { result } = await withCapturedLogs(() => load(ERRAND_ERA, { intentions: true }));
+  assert.deepEqual(granted(result), [
+    'errand.read',
+    'errand.run',
+    'errand.status',
+    'intention.list',
+    'intention.set',
+    'intention.update',
+    'message.edit',
+  ]);
+});
+
+test('reads the errand settings of an old local file from errands, the shared ones it overrides included', async () => {
+  const { result } = await withCapturedLogs(() => load(ERRAND_ERA));
+  assert.deepEqual(result.errands, { ...ERRAND_DEFAULTS, resultRetrySeconds: 45 });
+});
+
+test('reads the agent settings of an old local file as the old merged config gave them', async () => {
+  const { result } = await withCapturedLogs(() => load(ERRAND_ERA));
+  assert.deepEqual(agentSettings('scout', result), {
+    enabled: true,
+    cost: { input: 3, output: 9 },
+    socket: '/run/neptunia-agent-scout/sock',
+    out: '/var/lib/neptunia-agent-scout/out',
+    limits: { steps: 30, seconds: 300 },
+    daily: { tasks: 40 },
+    searchProvider: 'tavily',
+  });
+  assert.deepEqual(agentSettings('server', result), {
+    enabled: true,
+    cost: { input: 2, output: 6 },
+    socket: '/run/neptunia-agent-server/sock',
+    out: '/var/lib/neptunia-agent-server/out',
+    limits: { steps: 20, seconds: 120 },
+    daily: { tasks: 40 },
+    searchProvider: null,
+  });
+  assert.deepEqual((result.agents as Settings).ledger, { socket: null });
+});
+
+test('gives the same config as the file written by hand with the new names', async () => {
+  const written = {
+    bot: {
+      owners: ['o1'],
+      access: {
+        'errand.run': grant,
+        'errand.status': grant,
+        'errand.read': grant,
+        'intention.set': grant,
+        'intention.update': grant,
+        'intention.list': grant,
+        'message.edit': grant,
+      },
+    },
+    errands: { resultRetrySeconds: 45 },
+    agents: {
+      ledger: { socket: null },
+      scout: {
+        enabled: true,
+        cost: { input: 3, output: 9 },
+        socket: '/run/neptunia-agent-scout/sock',
+        limits: { steps: 30 },
+        searchProvider: 'tavily',
+      },
+      server: { enabled: true },
+    },
+  };
+  const old = await withCapturedLogs(() => load(ERRAND_ERA));
+  const hand = await withCapturedLogs(() => load(written));
+  assert.deepEqual(old.result, hand.result);
 });

@@ -30,6 +30,7 @@ Both agents follow the [style guide](../STYLEGUIDE.md) when they write code.
 | `permission` | Rules that narrow the tools above: a tool mapped to `allow`, `ask` or `deny`, or to an object of command patterns and actions (OpenCode wildcards `*` and `?`, the last matching pattern wins). Only tools from `tools` may appear. The shipped profiles use it on `bash` to refuse a whole-suite test run: `node --test` without a test file and `npm test` are denied, `node --test --test-reporter=dot tests/<module>.test.js` is allowed, and the thinker alone may run the whole suite with the prefix `FULL_SUITE=1`. |
 | `effort` | The reasoning effort, OpenCode's `--variant` (`low`, `medium`, `high`, `max`). |
 | `limits` | Default per-run caps `{ steps, minutes }`, overridden by `agents.<id>.limits` in config. |
+| `cost` | Price `{ input, output }` in USD per million tokens, overridden by `agents.<id>.cost` in config. |
 
 ### Shipped profiles
 
@@ -77,12 +78,10 @@ The `/nep status` card reads the development agents' spend from the ledger. With
 
 ## Config
 
-Development agent settings live under `agents.<name>` in `config.json`:
+The price and the limits of a development agent live in its profile, and a deployment overrides them under `agents.<name>` in `config.local.json`. `agentSettings(name, config)` in `src/agent-runner/profiles.js` lays the override over the profile.
 
 | Key | Default (thinker / dev) | What it does |
 |---|---|---|
-| `agents.<name>.cost` | `{ input: 4, output: 20 }` / `{ input: 2, output: 10 }` | USD per million tokens, for OpenCode's cost estimate. |
-| `agents.<name>.limits.steps` | 400 / 300 | Maximum model steps per run. |
-| `agents.<name>.limits.minutes` | 60 / 60 | Maximum wall-clock minutes per run. |
-| `agents.<name>.contextLimit` | 350000 (thinker only) | Soft context-window limit in tokens. Read by the external dispatcher, not by the engine. |
-| `agents.<name>.contextHard` | 400000 (thinker only) | Hard context-window limit. Read by the external dispatcher, not by the engine. |
+| `cost` | `{ input: 4, output: 20 }` / `{ input: 2, output: 10 }` | USD per million tokens, for OpenCode's cost estimate. |
+| `limits.steps` | 400 / 300 | Maximum model steps per run. |
+| `limits.minutes` | 60 / 60 | Maximum wall-clock minutes per run. |

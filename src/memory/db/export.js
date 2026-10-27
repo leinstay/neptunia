@@ -73,7 +73,7 @@ function linesOf(kind, mapper, rows) {
       return rows.claim_versions.map((row) => one('claim_versions', row));
     case 'intentions':
       return rows.intentions.map((row) => one('intentions', row));
-    case 'tasks':
+    case 'errands':
       return rows.work_events.map((row) => one('work_events', row));
     case 'verbatim':
       return [...rows.operational]

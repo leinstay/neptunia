@@ -1,7 +1,7 @@
 // Tests for the persona's view of her intentions: the `<intentions>` block's body
 // (src/intentions/blocks.js) -- her active ones with their wait, due time and outcome, then the
 // candidates with the line they came from, cut to the token budget -- and the switch that hides
-// the `intent.*` skills from her entirely while features.intentions is off (src/tools/access.ts).
+// the `intention.*` skills from her entirely while features.intentions is off (src/tools/access.ts).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { intentionsBlockText } from '../src/intentions/blocks.js';
@@ -24,9 +24,9 @@ const LABELS = {
     states: { pending: 'P', waiting: 'W' },
     due: 'due {when}',
     every: 'each {period}',
-    waiting: 'wait {task} until {deadline}',
-    outcome: 'got {task} {state}',
-    notes: { 'wait-deadline': 'ran out {task}' },
+    waiting: 'wait {errand} until {deadline}',
+    outcome: 'got {errand} {state}',
+    notes: { 'wait-deadline': 'ran out {errand}' },
     destination: 'to #{channel}',
     candidates: 'C',
     candidate: '{id}|{purpose}|"{span}"',
@@ -199,7 +199,10 @@ test('intentionsBlockText: cut to the budget by whole lines, the candidates head
 
 function config(features = {}) {
   const access = Object.fromEntries(
-    ['intent.set', 'intent.list', 'lore.list'].map((name) => [name, { everyone: false, roles: [], users: [SELF] }])
+    ['intention.set', 'intention.list', 'lore.list'].map((name) => [
+      name,
+      { everyone: false, roles: [], users: [SELF] },
+    ])
   );
   return { bot: { owners: [OWNER], access }, features: { tools: true, ...features } };
 }
@@ -209,34 +212,34 @@ test('skills: with features.intentions off the intent skills are refused, never 
   const audience = { conversationId: 'c1' };
   const call = (cfg) =>
     checkSkill({
-      skill: 'intent.set',
+      skill: 'intention.set',
       args: { text: 'κάτι' },
       principal: { kind: 'persona' },
       requester: { id: OWNER },
       audience,
       context: { config: cfg, selfId: SELF, registry },
     });
-  assert.deepEqual(call(config()), { ok: false, code: 'feature-off', reason: 'intent.set' });
+  assert.deepEqual(call(config()), { ok: false, code: 'feature-off', reason: 'intention.set' });
   assert.deepEqual(call(config({ intentions: true })), { ok: true });
   const listed = (cfg) =>
     listSkills({ config: cfg, selfId: SELF, texts: {}, requester: { id: OWNER }, audience, registry }).map(
       (row) => row.name
     );
   assert.equal(
-    listed(config()).some((name) => name.startsWith('intent.')),
+    listed(config()).some((name) => name.startsWith('intention.')),
     false
   );
-  assert.equal(listed(config({ intentions: true })).filter((name) => name.startsWith('intent.')).length, 4);
+  assert.equal(listed(config({ intentions: true })).filter((name) => name.startsWith('intention.')).length, 4);
   assert.deepEqual(grantedSkillNames({ config: config(), selfId: SELF, registry }), ['lore.list']);
   assert.deepEqual(grantedSkillNames({ config: config({ intentions: true }), selfId: SELF, registry }), [
-    'intent.list',
-    'intent.set',
+    'intention.list',
+    'intention.set',
     'lore.list',
   ]);
   // Nobody asked: her own intention is a write, refused like every write of an unasked turn.
   assert.equal(
     checkSkill({
-      skill: 'intent.set',
+      skill: 'intention.set',
       args: { text: 'κάτι' },
       principal: { kind: 'persona' },
       requester: null,
@@ -246,5 +249,5 @@ test('skills: with features.intentions off the intent skills are refused, never 
     'no-requester'
   );
   // The index a classifier reads has every registered skill; the turn filters it by the switch (src/behavior/turn.js).
-  assert.ok(skillsIndex(registry, {}).includes('intent.set'));
+  assert.ok(skillsIndex(registry, {}).includes('intention.set'));
 });

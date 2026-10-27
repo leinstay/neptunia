@@ -75,7 +75,7 @@ export function openTestMemorySync({ dataDir = tempDataDir(), config = {}, now =
 }
 
 /**
- * The memory unit `rel` (its path under data/: `guilds/<id>/tasks.json`, `guilds/<id>/tasks.jsonl`) as the text of
+ * The memory unit `rel` (its path under data/: `guilds/<id>/errands.json`, `guilds/<id>/errands.jsonl`) as the text of
  * the file it stands for, built from the database alone; null when the database holds none.
  * @param {{ readHandle: () => { db: object } | null }} memoryDb
  * @param {string} rel

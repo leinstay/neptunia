@@ -22,12 +22,12 @@ export const DEFAULT_CAPACITY = 10_000;
 /**
  * The id an event is deduplicated by: its own, else one derived from what makes it that event
  * (the core's own events carry none): an errand's end by task and status, a tick by its time.
- * @param {{ kind?: string, id?: unknown, taskId?: unknown, status?: unknown, at?: unknown }} event
+ * @param {{ kind?: string, id?: unknown, errandId?: unknown, status?: unknown, at?: unknown }} event
  * @returns {string|null}
  */
 export function eventIdOf(event) {
   if (typeof event?.id === 'string' && event.id !== '') return event.id;
-  if (event?.kind === 'task.completed') return `task.completed:${event.taskId}:${event.status}`;
+  if (event?.kind === 'errand.done') return `errand.done:${event.errandId}:${event.status}`;
   if (event?.kind === 'scheduler.tick') return `scheduler.tick:${event.at}`;
   return null;
 }

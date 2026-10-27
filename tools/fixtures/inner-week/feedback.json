@@ -22,7 +22,7 @@
       "at": "1 10:02",
       "span": "sure, a cat meme at noon, I will dig one up",
       "due": "1 12:00",
-      "stub": { "intention_due": [[{ "skill": "message.create", "args": { "channel": "$channel", "text": "here is the cat meme you asked for" }, "refuse": "destination-required" }, { "skill": "intent.update", "args": { "id": "$intention", "state": "done" } }]] }
+      "stub": { "intention_due": [[{ "skill": "message.create", "args": { "channel": "$channel", "text": "here is the cat meme you asked for" }, "refuse": "destination-required" }, { "skill": "intention.update", "args": { "id": "$intention", "state": "done" } }]] }
     }
   ],
   "events": [

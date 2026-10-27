@@ -323,7 +323,7 @@ test('a day of writes with the memory files gone writes every kind of unit to th
       assert.equal(
         count(
           'SELECT COUNT(*) AS n FROM work_events WHERE owner_file = ? AND retired_at IS NULL',
-          `guilds/${GUILD}/tasks.jsonl`
+          `guilds/${GUILD}/errands.jsonl`
         ),
         4
       );
@@ -403,7 +403,7 @@ test('a failed unit write survives a restart through memory-pending/ and is appl
   const lineCount = (handle) =>
     handle.db
       .prepare('SELECT COUNT(*) AS n FROM work_events WHERE owner_file = ? AND retired_at IS NULL')
-      .get(`guilds/${GUILD}/tasks.jsonl`).n;
+      .get(`guilds/${GUILD}/errands.jsonl`).n;
   try {
     fs.chmodSync(data, 0o755);
     await service.tick();

@@ -26,7 +26,7 @@ const time = (value) => (typeof value === 'number' && Number.isFinite(value) ? v
  * The part of a task record the spend needs: `{ id, agent, createdAt, endedAt, usage }`, the
  * usage as `{ input, output, usd }` (a count that is not a finite number >= 0 is 0) or null when
  * the task has none yet. Null for a record without an id or an agent. Nothing else is kept.
- * @param {object} task  A task as the store keeps it, or one transition line of tasks.jsonl.
+ * @param {object} task  A task as the store keeps it, or one transition line of errands.jsonl.
  * @returns {{ id: string, agent: string, createdAt: number|null, endedAt: number|null, usage: { input: number, output: number, usd: number }|null }|null}
  */
 export function costRecord(task) {

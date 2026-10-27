@@ -295,7 +295,7 @@
       "channel": "#handle."
     }
   },
-  "task.run": {
+  "errand.run": {
     "title": "Hand off an errand",
     "whenToUse": "Background job; result later. Costs money. scout: multi-step research, finding and downloading files and images, sites that need navigation. server: read-only questions about this machine. Files for message.create. Several at once, each agent one at a time. Form the full goal first. Agent sees only the goal.",
     "whenNotToUse": "Not for what you can answer; daily limits.",
@@ -303,37 +303,37 @@
       "goal": "What to do. Agent sees only this."
     }
   },
-  "task.status": {
+  "errand.status": {
     "title": "Check an errand",
     "whenToUse": "Errand state by id or open ones.",
-    "whenNotToUse": "Tasks block shows open ones."
+    "whenNotToUse": "Errands block shows open ones."
   },
-  "task.read": {
+  "errand.read": {
     "title": "Read an errand's result",
     "whenToUse": "Full result in pages. Marks the errand as read.",
     "args": {
       "from": "Page offset."
     }
   },
-  "task.resolve": {
+  "errand.resolve": {
     "title": "Close a finished errand",
-    "whenToUse": "Mark resolved; leaves tasks block.",
+    "whenToUse": "Mark resolved; leaves errands block.",
     "whenNotToUse": "Not needed once you report its result."
   },
-  "task.cancel": {
+  "errand.cancel": {
     "title": "Cancel an errand",
     "whenToUse": "Stop an open errand.",
     "whenNotToUse": "Only the requester or the owner."
   },
-  "task.list": {
+  "errand.list": {
     "title": "List errands",
     "whenToUse": "Latest ten with states.",
-    "whenNotToUse": "Results not included; use task.read."
+    "whenNotToUse": "Results not included; use errand.read."
   },
   "web.search": {
     "title": "Search the web",
     "whenToUse": "Look up a fact or check something quickly. Returns in this turn.",
-    "whenNotToUse": "For multi-step research or downloading files, task.run scout.",
+    "whenNotToUse": "For multi-step research or downloading files, errand.run scout.",
     "args": {
       "goal": "What the search should establish."
     }
@@ -341,7 +341,7 @@
   "web.read": {
     "title": "Read a web page",
     "whenToUse": "Read one page by link. Same turn.",
-    "whenNotToUse": "For multi-step research or downloading files, task.run scout.",
+    "whenNotToUse": "For multi-step research or downloading files, errand.run scout.",
     "args": {
       "message": "#N; opens its first link."
     }
@@ -393,19 +393,19 @@
       "channel": "#handle."
     }
   },
-  "intent.set": {
+  "intention.set": {
     "title": "Set an intention",
     "whenToUse": "Schedule something for later; must be called in this turn. Agreement alone creates nothing. Tell people only after the call succeeds.",
-    "whenNotToUse": "Not for what you can do directly in this turn. To change an existing one: intent.update.",
+    "whenNotToUse": "Not for what you can do directly in this turn. To change an existing one: intention.update.",
     "args": {
       "due": "Delay (30m; 0m: right away), date, clock (21:00), weekday+time (mon 20:00).",
-      "deadline": "Wait time. Without task, links this turn's errand.",
+      "deadline": "Wait time. Without errand, links this turn's errand.",
       "attend": "Listen to a place; wakes on new lines. due/every ignored.",
       "text": "The purpose, up to 300 characters.",
       "channel": "Where it happens.",
       "every": "day, week, <n>h, <n>d.",
       "expires": "When it lapses; time like due.",
-      "task": "Errand id to wait on.",
+      "errand": "Errand id to wait on.",
       "chain": "Links related intentions.",
       "condition": "Done when met.",
       "people": "With attend: only these people's lines wake you.",
@@ -415,10 +415,10 @@
       "reason": "Why; required with dropped."
     }
   },
-  "intent.update": {
+  "intention.update": {
     "title": "Update an intention",
-    "whenToUse": "Change an intention. done: one occurrence. dropped+reason: let go. Accept candidate: state pending. intent.cancel ends repeating.",
-    "whenNotToUse": "Reject a candidate or an intention: intent.cancel.",
+    "whenToUse": "Change an intention. done: one occurrence. dropped+reason: let go. Accept candidate: state pending. intention.cancel ends repeating.",
+    "whenNotToUse": "Reject a candidate or an intention: intention.cancel.",
     "args": {
       "state": "pending, done, or dropped.",
       "reason": "Required with dropped.",
@@ -426,8 +426,8 @@
       "text": "New purpose.",
       "every": "day, week, <n>h, <n>d, or none.",
       "expires": "When it lapses; time like due.",
-      "due": "Same formats as intent.set due.",
-      "task": "Errand id to wait on.",
+      "due": "Same formats as intention.set due.",
+      "errand": "Errand id to wait on.",
       "deadline": "Wait time for the errand.",
       "chain": "Links related intentions.",
       "condition": "Completion condition.",
@@ -437,10 +437,10 @@
       "perday": "Daily wake limit."
     }
   },
-  "intent.cancel": {
+  "intention.cancel": {
     "title": "Cancel an intention",
     "whenToUse": "Drop one you reject or no longer need. Rejects a proposed candidate.",
-    "whenNotToUse": "Finished: intent.update state=done.",
+    "whenNotToUse": "Finished: intention.update state=done.",
     "args": {
       "id": "Intention or candidate id."
     }
@@ -460,14 +460,14 @@
     "whenToUse": "Show whether the persona's own wake-ups run, what is queued and what is left of their caps.",
     "whenNotToUse": "Administrative, not grantable to you."
   },
-  "intent.list": {
+  "intention.list": {
     "title": "List intentions",
     "whenToUse": "Open intentions with states and times.",
     "whenNotToUse": "Intentions block shows them."
   },
   "places.list": {
     "title": "See the server's places",
-    "whenToUse": "Counts, access, listening. To listen: intent.set with attend.",
+    "whenToUse": "Counts, access, listening. To listen: intention.set with attend.",
     "whenNotToUse": "For what was said: chat or memory.search."
   },
   "tools.describe": {

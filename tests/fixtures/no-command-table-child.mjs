@@ -33,9 +33,9 @@ const GRANTED = [
   'lore.remove', 'memory.profile.read', 'memory.channel.read', 'memory.server.read', 'memory.recent.read',
   'memory.affinity.read', 'memory.journal.read', 'memory.archive.read',
   'memory.snapshot', 'memory.private.read', 'message.create', 'message.edit', 'message.delete', 'message.react.add',
-  'message.react.remove', 'task.run', 'task.status', 'task.read', 'task.resolve', 'task.cancel', 'task.list', 'web.search',
-  'memory.search', 'tools.describe', 'conversation.read', 'media.find', 'web.read', 'intent.set', 'intent.update', 'intent.cancel',
-  'intent.list', 'media.look',
+  'message.react.remove', 'errand.run', 'errand.status', 'errand.read', 'errand.resolve', 'errand.cancel', 'errand.list', 'web.search',
+  'memory.search', 'tools.describe', 'conversation.read', 'media.find', 'web.read', 'intention.set', 'intention.update', 'intention.cancel',
+  'intention.list', 'media.look',
 ];
 assert.equal(GRANTED.length, 50);
 const SELF = 'self-1';
@@ -106,8 +106,8 @@ const CALLS = [
   ['draw.create', {}, 'a lighthouse'],
   ['lore.list', {}, ''],
   ['memory.profile.read', { user: OWNER }, ''],
-  ['task.run', { agent: 'scout', goal: 'look at the weather' }, ''],
-  ['intent.set', {}, 'remember to say hi'],
+  ['errand.run', { agent: 'scout', goal: 'look at the weather' }, ''],
+  ['intention.set', {}, 'remember to say hi'],
   ['web.search', {}, 'weather'],
   ['tools.describe', { name: 'lore.list' }, ''],
 ];

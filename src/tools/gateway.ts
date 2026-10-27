@@ -137,7 +137,7 @@ const taskBudget = (context: GateContext, _requester: Requester | null, args: un
 const speechBudget = (context: GateContext): unknown =>
   typeof context.speech?.quota === 'function' ? context.speech.quota() : null;
 const BUDGETS: Readonly<Record<string, (context: GateContext, requester: Requester | null, args: unknown) => unknown>> =
-  Object.freeze({ 'draw.create': drawBudget, 'voice.say': speechBudget, 'task.run': taskBudget });
+  Object.freeze({ 'draw.create': drawBudget, 'voice.say': speechBudget, 'errand.run': taskBudget });
 
 /** Minutes between two destructive calls from one channel (`tools.destructiveCooldownMinutes`; config.json's value). */
 const DESTRUCTIVE_COOLDOWN_MINUTES = 10;

@@ -180,18 +180,19 @@ function mergeConfigFiles(rootDir, privateDir) {
 
 /**
  * The local file with its keys of an earlier name written under their new one (src/config-moves.ts), one warning line
- * per load when any moved or lost to a key of the new name. The file itself is untouched: `tools/config-migrate.mjs`
+ * per load when any moved, lost to a key of the new name or was dropped. The file itself is untouched: `tools/config-migrate.mjs`
  * writes the same moves into it.
  * @param {unknown} local
  * @returns {unknown}
  */
 function movedLocal(local) {
   if (typeof local !== 'object' || local === null || Array.isArray(local)) return local;
-  const { config, moved, shadowed } = moveConfigKeys(/** @type {Record<string, unknown>} */ (local));
-  if (moved.length > 0 || shadowed.length > 0)
+  const { config, moved, shadowed, dropped } = moveConfigKeys(/** @type {Record<string, unknown>} */ (local));
+  if (moved.length > 0 || shadowed.length > 0 || dropped.length > 0)
     log.warn('config: keys of an old name read under the new one', {
       moved: moved.length,
       shadowed: shadowed.length,
+      dropped: dropped.length,
       migrate: 'tools/config-migrate.mjs',
     });
   return config;

@@ -195,7 +195,7 @@ function journalOverMemory() {
 
 const WAKE = {
   kind: 'intention_due',
-  items: [{ kind: 'intention_due', reason: 'due', intentionIds: ['i1'], taskId: null }],
+  items: [{ kind: 'intention_due', reason: 'due', intentionIds: ['i1'], errandId: null }],
   intentions: [{ id: 'i1', purpose: 'πες καλημέρα στο κανάλι', dueAt: NOW - 60_000 }],
   now: NOW,
   timezone: 'UTC',
@@ -470,7 +470,7 @@ test('inner turn, live: a #N handle the heartbeat showed on a line resolves for 
   const wake = {
     ...WAKE,
     kind: 'heartbeat',
-    items: [{ kind: 'heartbeat', reason: 'heartbeat', intentionIds: [], taskId: null }],
+    items: [{ kind: 'heartbeat', reason: 'heartbeat', intentionIds: [], errandId: null }],
     intentions: [],
     heartbeat: facts,
   };
@@ -690,7 +690,7 @@ test('wakeBlockText: an attend wake names the place, the lines and the people; t
     kind: 'attend',
     reason: 'lines',
     intentionIds: ['i1'],
-    taskId: null,
+    errandId: null,
     attend: {
       place: 'c2',
       placeName: 'κήπος',
@@ -760,7 +760,7 @@ test("wakeBlockText: a review's expired intentions follow the wake lines -- the 
   const review = {
     ...WAKE,
     kind: 'review',
-    items: [{ kind: 'review', reason: 'review', intentionIds: [], taskId: null }],
+    items: [{ kind: 'review', reason: 'review', intentionIds: [], errandId: null }],
     channels: ['γενικά'],
     expired,
   };
@@ -822,18 +822,18 @@ test('inner turn, live: errands she hands off are queued like any call, with no 
   const run = await innerTurn({
     answers: [
       toolAnswer('', [
-        call('task.run', { agent: 'scout', goal: 'βρες τον πρώτο πίνακα' }),
-        call('task.run', { agent: 'scout', goal: 'βρες τον δεύτερο πίνακα' }),
+        call('errand.run', { agent: 'scout', goal: 'βρες τον πρώτο πίνακα' }),
+        call('errand.run', { agent: 'scout', goal: 'βρες τον δεύτερο πίνακα' }),
       ]),
       '<skip/>',
     ],
     shadow: false,
-    allowed: ['task.run'],
+    allowed: ['errand.run'],
     withErrands: true,
   });
   assert.deepEqual(
     run.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.code ?? ''}`),
-    ['task.run:executed:', 'task.run:executed:']
+    ['errand.run:executed:', 'errand.run:executed:']
   );
   assert.equal(run.tasks.length, 2);
   assert.ok(run.tasks.every((task) => typeof task.idempotencyKey === 'string' && task.idempotencyKey));
@@ -1006,15 +1006,15 @@ test("inner turn, budget: a slow call past tools.loop's 20 s completes inside in
 });
 
 test('inner turn: the open line names only intentions no intent call touched', async () => {
-  // intent.update naming i1 (in shadow: only proposed) takes it off the open line: no request is made for it.
+  // intention.update naming i1 (in shadow: only proposed) takes it off the open line: no request is made for it.
   const touched = await innerTurn({
-    answers: [toolAnswer('<msg>έτοιμο</msg>', [call('intent.update', { id: 'i1', state: 'done' })]), '<skip/>'],
-    allowed: ['lore.list', 'intent.update'],
+    answers: [toolAnswer('<msg>έτοιμο</msg>', [call('intention.update', { id: 'i1', state: 'done' })]), '<skip/>'],
+    allowed: ['lore.list', 'intention.update'],
     features: { intentions: true },
   });
   assert.deepEqual(
     touched.result.inner.actions.map((a) => `${a.skill}:${a.status}`),
-    ['intent.update:proposed', 'message.create:proposed']
+    ['intention.update:proposed', 'message.create:proposed']
   );
   assert.deepEqual(
     touched.result.inner.intentIds,
@@ -1024,13 +1024,13 @@ test('inner turn: the open line names only intentions no intent call touched', a
   assert.equal(touched.llm.calls.length, 1, 'nothing left open: no request');
   // The id alone as the text counts the same.
   const bare = await innerTurn({
-    answers: [toolAnswer('<msg>έτοιμο</msg>', [call('intent.update', { state: 'done', text: 'i1' })]), '<skip/>'],
-    allowed: ['lore.list', 'intent.update'],
+    answers: [toolAnswer('<msg>έτοιμο</msg>', [call('intention.update', { state: 'done', text: 'i1' })]), '<skip/>'],
+    allowed: ['lore.list', 'intention.update'],
     features: { intentions: true },
   });
   assert.deepEqual(
     bare.result.inner.actions.map((a) => `${a.skill}:${a.status}`),
-    ['intent.update:proposed', 'message.create:proposed']
+    ['intention.update:proposed', 'message.create:proposed']
   );
   assert.equal(bare.llm.calls.length, 1);
   const none = await innerTurn({ answers: ['<skip/>'] });
@@ -1044,13 +1044,13 @@ test('inner turn, last step: one post or intention change still runs, nothing fo
       toolAnswer('', [
         call('lore.list'),
         call('message.create', { text: 'καλημέρα' }),
-        call('intent.update', { id: 'i1', state: 'done' }),
+        call('intention.update', { id: 'i1', state: 'done' }),
       ]),
       '<skip/>',
     ],
     shadow: false,
     loop: { maxSteps: 1 },
-    allowed: ['lore.list', 'intent.update'],
+    allowed: ['lore.list', 'intention.update'],
     features: { intentions: true },
   });
   assert.equal(run.llm.calls.length, 2, 'the last request, and none after its action');
@@ -1058,7 +1058,7 @@ test('inner turn, last step: one post or intention change still runs, nothing fo
   assert.equal(run.sends.length, 1, 'the post went out');
   assert.deepEqual(
     run.result.inner.actions.map((a) => `${a.skill}:${a.status}`),
-    ['lore.list:executed', 'lore.list:refused', 'message.create:executed', 'intent.update:refused'],
+    ['lore.list:executed', 'lore.list:refused', 'message.create:executed', 'intention.update:refused'],
     'the first terminal call alone ran; the others got a loop-cap result'
   );
   const cap = run.logs.find((l) => l.msg === 'skills: loop cap');
@@ -1082,16 +1082,16 @@ test('inner turn, open follow-up: a post that leaves nothing to show while a wok
   const run = await innerTurn({
     answers: [
       toolAnswer('', [call('message.create', { text: 'καλημέρα σε όλους' })]),
-      toolAnswer('', [call('intent.update', { id: 'i1', state: 'done' })]),
+      toolAnswer('', [call('intention.update', { id: 'i1', state: 'done' })]),
     ],
-    allowed: ['lore.list', 'intent.update'],
+    allowed: ['lore.list', 'intention.update'],
     features: { intentions: true },
   });
   assert.equal(run.llm.calls.length, 2, 'the open follow-up request; the proposed update leaves nothing to show');
   assert.equal(noteOf(run, 1), OPEN_LINE);
   assert.deepEqual(
     run.result.inner.actions.map((a) => `${a.skill}:${a.status}`),
-    ['message.create:proposed', 'intent.update:proposed']
+    ['message.create:proposed', 'intention.update:proposed']
   );
   assert.equal(run.result.inner.openFollowUp, true);
   // Live, the same: the post went out, the intention was named in the extra request (without an
@@ -1099,11 +1099,11 @@ test('inner turn, open follow-up: a post that leaves nothing to show while a wok
   const live = await innerTurn({
     answers: [
       toolAnswer('', [call('message.create', { text: 'καλημέρα σε όλους' })]),
-      toolAnswer('', [call('intent.update', { id: 'i1', state: 'done' })]),
+      toolAnswer('', [call('intention.update', { id: 'i1', state: 'done' })]),
       '<skip/>',
     ],
     shadow: false,
-    allowed: ['lore.list', 'intent.update'],
+    allowed: ['lore.list', 'intention.update'],
     features: { intentions: true },
   });
   assert.equal(noteOf(live, 1), OPEN_LINE);
@@ -1124,10 +1124,13 @@ test('inner turn, open follow-up: once per turn; none when her post named the in
   assert.equal(again.result.inner.openFollowUp, true);
   const named = await innerTurn({
     answers: [
-      toolAnswer('', [call('message.create', { text: 'έτοιμο' }), call('intent.update', { id: 'i1', state: 'done' })]),
+      toolAnswer('', [
+        call('message.create', { text: 'έτοιμο' }),
+        call('intention.update', { id: 'i1', state: 'done' }),
+      ]),
       '<skip/>',
     ],
-    allowed: ['lore.list', 'intent.update'],
+    allowed: ['lore.list', 'intention.update'],
     features: { intentions: true },
   });
   assert.equal(named.llm.calls.length, 1, 'nothing left open: no request');
@@ -1204,18 +1207,18 @@ test('inner turn, open follow-up: on the last request the open line comes with t
   const run = await innerTurn({
     answers: [
       toolAnswer('', [call('message.create', { text: 'καλημέρα' })]),
-      toolAnswer('', [call('intent.update', { id: 'i1', state: 'done' })]),
+      toolAnswer('', [call('intention.update', { id: 'i1', state: 'done' })]),
       '<skip/>',
     ],
     loop: { maxSteps: 1 },
-    allowed: ['lore.list', 'intent.update'],
+    allowed: ['lore.list', 'intention.update'],
     features: { intentions: true },
   });
   assert.equal(run.llm.calls.length, 2, 'the extra request is the last one; its terminal action ends the turn');
   assert.equal(noteOf(run, 1), `${LAST}\n\n${OPEN_LINE}`);
   assert.deepEqual(
     run.result.inner.actions.map((a) => `${a.skill}:${a.status}`),
-    ['message.create:proposed', 'intent.update:proposed']
+    ['message.create:proposed', 'intention.update:proposed']
   );
   assert.equal(run.result.inner.openFollowUp, true);
   // A read beside a post on the last request: the open line too, no extra request after the last.
@@ -1228,7 +1231,7 @@ test('inner turn, open follow-up: on the last request the open line comes with t
   assert.equal(read.result.inner.openFollowUp, undefined);
 });
 
-test("inner turn: the result carries the loop's end state, a refused post as a feedback fact, and the intention an intent.update closed with its state", async () => {
+test("inner turn: the result carries the loop's end state, a refused post as a feedback fact, and the intention an intention.update closed with its state", async () => {
   // A refused post (no current channel) is an action the feedback facts carry; a speech tag has no result to read, so it is a fact.
   const refused = await innerTurn({
     answers: ['<msg>γεια σας</msg>', '<skip/>'],
@@ -1261,30 +1264,30 @@ test("inner turn: the result carries the loop's end state, a refused post as a f
   // No loop at all: zeros.
   const silent = await innerTurn({ answers: ['<skip/>'] });
   assert.deepEqual(silent.result.inner.loop, { steps: 0, cut: null, droppedCalls: 0 });
-  // The loop cut on its last request with calls dropped; the intent.update action names its intention and state.
+  // The loop cut on its last request with calls dropped; the intention.update action names its intention and state.
   const cut = await innerTurn({
     answers: [
       toolAnswer('', [call('lore.list')]),
       toolAnswer('', [
         call('lore.list'),
         call('message.create', { text: 'καλημέρα' }),
-        call('intent.update', { id: 'i1', state: 'done' }),
+        call('intention.update', { id: 'i1', state: 'done' }),
       ]),
       '<skip/>',
     ],
     shadow: false,
     loop: { maxSteps: 1 },
-    allowed: ['lore.list', 'intent.update'],
+    allowed: ['lore.list', 'intention.update'],
     features: { intentions: true },
   });
   assert.deepEqual(cut.result.inner.loop, { steps: 1, cut: 'steps', droppedCalls: 2 });
   const done = await innerTurn({
-    answers: [toolAnswer('', [call('intent.update', { id: 'i1', state: 'done' })]), '<skip/>'],
-    allowed: ['lore.list', 'intent.update'],
+    answers: [toolAnswer('', [call('intention.update', { id: 'i1', state: 'done' })]), '<skip/>'],
+    allowed: ['lore.list', 'intention.update'],
     features: { intentions: true },
   });
   const action = done.result.inner.actions[0];
-  assert.equal(action.skill, 'intent.update');
+  assert.equal(action.skill, 'intention.update');
   assert.equal(action.intentionId, 'i1');
   assert.equal(action.state, 'done');
 });
@@ -1316,7 +1319,7 @@ test("wakeBlockText: a feedback wake is its kind line and one feedbackItem per f
   const wake = {
     ...WAKE,
     kind: 'feedback',
-    items: [{ kind: 'feedback', reason: 'feedback', intentionIds: [], taskId: null, facts, turnId: 't-1' }],
+    items: [{ kind: 'feedback', reason: 'feedback', intentionIds: [], errandId: null, facts, turnId: 't-1' }],
     intentions: [],
   };
   const text = wakeBlockText(wake, labels);
@@ -1453,9 +1456,9 @@ test("feedbackFacts: every status that is not ok is a callFailed with its code a
 
 test("inner turn, live: a call that did not work carries the operation's own words into its action and its callFailed fact", async () => {
   const run = await innerTurn({
-    answers: [toolAnswer('', [call('task.run', { agent: 'scout', goal: 'βρες τον πίνακα' })]), '<skip/>'],
+    answers: [toolAnswer('', [call('errand.run', { agent: 'scout', goal: 'βρες τον πίνακα' })]), '<skip/>'],
     shadow: false,
-    allowed: ['task.run'],
+    allowed: ['errand.run'],
     withErrands: true,
     errandConfigured: false,
   });
@@ -1465,7 +1468,7 @@ test("inner turn, live: a call that did not work carries the operation's own wor
   assert.deepEqual(feedbackFacts(run.result), [], 'her next step showed the outcome: no fact');
   const [fact] = feedbackFacts({ inner: { actions: [{ ...action, presented: undefined }] } });
   assert.equal(fact.kind, 'callFailed');
-  assert.equal(fact.skill, 'task.run');
+  assert.equal(fact.skill, 'errand.run');
   assert.equal(
     fact.status,
     ['failed', 'partial', 'invalid', 'denied', 'not_configured', 'unknown', 'timeout', 'refused'].includes(
@@ -1597,12 +1600,12 @@ test("inner turn: a heartbeat turn and an addressed reply in the same channel sh
     'message.create',
     'message.react.add',
     'draw.create',
-    'task.run',
-    'task.read',
-    'task.resolve',
-    'intent.set',
-    'intent.update',
-    'intent.cancel',
+    'errand.run',
+    'errand.read',
+    'errand.resolve',
+    'intention.set',
+    'intention.update',
+    'intention.cancel',
     'places.list',
   ];
   const requestOf = async (kind, withProfile) => {
@@ -1650,7 +1653,7 @@ test("inner turn: a heartbeat turn and an addressed reply in the same channel sh
       const wake = {
         ...WAKE,
         kind: 'heartbeat',
-        items: [{ kind: 'heartbeat', reason: 'heartbeat', intentionIds: [], taskId: null }],
+        items: [{ kind: 'heartbeat', reason: 'heartbeat', intentionIds: [], errandId: null }],
         intentions: [],
       };
       await withCapturedLogs(() =>

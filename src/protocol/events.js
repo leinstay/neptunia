@@ -4,7 +4,7 @@
 // since the epoch), `id` (an opaque event id for dedup) and, for what happens in a conversation,
 // `conversation`. A direct chat is a conversation of kind `dm`, never a separate event; a mention
 // of the persona is the `addressing` of a message, never a second event. `scheduler.tick`,
-// `task.completed` and `inner.wake` are the core's own (its clock, its errands and its inner-life
+// `errand.done` and `inner.wake` are the core's own (its clock, its errands and its inner-life
 // scheduler): an adapter never sends them.
 // Contracts only: the shapes are checked by validate.js; building them is the adapter's job.
 
@@ -29,7 +29,7 @@ export const CONNECTION_CHANGED = 'connection.changed';
 /** The core's own clock. */
 export const SCHEDULER_TICK = 'scheduler.tick';
 /** One of the persona's errands ended. */
-export const TASK_COMPLETED = 'task.completed';
+export const ERRAND_DONE = 'errand.done';
 /** The inner-life scheduler found something due for the persona (src/behavior/inner.js). */
 export const INNER_WAKE = 'inner.wake';
 
@@ -39,7 +39,7 @@ export const EVENT_KINDS = Object.freeze([
   REACTION_CHANGED,
   COMMAND_REQUESTED,
   SCHEDULER_TICK,
-  TASK_COMPLETED,
+  ERRAND_DONE,
   MEMBERSHIP_CHANGED,
   VOICE_CHANGED,
   INNER_WAKE,
@@ -50,7 +50,7 @@ export const EVENT_KINDS = Object.freeze([
 ]);
 
 /** The kinds the core emits itself; every other kind comes from an interface. */
-export const CORE_KINDS = Object.freeze([SCHEDULER_TICK, TASK_COMPLETED, INNER_WAKE]);
+export const CORE_KINDS = Object.freeze([SCHEDULER_TICK, ERRAND_DONE, INNER_WAKE]);
 
 /** Every conversation kind. */
 export const CONVERSATION_KINDS = Object.freeze(['channel', 'dm', 'thread']);
@@ -236,11 +236,11 @@ export const CONNECTION_STATES = Object.freeze(['lost', 'resumed']);
  */
 
 /**
- * `task.completed`: an errand ended with `status` and its `result` (as src/errands defines them);
- * `communityId` is the community whose ledger holds the task. The core derives `id` (`taskId` and
+ * `errand.done`: an errand ended with `status` and its `result` (as src/errands defines them);
+ * `communityId` is the community whose ledger holds the errand. The core derives `id` (`errandId` and
  * `status`) when it has none, so a second delivery of the same end is the same event.
- * @typedef {{ kind: 'task.completed', at: number, id?: string, communityId?: string|null, taskId: string, status: string,
- *   result?: unknown }} TaskCompleted
+ * @typedef {{ kind: 'errand.done', at: number, id?: string, communityId?: string|null, errandId: string, status: string,
+ *   result?: unknown }} ErrandDone
  */
 
 /**
@@ -252,5 +252,5 @@ export const CONNECTION_STATES = Object.freeze(['lost', 'resumed']);
  */
 
 /**
- * @typedef {MessageReceived|ReactionChanged|CommandRequested|SchedulerTick|TaskCompleted|MembershipChanged|VoiceChanged|InnerWake|PresenceChanged|PresenceSnapshot|ConversationChanged|ConnectionChanged} InboundEvent
+ * @typedef {MessageReceived|ReactionChanged|CommandRequested|SchedulerTick|ErrandDone|MembershipChanged|VoiceChanged|InnerWake|PresenceChanged|PresenceSnapshot|ConversationChanged|ConnectionChanged} InboundEvent
  */

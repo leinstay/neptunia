@@ -118,7 +118,7 @@ test('wakes: a restarted run creates no duplicate action; a finished run is not 
     const first = recordAction(handle, {
       runId: 'run-1',
       n: 1,
-      kind: 'intent.set',
+      kind: 'intention.set',
       target: { channel: 'c1' },
       status: 'executed',
       at: NOW + 1000,
@@ -137,14 +137,14 @@ test('wakes: a restarted run creates no duplicate action; a finished run is not 
     const again = recordAction(handle, {
       runId: 'run-1',
       n: 1,
-      kind: 'intent.set',
+      kind: 'intention.set',
       target: { channel: 'c1' },
       status: 'executed',
       at: NOW + 12 * MINUTE,
     });
     assert.equal(again.created, false);
     assert.deepEqual(again.row, first.row, 'the second record of the same key returns the first row');
-    recordAction(handle, { runId: 'run-1', n: 3, kind: 'intent.update', status: 'executed', at: NOW + 13 * MINUTE });
+    recordAction(handle, { runId: 'run-1', n: 3, kind: 'intention.update', status: 'executed', at: NOW + 13 * MINUTE });
     assert.equal(count(handle.db, 'SELECT COUNT(*) AS n FROM wake_actions WHERE run_id = ?', 'run-1'), 3);
     assert.equal(
       finishRun(handle, { id: 'run-1', status: 'succeeded', outcome: 'spoke', finishedAt: NOW + 14 * MINUTE }),

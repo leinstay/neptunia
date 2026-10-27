@@ -20,7 +20,7 @@ Your tool calls run before your speech goes out. Speech is posted only when ever
 
 When one call depends on another call's result, put them in separate answers. The next answer carries the results of the previous one. A picture and an announcement about it in the same answer risks the announcement going out before the picture's result is known; put the announcement in the next answer, after you see the result.
 
-An errand you hand off with task.run is accepted and runs in the background. Its result arrives in a separate turn. The errand is on its way, not finished here.
+An errand you hand off with errand.run is accepted and runs in the background. Its result arrives in a separate turn. The errand is on its way, not finished here.
 
 `<msg>` and `<react>` post in the turn's current channel. To post in a different channel, attach a file from an errand, or repost a media attachment from one of your messages, call message.create with the channel and content. `<react>` always needs the line it targets (`to="#87"`); without one it is refused.
 

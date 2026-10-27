@@ -16,7 +16,7 @@
     },
     { "kind": "voice.changed", "at": 1200, "id": "fake:voice:u2:1", "communityId": "g1", "userId": "u2", "conversationId": "v1", "previousId": null, "muted": false },
     { "kind": "membership.changed", "at": 1300, "id": "fake:member:u3:1", "communityId": "g1", "userId": "u3", "change": "joined", "member": { "id": "u3", "name": "Σοφία", "bot": false } },
-    { "kind": "task.completed", "at": 1400, "communityId": "g1", "taskId": "t1", "status": "done" },
+    { "kind": "errand.done", "at": 1400, "communityId": "g1", "errandId": "t1", "status": "done" },
     {
       "kind": "message.received", "at": 1500, "id": "fake:delete:m1",
       "conversation": { "id": "c1", "kind": "channel", "communityId": "g1", "name": "γενικά", "topic": null, "category": null },

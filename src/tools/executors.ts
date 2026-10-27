@@ -136,9 +136,9 @@ function isOwnLine(line: ViewLine, selfId: string | null | undefined): boolean {
 const FILE_OPTIONS: ReadonlyArray<string> = Object.freeze(['file']);
 
 /** The skill whose `agent` she must name: refused `agent-required` (with the agents) when left out. */
-const AGENT_SKILL = 'task.run';
+const AGENT_SKILL = 'errand.run';
 /** The skills whose `people` option is a list of members (ids, names, `@handle`s, comma or space separated), resolved one by one. */
-const PEOPLE_LIST_SKILLS: ReadonlyArray<string> = Object.freeze(['intent.set', 'intent.update']);
+const PEOPLE_LIST_SKILLS: ReadonlyArray<string> = Object.freeze(['intention.set', 'intention.update']);
 
 /** The operations whose `text` is the persona's own writing, posted as a `<msg>` of hers is (mentions, custom emoji, links). */
 const WRITTEN: ReadonlyArray<string> = Object.freeze(['message.create', 'message.edit']);
@@ -321,7 +321,7 @@ function fileMayGo(task: Obj, channelId: string, view: CallView | undefined): bo
  * author. A message link there (`view.links`, which the interface read, bare or in angle brackets) becomes its
  * message id and names its channel the same way (`unknown-message` when the call named another);
  * any other value -- a raw message id -- is passed on as written. An errand
- * (`task.run`) without its `agent` is refused `agent-required`, the reason the agents she may
+ * (`errand.run`) without its `agent` is refused `agent-required`, the reason the agents she may
  * name, comma-separated (the schema's choices). Pure.
  * `call` is `{ skill, args }`, `args` the strings she wrote. A channel option resolves a `#handle` of `view.channelHandles` (the request's, handle -> channel
  * id) exactly before any name; a member option a `@handle` of `view.memberHandles` (handle -> member
@@ -566,7 +566,7 @@ function fromPort(answer: unknown): CallResult {
  * it is `unknown` (`timeout`), never retried. Its answer is the call's `data.text`
  * whatever the status -- the reply text, a card's fields, or the error or refusal the owner would
  * read -- with its code when it is not `ok`, `ref` when a message went out, and `taskId` when it
- * queued an errand (`task.run`). Files it answers
+ * queued an errand (`errand.run`). Files it answers
  * with (`/nep draw` without a channel) are posted to the current conversation through
  * `deps.port` (`deps.refOf`), as the owner's command shows them to the owner: the call is then
  * that post's result, never generated again. A skill `deps.inTurn` holds (the turn's in-turn
@@ -649,7 +649,7 @@ export async function executeCall(resolved: Resolved, deps: ExecuteDeps): Promis
                   ...(envelope.wakeKind ? { wakeKind: String(envelope.wakeKind) } : {}),
                 }
               : {}),
-            // The message her turn answers: where an errand she starts brings its result back (src/tools/impl/task.ts).
+            // The message her turn answers: where an errand she starts brings its result back (src/tools/impl/errand.ts).
             ...(Array.isArray(envelope.sourceMessageIds) && envelope.sourceMessageIds.length > 0
               ? { sourceMessageId: String(envelope.sourceMessageIds[0]) }
               : {}),

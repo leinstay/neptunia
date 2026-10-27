@@ -91,7 +91,7 @@ test("innerReplayWake: the scheduler's wake for the intention, its budgets from 
     day: '2026-10-19',
   });
   assert.equal(wake.id, `inner.wake:intention_due:i1:${NOW - 5_000}`);
-  assert.deepEqual(info.items, [{ kind: 'intention_due', reason: 'due', intentionIds: ['i1'], taskId: null }]);
+  assert.deepEqual(info.items, [{ kind: 'intention_due', reason: 'due', intentionIds: ['i1'], errandId: null }]);
   assert.equal(info.budgets.day, undefined);
   assert.equal(info.budgets.chain.left, 2);
   const review = innerReplayWake({

@@ -1,5 +1,5 @@
 // The persona's intentions as data (docs/inner-life.md): what she means to do later, set by her
-// own call (`intent.set`, provenance `self`, born `pending`) or proposed by the memory analyzer
+// own call (`intention.set`, provenance `self`, born `pending`) or proposed by the memory analyzer
 // from one of her own lines (provenance `candidate`, born `proposed`, never active until she
 // accepts it). Pure: every function takes the record and the clock (`now`, epoch ms) and answers
 // a new record, never mutating its input; the store (src/intentions/store.js) persists them.
@@ -13,7 +13,7 @@
 // attention). `done`, `cancelled`, `expired` and `dropped` are terminal: nothing moves out of them
 // (a dropped one is not open, never due, and kept like any closed one). The
 // invariants every record keeps (checkInvariants): an `expiresAt` (every intention ends), and a
-// `waiting` one has both `awaitingTaskId` and `waitDeadline` -- there is no wait without a real
+// `waiting` one has both `awaitingErrandId` and `waitDeadline` -- there is no wait without a real
 // errand and a deadline. Expiry comes from the clock (expireAt); `dueList` lists what is due for
 // the scheduler of step 2 (listing, not choosing). Codes are kebab-case; no wording here.
 //
@@ -521,7 +521,7 @@ function participantIds(list) {
 
 /**
  * The invariant `record` breaks, as a code, or null: `bad-status`, `no-purpose`, `no-expiry`,
- * `wait-without-task`, `wait-without-deadline`, `bad-attend`, `attend-with-due`, `attend-with-every`
+ * `wait-without-errand`, `wait-without-deadline`, `bad-attend`, `attend-with-due`, `attend-with-every`
  * (an attention has no due time and no recurrence), `bad-every`, `every-without-due` (a recurring
  * one always has its current occurrence), `recurring-done` (a recurring one is never done).
  * @param {object} record
@@ -543,7 +543,7 @@ export function checkInvariants(record) {
     if (record.status === 'done') return 'recurring-done';
   }
   if (record.status === 'waiting') {
-    if (typeof record.awaitingTaskId !== 'string' || !record.awaitingTaskId) return 'wait-without-task';
+    if (typeof record.awaitingErrandId !== 'string' || !record.awaitingErrandId) return 'wait-without-errand';
     if (!Number.isFinite(record.waitDeadline)) return 'wait-without-deadline';
   }
   return null;
@@ -640,7 +640,7 @@ export function createIntention({
     dueAt: dueAt ?? null,
     every: every ? { period: every.period, at: every.at ?? null } : null,
     expiresAt: expires,
-    awaitingTaskId: null,
+    awaitingErrandId: null,
     waitDeadline: null,
     destination: idOrNull(destination),
     completionCondition: line(completionCondition, CONDITION_CHARS) || null,
@@ -682,7 +682,7 @@ function createDropped({ text, provenance, reason, now, settings, id, by }) {
     dueAt: null,
     every: null,
     expiresAt: now,
-    awaitingTaskId: null,
+    awaitingErrandId: null,
     waitDeadline: null,
     destination: null,
     completionCondition: null,
@@ -742,9 +742,9 @@ export function transition(record, to, { now, by = 'persona', code = null, patch
   if (!MOVES[record?.status]?.includes(to)) return { ok: false, code: CODE.BAD_MOVE };
   const leavingWait = record.status === 'waiting' && to !== 'waiting';
   let next = { ...record, ...patch, status: to, updatedAt: now };
-  // Out of a wait the errand stays named in `outcome`/`lastTaskId`, never as an open wait.
+  // Out of a wait the errand stays named in `outcome`/`lastErrandId`, never as an open wait.
   if (leavingWait)
-    next = { ...next, awaitingTaskId: null, waitDeadline: null, lastTaskId: record.awaitingTaskId ?? null };
+    next = { ...next, awaitingErrandId: null, waitDeadline: null, lastErrandId: record.awaitingErrandId ?? null };
   const broken = checkInvariants(next);
   if (broken) return { ok: false, code: broken };
   next = withHistory(next, { at: now, from: record.status, to, by, ...(code ? { code } : {}) });
@@ -754,13 +754,13 @@ export function transition(record, to, { now, by = 'persona', code = null, patch
 /**
  * `record` set waiting on errand `taskId` until `deadline` (epoch ms, after `now`): from `pending`,
  * or from `waiting` on another errand (the wait moves to the new one). `{ ok: false, code }`:
- * `wait-without-task`, `bad-deadline`, or transition's codes.
+ * `wait-without-errand`, `bad-deadline`, or transition's codes.
  */
 export function waitOn(record, { taskId, deadline, now, by = 'persona' }) {
   const id = idOrNull(taskId);
-  if (!id) return { ok: false, code: CODE.WAIT_WITHOUT_TASK };
+  if (!id) return { ok: false, code: CODE.WAIT_WITHOUT_ERRAND };
   if (!Number.isFinite(deadline) || deadline <= now) return { ok: false, code: CODE.BAD_DEADLINE };
-  const patch = { awaitingTaskId: id, waitDeadline: deadline, waitRequested: null };
+  const patch = { awaitingErrandId: id, waitDeadline: deadline, waitRequested: null };
   if (record?.status === 'waiting') {
     const next = { ...record, ...patch, updatedAt: now };
     return {
@@ -777,7 +777,7 @@ const TASK_ENDS = Object.freeze(['done', 'failed', 'cancelled']);
 
 /**
  * The end of errand `task` reaching `record`: a `waiting` record awaiting that very task moves to
- * `pending` with `outcome: { taskId, state, error?, at }` (`code` `task-<state>`). Anything else
+ * `pending` with `outcome: { errandId, state, error?, at }` (`code` `errand-<state>`). Anything else
  * -- another task, a record no longer waiting (the same end delivered twice), a task still open
  * -- changes nothing: `{ ok: true, intention: record, changed: false }`.
  */
@@ -785,14 +785,14 @@ export function arrive(record, task, { now }) {
   if (
     record?.status !== 'waiting' ||
     !task ||
-    record.awaitingTaskId !== String(task.id) ||
+    record.awaitingErrandId !== String(task.id) ||
     !TASK_ENDS.includes(task.state)
   ) {
     return { ok: true, intention: record, changed: false };
   }
   const at = Number.isFinite(task.endedAt) ? task.endedAt : now;
   const outcome = {
-    taskId: String(task.id),
+    errandId: String(task.id),
     state: task.state,
     ...(task.error ? { error: String(task.error) } : {}),
     at,
@@ -804,8 +804,8 @@ export function arrive(record, task, { now }) {
   return transition(record, 'pending', {
     now,
     by: 'engine',
-    code: `task-${task.state}`,
-    patch: { outcome, note: `task-${task.state}`, dueAt },
+    code: `errand-${task.state}`,
+    patch: { outcome, note: `errand-${task.state}`, dueAt },
   });
 }
 
@@ -859,7 +859,7 @@ export function markExpiredShown(record, now) {
 
 /**
  * Recurring `record`'s current occurrence closed and the next one set: `pending` (a wait closed on
- * the way, its errand kept as `lastTaskId`), `dueAt` the next occurrence after `now`
+ * the way, its errand kept as `lastErrandId`), `dueAt` the next occurrence after `now`
  * (nextOccurrence: the ones already past are skipped; it may lie past `expiresAt`, which then
  * wins), the past occurrence's `note` and `outcome` cleared unless `keepWaitEnd` (the wait's end
  * is what moved it), and the history entry `{ from, to: 'pending', by, code }` with `code` one
@@ -881,10 +881,10 @@ export function advanceOccurrence(record, { now, timezone = 'UTC', code, by = 'p
     status: 'pending',
     dueAt,
     updatedAt: now,
-    awaitingTaskId: null,
+    awaitingErrandId: null,
     waitDeadline: null,
     waitRequested: null,
-    ...(leavingWait ? { lastTaskId: record.awaitingTaskId ?? null } : {}),
+    ...(leavingWait ? { lastErrandId: record.awaitingErrandId ?? null } : {}),
     ...(keepWaitEnd ? {} : { note: null, outcome: null }),
   };
   const broken = checkInvariants(next);
@@ -895,18 +895,18 @@ export function advanceOccurrence(record, { now, timezone = 'UTC', code, by = 'p
 
 /**
  * One `waiting` record reconciled against the task store (`taskOf(id)`: the task, or null when
- * the store has none): the task gone -> `pending` with note `task-missing`; the task ended ->
+ * the store has none): the task gone -> `pending` with note `errand-missing`; the task ended ->
  * as `arrive`; the wait deadline passed -> `pending` with note `wait-deadline`; else unchanged.
  */
 export function reconcileWait(record, { taskOf, now }) {
   if (record?.status !== 'waiting') return { ok: true, intention: record, changed: false };
-  const task = typeof taskOf === 'function' ? taskOf(record.awaitingTaskId) : null;
+  const task = typeof taskOf === 'function' ? taskOf(record.awaitingErrandId) : null;
   if (!task)
     return transition(record, 'pending', {
       now,
       by: 'engine',
-      code: CODE.TASK_MISSING,
-      patch: { note: 'task-missing' },
+      code: CODE.ERRAND_MISSING,
+      patch: { note: 'errand-missing' },
     });
   if (TASK_ENDS.includes(task.state)) return arrive(record, task, { now });
   if (now >= record.waitDeadline)

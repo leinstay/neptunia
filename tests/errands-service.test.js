@@ -66,11 +66,8 @@ function makeService(env, { keyByRole } = {}) {
           dev: 'OPENROUTER_DEV_KEY',
         },
       },
-      agents: {
-        maxOpen: 3,
-        scout: { enabled: true, daily: { tasks: 10 } },
-        server: { enabled: true, daily: { tasks: 10 } },
-      },
+      errands: { maxOpen: 3 },
+      agents: { scout: { enabled: true, daily: { tasks: 10 } }, server: { enabled: true, daily: { tasks: 10 } } },
     },
   };
   const journalLines = [];
@@ -193,9 +190,11 @@ test("errands service: without the role's key no secrets are sent (never the mai
   }
 });
 
-test("errands service: a task carries context.recent, the origin channel's last agents.recentLines lines as of its queuing; a dm task sends none", async () => {
+test("errands service: a task carries context.recent, the origin channel's last errands.recentLines lines as of its queuing; a dm task sends none", async () => {
   const rootDir = tempDir('nep-errands-service-');
-  const hot = { config: { agents: { maxOpen: 5, recentLines: 3, scout: { enabled: true, daily: { tasks: 10 } } } } };
+  const hot = {
+    config: { errands: { maxOpen: 5, recentLines: 3 }, agents: { scout: { enabled: true, daily: { tasks: 10 } } } },
+  };
   const buffer = [
     { channelId: 'c1', authorName: 'Ελένη', content: 'πρώτη' },
     { channelId: 'c2', authorName: 'Νίκος', content: 'elsewhere' },
@@ -244,7 +243,7 @@ test("errands service: a task carries context.recent, the origin channel's last 
   assert.deepEqual([group.context.scope, group.context.channel, group.context.asker], ['group', 'c1', '7']);
   assert.deepEqual(dm.context.recent, [], 'nothing of a private chat');
   assert.equal(dm.context.scope, 'dm');
-  hot.config.agents.recentLines = 0;
+  hot.config.errands.recentLines = 0;
   errands.submit(ask('scout'));
   for (const fn of deferred.splice(0)) fn();
   await errands.idle();
@@ -295,11 +294,8 @@ test("errands service: the ledger mirror is called at the queuing (limits), the 
   const hot = {
     config: {
       models: { errands: { scout: 'openrouter/vendor/web-model' } },
-      agents: {
-        maxOpen: 5,
-        resultMaxChars: 1234,
-        scout: { enabled: true, daily: { tasks: 10 }, limits: { steps: 9, usd: 0.3, seconds: 90 } },
-      },
+      errands: { maxOpen: 5, resultMaxChars: 1234 },
+      agents: { scout: { enabled: true, daily: { tasks: 10 }, limits: { steps: 9, usd: 0.3, seconds: 90 } } },
     },
   };
   const gates = new Map();
@@ -367,7 +363,7 @@ test("errands service: the ledger mirror is called at the queuing (limits), the 
 
 test("errands service: at start the open tasks without a ledger id are mirrored, then each one's restart failure; a mirror that throws never stops an errand", async () => {
   const rootDir = tempDir('nep-errands-service-');
-  const hot = { config: { agents: { maxOpen: 5, scout: { enabled: true, daily: { tasks: 10 } } } } };
+  const hot = { config: { errands: { maxOpen: 5 }, agents: { scout: { enabled: true, daily: { tasks: 10 } } } } };
   const dataDir = path.join(rootDir, 'data');
   try {
     // Before the restart: two open tasks, one of them already mirrored.
@@ -478,7 +474,8 @@ test('errands service: with the runner socket absent the flag goes down, submit 
   const sock = path.join(os.tmpdir(), `errand-health-${process.pid}-${Math.random().toString(36).slice(2)}.sock`);
   const hot = {
     config: {
-      agents: { maxOpen: 3, scout: { enabled: true, socket: sock, daily: { tasks: 10 } }, server: { enabled: false } },
+      errands: { maxOpen: 3 },
+      agents: { scout: { enabled: true, socket: sock, daily: { tasks: 10 } }, server: { enabled: false } },
     },
   };
   let clock = 1_000_000;
@@ -536,7 +533,7 @@ test("errands service: the connect loop's outcomes set the flag; start pings the
     run: async () => ({ status: 'done', result: { text: '' }, usage: {} }),
   };
   const rootDir = tempDir('nep-errands-service-');
-  const hot = { config: { agents: { maxOpen: 3, scout: { enabled: true, daily: { tasks: 10 } } } } };
+  const hot = { config: { errands: { maxOpen: 3 }, agents: { scout: { enabled: true, daily: { tasks: 10 } } } } };
   const stores = createTaskStores({ memoryDb: memoryOf(path.join(rootDir, 'data')), config: () => hot.config, log });
   const errands = createErrandService({ client, stores, hot, getGuildId: () => 'g1', log, defer: (fn) => fn() });
   try {
@@ -580,7 +577,7 @@ function finishedTask(store, { scope = 'group', channelId = 'c1', result = { tex
 
 test('errands service: view lists the open tasks, then the unread finished ones; reading or resolving takes one out; a seen result stays until it is read', () => {
   const rootDir = tempDir('nep-errands-service-');
-  const hot = { config: { agents: { maxOpen: 5, scout: { enabled: true, daily: { tasks: 10 } } } } };
+  const hot = { config: { errands: { maxOpen: 5 }, agents: { scout: { enabled: true, daily: { tasks: 10 } } } } };
   try {
     const stores = createTaskStores({
       memoryDb: memoryOf(path.join(rootDir, 'data')),
@@ -628,7 +625,7 @@ test('errands service: view lists the open tasks, then the unread finished ones;
 
 test("errands service: a private chat's unread result is in the view only in that chat; the unread list survives a restart of the store", async () => {
   const rootDir = tempDir('nep-errands-service-');
-  const hot = { config: { agents: { maxOpen: 5, scout: { enabled: true, daily: { tasks: 10 } } } } };
+  const hot = { config: { errands: { maxOpen: 5 }, agents: { scout: { enabled: true, daily: { tasks: 10 } } } } };
   const dataDir = path.join(rootDir, 'data');
   try {
     const stores = createTaskStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: fakeLog() });
@@ -661,13 +658,13 @@ test("errands service: a private chat's unread result is in the view only in tha
       [dm, group]
     );
     // A record from before readAt: seen counts as read, unseen as unread.
-    const list = JSON.parse(unitFile(memoryOf(dataDir), 'guilds/g1/tasks.json'));
-    for (const task of list.tasks) {
+    const list = JSON.parse(unitFile(memoryOf(dataDir), 'guilds/g1/errands.json'));
+    for (const task of list.errands) {
       delete task.readAt;
       delete task.resolvedAt;
     }
-    list.tasks[0].seen = true;
-    await memoryOf(dataDir).writeUnit({ op: 'value', owner: 'guilds/g1/tasks.json', value: list });
+    list.errands[0].seen = true;
+    await memoryOf(dataDir).writeUnit({ op: 'value', owner: 'guilds/g1/errands.json', value: list });
     const legacy = createTaskStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: fakeLog() }).get(
       'g1'
     );
@@ -682,7 +679,7 @@ test("errands service: a private chat's unread result is in the view only in tha
 
 test('errands service: at start the finished errands whose result turn never ran get it again; the seen ones do not', async () => {
   const rootDir = tempDir('nep-errands-service-');
-  const hot = { config: { agents: { maxOpen: 5, scout: { enabled: true, daily: { tasks: 10 } } } } };
+  const hot = { config: { errands: { maxOpen: 5 }, agents: { scout: { enabled: true, daily: { tasks: 10 } } } } };
   const dataDir = path.join(rootDir, 'data');
   try {
     const before = createTaskStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: fakeLog() }).get(
@@ -725,7 +722,7 @@ test("errands service: the file of an expired task is a marker, not a path; a pr
   const rootDir = tempDir('nep-errands-service-');
   const out = path.join(rootDir, 'out');
   fs.mkdirSync(out, { recursive: true });
-  const hot = { config: { agents: { maxOpen: 5, scout: { enabled: true, out, daily: { tasks: 10 } } } } };
+  const hot = { config: { errands: { maxOpen: 5 }, agents: { scout: { enabled: true, out, daily: { tasks: 10 } } } } };
   try {
     const stores = createTaskStores({
       memoryDb: memoryOf(path.join(rootDir, 'data')),

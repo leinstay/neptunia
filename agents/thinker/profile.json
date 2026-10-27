@@ -30,5 +30,6 @@
   },
   "effort": "high",
   "limits": { "steps": 400, "minutes": 60 },
+  "cost": { "input": 4, "output": 20 },
   "description": "Orchestrates the development tasks of the ledger: writes briefs, reviews the work, runs the tests and merges; never deploys."
 }

@@ -103,6 +103,7 @@ import { errorCodeOf } from '../llm/openrouter.js';
 import { CODE } from '../tools/codes.ts';
 import { WAKE_POLICY_VERSION } from '../tools/access.ts';
 import { buildHeartbeatFacts } from './heartbeat-view.js';
+import { storedWakes } from './wake.js';
 
 /** The wake kinds, as the `<wake>` block names them. */
 export const WAKE_KINDS = Object.freeze([
@@ -176,7 +177,7 @@ const TURN_OUTCOMES = new Set(['spoke', 'skip', 'refused', 'not-now', 'error']);
 /** The skills that post where people read. */
 export const POSTING_SKILLS = Object.freeze(['message.create', 'draw.create', 'voice.say']);
 /** The calls that deliver something out of an inner turn: a post, a picture, an errand. */
-export const DELIVERY_SKILLS = Object.freeze(['message.create', 'draw.create', 'voice.say', 'task.run']);
+export const DELIVERY_SKILLS = Object.freeze(['message.create', 'draw.create', 'voice.say', 'errand.run']);
 /** The kinds of feedback facts, as `labels.wake.feedback.<kind>` names them. */
 export const FEEDBACK_KINDS = Object.freeze([
   'callFailed',
@@ -210,7 +211,7 @@ export const FACTS_SHOWN_MAX = 12;
  * `{ outcome, inner: { actions, intentIds, loop } }`), as a list of facts, each
  * `{ kind, ... }` (FEEDBACK_KINDS), in this order: one `callFailed` per call whose status was not `ok`
  * and not `presented` in a later step of the turn (`failed`, `partial`, `invalid`, `denied`, `not_configured`, `refused`, `unknown`, `timeout`; `skill`, `status`, `code`, and the
- * operation's own `text` when it said one; a tag of hers refused by the gate is the `message.create` it was lowered into); one `doneWithoutDelivery` per intention an executed `intent.update`
+ * operation's own `text` when it said one; a tag of hers refused by the gate is the `message.create` it was lowered into); one `doneWithoutDelivery` per intention an executed `intention.update`
  * closed as done (`state` `done` on the action, its `intentionId`, else the one id in `named`)
  * while no delivery call (`posting`, DELIVERY_SKILLS) was executed in the turn (`named` defaults
  * to the result's `inner.intentIds`; `intentionId`,
@@ -259,7 +260,7 @@ export function feedbackFacts(turnResult, { named = null, posting = DELIVERY_SKI
     const closed = [];
     for (const action of actions) {
       if (
-        action?.skill !== 'intent.update' ||
+        action?.skill !== 'intention.update' ||
         action.status !== 'executed' ||
         action.result !== 'ok' ||
         action.state !== 'done'
@@ -492,7 +493,7 @@ export function normalizeState(raw) {
     stopped: raw.stopped === true,
     stoppedAt: Number.isFinite(raw.stoppedAt) ? raw.stoppedAt : null,
     stoppedBy: typeof raw.stoppedBy === 'string' ? raw.stoppedBy : null,
-    queue: list(raw.queue).filter((wake) => wake && typeof wake.id === 'string' && WAKE_KINDS.includes(wake.kind)),
+    queue: storedWakes(raw.queue, WAKE_KINDS),
     handled: object(raw.handled),
     review: raw.review && typeof raw.review.day === 'string' ? raw.review : null,
     heartbeat:
@@ -577,20 +578,19 @@ export function currentChannelOf(group, records = []) {
 }
 
 /**
- * The wake of one entry of src/intentions/model.js#dueList (`{ intention, reason, at }`): an
- * `errand_deadline` for a wait past its deadline (its id names the errand), else an
- * `intention_due` (its id names the due time), so the same due item is always the same wake and
- * a new due time is a new one. Its chain is the intention's `chainId`, else the intention -- or,
- * for a recurring intention (`every`), this occurrence of it: each occurrence is its own chain.
+ * The wake of one entry of src/intentions/model.js#dueList (`{ intention, reason, at }`): an `errand_deadline` for a
+ * wait past its deadline (its id names the errand), else an `intention_due` (its id names the due time), so the same
+ * due item is always the same wake and a new due time is a new one. Its chain is the intention's `chainId`, else the
+ * intention -- or, for a recurring intention (`every`), this occurrence of it: each occurrence is its own chain.
  */
 export function wakeOfDue({ intention, reason, at }) {
   const deadline = reason === 'wait-deadline';
   const kind = deadline ? 'errand_deadline' : 'intention_due';
-  const taskId = deadline ? (intention.awaitingTaskId ?? intention.lastTaskId ?? null) : null;
+  const errandId = deadline ? (intention.awaitingErrandId ?? intention.lastErrandId ?? null) : null;
   const { channelId, privateChat } = targetOf(intention);
   return {
     id: deadline
-      ? `inner.wake:errand_deadline:${intention.id}:${taskId}`
+      ? `inner.wake:errand_deadline:${intention.id}:${errandId}`
       : `inner.wake:intention_due:${intention.id}:${at}`,
     kind,
     reason: deadline ? 'wait-deadline' : 'due',
@@ -603,7 +603,7 @@ export function wakeOfDue({ intention, reason, at }) {
     dueAt: at,
     channelId,
     privateChat,
-    ...(taskId ? { taskId: String(taskId) } : {}),
+    ...(errandId ? { errandId: String(errandId) } : {}),
   };
 }
 
@@ -614,10 +614,10 @@ export function wakeOfDue({ intention, reason, at }) {
  */
 export function deadlineWakes(records) {
   return list(records)
-    .filter((record) => record?.status === 'pending' && record.note === 'wait-deadline' && record.lastTaskId)
+    .filter((record) => record?.status === 'pending' && record.note === 'wait-deadline' && record.lastErrandId)
     .map((record) =>
       wakeOfDue({
-        intention: { ...record, awaitingTaskId: record.lastTaskId },
+        intention: { ...record, awaitingErrandId: record.lastErrandId },
         reason: 'wait-deadline',
         at: record.updatedAt ?? record.createdAt ?? 0,
       })
@@ -1196,7 +1196,7 @@ export function createInnerLife({
       ...(wake.retry
         ? { retry: wake.retry, firstFailedAt: wake.firstFailedAt ?? null, notBefore: wake.notBefore ?? null }
         : {}),
-      ...(wake.taskId ? { taskId: wake.taskId } : {}),
+      ...(wake.errandId ? { errandId: wake.errandId } : {}),
       ...(wake.attend ? { place: wake.attend.place, lines: wake.attend.lines, people: wake.attend.people.length } : {}),
       ...(wake.kind === 'feedback' ? { turnId: wake.turnId ?? null, facts: list(wake.facts) } : {}),
     };
@@ -1599,10 +1599,10 @@ export function createInnerLife({
             a.status === 'executed' &&
             a.result === 'ok' &&
             a.intentionId === id &&
-            (a.skill === 'intent.cancel' || a.state === 'done' || a.state === 'dropped')
+            (a.skill === 'intention.cancel' || a.state === 'done' || a.state === 'dropped')
         );
         const acted = actions.some(
-          (a) => a.status === 'executed' && a.result === 'ok' && !String(a.skill).startsWith('intent.')
+          (a) => a.status === 'executed' && a.result === 'ok' && !String(a.skill).startsWith('intention.')
         );
         const result =
           outcome === 'error' || outcome === 'refused'
@@ -1633,7 +1633,7 @@ export function createInnerLife({
    */
   function logHeartbeatOutcome(guildId, { outcome, actions }) {
     try {
-      const calls = actions.filter((action) => typeof action?.skill === 'string' && action.skill.startsWith('intent.'));
+      const calls = actions.filter((a) => typeof a?.skill === 'string' && a.skill.startsWith('intention.'));
       const changed = calls.find((action) => action.status === 'executed' && action.result === 'ok') ?? null;
       const refused = actions
         .filter((action) => action?.status === 'refused' || (action?.status === 'executed' && action.result !== 'ok'))
@@ -2011,7 +2011,7 @@ export function createInnerLife({
         kind: wake.kind,
         reason: wake.reason,
         intentionIds: wake.intentionIds,
-        taskId: wake.taskId ?? null,
+        errandId: wake.errandId ?? null,
         ...attendOf(wake),
         ...(wake.retry
           ? {

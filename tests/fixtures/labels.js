@@ -280,7 +280,7 @@ export const labels = {
     overheard: 'talked about you to someone else, not to you',
     private: 'wrote to you privately',
     missed: 'wrote to you earlier, unanswered',
-    task: 'asked for the errand that just ended',
+    errand: 'asked for the errand that just ended',
   },
   draw: {
     when: 'Local time: {when}',
@@ -364,7 +364,7 @@ export const labels = {
     step: { held: 'your last answer was not sent', delta: 'meanwhile in the chat:', late: 'these lines finished loading:', last: 'last step', lastInner: 'last step, one call still runs: a post or an intention change', delivery: '{n} of {total} sent ({code})' },
     continueInnerOpen: 'intentions you woke for with no change yet: {list}',
   },
-  tasks: {
+  errands: {
     header: 'your errands:',
     line: '{id} | {agent} | {state} | {age} min | {goal}',
     states: { queued: 'waiting', running: 'running', done: 'done', failed: 'failed', cancelled: 'cancelled' },
@@ -534,7 +534,7 @@ export const labels = {
   },
   wake: {
     header: 'wake:',
-    kinds: { intention_due: 'due: {id} {purpose} ({due})', review: 'review', errand_deadline: 'deadline passed: {id} {purpose} errand {task}', attend: 'talk in #{place} ({id} {purpose}): {lines} lines since {since} by {people}', feedback: 'feedback on your previous turn:', heartbeat: 'heartbeat' },
+    kinds: { intention_due: 'due: {id} {purpose} ({due})', review: 'review', errand_deadline: 'deadline passed: {id} {purpose} errand {errand}', attend: 'talk in #{place} ({id} {purpose}): {lines} lines since {since} by {people}', feedback: 'feedback on your previous turn:', heartbeat: 'heartbeat' },
     delayed: 'delayed {minutes} {code}',
     feedbackInTurn: 'kept for you:',
     feedbackItem: '* {fact}',

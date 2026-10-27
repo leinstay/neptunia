@@ -67,7 +67,7 @@ import { createTaskStores } from './errands/store.js';
 import { createErrandService } from './errands/service.js';
 import { channelPlaceId } from './memory/db/ids.ts';
 import { createMemberDirectory } from './interface/members.ts';
-import { createTaskTurns, taskCompletedEvent } from './errands/turns.js';
+import { createTaskTurns, errandDoneEvent } from './errands/turns.js';
 import { createEventDoor } from './interface/door.js';
 import { createConversationDirectory } from './interface/directory.ts';
 import { isReadable, takeSnapshot } from './behavior/snapshot.ts';
@@ -494,12 +494,12 @@ async function buildCore(options, cleanups) {
   // When each person last wrote in each channel (fed by the message handler): a turn answering
   // someone waits until they stop writing (pace.settleMs).
   const activity = createActivity();
-  // The persona's errands (agents.*): a task she or a member asks for goes to its agent runner over
-  // its socket in the background (src/errands/); the tasks live in data/guilds/<id>/tasks.json.
+  // The persona's errands (`errands.*`, `agents.<profile>` overrides): a task she or a member asks for goes to its agent runner over
+  // its socket in the background (src/errands/); the tasks live in data/guilds/<id>/errands.json.
   const errandClient = createErrandClient({ hot, log });
   const taskStores = createTaskStores({ config: () => hot.config, journal, log, memoryDb });
   // An errand's end opens her own turn where it was asked (the task turns, created below the runner).
-  // An errand's end is a `task.completed` event through the event door (`door`, created below with
+  // An errand's end is an `errand.done` event through the event door (`door`, created below with
   // the gateway's handlers); the door's handler (src/errands/turns.js#onEvent) first moves the
   // intentions waiting on it back to pending, then opens her turn, which shows them with the outcome.
   // A task's `context.recent`: the channel's newest lines from the memory database (her own under her name), oldest first.
@@ -537,7 +537,7 @@ async function buildCore(options, cleanups) {
     memory: { recentLines: recentChannelLines },
     getGuildId,
     log,
-    onFinished: (task, guildId) => door.submit(taskCompletedEvent(task, guildId)),
+    onFinished: (task, guildId) => door.submit(errandDoneEvent(task, guildId)),
   });
   // The persona's intentions (features.intentions): data/guilds/<id>/intentions.json, her own
   // `intent.*` calls, the analyzer's candidates from her lines, and the waits on her errands.
@@ -587,7 +587,7 @@ async function buildCore(options, cleanups) {
     runOwnOp: (op, args, context) => admin.runOwnSkillOp(op, args, context),
     // An inner turn's calls (her own initiative, nobody asked) run on her grant alone too.
     runInitiativeOp: (op, args, context) => admin.runInitiativeSkillOp(op, args, context),
-    // `<tasks>`: her open and newly finished errands; an errand's caps are its skill's budget.
+    // `<errands>`: her open and newly finished errands; an errand's caps are its skill's budget.
     errands,
     // `<intentions>`: her open intentions and the candidates from her lines (features.intentions).
     intentions,
@@ -1083,10 +1083,10 @@ async function buildCore(options, cleanups) {
           log.warn('reactors: event failed', { kind: event?.kind ?? null, code: err?.code ?? null });
         }
       },
-      'task.completed': (event) => {
+      'errand.done': (event) => {
         // An errand an inner turn handed off counts its cost against the inner life's dollars.
         inner.onTaskFinished(
-          event?.raw?.task ?? errands.store?.(event?.communityId ?? null)?.get?.(event?.taskId) ?? null,
+          event?.raw?.task ?? errands.store?.(event?.communityId ?? null)?.get?.(event?.errandId) ?? null,
           event?.communityId ?? instance.guildId
         );
         return taskTurns.onEvent(event);
@@ -1234,7 +1234,7 @@ async function buildCore(options, cleanups) {
   await startupStep('missed.start', () => missed.start(instance.guildId));
 
   // The errands a restart left open: their runner can no longer answer this process, so they fail
-  // (`restarted`) and show in her `<tasks>` block as failed.
+  // (`restarted`) and show in her `<errands>` block as failed.
   await startupStep('errands.start', () => errands.start(instance.guildId), { wait: true });
 
   // Her intentions reconciled with the errands as they stand now (those just failed included):

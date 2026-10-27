@@ -13,7 +13,7 @@
   "history": { "selfHours": [9, 14, 21], "channel": "c-general" },
   "stub": {
     "review": [[]],
-    "intention_due": [[{ "skill": "message.create", "args": { "channel": "$channel", "text": "a reminder, as promised" } }, { "skill": "intent.update", "args": { "id": "$intention", "state": "done" } }]]
+    "intention_due": [[{ "skill": "message.create", "args": { "channel": "$channel", "text": "a reminder, as promised" } }, { "skill": "intention.update", "args": { "id": "$intention", "state": "done" } }]]
   },
   "intentions": [
     { "key": "before-restart", "purpose": "remind Ada about the raid sign-up", "channel": "c-general", "due": "3 10:05" },

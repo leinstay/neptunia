@@ -22,7 +22,7 @@ import { foldText } from '../memory/recent.js';
 import { fallbackLookupPlan, fuseRanks, mergeWindows, recallSettings } from './recall.js';
 
 /** The trigger kinds a prefetch never runs for: an errand's result. */
-const NOT_EXTERNAL = new Set(['task']);
+const NOT_EXTERNAL = new Set(['errand']);
 
 /** Discord's inline tokens (`<@id>`, `<@!id>`, `<@&id>`, `<#id>`, `<:name:id>`, `<a:name:id>`, `<t:...>`). */
 const INLINE_TOKEN_RE = /<(?:@[!&]?|#|a?:[^:>\s]+:|t:)[^>\s]*>/g;
