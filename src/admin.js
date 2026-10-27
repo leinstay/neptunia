@@ -111,7 +111,7 @@ const ARCHIVE_CHOICES = 25;
  *   run|status|cancel|list` submit to and read. Absent -> those report they are not available.
  * `intentions` — from createIntentionService() (src/intentions/service.ts), optional: what `/nep
  *   task intent` and her `intent.*` calls change and read. Absent -> those report they are not available.
- * `inner` — from createInnerLife() (src/behavior/inner.js), optional: what `/nep task inner`
+ * `inner` — from createInnerLife() (src/behavior/inner.ts), optional: what `/nep task inner`
  *   stops, starts and reports. Absent -> those report it is not running.
  * `now` — the clock of the status card's coverage cache (default `Date.now`).
  * `dataDir` — the data directory `/nep memory snapshot` copies: src/index.js passes the one it
@@ -222,7 +222,7 @@ export function createAdmin(deps) {
   }
 
   /**
-   * Any operation run for the persona on her own initiative (an inner turn, src/behavior/inner.js:
+   * Any operation run for the persona on her own initiative (an inner turn, src/behavior/inner.ts:
    * nobody asked) by its name, WITHOUT a requester's rights check: her grant, checked by the
    * skill gateway as her own initiative, alone decides (src/tools/executors.ts). Never throws.
    * @returns {Promise<{ status: string, code: string, summary: string, data: unknown }>}

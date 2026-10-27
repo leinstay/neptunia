@@ -1,8 +1,8 @@
-// The rig of tests/boundary.test.js: the inner life (src/behavior/inner.js) over the real turn runner, the real event
+// The rig of tests/boundary.test.js: the inner life (src/behavior/inner.ts) over the real turn runner, the real event
 // door, a real memory database and the fake interface adapter, with a scripted model. No network, no Discord client,
 // no data/. `innerRig` is one core; `rig.restart()` is the same core after a restart (a new inner life and a new door
 // over the same data directory and the same memory database).
-import { createInnerLife } from '../../src/behavior/inner.js';
+import { createInnerLife } from '../../src/behavior/inner.ts';
 import { createEventDoor } from '../../src/interface/door.js';
 import { createFakeAdapter } from '../../src/interface/fake.js';
 import { skillRegistry } from '../../src/tools/registry.ts';

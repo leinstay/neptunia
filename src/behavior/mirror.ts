@@ -29,7 +29,7 @@ import { log } from '../log.js';
 import { portLimit } from '../interface/capabilities.ts';
 import { issueContext } from '../memory/db/scope.ts';
 import { mirrorReceipts } from '../memory/db/publish.js';
-import { setSettings } from './diary.js';
+import { setSettings } from './diary.ts';
 import {
   diaryConversationIds,
   diaryPlaces,

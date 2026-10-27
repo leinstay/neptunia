@@ -32,7 +32,7 @@ import fsp from 'node:fs/promises';
 import { messageRefOf, portAnswer, postingConversation } from './shared.ts';
 import { lineOf } from '../../behavior/line-of.js';
 import { defineOp, perEnv, invalid, denied } from './registry.ts';
-import { DIARY_DAILY } from '../../behavior/diary.js';
+import { DIARY_DAILY } from '../../behavior/diary.ts';
 import type { createMirrors } from '../../behavior/mirror.ts';
 import { writeDiaryMessage } from '../../behavior/diary-turn.ts';
 import { freshAttachmentUrl, gifPostUrl, countGifPost } from '../../media/gif-post.js';

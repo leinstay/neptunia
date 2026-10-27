@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createMirrors, guardMirrorPort } from '../src/behavior/mirror.ts';
 import type { PublishOutcome } from '../src/behavior/mirror.ts';
-import { DIARY_DAILY } from '../src/behavior/diary.js';
+import { DIARY_DAILY } from '../src/behavior/diary.ts';
 import { createTurnRunner } from '../src/behavior/turn.js';
 import { createAdmin } from '../src/admin.js';
 import { createFakeAdapter } from '../src/interface/fake.js';

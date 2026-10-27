@@ -24,7 +24,7 @@
 // per agent (src/errands/costs.ts through the guild's task store); `costs.development` the development agents'
 // (thinker, dev) from the ledger (src/errands/ledger.ts#costs, with the thinker's last-wave
 // context), both shown with no runs when the ledger does not answer. The owner's `inner`
-// field (only while features.innerLife is on) is the inner life's own status (src/behavior/inner.js#status,
+// field (only while features.innerLife is on) is the inner life's own status (src/behavior/inner.ts#status,
 // the data `/nep task inner status` reads): its mode and switch, the day's turns, chains, dollars, public
 // posts, the next wake, the last turn and the open intentions; its words are `labels.status.inner`.
 
@@ -46,7 +46,7 @@ import { SPEED_METRICS } from './metrics.ts';
 import { activitySums, agentCostsLines, keyCostsLines, roleCostsLines, readAccount, readActivity } from './usage.ts';
 import { PROFILES } from '../../agent-runner/profiles.js';
 import { fill } from '../../format.js';
-import { innerOn } from '../../behavior/inner.js';
+import { innerOn } from '../../behavior/inner.ts';
 import { log } from '../../log.js';
 import { modelForRole } from './shared.ts';
 import { defineOp, perEnv } from './registry.ts';
@@ -121,7 +121,7 @@ function labelLine(template: unknown, values: Obj): string | null {
 }
 
 /**
- * The `inner` field's lines from the inner life's status `s` (src/behavior/inner.js#status), words
+ * The `inner` field's lines from the inner life's status `s` (src/behavior/inner.ts#status), words
  * from `labels.status.inner`; `tokens` (`{ prompt, cached, completion }`, the core role's today from
  * the usage accumulator) adds the tokens line.
  */

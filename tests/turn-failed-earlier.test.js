@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createTurnRunner as createRealTurnRunner, sendHash, settleUnknownSends } from '../src/behavior/turn.js';
-import { createLocalFacts } from '../src/behavior/inner.js';
+import { createLocalFacts } from '../src/behavior/inner.ts';
 import { DailyCapError } from '../src/llm/openrouter.js';
 import { fill, formatClock, formatDate } from '../src/format.js';
 import { userText } from '../src/behavior/prompt.js';

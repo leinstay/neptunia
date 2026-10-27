@@ -7,7 +7,7 @@
 // `diaryVoiceTool` keeps her voice message for the entry instead of posting it. Logs: none.
 
 import { randomUUID } from 'node:crypto';
-import { DIARY_DAILY, DIARY_PICTURES_DAILY, gistOf, isPictureKind, setSettings } from './diary.js';
+import { DIARY_DAILY, DIARY_PICTURES_DAILY, gistOf, isPictureKind, setSettings } from './diary.ts';
 import { lineOf } from './line-of.js';
 import { log } from '../log.js';
 import { diaryPlaces, readMirrors } from './mirror.ts';

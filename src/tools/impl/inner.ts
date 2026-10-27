@@ -1,5 +1,5 @@
 // Operations: `/nep task inner action:stop|start|status` -- the kill switch of the persona's inner
-// life (src/behavior/inner.js, docs/inner-life.md). `inner.stop` stops it (persisted with its
+// life (src/behavior/inner.ts, docs/inner-life.md). `inner.stop` stops it (persisted with its
 // state, so a restart stays stopped), drops every queued wake and makes every action of an inner
 // turn already running refused right before it would happen; `inner.start` releases it;
 // `inner.status` shows the switch, the mode, the stop, the queue, the day's review and what is

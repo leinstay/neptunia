@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createIntention, dueJitterMinutes, dueList, wakeTimeOf, HEARTBEAT_ORIGIN } from '../src/intentions/model.ts';
-import { createInnerLife } from '../src/behavior/inner.js';
+import { createInnerLife } from '../src/behavior/inner.ts';
 import { createEventDoor } from '../src/interface/door.js';
 import { createIntentionStores } from '../src/intentions/store.ts';
 import { createIntentionService } from '../src/intentions/service.ts';

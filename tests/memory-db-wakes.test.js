@@ -31,7 +31,7 @@ import {
 } from '../src/memory/db/skills.js';
 import { applyMemoryWrite } from '../src/memory/db/session-write.js';
 import { createMemoryDb, engineCommit, opSources } from '../src/memory/db/service.js';
-import { createInnerLife } from '../src/behavior/inner.js';
+import { createInnerLife } from '../src/behavior/inner.ts';
 import { createEventDoor } from '../src/interface/door.js';
 import { SKILL_DEFINITIONS } from '../src/tools/definitions.ts';
 import { NESTED_CAPABILITIES, WAKE_POLICY_VERSION } from '../src/tools/access.ts';

@@ -1,13 +1,13 @@
-// The `<wake>` block of an inner turn (src/behavior/inner.js, docs/inner-life.md): why she is
+// The `<wake>` block of an inner turn (src/behavior/inner.ts, docs/inner-life.md): why she is
 // awake with nobody's message in front of her -- each wake of the turn (an intention whose time
 // came, a wait past its deadline, the day's review, people talking in a place she attends: the
 // place, the lines and who wrote them) with the intention it concerns (and the note of a recurring
 // intention's last occurrence before its expiry, `labels.intentions.notes`) -- a review's list of
 // her intentions that expired untouched since she was last told (`wake.expired`: the newest
 // first, capped, the rest counted) -- then the present moment and her timezone, the channels she was recently active in (a review), the places page
-// (`wake.places`, src/behavior/inner.js#places: where life is beyond this conversation, with the
+// (`wake.places`, src/behavior/inner.ts#places: where life is beyond this conversation, with the
 // total and how many more; a heartbeat's facts, `wake.heartbeat`, carry that page themselves) and what is left of her budgets with when each resets: facts she reads,
-// never a rule. A `feedback` wake (src/behavior/inner.js#feedbackFacts: what did not go through in
+// never a rule. A `feedback` wake (src/behavior/inner.ts#feedbackFacts: what did not go through in
 // her previous turn) is its kind line followed by one `wake.feedbackItem` per fact, each fact
 // worded by `wake.feedback.<kind>` (feedbackFactText); nothing tells her what to do about it. The facts kept
 // for her and not told yet (`wake.facts`) follow under `wake.feedbackInTurn`, and stand alone under it as the
@@ -93,7 +93,7 @@ export function diagnosticLines(diagnostics, labels) {
 }
 
 /**
- * One feedback fact (src/behavior/inner.js#feedbackFacts and the facts kept in the state) as a line:
+ * One feedback fact (src/behavior/inner.ts#feedbackFacts and the facts kept in the state) as a line:
  * `l.feedback.<kind>` filled -- `callFailed`: `{skill}`, `{status}` (`failed`, `partial`, `invalid`,
  * `denied`, `not_configured`, `refused`, `unknown`, `timeout`), `{code}`, `{text}` (the operation's own);
  * `doneWithoutDelivery`: `{id}`, `{purpose}`; `loopCut`: `{cut}` (`steps`, `time`, `no-continuation`,
@@ -176,7 +176,7 @@ export function feedbackFactText(fact, l, { when = () => '', labels = null } = {
 /**
  * The facts kept for her and not told yet as a block: `l.feedbackInTurn`, then one `l.feedbackItem` per fact
  * (`facts` without a label are left out). '' without the header, the item label or a fact with text.
- * @param {object[]} facts  Fact payloads (src/behavior/inner.js#factPayload).
+ * @param {object[]} facts  Fact payloads (src/behavior/inner.ts#factPayload).
  * @param {object} labels
  * @param {{ timezone?: string, locale?: string }} [options]
  * @returns {string}
@@ -208,7 +208,7 @@ function part(l, key, values) {
 }
 
 /**
- * The lines of a places page (src/behavior/inner.js#places: `{ total, more, items }`): the lead
+ * The lines of a places page (src/behavior/inner.ts#places: `{ total, more, items }`): the lead
  * `labels.wake.places` (`{total}`), one `labels.wake.place` per item (`{name}`, `{lines}`,
  * `{people}`, `{flags}`: `labels.wake.placeReadOnly` when she cannot write there and
  * `labels.wake.placeAttended` when she attends it, joined), then `labels.wake.placesMore`
@@ -245,7 +245,7 @@ const KEEP_PLACES = 3;
 const KEEP_PEOPLE = 5;
 
 /**
- * The lines of a heartbeat's facts (src/behavior/heartbeat-view.js), every word from `labels.wake.heartbeat`
+ * The lines of a heartbeat's facts (src/behavior/heartbeat-view.ts), every word from `labels.wake.heartbeat`
  * (`l`): people (`people`, one `person` each with its parts: `contact` or `contactNoPlace`, `lastWrote` (their
  * own newest line with its `#N` handle), `interests`, `activeIn`, joined by `partsJoin`), where people wrote lately
  * (`activity`: `activityPlace` with its `activityLine`s, each with a handle; it replaces the places page when the
@@ -549,7 +549,7 @@ export function placesBlockText(page, labels) {
 /** @typedef {{ kind: string, reason?: string, intentionIds?: string[], errandId?: string|null, delayed?: { minutes?: number, code?: string }, facts?: object[], attend?: { placeName?: string, place: string, lines: number, peopleNames?: string[], people: string[], since?: number|null } }} WakeItem */
 
 /**
- * The `<wake>` body for `wake` (src/behavior/inner.js's turn record: `items`, `intentions`, `notes`
+ * The `<wake>` body for `wake` (src/behavior/inner.ts's turn record: `items`, `intentions`, `notes`
  * -- an intention id to a `labels.intentions.notes` code, `last-occurrence`, joined to its line by
  * ` · ` -- `expired` (a review: src/intentions/model.ts#expiredToShow's `{ items, more }`, after
  * the wake lines as `labels.wake.expired`, one `labels.wake.expiredItem` per item with `{id}`,
@@ -581,7 +581,7 @@ export function wakeBlockText(wake, labels, { locale = 'en-US', handleBase = nul
   const byId = new Map((Array.isArray(wake.intentions) ? wake.intentions : []).map((record) => [record.id, record]));
   const lines = [l.header];
   for (const entry of (Array.isArray(wake.items) ? wake.items : []).filter(Boolean)) {
-    const item = /** @type {WakeItem} */ (entry);
+    const item = /** @type {WakeItem} */ entry;
     const template = l.kinds?.[item.kind];
     if (typeof template !== 'string' || !template) continue;
     const ids = Array.isArray(item.intentionIds) && item.intentionIds.length > 0 ? item.intentionIds : [null];

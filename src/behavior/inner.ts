@@ -13,7 +13,7 @@
 // `innerLife.heartbeat.everyMinutes` moved by a jitter either way, kept in the state
 // (`heartbeat: { nextAt, lastAt }`, drawn again once its wake is handled). It has no place and its own chain
 // (`heartbeat:<at>`), is never coalesced with another wake and goes before them in the queue; its `<wake>` facts
-// are built by src/behavior/heartbeat-view.js.
+// are built by src/behavior/heartbeat-view.ts.
 //
 // Bounds are code, not prose (`innerLife.caps`, a ceiling the owner accepted): inner turns per
 // local day and per rolling hour, per causal chain (an intention's `chainId`, else the intention
@@ -102,8 +102,8 @@ import { foldText } from '../memory/recent.js';
 import { errorCodeOf } from '../llm/openrouter.js';
 import { CODE } from '../tools/codes.ts';
 import { WAKE_POLICY_VERSION } from '../tools/access.ts';
-import { buildHeartbeatFacts } from './heartbeat-view.js';
-import { storedWakes } from './wake.js';
+import { buildHeartbeatFacts } from './heartbeat-view.ts';
+import { storedWakes } from './wake.ts';
 
 /** The wake kinds, as the `<wake>` block names them. */
 export const WAKE_KINDS = Object.freeze([
@@ -951,7 +951,7 @@ export function createCostMeter({ subscribe = onLog } = {}) {
  * @param {() => string} [options.uuid]  Ids for the turns this life starts (the in-flight mark names the turn before it runs).
  * @param {{ run: Function }} [options.meter]  createCostMeter's.
  * @param {{ tasks?: (guildId: string) => object[], skills?: () => string[], agents?: () => string[], selfId?: () => string|null, focusPeople?: (guildId: string) => object|null }} [options.heartbeat]
- *   The sources of the heartbeat's facts that are not the stores above (src/behavior/heartbeat-view.js).
+ *   The sources of the heartbeat's facts that are not the stores above (src/behavior/heartbeat-view.ts).
  * @param {{ recordWake?: (update: object) => Promise<unknown>|null }|null} [options.memoryDb]  The memory database
  *   (src/memory/db/service.js): with `memoryDb.wakeRuns` on, each inner turn is recorded as a wake run with its actions.
  * @param {() => number} [options.rng]
@@ -1669,7 +1669,7 @@ export function createInnerLife({
     return channels;
   }
 
-  /** The heartbeat's facts for `<wake>` (src/behavior/heartbeat-view.js), from the stores this life was given. Never throws. */
+  /** The heartbeat's facts for `<wake>` (src/behavior/heartbeat-view.ts), from the stores this life was given. Never throws. */
   async function heartbeatFacts(guildId, settings, at) {
     const state = stateOf(guildId);
     const guarded = (fn, fallback) => {

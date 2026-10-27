@@ -28,7 +28,7 @@ The heartbeat has no current channel. The turn runs in a channel she spoke in la
 
 #### What the heartbeat shows her
 
-One function (`src/behavior/heartbeat-view.js`) reads the stores with no model. The `<wake>` block carries:
+One function (`src/behavior/heartbeat-view.ts`) reads the stores with no model. The `<wake>` block carries:
 
 **Places.** Where others wrote in the last `heartbeat.placesHours` (default 6) hours, the busiest first, at most `heartbeat.placesShown` (default 6). Each place lists its name, line count, who wrote, and the last `heartbeat.placeLines` (default 2) lines as previews (author, time, up to 140 characters, a marker for links or media). Every quoted line carries a `#N` handle she can use in `message.create reply=`, `media.look` and reactions.
 
@@ -70,7 +70,7 @@ The lines come from the record, indexed incrementally at each tick over the last
 
 ### Her diary
 
-The diary is a wake of its own, `selfreflection`, behind `features.diary` rather than `features.innerLife`. Its day plan runs on the scheduler's `diary.tick` (`src/behavior/diary.js`), and each due slot runs a diary turn with no conversation: it reads every group conversation and no direct chat, writes her entry into memory, and the diary's mirrors post it (`src/behavior/mirror.ts`). A mirror place is written only by the diary: an event there opens no turn, and every send there from another turn, wake or tool is refused `diary-mirror`. See [Diary](diary.md).
+The diary is a wake of its own, `selfreflection`, behind `features.diary` rather than `features.innerLife`. Its day plan runs on the scheduler's `diary.tick` (`src/behavior/diary.ts`), and each due slot runs a diary turn with no conversation: it reads every group conversation and no direct chat, writes her entry into memory, and the diary's mirrors post it (`src/behavior/mirror.ts`). A mirror place is written only by the diary: an event there opens no turn, and every send there from another turn, wake or tool is refused `diary-mirror`. See [Diary](diary.md).
 
 ### Feedback on her own turn
 

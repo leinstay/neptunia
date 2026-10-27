@@ -594,7 +594,7 @@ function withCarriedSlots(fresh, previous, nowMs, graceMinutes) {
  *   rng?: () => number, now?: () => number, delay?: (ms: number) => Promise<void> }} deps
  *   `delay`: resolves after `ms` (a timer that never holds the process open); injected by tests.
  *   `reads`: the core's reads of the interface (the backfill's history), null when none is connected.
- *   `backfill`: src/behavior/diary.js#backfillDiary's shape (`{ store, reads, conversation, guildId,
+ *   `backfill`: src/behavior/diary.ts#backfillDiary's shape (`{ store, reads, conversation, guildId,
  *   config, labels }` -> the count written); null skips the backfill. `mirrors`: the diary's publisher
  *   (`{ publishEntry }`), null publishes nothing.
  * @returns {{ tick: () => Promise<void>, force: (opts?: { kind?: string|null, topic?: string|null }) => Promise<object>,
@@ -877,7 +877,7 @@ export async function backfillDiary({ store, reads, conversation, guildId, confi
  * @returns {Promise<unknown>}
  */
 function settled(store) {
-  const flush = /** @type {{ flushSettled?: (opts: object) => Promise<unknown> } | null} */ (store)?.flushSettled;
+  const flush = /** @type {{ flushSettled?: (opts: object) => Promise<unknown> } | null} */ store?.flushSettled;
   return typeof flush === 'function' ? flush.call(store, {}) : Promise.resolve();
 }
 

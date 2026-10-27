@@ -58,7 +58,7 @@ import { resolveHandles } from './handles.js';
 import { linkChannels } from '../memory/mentions.ts';
 import { answerOf, continuationHistory, loopSettings, pickOtherProfiles, taskInput } from './turn.js';
 import { appendStep, cutToFit, roomLeft, segments, stepNote, stepVerdict, thinkMissing } from './tool-step.js';
-import { diagnosticText } from './wake.js';
+import { diagnosticText } from './wake.ts';
 import { callReason, withCalls } from '../format.js';
 import { grant as accessGrant, revoke as accessRevoke } from '../tools/impl/grants.ts';
 import { collectEmojiItems, collectPictures, collectVideos, isDescribable, watchedLengths } from '../media/classify.js';

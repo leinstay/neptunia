@@ -7,7 +7,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createMirrors } from '../src/behavior/mirror.ts';
-import { createDiary } from '../src/behavior/diary.js';
+import { createDiary } from '../src/behavior/diary.ts';
 import { createStore } from '../src/memory/store.js';
 import { openMemoryDb } from '../src/memory/db/open.js';
 import { insertRows } from '../src/memory/db/rows.js';

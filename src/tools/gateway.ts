@@ -103,7 +103,7 @@ function requesterRefusal(
     return refused(CODE.MIXED_REQUESTERS, CODE.MIXED_REQUESTERS);
   const owners = skill.opBacked === true || skill.ownerOnly === true;
   if (!owners && (!skill.sharedState || !requester)) return null;
-  // Her own initiative (an inner turn, src/behavior/inner.js: nobody asked, the owner let her act
+  // Her own initiative (an inner turn, src/behavior/inner.ts: nobody asked, the owner let her act
   // unasked): her grants, checked before this, alone decide.
   if (!requester && context?.ownInitiative === true) return null;
   // A carried-over skill in the current conversation (her reply tags of old) runs unasked as it always did.

@@ -1,6 +1,6 @@
 {
   "files": {
-    "src/behavior/inner.js": 2523,
+    "src/behavior/inner.ts": 2523,
     "src/behavior/pipeline.js": 3090,
     "src/behavior/prompt.js": 4903,
     "src/behavior/recall-run.js": 2331,
@@ -73,12 +73,12 @@
         "complexity": 34
       }
     },
-    "src/behavior/heartbeat-view.js": {
+    "src/behavior/heartbeat-view.ts": {
       "scanRecord": {
         "complexity": 43
       }
     },
-    "src/behavior/inner.js": {
+    "src/behavior/inner.ts": {
       "createInnerLife": {
         "function-length": 1563
       },
@@ -291,7 +291,7 @@
         "complexity": 21
       }
     },
-    "src/behavior/wake.js": {
+    "src/behavior/wake.ts": {
       "feedbackFactText": {
         "complexity": 43
       },
@@ -982,7 +982,7 @@
       "src/behavior/pipeline.js",
       "src/behavior/random.js",
       "src/behavior/route-channel.js",
-      "src/behavior/wake.js",
+      "src/behavior/wake.ts",
       "src/errands/blocks.ts",
       "src/errands/turns.ts",
       "src/handles-text.js",

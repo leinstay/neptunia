@@ -318,7 +318,7 @@
       "count": 5
     }
   },
-  "src/behavior/diary.js": {
+  "src/behavior/diary.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 42
     },
@@ -371,7 +371,7 @@
       "count": 8
     }
   },
-  "src/behavior/heartbeat-view.js": {
+  "src/behavior/heartbeat-view.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 31
     },
@@ -391,7 +391,7 @@
       "count": 1
     }
   },
-  "src/behavior/inner.js": {
+  "src/behavior/inner.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 91
     },
@@ -798,7 +798,7 @@
       "count": 3
     }
   },
-  "src/behavior/wake.js": {
+  "src/behavior/wake.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 28
     },

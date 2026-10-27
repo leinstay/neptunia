@@ -28,9 +28,9 @@ import {
   feedbackInTurnText,
   placesBlockText,
   wakeBlockText,
-} from '../src/behavior/wake.js';
-import { feedbackFacts } from '../src/behavior/inner.js';
-import { buildHeartbeatFacts } from '../src/behavior/heartbeat-view.js';
+} from '../src/behavior/wake.ts';
+import { feedbackFacts } from '../src/behavior/inner.ts';
+import { buildHeartbeatFacts } from '../src/behavior/heartbeat-view.ts';
 import { wakeLanes } from '../src/behavior/prefetch.js';
 import { labels } from './fixtures/labels.js';
 import { fill, formatClock, formatDate } from '../src/format.js';

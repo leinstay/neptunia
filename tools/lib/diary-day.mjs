@@ -1,7 +1,7 @@
 // The pure parts of tools/replay.mjs's `--diary-day` mode: one diary day run as the live diary
 // would run it, slot by slot, with nothing posted. Here: the seeded random streams (the day plan
 // and the turns draw from separate ones, so a change in what a turn draws never moves the
-// slots), the day plan for a local date (src/behavior/diary.js#planDay, injected), the spend
+// slots), the day plan for a local date (src/behavior/diary.ts#planDay, injected), the spend
 // estimate, the image client wrapper that records every `generate()` call's arguments (the
 // "fake" one answers a fixture PNG through the real client's own request path; the "live" one
 // stops at `--max-pictures`), the short description of an avatar reference, and the report.
@@ -57,7 +57,7 @@ export function seededRng(seed, stream) {
  * day's first tick (planDay at local midnight) with no hunger carried in, on the seed's `plan`
  * stream: the same config, date and seed give the same slots. `start` is the local midnight.
  * @param {{ diaryCfg: object|undefined, timezone: string|undefined, date: string, seed: string,
- *   planDay: Function, zonedEpoch: Function }} input  planDay and zonedEpoch from src/behavior/diary.js and src/time.js.
+ *   planDay: Function, zonedEpoch: Function }} input  planDay and zonedEpoch from src/behavior/diary.ts and src/time.js.
  * @returns {{ day: string, start: number, slots: number[], quiet: boolean, hunger: number[], quietStreak: number }}
  */
 export function planDiaryDay({ diaryCfg, timezone, date, seed, planDay, zonedEpoch }) {

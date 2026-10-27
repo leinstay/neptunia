@@ -1,4 +1,4 @@
-// Tests for src/behavior/diary.js (the diary scheduler's pure core: the day
+// Tests for src/behavior/diary.ts (the diary scheduler's pure core: the day
 // plan, due slots, kind choice, plan validation, the <diary> / <kinds> /
 // <seeds> renderings, URL stripping, gists), the store's diary file and the
 // scheduler's factory (createDiary) over fakes.
@@ -26,7 +26,7 @@ import {
   stripUrls,
   gistOf,
   createDiary,
-} from '../src/behavior/diary.js';
+} from '../src/behavior/diary.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { fill, localHour } from '../src/format.js';
 import { MINUTE_MS, HOUR_MS } from '../src/time.js';

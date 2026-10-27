@@ -1,6 +1,6 @@
 // The heartbeat's facts (docs/inner-life.md "The heartbeat"; the wake kind `heartbeat` of
-// src/behavior/inner.js): ONE function, no model, that reads the stores as they are today and
-// answers what the `<wake>` of that kind shows (src/behavior/wake.js words it). It is the only
+// src/behavior/inner.ts): ONE function, no model, that reads the stores as they are today and
+// answers what the `<wake>` of that kind shows (src/behavior/wake.ts words it). It is the only
 // place that knows where each fact lives, so the day the memory work brings its own store only
 // this file changes, never the prompt or the wake mechanism.
 //
@@ -611,7 +611,7 @@ function sinceOf({
 }
 
 /**
- * The heartbeat's facts for `<wake>` (src/behavior/wake.js words them).
+ * The heartbeat's facts for `<wake>` (src/behavior/wake.ts words them).
  * @param {object} input
  * @param {string} input.guildId
  * @param {number} input.now
@@ -624,7 +624,7 @@ function sinceOf({
  * @param {object[]} [input.intentions]  Her intention records, every status.
  * @param {object[]} [input.tasks]  Her errands (the task store's recent list).
  * @param {object[]} [input.diary]  Her diary posts (`{ at, kind }`).
- * @param {object|null} [input.places]  The places page of the review (inner.js#places).
+ * @param {object|null} [input.places]  The places page of the review (inner.ts#places).
  * @param {string[]} [input.skills]  The skill names granted to her.
  * @param {string[]} [input.agents]  The errand agents she can hand work to.
  * @param {object|null} [input.innerState]  The inner state (turns that ended in error, the facts told).

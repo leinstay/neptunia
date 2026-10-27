@@ -14,7 +14,7 @@ import path from 'node:path';
 import { createTurnRunner } from '../src/behavior/turn.js';
 import { createReads } from '../src/interface/reads.ts';
 import { userText } from '../src/behavior/prompt.js';
-import { createInnerLife, wakeOfDue, reviewWake } from '../src/behavior/inner.js';
+import { createInnerLife, wakeOfDue, reviewWake } from '../src/behavior/inner.ts';
 import { createFakeAdapter } from '../src/interface/fake.js';
 import { createDiscordInterface } from '../interfaces/discord/index.js';
 import { createEventDoor } from '../src/interface/door.js';

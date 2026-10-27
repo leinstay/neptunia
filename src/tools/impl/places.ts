@@ -2,7 +2,7 @@
 // (docs/inner-life.md "Her attention"): the places the interface publishes for the server (the
 // channel directory, writable or read-only alike), each with its address, its name, whether she can
 // write there, the lines and distinct people since her last look there (counted from the record by
-// the inner life, src/behavior/inner.js#places), and whether she attends it; filtered by name
+// the inner life, src/behavior/inner.ts#places), and whether she attends it; filtered by name
 // (`filter`), sorted (`sort`: `recent`, the default, `name`, `lines`), one page of
 // `innerLife.attention.pageSize` at a time (`page`). The total and how many more are always said.
 // A read; grantable to her and to people. Answers are operator lines (addresses, names, counts).
