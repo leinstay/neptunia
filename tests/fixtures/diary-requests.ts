@@ -7,12 +7,12 @@
 // selfreflection wake (recorded with `{ mirror: false }`). With `mirror: true` memory also holds `d1` as a place of the
 // fake interface named `journal` and the diary's one enabled mirror on it, which is what the wake rebuilds the channel's
 // inputs from. Synthetic text only.
-import { createTurnRunner as createRealTurnRunner } from '../../src/behavior/turn.js';
 import { createStore } from '../../src/memory/store.js';
 import { dbOf, seedMirror, seedPlace } from './diary-mirror.ts';
 import { labels } from './labels.js';
 import { openTestMemory } from './memory-db/service.js';
-import { onWorld, useIface, useSelf, world } from './turn-world.ts';
+import { useIface, useSelf, world } from './turn-world.ts';
+import { worldTurnRunner } from './world-runner.ts';
 import '../../src/tools/impl/index.ts';
 
 useIface('fake');
@@ -218,11 +218,16 @@ export async function sceneMemory({
     { now: NOW, hours: 24 }
   );
   for (const post of EARLIER) {
-    store.appendDiaryPost(
-      GUILD,
-      { at: post.at, kind: 'status', gist: post.text, picture: null, messageIds: [post.id], search: null },
-      { max: 40 }
-    );
+    // The store's JSDoc types `search` as a string; a post with no search stores null, as the diary turn records it.
+    const stored: Record<string, unknown> = {
+      at: post.at,
+      kind: 'status',
+      gist: post.text,
+      picture: null,
+      messageIds: [post.id],
+      search: null,
+    };
+    store.appendDiaryPost(GUILD, stored as Parameters<typeof store.appendDiaryPost>[1], { max: 40 });
   }
   store.flush();
   await store.flushSettled({});
@@ -245,7 +250,7 @@ export type SceneRunner = { runTurn(params: Record<string, unknown>): Promise<un
 
 /** The real turn runner over the scene's world, store, settings and model. */
 export function sceneRunner(llm: ReturnType<typeof sceneLlm>, store: SceneMemory['store']): SceneRunner {
-  return onWorld(createRealTurnRunner)({
+  return worldTurnRunner({
     hot: sceneHot(),
     store,
     llm,

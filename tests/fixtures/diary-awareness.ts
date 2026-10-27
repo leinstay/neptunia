@@ -4,14 +4,14 @@
 // `diaryChannelId: 'd1'` and no mirror, on the code before `diary.channelId` became a seed. Synthetic text only.
 import { after } from 'node:test';
 import assert from 'node:assert/strict';
-import { createTurnRunner } from '../../src/behavior/turn.js';
 import { userText } from '../../src/behavior/prompt.js';
 import { createStore } from '../../src/memory/store.js';
 import { dbOf, seedMirror } from './diary-mirror.ts';
 import type { MemoryService } from './diary-mirror.ts';
 import { openTestMemory } from './memory-db/service.js';
 import { hotWith, rawMessage, sequenceLlm } from './turn-harness.js';
-import { freshWorld, onWorld, world } from './turn-world.ts';
+import { freshWorld, world } from './turn-world.ts';
+import { worldTurnRunner } from './world-runner.ts';
 
 const NOW = Date.parse('2026-10-17T12:00:00Z');
 const MINUTE = 60_000;
@@ -80,7 +80,7 @@ export async function replyTurn({
   }
   if (here === 'c1') world().channel({ id: 'c1', name: names.c1, guildId: GUILD, historyMessages: [trigger] });
   const llm = sequenceLlm(['<msg>γεια</msg>']);
-  const turns = onWorld(createTurnRunner)({
+  const turns = worldTurnRunner({
     hot: hotWith({
       features: { participation: true },
       config: diaryChannelId === null ? {} : { diary: { channelId: diaryChannelId } },

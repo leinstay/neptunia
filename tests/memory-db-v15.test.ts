@@ -335,10 +335,13 @@ test("the media job gives a step's entry its picture with the attachment id and 
     for (const line of LINES.filter((one) => !one.by && !one.channel)) {
       port.seed(MIRROR_CHANNEL, { authorId: 'self', text: line.text, messageId: line.id });
       const stored = port.messages.get(`${MIRROR_CHANNEL}/${line.id}`);
+      // The platform names the attachment by its id, which the fake's stored type does not declare.
       if (stored && line.image)
-        stored.attachments = [
-          { id: 'att-p1', name: 'pier.png', url: 'https://cdn.example/pier.png', contentType: 'image/png', size: 64 },
-        ] as typeof stored.attachments;
+        Object.assign(stored, {
+          attachments: [
+            { id: 'att-p1', name: 'pier.png', url: 'https://cdn.example/pier.png', contentType: 'image/png', size: 64 },
+          ],
+        });
     }
     const png = Buffer.from('png-p1');
     const job = createDiaryMedia({

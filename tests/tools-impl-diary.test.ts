@@ -149,7 +149,6 @@ async function turnOf(
   });
   const llm = sequenceLlm(answers, 'none', onAnswer);
   const turns = createTurnRunner({
-    discord: DISCORD,
     hot,
     store: core.store,
     llm,
@@ -183,7 +182,10 @@ async function turnOf(
     attachments: [],
     stickers: [],
   };
-  const params =
+  type Params = Parameters<typeof turns.runTurn>[0];
+  // runTurn's JSDoc names `conversation` as required; the selfreflection wake runs without one (section 3 item 2).
+  const wakeParams = { mode: 'diary', diary: { kind: 'status', forced: true }, guildId: GUILD } as unknown as Params;
+  const params: Params =
     mode === 'inner'
       ? {
           conversation,
@@ -193,7 +195,7 @@ async function turnOf(
           inner: { wake: INTENTION_WAKE, shadow: false, mayAct: () => true },
         }
       : mode === 'diary'
-        ? { mode: 'diary', diary: { kind: 'status', forced: true }, guildId: GUILD }
+        ? wakeParams
         : { conversation, mode: 'reply', triggerKind: 'mention', trigger };
   const { logs } = await withCapturedLogs(() => turns.runTurn(params));
   await core.store.flushSettled({});

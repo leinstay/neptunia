@@ -118,7 +118,11 @@ export function personaGrants(names) {
   return Object.fromEntries(names.map((name) => [name, { everyone: false, roles: [], users: ['self-id'] }]));
 }
 
-/** An LLM answering `answers` in turn (the last one repeats); the search classifier answers `classifier` and the re-watch classifier `none`, each counted apart. */
+/**
+ * An LLM answering `answers` in turn (the last one repeats); the search classifier answers `classifier` and the re-watch classifier `none`, each counted apart.
+ * @param {string} [classifier]
+ * @param {((index: number) => void) | null} [onAnswer]  Called with the index of each answer as it is given.
+ */
 export function sequenceLlm(answers, classifier = 'none', onAnswer = null) {
   const calls = [];
   const classifierCalls = [];

@@ -13,13 +13,14 @@ import { openMemoryDb } from '../src/memory/db/open.js';
 import { insertRows } from '../src/memory/db/rows.js';
 import { contentHash, preparePublication } from '../src/memory/db/publish.js';
 import { issueContext } from '../src/memory/db/scope.ts';
-import { createTurnRunner } from '../src/behavior/turn.js';
 import { notOk } from '../src/protocol/actions.js';
+import type { Content } from '../src/protocol/actions.js';
 import { GUILD, NOW, sceneHot, sceneLlm, sceneRunner } from './fixtures/diary-requests.ts';
 import { dbOf, diaryPublications, diaryRows, entryOf, seedMirror } from './fixtures/diary-mirror.ts';
 import { openTestMemory } from './fixtures/memory-db/service.js';
 import { call, toolAnswer } from './fixtures/tool-answers.js';
-import { freshWorld, onWorld, world } from './fixtures/turn-world.ts';
+import { freshWorld, world } from './fixtures/turn-world.ts';
+import { worldTurnRunner } from './fixtures/world-runner.ts';
 
 const TEXT = 'ήσυχο βράδυ στο λιμάνι';
 
@@ -61,7 +62,6 @@ async function scene({
     hot: sceneHot(),
     store,
     reads: null,
-    iface: () => 'fake',
     turns,
     getGuildId: () => GUILD,
     mirrors,
@@ -232,7 +232,7 @@ function setAndVoiceLlm() {
 
 /** The turn runner of an entry with two pictures and a voice, over the scene's store. */
 function setAndVoiceTurns(store: Awaited<ReturnType<typeof scene>>['store'], maxMessageBytes?: number) {
-  return onWorld(createTurnRunner)({
+  return worldTurnRunner({
     hot: setAndVoiceHot(maxMessageBytes),
     store,
     llm: setAndVoiceLlm(),
@@ -338,10 +338,7 @@ test("a publication keeps the port's attachment ids in its receipts and on the e
   // The port's answer to a send names each attachment by the platform's id, with the message that carries it.
   const naming = {
     iface: 'fake',
-    send: async (
-      conversation: { iface: string; conversationId: string },
-      content: { attachments?: Array<unknown> }
-    ) => {
+    send: async (conversation: { iface: string; conversationId: string }, content: Content) => {
       const delivery = await world().port.send(conversation, content);
       const messageId = delivery.ref?.messageId ?? '';
       const attachments = (content.attachments ?? []).map(() => ({ messageId, attachmentId: `att-${(made += 1)}` }));
@@ -390,10 +387,7 @@ test('a picture set sent across two messages keeps every attachment id with the 
   const carried: Array<{ messageId: string; attachmentId: string }> = [];
   const naming = {
     iface: 'fake',
-    send: async (
-      conversation: { iface: string; conversationId: string },
-      content: { attachments?: Array<unknown> }
-    ) => {
+    send: async (conversation: { iface: string; conversationId: string }, content: Content) => {
       const delivery = await world().port.send(conversation, content);
       const messageId = delivery.ref?.messageId ?? '';
       const attachments = (content.attachments ?? []).map(() => {

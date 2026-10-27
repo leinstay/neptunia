@@ -7,13 +7,13 @@
 // keeps them: each entry's row with its text and its messages, her lines in the record of `d1`, the picture's and the
 // voice's media rows with their attachment ids, the picture's description in the media cache, and Alice's line in the
 // record. The diary's one enabled mirror is on `d1`. Synthetic text only.
-import { createTurnRunner as createRealTurnRunner } from '../../src/behavior/turn.js';
 import { createStore } from '../../src/memory/store.js';
 import { dbOf, seedMirror } from './diary-mirror.ts';
 import { GUILD, NOW, sceneHot } from './diary-requests.ts';
 import type { sceneLlm } from './diary-requests.ts';
 import { openTestMemory } from './memory-db/service.js';
-import { onWorld, world } from './turn-world.ts';
+import { world } from './turn-world.ts';
+import { worldTurnRunner } from './world-runner.ts';
 import type { createFakeAdapter } from '../../src/interface/fake.js';
 
 const HOUR = 60 * 60 * 1000;
@@ -194,20 +194,18 @@ export async function historyMemory({ edited = false, deleted = false }: Changes
   for (const entry of ENTRIES) {
     const [first] = entry.posts;
     if (!first) continue;
-    store.appendDiaryPost(
-      GUILD,
-      {
+    // The store's JSDoc types `search` as a string; a post with no search stores null, as the diary turn records it.
+    const entryPost: Record<string, unknown> = {
         at: first.at,
         kind: entry.kind,
         gist: entry.posts.map((post) => post.text).filter(Boolean).join(' '),
         picture: entry.posts.some((post) => post.attachments.some((a) => a.contentType.startsWith('image/')))
           ? PICTURE.description
           : null,
-        messageIds: entry.posts.map((post) => post.id),
+        messageIds: entry.posts.map((one) => one.id),
         search: null,
-      },
-      { max: 40 }
-    );
+      };
+    store.appendDiaryPost(GUILD, entryPost as Parameters<typeof store.appendDiaryPost>[1], { max: 40 });
   }
   // The describer's cache: what she saw in the picture, by its attachment id.
   const cache = store.getMediaCache(GUILD) as Record<string, unknown>;
@@ -315,7 +313,7 @@ export function historyRunner(
   store: HistoryMemory['store'],
   port: ReturnType<typeof createFakeAdapter> | null = null
 ): HistoryRunner {
-  return onWorld(createRealTurnRunner)({
+  return worldTurnRunner({
     hot: historyHot(),
     store,
     llm,

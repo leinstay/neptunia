@@ -6,6 +6,7 @@
 // place ordinary again. Real turn runner, admin, message handler and memory database over the fake interface, with a
 // scripted model. Synthetic text only.
 import { test, after } from 'node:test';
+import { EventEmitter } from 'node:events';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { guardMirrorPort, createMirrors } from '../src/behavior/mirror.ts';
@@ -14,6 +15,9 @@ import { createTagHistory } from '../src/behavior/mention.js';
 import { heartbeatWake } from '../src/behavior/inner.js';
 import { createTurnRunner } from '../src/behavior/turn.js';
 import { createAdmin } from '../src/admin.js';
+import { createStore } from '../src/memory/store.js';
+import { createMemoryUpdater } from '../src/memory/update.js';
+import type { MessageReceived } from '../src/protocol/events.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { dbOf, entryOf, seedMirror } from './fixtures/diary-mirror.ts';
@@ -31,6 +35,7 @@ import {
   sequenceLlm,
 } from './fixtures/turn-harness.js';
 import { freshWorld, world } from './fixtures/turn-world.ts';
+import { tempDir } from './fixtures/tmp.js';
 import '../src/tools/impl/index.ts';
 
 const NOW = Date.parse('2026-10-17T12:00:00Z');
@@ -125,7 +130,6 @@ async function turnIn(
     speech,
   });
   const turns = createTurnRunner({
-    discord: DISCORD,
     hot,
     store,
     llm,
@@ -145,7 +149,7 @@ async function turnIn(
     runInitiativeOp: admin.runInitiativeSkillOp,
   });
   const conversation = { iface: 'fake', conversationId: here };
-  const params = wake
+  const params: Parameters<typeof turns.runTurn>[0] = wake
     ? {
         conversation,
         guildId: GUILD,
@@ -202,7 +206,7 @@ const intentionWake = {
 // ---- an event in a mirror place ---------------------------------------------------------------------------------
 
 /** A mention of her by Alice in `conversationId`, as the interface delivers it. */
-function mention(conversationId: string) {
+function mention(conversationId: string): MessageReceived {
   return {
     kind: 'message.received',
     iface: 'fake',
@@ -211,7 +215,6 @@ function mention(conversationId: string) {
     conversation: {
       id: conversationId,
       kind: 'channel',
-      guildId: GUILD,
       communityId: GUILD,
       name: conversationId,
       topic: null,
@@ -247,24 +250,41 @@ function mention(conversationId: string) {
 /** The message handler over `core` with a turn runner that only counts the turns it is asked for. */
 function handlerOver(core: Community) {
   const asked: Array<unknown> = [];
+  // The handler's live settings are an event emitter that holds the config and the prompts, as src/hot.js makes them.
+  const hot = Object.assign(
+    new EventEmitter(),
+    hotWith({ features: { memory: true }, config: { mention: TRACKED.mention, pace: TRACKED.pace } })
+  );
+  const store = createStore({ dataDir: tempDir('nep-guard-store-') });
+  // A real turn runner whose turns are only counted: the handler gets everything a runner has.
+  const runner = createTurnRunner({
+    hot,
+    store,
+    llm: sequenceLlm(['<skip/>']),
+    calibrator: { ratio: 1, apply: (n: number) => n, observe: () => {} },
+    now: () => NOW,
+    port: core.port,
+    reads: core.reads,
+    selfId: () => 'self-id',
+    getSelfName: () => 'Bot',
+    skills: skillRegistry(),
+    journal: null,
+  });
   const handler = createMessageHandler({
-    hot: hotWith({ features: { memory: true }, config: { mention: TRACKED.mention, pace: TRACKED.pace } }),
-    store: fakeStore(),
+    hot,
+    store,
     reads: core.reads,
     selfId: () => 'self-id',
     getSelfName: () => 'Bot',
     turns: {
-      runTurn: (params: unknown) => {
+      ...runner,
+      runTurn: (params) => {
         asked.push(params);
-        return Promise.resolve({ outcome: 'spoke' });
+        return Promise.resolve({ outcome: 'spoke' as const });
       },
-      isBusy: () => false,
-      isAnyBusy: () => false,
-      lastPostAt: () => 0,
-      notePost: () => {},
     },
     spontaneous: { onMessage: () => {} },
-    memory: { observe: () => {} },
+    memory: createMemoryUpdater({ hot, store }),
     tagHistory: createTagHistory(),
     getGuildId: () => GUILD,
     memoryDb: core.memory.memoryDb,
