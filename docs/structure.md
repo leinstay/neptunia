@@ -62,7 +62,7 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `src/media/` | public | Pictures, video, audio, GIFs and drawing on the core side. | `node:*`, `src/**` | required |
 | `src/memory/` | public | The memory modules above the database: records, lore, episodes, recall ranking, vectors and backfills. | `node:*`, `src/**` | required |
 | `src/memory/db/` | public | The memory database: schema, the single writer, sessions, wakes and the read paths. | `node:*`, `src/**` | required |
-| `src/memory/db/mirrors.ts` | public | The reads of the diary's mirrors over the memory database: the places her diary is posted to and whether a conversation is one. Tested through tests/mirror.test.ts and tests/diary-mirror-*. | `node:*`, `src/**` | none |
+| `src/memory/db/mirrors.ts` | public | The reads of the diary's mirrors over the memory database: the places her diary is posted to and whether a conversation is one. Tested through the mirror and diary mirror tests. | `node:*`, `src/**` | none |
 | `src/memory/db/map/` | public | The mapping of memory rows to records and back. | `node:*`, `src/**` | required |
 | `src/memory/db/readers/` | public | The read queries of the memory database. | `node:*`, `src/**` | required |
 | `src/tools/impl/` | public | The owner operations behind the /nep commands. | `node:*`, `src/**` | required |
