@@ -1,6 +1,6 @@
-// The persona's errand tasks, one store per guild, in the memory database: the unit `guilds/<id>/tasks.json` holds
+// The persona's errand tasks, one store per guild, in the memory database: the unit `guilds/<id>/errands.json` holds
 // the current list (the open tasks, then the finished ones she has not seen yet and the latest
-// others, at most KEEP_FINISHED of them), written whole on every change; the unit `guilds/<id>/tasks.jsonl` gets one
+// others, at most KEEP_FINISHED of them), written whole on every change; the unit `guilds/<id>/errands.jsonl` gets one
 // line per transition (the task as it stands after it), appended, never rewritten. A task moves `queued` ->
 // `running` -> `done` | `failed` | `cancelled` (a queued one may also be cancelled or failed
 // directly); a finished task is never reopened, and an end that arrives after a cancel is
@@ -8,7 +8,7 @@
 // `agents.maxOpen` open tasks at once (`cap-open`), `agents.<profile>.daily.tasks` tasks per UTC day (`cap-tasks`; a task counts on
 // the day it was queued). That daily number
 // and the owner card's `costs.errands` come from one place: src/errands/costs.js#agentCosts over
-// the store's spend records, one per task of the last KEEP_DAYS days (read from tasks.jsonl at
+// the store's spend records, one per task of the last KEEP_DAYS days (read from errands.jsonl at
 // load, then kept with every transition).
 // Every transition is also an `action` line of the
 // journal (src/memory/journal.js), shaped like a skill call's operation: one `opId` per task,
@@ -36,7 +36,7 @@ import { DAY_MS } from '../time.js';
 import { agentCosts, costRecord, KEEP_DAYS } from './costs.js';
 import { normalizeResult, normalizeUsage } from '../agent-runner/protocol.js';
 import { createReadSeam } from '../memory/db/readers/common.js';
-import { taskEventLines, tasksValue } from '../memory/db/readers/tasks.js';
+import { errandEventLines, errandsValue } from '../memory/db/readers/errands.js';
 import { createUnitOutbox } from '../memory/db/unit-outbox.js';
 import { profileOf } from '../agent-runner/profiles.js';
 import { CODE } from '../tools/codes.ts';
@@ -49,7 +49,7 @@ export const OPEN_STATES = Object.freeze(['queued', 'running']);
 export const REQUESTER_KINDS = Object.freeze(['owner', 'member', 'persona']);
 /** `agents.maxOpen` when it is missing (config.json carries the same). */
 export const DEFAULT_MAX_OPEN = 3;
-/** The finished tasks tasks.json keeps besides the open ones (tasks.jsonl keeps every transition). */
+/** The finished tasks errands.json keeps besides the open ones (errands.jsonl keeps every transition). */
 export const KEEP_FINISHED = 50;
 /** The prefix of a task file handle. */
 export const FILE_HANDLE_PREFIX = 'file:';
@@ -82,8 +82,8 @@ export function isOpenState(state) {
  * @param {() => string} [options.uuid]
  * @param {{ info: Function, warn: Function }} [options.log]
  * @param {object|null} [options.memoryDb]  the memory database service: the list and the spend records are loaded
- *   from it (src/memory/db/readers/tasks.js; a failed read throws, with a code); each change hands the whole list
- *   (`tasks.json`, op `value`) and the transition line (`tasks.jsonl`, op `lines`) to an outbox
+ *   from it (src/memory/db/readers/errands.js; a failed read throws, with a code); each change hands the whole list
+ *   (`errands.json`, op `value`) and the transition line (`errands.jsonl`, op `lines`) to an outbox
  *   (src/memory/db/unit-outbox.js) that sends them through the database's writer; the list in memory stays the truth,
  *   a failed write goes again at the next change or `flush`, and `flush({ final: true })` (the shutdown) keeps what
  *   still fails in `memory-pending/`. Without a `memoryDb` (tests) nothing is read or written: the list lives in
@@ -103,8 +103,8 @@ export function createTaskStore({
   const state = load();
   const outbox =
     db && typeof memoryDb?.writeUnit === 'function' ? createUnitOutbox({ memoryDb, log, name: 'tasks' }) : null;
-  const listOwner = `guilds/${String(guildId)}/tasks.json`;
-  const logOwner = `guilds/${String(guildId)}/tasks.jsonl`;
+  const listOwner = `guilds/${String(guildId)}/errands.json`;
+  const logOwner = `guilds/${String(guildId)}/errands.jsonl`;
   // id -> the spend record of each task of the last KEEP_DAYS days (src/errands/costs.js#costRecord).
   const spend = loadSpend();
 
@@ -112,11 +112,11 @@ export function createTaskStore({
   function load() {
     let raw = null;
     if (db) {
-      const found = seam.run(() => tasksValue(db, guildId));
+      const found = seam.run(() => errandsValue(db, guildId));
       raw = found.found ? found.value : null;
     }
-    const tasks = Array.isArray(raw?.tasks)
-      ? raw.tasks.filter((task) => task && typeof task.id === 'string' && TASK_STATES.includes(task.state))
+    const tasks = Array.isArray(raw?.errands)
+      ? raw.errands.filter((task) => task && typeof task.id === 'string' && TASK_STATES.includes(task.state))
       : [];
     for (const task of tasks) {
       // Records from before readAt: a seen one was read, an unseen one is still unread.
@@ -132,11 +132,11 @@ export function createTaskStore({
     return last < at - KEEP_DAYS * DAY_MS;
   }
 
-  /** The spend records read once: the last line of each task in tasks.jsonl (a line that does not
+  /** The spend records read once: the last line of each task in errands.jsonl (a line that does not
    * parse is skipped), then the list's own copies over them; the stale ones left out. */
   function loadSpend() {
     const records = new Map();
-    const text = db ? seam.run(() => taskEventLines(db, guildId)).join('\n') : '';
+    const text = db ? seam.run(() => errandEventLines(db, guildId)).join('\n') : '';
     for (const line of text.split('\n')) {
       if (!line.trim()) continue;
       let value = null;
@@ -185,7 +185,7 @@ export function createTaskStore({
     return tasks.filter((task) => isOpenState(task.state) || keep.has(task));
   }
 
-  /** The list handed to the outbox whole, and the transition of `task` as a line of tasks.jsonl. */
+  /** The list handed to the outbox whole, and the transition of `task` as a line of errands.jsonl. */
   function persist(task) {
     state.tasks = pruned(state.tasks);
     if (task) noteSpend(task);
@@ -194,7 +194,7 @@ export function createTaskStore({
       log.warn('errands: tasks write failed', { guildId: String(guildId), code: 'DB_CLOSED' });
       return;
     }
-    outbox.value(listOwner, JSON.parse(JSON.stringify({ tasks: state.tasks })));
+    outbox.value(listOwner, JSON.parse(JSON.stringify({ errands: state.tasks })));
     if (task) outbox.lines(logOwner, [JSON.parse(JSON.stringify({ at: now(), ...task }))]);
     outbox.push();
   }
@@ -486,7 +486,7 @@ export function createTaskStore({
   }
 
   /**
-   * Task `id` given the ledger's id of its mirror (src/errands/ledger.js), tasks.json written when
+   * Task `id` given the ledger's id of its mirror (src/errands/ledger.js), errands.json written when
    * it changes; null when there is no such task (forgotten or wiped meanwhile) or no id.
    */
   function setLedgerId(id, ledgerId) {

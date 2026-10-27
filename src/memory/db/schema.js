@@ -975,9 +975,109 @@ const V13 = [
   'DELETE FROM work_events WHERE work_id NOT IN (SELECT id FROM work);',
 ].join('\n');
 
+// Version 14 (2026-10-27): the errand units take the errand name. Every place a unit path is stored renames
+// `guilds/<g>/tasks.json` and `tasks.jsonl` to `errands.json` and `errands.jsonl` (`files` with its kind, the `owner_file`
+// of `work`, `work_events` and `co_owners`, and `operational` with its kind, owner and the `$has` list of its value). A
+// unit lives directly under its guild, so `NOT GLOB 'guilds/*/*/*'` keeps a private layer's path out (GLOB's `*` crosses a
+// slash). The `record` column of `work` and `work_events` is not touched. One `decisions` row says how many units moved,
+// none when nothing did.
+const V14_UNITS = `
+CREATE TEMP TABLE _errand_units (old TEXT PRIMARY KEY, new TEXT);
+INSERT OR IGNORE INTO _errand_units (old, new)
+  SELECT p, CASE WHEN p GLOB '*.jsonl' THEN substr(p, 1, length(p) - 11) || 'errands.jsonl'
+                 ELSE substr(p, 1, length(p) - 10) || 'errands.json' END
+  FROM (SELECT path AS p FROM files UNION SELECT owner_file FROM work UNION SELECT owner_file FROM work_events
+        UNION SELECT owner_file FROM operational WHERE kind = 'tasks' UNION SELECT owner_file FROM co_owners)
+  WHERE (p GLOB 'guilds/*/tasks.json' OR p GLOB 'guilds/*/tasks.jsonl') AND p NOT GLOB 'guilds/*/*/*';
+UPDATE files SET path = (SELECT new FROM _errand_units WHERE old = files.path), kind = 'errands'
+  WHERE path IN (SELECT old FROM _errand_units);
+UPDATE work SET owner_file = (SELECT new FROM _errand_units WHERE old = work.owner_file)
+  WHERE owner_file IN (SELECT old FROM _errand_units);
+UPDATE work_events SET owner_file = (SELECT new FROM _errand_units WHERE old = work_events.owner_file)
+  WHERE owner_file IN (SELECT old FROM _errand_units);
+UPDATE co_owners SET owner_file = (SELECT new FROM _errand_units WHERE old = co_owners.owner_file)
+  WHERE owner_file IN (SELECT old FROM _errand_units);
+UPDATE operational SET kind = 'errands',
+    owner = COALESCE((SELECT new FROM _errand_units WHERE old = operational.owner), owner),
+    owner_file = COALESCE((SELECT new FROM _errand_units WHERE old = operational.owner_file), owner_file),
+    value = CASE WHEN json_type(value, '$."$has"') = 'array'
+                 THEN json_set(value, '$."$has"', json(replace(json_extract(value, '$."$has"'), '"tasks"', '"errands"')))
+                 ELSE value END
+  WHERE kind = 'tasks';
+INSERT OR IGNORE INTO decisions (id, at, by, target_kind, target_id, action, reason, extra, owner_file, position, retired_at)
+  SELECT 'migration:v14:errand_units', ${NOW_SQL}, 'migration', 'table', 'work', 'migration:errand_units',
+    'the errand units took the errand name', json_object('units', COUNT(*)), NULL, NULL, NULL
+  FROM _errand_units HAVING COUNT(*) > 0;
+DROP TABLE _errand_units;
+`;
+
+/** @type {Record<string, string>} */
+const INTENTION_FIELDS = { awaitingTaskId: 'awaitingErrandId', lastTaskId: 'lastErrandId' };
+const OPEN_INTENTION = new Set(['proposed', 'pending', 'waiting']);
+const ERRAND_NOTE = /^task-(done|failed|cancelled|ended|missing)$/;
+
+/** @param {unknown} value @returns {value is Record<string, unknown>} */
+const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+
+/**
+ * `record` with the errand fields under their new names, each in the place its key had; null when nothing changes.
+ * @param {Record<string, unknown>} record
+ * @returns {Record<string, unknown> | null}
+ */
+function movedIntention(record) {
+  let changed = false;
+  const open = typeof record.status === 'string' && OPEN_INTENTION.has(record.status);
+  /** @type {Record<string, unknown>} */
+  const out = {};
+  for (const [key, value] of Object.entries(record)) {
+    const field = INTENTION_FIELDS[key];
+    if (Object.hasOwn(INTENTION_FIELDS, key) && field !== undefined) {
+      out[field] = value;
+      changed = true;
+    } else if (key === 'outcome' && isObject(value) && Object.hasOwn(value, 'taskId')) {
+      out.outcome = Object.fromEntries(
+        Object.entries(value).map(([name, item]) => [name === 'taskId' ? 'errandId' : name, item])
+      );
+      changed = true;
+    } else if (key === 'note' && open && typeof value === 'string' && ERRAND_NOTE.test(value)) {
+      out.note = `errand-${value.slice(5)}`;
+      changed = true;
+    } else {
+      out[key] = value;
+    }
+  }
+  return changed ? out : null;
+}
+
+/** @param {unknown} text @returns {unknown} */
+function parsedRecord(text) {
+  try {
+    return JSON.parse(String(text));
+  } catch {
+    return null;
+  }
+}
+
+// The intention records the list keeps name the errand they wait on or waited on under `awaitingErrandId`,
+// `lastErrandId` and `outcome.errandId`, and an open record's note `task-<state>` or `task-missing` becomes
+// `errand-<state>` or `errand-missing`. A closed record keeps its note (the heartbeat prints it as the reason the
+// intention ended), the `history` entries and the archived lines stay as written. A row is written only when its
+// text changes, so a second run finds nothing.
+/** @param {{ exec(sql: string): void, prepare(sql: string): { all(): Array<{ id: string, record: unknown }>, run(...args: Array<unknown>): unknown } }} db */
+function V14(db) {
+  db.exec(V14_UNITS);
+  const rows = db.prepare('SELECT id, record FROM intentions WHERE COALESCE(archived, 0) = 0').all();
+  const update = db.prepare('UPDATE intentions SET record = ? WHERE id = ?');
+  for (const row of rows) {
+    const parsed = parsedRecord(row.record);
+    const moved = isObject(parsed) ? movedIntention(parsed) : null;
+    if (moved) update.run(JSON.stringify(moved), row.id);
+  }
+}
+
 /** Each entry moves the schema one version up: SQL text, or a function of the connection (and the opener's context)
  * for a step SQL cannot do. Never edit a shipped entry: append a new one. */
-export const MIGRATIONS = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13];
+export const MIGRATIONS = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14];
 
 /** Every table schema v8 adds. */
 export const V8_TABLES = [

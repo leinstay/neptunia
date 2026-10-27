@@ -495,7 +495,7 @@ async function buildCore(options, cleanups) {
   // someone waits until they stop writing (pace.settleMs).
   const activity = createActivity();
   // The persona's errands (agents.*): a task she or a member asks for goes to its agent runner over
-  // its socket in the background (src/errands/); the tasks live in data/guilds/<id>/tasks.json.
+  // its socket in the background (src/errands/); the tasks live in data/guilds/<id>/errands.json.
   const errandClient = createErrandClient({ hot, log });
   const taskStores = createTaskStores({ config: () => hot.config, journal, log, memoryDb });
   // An errand's end opens her own turn where it was asked (the task turns, created below the runner).

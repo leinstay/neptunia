@@ -6,19 +6,19 @@
 //
 // applyUnitWrite(handle, update) -> counts.
 //   { kind: 'unit', op: 'lines', owner, lines }   every line of a JSONL unit (a record day, a journal day, an archive
-//       month, a private layer's alike, `intentions-archive.jsonl`, `tasks.jsonl`) mapped at the next position of the
+//       month, a private layer's alike, `intentions-archive.jsonl`, `errands.jsonl`) mapped at the next position of the
 //       unit (the `files` row's `lines`, else one past the highest position its rows hold) and the `files` row kept
 //       (`lines`, so the export and the directory ids find the unit). A record line whose message revision (or, for
 //       `deleted`, whose deletion) the unit's month already holds is a duplicate (`duplicates`); a line the live
 //       observation wrote first (`origin` `observation`, the same id) is adopted: the line's columns win, its place in
 //       the unit stays. An archive line of an item hot memory does not hold brings its retired `historical` claim
-//       (map/archive.js). A transition of `tasks.jsonl` the unit already holds (its key is the line itself: the task's
+//       (map/archive.js). A transition of `errands.jsonl` the unit already holds (its key is the line itself: the task's
 //       id, the transition's time and the task as it was then) is a duplicate, never a second transition, so a write
 //       retried after its answer was lost is harmless. Returns `{ written, duplicates, adopted }`.
 //   { kind: 'unit', op: 'value', owner, value, destination? }   a whole JSON unit, mapped whole, the unit's rows it
 //       no longer holds retired and its `files` row kept: every unit of the store's cache (users, private layers,
 //       channels, guild, lore, recent, versions, the diary), participation.json and media.json (whose files stay
-//       written), and the module stores' (intentions.json, tasks.json). A diary's mirrors that name no destination get
+//       written), and the module stores' (intentions.json, errands.json). A diary's mirrors that name no destination get
 //       `destination` as in op `diary`. Request dumps (`journal/requests/`) are not written this way.
 //   { kind: 'unit', op: 'diary', owner, post, max, updatedAt, destination }   one diary post appended to the diary the
 //       database holds (the newest `max` kept, `updatedAt` stamped, as store.js#writeDiary does), the unit mapped
@@ -34,6 +34,7 @@
 // An unmapped owner is refused with `UNIT_UNMAPPED`, an unknown op with `UNIT_BAD_OP`. Counts and codes only, never a
 // text.
 
+import { currentUnitPath } from './paths.js';
 import { classify } from './map/index.js';
 import { ifaceOrLegacy as ifaceOf } from './legacy-namespace.ts';
 import { hotClaimIds, linkVectors, qualify, retireAbsent, writeMapping } from './upsert.js';
@@ -58,7 +59,7 @@ const POSITIONED = [
   'work_events',
 ];
 /** The kinds of JSONL unit op `lines` writes. */
-const LINE_KINDS = new Set(['record', 'journal', 'archive', 'intentions', 'tasks']);
+const LINE_KINDS = new Set(['record', 'journal', 'archive', 'intentions', 'errands']);
 
 const coded = (code) => Object.assign(new Error(code), { code });
 const isoOf = (ms) => new Date(Number.isFinite(ms) ? ms : Date.now()).toISOString();
@@ -66,7 +67,7 @@ const filled = (value) => typeof value === 'string' && value !== '';
 
 /** What an owner (a unit's full path) is: `{ full, rel, kind, mapper, format, guildId }`; throws `UNIT_UNMAPPED`. */
 export function unitOf(owner, { vectors = false } = {}) {
-  const full = String(owner ?? '');
+  const full = currentUnitPath(String(owner ?? ''));
   const info = classify(vectors ? `${full}/manifest.json` : full);
   if (!filled(full) || !info || info.skipped || info.guildId === undefined) throw coded('UNIT_UNMAPPED');
   return { full, rel: info.unit, kind: info.kind, mapper: info.mapper, format: info.format, guildId: info.guildId };
@@ -166,7 +167,7 @@ function writeLines(db, update, at) {
       result.duplicates += 1;
       continue;
     }
-    if (unit.kind === 'tasks' && transitionHeld(db, unit.full, line)) {
+    if (unit.kind === 'errands' && transitionHeld(db, unit.full, line)) {
       result.duplicates += 1;
       continue;
     }

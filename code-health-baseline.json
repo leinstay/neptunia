@@ -1008,7 +1008,7 @@
       "src/memory/db/map/requests.js",
       "src/memory/db/map/scope-parts.js",
       "src/memory/db/map/scope-string.js",
-      "src/memory/db/map/tasks.js",
+      "src/memory/db/map/errands.js",
       "src/memory/db/map/versions.js",
       "src/memory/db/readers/common.js",
       "src/memory/db/rows.js",
