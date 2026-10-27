@@ -8,6 +8,7 @@ import type { Due, Intention } from '../../intentions/types.ts';
 import type { Reads } from '../../interface/reads.ts';
 import type { ConversationInfo, ConversationRef } from '../../protocol/adapter.ts';
 import type { HeartbeatFacts } from '../heartbeat-view.ts';
+import type { WakeBlockInput } from '../wake.ts';
 import type { WAKE_KINDS } from './settings.ts';
 
 /** A wake kind, as the `<wake>` block names it. */
@@ -272,6 +273,12 @@ export type WakeInfo = {
   heartbeat?: HeartbeatFacts;
   here: { channel: string; why: string | null } | null;
 };
+
+/**
+ * The wake as the turn runner reads it (src/behavior/turn.js, `params.inner.wake`): every field it reads has a fallback,
+ * so every field is optional; the drain's WakeInfo is one of these.
+ */
+export type TurnWake = WakeBlockInput & { kind?: string; chainId?: string };
 
 /** One wake of an inner turn as `<wake>` shows it. */
 export type WakeItem = {

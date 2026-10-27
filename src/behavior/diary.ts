@@ -25,6 +25,7 @@ import { MINUTE_MS, countToday, zonedDay, zonedEpoch, utcDay } from '../time.js'
 import { isFiniteNumber, listOf, objOf } from '../tools/types.ts';
 import type { Obj } from '../tools/types.ts';
 import type { Reads } from '../interface/reads.ts';
+import type { createStore } from '../memory/store.js';
 import type { ConversationRef } from '../protocol/adapter.ts';
 import { historyLines } from './lines.ts';
 import { diaryPlaces, readMirrors } from './mirror.ts';
@@ -73,12 +74,21 @@ export type DiaryTurnParams = {
 };
 
 /** The store as the diary reads it: the state file (its pause and the day plans), her diary and its writes. */
-export type DiaryStore = {
-  state: { data: { paused?: unknown; diary?: Record<string, DayPlan> }; markDirty(): void };
-  getDiary(guildId: string): { posts?: unknown } | null | undefined;
-  setDiaryPosts(guildId: string, posts: Array<BackfillPost>, opts: { max?: unknown }): unknown;
-  flushSettled?(opts: object): Promise<unknown>;
-};
+export type DiaryStore = Pick<ReturnType<typeof createStore>, 'state' | 'getDiary' | 'setDiaryPosts' | 'flushSettled'>;
+
+/** The state file's data as the diary reads it (`store.state.data`, untyped in the store). */
+function stateData(store: DiaryStore): Obj {
+  const data: unknown = store.state.data;
+  return objOf(data);
+}
+
+/** The day plans of the state file (`diary`), created empty when `create` and missing. */
+function plansOf(store: DiaryStore, create: boolean): Record<string, DayPlan | undefined> {
+  const data = stateData(store);
+  if (create) data.diary ??= {};
+  // state.json's `diary` is what currentPlan wrote: one day plan per guild.
+  return objOf(data.diary) as Record<string, DayPlan | undefined>;
+}
 
 /** One post the backfill writes to diary.json. */
 export type BackfillPost = {
@@ -733,7 +743,7 @@ export function createDiary({
   /** Why no post may run now, or null. */
   function gate(config: unknown) {
     if (sectionOf(config, 'features').diary === false) return 'off';
-    if (store.state.data.paused) return 'paused';
+    if (stateData(store).paused) return 'paused';
     return null;
   }
 
@@ -745,7 +755,7 @@ export function createDiary({
     const timezone = zoneOf(config);
     const diaryCfg = sectionOf(config, 'diary');
     const day = localDayKey(t, timezone);
-    const plans = (store.state.data.diary ??= {});
+    const plans = plansOf(store, true);
     const stored: DayPlan | undefined = plans[guildId];
     if (stored && stored.day === day && Array.isArray(stored.slots)) return stored;
     const hunger = nextHunger(stored, diaryCfg.windows, timezone, t, diaryCfg.slotGraceMinutes);
@@ -770,7 +780,7 @@ export function createDiary({
 
   /** Why the post may not run now (`cap`: the day's posts reached `diary.maxPerDay`), or null. */
   function postBlock(config: unknown, t: number) {
-    if (countToday(store.state.data, DIARY_DAILY, t) >= Number(capOf(config))) return 'cap';
+    if (countToday(stateData(store), DIARY_DAILY, t) >= Number(capOf(config))) return 'cap';
     return null;
   }
 
@@ -906,7 +916,7 @@ export function createDiary({
       return {
         outcome: 'refused',
         reason: 'cap',
-        limit: { key: 'diary.maxPerDay', used: countToday(store.state.data, DIARY_DAILY, t), cap },
+        limit: { key: 'diary.maxPerDay', used: countToday(stateData(store), DIARY_DAILY, t), cap },
       };
     }
     await backfillOnce(guildId, config);
@@ -934,7 +944,7 @@ export function createDiary({
   function status(): DiaryStatus {
     const t = now();
     const guildId = getGuildId();
-    const plan = guildId ? (store.state.data.diary?.[guildId] ?? null) : null;
+    const plan = guildId ? (plansOf(store, false)[guildId] ?? null) : null;
     const history = guildId && typeof store.getDiary === 'function' ? listOf(store.getDiary(guildId)?.posts).length : 0;
     return {
       channelId: readMirrors(store, diaryPlaces, [])[0]?.conversationId ?? '',
@@ -944,8 +954,8 @@ export function createDiary({
       quiet: plan?.quiet === true,
       hunger: Array.isArray(plan?.hunger) ? plan.hunger.map(countOf) : [],
       quietStreak: countOf(plan?.quietStreak),
-      posts: countToday(store.state.data, DIARY_DAILY, t),
-      pictures: countToday(store.state.data, DIARY_PICTURES_DAILY, t),
+      posts: countToday(stateData(store), DIARY_DAILY, t),
+      pictures: countToday(stateData(store), DIARY_PICTURES_DAILY, t),
       history,
     };
   }
@@ -992,7 +1002,7 @@ export async function backfillDiary({
       search: null,
     }));
   if (posts.length === 0) return 0;
-  store.setDiaryPosts(guildId, posts, { max });
+  store.setDiaryPosts(guildId, posts, { max: Number(max) });
   log.info('diary: backfill', { count: posts.length });
   return posts.length;
 }

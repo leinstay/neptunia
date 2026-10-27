@@ -202,8 +202,14 @@ export type InnerLifeOptions = {
 };
 
 /** What one tick did: whether it ran, why not, and what it listed, handed to the door and drained. */
-export type TickAnswer =
-  { ran: false; reason: string } | { ran: true; listed: number; submitted: number; drained: DrainAnswer };
+export type TickAnswer = {
+  ran: boolean;
+  /** Why it did not run. */
+  reason?: string;
+  listed?: number;
+  submitted?: number;
+  drained?: DrainAnswer;
+};
 
 /** The persona's inner life (createInnerLife). */
 export type InnerLife = {
