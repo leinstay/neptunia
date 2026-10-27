@@ -117,11 +117,10 @@
 // and `*` expanded as `/nep access grant` expands them for her
 // (src/tools/impl/access.ts#expandPersonaGrant: a group or `*` is its read skills); a
 // name no grant opens for her is kept, so the gateway refuses it as live.
-// An errand (`task.run`) passes the gateway's budget exactly as live: the
-// open tasks against `agents.maxOpen` and today's tasks and dollars against
-// `agents.<agent>.daily` (agents.scout, agents.server; the profile's defaults
-// under them), from the guild's data/guilds/<id>/tasks.json of the data read
-// (--snapshot's when given) and the config, read only
+// An errand (`errand.run`) passes the gateway's budget exactly as live: the
+// open tasks against `errands.maxOpen` and today's tasks and dollars against
+// `agents.<agent>.daily` (agents.scout, agents.server; the profile's defaults under them), from the guild's
+// data/guilds/<id>/errands.json of the data read (--snapshot's when given) and the config, read only
 // (sandboxErrandBudget, src/errands/store.js#budget); nothing is ever queued.
 // Her `<skills>` block is the catalogue of that requester as the live turn
 // lists it (src/behavior/sandbox.js#scenarioInventory): whole, as after
@@ -179,9 +178,8 @@
 // member who asked; its origin channel is the scenario's `channelId`. Instead
 // of a mention it runs the turn an errand's end opens (src/errands/turns.js):
 // one minute after the anchor (now, without `before`), in that channel, an
-// interjection of trigger kind `task` (no message of the chat to reply to)
-// whose request carries the `<task_result>` block
-// (src/errands/blocks.js#taskResultText), the asker its requester. The
+// interjection of trigger kind `errand` (no message of the chat to reply to) whose request carries the
+// `<errand_result>` block (src/errands/blocks.js#taskResultText), the asker its requester. The
 // errand is named `t<8 hex>` from the scenario's id (scenarioTaskId) and its
 // files by their live handles `file:<task id>/<name>`, which her calls
 // resolve to as live (scenarioFileOf; the files are not on disk and nothing
@@ -189,7 +187,7 @@
 // passes the real resolution and gateway and is recorded like any call
 // (runs.jsonl's `executed`, the report). Runs, results, follow-ups and the
 // report as a single-turn scenario; `--dry` adds the errand's id, whether
-// the request holds `<task_result>` and its file count.
+// the request holds `<errand_result>` and its file count.
 // Her turn on the step engine (every `--skills`, `--pair-transport` and `--loop-triggers` turn;
 // src/behavior/sandbox.js#runSkillLoop, mirroring src/behavior/turn.js#runSteps): her tools are
 // sent with every request as a live turn sends them (src/behavior/sandbox.js#sandboxToolset: the
@@ -213,7 +211,7 @@
 // data read (live data/ or --snapshot: its record, archive and vector index iterated, the
 // daily recall counter a private copy; Discord's own searches over REST, GET only). Every
 // other call, a write or a paid effect (`draw.create` included), is answered canned as above and
-// nothing real runs; a `task.run` that passed is never dispatched, only recorded with its agent
+// nothing real runs; an `errand.run` that passed is never dispatched, only recorded with its agent
 // and goal (`errand`). runs.jsonl's line of a run keeps the single-call fields (the first call, the
 // first follow-up) and adds `loop`: per step (0 the reply) its calls in order with their verdict,
 // result status, code and size, time and the tool's own usage, the calls dropped and why, whether her
@@ -2669,7 +2667,9 @@ export function innerReplayWake({
     wake,
     info: {
       kind: wake.kind,
-      items: [{ kind: wake.kind, reason: wake.reason, intentionIds: wake.intentionIds, taskId: wake.taskId ?? null }],
+      items: [
+        { kind: wake.kind, reason: wake.reason, intentionIds: wake.intentionIds, errandId: wake.errandId ?? null },
+      ],
       intentions: intention ? [intention] : [],
       now,
       timezone,
@@ -3324,7 +3324,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
       posted = sent;
     }
     const blocks = {};
-    for (const tag of ['wake', 'intentions', 'tasks', 'retrieved', 'task']) {
+    for (const tag of ['wake', 'intentions', 'errands', 'retrieved', 'task']) {
       const whole = blockOf(firstRequest?.text ?? '', tag);
       if (whole) blocks[tag] = whole;
     }
@@ -4152,10 +4152,10 @@ export function scenarioFileOf(task, parseFileHandle) {
 /**
  * The errands' budget the sandbox gateway reads (src/tools/gateway.ts, `context.tasks`), read
  * only: a task store of `guildId` over `dataDir` (src/errands/store.js#createTaskStore: its
- * tasks.json and tasks.jsonl read once, the live data/ or a snapshot) whose `budget(agent)` -- the open tasks
- * against `agents.maxOpen`, today's tasks and dollars against `agents.<agent>.daily` (the
+ * errands.json and errands.jsonl read once, the live data/ or a snapshot) whose `budget(agent)` -- the open tasks
+ * against `errands.maxOpen`, today's tasks and dollars against `agents.<agent>.daily` (the
  * profile's defaults under them), read from `config()` at the moment of use -- answers a
- * `task.run` exactly as a live turn's (src/errands/service.js#budget). Only `budget` is handed
+ * `errand.run` exactly as a live turn's (src/errands/service.js#budget). Only `budget` is handed
  * out: nothing is ever queued, and the store writes nothing for it.
  * @param {{ createTaskStore: Function, guildId: string, config: () => object, now?: () => number, log?: object,
  *   memoryDb?: object|null }} input  `memoryDb`: the memory read (tools/lib/memory-read.mjs); without it no task is known
@@ -4188,7 +4188,7 @@ const TOOL_TIMEOUT_RESULT = Object.freeze({ status: 'unknown', code: 'timeout', 
  * memory.search) -- run for real: `runTool(skill, resolvedArgs, refs)` resolving `{ result, usage }`
  * within `refs.timeoutMs` (past it the timeout result a live call gets), the result in place of the
  * canned one, and `tool: { ms, requests,
- * tokens, cost }` what the tool's own requests used. A `task.run` that passed is never dispatched:
+ * tokens, cost }` what the tool's own requests used. A `errand.run` that passed is never dispatched:
  * it keeps the canned result and records `errand: { agent, goal }` (the goal as resolved, else her
  * body). A tool that throws answers `failed` / `error` and logs one warning with the message (`log`). `now` is the clock.
  * @param {{ simulate: Function, runTool?: Function|null, inTurn: readonly string[], now?: () => number, log?: { warn?: Function }|null }} input
@@ -4198,7 +4198,7 @@ export function loopCall({ simulate, runTool = null, inTurn, now = Date.now, log
   return async (call, refs = {}) => {
     const outcome = simulate(call, refs);
     const executed = outcome?.verdict?.ok === true ? outcome.executed : null;
-    if (executed?.skill === 'task.run') {
+    if (executed?.skill === 'errand.run') {
       return {
         ...outcome,
         errand: { agent: String(executed.args?.agent ?? ''), goal: String(executed.args?.goal ?? call?.body ?? '') },
@@ -4645,7 +4645,7 @@ function addCost(a, b) {
  * it: per step (0 the reply) its number, the calls it made in order -- the skill, the arguments she
  * wrote, the gateway's verdict, the resolved arguments when it passed, the result's status, code and
  * size (`chars`, its text), how long it took, what an in-turn tool's own requests used (`tool`) and,
- * for a `task.run` that passed, the errand recorded (`errand`: agent and goal; never dispatched) --,
+ * for an `errand.run` that passed, the errand recorded (`errand`: agent and goal; never dispatched) --,
  * the calls dropped (`dropped`; `capped` its reason), whether her speech of the step was `held`
  * (never posted), `thinkMissing` (her text did not begin with her thinking), `coerced` (arguments
  * read in another type), her visible answer, the size of the request it answered (`requestChars`),
@@ -5635,7 +5635,7 @@ async function runSkills({
       quota: createImageGen({ apiKey: '', getConfig: () => scenarioConfig, state: frozenState, fetchImpl: refusing })
         .quota,
     };
-    // An errand's budget as live: the guild's tasks.json of the data read (live or --snapshot) against the scenario's config, never queued into.
+    // An errand's budget as live: the guild's errands.json of the data read (live or --snapshot) against the scenario's config, never queued into.
     const tasks = sandboxErrandBudget({
       createTaskStore,
       guildId,
@@ -5647,7 +5647,7 @@ async function runSkills({
     const fileOf = task ? scenarioFileOf(task, parseFileHandle) : null;
     const memoryOn = scenarioConfig.features?.memory !== false;
     // Her call taken through the real resolution and gateway at `now`, never run: answered with `resultText`.
-    // Her in-turn tools run for real (`tools`, loopCall); every other call, a write or a paid effect, is answered canned; a task.run is only recorded.
+    // Her in-turn tools run for real (`tools`, loopCall); every other call, a write or a paid effect, is answered canned; an errand.run is only recorded.
     const onCallOf = (callRequester, now, resultText, tools) => {
       const simulate = simulatedCallOf(callRequester, now, resultText);
       return loopCall({
@@ -5707,7 +5707,7 @@ async function runSkills({
             // The automatic memory prefetch a live turn runs for the scenario's trigger, as of its first decision.
             prefetch: await tools.prefetch({
               trigger,
-              triggerKind: task ? 'task' : null,
+              triggerKind: task ? 'errand' : null,
               mode: situation.mode ?? null,
               history: situation.history,
               at: task ? at : newestTs(situation.history, trigger?.ts),
@@ -5801,7 +5801,7 @@ async function runSkills({
               ? {
                   taskResult: {
                     id: task.id,
-                    block: blockOf(request.user, 'task_result') !== null,
+                    block: blockOf(request.user, 'errand_result') !== null,
                     files: task.result.files.length,
                   },
                 }
@@ -6257,7 +6257,7 @@ function turnCounts(record) {
  * `--pair-transport` and `--loop-triggers` (see the header): every trigger of `pairTriggers` answered as a
  * skill-scenario turn of the sandbox over the same fetched chat, memory and clock, under the live grants --
  * her calls through the real gateway, web.search and memory.search run for real (loopCall), every write and
- * paid effect canned, a task.run only recorded --, her turn on the step engine (src/behavior/sandbox.js#runSkillLoop).
+ * paid effect canned, an errand.run only recorded --, her turn on the step engine (src/behavior/sandbox.js#runSkillLoop).
  * `sides`: `[{ key, transport }]` -- A (native) and B (text) for the pair, one side (`--transport`, else the
  * config's) for the loop run. What a live turn runs before her reply is run once per trigger and shared by the
  * sides: with features.coreTools on the memory prefetch, else the search classifier (preTurnLookup). The pair
@@ -7172,7 +7172,7 @@ async function runMain(args, { root, signal, rng, answers }) {
     const { requesterOf, callViewOf } = await load('behavior/turn.js');
     const { createImageGen } = await load('llm/images.js');
     const { grantedSkillNames } = await load('tools/discovery.ts');
-    // The errands' budget (every scenario: a task.run is checked as live) and the handles of an errand's files.
+    // The errands' budget (every scenario: an errand.run is checked as live) and the handles of an errand's files.
     const { createTaskStore, parseFileHandle } = await load('errands/store.js');
     skillMods = {
       answerSkillScenario,

@@ -9,7 +9,7 @@
   "people": { "Hana": "u-501", "visitor": "u-901" },
   "history": { "selfHours": [20], "channel": "c-general" },
   "stub": {
-    "review": [[{ "skill": "intent.update", "args": { "id": "$candidates", "state": "pending" } }]]
+    "review": [[{ "skill": "intention.update", "args": { "id": "$candidates", "state": "pending" } }]]
   },
   "events": [
     { "kind": "message", "at": "1 11:00", "channel": "c-general", "author": "visitor", "text": "persona, can you read this page? https://example.org/spring-raffle", "addressed": true },

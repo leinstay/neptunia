@@ -17,8 +17,8 @@
   "history": { "selfHours": [11, 17], "channel": "c-general" },
   "stub": { "usdPerRequest": 0.06, "review": [[]], "intention_due": [[{ "skill": "web.search", "args": { "q": "news" } }]] },
   "intentions": [
-    { "key": "push-ahead", "purpose": "check the leaderboard", "channel": "c-games", "due": "1 10:00", "stub": { "intention_due": [[{ "skill": "intent.update", "args": { "id": "$intention", "due": "10m" } }]] } },
-    { "key": "chain-seed", "purpose": "watch the stream schedule", "channel": "c-memes", "due": "1 14:00", "chain": "stream-watch", "stub": { "intention_due": [[{ "skill": "intent.set", "args": { "purpose": "watch the stream schedule again", "due": "15m", "chain": "$chain", "channel": "$channel", "key": "chain-seed" } }]] } }
+    { "key": "push-ahead", "purpose": "check the leaderboard", "channel": "c-games", "due": "1 10:00", "stub": { "intention_due": [[{ "skill": "intention.update", "args": { "id": "$intention", "due": "10m" } }]] } },
+    { "key": "chain-seed", "purpose": "watch the stream schedule", "channel": "c-memes", "due": "1 14:00", "chain": "stream-watch", "stub": { "intention_due": [[{ "skill": "intention.set", "args": { "purpose": "watch the stream schedule again", "due": "15m", "chain": "$chain", "channel": "$channel", "key": "chain-seed" } }]] } }
   ],
   "events": [],
   "expect": { "capped": ["per-chain"] }
