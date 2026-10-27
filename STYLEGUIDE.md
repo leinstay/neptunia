@@ -223,13 +223,13 @@ function firstOf<TItem, TKey extends string>(items: Array<TItem>, key: TKey): TI
 - Write acronyms as words: `fetchUrl`, `parseJson`.
 - Skip the `I` prefix, leading and trailing underscores, and the type in the name (`nameString`). Abbreviate only to words that are words already: `id`, `url` and `db` are fine, `cfg` and `msg` are not.
 
-### The engine's words
+### Terminology
 
 | Word | Meaning |
 |---|---|
 | `core` | The platform-neutral engine in `src/`. |
 | `interface`, `adapter` | A package for one platform; its adapter translates between the platform and the protocol. |
-| `conversation` | Where people talk. Kinds: `dm`, `group`, `channel`, `thread`. |
+| `conversation` | Where people talk. |
 | `community` | A group of conversations under one membership: a Discord server, a Telegram channel's audience. |
 | `event`, `action` | What arrives from an interface, and what the core asks an interface to do. |
 | `turn`, `step` | One run of the persona over an event or a wake, and one model call inside it. |
@@ -240,7 +240,7 @@ function firstOf<TItem, TKey extends string>(items: Array<TItem>, key: TKey): TI
 | `agent` | A model with a profile that works on an errand or a development task. |
 | `model role` | The name under which a model is configured. |
 | `intention` | Something the persona decided to do later. |
-| `wake` | A turn the persona starts herself. Kinds, each one word: `heartbeat`, `selfreflection`, `selfimprovement`, `intention_due`, `errand_done`, `review`, `attend`, `feedback`. |
+| `wake` | A turn the persona starts herself. |
 | `memory` | What the persona keeps between turns. |
 | `labels` | The wording of what code inserts into a prompt, and the strings the owner sees. |
 | `config`, `local layer` | The shipped settings, and the private files that override them. |
