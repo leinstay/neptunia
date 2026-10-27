@@ -23,7 +23,7 @@
     "tests/store.test.js": 3255,
     "tests/turn.test.js": 12881,
     "tools/lib/inner-week.mjs": 2196,
-    "tools/replay.mjs": 7741
+    "tools/replay.mjs": 7713
   },
   "functions": {
     "interfaces/discord/collect.js": {
@@ -897,7 +897,7 @@
         "complexity": 54
       },
       "runDiaryDay": {
-        "complexity": 36
+        "complexity": 35
       },
       "runInner": {
         "complexity": 63,

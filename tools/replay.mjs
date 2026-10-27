@@ -2295,42 +2295,37 @@ function addUsage(usage, mine) {
 }
 
 /**
- * The diary channel over REST, in the served guild (else a CliError), with Discord's every
- * write refused: the REST queue passes GET only, the channel's send and sendTyping throw. Warns
- * when the bot could not send or attach there (the live diary would skip it).
+ * Discord over `client` with every write refused: the REST queue passes GET only, so a diary run reads the platform
+ * and never posts, edits or types there.
+ * @param {unknown} given  a discord.js client
  */
-async function openDiaryChannel({ client, guildId, diaryChannelId, canSend, canAttach, log }) {
+function refuseDiscordWrites(given) {
+  // discord.js's client: its REST manager queues every request.
+  const client = /** @type {{ rest: { queueRequest: (request: { method?: string }) => Promise<unknown> } }} */ (given);
   const queueRequest = client.rest.queueRequest.bind(client.rest);
   client.rest.queueRequest = (request) => {
     const method = String(request?.method ?? 'GET').toUpperCase();
     if (method !== 'GET') return Promise.reject(new Error(`replay-cli: Discord ${method} refused (read-only tool)`));
     return queueRequest(request);
   };
-  let channel = null;
-  try {
-    channel = await client.channels.fetch(diaryChannelId);
-  } catch {
-    channel = null;
-  }
-  if (!channel || String(channel.guildId ?? channel.guild?.id ?? '') !== String(guildId))
-    throw new CliError('replay-cli: the diary channel is not in the served guild');
-  const refuse = (name) => async () => {
-    throw new Error(`replay-cli: channel.${name} refused (read-only tool)`);
+}
+
+/**
+ * What a diary turn's entry would send (the turn itself sends nothing; its publication does): her messages, and how many
+ * files go with them (the pictures and a voice message).
+ * @param {unknown} result  the turn's outcome
+ * @returns {{ messages: string[], attachments: number }}
+ */
+function entrySends(result) {
+  const entry =
+    /** @type {{ diary?: { entry?: { messages?: unknown[], pictures?: unknown[], voice?: unknown } } } | null} */ (
+      result
+    )?.diary?.entry;
+  const messages = (entry?.messages ?? []).filter((text) => typeof text === 'string' && text !== '');
+  return {
+    messages: /** @type {string[]} */ (messages),
+    attachments: (entry?.pictures?.length ?? 0) + (entry?.voice ? 1 : 0),
   };
-  channel.send = refuse('send');
-  channel.sendTyping = refuse('sendTyping');
-  let writable = false;
-  try {
-    writable = canSend(channel) && canAttach(channel);
-  } catch {
-    writable = false;
-  }
-  if (!writable)
-    log.warn(
-      'replay-cli: the bot cannot send or attach in the diary channel; the live diary would skip it (not-writable)',
-      {}
-    );
-  return channel;
 }
 
 /**
@@ -2483,6 +2478,7 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
       log,
     });
     client = connection.client;
+    refuseDiscordWrites(client);
     const { guildId, self } = connection;
 
     // The engine, wired as src/index.js wires it.
@@ -3444,17 +3440,8 @@ export function diaryDayGate(args, config, { planDay, zonedEpoch, localDayKey },
 async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, signal }) {
   const mods = await loadDiaryMods(load);
   const { DIARY_DAILY, DIARY_PICTURES_DAILY, localDayKey, planDay } = mods;
-  const {
-    createStore,
-    createCalibrator,
-    createLlm,
-    createImageGen,
-    ImageCapError,
-    canAttach,
-    canSend,
-    resolveGuild,
-    createFakeAdapter,
-  } = mods;
+  const { createStore, createCalibrator, createLlm, createImageGen, ImageCapError, resolveGuild, createFakeAdapter } =
+    mods;
   const { parseJsonObject, countToday, zonedEpoch } = mods;
 
   // The day plan, before anything is read from Discord or sent: its slots are the estimate.
@@ -3525,8 +3512,6 @@ async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, si
   try {
     const hot = noPostHot(liveHot);
     const config = hot.config;
-    const diaryChannelId = config.diary?.channelId;
-    if (!diaryChannelId) throw new CliError('replay-cli: diary.channelId is not set');
     if (config.features?.diary === false)
       log.warn('replay-cli: features.diary is off; the live diary would not post', {});
 
@@ -3578,8 +3563,8 @@ async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, si
       log,
     });
     client = connection.client;
+    refuseDiscordWrites(client);
     const { guildId, self } = connection;
-    const channel = await openDiaryChannel({ client, guildId, diaryChannelId, canSend, canAttach, log });
     const port = createFakeAdapter({
       iface: 'discord',
       selfId: self.id,
@@ -3602,7 +3587,6 @@ async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, si
     });
     log.info('replay-cli: diary day ready', {
       guildId,
-      channelId: channel.id,
       date,
       slots: day.slots.length,
       draw: args.draw,
@@ -3641,14 +3625,10 @@ async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, si
       }
       const fromCalls = calls.length;
       const fromDraws = images.calls.length;
-      const fromPort = port.calls.length;
       let result;
       try {
-        result = await turns.runTurn({
-          conversation: conversationRef(channel),
-          mode: 'diary',
-          diary: { kind: null, forced: false },
-        });
+        // As the live diary runs it: the selfreflection wake, no conversation.
+        result = await turns.runTurn({ guildId, mode: 'diary', diary: { kind: null, forced: false } });
       } catch (err) {
         result = { outcome: 'error', reason: `${err?.name ?? 'Error'}: ${err?.message ?? err}` };
       }
@@ -3662,10 +3642,6 @@ async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, si
           plan = null;
         }
       }
-      const sends = port.calls
-        .slice(fromPort)
-        .filter((c) => c.op === 'send')
-        .map((c) => c.args[1] ?? {});
       const draws = images.calls.slice(fromDraws);
       const pictureCost = draws.reduce((sum, d) => sum + (Number.isFinite(d.result?.cost) ? d.result.cost : 0), 0);
       const before = report.usage;
@@ -3681,11 +3657,7 @@ async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, si
         plan,
         ...(planCall?.error ? { planError: planCall.error } : {}),
         diary: result?.diary ?? null,
-        messages: sends.map((content) => content.text).filter((text) => typeof text === 'string' && text !== ''),
-        attachments: sends.reduce(
-          (sum, content) => sum + (Array.isArray(content.attachments) ? content.attachments.length : 0),
-          0
-        ),
+        ...entrySends(result),
         draws,
         requests: mine.length,
         cost: Math.round((report.usage.cost - before.cost) * 10000) / 10000,
