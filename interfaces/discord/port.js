@@ -10,7 +10,18 @@
 // always `failed`: nothing was sent. A text longer than `maxChars` is posted as several messages
 // (src/protocol/split-text.ts): `send` answers a Delivery whose `parts` are all of them, and a part
 // that fails after the first leaves the earlier ones posted and the outcome `unknown`.
+//
+// A send with an `idempotencyKey` gives each part a message nonce made from the key and the part's index
+// (`nonceOf`, 25 characters, Discord's limit) and asks Discord to enforce it (`enforce_nonce`): a repeat of
+// the same part within Discord's window returns the message already posted instead of a second one. People
+// never see a nonce. Discord gives it back on the bot's own message in the gateway's message create event and
+// in the answer to the send, never on a message read later, so the adapter keeps the nonces of the messages it
+// posted in this process (the newest KEPT_NONCES), from both. `fetchMessages(conversation, ids, { idempotencyKey })`
+// reads those messages too, which lets the core reconcile a send whose answer was lost
+// (`capabilities().reconcile`, src/interface/reconcile.ts). A send from before the interface started is not
+// found and stays `unknown`.
 
+import { createHash } from 'node:crypto';
 import { AttachmentBuilder, MessageFlags } from 'discord.js';
 import {
   CAPABILITIES,
@@ -46,6 +57,21 @@ export const DISCORD_MESSAGE_URL = Object.freeze({
   community: 'https://discord.com/channels/{community}/{conversation}/{message}',
   direct: 'https://discord.com/channels/@me/{conversation}/{message}',
 });
+
+/** Discord refuses a message nonce longer than 25 characters. */
+const NONCE_CHARS = 25;
+
+/** How many nonces of its own messages the adapter keeps for a reconcile. */
+const KEPT_NONCES = 2000;
+
+/**
+ * The message nonce of part `part` of the send named `idempotencyKey`: the first 25 hex characters of its SHA-256.
+ * @param {string} idempotencyKey
+ * @param {number} part
+ */
+export function nonceOf(idempotencyKey, part) {
+  return createHash('sha256').update(`${idempotencyKey}\u0000${part}`).digest('hex').slice(0, NONCE_CHARS);
+}
 
 /** Error names and codes of a request that timed out or lost its connection. */
 const TIMEOUT_NAMES = new Set(['AbortError', 'TimeoutError']);
@@ -106,6 +132,55 @@ function postedFiles(posted) {
 }
 
 /**
+ * The nonces of the messages the adapter posted in this process: `issue(key, part)` gives a part of a keyed send its
+ * nonce, `posted(message)` notes one of her messages that carries one (the answer to the send, and the gateway's
+ * message create event, which comes even when the answer was lost), and `postedUnder(conversationId, key)` names the
+ * messages a send posted, part by part. The newest KEPT_NONCES of each are kept.
+ * @param {unknown} client  the discord.js client, whose `messageCreate` events are watched
+ */
+function createNonceBook(client) {
+  // nonce -> the message posted under it
+  /** @type {Map<string, { conversationId: string, messageId: string }>} */
+  const sent = new Map();
+  // nonce -> the send that gave it out
+  /** @type {Set<string>} */
+  const issued = new Set();
+  /** @param {Map<string, unknown> | Set<string>} kept */
+  const trim = (kept) => {
+    while (kept.size > KEPT_NONCES) kept.delete(kept.keys().next().value);
+  };
+  /** @param {{ nonce?: unknown, id?: unknown, channelId?: unknown } | null | undefined} message */
+  function posted(message) {
+    const nonce = message?.nonce;
+    if (typeof nonce !== 'string' || !issued.has(nonce)) return;
+    if (typeof message?.id !== 'string' || typeof message.channelId !== 'string') return;
+    sent.set(nonce, { conversationId: message.channelId, messageId: message.id });
+    trim(sent);
+  }
+  const gateway = /** @type {{ on?: (name: string, handler: (message: never) => void) => unknown } | null} */ (client);
+  if (typeof gateway?.on === 'function') gateway.on('messageCreate', posted);
+  return {
+    posted,
+    /** @param {string} key @param {number} part */
+    issue(key, part) {
+      const nonce = nonceOf(key, part);
+      issued.add(nonce);
+      trim(issued);
+      return nonce;
+    },
+    /** @param {string} conversationId @param {string} key */
+    postedUnder(conversationId, key) {
+      const ids = [];
+      for (let part = 0; issued.has(nonceOf(key, part)); part += 1) {
+        const found = sent.get(nonceOf(key, part));
+        if (found?.conversationId === conversationId) ids.push(found.messageId);
+      }
+      return ids;
+    },
+  };
+}
+
+/**
  * The Discord adapter over a discord.js client.
  * @param {{ client: object, config?: () => object, lookupChannel?: ((id: string) => object|null)|null,
  *   operations?: Iterable<string>|null, limits?: Partial<typeof DISCORD_LIMITS>, now?: () => number }} options
@@ -130,6 +205,7 @@ export function createDiscordAdapter({
   const unsupported = () => notOk('unsupported', CODE.UNSUPPORTED);
   const selfId = () => client?.user?.id ?? null;
   let sends = 0;
+  const nonces = createNonceBook(client);
 
   /** The channel `conversationId`, or null; a lookup that throws is rethrown as a lookup failure. */
   async function channelOf(conversationId) {
@@ -232,9 +308,11 @@ export function createDiscordAdapter({
   return {
     iface: DISCORD_IFACE,
 
-    async send(conversation, content) {
+    async send(conversation, content, options = {}) {
       sends += 1;
-      const key = `${DISCORD_IFACE}-send-${now()}-${sends}`;
+      const given =
+        typeof options?.idempotencyKey === 'string' && options.idempotencyKey ? options.idempotencyKey : null;
+      const key = given ?? `${DISCORD_IFACE}-send-${now()}-${sends}`;
       if (!supports('send')) return deliveryOf([unsupported()], key);
       const refused =
         refRefusal(conversation, DISCORD_IFACE) ?? contentRefusal(content, caps, DISCORD_IFACE, { splits: true });
@@ -249,10 +327,15 @@ export function createDiscordAdapter({
       const files = [];
       for (const [index, text] of texts.entries()) {
         const part = index === 0 ? { ...content, text } : { text, mentions: content.mentions };
+        const nonce = given === null ? null : nonces.issue(given, index);
         try {
-          const posted = await channel.send(payloadOf(part));
-          results.push(ok(refOf(posted, conversation.conversationId), posted?.createdTimestamp));
-          files.push(...postedFiles(posted));
+          const sent = await channel.send(
+            nonce === null ? payloadOf(part) : { ...payloadOf(part), nonce, enforceNonce: true }
+          );
+          const ref = refOf(sent, conversation.conversationId);
+          if (nonce !== null) nonces.posted({ nonce, id: ref.messageId, channelId: conversation.conversationId });
+          results.push(ok(ref, sent?.createdTimestamp));
+          files.push(...postedFiles(sent));
         } catch (err) {
           results.push(discordFailure(err, { sent: true }));
           break;
@@ -349,8 +432,26 @@ export function createDiscordAdapter({
 
     ...reads,
 
+    /**
+     * A fetch by a send's key reads the messages this process saw posted under it, beside the ids asked for.
+     * @param {{ iface: string, conversationId: string }} conversation
+     * @param {ReadonlyArray<string>} messageIds
+     * @param {{ idempotencyKey?: string }} [options]
+     */
+    fetchMessages(conversation, messageIds, options = {}) {
+      const key = typeof options?.idempotencyKey === 'string' ? options.idempotencyKey : null;
+      const extra = key === null ? [] : nonces.postedUnder(conversation.conversationId, key);
+      return reads.fetchMessages(conversation, [...(messageIds ?? []), ...extra]);
+    },
+
     capabilities() {
-      return { operations: [...offered], ...caps, messageUrl: DISCORD_MESSAGE_URL, reads: [...READ_ACTIONS] };
+      return {
+        operations: [...offered],
+        ...caps,
+        messageUrl: DISCORD_MESSAGE_URL,
+        reads: [...READ_ACTIONS],
+        reconcile: true,
+      };
     },
 
     ...declaredHooks(),

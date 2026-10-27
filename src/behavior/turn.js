@@ -1442,8 +1442,8 @@ function journalStartOf({ draft, channel, trigger, triggerKind, mode, journalTur
  * the lines folded into it), the origin channel, and a fresh invocation id the call's journal
  * lines and its operation carry. The follow-up pass inherits it; a tool's output never adds a
  * requester.
- * `turnId` (the journal's turn, else one id per attempt) and `idempotencyKey` (that turn, its
- * attempt and the call's index in it) go with every call: an errand records the turn, and the
+ * `turnId` (the journal's turn, else one id per attempt) and `idempotencyKey` (that turn, the call's
+ * index and the conversation it acts in, no attempt) go with every call: an errand records the turn, and the
  * same call made twice queues one errand (src/errands/store.ts#add).
  * @returns {Readonly<{ actor: 'persona', requester: object|null, mixed: boolean, sourceMessageIds: string[], originChannelId: string, invocationId: string, turnId?: string, idempotencyKey?: string }>}
  */
@@ -3309,7 +3309,7 @@ export function createTurnRunner({
             ...(preRefuse ? { preRefuse } : {}),
             ...(second ? { refuse: { code: CODE.HEARTBEAT_ONLY, reason: 'heartbeat:one-change' } } : {}),
           };
-          const planned = await planToolCall({ call, channel, envelope: envelopeOf(), draft, view });
+          const planned = await planToolCall({ call, channel, envelope: envelopeOf(call), draft, view });
           plans.push({ ...planned, record, coerced: coercion.coerced });
           draft.format.coerced += coercion.coerced.length;
           if (record.problem === CODE.MALFORMED_CALL) draft.format.malformed += 1;
@@ -3588,7 +3588,7 @@ export function createTurnRunner({
       const view = { ...viewOf(routed), links: await linksOfCalls(ifaceReads, loweredCalls) };
       const lowered = [];
       for (const call of loweredCalls)
-        lowered.push(await planToolCall({ call, channel, envelope: envelopeOf(), draft, view }));
+        lowered.push(await planToolCall({ call, channel, envelope: envelopeOf(call), draft, view }));
       out.loweredResults = await runCalls(lowered, contextOf(routed, callTimeoutCap));
       const messagesSent = out.loweredResults.filter(
         (result, i) => lowered[i].call.skill === 'message.create' && !lowered[i].call.args.gif
@@ -8937,14 +8937,14 @@ export function createTurnRunner({
           : {};
         return { outcome: 'spoke', mode: finalMode, dryRun: true, ...rehearsed };
       }
-      // Every call of the attempt: its turn (the journal's turn and attempt, else one id per attempt)
-      // and its index, counted over every step of the attempt.
-      draft.turnKey ??= draft.started
-        ? { turnId: draft.started.turnId, attempt: draft.started.attemptId ?? 1 }
-        : { turnId: randomUUID(), attempt: 1 };
-      const envelopeOf = () => {
+      // Every call of the attempt: its turn (the journal's turn, else one id per attempt) and its index over every step.
+      // Its key is the effect's record, `<turnId>:<effectIndex>:<target>` (the conversation it names, else the turn's),
+      // with no attempt in it, so a later attempt of the turn carries the key a first one would have carried.
+      draft.turnKey ??= { turnId: draft.started?.turnId ?? randomUUID() };
+      const envelopeOf = (/** @type {{ args?: Record<string, unknown> }} */ call) => {
         const index = draft.callCount ?? 0;
         draft.callCount = index + 1;
+        const target = typeof call?.args?.channelId === 'string' ? call.args.channelId || channel.id : channel.id;
         return callEnvelope({
           trigger,
           channel,
@@ -8952,7 +8952,7 @@ export function createTurnRunner({
           missed,
           requester: requesterParam,
           turnId: draft.turnKey.turnId,
-          idempotencyKey: `${draft.turnKey.turnId}.${draft.turnKey.attempt}:${index}`,
+          idempotencyKey: `${draft.turnKey.turnId}:${index}:${target}`,
           ownInitiative: Boolean(draft.inner) || draft.ownInitiative === true,
           chainId: draft.inner?.wake?.chainId ?? null,
           wakeKind: draft.inner?.wake?.kind ?? null,

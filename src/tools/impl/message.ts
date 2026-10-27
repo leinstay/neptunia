@@ -121,6 +121,24 @@ async function postTarget(
   return postingConversation({ reads: env.reads, iface, guildId, channelId, context, need });
 }
 
+/**
+ * `real` whose sends carry her turn's key of this call (`context.idempotencyKey`, src/behavior/turn.js), so a repeat
+ * of the call posts nothing new: the first send under the key itself, a later one of the same call (a GIF after her
+ * text) under `<key>:<n>`. `real` itself when the call has no key.
+ */
+function keyedPort(real: Adapter, context: OpContext): Adapter {
+  const key = typeof context.idempotencyKey === 'string' ? context.idempotencyKey : '';
+  if (key === '') return real;
+  const keyed = Object.create(real) as Adapter;
+  let sends = 0;
+  keyed.send = (to, content, options = {}) => {
+    const idempotencyKey = sends === 0 ? key : `${key}:${sends}`;
+    sends += 1;
+    return real.send(to, content, { ...options, idempotencyKey });
+  };
+  return keyed;
+}
+
 /** Her post through `real`, or with `diary` to her diary through its port (diaryPort), answered as diaryAnswer words it. */
 async function postOf(
   env: Env,
@@ -129,7 +147,7 @@ async function postOf(
   real: Adapter,
   post: (args: Obj, context: OpContext, p: Adapter) => Promise<unknown>
 ): Promise<unknown> {
-  if (args.diary !== true) return post(args, context, real);
+  if (args.diary !== true) return post(args, context, keyedPort(real, context));
   return diaryAnswer(env, await post(args, context, diaryPort(env, args, context, real)));
 }
 
