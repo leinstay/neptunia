@@ -434,6 +434,7 @@ export const labels = {
     result: {
       coerced: '{arg} read as {value}',
       untaggedNote: '{name} tagged nobody; handle @{handle}',
+      diaryWritten: 'written to the diary',
       ok: 'skill ok, data:',
       refused: 'skill refused: {reason}',
       failed: 'skill failed: {reason}',

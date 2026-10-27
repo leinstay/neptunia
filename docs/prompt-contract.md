@@ -754,6 +754,7 @@ channelDirectory.line                    {handle} {name}: one channel of `<chann
 channelDirectory.lineCategory            {handle} {name} {category}: the same for a channel inside a category ({category} its name, like {name}). Missing or blank: `channelDirectory.line`
 tools.result.ok                         the status line for a reading call that returned data. Body follows on the next line
 tools.result.untaggedNote               {name} {handle}: after the result of a `message.create` / `message.edit` that went out, once for each `@name` in its text that named a member of the request without tagging them (`{name}` as written with its `@`, `{handle}` the exact token without the `@`). Only with features.mentionHandles on; the status stays ok. Missing or blank: no note
+tools.result.diaryWritten               the result of a `message.create` with `diary`: what she wrote is in her diary, and its mirrors get it when the turn ends
 tools.result.coerced                    {arg} {value}: told ahead of a call's result when an argument she wrote as text was read as the schema says (`"true"` as true, `"5"` as 5)
 tools.toolsText.lead | protocol         the text transport's `<tools>` block: the lead before the JSON lines and the protocol after them (how to write a call, where results come back)
 tools.result.refused                    {reason}: the engine refused the call before it ran (the old word; `denied` is the current status)
@@ -1460,7 +1461,7 @@ The persona's own messages in a place of her diary count toward the channel's `d
 
 A place of an enabled diary mirror is written only by the diary's publisher. The core's outbound port refuses every send there (a message, a file, a GIF, a picture, a voice message) from a turn, a wake or a tool with the code `diary-mirror`, worded by `tools.result.reasons.diary-mirror`, and an event there opens no turn. Reactions are not refused.
 
-`message.create` takes `diary` (`true` or `false`, a string choice). With `true` the post goes to her diary in place of a channel ([Diary](diary.md#writing-to-the-diary-from-other-turns)), and `channel` or `reply` beside it is `invalid-args`. The turn's first such call is refused `cap-diary`, worded by `tools.result.reasons.cap-diary`, when `diary.maxPerDay` entries are counted today. The diary turn's writer request does not offer `message.create`. `tools.result.reasons.diary-mirror` tells her to write to her diary with `message.create` and `diary`.
+`message.create` takes `diary` (`true` or `false`, a string choice). With `true` the post goes to her diary in place of a channel ([Diary](diary.md#writing-to-the-diary-from-other-turns)), and `channel` or `reply` beside it is `invalid-args`. The turn's first such call is refused `cap-diary`, worded by `tools.result.reasons.cap-diary`, when `diary.maxPerDay` entries are counted today. In the diary turn such a call is refused `diary-draw-only`, as every call but `draw.create` and `voice.say` is there. A call that went through answers with `tools.result.diaryWritten`. `tools.result.reasons.diary-mirror` tells her to write to her diary with `message.create` and `diary`.
 
 ### Logs
 

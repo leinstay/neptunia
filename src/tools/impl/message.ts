@@ -34,6 +34,7 @@ import { lineOf } from '../../behavior/line-of.js';
 import { defineOp, perEnv, invalid, denied } from './registry.ts';
 import { DIARY_DAILY } from '../../behavior/diary.js';
 import type { createMirrors } from '../../behavior/mirror.ts';
+import { writeDiaryMessage } from '../../behavior/diary-turn.ts';
 import { freshAttachmentUrl, gifPostUrl, countGifPost } from '../../media/gif-post.js';
 import { gifPostsToday } from '../../memory/gif-watch.js';
 import { countToday, utcDay } from '../../time.js';
@@ -81,27 +82,31 @@ function diaryPort(env: Env, args: Obj, context: OpContext, real: Adapter): Adap
   if (hold.heldDiary(turnId) === 0 && countToday(counters, DIARY_DAILY, clock()) >= cap)
     throw denied(`your diary holds ${cap} entries a day at most`, CODE.CAP_DIARY);
   const held = Object.create(real) as Adapter;
-  held.send = (_to: ConversationRef, content: Content) => {
+  // Each send is one message of the turn's entry, kept in memory before the call answers.
+  held.send = async (_to: ConversationRef, content: Content) => {
     const files = (content.attachments ?? []).map((file) => ({
       name: file.name,
       data: file.data,
       contentType: file.contentType ?? null,
     }));
-    hold.holdDiary(turnId, guildId, {
-      text: content.text ?? '',
-      mentions: [...(content.mentions?.users ?? [])],
-      files,
+    const message = { text: content.text ?? '', mentions: [...(content.mentions?.users ?? [])], files };
+    await writeDiaryMessage({
+      mirrors: hold,
+      store: env.store as unknown,
+      config: objOf(config),
+      turnId,
+      guildId,
+      message,
     });
-    return Promise.resolve({ status: 'ok', ref: null, parts: [], at: clock(), idempotencyKey: '' });
+    return { status: 'ok', ref: null, parts: [], at: clock(), idempotencyKey: '' };
   };
   DIARY_PORTS.add(held);
   return held;
 }
 
 /**
- * Where a post of hers through `p` goes and how its result names it: her diary for a diary port (no channel), else the
- * conversation `channelId` names, checked for what a post (a reply when `reply`) needs there
- * (src/tools/impl/shared.ts#postingConversation).
+ * Where a post of hers through `p` goes: her diary for a diary port (no channel), else the conversation `channelId`
+ * names, checked for what a post (a reply when `reply`) needs there (src/tools/impl/shared.ts#postingConversation).
  */
 async function postTarget(
   env: Env,
@@ -109,13 +114,35 @@ async function postTarget(
   context: OpContext,
   channelId: string | null,
   reply: boolean
-): Promise<{ channelId: string; where: string }> {
-  if (DIARY_PORTS.has(p)) return { channelId: DIARY_TARGET, where: 'your diary' };
+): Promise<string> {
+  if (DIARY_PORTS.has(p)) return DIARY_TARGET;
   const iface = p.iface;
   const guildId = env.resolvedGuildId(context);
   const need = reply ? 'reply' : 'send';
-  const found = await postingConversation({ reads: env.reads, iface, guildId, channelId, context, need });
-  return { channelId: found, where: found };
+  return postingConversation({ reads: env.reads, iface, guildId, channelId, context, need });
+}
+
+/** Her post through `real`, or with `diary` to her diary through its port (diaryPort), answered as diaryAnswer words it. */
+async function postOf(
+  env: Env,
+  args: Obj,
+  context: OpContext,
+  real: Adapter,
+  post: (args: Obj, context: OpContext, p: Adapter) => Promise<unknown>
+): Promise<unknown> {
+  if (args.diary !== true) return post(args, context, real);
+  return diaryAnswer(env, await post(args, context, diaryPort(env, args, context, real)));
+}
+
+/**
+ * The answer of a post to her diary: a refusal or a failure as `post` gave it, else `ok` worded by
+ * `labels.tools.result.diaryWritten` (no message is posted yet: the mirrors post the entry when the turn ends).
+ */
+function diaryAnswer(env: Env, answer: unknown): unknown {
+  const given = objOf(answer);
+  if (typeof given.status === 'string' && given.status !== 'ok') return answer;
+  const result = objOf(objOf(objOf(objOf(objOf(env.hot as unknown).prompts).labels).tools).result);
+  return { text: textOf(result.diaryWritten) };
 }
 
 /** How far back `last` looks for her own message: the most messages one history read returns on the platform (100). */
@@ -291,7 +318,7 @@ const handlers = perEnv((env) => {
     const given = args.channelId ? idText(args.channelId) : null;
     if (given && reply?.channelId && given !== reply.channelId)
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
-    const { channelId, where } = await postTarget(env, p, context, given ?? reply?.channelId ?? null, reply !== null);
+    const channelId = await postTarget(env, p, context, given ?? reply?.channelId ?? null, reply !== null);
     const repliedUser = Boolean(reply) && !pingsOff(context, context?.repliedAuthorId);
     const guildId = resolvedGuildId(context);
     const entry = gifEntry(env, args, guildId);
@@ -310,7 +337,7 @@ const handlers = perEnv((env) => {
     if (text || attachment) {
       result = await p.send(to, content);
       if (result?.status !== 'ok' || !entry)
-        return portAnswer('message.create', result, `sent in ${where} (message ${result?.ref?.messageId ?? '?'})`);
+        return portAnswer('message.create', result, `sent in ${channelId} (message ${result?.ref?.messageId ?? '?'})`);
     }
     const sent = await postGif(p, to, entry, guildId, channelId, text || attachment ? null : content);
     if (sent?.status !== 'ok')
@@ -328,7 +355,7 @@ const handlers = perEnv((env) => {
         : portAnswer('message.create', sent, '');
     const ref = result?.ref ?? sent.ref;
     return {
-      text: `sent in ${where} (message ${ref?.messageId ?? '?'})${text || attachment ? ' and a GIF' : ''}`,
+      text: `sent in ${channelId} (message ${ref?.messageId ?? '?'})${text || attachment ? ' and a GIF' : ''}`,
       ref: ref ?? null,
       at: (result ?? sent).at,
     };
@@ -404,8 +431,7 @@ const handlers = perEnv((env) => {
   /** `/nep message create [channel] [reply]`: her turn for a person, her own text when she acts. */
   async function cmdCreate(args: Obj, context: OpContext) {
     assertNotPaused();
-    if (context?.actor !== 'persona') return turn(args, context);
-    return post(args, context, args.diary === true ? diaryPort(env, args, context, requirePort()) : requirePort());
+    return context?.actor === 'persona' ? postOf(env, args, context, requirePort(), post) : turn(args, context);
   }
 
   /** The port, or an Error naming what is missing. */
