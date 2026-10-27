@@ -797,7 +797,7 @@ export function createDiary({
     if (block) return { outcome: 'not-now', reason: block };
     await backfillOnce(channel, guildId, config);
     const params = { kind: typeof kind === 'string' && kind ? kind : null, topic: diaryTopic(topic), forced: true };
-    // One lease: a running turn is waited for (diary.forceWaitMs at most), once.
+    // One turn at a time: a running turn is waited for (diary.forceWaitMs at most), once.
     let waited = false;
     if (turns.isAnyBusy?.() === true) {
       waited = true;

@@ -379,7 +379,7 @@ export function createMessageHandler({
 
   /**
    * Whether a turn blocks a new one in `channelId` (config read by the caller
-   * now): with one lease (mention.oneAtATime, default on) a turn running
+   * now): with one turn at a time (mention.oneAtATime, default on) a turn running
    * anywhere, otherwise one running in this channel -- the rule runTurn applies.
    */
   function turnBlocked(channelId, config) {
@@ -1450,7 +1450,7 @@ export function createMessageHandler({
 
   // --- Pending direct pings ---------------------------------------------------
   // A @mention, a reply to the persona or her name that arrives while a turn is running
-  // in its own channel (mention.pendingSameChannel) or, with one lease
+  // in its own channel (mention.pendingSameChannel) or, with one turn at a time
   // (mention.oneAtATime), in another channel is remembered here instead of
   // dropped, and answered once the turn frees up -- every one of them, in
   // arrival order (src/behavior/pending.js), unless the turn that spoke there
@@ -1677,9 +1677,9 @@ export function createMessageHandler({
 
   /**
    * Remember a direct ping (mention/reply/name/private message) that arrived while
-   * a turn is running in its own channel or, with one lease, elsewhere --
+   * a turn is running in its own channel or, with one turn at a time, elsewhere --
    * or a routed call (`destination`: the channel its turn posts in) while a
-   * turn runs there or, with one lease, anywhere. Every call waits, in
+   * turn runs there or, with one turn at a time, anywhere. Every call waits, in
    * arrival order (`arrivedAt`, default now): none replaces another, of its
    * channel or of its author; a routed call carries the calls its settle wait
    * took the place of (src/behavior/pending.js `superseded`). At most
@@ -2160,7 +2160,7 @@ export function createMessageHandler({
    *  - a turn is running in that channel (mention.pendingSameChannel, default
    *    on, regardless of mention.oneAtATime) -- that turn may already have
    *    fetched its history without this message;
-   *  - one lease (mention.oneAtATime, default on): a turn is running in
+   *  - one turn at a time (mention.oneAtATime, default on): a turn is running in
    *    another channel.
    * A direct call is held through holdCall: queued, or folded into an item
    * its author already waits for there (the merge classifier).
@@ -2243,7 +2243,7 @@ export function createMessageHandler({
   // src/behavior/turn.js#routeFor), the
   // call is recorded in the ring (state.json `elsewherePings`: ids and a time,
   // no author, no text) and a settle wait is armed for the source: one timer
-  // per source, never a busy mark, so the lease stays free while it
+  // per source, never a busy mark, so the attention stays free while it
   // waits. Every message observed in the source moves the wait
   // (elsewhere.settleSeconds after the last one, at most
   // elsewhere.settleMaxSeconds after the call that armed it); a newer call
@@ -2564,7 +2564,7 @@ export function createMessageHandler({
       if (observing) await observing;
     }
 
-    // One lease: busy anywhere (or, with oneAtATime off, in this very
+    // One turn at a time: busy anywhere (or, with oneAtATime off, in this very
     // chat) -> pending, answered by drainPending once the turn frees up.
     if (turnBlocked(channel.id, config)) {
       holdCall(channel, normalized, 'private');

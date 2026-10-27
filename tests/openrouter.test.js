@@ -436,11 +436,7 @@ test('roleRequestOptions: complete takes the set as it is -- counted, uncalibrat
   const [line] = logs.filter((l) => l.msg === 'llm: usage');
   assert.deepEqual([line.role, line.purpose, line.model], ['analyzer', 'address', 'small/model']);
   await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.equal(
-    sent[0].signal.aborted,
-    true,
-    'the request signal is cut at llm.analyzerTimeoutMs, not at llm.timeoutMs'
-  );
+  assert.equal(sent[0].signal.aborted, true, 'the signal is cut at llm.analyzerTimeoutMs, not at llm.timeoutMs');
 });
 
 test('complete: a json.error body after a 200 is thrown and never retried', async () => {

@@ -290,7 +290,7 @@ function hasElsewherePrompt(prompts) {
  * go to) now, or null when it may: `cannot-send`, `channel` (not in a
  * non-empty spontaneous.channels), `gap` (its
  * own last post there is younger than spontaneous.minGapMinutes) or `busy`
- * (a turn runs there or, with one lease, anywhere). A writable channel
+ * (a turn runs there or, with one turn at a time, anywhere). A writable channel
  * is its own destination; a read-only source speaks in the main channel.
  * @param {Turns} turns
  * @param {Conv} dest
@@ -302,7 +302,7 @@ function destinationBlock(turns, dest, config, cfg, t) {
   if (!dest.permissions.send) return 'cannot-send';
   if (cfg.channels.length > 0 && !cfg.channels.includes(dest.id)) return 'channel';
   if (t - turns.lastPostAt(dest.id) < cfg.minGapMinutes * MINUTE_MS) return 'gap';
-  // One lease (mention.oneAtATime, default on): while a turn is
+  // One turn at a time (mention.oneAtATime, default on): while a turn is
   // running anywhere, a spontaneous tick or an eavesdrop must treat every
   // channel as unavailable, not just the one already busy -- runTurn
   // enforces the same rail itself, this just avoids attempting it.
@@ -606,7 +606,7 @@ export function createSpontaneous({ hot, store, reads, turns, getGuildId, rng = 
    * The eavesdrop rails of `channel`, `config` read by the caller now: not
    * paused (`/nep pause`), eavesdropAllowed, a conversation of the served community
    * and passesFilters (writable -- readable, not the dry-run mirror, allowed,
-   * she can send --, spontaneous.channels, minGapMinutes, one lease).
+   * she can send --, spontaneous.channels, minGapMinutes, one turn at a time).
    */
   function eavesdropRails(channel, config, t) {
     // /nep pause: no eavesdrop scheduling while paused.

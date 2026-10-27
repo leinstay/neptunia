@@ -1431,7 +1431,7 @@ function replyOptionsOf(config, { draft, bar, barAbort }) {
 }
 
 /**
- * Takes the attention for `id` when the turn may start: not while a turn runs there, and with one lease
+ * Takes the attention for `id` when the turn may start: not while a turn runs there, and with one turn at a time
  * (`mention.oneAtATime`, default on) not while one runs anywhere (src/behavior/pipeline.js is the only caller that turns
  * a direct ping caught by this into a pending one). True when taken.
  */

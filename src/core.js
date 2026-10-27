@@ -770,7 +770,7 @@ async function buildCore(options, cleanups) {
     deliver: (event, options) => onMessage.catchUp(event, options),
   });
 
-  // One lease (mention.oneAtATime): once a turn frees its channel, answer
+  // One turn at a time (mention.oneAtATime): once a turn frees its channel, answer
   // the oldest pending direct ping it may have collected while busy elsewhere.
   turns.setOnIdle(() => onMessage.drainPending());
 
