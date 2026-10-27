@@ -59,8 +59,8 @@ const MAPPED = [
   [`${G}/diary.json`, 'diary', 'memory'],
   [`${G}/intentions.json`, 'intentions', 'memory'],
   [`${G}/intentions-archive.jsonl`, 'intentions', 'memory'],
-  [`${G}/tasks.json`, 'tasks', 'memory'],
-  [`${G}/tasks.jsonl`, 'tasks', 'memory'],
+  [`${G}/errands.json`, 'errands', 'memory'],
+  [`${G}/errands.jsonl`, 'errands', 'memory'],
   [`${G}/media.json`, 'media', 'operational'],
   [`${G}/gifs.json`, 'gifs', 'operational'],
   [`${G}/recall-trace.jsonl`, 'verbatim', 'operational'],
@@ -96,6 +96,9 @@ const SKIPPED = [
 /** The rest of the data layout (store.js and the other owners under `data/`), with its list. */
 const INVENTORY = [
   ['memory.db', 'operational'],
+  // The errand units of an older release stay memory paths, so a data directory that still holds them is classified.
+  [`${G}/tasks.json`, 'memory'],
+  [`${G}/tasks.jsonl`, 'memory'],
   ['memory.db-wal', 'operational'],
   ['memory.db-shm', 'operational'],
   ['memory.db.lock', 'operational'],

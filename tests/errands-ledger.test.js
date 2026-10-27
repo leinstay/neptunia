@@ -584,7 +584,7 @@ test('ledger mirror: at a restart the open tasks without a ledger id are mirrore
   await ledger.listening;
   const log = fakeLog();
   try {
-    // Before the restart: the task.add of t1 reached the ledger, its answer did not reach tasks.json.
+    // Before the restart: the task.add of t1 reached the ledger, its answer did not reach errands.json.
     const before = createLedgerMirror({ socketPath: socket, log, now: () => T0 });
     before.add(queued({ id: 't1' }), { guildId: 'g1' });
     await before.idle();

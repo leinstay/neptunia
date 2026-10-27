@@ -139,7 +139,7 @@ function sequenceLlm(answers, { onCall = null } = {}) {
 
 const BEAT_WAKE = {
   kind: 'heartbeat',
-  items: [{ kind: 'heartbeat', reason: 'heartbeat', intentionIds: [], taskId: null }],
+  items: [{ kind: 'heartbeat', reason: 'heartbeat', intentionIds: [], errandId: null }],
   intentions: [],
   now: NOW,
   timezone: 'UTC',
@@ -150,7 +150,7 @@ const BEAT_WAKE = {
 const DUE_WAKE = {
   ...BEAT_WAKE,
   kind: 'intention_due',
-  items: [{ kind: 'intention_due', reason: 'due', intentionIds: ['i1'], taskId: null }],
+  items: [{ kind: 'intention_due', reason: 'due', intentionIds: ['i1'], errandId: null }],
   chainId: 'i1',
 };
 const GRANTS = [
@@ -158,9 +158,9 @@ const GRANTS = [
   'lore.show',
   'lore.list',
   'message.create',
-  'intent.set',
-  'intent.update',
-  'intent.cancel',
+  'intention.set',
+  'intention.update',
+  'intention.cancel',
 ];
 
 /** A real intention service over a temp data dir (guild g1) and a clock fixed at NOW. */
@@ -225,7 +225,7 @@ async function liveTurn({
 }
 
 const THINK = '<think>STEP 4. So: write it.</think>';
-const SET = (text, extra = {}) => toolAnswer(THINK, [call('intent.set', { due: '0m', text, ...extra })]);
+const SET = (text, extra = {}) => toolAnswer(THINK, [call('intention.set', { due: '0m', text, ...extra })]);
 /** What she read of the calls of request `i`: the content of its tool messages, in order. */
 const readOf = (run, i) =>
   run.llm.calls[i]
@@ -236,7 +236,7 @@ const readOf = (run, i) =>
     .join('\n');
 const actionsOf = (run) => run.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.code ?? a.result}`);
 
-test('heartbeat turn: a post is refused and a memory read succeeds, she reads why, then one intent.set ends the turn with no further request', async () => {
+test('heartbeat turn: a post is refused and a memory read succeeds, she reads why, then one intention.set ends the turn with no further request', async () => {
   const run = await liveTurn({
     answers: [
       toolAnswer(THINK, [call('message.create', { text: 'γεια' }), call('lore.list')]),
@@ -246,7 +246,7 @@ test('heartbeat turn: a post is refused and a memory read succeeds, she reads wh
   assert.deepEqual(actionsOf(run), [
     'message.create:refused:heartbeat-only',
     'lore.list:executed:ok',
-    'intent.set:executed:ok',
+    'intention.set:executed:ok',
   ]);
   assert.deepEqual(run.sends, [], 'nothing was posted');
   assert.equal(run.llm.calls.length, 2, 'the refusal step, and no request after the change');
@@ -261,7 +261,7 @@ test('heartbeat turn: a post is refused and a memory read succeeds, she reads wh
 test('heartbeat turn: the first change that goes through ends the turn at once; a skip is one request', async () => {
   const set = await liveTurn({ answers: [SET('look at the diary draft'), '<skip/>'] });
   assert.equal(set.llm.calls.length, 1, 'no acknowledgement step');
-  assert.deepEqual(actionsOf(set), ['intent.set:executed:ok']);
+  assert.deepEqual(actionsOf(set), ['intention.set:executed:ok']);
   const skip = await liveTurn({ answers: [`${THINK}<skip/>`] });
   assert.equal(skip.llm.calls.length, 1);
   assert.equal(skip.result.outcome, 'skip');
@@ -272,19 +272,19 @@ test('heartbeat turn: a second intention call in the same step is refused, and a
   const two = await liveTurn({
     answers: [
       toolAnswer(`${THINK}`, [
-        call('intent.set', { due: `1h`, text: `first thing` }),
-        call('intent.set', { due: `2h`, text: `second thing` }),
+        call('intention.set', { due: `1h`, text: `first thing` }),
+        call('intention.set', { due: `2h`, text: `second thing` }),
       ]),
       '<skip/>',
     ],
   });
-  assert.deepEqual(actionsOf(two), ['intent.set:executed:ok', 'intent.set:refused:heartbeat-only']);
+  assert.deepEqual(actionsOf(two), ['intention.set:executed:ok', 'intention.set:refused:heartbeat-only']);
   assert.equal(two.list().length, 1);
   assert.equal(two.llm.calls.length, 1);
   const bad = await liveTurn({
-    answers: [toolAnswer(`${THINK}`, [call('intent.set', { due: `soon`, text: `a thing` })]), SET('a thing')],
+    answers: [toolAnswer(`${THINK}`, [call('intention.set', { due: `soon`, text: `a thing` })]), SET('a thing')],
   });
-  assert.deepEqual(actionsOf(bad), ['intent.set:executed:bad-time', 'intent.set:executed:ok']);
+  assert.deepEqual(actionsOf(bad), ['intention.set:executed:bad-time', 'intention.set:executed:ok']);
   assert.equal(bad.llm.calls.length, 2, 'she saw the failure and corrected the call');
 });
 
@@ -292,12 +292,12 @@ test('heartbeat turn: the engine stamps origin heartbeat on what it creates; an 
   const run = await liveTurn({
     answers: (service) => [
       toolAnswer(`${THINK}`, [
-        call('intent.update', { id: `${service.list('g1', { all: true })[0].id}`, text: `new words` }),
+        call('intention.update', { id: `${service.list('g1', { all: true })[0].id}`, text: `new words` }),
       ]),
     ],
     seed: (service) => service.set('g1', { purpose: 'her own earlier one', dueAt: NOW + 3_600_000 }),
   });
-  assert.deepEqual(actionsOf(run), ['intent.update:executed:ok']);
+  assert.deepEqual(actionsOf(run), ['intention.update:executed:ok']);
   assert.equal(run.list()[0].purpose, 'new words');
   assert.equal(run.list()[0].origin, undefined, 'not relabelled');
   const made = await liveTurn({ answers: [SET('made by a heartbeat')] });
@@ -307,7 +307,7 @@ test('heartbeat turn: the engine stamps origin heartbeat on what it creates; an 
   assert.equal(made.intentions.update('g1', id, { dueAt: NOW + 7_200_000 }).intention.origin, 'heartbeat');
 });
 
-test('intent.set outside a heartbeat carries no origin and no heartbeat cap', async () => {
+test('intention.set outside a heartbeat carries no origin and no heartbeat cap', async () => {
   const run = await liveTurn({
     wake: DUE_WAKE,
     answers: [SET('one'), '<skip/>'],
@@ -320,13 +320,13 @@ test('intent.set outside a heartbeat carries no origin and no heartbeat cap', as
   assert.equal(run.list().find((r) => r.purpose === 'one').origin, undefined);
 });
 
-test('heartbeat caps: at maxOpen intent.set is refused heartbeat-cap and the result names the open ones; closing one frees the room', async () => {
+test('heartbeat caps: at maxOpen intention.set is refused heartbeat-cap and the result names the open ones; closing one frees the room', async () => {
   const seed = (service) => {
     for (const n of [1, 2, 3])
       service.set('g1', { purpose: `heartbeat thing ${n}`, dueAt: NOW + n * 3_600_000, origin: 'heartbeat' });
   };
   const run = await liveTurn({ answers: [SET('a fourth'), '<skip/>'], seed });
-  assert.deepEqual(actionsOf(run), ['intent.set:executed:heartbeat-cap']);
+  assert.deepEqual(actionsOf(run), ['intention.set:executed:heartbeat-cap']);
   assert.equal(run.list().length, 3);
   const ids = run.list().map((r) => r.id);
   const shown = readOf(run, 1);
@@ -340,9 +340,9 @@ test('heartbeat caps: at maxOpen intent.set is refused heartbeat-cap and the res
       service.cancel('g1', first.id, { all: true });
     },
   });
-  assert.deepEqual(actionsOf(freed), ['intent.set:executed:ok']);
+  assert.deepEqual(actionsOf(freed), ['intention.set:executed:ok']);
   const own = await liveTurn({ answers: [SET('a fourth'), '<skip/>'], beat: { maxOpen: 4 }, seed });
-  assert.deepEqual(actionsOf(own), ['intent.set:executed:ok'], 'a turn sets its own cap');
+  assert.deepEqual(actionsOf(own), ['intention.set:executed:ok'], 'a turn sets its own cap');
 });
 
 test('heartbeat caps: one recurring at most, for a new one and for a one-off made recurring', async () => {
@@ -356,13 +356,13 @@ test('heartbeat caps: one recurring at most, for a new one and for a one-off mad
     service.set('g1', { purpose: 'one-off', dueAt: NOW + 7_200_000, origin: 'heartbeat' });
   };
   const fresh = await liveTurn({ answers: [SET('another regular', { every: 'day' }), '<skip/>'], seed });
-  assert.deepEqual(actionsOf(fresh), ['intent.set:executed:heartbeat-recurring-cap']);
+  assert.deepEqual(actionsOf(fresh), ['intention.set:executed:heartbeat-recurring-cap']);
   const plain = await liveTurn({ answers: [SET('plain one')], seed });
-  assert.deepEqual(actionsOf(plain), ['intent.set:executed:ok']);
+  assert.deepEqual(actionsOf(plain), ['intention.set:executed:ok']);
   const made = await liveTurn({
     answers: (service) => [
       toolAnswer(`${THINK}`, [
-        call('intent.update', {
+        call('intention.update', {
           id: `${service.list('g1', { all: true }).find((r) => r.purpose === 'one-off').id}`,
           every: `day`,
         }),
@@ -371,10 +371,10 @@ test('heartbeat caps: one recurring at most, for a new one and for a one-off mad
     ],
     seed,
   });
-  assert.deepEqual(actionsOf(made), ['intent.update:executed:heartbeat-recurring-cap']);
+  assert.deepEqual(actionsOf(made), ['intention.update:executed:heartbeat-recurring-cap']);
   assert.equal(made.list().filter((r) => r.every).length, 1);
   const other = await liveTurn({ answers: [SET('x', { every: 'day' })], beat: { maxRecurring: 2 }, seed });
-  assert.deepEqual(actionsOf(other), ['intent.set:executed:ok']);
+  assert.deepEqual(actionsOf(other), ['intention.set:executed:ok']);
   assert.equal(other.list().filter((r) => r.every).length, 2);
 });
 
@@ -383,13 +383,13 @@ test('heartbeat turn: the switch off gives the earlier behaviour back (a post go
     answers: [
       toolAnswer(`${THINK}`, [
         call('message.create', { channel: `#general`, text: `καλημέρα` }),
-        call('intent.set', { due: `1h`, text: `later` }),
+        call('intention.set', { due: `1h`, text: `later` }),
       ]),
       '<skip/>',
     ],
     beat: { intentionsOnly: false },
   });
-  assert.deepEqual(actionsOf(run), ['message.create:executed:ok', 'intent.set:executed:ok']);
+  assert.deepEqual(actionsOf(run), ['message.create:executed:ok', 'intention.set:executed:ok']);
   assert.equal(run.sends.length, 1);
   assert.equal(run.llm.calls.length, 1, 'the post and the change both went through: nothing is left to read');
   assert.equal(run.list()[0].origin, 'heartbeat');
@@ -447,11 +447,11 @@ for (const transport of ['native', 'text']) {
       lore: [{ id: 'l1', title: 'Weekend tournament', keys: ['tournament'], text: 'A shared game', always: false }],
       answers: [
         answer(THINK, [call('lore.list')]),
-        answer(THINK, [call('intent.set', { due: '1h', text: 'ask about the remembered conversation' })]),
+        answer(THINK, [call('intention.set', { due: '1h', text: 'ask about the remembered conversation' })]),
         answer(THINK, [call('lore.list')]),
       ],
     });
-    assert.deepEqual(actionsOf(run), ['lore.list:executed:ok', 'intent.set:executed:ok']);
+    assert.deepEqual(actionsOf(run), ['lore.list:executed:ok', 'intention.set:executed:ok']);
     assert.equal(run.llm.calls.length, 2);
     assert.equal(run.list().length, 1);
     assert.deepEqual(run.sends, []);
@@ -494,7 +494,7 @@ test('heartbeat: conversation inspection returns real lines before creating a ta
       SET('reply to the remembered message in general'),
     ],
   });
-  assert.deepEqual(actionsOf(run), ['conversation.read:executed:ok', 'intent.set:executed:ok']);
+  assert.deepEqual(actionsOf(run), ['conversation.read:executed:ok', 'intention.set:executed:ok']);
   assert.ok(readOf(run, 1).includes('πρώτο'), 'the continuation sees the actual conversation line');
   assert.equal(run.llm.calls.length, 2);
   assert.deepEqual(run.sends, []);

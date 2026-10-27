@@ -80,7 +80,7 @@ test('lists the four new kinds after the existing eight, and sends none of them 
     'conversation.changed',
     'connection.changed',
   ]);
-  assert.deepEqual([...CORE_KINDS], ['scheduler.tick', 'task.completed', 'inner.wake']);
+  assert.deepEqual([...CORE_KINDS], ['scheduler.tick', 'errand.done', 'inner.wake']);
 });
 
 test('accepts a presence.changed event in its documented shape', () => {

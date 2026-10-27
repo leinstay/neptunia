@@ -115,11 +115,11 @@ test('door: the same id while its handler still runs is a duplicate', async () =
 test("door: the core's own events get derived ids: an errand end by task and status, a tick by time", async () => {
   const seen = [];
   const door = createEventDoor({
-    handlers: { 'task.completed': (e) => seen.push(e.taskId), 'scheduler.tick': () => seen.push('tick') },
+    handlers: { 'errand.done': (e) => seen.push(e.errandId), 'scheduler.tick': () => seen.push('tick') },
     log: quiet(),
   });
-  const done = { kind: 'task.completed', at: 5, taskId: 't1', status: 'done', communityId: 'g1' };
-  assert.equal(eventIdOf(done), 'task.completed:t1:done');
+  const done = { kind: 'errand.done', at: 5, errandId: 't1', status: 'done', communityId: 'g1' };
+  assert.equal(eventIdOf(done), 'errand.done:t1:done');
   assert.equal((await door.submit(done)).status, 'ok');
   assert.equal((await door.submit({ ...done, at: 9 })).status, 'duplicate', 'the same end delivered twice');
   assert.equal((await door.submit({ ...done, status: 'failed' })).status, 'ok', 'another end of the same task');

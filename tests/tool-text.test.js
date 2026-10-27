@@ -27,11 +27,11 @@ test('parseToolCallBlocks: a top-level block is a call, the rest is the text wit
 });
 
 test('parseToolCallBlocks: several blocks in order; text without blocks is returned as it is', () => {
-  const text = `a ${block({ name: 'web.search', arguments: { query: 'x' } })} b ${block({ name: 'task.status' })} c`;
+  const text = `a ${block({ name: 'web.search', arguments: { query: 'x' } })} b ${block({ name: 'errand.status' })} c`;
   const { calls, rest } = parseToolCallBlocks(text);
   assert.deepEqual(
     calls.map((c) => c.name),
-    ['web.search', 'task.status']
+    ['web.search', 'errand.status']
   );
   assert.deepEqual(calls[1].parsed, {});
   assert.equal(rest, 'a  b  c');
@@ -81,11 +81,11 @@ test('parseToolCallBlocks: an unclosed block is truncated at the length limit an
 test('parseToolCallBlocks: a block inside an unclosed <think> is never seen, one after a closed think is', () => {
   const inside = `<think>I could ${block({ name: 'draw.create', arguments: {} })} but`;
   assert.deepEqual(parseToolCallBlocks(inside), { calls: [], rest: inside, diagnostics: [] });
-  const closed = `<think>${block({ name: 'web.search', arguments: {} })}</think>${block({ name: 'task.status' })}`;
+  const closed = `<think>${block({ name: 'web.search', arguments: {} })}</think>${block({ name: 'errand.status' })}`;
   const out = parseToolCallBlocks(closed);
   assert.deepEqual(
     out.calls.map((c) => c.name),
-    ['task.status']
+    ['errand.status']
   );
   assert.equal(out.rest, `<think>${block({ name: 'web.search', arguments: {} })}</think>`);
 });
@@ -94,10 +94,10 @@ test('parseToolCallBlocks: a block in a code fence or an inline code span is tex
   const one = block({ name: 'draw.create', arguments: { text: 'x' } });
   const fenced = `Example:\n\`\`\`\n${one}\n\`\`\`\nand \`${one}\` too`;
   assert.deepEqual(parseToolCallBlocks(fenced), { calls: [], rest: fenced, diagnostics: [] });
-  const real = parseToolCallBlocks(`\`\`\`\n${one}\n\`\`\`\n${block({ name: 'task.status' })}`);
+  const real = parseToolCallBlocks(`\`\`\`\n${one}\n\`\`\`\n${block({ name: 'errand.status' })}`);
   assert.deepEqual(
     real.calls.map((c) => c.name),
-    ['task.status']
+    ['errand.status']
   );
 });
 

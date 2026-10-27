@@ -620,7 +620,7 @@ test('inner: the journal records the wake and the turn with its outcome, actions
 
 test("wakeOfDue: a wait past its deadline names its errand; the chain is the intention's", () => {
   const wake = wakeOfDue({
-    intention: { ...intention('i1', { chainId: 'k' }), status: 'waiting', awaitingTaskId: 'T1' },
+    intention: { ...intention('i1', { chainId: 'k' }), status: 'waiting', awaitingErrandId: 'T1' },
     reason: 'wait-deadline',
     at: 5,
   });
@@ -1434,7 +1434,7 @@ function lostTurn(turnId = 't-1') {
     inner: {
       actions: [
         { skill: 'message.create', status: 'refused', result: 'refused', code: 'destination-required', target: {} },
-        { skill: 'intent.update', status: 'executed', result: 'ok', target: {}, intentionId: 'i1', state: 'done' },
+        { skill: 'intention.update', status: 'executed', result: 'ok', target: {}, intentionId: 'i1', state: 'done' },
         { skill: 'web.search', status: 'executed', result: 'unknown', code: 'timeout', target: {} },
       ],
       intentIds: ['i1'],
@@ -1446,7 +1446,7 @@ function lostTurn(turnId = 't-1') {
 
 test('feedbackFacts: a call that did not go ok, an intention closed with nothing delivered, the loop cut; nothing when all went through', () => {
   assert.ok(WAKE_KINDS.includes('feedback'));
-  assert.deepEqual(DELIVERY_SKILLS, ['message.create', 'draw.create', 'voice.say', 'task.run']);
+  assert.deepEqual(DELIVERY_SKILLS, ['message.create', 'draw.create', 'voice.say', 'errand.run']);
   const facts = feedbackFacts(lostTurn(), {
     named: ['i1'],
     intentions: [intention('i1', { purpose: 'send a cat meme' })],
@@ -1462,7 +1462,7 @@ test('feedbackFacts: a call that did not go ok, an intention closed with nothing
     inner: {
       actions: [
         { skill: 'message.create', status: 'executed', result: 'ok' },
-        { skill: 'intent.update', status: 'executed', result: 'ok', intentionId: 'i1', state: 'done' },
+        { skill: 'intention.update', status: 'executed', result: 'ok', intentionId: 'i1', state: 'done' },
         { skill: 'draw.create', status: 'refused', result: 'refused', code: 'inner-stopped' },
       ],
       intentIds: ['i1'],
@@ -1474,7 +1474,7 @@ test('feedbackFacts: a call that did not go ok, an intention closed with nothing
   assert.deepEqual(
     feedbackFacts({
       inner: {
-        actions: [{ skill: 'intent.update', status: 'proposed', result: 'ok', intentionId: 'i1', state: 'done' }],
+        actions: [{ skill: 'intention.update', status: 'proposed', result: 'ok', intentionId: 'i1', state: 'done' }],
         intentIds: ['i1'],
       },
     }),
@@ -1483,7 +1483,7 @@ test('feedbackFacts: a call that did not go ok, an intention closed with nothing
   assert.deepEqual(
     feedbackFacts({
       inner: {
-        actions: [{ skill: 'intent.update', status: 'executed', result: 'ok', state: 'done' }],
+        actions: [{ skill: 'intention.update', status: 'executed', result: 'ok', state: 'done' }],
         intentIds: ['i2'],
       },
     }),
@@ -2292,7 +2292,7 @@ test('heartbeat: an intention it makes due now is not run inside the heartbeat; 
         return {
           outcome: 'spoke',
           inner: {
-            actions: [{ skill: 'intent.set', status: 'executed', result: 'ok', createdId: made.intention.id }],
+            actions: [{ skill: 'intention.set', status: 'executed', result: 'ok', createdId: made.intention.id }],
             intentIds: [],
             turnId: 't-beat',
           },
@@ -2313,7 +2313,7 @@ test('heartbeat: an intention it makes due now is not run inside the heartbeat; 
   const outcome = lines.find((line) => line.msg === 'inner: heartbeat outcome');
   assert.deepEqual(
     [outcome.result, outcome.skill, outcome.openFromHeartbeat, outcome.refused],
-    ['change', 'intent.set', 1, []]
+    ['change', 'intention.set', 1, []]
   );
   assert.equal(outcome.intentionId, service.list(GUILD, { all: true })[0].id);
   await run.inner.tick();

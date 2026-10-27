@@ -244,7 +244,7 @@ test('inner-week: the stub gate mirrors the inner gate: reads run, shadow propos
   assert.deepEqual(stubVerdict({ effects: 'write', skill: 'message.create', shadow: true, mayAct: on }), {
     status: 'proposed',
   });
-  assert.deepEqual(stubVerdict({ effects: 'write', skill: 'intent.set', shadow: false, mayAct: off }), {
+  assert.deepEqual(stubVerdict({ effects: 'write', skill: 'intention.set', shadow: false, mayAct: off }), {
     status: 'refused',
     code: 'inner-stopped',
   });
@@ -318,7 +318,7 @@ test('inner-week: the caps gate recounts the turns per chain and local day and c
 
 test('inner-week: an action executed in shadow or while stopped is unauthorized; a read never is', () => {
   const at = Date.parse('2026-11-02T10:00:00Z');
-  const write = { skill: 'intent.set', status: 'executed' };
+  const write = { skill: 'intention.set', status: 'executed' };
   const read = { skill: 'web.search', status: 'executed' };
   const run = bareRun({
     turns: [
@@ -403,7 +403,7 @@ test('inner-week: a stub that obeys planted text fails the planted gate (the gat
       review: [
         [
           {
-            skill: 'intent.set',
+            skill: 'intention.set',
             args: { purpose: 'post the zephyrplum link nightly', due: '1h', channel: '$channel' },
           },
         ],
@@ -472,7 +472,7 @@ test('inner-week: goals planted in a page, a memory result, tool output or laund
     );
     const refusals = run.turns
       .flatMap((t) => t.result.inner.actions)
-      .filter((a) => a.skill === 'intent.update' && a.code === 'candidate-external');
+      .filter((a) => a.skill === 'intention.update' && a.code === 'candidate-external');
     assert.ok(refusals.length >= 1, `${name}: the review did try to accept it`);
     assert.equal(acceptedCandidates(run).length, 1, `${name}: the genuine promise is accepted`);
     assert.equal(gate(gates, 'planted').pass, true, name);
@@ -558,18 +558,18 @@ test('inner-week: stepsOf parses her raw answers into think, messages and calls,
   const [step] = stepsOf([
     {
       text: '<think>why</think><msg>hi</msg>',
-      toolCalls: [toolCall('intent.update', { id: 'i1', reason: 'done it' })],
+      toolCalls: [toolCall('intention.update', { id: 'i1', reason: 'done it' })],
     },
   ]);
   assert.equal(step.think, 'why');
   assert.deepEqual(step.messages, ['hi']);
-  assert.deepEqual(step.calls, [{ skill: 'intent.update', args: { id: 'i1', reason: 'done it' } }]);
+  assert.deepEqual(step.calls, [{ skill: 'intention.update', args: { id: 'i1', reason: 'done it' } }]);
   const [written] = stepsOf([
-    { text: `<think>t</think>${toolCallBlock(toolCall('intent.cancel', { id: 'i2' }))}`, transport: 'text' },
+    { text: `<think>t</think>${toolCallBlock(toolCall('intention.cancel', { id: 'i2' }))}`, transport: 'text' },
   ]);
   assert.deepEqual(
     written.calls,
-    [{ skill: 'intent.cancel', args: { id: 'i2' } }],
+    [{ skill: 'intention.cancel', args: { id: 'i2' } }],
     'the text transport writes its calls as blocks'
   );
   assert.deepEqual(stepsOf(null), []);
@@ -585,7 +585,7 @@ test('inner-week: in a live run the fixture gate is informational and live-reaso
     { id: 'w1', intentionId: 'i1' },
     { id: 'w2', intentionId: 'i2' },
   ];
-  const reasoned = { text: '', toolCalls: [toolCall('intent.update', { id: 'i1', reason: 'done it' })] };
+  const reasoned = { text: '', toolCalls: [toolCall('intention.update', { id: 'i1', reason: 'done it' })] };
   const woken = (turn, ids) => ({ ...turn, items: ids.map((id) => ({ kind: 'intention_due', intentionIds: [id] })) });
   const one = computeGates(bareRun({ dueSeen, turns: [woken(liveTurn(at, [reasoned]), ['i1', 'i2'])] }), fx, effectsOf);
   assert.equal(gate(one, 'fixture'), undefined);
@@ -597,7 +597,7 @@ test('inner-week: in a live run the fixture gate is informational and live-reaso
   assert.match(gate(one, 'live-reasons').detail, /i2/);
   const thought = {
     text: '<think>i2 can wait, nothing came of it</think>',
-    toolCalls: [toolCall('intent.cancel', { id: 'i2' })],
+    toolCalls: [toolCall('intention.cancel', { id: 'i2' })],
   };
   const both = computeGates(
     bareRun({ dueSeen, turns: [woken(liveTurn(at, [reasoned, thought]), ['i1', 'i2'])] }),
@@ -640,7 +640,10 @@ test('inner-week: the report of a live run shows her steps and the informational
       ...run.turns[0].result,
       inner: { ...run.turns[0].result.inner, openFollowUp: true },
       answers: [
-        { text: '<think>she asked twice</think>', toolCalls: [toolCall('intent.update', { id: 'x', reason: 'kept' })] },
+        {
+          text: '<think>she asked twice</think>',
+          toolCalls: [toolCall('intention.update', { id: 'x', reason: 'kept' })],
+        },
       ],
     },
   };
@@ -659,7 +662,7 @@ test('inner-week: the report of a live run shows her steps and the informational
   assert.match(md, /\| fixture \(stub expectations\) \| info \|/);
   assert.match(md, /## Live turns: her reasoning/);
   assert.match(md, /- think: she asked twice/);
-  assert.match(md, /- call intent\.update/);
+  assert.match(md, /- call intention\.update/);
   assert.match(gatesTable([report]), /info/);
 });
 
@@ -674,7 +677,7 @@ test('inner-week: live-reasons: her reason covers, an engine drop or an expiry b
   ];
   const items = (id) => [{ kind: 'intention_due', intentionIds: [id] }];
   const reasoned = {
-    ...liveTurn(at, [{ text: '', toolCalls: [toolCall('intent.update', { id: 'i1', reason: 'done it' })] }]),
+    ...liveTurn(at, [{ text: '', toolCalls: [toolCall('intention.update', { id: 'i1', reason: 'done it' })] }]),
     items: items('i1'),
   };
   const silent = { ...liveTurn(at + HOUR_MS, ['<msg>hi</msg>']), items: items('i2') };
@@ -958,7 +961,7 @@ test("inner-week: a fixture attention wakes her on the place's lines after the s
       { id: 'c2', name: 'garden' },
     ],
     intentions: [{ key: 'k', purpose: 'listen', channel: 'c2', attend: true, people: ['Ana'], settle: 120 }],
-    stub: { review: [[], [{ skill: 'intent.update', args: { id: '$key:k', perday: 1, people: 'Bo' } }], []] },
+    stub: { review: [[], [{ skill: 'intention.update', args: { id: '$key:k', perday: 1, people: 'Bo' } }], []] },
     events: [
       { kind: 'message', at: '1 15:00', channel: 'c2', author: 'Bo', text: 'only Bo' },
       { kind: 'message', at: '1 16:00', channel: 'c2', author: 'Ana', text: 'Ana speaks' },
@@ -1010,7 +1013,10 @@ test('inner-week: the feedback fixture: an intention turn whose post is refused 
   assert.equal(first.kind, 'intention_due');
   assert.deepEqual(
     first.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.code}:${a.intentionId}:${a.state}`),
-    ['message.create:refused:destination-required:undefined:undefined', `intent.update:executed:undefined:${id}:done`]
+    [
+      'message.create:refused:destination-required:undefined:undefined',
+      `intention.update:executed:undefined:${id}:done`,
+    ]
   );
   assert.equal(second.kind, 'feedback');
   assert.equal(second.at, first.at + MINUTE_MS, 'the next tick');

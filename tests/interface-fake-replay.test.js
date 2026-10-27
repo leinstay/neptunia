@@ -13,7 +13,7 @@ const quiet = { info() {}, warn() {} };
 
 test('replayFixture: the events enter the door in order, a redelivery is a duplicate, handlers run once each', async () => {
   const handled = [];
-  const names = ['message.received', 'reaction.changed', 'voice.changed', 'membership.changed', 'task.completed'];
+  const names = ['message.received', 'reaction.changed', 'voice.changed', 'membership.changed', 'errand.done'];
   const door = createEventDoor({
     handlers: Object.fromEntries(
       names.map((kind) => [kind, (event) => handled.push(event.kind + (event.deleted ? ':deleted' : ''))])
@@ -34,7 +34,7 @@ test('replayFixture: the events enter the door in order, a redelivery is a dupli
       'fake:reaction:m1:u2:1',
       'fake:voice:u2:1',
       'fake:member:u3:1',
-      'task.completed:t1:done',
+      'errand.done:t1:done',
       'fake:delete:m1',
     ]
   );
@@ -43,7 +43,7 @@ test('replayFixture: the events enter the door in order, a redelivery is a dupli
     'reaction.changed',
     'voice.changed',
     'membership.changed',
-    'task.completed',
+    'errand.done',
     'message.received:deleted',
   ]);
   assert.deepEqual(

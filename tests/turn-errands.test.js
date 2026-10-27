@@ -1,7 +1,7 @@
 // Tests for the persona's view of her errands in a turn (src/errands/blocks.js, src/behavior/turn.js)
-// and the turn an errand's end opens (src/errands/turns.js): the `<tasks>` block is in the
+// and the turn an errand's end opens (src/errands/turns.js): the `<errands>` block is in the
 // request's tail while she has an open or newly finished errand and gone when she has none; a
-// finished errand opens her own turn in the conversation it was asked in, with `<task_result>`
+// finished errand opens her own turn in the conversation it was asked in, with `<errand_result>`
 // (its text, its sources numbered, its files as handles), through the fake interface
 // (src/interface/fake.js); a turn held back by the attention is tried again later.
 import { test } from 'node:test';
@@ -10,7 +10,7 @@ import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.j
 import { userText } from '../src/behavior/prompt.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
 import { tasksBlockText, taskResultText } from '../src/errands/blocks.js';
-import { createTaskTurns, taskCompletedEvent } from '../src/errands/turns.js';
+import { createTaskTurns, errandDoneEvent } from '../src/errands/turns.js';
 import { createEventDoor } from '../src/interface/door.js';
 import { validateEvent } from '../src/protocol/index.js';
 import { labels } from './fixtures/labels.js';
@@ -99,7 +99,7 @@ function fakeHot() {
       features: { typingSimulation: false },
       media: { maxPerTurn: 6, filePreviewChars: 500 },
       mention: { oneAtATime: true },
-      agents: { resultMaxChars: 40, resultCooldownSeconds: 60, resultRetrySeconds: 30 },
+      errands: { resultMaxChars: 40, resultCooldownSeconds: 60, resultRetrySeconds: 30 },
     },
     prompts: {
       'system-prompt': 'You are a regular member of this chat, not an assistant.',
@@ -174,17 +174,17 @@ const doneTask = {
   usage: { usd: 0.02, steps: 4 },
 };
 
-test('tasksBlockText / taskResultText: every word from labels.tasks; none without tasks or labels', () => {
+test('tasksBlockText / taskResultText: every word from labels.errands; none without tasks or labels', () => {
   const text = tasksBlockText([runningTask], labels, { now: NOW });
   const [header, line] = text.split('\n');
-  assert.equal(header, labels.tasks.header);
+  assert.equal(header, labels.errands.header);
   assert.ok(line.startsWith('tab01 | scout | running | 7 min | find the release notes'));
   assert.ok(line.length < 200, 'the goal is cut to 120 characters');
   assert.equal(tasksBlockText([], labels, { now: NOW }), '');
   assert.equal(tasksBlockText([runningTask], {}, { now: NOW }), '');
   const result = taskResultText(doneTask, labels, { maxChars: 30 }).split('\n');
   assert.equal(result[0], 'errand tab02 (scout) ended done: find a meme');
-  assert.equal(result[1], labels.tasks.result.text);
+  assert.equal(result[1], labels.errands.result.text);
   assert.ok(result[2].length <= 31, 'the result text cut to maxChars');
   assert.deepEqual(result.slice(3), [
     'sources:',
@@ -208,7 +208,7 @@ test('tasksBlockText / taskResultText: expired files show the expired state word
   const expired = { ...doneTask, filesExpired: true };
   const withWord = {
     ...labels,
-    tasks: { ...labels.tasks, states: { ...labels.tasks.states, expired: 'done, files gone' } },
+    errands: { ...labels.errands, states: { ...labels.errands.states, expired: 'done, files gone' } },
   };
   assert.ok(
     tasksBlockText([expired], withWord, { now: NOW })
@@ -226,11 +226,11 @@ test('tasksBlockText / taskResultText: expired files show the expired state word
   assert.equal(taskResultText(expired, labels).split('\n')[0], 'errand tab02 (scout) ended done: find a meme');
 });
 
-test('taskResultText: the withheld paths close the block in labels.tasks.result.withheld; without the label, no line', () => {
+test('taskResultText: the withheld paths close the block in labels.errands.result.withheld; without the label, no line', () => {
   const withheld = { ...doneTask, result: { ...doneTask.result, withheld: ['/etc/shadow', '/srv/app/.env'] } };
   const withLabel = {
     ...labels,
-    tasks: { ...labels.tasks, result: { ...labels.tasks.result, withheld: 'not readable here: {paths}' } },
+    errands: { ...labels.errands, result: { ...labels.errands.result, withheld: 'not readable here: {paths}' } },
   };
   const lines = taskResultText(withheld, withLabel).split('\n');
   assert.equal(lines.at(-1), 'not readable here: /etc/shadow, /srv/app/.env');
@@ -250,16 +250,16 @@ test('taskResultText: the withheld paths close the block in labels.tasks.result.
   ]);
 });
 
-test('taskResultText: the files the runner held back follow the withheld line in labels.tasks.result.held, with no handle; without the label, no line', () => {
+test('taskResultText: the files the runner held back follow the withheld line in labels.errands.result.held, with no handle; without the label, no line', () => {
   const held = {
     ...doneTask,
     result: { ...doneTask.result, withheld: ['/etc/shadow'], filesDropped: [{ name: 'x.env', reason: 'secret' }] },
   };
   const withLabels = {
     ...labels,
-    tasks: {
-      ...labels.tasks,
-      result: { ...labels.tasks.result, withheld: 'not readable here: {paths}', held: 'not delivered: {names}' },
+    errands: {
+      ...labels.errands,
+      result: { ...labels.errands.result, withheld: 'not readable here: {paths}', held: 'not delivered: {names}' },
     },
   };
   const lines = taskResultText(held, withLabels).split('\n');
@@ -271,7 +271,7 @@ test('taskResultText: the files the runner held back follow the withheld line in
     'not delivered: x.env, id_rsa',
     'the record keeps names'
   );
-  const noLabel = { ...labels, tasks: { ...labels.tasks, result: { ...labels.tasks.result, held: undefined } } };
+  const noLabel = { ...labels, errands: { ...labels.errands, result: { ...labels.errands.result, held: undefined } } };
   assert.ok(!taskResultText(held, noLabel).includes('x.env'));
   assert.equal(
     taskResultText({ ...held, result: { ...held.result, filesDropped: [] } }, withLabels)
@@ -282,7 +282,7 @@ test('taskResultText: the files the runner held back follow the withheld line in
   );
 });
 
-test('<tasks>: an open errand is in the request tail; with none, the block is gone', async () => {
+test('<errands>: an open errand is in the request tail; with none, the block is gone', async () => {
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeChannel({ historyMessages: [raw] });
   const errands = fakeErrands([runningTask]);
@@ -307,20 +307,20 @@ test('<tasks>: an open errand is in the request tail; with none, the block is go
     assert.equal(first.outcome, 'skip');
     const text = userText(llm.calls[0][1].content);
     assert.ok(
-      text.includes(`<tasks>\n${labels.tasks.header}\ntab01 | scout | running | 7 min | find the release notes`),
+      text.includes(`<errands>\n${labels.errands.header}\ntab01 | scout | running | 7 min | find the release notes`),
       'the block with its line'
     );
     const tail = llm.calls[0][1].content.at(-1);
     assert.equal(tail.cacheSegment, undefined, 'in the tail, never a cached part');
-    assert.ok(tail.text.indexOf('<tasks>') < tail.text.indexOf('<chat>'), 'before the chat');
+    assert.ok(tail.text.indexOf('<errands>') < tail.text.indexOf('<chat>'), 'before the chat');
     assert.deepEqual(errands.seen, [], 'an open errand is not marked seen');
     errands.tasks.length = 0;
     await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
-    assert.equal(userText(llm.calls[1][1].content).includes('<tasks>'), false, 'no errand, no block');
+    assert.equal(userText(llm.calls[1][1].content).includes('<errands>'), false, 'no errand, no block');
   });
 });
 
-test('<tasks>: a finished errand she has not read is listed with its marker and nothing is marked by showing it', async () => {
+test('<errands>: a finished errand she has not read is listed with its marker and nothing is marked by showing it', async () => {
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeChannel({ historyMessages: [raw] });
   const errands = fakeErrands([runningTask, doneTask]);
@@ -338,11 +338,11 @@ test('<tasks>: a finished errand she has not read is listed with its marker and 
     turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' })
   );
   assert.ok(userText(llm.calls[0][1].content).includes('tab02 | scout | done | 3 min | find a meme [unread]'));
-  assert.deepEqual(errands.seen, [], 'appearing in <tasks> marks nothing');
+  assert.deepEqual(errands.seen, [], 'appearing in <errands> marks nothing');
   assert.deepEqual(errands.read, []);
 });
 
-test('task turns: a finished errand opens her turn where it was asked, with <task_result>, through the interface', async () => {
+test('task turns: a finished errand opens her turn where it was asked, with <errand_result>, through the interface', async () => {
   const raw = rawMessage({ id: 'm1', content: 'βρες μου ένα meme' });
   fakeChannel({ historyMessages: [raw] });
   const errands = fakeErrands([doneTask]);
@@ -372,7 +372,7 @@ test('task turns: a finished errand opens her turn where it was asked, with <tas
   assert.equal(llm.calls.length, 1);
   const text = userText(llm.calls[0][1].content);
   assert.ok(
-    text.includes('<task_result>\nerrand tab02 (scout) ended done: find a meme\nresult:\n'),
+    text.includes('<errand_result>\nerrand tab02 (scout) ended done: find a meme\nresult:\n'),
     'the block, its header first'
   );
   assert.ok(
@@ -380,8 +380,8 @@ test('task turns: a finished errand opens her turn where it was asked, with <tas
     'the sources numbered'
   );
   assert.ok(text.includes('files:\nfile:tab02/meme.png | image/png | 2048 bytes'), 'the file as its handle');
-  assert.ok(!text.includes('posted this morning'), 'the text cut to agents.resultMaxChars');
-  assert.equal(text.includes('<tasks>'), false, 'the errand of this turn is not listed twice');
+  assert.ok(!text.includes('posted this morning'), 'the text cut to errands.resultMaxChars');
+  assert.equal(text.includes('<errands>'), false, 'the errand of this turn is not listed twice');
   const sends = port.calls.filter((call) => call.op === 'send');
   assert.equal(sends.length, 1);
   assert.equal(sends[0].args[1].text, 'βρήκα κάτι');
@@ -393,7 +393,7 @@ test('task turns: a finished errand opens her turn where it was asked, with <tas
   assert.deepEqual(errands.seen.at(-1), { guildId: 'g1', ids: ['tab02'] });
 });
 
-test('task turns: held back while the attention is taken, tried again after agents.resultRetrySeconds', async () => {
+test('task turns: held back while the attention is taken, tried again after errands.resultRetrySeconds', async () => {
   const runs = [];
   let busy = true;
   const turns = {
@@ -428,7 +428,7 @@ test('task turns: held back while the attention is taken, tried again after agen
     for (let i = 0; i < 50 && runs.length === 0; i += 1) await new Promise((r) => setImmediate(r));
   });
   assert.equal(runs.length, 1);
-  assert.equal(runs[0].triggerKind, 'task');
+  assert.equal(runs[0].triggerKind, 'errand');
   assert.equal(runs[0].mode, 'reply');
   assert.equal(runs[0].trigger.id, 'm1');
   assert.equal(runs[0].taskResult.id, 'tab02');
@@ -436,7 +436,7 @@ test('task turns: held back while the attention is taken, tried again after agen
   assert.deepEqual(errands.seen, [{ guildId: 'g1', ids: ['tab02'] }]);
 });
 
-test('task turns: an errand end enters through the event door as task.completed, once, and opens the same turn', async () => {
+test('task turns: an errand end enters through the event door as errand.done, once, and opens the same turn', async () => {
   const runs = [];
   const turns = {
     isBusy: () => false,
@@ -456,22 +456,22 @@ test('task turns: an errand end enters through the event door as task.completed,
     errands,
     now: () => NOW,
   });
-  const door = createEventDoor({ handlers: { 'task.completed': (event) => taskTurns.onEvent(event) } });
-  const event = taskCompletedEvent(doneTask, 'g1', () => NOW);
+  const door = createEventDoor({ handlers: { 'errand.done': (event) => taskTurns.onEvent(event) } });
+  const event = errandDoneEvent(doneTask, 'g1', () => NOW);
   assert.deepEqual(validateEvent(event), { ok: true });
   assert.deepEqual(
     { ...event, raw: undefined },
-    { kind: 'task.completed', at: NOW, communityId: 'g1', taskId: 'tab02', status: 'done', raw: undefined }
+    { kind: 'errand.done', at: NOW, communityId: 'g1', errandId: 'tab02', status: 'done', raw: undefined }
   );
   const first = await withCapturedLogs(() => door.submit(event));
   assert.equal(first.result.status, 'ok');
   assert.deepEqual(
-    (await door.submit(taskCompletedEvent(doneTask, 'g1', () => NOW + 5))).status,
+    (await door.submit(errandDoneEvent(doneTask, 'g1', () => NOW + 5))).status,
     'duplicate',
     'the same end delivered twice runs no second turn'
   );
   assert.equal(runs.length, 1);
-  assert.equal(runs[0].triggerKind, 'task');
+  assert.equal(runs[0].triggerKind, 'errand');
   assert.equal(runs[0].taskResult.id, 'tab02');
   assert.deepEqual(errands.seen, [{ guildId: 'g1', ids: ['tab02'] }]);
 });
@@ -499,9 +499,9 @@ test("task turns: an event without the task in hand asks the guild's task store;
     errands,
     now: () => NOW,
   });
-  const { raw: _raw, ...bare } = taskCompletedEvent(doneTask, 'g1', () => NOW);
+  const { raw: _raw, ...bare } = errandDoneEvent(doneTask, 'g1', () => NOW);
   await withCapturedLogs(async () => {
-    assert.equal(await taskTurns.onEvent({ ...bare, taskId: 'nope' }), null);
+    assert.equal(await taskTurns.onEvent({ ...bare, errandId: 'nope' }), null);
     assert.equal(runs.length, 0);
     await taskTurns.onEvent(bare);
   });
@@ -515,7 +515,7 @@ async function flush() {
 }
 
 test('tasksBlockText: unread results carry the marker, the error code and the failed-turn note; the cap counts the rest', () => {
-  const withError = { ...labels, tasks: { ...labels.tasks, line: '{id} | {state} {error} | {goal}' } };
+  const withError = { ...labels, errands: { ...labels.errands, line: '{id} | {state} {error} | {goal}' } };
   const failed = { ...doneTask, id: 'tab03', state: 'failed', error: 'timeout', resultTurnFailed: true, result: null };
   const lines = tasksBlockText([runningTask, failed], withError, { now: NOW }).split('\n');
   assert.ok(lines[1].startsWith('tab01 | running  | find the release notes'));
@@ -526,7 +526,7 @@ test('tasksBlockText: unread results carry the marker, the error code and the fa
   assert.deepEqual(capped.map((line) => line.split(' | ')[0]).slice(1), ['tab01', 'a1', 'a2', '[2 more unread]']);
   const noMore = tasksBlockText(
     many,
-    { ...labels, tasks: { ...labels.tasks, unreadMore: undefined } },
+    { ...labels, errands: { ...labels.errands, unreadMore: undefined } },
     { now: NOW, unreadShown: 1 }
   ).split('\n');
   assert.equal(noMore.length, 2, 'without the label, no count line');

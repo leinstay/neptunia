@@ -211,13 +211,34 @@ test('closed: the latest closed ones of any state, newest first, each with its o
   );
 });
 
+test('life: an action the journal stored under an old tool name is listed under the current one, a name it has no new one for as it was', async () => {
+  const turn = {
+    kind: 'inner',
+    event: 'turn',
+    occurredAt: iso(NOW - HOUR_MS),
+    actions: [
+      { skill: 'task.run', status: 'executed', result: 'ok' },
+      { skill: 'intent.set', status: 'executed', result: 'ok' },
+      { skill: 'skills.describe', status: 'executed', result: 'ok' },
+      { skill: 'places.list', status: 'executed', result: 'ok' },
+    ],
+  };
+  const facts = /** @type {{ life: { actions: { items: { skill: string }[] } } }} */ (
+    await buildHeartbeatFacts(base({ journal: fakeJournal([turn]) }))
+  );
+  assert.deepEqual(
+    facts.life.actions.items.map((item) => item.skill),
+    ['errand.run', 'intention.set', 'tools.describe', 'places.list']
+  );
+});
+
 test('skills are grouped by family and the agents listed', async () => {
   const facts = await buildHeartbeatFacts(
-    base({ skills: ['web.search', 'web.read', 'intent.set', 'solo'], agents: ['scout', 'server'] })
+    base({ skills: ['web.search', 'web.read', 'intention.set', 'solo'], agents: ['scout', 'server'] })
   );
   assert.deepEqual(facts.skills, [
     { family: 'web', names: ['search', 'read'] },
-    { family: 'intent', names: ['set'] },
+    { family: 'intention', names: ['set'] },
     { family: 'solo', names: ['solo'] },
   ]);
   assert.deepEqual(facts.agents, ['scout', 'server']);

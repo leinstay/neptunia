@@ -157,18 +157,18 @@ test("resolveCall: only a registry skill; its arguments are its command's option
 
 test('resolveCall: each skill declares the argument its main text fills; an errand needs its agent', () => {
   const bodyOf = (name) => skillRegistry().get(name).dispatch.body;
-  assert.deepEqual(['task.run', 'message.create', 'message.edit', 'rule.add'].map(bodyOf), [
+  assert.deepEqual(['errand.run', 'message.create', 'message.edit', 'rule.add'].map(bodyOf), [
     'goal',
     'text',
     'text',
     'text',
   ]);
-  for (const name of ['task.status', 'task.cancel', 'message.delete', 'memory.journal.read', 'rule.remove'])
+  for (const name of ['errand.status', 'errand.cancel', 'message.delete', 'memory.journal.read', 'rule.remove'])
     assert.equal(bodyOf(name), null, name);
   const goal = 'read the git history of the server and say what changed this week';
-  const errand = resolve('task.run', { agent: 'server', goal });
+  const errand = resolve('errand.run', { agent: 'server', goal });
   assert.deepEqual([errand.ok, errand.args], [true, { agent: 'server', goal }]);
-  const cfg = config({ access: { 'task.run': { everyone: false, roles: [], users: [SELF] } } });
+  const cfg = config({ access: { 'errand.run': { everyone: false, roles: [], users: [SELF] } } });
   const verdict = checkSkill({
     skill: errand.skill,
     args: errand.args,
@@ -179,7 +179,7 @@ test('resolveCall: each skill declares the argument its main text fills; an erra
   });
   assert.deepEqual(verdict, { ok: true });
   // Without its agent: refused naming the agents she may pick, never a bare missing argument.
-  const agentless = resolve('task.run', { goal });
+  const agentless = resolve('errand.run', { goal });
   assert.deepEqual([agentless.ok, agentless.code, agentless.reason], [false, 'agent-required', 'scout,server']);
   assert.equal(refusalStatus(agentless.code), 'invalid');
   assert.deepEqual(outcomeDetail({ status: 'invalid', code: agentless.code, reason: agentless.reason }), {
@@ -203,7 +203,7 @@ test("resolveCall: a member by the request's @handle; the people of an attention
     'unknown-member',
     "without the request's handles it is no name"
   );
-  const set = resolve('intent.set', { attend: '#🍡νέα', people: `@h7, Zoë <@${MEMBER}>` }, 'listen there', {
+  const set = resolve('intention.set', { attend: '#🍡νέα', people: `@h7, Zoë <@${MEMBER}>` }, 'listen there', {
     memberHandles,
   });
   assert.deepEqual(
@@ -212,7 +212,7 @@ test("resolveCall: a member by the request's @handle; the people of an attention
     'the place resolves as a channel; the people to one id each, once'
   );
   assert.deepEqual(
-    [resolve('intent.update', { id: 'i1', people: '@h7 Nobody' }, '', { memberHandles }).code],
+    [resolve('intention.update', { id: 'i1', people: '@h7 Nobody' }, '', { memberHandles }).code],
     ['unknown-member']
   );
   assert.equal(
@@ -323,7 +323,7 @@ test("runOwnSkillOp: only her own expressive operations, without the requester's
   const { admin } = makeAdmin();
   const other = await admin.runOwnSkillOp('lore.list', {}, { guildId: 'g1', userId: MEMBER });
   assert.deepEqual([other.status, other.code], ['denied', 'not-self-owned']);
-  const own = await admin.runOwnSkillOp('intent.list', {}, { guildId: 'g1', userId: MEMBER, actor: 'persona' });
+  const own = await admin.runOwnSkillOp('intention.list', {}, { guildId: 'g1', userId: MEMBER, actor: 'persona' });
   assert.notEqual(own.code, 'not-self-owned', 'her own operation, for her, whoever asked');
 });
 

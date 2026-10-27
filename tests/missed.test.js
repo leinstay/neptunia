@@ -1194,7 +1194,7 @@ test("createMissed: a failed turn opened by a finished errand (task) is a candid
   missed.onTurnEnd({
     channelId: 'c1',
     trigger: trigger('m1'),
-    triggerKind: 'task',
+    triggerKind: 'errand',
     outcome: 'error',
     reason: 'cut-off',
   });

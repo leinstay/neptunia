@@ -61,7 +61,8 @@ function engine(data, log = quiet) {
   const config = {
     features: { record: true, journal: true, archive: true, intentions: true },
     memoryDb: { session: { mode: 'off' } },
-    agents: { maxOpen: 3, scout: { daily: { tasks: 5 } } },
+    errands: { maxOpen: 3 },
+    agents: { scout: { daily: { tasks: 5 } } },
   };
   const hot = { config, prompts: {} };
   const memoryDb = createMemoryDb({ hot, dataDir: data, log, now: () => NOW, worker: false });

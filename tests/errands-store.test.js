@@ -1,6 +1,6 @@
 // Tests for src/errands/store.js: the persona's errand tasks, per guild, in the memory database of a
 // temp data/ directory. A task moves queued -> running -> done | failed | cancelled, the unit
-// tasks.json holds the list and tasks.jsonl one line per transition, the caps refuse with their codes (open at
+// errands.json holds the list and errands.jsonl one line per transition, the caps refuse with their codes (open at
 // once, tasks and dollars per UTC day), the journal gets one operation per task with counts
 // only, and a file handle resolves only to a file the task's result lists.
 import { after, test } from 'node:test';
@@ -36,11 +36,18 @@ async function fileText(store, dataDir, rel) {
   return unitFile(memoryOf(dataDir), rel);
 }
 
-function makeStore({ dataDir = tempDataDir(), clock = { t: T0 }, agents = {}, journal = null, journalOn = true } = {}) {
+function makeStore({
+  dataDir = tempDataDir(),
+  clock = { t: T0 },
+  errands = {},
+  agents = {},
+  journal = null,
+  journalOn = true,
+} = {}) {
   const config = {
     features: { journal: journalOn },
+    errands: { maxOpen: 3, ...errands },
     agents: {
-      maxOpen: 3,
       scout: { daily: { tasks: 5 }, out: '/var/lib/agent-scout/out' },
       server: { daily: { tasks: 2 }, out: '/var/lib/agent-server/out' },
       ...agents,
@@ -67,7 +74,7 @@ const asked = {
   scope: 'group',
 };
 
-test('task store: a new task is queued and written to tasks.json and tasks.jsonl', async () => {
+test('task store: a new task is queued and written to errands.json and errands.jsonl', async () => {
   await withCapturedLogs(async () => {
     const { store, dataDir } = makeStore();
     const added = store.add(asked);
@@ -83,9 +90,9 @@ test('task store: a new task is queued and written to tasks.json and tasks.jsonl
     assert.equal(task.createdAt, T0);
     assert.equal(task.seen, false);
     assert.equal(task.result, null);
-    const file = JSON.parse(await fileText(store, dataDir, 'guilds/g1/tasks.json'));
-    assert.equal(file.tasks.length, 1);
-    const lines = (await fileText(store, dataDir, 'guilds/g1/tasks.jsonl')).trim().split('\n');
+    const file = JSON.parse(await fileText(store, dataDir, 'guilds/g1/errands.json'));
+    assert.equal(file.errands.length, 1);
+    const lines = (await fileText(store, dataDir, 'guilds/g1/errands.jsonl')).trim().split('\n');
     assert.equal(lines.length, 1);
     assert.equal(JSON.parse(lines[0]).state, 'queued');
     // A second store over the same directory reads the list back.
@@ -126,7 +133,7 @@ test('task store: queued -> running -> done; the end is written once, a late one
     assert.equal(store.markSeen(task.id).seen, true);
     assert.deepEqual(store.unseen(), []);
     assert.equal(store.today('scout').usd, 0.25);
-    const states = (await fileText(store, dataDir, 'guilds/g1/tasks.jsonl'))
+    const states = (await fileText(store, dataDir, 'guilds/g1/errands.jsonl'))
       .trim()
       .split('\n')
       .map((line) => JSON.parse(line).state);
@@ -171,13 +178,13 @@ test("task store: a cancel closes an open task; the runner's later end changes n
 
 test('task store: the caps refuse with cap-open and cap-tasks, a dollar figure never refuses, and the day rolls over', async () => {
   await withCapturedLogs(() => {
-    const { store, clock } = makeStore({ agents: { maxOpen: 2 } });
+    const { store, clock } = makeStore({ errands: { maxOpen: 2 } });
     assert.equal(store.add(asked).ok, true);
     const second = store.add(asked);
     assert.equal(second.ok, true);
     assert.deepEqual(store.add(asked), { ok: false, code: 'cap-open' });
     assert.equal(store.budget('scout').spent, true);
-    assert.equal(store.budget('scout').key, 'agents.maxOpen');
+    assert.equal(store.budget('scout').key, 'errands.maxOpen');
     store.finish(store.open()[0].id, { status: 'done', result: { text: '' }, usage: { usd: 0.1 } });
     store.finish(second.task.id, { status: 'failed', error: 'x' });
     // server: two tasks a day.
@@ -225,13 +232,13 @@ test('task store: every transition is one journal operation, counts only', async
     );
     assert.equal(new Set(lines.map((line) => line.opId)).size, 1, 'one operation per task');
     for (const line of lines) {
-      assert.equal(line.name, 'task');
+      assert.equal(line.name, 'errand');
       assert.equal(line.channelId, 'c1');
       assert.deepEqual(line.participants, ['u1']);
       assert.deepEqual(line.sourceMessageIds, ['m1']);
     }
     assert.deepEqual(lines[2].result, {
-      taskId: task.id,
+      errandId: task.id,
       state: 'done',
       chars: 18,
       sources: 2,
@@ -298,7 +305,7 @@ test('task store: a file handle resolves only to a file the task lists, inside i
 
 test('task store: recent lists newest first; failOpen fails what a restart left open', async () => {
   await withCapturedLogs(() => {
-    const { store, clock } = makeStore({ agents: { maxOpen: 5 } });
+    const { store, clock } = makeStore({ errands: { maxOpen: 5 } });
     const a = store.add(asked).task;
     clock.t += 10;
     const b = store.add(asked).task;
@@ -321,7 +328,7 @@ test('task store: recent lists newest first; failOpen fails what a restart left 
 test("task store: a finished task's files expire once the runner removed its directory; the handle then names nothing", async () => {
   await withCapturedLogs(async () => {
     const out = tempDir('errands-out-');
-    const { store, dataDir } = makeStore({ agents: { maxOpen: 5, scout: { daily: { tasks: 5 }, out } } });
+    const { store, dataDir } = makeStore({ errands: { maxOpen: 5 }, agents: { scout: { daily: { tasks: 5 }, out } } });
     const files = [{ path: '/elsewhere/meme.png', name: 'meme.png', contentType: 'image/png', bytes: 12 }];
     const kept = store.add(asked).task;
     const gone = store.add(asked).task;
@@ -338,8 +345,8 @@ test("task store: a finished task's files expire once the runner removed its dir
     assert.equal(store.fileOf(fileHandle(gone.id, 'meme.png')), null);
     assert.ok(store.fileOf(fileHandle(kept.id, 'meme.png')));
     assert.ok(store.unseen().find((t) => t.id === gone.id).filesExpired);
-    const saved = JSON.parse(await fileText(store, dataDir, 'guilds/g1/tasks.json'));
-    assert.equal(saved.tasks.find((t) => t.id === gone.id).filesExpired, true, 'written to tasks.json');
+    const saved = JSON.parse(await fileText(store, dataDir, 'guilds/g1/errands.json'));
+    assert.equal(saved.errands.find((t) => t.id === gone.id).filesExpired, true, 'written to errands.json');
     assert.equal(store.expireFiles(), 0, 'marked once');
     fs.rmSync(path.join(out, kept.id), { recursive: true });
     assert.equal(store.recent(10).find((t) => t.id === kept.id).filesExpired, true);
@@ -358,7 +365,7 @@ test('task store: no out dir at all (no runner on this host) expires nothing', a
   });
 });
 
-test("task store: setLedgerId keeps the ledger's id on the task (tasks.json written, the later transition lines carry it); none for an unknown task", async () => {
+test("task store: setLedgerId keeps the ledger's id on the task (errands.json written, the later transition lines carry it); none for an unknown task", async () => {
   await withCapturedLogs(async () => {
     const { store, dataDir } = makeStore();
     const { task } = store.add(asked);
@@ -369,9 +376,9 @@ test("task store: setLedgerId keeps the ledger's id on the task (tasks.json writ
     assert.equal(store.setLedgerId('tnone', 'L8'), null);
     assert.equal(store.setLedgerId(task.id, ''), null);
     store.start(task.id);
-    const file = JSON.parse(await fileText(store, dataDir, 'guilds/g1/tasks.json'));
-    assert.equal(file.tasks[0].ledgerId, 'L7');
-    const lines = (await fileText(store, dataDir, 'guilds/g1/tasks.jsonl'))
+    const file = JSON.parse(await fileText(store, dataDir, 'guilds/g1/errands.json'));
+    assert.equal(file.errands[0].ledgerId, 'L7');
+    const lines = (await fileText(store, dataDir, 'guilds/g1/errands.jsonl'))
       .trim()
       .split('\n')
       .map((line) => JSON.parse(line));
@@ -390,7 +397,7 @@ test("task store: setLedgerId keeps the ledger's id on the task (tasks.json writ
   });
 });
 
-test('task store: costs and the daily caps read the same spend records, rebuilt from tasks.jsonl after a restart', async () => {
+test('task store: costs and the daily caps read the same spend records, rebuilt from errands.jsonl after a restart', async () => {
   await withCapturedLogs(async () => {
     const dataDir = tempDataDir();
     const clock = { t: T0 };
@@ -416,8 +423,8 @@ test('task store: costs and the daily caps read the same spend records, rebuilt 
     const c = store.add(asked).task;
     store.finish(c.id, { status: 'done', usage: { usd: 0.2 } });
 
-    // A restart: the list file carries no counters; tasks.jsonl gives the same numbers back.
-    assert.equal(Object.hasOwn(JSON.parse(await fileText(store, dataDir, 'guilds/g1/tasks.json')), 'daily'), false);
+    // A restart: the list file carries no counters; errands.jsonl gives the same numbers back.
+    assert.equal(Object.hasOwn(JSON.parse(await fileText(store, dataDir, 'guilds/g1/errands.json')), 'daily'), false);
     const again = createTaskStore({
       dataDir,
       guildId: 'g1',
@@ -431,7 +438,7 @@ test('task store: costs and the daily caps read the same spend records, rebuilt 
 
 test("task store: the persona's call keeps its turn and its brief as written; the same idempotency key again is that task, never a second, before any cap", async () => {
   await withCapturedLogs(() => {
-    const { store } = makeStore({ agents: { maxOpen: 1 } });
+    const { store } = makeStore({ errands: { maxOpen: 1 } });
     const brief = '  Βρες το πιο δημοφιλές έργο με την ετικέτα serial_experiments_lain και φέρε το αρχείο.  ';
     const hers = {
       ...asked,

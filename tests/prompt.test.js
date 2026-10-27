@@ -378,7 +378,7 @@ test('buildRequest: a task trigger kind without a trigger takes prompts.errand-r
   const m1 = makeMessage(1, NOW - 2 * MIN);
   const own = (overrides = {}) =>
     contentText(
-      buildRequest(baseInput({ mode: 'interject', history: [m1], trigger: null, triggerKind: 'task', ...overrides }))
+      buildRequest(baseInput({ mode: 'interject', history: [m1], trigger: null, triggerKind: 'errand', ...overrides }))
         .messages[1].content
     );
   const withFile = own({ prompts: fakePrompts({ 'errand-result': ERRAND_TASK }) });
@@ -395,7 +395,7 @@ test('buildRequest: a task trigger kind without a trigger takes prompts.errand-r
         prompts: fakePrompts({ 'errand-result': ERRAND_TASK }),
         history: [m1, trigger],
         trigger,
-        triggerKind: 'task',
+        triggerKind: 'errand',
       })
     ).messages[1].content
   );
@@ -7056,7 +7056,7 @@ test('buildRequest: people_now -- a caller with no profile: no entry without liv
   );
 });
 
-test('buildRequest: <intentions> sits in the tail right after <task_result>, never cut; absent or empty, the request is as without it', () => {
+test('buildRequest: <intentions> sits in the tail right after <errand_result>, never cut; absent or empty, the request is as without it', () => {
   const errands = { tasks: 'TASKS_BODY', result: 'RESULT_BODY' };
   const without = buildRequest(baseInput({ errands }));
   const empty = buildRequest(baseInput({ errands, intentions: '' }));
@@ -7065,7 +7065,7 @@ test('buildRequest: <intentions> sits in the tail right after <task_result>, nev
   const parts = request.messages[1].content;
   const tail = parts[parts.length - 1].text;
   assert.ok(
-    tail.includes('<task_result>\nRESULT_BODY\n</task_result>\n\n<intentions>\nINTENTIONS_BODY\n</intentions>'),
+    tail.includes('<errand_result>\nRESULT_BODY\n</errand_result>\n\n<intentions>\nINTENTIONS_BODY\n</intentions>'),
     tail
   );
   for (const part of parts.slice(0, -1)) assert.ok(!part.text.includes('<intentions>'), 'never in a cached part');

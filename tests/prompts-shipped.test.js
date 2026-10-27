@@ -914,7 +914,7 @@ test('buildRequest: the turn a finished errand opens without an origin message f
     await turnInput({
       mode: 'interject',
       trigger: null,
-      triggerKind: 'task',
+      triggerKind: 'errand',
       interlocutor: null,
       focus: history.at(-2),
     })
@@ -1196,7 +1196,7 @@ test('buildRequest: an inner turn fills system-prompt, character-card, rules, fo
     kind: 'intention_due',
     items: [
       { kind: 'intention_due', intentionIds: ['i1'] },
-      { kind: 'errand_deadline', intentionIds: ['i2'], taskId: 'T1' },
+      { kind: 'errand_deadline', intentionIds: ['i2'], errandId: 'T1' },
       { kind: 'review', intentionIds: [] },
     ],
     intentions: [

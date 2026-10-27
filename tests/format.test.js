@@ -1968,7 +1968,9 @@ test('formatTranscript: an errand without its agent says so through tools.refusa
       withCalls(
         callScene(),
         {
-          calls: [call({ skill: 'task.run', status: 'invalid', detail, target: { messageId: null, channelId: null } })],
+          calls: [
+            call({ skill: 'errand.run', status: 'invalid', detail, target: { messageId: null, channelId: null } }),
+          ],
         },
         resolvers
       ),

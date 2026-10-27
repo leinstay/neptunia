@@ -9,12 +9,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { classify } from '../../../src/memory/db/map/index.js';
 import { applyUnitWrite } from '../../../src/memory/db/unit-write.js';
-import { isOperational } from '../../../src/memory/db/paths.js';
+import { currentUnitPath, isOperational } from '../../../src/memory/db/paths.js';
 import { fillStems } from '../../../src/memory/db/stems.js';
 import { projectPending } from '../../../src/memory/db/graph.js';
 
 /** The JSONL kinds the writers take line by line. */
-const LINE_KINDS = new Set(['record', 'journal', 'archive', 'intentions', 'tasks']);
+const LINE_KINDS = new Set(['record', 'journal', 'archive', 'intentions', 'errands']);
 /** The operational files whose memory rows the store sends too (store.js#dbPlace). */
 const SENT = /^guilds\/[^/]+\/(?:participation|media)\.json$/;
 /** Written after the rest: an archived item that is no hot claim needs the hot claims in first, as do the links. */
@@ -41,7 +41,8 @@ export function unitsOf(dataDir) {
   const units = new Map();
   for (const rel of walk(dataDir)) {
     if (!rel.startsWith('guilds/') || (isOperational(rel) && !SENT.test(rel))) continue;
-    const info = classify(rel);
+    // A data directory of an older release names the errand units `tasks.json` and `tasks.jsonl`: they are the current units.
+    const info = classify(currentUnitPath(rel));
     if (!info || info.skipped || info.guildId === undefined) continue;
     if (info.kind === 'requests' || info.format === 'text') continue;
     if (info.format === 'jsonl' && !LINE_KINDS.has(info.kind)) continue;

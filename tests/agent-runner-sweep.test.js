@@ -1,5 +1,5 @@
 // Tests for src/agent-runner/sweep.js: the runner deletes task directories under its out dir
-// whose newest entry is older than agents.keepFilesHours, never a live task's, never a name that
+// whose newest entry is older than errands.keepFilesHours, never a live task's, never a name that
 // is not a task id; a nested fresh file keeps its directory; a missing out dir is an empty
 // sweep; the sweeper logs one line of counts per sweep, never a name.
 import { test } from 'node:test';
@@ -50,7 +50,7 @@ test('sweep: old task directories go, fresh, live and foreign ones stay', async 
   assert.deepEqual(fs.readdirSync(out).sort(), ['not.a.task', 'stray-file', 'tfresh', 'tlive', 'tnested']);
 });
 
-test('sweep: the hours are agents.keepFilesHours; a bad value falls back to 24', async () => {
+test('sweep: the hours are errands.keepFilesHours; a bad value falls back to 24', async () => {
   assert.equal(DEFAULT_KEEP_FILES_HOURS, 24);
   for (const bad of [undefined, null, 0, -3, 'x', Number.NaN]) assert.equal(keepHoursOf(bad), 24);
   assert.equal(keepHoursOf(1.5), 1.5);

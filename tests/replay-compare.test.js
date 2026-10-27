@@ -124,13 +124,13 @@ function newLine(id, triggerId, steps) {
 
 test('oldCallsOf: calls by their skill, a picture alone or inside a call as draw.create, in the order written', () => {
   const calls = oldCallsOf(
-    '<msg>x</msg><call skill="web.search" goal="g">chess</call><draw self="yes">a cat</draw><call skill="message.create" channel="#d"><draw>a dog</draw></call><call skill="intent.set"/>'
+    '<msg>x</msg><call skill="web.search" goal="g">chess</call><draw self="yes">a cat</draw><call skill="message.create" channel="#d"><draw>a dog</draw></call><call skill="intention.set"/>'
   );
   assert.deepEqual(calls, [
     { name: 'web.search', args: { goal: 'g', text: 'chess' } },
     { name: 'draw.create', args: { text: 'a cat', self: true } },
     { name: 'draw.create', args: { text: 'a dog', self: false, channel: '#d' } },
-    { name: 'intent.set', args: {} },
+    { name: 'intention.set', args: {} },
   ]);
   assert.deepEqual(oldCallsOf('<msg>only speech</msg>'), []);
 });

@@ -1,8 +1,8 @@
-// Round trips of intentions.js and tasks.js through the real schema.
+// Round trips of intentions.js and errands.js through the real schema.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as intentions from '../src/memory/db/map/intentions.js';
-import * as tasks from '../src/memory/db/map/tasks.js';
+import * as errands from '../src/memory/db/map/errands.js';
 import { assertRoundTrip, roundTrip } from './fixtures/memory-db/roundtrip.js';
 
 const intention = (id, extra = {}) => ({
@@ -14,7 +14,7 @@ const intention = (id, extra = {}) => ({
   dueAt: null,
   every: null,
   expiresAt: 1793000000000,
-  awaitingTaskId: null,
+  awaitingErrandId: null,
   waitDeadline: null,
   destination: null,
   completionCondition: null,
@@ -29,7 +29,7 @@ test('intentions: the record is kept whole and its fields copied to columns', ()
   const file = {
     intentions: [
       intention('i1', { dueAt: 1792100000000 }),
-      intention('i2', { status: 'done', outcome: { taskId: 't', state: 'done', at: 3 } }),
+      intention('i2', { status: 'done', outcome: { errandId: 't', state: 'done', at: 3 } }),
     ],
   };
   const rows = assertRoundTrip(intentions, 'intentions.json', file);
@@ -91,12 +91,12 @@ const task = (id, extra = {}) => ({
   ...extra,
 });
 
-test('tasks: tasks become errand work rows with the record whole', () => {
+test('errands: errands become work rows with the record whole', () => {
   const file = {
-    tasks: [task('t1'), task('t2', { state: 'failed', error: 'timeout', seen: false, endedAt: null })],
+    errands: [task('t1'), task('t2', { state: 'failed', error: 'timeout', seen: false, endedAt: null })],
     extra: { n: 1 },
   };
-  const rows = assertRoundTrip(tasks, 'tasks.json', file);
+  const rows = assertRoundTrip(errands, 'errands.json', file);
   const [done, failed] = rows.work;
   assert.equal(done.kind, 'errand');
   assert.equal(done.state, 'done');
@@ -109,27 +109,27 @@ test('tasks: tasks become errand work rows with the record whole', () => {
   assert.equal(failed.updated_ms, 1792000001000);
 });
 
-test('tasks: a DM errand is scoped to its requester', () => {
-  const rows = assertRoundTrip(tasks, 'tasks.json', { tasks: [task('t3', { scope: 'dm' })] });
+test('errands: a DM errand is scoped to its requester', () => {
+  const rows = assertRoundTrip(errands, 'errands.json', { errands: [task('t3', { scope: 'dm' })] });
   assert.deepEqual([rows.work[0].scope_kind, rows.work[0].scope_dm], ['dm', 'person:discord:100000000000000001']);
-  assertRoundTrip(tasks, 'tasks.json', {
-    tasks: [task('t4', { scope: 'dm', requester: { userId: null, kind: 'owner' } })],
+  assertRoundTrip(errands, 'errands.json', {
+    errands: [task('t4', { scope: 'dm', requester: { userId: null, kind: 'owner' } })],
   });
 });
 
-test('tasks: each line of tasks.jsonl is an event with its own id, even two identical lines', () => {
+test('errands: each line of errands.jsonl is an event with its own id, even two identical lines', () => {
   const line = { at: 1792000000500, ...task('t1', { state: 'running' }) };
-  const a = roundTrip(tasks, 'tasks.jsonl', line, { position: 0 });
-  const b = roundTrip(tasks, 'tasks.jsonl', line, { position: 1 });
+  const a = roundTrip(errands, 'errands.jsonl', line, { position: 0 });
+  const b = roundTrip(errands, 'errands.jsonl', line, { position: 1 });
   assert.deepEqual(a.back, line);
   assert.equal(a.rows.work_events[0].work_id, 't1');
   assert.equal(a.rows.work_events[0].at_ms, 1792000000500);
   assert.notEqual(a.rows.work_events[0].id, b.rows.work_events[0].id);
-  assertRoundTrip(tasks, 'tasks.jsonl', { weird: true }, { position: 2 });
+  assertRoundTrip(errands, 'errands.jsonl', { weird: true }, { position: 2 });
 });
 
-test('tasks: odd files survive', () => {
-  assertRoundTrip(tasks, 'tasks.json', { tasks: [] });
-  assertRoundTrip(tasks, 'tasks.json', { tasks: [{ id: 'x' }, { id: 'x' }] });
-  assertRoundTrip(tasks, 'tasks.json', { tasks: [{ state: 'open' }], more: [] });
+test('errands: odd files survive', () => {
+  assertRoundTrip(errands, 'errands.json', { errands: [] });
+  assertRoundTrip(errands, 'errands.json', { errands: [{ id: 'x' }, { id: 'x' }] });
+  assertRoundTrip(errands, 'errands.json', { errands: [{ state: 'open' }], more: [] });
 });

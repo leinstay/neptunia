@@ -127,6 +127,7 @@ export function buildDataDir(root) {
     }],
   });
   writeLines(path.join(g, 'intentions-archive.jsonl'), []);
+  // The errand units under the names of an earlier release: the importer reads them as errands.json and errands.jsonl.
   writeJson(path.join(g, 'tasks.json'), { tasks: [{ id: 't1', state: 'done', createdAt: 1792000000000, requester: { userId: MEMBER }, scope: 'group', seen: true }] });
   writeLines(path.join(g, 'tasks.jsonl'), [{ at: 1792000000500, id: 't1', state: 'running' }]);
   writeJson(path.join(g, 'media.json'), { '1555006398444736533': { text: 'a photo of a café', ts: 1792000000000 } });

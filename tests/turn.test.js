@@ -3040,7 +3040,7 @@ test('createTurnRunner: lookup -- a turn a returned errand opened runs no engine
   const { llm, result } = await runLookupTurn({
     lookup,
     llm: lookupLlm('champions final winner 2026'),
-    triggerKind: 'task',
+    triggerKind: 'errand',
     taskResult,
   });
   assert.equal(result.outcome, 'spoke');
@@ -3419,7 +3419,7 @@ test('createTurnRunner: recall -- lookup: classified carries what was asked as f
   for (const secret of ['secrète', 'λαγ', 'λέξανδρ']) assert.ok(!all.includes(secret), secret);
 });
 
-// The search classifier never creates or suggests an errand: only the persona's own task.run call does.
+// The search classifier never creates or suggests an errand: only the persona's own errand.run call does.
 
 /** A fake errand client (the agent runner's side): records each run, which never ends here. */
 function fakeErrandClient() {
@@ -3430,7 +3430,7 @@ function fakeErrandClient() {
 /**
  * One mention by the member u1 (Alice, m2) in c1 whose search classifier answers `classifier`,
  * over a real errand service and task store (a temp data/ directory), a fake errand client and a
- * real admin's runSkillOp; `task.run` granted to the persona and the scout agent enabled, so an
+ * real admin's runSkillOp; `errand.run` granted to the persona and the scout agent enabled, so an
  * errand could be queued if anything tried.
  */
 async function runErrandLaneTurn({ classifier }) {
@@ -3439,11 +3439,12 @@ async function runErrandLaneTurn({ classifier }) {
     {},
     {
       tools: { safeMode: false, resultMaxChars: 2000 },
-      agents: { maxOpen: 3, scout: { enabled: true, daily: { tasks: 10 } } },
+      errands: { maxOpen: 3 },
+      agents: { scout: { enabled: true, daily: { tasks: 10 } } },
     }
   );
   hot.config.bot.owners = ['o9'];
-  hot.config.bot.access = personaGrants(['task.run']);
+  hot.config.bot.access = personaGrants(['errand.run']);
   const stores = createTaskStores({ dataDir: tempDir('nep-turn-agent-'), config: () => hot.config });
   const errandClient = fakeErrandClient();
   const errands = createErrandService({ client: errandClient, stores, hot, getGuildId: () => 'g1' });
@@ -11955,7 +11956,7 @@ test('skill call: a quiet success in an addressed turn ends the turn: no step, n
       '<msg>δεν θα ειπωθεί</msg>',
     ],
     allowed: ['message.create'],
-    turnExtra: { mode: 'interject', trigger: null, triggerKind: 'task', taskResult: task },
+    turnExtra: { mode: 'interject', trigger: null, triggerKind: 'errand', taskResult: task },
   });
   assert.equal(spontaneous.llm.calls.length, 1);
   assert.deepEqual(
@@ -12083,7 +12084,7 @@ test('skill call: the result turn of her own errand (requester kind persona, nob
   const own = await callTurn({
     answers: [answer, '<skip/>'],
     allowed: ['message.create'],
-    turnExtra: { mode: 'interject', trigger: null, triggerKind: 'task', taskResult: task },
+    turnExtra: { mode: 'interject', trigger: null, triggerKind: 'errand', taskResult: task },
   });
   assert.deepEqual(
     own.sends.map((send) => [send.to, send.text]),
@@ -12097,7 +12098,7 @@ test('skill call: the result turn of her own errand (requester kind persona, nob
     turnExtra: {
       mode: 'interject',
       trigger: null,
-      triggerKind: 'task',
+      triggerKind: 'errand',
       taskResult: { ...task, requester: { userId: null, kind: 'member' } },
     },
   });

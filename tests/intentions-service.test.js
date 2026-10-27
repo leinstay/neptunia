@@ -14,7 +14,7 @@ import { runOp } from '../src/tools/impl/index.ts';
 import { createOpsEnv } from '../src/tools/impl/env.ts';
 import { createTaskStores } from '../src/errands/store.js';
 import { createErrandService } from '../src/errands/service.js';
-import { createTaskTurns, taskCompletedEvent } from '../src/errands/turns.js';
+import { createTaskTurns, errandDoneEvent } from '../src/errands/turns.js';
 import { createEventDoor } from '../src/interface/door.js';
 import { createIntentionStores } from '../src/intentions/store.js';
 import { createIntentionService } from '../src/intentions/service.js';
@@ -64,6 +64,7 @@ function fakeClient() {
 
 function makeEnv({
   features = { intentions: true },
+  errandSettings = {},
   agents = {},
   intentions: settings = {},
   rootDir = tempDir('nep-intent-'),
@@ -74,7 +75,8 @@ function makeEnv({
     config: {
       bot: { owners: [OWNER], access: {} },
       features,
-      agents: { maxOpen: 3, scout: { enabled: true, daily: { tasks: 10 } }, ...agents },
+      errands: { maxOpen: 3, ...errandSettings },
+      agents: { scout: { enabled: true, daily: { tasks: 10 } }, ...agents },
       intentions: {
         expiresDays: 14,
         maxOpen: 20,
@@ -94,7 +96,7 @@ function makeEnv({
   const stores = createTaskStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, now });
   const intentionStores = createIntentionStores({ memoryDb: memoryOf(dataDir), now });
   let intentions = null;
-  // An errand's end goes the way src/index.js sends it: a task.completed event through the event
+  // An errand's end goes the way src/index.js sends it: an errand.done event through the event
   // door, whose handler (the task turns) moves the waiting intentions, then runs her result turn,
   // which notes what it found.
   let door = null;
@@ -117,7 +119,7 @@ function makeEnv({
     hot,
     getGuildId: () => 'g1',
     now,
-    onFinished: (task, guildId) => door.submit(taskCompletedEvent(task, guildId, now)),
+    onFinished: (task, guildId) => door.submit(errandDoneEvent(task, guildId, now)),
   });
   intentions = createIntentionService({
     stores: intentionStores,
@@ -138,7 +140,7 @@ function makeEnv({
     now,
     setTimer: () => null,
   });
-  door = createEventDoor({ handlers: { 'task.completed': (event) => taskTurns.onEvent(event) } });
+  door = createEventDoor({ handlers: { 'errand.done': (event) => taskTurns.onEvent(event) } });
   const store = { state: { data: {}, markDirty() {} } };
   const env = createOpsEnv({
     discord: DISCORD,
@@ -180,7 +182,7 @@ test('intent: with features.intentions off every action answers feature-off', as
   const { env } = makeEnv({ features: {} });
   for (const action of ['add', 'update', 'cancel', 'list']) {
     const result = await runOp(
-      `intent.${{ add: 'set', update: 'update', cancel: 'cancel', list: 'list' }[action]}`,
+      `intention.${{ add: 'set', update: 'update', cancel: 'cancel', list: 'list' }[action]}`,
       { text: 'x', id: 'i1' },
       owner(env)
     );
@@ -188,22 +190,22 @@ test('intent: with features.intentions off every action answers feature-off', as
   }
 });
 
-test('intent.set: the answer line says the due time in bot.timezone as the intentions block writes it, never as a bare UTC figure', async () => {
+test('intention.set: the answer line says the due time in bot.timezone as the intentions block writes it, never as a bare UTC figure', async () => {
   const { env, hot } = makeEnv();
   hot.config.bot.timezone = 'Europe/Moscow';
   await withCapturedLogs(async () => {
     // T0 is 10:00 UTC, 13:00 in Moscow; one minute on is 13:01 there.
-    const result = await runOp('intent.set', { text: 'βρες ένα meme', due: '1m' }, hers(env, 'T1'));
+    const result = await runOp('intention.set', { text: 'βρες ένα meme', due: '1m' }, hers(env, 'T1'));
     assert.equal(result.status, 'ok', result.summary);
     assert.match(result.data.text, /due Sun, October 18 13:01,/, result.data.text);
     assert.doesNotMatch(result.data.text, /10:01/, 'no UTC clock in the line');
   });
 });
 
-test('intent.set: her own intention is pending with its provenance, written to intentions.json', async () => {
+test('intention.set: her own intention is pending with its provenance, written to intentions.json', async () => {
   const { env, intentions, intentionStores, dataDir } = makeEnv();
   await withCapturedLogs(async () => {
-    const result = await runOp('intent.set', { text: 'φέρε το άρθρο στην Ελένη', due: '3h' }, hers(env, 'T1'));
+    const result = await runOp('intention.set', { text: 'φέρε το άρθρο στην Ελένη', due: '3h' }, hers(env, 'T1'));
     assert.equal(result.status, 'ok', result.summary);
     const record = onlyIntention(intentions);
     assert.equal(record.status, 'pending');
@@ -222,53 +224,56 @@ test('intent.set: her own intention is pending with its provenance, written to i
       file.intentions.map((r) => r.id),
       [record.id]
     );
-    assert.equal((await runOp('intent.set', { text: 'x', due: 'soon' }, hers(env, 'T1'))).code, 'bad-time');
+    assert.equal((await runOp('intention.set', { text: 'x', due: 'soon' }, hers(env, 'T1'))).code, 'bad-time');
   });
 });
 
 test('reliable waiting: a wait asked before a launch that fails leaves no waiting intention', async () => {
-  const { env, intentions, client } = makeEnv({ agents: { maxOpen: 0 } });
+  const { env, intentions, client } = makeEnv({ errandSettings: { maxOpen: 0 } });
   await withCapturedLogs(async () => {
-    const set = await runOp('intent.set', { text: 'ψάξε τα νέα', deadline: '1h' }, hers(env, 'T1'));
+    const set = await runOp('intention.set', { text: 'ψάξε τα νέα', deadline: '1h' }, hers(env, 'T1'));
     assert.equal(set.status, 'ok', set.summary);
-    const launched = await runOp('task.run', { agent: 'scout', goal: 'find the news' }, hers(env, 'T1'));
+    const launched = await runOp('errand.run', { agent: 'scout', goal: 'find the news' }, hers(env, 'T1'));
     assert.equal(launched.code, 'cap-open', 'the launch failed explicitly');
     const record = onlyIntention(intentions);
     assert.equal(record.status, 'pending');
-    assert.equal(record.awaitingTaskId, null);
+    assert.equal(record.awaitingErrandId, null);
     assert.equal(client.runs.length, 0);
     assert.deepEqual(intentions.reconcile('g1'), { arrived: 0, missing: 0, deadline: 0, expired: 0 });
     // A wait on an errand the store does not hold is refused, never recorded.
-    assert.equal((await runOp('intent.update', { id: record.id, task: 'tnothere' }, hers(env, 'T1'))).code, 'no-task');
+    assert.equal(
+      (await runOp('intention.update', { id: record.id, errand: 'tnothere' }, hers(env, 'T1'))).code,
+      'no-errand'
+    );
   });
 });
 
 test('reliable waiting: the errand of the same turn is linked, intention first; its end moves the wait to pending once', async () => {
   const { env, intentions, client, errands, door, turnSaw } = makeEnv();
   await withCapturedLogs(async () => {
-    await runOp('intent.set', { text: 'ψάξε τα νέα', deadline: '1h' }, hers(env, 'T1'));
+    await runOp('intention.set', { text: 'ψάξε τα νέα', deadline: '1h' }, hers(env, 'T1'));
     const launched = await runOp(
-      'task.run',
+      'errand.run',
       { agent: 'scout', goal: 'find the news' },
       hers(env, 'T1', { idempotencyKey: 'T1.1:1' })
     );
     const taskId = launched.data.task.id;
     let record = onlyIntention(intentions);
     assert.equal(record.status, 'waiting');
-    assert.equal(record.awaitingTaskId, taskId);
+    assert.equal(record.awaitingErrandId, taskId);
     assert.equal(record.waitDeadline, T0 + HOUR);
     await new Promise((r) => setImmediate(r));
     client.end(taskId);
     await errands.idle();
     record = onlyIntention(intentions);
     assert.equal(record.status, 'pending');
-    assert.deepEqual(record.outcome, { taskId, state: 'done', at: T0 });
+    assert.deepEqual(record.outcome, { errandId: taskId, state: 'done', at: T0 });
     // The end came through the event door; her result turn already saw the intention pending.
     await new Promise((r) => setImmediate(r));
     assert.deepEqual(turnSaw, [{ taskId, intentions: [{ id: record.id, status: 'pending' }] }]);
     const before = JSON.stringify(record);
     // The same end delivered again changes nothing: the door drops the repeat, the service moves nothing.
-    assert.equal((await door.submit(taskCompletedEvent({ id: taskId, state: 'done' }, 'g1'))).status, 'duplicate');
+    assert.equal((await door.submit(errandDoneEvent({ id: taskId, state: 'done' }, 'g1'))).status, 'duplicate');
     assert.equal(intentions.onTaskFinished({ id: taskId, state: 'done' }, 'g1'), 0);
     assert.equal(JSON.stringify(onlyIntention(intentions)), before);
     assert.equal(turnSaw.length, 1);
@@ -278,23 +283,23 @@ test('reliable waiting: the errand of the same turn is linked, intention first; 
 test('reliable waiting: the errand queued first in the turn is linked when the intention asks for the wait', async () => {
   const { env, intentions } = makeEnv();
   await withCapturedLogs(async () => {
-    const launched = await runOp('task.run', { agent: 'scout', goal: 'find the news' }, hers(env, 'T2'));
-    const set = await runOp('intent.set', { text: 'πες τι βρήκες', deadline: '2h' }, hers(env, 'T2'));
+    const launched = await runOp('errand.run', { agent: 'scout', goal: 'find the news' }, hers(env, 'T2'));
+    const set = await runOp('intention.set', { text: 'πες τι βρήκες', deadline: '2h' }, hers(env, 'T2'));
     assert.equal(set.status, 'ok', set.summary);
     const record = onlyIntention(intentions);
     assert.equal(record.status, 'waiting');
-    assert.equal(record.awaitingTaskId, launched.data.task.id);
+    assert.equal(record.awaitingErrandId, launched.data.task.id);
   });
 });
 
 test('reconciliation: an end that never arrived, a gone errand and a passed deadline are each found', async () => {
   const { env, intentions, stores, clock } = makeEnv();
   await withCapturedLogs(async () => {
-    const a = (await runOp('task.run', { agent: 'scout', goal: 'a' }, owner(env))).data.task.id;
-    const b = (await runOp('task.run', { agent: 'scout', goal: 'b' }, owner(env))).data.task.id;
-    const ia = (await runOp('intent.set', { text: 'περιμένω το a', task: a, deadline: '5h' }, owner(env))).data
+    const a = (await runOp('errand.run', { agent: 'scout', goal: 'a' }, owner(env))).data.task.id;
+    const b = (await runOp('errand.run', { agent: 'scout', goal: 'b' }, owner(env))).data.task.id;
+    const ia = (await runOp('intention.set', { text: 'περιμένω το a', errand: a, deadline: '5h' }, owner(env))).data
       .intention.id;
-    const ib = (await runOp('intent.set', { text: 'περιμένω το b', task: b, deadline: '1h' }, owner(env))).data
+    const ib = (await runOp('intention.set', { text: 'περιμένω το b', errand: b, deadline: '1h' }, owner(env))).data
       .intention.id;
     assert.equal(intentions.list('g1').filter((r) => r.status === 'waiting').length, 2);
     // Errand a ends in the store with no completion event reaching the intentions.
@@ -307,25 +312,25 @@ test('reconciliation: an end that never arrived, a gone errand and a passed dead
     assert.equal(byId[ia].outcome.state, 'done');
     assert.equal(byId[ib].note, 'wait-deadline');
     // A wait whose errand the store no longer holds.
-    const c = (await runOp('task.run', { agent: 'scout', goal: 'c' }, owner(env))).data.task.id;
-    const ic = (await runOp('intent.update', { id: ib, task: c, deadline: '1h' }, owner(env))).data.intention.id;
+    const c = (await runOp('errand.run', { agent: 'scout', goal: 'c' }, owner(env))).data.task.id;
+    const ic = (await runOp('intention.update', { id: ib, errand: c, deadline: '1h' }, owner(env))).data.intention.id;
     // The store no longer holds the errand.
     const held = stores.get('g1');
     const holds = held.get;
     held.get = (id) => (id === c ? null : holds(id));
     assert.equal(intentions.reconcile('g1').missing, 1);
-    assert.equal(intentions.list('g1').find((r) => r.id === ic).note, 'task-missing');
+    assert.equal(intentions.list('g1').find((r) => r.id === ic).note, 'errand-missing');
   });
 });
 
-test('intent.cancel: a cancelled intention is final; a restart reads every intention back as it was', async () => {
+test('intention.cancel: a cancelled intention is final; a restart reads every intention back as it was', async () => {
   const { env, intentions, intentionStores, rootDir, clock } = makeEnv();
   await withCapturedLogs(async () => {
-    const first = (await runOp('intent.set', { text: 'ένα', due: '1d', chain: 'k1' }, owner(env))).data.intention.id;
-    const second = (await runOp('intent.set', { text: 'δύο' }, owner(env))).data.intention.id;
-    assert.equal((await runOp('intent.cancel', { id: second }, owner(env))).status, 'ok');
-    assert.equal((await runOp('intent.update', { id: second, state: 'pending' }, owner(env))).code, 'terminal');
-    assert.equal((await runOp('intent.cancel', { id: second }, owner(env))).code, 'terminal');
+    const first = (await runOp('intention.set', { text: 'ένα', due: '1d', chain: 'k1' }, owner(env))).data.intention.id;
+    const second = (await runOp('intention.set', { text: 'δύο' }, owner(env))).data.intention.id;
+    assert.equal((await runOp('intention.cancel', { id: second }, owner(env))).status, 'ok');
+    assert.equal((await runOp('intention.update', { id: second, state: 'pending' }, owner(env))).code, 'terminal');
+    assert.equal((await runOp('intention.cancel', { id: second }, owner(env))).code, 'terminal');
     const before = intentions.list('g1', { closed: true });
     await intentionStores.get('g1').flush();
     const again = makeEnv({ rootDir, clock });
@@ -337,40 +342,43 @@ test('intent.cancel: a cancelled intention is final; a restart reads every inten
         .join(),
       first
     );
-    const listed = await runOp('intent.list', {}, owner(again.env));
+    const listed = await runOp('intention.list', {}, owner(again.env));
     assert.match(listed.summary, new RegExp(`^${first} pending, due `));
   });
 });
 
-test('intent.update / intent.cancel: the id alone in the body counts as the id; any other body stays the purpose', async () => {
+test('intention.update / intention.cancel: the id alone in the body counts as the id; any other body stays the purpose', async () => {
   const { env, intentions } = makeEnv();
   await withCapturedLogs(async () => {
-    const id = (await runOp('intent.set', { text: 'ένα' }, hers(env, 'T1'))).data.intention.id;
+    const id = (await runOp('intention.set', { text: 'ένα' }, hers(env, 'T1'))).data.intention.id;
     // The id in the body (`text`) and no `id=`: the update finds it and the purpose is untouched.
-    const done = await runOp('intent.update', { text: `${id}`, state: 'done' }, hers(env, 'T2'));
+    const done = await runOp('intention.update', { text: `${id}`, state: 'done' }, hers(env, 'T2'));
     assert.equal(done.status, 'ok', done.summary);
     assert.equal(done.data.intention.id, id);
     const record = intentions.list('g1', { closed: true, all: true }).find((r) => r.id === id);
     assert.equal(record.status, 'done');
     assert.equal(record.purpose, 'ένα', 'the body was the id, not a new purpose');
     // A body that is not one bare id is the purpose as before; without an id the call is invalid.
-    const other = (await runOp('intent.set', { text: 'δύο' }, hers(env, 'T3'))).data.intention.id;
-    assert.equal((await runOp('intent.update', { text: 'τρία' }, hers(env, 'T3'))).code, 'invalid-args');
-    assert.equal((await runOp('intent.update', { text: `${other} και κάτι` }, hers(env, 'T3'))).code, 'invalid-args');
-    const renamed = await runOp('intent.update', { id: other, text: 'τρία' }, hers(env, 'T3'));
+    const other = (await runOp('intention.set', { text: 'δύο' }, hers(env, 'T3'))).data.intention.id;
+    assert.equal((await runOp('intention.update', { text: 'τρία' }, hers(env, 'T3'))).code, 'invalid-args');
+    assert.equal(
+      (await runOp('intention.update', { text: `${other} και κάτι` }, hers(env, 'T3'))).code,
+      'invalid-args'
+    );
+    const renamed = await runOp('intention.update', { id: other, text: 'τρία' }, hers(env, 'T3'));
     assert.equal(renamed.status, 'ok');
     assert.equal(intentions.list('g1').find((r) => r.id === other).purpose, 'τρία');
     // An explicit id wins over a body that looks like one.
-    const third = (await runOp('intent.set', { text: 'τέσσερα' }, hers(env, 'T4'))).data.intention.id;
+    const third = (await runOp('intention.set', { text: 'τέσσερα' }, hers(env, 'T4'))).data.intention.id;
     assert.equal(
-      (await runOp('intent.update', { id: third, text: other, state: 'done' }, hers(env, 'T4'))).data.intention.id,
+      (await runOp('intention.update', { id: third, text: other, state: 'done' }, hers(env, 'T4'))).data.intention.id,
       third
     );
     // The cancel the same way, with surrounding blanks.
-    const cancelled = await runOp('intent.cancel', { text: ` ${other} ` }, hers(env, 'T5'));
+    const cancelled = await runOp('intention.cancel', { text: ` ${other} ` }, hers(env, 'T5'));
     assert.equal(cancelled.status, 'ok', cancelled.summary);
     assert.equal(cancelled.data.intention.status, 'cancelled');
-    assert.equal((await runOp('intent.cancel', { text: 'no reason' }, hers(env, 'T5'))).code, 'invalid-args');
+    assert.equal((await runOp('intention.cancel', { text: 'no reason' }, hers(env, 'T5'))).code, 'invalid-args');
   });
 });
 
@@ -434,7 +442,7 @@ test('candidates: anchored to her own lines, turn looked up, de-duplicated, capp
     );
     // Accepted: pending. A second acceptance hits maxOpen; rejected: cancelled.
     assert.equal(
-      (await runOp('intent.update', { id: candidate.id, state: 'pending' }, hers(env, 'T10'))).data.intention.status,
+      (await runOp('intention.update', { id: candidate.id, state: 'pending' }, hers(env, 'T10'))).data.intention.status,
       'pending'
     );
     assert.equal(
@@ -443,8 +451,14 @@ test('candidates: anchored to her own lines, turn looked up, de-duplicated, capp
       'accepted, it lives as long as her own'
     );
     const other = intentions.list('g1').find((r) => r.status === 'proposed');
-    assert.equal((await runOp('intent.update', { id: other.id, state: 'pending' }, hers(env, 'T10'))).code, 'cap-open');
-    assert.equal((await runOp('intent.cancel', { id: other.id }, hers(env, 'T10'))).data.intention.status, 'cancelled');
+    assert.equal(
+      (await runOp('intention.update', { id: other.id, state: 'pending' }, hers(env, 'T10'))).code,
+      'cap-open'
+    );
+    assert.equal(
+      (await runOp('intention.cancel', { id: other.id }, hers(env, 'T10'))).data.intention.status,
+      'cancelled'
+    );
     // An untouched candidate expires after candidateExpiresHours.
     await intentions.addCandidates('g1', [{ span: 'αργότερα', purpose: 'later' }], lines);
     clock.t = T0 + 48 * HOUR;
@@ -496,7 +510,7 @@ test("private chats: her intention in a DM is the DM's own -- never in a server 
   const { env, intentions } = makeEnv();
   const dm = (extra = {}) => hers(env, 'T1', { channelId: 'dm1', privateChat: true, ...extra });
   await withCapturedLogs(async () => {
-    const set = await runOp('intent.set', { text: 'ρώτα την για τις εξετάσεις' }, dm());
+    const set = await runOp('intention.set', { text: 'ρώτα την για τις εξετάσεις' }, dm());
     assert.equal(set.status, 'ok', set.summary);
     const id = set.data.intention.id;
     const record = intentions.store('g1').get(id);
@@ -517,10 +531,10 @@ test("private chats: her intention in a DM is the DM's own -- never in a server 
       [id]
     );
     // Her call from a server channel cannot reach it, even by its id.
-    assert.equal((await runOp('intent.update', { id, text: 'άλλο' }, hers(env, 'T2'))).code, 'not-found');
-    assert.equal((await runOp('intent.cancel', { id }, hers(env, 'T2'))).code, 'not-found');
-    assert.equal((await runOp('intent.list', {}, hers(env, 'T2'))).summary, 'no open intentions');
-    assert.equal((await runOp('intent.update', { id, due: '2h' }, dm())).status, 'ok', 'in its own chat it moves');
+    assert.equal((await runOp('intention.update', { id, text: 'άλλο' }, hers(env, 'T2'))).code, 'not-found');
+    assert.equal((await runOp('intention.cancel', { id }, hers(env, 'T2'))).code, 'not-found');
+    assert.equal((await runOp('intention.list', {}, hers(env, 'T2'))).summary, 'no open intentions');
+    assert.equal((await runOp('intention.update', { id, due: '2h' }, dm())).status, 'ok', 'in its own chat it moves');
   });
 });
 
@@ -572,21 +586,23 @@ test('candidates: external ones need her accept in a later ordinary turn; an inn
     );
     // An inner turn: her own candidate yes; an external one, or one born in its own chain, no.
     assert.equal(
-      (await runOp('intent.update', { id: byMessage.m2.id, state: 'pending' }, inner('T20', 'review:2026-10-18'))).data
-        .intention.status,
+      (await runOp('intention.update', { id: byMessage.m2.id, state: 'pending' }, inner('T20', 'review:2026-10-18')))
+        .data.intention.status,
       'pending'
     );
     assert.equal(
-      (await runOp('intent.update', { id: byMessage.m4.id, state: 'pending' }, inner('T20', 'review:2026-10-18'))).code,
+      (await runOp('intention.update', { id: byMessage.m4.id, state: 'pending' }, inner('T20', 'review:2026-10-18')))
+        .code,
       'candidate-external'
     );
     assert.equal(
-      (await runOp('intent.update', { id: byMessage.m3.id, state: 'pending' }, inner('T20', 'review:2026-10-18'))).code,
+      (await runOp('intention.update', { id: byMessage.m3.id, state: 'pending' }, inner('T20', 'review:2026-10-18')))
+        .code,
       'candidate-external',
       'a line with no note counts as external'
     );
     assert.equal(
-      (await runOp('intent.update', { id: byMessage.m5.id, state: 'pending' }, inner('T21', 'chain:k'))).code,
+      (await runOp('intention.update', { id: byMessage.m5.id, state: 'pending' }, inner('T21', 'chain:k'))).code,
       'candidate-same-chain'
     );
     assert.equal(
@@ -596,16 +612,17 @@ test('candidates: external ones need her accept in a later ordinary turn; an inn
     );
     // Her ordinary turn: never the one that wrote the line, a later one may.
     assert.equal(
-      (await runOp('intent.update', { id: byMessage.m4.id, state: 'pending' }, hers(env, 'T6'))).code,
+      (await runOp('intention.update', { id: byMessage.m4.id, state: 'pending' }, hers(env, 'T6'))).code,
       'candidate-same-turn'
     );
     assert.equal(
-      (await runOp('intent.update', { id: byMessage.m4.id, state: 'pending' }, hers(env, 'T30'))).data.intention.status,
+      (await runOp('intention.update', { id: byMessage.m4.id, state: 'pending' }, hers(env, 'T30'))).data.intention
+        .status,
       'pending'
     );
     assert.equal(
-      (await runOp('intent.update', { id: byMessage.m5.id, state: 'pending' }, inner('T22', 'review:2026-10-18'))).data
-        .intention.status,
+      (await runOp('intention.update', { id: byMessage.m5.id, state: 'pending' }, inner('T22', 'review:2026-10-18')))
+        .data.intention.status,
       'pending',
       'another chain may'
     );
@@ -616,28 +633,31 @@ test('candidates: external ones need her accept in a later ordinary turn; an inn
 
 const DAY = 24 * HOUR;
 
-test('intent.set / intent.update: every= makes a recurring intention with the wall-clock due pinned in bot.timezone; every=none makes it one-off again; views print it', async () => {
+test('intention.set / intention.update: every= makes a recurring intention with the wall-clock due pinned in bot.timezone; every=none makes it one-off again; views print it', async () => {
   const { env, hot, intentions } = makeEnv();
   hot.config.bot.timezone = 'Europe/Athens';
   await withCapturedLogs(async () => {
     // T0 is 13:00 in Athens: 21:00 is later today (18:00Z).
-    const set = await runOp('intent.set', { text: 'ψάξε για memes', due: '21:00', every: 'day' }, hers(env, 'T1'));
+    const set = await runOp('intention.set', { text: 'ψάξε για memes', due: '21:00', every: 'day' }, hers(env, 'T1'));
     assert.equal(set.status, 'ok', set.summary);
     const record = onlyIntention(intentions);
     assert.deepEqual(record.every, { period: 'day', at: '21:00' });
     assert.equal(record.dueAt, Date.parse('2026-10-18T18:00:00Z'));
     assert.equal(record.expiresAt, T0 + 30 * DAY, 'intentions.recurringExpiresDays');
     assert.match(set.summary, /every day/);
-    assert.match((await runOp('intent.list', {}, owner(env))).summary, /every day/);
+    assert.match((await runOp('intention.list', {}, owner(env))).summary, /every day/);
     assert.equal(
-      (await runOp('intent.set', { text: 'x', due: '1h', every: 'hourly' }, hers(env, 'T1'))).code,
+      (await runOp('intention.set', { text: 'x', due: '1h', every: 'hourly' }, hers(env, 'T1'))).code,
       'bad-every'
     );
-    assert.equal((await runOp('intent.set', { text: 'x', every: 'day' }, hers(env, 'T1'))).code, 'every-without-due');
-    assert.equal((await runOp('intent.set', { text: 'x', due: 'mon 9' }, hers(env, 'T1'))).code, 'bad-time');
+    assert.equal(
+      (await runOp('intention.set', { text: 'x', every: 'day' }, hers(env, 'T1'))).code,
+      'every-without-due'
+    );
+    assert.equal((await runOp('intention.set', { text: 'x', due: 'mon 9' }, hers(env, 'T1'))).code, 'bad-time');
     // A weekly one from a weekday form; every=none clears it.
     const weekly = await runOp(
-      'intent.set',
+      'intention.set',
       { text: 'κοίτα το νήμα', due: 'mon 20:00', every: 'week' },
       hers(env, 'T1')
     );
@@ -645,19 +665,19 @@ test('intent.set / intent.update: every= makes a recurring intention with the wa
     const weeklyRecord = intentions.store('g1').get(weekly.data.intention.id);
     assert.deepEqual(weeklyRecord.every, { period: 'week', at: '20:00' });
     assert.equal(weeklyRecord.dueAt, Date.parse('2026-10-19T17:00:00Z'));
-    const cleared = await runOp('intent.update', { id: weeklyRecord.id, every: 'none' }, hers(env, 'T2'));
+    const cleared = await runOp('intention.update', { id: weeklyRecord.id, every: 'none' }, hers(env, 'T2'));
     assert.equal(cleared.status, 'ok', cleared.summary);
     assert.equal(intentions.store('g1').get(weeklyRecord.id).every, null);
     assert.doesNotMatch(cleared.summary, /every/);
     // An interval on an existing one-off; a new due re-pins a daily one.
-    const twelve = await runOp('intent.update', { id: weeklyRecord.id, every: '12h' }, hers(env, 'T2'));
+    const twelve = await runOp('intention.update', { id: weeklyRecord.id, every: '12h' }, hers(env, 'T2'));
     assert.deepEqual(intentions.store('g1').get(weeklyRecord.id).every, { period: '12h', at: null });
     assert.match(twelve.summary, /every 12h/);
-    await runOp('intent.update', { id: record.id, due: '22:30' }, hers(env, 'T2'));
+    await runOp('intention.update', { id: record.id, due: '22:30' }, hers(env, 'T2'));
     assert.deepEqual(intentions.store('g1').get(record.id).every, { period: 'day', at: '22:30' });
-    const noDue = (await runOp('intent.set', { text: 'y' }, hers(env, 'T3'))).data.intention.id;
+    const noDue = (await runOp('intention.set', { text: 'y' }, hers(env, 'T3'))).data.intention.id;
     assert.equal(
-      (await runOp('intent.update', { id: noDue, every: 'day' }, hers(env, 'T3'))).code,
+      (await runOp('intention.update', { id: noDue, every: 'day' }, hers(env, 'T3'))).code,
       'every-without-due'
     );
   });
@@ -666,14 +686,14 @@ test('intent.set / intent.update: every= makes a recurring intention with the wa
 test('intentions: state=done on a recurring one closes the occurrence only; advance writes recurred or missed and never lists the same occurrence twice', async () => {
   const { env, intentions, clock } = makeEnv();
   await withCapturedLogs(async () => {
-    const id = (await runOp('intent.set', { text: 'ψάξε για memes', due: '1h', every: 'day' }, hers(env, 'T1'))).data
+    const id = (await runOp('intention.set', { text: 'ψάξε για memes', due: '1h', every: 'day' }, hers(env, 'T1'))).data
       .intention.id;
     clock.t = T0 + HOUR + 5 * 60_000;
     assert.deepEqual(
       intentions.due('g1').map((d) => d.intention.id),
       [id]
     );
-    const done = await runOp('intent.update', { id, state: 'done' }, hers(env, 'T2'));
+    const done = await runOp('intention.update', { id, state: 'done' }, hers(env, 'T2'));
     assert.equal(done.status, 'ok', done.summary);
     let record = intentions.store('g1').get(id);
     assert.equal(record.status, 'pending', 'never done');
@@ -694,10 +714,10 @@ test('intentions: state=done on a recurring one closes the occurrence only; adva
     clock.t = T0 + HOUR + 2 * DAY + 60_000;
     assert.equal(intentions.advance('g1', id, { named: true }).intention.history.at(-1).code, 'recurred');
     // A one-off is not advanced; a cancel ends a recurring one for good.
-    const once = (await runOp('intent.set', { text: 'μία φορά', due: '1m' }, hers(env, 'T3'))).data.intention.id;
+    const once = (await runOp('intention.set', { text: 'μία φορά', due: '1m' }, hers(env, 'T3'))).data.intention.id;
     clock.t += 2 * 60_000;
     assert.equal(intentions.advance('g1', once, { named: false }).changed, false);
-    assert.equal((await runOp('intent.cancel', { id }, hers(env, 'T4'))).data.intention.status, 'cancelled');
+    assert.equal((await runOp('intention.cancel', { id }, hers(env, 'T4'))).data.intention.status, 'cancelled');
     assert.equal(intentions.advance('g1', id, { named: false }).changed, false);
   });
 });
@@ -705,11 +725,11 @@ test('intentions: state=done on a recurring one closes the occurrence only; adva
 test("intentions: a recurring wait ends per occurrence -- the errand's end returns it to pending and advances it with the outcome kept", async () => {
   const { env, intentions, client, errands, clock } = makeEnv();
   await withCapturedLogs(async () => {
-    const id = (await runOp('intent.set', { text: 'ψάξε τα νέα', due: '1m', every: 'day' }, hers(env, 'T1'))).data
+    const id = (await runOp('intention.set', { text: 'ψάξε τα νέα', due: '1m', every: 'day' }, hers(env, 'T1'))).data
       .intention.id;
-    const launched = await runOp('task.run', { agent: 'scout', goal: 'find the news' }, hers(env, 'T1'));
+    const launched = await runOp('errand.run', { agent: 'scout', goal: 'find the news' }, hers(env, 'T1'));
     const taskId = launched.data.task.id;
-    const waited = await runOp('intent.update', { id, task: taskId, deadline: '2h' }, hers(env, 'T1'));
+    const waited = await runOp('intention.update', { id, errand: taskId, deadline: '2h' }, hers(env, 'T1'));
     assert.equal(waited.status, 'ok', waited.summary);
     assert.equal(intentions.store('g1').get(id).status, 'waiting');
     // The occurrence stays open while the wait runs: the disposition's advance leaves a waiting one alone.
@@ -722,18 +742,18 @@ test("intentions: a recurring wait ends per occurrence -- the errand's end retur
     const record = intentions.store('g1').get(id);
     assert.equal(record.status, 'pending');
     assert.equal(record.dueAt, T0 + 60_000 + DAY, 'the next occurrence');
-    assert.deepEqual(record.outcome, { taskId, state: 'done', at: clock.t });
+    assert.deepEqual(record.outcome, { errandId: taskId, state: 'done', at: clock.t });
     assert.equal(record.history.at(-1).code, 'recurred');
-    assert.equal(record.history.at(-2).code, 'task-done');
+    assert.equal(record.history.at(-2).code, 'errand-done');
   });
 });
 
-// ---- attention: intent.set attend= ------------------------------------------------------
+// ---- attention: intention.set attend= ------------------------------------------------------
 
-test('intent.set attend=: an attention of hers with the defaults from innerLife.attention, her own numbers and people; due and every on it are refused', async () => {
+test('intention.set attend=: an attention of hers with the defaults from innerLife.attention, her own numbers and people; due and every on it are refused', async () => {
   const { env, hot, intentions } = makeEnv();
   hot.config.innerLife = { attention: { settleSeconds: 45, perDayDefault: 6 } };
-  const set = await runOp('intent.set', { attend: 'c-garden' }, hers(env, 'T1'));
+  const set = await runOp('intention.set', { attend: 'c-garden' }, hers(env, 'T1'));
   assert.equal(set.status, 'ok', set.code);
   const record = onlyIntention(intentions);
   assert.equal(record.purpose, 'c-garden', 'the purpose is the place when she gives none');
@@ -743,7 +763,7 @@ test('intent.set attend=: an attention of hers with the defaults from innerLife.
   assert.match(set.data.text, /settle 45s, today 0\/6/);
   // Her own numbers and people (ids, comma or space separated; a mention unwrapped).
   const own = await runOp(
-    'intent.set',
+    'intention.set',
     { text: 'follow the garden talk', attend: 'c-garden', people: '7, <@8> 9', settle: '0', perday: 2 },
     hers(env, 'T2')
   );
@@ -752,27 +772,36 @@ test('intent.set attend=: an attention of hers with the defaults from innerLife.
   assert.deepEqual(mine.attend, { place: 'c-garden', people: ['7', '8', '9'], settle: 0, perDay: 2, today: null });
   assert.match(own.data.text, /people 7,8,9/);
   // Refusals.
-  assert.equal((await runOp('intent.set', { attend: 'c-garden', due: '2h' }, hers(env, 'T3'))).code, 'attend-with-due');
   assert.equal(
-    (await runOp('intent.set', { attend: 'c-garden', every: 'day', due: '2h' }, hers(env, 'T3'))).code,
+    (await runOp('intention.set', { attend: 'c-garden', due: '2h' }, hers(env, 'T3'))).code,
     'attend-with-due'
   );
   assert.equal(
-    (await runOp('intent.set', { attend: 'c-garden', every: 'day' }, hers(env, 'T3'))).code,
+    (await runOp('intention.set', { attend: 'c-garden', every: 'day', due: '2h' }, hers(env, 'T3'))).code,
+    'attend-with-due'
+  );
+  assert.equal(
+    (await runOp('intention.set', { attend: 'c-garden', every: 'day' }, hers(env, 'T3'))).code,
     'attend-with-every'
   );
-  assert.equal((await runOp('intent.set', { attend: 'c-garden', settle: '-1' }, hers(env, 'T3'))).code, 'bad-attend');
-  assert.equal((await runOp('intent.set', { attend: 'c-garden', perday: 0 }, hers(env, 'T3'))).code, 'bad-attend');
-  assert.equal((await runOp('intent.set', { attend: 'c-garden', perday: 'many' }, hers(env, 'T3'))).code, 'bad-attend');
+  assert.equal(
+    (await runOp('intention.set', { attend: 'c-garden', settle: '-1' }, hers(env, 'T3'))).code,
+    'bad-attend'
+  );
+  assert.equal((await runOp('intention.set', { attend: 'c-garden', perday: 0 }, hers(env, 'T3'))).code, 'bad-attend');
+  assert.equal(
+    (await runOp('intention.set', { attend: 'c-garden', perday: 'many' }, hers(env, 'T3'))).code,
+    'bad-attend'
+  );
   assert.equal(intentions.list('g1').length, 2);
 });
 
-test('intent.update on an attention changes settle, perDay, people and expires; a due time or a recurrence is refused; cancel ends it; the day counter lives on the record', async () => {
+test('intention.update on an attention changes settle, perDay, people and expires; a due time or a recurrence is refused; cancel ends it; the day counter lives on the record', async () => {
   const { env, intentions, clock } = makeEnv();
-  await runOp('intent.set', { attend: 'c-garden', text: 'listen' }, hers(env, 'T1'));
+  await runOp('intention.set', { attend: 'c-garden', text: 'listen' }, hers(env, 'T1'));
   const record = onlyIntention(intentions);
   const updated = await runOp(
-    'intent.update',
+    'intention.update',
     { id: record.id, settle: 10, perday: 3, people: '7 8', expires: '2d' },
     hers(env, 'T2')
   );
@@ -780,20 +809,23 @@ test('intent.update on an attention changes settle, perDay, people and expires; 
   const after = intentions.store('g1').get(record.id);
   assert.deepEqual(after.attend, { place: 'c-garden', people: ['7', '8'], settle: 10, perDay: 3, today: null });
   assert.equal(after.expiresAt, T0 + 48 * HOUR);
-  assert.equal((await runOp('intent.update', { id: record.id, due: '1h' }, hers(env, 'T2'))).code, 'attend-with-due');
   assert.equal(
-    (await runOp('intent.update', { id: record.id, every: 'day', due: '1h' }, hers(env, 'T2'))).code,
+    (await runOp('intention.update', { id: record.id, due: '1h' }, hers(env, 'T2'))).code,
     'attend-with-due'
   );
   assert.equal(
-    (await runOp('intent.update', { id: record.id, every: 'day' }, hers(env, 'T2'))).code,
+    (await runOp('intention.update', { id: record.id, every: 'day', due: '1h' }, hers(env, 'T2'))).code,
+    'attend-with-due'
+  );
+  assert.equal(
+    (await runOp('intention.update', { id: record.id, every: 'day' }, hers(env, 'T2'))).code,
     'attend-with-every'
   );
-  assert.equal((await runOp('intent.update', { id: record.id, perday: 0 }, hers(env, 'T2'))).code, 'bad-attend');
+  assert.equal((await runOp('intention.update', { id: record.id, perday: 0 }, hers(env, 'T2'))).code, 'bad-attend');
   // A plain intention takes no attention arguments.
-  await runOp('intent.set', { text: 'plain one' }, hers(env, 'T3'));
+  await runOp('intention.set', { text: 'plain one' }, hers(env, 'T3'));
   const plain = intentions.list('g1').find((r) => r.purpose === 'plain one');
-  assert.equal((await runOp('intent.update', { id: plain.id, settle: 5 }, hers(env, 'T3'))).code, 'not-attend');
+  assert.equal((await runOp('intention.update', { id: plain.id, settle: 5 }, hers(env, 'T3'))).code, 'not-attend');
   // The counter: the scheduler counts a wake; a new local day starts at zero; the service reads it.
   assert.deepEqual(intentions.attendToday('g1', record.id), { day: '2026-10-18', wakes: 0 });
   assert.equal(intentions.countAttendWake('g1', record.id).intention.attend.today.wakes, 1);
@@ -810,34 +842,38 @@ test('intent.update on an attention changes settle, perDay, people and expires; 
   assert.equal(intentions.countAttendWake('g1', plain.id).code, 'not-attend');
   assert.equal(intentions.attendToday('g1', plain.id), null);
   // Cancel ends it; nothing reseeds it.
-  assert.equal((await runOp('intent.cancel', { id: record.id }, hers(env, 'T4'))).status, 'ok');
+  assert.equal((await runOp('intention.cancel', { id: record.id }, hers(env, 'T4'))).status, 'ok');
   assert.equal(intentions.store('g1').get(record.id).status, 'cancelled');
   assert.deepEqual(intentions.attending('g1'), []);
-  assert.equal((await runOp('intent.update', { id: record.id, settle: 1 }, hers(env, 'T4'))).code, 'terminal');
+  assert.equal((await runOp('intention.update', { id: record.id, settle: 1 }, hers(env, 'T4'))).code, 'terminal');
 });
 
 test('intent dropped: set born dropped and update on an open one need a reason; a dropped one never wakes, is not open or counted, is final, and stays among the closed ones', async () => {
   const { env, intentions, clock, hot } = makeEnv({ intentions: { maxOpen: 1 } });
   await withCapturedLogs(async () => {
-    const none = await runOp('intent.set', { text: 'πήγαινε στη θάλασσα', state: 'dropped' }, hers(env, 'T1'));
+    const none = await runOp('intention.set', { text: 'πήγαινε στη θάλασσα', state: 'dropped' }, hers(env, 'T1'));
     assert.deepEqual([none.status, none.code], ['invalid', 'reason-required']);
     const born = await runOp(
-      'intent.set',
+      'intention.set',
       { text: 'πήγαινε στη θάλασσα', state: 'dropped', reason: 'too cold today' },
       hers(env, 'T1')
     );
     assert.equal(born.status, 'ok', born.summary);
     assert.match(born.data.text, /dropped, reason too cold today/, born.data.text);
-    const open = await runOp('intent.set', { text: 'φέρε το άρθρο', due: '1h' }, hers(env, 'T1'));
+    const open = await runOp('intention.set', { text: 'φέρε το άρθρο', due: '1h' }, hers(env, 'T1'));
     assert.equal(open.status, 'ok', 'a dropped one does not count against maxOpen');
     const id = open.data.intention.id;
     clock.t = T0 + HOUR / 2;
-    assert.equal((await runOp('intent.update', { id, state: 'dropped' }, hers(env, 'T2'))).code, 'reason-required');
-    const dropped = await runOp('intent.update', { id, state: 'dropped', reason: 'no longer needed' }, hers(env, 'T2'));
+    assert.equal((await runOp('intention.update', { id, state: 'dropped' }, hers(env, 'T2'))).code, 'reason-required');
+    const dropped = await runOp(
+      'intention.update',
+      { id, state: 'dropped', reason: 'no longer needed' },
+      hers(env, 'T2')
+    );
     assert.equal(dropped.status, 'ok', dropped.summary);
     assert.match(dropped.data.text, /dropped, reason no longer needed/);
-    assert.equal((await runOp('intent.update', { id, state: 'pending' }, hers(env, 'T2'))).code, 'terminal');
-    assert.equal((await runOp('intent.cancel', { id }, hers(env, 'T2'))).code, 'terminal');
+    assert.equal((await runOp('intention.update', { id, state: 'pending' }, hers(env, 'T2'))).code, 'terminal');
+    assert.equal((await runOp('intention.cancel', { id }, hers(env, 'T2'))).code, 'terminal');
     assert.deepEqual(intentions.list('g1'), []);
     clock.t = T0 + 2 * HOUR;
     assert.deepEqual(intentions.due('g1'), [], 'never wakes');
@@ -859,15 +895,15 @@ test('intent dropped: set born dropped and update on an open one need a reason; 
 test("intent dropped: a drop from a recurring or waiting one ends it; a private chat's drop is visible only in that chat", async () => {
   const { env, intentions } = makeEnv();
   await withCapturedLogs(async () => {
-    const rec = await runOp('intent.set', { text: 'πες καλημέρα', due: '1h', every: 'day' }, hers(env, 'T1'));
+    const rec = await runOp('intention.set', { text: 'πες καλημέρα', due: '1h', every: 'day' }, hers(env, 'T1'));
     const id = rec.data.intention.id;
     assert.equal(
-      (await runOp('intent.update', { id, state: 'dropped', reason: 'boring' }, hers(env, 'T2'))).status,
+      (await runOp('intention.update', { id, state: 'dropped', reason: 'boring' }, hers(env, 'T2'))).status,
       'ok'
     );
     assert.equal(intentions.store('g1').get(id).status, 'dropped');
     const dm = (extra = {}) => hers(env, 'T3', { channelId: 'dm1', privateChat: true, ...extra });
-    const priv = await runOp('intent.set', { text: 'ρώτα την', state: 'dropped', reason: 'private matter' }, dm());
+    const priv = await runOp('intention.set', { text: 'ρώτα την', state: 'dropped', reason: 'private matter' }, dm());
     assert.equal(priv.status, 'ok');
     assert.deepEqual(
       intentions.list('g1', { closed: true }).map((r) => r.reason),
