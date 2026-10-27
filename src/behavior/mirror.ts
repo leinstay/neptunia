@@ -266,6 +266,12 @@ export function diaryConversationIds(memoryDb: unknown): Set<string> {
   );
 }
 
+/** The places of her diary a sandbox's view names (`memory.diaryChannelIds`, src/behavior/sandbox.js), else none. */
+export function viewDiaryIds(view: unknown): Array<string> {
+  const read = (view as { memory?: { diaryChannelIds?: unknown } } | null | undefined)?.memory?.diaryChannelIds;
+  return typeof read === 'function' ? (read as () => Array<string>)() : [];
+}
+
 /** Whether `conversationId` of `iface` is the place of an enabled diary mirror in `memoryDb`. */
 export function isMirrorPlace(memoryDb: unknown, iface: unknown, conversationId: unknown): boolean {
   const here = (place: DiaryPlace): boolean => place.iface === iface && place.conversationId === String(conversationId);

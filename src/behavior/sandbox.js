@@ -80,7 +80,7 @@ import { toolsBlockText } from '../llm/tool-text.js';
 import { requestTokenLimit } from '../llm/budget.js';
 import { estimateMessages, estimateTools } from '../llm/tokens.js';
 import { isPlainObject } from '../config.js';
-import { diaryConversationIds } from './mirror.ts';
+import { diaryConversationIds, viewDiaryIds } from './mirror.ts';
 import { utcDay } from '../time.js';
 import { DEFAULT_RESULT_MAX_CHARS, errandResultText } from '../errands/blocks.ts';
 import { CODE } from '../tools/codes.ts';
@@ -550,7 +550,6 @@ export function liveView({ hot, store, guildId, calibrator }) {
       listChannels: () => store.listChannels(guildId),
       getLore: () => store.getLore(guildId),
       getRecent: () => (typeof store.getRecent === 'function' ? store.getRecent(guildId) : null),
-      // The places of her diary (src/behavior/mirror.ts#diaryConversationIds), marked in `<server>` as a live turn marks them.
       diaryChannelIds: () => [...diaryConversationIds(store)],
     },
   };
@@ -672,16 +671,6 @@ function sandboxChannels(given, view, channel) {
   )
     list.push({ id: String(channel.id), name: channel.name, category: null });
   return list;
-}
-
-/**
- * The places of her diary a view names (`memory.diaryChannelIds`), none when it names none.
- * @param {unknown} view
- * @returns {string[]}
- */
-function diaryIdsOf(view) {
-  const read = /** @type {{ memory?: { diaryChannelIds?: () => string[] } } | null} */ (view)?.memory?.diaryChannelIds;
-  return typeof read === 'function' ? read() : [];
 }
 
 /**
@@ -809,14 +798,11 @@ export function sandboxRequestInput({
     privateChat: null,
     privateProfile: null,
     reads: null,
-    // Absent (SANDBOX_OMITS) but when features.coreTools is off, in tools/replay.mjs
-    // (`preTurn`): what the search classifier and its searches found before her turn, as live.
+    // Absent (SANDBOX_OMITS) but with features.coreTools off (tools/replay.mjs `preTurn`): what the searches found, as live.
     lookup: preTurn?.lookup ?? null,
-    // Absent (SANDBOX_OMITS) but in a scenario run with her tool loop (`coreTools.prefetch`): the
-    // automatic memory prefetch a live turn with features.coreTools would show for this trigger.
+    // Absent (SANDBOX_OMITS) but with her tool loop (`coreTools.prefetch`): the memory prefetch a live turn would show.
     prefetch: coreTools?.prefetch ?? null,
-    // Absent (SANDBOX_OMITS) but in a skill scenario run with her tool loop (`coreTools`) or with
-    // the pre-turn searches (`preTurn`): whether the replay's server search runner could run now.
+    // Absent (SANDBOX_OMITS) but with her tool loop (`coreTools`) or the pre-turn searches: whether the server search runs.
     recallAvailable: coreTools ? coreTools.recallAvailable === true : preTurn ? preTurn.recallAvailable === true : null,
     drawQuota: null,
     focus: null,
@@ -825,7 +811,7 @@ export function sandboxRequestInput({
     recentAudience: null,
     participation: null,
     diaryChannel: null,
-    diaryChannelIds: diaryIdsOf(view),
+    diaryChannelIds: viewDiaryIds(view),
     diary: null,
     offPeriods: null,
     around: null,
