@@ -42,18 +42,47 @@ import { isWordChar, occursAsWholeWord } from '../memory/mentions.ts';
 import { foldText as foldName } from '../memory/recent.js';
 import { externalOrigin } from './sources.ts';
 import { CODE } from '../tools/codes.ts';
+import { isFiniteNumber, isObj, listOf, objOf } from '../tools/types.ts';
+import type { Untyped } from '../tools/types.ts';
+import type { ErrandRecord } from '../errands/types.ts';
+import type {
+  Attend,
+  AttentionSettings,
+  Candidate,
+  CreateInput,
+  Created,
+  Due,
+  Every,
+  HistoryEntry,
+  Intention,
+  IntentionSettings,
+  IntentionStatus,
+  Moved,
+  Provenance,
+} from './types.ts';
 
 /** Every status an intention may have. */
-export const STATUSES = Object.freeze(['proposed', 'pending', 'waiting', 'done', 'cancelled', 'expired', 'dropped']);
+export const STATUSES: ReadonlyArray<IntentionStatus> = Object.freeze([
+  'proposed',
+  'pending',
+  'waiting',
+  'done',
+  'cancelled',
+  'expired',
+  'dropped',
+] as const);
 /** The statuses nothing moves out of. */
-export const TERMINAL = Object.freeze(['done', 'cancelled', 'expired', 'dropped']);
+export const TERMINAL: ReadonlyArray<string> = Object.freeze(['done', 'cancelled', 'expired', 'dropped'] as const);
 /** The statuses of an intention still open. */
-export const OPEN = Object.freeze(['proposed', 'pending', 'waiting']);
+export const OPEN: ReadonlyArray<string> = Object.freeze(['proposed', 'pending', 'waiting'] as const);
 /** Where an intention came from. */
-export const PROVENANCE_KINDS = Object.freeze(['self', 'candidate']);
+export const PROVENANCE_KINDS: ReadonlyArray<string> = Object.freeze(['self', 'candidate'] as const);
+
+/** The statuses as values to test an unchecked record against. */
+const STATUS_VALUES: ReadonlyArray<unknown> = STATUSES;
 
 /** The moves each status allows. */
-const MOVES = Object.freeze({
+const MOVES: Readonly<Record<IntentionStatus, ReadonlyArray<IntentionStatus>>> = Object.freeze({
   proposed: ['pending', 'cancelled', 'expired', 'dropped'],
   pending: ['waiting', 'done', 'cancelled', 'expired', 'dropped'],
   waiting: ['pending', 'done', 'cancelled', 'expired', 'dropped'],
@@ -61,10 +90,10 @@ const MOVES = Object.freeze({
   cancelled: [],
   expired: [],
   dropped: [],
-});
+} as const);
 
 /** The defaults of the `intentions` config section (config.json carries the same). */
-export const DEFAULTS = Object.freeze({
+export const DEFAULTS: Readonly<IntentionSettings> = Object.freeze({
   expiresDays: 14,
   recurringExpiresDays: 30,
   maxOpen: 20,
@@ -74,13 +103,17 @@ export const DEFAULTS = Object.freeze({
   expiryNoticeDays: 2,
 });
 /** The defaults of `innerLife.attention` an attention record needs (config.json carries the same). */
-export const ATTEND_DEFAULTS = Object.freeze({ settleSeconds: 90, perDayDefault: 12 });
+export const ATTEND_DEFAULTS: Readonly<AttentionSettings> = Object.freeze({ settleSeconds: 90, perDayDefault: 12 });
 /** The most people one attention names. */
 export const ATTEND_PEOPLE_MAX = 20;
 /** The periods `every` names by a word; `<n>h` and `<n>d` are the interval forms. */
-export const EVERY_PERIODS = Object.freeze(['day', 'week']);
+export const EVERY_PERIODS: ReadonlyArray<string> = Object.freeze(['day', 'week'] as const);
 /** The occurrence codes advanceOccurrence writes to the history. */
-export const OCCURRENCE_CODES = Object.freeze(['recurred', 'missed', 'done-occurrence']);
+export const OCCURRENCE_CODES: ReadonlyArray<string> = Object.freeze([
+  'recurred',
+  'missed',
+  'done-occurrence',
+] as const);
 /** A purpose's length (characters). */
 export const PURPOSE_CHARS = 300;
 /** A dropped intention's reason length (characters). */
@@ -99,22 +132,28 @@ export const PARTICIPANTS_MAX = 20;
 const MIN_FORGET_NAME = 3;
 
 /** The `origin` of an intention a heartbeat turn created (docs/inner-life.md "What a heartbeat may do"). */
-export const HEARTBEAT_ORIGIN = 'heartbeat';
+export const HEARTBEAT_ORIGIN = 'heartbeat' as const;
 /** What a heartbeat may hold open at once (`innerLife.heartbeat.maxOpen` / `maxRecurring`; config.json carries the same). */
-export const HEARTBEAT_LIMITS = Object.freeze({ maxOpen: 3, maxRecurring: 1 });
+export const HEARTBEAT_LIMITS: Readonly<{ maxOpen: number; maxRecurring: number }> = Object.freeze({
+  maxOpen: 3,
+  maxRecurring: 1,
+});
 
 /** `innerLife.heartbeat.maxOpen` and `maxRecurring`, read from the live config now, each a whole number >= 0 or the default. */
-export function heartbeatLimits(config) {
-  const set = config?.innerLife?.heartbeat ?? {};
-  const pick = (key) => (Number.isFinite(set[key]) && set[key] >= 0 ? Math.floor(set[key]) : HEARTBEAT_LIMITS[key]);
+export function heartbeatLimits(config: Untyped): { maxOpen: number; maxRecurring: number } {
+  const set = objOf(config?.innerLife?.heartbeat);
+  const pick = (key: 'maxOpen' | 'maxRecurring'): number => {
+    const value = set[key];
+    return isFiniteNumber(value) && value >= 0 ? Math.floor(value) : HEARTBEAT_LIMITS[key];
+  };
   return { maxOpen: pick('maxOpen'), maxRecurring: pick('maxRecurring') };
 }
 
 /** `innerLife.heartbeat.dueJitterMinutes` (minutes, 0 disables), read from the live config now. */
 export const DUE_JITTER_MINUTES = 20;
-export function dueJitterMinutes(config) {
-  const value = config?.innerLife?.heartbeat?.dueJitterMinutes;
-  return Number.isFinite(value) && value >= 0 ? value : DUE_JITTER_MINUTES;
+export function dueJitterMinutes(config: Untyped): number {
+  const value: unknown = config?.innerLife?.heartbeat?.dueJitterMinutes;
+  return isFiniteNumber(value) && value >= 0 ? value : DUE_JITTER_MINUTES;
 }
 
 /**
@@ -126,39 +165,41 @@ export function dueJitterMinutes(config) {
  * that moment and a due of "right away" does not move; it never reaches `expiresAt` (clamped to
  * before it). Every other record, and a record with no due time, is exact. What she sees keeps
  * `dueAt`; only the wake moves.
- * @param {object} record
- * @param {number} jitterMinutes
- * @returns {number} `dueAt` for an exact record; NaN with no due time.
+ * Gives `dueAt` for an exact record and NaN with no due time.
  */
-export function wakeTimeOf(record, jitterMinutes = 0) {
+export function wakeTimeOf(record: Intention, jitterMinutes = 0): number {
   const dueAt = record?.dueAt;
-  if (!Number.isFinite(dueAt)) return NaN;
+  if (!isFiniteNumber(dueAt)) return NaN;
   if (record.origin !== HEARTBEAT_ORIGIN || !(jitterMinutes > 0)) return dueAt;
   const base = Math.max(
-    Number.isFinite(record.createdAt) ? record.createdAt : -Infinity,
-    Number.isFinite(record.updatedAt) ? record.updatedAt : -Infinity
+    isFiniteNumber(record.createdAt) ? record.createdAt : -Infinity,
+    isFiniteNumber(record.updatedAt) ? record.updatedAt : -Infinity
   );
   const lead = Number.isFinite(base) ? dueAt - base : 0;
   const cap = Math.min(jitterMinutes * 60 * 1000, Math.max(0, lead) / 4);
   if (!(cap > 0)) return dueAt;
   const unit = createHash('sha256').update(`${record.id}:${dueAt}`).digest().readUInt32BE(0) / 2 ** 32;
   let at = Math.round(dueAt + (unit * 2 - 1) * cap);
-  if (Number.isFinite(record.expiresAt) && at >= record.expiresAt)
+  if (isFiniteNumber(record.expiresAt) && at >= record.expiresAt)
     at = dueAt < record.expiresAt ? record.expiresAt - 1 : dueAt;
   return at;
 }
 
 /** The open (pending or waiting) intentions a heartbeat created, among `records`. */
-export function openFromHeartbeat(records) {
-  return (Array.isArray(records) ? records : []).filter(
-    (record) => record?.origin === HEARTBEAT_ORIGIN && (record.status === 'pending' || record.status === 'waiting')
-  );
+export function openFromHeartbeat(records: unknown): Array<Intention> {
+  return listOf(records).filter((record): record is Intention => {
+    const given = objOf(record);
+    return given.origin === HEARTBEAT_ORIGIN && (given.status === 'pending' || given.status === 'waiting');
+  });
 }
 
 /** The `intentions` section's numbers, read from the live config now, each falling back to DEFAULTS. */
-export function intentionSettings(config) {
-  const set = config?.intentions ?? {};
-  const pick = (key) => (Number.isFinite(set[key]) && set[key] >= 0 ? set[key] : DEFAULTS[key]);
+export function intentionSettings(config: Untyped): IntentionSettings {
+  const set = objOf(config?.intentions);
+  const pick = (key: keyof IntentionSettings): number => {
+    const value = set[key];
+    return isFiniteNumber(value) && value >= 0 ? value : DEFAULTS[key];
+  };
   return {
     expiresDays: pick('expiresDays'),
     recurringExpiresDays: pick('recurringExpiresDays'),
@@ -174,33 +215,35 @@ export function intentionSettings(config) {
  * The `innerLife.attention` numbers an attention is born with, read from the live config now, each
  * falling back to ATTEND_DEFAULTS: `settleSeconds` (>= 0) and `perDayDefault` (an integer >= 1).
  */
-export function attentionSettings(config) {
-  const set = config?.innerLife?.attention ?? {};
+export function attentionSettings(config: Untyped): AttentionSettings {
+  const set = objOf(config?.innerLife?.attention);
+  const { settleSeconds, perDayDefault } = set;
   return {
-    settleSeconds:
-      Number.isFinite(set.settleSeconds) && set.settleSeconds >= 0 ? set.settleSeconds : ATTEND_DEFAULTS.settleSeconds,
+    settleSeconds: isFiniteNumber(settleSeconds) && settleSeconds >= 0 ? settleSeconds : ATTEND_DEFAULTS.settleSeconds,
     perDayDefault:
-      Number.isInteger(set.perDayDefault) && set.perDayDefault >= 1 ? set.perDayDefault : ATTEND_DEFAULTS.perDayDefault,
+      typeof perDayDefault === 'number' && Number.isInteger(perDayDefault) && perDayDefault >= 1
+        ? perDayDefault
+        : ATTEND_DEFAULTS.perDayDefault,
   };
 }
 
 /** Whether `features.intentions` is exactly true (a missing key counts as off). */
-export function intentionsOn(config) {
+export function intentionsOn(config: Untyped): boolean {
   return config?.features?.intentions === true;
 }
 
 /** True for a status nothing moves out of. */
-export function isTerminal(status) {
-  return TERMINAL.includes(status);
+export function isTerminal(status: unknown): boolean {
+  return typeof status === 'string' && TERMINAL.includes(status);
 }
 
 /** True for an open status. */
-export function isOpen(status) {
-  return OPEN.includes(status);
+export function isOpen(status: unknown): boolean {
+  return typeof status === 'string' && OPEN.includes(status);
 }
 
 /** A fresh intention id (`i` + 8 hex characters). */
-export function newIntentionId(uuid = randomUUID) {
+export function newIntentionId(uuid: () => string = randomUUID): string {
   return `i${uuid().replace(/-/g, '').slice(0, 8)}`;
 }
 
@@ -210,10 +253,8 @@ const INTENTION_ID_RE = /^i[0-9a-f]{1,32}$/i;
 /**
  * Whether `value` is one bare token that looks like an intention id (`i` + hex digits, as
  * newIntentionId makes them): what a call's body is when she wrote the id there and nothing else.
- * @param {unknown} value
- * @returns {boolean}
  */
-export function isIntentionId(value) {
+export function isIntentionId(value: unknown): boolean {
   return typeof value === 'string' && INTENTION_ID_RE.test(value.trim());
 }
 
@@ -223,29 +264,29 @@ const CLOCK_RE = /^(?:(mon|tue|wed|thu|fri|sat|sun)\s+)?(\d{1,2}):(\d{2})$/i;
 const WEEKDAYS = Object.freeze(['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']);
 
 /** The calendar date `days` after `dateKey` (`YYYY-MM-DD`). */
-function addDays(dateKey, days) {
+function addDays(dateKey: string, days: number): string {
   return new Date(Date.parse(`${dateKey}T00:00:00Z`) + days * DAY_MS).toISOString().slice(0, 10);
 }
 
 /** The weekday (0 Sunday .. 6 Saturday) of the calendar date `dateKey`. */
-function weekdayOf(dateKey) {
+function weekdayOf(dateKey: string): number {
   return new Date(Date.parse(`${dateKey}T00:00:00Z`)).getUTCDay();
 }
 
 /** `HH:MM` of the instant `ms` on the wall clock of `timezone`. */
-function wallTime(ms, timezone) {
+function wallTime(ms: number, timezone: string): string {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: timezone,
     hourCycle: 'h23',
     hour: '2-digit',
     minute: '2-digit',
   }).formatToParts(ms);
-  const get = (type) => parts.find((part) => part.type === type)?.value ?? '00';
+  const get = (type: string): string => parts.find((part) => part.type === type)?.value ?? '00';
   return `${String(Number(get('hour')) % 24).padStart(2, '0')}:${get('minute')}`;
 }
 
 /** `{ hour, minute }` of an `HH:MM` text, or null when it is not a time of day. */
-function clockOf(text) {
+function clockOf(text: string | null | undefined): { hour: number; minute: number } | null {
   const match = /^(\d{1,2}):(\d{2})$/.exec(String(text ?? ''));
   if (!match) return null;
   const hour = Number(match[1]);
@@ -258,7 +299,21 @@ function clockOf(text) {
  * `timezone` reads `hour`:`minute` on a day `stepDays` apart from `fromDay` (a calendar date;
  * every day with 1, the same weekday with 7). NaN for an unknown zone.
  */
-function nextWallClock({ fromDay, hour, minute, stepDays, timezone, after }) {
+function nextWallClock({
+  fromDay,
+  hour,
+  minute,
+  stepDays,
+  timezone,
+  after,
+}: {
+  fromDay: string;
+  hour: number;
+  minute: number;
+  stepDays: number;
+  timezone: string;
+  after: number;
+}): number {
   let day = fromDay;
   for (let i = 0; i < 400; i += 1) {
     const at = zonedEpoch(day, hour, minute, timezone);
@@ -275,13 +330,9 @@ function nextWallClock({ fromDay, hour, minute, stepDays, timezone, after }) {
  * `timezone`, UTC by default: today's when still ahead, else tomorrow's) or `<weekday> HH:MM`
  * (`mon`..`sun`: the next such weekday at that time, today's when still ahead). Null for anything
  * else (and for an empty text).
- * @param {unknown} text
- * @param {number} now
- * @param {{ timezone?: string }} [options]
- * @returns {number|null}
  */
-export function parseWhen(text, now, { timezone = 'UTC' } = {}) {
-  const value = String(text ?? '').trim();
+export function parseWhen(text: unknown, now: number, { timezone = 'UTC' }: { timezone?: string } = {}): number | null {
+  const value = typeof text === 'string' ? text.trim() : '';
   if (!value) return null;
   const relative = RELATIVE_RE.exec(value);
   if (relative) {
@@ -293,7 +344,7 @@ export function parseWhen(text, now, { timezone = 'UTC' } = {}) {
   if (clock) {
     const time = clockOf(`${clock[2]}:${clock[3]}`);
     if (!time) return null;
-    let day;
+    let day: string;
     try {
       day = zonedDay(now, timezone || 'UTC');
     } catch {
@@ -321,10 +372,10 @@ const INTERVAL_RE = /^(\d{1,4})(h|d)$/i;
  * Her `every=` argument as the record's `every`: `{ ok: true, every }` for `day`, `week`, `<n>h`,
  * `<n>d` (n >= 1; `at` null until pinEvery) and `{ ok: true, every: null }` for `none` (one-off
  * again); `{ ok: false, code: 'bad-every' }` for anything else.
- * @param {unknown} text
- * @returns {{ ok: true, every: { period: string, at: null }|null }|{ ok: false, code: 'bad-every' }}
  */
-export function parseEvery(text) {
+export function parseEvery(
+  text: unknown
+): { ok: true; every: Every | null; code?: undefined } | { ok: false; code: string; every?: undefined } {
   const value = String(typeof text === 'string' ? text : '')
     .trim()
     .toLowerCase();
@@ -337,16 +388,17 @@ export function parseEvery(text) {
 }
 
 /** Whether `every` is a well-formed recurrence (null counts as a one-off, which is fine). */
-export function validEvery(every) {
+export function validEvery(every: unknown): boolean {
   if (every === null || every === undefined) return true;
-  if (!every || typeof every !== 'object' || Array.isArray(every)) return false;
+  if (!isObj(every)) return false;
   const period = typeof every.period === 'string' ? parseEvery(every.period) : null;
   if (!period?.ok || period.every === null) return false;
-  return every.at === null || every.at === undefined || clockOf(every.at) !== null;
+  const at = every.at;
+  return at === null || at === undefined || (typeof at === 'string' && clockOf(at) !== null);
 }
 
 /** The step of an interval period (`<n>h`, `<n>d`) in ms, or null for `day` and `week`. */
-function intervalMs(period) {
+function intervalMs(period: string | null | undefined): number | null {
   const match = INTERVAL_RE.exec(String(period ?? ''));
   return match ? Number(match[1]) * (match[2].toLowerCase() === 'd' ? DAY_MS : HOUR_MS) : null;
 }
@@ -355,12 +407,9 @@ function intervalMs(period) {
  * `every` with its wall-clock time pinned from the first occurrence `dueAt` in `timezone` (for
  * `day` and `week`, when it has none yet), so a daily 21:00 stays 21:00 across a DST change.
  * An interval period and a one-off (null) come back as they are.
- * @param {{ period: string, at: string|null }|null} every
- * @param {number|null} dueAt
- * @param {string} timezone
  */
-export function pinEvery(every, dueAt, timezone) {
-  if (!every || !EVERY_PERIODS.includes(every.period) || every.at || !Number.isFinite(dueAt)) return every ?? null;
+export function pinEvery(every: Every | null, dueAt: number | null, timezone: string): Every | null {
+  if (!every || !EVERY_PERIODS.includes(every.period) || every.at || !isFiniteNumber(dueAt)) return every ?? null;
   try {
     return { period: every.period, at: wallTime(dueAt, timezone || 'UTC') };
   } catch {
@@ -374,26 +423,27 @@ export function pinEvery(every, dueAt, timezone) {
  * each calendar day or every seventh day from the current due's date (so the occurrences already
  * past are skipped and the weekday holds); `<n>h` and `<n>d` in fixed steps from the current due
  * instant. NaN-free: null when it cannot be told (an unknown zone, a record with no due).
- * @param {{ every: object|null, dueAt: number|null }} record
- * @param {number} now
- * @param {string} timezone
- * @returns {number|null}
  */
-export function nextOccurrence(record, now, timezone = 'UTC') {
+export function nextOccurrence(
+  record: Pick<Intention, 'every' | 'dueAt'>,
+  now: number,
+  timezone = 'UTC'
+): number | null {
   const every = record?.every;
-  if (!validEvery(every) || !every || !Number.isFinite(record?.dueAt)) return null;
-  const after = Math.max(now, record.dueAt);
+  const dueAt = record?.dueAt;
+  if (!validEvery(every) || !every || !isFiniteNumber(dueAt)) return null;
+  const after = Math.max(now, dueAt);
   const step = intervalMs(every.period);
   if (step) {
-    const steps = Math.floor((after - record.dueAt) / step) + 1;
-    return record.dueAt + steps * step;
+    const steps = Math.floor((after - dueAt) / step) + 1;
+    return dueAt + steps * step;
   }
   try {
     const zone = timezone || 'UTC';
-    const time = clockOf(every.at ?? wallTime(record.dueAt, zone));
+    const time = clockOf(every.at ?? wallTime(dueAt, zone));
     if (!time) return null;
     const at = nextWallClock({
-      fromDay: zonedDay(record.dueAt, zone),
+      fromDay: zonedDay(dueAt, zone),
       ...time,
       stepDays: every.period === 'week' ? 7 : 1,
       timezone: zone,
@@ -410,19 +460,19 @@ export function nextOccurrence(record, now, timezone = 'UTC') {
  * `place`, `people` an array of non-empty ids, `settle` seconds >= 0, `perDay` an integer >= 1,
  * and `today` null or `{ day, wakes }`.
  */
-export function validAttend(attend) {
+export function validAttend(attend: unknown): attend is Attend | null | undefined {
   if (attend === null || attend === undefined) return true;
-  if (!attend || typeof attend !== 'object' || Array.isArray(attend)) return false;
+  if (!isObj(attend)) return false;
   if (typeof attend.place !== 'string' || !attend.place) return false;
-  if (!Array.isArray(attend.people) || attend.people.some((id) => typeof id !== 'string' || !id)) return false;
-  if (!(Number.isFinite(attend.settle) && attend.settle >= 0)) return false;
-  if (!(Number.isInteger(attend.perDay) && attend.perDay >= 1)) return false;
-  const today = attend.today;
+  if (!Array.isArray(attend.people) || attend.people.some((id: unknown) => typeof id !== 'string' || !id)) return false;
+  const { settle, perDay, today } = attend;
+  if (!(isFiniteNumber(settle) && settle >= 0)) return false;
+  if (!(typeof perDay === 'number' && Number.isInteger(perDay) && perDay >= 1)) return false;
   if (today === null || today === undefined) return true;
   return (
-    Boolean(today) &&
-    typeof today === 'object' &&
+    isObj(today) &&
     typeof today.day === 'string' &&
+    typeof today.wakes === 'number' &&
     Number.isInteger(today.wakes) &&
     today.wakes >= 0
   );
@@ -433,29 +483,29 @@ export function validAttend(attend) {
  * addresses it, people as ids, strings or numbers) as a record's `attend`, the defaults filled
  * from `settings` (attentionSettings' shape): distinct people, at most ATTEND_PEOPLE_MAX, blank
  * tokens dropped. Null when it is not a well-formed attention (validAttend).
- * @param {object} input
- * @param {{ settleSeconds?: number, perDayDefault?: number }} [settings]
- * @returns {{ place: string, people: string[], settle: number, perDay: number, today: { day: string, wakes: number }|null }|null}
  */
 export function normalizeAttend(
-  input,
-  { settleSeconds = ATTEND_DEFAULTS.settleSeconds, perDayDefault = ATTEND_DEFAULTS.perDayDefault } = {}
-) {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+  input: unknown,
+  {
+    settleSeconds = ATTEND_DEFAULTS.settleSeconds,
+    perDayDefault = ATTEND_DEFAULTS.perDayDefault,
+  }: Partial<AttentionSettings> = {}
+): Attend | null {
+  if (!isObj(input)) return null;
   const place =
     typeof input.place === 'string' ? input.place.trim() : typeof input.place === 'number' ? String(input.place) : '';
-  const raw = input.people === undefined || input.people === null ? [] : input.people;
+  const raw: unknown = input.people === undefined || input.people === null ? [] : input.people;
   if (!Array.isArray(raw)) return null;
   const people = [
     ...new Set(
-      raw.map((id) =>
+      raw.map((id: unknown) =>
         typeof id === 'string' ? id.trim() : typeof id === 'number' && Number.isFinite(id) ? String(id) : null
       )
     ),
   ]
-    .filter((id) => typeof id === 'string' && id)
+    .filter((id): id is string => typeof id === 'string' && id !== '')
     .slice(0, ATTEND_PEOPLE_MAX);
-  if (raw.some((id) => typeof id !== 'string' && typeof id !== 'number')) return null;
+  if (raw.some((id: unknown) => typeof id !== 'string' && typeof id !== 'number')) return null;
   const attend = {
     place,
     people,
@@ -467,29 +517,27 @@ export function normalizeAttend(
 }
 
 /** True for an attention: a record with an `attend` place. */
-export function isAttend(record) {
-  return Boolean(
-    record?.attend &&
-    typeof record.attend === 'object' &&
-    typeof record.attend.place === 'string' &&
-    record.attend.place
-  );
+export function isAttend(record: unknown): record is Intention & { attend: Attend } {
+  const place = objOf(objOf(record).attend).place;
+  return typeof place === 'string' && place !== '';
 }
 
 /**
  * The per-day counter of attention `record` on local day `day` (`YYYY-MM-DD` of `bot.timezone`):
  * `{ day, wakes }`, zero when the counter is of another day (the day changed). Pure.
  */
-export function attendCounter(record, day) {
-  const today = record?.attend?.today;
-  return today && today.day === day ? { day, wakes: today.wakes } : { day, wakes: 0 };
+export function attendCounter(record: unknown, day: string): { day: string; wakes: number } {
+  const today = objOf(objOf(record).attend).today;
+  return isObj(today) && today.day === day && typeof today.wakes === 'number'
+    ? { day, wakes: today.wakes }
+    : { day, wakes: 0 };
 }
 
 /**
  * `record` with one more attend wake counted on local day `day` (a counter of another day starts
  * at zero): `{ ok: true, intention, changed: true }`, or `{ ok: false, code: 'not-attend' }`.
  */
-export function bumpAttend(record, day) {
+export function bumpAttend(record: Intention, day: string): Moved {
   if (!isAttend(record)) return { ok: false, code: CODE.NOT_ATTEND };
   const current = attendCounter(record, day);
   return {
@@ -500,23 +548,24 @@ export function bumpAttend(record, day) {
 }
 
 /** One line of text cut to `max` characters; '' for nothing. */
-function line(text, max) {
+function line(text: unknown, max: number): string {
   return clampChars(oneLine(typeof text === 'string' ? text : ''), max);
 }
 
 /** A string id or null. */
-function idOrNull(value) {
+function idOrNull(value: unknown): string | null {
   return (typeof value === 'string' && value) || (typeof value === 'number' && Number.isFinite(value))
     ? String(value)
     : null;
 }
 
 /** The distinct non-empty string ids of `list`, at most PARTICIPANTS_MAX. */
-function participantIds(list) {
-  return [...new Set((Array.isArray(list) ? list : []).filter((id) => typeof id === 'string' && id))].slice(
-    0,
-    PARTICIPANTS_MAX
-  );
+function participantIds(list: unknown): Array<string> {
+  return [
+    ...new Set(
+      (Array.isArray(list) ? list : []).filter((id: unknown): id is string => typeof id === 'string' && id !== '')
+    ),
+  ].slice(0, PARTICIPANTS_MAX);
 }
 
 /**
@@ -524,33 +573,32 @@ function participantIds(list) {
  * `wait-without-errand`, `wait-without-deadline`, `bad-attend`, `attend-with-due`, `attend-with-every`
  * (an attention has no due time and no recurrence), `bad-every`, `every-without-due` (a recurring
  * one always has its current occurrence), `recurring-done` (a recurring one is never done).
- * @param {object} record
- * @returns {string|null}
  */
-export function checkInvariants(record) {
-  if (!record || !STATUSES.includes(record.status)) return 'bad-status';
-  if (typeof record.purpose !== 'string' || !record.purpose) return 'no-purpose';
-  if (!Number.isFinite(record.expiresAt)) return 'no-expiry';
-  if (record.status === 'dropped' && (typeof record.reason !== 'string' || !record.reason)) return 'reason-required';
-  if (!validAttend(record.attend)) return 'bad-attend';
-  if (record.attend) {
-    if (record.dueAt !== null && record.dueAt !== undefined) return 'attend-with-due';
-    if (record.every) return 'attend-with-every';
+export function checkInvariants(record: unknown): string | null {
+  const given = objOf(record);
+  if (!record || !STATUS_VALUES.includes(given.status)) return 'bad-status';
+  if (typeof given.purpose !== 'string' || !given.purpose) return 'no-purpose';
+  if (!isFiniteNumber(given.expiresAt)) return 'no-expiry';
+  if (given.status === 'dropped' && (typeof given.reason !== 'string' || !given.reason)) return 'reason-required';
+  if (!validAttend(given.attend)) return 'bad-attend';
+  if (given.attend) {
+    if (given.dueAt !== null && given.dueAt !== undefined) return 'attend-with-due';
+    if (given.every) return 'attend-with-every';
   }
-  if (!validEvery(record.every)) return 'bad-every';
-  if (record.every) {
-    if (!Number.isFinite(record.dueAt)) return 'every-without-due';
-    if (record.status === 'done') return 'recurring-done';
+  if (!validEvery(given.every)) return 'bad-every';
+  if (given.every) {
+    if (!isFiniteNumber(given.dueAt)) return 'every-without-due';
+    if (given.status === 'done') return 'recurring-done';
   }
-  if (record.status === 'waiting') {
-    if (typeof record.awaitingErrandId !== 'string' || !record.awaitingErrandId) return 'wait-without-errand';
-    if (!Number.isFinite(record.waitDeadline)) return 'wait-without-deadline';
+  if (given.status === 'waiting') {
+    if (typeof given.awaitingErrandId !== 'string' || !given.awaitingErrandId) return 'wait-without-errand';
+    if (!isFiniteNumber(given.waitDeadline)) return 'wait-without-deadline';
   }
   return null;
 }
 
 /** `record` with one more history entry (the oldest dropped past HISTORY_MAX). */
-function withHistory(record, entry) {
+function withHistory(record: Intention, entry: HistoryEntry): Intention {
   const history = [...(Array.isArray(record.history) ? record.history : []), entry];
   return { ...record, history: history.slice(-HISTORY_MAX) };
 }
@@ -566,9 +614,6 @@ function withHistory(record, entry) {
  * after `recurringExpiresDays` with `every` set (parseEvery's shape, pinned by the caller).
  * `provenance.participants` (member ids) names the members of the conversation it came from: who
  * asked, who was answered or mentioned, the other authors of a candidate's channel (concernsMember).
- * @param {{ purpose: string, provenance: { kind: string, turnId?: string|null, messageId?: string|null, channelId?: string|null, span?: string|null, scope?: 'dm'|'group', participants?: string[] },
- *   dueAt?: number|null, every?: { period: string, at: string|null }|null, expiresAt?: number|null, destination?: string|null,
- *   completionCondition?: string|null, chainId?: string|null, attend?: object|null, now: number, settings?: object, id?: string, by?: string }} input
  */
 export function createIntention({
   purpose,
@@ -587,11 +632,11 @@ export function createIntention({
   settings = DEFAULTS,
   id = newIntentionId(),
   by = 'persona',
-}) {
+}: CreateInput): Created {
   const text = line(purpose, PURPOSE_CHARS);
   if (!text) return { ok: false, code: CODE.NO_PURPOSE };
   if (!PROVENANCE_KINDS.includes(provenance?.kind)) return { ok: false, code: CODE.BAD_PROVENANCE };
-  if (dropped) return createDropped({ text, provenance, reason, now, settings, id, by });
+  if (dropped) return createDropped({ text, provenance, reason, now, id, by });
   const candidate = provenance.kind === 'candidate';
   const attention = attend === null || attend === undefined ? null : normalizeAttend(attend, settings.attention);
   if (attend !== null && attend !== undefined && (!attention || candidate)) return { ok: false, code: CODE.BAD_ATTEND };
@@ -607,21 +652,24 @@ export function createIntention({
   if (dueAt !== null && dueAt > expires) return { ok: false, code: CODE.DUE_AFTER_EXPIRY };
   const span = line(provenance.span, SPAN_CHARS);
   const participants = participantIds(provenance.participants);
+  const messageId = idOrNull(provenance.messageId);
+  const channelId = idOrNull(provenance.channelId);
+  const bornOrigin: Provenance['origin'] = provenance.origin === 'external' ? 'external' : 'own';
   const status = candidate ? 'proposed' : 'pending';
-  const intention = {
+  const intention: Intention = {
     id,
     purpose: text,
     provenance: {
       kind: provenance.kind,
       turnId: idOrNull(provenance.turnId),
-      ...(idOrNull(provenance.messageId) ? { messageId: idOrNull(provenance.messageId) } : {}),
-      ...(idOrNull(provenance.channelId) ? { channelId: idOrNull(provenance.channelId) } : {}),
+      ...(messageId ? { messageId } : {}),
+      ...(channelId ? { channelId } : {}),
       ...(span ? { span } : {}),
       scope: provenance.scope === 'dm' ? 'dm' : 'group',
       ...(participants.length > 0 ? { participants } : {}),
       // A candidate's origin (candidatesFromAnswer): `external` when its words came from outside
       // material, which only her explicit accept in a later ordinary turn activates (acceptRefusal).
-      ...(candidate ? { origin: provenance.origin === 'external' ? 'external' : 'own' } : {}),
+      ...(candidate ? { origin: bornOrigin } : {}),
       ...(candidate && provenance.origin === 'external' && typeof provenance.originReason === 'string'
         ? { originReason: provenance.originReason }
         : {}),
@@ -658,20 +706,36 @@ export function createIntention({
  * `reason` (`reason-required` without one), her own only (a candidate is `bad-provenance`), no due
  * time, recurrence or attention; its `expiresAt` is `now` (it is closed, nothing ever expires it).
  */
-function createDropped({ text, provenance, reason, now, settings, id, by }) {
+function createDropped({
+  text,
+  provenance,
+  reason,
+  now,
+  id,
+  by,
+}: {
+  text: string;
+  provenance: CreateInput['provenance'];
+  reason: string | null;
+  now: number;
+  id: string;
+  by: string;
+}): Created {
   if (provenance.kind !== 'self') return { ok: false, code: CODE.BAD_PROVENANCE };
   const why = line(reason, REASON_CHARS);
   if (!why) return { ok: false, code: CODE.REASON_REQUIRED };
   const span = line(provenance.span, SPAN_CHARS);
   const participants = participantIds(provenance.participants);
-  const intention = {
+  const messageId = idOrNull(provenance.messageId);
+  const channelId = idOrNull(provenance.channelId);
+  const intention: Intention = {
     id,
     purpose: text,
     provenance: {
       kind: 'self',
       turnId: idOrNull(provenance.turnId),
-      ...(idOrNull(provenance.messageId) ? { messageId: idOrNull(provenance.messageId) } : {}),
-      ...(idOrNull(provenance.channelId) ? { channelId: idOrNull(provenance.channelId) } : {}),
+      ...(messageId ? { messageId } : {}),
+      ...(channelId ? { channelId } : {}),
       ...(span ? { span } : {}),
       scope: provenance.scope === 'dm' ? 'dm' : 'group',
       ...(participants.length > 0 ? { participants } : {}),
@@ -700,7 +764,10 @@ function createDropped({ text, provenance, reason, now, settings, id, by }) {
  * `droppedAt` set. `{ ok: false, code }`: `reason-required` without a reason, else transition's
  * (`terminal`, `bad-move`).
  */
-export function dropIntention(record, { reason, now, by = 'persona' }) {
+export function dropIntention(
+  record: Intention,
+  { reason, now, by = 'persona' }: { reason?: string | null; now: number; by?: string }
+): Moved {
   const why = line(reason, REASON_CHARS);
   if (!why) return { ok: false, code: CODE.REASON_REQUIRED };
   return transition(record, 'dropped', { now, by, code: CODE.DROPPED, patch: { reason: why, droppedAt: now } });
@@ -713,13 +780,18 @@ export function dropIntention(record, { reason, now, by = 'persona' }) {
  * from outside material: only an ordinary turn of hers accepts it) and `candidate-same-chain` (it
  * was born in an inner turn of the very chain asking). An owner's command (`by` not `persona`) is
  * never refused here. Pure.
- * @param {object} record
- * @param {{ by?: string, initiative?: boolean, chainId?: string|null, turnId?: string|null }} caller
- * @returns {'candidate-same-turn'|'candidate-external'|'candidate-same-chain'|null}
  */
-export function acceptRefusal(record, { by = 'persona', initiative = false, chainId = null, turnId = null } = {}) {
+export function acceptRefusal(
+  record: Intention,
+  {
+    by = 'persona',
+    initiative = false,
+    chainId = null,
+    turnId = null,
+  }: { by?: string; initiative?: boolean; chainId?: string | null; turnId?: string | null } = {}
+): 'candidate-same-turn' | 'candidate-external' | 'candidate-same-chain' | null {
   if (record?.status !== 'proposed' || by !== 'persona') return null;
-  const provenance = record.provenance ?? {};
+  const provenance: Partial<Provenance> = record.provenance ?? {};
   if (turnId && provenance.turnId && String(provenance.turnId) === String(turnId)) return 'candidate-same-turn';
   if (!initiative) return null;
   if (provenance.origin === 'external') return 'candidate-external';
@@ -733,15 +805,21 @@ export function acceptRefusal(record, { by = 'persona', initiative = false, chai
  * (`terminal` out of a terminal status, `bad-move` for a move its status does not allow, or the
  * invariant the result would break). `patch` sets fields along with the move (a wait's task and
  * deadline, an outcome, a note); `by` and `code` go to the history entry.
- * @param {object} record
- * @param {string} to
- * @param {{ now: number, by?: string, code?: string|null, patch?: object }} options
  */
-export function transition(record, to, { now, by = 'persona', code = null, patch = {} }) {
+export function transition(
+  record: Intention,
+  to: IntentionStatus,
+  {
+    now,
+    by = 'persona',
+    code = null,
+    patch = {},
+  }: { now: number; by?: string; code?: string | null; patch?: Partial<Intention> }
+): Moved {
   if (isTerminal(record?.status)) return { ok: false, code: CODE.TERMINAL };
   if (!MOVES[record?.status]?.includes(to)) return { ok: false, code: CODE.BAD_MOVE };
   const leavingWait = record.status === 'waiting' && to !== 'waiting';
-  let next = { ...record, ...patch, status: to, updatedAt: now };
+  let next: Intention = { ...record, ...patch, status: to, updatedAt: now };
   // Out of a wait the errand stays named in `outcome`/`lastErrandId`, never as an open wait.
   if (leavingWait)
     next = { ...next, awaitingErrandId: null, waitDeadline: null, lastErrandId: record.awaitingErrandId ?? null };
@@ -756,10 +834,18 @@ export function transition(record, to, { now, by = 'persona', code = null, patch
  * or from `waiting` on another errand (the wait moves to the new one). `{ ok: false, code }`:
  * `wait-without-errand`, `bad-deadline`, or transition's codes.
  */
-export function waitOn(record, { taskId, deadline, now, by = 'persona' }) {
+export function waitOn(
+  record: Intention,
+  {
+    taskId,
+    deadline,
+    now,
+    by = 'persona',
+  }: { taskId: unknown; deadline: number | null | undefined; now: number; by?: string }
+): Moved {
   const id = idOrNull(taskId);
   if (!id) return { ok: false, code: CODE.WAIT_WITHOUT_ERRAND };
-  if (!Number.isFinite(deadline) || deadline <= now) return { ok: false, code: CODE.BAD_DEADLINE };
+  if (!isFiniteNumber(deadline) || deadline <= now) return { ok: false, code: CODE.BAD_DEADLINE };
   const patch = { awaitingErrandId: id, waitDeadline: deadline, waitRequested: null };
   if (record?.status === 'waiting') {
     const next = { ...record, ...patch, updatedAt: now };
@@ -773,7 +859,7 @@ export function waitOn(record, { taskId, deadline, now, by = 'persona' }) {
 }
 
 /** The terminal task states (src/errands/store.ts#TASK_STATES less the open ones). */
-const TASK_ENDS = Object.freeze(['done', 'failed', 'cancelled']);
+const TASK_ENDS: ReadonlyArray<string> = Object.freeze(['done', 'failed', 'cancelled'] as const);
 
 /**
  * The end of errand `task` reaching `record`: a `waiting` record awaiting that very task moves to
@@ -781,7 +867,7 @@ const TASK_ENDS = Object.freeze(['done', 'failed', 'cancelled']);
  * -- another task, a record no longer waiting (the same end delivered twice), a task still open
  * -- changes nothing: `{ ok: true, intention: record, changed: false }`.
  */
-export function arrive(record, task, { now }) {
+export function arrive(record: Intention, task: ErrandRecord, { now }: { now: number }): Moved {
   if (
     record?.status !== 'waiting' ||
     !task ||
@@ -790,7 +876,7 @@ export function arrive(record, task, { now }) {
   ) {
     return { ok: true, intention: record, changed: false };
   }
-  const at = Number.isFinite(task.endedAt) ? task.endedAt : now;
+  const at = isFiniteNumber(task.endedAt) ? task.endedAt : now;
   const outcome = {
     errandId: String(task.id),
     state: task.state,
@@ -800,7 +886,7 @@ export function arrive(record, task, { now }) {
   // The end is a fresh due moment when the old one has passed: the scheduler's wake id carries
   // the due time, and the old moment was handled when she set the wait, so without this nothing
   // would wake her for the outcome once the result turn leaves the record open.
-  const dueAt = Number.isFinite(record.dueAt) && record.dueAt > at ? record.dueAt : at;
+  const dueAt = isFiniteNumber(record.dueAt) && record.dueAt > at ? record.dueAt : at;
   return transition(record, 'pending', {
     now,
     by: 'engine',
@@ -810,15 +896,15 @@ export function arrive(record, task, { now }) {
 }
 
 /** `record` expired when it is open and `now` is at or past its `expiresAt`; unchanged otherwise. */
-export function expireAt(record, now) {
+export function expireAt(record: Intention, now: number): Moved {
   if (!isOpen(record?.status) || !(now >= record.expiresAt)) return { ok: true, intention: record, changed: false };
   return transition(record, 'expired', { now, by: 'engine', code: CODE.EXPIRED });
 }
 
 /** When `record` expired: its last history entry's `at` (the expiry's), else `updatedAt`. */
-export function expiredAtOf(record) {
+export function expiredAtOf(record: Intention): number {
   const last = Array.isArray(record?.history) ? record.history.at(-1) : null;
-  return Number.isFinite(last?.at) ? last.at : (record?.updatedAt ?? 0);
+  return isFiniteNumber(last?.at) ? last.at : (record?.updatedAt ?? 0);
 }
 
 /**
@@ -827,18 +913,20 @@ export function expiredAtOf(record) {
  * (provenance `candidate`: never hers) left out, the newest expiry first, at most `max` as
  * `items` (`{ id, purpose, at }`, `at` the expiry's moment, expiredAtOf) and the rest counted
  * in `more`. Pure.
- * @param {object[]} records
- * @param {{ max?: number }} [options]
- * @returns {{ items: { id: string, purpose: string, at: number }[], more: number }}
  */
-export function expiredToShow(records, { max = 5 } = {}) {
-  const list = (Array.isArray(records) ? records : [])
-    .filter(
-      (record) =>
-        record?.status === 'expired' &&
-        !Number.isFinite(record.expiredShownAt) &&
-        record.provenance?.kind !== 'candidate'
-    )
+export function expiredToShow(
+  records: unknown,
+  { max = 5 }: { max?: number } = {}
+): { items: Array<{ id: string; purpose: string; at: number }>; more: number } {
+  const list = listOf(records)
+    .filter((record): record is Intention => {
+      const given = objOf(record);
+      return (
+        given.status === 'expired' &&
+        !isFiniteNumber(given.expiredShownAt) &&
+        objOf(given.provenance).kind !== 'candidate'
+      );
+    })
     .sort((a, b) => expiredAtOf(b) - expiredAtOf(a));
   const cap = Math.max(0, Math.floor(max));
   return {
@@ -851,8 +939,8 @@ export function expiredToShow(records, { max = 5 } = {}) {
  * `record` marked as shown to her after its expiry (`expiredShownAt: now`), a store `update`
  * move: an expired record not yet marked changes; any other answers unchanged.
  */
-export function markExpiredShown(record, now) {
-  if (record?.status !== 'expired' || Number.isFinite(record.expiredShownAt))
+export function markExpiredShown(record: Intention, now: number): Moved {
+  if (record?.status !== 'expired' || isFiniteNumber(record.expiredShownAt))
     return { ok: true, intention: record, changed: false };
   return { ok: true, intention: { ...record, expiredShownAt: now }, changed: true };
 }
@@ -866,17 +954,24 @@ export function markExpiredShown(record, now) {
  * of OCCURRENCE_CODES: `done-occurrence` (her `state=done`), `recurred` (she touched it),
  * `missed` (nothing of hers named it). `{ ok: false, code }`: `not-recurring`, `terminal`,
  * `bad-move` (a candidate), `no-next` (the next occurrence cannot be told).
- * @param {object} record
- * @param {{ now: number, timezone?: string, code: string, by?: string, keepWaitEnd?: boolean }} options
  */
-export function advanceOccurrence(record, { now, timezone = 'UTC', code, by = 'persona', keepWaitEnd = false }) {
+export function advanceOccurrence(
+  record: Intention,
+  {
+    now,
+    timezone = 'UTC',
+    code,
+    by = 'persona',
+    keepWaitEnd = false,
+  }: { now: number; timezone?: string; code: string; by?: string; keepWaitEnd?: boolean }
+): Moved {
   if (!record?.every) return { ok: false, code: CODE.NOT_RECURRING };
   if (isTerminal(record.status)) return { ok: false, code: CODE.TERMINAL };
   if (record.status !== 'pending' && record.status !== 'waiting') return { ok: false, code: CODE.BAD_MOVE };
   const dueAt = nextOccurrence(record, now, timezone);
-  if (!Number.isFinite(dueAt)) return { ok: false, code: CODE.NO_NEXT };
+  if (!isFiniteNumber(dueAt)) return { ok: false, code: CODE.NO_NEXT };
   const leavingWait = record.status === 'waiting';
-  let next = {
+  let next: Intention = {
     ...record,
     status: 'pending',
     dueAt,
@@ -898,7 +993,10 @@ export function advanceOccurrence(record, { now, timezone = 'UTC', code, by = 'p
  * the store has none): the task gone -> `pending` with note `errand-missing`; the task ended ->
  * as `arrive`; the wait deadline passed -> `pending` with note `wait-deadline`; else unchanged.
  */
-export function reconcileWait(record, { taskOf, now }) {
+export function reconcileWait(
+  record: Intention,
+  { taskOf, now }: { taskOf: ((id: string | null) => ErrandRecord | null) | null | undefined; now: number }
+): Moved {
   if (record?.status !== 'waiting') return { ok: true, intention: record, changed: false };
   const task = typeof taskOf === 'function' ? taskOf(record.awaitingErrandId) : null;
   if (!task)
@@ -909,7 +1007,7 @@ export function reconcileWait(record, { taskOf, now }) {
       patch: { note: 'errand-missing' },
     });
   if (TASK_ENDS.includes(task.state)) return arrive(record, task, { now });
-  if (now >= record.waitDeadline)
+  if (isFiniteNumber(record.waitDeadline) && now >= record.waitDeadline)
     return transition(record, 'pending', {
       now,
       by: 'engine',
@@ -924,24 +1022,24 @@ export function reconcileWait(record, { taskOf, now }) {
  * `waiting` record whose `dueAt` is at or before `now` (`reason: 'due'`), and every `waiting` one
  * past its `waitDeadline` (`reason: 'wait-deadline'`), the earliest moment first. A proposed
  * candidate is never due: it wakes nobody.
- * @param {object[]} records
- * @param {number} now
- * @returns {{ intention: object, reason: 'due'|'wait-deadline', at: number }[]}
  */
-export function dueList(records, now, jitterMinutes = 0) {
-  const out = [];
-  for (const record of Array.isArray(records) ? records : []) {
-    if (record?.status !== 'pending' && record?.status !== 'waiting') continue;
-    if (record.status === 'waiting' && Number.isFinite(record.waitDeadline) && record.waitDeadline <= now)
+export function dueList(records: unknown, now: number, jitterMinutes = 0): Array<Due> {
+  const out: Array<Due> = [];
+  const live = listOf(records).filter((record): record is Intention => {
+    const status = objOf(record).status;
+    return status === 'pending' || status === 'waiting';
+  });
+  for (const record of live) {
+    if (record.status === 'waiting' && isFiniteNumber(record.waitDeadline) && record.waitDeadline <= now)
       out.push({ intention: record, reason: 'wait-deadline', at: record.waitDeadline });
-    else if (Number.isFinite(record.dueAt) && wakeTimeOf(record, jitterMinutes) <= now)
+    else if (isFiniteNumber(record.dueAt) && wakeTimeOf(record, jitterMinutes) <= now)
       out.push({ intention: record, reason: 'due', at: record.dueAt });
   }
   return out.sort((a, b) => a.at - b.at);
 }
 
 /** Lower-cased, whitespace folded: how two texts are compared. */
-export function foldText(text) {
+export function foldText(text: string | null | undefined): string {
   return oneLine(String(text ?? '')).toLowerCase();
 }
 
@@ -949,7 +1047,10 @@ export function foldText(text) {
  * Whether candidate `candidate` (`{ purpose, messageId, span }`) repeats one of `records`' open
  * intentions: the same message and span, or the same purpose (folded).
  */
-export function duplicates(candidate, records) {
+export function duplicates(
+  candidate: { purpose?: string; messageId?: string; span?: string } | null | undefined,
+  records: Array<Intention> | null | undefined
+): boolean {
   const purpose = foldText(candidate?.purpose);
   const span = foldText(candidate?.span);
   return (Array.isArray(records) ? records : []).some((record) => {
@@ -976,22 +1077,27 @@ export function duplicates(candidate, records) {
  * line's own `sources` by default; `strict`: a line of hers with no note counts as external):
  * `external` with its `originReason`, else `own`; and the turn that wrote the line (`turnId`), and
  * whether it was an inner turn of which chain (`bornInner`, `innerChainId`). Never throws.
- * @param {unknown} raw
- * @param {object[]} messages
- * @param {{ max: number, sourcesOf?: ((line: object) => object|null)|null, strict?: boolean }} options
- * @returns {{ candidates: { purpose: string, span: string, messageId: string, channelId: string|null, ts: number|null, participants?: string[],
- *   origin: 'own'|'external', originReason?: string, turnId: string|null, bornInner?: true, innerChainId?: string }[],
- *   dropped: { invalid: number, unanchored: number, quoted: number, over: number } }}
  */
-export function candidatesFromAnswer(raw, messages, { max, sourcesOf = null, strict = false }) {
+export function candidatesFromAnswer(
+  raw: unknown,
+  messages: Array<Untyped> | null | undefined,
+  {
+    max,
+    sourcesOf = null,
+    strict = false,
+  }: { max: number; sourcesOf?: ((line: Untyped) => Untyped) | null; strict?: boolean }
+): {
+  candidates: Array<Candidate>;
+  dropped: { invalid: number; unanchored: number; quoted: number; over: number };
+} {
   const dropped = { invalid: 0, unanchored: 0, quoted: 0, over: 0 };
-  const candidates = [];
-  const list = Array.isArray(raw) ? raw : [];
+  const candidates: Array<Candidate> = [];
+  const list: Array<Untyped> = Array.isArray(raw) ? raw : [];
   const lines = Array.isArray(messages) ? messages.filter((m) => m && typeof m.content === 'string') : [];
   const hers = lines.filter((m) => m.self === true);
   const others = lines.filter((m) => m.self !== true);
   // The members of a line's conversation: the other authors of its channel in the batch.
-  const membersOf = (own) =>
+  const membersOf = (own: Untyped): Array<string> =>
     participantIds(
       others
         .filter(
@@ -1023,7 +1129,7 @@ export function candidatesFromAnswer(raw, messages, { max, sourcesOf = null, str
       continue;
     }
     const participants = membersOf(own);
-    let sources = null;
+    let sources: Untyped = null;
     try {
       sources = (typeof sourcesOf === 'function' ? sourcesOf(own) : null) ?? own.sources ?? null;
     } catch {
@@ -1036,7 +1142,7 @@ export function candidatesFromAnswer(raw, messages, { max, sourcesOf = null, str
       span,
       messageId: String(own.id),
       channelId: own.channelId ? String(own.channelId) : null,
-      ts: Number.isFinite(own.ts) ? own.ts : null,
+      ts: isFiniteNumber(own.ts) ? own.ts : null,
       ...(participants.length > 0 ? { participants } : {}),
       origin: reason ? 'external' : 'own',
       ...(reason ? { originReason: reason } : {}),
@@ -1056,16 +1162,16 @@ export function candidatesFromAnswer(raw, messages, { max, sourcesOf = null, str
  * or its words -- the purpose, the quoted span, the completion condition, the chain, an errand's
  * error -- carry their id (their `<@id>` token included) or one of `names` as a whole word
  * (accents folded; a name under three letters or digits is never matched).
- * @param {object} record
- * @param {{ userId: string, names?: string[] }} member
- * @returns {boolean}
  */
-export function concernsMember(record, { userId, names = [] }) {
+export function concernsMember(
+  record: Intention,
+  { userId, names = [] }: { userId: string; names?: Array<string> }
+): boolean {
   const id = String(userId ?? '');
   if (!id || !record) return false;
   if (record.destination === id) return true;
   if (Array.isArray(record.attend?.people) && record.attend.people.includes(id)) return true;
-  const provenance = record.provenance ?? {};
+  const provenance: Partial<Provenance> = record.provenance ?? {};
   if (Array.isArray(provenance.participants) && provenance.participants.includes(id)) return true;
   const texts = [
     record.purpose,
@@ -1074,7 +1180,7 @@ export function concernsMember(record, { userId, names = [] }) {
     record.chainId,
     record.reason,
     record.outcome?.error,
-  ].filter((text) => typeof text === 'string' && text);
+  ].filter((text): text is string => typeof text === 'string' && text !== '');
   if (texts.some((text) => text.includes(id))) return true;
   const folded = [
     ...new Set((Array.isArray(names) ? names : []).filter((name) => typeof name === 'string').map(foldName)),

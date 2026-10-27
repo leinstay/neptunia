@@ -26,7 +26,8 @@ import { DEFAULT_RESULT_MAX_CHARS } from '../../errands/blocks.ts';
 import { defineOp, perEnv, invalid, denied } from './registry.ts';
 import { CODE } from '../codes.ts';
 import { idText, textOf } from '../types.ts';
-import type { Obj, OpContext, Untyped } from '../types.ts';
+import type { Obj, OpContext } from '../types.ts';
+import type { ErrandRecord, ErrandService } from '../../errands/types.ts';
 
 /** How many tasks `errand.list` shows. */
 export const TASK_LIST_COUNT = 10;
@@ -47,7 +48,7 @@ const handlers = perEnv((env) => {
   const { hot, assertNotPaused, resolvedGuildId, now = Date.now } = env;
 
   /** The errand service, or an Error naming what is missing. */
-  function errands() {
+  function errands(): ErrandService {
     if (!env.errands || typeof env.errands.submit !== 'function')
       throw Object.assign(new Error('the errand agents are not running'), { code: CODE.NOT_CONFIGURED });
     return env.errands;
@@ -72,13 +73,13 @@ const handlers = perEnv((env) => {
   }
 
   /** Whether the caller may see `task`: a group task anyone; a private chat's only its requester or an owner. */
-  function mayView(task: Untyped, context: OpContext): boolean {
+  function mayView(task: ErrandRecord, context: OpContext): boolean {
     if (task.scope !== 'dm') return true;
     return ownerCalls(context) || (Boolean(context?.userId) && idText(context.userId) === task.requester?.userId);
   }
 
   /** One line of a task: id, agent, state (with the error code and `files-expired`), age, goal. */
-  function taskLine(task: Untyped): string {
+  function taskLine(task: ErrandRecord): string {
     const minutes = Math.max(0, Math.floor((now() - (task.createdAt ?? now())) / MINUTE_MS));
     const codes = [
       ...(task.error && task.state !== 'done' ? [task.error] : []),
@@ -89,7 +90,7 @@ const handlers = perEnv((env) => {
   }
 
   /** A refusal of the store or the service as the operation's result. */
-  function refusal(code: string, task?: Untyped): Obj {
+  function refusal(code: string, task?: ErrandRecord): Obj {
     const status = REFUSALS[code] ?? 'failed';
     return { status, code, summary: `task not started: ${code}`, data: task ? { task } : null };
   }
@@ -160,7 +161,7 @@ const handlers = perEnv((env) => {
       return lines.join('\n');
     }
     // The open tasks, then the finished ones she has not read (their result is still waiting).
-    const listed = [...store.open(), ...store.unread()].filter((task: Untyped) => mayView(task, context));
+    const listed = [...store.open(), ...store.unread()].filter((task) => mayView(task, context));
     return listed.length > 0
       ? listed.map((task) => (isOpenState(task.state) ? taskLine(task) : `${taskLine(task)} (unread)`)).join('\n')
       : 'no open tasks';
@@ -191,11 +192,13 @@ const handlers = perEnv((env) => {
     const lines = [taskLine(task)];
     if (from === 0) {
       if (task.error && task.state !== 'done') lines.push(`error: ${task.error}`);
-      const sources: Array<string> = Array.isArray(task.result?.sources)
-        ? (task.result.sources as Array<unknown>).filter((url): url is string => typeof url === 'string' && url !== '')
+      const listedSources = task.result?.sources;
+      const sources = Array.isArray(listedSources)
+        ? listedSources.filter((url) => typeof url === 'string' && url !== '')
         : [];
       for (const [i, url] of sources.entries()) lines.push(`source ${i + 1}: ${url}`);
-      for (const file of Array.isArray(task.result?.files) ? task.result.files : []) {
+      const listedFiles = task.result?.files;
+      for (const file of Array.isArray(listedFiles) ? listedFiles : []) {
         if (!file || typeof file.name !== 'string') continue;
         const meta = `${file.contentType || '-'}, ${Number(file.bytes) || 0} bytes`;
         lines.push(
@@ -253,9 +256,9 @@ const handlers = perEnv((env) => {
     if (!store) throw Object.assign(new Error('no guild'), { code: CODE.NO_GUILD });
     const tasks = store
       .recent(TASK_LIST_COUNT * 3)
-      .filter((task: Untyped) => mayView(task, context))
+      .filter((task) => mayView(task, context))
       .slice(0, TASK_LIST_COUNT);
-    return tasks.length > 0 ? (tasks as Array<Untyped>).map((task) => taskLine(task)).join('\n') : 'no tasks yet';
+    return tasks.length > 0 ? tasks.map((task) => taskLine(task)).join('\n') : 'no tasks yet';
   }
 
   return { cmdRun, cmdStatus, cmdCancel, cmdList, cmdRead, cmdResolve };

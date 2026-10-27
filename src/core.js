@@ -1083,6 +1083,7 @@ async function buildCore(options, cleanups) {
           log.warn('reactors: event failed', { kind: event?.kind ?? null, code: err?.code ?? null });
         }
       },
+      /** @param {import('./errands/turns.ts').ErrandDoneEvent} event */
       'errand.done': (event) => {
         // An errand an inner turn handed off counts its cost against the inner life's dollars.
         inner.onTaskFinished(

@@ -22,6 +22,33 @@
 
 import { log as defaultLog } from '../log.js';
 import { lineOf } from '../behavior/line-of.js';
+import type { Untyped } from '../tools/types.ts';
+import type { ConversationRef } from '../protocol/adapter.ts';
+import type { Reads } from '../interface/reads.ts';
+import type { ErrandRecord, ErrandService, ErrorLogger } from './types.ts';
+
+/** What the turn runner answers a result turn with. */
+type TurnResult = { outcome?: string; dryRun?: boolean } | null | undefined;
+
+/** The turn runner as the result turn uses it. */
+type TurnsPort = {
+  runTurn: (input: Record<string, unknown>) => Promise<TurnResult>;
+  isBusy?: (channelId: string) => boolean;
+  isAnyBusy?: () => boolean;
+};
+
+/** The `errand.done` event of a finished errand, as the door takes it. */
+export type ErrandDoneEvent = {
+  kind: 'errand.done';
+  at: number;
+  communityId: string | null;
+  errandId: string;
+  status: string;
+  raw: { task: ErrandRecord };
+};
+
+/** What a timer function hands back. */
+type TimerHandle = ReturnType<typeof setTimeout>;
 
 /** `errands.resultRetrySeconds` and `errands.resultCooldownSeconds` when missing (config.json carries the same). */
 export const DEFAULT_RETRY_SECONDS = 30;
@@ -33,11 +60,12 @@ export const RESULT_ATTEMPTS = 20;
  * The `errand.done` event of a finished task (src/protocol/events.js): the whole task
  * rides along as `raw.task`, which validation never reads. Its id is left to the door (task and
  * status), so a second delivery of the same end is the same event.
- * @param {{ id: string, state: string }} task
- * @param {string|null} [guildId]
- * @param {() => number} [now]
  */
-export function errandDoneEvent(task, guildId = null, now = Date.now) {
+export function errandDoneEvent(
+  task: ErrandRecord,
+  guildId: string | null = null,
+  now: () => number = Date.now
+): ErrandDoneEvent {
   return {
     kind: 'errand.done',
     at: now(),
@@ -54,19 +82,9 @@ const HELD = new Set(['busy', 'paused']);
 const DONE = new Set(['spoke', 'skip']);
 
 /**
- * @param {object} options
- * @param {{ config: object }} options.hot
- * @param {import('../interface/reads.ts').Reads} options.reads  The core's reads of the interface: the conversation a
- *   result answers in and the message it was asked in.
- * @param {() => string} [options.iface]  The interface the conversations belong to (from `hello`).
- * @param {{ runTurn: Function, isBusy?: Function, isAnyBusy?: Function }} options.turns
- * @param {{ markSeen: Function, markRead?: Function, markResultFailed?: Function }} options.errands
- * @param {{ onTaskFinished: Function }|null} [options.intentions]  The intention service: an errand's
- *   end moves the intentions waiting on it first (idempotent; never throws).
- * @param {() => string|null} [options.getGuildId]
- * @param {() => number} [options.now]
- * @param {(fn: Function, ms: number) => unknown} [options.setTimer]
- * @param {{ info: Function, warn: Function }} [options.log]
+ * `reads` are the core's reads of the interface: the conversation a result answers in and the message it was asked
+ * in. `iface` names the interface the conversations belong to (from `hello`). `intentions` is the intention
+ * service: an errand's end moves the intentions waiting on it first (idempotent, never throws).
  */
 export function createTaskTurns({
   hot,
@@ -79,25 +97,40 @@ export function createTaskTurns({
   now = Date.now,
   setTimer = (fn, ms) => setTimeout(fn, ms),
   log = defaultLog,
-}) {
+}: {
+  hot: Untyped;
+  reads: Reads;
+  iface?: () => string;
+  turns: TurnsPort;
+  errands: Partial<Pick<ErrandService, 'markSeen' | 'markRead' | 'markResultFailed' | 'store'>> | null;
+  intentions?: { onTaskFinished: (task: ErrandRecord, guildId: string | null) => unknown } | null;
+  getGuildId?: () => string | null;
+  now?: () => number;
+  setTimer?: (fn: () => void, ms: number) => TimerHandle;
+  log?: ErrorLogger;
+}): {
+  onFinished: (task: ErrandRecord, guildId: string | null) => Promise<TurnResult>;
+  onEvent: (event: ErrandDoneEvent) => Promise<TurnResult>;
+  stop: () => void;
+} {
   // conversation id -> when its last result turn started
-  const lastAt = new Map();
+  const lastAt = new Map<string, number>();
   // task id -> pending timer, while a result waits for its turn
-  const waiting = new Map();
+  const waiting = new Map<string, TimerHandle>();
 
-  function seconds(key, fallback) {
+  function seconds(key: string, fallback: number): number {
     const value = hot.config?.errands?.[key];
     return Number.isFinite(value) && value >= 0 ? value : fallback;
   }
 
   /** Whether a turn would find the attention taken in `channelId` now (the rule runTurn applies). */
-  function attentionTaken(channelId) {
+  function attentionTaken(channelId: string): boolean {
     if (typeof turns?.isBusy === 'function' && turns.isBusy(channelId)) return true;
     return hot.config?.mention?.oneAtATime !== false && typeof turns?.isAnyBusy === 'function' && turns.isAnyBusy();
   }
 
   /** Try `task` again in `ms`, unless it ran out of attempts. */
-  function later(task, guildId, attempt, ms) {
+  function later(task: ErrandRecord, guildId: string | null, attempt: number, ms: number): void {
     if (attempt + 1 >= RESULT_ATTEMPTS) {
       log.info('errands: result left to the tasks block', { id: task.id, attempts: attempt + 1 });
       try {
@@ -121,8 +154,7 @@ export function createTaskTurns({
   }
 
   /** The message the errand was asked in, as a line (a turn's trigger), or null. */
-  /** @param {import('../protocol/adapter.ts').ConversationRef} ref */
-  async function originMessage(ref, task) {
+  async function originMessage(ref: ConversationRef, task: ErrandRecord): Promise<Record<string, unknown> | null> {
     const messageId = task.origin?.messageId;
     if (!messageId) return null;
     const found = await reads.fetchMessages(ref, [messageId]);
@@ -131,7 +163,7 @@ export function createTaskTurns({
   }
 
   /** One attempt at the result turn of `task`. */
-  async function deliver(task, guildId, attempt = 0) {
+  async function deliver(task: ErrandRecord, guildId: string | null, attempt = 0): Promise<TurnResult> {
     const channelId = task.origin?.channelId;
     if (!channelId) {
       log.info('errands: result without a conversation', { id: task.id });
@@ -139,7 +171,7 @@ export function createTaskTurns({
     }
     const cooldownMs = seconds('resultCooldownSeconds', DEFAULT_COOLDOWN_SECONDS) * 1000;
     const last = lastAt.get(channelId);
-    if (Number.isFinite(last) && now() - last < cooldownMs) {
+    if (typeof last === 'number' && Number.isFinite(last) && now() - last < cooldownMs) {
       later(task, guildId, attempt, last + cooldownMs - now());
       return null;
     }
@@ -157,7 +189,7 @@ export function createTaskTurns({
     const trigger = await originMessage(conversation, task);
     const requester = task.requester?.userId ? { id: task.requester.userId } : null;
     lastAt.set(channelId, now());
-    let result;
+    let result: TurnResult;
     try {
       result = await turns.runTurn({
         conversation,
@@ -191,7 +223,7 @@ export function createTaskTurns({
   }
 
   /** The service's `onFinished`: the result turn of `task` (never throws). */
-  function onFinished(task, guildId) {
+  function onFinished(task: ErrandRecord, guildId: string | null): Promise<TurnResult> {
     return deliver(task, guildId, 0).catch((err) => {
       log.warn('errands: result turn failed', { id: task?.id, error: err });
       return null;
@@ -201,9 +233,8 @@ export function createTaskTurns({
   /**
    * The door's handler of `errand.done`: the intentions waiting on the task the event names
    * moved first, then its result turn (never throws); null when the task cannot be found.
-   * @param {ReturnType<typeof errandDoneEvent>} event
    */
-  function onEvent(event) {
+  function onEvent(event: ErrandDoneEvent): Promise<TurnResult> {
     const guildId = event?.communityId ?? null;
     const task = event?.raw?.task ?? errands?.store?.(guildId)?.get?.(event?.errandId) ?? null;
     if (!task) {
@@ -219,7 +250,7 @@ export function createTaskTurns({
   }
 
   /** Every result still waiting dropped (shutdown). */
-  function stop() {
+  function stop(): void {
     for (const timer of waiting.values()) clearTimeout(timer);
     waiting.clear();
   }

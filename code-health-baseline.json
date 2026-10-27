@@ -309,7 +309,7 @@
     },
     "src/errands/client.ts": {
       "createErrandClient": {
-        "function-length": 364
+        "function-length": 358
       },
       "createErrandClient>onEvent": {
         "complexity": 26
@@ -317,12 +317,12 @@
     },
     "src/errands/ledger.ts": {
       "createLedgerMirror": {
-        "function-length": 452
+        "function-length": 449
       }
     },
     "src/errands/service.ts": {
       "createErrandService": {
-        "function-length": 396
+        "function-length": 372
       }
     },
     "src/errands/store.ts": {
@@ -359,7 +359,7 @@
     },
     "src/intentions/service.ts": {
       "createIntentionService": {
-        "function-length": 743
+        "function-length": 719
       },
       "createIntentionService>addCandidates": {
         "complexity": 21
@@ -371,7 +371,7 @@
         "complexity": 31
       },
       "createIntentionService>update><anonymous>#3": {
-        "complexity": 50
+        "complexity": 49
       }
     },
     "src/llm/embed.js": {

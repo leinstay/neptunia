@@ -63,6 +63,22 @@ export type GrantTarget = { everyone?: boolean; roleId?: string | number; userId
 /** The stored grants (`bot.access`): an operation name to its grant, as the config file holds them. */
 export type Access = Record<string, unknown>;
 
+/** Whether `value` is a finite number (a number that is not NaN or infinite). */
+export function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+/** Whether `value` is a finite number above zero. */
+export function isPositive(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
+/** The `code` of a thrown value when it is a string (a system error, an error of ours), else null. */
+export function errorCode(error: unknown): string | null {
+  const code = objOf(error).code;
+  return typeof code === 'string' ? code : null;
+}
+
 /** An id as text: a string or a number, nothing else (an object or a missing value is the empty string). */
 export function idText(value: unknown): string {
   return typeof value === 'string' ? value : typeof value === 'number' ? String(value) : '';

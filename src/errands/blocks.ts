@@ -8,6 +8,8 @@ import { fill } from '../format.js';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { MINUTE_MS } from '../time.js';
 import { fileHandle, isOpenState } from './store.ts';
+import type { Untyped } from '../tools/types.ts';
+import type { ErrandRecord } from './types.ts';
 
 /** The goal's length on a `<errands>` line (characters). */
 export const TASK_GOAL_CHARS = 120;
@@ -17,7 +19,7 @@ export const DEFAULT_UNREAD_SHOWN = 5;
 export const DEFAULT_RESULT_MAX_CHARS = 3000;
 
 /** The state of `task` in words (`labels.errands.states`), else its code. */
-function stateWord(state, labels) {
+function stateWord(state: string | null | undefined, labels: Untyped): string {
   const words = labels?.errands?.states;
   return typeof words?.[state] === 'string' && words[state] ? words[state] : String(state ?? '');
 }
@@ -26,7 +28,7 @@ function stateWord(state, labels) {
  * The state of `task` in words: `labels.errands.states.expired` for a finished task whose files the
  * runner has deleted (`filesExpired`) when that label is there, else its state's word.
  */
-function taskStateWord(task, labels) {
+function taskStateWord(task: ErrandRecord | null | undefined, labels: Untyped): string {
   const expired = labels?.errands?.states?.expired;
   if (task?.filesExpired === true && typeof expired === 'string' && expired) return expired;
   return stateWord(task?.state, labels);
@@ -41,16 +43,16 @@ function taskStateWord(task, labels) {
  * `labels.errands.unread` (and `labels.errands.resultTurnFailed` when its result turn never
  * completed). At most `unreadShown` finished ones are listed, oldest first; `labels.errands.unreadMore`
  * (`{count}`) counts the rest. '' with no task or without the header or line label.
- * @param {object[]} tasks
- * @param {object} labels
- * @param {{ now: number, goalChars?: number, unreadShown?: number }} options
- * @returns {string}
  */
 export function tasksBlockText(
-  tasks,
-  labels,
-  { now, goalChars = TASK_GOAL_CHARS, unreadShown = DEFAULT_UNREAD_SHOWN }
-) {
+  tasks: Array<ErrandRecord> | null | undefined,
+  labels: Untyped,
+  {
+    now,
+    goalChars = TASK_GOAL_CHARS,
+    unreadShown = DEFAULT_UNREAD_SHOWN,
+  }: { now: number; goalChars?: number; unreadShown?: number }
+): string {
   const l = labels?.errands;
   const list = Array.isArray(tasks) ? tasks.filter((task) => task && typeof task.id === 'string') : [];
   if (list.length === 0 || typeof l?.header !== 'string' || typeof l?.line !== 'string') return '';
@@ -58,7 +60,7 @@ export function tasksBlockText(
   const finished = list.filter((task) => !isOpenState(task.state));
   const cap = Number.isInteger(unreadShown) && unreadShown >= 0 ? unreadShown : DEFAULT_UNREAD_SHOWN;
   const shown = [...open, ...finished.slice(0, cap)];
-  const lineOf = (task) => {
+  const lineOf = (task: ErrandRecord): string => {
     const line = fill(l.line, {
       id: task.id,
       agent: task.agent,
@@ -92,12 +94,12 @@ export function tasksBlockText(
  * `result.held` line (`{names}`: the names of the files the runner held back and did not deliver,
  * `result.filesDropped`, joined by `, `; no handle for them) when there are any. A part without its
  * label is left out; '' without the header.
- * @param {object} task
- * @param {object} labels
- * @param {{ maxChars?: number }} [options]
- * @returns {string}
  */
-export function taskResultText(task, labels, { maxChars = DEFAULT_RESULT_MAX_CHARS } = {}) {
+export function taskResultText(
+  task: ErrandRecord | null | undefined,
+  labels: Untyped,
+  { maxChars = DEFAULT_RESULT_MAX_CHARS }: { maxChars?: number } = {}
+): string {
   const r = labels?.errands?.result;
   if (!task || typeof r?.header !== 'string') return '';
   const parts = [
@@ -108,15 +110,14 @@ export function taskResultText(task, labels, { maxChars = DEFAULT_RESULT_MAX_CHA
   else if (!text && typeof r.empty === 'string') parts.push(r.empty);
   if (task.state !== 'done' && task.error && typeof r.error === 'string')
     parts.push(fill(r.error, { error: task.error }));
-  const sources = Array.isArray(task.result?.sources)
-    ? task.result.sources.filter((url) => typeof url === 'string' && url)
-    : [];
+  const result = task.result;
+  const sources = Array.isArray(result?.sources) ? result.sources.filter((url) => typeof url === 'string' && url) : [];
   if (sources.length > 0 && typeof r.sources === 'string')
     parts.push(r.sources, ...sources.map((url, i) => `${i + 1}. ${url}`));
   // Expired files name nothing any more: no handle for them.
   const files =
-    task.filesExpired !== true && Array.isArray(task.result?.files)
-      ? task.result.files.filter((file) => file && typeof file.name === 'string' && file.name)
+    task.filesExpired !== true && Array.isArray(result?.files)
+      ? result.files.filter((file) => file && typeof file.name === 'string' && file.name)
       : [];
   if (files.length > 0 && typeof r.files === 'string' && typeof r.file === 'string') {
     parts.push(
@@ -130,13 +131,13 @@ export function taskResultText(task, labels, { maxChars = DEFAULT_RESULT_MAX_CHA
       )
     );
   }
-  const withheld = Array.isArray(task.result?.withheld)
-    ? task.result.withheld.filter((entry) => typeof entry === 'string' && entry)
+  const withheld = Array.isArray(result?.withheld)
+    ? result.withheld.filter((entry) => typeof entry === 'string' && entry)
     : [];
   if (withheld.length > 0 && typeof r.withheld === 'string')
     parts.push(fill(r.withheld, { paths: withheld.join(', ') }));
-  const held = Array.isArray(task.result?.filesDropped)
-    ? task.result.filesDropped
+  const held = Array.isArray(result?.filesDropped)
+    ? result.filesDropped
         .map((entry) => (typeof entry === 'string' ? entry : entry?.name))
         .filter((name) => typeof name === 'string' && name)
     : [];

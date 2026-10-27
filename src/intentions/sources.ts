@@ -19,6 +19,9 @@
 // in-process registry (`createLineSources`) that holds the notes from her post for the candidates
 // judged against it (src/intentions/service.ts#addCandidates).
 
+import { isObj, listOf } from '../tools/types.ts';
+import type { LineNote, LineSources } from './types.ts';
+
 /** Words per shingle. */
 export const SHINGLE_WORDS = 3;
 /** The most hashed shingles a line's note keeps. */
@@ -29,7 +32,7 @@ export const SOURCE_CHARS_MAX = 60_000;
 export const LINE_SOURCES_MAX = 500;
 
 /** The words of `text`, accents folded and lower-cased (letters and digits only). */
-export function wordsOf(text) {
+export function wordsOf(text: string | null | undefined): Array<string> {
   return String(text ?? '')
     .normalize('NFKD')
     .replace(/\p{M}+/gu, '')
@@ -39,7 +42,7 @@ export function wordsOf(text) {
 }
 
 /** FNV-1a 32-bit of `text`, base 36. */
-function hash(text) {
+function hash(text: string): string {
   let h = 0x811c9dc5;
   for (let i = 0; i < text.length; i += 1) {
     h ^= text.charCodeAt(i);
@@ -49,9 +52,9 @@ function hash(text) {
 }
 
 /** The hashed `SHINGLE_WORDS`-word shingles of `text` (none for a shorter text). */
-export function shinglesOf(text) {
+export function shinglesOf(text: string | null | undefined): Set<string> {
   const words = wordsOf(text);
-  const out = new Set();
+  const out = new Set<string>();
   for (let i = 0; i + SHINGLE_WORDS <= words.length; i += 1) out.add(hash(words.slice(i, i + SHINGLE_WORDS).join(' ')));
   return out;
 }
@@ -60,10 +63,10 @@ export function shinglesOf(text) {
  * The string leaves of `value` (a text, an array, an object: an excerpt list, a lookup's answer,
  * an errand's result), at most `max` characters in all.
  */
-export function textsOf(value, max = SOURCE_CHARS_MAX) {
-  const out = [];
+export function textsOf(value: unknown, max: number = SOURCE_CHARS_MAX): Array<string> {
+  const out: Array<string> = [];
   let left = max;
-  const walk = (item, depth) => {
+  const walk = (item: unknown, depth: number): void => {
     if (left <= 0 || depth > 6 || item === null || item === undefined) return;
     if (typeof item === 'string') {
       if (!item) return;
@@ -86,12 +89,24 @@ export function textsOf(value, max = SOURCE_CHARS_MAX) {
  * The note of one line of hers: `text` as she posted it, `external` the outside texts her turn had
  * seen before it went out, `read` whether that included outside material (see the header), the
  * turn, and the inner turn's chain. Pure.
- * @param {{ text: string, external?: unknown, read?: boolean, turnId?: string|null, inner?: boolean, chainId?: string|null }} input
- * @returns {{ turnId: string|null, read?: true, inner?: true, chainId?: string, overlap?: string[] }}
  */
-export function lineSourcesOf({ text, external = [], read = false, turnId = null, inner = false, chainId = null }) {
+export function lineSourcesOf({
+  text,
+  external = [],
+  read = false,
+  turnId = null,
+  inner = false,
+  chainId = null,
+}: {
+  text: string;
+  external?: unknown;
+  read?: boolean;
+  turnId?: string | null;
+  inner?: boolean;
+  chainId?: string | null;
+}): LineNote {
   const own = shinglesOf(text);
-  const outside = new Set();
+  const outside = new Set<string>();
   for (const piece of textsOf(external)) for (const shingle of shinglesOf(piece)) outside.add(shingle);
   const overlap = [...own].filter((shingle) => outside.has(shingle)).slice(0, OVERLAP_MAX);
   return {
@@ -109,17 +124,17 @@ export function lineSourcesOf({ text, external = [], read = false, turnId = null
  * outside material first), `overlap` (its span or purpose shares a shingle with outside text of
  * her turn), `unknown` (no note while `strict`: the turn that wrote the line is not known). Null
  * when it is her own. Pure.
- * @param {{ span: string, purpose: string }} candidate
- * @param {object} line
- * @param {object|null} sources
- * @param {{ strict?: boolean }} [options]
- * @returns {'inner-finding'|'read'|'overlap'|'unknown'|null}
  */
-export function externalOrigin(candidate, line, sources, { strict = false } = {}) {
+export function externalOrigin(
+  candidate: { span?: string; purpose?: string } | null | undefined,
+  line: { inner?: unknown } | null | undefined,
+  sources: unknown,
+  { strict = false }: { strict?: boolean } = {}
+): 'inner-finding' | 'read' | 'overlap' | 'unknown' | null {
   if (line?.inner) return 'inner-finding';
-  if (!sources || typeof sources !== 'object') return strict ? 'unknown' : null;
+  if (!isObj(sources)) return strict ? 'unknown' : null;
   if (sources.read === true) return 'read';
-  const overlap = new Set(Array.isArray(sources.overlap) ? sources.overlap : []);
+  const overlap = new Set(listOf(sources.overlap));
   if (overlap.size > 0) {
     for (const text of [candidate?.span, candidate?.purpose])
       for (const shingle of shinglesOf(text)) if (overlap.has(shingle)) return 'overlap';
@@ -131,21 +146,24 @@ export function externalOrigin(candidate, line, sources, { strict = false } = {}
  * The notes of her recent lines by message id, in process, the oldest dropped past `max`: kept from
  * the moment a line is posted until the memory buffer takes it (and asked again by the analyzer's
  * candidates for a line the buffer took before its note was written).
- * @param {{ max?: number }} [options]
  */
-export function createLineSources({ max = LINE_SOURCES_MAX } = {}) {
-  const notes = new Map();
+export function createLineSources({ max = LINE_SOURCES_MAX }: { max?: number } = {}): LineSources {
+  const notes = new Map<string, LineNote>();
   return {
-    note(messageId, sources) {
+    note(messageId: string, sources: LineNote): void {
       if (typeof messageId !== 'string' || !messageId || !sources || typeof sources !== 'object') return;
       notes.delete(messageId);
       notes.set(messageId, sources);
-      while (notes.size > max) notes.delete(notes.keys().next().value);
+      while (notes.size > max) {
+        const oldest = notes.keys().next();
+        if (oldest.done) break;
+        notes.delete(oldest.value);
+      }
     },
-    get(messageId) {
+    get(messageId: string): LineNote | null {
       return typeof messageId === 'string' ? (notes.get(messageId) ?? null) : null;
     },
-    get size() {
+    get size(): number {
       return notes.size;
     },
   };

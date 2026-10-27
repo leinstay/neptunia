@@ -55,6 +55,8 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `src/behavior/` | public | What a turn does: the pipeline, triggers, prefetch, prompt assembly, recall, the inner turn and the heartbeat. | `node:*`, `src/**` | required |
 | `src/errands/` | public | The errand service: the ledger, the store, the client to the runner and the turns that bring results back. | `node:*`, `src/**` | required |
 | `src/intentions/` | public | The persona intentions: model, store, sources and the service that wakes them. | `node:*`, `src/**` | required |
+| `src/errands/types.ts` | public | The shapes the errand modules share. Types only: nothing runs, so nothing is tested. | `node:*`, `src/**` | none |
+| `src/intentions/types.ts` | public | The shapes the intention modules share. Types only: nothing runs, so nothing is tested. | `node:*`, `src/**` | none |
 | `src/interface/` | public | The core side of the interface port: the door that admits events, the link to an interface, the socket server, the fake interface and typing leases. | `node:*`, `src/**` | required |
 | `src/llm/` | public | The language model calls: OpenRouter, roles, budgets, token counts, limits and output parsing. | `node:*`, `src/**` | required |
 | `src/media/` | public | Pictures, video, audio, GIFs and drawing on the core side. | `node:*`, `src/**` | required |

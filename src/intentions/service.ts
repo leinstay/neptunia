@@ -61,26 +61,88 @@ import {
 } from './model.ts';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { CODE } from '../tools/codes.ts';
+import { idText, isFiniteNumber } from '../tools/types.ts';
+import type { Untyped } from '../tools/types.ts';
+import type { ErrandRecord } from '../errands/types.ts';
+import type {
+  Advanced,
+  CandidateCounts,
+  Created,
+  Due,
+  Intention,
+  IntentionService,
+  IntentionServiceOptions,
+  IntentionSettings,
+  IntentionStore,
+  LineNote,
+  Moved,
+  ReconcileCounts,
+  SetInput,
+  UpdatePatch,
+  Where,
+} from './types.ts';
 
 /** Statuses counted against `intentions.maxOpen` (her active ones; candidates have their own cap). */
-const ACTIVE = Object.freeze(['pending', 'waiting']);
+const ACTIVE: ReadonlyArray<string> = Object.freeze(['pending', 'waiting'] as const);
+
+/** How a wait is planned: refused, none asked, an errand to wait on, or a wait on the errand her turn will queue. */
+type WaitPlan =
+  | { ok: false; code: string }
+  | { ok: true; none: true }
+  | { ok: true; taskId: string; deadline: number }
+  | { ok: true; requested: { turnId: string; deadline: number } };
 
 /**
- * @param {object} options
- * @param {{ get(guildId: string): object|null }} options.stores  src/intentions/store.ts#createIntentionStores
- * @param {{ config: object }} options.hot
- * @param {{ store(guildId: string): ({ get(id: string): object|null }|null) }|null} [options.tasks]  The errand
- *   service (src/errands/service.ts): the task store a wait is checked against.
- * @param {{ findTurn?: Function }|null} [options.journal]  Where a candidate's turn is looked up.
- * @param {{ note: Function, get: Function }|null} [options.lineSources]  The notes of where her lines
- *   came from (src/intentions/sources.ts#createLineSources; one of its own by default): the turn
- *   runner notes each line she posts (`noteLine`), the memory buffer takes the note with the line
- *   (`lineSources`), and a candidate is judged by it (`addCandidates`, strict: a line of hers with
- *   no note counts as external).
- * @param {() => string|null} [options.getGuildId]
- * @param {() => number} [options.now]
- * @param {() => string} [options.uuid]
- * @param {{ info: Function, warn: Function }} [options.log]
+ * Whether `record` may be seen and moved where the caller is: a private chat's intention only in
+ * that chat (`privateChannelId`), any with `all` (an owner's command, the engine).
+ */
+function visibleTo(record: Intention, { privateChannelId = null, all = false }: Where = {}): boolean {
+  return (
+    all ||
+    record?.provenance?.scope !== 'dm' ||
+    (privateChannelId !== null &&
+      privateChannelId !== undefined &&
+      record.provenance?.channelId === String(privateChannelId))
+  );
+}
+
+/** How many intentions of `list` count against `maxOpen`. */
+function activeCount(list: Array<Intention>): number {
+  return list.filter((record) => ACTIVE.includes(record.status)).length;
+}
+
+/** `record` with the wait of `plan` applied (a model move), or the record as it is. */
+function applyWait(record: Intention, plan: WaitPlan | null, by: string, at: number): Moved {
+  if (!plan || !plan.ok || 'none' in plan) return { ok: true, intention: record, changed: false };
+  if ('requested' in plan)
+    return { ok: true, intention: { ...record, waitRequested: plan.requested, updatedAt: at }, changed: true };
+  return waitOn(record, { taskId: plan.taskId, deadline: plan.deadline, now: at, by });
+}
+
+/**
+ * The refusal of one more intention from a heartbeat when the caps are reached (`innerLife.heartbeat.maxOpen`,
+ * `maxRecurring`, read now): `{ ok: false, code: 'heartbeat-cap'|'heartbeat-recurring-cap', open }`, `open` the
+ * open records from heartbeats (so she can update or cancel one), or null.
+ */
+function heartbeatCapRefusal(
+  config: Untyped,
+  store: IntentionStore,
+  { recurring }: { recurring: boolean }
+): { ok: false; code: string; open: Array<Intention> } | null {
+  const limits = heartbeatLimits(config);
+  const open = openFromHeartbeat(store.list());
+  if (open.length >= limits.maxOpen) return { ok: false, code: CODE.HEARTBEAT_CAP, open };
+  if (recurring && open.filter((record) => record.every).length >= limits.maxRecurring)
+    return { ok: false, code: CODE.HEARTBEAT_RECURRING_CAP, open };
+  return null;
+}
+
+/**
+ * `hot` holds the live config. `tasks` is the errand service (src/errands/service.ts): the task store a wait is
+ * checked against. `journal` is where a candidate's turn is looked up. `lineSources` holds the notes of where her
+ * lines came from (src/intentions/sources.ts#createLineSources, one of its own by default): the turn runner notes
+ * each line she posts (`noteLine`), the memory buffer takes the note with the line (`lineSources`), and a candidate
+ * is judged by it (`addCandidates`, strict: a line of hers with no note counts as external).
  */
 export function createIntentionService({
   stores,
@@ -92,91 +154,66 @@ export function createIntentionService({
   now = Date.now,
   uuid = randomUUID,
   log = defaultLog,
-}) {
-  function storeOf(guildId) {
+}: IntentionServiceOptions): IntentionService {
+  function storeOf(guildId?: string | null): IntentionStore | null {
     return stores.get(guildId || getGuildId?.() || '');
   }
 
-  function settings() {
+  function settings(): IntentionSettings {
     return intentionSettings(hot.config);
   }
 
   /** The bot's timezone, read now (the wall clock a recurrence is pinned to). */
-  function timezone() {
+  function timezone(): string {
     return hot.config?.bot?.timezone ?? 'UTC';
   }
 
   /** The errand `id` of the guild's task store, or null. */
-  function taskOf(guildId, id) {
+  function taskOf(guildId: unknown, id: unknown): ErrandRecord | null {
     const store = tasks?.store?.(guildId) ?? null;
-    const task = id && store ? store.get(String(id)) : null;
+    const task = id && store ? store.get(idText(id)) : null;
     return task ?? null;
   }
 
   /** The latest errand of turn `turnId` in the guild's task store, or null. */
-  function taskOfTurn(guildId, turnId) {
+  function taskOfTurn(guildId: unknown, turnId: unknown): ErrandRecord | null {
     const store = tasks?.store?.(guildId) ?? null;
     if (!store || !turnId || typeof store.recent !== 'function') return null;
-    return store.recent(50).find((task) => task.origin?.turnId === String(turnId)) ?? null;
-  }
-
-  /**
-   * Whether `record` may be seen and moved where the caller is: a private chat's intention only in
-   * that chat (`privateChannelId`), any with `all` (an owner's command, the engine).
-   */
-  function visibleTo(record, { privateChannelId = null, all = false } = {}) {
-    return (
-      all ||
-      record?.provenance?.scope !== 'dm' ||
-      (privateChannelId !== null &&
-        privateChannelId !== undefined &&
-        record.provenance?.channelId === String(privateChannelId))
-    );
-  }
-
-  /** How many intentions of `list` count against `maxOpen`. */
-  function activeCount(list) {
-    return list.filter((record) => ACTIVE.includes(record.status)).length;
+    return store.recent(50).find((task) => task.origin?.turnId === idText(turnId)) ?? null;
   }
 
   /** The wait `move` adds to a record: on errand `taskId` (checked) or the turn's errand, else requested. */
-  function waitPlan(guildId, { taskId = null, deadline = null, turnId = null }) {
+  function waitPlan(
+    guildId: string,
+    {
+      taskId = null,
+      deadline = null,
+      turnId = null,
+    }: { taskId?: string | null; deadline?: number | null; turnId?: string | null }
+  ): WaitPlan {
     const at = now();
-    const until = Number.isFinite(deadline) ? deadline : at + settings().waitHours * HOUR_MS;
+    const until = isFiniteNumber(deadline) ? deadline : at + settings().waitHours * HOUR_MS;
     if (taskId) {
       const task = taskOf(guildId, taskId);
       if (!task) return { ok: false, code: CODE.NO_ERRAND };
       if (!isOpenState(task.state)) return { ok: false, code: CODE.ERRAND_ENDED };
       return { ok: true, taskId: task.id, deadline: until };
     }
-    if (!Number.isFinite(deadline)) return { ok: true, none: true };
+    if (!isFiniteNumber(deadline)) return { ok: true, none: true };
     const same = taskOfTurn(guildId, turnId);
     if (same && isOpenState(same.state)) return { ok: true, taskId: same.id, deadline: until };
     if (!turnId) return { ok: false, code: CODE.WAIT_WITHOUT_ERRAND };
-    return { ok: true, requested: { turnId: String(turnId), deadline: until } };
-  }
-
-  /** `record` with the wait of `plan` applied (a model move), or the record as it is. */
-  function applyWait(record, plan, by) {
-    if (!plan || plan.none) return { ok: true, intention: record, changed: false };
-    if (plan.requested)
-      return { ok: true, intention: { ...record, waitRequested: plan.requested, updatedAt: now() }, changed: true };
-    return waitOn(record, { taskId: plan.taskId, deadline: plan.deadline, now: now(), by });
+    return { ok: true, requested: { turnId: idText(turnId), deadline: until } };
   }
 
   /**
    * A new intention of hers (or an owner's command), `pending`: `{ ok: true, intention }` or
    * `{ ok: false, code }` (`no-guild`, `cap-open`, the model's codes, the wait's: `no-errand`,
    * `errand-ended`, `wait-without-errand`, `bad-deadline`; `write-failed`).
-   * @param {string|null} guildId
-   * @param {{ purpose: string, dueAt?: number|null, every?: { period: string, at?: string|null }|null, expiresAt?: number|null, destination?: string|null,
-   *   completionCondition?: string|null, chainId?: string|null, taskId?: string|null, deadline?: number|null,
-   *   turnId?: string|null, messageId?: string|null, channelId?: string|null, scope?: 'dm'|'group', participants?: string[], by?: string,
-   *   attend?: { place: string, people?: string[], settle?: number, perDay?: number }|null }} input
-   *   `every` is parseEvery's shape (null or missing: a one-off); its wall-clock time is pinned from `dueAt`.
-   *   `attend` makes it an attention (model.js#normalizeAttend; its defaults `innerLife.attention.*`, read now).
+   * `input.every` is parseEvery's shape (null or missing: a one-off); its wall-clock time is pinned from `dueAt`.
+   * `input.attend` makes it an attention (model.js#normalizeAttend; its defaults `innerLife.attention.*`, read now).
    */
-  function set(guildId, input) {
+  function set(guildId: unknown, input: SetInput): ReturnType<IntentionService['set']> {
     const store = storeOf(guildId);
     if (!store) return { ok: false, code: CODE.NO_GUILD };
     const limits = settings();
@@ -187,7 +224,7 @@ export function createIntentionService({
     // in the same synchronous step as the add (nothing can slip between the count and the write).
     const origin = input.origin === HEARTBEAT_ORIGIN ? HEARTBEAT_ORIGIN : null;
     if (origin) {
-      const refused = heartbeatCapRefusal(store, { recurring: Boolean(input.every) });
+      const refused = heartbeatCapRefusal(hot.config, store, { recurring: Boolean(input.every) });
       if (refused) {
         log.info('intentions: heartbeat cap', {
           guildId: store.guildId,
@@ -227,7 +264,7 @@ export function createIntentionService({
       turnId: input.turnId ?? null,
     });
     if (!plan.ok) return plan;
-    const waited = applyWait(created.intention, plan, by);
+    const waited = applyWait(created.intention, plan, by, now());
     if (!waited.ok) return waited;
     const added = store.add(waited.intention);
     if (added.ok)
@@ -242,25 +279,11 @@ export function createIntentionService({
   }
 
   /**
-   * The refusal of one more intention from a heartbeat when the caps are reached (`innerLife.heartbeat.maxOpen`,
-   * `maxRecurring`, read now): `{ ok: false, code: 'heartbeat-cap'|'heartbeat-recurring-cap', open }`, `open` the
-   * open records from heartbeats (so she can update or cancel one), or null.
-   */
-  function heartbeatCapRefusal(store, { recurring }) {
-    const limits = heartbeatLimits(hot.config);
-    const open = openFromHeartbeat(store.list());
-    if (open.length >= limits.maxOpen) return { ok: false, code: CODE.HEARTBEAT_CAP, open };
-    if (recurring && open.filter((record) => record.every).length >= limits.maxRecurring)
-      return { ok: false, code: CODE.HEARTBEAT_RECURRING_CAP, open };
-    return null;
-  }
-
-  /**
    * A new record born `dropped` (`set` with `state: 'dropped'`): a desire she considered and let
    * go, with its `reason` (`reason-required` without one). It is not active (no `maxOpen` check),
    * never wakes, and is kept like any closed one.
    */
-  function setDropped(store, input, by) {
+  function setDropped(store: IntentionStore, input: SetInput, by: string): Created {
     const created = createIntention({
       purpose: input.purpose,
       provenance: {
@@ -285,7 +308,7 @@ export function createIntentionService({
     return added;
   }
 
-  function freshId(store) {
+  function freshId(store: IntentionStore): string {
     for (;;) {
       const id = newIntentionId(uuid);
       if (!store.get(id)) return id;
@@ -308,7 +331,7 @@ export function createIntentionService({
    * decide whether a candidate may be accepted (model.js#acceptRefusal: `candidate-same-turn`,
    * `candidate-external`, `candidate-same-chain`).
    */
-  function update(guildId, id, patch = {}) {
+  function update(guildId: unknown, id: unknown, patch: UpdatePatch = {}): Moved {
     const store = storeOf(guildId);
     if (!store) return { ok: false, code: CODE.NO_GUILD };
     const current = store.get(id);
@@ -329,7 +352,7 @@ export function createIntentionService({
         turnId: patch.turnId ?? null,
       });
       if (refused) {
-        log.info('intentions: accept refused', { guildId: store.guildId, id: String(id), code: refused });
+        log.info('intentions: accept refused', { guildId: store.guildId, id: idText(id), code: refused });
         return { ok: false, code: refused };
       }
     }
@@ -342,7 +365,7 @@ export function createIntentionService({
         return { ok: false, code: CODE.HEARTBEAT_RECURRING_CAP, open: others };
     }
     const plan =
-      !dropping && (patch.taskId || Number.isFinite(patch.deadline))
+      !dropping && (patch.taskId || isFiniteNumber(patch.deadline))
         ? waitPlan(store.guildId, {
             taskId: patch.taskId ?? null,
             deadline: patch.deadline ?? null,
@@ -351,10 +374,10 @@ export function createIntentionService({
         : null;
     if (plan && !plan.ok) return plan;
     const at = now();
-    const result = store.update(id, (record) => {
+    const result = store.update(id, (record): Moved => {
       let next = record;
       let changed = false;
-      const fields = {};
+      const fields: Partial<Intention> = {};
       if (typeof patch.purpose === 'string' && patch.purpose.trim())
         fields.purpose = clampChars(oneLine(patch.purpose), PURPOSE_CHARS);
       if (patch.dueAt !== undefined) fields.dueAt = patch.dueAt;
@@ -381,18 +404,14 @@ export function createIntentionService({
       if (isAttend(record) && fields.every) return { ok: false, code: CODE.ATTEND_WITH_EVERY };
       if (Object.keys(fields).length > 0) {
         next = { ...next, ...fields, updatedAt: at };
-        if (next.every && !Number.isFinite(next.dueAt)) return { ok: false, code: CODE.EVERY_WITHOUT_DUE };
+        if (next.every && !isFiniteNumber(next.dueAt)) return { ok: false, code: CODE.EVERY_WITHOUT_DUE };
         // A recurrence keeps the wall clock of its (new) first occurrence.
         if (next.every && (fields.every !== undefined || fields.dueAt !== undefined))
-          next.every = pinEvery(
-            { period: next.every.period, at: fields.every !== undefined ? (fields.every.at ?? null) : null },
-            next.dueAt,
-            timezone()
-          );
+          next.every = pinEvery({ period: next.every.period, at: fields.every?.at ?? null }, next.dueAt, timezone());
         // (A recurring one's next occurrence may already lie past its expiry: the expiry wins; only a new due or expiry is checked.)
         if (
           (fields.dueAt !== undefined || fields.expiresAt !== undefined) &&
-          Number.isFinite(next.dueAt) &&
+          isFiniteNumber(next.dueAt) &&
           next.dueAt > next.expiresAt
         )
           return { ok: false, code: CODE.DUE_AFTER_EXPIRY };
@@ -416,7 +435,7 @@ export function createIntentionService({
         changed = true;
       }
       if (plan) {
-        const waited = applyWait(next, plan, by);
+        const waited = applyWait(next, plan, by, now());
         if (!waited.ok) return waited;
         next = waited.intention;
         changed = changed || waited.changed;
@@ -439,7 +458,7 @@ export function createIntentionService({
       return { ok: true, intention: next, changed };
     });
     if (result.ok && result.changed)
-      log.info('intentions: updated', { guildId: store.guildId, id: String(id), status: result.intention.status, by });
+      log.info('intentions: updated', { guildId: store.guildId, id: idText(id), status: result.intention.status, by });
     return result;
   }
 
@@ -447,7 +466,11 @@ export function createIntentionService({
    * Intention `id` cancelled (a candidate rejected): `{ ok, intention }` or `{ ok: false, code }`.
    * `privateChannelId` / `all`: where the caller is, as in `update`.
    */
-  function cancel(guildId, id, { by = 'persona', privateChannelId = null, all = false } = {}) {
+  function cancel(
+    guildId: unknown,
+    id: unknown,
+    { by = 'persona', privateChannelId = null, all = false }: { by?: string } & Where = {}
+  ): Moved {
     const store = storeOf(guildId);
     if (!store) return { ok: false, code: CODE.NO_GUILD };
     const current = store.get(id);
@@ -455,12 +478,12 @@ export function createIntentionService({
     const result = store.update(id, (record) =>
       transition(record, 'cancelled', { now: now(), by, code: record.status === 'proposed' ? 'rejected' : 'cancelled' })
     );
-    if (result.ok) log.info('intentions: cancelled', { guildId: store.guildId, id: String(id), by });
+    if (result.ok) log.info('intentions: cancelled', { guildId: store.guildId, id: idText(id), by });
     return result;
   }
 
   /** Every open intention past its `expiresAt` expired and written. How many. */
-  function sweepExpired(store) {
+  function sweepExpired(store: IntentionStore): number {
     let count = 0;
     const at = now();
     for (const record of store.list()) {
@@ -477,7 +500,10 @@ export function createIntentionService({
    * visible to the conversation (`privateChannelId`: a private chat's own only there), or every
    * one with `all` (an owner's list).
    */
-  function list(guildId, { closed = false, privateChannelId = null, all = false } = {}) {
+  function list(
+    guildId: unknown,
+    { closed = false, privateChannelId = null, all = false }: { closed?: boolean } & Where = {}
+  ): Array<Intention> {
     const store = storeOf(guildId);
     if (!store) return [];
     sweepExpired(store);
@@ -491,7 +517,10 @@ export function createIntentionService({
    * `waiting`, by due time then age), then the candidates (`proposed`), newest first. Empty with
    * `features.intentions` off.
    */
-  function view(guildId, { privateChannelId = null } = {}) {
+  function view(
+    guildId: unknown,
+    { privateChannelId = null }: { privateChannelId?: string | null } = {}
+  ): Array<Intention> {
     if (!intentionsOn(hot.config)) return [];
     const open = list(guildId, { privateChannelId });
     const byDue = (a, b) => (a.dueAt ?? Infinity) - (b.dueAt ?? Infinity) || a.createdAt - b.createdAt;
@@ -505,24 +534,24 @@ export function createIntentionService({
    * Errand `taskId`, just queued by turn `turnId`, linked to every `pending` intention of that turn
    * whose wait was asked before the errand existed (`waitRequested`). How many.
    */
-  function linkTurnTask(guildId, { turnId, taskId }) {
+  function linkTurnTask(guildId: unknown, { turnId, taskId }: { turnId: unknown; taskId: unknown }): number {
     const store = storeOf(guildId);
     if (!store || !turnId || !taskId) return 0;
     let linked = 0;
     for (const record of store.list()) {
-      if (record.status !== 'pending' || record.waitRequested?.turnId !== String(turnId)) continue;
+      if (record.status !== 'pending' || record.waitRequested?.turnId !== idText(turnId)) continue;
       const deadline = record.waitRequested.deadline;
       const result = store.update(record.id, (current) =>
         waitOn(current, {
           taskId,
-          deadline: Number.isFinite(deadline) && deadline > now() ? deadline : now() + settings().waitHours * HOUR_MS,
+          deadline: isFiniteNumber(deadline) && deadline > now() ? deadline : now() + settings().waitHours * HOUR_MS,
           now: now(),
           by: 'engine',
         })
       );
       if (result.ok && result.changed) linked += 1;
     }
-    if (linked > 0) log.info('intentions: linked', { guildId: store.guildId, taskId: String(taskId), count: linked });
+    if (linked > 0) log.info('intentions: linked', { guildId: store.guildId, taskId: idText(taskId), count: linked });
     return linked;
   }
 
@@ -531,7 +560,7 @@ export function createIntentionService({
    * to `pending` with its outcome. Idempotent: the same end twice moves nothing the second time.
    * Never throws; how many moved.
    */
-  function onTaskFinished(task, guildId) {
+  function onTaskFinished(task: ErrandRecord, guildId: unknown): number {
     try {
       const store = storeOf(guildId);
       if (!store || !task?.id) return 0;
@@ -562,8 +591,8 @@ export function createIntentionService({
    * wait deadline (`deadline`) moved to `pending` with a note; then every open one past its expiry
    * expired. Counts; never throws.
    */
-  function reconcile(guildId) {
-    const counts = { arrived: 0, missing: 0, deadline: 0, expired: 0 };
+  function reconcile(guildId: unknown): ReconcileCounts {
+    const counts: ReconcileCounts = { arrived: 0, missing: 0, deadline: 0, expired: 0 };
     try {
       const store = storeOf(guildId);
       if (!store) return counts;
@@ -597,12 +626,21 @@ export function createIntentionService({
    * occurrence runs on until the wait ends), an occurrence already advanced (her `state=done`, a new
    * due she set) and a closed record change nothing. Never throws; `{ ok, intention, changed }`.
    */
-  function advance(guildId, id, { named = false, by = 'engine' } = {}) {
+  function advance(
+    guildId: unknown,
+    id: unknown,
+    { named = false, by = 'engine' }: { named?: boolean; by?: string } = {}
+  ): Advanced {
     try {
       const store = storeOf(guildId);
       const current = store?.get(id) ?? null;
       const at = now();
-      if (!current?.every || current.status !== 'pending' || !(wakeTimeOf(current, dueJitterMinutes(hot.config)) <= at))
+      if (
+        !store ||
+        !current?.every ||
+        current.status !== 'pending' ||
+        !(wakeTimeOf(current, dueJitterMinutes(hot.config)) <= at)
+      )
         return { ok: true, intention: current, changed: false };
       const code = named ? 'recurred' : 'missed';
       const result = store.update(id, (record) =>
@@ -611,19 +649,19 @@ export function createIntentionService({
       if (result.ok && result.changed)
         log.info('intentions: recurred', {
           guildId: store.guildId,
-          id: String(id),
+          id: idText(id),
           code,
           dueAt: result.intention.dueAt,
         });
       return result;
     } catch (err) {
-      log.warn('intentions: advance failed', { id: String(id ?? ''), error: err });
+      log.warn('intentions: advance failed', { id: idText(id), error: err });
       return { ok: false, code: CODE.WRITE_FAILED };
     }
   }
 
   /** A wait of recurring `record` just ended with its errand: the occurrence closes, the outcome kept. */
-  function afterWait(store, record) {
+  function afterWait(store: IntentionStore, record: Intention): void {
     if (!record?.every || record.status !== 'pending') return;
     const at = now();
     if (!(wakeTimeOf(record, dueJitterMinutes(hot.config)) <= at)) return;
@@ -650,21 +688,21 @@ export function createIntentionService({
    * the scheduler calls it once the review turn that listed it ran. An unexpired, unknown or already
    * marked record changes nothing. `{ ok, intention, changed }` or `{ ok: false, code }`.
    */
-  function markExpiredShown(guildId, id) {
+  function markExpiredShown(guildId: unknown, id: unknown): Moved {
     const store = storeOf(guildId);
     if (!store) return { ok: false, code: CODE.NO_GUILD };
     const result = store.update(id, (current) => markShown(current, now()));
-    if (result.ok && result.changed) log.info('intentions: expired shown', { guildId: store.guildId, id: String(id) });
+    if (result.ok && result.changed) log.info('intentions: expired shown', { guildId: store.guildId, id: idText(id) });
     return result;
   }
 
   /** The guild's open attentions (`pending` records with an `attend` place), the expired swept first. */
-  function attending(guildId) {
+  function attending(guildId: unknown): Array<Intention> {
     return list(guildId, { all: true }).filter((record) => record.status === 'pending' && isAttend(record));
   }
 
   /** The day's wake counter of attention `id` (model.js#attendCounter, today in `bot.timezone`), or null. */
-  function attendToday(guildId, id) {
+  function attendToday(guildId: unknown, id: unknown): { day: string; wakes: number } | null {
     const record = storeOf(guildId)?.get(id) ?? null;
     return isAttend(record) ? attendCounter(record, zonedDay(now(), timezone())) : null;
   }
@@ -673,7 +711,7 @@ export function createIntentionService({
    * One attend wake of attention `id` counted on today's counter (the scheduler, after the
    * wake's turn): `{ ok, intention, changed }` (`not-attend`, `not-found`, `write-failed`). Never throws.
    */
-  function countAttendWake(guildId, id) {
+  function countAttendWake(guildId: unknown, id: unknown): Moved {
     try {
       const store = storeOf(guildId);
       if (!store) return { ok: false, code: CODE.NO_GUILD };
@@ -681,18 +719,18 @@ export function createIntentionService({
       if (result.ok && result.changed)
         log.info('intentions: attend wake counted', {
           guildId: store.guildId,
-          id: String(id),
-          wakes: result.intention.attend.today.wakes,
+          id: idText(id),
+          wakes: result.intention.attend?.today?.wakes,
         });
       return result;
     } catch (err) {
-      log.warn('intentions: attend count failed', { id: String(id ?? ''), error: err });
+      log.warn('intentions: attend count failed', { id: idText(id), error: err });
       return { ok: false, code: CODE.WRITE_FAILED };
     }
   }
 
   /** What is due now (src/intentions/model.ts#dueList) for the guild, its expired swept first. */
-  function due(guildId) {
+  function due(guildId: unknown): Array<Due> {
     const store = storeOf(guildId);
     if (!store) return [];
     sweepExpired(store);
@@ -708,8 +746,8 @@ export function createIntentionService({
    * Each carries its origin (model.js#candidatesFromAnswer over the line's note: the buffered
    * line's `sources`, else `lineSources`; strict). Never throws; `{ added, external, duplicate, capped, dropped }`.
    */
-  async function addCandidates(guildId, raw, messages) {
-    const out = {
+  async function addCandidates(guildId: unknown, raw: unknown, messages: Array<Untyped>): Promise<CandidateCounts> {
+    const out: CandidateCounts = {
       added: 0,
       external: 0,
       duplicate: 0,
@@ -723,7 +761,7 @@ export function createIntentionService({
       const limits = settings();
       const { candidates, dropped } = candidatesFromAnswer(raw, messages, {
         max: limits.maxCandidates,
-        sourcesOf: (line) => line?.sources ?? lineSources?.get?.(String(line?.id ?? '')) ?? null,
+        sourcesOf: (line: Untyped) => line?.sources ?? lineSources?.get?.(String(line?.id ?? '')) ?? null,
         strict: Boolean(lineSources),
       });
       out.dropped = dropped;
@@ -742,7 +780,7 @@ export function createIntentionService({
           !turnId &&
           typeof journal?.findTurn === 'function' &&
           hot.config?.features?.journal === true &&
-          Number.isFinite(candidate.ts)
+          isFiniteNumber(candidate.ts)
         ) {
           try {
             turnId =
@@ -795,13 +833,13 @@ export function createIntentionService({
   }
 
   /** Note where her posted line `messageId` came from (src/intentions/sources.ts#lineSourcesOf's note). */
-  function noteLine(messageId, sources) {
-    lineSources?.note?.(String(messageId ?? ''), sources);
+  function noteLine(messageId: unknown, sources: LineNote): void {
+    lineSources?.note?.(idText(messageId), sources);
   }
 
   /** The note of her line `messageId`, or null. */
-  function lineSourcesOfLine(messageId) {
-    return lineSources?.get?.(String(messageId ?? '')) ?? null;
+  function lineSourcesOfLine(messageId: unknown): LineNote | null {
+    return lineSources?.get?.(idText(messageId)) ?? null;
   }
 
   return {

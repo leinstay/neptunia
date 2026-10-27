@@ -44,30 +44,106 @@ import { isOpenState } from './store.ts';
 import { createLedgerMirror } from './ledger.ts';
 import { DEFAULT_RESULT_MAX_CHARS } from './blocks.ts';
 import { CODE } from '../tools/codes.ts';
+import { errorCode, idText, isPositive, objOf, textOf } from '../tools/types.ts';
+import type { Untyped } from '../tools/types.ts';
+import type {
+  AddResult,
+  Budget,
+  CancelResult,
+  ErrandFileRef,
+  ErrandRecord,
+  ErrandScope,
+  ErrandService,
+  ErrandServiceOptions,
+  ErrandStore,
+  ExpiredFileRef,
+  FinishOutcome,
+  IdsInput,
+  Limits,
+  Logger,
+  PingAnswer,
+  RunContext,
+  RunSecrets,
+  SubmitInput,
+} from './types.ts';
 
 /** The limit keys a task may carry to its runner (src/agent-runner/protocol.js#LIMIT_KEYS). */
-const TASK_LIMIT_KEYS = Object.freeze(['steps', 'seconds']);
+const TASK_LIMIT_KEYS = Object.freeze(['steps', 'seconds'] as const);
 /** `errands.recentLines` when it is missing (config.json carries the same). */
 export const DEFAULT_RECENT_LINES = 6;
 /** The least time between two pings a `runner-down` refusal sends to recheck its runner (ms). */
 export const RUNNER_RECHECK_MS = 10_000;
 
+/** The limits a task of `agent` runs under: its profile's `limits` under the deployment's override. */
+function limitsFor(agent: string, config: Untyped): Limits {
+  const set: Record<string, number> = agentSettings(agent, config)?.limits ?? {};
+  // profiles.js types a profile as `object`, so its default limits are read through objOf.
+  const defaults = objOf(objOf(profileOf(agent)).defaultLimits);
+  const out: Limits = {};
+  for (const key of TASK_LIMIT_KEYS) {
+    const value = isPositive(set[key]) ? set[key] : defaults[key];
+    if (isPositive(value)) out[key] = value;
+  }
+  return out;
+}
+
 /**
- * @param {object} options
- * @param {Partial<ReturnType<import('./client.ts').createErrandClient>>} options.client
- * @param {ReturnType<import('./store.ts').createTaskStores>} options.stores
- * @param {{ config: object }} options.hot
- * @param {Record<string, string|undefined>} [options.env]  The parsed environment (src/config.js#env):
- *   the keys and the proxy a run carries.
- * @param {{ recentLines(guildId: string, channelId: string, count: number): Array<{ author: string, text: string }> }|null} [options.memory]
- *   The channel's newest lines, oldest first (src/index.js reads them from the memory database): a task's `context.recent`.
- * @param {() => string|null} [options.getGuildId]  The served guild, when a caller gives none.
- * @param {(task: { id: string, state: string }, guildId: string) => unknown} [options.onFinished]
- * @param {{ info: Function, warn: Function }} [options.log]
- * @param {(fn: () => unknown) => void} [options.defer]  How the background run starts (default setImmediate).
- * @param {ReturnType<typeof createLedgerMirror>|null} [options.ledger]  The ledger mirror; by
- *   default one over `agents.ledger.socket`, read at the moment of use.
- * @param {() => number} [options.now]  The clock of the runner rechecks.
+ * The secrets a task of `agent` carries to its runner: `{ openrouterKey, proxy?, searchKey? }`,
+ * or null when the agent's role has no key of its own (never the main key: none is passed).
+ */
+function secretsFor(agent: string, config: Untyped, env: Record<string, string | undefined>): RunSecrets | null {
+  const profile = objOf(profileOf(agent));
+  // The main key is never passed (an empty one: a role without a key of its own gets none).
+  const openrouterKey = profile.modelRole ? roleApiKey(config, env, profile.modelRole, '') : null;
+  if (typeof openrouterKey !== 'string' || !openrouterKey) return null;
+  const secrets: RunSecrets = { openrouterKey };
+  if (profile.name === 'scout') {
+    const proxy = httpProxyForm(env?.MEDIA_VIDEO_PROXY);
+    if (proxy) secrets.proxy = proxy;
+    const searchKey = typeof env?.OPENCODE_WEBSEARCH_KEY === 'string' ? env.OPENCODE_WEBSEARCH_KEY.trim() : '';
+    if (searchKey) secrets.searchKey = searchKey;
+  }
+  return secrets;
+}
+
+/**
+ * The last `errands.recentLines` lines (read now; at most MAX_RECENT_ENTRIES) of channel
+ * `channelId` in the memory's buffer of `guildId`, oldest first, as `{ author, text }` (the
+ * display name and the text on one line, each cut to RECENT_CHARS; a line without text left
+ * out). [] for a `dm` scope, without a channel or a buffer.
+ */
+function recentLinesOf(
+  { memory, config, log }: { memory: ErrandServiceOptions['memory']; config: Untyped; log: Logger },
+  guildId: string,
+  channelId: string | null,
+  scope: ErrandScope
+): RunContext['recent'] {
+  if (scope === 'dm' || !channelId || typeof memory?.recentLines !== 'function') return [];
+  const set = config?.errands?.recentLines;
+  const count = Math.min(MAX_RECENT_ENTRIES, Number.isFinite(set) && set >= 0 ? Math.floor(set) : DEFAULT_RECENT_LINES);
+  if (count === 0) return [];
+  let lines: Array<{ author?: unknown; text?: unknown }>;
+  try {
+    lines = memory.recentLines(guildId, channelId, count);
+  } catch (err) {
+    log.warn('errands: recent lines unreadable', { guildId: String(guildId), code: errorCode(err) });
+    return [];
+  }
+  return (Array.isArray(lines) ? lines : [])
+    .map((line) => ({
+      author: clampChars(oneLine(line.author ?? ''), RECENT_CHARS),
+      text: clampChars(oneLine(line.text ?? ''), RECENT_CHARS),
+    }))
+    .filter((line) => line.text)
+    .slice(-count);
+}
+
+/**
+ * `hot` holds the live config. `env` is the parsed environment (src/config.js#env): the keys and the proxy a run
+ * carries. `memory` gives the channel's newest lines, oldest first (src/index.js reads them from the memory
+ * database): a task's `context.recent`. `getGuildId` names the served guild when a caller gives none. `defer` is how
+ * the background run starts (setImmediate by default). `ledger` is the ledger mirror, by default one over
+ * `agents.ledger.socket`, read at the moment of use. `now` is the clock of the runner rechecks.
  */
 export function createErrandService({
   client,
@@ -81,15 +157,15 @@ export function createErrandService({
   defer = (fn) => setImmediate(fn),
   ledger = null,
   now = Date.now,
-}) {
+}: ErrandServiceOptions): ErrandService {
   // task id -> the promise of its run, while it runs (tests and the shutdown wait on them).
-  const running = new Map();
+  const running = new Map<string, Promise<ErrandRecord | null>>();
   // task id -> the task as it started, while its runner works on it (its progress goes to the ledger).
-  const live = new Map();
+  const live = new Map<string, ErrandRecord>();
   const mirror = ledger ?? createLedgerMirror({ socketPath: () => hot.config?.agents?.ledger?.socket ?? null, log });
 
   /** One call of the ledger mirror; a failure is logged, never thrown into the errand. */
-  function mirrored(id, fn) {
+  function mirrored(id: string | null, fn: () => unknown): void {
     try {
       fn();
     } catch (err) {
@@ -98,12 +174,12 @@ export function createErrandService({
   }
 
   /** The handler that keeps the ledger's id of task `id` in `store`. */
-  function keepLedgerId(store, id) {
+  function keepLedgerId(store: ErrandStore, id: string): (ledgerId: string) => unknown {
     return (ledgerId) => store.setLedgerId?.(id, ledgerId);
   }
 
   /** `errands.resultMaxChars`, read now. */
-  function resultMaxChars() {
+  function resultMaxChars(): number {
     const set = hot.config?.errands?.resultMaxChars;
     return Number.isFinite(set) && set > 0 ? set : DEFAULT_RESULT_MAX_CHARS;
   }
@@ -114,12 +190,12 @@ export function createErrandService({
     if (task) mirrored(task.id, () => mirror.progress(task));
   });
   // task id -> its `context.recent`, from its queuing until it is sent (never written to disk).
-  const recentById = new Map();
+  const recentById = new Map<string, RunContext['recent']>();
   // agent -> { up: boolean, checkedAt: ms of the last recheck ping } once anything is known.
-  const health = new Map();
+  const health = new Map<string, { up: boolean; checkedAt: number | null }>();
 
   /** The health flag of `agent` set to `up` (`code` why it is down); logged when it changes. */
-  function setHealth(agent, up, code = null) {
+  function setHealth(agent: string | undefined, up: boolean, code: string | null = null): void {
     if (!agent) return;
     const entry = health.get(agent);
     if (entry?.up === up) return;
@@ -135,23 +211,24 @@ export function createErrandService({
    * One ping of `agent`'s runner (a pong sets its flag up, a failed ping down), in the
    * background. Resolves the flag; never throws.
    */
-  async function check(agent) {
+  async function check(agent: string): Promise<boolean | null> {
     if (typeof client?.ping !== 'function') return null;
     if (typeof client.configured === 'function' && !client.configured(agent)) return null;
-    let answer;
+    let answer: PingAnswer;
     try {
       answer = await client.ping(agent);
     } catch (err) {
-      answer = { ok: false, error: err?.code ?? 'client-error' };
+      answer = { ok: false, error: errorCode(err) ?? 'client-error' };
     }
+    const error = answer.ok ? null : answer.error;
     // Not set up (meanwhile) tells nothing about the runner.
-    if (answer?.error === CODE.NOT_CONFIGURED) return health.get(agent)?.up ?? null;
-    setHealth(agent, answer?.ok === true, answer?.error ?? null);
-    return answer?.ok === true;
+    if (error === CODE.NOT_CONFIGURED) return health.get(agent)?.up ?? null;
+    setHealth(agent, answer.ok, error);
+    return answer.ok;
   }
 
   /** Whether `agent`'s runner is known down now; a refusal rechecks it at most once per RUNNER_RECHECK_MS. */
-  function runnerDown(agent) {
+  function runnerDown(agent: string): boolean {
     const entry = health.get(agent);
     if (entry?.up !== false) return false;
     const at = now();
@@ -163,71 +240,17 @@ export function createErrandService({
   }
 
   /** The store of `guildId`, else of the served guild. */
-  function storeOf(guildId) {
+  function storeOf(guildId?: unknown): ErrandStore | null {
     return stores.get(guildId || getGuildId?.() || '');
   }
 
-  /** The limits a task of `agent` runs under: its profile's `limits` under the deployment's override. */
-  function limitsOf(agent) {
-    const set = agentSettings(agent, hot.config)?.limits ?? {};
-    const out = {};
-    for (const key of TASK_LIMIT_KEYS) {
-      const value = Number.isFinite(set[key]) && set[key] > 0 ? set[key] : profileOf(agent)?.defaultLimits?.[key];
-      if (Number.isFinite(value) && value > 0) out[key] = value;
-    }
-    return out;
-  }
-
-  /**
-   * The secrets a task of `agent` carries to its runner: `{ openrouterKey, proxy?, searchKey? }`,
-   * or null when the agent's role has no key of its own (never the main key: none is passed).
-   */
-  function secretsOf(agent) {
-    const profile = profileOf(agent);
-    const openrouterKey = profile?.modelRole ? roleApiKey(hot.config, env, profile.modelRole, null) : null;
-    if (typeof openrouterKey !== 'string' || !openrouterKey) return null;
-    const secrets = { openrouterKey };
-    if (profile.name === 'scout') {
-      const proxy = httpProxyForm(env?.MEDIA_VIDEO_PROXY);
-      if (proxy) secrets.proxy = proxy;
-      const searchKey = typeof env?.OPENCODE_WEBSEARCH_KEY === 'string' ? env.OPENCODE_WEBSEARCH_KEY.trim() : '';
-      if (searchKey) secrets.searchKey = searchKey;
-    }
-    return secrets;
-  }
-
-  /**
-   * The last `errands.recentLines` lines (read now; at most MAX_RECENT_ENTRIES) of channel
-   * `channelId` in the memory's buffer of `guildId`, oldest first, as `{ author, text }` (the
-   * display name and the text on one line, each cut to RECENT_CHARS; a line without text left
-   * out). [] for a `dm` scope, without a channel or a buffer.
-   */
-  function recentOf(guildId, channelId, scope) {
-    if (scope === 'dm' || !channelId || typeof memory?.recentLines !== 'function') return [];
-    const set = hot.config?.errands?.recentLines;
-    const count = Math.min(
-      MAX_RECENT_ENTRIES,
-      Number.isFinite(set) && set >= 0 ? Math.floor(set) : DEFAULT_RECENT_LINES
-    );
-    if (count === 0) return [];
-    let lines;
-    try {
-      lines = memory.recentLines(guildId, channelId, count);
-    } catch (err) {
-      log.warn('errands: recent lines unreadable', { guildId: String(guildId), code: err?.code ?? null });
-      return [];
-    }
-    return (Array.isArray(lines) ? lines : [])
-      .map((line) => ({
-        author: clampChars(oneLine(line.author ?? ''), RECENT_CHARS),
-        text: clampChars(oneLine(line.text ?? ''), RECENT_CHARS),
-      }))
-      .filter((line) => line.text)
-      .slice(-count);
-  }
+  const limitsOf = (agent: string): Limits => limitsFor(agent, hot.config);
+  const secretsOf = (agent: string): RunSecrets | null => secretsFor(agent, hot.config, env);
+  const recentOf = (guildId: string, channelId: string | null, scope: ErrandScope): RunContext['recent'] =>
+    recentLinesOf({ memory, config: hot.config, log }, guildId, channelId, scope);
 
   /** One queued task sent to its runner and closed with its end. Never throws. */
-  async function runTask(store, id) {
+  async function runTask(store: ErrandStore, id: string): Promise<ErrandRecord | null> {
     const recent = recentById.get(id) ?? [];
     recentById.delete(id);
     const task = store.start(id);
@@ -235,10 +258,13 @@ export function createErrandService({
     const secrets = secretsOf(task.agent);
     const limits = limitsOf(task.agent);
     mirrored(task.id, () =>
-      mirror.start(task, { limits, model: roleModel(hot.config, profileOf(task.agent)?.modelRole) ?? null })
+      mirror.start(task, {
+        limits,
+        model: roleModel(hot.config, textOf(objOf(profileOf(task.agent)).modelRole)) ?? null,
+      })
     );
     live.set(task.id, task);
-    let outcome;
+    let outcome: FinishOutcome;
     try {
       outcome = await client.run({
         agent: task.agent,
@@ -279,9 +305,16 @@ export function createErrandService({
    * known unreachable, `no-guild` without a guild).
    * A task the store already holds under the call's `idempotencyKey` is answered as it is
    * (`duplicate: true`), never run again.
-   * @param {{ guildId?: string, agent: string, goal: string, requester: object, origin: object, scope: 'dm'|'group', idempotencyKey?: string|null }} input
    */
-  function submit({ guildId = null, agent, goal, requester, origin, scope, idempotencyKey = null }) {
+  function submit({
+    guildId = null,
+    agent,
+    goal,
+    requester,
+    origin,
+    scope,
+    idempotencyKey = null,
+  }: SubmitInput): AddResult {
     const store = storeOf(guildId);
     if (!store) return { ok: false, code: CODE.NO_GUILD };
     if (!profileOf(agent)) return { ok: false, code: CODE.UNKNOWN_AGENT };
@@ -297,7 +330,7 @@ export function createErrandService({
     // The channel as it was when the task was asked for, not when it is sent.
     recentById.set(id, recentOf(store.guildId, added.task.origin?.channelId ?? null, added.task.scope));
     // After the operation's answer: the persona never waits for her errand.
-    const run = new Promise((resolve) => defer(resolve))
+    const run = new Promise<void>((resolve) => defer(resolve))
       .then(() => runTask(store, id))
       .finally(() => running.delete(id));
     running.set(id, run);
@@ -308,7 +341,15 @@ export function createErrandService({
    * Task `id` cancelled: the store closes it, the runner is told, the ledger gets
    * `cancelled-by-<by>`. `{ ok, task }` or `{ ok: false, code }`.
    */
-  function cancel({ guildId = null, id, by = 'unknown' }) {
+  function cancel({
+    guildId = null,
+    id,
+    by = 'unknown',
+  }: {
+    guildId?: string | null;
+    id: string;
+    by?: string;
+  }): CancelResult {
     const store = storeOf(guildId);
     if (!store) return { ok: false, code: CODE.NO_GUILD };
     const task = store.get(id);
@@ -322,9 +363,9 @@ export function createErrandService({
   }
 
   /** The gateway's budget of a new `agent` task (src/tools/gateway.ts): the store's caps. */
-  function budget({ guildId = null, agent } = {}) {
+  function budget({ guildId = null, agent }: { guildId?: string | null; agent?: string } = {}): Budget | null {
     const store = storeOf(guildId);
-    return store ? store.budget(agent) : null;
+    return store ? store.budget(agent ?? '') : null;
   }
 
   /**
@@ -333,18 +374,21 @@ export function createErrandService({
    * one), oldest first. In a server channel only the `group` ones; in a private
    * chat (`privateChannelId`) also the `dm` ones asked in that chat.
    */
-  function view({ guildId = null, privateChannelId = null } = {}) {
+  function view({
+    guildId = null,
+    privateChannelId = null,
+  }: { guildId?: string | null; privateChannelId?: string | null } = {}): Array<ErrandRecord> {
     const store = storeOf(guildId);
     if (!store) return [];
-    const visible = (task) =>
+    const visible = (task: ErrandRecord): boolean =>
       task.scope !== 'dm' || (privateChannelId !== null && task.origin?.channelId === String(privateChannelId));
     return [...store.open(), ...store.unread()].filter(visible);
   }
 
   /** `{ expired: true, task }` for the expired file `handle` of a task this conversation may see, else null. */
-  function expiredFile(store, handle, privateChannelId) {
+  function expiredFile(store: ErrandStore, handle: string, privateChannelId: string | null): ExpiredFileRef | null {
     const task = store.get(
-      String(handle)
+      idText(handle)
         .replace(/^file:/, '')
         .split('/')[0]
     );
@@ -361,11 +405,17 @@ export function createErrandService({
    * conversation that may see its task (view's rule: a private chat's task only in that chat);
    * null otherwise.
    */
-  function fileOf({ guildId = null, handle, privateChannelId = null } = {}) {
+  function fileOf({
+    guildId = null,
+    handle,
+    privateChannelId = null,
+  }: { guildId?: string | null; handle?: unknown; privateChannelId?: string | null } = {}):
+    ErrandFileRef | ExpiredFileRef | null {
     const store = storeOf(guildId);
     const file = store ? store.fileOf(handle) : null;
     // Files the runner has deleted: a marker the callers refuse as `file-expired`, never a path.
-    if (!file) return store?.fileExpired?.(handle) === true ? expiredFile(store, handle, privateChannelId) : null;
+    if (!file)
+      return store?.fileExpired?.(handle) === true ? expiredFile(store, idText(handle), privateChannelId) : null;
     if (
       file.task.scope === 'dm' &&
       (privateChannelId === null || file.task.origin?.channelId !== String(privateChannelId))
@@ -375,7 +425,7 @@ export function createErrandService({
   }
 
   /** The tasks `ids` marked as seen by the persona (a turn of hers showed them). */
-  function markSeen({ guildId = null, ids = [] } = {}) {
+  function markSeen({ guildId = null, ids = [] }: IdsInput = {}): number {
     const store = storeOf(guildId);
     if (!store) return 0;
     let marked = 0;
@@ -384,7 +434,7 @@ export function createErrandService({
   }
 
   /** The tasks `ids` marked as read by the persona (their result turn completed, or `errand.read` returned them). */
-  function markRead({ guildId = null, ids = [] } = {}) {
+  function markRead({ guildId = null, ids = [] }: IdsInput = {}): number {
     const store = storeOf(guildId);
     if (!store) return 0;
     let marked = 0;
@@ -393,7 +443,7 @@ export function createErrandService({
   }
 
   /** The tasks `ids` noted as ones whose result turn never completed (kept unread; the `<errands>` line says so). */
-  function markResultFailed({ guildId = null, ids = [] } = {}) {
+  function markResultFailed({ guildId = null, ids = [] }: IdsInput = {}): number {
     const store = storeOf(guildId);
     if (!store) return 0;
     let marked = 0;
@@ -406,7 +456,7 @@ export function createErrandService({
    * ledger id mirrored first, then each one's failure. Each enabled agent's runner is pinged
    * in the background (its health flag).
    */
-  function start(guildId) {
+  function start(guildId: unknown): number {
     // Each enabled agent's runner pinged in the background: its flag known before the first ask.
     for (const agent of Object.keys(PROFILES)) check(agent).catch(() => {});
     const store = storeOf(guildId);
@@ -416,7 +466,9 @@ export function createErrandService({
       mirror.mirrorOpen(open, {
         guildId: store.guildId,
         limitsOf: (task) => limitsOf(task.agent),
-        onLedgerId: (task, ledgerId) => store.setLedgerId?.(task.id, ledgerId),
+        onLedgerId: (task, ledgerId) => {
+          store.setLedgerId?.(task.id, ledgerId);
+        },
       })
     );
     const failed = store.failOpen('restarted');
@@ -443,7 +495,7 @@ export function createErrandService({
   }
 
   /** Wait for the runs in flight (tests). */
-  async function idle() {
+  async function idle(): Promise<void> {
     while (running.size > 0) await Promise.allSettled([...running.values()]);
   }
 
