@@ -1063,8 +1063,11 @@ function parsedRecord(text) {
 // `errand-<state>` or `errand-missing`. A closed record keeps its note (the heartbeat prints it as the reason the
 // intention ended), the `history` entries and the archived lines stay as written. A row is written only when its
 // text changes, so a second run finds nothing.
-/** @param {{ exec(sql: string): void, prepare(sql: string): { all(): Array<{ id: string, record: unknown }>, run(...args: Array<unknown>): unknown } }} db */
-function V14(db) {
+/** @typedef {{ exec(sql: string): void, prepare(sql: string): { all(): Array<{ id: string, record: unknown }>, run(...args: Array<unknown>): unknown } }} MigrationDb */
+
+/** @param {unknown} connection  The migration's connection, read as a `MigrationDb`. */
+function V14(connection) {
+  const db = /** @type {MigrationDb} */ (connection);
   db.exec(V14_UNITS);
   const rows = db.prepare('SELECT id, record FROM intentions WHERE COALESCE(archived, 0) = 0').all();
   const update = db.prepare('UPDATE intentions SET record = ? WHERE id = ?');

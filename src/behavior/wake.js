@@ -546,6 +546,8 @@ export function placesBlockText(page, labels) {
   return placesLines(page, labels?.wake).join('\n');
 }
 
+/** @typedef {{ kind: string, reason?: string, intentionIds?: string[], errandId?: string|null, delayed?: { minutes?: number, code?: string }, facts?: object[], attend?: { placeName?: string, place: string, lines: number, peopleNames?: string[], people: string[], since?: number|null } }} WakeItem */
+
 /**
  * The `<wake>` body for `wake` (src/behavior/inner.js's turn record: `items`, `intentions`, `notes`
  * -- an intention id to a `labels.intentions.notes` code, `last-occurrence`, joined to its line by
@@ -562,7 +564,7 @@ export function placesBlockText(page, labels) {
  * kept, untold ones) follow the same way under `labels.wake.feedbackInTurn`.
  * The current channel (`wake.here`: `{ channel, why }`) follows the wake lines as `labels.wake.here`
  * (`{channel}`, `{why}`), or `labels.wake.hereNone` when the turn has none (`here` null; absent: no line).
- * @param {{ items: { kind: string, intentionIds?: string[], errandId?: string|null, attend?: { placeName?: string, place: string, lines: number, peopleNames?: string[], people: string[], since?: number|null } }[],
+ * @param {{ items: Array<Record<string, unknown>|undefined>,
  *   intentions?: object[], notes?: Record<string, string>, expired?: { items: { id: string, purpose: string, at: number }[], more: number }|null,
  *   now: number, timezone: string, channels?: string[], places?: object|null, budgets?: object }} wake
  * @param {object} labels
@@ -577,7 +579,8 @@ export function wakeBlockText(wake, labels, { locale = 'en-US', handleBase = nul
     Number.isFinite(ts) ? `${formatDate(ts, timezone, locale)} ${formatClock(ts, timezone, locale)}` : '';
   const byId = new Map((Array.isArray(wake.intentions) ? wake.intentions : []).map((record) => [record.id, record]));
   const lines = [l.header];
-  for (const item of Array.isArray(wake.items) ? wake.items : []) {
+  for (const entry of (Array.isArray(wake.items) ? wake.items : []).filter(Boolean)) {
+    const item = /** @type {WakeItem} */ (entry);
     const template = l.kinds?.[item.kind];
     if (typeof template !== 'string' || !template) continue;
     const ids = Array.isArray(item.intentionIds) && item.intentionIds.length > 0 ? item.intentionIds : [null];

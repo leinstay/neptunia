@@ -105,7 +105,7 @@ function candidateLine(record, l) {
  * `maxTokens` (`cost` the estimate; whole lines, in order): `labels.intentions.header`, a line per
  * active one, then `candidates` and a `candidate` line per proposed one. '' when nothing fits or
  * the labels are missing.
- * @param {object[]} records
+ * @param {Array<object|null|undefined>} records
  * @param {object} labels
  * `channelNameOf(id)` names a destination or attended channel (its id when it gives nothing);
  * `nameOf(id)` names an attended person (the id when it gives nothing). `now` (epoch ms) and

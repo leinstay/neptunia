@@ -54,17 +54,17 @@ export const RUNNER_RECHECK_MS = 10_000;
 
 /**
  * @param {object} options
- * @param {ReturnType<import('./client.js').createErrandClient>} options.client
- * @param {{ get(guildId: string): object|null }} options.stores  src/errands/store.js#createTaskStores
+ * @param {Partial<ReturnType<import('./client.js').createErrandClient>>} options.client
+ * @param {ReturnType<import('./store.js').createTaskStores>} options.stores
  * @param {{ config: object }} options.hot
  * @param {Record<string, string|undefined>} [options.env]  The parsed environment (src/config.js#env):
  *   the keys and the proxy a run carries.
  * @param {{ recentLines(guildId: string, channelId: string, count: number): Array<{ author: string, text: string }> }|null} [options.memory]
  *   The channel's newest lines, oldest first (src/index.js reads them from the memory database): a task's `context.recent`.
  * @param {() => string|null} [options.getGuildId]  The served guild, when a caller gives none.
- * @param {(task: object, guildId: string) => unknown} [options.onFinished]
+ * @param {(task: { id: string, state: string }, guildId: string) => unknown} [options.onFinished]
  * @param {{ info: Function, warn: Function }} [options.log]
- * @param {(fn: Function) => void} [options.defer]  How the background run starts (default setImmediate).
+ * @param {(fn: () => unknown) => void} [options.defer]  How the background run starts (default setImmediate).
  * @param {ReturnType<typeof createLedgerMirror>|null} [options.ledger]  The ledger mirror; by
  *   default one over `agents.ledger.socket`, read at the moment of use.
  * @param {() => number} [options.now]  The clock of the runner rechecks.

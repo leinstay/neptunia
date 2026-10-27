@@ -112,7 +112,7 @@ export function isMemoryPath(rel) {
  * become `errands.json` and `errands.jsonl`. Only a path directly under a guild maps (a private layer's path and every
  * other path stay as they are). The one alias table for unit paths: the unit writer and the importers read an owner
  * through it.
- * @param {string} rel
+ * @param {unknown} rel
  * @returns {string}
  */
 export function currentUnitPath(rel) {
