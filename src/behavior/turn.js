@@ -207,7 +207,7 @@ export const SKIP_NOTHING_TO_DO = 'nothing-to-do';
  * address classifier found to be about the persona but said to someone else
  * or to the room (`overheard`), a private chat message, or a message to the persona left unanswered
  * earlier (`missed`, src/behavior/missed.js). Each has a `labels.triggers` entry.
- * @typedef {'mention'|'reply'|'name'|'followUp'|'overheard'|'private'|'missed'|'errand'} TriggerKind
+ * @typedef {'mention'|'reply'|'name'|'followUp'|'overheard'|'private'|'missed'|'errand'|'inner'} TriggerKind
  */
 
 /**
