@@ -323,6 +323,8 @@ test('skillArgs: a skill lists its arguments, the same each time', () => {
     { name: 'gif', required: false },
     { name: 'media', required: false },
     { name: 'item', required: false, minimum: 1, maximum: 20 },
+    // Stage 3 design, section 10: her diary in place of a channel, a string choice.
+    { name: 'diary', required: false, values: ['true', 'false'] },
   ]);
   assert.deepEqual(skillArgs(registry.get('memory.journal.read')), skillArgs(registry.get('memory.journal.read')));
 });
