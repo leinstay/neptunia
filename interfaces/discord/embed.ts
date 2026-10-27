@@ -101,7 +101,7 @@ function gifOf(
 ): { isGif: boolean; animationUrl: string | null } {
   // A JS caller may hand anything as `videoSites`; only an array is a list of sites.
   const sites = Array.isArray(videoSites) ? (videoSites as Array<string>) : [];
-  const onVideoSite = Boolean(url) && sites.length > 0 && videoSiteFor(url, sites) !== null;
+  const onVideoSite = Boolean(url && sites.length > 0 && videoSiteFor(url, sites) !== null);
   const isGifv = embedTypeOf(embed) === GIF_EMBED_TYPE && !onVideoSite;
   const discordGif = isDiscordGifFile(embed, url);
   const isGif = isGifv || GIF_PROVIDERS.has(providerName.toLowerCase()) || isGifHostUrl(url ?? '') || discordGif;
