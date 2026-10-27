@@ -1,9 +1,9 @@
 // The diary turn's own steps, beside the turn runner (src/behavior/turn.js, mode `diary`). A diary turn writes her
 // entry and sends nothing: the entry is recorded in memory first (`recordEntry`, the store's diary unit), and the
 // diary's mirrors publish it (src/behavior/mirror.ts). Run as the `selfreflection` wake it has no conversation, and
-// `wakeInputs` rebuilds from memory what the diary channel gave: the place her diary is posted to
-// (mirror.ts#diaryPlaces), that place as the turn's conversation, and her recent entries as its history, read through
-// the same line builder (src/behavior/line-of.js). `pictureGate` says whether the post may carry a picture, and
+// `wakeInputs` gives it the place her diary is posted to (mirror.ts#diaryPlaces) as its conversation and her diary as
+// its history: her entries' posts as memory holds them, message by message, read through the same line builder
+// (src/behavior/line-of.js). `pictureGate` says whether the post may carry a picture, and
 // `diaryVoiceTool` keeps her voice message for the entry instead of posting it. Logs: none.
 
 import { randomUUID } from 'node:crypto';
@@ -221,69 +221,127 @@ export function recordEntry({
   };
 }
 
-/** One line of her diary as memory holds it: the message id, when and what she wrote. */
-type MemoryLine = { id: string; at: number; text: string };
+/** One message of her diary as memory holds it: a message of the platform's shape, and its addressing. */
+type DiaryMessage = { message: Row; addressing: Row | null };
 
 const textOf = (value: unknown): string => (typeof value === 'string' ? value : '');
 
-/** The native message ids of an entry: its legacy mirror's, then the receipts of its publications to `placeId`. */
-function nativeIdsOf(db: Db, entryId: string, placeId: string): Array<string> {
+/** The JSON object or array a column holds, or null. */
+function jsonOf(value: unknown): unknown {
+  try {
+    return typeof value === 'string' ? JSON.parse(value) : null;
+  } catch {
+    // A column that cannot be read holds nothing.
+    return null;
+  }
+}
+
+/** The message ids an entry was posted as, in order: its legacy mirror's, else its publications' message receipts. */
+function messageIdsOf(db: Db, entryId: string): Array<string> {
   const ids: Array<string> = [];
   for (const row of db
     .prepare('SELECT native_ids FROM diary_mirrors WHERE diary_id = ? AND retired_at IS NULL ORDER BY rowid')
     .all(entryId)) {
-    const parsed: unknown = JSON.parse(textOf(row.native_ids) || '[]');
-    if (Array.isArray(parsed)) for (const id of parsed) if (typeof id === 'string' && id) ids.push(id);
+    const parsed = jsonOf(row.native_ids);
+    if (Array.isArray(parsed))
+      for (const id of parsed as Array<unknown>) if (typeof id === 'string' && id) ids.push(id);
   }
+  if (ids.length > 0) return [...new Set(ids)];
   for (const row of db
     .prepare(
-      "SELECT receipts FROM publications WHERE row_kind = 'diary' AND row_id = ? AND destination_place_id = ? AND status = 'sent' AND retired_at IS NULL ORDER BY created_at, id"
+      "SELECT receipts FROM publications WHERE row_kind = 'diary' AND row_id = ? AND status = 'sent' AND retired_at IS NULL ORDER BY created_at, id LIMIT 1"
     )
-    .all(entryId, placeId)) {
-    const parsed: unknown = JSON.parse(textOf(row.receipts) || '[]');
+    .all(entryId)) {
+    const parsed = jsonOf(row.receipts);
     if (Array.isArray(parsed))
-      for (const receipt of parsed as Array<{ key?: unknown }>)
-        if (typeof receipt?.key === 'string' && receipt.key) ids.push(receipt.key);
+      for (const receipt of parsed as Array<{ key?: unknown; kind?: unknown }>)
+        if (typeof receipt?.key === 'string' && receipt.key && receipt.kind !== 'attachment') ids.push(receipt.key);
   }
   return [...new Set(ids)];
 }
 
-/**
- * Her diary's lines as memory holds them, oldest first, the newest `limit`: for each live entry, the lines of hers the
- * record of `placeId` keeps for its messages, else its text as one line under its first message id (or its own id).
- * An entry with neither is left out.
- */
-function diaryLines(db: Db, placeId: string | null, limit: number): Array<MemoryLine> {
-  const lines: Array<MemoryLine> = [];
-  const entries = db
-    .prepare('SELECT id, at_ms, text FROM diary WHERE retired_at IS NULL ORDER BY at_ms DESC, position DESC LIMIT ?')
-    .all(limit)
-    .reverse();
-  for (const entry of entries) {
-    const entryId = String(entry.id);
-    const at = numberOr(entry.at_ms, 0);
-    const ids = placeId ? nativeIdsOf(db, entryId, placeId) : [];
-    const recorded =
-      placeId && ids.length > 0
-        ? db
-            .prepare(
-              `SELECT native_id, occurred_at, text FROM sources WHERE kind = 'said' AND place_id = ? AND retired_at IS NULL
-                AND native_id IN (${ids.map(() => '?').join(', ')}) ORDER BY occurred_at, position`
-            )
-            .all(placeId, ...ids)
-        : [];
-    if (recorded.length > 0) {
-      for (const row of recorded)
-        lines.push({
-          id: textOf(row.native_id),
-          at: Date.parse(textOf(row.occurred_at)) || at,
-          text: textOf(row.text),
-        });
-    } else if (textOf(entry.text) !== '') {
-      lines.push({ id: ids[0] ?? entryId, at, text: textOf(entry.text) });
-    }
+/** An entry's files as memory keeps them, by the message that carries each: the attachment as the platform names it. */
+function filesOf(db: Db, entryId: string): Map<string, Array<Row>> {
+  const byMessage = new Map<string, Array<Row>>();
+  const rows = db
+    .prepare(
+      "SELECT id, native_ref, mime, bytes, extra FROM media WHERE kind = 'diary' AND owner = ? AND retired_at IS NULL"
+    )
+    .all(entryId)
+    .sort((a, b) => Number(/-(\d+)$/.exec(String(a.id))?.[1] ?? 0) - Number(/-(\d+)$/.exec(String(b.id))?.[1] ?? 0));
+  for (const row of rows) {
+    const ref = (jsonOf(row.native_ref) ?? {}) as Row;
+    const messageId = textOf(ref.messageId);
+    if (!messageId) continue;
+    const mime = textOf(row.mime);
+    const voice = mime.startsWith('audio/') && (jsonOf(row.extra) as Row | null)?.voice === true;
+    const extra = (jsonOf(row.extra) ?? {}) as Row;
+    const file: Row = {
+      id: textOf(ref.attachmentId) || String(row.id),
+      kind: voice ? 'voice' : mime.startsWith('image/') ? 'image' : 'file',
+      url: textOf(ref.url) || null,
+      contentType: mime || null,
+      size: numberOr(row.bytes, 0),
+      ...(voice && typeof extra.durationSec === 'number' ? { durationSec: extra.durationSec } : {}),
+    };
+    byMessage.set(messageId, [...(byMessage.get(messageId) ?? []), file]);
   }
-  return lines.slice(-limit);
+  return byMessage;
+}
+
+/**
+ * Her diary as memory holds it, the newest `limit` messages, oldest first: each entry's post message by message, each
+ * message's text, time and what it answers from the newest revision of her line in the record of `placeId` (`said`
+ * or `seen`, `editedAt` set from the second revision on), its files from the entry's media
+ * rows; an entry with no such line is its text as one message under its first message id (or its own id), at the
+ * entry's time. Nothing of anyone else: the mirror place's other lines are no part of her diary.
+ */
+function diaryMessages(db: Db, placeId: string | null, limit: number): Array<DiaryMessage> {
+  const out: Array<DiaryMessage> = [];
+  const said = db.prepare(
+    `SELECT native_id, revision, occurred_at, recorded_at, text, reply_to FROM sources
+      WHERE place_id = ? AND native_id = ? AND kind IN ('said', 'seen') AND retired_at IS NULL
+      ORDER BY revision DESC, kind = 'said' DESC LIMIT 1`
+  );
+  const deleted = db.prepare(
+    "SELECT 1 AS gone FROM sources WHERE place_id = ? AND native_id = ? AND kind = 'deleted' AND retired_at IS NULL LIMIT 1"
+  );
+  const entries = db
+    .prepare('SELECT id, at_ms, text FROM diary WHERE retired_at IS NULL ORDER BY at_ms DESC, position DESC')
+    .all();
+  for (const entry of entries) {
+    if (out.length >= limit) break;
+    const entryId = String(entry.id);
+    const ids = messageIdsOf(db, entryId);
+    const files = filesOf(db, entryId);
+    const lines = placeId ? ids.map((id) => ({ id, line: said.all(placeId, id)[0] })) : [];
+    const posted: Array<DiaryMessage> = [];
+    for (const { id, line } of lines) {
+      // A message she deleted, or one with neither text nor a file, is no line of her diary.
+      if ((!textOf(line?.text) && !files.has(id)) || deleted.all(placeId, id).length > 0) continue;
+      const at = Date.parse(textOf(line?.occurred_at));
+      const recordedAt = Date.parse(textOf(line?.recorded_at));
+      const edited = numberOr(line?.revision, 1) > 1;
+      posted.push({
+        message: {
+          id,
+          content: textOf(line?.text),
+          at: Number.isFinite(at) ? at : numberOr(entry.at_ms, 0),
+          replyToId: textOf(line?.reply_to) || null,
+          attachments: files.get(id) ?? [],
+          editedAt: edited ? (Number.isFinite(recordedAt) ? recordedAt : at) : null,
+        },
+        addressing: null,
+      });
+    }
+    if (posted.length === 0 && textOf(entry.text) !== '')
+      posted.push({
+        message: { id: ids[0] ?? entryId, content: textOf(entry.text), at: numberOr(entry.at_ms, 0) },
+        addressing: null,
+      });
+    out.push(...posted.reverse());
+  }
+  return out.slice(0, limit).sort((a, b) => numberOr(a.message.at, 0) - numberOr(b.message.at, 0));
 }
 
 /** What the selfreflection wake turns in place of the diary channel: its conversation, the channel and its history. */
@@ -296,9 +354,9 @@ export type WakeInputs = {
 /**
  * The inputs of a diary turn run as the `selfreflection` wake, which has no conversation: the place her diary is
  * posted to (mirror.ts#diaryPlaces: the first enabled mirror, else the place the last entry was published to), that
- * place as the interface describes it (`conversationInfo`), else as memory names it, and her recent entries there as
- * its history (`context.channelMessages` lines), each a message of hers through the line builder. With no place at all
- * the conversation is her diary itself (`selfreflection`), with nothing to read and every permission.
+ * place as the interface describes it (`conversationInfo`), else as memory names it, and her diary as its history: the
+ * newest `context.channelMessages` messages of her entries (diaryMessages), each through the line builder with her as
+ * the author. With no place at all the conversation is her diary itself (`selfreflection`), with every permission.
  */
 export async function wakeInputs({
   store,
@@ -337,15 +395,11 @@ export async function wakeInputs({
     public: true,
   };
   const limit = Math.max(0, numberOr(sectionOf(config, 'context').channelMessages, 50));
-  const lines = readMirrors(store, (db) => diaryLines(db as Db, place?.placeId ?? null, limit), []);
-  const history = lines.map((line) => {
+  const posted = readMirrors(store, (db) => diaryMessages(db as Db, place?.placeId ?? null, limit), []);
+  const history = posted.map(({ message, addressing }) => {
     const event = {
       conversation: { id: channel.id, name: channel.name, category: channel.category, topic: channel.topic },
       message: {
-        id: line.id,
-        author: { id: selfId, name: selfName, self: true, bot: true },
-        content: line.text,
-        at: line.at,
         editedAt: null,
         replyToId: null,
         replyPingUserId: null,
@@ -355,10 +409,12 @@ export async function wakeInputs({
         forwarded: [],
         stickers: [],
         emojis: [],
-        reactions: [],
         messageRefs: [],
+        ...message,
+        author: { id: selfId, name: selfName, self: true, bot: true },
+        reactions: [],
       },
-      addressing: { mentionedUserIds: [], mentionedUsers: [], mentionedConversationIds: [] },
+      addressing: addressing ?? { mentionedUserIds: [], mentionedUsers: [], mentionedConversationIds: [] },
     } as unknown as MessageEvent; // the fields line-of.js reads of a message event, as the interface fills them
     return lineOf(event);
   });
