@@ -61,9 +61,12 @@ function audioExtension(mime, name) {
 
 /**
  * The diary rows still to fill: live, mirrored, and either no text yet or (a post saved before audio was
- * kept) a `voice` field in its extra with no audio media row. Each carries the post's `voice` object, if any.
+ * kept) a `voice` field in its extra with no audio media row. Each carries the post's `voice` object, if any, and the
+ * conversation it was posted to: the place its publication names, else the place her diary is posted to
+ * (src/behavior/mirror.ts#diaryPlaces, the first), else null.
  */
 export function pendingDiaryRows(db) {
+  const fallbackId = diaryPlaces(db)[0]?.conversationId ?? null;
   const rows = db
     .prepare(
       `SELECT d.id AS id, d.scope_kind AS scope_kind, d.scope_iface AS scope_iface, d.scope_dm AS scope_dm, m.native_ids AS native_ids, d.extra AS extra,
@@ -96,7 +99,7 @@ export function pendingDiaryRows(db) {
     const { extra: _extra, conversation_id: conversationId, ...rest } = row;
     out.push({
       ...rest,
-      conversationId: typeof conversationId === 'string' ? conversationId : null,
+      conversationId: typeof conversationId === 'string' ? conversationId : fallbackId,
       messageIds: ids,
       voice,
     });
@@ -238,10 +241,9 @@ export function createDiaryMedia({
   }
 
   /** One row: fetch, download, write. Returns 'done' or 'failed'. */
-  async function handleRow(row, { maxBytes, timeoutMs, audioMaxBytes }, adapter, fetcher, fallbackId) {
-    const conversationId = row.conversationId ?? fallbackId;
-    if (!conversationId) return 'failed';
-    const result = await adapter.fetchMessages({ iface: adapter.iface, conversationId }, row.messageIds);
+  async function handleRow(row, { maxBytes, timeoutMs, audioMaxBytes }, adapter, fetcher) {
+    const conversation = { iface: adapter.iface, conversationId: row.conversationId };
+    const result = await adapter.fetchMessages(conversation, row.messageIds);
     if (result?.status !== 'ok' || !Array.isArray(result.messages)) {
       log.warn('diary media: fetch failed', { code: result?.error?.code ?? result?.status ?? 'ERROR' });
       return 'failed';
@@ -334,8 +336,6 @@ export function createDiaryMedia({
     const fetcher = imageFetcher();
     const given = settings();
     if (!database || !adapter?.fetchMessages || !fetcher) return counts;
-    // A post whose publication names no place was posted where her diary is (mirror.ts#diaryPlaces, the first).
-    const fallbackId = diaryPlaces(database)[0]?.conversationId ?? null;
     let rows;
     try {
       rows = pendingDiaryRows(database).filter((row) => !attempted.has(row.id));
@@ -351,7 +351,7 @@ export function createDiaryMedia({
       if (stopped) break;
       attempted.add(row.id);
       try {
-        counts[await handleRow(row, given, adapter, fetcher, fallbackId)] += 1;
+        counts[await handleRow(row, given, adapter, fetcher)] += 1;
       } catch (error) {
         counts.failed += 1;
         log.warn('diary media: row failed', { code: codeOf(error) });

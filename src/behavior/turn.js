@@ -7380,8 +7380,7 @@ export function createTurnRunner({
       const selfName = getSelfName(guildId);
       const now = turnStartedAt;
       const startedAt = now;
-      // A forced diary picture kind (/nep diary post <kind>) while the post may not carry a
-      // picture is refused before any request, naming the gate that closed (diaryPictureGate).
+      // A forced diary picture kind (/nep diary post <kind>) the post may not carry is refused before any request.
       const kind = mode === 'diary' ? diaryParams?.kind : null;
       const pictureRefusal = forcedPictureRefusal({ config, kind, gate: () => diaryPictureGate(config, channel, now) });
       if (pictureRefusal) return pictureRefusal;
