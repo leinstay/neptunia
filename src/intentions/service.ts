@@ -64,6 +64,7 @@ import { CODE } from '../tools/codes.ts';
 import { idText, isFiniteNumber } from '../tools/types.ts';
 import type { Untyped } from '../tools/types.ts';
 import type { ErrandRecord } from '../errands/types.ts';
+import type { ErrandLike } from './types.ts';
 import type {
   Advanced,
   CandidateCounts,
@@ -81,6 +82,10 @@ import type {
   UpdatePatch,
   Where,
 } from './types.ts';
+
+/** Her active ones in due order, the undated last, then the oldest. */
+const byDue = (a: Intention, b: Intention): number =>
+  (a.dueAt ?? Infinity) - (b.dueAt ?? Infinity) || a.createdAt - b.createdAt;
 
 /** Statuses counted against `intentions.maxOpen` (her active ones; candidates have their own cap). */
 const ACTIVE: ReadonlyArray<string> = Object.freeze(['pending', 'waiting'] as const);
@@ -155,8 +160,8 @@ export function createIntentionService({
   uuid = randomUUID,
   log = defaultLog,
 }: IntentionServiceOptions): IntentionService {
-  function storeOf(guildId?: string | null): IntentionStore | null {
-    return stores.get(guildId || getGuildId?.() || '');
+  function storeOf(guildId?: unknown): IntentionStore | null {
+    return stores.get(idText(guildId) || getGuildId?.() || '');
   }
 
   function settings(): IntentionSettings {
@@ -169,14 +174,14 @@ export function createIntentionService({
   }
 
   /** The errand `id` of the guild's errand store, or null. */
-  function errandOf(guildId: unknown, id: unknown): ErrandRecord | null {
+  function errandOf(guildId: unknown, id: unknown): ErrandLike | null {
     const store = errands?.store?.(guildId) ?? null;
     const errand = id && store ? store.get(idText(id)) : null;
     return errand ?? null;
   }
 
   /** The latest errand of turn `turnId` in the guild's errand store, or null. */
-  function errandOfTurn(guildId: unknown, turnId: unknown): ErrandRecord | null {
+  function errandOfTurn(guildId: unknown, turnId: unknown): ErrandLike | null {
     const store = errands?.store?.(guildId) ?? null;
     if (!store || !turnId || typeof store.recent !== 'function') return null;
     return store.recent(50).find((errand) => errand.origin?.turnId === idText(turnId)) ?? null;
@@ -523,7 +528,6 @@ export function createIntentionService({
   ): Array<Intention> {
     if (!intentionsOn(hot.config)) return [];
     const open = list(guildId, { privateChannelId });
-    const byDue = (a, b) => (a.dueAt ?? Infinity) - (b.dueAt ?? Infinity) || a.createdAt - b.createdAt;
     const active = open.filter((record) => record.status === 'pending').sort(byDue);
     const waiting = open.filter((record) => record.status === 'waiting').sort(byDue);
     const proposed = open.filter((record) => record.status === 'proposed').sort((a, b) => b.createdAt - a.createdAt);

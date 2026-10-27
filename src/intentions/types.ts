@@ -3,7 +3,7 @@
 // operations (src/tools/impl/intention.ts) and the scheduler's JavaScript read them.
 
 import type { Untyped } from '../tools/types.ts';
-import type { ErrandRecord, ErrandScope, ErrandService, FlushCounts, Logger } from '../errands/types.ts';
+import type { ErrandRecord, ErrandScope, FlushCounts, Logger } from '../errands/types.ts';
 
 /** Every status an intention may have. */
 export type IntentionStatus = 'proposed' | 'pending' | 'waiting' | 'done' | 'cancelled' | 'expired' | 'dropped';
@@ -279,10 +279,26 @@ export type IntentionService = {
 
 /** What `createIntentionService` is given. `errands` is the errand service a wait is checked against, `journal` is where a
  * candidate's turn is looked up, `lineSources` holds the notes of where her lines came from. */
+/** The part of an errand a wait reads: its id, state, end, error and the turn that queued it. */
+export type ErrandLike = {
+  id: string;
+  state: string;
+  endedAt?: number | null;
+  error?: string | null;
+  origin?: { turnId?: string | null };
+};
+
+/** The errand service as the intentions use it: the store of a guild, to get an errand and to list the latest. */
+export type ErrandsPort = {
+  store?: (
+    guildId?: unknown
+  ) => { get: (id: string) => ErrandLike | null; recent?: (n: number) => Array<ErrandLike> } | null;
+};
+
 export type IntentionServiceOptions = {
   stores: IntentionStores;
   hot: Untyped;
-  errands?: Pick<ErrandService, 'store'> | null;
+  errands?: ErrandsPort | null;
   journal?: Untyped;
   lineSources?: LineSources | null;
   getGuildId?: () => string | null;

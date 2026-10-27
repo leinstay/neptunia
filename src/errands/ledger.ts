@@ -89,7 +89,7 @@ type LedgerRecord = {
 
 /** The args of a call from the ledger id of its errand, or null when they cannot be built. */
 type Build = (ledgerId: string) => Obj | null;
-type OnResult = (result: unknown, record: LedgerRecord | null) => void;
+type OnResult = ((result: unknown, record: LedgerRecord | null) => void) | null;
 
 /** One call waiting for the ledger. */
 type Entry = {
@@ -98,7 +98,7 @@ type Entry = {
   method: string;
   /** The call's args from the record, or null when it cannot be built (then it is skipped). */
   build: (record: LedgerRecord) => Obj | null;
-  onResult?: OnResult | null;
+  onResult?: OnResult;
   /** The record is forgotten once the call is answered or skipped. */
   final?: boolean;
 };

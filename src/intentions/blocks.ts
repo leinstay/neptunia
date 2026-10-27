@@ -19,7 +19,7 @@ import { estimateTokens } from '../llm/tokens.js';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { DAY_MS } from '../time.js';
 import { DEFAULTS } from './model.ts';
-import { isFiniteNumber } from '../tools/types.ts';
+import { isFiniteNumber, listOf, objOf } from '../tools/types.ts';
 import type { Untyped } from '../tools/types.ts';
 import type { Intention } from './types.ts';
 
@@ -128,7 +128,7 @@ function candidateLine(record: Intention, l: Untyped): string {
  * end with their expiry; without `now` none does.
  */
 export function intentionsBlockText(
-  records: Array<Intention | null | undefined> | null | undefined,
+  records: unknown,
   labels: Untyped,
   {
     timezone = 'UTC',
@@ -151,9 +151,7 @@ export function intentionsBlockText(
   } = {}
 ): string {
   const l = labels?.intentions;
-  const list = Array.isArray(records)
-    ? records.filter((record): record is Intention => record != null && typeof record.id === 'string')
-    : [];
+  const list = listOf(records).filter((record): record is Intention => typeof objOf(record).id === 'string');
   if (list.length === 0 || typeof l?.header !== 'string' || typeof l?.line !== 'string') return '';
   const out = [l.header];
   let used = cost(l.header);

@@ -173,7 +173,7 @@ export function createErrandClient({
         entry.resolve(failed(typeof event.error === 'string' && event.error ? event.error : 'runner-error'));
         return;
       }
-      const outcome = {
+      const outcome: RunOutcome = {
         status: ['done', 'failed', 'cancelled'].includes(event.status) ? event.status : 'failed',
         result: normalizeResult(event.result),
         usage: normalizeUsage(event.usage),

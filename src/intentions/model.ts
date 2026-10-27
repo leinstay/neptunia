@@ -44,7 +44,6 @@ import { externalOrigin } from './sources.ts';
 import { CODE } from '../tools/codes.ts';
 import { isFiniteNumber, isObj, listOf, objOf } from '../tools/types.ts';
 import type { Untyped } from '../tools/types.ts';
-import type { ErrandRecord } from '../errands/types.ts';
 import type {
   Attend,
   AttentionSettings,
@@ -54,6 +53,7 @@ import type {
   Due,
   Every,
   HistoryEntry,
+  ErrandLike,
   Intention,
   IntentionSettings,
   IntentionStatus,
@@ -867,7 +867,7 @@ const ERRAND_ENDS: ReadonlyArray<string> = Object.freeze(['done', 'failed', 'can
  * -- another errand, a record no longer waiting (the same end delivered twice), an errand still open
  * -- changes nothing: `{ ok: true, intention: record, changed: false }`.
  */
-export function arrive(record: Intention, errand: ErrandRecord, { now }: { now: number }): Moved {
+export function arrive(record: Intention, errand: ErrandLike, { now }: { now: number }): Moved {
   if (
     record?.status !== 'waiting' ||
     !errand ||
@@ -995,7 +995,7 @@ export function advanceOccurrence(
  */
 export function reconcileWait(
   record: Intention,
-  { errandOf, now }: { errandOf: ((id: string | null) => ErrandRecord | null) | null | undefined; now: number }
+  { errandOf, now }: { errandOf: ((id: string | null) => ErrandLike | null) | null | undefined; now: number }
 ): Moved {
   if (record?.status !== 'waiting') return { ok: true, intention: record, changed: false };
   const errand = typeof errandOf === 'function' ? errandOf(record.awaitingErrandId) : null;
@@ -1053,12 +1053,13 @@ export function duplicates(
 ): boolean {
   const purpose = foldText(candidate?.purpose);
   const span = foldText(candidate?.span);
+  const messageId = candidate?.messageId;
   return (Array.isArray(records) ? records : []).some((record) => {
     if (!isOpen(record?.status)) return false;
     if (purpose && foldText(record.purpose) === purpose) return true;
     return (
-      Boolean(candidate?.messageId) &&
-      record.provenance?.messageId === candidate.messageId &&
+      Boolean(messageId) &&
+      record.provenance?.messageId === messageId &&
       span &&
       foldText(record.provenance?.span) === span
     );
@@ -1137,6 +1138,7 @@ export function candidatesFromAnswer(
     }
     const reason = externalOrigin({ span, purpose }, own, sources, { strict });
     const turnId = idOrNull(sources?.turnId) ?? idOrNull(own.inner?.turnId);
+    const chainId = idOrNull(sources?.chainId);
     candidates.push({
       purpose,
       span,
@@ -1148,7 +1150,7 @@ export function candidatesFromAnswer(
       ...(reason ? { originReason: reason } : {}),
       turnId,
       ...(sources?.inner === true || own.inner
-        ? { bornInner: true, ...(idOrNull(sources?.chainId) ? { innerChainId: idOrNull(sources.chainId) } : {}) }
+        ? { bornInner: true, ...(chainId ? { innerChainId: chainId } : {}) }
         : {}),
     });
   }

@@ -311,7 +311,7 @@ export type LedgerOptions = {
 
 /** What `createErrandService` is given. */
 export type ErrandServiceOptions = {
-  client: ErrandClient;
+  client: Partial<ErrandClient>;
   stores: ErrandStores;
   hot: Untyped;
   env?: Record<string, string | undefined>;

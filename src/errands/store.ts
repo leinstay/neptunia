@@ -40,7 +40,7 @@ import { errandEventLines, errandsValue } from '../memory/db/readers/errands.js'
 import { createUnitOutbox } from '../memory/db/unit-outbox.js';
 import { agentSettings, profileOf } from '../agent-runner/profiles.js';
 import { CODE } from '../tools/codes.ts';
-import { errorCode, idText, objOf } from '../tools/types.ts';
+import { errorCode, idText, isFiniteNumber, objOf } from '../tools/types.ts';
 import type { Untyped } from '../tools/types.ts';
 import type {
   AddInput,
@@ -347,7 +347,7 @@ export function createErrandStore({
     if (open().length >= maxOpen) return 'cap-open';
     const caps = dailyCaps(agent);
     const used = usedToday(agent);
-    if (Number.isFinite(caps.tasks) && used.tasks >= caps.tasks) return 'cap-tasks';
+    if (isFiniteNumber(caps.tasks) && used.tasks >= caps.tasks) return 'cap-tasks';
     return null;
   }
 

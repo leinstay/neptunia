@@ -257,16 +257,13 @@ export function createErrandService({
     if (!errand) return null;
     const secrets = secretsOf(errand.agent);
     const limits = limitsOf(errand.agent);
-    mirrored(errand.id, () =>
-      mirror.start(errand, {
-        limits,
-        model: roleModel(hot.config, textOf(objOf(profileOf(errand.agent)).modelRole)) ?? null,
-      })
-    );
+    const model = roleModel(hot.config, textOf(objOf(profileOf(errand.agent)).modelRole)) ?? null;
+    mirrored(errand.id, () => mirror.start(errand, { limits, model }));
     live.set(errand.id, errand);
     let outcome: FinishOutcome;
     try {
-      outcome = await client.run({
+      outcome = await client.run!({
+        // `run` is always on the core's client; a fake without it throws into the catch
         agent: errand.agent,
         id: errand.id,
         goal: errand.goal,

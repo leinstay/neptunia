@@ -322,7 +322,7 @@
     },
     "src/errands/service.ts": {
       "createErrandService": {
-        "function-length": 372
+        "function-length": 369
       }
     },
     "src/errands/store.ts": {
@@ -359,7 +359,7 @@
     },
     "src/intentions/service.ts": {
       "createIntentionService": {
-        "function-length": 719
+        "function-length": 718
       },
       "createIntentionService>addCandidates": {
         "complexity": 21

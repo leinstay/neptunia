@@ -8,6 +8,7 @@ import { fill } from '../format.js';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { MINUTE_MS } from '../time.js';
 import { fileHandle, isOpenState } from './store.ts';
+import { listOf, objOf } from '../tools/types.ts';
 import type { Untyped } from '../tools/types.ts';
 import type { ErrandRecord } from './types.ts';
 
@@ -21,7 +22,8 @@ export const DEFAULT_RESULT_MAX_CHARS = 3000;
 /** The state of `errand` in words (`labels.errands.states`), else its code. */
 function stateWord(state: string | null | undefined, labels: Untyped): string {
   const words = labels?.errands?.states;
-  return typeof words?.[state] === 'string' && words[state] ? words[state] : String(state ?? '');
+  const key = String(state ?? '');
+  return typeof words?.[key] === 'string' && words[key] ? words[key] : key;
 }
 
 /**
@@ -45,7 +47,7 @@ function errandStateWord(errand: ErrandRecord | null | undefined, labels: Untype
  * (`{count}`) counts the rest. '' with no errand or without the header or line label.
  */
 export function errandsBlockText(
-  errands: Array<ErrandRecord> | null | undefined,
+  errands: unknown,
   labels: Untyped,
   {
     now,
@@ -54,7 +56,7 @@ export function errandsBlockText(
   }: { now: number; goalChars?: number; unreadShown?: number }
 ): string {
   const l = labels?.errands;
-  const list = Array.isArray(errands) ? errands.filter((errand) => errand && typeof errand.id === 'string') : [];
+  const list = listOf(errands).filter((errand): errand is ErrandRecord => typeof objOf(errand).id === 'string');
   if (list.length === 0 || typeof l?.header !== 'string' || typeof l?.line !== 'string') return '';
   const open = list.filter((errand) => isOpenState(errand.state));
   const finished = list.filter((errand) => !isOpenState(errand.state));
