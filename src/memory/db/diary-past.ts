@@ -5,9 +5,10 @@
 // entry's messages is within two minutes of it (JOIN_MS, frozen with the step), an entry already held included, and
 // otherwise is an entry of its own. A new entry's text is its messages' texts, the empty ones left out, joined with a
 // line break; its publication to the place is `sent`, with its messages as receipts: nothing is posted again. A held
-// entry keeps its text, and its mirror and its publication gain the joined message. An entry whose messages carry
-// media is marked `mediaPending` in its extra, and the diary media job (diary-media.js) reads its files once. A
-// message she deleted is left out. Runs inside the migration's transaction; a second run finds every message named
+// entry keeps its text, and its mirror and its publication gain the joined message. Her messages are those she has a
+// `said` line of and those seen from her own account (a message of files only is recorded as seen). The record keeps
+// no attachments of hers, so every entry the step writes or extends is marked `mediaPending` in its extra, and the
+// diary media job (diary-media.js) reads its files and their descriptions once. A message she deleted is left out. Runs inside the migration's transaction; a second run finds every message named
 // and writes nothing.
 
 import { createHash } from 'node:crypto';
@@ -29,8 +30,8 @@ type Db = {
   };
 };
 
-/** One message of hers in the place: its id, time, newest text, turn and whether it carries media. */
-type Line = { id: string; at: number; text: string; turnId: string | null; media: boolean; joined?: boolean };
+/** One message of hers in the place: its id, time, newest text and turn. */
+type Line = { id: string; at: number; text: string; turnId: string | null; joined?: boolean };
 /** An entry the step builds or extends: the held entry's id (null for a new one) and its messages. */
 type Group = { heldId: string | null; lines: Array<Line> };
 
@@ -47,16 +48,30 @@ function arrayOf(json: unknown): Array<unknown> {
   }
 }
 
-/** Her messages in `placeId`, oldest first, each once: the first revision's time, the newest revision's text. */
+/**
+ * Her messages in `placeId`, oldest first, each once: the first revision's time, the newest revision's text. Hers are
+ * the messages she has a `said` line of, and those seen from her own account (the account of her `said` lines): a
+ * message of files only is recorded as seen.
+ */
 function linesOf(db: Db, placeId: string): Array<Line> {
   const rows = db
     .prepare(
-      `SELECT native_id, revision, occurred_at, text, turn_id, media, kind FROM sources
+      `SELECT native_id, revision, occurred_at, text, turn_id, kind, author_account FROM sources
         WHERE place_id = ? AND kind IN ('said', 'seen', 'deleted') AND retired_at IS NULL AND native_id IS NOT NULL
         ORDER BY native_id, revision`
     )
     .all(placeId);
-  const said = new Set(rows.filter((row) => row.kind === 'said').map((row) => text(row.native_id)));
+  const accounts = new Set(
+    db
+      .prepare("SELECT DISTINCT author_account FROM sources WHERE kind = 'said' AND author_account IS NOT NULL")
+      .all()
+      .map((row) => text(row.author_account))
+  );
+  const said = new Set(
+    rows
+      .filter((row) => row.kind === 'said' || (row.kind === 'seen' && accounts.has(text(row.author_account))))
+      .map((row) => text(row.native_id))
+  );
   const gone = new Set(rows.filter((row) => row.kind === 'deleted').map((row) => text(row.native_id)));
   const byId = new Map<string, Line>();
   for (const row of rows) {
@@ -64,13 +79,11 @@ function linesOf(db: Db, placeId: string): Array<Line> {
     if (!said.has(id) || gone.has(id) || row.kind === 'deleted') continue;
     const at = Date.parse(text(row.occurred_at));
     const known = byId.get(id);
-    const media = arrayOf(row.media).length > 0;
     if (!known) {
       if (!Number.isFinite(at)) continue;
-      byId.set(id, { id, at, text: text(row.text), turnId: text(row.turn_id) || null, media });
+      byId.set(id, { id, at, text: text(row.text), turnId: text(row.turn_id) || null });
     } else {
       known.text = text(row.text);
-      known.media ||= media;
       known.turnId ??= text(row.turn_id) || null;
     }
   }
@@ -160,10 +173,10 @@ function extendHeld(db: Db, group: Group, place: { id: string; iface: string }, 
     db.prepare('UPDATE publications SET receipts = ? WHERE id = ?').run(JSON.stringify(receipts), publication.id);
     projectRow(db, 'publications', { id: publication.id }, { at });
   }
-  if (group.lines.some((line) => isJoined(line) && line.media))
-    db.prepare(
-      "UPDATE diary SET extra = json_set(COALESCE(extra, '{}'), '$.mediaPending', json('true')) WHERE id = ?"
-    ).run(group.heldId);
+  // The record keeps no attachments of hers: the media job reads the joined messages' files once.
+  db.prepare(
+    "UPDATE diary SET extra = json_set(COALESCE(extra, '{}'), '$.mediaPending', json('true')) WHERE id = ?"
+  ).run(group.heldId);
 }
 
 /** A new entry of `group` and its `sent` publication to the place. */
@@ -176,7 +189,6 @@ function writeEntry(db: Db, group: Group, place: { id: string; iface: string }, 
     .filter((part) => part !== '')
     .join('\n');
   const id = `diary:past-${first.id}`;
-  const media = lines.some((line) => line.media);
   // The diary is public: the group audience of the place's interface (the place's own lines hold it already).
   const row: Row = {
     id,
@@ -185,7 +197,7 @@ function writeEntry(db: Db, group: Group, place: { id: string; iface: string }, 
     gist: body.replace(/\s+/g, ' ').trim().slice(0, GIST_CHARS),
     text: body,
     ...audienceOf(groupScope(place.iface)),
-    extra: media ? JSON.stringify({ mediaPending: true }) : null,
+    extra: JSON.stringify({ mediaPending: true }),
     owner_file: null,
   };
   const cols = Object.keys(row);
