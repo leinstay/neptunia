@@ -90,6 +90,26 @@ function embedTypeOf(embed: EmbedInput | null | undefined): string {
 }
 
 /**
+ * Whether an embed is a GIF (see classifyEmbed for the rules) and, for a GIF, the animation the GIF watch downloads
+ * (gifAnimationUrl, or a Discord CDN GIF file's own URL), else null.
+ */
+function gifOf(
+  embed: EmbedInput | null | undefined,
+  url: string | null,
+  providerName: string,
+  videoSites: ReadonlyArray<string>
+): { isGif: boolean; animationUrl: string | null } {
+  // A JS caller may hand anything as `videoSites`; only an array is a list of sites.
+  const sites = Array.isArray(videoSites) ? (videoSites as Array<string>) : [];
+  const onVideoSite = Boolean(url) && sites.length > 0 && videoSiteFor(url, sites) !== null;
+  const isGifv = embedTypeOf(embed) === GIF_EMBED_TYPE && !onVideoSite;
+  const discordGif = isDiscordGifFile(embed, url);
+  const isGif = isGifv || GIF_PROVIDERS.has(providerName.toLowerCase()) || isGifHostUrl(url ?? '') || discordGif;
+  const animationUrl = isGif ? (gifAnimationUrl(embed, url) ?? (discordGif ? url : null)) : null;
+  return { isGif, animationUrl };
+}
+
+/**
  * Classify one Discord embed into a link-ish item: `{ site, title, text,
  * thumbnailUrl, kind, url }`. `kind` is `'gif'` for a GIF (its thumbnail is
  * the frame to describe), else `'link'`: a video-site embed (YouTube, say)
@@ -119,14 +139,8 @@ export function classifyEmbed(
   const url = embed?.url ?? null;
   const host = siteOf(url ?? '');
   const providerName = String(embed?.provider?.name ?? '');
-  // A JS caller may hand anything as `videoSites`; only an array is a list of sites.
-  const sites = Array.isArray(videoSites) ? (videoSites as Array<string>) : [];
-  const onVideoSite = Boolean(url) && sites.length > 0 && videoSiteFor(url, sites) !== null;
-  const isGifv = embedTypeOf(embed) === GIF_EMBED_TYPE && !onVideoSite;
-  const discordGif = isDiscordGifFile(embed, url);
-  const isGif = isGifv || GIF_PROVIDERS.has(providerName.toLowerCase()) || isGifHostUrl(url ?? '') || discordGif;
+  const { isGif, animationUrl } = gifOf(embed, url, providerName, videoSites);
   const site = providerName || host || '';
-  const animationUrl = isGif ? (gifAnimationUrl(embed, url) ?? (discordGif ? url : null)) : null;
   return {
     site,
     title: clipWithEllipsis(String(embed?.title ?? '').trim(), embedTextChars),
