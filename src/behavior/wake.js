@@ -566,7 +566,8 @@ export function placesBlockText(page, labels) {
  * (`{channel}`, `{why}`), or `labels.wake.hereNone` when the turn has none (`here` null; absent: no line).
  * @param {{ items: Array<Record<string, unknown>|undefined>,
  *   intentions?: object[], notes?: Record<string, string>, expired?: { items: { id: string, purpose: string, at: number }[], more: number }|null,
- *   now: number, timezone: string, channels?: string[], places?: object|null, budgets?: object }} wake
+ *   now?: number, timezone?: string, channels?: string[], places?: object|null, budgets?: object }} wake  `now` absent:
+ *   the present moment; `timezone` absent: UTC.
  * @param {object} labels
  * @param {{ locale?: string, handleBase?: number|null, onRefs?: (refs: number[]) => void }} [options]  `handleBase`: the number of a heartbeat's first line handle, `onRefs` gets the heartbeat lines' refs that stayed in (heartbeatLines).
  * @returns {string}
