@@ -1,18 +1,46 @@
 // The core's end of the link to one interface (the serving end is src/protocol/serve.ts). The first envelope on a
-// connection must be `hello` with the token the core made at boot, otherwise the link closes and nothing reaches
-// the event door. After it, each `event` envelope goes through the door and its ack goes back, concurrently, and
-// the core speaks to the interface through `adapter`: every method is one `action` envelope answered by the
-// `action_result` with the same `replyTo`. The adapter never rejects. A link that closes answers every pending
-// effect `unknown` (it may have happened) and every pending read `failed`, and so does a call made afterwards.
+// connection must be `hello` with a token that stands for a principal (`principalOf`, src/interface/principals.ts;
+// a link opened with one `token` gives that token the boot principal), otherwise the link closes and nothing reaches
+// the event door. The principal, never what `hello` claims, decides what the connection may do: its events must
+// carry its own `iface` (a principal with no `iface` takes the one its `hello` names), and only a `cli` principal
+// reaches commands. The token is resolved again for every envelope, so a rotated or revoked token closes the link.
+// `hello` is answered by an `ack` with the principal's watermark (`ackedSeq`, from `ingest.cursor`). After it, every
+// envelope is checked by its type: a malformed body, a second `hello`, an event of another `iface` and a command of a
+// principal that is not `cli` are answered `invalid`, and the link stays open.
+//
+// Each `event` goes through the door with the principal and its `seq`, and its ack goes back. Un-numbered events run
+// concurrently. Numbered ones (an interface with an outbox) run one at a time per conversation in `seq` order, the
+// conversations side by side, and their acks carry the contiguous watermark of the events taken, which is written
+// with `ingest.ack` before the ack goes out. An event that `failed` holds the watermark back, so it goes again.
+//
+// The core speaks to the interface through `adapter`: every method is one `action` envelope answered by the
+// `action_result` with the same `replyTo`. A send carries the idempotency key its caller gives (one is made when it
+// gives none), its `deadlineAt`, and a `signal`: aborted before the call, the send is `cancelled` and never leaves;
+// aborted later, a `cancel` envelope names the action and the result that arrives stands. The adapter never rejects.
+// A link that closes answers every pending effect `unknown` (it may have happened) and every pending read `failed`,
+// and so does a call made afterwards.
 
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
-import { ackOf, declaredHooks, envelope, portAction } from '../protocol/index.js';
-import type { Adapter, Capabilities, Delivery } from '../protocol/adapter.ts';
-import type { Hello, Logger, Named } from '../protocol/serve.ts';
+import { ackOf, declaredHooks, envelope, portAction, validateEnvelope } from '../protocol/index.js';
+import type { Adapter, Capabilities, Delivery, SendOptions } from '../protocol/adapter.ts';
+import type { AckStatus, Hello, Logger, Named } from '../protocol/serve.ts';
 import type { Envelope, Transport } from '../protocol/wire.ts';
+import type { Principal } from './principals.ts';
 
 /** How many actions may wait for an answer at once. */
 const MAX_PENDING = 256;
+
+/** The principal of a link opened with one token: the core's one in-process interface, bound to its `hello`. */
+const TOKEN_PRINCIPAL: Principal = { name: 'boot', kind: 'interface', iface: null, permissions: [] };
+
+/** Who sent an envelope through the door: the principal's name and the envelope's `seq`. */
+export type From = { principal: string | null; seq?: number | null };
+
+/** The door as the link uses it. */
+export type LinkDoor = { receive(value: unknown, from?: From): Promise<Envelope> };
+
+/** The ingestion record of the watermarks (src/memory/db/ingest.ts through the memory database). */
+export type LinkIngest = { cursor(principal: string): number; ack(principal: string, seq: number): Promise<unknown> };
 
 type Result = Record<string, unknown>;
 type Kind = 'effect' | 'read';
@@ -44,15 +72,67 @@ function refusal(kind: Kind, code: string, retryable: boolean): Result {
 
 const digest = (text: string): Buffer => createHash('sha256').update(text).digest();
 
+/** The statuses after which the core never wants the event again: everything but a failure. */
+const TAKEN: ReadonlySet<string> = new Set<AckStatus>(['ok', 'duplicate', 'invalid', 'unhandled']);
+
+/**
+ * The contiguous watermark of the numbered events of one link: the highest `seq` below which every event was taken.
+ * It starts at the principal's stored watermark, or just below the first `seq` the link sees when that is higher (an
+ * interface never resends what it already saw acknowledged).
+ */
+function createWatermark(start: number) {
+  let mark = start;
+  let started = false;
+  const done = new Set<number>();
+  return {
+    see(seq: number): void {
+      if (!started) mark = Math.max(mark, seq - 1);
+      started = true;
+    },
+    /** Marks `seq` taken and answers whether the watermark moved. */
+    take(seq: number): boolean {
+      if (seq <= mark) return false;
+      done.add(seq);
+      const before = mark;
+      while (done.delete(mark + 1)) mark += 1;
+      return mark !== before;
+    },
+    value: (): number => mark,
+  };
+}
+
+/** The principal of `token` while it keeps standing for the same client, else null. */
+function samePrincipal(now: Principal | null, first: Principal): boolean {
+  return now !== null && now.name === first.name && now.kind === first.kind && now.iface === first.iface;
+}
+
+/** Why the authenticated sender of `body` may not send it, or null. */
+function eventRefusal(body: Record<string, unknown>, iface: string, principal: Principal): string | null {
+  if (body.iface !== iface) return 'body.iface:foreign';
+  if (body.kind === 'command.requested' && principal.kind !== 'cli') return 'body.kind:not-allowed';
+  return null;
+}
+
 export function openAdapterLink(options: {
   transport: Transport;
-  door: { receive(value: unknown): Promise<Envelope> };
-  token: string;
+  door: LinkDoor;
   log: Logger;
-}): { hello: Promise<Hello>; adapter: Adapter; close(): void } {
-  const { transport, door, token, log } = options;
+  principalOf?: (token: string) => Principal | null;
+  token?: string;
+  ingest?: LinkIngest | null;
+}): { hello: Promise<Hello>; principal(): Principal | null; adapter: Adapter; close(): void } {
+  const { transport, door, log } = options;
+  const ingest = options.ingest ?? null;
+  const principalOf =
+    options.principalOf ??
+    ((given: string): Principal | null =>
+      options.token !== undefined && timingSafeEqual(digest(given), digest(options.token)) ? TOKEN_PRINCIPAL : null);
   const waiting = new Map<string, Waiting>();
+  const lanes = new Map<string, Promise<void>>();
   let greeting: Hello | null = null;
+  let principal: Principal | null = null;
+  let helloToken = '';
+  let watermark = createWatermark(0);
   let closed = false;
   let acceptHello: (hello: Hello) => void = () => {};
   let refuseHello: (error: Error) => void = () => {};
@@ -73,13 +153,23 @@ export function openAdapterLink(options: {
   }
 
   function onHello(value: Envelope): void {
+    const verdict = validateEnvelope(value);
     const body = value.body as Record<string, unknown>;
     const given = typeof body.token === 'string' ? body.token : '';
-    if (!timingSafeEqual(digest(given), digest(token))) {
-      log.warn('link: hello refused', { reason: 'token' });
-      shut('token');
+    const found = verdict.ok ? principalOf(given) : null;
+    const reason = !verdict.ok ? 'hello-invalid' : found === null ? 'token' : null;
+    if (reason !== null || found === null) {
+      log.warn('link: hello refused', { reason });
+      shut(reason ?? 'token');
       return;
     }
+    if (found.iface !== null && found.iface !== body.iface) {
+      log.warn('link: hello refused', { reason: 'iface', principal: found.name });
+      shut('iface');
+      return;
+    }
+    principal = found;
+    helloToken = given;
     greeting = {
       iface: body.iface as string,
       self: body.self as Named,
@@ -87,23 +177,81 @@ export function openAdapterLink(options: {
       capabilities: (body.capabilities ?? NO_CAPABILITIES) as Capabilities,
       resume: typeof body.resume === 'string' ? body.resume : null,
     };
-    log.info('link: hello', { iface: greeting.iface });
+    const ackedSeq = ingest?.cursor(found.name) ?? 0;
+    watermark = createWatermark(ackedSeq);
+    log.info('link: hello', { iface: greeting.iface, principal: found.name, kind: found.kind });
+    transport.send(envelope('ack', { status: 'ok', ackedSeq }, { id: `ack:${value.id}`, replyTo: value.id }));
     acceptHello(greeting);
   }
 
-  function onEvent(value: Envelope): void {
-    door.receive(value).then(
-      (answer) => transport.send(answer),
-      (err: unknown) => {
-        log.warn('link: door failed', { name: err instanceof Error ? err.name : null });
-        transport.send(ackOf(value, 'failed', 'handler-threw'));
-      }
-    );
+  const answerWith = (value: Envelope, status: string, reason?: string): void =>
+    transport.send(ackOf(value, status, reason));
+
+  /** One event through the door; a numbered one's ack carries the watermark, written first. */
+  async function take(value: Envelope, who: Principal): Promise<void> {
+    const seq = typeof value.seq === 'number' ? value.seq : null;
+    let answer: Envelope;
+    try {
+      answer = await door.receive(value, { principal: who.name, seq });
+    } catch (err) {
+      log.warn('link: door failed', { name: err instanceof Error ? err.name : null });
+      answer = ackOf(value, 'failed', 'handler-threw');
+    }
+    if (seq === null) {
+      transport.send(answer);
+      return;
+    }
+    const status = String((answer.body as Record<string, unknown>).status);
+    if (TAKEN.has(status) && watermark.take(seq) && ingest !== null) {
+      await ingest.ack(who.name, watermark.value()).catch((err: unknown) => {
+        log.warn('link: watermark not written', { name: err instanceof Error ? err.name : null });
+      });
+    }
+    transport.send({ ...answer, body: { ...(answer.body as Record<string, unknown>), ackedSeq: watermark.value() } });
+  }
+
+  function onEvent(value: Envelope, who: Principal): void {
+    const body = value.body as Record<string, unknown>;
+    const refused = eventRefusal(body, greeting?.iface ?? '', who);
+    if (refused !== null) {
+      log.warn('link: event refused', { reason: refused, principal: who.name });
+      answerWith(value, 'invalid', refused);
+      return;
+    }
+    if (typeof value.seq !== 'number') {
+      void take(value, who);
+      return;
+    }
+    watermark.see(value.seq);
+    // One conversation's numbered events wait for each other; other conversations go on.
+    const conversation = body.conversation as { id?: unknown } | undefined;
+    const lane = typeof conversation?.id === 'string' ? conversation.id : '';
+    const next = (lanes.get(lane) ?? Promise.resolve()).then(() => take(value, who));
+    lanes.set(lane, next);
+    void next.finally(() => {
+      if (lanes.get(lane) === next) lanes.delete(lane);
+    });
+  }
+
+  function onAuthenticated(value: Envelope, who: Principal): void {
+    const verdict = validateEnvelope(value);
+    if (!verdict.ok) {
+      if (value.type === 'event' || value.type === 'hello') answerWith(value, 'invalid', verdict.reason);
+      return;
+    }
+    if (value.type === 'hello') answerWith(value, 'invalid', 'hello:repeated');
+    else if (value.type === 'event') onEvent(value, who);
+    else if (value.type === 'action_result') {
+      const entry = waiting.get(value.replyTo ?? '');
+      if (entry === undefined) return;
+      waiting.delete(value.replyTo ?? '');
+      entry.resolve(value.body as Result);
+    } else if (value.type === 'ping') answerWith(value, 'ok');
   }
 
   transport.onEnvelope((value) => {
     if (closed) return;
-    if (greeting === null) {
+    if (greeting === null || principal === null) {
       if (value.type === 'hello') onHello(value);
       else {
         log.warn('link: first envelope is not hello', { type: value.type });
@@ -111,17 +259,16 @@ export function openAdapterLink(options: {
       }
       return;
     }
-    if (value.type === 'event') onEvent(value);
-    else if (value.type === 'action_result') {
-      const entry = waiting.get(value.replyTo ?? '');
-      if (entry === undefined) return;
-      waiting.delete(value.replyTo ?? '');
-      entry.resolve(value.body as Result);
-    } else if (value.type === 'ping') transport.send(ackOf(value, 'ok'));
+    if (!samePrincipal(principalOf(helloToken), principal)) {
+      log.warn('link: token no longer stands for the client', { principal: principal.name });
+      shut('revoked');
+      return;
+    }
+    onAuthenticated(value, principal);
   });
   transport.onClose((reason) => shut(reason));
 
-  function call(action: Record<string, unknown>, kind: Kind): Promise<Result> {
+  function call(action: Record<string, unknown>, kind: Kind, signal?: AbortSignal): Promise<Result> {
     if (closed || greeting === null) return Promise.resolve(refusal(kind, 'link-closed', false));
     if (waiting.size >= MAX_PENDING) return Promise.resolve(refusal(kind, 'link-busy', true));
     const id = randomUUID();
@@ -134,7 +281,16 @@ export function openAdapterLink(options: {
         waiting.delete(id);
         // Nothing was sent, so even an effect is known not to have happened.
         resolve(refusal('read', 'invalid-action', false));
+        return;
       }
+      // The action is out: a cancel names it, and whatever result comes back stands.
+      signal?.addEventListener(
+        'abort',
+        () => {
+          if (!closed && waiting.has(id)) transport.send(envelope('cancel', {}, { id: `cancel:${id}`, replyTo: id }));
+        },
+        { once: true }
+      );
     });
   }
 
@@ -144,6 +300,26 @@ export function openAdapterLink(options: {
   const read = (operation: string, args: ReadonlyArray<unknown>): Promise<Result> =>
     call(portAction(operation, [...args]), 'read');
 
+  function send(
+    conversation: Parameters<Adapter['send']>[0],
+    content: Parameters<Adapter['send']>[1],
+    given: SendOptions = {}
+  ): Promise<Delivery> {
+    const idempotencyKey = given.idempotencyKey ?? randomUUID();
+    if (given.signal?.aborted === true) {
+      const error = { code: 'cancelled', retryable: false, retryAfterMs: null };
+      return Promise.resolve({ status: 'cancelled', ref: null, parts: [], at: null, idempotencyKey, error });
+    }
+    const extra =
+      given.deadlineAt === undefined ? { idempotencyKey } : { idempotencyKey, deadlineAt: given.deadlineAt };
+    // The result is the interface's Delivery, as it crossed the wire.
+    return call(
+      { ...portAction('send', [conversation, content]), ...extra },
+      'effect',
+      given.signal
+    ) as unknown as Promise<Delivery>;
+  }
+
   // The declared hooks give the adapter the shape of today's port; nothing delivers events through them.
   const adapter = {
     ...declaredHooks(),
@@ -151,8 +327,7 @@ export function openAdapterLink(options: {
       return greeting?.iface ?? '';
     },
     capabilities: () => greeting?.capabilities ?? NO_CAPABILITIES,
-    send: (conversation: Parameters<Adapter['send']>[0], content: Parameters<Adapter['send']>[1]) =>
-      effect('send', [conversation, content], { idempotencyKey: randomUUID() }) as unknown as Promise<Delivery>,
+    send,
     edit: (message: Parameters<Adapter['edit']>[0], content: Parameters<Adapter['edit']>[1]) =>
       effect('edit', [message, content]) as ReturnType<Adapter['edit']>,
     delete: (message: Parameters<Adapter['delete']>[0]) => effect('delete', [message]) as ReturnType<Adapter['delete']>,
@@ -162,8 +337,8 @@ export function openAdapterLink(options: {
       effect('unreact', [message, emoji]) as ReturnType<Adapter['unreact']>,
     typing: (conversation: Parameters<Adapter['typing']>[0]) =>
       effect('typing', [conversation]) as ReturnType<Adapter['typing']>,
-    fetchMessages: (conversation: Parameters<Adapter['fetchMessages']>[0], messageIds: ReadonlyArray<string>) =>
-      read('fetchMessages', [conversation, messageIds]) as ReturnType<Adapter['fetchMessages']>,
+    fetchMessages: (...args: Parameters<Adapter['fetchMessages']>) =>
+      read('fetchMessages', args) as ReturnType<Adapter['fetchMessages']>,
     conversationInfo: (...args: Parameters<Adapter['conversationInfo']>) =>
       read('conversationInfo', args) as ReturnType<Adapter['conversationInfo']>,
     conversations: (...args: Parameters<Adapter['conversations']>) =>
@@ -180,5 +355,57 @@ export function openAdapterLink(options: {
       read('parseLinks', args) as ReturnType<Adapter['parseLinks']>,
     reactors: (...args: Parameters<Adapter['reactors']>) => read('reactors', args) as ReturnType<Adapter['reactors']>,
   };
-  return { hello, adapter, close: () => shut('closed') };
+  return { hello, principal: () => principal, adapter, close: () => shut('closed') };
+}
+
+/** One link as `openAdapterLink` answers it. */
+export type AdapterLink = ReturnType<typeof openAdapterLink>;
+
+/**
+ * One adapter over the links of one interface, one after another: every call goes to the link attached last, so an
+ * interface that reconnects is reached through the same adapter the core's modules were built with. A call while the
+ * attached link is closed is answered as that link answers it (`link-closed`). The core attaches a new link once its
+ * `hello` names the principal of the first one.
+ */
+export function createLinkSwitch(first: AdapterLink): {
+  adapter: Adapter;
+  current(): AdapterLink;
+  attach(link: AdapterLink): void;
+  close(): void;
+} {
+  let live = first;
+  const now = (): Adapter => live.adapter;
+  const adapter = {
+    ...declaredHooks(),
+    get iface(): string {
+      return now().iface;
+    },
+    capabilities: () => now().capabilities(),
+    send: (...args: Parameters<Adapter['send']>) => now().send(...args),
+    edit: (...args: Parameters<Adapter['edit']>) => now().edit(...args),
+    delete: (...args: Parameters<Adapter['delete']>) => now().delete(...args),
+    react: (...args: Parameters<Adapter['react']>) => now().react(...args),
+    unreact: (...args: Parameters<Adapter['unreact']>) => now().unreact(...args),
+    typing: (...args: Parameters<Adapter['typing']>) => now().typing(...args),
+    fetchMessages: (...args: Parameters<Adapter['fetchMessages']>) => now().fetchMessages(...args),
+    conversationInfo: (...args: Parameters<Adapter['conversationInfo']>) => now().conversationInfo(...args),
+    conversations: (...args: Parameters<Adapter['conversations']>) => now().conversations(...args),
+    history: (...args: Parameters<Adapter['history']>) => now().history(...args),
+    memberInfo: (...args: Parameters<Adapter['memberInfo']>) => now().memberInfo(...args),
+    searchMessages: (...args: Parameters<Adapter['searchMessages']>) => now().searchMessages(...args),
+    searchMembers: (...args: Parameters<Adapter['searchMembers']>) => now().searchMembers(...args),
+    emoji: (...args: Parameters<Adapter['emoji']>) => now().emoji(...args),
+    parseLinks: (...args: Parameters<Adapter['parseLinks']>) => now().parseLinks(...args),
+    reactors: (...args: Parameters<Adapter['reactors']>) => now().reactors(...args),
+  };
+  return {
+    adapter,
+    current: () => live,
+    attach(link: AdapterLink): void {
+      if (link === live) return;
+      live.close();
+      live = link;
+    },
+    close: () => live.close(),
+  };
 }

@@ -11,7 +11,14 @@
 // `options.reads` limits the reads the fake offers (their wire names; all when absent).
 //
 // The fake holds no event back before `open()`: the core's end of the link makes an envelope wait for its door.
+//
+// When the host gives it a data folder (`host.dataDir`), the fake numbers its events in an outbox there
+// (src/protocol/outbox.ts), so a restart of the core or of the fake resends what the core has not acknowledged.
+// `drop()` closes its end of the link as a lost connection would, and `reconnect()` opens a new one with
+// `host.connect()`, says hello again and resends the outbox; an event emitted between the two waits in the outbox.
 
+import path from 'node:path';
+import { createOutbox } from '../protocol/outbox.ts';
 import { serveAdapter } from '../protocol/serve.ts';
 import type { AckStatus, Named } from '../protocol/serve.ts';
 import type { InterfaceHost, RunningInterface } from '../protocol/host.ts';
@@ -20,11 +27,18 @@ import { createFakeAdapter } from './fake.js';
 /** The community the fake serves when a test names none: the one fake guild of the legacy fixture. */
 const DEFAULT_COMMUNITY: Named = { id: 'g1', name: 'Fake community' };
 
+/** How many unacknowledged events the fake's outbox holds. */
+const OUTBOX_CAPACITY = 1000;
+
 export type FakeInterface = RunningInterface & {
   /** Injects an inbound event over the link and resolves with the status of the core's ack. */
   emit(event: unknown): Promise<AckStatus>;
   /** The adapter the core's actions run on: its stored messages are what the persona posted. */
   adapter: ReturnType<typeof createFakeAdapter>;
+  /** Closes the fake's end of the link, as a lost connection would. */
+  drop(): Promise<void>;
+  /** Opens a new connection to the core and says hello again; the outbox goes again after the core's answer. */
+  reconnect(): Promise<void>;
 };
 
 export async function start(
@@ -45,18 +59,33 @@ export async function start(
   // The persona is `self` when given, else the account of `selfId` (the fake's own default) under a name the fake picks.
   const self = options.self ?? { id: options.selfId ?? 'self', name: 'Fake' };
   const community = options.community === undefined ? DEFAULT_COMMUNITY : options.community;
-  const served = serveAdapter({
-    transport: await host.connect(),
-    hello: { iface: adapter.iface, self, community, capabilities: adapter.capabilities(), resume: null },
-    token: host.token,
-    adapter,
-    log: host.log,
-  });
+  const outbox =
+    host.dataDir === undefined
+      ? undefined
+      : createOutbox({ dir: path.join(host.dataDir, 'outbox'), capacity: OUTBOX_CAPACITY });
+  const serve = async (): Promise<ReturnType<typeof serveAdapter>> =>
+    serveAdapter({
+      transport: await host.connect(),
+      hello: { iface: adapter.iface, self, community, capabilities: adapter.capabilities(), resume: null },
+      token: host.token,
+      adapter,
+      log: host.log,
+      ...(outbox === undefined ? {} : { outbox }),
+    });
+  let served = await serve();
   return {
     iface: adapter.iface,
     legacy: options.legacy ?? null,
     adapter,
     emit: (event) => served.emit(event),
+    drop(): Promise<void> {
+      served.close();
+      return Promise.resolve();
+    },
+    async reconnect(): Promise<void> {
+      served.close();
+      served = await serve();
+    },
     open(): void {},
     stop(): Promise<void> {
       served.close();

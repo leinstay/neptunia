@@ -86,6 +86,7 @@ import { applyUnitWrite } from './unit-write.js';
 import { applyPublicationWrite } from './publish.js';
 import { applyEntryMedia } from './diary-media.js';
 import { writeBackup } from './backup.js';
+import { applyIngestWrite } from './ingest.ts';
 
 /**
  * The newest live version of a claim (recorded time, then row order): the version a read of the claim is said to have
@@ -618,6 +619,8 @@ export function applyMemoryWrite(handle, update) {
   if (kind === 'unit') return applyUnitWrite(handle, update);
   if (kind === 'publication') return applyPublicationWrite(handle, update);
   if (kind === 'entry-media') return applyEntryMedia(handle, update);
+  // Schema v16: the event door's ingestion record (ingest.ts).
+  if (kind === 'ingest' || kind === 'ingest-ack') return applyIngestWrite(handle, update);
   if (kind === 'backup') {
     return writeBackup(handle, {
       to: update.to,

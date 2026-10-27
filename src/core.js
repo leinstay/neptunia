@@ -72,7 +72,9 @@ import { createErrandTurns, errandDoneEvent } from './errands/turns.ts';
 import { createEventDoor } from './interface/door.js';
 import { createConversationDirectory } from './interface/directory.ts';
 import { isReadable, takeSnapshot } from './behavior/snapshot.ts';
-import { openAdapterLink } from './interface/link.ts';
+import { createLinkSwitch, openAdapterLink } from './interface/link.ts';
+import { principalOfToken } from './interface/principals.ts';
+import { createIngestRecord, createRowsByMessage, observingWith } from './memory/db/ingest.ts';
 import { listenSocket } from './interface/socket.ts';
 import { connectSocket } from './protocol/wire.ts';
 import { createAroundStore } from './behavior/around-store.ts';
@@ -397,20 +399,54 @@ async function buildCore(options, cleanups) {
   // Ten files of 10 MiB in base64 (a third larger) and the rest of an envelope fit in one frame.
   const LINK_MAX_FRAME_BYTES = 150 * 1024 * 1024;
   const linkToken = randomBytes(32).toString('hex');
+  // Every client is a principal of the private layer's clients.json (src/interface/principals.ts), read at each
+  // envelope. With no clients.json the token made here is the boot principal of the one in-process interface, named
+  // after it and bound to the iface its hello names.
+  const bootPrincipal = {
+    name: interfaces[0].name,
+    kind: /** @type {const} */ ('interface'),
+    iface: null,
+    permissions: [],
+  };
+  const principalOf = (/** @type {string} */ token) =>
+    principalOfToken(token, { privateDir: paths.privateDir, boot: { token: linkToken, principal: bootPrincipal } });
+  // The events each principal sent and its watermark (memory.db's ingest and ingest_cursor, src/memory/db/ingest.ts):
+  // the door deduplicates against them and commits each event there before its ack, the link answers hello with the
+  // watermark. A write before the database opens is refused, and the event is answered `failed`.
+  const ingestRecord = createIngestRecord({ memoryDb, hot, now: Date.now });
+  // The ingestion row of each message event the door is handling: the observation of its line writes the row in the
+  // line's transaction (observe.js#observe).
+  const ingestRows = createRowsByMessage();
+  const observingDb = observingWith(memoryDb, ingestRecord, ingestRows);
   // The door is created below, once its handlers exist; an envelope that arrives sooner waits for it.
-  /** @type {PromiseWithResolvers<{ receive(value: unknown): Promise<import('./protocol/wire.ts').Envelope> }>} */
+  /** @type {PromiseWithResolvers<{ receive(value: unknown, from?: import('./interface/link.ts').From): Promise<import('./protocol/wire.ts').Envelope> }>} */
   const doorReady = Promise.withResolvers();
-  const linkDoor = { receive: async (/** @type {unknown} */ value) => (await doorReady.promise).receive(value) };
+  const linkDoor = {
+    receive: async (/** @type {unknown} */ value, /** @type {import('./interface/link.ts').From | undefined} */ from) =>
+      (await doorReady.promise).receive(value, from),
+  };
   /** @type {PromiseWithResolvers<ReturnType<typeof openAdapterLink>>} */
   const linkOpened = Promise.withResolvers();
+  /** @type {ReturnType<typeof createLinkSwitch> | null} */
+  let linkSwitch = null;
   const linkServer = await listenSocket({
     path: LINK_SOCKET,
     maxFrameBytes: LINK_MAX_FRAME_BYTES,
     log,
     onConnection: (transport) => {
-      // Only the one connection of this process is served; the file is 0600 and the token is needed anyway.
-      const link = openAdapterLink({ transport, door: linkDoor, token: linkToken, log });
-      linkOpened.resolve(link);
+      const link = openAdapterLink({ transport, door: linkDoor, principalOf, ingest: ingestRecord, log });
+      if (linkSwitch === null) {
+        linkOpened.resolve(link);
+        return;
+      }
+      // A reconnect of the interface takes over the core's adapter; another client's link only sends events.
+      const switched = linkSwitch;
+      link.hello.then(
+        () => {
+          if (link.principal()?.name === switched.current().principal()?.name) switched.attach(link);
+        },
+        () => {}
+      );
     },
   });
   cleanups.push(() => linkServer.close());
@@ -422,6 +458,7 @@ async function buildCore(options, cleanups) {
     .start({
       connect: () => connectSocket({ path: LINK_SOCKET, maxFrameBytes: LINK_MAX_FRAME_BYTES }),
       token: linkToken,
+      dataDir: path.join(dataDir, 'interfaces', interfaces[0].name),
       env: {},
       config: () => hot.config,
       onConfigChange: (listener) => hot.onReload(listener),
@@ -429,11 +466,14 @@ async function buildCore(options, cleanups) {
     })
     .catch((err) => fail(`index: ${err instanceof Error ? err.message : String(err)}`));
   cleanups.push(() => running.stop());
-  const coreLink = await linkOpened.promise;
+  const coreLink = createLinkSwitch(await linkOpened.promise);
+  linkSwitch = coreLink;
   cleanups.push(() => coreLink.close());
   // Awaited before anything below is built: every module that takes the port gets the link's adapter, whose
   // `iface` and capabilities exist once hello has arrived. Nothing sends before this line.
-  const hello = await coreLink.hello.catch((err) => fail(`index: the link to the interface failed: ${String(err)}`));
+  const hello = await coreLink
+    .current()
+    .hello.catch((err) => fail(`index: the link to the interface failed: ${String(err)}`));
   identity.iface = hello.iface;
   identity.selfId = hello.self.id;
   identity.selfName = hello.self.name;
@@ -759,7 +799,8 @@ async function buildCore(options, cleanups) {
     // A failed address gate and a replaced deferred follow-up are missed-answer facts.
     missed,
     // Every observed message goes to the memory database as an observation: the record of the line.
-    memoryDb,
+    // Its observations carry the ingestion row of their event (ingestRows above).
+    memoryDb: observingDb,
     // The limit and pause notices go out through the interface like any other effect.
     port: iface,
   });
@@ -1081,14 +1122,20 @@ async function buildCore(options, cleanups) {
   // come through the same door, in process.
   const door = createEventDoor({
     handlers: {
-      'message.received': (event) => {
-        // The direct chats of members are learned from the messages seen in them.
-        directory.observe(event);
-        if (event.deleted) return onMessage.onMessageDelete(event);
-        if (event.edit) return onMessage.onMessageUpdate(event);
-        // A member's own message carries their avatar: a changed one is queued for a description.
-        offerAvatar(event.conversation?.communityId, event.message?.author);
-        return onMessage(event);
+      // The second argument holds the event's ingestion row, which the observation of its line commits with the line.
+      'message.received': async (event, context) => {
+        const release = ingestRows.hold(event, context.ingest);
+        try {
+          // The direct chats of members are learned from the messages seen in them.
+          directory.observe(event);
+          if (event.deleted) return await onMessage.onMessageDelete(event);
+          if (event.edit) return await onMessage.onMessageUpdate(event);
+          // A member's own message carries their avatar: a changed one is queued for a description.
+          offerAvatar(event.conversation?.communityId, event.message?.author);
+          return await onMessage(event);
+        } finally {
+          release();
+        }
       },
       // The reactor store follows the reactions on the persona's messages in the served guild, whatever
       // features.reactionNames says (a cheap map update; a switch turned on later finds it current).
@@ -1133,6 +1180,7 @@ async function buildCore(options, cleanups) {
       },
     },
     log,
+    ingest: ingestRecord,
   });
   doorReady.resolve(door);
 

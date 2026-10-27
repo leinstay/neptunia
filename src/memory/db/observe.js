@@ -80,6 +80,7 @@ import {
 import { markStemsPending } from './stems.js';
 import { projectRow } from './graph.js';
 import { nextPosition, noteUnit } from './unit-write.js';
+import { ingestOption, insertIngest } from './ingest.ts';
 
 /** The version of the envelope this module reads. */
 export const OBSERVATION_VERSION = 1;
@@ -850,7 +851,8 @@ function writeObservation(db, given, at, log, owner = null) {
 /**
  * Writes one observation (see the head of this file). Returns `{ ok: true, replayed, sourceId, placeId, author,
  * audienceId, relations, resolved, bundleId, written }` (with `owner`, also `revision`) or `{ ok: false, code }`
- * (nothing written).
+ * (nothing written). An envelope that carries `ingest` (`{ row, keepDays }`, the ingestion row of the event the line
+ * came with, ingest.ts) has the row written in the same transaction, so the event and its line commit together.
  * @param {{ db: object, transaction: (fn: () => any) => any }} handle  an `openMemoryDb` handle (the writer)
  * @param {object} envelope
  * @param {{ now?: () => number, log?: object, owner?: string|null }} [opts]  `owner`: the record unit the line is
@@ -862,7 +864,16 @@ export function observe(handle, envelope, { now = Date.now, log = engineLog, own
     log?.debug?.('memory observe: refused', { code });
     return { ok: false, code };
   }
-  return guarded(handle, () => writeObservation(handle.db, envelope, toIso(now()), log, owner), log);
+  const at = now();
+  const ingest = ingestOption(envelope);
+  return guarded(
+    handle,
+    () => {
+      if (ingest) insertIngest(handle.db, ingest.row, { at, keepDays: ingest.keepDays });
+      return writeObservation(handle.db, envelope, toIso(at), log, owner);
+    },
+    log
+  );
 }
 
 // ---------- capture ----------

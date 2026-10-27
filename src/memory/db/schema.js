@@ -1138,9 +1138,22 @@ function V15(connection, context = {}) {
   finishDiaryMirror(db, context);
 }
 
+// Version 16 (stage 4 design, 2026-10-27, PR A): durable ingestion. An `ingest` row is one event the core committed,
+// keyed by the principal that sent it (src/interface/principals.ts); the door deduplicates by it, so a restart still
+// knows every event it took (ingest.ts). An event id and a seq are each unique within a principal, and rows older than
+// `memoryDb.ingestKeepDays` are pruned by `committed_at`. `ingest_cursor` is the contiguous watermark the core
+// acknowledged to each principal, which `hello` answers with.
+const V16 = `CREATE TABLE ingest (
+  principal TEXT NOT NULL, seq INTEGER, event_id TEXT NOT NULL, kind TEXT NOT NULL, conversation TEXT,
+  committed_at TEXT NOT NULL,
+  UNIQUE (principal, event_id), UNIQUE (principal, seq)
+);
+CREATE INDEX ingest_committed_at ON ingest (committed_at);
+CREATE TABLE ingest_cursor (principal TEXT PRIMARY KEY, acked_seq INTEGER NOT NULL);`;
+
 /** Each entry moves the schema one version up: SQL text, or a function of the connection (and the opener's context)
  * for a step SQL cannot do. Never edit a shipped entry: append a new one. */
-export const MIGRATIONS = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15];
+export const MIGRATIONS = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16];
 
 /** Every table schema v8 adds. */
 export const V8_TABLES = [

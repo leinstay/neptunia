@@ -34,6 +34,8 @@ export type StoredMessage = {
   reactions: Set<string>;
   deleted: boolean;
   event?: MessageEvent;
+  /** The key of the send that posted it, and which part of that send it is. */
+  sentUnder?: { idempotencyKey: string; part: number };
 };
 
 type ReadMethods = Pick<

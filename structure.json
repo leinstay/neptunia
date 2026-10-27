@@ -336,6 +336,7 @@
         "src/interface/door.js",
         "src/interface/link.ts",
         "src/interface/members.ts",
+        "src/interface/principals.ts",
         "src/interface/reads.ts",
         "src/interface/socket.ts"
       ],

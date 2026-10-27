@@ -44,7 +44,7 @@ export function readAction(operation: string, args: ReadonlyArray<unknown>): Fie
   const options = isObject(second) ? second : {};
   switch (operation) {
     case 'fetchMessages':
-      return { action: MESSAGES_FETCH, conversation: target, messageIds: second };
+      return { action: MESSAGES_FETCH, conversation: target, messageIds: second, ...definedOnly(third) };
     case 'conversationInfo':
       return { action: 'conversation.info', conversation: target, ...definedOnly(second) };
     case 'conversations':

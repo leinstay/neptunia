@@ -11,6 +11,11 @@ export type InterfaceHost = {
   connect(): Promise<Transport>;
   /** The token the core made at boot, sent in `hello`. */
   token: string;
+  /**
+   * A folder of the interface's own, for what it keeps across restarts (its outbox, src/protocol/outbox.ts). Absent:
+   * the interface keeps nothing, and its events go out un-numbered.
+   */
+  dataDir?: string;
   /** The environment the interface reads its own keys from (the platform token). */
   env: Readonly<Record<string, string | undefined>>;
   /** The live config, read at the moment of use: the core hands over `() => hot.config`. */
