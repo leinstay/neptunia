@@ -2,14 +2,12 @@
 // mirror on a place and no `diary.channelId` in the config, an ordinary turn treats that place as her diary the way it
 // treats the configured channel today. `<server>` marks it with `labels.server.diary`, byte for byte as the recorded
 // block (tests/fixtures/diary-mirror-awareness.json, built on the code before the change with `diary.channelId: 'd1'`),
-// a turn in it keeps no participation, a line she writes there in an ordinary turn is no diary entry, and every mirrored
-// place carries the mark. Real turn runner, real store over a memory database, fake interface, scripted model.
-// Synthetic text only.
+// a turn in it keeps no participation, and every mirrored place carries the mark. Real turn runner, real store over a
+// memory database, fake interface, scripted model. Synthetic text only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { GUILD, replyTurn, serverBlock } from './fixtures/diary-awareness.ts';
-import { dbOf, diaryPublications, diaryRows } from './fixtures/diary-mirror.ts';
 import { labels } from './fixtures/labels.js';
 
 const RECORDED_FILE = new URL('./fixtures/diary-mirror-awareness.json', import.meta.url);
@@ -38,13 +36,8 @@ test('a turn in the mirrored place keeps no participation there', async () => {
   );
 });
 
-test('a line she writes in the mirrored place in an ordinary turn is no diary entry and no publication', async () => {
-  const { memory } = await replyTurn({ here: 'd1', mirrors: ['d1'] });
-  const tables = dbOf(memory.memoryDb).prepare("SELECT name FROM sqlite_master WHERE name = 'mirrors'").all();
-  assert.equal(tables.length, 1, 'the database holds the mirrors');
-  assert.deepEqual(diaryRows(memory.memoryDb), []);
-  assert.deepEqual(diaryPublications(memory.memoryDb), []);
-});
+// She cannot write in a mirror place at all (stage 3 design, section 9): the refusal, the event that opens no turn and
+// the publisher that still writes there are tests/diary-mirror-guard.test.ts.
 
 test('with two mirrors both places carry the diary mark in <server>', async () => {
   const { request } = await replyTurn({ here: 'c1', mirrors: ['d1', 'd2'] });
