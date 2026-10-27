@@ -55,6 +55,7 @@ import { createRecall } from './behavior/recall-run.js';
 import { createSpontaneous } from './behavior/spontaneous.js';
 import { createInnerLife, innerSettings } from './behavior/inner.js';
 import { createDiary } from './behavior/diary.js';
+import { createMirrors, guardMirrorPort } from './behavior/mirror.ts';
 import { createImageFetcher } from './media/fetch-image.js';
 import { createVideoFetcher } from './media/fetch-video.js';
 import { createPageFetcher } from './web/fetch-page.js';
@@ -442,8 +443,11 @@ async function buildCore(options, cleanups) {
   // fed by the interface's voice, presence and connection events through the door below, never written anywhere.
   const around = createAroundStore({ presences: hello.capabilities.presence === true });
   // The persona's interface (src/interface/port.js): every effect of her replies goes through it,
-  // after the skill gateway (src/tools/gateway.ts) let the call pass.
-  const iface = coreLink.adapter;
+  // after the skill gateway (src/tools/gateway.ts) let the call pass. It is the guarded port: a send to a diary
+  // mirror's place goes nowhere (`diary-mirror`); only the mirrors' publisher below holds the link's own adapter.
+  const iface = guardMirrorPort(coreLink.adapter, { memoryDb });
+  // The diary's mirrors (src/behavior/mirror.ts): each recorded entry published once to every enabled mirror.
+  const mirrors = createMirrors({ memoryDb, port: () => coreLink.adapter, now: Date.now });
 
   // What the interface hands over besides its adapter: `serveCommands`, the slash command interactions (the command
   // handler). An interface that has none, like the fake, serves no commands.
@@ -595,9 +599,9 @@ async function buildCore(options, cleanups) {
     places: (guildId, options) => inner.places(guildId, options),
   });
   const spontaneous = createSpontaneous({ hot, store, reads, turns, getGuildId });
-  // The persona's diary (diary.channelId): its own posts on a day plan, ticked below.
-  // The diary's posts are rows of the memory database already: no backfill from the channel.
-  const diary = createDiary({ hot, store, reads, iface: () => identity.iface, turns, getGuildId });
+  // The persona's diary: its own entries on a day plan as the selfreflection wake, ticked below, each published to the
+  // diary's mirrors. The diary's posts are rows of the memory database already: no backfill from the channel.
+  const diary = createDiary({ hot, store, reads, turns, getGuildId, mirrors });
   // The code-only memory of the live message path (src/memory/update.js): counters, GIF library, emoji, names.
   const memory = createMemoryUpdater({ hot, store });
   // The turn an errand's end opens, through the lease and a cooldown per conversation.
@@ -1030,7 +1034,15 @@ async function buildCore(options, cleanups) {
     log,
   });
   scheduler.add({ name: 'spontaneous.tick', everyMs: () => 30_000, run: () => spontaneous.tick() });
-  scheduler.add({ name: 'diary.tick', everyMs: () => 30_000, run: () => diary.tick() });
+  // The diary's beat also sends what its mirrors still hold queued.
+  scheduler.add({
+    name: 'diary.tick',
+    everyMs: () => 30_000,
+    run: async () => {
+      await diary.tick();
+      await mirrors.drainQueued();
+    },
+  });
   // The inner life's tick, every innerLife.tickSeconds (read before each wait).
   scheduler.add({
     name: 'inner.tick',
@@ -1178,6 +1190,8 @@ async function buildCore(options, cleanups) {
 
   // The door has its handlers: the interface delivers the events it held since its start, and every later one.
   running.open();
+  // The interface is connected: what the diary's mirrors held queued goes out now.
+  mirrors.drainQueued().catch((/** @type {unknown} */ err) => log.warn('mirror: drain failed', { error: err }));
 
   // The periodic work first, before anything below can throw or wait: the
   // flush, the behaviours' beats, the hourly affinity decay. Then the startup steps, in order.

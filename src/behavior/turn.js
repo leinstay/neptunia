@@ -1865,7 +1865,7 @@ export function taskInput({ part, queued, added, missed = null, failedEarlier = 
  * counts as no id (a throw logs `pull: route failed`).
  *
  * Participation (src/memory/participation.js; features.participation and features.memory,
- * a missing key counts as on; never in a private chat or the diary channel): every message a
+ * a missing key counts as on; never in a private chat or a place of her diary): every message a
  * turn sends for real in a server channel is recorded in the guild's participation store with
  * the history lines before it and the line it replies to (recordOwnParticipation; a dry run
  * records nothing). A server turn that builds a reply request (not a diary post) hands the
@@ -6892,7 +6892,8 @@ export function createTurnRunner({
    * @param {(() => boolean)|null} [params.stillDue]  Asked right before anything is posted (dry
    *   run included); false ends the turn `not-now` (`reason: 'answered-meanwhile'`), nothing posted.
    * @param {{ kind?: string|null, topic?: string|null, forced?: boolean }|null} [params.diary]  With `mode: 'diary'`
-   *   (src/behavior/diary.js, in the diary channel, no trigger): the post is planned first
+   *   (src/behavior/diary.js, no trigger; with no `conversation` the selfreflection wake, selfreflectionOf, whose
+   *   conversation and history memory gives): the post is planned first
    *   (prepareDiary: the plan request, then the search it asks for; `kind` forces the kind --
    *   a picture kind while the post may not carry a picture is refused before any request,
    *   `{ outcome: 'refused', reason: 'pictures', limit }`, diaryPictureGate --
@@ -6905,12 +6906,11 @@ export function createTurnRunner({
    *   `diary-draw-only`; at most `diary.set.pictures[1]` in a step), each picture staged as it is
    *   generated and counted against the day's diary pictures then; a picture while the post may
    *   carry none is refused `daily-cap` (diaryPictureGate). A failed picture holds the post's speech
-   *   with the staged pictures until her next step. The messages go out first, then every staged
-   *   picture as files (act's `set`; a single picture is a set of one). A planned kind in
-   *   `diary.setKinds` is a set post: fewer than `diary.set.minPosted` pictures staged and nothing
-   *   is posted (`turn: set short`, `{ outcome: 'refused', reason: 'set-short' }`). A post that
-   *   reached the chat is recorded (recordDiaryPost) and its outcome carries `diary: { kind,
-   *   picture, search, messages, pictures }`; a dry run records nothing.
+   *   with the staged pictures until her next step. Nothing is sent: her speech is held (holdSpeech), a `voice.say`
+   *   keeps its file (diary-turn.ts#diaryVoiceTool), and the entry is recorded (diary-turn.ts#recordEntry; a set kind
+   *   with fewer than `diary.set.minPosted` pictures staged is not: `turn: set short`, `{ outcome: 'refused', reason:
+   *   'set-short' }`). Its outcome carries `diary: { kind, picture, search, messages, pictures }` and the entry
+   *   (`diary.entry`) the mirrors publish (src/behavior/mirror.ts); a dry run records nothing.
    *
    * A private chat (`channel` without a guild) works like a server turn on behalf of its partner
    * (the trigger's author, fetched as a member of the served guild: privatePartner) with

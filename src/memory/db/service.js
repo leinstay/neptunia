@@ -48,7 +48,8 @@
 //     store's cache, the module stores, participation, the diary, the vectors) through the writer; resolves once the
 //     worker committed, rejects with a code (`DB_CLOSED` while the database is not open). Each tick also finishes the
 //     graph projection and the stems a migration left (one slice a tick). The opener's migration context is the live
-//     `diary.channelId`'s place (schema v12's data step). The durable intent of a write that failed (spec
+//     `diary.channelId`'s place (the seed of schema v12's and v15's data steps); a diary write's destination is the
+//     place of the diary's first enabled mirror. The durable intent of a write that failed (spec
 //     2026-10-24-memory-authority, section 6 item 3): `keepPending(update)` (at shutdown, from unit-outbox.js#keep)
 //     writes it to `data/memory-pending/<sha1 of the owner>.json` (`{ owner, op, value | lines, at }`; the lines of one
 //     owner are appended to what its file holds), and every open replays each pending file through the writer before
@@ -110,6 +111,7 @@ import { graphPending } from './graph.js';
 import { stemsPending } from './stems.js';
 import { createHash } from 'node:crypto';
 import { backupName, backupOn, backupSettings, configHash, partialOf, pruneBackups } from './backup.js';
+import { mirrorPlaces, readMirrors } from '../../behavior/mirror.ts';
 
 /** The folder of the unit writes that failed at a shutdown (stage W2b), under the data directory. */
 export const PENDING_DIR = 'memory-pending';
@@ -503,13 +505,13 @@ export function createMemoryDb({
   /** The stamped unit write as `writeUnit` sends it (the time, a diary's destination). */
   function stampUnit(update) {
     const stamped = { ...update, kind: 'unit', now: Number.isFinite(update?.now) ? update.now : now() };
-    // A diary post's destination is the deployment's diary channel (the live `diary.channelId`, as its place).
+    // A diary post's destination is the place of the diary's first enabled mirror (src/behavior/mirror.ts).
     if (
       (stamped.op === 'diary' ||
         (stamped.op === 'value' && /^guilds\/[^/]+\/diary\.json$/.test(String(stamped.owner ?? '')))) &&
       stamped.destination === undefined
     ) {
-      stamped.destination = openContext().diaryPlaceId;
+      stamped.destination = readMirrors({ readHandle }, mirrorPlaces, [])[0]?.placeId ?? null;
     }
     return withLiveIface(stamped, iface);
   }

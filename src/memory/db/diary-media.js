@@ -28,6 +28,7 @@ import { createHash } from 'node:crypto';
 import { audienceOf } from './scope.ts';
 import { ensureAudience } from './rows.js';
 import { projectRow } from './graph.js';
+import { diaryPlaces } from '../../behavior/mirror.ts';
 
 export const GAP_MS = 1000;
 const MEDIA_DIR = path.join('media', 'diary');
@@ -65,7 +66,9 @@ function audioExtension(mime, name) {
 export function pendingDiaryRows(db) {
   const rows = db
     .prepare(
-      `SELECT d.id AS id, d.scope_kind AS scope_kind, d.scope_iface AS scope_iface, d.scope_dm AS scope_dm, m.native_ids AS native_ids, d.extra AS extra
+      `SELECT d.id AS id, d.scope_kind AS scope_kind, d.scope_iface AS scope_iface, d.scope_dm AS scope_dm, m.native_ids AS native_ids, d.extra AS extra,
+         (SELECT p.native_id FROM publications x JOIN places p ON p.id = x.destination_place_id
+           WHERE x.row_kind = 'diary' AND x.row_id = d.id ORDER BY x.created_at, x.id LIMIT 1) AS conversation_id
        FROM diary d JOIN diary_mirrors m ON m.diary_id = d.id
       WHERE d.retired_at IS NULL AND m.retired_at IS NULL
         AND (d.text IS NULL
@@ -90,8 +93,13 @@ export function pendingDiaryRows(db) {
     } catch {
       /* an unreadable extra means no voice field */
     }
-    const { extra: _extra, ...rest } = row;
-    out.push({ ...rest, messageIds: ids, voice });
+    const { extra: _extra, conversation_id: conversationId, ...rest } = row;
+    out.push({
+      ...rest,
+      conversationId: typeof conversationId === 'string' ? conversationId : null,
+      messageIds: ids,
+      voice,
+    });
   }
   return out;
 }
@@ -221,7 +229,6 @@ export function createDiaryMedia({
   function settings() {
     const cfg = config() ?? {};
     return {
-      channelId: typeof cfg.diary?.channelId === 'string' ? cfg.diary.channelId : '',
       maxBytes: cfg.image?.referenceMaxBytes,
       timeoutMs: cfg.context?.vision?.fetchTimeoutMs,
       audioMaxBytes: Number.isFinite(cfg.memoryDb?.diaryAudioMaxBytes)
@@ -231,8 +238,10 @@ export function createDiaryMedia({
   }
 
   /** One row: fetch, download, write. Returns 'done' or 'failed'. */
-  async function handleRow(row, { channelId, maxBytes, timeoutMs, audioMaxBytes }, adapter, fetcher) {
-    const result = await adapter.fetchMessages({ iface: adapter.iface, conversationId: channelId }, row.messageIds);
+  async function handleRow(row, { maxBytes, timeoutMs, audioMaxBytes }, adapter, fetcher, fallbackId) {
+    const conversationId = row.conversationId ?? fallbackId;
+    if (!conversationId) return 'failed';
+    const result = await adapter.fetchMessages({ iface: adapter.iface, conversationId }, row.messageIds);
     if (result?.status !== 'ok' || !Array.isArray(result.messages)) {
       log.warn('diary media: fetch failed', { code: result?.error?.code ?? result?.status ?? 'ERROR' });
       return 'failed';
@@ -324,7 +333,9 @@ export function createDiaryMedia({
     const adapter = port();
     const fetcher = imageFetcher();
     const given = settings();
-    if (!database || !adapter?.fetchMessages || !fetcher || !given.channelId) return counts;
+    if (!database || !adapter?.fetchMessages || !fetcher) return counts;
+    // A post whose publication names no place was posted where her diary is (mirror.ts#diaryPlaces, the first).
+    const fallbackId = diaryPlaces(database)[0]?.conversationId ?? null;
     let rows;
     try {
       rows = pendingDiaryRows(database).filter((row) => !attempted.has(row.id));
@@ -340,7 +351,7 @@ export function createDiaryMedia({
       if (stopped) break;
       attempted.add(row.id);
       try {
-        counts[await handleRow(row, given, adapter, fetcher)] += 1;
+        counts[await handleRow(row, given, adapter, fetcher, fallbackId)] += 1;
       } catch (error) {
         counts.failed += 1;
         log.warn('diary media: row failed', { code: codeOf(error) });
