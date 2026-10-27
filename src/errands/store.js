@@ -5,7 +5,7 @@
 // `running` -> `done` | `failed` | `cancelled` (a queued one may also be cancelled or failed
 // directly); a finished task is never reopened, and an end that arrives after a cancel is
 // ignored. The caps are enforced here, on `add`, read from the live config at the moment of use:
-// `agents.maxOpen` open tasks at once (`cap-open`), `agents.<profile>.daily.tasks` tasks per UTC day (`cap-tasks`; a task counts on
+// `errands.maxOpen` open tasks at once (`cap-open`), `agents.<profile>.daily.tasks` (the profile's `daily`, overridable there) tasks per UTC day (`cap-tasks`; a task counts on
 // the day it was queued). That daily number
 // and the owner card's `costs.errands` come from one place: src/errands/costs.js#agentCosts over
 // the store's spend records, one per task of the last KEEP_DAYS days (read from errands.jsonl at
@@ -15,8 +15,8 @@
 // `proposed` when queued, `started` when running, then one closing `succeeded` or `failed`
 // (with the code), counts only -- never the goal or the result. A task's files are named to the
 // persona by a handle `file:<task id>/<name>` (fileOf resolves it, only for a name the task's
-// result lists, inside `agents.<profile>.out`). The runner deletes a task's directory after
-// `agents.keepFilesHours` (src/agent-runner/sweep.js); a finished task whose result lists files
+// result lists, inside the profile's `out`). The runner deletes a task's directory after
+// `errands.keepFilesHours` (src/agent-runner/sweep.js); a finished task whose result lists files
 // is marked `filesExpired` once its directory is gone from an out dir that is still there (checked
 // when the tasks are read), and its handles name nothing from then on.
 // A task mirrored into the ledger (src/errands/ledger.js) carries the ledger's id as `ledgerId`
@@ -38,7 +38,7 @@ import { normalizeResult, normalizeUsage } from '../agent-runner/protocol.js';
 import { createReadSeam } from '../memory/db/readers/common.js';
 import { errandEventLines, errandsValue } from '../memory/db/readers/errands.js';
 import { createUnitOutbox } from '../memory/db/unit-outbox.js';
-import { profileOf } from '../agent-runner/profiles.js';
+import { agentSettings, profileOf } from '../agent-runner/profiles.js';
 import { CODE } from '../tools/codes.ts';
 
 /** Every state a task may be in. */
@@ -47,7 +47,7 @@ export const TASK_STATES = Object.freeze(['queued', 'running', 'done', 'failed',
 export const OPEN_STATES = Object.freeze(['queued', 'running']);
 /** Who asked for a task. */
 export const REQUESTER_KINDS = Object.freeze(['owner', 'member', 'persona']);
-/** `agents.maxOpen` when it is missing (config.json carries the same). */
+/** `errands.maxOpen` when it is missing (config.json carries the same). */
 export const DEFAULT_MAX_OPEN = 3;
 /** The finished tasks errands.json keeps besides the open ones (errands.jsonl keeps every transition). */
 export const KEEP_FINISHED = 50;
@@ -77,7 +77,7 @@ export function isOpenState(state) {
  * @param {object} options
  * @param {string} options.guildId
  * @param {() => number} [options.now]
- * @param {() => object} [options.config]  The live config (`agents.*`, `features.journal`).
+ * @param {() => object} [options.config]  The live config (`errands.*`, `agents.<profile>` overrides, `features.journal`).
  * @param {{ action: Function }|null} [options.journal]  src/memory/journal.js#createJournal's.
  * @param {() => string} [options.uuid]
  * @param {{ info: Function, warn: Function }} [options.log]
@@ -231,14 +231,9 @@ export function createTaskStore({
     return out;
   }
 
-  /** The live `agents` section. */
-  function agentsConfig() {
-    return config()?.agents ?? {};
-  }
-
-  /** The out directory of `agent`: `agents.<agent>.out`, else the profile's; null when there is none. */
+  /** The out directory of `agent` (its profile's `out` under the deployment's override); null for an unknown agent. */
   function outDirOf(agent) {
-    return agentsConfig()?.[agent]?.out || profileOf(agent)?.defaultOut || null;
+    return agentSettings(agent, config())?.out || null;
   }
 
   /** Whether `file` is missing (ENOENT); false when it is there or cannot be told. */
@@ -273,10 +268,10 @@ export function createTaskStore({
     return changed;
   }
 
-  /** `agents.<agent>.daily` with the profile's defaults under it. */
+  /** The daily caps of `agent`: its profile's `daily` under the deployment's override. */
   function dailyCaps(agent) {
-    const defaults = profileOf(agent)?.defaultDaily ?? {};
-    const set = agentsConfig()?.[agent]?.daily ?? {};
+    const set = agentSettings(agent, config())?.daily ?? {};
+    const defaults = agentSettings(agent, {})?.daily ?? {};
     return { tasks: Number.isFinite(set.tasks) ? set.tasks : defaults.tasks };
   }
 
@@ -297,7 +292,8 @@ export function createTaskStore({
 
   /** The cap `agent` hits now, as its refusal code, or null. */
   function capHit(agent) {
-    const maxOpen = Number.isFinite(agentsConfig().maxOpen) ? agentsConfig().maxOpen : DEFAULT_MAX_OPEN;
+    const set = config()?.errands?.maxOpen;
+    const maxOpen = Number.isFinite(set) ? set : DEFAULT_MAX_OPEN;
     if (open().length >= maxOpen) return 'cap-open';
     const caps = dailyCaps(agent);
     const used = usedToday(agent);
@@ -548,7 +544,7 @@ export function createTaskStore({
    */
   function budget(agent) {
     const code = profileOf(agent) ? capHit(agent) : CODE.UNKNOWN_AGENT;
-    const key = { [CODE.CAP_OPEN]: 'agents.maxOpen', [CODE.CAP_TASKS]: `agents.${agent}.daily.tasks` }[code] ?? null;
+    const key = { [CODE.CAP_OPEN]: 'errands.maxOpen', [CODE.CAP_TASKS]: `agents.${agent}.daily.tasks` }[code] ?? null;
     return { spent: code !== null, key, code };
   }
 
@@ -560,7 +556,7 @@ export function createTaskStore({
   /**
    * The file a handle `file:<task id>/<name>` names: `{ path, name, contentType, bytes, task }`
    * when the task exists, its files have not expired and its result lists that name, the path
-   * inside the agent's out directory (`agents.<agent>.out`, else the profile's); null otherwise.
+   * inside the agent's out directory (the agent's `out`, the profile's under the deployment's override); null otherwise.
    */
   function fileOf(handle) {
     const parsed = parseFileHandle(handle);

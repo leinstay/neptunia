@@ -6,6 +6,7 @@
 // values are read at the moment of use, through `hot`, never copied.
 
 import path from 'node:path';
+import { moveConfigKeys } from '../../config-moves.ts';
 import { fromTokens } from '../../memory/mentions.ts';
 import { familyOf as imageFamilyOf } from '../../llm/images.js';
 import { roleModel } from '../../llm/roles.js';
@@ -171,11 +172,18 @@ function buildEnv({
     return path.join((hot.privateDir ?? hot.rootDir) as string, 'config.local.json');
   }
 
-  /** config.local.json passed through `edit` (object in, object out), written back, and the
+  /** config.local.json with its keys of an old name written under their new one (src/config-moves.ts), as the
+   * loader reads it: a command that read the raw file would add a key under the new name beside the old one, and the
+   * next load would let the new one win. */
+  function settledLocalConfig(file: string): Untyped {
+    return moveConfigKeys(readLocalConfig(file)).config as Untyped;
+  }
+
+  /** config.local.json, settled, passed through `edit` (object in, object out), written back, and the
    * config reloaded; the reload's outcome. Every config writer goes through here. */
   function editLocalConfig(edit: (local: Untyped) => unknown): boolean {
     const file = localConfigFile();
-    writeLocalConfig(file, edit(readLocalConfig(file)));
+    writeLocalConfig(file, edit(settledLocalConfig(file)));
     return hot.reloadConfig() as boolean;
   }
 
@@ -190,7 +198,7 @@ function buildEnv({
    * reload lands. */
   function localOrLive(dottedPath: string | ReadonlyArray<string>): unknown {
     const parts = splitPath(dottedPath, hot.config);
-    const local = ownValueAt(readLocalConfig(localConfigFile()), parts);
+    const local = ownValueAt(settledLocalConfig(localConfigFile()), parts);
     return local.found ? local.value : ownValueAt(hot.config, parts).value;
   }
 

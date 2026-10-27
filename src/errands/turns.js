@@ -2,11 +2,11 @@
 // calls `onFinished`), she gets a turn of her own in the conversation it was asked in, the way
 // the missed-answer recovery opens one (src/behavior/missed.js): through the turn runner's one
 // attention (a turn running anywhere holds it back; mention.oneAtATime), a cooldown per
-// conversation between two such turns (`agents.resultCooldownSeconds`), and she may answer with
+// conversation between two such turns (`errands.resultCooldownSeconds`), and she may answer with
 // silence. The turn's trigger is the message the errand was asked in (her answer replies to it),
 // else -- a slash command, or a message gone since -- an interjection; its kind is `task`, its
 // requester the person who asked, and its request carries the `<task_result>` block
-// (src/errands/blocks.js). A turn held back is retried every `agents.resultRetrySeconds`, at
+// (src/errands/blocks.js). A turn held back is retried every `errands.resultRetrySeconds`, at
 // most RESULT_ATTEMPTS times, then left for her `<tasks>` block (marked `resultTurnFailed`, so
 // the line says the turn never ran); a turn that failed on its own (`error`, `refused`, or any
 // outcome but spoke and skip) is retried the same way. Only a turn that spoke or chose silence
@@ -23,7 +23,7 @@
 import { log as defaultLog } from '../log.js';
 import { lineOf } from '../behavior/line-of.js';
 
-/** `agents.resultRetrySeconds` and `agents.resultCooldownSeconds` when missing (config.json carries the same). */
+/** `errands.resultRetrySeconds` and `errands.resultCooldownSeconds` when missing (config.json carries the same). */
 export const DEFAULT_RETRY_SECONDS = 30;
 export const DEFAULT_COOLDOWN_SECONDS = 60;
 /** How many times a result turn is tried before the task is left to the `<tasks>` block. */
@@ -86,7 +86,7 @@ export function createTaskTurns({
   const waiting = new Map();
 
   function seconds(key, fallback) {
-    const value = hot.config?.agents?.[key];
+    const value = hot.config?.errands?.[key];
     return Number.isFinite(value) && value >= 0 ? value : fallback;
   }
 

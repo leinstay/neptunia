@@ -2197,16 +2197,16 @@ export function createTurnRunner({
   /**
    * The request's `errands` input (buildRequest): the `<tasks>` body -- her open errands and the
    * finished ones she has not read (`errands.view`: a private chat's only in that chat; at most
-   * `agents.unreadShown` of them), the one `taskResult` brings left out -- and, on the turn an
+   * `errands.unreadShown` of them), the one `taskResult` brings left out -- and, on the turn an
    * errand's end opened (`taskResult`, trigger kind `task`), the `<task_result>` body cut to
-   * `agents.resultMaxChars` (read now). Showing a task marks nothing: it is read by the result
+   * `errands.resultMaxChars` (read now). Showing a task marks nothing: it is read by the result
    * turn that completed (src/errands/turns.js) or by `task.read`. Null when there is nothing to show.
    */
   function errandsInputFor({ guildId, channel, isPrivate, taskResult, config, labels, now }) {
     const listed = listedTasks({ guildId, channel, isPrivate, taskResult });
-    const tasks = tasksBlockText(listed, labels, { now, unreadShown: config.agents?.unreadShown });
+    const tasks = tasksBlockText(listed, labels, { now, unreadShown: config.errands?.unreadShown });
     const result = taskResult
-      ? taskResultText(taskResult, labels, { maxChars: config.agents?.resultMaxChars ?? DEFAULT_RESULT_MAX_CHARS })
+      ? taskResultText(taskResult, labels, { maxChars: config.errands?.resultMaxChars ?? DEFAULT_RESULT_MAX_CHARS })
       : '';
     return tasks || result ? { tasks, result } : null;
   }

@@ -1,7 +1,7 @@
 // The persona's errands in the background: a task the `task.run` operation accepted (queued in
 // the guild's task store, src/errands/store.js) is handed to its agent runner through the client
 // (src/errands/client.js) right after the operation answered -- nobody waits for it. The task is
-// `running` from the moment it is sent, with the limits of `agents.<profile>.limits` (the
+// `running` from the moment it is sent, with the limits of the profile (`limits`, overridable under `agents.<profile>`; the
 // profile's defaults under them) and a context the runner applies its scope policy to
 // (`scope`: `dm` for a task asked in a private chat, else `group`; the origin channel; who
 // asked). Its `end` writes the result into the store and calls `onFinished(task)` -- the turn
@@ -16,7 +16,7 @@
 // form) and the search key (OPENCODE_WEBSEARCH_KEY) when set. Without the role's key no secrets
 // are sent (the runner falls back to its own environment). Settings are read at the moment of
 // use; logs carry ids and codes, never a goal, a result or a secret. The context also carries
-// `recent`: the last `agents.recentLines` lines of the origin channel as `[{ author, text }]`
+// `recent`: the last `errands.recentLines` lines of the origin channel as `[{ author, text }]`
 // (display names and text on one line, cut to RECENT_CHARS), read from the memory's buffer
 // (the memory database's newest lines of the channel) at the moment the task is queued and kept in memory only until it is sent;
 // a `dm`-scoped task sends `recent: []` (nothing of a private chat reaches a runner this way).
@@ -35,7 +35,7 @@
 // The flag is logged once per change (`errands: runner up` / `errands: runner down`).
 
 import { log as defaultLog } from '../log.js';
-import { PROFILES, profileOf } from '../agent-runner/profiles.js';
+import { PROFILES, agentSettings, profileOf } from '../agent-runner/profiles.js';
 import { roleApiKey } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
 import { MAX_RECENT_ENTRIES, RECENT_CHARS, httpProxyForm } from '../agent-runner/protocol.js';
@@ -47,7 +47,7 @@ import { CODE } from '../tools/codes.ts';
 
 /** The limit keys a task may carry to its runner (src/agent-runner/protocol.js#LIMIT_KEYS). */
 const TASK_LIMIT_KEYS = Object.freeze(['steps', 'seconds']);
-/** `agents.recentLines` when it is missing (config.json carries the same). */
+/** `errands.recentLines` when it is missing (config.json carries the same). */
 export const DEFAULT_RECENT_LINES = 6;
 /** The least time between two pings a `runner-down` refusal sends to recheck its runner (ms). */
 export const RUNNER_RECHECK_MS = 10_000;
@@ -102,9 +102,9 @@ export function createErrandService({
     return (ledgerId) => store.setLedgerId?.(id, ledgerId);
   }
 
-  /** `agents.resultMaxChars`, read now. */
+  /** `errands.resultMaxChars`, read now. */
   function resultMaxChars() {
-    const set = hot.config?.agents?.resultMaxChars;
+    const set = hot.config?.errands?.resultMaxChars;
     return Number.isFinite(set) && set > 0 ? set : DEFAULT_RESULT_MAX_CHARS;
   }
 
@@ -167,12 +167,13 @@ export function createErrandService({
     return stores.get(guildId || getGuildId?.() || '');
   }
 
-  /** The limits a task of `agent` runs under: `agents.<agent>.limits` over the profile's defaults. */
+  /** The limits a task of `agent` runs under: its profile's `limits` under the deployment's override. */
   function limitsOf(agent) {
-    const set = hot.config?.agents?.[agent]?.limits ?? {};
+    const set = agentSettings(agent, hot.config)?.limits ?? {};
+    const defaults = agentSettings(agent, {})?.limits ?? {};
     const out = {};
     for (const key of TASK_LIMIT_KEYS) {
-      const value = Number.isFinite(set[key]) && set[key] > 0 ? set[key] : profileOf(agent)?.defaultLimits?.[key];
+      const value = Number.isFinite(set[key]) && set[key] > 0 ? set[key] : defaults[key];
       if (Number.isFinite(value) && value > 0) out[key] = value;
     }
     return out;
@@ -197,14 +198,14 @@ export function createErrandService({
   }
 
   /**
-   * The last `agents.recentLines` lines (read now; at most MAX_RECENT_ENTRIES) of channel
+   * The last `errands.recentLines` lines (read now; at most MAX_RECENT_ENTRIES) of channel
    * `channelId` in the memory's buffer of `guildId`, oldest first, as `{ author, text }` (the
    * display name and the text on one line, each cut to RECENT_CHARS; a line without text left
    * out). [] for a `dm` scope, without a channel or a buffer.
    */
   function recentOf(guildId, channelId, scope) {
     if (scope === 'dm' || !channelId || typeof memory?.recentLines !== 'function') return [];
-    const set = hot.config?.agents?.recentLines;
+    const set = hot.config?.errands?.recentLines;
     const count = Math.min(
       MAX_RECENT_ENTRIES,
       Number.isFinite(set) && set >= 0 ? Math.floor(set) : DEFAULT_RECENT_LINES

@@ -16,5 +16,6 @@
   },
   "effort": "medium",
   "limits": { "steps": 300, "minutes": 60 },
+  "cost": { "input": 2, "output": 10 },
   "description": "Writes code and text (prompts, documentation) within one development task."
 }

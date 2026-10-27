@@ -736,14 +736,25 @@ function permissionFor({ shell, tools }, scope) {
 const COMMON_KEYS = Object.freeze(['id', 'kind', 'role', 'prompt', 'override', 'description']);
 
 /** The keys only a worker carries (a consultation naming one is refused as an unknown key). */
-const WORKER_KEYS = Object.freeze(['tools', 'shell', 'limits', 'daily', 'searchProvider', 'socket', 'out', 'env']);
+const WORKER_KEYS = Object.freeze([
+  'tools',
+  'shell',
+  'enabled',
+  'cost',
+  'limits',
+  'daily',
+  'searchProvider',
+  'socket',
+  'out',
+  'env',
+]);
 
 /**
  * The keys only a development profile carries: the OpenCode tools it asks for (DEVELOPMENT_TOOLS),
  * the permission rules that narrow them (PERMISSION_ACTIONS), its reasoning effort
- * (DEVELOPMENT_EFFORTS, OpenCode's `--variant`) and its default per-run caps `{ steps, minutes }`.
+ * (DEVELOPMENT_EFFORTS, OpenCode's `--variant`), its default per-run caps `{ steps, minutes }` and its price `cost`.
  */
-const DEVELOPMENT_KEYS = Object.freeze(['tools', 'permission', 'effort', 'limits']);
+const DEVELOPMENT_KEYS = Object.freeze(['tools', 'permission', 'effort', 'limits', 'cost']);
 
 /** The keys of each kind, all required. */
 const KEYS_BY_KIND = Object.freeze({
@@ -813,7 +824,11 @@ export class AgentProfileError extends Error {
   }
 }
 
-/** Whether `value` is a plain JSON object. */
+/**
+ * Whether `value` is a plain JSON object.
+ * @param {unknown} value
+ * @returns {value is Record<string, unknown>}
+ */
 function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -840,6 +855,24 @@ function checkNumbers(agent, key, value, spec) {
         `${key}.${name}`,
         whole ? 'must be a positive whole number' : 'must be a positive number'
       );
+  }
+}
+
+/**
+ * Checks `cost`: exactly `input` and `output`, the USD per million tokens, each finite and not negative (zero is a price).
+ * @param {string} agent
+ * @param {unknown} value
+ */
+function checkCost(agent, value) {
+  if (!isObject(value)) throw new AgentProfileError(agent, 'cost', 'must be an object');
+  for (const name of Object.keys(value)) {
+    if (name !== 'input' && name !== 'output') throw new AgentProfileError(agent, `cost.${name}`, 'unknown key');
+  }
+  for (const name of ['input', 'output']) {
+    if (!Object.hasOwn(value, name)) throw new AgentProfileError(agent, `cost.${name}`, 'missing');
+    const price = value[name];
+    if (typeof price !== 'number' || !Number.isFinite(price) || price < 0)
+      throw new AgentProfileError(agent, `cost.${name}`, 'must be a number that is not negative');
   }
 }
 
@@ -927,7 +960,9 @@ function validateProfile(agent, raw) {
       throw new AgentProfileError(
         agent,
         key,
-        worker || !WORKER_KEYS.includes(key) ? 'unknown key' : `unknown key (a ${raw.kind} profile has no runner)`
+        worker || !WORKER_KEYS.includes(key)
+          ? 'unknown key'
+          : `unknown key (a ${String(raw.kind)} profile has no runner)`
       );
   }
   for (const key of keys) {
@@ -948,6 +983,7 @@ function validateProfile(agent, raw) {
     if (!DEVELOPMENT_EFFORTS.includes(raw.effort))
       throw new AgentProfileError(agent, 'effort', `must be one of ${DEVELOPMENT_EFFORTS.join(', ')}`);
     checkNumbers(agent, 'limits', raw.limits, { steps: true, minutes: false });
+    checkCost(agent, raw.cost);
     return;
   }
   if (!worker) return;
@@ -958,7 +994,9 @@ function validateProfile(agent, raw) {
       'shell',
       `unknown shell class ${JSON.stringify(raw.shell)} (known: ${Object.keys(SHELL_CLASSES).join(', ')})`
     );
-  checkTools(agent, raw.tools, SHELL_CLASSES[raw.shell].tools, `for shell class ${raw.shell}`);
+  checkTools(agent, raw.tools, SHELL_CLASSES[raw.shell].tools, `for shell class ${String(raw.shell)}`);
+  if (typeof raw.enabled !== 'boolean') throw new AgentProfileError(agent, 'enabled', 'must be true or false');
+  checkCost(agent, raw.cost);
   checkNumbers(agent, 'limits', raw.limits, { steps: true, seconds: false });
   checkNumbers(agent, 'daily', raw.daily, { tasks: true });
   if (
@@ -1097,6 +1135,73 @@ export function loadProfiles({ rootDir = ROOT_DIR, env = process.env } = {}) {
   return Object.freeze(
     Object.fromEntries(workers.map((definition) => [definition.id, makeProfile(definition, { rootDir, env })]))
   );
+}
+
+/**
+ * @typedef {object} AgentSettings  The settings of one agent, from its profile with the deployment's override over it.
+ * @property {boolean} [enabled]  a worker's switch (a development agent has none)
+ * @property {{ input: number, output: number }} cost  USD per million tokens
+ * @property {string} [socket]  a worker's runner socket
+ * @property {string} [out]  a worker's out directory
+ * @property {Record<string, number>} limits  `{ steps, seconds }` of a worker, `{ steps, minutes }` of a development agent
+ * @property {Record<string, number>} [daily]  a worker's daily caps, `{ tasks }`
+ * @property {string | null} [searchProvider]  a worker's web search provider
+ */
+
+/** The validated profile definitions of this engine's `agents/` folder by id, loaded once at import. */
+const DEFINITIONS = /** @type {Readonly<Record<string, Record<string, unknown>>>} */ (
+  Object.freeze(Object.fromEntries(listAgents().map((definition) => [String(definition.id), definition])))
+);
+
+/** The keys of the settings of each kind of agent. */
+const SETTING_KEYS = Object.freeze({
+  worker: Object.freeze(['enabled', 'cost', 'socket', 'out', 'limits', 'daily', 'searchProvider']),
+  development: Object.freeze(['cost', 'limits']),
+});
+
+/**
+ * `override` laid over `base`: a plain object merged key by key, anything else replaced.
+ * @param {unknown} base
+ * @param {unknown} override
+ * @returns {unknown}
+ */
+function overlaid(base, override) {
+  if (!isObject(base) || !isObject(override)) return override === undefined ? base : override;
+  const merged = { ...base };
+  for (const [key, value] of Object.entries(override)) merged[key] = overlaid(base[key], value);
+  return merged;
+}
+
+/**
+ * The settings of agent `name`: its tracked profile (`agents/<name>/profile.json`) with the deployment's override,
+ * `config.agents.<name>`, laid over it, a nested object merged key by key. A worker gives `{ enabled, cost, socket, out,
+ * limits, daily, searchProvider }`, a development agent `{ cost, limits }`. A socket or out path that is not a
+ * non-empty string in the override falls back to the profile's. The one reader of these settings for the core, the
+ * runner and the dispatcher, read from the config it is given at each call. Null for a name that is no agent
+ * (`agents.ledger` is a key, not an agent).
+ * @param {unknown} name  The agent's id; anything else is no agent.
+ * @param {unknown} config  The live config, or any object with an `agents` section.
+ * @returns {AgentSettings | null}
+ */
+export function agentSettings(name, config) {
+  const profile = typeof name === 'string' && Object.hasOwn(DEFINITIONS, name) ? DEFINITIONS[name] : undefined;
+  if (
+    typeof name !== 'string' ||
+    profile === undefined ||
+    (profile.kind !== 'worker' && profile.kind !== 'development')
+  )
+    return null;
+  const section = isObject(config) && isObject(config.agents) ? config.agents : {};
+  const given = section[name];
+  const override = isObject(given) ? given : {};
+  /** @type {Record<string, unknown>} */
+  const out = {};
+  for (const key of SETTING_KEYS[profile.kind]) {
+    const value = override[key];
+    const unusablePath = (key === 'socket' || key === 'out') && !(typeof value === 'string' && value !== '');
+    out[key] = unusablePath || !Object.hasOwn(override, key) ? profile[key] : overlaid(profile[key], value);
+  }
+  return /** @type {AgentSettings} */ (out);
 }
 
 /** The profiles of this engine's `agents/` folder, by name, loaded once at import. */

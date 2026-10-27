@@ -692,7 +692,7 @@ function sandboxChannels(given, view, channel) {
  * (a finished task, as src/errands/store.js keeps one) makes it the turn that errand's end
  * opens, as src/errands/turns.js runs it: trigger kind `task` whatever the mode, and `errands`
  * carrying its `<task_result>` body (src/errands/blocks.js#taskResultText, cut to
- * `agents.resultMaxChars` read now) with no `<tasks>` list -- a replay knows no other errand of
+ * `errands.resultMaxChars` read now) with no `<tasks>` list -- a replay knows no other errand of
  * hers. `coreTools` (`{ recallAvailable, prefetch? }`, a skill scenario run with features.coreTools on)
  * hands in whether the server search could run (`recallAvailable`) and the automatic memory prefetch of
  * the trigger (`prefetch`, `<retrieved>`), which every other sandbox turn leaves out (SANDBOX_OMITS). The view is
@@ -733,7 +733,7 @@ export function sandboxRequestInput({
   // The turn an errand's end opens: its `<task_result>` body, as src/behavior/turn.js#errandsInputFor renders it.
   const resultText = taskResult
     ? taskResultText(taskResult, view.prompts?.labels, {
-        maxChars: config.agents?.resultMaxChars ?? DEFAULT_RESULT_MAX_CHARS,
+        maxChars: config.errands?.resultMaxChars ?? DEFAULT_RESULT_MAX_CHARS,
       })
     : '';
   // A burst's calls still waiting, named as a live turn names its queued calls; absent otherwise.

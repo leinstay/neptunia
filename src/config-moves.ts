@@ -1,12 +1,15 @@
-// The config keys that moved when the persona's skills became tools: the settings under `skills.*`, the switches
-// `features.skills` and `features.skillsDiscovery`, and the owner's grant on the tool `skills.describe`. A local config
-// written with the old keys keeps its meaning because `moveConfigKeys` writes each old key under its new name, and the
-// loader (src/config.js#readConfig) applies it to the local file before that file is laid over config.json, so an old
-// key overrides the shipped default of its new name. `tools/config-migrate.mjs` writes the same moves into the file.
+// The config keys that moved: the settings under `skills.*`, the switches `features.skills` and
+// `features.skillsDiscovery`, the owner's grants on the tools that were renamed (`skills.describe`, the six `task.*` and
+// the four `intent.*`), the nine settings of `agents` that every errand reads (they live under `errands`) and
+// `agents.<name>.search.provider` (now `searchProvider`). A local config written with the old keys keeps its meaning
+// because `moveConfigKeys` writes each old key under its new name, and the loader (src/config.js#readConfig) applies it to
+// the local file before that file is laid over config.json, so an old key overrides the shipped default of its new name.
+// `tools/config-migrate.mjs` writes the same moves into the file.
 //
 // The moves are one ordered list. A move whose old key is absent does nothing, so applying the list twice gives the
 // same config. Where the old and the new key are both set, the new one wins and the old one is dropped and reported as
-// shadowed. Nothing here reads a file.
+// shadowed. Keys nothing reads any more (three grants of `bot.access`, `agents.maxDownloadBytes` and the two context
+// keys of `agents.thinker`) are removed and reported as dropped. Nothing here reads a file.
 
 type Config = Record<string, unknown>;
 
@@ -19,6 +22,8 @@ export type MovedConfig = {
   moved: Array<Move>;
   /** The old keys left unused because the new name was already set. */
   shadowed: Array<Move>;
+  /** The dotted paths of the keys removed because nothing reads them. */
+  dropped: Array<string>;
 };
 
 const isObject = (value: unknown): value is Config =>
@@ -75,28 +80,147 @@ function renameKey(config: Config, at: string, from: string, to: string, report:
   place(section, section, { from, to }, { from: `${at}.${from}`, to: `${at}.${to}` }, report);
 }
 
-/** The persona's grant on the tool `skills.describe`, a key of `bot.access` whose name holds a dot. */
-function moveGrant(config: Config, report: MovedConfig): void {
+/** The grants of `bot.access` that moved with their tool: the old key, a dotted tool name, and the new one. */
+export const GRANT_MOVES: ReadonlyArray<[string, string]> = [
+  ['skills.describe', 'tools.describe'],
+  ['task.run', 'errand.run'],
+  ['task.status', 'errand.status'],
+  ['task.read', 'errand.read'],
+  ['task.resolve', 'errand.resolve'],
+  ['task.cancel', 'errand.cancel'],
+  ['task.list', 'errand.list'],
+  ['intent.set', 'intention.set'],
+  ['intent.update', 'intention.update'],
+  ['intent.cancel', 'intention.cancel'],
+  ['intent.list', 'intention.list'],
+];
+
+/** Grants of tools that no longer exist, keys of `bot.access`. */
+export const DROPPED_GRANTS: ReadonlyArray<string> = [
+  'memory.refresh.channel',
+  'memory.refresh.server',
+  'memory.refresh.user',
+];
+
+/** The settings of `agents` that every errand reads, which live under `errands`. */
+export const ERRAND_KEYS: ReadonlyArray<string> = [
+  'opencodePath',
+  'toolResultChars',
+  'keepFilesHours',
+  'recentLines',
+  'maxOpen',
+  'resultMaxChars',
+  'unreadShown',
+  'resultRetrySeconds',
+  'resultCooldownSeconds',
+];
+
+/** The keys nothing reads any more, as dotted paths below the config. */
+const DROPPED_KEYS: ReadonlyArray<ReadonlyArray<string>> = [
+  ['agents', 'maxDownloadBytes'],
+  ['agents', 'thinker', 'contextLimit'],
+  ['agents', 'thinker', 'contextHard'],
+];
+
+/** `bot.access` of `config` when it is a plain object. */
+function accessOf(config: Config): Config | null {
   const bot = sectionOf(config, 'bot', false);
-  const access = bot === null ? null : sectionOf(bot, 'access', false);
-  if (access === null || !Object.hasOwn(access, 'skills.describe')) return;
-  const paths = { from: 'bot.access.skills.describe', to: 'bot.access.tools.describe' };
-  if (Object.hasOwn(access, 'tools.describe')) {
-    delete access['skills.describe'];
-    report.shadowed.push(paths);
-    return;
-  }
-  access['tools.describe'] = access['skills.describe'];
-  delete access['skills.describe'];
-  report.moved.push(paths);
+  return bot === null ? null : sectionOf(bot, 'access', false);
 }
 
-/** `config` with the old keys of the tools written under their new names. The argument is not changed. */
+/** The owner's grants on the renamed tools, keys of `bot.access` whose names hold a dot. */
+function moveGrants(config: Config, report: MovedConfig): void {
+  const access = accessOf(config);
+  if (access === null) return;
+  for (const [from, to] of GRANT_MOVES) {
+    if (!Object.hasOwn(access, from)) continue;
+    const paths = { from: `bot.access.${from}`, to: `bot.access.${to}` };
+    if (Object.hasOwn(access, to)) {
+      delete access[from];
+      report.shadowed.push(paths);
+      continue;
+    }
+    access[to] = access[from];
+    delete access[from];
+    report.moved.push(paths);
+  }
+}
+
+/** The grants of tools that no longer exist are removed. */
+function dropGrants(config: Config, report: MovedConfig): void {
+  const access = accessOf(config);
+  if (access === null) return;
+  for (const key of DROPPED_GRANTS) {
+    if (!Object.hasOwn(access, key)) continue;
+    delete access[key];
+    report.dropped.push(`bot.access.${key}`);
+  }
+}
+
+/** The shared settings of `agents` move to `errands`; an `agents` section left empty is dropped. */
+function moveErrandKeys(config: Config, report: MovedConfig): void {
+  const agents = sectionOf(config, 'agents', false);
+  if (agents === null) return;
+  for (const key of ERRAND_KEYS) {
+    if (!Object.hasOwn(agents, key)) continue;
+    const target = sectionOf(config, 'errands', true);
+    if (target === null) return;
+    place(agents, target, { from: key, to: key }, { from: `agents.${key}`, to: `errands.${key}` }, report);
+  }
+  if (Object.keys(agents).length === 0) delete config.agents;
+}
+
+/** `agents.<name>.search.provider` becomes `agents.<name>.searchProvider`, the shape a profile has. */
+function moveSearchProvider(config: Config, report: MovedConfig): void {
+  const agents = sectionOf(config, 'agents', false);
+  if (agents === null) return;
+  for (const name of Object.keys(agents)) {
+    const agent = sectionOf(agents, name, false);
+    const search = agent === null ? null : sectionOf(agent, 'search', false);
+    if (agent === null || search === null || !Object.hasOwn(search, 'provider')) continue;
+    place(
+      search,
+      agent,
+      { from: 'provider', to: 'searchProvider' },
+      { from: `agents.${name}.search.provider`, to: `agents.${name}.searchProvider` },
+      report
+    );
+    if (Object.keys(search).length === 0) delete agent.search;
+  }
+}
+
+/** The keys nothing reads any more are removed, and a section they leave empty with them. */
+function dropKeys(config: Config, report: MovedConfig): void {
+  for (const path of DROPPED_KEYS) {
+    const chain: Array<Config> = [config];
+    for (const name of path.slice(0, -1)) {
+      const next = sectionOf(chain[chain.length - 1] ?? config, name, false);
+      if (next === null) break;
+      chain.push(next);
+    }
+    const last = path[path.length - 1];
+    const section = chain[chain.length - 1];
+    if (chain.length !== path.length || section === undefined || last === undefined || !Object.hasOwn(section, last))
+      continue;
+    delete section[last];
+    report.dropped.push(path.join('.'));
+    for (let depth = chain.length - 1; depth > 0; depth -= 1) {
+      if (Object.keys(chain[depth] ?? {}).length > 0) break;
+      delete (chain[depth - 1] ?? config)[path[depth - 1] ?? ''];
+    }
+  }
+}
+
+/** `config` with the old keys written under their new names. The argument is not changed. */
 export function moveConfigKeys(config: Config): MovedConfig {
-  const report: MovedConfig = { config: structuredClone(config), moved: [], shadowed: [] };
+  const report: MovedConfig = { config: structuredClone(config), moved: [], shadowed: [], dropped: [] };
   moveSection(report.config, report);
   renameKey(report.config, 'features', 'skills', 'tools', report);
   renameKey(report.config, 'features', 'skillsDiscovery', 'toolsDiscovery', report);
-  moveGrant(report.config, report);
+  moveGrants(report.config, report);
+  dropGrants(report.config, report);
+  moveErrandKeys(report.config, report);
+  moveSearchProvider(report.config, report);
+  dropKeys(report.config, report);
   return report;
 }

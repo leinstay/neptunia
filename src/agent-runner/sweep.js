@@ -3,7 +3,7 @@
 // agent's own Unix user, so the core can list and read it but not delete it: the runner does.
 // A sweep removes each task directory under the out dir whose newest entry (the directory
 // itself, any file or subdirectory inside, never following a link) is older than
-// `agents.keepFilesHours`, and never the directory of a task the runner still has (running or
+// `errands.keepFilesHours`, and never the directory of a task the runner still has (running or
 // queued). It runs when the runner starts and then once an hour, reading the hours from the
 // live config at each sweep. Only names that may be a task id (src/agent-runner/protocol.js
 // TASK_ID) are considered; anything else in the out dir is left alone. One log line per sweep
@@ -15,7 +15,7 @@ import { log as defaultLog } from '../log.js';
 import { HOUR_MS } from '../time.js';
 import { TASK_ID } from './protocol.js';
 
-/** `agents.keepFilesHours` when it is missing or not a positive number (config.json carries the same). */
+/** `errands.keepFilesHours` when it is missing or not a positive number (config.json carries the same). */
 export const DEFAULT_KEEP_FILES_HOURS = 24;
 /** How often the runner sweeps after its start (ms). */
 export const SWEEP_INTERVAL_MS = HOUR_MS;
@@ -54,7 +54,7 @@ async function newestMtime(dir) {
  * Never throws; a missing out dir is an empty sweep.
  * @param {object} options
  * @param {string} options.outDir
- * @param {number} [options.keepHours]  `agents.keepFilesHours` (keepHoursOf).
+ * @param {number} [options.keepHours]  `errands.keepFilesHours` (keepHoursOf).
  * @param {() => Iterable<string>} [options.liveIds]  The ids of the tasks the runner still has,
  *   asked again before each removal.
  * @param {() => number} [options.now]
@@ -103,7 +103,7 @@ export async function sweepOutputs({ outDir, keepHours, liveIds = () => [], now 
  * @param {object} options
  * @param {string} options.profile  The profile name (for the log line).
  * @param {string} options.outDir
- * @param {() => unknown} options.keepHours  The live `agents.keepFilesHours`.
+ * @param {() => unknown} options.keepHours  The live `errands.keepFilesHours`.
  * @param {() => Iterable<string>} options.liveIds  The ids of the tasks the runner still has.
  * @param {number} [options.intervalMs]
  * @param {() => number} [options.now]

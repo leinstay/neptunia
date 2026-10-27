@@ -8,24 +8,23 @@
 // A connection that closes is reopened with a growing backoff while its profile stays enabled;
 // the tasks it carried resolve `failed` with `error: CODE.DISCONNECTED` at once (the runner sends a
 // task's end on the connection that brought it, so nothing more can arrive for them). A profile
-// that is not set up (`agents.<profile>.enabled` not true, or no socket) answers `failed`,
-// `not-configured`, without connecting. Settings are read from `hot.config.agents` at the moment
-// of use. Logs carry the profile, ids and codes, never a goal, a result or a task's `secrets`
+// that is not set up (its `enabled` not true, or no socket) answers `failed`, `not-configured`, without
+// connecting. The settings are the profile's with the deployment's `agents.<profile>` override over it
+// (agentSettings), read at the moment of use. Logs carry the profile, ids and codes, never a goal, a result or a task's `secrets`
 // (sent on the `run` line and nowhere else). A `run` also carries the deployment's preamble when
 // one matches: the files of prompts.local/preambles/ picked by agent and by the agent's model
 // (src/errands/preambles.js; `hot.prompts.preambles`, read live; no tracked default). The model
 // is the agent's role model (`models.errands.scout`, `models.errands.server`), resolved here at send
-// time and sent on the `run` line as `model`, with the live price `agents.<profile>.cost` as `cost`
-// when it has finite input and output: the runners cannot read the private config, so without
-// them a run would fall back to the tracked config. A composed text over MAX_PREAMBLE_CHARS sends
-// the files that fit, whole and in order, with a warning naming the rest. The core reads the
-// private layer, the runners never do. Logs carry the model id, the file names and the length,
+// time and sent on the `run` line as `model`, with the deployment's own price (`agents.<profile>.cost` of the live
+// config, when it has finite input and output) as `cost`: the runners cannot read the private config, so without it a
+// run falls back to the profile's price. A composed text over MAX_PREAMBLE_CHARS sends the files that fit, whole and
+// in order, with a warning naming the rest. The core reads the private layer, the runners never do. Logs carry the model id, the file names and the length,
 // never a text or the cost.
 
 import net from 'node:net';
 import { log as defaultLog } from '../log.js';
 import { encodeLine, normalizeResult, normalizeUsage, MAX_PREAMBLE_CHARS } from '../agent-runner/protocol.js';
-import { profileOf } from '../agent-runner/profiles.js';
+import { agentSettings, profileOf } from '../agent-runner/profiles.js';
 import { roleModel } from '../llm/roles.js';
 import { composePreamble } from './preambles.js';
 import { CODE } from '../tools/codes.ts';
@@ -85,10 +84,9 @@ export function createErrandClient({
   function socketOf(agent) {
     const profile = profileOf(agent);
     if (!profile) return null;
-    const settings = hot?.config?.agents?.[agent];
+    const settings = agentSettings(agent, hot?.config);
     if (settings?.enabled !== true) return null;
-    const socketPath = typeof settings.socket === 'string' && settings.socket ? settings.socket : profile.defaultSocket;
-    return socketPath || null;
+    return settings.socket || null;
   }
 
   /** One outcome of `agent`'s connect loop to the `onLink` listeners. */
@@ -295,7 +293,10 @@ export function createErrandClient({
     return typeof model === 'string' && model ? model : null;
   }
 
-  /** The live price of `agent` (`agents.<agent>.cost`) when both fields are usable, else null. */
+  /**
+   * The price the deployment overrides for `agent` (`agents.<agent>.cost` of the live config) when both fields are usable,
+   * else null: the runner cannot read the private config, and it reads the profile's own price itself.
+   */
   function costOf(agent) {
     const cost = hot?.config?.agents?.[agent]?.cost;
     const usable = (value) => typeof value === 'number' && Number.isFinite(value) && value >= 0;

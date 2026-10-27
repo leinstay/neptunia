@@ -11,9 +11,9 @@ import { fileHandle, isOpenState } from './store.js';
 
 /** The goal's length on a `<tasks>` line (characters). */
 export const TASK_GOAL_CHARS = 120;
-/** `agents.unreadShown` when it is missing (config.json carries the same). */
+/** `errands.unreadShown` when it is missing (config.json carries the same). */
 export const DEFAULT_UNREAD_SHOWN = 5;
-/** `agents.resultMaxChars` when it is missing (config.json carries the same). */
+/** `errands.resultMaxChars` when it is missing (config.json carries the same). */
 export const DEFAULT_RESULT_MAX_CHARS = 3000;
 
 /** The state of `task` in words (`labels.tasks.states`), else its code. */

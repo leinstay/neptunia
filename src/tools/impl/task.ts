@@ -10,7 +10,7 @@
 // owner; `task.status` and `task.list` show a private chat's tasks only to their requester or an
 // owner. A finished task's result stays until she has read it: `task.status` without an id lists the
 // open tasks and the finished ones not read yet; `task.read id [from]` returns the whole result in
-// pages of `agents.resultMaxChars` (the error, the sources and the files with their handles and
+// pages of `errands.resultMaxChars` (the error, the sources and the files with their handles and
 // whether they expired come with the first page) and marks the task read when its last page is
 // returned; `task.resolve id` closes a finished task (read too). Both follow the same view rule. Answers are operator lines (ids, agents, states, ages), the goal cut to one short line;
 // `task.status` of one task adds `ledger: <id>` when the task is mirrored into the ledger. A
@@ -177,10 +177,10 @@ const handlers = perEnv((env) => {
     return { store, task };
   }
 
-  /** `task.read id [from]`: a finished task's result in a page of `agents.resultMaxChars` characters. */
+  /** `task.read id [from]`: a finished task's result in a page of `errands.resultMaxChars` characters. */
   function cmdRead(args: Obj, context: OpContext) {
     const { store, task } = finishedTask(args, context);
-    const configured = hot.config?.agents?.resultMaxChars;
+    const configured = hot.config?.errands?.resultMaxChars;
     const page = Number.isInteger(configured) && configured > 0 ? configured : DEFAULT_RESULT_MAX_CHARS;
     const text = typeof task.result?.text === 'string' ? task.result.text : '';
     const from = args.from === undefined || args.from === null || args.from === '' ? 0 : Number(args.from);

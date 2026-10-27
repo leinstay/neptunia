@@ -700,46 +700,20 @@
     "pick": { "maxChars": 160, "contextMessages": 4, "maxOutputTokens": 60, "graceMs": 1000 }
   },
   "private": { "minAffinity": 5, "maxPerUserPerDay": 20, "maxPerOwnerPerDay": 200 },
-  "agents": {
+  "errands": {
     "opencodePath": "/opt/opencode/bin/opencode",
     "toolResultChars": 6000,
-    "maxDownloadBytes": 20000000,
     "keepFilesHours": 24,
     "recentLines": 6,
     "maxOpen": 3,
     "resultMaxChars": 3000,
     "unreadShown": 5,
     "resultRetrySeconds": 30,
-    "resultCooldownSeconds": 60,
+    "resultCooldownSeconds": 60
+  },
+  "agents": {
     "ledger": {
       "socket": null
-    },
-    "scout": {
-      "enabled": false,
-      "cost": { "input": 2, "output": 6 },
-      "socket": "/run/neptunia-agent-scout/sock",
-      "out": "/var/lib/neptunia-agent-scout/out",
-      "limits": { "steps": 25, "seconds": 300 },
-      "daily": { "tasks": 40 },
-      "search": { "provider": "exa" }
-    },
-    "server": {
-      "enabled": false,
-      "cost": { "input": 2, "output": 6 },
-      "socket": "/run/neptunia-agent-server/sock",
-      "out": "/var/lib/neptunia-agent-server/out",
-      "limits": { "steps": 20, "seconds": 120 },
-      "daily": { "tasks": 40 }
-    },
-    "thinker": {
-      "cost": { "input": 4, "output": 20 },
-      "limits": { "steps": 400, "minutes": 60 },
-      "contextLimit": 350000,
-      "contextHard": 400000
-    },
-    "dev": {
-      "cost": { "input": 2, "output": 10 },
-      "limits": { "steps": 300, "minutes": 60 }
     }
   },
   "intentions": {
