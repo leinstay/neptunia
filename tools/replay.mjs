@@ -81,18 +81,18 @@
 // stderr. `--spend` also stops the samples: none starts when the cost reported so far plus the
 // last sample's would pass it.
 //
-// `--answers-dir <dir> [--answers-first-only] [--answers-timeout-min 20]` (any mode that sends requests): the offline model
-// (`--answers-first-only`: only a turn's first answer comes from the files, its tool-loop steps go to the real model,
-// so a frozen first answer is continued live).
-// Every request to an Anthropic model (`anthropic/claude-*`) is not sent: it is written to
+// `--answers-dir <dir> [--answers-first-only] [--answers-all] [--answers-timeout-min 20]` (any mode that sends requests):
+// the offline model (`--answers-first-only`: only a turn's first answer comes from the files, its tool-loop steps go
+// live; `--answers-all`: every model answers from the files, a diary's plan request on the analyzer model too).
+// Every request to an Anthropic model (`anthropic/claude-*`), with `--answers-all` to any model, is not sent: it goes to
 // `<dir>/req-<n>.json` (exact strings: model, purpose, system, messages) and `<dir>/req-<n>.md` (n from 1 per run, 3 digits: the model id and the purpose, then every message
 // under `## system` / `## user` / `## assistant`, verbatim) and the run waits (polling, up to the
 // timeout) for `<dir>/ans-<n>.txt`, whose content is the model's text (and, optionally, `<dir>/ans-<n>.tool-calls.json`:
 // a JSON array of `{ id?, name, arguments }` -- `arguments` an object or a string -- for the answer's native tool calls; a
 // request that had tools also lists them, with its tool choice, in `req-<n>.json`) (no cost; the result carries
 // `answersDir: { dir, requests }`). `<dir>/done` (`exit <code>`) is written when the run ends. Other
-// models still go to OpenRouter. The directory must hold no files of an earlier run. Such a run
-// needs no `--spend` (only other models are billed; with `--spend` they are capped as usual).
+// models still go to OpenRouter (none with `--answers-all`). The directory must hold no files of an earlier run. Such a
+// run needs no `--spend` (only other models are billed; with `--spend` they are capped as usual).
 // The spend gate (tools/lib/cli.mjs#spendGate): every mode that sends model
 // requests prints its estimate first (~USD_PER_ANSWER per request: a persona
 // answer, a splitter sample, the recall classifier and its summary, a diary
@@ -587,7 +587,7 @@ const USAGE =
   '       node tools/replay.mjs --loop-triggers (--triggers <file> | <channelId> <triggerMessageId>) [--transport native|text] [--no-cache] [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
   '       node tools/replay.mjs --diary-day [--seed <text>] [--date YYYY-MM-DD] [--draw fake|live] [--max-pictures <n>] [--out <dir>] [--spend <usd>]   (cwd: the bot directory)\n' +
   '       node tools/replay.mjs --inner <intention_due|errand_deadline|review|heartbeat> [--intention <id> | --review] [--snapshot <dir>] [--show-request] [--samples n] [--prompts <dir>] [--out <file>] [--spend <usd>] [--hide-channel <id>]... [--hide-message <id>]...\n' +
-  '       (any mode that sends requests also takes: [--answers-dir <dir> [--answers-first-only] [--answers-timeout-min 20]])';
+  '       (any mode that sends requests also takes: [--answers-dir <dir> [--answers-first-only] [--answers-all] [--answers-timeout-min 20]])';
 /** The wake kinds `--inner` runs (src/behavior/inner.js#WAKE_KINDS). */
 export const INNER_KINDS = Object.freeze(['intention_due', 'errand_deadline', 'review', 'heartbeat']);
 /** An inner turn's requests at most: her answer and up to four tool-loop steps (innerLife.loop.maxSteps' default). */
@@ -6914,7 +6914,8 @@ async function loopDepsOf({
  * @param {{ root?: string, signal?: AbortSignal, rng?: () => number }} [options]
  */
 export async function main(argv, { root = process.cwd(), signal, rng = Math.random } = {}) {
-  const args = parseArgs(argv);
+  const all = argv.includes('--answers-all');
+  const args = { ...parseArgs(argv.filter((arg) => arg !== '--answers-all')), answersAll: all };
   if (args.answersDir === null) return runMain(args, { root, signal, rng, answers: null });
   // `--answers-dir`: Anthropic models are answered through files (tools/lib/answers-dir.mjs); `done` ends the run.
   const { estimateMessages } = await import(pathToFileURL(path.join(root, 'src', 'llm', 'tokens.js')).href);
@@ -6922,8 +6923,9 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
     dir: path.resolve(root, args.answersDir),
     timeoutMin: args.answersTimeoutMin,
     estimate: (messages) => estimateMessages(messages),
+    firstOnly: args.answersFirstOnly,
+    all,
   });
-  answers.firstOnly = args.answersFirstOnly;
   let code = 1;
   try {
     const out = await runMain(args, { root, signal, rng, answers });
@@ -6951,9 +6953,7 @@ async function runMain(args, { root, signal, rng, answers }) {
       return rel === 'llm/openrouter.js'
         ? {
             ...mod,
-            createLlm: withAnswersDir(mod.createLlm, answers, (config, purpose) => roleModel(config, 'core', purpose), {
-              firstOnly: Boolean(answers.firstOnly),
-            }),
+            createLlm: withAnswersDir(mod.createLlm, answers, (config, purpose) => roleModel(config, 'core', purpose)),
           }
         : mod;
     };

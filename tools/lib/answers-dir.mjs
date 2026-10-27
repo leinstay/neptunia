@@ -1,6 +1,6 @@
 // The offline model of tools/replay.mjs (`--answers-dir <dir>`): for every request to an
-// Anthropic model the tool writes the request to a file and waits for the answer in another,
-// instead of calling OpenRouter. An outside agent reads `req-<n>.md` and writes `ans-<n>.txt`.
+// Anthropic model (to any model with `--answers-all`) the tool writes the request to a file and waits for the answer
+// in another, instead of calling OpenRouter. An outside agent reads `req-<n>.md` and writes `ans-<n>.txt`.
 //
 //   <dir>/req-001.json the same request for machines, written first: { model, purpose, system, messages:
 //                      [{ role, content }] } with the exact strings (system = the system messages joined
@@ -14,8 +14,8 @@
 //   <dir>/ans-001.txt  the model's text, written by the answerer (write a temp file, then rename)
 //   <dir>/done         written when the run ends: `exit <code>`
 //
-// Numbers count the run's Anthropic requests from 1, zero-padded to 3. Requests to other models
-// are not touched. A directory that holds files of an earlier run is refused.
+// Numbers count the run's answered requests from 1, zero-padded to 3. Requests to other models
+// (without `--answers-all`) are not touched. A directory that holds files of an earlier run is refused.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -100,7 +100,8 @@ function writeAtomic(file, text) {
 const pad = (n) => String(n).padStart(3, '0');
 
 /**
- * @param {{ dir: string, timeoutMin?: number, pollMs?: number, sleep?: (ms: number) => Promise<void>, now?: () => number, estimate?: (messages: object[]) => number }} options
+ * @param {{ dir: string, timeoutMin?: number, pollMs?: number, sleep?: (ms: number) => Promise<void>, now?: () => number, estimate?: (messages: object[]) => number,
+ *   firstOnly?: boolean, all?: boolean }} options  `firstOnly` and `all`: what withAnswersDir routes (see there).
  */
 export function createAnswersDir({
   dir,
@@ -109,6 +110,8 @@ export function createAnswersDir({
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   now = Date.now,
   estimate = () => 0,
+  firstOnly = false,
+  all = false,
 }) {
   fs.mkdirSync(dir, { recursive: true });
   const stale = fs
@@ -186,21 +189,37 @@ export function createAnswersDir({
     writeAtomic(path.join(dir, 'done'), `exit ${code}\n`);
   }
 
-  return { answer, finish, dir, count: () => count };
+  return { answer, finish, dir, count: () => count, firstOnly, all };
 }
 
 /**
- * `createLlm` that routes Anthropic models to `answers` and everything else to the real client.
+ * What `answers` (createAnswersDir's) routes by default: `firstOnly` and `all`, each false unless set.
+ * @param {unknown} answers
+ * @returns {{ firstOnly: boolean, all: boolean }}
+ */
+function routingOf(answers) {
+  const given = /** @type {{ firstOnly?: unknown, all?: unknown } | null | undefined} */ (answers);
+  return { firstOnly: given?.firstOnly === true, all: given?.all === true };
+}
+
+/**
+ * `createLlm` that routes Anthropic models (every model with `all`) to `answers` and everything else to the real client.
  * @param {Function} createLlm
- * @param {{ answer: Function }} answers
+ * @param {{ answer: Function, firstOnly?: boolean, all?: boolean }} answers  its `firstOnly` and `all` are the defaults
  * @param {(config: object, purpose?: string) => string} modelOf  The model a request without `model` uses.
- * @param {{ firstOnly?: boolean }} [opts]  firstOnly: only a turn's first answer goes to the files; a tool-loop
- *   step continuing it (its task text says so, labels task.continue*) goes to the real model.
+ * @param {{ firstOnly?: boolean, all?: boolean }} [opts]  firstOnly: only a turn's first answer goes to the files; a
+ *   tool-loop step continuing it (its task text says so, labels task.continue*) goes to the real model. all: every
+ *   model's requests go to the files, not only Anthropic's.
  */
 /** A tool-loop step's task text (labels task.continue*): the engine re-renders the turn as one user message. */
 const CONTINUED_RE = /This is the same (inner )?turn, continued after/;
 
-export function withAnswersDir(createLlm, answers, modelOf, { firstOnly = false } = {}) {
+export function withAnswersDir(
+  createLlm,
+  answers,
+  modelOf,
+  { firstOnly = routingOf(answers).firstOnly, all = routingOf(answers).all } = {}
+) {
   return (deps) => {
     const real = createLlm(deps);
     return new Proxy(real, {
@@ -212,7 +231,7 @@ export function withAnswersDir(createLlm, answers, modelOf, { firstOnly = false 
               firstOnly &&
               Array.isArray(messages) &&
               messages.some((m) => m?.role === 'assistant' || CONTINUED_RE.test(contentText(m?.content)));
-            return isAnthropicModel(model) && !continued
+            return (all || isAnthropicModel(model)) && !continued
               ? answers.answer(model, messages, options)
               : target.complete(messages, options);
           };
