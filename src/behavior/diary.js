@@ -590,7 +590,7 @@ function withCarriedSlots(fresh, previous, nowMs, graceMinutes) {
  * turn still runs. Hot values are read at every call.
  * @param {{ hot: object, store: object, reads: import('../interface/reads.ts').Reads|null, turns: object,
  *   getGuildId: () => (string|null), backfill?: ((args: object) => Promise<number>)|null,
- *   mirrors?: { publishEntry: (entry: unknown) => Promise<unknown> }|null,
+ *   mirrors?: { publishEntry(entry: any): Promise<unknown> }|null,
  *   rng?: () => number, now?: () => number, delay?: (ms: number) => Promise<void> }} deps
  *   `delay`: resolves after `ms` (a timer that never holds the process open); injected by tests.
  *   `reads`: the core's reads of the interface (the backfill's history), null when none is connected.

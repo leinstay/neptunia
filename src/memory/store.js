@@ -1006,7 +1006,7 @@ function normalizeChannel(channel) {
 /**
  * The store over one data directory.
  * @param {{ dataDir: string, newId?: () => string, record?: { append: Function }|null,
- *   recordOn?: () => boolean }} options  `newId`: the source of the UUID in every new `itemId`
+ *   recordOn?: () => boolean, archive?: *, archiveOn?: () => boolean, memoryDb?: * }} options  `newId`: the source of the UUID in every new `itemId`
  *   (`ITEM_ID_PREFIX`); node:crypto's `randomUUID` unless a test injects one. `record`
  *   (src/memory/record.js#createRecord, optional): while `recordOn()` (read at each write;
  *   src/index.js passes features.record exactly true) every feeling stored on an episode -- with

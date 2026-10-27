@@ -41,7 +41,7 @@ import { countToday, utcDay } from '../../time.js';
 import { CODE } from '../codes.ts';
 import { idText, objOf, textOf } from '../types.ts';
 import type { Obj, OpContext, Untyped } from '../types.ts';
-import type { Adapter, ConversationRef } from '../../protocol/adapter.ts';
+import type { Adapter, ConversationRef, Delivery } from '../../protocol/adapter.ts';
 import type { Content } from '../../protocol/actions.js';
 import type { Reads } from '../../interface/reads.ts';
 import type { Env } from './env.ts';
@@ -76,19 +76,18 @@ function diaryPort(env: Env, args: Obj, context: OpContext, real: Adapter): Adap
     throw Object.assign(new Error('your diary is not available here'), { code: CODE.NOT_CONFIGURED });
   // The live config and the store's counters, untyped in the env.
   const config = objOf(env.hot as unknown).config;
-  const counters = objOf(objOf(env.store as unknown).state).data;
+  const counters = objOf(objOf(objOf(env.store as unknown).state).data);
   const cap = positive(objOf(objOf(config).diary).maxPerDay, DEFAULT_DIARY_PER_DAY);
   const clock = typeof env.now === 'function' ? env.now : Date.now;
   if (hold.heldDiary(turnId) === 0 && countToday(counters, DIARY_DAILY, clock()) >= cap)
     throw denied(`your diary holds ${cap} entries a day at most`, CODE.CAP_DIARY);
   const held = Object.create(real) as Adapter;
   // Each send is one message of the turn's entry, kept in memory before the call answers.
-  held.send = async (_to: ConversationRef, content: Content) => {
-    const files = (content.attachments ?? []).map((file) => ({
-      name: file.name,
-      data: file.data,
-      contentType: file.contentType ?? null,
-    }));
+  held.send = async (_to: ConversationRef, content: Content): Promise<Delivery> => {
+    // A file the port would fetch by its address has no bytes to keep: only files with their bytes go in.
+    const files = (content.attachments ?? []).flatMap((file) =>
+      file.data ? [{ name: file.name, data: file.data, contentType: file.contentType ?? null }] : []
+    );
     const message = { text: content.text ?? '', mentions: [...(content.mentions?.users ?? [])], files };
     await writeDiaryMessage({
       mirrors: hold,
@@ -98,7 +97,7 @@ function diaryPort(env: Env, args: Obj, context: OpContext, real: Adapter): Adap
       guildId,
       message,
     });
-    return { status: 'ok', ref: null, parts: [], at: clock(), idempotencyKey: '' };
+    return { status: 'ok', ref: null, parts: [], at: clock(), idempotencyKey: '', error: null };
   };
   DIARY_PORTS.add(held);
   return held;
