@@ -20,7 +20,15 @@ import { dbOf, entryOf, seedMirror } from './fixtures/diary-mirror.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { openTestMemory } from './fixtures/memory-db/service.js';
 import { call, toolAnswer } from './fixtures/tool-answers.js';
-import { DISCORD, fakeStore, hotWith, personaGrants, rawMessage, sequenceLlm } from './fixtures/turn-harness.js';
+import {
+  DISCORD,
+  contentText,
+  fakeStore,
+  hotWith,
+  personaGrants,
+  rawMessage,
+  sequenceLlm,
+} from './fixtures/turn-harness.js';
 import { freshWorld, world } from './fixtures/turn-world.ts';
 import '../src/tools/impl/index.ts';
 
@@ -75,7 +83,12 @@ type Community = Awaited<ReturnType<typeof community>>;
  */
 async function turnIn(
   core: Community,
-  { here, answers, wake = null }: { here: string; answers: Array<unknown>; wake?: object | null }
+  {
+    here,
+    answers,
+    wake = null,
+    llm = sequenceLlm(answers),
+  }: { here: string; answers: Array<unknown>; wake?: object | null; llm?: ReturnType<typeof sequenceLlm> }
 ) {
   const hot = hotWith({
     features: { coreTools: true, gifs: true, imageGeneration: true, speech: true, innerLife: true },
@@ -114,7 +127,7 @@ async function turnIn(
     discord: DISCORD,
     hot,
     store,
-    llm: sequenceLlm(answers),
+    llm,
     calibrator: { ratio: 1, apply: (n: number) => n, observe: () => {} },
     client,
     now: () => NOW,
@@ -298,6 +311,26 @@ test('a message, a picture and a voice from an ordinary turn elsewhere are refus
     'draw.create:failed/diary-mirror',
     'voice.say:failed/diary-mirror',
   ]);
+});
+
+// Stage 3 design, section 10: the refusal's label tells her she writes in her diary with `diary.write`. The test reads
+// the code and the tool's name in the result she is shown, never the wording.
+test('the refusal of a send to a mirror place carries diary-mirror and names diary.write in what she reads', async () => {
+  const core = await community();
+  const answers = [toolAnswer('', [call('message.create', { channel: '#journal', text: 'από εδώ' })]), '<skip/>'];
+  const llm = sequenceLlm(answers);
+  const logs = await turnIn(core, { here: 'c1', answers, llm });
+  assert.deepEqual(calledOf(logs), ['message.create:failed/diary-mirror']);
+  // The scripted model keeps each request; the second carries the tool's result.
+  const results = (llm.calls[1] as Array<{ role: string; content: unknown }> | undefined) ?? [];
+  const shown = results
+    .filter((message) => message.role === 'tool')
+    .map((message) => {
+      const text: unknown = contentText(message.content);
+      return typeof text === 'string' ? text : '';
+    });
+  assert.equal(shown.length, 1, 'one tool result');
+  assert.ok(shown[0]?.includes('diary.write'), 'the label names the tool she writes in her diary with');
 });
 
 test('her message and GIF in an intention turn that runs in a mirror place are refused diary-mirror', async () => {

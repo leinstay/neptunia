@@ -115,3 +115,9 @@ test("an edited message of hers shows its newest text with the edit mark in the 
 test("a deleted message of an entry is left out of the wake's <chat>, as the channel leaves it out", async () => {
   assert.equal(await wakeChat(null, { deleted: true }), recordedChat('deleted'));
 });
+
+// Stage 3 design, section 10 (the owner): her diary's history shows no reactions, also when the platform's messages
+// carry them. The expectation is the block recorded over the same messages without a reaction.
+test("a reaction on one of her messages is no part of the wake's <chat>", async () => {
+  assert.equal(await wakeChat(null, { reacted: true }), recordedChat('chat'));
+});

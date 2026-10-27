@@ -65,7 +65,9 @@ const ENTRIES: ReadonlyArray<{ kind: string; posts: ReadonlyArray<Post> }> = [
   { kind: 'status', posts: [{ id: 'm7', at: NOW - DAY, text: 'ήσυχη μέρα', attachments: [] }] },
 ];
 /** What happened to her messages after she posted them: `m7` edited to a newer text, `m4` deleted. */
-export type Changes = { edited?: boolean; deleted?: boolean };
+export type Changes = { edited?: boolean; deleted?: boolean; reacted?: boolean };
+/** The reaction three members put on `m7` (the owner, 2026-10-27: her history shows no reactions). */
+const REACTION = { id: 'm7', emoji: { name: '❤️', id: null }, count: 3 } as const;
 /** The newer text of `m7` and when she changed it. */
 const EDIT = { id: 'm7', at: NOW - DAY + 2 * HOUR, text: 'ήσυχη μέρα, τελικά βροχή' } as const;
 /** The message of the fourth entry she deleted, and when. */
@@ -80,7 +82,14 @@ const isVoice = (post: { text: string; attachments?: ReadonlyArray<Attachment> }
 
 /** A message as discord.js hands it over: hers, or Alice's. */
 function stub(
-  post: { id: string; at: number; text: string; attachments?: ReadonlyArray<Attachment>; editedAt?: number },
+  post: {
+    id: string;
+    at: number;
+    text: string;
+    attachments?: ReadonlyArray<Attachment>;
+    editedAt?: number;
+    reactions?: ReadonlyArray<{ emoji: { name: string; id: null }; count: number }>;
+  },
   self: boolean
 ) {
   const author = self
@@ -94,6 +103,7 @@ function stub(
     cleanContent: post.text,
     createdTimestamp: post.at,
     editedTimestamp: post.editedAt ?? null,
+    reactions: { cache: new Map((post.reactions ?? []).map((reaction, index) => [String(index), reaction])) },
     reference: null,
     attachments: new Map((post.attachments ?? []).map((attachment) => [attachment.id, attachment])),
     stickers: new Map(),
@@ -111,12 +121,18 @@ export function historyWorld({
   alice = false,
   edited = false,
   deleted = false,
+  reacted = false,
 }: { history: boolean; alice?: boolean } & Changes): void {
   world().channel({ id: 'c1', name: 'general', guildId: GUILD });
   // The channel shows what the platform holds now: an edited message's newest text, no deleted message.
   const own = ENTRIES.flatMap((entry) => entry.posts)
     .filter((post) => !(deleted && post.id === DELETED.id))
     .map((post) => (edited && post.id === EDIT.id ? { ...post, text: EDIT.text, editedAt: EDIT.at } : post))
+    .map((post) =>
+      reacted && post.id === REACTION.id
+        ? { ...post, reactions: [{ emoji: REACTION.emoji, count: REACTION.count }] }
+        : post
+    )
     .map((post) => stub(post, true));
   const lines = alice ? [...own, stub(ALICE, false)].sort((a, b) => a.createdTimestamp - b.createdTimestamp) : own;
   world().channel({ id: 'd1', name: 'journal', guildId: GUILD, historyMessages: history ? lines : [] });
