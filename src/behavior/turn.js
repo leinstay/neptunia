@@ -6830,7 +6830,7 @@ export function createTurnRunner({
 
   /**
    * @param {object} params
-   * @param {import('../protocol/adapter.ts').ConversationRef} params.conversation
+   * @param {import('../protocol/adapter.ts').ConversationRef} [params.conversation]  absent for the selfreflection wake
    * @param {string} [params.guildId]  The served guild, used when `channel` has no guild (a
    *   private chat); a server channel always uses its own guild. Neither -> throws.
    * @param {'reply'|'interject'|'initiate'|'auto'|'diary'|'inner'} params.mode  'auto' lets `chooseMode` pick
