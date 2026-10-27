@@ -67,7 +67,7 @@ export function recordAddressing(store, guildId, messages, cfg = {}) {
  * live pipeline.
  * @param {object} store
  * @param {string} guildId
- * @param {object} normalized  A normalized message (see interfaces/discord/collect.js);
+ * @param {object} normalized  A normalized message (src/protocol/events.js#Message);
  *   callers are expected to have already dropped other bots' messages.
  * @param {object} [memoryCfg]  The live `config.memory`, for the tally's settings
  *   (`channelWritersStored`, `channelWritersHalfLifeDays`); omitted -> the store's fallbacks.
@@ -134,7 +134,7 @@ function slimMedia(part) {
  * the same way, and `direct`; a message whose links carry a preview title or description also
  * keeps them as `linkCards` (src/memory/record.js#recordLinks: URL, title, description, site),
  * which only the record reads.
- * @param {object} normalized  A normalized message (interfaces/discord/collect.js#normalizeMessage).
+ * @param {object} normalized  A normalized message (src/protocol/events.js#Message).
  * @param {boolean} [direct]   Whether the message was addressed to the persona.
  * @returns {object}
  */
@@ -162,8 +162,8 @@ export function slimMessage(normalized, direct = false) {
     ...slimMedia(normalized),
     // The link previews the record keeps (toRecordLine's `links`); absent when none.
     ...(linkCards.length > 0 ? { linkCards } : {}),
-    // A forwarded message's snapshots (interfaces/discord/collect.js
-    // #normalizeSnapshot), stripped the same way. Absent for a message
+    // A forwarded message's snapshots (`forwarded`,
+    // src/protocol/events.js#Message), stripped the same way. Absent for a message
     // with no forward.
     ...(forwarded.length > 0 ? { forwardedFrom: normalized.forwardedFrom ?? null, forwarded } : {}),
     direct: Boolean(direct),

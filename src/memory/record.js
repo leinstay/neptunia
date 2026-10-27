@@ -6,7 +6,7 @@
 // chat's lines go under `private/<userId>/record/` instead and never into the guild record. Kinds:
 //
 //   - `seen`: a message the app observed (an edit is a new line with revision 2, 3, ...);
-//   - `deleted`: Discord deleted a message (its stored text stays: not a forget request);
+//   - `deleted`: the platform deleted a message (its stored text stays: not a forget request);
 //   - `said`: the persona's own message, once its post succeeded;
 //   - `felt`: the feeling she attached to a stored moment, with its own id.
 //
@@ -88,7 +88,7 @@ function mediaKinds(slim) {
 }
 
 /**
- * The compact links of a record line, from a normalized message's links (interfaces/discord/collect.js:
+ * The compact links of a record line, from a normalized message's links (src/protocol/events.js#Message:
  * `{ id, kind, url, title, text, site }`) or from links already in this shape (`description`
  * instead of `text`): each `{ id?, url, title, description, site }` on one line, the title and the
  * description clamped to LINK_TEXT_CHARS at a boundary (clampWithEllipsis). Only a link (`kind`

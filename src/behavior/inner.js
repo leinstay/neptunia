@@ -4,7 +4,7 @@
 // from her own `said` lines in the record, re-drawn every local day) -- and hands each as an
 // `inner.wake` event through the core's event door (src/interface/door.js). Listing is not
 // choosing: no model runs here, nothing ranks or invents a reason. A queued wake keeps its due
-// time while people's turns hold the one attention; compatible wakes (the same conversation, and
+// time while people's turns hold the lease; compatible wakes (the same conversation, and
 // the day's review with any server one) coalesce into one inner turn; a queue past
 // `innerLife.queueMax` records the overflow. The inner turn itself is the turn runner's
 // (src/behavior/turn.js, mode `inner`): no human message, a `<wake>` block, her tools.
@@ -884,7 +884,7 @@ export function chainBudget(state, chainId, cap, { now, timezone }) {
 /**
  * The cost of whatever runs inside `run(fn)`: every `llm: usage` line (its `upstreamCost`, else
  * `cost`; the `core` role counted apart, as `voice`, the journal field's name since the role was called so) and `images: generated` line logged in its async context
- * (AsyncLocalStorage over the log listeners, src/log.js#onLog), helpers it starts included;
+ * (AsyncLocalStorage over the log listeners, src/log.js#onLog), requests on model roles other than `core` it starts included;
  * `running()`, asked inside it, says what it has cost so far and its costliest single request.
  * @param {{ subscribe?: (listener: Function) => Function }} [options]
  */

@@ -1,4 +1,4 @@
-// Pure helpers for the persona's video vision: which links point at a video
+// Pure functions for the persona's video vision: which links point at a video
 // site, a stable cache key for a video URL (so a repost of the same video
 // shares one cache entry), the exact yt-dlp / ffmpeg argument arrays the
 // fetcher (src/media/fetch-video.js) runs (a GIF's conversion to a short
@@ -10,7 +10,7 @@
 
 import { createHash } from 'node:crypto';
 
-// `>` closes Discord's `<url>` embed-suppression form; quotes and `<` never
+// `>` closes the `<url>` form chat platforms use to suppress an embed; quotes and `<` never
 // belong to a bare URL in chat text. A match therefore never holds a `>`.
 const URL_PATTERN = /https?:\/\/[^\s<>"']+/gi;
 const TRAILING_PUNCTUATION = /[).,]+$/;

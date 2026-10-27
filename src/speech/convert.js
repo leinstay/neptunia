@@ -1,6 +1,6 @@
-// mp3 -> a Discord voice note, with the system ffmpeg (spawned directly, no shell): OGG/Opus at
+// mp3 -> a voice note for a chat platform, with the system ffmpeg (spawned directly, no shell): OGG/Opus at
 // 48 kHz mono for the attachment, and from the decoded PCM the duration in seconds and the
-// 256-byte waveform Discord draws (one byte per equal window of the clip, the window's RMS scaled
+// 256-byte waveform the platform draws (one byte per equal window of the clip, the window's RMS scaled
 // so that the loudest window is 255; base64). The duration comes from the PCM, not ffprobe: the
 // probe cannot read an Ogg stream's length from a pipe.
 

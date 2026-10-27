@@ -5,7 +5,7 @@
 // (`limits.notice`); the limit name is the config key. A call while the bot
 // is paused (`/nep pause`) gets the pause notice (`limits.paused`, no
 // placeholders) the same way. See docs/prompt-contract.md. The pure
-// helpers come first; `postLimitNotice`, `postPauseNotice` (one sender,
+// functions come first; `postLimitNotice`, `postPauseNotice` (one sender,
 // `sendNotice`) and `mirrorDryRun` are the one copy of the posting side,
 // shared by the turn runner (src/behavior/turn.js) and the message pipeline
 // (src/behavior/pipeline.js).
@@ -128,7 +128,7 @@ export async function mirrorDryRun({ port, dryRunChannelId, header, body }) {
 
 /**
  * Post the limit notice for `limit` in `channel`: one plain message, no
- * mentions, quoting `trigger` as a Discord reply when `asReply` (the caller
+ * mentions, quoting `trigger` as a platform reply when `asReply` (the caller
  * passes false for a follow-up, which never posts as a reply). With
  * `features.dryRun` it is logged and mirrored (`bot.dryRunChannelId`)
  * instead of sent. `labels` and `config` are the caller's `hot.prompts.labels`

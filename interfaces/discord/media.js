@@ -1,9 +1,15 @@
 // The addresses of Discord's media, the one place that knows its hosts: the CDN and the media proxy a picture is
 // resized through, the sticker address, a pasted link to a CDN video, and the preview address and expiry of an
 // attachment or a link that the package puts on every message it hands the core (collect.js#normalizeMessage).
-// The core reads `previewUrl` and `expiring` and never a host. Pure: no network, no discord.js.
+// The core reads `previewUrl` and `expiring` and never a host. The provider's own image fetcher gets a 403 from
+// `media.discordapp.net`, which is why the core downloads every picture itself (src/media/fetch-image.js), and the
+// signed query of a CDN address (`ex`, `is`, `hm`) rotates between fetches of the same file. Pure: no network, no
+// discord.js.
 
-import { DISCORD_CDN_HOSTS, classifyAttachment, fitBox } from '../../src/media/classify.js';
+import { classifyAttachment, fitBox } from '../../src/media/classify.js';
+
+/** The Discord CDN hosts: embed.ts#classifyEmbed reads a link to a GIF file on them as a GIF. */
+export const DISCORD_CDN_HOSTS = new Set(['cdn.discordapp.com', 'media.discordapp.net']);
 
 const DISCORD_EXTERNAL_PROXY_HOST_RE = /^images-ext-\d+\.discordapp\.net$/;
 

@@ -1,5 +1,5 @@
 // Pure text formatting of normalized messages (see normalizeMessage in
-// collect.js) into the transcript the model reads. No discord.js imports here,
+// collect.js) into the transcript the model reads. No platform SDK imports here,
 // so everything is unit-testable. Every word that ends up in the prompt comes
 // from `labels` (see prompts/labels.json and docs/prompt-contract.md);
 // this module only knows the shape of a transcript line, e.g.:
@@ -183,7 +183,7 @@ export function formatDuration(ms, units) {
  * described > blind, plus one extra tag per distinct described custom emoji
  * unless `context.emojiInline` is false (the request describes them once
  * elsewhere). `context.descriptions` is an optional `Map` keyed by the item's id (an
- * attachment's Discord id, a link's synthesized id, `sticker:<id>` or
+ * attachment's platform id, a link's synthesized id, `sticker:<id>` or
  * `emoji:<id>` — see normalizeMessage). `context.videos` is an optional
  * `Map` of the same ids to a video state (see mediaLabelFor); it only takes
  * effect when the labels carry `transcript.videoWatched` (a key blanked in
@@ -415,9 +415,9 @@ function reactionNamesItem(reaction, labels, names) {
 
 /**
  * The member ids that react on the persona's lines of `messages` (the reactions' `users`, filled
- * by interfaces/discord/reactors.js#withReactors; never a bot), each once: they are in view, so
+ * by src/behavior/reactor-store.ts#withReactors; never a bot), each once: they are in view, so
  * they get a mention handle like an author. It reads normalized lines only, so it lives in the
- * core; the Discord interface re-exports it (and carries it in its capabilities object).
+ * core.
  * @param {object[]} messages
  * @returns {string[]}
  */
@@ -708,7 +708,7 @@ const RAW_CHANNEL_RE = /<#(\d+)>/g;
 /**
  * `content` with each channel it mentions carrying its handle: every raw `<#id>` and every whole
  * `#name` of a channel in `mentionedIds` (the ids of the message's `<#id>` mentions, which the
- * text reads as `#name`: interfaces/discord/collect.js) that `channels` knows becomes `template` filled
+ * text reads as `#name`) that `channels` knows becomes `template` filled
  * with `{name}` (`#` + the channel's name) and `{handle}` (`#` + its handle). Whole: no word
  * character right before the `#` or after the name; the longest name first; URLs left alone. Pure.
  */
@@ -811,8 +811,8 @@ function numberMessageRefs(text, refs, numberOf) {
  *   `transcript.reactions` key.
  * @param {number} [options.reactionsPerMessage]  Default 6: at most this many reactions per message.
  * @param {boolean} [options.reactionNames]  Default false (features.reactionNames, read by the caller):
- *   in `mode: 'chat'`, a reaction on the persona's own line whose `users` are known (interfaces/discord/
- *   reactors.js#withReactors) renders `transcript.reactionNames` with the
+ *   in `mode: 'chat'`, a reaction on the persona's own line whose `users` are known (src/behavior/
+ *   reactor-store.ts#withReactors) renders `transcript.reactionNames` with the
  *   reactors named exactly like the authors of lines (the `handles` and `transcript.author` below),
  *   at most `reactionNamesMax` (5 when omitted) of them, the rest as `transcript.reactionMore`.
  *   Off, without the label or on anyone else's line: the counts as before.
@@ -855,7 +855,7 @@ function numberMessageRefs(text, refs, numberOf) {
  * @param {Map<string, string[]>} [options.memberNames]  Member id -> the names and aliases the request
  *   knows (src/behavior/handles.js#memberNameMap). With `handles` (chat mode, the same conditions),
  *   a member a line really mentions (`mentionedUserIds`; their name from the line's `mentionedUsers`
- *   or here) reads in its text as their `@handle`, not Discord's `@DisplayName`
+ *   or here) reads in its text as their `@handle`, not the platform's `@DisplayName`
  *   (withUserHandles); a mentioned member without a handle keeps the name. With a non-empty
  *   `transcript.untagged`, a line of the persona's whose text holds a whole `@name` of a member
  *   in `memberNames` who has a handle and is not among the line's mentions ends with that label
@@ -952,7 +952,7 @@ export function formatTranscript(messages, options) {
     authorHandles && typeof labels.transcript.untagged === 'string' && labels.transcript.untagged !== ''
       ? labels.transcript.untagged
       : null;
-  /** The names a line's mentions go by: the line's own (as Discord rendered them), then the request's. */
+  /** The names a line's mentions go by: the line's own (as the platform rendered them), then the request's. */
   const mentionNamesOf = (message) => {
     const names = new Map(memberNames);
     for (const user of Array.isArray(message.mentionedUsers) ? message.mentionedUsers : []) {

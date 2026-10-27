@@ -1,4 +1,4 @@
-// Pure media semantics shared by interfaces/discord/collect.js (normalization),
+// Pure media semantics shared by the interface packages (normalization),
 // src/format.js (transcript rendering) and src/behavior/prompt.js
 // (vision selection): classifying an attachment/embed into a kind, choosing
 // which label form a media item takes in a transcript line, picking which
@@ -6,24 +6,18 @@
 // candidates of a message (attached videos, video-site links) for the video
 // describer. The addresses of a platform's media (its CDN, its resizing proxy,
 // its stickers) are the interface's: an item arrives with its `previewUrl` and
-// an `expiring` flag, interfaces/discord/media.js. No network I/O, no discord.js
-// import — callers hand in plain data already read off a discord.js
-// Message/Embed (node:crypto is used only for a deterministic, synchronous
+// an `expiring` flag. No network I/O, no platform SDK
+// import: callers hand in plain data already read off a platform's
+// message (node:crypto is used only for a deterministic, synchronous
 // hash, not for any I/O).
 
 import { createHash } from 'node:crypto';
 import { videoSiteFor } from './video-sites.js';
 
-/** The Discord CDN hosts: classifyEmbed reads a link to a GIF file on them as a GIF. */
-export const DISCORD_CDN_HOSTS = new Set(['cdn.discordapp.com', 'media.discordapp.net']);
-const GIF_PROVIDERS = new Set(['tenor', 'giphy']);
-// The GIF sites whose pages Discord's GIF picker posts (and their media hosts).
+// The GIF sites a chat's GIF picker posts pages of (and their media hosts).
 const GIF_HOST_RE = /(^|\.)((tenor|giphy|klipy)\.com)$/i;
-// Discord's embed type for a looping GIF video: what every GIF-picker post
-// carries, whatever site serves it.
-const GIF_EMBED_TYPE = 'gifv';
 
-// Extensions Discord may leave without a contentType (or none at all, for
+// Extensions a platform may leave without a contentType (or none at all, for
 // bots that strip it): a conservative, deliberately small map — anything
 // unmatched falls back to the generic 'file' kind.
 const EXT_KIND = {
@@ -55,8 +49,8 @@ const EXT_KIND = {
 const PICTURE_ATTACHMENT_KINDS = new Set(['image', 'gif', 'video']);
 // Media kinds the describer (src/memory/describe.js) can produce a caption
 // for. 'sticker'/'emoji' are added here for the same reason a picture-format
-// sticker or a custom emoji is describable, even though neither is a Discord
-// attachment/embed kind. 'link' (a video-site embed such as YouTube) is
+// sticker or a custom emoji is describable, even though neither is a platform's
+// attachment or embed kind. 'link' (a video-site embed such as YouTube) is
 // describable through its thumbnail alone -- collectPictures only ever
 // offers a 'link' item that actually carries one (see below), so the kind
 // alone is a safe signal here.
@@ -99,8 +93,8 @@ export function siteOf(url) {
 }
 
 /**
- * Classify one Discord attachment into `image | gif | video | audio | voice |
- * text | file`. `isVoice` reflects the MESSAGE's voice-message flag (Discord
+ * Classify one attachment into `image | gif | video | audio | voice |
+ * text | file`. `isVoice` reflects the MESSAGE's voice-message flag (a platform
  * flags the whole message, not the attachment); a voice message's attachment
  * always classifies as `voice`, ahead of its content type.
  * @param {{ contentType?: string|null, name?: string|null, isVoice?: boolean }} input
@@ -118,27 +112,6 @@ export function classifyAttachment({ contentType, name, isVoice = false } = {}) 
   return 'file';
 }
 
-/** Whether `url` parses and its path ends in `.gif` (case-insensitive). */
-function isGifFileUrl(url) {
-  try {
-    return /\.gif$/i.test(new URL(String(url)).pathname);
-  } catch {
-    return false;
-  }
-}
-
-/**
- * The animation of a gif embed, for the GIF watch (src/memory/describe.js):
- * the mp4/webm Discord plays for a `gifv` embed
- * (`video.proxyURL` preferred, like the thumbnail, else `video.url`), else
- * the embed's own URL when it is a `.gif` file, else null.
- */
-function gifAnimationUrl(embed, url) {
-  const video = embed?.video?.proxyURL || embed?.video?.url;
-  if (typeof video === 'string' && video) return video;
-  return url && isGifFileUrl(url) ? url : null;
-}
-
 /**
  * Whether `url` is on a GIF site (tenor, giphy, klipy -- a page or one of
  * their media hosts). False for an unparsable URL.
@@ -150,85 +123,8 @@ export function isGifHostUrl(url) {
 }
 
 /**
- * The content type of an embed's thumbnail, lowercased: a plain object's
- * `thumbnail.contentType`, a discord.js Embed's `data.thumbnail.content_type`
- * (its `thumbnail` getter drops the field); '' when neither is there.
- */
-function thumbnailContentTypeOf(embed) {
-  return String(embed?.thumbnail?.contentType ?? embed?.data?.thumbnail?.content_type ?? '').toLowerCase();
-}
-
-/**
- * Whether an embed is a link to a GIF file on the Discord CDN
- * (DISCORD_CDN_HOSTS): its URL's path ends in `.gif`, or its thumbnail's
- * content type is `image/gif`. A member pasting such a link gets an image
- * embed, no attachment; it is still a GIF to watch, not a page preview.
- */
-function isDiscordGifFile(embed, url) {
-  if (!url || !DISCORD_CDN_HOSTS.has(siteOf(url).toLowerCase())) return false;
-  return isGifFileUrl(url) || thumbnailContentTypeOf(embed) === 'image/gif';
-}
-
-/** An embed's Discord type (`gifv`, `rich`, ...), lowercased: a plain object's `type`, a discord.js Embed's `data.type`. */
-function embedTypeOf(embed) {
-  return String(embed?.type ?? embed?.data?.type ?? '').toLowerCase();
-}
-
-/**
- * Classify one Discord embed into a link-ish item: `{ site, title, text,
- * thumbnailUrl, kind, url }`. `kind` is `'gif'` for a GIF (its thumbnail is
- * the frame to describe), else `'link'` — a video-site embed (e.g. YouTube)
- * keeps `kind: 'link'` but still carries `thumbnailUrl`. An embed is a GIF
- * when its Discord type is `gifv` (a GIF-picker post, whatever the site),
- * its provider is tenor/giphy, its URL is on a GIF site (isGifHostUrl), or
- * it is a pasted link to a GIF file on the Discord CDN (isDiscordGifFile:
- * a `.gif` path or an `image/gif` thumbnail; its own URL is then the
- * animation). Any other Discord CDN link (a `.png`, ...) stays a link.
- * A `gifv` embed whose URL is on one of `videoSites` stays a link: the video
- * describer owns that site. `url` stays the page Discord embeds again when
- * it is posted.
- * `thumbnail.proxyURL` is preferred over `thumbnail.url` when discord.js
- * exposes one: Discord's own embed proxy (`media.discordapp.net` /
- * `images-ext-*.discordapp.net`) is reliably fetchable, unlike some
- * third-party thumbnail hosts. A gif embed that carries its animation (see
- * gifAnimationUrl: the `gifv` video, or a `.gif` link; or a Discord CDN GIF
- * file's own URL) adds `animationUrl`,
- * the file the GIF watch downloads; no other item ever has the key.
- * `thumbnailWidth` / `thumbnailHeight` are the thumbnail's pixel size when
- * Discord reports it (else null), for fitBox.
- * @param {{ url?: string|null, title?: string|null, description?: string|null,
- *   thumbnail?: { url?: string|null, proxyURL?: string|null, width?: number|null, height?: number|null, contentType?: string|null }|null,
- *   video?: { url?: string|null, proxyURL?: string|null }|null,
- *   provider?: { name?: string|null }|null }} embed
- * @param {{ embedTextChars?: number, videoSites?: string[] }} [options]
- */
-export function classifyEmbed(embed, { embedTextChars = 200, videoSites = [] } = {}) {
-  const url = embed?.url ?? null;
-  const host = siteOf(url ?? '');
-  const providerName = String(embed?.provider?.name ?? '');
-  const onVideoSite =
-    Boolean(url) && Array.isArray(videoSites) && videoSites.length > 0 && videoSiteFor(url, videoSites) !== null;
-  const isGifv = embedTypeOf(embed) === GIF_EMBED_TYPE && !onVideoSite;
-  const discordGif = isDiscordGifFile(embed, url);
-  const isGif = isGifv || GIF_PROVIDERS.has(providerName.toLowerCase()) || isGifHostUrl(url) || discordGif;
-  const site = providerName || host || '';
-  const animationUrl = isGif ? (gifAnimationUrl(embed, url) ?? (discordGif ? url : null)) : null;
-  return {
-    site,
-    title: clipWithEllipsis(String(embed?.title ?? '').trim(), embedTextChars),
-    text: clipWithEllipsis(String(embed?.description ?? '').trim(), embedTextChars),
-    thumbnailUrl: embed?.thumbnail?.proxyURL ?? embed?.thumbnail?.url ?? null,
-    thumbnailWidth: positiveDimension(embed?.thumbnail?.width),
-    thumbnailHeight: positiveDimension(embed?.thumbnail?.height),
-    kind: isGif ? 'gif' : 'link',
-    url,
-    ...(animationUrl ? { animationUrl } : {}),
-  };
-}
-
-/**
  * A stable cache key for a link/embed thumbnail: `link:<sha1 prefix of the
- * URL without its query string>`. A signed Discord proxy URL (or any
+ * URL without its query string>`. A signed media-proxy URL (or any
  * re-fetched embed) carries a query string that changes between fetches of
  * the very same picture; the origin+path does not, so it is dropped before
  * hashing. Deterministic and pure (no I/O) -- see emojiUrl for the
@@ -284,7 +180,7 @@ export function fitBox(width, height, max) {
 
 /**
  * `m:ss` for a known duration, or `unknownDuration` when `durationSec` is
- * null/undefined -- Discord's own `duration_secs` is usually present on a
+ * null/undefined -- a platform's own duration is usually present on a
  * video/voice/audio attachment but can be missing; this must never silently
  * render as "0:00" for an unknown length.
  */
@@ -404,9 +300,9 @@ function extraOf(...extras) {
 
 /**
  * Choose which `labels.transcript.*` key (and fill values) renders one media
- * item, in priority order: described (the helper's caption, the only way a
+ * item, in priority order: described (the `vision` caption, the only way a
  * picture reaches the persona) > blind. `item` is a normalized attachment or
- * link/embed item (see interfaces/discord/collect.js): `{ kind, name?, site?,
+ * link/embed item (src/protocol/events.js#Message): `{ kind, name?, site?,
  * title?, text?, durationSec?, previewText? }`.
  *
  * A plain image renders as `imageDescribed` when a caption exists, else the
@@ -590,11 +486,11 @@ export function stickerLabelFor(sticker, { description = null } = {}) {
 /**
  * The parts of one normalized message that carry media, in the order they
  * appear in it: the message itself, then every forwarded snapshot
- * (`message.forwarded`, see interfaces/discord/collect.js#normalizeSnapshot). A
+ * (`message.forwarded`, src/protocol/events.js#Message). A
  * snapshot has no id of its own, so each collector below stamps its items
  * with the OUTER message's id -- the one the history and the transcript
  * know. Item ids stay unique: attachment ids are
- * Discord snowflakes, link ids are cache keys or built from the original
+ * the platform's ids, link ids are cache keys or built from the original
  * message id. Shared with the analyzer and the GIF library, which walk the
  * same parts.
  * @param {object} message  A normalized (or slim buffered) message.
@@ -671,8 +567,8 @@ function partPictures(part, messageId) {
  * image/gif/video attachment, any embed carrying a thumbnail (gif or link
  * kind alike), or a PNG/APNG/GIF sticker (never a Lottie one -- `sticker.url`
  * is null for those, the adapter decides). Each item is stamped with a stable
- * `itemId` (the attachment's Discord id; for an embed, the link's own id from
- * interfaces/discord/collect.js -- `video:url:<hash>` for a video-site link,
+ * `itemId` (the attachment's platform id; for an embed, the link's own id from
+ * the interface package: `video:url:<hash>` for a video-site link,
  * `link:<hash>` for another link with a thumbnail, the message+embed-index
  * for a gif embed; or `sticker:<id>`) so it can be looked up in a
  * vision-selection or description-cache map, and with the outer message's
@@ -682,7 +578,7 @@ function partPictures(part, messageId) {
  * GIF watch downloads, while `url` stays the still thumbnail. Custom emoji are never included here
  * -- see collectEmojiItems: they are never eligible to be attached as a vision
  * picture, only describable.
- * @param {object} message  A normalized message (see interfaces/discord/collect.js).
+ * @param {object} message  A normalized message (src/protocol/events.js#Message).
  */
 export function collectPictures(message) {
   return mediaParts(message).flatMap((part) => partPictures(part, message.id));
@@ -690,11 +586,11 @@ export function collectPictures(message) {
 
 /**
  * Every custom emoji written in one normalized message's text (see
- * interfaces/discord/collect.js), the message's own first, then each forwarded
+ * src/protocol/events.js#Message), the message's own first, then each forwarded
  * snapshot's, as a describable item, kept apart from collectPictures on
  * purpose (an emoji is not a picture of the chat: it is described once, see
  * docs/prompt-contract.md).
- * @param {object} message  A normalized message (see interfaces/discord/collect.js).
+ * @param {object} message  A normalized message (src/protocol/events.js#Message).
  */
 export function collectEmojiItems(message) {
   return mediaParts(message).flatMap((part) =>
@@ -745,15 +641,15 @@ function partVideos(part, messageId, videoSites) {
 }
 
 /**
- * The video candidates of one normalized message (see interfaces/discord/collect.js),
+ * The video candidates of one normalized message (src/protocol/events.js#Message),
  * in the order they appear in it: every attachment of kind `video`, then every
  * link whose `url` belongs to one of `videoSites` (see videoSiteFor in
  * src/media/video-sites.js) -- the message's own first, then each forwarded
  * snapshot's the same way, all stamped with the outer message's `messageId`.
  * `itemId` is the id the transcript's `videos`
- * state map is keyed by (the attachment's Discord id, or the link's id).
+ * state map is keyed by (the attachment's platform id, or the link's id).
  * `videoSites` missing or empty -> attachments only.
- * @param {object} message  A normalized message (see interfaces/discord/collect.js).
+ * @param {object} message  A normalized message (src/protocol/events.js#Message).
  * @param {{ videoSites?: string[] }} [options]
  */
 export function collectVideos(message, { videoSites = [] } = {}) {
@@ -789,14 +685,14 @@ export function lateVideoStates(candidates, known, maxNew) {
 }
 
 /**
- * The links of one normalized message (see interfaces/discord/collect.js) the web
+ * The links of one normalized message (src/protocol/events.js#Message) the web
  * lookup may read (src/web/lookup.js#readLinks), in the order they appear in
  * it (the message's own first, then each forwarded snapshot's, all stamped
  * with the outer message's `messageId`): every `link` item with a url, minus
  * the ones on a video site of
  * `videoSites` (the video describer's, see collectVideos) and every gif embed.
  * `videoSites` missing or empty -> no link is excluded as a video.
- * @param {object} message  A normalized message (see interfaces/discord/collect.js).
+ * @param {object} message  A normalized message (src/protocol/events.js#Message).
  * @param {{ videoSites?: string[] }} [options]
  * @returns {{ id: string, messageId: string, url: string, site: string, title: string }[]}
  */

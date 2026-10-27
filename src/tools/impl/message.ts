@@ -10,7 +10,7 @@
 // only the members it mentions (`context.mentionUserIds`) are notified, none with pings off. Edit,
 // delete and react go through the interface too. The rules live here, for every caller: a post,
 // an edit, a deletion or a reaction in the conversation the command runs in, or in any text
-// channel of the served guild where the bot holds the Discord permissions it needs
+// channel of the served guild where the bot holds the platform permissions it needs
 // (src/tools/impl/shared.ts#postingConversation; a person may ask for her turn in any channel); edit and
 // delete reach only her own messages (the port refuses anyone else's). A message is named by its
 // id or its link; for an edit or a deletion also by `last`, her own most recent message in that
@@ -42,7 +42,7 @@ import type { Content } from '../../protocol/actions.js';
 import type { Reads } from '../../interface/reads.ts';
 import type { Env } from './env.ts';
 
-/** How far back `last` looks for her own message: Discord's most messages per history request. */
+/** How far back `last` looks for her own message: the most messages one history read returns on the platform (100). */
 const LAST_LOOKBACK = 100;
 
 /** True when a message reference is `last`: the persona's own most recent message (any case). */

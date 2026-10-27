@@ -39,7 +39,7 @@ import { fillPromptTemplate } from '../src/behavior/prompt.js';
 import { parseLookupAnswer, recallSettings } from '../src/behavior/recall.js';
 import { zonedDay } from '../src/time.js';
 import { roleModel } from '../src/llm/roles.js';
-import { cacheTtlFor, helperRequestOptions, withCacheMarker } from '../src/llm/openrouter.js';
+import { cacheTtlFor, roleRequestOptions, withCacheMarker } from '../src/llm/openrouter.js';
 import * as sandbox from '../src/behavior/sandbox.js';
 import {
   afterScenarioTurn,
@@ -1066,7 +1066,7 @@ const PRE_DEPS = {
   fillPromptTemplate,
   zonedDay,
   roleModel,
-  helperRequestOptions,
+  roleRequestOptions,
   parseLookupAnswer,
   recallSettings,
 };

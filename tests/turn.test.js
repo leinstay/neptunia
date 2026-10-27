@@ -2005,7 +2005,7 @@ function rewatchHot(features = {}, video = {}, config = {}) {
     }
   );
   hot.config.llm.timeoutMs = 300_000;
-  hot.config.llm.helperTimeoutMs = 25_000;
+  hot.config.llm.analyzerTimeoutMs = 25_000;
   hot.prompts.rewatch = REWATCH_SYSTEM;
   return hot;
 }
@@ -2062,7 +2062,7 @@ test('createTurnRunner: rewatch -- the classifier gets the watched videos and th
   );
   assert.equal(options.model, 'x/analyzer', 'the analyzer model');
   assert.equal(options.maxOutputTokens, 120);
-  assert.equal(options.timeoutMs, 25_000, 'a helper: llm.helperTimeoutMs, not the reply timeout');
+  assert.equal(options.timeoutMs, 25_000, 'a helper: llm.analyzerTimeoutMs, not the reply timeout');
   assert.equal(options.countAgainstDailyCap, true);
   assert.equal(options.skipCalibration, true);
   assert.equal(options.purpose, 'rewatch');
@@ -2861,7 +2861,7 @@ function lookupHot(features = {}, web = {}, config = {}) {
     }
   );
   hot.config.llm.timeoutMs = 300_000;
-  hot.config.llm.helperTimeoutMs = 25_000;
+  hot.config.llm.analyzerTimeoutMs = 25_000;
   hot.prompts.lookup = LOOKUP_SYSTEM;
   return hot;
 }
@@ -2949,7 +2949,7 @@ test('createTurnRunner: lookup -- the classifier gets the transcript and the can
   assert.ok(user.endsWith('</transcript>\n<candidate>\nZoë: ποιος κέρδισε τον τελικό;\n</candidate>'), user);
   assert.ok(!user.split('<candidate>')[0].includes('ποιος κέρδισε'), 'the trigger only in <candidate>');
   assert.equal(options.model, 'x/text', 'the lookup is an analyzer request');
-  assert.equal(options.timeoutMs, 25_000, 'a helper: llm.helperTimeoutMs, not the reply timeout');
+  assert.equal(options.timeoutMs, 25_000, 'a helper: llm.analyzerTimeoutMs, not the reply timeout');
   assert.equal(options.skipCalibration, true);
   assert.equal(options.countAgainstDailyCap, true);
   assert.equal(options.purpose, 'lookup');
@@ -8623,7 +8623,7 @@ test('runTurn: a direct call with a bar passes pace.replyHedgeMs to the reply re
   const [options] = llm.optionCalls;
   assert.equal(options.timeoutMs, BAR_MS);
   assert.deepEqual(options.hedge, { afterMs: 500, timeoutMs: BAR_MS }, 'attempt 2 at 500 ms, both ended at the bar');
-  assert.equal(options.helper, undefined, 'still no helper request');
+  assert.equal(options.isRoleRequest, undefined, 'still no helper request');
 });
 
 test('runTurn: pace.replyHedgeMs 0, or not below the time left to the bar, sends the reply request without a hedge', async () => {
@@ -8872,7 +8872,7 @@ test('runTurn: the splitter request fills split.md and carries the transcript an
   assert.ok(textOf(call.messages[1].content).startsWith('<transcript>\n'));
   assert.equal(candidateOf(call), SPLIT_TEXT);
   assert.deepEqual(
-    [call.options.role, call.options.purpose, call.options.maxOutputTokens, call.options.helper],
+    [call.options.role, call.options.purpose, call.options.maxOutputTokens, call.options.isRoleRequest],
     ['analyzer', 'split', 50, true]
   );
 });

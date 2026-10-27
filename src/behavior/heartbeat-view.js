@@ -25,7 +25,7 @@
 //              what was not done or counted on (intentions expired, a recurring one missed, errands
 //              failed or past their deadline, sends whose outcome is unknown, turns that ended in an
 //              error, the facts already told to her as one count) and what was filtered without her
-//              (the missed helper's dismissals and the address helper's "not to her"
+//              (the missed check's dismissals and the address check's "not to her"
 //              verdicts, both from the journal's `answer` records).
 //
 // Every line quoted from the record (a place's, a person's last one, a filtered one) is a `ref` into `refs`:
@@ -46,7 +46,7 @@ export const PERSON_PLACES_SHOWN = 3;
 export const LIST_SHOWN = 8;
 /** The calls of an inner turn that post where people read (the diary is counted from its own store). */
 const POSTED_SKILLS = Object.freeze(['message.create', 'draw.create', 'voice.say']);
-/** The missed helper's verdicts that mean "left alone without her". */
+/** The missed check's verdicts that mean "left alone without her". */
 export const DISMISSED_VERDICTS = Object.freeze(['intentional-skip', 'stale', 'uncertain']);
 /** The defaults of the settings (`innerLife.heartbeat`; config.json carries the same). */
 export const VIEW_DEFAULTS = Object.freeze({
@@ -63,7 +63,7 @@ export const VIEW_DEFAULTS = Object.freeze({
 export const PREVIEW_CHARS = Object.freeze({ place: 140, person: 120, filtered: 100, post: 80, goal: 80, gist: 80 });
 /** The names listed per place. */
 const PLACE_PEOPLE_SHOWN = 6;
-/** The calls that are her own sends (an unknown outcome of these is worth telling; an engine or helper action never is). */
+/** The calls that are her own sends (an unknown outcome of these is worth telling; an engine or model role action never is). */
 const SEND_SKILLS = Object.freeze(['message.create', 'draw.create', 'voice.say', 'diary.post']);
 /** The journal operations of the persona's own output that are sends (src/behavior/turn.js#journalOp names). */
 const SEND_OPS = Object.freeze(['post', 'draw', 'gif']);
@@ -491,7 +491,7 @@ function skillFamilies(names) {
   return [...families].map(([family, rest]) => ({ family, names: rest }));
 }
 
-/** Whether an `unknown` action record is one of her own sends (a post, a picture, a GIF, message.create, draw.create, diary.post), never an engine or helper action. */
+/** Whether an `unknown` action record is one of her own sends (a post, a picture, a GIF, message.create, draw.create, diary.post), never an engine or model role action. */
 function isOwnSend(record) {
   if (record?.by !== undefined && record.by !== 'persona') return false;
   const skill = text(record?.input?.skill) || text(record?.name);
@@ -499,7 +499,7 @@ function isOwnSend(record) {
   return SEND_SKILLS.includes(skill) || (record?.by === 'persona' && SEND_OPS.includes(skill));
 }
 
-/** What the helpers filtered without her, newest first: the address helper's "not to her" and the missed helper's dismissals. */
+/** What the analyzer filtered without her, newest first: the address check's "not to her" and the missed check's dismissals. */
 function filteredOf({ from, now, missedVerdicts, addressVerdicts, placeName }) {
   const within = (at) => Number.isFinite(at) && at >= from && at <= now;
   return [
@@ -620,7 +620,7 @@ function sinceOf({
  * @param {object[]} [input.profiles]  The member profiles (store.listUserProfiles).
  * @param {string|null} [input.selfId]  Her own member id (left out of the people).
  * @param {{ iterate?: Function }|null} [input.record]  The record, for the last contact.
- * @param {{ read?: Function }|null} [input.journal]  The journal: her inner turns, unknown sends, the missed helper's verdicts.
+ * @param {{ read?: Function }|null} [input.journal]  The journal: her inner turns, unknown sends, the missed check's verdicts.
  * @param {object[]} [input.intentions]  Her intention records, every status.
  * @param {object[]} [input.tasks]  Her errands (the task store's recent list).
  * @param {object[]} [input.diary]  Her diary posts (`{ at, kind }`).
@@ -628,7 +628,7 @@ function sinceOf({
  * @param {string[]} [input.skills]  The skill names granted to her.
  * @param {string[]} [input.agents]  The errand agents she can hand work to.
  * @param {object|null} [input.innerState]  The inner state (turns that ended in error, the facts told).
- * @param {object[]|(() => object[])|null} [input.addressVerdicts]  `{ at, channelId }` of the address helper's "not to her"; the journal's `address` records are added by the view.
+ * @param {object[]|(() => object[])|null} [input.addressVerdicts]  `{ at, channelId }` of the address check's "not to her"; the journal's `address` records are added by the view.
  * @param {(id: string) => string|null} [input.nameOf]
  * @param {(id: string) => string} [input.placeName]
  * @param {(memberId: string) => string[]} [input.activePlaces]  Where a member wrote lately (names).

@@ -47,9 +47,9 @@ const DEFAULT_PER_RUN = 50;
 const DEFAULT_INTERVAL_MS = 3000;
 /** The `days` of a media recache run: the default and the bounds (`/nep media` checks the same). */
 export const RECACHE_DAYS = Object.freeze({ default: 7, min: 1, max: 60 });
-// A gif embed's per-message item id (interfaces/discord/collect.js#normalizeEmbedLinks).
+// A gif embed's per-message item id (`<message>#e<n>`, set by the interface package).
 const EMBED_ID_RE = /#e\d+$/;
-// An attachment's item id: its Discord snowflake.
+// An attachment's item id: its snowflake, the platform's own id.
 const ATTACHMENT_ID_RE = /^\d+$/;
 // The other picture item ids (src/media/classify.js#collectPictures, collectEmojiItems).
 const PICTURE_KEY_PREFIXES = ['emoji:', 'sticker:', 'link:', 'video:url:'];
@@ -59,7 +59,7 @@ const SNOWFLAKE_EPOCH_MS = 1_420_070_400_000;
 const UPLOAD_LEAD_MS = 30 * MINUTE_MS;
 
 /**
- * The creation time (ms) of a Discord snowflake id, or null for anything else. Pure.
+ * The creation time (ms) of a snowflake id, or null for anything else. Pure.
  * @param {unknown} id
  * @returns {number|null}
  */
@@ -328,8 +328,8 @@ export function createGifRecache({
   }
 
   /**
-   * The GIF's picture item read again from its latest message (Discord
-   * attachment URLs expire, a gif embed's animation comes with the embed),
+   * The GIF's picture item read again from its latest message (an
+   * attachment's address may expire, a gif embed's animation comes with the embed),
    * under the entry's `itemId`; matched by the entry's key, a link GIF also
    * by its URL (src/memory/gifs.js#matchGifKey's rule). Null when the
    * message or the GIF in it is gone, or the read fails.

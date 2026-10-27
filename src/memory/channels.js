@@ -64,7 +64,7 @@ function topWritersText(topWriters, nameOf) {
  * @param {{ current?: boolean, activity: 'live'|'slow'|'dead', now?: number,
  *   nameOf?: (id: string) => (string|null), readOnly?: boolean }} options  `now` and
  *   `labels.server.lastMessage` together render "how long ago the last message was"
- *   (`formatDuration`, the same humanised-age helper the `<tempo>` block uses); `nameOf` and
+ *   (`formatDuration`, the same humanised-age function the `<tempo>` block uses); `nameOf` and
  *   `labels.server.topWriters` together render who writes here most. Either fact is omitted --
  *   not rendered as an empty/placeholder line -- when its label is missing (an older labels.json
  *   never breaks), when the underlying data is missing, or (for the last-message line) when `now`

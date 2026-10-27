@@ -24,7 +24,7 @@ import { fallbackLookupPlan, fuseRanks, mergeWindows, recallSettings } from './r
 /** The trigger kinds a prefetch never runs for: an errand's result. */
 const NOT_EXTERNAL = new Set(['errand']);
 
-/** Discord's inline tokens (`<@id>`, `<@!id>`, `<@&id>`, `<#id>`, `<:name:id>`, `<a:name:id>`, `<t:...>`). */
+/** The inline tokens of the core's text grammar (`<@id>`, `<@!id>`, `<@&id>`, `<#id>`, `<:name:id>`, `<a:name:id>`, `<t:...>`). */
 const INLINE_TOKEN_RE = /<(?:@[!&]?|#|a?:[^:>\s]+:|t:)[^>\s]*>/g;
 /** The opening and closing quote marks a quoted phrase sits between. */
 const QUOTE_PAIRS = Object.freeze([
@@ -59,7 +59,7 @@ export function prefetchOn(config) {
   );
 }
 
-/** `text` without Discord's inline tokens, on one line. */
+/** `text` without its inline tokens, on one line. */
 function plainText(text) {
   return oneLine(String(text ?? '').replace(INLINE_TOKEN_RE, ' '));
 }
@@ -81,7 +81,7 @@ function wordsOf(text) {
 
 /**
  * Whether a trigger's text gives nothing to search (Hermes' is_trivial_prompt, here over a chat
- * line): empty once Discord's inline tokens are left out, a command (`/` or `!` first), nothing
+ * line): empty once the inline tokens are left out, a command (`/` or `!` first), nothing
  * but punctuation, emoji or the persona's own names (`selfNames`, folded and dropped as whole
  * words), or -- what is left, folded, words joined by one space -- one of `trivial` (folded
  * phrases: bare greetings and acknowledgements). A short line that is not on the list (a

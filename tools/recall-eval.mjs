@@ -607,7 +607,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   const { fallbackLookupPlan } = await import('../src/behavior/turn.js');
   const { prefetchLanes } = await import('../src/behavior/prefetch.js');
   const { classifierTranscript, fillPromptTemplate } = await import('../src/behavior/prompt.js');
-  const { createLlm, helperRequestOptions, railReason } = await import('../src/llm/openrouter.js');
+  const { createLlm, roleRequestOptions, railReason } = await import('../src/llm/openrouter.js');
   const { createEmbedder } = await import('../src/llm/embed.js');
   const { createCalibrator } = await import('../src/llm/tokens.js');
   const { roleModel } = await import('../src/llm/roles.js');
@@ -807,7 +807,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
         ],
         {
           model: roleModel(hot.config, 'analyzer', 'lookup'),
-          ...helperRequestOptions(hot.config, {
+          ...roleRequestOptions(hot.config, {
             role: 'analyzer',
             maxOutputTokens: searchCfg.classifierMaxOutputTokens ?? 2000,
             purpose: 'lookup',

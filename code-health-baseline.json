@@ -398,9 +398,6 @@
       }
     },
     "src/media/classify.js": {
-      "classifyEmbed": {
-        "complexity": 22
-      },
       "mediaLabelFor": {
         "complexity": 41
       }
@@ -957,7 +954,6 @@
       "interfaces/discord/collect.js": [
         "src/behavior/emoji.js",
         "src/log.js",
-        "src/media/video-sites.js",
         "src/memory/mentions.ts"
       ],
       "interfaces/discord/commands.js": [

@@ -9,7 +9,7 @@
 // at least a few messages, at most a ceiling -- and which of their pictures
 // may get a fresh caption and which only a cached one. It also reads the
 // `context.pull` settings and the `features.channelPull` switch, so their
-// fallbacks exist once. No I/O, no discord.js: callers pass plain normalized
+// fallbacks exist once. No I/O, no platform SDK: callers pass plain normalized
 // messages and the clock.
 
 import { collectEmojiItems, collectPictures, isDescribable } from '../media/classify.js';
@@ -141,7 +141,7 @@ export function explicitChannelIds(messages) {
  * `isPullable(id)` is false. `isPullable` carries the caller's checks: same
  * guild, text based, not a thread, not the dry-run mirror
  * (`bot.dryRunChannelId`), and every check fetchPull
- * (interfaces/discord/pull-fetch.js) can make before its fetch (readable, the
+ * (src/behavior/pull-fetch.ts) can make before its fetch (readable, the
  * audience rail), so a slot goes only to a channel the
  * fetch can serve and a refused newer mention never crowds out an older
  * usable one. It is asked in priority order, once per distinct id, and not
@@ -227,7 +227,7 @@ function skipped(skip) {
 /**
  * The messages of a pulled channel the persona is shown: a window that ENDS
  * at the anchor, not at now. The anchor is `anchorTs` when given (an explicit
- * anchor: interfaces/discord/pull-fetch.js#fetchPull's `anchorId`, which has no
+ * anchor: src/behavior/pull-fetch.ts#fetchPull's `anchorId`, which has no
  * production caller yet), else the newest message of `messages`. Messages after the anchor
  * are left out; every message with `ts >= anchor - windowMinutes` is kept;
  * when fewer than `minMessages` fall inside, the last `minMessages` up to the

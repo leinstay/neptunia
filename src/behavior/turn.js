@@ -1,5 +1,5 @@
 // One "turn": collect context → build the request under the token cap → ask
-// the model → act in Discord like a person would (pause, typing indicator
+// the model → act in the conversation like a person would (pause, typing indicator
 // proportional to the text, several short messages in a row, reactions).
 // Used for answering a call ('reply') and for spontaneous turns
 // ('interject' / 'initiate'), in a server channel or in a private chat (a
@@ -75,7 +75,7 @@ import {
   cacheTtlMs,
   errorCodeOf,
   hedgeSettings,
-  helperRequestOptions,
+  roleRequestOptions,
   railReason,
   sleep,
 } from '../llm/openrouter.js';
@@ -186,7 +186,7 @@ export const SKIP_SILENCE = 'silence';
 export const SKIP_NOTHING_TO_DO = 'nothing-to-do';
 
 /**
- * Why a reply turn runs: a `@mention`, a Discord reply to the persona, a
+ * Why a reply turn runs: a `@mention`, a platform reply to the persona, a
  * name trigger, a follow-up the address classifier said "yes" to, a line the
  * address classifier found to be about the persona but said to someone else
  * or to the room (`overheard`), a private chat message, or a message to the persona left unanswered
@@ -195,7 +195,7 @@ export const SKIP_NOTHING_TO_DO = 'nothing-to-do';
  */
 
 /**
- * Whether a turn of `triggerKind` posts plain, never as a Discord reply: the
+ * Whether a turn of `triggerKind` posts plain, never as a platform reply: the
  * address classifier's turns (a follow-up, an overheard line), whose model
  * `reply="#n"` quotes nothing for messages, the GIF and the picture alike (a
  * pulled line it points at still gets its jump link: replyTarget). Exported so a limit notice can quote by the same rule.
@@ -418,7 +418,7 @@ function unhurried(triggerKind, pace) {
 /** What a turn throws to itself once its bar (pace.dropAfterMs) has passed: caught by runTurnOnce. */
 const TOO_SLOW = Symbol('too-slow');
 
-// Discord shows a typing indicator for about ten seconds: it is sent again before it fades.
+// A chat platform shows a typing indicator for about ten seconds: it is sent again before it fades.
 const PREPARE_TYPING_REFRESH_MS = 8000;
 
 // How many of the persona's posted messages keep the link to their turn's trigger in process
@@ -690,7 +690,7 @@ export function mentionDirectory({ members = [], profiles = [], selfId = null } 
  * The stored names `@name` may resolve by besides the transcript's display names (see
  * resolveMentions): every name of each member whose profile the request showed (`peopleShown`,
  * in its order), then every stored name of each author of the pulled lines shown -- those lines
- * carry the name Discord gave, often not the one the persona remembers them by.
+ * carry the name the platform gave, often not the one the persona remembers them by.
  * @param {{ id: string, names: string[] }[]|undefined} peopleShown  buildRequest's `peopleShown`.
  * @param {object[]} shownLines  The pulled lines the request showed.
  * @param {(userId: string) => (object|null)} profileOf  The stored profile of a member, or null.
@@ -745,12 +745,12 @@ function authorNameFor(history, messageId) {
 
 /**
  * Where the model's `reply="#n"` points. `replyId`: a line of this chat, which
- * a post may quote as a Discord reply. `pulledId`: a line of a pulled channel
+ * a post may quote as a platform reply. `pulledId`: a line of a pulled channel
  * (`pulledIds`, buildRequest's map of every pulled line to its channel), which
- * a post here never quotes -- Discord resolves a reply reference in the
+ * a post here never quotes -- the platform resolves a reply reference in the
  * channel posted to -- and links instead (createLinker). A turn that posts
  * plain (postsPlain) quotes no chat line; a pulled line is linked all the
- * same, since a link is not a Discord reply.
+ * same, since a link is not a platform reply.
  * @returns {{ replyId: string|null, pulledId: string|null }}
  */
 function replyTarget(replyTo, { plain, idByIndex, pulledIds }) {
@@ -946,7 +946,7 @@ const filesPerMessage = (port) => portLimit(port, 'maxFiles', DEFAULT_FILES_PER_
 
 /**
  * `text` in pieces of at most `max` code points, each cut at its last newline
- * when there is one, so a dry-run mirror of a long text fits Discord messages.
+ * when there is one, so a dry-run mirror of a long text fits the interface's messages.
  */
 function splitForMirror(text, max) {
   const limit = Math.max(1, Math.floor(max));
@@ -1074,7 +1074,7 @@ const NO_OP = Object.freeze({
  * How an interface port result that is not `ok` (src/interface/port.js) closes its journal
  * operation: `unknown` (a network error, a timeout, a 5xx: it may have taken effect anyway) is
  * `unknown` -- the restart's reconciliation looks for a post; nothing is ever sent again --, any
- * other status is `failed` with the port's code (`http-<status>` for Discord's refusals).
+ * other status is `failed` with the port's code (`http-<status>` for a platform's refusals).
  */
 function closeResult(op, result) {
   if (result?.status === 'unknown') return op.unknown();
@@ -1359,7 +1359,7 @@ export function untaggedNote(text, { handles = null, memberNames = null, mention
     .join(' ');
 }
 
-/** The list fields of a normalized message (interfaces/discord/collect.js#normalizeMessage), empty on a line built here. */
+/** The list fields of a normalized message (src/protocol/events.js#Message), empty on a line built here. */
 const EMPTY_LINE_LISTS = Object.freeze([
   'mentionedUserIds',
   'mentionedChannelIds',
@@ -1375,7 +1375,7 @@ const EMPTY_LINE_LISTS = Object.freeze([
  * The turn's channel as it stands when the turn continues after the persona's skill call
  * (followUp): the turn's `history` as it was (its lines, previews and order untouched), then the
  * lines it did not hold yet, oldest first -- those of a fresh fetch (`fetched`: her own posts of
- * the turn as Discord gives them, and what others wrote meanwhile), then her posts of the turn the
+ * the turn as the platform gives them, and what others wrote meanwhile), then her posts of the turn the
  * fetch did not return (`own`, act's `lines`: id, time and text as written; `selfName` as their
  * author's name, the missing list fields empty). A line without an id is left out; an id is kept
  * once, the first time it comes. The call marks and trigger links are the caller's to put on.
@@ -1431,7 +1431,7 @@ function replyOptionsOf(config, { draft, bar, barAbort }) {
 }
 
 /**
- * Takes the attention for `id` when the turn may start: not while a turn runs there, and with one attention
+ * Takes the attention for `id` when the turn may start: not while a turn runs there, and with one turn at a time
  * (`mention.oneAtATime`, default on) not while one runs anywhere (src/behavior/pipeline.js is the only caller that turns
  * a direct ping caught by this into a pending one). True when taken.
  */
@@ -1528,7 +1528,7 @@ function sendArgs({ text = null, media = null, replyId = null }) {
 }
 
 /**
- * A value of the untyped parts of the turn (the live config, a draft) as the object a typed helper takes.
+ * A value of the untyped parts of the turn (the live config, a draft) as the object a typed function takes.
  * @param {*} value
  * @returns {object}
  */
@@ -1537,7 +1537,7 @@ function asObject(value) {
 }
 
 /**
- * A list of the untyped parts of the turn as the list a typed helper takes.
+ * A list of the untyped parts of the turn as the list a typed function takes.
  * @param {*} value
  * @returns {object[]}
  */
@@ -1868,7 +1868,7 @@ export function taskInput({ part, queued, added, missed = null, failedEarlier = 
  * pictures never cost a request: they get only the captions the cache
  * already holds (`describer.cachedDescriptions`), under the same switch. A
  * pulled channel's pictures (`<channel_view>`) get the cache's captions, and
- * fresh ones only once the turn is certain to run (interfaces/discord/pull-fetch.js).
+ * fresh ones only once the turn is certain to run.
  * Likewise, videos are only watched when `features.mediaDescriptions` AND
  * `features.videoDescriptions` (a missing key counts as on) are on and the describer has
  * `describeVideos`; otherwise they render without a watch.
@@ -1924,11 +1924,11 @@ export function taskInput({ part, queued, added, missed = null, failedEarlier = 
  * start, `pace.prepareSearchMs` once the search classifier asked for a
  * search -- and at most that long while its verdict is still out --,
  * `pace.prepareMediaMs` for a direct call that brought media to look
- * at; the larger of the two with both). A helper still running then
+ * at; the larger of the two with both). A request on a model role other than `core` still running then
  * contributes nothing to this turn --
  * its block is absent, as when it fails -- and keeps running for its cache.
  * A turn nobody waits for (unhurried, `pace.unpromptedWaits`) has no such
- * deadline and no bar: it waits for every helper. Every turn that reaches the reply request logs `turn: timings`.
+ * deadline and no bar: it waits for every request on a model role other than `core`. Every turn that reaches the reply request logs `turn: timings`.
  * `schedule(fn, ms)` (default: setTimeout) runs that deadline and the typing
  * indicator's refresh; it resolves a function that cancels it.
  * `activity` (src/behavior/activity.js#createActivity, fed by src/behavior/pipeline.js; optional)
@@ -1955,7 +1955,7 @@ export function taskInput({ part, queued, added, missed = null, failedEarlier = 
  * kept from before a restart). With features.triggerMarkers on (a missing key counts as on, read
  * per turn) the persona's own lines of the turn's history and of its pulled channels carry it
  * (src/format.js#withTriggers), so the request's `<chat>` and `<channel_view>` and every
- * helper transcript built from that history name the message that started the turn which posted
+ * analyzer transcript built from that history name the message that started the turn which posted
  * each line (`transcript.triggeredBy` / `triggeredByOlder`). The neighbours' lines show no `#n`
  * and carry none. A spontaneous turn, a diary post or a dry run links nothing.
  *
@@ -4436,7 +4436,7 @@ export function createTurnRunner({
         prompt,
         ...(diarySet ? { set: true } : {}),
       });
-      // A full prompt outgrows one Discord message: mirrored in numbered parts.
+      // A full prompt outgrows one message of the interface: mirrored in numbered parts.
       const setMark = diarySet ? ` · set ${index + 1}/${dryDraws.length}` : '';
       const header = `${head} · draw${self ? ' (self)' : ''}${setMark}`;
       const parts = splitForMirror(prompt, mirrorPartChars(iface, header.length));
@@ -4671,7 +4671,7 @@ export function createTurnRunner({
 
   /**
    * A fresh URL of an attached GIF: its original message is fetched again
-   * (Discord attachment URLs expire) and the attachment found by id, in the
+   * (an attachment's address may expire) and the attachment found by id, in the
    * message itself or in a forwarded snapshot. Null when anything fails.
    */
   async function freshAttachmentUrl(channel, entry) {
@@ -4686,7 +4686,7 @@ export function createTurnRunner({
   /**
    * Post the persona's GIF (after its messages, or in place of the first one
    * when the GIF picker chose it): a link GIF as its stored
-   * URL (Discord embeds tenor/giphy links), an attached one as a fresh URL of
+   * URL (the platform embeds tenor and giphy links), an attached one as a fresh URL of
    * its attachment, the stored one when that fails. Counted against
    * `gifs.maxPerDay` once sent, and stamped on its library entry of
    * `guildId` (store.recordOwnGif: `ownLast`/`ownUses`, the `<gifs>` list's
@@ -4696,7 +4696,7 @@ export function createTurnRunner({
    * (checkEffect, right before it; a refusal posts nothing and resolves null),
    * made through the port; its journal operation (`openOp()`, by sendGif)
    * starts only once the check passed.
-   * `replyId`: the chat line it quotes as a Discord reply (replyTarget), or
+   * `replyId`: the chat line it quotes as a platform reply (replyTarget), or
    * null; `link`: the jump link it carries after its URL (withLink, so the
    * URL comes first and still embeds), or null; `trigger`: the turn's (the requester).
    * @returns {Promise<{ message: object, op: object }|null>}
@@ -4747,7 +4747,7 @@ export function createTurnRunner({
    * under `gifs.maxPerDay` (gifsToday) and pickCandidates saying yes (a first
    * message of at most `gifs.pick.maxChars` code points, no `<gif>` of the
    * turn's own -- the model's own GIF is never second-guessed --, at least one
-   * captioned entry), ONE helper request on the classifier model
+   * captioned entry), ONE `analyzer` request on the classifier model
    * (role `analyzer`, purpose `gif-pick`, its answer capped at
    * `gifs.pick.maxOutputTokens`): system = the prompt with `{{name}}`, user =
    * `<gifs>` (renderGifLibrary over the WHOLE captioned library in rank order, with no own-post
@@ -4855,7 +4855,7 @@ export function createTurnRunner({
         ],
         {
           model: roleModel(config, 'analyzer', 'gif-pick'),
-          ...helperRequestOptions(config, {
+          ...roleRequestOptions(config, {
             role: 'analyzer',
             maxOutputTokens: settings.maxOutputTokens,
             purpose: 'gif-pick',
@@ -4914,7 +4914,7 @@ export function createTurnRunner({
    * Everything is posted in `channel`. A reaction on a pulled line
    * (`pulledIds`) is put in that line's channel when the bot may react there,
    * else dropped (`turn: reaction dropped`); a message, the GIF or the picture
-   * answering a pulled line posts plain, never as a Discord reply across
+   * answering a pulled line posts plain, never as a platform reply across
    * channels, and each post carries the jump link `linkFor` gives it (a message
    * and the GIF through `labels.elsewhere.link`, read now; the picture as its
    * content). `@name` resolves over `lines`, then `knownNames`. A message longer than the interface
@@ -5425,7 +5425,7 @@ export function createTurnRunner({
    * at (no second-look slot left -- one counter for every kind) and no GIF
    * can be re-watched (no second-look or no GIF watch slot left) -- with only
    * the second-look slots spent, only the videos that did not load are
-   * offered. The classifier's request is a helper's (helperRequestOptions).
+   * offered. The classifier's request is an `analyzer` request (roleRequestOptions).
    */
   async function maybeRewatch({
     config,
@@ -5482,7 +5482,7 @@ export function createTurnRunner({
         ],
         {
           model: roleModel(config, 'analyzer', 'rewatch'),
-          ...helperRequestOptions(config, {
+          ...roleRequestOptions(config, {
             role: 'analyzer',
             maxOutputTokens: rewatchCfg.classifierMaxOutputTokens ?? 2000,
             purpose: 'rewatch',
@@ -5847,7 +5847,7 @@ export function createTurnRunner({
    * `snapshot`'s). One cheap classifier call (prompts.lookup, `{{name}}` = the
    * persona's display name, `{{today}}` = the injected clock's date
    * `YYYY-MM-DD` in `bot.timezone`, the zone its `when:` range is read in;
-   * on the helper model (roleModel, role `analyzer`), its answer capped at
+   * on the `analyzer` model role (roleModel), its answer capped at
    * `web.search.classifierMaxOutputTokens`) reads the last
    * `web.search.contextMessages` messages of `history` before the trigger
    * (with the pictures' captions, the video states and the read links this
@@ -5875,7 +5875,7 @@ export function createTurnRunner({
    * runs the server search on the question's own words instead
    * (fallbackLookupPlan over the stored profiles; `lookup: fallback` with
    * `reason` `classifier-failed` | `empty` and the counts, a `helper-fallback`
-   * entry on `limits`); never the web search; else no search. Its request is a helper's (helperRequestOptions). `onSearch()`
+   * entry on `limits`); never the web search; else no search. Its request is an `analyzer` request (roleRequestOptions). `onSearch()`
    * is called once the answer asks for a search that runs, before it starts
    * (the turn's deadline grows to pace.prepareSearchMs; until the answer the
    * turn holds its deadline on this call, see createDeadline's `hold`).
@@ -5971,7 +5971,7 @@ export function createTurnRunner({
         ],
         {
           model,
-          ...helperRequestOptions(config, {
+          ...roleRequestOptions(config, {
             role: 'analyzer',
             maxOutputTokens: searchCfg.classifierMaxOutputTokens ?? 2000,
             purpose: 'lookup',
@@ -6116,8 +6116,8 @@ export function createTurnRunner({
    * The splitter (src/behavior/split.js): whether the call `trigger` holds
    * several requests. One cheap classifier call (`prompt`, prompts/split.md,
    * `{{name}}` = the persona's display name, `{{maxTasks}}` = split.maxTasks;
-   * on the `analyzer` helper model (roleModel), its answer capped at split.maxOutputTokens, a
-   * helper's request: helperRequestOptions, purpose `split`) reads the last
+   * on the `analyzer` model role (roleModel), its answer capped at split.maxOutputTokens, a
+   * `analyzer` request: roleRequestOptions, purpose `split`) reads the last
    * `split.contextMessages` messages of `history` before the trigger (the
    * captions this turn has at its start) and the trigger itself, and answers
    * `one` or 2..maxTasks lines `- <part>` (parseSplitAnswer). Resolves the
@@ -6155,7 +6155,7 @@ export function createTurnRunner({
         ],
         {
           model: roleModel(config, 'analyzer', 'split'),
-          ...helperRequestOptions(config, {
+          ...roleRequestOptions(config, {
             role: 'analyzer',
             maxOutputTokens: settings.maxOutputTokens,
             purpose: 'split',
@@ -6476,7 +6476,7 @@ export function createTurnRunner({
       try {
         completion = await llm.complete(request.messages, {
           model: roleModel(config, 'analyzer', 'diary-plan'),
-          ...helperRequestOptions(config, {
+          ...roleRequestOptions(config, {
             role: 'analyzer',
             maxOutputTokens: diaryCfg.planMaxOutputTokens ?? 2000,
             purpose: 'diary-plan',
@@ -6964,7 +6964,7 @@ export function createTurnRunner({
 
   /**
    * @param {object} params
-   * @param {import('discord.js').TextBasedChannel} params.channel
+   * @param {import('../protocol/adapter.ts').ConversationRef} params.conversation
    * @param {string} [params.guildId]  The served guild, used when `channel` has no guild (a
    *   private chat); a server channel always uses its own guild. Neither -> throws.
    * @param {'reply'|'interject'|'initiate'|'auto'|'diary'|'inner'} params.mode  'auto' lets `chooseMode` pick
@@ -6995,7 +6995,7 @@ export function createTurnRunner({
    * @param {TriggerKind} [params.triggerKind]
    * @param {(history: object[], now: number, context: { pulled: object[] }) => string|null} [params.chooseMode]
    *   Called with this channel's history and the channels already pulled for the turn (the
-   *   PulledChannel records of interfaces/discord/pull-fetch.js, the source first).
+   *   PulledChannel records of the pull, the source first).
    * @param {{ channelId: string, reason: 'routed'|'noticed' }|null} [params.source]  The channel
    *   this turn is about when it is not `channel` (a call from a channel the bot cannot write in,
    *   a noticed comment): pulled before anything else and shown in `<channel_view>`. When it
@@ -7223,7 +7223,7 @@ export function createTurnRunner({
   /**
    * A message that holds several requests (the splitter's `parts`), answered
    * part by part: one ordinary turn per part, in order, each with its own
-   * deadline and bar. Turn k's helpers (the search classifier, recall, the
+   * deadline and bar. Turn k's `analyzer` requests (the search classifier, recall, the
    * route hook, the re-watch) judge part k's text instead of the whole
    * message, and its request names the part and the others
    * (buildRequest's `tasks.part`, `labels.task.part`). The first part reuses
@@ -7333,7 +7333,7 @@ export function createTurnRunner({
    * outcome `split`, `{ parts, history }`, still holding the attention for
    * runChain), `owned` (a turn of the chain: the chain holds the attention and
    * fires the idle notifications), `part` (`{ index, total, parts }`: its
-   * helpers judge that part's text, its request names it), `reuseHistory` (the
+   * analyzer requests judge that part's text, its request names it), `reuseHistory` (the
    * first part's history, already fetched) and `plainPosts` (a later part
    * posts plain).
    */
@@ -7560,7 +7560,7 @@ export function createTurnRunner({
       // Part of the history: the messages replies of the window answer from outside it
       // (context.fetchReplyParents), prepended as its oldest lines (withReplyParents). The
       // persona's own lines carry the message that started their turn (linkTriggers) and the
-      // skill calls she made (linkCalls), so the request and every helper transcript built from
+      // skill calls she made (linkCalls), so the request and every analyzer transcript built from
       // this history name them.
       const rawHistory = linkCalls(
         linkTriggers(
@@ -7581,7 +7581,7 @@ export function createTurnRunner({
       const likeServer = isPrivate && partner !== null;
       const servedGuild = isPrivate && !likeServer ? null : { id: guildId };
       const servedSnapshot = servedGuild ? snapshot : null;
-      // What the helpers judge: the trigger, or on a part of a split message the trigger with
+      // What the analyzer requests judge: the trigger, or on a part of a split message the trigger with
       // that part's text (same id, author and time).
       const candidate =
         part && trigger ? { ...trigger, content: part.parts[part.index - 1] ?? trigger.content } : trigger;
@@ -7856,7 +7856,7 @@ export function createTurnRunner({
       );
       const previewed = () => (previews.done && Array.isArray(previews.value) ? previews.value : rawHistory);
 
-      // The pictures of the window get a helper's caption, newest first, capped at
+      // The pictures of the window get a `vision` caption, newest first, capped at
       // media.maxPerTurn; cached captions are free (see src/memory/describe.js). The caption is
       // the only way a picture reaches the persona: none goes into her request as an image. A
       // routed call's own pictures are captioned with its pulled channel instead.
@@ -8360,7 +8360,7 @@ export function createTurnRunner({
         draft.deletedIds = found.deletedIds;
         history = withDeletedLines(history, found.placeholders);
       }
-      // A text attachment cut at media.filePreviewChars (interfaces/discord/collect.js#withTextPreviews).
+      // A text attachment cut at media.filePreviewChars (src/media/text-preview.ts#withTextPreviews).
       for (const message of history) {
         for (const attachment of message.attachments ?? []) {
           if (attachment?.previewLost > 0)
@@ -8966,7 +8966,7 @@ export function createTurnRunner({
         pulledIds,
         sourceTarget: isPrivate ? null : sourceLinkTarget({ source, trigger, pulledKept: shownPulled }),
       });
-      // A follow-up or an overheard turn (postsPlain) never posts as a Discord reply -- the
+      // A follow-up or an overheard turn (postsPlain) never posts as a platform reply -- the
       // model's reply="#n" quotes nothing.
       // A later part of a split message posts plain too: the first part replied to the message.
       const plain = postsPlain(triggerKind) || plainPosts;

@@ -1,21 +1,21 @@
 // Downloads a picture so it can be inlined into an LLM request as a
-// `data:` URL, because the provider's own image fetcher gets a 403 from
-// Discord on some CDN hosts (media.discordapp.net) even though our server
-// fetches the very same URL fine. Used by src/behavior/turn.js (a live
-// vision request, and the bot's avatar as a drawing's reference),
+// `data:` URL, because a platform's media host may refuse the provider's own
+// image fetcher while our server fetches the very same URL fine (the hosts
+// that do are named in the interface package). Used by src/behavior/turn.js
+// (a live vision request, and the bot's avatar as a drawing's reference),
 // src/admin.js (the avatar reference of `/nep draw`) and
 // src/memory/describe.js (the media describer), so none of them ever hands
-// the provider a Discord URL to fetch itself.
+// the provider a platform URL to fetch itself.
 //
 // A tiny in-memory LRU (~50 entries, ~10 min) avoids re-downloading the same
 // picture attached on consecutive turns, keyed by the URL WITHOUT its query
-// string -- Discord's CDN query params (`ex`/`is`/`hm`) are a signature that
+// string: a platform's signed query is a signature that
 // rotates between fetches of the very same file, so keying on the full URL
 // would never hit. Only successful downloads are cached: a failure is worth
 // retrying on the next turn, in case it was a transient network blip.
 //
-// Every log line carries the host and path only -- a Discord CDN (or embed
-// proxy) query string is a signature, never logged, not even truncated --
+// Every log line carries the host and path only (a signed media address's
+// query string is a signature, never logged, not even truncated)
 // and a thrown error's code or class name, never its message (which may
 // quote the whole URL).
 
@@ -26,7 +26,7 @@ const ALLOWED_CONTENT_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', '
 const DEFAULT_CACHE_MAX_ENTRIES = 50;
 const DEFAULT_CACHE_TTL_MS = 10 * 60_000;
 
-/** The URL without its query string -- a stable cache key across Discord's rotating signature. */
+/** The URL without its query string : a stable cache key across a signed address's rotating query. */
 function cacheKeyFor(url) {
   try {
     const parsed = new URL(String(url));

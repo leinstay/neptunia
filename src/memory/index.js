@@ -1,7 +1,7 @@
 // The memory's public API: the one module the rest of the engine imports the memory through
 // (src/index.js, src/behavior/, src/tools/impl/, src/errands/), so that the memory can
 // replace an implementation behind it without touching a caller. It re-exports and defines
-// nothing; nothing in src/memory/ imports it. The pure helpers that are not memory (clamp.js,
+// nothing; nothing in src/memory/ imports it. The pure functions that are not memory (clamp.js,
 // mentions.ts, ranking.js, recent.js, text-limits.js, prose.js) stay direct imports.
 // The paths under data/ are src/memory/root.js; the layout is the header comment of store.js.
 

@@ -31,7 +31,7 @@ function nameEntries(ids, names, extra) {
 }
 
 /**
- * `text` (a transcript line as Discord's cleanContent reads it) with every member it really
+ * `text` (a transcript line as the platform renders it, mentions as names) with every member it really
  * mentions (`mentionedIds`) written as `@handle` instead of `@DisplayName`: each whole `@name` of
  * those members' `names` (exact case; the longest first; URLs left alone) whose member has a
  * handle in `handles` (id -> handle). A mentioned member without a handle keeps the name. Pure.

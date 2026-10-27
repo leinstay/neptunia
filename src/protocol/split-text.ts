@@ -3,8 +3,8 @@
 // input, none is longer than the limit in code points, and a cut avoids the inside of a character
 // that looks like one (a grapheme) and of a `<...>` token such as a mention. Pure, no I/O.
 
-// A mention or custom emoji markup is `<` to `>` with no space inside. Discord's longest is under
-// this, and a longer run is ordinary text.
+// A mention or custom emoji markup is `<` to `>` with no space inside. The longest a chat platform writes is
+// under this, and a longer run is ordinary text.
 const TOKEN_MAX = 64;
 
 const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });

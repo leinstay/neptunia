@@ -23,7 +23,7 @@ export type InterfaceHost = {
 };
 
 export type RunningInterface = {
-  /** The interface's namespace on the link (`discord`). */
+  /** The interface's namespace on the link (`fake`, say). */
   iface: string;
   /** The platform objects and reads the core's subsystems still take, each one a seam a later stage removes. */
   legacy: unknown;

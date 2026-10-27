@@ -11,12 +11,12 @@ import { log } from '../../src/log.js';
 import { ID_DIGITS, URL_PATTERN } from '../../src/memory/mentions.ts';
 import {
   classifyAttachment,
-  classifyEmbed,
   linkThumbnailCacheKey,
   siteOf,
   positiveDimension,
   clipWithEllipsis,
 } from '../../src/media/classify.js';
+import { classifyEmbed } from './embed.ts';
 import { DISCORD_CDN_SITES, discordCdnVideo, previewAttachments, previewLinks, stickerUrl } from './media.js';
 import { extractVideoUrls, videoSiteFor, videoUrlCacheKey } from '../../src/media/video-sites.js';
 import { CUSTOM_EMOJI_MARKUP } from '../../src/behavior/emoji.js';

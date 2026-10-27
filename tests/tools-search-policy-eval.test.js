@@ -56,7 +56,7 @@ function hotFixture(overrides = {}) {
       models: { base: { analyzer: 'test/analyzer' } },
       context: { maxMessageChars: 2000 },
       web: { search: { contextMessages: 50, classifierMaxOutputTokens: 300 } },
-      llm: { helperTimeoutMs: 9000 },
+      llm: { analyzerTimeoutMs: 9000 },
       ...overrides,
     },
     prompts: { lookup: 'Today is {{today}}. You are {{name}}.{{skills}}', labels },
@@ -167,7 +167,7 @@ test('search-policy-eval: three rows -> decisions, results.jsonl, the confusion 
   assert.equal(options.role, 'analyzer');
   assert.equal(options.purpose, 'lookup');
   assert.equal(options.maxOutputTokens, 300);
-  assert.equal(options.helper, true);
+  assert.equal(options.isRoleRequest, true);
   assert.equal(options.timeoutMs, 9000);
   assert.equal(options.origin, 'search-policy-eval');
   assert.equal(options.countAgainstDailyCap, false);

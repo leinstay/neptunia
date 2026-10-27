@@ -20,7 +20,7 @@
 // else the config's first `bot.nameTriggers`) and `{{skills}}` = the skills index when discovery
 // is on (src/tools/discovery.ts), as the turn fills them. One completion on the `analyzer` role
 // (roleModel for purpose `lookup`; `--model` pins another for this run only), with the turn's
-// helper options (helperRequestOptions: its temperature, timeout and hedge), the answer capped at
+// helper options (roleRequestOptions: its temperature, timeout and hedge), the answer capped at
 // `web.search.classifierMaxOutputTokens`. The answer is read by
 // src/behavior/recall.js#parseLookupAnswer and mapped to a decision
 // (tools/lib/search-policy-eval.mjs#decisionOf): `web:` -> fast, a server part without `web:` ->
@@ -138,7 +138,7 @@ export async function main(
   const { lookupClassifierInput } = await import('../src/behavior/turn.js');
   const { fillPromptTemplate } = await import('../src/behavior/prompt.js');
   const { parseLookupAnswer, recallSettings } = await import('../src/behavior/recall.js');
-  const { helperRequestOptions } = await import('../src/llm/openrouter.js');
+  const { roleRequestOptions } = await import('../src/llm/openrouter.js');
   const { roleModel } = await import('../src/llm/roles.js');
   const { discoveryOn, skillsIndex } = await import('../src/tools/discovery.ts');
   const { skillRegistry } = await import('../src/tools/registry.ts');
@@ -223,7 +223,7 @@ export async function main(
           ],
           {
             model: roleModel(config, 'analyzer', 'lookup'),
-            ...helperRequestOptions(config, {
+            ...roleRequestOptions(config, {
               role: 'analyzer',
               maxOutputTokens: config.web?.search?.classifierMaxOutputTokens ?? 2000,
               purpose: 'lookup',

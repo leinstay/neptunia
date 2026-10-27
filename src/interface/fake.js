@@ -1,5 +1,5 @@
 // An in-memory adapter of the interface port (src/interface/port.js): the second interface that
-// proves the engine does not lean on Discord, and the stand-in tests drive the persona's effects
+// proves the engine does not lean on one platform, and the stand-in tests drive the persona's effects
 // through. It keeps its conversations' messages in memory, records every call in order (`calls`),
 // offers the capabilities it is given, and answers the results a test queues (`failNext`) in
 // place of doing the operation. Same rules as every adapter: edit and delete only the self

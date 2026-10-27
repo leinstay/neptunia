@@ -12,7 +12,7 @@ import {
   CORE_ROLES,
   DEVELOPMENT_ROLES,
   ERRAND_ROLES,
-  HELPER_ROLES,
+  NON_CORE_ROLES,
   MEMORY_ROLE,
   OPENCODE_ROLES,
   ROLES,
@@ -178,7 +178,7 @@ test("roleGroup / roleConfigKeys: each role's group and config keys", () => {
 test("roles: the built-in defaults equal config.json's three groups, and every role has one", () => {
   const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
   assert.deepEqual(Object.keys(shipped.models), ['base', 'byPurpose', 'errands', 'development']);
-  assert.deepEqual(Object.keys(shipped.models.base), [CORE_ROLE, MEMORY_ROLE, ...HELPER_ROLES, 'drawing']);
+  assert.deepEqual(Object.keys(shipped.models.base), [CORE_ROLE, MEMORY_ROLE, ...NON_CORE_ROLES, 'drawing']);
   assert.deepEqual(Object.keys(shipped.models.errands), [...ERRAND_ROLES]);
   assert.deepEqual(Object.keys(shipped.models.development), [...DEVELOPMENT_ROLES]);
   assert.equal(
@@ -202,7 +202,7 @@ test("roles: the built-in defaults equal config.json's three groups, and every r
 
 test('roles: the groups, the OpenCode roles with OpenCode model ids, resolved like any role, no purpose on them', () => {
   assert.equal(CORE_ROLE, 'core');
-  assert.deepEqual([...HELPER_ROLES], ['analyzer', 'vision', 'video', 'embedding', 'speech']);
+  assert.deepEqual([...NON_CORE_ROLES], ['analyzer', 'vision', 'video', 'embedding', 'speech']);
   assert.deepEqual([...CORE_ROLES], ['core', 'analyzer', 'vision', 'video', 'embedding', 'speech']);
   assert.deepEqual([...BASE_ROLES], ['core', 'analyzer', 'vision', 'video', 'embedding', 'speech', 'drawing']);
   assert.deepEqual([...ERRAND_ROLES], ['scout', 'server']);
@@ -298,7 +298,7 @@ test('call sites: every request role is one of the roles, every purpose goes out
       pairs += 1;
     }
     for (const [, role, purpose] of text.matchAll(
-      /helperRequestOptions\([\w.]+, \{\s*role: '([\w-]+)'[^}]*?purpose: '([\w-]+)'/g
+      /roleRequestOptions\([\w.]+, \{\s*role: '([\w-]+)'[^}]*?purpose: '([\w-]+)'/g
     )) {
       assert.equal(PURPOSE_ROLES[purpose], role, `${file}: helper request for ${purpose}`);
       pairs += 1;

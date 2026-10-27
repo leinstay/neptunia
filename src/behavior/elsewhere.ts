@@ -10,7 +10,7 @@
 // audience comparison that keeps a narrower channel's content out of a wider
 // one, the destination pick and the link of a message (the address the interface gave it).
 //
-// No I/O, no discord.js: the clock is passed in, Discord objects are read by
+// No I/O, no platform SDK: the clock is passed in, platform objects are read by
 // the callers and handed over as plain values (ids, timestamps, sets of ids,
 // a usability check). Every function returns new values and never mutates
 // its input, so the stored shapes (`state.json` `elsewherePings`,
@@ -336,7 +336,7 @@ function isMemberMessage(message: LiveMessage | null | undefined): message is Li
  * non-finite `sinceTs` excludes nothing). The values are used as given, as
  * `chooseMode` in src/behavior/spontaneous.js does: a `windowMinutes` of 0
  * counts only messages written at `now`, a garbage one counts nothing. Kept
- * free of Discord so that chooser can count with it too (`sinceTs` omitted).
+ * free of the platform so that chooser can count with it too (`sinceTs` omitted).
  * `messages` are normalized messages (`{ ts, self, bot }`), any order.
  */
 export function liveMemberCount(
@@ -431,7 +431,7 @@ export function chooseElsewhereMode(
 // ---- the audience rail ------------------------------------------------------------------
 
 /**
- * Who can view one channel, read by the caller from Discord's permissions.
+ * Who can view one channel, read by the caller from the platform's permissions.
  * `@everyone`'s overwrite belongs to `everyone` and `roles`, never to
  * `roleAllow` / `roleDeny`. `everyone`: @everyone can view it (its overwrite applied). `roles`: ids of the roles that
  * can view it, each on its own (@everyone's and that role's overwrite applied; Administrator views everything).
@@ -473,7 +473,7 @@ function isSubset(inner: Iterable<string>, outer: ReadonlySet<string>): boolean 
 
 /**
  * With a role denied on the source, whether no member can hold that role and
- * still view the destination without the source. Discord applies a member's
+ * still view the destination without the source. The platform applies a member's
  * role overwrites together (every role deny, then every role allow), so a
  * member holding a role denied on the source and another role that views the
  * destination is hidden from the source unless one of their roles is allowed

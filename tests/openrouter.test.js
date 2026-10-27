@@ -16,7 +16,7 @@ import {
   LLM_DAILY,
   llmCountToday,
   railReason,
-  helperRequestOptions,
+  roleRequestOptions,
   hedgeSettings,
   resolveProvider,
   matchRoute,
@@ -348,11 +348,11 @@ test('railReason: daily-cap for a DailyCapError, token-limit for a TokenLimitErr
   }
 });
 
-// --- helperRequestOptions: the one spelling of an in-turn helper request ---
+// --- roleRequestOptions: the one spelling of an in-turn helper request ---
 
-test('helperRequestOptions: counted, never calibrated, on llm.helperTimeoutMs unless the caller says otherwise', () => {
-  const config = { llm: { timeoutMs: 300000, helperTimeoutMs: 12000 } };
-  assert.deepEqual(helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: 60, purpose: 'lookup' }), {
+test('roleRequestOptions: counted, never calibrated, on llm.analyzerTimeoutMs unless the caller says otherwise', () => {
+  const config = { llm: { timeoutMs: 300000, analyzerTimeoutMs: 12000 } };
+  assert.deepEqual(roleRequestOptions(config, { role: 'analyzer', maxOutputTokens: 60, purpose: 'lookup' }), {
     role: 'analyzer',
     maxOutputTokens: 60,
     countAgainstDailyCap: true,
@@ -360,15 +360,15 @@ test('helperRequestOptions: counted, never calibrated, on llm.helperTimeoutMs un
     timeoutMs: 12000, // never the turn-length llm.timeoutMs
     purpose: 'lookup',
     signal: undefined,
-    helper: true, // the mark a hedge looks for; never sent
+    isRoleRequest: true, // the mark a hedge looks for; never sent
   });
 
-  config.llm.helperTimeoutMs = 7000; // a hot edit between two calls: nothing is remembered
-  assert.equal(helperRequestOptions(config, { role: 'vision' }).timeoutMs, 7000);
+  config.llm.analyzerTimeoutMs = 7000; // a hot edit between two calls: nothing is remembered
+  assert.equal(roleRequestOptions(config, { role: 'vision' }).timeoutMs, 7000);
 
   // A helper with its own clock passes it, with its abort signal.
   const controller = new AbortController();
-  const own = helperRequestOptions(config, {
+  const own = roleRequestOptions(config, {
     role: 'analyzer',
     maxOutputTokens: 500,
     purpose: 'lookup',
@@ -379,7 +379,7 @@ test('helperRequestOptions: counted, never calibrated, on llm.helperTimeoutMs un
   assert.equal(own.signal, controller.signal);
 
   // The two rails a helper must never opt out of are not the caller's to set.
-  const forced = helperRequestOptions(config, {
+  const forced = roleRequestOptions(config, {
     role: 'analyzer',
     countAgainstDailyCap: false,
     skipCalibration: false,
@@ -391,10 +391,10 @@ test('helperRequestOptions: counted, never calibrated, on llm.helperTimeoutMs un
 
 test('code fallbacks: the defaults the code applies when a setting is missing equal config.json', () => {
   const shipped = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
-  for (const bare of [undefined, null, {}, { llm: null }, { llm: {} }, { llm: { helperTimeoutMs: null } }]) {
+  for (const bare of [undefined, null, {}, { llm: null }, { llm: {} }, { llm: { analyzerTimeoutMs: null } }]) {
     assert.equal(
-      helperRequestOptions(bare, { role: 'analyzer' }).timeoutMs,
-      shipped.llm.helperTimeoutMs,
+      roleRequestOptions(bare, { role: 'analyzer' }).timeoutMs,
+      shipped.llm.analyzerTimeoutMs,
       JSON.stringify(bare)
     );
   }
@@ -407,11 +407,11 @@ test('code fallbacks: the defaults the code applies when a setting is missing eq
   );
 });
 
-test('helperRequestOptions: complete takes the set as it is -- counted, uncalibrated, on the helper timeout, purpose logged and never sent', async () => {
+test('roleRequestOptions: complete takes the set as it is -- counted, uncalibrated, on the helper timeout, purpose logged and never sent', async () => {
   const state = fakeState();
   const calibrator = fakeCalibrator();
   const sent = [];
-  const config = baseConfig({ timeoutMs: 100000, helperTimeoutMs: 5 });
+  const config = baseConfig({ timeoutMs: 100000, analyzerTimeoutMs: 5 });
   const llm = createLlm({
     apiKey: 'k',
     getConfig: () => config,
@@ -425,7 +425,7 @@ test('helperRequestOptions: complete takes the set as it is -- counted, uncalibr
   const { result, logs } = await withCapturedLogs(() =>
     llm.complete([{ role: 'user', content: 'hi' }], {
       model: 'small/model',
-      ...helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: 60, purpose: 'address' }),
+      ...roleRequestOptions(config, { role: 'analyzer', maxOutputTokens: 60, purpose: 'address' }),
     })
   );
   assert.equal(result.text, 'yes');
@@ -436,7 +436,7 @@ test('helperRequestOptions: complete takes the set as it is -- counted, uncalibr
   const [line] = logs.filter((l) => l.msg === 'llm: usage');
   assert.deepEqual([line.role, line.purpose, line.model], ['analyzer', 'address', 'small/model']);
   await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.equal(sent[0].signal.aborted, true, 'the request signal is cut at llm.helperTimeoutMs, not at llm.timeoutMs');
+  assert.equal(sent[0].signal.aborted, true, 'the signal is cut at llm.analyzerTimeoutMs, not at llm.timeoutMs');
 });
 
 test('complete: a json.error body after a 200 is thrown and never retried', async () => {
@@ -2758,7 +2758,7 @@ function deferredTransport({ honourAbort = true } = {}) {
 /** A client on a fake clock and a deferred transport; `hedge: 'none'` leaves the llm.hedge group out. */
 function hedgedLlm({ hedge = HEDGE, llm = {}, transport = deferredTransport(), state = fakeState() } = {}) {
   const clock = fakeClock();
-  const config = baseConfig({ helperTimeoutMs: 600000, ...llm });
+  const config = baseConfig({ analyzerTimeoutMs: 600000, ...llm });
   if (hedge !== 'none') config.llm.hedge = hedge;
   const client = createLlm({
     apiKey: 'k',
@@ -2774,7 +2774,7 @@ function hedgedLlm({ hedge = HEDGE, llm = {}, transport = deferredTransport(), s
   const ask = ({ role = 'analyzer', signal, long, extra = {} } = {}) =>
     client.complete([{ role: 'user', content: 'Ναι ή όχι;' }], {
       model: 'small/model',
-      ...helperRequestOptions(config, { role, maxOutputTokens: 5, purpose: 'address', signal, long }),
+      ...roleRequestOptions(config, { role, maxOutputTokens: 5, purpose: 'address', signal, long }),
       ...extra,
     });
   return { ask, clock, state, calls: transport.calls };
@@ -3012,7 +3012,7 @@ test("hedge: the caller's signal aborts both attempts", async () => {
 
 test("hedge: no helper mark, a role not listed, afterMs 0 or no llm.hedge object -- one attempt, today's usage line", async () => {
   const cases = [
-    { name: 'no helper mark', extra: { helper: undefined } },
+    { name: 'no helper mark', extra: { isRoleRequest: undefined } },
     { name: 'role not listed', role: 'vision' },
     { name: 'afterMs 0', hedge: { ...HEDGE, afterMs: 0 } },
     { name: 'no group', hedge: 'none' },
@@ -3053,11 +3053,11 @@ test('hedgeSettings: null without an llm.hedge object; inside the group a missin
   });
 });
 
-test('helperRequestOptions: long true marks the set, anything else leaves the key out', () => {
-  const config = { llm: { helperTimeoutMs: 12000 } };
-  assert.equal(helperRequestOptions(config, { role: 'analyzer', long: true }).long, true);
+test('roleRequestOptions: long true marks the set, anything else leaves the key out', () => {
+  const config = { llm: { analyzerTimeoutMs: 12000 } };
+  assert.equal(roleRequestOptions(config, { role: 'analyzer', long: true }).long, true);
   for (const long of [undefined, false, 1, 'yes']) {
-    assert.equal('long' in helperRequestOptions(config, { role: 'analyzer', long }), false, String(long));
+    assert.equal('long' in roleRequestOptions(config, { role: 'analyzer', long }), false, String(long));
   }
 });
 

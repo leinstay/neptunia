@@ -189,7 +189,7 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * `/nep memory channel [channel]`: with a channel, that channel's full stored note (Discord
+   * `/nep memory channel [channel]`: with a channel, that channel's full stored note (the platform's
    * facts, the stored purpose/topics/tone, counters, activity verdict and top
    * writers); without one, a compact table of every stored channel, sorted by last message desc.
    * `<@id>` tokens in `purpose`/`topics`/`tone` are resolved the same way `memory.show` resolves
@@ -269,7 +269,7 @@ const handlers = perEnv((env) => {
    * source channel (`#name` when a channel note stores one, else its id), the weight and the text
    * with `<@id>` tokens resolved like the other memory views. Expired lines are not shown. Read
    * only, so it works while paused (`freshenIfPaused`); the reply is chunked by
-   * interfaces/discord/commands.js#respond like every long view.
+   * the interface's command handler like every long view.
    */
   function cmdMemoryRecent(_args: Obj, context: OpContext): string {
     freshenIfPaused();

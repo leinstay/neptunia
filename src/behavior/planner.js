@@ -1,4 +1,4 @@
-// The turn planner: one pre-reply helper call instead of four. Before the
+// The turn planner: one pre-reply analyzer call instead of four. Before the
 // persona answers a message, four cheap classifiers used to read the same
 // short transcript one after another -- the channel route
 // (src/behavior/route-channel.js), the participation pick
@@ -13,7 +13,7 @@
 // built by the old classifiers' own builders; no wording of ours goes in.
 
 import { log } from '../log.js';
-import { helperRequestOptions, railReason } from '../llm/openrouter.js';
+import { roleRequestOptions, railReason } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
 import { parseParticipationPick } from './participation-pick.js';
 import { block, fillPromptTemplate, stableThenTail } from './prompt.js';
@@ -25,7 +25,7 @@ import { parseSkillsLines } from '../tools/discovery.ts';
 export const PLANNER_BLOCKS = Object.freeze(['channel', 'episodes', 'rewatch', 'lookup']);
 
 /**
- * Whether the turn planner replaces the four pre-reply helpers: `features.turnPlanner` exactly
+ * Whether the turn planner replaces the four pre-reply analyzer calls: `features.turnPlanner` exactly
  * true (config.json ships false), read from the live config at the moment of use.
  * @param {object|null|undefined} config
  * @returns {boolean}
@@ -281,10 +281,10 @@ function allMissing() {
  * Ask the planner once. `offer` says which blocks this turn offered: the
  * three lists (`channels`, `episodes`, `media`: the old classifiers' lines;
  * an empty or absent list is not offered) and `lookup` (true when the search
- * classifier would have been asked). One request on the reasoning helper
- * model (roleModel, role `analyzer`, purpose `planner`), its
- * answer capped at `web.search.classifierMaxOutputTokens`, a helper's
- * request (helperRequestOptions: the daily cap, the helper timeout, the
+ * classifier would have been asked). One request on the reasoning
+ * model role (roleModel, role `analyzer`, purpose `planner`), its
+ * answer capped at `web.search.classifierMaxOutputTokens`, a role
+ * request (roleRequestOptions: the daily cap, the analyzer timeout, the
  * hedge). Resolves `{ outcome, reason, blocks }`, never rejects:
  * - `skipped` (`reason` `no-prompt`: no planner prompt; `nothing`: no block
  *   offered; `no-candidate`): no request, every block missing, no fallback
@@ -370,7 +370,7 @@ export async function askPlanner({
   try {
     completion = await llm.complete(messages, {
       model,
-      ...helperRequestOptions(config, {
+      ...roleRequestOptions(config, {
         role: 'analyzer',
         maxOutputTokens: config?.web?.search?.classifierMaxOutputTokens ?? 2000,
         purpose: 'planner',

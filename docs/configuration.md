@@ -31,6 +31,7 @@ The persona's skills are tools in the settings. `src/config-moves.ts` holds the 
 | `bot.access."intent.set"`, `"intent.update"`, `"intent.cancel"`, `"intent.list"` | `bot.access."intention.set"`, `"intention.update"`, `"intention.cancel"`, `"intention.list"` |
 | `agents.opencodePath`, `toolResultChars`, `keepFilesHours`, `recentLines`, `maxOpen`, `resultMaxChars`, `unreadShown`, `resultRetrySeconds`, `resultCooldownSeconds` | the same names under `errands.*` |
 | `agents.<name>.search.provider` | `agents.<name>.searchProvider` |
+| `llm.helperTimeoutMs` | `llm.analyzerTimeoutMs` |
 
 Six keys have no reader any more and are dropped: the grants `bot.access."memory.refresh.channel"`, `"memory.refresh.server"` and `"memory.refresh.user"`, `agents.maxDownloadBytes`, and `agents.thinker.contextLimit` and `contextHard`. The load log line counts them as `dropped` beside `moved` and `shadowed`.
 
@@ -45,7 +46,7 @@ The tool texts moved too: `prompts/skills.json` is `config/tools.json`, and a de
 Two hard rails that must stay on:
 
 - **50 000 tokens per request** (`llm.maxRequestTokens`). Every request the bot sends is budgeted against this cap. The prompt builder trims sections by priority to fit.
-- **Daily request cap** (`llm.maxRequestsPerDay`, default 5000). Every model request counts (helpers, probes, tools, hedged duplicates).
+- **Daily request cap** (`llm.maxRequestsPerDay`, default 5000). Every model request counts (requests on every model role, probes, tools, hedged duplicates).
 
 ## `features`
 
@@ -101,7 +102,7 @@ On/off switches. A missing key counts as on, except the ones that need `=== true
 | `channelPull` | `true` | Pull another channel into a turn's request when the messages contain a real channel mention. See `context.pull.*` |
 | `pullSeenMarker` | `true` | Show how many messages in a pulled channel are new since the persona last saw it |
 | `channelRoute` | `true` | A classifier picks a channel the conversation is about before a turn, so it can be pulled. See `route.*` |
-| `turnPlanner` | `false` | One helper call before the reply replaces the channel router, the episode pick, the search classifier and the re-watch classifier. Needs `prompts/planner.md` |
+| `turnPlanner` | `false` | One analyzer call before the reply replaces the channel router, the episode pick, the search classifier and the re-watch classifier. Needs `prompts/planner.md` |
 | `channelLinks` | `true` | When the persona writes `#channel-name`, the sent message carries a real channel link |
 | `messageLinks` | `true` | When the persona writes `#93`, the posted text carries a Discord message link to that transcript line |
 | `mentionHandles` | `true` | Every member with a stored profile gets a short handle (`@u7k2f`), listed in `<directory>`. The persona mentions people by handle |
@@ -148,7 +149,7 @@ The voice-state intent (voice channels in `<people_now>`) is not privileged and 
 
 Three groups, the same three the `/nep status` card shows. Each role is set independently with its own default, so changing one never moves another.
 
-- **`models.base`**: the bot's own requests. The core decides and speaks as the persona; each helper gathers, describes, extracts or finds.
+- **`models.base`**: the bot's own requests. The core decides and speaks as the persona; each other model role gathers, describes, extracts or finds.
 - **`models.errands`**: delegated agents. Each runs its own OpenCode loop as a separate process. See [Errands](errands.md).
 - **`models.development`**: agents that work on the repository, not on the persona's behalf. The engine only describes them and shows their spend.
 
@@ -196,7 +197,7 @@ Errand and development roles run on OpenCode, not the bot's client. They take Op
 | `safetyMargin` | `0.9` | Budgeting fraction of `maxRequestTokens` |
 | `timeoutMs` | `300000` | Request timeout (ms) |
 | `probeTimeoutMs` | `30000` | Timeout of each model probe and of the key reads on `/nep status` (ms) |
-| `helperTimeoutMs` | `30000` | Timeout for a helper running alongside the turn (route classifier, search classifier, recall summary). Past this the helper is abandoned |
+| `analyzerTimeoutMs` | `30000` | Timeout of a request on a model role other than the core's, made alongside the turn (route classifier, search classifier, recall summary). Past this the request is abandoned |
 | `retries` | `2` | Retries on transient HTTP errors (408/429/5xx) and network failures. A daily-quota 429 is thrown at once |
 | `maxRequestsPerDay` | `5000` | Daily request cap |
 | `provider` | `null` | OpenRouter `provider` routing object, passed verbatim |
@@ -204,7 +205,7 @@ Errand and development roles run on OpenCode, not the bot's client. They take Op
 | `keyByRole` | `{ "scout": "OPENROUTER_ERRAND_KEY", "server": "OPENROUTER_ERRAND_KEY", "drawing": "OPENROUTER_ERRAND_KEY", "thinker": "OPENROUTER_DEV_KEY", "dev": "OPENROUTER_DEV_KEY", "memory": "OPENROUTER_MEMORY_KEY" }` | Maps a role name to the NAME of a `.env` variable holding an OpenRouter key. Read at every request. A role not in the map falls back to `OPENROUTER_CORE_KEY`. The `memory` role is the exception: with `OPENROUTER_MEMORY_KEY` unset, the session is not configured and no request goes out on any other key |
 | `cache.ttl` | `"1h"` | Cache TTL for the markers on the system message and the stable user prefix: `"1h"` or `"5m"` |
 | `cache.profilesTtl` | `"1h"` | Cache TTL for the profiles marker: `"1h"`, `"5m"`, or `null`/`false` for none. Never longer than `cache.ttl` |
-| `cache.roles` | `["core"]` | Roles whose requests get the cache marker. Add `analyzer` to cache helpers too |
+| `cache.roles` | `["core"]` | Model roles whose requests get the cache marker. Add `analyzer` to cache its requests too |
 | `cache.models` | `["anthropic/"]` | Model id prefixes whose provider accepts the `cache_control` marker |
 | `cache.promptIncludesCached` | `true` | Whether the provider's reported `prompt_tokens` already includes cached and cache-write tokens |
 | `hedge.roles` | `["analyzer"]` | Roles whose calls are hedged (two concurrent attempts, first to finish wins) |
@@ -364,7 +365,7 @@ Her focus set: the people her attention is on. Computed by the `memoryDb.focus` 
 | `previousThink.minutes` | `30` | How long after a finished turn a new turn there still carries its think. `0` carries none |
 | `channelActivity.liveMessagesPerDay` | `20` | Daily messages for an active channel |
 | `channelActivity.deadAfterDays` | `7` | Days without messages for a dead channel |
-| `vision.tokensPerImage` | `400` | Tokens charged per image part of a helper request |
+| `vision.tokensPerImage` | `400` | Tokens charged per image part of a request on a model role other than `core` |
 | `vision.maxBytes` | `1500000` | Max picture file size (bytes) |
 | `vision.fetchTimeoutMs` | `10000` | Download timeout per picture (ms) |
 
@@ -440,8 +441,8 @@ Settings for missed-answer recovery (`features.missedAnswers`).
 | `expireMinutes` | `5` | Minutes before a candidate expires. A question mark uses `questionExpireMinutes` |
 | `questionExpireMinutes` | `15` | Expiry for a message with a question mark |
 | `channelCooldownMinutes` | `5` | Minimum minutes between recovery turns in the same channel |
-| `contextMessages` | `20` | Recent channel messages included in the helper's transcript |
-| `maxOutputTokens` | `2000` | Max output tokens for the helper |
+| `contextMessages` | `20` | Recent channel messages included in the analyzer's transcript |
+| `maxOutputTokens` | `2000` | Max output tokens for the analyzer |
 
 ## `offlineCatchUp`
 
@@ -464,7 +465,7 @@ Messages posted while the bot was down, read once at start (`features.offlineCat
 
 ## `pace`
 
-How long each stage of a turn may take. A helper that misses its deadline is dropped. A turn whose answer is not in hand by `dropAfterMs` is dropped entirely.
+How long each stage of a turn may take. A request on a model role other than `core` that misses its deadline is dropped. A turn whose answer is not in hand by `dropAfterMs` is dropped entirely.
 
 | Key | Default | What it does |
 |---|---|---|
@@ -1000,7 +1001,7 @@ Settings for the persona's inner life (`features.innerLife`). See [Inner life](i
 | `heartbeat.jitterMinutes` | `60` | Jitter on the heartbeat interval |
 | `heartbeat.dueJitterMinutes` | `20` | Jitter on intention due times set by heartbeat |
 | `heartbeat.people` | `8` | Members in the heartbeat's people block |
-| `heartbeat.filteredShown` | `10` | Lines the helpers filtered without her, listed in the heartbeat |
+| `heartbeat.filteredShown` | `10` | Lines the analyzer filtered without her, listed in the heartbeat |
 | `heartbeat.closedShown` | `10` | Closed intentions listed in the heartbeat |
 | `heartbeat.historyDays` | `14` | Days of the record read for each person's last contact |
 | `heartbeat.placesHours` | `6` | Hours of recent place activity listed in the heartbeat |

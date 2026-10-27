@@ -1,7 +1,7 @@
 // Mapper: a member's public profile `users/<id>.json` <-> rows.
 //
 //   people          the member (first/last seen, message count, real name, the affinity score, reason and decay stamp)
-//   accounts        the Discord account (id, display names, avatar)
+//   accounts        the platform account (id, display names, avatar)
 //   memberships     the guild membership, only when the file has `addressedAs`
 //   claims          details, interests, aliases (current) and closed items (truth historical)
 //   descriptions    character, style, relationship with their text as one legacy version

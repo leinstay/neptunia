@@ -187,7 +187,7 @@ Observations that arrive before the database opens wait in a bounded queue (5000
 
 ## Her memory session
 
-There is no helper model that decides what the persona remembers. She decides herself.
+There is no model role that decides what the persona remembers. She decides herself.
 
 The session runs on its own model role (`memory`) and its own key (configured through `llm.keyByRole.memory`, which names the `.env` variable to read). Without the key, the session refuses to run.
 

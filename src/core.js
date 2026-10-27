@@ -4,7 +4,7 @@
 // core's lifecycle (startup checks, timers, graceful shutdown). No decision logic lives here: everything is imported
 // from src/behavior, src/memory and src/llm. Nothing here builds, logs in or listens to a platform client: the
 // interface does, and hands back `legacy`, which holds the slash command handler (src/interface/legacy.ts). The entry (src/index.js) reads the paths and the environment, loads
-// the Discord package and handles the process signals; a test calls `startCore` with a scripted model and the fake
+// the interface packages and handles the process signals; a test calls `startCore` with a scripted model and the fake
 // interface.
 //
 // This file stays JavaScript: it is the body of the old entry moved into a function, and stage 8 of the core
@@ -358,7 +358,7 @@ async function buildCore(options, cleanups) {
       })
     : null;
 
-  // This instance serves exactly one Discord server. `instance.guildId` is set
+  // This instance serves exactly one community. `instance.guildId` is set
   // once, right after ClientReady resolves it (see below), and every component
   // that needs it reads it through `getGuildId` instead of caching it, so a
   // switch to a different guild always requires a restart, never a silent swap.
@@ -387,8 +387,8 @@ async function buildCore(options, cleanups) {
   // directory holds one (a nickname change reaches it through `membership.changed`), else the name `hello` gave.
   const getSelfName = (guildId) => members.nameOf(guildId, identity.selfId) ?? identity.selfName;
 
-  // The link between the core and the Discord side (docs/interfaces.md). Both still run in this process:
-  // the core listens on a Unix socket under the data directory, the Discord interface connects with a token made
+  // The link between the core and its interfaces (docs/interfaces.md). Both still run in this process:
+  // the core listens on a Unix socket under the data directory, an interface connects with a token made
   // at boot, says hello and serves its adapter. Every inbound event travels as an envelope to the
   // core's door and every effect of the persona travels back as an action. The socket folder is created
   // at mode 0700 and the file at 0600 (src/interface/socket.ts).
@@ -413,7 +413,7 @@ async function buildCore(options, cleanups) {
     },
   });
   cleanups.push(() => linkServer.close());
-  // The interfaces are started by the caller (src/index.js loads the Discord package by name at run time, a test passes
+  // The interfaces are started by the caller (src/index.js loads each interface package by name at run time, a test passes
   // the fake one) with the core's end of the link, its settings and its logger. An interface builds its client,
   // logs in, waits for the guild, says hello and serves its adapter; the events it sees wait until `running.open()`
   // below, when the door has its handlers. A refusal (no token, no guild, no login) stops the start here.
@@ -600,7 +600,7 @@ async function buildCore(options, cleanups) {
   const diary = createDiary({ hot, store, reads, iface: () => identity.iface, turns, getGuildId });
   // The code-only memory of the live message path (src/memory/update.js): counters, GIF library, emoji, names.
   const memory = createMemoryUpdater({ hot, store });
-  // The turn an errand's end opens, through the one attention and a cooldown per conversation.
+  // The turn an errand's end opens, through the lease and a cooldown per conversation.
   const taskTurns = createErrandTurns({
     hot,
     reads,
@@ -710,9 +710,9 @@ async function buildCore(options, cleanups) {
     dataDir,
   });
   turns.setOnTurnEnd((end) => missed.onTurnEnd(end));
-  // The custom emoji ranking read from history (Discord API only, no LLM): once at startup, again on /nep emoji rescan.
+  // The custom emoji ranking read from history (the interface's reads only, no model call): once at startup, again on /nep emoji rescan.
   const emojiBackfill = createEmojiBackfill({ hot, store, reads, iface: () => identity.iface, log });
-  // The GIF library read from history (Discord API; the describer captions the top ones): once at
+  // The GIF library read from history (the interface's reads; the describer captions the top ones): once at
   // startup, again on /nep gifs rescan.
   const gifBackfill = createGifBackfill({ hot, store, reads, iface: () => identity.iface, describer, log });
   // The GIF library re-described by watching (src/memory/gif-recache.js): only on /nep gifs recache;
@@ -770,7 +770,7 @@ async function buildCore(options, cleanups) {
     deliver: (event, options) => onMessage.catchUp(event, options),
   });
 
-  // One attention (mention.oneAtATime): once a turn frees its channel, answer
+  // One turn at a time (mention.oneAtATime): once a turn frees its channel, answer
   // the oldest pending direct ping it may have collected while busy elsewhere.
   turns.setOnIdle(() => onMessage.drainPending());
 

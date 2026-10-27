@@ -127,7 +127,12 @@ async function scene(options: Scene = {}) {
   const data: Record<string, unknown> = {};
   const recaller = createRecall({
     hot: {
-      config: { ...SHIPPED, bot: { ...SHIPPED.bot, timezone: 'UTC' }, recall: RECALL, llm: { helperTimeoutMs: 30000 } },
+      config: {
+        ...SHIPPED,
+        bot: { ...SHIPPED.bot, timezone: 'UTC' },
+        recall: RECALL,
+        llm: { analyzerTimeoutMs: 30000 },
+      },
       prompts: { 'recall-summary': PROMPT, labels },
     },
     store: { state: { data, markDirty() {} }, listUserProfiles: () => options.profiles ?? [] },

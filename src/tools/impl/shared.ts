@@ -1,4 +1,4 @@
-// Pure helpers and constants of the owner operations (src/tools/impl/*.ts), moved from src/admin.js:
+// Pure functions and constants of the owner operations (src/tools/impl/*.ts), moved from src/admin.js:
 // the rules-file and config-path functions, the profile views, the ping/route formatters, the
 // media wording tables and the line formatters several operations share. No I/O but
 // `treeSize` (a directory walk for the memory snapshot) and `postingConversation` (a channel
@@ -304,8 +304,8 @@ export const MEMORY_SHOW_DEFAULT_LIMIT = 25;
 export const MEMORY_SHOW_MAX_LIMIT = 100;
 
 /** Hard ceiling for the `summary` section: the whole reply must fit a single
- * Discord message (2000 chars) — comfortably under that even after the
- * code-fence wrapping interfaces/discord/commands.js#respond adds. */
+ * message of the command interface (2000 chars) — comfortably under that even after the
+ * code-fence wrapping the interface's command handler adds. */
 export const SUMMARY_MAX_CHARS = 1800;
 
 export const DIVIDER_LINE = '-- not shown to the persona (below the shown cap) --';
@@ -330,7 +330,7 @@ export function truncateForSummary(value: unknown, maxChars: number, sectionName
 
 /**
  * `/nep memory show`'s default view: a compact, human-readable digest of one
- * profile GUARANTEED to fit a single Discord message (see `SUMMARY_MAX_CHARS`)
+ * profile GUARANTEED to fit a single message (see `SUMMARY_MAX_CHARS`)
  * — long fields are truncated with an ellipsis and, when the full text lives
  * under its own section, a pointer to it. `<@id>` tokens in free-text fields
  * are resolved via `nameOf` the same way every other analyzer-facing text is
@@ -562,7 +562,7 @@ export function writeLocalConfig(localPath: string, value: unknown): void {
 }
 
 // ---------------------------------------------------------------------------
-// Model roles and `/nep route`: pure helpers
+// Model roles and `/nep route`: pure functions
 // ---------------------------------------------------------------------------
 
 export const MODEL_ID_RE = /^[\w.:/-]{3,100}$/;
@@ -633,7 +633,7 @@ export function routeRoleArg(args: unknown): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// Access and the media commands: pure helpers
+// Access and the media commands: pure functions
 // ---------------------------------------------------------------------------
 
 /** Why `/nep emoji rescan` did not run, by src/memory/emoji-backfill.js's skip reason (the

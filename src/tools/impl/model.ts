@@ -8,7 +8,7 @@ import {
   CORE_ROLE,
   DEVELOPMENT_ROLES,
   ERRAND_ROLES,
-  HELPER_ROLES,
+  NON_CORE_ROLES,
   roleConfigKeys,
   roleModel,
 } from '../../llm/roles.js';
@@ -22,14 +22,14 @@ const MEDIA_ROLES = new Set(['vision', 'video']);
 const handlers = perEnv((env) => {
   const { hot, writeLocalPath, editLocalConfig, imageModelLabel, now } = env;
 
-  /** One `<role>: <model>` line per role: the base roles (the core, the helpers, drawing), then the errand and development roles each under a group line (`errands:`, `development:`). */
+  /** One `<role>: <model>` line per role: the base roles (the core, the model roles other than `core`, drawing), then the errand and development roles each under a group line (`errands:`, `development:`). */
   function cmdModelShow() {
     const cfg = hot.config;
     const lineOf = (role: string): string => `${role}: ${modelForRole(role, cfg) ?? '-'}`;
     const lines = [
       'base:',
       lineOf(CORE_ROLE),
-      ...HELPER_ROLES.map(lineOf),
+      ...NON_CORE_ROLES.map(lineOf),
       `${IMAGE_ROLE}: ${imageModelLabel(cfg)}`,
       'errands:',
       ...ERRAND_ROLES.map(lineOf),

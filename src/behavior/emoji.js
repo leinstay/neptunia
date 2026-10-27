@@ -1,14 +1,14 @@
 // The server's custom emoji in the persona's own output. The model writes
-// `:name:` (the way it reads them in the transcript); Discord only shows a
+// `:name:` (the way it reads them in the transcript); the interface only shows a
 // custom emoji as `<:name:id>` / `<a:name:id>`. The pure functions below turn
 // one into the other through a `lookup(name)`; src/behavior/emoji-index.ts#createEmojiIndex
 // is the core's index over the interface's list of the community's emoji that backs that lookup.
 
 /**
- * Discord's custom emoji markup `<:name:id>` / `<a:name:id>` as a regex
- * source: the one copy every markup regex here and in interfaces/discord/collect.js
+ * The custom emoji markup `<:name:id>` / `<a:name:id>` as a regex
+ * source: the one copy every markup regex here and in the interface packages
  * is built from. Group 1 is `a` for an animated emoji (else empty), group 2
- * the name (2-32 letters, digits or underscores, Discord's rule), group 3 the
+ * the name (2-32 letters, digits or underscores, the platform's rule), group 3 the
  * id (a snowflake). Unanchored and without flags: each user adds its own.
  */
 export const CUSTOM_EMOJI_MARKUP = /<(a?):([A-Za-z0-9_]{2,32}):(\d{1,25})>/.source;
@@ -33,7 +33,7 @@ function markup(emoji) {
 
 /**
  * The emoji called `name` among `emojis`: an exact case-sensitive match first,
- * then a case-insensitive match when it is the only one. Emoji Discord marks
+ * then a case-insensitive match when it is the only one. Emoji the platform marks
  * unavailable (`available === false`, e.g. a lost boost level) never match.
  * @param {Iterable<{ id: string, name: string, animated?: boolean, available?: boolean }>} emojis
  * @param {string} name
@@ -57,7 +57,7 @@ export function matchEmojiName(emojis, name) {
 }
 
 /**
- * Replace every `:name:` the index knows with its Discord markup. Unknown or
+ * Replace every `:name:` the index knows with its custom emoji markup. Unknown or
  * ambiguous names, code (inline and blocks), markup already well formed,
  * timestamps and URLs are left as they are, so the result is idempotent.
  * @param {string} text

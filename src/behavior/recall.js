@@ -4,14 +4,14 @@
 // the server's messages, `who:` forms of a person's name, `when:` a date
 // range in the bot's time zone, `recent:` whether the question is a vague
 // "recently" -- and the old single unlabelled line still
-// reads as a web query. Discord's message search does not stem and matches
+// reads as a web query. The interface's message search does not stem and matches
 // one form per query, so the server part becomes an ordered list of queries
 // (content forms round-robin, then authors, or a date range sampled when
 // nothing else is given); the hits are grouped into clusters by channel and
 // time, a window of messages around each is fetched and carried forward
 // along its conversation until it settles (followConversation: at most
 // `recall.followMessages` more lines, up to the first silence longer than
-// `recall.followGapMinutes`), and one helper request
+// `recall.followGapMinutes`), and one analyzer request
 // (prompts/recall-summary.md) reads the windows and says what the history
 // answers, optionally singling out one stretch the persona then gets
 // verbatim. The same word and name forms are also matched against the
@@ -32,7 +32,7 @@
 // summary reads the chat lines before the question as `<context>`, with each
 // stretch flagged when it holds the persona's lines or overlaps the current
 // chat. This module holds those decisions with no I/O;
-// the Discord side is interfaces/discord/search.js and the runner
+// the search itself is the interface's (`reads.searchMessages`) and the runner
 // src/behavior/recall-run.js. No wording of ours goes into the request: tags
 // and structural marks only.
 // A `when:` range beside word or name forms is a locator unless the lookup
@@ -192,7 +192,7 @@ const LOCATOR_RE = /^locator\b/i;
 const DATE_RE = /^(\d{4}-\d{2}-\d{2})(?:[ T](\d{1,2}):(\d{2}))?$/;
 const RANGE_SPLIT_RE = /\s*\.{2,}\s*/;
 const FORM_SPLIT_RE = /[,;，、]/;
-// Protocol tokens of the summary helper (prompts/recall-summary.md).
+// Protocol tokens of the summary request (prompts/recall-summary.md).
 const STRETCH_RE = /^\**\s*stretch\s*\**\s*:\s*\**\s*(.*)$/i;
 const NOTHING_RE = /^nothing$/i;
 // Quotes and backticks a model may wrap a line in (straight, curly, guillemets).
@@ -224,7 +224,7 @@ function numberAtLeast(value, fallback, min) {
  * `maxClusters`) and `contextMessages` (no `<context>` block);
  * `quoteWindowChars` and `quoteMaxChars` (a memory.search result's per-window and whole bounds) are at least 1;
  * `traceMaxLines` is at least 1; `windowMessages` is at most 100;
- * `followMessages` is at most 100 (one Discord page) and may be 0 (a window
+ * `followMessages` is at most 100 (one page of the interface's history read) and may be 0 (a window
  * is not followed past its end); `followGapMinutes` is a number of at least 0;
  * `memoryTokens` (no `<memory>` line fits), `recordDays` (the record is not
  * read), `recordContext` (no neighbours) and `archiveMonths` (the archive is
@@ -1130,7 +1130,7 @@ function unnumbered(message) {
 }
 
 /**
- * The windows rendered as transcript lines with the transcript helpers of
+ * The windows rendered as transcript lines with the transcript functions of
  * src/format.js (the chat form: gap and date markers, media tags
  * with the `descriptions` captions, reactions; wording from `labels`). A
  * message whose id is in the window's `hitIds` gets HIT_MARK at the start
@@ -1688,7 +1688,7 @@ function timeCueText(cue, labels, timezone) {
 }
 
 /**
- * The summary helper's request: the system message is `prompt` with
+ * The summary request: the system message is `prompt` with
  * `{{name}}` (the persona's display name), `{{answerChars}}` and, given
  * `now`, `{{today}}` (the local date key in `timezone`) filled; the user
  * message holds `<people>` (one line per found member, see personLine; left
@@ -1832,7 +1832,7 @@ export function buildRecallRequest({
 }
 
 /**
- * The summary helper's answer. A first non-empty line `stretch: <n>` (any
+ * The summary's answer. A first non-empty line `stretch: <n>` (any
  * case) names the `<found>` section that answers the question: `n` within
  * `1..count` (a `#` before it tolerated) -> `stretch` n, `none` or anything
  * else -> null; that line is not part of the text. The rest, trimmed and
@@ -2016,7 +2016,7 @@ export function recordMessage(line, { nameOf, selfName }) {
 /**
  * The bounded record reader: the lines of the persona's record
  * (src/memory/record.js, `record.iterate`) that answer a recall question,
- * as windows for the summary beside Discord's (buildRecallRequest marks them
+ * as windows for the summary beside the search's (buildRecallRequest marks them
  * `source: record`). Read: the record days of `range` -- from the end of the
  * range (`now` when open or later) back at most `recordDays` days, never
  * before its start -- and only those (`recordDays` 0 reads nothing). Each
@@ -2444,7 +2444,7 @@ const TOOL_LIST_SPLIT_RE = /[,;\n]/;
 
 /**
  * The server search the persona's own `memory.search` call asks for (features.coreTools,
- * src/tools/tools.ts): no helper model, only the deterministic expansion -- her `terms` (exact
+ * src/tools/tools.ts): no model role, only the deterministic expansion -- her `terms` (exact
  * words or phrases, comma-separated) and `people` (names, comma-separated) cleaned as the
  * classifier's `server:` and `who:` values are (2 to 40 characters, at most three words each,
  * lowercased, each once), then what fallbackLookupPlan finds in her `question` (its long words,

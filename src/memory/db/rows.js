@@ -1,4 +1,4 @@
-// Rows between the mappers and SQLite. A mapping is `{ table: [row, ...] }`, a row is column -> value. These helpers
+// Rows between the mappers and SQLite. A mapping is `{ table: [row, ...] }`, a row is column -> value. These functions
 // write a mapping with one parameterised statement per row (a column the schema lacks fails loudly) and read the
 // rows of the named tables back as plain objects, so a mapper's output can go through the real schema.
 //
@@ -16,16 +16,16 @@
 // Schema v8 (stage 2): a row that names its own authority (an observation, observe.js) keeps it, its native key and
 // its conversation instead of the legacy derivation; a source's author combination is checked (`checkAuthor`: an
 // account line names no participant, a participant line names no account); `ensureRelations` gives a source its
-// `source_relations` rows (a Discord line's `reply_to`, derived here so a remap keeps it) and resolves the relations
+// `source_relations` rows (a legacy line's `reply_to`, derived here so a remap keeps it) and resolves the relations
 // that were waiting for it. Relations are the database's own: inserted once, a target filled in once, never rewritten.
-// Schema v9 (stage 3): every row these helpers write is projected into the graph in the same transaction
+// Schema v9 (stage 3): every row these functions write is projected into the graph in the same transaction
 // (graph.js#projectRow: the row's unit, again from the database as it is now): `insertRows`, the DM place, the interface
 // and authority rows, the links `ensureLinks` adds, and the sources whose relations `ensureRelations` and
 // `resolveRelationsTo` wrote or resolved.
 // Schema v10 (stages 4 and 5): a diary mirror written through `insertRows` derives its publication
 // (publish.js#deriveMirrorPublication, the function the sync calls for every mirror write), and a line of hers that is
 // stored after the mirror that names it projects that publication again (its `publication_source` edge).
-// Every helper checks the schema it runs on: on a database before v7 it derives nothing, before v8 no relation, before
+// Every function checks the schema it runs on: on a database before v7 it derives nothing, before v8 no relation, before
 // v9 no projection, before v10 no publication.
 
 import { log as engineLog } from '../../log.js';

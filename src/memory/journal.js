@@ -38,7 +38,7 @@
 // Messages that may have been left without an answer (src/behavior/missed.js) are `answer`
 // records (`answer`), scoped to their channel: `event` `fact` (a `reason`, the message's
 // `messageId`, `authorId`, `at` and whether it carries a question mark; `replacedBy`, `failure`
-// or `turnId` when known), `address` (the address helper's "no": `verdict` `not-addressed`,
+// or `turnId` when known), `address` (the address check's "no": `verdict` `not-addressed`,
 // `messageId`, `authorId`, `at`), `verdict` (the sweep's `verdict` and `by` -- `model` or `code` --,
 // `shadow` for an owed one nothing was posted for), `resolved` (`by`), `expired`, and `recovery`
 // (the `messageIds` of one recovery turn, its `triggerId` and `outcome`). Ids only, no text.

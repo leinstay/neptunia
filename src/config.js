@@ -7,7 +7,7 @@
 // (e.g. `media.video.proxy`) can stay in .env.
 // config.json is read from the checkout root; config.local.json and .env from the deployment's
 // private directory (src/paths.js: NEPTUNIA_PRIVATE_DIR), which is the root unless set.
-// Pure helpers (parseEnv, applyEnv, deepMerge, resolveEnvRefs) are exported separately so they
+// Pure functions (parseEnv, applyEnv, deepMerge, resolveEnvRefs) are exported separately so they
 // can be unit-tested without touching the filesystem.
 
 import fs from 'node:fs';

@@ -8,7 +8,7 @@
 // e.g. someone else's message). References are opaque strings namespaced by the adapter's
 // `iface`; content is typed with a safe mention default (nobody is notified unless named).
 // Moved here from src/interface/port.js, which re-exports all of it, so the contract lives in
-// one place no platform touches: no discord.js type, no service, no logging.
+// one place no platform touches: no platform SDK type, no service, no logging.
 
 import { readAction } from './reads.ts';
 

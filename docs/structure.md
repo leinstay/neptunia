@@ -40,7 +40,7 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `bin/` | public | Entry points that run as their own process. | `node:*`, `src/**` | none |
 | `deploy/` | public | The systemd units and the install script. | nothing | none |
 | `interfaces/README.md` | public | The overview of the interface packages. | nothing | none |
-| `interfaces/discord/` | public | The Discord interface: the only code that imports discord.js, translating between the platform and the protocol. It reads the core's media classifier, a pure module. | `node:*`, `discord.js`, `src/media/classify.js`, `src/protocol/**` | required |
+| `interfaces/discord/` | public | The Discord interface: the only code that imports discord.js, translating between the platform and the protocol. It reads the core's media classifier and video-site matcher, pure modules, and classifies Discord's embeds and media addresses itself. | `node:*`, `discord.js`, `src/media/classify.js`, `src/media/video-sites.js`, `src/protocol/**` | required |
 | `tests/` | public | The node:test files, one per module. | `discord.js`, `eslint`, `node:*`, `src/**`, `interfaces/**`, `tools/**`, `bin/**`, `tests/**` | none |
 | `tests/fixtures/` | public | Fakes, harnesses and sample data the tests share. | `discord.js`, `node:*`, `src/**`, `interfaces/**`, `tools/**`, `bin/**`, `tests/**` | none |
 | `tools/` | public | Scripts for development and measurement, never run by the engine. | `node:*`, `src/**`, `interfaces/**`, `tools/**`, `typescript`, `discord.js` | none |

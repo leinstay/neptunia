@@ -22,7 +22,7 @@
 // a boundary and never inside a token, just with no overshoot allowed.
 // `clampWithEllipsis` is that hard cut for display text, marked with `…`.
 //
-// Two blunt helpers live here too, for text that is not analyzer prose:
+// Two blunt functions live here too, for text that is not analyzer prose:
 // `oneLine` (whitespace collapsed, so a value stays on its one line) and
 // `clampChars` (a plain code-point cut, no boundary search); `clampAtBoundary`
 // is the same limit with a sentence/word-boundary cut for free text sent on. `stripDashes` /

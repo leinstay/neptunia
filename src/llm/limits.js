@@ -2,7 +2,7 @@
 // a budget that dropped a block's items, a prompt the provider counted well above its estimate,
 // a completion that reached its output cap, messages
 // past the per-turn cap joined into the last one kept, a text
-// attachment cut at its preview size, a helper stage left behind by the deadline, a helper that
+// attachment cut at its preview size, a request on a model role other than `core` left behind by the deadline, one that
 // failed and was replaced by a fallback (the search classifier's recall on the question's words), a daily
 // counter that refused, a memory field refused over its limit or cut on its first write, the
 // tool loop's calls dropped once its steps or its time were spent (`loop-cap`). The

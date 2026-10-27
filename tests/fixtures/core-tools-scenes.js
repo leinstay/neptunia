@@ -95,7 +95,7 @@ function sceneHot({ coreTools, access = {} } = {}) {
         vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0, maxBytes: 1_500_000, fetchTimeoutMs: 10_000 },
         pull: { scanMessages: 20, maxChannels: 1, sameAudience: true },
       },
-      llm: { maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 300_000, helperTimeoutMs: 25_000 },
+      llm: { maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 300_000, analyzerTimeoutMs: 25_000 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 100, betweenMessagesMs: [0, 0] },
       features,
       models: { base: { analyzer: 'x/text' } },

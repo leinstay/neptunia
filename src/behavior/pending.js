@@ -1,6 +1,6 @@
 // Pure queue of "pending" calls: a @mention, a reply or the persona's name
 // that arrived while a turn was running in its own channel
-// (config.mention.pendingSameChannel) or, with one attention
+// (config.mention.pendingSameChannel) or, with one turn at a time
 // (config.mention.oneAtATime), somewhere else; a private message waiting for
 // the same reason; a follow-up the address classifier said `yes` to, the
 // same way; a call from a channel the persona cannot write in, routed
@@ -27,14 +27,14 @@
 /**
  * @typedef {object} PendingPing
  * @property {string} channelId   the channel the call arrived in
- * @property {*} channel        the discord.js channel object the call arrived in
+ * @property {*} channel        the conversation the call arrived in
  * @property {object} trigger   the normalized message that called the persona
  * @property {'mention'|'reply'|'name'|'private'|'followUp'|'overheard'} kind  `followUp` / `overheard`: an address-classifier
  *                              `yes` / `overheard` that found the attention taken (one of them per channel,
  *                              followUpSlot, pipeline.js#deferFollowUp)
  * @property {number} arrivedAt
  * @property {boolean} [decided] set on a re-queued server call whose ignore roll already said respond
- * @property {*} [destination]  a routed call only: the discord.js channel its turn posts in (the
+ * @property {*} [destination]  a routed call only: the conversation its turn posts in (the
  *                              main channel), while `channelId` / `channel` stay its source
  * @property {string[]} [superseded]  a routed call only: the message ids of the calls of its source
  *                              its settle wait grouped with it, each once

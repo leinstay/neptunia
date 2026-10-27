@@ -22,7 +22,7 @@ const MIN_NAME_LETTERS = 3;
 const CODE_BLOCK_RE = /```[\s\S]*?```/g;
 const INLINE_CODE_RE = /`[^`\n]*`/g;
 const URL_RE = /(?:\b[a-z][a-z0-9+.-]*:\/\/|\bwww\.)\S+/giu;
-const DISCORD_TOKEN_RE = /<[^<>\s]+>/g;
+const INLINE_TOKEN_RE = /<[^<>\s]+>/g;
 const PING_RE = /@[\p{L}\p{N}_]+/gu;
 
 /** `halfLifeDays` when it is a positive number, else the default. */
@@ -178,7 +178,7 @@ export function addressCandidates(profiles) {
 
 /**
  * A message's text as counting reads it: folded (src/memory/recent.js#foldText), without code
- * blocks, inline code, URLs, Discord tokens (`<@id>`, `<:emoji:id>`, ...) and pings -- `@` and a
+ * blocks, inline code, URLs, inline tokens (`<@id>`, `<:emoji:id>`, ...) and pings -- `@` and a
  * known name (the longest first), then `@` and any word.
  */
 function countableText(content, foldedNames) {
@@ -187,7 +187,7 @@ function countableText(content, foldedNames) {
       .replace(CODE_BLOCK_RE, ' ')
       .replace(INLINE_CODE_RE, ' ')
       .replace(URL_RE, ' ')
-      .replace(DISCORD_TOKEN_RE, ' ')
+      .replace(INLINE_TOKEN_RE, ' ')
   );
   if (text.includes('@')) {
     for (const name of foldedNames) text = text.split(`@${name}`).join(' ');

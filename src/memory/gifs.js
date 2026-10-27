@@ -17,8 +17,8 @@
 // Shape: `{ nextId, entries: { [key]: { id, kind: 'link'|'attachment', url,
 // site?, name?, itemId, messageId, channelId, count, last, firstSeen,
 // ownLast?, ownUses? } }, backfill }`. `messageId`/`channelId` point at the latest message carrying
-// the GIF, so the poster can re-fetch an attachment's fresh CDN URL (Discord
-// attachment URLs expire).
+// the GIF, so the poster can re-fetch an attachment's fresh URL (an
+// attachment's address may expire).
 
 import { isPlainObject } from '../config.js';
 import { mediaParts } from '../media/classify.js';
@@ -120,13 +120,13 @@ export function normalizeGifs(value) {
 }
 
 /**
- * The GIFs of one normalized message (see interfaces/discord/collect.js), the
+ * The GIFs of one normalized message (src/protocol/events.js#Message), the
  * message's own first, then each forwarded snapshot's: every attachment of
- * kind `gif` (`key` = its Discord id) and every embed link of kind `gif`
- * (see src/media/classify.js#classifyEmbed; `key` = its item id,
- * `url` = the page link Discord embeds again when posted). Items without an
- * id or a URL are skipped, and so is a gif embed of a Discord CDN link (its
- * signed URL expires, so it could not be posted back). Every item carries the OUTER message's id and
+ * kind `gif` (`key` = its platform id) and every embed link of kind `gif`
+ * (`key` = its item id,
+ * `url` = the page link the platform embeds again when posted). Items without an
+ * id or a URL are skipped, and so is a gif embed of an expiring link (its
+ * signed URL lapses, so it could not be posted back). Every item carries the OUTER message's id and
  * channel, like src/media/classify.js#collectPictures.
  * @param {object} message
  * @returns {{ key: string, kind: 'link'|'attachment', url: string, site?: string, name?: string,

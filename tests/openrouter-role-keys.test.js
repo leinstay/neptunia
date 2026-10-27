@@ -24,7 +24,7 @@ function config(keyByRole) {
       maxRequestTokens: 1000,
       maxRequestsPerDay: 300,
       timeoutMs: 5000,
-      helperTimeoutMs: 5000,
+      analyzerTimeoutMs: 5000,
       retries: 0,
       keyByRole,
     },

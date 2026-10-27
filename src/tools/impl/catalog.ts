@@ -2,7 +2,7 @@
 // shows them. COMMAND_TABLE (the nineteen top-level entries, each leaf with
 // its options and its option -> args mapping), the choice lists the
 // operations share (model roles, status fields, journal kinds, ...), the
-// deferral rules (DEFERRED_OPS, DEFER_AFTER_MS) and the pure helpers over the
+// deferral rules (DEFERRED_OPS, DEFER_AFTER_MS) and the pure functions over the
 // tree. interfaces/discord/commands.js builds the Discord tree from it, registers it
 // and handles the interactions; src/tools/impl/ and src/tools/ read it directly.
 // No discord.js import here.
@@ -70,7 +70,7 @@ export const DEFERRED_OPS = Object.freeze(
 );
 
 /**
- * The core's model roles (src/llm/roles.js#CORE_ROLES: the core, then the helpers), each with the
+ * The core's model roles (src/llm/roles.js#CORE_ROLES: the core, then the model roles other than `core`), each with the
  * config path of its model (src/tools/impl/model.ts): the roles the status card probes; with the other
  * roles they make `MODEL_SET_PATHS`; every role choice list is derived from this one. `core` is
  * the one model that speaks as the persona: its replies. `embedding` serves the embeddings (src/llm/embed.js), which
@@ -86,7 +86,7 @@ export const MODEL_ROLES = Object.freeze(Object.keys(MODEL_ROLE_PATHS));
 /**
  * The roles whose model `/nep model show|set` lists and changes, each with the config path
  * `set` writes (`models.<group>.<role>`, src/llm/roles.js#ROLES): the base roles (the core, the
- * helpers, drawing), then the errand and development roles, which take no request of the bot
+ * other model roles, drawing), then the errand and development roles, which take no request of the bot
  * (OpenCode workers run them). Drawing (src/llm/images.js#IMAGE_ROLE) takes no chat completion.
  */
 export const MODEL_SET_PATHS = Object.freeze(

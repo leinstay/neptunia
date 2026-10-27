@@ -1,17 +1,17 @@
-// The model roles: every LLM request names the role it goes out on, and each role has its own
+// The model roles: every LLM request names the model role it goes out on, and each model role has its own
 // model with a built-in default (the same value config.json ships). The models sit in three
 // groups, matching the status card:
-// - `models.base.<role>`: her core and organs, the roles the bot's own requests go out on;
+// - `models.base.<role>`: her `core` and the other model roles, the model roles the bot's own requests go out on;
 // - `models.errands.<role>`: the delegated agents, each with its own OpenCode loop, async;
 // - `models.development.<role>`: the agents outside her, working on this repository.
-// A role never takes another role's model: an unset role is its own default, so changing one role
-// can never move another. `models.byPurpose` pins a single purpose (one helper, one kind of
-// request) to a model of its own whatever its role.
+// A model role never takes another model role's model: an unset model role is its own default, so
+// changing one model role can never move another. `models.byPurpose` pins a single purpose (one role
+// request, one kind of request) to a model of its own whatever its model role.
 // models.base
 // - `core`       speaks as the persona: the reply;
 // - `memory`     her memory session and description review (src/memory/db/session.js); its default
 //                is the core's, it is not listed by `/nep model`, and its key never falls back;
-// - `analyzer`   the core's helper model: picks one of a few given options (address, room,
+// - `analyzer`   the core's classifier model: picks one of a few given options (address, room,
 //                merge, route-channel, participation-pick, rewatch, split, gif-pick, missed),
 //                plans a search and turns sources into notes (lookup, planner, recall-summary,
 //                search-summary, read-link, diary-plan) and runs the persona's raw web search
@@ -28,18 +28,18 @@
 // models.development
 // - `thinker`, `dev`  the development agents (outside this repository): `thinker` picks up and
 //                steers the tasks, `dev` writes the code and the texts.
-// No request of the bot goes out on an errand or development role (OPENCODE_ROLES): they run on
+// No request of the bot goes out on an errand or development model role (OPENCODE_ROLES): they run on
 // OpenCode, not through the bot's OpenRouter client, and their models are OpenCode model ids
-// (`openrouter/<vendor>/<model>`), unlike the bare OpenRouter ids of the base roles.
+// (`openrouter/<vendor>/<model>`), unlike the bare OpenRouter ids of the base model roles.
 // Pure; every reader passes the live config read at the moment of use.
 
 import { isPlainObject } from '../config.js';
 
-/** The core: the one role that speaks and decides as the persona, its model under `models.base.core`. */
+/** The core: the one model role that speaks and decides as the persona, its model under `models.base.core`. */
 export const CORE_ROLE = 'core';
 
 /**
- * Her memory session and description review (src/memory/db/session.js): words in her voice, so the role sits beside
+ * Her memory session and description review (src/memory/db/session.js): words in her voice, so the model role sits beside
  * the core (`models.base.memory`, built-in default the core's), but it is not one of ROLES: `/nep model` does not list it.
  * Its key (`llm.keyByRole.memory`) never falls back to another key.
  */
@@ -48,28 +48,28 @@ export const MEMORY_ROLE = 'memory';
 /** The memory role's model while `models.base.memory` is unset: the core's built-in default, as config.json ships it. */
 export const MEMORY_ROLE_DEFAULT = 'anthropic/claude-opus-4.6';
 
-/** The helper roles, in display order. */
-export const HELPER_ROLES = Object.freeze(['analyzer', 'vision', 'video', 'embedding', 'speech']);
+/** The model roles other than `core` that a turn calls, in display order. */
+export const NON_CORE_ROLES = Object.freeze(['analyzer', 'vision', 'video', 'embedding', 'speech']);
 
-/** The roles the bot's chat and embedding requests go out on, in display order: the core, then the helpers. */
-export const CORE_ROLES = Object.freeze([CORE_ROLE, ...HELPER_ROLES]);
+/** The model roles the bot's chat and embedding requests go out on, in display order: the core, then the model roles other than `core`. */
+export const CORE_ROLES = Object.freeze([CORE_ROLE, ...NON_CORE_ROLES]);
 
-/** The base roles, in display order: the core, the helpers, then drawing. Their models sit under `models.base`. */
+/** The base model roles, in display order: the core, NON_CORE_ROLES, then drawing. Their models sit under `models.base`. */
 export const BASE_ROLES = Object.freeze([...CORE_ROLES, 'drawing']);
 
-/** The errand roles: their models sit under `models.errands`. */
+/** The errand model roles: their models sit under `models.errands`. */
 export const ERRAND_ROLES = Object.freeze(['scout', 'server']);
 
-/** The development roles: their models sit under `models.development`. */
+/** The development model roles: their models sit under `models.development`. */
 export const DEVELOPMENT_ROLES = Object.freeze(['thinker', 'dev']);
 
-/** The roles whose model an OpenCode worker runs on, never the bot's own client. */
+/** The model roles whose model an OpenCode worker runs on, never the bot's own client. */
 export const OPENCODE_ROLES = Object.freeze([...ERRAND_ROLES, ...DEVELOPMENT_ROLES]);
 
-/** The roles, in display order (`/nep model`, the status card). */
+/** The model roles, in display order (`/nep model`, the status card). */
 export const ROLES = Object.freeze([...BASE_ROLES, ...OPENCODE_ROLES]);
 
-/** Each role's model while its key is unset: config.json's values. */
+/** Each model role's model while its key is unset: config.json's values. */
 export const ROLE_DEFAULTS = Object.freeze({
   core: 'anthropic/claude-opus-4.6',
   analyzer: 'openai/gpt-6.1-sol',
@@ -85,8 +85,8 @@ export const ROLE_DEFAULTS = Object.freeze({
 });
 
 /**
- * The group of `models` a role's model sits in: `base`, `errands` or `development`, undefined for
- * a name that is not a role.
+ * The group of `models` a model role's model sits in: `base`, `errands` or `development`, undefined for
+ * a name that is not a model role.
  * @param {unknown} role
  * @returns {'base'|'errands'|'development'|undefined}
  */
@@ -98,8 +98,8 @@ export function roleGroup(role) {
 }
 
 /**
- * The config keys of a role's model (`['models', 'base', 'vision']`, `['models', 'errands', 'scout']`),
- * undefined for a name that is not a role.
+ * The config keys of a model role's model (`['models', 'base', 'vision']`, `['models', 'errands', 'scout']`),
+ * undefined for a name that is not a model role.
  * @param {unknown} role
  * @returns {string[]|undefined}
  */
@@ -109,9 +109,9 @@ export function roleConfigKeys(role) {
 }
 
 /**
- * The role each named purpose goes out on (the `purpose` of a request, logged on its
+ * The model role each named purpose goes out on (the `purpose` of a request, logged on its
  * `llm: usage` line and the key of a `models.byPurpose` entry). Requests with no purpose of their
- * own (a video, an index embedding, a drawing) are not listed: they are named by their role alone.
+ * own (a video, an index embedding, a drawing) are not listed: they are named by their model role alone.
  */
 export const PURPOSE_ROLES = Object.freeze({
   reply: 'core',
@@ -140,8 +140,8 @@ export const PURPOSE_ROLES = Object.freeze({
 });
 
 /**
- * The purposes of the role `memory` (her memory session and description review, src/memory/db/session.js and
- * describe.js): not in PURPOSE_ROLES, as that role is not one of ROLES.
+ * The purposes of the model role `memory` (her memory session and description review, src/memory/db/session.js and
+ * describe.js): not in PURPOSE_ROLES, as that model role is not one of ROLES.
  */
 export const MEMORY_PURPOSES = Object.freeze(['memory-session', 'description-draft', 'description-check']);
 
@@ -157,8 +157,8 @@ export function isRole(role) {
 /**
  * The model of one request, the one resolver every caller goes through: the
  * `models.byPurpose` entry for `purpose` when it is a non-empty string (an own key of a
- * plain object), else the role's own key (`models.<group>.<role>`) when it is a non-empty string,
- * else the role's own default (ROLE_DEFAULTS). Never another role's model. `undefined` only for a
+ * plain object), else the model role's own key (`models.<group>.<role>`) when it is a non-empty string,
+ * else the model role's own default (ROLE_DEFAULTS). Never another model role's model. `undefined` only for a
  * `role` that is not one of ROLES and no `byPurpose` entry.
  * @param {object|undefined} config  The whole live config, read at the moment of use.
  * @param {string} role

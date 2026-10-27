@@ -16,8 +16,8 @@
 // (the describe prompt may learn the cap through `{{maxChars}}`).
 //
 // The picture is downloaded first (src/media/fetch-image.js) and sent to
-// the model as a data: URL, never as a bare Discord URL -- the provider's own
-// fetcher gets a 403 from Discord on some CDN hosts even though our server
+// the model as a data: URL, never as a bare platform URL -- a platform's media host may refuse
+// the provider's own fetcher even though our server
 // fetches the same URL fine (see src/behavior/turn.js for the live-vision
 // side of the same fix). A failed download costs nothing and is cached as a
 // miss exactly like a failed LLM request.
@@ -131,7 +131,7 @@ import { createVideoFetcher } from '../media/fetch-video.js';
 import { audioMapSettings, videoAudioNote, withAudioNote } from '../media/audio-map.js';
 import { isDirectUrlSite, proxyFor, publicVideoUrl, safeLocation, youtubeVideoId } from '../media/video-sites.js';
 import {
-  helperRequestOptions,
+  roleRequestOptions,
   railReason,
   VIDEO_TOKENS_PER_SECOND_FALLBACK as STATIC_TOKENS_PER_SECOND_FALLBACK,
 } from '../llm/openrouter.js';
@@ -650,12 +650,12 @@ export function createDescriber({
           },
           { role: 'user', content: [{ type: 'image_url', image_url: { url: downloaded.dataUrl } }] },
         ],
-        // An in-turn helper (llm.helperTimeoutMs, counted, never calibrated: the
+        // An in-turn `vision` request (llm.analyzerTimeoutMs, counted, never calibrated: the
         // rail estimates the picture at a flat context.vision.tokensPerImage while
         // the vision model counts far more).
         {
           model,
-          ...helperRequestOptions(hot.config, {
+          ...roleRequestOptions(hot.config, {
             role: 'vision',
             maxOutputTokens: mediaCfg.maxOutputTokens,
             purpose: 'describe',
@@ -1570,7 +1570,7 @@ export function createDescriber({
    * The second look at a picture on a question (features.imageRelook, a missing
    * key counts as on): download `item` the way a caption does (pictureImageUrl,
    * `context.vision.maxBytes`) and ask the
-   * media model (`vision`, a helper request, `purpose: 'relook'`,
+   * media model (`vision`, a request on a model role other than `core`, `purpose: 'relook'`,
    * output capped at `media.video.rewatch.maxOutputTokens`) `question`: the
    * `rewatch-answer` prompt is the system message (`{{maxChars}}` =
    * `media.video.rewatch.answerChars`; a `{{question}}` still in it is filled
@@ -1663,7 +1663,7 @@ export function createDescriber({
         ],
         {
           model: roleModel(hot.config, 'vision', 'relook'),
-          ...helperRequestOptions(hot.config, {
+          ...roleRequestOptions(hot.config, {
             role: 'vision',
             maxOutputTokens: rewatchCfg.maxOutputTokens,
             purpose: 'relook',

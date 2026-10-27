@@ -407,3 +407,23 @@ test('prints each dropped key as `<path> dropped (no reader)` on a dry run and r
   assert.equal(applied.code, 0);
   assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { bot: { owners: ['o1'] } });
 });
+
+// ---- the analyzer timeout ------------------------------------------------------------------------------------
+
+test('writes llm.helperTimeoutMs as llm.analyzerTimeoutMs and keeps the other llm settings', () => {
+  const { config, moved } = moveConfigKeys({ llm: { helperTimeoutMs: 12000, timeoutMs: 300000 } });
+  assert.deepEqual(config, { llm: { analyzerTimeoutMs: 12000, timeoutMs: 300000 } });
+  assert.deepEqual(moved, [{ from: 'llm.helperTimeoutMs', to: 'llm.analyzerTimeoutMs' }]);
+});
+
+test('lets llm.analyzerTimeoutMs win over llm.helperTimeoutMs and reports the old key as shadowed', () => {
+  const { config, shadowed } = moveConfigKeys({ llm: { helperTimeoutMs: 12000, analyzerTimeoutMs: 9000 } });
+  assert.deepEqual(config, { llm: { analyzerTimeoutMs: 9000 } });
+  assert.deepEqual(shadowed, [{ from: 'llm.helperTimeoutMs', to: 'llm.analyzerTimeoutMs' }]);
+});
+
+test('reads an old llm.helperTimeoutMs of the local file as the analyzer timeout at load', async () => {
+  const root = deployment({ llm: { helperTimeoutMs: 4321 } });
+  const { result } = await withCapturedLogs(() => readConfig(root, { privateDir: root }) as Settings);
+  assert.deepEqual(result.llm, { analyzerTimeoutMs: 4321 });
+});

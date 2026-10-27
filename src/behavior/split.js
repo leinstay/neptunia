@@ -28,7 +28,7 @@ const SPLIT_KINDS = new Set(['mention', 'reply', 'name', 'followUp', 'private'])
 // semicolons and commas (their full-width forms too). A run of them, with the spaces between,
 // counts once.
 const SEPARATOR_RUN = /[.!?…;,\n。！？；，、][.!?…;,。！？；，、\s]*/gu;
-// Links and Discord tokens (<@id>, <#id>, <:name:id>, <t:ts:R>) carry dots and commas that separate nothing.
+// Links and inline tokens (<@id>, <#id>, <:name:id>, <t:ts:R>) carry dots and commas that separate nothing.
 const NOT_TEXT = /https?:\/\/\S+|<[^<>\s]+>/gu;
 
 /**
@@ -57,7 +57,7 @@ export function splitSettings(config) {
   };
 }
 
-// The length of `text` as the split rails count it: code points, links and Discord tokens left out.
+// The length of `text` as the split rails count it: code points, links and inline tokens left out.
 function plainText(text) {
   return String(text ?? '')
     .replace(NOT_TEXT, ' ')
@@ -66,7 +66,7 @@ function plainText(text) {
 
 /**
  * Whether `text` is long enough and structured enough to hold several
- * requests: links and Discord tokens left out, at least `minChars` code
+ * requests: links and inline tokens left out, at least `minChars` code
  * points and at least two runs of separators (SEPARATOR_RUN). Pure.
  * @param {unknown} text
  * @param {number} minChars
@@ -99,7 +99,7 @@ export function splitCandidate(trigger, triggerKind, config) {
 
 /**
  * `parts` with every part shorter than `minPartChars` (counted like
- * mayHaveParts: code points, links and Discord tokens left out) folded into a
+ * mayHaveParts: code points, links and inline tokens left out) folded into a
  * neighbour: joined to the next part (`<short> <next>`), or, for the last
  * part, to the previous one (`<previous> <short>`). Repeats until every part
  * left meets the minimum or one part is left. `minPartChars` 0 (or not a

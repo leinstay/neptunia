@@ -24,7 +24,7 @@ export function estimateTokens(text) {
 /**
  * Raw estimate for a chat-completions `messages` array. Image parts are
  * charged a flat `tokensPerImage` each (400 when null or unset, config.json's
- * `context.vision.tokensPerImage`; only helper requests carry them, the
+ * `context.vision.tokensPerImage`; only requests on a model role other than `core` carry them, the
  * describer's and the avatar queue's: the persona's own never does). A
  * `video_url` part is charged 0: its cost depends on the clip's length, which
  * the caller passes to the client as `videoSeconds` (see src/llm/openrouter.js).

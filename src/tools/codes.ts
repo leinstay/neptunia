@@ -253,7 +253,7 @@ export const FEATURE: Readonly<Record<string, string>> = Object.freeze({ web: 'w
 
 const HTTP_CODE_RE = /^http-(\d{3})$/;
 
-/** The code of an HTTP answer: `http-<status>` (a port's, Discord's refusals); normalised to `http` + `{status}` by {@link normalCode}. */
+/** The code of an HTTP answer: `http-<status>` (a port's, a platform's refusals); normalised to `http` + `{status}` by {@link normalCode}. */
 export const httpCode = (status: unknown): string => `http-${idText(status)}`;
 
 /**

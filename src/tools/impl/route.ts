@@ -25,7 +25,7 @@ import { CODE } from '../codes.ts';
 import { isObj, objOf, textOf } from '../types.ts';
 import type { Obj, Untyped } from '../types.ts';
 
-/** The `byok` option of `/nep route set`: `'true'` or `'false'` (the Discord choices), or the
+/** The `byok` option of `/nep route set`: `'true'` or `'false'` (the command's choices), or the
  * boolean a persona's call carries; absent (undefined or null) is false; anything else is refused. */
 function routeByokArg(args: Obj): boolean {
   const value = args.byok;

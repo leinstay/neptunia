@@ -22,7 +22,7 @@ import {
 import { createHash } from 'node:crypto';
 import {
   createLlm,
-  helperRequestOptions,
+  roleRequestOptions,
   TokenLimitError,
   DailyCapError,
   VIDEO_TOKENS_PER_SECOND_FALLBACK,
@@ -439,7 +439,7 @@ test('describe: an emoji item is downloaded as-is, never through the media proxy
   assert.equal(imageFetcher.calls[0].url, 'https://cdn.discordapp.com/emojis/e1.webp?size=96');
 });
 
-test('describe: a helper request -- llm.helperTimeoutMs, never llm.timeoutMs, counted, purpose describe', async () => {
+test('describe: a helper request -- llm.analyzerTimeoutMs, never llm.timeoutMs, counted, purpose describe', async () => {
   const run = async (llmCfg) => {
     const llm = fakeLlm({ text: 'a cat' });
     const describer = createDescriber({
@@ -451,14 +451,14 @@ test('describe: a helper request -- llm.helperTimeoutMs, never llm.timeoutMs, co
     await describer.describe('g1', pictureItem('a1'));
     return llm.calls[0].options;
   };
-  const tuned = await run({ timeoutMs: 90000, helperTimeoutMs: 12345 });
+  const tuned = await run({ timeoutMs: 90000, analyzerTimeoutMs: 12345 });
   assert.equal(tuned.timeoutMs, 12345);
   assert.equal(tuned.countAgainstDailyCap, true);
   assert.equal(tuned.purpose, 'describe');
   assert.equal(tuned.role, 'vision');
   assert.equal(tuned.maxOutputTokens, 120);
   const unset = await run({ timeoutMs: 90000 });
-  assert.equal(unset.timeoutMs, helperRequestOptions({}).timeoutMs, 'the helper fallback, not the reply timeout');
+  assert.equal(unset.timeoutMs, roleRequestOptions({}).timeoutMs, 'the helper fallback, not the reply timeout');
 });
 
 test('describe: the picture model is models.base.vision; the deprecated media.model is ignored', async () => {

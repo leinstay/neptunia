@@ -2669,7 +2669,7 @@ export function createStore({
     },
 
     /**
-     * Record one observed message in a channel: Discord facts (name, category,
+     * Record one observed message in a channel: the platform's facts (name, category,
      * topic), counters and the per-day activity histogram. Creates the entry.
      * `authorId` (the message's author, omitted for the persona's own
      * messages and other bots -- see src/memory/update.js#touchMemory) is
@@ -2713,7 +2713,7 @@ export function createStore({
     /**
      * Merge analyzer-extracted fields into a channel entry. Only `purpose`,
      * `topics`, `tone` travel through here — everything else (counters,
-     * Discord facts) is stripped, mirroring `updateUser`. Stamps `updatedAt`
+     * the platform's facts) is stripped, mirroring `updateUser`. Stamps `updatedAt`
      * only when one of them actually changes: an identical re-send is left
      * alone. Nothing else stamps a channel's `updatedAt`, so it is the notes'
      * own stamp. Each field loses its links first (`withoutLinks`:

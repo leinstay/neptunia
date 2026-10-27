@@ -66,7 +66,7 @@ export type Permissions = { read: boolean; send: boolean; attach: boolean; react
 
 /**
  * Who can see a conversation, in the shape the audience rail compares (src/behavior/elsewhere.ts#audienceCovers):
- * `groups` are the member groups of the platform (Discord's roles), as ids. The sets of the rail are arrays on the wire.
+ * `groups` are the member groups of the platform (the roles of a community), as ids. The sets of the rail are arrays on the wire.
  * `everyone`: all members of the community can view it. `groups`: the groups that can view it, each on its own.
  * `groupAllow`, `groupDeny`: the groups whose own rule allows or denies viewing. `memberAllow`, `memberDeny`: the
  * members with a rule of their own. `memberGroups`: the groups of each member a rule names, where known.

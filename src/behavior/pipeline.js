@@ -1,7 +1,7 @@
-// The message pipeline: turns the `message.received` event of a discord.js
-// `messageCreate` (src/protocol/, built by interfaces/discord/collect.js#toEvent)
+// The message pipeline: turns the `message.received` event of a platform's
+// new message (src/protocol/, built by the interface's adapter)
 // into one of a handful of outcomes (ignore, observe into memory, let the spontaneous
-// scheduler eavesdrop, or run a turn) without ever throwing into discord.js.
+// scheduler eavesdrop, or run a turn) without ever throwing into the interface.
 // A direct message goes through the private-chat gate instead
 // (features.privateMessages, src/behavior/private.js). A turn someone asked
 // for that a rail refused gets one plain limit notice (src/behavior/limits.js);
@@ -11,8 +11,8 @@
 // remark the persona chose to make about it (a noticed comment). A line put
 // to the whole room may get a higher chance of an unprompted answer
 // (spontaneous.roomQuestionChance, the room classifier).
-// Owner commands are a separate pipeline entirely (interfaces/discord/commands.js,
-// driven by `interactionCreate`, not `messageCreate`). It reads the events an interface delivers
+// Owner commands are a separate pipeline entirely (the interface's command handler,
+// driven by a command, not a message). It reads the events an interface delivers
 // and nothing else: what it needs to know about a conversation (its permissions, its newest
 // messages, a message by id, a member) it asks the interface through the core's `reads`
 // (src/interface/reads.ts), and a conversation is the info the interface gave of it.
@@ -37,7 +37,7 @@ import {
   isTaggedCall,
   roomPreFilter,
 } from './mention.js';
-import { helperRequestOptions, railReason } from '../llm/openrouter.js';
+import { roleRequestOptions, railReason } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { fill, formatTranscript, renderTranscript } from '../format.js';
@@ -174,10 +174,10 @@ function missingReason(missing) {
 
 /**
  * The media of `normalized` the message as it was did not carry yet (`known`: the item ids of every
- * attachment and link of the earlier copy and its forwarded snapshots): what an embed Discord
+ * attachment and link of the earlier copy and its forwarded snapshots): what an embed the platform
  * attached after the message arrived brought. Stickers and custom emoji always come with the
  * message itself, so none is late. Pure; never mutates `normalized`.
- * @param {object} normalized  A normalized message (interfaces/discord/collect.js#normalizeMessage).
+ * @param {object} normalized  A normalized message (src/protocol/events.js#Message).
  * @param {Set<string>} known
  * @returns {object} `normalized` with only the late attachments and links in each part.
  */
@@ -275,7 +275,7 @@ function mediaIdsOf(message) {
  *   drops every queued ping and every settle wait without answering any of them. And a `.stop()`
  *   method (shutdown, src/index.js) that clears every settle wait, so none starts a turn while the
  *   client goes down. And an `.onMessageUpdate(event)` method (src/index.js wires it to
- *   `messageUpdate` through an edit event) that records an edit and counts an embed Discord attached
+ *   `messageUpdate` through an edit event) that records an edit and counts an embed the platform attached
  *   after the message arrived -- see onMessageUpdate below. And an
  *   `.onMessageDelete(event)` method (src/index.js wires it to `messageDelete` through a
  *   deletion event) that writes a `deleted` line to the record. And a `.catchUp(event, { trigger })`
@@ -379,7 +379,7 @@ export function createMessageHandler({
 
   /**
    * Whether a turn blocks a new one in `channelId` (config read by the caller
-   * now): with one attention (mention.oneAtATime, default on) a turn running
+   * now): with one turn at a time (mention.oneAtATime, default on) a turn running
    * anywhere, otherwise one running in this channel -- the rule runTurn applies.
    */
   function turnBlocked(channelId, config) {
@@ -975,10 +975,10 @@ export function createMessageHandler({
           ],
           {
             model,
-            // A helper's request: on llm.helperTimeoutMs, never the turn-length llm.timeoutMs, and
+            // An `analyzer` request: on llm.analyzerTimeoutMs, never the turn-length llm.timeoutMs, and
             // hedged (llm.hedge) -- while this call is in flight it holds the channel's follow-up
             // slot, and every untagged line there is only held.
-            ...helperRequestOptions(config, {
+            ...roleRequestOptions(config, {
               role: 'analyzer',
               maxOutputTokens: mentionCfg.followUpMaxOutputTokens,
               purpose: 'address',
@@ -1144,9 +1144,9 @@ export function createMessageHandler({
 
   /**
    * One room classifier call for `normalized` in `channel`: the request from
-   * buildClassifierRequest with `prompt` (room.md), sent with the helper
+   * buildClassifierRequest with `prompt` (room.md), sent with the `analyzer` request
    * request options (role analyzer, mention.followUpMaxOutputTokens, the
-   * daily cap, llm.helperTimeoutMs, purpose `room`). Resolves to `'yes'` or
+   * daily cap, llm.analyzerTimeoutMs, purpose `room`). Resolves to `'yes'` or
    * `'no'` (`room: verdict`; the first word, read as the address
    * classifier's answer is: anything but a yes is a no), or null when no
    * verdict came: a request that could not be built (`room: skipped`,
@@ -1187,7 +1187,7 @@ export function createMessageHandler({
         ],
         {
           model,
-          ...helperRequestOptions(config, {
+          ...roleRequestOptions(config, {
             role: 'analyzer',
             maxOutputTokens: config.mention?.followUpMaxOutputTokens,
             purpose: 'room',
@@ -1224,7 +1224,7 @@ export function createMessageHandler({
   /**
    * Post the limit notice in `channel` (src/behavior/limits.js#postLimitNotice:
    * labels, dry-run and the mirror read now). A follow-up's notice is never a
-   * Discord reply, like the follow-up turn itself; nor is one posted `plain`
+   * platform reply, like the follow-up turn itself; nor is one posted `plain`
    * (a routed call's, whose trigger lives in another channel). Never throws.
    * @param {TriggerKind} triggerKind
    * @param {{ plain?: boolean }} [options]
@@ -1269,7 +1269,7 @@ export function createMessageHandler({
    * After the reply turn of a server call, the live path and the drain alike:
    * a rail refusal gets its limit notice (announceRefusal). A routed call
    * (`destination`: the channel its turn posted in) gets it there, as a plain
-   * message -- never a Discord reply to a message of another channel -- and its
+   * message -- never a platform reply to a message of another channel -- and its
    * ring entry follows the outcome (markRoutedCall).
    * @param {object} channel  Where the call was written.
    * @param {object} trigger
@@ -1450,7 +1450,7 @@ export function createMessageHandler({
 
   // --- Pending direct pings ---------------------------------------------------
   // A @mention, a reply to the persona or her name that arrives while a turn is running
-  // in its own channel (mention.pendingSameChannel) or, with one attention
+  // in its own channel (mention.pendingSameChannel) or, with one turn at a time
   // (mention.oneAtATime), in another channel is remembered here instead of
   // dropped, and answered once the turn frees up -- every one of them, in
   // arrival order (src/behavior/pending.js), unless the turn that spoke there
@@ -1677,9 +1677,9 @@ export function createMessageHandler({
 
   /**
    * Remember a direct ping (mention/reply/name/private message) that arrived while
-   * a turn is running in its own channel or, with one attention, elsewhere --
+   * a turn is running in its own channel or, with one turn at a time, elsewhere --
    * or a routed call (`destination`: the channel its turn posts in) while a
-   * turn runs there or, with one attention, anywhere. Every call waits, in
+   * turn runs there or, with one turn at a time, anywhere. Every call waits, in
    * arrival order (`arrivedAt`, default now): none replaces another, of its
    * channel or of its author; a routed call carries the calls its settle wait
    * took the place of (src/behavior/pending.js `superseded`). At most
@@ -1800,7 +1800,7 @@ export function createMessageHandler({
    * One merge classifier call: is `trigger` (a call of an author with `items`
    * waiting) about one of them? System = prompts.merge with `{{name}}`; user
    * = `<waiting>` (the items as `<n>. <text>` lines from 1) then
-   * `<candidate>` (`<author>: <text>`). A helper's request (role analyzer,
+   * `<candidate>` (`<author>: <text>`). An `analyzer` request (
    * mention.followUpMaxOutputTokens, purpose `merge`). Resolves the item's
    * 1-based index (`merge: verdict`, `answer: 'item'`), or null for `new`
    * (`answer: 'new'`) and for every other outcome, logged as `merge: failed`
@@ -1832,7 +1832,7 @@ export function createMessageHandler({
         ],
         {
           model: roleModel(config, 'analyzer', 'merge'),
-          ...helperRequestOptions(config, {
+          ...roleRequestOptions(config, {
             role: 'analyzer',
             maxOutputTokens: config.mention?.followUpMaxOutputTokens,
             purpose: 'merge',
@@ -2160,7 +2160,7 @@ export function createMessageHandler({
    *  - a turn is running in that channel (mention.pendingSameChannel, default
    *    on, regardless of mention.oneAtATime) -- that turn may already have
    *    fetched its history without this message;
-   *  - one attention (mention.oneAtATime, default on): a turn is running in
+   *  - one turn at a time (mention.oneAtATime, default on): a turn is running in
    *    another channel.
    * A direct call is held through holdCall: queued, or folded into an item
    * its author already waits for there (the merge classifier).
@@ -2243,7 +2243,7 @@ export function createMessageHandler({
   // src/behavior/turn.js#routeFor), the
   // call is recorded in the ring (state.json `elsewherePings`: ids and a time,
   // no author, no text) and a settle wait is armed for the source: one timer
-  // per source, never a busy mark, so the one attention stays free while it
+  // per source, never a busy mark, so the attention stays free while it
   // waits. Every message observed in the source moves the wait
   // (elsewhere.settleSeconds after the last one, at most
   // elsewhere.settleMaxSeconds after the call that armed it); a newer call
@@ -2564,7 +2564,7 @@ export function createMessageHandler({
       if (observing) await observing;
     }
 
-    // One attention: busy anywhere (or, with oneAtATime off, in this very
+    // One turn at a time: busy anywhere (or, with oneAtATime off, in this very
     // chat) -> pending, answered by drainPending once the turn frees up.
     if (turnBlocked(channel.id, config)) {
       holdCall(channel, normalized, 'private');
@@ -2774,7 +2774,7 @@ export function createMessageHandler({
 
       // 2. DMs: private chat (features.privateMessages, off by default) --
       // see onPrivateMessage. Owner commands are slash commands
-      // (interfaces/discord/commands.js, interactionCreate), never DMs.
+      // (the interface's command handler), never DMs.
       if (event.conversation.communityId === null) {
         if (catchUp) return 'ignored';
         await onPrivateMessage(event, config);
@@ -2782,7 +2782,7 @@ export function createMessageHandler({
       }
 
       // 3. This instance serves exactly one guild; no threads. Which channels
-      // it sees is Discord's permissions alone.
+      // it sees is the platform's permissions alone.
       if (event.conversation.communityId !== getGuildId()) return 'ignored';
       if (event.conversation.kind === 'thread') return 'ignored';
 
@@ -3036,7 +3036,7 @@ export function createMessageHandler({
   }
 
   /**
-   * A message of the served guild deleted on Discord (`messageDelete`) as a `deleted` line of
+   * A message of the served guild deleted on the platform as a `deleted` line of
    * the record, dated by the message's own creation time (`createdTimestamp`, which a partial
    * message has too; now when missing) so a window can place it; the envelope's `recordedAt`
    * keeps the deletion time. The message's recorded text stays (a deletion is not a forget
