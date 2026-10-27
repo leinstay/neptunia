@@ -116,6 +116,8 @@ Schema version 14 (`src/memory/db/schema.js`; migrations appended, never edited)
 | `skill_evaluations` | Tests, trials and outcome checks of skill versions (append-only) |
 | `index_policy` | The tier of each source line (`a`, `b`, `c`) and the touches that keep a vector alive (built, off by default) |
 | `operational` | State files kept verbatim (request dumps, buffers, queues) |
+| `ingest` | One row per event the core took from a client: the principal, its `seq`, the event id, kind and conversation, and when it was committed (schema v16). An event id and a `seq` are each unique within a principal |
+| `ingest_cursor` | The contiguous watermark of numbered events acknowledged to each principal (schema v16) |
 | `ledger_tasks` through `ledger_outbox` | Reserved tables for the task ledger (not used yet) |
 
 ### Structural
@@ -161,6 +163,8 @@ When a message comes in (live or through the start-up catch-up of the newest 50 
 The interface of every id the core builds comes from the event's `iface` (`src/memory/db/ids.ts` takes it as its first argument). A Discord event gives the strings stored since the first import (`person:discord:<id>`, `discord:channel:<id>`, `src:discord:<message>:<revision>:<kind>`, `discord/global`), and an event of the command line or the fake gives `person:cli:<id>`, `src:fake:<message>:...` and so on. The legacy record files and the migrations that read them name their namespace through `LEGACY_IFACE` in `src/memory/db/legacy-namespace.ts`. A member inside a stored text is the core's own token `<@id>` (`src/memory/mentions.ts`), whatever the interface, and a name written in the text is replaced with the current name when the text is shown.
 
 The audience comes from the place's conversation: `group` becomes `aud:group:<interface>`, `dm` becomes `aud:dm:<place>`. Anything else becomes `aud:internal`.
+
+The event door hands the observation the event's `ingest` row, and `observe()` writes it in the same transaction as the line, so the event and its line commit together before the interface gets its ack (see [Interfaces](interfaces.md#the-event-door)). `createIngestRecord` in `src/memory/db/ingest.ts` is the door's and the link's way to the record: it reads `ingest` and `ingest_cursor` on the read connection and writes through `memoryWrite`, with the kinds `ingest` and `ingest-ack`. While the database is not open a read finds nothing and a write is refused, so an event taken then is answered `failed`.
 
 ### 2. Her turn
 

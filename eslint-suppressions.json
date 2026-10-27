@@ -720,13 +720,13 @@
       "count": 238
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1481
+      "count": 1480
     },
     "@typescript-eslint/no-unsafe-call": {
       "count": 326
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 1873
+      "count": 1870
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 162
@@ -968,9 +968,6 @@
   },
   "src/interface/door.js": {
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 4
-    },
-    "@typescript-eslint/no-unsafe-call": {
       "count": 4
     },
     "@typescript-eslint/no-unsafe-member-access": {

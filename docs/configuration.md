@@ -12,10 +12,24 @@ By default everything sits in the checkout: `config.json`, `config/` and `prompt
 
 | Variable | Default | What lives there |
 |---|---|---|
-| `NEPTUNIA_PRIVATE_DIR` | the checkout | `.env`, `config.local.json`, `config.local/`, `prompts.local/` |
+| `NEPTUNIA_PRIVATE_DIR` | the checkout | `.env`, `config.local.json`, `config.local/`, `prompts.local/`, `clients.json`, `clients/` |
 | `NEPTUNIA_DATA_DIR` | `data/` in the checkout | everything the bot writes: `guilds/`, `state.json`, `usage.json`, `metrics.json`, caches |
 
 Set them in the process environment (for example `Environment=` in the systemd unit), not in `.env`: the bot reads `.env` from the private directory, so it needs to know that directory first. A relative path is resolved against the checkout. An edit to `config.local.json` or a file in `prompts.local/` inside the private directory still reloads live. The tools read the same two variables; `--data` overrides the data path. At start the bot logs the three resolved directories (`index: paths`). `deploy/neptunia-bot.service` shows the recommended layout.
+
+## Clients and their tokens
+
+`clients.json` in the private directory names every client that may connect to the core's socket, and `clients/<name>.token` holds each client's token. An entry has the client's `kind` (`interface`, `cli` or `plugin`), the `iface` an interface's events must carry, the `tokenFile` relative to the private directory, and `permissions`. The core reads both files at every envelope (`src/interface/principals.ts`), so a change applies at once and a rotated or revoked token closes that client's link. Without `clients.json` the core makes one token at start for the interface it runs in its own process, and nothing else connects. A `clients.json` that is not valid JSON lets no client in. See [Interfaces](interfaces.md#clients-and-principals).
+
+`tools/client-token.mjs` writes both files, at mode `0600`, in the private directory `NEPTUNIA_PRIVATE_DIR` names. It never prints a token.
+
+| Command | What it does |
+|---|---|
+| `node tools/client-token.mjs add <name> --kind <kind> [--iface <iface>] [--permission <p>]` | Makes a token and the client's entry. `--kind interface` needs `--iface`. `--permission` may repeat |
+| `node tools/client-token.mjs rotate <name>` | Writes a new token over the old one |
+| `node tools/client-token.mjs revoke <name>` | Removes the entry and the token file |
+
+The token file belongs to the user the client runs as: `chown` it after `add` and after `rotate`.
 
 ## Keys that moved
 
@@ -233,6 +247,7 @@ The memory database. One SQLite file, kept in sync with the stored memory. See [
 | `wakeRuns` | `false` | Record each inner turn as a wake run in the database |
 | `skillsRegistry` | `false` | At each open of the database, register every skill with the hash of its definition and manifest |
 | `observeTimeoutMs` | `5000` | How long the message handler waits for an observation's commit before going on |
+| `ingestKeepDays` | `7` | How many days the `ingest` table keeps an event the core took, the window in which a redelivered event is still a duplicate after a restart |
 | `backup.enabled` | `false` | Daily backup of the memory database. See the settings below |
 | `backup.hour` | `3` | The UTC hour (0 to 23) from which the day's backup is taken |
 | `backup.dir` | `"../backups/memory"` | Where the backups go, relative to the data directory or absolute |
