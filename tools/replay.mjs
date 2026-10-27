@@ -40,7 +40,7 @@
 //        [--snapshot <dir>] [--out <dir>] [--spend <usd>]
 //   cd /opt/neptunia/app && node tools/replay.mjs --show-request <turnId> [--steps] [--snapshot <dir>] [--before 40] [--as-of-moment]
 //   cd /opt/neptunia/app && node tools/replay.mjs --diary <selfPicture|picture> [--count 1] [--topic "<text>"]
-//        [--prompts <dir>] [--out <file>] [--spend <usd>]
+//        [--diary-own-history] [--prompts <dir>] [--out <file>] [--spend <usd>]
 //   cd /opt/neptunia/app && node tools/replay.mjs --skills <scenarios.json>
 //        [--prompts <dir> | --pair-prompts <dirA> <dirB>] [--out <dir>] [--before 40]
 //        [--as-of-moment] [--snapshot <dir>] [--dry] [--core-tools] [--transport native|text] [--spend <usd>]
@@ -295,56 +295,40 @@
 // directory given) that is a link -- a separate checkout linking to the live
 // layer -- is read through it and copied as files, never linked to or written.
 //
-// `--diary <kind>`: `--count` briefs (1..50) of one diary kind, each one
-// `runTurn({ guildId, mode: 'diary', diary: { kind, [topic], forced: false } })`
-// of the real turn runner (src/behavior/turn.js, wired as src/index.js wires
-// it) with no conversation, as the live diary runs it: the plan request on the
-// classifier model with the given kind the only one offered (as `/nep diary
-// post <kind>` does; `forced: false` keeps the compose request a scheduled
-// post's), then the compose request on the voice model. Not the sandbox: the
-// sandbox never builds a diary post (src/behavior/sandbox.js#SANDBOX_OMITS).
-// `--topic`: the owner's topic as `/nep diary post <kind> <topic>` threads it
-// (trimmed, blank is none, then src/behavior/diary.js#diaryTopic). What keeps
-// the bot and its memory untouched here: hot is seen with
-// `features.dryRun = true` and `bot.dryRunChannelId = ''` (the turn ends in
-// its dry-run branch: nothing acted, drawn, recorded or mirrored); every
-// Discord REST call but GET is refused and the channel's send / sendTyping
-// throw; the store is the real one with an in-memory copy of its state that
-// is never flushed (flush, forget, wipe and reload methods throw); the image
-// client keeps its quota and refuses to generate; in that in-memory state
-// only, today's diary picture and image counts read 0 so the picture gate
-// opens. Requests carry `origin: 'replay'` and never count against
-// `llm.maxRequestsPerDay`. Output: the briefs `[{ kind, plan, self, request,
-// messages, outcome }]` (request = the first `<draw>` scene text, self its
-// self flag, messages the post's `<msg>` texts after the diary's filters) to
-// `--out <file>` (rewritten after each brief; refused under data/) with a
-// summary on stdout, else on stdout. Exit code 1 when no brief drew.
+// `--diary <kind>`: `--count` briefs (1..50) of one diary kind, each one `runTurn({ guildId, mode: 'diary', diary: {
+// kind, [topic], forced: false } })` of the real turn runner (src/behavior/turn.js, wired as src/index.js wires it)
+// with no conversation, as the live diary runs it: the plan request on the classifier model with the given kind the
+// only one offered (as `/nep diary post <kind>` does; `forced: false` keeps the compose request a scheduled post's),
+// then the compose request on the voice model. `--diary-own-history` keeps, of a channel history the turn reads, only
+// the messages her diary entries posted as the data directory's memory names them: the code before the selfreflection
+// wake read its diary history from the channel, and so compares with her diary. Not the sandbox: the sandbox never
+// builds a diary post (src/behavior/sandbox.js#SANDBOX_OMITS). `--topic`: the owner's topic as `/nep diary post <kind>
+// <topic>` threads it (trimmed, blank is none, then src/behavior/diary.js#diaryTopic). What keeps the bot and its
+// memory untouched here: hot is seen with `features.dryRun = true` and `bot.dryRunChannelId = ''` (the turn ends in its
+// dry-run branch: nothing acted, drawn, recorded or mirrored); every Discord REST call but GET is refused; the store is
+// the real one with an in-memory copy of its state that is never flushed (flush, forget, wipe and reload methods
+// throw); the image client keeps its quota and refuses to generate; in that in-memory state only, today's diary picture
+// and image counts read 0 so the picture gate opens. Requests carry `origin: 'replay'` and never count against
+// `llm.maxRequestsPerDay`. Output: the briefs `[{ kind, plan, self, request, messages, outcome }]` (request = the first
+// `<draw>` scene text, self its self flag, messages the post's `<msg>` texts after the diary's filters) to `--out
+// <file>` (rewritten after each brief; refused under data/) with a summary on stdout, else on stdout. Exit code 1 when
+// no brief drew.
 //
-// `--diary-day`: one day of the diary as the live diary runs it
-// (src/behavior/diary.js#createDiary's tick), for the record of what it would
-// draw. The day plan: planDay for the local date `--date` (default today in
-// `bot.timezone`) at its local midnight, with no hunger carried in, on a random
-// stream seeded by `--seed` (default a fresh one, printed and kept in the
-// report): the same config, date and seed give the same slots
-// (tools/lib/diary-day.mjs#planDiaryDay). The turns draw from a second stream
-// of the same seed. Then, slot by slot in order, the clock of the turn runner
-// and the image client set to the slot (and running on from there), the diary's
-// own checks as the tick makes them (the day's posts under `diary.maxPerDay`,
-// else `skip` with reason `cap`), and `runTurn({ channel, mode: 'diary', diary:
-// { kind: null, forced: false } })` of the real turn runner in the diary
-// channel: the plan request, its search, the compose request, then the post
-// acted to the end -- the single picture or the set generated, as a live post
-// is -- into an in-memory interface port (src/interface/fake.js), never into
-// Discord. A post a slot made is kept in the in-memory diary and counters, so
-// the next slot sees it as the live diary would (not in the chat history, which
-// is fetched from Discord). What keeps the bot and its memory untouched: every
-// Discord REST call but GET is refused and the channel's send / sendTyping
-// throw; the turn's posts go to the in-memory port only; hot is seen with
-// `features.dryRun` off (the engine's dry-run branch generates no picture, the
-// very thing recorded here), `features.typingSimulation` off and
-// `bot.dryRunChannelId` empty; the store is the real one over an in-memory copy
-// of its state that is never flushed, with today's diary post, diary picture
-// and image counts at 0; no journal and no record are wired; requests carry
+// `--diary-day`: one day of the diary as the live diary runs it (src/behavior/diary.js#createDiary's tick), for the
+// record of what it would draw. The day plan: planDay for the local date `--date` (default today in `bot.timezone`) at
+// its local midnight, with no hunger carried in, on a random stream seeded by `--seed` (default a fresh one, printed
+// and kept in the report): the same config, date and seed give the same slots (tools/lib/diary-day.mjs#planDiaryDay).
+// The turns draw from a second stream of the same seed. Then, slot by slot in order, the clock of the turn runner and
+// the image client set to the slot (and running on from there), the diary's own checks as the tick makes them (the
+// day's posts under `diary.maxPerDay`, else `skip` with reason `cap`), and `runTurn({ guildId, mode: 'diary', diary: {
+// kind: null, forced: false } })` of the real turn runner with no conversation: the plan request, its search, the
+// compose request, the pictures generated, and the entry recorded, which the slot reports as what its publication would
+// send. A post a slot made is kept in the in-memory diary and counters, so the next slot sees it as the live diary
+// would. What keeps the bot and its memory untouched: every Discord REST call but GET is refused; the turn acts through
+// an in-memory interface port only (src/interface/fake.js); hot is seen with `features.dryRun` off (the engine's
+// dry-run branch generates no picture, the very thing recorded here), `features.typingSimulation` off and
+// `bot.dryRunChannelId` empty; the store is the real one over an in-memory copy of its state that is never flushed,
+// with today's diary post, diary picture and image counts at 0; no journal and no record are wired; requests carry
 // `origin: 'replay'` and never count against `llm.maxRequestsPerDay`.
 // `--draw fake` (the default): the image client is the real one
 // (src/llm/images.js#createImageGen, its caps and model check) over a fetch that
@@ -562,6 +546,7 @@ import {
   hiddenReads,
   identityOf,
   lazyRecallScope,
+  ownHistoryReads,
   recallScope,
   requesterOfChannel,
 } from './lib/platform-objects.ts';
@@ -581,7 +566,7 @@ const USAGE =
   '       node tools/replay.mjs <channelId> <triggerMessageId> --recall [--text "<candidate text>"] [--before <context.channelMessages - 1>] [--budget <ms>] [--show-request] [--spend <usd>]\n' +
   '       node tools/replay.mjs --pair <promptsDirA> <promptsDirB> (--triggers <file> | <channelId> <triggerMessageId>) [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
   '       node tools/replay.mjs --show-request <turnId> [--steps] [--snapshot <dir>] [--before 40] [--as-of-moment]\n' +
-  '       node tools/replay.mjs --diary <selfPicture|picture> [--count 1] [--topic "<text>"] [--prompts <dir>] [--out <file>] [--spend <usd>]\n' +
+  '       node tools/replay.mjs --diary <selfPicture|picture> [--count 1] [--topic "<text>"] [--diary-own-history] [--prompts <dir>] [--out <file>] [--spend <usd>]\n' +
   '       node tools/replay.mjs --skills <scenarios.json> [--prompts <dir> | --pair-prompts <dirA> <dirB>] [--out <dir>] [--before 40] [--as-of-moment] [--snapshot <dir>] [--dry] [--core-tools] [--transport native|text] [--spend <usd>]\n' +
   '       node tools/replay.mjs --pair-transport (--triggers <file> | <channelId> <triggerMessageId>) [--no-cache] [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
   '       node tools/replay.mjs --loop-triggers (--triggers <file> | <channelId> <triggerMessageId>) [--transport native|text] [--no-cache] [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
@@ -2310,6 +2295,9 @@ function refuseDiscordWrites(given) {
   };
 }
 
+/** `--diary-own-history`: reads keeping only her diary's messages in the history of its channel (ownHistoryReads). */
+const ownReadsOf = (args, dataDir) => (args.diaryOwnHistory ? ownHistoryReads(memoryFor(dataDir)) : null);
+
 /**
  * What a diary turn's entry would send (the turn itself sends nothing; its publication does): her messages, and how many
  * files go with them (the pictures and a voice message).
@@ -2482,7 +2470,9 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     const { guildId, self } = connection;
 
     // The engine, wired as src/index.js wires it.
-    const turns = diaryTurnRunner(mods, { hot, store, llm, calibrator, client, guildId, self, images, state });
+    const wrapReads = ownReadsOf(args, liveData);
+    const runner = { hot, store, llm, calibrator, client, guildId, self, images, state, wrapReads };
+    const turns = diaryTurnRunner(mods, runner);
     log.info('replay-cli: diary ready', {
       guildId,
       kind,
@@ -6883,7 +6873,9 @@ async function loopDepsOf({
  */
 export async function main(argv, { root = process.cwd(), signal, rng = Math.random } = {}) {
   const all = argv.includes('--answers-all');
-  const args = { ...parseArgs(argv.filter((arg) => arg !== '--answers-all')), answersAll: all };
+  const own = argv.includes('--diary-own-history');
+  const flags = argv.filter((arg) => arg !== '--answers-all' && arg !== '--diary-own-history');
+  const args = { ...parseArgs(flags), answersAll: all, diaryOwnHistory: own };
   if (args.answersDir === null) return runMain(args, { root, signal, rng, answers: null });
   // `--answers-dir`: Anthropic models are answered through files (tools/lib/answers-dir.mjs); `done` ends the run.
   const { estimateMessages } = await import(pathToFileURL(path.join(root, 'src', 'llm', 'tokens.js')).href);
