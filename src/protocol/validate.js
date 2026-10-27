@@ -399,7 +399,7 @@ function checkCommandResult(action) {
  * Whether `action` is a well-formed outbound action (actions.js): a known `action` name, a
  * target reference with string ids (a message's with its `messageId`), an object `content` for a
  * send or an edit, a string `emoji` for a reaction, for a message fetch the `messageIds`, and for a command
- * result its `replyRef` and `text`. An `idempotencyKey`, when present, is a non-empty string. What the content holds and whose the target is stay the adapter's checks. Never throws.
+ * result its `replyRef` and `text`. An `idempotencyKey`, when present, is a non-empty string, and a `deadlineAt` a finite number (ms since the epoch). What the content holds and whose the target is stay the adapter's checks. Never throws.
  * @param {unknown} action
  * @returns {{ ok: true } | { ok: false, reason: string }}
  */
@@ -410,6 +410,9 @@ export function validateAction(action) {
       problem: 'unknown',
     });
     need(action.idempotencyKey, 'idempotencyKey', isId, { required: false });
+    need(action.deadlineAt, 'deadlineAt', (value) => typeof value === 'number' && Number.isFinite(value), {
+      required: false,
+    });
     throwProblem(readActionProblem(action));
     switch (action.action) {
       case 'conversation.info':

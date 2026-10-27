@@ -17,8 +17,9 @@ export type MessageRef = {
 // `cause` is the platform's own error, kept for the logs and never shown to the model.
 export type PortError = { code: string; retryable: boolean; retryAfterMs: number | null; cause?: unknown };
 
+// `cancelled`: the caller's signal ended the send before it went to the interface, so nothing was posted.
 export type Delivery = {
-  status: 'ok' | 'failed' | 'unknown' | 'unsupported' | 'forbidden';
+  status: 'ok' | 'failed' | 'unknown' | 'unsupported' | 'forbidden' | 'cancelled';
   // The first part, for callers that track one message.
   ref: MessageRef | null;
   // Every platform message posted for this send.
@@ -55,7 +56,18 @@ export type Capabilities = {
   reads?: ReadonlyArray<string>;
   /** Absent or null: the platform gives a message no address. */
   messageUrl?: MessageUrlTemplate | null;
+  /** True when `fetchMessages` finds a send by its idempotency key (src/interface/reconcile.ts); absent: it cannot. */
+  reconcile?: boolean;
 };
+
+/**
+ * What a send carries beside its content: the key that names the effect (a repeat under the same key posts nothing
+ * new), the moment past which the interface must not start it (ms since the epoch), and a signal that cancels it.
+ */
+export type SendOptions = { idempotencyKey?: string; deadlineAt?: number; signal?: AbortSignal };
+
+/** A fetch by the key of a send: the messages the adapter posted under `idempotencyKey`, beside the ids asked for. */
+export type FetchOptions = { idempotencyKey?: string };
 
 /**
  * What a read answers: `{ status: 'ok', ...body }`, or a status and an error. A read never throws and never
@@ -174,13 +186,17 @@ export type FetchedMessages = ReadResult<{ messages: ReadonlyArray<FetchedMessag
 
 export type Adapter = {
   iface: string;
-  send(conversation: ConversationRef, content: Content): Promise<Delivery>;
+  send(conversation: ConversationRef, content: Content, options?: SendOptions): Promise<Delivery>;
   edit(message: MessageRef, content: Content): Promise<PortResult>;
   delete(message: MessageRef): Promise<PortResult>;
   react(message: MessageRef, emoji: string): Promise<PortResult>;
   unreact(message: MessageRef, emoji: string): Promise<PortResult>;
   typing(conversation: ConversationRef, lease: { untilMs: number }): Promise<PortResult>;
-  fetchMessages(conversation: ConversationRef, messageIds: ReadonlyArray<string>): Promise<FetchedMessages>;
+  fetchMessages(
+    conversation: ConversationRef,
+    messageIds: ReadonlyArray<string>,
+    options?: FetchOptions
+  ): Promise<FetchedMessages>;
   conversationInfo(
     conversation: ConversationRef,
     options?: { audience?: boolean; viewers?: ReadonlyArray<string> }

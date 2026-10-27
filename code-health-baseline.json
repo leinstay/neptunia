@@ -288,7 +288,7 @@
         "function-length": 469
       },
       "createTurnRunner>runTurnAttempt": {
-        "complexity": 375,
+        "complexity": 374,
         "function-length": 1865
       },
       "journalTurnRecord": {
@@ -457,7 +457,7 @@
         "complexity": 25
       },
       "placeOf": {
-        "complexity": 41
+        "complexity": 39
       },
       "writeObservation": {
         "complexity": 41
@@ -619,11 +619,6 @@
       },
       "createVectors>search": {
         "complexity": 35
-      }
-    },
-    "src/protocol/envelope.js": {
-      "validateEnvelope": {
-        "complexity": 25
       }
     },
     "src/tools/conversation-read.ts": {
