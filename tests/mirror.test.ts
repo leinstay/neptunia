@@ -16,7 +16,7 @@ import { issueContext } from '../src/memory/db/scope.ts';
 import { createTurnRunner } from '../src/behavior/turn.js';
 import { notOk } from '../src/protocol/actions.js';
 import { GUILD, NOW, sceneHot, sceneLlm, sceneRunner } from './fixtures/diary-requests.ts';
-import { diaryPublications, diaryRows, entryOf, seedMirror } from './fixtures/diary-mirror.ts';
+import { dbOf, diaryPublications, diaryRows, entryOf, seedMirror } from './fixtures/diary-mirror.ts';
 import { openTestMemory } from './fixtures/memory-db/service.js';
 import { call, toolAnswer } from './fixtures/tool-answers.js';
 import { freshWorld, onWorld, world } from './fixtures/turn-world.ts';
@@ -322,6 +322,58 @@ test('an entry with pictures and a voice queued before a restart goes out whole 
     [sent.map((message) => message.ref.messageId)],
     'the receipts name every message, the voice included'
   );
+});
+
+// Her diary is the truth (the owner, 2026-10-27): when the port names the attachments each message became, the
+// publication keeps them in its receipts and the entry's media rows take their attachment ids from there.
+test("a publication keeps the port's attachment ids in its receipts and on the entry's media rows", async () => {
+  const core = await scene({ mirrors: [{ conversationId: 'd1' }] });
+  const result = await setAndVoiceTurns(core.store).runTurn({
+    mode: 'diary',
+    diary: { kind: 'tour', forced: true },
+    guildId: GUILD,
+  });
+  await core.store.flushSettled({});
+  let made = 0;
+  // The port's answer to a send names each attachment by the platform's id, with the message that carries it.
+  const naming = {
+    iface: 'fake',
+    send: async (
+      conversation: { iface: string; conversationId: string },
+      content: { attachments?: Array<unknown> }
+    ) => {
+      const delivery = await world().port.send(conversation, content);
+      const messageId = delivery.ref?.messageId ?? '';
+      const attachments = (content.attachments ?? []).map(() => ({ messageId, attachmentId: `att-${(made += 1)}` }));
+      return { ...delivery, attachments };
+    },
+  };
+  const mirrors = createMirrors({
+    memoryDb: core.memory.memoryDb,
+    port: () => naming,
+    now: () => NOW,
+    dataDir: core.memory.dataDir,
+  });
+  await mirrors.publishEntry(entryOf(result));
+  const named = ['att-1', 'att-2', 'att-3'];
+  assert.equal(made, 3, 'the voice and the two pictures');
+  const [publication] = diaryPublications(core.memory.memoryDb);
+  assert.ok(publication, 'the entry was published');
+  assert.deepEqual(
+    named.filter((id) => publication.receiptKeys.includes(id)),
+    named,
+    'every attachment id is in the receipts'
+  );
+  const entry = entryOf(result);
+  const rows = dbOf(core.memory.memoryDb)
+    .prepare("SELECT native_ref FROM media WHERE kind = 'diary' AND owner = ? ORDER BY id")
+    .all(entry.id)
+    .map(
+      (row) =>
+        (JSON.parse(typeof row.native_ref === 'string' ? row.native_ref : '{}') as { attachmentId?: unknown })
+          .attachmentId
+    );
+  assert.deepEqual([...rows].sort(), named, "the entry's media rows carry the ids");
 });
 
 // ---- preparePublication and the mirror grant --------------------------------------------------------------------

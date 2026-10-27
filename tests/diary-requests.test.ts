@@ -8,8 +8,11 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { GUILD, sceneLlm, sceneMemory, sceneRunner, sceneWorld } from './fixtures/diary-requests.ts';
+import { GUILD, NOW, sceneLlm, sceneMemory, sceneRunner, sceneWorld } from './fixtures/diary-requests.ts';
 import type { SceneMemory } from './fixtures/diary-requests.ts';
+import { chatBlock, historyMemory, historyRunner, historyWorld } from './fixtures/diary-history.ts';
+import type { HistoryMemory } from './fixtures/diary-history.ts';
+import { createFakeAdapter } from '../src/interface/fake.js';
 
 const RECORDED_FILE = new URL('./fixtures/diary-requests.json', import.meta.url);
 
@@ -57,4 +60,47 @@ test('the writer request of a selfreflection wake is byte for byte the one the d
 test('with no enabled mirror the wake rebuilds the requests from the place the last entry was published to', async () => {
   const { plan, writer } = await wakeRequests({ mirror: false, published: true });
   assert.deepEqual({ plan, writer }, recorded());
+});
+
+// ---- her history is her diary --------------------------------------------------------------------------------------
+
+const HISTORY_FILE = new URL('./fixtures/diary-history.json', import.meta.url);
+
+/** The scenes of the history tests, closed when the file is done. */
+const HISTORIES: Array<HistoryMemory> = [];
+after(async () => {
+  for (const scene of HISTORIES.splice(0)) await scene.memory.close();
+});
+
+/** The writer's `<chat>` recorded on the code before the change, over her seven messages without Alice's line. */
+function recordedChat(): string {
+  const parsed: unknown = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf8'));
+  // This test's own fixture, written by the recording of the history scene.
+  return (parsed as { chat: string }).chat;
+}
+
+/** The writer's `<chat>` of the history scene's wake; `port` replaces the world's interface. */
+async function wakeChat(port: ReturnType<typeof createFakeAdapter> | null = null): Promise<string> {
+  const scene = await historyMemory();
+  HISTORIES.push(scene);
+  // The interface knows the diary channel with Alice's line in it: it is there, and it is not hers.
+  historyWorld({ history: true, alice: true });
+  const llm = sceneLlm();
+  const result = await historyRunner(llm, scene.store, port).runTurn({
+    mode: 'diary',
+    diary: { kind: null, forced: false },
+    guildId: GUILD,
+  });
+  assert.equal((result as { outcome?: unknown }).outcome, 'spoke', 'the scene records an entry');
+  return chatBlock(llm);
+}
+
+test("the wake's <chat> is her entries alone, the newest channelMessages of them, the picture described", async () => {
+  assert.equal(await wakeChat(), recordedChat());
+});
+
+test("with no interface connected the wake's <chat> is the same, because it comes from memory", async () => {
+  // An interface that answers no read and takes no action: what a turn has when nothing is connected.
+  const silent = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW, reads: [], operations: [] });
+  assert.equal(await wakeChat(silent), recordedChat());
 });
