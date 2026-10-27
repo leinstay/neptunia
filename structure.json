@@ -356,6 +356,62 @@
       "test": "required"
     },
     {
+      "path": "src/behavior/inner/settings.ts",
+      "purpose": "The inner life's settings: the wake kinds, the `innerLife` defaults and `innerSettings`. Tested through the inner life tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/behavior/inner/queue.ts",
+      "purpose": "The inner life's wake queue and its state file `inner.json`: the door's handler of `inner.wake`, the wakes an intention gives and how queued wakes coalesce. Tested through the inner life tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/behavior/inner/places.ts",
+      "purpose": "Her attention and the places view of the inner life: the place index, the attend wakes and the places page. Tested through the inner life tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/behavior/inner/review.ts",
+      "purpose": "The inner life's day review: its drawn moment and the channels she spoke in lately. Tested through the inner life tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/behavior/inner/heartbeat.ts",
+      "purpose": "The heartbeat's schedule: its timer, its wake, its facts and the log line of its outcome. Tested through the inner life and heartbeat tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/behavior/inner/drain.ts",
+      "purpose": "The inner life's drain: one inner turn for the queue's first group, its wake run, its retries and its feedback facts. Tested through the inner life and fault-injection tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/behavior/inner/facts.ts",
+      "purpose": "The inner life's facts: what did not go through in a turn, kept until a model answer carried them. Tested through the inner life and inner turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/behavior/inner/status.ts",
+      "purpose": "The owner's status of the inner life and its kill switch. Tested through the inner life and status tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/errands/",
       "purpose": "The errand service: the ledger, the store, the client to the runner and the turns that bring results back.",
       "layer": "public",
