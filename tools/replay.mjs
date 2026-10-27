@@ -299,9 +299,9 @@
 // kind, [topic], forced: false } })` of the real turn runner (src/behavior/turn.js, wired as src/index.js wires it)
 // with no conversation, as the live diary runs it: the plan request on the classifier model with the given kind the
 // only one offered (as `/nep diary post <kind>` does; `forced: false` keeps the compose request a scheduled post's),
-// then the compose request on the voice model. `--diary-own-history` keeps, of a channel history the turn reads, only
-// the messages her diary entries posted as the data directory's memory names them: the code before the selfreflection
-// wake read its diary history from the channel, and so compares with her diary. Not the sandbox: the sandbox never
+// then the compose request on the voice model. `--diary-own-history` keeps only her own messages in the history of a
+// channel her diary posted in, as the data directory's memory names it: the code before the selfreflection wake read
+// its diary history from the channel, and so compares with her diary. Not the sandbox: the sandbox never
 // builds a diary post (src/behavior/sandbox.js#SANDBOX_OMITS). `--topic`: the owner's topic as `/nep diary post <kind>
 // <topic>` threads it (trimmed, blank is none, then src/behavior/diary.js#diaryTopic). What keeps the bot and its
 // memory untouched here: hot is seen with `features.dryRun = true` and `bot.dryRunChannelId = ''` (the turn ends in its

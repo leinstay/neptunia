@@ -208,11 +208,11 @@ function diaryPosts(memoryDb: unknown): { messages: Set<string>; conversations: 
 const HISTORY_PAGE = 100;
 
 /**
- * A wrapper of `reads` whose history of a conversation her diary posted in keeps only the messages her diary entries
- * posted, as `memoryDb` names them (diaryPosts): a page as large as the platform gives, those messages of it, the newest
- * `query.limit` of them. Any other conversation reads as `reads` does. What a diary turn of the code before the
- * selfreflection wake would have read of her diary channel had it held her diary only (tools/replay.mjs
- * `--diary-own-history`).
+ * A wrapper of `reads` whose history of a conversation her diary posted in, as `memoryDb` names it (diaryPosts), keeps
+ * only her own messages: a page as large as the platform gives, hers of it, the newest `query.limit` of them. Schema
+ * v15's step makes every message of hers there part of an entry (src/memory/db/diary-past.ts), so this is what a diary
+ * turn of the code before the selfreflection wake would have read of her diary channel had it held her diary only
+ * (tools/replay.mjs `--diary-own-history`). Any other conversation reads as `reads` does.
  */
 export function ownHistoryReads(memoryDb: unknown): <T extends Reads>(reads: T) => T {
   const posted = diaryPosts(memoryDb);
@@ -229,9 +229,7 @@ function ownHistoryOf<T extends Reads>(
       if (!posted.conversations.has(String(ref.conversationId))) return reads.history(ref, query);
       const page = await reads.history(ref, { ...query, limit: Math.max(query.limit, HISTORY_PAGE) });
       if (page === null) return null;
-      const mine = page.events.filter(
-        (event) => event.message?.author?.self === true && posted.messages.has(String(event.message?.id))
-      );
+      const mine = page.events.filter((event) => event.message?.author?.self === true);
       return { ...page, events: mine.slice(-query.limit) };
     },
   };
