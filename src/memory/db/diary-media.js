@@ -1,9 +1,9 @@
 // The diary's own copy of what she posted (spec 2026-10-24-memory-store, section 9). `diary.json` holds only a gist
-// and the Discord message ids a post was sent as; the post's text and its pictures live in Discord. This job asks
+// and the message ids a post was sent as; the post's text and its pictures live on the platform. This job asks
 // the interface (port.fetchMessages) for those messages, stores the text in `diary.text`, downloads each image to
 // `data/media/diary/<diary id>-<n>.<ext>` and records it as a `media` row (kind diary, owner the diary id, the
-// scope of the diary row). The diary here is the one truth: a post whose messages Discord no longer has keeps what the
-// database holds (its gist), and its text is set empty so it is not asked for again. The Discord posts are mirrors;
+// scope of the diary row). The diary here is the one truth: a post whose messages the platform no longer has keeps what the
+// database holds (its gist), and its text is set empty so it is not asked for again. The posts on the platform are mirrors;
 // the files here are the core's copy. Other people's media are never fetched here (they stay references).
 //
 // One-shot and idempotent. `run()` handles every pending row (a live diary row with message ids and no text) once
@@ -240,7 +240,7 @@ export function createDiaryMedia({
     const byId = new Map(result.messages.map((message) => [message.messageId, message]));
     const present = row.messageIds.map((id) => byId.get(id)).filter((message) => message && !message.missing);
     if (present.length === 0) {
-      // Nothing of it is left in Discord: the database keeps what it has; an empty text marks it fetched.
+      // Nothing of it is left on the platform: the database keeps what it has; an empty text marks it fetched.
       await apply({ id: row.id, text: '', media: [] });
       return 'done';
     }

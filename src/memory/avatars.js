@@ -1,9 +1,8 @@
 // Avatar descriptions (features.avatars), the pure part: whether the stored description is of the
-// avatar a member shows now (Discord's asset hash, null for Discord's default avatar), and the
+// avatar a member shows now (the platform's asset hash, null for its default avatar), and the
 // stored field's shape. The member's current avatar lives in their profile as `avatar`:
 // `{ hash, text, describedAt }`, or `{ hash: null, default: true }` for the default avatar; a new
-// version replaces it, no history is kept. The hash comes from the interface with the event
-// (interfaces/discord/members.ts). The queue that describes them is src/memory/avatar-queue.js;
+// version replaces it, no history is kept. The hash comes from the interface with the event. The queue that describes them is src/memory/avatar-queue.js;
 // the `<people>` line is src/behavior/prompt.js's.
 
 import { isPlainObject } from '../config.js';

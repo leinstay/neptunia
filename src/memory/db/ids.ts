@@ -6,7 +6,7 @@
 //   - the legacy-shaped ids (`person:<iface>:<id>`, `<iface>:<id>`, `<iface>:channel:<id>`, `src:<iface>:...`): every
 //     builder takes the interface as its first argument, so `discord` gives the strings stored today and another
 //     interface its own namespace; `nativeOf` and the helpers below that read them are the one place an id is taken
-//     apart, and only for the legacy Discord spellings (src/memory/db/legacy-namespace.ts);
+//     apart, and only for the legacy spellings (src/memory/db/legacy-namespace.ts);
 //   - the new ids: `nodeId(kind, parts)` (`<kind>:<32 hex of SHA-256 over the canonical key>`) and `newPersonId()`
 //     (`person:<uuid>`). A new id is a stable spelling, never parsed: the tuple it hashes is stored in columns.
 // Schema v8 adds the relation target keys (`externalTargetKey`, `sourceTargetKey`) and `survivorOf` (merged people).
@@ -34,7 +34,7 @@ export const dmPlaceId = (iface: unknown, userId: unknown): string => `${text(if
 
 const LEGACY_NATIVE_RE = new RegExp(`^(?:person:${LEGACY_IFACE}:|${LEGACY_IFACE}:(?:guild:|channel:|dm:)?)(.+)$`);
 
-/** The native id inside a legacy person, account or place id (the Discord spellings); null when the id has another shape. */
+/** The native id inside a legacy person, account or place id (the legacy spellings); null when the id has another shape. */
 export function nativeOf(id: unknown): string | null {
   const match = LEGACY_NATIVE_RE.exec(String(id));
   return match ? (match[1] ?? null) : null;
@@ -193,7 +193,7 @@ export function survivorOf(db: unknown, person: unknown): string {
 }
 
 /**
- * The interface's native kind of the objects its legacy record lines name (`message` for Discord: `sources.native_id`
+ * The interface's native kind of the objects its legacy record lines name (`message` for the legacy namespace: `sources.native_id`
  * is a message id); null for any other interface (an observation names its own kind).
  */
 export const legacyNativeKind = (iface: unknown): 'message' | null => (iface === LEGACY_IFACE ? 'message' : null);
@@ -228,7 +228,7 @@ export function externalTargetKey({
 export const sourceTargetKey = (sourceId: unknown): string => `source:${text(sourceId)}`;
 
 // ---------- the legacy spelling of an observed tuple (stage 8a) ----------
-// An observation of the interface the legacy importer reads (Discord) names the same accounts, places and lines the
+// An observation of the interface the legacy importer reads (LEGACY_IFACE) names the same accounts, places and lines the
 // JSON files do. While the files are the writer, both must land on ONE row: the observed node takes the importer's
 // spelling of its tuple, and the sync adopts the row when its file brings it (sync.js#writeRow). Only the tuples the
 // importer itself writes have a legacy spelling; anything else (a thread, a later generation, another interface) is a

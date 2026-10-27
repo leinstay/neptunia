@@ -128,7 +128,7 @@ export async function mirrorDryRun({ port, dryRunChannelId, header, body }) {
 
 /**
  * Post the limit notice for `limit` in `channel`: one plain message, no
- * mentions, quoting `trigger` as a Discord reply when `asReply` (the caller
+ * mentions, quoting `trigger` as a platform reply when `asReply` (the caller
  * passes false for a follow-up, which never posts as a reply). With
  * `features.dryRun` it is logged and mirrored (`bot.dryRunChannelId`)
  * instead of sent. `labels` and `config` are the caller's `hot.prompts.labels`

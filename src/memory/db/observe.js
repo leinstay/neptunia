@@ -38,7 +38,7 @@
 //   - an account, place or source whose native tuple is already stored (authority, native key, generation; a source
 //     also by native kind, revision and subtype, matched on its columns whatever its id) is that row: observe never
 //     mints a second id for it. A node found by its columns and not yet in `external_keys` is registered there;
-//   - a tuple of the legacy layout (Discord, generation 1) is created under the legacy spelling
+//   - a tuple of the legacy layout (LEGACY_IFACE, generation 1) is created under the legacy spelling
 //     (ids.ts#legacyAccountIdOf, #legacyPlaceOf, #legacySourceIdOf), so a unit write that brings the same row adopts it
 //     (upsert.js#writeRow) instead of writing a second one;
 //   - an envelope with `edited: true` and no revision takes the newest stored revision of its native key: the same
@@ -85,7 +85,7 @@ import { nextPosition, noteUnit } from './unit-write.js';
 export const OBSERVATION_VERSION = 1;
 /** The capture policy bundles are opened under (a change of the rules bumps it). */
 export const CAPTURE_POLICY_VERSION = 1;
-/** Place kinds an envelope may name (spec 1.4; `guild` is the legacy Discord server). */
+/** Place kinds an envelope may name (spec 1.4; `guild` is the legacy community). */
 export const PLACE_KINDS = Object.freeze([
   'server',
   'workspace',

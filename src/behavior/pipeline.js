@@ -1,7 +1,7 @@
-// The message pipeline: turns the `message.received` event of a discord.js
-// `messageCreate` (src/protocol/, built by interfaces/discord/collect.js#toEvent)
+// The message pipeline: turns the `message.received` event of a platform's
+// new message (src/protocol/, built by the interface's adapter)
 // into one of a handful of outcomes (ignore, observe into memory, let the spontaneous
-// scheduler eavesdrop, or run a turn) without ever throwing into discord.js.
+// scheduler eavesdrop, or run a turn) without ever throwing into the interface.
 // A direct message goes through the private-chat gate instead
 // (features.privateMessages, src/behavior/private.js). A turn someone asked
 // for that a rail refused gets one plain limit notice (src/behavior/limits.js);
@@ -11,8 +11,8 @@
 // remark the persona chose to make about it (a noticed comment). A line put
 // to the whole room may get a higher chance of an unprompted answer
 // (spontaneous.roomQuestionChance, the room classifier).
-// Owner commands are a separate pipeline entirely (interfaces/discord/commands.js,
-// driven by `interactionCreate`, not `messageCreate`). It reads the events an interface delivers
+// Owner commands are a separate pipeline entirely (the interface's command handler,
+// driven by a command, not a message). It reads the events an interface delivers
 // and nothing else: what it needs to know about a conversation (its permissions, its newest
 // messages, a message by id, a member) it asks the interface through the core's `reads`
 // (src/interface/reads.ts), and a conversation is the info the interface gave of it.
@@ -174,10 +174,10 @@ function missingReason(missing) {
 
 /**
  * The media of `normalized` the message as it was did not carry yet (`known`: the item ids of every
- * attachment and link of the earlier copy and its forwarded snapshots): what an embed Discord
+ * attachment and link of the earlier copy and its forwarded snapshots): what an embed the platform
  * attached after the message arrived brought. Stickers and custom emoji always come with the
  * message itself, so none is late. Pure; never mutates `normalized`.
- * @param {object} normalized  A normalized message (interfaces/discord/collect.js#normalizeMessage).
+ * @param {object} normalized  A normalized message (src/protocol/events.js#Message).
  * @param {Set<string>} known
  * @returns {object} `normalized` with only the late attachments and links in each part.
  */
@@ -275,7 +275,7 @@ function mediaIdsOf(message) {
  *   drops every queued ping and every settle wait without answering any of them. And a `.stop()`
  *   method (shutdown, src/index.js) that clears every settle wait, so none starts a turn while the
  *   client goes down. And an `.onMessageUpdate(event)` method (src/index.js wires it to
- *   `messageUpdate` through an edit event) that records an edit and counts an embed Discord attached
+ *   `messageUpdate` through an edit event) that records an edit and counts an embed the platform attached
  *   after the message arrived -- see onMessageUpdate below. And an
  *   `.onMessageDelete(event)` method (src/index.js wires it to `messageDelete` through a
  *   deletion event) that writes a `deleted` line to the record. And a `.catchUp(event, { trigger })`
@@ -1224,7 +1224,7 @@ export function createMessageHandler({
   /**
    * Post the limit notice in `channel` (src/behavior/limits.js#postLimitNotice:
    * labels, dry-run and the mirror read now). A follow-up's notice is never a
-   * Discord reply, like the follow-up turn itself; nor is one posted `plain`
+   * platform reply, like the follow-up turn itself; nor is one posted `plain`
    * (a routed call's, whose trigger lives in another channel). Never throws.
    * @param {TriggerKind} triggerKind
    * @param {{ plain?: boolean }} [options]
@@ -1269,7 +1269,7 @@ export function createMessageHandler({
    * After the reply turn of a server call, the live path and the drain alike:
    * a rail refusal gets its limit notice (announceRefusal). A routed call
    * (`destination`: the channel its turn posted in) gets it there, as a plain
-   * message -- never a Discord reply to a message of another channel -- and its
+   * message -- never a platform reply to a message of another channel -- and its
    * ring entry follows the outcome (markRoutedCall).
    * @param {object} channel  Where the call was written.
    * @param {object} trigger
@@ -2774,7 +2774,7 @@ export function createMessageHandler({
 
       // 2. DMs: private chat (features.privateMessages, off by default) --
       // see onPrivateMessage. Owner commands are slash commands
-      // (interfaces/discord/commands.js, interactionCreate), never DMs.
+      // (the interface's command handler), never DMs.
       if (event.conversation.communityId === null) {
         if (catchUp) return 'ignored';
         await onPrivateMessage(event, config);
@@ -2782,7 +2782,7 @@ export function createMessageHandler({
       }
 
       // 3. This instance serves exactly one guild; no threads. Which channels
-      // it sees is Discord's permissions alone.
+      // it sees is the platform's permissions alone.
       if (event.conversation.communityId !== getGuildId()) return 'ignored';
       if (event.conversation.kind === 'thread') return 'ignored';
 
@@ -3036,7 +3036,7 @@ export function createMessageHandler({
   }
 
   /**
-   * A message of the served guild deleted on Discord (`messageDelete`) as a `deleted` line of
+   * A message of the served guild deleted on the platform as a `deleted` line of
    * the record, dated by the message's own creation time (`createdTimestamp`, which a partial
    * message has too; now when missing) so a window can place it; the envelope's `recordedAt`
    * keeps the deletion time. The message's recorded text stays (a deletion is not a forget

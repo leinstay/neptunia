@@ -1,6 +1,6 @@
 // The wire of the protocol: how an envelope travels between the core and one interface once they are two
 // processes. An envelope is one line of JSON ending in a newline, with every Uint8Array written as
-// `{ "$bytes": base64 }` and read back as a Buffer, which is what discord.js wants for a file. The codec,
+// `{ "$bytes": base64 }` and read back as a Buffer, which is what a platform SDK takes for a file. The codec,
 // the line reader, the loopback for tests and the socket client live here and the socket server
 // (src/interface/socket.ts) reuses the same reader, so a test over the loopback checks the bytes the
 // socket carries. A transport reports its end through `onClose` with a reason: `frame-too-large` when a

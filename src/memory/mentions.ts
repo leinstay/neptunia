@@ -1,5 +1,5 @@
 // A member is stored and passed to the model as an id token, never as a
-// nickname -- Discord display names change daily, so free text that names
+// nickname -- display names change daily, so free text that names
 // someone by nickname rots the moment they rename (see
 // docs/prompt-contract.md, "Members are referred to by id, never by
 // nickname"). This module is the one place that converts between the two
@@ -16,7 +16,7 @@
 // from: text written with it parses the same on every platform, and the ids it holds are the interface's opaque ones.
 // Message links are not read here: an interface puts them on a message as references (docs/interfaces.md).
 //
-// Pure, no discord.js dependency: `isKnownId`/`nameOf`/`namesOf` are injected
+// Pure, no platform SDK dependency: `isKnownId`/`nameOf`/`namesOf` are injected
 // so the caller decides what "known" means (an author of the batch, an
 // existing stored profile, ...) and where a display name comes from.
 //
@@ -40,7 +40,7 @@
 import { foldText } from './recent.js';
 
 /**
- * The digits of a Discord member id, as a regex source: the one id range every
+ * The digits of a member id, as a regex source: the one id range every
  * pattern that reads an id out of text is built from (`<@id>` tokens,
  * `(id:...)` markers, a taught item's `from`).
  */
@@ -49,7 +49,7 @@ export const ID_DIGITS = '\\d{17,20}';
 /**
  * An http(s) URL as written in a text, as a regex source: from the scheme up to
  * the next whitespace or angle bracket (a `<url>` keeps its brackets outside).
- * The one pattern for the URLs the persona reads (interfaces/discord/collect.js caps
+ * The one pattern for the URLs the persona reads (the interface package caps
  * their length), the ones she writes (left alone on the way out), and the ones
  * src/memory/clamp.js#stripUrls takes out of every text her memory stores.
  */
@@ -394,7 +394,7 @@ function coreAt(
 /**
  * Turn every `#handle` of `handles` and every `#name` of a known channel in the persona's
  * outgoing `text` into the real channel link `<#id>` -- incoming `<#id>` mentions reach the model
- * as `#name` (interfaces/discord/collect.js), with the channel's handle beside it when the request has one
+ * as `#name`, with the channel's handle beside it when the request has one
  * (src/format.js), so this is the way back out. A handle first, strictly: the whole token
  * after the `#` (base-36 digits and lower-case letters, case as given) is a key of `handles`;
  * a token `handles` does not hold goes on to the names below. Then the names: exact,

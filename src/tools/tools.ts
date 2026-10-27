@@ -459,7 +459,7 @@ const LINK_IN_TEXT = /https?:\/\/[^\s<>]+/i;
 
 /**
  * The first http(s) link written in `text` (a message's own words), or null: what web.read
- * reads of a message whose link Discord did not embed. Pure.
+ * reads of a message whose link the platform did not embed. Pure.
  */
 export function firstLinkIn(value: unknown): string | null {
   const match = typeof value === 'string' ? LINK_IN_TEXT.exec(value) : null;

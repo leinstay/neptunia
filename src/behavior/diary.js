@@ -14,7 +14,7 @@
 // are config keys.
 //
 // The decisions are pure: randomness and the clock are injected (`rng`,
-// `nowMs`), and none of them touches discord.js, the disk or the model. The
+// `nowMs`), and none of them touches a platform SDK, the disk or the model. The
 // factory at the end (createDiary) is the module's edge: it ticks, keeps the
 // day plan in state.json and runs the post through the turn runner.
 
@@ -849,7 +849,7 @@ export function createDiary({
  * of the persona's own messages from the diary channel (REST, oldest first) and store them with
  * `kind: null`, a one-line gist, and `labels.diary.pictureUnknown` as the scene of a message that
  * carried a picture. A history that already has posts is left alone (the posts are never rewritten by
- * code). This and the factory are the module's Discord-aware edge; everything above stays pure.
+ * code). This and the factory are the module's interface-aware edge; everything above stays pure.
  * @param {{ store: object, reads: import('../interface/reads.ts').Reads, conversation: { iface: string, conversationId: string },
  *   guildId: string, config: object, labels: object }} deps  `config` is the live merged
  *   config (`diary` read now); `labels` the live labels; `reads` the core's reads of the interface.

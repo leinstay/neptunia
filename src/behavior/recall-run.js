@@ -298,7 +298,7 @@ function traceRecordWindow(window) {
  * `run`, or `no-query` / `no-hits`), else null. `people`: `{ id, form, how }`
  * per member the `who` forms found, `how` `stored` (a stored name or alias)
  * or `member-search`. `plan`: `{ kind, content, authorId, offset, sent,
- * total }` per Discord search planned (`total` null while unsent or when it
+ * total }` per message search planned (`total` null while unsent or when it
  * failed). `memory`: the stored-memory items matched, the archive's included
  * (traceItem). `record`: `{ channelId, from, to, hitIds, kept }` per record
  * window, `kept` whether it joined the windows the summary reads. `when`:
@@ -306,7 +306,7 @@ function traceRecordWindow(window) {
  * bound) or `locator`. In a locator run each kept cluster, record window and
  * memory item also carries `share` (`broad`: a slot reserved for content
  * regardless of date, `dated`: one won with the proximity bonus; a cluster
- * not kept `null`), and the broad Discord page's plan entry `broad: true`;
+ * not kept `null`), and the broad search page's plan entry `broad: true`;
  * otherwise those keys are absent. `meaning`:
  * null unless the run searched by meaning, else `{ query, candidates, kept,
  * ms }` -- `query` `question` | `question+reply` (what was embedded),
@@ -881,7 +881,7 @@ export function createRecall({
   }
 
   /**
-   * The one broad Discord page of a locator run, or null: the first planned
+   * The one broad search page of a locator run, or null: the first planned
    * query (not a range sample) without the range's bounds, over the past the
    * record does not hold (`before` the start of the record's last
    * `recall.recordDays` days; no bound without a record), newest first,
@@ -919,7 +919,7 @@ export function createRecall({
   /**
    * What a run may read toward `channel` (the turn's; a private chat on behalf of `partnerId`):
    * `sourceOf(channelId)`, the pull rail's verdict judged once per channel (`judged`): the
-   * channel when its lines may reach this turn, else null -- Discord hits, record lines, archived
+   * channel when its lines may reach this turn, else null -- search hits, record lines, archived
    * items and meaning rows of a refused channel never reach the turn; `privateUserId`, the partner
    * of a private chat (else null): a private entry or line is its member's alone, read only on a
    * private turn with that member; `allowEntry` (an archive entry, by its `scope`) and
@@ -1336,7 +1336,7 @@ export function createRecall({
     // The time of each step, for `recall: searched` (src/tools/impl/metrics.ts reads them off the log).
     const took = { memoryMs: 0, recordMs: 0, searchMs: 0 };
     let stepAt = now();
-    // 0. Stored memory (the archive included): no request, before the first Discord one so it always fits the budget.
+    // 0. Stored memory (the archive included): no request, before the first search request so it always fits the budget.
     const memory = await storedMemory({
       config,
       settings,
@@ -1577,7 +1577,7 @@ export function createRecall({
       });
     }
     const windows = mergeWindows(chosen.map((cluster) => windowOf.get(cluster)));
-    // The record's windows join them by time (Discord's order kept), unless the search already shows all their lines.
+    // The record's windows join them by time (the search's order kept), unless the search already shows all their lines.
     const shownIds = new Set(windows.flatMap((window) => window.messages.map((m) => m.id)));
     for (const window of recordWindows) {
       if (!window.messages.some((m) => !shownIds.has(m.id))) continue;
@@ -1709,7 +1709,7 @@ export function createRecall({
     };
     progress.fallback = fallback;
     if (started + settings.timeoutMs - now() < settings.minSummaryMs) return fallback('skipped');
-    // A run on stored memory alone sent no Discord request: its summary is what counts it.
+    // A run on stored memory alone sent no search request: its summary is what counts it.
     beforeRequest();
     asked = now();
     let completion;
@@ -1761,7 +1761,7 @@ export function createRecall({
    * read at that moment: nothing (no log) with `features.recall` off; `recall:
    * skipped` with `reason` `private-chat` (no guild, or a channel without a
    * guild and no `partner`: a private chat searches only on behalf of its
-   * partner, the discord.js GuildMember of `guild` it talks to, keeping the
+   * partner, the member of `guild` it talks to, keeping the
    * hits of channels that member can view and not bounded by its own chat),
    * `no-query` (no form, name form or range), `no-prompt` (no
    * `prompts['recall-summary']`), `daily-cap` (`llm.capLeft()` spent) or
@@ -1777,7 +1777,7 @@ export function createRecall({
    * `recall: searched`, beside `memoryMs`, `recordMs` and `searchMs`, the time of
    * the stored-memory match, the record match and the message searches; `recall:
    * summary` carries `totalMs`, the run's time so far). The first
-   * request of a run (a Discord one, or the summary of a run on memory
+   * request of a run (a message search, or the summary of a run on memory
    * alone) bumps `recallDay`/`recallCount` once. Never rejects: a failure logs `recall:
    * failed` (`reason`: the rail code of a failed summary request, `timeout`
    * when `recall.timeoutMs` ran out -- the run is abandoned, its requests
@@ -1887,7 +1887,7 @@ export function createRecall({
       if (dailySpent(settings)) return skip('daily');
       if (op) await op.started();
 
-      // The persona's own search over the memory database: no Discord request, no summary.
+      // The persona's own search over the memory database: no message search, no summary.
       if (quotes) {
         const db = dbOf();
         if (!db) {
@@ -2001,7 +2001,7 @@ export function createRecall({
   /**
    * The automatic memory prefetch of a turn (src/behavior/prefetch.js; features.coreTools with
    * features.memoryPrefetch, decided by the caller): no model request but one embedding, no
-   * Discord request, no daily recall run counted. Each lane (`lanes`, prefetchLanes') goes through
+   * message search, no daily recall run counted. Each lane (`lanes`, prefetchLanes') goes through
    * the local searches, all at once:
    * - the memory database (src/memory/db/recall.js#search, while it is open): words, letters,
    *   meaning (features.meaningSearch exactly true and the embedding client given: one embedding

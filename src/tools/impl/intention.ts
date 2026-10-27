@@ -21,7 +21,7 @@
 // so her `#handle` resolves as any channel argument does), `people=` (ids, comma or space
 // separated; her `@handle`s are resolved to ids before the call reaches here), `settle=` seconds
 // and `perday=` her own daily bound (defaults `innerLife.attention.settleSeconds` /
-// `perDayDefault`; the option is lowercase as Discord wants it, the record's field is `perDay`);
+// `perDayDefault`; the option is lowercase as the command tree wants it, the record's field is `perDay`);
 // the body is its purpose, the place's address when she gives none. An update may change
 // `people`, `settle`, `perday` and `expires`; `due=` and `every=` on an attention are
 // refused (`attend-with-due`, `attend-with-every`).

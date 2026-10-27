@@ -1,4 +1,4 @@
-// Operations: `voice.say`: her words spoken in her voice and posted as a Discord voice message. A skill of
+// Operations: `voice.say`: her words spoken in her voice and posted as a voice message. A skill of
 // hers only, no owner command. The pipeline (preparation, synthesis, conversion) is src/speech/;
 // this operation resolves where it goes, runs it, posts one attachment with no text through her
 // interface (`env.port`) and tells her what happened, stage by stage. A reply and a channel

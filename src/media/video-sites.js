@@ -10,7 +10,7 @@
 
 import { createHash } from 'node:crypto';
 
-// `>` closes Discord's `<url>` embed-suppression form; quotes and `<` never
+// `>` closes the `<url>` form chat platforms use to suppress an embed; quotes and `<` never
 // belong to a bare URL in chat text. A match therefore never holds a `>`.
 const URL_PATTERN = /https?:\/\/[^\s<>"']+/gi;
 const TRAILING_PUNCTUATION = /[).,]+$/;

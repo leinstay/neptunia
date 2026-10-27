@@ -1,5 +1,5 @@
 // Operations: `/nep status [field]`: what the bot is doing now, read only. The reply is one
-// card (`cmdStatusCard`, plain embed data: interfaces/discord/commands.js wraps it for discord.js), the
+// card (`cmdStatusCard`, plain card data the interface's command handler wraps for its platform), the
 // most important field first, for a phone; `field` keeps only that field and computes nothing
 // for the others. A member (anyone not in `bot.owners`) gets the card without the storage line,
 // the keys, costs, memory and speed fields. Every field lists one item per line; the state field ends
@@ -226,10 +226,10 @@ const PROBE_TIMEOUT_MS = 30000;
 /** How much of a failed probe's error message the card keeps. */
 const PROBE_ERROR_CHARS = 100;
 
-/** Discord's cap on one embed field's value. */
+/** The cap on one field's value of a card, the command interface's limit (1024). */
 const FIELD_MAX_CHARS = 1024;
 
-/** `value` within Discord's field cap, cut after its last whole line that fits. */
+/** `value` within the field cap, cut after its last whole line that fits. */
 function fitField(value: string): string {
   if (value.length <= FIELD_MAX_CHARS) return value;
   const cut = value.slice(0, FIELD_MAX_CHARS);

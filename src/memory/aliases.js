@@ -1,6 +1,6 @@
 // Pure logic for a member's remembered aliases -- stable nicknames people in
 // chat actually call them (a shortened or translated name), NOT their
-// Discord display names (src/memory/store.js keeps those separately as
+// display names on the platform (src/memory/store.js keeps those separately as
 // `names`, refreshed every time the member speaks). Ranked and confirmed
 // exactly like interests (src/memory/interests.js#applyRankedOps): `{ name,
 // weight, firstSeen, lastSeen }`, a sighting bumps weight on the same
@@ -19,14 +19,14 @@ const MAX_ALIAS_CHARS = 40;
  * aliases are plain strings, an `add` of an already-known one (identity is
  * case-insensitive, like an interest's topic) is itself the sighting. An
  * `add` equal, case-insensitively, to one of `displayNames` (the member's own
- * stored Discord names) is dropped before it ever reaches the ranked-item
+ * stored display names) is dropped before it ever reaches the ranked-item
  * merge -- an alias is what OTHER people call them, not their own name.
  * Every alias is clamped to 40 characters. Eviction keeps the top-ranked
  * items over `max(maxAliasesStored, maxAliases)`.
  *
  * @param {object[]|undefined} existing     Stored aliases.
  * @param {{ add?: unknown, remove?: unknown }} ops  Untrusted, model-extracted.
- * @param {string[]} displayNames           The member's own stored Discord display names.
+ * @param {string[]} displayNames           The member's own stored display names.
  * @param {{ maxAliases?: number, maxAliasesStored?: number, confirmGapHours?: number,
  *   seenAt?: number, halfLifeDays?: number, mintId?: () => string, now?: number }} [opts]
  * @returns {object[]}  With the non-enumerable `dropped` of src/memory/interests.js#applyRankedOps:

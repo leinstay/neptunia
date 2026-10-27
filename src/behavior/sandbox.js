@@ -2,7 +2,7 @@
 // the chat -- normalized channel messages fetched again, the trigger among
 // them -- builds the request a real turn would build for it (live prompts,
 // live config, the stored memory or a snapshot of it), asks the model, parses
-// the answer, and stops there: nothing reaches Discord and nothing is written
+// the answer, and stops there: nothing reaches the interface and nothing is written
 // to memory. It reproduces the reply path (src/behavior/prompt.js#buildRequest,
 // src/behavior/turn.js) as the turn it was when the caller knows its mode and
 // trigger kind (an overheard line, a follow-up, a name call, an unasked turn);
@@ -274,7 +274,7 @@ function mediaItemsOf(message, sites) {
  * time), read only. A cached miss, a limit or error state and an entry written
  * after `before` are no description; a watched summary is the video state
  * `{ state: 'watched', text }` plus the entry's `watchedSeconds` / `totalSeconds` when stored. Without a cache, empty maps. Pure.
- * @param {object[]} history  Normalized messages (interfaces/discord/collect.js#normalizeMessage).
+ * @param {object[]} history  Normalized messages (src/protocol/events.js#Message).
  * @param {{ cache?: object|null, sites?: string[], before?: number|null }} [options]  `cache`: the
  *   describer's cache (`store.getMediaCache(guildId)`), or null.
  * @returns {{ descriptions: Map<string, string>, videos: Map<string, { state: 'watched', text: string }> }}
@@ -687,7 +687,7 @@ function sandboxChannels(given, view, channel) {
  * live turn names its queued calls (src/behavior/turn.js#taskInput: the trigger author's own
  * under `labels.task.queued`, another member's under `labels.task.queuedOthers`). Never an
  * owner-forced turn. `<channel_directory>` lists `channelDirectory` (the guild's readable text
- * channels, interfaces/discord/collect.js#channelDirectoryOf, as a live turn passes them) when given, else
+ * channels, src/behavior/turn.js#channelDirectoryOf, as a live turn passes them) when given, else
  * the view's stored channel map with the turn's channel (sandboxChannels). `taskResult`
  * (a finished task, as src/errands/store.ts keeps one) makes it the turn that errand's end
  * opens, as src/errands/turns.ts runs it: trigger kind `errand` whatever the mode, and `errands`
@@ -881,7 +881,7 @@ export function sandboxToolset({ view, selfId = null, registry = skillRegistry()
  * lines of other channels, a private chat), pictures (a user message with
  * image parts is sent as its text-only re-render), an owner-forced turn's
  * text, the daily GIF cap, and a custom-emoji reaction is kept as written
- * (not resolved through the emoji index); nothing is sent to Discord and
+ * (not resolved through the emoji index); nothing is sent to the interface and
  * nothing is stored. Media render with their labels only, unless the caller
  * hands in what the persona saw of them (`descriptions` / `videos`, see
  * `replayMedia`): nothing is described or watched here. Every completion
@@ -1322,7 +1322,7 @@ function channelNamesOf(view, channel) {
  * `loop.settings.maxSteps`, the last of them final. A failed follow-up ends the turn with its error
  * name, never thrown; a failed first request throws (as answerReply). An aborted `signal` stops the
  * runs (`stopped`). Every completion goes out as answerReply's do (`origin: 'replay'`, off the daily
- * cap and the calibration). Nothing is sent to Discord and nothing is stored.
+ * cap and the calibration). Nothing is sent to the interface and nothing is stored.
  * A step of a multi-step scenario hands in the calls of its earlier steps (`callMarks`, withCalls's
  * shape, afterScenarioTurn's): with features.callMarkers on her lines carry their marks in the
  * request, as a live turn's history does. A turn of a burst hands in the calls still waiting after

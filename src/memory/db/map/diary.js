@@ -1,5 +1,5 @@
 // Mapper: `diary.json` (`{ posts: [...], updatedAt }`, what she wrote in her diary and posted) <-> `diary` rows,
-// `diary_mirrors` (the Discord message ids a post was sent as: one mirror row per post that has a `messageIds`
+// `diary_mirrors` (the platform's message ids a post was sent as: one mirror row per post that has a `messageIds`
 // array, the ids in `native_ids`) and `operational` (kind diary) for the rest of the file (`updatedAt`).
 //
 // A post's id is its `itemId` (a derived one, marked `$derived`, when it has none); `at` is at_ms, `picture` is

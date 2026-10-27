@@ -1,6 +1,6 @@
-// The persona's interface port: the one contract every interface adapter (interfaces/discord/port.js,
+// The persona's interface port: the one contract every interface adapter (the package's `port.js`,
 // src/interface/fake.js) implements, so the engine speaks of conversations, messages and members
-// and never of a chat platform (the skills design: "Discord is her interface, not her self").
+// and never of a chat platform (the skills design: "a platform is her interface, not her self").
 // References are opaque strings namespaced by the adapter's `iface`; content is typed with a safe
 // mention default (nobody is notified unless named); every operation answers a result -- it never
 // throws -- whose `status` says honestly what happened: `ok`, `failed` (known not to have taken

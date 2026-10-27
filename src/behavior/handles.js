@@ -1,12 +1,12 @@
 // Member handles: the short token the persona writes to mention someone (`@` + handle), so the
 // model picks the person and the engine never guesses one from a name in her output. A handle is
-// computed from the Discord user id alone (a few base-36 digits of the id's SHA-256), so the same
+// computed from the platform's user id alone (a few base-36 digits of the id's SHA-256), so the same
 // member keeps the same handle across turns, restarts and requesters without anything stored;
 // only code maps it back to the id. Within one request every handle is unique: on a collision
 // the oldest id (the smallest snowflake) keeps the short form and the others take one more digit,
 // and the members with a stored profile are placed before the ones only in view, so a passer-by
 // never moves a profiled member's handle. The people directory (`<directory>`, the stable part of
-// the persona's request) lists the profiled members with their handle, the names Discord gave them
+// the persona's request) lists the profiled members with their handle, the names the platform gave them
 // and their open aliases, sorted so its text changes only when those names do.
 // Channels get handles the same way (`#` + CHANNEL_HANDLE_PREFIX + base-36 digits of the channel
 // id's hash): the channel directory (`<channel_directory>`, the stable part too) lists each text
@@ -115,7 +115,7 @@ function sortedNames(values) {
  * The people directory's members from the stored profiles of the served guild: one entry per
  * member, never the persona herself (`selfId`; bots get no profile: the live pipeline skips
  * their lines). `names`: the stored
- * names Discord gave them; `aliases`: their open stored aliases (src/memory/interests.js#isOpen),
+ * names the platform gave them; `aliases`: their open stored aliases (src/memory/interests.js#isOpen),
  * as stored, without one equal to a name. Both one-line, each once, in code point order, so
  * the stored order (the newest name first) never moves the text. A member with neither is
  * left out. Sorted by their first name (else first alias), then id. No notes, games or weights.
@@ -275,7 +275,7 @@ export function renderChannelDirectory(entries, handles, labels) {
 /**
  * Every member's names for one request: the directory entries' names and aliases, then the names
  * the lines carry -- an author's name (never the persona's or a bot's) and the names of the members
- * a line mentions (`mentionedUsers`, `{ id, name }`, interfaces/discord/collect.js). id -> names,
+ * a line mentions (`mentionedUsers`, `{ id, name }`, src/protocol/events.js). id -> names,
  * each once, in the order met. Pure.
  * @param {{ id: string, names: string[], aliases: string[] }[]} entries  directoryEntries'.
  * @param {Iterable<object>} lines  Normalized messages.

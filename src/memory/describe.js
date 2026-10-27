@@ -16,8 +16,8 @@
 // (the describe prompt may learn the cap through `{{maxChars}}`).
 //
 // The picture is downloaded first (src/media/fetch-image.js) and sent to
-// the model as a data: URL, never as a bare Discord URL -- the provider's own
-// fetcher gets a 403 from Discord on some CDN hosts even though our server
+// the model as a data: URL, never as a bare platform URL -- a platform's media host may refuse
+// the provider's own fetcher even though our server
 // fetches the same URL fine (see src/behavior/turn.js for the live-vision
 // side of the same fix). A failed download costs nothing and is cached as a
 // miss exactly like a failed LLM request.

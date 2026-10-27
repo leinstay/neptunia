@@ -6,7 +6,7 @@
 // Member-supplied text (names, activity names, details, channel names) is untrusted data: one
 // line, clamped, angle brackets removed so it cannot close or open a prompt block.
 //
-// Pure: no discord.js import, no clock; src/behavior/prompt.js builds the rows: a heading line
+// Pure: no platform SDK import, no clock; src/behavior/prompt.js builds the rows: a heading line
 // per person, then one labelled field per line, negatives written out ("no", "none") only where
 // the live data can tell, "unavailable" / "stale" where it cannot. Every word the model reads
 // comes from `labels.peopleNow`.
@@ -87,7 +87,7 @@ function activityPhrase(activity, l) {
 }
 
 /**
- * The live field lines of one member's `<people_now>` row (fieldLine), in this order. The Discord status
+ * The live field lines of one member's `<people_now>` row (fieldLine), in this order. The platform's status
  * (online, idle, do not disturb, offline) is never shown: only the presence record's activities use it
  * (an offline member's are not kept, never a guess):
  * - `voice`: from the voice snapshot (the voice states do not depend on the presences intent):
@@ -97,9 +97,9 @@ function activityPhrase(activity, l) {
  *   else empty: never a guess) when the member sits in a voice channel `channelNameOf` names
  *   (one the audience may see), else `values.no`; `values.stale` with a stale snapshot. An
  *   offline member in voice shows it.
- * - `activity`: every activity Discord shows (a game and Spotify at once, say), each through
+ * - `activity`: every activity the platform shows (a game and Spotify at once, say), each through
  *   `activityPhrase`, joined by `; `, else `values.none` -- also for an offline member, whose
- *   activities are not kept. Unavailable with the presences intent off or a status Discord does not define, stale when stale: never `none` then.
+ *   activities are not kept. Unavailable with the presences intent off or a status the platform does not define, stale when stale: never `none` then.
  * Custom statuses are never kept. [] with no snapshot, no member id or no labels.
  * @param {{ presences: boolean, stale: boolean, voice: Map<string, object>, presence: Map<string, object> }} snapshot  createAroundStore().view().
  * @param {string} memberId

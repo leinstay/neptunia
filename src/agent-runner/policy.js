@@ -1,7 +1,7 @@
 // The scope policy of the agent runners: what an errand may disclose depends
 // on where the persona was asked. The request carries `context.scope`: `core`
-// (the owner's own console) withholds nothing; `dm` and `group` (a Discord
-// private chat or group) withhold the content of sensitive paths and redact
+// (the owner's own console) withholds nothing; `dm` and `group` (a
+// private chat or group of a chat interface) withhold the content of sensitive paths and redact
 // secret-looking strings from what leaves the runner. A request without a
 // valid scope is treated as `group`, the narrowest.
 //

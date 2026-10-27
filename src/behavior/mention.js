@@ -52,9 +52,9 @@ export function createTagHistory() {
 }
 
 /**
- * Whether `normalized` (interfaces/discord/collect.js#normalizeMessage) tags the
+ * Whether `normalized` (src/protocol/events.js#Message) tags the
  * persona for real: `selfId` is among its mentioned users and not only
- * because of Discord's reply ping (`replyPingUserId`). A reply to the
+ * because of the platform's reply ping (`replyPingUserId`). A reply to the
  * persona that only carries the reply ping is untagged (decideMention).
  * @param {{ mentionedUserIds?: string[], replyPingUserId?: string|null }} normalized
  * @param {string} selfId
@@ -69,7 +69,7 @@ export function isTaggedCall(normalized, selfId) {
  * Whether the persona answers a call. The base ignore chance depends on the
  * kind: a follow-up -- kind `followUp` (an untagged line the address
  * classifier marked as said to the persona; `overheard` never reaches this
- * roll) or an untagged `reply` (a Discord reply to the persona's line with no
+ * roll) or an untagged `reply` (a platform reply to the persona's line with no
  * tag, `tagged` false) -- starts from `mention.followUpIgnoreChance`
  * (missing = 0), so the persona sometimes lets the other person have the last
  * word; a `mention`, a tagged `reply` (`tagged` true or not given) start
@@ -159,10 +159,10 @@ export function isFollowUpOpen(state, now, cfg) {
  * A mention of another member (not the persona) is always `no` before the
  * classifier is ever asked — see the prompt contract. A reply to another
  * member's message goes to the classifier like plain text; the reply ping
- * Discord adds for the replied-to author (`replyPingUserId`) is not a
+ * the platform adds for the replied-to author (`replyPingUserId`) is not a
  * mention. With `mention.followUpClassifyReplies` false (a missing key counts
  * as on) any reply is `no` as well. `normalized` is the shape
- * interfaces/discord/collect.js's `normalizeMessage` produces.
+ * of src/protocol/events.js#Message.
  * @param {{ replyToId: string|null, mentionedUserIds: string[], replyPingUserId?: string|null }} normalized
  * @param {string} selfId
  * @param {{ followUpClassifyReplies?: boolean }} [cfg]  config.mention, read by the caller now
@@ -235,7 +235,7 @@ export function followUpTriggerKind(answer, cfg) {
  * Whether `normalized` may be a line put to the whole room, before the room
  * classifier is asked: it has text (non-empty after trim), replies to nothing
  * and mentions no member. `normalized` is the shape
- * interfaces/discord/collect.js's `normalizeMessage` produces.
+ * of src/protocol/events.js#Message.
  * @param {{ content?: string, replyToId?: string|null, mentionedUserIds?: string[] }} normalized
  * @returns {boolean}
  */

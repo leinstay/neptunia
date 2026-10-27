@@ -16,7 +16,7 @@
 // Schema v8 (stage 2): a row that names its own authority (an observation, observe.js) keeps it, its native key and
 // its conversation instead of the legacy derivation; a source's author combination is checked (`checkAuthor`: an
 // account line names no participant, a participant line names no account); `ensureRelations` gives a source its
-// `source_relations` rows (a Discord line's `reply_to`, derived here so a remap keeps it) and resolves the relations
+// `source_relations` rows (a legacy line's `reply_to`, derived here so a remap keeps it) and resolves the relations
 // that were waiting for it. Relations are the database's own: inserted once, a target filled in once, never rewritten.
 // Schema v9 (stage 3): every row these helpers write is projected into the graph in the same transaction
 // (graph.js#projectRow: the row's unit, again from the database as it is now): `insertRows`, the DM place, the interface

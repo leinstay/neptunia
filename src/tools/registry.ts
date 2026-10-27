@@ -25,7 +25,7 @@ export const COST_CLASSES: ReadonlyArray<string> = Object.freeze(['free', 'paid'
 /**
  * Whose things a skill may touch: `self-messages` (only the persona's own messages, in a
  * conversation she may act in), `allowed-conversations` (the current conversation or a text
- * channel of the served guild where the bot holds the Discord permissions the operation needs,
+ * channel of the served guild where the bot holds the platform permissions the operation needs,
  * src/tools/impl/shared.ts#postingConversation), `any`, or null (no target).
  */
 export const TARGETS: ReadonlyArray<string | null> = Object.freeze([

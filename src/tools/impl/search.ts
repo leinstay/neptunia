@@ -165,7 +165,7 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * `conversation.read` outside a turn (a command key `task.conversation`, never in the Discord tree): a
+   * `conversation.read` outside a turn (a command key `task.conversation`, never in the command tree): a
    * channel read in order (src/tools/conversation-read.ts), the lines rendered like the chat, without
    * handles (no turn to number them in). The channel the call came from by default; another must pass
    * the pull rail.

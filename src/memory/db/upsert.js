@@ -351,7 +351,7 @@ export function hotClaimIds(db) {
  * record, when the record has it; a ref the record does not hold is kept as it is. Returns how many were changed.
  */
 function relinkParticipation(db, at) {
-  // The ref names a Discord message: the line is looked up by its native tuple (schema v8), so another interface's id
+  // The ref names a message of the legacy namespace: the line is looked up by its native tuple (schema v8), so another interface's id
   // that happens to be the same string is never taken for it. A database before v8 has only the native id.
   const tuple = columnsOf(db, 'sources').has('native_kind');
   const find = tuple

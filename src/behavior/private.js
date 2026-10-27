@@ -1,4 +1,4 @@
-// Pure logic for private chat (Discord DMs, `features.privateMessages`): who
+// Pure logic for private chat (direct messages, `features.privateMessages`): who
 // may talk to the persona in private, and how the public profile and the
 // per-member private layer combine for that one conversation. The gate is
 // checked locally with zero tokens; anything it refuses is dropped by the

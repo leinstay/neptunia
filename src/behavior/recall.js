@@ -4,7 +4,7 @@
 // the server's messages, `who:` forms of a person's name, `when:` a date
 // range in the bot's time zone, `recent:` whether the question is a vague
 // "recently" -- and the old single unlabelled line still
-// reads as a web query. Discord's message search does not stem and matches
+// reads as a web query. The interface's message search does not stem and matches
 // one form per query, so the server part becomes an ordered list of queries
 // (content forms round-robin, then authors, or a date range sampled when
 // nothing else is given); the hits are grouped into clusters by channel and
@@ -32,7 +32,7 @@
 // summary reads the chat lines before the question as `<context>`, with each
 // stretch flagged when it holds the persona's lines or overlaps the current
 // chat. This module holds those decisions with no I/O;
-// the Discord side is interfaces/discord/search.js and the runner
+// the search itself is the interface's (`reads.searchMessages`) and the runner
 // src/behavior/recall-run.js. No wording of ours goes into the request: tags
 // and structural marks only.
 // A `when:` range beside word or name forms is a locator unless the lookup
@@ -224,7 +224,7 @@ function numberAtLeast(value, fallback, min) {
  * `maxClusters`) and `contextMessages` (no `<context>` block);
  * `quoteWindowChars` and `quoteMaxChars` (a memory.search result's per-window and whole bounds) are at least 1;
  * `traceMaxLines` is at least 1; `windowMessages` is at most 100;
- * `followMessages` is at most 100 (one Discord page) and may be 0 (a window
+ * `followMessages` is at most 100 (one page of the interface's history read) and may be 0 (a window
  * is not followed past its end); `followGapMinutes` is a number of at least 0;
  * `memoryTokens` (no `<memory>` line fits), `recordDays` (the record is not
  * read), `recordContext` (no neighbours) and `archiveMonths` (the archive is
@@ -2016,7 +2016,7 @@ export function recordMessage(line, { nameOf, selfName }) {
 /**
  * The bounded record reader: the lines of the persona's record
  * (src/memory/record.js, `record.iterate`) that answer a recall question,
- * as windows for the summary beside Discord's (buildRecallRequest marks them
+ * as windows for the summary beside the search's (buildRecallRequest marks them
  * `source: record`). Read: the record days of `range` -- from the end of the
  * range (`now` when open or later) back at most `recordDays` days, never
  * before its start -- and only those (`recordDays` 0 reads nothing). Each
