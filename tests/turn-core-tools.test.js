@@ -405,7 +405,9 @@ test('errand.run in the loop: after a search she hands off the errand, it is que
   assert.equal(task.goal, brief, 'the brief as she wrote it');
   assert.equal(task.requester.kind, 'owner');
   assert.match(task.origin.turnId, /^t-u\d+$/, 'the journal turn of her call');
-  assert.equal(task.idempotencyKey, `${task.origin.turnId}.1:1`, 'her second call of the turn');
+  // The key names the effect, never the attempt: `<turnId>:<effectIndex>:<target>`, the target the turn's channel c1
+  // because errand.run names none (stage 4 design, "After Astra": the delivery identity is the effect's record).
+  assert.equal(task.idempotencyKey, `${task.origin.turnId}:1:c1`, 'her second call of the turn');
   assert.equal(runs.length, 1);
   assert.equal(
     run.llm.calls.length,
