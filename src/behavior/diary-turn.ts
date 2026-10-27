@@ -236,7 +236,7 @@ function jsonOf(value: unknown): unknown {
   }
 }
 
-/** The message ids an entry was posted as, in order: its legacy mirror's, else its publications' message receipts. */
+/** The message ids an entry was posted as, each once: its legacy mirror's, then its sent publication's receipts. */
 function messageIdsOf(db: Db, entryId: string): Array<string> {
   const ids: Array<string> = [];
   for (const row of db
@@ -246,7 +246,7 @@ function messageIdsOf(db: Db, entryId: string): Array<string> {
     if (Array.isArray(parsed))
       for (const id of parsed as Array<unknown>) if (typeof id === 'string' && id) ids.push(id);
   }
-  if (ids.length > 0) return [...new Set(ids)];
+  // Its sent publication's receipts too: a message the v15 step joined to it is named there only.
   for (const row of db
     .prepare(
       "SELECT receipts FROM publications WHERE row_kind = 'diary' AND row_id = ? AND status = 'sent' AND retired_at IS NULL ORDER BY created_at, id LIMIT 1"

@@ -60,38 +60,43 @@ function audioExtension(mime, name) {
 }
 
 /**
- * The diary rows still to fill: live, mirrored, and either no text yet or (a post saved before audio was
- * kept) a `voice` field in its extra with no audio media row. Each carries the post's `voice` object, if any, and the
+ * The diary rows still to fill: live, mirrored or made by the v15 step from her past messages (`mediaPending` in its
+ * extra, diary-past.ts), and either no text yet, files not read yet (`mediaPending`), a media row that names no
+ * attachment id, or (a post saved before audio was kept) a `voice` field in its extra with no audio media row. Each
+ * carries the messages it was sent as (messageIdsOf), the post's `voice` object, if any, and the
  * conversation it was posted to: the place its publication names, else the place her diary is posted to
  * (mirrors.ts#diaryPlaces, the first), else null.
  * @returns {Array<Record<string, unknown> & { id: string, conversationId: string | null, messageIds: string[], voice: object | null }>}
  */
 export function pendingDiaryRows(db) {
   const fallbackId = diaryPlaces(db)[0]?.conversationId ?? null;
-  const rows = db
-    .prepare(
-      `SELECT d.id AS id, d.scope_kind AS scope_kind, d.scope_iface AS scope_iface, d.scope_dm AS scope_dm, m.native_ids AS native_ids, d.extra AS extra,
+  const rows = /** @type {Array<Record<string, unknown>>} */ (
+    db
+      .prepare(
+        `SELECT d.id AS id, d.scope_kind AS scope_kind, d.scope_iface AS scope_iface, d.scope_dm AS scope_dm, d.extra AS extra,
+         (SELECT m.native_ids FROM diary_mirrors m WHERE m.diary_id = d.id AND m.retired_at IS NULL ORDER BY m.rowid LIMIT 1) AS native_ids,
+         (SELECT x.receipts FROM publications x WHERE x.row_kind = 'diary' AND x.row_id = d.id AND x.status = 'sent'
+           AND x.retired_at IS NULL ORDER BY x.created_at, x.id LIMIT 1) AS receipts,
          (SELECT p.native_id FROM publications x JOIN places p ON p.id = x.destination_place_id
            WHERE x.row_kind = 'diary' AND x.row_id = d.id ORDER BY x.created_at, x.id LIMIT 1) AS conversation_id
-       FROM diary d JOIN diary_mirrors m ON m.diary_id = d.id
-      WHERE d.retired_at IS NULL AND m.retired_at IS NULL
+       FROM diary d
+      WHERE d.retired_at IS NULL
+        AND (EXISTS (SELECT 1 FROM diary_mirrors m WHERE m.diary_id = d.id AND m.retired_at IS NULL)
+          OR json_extract(d.extra, '$.mediaPending') = 1)
         AND (d.text IS NULL
+          OR json_extract(d.extra, '$.mediaPending') = 1
           OR EXISTS (SELECT 1 FROM media y WHERE y.kind = 'diary' AND y.owner = d.id
             AND json_type(y.native_ref, '$.attachmentId') IS NULL)
           OR (json_type(d.extra, '$.voice') = 'object'
             AND NOT EXISTS (SELECT 1 FROM media x WHERE x.kind = 'diary' AND x.owner = d.id AND x.mime LIKE 'audio/%')))
       ORDER BY d.position, d.rowid`
-    )
-    .all();
+      )
+      .all()
+  );
   const out = [];
   for (const row of rows) {
-    let ids;
-    try {
-      ids = JSON.parse(row.native_ids);
-    } catch {
-      continue;
-    }
-    if (!Array.isArray(ids) || ids.length === 0 || !ids.every((id) => typeof id === 'string')) continue;
+    const ids = messageIdsOf(row.native_ids, row.receipts);
+    if (ids.length === 0) continue;
     let voice = null;
     try {
       const parsed = JSON.parse(row.extra ?? 'null')?.voice;
@@ -99,15 +104,46 @@ export function pendingDiaryRows(db) {
     } catch {
       /* an unreadable extra means no voice field */
     }
-    const { extra: _extra, conversation_id: conversationId, ...rest } = row;
+    const { conversation_id: conversationId } = row;
     out.push({
-      ...rest,
+      id: String(row.id),
+      scope_kind: row.scope_kind,
+      scope_iface: row.scope_iface,
+      scope_dm: row.scope_dm,
+      native_ids: row.native_ids,
       conversationId: typeof conversationId === 'string' ? conversationId : fallbackId,
       messageIds: ids,
       voice,
     });
   }
   return out;
+}
+
+/**
+ * The messages a post was sent as: its mirror's ids, then the message receipts of its sent publication that the
+ * mirror does not name (a message the v15 step joined to it, diary-past.ts), each once.
+ * @param {unknown} nativeIds  the mirror's `native_ids` JSON, or null
+ * @param {unknown} receipts  the publication's `receipts` JSON, or null
+ * @returns {string[]}
+ */
+function messageIdsOf(nativeIds, receipts) {
+  /** @param {unknown} json  @returns {Array<unknown>} */
+  const parse = (json) => {
+    try {
+      const parsed = /** @type {unknown} */ (typeof json === 'string' ? JSON.parse(json) : null);
+      return Array.isArray(parsed) ? /** @type {Array<unknown>} */ (parsed) : [];
+    } catch {
+      return [];
+    }
+  };
+  const ids = parse(nativeIds)
+    .filter((id) => typeof id === 'string' && id !== '')
+    .map(String);
+  for (const item of parse(receipts)) {
+    const receipt = /** @type {{ key?: unknown, kind?: unknown } | null} */ (item);
+    if (typeof receipt?.key === 'string' && receipt.key && receipt.kind !== 'attachment') ids.push(receipt.key);
+  }
+  return [...new Set(ids)];
 }
 
 /**
@@ -120,8 +156,11 @@ export function applyDiaryUpdate(handle, update) {
     const diary = db.prepare('SELECT scope_kind, scope_iface, scope_dm FROM diary WHERE id = ?').get(update.id);
     if (!diary) return;
     // A refetch (for audio) never replaces a text the row already holds: only an empty or missing text is filled.
+    // An entry the v15 step made from her past messages has its files read once: its `mediaPending` mark goes.
     db.prepare(
-      "UPDATE diary SET text = CASE WHEN text IS NOT NULL AND text <> '' THEN text ELSE ? END WHERE id = ?"
+      `UPDATE diary SET text = CASE WHEN text IS NOT NULL AND text <> '' THEN text ELSE ? END,
+         extra = CASE WHEN json_type(extra, '$.mediaPending') IS NULL THEN extra ELSE json_remove(extra, '$.mediaPending') END
+       WHERE id = ?`
     ).run(update.text ?? '', update.id);
     const insert = db.prepare(
       `INSERT INTO media (id, kind, owner, path, native_ref, description, sha1, bytes, mime, scope_kind, scope_iface, scope_dm, extra, retired_at, audience_id)

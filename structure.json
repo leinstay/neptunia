@@ -419,6 +419,13 @@
       "test": "required"
     },
     {
+      "path": "src/memory/db/diary-past.ts",
+      "purpose": "Schema v15's data step that makes her past messages in a diary mirror's place entries. Tested through the v15 migration tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/memory/db/mirrors.ts",
       "purpose": "The reads of the diary's mirrors over the memory database: the places her diary is posted to and whether a conversation is one. Tested through the mirror and diary mirror tests.",
       "layer": "public",

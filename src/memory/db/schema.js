@@ -9,6 +9,7 @@
 // There is no `now` table and no `states` table: the owner dropped both.
 
 import { assignDiaryDestination, deriveAllMirrorPublications } from './publish.js';
+import { pastEntries } from './diary-past.ts';
 
 const SCOPE = 'scope_kind TEXT, scope_iface TEXT, scope_dm TEXT';
 
@@ -1084,6 +1085,7 @@ function V14(connection) {
 // diary channel, the same `context.diaryPlaceId` v12 reads, once that place is stored. When the channel is not named
 // (a tool's open) or its place is not stored yet, a database that holds diary entries or names the channel keeps the
 // meta key `diary_mirror_pending`, and the next open that knows the stored channel seeds the row (open.js#migrate).
+// Seeding the row also makes her past messages in that place entries (diary-past.ts#pastEntries).
 
 /** The meta key of a diary mirror the v15 step could not seed yet. */
 export const DIARY_MIRROR_PENDING = 'diary_mirror_pending';
@@ -1113,6 +1115,8 @@ export function finishDiaryMirror(connection, context = {}) {
       "INSERT OR IGNORE INTO mirrors (id, row_kind, place_id, enabled, created_at, created_by, extra) VALUES (?, 'diary', ?, 1, ?, 'owner', NULL)"
     )
     .run(`mirror:diary:${place}`, place, at).changes;
+  // Her messages there that no entry names become entries (diary-past.ts).
+  pastEntries(db, place, { at: String(at) });
   db.prepare('DELETE FROM meta WHERE key = ?').run(DIARY_MIRROR_PENDING);
   return Number(seeded);
 }
