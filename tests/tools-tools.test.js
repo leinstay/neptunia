@@ -50,7 +50,7 @@ function fakeLookup({
 }
 
 test('webSearchText: her query and the evidence type first, what she wanted to establish, then each result raw: title, link, site and date, snippet', () => {
-  const l = labels.skills.tools.web;
+  const l = labels.tools.tools.web;
   const results = [
     {
       title: 'Ο τελικός',
@@ -120,7 +120,7 @@ test('webSearchText results: duplicates and trackers dropped, titles, links and 
 });
 
 test('webReadText: the source with the page link and the cut, the title, the page text as it is, the cut said when it was cut', () => {
-  const l = labels.skills.tools.read;
+  const l = labels.tools.tools.read;
   const page = { url: 'https://example.com/p', title: 'Σελίδα', text: 'Πρώτη γραμμή.\nΔεύτερη.', cut: true };
   assert.equal(
     webReadText(page, { labels, maxChars: 4000 }),
@@ -138,7 +138,7 @@ test('webReadText: the source with the page link and the cut, the title, the pag
 });
 
 test('memorySearchText: the source, then each stretch under its day and channel with its lines as they were', () => {
-  const l = labels.skills.tools.memory;
+  const l = labels.tools.tools.memory;
   const quotes = [
     {
       channelName: 'jardin',
@@ -161,7 +161,7 @@ test('memorySearchText: the source, then each stretch under its day and channel 
 });
 
 test('memorySearchText: each stretch is cut on its own, the whole by stretches that fit, and a closing line names the ones left out', () => {
-  const l = labels.skills.tools.memory;
+  const l = labels.tools.tools.memory;
   const row = (n) => `[09:${String(n).padStart(2, '0')}] Ana: ${'α'.repeat(93)}`; // 105 characters with the newline
   const longWindow = Array.from({ length: 19 }, (_, i) => row(i)).join('\n'); // about 2000 characters
   const quotes = Array.from({ length: 10 }, (_, i) => ({
@@ -208,7 +208,7 @@ test('runWebSearch: her query goes to the raw search as written, the results are
   });
   assert.equal(ok.status, 'ok');
   assert.deepEqual(lookup.searches, [{ guildId: 'g1', query: 'τελικός 2026' }]);
-  assert.ok(ok.data.text.startsWith(fill(labels.skills.tools.web.source, { query: 'τελικός 2026' })), ok.data.text);
+  assert.ok(ok.data.text.startsWith(fill(labels.tools.tools.web.source, { query: 'τελικός 2026' })), ok.data.text);
   assert.ok(ok.data.text.includes('https://www.example.com/a') && ok.data.text.endsWith('Η…'), ok.data.text);
   const status = async (overrides) => {
     const result = await runWebSearch({
@@ -245,8 +245,8 @@ test('runWebRead: a link, or the link of a message, goes to the page reader; the
   assert.equal(
     ok.data.text,
     [
-      fill(labels.skills.tools.read.source, { url: 'https://example.com/p', maxChars: '1234' }),
-      fill(labels.skills.tools.read.title, { title: 'Σελίδα' }),
+      fill(labels.tools.tools.read.source, { url: 'https://example.com/p', maxChars: '1234' }),
+      fill(labels.tools.tools.read.title, { title: 'Σελίδα' }),
       'Το κείμενο της σελίδας.',
     ].join('\n')
   );
@@ -293,7 +293,7 @@ test('runWebRead: a link, or the link of a message, goes to the page reader; the
     args: { url: 'https://example.com/e' },
   });
   assert.equal(empty.status, 'ok');
-  assert.ok(empty.data.text.endsWith(labels.skills.tools.read.none), empty.data.text);
+  assert.ok(empty.data.text.endsWith(labels.tools.tools.read.none), empty.data.text);
 });
 
 test('runMemorySearch: her arguments become the server part (no helper), recall runs with quotes over the turn history; the statuses', async () => {
@@ -445,7 +445,7 @@ test('lookableMedia: the pictures, GIFs and videos of one message in their order
 });
 
 test('mediaLookText: the image or the video model named as the source with what was asked, then its answer as it gave it', () => {
-  const l = labels.skills.tools.look;
+  const l = labels.tools.tools.look;
   assert.equal(
     mediaLookText({ kind: 'image', name: 'a.png', question: 'τι χρώμα;', text: 'κόκκινο' }, { labels }),
     [fill(l.image, { name: 'a.png', question: 'τι χρώμα;' }), 'κόκκινο'].join('\n')
@@ -655,7 +655,7 @@ test('runMediaLook url: a link off the site list is refused as not-video-site an
     mediaOf: null,
   });
   assert.deepEqual([result.status, result.code], ['invalid', 'not-video-site']);
-  assert.equal(result.data.text, fill(labels.skills.tools.look.notVideoSite, { sites: 'youtube.com, tiktok.com' }));
+  assert.equal(result.data.text, fill(labels.tools.tools.look.notVideoSite, { sites: 'youtube.com, tiktok.com' }));
   assert.deepEqual(describer.calls, []);
 });
 
@@ -773,7 +773,7 @@ test("runWebSearch: the lookup's coded failures reach her as what they are; an e
     args: { query: 'q' },
   });
   assert.equal(none.status, 'ok');
-  assert.ok(none.data.text.endsWith(labels.skills.tools.web.none), none.data.text);
+  assert.ok(none.data.text.endsWith(labels.tools.tools.web.none), none.data.text);
 });
 
 test('webSearchText: results left out for room are counted in a closing line', () => {
@@ -786,10 +786,10 @@ test('webSearchText: results left out for room are counted in a closing line', (
   const out = webSearchText({ query: 'q', results }, { labels, maxChars: 190 });
   const shown = out.split('\n').filter((line) => /^\d+\. /.test(line)).length;
   assert.ok(shown >= 1 && shown < 5, out);
-  assert.equal(out.split('\n').at(-1), fill(labels.skills.tools.web.more, { count: String(5 - shown) }));
+  assert.equal(out.split('\n').at(-1), fill(labels.tools.tools.web.more, { count: String(5 - shown) }));
   assert.ok(
     !webSearchText({ query: 'q', results: results.slice(0, 1) }, { labels }).includes(
-      fill(labels.skills.tools.web.more, { count: '0' })
+      fill(labels.tools.tools.web.more, { count: '0' })
     )
   );
 });
@@ -800,7 +800,7 @@ test('toolResultText: a reason with its own values is filled with them', async (
     { skill: 'web.search', status: 'failed', code: 'provider', values: { status: '503' } },
     labels
   );
-  assert.ok(block.includes(fill(labels.skills.result.reasons.provider, { status: '503' })), block);
+  assert.ok(block.includes(fill(labels.tools.result.reasons.provider, { status: '503' })), block);
   assert.ok(!block.includes('{status}'), block);
 });
 
@@ -842,7 +842,7 @@ test('runMemorySearch: a run that did not search says why instead of "no matchin
 });
 
 test('runMemorySearch: an empty search that really ran stays ok with the none label; words only and cut searches are named', async () => {
-  const l = labels.skills.tools.memory;
+  const l = labels.tools.tools.memory;
   const none = await memoryWith({ ...NO_STRETCH, outcome: { kind: 'searched', degraded: false, failed: 0, total: 3 } });
   assert.equal(none.status, 'ok');
   assert.equal(none.data.text, [l.source, l.none].join('\n'));
@@ -879,16 +879,16 @@ test('runMediaLook: a second look that is switched off names the switch', async 
     });
   const picture = await run({ imageRelook: false });
   assert.deepEqual([picture.status, picture.code], ['not_configured', 'not-configured']);
-  assert.equal(picture.data.text, fill(labels.skills.tools.look.off, { feature: 'features.imageRelook' }));
+  assert.equal(picture.data.text, fill(labels.tools.tools.look.off, { feature: 'features.imageRelook' }));
   const clip = await run({ videoRewatch: false }, '2');
-  assert.equal(clip.data.text, fill(labels.skills.tools.look.off, { feature: 'features.videoRewatch' }));
+  assert.equal(clip.data.text, fill(labels.tools.tools.look.off, { feature: 'features.videoRewatch' }));
   const noVision = await run({ videoDescriptions: false, mediaDescriptions: false }, '2');
   assert.equal(noVision.status, 'not_configured');
   assert.ok(noVision.data.text.length > 0, 'the video vision switch is named too');
 });
 
 test('memorySearchText: with a registry each quoted line carries a #N handle numbered on, the lines that stayed are registered, a cut line is not', () => {
-  const l = labels.skills.tools.memory;
+  const l = labels.tools.tools.memory;
   const entry = (id, text) => ({ id, text, authorId: `u${id}`, self: id === 'm2', message: { id } });
   const quotes = [
     {

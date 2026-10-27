@@ -102,7 +102,7 @@ function sceneHot({ coreTools, access = {} } = {}) {
       media: { maxPerTurn: 6, filePreviewChars: 500, video: { sites: ['youtube.com'] } },
       web: { maxPerDay: 60, links: { enabled: true, maxPerTurn: 2 }, search: { enabled: true, maxPerTurn: 1, contextMessages: 50 } },
       gifs: { maxPerDay: 40 },
-      skills: { safeMode: false, resultMaxChars: 2000, loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 } },
+      tools: { safeMode: false, resultMaxChars: 2000, loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 } },
     },
     prompts: {
       'system-prompt': 'You are a regular member of this chat, not an assistant.',

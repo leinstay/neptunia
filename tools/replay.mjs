@@ -194,16 +194,16 @@
 // src/behavior/sandbox.js#runSkillLoop, mirroring src/behavior/turn.js#runSteps): her tools are
 // sent with every request as a live turn sends them (src/behavior/sandbox.js#sandboxToolset: the
 // skills granted to her and the carried-over ones, as the `tools` field on the native transport or
-// as the `<tools>` block and `<tool_call>` blocks on the text one, `skills.transport` or `--transport`);
+// as the `<tools>` block and `<tool_call>` blocks on the text one, `tools.transport` or `--transport`);
 // her answer is split into speech and tool calls (src/behavior/turn.js#answerOf); each call is
 // refused before it runs when unreadable, unknown, cut off or past the step's cap
-// (`skills.loop.maxCallsPerStep`), repaired by coerceArgs, and put through the real resolution and
+// (`tools.loop.maxCallsPerStep`), repaired by coerceArgs, and put through the real resolution and
 // gateway (loopCall), the reads together, every other call alone in her order; her speech of a step
 // stands only when every call worked and its result is an effect or an accepted errand, else it is
 // held and never posted; a step that left something to read is followed by one request that appends her
 // answer, one result per call and a note to the first messages (nothing rebuilt), up to
-// `skills.loop.maxSteps` follow-ups, the last of them final (its calls get `loop-cap` results), and
-// `skills.loop.timeBudgetMs`. features.coreTools is only the pre-reply classifiers' switch: on, no
+// `tools.loop.maxSteps` follow-ups, the last of them final (its calls get `loop-cap` results), and
+// `tools.loop.timeBudgetMs`. features.coreTools is only the pre-reply classifiers' switch: on, no
 // search classifier runs (no `<skills>` block whatever `discovery` says) and the memory prefetch and the
 // server search's senses line stand in every request; off, the search classifier names her skills.
 // Her `web.search` and `memory.search` that passed run for real and read only
@@ -244,7 +244,7 @@
 // requests), which tools/replay-score.mjs tallies.
 //
 // `--loop-triggers`: the same triggers answered on one side, `--transport native|text` (default:
-// `skills.transport` of the config), and every turn recorded. `--out` (default
+// `tools.transport` of the config), and every turn recorded. `--out` (default
 // ./replay-loop-triggers-<time>/) gets `runs.jsonl` (one line per trigger: the trigger, its mode and
 // kind, the chat before it, the counts and the run record with every step -- calls with names and
 // statuses, held, thinkMissing, coerced, capped, requests, tokens in and out and from the cache,
@@ -254,7 +254,7 @@
 //
 // `--prompts <dir>`: every scenario answered with `<dir>` laid over a copy of
 // the live prompts.local/ (a file of the same name replaces the private one,
-// the others stay; labels.json and skills.json deep-merge over the private
+// the others stay; labels.json and tools.json deep-merge over the private
 // ones as src/hot.js merges its layers). `--pair-prompts <dirA> <dirB>`: every
 // scenario answered under both layers, each laid over prompts.local/ the same
 // way, over the same fetched chat, config and memory, the same number of
@@ -290,7 +290,7 @@
 // each side its directory alone as prompts.local/; `--diary --prompts <dir>`
 // lays the directory over the live prompts.local/ (a file of the same name
 // replaces it whole, labels.json included); `--skills --prompts` and
-// `--pair-prompts` lay it the same way but merge labels.json and skills.json
+// `--pair-prompts` lay it the same way but merge labels.json and tools.json
 // (overlayPromptsHot). The live config.local.json and prompts.local/ are the
 // private directory's (NEPTUNIA_PRIVATE_DIR, else the checkout; privateDirOf).
 // Nothing in the checkout changes. A prompts.local/ (or a
@@ -2096,7 +2096,7 @@ export function diaryPromptLayers(root, promptsDir, env = process.env) {
  * A hot view whose private layer is a copy of the live prompts.local/ with `promptsDir` laid over
  * it (diaryPromptLayers, then tools/lib/prompt-layers.mjs): a file of the directory replaces the
  * private one of the same name, the rest stay. `mergeJson` (src/config.js#deepMerge) merges the
- * directory's labels.json / skills.json over the private ones as src/hot.js merges its layers
+ * directory's labels.json / tools.json over the private ones as src/hot.js merges its layers
  * (`--skills --prompts` and `--pair-prompts`); without it they replace them whole (`--diary
  * --prompts`). The live prompts.local/ is only read. Returns `{ hot, dir }`: the caller closes
  * the view and removes `dir`.
@@ -5739,7 +5739,7 @@ async function runSkills({
           : scenarioInventory({
               config: scenarioConfig,
               selfId: self.id,
-              texts: sideHot.prompts?.skills,
+              texts: sideHot.prompts?.tools,
               requester,
               conversationId: channel.id,
               registry,
@@ -6190,10 +6190,10 @@ export function requestBlocks(user, labels) {
 /** The two sides of `--pair-transport`: the native transport (A) and the text one (B). */
 const TRANSPORT_SIDES = Object.freeze({ A: 'native', B: 'text' });
 
-/** `config` with her tools' transport set (`skills.transport`): a shallow copy, the live config untouched; `transport` null leaves it. Pure. */
+/** `config` with her tools' transport set (`tools.transport`): a shallow copy, the live config untouched; `transport` null leaves it. Pure. */
 export function withTransport(config, transport) {
   if (transport !== 'native' && transport !== 'text') return config;
-  return { ...config, skills: { ...(config?.skills ?? {}), transport } };
+  return { ...config, tools: { ...(config?.tools ?? {}), transport } };
 }
 
 /**
@@ -6417,7 +6417,7 @@ export async function runTriggerLoops({
           llm: searchers.client,
           lookup: searchers.lookup,
           recall: searchers.recall,
-          discovery: loopDeps.discoveryOf(baseConfig, registry, hot.prompts?.skills),
+          discovery: loopDeps.discoveryOf(baseConfig, registry, hot.prompts?.tools),
           guild,
           guildId,
           channel,
@@ -6442,7 +6442,7 @@ export async function runTriggerLoops({
         const inventory = scenarioInventory({
           config: baseConfig,
           selfId: self.id,
-          texts: hot.prompts?.skills,
+          texts: hot.prompts?.tools,
           requester,
           conversationId: channel.id,
           registry,

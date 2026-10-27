@@ -647,9 +647,9 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SHIPPED = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
 const withHidden = {
   ...labels,
-  skills: {
-    ...labels.skills,
-    tools: { ...labels.skills.tools, memory: { ...labels.skills.tools.memory, hidden: 'ΚΡΥΦΟ-ΣΗΜΑ' } },
+  tools: {
+    ...labels.tools,
+    tools: { ...labels.tools.tools, memory: { ...labels.tools.tools.memory, hidden: 'ΚΡΥΦΟ-ΣΗΜΑ' } },
   },
 };
 
@@ -1070,9 +1070,9 @@ test('memory.search: the hidden marker is one label line, with or without stretc
   assert.ok(memorySearchText([quote], { labels: withHidden, hidden: true }).endsWith('ΚΡΥΦΟ-ΣΗΜΑ'));
   assert.equal(memorySearchText([quote], { labels: withHidden }).includes('ΚΡΥΦΟ-ΣΗΜΑ'), false);
   const none = memorySearchText([], { labels: withHidden, hidden: true });
-  assert.ok(none.includes(withHidden.skills.tools.memory.none) && none.endsWith('ΚΡΥΦΟ-ΣΗΜΑ'));
+  assert.ok(none.includes(withHidden.tools.tools.memory.none) && none.endsWith('ΚΡΥΦΟ-ΣΗΜΑ'));
   assert.equal(
-    memorySearchText([], { labels: { skills: { tools: { memory: { none: 'N' } } } }, hidden: true }),
+    memorySearchText([], { labels: { tools: { tools: { memory: { none: 'N' } } } }, hidden: true }),
     'N',
     'a missing label adds nothing'
   );

@@ -3,7 +3,7 @@
 // where its wording lives. Every emitter imports its code from here (`CODE.NOT_FOUND`, never the
 // string): a code that is not in the table throws at the first use, and tests/skills-codes.test.js
 // greps src/ for a string literal in a code position. The wording is never here: a `skill` code is
-// worded by `labels.skills.result.reasons.<code>` (the call mark in the transcript, the `<result>`
+// worded by `labels.tools.result.reasons.<code>` (the call mark in the transcript, the `<result>`
 // block and the facts read the same label with the same values), a `wake` code by
 // `labels.wake.feedback.codes.<code>`; `internal` codes are history or transport details the
 // persona is never told by themselves. `tools/labels-catalogue.mjs --check` compares this table,
@@ -13,7 +13,7 @@
 // `denied`, `invalid`, `not_configured`, `failed`, `partial`, `unknown`); `group` where the wording
 // lives (`skill`, `wake`, `internal`, `ok`); `params` the values the label may name (`{status}`:
 // an HTTP status, `{what}`: what timed out or ran out, `{feature}`: what is not set up). A value of
-// `what` or `feature` is a key of `labels.skills.result.params.<param>` (else the value as it is).
+// `what` or `feature` is a key of `labels.tools.result.params.<param>` (else the value as it is).
 
 import { idText, objOf } from './types.ts';
 
@@ -270,8 +270,8 @@ export function normalCode(code: string, values: Record<string, unknown> | null 
 export type NormalCode = { code: string; values: Record<string, unknown> };
 
 /**
- * The words of a code: `labels.skills.result.reasons[<code>]` with the code's values filled
- * (`{status}` as it is, `{what}` and `{feature}` through `labels.skills.result.params.<param>.<value>`
+ * The words of a code: `labels.tools.result.reasons[<code>]` with the code's values filled
+ * (`{status}` as it is, `{what}` and `{feature}` through `labels.tools.result.params.<param>.<value>`
  * when that exists). The one lookup the call mark (src/format.js#callReason) and the `<result>`
  * block (src/tools/tool-calls.ts#toolResultText) share, so a restart that reseeds the mark from
  * the journal tells the same text. `null` when the code has no wording or a value its label names
@@ -284,7 +284,7 @@ export function reasonText(
   fill: (template: string, values: Record<string, string>) => string
 ): string | null {
   const normal = normalCode(code, values);
-  const result = objOf(objOf(objOf(labels).skills).result);
+  const result = objOf(objOf(objOf(labels).tools).result);
   const table = objOf(result.reasons);
   const template = Object.hasOwn(table, normal.code) ? table[normal.code] : null;
   if (typeof template !== 'string' || !template) return null;

@@ -80,7 +80,7 @@ const AGREED = new Set([
   'intent.cancel',
   'intent.list',
   'places.list',
-  'skills.describe',
+  'tools.describe',
   'conversation.read',
   'inner.stop',
   'inner.start',

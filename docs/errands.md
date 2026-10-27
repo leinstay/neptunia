@@ -118,7 +118,7 @@ A task's saved files are named `file:<task id>/<name>`. The persona uses this ha
 
 ## Task operations
 
-These are both `/nep` commands and her skills (closed until granted to her). All require `features.memberCommands`.
+These are both `/nep` commands and her tools (closed until granted to her). All require `features.memberCommands`.
 
 | Operation | What it does |
 |---|---|

@@ -6432,15 +6432,14 @@ test('buildRequest: skills -- the catalogue renders in the tail before <chat>: o
   assert.deepEqual(tags.slice(tags.indexOf('skills') + 1, tags.indexOf('skills') + 3), ['people_now', 'chat']);
   const body = blocksOf(tail).find((b) => b.tag === 'skills').body;
   const line = (row, access) =>
-    fill(labels.skills.line, { name: row.name, title: row.title, whenToUse: row.whenToUse, access });
+    fill(labels.tools.line, { name: row.name, title: row.title, whenToUse: row.whenToUse, access });
   // the message family together, an empty line, then the lore family; the closed ones left out
   assert.equal(
     body,
     [
-      [
-        line(SKILL_ROWS[0], labels.skills.access['carried-over']),
-        line(SKILL_ROWS[2], labels.skills.access.allowed),
-      ].join('\n'),
+      [line(SKILL_ROWS[0], labels.tools.access['carried-over']), line(SKILL_ROWS[2], labels.tools.access.allowed)].join(
+        '\n'
+      ),
       'lore.list',
     ].join('\n\n')
   );
@@ -6448,20 +6447,20 @@ test('buildRequest: skills -- the catalogue renders in the tail before <chat>: o
   // A reason without its own label reads as allowed.
   const other = buildRequest(segmentScene({ skillsInventory: [{ ...SKILL_ROWS[2], reason: 'something-else' }] }))
     .messages[1].content;
-  assert.ok(contentText(other).includes(line(SKILL_ROWS[2], labels.skills.access.allowed)));
+  assert.ok(contentText(other).includes(line(SKILL_ROWS[2], labels.tools.access.allowed)));
   // Nothing open: no block.
   const closed = buildRequest(segmentScene({ skillsInventory: SKILL_ROWS.slice(3) })).messages[1].content;
   assert.equal(blockTags(contentText(closed)).includes('skills'), false);
 });
 
-test('buildRequest: skills -- features.skills or features.skillsDiscovery false: no catalogue; no labels: no block', () => {
-  for (const features of [{ skills: false }, { skillsDiscovery: false }]) {
+test('buildRequest: skills -- features.tools or features.toolsDiscovery false: no catalogue; no labels: no block', () => {
+  for (const features of [{ tools: false }, { toolsDiscovery: false }]) {
     const text = contentText(
       buildRequest(segmentScene({ config: fakeConfig({ features }), skillsInventory: SKILL_ROWS })).messages[1].content
     );
     assert.ok(!blockTags(text).includes('skills'), JSON.stringify(features));
   }
-  const prompts = fakePrompts({ labels: { ...labels, skills: undefined } });
+  const prompts = fakePrompts({ labels: { ...labels, tools: undefined } });
   const bare = contentText(buildRequest(segmentScene({ prompts, skillsInventory: SKILL_ROWS })).messages[1].content);
   assert.ok(!blockTags(bare).includes('skills'));
 });
@@ -6471,17 +6470,17 @@ test('buildRequest: skills -- the skills proposed for this turn show the allowed
   const tail = buildRequest(segmentScene({ skillsInventory: proposed })).messages[1].content.at(-1).text;
   const body = blocksOf(tail).find((b) => b.tag === 'skills').body;
   const line = (row, access) =>
-    fill(labels.skills.line, { name: row.name, title: row.title, whenToUse: row.whenToUse, access });
+    fill(labels.tools.line, { name: row.name, title: row.title, whenToUse: row.whenToUse, access });
   assert.deepEqual(body.split('\n'), [
-    line(SKILL_ROWS[0], labels.skills.access['carried-over']),
-    line(SKILL_ROWS[2], labels.skills.access.allowed),
+    line(SKILL_ROWS[0], labels.tools.access['carried-over']),
+    line(SKILL_ROWS[2], labels.tools.access.allowed),
     '',
     'lore.list',
-    fill(labels.skills.proposedOff, { names: 'memory.profile.read, memory.wipe' }),
+    fill(labels.tools.proposedOff, { names: 'memory.profile.read, memory.wipe' }),
   ]);
   // Nothing allowed and no note label: no block.
   const prompts = fakePrompts({
-    labels: { ...labels, skills: { ...labels.skills, proposedOff: undefined, proposedDenied: undefined } },
+    labels: { ...labels, tools: { ...labels.tools, proposedOff: undefined, proposedDenied: undefined } },
   });
   const closed = buildRequest(segmentScene({ prompts, skillsInventory: [{ ...SKILL_ROWS[3], proposed: true }] }))
     .messages[1].content;
@@ -6501,22 +6500,22 @@ test('skillsInventoryText: a proposed skill the asker has no right to is named o
     },
     { ...SKILL_ROWS[3], proposed: true },
   ];
-  const line = fill(labels.skills.line, {
+  const line = fill(labels.tools.line, {
     name: rows[0].name,
     title: rows[0].title,
     whenToUse: rows[0].whenToUse,
-    access: labels.skills.access.allowed,
+    access: labels.tools.access.allowed,
   });
   assert.deepEqual(skillsInventoryText(rows, labels).split('\n'), [
     line,
-    fill(labels.skills.proposedOff, { names: 'memory.profile.read' }),
-    fill(labels.skills.proposedDenied, { names: 'memory.journal.read' }),
+    fill(labels.tools.proposedOff, { names: 'memory.profile.read' }),
+    fill(labels.tools.proposedDenied, { names: 'memory.journal.read' }),
   ]);
   const deniedOnly = skillsInventoryText([rows[1]], labels);
-  assert.equal(deniedOnly, fill(labels.skills.proposedDenied, { names: 'memory.journal.read' }));
-  assert.ok(!deniedOnly.includes(fill(labels.skills.proposedOff, { names: 'memory.journal.read' })));
+  assert.equal(deniedOnly, fill(labels.tools.proposedDenied, { names: 'memory.journal.read' }));
+  assert.ok(!deniedOnly.includes(fill(labels.tools.proposedOff, { names: 'memory.journal.read' })));
   // Without its own label the asker's lack of right is not worded at all (never as switched off).
-  const bare = { ...labels, skills: { ...labels.skills, proposedDenied: undefined } };
+  const bare = { ...labels, tools: { ...labels.tools, proposedDenied: undefined } };
   assert.equal(skillsInventoryText([rows[1]], bare), '');
 });
 
@@ -6525,8 +6524,8 @@ test('skillsInventoryText: a proposed skill the asker has no right to is named o
 test("skillsInventoryText: each line lists the skill's arguments -- required marked, enum values with the cut shown, a range -- in a stable order", () => {
   const argLabels = {
     ...labels,
-    skills: {
-      ...labels.skills,
+    tools: {
+      ...labels.tools,
       line: '{name}: {title} -- {whenToUse} ({access}){args}',
       args: { list: ' args: {list}', required: '{arg}*', values: '{arg}={values}', range: '{arg}={min}..{max}' },
     },
@@ -6596,12 +6595,12 @@ test("skillsInventoryText: each line lists the skill's arguments -- required mar
   // Without the args labels the slot is empty; a missing form leaves the bare name.
   const bare = skillsInventoryText(rows.slice(0, 1), {
     ...argLabels,
-    skills: { ...argLabels.skills, args: undefined },
+    tools: { ...argLabels.tools, args: undefined },
   });
   assert.equal(bare, 'memory.journal.read: Διάβασε -- το ημερολόγιο (allowed)');
   const listOnly = skillsInventoryText(rows.slice(0, 2), {
     ...argLabels,
-    skills: { ...argLabels.skills, args: { list: ' args: {list}' } },
+    tools: { ...argLabels.tools, args: { list: ' args: {list}' } },
   });
   assert.deepEqual(listOnly.split('\n'), [
     'memory.journal.read: Διάβασε -- το ημερολόγιο (allowed) args: day, kind, n',

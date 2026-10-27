@@ -77,7 +77,7 @@ export const OP_EFFECTS: Readonly<Record<string, EffectClass>> = Object.freeze({
   'intent.cancel': 'write',
   'intent.list': 'read',
   'places.list': 'read',
-  'skills.describe': 'read',
+  'tools.describe': 'read',
   'inner.stop': 'administrative',
   'inner.start': 'administrative',
   'inner.status': 'read',

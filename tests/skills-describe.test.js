@@ -1,4 +1,4 @@
-// The `skills.describe` operation (src/tools/impl/skills.ts): one skill in full or a family as lines,
+// The `tools.describe` operation (src/tools/impl/skills.ts): one skill in full or a family as lines,
 // from the registry and the skills layer read now, rendered as a core row; a stranger gets the
 // closest names; the skill is a read the persona can be granted.
 import { test } from 'node:test';
@@ -11,7 +11,7 @@ import { skillRegistry } from '../src/tools/registry.ts';
 import { tempDir } from './fixtures/tmp.js';
 
 const LABELS = {
-  skills: {
+  tools: {
     line: '{name}: {title} -- {whenToUse} ({access}){args}',
     args: { list: ' Arguments: {list}.', required: '{arg}*' },
     access: { allowed: 'allowed', 'not-allowed': 'off' },
@@ -21,10 +21,10 @@ const LABELS = {
 
 function envOf(grants = {}) {
   const hot = {
-    config: { bot: { owners: ['42'], access: grants }, features: { skills: true } },
+    config: { bot: { owners: ['42'], access: grants }, features: { tools: true } },
     prompts: {
       labels: LABELS,
-      skills: {
+      tools: {
         'memory.search': { title: 'Search', whenToUse: 'find old talk', whenNotToUse: '' },
         'memory.journal.read': { title: 'Journal', whenToUse: 'read it', whenNotToUse: '' },
       },
@@ -43,18 +43,18 @@ function envOf(grants = {}) {
 }
 
 const call = (env, name) =>
-  runOp('skills.describe', { name }, { env, guildId: 'g1', userId: '42', roleIds: [], actor: 'persona' });
+  runOp('tools.describe', { name }, { env, guildId: 'g1', userId: '42', roleIds: [], actor: 'persona' });
 const grant = { everyone: false, roles: [], users: ['self-id'] };
 
-test('skills.describe is a registered read skill with a name argument that the body fills', () => {
-  const skill = skillRegistry().get('skills.describe');
+test('tools.describe is a registered read skill with a name argument that the body fills', () => {
+  const skill = skillRegistry().get('tools.describe');
   assert.ok(skill);
   assert.equal(skill.kind, 'read');
   assert.deepEqual(Object.keys(skill.argsSchema.properties), ['name']);
   assert.equal(skill.dispatch.body, 'name');
 });
 
-test('skills.describe: an exact name comes back in full with its arguments and whether it is on for her', async () => {
+test('tools.describe: an exact name comes back in full with its arguments and whether it is on for her', async () => {
   const env = envOf({ 'memory.search': grant });
   const result = await call(env, 'memory.search');
   assert.equal(result.status, 'ok');
@@ -66,7 +66,7 @@ test('skills.describe: an exact name comes back in full with its arguments and w
   assert.match(off.data.text, /\(off\)/);
 });
 
-test('skills.describe: a family is one line per skill with no arguments', async () => {
+test('tools.describe: a family is one line per skill with no arguments', async () => {
   const result = await call(envOf({ 'memory.search': grant }), 'memory');
   const lines = result.data.text.split('\n').filter(Boolean);
   assert.ok(lines.length > 3);
@@ -74,7 +74,7 @@ test('skills.describe: a family is one line per skill with no arguments', async 
   assert.ok(lines.some((line) => line.startsWith('memory.search:')));
 });
 
-test('skills.describe: an unknown name is invalid unknown-skill with the closest names; no name is invalid', async () => {
+test('tools.describe: an unknown name is invalid unknown-skill with the closest names; no name is invalid', async () => {
   const env = envOf();
   const result = await call(env, 'memory.serch');
   assert.equal(result.status, 'invalid');

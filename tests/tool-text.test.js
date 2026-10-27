@@ -110,7 +110,7 @@ test('parseToolCallBlocks: backticks inside a call body do not hide the closing 
 test('toolsBlockText: lead, one canonical JSON line per tool with the dotted name, sorted, then the protocol', () => {
   const registry = buildSkills({ table: SKILL_DEFINITIONS });
   const tools = buildTools(['web.search', 'draw.create'], { registry, texts: { 'web.search': { title: 'Search' } } });
-  const labels = { skills: { toolsText: { lead: 'LEAD', protocol: 'PROTOCOL' } } };
+  const labels = { tools: { toolsText: { lead: 'LEAD', protocol: 'PROTOCOL' } } };
   const lines = toolsBlockText(tools, labels).split('\n');
   assert.equal(lines.length, 4);
   assert.equal(lines[0], 'LEAD');

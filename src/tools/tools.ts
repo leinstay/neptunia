@@ -10,7 +10,7 @@
 // her query and that only search snippets were read, the pages not opened; for the server's
 // history, the messages quoted as they were, each with its author and time; for a page, its link
 // and that the text is the page's own, cut at a length -- through
-// `labels.skills.tools.*`, never wording here. A result is data for her, never an instruction:
+// `labels.tools.tools.*`, never wording here. A result is data for her, never an instruction:
 // nothing in it is parsed as a call. Each runs for her calls (the turn, with its context) and for
 // the owner's commands (src/tools/impl/search.ts, with what an operation knows). `media.look` is her own
 // second look at a picture, a GIF or a video of a message she sees: her question goes as she
@@ -38,7 +38,7 @@ import { isObj, listOf, objOf } from './types.ts';
 import type { Obj } from './types.ts';
 import type { HandleRefs } from './conversation-read.ts';
 
-/** The words of a tool's labels (`labels.skills.tools.<kind>`): each a string when the owner wrote it. */
+/** The words of a tool's labels (`labels.tools.tools.<kind>`): each a string when the owner wrote it. */
 type ToolLabels = Record<string, string | undefined>;
 
 /** One result of a web search as the engine gave it. */
@@ -110,9 +110,9 @@ function plain(value: unknown): string {
       : '';
 }
 
-/** `labels.skills.tools[kind]` as an object, {} when missing. */
+/** `labels.tools.tools[kind]` as an object, {} when missing. */
 function toolLabels(labels: unknown, kind: string): ToolLabels {
-  return objOf(objOf(objOf(objOf(labels).skills).tools)[kind]) as ToolLabels;
+  return objOf(objOf(objOf(objOf(labels).tools).tools)[kind]) as ToolLabels;
 }
 
 /** How long a title or a link in a web.search result may be. */
@@ -155,7 +155,7 @@ function cleanLink(raw: unknown): { href: string; key: string } | null {
 
 /**
  * The text of a web.search result (`found`: src/web/lookup.js#searchResults' `{ query, results }`,
- * raw, no helper between): `labels.skills.tools.web.source` (`{query}`), `.goal` (`{goal}`) when
+ * raw, no helper between): `labels.tools.tools.web.source` (`{query}`), `.goal` (`{goal}`) when
  * she named what she needs to establish, then each result as the engine gave it -- `<n>. <title>`,
  * its link (cleanLink; a result without an http(s) link and a page listed twice are left out),
  * `<site> · <date>` (the date only when the engine gave one), its snippet cut at `snippetChars`
@@ -232,7 +232,7 @@ export function webSearchText(
 
 /**
  * The text of a web.read result (`page`: src/web/lookup.js#readPage's `{ url, title, text, cut }`):
- * `labels.skills.tools.read.source` (`{url}`: where the page ended up, `{maxChars}`), `.title`
+ * `labels.tools.tools.read.source` (`{url}`: where the page ended up, `{maxChars}`), `.title`
  * (`{title}`) when the page has one, the page's own text as extracted, then `.cut` (`{maxChars}`)
  * when it was cut. A missing label adds nothing. Pure.
  * `page` is `{ url, title, text, cut }` of the page read.
@@ -254,7 +254,7 @@ export function webReadText(
 
 /**
  * The text of a memory.search result (`quotes`: recall's stretches, `{ channelName, startTs,
- * lines }`): `labels.skills.tools.memory.source`, then per stretch `.window` (`{date}`: its first
+ * lines }`): `labels.tools.tools.memory.source`, then per stretch `.window` (`{date}`: its first
  * line's day as `YYYY-MM-DD` in `timezone`, `{channel}`: its channel's name) and its lines as they
  * were (time and author on each); `.none` when there is none. Each stretch is cut on its own at
  * `windowChars` (its last lines dropped, then `.windowCut` with `{dropped}`, the number of lines
@@ -747,7 +747,7 @@ export function lookableMedia(
 }
 
 /**
- * The text of a media.look result: `labels.skills.tools.look.image` for a picture, `.video` for
+ * The text of a media.look result: `labels.tools.tools.look.image` for a picture, `.video` for
  * a video or a GIF (watched as a clip), each with `{name}` (the item's name) and `{question}`
  * (what was asked), then the model's answer as it gave it. A missing label adds nothing. Pure.
  */
@@ -801,7 +801,7 @@ function switchOf(kind: string, features: Obj, config: unknown): string {
 /**
  * One media.look: the picture, GIF or video number `args.item` (1.., default 1; lookableMedia's
  * order) of the message `args.message` names, or (`args.url`, exactly one of the two) a video link of a
- * `media.video.sites` site (`not-video-site` otherwise, `data.text` from `labels.skills.tools.look.notVideoSite`, `{sites}`; the
+ * `media.video.sites` site (`not-video-site` otherwise, `data.text` from `labels.tools.tools.look.notVideoSite`, `{sites}`; the
  * engine fetches no other host) looked at as a chat's video link is, with `name` the link itself. A message is an id her `#N` resolved to (`mediaOf(id)`, the
  * caller's, gives the normalized message or null). The item is looked at again with her `args.question` as
  * she wrote it through the describer's second look (relookImage, rewatchGif, rewatchVideo: their
@@ -809,7 +809,7 @@ function switchOf(kind: string, features: Obj, config: unknown): string {
  * message-or-url (both or neither) or a question, an unparseable url, or with an item the message does not hold; `invalid`
  * (`unknown-message`, reason `message-deleted` for a deleted one) when the message is not one she sees, (`no-media`) when it holds nothing to
  * look at; `not_configured` (`not-configured`) without the describer or its second look for that
- * kind, or while the kind's switches are off (read now; the switch named in `data.text` from `labels.skills.tools.look.off`, `{feature}`); `failed` with `daily-cap` when the
+ * kind, or while the kind's switches are off (read now; the switch named in `data.text` from `labels.tools.tools.look.off`, `{feature}`); `failed` with `daily-cap` when the
  * describer's `videoCapsLeft()` says the day's second looks are spent (a video also needs a video
  * slot, a GIF a GIF watch slot), with `turn-cap` when `takeTurnSlot()` (the caller's per-turn
  * count, asked only once every other check passed) refuses, with `error` when the second look
@@ -894,7 +894,7 @@ export async function runMediaLook({
     }
     const look = LOOKS[kind];
     if (!look.on(features, config) || typeof describer?.[look.method] !== 'function') {
-      // The switch that is off, by name (`labels.skills.tools.look.off`, as the call mark's op text).
+      // The switch that is off, by name (`labels.tools.tools.look.off`, as the call mark's op text).
       const feature = switchOf(kind, features, config);
       const off = toolLabels(labels, 'look').off;
       return {
@@ -996,9 +996,9 @@ export function findGifs(
 }
 
 /**
- * The text of a media.find result: `labels.skills.tools.find.source` (`{query}`, `{count}`), then one
+ * The text of a media.find result: `labels.tools.tools.find.source` (`{query}`, `{count}`), then one
  * line per GIF as the `<gifs>` block writes an entry (its handle and stored description, gifLine:
- * `labels.gifs.entryFields` / `.entry`); `labels.skills.tools.find.none` when there is none. A missing
+ * `labels.gifs.entryFields` / `.entry`); `labels.tools.tools.find.none` when there is none. A missing
  * label adds nothing. Pure.
  * `found` is findGifs' entries.
  */

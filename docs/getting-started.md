@@ -20,7 +20,7 @@ The engine reads two layers of configuration, both hot-reloaded (edits take effe
 
 **Config files.** `config.json` holds every setting with its default. `config.local.json` (gitignored) is deep-merged over it. You never edit `config.json` itself: put your values in `config.local.json`.
 
-**Prompt files.** `prompts/` holds the tracked engine defaults, including a working example character. `prompts.local/` (gitignored) holds your deployment's overrides. A file in `prompts.local/` replaces the same-named file in `prompts/` entirely, except for `labels.json` and `skills.json`, which are deep-merged (you only need to include the keys you change).
+**Prompt files.** `prompts/` holds the tracked engine defaults, including a working example character. `prompts.local/` (gitignored) holds your deployment's overrides. A file in `prompts.local/` replaces the same-named file in `prompts/` entirely, except for `labels.json`, which is deep-merged (you only need to include the keys you change). The texts of the persona's tools are the same kind of layer in `config/tools.json` and `config.local/tools.json`.
 
 The merge logic lives in `src/hot.js`. When a file in either layer fails to parse (a half-written JSON save, for instance), the previous good value stays live and the error is logged. On the first startup, a broken file still causes a hard failure.
 

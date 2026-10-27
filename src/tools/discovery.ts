@@ -5,11 +5,11 @@
 // with her access, src/behavior/prompt.js) or `skills: <name>, <name>` (up to four registry
 // skills relevant to the message: shadow only, logged and journaled, never rendered yet). The
 // classifiers read the registry's names through `{{skills}}` (skillsIndex: static texts only, no
-// grants). Behind `features.skills` and `features.skillsDiscovery` (a missing key counts as on).
+// grants). Behind `features.tools` and `features.toolsDiscovery` (a missing key counts as on).
 // Apart from both, every turn shows her the names of the skills granted to her (grantedSkillNames,
 // rendered in the request's cached stable part, src/behavior/prompt.js), so she knows what she
 // can do without a classifier naming it.
-// Pure; the texts are `hot.prompts.skills`, read by the caller at the moment of use.
+// Pure; the texts are `hot.prompts.tools`, read by the caller at the moment of use.
 
 import {
   CARRIED_OVER,
@@ -48,11 +48,11 @@ const SPLIT_RE = /[,;，、]/;
 const WRAPPING = /^[\s"'`“”‘’«»*]+|[\s"'`“”‘’«»*.!?…]+$/gu;
 
 /**
- * Whether discovery runs: `features.skills` and `features.skillsDiscovery` both not false (a
+ * Whether discovery runs: `features.tools` and `features.toolsDiscovery` both not false (a
  * missing key counts as on), read from the live config at the moment of use.
  */
 export function discoveryOn(config: unknown): boolean {
-  return skillsOn(config) && objOf(objOf(config).features).skillsDiscovery !== false;
+  return skillsOn(config) && objOf(objOf(config).features).toolsDiscovery !== false;
 }
 
 /**
@@ -63,7 +63,7 @@ export function discoveryOn(config: unknown): boolean {
  * part of the request it fills stays byte-identical until a grant changes. Left out: a skill no
  * grant opens for her (NOT_GRANTABLE_TO_PERSONA), a skill whose feature switch is off
  * (src/tools/access.ts#skillFeatureOn); everything under safe mode or with
- * `features.skills` off. A carried-over skill is listed only when granted. Pure.
+ * `features.tools` off. A carried-over skill is listed only when granted. Pure.
  */
 export function grantedSkillNames({
   config,
@@ -91,7 +91,7 @@ export function grantedSkillNames({
  * skills granted to her (grantedSkillNames) and the carried-over ones (CARRIED_OVER: a post, a
  * reaction, a picture), each that the registry holds and whose feature switch is on, sorted by
  * name and de-duplicated. `draw.create` is listed only while `features.imageGeneration` is not
- * false. With `features.skills` off the list is empty; under safe mode it is the carried-over ones
+ * false. With `features.tools` off the list is empty; under safe mode it is the carried-over ones
  * alone. Only her grants, the registry and the live config decide it -- never a requester or a
  * channel -- so the tool list of a request stays byte-identical until a grant changes. Pure.
  */
@@ -193,7 +193,7 @@ export function byFamily<TItem extends { name: string }>(items: ReadonlyArray<TI
  * The registry as the classifiers read it through `{{skills}}`: one line per skill, grouped by
  * family (byFamily), `<name> | <whenToUse>` (the text from the skills layer), the name alone when
  * it has none. Static: no access, no grant, so the prompt it fills stays the same while the owner
- * toggles skills. Owner-only skills are listed too: they run for an owner who asks. `texts` is `hot.prompts.skills`.
+ * toggles skills. Owner-only skills are listed too: they run for an owner who asks. `texts` is `hot.prompts.tools`.
  */
 export function skillsIndex(registry: ReadonlyMap<string, Skill> | null | undefined, texts?: unknown): string {
   const skills = [...(registry?.values() ?? [])].filter((skill) => typeof skill.name === 'string');
@@ -307,7 +307,7 @@ function editDistance(a: string, b: string): number {
 export const MAX_CLOSEST = 5;
 
 /**
- * The skills `skills.describe` (src/tools/impl/skills.ts) answers for `name`: an exact skill name gives that skill in full
+ * The skills `tools.describe` (src/tools/impl/skills.ts) answers for `name`: an exact skill name gives that skill in full
  * (title, when to use, when not to, arguments, as a core row), a family (`memory`, `intent`: the part of a name before
  * its first dot) gives each of its skills with no arguments, one line each; a name that is neither gives no row and the
  * closest skill names. Every row is `allowed: true` and its `reason` says whether she has the skill now (`allowed`, or

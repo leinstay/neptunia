@@ -1036,10 +1036,10 @@
       "count": 1
     },
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 12
+      "count": 10
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 21
+      "count": 19
     },
     "@typescript-eslint/no-unsafe-call": {
       "count": 7

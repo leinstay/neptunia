@@ -11,9 +11,9 @@ const OPEN = '<tool_call>';
 const CLOSE = '</tool_call>';
 
 /**
- * The body of the `<tools>` block: `labels.skills.toolsText.lead`, one JSON line per tool
+ * The body of the `<tools>` block: `labels.tools.toolsText.lead`, one JSON line per tool
  * (`{ name, description, parameters }`, the dotted name, keys in canonical order, sorted by name),
- * then `labels.skills.toolsText.protocol`. '' without tools.
+ * then `labels.tools.toolsText.protocol`. '' without tools.
  * @param {object[]} tools  The native definitions (src/tools/tools-json.ts#buildTools).
  * @param {object} labels
  * @returns {string}
@@ -32,7 +32,7 @@ export function toolsBlockText(tools, labels) {
     })
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
     .map((entry) => JSON.stringify(canonicalJson(entry)));
-  const words = labels?.skills?.toolsText ?? {};
+  const words = labels?.tools?.toolsText ?? {};
   return [words.lead, ...lines, words.protocol].filter((part) => typeof part === 'string' && part !== '').join('\n');
 }
 

@@ -39,9 +39,9 @@ A turn (`src/behavior/turn.js`) has four stages:
 
 ## The tool loop
 
-When `features.coreTools` is on, the persona's granted skills appear in the LLM request as callable tools (native tool definitions by default, or as a `<tools>` text block with `skills.transport` set to `text`). Each `<call>` in the model's output passes the skills gateway (`src/tools/gateway.ts`): it checks access, validates arguments against the skill's schema, checks the requester's rights and the budget.
+When `features.coreTools` is on, the persona's granted tools appear in the LLM request as callable tools (native tool definitions by default, or as a `<tools>` text block with `tools.transport` set to `text`). Each `<call>` in the model's output passes the tool gateway (`src/tools/gateway.ts`): it checks access, validates arguments against the tool's schema, checks the requester's rights and the budget.
 
-After the calls of one answer run, their results come back in another LLM request. This loop repeats up to `skills.loop.maxSteps` times (default 3), with a time budget of `skills.loop.timeBudgetMs` (default 20 seconds) and at most `skills.loop.maxCallsPerStep` calls per answer (default 4). When the step or time limit runs out, the current answer is the persona's last.
+After the calls of one answer run, their results come back in another LLM request. This loop repeats up to `tools.loop.maxSteps` times (default 3), with a time budget of `tools.loop.timeBudgetMs` (default 20 seconds) and at most `tools.loop.maxCallsPerStep` calls per answer (default 4). When the step or time limit runs out, the current answer is the persona's last.
 
 When `features.coreTools` is off (the default), the classifiers before the reply do the work instead: a lookup classifier picks web and server searches, a rewatch classifier picks a second look at media, and a route classifier picks another channel to show. The persona has no callable tools in this mode.
 
@@ -73,7 +73,7 @@ What does not fit is trimmed starting from the bottom. The system prompt, the ta
 
 The user message is split into three text parts, stable to per-turn:
 
-1. **Stable part.** What changes only with the config: senses, the persona's tools in text form (when `skills.transport` is `text`), self-facts, chat patterns, GIFs, the people directory. This part survives across turns and hits the provider's prompt cache.
+1. **Stable part.** What changes only with the config: senses, the persona's tools in text form (when `tools.transport` is `text`), self-facts, chat patterns, GIFs, the people directory. This part survives across turns and hits the provider's prompt cache.
 2. **Profiles.** The interlocutor's profile alone.
 3. **Tail.** Everything else: other people's profiles, current states, the chat transcript, the clock, per-turn senses, tempo and the task text (where the model attends most).
 
@@ -142,4 +142,4 @@ Both errors reach the persona through their turn result: a `token-limit` or `dai
 
 ### How failures reach the persona
 
-Every action the persona takes is answered by a result (the interface port's contract). The result's status is `ok`, `failed`, `unknown`, `unsupported` or `forbidden`. A failed drawing, a refused skill call, a daily cap are all reported this way. The persona's tool loop sees the result of each call and can decide what to do next.
+Every action the persona takes is answered by a result (the interface port's contract). The result's status is `ok`, `failed`, `unknown`, `unsupported` or `forbidden`. A failed drawing, a refused tool call, a daily cap are all reported this way. The persona's tool loop sees the result of each call and can decide what to do next.

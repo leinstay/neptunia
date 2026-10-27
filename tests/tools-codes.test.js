@@ -139,19 +139,19 @@ test('refusalStatus: a wrong call is invalid, a rule that said no is denied', ()
 
 test('labels: a code without its entry, an entry without its code and a value the code does not take are all caught', () => {
   const lacking = structuredClone(shipped);
-  delete lacking.skills.result.reasons['not-found'];
+  delete lacking.tools.result.reasons['not-found'];
   assert.deepEqual(catalogueProblems({ catalogue: CATALOGUE, labels: lacking }), [
-    'code not-found has no labels.skills.result.reasons.not-found',
+    'code not-found has no labels.tools.result.reasons.not-found',
   ]);
   const extra = structuredClone(shipped);
-  extra.skills.result.reasons['no-such-code'] = 'x';
+  extra.tools.result.reasons['no-such-code'] = 'x';
   assert.deepEqual(catalogueProblems({ catalogue: CATALOGUE, labels: extra }), [
-    'labels.skills.result.reasons.no-such-code has no catalogue code',
+    'labels.tools.result.reasons.no-such-code has no catalogue code',
   ]);
   const odd = structuredClone(shipped);
-  odd.skills.result.reasons['not-found'] = 'nothing {what}';
+  odd.tools.result.reasons['not-found'] = 'nothing {what}';
   assert.deepEqual(catalogueProblems({ catalogue: CATALOGUE, labels: odd }), [
-    'labels.skills.result.reasons.not-found names {what}, which the code does not take',
+    'labels.tools.result.reasons.not-found names {what}, which the code does not take',
   ]);
   assert.match(
     catalogueProblems({
@@ -176,7 +176,7 @@ const VALUES = { status: '502', what: WHAT.page, feature: FEATURE.web };
 const valuesOf = (code) => Object.fromEntries(CATALOGUE[code].params.map((param) => [param, VALUES[param]]));
 
 test('codes: no code of the catalogue reaches reasons.other, in the mark or in the <result> block', () => {
-  const other = shipped.skills.result.reasons.other;
+  const other = shipped.tools.result.reasons.other;
   for (const code of codesOf('skill')) {
     const values = valuesOf(code);
     const text = reasonText(shipped, code, values, fill);
@@ -189,9 +189,9 @@ test('codes: no code of the catalogue reaches reasons.other, in the mark or in t
   }
 });
 
-test('reasonText: the values fill, a {what} or {feature} goes through labels.skills.result.params, a missing value gives no text', () => {
+test('reasonText: the values fill, a {what} or {feature} goes through labels.tools.result.params, a missing value gives no text', () => {
   const labels = {
-    skills: {
+    tools: {
       result: {
         reasons: {
           timeout: '{what} did not answer',
@@ -215,7 +215,7 @@ test('reasonText: the values fill, a {what} or {feature} goes through labels.ski
 test("an HTTP status in a port's code is the http reason with its status", () => {
   assert.deepEqual(normalCode(httpCode(403)), { code: 'http', values: { status: '403' } });
   assert.deepEqual(normalCode('timeout', { what: 'page' }), { code: 'timeout', values: { what: 'page' } });
-  const labels = { skills: { result: { reasons: { http: 'the server answered {status}' } } } };
+  const labels = { tools: { result: { reasons: { http: 'the server answered {status}' } } } };
   assert.equal(reasonText(labels, httpCode(404), null, fill), 'the server answered 404');
 });
 

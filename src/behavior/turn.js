@@ -275,7 +275,7 @@ export function paceSettings(config) {
   };
 }
 
-/** skills.loop's values when a key is missing (config.json's). */
+/** tools.loop's values when a key is missing (config.json's). */
 const LOOP_FALLBACK = Object.freeze({ maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4, stepReserveTokens: 6000 });
 /** `diary.loop`'s values when a key is missing (config.json's). */
 const DIARY_LOOP_FALLBACK = Object.freeze({ maxSteps: 2, timeBudgetMs: 600000 });
@@ -307,7 +307,7 @@ const HEARTBEAT_READ_SKILLS = Object.freeze([
   'intent.list',
   'lore.list',
   'lore.show',
-  'skills.describe',
+  'tools.describe',
 ]);
 /** An inner turn's loop end state when no tool loop ran (`inner.loop`). */
 const NO_LOOP = Object.freeze({ steps: 0, cut: null, droppedCalls: 0 });
@@ -328,7 +328,7 @@ export function coreToolsOn(config) {
 }
 
 /**
- * The tool loop's bounds under `config` (`skills.loop`, read by the caller now): `maxSteps`, the
+ * The tool loop's bounds under `config` (`tools.loop`, read by the caller now): `maxSteps`, the
  * most follow-up requests after her calls in one turn (a whole number of at least 1);
  * `timeBudgetMs`, how long the loop may run from its first call before the next request is
  * her last (a positive number); `maxCallsPerStep`, the most calls of one answer that run (a
@@ -337,7 +337,7 @@ export function coreToolsOn(config) {
  * bounds, `innerLife.loop` (src/behavior/inner.js#innerSettings; nobody waits for it, so its
  * budget is generous): the same three, plus `callTimeoutMs`, the most one call of hers may run. A diary
  * post (`diary`) has `diary.loop`, and its calls per step are `diary.set.pictures[1]`.
- * `skills.loop` never
+ * `tools.loop` never
  * reaches an inner turn, `innerLife.loop` never an ordinary one. Pure.
  * @param {object} config
  * @param {{ inner?: boolean }} [options]
@@ -358,7 +358,7 @@ export function loopSettings(config, { inner = false, diary = false } = {}) {
       maxCallsPerStep: setSettings(config?.diary).pictures[1],
     };
   }
-  const loop = isPlainObject(config?.skills?.loop) ? config.skills.loop : {};
+  const loop = isPlainObject(config?.tools?.loop) ? config.tools.loop : {};
   const whole = (value, fallback) => (Number.isInteger(value) && value >= 1 ? value : fallback);
   return {
     maxSteps: whole(loop.maxSteps, LOOP_FALLBACK.maxSteps),
@@ -395,12 +395,12 @@ const DIRECT_CALLS = new Set(['mention', 'reply', 'name', 'followUp', 'private']
 /**
  * The most characters of a skill result's data the follow-up request carries, read from `config`: a
  * memory.search result is cut by the tool itself, window by window, at `recall.quoteMaxChars`, and
- * is bounded there; every other result at `skills.resultMaxChars`.
+ * is bounded there; every other result at `tools.resultMaxChars`.
  */
 function resultCharsFor(result, config) {
   if (result?.skill === 'memory.search' || result?.skill === 'conversation.read')
     return recallSettings(config)?.quoteMaxChars ?? RECALL_DEFAULTS.quoteMaxChars;
-  return config?.skills?.resultMaxChars ?? 4500;
+  return config?.tools?.resultMaxChars ?? 4500;
 }
 
 /**
@@ -1340,7 +1340,7 @@ export function journalResultOf(result) {
 const WRITTEN_SKILLS = Object.freeze(['message.create', 'message.edit']);
 
 /**
- * What a post of hers tells her about the tags that went nowhere: one `labels.skills.result.untaggedNote`
+ * What a post of hers tells her about the tags that went nowhere: one `labels.tools.result.untaggedNote`
  * (`{name}`, `{handle}`) per member whose name she wrote after `@` instead of their handle
  * (src/behavior/handles.js#untaggedNames over the request's handles and names), joined by a space.
  * '' without handles (`handles`: handle -> member id), without the label or when nothing went nowhere. Pure.
@@ -1350,7 +1350,7 @@ const WRITTEN_SKILLS = Object.freeze(['message.create', 'message.edit']);
  * @returns {string}
  */
 export function untaggedNote(text, { handles = null, memberNames = null, mentionedIds = [] }, labels) {
-  const template = labels?.skills?.result?.untaggedNote;
+  const template = labels?.tools?.result?.untaggedNote;
   if (typeof template !== 'string' || !template || !(handles instanceof Map) || !(memberNames instanceof Map))
     return '';
   const handleById = new Map([...handles].map(([handle, id]) => [String(id), handle]));
@@ -1764,7 +1764,7 @@ const CALL_STATUS_NAMES = new Set([
   'timeout',
 ]);
 
-/** The operation's own words of a call that did not work, as `{ text }` (one line, cut to `skills.markTextMaxChars`), or {}. */
+/** The operation's own words of a call that did not work, as `{ text }` (one line, cut to `tools.markTextMaxChars`), or {}. */
 function callTextOf(result, maxChars = 200) {
   const text = clampWithEllipsis(oneLine(typeof result?.data?.text === 'string' ? result.data.text : ''), maxChars);
   return text ? { text } : {};
@@ -1971,7 +1971,7 @@ export function taskInput({ part, queued, added, missed = null, failedEarlier = 
  * reaction, the typing indicator -- is checked by src/tools/gateway.ts#checkReplyEffect right
  * before it runs (`message.create`, a picture or GIF being one with its media or URL, and
  * `message.react.add`: carried over in the current conversation, refused only under the full stop
- * -- features.skills false, she goes silent; each refusal logs `skill: refused` (`skill`, `code`,
+ * -- features.tools false, she goes silent; each refusal logs `skill: refused` (`skill`, `code`,
  * `reason`) and nothing is done; no picture or diary set is generated for a post the check
  * already refuses, and no typing indicator shows), then made through the interface port `port`
  * (src/interface/port.js). Nothing counts as posted (journal, record, stats, lastPostAt) unless the port
@@ -1981,7 +1981,7 @@ export function taskInput({ part, queued, added, missed = null, failedEarlier = 
  * Skill calls: her skills are the owner's /nep commands (src/tools/registry.ts; `skills`: the
  * registry checked against, default skillRegistry()). Her tools -- the skills granted to her and the
  * carried-over ones (src/tools/discovery.ts#exposedSkillNames) -- travel with every request of a
- * turn, as native tool definitions or, with `skills.transport` `text`, as a `<tools>` block. Every
+ * turn, as native tool definitions or, with `tools.transport` `text`, as a `<tools>` block. Every
  * call of an answer is planned in her order (planToolCall: on an immutable envelope built by code,
  * callEnvelope; journaled `proposed` with its invocation id and tool call id, repaired where the
  * schema allows (coerceArgs), resolved on the server's side, checked) and made in segments (runCall:
@@ -1991,7 +1991,7 @@ export function taskInput({ part, queued, added, missed = null, failedEarlier = 
  * `runOwnOp`, src/admin.js#runOwnSkillOp, her grant alone; an inner turn's calls through
  * `runInitiativeOp`, src/admin.js#runInitiativeSkillOp, her grant alone). Her speech goes out after
  * the calls, when all of them worked and none gave her something to read; else it is held and the
- * results come back to her in one more request (runSteps), bounded by `skills.loop`. A dry run only
+ * results come back to her in one more request (runSteps), bounded by `tools.loop`. A dry run only
  * logs the call (`dry-run: would call`).
  *
  * Reactors: `reactors` (src/behavior/reactor-store.ts#createReactorStore, null: none) is the store of
@@ -2125,7 +2125,7 @@ export function createTurnRunner({
   /**
    * What skills discovery gives a classifier (src/tools/discovery.ts, the live config read by
    * the caller now): `index` fills its prompt's `{{skills}}` (skillsIndex over the registry and
-   * `hot.prompts.skills`: static texts, no grant), `names` are the registry's skills its `skills:`
+   * `hot.prompts.tools`: static texts, no grant), `names` are the registry's skills its `skills:`
    * line may name. With discovery off, '' and none.
    * @returns {{ index: string, names: string[] }}
    */
@@ -2137,7 +2137,7 @@ export function createTurnRunner({
       [...(skills ?? defaultSkills())].filter(([name]) => !IN_TURN_TOOLS.includes(name) && skillFeatureOn(name, config))
     );
     const names = [...registry.keys()];
-    return { index: skillsIndex(registry, hot.prompts?.skills), names };
+    return { index: skillsIndex(registry, hot.prompts?.tools), names };
   }
 
   /**
@@ -2159,7 +2159,7 @@ export function createTurnRunner({
     const rows = listSkills({
       config,
       selfId: selfIdOf() || null,
-      texts: hot.prompts?.skills,
+      texts: hot.prompts?.tools,
       requester: requesterOf(trigger, draft?.requesterGroups ?? []),
       audience: { conversationId: String(channel.id) },
       registry: skills ?? defaultSkills(),
@@ -2514,7 +2514,7 @@ export function createTurnRunner({
    * gateway is asked again right before the call (the owner may have revoked it meanwhile), the
    * operation writes `started` with the ids it aims at, a destructive one is stamped for its
    * cooldown, and src/tools/executors.ts#executeCall runs it on the envelope through
-   * `runOp` (`skills.callTimeoutMs`, read now); her written text (`message.create`,
+   * `runOp` (`tools.callTimeoutMs`, read now); her written text (`message.create`,
    * `message.edit`) is rendered first exactly as a `<msg>` of this turn (renderPost over the
    * turn's `handles`, or `lines`, `knownNames`, `directory`, and `idByIndex`, `pulledIds`), its mentions the only members
    * notified. The operation closes `succeeded` (with the
@@ -2601,7 +2601,7 @@ export function createTurnRunner({
           // The live config, for the wake envelope's check at the capabilities a skill reaches (src/tools/access.ts).
           config: hot.config,
           timeoutMs:
-            Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : (hot.config.skills?.callTimeoutMs ?? 120000),
+            Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : (hot.config.tools?.callTimeoutMs ?? 120000),
           // Her in-turn tools (features.coreTools): run here, in the turn, over its context.
           ...(inTurn ? { inTurn } : {}),
         });
@@ -2627,7 +2627,7 @@ export function createTurnRunner({
         status: innerGate?.proposed ? 'proposed' : ran ? 'executed' : 'refused',
         result: result.status,
         ...(result.code ? { code: result.code } : {}),
-        ...(result.status !== 'ok' ? callTextOf(result, hot.config.skills?.markTextMaxChars ?? 200) : {}),
+        ...(result.status !== 'ok' ? callTextOf(result, hot.config.tools?.markTextMaxChars ?? 200) : {}),
         target: callTarget(plan.resolved?.args ?? {}),
         ...(named ? { intentionId: named } : {}),
         ...(skill === 'intent.set' && ran && result.status === 'ok' && typeof result.intentionId === 'string'
@@ -2701,10 +2701,10 @@ export function createTurnRunner({
       status: result.status,
       // Why it did not work, when it did not (the mark words it through labels.transcript.callReasons;
       // without a specific phrase, the operation's own message before the generic one: one line,
-      // skills.markTextMaxChars, read now). In process only: the journal keeps the code and reason,
+      // tools.markTextMaxChars, read now). In process only: the journal keeps the code and reason,
       // never that message.
       detail: outcomeDetail(result, {
-        textChars: hot.config.skills?.markTextMaxChars ?? 200,
+        textChars: hot.config.tools?.markTextMaxChars ?? 200,
         argNames: (skills ?? defaultSkills()).get(skill)?.dispatch?.options?.map((option) => option.name) ?? null,
       }),
       target: { messageId: idText(args.message) ?? idText(args.reply), channelId: where ?? idText(args.channel) },
@@ -3139,7 +3139,7 @@ export function createTurnRunner({
    * (src/behavior/tool-step.js#roomLeft): the previous messages, her answer, one result for every call, and a note
    * (the speech held, the lines that came in meanwhile numbered past every number in use, the messages that did not go
    * out, the last-step notice, an inner turn's open intentions, what the parser did with her answer). The first user
-   * message is never rebuilt. `skills.loop.maxSteps` (an inner turn's: `innerLife.loop`) counts those requests and the
+   * message is never rebuilt. `tools.loop.maxSteps` (an inner turn's: `innerLife.loop`) counts those requests and the
    * last of them is always the final one, which cannot call: its calls get a `loop-cap` result that only the journal
    * keeps, and its speech is held unless it has no calls (an inner turn's one terminal call, if it went through,
    * lets it go out). The same goes for a request the time budget (`timeBudgetMs`, from the first call) or the room
@@ -3191,8 +3191,8 @@ export function createTurnRunner({
       diary && (draft.staged?.length ?? 0) > 0
         ? { pictures: draft.staged.map(({ picture, self, text }) => ({ ...picture, self, text })) }
         : null;
-    // The most one call may run: an inner turn's own (innerLife.loop.callTimeoutMs), else skills.callTimeoutMs (read now).
-    const callTimeoutCap = inner ? settings.callTimeoutMs : (hot.config.skills?.callTimeoutMs ?? 120000);
+    // The most one call may run: an inner turn's own (innerLife.loop.callTimeoutMs), else tools.callTimeoutMs (read now).
+    const callTimeoutCap = inner ? settings.callTimeoutMs : (hot.config.tools?.callTimeoutMs ?? 120000);
     const tools = transport === 'native' && draft.tools.length > 0 ? { tools: draft.tools, toolChoice: 'auto' } : {};
     const acts = [];
     let messages = requestMessages;
@@ -3414,7 +3414,7 @@ export function createTurnRunner({
       // that left nothing to read earns one request of its own for them, once per turn.
       const openLine = inner && posted && !isFinal ? openIntentionsText(draft, labels) : '';
       const openAlone = openLine !== '' && !fresh && !openTaken && left.run && left.next !== 'none';
-      // Under the full stop (features.skills off) she is silent: nothing more is asked of her.
+      // Under the full stop (features.tools off) she is silent: nothing more is asked of her.
       const stopped = results.some((result) => result.code === CODE.SKILLS_OFF);
       const next =
         isFinal || stopped || heartbeatChanged(draft, stepResults) ? 'none' : fresh || openAlone ? left.next : 'none';
@@ -3489,7 +3489,7 @@ export function createTurnRunner({
         if (cost(sent) > limit) {
           log.warn('skills: loop cap', { channel: channel.id, reason, step, dropped: results.length });
           draft.loopCut = { reason, dropped: (draft.loopCut?.dropped ?? 0) + results.length };
-          draft.limits?.add({ kind: 'loop-cap', where: 'skills.loop', lost: results.length, detail: reason });
+          draft.limits?.add({ kind: 'loop-cap', where: 'tools.loop', lost: results.length, detail: reason });
           unseen = stepResults;
           break;
         }
@@ -3557,7 +3557,7 @@ export function createTurnRunner({
     if (dropped.length > 0) {
       const why = finalReason ?? LOOP_WHY.extraCall;
       log.info('skills: loop cap', { channel: channel.id, reason: why, step, dropped: dropped.length });
-      draft.limits?.add({ kind: 'loop-cap', where: 'skills.loop', lost: dropped.length, detail: why });
+      draft.limits?.add({ kind: 'loop-cap', where: 'tools.loop', lost: dropped.length, detail: why });
       draft.loopCut = { reason: draft.loopCut?.reason ?? why, dropped: (draft.loopCut?.dropped ?? 0) + dropped.length };
     }
     // A final answer whose speech was held with no call capped (only calls that ran): nothing was dropped, she still wrote it.
@@ -3570,7 +3570,7 @@ export function createTurnRunner({
             skill: result.skill,
             status: CALL_STATUS_NAMES.has(result.status) ? result.status : 'failed',
             code: typeof result.code === 'string' && result.code ? result.code : null,
-            ...callTextOf(result, hot.config.skills?.markTextMaxChars ?? 200),
+            ...callTextOf(result, hot.config.tools?.markTextMaxChars ?? 200),
           }))
       );
     }
@@ -3692,7 +3692,7 @@ export function createTurnRunner({
   }
   const lastPostAt = new Map(); // channelId -> ts of the persona's last message
   // `${skill}:${originChannelId}` -> when a destructive skill call of hers was last dispatched
-  // from that channel (skills.destructiveCooldownMinutes, src/tools/gateway.ts); in process.
+  // from that channel (tools.destructiveCooldownMinutes, src/tools/gateway.ts); in process.
   const destructiveRuns = new Map();
   let onIdle = null; // set via setOnIdle(); see the finally block of runTurn below
   let onTurnEnd = null; // set via setOnTurnEnd(); see noteTurnEnd
@@ -4232,7 +4232,7 @@ export function createTurnRunner({
    * answering a direct call (DIRECT_CALLS: no unprompted turn, no overheard
    * line), with features.typingSimulation and pace.typingWhilePreparing on
    * (`config`, the turn's live config), never in a dry run (read now), never
-   * where the bot cannot send, never with features.skills off (read now: she
+   * where the bot cannot send, never with features.tools off (read now: she
    * is silent). Sent through the port; one that does not answer `ok` logs
    * `turn: typing failed` and changes nothing else.
    * @returns {() => void}  Stops the indicator's refresh.
@@ -6986,7 +6986,7 @@ export function createTurnRunner({
    *   still untouched, the steps make one open follow-up request (runSteps: the open line in its note,
    *   once per turn). The last step still runs one terminal action call of hers (a post, an
    *   intention change). The steps of an inner turn run under `innerLife.loop`
-   *   (loopSettings with `inner`), not `skills.loop`. The result carries `inner: { actions, intentIds, loop,
+   *   (loopSettings with `inner`), not `tools.loop`. The result carries `inner: { actions, intentIds, loop,
    *   openFollowUp?, turnId }` (`openFollowUp: true` when that
    *   step was made; `shadow: true` in shadow mode). A
    *   call that did not work in shadow mode is marked for the rest of the turn only (`turnMarks`).
@@ -7484,7 +7484,7 @@ export function createTurnRunner({
     try {
       const config = hot.config;
       const features = config.features ?? {};
-      // How her tools travel this turn (skills.transport, read once): native tool calls, or text blocks.
+      // How her tools travel this turn (tools.transport, read once): native tool calls, or text blocks.
       const transport = transportOf(config);
       draft.transport = transport;
       const memoryOn = features.memory !== false;
@@ -8556,7 +8556,7 @@ export function createTurnRunner({
       draft.toolNames = exposedSkillNames({ config, selfId, registry: skills ?? defaultSkills() });
       draft.tools = buildTools(draft.toolNames, {
         registry: skills ?? defaultSkills(),
-        texts: prompts?.skills,
+        texts: prompts?.tools,
         fill: { drawChars: config.image?.maxPromptChars ?? 1600 },
       });
       const toolsBlock = transport === 'text' ? toolsBlockText(draft.tools, prompts?.labels) : null;

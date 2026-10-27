@@ -57,7 +57,7 @@ export async function innerRig({ answers = ['<skip/>'], interface: connected = t
   }
   const hot = hotWith({
     features: { innerLife: true, intentions: false, journal: false, coreTools: true },
-    skills: { loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 } },
+    tools: { loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 } },
     config: {
       mention: { oneAtATime: true },
       memoryDb: { wakeRuns: true },

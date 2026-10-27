@@ -7,7 +7,7 @@
 // (src/format.js#formatTranscript: author, time, text, media, edits, deletions), each line with
 // a `#N` handle registered in the turn's handle map (src/behavior/turn.js#searchHandles), so a
 // message call, media.look or memory.journal.read resolves it in a later step. Every word the
-// persona reads comes from `labels.skills.tools.conversation.*`; nothing here is wording. A
+// persona reads comes from `labels.tools.tools.conversation.*`; nothing here is wording. A
 // channel the audience rule or her rights hide is refused `channel-not-visible`.
 
 import { fill, formatTranscript } from '../format.js';
@@ -309,7 +309,7 @@ export async function recordMessages(
 }
 
 /**
- * The text of a read: `labels.skills.tools.conversation.source` (`{channel}`), the lines as the
+ * The text of a read: `labels.tools.tools.conversation.source` (`{channel}`), the lines as the
  * chat transcript renders them (formatTranscript, `render` its options), `.handles` when the
  * lines are numbered, `.cut` (`{dropped}`) when the room (`maxChars`) kept fewer than the span,
  * then `.earlier` / `.later` (`{n}`: the handle of the first / last line shown) as the ways to
@@ -342,7 +342,7 @@ export function conversationText(
     keep?: 'newest' | 'oldest';
   }
 ): string {
-  const l = objOf(objOf(objOf(objOf(labels).skills).tools).conversation) as Record<string, string | undefined>;
+  const l = objOf(objOf(objOf(objOf(labels).tools).tools).conversation) as Record<string, string | undefined>;
   const lines: Array<string> = [];
   if (l.source) lines.push(fill(l.source, { channel: channelName }));
   if (!Array.isArray(slice) || slice.length === 0) {

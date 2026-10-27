@@ -1,5 +1,5 @@
 // The skills as native tool definitions (OpenAI chat-completions `tools`): built from the registry
-// rows granted to the persona, the wording from the skills layer (`hot.prompts.skills`, read by the
+// rows granted to the persona, the wording from the skills layer (`hot.prompts.tools`, read by the
 // caller at the moment of use). Our names stay dotted everywhere; only this boundary carries the API
 // name (`draw.create` <-> `draw_create`, src/tools/definitions.ts). `buildTools` serves the live turn
 // (src/behavior/turn.js) and the replay sandbox (src/behavior/sandbox.js); `canonicalJson` also keeps the
@@ -76,7 +76,7 @@ function descriptionOf(skill: Skill, texts: unknown, fill: unknown): string {
  * The `tools` array for the skills in `names`: `[{ type: 'function', function: { name, description,
  * parameters } }]` sorted by API name, keys in a fixed order. A name with no skill in `registry` or
  * no API name is left out. Same input, same bytes.
- * `names` are the dotted skill names granted to the persona. `texts` is `hot.prompts.skills`;
+ * `names` are the dotted skill names granted to the persona. `texts` is `hot.prompts.tools`;
  * `fill` holds the values for the `{{key}}` placeholders of the texts (`{ drawChars }`).
  */
 export function buildTools(

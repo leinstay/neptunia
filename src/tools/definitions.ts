@@ -235,7 +235,7 @@ export const API_NAMES: Readonly<Record<string, string>> = Object.freeze({
   'intent.cancel': 'intent_cancel',
   'intent.list': 'intent_list',
   'places.list': 'places_list',
-  'skills.describe': 'skills_describe',
+  'tools.describe': 'tools_describe',
   'inner.stop': 'inner_stop',
   'inner.start': 'inner_start',
   'inner.status': 'inner_status',
@@ -690,7 +690,7 @@ const ENTRIES: Array<Definition> = [
       ...(val(a, 'page') == null ? {} : { page: val(a, 'page') }),
     }),
   }),
-  def('skills.describe', {
+  def('tools.describe', {
     params: obj({ name: str(60) }, ['name']),
     body: 'name',
     effects: 'read',
@@ -885,6 +885,14 @@ export const SKILL_DEFINITIONS: ReadonlyArray<Definition> = deepFreeze(validateD
 /** The API name of skill `name`, or null. */
 export function apiNameOf(name: string): string | null {
   return Object.hasOwn(API_NAMES, name) ? (API_NAMES[name] ?? null) : null;
+}
+
+/** The tools whose names changed, old to new: a journal written before the rename names them by the old one. */
+export const RENAMED_TOOLS: Readonly<Record<string, string>> = Object.freeze({ 'skills.describe': 'tools.describe' });
+
+/** `name` as the tool is called now: a renamed tool's old name gives the new one, anything else comes back as it is. */
+export function currentToolName<T>(name: T): T | string {
+  return typeof name === 'string' && Object.hasOwn(RENAMED_TOOLS, name) ? (RENAMED_TOOLS[name] ?? name) : name;
 }
 
 /** The skill whose API name is `api`, or null. */

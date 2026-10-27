@@ -146,8 +146,8 @@ async function writeTurn(
 function makeAdmin(journal) {
   const hot = {
     config: {
-      features: { skills: true, journal: true },
-      skills: { safeMode: false },
+      features: { tools: true, journal: true },
+      tools: { safeMode: false },
       bot: { owners: [OWNER], access: {} },
     },
     prompts: { labels: {} },

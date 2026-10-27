@@ -33,13 +33,10 @@ function toolContent(llm, i, n = 0) {
 }
 
 test("loopSettings: a missing or unusable value takes config.json's", () => {
-  const tracked = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8')).skills.loop;
+  const tracked = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8')).tools.loop;
   assert.deepEqual(loopSettings({}), tracked);
-  assert.deepEqual(
-    loopSettings({ skills: { loop: { maxSteps: 0, timeBudgetMs: -1, maxCallsPerStep: 1.5 } } }),
-    tracked
-  );
-  assert.deepEqual(loopSettings({ skills: { loop: { maxSteps: 5, timeBudgetMs: 900, maxCallsPerStep: 2 } } }), {
+  assert.deepEqual(loopSettings({ tools: { loop: { maxSteps: 0, timeBudgetMs: -1, maxCallsPerStep: 1.5 } } }), tracked);
+  assert.deepEqual(loopSettings({ tools: { loop: { maxSteps: 5, timeBudgetMs: 900, maxCallsPerStep: 2 } } }), {
     maxSteps: 5,
     timeBudgetMs: 900,
     maxCallsPerStep: 2,
@@ -117,8 +114,8 @@ test('web.search in the loop: her query runs as written, the continuation carrie
     ['τελικός 2026']
   );
   assert.equal(run.llm.calls.length, 2);
-  const l = labels.skills.tools.web;
-  const expected = `${labels.skills.result.ok}\n${fill(l.source, { query: 'τελικός 2026' })}\n${fill(l.goal, { goal: 'ποιος κέρδισε' })}\n1. Un\nhttps://www.example.com/1\nexample.com\nΗ Ana κέρδισε τον τελικό.`;
+  const l = labels.tools.tools.web;
+  const expected = `${labels.tools.result.ok}\n${fill(l.source, { query: 'τελικός 2026' })}\n${fill(l.goal, { goal: 'ποιος κέρδισε' })}\n1. Un\nhttps://www.example.com/1\nexample.com\nΗ Ana κέρδισε τον τελικό.`;
   assert.equal(
     toolContent(run.llm, 1),
     expected,
@@ -149,8 +146,8 @@ test('web.read in the loop: a link she gives, or the link of a message #N she na
     lookup.reads.map((read) => read.url),
     ['https://example.org/x']
   );
-  const r = labels.skills.tools.read;
-  const expected = `${labels.skills.result.ok}\n${fill(r.source, { url: 'https://example.org/x', maxChars: '4000' })}\n${fill(r.title, { title: 'Σελίδα' })}\nΤο κείμενο της σελίδας.`;
+  const r = labels.tools.tools.read;
+  const expected = `${labels.tools.result.ok}\n${fill(r.source, { url: 'https://example.org/x', maxChars: '4000' })}\n${fill(r.title, { title: 'Σελίδα' })}\nΤο κείμενο της σελίδας.`;
   assert.equal(toolContent(run.llm, 1), expected);
   assert.ok(!JSON.stringify(run.logs).includes('example.org/x'), 'never the link in the log');
 
@@ -198,7 +195,7 @@ test('memory.search in the loop: the recall runner gets her arguments with quote
   assert.deepEqual(args.server.forms, ['κουνέλι']);
   assert.deepEqual([args.server.from, args.server.to], [Date.UTC(2026, 8, 1), Date.UTC(2026, 9, 17) - 1]);
   const text = toolContent(run.llm, 1);
-  const l = labels.skills.tools.memory;
+  const l = labels.tools.tools.memory;
   assert.ok(
     text.endsWith(
       `${l.source}\n${fill(l.window, { date: '2026-10-14', channel: 'jardin' })}\n[09:00] Éloïse: ένα κουνέλι στον κήπο`
@@ -233,7 +230,7 @@ test('memory.search handles: a quoted line carries a #N that message.edit resolv
   assert.equal(handles.length, 2, second);
   assert.equal(handles[1], handles[0] + 1);
   assert.ok(handles[0] > 3, 'numbered on past the chat');
-  assert.ok(second.includes(labels.skills.tools.memory.handles), second);
+  assert.ok(second.includes(labels.tools.tools.memory.handles), second);
   const [theirsN, mineN] = handles;
   const run = await coreTurn({
     answers: [
@@ -672,7 +669,7 @@ test("media.look off: the re-watch classifier is asked as before; on: it is not,
   assert.deepEqual(describer.calls, [{ guildId: 'g1', itemId: 'pb', question: 'τι κρατά η γάτα;' }]);
   assert.equal(
     toolContent(run.llm, 1),
-    `${labels.skills.result.ok}\n${fill(labels.skills.tools.look.image, { name: 'chat.png', question: 'τι κρατά η γάτα;' })}\nένα κλειδί στο τραπέζι`
+    `${labels.tools.result.ok}\n${fill(labels.tools.tools.look.image, { name: 'chat.png', question: 'τι κρατά η γάτα;' })}\nένα κλειδί στο τραπέζι`
   );
   assert.ok(!JSON.stringify(run.logs).includes('γάτα'), 'never her question in the log');
   // The senses: her own second look in place of the classifier's.
@@ -703,7 +700,7 @@ test("media.look caps: at most media.look.maxPerTurn second looks in one turn, a
     .filter((entry) => entry.msg === 'skills: called' && entry.skill === 'media.look')
     .map((entry) => `${entry.status}:${entry.code ?? ''}`);
   assert.deepEqual(called, ['ok:', 'ok:', 'failed:turn-cap']);
-  assert.ok(toolContent(run.llm, 2, 2).includes(labels.skills.result.reasons['turn-cap']), 'she hears why');
+  assert.ok(toolContent(run.llm, 2, 2).includes(labels.tools.result.reasons['turn-cap']), 'she hears why');
 
   const spent = lookDescriber({ caps: { video: 5, rewatch: 0, gif: 5 } });
   const capped = await coreTurn({
@@ -878,7 +875,7 @@ test('draw.create: the daily caps and the generation failures come back as resul
     assert.equal(run.sends.filter((send) => send.attachments?.length).length, 0, `${code}: nothing posted`);
     assert.equal(run.sends.length, 0, `${code}: no limit notice`);
     assert.ok(
-      toolContent(run.llm, 1).startsWith(labels.skills.result.failed.split(':')[0]),
+      toolContent(run.llm, 1).startsWith(labels.tools.result.failed.split(':')[0]),
       `${code}: she reads that it failed`
     );
     assert.ok(!run.logs.some((entry) => entry.msg === 'turn: draw refused by a limit' && entry.asked !== true), code);

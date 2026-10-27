@@ -420,7 +420,7 @@ export const labels = {
     offPaused: 'Paused by the owner from {from} to {to} ({length}).',
     offStopped: 'Switched off from {from} to {to} ({length}).',
   },
-  skills: {
+  tools: {
     line: '{name}: {title} -- {whenToUse} ({access})',
     access: {
       allowed: 'allowed',

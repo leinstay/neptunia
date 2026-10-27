@@ -12,7 +12,7 @@
 // `ok` only when the operation answered ok; `denied` (a rule said no), `invalid` (the call was
 // not right), `not_configured` (what it needs is not set up), `unknown` (it may have taken effect:
 // never retried), `partial`, `failed`. Codes are kebab-case; no wording here: the persona reads a
-// result through `labels.skills.result`.
+// result through `labels.tools.result`.
 
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { channelCore, matchChannel, occursAsWholeWord } from '../memory/mentions.ts';
@@ -162,7 +162,7 @@ const TIMEOUT_WHAT: Readonly<Record<string, string | undefined>> = Object.freeze
   'media.look': WHAT.picture,
 });
 
-/** Milliseconds a call may run before its outcome is `unknown` (`skills.callTimeoutMs`; config.json's value). */
+/** Milliseconds a call may run before its outcome is `unknown` (`tools.callTimeoutMs`; config.json's value). */
 const CALL_TIMEOUT_MS = 120_000;
 
 /**
@@ -562,7 +562,7 @@ function fromPort(answer: unknown): CallResult {
  * the call's envelope (`deps.envelope`, built by the turn, never by
  * the model: the requester's `userId` and `roleIds`, null with nobody; the invocation id) in the
  * turn's context (`deps.opContext`: `guildId`, `channelId`), the persona as the actor, the replied
- * author for a reply's notification; not back within `deps.timeoutMs` (`skills.callTimeoutMs`)
+ * author for a reply's notification; not back within `deps.timeoutMs` (`tools.callTimeoutMs`)
  * it is `unknown` (`timeout`), never retried. Its answer is the call's `data.text`
  * whatever the status -- the reply text, a card's fields, or the error or refusal the owner would
  * read -- with its code when it is not `ok`, `ref` when a message went out, and `taskId` when it
@@ -717,9 +717,9 @@ const ARG_RULE_KINDS: Readonly<Record<string, string>> = Object.freeze({
  * link of one: `view.deletedIds`);
  * `not-own-message` names `message`; `unknown-member` with several matches is `member-ambiguous`;
  * `agent-required` names `agent` and carries the agents its reason lists (`values`; the mark words
- * it through `labels.skills.refusals.agentRequired`).
+ * it through `labels.tools.refusals.agentRequired`).
  * An `unknown-arg` refusal carries the arguments the skill does take (`values`, from `argNames`
- * when given and not empty), so its mark can name them (`labels.skills.refusals.unknownArg`).
+ * when given and not empty), so its mark can name them (`labels.tools.refusals.unknownArg`).
  * Any other code is its own kind without an argument. With `textChars` (a positive number) and
  * the operation's own message in `outcome.data.text`, that message rides along as `text`: one
  * line, cut to `textChars` with an ellipsis (src/memory/clamp.js) -- what the mark says when no

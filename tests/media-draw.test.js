@@ -314,7 +314,7 @@ test("/nep draw: one picture for the owner; a cap makes the command fail with th
 test("draw.create from a member's mention: the picture is charged to the member; a cap comes back as a result, with no notice", async () => {
   const hotValue = hot();
   hotValue.config.bot.access = { 'draw.create': { everyone: false, roles: [], users: ['self-id'] } };
-  hotValue.config.skills = { safeMode: false, resultMaxChars: 2000, callTimeoutMs: 120000 };
+  hotValue.config.tools = { safeMode: false, resultMaxChars: 2000, callTimeoutMs: 120000 };
   for (const [capAfter, expected] of [
     [Infinity, 'ok'],
     [0, 'image-cap-daily'],

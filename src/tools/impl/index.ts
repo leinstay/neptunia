@@ -143,7 +143,7 @@ export const COMMAND_TO_OP: Readonly<Record<string, Target>> = Object.freeze({
   'task.intent': byAction({ add: 'intent.set', update: 'intent.update', cancel: 'intent.cancel', list: 'intent.list' }),
   'task.inner': byAction({ stop: 'inner.stop', start: 'inner.start', status: 'inner.status' }),
   'task.places': 'places.list',
-  'task.skills': 'skills.describe',
+  'task.skills': 'tools.describe',
   'task.conversation': 'conversation.read',
   'memory.search': 'memory.search',
 });

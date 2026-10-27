@@ -62,6 +62,7 @@ import { memoryRootOf } from './root.js';
 import { createReadSeam } from './db/readers/common.js';
 import { journalLastWrite, journalLines } from './db/readers/journal.js';
 import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay } from '../time.js';
+import { currentToolName } from '../tools/definitions.ts';
 
 /** The schema version every record carries. */
 export const JOURNAL_VERSION = 1;
@@ -377,7 +378,7 @@ export function callMarksOf(records) {
     };
     op.turnId = text(record.turnId) ?? op.turnId;
     op.channelId = text(record.scope?.channel) ?? op.channelId;
-    op.skill = text(record.input?.skill) ?? op.skill;
+    op.skill = currentToolName(text(record.input?.skill)) ?? op.skill;
     if (record.target && typeof record.target === 'object') op.target = record.target;
     if (record.phase === 'succeeded') op.status = 'ok';
     else if (record.phase === 'unknown') op.status = 'unknown';
@@ -480,7 +481,7 @@ export function turnOfMessage(records, messageId) {
       code: null,
       messageId: null,
     };
-    if (typeof record.input?.skill === 'string') call.skill = record.input.skill;
+    if (typeof record.input?.skill === 'string') call.skill = currentToolName(record.input.skill);
     if (Array.isArray(record.input?.args)) call.args = record.input.args.filter((name) => typeof name === 'string');
     if (record.target && typeof record.target === 'object') call.target = record.target;
     if (typeof record.phase === 'string') call.phase = record.phase;
@@ -970,7 +971,7 @@ export function createJournal({
         };
         op.name = record.name ?? op.name;
         op.by = record.by ?? op.by;
-        op.skill = record.input?.skill ?? op.skill;
+        op.skill = currentToolName(record.input?.skill) ?? op.skill;
         op.text = record.intent?.text ?? op.text;
         op.dryRun = op.dryRun || record.dryRun === true;
         op.shadow = op.shadow || record.shadow === true;

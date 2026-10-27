@@ -9,7 +9,7 @@ import { findGifs, mediaFindText, runMediaFind } from '../src/tools/tools.ts';
 
 const labels = {
   gifs: { entry: '{id}: {text}', entryNoText: '{id}', entryFields: '{id}: {reaction} / {action} / {text}' },
-  skills: { tools: { find: { source: 'Source: media.find "{query}", {count} found.', none: 'Nothing matched.' } } },
+  tools: { tools: { find: { source: 'Source: media.find "{query}", {count} found.', none: 'Nothing matched.' } } },
 };
 
 /** A library of entries g1.. with these descriptions (cache fields), the first used most. */

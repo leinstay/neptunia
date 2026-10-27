@@ -617,17 +617,17 @@ function callText(mark, indexById, labels) {
   return fill(t.called, { skill: mark.skill, target, args, status, posted });
 }
 
-/** The refusals worded by their own `labels.skills.refusals` key before any other phrase: kind -> key. */
+/** The refusals worded by their own `labels.tools.refusals` key before any other phrase: kind -> key. */
 const REFUSAL_LABELS = Object.freeze({ 'agent-required': 'agentRequired', 'unknown-arg': 'unknownArg' });
 
 /**
  * Why a call of the persona's did not work, worded (`mark.detail`, withCalls'), the first of: a
- * refusal's own `labels.skills.refusals[<key>]` (REFUSAL_LABELS; `{arg}` the argument, `{agents}`
+ * refusal's own `labels.tools.refusals[<key>]` (REFUSAL_LABELS; `{arg}` the argument, `{agents}`
  * and `{args}` the values it lists, comma-separated: the agents of an errand, the arguments a skill
  * takes for an argument it does not); the
  * specific `labels.transcript.callReasons[<kind>]` (`{arg}` the argument, `{channel}` the target
  * channel's name); the operation's own message (`detail.text`, one line, cut by its maker) as it
- * is; the generic `labels.skills.result.reasons[<code>]`; `labels.skills.result.reasons.other`. A
+ * is; the generic `labels.tools.result.reasons[<code>]`; `labels.tools.result.reasons.other`. A
  * phrase counts when it is a non-empty string whose `{arg}`, `{channel}`, `{agents}` and `{args}` can be filled. ''
  * without a detail or anything to say.
  */
@@ -648,10 +648,10 @@ export function callReason(mark, labels) {
     (channel || !phrase.includes('{channel}')) &&
     (agents || (!phrase.includes('{agents}') && !phrase.includes('{args}')));
   const own = labels.transcript.callReasons;
-  const coded = labels.skills?.result?.reasons;
+  const coded = labels.tools?.result?.reasons;
   const lookup = (map, key) =>
     map && typeof map === 'object' && typeof key === 'string' && Object.hasOwn(map, key) ? map[key] : null;
-  const refusal = lookup(labels.skills?.refusals, lookup(REFUSAL_LABELS, detail.kind));
+  const refusal = lookup(labels.tools?.refusals, lookup(REFUSAL_LABELS, detail.kind));
   if (usable(refusal)) return fill(refusal, { arg, agents, args: agents });
   const specific = lookup(own, detail.kind);
   if (usable(specific)) return fill(specific, { arg, channel });

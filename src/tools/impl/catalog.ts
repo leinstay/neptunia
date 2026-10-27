@@ -746,7 +746,7 @@ export const COMMAND_TABLE: ReadonlyArray<CommandNode> = Object.freeze([
         },
       },
       {
-        // One skill or a family in full (src/tools/impl/skills.ts): her read skill `skills.describe`.
+        // One skill or a family in full (src/tools/impl/skills.ts): her read skill `tools.describe`.
         name: 'skills',
         personaOnly: true,
         description: 'Skill info.',

@@ -3438,7 +3438,7 @@ async function runErrandLaneTurn({ classifier }) {
     { typingSimulation: false },
     {},
     {
-      skills: { safeMode: false, resultMaxChars: 2000 },
+      tools: { safeMode: false, resultMaxChars: 2000 },
       agents: { maxOpen: 3, scout: { enabled: true, daily: { tasks: 10 } } },
     }
   );
@@ -11258,7 +11258,7 @@ function personaGrants(names) {
 async function runDiscoveryTurn({ answer, features = {}, journal = null, allowed = [] } = {}) {
   const hot = lookupHot({ typingSimulation: false, journal: Boolean(journal), ...features });
   hot.prompts.lookup = 'Decide whether {{name}} needs to look something up.\n{{skills}}';
-  hot.prompts.skills = SKILL_TEXTS;
+  hot.prompts.tools = SKILL_TEXTS;
   hot.config.bot = { ...hot.config.bot, access: personaGrants(allowed) };
   const store = fakeStore();
   const llm = lookupLlm(answer);
@@ -11305,15 +11305,15 @@ test('skills discovery: the classifier reads the registry; an inventory answer s
   assert.ok(!stable.text.includes('<skills>\n'));
   const rows = blockBody(run.reply.at(-1).text, 'skills').split('\n');
   const line = (name, access) =>
-    fill(labels.skills.line, {
+    fill(labels.tools.line, {
       name,
       title: SKILL_TEXTS[name]?.title ?? '',
       whenToUse: SKILL_TEXTS[name]?.whenToUse ?? '',
       access,
     });
   assert.deepEqual(rows, [
-    line('message.create', labels.skills.access['carried-over']),
-    line('message.edit', labels.skills.access.allowed),
+    line('message.create', labels.tools.access['carried-over']),
+    line('message.edit', labels.tools.access.allowed),
     'message.react.add',
   ]);
 
@@ -11342,15 +11342,15 @@ test('skills discovery: named skills are logged and journaled with the gateway v
     journal,
   });
   assert.equal(run.result.outcome, 'spoke');
-  const line = fill(labels.skills.line, {
+  const line = fill(labels.tools.line, {
     name: 'message.edit',
     title: SKILL_TEXTS['message.edit'].title,
     whenToUse: SKILL_TEXTS['message.edit'].whenToUse,
-    access: labels.skills.access.allowed,
+    access: labels.tools.access.allowed,
   });
   assert.deepEqual(blockBody(run.reply.at(-1).text, 'skills').split('\n'), [
     line,
-    fill(labels.skills.proposedOff, { names: 'message.delete, x.owner' }),
+    fill(labels.tools.proposedOff, { names: 'message.delete, x.owner' }),
   ]);
   assert.ok(!run.reply[0].text.includes('message.edit'), 'never in the stable part');
   const proposed = run.logs.find((l) => l.msg === 'skills: proposed');
@@ -11378,12 +11378,12 @@ test('skills discovery: every turn carries the skills granted to her as tools, w
     ['lore_list', 'message_create', 'message_delete', 'message_edit', 'message_react_add']
   );
   assert.ok(!run.text.includes('<skills>\n'), 'the detailed rows stay off without a question or a proposal');
-  const off = await runDiscoveryTurn({ answer: 'none', allowed: ['message.edit'], features: { skills: false } });
+  const off = await runDiscoveryTurn({ answer: 'none', allowed: ['message.edit'], features: { tools: false } });
   assert.equal(off.llm.turnCalls[0].options.tools, undefined, 'skills off: no tools at all');
 });
 
-test('skills discovery: features.skillsDiscovery or features.skills false -- no list for the classifier, no catalogue', async () => {
-  for (const features of [{ skillsDiscovery: false }, { skills: false }]) {
+test('skills discovery: features.toolsDiscovery or features.tools false -- no list for the classifier, no catalogue', async () => {
+  for (const features of [{ toolsDiscovery: false }, { tools: false }]) {
     const run = await runDiscoveryTurn({ answer: 'skills: inventory', features });
     const where = JSON.stringify(features);
     assert.equal(
@@ -11612,10 +11612,10 @@ test('skills gateway: her reply needs no grant and no skill in the registry -- a
   );
 });
 
-test('skills gateway: features.skills off silences the whole reply', async () => {
+test('skills gateway: features.tools off silences the whole reply', async () => {
   const { result, channel, logs } = await gatewayTurn({
     answer: '<msg>ένα</msg><msg>δύο</msg><react to="#1">\u{1F389}</react>',
-    features: { skills: false },
+    features: { tools: false },
   });
   assert.deepEqual([result.outcome, result.delivered], ['spoke', false]);
   assert.deepEqual([channel.sent, channel.reactCalls, channel.typingCalls], [[], [], []]);
@@ -11629,7 +11629,7 @@ test('skills gateway: features.skills off silences the whole reply', async () =>
   // A picture its publication may not have is never generated.
   const drawn = await runDrawTurn({
     answers: [toolAnswer('', [call('draw.create', { reply: '#1', text: 'a cat' })])],
-    hot: drawHot({ skills: false }),
+    hot: drawHot({ tools: false }),
   });
   assert.equal(drawn.images.generateCalls.length, 0);
   assert.deepEqual(drawn.channel.sent, []);
@@ -11722,7 +11722,7 @@ function skillPhases(lines) {
 /**
  * A mention by Alice (u1, #2) after a line of the persona (#1) in #general (c1), with #νέα (c9,
  * where the bot may do anything) and #αλλού (c8, where it may not send) in the guild; no
- * `skills.conversations` list; the LLM answers `answers` in
+ * `tools.conversations` list; the LLM answers `answers` in
  * order; `allowed` skills are granted to her (her user id in bot.access); `owners` are the bot's
  * owners (Alice by default: the owner asks); the port is a fake adapter, the operations run on a
  * real admin over it; `emoji`: the server's custom emoji index, none by default; `later`: raw
@@ -11733,7 +11733,7 @@ async function callTurn({
   answers,
   allowed = [],
   features = {},
-  skills = {},
+  tools = {},
   owners = ['u1'],
   images = null,
   journal = null,
@@ -11759,7 +11759,7 @@ async function callTurn({
   const hot = fakeHot(
     { typingSimulation: false, journal: Boolean(journal), ...features },
     { owners, access: personaGrants(allowed) },
-    { skills: { safeMode: false, resultMaxChars: 2000, ...skills }, ...configExtra }
+    { tools: { safeMode: false, resultMaxChars: 2000, ...tools }, ...configExtra }
   );
   hot.prompts.draw = 'Drawing for {{name}}.\n\n{{request}}';
   if (labelSet) hot.prompts.labels = labelSet;
@@ -12010,7 +12010,7 @@ test('skill call: not granted, or a channel where the bot may not send -- refuse
   assert.equal(followUp[1], first[1], 'the first user message is the same object');
   assert.equal(
     followUpTool(run.llm, 1),
-    fill(labels.skills.result.refused, { reason: labels.skills.result.reasons['not-allowed'] })
+    fill(labels.tools.result.refused, { reason: labels.tools.result.reasons['not-allowed'] })
   );
   assert.deepEqual(skillPhases(lines), ['proposed', 'failed', 'proposed', 'started', 'succeeded']);
   assert.equal(actionsNamed(lines, 'skill')[1].result.code, 'not-allowed');
@@ -12024,7 +12024,7 @@ test('skill call: not granted, or a channel where the bot may not send -- refuse
   const text = followUpTool(closed.llm, 1);
   assert.ok(
     text.startsWith(
-      fill(labels.skills.result.refused, { reason: labels.skills.result.reasons['channel-no-permission'] })
+      fill(labels.tools.result.refused, { reason: labels.tools.result.reasons['channel-no-permission'] })
     ),
     text
   );
@@ -12062,7 +12062,7 @@ test('skill call: edit and delete reach only her own message', async () => {
     const reason = fill(labels.transcript.callReasons['not-own-message'], { arg: 'message' });
     assert.equal(
       followUpTool(run.llm, 1),
-      fill(labels.skills.result.refused, { reason }),
+      fill(labels.tools.result.refused, { reason }),
       'she reads whose message it was not'
     );
   }
@@ -12112,7 +12112,7 @@ test("skill call: a read brings the operation's answer back in one more request;
     store,
   });
   assert.equal(run.llm.calls.length, 2);
-  assert.ok(followUpTool(run.llm, 1).startsWith(labels.skills.result.ok), followUpTool(run.llm, 1));
+  assert.ok(followUpTool(run.llm, 1).startsWith(labels.tools.result.ok), followUpTool(run.llm, 1));
   assert.ok(!run.llm.calls[0].some((message) => message.role === 'tool'), 'the first request carries no result');
   assert.deepEqual(
     run.sends.map((send) => send.text),
@@ -12127,7 +12127,7 @@ test("skill call: a read brings the operation's answer back in one more request;
   });
   assert.equal(
     followUpTool(denied.llm, 1),
-    fill(labels.skills.result.refused, { reason: labels.skills.result.reasons['requester-denied'] })
+    fill(labels.tools.result.refused, { reason: labels.tools.result.reasons['requester-denied'] })
   );
 });
 
@@ -12146,11 +12146,11 @@ test('skill call: a turn answering several people runs no write', async () => {
   assert.ok(run.logs.some((entry) => entry.msg === 'skill: refused' && entry.reason === 'mixed-requesters'));
 });
 
-test('skill call: features.skills off does nothing at all; safe mode lets only the carried-over reply through', async () => {
+test('skill call: features.tools off does nothing at all; safe mode lets only the carried-over reply through', async () => {
   const off = await callTurn({
     answers: [toolAnswer('<msg>γεια</msg>', [call('message.create', { channel: '#νέα', text: 'γεια' })])],
     allowed: ['message.create'],
-    features: { skills: false },
+    features: { tools: false },
   });
   assert.deepEqual(effectsOf(off.port), [], 'nothing went through the port');
   assert.equal(off.llm.calls.length, 1, 'no request after the full stop');
@@ -12161,7 +12161,7 @@ test('skill call: features.skills off does nothing at all; safe mode lets only t
       '<msg>μόνο εδώ</msg>',
     ],
     allowed: ['message.create'],
-    skills: { safeMode: true },
+    tools: { safeMode: true },
   });
   assert.deepEqual(
     safe.sends.map((send) => send.to),
@@ -12194,7 +12194,7 @@ test('skill call: draw.create elsewhere generates once and the operation posts i
   assert.ok(images.quotaCalls.length > 0, 'the budget was checked before the generation');
   assert.deepEqual(skillPhases(lines), ['proposed', 'started', 'unknown']);
   assert.equal(run.port.calls.filter((call) => call.op === 'send').length, 2, 'the picture once, then her answer here');
-  assert.ok(followUpTool(run.llm, 1).startsWith(labels.skills.result.unknown.split(':')[0]), followUpTool(run.llm, 1));
+  assert.ok(followUpTool(run.llm, 1).startsWith(labels.tools.result.unknown.split(':')[0]), followUpTool(run.llm, 1));
 
   const delivered = await callTurn({
     answers: [toolAnswer('', [call('draw.create', { channel: '#νέα', text: 'a lighthouse' })]), '<skip/>'],
@@ -12240,7 +12240,7 @@ test('skill call: a call that did not work comes back as a result with its reaso
   assert.equal(run.result.outcome, 'spoke');
   assert.equal(run.llm.calls.length, 2, 'one more request, never a third');
   const reason = fill(labels.transcript.callReasons['missing-arg'], { arg: 'message' });
-  assert.equal(followUpTool(run.llm, 1), fill(labels.skills.result.refused, { reason }), 'she reads what was missing');
+  assert.equal(followUpTool(run.llm, 1), fill(labels.tools.result.refused, { reason }), 'she reads what was missing');
   assert.deepEqual(
     run.port.calls.filter((call) => call.op === 'delete').map((call) => call.args[0].messageId),
     ['m0'],
@@ -12288,7 +12288,7 @@ test("skill call: the next request shows a read's data as its tool message, a me
   );
   const [assistant, tool, note] = run.llm.calls[1].slice(2);
   assert.equal(assistant.content, '<msg>κοιτάζω</msg>');
-  assert.ok(contentOf(tool).startsWith(labels.skills.result.ok), contentOf(tool));
+  assert.ok(contentOf(tool).startsWith(labels.tools.result.ok), contentOf(tool));
   const noteText = contentOf(note);
   assert.ok(noteText.includes(labels.task.step.held), noteText);
   assert.match(noteText, /#\d+ \[[^\]]*\] Zoë: κι εγώ θέλω/);
@@ -12318,7 +12318,7 @@ function callMarkScene({ answers, allowed = ['message.create'], features = {}, j
   const hot = fakeHot(
     { typingSimulation: false, journal: Boolean(journal), ...features },
     { owners: ['u1'], access: personaGrants(allowed) },
-    { skills: { safeMode: false, resultMaxChars: 2000 } }
+    { tools: { safeMode: false, resultMaxChars: 2000 } }
   );
   const store = fakeStore();
   const client = fakeClient();
@@ -12448,7 +12448,7 @@ test('call marks: a refused call shows its status and why on the line its turn p
     .find((text) => text.includes('μια στιγμή'));
   const status = fill(labels.transcript.callStatusReason, {
     status: labels.transcript.callStatus.denied,
-    reason: labels.skills.result.reasons['not-allowed'],
+    reason: labels.tools.result.reasons['not-allowed'],
   });
   assert.ok(line.endsWith(`[called message.create in #general: ${status}]`), line);
 });

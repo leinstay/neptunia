@@ -86,9 +86,9 @@ function scenarioConfig(grants, { agents = {} } = {}) {
       },
       models: { base: { core: 'x/chat' } },
       llm: { maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000 },
-      skills: { safeMode: false },
+      tools: { safeMode: false },
       agents: { maxOpen: 3, scout: { daily: { tasks: 2 } }, server: { daily: { tasks: 1 } }, ...agents },
-      features: { skills: true },
+      features: { tools: true },
     },
     SELF,
     grants

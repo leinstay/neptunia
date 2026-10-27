@@ -6,7 +6,7 @@
 // (src/tools/access.ts: `/nep access grant` with her as the user); an owner-only operation runs
 // only when the member who asked is an owner (src/tools/gateway.ts). Their wording -- `title`,
 // `whenToUse`, `whenNotToUse` -- lives in prompts/skills.json, keyed by operation name (the hot
-// prompts layer, `hot.prompts.skills`), never here: `describeSkill` joins the two at the moment of
+// prompts layer, `hot.prompts.tools`), never here: `describeSkill` joins the two at the moment of
 // use, and a skill without texts is shown by its name alone.
 
 import { getOp as registryGetOp } from './impl/registry.ts';
@@ -209,7 +209,7 @@ function textOf(texts: unknown, name: string, key: string): string {
 }
 
 /**
- * `skill` with its wording from the skills layer (`texts`: `hot.prompts.skills`, read by the
+ * `skill` with its wording from the skills layer (`texts`: `hot.prompts.tools`, read by the
  * caller at the moment of use): `title`, `whenToUse`, `whenNotToUse`, each '' when missing.
  */
 export function describeSkill(skill: Skill, texts?: unknown): DescribedSkill {
@@ -222,7 +222,7 @@ export function describeSkill(skill: Skill, texts?: unknown): DescribedSkill {
 }
 
 /**
- * The wording of `skill`'s arguments from the skills layer (`texts`: `hot.prompts.skills`, keyed
+ * The wording of `skill`'s arguments from the skills layer (`texts`: `hot.prompts.tools`, keyed
  * by name, `args` keyed by argument name): `{ <argument>: text }` for the arguments of the
  * skill that have one, a string each. {} when there are none. Nothing renders it yet.
  */

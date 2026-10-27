@@ -20,10 +20,10 @@ const HOUR = 3_600_000;
 
 const L = {
   ...labels,
-  skills: {
-    ...labels.skills,
+  tools: {
+    ...labels.tools,
     tools: {
-      ...labels.skills.tools,
+      ...labels.tools.tools,
       conversation: {
         source: 'from conversation.read #{channel}',
         handles: 'lines carry message numbers',

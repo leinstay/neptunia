@@ -213,7 +213,7 @@ An interface package exports `start(host)`, which resolves with a running interf
 | Field | What it is |
 |---|---|
 | `iface` | The interface's namespace on the link. |
-| `legacy` | What the core's subsystems still read from the platform (see "What the core still reads from discord.js"). |
+| `legacy` | What the core still takes from the platform package: `serveCommands` (see "What the core still takes from the interface"). |
 | `open()` | Delivers the events the interface has held since `start`, and every later one. |
 | `stop()` | Closes the link and the platform client. |
 
@@ -271,18 +271,18 @@ The Discord adapter lives in `interfaces/discord/` as the npm workspace package 
 - Slash command interactions go to the interaction handler that the session builds over the core's admin when the core calls `legacy.serveCommands(admin)`. The session registers the command tree again when `bot.commandName` or `features.adminCommands` change.
 - A new or edited channel of the served guild makes the audience warmer fetch the members its overwrites name. The warmer also runs once at `open()`.
 
-Besides the port, `createDiscordInterface` returns a frozen capabilities object: the functions the core calls by name for everything it still asks Discord. These include:
+Besides the port, `createDiscordInterface` returns a frozen capabilities object: the functions the package's own modules call over discord.js objects. They include:
 
 - Permission checks: whether the bot can read, send, attach or react in a channel.
 - History: fetching the last N messages of a channel and a window around a message.
 - Pulling: the rails a pull of another channel must pass, over discord.js objects (`checkPull`, `audienceAllows`). The turn pulls through the reads.
-- Searching: guild message search and member search for recall.
+- Searching: guild message search and member search, behind the `messages.search` and `members.search` reads.
 - Around: builders that turn voice states, presences and a guild's snapshot into protocol events. The core's around store keeps the live view for the `<people_now>` prompt block, never persisted and gone at restart.
 - Emoji: the server's custom emoji index.
 - Audience: warming the member cache for the audience rail.
 - Commands: the slash command tree, registration and interaction handling.
 
-The core imports none of these directly. The session builds them once, `src/core.js` takes them from `legacy.capabilities` and passes them as `discord` to the modules that still need them. A test or a tool hands in plain fakes of the same shape.
+The core reaches none of them. Everything it asks of the platform goes through the reads and the port, and a test or a tool hands in a fake adapter (`src/interface/fake.js`).
 
 The conversation reads of the table above are answered by `interfaces/discord/reads.ts`, which `createDiscordAdapter` adds to its port. The turn, the pipeline and the wake modules take only those reads and the port: the conversations of the community, their permissions, audiences and viewers, the history, the members and the reactors come from the adapter, and the core keeps who reacted to the persona's messages in its own store (`src/behavior/reactor-store.ts`), fed by `reaction.changed`.
 
@@ -350,18 +350,8 @@ To wire up a new chat platform:
 
 5. Map your platform's error responses to the result statuses. Once a request may have taken effect, the status must be `unknown`.
 
-## What the core still reads from discord.js
+## What the core still takes from the interface
 
-`start` resolves with `legacy`, one object whose every field is a named seam. `src/interface/legacy.ts` types it from the core's side, with platform objects as `unknown`, so the core needs no type from `interfaces/`. The core's subsystems still take discord.js objects or functions, and each field hands over exactly what they read. The object goes when the last reader reads the protocol instead.
+`start` resolves with `legacy`, an object with one field, `serveCommands(admin)`. `src/interface/legacy.ts` types it from the core's side, so the core needs no type from `interfaces/`. `serveCommands` builds the interaction handler over the core's admin, wires the slash command interactions to it and returns `{ register() }`, which pushes the command tree. `startCore` calls it. An interface that has none (the fake) serves no commands.
 
-| Field | What it holds | Read by |
-|---|---|---|
-| `client` | The discord.js client. | The admin, the operations, the memory backfills and the recall runner's bridge |
-| `capabilities` | The functions the core asks Discord for by name. | The modules that still take `discord`: the recall runner, the operations and the memory backfills |
-| `resolveMember(guildId, userId)` | One member by REST, as the avatar queue reads it. | The avatar queue |
-| `catchUp` | `channelInfo`, `fetchRecent` and `eventOf` for the offline catch-up. | `createOfflineCatchUp` |
-| `fetchOwnMessages(channelId, count)` | The persona's last messages of a channel. | The journal's reconciliation |
-| `emoji` | The served guild's custom emoji. | The turn runner |
-| `serveCommands(admin)` | Builds the interaction handler over the core's admin, wires the slash command interactions to it and returns `{ register() }`, which pushes the command tree. | `startCore` |
-
-The message pipeline, the turn, the spontaneous and diary behaviours, the inner life and the missed-answer check read the community through the reads, and the member directory and the conversation directory of the core name who and where.
+Everything else the core knows of the community comes through the reads: recall and search, the offline catch-up, the journal's reconciliation of the persona's own messages, the emoji index, the avatar queue and the memory backfills. The member directory and the conversation directory of the core name who and where.

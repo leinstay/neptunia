@@ -641,7 +641,7 @@
     "offPaused": "Paused by the owner, {from} to {to} ({length})",
     "offStopped": "Off, {from} to {to} ({length})"
   },
-  "skills": {
+  "tools": {
     "line": "{name}: {title} — {whenToUse} ({access}){args}",
     "args": {
       "list": " Arguments: {list}.",

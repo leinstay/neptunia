@@ -54,13 +54,13 @@ test('unknown keys and a wrong enum are invalid-args results naming what the too
     .map((message) => contentText(message.content));
   assert.equal(
     results[0],
-    fill(labels.skills.result.refused, {
-      reason: fill(labels.skills.refusals.unknownArg, { arg: 'bogus', args: 'query' }),
+    fill(labels.tools.result.refused, {
+      reason: fill(labels.tools.refusals.unknownArg, { arg: 'bogus', args: 'query' }),
     }),
     "the tool's own arguments are named"
   );
   assert.ok(results[1].length > 0);
-  assert.ok(results[2].startsWith(fill(labels.skills.result.coerced, { arg: 'n', value: '5' })), results[2]);
+  assert.ok(results[2].startsWith(fill(labels.tools.result.coerced, { arg: 'n', value: '5' })), results[2]);
   const refused = run.logs
     .filter((entry) => entry.msg === 'skill: refused')
     .map((entry) => `${entry.skill}:${entry.code}:${entry.reason}`);
@@ -101,10 +101,7 @@ test('draw failure with held speech: nothing is posted in step 1, step 2 sees th
   assert.equal(run.llm.calls.length, 2);
   assert.deepEqual(texts(run), ['δεν βγήκε'], 'the first answer\'s "here it is" never went out');
   const result = contentText(appended(run.llm, 1).find((message) => message.role === 'tool').content);
-  assert.ok(
-    result.startsWith(fill(labels.skills.result.failed, { reason: labels.skills.result.reasons.other })),
-    result
-  );
+  assert.ok(result.startsWith(fill(labels.tools.result.failed, { reason: labels.tools.result.reasons.other })), result);
   assert.deepEqual(called(run), ['draw.create:failed/image-moderation']);
   assert.ok(noteText(run.llm, 1).includes(labels.task.step.held));
   assert.deepEqual(run.sends.filter((send) => send.attachments?.length).length, 0, 'no picture posted');
@@ -385,7 +382,7 @@ test('retired tags: a leftover <call> or <draw> in her speech is cut out, never 
   assert.deepEqual(called(run), ['lore.list:ok'], 'only her real call ran');
   assert.deepEqual(texts(run), ['τέλος']);
   const note = noteText(run.llm, 1);
-  const line = (tag) => `- ${fill(labels.skills.diagnostics.retiredTag, { tag })}`;
+  const line = (tag) => `- ${fill(labels.tools.diagnostics.retiredTag, { tag })}`;
   assert.ok(
     note.includes(`${labels.task.diagnostics}\n${line('call')}\n${line('draw')}`) ||
       (note.includes(line('call')) && note.includes(line('draw'))),
@@ -484,7 +481,7 @@ test('carried over: message.create in the current conversation also runs on a sp
 const TRANSPORTS = ['native', 'text'];
 const answerFor = (transport) => (transport === 'text' ? textAnswer : toolAnswer);
 const onTransport = (transport) => (hot) => {
-  hot.config.skills.transport = transport;
+  hot.config.tools.transport = transport;
 };
 /** The results request `i` carries, as `{ id, status, text }`: tool messages (native) or the <tool_result> parts of the user message (text). */
 const resultsOf = (llm, i, transport) => {
@@ -520,7 +517,7 @@ for (const transport of TRANSPORTS) {
     assert.equal(second[1], first[1], 'the first user message is never rebuilt');
     const added = appended(turn.llm, 1);
     const [result] = resultsOf(turn.llm, 1, transport);
-    assert.ok(result.text.startsWith(labels.skills.result.ok), result.text);
+    assert.ok(result.text.startsWith(labels.tools.result.ok), result.text);
     if (transport === 'native') {
       assert.deepEqual(
         added.map((message) => message.role),
@@ -580,9 +577,9 @@ for (const transport of TRANSPORTS) {
         results.map((item) => item.id),
         ['c1', 'c2', 'c3']
       );
-    assert.ok(results[0].text.startsWith(labels.skills.result.ok), results[0].text);
-    assert.ok(!results[1].text.startsWith(labels.skills.result.ok), results[1].text);
-    assert.ok(results[2].text.includes(labels.skills.result.reasons['malformed-call']), results[2].text);
+    assert.ok(results[0].text.startsWith(labels.tools.result.ok), results[0].text);
+    assert.ok(!results[1].text.startsWith(labels.tools.result.ok), results[1].text);
+    assert.ok(results[2].text.includes(labels.tools.result.reasons['malformed-call']), results[2].text);
     assert.ok(noteText(turn.llm, 1).includes(labels.task.step.held));
   });
 
@@ -600,7 +597,7 @@ for (const transport of TRANSPORTS) {
     const results = resultsOf(turn.llm, 1, transport);
     assert.equal(results.length, 2);
     if (transport === 'text') assert.equal(results[0].status, 'invalid');
-    assert.ok(results[1].text.startsWith(labels.skills.result.ok));
+    assert.ok(results[1].text.startsWith(labels.tools.result.ok));
   });
 
   test(`[${transport}] truncated call: an answer that ran out of room has a truncated-call result and the speech is held`, async () => {
@@ -614,7 +611,7 @@ for (const transport of TRANSPORTS) {
           });
     const turn = await run({ answers: [cut, '<msg>ξανά</msg>'] });
     const [result] = resultsOf(turn.llm, 1, transport);
-    assert.ok(result.text.includes(labels.skills.result.reasons['truncated-call']), result.text);
+    assert.ok(result.text.includes(labels.tools.result.reasons['truncated-call']), result.text);
     assert.deepEqual(texts(turn), ['ξανά']);
     assert.equal(turn.result.outcome, 'spoke');
     assert.ok(!called(turn).some((line) => line.endsWith(':ok')), 'never run');
@@ -636,7 +633,7 @@ for (const transport of TRANSPORTS) {
     assert.equal(results.length, 5, 'a result for the fifth too');
     assert.ok(
       results[4].text.startsWith(
-        fill(labels.skills.result.refused, { reason: labels.skills.result.reasons['loop-cap'] })
+        fill(labels.tools.result.refused, { reason: labels.tools.result.reasons['loop-cap'] })
       ),
       results[4].text
     );
@@ -693,7 +690,7 @@ test('[text] no tools field is sent, the tools are described in the <tools> bloc
   );
   const first = requestText(turn.llm, 0);
   assert.ok(first.includes('<tools>'), 'the <tools> block');
-  assert.ok(first.includes(labels.skills.toolsText.lead) && first.includes(labels.skills.toolsText.protocol));
+  assert.ok(first.includes(labels.tools.toolsText.lead) && first.includes(labels.tools.toolsText.protocol));
   assert.ok(first.includes('"name":"lore.list"') && first.includes('"name":"memory.server.read"'), 'dotted names');
   assert.ok(!first.includes('"name":"lore_list"'));
   assert.deepEqual(
@@ -720,7 +717,7 @@ test('[text] a call nested in a <msg> is cut out of the message, never run, and 
   });
   assert.ok(!called(turn).some((line) => line.endsWith(':ok')), 'never run');
   const [result] = resultsOf(turn.llm, 1, 'text');
-  assert.ok(result.text.includes(labels.skills.result.reasons['malformed-call']), result.text);
+  assert.ok(result.text.includes(labels.tools.result.reasons['malformed-call']), result.text);
   assert.ok(
     texts(turn).every((text) => !text.includes('tool_call') && !text.includes('lore.list')),
     JSON.stringify(texts(turn))
@@ -732,14 +729,14 @@ test('[text] the transport is read once per turn: a config change during the tur
   const turn = await coreTurn({
     answers: [
       () => {
-        live.config.skills.transport = 'native';
+        live.config.tools.transport = 'native';
         return textAnswer('<think>x</think>', [call('lore.list')]);
       },
       '<msg>ok</msg>',
     ],
     withHot: (hot) => {
       live = hot;
-      hot.config.skills.transport = 'text';
+      hot.config.tools.transport = 'text';
     },
   });
   assert.equal(turn.llm.calls.length, 2);
@@ -756,7 +753,7 @@ test('[text] the transport is read once per turn: a config change during the tur
 });
 
 // A request 0 filled to the rail by history still leaves the room for one continuation step: the sections share the
-// cap less the step reserve (skills.loop.stepReserveTokens), on both transports.
+// cap less the step reserve (tools.loop.stepReserveTokens), on both transports.
 for (const transport of TRANSPORTS) {
   test(`[${transport}] a full context still gets one continuation step with a 3000-character data result`, async () => {
     const earlier = Array.from({ length: 60 }, (_, i) =>
@@ -779,7 +776,7 @@ for (const transport of TRANSPORTS) {
       config: { llm: { maxRequestTokens: 12000, maxOutputTokens: 500, safetyMargin: 0.9 } },
       withHot: (hot) => {
         onTransport(transport)(hot);
-        hot.config.skills.resultMaxChars = 4000;
+        hot.config.tools.resultMaxChars = 4000;
       },
       wrapCommand: (runOp) => async (key, args, context) => {
         const result = await runOp(key, args, context);

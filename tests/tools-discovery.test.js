@@ -62,11 +62,11 @@ function granting(names, cfg) {
   };
 }
 
-test('discoveryOn: on unless features.skills or features.skillsDiscovery is false', () => {
+test('discoveryOn: on unless features.tools or features.toolsDiscovery is false', () => {
   assert.equal(discoveryOn({}), true);
-  assert.equal(discoveryOn({ features: { skills: true, skillsDiscovery: true } }), true);
-  assert.equal(discoveryOn({ features: { skills: false } }), false);
-  assert.equal(discoveryOn({ features: { skillsDiscovery: false } }), false);
+  assert.equal(discoveryOn({ features: { tools: true, toolsDiscovery: true } }), true);
+  assert.equal(discoveryOn({ features: { tools: false } }), false);
+  assert.equal(discoveryOn({ features: { toolsDiscovery: false } }), false);
 });
 
 test('parseSkillsLines: missing, none, inventory, named, invalid', () => {
@@ -234,8 +234,8 @@ test('listSkills: an owner-only skill has its row, open only for an owner who as
   assert.equal(owner.ownerOnly, true);
   const registry = new Map([...standInRegistry(), ['x.owner', owner]]);
   const config = granting(['message.edit', 'x.owner'], {
-    features: { skills: true },
-    skills: { safeMode: false },
+    features: { tools: true },
+    tools: { safeMode: false },
     bot: { owners: ['42'] },
   });
   const rows = listSkills({
@@ -371,11 +371,11 @@ test('grantedSkillNames: a grant to everyone or a role, another user, no id, saf
   const config = granting(['lore.list', 'message.edit'], { features: {} });
   assert.deepEqual(grantedSkillNames({ config, selfId: null, registry }), []);
   assert.deepEqual(
-    grantedSkillNames({ config: { ...config, skills: { safeMode: true } }, selfId: 'self-1', registry }),
+    grantedSkillNames({ config: { ...config, tools: { safeMode: true } }, selfId: 'self-1', registry }),
     []
   );
   assert.deepEqual(
-    grantedSkillNames({ config: { ...config, features: { skills: false } }, selfId: 'self-1', registry }),
+    grantedSkillNames({ config: { ...config, features: { tools: false } }, selfId: 'self-1', registry }),
     []
   );
   const restore = loadSkills([
@@ -399,7 +399,7 @@ test('describeRows: an exact name gives the skill in full, a family one line eac
   const registry = skillRegistry();
   const self = 'self-id';
   const config = {
-    features: { skills: true },
+    features: { tools: true },
     bot: { access: { 'memory.search': { everyone: false, roles: [], users: [self] } } },
   };
   const texts = {
@@ -432,7 +432,7 @@ test('exposedSkillNames: her grants and the carried-over skills, sorted, once ea
   const self = 'self-id';
   const grant = { everyone: false, roles: [], users: [self] };
   const config = {
-    features: { skills: true },
+    features: { tools: true },
     bot: {
       access: {
         'task.run': grant,
@@ -460,22 +460,22 @@ test('exposedSkillNames: safe mode keeps the carried-over ones, skills off none,
   const registry = skillRegistry();
   const self = 'self-id';
   const config = {
-    features: { skills: true },
+    features: { tools: true },
     bot: { access: { 'task.run': { everyone: false, roles: [], users: [self] } } },
   };
-  assert.deepEqual(exposedSkillNames({ config: { ...config, skills: { safeMode: true } }, selfId: self, registry }), [
+  assert.deepEqual(exposedSkillNames({ config: { ...config, tools: { safeMode: true } }, selfId: self, registry }), [
     'draw.create',
     'message.create',
     'message.react.add',
   ]);
   assert.deepEqual(
-    exposedSkillNames({ config: { ...config, features: { skills: false } }, selfId: self, registry }),
+    exposedSkillNames({ config: { ...config, features: { tools: false } }, selfId: self, registry }),
     []
   );
   assert.deepEqual(exposedSkillNames({ config, selfId: self, registry: null }), []);
   assert.equal(
     exposedSkillNames({
-      config: { ...config, features: { skills: true, imageGeneration: false } },
+      config: { ...config, features: { tools: true, imageGeneration: false } },
       selfId: self,
       registry,
     }).includes('draw.create'),

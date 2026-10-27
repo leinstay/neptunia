@@ -14,7 +14,10 @@ import path from 'node:path';
 import { CliError, privateDirOf } from './cli.mjs';
 
 /** The JSON files of a prompt layer src/hot.js deep-merges instead of replacing (its JSON_LAYERS). */
-const JSON_LAYER_FILES = Object.freeze(['labels.json', 'skills.json']);
+const JSON_LAYER_FILES = Object.freeze(['labels.json', 'tools.json']);
+
+/** The folder of the scratch root a layer's JSON file ends in: the tool texts go to `config.local/`, the labels to `prompts.local/`. */
+const LOCAL_DIR_OF = Object.freeze({ 'labels.json': 'prompts.local', 'tools.json': 'config.local' });
 
 /** The JSON value of `file`, or a CliError naming it. */
 function readJson(file) {
@@ -30,7 +33,7 @@ function readJson(file) {
  * config.local.json of its private directory (privateDirOf(root, env)), its prompts/, and every
  * directory of `layers` (resolved against `root`) copied into prompts.local/ one after another, so
  * a later layer's file replaces an earlier one of the same name whole -- labels.json and
- * skills.json included, unless `mergeJson` is given (src/config.js#deepMerge): then a later layer's
+ * tools.json (laid into config.local/) included, unless `mergeJson` is given (src/config.js#deepMerge): then a later layer's
  * JSON layer file is deep-merged over the one already there, as src/hot.js merges prompts.local/
  * over prompts/. A layer that is not a directory, or a JSON layer file that does not parse when it
  * is merged, is a CliError. A layer given as a link is resolved (realpath) and every link inside it
@@ -63,25 +66,44 @@ export function promptLayersHot(
     ]) {
       if (fs.existsSync(path.join(from, name))) fs.copyFileSync(path.join(from, name), path.join(dir, name));
     }
-    fs.cpSync(fs.realpathSync(path.join(root, 'prompts')), path.join(dir, 'prompts'), {
-      recursive: true,
-      dereference: true,
-    });
+    for (const folder of ['prompts', 'config']) {
+      if (!fs.existsSync(path.join(root, folder))) continue;
+      fs.cpSync(fs.realpathSync(path.join(root, folder)), path.join(dir, folder), {
+        recursive: true,
+        dereference: true,
+      });
+    }
     const local = path.join(dir, 'prompts.local');
     fs.mkdirSync(local, { recursive: true });
+    fs.mkdirSync(path.join(dir, 'config.local'), { recursive: true });
+    if (fs.existsSync(path.join(privateDir, 'config.local'))) {
+      fs.cpSync(fs.realpathSync(path.join(privateDir, 'config.local')), path.join(dir, 'config.local'), {
+        recursive: true,
+        dereference: true,
+      });
+    }
+    /**
+     * Where the layer file `name` rests in the scratch root.
+     * @param {'labels.json' | 'tools.json'} name
+     */
+    const placed = (name) => path.join(dir, LOCAL_DIR_OF[name], name);
     for (const source of sources) {
       // With mergeJson, a JSON layer file meeting one already laid down is merged over it: the one
       // there is read before the copy and the merge written after it.
       const kept =
         typeof mergeJson === 'function'
           ? JSON_LAYER_FILES.filter(
-              (name) => fs.existsSync(path.join(source, name)) && fs.existsSync(path.join(local, name))
-            ).map((name) => [name, readJson(path.join(local, name))])
+              (name) => fs.existsSync(path.join(source, name)) && fs.existsSync(placed(name))
+            ).map((name) => [name, readJson(placed(name))])
           : [];
       fs.cpSync(source, local, { recursive: true, force: true, dereference: true });
+      // The tool texts of a layer rest where src/hot.js reads them, not among the prompt files.
+      if (fs.existsSync(path.join(local, 'tools.json'))) {
+        fs.renameSync(path.join(local, 'tools.json'), placed('tools.json'));
+      }
       for (const [name, base] of kept) {
         const value = mergeJson(base, readJson(path.join(source, name)));
-        fs.writeFileSync(path.join(local, name), `${JSON.stringify(value, null, 2)}\n`);
+        fs.writeFileSync(placed(name), `${JSON.stringify(value, null, 2)}\n`);
       }
     }
     return { hot: createHot({ rootDir: dir }), dir };

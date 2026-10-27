@@ -17,7 +17,7 @@ const SHOWN: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze({
 
   'memory.archive.read': ['user', 'kind', 'n'],
   'places.list': ['filter', 'sort', 'page'],
-  'skills.describe': ['name'],
+  'tools.describe': ['name'],
   'status.show': ['field', 'part'],
   'lore.list': ['query'],
   'lore.show': ['id'],

@@ -368,7 +368,7 @@ const positive = (value, fallback) =>
  * takes the default). `mode` is `live` only when it says so exactly. `loop`: the tool loop's
  * bounds of an inner turn (src/behavior/turn.js#loopSettings with `inner`; nobody waits for
  * one, so its budget is generous): `maxSteps`, `timeBudgetMs`, `maxCallsPerStep` as
- * `skills.loop`'s, `callTimeoutMs` the most one call of hers may run.
+ * `tools.loop`'s, `callTimeoutMs` the most one call of hers may run.
  * @param {object} config
  */
 export function innerSettings(config) {

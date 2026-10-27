@@ -840,7 +840,7 @@ export function sandboxRequestInput({
  * Her tools for a sandbox request, as a live turn pins them at its start (src/behavior/turn.js): the names
  * (src/tools/discovery.ts#exposedSkillNames over the view's config and `selfId`), their definitions
  * (src/tools/tools-json.ts#buildTools over the skills layer of the view's prompts), the transport
- * (`skills.transport`, read now) and what the request carries of them -- the `<tools>` text on the text
+ * (`tools.transport`, read now) and what the request carries of them -- the `<tools>` text on the text
  * transport, the calibrated tokens of the `tools` field on the native one. Nothing is sent here. Pure.
  * @param {{ view: object, selfId?: string|null, registry?: Map<string, object> }} input
  * @returns {{ transport: 'native'|'text', names: string[], tools: object[], block: string|null, tokens: number, registry: Map<string, object> }}
@@ -851,7 +851,7 @@ export function sandboxToolset({ view, selfId = null, registry = skillRegistry()
   const names = exposedSkillNames({ config, selfId, registry });
   const tools = buildTools(names, {
     registry,
-    texts: view.prompts?.skills,
+    texts: view.prompts?.tools,
     fill: { drawChars: config.image?.maxPromptChars ?? 1600 },
   });
   const calibrator = view.calibrator ?? IDENTITY_CALIBRATOR;
@@ -1093,7 +1093,7 @@ function callTextOf(call) {
 /** The persona as the principal of a call (src/tools/gateway.ts), as a live turn names her. */
 const PERSONA = Object.freeze({ kind: 'persona' });
 
-/** The result a skill's `<result>` block is cut to when `skills.resultMaxChars` is not set (config.json's value). */
+/** The result a skill's `<result>` block is cut to when `tools.resultMaxChars` is not set (config.json's value). */
 const RESULT_MAX_CHARS = 4500;
 
 /**
@@ -1125,7 +1125,7 @@ export function personaGrantsConfig(config, selfId, names) {
  * when the search classifier would have answered `skills: inventory` (`discovery`
  * `'inventory'`), the rows of the skills it would have named (`discovery` a list of names:
  * proposalVerdicts, proposedRows), none for `'none'`. Null with discovery off
- * (`features.skills` / `features.skillsDiscovery`) or nothing to show. Pure.
+ * (`features.tools` / `features.toolsDiscovery`) or nothing to show. Pure.
  * @param {{ config: object, selfId: string, texts?: object, requester: object|null, conversationId: string,
  *   registry: Map<string, object>, discovery?: 'inventory'|'none'|string[], getOp?: Function }} input
  * @returns {object[]|null}
@@ -1269,14 +1269,14 @@ export function skillScenarioRequest(input) {
 /** How far apart a scenario's continuation places her posts, the call and its request (ms). */
 const CONTINUATION_STEP_MS = 1000;
 
-/** The operation's own message on a call mark when `skills.markTextMaxChars` is not set (config.json's value). */
+/** The operation's own message on a call mark when `tools.markTextMaxChars` is not set (config.json's value). */
 const MARK_TEXT_MAX_CHARS = 200;
 
 /**
  * The mark one call of hers leaves on the transcript, in src/format.js#withCalls's shape
  * and as a live turn notes it (src/behavior/turn.js, `noteCall`): `outcome` (simulateCall's) made
  * in the turn of `channelId`, its result back at `at`; its status and, when it did not work, why
- * (outcomeDetail, `skills.markTextMaxChars` read from `config`); its target from the resolved
+ * (outcomeDetail, `tools.markTextMaxChars` read from `config`); its target from the resolved
  * arguments; `postedId` the message the call itself posted, `posted` every message the turn
  * posted. Pure.
  */
@@ -1289,7 +1289,7 @@ function callMarkOf({ outcome, channelId, at, postedId, posted, config }) {
     at,
     skill: result.skill,
     status: result.status,
-    detail: outcomeDetail(result, { textChars: config.skills?.markTextMaxChars ?? MARK_TEXT_MAX_CHARS }),
+    detail: outcomeDetail(result, { textChars: config.tools?.markTextMaxChars ?? MARK_TEXT_MAX_CHARS }),
     target: { messageId: idOf(args.message) ?? idOf(args.reply), channelId: idOf(args.channel) },
     postedId: postedId ?? null,
     posted,
@@ -1493,7 +1493,7 @@ export async function answerSkillScenario({
 
 /** The least time one call of the tool loop gets, whatever is left of its budget (src/behavior/turn.js's). */
 const LOOP_MIN_CALL_MS = 2000;
-/** `skills.callTimeoutMs` when it is not set (config.json's value). */
+/** `tools.callTimeoutMs` when it is not set (config.json's value). */
 const CALL_TIMEOUT_MS = 120000;
 
 /** The characters of a request's messages (its text parts), for the record of a loop step. */
@@ -1541,7 +1541,7 @@ function usageNumbers(usage) {
 function resultCharsFor(skill, config) {
   if (skill === 'memory.search' || skill === 'conversation.read')
     return recallSettings(config)?.quoteMaxChars ?? RECALL_DEFAULTS.quoteMaxChars;
-  return config?.skills?.resultMaxChars ?? RESULT_MAX_CHARS;
+  return config?.tools?.resultMaxChars ?? RESULT_MAX_CHARS;
 }
 
 /** The reason a call of a step is refused before it is planned: `{ code, reason }` or null (src/behavior/turn.js#preRefusalOf). */
@@ -1660,7 +1660,7 @@ async function runSkillLoop({
     current.dropped = plans.filter((plan) => plan.refusal?.code === CODE.LOOP_CAP).length;
     current.capped = plans.find((plan) => plan.refusal?.code === CODE.LOOP_CAP)?.refusal.reason ?? null;
     const left = settings.timeBudgetMs - (clock() - loopStart);
-    const timeoutMs = Math.min(config.skills?.callTimeoutMs ?? CALL_TIMEOUT_MS, Math.max(LOOP_MIN_CALL_MS, left));
+    const timeoutMs = Math.min(config.tools?.callTimeoutMs ?? CALL_TIMEOUT_MS, Math.max(LOOP_MIN_CALL_MS, left));
     const refs = {
       idByIndex: current.idByIndex,
       history: current.history,

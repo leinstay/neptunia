@@ -139,21 +139,21 @@ const speechBudget = (context: GateContext): unknown =>
 const BUDGETS: Readonly<Record<string, (context: GateContext, requester: Requester | null, args: unknown) => unknown>> =
   Object.freeze({ 'draw.create': drawBudget, 'voice.say': speechBudget, 'task.run': taskBudget });
 
-/** Minutes between two destructive calls from one channel (`skills.destructiveCooldownMinutes`; config.json's value). */
+/** Minutes between two destructive calls from one channel (`tools.destructiveCooldownMinutes`; config.json's value). */
 const DESTRUCTIVE_COOLDOWN_MINUTES = 10;
 
 /**
  * Null unless a destructive skill (src/tools/impl/effects.ts) ran from this channel less than
- * `skills.destructiveCooldownMinutes` ago (`context.lastRunAt`, the caller's record, against
+ * `tools.destructiveCooldownMinutes` ago (`context.lastRunAt`, the caller's record, against
  * `context.now`), else `cooldown`.
  */
 function cooldownRefusal(skill: Skill, context: GateContext): Refusal | null {
   const { lastRunAt, now } = context;
   if (skill.effects !== 'destructive' || typeof lastRunAt !== 'number' || typeof now !== 'number') return null;
   if (!Number.isFinite(lastRunAt) || !Number.isFinite(now)) return null;
-  const given = objOf(objOf(context.config).skills).destructiveCooldownMinutes;
+  const given = objOf(objOf(context.config).tools).destructiveCooldownMinutes;
   const minutes = typeof given === 'number' ? given : DESTRUCTIVE_COOLDOWN_MINUTES;
-  return now - lastRunAt < minutes * MINUTE_MS ? refused(CODE.COOLDOWN, 'skills.destructiveCooldownMinutes') : null;
+  return now - lastRunAt < minutes * MINUTE_MS ? refused(CODE.COOLDOWN, 'tools.destructiveCooldownMinutes') : null;
 }
 
 /** Null when a paid skill still has budget today, else the refusal. Fails closed. */
@@ -174,7 +174,7 @@ function budgetRefusal(skill: Skill, requester: Requester | null, context: GateC
 
 /**
  * Whether the persona may make one skill call now. Checks, in order: the principal is the
- * persona; `features.skills` is on (off: everything refused); the registry has the skill; she
+ * persona; `features.tools` is on (off: everything refused); the registry has the skill; she
  * may use it (src/tools/access.ts#skillAccess: a carried-over skill aimed at the current
  * conversation -- no `channel` argument, or the current one -- else a grant to her user id, never
  * in safe mode); the arguments match its schema; the requester's own right (requesterRefusal:
@@ -201,7 +201,7 @@ export function checkSkill({
   context?: GateContext;
 }): { ok: true } | Refusal {
   if (principal?.kind !== 'persona') return refused(CODE.UNKNOWN_PRINCIPAL, idText(principal?.kind));
-  if (!skillsOn(context.config)) return refused(CODE.SKILLS_OFF, 'features.skills');
+  if (!skillsOn(context.config)) return refused(CODE.SKILLS_OFF, 'features.tools');
   const registry = context.registry ?? skillRegistry();
   const skill = registry.get(name);
   if (!skill) return refused(CODE.UNKNOWN_SKILL, idText(name));
@@ -218,7 +218,7 @@ export function checkSkill({
     wakeActions: Array.isArray(context.wakeActions) ? context.wakeActions : null,
   });
   if (!access.allowed)
-    return refused(access.reason, access.detail ?? (access.reason === CODE.SAFE_MODE ? 'skills.safeMode' : skill.name));
+    return refused(access.reason, access.detail ?? (access.reason === CODE.SAFE_MODE ? 'tools.safeMode' : skill.name));
 
   // A file-only post: her text (the body argument) left empty beside a file (src/tools/executors.ts#resolveCall); a GIF-only post: no text beside a `gif`.
   const bodyArg = skill.dispatch?.body ?? null;
@@ -247,7 +247,7 @@ export function checkSkill({
  * Whether one effect of the persona's ordinary reply may happen now -- a `<msg>` or `<gif>`
  * (`message.create`), a `<react>` (`message.react.add`), a `draw.create` call, always in the
  * current conversation: carried over without a grant (src/tools/access.ts#CARRIED_OVER), even in
- * safe mode; refused only under the full stop (`features.skills` false: she goes silent). Never
+ * safe mode; refused only under the full stop (`features.tools` false: she goes silent). Never
  * throws.
  */
 export function checkReplyEffect({
@@ -260,7 +260,7 @@ export function checkReplyEffect({
   config: unknown;
 }): { ok: true } | Refusal {
   if (principal?.kind !== 'persona') return refused(CODE.UNKNOWN_PRINCIPAL, idText(principal?.kind));
-  if (!skillsOn(config)) return refused(CODE.SKILLS_OFF, 'features.skills');
+  if (!skillsOn(config)) return refused(CODE.SKILLS_OFF, 'features.tools');
   if (!CARRIED_OVER.includes(skill)) return refused(CODE.UNKNOWN_SKILL, idText(skill));
   return { ok: true };
 }
@@ -269,7 +269,7 @@ export function checkReplyEffect({
  * The catalogue as the persona would see it for `requester` in `audience`'s conversation (the
  * discovery step: what she can do is what is granted to her): one row per registry skill whose
  * feature switch is on (src/tools/access.ts#skillFeatureOn), in order, `{ name, title,
- * whenToUse, allowed, reason }`, the texts from the skills layer (`texts`: `hot.prompts.skills`,
+ * whenToUse, allowed, reason }`, the texts from the skills layer (`texts`: `hot.prompts.tools`,
  * '' when missing). `reason` is skillAccess's (`carried-over`, `allowed`, `not-allowed`,
  * `safe-mode`, `skills-off`), or `requester-denied` for an allowed skill this requester may not
  * have run (requesterRefusal). `args` is what the skill takes (src/tools/discovery.ts#skillArgs:

@@ -129,7 +129,7 @@ function hotWith({ features = {}, access = {}, innerLife = {} } = {}) {
       models: { base: { analyzer: 'x/text' } },
       media: { maxPerTurn: 6, filePreviewChars: 500 },
       gifs: { maxPerDay: 40 },
-      skills: {
+      tools: {
         safeMode: false,
         resultMaxChars: 2000,
         callTimeoutMs: 120000,
@@ -208,7 +208,7 @@ const WAKE = {
 /**
  * One inner turn in #general (c1) answered with `answers`; `shadow` its mode; `gate` overrides of
  * the inner parameter (mayAct); `loop` overrides of `innerLife.loop` (the
- * inner turn's bounds), `skillsLoop` of `skills.loop` (an ordinary turn's); `clock` the turn's
+ * inner turn's bounds), `skillsLoop` of `tools.loop` (an ordinary turn's); `clock` the turn's
  * clock (NOW when none); `slowMs` delays every operation of hers by that many real milliseconds.
  */
 async function innerTurn({
@@ -240,7 +240,7 @@ async function innerTurn({
     innerLife,
   });
   if (loop) hot.config.innerLife.loop = { ...loop };
-  if (skillsLoop) hot.config.skills.loop = { ...hot.config.skills.loop, ...skillsLoop };
+  if (skillsLoop) hot.config.tools.loop = { ...hot.config.tools.loop, ...skillsLoop };
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
   const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } };
   const store = fakeStore();
@@ -388,7 +388,7 @@ test('inner turn: with no current channel a <msg>, <gif> or a draw.create withou
       .filter((message) => message.role === 'tool')
       .map((message) => message.content)
       .join('\n')
-      .includes(labels.skills.result.reasons['destination-required']),
+      .includes(labels.tools.result.reasons['destination-required']),
     'she reads the refusal'
   );
   // Her speech tags, once the step lets them go out, are refused the same way.
@@ -620,9 +620,9 @@ test("inner turn: an ordinary reply's request is the same with the inner life on
 
 test('gateway: with nobody asking only a read runs, unless the turn is her own initiative', () => {
   const config = {
-    features: { skills: true },
+    features: { tools: true },
     bot: { owners: ['u1'], access: personaGrants(['lore.add']) },
-    skills: { safeMode: false },
+    tools: { safeMode: false },
   };
   const call = {
     skill: 'lore.add',
@@ -813,7 +813,7 @@ test('inner turn, shadow: a lore.add with an argument it does not take is refuse
     ['lore.add:refused:invalid-args', 'lore.add:proposed:shadow']
   );
   assert.equal(run.llm.calls.length, 2, 'the refusal came back to her; the corrected call is only proposed');
-  const reason = fill(labels.skills.refusals.unknownArg, { arg: 'channel', args: 'title, keys, text, always' });
+  const reason = fill(labels.tools.refusals.unknownArg, { arg: 'channel', args: 'title, keys, text, always' });
   assert.ok(readsOf(run, 1).join('\n').includes(reason), readsOf(run, 1).join('\n'));
   assert.deepEqual(callMarksOf(lines).calls, [], 'nothing of a shadow turn is marked for later turns');
 });
@@ -914,7 +914,7 @@ test('inner turn, live: message.create with gif= posts the text then the GIF', a
   );
 });
 
-test("loopSettings: an inner turn's bounds are innerLife.loop's (config.json's when missing or unusable); an ordinary turn's stay skills.loop's", () => {
+test("loopSettings: an inner turn's bounds are innerLife.loop's (config.json's when missing or unusable); an ordinary turn's stay tools.loop's", () => {
   const tracked = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
   assert.deepEqual(loopSettings({}, { inner: true }), tracked.innerLife.loop);
   assert.deepEqual(tracked.innerLife.loop, {
@@ -937,24 +937,24 @@ test("loopSettings: an inner turn's bounds are innerLife.loop's (config.json's w
     ),
     { maxSteps: 2, timeBudgetMs: 900, maxCallsPerStep: 1, callTimeoutMs: 500 }
   );
-  // skills.loop never reaches an inner turn, innerLife.loop never an ordinary one.
+  // tools.loop never reaches an inner turn, innerLife.loop never an ordinary one.
   const both = {
-    skills: { loop: { maxSteps: 1, timeBudgetMs: 5, maxCallsPerStep: 1 } },
+    tools: { loop: { maxSteps: 1, timeBudgetMs: 5, maxCallsPerStep: 1 } },
     innerLife: { loop: { maxSteps: 9, timeBudgetMs: 99, maxCallsPerStep: 9, callTimeoutMs: 9 } },
   };
   assert.deepEqual(loopSettings(both, { inner: true }), both.innerLife.loop);
   assert.deepEqual(loopSettings(both), {
-    ...both.skills.loop,
-    stepReserveTokens: tracked.skills.loop.stepReserveTokens,
+    ...both.tools.loop,
+    stepReserveTokens: tracked.tools.loop.stepReserveTokens,
   });
   assert.deepEqual(loopSettings(both, { inner: false }), {
-    ...both.skills.loop,
-    stepReserveTokens: tracked.skills.loop.stepReserveTokens,
+    ...both.tools.loop,
+    stepReserveTokens: tracked.tools.loop.stepReserveTokens,
   });
 });
 
-test("inner turn, budget: a slow call past skills.loop's 20 s completes inside innerLife.loop; past innerLife.loop.callTimeoutMs it is unknown as today", async () => {
-  // The clock jumps 25 s while the second request is out: skills.loop's budget would be spent, innerLife.loop's is not.
+test("inner turn, budget: a slow call past tools.loop's 20 s completes inside innerLife.loop; past innerLife.loop.callTimeoutMs it is unknown as today", async () => {
+  // The clock jumps 25 s while the second request is out: tools.loop's budget would be spent, innerLife.loop's is not.
   const jumping = () => {
     let at = NOW;
     return {
@@ -1488,7 +1488,7 @@ test('inner turn, live: calls past maxCallsPerStep get a loop-cap result she rea
   assert.equal(readsOf(told, 1).length, 2, 'a result for the capped call too');
   assert.ok(
     readsOf(told, 1)[1].startsWith(
-      fill(labels.skills.result.refused, { reason: labels.skills.result.reasons['loop-cap'] })
+      fill(labels.tools.result.refused, { reason: labels.tools.result.reasons['loop-cap'] })
     ),
     readsOf(told, 1)[1]
   );
@@ -1530,23 +1530,23 @@ test('wakeBlockText: a retried wake is followed by its delayed line with the min
   assert.equal(wakeBlockText(wake, { ...labels, ...bare }).includes('delayed'), false);
 });
 
-test('diagnosticText and diagnosticLines: one line per parser diagnostic from skills.diagnostics; nothing without the labels', () => {
+test('diagnosticText and diagnosticLines: one line per parser diagnostic from tools.diagnostics; nothing without the labels', () => {
   const retired = { kind: 'retiredTag', tag: 'draw' };
   assert.equal(
     diagnosticText(retired, labels),
-    fill(labels.skills.diagnostics.retiredTag, { tag: 'draw' }).replace(/\s+/g, ' ').trim()
+    fill(labels.tools.diagnostics.retiredTag, { tag: 'draw' }).replace(/\s+/g, ' ').trim()
   );
   assert.equal(
     diagnosticText({ kind: 'messageCut', chars: 50 }, labels),
-    fill(labels.skills.diagnostics.messageCut, { chars: '50' })
+    fill(labels.tools.diagnostics.messageCut, { chars: '50' })
   );
   assert.equal(
     diagnosticText({ kind: 'messagesMerged', count: 2 }, labels),
-    fill(labels.skills.diagnostics.messagesMerged, { count: '2' })
+    fill(labels.tools.diagnostics.messagesMerged, { count: '2' })
   );
   assert.equal(
     diagnosticText({ kind: 'diagnostic', diagnostic: 'thinkUnclosed' }, labels),
-    labels.skills.diagnostics.thinkUnclosed,
+    labels.tools.diagnostics.thinkUnclosed,
     'a kept fact names its kind'
   );
   assert.equal(diagnosticText({ kind: 'strange' }, labels), '');

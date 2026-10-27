@@ -201,7 +201,7 @@ function config(features = {}) {
   const access = Object.fromEntries(
     ['intent.set', 'intent.list', 'lore.list'].map((name) => [name, { everyone: false, roles: [], users: [SELF] }])
   );
-  return { bot: { owners: [OWNER], access }, features: { skills: true, ...features } };
+  return { bot: { owners: [OWNER], access }, features: { tools: true, ...features } };
 }
 
 test('skills: with features.intentions off the intent skills are refused, never listed, never offered; on, they are hers once granted', () => {

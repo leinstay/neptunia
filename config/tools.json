@@ -470,7 +470,7 @@
     "whenToUse": "Counts, access, listening. To listen: intent.set with attend.",
     "whenNotToUse": "For what was said: chat or memory.search."
   },
-  "skills.describe": {
+  "tools.describe": {
     "title": "Describe a skill",
     "whenToUse": "Full description, or family for all in it. Use when unsure about arguments.",
     "args": {

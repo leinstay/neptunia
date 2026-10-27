@@ -64,6 +64,13 @@
       "test": "none"
     },
     {
+      "path": "config.local/",
+      "purpose": "A deployment's tool texts, laid over the tracked ones.",
+      "layer": "local",
+      "imports": [],
+      "test": "none"
+    },
+    {
       "path": "data/",
       "purpose": "A deployment memory, state and logs.",
       "layer": "local",
@@ -73,6 +80,13 @@
     {
       "path": "config.json",
       "purpose": "The tracked default settings.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "config/",
+      "purpose": "The tracked texts of the persona's tools.",
       "layer": "public",
       "imports": [],
       "test": "none"

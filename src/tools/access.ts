@@ -8,8 +8,8 @@
 // for her yet (NOT_GRANTABLE_TO_PERSONA). Her reply tags of today are carried over without a grant, in the
 // current conversation only, so nothing she does now is blocked (the skills design, "carry
 // permissions over"): `<msg>` and `<gif>` are `message.create`, `<react>` is `message.react.add`,
-// a picture is `draw.create` -- the operations the owner's `/nep message` and `/nep draw` run. Two switches, read by the caller from the live config: `features.skills`
-// false refuses every skill, and `skills.safeMode` true lets only the carried-over tags pass; a
+// a picture is `draw.create` -- the operations the owner's `/nep message` and `/nep draw` run. Two switches, read by the caller from the live config: `features.tools`
+// false refuses every skill, and `tools.safeMode` true lets only the carried-over tags pass; a
 // skill behind a feature switch of its own (FEATURE_SKILLS) is refused while that switch is off.
 // Wake envelopes (schema v11 stage, spec 2026-10-24-memory-schema-v7, sections 6 and 11): an inner turn's call is
 // also checked against the envelope of its wake kind, `innerLife.wakes.<kind>` (`tools`: `"*"` or a list of skill
@@ -206,14 +206,14 @@ export function skillFeatureOn(name: string, config: unknown): boolean {
   return key === null || objOf(objOf(config).features)[key] === true;
 }
 
-/** True when `features.skills` is not false (a missing key counts as on). */
+/** True when `features.tools` is not false (a missing key counts as on). */
 export function skillsOn(config: unknown): boolean {
-  return objOf(objOf(config).features).skills !== false;
+  return objOf(objOf(config).features).tools !== false;
 }
 
-/** True when `skills.safeMode` is exactly true. */
+/** True when `tools.safeMode` is exactly true. */
 export function safeModeOn(config: unknown): boolean {
-  return objOf(objOf(config).skills).safeMode === true;
+  return objOf(objOf(config).tools).safeMode === true;
 }
 
 /**
@@ -230,9 +230,9 @@ export function grantedToPersona(config: unknown, selfId: string | null | undefi
 
 /**
  * Whether the persona may use `skill` now, before its arguments and targets are looked at:
- * `{ allowed, reason }` with, in order, `skills-off` (features.skills false), `carried-over` (a
+ * `{ allowed, reason }` with, in order, `skills-off` (features.tools false), `carried-over` (a
  * current tag aimed at the current conversation: `conversationId` absent or equal to
- * `currentConversationId`), `safe-mode` (skills.safeMode: nothing else passes), `not-grantable`
+ * `currentConversationId`), `safe-mode` (tools.safeMode: nothing else passes), `not-grantable`
  * (NOT_GRANTABLE_TO_PERSONA, whatever is stored), `allowed` (a
  * grant to her user id under its name, grantedToPersona), else `not-allowed`. An
  * owner-only skill is granted like any other: who may have it run is the requester's right

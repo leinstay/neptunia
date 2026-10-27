@@ -15,7 +15,7 @@
     "tests/inner.test.js": 2447,
     "tests/memory-db-session.test.js": 2111,
     "tests/openrouter.test.js": 3653,
-    "tests/prompt.test.js": 7073,
+    "tests/prompt.test.js": 7072,
     "tests/prompts-shipped.test.js": 2063,
     "tests/recall-run.test.js": 2384,
     "tests/recall.test.js": 2553,

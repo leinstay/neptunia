@@ -797,8 +797,8 @@ test('buildRequest: a reply fills system-prompt, character-card, rules, format a
   assert.ok(!carries(taggedText, 'follow-up'), 'a tagged reply: the follow-up task is not sent');
 });
 
-test('buildRequest: the skills protocol and an asked-for catalogue fill labels.skills from the shipped skill texts', async () => {
-  const texts = JSON.parse(fs.readFileSync(path.join(PROMPTS_DIR, 'skills.json'), 'utf8'));
+test('buildRequest: the skills protocol and an asked-for catalogue fill labels.tools from the shipped skill texts', async () => {
+  const texts = JSON.parse(fs.readFileSync(path.join(PROMPTS_DIR, '..', 'config', 'tools.json'), 'utf8'));
   const shipped = shippedConfig();
   // message.edit granted to the persona (the bot's user, as `/nep access grant` stores it).
   const self = '799999999999999999';
@@ -856,14 +856,14 @@ test('buildRequest: the skills protocol and an asked-for catalogue fill labels.s
     'reply (skills catalogue)'
   );
   // Only what she may use now: carried over and allowed; a closed skill is not listed.
-  assert.ok(text.includes(`(${LABELS.skills.access.allowed})`), 'labels.skills.access.allowed');
+  assert.ok(text.includes(`(${LABELS.tools.access.allowed})`), 'labels.tools.access.allowed');
   // message.create, carried over, has no shipped texts yet: listed by its name alone.
   assert.ok(
     texts['message.create'] !== undefined || text.includes('\nmessage.create\n'),
     'a skill without texts by its name'
   );
   assert.ok(!text.includes('message.delete'), 'a closed skill is not listed');
-  const forms = LABELS.skills.args;
+  const forms = LABELS.tools.args;
   const args = fill(forms.list, {
     list: [
       fill(forms.required, { arg: 'message' }),
@@ -874,20 +874,20 @@ test('buildRequest: the skills protocol and an asked-for catalogue fill labels.s
   });
   assert.ok(
     text.includes(
-      fill(LABELS.skills.line, {
+      fill(LABELS.tools.line, {
         name: 'message.edit',
         title: texts['message.edit'].title,
         whenToUse: texts['message.edit'].whenToUse,
-        access: LABELS.skills.access.allowed,
+        access: LABELS.tools.access.allowed,
         args,
       })
     ),
-    'the arguments through labels.skills.args'
+    'the arguments through labels.tools.args'
   );
 });
 
 test('buildRequest: the text transport describes her tools in <tools> in the stable part, the same for another requester', async () => {
-  const body = [LABELS.skills.toolsText.lead, '{"name":"lore.list"}', LABELS.skills.toolsText.protocol].join('\n');
+  const body = [LABELS.tools.toolsText.lead, '{"name":"lore.list"}', LABELS.tools.toolsText.protocol].join('\n');
   const request = buildRequest(await turnInput({ toolsBlock: body }));
   assertFilled(request.messages, { files: LOADS.reply, blocks: [...TURN_BLOCKS, 'tools'] }, 'reply (tools in text)');
   const stable = request.messages[1].content[0];

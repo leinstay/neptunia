@@ -136,9 +136,9 @@ export function coerceArgs(
 }
 
 /**
- * What she reads for one call: the `labels.skills.result` line of its status (the status carried in
- * the words) with `{reason}` filled from `labels.skills.result.reasons[<code>]` (else `.other`, else
- * the code), then the call's data cut to `maxChars`; before them, one `labels.skills.result.coerced`
+ * What she reads for one call: the `labels.tools.result` line of its status (the status carried in
+ * the words) with `{reason}` filled from `labels.tools.result.reasons[<code>]` (else `.other`, else
+ * the code), then the call's data cut to `maxChars`; before them, one `labels.tools.result.coerced`
  * line (`{arg}`, `{value}`) per argument that was read in another type. '' for no result.
  * @param {{ status?: string, code?: string|null, reason?: string|null, values?: object|null, data?: { text?: string, rows?: object[] }|null }|null} result
  * @param {object} labels
@@ -164,7 +164,7 @@ export function toolResultText(
 ): string {
   if (!isObj(result)) return '';
   const status = typeof result.status === 'string' && RESULT_STATUSES.has(result.status) ? result.status : 'failed';
-  const words = objOf(objOf(objOf(labels).skills).result);
+  const words = objOf(objOf(objOf(labels).tools).result);
   const reasons = objOf(words.reasons);
   const code = typeof result.code === 'string' && result.code ? result.code : '';
   const values = isObj(result.values) ? result.values : null;
@@ -220,10 +220,10 @@ export function coversSpeech(
 }
 
 /**
- * Which transport a turn's tools travel on: `skills.transport` (`'native'` or `'text'`, read once at the
+ * Which transport a turn's tools travel on: `tools.transport` (`'native'` or `'text'`, read once at the
  * turn's start and kept for the whole turn). Anything else is the default, `'native'`. Pure.
  * `config` is the live config.
  */
 export function transportOf(config: unknown): 'native' | 'text' {
-  return objOf(objOf(config).skills).transport === 'text' ? 'text' : 'native';
+  return objOf(objOf(config).tools).transport === 'text' ? 'text' : 'native';
 }

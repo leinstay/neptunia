@@ -58,8 +58,8 @@
     "pauseNotice": true,
     "adminCommands": true,
     "memberCommands": true,
-    "skills": true,
-    "skillsDiscovery": true,
+    "tools": true,
+    "toolsDiscovery": true,
     "coreTools": false,
     "memoryPrefetch": true,
     "missedAnswers": true,
@@ -635,7 +635,7 @@
     "timeoutMs": 60000,
     "prepareMaxOutputTokens": 1500
   },
-  "skills": {
+  "tools": {
     "safeMode": false,
     "resultMaxChars": 4500,
     "markTextMaxChars": 200,

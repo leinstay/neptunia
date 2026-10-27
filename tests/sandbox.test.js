@@ -1074,9 +1074,9 @@ function fakeToolLlm(answers) {
 }
 
 /** A view whose persona holds exactly the skills `names`, over `config` additions (`skills`, `features`). */
-function grantedView(names, { skills = {}, features = {} } = {}) {
+function grantedView(names, { tools = {}, features = {} } = {}) {
   const hot = fakeHot(features);
-  hot.config.skills = skills;
+  hot.config.tools = tools;
   hot.config = sandbox.personaGrantsConfig(hot.config, SELF_ID, names);
   return liveView({ hot, store: fakeStore(), guildId: 'g1' });
 }
@@ -1096,14 +1096,14 @@ test('sandboxToolset: her granted and carried-over skills as native definitions,
   assert.equal(native.block, null);
   assert.ok(native.tokens > 0);
   const text = sandbox.sandboxToolset({
-    view: grantedView(['rule.add'], { skills: { transport: 'text' } }),
+    view: grantedView(['rule.add'], { tools: { transport: 'text' } }),
     selfId: SELF_ID,
   });
   assert.equal(text.transport, 'text');
   assert.equal(typeof text.block, 'string');
   assert.equal(text.tokens, 0);
   assert.deepEqual(
-    sandbox.sandboxToolset({ view: grantedView(['rule.add'], { features: { skills: false } }), selfId: SELF_ID }).names,
+    sandbox.sandboxToolset({ view: grantedView(['rule.add'], { features: { tools: false } }), selfId: SELF_ID }).names,
     []
   );
 });
@@ -1282,7 +1282,7 @@ test('answerSkillScenario: the last step allowed is final -- its calls get loop-
 
 test('answerSkillScenario: the text transport -- no tools field, the <tools> block in the request, <tool_call> blocks read, results as <tool_result> parts', async () => {
   const { answerSkillScenario } = sandbox;
-  const view = grantedView(['web.search'], { skills: { transport: 'text' } });
+  const view = grantedView(['web.search'], { tools: { transport: 'text' } });
   const llm = fakeToolLlm([
     textAnswer('<think>a</think><msg>μια στιγμή</msg>', [call('web.search', { query: 'chess' }, { id: 'w1' })]),
     '<think>b</think><msg>έγινε</msg>',

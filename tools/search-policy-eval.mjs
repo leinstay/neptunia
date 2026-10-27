@@ -169,7 +169,7 @@ export async function main(
       const { history, trigger } = rowChat(row, { now: now(), selfName });
       const { user } = lookupClassifierInput({ config, labels: hot.prompts.labels, selfName, history, trigger });
       const discovery = discoveryOn(config)
-        ? { index: skillsIndex(skillRegistry(), hot.prompts?.skills), names: [...skillRegistry().keys()] }
+        ? { index: skillsIndex(skillRegistry(), hot.prompts?.tools), names: [...skillRegistry().keys()] }
         : { index: '', names: [] };
       const system = fillPromptTemplate(hot.prompts.lookup, {
         today: zonedDay(now(), config.bot?.timezone),

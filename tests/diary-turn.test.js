@@ -1147,7 +1147,7 @@ test('diary: a call other than draw.create is refused diary-draw-only and never 
   assert.equal(llm.calls.length, 3, 'the refusal is a result she reads');
   assert.ok(
     contentText(llm.calls[2].find((message) => message.role === 'tool').content).includes(
-      labels.skills.result.reasons['diary-draw-only']
+      labels.tools.result.reasons['diary-draw-only']
     )
   );
 });

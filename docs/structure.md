@@ -15,8 +15,10 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `.agents/` | local | The working folder of the agents of one deployment. | nothing | none |
 | `prompts.local/` | local | A deployment prompt layer that shadows the tracked prompts. | nothing | none |
 | `config.local.json` | local | A deployment settings layer over config.json. | nothing | none |
+| `config.local/` | local | A deployment's tool texts, laid over the tracked ones. | nothing | none |
 | `data/` | local | A deployment memory, state and logs. | nothing | none |
 | `config.json` | public | The tracked default settings. | nothing | none |
+| `config/` | public | The tracked texts of the persona's tools. | nothing | none |
 | `package.json` | public | The root package: scripts, workspaces and development dependencies. | nothing | none |
 | `package-lock.json` | public | The locked dependency tree. | nothing | none |
 | `tsconfig.json` | public | The TypeScript compiler options used for type checking. | nothing | none |

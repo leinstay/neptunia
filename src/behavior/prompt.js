@@ -2040,14 +2040,14 @@ const ARG_VALUE_SEPARATOR = '|';
 const ARG_VALUES_MORE = '…';
 
 /**
- * The `{args}` of one `labels.skills.line`: `forms.list` with `{list}` filled by the arguments
+ * The `{args}` of one `labels.tools.line`: `forms.list` with `{list}` filled by the arguments
  * (src/tools/discovery.ts#skillArgs, in their order) joined by ', ', each its name wrapped in
  * turn by `forms.values` (`{arg}`, `{values}`: the values joined by '|', '…' after a cut list),
  * else by `forms.range` (`{arg}`, `{min}`, `{max}`; a bound the schema leaves open is ''), then
  * `forms.required` (`{arg}`);
  * a form the labels lack leaves the text as it was. '' without arguments or without `forms.list`.
  * @param {object[]|undefined} args
- * @param {object|undefined} forms  `labels.skills.args`.
+ * @param {object|undefined} forms  `labels.tools.args`.
  * @returns {string}
  */
 function skillArgsText(args, forms) {
@@ -2087,22 +2087,22 @@ function skillArgsText(args, forms) {
 /**
  * The `<skills>` body, compact whatever the size of the catalogue: only the rows the persona may
  * use now (`allowed`), grouped by family (src/tools/discovery.ts#byFamily, an empty line between
- * families), one `labels.skills.line` each with `{name}`, `{title}`, `{whenToUse}`, `{access}`
- * and `{args}` filled; `{access}` is `labels.skills.access[<the row's reason>]`, else
- * `labels.skills.access.allowed`; `{args}` is skillArgsText of the row's `args`. A row without a
+ * families), one `labels.tools.line` each with `{name}`, `{title}`, `{whenToUse}`, `{access}`
+ * and `{args}` filled; `{access}` is `labels.tools.access[<the row's reason>]`, else
+ * `labels.tools.access.allowed`; `{args}` is skillArgsText of the row's `args`. A row without a
  * title (no texts in the skills layer yet) is its name alone. Rows marked `proposed` (the skills
  * a classifier named for this turn, not the whole catalogue): a line for each allowed one, then
- * the names of the others in one `labels.skills.proposedOff` line (`{names}`; none without that
+ * the names of the others in one `labels.tools.proposedOff` line (`{names}`; none without that
  * label), except those the asker has no right to (`requester-denied`), named in one
- * `labels.skills.proposedDenied` line after it (none without that label). '' without an allowed
- * row and nothing to name, or without `labels.skills.line`.
+ * `labels.tools.proposedDenied` line after it (none without that label). '' without an allowed
+ * row and nothing to name, or without `labels.tools.line`.
  * Deterministic: the rows' order (the registry's) and their arguments' (the schema's) decide it.
  * @param {{ name: string, title?: string, whenToUse?: string, allowed: boolean, reason: string, proposed?: boolean, args?: object[] }[]|null|undefined} rows
  * @param {object} labels
  * @returns {string}
  */
 export function skillsInventoryText(rows, labels) {
-  const l = labels.skills;
+  const l = labels.tools;
   if (!Array.isArray(rows) || rows.length === 0 || typeof l?.line !== 'string' || !l.line) return '';
   const access = isPlainObject(l.access) ? l.access : {};
   const word = (row) => access[row.reason] ?? access.allowed ?? '';
@@ -3279,7 +3279,7 @@ function seenOf({ history, keptChat, anchoredIds = [] }) {
  *   The persona's skills catalogue for this requester and conversation
  *   (src/tools/gateway.ts#listSkills), given on a turn whose question was what she can do (the
  *   classifier's `skills: inventory`): `<skills>` in the tail right before `<chat>`, one
- *   `labels.skills.line` per row (skillsInventoryText), budget section `skills` (one piece,
+ *   `labels.tools.line` per row (skillsInventoryText), budget section `skills` (one piece,
  *   after `found`). Omitted or null -> no `<skills>`.
  * @param {string[]|null} [input.toolsGranted]  The names of the tools exposed to her this turn
  *   (src/tools/discovery.ts#exposedSkillNames): only the in-turn ones (`web.search`, `web.read`,
@@ -3767,7 +3767,7 @@ export function buildRequest(input) {
     participation: participationOffered,
   };
   let senses = renderSenses(config, labels, sensesOptions);
-  // The persona's skills (features.skills and features.skillsDiscovery, read now): the catalogue
+  // The persona's skills (features.tools and features.toolsDiscovery, read now): the catalogue
   // with her access only on a turn whose question was what she can do (`skillsInventory`), in the
   // tail. Her tools travel as the request's `tools` (or, on the text transport, as `<tools>`).
   const skillsShown = discoveryOn(config);
@@ -3816,11 +3816,11 @@ export function buildRequest(input) {
   const caps = config.context.caps;
   const cost = sectionCost(calibrator);
   // The room the sections share: the cap less the tag overhead, what the request's tools field costs (native) and,
-  // when tools are exposed on either transport, the step reserve (`skills.loop.stepReserveTokens`): the room the
+  // when tools are exposed on either transport, the step reserve (`tools.loop.stepReserveTokens`): the room the
   // continuation request after a call needs for her answer, the results and the note.
   const toolsTokens = Number.isFinite(input.toolsTokens) && input.toolsTokens > 0 ? Math.floor(input.toolsTokens) : 0;
   const toolsExposed = toolsTokens > 0 || (typeof input.toolsBlock === 'string' && input.toolsBlock.trim() !== '');
-  const reserveRaw = config.skills?.loop?.stepReserveTokens;
+  const reserveRaw = config.tools?.loop?.stepReserveTokens;
   const stepReserve = toolsExposed && Number.isFinite(reserveRaw) && reserveRaw > 0 ? Math.floor(reserveRaw) : 0;
   // The prompt rail is the same with or without tools: requestTokenLimit (llm.maxRequestTokens x llm.safetyMargin). The output budget is separate.
   const limit = Math.max(0, requestTokenLimit(config) - TAG_OVERHEAD - toolsTokens - stepReserve);

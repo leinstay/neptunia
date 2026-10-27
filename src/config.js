@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { log } from './log.js';
+import { moveConfigKeys } from './config-moves.ts';
 
 export const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -172,7 +173,28 @@ function mergeConfigFiles(rootDir, privateDir) {
   if (!fs.existsSync(localPath)) return base;
   const raw = fs.readFileSync(localPath, 'utf8').trim();
   if (!raw) return base;
-  return deepMerge(base, JSON.parse(raw));
+  /** @type {unknown} */
+  const local = JSON.parse(raw);
+  return deepMerge(base, movedLocal(local));
+}
+
+/**
+ * The local file with its keys of an earlier name written under their new one (src/config-moves.ts), one warning line
+ * per load when any moved or lost to a key of the new name. The file itself is untouched: `tools/config-migrate.mjs`
+ * writes the same moves into it.
+ * @param {unknown} local
+ * @returns {unknown}
+ */
+function movedLocal(local) {
+  if (typeof local !== 'object' || local === null || Array.isArray(local)) return local;
+  const { config, moved, shadowed } = moveConfigKeys(/** @type {Record<string, unknown>} */ (local));
+  if (moved.length > 0 || shadowed.length > 0)
+    log.warn('config: keys of an old name read under the new one', {
+      moved: moved.length,
+      shadowed: shadowed.length,
+      migrate: 'tools/config-migrate.mjs',
+    });
+  return config;
 }
 
 export const env = process.env;

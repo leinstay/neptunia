@@ -320,7 +320,7 @@ function hotWith({ features = {}, innerLife = {}, timezone = 'UTC', grants = [],
       media: { maxPerTurn: 6, filePreviewChars: 500 },
       gifs: { maxPerDay: 40 },
       mention: { oneAtATime: true },
-      skills: {
+      tools: {
         safeMode: false,
         resultMaxChars: 2000,
         callTimeoutMs: 120000,
@@ -1162,9 +1162,9 @@ test('row 9: memory.search that timed out reads as a timeout; one that really fo
   // The fixture labels word no timeout; this test words it itself, as the tracked labels do.
   const words = {
     ...labels,
-    skills: {
-      ...labels.skills,
-      result: { ...labels.skills.result, reasons: { ...labels.skills.result.reasons, timeout: '{what} timed out' } },
+    tools: {
+      ...labels.tools,
+      result: { ...labels.tools.result, reasons: { ...labels.tools.result.reasons, timeout: '{what} timed out' } },
     },
   };
   const hot = hotWith({ grants: ['memory.search'], features: { recall: true } });
@@ -1189,11 +1189,11 @@ test('row 9: memory.search that timed out reads as a timeout; one that really fo
   };
   const timedOut = await search({ kind: 'timeout' });
   assert.match(timedOut, /timed out/, 'the cause is the timeout');
-  assert.ok(!timedOut.includes(labels.skills.tools.memory.none), 'not "nothing found"');
-  assert.ok(!timedOut.startsWith(labels.skills.result.ok), 'not a result that went well');
+  assert.ok(!timedOut.includes(labels.tools.tools.memory.none), 'not "nothing found"');
+  assert.ok(!timedOut.startsWith(labels.tools.result.ok), 'not a result that went well');
   const empty = await search({ kind: 'searched', degraded: false, failed: 0, total: 3 });
-  assert.ok(empty.startsWith(labels.skills.result.ok), empty);
-  assert.ok(empty.includes(labels.skills.tools.memory.none), 'a real empty result reads as none');
+  assert.ok(empty.startsWith(labels.tools.result.ok), empty);
+  assert.ok(empty.includes(labels.tools.tools.memory.none), 'a real empty result reads as none');
 });
 
 test('row 10: the text goes out and the GIF fails -- the turn is partial, the text is said, and the cause is in her next request (addressed and inner)', async () => {

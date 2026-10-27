@@ -72,10 +72,10 @@ function clientChannels() {
 }
 
 /** A config with the settings these tests read, each set here. */
-function config({ features = {}, skills = {}, access = {}, diary = {} } = {}) {
+function config({ features = {}, tools = {}, access = {}, diary = {} } = {}) {
   return {
-    features: { skills: true, diary: true, ...features },
-    skills: { safeMode: false, ...skills },
+    features: { tools: true, diary: true, ...features },
+    tools: { safeMode: false, ...tools },
     bot: { owners: [OWNER], access },
     diary: { channelId: '', kinds: { photos: 1, thought: 1 }, ...diary },
   };
@@ -356,16 +356,16 @@ test("executeCall: on her own initiative the operation hears it, and the inner t
   );
 });
 
-test('executeCall: the result she reads is cut to skills.resultMaxChars; ok is said only when the operation answered ok', async () => {
+test('executeCall: the result she reads is cut to tools.resultMaxChars; ok is said only when the operation answered ok', async () => {
   const long = { status: 'ok', data: { text: 'λ'.repeat(500) } };
   const block = toolResultText({ skill: 'lore.list', ...long }, labels, { maxChars: 40 });
   const data = block.split('\n')[1];
   assert.ok(data.length <= 40 && data.endsWith('…'), data);
-  assert.ok(block.includes(labels.skills.result.ok));
+  assert.ok(block.includes(labels.tools.result.ok));
   for (const status of RESULT_STATUSES.filter((s) => s !== 'ok')) {
     assert.ok(
       !toolResultText({ skill: 'lore.add', status, code: 'x', data: { text: 't' } }, labels).includes(
-        labels.skills.result.ok
+        labels.tools.result.ok
       ),
       status
     );
@@ -886,8 +886,8 @@ test('executeCall: she may post in any text channel of the served guild where th
   }
 });
 
-test('executeCall: a leftover skills.conversations is ignored -- it neither opens nor closes a channel', async () => {
-  const { admin, port } = makeAdmin({ cfg: config({ skills: { conversations: [ELSEWHERE] } }) });
+test('executeCall: a leftover tools.conversations is ignored -- it neither opens nor closes a channel', async () => {
+  const { admin, port } = makeAdmin({ cfg: config({ tools: { conversations: [ELSEWHERE] } }) });
   const listed = await executeCall(resolve('message.create', { channel: '#αλλού' }, 'γεια'), deps(admin, port));
   assert.deepEqual([listed.status, listed.code], ['denied', 'channel-no-permission']);
   const unlisted = await executeCall(resolve('message.create', { channel: '#νέα' }, 'γεια'), deps(admin, port));
@@ -1177,8 +1177,8 @@ test("message.create gif=: the text went out and the GIF did not -- partial, gif
   assert.equal(RESULT_STATUSES.includes(result.status), true);
   // the status reaches her result block; with the reason through the fixture's generic words
   const block = toolResultText({ skill: 'message.create', ...result }, labels);
-  assert.ok(block.startsWith(labels.skills.result.partial ?? labels.skills.result.failed.split('{')[0]), block);
-  assert.ok(block.includes(labels.skills.result.reasons['gif-failed']), block);
+  assert.ok(block.startsWith(labels.tools.result.partial ?? labels.tools.result.failed.split('{')[0]), block);
+  assert.ok(block.includes(labels.tools.result.reasons['gif-failed']), block);
   // the call mark's detail names the reason too
   assert.deepEqual(outcomeDetail(result), { kind: 'gif-failed', code: 'gif-failed', arg: null });
 });

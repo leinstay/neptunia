@@ -277,17 +277,19 @@ test('createHot: labels.json deep-merges the local layer over the base one, sour
   }
 });
 
-test('createHot: skills.json is a JSON layer like labels.json: deep-merged, {} when absent, kept on a bad reload', () => {
+// The tool texts moved from skills.json in prompts/ and prompts.local/ to tools.json in config/ and config.local/ (the key
+// of `hot.prompts` followed); what the layer does is what it did.
+test('createHot: tools.json is a JSON layer like labels.json: deep-merged, {} when absent, kept on a bad reload', () => {
   const dir = makeRoot();
   const write = (layer, value) => {
-    const target = layer === 'base' ? path.join(dir, 'prompts') : path.join(dir, 'prompts.local');
+    const target = layer === 'base' ? path.join(dir, 'config') : path.join(dir, 'config.local');
     fs.mkdirSync(target, { recursive: true });
-    fs.writeFileSync(path.join(target, 'skills.json'), value);
+    fs.writeFileSync(path.join(target, 'tools.json'), value);
   };
   const absent = createHot({ rootDir: dir });
   try {
-    assert.deepEqual(absent.prompts.skills, {});
-    assert.equal(absent.promptSources.skills, 'base');
+    assert.deepEqual(absent.prompts.tools, {});
+    assert.equal(absent.promptSources.tools, 'base');
   } finally {
     absent.close();
   }
@@ -296,15 +298,15 @@ test('createHot: skills.json is a JSON layer like labels.json: deep-merged, {} w
   writeLabels(dir, 'base', JSON.stringify({ locale: 'en-US' }));
   const hot = createHot({ rootDir: dir });
   try {
-    assert.deepEqual(hot.prompts.skills, { draw: { title: 'Ζωγραφιά', whenToUse: 'local' } });
-    assert.equal(hot.promptSources.skills, 'merged');
+    assert.deepEqual(hot.prompts.tools, { draw: { title: 'Ζωγραφιά', whenToUse: 'local' } });
+    assert.equal(hot.promptSources.tools, 'merged');
     write('local', '{ broken');
     writeLabels(dir, 'base', JSON.stringify({ locale: 'fr-FR' }));
     assert.equal(hot.reloadPrompts(), true);
     assert.deepEqual(
-      hot.prompts.skills,
+      hot.prompts.tools,
       { draw: { title: 'Ζωγραφιά', whenToUse: 'local' } },
-      'the previous skills stay'
+      'the previous tool texts stay'
     );
     assert.deepEqual(hot.prompts.labels, { locale: 'fr-FR' }, 'the other JSON layer still reloads');
   } finally {

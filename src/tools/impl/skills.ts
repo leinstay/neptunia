@@ -1,9 +1,9 @@
-// Operations: `/nep task skills name` -- her read skill `skills.describe`: one skill in full (its
+// Operations: `/nep task skills name` -- her read skill `tools.describe`: one skill in full (its
 // title, when to use it, when not to, its arguments and whether it is switched on for her), or a
 // family (`memory`, `intent`, ...) as one line per skill. The text is the very rendering a core row of
 // her tool list gets (src/behavior/prompt.js#skillsInventoryText over src/tools/discovery.ts#describeRows),
 // from the registry and the skills layer read now. A name that is no skill is `unknown-skill` with the closest
-// skill names (`labels.skills.tools.describe.closest`). A read, open to every member while
+// skill names (`labels.tools.tools.describe.closest`). A read, open to every member while
 // features.memberCommands is on, as the search tools are.
 
 import { fill } from '../../format.js';
@@ -28,11 +28,11 @@ const handlers = perEnv((env) => {
       config: hot.config,
       selfId: env.selfId() ?? null,
       registry: skillRegistry(),
-      texts: hot.prompts?.skills,
+      texts: hot.prompts?.tools,
       name,
     });
     if (rows.length === 0) {
-      const label = labels.skills?.tools?.describe?.closest;
+      const label = labels.tools?.tools?.describe?.closest;
       const text =
         closest.length > 0 && typeof label === 'string' && label ? fill(label, { names: closest.join(', ') }) : '';
       return { status: 'invalid', code: CODE.UNKNOWN_SKILL, summary: text, data: { text, closest } };
@@ -45,7 +45,7 @@ const handlers = perEnv((env) => {
 });
 
 defineOp({
-  name: 'skills.describe',
+  name: 'tools.describe',
   rights: { kind: 'read', member: true },
   run: (args, ctx) => handlers(ctx.env).cmdDescribe(args),
 });
