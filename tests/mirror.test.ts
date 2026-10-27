@@ -228,7 +228,10 @@ function setAndVoiceLlm() {
   };
 }
 
-test('an entry with two pictures and a voice reaches the mirror as the message, the pictures, then the voice', async () => {
+// The order is the one a diary post goes out in from the turn today: the voice is sent while the step's calls run, her
+// message and the staged pictures after them (src/behavior/turn.js, the act path). The publisher sends all three one
+// after another.
+test('an entry with two pictures and a voice reaches the mirror as the voice, the message, then the pictures', async () => {
   const core = await scene({ mirrors: [{ conversationId: 'd1' }] });
   const turns = onWorld(createTurnRunner)({
     hot: setAndVoiceHot(),
@@ -263,11 +266,11 @@ test('an entry with two pictures and a voice reaches the mirror as the message, 
   assert.deepEqual(
     sent.map((message) => [message.text, message.attachments.map((attachment) => attachment.contentType)]),
     [
+      ['', ['audio/ogg']],
       [WALK, []],
       ['', ['image/png', 'image/png']],
-      ['', ['audio/ogg']],
     ],
-    'the message, then one message of both pictures, then the voice'
+    'the voice, then the message, then one message of both pictures'
   );
   assert.deepEqual(
     diaryPublications(core.memory.memoryDb).map((row) => row.receiptKeys),
