@@ -20,6 +20,7 @@ import { contentText } from './fixtures/turn-harness.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
 import '../src/tools/impl/index.ts';
 import { attachmentCount, onWorld, useIface, useSelf, world } from './fixtures/turn-world.ts';
+import { appendedPost, diaryCounts, entryOf, publishTo } from './fixtures/diary-mirror.ts';
 
 // The diary channel is held by a fake interface named `fake`; the persona is `self-id`.
 useIface('fake');
@@ -72,6 +73,20 @@ function diaryChannel({ attachFiles = true, historyMessages = [] } = {}) {
       return handle?.reactCalls ?? [];
     },
   };
+}
+
+/**
+ * Stage 3, the selfreflection wake: a diary turn records her entry and sends nothing itself, and the diary's mirror
+ * publishes the entry (src/behavior/mirror.ts). The cases that asserted the turn's send call this where the send used
+ * to happen: it checks that the turn sent nothing to `channel`, then publishes the entry to a mirror on `d1` of `port`,
+ * so what `channel.sent` or the adapter shows after it is what the publication sent.
+ * @param {unknown} result  The diary turn's result.
+ * @param {{ sent: unknown[] }|null} channel  The diary channel of the case, or null when the case reads the adapter.
+ * @param {ReturnType<typeof createFakeAdapter>} [port]
+ */
+async function published(result, channel, port = world().port) {
+  assert.deepEqual(channel?.sent ?? [], [], 'the turn itself sends nothing');
+  return publishTo(result, port, { now: NOW });
 }
 
 /** The persona's own earlier post as discord.js hands it over. */
@@ -479,6 +494,8 @@ test('diary turn: picture forced off when diary.maxPicturesPerDay is spent', asy
     assert.equal(images.prompts.length, 0, `${name}: nothing drawn`);
     assert.deepEqual(calledOf(logs), ['draw.create:denied/daily-cap'], `${name}: the picture is refused with the cap`);
     assert.equal(llm.calls.length, 3, `${name}: she reads the result and posts the text in step 2`);
+    // Stage 3: the turn sends nothing; the expectation below is what the mirror's publication of the entry sends.
+    await published(result, channel);
     assert.deepEqual(
       channel.sent.map((payload) => payload.content),
       ['sans image'],
@@ -611,6 +628,8 @@ test('diary turn: reactions and gifs are dropped, reply attributes ignored, urls
   const channel = diaryChannel({ historyMessages: history });
   const result = await runner({ llm }).runTurn({ channel, mode: 'diary', diary: {} });
   assert.equal(result.outcome, 'spoke');
+  // Stage 3: the turn sends nothing; the expectation below is what the mirror's publication of the entry sends.
+  await published(result, channel);
   assert.deepEqual(
     channel.sent.map((payload) => payload.content),
     ['see now', 'deux\ntrois'],
@@ -643,20 +662,46 @@ test('diary turn: records the post with gists and message ids', async () => {
     ])
   );
   const store = fakeStore();
-  const result = await runner({ llm, store }).runTurn({ channel: diaryChannel(), mode: 'diary', diary: {} });
+  const channel = diaryChannel();
+  const result = await runner({ llm, store }).runTurn({ channel, mode: 'diary', diary: {} });
   assert.equal(result.outcome, 'spoke');
-  assert.deepEqual(result.diary, { kind: 'selfPicture', picture: true, search: false, messages: 1, pictures: 1 });
-  assert.equal(store.appended.length, 1);
-  const { guildId, post, opts } = store.appended[0];
-  assert.equal(guildId, 'g1');
-  assert.deepEqual(post, {
-    at: NOW,
+  // Stage 3: the outcome also names the entry it recorded (`entry`), beside the same counts.
+  assert.deepEqual(diaryCounts(result), {
     kind: 'selfPicture',
-    gist: 'un quai dans la brume, très calme ce soir',
-    picture: 'the persona on a foggy pier at night, lanterns',
-    messageIds: ['sent-1', 'sent-2'],
-    search: null,
+    picture: true,
+    search: false,
+    messages: 1,
+    pictures: 1,
   });
+  const entry = entryOf(result);
+  assert.deepEqual(entry.messages, ['un quai dans la brume, très calme ce soir']);
+  assert.equal(store.appended.length, 1);
+  const { guildId, post, opts } = appendedPost(store);
+  assert.equal(guildId, 'g1');
+  // Stage 3: the post is recorded before anything is sent, so it carries her full text and the entry's id and no
+  // message ids (the receipts of its publications hold those); the turn itself sends nothing.
+  assert.deepEqual(
+    {
+      at: post.at,
+      kind: post.kind,
+      gist: post.gist,
+      picture: post.picture,
+      search: post.search,
+      text: post.text,
+      itemId: post.itemId,
+    },
+    {
+      at: NOW,
+      kind: 'selfPicture',
+      gist: 'un quai dans la brume, très calme ce soir',
+      picture: 'the persona on a foggy pier at night, lanterns',
+      search: null,
+      text: 'un quai dans la brume, très calme ce soir',
+      itemId: entry.id,
+    }
+  );
+  assert.deepEqual(post.messageIds ?? [], []);
+  assert.deepEqual(channel.sent, [], 'the turn itself sends nothing');
   assert.deepEqual(opts, { max: 40 });
   assert.equal(countToday(store.state.data, DIARY_DAILY, NOW), 1);
   assert.equal(countToday(store.state.data, DIARY_PICTURES_DAILY, NOW), 1);
@@ -692,9 +737,11 @@ test('diary turn: a voice message is kept in the post: its id among messageIds a
   });
   const result = await turns.runTurn({ channel: diaryChannel(), mode: 'diary', diary: {} });
   assert.equal(result.outcome, 'spoke');
-  const { post } = store.appended[0];
-  assert.ok(post.messageIds.includes('voice-1'), JSON.stringify(post.messageIds));
-  assert.deepEqual(post.voice, { messageId: 'voice-1', text: voiced, durationSec: 2.5 });
+  const { post } = appendedPost(store);
+  const voice = /** @type {{ text?: unknown, durationSec?: unknown }} */ (post.voice ?? {});
+  // Stage 3: the entry is recorded before any send, so its voice has no message id yet: the post keeps the text as
+  // voiced and its length, and the mirror's publication sends the voice file.
+  assert.deepEqual({ text: voice.text, durationSec: voice.durationSec }, { text: voiced, durationSec: 2.5 });
 });
 
 test('diary turn: the gist is cut to diary.gistChars', async () => {
@@ -722,6 +769,8 @@ test('diary turn: a failed drawing is a result she reads before anything is post
   assert.equal(llm.calls.length, 3, 'the plan, the post with the draw, the post after the result');
   assert.deepEqual(calledOf(logs), ['draw.create:failed/image-error']);
   assert.ok(logs.some((l) => l.msg === 'turn: speech held'));
+  // Stage 3: the turn sends nothing; the expectation below is what the mirror's publication of the entry sends.
+  await published(result, channel);
   assert.deepEqual(
     channel.sent.map((payload) => payload.content),
     ['brume sans image'],
@@ -791,11 +840,12 @@ test('diary turn: a post of a picture alone is a spoken turn', async () => {
   const channel = diaryChannel();
   const result = await runner({ llm, store }).runTurn({ channel, mode: 'diary', diary: {} });
   assert.equal(result.outcome, 'spoke');
-  assert.equal(result.delivered, true);
+  // Stage 3: nothing reaches a chat from the turn, so it delivers nothing and the post records no message id; the
+  // picture is one message of files once the mirror publishes the entry.
+  await published(result, channel);
   assert.equal(channel.sent.length, 1);
   assert.ok(Array.isArray(channel.sent[0].files));
   assert.equal(store.appended[0].post.gist, '');
-  assert.deepEqual(store.appended[0].post.messageIds, ['sent-1']);
   assert.equal(countToday(store.state.data, DIARY_DAILY, NOW), 1);
   assert.equal(countToday(store.state.data, DIARY_PICTURES_DAILY, NOW), 1);
 });
@@ -862,6 +912,8 @@ test('diary: a single picture is staged while the post is composed, then posted 
     runner({ llm, store, images }).runTurn({ channel, mode: 'diary', diary: {} })
   );
   assert.equal(result.outcome, 'spoke');
+  // Stage 3: the turn sends nothing; the expectation below is what the mirror's publication of the entry sends.
+  await published(result, channel);
   assert.deepEqual(events, ['generate 1', 'msg', 'files 1'], 'generated first, posted after the message');
   assert.deepEqual(calledOf(logs), ['draw.create:ok/staged']);
   assert.equal(llm.calls.length, 2, 'the plan and one post request');
@@ -887,6 +939,8 @@ test('diary set: six draw.create calls in one answer are generated before anythi
   );
   assert.equal(result.outcome, 'spoke');
   assert.equal(llm.calls.length, 2, 'one post request');
+  // Stage 3: the turn sends nothing; the expectation below is what the mirror's publication of the entry sends.
+  await published(result, channel);
   assert.deepEqual(events, [
     'generate 1',
     'generate 2',
@@ -949,6 +1003,9 @@ test('diary set: the adapter that allows two files per message gets the six pict
   const { turns, adapter } = limitedRunner({ hot, llm, images, limits: { maxFiles: 2 } });
   const result = await turns.runTurn({ channel: diaryChannel(), mode: 'diary', diary: {} });
   assert.equal(result.outcome, 'spoke');
+  // Stage 3: the turn sends nothing; the mirror's publication to this adapter splits the set by its maxFiles.
+  assert.deepEqual(adapter.messagesIn('d1'), [], 'the turn itself sends nothing');
+  await published(result, null, adapter);
   const withFiles = adapter.messagesIn('d1').filter((message) => message.attachments.length > 0);
   assert.deepEqual(
     withFiles.map((message) => message.attachments.length),
@@ -961,7 +1018,10 @@ test('diary set: an adapter that allows twelve files per message gets the same s
   const llm = fakeLlm(TOUR_PLAN, withDraws('<msg>une promenade</msg>', 6, true));
   const hot = setHot({ set: { pictures: [3, 6], maxMessageBytes: 1_000_000 } });
   const { turns, adapter } = limitedRunner({ hot, llm, images, limits: { maxFiles: 12 } });
-  await turns.runTurn({ channel: diaryChannel(), mode: 'diary', diary: {} });
+  const result = await turns.runTurn({ channel: diaryChannel(), mode: 'diary', diary: {} });
+  // Stage 3: the turn sends nothing; the mirror's publication to this adapter puts the set in one message.
+  assert.deepEqual(adapter.messagesIn('d1'), [], 'the turn itself sends nothing');
+  await published(result, null, adapter);
   const withFiles = adapter.messagesIn('d1').filter((message) => message.attachments.length > 0);
   assert.deepEqual(
     withFiles.map((message) => message.attachments.length),
@@ -992,12 +1052,14 @@ test('diary set: calls past diary.set.pictures[1] in one answer are loop-cap res
   const images = fakeSetImages([]);
   const channel = diaryChannel();
   const llm = fakeLlm(TOUR_PLAN, [withDraws('<msg>x</msg>', 8), '<msg>y</msg>']);
-  const { logs } = await withCapturedLogs(() =>
+  const { result, logs } = await withCapturedLogs(() =>
     runner({ hot: setHot({ set: { pictures: [2, 3] } }), llm, images }).runTurn({ channel, mode: 'diary', diary: {} })
   );
   assert.equal(images.prompts.length, 3);
   assert.ok(images.prompts[2].prompt.includes('scene 3'));
   assert.deepEqual(calledOf(logs).filter((line) => line.endsWith('loop-cap')).length, 5);
+  // Stage 3: the turn sends nothing; the expectation below is what the mirror's publication of the entry sends.
+  await published(result, channel);
   assert.deepEqual(
     channel.sent.filter((payload) => payload.content).map((payload) => payload.content),
     ['y']
@@ -1040,6 +1102,8 @@ test('diary set: one failure in a set holds the speech and the staged pictures; 
     'draw.create:ok/staged',
     'draw.create:ok/staged',
   ]);
+  // Stage 3: the turn sends nothing; the expectation below is what the mirror's publication of the entry sends.
+  await published(result, channel);
   // Step 2 sees all six results and the held notice.
   const step2 = llm.calls[2];
   assert.equal(step2.filter((message) => message.role === 'tool').length, 6);
@@ -1065,6 +1129,8 @@ test('diary set: an image cap mid-set refuses that picture; the others stay stag
     runner({ hot: setHot(), llm, store, images }).runTurn({ channel, mode: 'diary', diary: {} })
   );
   assert.equal(result.outcome, 'spoke');
+  // Stage 3: the turn sends nothing; the expectation below is what the mirror's publication of the entry sends.
+  await published(result, channel);
   assert.equal(channel.sent.at(-1).files.length, 3);
   assert.ok(logs.some((l) => l.msg === 'turn: draw refused by a limit' && l.key === 'image.maxPerDay'));
   assert.ok(logs.some((l) => l.msg === 'turn: draw error' && l.reason === 'error'));
@@ -1130,7 +1196,9 @@ test('diary: a call other than draw.create is refused diary-draw-only and never 
     toolAnswer('<msg>x</msg>', [call('message.create', { text: 'hello' }), call('draw.create', { text: 'a pier' })]),
     '<msg>y</msg>',
   ]);
-  const { logs } = await withCapturedLogs(() => runner({ llm, images }).runTurn({ channel, mode: 'diary', diary: {} }));
+  const { result, logs } = await withCapturedLogs(() =>
+    runner({ llm, images }).runTurn({ channel, mode: 'diary', diary: {} })
+  );
   assert.deepEqual(
     calledOf(logs).sort(),
     ['draw.create:ok/staged', 'message.create:denied/diary-draw-only'],
@@ -1140,6 +1208,8 @@ test('diary: a call other than draw.create is refused diary-draw-only and never 
     logs.some((l) => l.msg === 'skill: refused' && l.skill === 'message.create' && l.code === 'diary-draw-only')
   );
   assert.equal(images.prompts.length, 1);
+  // Stage 3: the turn sends nothing; the expectation below is what the mirror's publication of the entry sends.
+  await published(result, channel);
   assert.deepEqual(
     channel.sent.filter((payload) => payload.content).map((payload) => payload.content),
     ['y']
@@ -1162,6 +1232,8 @@ test('diary: a single-picture kind stages one picture; a second call is a loop-c
   const hot = setHot({ diary: { kinds: { selfPicture: 1 }, pictureKinds: ['selfPicture', 'tour'] } });
   const result = await runner({ hot, llm, images }).runTurn({ channel, mode: 'diary', diary: {} });
   assert.equal(images.prompts.length, 1);
+  // Stage 3: the turn sends nothing; the expectation below is what the mirror's publication of the entry sends.
+  await published(result, channel);
   assert.equal(channel.sent.at(-1).files.length, 1);
   assert.equal(result.diary.pictures, 1);
 });
