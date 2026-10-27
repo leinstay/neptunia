@@ -22,14 +22,14 @@ type Db = { prepare(sql: string): { all(...params: Array<unknown>): Array<Row> }
 type Counters = Record<string, unknown>;
 type Daily = { dayKey: string; countKey: string };
 
-// diary.js and time.js are JS; their JSDoc gives these shapes, which the type checker cannot always follow.
+// diary.js and time.js are JS; these are their functions as this module calls them, with its own value types.
 const gist = gistOf as (text: string, chars: number) => string;
 const pictureKind = isPictureKind as (kind: string, pictureKinds: unknown) => boolean;
 const today = countToday as (state: Counters, keys: Daily, nowMs: number) => number;
 const bump = bumpDaily as (state: Counters, keys: Daily, nowMs: number) => void;
 const setOf = setSettings as (diaryCfg: unknown) => { maxMessageBytes: number };
-const POSTS_DAILY = DIARY_DAILY as Daily;
-const PICTURES_DAILY = DIARY_PICTURES_DAILY as Daily;
+const POSTS_DAILY: Daily = DIARY_DAILY;
+const PICTURES_DAILY: Daily = DIARY_PICTURES_DAILY;
 
 const sectionOf = (config: Config, name: string): Config => {
   const found = config[name];
@@ -211,17 +211,13 @@ export function recordEntry({
     voice: voice?.ogg ? { ogg: voice.ogg, durationSecs: voice.durationSecs, waveform: voice.waveform ?? '' } : null,
     maxMessageBytes,
   };
-  const counts = {
+  return {
     kind: plan.kind,
     picture: staged.length > 0,
     search: Boolean(plan.search),
     messages: held.texts.length,
     pictures: staged.length,
-  };
-  // The entry rides on the counts without being one of them: a reader of the counts (the scheduler's log line, the
-  // owner's command) sees the same fields as before, and the mirrors take `entry`.
-  return Object.defineProperty(counts, 'entry', { value: entry, enumerable: false }) as typeof counts & {
-    entry: DiaryEntry;
+    entry,
   };
 }
 

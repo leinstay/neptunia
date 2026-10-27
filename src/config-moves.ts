@@ -27,10 +27,9 @@ export type MovedConfig = {
   shadowed: Array<Move>;
   /** The dotted paths of the keys removed because nothing reads them. */
   dropped: Array<string>;
+  /** The dotted paths of the keys removed because the memory database holds them (`diary.channelId`). */
+  toDatabase: Array<string>;
 };
-
-/** A move that also asked the memory database: the keys removed because the database holds them. */
-export type MovedToDatabase = MovedConfig & { toDatabase: Array<string> };
 
 const isObject = (value: unknown): value is Config =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -218,7 +217,7 @@ function dropKeys(config: Config, report: MovedConfig): void {
 }
 
 /** `diary.channelId` removed once the memory database has the diary's mirror; a `diary` section it empties goes too. */
-function moveDiarySeed(config: Config, diaryMirror: boolean, report: MovedToDatabase): void {
+function moveDiarySeed(config: Config, diaryMirror: boolean, report: MovedConfig): void {
   const diary = sectionOf(config, 'diary', false);
   if (!diaryMirror || diary === null || !Object.hasOwn(diary, 'channelId')) return;
   delete diary.channelId;
@@ -227,14 +226,11 @@ function moveDiarySeed(config: Config, diaryMirror: boolean, report: MovedToData
 }
 
 /**
- * `config` with the old keys written under their new names. Given what the memory database holds (`diaryMirror`: it
- * has the diary's mirror, so `diary.channelId` goes), the result also names the keys it took (`toDatabase`). The
- * argument is not changed.
+ * `config` with the old keys written under their new names. `diaryMirror`: the memory database has the diary's mirror,
+ * so `diary.channelId` goes and `toDatabase` names it (empty otherwise). The argument is not changed.
  */
-export function moveConfigKeys(config: Config): MovedConfig;
-export function moveConfigKeys(config: Config, database: { diaryMirror: boolean }): MovedToDatabase;
-export function moveConfigKeys(config: Config, database?: { diaryMirror: boolean }): MovedConfig {
-  const report: MovedConfig = { config: structuredClone(config), moved: [], shadowed: [], dropped: [] };
+export function moveConfigKeys(config: Config, { diaryMirror = false }: { diaryMirror?: boolean } = {}): MovedConfig {
+  const report: MovedConfig = { config: structuredClone(config), moved: [], shadowed: [], dropped: [], toDatabase: [] };
   moveSection(report.config, report);
   renameKey(report.config, 'features', 'skills', 'tools', report);
   renameKey(report.config, 'features', 'skillsDiscovery', 'toolsDiscovery', report);
@@ -244,8 +240,6 @@ export function moveConfigKeys(config: Config, database?: { diaryMirror: boolean
   moveSearchProvider(report.config, report);
   renameKey(report.config, 'llm', 'helperTimeoutMs', 'analyzerTimeoutMs', report);
   dropKeys(report.config, report);
-  if (database === undefined) return report;
-  const asked: MovedToDatabase = { ...report, toDatabase: [] };
-  moveDiarySeed(asked.config, database.diaryMirror, asked);
-  return asked;
+  moveDiarySeed(report.config, diaryMirror, report);
+  return report;
 }
