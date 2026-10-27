@@ -683,7 +683,7 @@
     },
     "src/tools/impl/message.ts": {
       "<anonymous>": {
-        "function-length": 321
+        "function-length": 320
       },
       "<anonymous>>mediaFile": {
         "complexity": 26

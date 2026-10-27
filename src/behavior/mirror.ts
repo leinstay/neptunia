@@ -23,6 +23,7 @@
 // pipeline.js). Logs carry counts and codes, never a text.
 
 import fs from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { log } from '../log.js';
 import { portLimit } from '../interface/capabilities.ts';
@@ -102,8 +103,8 @@ export type HeldDiaryMessage = {
   files: ReadonlyArray<{ name: string; data: Uint8Array; contentType: string | null }>;
 };
 
-/** What one turn wrote to her diary: the community it was written in and its messages, in order. */
-export type HeldDiary = { guildId: string; messages: Array<HeldDiaryMessage> };
+/** What one turn wrote to her diary: its entry's id, when it began, the community and its messages, in order. */
+export type HeldDiary = { id: string; at: number; guildId: string; messages: Array<HeldDiaryMessage> };
 
 /** One mirror as `listMirrors` answers it. */
 export type Mirror = { id: string; placeId: string; enabled: boolean };
@@ -424,20 +425,22 @@ export function createMirrors({
 }): {
   listMirrors(): Array<Mirror>;
   publishEntry(entry: DiaryEntry): Promise<Array<PublishOutcome>>;
+  queueEntry(entry: DiaryEntry): Promise<void>;
   drainQueued(): Promise<number>;
-  holdDiary(turnId: string, guildId: string, message: HeldDiaryMessage): number;
+  holdDiary(turnId: string, guildId: string, message: HeldDiaryMessage): HeldDiary;
   heldDiary(turnId: string): number;
   takeDiary(turnId: string): HeldDiary | null;
+  keepEntryMedia(entry: DiaryEntry): Promise<void>;
 } {
-  // What each running turn wrote to her diary, by its turn id: one entry per turn, recorded when the turn ends.
+  // What each running turn wrote to her diary, by its turn id: one entry per turn, published when the turn ends.
   const held = new Map<string, HeldDiary>();
 
-  /** Holds one diary message of the turn `turnId`; answers how many the turn holds. */
-  function holdDiary(turnId: string, guildId: string, message: HeldDiaryMessage): number {
-    const entry = held.get(turnId) ?? { guildId, messages: [] };
+  /** Holds one diary message of the turn `turnId` (its entry gets its id with the first); answers what the turn holds. */
+  function holdDiary(turnId: string, guildId: string, message: HeldDiaryMessage): HeldDiary {
+    const entry = held.get(turnId) ?? { id: `diary:${randomUUID()}`, at: now(), guildId, messages: [] };
     held.set(turnId, entry);
     entry.messages.push(message);
-    return entry.messages.length;
+    return entry;
   }
 
   /** How many diary messages the turn `turnId` holds. */
@@ -505,11 +508,45 @@ export function createMirrors({
         ...mirrorReceipts(place.iface, sent.messageIds),
         ...attachmentReceipts(place.iface, sent.attachmentIds),
       ];
-      await write({ op: 'sent', id: publication.id, receipts, now: now() });
+      await write({ op: 'sent', id: publication.id, receipts, rendered: entryText(entry), now: now() });
       await keepMedia(entry, sent);
     } else await write({ op: sent.status, id: publication.id });
     log.info('mirror: published', { status: sent.status, messages: sent.messageIds.length, code: sent.code });
     return { placeId: place.placeId, status: sent.status, code: sent.code };
+  }
+
+  /**
+   * The entry's `queued` publication to every enabled mirror's place, keyed `diary:<entry>:<place>` and prepared once
+   * (a later call reuses it); `pending` for an entry a turn is still writing, whose content its send fills. Each with
+   * its place.
+   */
+  async function prepareAll(
+    db: Db,
+    entry: DiaryEntry,
+    pending: boolean
+  ): Promise<Array<{ place: DiaryPlace; prepared: Prepared }>> {
+    const out: Array<{ place: DiaryPlace; prepared: Prepared }> = [];
+    for (const mirror of listMirrors().filter((one) => one.enabled)) {
+      const place = mirroredPlace(db, mirror.placeId);
+      if (!place) continue;
+      const context: Context = issueContext({ kind: 'group', iface: place.iface, destination: place.placeId, now });
+      const rendered = entryText(entry);
+      const input = { context, rowKind: 'diary', rowId: entry.id, rendered, destination: place.placeId, pending };
+      out.push({ place, prepared: (await write({ op: 'prepare', input, now: now() })) as Prepared });
+    }
+    return out;
+  }
+
+  /**
+   * An entry a turn is still writing, kept and queued: its media written, one `pending` publication to every enabled
+   * mirror. Nothing is sent: `publishEntry` sends it when the turn ends, and after a stop `drainQueued` of a new
+   * publisher does.
+   */
+  async function queueEntry(entry: DiaryEntry): Promise<void> {
+    const db = database();
+    if (!db) return;
+    await keepMedia(entry);
+    await prepareAll(db, entry, true);
   }
 
   async function publishEntry(entry: DiaryEntry): Promise<Array<PublishOutcome>> {
@@ -517,15 +554,7 @@ export function createMirrors({
     if (!db) return [];
     await keepMedia(entry);
     const outcomes: Array<PublishOutcome> = [];
-    for (const mirror of listMirrors().filter((one) => one.enabled)) {
-      const place = mirroredPlace(db, mirror.placeId);
-      if (!place) continue;
-      const context: Context = issueContext({ kind: 'group', iface: place.iface, destination: place.placeId, now });
-      const prepared = (await write({
-        op: 'prepare',
-        input: { context, rowKind: 'diary', rowId: entry.id, rendered: entryText(entry), destination: place.placeId },
-        now: now(),
-      })) as Prepared;
+    for (const { place, prepared } of await prepareAll(db, entry, false)) {
       if (!prepared.ok) {
         log.warn('mirror: not published', { code: prepared.code });
         outcomes.push({ placeId: place.placeId, status: 'failed', code: prepared.code });
@@ -550,7 +579,10 @@ export function createMirrors({
       )
       .all() as Array<Publication>; // the columns selected above
     let sent = 0;
+    // An entry a turn here is still writing goes out when that turn ends.
+    const writing = new Set([...held.values()].map((entry) => entry.id));
     for (const publication of queued) {
+      if (writing.has(publication.row_id)) continue;
       const place = mirroredPlace(db, publication.destination_place_id);
       if (!place) continue;
       const entry = storedEntry(db, publication, dataDir);
@@ -559,5 +591,14 @@ export function createMirrors({
     return sent;
   }
 
-  return { listMirrors, publishEntry, drainQueued, holdDiary, heldDiary, takeDiary };
+  return {
+    listMirrors,
+    publishEntry,
+    queueEntry,
+    drainQueued,
+    holdDiary,
+    heldDiary,
+    takeDiary,
+    keepEntryMedia: keepMedia,
+  };
 }
