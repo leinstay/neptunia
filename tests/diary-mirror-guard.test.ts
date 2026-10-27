@@ -13,6 +13,7 @@ import { guardMirrorPort, createMirrors } from '../src/behavior/mirror.ts';
 import { createMessageHandler } from '../src/behavior/pipeline.js';
 import { createTagHistory } from '../src/behavior/mention.js';
 import { heartbeatWake } from '../src/behavior/inner.js';
+import { createSpontaneous } from '../src/behavior/spontaneous.js';
 import { createTurnRunner } from '../src/behavior/turn.js';
 import { createAdmin } from '../src/admin.js';
 import { createStore } from '../src/memory/store.js';
@@ -153,37 +154,35 @@ async function turnIn(
     runInitiativeOp: admin.runInitiativeSkillOp,
   });
   const conversation = { iface: 'fake', conversationId: here };
-  // The params are written in the call, so runTurn's declared parameter types them.
-  const { logs } = await withCapturedLogs(() =>
-    turns.runTurn(
-      wake
-        ? {
-            conversation,
-            guildId: GUILD,
-            mode: 'inner',
-            triggerKind: 'inner',
-            inner: { wake, shadow: false, mayAct: () => true },
-          }
-        : {
-            conversation,
-            mode: 'reply',
-            triggerKind: 'mention',
-            trigger: {
-              id: `m-${here}`,
-              channelId: here,
-              authorId: 'u1',
-              authorName: 'Alice',
-              self: false,
-              bot: false,
-              content: 'γεια',
-              ts: NOW - 30_000,
-              replyToId: null,
-              attachments: [],
-              stickers: [],
-            },
-          }
-    )
-  );
+  // One call per kind of turn, each written in the call, so runTurn's declared parameter types it.
+  const run = () =>
+    wake
+      ? turns.runTurn({
+          conversation,
+          guildId: GUILD,
+          mode: 'inner',
+          triggerKind: 'inner',
+          inner: { wake, shadow: false, mayAct: () => true },
+        })
+      : turns.runTurn({
+          conversation,
+          mode: 'reply',
+          triggerKind: 'mention',
+          trigger: {
+            id: `m-${here}`,
+            channelId: here,
+            authorId: 'u1',
+            authorName: 'Alice',
+            self: false,
+            bot: false,
+            content: 'γεια',
+            ts: NOW - 30_000,
+            replyToId: null,
+            attachments: [],
+            stickers: [],
+          },
+        });
+  const { logs } = await withCapturedLogs(run);
   return logs as Array<Record<string, unknown>>;
 }
 
@@ -297,7 +296,11 @@ function handlerOver(core: Community) {
         return Promise.resolve({ outcome: 'spoke' as const });
       },
     },
-    spontaneous: { onMessage: () => false },
+    // The real spontaneous scheduler over the counting runner, with no post scheduled from a message.
+    spontaneous: {
+      ...createSpontaneous({ hot, store, reads: core.reads, turns: runner, getGuildId: () => GUILD }),
+      onMessage: () => false,
+    },
     memory: createMemoryUpdater({ hot, store }),
     tagHistory: createTagHistory(),
     getGuildId: () => GUILD,

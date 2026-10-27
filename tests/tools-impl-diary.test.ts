@@ -187,23 +187,21 @@ async function turnOf(
     attachments: [],
     stickers: [],
   };
-  // The params are written in the call, so runTurn's declared parameter types them; the selfreflection wake has no
-  // conversation (section 3 item 2).
-  const { logs } = await withCapturedLogs(() =>
-    turns.runTurn(
-      mode === 'inner'
-        ? {
-            conversation,
-            guildId: GUILD,
-            mode: 'inner',
-            triggerKind: 'inner',
-            inner: { wake: INTENTION_WAKE, shadow: false, mayAct: () => true },
-          }
-        : mode === 'diary'
-          ? { mode: 'diary', diary: { kind: 'status', forced: true }, guildId: GUILD }
-          : { conversation, mode: 'reply', triggerKind: 'mention', trigger }
-    )
-  );
+  // One call per kind of turn, each written in the call, so runTurn's declared parameter types it; the selfreflection
+  // wake has no conversation (section 3 item 2).
+  const run = () =>
+    mode === 'inner'
+      ? turns.runTurn({
+          conversation,
+          guildId: GUILD,
+          mode: 'inner',
+          triggerKind: 'inner',
+          inner: { wake: INTENTION_WAKE, shadow: false, mayAct: () => true },
+        })
+      : mode === 'diary'
+        ? turns.runTurn({ mode: 'diary', diary: { kind: 'status', forced: true }, guildId: GUILD })
+        : turns.runTurn({ conversation, mode: 'reply', triggerKind: 'mention', trigger });
+  const { logs } = await withCapturedLogs(run);
   await core.store.flushSettled({});
   return { logs: logs as Array<Record<string, unknown>>, llm };
 }
