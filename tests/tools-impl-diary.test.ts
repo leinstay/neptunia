@@ -22,7 +22,8 @@ import { diaryPublications, diaryRows, seedMirror } from './fixtures/diary-mirro
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { openTestMemory } from './fixtures/memory-db/service.js';
 import { call, toolAnswer } from './fixtures/tool-answers.js';
-import { DISCORD, hotWith, personaGrants, rawMessage, sequenceLlm } from './fixtures/turn-harness.js';
+import { DISCORD, rawMessage, sequenceLlm } from './fixtures/turn-harness.js';
+import { diaryToolHot } from './fixtures/diary-tool.ts';
 import { freshWorld, world } from './fixtures/turn-world.ts';
 import '../src/tools/impl/index.ts';
 
@@ -96,36 +97,6 @@ async function community({ postsToday = 0 }: { postsToday?: number } = {}) {
 
 type Community = Awaited<ReturnType<typeof community>>;
 
-/** The settings: her grant on `diary.write`, the diary's caps, the prompts an inner and a diary turn read. */
-function settings() {
-  const hot = hotWith({
-    features: { coreTools: true, innerLife: true, diary: true },
-    tools: { loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 } },
-    access: personaGrants(['message.create']),
-    config: {
-      diary: {
-        maxPerDay: MAX_PER_DAY,
-        maxMessages: 3,
-        world: false,
-        kinds: { status: 1 },
-        historyPosts: 40,
-        gistChars: 60,
-        seedSets: 1,
-        planMaxOutputTokens: 250,
-        planTimeoutMs: 15000,
-      },
-    },
-  });
-  Object.assign(hot.prompts, {
-    inner: 'Nobody wrote to you; read the wake block.',
-    diary: 'Write your diary.',
-    'diary-plan': 'Plan the entry.',
-    'diary-seeds': '# place\na pier',
-    world: 'The world.',
-  });
-  return hot;
-}
-
 /** An intention due in c1: an inner turn of hers. */
 const INTENTION_WAKE = {
   kind: 'intention_due',
@@ -155,7 +126,7 @@ async function turnOf(
     mirrors?: Community['mirrors'];
   }
 ) {
-  const hot = settings();
+  const hot = diaryToolHot({ maxPerDay: MAX_PER_DAY });
   const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } };
   const admin = createAdmin({
     discord: DISCORD,
@@ -349,9 +320,15 @@ test("over diary.maxPerDay the turn's first diary call is refused cap-diary and 
   assert.deepEqual([core.texts('d1'), core.texts('d2')], [[], []]);
 });
 
-// The diary turn keeps its requests byte for byte (section 4): its writer request carries `message.create` as it does
-// today, and a call of it there is refused as today's diary turn refuses any call but a picture or a voice.
-test('the diary turn offers message.create as today and refuses a diary call as today', async () => {
+// The diary turn keeps its requests byte for byte (section 4): the tools its writer request offers, and how it answers
+// a `message.create` call with `diary`, are what the code of main gave for the same turn in the diary channel
+// (tests/fixtures/diary-tool.json, recorded under the same settings).
+test('the diary turn offers the tools and answers a diary call as the diary channel turn did', async () => {
+  const recorded = JSON.parse(fs.readFileSync(new URL('./fixtures/diary-tool.json', import.meta.url), 'utf8')) as {
+    writerHasTools: boolean;
+    writerTools: Array<string>;
+    called: Array<string>;
+  }; // this test's own fixture, written by the recording of the scene on main
   const core = await community();
   const plan = JSON.stringify({ kind: 'status', brief: 'a quiet day', search: '', picture: false });
   const { llm, logs } = await turnOf(core, {
@@ -362,9 +339,11 @@ test('the diary turn offers message.create as today and refuses a diary call as 
       '<msg>μια ήσυχη μέρα</msg>',
     ],
   });
-  const writer: unknown = llm.options[1];
-  assert.ok(offeredIn(writer).includes('message_create'), 'the writer request carries the tool');
-  assert.deepEqual(calledOf(logs), ['message.create:denied/diary-draw-only']);
+  const writer = llm.options[1] as Record<string, unknown> | undefined; // the scripted model keeps each request's options
+  assert.ok(writer, 'the diary turn made its writer request');
+  assert.equal('tools' in writer, recorded.writerHasTools);
+  assert.deepEqual(offeredIn(writer), recorded.writerTools);
+  assert.deepEqual(calledOf(logs), recorded.called);
 });
 
 // Section 10: the entry is in memory before anything is sent. A process that stops after her diary call answered and
