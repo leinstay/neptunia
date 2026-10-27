@@ -13,11 +13,13 @@ import { openMemoryDb } from '../src/memory/db/open.js';
 import { insertRows } from '../src/memory/db/rows.js';
 import { contentHash, preparePublication } from '../src/memory/db/publish.js';
 import { issueContext } from '../src/memory/db/scope.ts';
+import { createTurnRunner } from '../src/behavior/turn.js';
 import { notOk } from '../src/protocol/actions.js';
 import { GUILD, NOW, sceneHot, sceneLlm, sceneRunner } from './fixtures/diary-requests.ts';
 import { diaryPublications, diaryRows, entryOf, seedMirror } from './fixtures/diary-mirror.ts';
 import { openTestMemory } from './fixtures/memory-db/service.js';
-import { freshWorld, world } from './fixtures/turn-world.ts';
+import { call, toolAnswer } from './fixtures/tool-answers.js';
+import { freshWorld, onWorld, world } from './fixtures/turn-world.ts';
 
 const TEXT = 'ήσυχο βράδυ στο λιμάνι';
 
@@ -169,6 +171,108 @@ test('two enabled mirrors of different places each get the entry once, also when
       .map((row) => row.key)
       .sort(),
     [`diary:${entry.id}:${core.places[0]}`, `diary:${entry.id}:${core.places[1]}`].sort()
+  );
+});
+
+// ---- an entry with pictures and a voice ------------------------------------------------------------------------
+
+const WALK = 'une promenade au port';
+
+/** The scene's settings with `tour` as a set kind of two or three pictures (three calls a step), drawing and speech on. */
+function setAndVoiceHot() {
+  const base = sceneHot();
+  // sceneHot's sections are plain objects; the test lays its own keys over them.
+  const section = (name: string) => base.config[name] as Record<string, unknown>;
+  return {
+    config: {
+      ...base.config,
+      features: { ...section('features'), imageGeneration: true, speech: true },
+      diary: {
+        ...section('diary'),
+        kinds: { tour: 1 },
+        pictureKinds: ['tour'],
+        setKinds: ['tour'],
+        maxPicturesPerDay: 10,
+        set: { pictures: [2, 3], minPosted: 2, seedSets: 1, maxMessageBytes: 1_000_000 },
+      },
+    },
+    prompts: { ...base.prompts, draw: 'DRAW for {{name}}\n{{when}}\n{{request}}' },
+  };
+}
+
+/** A model that plans a `tour` with a picture, then writes one message with two pictures and a voice message. */
+function setAndVoiceLlm() {
+  const calls: Array<unknown> = [];
+  let written = 0;
+  return {
+    calls,
+    complete: (messages: unknown, options?: { purpose?: string }) => {
+      calls.push(messages);
+      if (options?.purpose === 'diary-plan')
+        return Promise.resolve({
+          text: JSON.stringify({ kind: 'tour', brief: 'a walk', search: '', picture: true }),
+          usage: {},
+          estimated: 5,
+        });
+      written += 1;
+      return Promise.resolve(
+        written === 1
+          ? toolAnswer(`<msg>${WALK}</msg>`, [
+              call('draw.create', { text: 'scene 1' }),
+              call('draw.create', { text: 'scene 2' }),
+              call('voice.say', { text: WALK }),
+            ])
+          : { text: `<msg>${WALK}</msg>`, usage: {}, estimated: 5 }
+      );
+    },
+  };
+}
+
+test('an entry with two pictures and a voice reaches the mirror as the message, the pictures, then the voice', async () => {
+  const core = await scene({ mirrors: [{ conversationId: 'd1' }] });
+  const turns = onWorld(createTurnRunner)({
+    hot: setAndVoiceHot(),
+    store: core.store,
+    llm: setAndVoiceLlm(),
+    calibrator: { ratio: 1, apply: (n: number) => n, observe: () => {} },
+    images: {
+      quota: () => ({ used: 0, cap: 10, userUsed: 0, userCap: 5, spent: false, userSpent: false }),
+      generate: () => Promise.resolve({ buffer: Buffer.from('png'), mediaType: 'image/png', seconds: 1, cost: 0 }),
+    },
+    // The speech client as src/speech/index.js#createSpeech answers: the voice file and what was voiced.
+    speech: {
+      quota: () => ({ used: 0, cap: 10, spent: false }),
+      say: ({ text }: { text: string }) =>
+        Promise.resolve({
+          ogg: Buffer.from('ogg'),
+          durationSecs: 2.5,
+          waveform: 'AAAA',
+          voiced: text,
+          chars: 21,
+          cost: 0,
+        }),
+    },
+    rng: () => 0.5,
+    now: () => NOW,
+  });
+  const result = await turns.runTurn({ mode: 'diary', diary: { kind: 'tour', forced: true }, guildId: GUILD });
+  await core.store.flushSettled({});
+  assert.deepEqual(world().port.messagesIn('d1'), [], 'the turn itself sends nothing');
+  await core.mirrors.publishEntry(entryOf(result));
+  const sent = world().port.messagesIn('d1');
+  assert.deepEqual(
+    sent.map((message) => [message.text, message.attachments.map((attachment) => attachment.contentType)]),
+    [
+      [WALK, []],
+      ['', ['image/png', 'image/png']],
+      ['', ['audio/ogg']],
+    ],
+    'the message, then one message of both pictures, then the voice'
+  );
+  assert.deepEqual(
+    diaryPublications(core.memory.memoryDb).map((row) => row.receiptKeys),
+    [sent.map((message) => message.ref.messageId)],
+    'the receipts name every message, the voice included'
   );
 });
 

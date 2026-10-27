@@ -38,6 +38,24 @@ export function dbOf(memoryDb: MemoryService): Db {
   return handle.db;
 }
 
+/** A group conversation of `iface` as a place named `name`. Returns the place's id. */
+export function seedPlace(
+  memoryDb: MemoryService,
+  { iface, conversationId, name = conversationId, at }: { iface: string; conversationId: string; name?: string; at: number }
+): string {
+  const placeId = channelPlaceId(iface, conversationId);
+  insertRows(
+    dbOf(memoryDb),
+    {
+      places: [
+        { id: placeId, iface, kind: 'channel', native_id: conversationId, parent_id: null, scope_kind: 'group', name },
+      ],
+    },
+    { at: new Date(at).toISOString() }
+  );
+  return placeId;
+}
+
 /**
  * A group conversation of `iface` as a place, and a `diary` mirror on it set up by the owner. Returns the mirror's id
  * and the place's id.
@@ -52,22 +70,13 @@ export function seedMirror(
     at,
   }: { iface: string; conversationId: string; name?: string; enabled?: boolean; at: number }
 ): { id: string; placeId: string } {
-  const db = dbOf(memoryDb);
-  const placeId = channelPlaceId(iface, conversationId);
-  const stamp = new Date(at).toISOString();
-  insertRows(
-    db,
-    {
-      places: [
-        { id: placeId, iface, kind: 'channel', native_id: conversationId, parent_id: null, scope_kind: 'group', name },
-      ],
-    },
-    { at: stamp }
-  );
+  const placeId = seedPlace(memoryDb, { iface, conversationId, name, at });
   const id = `mirror:test:${placeId}`;
-  db.prepare(
-    "INSERT INTO mirrors (id, row_kind, place_id, enabled, created_at, created_by, extra) VALUES (?, 'diary', ?, ?, ?, 'owner', NULL)"
-  ).run(id, placeId, enabled ? 1 : 0, stamp);
+  dbOf(memoryDb)
+    .prepare(
+      "INSERT INTO mirrors (id, row_kind, place_id, enabled, created_at, created_by, extra) VALUES (?, 'diary', ?, ?, ?, 'owner', NULL)"
+    )
+    .run(id, placeId, enabled ? 1 : 0, new Date(at).toISOString());
   return { id, placeId };
 }
 

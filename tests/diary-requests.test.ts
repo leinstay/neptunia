@@ -3,7 +3,8 @@
 // running in the diary channel (tests/fixtures/diary-requests.json, recorded from the code before the change). What the
 // channel gave, memory gives instead: the history is her two earlier entries, and `<recent>`, the current conversation
 // of `<server>` and the diary's name in `<senses>` come from the place of the diary's one enabled mirror. The diary
-// channel is still known to the interface, empty, so the history can only come from memory.
+// channel is still known to the interface, empty, so the history can only come from memory. With no enabled mirror the
+// same inputs come from the place the last entry was published to, whose record holds her two posts.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -26,8 +27,10 @@ function recorded(): { plan: unknown; writer: unknown } {
 }
 
 /** The plan request and the writer request of the scene's diary turn, run as the selfreflection wake: no conversation. */
-async function wakeRequests(): Promise<{ plan: unknown; writer: unknown }> {
-  const scene = await sceneMemory({ mirror: true });
+async function wakeRequests(
+  memory: { mirror: boolean; published?: boolean } = { mirror: true }
+): Promise<{ plan: unknown; writer: unknown }> {
+  const scene = await sceneMemory(memory);
   OPEN.push(scene);
   sceneWorld({ history: false });
   const llm = sceneLlm();
@@ -49,4 +52,9 @@ test('the plan request of a selfreflection wake is byte for byte the one the dia
 test('the writer request of a selfreflection wake is byte for byte the one the diary channel gave', async () => {
   const { writer } = await wakeRequests();
   assert.deepEqual(writer, recorded().writer);
+});
+
+test('with no enabled mirror the wake rebuilds the requests from the place the last entry was published to', async () => {
+  const { plan, writer } = await wakeRequests({ mirror: false, published: true });
+  assert.deepEqual({ plan, writer }, recorded());
 });

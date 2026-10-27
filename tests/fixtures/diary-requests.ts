@@ -9,7 +9,7 @@
 // inputs from. Synthetic text only.
 import { createTurnRunner as createRealTurnRunner } from '../../src/behavior/turn.js';
 import { createStore } from '../../src/memory/store.js';
-import { dbOf, seedMirror } from './diary-mirror.ts';
+import { dbOf, seedMirror, seedPlace } from './diary-mirror.ts';
 import { labels } from './labels.js';
 import { openTestMemory } from './memory-db/service.js';
 import { onWorld, useIface, useSelf, world } from './turn-world.ts';
@@ -156,12 +156,49 @@ export type SceneMemory = {
   store: ReturnType<typeof createStore>;
 };
 
+/** Her two earlier posts as lines of the record of `d1`, one record day each, as the live path writes them. */
+async function seedRecord(memoryDb: SceneMemory['memory']['memoryDb']): Promise<void> {
+  for (const post of EARLIER) {
+    const occurredAt = new Date(post.at).toISOString();
+    const day = occurredAt.slice(0, 10);
+    await memoryDb.writeUnit({
+      kind: 'unit',
+      op: 'lines',
+      owner: `guilds/${GUILD}/record/${day.slice(0, 7)}/${day}.jsonl`,
+      iface: 'fake',
+      lines: [
+        {
+          v: 1,
+          id: `rec-${post.id}`,
+          kind: 'said',
+          messageId: post.id,
+          revision: 1,
+          occurredAt,
+          recordedAt: occurredAt,
+          guildId: GUILD,
+          scope: { channel: 'd1' },
+          text: post.text,
+          origin: 'live',
+        },
+      ],
+    });
+  }
+}
+
 /**
  * Memory as the scene needs it: the guild's notes, the channel notes, two recent lines and the two earlier entries
  * with their text (the text the diary media job fills in from the interface). With `mirror`, also the place `d1` of
- * the fake interface, named `journal`, and the diary's one enabled mirror on it.
+ * the fake interface, named `journal`, and the diary's one enabled mirror on it. With `published` and no mirror, the
+ * place `d1` is where both earlier entries were published (their publications name it), and its record holds them as
+ * her lines.
  */
-export async function sceneMemory({ mirror }: { mirror: boolean }): Promise<SceneMemory> {
+export async function sceneMemory({
+  mirror,
+  published = false,
+}: {
+  mirror: boolean;
+  published?: boolean;
+}): Promise<SceneMemory> {
   const memory = await openTestMemory({ now: () => NOW });
   const store = createStore({ dataDir: memory.dataDir, memoryDb: memory.memoryDb });
   store.updateGuild(GUILD, { patterns: 'people greet each other in Greek' });
@@ -195,6 +232,11 @@ export async function sceneMemory({ mirror }: { mirror: boolean }): Promise<Scen
   // which is what the test is about, and not here.
   const hasMirrors = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'mirrors'").all().length > 0;
   if (mirror && hasMirrors) seedMirror(memory.memoryDb, { iface: 'fake', conversationId: 'd1', name: 'journal', at: NOW });
+  if (published) {
+    const place = seedPlace(memory.memoryDb, { iface: 'fake', conversationId: 'd1', name: 'journal', at: NOW });
+    db.prepare("UPDATE publications SET destination_place_id = ? WHERE row_kind = 'diary'").run(place);
+    await seedRecord(memory.memoryDb);
+  }
   return { memory, store };
 }
 
