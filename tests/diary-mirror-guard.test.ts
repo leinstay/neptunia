@@ -18,6 +18,7 @@ import { createFakeAdapter } from '../src/interface/fake.js';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { dbOf, entryOf, seedMirror } from './fixtures/diary-mirror.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { labels } from './fixtures/labels.js';
 import { openTestMemory } from './fixtures/memory-db/service.js';
 import { call, toolAnswer } from './fixtures/tool-answers.js';
 import {
@@ -313,9 +314,10 @@ test('a message, a picture and a voice from an ordinary turn elsewhere are refus
   ]);
 });
 
-// Stage 3 design, section 10: the refusal's label tells her she writes in her diary with `diary.write`. The test reads
-// the code and the tool's name in the result she is shown, never the wording.
-test('the refusal of a send to a mirror place carries diary-mirror and names diary.write in what she reads', async () => {
+// Stage 3 design, section 10: the refusal's label tells her she writes in her diary with `message.create` and its
+// argument `diary`. The test reads the code, the tool's name and the argument in the result she is shown, never the
+// wording.
+test('the refusal of a send to a mirror place carries diary-mirror and names message.create and diary', async () => {
   const core = await community();
   const answers = [toolAnswer('', [call('message.create', { channel: '#journal', text: 'από εδώ' })]), '<skip/>'];
   const llm = sequenceLlm(answers);
@@ -330,7 +332,12 @@ test('the refusal of a send to a mirror place carries diary-mirror and names dia
       return typeof text === 'string' ? text : '';
     });
   assert.equal(shown.length, 1, 'one tool result');
-  assert.ok(shown[0]?.includes('diary.write'), 'the label names the tool she writes in her diary with');
+  // The refusal's label in the labels fixture: it names the tool and its argument (their names only, not the wording).
+  const reasons = labels.tools.result.reasons as Record<string, string | undefined>;
+  const reason = reasons['diary-mirror'];
+  assert.ok(reason, 'the labels word the diary-mirror refusal');
+  assert.ok(reason.includes('message.create') && reason.includes('diary'), 'it names message.create and diary');
+  assert.ok(shown[0]?.includes(reason), 'she is shown that label');
 });
 
 test('her message and GIF in an intention turn that runs in a mirror place are refused diary-mirror', async () => {
