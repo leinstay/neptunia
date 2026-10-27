@@ -859,6 +859,15 @@ function checkNumbers(agent, key, value, spec) {
 }
 
 /**
+ * Checks a worker's `enabled` switch: true or false.
+ * @param {string} agent
+ * @param {unknown} value
+ */
+function checkEnabled(agent, value) {
+  if (typeof value !== 'boolean') throw new AgentProfileError(agent, 'enabled', 'must be true or false');
+}
+
+/**
  * Checks `cost`: exactly `input` and `output`, the USD per million tokens, each finite and not negative (zero is a price).
  * @param {string} agent
  * @param {unknown} value
@@ -995,7 +1004,7 @@ function validateProfile(agent, raw) {
       `unknown shell class ${JSON.stringify(raw.shell)} (known: ${Object.keys(SHELL_CLASSES).join(', ')})`
     );
   checkTools(agent, raw.tools, SHELL_CLASSES[raw.shell].tools, `for shell class ${String(raw.shell)}`);
-  if (typeof raw.enabled !== 'boolean') throw new AgentProfileError(agent, 'enabled', 'must be true or false');
+  checkEnabled(agent, raw.enabled);
   checkCost(agent, raw.cost);
   checkNumbers(agent, 'limits', raw.limits, { steps: true, seconds: false });
   checkNumbers(agent, 'daily', raw.daily, { tasks: true });

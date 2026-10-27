@@ -31,7 +31,7 @@ import {
   PRESENCE_STATUSES,
   REACTION_CHANGED,
   SCHEDULER_TICK,
-  TASK_COMPLETED,
+  ERRAND_DONE,
   VOICE_CHANGED,
 } from './events.js';
 
@@ -238,8 +238,8 @@ function checkCommandRequested(event) {
   need(event.replyRef, 'replyRef', isId);
 }
 
-function checkTaskCompleted(event) {
-  need(event.taskId, 'taskId', isId);
+function checkErrandDone(event) {
+  need(event.errandId, 'errandId', isId);
   need(event.status, 'status', isId);
   need(event.communityId, 'communityId', isNullableString, { required: false });
 }
@@ -338,7 +338,7 @@ const EVENT_CHECKS = {
   [REACTION_CHANGED]: checkReactionChanged,
   [COMMAND_REQUESTED]: checkCommandRequested,
   [SCHEDULER_TICK]: () => {},
-  [TASK_COMPLETED]: checkTaskCompleted,
+  [ERRAND_DONE]: checkErrandDone,
   [MEMBERSHIP_CHANGED]: checkMembershipChanged,
   [VOICE_CHANGED]: (event) => checkVoiceState(event, ''),
   [INNER_WAKE]: checkInnerWake,

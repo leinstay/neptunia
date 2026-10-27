@@ -1,6 +1,6 @@
 // The pure side of tools/labels-catalogue.mjs: the code catalogue (src/tools/codes.ts) against the
 // shipped labels (prompts/labels.json) and the contract's list of reason codes (docs/prompt-contract.md).
-// Every `skill` code needs a `skills.result.reasons.<code>`, every `wake` code a `wake.feedback.codes.<code>`,
+// Every `skill` code needs a `tools.result.reasons.<code>`, every `wake` code a `wake.feedback.codes.<code>`,
 // no label may lack its code (`other` is the one fallback), and a label may only name values its code takes.
 // The contract keeps a generated table between two markers; `renderCodesTable` writes it.
 
@@ -20,7 +20,7 @@ const own = (object, key) => object && typeof object === 'object' && Object.hasO
  */
 export function renderCodesTable(catalogue) {
   const where = {
-    skill: (code) => `\`skills.result.reasons.${code}\``,
+    skill: (code) => `\`tools.result.reasons.${code}\``,
     wake: (code) => `\`wake.feedback.codes.${code}\``,
     internal: () => 'none (internal)',
     ok: () => 'none (success)',

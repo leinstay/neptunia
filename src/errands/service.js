@@ -1,4 +1,4 @@
-// The persona's errands in the background: a task the `task.run` operation accepted (queued in
+// The persona's errands in the background: a task the `errand.run` operation accepted (queued in
 // the guild's task store, src/errands/store.js) is handed to its agent runner through the client
 // (src/errands/client.js) right after the operation answered -- nobody waits for it. The task is
 // `running` from the moment it is sent, with the limits of the profile (`limits`, overridable under `agents.<profile>`; the
@@ -170,10 +170,9 @@ export function createErrandService({
   /** The limits a task of `agent` runs under: its profile's `limits` under the deployment's override. */
   function limitsOf(agent) {
     const set = agentSettings(agent, hot.config)?.limits ?? {};
-    const defaults = agentSettings(agent, {})?.limits ?? {};
     const out = {};
     for (const key of TASK_LIMIT_KEYS) {
-      const value = Number.isFinite(set[key]) && set[key] > 0 ? set[key] : defaults[key];
+      const value = Number.isFinite(set[key]) && set[key] > 0 ? set[key] : profileOf(agent)?.defaultLimits?.[key];
       if (Number.isFinite(value) && value > 0) out[key] = value;
     }
     return out;
@@ -329,7 +328,7 @@ export function createErrandService({
   }
 
   /**
-   * The tasks the persona sees in a turn's `<tasks>` block: the open ones, then the finished ones
+   * The tasks the persona sees in a turn's `<errands>` block: the open ones, then the finished ones
    * she has not read nor closed (`readAt`, `resolvedAt`; whether a result turn ran does not hide
    * one), oldest first. In a server channel only the `group` ones; in a private
    * chat (`privateChannelId`) also the `dm` ones asked in that chat.
@@ -384,7 +383,7 @@ export function createErrandService({
     return marked;
   }
 
-  /** The tasks `ids` marked as read by the persona (their result turn completed, or `task.read` returned them). */
+  /** The tasks `ids` marked as read by the persona (their result turn completed, or `errand.read` returned them). */
   function markRead({ guildId = null, ids = [] } = {}) {
     const store = storeOf(guildId);
     if (!store) return 0;
@@ -393,7 +392,7 @@ export function createErrandService({
     return marked;
   }
 
-  /** The tasks `ids` noted as ones whose result turn never completed (kept unread; the `<tasks>` line says so). */
+  /** The tasks `ids` noted as ones whose result turn never completed (kept unread; the `<errands>` line says so). */
   function markResultFailed({ guildId = null, ids = [] } = {}) {
     const store = storeOf(guildId);
     if (!store) return 0;

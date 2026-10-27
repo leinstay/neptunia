@@ -100,9 +100,9 @@ export function flag(value: unknown): boolean | null {
 const opt = (given: Given, name: string): unknown => val(given, name) ?? undefined;
 
 /**
- * The arguments of each `intent.*` skill: only the fields its operation reads (src/tools/impl/intent.ts).
+ * The arguments of each `intention.*` skill: only the fields its operation reads (src/tools/impl/intention.ts).
  * `set` takes a new intention or attention; `update` the fields of an open one (`reason` goes with
- * `state: dropped`; nothing is required, since the id may also be the bare text, ops/intent.js#idOf);
+ * `state: dropped`; nothing is required, since the id may also be the bare text, src/tools/impl/intention.ts#idOf);
  * `cancel` the id alone; `list` nothing.
  */
 export const INTENT_PARAMS = Object.freeze({
@@ -111,7 +111,7 @@ export const INTENT_PARAMS = Object.freeze({
     due: str(40),
     every: str(10),
     expires: str(40),
-    task: str(20),
+    errand: str(20),
     deadline: str(40),
     chain: str(64),
     condition: str(300),
@@ -132,7 +132,7 @@ export const INTENT_PARAMS = Object.freeze({
     due: str(40),
     every: str(10),
     expires: str(40),
-    task: str(20),
+    errand: str(20),
     deadline: str(40),
     chain: str(64),
     condition: str(300),
@@ -145,7 +145,7 @@ export const INTENT_PARAMS = Object.freeze({
   list: obj({}),
 });
 
-/** The operation's arguments for an `intent.*` call with `action`: what she gave, nothing else. */
+/** The operation's arguments for an `intention.*` call with `action`: what she gave, nothing else. */
 export function intentArgs(action: string): ToArgs {
   return (a) => {
     const out: Obj = { action };
@@ -155,7 +155,7 @@ export function intentArgs(action: string): ToArgs {
       'due',
       'every',
       'expires',
-      'task',
+      'errand',
       'deadline',
       'state',
       'chain',
@@ -224,16 +224,16 @@ export const API_NAMES: Readonly<Record<string, string>> = Object.freeze({
   'message.delete': 'message_delete',
   'message.react.add': 'message_react_add',
   'message.react.remove': 'message_react_remove',
-  'task.run': 'task_run',
-  'task.status': 'task_status',
-  'task.cancel': 'task_cancel',
-  'task.list': 'task_list',
-  'task.read': 'task_read',
-  'task.resolve': 'task_resolve',
-  'intent.set': 'intent_set',
-  'intent.update': 'intent_update',
-  'intent.cancel': 'intent_cancel',
-  'intent.list': 'intent_list',
+  'errand.run': 'errand_run',
+  'errand.status': 'errand_status',
+  'errand.cancel': 'errand_cancel',
+  'errand.list': 'errand_list',
+  'errand.read': 'errand_read',
+  'errand.resolve': 'errand_resolve',
+  'intention.set': 'intention_set',
+  'intention.update': 'intention_update',
+  'intention.cancel': 'intention_cancel',
+  'intention.list': 'intention_list',
   'places.list': 'places_list',
   'tools.describe': 'tools_describe',
   'inner.stop': 'inner_stop',
@@ -248,7 +248,7 @@ export const API_NAMES: Readonly<Record<string, string>> = Object.freeze({
 });
 
 const NO_REFS: Readonly<Record<string, RefKind>> = Object.freeze({});
-const JOBS: ReadonlyArray<string> = Object.freeze(['task.run', 'media.recache']);
+const JOBS: ReadonlyArray<string> = Object.freeze(['errand.run', 'media.recache']);
 const ROUTE_ROLES = ['core', 'analyzer', 'vision', 'video', 'embedding', 'speech', 'drawing'];
 const MEDIA_PARAMS = (kinds: ReadonlyArray<string>): Schema => obj({ kind: oneOf(kinds) }, ['kind']);
 const ACCESS_PARAMS = () => obj({ command: str(), role: ref(), user: ref() }, ['command']);
@@ -632,26 +632,26 @@ const ENTRIES: Array<Definition> = [
     effects: 'write',
     toArgs: reactArgs('remove'),
   }),
-  def('task.run', {
+  def('errand.run', {
     params: obj({ agent: oneOf(['scout', 'server']), goal: str(2000) }, ['agent', 'goal']),
     body: 'goal',
     effects: 'paid',
     toArgs: (a) => ({ agent: val(a, 'agent'), goal: val(a, 'goal') }),
   }),
-  def('task.status', { params: obj({ id: str() }), effects: 'read', toArgs: taskStatusArgs(undefined) }),
-  def('task.cancel', {
+  def('errand.status', { params: obj({ id: str() }), effects: 'read', toArgs: taskStatusArgs(undefined) }),
+  def('errand.cancel', {
     params: obj({ id: str() }, ['id']),
     effects: 'write',
     toArgs: (a) => ({ id: val(a, 'id') }),
   }),
-  def('task.list', { params: EMPTY(), effects: 'read', toArgs: none }),
-  def('task.read', {
+  def('errand.list', { params: EMPTY(), effects: 'read', toArgs: none }),
+  def('errand.read', {
     params: obj({ id: str(), from: int(0, 10000000) }, ['id']),
     effects: 'read',
     toArgs: taskStatusArgs('read'),
   }),
-  def('task.resolve', { params: obj({ id: str() }, ['id']), effects: 'write', toArgs: taskStatusArgs('resolve') }),
-  def('intent.set', {
+  def('errand.resolve', { params: obj({ id: str() }, ['id']), effects: 'write', toArgs: taskStatusArgs('resolve') }),
+  def('intention.set', {
     params: INTENT_PARAMS.set,
     refs: { channel: 'channel', attend: 'channel' },
     body: 'text',
@@ -659,7 +659,7 @@ const ENTRIES: Array<Definition> = [
     feature: 'intentions',
     toArgs: intentArgs('add'),
   }),
-  def('intent.update', {
+  def('intention.update', {
     params: INTENT_PARAMS.update,
     refs: { channel: 'channel' },
     body: 'text',
@@ -667,14 +667,14 @@ const ENTRIES: Array<Definition> = [
     feature: 'intentions',
     toArgs: intentArgs('update'),
   }),
-  def('intent.cancel', {
+  def('intention.cancel', {
     params: INTENT_PARAMS.cancel,
     body: 'id',
     effects: 'write',
     feature: 'intentions',
     toArgs: intentArgs('cancel'),
   }),
-  def('intent.list', {
+  def('intention.list', {
     params: INTENT_PARAMS.list,
     effects: 'read',
     feature: 'intentions',
@@ -887,8 +887,20 @@ export function apiNameOf(name: string): string | null {
   return Object.hasOwn(API_NAMES, name) ? (API_NAMES[name] ?? null) : null;
 }
 
-/** The tools whose names changed, old to new: a journal written before the rename names them by the old one. */
-export const RENAMED_TOOLS: Readonly<Record<string, string>> = Object.freeze({ 'skills.describe': 'tools.describe' });
+/** The tools whose names changed, old to new: a journal written before the rename names them by the old one. The call path never reads it: a tool written under an old name is `unknown-skill`. */
+export const RENAMED_TOOLS: Readonly<Record<string, string>> = Object.freeze({
+  'skills.describe': 'tools.describe',
+  'task.run': 'errand.run',
+  'task.status': 'errand.status',
+  'task.read': 'errand.read',
+  'task.resolve': 'errand.resolve',
+  'task.cancel': 'errand.cancel',
+  'task.list': 'errand.list',
+  'intent.set': 'intention.set',
+  'intent.update': 'intention.update',
+  'intent.cancel': 'intention.cancel',
+  'intent.list': 'intention.list',
+});
 
 /** `name` as the tool is called now: a renamed tool's old name gives the new one, anything else comes back as it is. */
 export function currentToolName<T>(name: T): T | string {

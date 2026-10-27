@@ -62,7 +62,7 @@ export const MISSED_VERDICTS = Object.freeze(['owed', 'resolved', 'intentional-s
 export const UNCHECKED = 'unchecked';
 
 /** The trigger kinds whose failed turn leaves somebody waiting (an overheard line does not). */
-const OWED_TRIGGER_KINDS = new Set(['mention', 'reply', 'name', 'followUp', 'task', 'private']);
+const OWED_TRIGGER_KINDS = new Set(['mention', 'reply', 'name', 'followUp', 'errand', 'private']);
 
 /** The states in which a candidate may still change. */
 const OPEN_STATES = new Set(['pending', 'in_progress']);

@@ -1,6 +1,6 @@
 # Errands
 
-The persona can hand a goal to an errand agent with `task.run`. She writes the goal in her own words, says so in the conversation, and the turn ends. The errand runs in the background as a separate process. When it finishes, its result comes back as a turn of hers in the conversation that started it, with any files posted where she asks.
+The persona can hand a goal to an errand agent with `errand.run`. She writes the goal in her own words, says so in the conversation, and the turn ends. The errand runs in the background as a separate process. When it finishes, its result comes back as a turn of hers in the conversation that started it, with any files posted where she asks.
 
 ## Errand agents
 
@@ -32,27 +32,27 @@ Drawing is not an errand. It is a built-in ability of the core, see [Media](medi
 
 ### Enabling a worker
 
-Both workers are disabled by default (`agents.<profile>.enabled: false` in `config.json`). A deployment enables them in `config.local.json` and starts their systemd services.
+Both workers are disabled by default (`enabled: false` in the profile, `agents/<name>/profile.json`). A deployment enables them with `agents.<profile>.enabled: true` in `config.local.json` and starts their systemd services.
 
 ### Queuing
 
-`task.run` accepts `agent` (one of `scout`, `server`) and `goal`. The errand service (`src/errands/service.js`) queues the task in the guild's store (`data/guilds/<id>/tasks.json`) and answers at once with the id and `queued`. Nobody waits for the errand.
+`errand.run` accepts `agent` (one of `scout`, `server`) and `goal`. The errand service (`src/errands/service.js`) queues the task in the guild's store (`data/guilds/<id>/errands.json`) and answers at once with the id and `queued`. Nobody waits for the errand.
 
 An idempotency key ties the task to the turn and the call's index within it: the same call made twice returns the task already queued, never a second errand.
 
 Caps enforced at queuing:
-- `agents.maxOpen` (default 3): open tasks across all agents.
-- `agents.<profile>.daily.tasks` (default 40 for scout and server): tasks per UTC day per agent. A task counts on the day it was queued.
+- `errands.maxOpen` (default 3): open tasks across all agents.
+- `daily.tasks` of the profile (default 40 for scout and server, overridable under `agents.<profile>.daily.tasks`): tasks per UTC day per agent. A task counts on the day it was queued.
 
 ### The runner
 
-Each worker runs as a systemd service under its own Unix user (`deploy/neptunia-agent-scout.service`, `deploy/neptunia-agent-server.service`). The runner listens on a Unix socket (`agents.<profile>.socket`); the core connects and sends tasks as JSON, one object per line.
+Each worker runs as a systemd service under its own Unix user (`deploy/neptunia-agent-scout.service`, `deploy/neptunia-agent-server.service`). The runner listens on a Unix socket (the profile's `socket`, overridable under `agents.<profile>.socket`); the core connects and sends tasks as JSON, one object per line.
 
 One task is one `opencode run` child process in a fresh working directory under the profile's output folder. The runner builds an OpenCode config from the profile (the prompt, the step cap, the permission map for the scope) and passes it through `OPENCODE_CONFIG_CONTENT`. Auto-update and the price-catalog fetch are disabled, so nothing of the server leaks into the worker. Built against OpenCode v1.19.3.
 
 A runner works one task at a time. Further requests queue.
 
-Per-task limits (`agents.<profile>.limits`, the profile's defaults under them):
+Per-task limits (the profile's `limits`, overridable under `agents.<profile>.limits`):
 
 | Agent | Default steps | Default seconds |
 |---|---|---|
@@ -102,19 +102,19 @@ Neither shell runs an interpreter or command runner (`python`, `node`, `perl`, `
 
 ## What the persona sees
 
-### `<tasks>` block
+### `<errands>` block
 
-While she has an open task or a finished one she has not read, the tail of every request includes a `<tasks>` block. Each task is one line: the id, the agent, the state, the age in minutes, and the goal cut to 120 characters. Open tasks come first, then unread finished ones (oldest first, at most `agents.unreadShown`, the rest counted). The task of a `<task_result>` turn is not listed again. A private chat's tasks show only in that chat.
+While she has an open task or a finished one she has not read, the tail of every request includes an `<errands>` block. Each task is one line: the id, the agent, the state, the age in minutes, and the goal cut to 120 characters. Open tasks come first, then unread finished ones (oldest first, at most `errands.unreadShown`, the rest counted). The task of an `<errand_result>` turn is not listed again. A private chat's tasks show only in that chat.
 
-### `<task_result>` block
+### `<errand_result>` block
 
-When a task finishes, the persona gets her own turn in the conversation it was asked in, replying to the message that started it. The turn follows the same attention as every other turn and observes `agents.resultCooldownSeconds` (default 60) between two such turns in one conversation. The block carries the id, agent, goal, state, the result text cut to `agents.resultMaxChars` (default 3000), the sources as a numbered list, each file as a handle, and (when the runner withheld paths) a line naming them.
+When a task finishes, the persona gets her own turn in the conversation it was asked in, replying to the message that started it. The turn follows the same attention as every other turn and observes `errands.resultCooldownSeconds` (default 60) between two such turns in one conversation. The block carries the id, agent, goal, state, the result text cut to `errands.resultMaxChars` (default 3000), the sources as a numbered list, each file as a handle, and (when the runner withheld paths) a line naming them.
 
-When the result turn fails (`error`, `refused`), it is retried every `agents.resultRetrySeconds` (default 30), at most 20 times. After that, the task stays unread in `<tasks>` with a note that the turn never ran. A restart re-opens result turns for finished tasks still unread.
+When the result turn fails (`error`, `refused`), it is retried every `errands.resultRetrySeconds` (default 30), at most 20 times. After that, the task stays unread in `<errands>` with a note that the turn never ran. A restart re-opens result turns for finished tasks still unread.
 
 ### File handles
 
-A task's saved files are named `file:<task id>/<name>`. The persona uses this handle as the `file` argument of `message.create` to attach the file. A handle for a file she does not own (or a private chat's file outside that chat) is refused `unknown-file`. A file whose task directory the runner has cleaned up is refused `file-expired`. The runner removes directories older than `agents.keepFilesHours` (default 24).
+A task's saved files are named `file:<task id>/<name>`. The persona uses this handle as the `file` argument of `message.create` to attach the file. A handle for a file she does not own (or a private chat's file outside that chat) is refused `unknown-file`. A file whose task directory the runner has cleaned up is refused `file-expired`. The runner removes directories older than `errands.keepFilesHours` (default 24).
 
 ## Task operations
 
@@ -122,12 +122,12 @@ These are both `/nep` commands and her tools (closed until granted to her). All 
 
 | Operation | What it does |
 |---|---|
-| `task.run` | Queues a new errand. Arguments: `agent`, `goal`. Any member may ask for `scout`; only an owner may ask for `server`. |
-| `task.status` | Without an id: lists the open tasks and the finished ones not yet read. With an id: one task's details (usage, ledger id when mirrored). |
-| `task.list` | The latest 10 tasks, newest first. |
-| `task.read` | The whole result in pages of `agents.resultMaxChars`. Marks the task read when the last page is returned. Arguments: `id`, optional `from`. |
-| `task.cancel` | Cancels an open task. Only the requester of the task or an owner may cancel it. |
-| `task.resolve` | Closes a finished task and marks it read. |
+| `errand.run` | Queues a new errand. Arguments: `agent`, `goal`. Any member may ask for `scout`; only an owner may ask for `server`. |
+| `errand.status` | Without an id: lists the open tasks and the finished ones not yet read. With an id: one task's details (usage, ledger id when mirrored). |
+| `errand.list` | The latest 10 tasks, newest first. |
+| `errand.read` | The whole result in pages of `errands.resultMaxChars`. Marks the task read when the last page is returned. Arguments: `id`, optional `from`. |
+| `errand.cancel` | Cancels an open task. Only the requester of the task or an owner may cancel it. |
+| `errand.resolve` | Closes a finished task and marks it read. |
 
 ## Failures
 
@@ -139,18 +139,18 @@ A running task can fail with the runner's error code. A task left open by a rest
 
 Every errand is also mirrored into a task ledger (`agents.ledger.socket`), so the development side sees the persona's errands alongside its own tasks. The core is the ledger's `core` principal. While `agents.ledger.socket` is `null` (the default), the mirror is off.
 
-The mirror is a copy. The core's store stays the system of record. The `<tasks>` block, the result turn, the caps and the rights read only the core's store. A ledger that refuses connections or does not answer never affects an errand.
+The mirror is a copy. The core's store stays the system of record. The `<errands>` block, the result turn, the caps and the rights read only the core's store. A ledger that refuses connections or does not answer never affects an errand.
 
 Every call carries an idempotency key (`errand:<core id>:<op>`), so a replay or restart never creates a second row. Undelivered calls wait in memory (at most 200, in order) while the connection is retried with a growing backoff, and are replayed once the ledger answers.
 
 ## Costs
 
-The owner's `/nep status` card shows errand agents' models in `models.errands` and their spend in `costs.errands`: runs queued today, the last 7 and the last 30 UTC days, input and output tokens, and the estimated dollars. The dollars are OpenCode's step-cost estimate (priced by `agents.<profile>.cost`), not OpenRouter's billed figure. The spending limit is the credit limit on the runner's OpenRouter key.
+The owner's `/nep status` card shows errand agents' models in `models.errands` and their spend in `costs.errands`: runs queued today, the last 7 and the last 30 UTC days, input and output tokens, and the estimated dollars. The dollars are OpenCode's step-cost estimate (priced by the profile's `cost`, overridable under `agents.<profile>.cost`), not OpenRouter's billed figure. The spending limit is the credit limit on the runner's OpenRouter key.
 
 ## Adding an agent
 
 1. Create `agents/<id>/` with a `profile.json` and, for a worker, a `prompt.md`.
 2. If it needs a new model role, add it to `src/llm/roles.js` and to `models.errands` in `config.json`.
-3. For a worker: add an `agents.<id>` block to `config.json`, a systemd unit like `deploy/neptunia-agent-scout.service`, and the agent's name in `TASK_AGENTS` (`src/tools/impl/catalog.ts`) and who may ask for it in `src/tools/impl/task.ts`.
+3. For a worker: fill in the profile's `enabled`, `cost`, `limits`, `daily`, `socket` and `out`, add a systemd unit like `deploy/neptunia-agent-scout.service`, and the agent's name in `TASK_AGENTS` (`src/tools/impl/catalog.ts`) and who may ask for it in `src/tools/impl/errand.ts`.
 4. If no existing shell class fits, that is a code change in `src/agent-runner/profiles.js`.
 5. Run `tests/agent-runner-profiles.test.js`.

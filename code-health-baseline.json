@@ -666,7 +666,12 @@
         "complexity": 37
       }
     },
-    "src/tools/impl/intent.ts": {
+    "src/tools/impl/errand.ts": {
+      "<anonymous>>cmdRead": {
+        "complexity": 26
+      }
+    },
+    "src/tools/impl/intention.ts": {
       "<anonymous>>cmdUpdate": {
         "complexity": 22
       }
@@ -709,11 +714,6 @@
       },
       "innerLines": {
         "complexity": 23
-      }
-    },
-    "src/tools/impl/task.ts": {
-      "<anonymous>>cmdRead": {
-        "complexity": 26
       }
     },
     "src/tools/impl/usage.ts": {
@@ -1002,13 +1002,13 @@
       "src/memory/db/graph-manifest.js",
       "src/memory/db/map/channel.js",
       "src/memory/db/map/common.js",
+      "src/memory/db/map/errands.js",
       "src/memory/db/map/index.js",
       "src/memory/db/map/intentions.js",
       "src/memory/db/map/lists.js",
       "src/memory/db/map/requests.js",
       "src/memory/db/map/scope-parts.js",
       "src/memory/db/map/scope-string.js",
-      "src/memory/db/map/errands.js",
       "src/memory/db/map/versions.js",
       "src/memory/db/readers/common.js",
       "src/memory/db/rows.js",
@@ -1038,7 +1038,7 @@
       "src/tools/impl/env.ts",
       "src/tools/impl/grants.ts",
       "src/tools/impl/index.ts",
-      "src/tools/impl/intent.ts",
+      "src/tools/impl/intention.ts",
       "src/tools/impl/learning.ts",
       "src/tools/impl/memory.ts",
       "src/tools/impl/message.ts",

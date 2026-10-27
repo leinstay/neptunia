@@ -293,7 +293,7 @@
     "overheard": "talked about you, not to you",
     "private": "wrote to you privately",
     "missed": "wrote to you earlier and got no answer from you",
-    "task": "asked you for the errand whose result just came back"
+    "errand": "asked you for the errand whose result just came back"
   },
   "status": {
     "probe": "Reply with the single word pong.",
@@ -477,7 +477,7 @@
       "lastInner": "This is your last step. One call still runs here: a post or an intention change. Nothing else will go through."
     }
   },
-  "tasks": {
+  "errands": {
     "header": "Your errands (open, or finished and not yet read by you):",
     "line": "{id} · {agent} · {state} {error} · asked {age} min ago · {goal}",
     "states": {
@@ -489,7 +489,7 @@
       "expired": "done, files gone"
     },
     "unread": "(not read yet)",
-    "unreadMore": "{count} more finished errands not read yet. Use task.status to list them.",
+    "unreadMore": "{count} more finished errands not read yet. Use errand.status to list them.",
     "resultTurnFailed": "(result turn did not complete)",
     "result": {
       "header": "Your errand {id} for the {agent} agent has ended: {state}. It was: {goal}",
@@ -514,17 +514,17 @@
     "noDue": "no due time, nothing wakes you for it; expires {expires}",
     "expiresSoon": "expiring {when}",
     "every": "every {period}",
-    "waiting": "waiting for errand {task} until {deadline}",
-    "outcome": "errand {task} ended: {state}",
+    "waiting": "waiting for errand {errand} until {deadline}",
+    "outcome": "errand {errand} ended: {state}",
     "notes": {
-      "wait-deadline": "the wait for errand {task} ran out",
-      "task-missing": "errand {task} is gone",
+      "wait-deadline": "the wait for errand {errand} ran out",
+      "errand-missing": "errand {errand} is gone",
       "last-occurrence": "last occurrence before it expires"
     },
     "destination": "for #{channel}",
     "attend": "listening in #{place} · {wakes} of {perDay} wakes today · quiet {settle} s before a wake",
     "attendPeople": "people: {people}",
-    "candidates": "Proposed from your own lines (accept with intent.update state=pending, reject with intent.cancel):",
+    "candidates": "Proposed from your own lines (accept with intention.update state=pending, reject with intention.cancel):",
     "candidate": "{id} · {purpose} · from your line: \"{span}\"{marker}",
     "externalMarker": " · [from outside]"
   },
@@ -538,7 +538,7 @@
     "kinds": {
       "intention_due": "Intention {id} is due: {purpose}. This is your earlier decision, not a fresh request: check that it still holds before you act.",
       "review": "Your daily review: look over your intentions and what you have been doing.",
-      "errand_deadline": "The wait for errand {task} ran out (intention {id}: {purpose})",
+      "errand_deadline": "The wait for errand {errand} ran out (intention {id}: {purpose})",
       "attend": "#{place} has {lines} new lines since your last look there ({since}), by {people} (intention {id}: {purpose}). Joining is your choice.",
       "feedback": "Your previous turn: not everything went through.",
       "heartbeat": "Your heartbeat: nothing outside called you."
@@ -587,7 +587,7 @@
       "chain": "turns for this thread: {left} remaining of {cap}"
     },
     "heartbeat": {
-      "intentionsOnly": "You may inspect memory and conversations in this wake, then finish with one intention change (intent.set, intent.update, intent.cancel) or <skip/>. Other activities belong to the intention's own turn.",
+      "intentionsOnly": "You may inspect memory and conversations in this wake, then finish with one intention change (intention.set, intention.update, intention.cancel) or <skip/>. Other activities belong to the intention's own turn.",
       "people": "People you are closest to:",
       "person": "{name}: {parts}",
       "partsJoin": "; ",
@@ -765,9 +765,9 @@
         "no-next": "there is no next time",
         "no-purpose": "the intention has no purpose",
         "reason-required": "dropping an intention needs a reason",
-        "no-task": "there is no such errand",
-        "task-ended": "that errand has ended",
-        "wait-without-task": "a wait needs an errand",
+        "no-errand": "there is no such errand",
+        "errand-ended": "that errand has ended",
+        "wait-without-errand": "a wait needs an errand",
         "terminal": "that intention has already ended",
         "duplicate-id": "that id is already taken",
         "invalid-action": "the action is not valid",

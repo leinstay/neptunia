@@ -12,7 +12,7 @@ Owners (`bot.owners`) can always run everything. Everyone else needs a grant on 
 
 Owner-only operations are never opened by any grant, `*` included: `access.*`, `memory.private.read`, `memory.journal.read`, `memory.snapshot`, `memory.archive.read`, `memory.restore`, `inner.*`.
 
-Operations with `member: true` are open to every member while `features.memberCommands` is on, without needing a grant: `pings.*`, `task.run`, `task.status`, `task.cancel`, `task.list`, `task.read`, `task.resolve`, `web.search`, `web.read`, `media.look`, `media.find`, `memory.search`, `conversation.read`, `places.list`, `tools.describe`.
+Operations with `member: true` are open to every member while `features.memberCommands` is on, without needing a grant: `pings.*`, `errand.run`, `errand.status`, `errand.cancel`, `errand.list`, `errand.read`, `errand.resolve`, `web.search`, `web.read`, `media.look`, `media.find`, `memory.search`, `conversation.read`, `places.list`, `tools.describe`.
 
 ## The operations layer
 
@@ -68,11 +68,11 @@ The table follows the command tree in `src/tools/impl/catalog.ts`. Options that 
 | `/nep memory snapshot` | `memory.snapshot` | write | Copy `data/` for the tools. Deferred. Owner-only |
 | `/nep memory private <user>` | `memory.private.read` | read | A member's private DM memory. Owner-only |
 | `/nep memory search <question> [people] [channel] [when] [terms]` | `memory.search` | read | Search this server's message history. The messages come back quoted, no summary. Member command |
-| `/nep task run <agent> <goal>` | `task.run` | write | Hand an errand to `scout` or `server`. `server` is owner-only. Member command |
-| `/nep task status [id]` | `task.status` | read | One task, or the open ones. Member command |
-| `/nep task cancel <id>` | `task.cancel` | write | Cancel an open task (its requester or an owner). Member command |
-| `/nep task list` | `task.list` | read | The latest ten tasks. Member command |
-| `/nep task intent <action> [text] [id] [due] [every] [expires] [task] [deadline] [state] [chain] [condition] [channel] [attend] [people] [settle] [perday]` | `intent.set` / `intent.update` / `intent.cancel` / `intent.list` | write/read | The persona's intentions (`features.intentions`). `add` sets one, `update` changes one by `id`, `cancel` drops one, `list` shows the open ones. `attend` makes it an attention on a channel. Times: `30m`, `6h`, `2d`, `21:00`, `mon 20:00` or ISO |
+| `/nep task run <agent> <goal>` | `errand.run` | write | Hand an errand to `scout` or `server`. `server` is owner-only. Member command |
+| `/nep task status [id]` | `errand.status` | read | One task, or the open ones. Member command |
+| `/nep task cancel <id>` | `errand.cancel` | write | Cancel an open task (its requester or an owner). Member command |
+| `/nep task list` | `errand.list` | read | The latest ten tasks. Member command |
+| `/nep task intent <action> [text] [id] [due] [every] [expires] [task] [deadline] [state] [chain] [condition] [channel] [attend] [people] [settle] [perday]` | `intention.set` / `intention.update` / `intention.cancel` / `intention.list` | write/read | The persona's intentions (`features.intentions`). `add` sets one, `update` changes one by `id`, `cancel` drops one, `list` shows the open ones. `attend` makes it an attention on a channel. `task` is the id of the errand to wait for. Times: `30m`, `6h`, `2d`, `21:00`, `mon 20:00` or ISO |
 | `/nep task places [filter] [sort] [page]` | `places.list` | read | The places the interface publishes. `sort`: `recent`, `name` or `lines` |
 | `/nep task inner <action>` | `inner.stop` / `inner.start` / `inner.status` | write/read | The kill switch of the persona's inner life. `stop`, `start` or `status`. Owner-only |
 | `/nep task search <query> [goal]` | `web.search` | read | One quick web search. Member command |
@@ -89,8 +89,8 @@ These operations have no slash command (the Discord command tree is at its size 
 | `conversation.read` | read | Read a channel in order. `around`, `before`, `after`, `since`, `last` parameters |
 | `tools.describe` | read | Describe one tool or a family |
 | `media.find` | read | Search the GIF library by stored descriptions |
-| `task.read` | read | Read a finished task's result in pages |
-| `task.resolve` | write | Close a finished task |
+| `errand.read` | read | Read a finished errand's result in pages |
+| `errand.resolve` | write | Close a finished errand |
 
 ## Granting tools to the persona
 

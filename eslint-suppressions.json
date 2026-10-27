@@ -1779,6 +1779,23 @@
       "count": 1
     }
   },
+  "src/memory/db/map/errands.js": {
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 14
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 30
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 5
+    }
+  },
   "src/memory/db/map/gifs.js": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 4
@@ -1999,23 +2016,6 @@
     },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 1
-    }
-  },
-  "src/memory/db/map/errands.js": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 14
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 30
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 5
     }
   },
   "src/memory/db/map/user.js": {
@@ -3078,6 +3078,23 @@
       "count": 18
     }
   },
+  "src/tools/impl/errand.ts": {
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 5
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 31
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 20
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 90
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    }
+  },
   "src/tools/impl/index.ts": {
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 1
@@ -3103,7 +3120,7 @@
       "count": 1
     }
   },
-  "src/tools/impl/intent.ts": {
+  "src/tools/impl/intention.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 9
     },
@@ -3325,23 +3342,6 @@
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 11
-    }
-  },
-  "src/tools/impl/task.ts": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 5
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 31
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 20
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 90
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 1
     }
   },
   "src/tools/impl/usage.ts": {

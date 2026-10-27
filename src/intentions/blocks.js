@@ -1,5 +1,5 @@
 // The persona's view of her intentions in a request, as text: the `<intentions>` block's body
-// (src/behavior/prompt.js puts it in the per-turn tail right after `<tasks>` and `<task_result>`).
+// (src/behavior/prompt.js puts it in the per-turn tail right after `<errands>` and `<errand_result>`).
 // Her active intentions first (`pending`, then `waiting` with the errand it awaits and the wait's
 // deadline), each with its due time (the next occurrence of a recurring one, with its `every`
 // period as she wrote it) -- or, for one with no due time and no wait (nothing will wake her for
@@ -71,12 +71,12 @@ function activeLine(record, l, { timezone, locale, channelNameOf, nameOf, now, n
   }
   if (record.status === 'waiting')
     pieces.push(
-      part(l, 'waiting', { task: record.awaitingTaskId, deadline: when(record.waitDeadline, timezone, locale) })
+      part(l, 'waiting', { errand: record.awaitingErrandId, deadline: when(record.waitDeadline, timezone, locale) })
     );
-  else if (record.outcome?.taskId)
-    pieces.push(part(l, 'outcome', { task: record.outcome.taskId, state: record.outcome.state }));
+  else if (record.outcome?.errandId)
+    pieces.push(part(l, 'outcome', { errand: record.outcome.errandId, state: record.outcome.state }));
   else if (record.note && typeof l.notes?.[record.note] === 'string')
-    pieces.push(fill(l.notes[record.note], { task: record.lastTaskId ?? '' }));
+    pieces.push(fill(l.notes[record.note], { errand: record.lastErrandId ?? '' }));
   if (record.destination)
     pieces.push(part(l, 'destination', { channel: channelNameOf(record.destination) || record.destination }));
   if (!noDue && Number.isFinite(record.expiresAt) && Number.isFinite(now) && record.expiresAt - now <= noticeMs)

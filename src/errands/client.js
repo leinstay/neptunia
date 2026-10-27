@@ -293,10 +293,7 @@ export function createErrandClient({
     return typeof model === 'string' && model ? model : null;
   }
 
-  /**
-   * The price the deployment overrides for `agent` (`agents.<agent>.cost` of the live config) when both fields are usable,
-   * else null: the runner cannot read the private config, and it reads the profile's own price itself.
-   */
+  /** The price the deployment sets for `agent` (`agents.<agent>.cost`) when both fields are usable, else null: the runner has the profile's. */
   function costOf(agent) {
     const cost = hot?.config?.agents?.[agent]?.cost;
     const usable = (value) => typeof value === 'number' && Number.isFinite(value) && value >= 0;

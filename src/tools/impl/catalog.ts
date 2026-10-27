@@ -163,7 +163,7 @@ export const JOURNAL_KINDS = Object.freeze(['turn', 'action', 'memory', 'system'
 /** `/nep pings`'s `mode` choices (src/admin.js#cmdPings reads the same list). */
 export const PINGS_MODES = Object.freeze(['on', 'off']);
 
-/** `/nep task run`'s `agent` choices: the errand agents (src/agent-runner/profiles.js; src/tools/impl/task.ts reads the same list). */
+/** `/nep task run`'s `agent` choices: the errand agents (src/agent-runner/profiles.js; src/tools/impl/errand.ts reads the same list). */
 export const TASK_AGENTS = Object.freeze(['scout', 'server']);
 
 /** `task status`'s persona-only `action` choices (src/tools/impl/index.ts#COMMAND_TO_OP picks the operation by it). */
@@ -650,7 +650,7 @@ export const COMMAND_TABLE: ReadonlyArray<CommandNode> = Object.freeze([
       },
       { name: 'list', description: 'The latest ten tasks.', args: none },
       {
-        // The persona's intentions (src/tools/impl/intent.ts): one leaf, `action` picks the operation;
+        // The persona's intentions (src/tools/impl/intention.ts): one leaf, `action` picks the operation;
         // each option is optional here, its operation says which it needs.
         name: 'intent',
         description: "The persona's intentions.",
@@ -691,7 +691,7 @@ export const COMMAND_TABLE: ReadonlyArray<CommandNode> = Object.freeze([
           { type: STRING, name: 'chain', description: 'Chain id.', required: false, max_length: 64 },
           { type: STRING, name: 'condition', description: 'Done when.', required: false, max_length: 300 },
           channelOption('Destination.'),
-          // An attention (src/tools/impl/intent.ts): the place to listen to, the people whose lines count,
+          // An attention (src/tools/impl/intention.ts): the place to listen to, the people whose lines count,
           // the quiet seconds before a wake, her own daily bound.
           { type: CHANNEL, name: 'attend', description: 'Listen there.', required: false, channel_types: [GUILD_TEXT] },
           { type: STRING, name: 'people', description: 'Whose lines count.', required: false, max_length: 500 },

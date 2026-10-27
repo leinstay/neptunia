@@ -22,8 +22,8 @@
 // A task mirrored into the ledger (src/errands/ledger.js) carries the ledger's id as `ledgerId`
 // (optional; set once the ledger answers, so the transition lines after it carry it too).
 // A finished errand's result stays until she has read it: the record carries `readAt` (null until a
-// turn that showed its `<task_result>` completed, or `task.read` returned it, src/tools/impl/task.ts) and
-// `resolvedAt` (she closed it: `task.resolve`, or an intention that waited on it moved to done).
+// turn that showed its `<errand_result>` completed, or `errand.read` returned it, src/tools/impl/errand.ts) and
+// `resolvedAt` (she closed it: `errand.resolve`, or an intention that waited on it moved to done).
 // `unread` lists the finished ones with neither, oldest first; `seen` only says the result turn
 // ran, and hides nothing. A record from before `readAt` existed counts as read when it was `seen`.
 // Logs carry ids and codes, never text.
@@ -206,7 +206,7 @@ export function createTaskStore({
     Promise.resolve(
       journal.action(String(guildId), {
         opId: task.opId,
-        name: 'task',
+        name: 'errand',
         // Her errand, whoever asked for it: the requester is in `participants`.
         by: 'persona',
         ...(privateUserId ? { privateUserId } : { channelId: task.origin?.channelId ?? null }),
@@ -221,7 +221,7 @@ export function createTaskStore({
   /** The counts of a finished task for its closing journal line: never its text. */
   function journalResult(task) {
     const result = task.result ?? {};
-    const out = { taskId: task.id, state: task.state };
+    const out = { errandId: task.id, state: task.state };
     const chars = typeof result.text === 'string' ? result.text.length : 0;
     if (chars > 0) out.chars = chars;
     if (Array.isArray(result.sources) && result.sources.length > 0) out.sources = result.sources.length;
@@ -270,8 +270,8 @@ export function createTaskStore({
 
   /** The daily caps of `agent`: its profile's `daily` under the deployment's override. */
   function dailyCaps(agent) {
+    const defaults = profileOf(agent)?.defaultDaily ?? {};
     const set = agentSettings(agent, config())?.daily ?? {};
-    const defaults = agentSettings(agent, {})?.daily ?? {};
     return { tasks: Number.isFinite(set.tasks) ? set.tasks : defaults.tasks };
   }
 
@@ -374,7 +374,7 @@ export function createTaskStore({
     state.tasks.push(task);
     persist(task);
     journalLine(task, 'proposed', {
-      input: { taskId: task.id, agent, goalChars: text.length, requester: task.requester.kind },
+      input: { errandId: task.id, agent, goalChars: text.length, requester: task.requester.kind },
     });
     log.info('errands: task queued', { guildId: String(guildId), id: task.id, agent });
     return { ok: true, task: copy(task) };
@@ -387,7 +387,7 @@ export function createTaskStore({
     task.state = 'running';
     task.startedAt = now();
     persist(task);
-    journalLine(task, 'started', { target: { taskId: task.id } });
+    journalLine(task, 'started', { target: { errandId: task.id } });
     return copy(task);
   }
 
@@ -591,7 +591,7 @@ export function createTaskStore({
 
   /**
    * Every open task failed with `code` (a restart of the core: no runner's end can reach this
-   * process for them any more). Their failures stay unseen, for the `<tasks>` block. Returns how many.
+   * process for them any more). Their failures stay unseen, for the `<errands>` block. Returns how many.
    */
   function failOpen(code) {
     const ids = state.tasks.filter((task) => isOpenState(task.state)).map((task) => task.id);

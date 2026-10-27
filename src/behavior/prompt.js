@@ -1387,7 +1387,7 @@ function nowBlock(now, timezone, labels, periods) {
  * blocks, so the parts' texts joined with nothing (userText) are the whole
  * user text. `cacheSegment` is a neutral tag: src/llm/openrouter.js#withCacheMarker
  * turns it into the provider's marker under the cache policy and never sends it.
- * `errands`: the `<tasks>` and `<task_result>` bodies
+ * `errands`: the `<errands>` and `<errand_result>` bodies
  * (buildRequest's `input.errands`), in the tail before `<people_now>`. `diary` (a diary post only): the
  * `<diary>` block's intro, shown above its kept lines, the `<plan>` body and
  * the `<seeds>` body (a set post's seed combinations, right after the plan).
@@ -1460,8 +1460,8 @@ function assembleUser({
     // The persona's skills with her access here, when she was asked what she can do.
     block('skills', (kept.skills ?? []).join('\n')),
     // Her errands under way or newly finished, then the one whose end opened this turn: per turn (ages move).
-    block('tasks', errands?.tasks ?? ''),
-    block('task_result', errands?.result ?? ''),
+    block('errands', errands?.list ?? ''),
+    block('errand_result', errands?.result ?? ''),
     // Her intentions and the candidates proposed from her own lines (features.intentions): per turn.
     block('intentions', intentions),
     // An inner turn's reason to be awake (src/behavior/wake.js, mode `inner` only): per turn.
@@ -3306,14 +3306,14 @@ function seenOf({ history, keptChat, anchoredIds = [] }) {
  *   `labels.peopleNow.lead` and the notices (liveNotices) open the block when it has an entry,
  *   the entries separated by a blank line. `features.around` off, a private chat, a diary post,
  *   an omitted or null input or no `labels.peopleNow`: no live fields, the fields of memory alone.
- * @param {{ tasks?: string, result?: string }|null} [input.errands]  The persona's errands
- *   (src/errands/blocks.js, rendered by the turn): `tasks`, the `<tasks>` block's body (her open
- *   errands and the finished ones she has not seen), and `result`, the `<task_result>` block's
+ * @param {{ list?: string, result?: string }|null} [input.errands]  The persona's errands
+ *   (src/errands/blocks.js, rendered by the turn): `list`, the `<errands>` block's body (her open
+ *   errands and the finished ones she has not seen), and `result`, the `<errand_result>` block's
  *   body on the turn an errand's end opened. Both sit in the tail right before `<people_now>`,
  *   paid for with the fixed part and never cut; '' or a missing key leaves its block out.
  * @param {string|null} [input.intentions]  The `<intentions>` block's body (src/intentions/blocks.js,
  *   rendered and cut to `context.caps.intentions` by the turn; features.intentions): in the tail
- *   right after `<task_result>`, paid for with the fixed part and never cut here; '' or a missing
+ *   right after `<errand_result>`, paid for with the fixed part and never cut here; '' or a missing
  *   key leaves the block out, so with the switch off the request is as it was.
  * @param {string|null} [input.wake]  An inner turn's `<wake>` body (src/behavior/wake.js, rendered
  *   by the turn; mode `inner`, docs/inner-life.md): in the tail right after `<intentions>`, paid for
@@ -3687,9 +3687,9 @@ export function buildRequest(input) {
   // the message is gone) has its own task text (prompts['errand-result']) INSTEAD of the mode's:
   // interject.md would frame her own errand's end as a conversation to stay out of. Missing or
   // blank, the mode's text applies (degraded).
-  const errandPrompt = prompts['errand-result'];
+  const errandMd = prompts['errand-result'];
   const errandTask =
-    triggerKind === 'task' && !trigger && typeof errandPrompt === 'string' && errandPrompt.trim() ? errandPrompt : null;
+    triggerKind === 'errand' && !trigger && typeof errandMd === 'string' && errandMd.trim() ? errandMd : null;
   // A follow-up or an untagged reply has its own task text (prompts['follow-up']) INSTEAD of
   // reply.md; without it (missing or blank) reply.md frames it, as before the file existed.
   const followUpPrompt = prompts['follow-up'];
@@ -3800,9 +3800,9 @@ export function buildRequest(input) {
     ...pulledChannels.filter((channel) => channel.entry.readOnly === true).map((channel) => channel.channelId),
   ]);
 
-  // `<tasks>` and `<task_result>`: rendered by the turn (src/errands/blocks.js), never cut.
+  // `<errands>` and `<errand_result>`: rendered by the turn (src/errands/blocks.js), never cut.
   const errandsText = {
-    tasks: typeof input.errands?.tasks === 'string' ? input.errands.tasks : '',
+    list: typeof input.errands?.list === 'string' ? input.errands.list : '',
     result: typeof input.errands?.result === 'string' ? input.errands.result : '',
   };
   // `<intentions>`: rendered and cut to its own budget by the turn (src/intentions/blocks.js), never cut here.
@@ -3905,7 +3905,7 @@ export function buildRequest(input) {
         seedsText,
         diaryIntro,
         peopleNowFixed,
-        errandsText.tasks,
+        errandsText.list,
         errandsText.result,
         intentionsText,
         wakeText,

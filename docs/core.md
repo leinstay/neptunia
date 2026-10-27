@@ -129,7 +129,7 @@ All web activity (link reads and searches) shares one daily counter: `web.maxPer
 
 ### Compared to a scout errand
 
-The `web.search` and `web.read` tools run in the persona's own turn, synchronously. A scout errand (`task.run` with the scout agent, see [docs/errands.md](errands.md)) runs asynchronously in a separate process: it can do multi-step research, fetch media and files, and bring back attachments. The in-turn tools are fast and cheap (one search, one page). The errand is for work that takes several steps or needs to return files.
+The `web.search` and `web.read` tools run in the persona's own turn, synchronously. A scout errand (`errand.run` with the scout agent, see [docs/errands.md](errands.md)) runs asynchronously in a separate process: it can do multi-step research, fetch media and files, and bring back attachments. The in-turn tools are fast and cheap (one search, one page). The errand is for work that takes several steps or needs to return files.
 
 ## Safety rails
 

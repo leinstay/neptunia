@@ -1,7 +1,7 @@
-// The persona's view of her errands in a request, as text: the `<tasks>` block (her open errands
-// and the finished ones she has not seen, one line each) and the `<task_result>` block of the
+// The persona's view of her errands in a request, as text: the `<errands>` block (her open errands
+// and the finished ones she has not seen, one line each) and the `<errand_result>` block of the
 // turn an errand's end opens (src/errands/turns.js). Pure: every word comes from
-// `labels.tasks` (prompts/labels.json); a block whose labels are missing is left out (''). Ids,
+// `labels.errands` (prompts/labels.json); a block whose labels are missing is left out (''). Ids,
 // agent names, states' codes, URLs, file handles, content types and sizes are data, not wording.
 
 import { fill } from '../format.js';
@@ -9,37 +9,37 @@ import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { MINUTE_MS } from '../time.js';
 import { fileHandle, isOpenState } from './store.js';
 
-/** The goal's length on a `<tasks>` line (characters). */
+/** The goal's length on a `<errands>` line (characters). */
 export const TASK_GOAL_CHARS = 120;
 /** `errands.unreadShown` when it is missing (config.json carries the same). */
 export const DEFAULT_UNREAD_SHOWN = 5;
 /** `errands.resultMaxChars` when it is missing (config.json carries the same). */
 export const DEFAULT_RESULT_MAX_CHARS = 3000;
 
-/** The state of `task` in words (`labels.tasks.states`), else its code. */
+/** The state of `task` in words (`labels.errands.states`), else its code. */
 function stateWord(state, labels) {
-  const words = labels?.tasks?.states;
+  const words = labels?.errands?.states;
   return typeof words?.[state] === 'string' && words[state] ? words[state] : String(state ?? '');
 }
 
 /**
- * The state of `task` in words: `labels.tasks.states.expired` for a finished task whose files the
+ * The state of `task` in words: `labels.errands.states.expired` for a finished task whose files the
  * runner has deleted (`filesExpired`) when that label is there, else its state's word.
  */
 function taskStateWord(task, labels) {
-  const expired = labels?.tasks?.states?.expired;
+  const expired = labels?.errands?.states?.expired;
   if (task?.filesExpired === true && typeof expired === 'string' && expired) return expired;
   return stateWord(task?.state, labels);
 }
 
 /**
- * The `<tasks>` block's body: `labels.tasks.header`, then one `labels.tasks.line` per task
+ * The `<errands>` block's body: `labels.errands.header`, then one `labels.errands.line` per task
  * (`{id}`, `{agent}`, `{goal}` on one line cut to TASK_GOAL_CHARS, `{state}` through
- * `labels.tasks.states`, `states.expired` for a task whose files have expired, `{error}` the
+ * `labels.errands.states`, `states.expired` for a task whose files have expired, `{error}` the
  * code of a task that did not end `done` ('' otherwise), `{age}` whole minutes since it was
  * asked). The open ones come first; a finished one is an unread result and its line ends with
- * `labels.tasks.unread` (and `labels.tasks.resultTurnFailed` when its result turn never
- * completed). At most `unreadShown` finished ones are listed, oldest first; `labels.tasks.unreadMore`
+ * `labels.errands.unread` (and `labels.errands.resultTurnFailed` when its result turn never
+ * completed). At most `unreadShown` finished ones are listed, oldest first; `labels.errands.unreadMore`
  * (`{count}`) counts the rest. '' with no task or without the header or line label.
  * @param {object[]} tasks
  * @param {object} labels
@@ -51,7 +51,7 @@ export function tasksBlockText(
   labels,
   { now, goalChars = TASK_GOAL_CHARS, unreadShown = DEFAULT_UNREAD_SHOWN }
 ) {
-  const l = labels?.tasks;
+  const l = labels?.errands;
   const list = Array.isArray(tasks) ? tasks.filter((task) => task && typeof task.id === 'string') : [];
   if (list.length === 0 || typeof l?.header !== 'string' || typeof l?.line !== 'string') return '';
   const open = list.filter((task) => isOpenState(task.state));
@@ -81,7 +81,7 @@ export function tasksBlockText(
 }
 
 /**
- * The `<task_result>` block's body for a finished `task`: `labels.tasks.result.header` (`{id}`,
+ * The `<errand_result>` block's body for a finished `task`: `labels.errands.result.header` (`{id}`,
  * `{agent}`, `{goal}` on one line, `{state}` in words), then the result's text under
  * `result.text` cut to `maxChars` (`result.empty` when there is none), `result.error` (`{error}`:
  * the code) when it did not end `done`, the sources as a numbered list under `result.sources`,
@@ -98,7 +98,7 @@ export function tasksBlockText(
  * @returns {string}
  */
 export function taskResultText(task, labels, { maxChars = DEFAULT_RESULT_MAX_CHARS } = {}) {
-  const r = labels?.tasks?.result;
+  const r = labels?.errands?.result;
   if (!task || typeof r?.header !== 'string') return '';
   const parts = [
     fill(r.header, { id: task.id, agent: task.agent, goal: oneLine(task.goal), state: taskStateWord(task, labels) }),

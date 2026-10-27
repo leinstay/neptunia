@@ -36,6 +36,7 @@
 import { DAY_MS, HOUR_MS, utcDay } from '../time.js';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { isOpen } from '../memory/interests.js';
+import { currentToolName } from '../tools/definitions.ts';
 
 /** The interests shown per person. */
 export const INTERESTS_SHOWN = 3;
@@ -393,7 +394,7 @@ function lifeOf({ now, settings, innerTurns, tasks, diary, intentions, placeName
       if (action.skill === 'message.create' || action.skill === 'diary.post') continue;
       actions.push({
         at,
-        skill: action.skill,
+        skill: currentToolName(action.skill),
         place:
           typeof action.target?.channel === 'string'
             ? placeName(action.target.channel)
@@ -584,7 +585,7 @@ function sinceOf({
     .filter((record) => !(text(record.opId) && arrived.has(record.opId)))
     .map((record) => ({
       at: Date.parse(record.occurredAt),
-      skill: text(record.input?.skill) || text(record.name) || null,
+      skill: currentToolName(text(record.input?.skill)) || text(record.name) || null,
       place: typeof record.scope?.channel === 'string' ? placeName(record.scope.channel) : null,
     }))
     .filter((send) => within(send.at));

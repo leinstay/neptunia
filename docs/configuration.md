@@ -32,7 +32,7 @@ The persona's skills are tools in the settings. `src/config-moves.ts` holds the 
 | `agents.opencodePath`, `toolResultChars`, `keepFilesHours`, `recentLines`, `maxOpen`, `resultMaxChars`, `unreadShown`, `resultRetrySeconds`, `resultCooldownSeconds` | the same names under `errands.*` |
 | `agents.<name>.search.provider` | `agents.<name>.searchProvider` |
 
-Five keys have no reader any more and are dropped: the grants `bot.access."memory.refresh.channel"`, `"memory.refresh.server"` and `"memory.refresh.user"`, `agents.maxDownloadBytes`, and `agents.thinker.contextLimit` and `contextHard`. The load log line counts them as `dropped` beside `moved` and `shadowed`.
+Six keys have no reader any more and are dropped: the grants `bot.access."memory.refresh.channel"`, `"memory.refresh.server"` and `"memory.refresh.user"`, `agents.maxDownloadBytes`, and `agents.thinker.contextLimit` and `contextHard`. The load log line counts them as `dropped` beside `moved` and `shadowed`.
 
 `node tools/config-migrate.mjs --dry-run` prints each move for `config.local.json` (or `--file <path>`), each dropped key as `<path> dropped (no reader)`, and `--apply` writes the result into the file. A second run finds nothing to move. `--dry-run --compare-with <config.json>` reads the settings the moves touch twice, once the old way over the given `config.json` and once through the current readers over this checkout's, and prints `equal: <n>, differ: <n>` with one line per difference. It exits 1 on any difference. `--self <id>` names the persona's user id when `bot.self` is not set, so the grants can be compared.
 
