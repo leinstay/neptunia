@@ -6,7 +6,8 @@
 import type { Obj } from '../../tools/types.ts';
 import type { Due, Intention } from '../../intentions/types.ts';
 import type { Reads } from '../../interface/reads.ts';
-import type { ConversationInfo, ConversationRef } from '../../protocol/adapter.ts';
+import type { Adapter, ConversationInfo, ConversationRef } from '../../protocol/adapter.ts';
+import type { SendHold } from '../../tools/send-hold.ts';
 import type { WakeQueueUpdate } from '../../memory/db/wake-queue.ts';
 import type { HeartbeatFacts } from '../heartbeat-view.ts';
 import type { WakeBlockInput } from '../wake.ts';
@@ -213,6 +214,8 @@ export type PlaceIndex = {
 /** The record as the inner life reads it: its lines from a time on. */
 export type RecordSource = {
   iterate?(guildId: string, query: { from: string }): AsyncIterable<unknown> | Iterable<unknown>;
+  /** Her lines appended (src/memory/record.js): a wake's held post becomes her `said` line once it is sent. */
+  append?(guildId: string, lines: ReadonlyArray<unknown>, options?: Obj): unknown;
 };
 
 /**
@@ -242,6 +245,17 @@ export type InnerJournal = {
     query: { turnId: string; days: Array<string>; privateUserId: string | null }
   ): unknown;
   read?(guildId: string, query: { day: string; kind: string; n: number }): unknown;
+  /** One operation of a turn (src/memory/journal.js#op): a wake's held post is a `post` around its send. */
+  op?(guildId: string, base: Obj): InnerJournalOp;
+};
+
+/** A journal operation as the inner life closes it (src/memory/journal.js#op). */
+export type InnerJournalOp = {
+  opId: string | null;
+  started(extra?: Obj): Promise<void> | void;
+  succeeded(result?: Obj): Promise<void> | void;
+  failed(code: string, result?: Obj): Promise<void> | void;
+  unknown(result?: Obj): Promise<void> | void;
 };
 
 /** The memory store as the inner life reads it: its pause, the profiles and her diary for the heartbeat. */
@@ -309,8 +323,18 @@ export type InnerTurnParams = {
   mode: 'inner';
   triggerKind: 'inner';
   journalTurn: { turnId: string; attemptId: number };
-  inner: { wake: WakeInfo; currentChannel: string | null; shadow: boolean; mayAct: () => boolean };
+  inner: {
+    wake: WakeInfo;
+    currentChannel: string | null;
+    shadow: boolean;
+    mayAct: () => boolean;
+    /** A live wake turn's hold: her posts wait in it for the wake's completion (src/tools/send-hold.ts). */
+    hold?: SendHold | null;
+  };
 };
+
+/** The port a completed wake's deliveries go out through (the core's guarded port), and its reconcile. */
+export type InnerPort = Pick<Adapter, 'send' | 'capabilities' | 'fetchMessages'>;
 
 /** The turn runner as the inner life calls it. */
 export type InnerTurns = {
@@ -376,6 +400,8 @@ export type InnerContext = {
   costs: CostMeter;
   heartbeatSources: HeartbeatSources;
   memoryDb: InnerMemoryDb | null;
+  /** The port a completed wake's deliveries go out through; without one a wake turn holds nothing. */
+  port: InnerPort | null;
   rng: () => number;
   now: () => number;
   log: Logger;

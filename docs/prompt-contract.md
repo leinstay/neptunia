@@ -299,6 +299,13 @@ id: a failure is a `delivery` line of the next note, or a fact. The turn record 
 `coerced`, `malformed`, `truncated`, `capped`, `held`) and `steps`. Each later request logs `skills: follow-up answered`;
 the loop logs `skills: loop` (`steps`, `calls`, `ms`); a dry run logs each call `dry-run: would call` and makes none.
 
+In a live wake turn ([Inner life](inner-life.md#a-wakes-sends)) her posts are held until the wake completes:
+`message.create`, the lowered `<msg>` and `<gif>`, the post of `draw.create` and `voice.say`. Each such call answers
+`ok` with the code `held` and `tools.result.heldUntilEnd` as its result text, and no message id. A later call of the
+same turn on her `last` message in a conversation where a post is held (`message.edit`, `message.delete`,
+`message.react.add`, `message.react.remove`) is refused `held-message`, worded by `tools.result.reasons.held-message`.
+A shadow turn, a message turn, the diary turn and the CLI chat hold nothing.
+
 
 With the switch on no search classifier (nor the turn planner's lookup or skills block) runs before her reply: nothing
 is searched for her, there is no `<lookup>` block and no `<skills>` from a classifier's `skills:` line (logged
@@ -761,6 +768,7 @@ channelDirectory.lineCategory            {handle} {name} {category}: the same fo
 tools.result.ok                         the status line for a reading call that returned data. Body follows on the next line
 tools.result.untaggedNote               {name} {handle}: after the result of a `message.create` / `message.edit` that went out, once for each `@name` in its text that named a member of the request without tagging them (`{name}` as written with its `@`, `{handle}` the exact token without the `@`). Only with features.mentionHandles on; the status stays ok. Missing or blank: no note
 tools.result.diaryWritten               the result of a `message.create` with `diary`: what she wrote is in her diary, and its mirrors get it when the turn ends
+tools.result.heldUntilEnd               the result of a post a live wake turn held (code `held`): it goes out when the turn ends and has no message to act on until then
 tools.result.coerced                    {arg} {value}: told ahead of a call's result when an argument she wrote as text was read as the schema says (`"true"` as true, `"5"` as 5)
 tools.toolsText.lead | protocol         the text transport's `<tools>` block: the lead before the JSON lines and the protocol after them (how to write a call, where results come back)
 tools.result.refused                    {reason}: the engine refused the call before it ran (the old word; `denied` is the current status)
@@ -843,6 +851,7 @@ catalogue, the labels and the table disagree.
 | `ok` | ok | - | none (success) |
 | `shadow` | ok | - | none (internal) |
 | `staged` | ok | - | none (internal) |
+| `held` | ok | - | none (internal) |
 | `skills-off` | denied | - | `tools.result.reasons.skills-off` |
 | `feature-off` | denied | - | `tools.result.reasons.feature-off` |
 | `safe-mode` | denied | - | `tools.result.reasons.safe-mode` |
@@ -878,6 +887,7 @@ catalogue, the labels and the table disagree.
 | `unknown-member` | invalid | - | `tools.result.reasons.unknown-member` |
 | `unknown-message` | invalid | - | `tools.result.reasons.unknown-message` |
 | `message-deleted` | invalid | - | `tools.result.reasons.message-deleted` |
+| `held-message` | invalid | - | `tools.result.reasons.held-message` |
 | `unknown-file` | invalid | - | `tools.result.reasons.unknown-file` |
 | `unknown-gif` | invalid | - | `tools.result.reasons.unknown-gif` |
 | `unknown-agent` | invalid | - | `tools.result.reasons.unknown-agent` |

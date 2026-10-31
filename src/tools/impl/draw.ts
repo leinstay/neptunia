@@ -10,6 +10,7 @@ import { log } from '../../log.js';
 import { messageRefOf, postingConversation } from './shared.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
 import { CODE } from '../codes.ts';
+import { heldPort } from '../send-hold.ts';
 import { idText, textOf } from '../types.ts';
 import type { Obj, OpContext, Untyped } from '../types.ts';
 import type { Adapter } from '../../protocol/adapter.ts';
@@ -108,7 +109,8 @@ const handlers = perEnv((env) => {
     const file = { attachment: picture.buffer, name: imageFileName(picture.mediaType) };
     if (!postTo) return { text: parts.join(' · '), files: [file] };
     if (!port) throw new Error("the persona's interface is not available");
-    const sent = await port.send(
+    // A wake turn's post is held for its end (src/tools/send-hold.ts).
+    const sent = await heldPort(port, context).send(
       { iface: port.iface, conversationId: postTo },
       {
         attachments: [{ name: file.name, data: file.attachment, contentType: picture.mediaType }],

@@ -11,6 +11,7 @@ import { voiceAttachment } from '../../behavior/mirror.ts';
 import { messageRefOf, postingConversation } from './shared.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
 import { CODE } from '../codes.ts';
+import { heldPort } from '../send-hold.ts';
 import { abilityUnavailable, callOnRoute } from '../gateway.ts';
 import type { RoleHealth } from '../../llm/role-health.ts';
 import { log } from '../../log.js';
@@ -135,7 +136,8 @@ const handlers = perEnv((env) => {
     if (spoken.made === null) return spoken.unavailable;
     const made = spoken.made;
 
-    const sent = await port.send(
+    // A wake turn's voice message is held for its end (src/tools/send-hold.ts).
+    const sent = await heldPort(port, context).send(
       { iface: port.iface, conversationId: postTo },
       {
         attachments: [

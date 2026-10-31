@@ -98,7 +98,7 @@ An untold fact is kept `innerLife.factsKeepDays` (default 7) days. A told one is
 
 An inner turn claims its wakes in the memory database before it asks the model (`src/behavior/inner/wake-store.ts`). The claim is one committed transaction: each wake moves from `queued` to `running` and takes the lease `wake:<id>` with a new token for `context.turnLeaseMs` (default 300000) milliseconds, and the inner life renews it at every tick while the turn runs. When the turn ends, a second transaction checks the tokens, marks the wakes the turn disposed of `handled` and puts the rest back to `queued` (a retry, a turn held as busy). A holder whose token a newer claim raised writes nothing. No transaction is open while the model is asked.
 
-If the process dies inside the turn, its wakes stay `running`. The next start takes them over (`src/behavior/inner/recovery.ts`) and resolves them from the journal. If any operation went out (a post, an executed call), the wakes are handled as `interrupted` and a fact tells her what the turn did. If nothing went out, the wakes run again under the turn id of their first run, so their effect keys stay the same.
+If the process dies inside the turn, its wakes stay `running`. The next start takes them over (`src/behavior/inner/recovery.ts`) and resolves them from the journal. If any operation went out (a post, an executed call), the wakes are handled as `interrupted` and a fact tells her what the turn did. If nothing went out, the wakes run again under the turn id of their first run, so their effect keys stay the same. A live turn sends its posts only after the completion, so a turn cut off before it has sent none of them ([A wake's sends](#a-wakes-sends)).
 
 ## When she wakes
 
@@ -135,6 +135,16 @@ When a step's `message.create` went through and one of the wake's intentions has
 **Live mode** (`"live"`): calls go through the gateway and take effect. The kill switch is checked before each action.
 
 A refused call (in either mode) comes back in the next step with the reason, so she can correct it.
+
+## A wake's sends
+
+In live mode her posts in a wake turn wait until the wake completes, so a send that has to be retried never asks her for a new answer. The drain gives the turn a hold (`src/tools/send-hold.ts`) when the inner life has a port to send through: `src/core.js` passes the guarded port, and an inner life built without one holds nothing. `message.create`, the lowered `<msg>` and `<gif>`, the post of `draw.create` and `voice.say` are kept in the hold. Each answers `ok` with the code `held` and the text of `tools.result.heldUntilEnd`, and has no message id yet. A later call of the same turn on her `last` message in a conversation where a post is held (`message.edit`, `message.delete`, `message.react.add` or `message.react.remove`) is refused `held-message`. Her other calls run as in any live turn.
+
+The wake's completion records one `deliveries` row per held post in the transaction that marks the wake handled (`finishTurn` in `src/behavior/inner/wake-store.ts`). The row is keyed by the call's effect key and names the wake and the conversation. Its payload is the conversation and the content (text, reply and mentions). A file with its bytes is written under `data/media/deliveries/` as a `media` row of kind `delivery`, and the payload names it. When the turn's wakes go back to the queue for a retry, nothing is recorded, and the rerun makes its posts again under the same keys.
+
+After the completion commits, `src/behavior/inner/deliveries.ts` sends the rows in order through the port, each under its key, before the tick returns. Before each send it asks the kill switch again: while her inner life is stopped, the row stays `queued`. A row is `sending` from just before the port is called. The answer makes it `sent`, `unknown` or `failed` and is kept as its receipt. A sent `message.create` is recorded as a message turn records a sent post: a `post` operation of the wake's turn in the journal around the send (`features.journal`), and her `said` line in the record with the message id and the turn's id (`features.record`). A row that ends `failed` or `unknown` is never sent again. It becomes a `callFailed` fact in its conversation, and one `feedback` wake there brings it to her next turn. At a start, before the first tick lists anything, a row still `sending` lost its answer, so it is reconciled by its key through the adapter (`src/interface/reconcile.ts`). Found, it is `sent`. Known not to have gone out, it is `queued` again. When the adapter cannot tell, it is `unknown` and never sent again. Then every `queued` row is sent once.
+
+A shadow turn, a message turn, the diary turn and the CLI chat hold nothing: their sends go out during the turn.
 
 ## Intentions
 

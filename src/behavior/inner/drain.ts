@@ -2,9 +2,9 @@
 // and no cap holds it. The drain picks the conversation, builds the `<wake>` facts, records the wake run, runs the
 // turn through the turn runner (src/behavior/turn.js, mode `inner`), then marks the wakes handled or retries them,
 // keeps the turn's feedback facts and queues the feedback wake. The turn's wakes are claimed in the memory database
-// before the turn asks the model and completed or released after it (wake-store.ts); the start's recovery
-// (recovery.ts) runs first. An errand an inner turn handed off has its cost counted here when it ends. The tick
-// (src/behavior/inner.ts) calls `drain`.
+// before the turn asks the model and completed or released after it (wake-store.ts); a live turn's posts are held
+// and sent once the completion committed (deliveries.ts). The start's recovery (recovery.ts) runs first. An errand an
+// inner turn handed off has its cost counted here when it ends. The tick (src/behavior/inner.ts) calls `drain`.
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { onLog } from '../../log.js';
@@ -23,6 +23,7 @@ import { WAKE_POLICY_VERSION } from '../../tools/access.ts';
 import { errorCode as codeOf, isFiniteNumber, listOf, objOf } from '../../tools/types.ts';
 import type { ConversationInfo } from '../../protocol/adapter.ts';
 import type { HeartbeatFacts } from '../heartbeat-view.ts';
+import { deliveriesOf, holdFor, sendDeliveries } from './deliveries.ts';
 import { asText, factPayload, feedbackFacts, idOrNull, markFactsTold, pendingFactsOf } from './facts.ts';
 import { heartbeatFacts, logHeartbeatOutcome } from './heartbeat.ts';
 import { attendFactsOf, placeNameOf, placesInWakeOf } from './places.ts';
@@ -525,6 +526,21 @@ async function beginTurn(
   return claim;
 }
 
+/** The feedback wakes whose facts a turn of hers already carried, handled `told`: they have nothing left to say. How many. */
+function dropSpentFeedback(life: InnerContext, guildId: string, state: InnerState, at: number): number {
+  const untold = new Set(state.facts.filter((fact) => !fact.told).map((fact) => fact.id));
+  const spent = state.queue.filter(
+    (wake) =>
+      wake.kind === 'feedback' &&
+      listOf(wake.factIds).length > 0 &&
+      !listOf(wake.factIds).some((id) => untold.has(asText(id)))
+  );
+  if (spent.length === 0) return 0;
+  markHandled(life, state, spent, 'told', at, { guildId });
+  save(life, guildId);
+  return spent.length;
+}
+
 /** What drain answers: why nothing ran, or the turn that did. */
 export type DrainAnswer =
   | { deferred: unknown }
@@ -567,19 +583,8 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
     if (state.queue.length === 0) return { dropped: stale.length };
   }
 
-  // A feedback wake whose facts a turn of hers already carried has nothing left to say.
-  const untold = new Set(state.facts.filter((fact) => !fact.told).map((fact) => fact.id));
-  const spent = state.queue.filter(
-    (wake) =>
-      wake.kind === 'feedback' &&
-      listOf(wake.factIds).length > 0 &&
-      !listOf(wake.factIds).some((id) => untold.has(asText(id)))
-  );
-  if (spent.length > 0) {
-    markHandled(life, state, spent, 'told', at, { guildId });
-    save(life, guildId);
-    if (state.queue.length === 0) return { told: spent.length };
-  }
+  const told = dropSpentFeedback(life, guildId, state, at);
+  if (told > 0 && state.queue.length === 0) return { told };
 
   const timezone = timezoneOf(life);
   // An attention past its own per-day bound, or a chain past its per-chain bound: its wakes wait for the next
@@ -682,6 +687,7 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
       ? expiredToShow(intentions.store?.(guildId)?.list?.() ?? [], { max: settings.review.expiredMax })
       : null;
   const shadow = settings.mode !== 'live';
+  const hold = holdFor(life, shadow);
   const current = currentChannelOf(group, records);
   // The facts a feedback wake carries, and the other facts this conversation may be shown (not told yet).
   const ownFactIds = new Set(group.filter((wake) => wake.kind === 'feedback').flatMap((wake) => listOf(wake.factIds)));
@@ -734,6 +740,7 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
           currentChannel: current.channelId,
           shadow,
           mayAct: () => mayAct(life, guildId),
+          hold,
         },
       })
     );
@@ -879,7 +886,8 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
     })
   );
   save(life, guildId);
-  await finishTurn(life, guildId, group, after);
+  const recorded = await finishTurn(life, guildId, group, after, deliveriesOf(hold, { turnId: turnKey, chainId }));
+  await sendDeliveries(life, guildId, recorded);
   let feedbackWakeId: string | null = null;
   if (feedback.length > 0 && !isFeedback && !comesBack) {
     feedbackWakeId = `inner.wake:feedback:${asText(turnId ?? ended)}`;

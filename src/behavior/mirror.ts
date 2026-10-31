@@ -42,7 +42,7 @@ import {
 import type { DiaryPlace } from '../memory/db/mirrors.ts';
 import { CODE } from '../tools/codes.ts';
 import type { Attachment, Content } from '../protocol/actions.js';
-import type { ConversationRef, Delivery } from '../protocol/adapter.ts';
+import type { ConversationRef, Delivery, SendOptions } from '../protocol/adapter.ts';
 import type { Context } from '../memory/db/scope.ts';
 
 /** One picture of an entry: its bytes and its media type. */
@@ -93,7 +93,7 @@ export type EntrySent = {
 /** The part of an interface port the publisher uses. */
 export type MirrorPort = {
   iface: string;
-  send(conversation: ConversationRef, content: Content): Promise<Delivery>;
+  send(conversation: ConversationRef, content: Content, options?: SendOptions): Promise<Delivery>;
 };
 
 /** One message she wrote to her diary in a turn (`message.create` with `diary`), held until the turn ends. */
@@ -278,9 +278,10 @@ export type { DiaryPlace };
  * holds the interface's own port, writes there. Everything else passes through.
  */
 export function guardMirrorPort<TPort extends MirrorPort>(port: TPort, { memoryDb }: { memoryDb: unknown }): TPort {
-  async function send(conversation: ConversationRef, content: Content): Promise<Delivery> {
+  async function send(conversation: ConversationRef, content: Content, options?: SendOptions): Promise<Delivery> {
+    // The options pass through: the idempotency key of a send is what a reconcile finds it by.
     if (!isMirrorPlace(memoryDb, conversation.iface, conversation.conversationId))
-      return port.send(conversation, content);
+      return port.send(conversation, content, options);
     log.info('mirror: send refused', { code: CODE.DIARY_MIRROR });
     return {
       status: 'failed',

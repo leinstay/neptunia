@@ -113,6 +113,7 @@ import type {
   InnerIntentions,
   InnerJournal,
   InnerMemoryDb,
+  InnerPort,
   InnerState,
   InnerStore,
   InnerTurns,
@@ -189,6 +190,11 @@ export type InnerLifeOptions = {
    * an in-memory database per data directory.
    */
   memoryDb?: InnerMemoryDb | null;
+  /**
+   * The port a live wake turn's held posts go out through once the wake completed (src/behavior/inner/deliveries.ts);
+   * src/core.js passes the guarded port. Without one a wake turn's posts go out during the turn.
+   */
+  port?: InnerPort | null;
   rng?: () => number;
   now?: () => number;
   log?: Logger;
@@ -243,6 +249,7 @@ export function createInnerLife({
   meter = null,
   heartbeat: heartbeatSources = {},
   memoryDb = null,
+  port = null,
   rng = Math.random,
   now = Date.now,
   log = defaultLog,
@@ -268,6 +275,7 @@ export function createInnerLife({
     costs: meter ?? createCostMeter(),
     heartbeatSources,
     memoryDb,
+    port,
     rng,
     now,
     log,

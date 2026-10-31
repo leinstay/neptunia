@@ -36,6 +36,7 @@ export const CATALOGUE = Object.freeze({
   ok: entry('ok', 'ok'),
   shadow: entry('ok', 'internal'),
   staged: entry('ok', 'internal'),
+  held: entry('ok', 'internal'),
 
   // The gateway and the rights: a rule said no.
   'skills-off': skill('denied'),
@@ -75,6 +76,7 @@ export const CATALOGUE = Object.freeze({
   'unknown-member': skill('invalid'),
   'unknown-message': skill('invalid'),
   'message-deleted': skill('invalid'),
+  'held-message': skill('invalid'),
   'unknown-file': skill('invalid'),
   'unknown-gif': skill('invalid'),
   'unknown-agent': skill('invalid'),

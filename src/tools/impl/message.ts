@@ -30,6 +30,7 @@
 
 import fsp from 'node:fs/promises';
 import { messageRefOf, portAnswer, postingConversation } from './shared.ts';
+import { heldPort } from '../send-hold.ts';
 import { lineOf } from '../../behavior/line-of.js';
 import { defineOp, perEnv, invalid, denied } from './registry.ts';
 import { DIARY_DAILY } from '../../behavior/diary.ts';
@@ -139,7 +140,10 @@ function keyedPort(real: Adapter, context: OpContext): Adapter {
   return keyed;
 }
 
-/** Her post through `real`, or with `diary` to her diary through its port (diaryPort), answered as diaryAnswer words it. */
+/**
+ * Her post through `real` (held for the end of a wake turn when the call carries the turn's hold, src/tools/send-hold.ts),
+ * or with `diary` to her diary through its port (diaryPort), answered as diaryAnswer words it.
+ */
 async function postOf(
   env: Env,
   args: Obj,
@@ -147,7 +151,7 @@ async function postOf(
   real: Adapter,
   post: (args: Obj, context: OpContext, p: Adapter) => Promise<unknown>
 ): Promise<unknown> {
-  if (args.diary !== true) return post(args, context, keyedPort(real, context));
+  if (args.diary !== true) return post(args, context, keyedPort(heldPort(real, context), context));
   return diaryAnswer(env, await post(args, context, diaryPort(env, args, context, real)));
 }
 

@@ -16,6 +16,8 @@ import { executeCall, outcomeDetail, refusalStatus, resolveCall } from '../tools
 import type { CallResult, CallView, ExecuteDeps, Resolved, RunOperation } from '../tools/executors.ts';
 import { checkSkill } from '../tools/gateway.ts';
 import type { GateContext } from '../tools/gateway.ts';
+import type { HeldNote, SendHold } from '../tools/send-hold.ts';
+import { objOf } from '../tools/types.ts';
 import type { Obj, SkillMap } from '../tools/types.ts';
 import { PERSONA, WRITTEN_SKILLS, callTextOf, callViewOf, defaultSkills, valuesOf } from './calls.ts';
 import type { CallEnvelope } from './calls.ts';
@@ -93,7 +95,20 @@ type CallsInner = {
   mayAct?: () => boolean;
   currentChannel?: string | null;
   wake?: { kind?: string | null } | null;
+  /** A live wake turn's hold: her posts wait in it for the wake's completion (src/tools/send-hold.ts). */
+  hold?: SendHold | null;
 };
+
+/** The skills that act on a message of hers named by `message`: `last` after a held post names the held message. */
+const OWN_MESSAGE_SKILLS: ReadonlyArray<string> = [
+  'message.edit',
+  'message.delete',
+  'message.react.add',
+  'message.react.remove',
+];
+
+/** Whether a message argument is `last`, her own most recent message (any case, as src/tools/impl/message.ts reads it). */
+const isLast = (value: unknown): boolean => typeof value === 'string' && value.trim().toLowerCase() === 'last';
 
 /** One call of an inner turn as its action record keeps it. */
 export type InnerAction = {
@@ -476,6 +491,36 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     );
   }
 
+  /** `labels.tools.result.heldUntilEnd`, read now: a held post goes out when the wake's turn ends. */
+  function heldUntilEnd(): string {
+    const worded = objOf(objOf(objOf(hot.prompts?.labels).tools).result).heldUntilEnd;
+    return typeof worded === 'string' ? worded : '';
+  }
+
+  /**
+   * What a held call's sends are for: its skill, and for a `message.create` the said line its post becomes once it is
+   * sent, with the fields a sent post's line takes in runCall (her text as resolved, the reply, the replied author and
+   * the members the rendering mentioned).
+   */
+  function heldNoteOf(
+    skill: string,
+    resolved: Resolved,
+    { privateChat, rendered }: { privateChat: boolean; rendered: RenderedPost | null }
+  ): HeldNote {
+    const args: Obj = resolved.args ?? {};
+    const said =
+      skill === 'message.create' && typeof args.text === 'string'
+        ? {
+            text: args.text,
+            // A resolved `reply` is a message id (src/tools/executors.ts#resolveCall).
+            replyId: typeof args.reply === 'string' ? args.reply : null,
+            repliedAuthorId: typeof resolved.repliedAuthorId === 'string' ? resolved.repliedAuthorId : null,
+            userIds: (rendered?.userIds ?? []).filter((id): id is string => typeof id === 'string' && id !== ''),
+          }
+        : null;
+    return { skill, privateChat, said };
+  }
+
   /** The ids a resolved call aims at (its channel, message, reply target, member), for its journal line: never its text. */
   function callTarget(args: Obj | null | undefined): Record<string, string> {
     const out: Record<string, string> = {};
@@ -489,7 +534,8 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
   /**
    * What an inner turn's gate says of one call of hers (`inner`: the turn's `inner` parameter):
    * a read (its effect class) always runs; in shadow mode anything else is `proposed` and never
-   * runs; live, a stopped inner life (`mayAct`, asked now) refuses it (`inner-stopped`). No count of posts refuses a call.
+   * runs; a call on her `last` message where the turn holds a post is refused `held-message`; live, a stopped inner
+   * life (`mayAct`, asked now) refuses it (`inner-stopped`). No count of posts refuses a call.
    * `public` says whether a call that runs is a public post.
    */
   function innerVerdict(
@@ -500,6 +546,10 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     const effects = (skills ?? defaultSkills()).get(skill)?.effects ?? null;
     if (effects === 'read') return null;
     if (inner.shadow) return { proposed: true };
+    // Her last message where a post of this turn is held is the held one: it has no id to act on yet.
+    const where = typeof args?.channel === 'string' ? args.channel : String(channel.id);
+    if (inner.hold && OWN_MESSAGE_SKILLS.includes(skill) && isLast(args?.message) && inner.hold.holdsIn(where))
+      return { refusal: { code: CODE.HELD_MESSAGE, reason: 'held' } };
     if (typeof inner.mayAct === 'function' && !inner.mayAct())
       return { refusal: { code: CODE.INNER_STOPPED, reason: 'innerLife' } };
     const isPublic =
@@ -598,7 +648,13 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
           ...(runOp ? { runOp } : {}),
           ...(runOwnOp ? { runOwnOp } : {}),
           ...(runInitiativeOp ? { runInitiativeOp } : {}),
-          opContext: { guildId, channelId: String(channel.id), ...(privateChat ? { privateChat: true } : {}) },
+          opContext: {
+            guildId,
+            channelId: String(channel.id),
+            ...(privateChat ? { privateChat: true } : {}),
+            // A live wake turn's posts wait in its hold (src/tools/send-hold.ts).
+            ...(inner?.hold ? { hold: inner.hold } : {}),
+          },
           // The live config, for the wake envelope's check at the capabilities a skill reaches (src/tools/access.ts).
           config: hot.config,
           timeoutMs:
@@ -608,6 +664,12 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
           // Her in-turn tools (features.coreTools): run here, in the turn, over its context.
           ...(inTurn ? { inTurn } : {}),
         });
+        // A post the hold kept goes out when the wake completes: she is told so, and it has no message yet.
+        const key = envelope.idempotencyKey;
+        if (result.status === 'ok' && inner?.hold && key && inner.hold.countUnder(key) > 0) {
+          inner.hold.note(key, heldNoteOf(skill, resolvedCall, { privateChat, rendered }));
+          result = { status: 'ok', code: CODE.HELD, data: { text: heldUntilEnd() } };
+        }
       }
     }
     // What a read of hers returned is outside material her later lines of the turn may repeat.

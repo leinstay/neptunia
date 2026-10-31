@@ -6,6 +6,9 @@
 // deliveries `queued` under their effect keys, so a holder whose lease was taken over writes nothing. A lease token
 // rises with every grant of its name and is never reused. Recovery at a start puts a running wake whose lease expired
 // back to `queued` under its first turn id, or makes it `slept` when it fell due after the last `core:alive` renewal.
+// A delivery (schema v20) is `queued` from the completion, `sending` while the inner life's port call is out, then
+// `sent`, `unknown` or `failed` with its receipt (src/behavior/inner/deliveries.ts); its files are `media` rows of kind
+// `delivery` under `media/deliveries/`, written by the completion and deleted with the delivery when it is pruned.
 //
 // Times are epoch milliseconds. The functions run synchronously over an open handle: the service's writer applies the
 // writes (`applyWakeQueueWrite`, reached through session-write.js#applyMemoryWrite), and the reads take the read
@@ -13,8 +16,10 @@
 // `importWakeQueues` is the v18 data step that moves each guild's `inner.json` queue into the table (open.js runs it
 // again at every open that knows the data directory, for a file an earlier opener could not reach).
 
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { AUD_INTERNAL } from './scope.ts';
 
 /** The states of a wake row. */
 export const WAKE_STATES = ['queued', 'running', 'handled', 'slept', 'dropped'] as const;
@@ -54,19 +59,41 @@ export type StoredWake = {
 /** One lease row. */
 export type Lease = { name: string; holder: string; token: number; expiresAt: number; renewedAt: number };
 
-/** One delivery a completed wake left: its effect key, where it goes and what it carries. */
+/** The states of a delivery row (schema v20). */
+export const DELIVERY_STATES = ['queued', 'sending', 'sent', 'unknown', 'failed'] as const;
+export type DeliveryState = (typeof DELIVERY_STATES)[number];
+
+/** One delivery a completed wake left: its effect key, where it goes, what it carries and what its send answered. */
 export type Delivery = {
   key: string;
   wakeId: string;
   target: string | null;
   payload: unknown;
-  state: 'queued' | 'sent';
+  state: DeliveryState;
   queuedAt: number;
   sentAt: number | null;
+  receipt: unknown;
 };
 
-/** A delivery as the completion records it. */
-export type DeliveryInput = { key: string; target: string | null; payload: unknown };
+/** A file of a delivery as the turn held it: its bytes, or the address the interface takes them from. */
+export type DeliveryFile = {
+  name: string;
+  data?: Uint8Array;
+  url?: string;
+  contentType?: string;
+  voice?: { durationSecs: number; waveform: string };
+};
+
+/**
+ * A delivery as the completion records it. Its `files` with bytes are kept as `media` rows of kind `delivery` under
+ * the data directory, and the payload's `content.files` names them (deliveryFiles reads them back).
+ */
+export type DeliveryInput = {
+  key: string;
+  target: string | null;
+  payload: unknown;
+  files?: ReadonlyArray<DeliveryFile>;
+};
 
 /** A wake as the inner life queues it: its id and kind, its due time, and the rest of its fields as the payload. */
 export type WakeInput = {
@@ -351,10 +378,12 @@ type CompleteInput = {
   outcome: string;
   now: number;
   deliveries?: ReadonlyArray<DeliveryInput>;
+  /** Where the files of the deliveries are kept (the memory service's data directory). */
+  dataDir?: string | null;
 };
 
 /** The completion without a transaction of its own (the token checked by the caller). */
-function completeIn(db: Db, { id, token, outcome, now, deliveries = [] }: CompleteInput): void {
+function completeIn(db: Db, { id, token, outcome, now, deliveries = [], dataDir = null }: CompleteInput): void {
   db.prepare(
     `UPDATE wakes SET state = 'handled', handled_at = ?, outcome = ?, lease_holder = NULL, lease_expires_at = NULL
      WHERE id = ?`
@@ -363,8 +392,100 @@ function completeIn(db: Db, { id, token, outcome, now, deliveries = [] }: Comple
   const insert = db.prepare(
     "INSERT OR IGNORE INTO deliveries (key, wake_id, target, payload, state, queued_at) VALUES (?, ?, ?, ?, 'queued', ?)"
   );
-  for (const delivery of deliveries)
-    insert.run(delivery.key, id, delivery.target, JSON.stringify(delivery.payload ?? null), now);
+  for (const delivery of deliveries) {
+    const payload = withFiles(delivery.payload, keepFiles(db, dataDir, delivery));
+    insert.run(delivery.key, id, delivery.target, JSON.stringify(payload ?? null), now);
+  }
+}
+
+/** A file name's form that is safe on disk. */
+const safeName = (text: string): string => text.replace(/[^A-Za-z0-9._-]/g, '_');
+
+/** Where a delivery's files are kept under the data directory, as the diary's are under `media/diary`. */
+const DELIVERY_MEDIA_DIR = path.join('media', 'deliveries');
+
+/** A delivery's file as its payload names it: a `media` row, or the address the interface takes it from. */
+type FileRef = { name: string; contentType: string | null; media?: string; url?: string; voice?: unknown };
+
+/**
+ * The files of `delivery` kept: each with bytes written atomically to `media/deliveries/<key>-<n><ext>` under `dataDir`
+ * and recorded as a `media` row (kind `delivery`, owner the key); one with only an address is named by it. Without a
+ * data directory a file with bytes cannot be kept and is left out.
+ */
+function keepFiles(db: Db, dataDir: string | null, delivery: DeliveryInput): Array<FileRef> {
+  const kept: Array<FileRef> = [];
+  const base = safeName(delivery.key);
+  for (const [index, file] of (delivery.files ?? []).entries()) {
+    const contentType = file.contentType ?? null;
+    if (!file.data) {
+      if (file.url) kept.push({ name: file.name, contentType, url: file.url });
+      continue;
+    }
+    if (!dataDir) continue;
+    const rel = path.join(DELIVERY_MEDIA_DIR, `${base}-${index + 1}${path.extname(safeName(file.name)) || '.bin'}`);
+    const abs = path.join(dataDir, rel);
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(`${abs}.tmp`, file.data);
+    fs.renameSync(`${abs}.tmp`, abs);
+    const media = `media:delivery:${base}-${index + 1}`;
+    // Her post's file before it is posted belongs to no audience yet: internal, as the engine's own rows are.
+    db.prepare("INSERT OR IGNORE INTO audiences (id, kind) VALUES (?, 'internal')").run(AUD_INTERNAL);
+    db.prepare(
+      `INSERT INTO media (id, kind, owner, path, sha1, bytes, mime, extra, scope_kind, audience_id)
+       VALUES (?, 'delivery', ?, ?, ?, ?, ?, ?, 'internal', ?)
+       ON CONFLICT(id) DO UPDATE SET path = excluded.path, sha1 = excluded.sha1, bytes = excluded.bytes,
+         mime = excluded.mime, extra = excluded.extra`
+    ).run(
+      media,
+      delivery.key,
+      rel.split(path.sep).join('/'),
+      createHash('sha1').update(file.data).digest('hex'),
+      file.data.byteLength,
+      contentType,
+      JSON.stringify({ name: file.name, ...(file.voice ? { voice: file.voice } : {}) }),
+      AUD_INTERNAL
+    );
+    kept.push({ name: file.name, contentType, media, ...(file.voice ? { voice: file.voice } : {}) });
+  }
+  return kept;
+}
+
+/** `payload` with its content naming `files`; as it is with none. */
+function withFiles(payload: unknown, files: ReadonlyArray<FileRef>): unknown {
+  if (files.length === 0) return payload;
+  const given = objectOf(payload);
+  return { ...given, content: { ...objectOf(given.content), files } };
+}
+
+/**
+ * The files `delivery`'s payload names, read back for its send: a kept file's bytes from `dataDir`, an address as it
+ * is. A kept file that is gone from the disk is left out.
+ */
+export function deliveryFiles(handle: Handle, dataDir: string, delivery: Delivery): Array<DeliveryFile> {
+  const refs = objectOf(objectOf(delivery.payload).content).files;
+  const out: Array<DeliveryFile> = [];
+  for (const entry of Array.isArray(refs) ? refs : []) {
+    const ref = objectOf(entry);
+    const name = textOrNull(ref.name) ?? 'file';
+    const contentType = textOrNull(ref.contentType);
+    const extra = {
+      ...(contentType ? { contentType } : {}),
+      ...(isVoice(ref.voice) ? { voice: ref.voice } : {}),
+    };
+    if (typeof ref.url === 'string') {
+      out.push({ name, url: ref.url, ...extra });
+      continue;
+    }
+    const row = dbOf(handle).prepare('SELECT path FROM media WHERE id = ?').get(ref.media);
+    const file = typeof row?.path === 'string' ? path.join(dataDir, row.path) : null;
+    if (file && fs.existsSync(file)) out.push({ name, data: fs.readFileSync(file), ...extra });
+  }
+  return out;
+}
+
+function isVoice(value: unknown): value is { durationSecs: number; waveform: string } {
+  const voice = objectOf(value);
+  return typeof voice.durationSecs === 'number' && typeof voice.waveform === 'string';
 }
 
 /**
@@ -405,10 +526,19 @@ function deliveryOfRow(row: Row): Delivery {
     wakeId: String(row.wake_id),
     target: textOrNull(row.target),
     payload: parsed(row.payload),
-    state: row.state === 'sent' ? 'sent' : 'queued',
+    state: DELIVERY_STATES.find((state) => state === row.state) ?? 'unknown',
     queuedAt: Number(row.queued_at),
     sentAt: numberOrNull(row.sent_at),
+    receipt: parsed(row.receipt),
   };
+}
+
+/** The deliveries in `state`, in the order they were recorded. */
+export function deliveriesIn(handle: Handle, state: DeliveryState): Array<Delivery> {
+  return dbOf(handle)
+    .prepare('SELECT * FROM deliveries WHERE state = ? ORDER BY queued_at, rowid')
+    .all(state)
+    .map(deliveryOfRow);
 }
 
 /** The delivery `key`, or null. */
@@ -417,12 +547,37 @@ export function deliveryOf(handle: Handle, key: string): Delivery | null {
   return row ? deliveryOfRow(row) : null;
 }
 
-/** Delivery `key` marked `sent` at `now`; whether it was still queued. */
+/** Delivery `key` marked `sent` at `now`; whether it was still queued or sending. */
 export function markDelivered(handle: Handle, { key, now }: { key: string; now: number }): boolean {
+  return moveDelivery(handle, { key, from: ['queued', 'sending'], to: 'sent', now, receipt: null });
+}
+
+/** One step of a delivery's send: from one of `from` to `to` at `now`, with what the send answered. */
+export type DeliveryMove = {
+  key: string;
+  from: ReadonlyArray<DeliveryState>;
+  to: DeliveryState;
+  now: number;
+  receipt: unknown;
+};
+
+/** Delivery `key` moved to `to` when it is in one of `from`; whether it moved. `sent_at` is stamped once it is sent. */
+export function moveDelivery(handle: Handle, { key, from, to, now, receipt }: DeliveryMove): boolean {
   return inWrite(handle, (db) => {
+    const marks = from.map(() => '?').join(', ');
     const changed = db
-      .prepare("UPDATE deliveries SET state = 'sent', sent_at = ? WHERE key = ? AND state = 'queued'")
-      .run(now, key).changes;
+      .prepare(
+        `UPDATE deliveries SET state = ?, sent_at = CASE WHEN ? = 'sent' THEN ? ELSE sent_at END,
+         receipt = COALESCE(?, receipt) WHERE key = ? AND state IN (${marks})`
+      )
+      .run(
+        to,
+        to,
+        now,
+        receipt === null || receipt === undefined ? null : JSON.stringify(receipt),
+        key,
+        ...from
+      ).changes;
     return Number(changed) > 0;
   });
 }
@@ -472,14 +627,18 @@ export function recoverWakes(handle: Handle, { now }: { now: number }): { requeu
 }
 
 /**
- * The handled and slept wakes disposed of before `before` deleted, with their sent deliveries; a wake with a delivery
- * still queued stays. How many wakes went.
+ * The handled and slept wakes disposed of before `before` deleted, with their deliveries whose send is over (`sent`,
+ * `unknown`, `failed`) and those deliveries' files; a wake with a delivery still queued or sending stays. How many
+ * wakes went.
  */
-function pruneIn(db: Db, before: number): number {
-  db.prepare(
-    `DELETE FROM deliveries WHERE state = 'sent' AND wake_id IN
-     (SELECT id FROM wakes WHERE state IN ('handled', 'slept') AND handled_at < ?)`
-  ).run(before);
+function pruneIn(db: Db, before: number, dataDir: string | null): number {
+  const done = `SELECT key FROM deliveries WHERE state IN ('sent', 'unknown', 'failed') AND wake_id IN
+     (SELECT id FROM wakes WHERE state IN ('handled', 'slept') AND handled_at < ?)`;
+  // The files of the deliveries that go, and their media rows.
+  for (const row of db.prepare(`SELECT path FROM media WHERE kind = 'delivery' AND owner IN (${done})`).all(before))
+    if (dataDir && typeof row.path === 'string') fs.rmSync(path.join(dataDir, row.path), { force: true });
+  db.prepare(`DELETE FROM media WHERE kind = 'delivery' AND owner IN (${done})`).run(before);
+  db.prepare(`DELETE FROM deliveries WHERE key IN (${done})`).run(before);
   const changed = db
     .prepare(
       `DELETE FROM wakes WHERE state IN ('handled', 'slept') AND handled_at < ?
@@ -520,6 +679,8 @@ export type WakeQueueUpdate =
       now: number;
       done: ReadonlyArray<{ id: string; token: number; outcome: string; deliveries: ReadonlyArray<DeliveryInput> }>;
       back: ReadonlyArray<{ id: string; token: number; wake: WakeInput }>;
+      /** Where the files of the deliveries are kept (the service stamps its own data directory on every write). */
+      dataDir?: string | null;
     }
   | {
       kind: 'wake-queue';
@@ -529,12 +690,13 @@ export type WakeQueueUpdate =
       leaseMs: number;
     }
   | { kind: 'wake-queue'; op: 'recover'; now: number }
-  | { kind: 'wake-queue'; op: 'prune'; before: number }
+  | { kind: 'wake-queue'; op: 'prune'; before: number; dataDir?: string | null }
   | { kind: 'wake-queue'; op: 'alive'; holder: string; now: number; ttlMs: number }
   | { kind: 'wake-queue'; op: 'lease-acquire'; name: string; holder: string; now: number; ttlMs: number }
   | { kind: 'wake-queue'; op: 'lease-renew'; name: string; token: number; now: number; ttlMs: number }
   | { kind: 'wake-queue'; op: 'lease-release'; name: string; token: number; now: number }
-  | { kind: 'wake-queue'; op: 'delivered'; key: string; now: number };
+  | { kind: 'wake-queue'; op: 'delivered'; key: string; now: number }
+  | ({ kind: 'wake-queue'; op: 'delivery' } & DeliveryMove);
 
 /** What a group claim answers: every wake's token and the turn they run under, or the first refusal. */
 export type GroupClaim =
@@ -576,7 +738,7 @@ function finishGroup(handle: Handle, update: Extract<WakeQueueUpdate, { op: 'fin
   return inWrite(handle, (db): Fenced => {
     if (![...update.done, ...update.back].every((item) => holds(db, item.id, item.token)))
       return { ok: false, code: 'stale-lease' };
-    for (const item of update.done) completeIn(db, { ...item, now: update.now });
+    for (const item of update.done) completeIn(db, { ...item, now: update.now, dataDir: update.dataDir ?? null });
     for (const item of update.back)
       releaseIn(db, { id: item.id, token: item.token, now: update.now, payload: item.wake });
     return { ok: true };
@@ -619,6 +781,7 @@ const WAKE_QUEUE_OPS: ReadonlySet<unknown> = new Set([
   'lease-renew',
   'lease-release',
   'delivered',
+  'delivery',
 ]);
 
 const isWakeQueueUpdate = (value: unknown): value is WakeQueueUpdate =>
@@ -683,7 +846,7 @@ function applyTyped(handle: Handle, update: WakeQueueUpdate): unknown {
     case 'recover':
       return recoverWakes(handle, update);
     case 'prune':
-      return inWrite(handle, (db) => pruneIn(db, update.before));
+      return inWrite(handle, (db) => pruneIn(db, update.before, update.dataDir ?? null));
     case 'alive':
       return inWrite(handle, (db) => markAlive(db, update.holder, update.now, update.ttlMs));
     case 'lease-acquire':
@@ -694,6 +857,8 @@ function applyTyped(handle: Handle, update: WakeQueueUpdate): unknown {
       return inWrite(handle, (db) => releaseLease(db, update.name, update.token, update.now));
     case 'delivered':
       return markDelivered(handle, update);
+    case 'delivery':
+      return moveDelivery(handle, update);
   }
 }
 
