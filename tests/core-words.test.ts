@@ -38,7 +38,7 @@ const DISCORD_ALLOWED: ReadonlyArray<Allowed> = [
 
 const HELPER_ALLOWED: ReadonlyArray<Allowed> = [
   { file: 'src/llm/limits.js', pattern: /'helper-(timeout|fallback)'/, why: 'limit kinds the journal stores' },
-  { file: 'src/behavior/turn.js', pattern: /`?helper-(timeout|fallback)`?/, why: 'a limit kind the journal stores' },
+  { file: 'src/turn/phases/request/wait.ts', pattern: /`?helper-timeout`?/, why: 'a limit kind the journal stores' },
   { file: 'src/behavior/planner.js', pattern: /`?helper-fallback`?/, why: 'a limit kind the journal stores' },
   { file: 'src/behavior/participation-pick.js', pattern: /`?helper-timeout`?/, why: 'a limit kind the journal stores' },
   { file: 'src/turn/act.ts', pattern: /`?helper-timeout`?/, why: 'a limit kind the journal stores' },
