@@ -625,6 +625,20 @@
       "test": "none"
     },
     {
+      "path": "src/turn/tool-round.ts",
+      "purpose": "The steps of a turn: her calls planned and made, her speech posted or held, one more request while something is left to read, and the history read, the think kept and the transcript of a step's note. Tested through the turn, inner turn, heartbeat intents and diary turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/in-turn-tools.ts",
+      "purpose": "Her in-turn tools over a turn's own context: the web search and read, the second look, the media find, the memory search, the conversation read, the picture and a diary post's voice. Tested through the turn, turn conversation read and media draw tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/errands/",
       "purpose": "The errand service: the ledger, the store, the client to the runner and the turns that bring results back.",
       "layer": "public",
