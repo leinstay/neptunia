@@ -88,6 +88,7 @@ import { grantedSkillNames } from './tools/discovery.ts';
 import { PROFILES as AGENT_PROFILES } from './agent-runner/profiles.js';
 import { createTagHistory, deprecatedModelKeys } from './behavior/mention.js';
 import { createMessageHandler } from './behavior/pipeline.js';
+import { createLeasedAttention } from './behavior/attention.ts';
 import { isValidCommandName } from './tools/impl/catalog.ts';
 
 const REQUIRED_PROMPTS = ['system-prompt', 'character-card', 'format', 'reply', 'interject', 'initiate'];
@@ -600,6 +601,8 @@ async function buildCore(options, cleanups) {
     memoryReads: (args) => memoryDb.recordTurnReads(args),
     // One execution context per turn for its memory reads (recorded while the database is open).
     memoryContext: (spec) => memoryDb.issueContext({ iface: identity.iface, ...spec }),
+    // Her attention, mirrored as leases in the memory database (attention.ts).
+    attention: createLeasedAttention({ memoryDb, hot, holder: `core:${process.pid}`, log }),
     llm,
     calibrator,
     describer,

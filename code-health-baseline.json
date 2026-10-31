@@ -84,8 +84,8 @@
     },
     "src/behavior/inner/drain.ts": {
       "drain": {
-        "complexity": 93,
-        "function-length": 402
+        "complexity": 91,
+        "function-length": 395
       }
     },
     "src/behavior/inner/facts.ts": {
@@ -289,7 +289,7 @@
       },
       "createTurnRunner>runTurnAttempt": {
         "complexity": 374,
-        "function-length": 1865
+        "function-length": 1863
       },
       "journalTurnRecord": {
         "complexity": 21
@@ -360,13 +360,13 @@
     },
     "src/intentions/service.ts": {
       "createIntentionService": {
-        "function-length": 718
+        "function-length": 715
       },
       "createIntentionService>addCandidates": {
         "complexity": 21
       },
       "createIntentionService>set": {
-        "complexity": 27
+        "complexity": 24
       },
       "createIntentionService>update": {
         "complexity": 31
@@ -478,7 +478,7 @@
     },
     "src/memory/db/service.js": {
       "createMemoryDb": {
-        "function-length": 1147
+        "function-length": 1144
       },
       "createMemoryDb>sessionJob": {
         "complexity": 30
