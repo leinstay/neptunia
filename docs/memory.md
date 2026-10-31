@@ -363,7 +363,7 @@ You can copy `memory.db` and its `-wal` file while the bot runs (the copy will n
 
 ## Configuration
 
-The memory system reads these config groups from `config.json` (and `config.local.json`). The full reference of every key is in [configuration.md](configuration.md).
+The memory system reads these config groups from `config/config.json` (and `config.local/config.json`). The full reference of every key is in [configuration.md](configuration.md).
 
 | Group | What it controls |
 |---|---|

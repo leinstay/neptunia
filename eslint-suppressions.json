@@ -816,13 +816,13 @@
       "count": 10
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 19
+      "count": 14
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 7
+      "count": 4
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 28
+      "count": 26
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 18
@@ -7233,9 +7233,6 @@
     }
   },
   "tools/labels-catalogue.mjs": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 2
-    },
     "@typescript-eslint/require-await": {
       "count": 1
     }

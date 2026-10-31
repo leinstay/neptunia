@@ -9,7 +9,7 @@
 export const INTERFACE_MODES = ['inprocess', 'units'] as const;
 export type InterfaceMode = (typeof INTERFACE_MODES)[number];
 
-/** config.json's `interfaces.drainMs`, for a config that lacks it. */
+/** config/config.json's `interfaces.drainMs`, for a config that lacks it. */
 const DRAIN_MS = 10_000;
 
 /** The keys of `interfaces` that are settings of all interfaces, never an interface's name. */
@@ -30,7 +30,7 @@ export function interfaceMode(config: Settings): InterfaceMode {
   const mode = interfacesOf(config).mode;
   if (!isMode(mode)) {
     throw new Error(
-      `interfaces.mode is ${JSON.stringify(mode) ?? 'not set'}; set it to "${INTERFACE_MODES.join('" or "')}" in config.local.json`
+      `interfaces.mode is ${JSON.stringify(mode) ?? 'not set'}; set it to "${INTERFACE_MODES.join('" or "')}" in config.local/config.json`
     );
   }
   return mode;
@@ -49,7 +49,7 @@ export function configuredInterfaces(config: Settings): Array<string> {
     .map(([key]) => key);
 }
 
-/** `interfaces.drainMs` when it is a non-negative number, else config.json's default. */
+/** `interfaces.drainMs` when it is a non-negative number, else config/config.json's default. */
 export function drainMs(config: Settings): number {
   const value = interfacesOf(config).drainMs;
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : DRAIN_MS;

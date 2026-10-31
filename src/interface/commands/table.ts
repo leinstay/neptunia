@@ -151,14 +151,15 @@ export const COMMANDS: ReadonlyArray<Command> = [
   },
   {
     name: 'config',
-    help: 'the live settings: get <path>, set <path> <value>, unset <path>, show',
+    help: 'the live settings: get <path>, set <path> <value>, unset <path>, show, check',
     args: [],
     defaultSubcommand: 'show',
     subcommands: [
       sub('get', 'the live value of one setting', [arg('path')]),
-      sub('set', 'override one setting in config.local.json', [arg('path'), arg('value')]),
-      sub('unset', 'remove one override from config.local.json', [arg('path')]),
-      sub('show', 'config.local.json as it is'),
+      sub('set', 'override one setting in config.local/config.json', [arg('path'), arg('value')]),
+      sub('unset', 'remove one override from config.local/config.json', [arg('path')]),
+      sub('show', 'config.local/config.json as it is'),
+      sub('check', 'the keys of config.local/config.json the schema does not know or whose type is wrong'),
     ],
   },
   {

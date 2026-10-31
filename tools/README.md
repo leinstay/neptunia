@@ -10,7 +10,7 @@ Run as the service user, from the checkout:
 cd /opt/neptunia/app && sudo -u neptunia-bot node tools/<tool>.mjs ...
 ```
 
-The tools find files as the bot does: `NEPTUNIA_PRIVATE_DIR` for `.env`, `config.local.json`, `config.local/` and `prompts.local/`, `NEPTUNIA_DATA_DIR` for `data/` (both default to the checkout). `--data <dir>` overrides the data path.
+The tools find files as the bot does: `NEPTUNIA_PRIVATE_DIR` for `.env`, `config.local/` and `prompts.local/`, `NEPTUNIA_DATA_DIR` for `data/` (both default to the checkout). `--data <dir>` overrides the data path.
 
 Every tool that sends model requests uses `OPENROUTER_SIM_KEY` from `.env`; without it the tool stops with an error and never spends the bot's key.
 
@@ -25,9 +25,11 @@ Every tool that sends model requests uses `OPENROUTER_SIM_KEY` from `.env`; with
 
 | Tool | What it does | Writes under `data/` | Needs bot stopped | Spends model credit |
 |---|---|---|---|---|
-| `labels-catalogue.mjs` | Compares the code catalogue (`src/tools/codes.ts`) with `prompts/labels.json` and the reason-codes table in `docs/prompt-contract.md`. `--check` is a CI step (`npm run check:codes`); `--write` regenerates the table | no | no | no |
-| `config-migrate.mjs` | Writes the config keys that moved when the skills became tools (`skills.*`, `features.skills`, `features.skillsDiscovery`, the grant on `skills.describe`) into `config.local.json`, or into the file of `--file`. `--dry-run` prints each move, `--apply` writes. The engine applies the same moves on load, so the file works unmigrated and logs one warning | no (writes the config file) | no | no |
+| `labels-catalogue.mjs` | Compares the code catalogue (`src/tools/codes.ts`) with `config/labels.json` and the reason-codes table in `docs/prompt-contract.md`. `--check` is a CI step (`npm run check:codes`); `--write` regenerates the table | no | no | no |
+| `config-migrate.mjs` | Writes the config keys that moved when the skills became tools (`skills.*`, `features.skills`, `features.skillsDiscovery`, the grant on `skills.describe`) into the private settings file (`config.local/config.json`, or `config.local.json` of a layer not yet moved), or into the file of `--file`. `--dry-run` prints each move, `--apply` writes. The engine applies the same moves on load, so the file works unmigrated and logs one warning | no (writes the config file) | no | no |
 | `tools-file-move.mjs` | Moves `prompts.local/skills.json` to `config.local/tools.json` (the entry `skills.describe` becomes `tools.describe`) and renames the `skills` section of `prompts.local/labels.json` to `tools`. `--dry-run` says what it would do, `--apply` does it, `--dir` names the private directory. Two files that differ refuse the whole run and change nothing | no (writes the private layer) | no | no |
+| `config-files-move.mjs` | Moves a private layer's `config.local.json` to `config.local/config.json` byte for byte and its flat `prompts.local/labels.json` to `config.local/labels.json`, split into `model` and `owner` by the tracked `config/labels.json`. `--private <dir>` names the layer, and without `--apply` it only says what it would do. A file at both places with the same content loses its old copy, and with different content the run is refused and changes nothing | no (writes the private layer) | no | no |
+| `config-doc.mjs` | Prints `docs/configuration.md` from the settings schema (`src/config/schema.ts`) and the prose of `tools/config-doc.template.md`: `node tools/config-doc.mjs > docs/configuration.md`. `tests/config-doc.test.ts` fails while the committed file differs | no | no | no |
 | `journal-report.mjs` | Reads the journal day files and prints one markdown section per day: turns by outcome, actions, prompt tokens, cached share, items dropped, limits, message count, file size | no | no | no |
 | `request-report.mjs` | The same per-day numbers from the operational log, for the days before the journal: pipe `journalctl -u neptunia-bot -o cat` into it | no | no | no |
 | `replay.mjs` | Answers one real message again with the current code, prompts and memory. `--split` and `--recall` replay the splitter and the server search. `--snapshot <dir>` reads memory from a snapshot. `--show-request` prints the request. `--show-request <turnId>` prints a journal turn's request | no | no | yes, ~0.15 USD per request |

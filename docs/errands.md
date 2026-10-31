@@ -32,7 +32,7 @@ Drawing is not an errand. It is a built-in ability of the core, see [Media](medi
 
 ### Enabling a worker
 
-Both workers are disabled by default (`enabled: false` in the profile, `agents/<name>/profile.json`). A deployment enables them with `agents.<profile>.enabled: true` in `config.local.json` and starts their systemd services.
+Both workers are disabled by default (`enabled: false` in the profile, `agents/<name>/profile.json`). A deployment enables them with `agents.<profile>.enabled: true` in `config.local/config.json` and starts their systemd services.
 
 ### Queuing
 
@@ -86,7 +86,7 @@ A deployment can give its errand agents a per-model preamble from the optional f
 
 A task asked in a private chat runs in `dm` scope. A task asked anywhere else runs in `group` scope. In a `core` scope (the owner's console) nothing is withheld. In `dm` and `group`:
 
-The **server** agent's file tools deny the content of sensitive paths: `/var/www`, any `.git`/`.local.git`, `.secrets`, `.env`, `.ssh`, `/etc/shadow`, nginx htpasswd, Let's Encrypt, `/etc/neptunia`, `/srv/neptunia-backups`, `config.local.json`, the persona's own `data/`, and any `.agents/scratch`. The `bash` tool denies content commands on the same paths. Listing names (`ls`, `find`, `stat`, `du`) is still allowed. The refusal happens per step: OpenCode refuses that one tool call, the agent sees it and continues, and the result's `withheld` field lists the paths it was refused.
+The **server** agent's file tools deny the content of sensitive paths: `/var/www`, any `.git`/`.local.git`, `.secrets`, `.env`, `.ssh`, `/etc/shadow`, nginx htpasswd, Let's Encrypt, `/etc/neptunia`, `/srv/neptunia-backups`, `config.local.json` and `config.local/`, the persona's own `data/`, and any `.agents/scratch`. The `bash` tool denies content commands on the same paths. Listing names (`ls`, `find`, `stat`, `du`) is still allowed. The refusal happens per step: OpenCode refuses that one tool call, the agent sees it and continues, and the result's `withheld` field lists the paths it was refused.
 
 Every result the runner returns passes a redaction pass that replaces key-looking strings, private-key blocks, SSH key material and URL credentials with `[redacted]`.
 
@@ -156,7 +156,7 @@ The status card (`/status full`) shows errand agents' models in `models.errands`
 ## Adding an agent
 
 1. Create `agents/<id>/` with a `profile.json` and, for a worker, a `prompt.md`.
-2. If it needs a new model role, add it to `src/llm/roles.js` and to `models.errands` in `config.json`.
+2. If it needs a new model role, add it to `src/llm/roles.js` and to `models.errands` in `config/config.json`.
 3. For a worker: fill in the profile's `enabled`, `cost`, `limits`, `daily`, `socket` and `out`, add a systemd unit like `deploy/neptunia-agent-scout.service`, and the agent's name in `TASK_AGENTS` (`src/tools/impl/catalog.ts`) and who may ask for it in `src/tools/impl/errand.ts`.
 4. If no existing shell class fits, that is a code change in `src/agent-runner/profiles.js`.
 5. Run `tests/agent-runner-profiles.test.js`.

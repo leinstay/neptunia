@@ -89,7 +89,7 @@ Every LLM request goes out on a named role, and each role has its own model. The
 | `models.errands` | `scout`, `server` | The errand agents, run asynchronously through a separate runner |
 | `models.development` | `thinker`, `dev` | Development agents (outside the engine, working on the repository) |
 
-A role never borrows another role's model. An unset role uses its own default (the same value `config.json` ships). `models.byPurpose` can pin a single purpose to a model of its own regardless of its role.
+A role never borrows another role's model. An unset role uses its own default (the same value `config/config.json` ships). `models.byPurpose` can pin a single purpose to a model of its own regardless of its role.
 
 ### Keys
 
@@ -174,7 +174,7 @@ Two hard limits that cannot be turned off:
 1. **Per-request token cap.** No request larger than `llm.maxRequestTokens` (default 50,000 tokens) ever leaves the process. `src/llm/budget.js` trims to fit; `src/llm/openrouter.js` refuses what is still too large.
 2. **Daily request cap.** No more than `llm.maxRequestsPerDay` requests are made per UTC day. This prevents a spam of mentions from burning the API budget.
 
-Both errors reach the persona through their turn result: a `token-limit` or `daily-cap` code. When the persona was asked directly and a rail refuses, one plain limit notice is posted from `labels.json` wording so the person knows what happened.
+Both errors reach the persona through their turn result: a `token-limit` or `daily-cap` code. When the persona was asked directly and a rail refuses, one plain limit notice is posted from `config/labels.json` wording so the person knows what happened.
 
 ### How failures reach the persona
 

@@ -18,9 +18,9 @@ cd neptunia && npm install
 
 The engine reads two layers of configuration, both hot-reloaded (edits take effect on the next request, no restart needed):
 
-**Config files.** `config.json` holds every setting with its default. `config.local.json` (gitignored) is deep-merged over it. You never edit `config.json` itself: put your values in `config.local.json`.
+**Config files.** `config/` holds three tracked files: `config.json` with every setting and its default, `labels.json` with the wording the code inserts into prompts, and `tools.json` with the texts of the persona's tools. `config.local/` (gitignored) holds your deployment's files of the same names, each deep-merged over its tracked file, so a local file holds only the keys you change. You never edit the files in `config/`: put your values in `config.local/config.json`. [docs/configuration.md](configuration.md) lists every setting.
 
-**Prompt files.** `prompts/` holds the tracked engine defaults, including a working example character. `prompts.local/` (gitignored) holds your deployment's overrides. A file in `prompts.local/` replaces the same-named file in `prompts/` entirely, except for `labels.json`, which is deep-merged (you only need to include the keys you change). The texts of the persona's tools are the same kind of layer in `config/tools.json` and `config.local/tools.json`.
+**Prompt files.** `prompts/` holds the tracked engine defaults, including a working example character. `prompts.local/` (gitignored) holds your deployment's overrides. A file in `prompts.local/` replaces the same-named file in `prompts/` entirely.
 
 The merge logic lives in `src/hot.js`. When a file in either layer fails to parse (a half-written JSON save, for instance), the previous good value stays live and the error is logged. On the first startup, a broken file still causes a hard failure.
 
@@ -46,11 +46,11 @@ Copy `.env.example` to `.env` and fill in the values. The file is read once at s
 | `BRAVE_SEARCH_API_KEY` | no | Brave Search API key for `features.webLookup` (free tier: 2,000 queries/month) |
 | `EXA_API_KEY` | no | Exa API key for the `exa` search engine (`web.search.engine`) |
 
-When `NEPTUNIA_PRIVATE_DIR` is set in the process environment, `.env`, `config.local.json` and `prompts.local/` are read from that directory instead of from the checkout root. `NEPTUNIA_DATA_DIR` moves the `data/` directory. Both are described in [docs/configuration.md](configuration.md) and used by the example systemd unit.
+When `NEPTUNIA_PRIVATE_DIR` is set in the process environment, `.env`, `config.local/` and `prompts.local/` are read from that directory instead of from the checkout root. `NEPTUNIA_DATA_DIR` moves the `data/` directory. Both are described in [docs/configuration.md](configuration.md) and used by the example systemd unit.
 
 ## First run
 
-Create `config.local.json` with your Discord user ID:
+Create `config.local/config.json` with your Discord user ID:
 
 ```json
 {
@@ -64,11 +64,11 @@ Create `config.local.json` with your Discord user ID:
 npm start
 ```
 
-When `bot.guildId` is empty and the bot is in exactly one server, it locks to that server automatically. If the bot is in several servers, it refuses to start; set `bot.guildId` in `config.local.json`.
+When `bot.guildId` is empty and the bot is in exactly one server, it locks to that server automatically. If the bot is in several servers, it refuses to start; set `bot.guildId` in `config.local/config.json`.
 
 ## Dry run
 
-Set `features.dryRun` to `true` in `config.local.json`. The bot runs the full pipeline (memory, triggers, LLM calls) but never sends a message or reaction. Output goes to the log. Set `bot.dryRunChannelId` to a private channel to get a readable mirror of everything the bot would post. Slash commands still work in any channel.
+Set `features.dryRun` to `true` in `config.local/config.json`. The bot runs the full pipeline (memory, triggers, LLM calls) but never sends a message or reaction. Output goes to the log. Set `bot.dryRunChannelId` to a private channel to get a readable mirror of everything the bot would post. Slash commands still work in any channel.
 
 A good first step on a new server: enable dry run, watch the log or the mirror channel, tune the persona live with `/config set` and `/rules add` in the `neptunia` chat, then turn dry run off with `/config set features.dryRun false`.
 
@@ -79,7 +79,7 @@ An example systemd unit is in `deploy/neptunia-bot.service`. It uses a layout th
 ```
 /opt/neptunia/
   app/    the engine checkout (read-only to the service)
-  etc/    .env, config.local.json, prompts.local/   (NEPTUNIA_PRIVATE_DIR)
+  etc/    .env, config.local/, prompts.local/       (NEPTUNIA_PRIVATE_DIR)
   data/   everything the bot writes                 (NEPTUNIA_DATA_DIR)
 ```
 
@@ -90,7 +90,7 @@ sudo deploy/install.sh --dry-run
 sudo deploy/install.sh
 ```
 
-Fill in `.env` and `config.local.json` under the `etc/` directory, then enable the service:
+Fill in `.env` and `config.local/config.json` under the `etc/` directory, then enable the service:
 
 ```bash
 sudo systemctl enable --now neptunia-bot

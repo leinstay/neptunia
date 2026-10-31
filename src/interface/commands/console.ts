@@ -14,6 +14,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
+import { moveConfigKeys } from '../../config-moves.ts';
+import { checkConfig } from '../../config/check.ts';
+import { localConfigPath } from '../../config/files.ts';
+import { CONFIG_SCHEMA } from '../../config/schema.ts';
 import { coreHealth } from '../../health/core.ts';
 import { memoryHealth } from '../../health/memory.ts';
 import { serverHealth, systemProbe, worse } from '../../health/server.ts';
@@ -46,7 +50,7 @@ export type ConsoleDeps = {
   selfId(): string | null;
   /** The hot settings (src/hot.js): `config` is read at each use. */
   hot: unknown;
-  /** The private directory, where config.local.json lives. */
+  /** The private directory, where config.local/config.json lives. */
   privateDir: string;
   dataDir: string;
   /** The memory database (src/memory/db/service.js): `database()` is its read connection, null while it is closed. */
@@ -120,6 +124,43 @@ const FAILED_PROBE = '· failed';
 
 /** A route's role as the owner typed it: `any`, or none, is a route of every role. */
 const anyRole = (role: unknown): unknown => (role === 'any' ? undefined : role);
+
+/** `/config show`: the private settings file as it is on disk (src/config/files.ts#localConfigPath). */
+function configShow(privateDir: string): Answer {
+  const file = localConfigPath(privateDir);
+  try {
+    return { text: fs.readFileSync(file, 'utf8'), status: 'ok' };
+  } catch {
+    return { text: `no ${path.relative(privateDir, file)}: the shipped settings apply`, status: 'ok' };
+  }
+}
+
+/**
+ * `/config check`: the private settings file against the schema (src/config/check.ts), its keys of an old name moved
+ * to the new one first (src/config-moves.ts), one line per unknown key or key of the wrong type.
+ */
+function configCheck(privateDir: string): Answer {
+  const file = localConfigPath(privateDir);
+  const shown = path.relative(privateDir, file);
+  let local: unknown = {};
+  try {
+    const raw = fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim() : '';
+    local = raw === '' ? {} : JSON.parse(raw);
+  } catch (err) {
+    return { text: `${shown} does not parse: ${err instanceof Error ? err.message : String(err)}`, status: 'failed' };
+  }
+  const settled = isRecord(local) ? moveConfigKeys(local).config : local;
+  const problems = checkConfig(settled, CONFIG_SCHEMA);
+  if (problems.length === 0) return { text: `${shown}: every key is known and of its type`, status: 'ok' };
+  const lines = problems.map(({ key, kind }) => (kind === 'unknown' ? `${key}: unknown key` : `${key}: wrong type`));
+  return { text: lines.join('\n'), status: 'failed' };
+}
+
+/** The commands that read the private settings file and nothing else, by name. */
+const LOCAL_CONFIG_READS: Record<string, ((privateDir: string) => Answer) | undefined> = {
+  'config.show': configShow,
+  'config.check': configCheck,
+};
 
 /** The command as the owner typed it, for the head of a refused answer. */
 function typed(name: string, args: Readonly<Record<string, unknown>>): string {
@@ -239,14 +280,6 @@ export function createConsole(deps: ConsoleDeps): {
     const found = ownValueAt(settings, splitPath(text(args.path), settings));
     if (!found.found) return refused(name, args, 'no such setting');
     return { text: JSON.stringify(found.value, null, 2) ?? 'null', status: 'ok' };
-  }
-
-  function configShow(): Answer {
-    try {
-      return { text: fs.readFileSync(path.join(deps.privateDir, 'config.local.json'), 'utf8'), status: 'ok' };
-    } catch {
-      return { text: 'no config.local.json: the shipped settings apply', status: 'ok' };
-    }
   }
 
   function memoryBackup(name: string, args: Record<string, unknown>): Answer {
@@ -385,8 +418,6 @@ export function createConsole(deps: ConsoleDeps): {
         return intentionShow(name, args, requester);
       case 'config.get':
         return configGet(name, args);
-      case 'config.show':
-        return configShow();
       case 'memory.backup':
         return memoryBackup(name, args);
       case 'memory.conversation':
@@ -406,6 +437,8 @@ export function createConsole(deps: ConsoleDeps): {
       case 'interface.command':
         return refused(name, args, `the interface ${text(args.name)} has no commands of its own`);
       default: {
+        const read = LOCAL_CONFIG_READS[name];
+        if (read !== undefined) return read(deps.privateDir);
         const operation = OPERATIONS[name];
         if (operation === undefined) return refused(name, args, 'no such command; type /help');
         const [opName, opArgs] = operation(args);

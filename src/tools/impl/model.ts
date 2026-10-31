@@ -53,7 +53,7 @@ const handlers = perEnv((env) => {
       throw invalid('id must look like a model id, e.g. anthropic/claude-haiku-4.5 (3-100 chars)');
 
     // A new vision or video model: every description cached before now is described again
-    // when it comes up (src/memory/describe.js), written in the same config.local.json edit.
+    // when it comes up (src/memory/describe.js), written in the same edit of the private settings file.
     if (MEDIA_ROLES.has(role) && roleModel(hot.config, role) !== id) {
       const at = new Date(now()).toISOString();
       const ok = editLocalConfig((local) => setPath(setPath(local, keys, id), 'media.recacheBefore', at));

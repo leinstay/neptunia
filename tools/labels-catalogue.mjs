@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Operations tool: the code catalogue (src/tools/codes.ts) against the shipped labels
-// (prompts/labels.json, the tracked layer only) and the contract's table of reason codes
+// (config/labels.json with its two sections joined, the tracked layer only) and the contract's table of reason codes
 // (docs/prompt-contract.md). Reads three files, sends nothing, spends nothing.
 //
 //   node tools/labels-catalogue.mjs --check    exits 1 and lists the mismatches (the CI step: npm run check:codes)
@@ -12,6 +12,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { CONFIG_DIR, LABELS_FILE } from '../src/config/files.ts';
+import { joinLabels, labelsFileOf } from '../src/config/labels.ts';
 import { CATALOGUE } from '../src/tools/codes.ts';
 import { TABLE_BEGIN, TABLE_END, catalogueProblems, renderCodesTable } from './lib/labels-catalogue.mjs';
 import { CliError, parseFlags, runCli } from './lib/cli.mjs';
@@ -29,7 +31,9 @@ export async function main(argv, { root = ROOT } = {}) {
   const flags = parseFlags(argv, { switches: ['--check', '--write'], usage: USAGE });
   if (flags['--check'] === flags['--write']) throw new CliError(USAGE);
   const docsPath = path.join(root, 'docs', 'prompt-contract.md');
-  const labels = JSON.parse(fs.readFileSync(path.join(root, 'prompts', 'labels.json'), 'utf8'));
+  /** @type {unknown} */
+  const file = JSON.parse(fs.readFileSync(path.join(root, CONFIG_DIR, LABELS_FILE), 'utf8'));
+  const labels = joinLabels(labelsFileOf(file));
   let docs = fs.readFileSync(docsPath, 'utf8');
   if (flags['--write']) {
     const begin = docs.indexOf(TABLE_BEGIN);

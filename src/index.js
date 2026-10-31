@@ -22,7 +22,7 @@ function die(message) {
 }
 
 // The three directories, resolved once (src/paths.js): the checkout, the private layer
-// (NEPTUNIA_PRIVATE_DIR: config.local.json, prompts.local/, .env) and the data directory
+// (NEPTUNIA_PRIVATE_DIR: config.local/, prompts.local/, .env) and the data directory
 // (NEPTUNIA_DATA_DIR). The two variables come from the process environment (the unit file), never
 // from .env, whose own place depends on them.
 const paths = resolvePaths({ rootDir: ROOT_DIR });

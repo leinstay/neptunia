@@ -3,7 +3,7 @@
 # (the layout described in deploy/neptunia-bot.service):
 #   /opt/neptunia/
 #     app/    the engine checkout (root-owned, read-only to the service)
-#     etc/    .env, config.local.json, prompts.local/   (NEPTUNIA_PRIVATE_DIR)
+#     etc/    .env, config.local/, prompts.local/       (NEPTUNIA_PRIVATE_DIR)
 #     data/   everything the bot writes                 (NEPTUNIA_DATA_DIR)
 #
 # Usage:     sudo deploy/install.sh [--root DIR] [--user NAME] [--prefix DIR] [--dry-run]
@@ -16,8 +16,8 @@
 #   - creates the service user (and its group) if absent;
 #   - creates <root> (root:root 755);
 #   - creates <root>/etc (root:root 755) with .env copied from .env.example when absent
-#     (root:<user> 640), prompts.local/ (<user> 750), and config.local.json ({} when absent,
-#     <user> 640); existing files are left alone;
+#     (root:<user> 640), prompts.local/ and config.local/ (<user> 750), and config.local/config.json
+#     ({} when neither it nor an old config.local.json exists, <user> 640); existing files are left alone;
 #   - creates <root>/data (<user>:<user> 750);
 #   - installs deploy/neptunia-bot.service into /etc/systemd/system/ with User=, Group=,
 #     WorkingDirectory=, the two directory variables, EnvironmentFile= and ReadWritePaths= set
@@ -147,13 +147,16 @@ else
   run install -o root -g "$SERVICE_USER" -m 0640 "$PREFIX/.env.example" "$PRIVATE_DIR/.env"
 fi
 run install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0750 "$PRIVATE_DIR/prompts.local"
+run install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0750 "$PRIVATE_DIR/config.local"
 if [ -e "$PRIVATE_DIR/config.local.json" ]; then
-  echo "= $PRIVATE_DIR/config.local.json already exists, not overwritten"
+  echo "= $PRIVATE_DIR/config.local.json is the old layout: move it with node tools/config-files-move.mjs --private $PRIVATE_DIR --apply"
+elif [ -e "$PRIVATE_DIR/config.local/config.json" ]; then
+  echo "= $PRIVATE_DIR/config.local/config.json already exists, not overwritten"
 else
-  echo "+ echo '{}' > $PRIVATE_DIR/config.local.json"
-  if [ "$DRY_RUN" -eq 0 ]; then echo '{}' > "$PRIVATE_DIR/config.local.json"; fi
-  run chown "$SERVICE_USER:$SERVICE_USER" "$PRIVATE_DIR/config.local.json"
-  run chmod 0640 "$PRIVATE_DIR/config.local.json"
+  echo "+ echo '{}' > $PRIVATE_DIR/config.local/config.json"
+  if [ "$DRY_RUN" -eq 0 ]; then echo '{}' > "$PRIVATE_DIR/config.local/config.json"; fi
+  run chown "$SERVICE_USER:$SERVICE_USER" "$PRIVATE_DIR/config.local/config.json"
+  run chmod 0640 "$PRIVATE_DIR/config.local/config.json"
 fi
 
 # Data directory.
@@ -183,7 +186,7 @@ cat <<EOF
 
 Done$([ "$DRY_RUN" -eq 1 ] && echo ' (dry run)'). The service is not started yet. Fill in:
   $PRIVATE_DIR/.env                Discord token and OpenRouter key (see .env.example)
-  $PRIVATE_DIR/config.local.json   settings that override config.json for this deployment
+  $PRIVATE_DIR/config.local/config.json   settings that override config/config.json for this deployment
   $PRIVATE_DIR/prompts.local/      the character: files that replace those in prompts/
 Then: sudo systemctl enable --now ${UNIT_NAME%.service}
       journalctl -u ${UNIT_NAME%.service} -f

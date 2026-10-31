@@ -1,5 +1,5 @@
 // Hot reload of everything the owner tunes while the bot is running:
-// config.json, config.local.json and the two prompt layers (prompts/ and
+// config/ and config.local/ (the settings, the labels and the tool texts) and the two prompt layers (prompts/ and
 // prompts.local/). Callers never cache values — they read `hot.config` /
 // `hot.prompts` at the moment of use, so an edit takes effect on the very
 // next LLM request without a restart and without touching memory, history or
@@ -9,16 +9,19 @@
 // own, gitignored overrides — it may be entirely absent. A local file
 // replaces the base file of the same name once it is non-empty; the JSON
 // layers are deep-merged instead of replaced, each under its own name in
-// `hot.prompts`: labels.json (prompts/ and prompts.local/) and tools.json, the
-// persona's tool texts (config/ and config.local/, src/tools/registry.ts). A file that fails to parse (half
+// `hot.prompts`: labels.json (config/ and config.local/, its `model` and `owner` sections joined into one flat object
+// by src/config/labels.ts) and tools.json, the persona's tool texts (config/ and config.local/,
+// src/tools/registry.ts). A file that fails to parse (half
 // -written JSON, editor temp state) is ignored on reload: the previous good
 // value stays live and the error is logged. On the very first load, invalid
 // JSON still throws so a broken deployment fails fast at startup.
 //
-// config.json and prompts/ live in the checkout (`rootDir`); config.local.json and prompts.local/
+// config/ and prompts/ live in the checkout (`rootDir`); config.local/ and prompts.local/
 // in the deployment's private directory (`privateDir`, src/paths.js: NEPTUNIA_PRIVATE_DIR), which
 // is the checkout unless set. When the two differ a second directory watcher covers the private
-// one, so an edit there reloads exactly as an edit in the checkout does.
+// one, so an edit there reloads exactly as an edit in the checkout does. A private layer laid out the old way
+// (config.local.json, a flat prompts.local/labels.json; src/config/files.ts) loads with one warning per start, and a
+// layer holding a file at both places refuses the start.
 //
 // prompts.local/preambles/ (a subfolder of the private layer only; no tracked default) holds the
 // errand agents' preambles, picked by agent and model (src/errands/preambles.ts): every `*.md`
@@ -38,21 +41,34 @@ import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { readConfig, deepMerge, isPlainObject } from './config.js';
 import { log } from './log.js';
+import {
+  CONFIG_DIR,
+  CONFIG_FILE,
+  LABELS_FILE,
+  LOCAL_CONFIG_DIR,
+  MOVE_TOOL,
+  OLD_LOCAL_CONFIG,
+  localFiles,
+} from './config/files.ts';
+import { joinLabels, labelsFileOf } from './config/labels.ts';
 
 const DEBOUNCE_MS = 250;
-const BASE_CONFIG_FILE = 'config.json';
-const LOCAL_CONFIG_FILE = 'config.local.json';
 const LOCAL_PROMPTS_DIRNAME = 'prompts.local';
-const LOCAL_TOOLS_DIRNAME = 'config.local';
 /** The subfolder of prompts.local/ holding the errand agents' preambles, loaded as `hot.prompts.preambles`. */
 const PREAMBLES_DIRNAME = 'preambles';
 /**
- * The JSON files of the prompt layers, by name: `<name>.json` in `dir` under the checkout and `localDir` under the private
- * directory, deep-merged local over base.
+ * The JSON files of the prompt layers, by name, each with how it is computed from the checkout and the private
+ * directory: the labels by `computeLabels`, the tool texts by `computeJsonLayer` over `config/tools.json` and
+ * `config.local/tools.json`.
  */
+/** @type {ReadonlyArray<{ name: string, compute: (rootDir: string, privateDir: string) => { value: unknown, source: string } }>} */
 const JSON_LAYERS = Object.freeze([
-  { name: 'labels', dir: 'prompts', localDir: LOCAL_PROMPTS_DIRNAME },
-  { name: 'tools', dir: 'config', localDir: LOCAL_TOOLS_DIRNAME },
+  { name: 'labels', compute: computeLabels },
+  {
+    name: 'tools',
+    compute: (rootDir, privateDir) =>
+      computeJsonLayer({ name: 'tools', dir: CONFIG_DIR, localDir: LOCAL_CONFIG_DIR }, rootDir, privateDir),
+  },
 ]);
 
 /** Where an earlier version kept the tool texts, which the start refuses to find (tools/tools-file-move.mjs moves it). */
@@ -204,6 +220,24 @@ function computeJsonLayer({ name, dir, localDir }, rootDir, privateDir) {
   return { value: base ?? {}, source: 'base' };
 }
 
+/** `{ model, owner }` of a parsed labels file, a missing section as `{}`. */
+/**
+ * `{ value, source }` of the labels: `config/labels.json` joined (src/config/labels.ts), with the private labels
+ * deep-merged over it, `config.local/labels.json` joined or a flat `prompts.local/labels.json` of the old layout.
+ * Throws on invalid JSON, on a key in both sections and on a private labels file at both its places.
+ * @param {string} rootDir
+ * @param {string} privateDir
+ */
+function computeLabels(rootDir, privateDir) {
+  const tracked = readJsonFile(path.join(rootDir, CONFIG_DIR), path.basename(LABELS_FILE, '.json'));
+  const base = tracked === undefined ? {} : joinLabels(labelsFileOf(tracked));
+  const found = localFiles(privateDir).labels;
+  const local = found === null ? undefined : readJsonFile(path.dirname(found.file), path.basename(found.file, '.json'));
+  if (local === undefined) return { value: base, source: 'base' };
+  const flat = found?.shape === 'split' ? joinLabels(labelsFileOf(local)) : local;
+  return { value: deepMerge(base, flat), source: 'merged' };
+}
+
 /**
  * The `*.md` files directly under `dir` (prompts.local/preambles/) as `{ <base name>: text }`,
  * `{}` when the folder is absent. An empty or whitespace-only file loads as '' right away (no
@@ -238,11 +272,75 @@ function loadPromptLayers(rootDir, privateDir, prevPrompts, prevSources) {
   prompts.preambles = computePreambles(path.join(localPromptsDir, PREAMBLES_DIRNAME));
   sources.preambles = 'local';
   for (const layer of JSON_LAYERS) {
-    const { value, source } = computeJsonLayer(layer, rootDir, privateDir);
+    const { value, source } = layer.compute(rootDir, privateDir);
     prompts[layer.name] = value;
     sources[layer.name] = source;
   }
   return { prompts, sources, keptPrevious };
+}
+
+/**
+ * Log a watcher's error, then run `onError`.
+ * @param {import('node:events').EventEmitter} watcher
+ * @param {() => void} [onError]
+ */
+function attachErrorHandler(watcher, onError) {
+  watcher.on('error', (err) => {
+    log.warn('hot: watcher error', { error: err });
+    onError?.();
+  });
+}
+
+/**
+ * Close `watcher` and drop it from `watchers`.
+ * @param {Array<unknown>} watchers
+ * @param {{ close: () => void }} watcher
+ */
+function dropWatcher(watchers, watcher) {
+  const index = watchers.indexOf(watcher);
+  if (index !== -1) watchers.splice(index, 1);
+  try {
+    watcher.close();
+  } catch {
+    // already closed by the error that brought us here
+  }
+}
+
+/**
+ * A watcher of `dir` that starts once, drops itself on an error (its directory went away) and starts again when asked:
+ * `start()`, `stop()`, `running()`, and `forget()` after every watcher of `watchers` was closed.
+ * @param {{ watchImpl: typeof fs.watch, dir: string, watchers: Array<unknown>, onEvent: (file: unknown) => void }} options
+ */
+function restartableWatch({ watchImpl, dir, watchers, onEvent }) {
+  /** @type {fs.FSWatcher | null} */
+  let current = null;
+  const stop = () => {
+    const watcher = current;
+    if (!watcher) return;
+    current = null;
+    dropWatcher(watchers, watcher);
+  };
+  const start = () => {
+    if (current) return;
+    try {
+      const watcher = watchImpl(dir, (event, file) => onEvent(file));
+      current = watcher;
+      watchers.push(watcher);
+      attachErrorHandler(watcher, () => {
+        if (current === watcher) stop();
+      });
+    } catch (err) {
+      log.warn('hot: failed to watch a folder', { dir: path.basename(dir), error: err });
+    }
+  };
+  return {
+    start,
+    stop,
+    running: () => current !== null,
+    forget: () => {
+      current = null;
+    },
+  };
 }
 
 /**
@@ -261,18 +359,28 @@ export function createHot({ rootDir, privateDir = rootDir, watchImpl = fs.watch 
   const promptsDir = path.join(rootDir, 'prompts');
   const localPromptsDir = path.join(privateDir, LOCAL_PROMPTS_DIRNAME);
   const preamblesDir = path.join(localPromptsDir, PREAMBLES_DIRNAME);
-  const toolsDir = path.join(rootDir, 'config');
-  const localToolsDir = path.join(privateDir, LOCAL_TOOLS_DIRNAME);
-  // Whether the private layer sits in a directory of its own, which then needs its own watcher.
-  const privateApart = path.resolve(privateDir) !== path.resolve(rootDir);
+  const toolsDir = path.join(rootDir, CONFIG_DIR);
+  const localToolsDir = path.join(privateDir, LOCAL_CONFIG_DIR);
   const hot = new EventEmitter();
   const watchers = [];
   const timers = new Map();
+  /** @type {fs.FSWatcher | null} */
   let localWatcher = null;
+  /** @type {fs.FSWatcher | null} */
   let preamblesWatcher = null;
-  let localToolsWatcher = null;
+  // Whether the private layer sits in a directory of its own, which then needs its own watcher.
+  const privateApart = path.resolve(privateDir) !== path.resolve(rootDir);
 
+  // The tool texts still in their old place refuse the start before anything is read: left there they would stop
+  // counting without a word.
+  if (fs.existsSync(path.join(privateDir, OLD_TOOLS_FILE)))
+    throw new Error(`${OLD_TOOLS_FILE} is where the tool texts were: run node tools/tools-file-move.mjs --apply`);
   hot.config = readConfig(rootDir, { privateDir });
+  // A layer laid out the old way loads, and says once per start that tools/config-files-move.mjs moves it.
+  if (localFiles(privateDir).old)
+    log.warn('hot: the private layer keeps config.local.json or a flat prompts.local/labels.json', {
+      move: MOVE_TOOL,
+    });
   // The retired keys reported for the config now live: one warning when a key appears (at
   // startup or on a reload), none while it stays, another once it was removed and set again.
   const reportedRetired = new Set();
@@ -287,10 +395,7 @@ export function createHot({ rootDir, privateDir = rootDir, watchImpl = fs.watch 
     }
   };
   reportRetiredKeys();
-  // Initial load: an invalid JSON layer (labels, tools) throws so a broken deployment fails at startup, and so does
-  // the tool texts still in their old place: left there they would stop counting without a word.
-  if (fs.existsSync(path.join(privateDir, OLD_TOOLS_FILE)))
-    throw new Error(`${OLD_TOOLS_FILE} is where the tool texts were: run node tools/tools-file-move.mjs --apply`);
+  // Initial load: an invalid JSON layer (labels, tools) throws so a broken deployment fails at startup.
   const initial = loadPromptLayers(rootDir, privateDir, {}, {});
   if (Object.hasOwn(objectOf(initial.prompts.labels), 'skills'))
     log.warn('hot: labels.json carries a `skills` section, which no code reads', {
@@ -347,7 +452,7 @@ export function createHot({ rootDir, privateDir = rootDir, watchImpl = fs.watch 
         json[name] = hot.prompts[name];
         jsonSources[name] = hot.promptSources[name];
         try {
-          const computed = computeJsonLayer(layer, rootDir, privateDir);
+          const computed = layer.compute(rootDir, privateDir);
           json[name] = computed.value;
           jsonSources[name] = computed.source;
         } catch (err) {
@@ -384,30 +489,12 @@ export function createHot({ rootDir, privateDir = rootDir, watchImpl = fs.watch 
     return name.endsWith('.md') || name.endsWith('.json');
   }
 
-  function attachErrorHandler(watcher, onError) {
-    watcher.on('error', (err) => {
-      log.warn('hot: watcher error', { error: err });
-      onError?.();
-    });
-  }
-
-  /** Close `watcher` and drop it from `watchers`. */
-  function dropWatcher(watcher) {
-    const index = watchers.indexOf(watcher);
-    if (index !== -1) watchers.splice(index, 1);
-    try {
-      watcher.close();
-    } catch {
-      // already closed by the error that brought us here
-    }
-  }
-
   /** Close and forget the prompts.local/preambles/ watcher, so a folder created again gets a new one. */
   function stopPreamblesWatch() {
     const watcher = preamblesWatcher;
     if (!watcher) return;
     preamblesWatcher = null;
-    dropWatcher(watcher);
+    dropWatcher(watchers, watcher);
   }
 
   function startPreamblesWatch() {
@@ -439,7 +526,7 @@ export function createHot({ rootDir, privateDir = rootDir, watchImpl = fs.watch 
     const watcher = localWatcher;
     if (!watcher) return;
     localWatcher = null;
-    dropWatcher(watcher);
+    dropWatcher(watchers, watcher);
   }
 
   function startLocalWatch() {
@@ -462,40 +549,26 @@ export function createHot({ rootDir, privateDir = rootDir, watchImpl = fs.watch 
     }
   }
 
-  /** Close and forget the config.local/ watcher, so a directory created again gets a new one. */
-  function stopLocalToolsWatch() {
-    const watcher = localToolsWatcher;
-    if (!watcher) return;
-    localToolsWatcher = null;
-    dropWatcher(watcher);
+  /** A file of config/ or config.local/ changed: its config.json reloads the config, any other JSON the prompts. */
+  function onConfigDirEntry(file) {
+    if (!file || String(file) === CONFIG_FILE) schedule('config', hot.reloadConfig);
+    if (!file || (String(file) !== CONFIG_FILE && isPromptFile(file))) schedule('prompts', hot.reloadPrompts);
   }
+  const toolsWatch = restartableWatch({ watchImpl, dir: toolsDir, watchers, onEvent: onConfigDirEntry });
+  const localToolsWatch = restartableWatch({ watchImpl, dir: localToolsDir, watchers, onEvent: onConfigDirEntry });
 
-  function startLocalToolsWatch() {
-    if (localToolsWatcher) return;
-    try {
-      const watcher = watchImpl(localToolsDir, (event, file) => {
-        if (isPromptFile(file)) schedule('prompts', hot.reloadPrompts);
-      });
-      localToolsWatcher = watcher;
-      watchers.push(watcher);
-      attachErrorHandler(watcher, () => {
-        if (localToolsWatcher === watcher) stopLocalToolsWatch();
-      });
-    } catch (err) {
-      log.warn('hot: failed to watch config.local', { error: err });
-    }
-  }
-
-  /** An entry of the private directory changed: config.local.json reloads the config;
+  /** An entry of the private directory changed: config.local.json (the old layout) reloads the config;
    * prompts.local/ and config.local/ appearing or going away start or drop their watchers. */
   function onPrivateEntry(name) {
-    if (name === LOCAL_CONFIG_FILE) {
+    if (name === OLD_LOCAL_CONFIG) {
       schedule('config', hot.reloadConfig);
-    } else if (name === LOCAL_TOOLS_DIRNAME) {
+    } else if (name === LOCAL_CONFIG_DIR) {
       if (!fs.existsSync(localToolsDir)) {
-        stopLocalToolsWatch();
-      } else if (!localToolsWatcher) {
-        startLocalToolsWatch();
+        localToolsWatch.stop();
+        schedule('config', hot.reloadConfig);
+      } else if (!localToolsWatch.running()) {
+        localToolsWatch.start();
+        schedule('config', hot.reloadConfig);
         schedule('prompts', hot.reloadPrompts);
       }
     } else if (name === LOCAL_PROMPTS_DIRNAME) {
@@ -509,11 +582,21 @@ export function createHot({ rootDir, privateDir = rootDir, watchImpl = fs.watch 
     }
   }
 
+  /** An entry of the checkout changed: config/ appearing or going away (a deploy that replaces it) starts or drops
+   * its watcher and reloads both layers. */
+  function onRootEntry(name) {
+    if (name !== CONFIG_DIR) return;
+    if (!fs.existsSync(toolsDir)) toolsWatch.stop();
+    else toolsWatch.start();
+    schedule('config', hot.reloadConfig);
+    schedule('prompts', hot.reloadPrompts);
+  }
+
   hot.watch = () => {
     const rootWatcher = watchImpl(rootDir, (event, file) => {
       const name = file ? String(file) : '';
-      if (name === BASE_CONFIG_FILE) schedule('config', hot.reloadConfig);
-      else if (!privateApart) onPrivateEntry(name);
+      onRootEntry(name);
+      if (!privateApart) onPrivateEntry(name);
     });
     watchers.push(rootWatcher);
     attachErrorHandler(rootWatcher);
@@ -531,15 +614,10 @@ export function createHot({ rootDir, privateDir = rootDir, watchImpl = fs.watch 
     watchers.push(baseWatcher);
     attachErrorHandler(baseWatcher);
 
-    // The tool texts: config/ under the checkout, config.local/ under the private directory (either may be absent).
-    if (fs.existsSync(toolsDir)) {
-      const toolsWatcher = watchImpl(toolsDir, (event, file) => {
-        if (isPromptFile(file)) schedule('prompts', hot.reloadPrompts);
-      });
-      watchers.push(toolsWatcher);
-      attachErrorHandler(toolsWatcher);
-    }
-    if (fs.existsSync(localToolsDir)) startLocalToolsWatch();
+    // The settings, the labels and the tool texts: config/ under the checkout, config.local/ under the private
+    // directory (either may be absent).
+    if (fs.existsSync(toolsDir)) toolsWatch.start();
+    if (fs.existsSync(localToolsDir)) localToolsWatch.start();
     if (fs.existsSync(localPromptsDir)) startLocalWatch();
 
     return hot;
@@ -552,7 +630,8 @@ export function createHot({ rootDir, privateDir = rootDir, watchImpl = fs.watch 
     timers.clear();
     localWatcher = null;
     preamblesWatcher = null;
-    localToolsWatcher = null;
+    toolsWatch.forget();
+    localToolsWatch.forget();
   };
 
   return hot;

@@ -42,8 +42,9 @@ The core's console (`src/interface/commands/console.ts`) runs each command with 
 | `/intentions`, `/intentions show <id>`, `/intentions cancel <id>` | The open intentions, one of them, or its cancel (`intention.list`, `intention.cancel`). |
 | `/wakes`, `/wakes stop`, `/wakes start` | The inner life's status: its queue, its next wake and its last turn (`inner.status`). `stop` is its kill switch: no wake runs and the queued ones are dropped until `start` (`inner.stop`, `inner.start`). |
 | `/pause`, `/resume` | Stop admission and end the pause. See [Pause](#pause). |
-| `/config`, `/config get <path>`, `/config set <path> <value>`, `/config unset <path>` | `config.local.json` as it is, the live value of one setting, or an override written or removed (`config.set`, `config.unset`). |
-| `/model`, `/model set <role> <model>` | The model of every role, or the model of one role set in `config.local.json` (`model.show`, `model.set`). Setting `vision` or `video` also sets `media.recacheBefore`. |
+| `/config`, `/config get <path>`, `/config set <path> <value>`, `/config unset <path>` | `config.local/config.json` as it is, the live value of one setting, or an override written or removed (`config.set`, `config.unset`). |
+| `/config check` | Each key of `config.local/config.json` the settings schema does not know and each key whose value has a type the key does not take, one line each, and the answer fails when there is one. A clean file answers `ok` (`config.check`, answered by the console from the file). |
+| `/model`, `/model set <role> <model>` | The model of every role, or the model of one role set in `config.local/config.json` (`model.show`, `model.set`). Setting `vision` or `video` also sets `media.recacheBefore`. |
 | `/route`, `/route set <model> <providers> [role] [fallbacks] [byok]`, `/route remove <model> [role]` | Every route of `llm.providerByModel`, then each role's model and route (`route.list`). `set` routes a model prefix to the comma-separated providers only, for one role or `any`, and `true` for `fallbacks` or `byok` allows other providers or refuses an answer from OpenRouter's own capacity (`route.set`). `remove` drops a route (`route.remove`). |
 | `/memory profile <user> [section]`, `affinity <user>`, `private <user>` | A member's profile, affinity and private memory. |
 | `/memory conversation <id>`, `recent`, `server`, `journal [<day>]`, `archive [<kind>]` | A conversation's newest 30 stored lines from the memory database, the live recent lines, the server notes, the journal of a day and what left hot memory. |
@@ -102,7 +103,7 @@ The memory part (`src/health/memory.ts`) looks back seven days. It names every p
 |---|---|
 | `node` | The major version of Node: 26, as `package.json` `engines` says. |
 | `binaries` | `ffmpeg`, which voice messages need. Missing is `warn`. |
-| `config` | `config.json` and `config.local.json` parse, and each key of `config.local.json` has the type `config.json` gives it. A key of another type is `warn`, except a model role set to `false`. |
+| `config` | `config/config.json` and `config.local/config.json` parse, and `config.local/config.json` holds only keys the settings schema knows, each of a type the key takes (`src/config/check.ts`). An unknown key, a key of the wrong type and a layer still laid out the old way (`config.local.json`) are `warn`. |
 | `local-layer` | The private directory exists, and whether `prompts.local/` is there. |
 | `env-keys` | `.env` in the private directory sets `OPENROUTER_CORE_KEY` (`fail` without it) and every key `llm.keyByRole` names (`warn` for a missing one). Names only. |
 | `roles` | A model role switched off with `models.base.<role>: false`, or a role whose key never falls back (`memory`) without its `llm.keyByRole` variable. Either is `warn`. |
@@ -119,4 +120,4 @@ The token is `NEPTUNIA_TASK_TOKEN` itself, or else the file `<private>/clients/<
 
 ## The errand runner
 
-`neptunia errand-runner --profile <name>` is the process of one errand agent (see [Errands](errands.md)). It reads `config.json` and, when its user can read it, the private directory's `config.local.json`, and takes its socket and its output folder from `agents.<name>.socket` and `agents.<name>.out` (`agentSettings` in `src/agent-runner/profiles.js`). An unknown profile exits 1. It serves the agent's tasks on the socket (`src/agent-runner/server.js`), deletes old task folders hourly, and on `SIGTERM` ends the open tasks and exits 0. The scout's search command is `agents/scout/web-search.mjs`, which the wrapper `agents/scout/bin/web-search` runs.
+`neptunia errand-runner --profile <name>` is the process of one errand agent (see [Errands](errands.md)). It reads `config/config.json` and, when its user can read it, the private directory's `config.local/config.json`, and takes its socket and its output folder from `agents.<name>.socket` and `agents.<name>.out` (`agentSettings` in `src/agent-runner/profiles.js`). An unknown profile exits 1. It serves the agent's tasks on the socket (`src/agent-runner/server.js`), deletes old task folders hourly, and on `SIGTERM` ends the open tasks and exits 0. The scout's search command is `agents/scout/web-search.mjs`, which the wrapper `agents/scout/bin/web-search` runs.

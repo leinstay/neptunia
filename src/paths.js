@@ -1,7 +1,7 @@
 // Where a deployment's private material lives, resolved once at start. The checkout holds the
 // public engine; a deployment may keep its own layers apart from it, so that a checkout, a
 // worktree or a deploy never carries them:
-//   NEPTUNIA_PRIVATE_DIR  config.local.json, prompts.local/ and .env (default: the checkout root)
+//   NEPTUNIA_PRIVATE_DIR  config.local/, prompts.local/ and .env (default: the checkout root)
 //   NEPTUNIA_DATA_DIR     everything the engine writes (default: <checkout root>/data)
 // Both are optional; with neither set every path is the one the engine always used. This module
 // is the single place that knows the two names: src/index.js and the tools (tools/lib/cli.mjs)
@@ -9,7 +9,7 @@
 
 import path from 'node:path';
 
-/** The variable naming the directory of config.local.json, prompts.local/ and .env. */
+/** The variable naming the directory of config.local/, prompts.local/ and .env. */
 export const PRIVATE_DIR_VAR = 'NEPTUNIA_PRIVATE_DIR';
 /** The variable naming the directory everything the engine writes goes under. */
 export const DATA_DIR_VAR = 'NEPTUNIA_DATA_DIR';
@@ -21,7 +21,7 @@ function setValue(env, name) {
 }
 
 /**
- * The three directories of a deployment, every one absolute: `rootDir` (the checkout: config.json,
+ * The three directories of a deployment, every one absolute: `rootDir` (the checkout: config/,
  * prompts/), `privateDir` (`NEPTUNIA_PRIVATE_DIR` when set, else `rootDir`) and `dataDir`
  * (`NEPTUNIA_DATA_DIR` when set, else `<rootDir>/data`). A relative value is resolved against
  * `rootDir`, never against the process's working directory. Pure: `env` is only read.

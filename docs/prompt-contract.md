@@ -9,7 +9,7 @@ other. See `CONTRIBUTING.md` for the workflow around changes.
 | Directory | Tracked | Content |
 |---|---|---|
 | `prompts/` | yes | English engine defaults + a neutral example character. Works out of the box |
-| `prompts.local/` | no | A deployment's overrides: a file replaces the default of the same name; `labels.json` is deep-merged. The tool texts have their own local folder, `config.local/` (see `tools.json` below) |
+| `prompts.local/` | no | A deployment's overrides: a file replaces the default of the same name. The labels and the tool texts have their own folders, `config/` and `config.local/` (see `config/labels.json` and `config/tools.json` below) |
 
 Both hot-reloaded. `/rules add` writes to `prompts.local/rules.md` (seeded from the default), never to `prompts/`.
 All instructions are English in both layers; a character's speech samples may be in the language it speaks.
@@ -58,8 +58,8 @@ All instructions are English in both layers; a character's speech samples may be
 | `split.md` | no | Classifier: does a direct call hold several separate requests (`features.splitTasks`). Receives a short `<transcript>` and the new message as `<candidate>`. Output is the word `one`, or 2 to `{{maxTasks}}` lines each starting with `- ` and holding one part in the author's own words. No character card. Without this file the splitter is off | `{{name}}` `{{maxTasks}}` |
 | `merge.md` | no | Classifier: does a new message from an author with waiting items belong to one of them. Receives a numbered `<waiting>` list and the new message as `<candidate>`. Output is one line: a number from the list or the word `new`. No character card. Without this file a new call is always queued as its own item | `{{name}}` |
 | `missed.md` | no | Classifier: do earlier messages to the persona still need an answer (`features.missedAnswers`). Role `analyzer`, purpose `missed`. Receives a short transcript (`missed.contextMessages` lines, the persona's own lines marked with `labels.self`, trigger markers when on) and a `<candidates>` block of numbered messages with their transcript line and the reason they were flagged. Output is one `n: verdict` line per candidate: `owed`, `resolved`, `intentional-skip`, `stale` or `uncertain`. A failed call gives every candidate `unchecked`, never `owed`. No character card | `{{name}}` |
-| `labels.json` | yes | Every string the CODE inserts into a prompt. Keys fixed below, values are the text author's (the dev agent) | see below |
-| `config/tools.json` | yes | The persona's tool texts, keyed by tool name (`hot.prompts.tools`). It sits in `config/`, and a deployment's own texts in `config.local/tools.json`, deep-merged like `labels.json`: the local file adds or overrides individual keys. A `prompts.local/skills.json` left over from an earlier layout stops the start with one line naming `tools/tools-file-move.mjs`, which moves it and renames the `skills` section of `prompts.local/labels.json` to `tools`. Each key holds `title`, `whenToUse`, an optional `whenNotToUse` and `args` (one description per parameter, sent with the tool schema). Code joins them with the structural definition from `src/tools/registry.ts` at the moment of use (`describeSkill`) | none |
+| `config/labels.json` | yes | Every string the CODE inserts into a prompt or an owner's answer, in two sections: `model`, the wording her requests and the analyzer's requests carry, and `owner`, the strings only the owner reads (`status.costs.*` and `status.inner.*`). A deployment's own wording goes into `config.local/labels.json`, the same two sections, either of them optional, deep-merged over the tracked file. The engine joins the two sections into one object, `hot.prompts.labels` (`src/config/labels.ts#joinLabels`), every key at its path under its section, and a key in both sections stops the load. A flat `prompts.local/labels.json` of the old layout still loads with one warning per start, until `tools/config-files-move.mjs` splits it. Keys fixed below, values are the text author's (the dev agent) | see below |
+| `config/tools.json` | yes | The persona's tool texts, keyed by tool name (`hot.prompts.tools`). It sits in `config/`, and a deployment's own texts in `config.local/tools.json`, deep-merged like the labels: the local file adds or overrides individual keys. A `prompts.local/skills.json` left over from an earlier layout stops the start with one line naming `tools/tools-file-move.mjs`, which moves it and renames the `skills` section of `prompts.local/labels.json` to `tools`. Each key holds `title`, `whenToUse`, an optional `whenNotToUse` and `args` (one description per parameter, sent with the tool schema). Code joins them with the structural definition from `src/tools/registry.ts` at the moment of use (`describeSkill`) | none |
 
 `{{name}}` bot's display name · `{{author}}` caller's display name · `{{trigger}}` one of `labels.triggers.*` ·
 `{{target}}` index of the calling message (`#87`).
@@ -420,7 +420,7 @@ still search deeper with `memory.search`.
 
 ## Labels
 
-The keys of `labels.json`; `{x}` is filled by code.
+The keys of `config/labels.json`, each at its path under its section (`model.transcript.gap` is read as `transcript.gap`); `{x}` is filled by code. The keys under `status.costs` and `status.inner` sit in `owner`, every other key in `model`.
 
 ```
 locale                                   BCP-47 tag for dates

@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: No private files tracked
         run: |
-          bad=$(git ls-files -- CLAUDE.local.md .claude .opencode .agents .local.git .secrets references prompts.local config.local.json data .env '.env.*' | grep -vx '.env.example' || true)
+          bad=$(git ls-files -- CLAUDE.local.md .claude .opencode .agents .local.git .secrets references prompts.local config.local.json config.local data .env '.env.*' | grep -vx '.env.example' || true)
           if [ -n "$bad" ]; then echo "::error::private files are tracked:"; echo "$bad"; exit 1; fi
 
   lint:
@@ -61,7 +61,7 @@ jobs:
     # `typecheck`: tsc, strict, over the .ts files only (type-baseline.json may only shrink). `health`: file,
     # function and nesting limits and the folder rules of structure.json (code-health-baseline.json may only
     # shrink). `prose`: the objective rules of WRITING.md on the Markdown files. `check:codes`: the result codes
-    # against prompts/labels.json and the contract table. Then Prettier on the files this change touches only: a
+    # against config/labels.json and the contract table. Then Prettier on the files this change touches only: a
     # pull request diffs against its base, a push to main against the commit before it.
     runs-on: ubuntu-latest
     timeout-minutes: 5

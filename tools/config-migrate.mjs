@@ -4,14 +4,15 @@
 // live under `errands`, and `agents.<name>.search.provider`). The engine applies the same moves when it loads the file, so
 // an unmigrated file still works and logs one warning line per load; this tool settles the file itself.
 //
-//   node tools/config-migrate.mjs --dry-run [--file <config.local.json>] [--db <memory.db>] [--compare-with <config.json> [--self <id>]]
-//   node tools/config-migrate.mjs --apply [--file <config.local.json>] [--db <memory.db>]
+//   node tools/config-migrate.mjs --dry-run [--file <private settings file>] [--db <memory.db>] [--compare-with <config.json> [--self <id>]]
+//   node tools/config-migrate.mjs --apply [--file <private settings file>] [--db <memory.db>]
 //
 // `diary.channelId` is the seed of the diary's mirror (schema v15): it moves to the database only when the memory
 // database given with `--db` (opened read-only) has an enabled `diary` mirror, printed as `diary.channelId -> memory
 // database`. Without that mirror, or without `--db`, the key stays and one line says so.
 //
-// The file is `--file`, else `config.local.json` of `NEPTUNIA_PRIVATE_DIR`, else of the checkout (src/paths.js).
+// The file is `--file`, else the private settings file of `NEPTUNIA_PRIVATE_DIR`, else of the checkout (src/paths.js):
+// `config.local/config.json`, or `config.local.json` of the old layout (src/config/files.ts#localConfigPath).
 // `--dry-run` prints each move as `from -> to`, each key nothing reads any more as `<path> dropped (no reader)`, and
 // writes nothing. A second run finds nothing to move.
 //
@@ -25,13 +26,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DROPPED_GRANTS, ERRAND_KEYS, GRANT_MOVES, moveConfigKeys } from '../src/config-moves.ts';
 import { ROOT_DIR, deepMerge } from '../src/config.js';
+import { localConfigPath, trackedConfigPath } from '../src/config/files.ts';
 import { agentSettings } from '../src/agent-runner/profiles.js';
 import { grantedToPersona } from '../src/tools/access.ts';
 import { openMemoryDb } from '../src/memory/db/open.js';
 import { CliError, parseFlags, privateDirOf, runCli } from './lib/cli.mjs';
 
 const USAGE =
-  'usage: node tools/config-migrate.mjs --dry-run|--apply [--file <config.local.json>] [--db <memory.db>] [--compare-with <config.json> [--self <id>]]';
+  'usage: node tools/config-migrate.mjs --dry-run|--apply [--file <private settings file>] [--db <memory.db>] [--compare-with <config.json> [--self <id>]]';
 
 /**
  * Whether the memory database `file` (opened read-only) has an enabled `diary` mirror; false without a file.
@@ -155,7 +157,7 @@ function compared(local, moved, oldFile, self) {
     throw new CliError(`${oldFile} cannot be read as JSON (${err instanceof Error ? err.message : String(err)})`);
   }
   /** @type {unknown} */
-  const current = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'config.json'), 'utf8'));
+  const current = JSON.parse(fs.readFileSync(trackedConfigPath(ROOT_DIR), 'utf8'));
   const before = objectOf(deepMerge(objectOf(old), local));
   const after = objectOf(deepMerge(objectOf(current), moved));
   const own = objectOf(after.bot).self ?? objectOf(before.bot).self;
@@ -191,9 +193,7 @@ function migrate(argv) {
   if (typeof flags['--compare-with'] === 'string' && flags['--apply'])
     throw new CliError(`--compare-with goes with --dry-run\n${USAGE}`);
   const file =
-    typeof flags['--file'] === 'string'
-      ? path.resolve(flags['--file'])
-      : path.join(privateDirOf(process.cwd()), 'config.local.json');
+    typeof flags['--file'] === 'string' ? path.resolve(flags['--file']) : localConfigPath(privateDirOf(process.cwd()));
   if (!fs.existsSync(file)) return `${file} does not exist: nothing to move\n`;
   const text = fs.readFileSync(file, 'utf8').trim();
   if (text === '') return `${file} is empty: nothing to move\n`;

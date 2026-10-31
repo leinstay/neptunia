@@ -557,7 +557,9 @@ export function readLocalConfig(localPath: string): Obj {
   return JSON.parse(raw) as Obj;
 }
 
+/** `value` as JSON into `localPath`, its folder (`config.local/`) made when absent. */
 export function writeLocalConfig(localPath: string, value: unknown): void {
+  fs.mkdirSync(path.dirname(localPath), { recursive: true });
   fs.writeFileSync(localPath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
