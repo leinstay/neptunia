@@ -1493,10 +1493,9 @@ async function buildCore(options, cleanups) {
 
   log.info('index: ready', { guildId: instance.guildId, tag: identity.selfName });
 
-  // /nep pause: a pause persisted before this restart comes back
-  // paused -- every spontaneous tick keeps no-op'ing until /nep resume.
+  // A pause persisted before this restart comes back paused: every spontaneous tick does nothing until /resume.
   if (store.state.data.paused) {
-    log.info('index: starting up paused, run /nep resume when data/ is ready', {
+    log.info('index: starting up paused, run /resume when data/ is ready', {
       pausedAt: store.state.data.pausedAt ?? null,
     });
   }
