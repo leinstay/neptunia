@@ -451,7 +451,7 @@
     },
     {
       "path": "src/turn/",
-      "purpose": "A turn, one topic per module. The functions that stand on their own are its settings, timers, triggers, inputs, mentions, targets, media, history, routing, journal records and skill calls. The modules that `createTurnRunner` in `src/behavior/turn.js` builds once over a typed context are the facts, the inputs, participation, the journal notes, the diary's first step, the pictures and GIFs, the sends, the typing indicator, the dry act, the act, the pulls, the skill calls, the tool round, the in-turn tools, the second look, the lookup and the outcome. `src/behavior/turn.js` keeps their wiring and the attempt, and re-exports what its importers read.",
+      "purpose": "A turn, one topic per module. The functions that stand on their own are its settings, timers, triggers, inputs, mentions, targets, media, history, routing, journal records and skill calls. The modules that `createTurnRunner` in `src/behavior/turn.js` builds once over a typed context are the facts, the inputs, participation, the journal notes, the diary's first step, the pictures and GIFs, the sends, the typing indicator, the dry act, the act, the pulls, the skill calls, the tool round, the in-turn tools, the second look, the lookup and the outcome. `src/behavior/turn.js` keeps their wiring, runs each attempt through the phases of `src/turn/phases/`, and re-exports what its importers read.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"
@@ -655,6 +655,132 @@
     {
       "path": "src/turn/outcome.ts",
       "purpose": "How a turn ends: runTurn around its attempts, the chain of parts of a split message, the facts an addressed turn keeps, the end hook, the idle notifications and the selfreflection wake's inputs. Tested through the turn, turn attention, turn failed earlier and diary turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/draft.ts",
+      "purpose": "The draft of one attempt of a turn: every field its phases and the topic modules note for the journal's turn record, the end of the turn and the tool loop. Tested through the turn and journal turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/context.ts",
+      "purpose": "What the phases of an attempt share: the runner's dependencies and topic functions, the attempt's arguments and lifecycle, its early result and the cancellation point at its bar. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/preflight.ts",
+      "purpose": "The first phase of an attempt: the pause and the attention, the conversation's info, the journal's start and the settle wait. Tested through the turn and turn attention tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/request.ts",
+      "purpose": "The second phase of an attempt: the steps of `src/turn/phases/request/` in order, up to the reply request. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/request/setup.ts",
+      "purpose": "The request's settings for the attempt, its bar and cancellation point, the typing while it prepares, the listing, the history, the memory prefetch and a diary post's plan. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/request/planner.ts",
+      "purpose": "Which searches a turn may run, and the turn planner with what it is sent and its route step. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/request/pulls.ts",
+      "purpose": "The channels a turn shows in `<channel_view>`, the chooser of a spontaneous turn and the source of a routed call. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/request/stages.ts",
+      "purpose": "The preparation's deadline and its first stages: the file previews, the captions, the splitter and the video watches. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/request/second-look.ts",
+      "purpose": "The second look at a video, a GIF or a picture the trigger asks about, the deadline's media extension and the video states a classifier shows. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/request/lookup.ts",
+      "purpose": "The link reads, the search classifier with its searches, and the planner's start when its route step did not start it. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/request/wait.ts",
+      "purpose": "The neighbours, the pulled channels and the participation pick, the one wait for the preparation, and what of it was late. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/request/gather.ts",
+      "purpose": "What the preparation brought, taken as the request shows it: deleted lines, late video states, reads, searches, neighbours, pulls, a diary plan, the drawing quota and `<recent>`. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/request/facts.ts",
+      "purpose": "What was kept for her in the conversation, the task input, the follow-up prompt's check, her time away and skills discovery. Tested through the turn and turn failed earlier tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/request/build.ts",
+      "purpose": "Her tools for the turn, the request input, the request built, the memory reads record and the lines the journal names as seen. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/response.ts",
+      "purpose": "The third phase of an attempt: the reply request under the bar, her answer read and shaped, the answer logged, the seen marks, and the cut-off and silence that end the turn. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/act.ts",
+      "purpose": "The fourth phase of an attempt: how her answer reaches the chat, the recovery turn's last check and the dry run. Tested through the turn and journal turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/tool-round.ts",
+      "purpose": "The fifth phase of an attempt: her calls under the turn's effect keys, her speech, the later steps, and the cut-off and short diary set that end the turn. Tested through the turn, turn tool steps and diary turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/outcome.ts",
+      "purpose": "The last phase of an attempt: what its steps posted, a diary entry recorded, the result, how an attempt that threw ends and what every attempt closes. Tested through the turn and diary turn tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"

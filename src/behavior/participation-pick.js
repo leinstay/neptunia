@@ -202,7 +202,7 @@ export function parseParticipationPick(raw, count) {
  * the headlines before a nameless channel's are left out; `ages` are the
  * per-turn `<episode_ages>` lines. No request, no log.
  * @param {{ store: object, guildId: string, channel: object, audience: (channelId: string) => boolean,
- *   snapshot?: import('./snapshot.ts').Snapshot|null, config: object, units: object, selfName: string, now: number }} params
+ *   snapshot?: import('./snapshot.ts').Snapshot|null, config: object, units?: object, selfName: string, now: number }} params
  * @returns {{ headlines: number, lines: string[], ages: string[], ids: string[] }}
  */
 export function participationEpisodeOffer({
