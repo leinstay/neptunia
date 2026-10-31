@@ -95,10 +95,9 @@ function buildEnv({
   // The data directory src/index.js resolved (src/paths.js); `<hot.rootDir>/data` when not given.
   dataDir = hot?.rootDir ? path.join(hot.rootDir as string, 'data') : null,
 }: OpsDeps) {
-  /** `/<command name> <rest>`, the command name read now (`bot.commandName`, default `nep`):
-   * every reply that points the owner at another command says it this way. */
+  /** `/<rest>`: every reply that points the owner at a command of the chat (src/interface/commands/table.ts). */
   function slash(rest: string): string {
-    return `/${hot.config?.bot?.commandName || 'nep'} ${rest}`;
+    return `/${rest}`;
   }
 
   /** The refusal of a data/ write while paused. */

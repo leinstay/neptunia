@@ -56,7 +56,6 @@
     "diary": true,
     "typingSimulation": true,
     "pauseNotice": true,
-    "adminCommands": true,
     "memberCommands": true,
     "tools": true,
     "toolsDiscovery": true,
@@ -80,7 +79,6 @@
   "bot": {
     "timezone": "UTC",
     "owners": [],
-    "commandName": "nep",
     "nameTriggers": [],
     "guildId": "",
     "dryRunChannelId": "",

@@ -1,44 +1,29 @@
-// Owner commands, driven by Discord slash commands (interfaces/discord/commands.js)
-// so the owner can tune the running bot from Discord without a restart and
-// without ever touching data/: live rules (prompts.local/rules.md, seeded
-// from prompts/rules.md), config overrides (config.local.json, hot-reloaded),
-// status, a turn of the persona asked for now (`/nep message create`), and
-// profile inspection, plus one member command, `/nep pings` (cmdPings: a
-// member's own notification switch, open to everyone while
-// `features.memberCommands` is on). No command deletes stored memory. The tracked
-// prompts/ layer is never written at runtime — live corrections always land
-// in the untracked prompts.local/ layer.
+// The owner's operations as one object the core builds once (src/core.js): live rules
+// (prompts.local/rules.md, seeded from prompts/rules.md), config overrides (config.local.json,
+// hot-reloaded), status, a turn of the persona asked for now (`message.create`) and profile
+// inspection. No operation deletes stored memory. The tracked prompts/ layer is never written at
+// runtime: live corrections always land in the untracked prompts.local/ layer.
 //
-// This module knows nothing about discord.js: `createAdmin(deps).runCommand`
-// takes a `commandKey` (e.g. `'memory.show'`), a plain `args` object and a
-// `context` (`{ guildId, channelId, userId, roleIds }`), checks the caller's
-// rights on the operation the key runs and answers `{ status, code, summary,
-// data }`; `run` (the tests' entry, no rights check) returns the reply text
-// (or, for `/nep draw`, `{ text, files }` with the picture; for `/nep status`,
-// `{ text, embeds }` with the card), or throws an
-// `Error` with an operator-facing message on bad input. Mapping a
-// discord.js interaction's options onto `args` is interfaces/discord/commands.js's
-// job. The handlers themselves are typed operations under src/tools/impl/ (one file
-// per area): `run` maps the command key onto its operation
-// (src/tools/impl/index.ts#COMMAND_TO_OP), runs it and renders the result. The pure
-// functions (listRules, appendRule, removeRule, setPath, unsetPath,
-// buildProfileSummary) live in src/tools/impl/shared.ts and are re-exported from here.
+// `createAdmin(deps)` runs the typed operations under src/tools/impl/ (one file per area) by their
+// names: `runSkillOp` with the requester's full rights check (the owner's console and her tool calls
+// for a person), `runOwnSkillOp` and `runInitiativeSkillOp` for her own calls, whose grant the skill
+// gateway checks. `run(op, args, context)` is the tests' entry: no rights check, and the result
+// rendered as the reply text, as `{ text, files }` with a picture or as `{ text, fields }` with the
+// status card, or a thrown `Error` with an operator-facing message on bad input. The pure functions
+// (listRules, appendRule, removeRule, setPath, unsetPath, buildProfileSummary) live in
+// src/tools/impl/shared.ts and are re-exported from here.
 
-import { isAllowed as accessIsAllowed } from './tools/impl/grants.ts';
 import { createOpsEnv } from './tools/impl/env.ts';
-import { resolveCommand, runOp, runOpPrechecked, legacyGrantOps } from './tools/impl/index.ts';
-import { getOp, listOps } from './tools/impl/registry.ts';
-import { grantKeys, migrateStoredGrants } from './tools/impl/access.ts';
+import { runOp, runOpPrechecked } from './tools/impl/index.ts';
+import { migrateStoredGrants } from './tools/impl/access.ts';
+import { listOps } from './tools/impl/registry.ts';
+import { legacyGrantOps } from './config-moves.ts';
 import { listAliases } from './tools/impl/alias.ts';
 import { listLessons } from './tools/impl/learning.ts';
-import { skillNames } from './tools/registry.ts';
 import { SELF_OWNED_OPS } from './tools/impl/effects.ts';
 import { CODE } from './tools/codes.ts';
 
 export { listRules, appendRule, removeRule, setPath, unsetPath, buildProfileSummary } from './tools/impl/shared.ts';
-
-/** How many archive entries `/nep memory restore`'s autocomplete offers (Discord's cap on choices). */
-const ARCHIVE_CHOICES = 25;
 
 /**
  * `hot`, `store` — see src/hot.js, src/memory/store.js.
@@ -54,51 +39,50 @@ const ARCHIVE_CHOICES = 25;
  * `calibrator` — token calibrator (src/llm/tokens.js), read for `.ratio`.
  * `getGuildId` — the single guild this instance serves, or null before it resolves.
  * `turns` — from createTurnRunner() (src/behavior/turn.js), optional: `waitIdle()`, used by
- *   `/nep pause` to wait out a turn already in flight. Absent -> the wait is simply skipped.
+ *   `bot.pause` to wait out a turn already in flight. Absent -> the wait is simply skipped.
  * `pending` — `{ clear() }`, optional: clears src/behavior/pipeline.js's pending-ping queue on pause.
  *   Absent -> nothing to clear.
- * `images` — from createImageGen() (src/llm/images.js), optional: `generate()` for `/nep draw`,
- *   `quota()` and `familyOf()` for the image lines of `/nep status` and `/nep model show`.
- *   Absent -> `/nep draw` reports it is not available and `/nep status` has no image lines.
+ * `images` — from createImageGen() (src/llm/images.js), optional: `generate()` for `draw.create`,
+ *   `quota()` and `familyOf()` for the image lines of `status.show` and `model.show`.
+ *   Absent -> `draw.create` reports it is not available and `status.show` has no image lines.
  * `imageFetcher` — from createImageFetcher() (src/media/fetch-image.js), optional: downloads the
- *   bot's avatar as the reference of a `/nep draw self` picture. Absent -> no reference is sent.
+ *   bot's avatar as the reference of a `draw.create` picture of herself. Absent -> no reference is sent.
  * `emojiBackfill` — from createEmojiBackfill() (src/memory/emoji-backfill.js), optional: `run` (with
- *   `force`, awaited by `/nep emoji rescan`) and `isRunning` (a note in `/nep emoji status`).
- *   Absent -> `/nep emoji rescan` reports it is not available; `/nep emoji status` still works.
+ *   `force`, awaited by `media.rescan` for emoji) and `isRunning` (a note in `media.status`).
+ *   Absent -> that rescan reports it is not available; `media.status` still works.
  * `gifBackfill` — from createGifBackfill() (src/memory/gif-backfill.js), optional: `run` (with
- *   `force`, awaited by `/nep gifs rescan`) and `isRunning` (a note in `/nep gifs status`).
- *   Absent -> `/nep gifs rescan` reports it is not available; `/nep gifs status` still works.
+ *   `force`, awaited by `media.rescan` for GIFs) and `isRunning` (a note in `media.status`).
+ *   Absent -> that rescan reports it is not available; `media.status` still works.
  * `gifRecache` — from createGifRecache() (src/memory/gif-recache.js), optional: `start` (started by
- *   `/nep gifs recache`, never awaited to the end), `startMedia` (the same for `/nep media
- *   kind:pictures action:recache`), `isRunning` (a note in `/nep gifs status`) and `waitIdle`
- *   (`/nep pause` waits for a run in flight). Absent -> either recache reports it is not available.
- * `archive` — from createArchive() (src/memory/archive.js), optional: `iterate` (`/nep memory
- *   archive`), `find` and `append` (`/nep memory restore`, with the store's `restoreArchived`).
+ *   `media.recache` for GIFs, never awaited to the end), `startMedia` (the same for pictures),
+ *   `isRunning` (a note in `media.status`) and `waitIdle` (`bot.pause` waits for a run in flight). Absent -> either recache reports it is not available.
+ * `archive` — from createArchive() (src/memory/archive.js), optional: `iterate`
+ *   (`memory.archive.read`), `find` and `append` (`memory.restore`, with the store's `restoreArchived`).
  *   Absent -> both report the archive is not available.
  * `journal` — from createJournal() (src/memory/journal.js), optional: `system` records of pause
  *   and resume (written while `features.journal` is exactly true), `read` for
- *   `/nep memory journal`. Absent -> no records, and `/nep memory journal` reports it is not available.
- *   `withWriterLock` holds the journal's, the record's and the archive's writes while `/nep memory
- *   snapshot` copies `data/`; absent, it runs without it.
+ *   `memory.journal.read`. Absent -> no records, and that read reports it is not available.
+ *   `withWriterLock` holds the journal's, the record's and the archive's writes while
+ *   `memory.snapshot` copies `data/`; absent, it runs without it.
  * `llm` — from createLlm() (src/llm/openrouter.js), optional: `complete()`, the probe the owner's
- *   `/nep status` card sends to each role's model, and `modelEndpoints()`, its free check of the
+ *   status card sends to each role's model, and `modelEndpoints()`, its free check of the
  *   drawing model. Absent -> the card names the models without probing them.
  * `embedder` — from createEmbedder() (src/llm/embed.js), optional: `embed()`, the one-input
- *   embedding request the owner's `/nep status` card probes the `embedding` role with.
+ *   embedding request the owner's status card probes the `embedding` role with.
  *   Absent -> that role is shown unchecked.
  * `embedQueue` — from src/memory/embedder.js#createEmbedder, optional: `catchUp(guildId)`, the
- *   meaning index's catch-up pass `/nep resume` starts (never awaited), and `indexSummary(guildId)`,
+ *   meaning index's catch-up pass `bot.resume` starts (never awaited), and `indexSummary(guildId)`,
  *   the owner card's index line. Absent -> no pass on resume and no index line.
  * `record` — from createRecord() (src/memory/record.js), optional: `dayFile`, where the owner's
- *   `/nep status` card finds the record's month indexes for its memory coverage. Absent -> the
+ *   status card finds the record's month indexes for its memory coverage. Absent -> the
  *   record line says it is not available.
  * `metrics` — from src/tools/impl/metrics.ts#createMetrics, optional: `summary`, the owner card's speed
  *   field, and the turns of the last hour its storage line weighs. Absent -> no speed figures.
  * `lookup` — from src/web/lookup.js#createLookup, optional: `searchEngine` and `hasSearch`, the
  *   `search:` line of the limits field. Absent -> no search line.
  * `describer` — from src/memory/describe.js#createDescriber, optional: its second look
- *   (`relookImage`, `rewatchVideo`, `rewatchGif`, `videoCapsLeft`) behind `/nep task look`.
- *   Absent -> that command reports it is not available.
+ *   (`relookImage`, `rewatchVideo`, `rewatchGif`, `videoCapsLeft`) behind `media.look`.
+ *   Absent -> that operation reports it is not available.
  * `usage` — from src/tools/impl/usage.ts#createUsage, optional: `byRole`, today's requests per role on
  *   the owner card's costs field. Absent -> no role lines.
  * `simKey` — the optional simulator key (OPENROUTER_SIM_KEY), a string: used for one read-only GET of
@@ -106,104 +90,46 @@ const ARCHIVE_CHOICES = 25;
  * `managementKey` — the optional management key (OPENROUTER_MANAGEMENT_KEY), a string: used only for
  *   the read-only activity GETs behind each key's last 7 and 30 days on the owner card. Absent -> the
  *   bot's own accumulator (the simulator key: its calendar week and month).
- * `port` — the persona's interface (src/interface/port.js), optional: what `/nep message
- *   send|edit|delete|react` and `/nep draw channel:` post through, as the persona. Absent -> those
+ * `port` — the persona's interface (src/interface/port.js), optional: what the `message.*`
+ *   operations and `draw.create` in another channel post through, as the persona. Absent -> those
  *   report they are not available.
- * `errands` — from createErrandService() (src/errands/service.ts), optional: what `/nep task
- *   run|status|cancel|list` submit to and read. Absent -> those report they are not available.
- * `intentions` — from createIntentionService() (src/intentions/service.ts), optional: what `/nep
- *   task intent` and her `intent.*` calls change and read. Absent -> those report they are not available.
- * `inner` — from createInnerLife() (src/behavior/inner.ts), optional: what `/nep task inner`
- *   stops, starts and reports. Absent -> those report it is not running.
+ * `errands` — from createErrandService() (src/errands/service.ts), optional: what the `errand.*`
+ *   operations submit to and read. Absent -> those report they are not available.
+ * `intentions` — from createIntentionService() (src/intentions/service.ts), optional: what the
+ *   `intention.*` operations change and read. Absent -> those report they are not available.
+ * `inner` — from createInnerLife() (src/behavior/inner.ts), optional: what `inner.stop`,
+ *   `inner.start` and `inner.status` change and report. Absent -> those report it is not running.
  * `now` — the clock of the status card's coverage cache (default `Date.now`).
- * `dataDir` — the data directory `/nep memory snapshot` copies: src/index.js passes the one it
+ * `dataDir` — the data directory `memory.snapshot` copies: src/index.js passes the one it
  *   resolved (src/paths.js, `NEPTUNIA_DATA_DIR`); default `<hot.rootDir>/data`.
  *
- * `run(commandKey, args, context)` throws a plain `Error` (operator-facing
- * message) on bad input; `runCommand` never throws; neither touches discord.js.
+ * `run(op, args, context)` throws a plain `Error` (operator-facing message) on bad input; the
+ * `run*SkillOp` functions never throw.
  * @param {import('./tools/impl/env.ts').OpsDeps} deps
  */
 export function createAdmin(deps) {
   const env = createOpsEnv(deps);
-  const { hot, resolvedGuildId } = env;
 
-  /** The operation descriptor a command key runs with `args` (src/tools/impl/index.ts#COMMAND_TO_OP);
-   * a command with no operation (an unknown key) is owner-only.
-   * @param {string} commandKey */
-  function opForCommand(commandKey, args = {}) {
-    const target = resolveCommand(commandKey, args);
-    return (target?.op && getOp(target.op)) ?? { name: commandKey, rights: { kind: 'write', ownerOnly: true } };
-  }
-
-  /** The operation name `commandKey` runs with `args`, or null (a command with no operation, or
-   * arguments that pick none): interfaces/discord/commands.js defers and shows replies by operation.
-   * @param {string} commandKey */
-  function operationFor(commandKey, args = {}) {
-    return resolveCommand(commandKey, args)?.op ?? null;
-  }
-
-  /** Whether the caller may run `commandKey` (with `args`, which pick the operation for
-   * `pings`): src/tools/impl/grants.ts#isAllowed on its operation, every input
-   * read now. For the autocomplete, which runs nothing; a command itself goes through
-   * `runCommand`. `roleIds` -- the caller's Discord role ids -- comes from
-   * interfaces/discord/commands.js#createInteractionHandler, which reads them off the interaction. */
-  function isAllowed(commandKey, { userId, roleIds } = {}, args = {}) {
-    return accessIsAllowed({
-      op: opForCommand(commandKey, args),
-      member: { userId, roleIds },
-      owners: hot.config?.bot?.owners ?? [],
-      access: hot.config?.bot?.access ?? {},
-      features: hot.config?.features,
-    });
-  }
-
-  /** `/nep access grant`'s autocomplete keys: `*`, the groups and the grantable operations, then
-   * the persona's other skill names (src/tools/registry.ts), granted to her with her as the user. */
-  function accessKeys() {
-    return [...new Set([...grantKeys(listOps()), ...skillNames()])];
-  }
-
-  /** An operation's result as the reply the command adapter expects: `ok` -> its text (or
-   * `{ text, files }`, or `{ text, embeds }` for `status`); anything else -> the operator-facing
-   * Error the handler used to throw. */
+  /** An operation's result as the reply the tests read: `ok` -> its text (or `{ text, files }`,
+   * or `{ text, fields }` for `status.show`); anything else -> the operator-facing Error. */
   function render(result) {
-    if (result.status === 'ok') return result.data?.files || result.data?.embeds ? result.data : result.summary;
+    if (result.status === 'ok') return result.data?.files || result.data?.fields ? result.data : result.summary;
     throw Object.assign(new Error(result.summary), { code: result.code, status: result.status });
   }
 
   /**
-   * Run one command WITHOUT a rights check and render it: the reply text (or `{ text, files }`),
-   * or a thrown operator-facing `Error`. `commandKey` is `'<name>'` for a top-level command or
-   * `'<group>.<name>'` for a grouped one. The tests drive the handlers through it; the slash
-   * commands use `runCommand`, which checks the rights.
-   * @param {string} commandKey
+   * Run one operation by its name WITHOUT a rights check and render it: the reply text (or
+   * `{ text, files }`, or `{ text, fields }`), or a thrown operator-facing `Error`. The tests drive the
+   * operations through it.
+   * @param {string} op
    */
-  async function run(commandKey, args = {}, context = {}) {
-    const target = resolveCommand(commandKey, args);
-    if (!target) throw new Error(`unknown command: ${commandKey}`);
-    if (target.invalid) throw Object.assign(new Error(target.invalid), { code: CODE.INVALID_ARGS, status: 'invalid' });
-    return render(await runOpPrechecked(target.op, target.args, { ...context, env }));
-  }
-
-  /**
-   * One slash command for a caller (`context`: `{ guildId, channelId, userId, roleIds }`): the
-   * command key mapped to its operation (src/tools/impl/index.ts#COMMAND_TO_OP) and run through
-   * src/tools/impl/index.ts#runOp, the full rights check included; a key with no operation is
-   * `invalid`. Never throws: `{ status, code, summary, data }`.
-   * @param {string} commandKey
-   * @returns {Promise<{ status: string, code: string, summary: string, data: unknown }>}
-   */
-  async function runCommand(commandKey, args = {}, context = {}) {
-    const target = resolveCommand(commandKey, args);
-    if (!target)
-      return { status: 'invalid', code: CODE.UNKNOWN_COMMAND, summary: `unknown command: ${commandKey}`, data: null };
-    if (target.invalid) return { status: 'invalid', code: CODE.INVALID_ARGS, summary: target.invalid, data: null };
-    return runOp(target.op, target.args, { ...context, env });
+  async function run(op, args = {}, context = {}) {
+    return render(await runOpPrechecked(op, args, { ...context, env }));
   }
 
   /**
    * One operation run for the persona by its name (src/tools/impl/index.ts#runOp), the requester's full
-   * rights check included; no command key is resolved. Never throws.
+   * rights check included. Never throws.
    * @returns {Promise<{ status: string, code: string, summary: string, data: unknown }>}
    */
   async function runSkillOp(op, args = {}, context = {}) {
@@ -245,49 +171,12 @@ export function createAdmin(deps) {
   /** Once per guild at start: the stored grants re-expanded under the operation names
    * (src/tools/impl/access.ts#migrateStoredGrants). */
   function migrateAccess(guildId) {
-    return migrateStoredGrants(env, guildId, legacyGrantOps);
-  }
-
-  /**
-   * `/nep memory restore`'s autocomplete: the item ids of the newest ARCHIVE_CHOICES entries of
-   * the guild's archive (a restore line left out) whose id holds `typed`, newest first, each once,
-   * as `{ name, value }` choices. Empty without an archive or a guild; never throws.
-   */
-  async function archiveChoices(context, typed = '') {
-    const guildId = resolvedGuildId(context);
-    if (!guildId || typeof env.archive?.iterate !== 'function') return [];
-    const needle = String(typed ?? '').toLowerCase();
-    const newest = [];
-    try {
-      for await (const entry of env.archive.iterate(guildId, { scope: null, kinds: null })) {
-        if (typeof entry?.itemId !== 'string' || !entry.itemId || entry.event === 'restored') continue;
-        if (needle && !entry.itemId.toLowerCase().includes(needle)) continue;
-        newest.push(entry);
-        if (newest.length > ARCHIVE_CHOICES) newest.shift();
-      }
-    } catch {
-      return [];
-    }
-    const seen = new Set();
-    const choices = [];
-    for (const entry of newest.reverse()) {
-      if (seen.has(entry.itemId)) continue;
-      seen.add(entry.itemId);
-      choices.push({
-        name: `${entry.itemId} (${entry.itemKind ?? '?'})`.slice(0, 100),
-        value: entry.itemId.slice(0, 100),
-      });
-    }
-    return choices;
+    const everyOp = listOps().map((op) => op.name);
+    return migrateStoredGrants(env, guildId, (key) => legacyGrantOps(key, everyOp));
   }
 
   return {
-    isAllowed,
-    operationFor,
-    accessKeys,
-    archiveChoices,
     run,
-    runCommand,
     runSkillOp,
     runOwnSkillOp,
     runInitiativeSkillOp,

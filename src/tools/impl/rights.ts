@@ -45,7 +45,7 @@ export function rightsRefusal(
 
 /**
  * The config keys that govern authorization or the persona's own controls: who is an owner and
- * who may do what (`bot.owners`, `bot.access`, `features.adminCommands`, `features.memberCommands`),
+ * who may do what (`bot.owners`, `bot.access`, `features.memberCommands`),
  * her kill switch and her tools' settings, safe mode included (`features.tools`,
  * `features.toolsDiscovery`, `tools.*`, and the names they had before: `features.skills`, `features.skillsDiscovery`,
  * `skills.*`, which a local file may still carry), the journal that records what she does
@@ -56,7 +56,6 @@ export function rightsRefusal(
 export const PERSONA_GOVERNED_CONFIG: ReadonlyArray<string> = Object.freeze([
   'bot.owners',
   'bot.access',
-  'features.adminCommands',
   'features.memberCommands',
   'features.tools',
   'features.toolsDiscovery',
