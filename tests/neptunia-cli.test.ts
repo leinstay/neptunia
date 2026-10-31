@@ -199,6 +199,16 @@ test('doctor reports a database that is not one as failed and leaves the file as
   assert.equal(digestOf(db), before);
 });
 
+// PR 7a: the command line holds no key, so with the core down the provider probes are skipped, never run.
+test('doctor --live with the core down reports the provider probes skipped and prints no key', async () => {
+  const { dirs, key } = coreDown();
+  const run = await runCli(dirs, ['doctor', '--live', '--json']);
+  const checks = checksOf(run.stdout);
+  assert.equal(checks.get('providers'), 'skipped');
+  assert.equal(checks.get('socket'), 'fail', 'the core is down');
+  assert.equal((run.stdout + run.stderr).includes(key), false, 'no key value is printed');
+});
+
 /** The first JSON line the runner answers on `socket` to one `ping`. */
 function ping(socket: string): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {

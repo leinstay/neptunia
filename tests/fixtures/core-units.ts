@@ -132,19 +132,23 @@ export function addClient(privateDir: string, client: Client): void {
   assert.equal(run.status, 0, `client-token add ${client.name} failed: ${run.stderr}`);
 }
 
-/** The scripted model: the requests it got, and its `complete`. */
+/** The scripted model: the requests it got, the options of each call in the same order, and its `complete`. */
 export type Llm = {
   requests: Array<unknown>;
-  complete(messages: unknown): Promise<{ text: string; usage: object; estimated: number }>;
+  options: Array<unknown>;
+  complete(messages: unknown, options?: unknown): Promise<{ text: string; usage: object; estimated: number }>;
 };
 
-/** The scripted model: every request is answered `<msg>` + ANSWER and kept. */
+/** The scripted model: every request is answered `<msg>` + ANSWER and kept, with the options it came with. */
 export function scriptedLlm(): Llm {
   const requests: Array<unknown> = [];
+  const options: Array<unknown> = [];
   return {
     requests,
-    complete: (messages: unknown): Promise<{ text: string; usage: object; estimated: number }> => {
+    options,
+    complete: (messages: unknown, given?: unknown): Promise<{ text: string; usage: object; estimated: number }> => {
       requests.push(messages);
+      options.push(given ?? null);
       return Promise.resolve({ text: `<msg>${ANSWER}</msg>`, usage: {}, estimated: 10 });
     },
   };

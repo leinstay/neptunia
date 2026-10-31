@@ -462,6 +462,38 @@ test('usage: the day survives a restart through the file; a broken file starts e
   assert.equal(warnings.length, 1);
 });
 
+test('usage: an llm usage line of a turn of the cli interface sums under cli, apart from the line of another', () => {
+  const usage = createUsage({ dataDir: tmpDir(), now: clock() });
+  const tap = usageTap(usage);
+  tap({ msg: 'llm: usage', role: 'core', iface: 'cli', promptTokens: 100, completionTokens: 5, cost: 0.03 });
+  tap({ msg: 'llm: usage', role: 'core', iface: 'cli', promptTokens: 50, completionTokens: 5, cost: 0.01 });
+  tap({ msg: 'llm: usage', role: 'core', iface: 'zeta71', promptTokens: 10, completionTokens: 1, cost: 0.5 });
+  const byIface = Object.fromEntries(
+    usage.sumDays(7).interfaces.map((row) => [row.iface, [row.requests, Number(row.cost.toFixed(4))]])
+  );
+  assert.deepEqual(byIface, { cli: [2, 0.04], zeta71: [1, 0.5] });
+});
+
+test('usage: the interface rows survive a restart through the file', async () => {
+  const dataDir = tmpDir();
+  const now = clock();
+  const first = createUsage({ dataDir, now });
+  usageTap(first)({
+    msg: 'llm: usage',
+    role: 'core',
+    iface: 'cli',
+    promptTokens: 100,
+    completionTokens: 5,
+    cost: 0.25,
+  });
+  assert.equal(await first.save({ force: true }), true);
+  const second = createUsage({ dataDir, now });
+  assert.deepEqual(
+    second.sumDays(7).interfaces.map((row) => [row.iface, row.requests, row.cost]),
+    [['cli', 1, 0.25]]
+  );
+});
+
 test('usage: a save within a minute of the last waits unless forced', async () => {
   const now = clock();
   const usage = createUsage({ dataDir: tmpDir(), now });
