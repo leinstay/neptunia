@@ -133,18 +133,14 @@ function samePrincipal(now: Principal | null, first: Principal): boolean {
 /** The namespace of the owner's command line: only a `cli` principal says hello under it, and it says hello under no other. */
 export const CLI_IFACE = 'cli';
 
-/** The permission that lets an interface principal send commands (a unit's slash commands, `/nep`). */
-export const COMMANDS_PERMISSION = 'commands';
-
 /** The namespace of the board's agents: only an `agent` principal says hello under it, and it says hello under no other. */
 export const AGENT_IFACE = 'agent';
 
 /** The prefix of the only commands an agent principal sends: the board's (src/board/commands.ts). */
 const TASK_PREFIX = 'task.';
 
-/** Whether `principal` may send `command.requested`: the owner's command line, an agent, or an interface granted `commands`. */
-export const mayCommand = (principal: Principal): boolean =>
-  principal.kind === 'cli' || principal.kind === 'agent' || principal.permissions.includes(COMMANDS_PERMISSION);
+/** Whether `principal` may send `command.requested`: the owner's command line or an agent, never an interface. */
+export const mayCommand = (principal: Principal): boolean => principal.kind === 'cli' || principal.kind === 'agent';
 
 /** Why the authenticated sender of `body` may not send it, or null. */
 function eventRefusal(body: Record<string, unknown>, iface: string, principal: Principal): string | null {

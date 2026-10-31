@@ -3,9 +3,7 @@
 // with `host.connect()`, says hello with the fake's capabilities and serves the adapter over it, and resolves with
 // the running interface plus two handles for the test: `emit(event)` injects an inbound event as the interface would
 // deliver it and resolves with the core's ack status, and `adapter` is the fake adapter whose stored messages are what
-// the persona posted and whose seeded conversations, members and messages the core reads. `legacy` is what the core's
-// tool and memory-job subsystems still read from a platform (src/interface/legacy.ts): the fake has none, and a test
-// that needs one passes it in `options.legacy`.
+// the persona posted and whose seeded conversations, members and messages the core reads.
 //
 // `options.self` and `options.community` are what `hello` tells the core about the persona and the community it serves.
 // `options.reads` limits the reads the fake offers (their wire names; all when absent).
@@ -44,7 +42,6 @@ export type FakeInterface = RunningInterface & {
 export async function start(
   host: InterfaceHost,
   options: {
-    legacy?: unknown;
     selfId?: string;
     self?: Named;
     community?: Named | null;
@@ -75,7 +72,6 @@ export async function start(
   let served = await serve();
   return {
     iface: adapter.iface,
-    legacy: options.legacy ?? null,
     adapter,
     emit: (event) => served.emit(event),
     drop(): Promise<void> {

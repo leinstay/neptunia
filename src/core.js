@@ -3,9 +3,9 @@
 // client and the turn, spontaneous and memory subsystems together, starts each interface over the link, and owns the
 // core's lifecycle (startup checks, timers, graceful shutdown). No decision logic lives here: everything is imported
 // from src/behavior, src/memory and src/llm. Nothing here builds, logs in or listens to a platform client: the
-// interface does, and hands back `legacy`, which holds the slash command handler (src/interface/legacy.ts). The entry (src/index.js) reads the paths and the environment, loads
-// the interface packages and handles the process signals; a test calls `startCore` with a scripted model and the fake
-// interface.
+// interface does, and hands back the running interface (src/protocol/host.ts). The entry (src/index.js) reads the
+// paths and the environment, loads the interface packages and handles the process signals; a test calls `startCore`
+// with a scripted model and the fake interface.
 //
 // This file stays JavaScript: it is the body of the old entry moved into a function, and stage 8 of the core
 // extraction converts it to TypeScript.
@@ -105,7 +105,6 @@ import { PROFILES as AGENT_PROFILES } from './agent-runner/profiles.js';
 import { createTagHistory, deprecatedModelKeys } from './behavior/mention.js';
 import { createMessageHandler } from './behavior/pipeline.js';
 import { createLeasedAttention } from './behavior/attention.ts';
-import { isValidCommandName } from './tools/impl/catalog.ts';
 
 const REQUIRED_PROMPTS = ['system-prompt', 'character-card', 'format', 'reply', 'interject', 'initiate'];
 
@@ -230,8 +229,8 @@ async function buildCore(options, cleanups) {
     );
   }
 
-  // The persona's skills against the operations and the command tree registered by the imports
-  // above: a skill on an unknown operation, or an operation no command runs, is a programming error
+  // The persona's skills against the operations registered by the imports above: a skill on an unknown operation is a
+  // programming error
   // and stops the start here.
   try {
     skillRegistry();
@@ -243,13 +242,6 @@ async function buildCore(options, cleanups) {
   {
     const missing = missingDefinitions();
     if (missing.length > 0) log.error('skills: definitions without a registered operation', { missing });
-  }
-
-  if (!isValidCommandName(hot.config.bot.commandName)) {
-    fail(
-      `index: invalid bot.commandName "${hot.config.bot.commandName}" — must match ^[a-z0-9_-]{1,32}$ ` +
-        '(config.local.json).'
-    );
   }
 
   // The old per-feature model keys are never read (classifier.* replaced them);
@@ -638,9 +630,6 @@ async function buildCore(options, cleanups) {
   // The diary's mirrors (src/behavior/mirror.ts): each recorded entry published once to every enabled mirror.
   const mirrors = createMirrors({ memoryDb, port: () => coreLink.adapter, now: Date.now, dataDir });
 
-  // What the interface hands over besides its adapter: `serveCommands`, the slash command interactions (the command
-  // handler). An interface that has none, like the fake, serves no commands.
-  const legacy = /** @type {Partial<import('./interface/legacy.ts').InterfaceLegacy>} */ (running?.legacy ?? {});
   // The community the interface serves, or the configured one when the interfaces run as units.
   instance.guildId = asUnits ? configuredGuild : (hello?.community?.id ?? null);
   // The core's reads of the interface: each answers its body or null, and a block that needs one is left out when it is null.
@@ -1063,7 +1052,7 @@ async function buildCore(options, cleanups) {
     // /nep memory snapshot: the data directory it copies.
     dataDir,
   });
-  // The owner's commands over the link: the `neptunia` chat and `-p`, and `/nep` from an interface unit.
+  // The owner's commands over the link: the `neptunia` chat and `-p`, and the board commands of the agents.
   commandDesk = createCommandDesk({
     // The owner's console (src/interface/commands/console.ts): the chat's table over the operations, run as the owner.
     console: createConsole({
@@ -1083,7 +1072,6 @@ async function buildCore(options, cleanups) {
       },
       now: Date.now,
     }),
-    admin,
     interfaces: interfaceLinks,
     guildId: getGuildId,
     // The agents' board commands (src/board/commands.ts), each run in the memory writer.
@@ -1100,11 +1088,6 @@ async function buildCore(options, cleanups) {
         roleHealth,
       }),
   });
-
-  // The slash commands: the interface builds the interaction handler over the admin and routes the interactions to
-  // it, and re-registers the command tree when `bot.commandName` or `features.adminCommands` change;
-  // `commands.register()` pushes the tree once at start.
-  const commands = legacy.serveCommands?.(admin) ?? { register: () => Promise.resolve() };
 
   // Once at startup, fire-and-forget: tell the operator whether YouTube links can
   // be watched here (only when video vision is on). Logs the status, never the URL or key.
@@ -1565,8 +1548,6 @@ async function buildCore(options, cleanups) {
   // The request dumps older than journal.keepRequests days: once now, then daily.
   await startupStep('journal.prune', () => pruneJournalRequests(instance.guildId));
   every(DAY_MS, () => pruneJournalRequests(instance.guildId), 'journal.prune');
-
-  await startupStep('registerCommands', () => commands.register(), { wait: true });
 
   // The custom emoji ranking from history, once (features.customEmoji on, no emojiBackfill stamp,
   // context.customEmoji.backfillMessages > 0). Fire-and-forget: never blocks the persona, logs its errors.

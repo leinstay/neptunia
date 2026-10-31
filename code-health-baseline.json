@@ -843,13 +843,6 @@
         "src/log.js",
         "src/memory/mentions.ts"
       ],
-      "interfaces/discord/commands.js": [
-        "src/llm/roles.js",
-        "src/log.js",
-        "src/time.js",
-        "src/tools/impl/catalog.ts",
-        "src/tools/impl/grants.ts"
-      ],
       "interfaces/discord/port.js": [
         "src/interface/port.js",
         "src/tools/codes.ts"

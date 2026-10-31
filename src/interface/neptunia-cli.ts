@@ -1,16 +1,13 @@
 // The core's side of the commands over the link: what answers a `command.requested` event. src/core.js hands each one
 // here before the event door sees it, so a command never reaches her memory, her turns or her requests. The link
-// (link.ts) lets a command through only from the `cli` principal (the `neptunia` chat and `neptunia -p`, the owner),
-// from an interface principal granted `commands` (a unit's slash commands, `/nep`), or from an `agent` principal (a
-// development agent of the task board, `neptunia task`).
+// (link.ts) lets a command through only from the `cli` principal (the `neptunia` chat and `neptunia -p`, the owner) or
+// from an `agent` principal (a development agent of the task board, `neptunia task`).
 //
 // A command of an `agent` principal, and a `task.*` command of the `cli` principal, is a board command: it runs as
 // the principal's name through `tasks` (src/board/commands.ts, run in the memory writer by src/board/writer.ts), so
 // the board's rights decide it, and it answers whether the core is paused or not.
 //
-// A command of an interface principal is a `/nep` command key with its arguments: it runs through the admin's
-// `runCommand`, the rights of its requester checked as on the in-process path. A command of the `cli` principal is a
-// command of the chat's table (src/interface/commands/table.ts), parsed by the chat, and runs with the owner's rights:
+// A command of the `cli` principal is a command of the chat's table (src/interface/commands/table.ts), parsed by the chat, and runs with the owner's rights:
 // `status` (the short summary), `header` (the chat's opening line, no row of the table), `help`, and
 // `interface.list`, `interface.enable` and `interface.disable` (`args.name`) are answered here, every other one by the
 // owner's console (src/interface/commands/console.ts). Every answer is plain text with a status: `ok` when the command
@@ -47,8 +44,6 @@ export type CommandEvent = {
   requester: { id: string; roles: ReadonlyArray<string> };
 };
 
-type OpResult = { status: string; summary: string; data?: unknown };
-
 /** One interface as `interface.list` shows it. */
 export type InterfaceRow = { name: string; enabled: boolean; connected: boolean };
 
@@ -72,9 +67,6 @@ export type StatusFacts = {
 export type CommandDeps = {
   /** The owner's console: every command of the table this desk does not answer itself. */
   console: { run(name: string, args: Record<string, unknown>, requester: { id: string }): Promise<Answer> };
-  admin: {
-    runCommand(commandKey: string, args: Record<string, unknown>, context: Record<string, unknown>): Promise<OpResult>;
-  };
   interfaces: {
     list(): ReadonlyArray<InterfaceRow>;
     enable(name: string): void;
@@ -178,19 +170,6 @@ export function createCommandDesk(deps: CommandDeps): {
     return deps.console.run(name, args, event.requester);
   }
 
-  async function nepCommand(event: CommandEvent): Promise<Answer> {
-    const context = {
-      guildId: event.conversation.communityId ?? null,
-      channelId: event.conversation.id,
-      userId: event.requester.id,
-      roleIds: event.requester.roles,
-    };
-    const result = await deps.admin.runCommand(event.name, event.args, context);
-    if (result.status === 'ok') return { text: result.summary, status: 'ok' };
-    if (result.status === 'denied') return { text: 'Not allowed', status: 'denied' };
-    return { text: `Error: ${result.summary}`, status: result.status };
-  }
-
   async function boardCommand(event: CommandEvent, principal: string): Promise<Answer> {
     const answer = await deps.tasks.command(principal, event.name, event.args);
     return { text: answer.text, status: answer.status };
@@ -201,7 +180,8 @@ export function createCommandDesk(deps: CommandDeps): {
       try {
         if (principal.kind === 'agent' || (principal.kind === 'cli' && event.name.startsWith(TASK_PREFIX)))
           return await boardCommand(event, principal.name);
-        return principal.kind === 'cli' ? await cliCommand(event) : await nepCommand(event);
+        if (principal.kind === 'cli') return await cliCommand(event);
+        return { text: 'commands come from the owner or an agent', status: 'denied' };
       } catch (err) {
         log.warn('commands: command failed', { command: event.name, error: err });
         return failed(err);

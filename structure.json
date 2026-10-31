@@ -1230,7 +1230,7 @@
     },
     {
       "path": "src/tools/impl/",
-      "purpose": "The owner operations behind the /nep commands.",
+      "purpose": "The typed operations behind the owner's commands and the persona's tools.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"
@@ -1241,13 +1241,6 @@
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"
-    },
-    {
-      "path": "src/interface/legacy.ts",
-      "purpose": "The types of what the core reads from an interface's `legacy`, one field per seam stage 3 removes. Types only.",
-      "layer": "public",
-      "imports": [],
-      "test": "none"
     },
     {
       "path": "src/protocol/host.ts",

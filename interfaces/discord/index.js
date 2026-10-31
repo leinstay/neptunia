@@ -4,7 +4,7 @@
 // (search.js), the audience rule of a pull for the recall runner (pull-fetch.js), the conversation reads the core's
 // adapter answers (reads.ts), the live voice and presence
 // event builders (around.js), the served guild (guild.js), member
-// cache warming (audience-warm.js) and the slash commands (commands.js), plus the factory the
+// cache warming (audience-warm.js), plus the factory the
 // composition root builds the interface with (createDiscordInterface). The core reaches it
 // by path (src/index.js); what it still imports from the core is by relative path
 // (`../../src/...`) until the workspaces are declared and later stages cut those imports.
@@ -17,7 +17,6 @@ export * from './search.js';
 export * from './around.js';
 export * from './guild.js';
 export * from './audience-warm.js';
-export * from './commands.js';
 export * from './gateway.js';
 
 import { createDiscordAdapter } from './port.js';
