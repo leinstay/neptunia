@@ -379,7 +379,7 @@
     },
     "src/memory/db/service.js": {
       "createMemoryDb": {
-        "function-length": 1144
+        "function-length": 1141
       },
       "createMemoryDb>sessionJob": {
         "complexity": 30

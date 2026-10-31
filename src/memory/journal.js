@@ -593,14 +593,15 @@ function scopeOf({ privateUserId = null, channelId = null } = {}) {
  *   with a code), and every line the writers write goes to it as the journal mapper maps it (`day`, `decisions`,
  *   her answers' `sources`, `affinity_events`, in the day's unit, `memoryDb.writeUnit`): the request dumps and the
  *   `.running` marker stay files.
+ *   `actionLine` builds an `action` line and its day unit without writing it: an errand's end writes it with its
+ *   board move.
  * @returns {{
  *   start(guildId: string, input: { channelId?: string, mode?: string, trigger?: object|null,
  *     participants?: string[], sourceMessageIds?: string[], privateUserId?: string|null,
  *     turnId?: string, attemptId?: number }): { turnId: string, attemptId: number, startedAt: string },
  *   turn(guildId: string, record: object): Promise<void>,
  *   action(guildId: string, record: object): Promise<void>,
- *   actionLine(guildId: string, record: object): { owner: string, line: unknown },  // unwritten: an errand's end
- *     writes it with its board move
+ *   actionLine(guildId: string, record: object): { owner: string, line: unknown },
  *   memory(guildId: string, record: object): Promise<void>,
  *   system(guildId: string, record: object): Promise<void>,
  *   answer(guildId: string, record: object): Promise<void>,

@@ -585,13 +585,8 @@ export function createMemoryDb({
           bad += 1;
           continue;
         }
-        out.push({
-          file,
-          update:
-            op === 'lines'
-              ? { op, owner, lines: Array.isArray(kept.lines) ? kept.lines : [] }
-              : { op, owner, value: kept.value },
-        });
+        const lines = Array.isArray(kept.lines) ? kept.lines : [];
+        out.push({ file, update: op === 'lines' ? { op, owner, lines } : { op, owner, value: kept.value } });
       } catch {
         bad += 1;
       }
