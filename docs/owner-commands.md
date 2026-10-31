@@ -29,7 +29,7 @@ The table follows the command tree in `src/tools/impl/catalog.ts`. Options that 
 | `/nep status [field]` | `status.show` | read | The bot's state, models, keys, costs, limits, memory and speed in one card. `field` (ac) shows one field alone. A member granted `status.show` sees the card without keys, costs, inner, memory and speed |
 | `/nep set <path> <value>` | `config.set` | write | Override a config value in `config.local.json`. `path` (ac) is a dotted config path; `value` is JSON or a plain string |
 | `/nep unset <path>` | `config.unset` | write | Remove a config override. `path` (ac) |
-| `/nep pause` | `bot.pause` | write | Pause the persona and flush memory so `data/` can be hand-edited. Deferred |
+| `/nep pause` | `bot.pause` | write | Pause the persona and flush memory so `data/` can be hand-edited. The messages that arrive meanwhile are kept for the resume (see [Pause](cli.md#pause)). Deferred |
 | `/nep resume` | `bot.resume` | write | Resume after a pause; refused if a `data/` file is invalid. Deferred |
 | `/nep draw <text> [self] [channel]` | `draw.create` | write | Draw one picture. Spends balance. `self`: the persona is in it. `channel`: post it there as the persona. Deferred |
 | `/nep pings [mode]` | `pings.get` / `pings.set` | read/write | Without `mode`: your current setting. `on`/`off`: set whether the persona's messages notify you. Member command |

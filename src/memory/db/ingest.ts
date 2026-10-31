@@ -8,14 +8,21 @@
 // can still bring. The writes go through the one writer (`memoryWrite`, session-write.js#applyMemoryWrite), the reads
 // run on the read connection.
 
-/** One event the core took: who sent it, its `seq` (null when the envelope had none), id, kind and conversation. */
+/**
+ * One event the core took: who sent it, its `seq` (null when the envelope had none), id, kind and conversation, and
+ * `held`, the whole event when it is a message the core holds for its resume (absent for every other).
+ */
 export type IngestRow = {
   principal: string;
   seq: number | null;
   eventId: string;
   kind: string;
   conversation: string | null;
+  held?: Record<string, unknown> | null;
 };
+
+/** A message a pause holds: who sent it, its event id and the whole event, in the order the core took them. */
+export type HeldEvent = { principal: string; eventId: string; event: Record<string, unknown> };
 
 type Statement = {
   run(...args: Array<unknown>): unknown;
@@ -39,7 +46,9 @@ export function isIngestRow(value: unknown): value is IngestRow {
   const filled = (field: unknown): boolean => typeof field === 'string' && field !== '';
   const seqOk = row.seq === null || (typeof row.seq === 'number' && Number.isInteger(row.seq) && row.seq > 0);
   const conversationOk = row.conversation === null || typeof row.conversation === 'string';
-  return filled(row.principal) && filled(row.eventId) && filled(row.kind) && seqOk && conversationOk;
+  const heldOk =
+    row.held === undefined || row.held === null || (typeof row.held === 'object' && !Array.isArray(row.held));
+  return filled(row.principal) && filled(row.eventId) && filled(row.kind) && seqOk && conversationOk && heldOk;
 }
 
 /**
@@ -53,14 +62,42 @@ export function insertIngest(db: Db, row: IngestRow, options: { at: number; keep
     db
       .prepare('SELECT 1 AS ok FROM ingest WHERE principal = ? AND seq = ? AND event_id <> ?')
       .get(row.principal, row.seq, row.eventId) !== undefined;
+  const held = row.held === undefined || row.held === null ? null : JSON.stringify(row.held);
   db.prepare(
-    'INSERT OR IGNORE INTO ingest (principal, seq, event_id, kind, conversation, committed_at) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(row.principal, seqTaken ? null : row.seq, row.eventId, row.kind, row.conversation, committedAt);
+    'INSERT OR IGNORE INTO ingest (principal, seq, event_id, kind, conversation, committed_at, held) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(row.principal, seqTaken ? null : row.seq, row.eventId, row.kind, row.conversation, committedAt, held);
   const last = lastPrune.get(db) ?? 0;
   if (options.at - last < HOUR_MS) return;
   lastPrune.set(db, options.at);
   const before = new Date(options.at - options.keepDays * DAY_MS).toISOString();
-  db.prepare('DELETE FROM ingest WHERE committed_at < ?').run(before);
+  db.prepare('DELETE FROM ingest WHERE committed_at < ? AND held IS NULL').run(before);
+}
+
+/** A connection that lists rows, as the read connection is. */
+type ListDb = { prepare(sql: string): { all(): Array<Record<string, unknown>> } };
+
+/** The messages held for the resume, oldest first; a row whose event does not parse is skipped. */
+export function heldEvents(db: ListDb): Array<HeldEvent> {
+  const rows = db
+    .prepare('SELECT principal, event_id, held FROM ingest WHERE held IS NOT NULL ORDER BY committed_at, rowid')
+    .all();
+  const found: Array<HeldEvent> = [];
+  for (const row of rows) {
+    let event: unknown;
+    try {
+      event = JSON.parse(String(row.held));
+    } catch {
+      // A held event the writer stored is JSON; one that is not is never replayed.
+      continue;
+    }
+    if (event !== null && typeof event === 'object' && !Array.isArray(event))
+      found.push({
+        principal: String(row.principal),
+        eventId: String(row.event_id),
+        event: event as Record<string, unknown>,
+      });
+  }
+  return found;
 }
 
 /** Whether the principal's event `eventId` is in the record. */
@@ -104,7 +141,8 @@ export function ingestOption(envelope: unknown): { row: IngestRow; keepDays: num
 
 /**
  * The writer's ingestion writes (session-write.js#applyMemoryWrite): kind `ingest` `{ row, at, keepDays }` writes one
- * event's row, kind `ingest-ack` `{ principal, seq }` a principal's watermark, each in its own transaction.
+ * event's row, kind `ingest-ack` `{ principal, seq }` a principal's watermark, kind `ingest-release`
+ * `{ principal, eventId }` clears the hold of one event, each in its own transaction.
  */
 export function applyIngestWrite(handle: unknown, update: unknown): { written: number } {
   const fields = fieldsOf(update);
@@ -113,6 +151,15 @@ export function applyIngestWrite(handle: unknown, update: unknown): { written: n
     const { row, at } = fields;
     if (!isIngestRow(row) || typeof at !== 'number') throw refused('an ingest row needs a principal, an id and a kind');
     handle.transaction(() => insertIngest(handle.db, row, { at, keepDays: keepDaysOf(fields.keepDays) }));
+    return { written: 1 };
+  }
+  if (fields.kind === 'ingest-release') {
+    const { principal, eventId } = fields;
+    if (typeof principal !== 'string' || typeof eventId !== 'string')
+      throw refused('a release needs a principal and an event id');
+    handle.transaction(() => {
+      handle.db.prepare('UPDATE ingest SET held = NULL WHERE principal = ? AND event_id = ?').run(principal, eventId);
+    });
     return { written: 1 };
   }
   const { principal, seq } = fields;
@@ -132,6 +179,10 @@ export type IngestRecord = {
   commit: (row: IngestRow) => Promise<unknown>;
   /** Writes the principal's new watermark through the writer. */
   ack: (principal: string, seq: number) => Promise<unknown>;
+  /** The messages a pause holds, oldest first; none while the database is closed. */
+  held: () => Array<HeldEvent>;
+  /** Clears the hold of one event through the writer, once the resume replayed it. */
+  release: (principal: string, eventId: string) => Promise<unknown>;
   /** The observation envelope of a line with the ingestion row of its event, for observe.js to write with it. */
   withRow: (envelope: object, row: IngestRow | null) => object;
 };
@@ -162,6 +213,12 @@ export function createIngestRecord(deps: {
     },
     commit: (row) => deps.memoryDb.memoryWrite({ kind: 'ingest', row, at: deps.now(), keepDays: keepDays() }),
     ack: (principal, seq) => deps.memoryDb.memoryWrite({ kind: 'ingest-ack', principal, seq }),
+    held() {
+      const db = readDb();
+      // The read connection is node:sqlite's, whose statements list rows with `all()`.
+      return db === null ? [] : heldEvents(db as unknown as ListDb);
+    },
+    release: (principal, eventId) => deps.memoryDb.memoryWrite({ kind: 'ingest-release', principal, eventId }),
     withRow: (envelope, row) => (row === null ? envelope : { ...envelope, ingest: { row, keepDays: keepDays() } }),
   };
 }

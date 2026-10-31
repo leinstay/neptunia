@@ -2067,10 +2067,10 @@ export function createTurnRunner({
   const iface = port;
 
   /**
-   * The port reference of a conversation (its info, a snapshot entry, anything with an `id`).
+   * The port reference of a conversation (its info, a snapshot entry, anything with an `id`), in the iface it names.
    */
   function conversationOf(channel) {
-    return { iface: iface.iface, conversationId: String(channel.id) };
+    return { iface: portIface(channel) || iface.iface, conversationId: String(channel.id) };
   }
 
   /**

@@ -2,11 +2,11 @@
 // connection must be `hello` with a token that stands for a principal (`principalOf`, src/interface/principals.ts;
 // a link opened with one `token` gives that token the boot principal), otherwise the link closes and nothing reaches
 // the event door. The principal, never what `hello` claims, decides what the connection may do: its events must
-// carry its own `iface` (a principal with no `iface` takes the one its `hello` names), and only a `cli` principal
-// reaches commands. The token is resolved again for every envelope, so a rotated or revoked token closes the link.
+// carry its own `iface` (a principal with no `iface` takes the one its `hello` names), and commands come only from a
+// `cli` principal or an interface principal with the permission `commands`. The token is resolved again for every envelope, so a rotated or revoked token closes the link.
 // `hello` is answered by an `ack` with the principal's watermark (`ackedSeq`, from `ingest.cursor`). After it, every
 // envelope is checked by its type: a malformed body, a second `hello`, an event of another `iface` and a command of a
-// principal that is not `cli` are answered `invalid`, and the link stays open.
+// principal that may not send one are answered `invalid`, and the link stays open.
 //
 // Each `event` goes through the door with the principal and its `seq`, and its ack goes back. Un-numbered events run
 // concurrently. Numbered ones (an interface with an outbox) run one at a time per conversation in `seq` order, the
@@ -26,8 +26,14 @@
 // `interface-disabled`), gives the effects in flight `ms` to finish, then closes the link, so the ones left end
 // `unknown`; it answers how many finished and how many did not.
 //
+// `answerCommand` sends the `command.result` of a command the principal asked for over this link, with its `status`.
+// A command reaches the link only from a `cli` principal or an interface principal granted `commands`; any other is
+// refused and logged as `link: event refused`. Only a `cli` principal says hello as `iface: 'cli'`, and it says hello
+// under no other namespace.
+//
 // `createInterfaceLinks` keeps every link of the core's socket, answers which interfaces are connected and runs the
-// disable of one: the owner's switch is written first, then each of its links drains.
+// disable of one: the owner's switch is written first, then each of its links drains. `createIfaceRouter` puts the
+// served interface and the owner's command line behind one adapter, routed by the `iface` of each reference.
 
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { ackOf, declaredHooks, envelope, portAction, validateEnvelope } from '../protocol/index.js';
@@ -54,6 +60,9 @@ export type LinkIngest = { cursor(principal: string): number; ack(principal: str
 type Result = Record<string, unknown>;
 type Kind = 'effect' | 'read';
 type Waiting = { kind: Kind; resolve(result: Result): void };
+
+/** The answer to one `command.requested`: the token it named, the text the owner reads and the command's outcome. */
+export type CommandAnswer = { replyRef: string; text: string; status: string };
 
 /** What a drain answers: the effects in flight that finished within its time, and those it ended `unknown`. */
 export type Drained = { drained: number; unknown: number };
@@ -118,10 +127,27 @@ function samePrincipal(now: Principal | null, first: Principal): boolean {
   return now !== null && now.name === first.name && now.kind === first.kind && now.iface === first.iface;
 }
 
+/** The namespace of the owner's command line: only a `cli` principal says hello under it, and it says hello under no other. */
+export const CLI_IFACE = 'cli';
+
+/** The permission that lets an interface principal send commands (a unit's slash commands, `/nep`). */
+export const COMMANDS_PERMISSION = 'commands';
+
+/** Whether `principal` may send `command.requested`: the owner's command line, or an interface granted `commands`. */
+export const mayCommand = (principal: Principal): boolean =>
+  principal.kind === 'cli' || principal.permissions.includes(COMMANDS_PERMISSION);
+
 /** Why the authenticated sender of `body` may not send it, or null. */
 function eventRefusal(body: Record<string, unknown>, iface: string, principal: Principal): string | null {
   if (body.iface !== iface) return 'body.iface:foreign';
-  if (body.kind === 'command.requested' && principal.kind !== 'cli') return 'body.kind:not-allowed';
+  if (body.kind === 'command.requested' && !mayCommand(principal)) return 'body.kind:not-allowed';
+  return null;
+}
+
+/** Why a principal may not say hello under `iface`, or null: the `cli` namespace belongs to the `cli` principals alone. */
+function ifaceRefusal(found: Principal, iface: unknown): string | null {
+  if (found.iface !== null && found.iface !== iface) return 'iface';
+  if ((found.kind === 'cli') !== (iface === CLI_IFACE)) return 'iface';
   return null;
 }
 
@@ -139,6 +165,7 @@ export function openAdapterLink(options: {
   adapter: Adapter;
   isClosed(): boolean;
   drain(ms: number): Promise<Drained>;
+  answerCommand(answer: CommandAnswer): Promise<Result>;
   close(): void;
 } {
   const { transport, door, log } = options;
@@ -187,9 +214,10 @@ export function openAdapterLink(options: {
       shut(reason ?? 'token');
       return;
     }
-    if (found.iface !== null && found.iface !== body.iface) {
-      log.warn('link: hello refused', { reason: 'iface', principal: found.name });
-      shut('iface');
+    const wrongIface = ifaceRefusal(found, body.iface);
+    if (wrongIface !== null) {
+      log.warn('link: hello refused', { reason: wrongIface, principal: found.name });
+      shut(wrongIface);
       return;
     }
     const refusedBy = options.admit?.(found) ?? null;
@@ -417,6 +445,8 @@ export function openAdapterLink(options: {
     adapter,
     isClosed: () => closed,
     drain,
+    // A command's answer may have reached the owner, so a link that closed meanwhile answers it `unknown`.
+    answerCommand: (answer) => call({ action: 'command.result', ...answer }, 'effect'),
     close: () => shut('closed'),
   };
 }
@@ -480,6 +510,55 @@ export function createLinkSwitch(first: AdapterLink | null): {
       live = link;
     },
     close: () => live.close(),
+  };
+}
+
+/** An adapter that answers every call as a link that dropped (`link-closed`): where a call goes when its link is gone. */
+export const closedAdapter = (): Adapter => closedLink().adapter;
+
+/**
+ * One adapter over the served interface and the interfaces of other namespaces: a call whose reference names an
+ * `iface` that `routeOf` answers goes to that adapter, every other call to `served`. The core sends the persona's
+ * reply in the owner's command line (`iface: 'cli'`) this way, while its modules hold one port. Its capabilities are
+ * the served interface's, with the reads of every adapter `routed()` lists added, so a read of a routed conversation
+ * is asked at all (src/interface/reads.ts asks only a declared read).
+ */
+export function createIfaceRouter(
+  served: Adapter,
+  routeOf: (iface: string) => Adapter | null,
+  routed: () => ReadonlyArray<Adapter>
+): Adapter {
+  const by = (ref: { iface?: unknown } | null | undefined): Adapter => {
+    const iface = ref?.iface;
+    if (typeof iface !== 'string' || iface === '' || iface === served.iface) return served;
+    return routeOf(iface) ?? served;
+  };
+  return {
+    ...declaredHooks(),
+    get iface(): string {
+      return served.iface;
+    },
+    capabilities(): Capabilities {
+      const own = served.capabilities();
+      const extra = routed().flatMap((adapter) => adapter.capabilities().reads ?? []);
+      return extra.length === 0 ? own : { ...own, reads: [...new Set([...(own.reads ?? []), ...extra])] };
+    },
+    send: (...args: Parameters<Adapter['send']>) => by(args[0]).send(...args),
+    edit: (...args: Parameters<Adapter['edit']>) => by(args[0]).edit(...args),
+    delete: (...args: Parameters<Adapter['delete']>) => by(args[0]).delete(...args),
+    react: (...args: Parameters<Adapter['react']>) => by(args[0]).react(...args),
+    unreact: (...args: Parameters<Adapter['unreact']>) => by(args[0]).unreact(...args),
+    typing: (...args: Parameters<Adapter['typing']>) => by(args[0]).typing(...args),
+    fetchMessages: (...args: Parameters<Adapter['fetchMessages']>) => by(args[0]).fetchMessages(...args),
+    conversationInfo: (...args: Parameters<Adapter['conversationInfo']>) => by(args[0]).conversationInfo(...args),
+    conversations: (...args: Parameters<Adapter['conversations']>) => served.conversations(...args),
+    history: (...args: Parameters<Adapter['history']>) => by(args[0]).history(...args),
+    memberInfo: (...args: Parameters<Adapter['memberInfo']>) => served.memberInfo(...args),
+    searchMessages: (...args: Parameters<Adapter['searchMessages']>) => served.searchMessages(...args),
+    searchMembers: (...args: Parameters<Adapter['searchMembers']>) => served.searchMembers(...args),
+    emoji: (...args: Parameters<Adapter['emoji']>) => served.emoji(...args),
+    parseLinks: (...args: Parameters<Adapter['parseLinks']>) => served.parseLinks(...args),
+    reactors: (...args: Parameters<Adapter['reactors']>) => by(args[0]).reactors(...args),
   };
 }
 

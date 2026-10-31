@@ -76,6 +76,7 @@ import { log } from '../log.js';
 import { MINUTE_MS, utcDay } from '../time.js';
 import { observationOf } from '../memory/db/observe-event.js';
 import { diaryConversationIds, isMirrorPlace } from './mirror.ts';
+import { CLI_GATE, CLI_IFACE, observeWhilePaused, privateChatsOff } from './core-pause.ts';
 
 /** @typedef {import('../protocol/adapter.ts').ConversationInfo} Conv */
 /** @typedef {import('../protocol/events.js').Message} Msg */
@@ -271,9 +272,9 @@ function mediaIdsOf(message) {
  *   conversation's permissions and history when it needs them. Also carries a
  *   `.drainPending()` method: called once a turn finishes anywhere (src/index.js wires it to
  *   src/behavior/turn.js's `setOnIdle`, in the same `finally` that frees the channel) to answer
- *   the oldest non-expired pending direct ping, one at a time, after a human switch pause. And a
- *   `.clearPending()` method (`/nep pause`, wired from src/admin.js via src/index.js) that
- *   drops every queued ping and every settle wait without answering any of them. And a `.stop()`
+ *   the oldest non-expired pending direct ping, one at a time, after a human switch pause. And a `.clearPending()`
+ *   method that drops every queued ping and settle wait unanswered. And `.onPrivate(event)`, the private-chat path
+ *   a direct chat the pause held is replayed through (src/behavior/core-pause.ts). And a `.stop()`
  *   method (shutdown, src/index.js) that clears every settle wait, so none starts a turn while the
  *   client goes down. And an `.onMessageUpdate(event)` method (src/index.js wires it to
  *   `messageUpdate` through an edit event) that records an edit and counts an embed the platform attached
@@ -1410,10 +1411,11 @@ export function createMessageHandler({
    * The private-chat gate for one DM author (src/behavior/private.js#privateGate),
    * shared by a live DM and a queued one at drain time. The free checks (a
    * stored profile, the owner flag, the attitude threshold) run before any
-   * read: `memberInfo` is only asked when those checks would let the author through.
+   * read: `memberInfo` is only asked when those checks would let the author through. The owner's command line passes.
    * @returns {Promise<{ gate: object, isOwner: boolean, replies: object|null, today: string }>}
    */
-  async function checkPrivateGate(config, guildId, authorId) {
+  async function checkPrivateGate(config, guildId, authorId, iface = '') {
+    if (iface === CLI_IFACE) return CLI_GATE;
     const profile = store.getUser(guildId, authorId);
     const isOwner = isOwnerId(config, authorId);
     const replies = store.getPrivate(guildId, authorId)?.replies ?? null;
@@ -1949,8 +1951,7 @@ export function createMessageHandler({
    * features.followUp is off now. Guarded against re-entrancy:
    * the turn this function itself starts also frees the channel through the very same `onIdle`,
    * which would otherwise start a second overlapping drain. A no-op while
-   * paused (`/nep pause` clears the queue itself); a pause that lands during the switch pause drops the
-   * ping in hand and ends the pass. A server ping is also dropped when its
+   * paused; a pause that lands during the switch pause puts the ping in hand back and ends the pass. A server ping is also dropped when its
    * switch (features.mentions / features.replies / features.nameTriggers) was turned
    * off while it waited (callSwitchOff).
    *
@@ -2000,10 +2001,10 @@ export function createMessageHandler({
         logPending(ping, 'picked up', { queued: queuedCount(ping.channelId, ping.trigger.authorId) });
         await sleep(between(mentionCfg.switchDelayMs ?? [2000, 9000], rng));
 
-        // Paused meanwhile: nothing may run or mark the store dirty; the
-        // queue's other pings are cleared by the pause itself.
+        // Paused meanwhile: the ping goes back to the queue, which the resume drains.
         if (store?.state?.data?.paused) {
-          logPending(ping, 'dropped', { reason: 'paused' });
+          pendingList = [...pendingList, ping];
+          logPending(ping, 'kept', { reason: 'paused' });
           break;
         }
         // An ordinary ping is answered where it was written. A routed call's
@@ -2525,7 +2526,7 @@ export function createMessageHandler({
   async function onPrivateMessage(event, config) {
     const author = event.message.author;
     const features = config.features ?? {};
-    if (features.privateMessages !== true) return;
+    if (privateChatsOff(features, event)) return;
     const selfId = selfIdOf();
     if (author.bot && author.id !== selfId) return;
     // When the partner last wrote here (pace.settleMs); the persona's own messages never count.
@@ -2556,7 +2557,7 @@ export function createMessageHandler({
     const authorId = author.id;
     const channel = await infoNow(event.iface, event.conversation.id);
     if (!channel) return;
-    const check = await checkPrivateGate(config, guildId, authorId);
+    const check = await checkPrivateGate(config, guildId, authorId, event.iface);
     if (!check.gate.ok) {
       await dropPrivate(channel, guildId, authorId, normalized, check);
       return;
@@ -2615,10 +2616,10 @@ export function createMessageHandler({
     const normalize = () => lineOf(event);
 
     if (event.conversation.communityId === null) {
-      if (features.privateMessages !== true) return null;
+      if (privateChatsOff(features, event)) return null;
       const guildId = getGuildId();
       if (!guildId) return null;
-      const { gate } = await checkPrivateGate(config, guildId, author.id);
+      const { gate } = await checkPrivateGate(config, guildId, author.id, event.iface);
       if (!gate.ok && gate.reason !== 'cap') return null;
       const privateChannel = await infoNow(event.iface, event.conversation.id);
       return privateChannel ? { channel: privateChannel, trigger: normalize(), kind: 'private' } : null;
@@ -2715,6 +2716,7 @@ export function createMessageHandler({
   // handled once, whichever path reaches it first. The live path never skips a message the
   // catch-up has not taken.
   const liveIds = new Set();
+  const pausedDeps = { hot, getGuildId, selfIdOf, observeLine };
   const caughtUpIds = new Set();
   /** Add `id` to `ids`, the oldest past the cap going first. */
   function keepId(ids, id) {
@@ -2749,7 +2751,15 @@ export function createMessageHandler({
       // 1. System / webhook messages are not conversation.
       if (event.message.system === true) return 'ignored';
 
-      // 1a. Once per message across the gateway and the start's catch-up (checked and noted
+      // 1a. Paused (/nep pause): no trigger, no turn, no eavesdrop, nothing marks the store dirty. A live line is observed
+      // into the memory database and the core holds it for the resume, which hands it back through the catch-up path
+      // (core-pause.ts), so it is not noted as live; a direct call also gets the pause notice (maybePauseNotice).
+      if (store?.state?.data?.paused) {
+        if (!catchUp) await Promise.all([maybePauseNotice(event), observeWhilePaused(event, pausedDeps)]);
+        return 'ignored';
+      }
+
+      // 1b. Once per message across the gateway and the start's catch-up (checked and noted
       // before the first await, so the two paths never both take it).
       const messageId = event.message.id ?? null;
       if (messageId) {
@@ -2760,15 +2770,6 @@ export function createMessageHandler({
         } else {
           keepId(liveIds, messageId);
         }
-      }
-
-      // 1b. Paused (owner editing data/ by hand, /nep pause): the
-      // persona does nothing at all -- no observe, no trigger, no turn, no
-      // eavesdrop -- and nothing below may mark the store dirty. A direct
-      // call only gets the pause notice (maybePauseNotice); a caught-up one not even that.
-      if (store?.state?.data?.paused) {
-        if (!catchUp) await maybePauseNotice(event);
-        return 'ignored';
       }
 
       const config = hot.config;
@@ -3069,13 +3070,11 @@ export function createMessageHandler({
 
   onMessage.drainPending = drainPending;
   onMessage.catchUp = catchUpMessage;
+  onMessage.onPrivate = (/** @type {Ev} */ event) => onPrivateMessage(event, hot.config);
   onMessage.onMessageUpdate = onMessageUpdate;
   onMessage.onMessageDelete = onMessageDelete;
-  /**
-   * Drop every pending direct ping and every settle wait without answering any
-   * of them (`/nep pause`): no timer fires afterwards. Each wait is logged as
-   * `elsewhere: dropped` (`paused`); its call stays unanswered in the ring.
-   */
+  // Every pending direct ping and every settle wait dropped unanswered: no timer fires afterwards. Each wait is logged
+  // as `elsewhere: dropped` (`paused`); its call stays unanswered in the ring.
   onMessage.clearPending = () => {
     pendingList = [];
     clearSettles('paused');

@@ -46,7 +46,7 @@ Caps enforced at queuing:
 
 ### The runner
 
-Each worker runs as a systemd service under its own Unix user (`deploy/neptunia-agent-scout.service`, `deploy/neptunia-agent-server.service`). The runner listens on a Unix socket (the profile's `socket`, overridable under `agents.<profile>.socket`); the core connects and sends tasks as JSON, one object per line.
+Each worker runs as a systemd service under its own Unix user (`deploy/neptunia-agent-scout.service`, `deploy/neptunia-agent-server.service`), which starts `neptunia errand-runner --profile <name>` (see [The neptunia command](cli.md#the-errand-runner)). The runner listens on a Unix socket (the profile's `socket`, overridable under `agents.<profile>.socket`); the core connects and sends tasks as JSON, one object per line.
 
 One task is one `opencode run` child process in a fresh working directory under the profile's output folder. The runner builds an OpenCode config from the profile (the prompt, the step cap, the permission map for the scope) and passes it through `OPENCODE_CONFIG_CONTENT`. Auto-update and the price-catalog fetch are disabled, so nothing of the server leaks into the worker. Built against OpenCode v1.19.3.
 

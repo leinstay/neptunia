@@ -80,14 +80,15 @@ import { readAction } from './reads.ts';
  * One action as a plain object, the port operation it names spelled out: the target
  * (`conversation` or `message`), the `content` of a send or an edit, the `emoji` of a reaction.
  * A command result answers the command whose `replyRef` it carries (the adapter alone knows what
- * the token stands for) with `text`, optional `files` and whether only the requester sees it.
+ * the token stands for) with `text`, optional `files`, whether only the requester sees it and the command's `status`
+ * (`ok` when it ran, another word when it did not).
  * @typedef {{ action: 'message.send', conversation: ConversationRef, content: Content }
  *   | { action: 'message.edit', message: MessageRef, content: Content }
  *   | { action: 'message.delete', message: MessageRef }
  *   | { action: 'message.react.add'|'message.react.remove', message: MessageRef, emoji: string }
  *   | { action: 'conversation.typing', conversation: ConversationRef }
  *   | { action: 'messages.fetch', conversation: ConversationRef, messageIds: string[] }
- *   | { action: 'command.result', replyRef: string, text: string, files?: Attachment[], ephemeral?: boolean }} Action
+ *   | { action: 'command.result', replyRef: string, text: string, files?: Attachment[], ephemeral?: boolean, status?: string }} Action
  */
 
 /** Every result status. */

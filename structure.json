@@ -224,6 +224,13 @@
       "test": "none"
     },
     {
+      "path": "agents/scout/web-search.mjs",
+      "purpose": "The scout's web search command, run by its wrapper `agents/scout/bin/web-search` on the agent's PATH. Its logic is `src/web/web-search.js`, tested there.",
+      "layer": "public",
+      "imports": ["src/web/web-search.js"],
+      "test": "none"
+    },
+    {
       "path": "bin/",
       "purpose": "Entry points that run as their own process.",
       "layer": "public",
@@ -343,6 +350,7 @@
         "src/interface/door.js",
         "src/interface/link.ts",
         "src/interface/members.ts",
+        "src/interface/neptunia-cli.ts",
         "src/interface/mode.ts",
         "src/interface/principals.ts",
         "src/interface/reads.ts",

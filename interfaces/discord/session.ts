@@ -6,10 +6,24 @@
 // `legacy` holds the slash command handler, the one thing the core takes besides the adapter. The conversation reads,
 // the reactions and the direct chats of the turn, the message pipeline and the tools are answered over the link by the
 // adapter (reads.ts) and the events.
+//
+// The slash commands run on the admin the core hands over through `legacy.serveCommands` (the in-process core). Until
+// one is handed over, as under a core whose interfaces run as units, each `/nep` interaction goes to the core as a
+// `command.requested` event under this interface's principal, and the text of the `command.result` that answers it is
+// the interaction's reply. The core runs it only when `clients.json` grants the principal the permission `commands`.
+// Under `interfaces.mode: units` the session registers the command tree itself when it opens.
+//
+// With a data folder (`host.dataDir`) the session numbers its events in an outbox there (src/protocol/outbox.ts), so
+// what the core did not acknowledge goes again after a restart of either side. `reconnect()` opens a new link with
+// `host.connect()`, says hello again and resends the outbox, keeping the Discord client.
 
+import { randomUUID } from 'node:crypto';
+import path from 'node:path';
 import { Events } from 'discord.js';
 import type { InterfaceHost, RunningInterface } from '../../src/protocol/host.ts';
+import { createOutbox } from '../../src/protocol/outbox.ts';
 import { serveAdapter } from '../../src/protocol/serve.ts';
+import type { CommandResult } from '../../src/protocol/serve.ts';
 import { createAudienceWarmer } from './audience-warm.js';
 import { connectionEvent, presenceEvent, presenceSnapshotEvent, voiceEvent } from './around.js';
 import {
@@ -50,6 +64,12 @@ export type DiscordLegacy = {
 
 /** How many gateway events are held before `open()`. */
 const HELD_MAX = 1000;
+
+/** How many unacknowledged events the outbox holds. */
+const OUTBOX_CAPACITY = 1000;
+
+/** An operation's answer as the interaction handler reads it (src/admin.js#runCommand). */
+type OpAnswer = { status: string; code: string | null; summary: string; data: null };
 
 const text = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null);
 const obj = (value: unknown): Obj => (value !== null && typeof value === 'object' ? (value as Obj) : {});
@@ -151,20 +171,77 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
   const selfId = (): string | null => client.user?.id ?? null;
 
   const discord = createDiscordInterface({ client, config });
-  const served = serveAdapter({
-    transport: await host.connect(),
-    hello: {
-      iface: discord.port.iface,
-      self: { id: selfId() ?? '', name: displayNameIn(guildNow(), client.user) },
-      community: { id: guildId, name: guilds.find((guild) => guild.id === guildId)?.name ?? guildId },
-      // What the gateway reports depends on the intents it was asked for: presences only with that intent.
-      capabilities: { ...discord.port.capabilities(), presence: intents.presences === true },
-      resume: null,
+  const outbox =
+    host.dataDir === undefined
+      ? undefined
+      : createOutbox({ dir: path.join(host.dataDir, 'outbox'), capacity: OUTBOX_CAPACITY });
+  // The answers the core still owes to the commands sent to it, by their `replyRef`.
+  const answers = new Map<string, (answer: OpAnswer) => void>();
+  const settleAnswers = (): void => {
+    for (const resolve of answers.values())
+      resolve({ status: 'error', code: 'link-closed', summary: 'the link to the core closed', data: null });
+    answers.clear();
+  };
+  const onCommandResult = (result: CommandResult): void => {
+    const resolve = answers.get(result.replyRef);
+    answers.delete(result.replyRef);
+    resolve?.({ status: result.status ?? 'ok', code: null, summary: result.text, data: null });
+  };
+  const serve = async (): Promise<ReturnType<typeof serveAdapter>> =>
+    serveAdapter({
+      transport: await host.connect(),
+      hello: {
+        iface: discord.port.iface,
+        self: { id: selfId() ?? '', name: displayNameIn(guildNow(), client.user) },
+        community: { id: guildId, name: guilds.find((guild) => guild.id === guildId)?.name ?? guildId },
+        // What the gateway reports depends on the intents it was asked for: presences only with that intent.
+        capabilities: { ...discord.port.capabilities(), presence: intents.presences === true },
+        resume: null,
+      },
+      token: host.token,
+      adapter: discord.port,
+      log,
+      onCommandResult,
+      ...(outbox === undefined ? {} : { outbox }),
+    });
+  let served = await serve();
+
+  // The admin of a core that hands none over: each command goes to the core and its answer comes back over the link.
+  const remoteAdmin = {
+    operationFor: (): null => null,
+    isAllowed: (): boolean => false,
+    accessKeys: (): Array<string> => [],
+    async runCommand(name: string, args: Obj, context: Obj): Promise<OpAnswer> {
+      const replyRef = randomUUID();
+      const answer = new Promise<OpAnswer>((resolve) => answers.set(replyRef, resolve));
+      const status = await served.emit({
+        kind: 'command.requested',
+        iface: DISCORD_IFACE,
+        at: Date.now(),
+        id: `${DISCORD_IFACE}:command:${replyRef}`,
+        conversation: { id: String(context.channelId), kind: 'channel', communityId: guildId, name: null },
+        name,
+        args,
+        requester: {
+          id: String(context.userId),
+          name: null,
+          roles: Array.isArray(context.roleIds) ? context.roleIds.map(String) : [],
+          owner: false,
+        },
+        replyRef,
+      });
+      if (status !== 'ok') {
+        answers.delete(replyRef);
+        return {
+          status: 'error',
+          code: 'refused',
+          summary: `the core did not take the command (${status})`,
+          data: null,
+        };
+      }
+      return answer;
     },
-    token: host.token,
-    adapter: discord.port,
-    log,
-  });
+  };
 
   const audienceWarmer = createAudienceWarmer({ getGuild: guildNow, logger: log });
 
@@ -301,9 +378,16 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
     }
   });
 
+  // One listener for the interactions, over the admin the core handed over, or over the core's link until it does.
+  let onInteraction = createInteractionHandler({
+    hot: liveConfig(config),
+    admin: remoteAdmin,
+    getGuildId: () => guildId,
+  });
+  on(Events.InteractionCreate, (interaction: Parameters<typeof onInteraction>[0]) => void onInteraction(interaction));
+
   function serveCommands(admin: unknown): { register(): Promise<unknown> } {
-    const onInteraction = createInteractionHandler({ hot: liveConfig(config), admin, getGuildId: () => guildId });
-    on(Events.InteractionCreate, (interaction: Parameters<typeof onInteraction>[0]) => void onInteraction(interaction));
+    onInteraction = createInteractionHandler({ hot: liveConfig(config), admin, getGuildId: () => guildId });
     commandsServed = true;
     return { register: () => registerCommands(guildNow() as never, config()) };
   }
@@ -325,10 +409,25 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
       for (const { kind, event } of waiting) deliver(kind, event);
       // The members named by channel overwrites, fetched so the audience rail knows which are bots.
       void audienceWarmer.warm();
+      // Under units no core hands an admin over: the session registers its command tree itself.
+      if (!commandsServed && obj(config().interfaces).mode === 'units') {
+        commandsServed = true;
+        const guild = guildNow();
+        if (guild !== null)
+          registerCommands(guild as never, config()).catch((err: unknown) =>
+            log.error('interface: failed to register commands', { error: err })
+          );
+      }
+    },
+    async reconnect(): Promise<void> {
+      served.close();
+      settleAnswers();
+      served = await serve();
     },
     async stop(): Promise<void> {
       stopWatching();
       served.close();
+      settleAnswers();
       await client.destroy();
     },
   };

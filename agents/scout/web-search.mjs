@@ -6,13 +6,13 @@
 // child's PATH (src/agent-runner/opencode.js); the logic is
 // src/web/web-search.js.
 //
-//   node bin/web-search.mjs <query words...> [--count N]
+//   node agents/scout/web-search.mjs <query words...> [--count N]
 //
 // Needs OPENROUTER_API_KEY (the task's key in the child's environment);
 // NEPTUNIA_WEB_SEARCH_MODEL picks the model. Exit 0 with results, 1 when the
 // search failed or found nothing, 2 for a wrong command line or no key.
 
-import { runWebSearch } from '../src/web/web-search.js';
+import { runWebSearch } from '../../src/web/web-search.js';
 
 const { code, stdout, stderr } = await runWebSearch({ argv: process.argv.slice(2) });
 if (stdout) process.stdout.write(stdout);

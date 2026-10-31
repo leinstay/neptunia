@@ -1,4 +1,4 @@
-// The web agent's search command (bin/web-search.mjs, run from the agent's
+// The web agent's search command (agents/scout/web-search.mjs, run from the agent's
 // shell as `web-search <query> [--count N]` through agents/scout/bin/web-search):
 // OpenCode v1.19.3 offers its own `websearch` tool only with Exa or Parallel
 // switched on directly, and Exa is used only through OpenRouter here. So the

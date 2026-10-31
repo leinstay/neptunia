@@ -388,18 +388,20 @@ function checkContent(content) {
   need(content.replyTo, 'content.replyTo', (value) => value === null || isObject(value), { required: false });
 }
 
+/** @param {Record<string, unknown>} action */
 function checkCommandResult(action) {
   need(action.replyRef, 'replyRef', isId);
   need(action.text, 'text', (value) => typeof value === 'string');
   need(action.files, 'files', Array.isArray, { required: false });
   need(action.ephemeral, 'ephemeral', (value) => typeof value === 'boolean', { required: false });
+  need(action.status, 'status', isId, { required: false });
 }
 
 /**
  * Whether `action` is a well-formed outbound action (actions.js): a known `action` name, a
  * target reference with string ids (a message's with its `messageId`), an object `content` for a
  * send or an edit, a string `emoji` for a reaction, for a message fetch the `messageIds`, and for a command
- * result its `replyRef` and `text`. An `idempotencyKey`, when present, is a non-empty string, and a `deadlineAt` a finite number (ms since the epoch). What the content holds and whose the target is stay the adapter's checks. Never throws.
+ * result its `replyRef` and `text` (and, when present, its `status`, the command's outcome as a non-empty string). An `idempotencyKey`, when present, is a non-empty string, and a `deadlineAt` a finite number (ms since the epoch). What the content holds and whose the target is stay the adapter's checks. Never throws.
  * @param {unknown} action
  * @returns {{ ok: true } | { ok: false, reason: string }}
  */

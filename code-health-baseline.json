@@ -1,6 +1,6 @@
 {
   "files": {
-    "src/behavior/pipeline.js": 3090,
+    "src/behavior/pipeline.js": 3089,
     "src/behavior/prompt.js": 4903,
     "src/behavior/recall-run.js": 2331,
     "src/behavior/recall.js": 2491,
@@ -124,7 +124,7 @@
     },
     "src/behavior/pipeline.js": {
       "createMessageHandler": {
-        "function-length": 2805
+        "function-length": 2803
       },
       "createMessageHandler>classifyFollowUp": {
         "complexity": 21

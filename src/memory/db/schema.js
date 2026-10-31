@@ -1188,9 +1188,14 @@ function V18(connection, context = {}) {
   importWakeQueues(db, context);
 }
 
+// Version 19 (stage 4 design, 2026-10-27, PR D): the messages a pause holds. `ingest.held` is the whole
+// `message.received` event of a message that arrived while the core was paused, null for every other row; the resume
+// replays each held event once and clears it (ingest.ts). A held row is never pruned.
+const V19 = 'ALTER TABLE ingest ADD COLUMN held JSON;';
+
 /** Each entry moves the schema one version up: SQL text, or a function of the connection (and the opener's context)
  * for a step SQL cannot do. Never edit a shipped entry: append a new one. */
-export const MIGRATIONS = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18];
+export const MIGRATIONS = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V19];
 
 /** Every table schema v8 adds. */
 export const V8_TABLES = [

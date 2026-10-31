@@ -1,4 +1,5 @@
-// Minimal structured logger: one JSON object per line, written to stdout.
+// Minimal structured logger: one JSON object per line, written to stdout, or to stderr once `logToStderr()` ran (the
+// `neptunia` chat and `-p`, whose stdout holds only what the owner reads).
 // No dependency, no levels config — callers filter downstream (journald, etc).
 // `onLog` lets a listener read each entry after it is written (src/tools/impl/metrics.ts takes the
 // durations the log lines already carry); a listener never changes or stops the logging.
@@ -34,7 +35,7 @@ function write(level, msg, meta) {
     msg: String(msg),
     ...normalizeMeta(meta),
   };
-  process.stdout.write(`${JSON.stringify(entry)}\n`);
+  (toStderr ? process.stderr : process.stdout).write(`${JSON.stringify(entry)}\n`);
   for (const listener of listeners) {
     try {
       const result = listener(entry);
@@ -43,6 +44,14 @@ function write(level, msg, meta) {
       // A listener's failure is its own: the line is written, the caller never sees it.
     }
   }
+}
+
+/** Whether the lines go to stderr (`logToStderr`). */
+let toStderr = false;
+
+/** Sends every later line to stderr: a command whose stdout is its answer calls it once, before anything logs. */
+export function logToStderr() {
+  toStderr = true;
 }
 
 /** The listeners `onLog` subscribed, called in subscription order. */
