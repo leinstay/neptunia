@@ -1187,7 +1187,7 @@ function overlaid(base, override) {
  * limits, daily, searchProvider }`, a development agent `{ cost, limits }`. A socket or out path that is not a
  * non-empty string in the override falls back to the profile's. The one reader of these settings for the core, the
  * runner and the dispatcher, read from the config it is given at each call. Null for a name that is no agent
- * (`agents.ledger` is a key, not an agent).
+ * (a key of `agents` that names no profile).
  * @param {unknown} name  The agent's id; anything else is no agent.
  * @param {unknown} config  The live config, or any object with an `agents` section.
  * @returns {AgentSettings | null}

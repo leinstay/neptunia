@@ -13,8 +13,7 @@
 // open errands and the finished ones not read yet; `errand.read id [from]` returns the whole result in
 // pages of `errands.resultMaxChars` (the error, the sources and the files with their handles and
 // whether they expired come with the first page) and marks the errand read when its last page is
-// returned; `errand.resolve id` closes a finished errand (read too). Both follow the same view rule. Answers are operator lines (ids, agents, states, ages), the goal cut to one short line;
-// `errand.status` of one errand adds `ledger: <id>` when the errand is mirrored into the ledger. A
+// returned; `errand.resolve id` closes a finished errand (read too). Both follow the same view rule. Answers are operator lines (ids, agents, states, ages), the goal cut to one short line. A
 // `errand.run` of her turn links the intentions of that turn waiting for its errand (src/intentions/).
 
 import { isOwnerId } from './grants.ts';
@@ -156,8 +155,6 @@ const handlers = perEnv((env) => {
         lines.push(
           `usage: ${errand.usage.steps ?? 0} steps, ${(errand.usage.usd ?? 0).toFixed(3)} USD, ${Math.round(errand.usage.seconds ?? 0)} s`
         );
-      // The ledger's id of the errand's mirror (src/errands/ledger.ts), when it has one.
-      if (errand.ledgerId) lines.push(`ledger: ${errand.ledgerId}`);
       return lines.join('\n');
     }
     // The open errands, then the finished ones she has not read (their result is still waiting).
@@ -239,7 +236,7 @@ const handlers = perEnv((env) => {
     const hers = context?.actor === 'persona' && errand.requester?.kind === 'persona';
     if (!ownerCalls(context) && !own && !hers)
       throw denied('only the requester of the task or an owner may cancel it', CODE.NOT_REQUESTER);
-    // Who cancelled it, for the ledger's close reason.
+    // Who cancelled it, as the service is told.
     const by = context?.actor === 'persona' ? 'persona' : ownerCalls(context) ? 'owner' : 'requester';
     const cancelled = service.cancel({ guildId: resolvedGuildId(context), id, by });
     if (!cancelled.ok)

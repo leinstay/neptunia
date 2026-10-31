@@ -340,11 +340,20 @@ test('drops agents.maxDownloadBytes and the two thinker context keys and lists t
   ]);
 });
 
-test('keeps agents.ledger where it is', () => {
-  const given = { agents: { ledger: { socket: '/run/ledger/sock' } } };
-  const { config, moved, dropped } = moveConfigKeys(given);
-  assert.deepEqual(config, given);
-  assert.deepEqual([moved, dropped], [[], []]);
+// This test said `agents.ledger` stays where it is. The cutover (PR 6e) removes the ledger mirror and its socket, so
+// nothing reads `agents.ledger.socket` and it is dropped like the other keys without a reader.
+test('drops agents.ledger.socket with its emptied section and keeps the agents beside it', () => {
+  const { config, moved, dropped } = moveConfigKeys({
+    agents: { ledger: { socket: '/run/ledger/sock' }, scout: { enabled: true } },
+  });
+  assert.deepEqual(config, { agents: { scout: { enabled: true } } });
+  assert.deepEqual([moved, dropped], [[], ['agents.ledger.socket']]);
+});
+
+test('drops a null agents.ledger.socket too, and an agents section left empty with it', () => {
+  const { config, dropped } = moveConfigKeys({ bot: { owners: ['o1'] }, agents: { ledger: { socket: null } } });
+  assert.deepEqual(config, { bot: { owners: ['o1'] } });
+  assert.deepEqual(dropped, ['agents.ledger.socket']);
 });
 
 test('lets the new grant key win when a file holds the task grant and the errand grant, and reports the old one as shadowed', () => {
@@ -376,9 +385,10 @@ test('a production-shaped file moves every key once and a second pass finds noth
     tools: { transport: 'text' },
     bot: { owners: ['o1'], access: { 'tools.describe': GRANT, 'errand.run': GRANT, 'intention.set': GRANT } },
     errands: { resultRetrySeconds: 45 },
-    agents: { ledger: { socket: null }, scout: { enabled: true, searchProvider: 'exa' }, server: { enabled: false } },
+    // PR 6e: `agents.ledger.socket` has no reader after the cutover, so the production file loses it on the first pass.
+    agents: { scout: { enabled: true, searchProvider: 'exa' }, server: { enabled: false } },
   });
-  assert.deepEqual(first.dropped, ['bot.access.memory.refresh.user']);
+  assert.deepEqual([...first.dropped].sort(), ['agents.ledger.socket', 'bot.access.memory.refresh.user']);
   const second = moveConfigKeys(first.config);
   // Stage 3 design, section 5: every result names the keys that moved to the database, none here.
   assert.deepEqual(second, { config: first.config, moved: [], shadowed: [], dropped: [], toDatabase: [] });
@@ -411,6 +421,22 @@ test('prints each dropped key as `<path> dropped (no reader)` on a dry run and r
   const applied = migrate(['--apply'], file);
   assert.equal(applied.code, 0);
   assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { bot: { owners: ['o1'] } });
+});
+
+test('config-migrate --apply removes agents.ledger.socket from a live-shaped file and keeps every other setting', () => {
+  const scout = { enabled: true, socket: '/run/neptunia-agent-scout/sock', daily: { tasks: 40 } };
+  const file = localCopy({
+    bot: { owners: ['o1'] },
+    agents: { ledger: { socket: '/run/neptunia-ledger/core.sock' }, scout },
+    board: { leaseTtlMinutes: 45 },
+  });
+  const applied = migrate(['--apply'], file);
+  assert.equal(applied.code, 0, applied.err);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), {
+    bot: { owners: ['o1'] },
+    agents: { scout },
+    board: { leaseTtlMinutes: 45 },
+  });
 });
 
 // ---- the analyzer timeout ------------------------------------------------------------------------------------

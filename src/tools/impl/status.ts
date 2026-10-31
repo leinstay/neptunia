@@ -22,8 +22,8 @@
 // is left out: their spend is `costs.errands`) and the rolling 7/30-day sums per key; `costs.base`
 // reads today's per-role accumulator (src/tools/impl/usage.ts, drawing's row included); `costs.errands` the errand records' spend
 // per agent (src/errands/costs.ts through the guild's task store); `costs.development` the development agents'
-// (thinker, dev) from the ledger (src/errands/ledger.ts#costs, with the thinker's last-wave
-// context), both shown with no runs when the ledger does not answer. The owner's `inner`
+// (thinker, dev) from the board's `costs.agents` by role (src/board/costs.ts, with the thinker's last-wave
+// context), both shown with no runs when the board does not answer. The owner's `inner`
 // field (only while features.innerLife is on) is the inner life's own status (src/behavior/inner.ts#status,
 // the data `/nep task inner status` reads): its mode and switch, the day's turns, chains, dollars, public
 // posts, the next wake, the last turn and the open intentions; its words are `labels.status.inner`.
@@ -53,6 +53,12 @@ import { defineOp, perEnv } from './registry.ts';
 import { idText, isObj, objOf } from '../types.ts';
 import type { Obj, Untyped } from '../types.ts';
 import type { AccountRead } from './usage.ts';
+
+/**
+ * The principal the card reads the board's agent costs as: the thinker, a development client with the board role
+ * `reviewer` in clients.json. `costs.agents` is a read, so the card writes nothing in its name.
+ */
+const COSTS_READER = 'thinker';
 
 /** The tokens line of the `inner` field: the core role's tokens today. */
 type InnerTokens = { prompt: number; cached: number; completion: number };
@@ -396,6 +402,7 @@ const handlers = perEnv((env) => {
     embedder,
     embedQueue,
     memoryDb,
+    board,
   } = env;
   // The card's clock (the coverage cache, the storage line): the environment's, else the wall clock.
   const clock = typeof env.now === 'function' ? env.now : Date.now;
@@ -726,19 +733,18 @@ const handlers = perEnv((env) => {
     return lines.length > 0 ? lines.join('\n') : '-';
   }
 
-  /** The owner's `costs.development` field (src/tools/impl/usage.ts#agentCostsLines): thinker and dev
-   * from the ledger (src/errands/ledger.ts#costs; the thinker's last wave adds its context
-   * line). An agent with no figures shows no runs: a ledger that is not configured, refuses, fails
-   * or does not answer in time never fails the field. `-` when the labels give no line. */
+  /** The owner's `costs.development` field (src/tools/impl/usage.ts#agentCostsLines): thinker and dev from the board's
+   * `costs.agents` by role (src/board/costs.ts), read as COSTS_READER; a missing, refusing or failing board shows them
+   * with no runs and never fails the field. `-` when the labels give no line. */
   async function developmentCostsValue() {
-    let ledgerTotals: Untyped = null;
+    let boardTotals: Readonly<Record<string, unknown>> | null = null;
     try {
-      ledgerTotals = typeof errands?.ledger?.costs === 'function' ? await errands.ledger.costs() : null;
+      boardTotals = board ? await board.call(COSTS_READER, 'costs.agents', { now: clock(), by: 'role' }) : null;
     } catch (err) {
-      log.warn('status: ledger costs failed', { error: err });
+      log.warn('status: board costs failed', { error: err });
     }
     const totals = Object.fromEntries(
-      DEVELOPMENT_ROLES.filter((agent) => ledgerTotals?.[agent]).map((agent) => [agent, ledgerTotals[agent]])
+      DEVELOPMENT_ROLES.filter((agent) => isObj(boardTotals?.[agent])).map((agent) => [agent, boardTotals?.[agent]])
     );
     const lines = agentCostsLines({ agents: DEVELOPMENT_ROLES, totals, labels: hot.prompts?.labels });
     return lines.length > 0 ? lines.join('\n') : '-';

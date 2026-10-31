@@ -38,6 +38,7 @@ The persona's inner life (heartbeat wakes, intentions, the diary) runs the same 
 | [Diary](diary.md) | The diary feature |
 | [Errands](errands.md) | `errand.run`, errand agents, the runner, sandbox users, results returning as a turn |
 | [Development agents](development-agents.md) | The dev and thinker agents, profiles, the two run paths |
+| [The task board](board.md) | What the board holds, its roles, how the agents reach it, its costs, the restore and the ledger import |
 | [Interfaces](interfaces.md) | The interface port and protocol, the Discord adapter, adding an interface |
 | [The neptunia command](cli.md) | The owner's chat in a terminal and its commands, `-p`, pause, `doctor`, the errand runner and the units |
 | [Media](media.md) | Pictures, video, drawing, voice messages, GIFs, custom emoji, web and server search |

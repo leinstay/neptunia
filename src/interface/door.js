@@ -1,5 +1,5 @@
 // The event door: the one entry through which anything that happens reaches the mind -- a
-// message or a reaction an interface reports, an errand that ended, a ledger answer, a clock
+// message or a reaction an interface reports, an errand that ended, a clock
 // tick. Every event is validated at the boundary (src/protocol/validate.js), deduplicated
 // by its id and handed to the handler of its kind. Delivery is at-least-once, so the door is
 // idempotent: an id that was handled is `duplicate` the second time and its handler does not run

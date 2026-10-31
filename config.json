@@ -724,11 +724,7 @@
     "resultRetrySeconds": 30,
     "resultCooldownSeconds": 60
   },
-  "agents": {
-    "ledger": {
-      "socket": null
-    }
-  },
+  "agents": {},
   "board": {
     "leaseTtlMinutes": 30,
     "autoTriage": { "role": "dev", "budget": 4, "steps": 80, "estimate": 30 },

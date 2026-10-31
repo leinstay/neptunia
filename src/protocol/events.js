@@ -237,7 +237,7 @@ export const CONNECTION_STATES = Object.freeze(['lost', 'resumed']);
 
 /**
  * `errand.done`: an errand ended with `status` and its `result` (as src/errands defines them);
- * `communityId` is the community whose ledger holds the errand. The core derives `id` (`errandId` and
+ * `communityId` is the community whose errand store holds the errand. The core derives `id` (`errandId` and
  * `status`) when it has none, so a second delivery of the same end is the same event.
  * @typedef {{ kind: 'errand.done', at: number, id?: string, communityId?: string|null, errandId: string, status: string,
  *   result?: unknown }} ErrandDone

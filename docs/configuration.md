@@ -51,7 +51,7 @@ The persona's skills are tools in the settings. `src/config-moves.ts` holds the 
 | `agents.<name>.search.provider` | `agents.<name>.searchProvider` |
 | `llm.helperTimeoutMs` | `llm.analyzerTimeoutMs` |
 
-Six keys have no reader any more and are dropped: the grants `bot.access."memory.refresh.channel"`, `"memory.refresh.server"` and `"memory.refresh.user"`, `agents.maxDownloadBytes`, and `agents.thinker.contextLimit` and `contextHard`. The load log line counts them as `dropped` beside `moved` and `shadowed`.
+Seven keys have no reader any more and are dropped: the grants `bot.access."memory.refresh.channel"`, `"memory.refresh.server"` and `"memory.refresh.user"`, `agents.maxDownloadBytes`, `agents.thinker.contextLimit` and `contextHard`, and `agents.ledger.socket`. A section a dropped key leaves empty goes with it. The load log line counts them as `dropped` beside `moved` and `shadowed`.
 
 `node tools/config-migrate.mjs --dry-run` prints each move for `config.local.json` (or `--file <path>`), each dropped key as `<path> dropped (no reader)`, and `--apply` writes the result into the file. A second run finds nothing to move. `--dry-run --compare-with <config.json>` reads the settings the moves touch twice, once the old way over the given `config.json` and once through the current readers over this checkout's, and prints `equal: <n>, differ: <n>` with one line per difference. It exits 1 on any difference. `--self <id>` names the persona's user id when `bot.self` is not set, so the grants can be compared.
 
@@ -1001,7 +1001,6 @@ The settings of one agent live in its profile, `agents/<name>/profile.json` (see
 | `limits` | `scout` `{ "steps": 25, "seconds": 300 }`, `server` `{ "steps": 20, "seconds": 120 }`, `thinker` `{ "steps": 400, "minutes": 60 }`, `dev` `{ "steps": 300, "minutes": 60 }` | Caps of one run |
 | `daily` | `{ "tasks": 40 }` for `scout` and `server` | Tasks per day. Workers only |
 | `searchProvider` | `"exa"` for `scout`, `null` for `server` | Web search provider, `exa` or `parallel`. Workers only |
-| `ledger.socket` | `null` | Unix socket for the ledger mirror, under `agents.ledger`. `null` means not mirrored |
 
 The thinker and the dev agent run outside the engine; the bot only shows their spend on the status card.
 

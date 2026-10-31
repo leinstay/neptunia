@@ -217,19 +217,14 @@
         "complexity": 26
       }
     },
-    "src/errands/ledger.ts": {
-      "createLedgerMirror": {
-        "function-length": 449
-      }
-    },
     "src/errands/service.ts": {
       "createErrandService": {
-        "function-length": 369
+        "function-length": 305
       }
     },
     "src/errands/store.ts": {
       "createErrandStore": {
-        "function-length": 536
+        "function-length": 520
       }
     },
     "src/format.js": {
@@ -673,11 +668,6 @@
     "src/web/readable.js": {
       "attributes": {
         "complexity": 23
-      }
-    },
-    "tests/errands-ledger.test.js": {
-      "machine>refuse": {
-        "complexity": 25
       }
     },
     "tests/fault-injection.test.js": {

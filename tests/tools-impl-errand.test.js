@@ -244,17 +244,12 @@ test('errand.status: a finished task whose files the runner deleted says files-e
   });
 });
 
-test('errand.status: a task mirrored into the ledger shows its ledger id; errand.cancel tells the service who cancelled', async () => {
-  const { env, errands, stores } = makeEnv();
+// The ledger half of this test (errand.status showing a mirrored errand's `ledger: <id>`) went with the ledger mirror
+// in PR 6e; what stays is who errand.cancel names to the service.
+test('errand.cancel tells the service who cancelled', async () => {
+  const { env, errands } = makeEnv();
   await withCapturedLogs(async () => {
-    const id = (await runOp('errand.run', { agent: 'scout', goal: 'mirrored' }, ctx(env, MEMBER))).data.task.id;
-    const plain = await runOp('errand.status', { id }, ctx(env, MEMBER));
-    assert.ok(!plain.summary.includes('ledger:'), 'no line without a ledger id');
-    stores.get('g1').setLedgerId(id, 'L42');
-    const one = await runOp('errand.status', { id }, ctx(env, MEMBER));
-    assert.ok(one.summary.split('\n').includes('ledger: L42'), one.summary);
-    const listed = await runOp('errand.list', {}, ctx(env, MEMBER));
-    assert.ok(!listed.summary.includes('ledger:'), 'errand.list unchanged');
+    const id = (await runOp('errand.run', { agent: 'scout', goal: 'one' }, ctx(env, MEMBER))).data.task.id;
     const seen = [];
     const cancel = errands.cancel;
     errands.cancel = (args) => {

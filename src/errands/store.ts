@@ -12,7 +12,8 @@
 // Every change of an errand is one write of the whole errand through the memory database's writer (op `errand` of
 // src/memory/db/unit-write.js), handed to an outbox (src/memory/db/unit-outbox.js) keyed by the errand: a newer write
 // of the same errand replaces the one waiting, a failed write goes again at the next change or `flush`, and
-// `flush({ final: true })` (the shutdown) keeps what still fails in `memory-pending/`. The end of an errand (`finish`,
+// `flush({ final: true })` (the shutdown) keeps what still fails in `memory-pending/`; a write that waits behind an earlier
+// write of the same errand goes as soon as that one settles. The end of an errand (`finish`,
 // `cancel`, `failOpen`) is one transaction of the writer: the board's move to its end, the board's outbox row to
 // `persona`, and the closing journal action line; a failure of any of them writes none. `pendingEnds` lists the ends
 // the board committed whose `errand.done` the core has not marked delivered (`markDelivered`), so a core started after
@@ -25,8 +26,6 @@
 // directory after `errands.keepFilesHours` (src/agent-runner/sweep.js); a finished errand whose result lists files is
 // marked `filesExpired` once its directory is gone from an out dir that is still there (checked when the errands are
 // read), and its handles name nothing from then on.
-// An errand mirrored into the ledger (src/errands/ledger.ts) carries the ledger's id as `ledgerId` (optional; set once
-// the ledger answers).
 // A finished errand's result stays until she has read it: the record carries `readAt` (null until a turn that showed
 // its `<errand_result>` completed, or `errand.read` returned it, src/tools/impl/errand.ts) and `resolvedAt` (she closed
 // it: `errand.resolve`, or an intention that waited on it moved to done). `unread` lists the finished ones with
@@ -328,7 +327,8 @@ export function createErrandStore({
       delivered: delivered.has(id),
       closing: closings.get(id) ?? null,
     });
-    void outbox.push();
+    // A push skips an errand whose earlier write is under way; a flush sends this one as soon as that write settles.
+    void outbox.flush();
   }
 
   /** Whether the journal takes lines now (`features.journal` exactly true, read now). */
@@ -602,24 +602,6 @@ export function createErrandStore({
     return copy(errand);
   }
 
-  /**
-   * Errand `id` given the ledger's id of its mirror (src/errands/ledger.ts), written to the board when
-   * it changes; null when there is no such errand (forgotten or wiped meanwhile) or no id.
-   */
-  function setLedgerId(id: unknown, ledgerId: unknown): ErrandRecord | null {
-    const errand = find(id);
-    const value =
-      typeof ledgerId === 'string' || (typeof ledgerId === 'number' && Number.isFinite(ledgerId))
-        ? String(ledgerId)
-        : '';
-    if (!errand || !value) return null;
-    if (errand.ledgerId !== value) {
-      errand.ledgerId = value;
-      persist(errand);
-    }
-    return copy(errand);
-  }
-
   /** The open errands (queued and running), oldest first. */
   function open(): Array<ErrandRecord> {
     return state.errands.filter((errand) => isOpenState(errand.state)).map(copy);
@@ -746,11 +728,13 @@ export function createErrandStore({
 
   /**
    * The end of errand `id` marked delivered (the door took its `errand.done`), written to the board; false when no end
-   * of that errand is pending.
+   * of that errand is pending. An end whose write has not landed is pending, and the mark rides along that write.
    */
   function markDelivered(id: unknown): boolean {
     const key = idText(id);
-    if (!key || !pendingEnds().some((end) => end.errandId === key)) return false;
+    const errand = key ? find(key) : null;
+    const landing = Boolean(errand && !isOpenState(errand.state) && outbox?.holds(`board/errands/${key}`));
+    if (!key || (!landing && !pendingEnds().some((end) => end.errandId === key))) return false;
     delivered.add(key);
     send(key, find(key));
     log.info('errands: end delivered', { guildId: String(guildId), id: key });
@@ -776,7 +760,6 @@ export function createErrandStore({
     markRead,
     markResultFailed,
     resolve,
-    setLedgerId,
     open,
     recent,
     unseen,

@@ -9,8 +9,9 @@
 //
 // The moves are one ordered list. A move whose old key is absent does nothing, so applying the list twice gives the
 // same config. Where the old and the new key are both set, the new one wins and the old one is dropped and reported as
-// shadowed. Keys nothing reads any more (three grants of `bot.access`, `agents.maxDownloadBytes` and the two context
-// keys of `agents.thinker`) are removed and reported as dropped. `diary.channelId` is the seed of the diary's mirror
+// shadowed. Keys nothing reads any more (three grants of `bot.access`, `agents.maxDownloadBytes`, the two context
+// keys of `agents.thinker` and `agents.ledger.socket`) are removed, with a section they leave empty, and reported as
+// dropped. `diary.channelId` is the seed of the diary's mirror
 // (schema v15): once the memory database has that mirror (`diaryMirror`, told by the caller) the key is removed and
 // reported as moved to the database (`toDatabase`). Nothing here reads a file.
 
@@ -125,6 +126,7 @@ const DROPPED_KEYS: ReadonlyArray<ReadonlyArray<string>> = [
   ['agents', 'maxDownloadBytes'],
   ['agents', 'thinker', 'contextLimit'],
   ['agents', 'thinker', 'contextHard'],
+  ['agents', 'ledger', 'socket'],
 ];
 
 /** `bot.access` of `config` when it is a plain object. */

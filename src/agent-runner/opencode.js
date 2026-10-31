@@ -31,15 +31,15 @@
 // output never enters the runner's record (its progress event says
 // `withheld` and the path), the task goes on, the final text passes the
 // redaction, and `result.withheld` lists every withheld path the agent
-// reached for ("visible, not readable here"). `error` fails the task. The usd and seconds caps stop the child (SIGTERM, then
+// reached for ("visible, not readable here"). `error` fails the task. The seconds cap stops the child (SIGTERM, then
 // SIGKILL); the step cap is the agent's own. Files the agent saved under its
 // working directory are the result's files, minus `result.filesDropped`
 // (all of them after a withheld read in a filtered scope, and in every scope a
 // text file that carries a secret); the result text is redacted in a
 // filtered scope. Resolves, never rejects.
 //
-// OpenCode's cost is a catalog estimate, not OpenRouter's billed cost, so the
-// usd cap is a soft cap; the hard cap is the runner key's OpenRouter credit limit.
+// OpenCode's cost is a catalog estimate, not OpenRouter's billed cost. The run reports it in `usage.usd` and nothing
+// stops on it: the money bound of a run is the runner key's OpenRouter credit limit.
 
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';

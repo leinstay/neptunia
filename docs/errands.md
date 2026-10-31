@@ -137,7 +137,7 @@ These are both `/nep` commands and her tools (closed until granted to her). All 
 | Operation | What it does |
 |---|---|
 | `errand.run` | Queues a new errand. Arguments: `agent`, `goal`. Any member may ask for `scout`; only an owner may ask for `server`. |
-| `errand.status` | Without an id: lists the open tasks and the finished ones not yet read. With an id: one task's details (usage, ledger id when mirrored). |
+| `errand.status` | Without an id: lists the open tasks and the finished ones not yet read. With an id: one task's details and usage. |
 | `errand.list` | The latest 10 tasks, newest first. |
 | `errand.read` | The whole result in pages of `errands.resultMaxChars`. Marks the task read when the last page is returned. Arguments: `id`, optional `from`. |
 | `errand.cancel` | Cancels an open task. Only the requester of the task or an owner may cancel it. |
@@ -148,14 +148,6 @@ These are both `/nep` commands and her tools (closed until granted to her). All 
 A task that cannot be queued gets a refusal code: `cap-open` (too many open), `cap-tasks` (daily cap reached), `not-configured` (the agent's runner is not set up), `runner-down` (the runner is unreachable), `unknown-agent`, `bad-goal`.
 
 A running task can fail with the runner's error code. A task left open by a restart of the core fails with `restarted`. A cancelled task gets no result turn.
-
-## The ledger mirror
-
-Every errand is also mirrored into a task ledger (`agents.ledger.socket`), so the development side sees the persona's errands alongside its own tasks. The core is the ledger's `core` principal. While `agents.ledger.socket` is `null` (the default), the mirror is off.
-
-The mirror is a copy. The core's store stays the system of record. The `<errands>` block, the result turn, the caps and the rights read only the core's store. A ledger that refuses connections or does not answer never affects an errand.
-
-Every call carries an idempotency key (`errand:<core id>:<op>`), so a replay or restart never creates a second row. Undelivered calls wait in memory (at most 200, in order) while the connection is retried with a growing backoff, and are replayed once the ledger answers.
 
 ## Costs
 

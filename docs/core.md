@@ -165,7 +165,7 @@ Her tools `board.propose` and `board.status` (`src/tools/impl/board.ts`) call th
 
 Her errands are tasks of the board's errand lane, written by the errand store as the builtin principal `core`, whose board roles are `errand-runner` and `scheduler` (see [Errands](errands.md#where-errands-are-kept)). A principal whose only board role is `errand-runner` sees only the errand tasks of its own name.
 
-`tools/memory-db.mjs board list` and `board show <id>` read the board with the core up or down, and `board verify-errands` compares the errand archive with the board.
+`tools/memory-db.mjs board list` and `board show <id>` read the board with the core up or down, and `board verify-errands` compares the errand archive with the board. Its roles, the agents' tokens, the status card's costs, the restore and the import of a ledger are in [The task board](board.md).
 
 ## Safety rails
 

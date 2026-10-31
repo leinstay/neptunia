@@ -2,7 +2,7 @@
 // core allows and has spent; `costs.base`, today's requests per model role from the bot's own
 // accounting (drawing's row included); `costs.errands`, the errand agents' runs and estimated spend (scout and
 // server from the errand records, src/errands/costs.ts); `costs.development`, thinker and dev from
-// the ledger (src/errands/ledger.ts#costs); both rendered here by agentCostsLines. The
+// the board's `costs.agents` by role (src/board/costs.ts); both rendered here by agentCostsLines. The
 // accumulator is fed by the `llm: usage` log lines (src/log.js#onLog, subscribed in src/index.js
 // via `usageTap`), the one place every chat completion and embedding request reports its tokens
 // and cost, and by the `images: generated` lines (a picture: the `drawing` role, a cost and no
@@ -632,11 +632,11 @@ const AGENT_WINDOWS: ReadonlyArray<string> = Object.freeze(['today', 'last7', 'l
  * `agentWindow` part ({window} {runs} {in} {out} {usd}; tokens compact, the window named through
  * `agentWindows.today | last7 | last30`) per window joined by `partSeparator`, or `agentNoRuns`
  * ({agent}) when the agent has no run in the last 30 days or no record at all; an agent whose
- * totals carry a `last_wave` with a context figure (the thinker's, from the ledger) is followed by
+ * totals carry a `last_wave` with a context figure (the thinker's, from the board) is followed by
  * `agentContext` ({agent} {wave} {turns} {mean} {peak} {usd}; the context in compact tokens, `-`
  * for a missing one); then `agentEstimate`, the note that the dollars are OpenCode's estimate. Pure.
- * `totals` is as src/errands/costs.ts#agentCosts returns, the ledger's agents merged in
- * (src/errands/ledger.ts#agentCostsOf); an agent it lacks has no run.
+ * `totals` is as src/errands/costs.ts#agentCosts or src/board/costs.ts#agentCosts returns; an agent it lacks has
+ * no run.
  */
 export function agentCostsLines({
   agents,

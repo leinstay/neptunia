@@ -283,7 +283,7 @@ function buildEnv({
     inner,
     // The diary's publisher (src/behavior/mirror.ts): what she writes to her diary with message.create is held there.
     mirrors: mirrors as unknown,
-    // The task board (src/tools/impl/board.ts): `board.propose` and `board.status`.
+    // The task board (src/tools/impl/board.ts): `board.propose` and `board.status`, and the status card's agent costs.
     board,
     now,
     dataDir,

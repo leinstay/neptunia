@@ -1488,8 +1488,10 @@ function costsOf(board: Board, _principal: string, args: Args): Readonly<Record<
     nowMs = typeof args.now === 'number' ? args.now : Date.parse(text(args.now));
     if (!Number.isFinite(nowMs)) throw invalid('now must be an ISO time or epoch milliseconds');
   }
+  const by = args.by ?? 'principal';
+  if (by !== 'principal' && by !== 'role') throw invalid('by must be principal or role');
   const recorders = [...board.context.grants].filter(([, roles]) => roles.has('reviewer')).map(([name]) => name);
-  return agentCosts(board.db, { nowMs, agents: recorders });
+  return agentCosts(board.db, { nowMs, agents: recorders, by });
 }
 
 // The caller's undelivered outbox rows; `ack` marks the caller's rows up to that seq delivered first.

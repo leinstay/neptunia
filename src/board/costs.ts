@@ -1,6 +1,7 @@
-// The board's `costs.agents`: the agents' spend over today, the last 7 and the last 30 UTC days (today included), by
-// principal. A run of board_agent_runs counts for its agent, an attempt on a dev-lane task for the attempt's
-// principal. Called by src/board/board.ts inside its transaction.
+// The board's `costs.agents`: the agents' spend over today, the last 7 and the last 30 UTC days (today included). A run
+// of board_agent_runs counts for its agent. An attempt on a dev-lane task counts for the attempt's principal, or, with
+// `by: 'role'`, for the development agent of its role (ATTEMPT_AGENTS: `dev`, `implementer` and `writer` are `dev`),
+// whoever ran it; the status card reads that answer. Called by src/board/board.ts inside its transaction.
 
 import type { BoardDb } from './schema.ts';
 
@@ -16,6 +17,13 @@ const COST_WINDOWS = [
 ] as const;
 
 const count = (value: unknown): number => (typeof value === 'number' ? value : 0);
+
+/** The development agent each implementing attempt role counts for, when attempts are counted by role. */
+const ATTEMPT_AGENTS: Readonly<Record<string, string>> = Object.freeze({
+  dev: 'dev',
+  implementer: 'dev',
+  writer: 'dev',
+});
 
 /**
  * The agent's latest wave (the wave of its latest started run): its turns, its dollars, its context mean weighted by
@@ -49,15 +57,16 @@ function lastWave(db: BoardDb, agent: string): LastWave | null {
 }
 
 /**
- * Each agent's windows `{ runs, input, output, usd }` and its `last_wave`, keyed by principal: every name of `agents`
- * (the run recorders, listed even before their first run) and every principal with a run or a dev-lane attempt in the
- * last 30 days. A run or an attempt counts on the UTC day it started, its tokens and dollars on the day it ended (a
+ * Each agent's windows `{ runs, input, output, usd }` and its `last_wave`: every name of `agents` (listed even before
+ * its first run), every agent with a run in the last 30 days, and for the dev-lane attempts of those days every
+ * principal (`by` `principal`) or every agent of ATTEMPT_AGENTS whose role an attempt has (`by` `role`, attempts of
+ * another role left out). A run or an attempt counts on the UTC day it started, its tokens and dollars on the day it ended (a
  * day after `nowMs` counts nowhere). `input` is the uncached input tokens, `output` the output tokens with an
  * attempt's reasoning tokens.
  */
 export function agentCosts(
   db: BoardDb,
-  { nowMs, agents }: { nowMs: number; agents: ReadonlyArray<string> }
+  { nowMs, agents, by = 'principal' }: { nowMs: number; agents: ReadonlyArray<string>; by?: 'principal' | 'role' }
 ): Record<string, AgentCosts> {
   const dayOf = (ms: number): number => Math.floor(ms / DAY_MS) * DAY_MS;
   const today = dayOf(nowMs);
@@ -99,7 +108,10 @@ export function agentCosts(
       WHERE t.lane = 'dev' AND a.principal IS NOT NULL AND (a.started_at >= ? OR a.ended_at >= ?)`
     )
     .all(since, since);
-  for (const row of attempts) add(String(row.principal), row, count(row.tokens_out) + count(row.tokens_reasoning));
+  for (const row of attempts) {
+    const agent = by === 'role' ? ATTEMPT_AGENTS[String(row.role)] : String(row.principal);
+    if (agent !== undefined) add(agent, row, count(row.tokens_out) + count(row.tokens_reasoning));
+  }
   const out: Record<string, AgentCosts> = {};
   for (const [agent, windows] of Object.entries(totals)) {
     const fixed = (name: string): Window => {

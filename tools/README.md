@@ -47,6 +47,7 @@ Every tool that sends model requests uses `OPENROUTER_SIM_KEY` from `.env`; with
 | `search-compare.mjs` | Runs the same queries through multiple search engines. Writes results, a blind sheet and a key (not under `data/`) | no | no | yes, 1 summary per query per engine |
 | `vision-compare.mjs` | Describes the same media with each model. `--from-cache` reads from the guild's media cache via Discord REST. Writes one HTML page | `data/vision-compare/` only | no | yes, 1 request per item and model |
 | `memory-db.mjs` | The memory database: `stats`, `hash`, `reproject`, `rebuild`, `backup`, `restore`, `restore-test`, `media-check`, `index-policy`. Opens the database read-only | no | no | no |
+| `board-import.mjs` | Imports a ledger's development history onto the task board of a stopped core. `--dry-run` opens the database read-only and only counts. See [The task board](../docs/board.md) | the `board_*` tables of `memory.db` | yes | no |
 | `memory-session.mjs` | Runs her memory session once, on a copy, in shadow. Says what she proposed | no | no | yes |
 
 Pure helpers live in `tools/lib/` and are tested by `tests/tools-*.test.js`.
