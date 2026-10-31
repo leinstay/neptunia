@@ -27,7 +27,7 @@ A `message.received` event enters the message pipeline (`src/behavior/pipeline.j
 
 ## A turn
 
-A turn (`src/behavior/turn.js`) has four stages:
+A turn (`src/behavior/turn.js` and its phases in `src/turn/phases/`) has four stages:
 
 **Collect.** The turn gathers the context it needs: channel history, memory profiles, the persona's recent participation on other channels, media descriptions (pictures, video) from the `vision` and `video` model roles, lorebook entries matched by the transcript, and recall hits if a search classifier or the automatic prefetch found anything relevant.
 
