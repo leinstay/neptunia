@@ -210,6 +210,36 @@ function leafKeys(tree, prefix = '') {
 }
 
 /**
+ * The config cut of a moved layer (src/config/cut.ts): the cut layer, its report lines and the Discord keys.
+ * @param {Record<string, unknown>} moved
+ * @returns {{ config: Record<string, unknown>, cutLines: string[], discord: Record<string, unknown> }}
+ */
+function cutReport(moved) {
+  const { config, cut, differs, renamed, interfaces } = cutConfigKeys(moved);
+  const discord = interfaces.discord ?? {};
+  const cutLines = [
+    ...cut.map((key) => `${key} dropped (${FATE_OF.get(key) ?? 'constant'})`),
+    ...differs.map(
+      (one) => `${one.key} differs: live ${JSON.stringify(one.live)}, constant ${JSON.stringify(one.constant)}`
+    ),
+    ...renamed.map((one) => `${one.from} -> ${one.to}`),
+    ...leafKeys(discord).map((key) => `${key} -> ${DISCORD_FILE}`),
+  ];
+  return { config, cutLines, discord };
+}
+
+/**
+ * The migrated settings file written over `file`, and the Discord keys, when there are any, into its interface file.
+ * @param {string} file
+ * @param {Record<string, unknown>} config
+ * @param {Record<string, unknown>} discord
+ */
+function writeMigrated(file, config, discord) {
+  fs.writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`);
+  if (Object.keys(discord).length > 0) writeInterfaceFile(discordFileOf(file), discord);
+}
+
+/**
  * `moved` written into the interface file `target`, the values the file already holds winning.
  * @param {string} target
  * @param {Record<string, unknown>} moved
@@ -263,24 +293,15 @@ function migrate(argv) {
     throw new CliError(`${file} must hold a JSON object; nothing was changed`);
   const diaryMirror = hasDiaryMirror(flags['--db']);
   const { config: movedConfig, moved, shadowed, dropped, toDatabase } = moveConfigKeys(parsed, { diaryMirror });
-  const { config, cut, differs, renamed, interfaces } = cutConfigKeys(movedConfig);
-  const discord = interfaces.discord ?? {};
+  const { config, cutLines, discord } = cutReport(movedConfig);
   const lines = [
     ...moved.map((move) => `${move.from} -> ${move.to}`),
     ...shadowed.map((move) => `${move.from} -> ${move.to} (already set; the old key is dropped)`),
     ...dropped.map((key) => `${key} dropped (no reader)`),
     ...toDatabase.map((key) => `${key} -> memory database (its diary mirror)`),
-    ...cut.map((key) => `${key} dropped (${FATE_OF.get(key) ?? 'constant'})`),
-    ...differs.map(
-      (one) => `${one.key} differs: live ${JSON.stringify(one.live)}, constant ${JSON.stringify(one.constant)}`
-    ),
-    ...renamed.map((one) => `${one.from} -> ${one.to}`),
-    ...leafKeys(discord).map((key) => `${key} -> ${DISCORD_FILE}`),
+    ...cutLines,
   ];
-  if (flags['--apply'] && lines.length > 0) {
-    fs.writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`);
-    if (Object.keys(discord).length > 0) writeInterfaceFile(discordFileOf(file), discord);
-  }
+  if (flags['--apply'] && lines.length > 0) writeMigrated(file, config, discord);
   const kept = Object.hasOwn(objectOf(config.diary), 'channelId')
     ? `diary.channelId kept: the memory database ${typeof flags['--db'] === 'string' ? 'has no diary mirror yet' : 'was not given (--db)'}\n`
     : '';

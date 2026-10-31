@@ -656,13 +656,6 @@
       "test": "none"
     },
     {
-      "path": "src/turn/dry-act.ts",
-      "purpose": "The dry run's stand-in for the act: every would-be reaction, message, GIF and diary picture logged, journaled and mirrored. Tested through the turn and journal turn tests.",
-      "layer": "public",
-      "imports": ["node:*", "src/**"],
-      "test": "none"
-    },
-    {
       "path": "src/turn/act.ts",
       "purpose": "The act of a turn: her reactions, messages and GIF posted, checked, typed out, journaled and recorded, and a diary post's speech held. Tested through the turn, journal turn, gifs and diary turn tests.",
       "layer": "public",
@@ -762,21 +755,21 @@
     },
     {
       "path": "src/turn/phases/request/setup.ts",
-      "purpose": "The request's settings for the attempt, its bar and cancellation point, the typing while it prepares, the listing, the history, the memory prefetch and a diary post's plan. Tested through the turn tests.",
+      "purpose": "The request's settings for the attempt, its bar and cancellation point, the listing, the history, the memory prefetch and a diary post's plan. Tested through the turn tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
     },
     {
-      "path": "src/turn/phases/request/planner.ts",
-      "purpose": "Which searches a turn may run, and the turn planner with what it is sent and its route step. Tested through the turn tests.",
+      "path": "src/turn/phases/request/searches.ts",
+      "purpose": "Which searches a turn may run: the web lookup, the web search and the server search. Tested through the turn tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
     },
     {
       "path": "src/turn/phases/request/pulls.ts",
-      "purpose": "The channels a turn shows in `<channel_view>`, the chooser of a spontaneous turn and the source of a routed call. Tested through the turn tests.",
+      "purpose": "The channels a turn shows in `<channel_view>`, the chooser of a turn whose mode is still open and the source of a routed call. Tested through the turn tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
@@ -790,14 +783,14 @@
     },
     {
       "path": "src/turn/phases/request/second-look.ts",
-      "purpose": "The second look at a video, a GIF or a picture the trigger asks about, the deadline's media extension and the video states a classifier shows. Tested through the turn tests.",
+      "purpose": "The deadline's media extension and the video states a turn's transcript shows. Tested through the turn tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
     },
     {
       "path": "src/turn/phases/request/lookup.ts",
-      "purpose": "The link reads, the search classifier with its searches, and the planner's start when its route step did not start it. Tested through the turn tests.",
+      "purpose": "The link reads of a turn. Tested through the turn tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
@@ -811,7 +804,7 @@
     },
     {
       "path": "src/turn/phases/request/gather.ts",
-      "purpose": "What the preparation brought, taken as the request shows it: deleted lines, late video states, reads, searches, neighbours, pulls, a diary plan, the drawing quota and `<recent>`. Tested through the turn tests.",
+      "purpose": "What the preparation brought, taken as the request shows it: deleted lines, late video states, reads, searches, neighbours, pulls, a diary plan, whether the turn may draw and `<recent>`. Tested through the turn tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
@@ -1099,13 +1092,6 @@
     {
       "path": "src/pipeline/pending-queue.ts",
       "purpose": "The pending queue of calls that found the attention taken: added, replaced, evicted and requeued, with their log lines and their missed facts. Tested through the events tests.",
-      "layer": "public",
-      "imports": ["node:*", "src/**"],
-      "test": "none"
-    },
-    {
-      "path": "src/pipeline/room.ts",
-      "purpose": "The room classifier: an untagged line put to everyone present is asked about once its roll wins, and a `yes` goes back to the spontaneous scheduler. Tested through the events tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
