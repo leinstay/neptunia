@@ -5,7 +5,7 @@
     "src/behavior/recall-run.js": 2331,
     "src/behavior/recall.js": 2491,
     "src/behavior/sandbox.js": 2136,
-    "src/behavior/turn.js": 9243,
+    "src/behavior/turn.js": 7767,
     "src/memory/store.js": 3342,
     "tests/admin.test.js": 3880,
     "tests/describe.test.js": 3705,
@@ -240,9 +240,6 @@
       }
     },
     "src/behavior/turn.js": {
-      "callViewOf": {
-        "complexity": 30
-      },
       "createTurnRunner": {
         "function-length": 7260
       },
@@ -290,9 +287,6 @@
       "createTurnRunner>runTurnAttempt": {
         "complexity": 374,
         "function-length": 1863
-      },
-      "journalTurnRecord": {
-        "complexity": 21
       }
     },
     "src/behavior/wake.ts": {

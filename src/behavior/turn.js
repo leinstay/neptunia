@@ -12,7 +12,7 @@
 // post (a message, the GIF, the picture) answering such a line goes here
 // plain, with a jump link to it.
 
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import {
   block,
   buildDiaryPlanRequest,
@@ -41,15 +41,14 @@ import {
 } from './diary.ts';
 import { channelPullOn, pullPictures, pullSettings, pullTargets } from './pull.js';
 import { createDeadline, createPrepLedger, lateMediaTeller } from './turn-parts.ts';
-import { audienceCovers, createLinker, markSeen, messageLinkOf, resolveDestination, stampPings } from './elsewhere.ts';
+import { audienceCovers, createLinker, markSeen, messageLinkOf, stampPings } from './elsewhere.ts';
 import { captionPulled, checkPull, createPullViews, fetchPull } from './pull-fetch.ts';
-import { audienceAllows, everyMemberAudience, isReadable, isWritable, railAudience, takeSnapshot } from './snapshot.ts';
+import { audienceAllows, everyMemberAudience, railAudience, takeSnapshot } from './snapshot.ts';
 import { fetchNeighbors } from './neighbors.ts';
-import { fetchReplyParents } from './reply-parents.ts';
 import { historyLines } from './lines.ts';
 import { withTextPreviews } from '../media/text-preview.ts';
 import { isTaggedCall } from './mention.js';
-import { resolveHandles, untaggedNames } from './handles.js';
+import { resolveHandles } from './handles.js';
 import { roleModel } from '../llm/roles.js';
 import { RECALL_DEFAULTS, fallbackLookupPlan, parseLookupAnswer, recallSettings } from './recall.js';
 import { parseSplitAnswer, splitCandidate, splitSettings } from './split.js';
@@ -79,18 +78,11 @@ import {
 import { ImageCapError, ImageGenError, UnsupportedImageModelError } from '../llm/images.js';
 import { messageRefOf, postingConversation } from '../tools/impl/shared.ts';
 import { limitOf, mirrorChannelLabel, mirrorDryRun } from './limits.js';
-import { portIface, portLimit } from '../interface/capabilities.ts';
+import { portIface } from '../interface/capabilities.ts';
 import { between, typingMs } from './random.js';
 import { startTypingLease } from '../interface/typing.js';
 import { settleWait } from './activity.js';
-import {
-  collectPictures,
-  collectEmojiItems,
-  collectVideos,
-  collectReadableLinks,
-  isDescribable,
-  lateVideoStates,
-} from '../media/classify.js';
+import { collectPictures, collectVideos, collectReadableLinks, lateVideoStates } from '../media/classify.js';
 import { createImageFetcher } from '../media/fetch-image.js';
 import { drawPicture, drawPromptOf } from '../media/draw.js';
 import { renderCustomEmoji, resolveReactionEmoji } from './emoji.js';
@@ -107,7 +99,7 @@ import {
   toRecordLine,
   createOffPeriodsReader,
 } from '../memory/index.js';
-import { linkChannels, linkMessageNumbers, outsideUrls } from '../memory/mentions.ts';
+import { linkChannels, linkMessageNumbers } from '../memory/mentions.ts';
 import { foldText, liveRecent, recentSettings } from '../memory/recent.js';
 import { createParticipationPicker, participationEpisodeOffer } from './participation-pick.js';
 import { askPlanner, parsePlannerAnswer, parseRewatchPickDetailed, plannerOn } from './planner.js';
@@ -115,8 +107,7 @@ import { routeAllowed, routeCandidate, routeSettings } from './route.js';
 import { routeChannelOffer } from './route-channel.js';
 import { deletedLinesMax, deletedLinesOf, withDeletedLines } from './deleted-lines.js';
 import { freshAttachmentUrl as sharedFreshAttachmentUrl, gifPostUrl, countGifPost } from '../media/gif-post.js';
-import { DAY_MS, bumpDaily, utcDay, zonedDay } from '../time.js';
-import { isPlainObject } from '../config.js';
+import { bumpDaily, utcDay, zonedDay } from '../time.js';
 import { budgetDrops, requestTokenLimit } from '../llm/budget.js';
 import { createLimits } from '../llm/limits.js';
 import { checkReplyEffect, checkSkill, listSkills } from '../tools/gateway.ts';
@@ -124,7 +115,6 @@ import { callArgsText } from '../tools/call-args.ts';
 import { createThinkStore, placeKey } from './previous-think.js';
 import { discoveryOn, exposedSkillNames, proposalVerdicts, proposedRows, skillsIndex } from '../tools/discovery.ts';
 import { skillFeatureOn, skillsOn } from '../tools/access.ts';
-import { skillRegistry } from '../tools/registry.ts';
 import { executeCall, linksOfCalls, outcomeDetail, refusalStatus, resolveCall } from '../tools/executors.ts';
 import { fetchSpan, runConversationRead, recordMessages } from '../tools/conversation-read.ts';
 import {
@@ -147,7 +137,7 @@ import { WAKE_PURPOSE_CHARS } from './wake.ts';
 import { diagnosticText, feedbackInTurnText, placesBlockText, wakeBlockText } from './wake.ts';
 import { CODE } from '../tools/codes.ts';
 import { turnRoutes } from './turn-ability-route.ts';
-import { coerceArgs, coversSpeech, normalizeCalls, toolResultText, transportOf } from '../tools/tool-calls.ts';
+import { coerceArgs, coversSpeech, toolResultText, transportOf } from '../tools/tool-calls.ts';
 import { buildTools } from '../tools/tools-json.ts';
 import {
   appendStep,
@@ -159,7 +149,7 @@ import {
   stepVerdict,
   thinkMissing,
 } from './tool-step.js';
-import { parseToolCallBlocks, toolsBlockText } from '../llm/tool-text.js';
+import { toolsBlockText } from '../llm/tool-text.js';
 import { estimateMessages, estimateTools } from '../llm/tokens.js';
 import {
   chunkPictures,
@@ -177,12 +167,98 @@ import {
   recordEntry,
   wakeInputs,
 } from './diary-turn.ts';
+import {
+  HEARTBEAT_INTENT_SKILLS,
+  HEARTBEAT_READ_SKILLS,
+  INNER_TERMINAL_SKILLS,
+  INTENT_ID_SKILLS,
+  LOOP_MIN_CALL_MS,
+  LOOP_WHY,
+  NO_LOOP,
+  SETTLE_STEP_MS,
+  coreToolsOn,
+  loopSettings,
+  paceSettings,
+  resultCharsFor,
+} from '../turn/settings.ts';
+import { PREPARE_STAGES, PREPARE_TYPING_REFRESH_MS, TOO_SLOW, scheduleTimer, trackStage } from '../turn/timers.ts';
+import { DIRECT_CALLS, askedFor, postsPlain, takeAttention, unhurried } from '../turn/triggers.ts';
+import { lookupClassifierInput, renderClassifierContext } from '../turn/lookup-input.ts';
+import { mentionDirectory, pickOtherProfiles, resolveMentions, storedNames, untaggedNote } from '../turn/mentions.ts';
+import {
+  authorNameFor,
+  mirrorPartChars,
+  reactionChannel,
+  replyTarget,
+  sendArgs,
+  sourceLinkTarget,
+  splitForMirror,
+  withLink,
+} from '../turn/targets.ts';
+import {
+  REWATCH_KIND_GIF,
+  REWATCH_KIND_PICTURE,
+  REWATCH_KIND_VIDEO,
+  REWATCH_STATUS_DESCRIBED,
+  REWATCH_STATUS_NOT_LOADED,
+  REWATCH_STATUS_WATCHED,
+  REWATCH_SUMMARY_CHARS,
+  describableCandidates,
+  gifRewatchItems,
+  readableLinkCandidates,
+  relookCandidates,
+  triggerBringsMedia,
+} from '../turn/media.ts';
+import { NO_RECENT, continuationHistory, withReplyParents } from '../turn/history.ts';
+import { channelDirectoryOf, inCommunity, routeFor, usableDestination } from '../turn/routing.ts';
+import {
+  FAILED_TURN_KEEP_MS,
+  NO_OP,
+  SKIP_NOTHING_TO_DO,
+  SKIP_SILENCE,
+  closeResult,
+  cutOffOf,
+  droppedSections,
+  journalResultOf,
+  journalStartOf,
+  journalTurnRecord,
+  journalUsage,
+  journalled,
+  linkHosts,
+  noteDiagnostics,
+  portError,
+  postedOf,
+  sendHash,
+  settleUnknownSends,
+  untoldDiagnostics,
+} from '../turn/journal.ts';
+import {
+  CALL_MARKS_MAX,
+  CALL_STATUS_NAMES,
+  PERSONA,
+  POSTED_FROM_MAX,
+  SEARCH_HANDLE_GAP,
+  TRIGGER_LINKS_MAX,
+  WRITTEN_SKILLS,
+  answerOf,
+  callEnvelope,
+  callTextOf,
+  callViewOf,
+  defaultSkills,
+  replyOptionsOf,
+  requesterOf,
+  searchHandles,
+  speechItemsOf,
+  valuesOf,
+} from '../turn/calls.ts';
+import { taskInput } from '../turn/task-input.ts';
 
 // A set's pictures are split and named as the diary's mirrors send them (src/behavior/mirror.ts).
 export { chunkPictures };
 
 /** @typedef {import('../protocol/adapter.ts').ConversationInfo} Conv */
 /** @typedef {import('./snapshot.ts').Snapshot} Snap */
+/** @typedef {import('../turn/triggers.ts').TriggerKind} TriggerKind */
 
 /**
  * How a turn ended. `spoke` and `skip` reached the model (a skip chose
@@ -194,1310 +270,39 @@ export { chunkPictures };
  * @typedef {'spoke'|'skip'|'busy'|'refused'|'paused'|'not-now'|'error'} TurnOutcome
  */
 
-/**
- * The `reason` codes of a `skip` outcome, journaled with the turn: she chose not to speak (an
- * explicit skip, or an answer with nothing to act on), or an inner turn (mode `inner`,
- * src/behavior/inner.ts) ended with no action of hers -- silence is a valid answer there.
- */
-export const SKIP_SILENCE = 'silence';
-export const SKIP_NOTHING_TO_DO = 'nothing-to-do';
-
-/**
- * Why a reply turn runs: a `@mention`, a platform reply to the persona, a
- * name trigger, a follow-up the address classifier said "yes" to, a line the
- * address classifier found to be about the persona but said to someone else
- * or to the room (`overheard`), a private chat message, or a message to the persona left unanswered
- * earlier (`missed`, src/behavior/missed.js). Each has a `labels.triggers` entry.
- * @typedef {'mention'|'reply'|'name'|'followUp'|'overheard'|'private'|'missed'|'errand'|'inner'} TriggerKind
- */
-
-/**
- * Whether a turn of `triggerKind` posts plain, never as a platform reply: the
- * address classifier's turns (a follow-up, an overheard line), whose model
- * `reply="#n"` quotes nothing for messages, the GIF and the picture alike (a
- * pulled line it points at still gets its jump link: replyTarget). Exported so a limit notice can quote by the same rule.
- * @param {TriggerKind|null|undefined} triggerKind
- * @returns {boolean}
- */
-export function postsPlain(triggerKind) {
-  return triggerKind === 'followUp' || triggerKind === 'overheard';
-}
-
-/** `pace` when a key is missing: config.json's values. */
-const PACE_FALLBACK = Object.freeze({
-  prepareMs: 6000,
-  prepareSearchMs: 18000,
-  prepareMediaMs: 20000,
-  dropAfterMs: 120000,
-  replyHedgeMs: 30000,
-  typingWhilePreparing: false,
-  unpromptedWaits: true,
-  settleMs: 3000,
-  settleMaxMs: 8000,
-});
-
-/** The longest single pause of a settle wait: the author's activity is read again after it. */
-const SETTLE_STEP_MS = 250;
-
-/**
- * The pace of a turn's preparation, read from `config` (the live config):
- * `prepareMs`, how long everything before the reply request may take, counted
- * from the turn's start; `prepareSearchMs`, the longer limit once the search
- * classifier asked for a web or server search (never shorter than
- * `prepareMs`), and the longest the turn waits past `prepareMs` for that
- * classifier's verdict (null: no wait; it stops at once on a verdict asking
- * for no search); `prepareMediaMs`, the longer limit of a direct call whose own
- * message (or the message it replies to) brought a picture, a GIF or a video
- * the turn describes or watches (never shorter than `prepareMs`; with both,
- * the larger of the two; null = no such extension); `dropAfterMs`, the bar a
- * turn's answer must be in hand by,
- * counted from the turn's start, past which the turn is dropped unposted;
- * `replyHedgeMs`, how long the reply request of a turn with a bar is given
- * before a second, identical one is sent (the first answer wins);
- * each a positive number of milliseconds, or null -- no deadline, wait for
- * everything; no bar; no second request -- for 0, a negative value or a
- * non-number. A missing key takes config.json's value. `typingWhilePreparing` (only exactly true
- * turns it on; off as shipped): the typing indicator from the start of a turn
- * answering a direct call until its answer is in hand. Off, the indicator
- * shows only while the finished answer is being typed out, as before.
- * `unpromptedWaits` (a missing key counts as on; only false turns it off): a
- * turn nobody waits for (unhurried) gets neither the deadline nor the bar --
- * it waits for every stage and posts once ready. Off, every turn keeps the same
- * deadline and bar. `settleMs`: how long the author of a turn answering a person must have
- * been quiet before the turn reads the channel (0 = no wait, also for a negative value or a
- * non-number); `settleMaxMs`: the longest that wait runs, counted from the author's trigger
- * message (null for 0, a negative value or a non-number: one settle from it). A missing key
- * takes config.json's value.
- * @param {object} config
- * @returns {{ prepareMs: number|null, prepareSearchMs: number|null, prepareMediaMs: number|null,
- *   dropAfterMs: number|null, replyHedgeMs: number|null, typingWhilePreparing: boolean, unpromptedWaits: boolean,
- *   settleMs: number, settleMaxMs: number|null }}
- */
-export function paceSettings(config) {
-  const pace = isPlainObject(config?.pace) ? config.pace : {};
-  const limit = (value, fallback) => {
-    if (value === undefined) return fallback;
-    return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
-  };
-  return {
-    prepareMs: limit(pace.prepareMs, PACE_FALLBACK.prepareMs),
-    prepareSearchMs: limit(pace.prepareSearchMs, PACE_FALLBACK.prepareSearchMs),
-    prepareMediaMs: limit(pace.prepareMediaMs, PACE_FALLBACK.prepareMediaMs),
-    dropAfterMs: limit(pace.dropAfterMs, PACE_FALLBACK.dropAfterMs),
-    replyHedgeMs: limit(pace.replyHedgeMs, PACE_FALLBACK.replyHedgeMs),
-    typingWhilePreparing: pace.typingWhilePreparing === true,
-    unpromptedWaits: pace.unpromptedWaits !== false,
-    settleMs: limit(pace.settleMs, PACE_FALLBACK.settleMs) ?? 0,
-    settleMaxMs: limit(pace.settleMaxMs, PACE_FALLBACK.settleMaxMs),
-  };
-}
-
-/** tools.loop's values when a key is missing (config.json's). */
-const LOOP_FALLBACK = Object.freeze({ maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4, stepReserveTokens: 6000 });
-/** `diary.loop`'s values when a key is missing (config.json's). */
-const DIARY_LOOP_FALLBACK = Object.freeze({ maxSteps: 2, timeBudgetMs: 600000 });
-/** The least time one call of the tool loop gets, whatever is left of its budget. */
-const LOOP_MIN_CALL_MS = 2000;
-/**
- * The calls a heartbeat turn accepts while `innerLife.heartbeat.intentionsOnly` is on (docs/inner-life.md
- * "What a heartbeat may do"): memory inspection, then one change of an intention. Other calls are refused `heartbeat-only`;
- * `<skip/>` is no call.
- */
-const HEARTBEAT_INTENT_SKILLS = Object.freeze(['intention.set', 'intention.update', 'intention.cancel']);
-/**
- * The terminal actions of an inner turn (docs/inner-life.md): the one call its last loop step
- * still runs -- a post, or a change of an intention of hers. A read or any other skill on the
- * last step is dropped as on every turn.
- */
-const INNER_TERMINAL_SKILLS = Object.freeze(['message.create', ...HEARTBEAT_INTENT_SKILLS]);
-/** Memory inspection available while deciding a heartbeat; external reads and other effects remain deferred. */
-const HEARTBEAT_READ_SKILLS = Object.freeze([
-  'memory.search',
-  'memory.profile.read',
-  'memory.affinity.read',
-  'memory.channel.read',
-  'memory.server.read',
-  'memory.recent.read',
-  'memory.archive.read',
-  'memory.journal.read',
-  'conversation.read',
-  'intention.list',
-  'lore.list',
-  'lore.show',
-  'tools.describe',
-]);
-/** An inner turn's loop end state when no tool loop ran (`inner.loop`). */
-const NO_LOOP = Object.freeze({ steps: 0, cut: null, droppedCalls: 0 });
-/** Why a call of a step did not run (`loop-cap`): too many in one answer, or the steps, the time or the room spent. For the journal and the log. */
-const LOOP_WHY = Object.freeze({ extraCall: 'extra-call', steps: 'steps', time: 'time', tokens: 'tokens' });
-/** The intention calls of an inner turn that name an intention (`id`, or the id alone in the body). */
-const INTENT_ID_SKILLS = Object.freeze(['intention.update', 'intention.cancel']);
-
-/**
- * Whether her own tools replace the classifiers before her reply (features.coreTools exactly true; tracked
- * default false): no search classifier, no re-watch classifier (her own `web.search`, `memory.search` and
- * `media.look` instead), the memory prefetch. The step engine and her tools run whatever it says. Read at the moment of use. Pure.
- * @param {object} config
- * @returns {boolean}
- */
-export function coreToolsOn(config) {
-  return config?.features?.coreTools === true;
-}
-
-/**
- * The tool loop's bounds under `config` (`tools.loop`, read by the caller now): `maxSteps`, the
- * most follow-up requests after her calls in one turn (a whole number of at least 1);
- * `timeBudgetMs`, how long the loop may run from its first call before the next request is
- * her last (a positive number); `maxCallsPerStep`, the most calls of one answer that run (a
- * whole number of at least 1; the rest are dropped and logged). A missing or unusable value
- * takes config.json's. An inner turn (`inner`: mode `inner`, docs/inner-life.md) has its own
- * bounds, `innerLife.loop` (src/behavior/inner.ts#innerSettings; nobody waits for it, so its
- * budget is generous): the same three, plus `callTimeoutMs`, the most one call of hers may run. A diary
- * post (`diary`) has `diary.loop`, and its calls per step are `diary.set.pictures[1]`.
- * `tools.loop` never
- * reaches an inner turn, `innerLife.loop` never an ordinary one. Pure.
- * @param {object} config
- * @param {{ inner?: boolean }} [options]
- * @returns {{ maxSteps: number, timeBudgetMs: number, maxCallsPerStep: number, callTimeoutMs?: number, stepReserveTokens?: number }}
- */
-export function loopSettings(config, { inner = false, diary = false } = {}) {
-  if (inner) return { ...innerSettings(config).loop };
-  // A diary post (`diary.loop`): two requests at most, a long budget (a picture takes its time); a step takes
-  // as many calls as a set has pictures at most (`diary.set.pictures[1]`).
-  if (diary) {
-    const raw = isPlainObject(config?.diary?.loop) ? config.diary.loop : {};
-    return {
-      maxSteps: Number.isInteger(raw.maxSteps) && raw.maxSteps >= 1 ? raw.maxSteps : DIARY_LOOP_FALLBACK.maxSteps,
-      timeBudgetMs:
-        typeof raw.timeBudgetMs === 'number' && Number.isFinite(raw.timeBudgetMs) && raw.timeBudgetMs > 0
-          ? raw.timeBudgetMs
-          : DIARY_LOOP_FALLBACK.timeBudgetMs,
-      maxCallsPerStep: setSettings(config?.diary).pictures[1],
-    };
-  }
-  const loop = isPlainObject(config?.tools?.loop) ? config.tools.loop : {};
-  const whole = (value, fallback) => (Number.isInteger(value) && value >= 1 ? value : fallback);
-  return {
-    maxSteps: whole(loop.maxSteps, LOOP_FALLBACK.maxSteps),
-    timeBudgetMs:
-      typeof loop.timeBudgetMs === 'number' && Number.isFinite(loop.timeBudgetMs) && loop.timeBudgetMs > 0
-        ? loop.timeBudgetMs
-        : LOOP_FALLBACK.timeBudgetMs,
-    maxCallsPerStep: whole(loop.maxCallsPerStep, LOOP_FALLBACK.maxCallsPerStep),
-    stepReserveTokens: whole(loop.stepReserveTokens, LOOP_FALLBACK.stepReserveTokens),
-  };
-}
-
-/** The stages of a turn's preparation, in the order `turn: timings` names them. */
-const PREPARE_STAGES = Object.freeze([
-  'history',
-  'previews',
-  'captions',
-  'videos',
-  'rewatch',
-  'links',
-  'lookup',
-  'neighbors',
-  'pulled',
-  'participation',
-]);
-
-/**
- * The trigger kinds that are a direct call (a private chat message included): the typing
- * indicator may show while such a turn prepares and waits for its answer, and its preparation
- * keeps the deadline and the bar (see unhurried).
- */
-const DIRECT_CALLS = new Set(['mention', 'reply', 'name', 'followUp', 'private']);
-
-/**
- * The most characters of a skill result's data the follow-up request carries, read from `config`: a
- * memory.search result is cut by the tool itself, window by window, at `recall.quoteMaxChars`, and
- * is bounded there; every other result at `tools.resultMaxChars`.
- */
-function resultCharsFor(result, config) {
-  if (result?.skill === 'memory.search' || result?.skill === 'conversation.read')
-    return recallSettings(config)?.quoteMaxChars ?? RECALL_DEFAULTS.quoteMaxChars;
-  return config?.tools?.resultMaxChars ?? 4500;
-}
-
-/**
- * Whether nobody waits for a turn of `triggerKind` -- a spontaneous one (no trigger kind: an
- * interject, an initiate, a noticed comment, a forced turn) or an overheard line -- so that, with
- * `pace.unpromptedWaits` on, it prepares without a deadline or a bar.
- * @param {TriggerKind|null} triggerKind
- * @param {{ unpromptedWaits: boolean }} pace  paceSettings of the turn's config.
- * @returns {boolean}
- */
-function unhurried(triggerKind, pace) {
-  return pace.unpromptedWaits && !DIRECT_CALLS.has(triggerKind);
-}
-
-/** What a turn throws to itself once its bar (pace.dropAfterMs) has passed: caught by runTurnOnce. */
-const TOO_SLOW = Symbol('too-slow');
-
-// A chat platform shows a typing indicator for about ten seconds: it is sent again before it fades.
-const PREPARE_TYPING_REFRESH_MS = 8000;
-
-// How many of the persona's posted messages keep the link to their turn's trigger in process
-// (far more than two days of her lines; the oldest go first).
-const TRIGGER_LINKS_MAX = 5000;
-
-// How many of the persona's skill calls her transcript lines keep showing, in process (far more
-// than two days of them; the oldest go first), and how many of her posts keep the channel of the
-// turn that posted them from elsewhere.
-const CALL_MARKS_MAX = 500;
-const POSTED_FROM_MAX = 2000;
-
-/** The real timer behind createTurnRunner's `schedule`: `fn` once after `ms`; resolves a cancel function. */
-function scheduleTimer(fn, ms) {
-  const timer = setTimeout(fn, ms);
-  return () => clearTimeout(timer);
-}
-
-/**
- * One stage of a turn's preparation: `work()` started now, its outcome kept
- * on the returned record once it settles -- `value` (undefined after a
- * failure, which `onError` hears of), `ms` since `startedAt` on `clock`, and
- * `done`. `settled` never rejects, so a stage the turn no longer waits for
- * can never surface as an unhandled rejection.
- * @param {() => unknown} work
- * @param {{ clock: () => number, startedAt: number, onError: (err: unknown) => void }} options
- * @returns {{ done: boolean, value: unknown, ms: number|null, settled: Promise<void> }}
- */
-function trackStage(work, { clock, startedAt, onError }) {
-  const stage = { done: false, value: undefined, ms: null, settled: null };
-  stage.settled = new Promise((resolve) => resolve(work()))
-    .then(
-      (value) => {
-        stage.value = value;
-      },
-      (err) => {
-        try {
-          onError(err);
-        } catch {
-          // A failing log line never fails the stage.
-        }
-      }
-    )
-    .then(() => {
-      stage.ms = clock() - startedAt;
-      stage.done = true;
-    });
-  return stage;
-}
-
-/**
- * Whether someone asked for this turn: it has a trigger that is not an
- * overheard line (talk about the persona asks it nothing). An unasked turn
- * charges no member's
- * picture quota -- like a spontaneous turn.
- */
-function askedFor(trigger, triggerKind) {
-  return Boolean(trigger) && triggerKind !== 'overheard';
-}
-
-/**
- * The `<transcript>` block of a classifier request (re-watch, search): the
- * last `contextMessages` messages of `history` before the trigger, rendered
- * by src/behavior/prompt.js#classifierTranscript (as the route classifier's)
- * with the media states the caller already has, plus the trigger's text cut to
- * `context.maxMessageChars`. `transcriptBlock` is '' (no block) for a
- * window of 0 or no earlier message. Pure.
- * @returns {{ triggerText: string, transcriptBlock: string }}
- */
-function renderClassifierContext({
-  config,
-  labels,
-  selfName,
-  history,
-  trigger,
-  contextMessages,
-  descriptions,
-  videos,
-  reads,
-}) {
-  const triggerText = [...String(trigger.content ?? '')].slice(0, config.context?.maxMessageChars ?? 2000).join('');
-  const context = contextMessages > 0 ? history.filter((m) => m.id !== trigger.id).slice(-contextMessages) : [];
-  if (context.length === 0) return { triggerText, transcriptBlock: '' };
-  const body = classifierTranscript(context, { config, selfName, labels, descriptions, videos, reads });
-  return { triggerText, transcriptBlock: `<transcript>\n${body}\n</transcript>\n` };
-}
-
-/**
- * The user message of the search classifier (prompts.lookup) as a live turn
- * sends it (createTurnRunner's maybeLookup): the `<transcript>` of the last
- * `web.search.contextMessages` (50 when missing) messages of `history` before
- * `trigger` (renderClassifierContext, `labels` = prompts.labels), then the
- * trigger as `<candidate>` with its author's name. Exported so
- * tools/search-policy-eval.mjs measures exactly what production sends. Pure.
- * @param {{ config: object, labels: object, selfName: string, history: object[], trigger: object,
- *   descriptions?: Map<string, unknown>, videos?: Map<string, unknown>, reads?: Map<string, unknown> }} params
- * @returns {{ triggerText: string, transcriptBlock: string, user: string }}
- */
-export function lookupClassifierInput({ config, labels, selfName, history, trigger, descriptions, videos, reads }) {
-  const contextMessages = Math.max(0, Math.floor(config.web?.search?.contextMessages ?? 50));
-  const { triggerText, transcriptBlock } = renderClassifierContext({
-    config,
-    labels,
-    selfName,
-    history,
-    trigger,
-    contextMessages,
-    descriptions,
-    videos,
-    reads,
-  });
-  return {
-    triggerText,
-    transcriptBlock,
-    user: `${transcriptBlock}<candidate>\n${trigger.authorName}: ${triggerText}\n</candidate>`,
-  };
-}
+// The functions of a turn that stand on their own live in src/turn/; these are the names importers and tests read here.
+export {
+  FAILED_TURN_KEEP_MS,
+  SKIP_NOTHING_TO_DO,
+  SKIP_SILENCE,
+  answerOf,
+  callViewOf,
+  continuationHistory,
+  coreToolsOn,
+  journalResultOf,
+  journalTurnRecord,
+  lookupClassifierInput,
+  loopSettings,
+  mentionDirectory,
+  paceSettings,
+  pickOtherProfiles,
+  postsPlain,
+  requesterOf,
+  resolveMentions,
+  routeFor,
+  searchHandles,
+  sendHash,
+  settleUnknownSends,
+  taskInput,
+  untaggedNote,
+  usableDestination,
+};
 
 // The server search on a question's own words lives with the recall planning (src/behavior/recall.js).
 export { fallbackLookupPlan };
 
-/**
- * The name matching of features.mentionHandles off (kept for rollback; with it on, renderPost
- * resolves only `@handle`, src/behavior/handles.js#resolveHandles).
- * Turn `@nick` written by the model into real mentions for people the request showed: the
- * authors of `history` (the lines shown), then the stored names in `knownNames` (the members
- * whose profile the request showed, the authors of the pulled lines shown). A transcript
- * author wins a name a stored profile shares, the last author of a display name wins, and of
- * two stored profiles sharing a name the first handed over wins. Longer names are matched
- * first, so a multi-word name is never cut at a shorter one it starts with. A URL in the text
- * is left exactly as written (src/memory/mentions.ts#outsideUrls).
- * What is left falls back to `directory` (mentionDirectory: every member of the served guild
- * the bot knows): matched case-insensitively, longest first, only as a whole name (no letter,
- * digit or underscore right after it); a name one of the request's own sources gives in any
- * case keeps that member, any other resolves only when exactly one member carries it, and a
- * name two or more members share stays text.
- * @param {string} text
- * @param {object[]} history  Normalized lines (`authorName`, `authorId`, `self`, `bot`).
- * @param {Iterable<{ name: string, id: string }>} [knownNames]
- * @param {Iterable<{ name: string, id: string }>} [directory]
- * @returns {{ text: string, userIds: string[] }}  `userIds`: the members pinged (allowedMentions).
- */
-export function resolveMentions(text, history, knownNames = [], directory = []) {
-  const people = new Map();
-  for (const { name, id } of knownNames) {
-    if (typeof name !== 'string' || !name.trim() || id === undefined || id === null || people.has(name)) continue;
-    people.set(name, String(id));
-  }
-  for (const message of history) {
-    if (!message.self && !message.bot && message.authorName) people.set(message.authorName, message.authorId);
-  }
-  const names = [...people.keys()].sort((a, b) => b.length - a.length);
-  const fallback = fallbackNames(people, directory);
-  const userIds = new Set();
-  // An `@name` inside a URL (a channel handle on a video site) is part of the address.
-  const resolved = outsideUrls(text, (part) => {
-    let out = part;
-    for (const name of names) {
-      if (!out.includes(`@${name}`)) continue;
-      out = out.replaceAll(`@${name}`, `<@${people.get(name)}>`);
-      userIds.add(people.get(name));
-    }
-    return fallback.size > 0 ? resolveFallback(out, fallback, userIds) : out;
-  });
-  return { text: resolved, userIds: [...userIds] };
-}
-
-/**
- * The fallback's case-folded names (resolveMentions) → the one member each resolves to, or
- * null when it stays text: a name the request's own sources (`people`) give in any case keeps
- * their member (null when they give it to two), else the one directory member carrying it
- * (null when two or more do).
- * @param {Map<string, string>} people  The request's own names → member ids.
- * @param {Iterable<{ name: string, id: string }>} directory
- * @returns {Map<string, string|null>}
- */
-function fallbackNames(people, directory) {
-  const idsOf = (pairs) => {
-    const byKey = new Map();
-    for (const [name, id] of pairs) {
-      if (typeof name !== 'string' || !name.trim() || id === undefined || id === null) continue;
-      const key = name.toLowerCase();
-      if (!byKey.has(key)) byKey.set(key, new Set());
-      byKey.get(key).add(String(id));
-    }
-    return byKey;
-  };
-  const listed = idsOf([...directory].map((entry) => [entry?.name, entry?.id]));
-  if (listed.size === 0) return new Map();
-  const shown = idsOf(people);
-  const fallback = new Map();
-  for (const [key, ids] of listed) {
-    const owners = shown.get(key) ?? ids;
-    fallback.set(key, owners.size === 1 ? [...owners][0] : null);
-  }
-  return fallback;
-}
-
-/**
- * `part` (outside URLs, after the exact pass) with every whole `@name` of `fallback` that
- * resolves turned into a mention, longest first; the members mentioned are added to `userIds`.
- * A mention already made (`<@id>`) is never matched again.
- */
-function resolveFallback(part, fallback, userIds) {
-  const lower = part.toLowerCase();
-  const candidates = [...fallback.keys()].filter((key) => fallback.get(key) !== null && lower.includes(`@${key}`));
-  if (candidates.length === 0) return part;
-  candidates.sort((a, b) => b.length - a.length);
-  const escaped = candidates.map((key) => key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-  const pattern = new RegExp(`(?<!<)@(?:${escaped.join('|')})(?![\\p{L}\\p{N}_])`, 'giu');
-  return part.replace(pattern, (match) => {
-    const id = fallback.get(match.slice(1).toLowerCase());
-    if (!id) return match;
-    userIds.add(id);
-    return `<@${id}>`;
-  });
-}
-
-/**
- * The fallback directory `@name` resolves by after the request's own sources (resolveMentions):
- * every name of every member of the served community the core knows without asking the interface --
- * the member directory (`members`: `{ id, name, bot }` as `membership.changed` reported them, a member's
- * other names too when the record carries them) and the stored profiles (`profiles`: names and aliases).
- * Never a bot nor the persona herself (`selfId`).
- * @param {{ members?: Iterable<object>, profiles?: Iterable<object>, selfId?: string|null }} [sources]
- *   `members`: the directory's members; `profiles`: stored member profiles (store.listUserProfiles).
- * @returns {{ name: string, id: string }[]}
- */
-export function mentionDirectory({ members = [], profiles = [], selfId = null } = {}) {
-  const entries = [];
-  const seen = new Set();
-  const bots = new Set();
-  const self = selfId === null || selfId === undefined ? null : String(selfId);
-  const add = (name, id) => {
-    if (typeof name !== 'string' || !name.trim()) return;
-    const key = `${id}\u0000${name}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    entries.push({ name, id });
-  };
-  const cached = [...members].filter((member) => member && typeof member === 'object');
-  const idOf = (member) => member.id ?? member.user?.id;
-  for (const member of cached) {
-    const id = idOf(member);
-    if (id !== undefined && id !== null && (member.bot === true || member.user?.bot === true)) bots.add(String(id));
-  }
-  const counts = (id) => id !== undefined && id !== null && String(id) !== self && !bots.has(String(id));
-  for (const member of cached) {
-    const id = idOf(member);
-    if (!counts(id)) continue;
-    for (const name of [
-      member.name,
-      member.displayName,
-      member.nickname,
-      member.user?.globalName,
-      member.user?.username,
-    ])
-      add(name, String(id));
-  }
-  for (const profile of profiles) {
-    if (!profile || typeof profile !== 'object' || !counts(profile.id)) continue;
-    for (const name of Array.isArray(profile.names) ? profile.names : []) add(name, String(profile.id));
-    for (const alias of Array.isArray(profile.aliases) ? profile.aliases : []) add(alias?.name, String(profile.id));
-  }
-  return entries;
-}
-
-/**
- * The stored names `@name` may resolve by besides the transcript's display names (see
- * resolveMentions): every name of each member whose profile the request showed (`peopleShown`,
- * in its order), then every stored name of each author of the pulled lines shown -- those lines
- * carry the name the platform gave, often not the one the persona remembers them by.
- * @param {{ id: string, names: string[] }[]|undefined} peopleShown  buildRequest's `peopleShown`.
- * @param {object[]} shownLines  The pulled lines the request showed.
- * @param {(userId: string) => (object|null)} profileOf  The stored profile of a member, or null.
- * @returns {{ name: string, id: string }[]}
- */
-function storedNames(peopleShown, shownLines, profileOf) {
-  const known = [];
-  for (const person of peopleShown ?? []) {
-    for (const name of person.names) known.push({ name, id: person.id });
-  }
-  const authors = new Set();
-  for (const line of shownLines) {
-    if (line.self || line.bot || !line.authorId || authors.has(line.authorId)) continue;
-    authors.add(line.authorId);
-    const names = profileOf(line.authorId)?.names;
-    if (Array.isArray(names)) for (const name of names) known.push({ name, id: line.authorId });
-  }
-  return known;
-}
-
-/**
- * Profiles of the people most recently active in the transcript, excluding `exceptId`.
- * Also used by the replay sandbox (src/behavior/sandbox.js) with a store-shaped reader.
- * @param {{ getUser: (guildId: string, userId: string) => (object|null) }} store
- * @param {string} guildId
- * @param {object[]} history
- * @param {string|undefined} exceptId
- * @param {number} count
- * @returns {object[]}
- */
-export function pickOtherProfiles(store, guildId, history, exceptId, count) {
-  const seen = new Set();
-  const profiles = [];
-  for (const message of [...history].reverse()) {
-    if (message.self || message.bot || message.authorId === exceptId || seen.has(message.authorId)) continue;
-    seen.add(message.authorId);
-    const profile = store.getUser(guildId, message.authorId);
-    if (profile) profiles.push(profile);
-    if (profiles.length >= count) break;
-  }
-  return profiles;
-}
-
-/** No `<recent>` input: no store's lines handed over, so the request builder builds no block. */
-const NO_RECENT = Object.freeze({ lines: undefined, audience: undefined });
-
-/** Display name of the author of `messageId` in `history`, or null when the message is not there. */
-function authorNameFor(history, messageId) {
-  const message = history.find((m) => m.id === messageId);
-  return message?.authorName ?? null;
-}
-
-/**
- * Where the model's `reply="#n"` points. `replyId`: a line of this chat, which
- * a post may quote as a platform reply. `pulledId`: a line of a pulled channel
- * (`pulledIds`, buildRequest's map of every pulled line to its channel), which
- * a post here never quotes -- the platform resolves a reply reference in the
- * channel posted to -- and links instead (createLinker). A turn that posts
- * plain (postsPlain) quotes no chat line; a pulled line is linked all the
- * same, since a link is not a platform reply.
- * @returns {{ replyId: string|null, pulledId: string|null }}
- */
-function replyTarget(replyTo, { plain, idByIndex, pulledIds }) {
-  const id = replyTo !== null && replyTo !== undefined ? (idByIndex.get(replyTo) ?? null) : null;
-  if (id === null) return { replyId: null, pulledId: null };
-  if (pulledIds.has(id)) return { replyId: null, pulledId: id };
-  return { replyId: plain ? null : id, pulledId: null };
-}
-
-/**
- * Where a reaction on line `targetId` goes: this channel for a chat line; for a pulled line (`pulledIds`) its own
- * channel, as the interface describes it now (`reads`), while the persona may react there
- * (`permissions.react`). A private chat holds no pulled channel to react in. Otherwise `target` is null and `reason`
- * is the code the drop is logged with: `not-found` (the channel is gone) or `cannot-react`. `source` is the pulled
- * channel's id, null for a chat line.
- * @returns {Promise<{ target: object|null, source: string|null, reason: 'not-found'|'cannot-react'|null }>}
- * @param {import('../interface/reads.ts').Reads} reads
- */
-async function reactionChannel(reads, channel, targetId, pulledIds) {
-  const source = pulledIds.get(targetId) ?? null;
-  if (!source) return { target: channel, source: null, reason: null };
-  const live =
-    channel.communityId === null
-      ? null
-      : await reads.conversationInfo({ iface: channel.iface, conversationId: String(source) });
-  const target = live?.conversation ?? null;
-  if (!target) return { target: null, source, reason: 'not-found' };
-  return target.permissions.react ? { target, source, reason: null } : { target: null, source, reason: 'cannot-react' };
-}
-
-/**
- * What the first post of a turn about another channel (`source`) links to
- * when it answers no pulled line: a routed call (in its own channel), else the
- * newest line of the source the request showed (buildRequest's `pulledKept`).
- * Null without a source, or when nothing of it was shown (the budget dropped
- * its block): a post never points at a line the model did not see.
- * @returns {{ channelId: string, messageId: string }|null}
- */
-function sourceLinkTarget({ source, trigger, pulledKept }) {
-  if (!source?.channelId) return null;
-  if (source.reason === 'routed' && trigger?.id)
-    return { channelId: trigger.channelId || source.channelId, messageId: trigger.id };
-  const newestId = pulledKept.find((shown) => shown.channelId === source.channelId)?.newestId ?? null;
-  return newestId ? { channelId: source.channelId, messageId: newestId } : null;
-}
-
-/**
- * `text` with `link` joined through `labels.elsewhere.link` (`{text}` `{link}`);
- * without the label, a newline between them; without a link, `text` as it is.
- * Nothing is cut: an adapter whose platform limits a message splits the post itself.
- */
-function withLink(text, link, labels) {
-  if (!link) return String(text);
-  const template = labels?.elsewhere?.link;
-  return typeof template === 'string' && template ? fill(template, { text, link }) : `${text}\n${link}`;
-}
-
-const REWATCH_SUMMARY_CHARS = 200;
-// Protocol tokens of the re-watch classifier (docs/prompt-contract.md), not wording:
-// the kind and status columns of a `<media>` line. The answer's parser
-// (parseRewatchPickDetailed) lives in src/behavior/planner.js, which reads the
-// planner's re-watch block with it; it is re-exported from here.
-const REWATCH_KIND_VIDEO = 'video';
-const REWATCH_KIND_PICTURE = 'picture';
-// A watched GIF: listed to the classifier as a video (REWATCH_KIND_VIDEO); `gif` is the internal
-// candidate kind and the log's code, never written into `<media>`.
-const REWATCH_KIND_GIF = 'gif';
-const REWATCH_STATUS_WATCHED = 'watched';
-const REWATCH_STATUS_NOT_LOADED = 'not loaded';
-const REWATCH_STATUS_DESCRIBED = 'described';
-
+// The re-watch classifier's answer parser lives with the planner (src/behavior/planner.js).
 export { parseRewatchPickDetailed };
-
-/**
- * The link items of `history` the web lookup may read (src/media/classify.js#collectReadableLinks:
- * no video-site link, no gif embed), newest message first.
- */
-function readableLinkCandidates(history, sites) {
-  const out = [];
-  for (let i = history.length - 1; i >= 0; i -= 1) {
-    out.push(...collectReadableLinks(history[i], { videoSites: sites ?? [] }));
-  }
-  return out;
-}
-
-/**
- * `history` with the messages its replies answer from outside it prepended as its oldest lines
- * (src/behavior/reply-parents.ts#fetchReplyParents): the parent of `trigger` when it lives in this
- * channel, one level of that parent's own parent, and the parents of the last
- * `context.replyParentsFor` lines (every line of the window with `features.anchoredWindow`
- * exactly true: the request then shows the parents as anchors in `<earlier>`), at most
- * `context.replyParentsMax` in all, each marked `replyParent: true`. Off with
- * `context.fetchReplyParents` false (a missing key counts as on); `history` as it is then.
- * @param {object} reads  The core's reads of the interface (src/interface/reads.ts).
- * @param {import('../protocol/adapter.ts').ConversationInfo} channel
- * @param {object[]} history
- * @param {{ trigger: object|null, config: object }} options
- * @returns {Promise<object[]>}
- */
-async function withReplyParents(reads, channel, history, { trigger, config }) {
-  const context = config.context ?? {};
-  if (context.fetchReplyParents === false) return history;
-  const own = trigger && (!trigger.channelId || trigger.channelId === channel.id) ? trigger : null;
-  const parents = await fetchReplyParents(reads, { iface: channel.iface, conversationId: channel.id }, history, {
-    trigger: own,
-    recent: config.features?.anchoredWindow === true ? history.length : (context.replyParentsFor ?? 3),
-    max: context.replyParentsMax ?? 4,
-  });
-  // Marked, so the request can say which of its lines came from outside the window (the journal's `seen.parents`).
-  return parents.length > 0 ? [...parents.map((parent) => ({ ...parent, replyParent: true })), ...history] : history;
-}
-
-/**
- * The pictures of `history` a second look on a question may be offered for
- * (features.imageRelook): every `image` item of collectPictures -- an attached
- * picture, the persona's own posted drawings included -- newest message first.
- */
-function relookCandidates(history) {
-  const out = [];
-  for (let i = history.length - 1; i >= 0; i -= 1) {
-    for (const item of collectPictures(history[i])) if (item.kind === 'image') out.push(item);
-  }
-  return out;
-}
-
-/**
- * The GIFs of `history` a second look on a question may be offered for
- * (features.videoRewatch): every `gif` item of collectPictures -- an
- * attached .gif, a tenor/giphy embed -- newest message first. Which of them
- * were watched is the describer's to say (describer.watchedGifs).
- */
-function gifRewatchItems(history) {
-  const out = [];
-  for (let i = history.length - 1; i >= 0; i -= 1) {
-    for (const item of collectPictures(history[i])) if (item.kind === 'gif') out.push(item);
-  }
-  return out;
-}
-
-// The characters of one message when the adapter names no limit (`capabilities().maxChars`); the part mark is
-// ` (n/m)` on the header plus the newline.
-const DEFAULT_MESSAGE_CHARS = 2000;
-const MIRROR_PART_MARK_CHARS = 16;
-
-/** The room for the text of one part of a mirrored prompt: a message of `port` less its header and the part mark. */
-const mirrorPartChars = (port, headerChars) =>
-  portLimit(port, 'maxChars', DEFAULT_MESSAGE_CHARS) - headerChars - MIRROR_PART_MARK_CHARS;
-
-/**
- * `text` in pieces of at most `max` code points, each cut at its last newline
- * when there is one, so a dry-run mirror of a long text fits the interface's messages.
- */
-function splitForMirror(text, max) {
-  const limit = Math.max(1, Math.floor(max));
-  const parts = [];
-  let rest = [...String(text ?? '')];
-  while (rest.length > limit) {
-    const window = rest.slice(0, limit);
-    const newline = window.lastIndexOf('\n');
-    const cut = newline > 0 ? newline : limit;
-    parts.push(rest.slice(0, cut).join(''));
-    rest = rest.slice(newline > 0 ? cut + 1 : cut);
-  }
-  parts.push(rest.join(''));
-  return parts;
-}
-
-/**
- * Describable pictures (image/gif/video/sticker/link-thumbnail, plus custom
- * emoji — see src/media/classify.js#isDescribable) of `history`, newest
- * message first — so a per-turn cap spends its budget on what the persona
- * just saw. Pictures (collectPictures) come before that message's emoji.
- */
-function describableCandidates(history) {
-  const out = [];
-  for (let i = history.length - 1; i >= 0; i -= 1) {
-    for (const item of [...collectPictures(history[i]), ...collectEmojiItems(history[i])]) {
-      if (!isDescribable(item)) continue;
-      out.push(item);
-    }
-  }
-  return out;
-}
-
-/** The picture kinds (src/media/classify.js) that make a direct call's own media something to look at. */
-const LOOKED_AT_KINDS = new Set(['image', 'gif', 'video']);
-
-/**
- * Whether `trigger` (a direct call) brought something to look at that this turn's stages work
- * on: an item of `captionItems` (the caption stage's candidates) that is a picture, a GIF or a
- * video -- attached or embedded; never a sticker, an emoji or a link's thumbnail -- or any item
- * of `videoItems` (the video stage's candidates: an attached video, a video-site link), on the
- * trigger's own message or on the message it replies to. Media of any other line does not count.
- * @param {{ id: string, replyToId?: string|null }} trigger
- * @param {object[]} captionItems
- * @param {object[]} videoItems
- * @returns {boolean}
- */
-function triggerBringsMedia(trigger, captionItems, videoItems) {
-  const ids = new Set([trigger.id, trigger.replyToId].filter(Boolean));
-  const own = (item) => ids.has(item.messageId);
-  return videoItems.some(own) || captionItems.some((item) => own(item) && LOOKED_AT_KINDS.has(item.kind));
-}
-
-/**
- * Where the persona's words about a channel it cannot write in go (a call
- * from there, a remark on it), read from `config` (the live config) at the
- * call: the first id of `memory.mainChannelIds`
- * (src/behavior/elsewhere.ts#resolveDestination) that is a conversation of
- * `snapshot` the persona may write in (src/behavior/snapshot.ts#isWritable:
- * a channel, not a thread, never the dry-run mirror, its history
- * readable, she can send) and not `exceptId` (the
- * channel the words are about). The one copy of the rule: `<senses>` names
- * this channel, and whatever routes a call there asks the same function.
- * @param {import('./snapshot.ts').Snapshot|null} snapshot  The turn's listing of the community; none (a private chat) has no destination.
- * @param {object} config      The live config.
- * @param {{ exceptId?: string|null }} [options]
- * @returns {{ channel: import('../protocol/adapter.ts').ConversationInfo, reason: null } | { channel: null, reason: 'off'|'no-destination' }}
- *   `reason` is resolveDestination's code: `off` with features.elsewhere false, else `no-destination`.
- */
-export function usableDestination(snapshot, config, { exceptId = null } = {}) {
-  const usable = (id) => {
-    const target = snapshot?.get(String(id)) ?? null;
-    return target !== null && id !== exceptId && isWritable(target, asObject(config?.bot ?? {}));
-  };
-  const { destinationId, reason } = resolveDestination(config, usable);
-  return destinationId ? { channel: snapshot.get(String(destinationId)), reason: null } : { channel: null, reason };
-}
-
-/**
- * Where the persona's words about `source` (a channel the persona cannot send
- * in) go, read from `config` (the live config) now: `{ destination, reason:
- * null }` with the conversation, or `{ destination: null, reason }`
- * with the code logged as `route`: `off` (features.elsewhere false),
- * `no-destination` (no usable memory.mainChannelIds entry other than the
- * source, `usableDestination`) or `audience` (someone who
- * can view the destination cannot view the source,
- * src/behavior/snapshot.ts#audienceAllows). The one copy of the route of a
- * routed call and of a noticed comment.
- * @param {import('../protocol/adapter.ts').ConversationInfo} source  A conversation of `snapshot`, with its audience.
- * @param {import('./snapshot.ts').Snapshot|null} snapshot
- * @param {object} config  The live config.
- * @returns {{ destination: object, reason: null } | { destination: null, reason: 'off'|'no-destination'|'audience' }}
- */
-export function routeFor(source, snapshot, config) {
-  const { channel: destination, reason } = usableDestination(snapshot, config, { exceptId: source.id });
-  if (!destination) return { destination: null, reason };
-  if (!audienceAllows(destination, source, config)) return { destination: null, reason: 'audience' };
-  return { destination, reason: null };
-}
-
-/** The values a coded outcome's reason takes (`{status}`, `{what}`), as the journal keeps them so a mark reseeded after a restart words the same. */
-function valuesOf(result) {
-  const values = result?.values;
-  return values && typeof values === 'object' && !Array.isArray(values) && Object.keys(values).length > 0
-    ? { values: { ...values } }
-    : {};
-}
-
-/** The mode a journal's `turn.start` names: a follow-up or an overheard line by its kind, else the turn's mode. */
-function journalMode(mode, triggerKind) {
-  return triggerKind === 'followUp' || triggerKind === 'overheard' ? triggerKind : (mode ?? null);
-}
-
-/** A journal operation that writes nothing: an attempt the journal does not follow. */
-const NO_OP = Object.freeze({
-  opId: null,
-  proposed: async () => {},
-  started: async () => {},
-  succeeded: async () => {},
-  failed: async () => {},
-  unknown: async () => {},
-});
-
-/**
- * How an interface port result that is not `ok` (src/interface/port.js) closes its journal
- * operation: `unknown` (a network error, a timeout, a 5xx: it may have taken effect anyway) is
- * `unknown` -- the restart's reconciliation looks for a post; nothing is ever sent again --, any
- * other status is `failed` with the port's code (`http-<status>` for a platform's refusals).
- */
-function closeResult(op, result) {
-  if (result?.status === 'unknown') return op.unknown();
-  return op.failed(result?.error?.code ?? result?.status ?? CODE.ERROR);
-}
-
-/**
- * What the parser left unsaid about an answer (src/llm/parse.js `diagnostics`), kept in the draft
- * until a request that carried it completed (`told`) or the turn ended and it became a fact. An
- * unclosed `<think>` counts only when the answer stopped on its own (`stop`): a cut-off one is the
- * cut-off's own business.
- * @param {{ diagnostics?: object[] }|null} draft
- * @param {{ diagnostics?: object[] }} parsed
- * @param {{ finishReason?: string }|null} completion
- */
-function noteDiagnostics(draft, parsed, completion) {
-  if (!draft || !Array.isArray(parsed?.diagnostics)) return;
-  for (const diagnostic of parsed.diagnostics) {
-    if (diagnostic.kind === 'thinkUnclosed' && completion?.finishReason === 'length') continue;
-    (draft.diagnostics ??= []).push({ ...diagnostic, told: false });
-  }
-}
-
-/** The diagnostics of `draft` not told yet, without the bookkeeping. */
-function untoldDiagnostics(draft) {
-  return (draft?.diagnostics ?? []).filter((diagnostic) => diagnostic.told !== true).map(({ told, ...rest }) => rest);
-}
-
-/** How many characters of a message's text its send hash covers (what survives a trailing link or a cut). */
-const SEND_HASH_CHARS = 80;
-
-/**
- * The hash of a message's text as a send whose answer never came records it, and as her own lines of
- * the channel are checked against it later: the first SEND_HASH_CHARS characters with whitespace folded.
- * @param {unknown} text
- * @returns {string}
- */
-export function sendHash(text) {
-  const folded = Array.from(
-    String(text ?? '')
-      .replace(/\s+/g, ' ')
-      .trim()
-  )
-    .slice(0, SEND_HASH_CHARS)
-    .join('');
-  return createHash('sha1').update(folded).digest('hex').slice(0, 16);
-}
-
-/**
- * The facts of `pending` with the sends whose answer never came (`sendFailed` with `unknown`) settled
- * against `history` (the channel's lines as the turn fetched them): a message of hers with that hash
- * after the send is there, so the fact is dropped and `dropped` names it; any other stays, to be
- * told as it is. Pure.
- * @param {object[]} pending
- * @param {object[]} history
- * @returns {{ kept: object[], dropped: object[] }}
- */
-export function settleUnknownSends(pending, history) {
-  const own = (Array.isArray(history) ? history : []).filter(
-    (line) => line?.self === true && typeof line.content === 'string'
-  );
-  const kept = [];
-  const dropped = [];
-  for (const fact of pending) {
-    const found =
-      fact.kind === 'sendFailed' &&
-      fact.unknown === true &&
-      typeof fact.hash === 'string' &&
-      own.some(
-        (line) =>
-          sendHash(line.content) === fact.hash &&
-          (!Number.isFinite(line.ts) || !Number.isFinite(fact.at) || line.ts >= fact.at - 60_000)
-      );
-    (found ? dropped : kept).push(fact);
-  }
-  return { kept, dropped };
-}
-
-/** What the logs show of a port result's error: the platform's own error when the adapter kept it. */
-function portError(result) {
-  return result?.error?.cause ?? result?.error ?? null;
-}
-
-/** A sent message as the turn notes it, from an `ok` port result: its id (null when unknown) and stamp. */
-function postedOf(result) {
-  return {
-    id: result?.ref?.messageId ?? null,
-    ...(Number.isFinite(result?.at) ? { createdTimestamp: result.at } : {}),
-  };
-}
-
-/** The persona as the principal of her skill calls (src/tools/gateway.ts). */
-const PERSONA = Object.freeze({ kind: 'persona' });
-
-/**
- * The requester of a skill call: `trigger`'s author (`{ id, roleIds }`, `roleIds` the ids of the groups
- * the interface says they hold, none when it does not know the member), or null when nobody
- * asked (a turn without a trigger author). Exported for the replay's skill scenarios
- * (tools/replay.mjs `--skills`), which build their requester exactly so.
- * @param {*} trigger  `{ authorId?: string }` or null.
- * @param {*} [roleIds]  A list of group ids.
- * @returns {{ id: string, roleIds: string[] }|null}
- */
-export function requesterOf(trigger, roleIds = []) {
-  if (!trigger?.authorId) return null;
-  return { id: String(trigger.authorId), roleIds: roleIds.map(String) };
-}
-
-/**
- * What a `<call>` of the persona is resolved against (src/tools/executors.ts#resolveCall), read
- * now: the turn's channel as the current conversation, the channels she can name (the conversations of the
- * turn's `snapshot`, then the stored channel notes, the turn's own channel; where she may act is the
- * operation's rule, src/tools/impl/shared.ts#postingConversation), this turn's transcript numbers (`idByIndex`;
- * a pulled line lives in its own channel, `pulledIds`; its author from `lines`), the stored
- * profiles (only with memory on), her own id (`selfId`), the community's groups, the request's channel
- * handles (`channelHandles`: handle -> channel id, a `#handle` resolved exactly before any name), the request's
- * member handles (`memberHandles`: handle -> member id, her `@handle` in a member argument) and the skill registry
- * (`skills`: a skill's options are resolved by its dispatch), `searchRefs` (the turn's quoted lines
- * of a memory.search, searchHandles), and `fileOf` (a file handle
- * of one of her errands -> the file, null when this conversation may not use it), and `triggerText` (the
- * trigger message's text: a channel it names may take an errand's file). Reads `store` only. Exported
- * for the replay's skill scenarios, which resolve a call exactly as a live turn does.
- * @returns {object}
- */
-export function callViewOf({
-  channel,
-  snapshot = null,
-  guildId,
-  idByIndex,
-  lines,
-  pulledIds,
-  memoryOn,
-  store,
-  selfId,
-  skills,
-  channelHandles = null,
-  memberHandles = null,
-  fileOf = null,
-  triggerText = null,
-  deletedIds = null,
-  searchRefs = null,
-}) {
-  const conversations = [];
-  // A private chat shows no channel of the community: only the turn's own.
-  const listing = channel?.communityId === null ? null : snapshot;
-  for (const entry of listing?.conversations ?? []) {
-    if (entry.id && typeof entry.name === 'string') conversations.push({ id: String(entry.id), name: entry.name });
-  }
-  if (guildId && typeof store?.listChannels === 'function') {
-    for (const note of store.listChannels(guildId) ?? [])
-      if (note?.id && typeof note.name === 'string') conversations.push({ id: String(note.id), name: note.name });
-  }
-  if (typeof channel.name === 'string' && channel.name)
-    conversations.push({ id: String(channel.id), name: channel.name });
-  // The community's groups a skill's role option may name.
-  const roles = [];
-  for (const group of listing?.groups ?? []) {
-    if (group.id && typeof group.name === 'string') roles.push({ id: String(group.id), name: group.name });
-  }
-  return {
-    currentConversationId: String(channel.id),
-    conversations,
-    channelHandles: channelHandles instanceof Map ? channelHandles : null,
-    memberHandles: memberHandles instanceof Map ? memberHandles : null,
-    messageAt: (n) => {
-      // A line a memory.search of the turn quoted: its number was numbered on past the request's own.
-      const found = searchRefs && n >= searchRefs.base ? searchRefs.byNumber.get(n) : null;
-      if (found)
-        return {
-          id: String(found.id),
-          conversationId: String(found.channelId ?? channel.id),
-          authorId: found.authorId ?? null,
-          self: found.self === true,
-          ...(found.deleted === true ? { deleted: true } : {}),
-        };
-      const id = idByIndex?.get(n);
-      if (!id) return null;
-      const line = (lines ?? []).find((entry) => entry.id === id);
-      return {
-        id: String(id),
-        conversationId: String(pulledIds?.get(id) ?? channel.id),
-        authorId: line?.authorId ?? null,
-        self: line?.self === true,
-        ...(line?.deleted === true ? { deleted: true } : {}),
-      };
-    },
-    members:
-      memoryOn && guildId && typeof store?.listUserProfiles === 'function'
-        ? (store.listUserProfiles(guildId) ?? [])
-        : [],
-    selfId: selfId ?? null,
-    roles,
-    skills,
-    // Messages the record holds as deleted that the history lacks (their ids or links are refused as deleted).
-    ...(deletedIds instanceof Set && deletedIds.size > 0 ? { deletedIds } : {}),
-    // A file handle of one of her errands (`file:<task id>/<name>`), resolved for this conversation.
-    ...(typeof fileOf === 'function' ? { fileOf } : {}),
-    // The trigger message's text: a channel it names may take an errand's file.
-    ...(typeof triggerText === 'string' && triggerText ? { triggerText } : {}),
-  };
-}
-
-/** The numbers left free between a request's own lines and the handles of a memory.search of the turn (its later steps add a few lines). */
-const SEARCH_HANDLE_GAP = 20;
-
-/**
- * The turn's registry of the lines a memory.search quoted (`draft.searchRefs`): handles numbered
- * on past the request's own numbering (`draft.handleFloor`, its highest line number, plus
- * SEARCH_HANDLE_GAP, so the steps of the loop, which rebuild the transcript, keep them clear),
- * each resolving to its message (channel and id) for the turn and its loop steps. `next()` is the
- * next free number, `take(shown)` registers the quoted lines the result kept
- * (`{ n, id, channelId, authorId, self, message }`).
- * @param {object} draft
- * @returns {{ next(): number, advance(n: number): void, take(shown: object[]): void }}
- */
-export function searchHandles(draft) {
-  const registry = () =>
-    (draft.searchRefs ??= {
-      base: (draft.handleFloor ?? 0) + SEARCH_HANDLE_GAP + 1,
-      next: (draft.handleFloor ?? 0) + SEARCH_HANDLE_GAP + 1,
-      byNumber: new Map(),
-      byId: new Map(),
-    });
-  return {
-    next: () => registry().next,
-    advance: (n) => {
-      const refs = registry();
-      refs.next = Math.max(refs.next, n);
-    },
-    take: (shown) => {
-      const refs = registry();
-      for (const ref of shown) {
-        refs.byNumber.set(ref.n, ref);
-        refs.byId.set(String(ref.id), ref);
-        refs.next = Math.max(refs.next, ref.n + 1);
-      }
-    },
-  };
-}
-
-/**
- * The journal's closing record of a successful persona skill call: counts only, never content.
- * `messageId` of the message it posted (result.ref); `chars` the length of the answer the persona
- * reads (the text, or the serialized rows of a list; absent when empty); `items` the row count of
- * a list. `{}` when the call returned nothing.
- * @param {{ ref?: { messageId?: string }, data?: { text?: string, rows?: object[] }|null }|null} result
- * @returns {{ messageId?: string, chars?: number, items?: number }}
- */
-export function journalResultOf(result) {
-  const out = {};
-  if (result?.ref?.messageId) out.messageId = result.ref.messageId;
-  const data = result?.data;
-  if (data) {
-    const rows = Array.isArray(data.rows) ? data.rows : null;
-    const chars = rows ? JSON.stringify(rows).length : String(data.text ?? '').length;
-    if (chars > 0) out.chars = chars;
-    if (rows) out.items = rows.length;
-  }
-  return out;
-}
-
-/** The skills whose text she writes: a post (`message.create`) or an edit (`message.edit`). */
-const WRITTEN_SKILLS = Object.freeze(['message.create', 'message.edit']);
-
-/**
- * What a post of hers tells her about the tags that went nowhere: one `labels.tools.result.untaggedNote`
- * (`{name}`, `{handle}`) per member whose name she wrote after `@` instead of their handle
- * (src/behavior/handles.js#untaggedNames over the request's handles and names), joined by a space.
- * '' without handles (`handles`: handle -> member id), without the label or when nothing went nowhere. Pure.
- * @param {string} text  The text as she wrote it.
- * @param {{ handles?: Map<string, string>|null, memberNames?: Map<string, string[]>|null, mentionedIds?: string[] }} request
- * @param {object} [labels]
- * @returns {string}
- */
-export function untaggedNote(text, { handles = null, memberNames = null, mentionedIds = [] }, labels) {
-  const template = labels?.tools?.result?.untaggedNote;
-  if (typeof template !== 'string' || !template || !(handles instanceof Map) || !(memberNames instanceof Map))
-    return '';
-  const handleById = new Map([...handles].map(([handle, id]) => [String(id), handle]));
-  return untaggedNames(text, { names: memberNames, handles: handleById, mentionedIds })
-    .map((hit) => fill(template, { name: `@${hit.name}`, handle: hit.handle }))
-    .join(' ');
-}
-
-/** The list fields of a normalized message (src/protocol/events.js#Message), empty on a line built here. */
-const EMPTY_LINE_LISTS = Object.freeze([
-  'mentionedUserIds',
-  'mentionedChannelIds',
-  'attachments',
-  'links',
-  'forwarded',
-  'stickers',
-  'emojis',
-  'reactions',
-]);
-
-/**
- * The turn's channel as it stands when the turn continues after the persona's skill call
- * (followUp): the turn's `history` as it was (its lines, previews and order untouched), then the
- * lines it did not hold yet, oldest first -- those of a fresh fetch (`fetched`: her own posts of
- * the turn as the platform gives them, and what others wrote meanwhile), then her posts of the turn the
- * fetch did not return (`own`, act's `lines`: id, time and text as written; `selfName` as their
- * author's name, the missing list fields empty). A line without an id is left out; an id is kept
- * once, the first time it comes. The call marks and trigger links are the caller's to put on.
- * Pure; exported for the tests and the replay's skill scenarios.
- * @param {{ history: object[], fetched?: object[]|null, own?: object[]|null, selfName?: string|null }} input
- * @returns {object[]}
- */
-export function continuationHistory({ history, fetched = [], own = [], selfName = null }) {
-  const base = Array.isArray(history) ? history : [];
-  const seen = new Set(base.map((line) => line?.id).filter((id) => typeof id === 'string' && id));
-  const asLine = (line) => {
-    const out = {
-      channelName: null,
-      authorName: selfName ?? '',
-      bot: false,
-      replyToId: null,
-      replyPingUserId: null,
-      forwardedFrom: null,
-      ...line,
-      self: true,
-    };
-    for (const key of EMPTY_LINE_LISTS) if (!Array.isArray(out[key])) out[key] = [];
-    return out;
-  };
-  const later = [];
-  const add = (line) => {
-    if (!line || typeof line.id !== 'string' || !line.id || seen.has(line.id)) return;
-    seen.add(line.id);
-    later.push(line);
-  };
-  for (const line of Array.isArray(fetched) ? fetched : []) add(line);
-  for (const line of Array.isArray(own) ? own : []) if (line && !seen.has(line.id)) add(asLine(line));
-  later.sort((a, b) => (Number(a.ts) || 0) - (Number(b.ts) || 0));
-  return [...base, ...later];
-}
-
-/**
- * The reply request's options (role `core`, purpose `reply`): with a bar, each attempt's timeout is the smaller of
- * llm.timeoutMs and the time left, and the bar's signal aborts it; nothing is asked once no time is left. With a bar the
- * request is also hedged (pace.replyHedgeMs): no answer by then, a second identical request is sent and the first answer
- * wins, the whole call still cut at the same timeout. A journalled attempt tells its collector what it hit.
- */
-function replyOptionsOf(config, { draft, bar, barAbort }) {
-  const journalLimits = draft.started ? { limits: draft.limits } : {};
-  const left = bar.leftMs();
-  if (left === null) return { ...REPLY_REQUEST, ...journalLimits };
-  if (left <= 0) throw TOO_SLOW;
-  const configured = config.llm?.timeoutMs;
-  const timeoutMs = Number.isFinite(configured) && configured > 0 ? Math.min(configured, left) : left;
-  const hedgeMs = paceSettings(config).replyHedgeMs;
-  const hedge = hedgeMs !== null && hedgeMs < timeoutMs ? { hedge: { afterMs: hedgeMs, timeoutMs } } : {};
-  return { ...REPLY_REQUEST, timeoutMs, signal: barAbort.signal, ...hedge, ...journalLimits };
-}
-
-/**
- * Takes the attention for `id` when the turn may start: not while a turn runs there, and with one turn at a time
- * (`mention.oneAtATime`, default on) not while one runs anywhere (src/behavior/pipeline.js is the only caller that turns
- * a direct ping caught by this into a pending one). True when taken.
- */
-function takeAttention(busy, id, config) {
-  if (busy.has(id)) return false;
-  if (config.mention?.oneAtATime !== false && busy.size > 0) return false;
-  busy.add(id);
-  return true;
-}
-
-/** The fields the journal's turn record starts with (src/memory/journal.js#start): who and what the turn is for. */
-function journalStartOf({ draft, channel, trigger, triggerKind, mode, journalTurn }) {
-  const woke = draft.inner
-    ? { kind: 'inner', messageId: null, authorId: null, wake: draft.inner.wake?.kind ?? null }
-    : null;
-  return {
-    channelId: channel.id,
-    mode: journalMode(mode, triggerKind),
-    trigger: trigger
-      ? { kind: triggerKind ?? null, messageId: trigger.id ?? null, authorId: trigger.authorId ?? null }
-      : woke,
-    participants: trigger?.authorId ? [trigger.authorId] : [],
-    sourceMessageIds: trigger?.id ? [trigger.id] : [],
-    privateUserId: draft.privateUserId,
-    turnId: journalTurn?.turnId ?? null,
-    attemptId: journalTurn?.attemptId ?? null,
-  };
-}
-
-/**
- * The immutable envelope of the persona's skill call, built by code from the turn, never from
- * what the model wrote: the actor (the persona), the requester (the person who asked for the
- * turn, `requester` -- `/nep message create` -- else the author of the request the turn answers,
- * requesterOf; a recovery turn's trigger is the original candidate, so its author; null when
- * nobody asked), whether the turn answers several people at once (`mixed`: a recovery
- * bundle naming more than one author -- no write then), the source message ids (the trigger and
- * the lines folded into it), the origin channel, and a fresh invocation id the call's journal
- * lines and its operation carry. The follow-up pass inherits it; a tool's output never adds a
- * requester.
- * `turnId` (the journal's turn, else one id per attempt) and `idempotencyKey` (that turn, the call's
- * index and the conversation it acts in, no attempt) go with every call: an errand records the turn, and the
- * same call made twice queues one errand (src/errands/store.ts#add).
- * @returns {Readonly<{ actor: 'persona', requester: object|null, mixed: boolean, sourceMessageIds: string[], originChannelId: string, invocationId: string, turnId?: string, idempotencyKey?: string }>}
- */
-function callEnvelope({
-  trigger,
-  channel,
-  added = null,
-  missed = null,
-  requester: asked = null,
-  requesterGroups = [],
-  turnId = null,
-  idempotencyKey = null,
-  ownInitiative = false,
-  chainId = null,
-  wakeKind = null,
-}) {
-  const requester = asked?.id
-    ? { id: String(asked.id), roleIds: Array.isArray(asked.roleIds) ? asked.roleIds.map(String) : [] }
-    : requesterOf(trigger, requesterGroups);
-  const authors = new Set(
-    (Array.isArray(missed) ? missed : [])
-      .map((line) => line?.author)
-      .filter((author) => typeof author === 'string' && author)
-  );
-  const sources = [trigger?.id, ...(Array.isArray(added) ? added.map((line) => line?.id) : [])]
-    .filter(Boolean)
-    .map(String);
-  return Object.freeze({
-    actor: 'persona',
-    requester: requester ? Object.freeze({ id: requester.id, roleIds: Object.freeze([...requester.roleIds]) }) : null,
-    mixed: authors.size > 1,
-    sourceMessageIds: Object.freeze(sources),
-    originChannelId: String(channel.id),
-    invocationId: randomUUID(),
-    // The turn whose call this is and the call's index in it: one errand per call, whatever retries.
-    ...(turnId ? { turnId: String(turnId) } : {}),
-    ...(idempotencyKey ? { idempotencyKey: String(idempotencyKey) } : {}),
-    // An inner turn: her own initiative, nobody asked (src/tools/executors.ts#executeCall), and
-    // its causal chain (which of her candidates it may accept, src/intentions/model.ts#acceptRefusal).
-    ...(ownInitiative
-      ? {
-          ownInitiative: true,
-          ...(chainId ? { chainId: String(chainId) } : {}),
-          ...(wakeKind ? { wakeKind: String(wakeKind) } : {}),
-        }
-      : {}),
-  });
-}
-
-/** What a post of the reply carries, for the reader of its check: its text and/or media, the message it replies to. */
-function sendArgs({ text = null, media = null, replyId = null }) {
-  return { ...(text ? { text } : {}), ...(media ? { media } : {}), ...(replyId ? { replyTo: replyId } : {}) };
-}
 
 /**
  * A value of the untyped parts of the turn (the live config, a draft) as the object a typed function takes.
@@ -1524,287 +329,6 @@ function asList(value) {
  */
 function snapshotOfDraft(draft) {
   return draft?.snapshot ?? null;
-}
-
-/**
- * `<channel_directory>`'s input: every channel of the snapshot's community the persona may read (never a thread, never the
- * dry-run mirror), as `{ id, name, category }`. None without a listing (a private chat, an interface that offers none).
- * @param {import('./snapshot.ts').Snapshot|null} snapshot
- * @param {object} bot  The live `config.bot`.
- * @returns {{ id: string, name: string, category: string|null }[]}
- */
-function channelDirectoryOf(snapshot, bot) {
-  return (snapshot?.conversations ?? [])
-    .filter((entry) => isReadable(entry, bot))
-    .map((entry) => ({
-      id: entry.id,
-      name: entry.name,
-      category: typeof entry.category === 'string' ? entry.category : null,
-    }));
-}
-
-/** Whether a conversation belongs to a community (a channel or a thread), not a private chat. */
-const inCommunity = (channel) => channel?.communityId !== null && channel?.communityId !== undefined;
-
-/** The skill registry a runner checks against when none is injected: every operation's (src/tools/registry.ts). */
-function defaultSkills() {
-  return skillRegistry();
-}
-
-/** The distinct hosts of `links` (`{ url }` items), in order; a URL that does not parse is left out. */
-function linkHosts(links) {
-  const hosts = [];
-  for (const link of links ?? []) {
-    let host = null;
-    try {
-      host = new URL(link?.url).hostname;
-    } catch {
-      host = null;
-    }
-    if (host && !hosts.includes(host)) hosts.push(host);
-  }
-  return hosts;
-}
-
-/**
- * `work()` with its preparation step `op` (createPrepLedger's, or null: no journal) around it:
- * `started` before, then `toResult(value)` -- `{ result, offered? }`, or `{ failed: code }` --
- * closes it; a throw is `failed` with `error` and rethrown.
- */
-async function journalled(op, work, toResult) {
-  if (!op) return work();
-  await op.started();
-  let value;
-  try {
-    value = await work();
-  } catch (err) {
-    op.failed(CODE.ERROR);
-    throw err;
-  }
-  const closing = toResult(value) ?? {};
-  if (typeof closing.failed === 'string') op.failed(closing.failed);
-  else op.succeeded(closing.result ?? {}, closing.offered);
-  return value;
-}
-
-/** The budget sections of a request's stats line that lost items: `{ section: dropped }`. */
-function droppedSections(stats) {
-  const out = {};
-  for (const [name, entry] of Object.entries(stats ?? {})) {
-    if (isPlainObject(entry) && Number.isFinite(entry.dropped) && entry.dropped > 0) out[name] = entry.dropped;
-  }
-  return out;
-}
-
-/**
- * The journal's usage of the reply request (the turn record and the request dump): the whole
- * prompt, its part read from the cache (`cached`), its part written to the cache (`cacheWrite`,
- * OpenRouter's `prompt_tokens_details.cache_write_tokens`, as on the `llm: usage` line), the
- * completion; each null when unreported.
- */
-function journalUsage(completion) {
-  const usage = completion?.usage ?? {};
-  const count = (value) => (Number.isFinite(value) ? value : null);
-  return {
-    prompt: count(completion?.promptTokens) ?? count(usage.prompt_tokens),
-    cached: count(usage.prompt_tokens_details?.cached_tokens),
-    cacheWrite: count(usage.prompt_tokens_details?.cache_write_tokens),
-    completion: count(usage.completion_tokens),
-  };
-}
-
-/**
- * Whether a voice completion (`completion`, parsed and shaped as `parsed`) was cut off at its
- * output cap (finish reason `length`): null when it stopped on its own. A cut-off one logs `turn:
- * cut off` with the completion tokens, whether it came from the skill follow-up and whether
- * complete actions are kept (`kept`). Nothing is kept when the think never closed, the answer
- * left nothing to do (`empty`), or its one message is the untagged fallback text -- a fragment:
- * the caller then ends the turn `error` with reason `cut-off`, never a skip, and posts nothing.
- * @returns {{ kept: boolean }|null}
- */
-function cutOffOf(completion, parsed, { channelId, empty, followUp }) {
-  if (completion?.finishReason !== 'length') return null;
-  const kept = !parsed.thinkOpen && !parsed.untagged && !empty;
-  log.warn('turn: cut off', {
-    channel: channelId,
-    completionTokens: journalUsage(completion).completion,
-    kept,
-    followUp,
-  });
-  return { kept };
-}
-
-/** The format counts of a turn record: `thinkMissing`, `coerced`, `malformed`, `truncated`, `capped`, `held`, each a number (0 when unset). */
-function formatCountsOf(format) {
-  const count = (value) => (Number.isFinite(value) && value > 0 ? Math.floor(value) : 0);
-  return {
-    thinkMissing: count(format.thinkMissing),
-    coerced: count(format.coerced),
-    malformed: count(format.malformed),
-    truncated: count(format.truncated),
-    capped: count(format.capped),
-    held: count(format.held),
-  };
-}
-
-/**
- * One attempt's `turn` record (src/memory/journal.js) from what the attempt noted in its
- * draft and the result it returned: `reason` is the attempt's skip code (`silence`, `nothing-to-do`:
- * SKIP_SILENCE, SKIP_NOTHING_TO_DO) or refusal code, else null (old skip records carry null too).
- */
-export function journalTurnRecord(draft, result) {
-  const seen = draft.seen ?? { messageIds: [], parents: [], parts: { filePreviews: [] } };
-  return {
-    turnId: draft.started.turnId,
-    attemptId: draft.started.attemptId,
-    startedAt: draft.started.startedAt,
-    channelId: draft.channelId,
-    privateUserId: draft.privateUserId,
-    mode: result?.mode ?? draft.mode ?? null,
-    outcome: result?.outcome ?? 'error',
-    reason: typeof result?.reason === 'string' ? result.reason : (draft.reason ?? null),
-    seen,
-    participants: draft.participants ?? [],
-    sourceMessageIds: seen.messageIds,
-    think: typeof draft.think === 'string' ? draft.think : null,
-    posted: draft.posted ?? [],
-    reactions: draft.reactions ?? [],
-    actions: draft.actions ?? [],
-    usage: draft.usage ?? null,
-    budget: { dropped: draft.dropped ?? {} },
-    limits: typeof draft.limits?.list === 'function' ? draft.limits.list() : [],
-    // The skills a classifier named for this turn, each with the gateway's verdict (shadow, phase 0).
-    ...(Array.isArray(draft.skillsProposed) && draft.skillsProposed.length > 0
-      ? { skillsProposed: draft.skillsProposed }
-      : {}),
-    // The native-tools step engine's counts and step number; absent while no turn noted them.
-    ...(draft.format && typeof draft.format === 'object' ? { format: formatCountsOf(draft.format) } : {}),
-    ...(draft.steps !== undefined && draft.steps !== null ? { steps: draft.steps } : {}),
-  };
-}
-
-/**
- * One answer of the model split into its speech and its tool calls. Native: the speech text is `completion.text` and
- * the calls are `completion.toolCalls`. Text: the calls are the `<tool_call>` blocks of the text (src/llm/tool-text.js)
- * and the speech text is what is left of it. The calls come out as records, ids made unique within the answer
- * (src/tools/tool-calls.ts#normalizeCalls; `step` numbers them `s<step>c<n>`, 1 for the reply's answer). Pure.
- * @param {{ text?: string, toolCalls?: object[], finishReason?: string|null }} completion
- * @param {{ transport?: 'native'|'text', step?: number, registry?: Map<string, object> }} [options]
- * @returns {{ rawText: string, speechText: string, calls: object[] }}
- */
-export function answerOf(completion, { transport = 'native', step = 1, registry = skillRegistry() } = {}) {
-  const rawText = typeof completion?.text === 'string' ? completion.text : '';
-  const finishReason = completion?.finishReason ?? null;
-  if (transport === 'text') {
-    const found = parseToolCallBlocks(rawText, { finishReason });
-    return {
-      rawText,
-      speechText: found.rest,
-      calls: normalizeCalls({ calls: found.calls, transport, finishReason, step, registry }),
-    };
-  }
-  return {
-    rawText,
-    speechText: rawText,
-    calls: normalizeCalls({ calls: completion?.toolCalls ?? [], transport, finishReason, step, registry }),
-  };
-}
-
-/** How many things her speech holds that a step may post or hold: messages, reactions, the GIF, the picture, an inner turn's lowered calls. */
-function speechItemsOf(parsed) {
-  return (
-    (parsed?.messages?.length ?? 0) +
-    (parsed?.reactions?.length ?? 0) +
-    (parsed?.gif ? 1 : 0) +
-    (parsed?.draw ? 1 : 0) +
-    (parsed?.loweredCalls?.length ?? 0)
-  );
-}
-
-/** How long a failed addressed turn is kept for her next request in the channel. */
-export const FAILED_TURN_KEEP_MS = DAY_MS;
-
-/** The statuses of a call that did not go well, as a `callFailed` fact names them. */
-const CALL_STATUS_NAMES = new Set([
-  'failed',
-  'partial',
-  'invalid',
-  'denied',
-  'not_configured',
-  'refused',
-  'unknown',
-  'timeout',
-]);
-
-/** The operation's own words of a call that did not work, as `{ text }` (one line, cut to `tools.markTextMaxChars`), or {}. */
-function callTextOf(result, maxChars = 200) {
-  const text = clampWithEllipsis(oneLine(typeof result?.data?.text === 'string' ? result.data.text : ''), maxChars);
-  return text ? { text } : {};
-}
-
-/**
- * The `tasks` input of a turn's request (src/behavior/prompt.js#buildRequest)
- * and the calls it names as left to their own turns. `part`: the part of a
- * split message this turn answers; `queued()`: the calls still waiting in
- * this channel (read now; a throw counts as none, logged `turn: queued
- * failed`) -- the trigger author's own as `{ id, text }`, another member's as
- * `{ id, text, author }` (their display name); `added`: messages folded into
- * this call. The author's own calls count as named (`deferred`, their ids)
- * when the request can render them: in `labels.task.part`'s others on a part,
- * else under `labels.task.queued`; another member's under
- * `labels.task.queuedOthers`. A call the labels cannot name is not deferred:
- * the seen-in-history rule holds for it, as before. `missed`: a recovery
- * turn's earlier messages left unanswered (src/behavior/missed.js), `{ author,
- * text }` each, named under `labels.task.missed`. `failedEarlier`: the
- * addressed turns of this channel that failed with nothing posted
- * (`{ author, messageId, link, at, code }`), one `labels.task.failedEarlier`
- * line each.
- * `input` is null when there is nothing to say.
- * @returns {{ input: { part: object|null, queued: string[], queuedOthers: { author: string, text: string }[],
- *   added: string[], missed: { author: string, text: string }[], failedEarlier: object[] }|null, deferred: Set<string> }}
- */
-export function taskInput({ part, queued, added, missed = null, failedEarlier = null, labels, channelId }) {
-  let waiting = [];
-  if (typeof queued === 'function') {
-    try {
-      const list = queued();
-      waiting = Array.isArray(list) ? list.filter((call) => call && typeof call.text === 'string' && call.text) : [];
-    } catch (err) {
-      log.warn('turn: queued failed', { channel: channelId, error: err });
-    }
-  }
-  const own = waiting.filter((call) => typeof call.author !== 'string');
-  const others = waiting.filter((call) => typeof call.author === 'string');
-  const addedTexts = Array.isArray(added)
-    ? added.map((message) => message?.text).filter((text) => typeof text === 'string' && text)
-    : [];
-  const ownNamed = own.length > 0 && Boolean(part ? labels?.task?.part : labels?.task?.queued);
-  const othersNamed = others.length > 0 && Boolean(labels?.task?.queuedOthers);
-  const deferred = new Set(
-    [...(ownNamed ? own : []), ...(othersNamed ? others : [])].map((call) => call.id).filter(Boolean)
-  );
-  const missedItems = Array.isArray(missed)
-    ? missed
-        .filter((item) => item && typeof item.text === 'string' && item.text)
-        .map((item) => ({ author: typeof item.author === 'string' ? item.author : '', text: item.text }))
-    : [];
-  const failedItems =
-    Array.isArray(failedEarlier) && labels?.task?.failedEarlier
-      ? failedEarlier.filter((entry) => entry?.messageId)
-      : [];
-  if (!part && waiting.length === 0 && addedTexts.length === 0 && missedItems.length === 0 && failedItems.length === 0)
-    return { input: null, deferred };
-  return {
-    input: {
-      part: part ?? null,
-      queued: own.map((call) => call.text),
-      queuedOthers: others.map((call) => ({ author: call.author, text: call.text })),
-      added: addedTexts,
-      missed: missedItems,
-      failedEarlier: failedItems,
-    },
-    deferred,
-  };
 }
 
 /**
