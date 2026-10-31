@@ -10,6 +10,8 @@
 // refuses the bare line. An argument with `choices` takes only those values. A command's `check` refuses what the
 // table's shape cannot say. The parse is pure and never throws.
 
+import { MODEL_SET_ROLES, ROUTE_ROLES } from '../../tools/impl/catalog.ts';
+
 /** One argument of a command, in the order the line gives them. */
 export type CommandArg = { name: string; required: boolean; choices?: ReadonlyArray<string> };
 
@@ -34,6 +36,12 @@ export type Command = {
 
 /** What a line parses into: the command's dotted name and its arguments by name, or why the line is refused. */
 export type Parsed = { ok: true; name: string; args: Record<string, unknown> } | { ok: false; reason: string };
+
+/** The roles a route names, and `any` for a route of every role. */
+const ROUTE_CHOICES: ReadonlyArray<string> = ['any', ...ROUTE_ROLES];
+
+/** A yes or no argument. */
+const FLAGS: ReadonlyArray<string> = ['true', 'false'];
 
 const arg = (name: string, required = true, choices?: ReadonlyArray<string>): CommandArg =>
   choices === undefined ? { name, required } : { name, required, choices };
@@ -118,7 +126,17 @@ export const COMMANDS: ReadonlyArray<Command> = [
       sub('cancel', 'cancel an intention', [arg('id')]),
     ],
   },
-  { name: 'wakes', help: 'the next wakes and the last ones', args: [], subcommands: [] },
+  {
+    name: 'wakes',
+    help: 'the next wakes and the last ones: list; stop or start the inner life',
+    args: [],
+    defaultSubcommand: 'list',
+    subcommands: [
+      sub('list', 'the next wakes and the last ones'),
+      sub('stop', 'stop the inner life: no wake runs, the queued ones are dropped'),
+      sub('start', 'let the inner life run again'),
+    ],
+  },
   {
     name: 'pause',
     help: 'stop admission; active turns finish, messages are kept for the resume',
@@ -143,8 +161,36 @@ export const COMMANDS: ReadonlyArray<Command> = [
       sub('show', 'config.local.json as it is'),
     ],
   },
-  { name: 'model', help: 'the model of every model role', args: [], subcommands: [] },
-  { name: 'route', help: 'the provider routes', args: [], subcommands: [] },
+  {
+    name: 'model',
+    help: 'the model of every model role: show, set <role> <model>',
+    args: [],
+    defaultSubcommand: 'show',
+    subcommands: [
+      sub('show', 'the model of every model role'),
+      sub('set', 'set the model of one role', [arg('role', true, MODEL_SET_ROLES), arg('model')]),
+    ],
+  },
+  {
+    name: 'route',
+    help: 'the provider routes: list, set <model> <providers> [role] [fallbacks] [byok], remove <model> [role]',
+    args: [],
+    defaultSubcommand: 'list',
+    subcommands: [
+      sub('list', 'every route, then the model and route of each role'),
+      sub('set', 'route a model prefix to these comma-separated providers only, for one role or any', [
+        arg('model'),
+        arg('providers'),
+        arg('role', false, ROUTE_CHOICES),
+        arg('fallbacks', false, FLAGS),
+        arg('byok', false, FLAGS),
+      ]),
+      sub('remove', "remove a model prefix's route, for one role or any", [
+        arg('model'),
+        arg('role', false, ROUTE_CHOICES),
+      ]),
+    ],
+  },
   {
     name: 'memory',
     help: 'the reads over her memory, the backups and the items the owner edits by hand',
