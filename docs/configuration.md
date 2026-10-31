@@ -356,6 +356,7 @@ Her focus set: the people her attention is on. Computed by the `memoryDb.focus` 
 | `replyQuoteChars` | `80` | Code points of the parent text shown in a reply tag. `0` shows all |
 | `otherProfiles` | `6` | Max other profiles shown |
 | `failedTurnsKept` | `3` | Failed turns remembered per channel (within 24 hours), shown on the next request |
+| `turnLeaseMs` | `300000` | How long an inner turn's claim on its wakes lasts (milliseconds). The inner life renews it at every tick while the turn runs; a start takes over a claim a stopped process left |
 | `askedAboutProfiles` | `3` | Members named in recent messages whose profiles are shown in full |
 | `askedAboutEpisodes` | `3` | Episodes shown per asked-about member. `0` hides them |
 | `attitudes` | `6` | Members shown in the `<attitudes>` block. `0` turns it off |

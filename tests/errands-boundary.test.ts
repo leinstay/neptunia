@@ -466,6 +466,8 @@ async function tick(dataDir: string) {
     store: { state: { data: {} } },
     getGuildId: () => GUILD,
     meter: { run: async (fn: () => unknown) => ({ result: await fn(), usd: 0, requests: 1, voice: 0 }) },
+    // The open imported inner.json's queue into the database (stage 4 cut, the lead's decision 1): the life reads it there.
+    memoryDb: run.memory.memoryDb,
     rng: () => 0.5,
     now: () => NOW,
     log: SILENT,

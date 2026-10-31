@@ -2022,10 +2022,12 @@ export function createTurnRunner({
   memoryReads = null,
   // The execution context of a turn (src/memory/db/service.js#issueContext, `(spec) => ctx`); null: none.
   memoryContext = null,
+  // Her attention, one turn at a time: src/behavior/attention.ts mirrors it as leases; a plain set without them.
+  attention = new Set(),
 }) {
   /** @type {import('../interface/reads.ts').Reads} */
   const ifaceReads = readsDep;
-  const busy = new Set();
+  const busy = attention;
 
   /**
    * The one execution context of an attempt's memory reads (`memoryContext`): issued the first time a read needs it
@@ -7310,11 +7312,9 @@ export function createTurnRunner({
     if (taskResult?.requester?.kind === 'persona' && !taskResult.requester.userId) draft.ownInitiative = true;
     // Set when this turn hands its message to a chain of parts: the chain keeps the attention.
     let chained = false;
-    // /nep pause: the owner is editing data/ by hand -- no new turn may
-    // start (a reply, an interject, an initiate, an eavesdrop, or a forced turn)
-    // until /nep resume. A turn already in flight when the pause is
-    // requested is left to finish naturally; admin.js's pause handler waits
-    // for it via waitIdle() below instead of aborting it here.
+    // /nep pause: the owner is editing data/ by hand -- no new turn may start (a reply, an interject, an initiate, an
+    // eavesdrop, or a forced turn) until /nep resume. A turn already in flight when the pause is requested is left to
+    // finish naturally; admin.js's pause handler waits for it via waitIdle() below instead of aborting it here.
     if (store.state.data.paused) return { outcome: 'paused' };
     // A chain's turn runs under the attention it holds; taken before anything is awaited, so two turns cannot both take it.
     const attentionId = conversation.conversationId;

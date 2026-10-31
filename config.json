@@ -221,6 +221,7 @@
     "replyQuoteChars": 80,
     "otherProfiles": 6,
     "failedTurnsKept": 3,
+    "turnLeaseMs": 300000,
     "askedAboutProfiles": 3,
     "askedAboutEpisodes": 3,
     "attitudes": 6,

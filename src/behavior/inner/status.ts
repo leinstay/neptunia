@@ -9,6 +9,7 @@ import { dayBounds, turnsToday } from './drain.ts';
 import { asText } from './facts.ts';
 import { ATTEND_PREFIX } from './places.ts';
 import { markHandled, note, save, stateOf, timezoneOf, wakeOfDue } from './queue.ts';
+import { sleptCount } from './recovery.ts';
 import { innerOn, innerSettings } from './settings.ts';
 import type { InnerContext, InnerSettings, InnerState, TurnRecord } from './types.ts';
 
@@ -120,6 +121,8 @@ export type InnerStatus = {
   next: NextWake | null;
   lastTurn: { at: number; outcome: string | null } | null;
   lastError: { at: number; code: string } | null;
+  /** The wakes that slept since this life started (they fell due while the core was down or paused). */
+  slept: number;
 };
 
 /**
@@ -145,6 +148,7 @@ export function status(life: InnerContext, guildId: string | null = life.getGuil
       next: null,
       lastTurn: null,
       lastError: null,
+      slept: 0,
     };
   const state = stateOf(life, guildId);
   const at = now();
@@ -219,5 +223,6 @@ export function status(life: InnerContext, guildId: string | null = life.getGuil
     lastError: lastFailed
       ? { at: lastFailed.at, code: typeof lastFailed.code === 'string' ? lastFailed.code : CODE.ERROR }
       : null,
+    slept: sleptCount(life, guildId),
   };
 }

@@ -96,13 +96,17 @@ An untold fact is kept `innerLife.factsKeepDays` (default 7) days. A told one is
 
 ### A turn cut off by a restart
 
-Before an inner turn runs, the engine writes a mark to the state (`state.inflight`). If the process dies before the turn ends, the next start resolves it from the journal: if any operation went out (a post, an executed call), the turn's wakes are handled as `interrupted` and a fact tells her what it did. If nothing went out, the wakes run again.
+An inner turn claims its wakes in the memory database before it asks the model (`src/behavior/inner/wake-store.ts`). The claim is one committed transaction: each wake moves from `queued` to `running` and takes the lease `wake:<id>` with a new token for `context.turnLeaseMs` (default 300000) milliseconds, and the inner life renews it at every tick while the turn runs. When the turn ends, a second transaction checks the tokens, marks the wakes the turn disposed of `handled` and puts the rest back to `queued` (a retry, a turn held as busy). A holder whose token a newer claim raised writes nothing. No transaction is open while the model is asked.
+
+If the process dies inside the turn, its wakes stay `running`. The next start takes them over (`src/behavior/inner/recovery.ts`) and resolves them from the journal. If any operation went out (a post, an executed call), the wakes are handled as `interrupted` and a fact tells her what the turn did. If nothing went out, the wakes run again under the turn id of their first run, so their effect keys stay the same.
 
 ## When she wakes
 
 **People first.** A wake waits while a turn holds the lease or a direct ping waits in the queue. Its due time stays the same.
 
 **Coalescing.** Wakes of the same conversation run as one inner turn. The day's review joins any server wake. Wakes elsewhere wait for their own turn. A heartbeat is never coalesced.
+
+**Sleep.** A wake that fell due while the core was down or paused sleeps: it becomes `slept` and never runs (`src/behavior/inner/recovery.ts`). A downtime runs from the last renewal of the `core:alive` lease, which every tick renews, to the first tick of the next start. A pause runs from the `pausedAt` of `/nep pause` to the first tick after `/nep resume`. A wake listed only after that interval sleeps too. A one-off intention whose wake slept is cancelled with a `sleptAt` mark, and her `intention.update` and `intention.cancel` on it answer `slept`. A recurring intention loses only that occurrence: its history records `slept`, and the next occurrence comes due as usual. Nothing about a slept wake becomes a fact, a wake or a memory. The owner's status counts the wakes slept since the start.
 
 **Stale and overflow.** A wake whose intentions were closed meanwhile is dropped as stale. At most `innerLife.queueMax` (default 20) wakes wait; one more is dropped as overflow.
 
@@ -218,9 +222,9 @@ Shadow turns count. A shadow turn's reads really ran, so what they found enters 
 
 ## State and journal
 
-State per guild in `data/guilds/<id>/inner.json`: the queue, handled wake ids, chains' counts (30 days), the day's review, the heartbeat, the turn in flight, turns, spend and posts of the last two days, facts, the stop. Written whole after every change. Ticks missed while the bot was down coalesce into the first one after it.
+The queue, the handled wake ids of the last 30 days and the turn in flight are rows of the memory database's `wakes` table (see [memory.md](memory.md)). An inner life built without a memory database keeps them in one in-memory database per data directory for the life of the process. The rest of the state per guild is `data/guilds/<id>/inner.json`: the chains' counts, the day's review, the heartbeat, turns, spend and posts of the last two days, facts and the stop, written after every change. A wake that fell due before a downtime runs at the first tick after it.
 
-With `features.journal` on, `inner` records carry: wakes, turns (outcome, actions, loop, feedback, cost), cap refusals, overflows, stale drops, the review, recurring advances, restarts, the stop/start. The inner turn is a turn of the journal with mode `inner`.
+With `features.journal` on, `inner` records carry: wakes, turns (outcome, actions, loop, feedback, cost), cap refusals, overflows, stale drops, slept wakes, the review, recurring advances, restarts, the stop/start. The inner turn is a turn of the journal with mode `inner`.
 
 ## Checking it before going live
 

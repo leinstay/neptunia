@@ -53,6 +53,7 @@ import {
   newIntentionId,
   pinEvery,
   reconcileWait,
+  sleepIntention,
   transition,
   waitOn,
   CHAIN_CHARS,
@@ -96,6 +97,21 @@ type WaitPlan =
   | { ok: true; none: true }
   | { ok: true; errandId: string; deadline: number }
   | { ok: true; requested: { turnId: string; deadline: number } };
+
+/** The provenance of an intention she set herself from `input`. */
+function selfProvenance(input: SetInput): Parameters<typeof createIntention>[0]['provenance'] {
+  return {
+    kind: 'self',
+    turnId: input.turnId ?? null,
+    messageId: input.messageId ?? null,
+    channelId: input.channelId ?? null,
+    scope: input.scope,
+    participants: input.participants,
+  };
+}
+
+/** What a call that needs an open record answers on a closed one: `slept` when the engine cancelled it as she slept. */
+const closedCode = (record: Intention): string => (isFiniteNumber(record.sleptAt) ? CODE.SLEPT : CODE.TERMINAL);
 
 /**
  * Whether `record` may be seen and moved where the caller is: a private chat's intention only in
@@ -241,14 +257,7 @@ export function createIntentionService({
     }
     const created = createIntention({
       purpose: input.purpose,
-      provenance: {
-        kind: 'self',
-        turnId: input.turnId ?? null,
-        messageId: input.messageId ?? null,
-        channelId: input.channelId ?? null,
-        scope: input.scope,
-        participants: input.participants,
-      },
+      provenance: selfProvenance(input),
       dueAt: input.dueAt ?? null,
       every: pinEvery(input.every ?? null, input.dueAt ?? null, timezone()),
       expiresAt: input.expiresAt ?? null,
@@ -291,14 +300,7 @@ export function createIntentionService({
   function setDropped(store: IntentionStore, input: SetInput, by: string): Created {
     const created = createIntention({
       purpose: input.purpose,
-      provenance: {
-        kind: 'self',
-        turnId: input.turnId ?? null,
-        messageId: input.messageId ?? null,
-        channelId: input.channelId ?? null,
-        scope: input.scope,
-        participants: input.participants,
-      },
+      provenance: selfProvenance(input),
       dropped: true,
       reason: input.reason ?? null,
       now: now(),
@@ -341,7 +343,7 @@ export function createIntentionService({
     if (!store) return { ok: false, code: CODE.NO_GUILD };
     const current = store.get(id);
     if (!current || !visibleTo(current, patch)) return { ok: false, code: CODE.NOT_FOUND };
-    if (!isOpen(current.status)) return { ok: false, code: CODE.TERMINAL };
+    if (!isOpen(current.status)) return { ok: false, code: closedCode(current) };
     const by = patch.by ?? 'persona';
     const dropping = patch.state === 'dropped';
     if (dropping && !(typeof patch.reason === 'string' && patch.reason.trim()))
@@ -480,10 +482,20 @@ export function createIntentionService({
     if (!store) return { ok: false, code: CODE.NO_GUILD };
     const current = store.get(id);
     if (current && !visibleTo(current, { privateChannelId, all })) return { ok: false, code: CODE.NOT_FOUND };
+    if (current && isFiniteNumber(current.sleptAt)) return { ok: false, code: CODE.SLEPT };
     const result = store.update(id, (record) =>
       transition(record, 'cancelled', { now: now(), by, code: record.status === 'proposed' ? 'rejected' : 'cancelled' })
     );
     if (result.ok) log.info('intentions: cancelled', { guildId: store.guildId, id: idText(id), by });
+    return result;
+  }
+
+  /** Intention `id` whose wake slept (src/behavior/inner/recovery.ts), through model.ts#sleepIntention. */
+  function sleep(guildId: unknown, id: unknown): Moved {
+    const store = storeOf(guildId);
+    if (!store) return { ok: false, code: CODE.NO_GUILD };
+    const result = store.update(id, (record) => sleepIntention(record, { now: now(), timezone: timezone() }));
+    if (result.ok && result.changed) log.info('intentions: slept', { guildId: store.guildId, id: idText(id) });
     return result;
   }
 
@@ -858,6 +870,7 @@ export function createIntentionService({
     onErrandFinished,
     reconcile,
     advance,
+    sleep,
     due,
     attending,
     attendToday,

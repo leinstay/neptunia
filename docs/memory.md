@@ -44,9 +44,11 @@ The module seams stay as they were before the database: `record`, `journal`, `ar
 
 ## Data model
 
-Schema version 17 (`src/memory/db/schema.js`; migrations appended, never edited). Version 14 renames the errand units (`guilds/<g>/tasks.json` and `tasks.jsonl` become `errands.json` and `errands.jsonl`) in every table that stores a unit path, and renames the errand fields of the open intention records. `currentUnitPath` in `src/memory/db/paths.js` maps the old unit names on the way in, so a write that waited in `memory-pending/` across the upgrade lands in the current unit.
+Schema version 18 (`src/memory/db/schema.js`; migrations appended, never edited). Version 14 renames the errand units (`guilds/<g>/tasks.json` and `tasks.jsonl` become `errands.json` and `errands.jsonl`) in every table that stores a unit path, and renames the errand fields of the open intention records. `currentUnitPath` in `src/memory/db/paths.js` maps the old unit names on the way in, so a write that waited in `memory-pending/` across the upgrade lands in the current unit.
 
 Version 17 is a data step: it sets back what the unit sync wrote over her memory session's changes (`src/memory/db/session-repair.ts`). A claim takes the text and the last-seen time of her newest version, and the truth of a retire, and becomes hers. Her newest review becomes the current version of its description again, and a person she moved takes the reason of her newest move. Each repair applies only when her version is newer than the file's last change of the row: the claim's first or last seen time, the newest legacy description version, or the file's newest attitude move. The step asks no model and sends nothing, and one `decisions` row (`migration:v17:session_rows_repaired`) counts what it set back.
+
+Version 18 adds the inner life's wake queue (`src/memory/db/wake-queue.ts`). A `wakes` row is one wake: `queued`, `running` under the lease `wake:<id>`, `handled`, or `slept` when it fell due while the core was down or paused. A `leases` row is a time-limited claim on a name, and its token rises with every grant, so a writer holding an older token is refused. A `deliveries` row is what a completed wake leaves to send, keyed by its effect key `<turnId>:<effectIndex>:<target>`. The data step moves each guild's `inner.json` queue, handled set and in-flight mark into `wakes` with their ids, then drops those fields from the file. Every later open that knows the data directory runs the same import for a file an earlier opener could not reach or write, and a file without queue fields is left as it is. A row the table already holds is never imported twice.
 
 ### Identity
 
@@ -120,6 +122,9 @@ Version 17 is a data step: it sets back what the unit sync wrote over her memory
 | `operational` | State files kept verbatim (request dumps, buffers, queues) |
 | `ingest` | One row per event the core took from a client: the principal, its `seq`, the event id, kind and conversation, and when it was committed (schema v16). An event id and a `seq` are each unique within a principal |
 | `ingest_cursor` | The contiguous watermark of numbered events acknowledged to each principal (schema v16) |
+| `wakes` | One row per wake of the inner life: its state, its lease, the turn id it runs under and its outcome (schema v18) |
+| `leases` | Time-limited claims whose token rises with every grant: `wake:<id>`, `attention:*` or `attention:<conversation>`, and `core:alive` (schema v18) |
+| `deliveries` | What a completed wake leaves to send, by effect key, `queued` until it is `sent` (schema v18) |
 | `ledger_tasks` through `ledger_outbox` | Reserved tables for the task ledger (not used yet) |
 
 ### Structural

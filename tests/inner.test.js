@@ -35,24 +35,13 @@ import { createIntention } from '../src/intentions/model.ts';
 import { localHour } from '../src/format.js';
 import { HOUR_MS, MINUTE_MS, DAY_MS, zonedEpoch } from '../src/time.js';
 import { tempDir } from './fixtures/tmp.js';
+import { seeded, wakeMemory } from './fixtures/inner-rig.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
 
 useIface('fake');
 const NOW = Date.parse('2026-10-19T12:00:00Z');
 const SILENT = { info() {}, warn() {}, error() {} };
 const GUILD = 'g1';
-
-/** A seeded stream in [0, 1) (mulberry32). */
-function seeded(seed) {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 function intention(
   id,
@@ -145,6 +134,7 @@ function setup({
   client = fakeClient(),
   peopleWaiting = () => false,
   service = null,
+  memoryDb = null,
   log = SILENT,
 } = {}) {
   const journal = [];
@@ -167,6 +157,7 @@ function setup({
     getGuildId: () => GUILD,
     peopleWaiting,
     meter: meter ?? { run: async (fn) => ({ result: await fn(), usd: meterUsd, requests: 1, voice: 1 }) },
+    ...(memoryDb ? { memoryDb } : {}),
     rng,
     now: () => clock.t,
     log,
@@ -637,7 +628,9 @@ test('inner: what one drain hands off (a stale wake) and keeps (the wake of a he
     intention('i2', { dueAt: NOW - 2 * MINUTE_MS, chainId: 'k' }),
   ];
   const hot = hotWith({ innerLife: { caps: { perChain: 1 } } });
-  const run = setup({ records, dataDir, hot });
+  // The queue and the handled set live in the memory database (stage 4 cut, the lead's decision 1); the facts stay in inner.json.
+  const db = wakeMemory(dataDir, () => clock.t);
+  const run = setup({ records, dataDir, hot, memoryDb: db.memoryDb });
   run.turns.busy = true;
   await run.inner.tick();
   // Chain k already spent; i1 closed meanwhile.
@@ -648,11 +641,17 @@ test('inner: what one drain hands off (a stale wake) and keeps (the wake of a he
   assert.equal(run.turns.calls.length, 0);
   const onDisk = JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', GUILD, 'inner.json'), 'utf8'));
   assert.deepEqual(
-    onDisk.queue.filter((wake) => wake.kind !== 'feedback').map((wake) => `${wake.intentionIds[0]}:${wake.capped}`),
+    db
+      .queue()
+      .filter((wake) => wake.kind !== 'feedback')
+      .map((wake) => `${wake.intentionIds[0]}:${wake.capped}`),
     ['i2:per-chain']
   );
   assert.deepEqual(
-    onDisk.queue.filter((wake) => wake.kind === 'feedback').map((wake) => wake.factIds.length),
+    db
+      .queue()
+      .filter((wake) => wake.kind === 'feedback')
+      .map((wake) => wake.factIds.length),
     [1],
     'the hold, told by a feedback wake'
   );
@@ -661,7 +660,7 @@ test('inner: what one drain hands off (a stale wake) and keeps (the wake of a he
     ['wakeDropped:stale', 'wakeHeld:per-chain']
   );
   assert.deepEqual(
-    Object.values(onDisk.handled).map((entry) => entry.outcome),
+    db.wakes('handled').map((wake) => wake.outcome),
     ['stale']
   );
 });
@@ -2382,27 +2381,28 @@ test('heartbeat: the review keeps working unchanged beside it', async () => {
 
 test('inner: the turn in flight is on disk while the turn runs and gone once it ended; a turn held (busy) leaves no mark', async () => {
   const dataDir = tempDir('nep-inner-flight-');
-  const file = path.join(dataDir, 'guilds', GUILD, 'inner.json');
+  // The in-flight mark is the running wake in the memory database (stage 4 cut, the lead's decision 1).
+  const db = wakeMemory(dataDir, () => clock.t);
   let during = null;
   const turns = fakeTurns({
     answer: (params) => {
-      during = { mark: JSON.parse(fs.readFileSync(file, 'utf8')).inflight, journalTurn: params.journalTurn };
+      during = { running: db.wakes('running'), journalTurn: params.journalTurn };
       return { outcome: 'skip', reason: 'nothing-to-do', inner: { actions: [], turnId: 't-1' } };
     },
   });
-  const run = setup({ records: [intention('i1')], turns, dataDir });
+  const run = setup({ records: [intention('i1')], turns, dataDir, memoryDb: db.memoryDb });
   await run.inner.tick();
   assert.deepEqual(
     [
-      during.mark.wakeIds.length,
-      during.mark.kind,
-      during.mark.channelId,
-      during.mark.turnId === during.journalTurn.turnId,
+      during.running.length,
+      during.running[0].kind,
+      during.running[0].payload.channelId,
+      during.running[0].turnId === during.journalTurn.turnId,
       during.journalTurn.attemptId,
     ],
     [1, 'intention_due', 'c1', true, 1]
   );
-  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).inflight, null);
+  assert.equal(db.wake(during.running[0].id).state, 'handled', 'gone once it ended');
 
   const held = setup({
     records: [intention('i2')],

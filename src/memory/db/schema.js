@@ -11,6 +11,7 @@
 import { assignDiaryDestination, deriveAllMirrorPublications } from './publish.js';
 import { pastEntries } from './diary-past.ts';
 import { repairSessionRows } from './session-repair.ts';
+import { importWakeQueues } from './wake-queue.ts';
 
 const SCOPE = 'scope_kind TEXT, scope_iface TEXT, scope_dm TEXT';
 
@@ -1156,9 +1157,40 @@ CREATE TABLE ingest_cursor (principal TEXT PRIMARY KEY, acked_seq INTEGER NOT NU
 // are set back to what she recorded (session-repair.ts).
 const V17 = (db) => repairSessionRows(db);
 
+// Version 18 (stage 4 design, 2026-10-27, PR B): the inner life's wake queue, its fenced leases and the deliveries a
+// completed wake leaves to send (wake-queue.ts). A `leases` token rises with every grant of its name. The data step
+// moves each guild's `inner.json` queue, handled set and in-flight mark into `wakes` (`context.dataDir`, the opener's
+// data directory; an opener without one moves nothing, and the next open that has one does it, open.js#migrate).
+const V18_SQL = `CREATE TABLE wakes (
+  id TEXT PRIMARY KEY, kind TEXT NOT NULL, community TEXT, due_at INTEGER, queued_at INTEGER NOT NULL,
+  payload JSON NOT NULL, state TEXT NOT NULL CHECK (state IN ('queued', 'running', 'handled', 'slept', 'dropped')),
+  lease_holder TEXT, lease_token INTEGER, lease_expires_at INTEGER, handled_at INTEGER, outcome TEXT,
+  turn_id TEXT, attempt INTEGER NOT NULL DEFAULT 0, claimed_at INTEGER, turn JSON
+);
+CREATE INDEX wakes_state ON wakes (community, state, queued_at);
+CREATE TABLE leases (
+  name TEXT PRIMARY KEY, holder TEXT NOT NULL, token INTEGER NOT NULL, expires_at INTEGER NOT NULL,
+  renewed_at INTEGER NOT NULL
+);
+CREATE TABLE deliveries (
+  key TEXT PRIMARY KEY, wake_id TEXT NOT NULL REFERENCES wakes(id), target TEXT, payload JSON NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('queued', 'sent')), queued_at INTEGER NOT NULL, sent_at INTEGER
+);
+CREATE INDEX deliveries_state ON deliveries (state, queued_at);`;
+
+/**
+ * @param {unknown} connection  The migration's connection.
+ * @param {{ dataDir?: string }} [context]
+ */
+function V18(connection, context = {}) {
+  const db = /** @type {{ exec(sql: string): void }} */ (connection);
+  db.exec(V18_SQL);
+  importWakeQueues(db, context);
+}
+
 /** Each entry moves the schema one version up: SQL text, or a function of the connection (and the opener's context)
  * for a step SQL cannot do. Never edit a shipped entry: append a new one. */
-export const MIGRATIONS = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17];
+export const MIGRATIONS = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18];
 
 /** Every table schema v8 adds. */
 export const V8_TABLES = [

@@ -120,6 +120,12 @@ function labelLine(template: unknown, values: Obj): string | null {
   return typeof template === 'string' && template ? fill(template, values) : null;
 }
 
+/** The line of the wakes that slept since the start (`labels.status.inner.sleptLine`) from the status; none at 0. */
+function sleptLine(labels: unknown, status: unknown): string | null {
+  const count = objOf(status).slept;
+  return typeof count === 'number' && count > 0 ? labelLine(objOf(labels).sleptLine, { count }) : null;
+}
+
 /**
  * The `inner` field's lines from the inner life's status `s` (src/behavior/inner.ts#status), words
  * from `labels.status.inner`; `tokens` (`{ prompt, cached, completion }`, the core role's today from
@@ -156,6 +162,7 @@ export function innerLines(
     s.lastError ? labelLine(L.lastErrorLine, { code: s.lastError.code, at: innerStamp(s.lastError.at) }) : null,
     intentions ? labelLine(L.intentionsLine, intentions) : null,
     s.attention ? labelLine(L.attentionLine, s.attention) : null,
+    sleptLine(L, s),
     tokens
       ? labelLine(L.tokensLine, {
           prompt: tokens.prompt ?? 0,

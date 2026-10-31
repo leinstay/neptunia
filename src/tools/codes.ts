@@ -112,6 +112,7 @@ export const CATALOGUE = Object.freeze({
   'errand-ended': skill('invalid'),
   'wait-without-errand': skill('invalid'),
   terminal: skill('invalid'),
+  slept: skill('invalid'),
   'duplicate-id': skill('invalid'),
   'candidate-external': skill('denied'),
   'candidate-same-turn': skill('denied'),
