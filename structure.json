@@ -604,6 +604,27 @@
       "test": "none"
     },
     {
+      "path": "src/turn/facts.ts",
+      "purpose": "The facts kept for her next request in a conversation: the inner life's store while it is on, else the runner's own. Tested through the turn, inner turn and turn failed earlier tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/inputs.ts",
+      "purpose": "The port references, the gateway's check of one effect, the memory context of an attempt, skills discovery for a classifier and the errands, intentions and places inputs of a request. Tested through the turn, turn errands and inner turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/skill-calls.ts",
+      "purpose": "Her skill calls in a turn: what a call resolves against, the gateway's check, the plan of a call, an inner turn's gate, the call made with its journal lines and marks, and a step's calls in segments. Tested through the turn, inner turn, heartbeat intents and turn errands tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/errands/",
       "purpose": "The errand service: the ledger, the store, the client to the runner and the turns that bring results back.",
       "layer": "public",

@@ -28,8 +28,6 @@ import { roleModel } from '../llm/roles.js';
 import { RECALL_DEFAULTS, fallbackLookupPlan, parseLookupAnswer, recallSettings } from './recall.js';
 import { parseSplitAnswer, splitCandidate, splitSettings } from './split.js';
 import { turnRequestInput } from './turn-input.js';
-import { DEFAULT_RESULT_MAX_CHARS, errandsBlockText, errandResultText } from '../errands/blocks.ts';
-import { DEFAULT_INTENTIONS_CAP, intentionsBlockText } from '../intentions/blocks.ts';
 import { parseOutput } from '../llm/parse.js';
 import {
   DailyCapError,
@@ -57,15 +55,11 @@ import { deletedLinesMax, deletedLinesOf, withDeletedLines } from './deleted-lin
 import { zonedDay } from '../time.js';
 import { budgetDrops, requestTokenLimit } from '../llm/budget.js';
 import { createLimits } from '../llm/limits.js';
-import { checkReplyEffect, checkSkill, listSkills } from '../tools/gateway.ts';
-import { callArgsText } from '../tools/call-args.ts';
 import { createThinkStore } from './previous-think.js';
-import { discoveryOn, exposedSkillNames, proposalVerdicts, proposedRows, skillsIndex } from '../tools/discovery.ts';
-import { skillFeatureOn } from '../tools/access.ts';
-import { executeCall, linksOfCalls, outcomeDetail, refusalStatus, resolveCall } from '../tools/executors.ts';
+import { exposedSkillNames } from '../tools/discovery.ts';
+import { linksOfCalls, outcomeDetail } from '../tools/executors.ts';
 import { fetchSpan, runConversationRead, recordMessages } from '../tools/conversation-read.ts';
 import {
-  IN_TURN_TOOLS,
   firstLinkIn,
   lookPerTurn,
   runMediaFind,
@@ -74,36 +68,23 @@ import {
   runWebRead,
   runWebSearch,
 } from '../tools/tools.ts';
-import { channelPlaceId, personId } from '../memory/db/ids.ts';
 import { prefetchLanes, prefetchOn, wakeLanes } from './prefetch.js';
-import { FACTS_SHOWN_MAX, POSTING_SKILLS, createLocalFacts, factPayload, innerSettings } from './inner.ts';
-import { DESTINATION_REQUIRED, innerOutputCalls } from './inner-output.js';
-import { intentionSettings, isIntentionId } from '../intentions/model.ts';
+import { FACTS_SHOWN_MAX, factPayload, innerSettings } from './inner.ts';
+import { innerOutputCalls } from './inner-output.js';
 import { WAKE_PURPOSE_CHARS } from './wake.ts';
-import { diagnosticText, feedbackInTurnText, placesBlockText, wakeBlockText } from './wake.ts';
+import { diagnosticText, feedbackInTurnText, wakeBlockText } from './wake.ts';
 import { CODE } from '../tools/codes.ts';
 import { turnRoutes } from './turn-ability-route.ts';
 import { coerceArgs, coversSpeech, toolResultText, transportOf } from '../tools/tool-calls.ts';
 import { buildTools } from '../tools/tools-json.ts';
-import {
-  appendStep,
-  cutToFit,
-  deltaLines,
-  roomLeft,
-  segments,
-  stepNote,
-  stepVerdict,
-  thinkMissing,
-} from './tool-step.js';
+import { appendStep, cutToFit, deltaLines, roomLeft, stepNote, stepVerdict, thinkMissing } from './tool-step.js';
 import { toolsBlockText } from '../llm/tool-text.js';
 import { estimateMessages, estimateTools } from '../llm/tokens.js';
 import { chunkPictures, diaryConversationIds } from './mirror.ts';
 import { diaryVoiceTool, forcedPictureRefusal, publishHeldDiary, recordEntry, wakeInputs } from './diary-turn.ts';
 import {
   HEARTBEAT_INTENT_SKILLS,
-  HEARTBEAT_READ_SKILLS,
   INNER_TERMINAL_SKILLS,
-  INTENT_ID_SKILLS,
   LOOP_MIN_CALL_MS,
   LOOP_WHY,
   NO_LOOP,
@@ -136,10 +117,13 @@ import { createAct } from '../turn/act.ts';
 import { createDiary } from '../turn/diary.ts';
 import { createDrawGif } from '../turn/draw-gif.ts';
 import { createDryAct } from '../turn/dry-act.ts';
+import { createFacts } from '../turn/facts.ts';
+import { createInputs } from '../turn/inputs.ts';
 import { createJournalNotes } from '../turn/journal-notes.ts';
 import { createParticipation } from '../turn/participation.ts';
 import { createPulls } from '../turn/pulls.ts';
 import { createSends } from '../turn/sends.ts';
+import { createSkillCalls } from '../turn/skill-calls.ts';
 import { createTyping } from '../turn/typing.ts';
 import { channelDirectoryOf, inCommunity, routeFor, snapshotOfDraft, usableDestination } from '../turn/routing.ts';
 import {
@@ -155,8 +139,6 @@ import {
   journalled,
   linkHosts,
   noteDiagnostics,
-  portError,
-  postedOf,
   sendHash,
   settleUnknownSends,
   untoldDiagnostics,
@@ -164,9 +146,7 @@ import {
 import {
   CALL_MARKS_MAX,
   CALL_STATUS_NAMES,
-  PERSONA,
   SEARCH_HANDLE_GAP,
-  WRITTEN_SKILLS,
   answerOf,
   callEnvelope,
   callTextOf,
@@ -176,7 +156,6 @@ import {
   requesterOf,
   searchHandles,
   speechItemsOf,
-  valuesOf,
 } from '../turn/calls.ts';
 import { taskInput } from '../turn/task-input.ts';
 
@@ -484,682 +463,19 @@ export function createTurnRunner({
     recentInput,
   } = createParticipation({ hot, store, around, clock });
 
-  /**
-   * The one execution context of an attempt's memory reads (`memoryContext`): issued the first time a read needs it
-   * (a memory search, the request's record) and kept on the draft, so recall and the turn's read record carry one id.
-   * A private chat reads as a DM of its partner, anything else as the interface's group. Null without the dependency
-   * or the draft, for a private chat whose partner is unknown, or when issuing fails (never a turn's failure).
-   */
-  function turnContextOf(draft, channel) {
-    if (!draft || typeof memoryContext !== 'function') return null;
-    if (draft.memoryContext !== undefined) return draft.memoryContext;
-    let ctx = null;
-    try {
-      const isPrivate = !inCommunity(channel);
-      const partner = isPrivate ? (draft.privateUserId ?? null) : null;
-      if (!isPrivate || partner) {
-        ctx =
-          memoryContext(
-            isPrivate
-              ? { kind: 'dm', person: personId(portIface(iface), String(partner)) }
-              : { kind: 'group', destination: channel?.id ? channelPlaceId(portIface(iface), channel.id) : null }
-          ) ?? null;
-      }
-    } catch {
-      ctx = null;
-    }
-    draft.memoryContext = ctx;
-    return ctx;
-  }
-  // Per guild: what the stable part of the reply showed from memory in the current cache bucket
-  // (src/behavior/prompt.js#freezePerBucket), in process only; a restart starts afresh.
-  const stableFreezes = new Map();
-  const stableFreezeOf = (guildId) => {
-    const key = String(guildId ?? '');
-    if (!stableFreezes.has(key)) stableFreezes.set(key, new Map());
-    return stableFreezes.get(key);
-  };
   const iface = port;
-
-  /**
-   * The port reference of a conversation (its info, a snapshot entry, anything with an `id`), in the iface it names.
-   */
-  function conversationOf(channel) {
-    return { iface: portIface(channel) || iface.iface, conversationId: String(channel.id) };
-  }
-
-  /**
-   * The port reference of message `messageId` in `channel`.
-   */
-  function messageOf(channel, messageId) {
-    return { ...conversationOf(channel), messageId: String(messageId) };
-  }
-
-  /**
-   * The gateway's verdict on one effect of the persona's reply in `channel`
-   * (src/tools/gateway.ts#checkReplyEffect, the live config read now): carried over in the
-   * current conversation, refused only under the full stop. `args` and `trigger` name the effect
-   * for the reader; the check needs neither. A refusal logs `skill: refused`.
-   * @returns {{ ok: boolean, code?: string, reason?: string }}
-   * @param {*} skill
-   * @param {*} _args
-   */
-  function checkEffect(skill, _args, { channel }) {
-    const verdict = checkReplyEffect({ skill, principal: PERSONA, config: hot.config });
-    if (!verdict.ok)
-      log.info('skill: refused', { skill, code: verdict.code, reason: verdict.reason, channel: channel.id });
-    return verdict;
-  }
-
-  /**
-   * What skills discovery gives a classifier (src/tools/discovery.ts, the live config read by
-   * the caller now): `index` fills its prompt's `{{skills}}` (skillsIndex over the registry and
-   * `hot.prompts.tools`: static texts, no grant), `names` are the registry's skills its `skills:`
-   * line may name. With discovery off, '' and none.
-   * @returns {{ index: string, names: string[] }}
-   */
-  function discoveryPrompt(config) {
-    if (!discoveryOn(config)) return { index: '', names: [] };
-    // Her in-turn tools are hers to call (features.coreTools, where no classifier runs): never offered to one.
-    // A skill whose feature switch is off is not offered either (src/tools/access.ts#skillFeatureOn).
-    const registry = new Map(
-      [...(skills ?? defaultSkills())].filter(([name]) => !IN_TURN_TOOLS.includes(name) && skillFeatureOn(name, config))
-    );
-    const names = [...registry.keys()];
-    return { index: skillsIndex(registry, hot.prompts?.tools), names };
-  }
-
-  /**
-   * What a classifier's `skills:` line (`answer`: parseSkillsLines' result, null when it gave
-   * none) does on a turn someone asked for, with discovery on (read by the caller now). The
-   * catalogue of this requester (`trigger`'s author) in `channel` (src/tools/gateway.ts#listSkills,
-   * the state read now) decides both: on `inventory` its rows are returned for the request's
-   * `<skills>` (logged `skills: inventory` with counts); on named skills (at most four) each name
-   * with the gateway's verdict is logged `skills: proposed` and noted in the draft's
-   * `skillsProposed` (`{ name, allowed }`) for the journal's turn record, and their catalogue rows
-   * are returned marked `proposed` (`<skills>` then shows the allowed ones and names the others).
-   * Null otherwise. Names and codes only, never a message.
-   * @returns {object[]|null}
-   */
-  function discoverSkills({ config, channel, trigger, answer, draft }) {
-    if (!answer || !discoveryOn(config)) return null;
-    const named = Array.isArray(answer.names) ? answer.names : [];
-    if (answer.inventory !== true && named.length === 0) return null;
-    const rows = listSkills({
-      config,
-      selfId: selfIdOf() || null,
-      texts: hot.prompts?.tools,
-      requester: requesterOf(trigger, draft?.requesterGroups ?? []),
-      audience: { conversationId: String(channel.id) },
-      registry: skills ?? defaultSkills(),
-    });
-    if (answer.inventory === true) {
-      log.info('skills: inventory', {
-        channel: channel.id,
-        listed: rows.length,
-        allowed: rows.filter((row) => row.allowed).length,
-      });
-      return rows;
-    }
-    const proposals = proposalVerdicts(named, rows);
-    log.info('skills: proposed', { channel: channel.id, count: proposals.length, proposals });
-    if (draft) draft.skillsProposed = proposals.map(({ name, allowed }) => ({ name, allowed }));
-    return proposedRows(proposals, rows);
-  }
-
-  /**
-   * The errands `<errands>` lists: her open errands and unread results (`errands.view`), the one `taskResult` brings left out.
-   */
-  function listedTasks({ guildId, channel, isPrivate, taskResult }) {
-    let shown = [];
-    try {
-      shown =
-        typeof errands?.view === 'function'
-          ? errands.view({ guildId, privateChannelId: isPrivate ? String(channel.id) : null })
-          : [];
-    } catch (err) {
-      log.warn('turn: tasks view failed', { channel: channel.id, error: err });
-    }
-    return (Array.isArray(shown) ? shown : []).filter((task) => task?.id !== taskResult?.id);
-  }
-
-  /**
-   * The request's `errands` input (buildRequest): the `<errands>` body -- her open errands and the
-   * finished ones she has not read (`errands.view`: a private chat's only in that chat; at most
-   * `errands.unreadShown` of them), the one `taskResult` brings left out -- and, on the turn an
-   * errand's end opened (`taskResult`, trigger kind `errand`), the `<errand_result>` body cut to
-   * `errands.resultMaxChars` (read now). Showing a task marks nothing: it is read by the result
-   * turn that completed (src/errands/turns.ts) or by `errand.read`. Null when there is nothing to show.
-   */
-  function errandsInputFor({ guildId, channel, isPrivate, taskResult, config, labels, now }) {
-    const listed = listedTasks({ guildId, channel, isPrivate, taskResult });
-    const list = errandsBlockText(listed, labels, { now, unreadShown: config.errands?.unreadShown });
-    const result = taskResult
-      ? errandResultText(taskResult, labels, { maxChars: config.errands?.resultMaxChars ?? DEFAULT_RESULT_MAX_CHARS })
-      : '';
-    return list || result ? { list, result } : null;
-  }
-
-  /**
-   * The request's `<intentions>` body (features.intentions exactly true, read now): her open
-   * intentions and the candidates proposed from her lines (`intentions.view`: a private chat's
-   * own only in that chat), cut to `context.caps.intentions` tokens (src/intentions/blocks.ts).
-   * '' with the switch off, without the service, or with nothing to show.
-   */
-  function intentionsInputFor({ guildId, channel, snapshot = null, isPrivate, config, labels, now }) {
-    if (!intentions || config.features?.intentions !== true) return '';
-    let shown = [];
-    try {
-      shown = intentions.view(guildId, { privateChannelId: isPrivate ? String(channel.id) : null });
-    } catch (err) {
-      log.warn('turn: intentions view failed', { channel: channel.id, error: err });
-      return '';
-    }
-    const channelNameOf = (id) => (inCommunity(channel) ? (snapshot?.get(String(id))?.name ?? null) : null);
-    const nameOf = (id) =>
-      typeof store?.getUser === 'function' ? (store.getUser(guildId, String(id))?.names?.[0] ?? null) : null;
-    return intentionsBlockText(shown, labels, {
-      timezone: config.bot?.timezone ?? 'UTC',
-      locale: labels?.locale,
-      maxTokens: config.context?.caps?.intentions ?? DEFAULT_INTENTIONS_CAP,
-      channelNameOf,
-      nameOf,
-      now,
-      expiryNoticeDays: intentionSettings(config).expiryNoticeDays,
-    });
-  }
-
-  /**
-   * The request's `<places>` body (context.places exactly true, read now; src/behavior/wake.ts#placesBlockText):
-   * the first `innerLife.attention.placesInWake` places by recent activity (0: none), from the inner
-   * life's places view. '' with the switch off, without the view, or when it fails.
-   */
-  function placesInputFor({ guildId, config, labels }) {
-    if (config.context?.places !== true || typeof places !== 'function') return '';
-    const size = innerSettings(config).attention.placesInWake;
-    if (!(size > 0)) return '';
-    try {
-      return placesBlockText(places(guildId, { sort: 'recent', page: 1, pageSize: size }), labels);
-    } catch (err) {
-      log.warn('turn: places view failed', { guildId, error: err });
-      return '';
-    }
-  }
-
-  /** What a `<call>` of the persona is resolved against: callViewOf over this runner's store, id and registry. */
-  function callView({
-    channel,
-    snapshot = null,
-    guildId,
-    idByIndex,
-    lines,
-    pulledIds,
-    memoryOn,
-    channelHandles = null,
-    memberHandles = null,
-    trigger = null,
-    deletedIds = null,
-    searchRefs = null,
-  }) {
-    const fileOf =
-      typeof errands?.fileOf === 'function'
-        ? (handle) =>
-            errands.fileOf({ guildId, handle, privateChannelId: inCommunity(channel) ? null : String(channel.id) })
-        : null;
-    return callViewOf({
-      channel,
-      snapshot,
-      guildId,
-      idByIndex,
-      lines,
-      pulledIds,
-      memoryOn,
-      store,
-      selfId: selfIdOf() || null,
-      skills: skills ?? defaultSkills(),
-      channelHandles,
-      memberHandles,
-      fileOf,
-      triggerText: typeof trigger?.content === 'string' ? trigger.content : null,
-      deletedIds,
-      searchRefs,
-    });
-  }
-
-  /**
-   * The gateway's verdict on a resolved `<call>` (src/tools/gateway.ts#checkSkill, the live
-   * config read now): the persona as principal, the envelope's requester (callEnvelope), the
-   * turn's channel as the audience, the last run of a destructive skill from the origin channel
-   * (`destructiveRuns`), the image client's caps as the drawing budget. A refusal logs
-   * `skill: refused`.
-   * @param {*} resolved
-   */
-  function checkCall(resolved, { channel, envelope, draft = null }) {
-    const verdict = checkSkill({
-      skill: resolved.skill,
-      args: resolved.args,
-      principal: PERSONA,
-      requester: envelope.requester,
-      audience: { conversationId: String(channel.id) },
-      context: {
-        config: hot.config,
-        selfId: selfIdOf() || null,
-        registry: skills ?? defaultSkills(),
-        mixedRequesters: envelope.mixed,
-        // An inner turn, or the result turn of her own errand, is her own initiative: nobody asked, her grants alone decide.
-        ...(draft?.inner || draft?.ownInitiative ? { ownInitiative: true } : {}),
-        // An inner turn's wake envelope (innerLife.wakes.<kind>): its wake kind and the calls it made so far.
-        ...(draft?.inner?.wake?.kind
-          ? { wakeKind: String(draft.inner.wake.kind), wakeActions: draft.innerActions ?? [] }
-          : {}),
-        lastRunAt: destructiveRuns.get(`${resolved.skill}:${envelope.originChannelId}`) ?? null,
-        now: clock(),
-        ...(images ? { images } : {}),
-        ...(speech ? { speech } : {}),
-        // An errand's caps are its budget (src/errands/service.ts#budget), in the turn's guild.
-        ...(errands
-          ? { tasks: { budget: (agent) => errands.budget({ guildId: channel.communityId ?? null, agent }) } }
-          : {}),
-      },
-    });
-    if (!verdict.ok)
-      log.info('skill: refused', {
-        skill: resolved.skill,
-        code: verdict.code,
-        reason: verdict.reason,
-        channel: channel.id,
-      });
-    return verdict;
-  }
-
-  /**
-   * One call of the persona (`call`: `{ skill, args, body, toolCallId?, index?, coerced?, preRefuse?, refuse?, lowered? }`: a
-   * tool call of her answer after normalizeCalls and coerceArgs, or an inner turn's tag lowered to the call it stands
-   * for) planned before anything of its step is done: its journal operation (`skill`, by the persona) writes `proposed`
-   * with the skill, the envelope's invocation id, the names of its arguments, its tool call id and the arguments that
-   * were read in another type, then the call is checked in this order -- `preRefuse` (a call that cannot run: unreadable,
-   * unknown, cut off, past the step's cap), the heartbeat rule, `refuse` (an inner tag that cannot act), an inner turn's
-   * destination for a picture --, resolved on the server's side (`view`: callView's) and checked (checkCall). Resolves
-   * `{ call, op, envelope, resolved, refusal }`: `resolved` null and `refusal` (`{ code, reason }`) when anything said
-   * no -- logged `skill: refused`. Nothing runs here.
-   */
-  async function planToolCall({ call: given, channel, envelope, draft, view }) {
-    let call = given;
-    // A call of an inner turn in shadow mode is only proposed: its lines say so (no call mark is drawn from them).
-    const op = journalOp(draft, 'skill', 'persona', {
-      input: { skill: call.skill, invocationId: envelope.invocationId },
-      ...(draft?.inner?.shadow ? { shadow: true } : {}),
-    });
-    if (op.opId)
-      await op.proposed({
-        input: {
-          skill: call.skill,
-          invocationId: envelope.invocationId,
-          args: Object.keys(call.args ?? {}),
-          body: Boolean(call.body),
-          ...(typeof call.toolCallId === 'string' && call.toolCallId ? { toolCallId: call.toolCallId } : {}),
-          ...(Array.isArray(call.coerced) && call.coerced.length > 0
-            ? { coerced: call.coerced.filter((name) => typeof name === 'string') }
-            : {}),
-        },
-      });
-    // A call that cannot run (unreadable, unknown, cut off, past what the step allows): refused with its own code, she reads why.
-    if (call.preRefuse) {
-      log.info('skill: refused', {
-        skill: call.skill,
-        code: call.preRefuse.code,
-        reason: call.preRefuse.reason,
-        channel: channel.id,
-      });
-      return { call, op, envelope, resolved: null, refusal: { ...call.preRefuse } };
-    }
-    // A heartbeat may inspect memory before changing an intention; other calls are refused before resolution.
-    if (
-      heartbeatOnly(draft) &&
-      !HEARTBEAT_INTENT_SKILLS.includes(call.skill) &&
-      !HEARTBEAT_READ_SKILLS.includes(call.skill)
-    ) {
-      log.info('skill: refused', {
-        skill: call.skill,
-        code: CODE.HEARTBEAT_ONLY,
-        reason: 'heartbeat:only',
-        channel: channel.id,
-      });
-      log.info('heartbeat: call refused', { skill: call.skill, code: CODE.HEARTBEAT_ONLY });
-      return { call, op, envelope, resolved: null, refusal: { code: CODE.HEARTBEAT_ONLY, reason: 'heartbeat:only' } };
-    }
-    // An inner turn's tag that cannot act (src/behavior/inner-output.js): refused before anything is resolved or done.
-    if (call.refuse) {
-      log.info('skill: refused', {
-        skill: call.skill,
-        code: call.refuse.code,
-        reason: call.refuse.reason,
-        channel: channel.id,
-      });
-      return { call, op, envelope, resolved: null, refusal: { code: call.refuse.code, reason: call.refuse.reason } };
-    }
-    // An inner turn's picture lands in its current channel, as its speech does; with none, there is nowhere to post it.
-    if (
-      draft?.inner &&
-      (call.skill === 'draw.create' || call.skill === 'voice.say') &&
-      typeof call.args?.channel !== 'string'
-    ) {
-      const current = draft.inner.currentChannel === undefined ? String(channel.id) : draft.inner.currentChannel;
-      if (!current) {
-        log.info('skill: refused', {
-          skill: call.skill,
-          code: DESTINATION_REQUIRED.code,
-          reason: DESTINATION_REQUIRED.reason,
-          channel: channel.id,
-        });
-        return {
-          call,
-          op,
-          envelope,
-          resolved: null,
-          refusal: { code: DESTINATION_REQUIRED.code, reason: DESTINATION_REQUIRED.reason },
-        };
-      }
-      if (String(current) !== String(channel.id)) call = { ...call, args: { ...call.args, channel: String(current) } };
-    }
-    const resolved = resolveCall(call, view);
-    if (!resolved.ok) {
-      log.info('skill: refused', {
-        skill: call.skill,
-        code: resolved.code,
-        reason: resolved.reason,
-        channel: channel.id,
-      });
-      // An errand's file bound for a channel nobody named (src/tools/executors.ts#resolveCall).
-      if (resolved.code === CODE.FILE_ELSEWHERE)
-        log.info('skills: file elsewhere refused', {
-          skill: call.skill,
-          code: resolved.code,
-          reason: resolved.reason,
-          channel: channel.id,
-        });
-      return { call, op, envelope, resolved: null, refusal: { code: resolved.code, reason: resolved.reason } };
-    }
-    // The message's own channel taken over the one she named: logged, never the ids.
-    if (resolved.channelFixed)
-      log.info('skills: message channel taken from the message', { skill: resolved.skill, channel: channel.id });
-    const verdict = checkCall(resolved, { channel, envelope, draft });
-    return {
-      call,
-      op,
-      envelope,
-      resolved: verdict.ok ? resolved : null,
-      refusal: verdict.ok ? null : { code: verdict.code, reason: verdict.reason },
-    };
-  }
-
-  /** Whether this turn is a heartbeat held to intention changes only (`innerLife.heartbeat.intentionsOnly`, read now). */
-  function heartbeatOnly(draft) {
-    return draft?.inner?.wake?.kind === 'heartbeat' && innerSettings(hot.config).heartbeat.intentionsOnly === true;
-  }
-
-  /**
-   * Whether `results` (the calls of one step) hold the intention change that ends a heartbeat turn held to
-   * intention changes only: an intent call that went through. Nothing is asked of the model after it.
-   */
-  function heartbeatChanged(draft, results) {
-    return (
-      heartbeatOnly(draft) &&
-      results.some((result) => result.status === 'ok' && HEARTBEAT_INTENT_SKILLS.includes(result.skill))
-    );
-  }
-
-  /** The ids a resolved call aims at (its channel, message, reply target, member), for its journal line: never its text. */
-  function callTarget(args) {
-    const out = {};
-    for (const key of ['channel', 'message', 'reply', 'user'])
-      if (typeof args?.[key] === 'string') out[key] = args[key];
-    return out;
-  }
-
-  /**
-   * What an inner turn's gate says of one call of hers (`inner`: the turn's `inner` parameter):
-   * a read (its effect class) always runs; in shadow mode anything else is `proposed` and never
-   * runs; live, a stopped inner life (`mayAct`, asked now) refuses it (`inner-stopped`). No count of posts refuses a call.
-   * `public` says whether a call that runs is a public post.
-   * @returns {{ proposed?: true, refusal?: { code: string, reason: string }, public?: boolean }|null}
-   * @param {*} inner
-   * @param {*} skill
-   */
-  function innerVerdict(inner, skill, { channel, args }) {
-    const effects = (skills ?? defaultSkills()).get(skill)?.effects ?? null;
-    if (effects === 'read') return null;
-    if (inner.shadow) return { proposed: true };
-    if (typeof inner.mayAct === 'function' && !inner.mayAct())
-      return { refusal: { code: CODE.INNER_STOPPED, reason: 'innerLife' } };
-    const isPublic =
-      POSTING_SKILLS.includes(String(skill)) && (inCommunity(channel) || typeof args?.channel === 'string');
-    return { public: isPublic };
-  }
-
-  /**
-   * The planned call (planToolCall's) made, in its step, before her speech goes out: a refusal at the plan is
-   * closed `failed` with its code (status `invalid` or `denied`, refusalStatus); otherwise the
-   * gateway is asked again right before the call (the owner may have revoked it meanwhile), the
-   * operation writes `started` with the ids it aims at, a destructive one is stamped for its
-   * cooldown, and src/tools/executors.ts#executeCall runs it on the envelope through
-   * `runOp` (`tools.callTimeoutMs`, read now); her written text (`message.create`,
-   * `message.edit`) is rendered first exactly as a `<msg>` of this turn (renderPost over the
-   * turn's `handles`, or `lines`, `knownNames`, `directory`, and `idByIndex`, `pulledIds`), its mentions the only members
-   * notified. The operation closes `succeeded` (with the
-   * message id), `unknown` (never retried) or `failed` with the code. A message or picture that reached another conversation
-   * stamps its lastPostAt, links its trigger, and a message is a `said` line of the record.
-   * Logged `skills: called` (`skill`, `status`, `code`). Resolves the result with `skill`. Never throws.
-   * @returns {Promise<{ skill: string, status: string, code?: string, data?: object }>}
-   */
-  async function runCall(
-    plan,
-    {
-      channel,
-      trigger,
-      guildId,
-      draft,
-      privateChat = false,
-      idByIndex = null,
-      pulledIds = null,
-      lines = [],
-      knownNames = [],
-      directory = null,
-      handles = null,
-      memberNames = null,
-      channelHandles = null,
-      timeoutMs = null,
-      inTurn = null,
-    }
-  ) {
-    const { call, op, envelope } = plan;
-    const skill = call.skill;
-    // Her written text (message.create / message.edit) rendered as a `<msg>` of this turn is.
-    let rendered = null;
-    const renderText = (text) =>
-      (rendered = renderPost(text, {
-        channel,
-        snapshot: snapshotOfDraft(draft),
-        guildId,
-        privateChat,
-        idByIndex,
-        pulledIds,
-        lines,
-        knownNames,
-        directory,
-        handles,
-        channelHandles,
-      }));
-    let result;
-    // A refusal keeps its machine reason (a schema path, an option name): the call mark says why (outcomeDetail).
-    const refusedWith = (refusal) => ({
-      status: refusalStatus(refusal.code),
-      code: refusal.code,
-      ...(refusal.reason ? { reason: refusal.reason } : {}),
-      ...(refusal.values ? { values: refusal.values } : {}),
-    });
-    // An inner turn (src/behavior/inner.ts): anything but a read is only proposed in shadow mode,
-    // refused once the kill switch stopped it (asked right here, before the action), and a public
-    // post past the day's cap is refused too.
-    const inner = draft?.inner ?? null;
-    const innerGate =
-      inner && !plan.refusal ? innerVerdict(inner, skill, { channel, args: plan.resolved?.args ?? {} }) : null;
-    // Whether the call was dispatched (its operation ran, whatever it answered).
-    let ran = false;
-    if (plan.refusal) result = refusedWith(plan.refusal);
-    else if (innerGate?.proposed) result = { status: 'ok', code: CODE.SHADOW };
-    else if (innerGate?.refusal) result = refusedWith(innerGate.refusal);
-    else {
-      const verdict = checkCall(plan.resolved, { channel, envelope, draft });
-      if (!verdict.ok) result = refusedWith(verdict);
-      else {
-        if (op.opId) await op.started({ target: callTarget(plan.resolved.args) });
-        ran = true;
-        // A destructive call counts from its dispatch, whatever comes back.
-        if (plan.resolved.dispatch && (skills ?? defaultSkills()).get(skill)?.effects === 'destructive')
-          destructiveRuns.set(`${skill}:${envelope.originChannelId}`, clock());
-        result = await executeCall(plan.resolved, {
-          port: iface,
-          refOf: (conversationId) => ({ iface: iface.iface, conversationId: String(conversationId) }),
-          renderText,
-          envelope,
-          runOp,
-          runOwnOp,
-          runInitiativeOp,
-          opContext: { guildId, channelId: String(channel.id), ...(privateChat ? { privateChat: true } : {}) },
-          // The live config, for the wake envelope's check at the capabilities a skill reaches (src/tools/access.ts).
-          config: hot.config,
-          timeoutMs:
-            Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : (hot.config.tools?.callTimeoutMs ?? 120000),
-          // Her in-turn tools (features.coreTools): run here, in the turn, over its context.
-          ...(inTurn ? { inTurn } : {}),
-        });
-      }
-    }
-    // What a read of hers returned is outside material her later lines of the turn may repeat.
-    if (
-      ran &&
-      result.status === 'ok' &&
-      typeof result.data?.text === 'string' &&
-      result.data.text &&
-      (skills ?? defaultSkills()).get(skill)?.effects === 'read'
-    )
-      noteSeen(draft, result.data.text, { read: true });
-    if (inner) {
-      // The intention a call of hers named, however it went: the open-intentions line of the next
-      // step (openIntentionsText) no longer lists it; the action record carries it, and the state
-      // an intention.update set (`done`, `pending`), for the feedback facts (src/behavior/inner.ts#feedbackFacts).
-      const named = intentionNamed(skill, plan.resolved?.args ?? call.args ?? {});
-      const state = skill === 'intention.update' ? (plan.resolved?.args?.state ?? call.args?.state ?? null) : null;
-      (draft.innerActions ??= []).push({
-        skill,
-        status: innerGate?.proposed ? 'proposed' : ran ? 'executed' : 'refused',
-        result: result.status,
-        ...(result.code ? { code: result.code } : {}),
-        ...(result.status !== 'ok' ? callTextOf(result, hot.config.tools?.markTextMaxChars ?? 200) : {}),
-        target: callTarget(plan.resolved?.args ?? {}),
-        ...(named ? { intentionId: named } : {}),
-        ...(skill === 'intention.set' && ran && result.status === 'ok' && typeof result.intentionId === 'string'
-          ? { createdId: result.intentionId }
-          : {}),
-        ...(typeof state === 'string' && state ? { state } : {}),
-      });
-      if (named) (draft.innerIntentIds ??= new Set()).add(named);
-      // A proposed call never ran: the journal keeps its `proposed` line (marked shadow), no mark, no closing line.
-      if (innerGate?.proposed) {
-        log.info('skills: proposed', { channel: channel.id, skill, shadow: true });
-        return { skill, ...result };
-      }
-    }
-    if (op.opId) {
-      if (result.status === 'ok') await op.succeeded(journalResultOf(result));
-      else if (result.status === 'unknown') await op.unknown({ code: result.code ?? null, ...valuesOf(result) });
-      else
-        await op.failed(result.code ?? CODE.ERROR, {
-          status: result.status,
-          ...(typeof result.reason === 'string' && result.reason ? { reason: result.reason } : {}),
-          ...valuesOf(result),
-        });
-    }
-    const args = plan.resolved?.args ?? {};
-    // A text that went out with its GIF failing (`partial`) was said all the same.
-    const posted =
-      (result.status === 'ok' || (result.status === 'partial' && result.code === CODE.GIF_FAILED)) &&
-      (skill === 'message.create' || skill === 'draw.create' || skill === 'voice.say') &&
-      result.ref
-        ? postedOf(result)
-        : null;
-    // Every message the turn posted, its follow-up's included (act adds them as they go out).
-    const turnPosts = draft ? (draft.ownPosts ??= []) : [];
-    const where = posted ? String(result.ref.conversationId ?? args.channel ?? channel.id) : null;
-    if (posted) {
-      lastPostAt.set(where, clock());
-      noteTrigger(posted.id, trigger?.id);
-      if (!turnPosts.includes(posted.id)) turnPosts.push(posted.id);
-      if (draft) (draft.deliveredIn ??= new Set()).add(where);
-      if (where !== String(channel.id)) notePostedFrom(posted.id, String(channel.id));
-      // A voice message a diary turn posted through her operation: the post keeps its text as voiced and its length.
-      if (skill === 'voice.say' && draft?.diary && result.voice)
-        draft.diaryVoice = { text: result.voice.text, durationSecs: result.voice.durationSecs };
-      if (skill === 'message.create') {
-        noteLineSources(draft, posted.id, args.text);
-        recordSaid({
-          guildId,
-          channel: { id: where },
-          privateChat: false,
-          trigger,
-          draft,
-          op,
-          posted,
-          text: args.text,
-          replyId: args.reply ?? null,
-          repliedAuthorId: plan.resolved.repliedAuthorId ?? null,
-          userIds: rendered?.userIds ?? [],
-        });
-      }
-    }
-    const idText = (value) => (typeof value === 'string' && value ? value : null);
-    // A shadow inner turn leaves no lasting mark on her transcript (nobody saw it); its calls that
-    // did not work are marked for the rest of this turn only (`draft.turnMarks`), so she hears why
-    // and may correct the call within the loop.
-    const markCall = inner?.shadow ? (mark) => (draft.turnMarks ??= []).push(mark) : noteCall;
-    markCall({
-      channelId: String(channel.id),
-      at: clock(),
-      skill,
-      status: result.status,
-      // Why it did not work, when it did not (the mark words it through labels.transcript.callReasons;
-      // without a specific phrase, the operation's own message before the generic one: one line,
-      // tools.markTextMaxChars, read now). In process only: the journal keeps the code and reason,
-      // never that message.
-      detail: outcomeDetail(result, {
-        textChars: hot.config.tools?.markTextMaxChars ?? 200,
-        argNames: (skills ?? defaultSkills()).get(skill)?.dispatch?.options?.map((option) => option.name) ?? null,
-      }),
-      target: { messageId: idText(args.message) ?? idText(args.reply), channelId: where ?? idText(args.channel) },
-      postedId: posted?.id ?? null,
-      posted: turnPosts,
-      // The main arguments the call ran with, for the mark's line (src/tools/call-args.ts).
-      args: callArgsText(skill, args),
-    });
-    log.info('skills: called', {
-      channel: channel.id,
-      skill,
-      status: result.status,
-      ...(result.code ? { code: result.code } : {}),
-      ...(result.status !== 'ok' && result.error ? { error: portError(result) } : {}),
-    });
-    // A tag of hers that named a member without their handle went out as plain text: the result tells her, and the post stays ok.
-    const note =
-      result.status === 'ok' && WRITTEN_SKILLS.includes(skill)
-        ? untaggedNote(
-            typeof args.text === 'string' ? args.text : '',
-            { handles, memberNames, mentionedIds: rendered?.userIds ?? [] },
-            hot.prompts?.labels
-          )
-        : '';
-    return { skill, ...result, ...(note ? { note } : {}) };
-  }
+  const {
+    turnContextOf,
+    stableFreezeOf,
+    conversationOf,
+    messageOf,
+    checkEffect,
+    discoveryPrompt,
+    discoverSkills,
+    errandsInputFor,
+    intentionsInputFor,
+    placesInputFor,
+  } = createInputs({ hot, store, iface, skills, selfIdOf, memoryContext, errands, intentions, places });
 
   /**
    * The lines of `channel` a turn reads under `config` (src/behavior/lines.ts#historyLines over the interface's
@@ -1462,45 +778,6 @@ export function createTurnRunner({
     prefetchMemo.set(key, pending);
     while (prefetchMemo.size > PREFETCH_MEMO) prefetchMemo.delete(prefetchMemo.keys().next().value);
     return { lanes, pending };
-  }
-
-  /**
-   * The planned calls of one step made (runCall over `context`), in segments (src/behavior/tool-step.js#segments): a
-   * run of consecutive reads together, every other call, a refusal included, alone, in her written order. Resolves the
-   * results in the order of `plans`, one for each. The first result of the turn that a model role's route moved carries
-   * the route line (turnRoutes).
-   */
-  async function runCalls(plans, context) {
-    const results = new Array(plans.length);
-    const reads = (plan) => Boolean(plan.resolved) && (skills ?? defaultSkills()).get(plan.call.skill)?.kind === 'read';
-    let at = 0;
-    for (const segment of segments(plans, reads)) {
-      const made = await Promise.all(segment.calls.map((plan) => runCall(plan, context)));
-      made.forEach((result, i) => {
-        results[at + i] = result;
-      });
-      at += segment.calls.length;
-    }
-    return routes.tell(results, context);
-  }
-
-  /**
-   * The intention one call of an inner turn names: `args.id` of `intention.update` / `intention.cancel`,
-   * or its body (`args.text`) when that is the id alone (src/tools/impl/intention.ts takes it the same way);
-   * null for any other call.
-   * @param {string} skill
-   * @param {Record<string, unknown>} args
-   * @returns {string|null}
-   */
-  function intentionNamed(skill, args) {
-    if (!INTENT_ID_SKILLS.includes(skill)) return null;
-    const id =
-      typeof args?.id === 'string' && args.id.trim()
-        ? args.id.trim()
-        : isIntentionId(args?.text)
-          ? String(args.text).trim()
-          : null;
-    return id;
   }
 
   /**
@@ -2086,20 +1363,10 @@ export function createTurnRunner({
   // channelId -> the chain of parts running there (runChain): its author, its parts, the part
   // in progress (`next`, 1-based; 0 before the first) and the messages folded into a later part.
   const chains = new Map();
-  // The facts kept for her next request in a conversation: the inner life keeps them in its state when it is on
-  // (src/behavior/inner.ts, `setFactsSource`), else they are kept in process. An addressed reply turn that ended
-  // `error` or `refused` (`failedTurn`: `{ messageId, authorId, code }`, kept `FAILED_TURN_KEEP_MS` and at most
-  // `context.failedTurnsKept`, told by `labels.task.failedEarlier`) and what a turn lost (`sendFailed`, `loopCut`,
-  // `callFailed`, `wakeDropped`, ...: `labels.wake.feedbackInTurn`). A fact is told once a completed answer carried it.
-  let factsSource = null; // set via setFactsSource()
-  const localFacts = createLocalFacts({ now: () => clock() });
-  const facts = () => (factsSource?.enabled?.() === true ? factsSource : localFacts);
+  const { facts, setFactsSource } = createFacts({ clock });
   // The channels known to be private chats (a deferred call names only its channel).
   const privateChannels = new Set();
   const lastPostAt = new Map(); // channelId -> ts of the persona's last message
-  // `${skill}:${originChannelId}` -> when a destructive skill call of hers was last dispatched
-  // from that channel (tools.destructiveCooldownMinutes, src/tools/gateway.ts); in process.
-  const destructiveRuns = new Map();
   let onIdle = null; // set via setOnIdle(); see the finally block of runTurn below
   let onTurnEnd = null; // set via setOnTurnEnd(); see noteTurnEnd
   let idleWaiters = []; // resolvers for waitIdle() (/nep pause), notified once busy.size hits 0
@@ -2255,6 +1522,30 @@ export function createTurnRunner({
     pullViews,
     keptPulls,
     spokeSaw,
+  });
+  const { callView, planToolCall, heartbeatOnly, heartbeatChanged, runCalls } = createSkillCalls({
+    hot,
+    store,
+    skills,
+    selfIdOf,
+    clock,
+    iface,
+    images,
+    speech,
+    errands,
+    runOp,
+    runOwnOp,
+    runInitiativeOp,
+    routes,
+    lastPostAt,
+    renderPost,
+    noteSeen,
+    noteTrigger,
+    notePostedFrom,
+    noteLineSources,
+    noteCall,
+    recordSaid,
+    journalOp,
   });
 
   /**
@@ -5442,9 +4733,7 @@ export function createTurnRunner({
      * The facts kept for her next request in a conversation (src/behavior/inner.ts's `facts`: `enabled`, `add`,
      * `pending`, `markTold`); used while its `enabled()` says so, else the runner keeps its own in process.
      */
-    setFactsSource: (source) => {
-      factsSource = source ?? null;
-    },
+    setFactsSource,
     /**
      * Called (never awaited, never thrown into the turn) once every runTurn has ended, with how
      * it ended (noteTurnEnd): src/behavior/missed.js resolves and records from it.
