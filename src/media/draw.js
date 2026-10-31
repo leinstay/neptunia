@@ -55,7 +55,7 @@ export function drawPromptOf({ hot, selfName, scene, self = false, withTime = fa
  * @property {boolean} [self]  A picture she is in: her appearance in the prompt, her avatar as reference.
  * @property {boolean} [withTime]  The local time in the prompt.
  * @property {string|null} [userId]  The member whose per-member rail counts it (null: nobody's).
- * @property {{ reference?: string|null }} [avatar]  A holder the avatar is fetched into once and
+ * @property {{ reference?: string|null }|null} [avatar]  A holder the avatar is fetched into once and
  *   reused (a diary set): a `reference` of null counts as fetched, absent as not yet.
  * @property {string|null} [model]  The core model's id when the call is routed to it (src/tools/gateway.ts#callOnRoute),
  *   null for the drawing role's own.

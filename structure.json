@@ -562,6 +562,13 @@
       "test": "none"
     },
     {
+      "path": "src/turn/draw-gif.ts",
+      "purpose": "The pictures and GIFs of a turn: her `draw.create` tool, the image prompt the dry run shows, the day's GIF count, a `<gif>` resolved and posted, and the GIF picker. Tested through the turn, media draw, draw parity and gifs tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/errands/",
       "purpose": "The errand service: the ledger, the store, the client to the runner and the turns that bring results back.",
       "layer": "public",

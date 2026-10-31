@@ -44,7 +44,12 @@ export async function freshAttachmentUrl({ reads, channel, entry, onError = () =
   }
 }
 
-/** The URL a GIF posts as: the fresh one of an attachment when it was found, else the stored one. */
+/**
+ * The URL a GIF posts as: the fresh one of an attachment when it was found, else the stored one.
+ * @param {{ url: string }} entry  A library entry (src/memory/gifs.js), which always has its URL.
+ * @param {string|null} fresh
+ * @returns {string}
+ */
 export function gifPostUrl(entry, fresh) {
   return fresh ?? entry.url;
 }
