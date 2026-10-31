@@ -963,7 +963,6 @@ catalogue, the labels and the table disagree.
 | `file-unreadable` | failed | - | `tools.result.reasons.file-unreadable` |
 | `attachment-too-large` | failed | - | `tools.result.reasons.attachment-too-large` |
 | `gif-failed` | partial | - | `tools.result.reasons.gif-failed` |
-| `gif-cap` | failed | - | `tools.result.reasons.gif-cap` |
 | `no-result` | failed | - | `tools.result.reasons.no-result` |
 | `send-failed` | failed | - | `tools.result.reasons.send-failed` |
 | `diary-mirror` | failed | - | `tools.result.reasons.diary-mirror` |
@@ -972,15 +971,12 @@ catalogue, the labels and the table disagree.
 | `adapter-threw` | unknown | - | `tools.result.reasons.adapter-threw` |
 | `refused` | failed | - | `tools.result.reasons.refused` |
 | `image-cap` | failed | - | `tools.result.reasons.image-cap` |
-| `image-cap-daily` | failed | - | `tools.result.reasons.image-cap-daily` |
-| `image-cap-user-daily` | failed | - | `tools.result.reasons.image-cap-user-daily` |
 | `image-moderation` | failed | - | `tools.result.reasons.image-moderation` |
 | `image-timeout` | failed | - | `tools.result.reasons.image-timeout` |
 | `image-error` | failed | - | `tools.result.reasons.image-error` |
 | `image-empty` | failed | - | `tools.result.reasons.image-empty` |
 | `unsupported-model` | failed | - | `tools.result.reasons.unsupported-model` |
 | `ability-unavailable` | failed | {ability} {why} | `tools.result.reasons.ability-unavailable` |
-| `speech-cap-daily` | failed | - | `tools.result.reasons.speech-cap-daily` |
 | `speech-prepare-failed` | failed | - | `tools.result.reasons.speech-prepare-failed` |
 | `speech-synth-failed` | failed | - | `tools.result.reasons.speech-synth-failed` |
 | `speech-convert-failed` | failed | - | `tools.result.reasons.speech-convert-failed` |

@@ -156,7 +156,6 @@ export const CATALOGUE = Object.freeze({
   'file-unreadable': skill('failed'),
   'attachment-too-large': skill('failed'),
   'gif-failed': skill('partial'),
-  'gif-cap': skill('failed'),
   'no-result': skill('failed'),
   'send-failed': skill('failed'),
   // A send to a diary mirror's place, refused by the guarded port (src/behavior/mirror.ts#guardMirrorPort).
@@ -166,8 +165,6 @@ export const CATALOGUE = Object.freeze({
   'adapter-threw': skill('unknown'),
   refused: skill('failed'),
   'image-cap': skill('failed'),
-  'image-cap-daily': skill('failed'),
-  'image-cap-user-daily': skill('failed'),
   'image-moderation': skill('failed'),
   'image-timeout': skill('failed'),
   'image-error': skill('failed'),
@@ -175,7 +172,6 @@ export const CATALOGUE = Object.freeze({
   'unsupported-model': skill('failed'),
   // A tool role that is down while the core model lacks its ability (src/tools/gateway.ts#abilityRoute).
   'ability-unavailable': skill('failed', ['ability', 'why']),
-  'speech-cap-daily': skill('failed'),
   'speech-prepare-failed': skill('failed'),
   'speech-synth-failed': skill('failed'),
   'speech-convert-failed': skill('failed'),
