@@ -25,13 +25,6 @@ export const ERRANDS: ReadonlyArray<SchemaEntry> = [
     'text': "Hours a task's output files are kept",
   },
   {
-    'key': 'errands.recentLines',
-    'types': ['number'],
-    'reader': 'src/errands/service.ts',
-    'default': 6,
-    'text': 'Lines of the channel given to the runner as context',
-  },
-  {
     'key': 'errands.maxOpen',
     'types': ['number'],
     'reader': 'src/errands/store.ts',
@@ -46,24 +39,10 @@ export const ERRANDS: ReadonlyArray<SchemaEntry> = [
     'text': "Characters of an errand's result in the `<errand_result>` block",
   },
   {
-    'key': 'errands.unreadShown',
-    'types': ['number'],
-    'reader': 'src/errands/blocks.ts',
-    'default': 5,
-    'text': 'Finished errands with unread results in `<errands>`',
-  },
-  {
     'key': 'errands.resultRetrySeconds',
     'types': ['number'],
     'reader': 'src/errands/turns.ts',
     'default': 30,
     'text': 'Seconds before a result turn is tried again',
-  },
-  {
-    'key': 'errands.resultCooldownSeconds',
-    'types': ['number'],
-    'reader': 'src/errands/turns.ts',
-    'default': 60,
-    'text': 'Seconds between result turns in the same conversation',
   },
 ];

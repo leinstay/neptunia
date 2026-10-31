@@ -14,6 +14,8 @@ import {
 } from './shared.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
 import type { Obj, OpContext, Untyped } from '../types.ts';
+import { GIF_HALF_LIFE_DAYS } from '../../memory/gifs.js';
+import { EMOJI_HALF_LIFE_DAYS } from '../../memory/emoji-usage.js';
 
 /** The handler of `args.kind` among `byKindHandlers`, or an `invalid` error naming the kinds. */
 function byKind<TRun>(args: Obj, byKindHandlers: Record<string, TRun>): TRun {
@@ -25,26 +27,17 @@ function byKind<TRun>(args: Obj, byKindHandlers: Record<string, TRun>): TRun {
 }
 
 const handlers = perEnv((env) => {
-  const {
-    hot,
-    store,
-    emojiBackfill,
-    gifBackfill,
-    gifRecache,
-    skipText,
-    assertNotPaused,
-    freshenIfPaused,
-    requireGuildId,
-  } = env;
+  const { store, emojiBackfill, gifBackfill, gifRecache, skipText, assertNotPaused, freshenIfPaused, requireGuildId } =
+    env;
 
   /** `/nep emoji status`: how many emoji the ranking holds, the top 10 (rank order,
-   * `context.customEmoji.halfLifeDays`) with their counts, and the history backfill stamp. */
+   * `EMOJI_HALF_LIFE_DAYS`) with their counts, and the history backfill stamp. */
   function cmdEmojiStatus(_args: Obj, context: OpContext): string {
     freshenIfPaused();
     const guildId = requireGuildId(context);
 
     const guild = store.getGuild(guildId);
-    const ranked = rankEmojiUsage(guild.emojiUsage, hot.config?.context?.customEmoji?.halfLifeDays ?? 30);
+    const ranked = rankEmojiUsage(guild.emojiUsage, EMOJI_HALF_LIFE_DAYS);
     const running = emojiBackfill?.isRunning?.() ? ' (running now)' : '';
     return [
       `ranking: ${ranked.length} emoji`,
@@ -67,7 +60,7 @@ const handlers = perEnv((env) => {
   }
 
   /** `/nep gifs status`: how many GIFs the library holds, the top 10 (rank order,
-   * `gifs.halfLifeDays`) as `g<n> xCOUNT — caption or name`, the history backfill stamp, how
+   * `GIF_HALF_LIFE_DAYS`) as `g<n> xCOUNT — caption or name`, the history backfill stamp, how
    * many GIFs the persona posted today (UTC) against `gifs.maxPerDay`
    * (src/memory/gif-watch.js#gifPostsToday), how many GIFs it watched
    * today against `media.gif.maxPerDay` (src/memory/gif-watch.js), and -- last, unless the
@@ -80,7 +73,7 @@ const handlers = perEnv((env) => {
     const guildId = requireGuildId(context);
 
     const library = store.getGifs(guildId);
-    const ranked = rankGifs(library, hot.config?.gifs?.halfLifeDays ?? 30) as Array<Untyped>;
+    const ranked = rankGifs(library, GIF_HALF_LIFE_DAYS) as Array<Untyped>;
     const cache = store.getMediaCache(guildId);
     const captionOf = (entry: Untyped): string => {
       const cached = (cache as Record<string, { miss?: boolean; text?: unknown } | undefined> | null)?.[entry.itemId];

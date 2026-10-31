@@ -3,7 +3,7 @@
 // cut-off and silence that end the turn here. runTurnOnce (src/behavior/turn.js) calls it after the request phase;
 // the tool round reads its first answer and its reader of every later one.
 
-import { stripUrls } from '../../behavior/diary.ts';
+import { DIARY_MAX_MESSAGES, stripUrls } from '../../behavior/diary.ts';
 import { resolveReactionEmoji } from '../../behavior/emoji.js';
 import { innerOutputCalls } from '../../behavior/inner-output.js';
 import { thinkMissing } from '../../behavior/tool-step.js';
@@ -58,7 +58,7 @@ export async function responsePhase(
   const { trigger = null, triggerKind = null, source = null, focus = null } = params;
   const { opened, setup, pulled: pulledStep, waited, gathered, request } = prepared;
   const { channel, guildId, isPrivate, settledMs, life } = opened;
-  const { config, transport, startedAt, now, bar, beforeBar, replyOptions } = setup;
+  const { transport, startedAt, now, bar, beforeBar, replyOptions } = setup;
   const { finalMode } = pulledStep;
   const { prepareMs, late, timings } = waited;
   const { diaryPrep, neighborsHidden, pulled } = gathered;
@@ -149,7 +149,7 @@ export async function responsePhase(
       parsed.messages = parsed.messages
         .map((message) => ({ ...message, replyTo: null, text: stripUrls(message.text) }))
         .filter((message) => message.text !== '')
-        .slice(0, Math.max(0, config.diary?.maxMessages ?? 3));
+        .slice(0, DIARY_MAX_MESSAGES);
     }
     return parsed;
   };

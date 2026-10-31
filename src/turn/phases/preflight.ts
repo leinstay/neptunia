@@ -27,7 +27,7 @@ export type Opened = {
 };
 
 export async function preflight(ctx: PhaseContext, params: PhaseParams, draft: Draft): Promise<Ended | Opened> {
-  const { hot, store, busy, ifaceReads, journal, journalOp, journalOn, notifyIdle, settleAuthor, clock } = ctx;
+  const { store, busy, ifaceReads, journal, journalOp, journalOn, notifyIdle, settleAuthor, clock } = ctx;
   const {
     conversation,
     guildId: guildIdParam = null,
@@ -62,7 +62,7 @@ export async function preflight(ctx: PhaseContext, params: PhaseParams, draft: D
   if (store.state.data.paused) return { ended: { outcome: 'paused' } };
   // A chain's turn runs under the attention it holds; taken before anything is awaited, so two turns cannot both take it.
   const attentionId = conversation.conversationId;
-  if (!owned && !takeAttention(busy, attentionId, hot.config)) return { ended: { outcome: 'busy' } };
+  if (!owned && !takeAttention(busy, attentionId)) return { ended: { outcome: 'busy' } };
   const letGo = () => {
     if (owned) return;
     busy.delete(attentionId);

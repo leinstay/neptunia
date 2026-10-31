@@ -136,14 +136,13 @@ export function renderSenses(
   // The web lookup: the links line stays as it is and the read-excerpt line follows it; the search line follows
   // only when a search key is configured (`searchAvailable`). An older labels.json without either line shows
   // nothing extra.
-  const readOn = config.web?.links?.enabled !== false;
   const searchOn = config.web?.search?.enabled !== false && searchAvailable === true;
   // With her own page reader (web.read granted) the links line says a preview may show the opening of the page
   // and she can read it all, in place of "cannot open the page".
   const readerOn = granted('web.read');
   const linksLine = (readerOn && senses.linksWatchTool) || senses.linksWatch || senses.links;
   lines.push(senses.voice, linksLine);
-  if (readOn && senses.linksRead) lines.push(senses.linksRead);
+  if (senses.linksRead) lines.push(senses.linksRead);
   // Her own page reader (granted to her by name): she can open a page herself.
   if (readerOn && senses.readTool) lines.push(senses.readTool);
   if (searchOn && granted('web.search') && senses.searchTool) lines.push(senses.searchTool);
@@ -311,7 +310,7 @@ export function sensesOf(given: RequestInput & Base & MemoryViews): SensesOf {
     customEmoji: customEmoji.length > 0,
     gifs: gifsOn,
     // Whether a GIF in the transcript was watched rather than seen in one frame, under the live config and prompts.
-    gifWatching: gifWatchBlocker(config, prompts) === null,
+    gifWatching: gifWatchBlocker(prompts) === null,
     elsewhereDestination: given.elsewhereDestination ?? null,
     diaryChannel: typeof given.diaryChannel === 'string' ? given.diaryChannel : null,
     // Fitted as if `<participation>` is shown; checked once the budget is spent.

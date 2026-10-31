@@ -12,6 +12,9 @@ import type { ClassifierParams, ClassifierRequest } from './classifier-request.t
 import type { FollowUpWindow, FollowUpWindows } from './follow-up-window.ts';
 import type { Conv, Line, PipelineConfig, PipelineHot, PipelineLlm, PipelineMissed } from './types.ts';
 
+/** How recent a one-to-one exchange keeps a line when the classifier fails. Production value, config cut of 2026-10-31. */
+const FAIL_OPEN_MINUTES = 3;
+
 /** What the address classifier answers. */
 export type AddressAnswer = 'yes' | 'overheard' | 'no';
 
@@ -91,7 +94,7 @@ export function createAddressClassifier({
    * Resolves to the answer (parseAddressAnswer); the caller starts the turn
    * (settleFollowUp) and owns the in-flight slot. A call that threw or
    * answered nothing is a "yes" while the message keeps an active one-to-one
-   * exchange (activeExchangeWith, within mention.failOpenMinutes read now;
+   * exchange (activeExchangeWith, within FAIL_OPEN_MINUTES;
    * 0 = off), a "no" otherwise -- `follow-up: fail-open` says which.
    */
   // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/pipeline.js in stage 5d, a pure move
@@ -140,7 +143,7 @@ export function createAddressClassifier({
         answer: 'no',
         ms: now() - startedAt,
       });
-      bumpFollowUpNoStreak(channelId, state, mentionCfg);
+      bumpFollowUpNoStreak(channelId, state);
       return 'no';
     }
 
@@ -190,13 +193,12 @@ export function createAddressClassifier({
 
     // A failed call (provider slowness, a timeout) does not drop a line from
     // the member the persona is talking with one to one right now.
-    const failOpenMinutes = mentionCfg.failOpenMinutes ?? 3;
     let open = false;
-    if (failure && failOpenMinutes > 0) {
+    if (failure) {
       open = activeExchangeWith(
         request.history,
         { authorId: normalized.authorId, ts: normalized.ts ?? now() },
-        failOpenMinutes
+        FAIL_OPEN_MINUTES
       );
       log.info('follow-up: fail-open', { channel: channelId, author: normalized.authorId, reason: failure, open });
       if (open) answer = 'yes';
@@ -214,7 +216,7 @@ export function createAddressClassifier({
       ms: now() - startedAt,
     });
     if (answer === 'no') missed?.noteNotAddressed?.(normalized);
-    if (answer === 'no') bumpFollowUpNoStreak(channelId, state, mentionCfg);
+    if (answer === 'no') bumpFollowUpNoStreak(channelId, state);
     return answer;
   }
 

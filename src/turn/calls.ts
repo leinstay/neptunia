@@ -398,10 +398,13 @@ export const CALL_STATUS_NAMES: ReadonlySet<unknown> = new Set([
   'timeout',
 ]);
 
-/** The operation's own words of a call that did not work, as `{ text }` (one line, cut to `tools.markTextMaxChars`), or {}. */
+/** The length of an operation's own words on a call mark. Production value, config cut of 2026-10-31. */
+export const MARK_TEXT_CHARS = 200;
+
+/** The operation's own words of a call that did not work, as `{ text }` (one line, cut to `maxChars`), or {}. */
 export function callTextOf(
   result: { data?: { text?: unknown } | null } | null | undefined,
-  maxChars = 200
+  maxChars = MARK_TEXT_CHARS
 ): { text?: string } {
   const text = clampWithEllipsis(oneLine(typeof result?.data?.text === 'string' ? result.data.text : ''), maxChars);
   return text ? { text } : {};

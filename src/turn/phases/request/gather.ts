@@ -3,8 +3,8 @@
 // pulled channels, a diary post's plan, the drawing quota and the `<recent>` lines. The request phase
 // (src/turn/phases/request.ts) runs it after the wait.
 
-import { deletedLinesMax, deletedLinesOf, withDeletedLines } from '../../../behavior/deleted-lines.js';
-import { isSetKind } from '../../../behavior/diary.ts';
+import { DELETED_LINES_MAX, deletedLinesOf, withDeletedLines } from '../../../behavior/deleted-lines.js';
+import { DEFAULT_SET_KINDS, isSetKind } from '../../../behavior/diary.ts';
 import type { Neighbor } from '../../../behavior/neighbors.ts';
 import type { PulledChannel } from '../../../behavior/pull-fetch.ts';
 import { lateVideoStates } from '../../../media/classify.js';
@@ -24,9 +24,7 @@ import type { SecondLook } from './second-look.ts';
 import type { Setup } from './setup.ts';
 import type { Staged } from './stages.ts';
 import type { Waited } from './wait.ts';
-
-// deletedLinesMax is JavaScript whose return type TypeScript cannot infer: the cap, a count of lines.
-const linesMax: (context: unknown) => number = deletedLinesMax;
+import { VIDEOS_PER_TURN } from './stages.ts';
 
 /** The excerpts the memory prefetch retrieved, if its result holds any. */
 function excerptsOf(result: unknown): unknown {
@@ -95,7 +93,7 @@ export async function gatherRequest(
       selfId,
       selfName,
       nameOf: memoryOn ? (id) => store.getUser(guildId, id)?.names?.[0] ?? null : null,
-      max: linesMax(config.context),
+      max: DELETED_LINES_MAX,
       clock,
     });
     timings.record = found.ms;
@@ -104,7 +102,7 @@ export async function gatherRequest(
     // withDeletedLines keeps the lines it is given and puts the placeholders, shaped like lines, among them.
     history = withDeletedLines(history, found.placeholders) as Array<HistoryLine>;
   }
-  // A text attachment cut at media.filePreviewChars (src/media/text-preview.ts#withTextPreviews).
+  // A text attachment cut at FILE_PREVIEW_CHARS (src/turn/phases/request/stages.ts, src/media/text-preview.ts#withTextPreviews).
   for (const message of history) {
     for (const attachment of message.attachments ?? []) {
       if ((attachment?.previewLost ?? 0) > 0)
@@ -125,10 +123,7 @@ export async function gatherRequest(
       : videoStage?.done
         ? videoStage.value?.videos
         : videoStage
-          ? (lateVideoStates(videoCandidates, await videosSoFar(), config.media?.video?.maxPerTurn ?? 5) as Map<
-              string,
-              VideoState
-            >)
+          ? (lateVideoStates(videoCandidates, await videosSoFar(), VIDEOS_PER_TURN) as Map<string, VideoState>)
           : undefined;
   // What the request shows as not ready, for the steps that follow (lateMediaTeller): the videos rendered
   // `pending`, and whether the captions were late.
@@ -183,7 +178,7 @@ export async function gatherRequest(
     // A settled plan without an error is its value.
     diaryPrep = (settled as { value: NonNullable<Gathered['diaryPrep']> }).value;
     // The post's kind decides how many pictures it takes (drawTool, runSteps): a set kind several, any other one.
-    draft.diary = { set: isSetKind(diaryPrep.plan.kind, config.diary?.setKinds) };
+    draft.diary = { set: isSetKind(diaryPrep.plan.kind, DEFAULT_SET_KINDS) };
   }
   const neighborDescriptions =
     typeof describer?.cachedDescriptions === 'function' && neighbors.length > 0

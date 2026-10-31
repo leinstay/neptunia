@@ -210,12 +210,9 @@ const handlers = perEnv((env) => {
         ),
       render: () => ({
         timezone,
-        gapMinutes: config.context?.gapMarkerMinutes,
-        maxChars: config.context?.maxMessageChars ?? 2000,
         selfName,
         labels,
         seeReactions: true,
-        reactionsPerMessage: config.context?.reactionsPerMessage,
       }),
       now: now(),
       timezone,

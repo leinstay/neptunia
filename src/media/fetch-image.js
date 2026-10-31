@@ -25,6 +25,11 @@ import { bareContentType, safeLocation } from './video-sites.js';
 const ALLOWED_CONTENT_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 const DEFAULT_CACHE_MAX_ENTRIES = 50;
 const DEFAULT_CACHE_TTL_MS = 10 * 60_000;
+// Production values, config cut of 2026-10-31.
+/** The largest picture downloaded for a caption, in bytes. */
+export const VISION_MAX_BYTES = 1500000;
+/** The largest reference picture a drawing downloads, in bytes. */
+export const REFERENCE_MAX_BYTES = 4000000;
 
 /** The URL without its query string : a stable cache key across a signed address's rotating query. */
 function cacheKeyFor(url) {
@@ -144,7 +149,7 @@ export function createImageFetcher({
 /**
  * The persona's avatar as a `data:` URL, the reference for a picture she is in: the large static address the
  * interface gave (`url`, `memberInfo(self).avatar.largeUrl`), downloaded through `imageFetcher` under
- * `image.referenceMaxBytes` and `context.vision.fetchTimeoutMs` (`config` is the caller's `hot.config`, read at the
+ * `REFERENCE_MAX_BYTES` and `context.vision.fetchTimeoutMs` (`config` is the caller's `hot.config`, read at the
  * moment of use). Null when there is no fetcher, no avatar address, or the download fails; never throws. The one
  * copy for a turn's drawing (src/behavior/turn.js) and `/nep draw`.
  * @param {{ url: string|null|undefined, imageFetcher: { fetchAsDataUrl: Function }|null|undefined, config: object }} args
@@ -154,7 +159,7 @@ export async function avatarReference({ url, imageFetcher, config }) {
   if (!imageFetcher || !url) return null;
   try {
     const downloaded = await imageFetcher.fetchAsDataUrl(url, {
-      maxBytes: config?.image?.referenceMaxBytes,
+      maxBytes: REFERENCE_MAX_BYTES,
       timeoutMs: config?.context?.vision?.fetchTimeoutMs,
     });
     return downloaded?.dataUrl || null;

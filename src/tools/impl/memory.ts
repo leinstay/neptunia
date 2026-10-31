@@ -53,6 +53,7 @@ import { defineOp, perEnv, invalid } from './registry.ts';
 import { CODE } from '../codes.ts';
 import { idText, objOf, textOf } from '../types.ts';
 import type { Obj, OpContext, Untyped } from '../types.ts';
+import { MEMORY_LIMITS } from '../../memory/text-limits.js';
 
 /** The list sections of `memory show` (aliases, interests, details): the profile field, the config keys and the line. */
 const LIST_SECTIONS: Readonly<
@@ -134,7 +135,7 @@ const handlers = perEnv((env) => {
     const guildId = requireGuildId(context);
     const profile = requireProfile(guildId, userId);
 
-    const memoryCfg = hot.config?.memory ?? {};
+    const memoryCfg = { ...hot.config?.memory, ...MEMORY_LIMITS };
     const requested = typeof args.section === 'string' ? args.section : '';
     const section = MEMORY_SHOW_SECTIONS.includes(requested) ? requested : 'summary';
     const order = args.order === 'recent' ? 'recent' : 'rank';
@@ -197,7 +198,6 @@ const handlers = perEnv((env) => {
     freshenIfPaused();
     const guildId = requireGuildId(context);
 
-    const activityCfg = hot.config?.context?.channelActivity ?? {};
     const now = Date.now();
     const { nameOf, resolve } = tokenResolver(guildId);
 
@@ -206,7 +206,7 @@ const handlers = perEnv((env) => {
       const channel = store.getChannel(guildId, channelId);
       if (!channel) throw invalid(`no channel entry for ${channelId}`, CODE.NOT_FOUND);
 
-      const activity = channelActivity(channel, now, activityCfg);
+      const activity = channelActivity(channel, now);
       const isMain = mainChannelIdSet().has(channelId);
       const writers = channelTopWritersText(channel.topWriters, nameOf);
 
@@ -232,7 +232,7 @@ const handlers = perEnv((env) => {
 
     return [...channels]
       .sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0))
-      .map((channel) => channelTableLine(channel, channelActivity(channel, now, activityCfg)))
+      .map((channel) => channelTableLine(channel, channelActivity(channel, now)))
       .join('\n');
   }
 
@@ -484,7 +484,7 @@ const handlers = perEnv((env) => {
     const priv = store.getPrivate(guildId, userId);
     if (!priv) return `No private memory for this member: ${label}.`;
 
-    const memoryCfg = hot.config?.memory ?? {};
+    const memoryCfg = { ...hot.config?.memory, ...MEMORY_LIMITS };
     const { resolve } = tokenResolver(guildId);
 
     const privateAffinity = priv.affinity ?? emptyAffinity();

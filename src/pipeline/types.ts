@@ -51,10 +51,7 @@ export type PendingQueue = { list: Array<Ping> };
 /** The live config, as far as the message pipeline reads it. */
 export type PipelineConfig = {
   readonly media?: {
-    readonly prefillPerMessage?: number;
     readonly video?: {
-      readonly prefill?: unknown;
-      readonly prefillPerMessage?: number;
       readonly sites?: Array<string>;
     };
   };
@@ -66,12 +63,6 @@ export type PipelineConfig = {
   readonly bot: {
     readonly timezone: string;
     readonly nameTriggers?: Array<string>;
-  };
-  readonly context: {
-    readonly gapMarkerMinutes: number;
-    readonly maxMessageChars: number;
-    readonly reactionsPerMessage?: number;
-    readonly replyQuoteChars?: number;
   };
   readonly memory?: { readonly aliasHalfLifeDays?: number; readonly mainChannelIds?: unknown };
 };

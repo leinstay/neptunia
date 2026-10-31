@@ -119,9 +119,7 @@ export function buildTurnRequest(
     // A private chat: the partner's private layer joins their public profile (only there).
     privateChat: isPrivate ? { userId: trigger?.authorId ?? null } : null,
     privateProfile: isPrivate && memoryOn && trigger ? (store.getPrivate(guildId, trigger.authorId) ?? null) : null,
-    otherProfiles: memoryOn
-      ? pickOtherProfiles(store, guildId, history, trigger?.authorId, config.context.otherProfiles)
-      : [],
+    otherProfiles: memoryOn ? pickOtherProfiles(store, guildId, history, trigger?.authorId) : [],
     candidateProfiles: memoryOn ? store.listUserProfiles(guildId) : [],
     nameOf: memoryOn ? (id: string) => store.getUser(guildId, id)?.names?.[0] ?? null : null,
     channels: memoryOn ? store.listChannels(guildId) : [],

@@ -18,13 +18,6 @@ export const MEMORY_DB: ReadonlyArray<SchemaEntry> = [
     'text': 'At shutdown, how long to wait for the pass under way before the worker is terminated',
   },
   {
-    'key': 'memoryDb.diaryAudioMaxBytes',
-    'types': ['number'],
-    'reader': 'src/memory/db/diary-media.js',
-    'default': 8388608,
-    'text': 'Size cap for an audio attachment of a diary post saved next to the pictures',
-  },
-  {
     'key': 'memoryDb.skillsRegistry',
     'types': ['boolean'],
     'reader': 'src/memory/db/service.js',
@@ -116,13 +109,6 @@ export const MEMORY_DB: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/memory/db/service.js',
     'default': 6,
     'text': 'Description reviews per UTC day. `0` disables',
-  },
-  {
-    'key': 'memoryDb.session.settleMinutes',
-    'types': ['number'],
-    'reader': 'src/memory/db/session.js',
-    'default': 10,
-    'text': 'Lines newer than this many minutes wait for the next sweep',
   },
   {
     'key': 'memoryDb.session.since',

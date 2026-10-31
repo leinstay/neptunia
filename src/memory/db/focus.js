@@ -41,7 +41,7 @@
 import { DAY_MS, HOUR_MS, utcDay } from '../../time.js';
 import { nativeAuthorityOf, survivorOf } from './ids.ts';
 
-/** The defaults of `focus` (config.json carries the same). */
+/** The focus policy's measures. Production values, config cut of 2026-10-31. */
 export const FOCUS_DEFAULTS = Object.freeze({
   policyVersion: 1,
   size: 24,
@@ -72,37 +72,12 @@ const isoOf = (ms) => new Date(ms).toISOString();
 const msOf = (value) => (Number.isFinite(value) ? value : typeof value === 'string' ? Date.parse(value) : NaN);
 const clamp01 = (value) => Math.min(1, Math.max(0, value));
 
-/** The focus settings of this moment (`focus` in the live config), every value checked. */
-export function focusSettings(config) {
-  const given = config?.focus ?? {};
-  const d = FOCUS_DEFAULTS;
-  const num = (value, fallback, min = 0) => (Number.isFinite(value) && value >= min ? value : fallback);
-  const whole = (value, fallback, min = 0) => (Number.isInteger(value) && value >= min ? value : fallback);
-  const w = given.weights ?? {};
-  return {
-    policyVersion: whole(given.policyVersion, d.policyVersion, 1),
-    size: whole(given.size, d.size),
-    exploring: whole(given.exploring, d.exploring),
-    exploringShare: clamp01(num(given.exploringShare, d.exploringShare)),
-    entryAffinity: clamp01(num(given.entryAffinity, d.entryAffinity)),
-    margin: num(given.margin, d.margin),
-    confirmHours: num(given.confirmHours, d.confirmHours),
-    maxMovesPerWeek: whole(given.maxMovesPerWeek, d.maxMovesPerWeek),
-    settleDays: num(given.settleDays, d.settleDays),
-    weights: {
-      affinity: num(w.affinity, d.weights.affinity),
-      reciprocity: num(w.reciprocity, d.weights.reciprocity),
-      sharedInterest: num(w.sharedInterest, d.weights.sharedInterest),
-      recency: num(w.recency, d.weights.recency),
-      consistency: num(w.consistency, d.weights.consistency),
-    },
-    noveltyMax: num(given.noveltyMax, d.noveltyMax),
-    noveltyHalfLifeDays: num(given.noveltyHalfLifeDays, d.noveltyHalfLifeDays, Number.MIN_VALUE),
-    recencyHalfLifeDays: num(given.recencyHalfLifeDays, d.recencyHalfLifeDays, Number.MIN_VALUE),
-    consistencyDays: whole(given.consistencyDays, d.consistencyDays, 1),
-    consistencyCap: num(given.consistencyCap, d.consistencyCap, Number.MIN_VALUE),
-  };
-}
+/**
+ * The focus settings (FOCUS_DEFAULTS); the live config holds none.
+ * @type {(config?: unknown) => Omit<typeof FOCUS_DEFAULTS, 'weights'> & { weights: { affinity: number,
+ *   reciprocity: number, sharedInterest: number, recency: number, consistency: number } }}
+ */
+export const focusSettings = () => ({ ...FOCUS_DEFAULTS, weights: { ...FOCUS_DEFAULTS.weights } });
 
 /** Affinity (-100..100) on 0..1, or null when the person has none. */
 export const affinity01 = (affinity) => (Number.isFinite(affinity) ? clamp01((affinity + 100) / 200) : null);

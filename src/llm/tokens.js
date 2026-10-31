@@ -21,10 +21,12 @@ export function estimateTokens(text) {
   return Math.ceil(ascii / ASCII_CHARS_PER_TOKEN + other / OTHER_CHARS_PER_TOKEN);
 }
 
+/** The estimate of one image part, in tokens. Production value, config cut of 2026-10-31. */
+const TOKENS_PER_IMAGE = 400;
+
 /**
  * Raw estimate for a chat-completions `messages` array. Image parts are
- * charged a flat `tokensPerImage` each (400 when null or unset, config.json's
- * `context.vision.tokensPerImage`; only requests on a model role other than `core` carry them, the
+ * charged a flat `tokensPerImage` each (`TOKENS_PER_IMAGE` when null or unset; only requests on a model role other than `core` carry them, the
  * describer's and the avatar queue's: the persona's own never does). A
  * `video_url` part is charged 0: its cost depends on the clip's length, which
  * the caller passes to the client as `videoSeconds` (see src/llm/openrouter.js).
@@ -33,7 +35,7 @@ export function estimateTokens(text) {
  * @returns {number}
  */
 export function estimateMessages(messages, tokensPerImage) {
-  const perImage = tokensPerImage ?? 400;
+  const perImage = tokensPerImage ?? TOKENS_PER_IMAGE;
   let total = 0;
   for (const message of messages) {
     total += MESSAGE_OVERHEAD;

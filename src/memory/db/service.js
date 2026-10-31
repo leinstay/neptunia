@@ -102,7 +102,7 @@ import { LEGACY_IFACE, liveIface, withLiveIface } from './legacy-namespace.ts';
 import { contextRow, issueContext as issuePureContext } from './scope.ts';
 import { applyDiaryUpdate, createDiaryMedia } from './diary-media.js';
 import { NEWEST_CLAIM_VERSION_SQL, applyMemoryWrite, writeTurnReadRows } from './session-write.js';
-import { focusView, lastFocusDay, runFocusDay } from './focus.js';
+import { FOCUS_DEFAULTS, focusView, lastFocusDay, runFocusDay } from './focus.js';
 import { utcDay } from '../../time.js';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -1012,8 +1012,7 @@ export function createMemoryDb({
     if (!handle) return null;
     try {
       const sets = focusView(handle.db, { iface });
-      const share = hot.config?.focus?.exploringShare;
-      return { ...sets, exploringShare: Number.isFinite(share) && share >= 0 && share <= 1 ? share : 0.15 };
+      return { ...sets, exploringShare: FOCUS_DEFAULTS.exploringShare };
     } catch (error) {
       log.warn('memory db: focus read failed', { code: codeOf(error) });
       return null;

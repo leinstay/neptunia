@@ -16,6 +16,10 @@ import { isDeferredFollowUp } from './pending-queue.ts';
 import type { PrivateGate } from './private-gate.ts';
 import type { Conv, PendingQueue, Ping, PipelineHot, PipelineState, PipelineTurns } from './types.ts';
 
+/** The pause, in ms, before a deferred ping is answered (a human switching to it). Production value, config cut of
+ * 2026-10-31. */
+const SWITCH_DELAY_MS: [number, number] = [2000, 9000];
+
 /** What createDrain reads: the dependencies of createMessageHandler, the queue and its other parts' functions. */
 export type DrainContext = {
   hot: PipelineHot;
@@ -146,7 +150,7 @@ export function createDrain({
         }
 
         logPending(ping, 'picked up', { queued: queuedCount(ping.channelId, ping.trigger.authorId) });
-        await sleep(between(mentionCfg.switchDelayMs ?? [2000, 9000], rng));
+        await sleep(between(SWITCH_DELAY_MS, rng));
 
         // Paused meanwhile: the ping goes back to the queue, which the resume drains.
         if (store?.state?.data?.paused) {

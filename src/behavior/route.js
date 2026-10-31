@@ -15,8 +15,12 @@
 import { block, classifierTranscript, fillPromptTemplate, stableThenTail } from './prompt.js';
 import { clampText, oneLine } from '../memory/clamp.js';
 import { topByRank } from '../memory/ranking.js';
+import { MAX_MESSAGE_CHARS } from '../format.js';
 
-/** Defaults of the `route` config group (config.json carries the same values). */
+/**
+ * The route classifier's measures: production values of the config cut of 2026-10-31, and the fallback of
+ * `route.maxOutputTokens`.
+ */
 export const ROUTE_DEFAULTS = Object.freeze({
   contextMessages: 20,
   maxChannels: 40,
@@ -36,11 +40,8 @@ function intAtLeast(value, fallback, min) {
 }
 
 /**
- * The `route` settings read from the live config, or null when
- * `features.channelRoute` is false (a missing key counts as on). Each number
- * falls back to ROUTE_DEFAULTS when missing or unusable; counts are floored.
- * `contextMessages` 0 sends no transcript, `maxChannels` 0 lists nothing (no
- * call), `purposeChars` 0 leaves the purpose out of every line.
+ * The `route` settings: ROUTE_DEFAULTS, with `route.maxOutputTokens` read from the live config (floored, at least 1,
+ * else ROUTE_DEFAULTS').
  * @param {object} config  The live config.
  * @returns {{ contextMessages: number, maxChannels: number, purposeChars: number, maxOutputTokens: number }|null}
  */
@@ -48,9 +49,9 @@ export function routeSettings(config) {
   const r = config?.route ?? {};
   const d = ROUTE_DEFAULTS;
   return {
-    contextMessages: intAtLeast(r.contextMessages, d.contextMessages, 0),
-    maxChannels: intAtLeast(r.maxChannels, d.maxChannels, 0),
-    purposeChars: intAtLeast(r.purposeChars, d.purposeChars, 0),
+    contextMessages: d.contextMessages,
+    maxChannels: d.maxChannels,
+    purposeChars: d.purposeChars,
     maxOutputTokens: intAtLeast(r.maxOutputTokens, d.maxOutputTokens, 1),
   };
 }
@@ -200,7 +201,7 @@ export function routeCandidate(history, trigger) {
  * when the candidate is not in it), rendered like the other classifiers'
  * context (src/behavior/prompt.js#classifierTranscript, labels from `labels`,
  * no caption: the request runs beside the turn's media preparation), and the candidate's
- * author and text cut to `context.maxMessageChars`. `transcriptBlock` is ''
+ * author and text cut to `MAX_MESSAGE_CHARS`. `transcriptBlock` is ''
  * for a window of 0 or no earlier message.
  * @param {{ history: object[], candidate: object, contextMessages: number, config: object,
  *   labels: object, selfName: string }} params
@@ -211,7 +212,7 @@ export function routeContext({ history, candidate, contextMessages, config, labe
   const at = list.findIndex((m) => m?.id === candidate.id);
   const before = (at === -1 ? list.filter((m) => m && m.id !== candidate.id) : list.slice(0, at)).filter(Boolean);
   const context = contextMessages > 0 ? before.slice(-contextMessages) : [];
-  const maxChars = config.context?.maxMessageChars ?? 2000;
+  const maxChars = MAX_MESSAGE_CHARS;
   const text = [...String(candidate.content ?? '')].slice(0, maxChars).join('');
   const candidateBlock = block('candidate', `${candidate.authorName}: ${text}`);
   if (context.length === 0) return { transcriptBlock: '', candidateBlock };

@@ -38,11 +38,6 @@ type CheckPullArgs = Parameters<typeof checkPull>[0];
 /** The live config, as far as the in-turn tools read it; the tools read their own sections. */
 export type InTurnConfig = CheckPullArgs['config'] & {
   bot?: { timezone?: string };
-  context?: {
-    gapMarkerMinutes?: number;
-    maxMessageChars?: number;
-    reactionsPerMessage?: number;
-  } | null;
 };
 
 /** The describer (src/memory/describe.js#createDescriber), as the in-turn tools use it. */
@@ -183,7 +178,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
           mediaOf: (messageId) =>
             (history ?? []).find((item) => String(item?.id) === String(messageId)) ?? quotedMessage(messageId),
           takeTurnSlot: () => {
-            if (looks >= lookPerTurn(hot.config)) return false;
+            if (looks >= lookPerTurn()) return false;
             looks += 1;
             return true;
           },
@@ -301,13 +296,10 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
         }
         return {
           timezone,
-          gapMinutes: config.context?.gapMarkerMinutes,
-          maxChars: config.context?.maxMessageChars ?? 2000,
           selfName,
           labels,
           descriptions,
           seeReactions: true,
-          reactionsPerMessage: config.context?.reactionsPerMessage,
         };
       },
       // The registry takes the lines the read hands it, as the read's own handles.

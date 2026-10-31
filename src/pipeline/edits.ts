@@ -97,7 +97,6 @@ function mediaIdsOf(message: Line): Set<string> {
 const codeOf = (err: unknown): unknown => (err as { code?: unknown } | null | undefined)?.code ?? null;
 
 export function createEdits({
-  hot,
   store,
   reads,
   getGuildId,
@@ -132,7 +131,6 @@ export function createEdits({
     // An edit event carries the whole message unless it is partial; recordEdit leaves a partial one alone.
     await recordEdit(event as MessageEvent);
     try {
-      const config = hot.config;
       if (store?.state?.data?.paused) return;
       const guildId = event.conversation.communityId ?? null;
       if (!guildId || guildId !== getGuildId()) return;
@@ -166,7 +164,7 @@ export function createEdits({
         log.info('events: embeds late', fields);
         return;
       }
-      const gifs = store ? store.recordGifs(guildId, [late], gifOpts(config)) : 0;
+      const gifs = store ? store.recordGifs(guildId, [late], gifOpts()) : 0;
       // Fire-and-forget, as on arrival: the prefill never rejects.
       void warmMediaCache(guildId, late);
       log.info('events: embeds folded', { ...fields, gifs });

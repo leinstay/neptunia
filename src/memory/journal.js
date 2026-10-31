@@ -7,7 +7,7 @@
 // `kind`, `occurredAt`, `recordedAt`, `guildId`, `scope`, `participants`, `sourceMessageIds`,
 // `origin`); a record missing a list is written with an empty one, never rejected: a journal
 // line lost to validation is worse than an incomplete one. The model's `think` is stored
-// capped at `journal.thinkChars`, never shown back to it.
+// capped at `DEFAULT_THINK_CHARS`, never shown back to it.
 //
 // Every side effect is an operation with its own `opId` (`op`): a `started` line before the
 // call, one closing line after it (`succeeded`, `failed` or `unknown`). After a restart the
@@ -67,6 +67,7 @@ import { currentToolName } from '../tools/definitions.ts';
 /** The schema version every record carries. */
 export const JOURNAL_VERSION = 1;
 
+/** The stored length of a think. Production value, config cut of 2026-10-31. */
 const DEFAULT_THINK_CHARS = 4000;
 const DEFAULT_READ_N = 50;
 const DAY_RE = /^\d{4}-\d{2}-\d{2}/;
@@ -175,7 +176,7 @@ export const OFF_PERIODS_MAX = 3;
 const OFF_MERGE_MS = MINUTE_MS;
 /** How long a computed list of off periods is reused (createOffPeriodsReader). */
 const OFF_CACHE_MS = MINUTE_MS;
-/** `journal.offWindowHours`' fallback (config.json carries the same). */
+/** The hours of off periods a read covers. Production value, config cut of 2026-10-31. */
 const DEFAULT_OFF_WINDOW_HOURS = 24;
 // The envelope's first fields, in the order `envelope` writes them: a line's kind and time read
 // without parsing the whole record (a turn line carries the model's think).
@@ -243,7 +244,7 @@ export function offPeriods(timeline, { now, windowMs, max = OFF_PERIODS_MAX }) {
 }
 
 /**
- * The off periods of a guild's last `windowHours` hours (`journal.offWindowHours`), read through
+ * The off periods of a guild's last `windowHours` hours (`DEFAULT_OFF_WINDOW_HOURS` when omitted), read through
  * `journal.timeline` and reused for a minute per guild and window, so a busy channel does not read
  * the day files every turn. A read that fails gives no period and one warn (`journal: off periods
  * unread`, the guild and the error code); no journal, or one without `timeline`, gives none.
@@ -496,7 +497,7 @@ export function turnOfMessage(records, messageId) {
  * One turn as `turnOfMessage` found it, for the owner (`/nep memory journal message:`): its id
  * and attempt, start and end time, channel, mode, trigger kind and message id, outcome and
  * reason, the message ids it posted, its skill calls, then the stored `think` whole (saying so
- * when it was cut at `journal.thinkChars` on the way in). Multi-line text. Pure.
+ * when it was cut at `DEFAULT_THINK_CHARS` on the way in). Multi-line text. Pure.
  * @param {{ turn: object, start?: object|null, posted?: string[], calls?: object[] }} found
  * @returns {string}
  */
@@ -579,7 +580,7 @@ function scopeOf({ privateUserId = null, channelId = null } = {}) {
  * @param {{ append?: Function, iterate?: Function, flush?: Function, stats?: Function }|null} [options.appendStore]  src/memory/append-store.js, optional:
  *   flushed by `withWriterLock`; its `stats().stalled` is `stalled()`
  * @param {string} options.dataDir  the `data/` directory
- * @param {() => ({ thinkChars?: number, [key: string]: unknown }|undefined)} [options.config]  the live `journal` config
+ * @param {() => (Record<string, unknown>|undefined)} [options.config]  the live `journal` config
  *   section, read at each write (`hot.config.journal`)
  * @param {() => number} [options.now=Date.now]
  * @param {() => string} [options.uuid=randomUUID]
@@ -687,8 +688,7 @@ export function createJournal({
   }
 
   function thinkLimit() {
-    const value = config()?.thinkChars;
-    return Number.isFinite(value) ? value : DEFAULT_THINK_CHARS;
+    return DEFAULT_THINK_CHARS;
   }
 
   /** `fields` wrapped in the envelope; `channelId` and `privateUserId` decide the scope, not stored twice. */

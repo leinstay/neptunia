@@ -14,7 +14,7 @@ import type { ErrandRecord } from './types.ts';
 
 /** The goal's length on a `<errands>` line (characters). */
 export const ERRAND_GOAL_CHARS = 120;
-/** `errands.unreadShown` when it is missing (config.json carries the same). */
+/** The unread errands `<errands>` shows. Production value, config cut of 2026-10-31. */
 export const DEFAULT_UNREAD_SHOWN = 5;
 /** `errands.resultMaxChars` when it is missing (config.json carries the same). */
 export const DEFAULT_RESULT_MAX_CHARS = 3000;

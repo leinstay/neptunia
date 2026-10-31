@@ -43,6 +43,7 @@ import { DAY_MS, HOUR_MS } from '../time.js';
 import { clampText, oneLine, stripUrls } from './clamp.js';
 import { topEpisodes } from './episodes.js';
 import { isWordChar, occursAsWholeWord, tokenIds } from './mentions.ts';
+import { MEMORY_LIMITS } from './text-limits.js';
 
 /**
  * config.json's own values for the recent layer's settings, the code fallbacks
@@ -76,26 +77,19 @@ const EPISODE_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_ZONE_AHEAD_MS = 14 * HOUR_MS;
 
 /**
- * The recent layer's settings, read from `config` at the moment of use: null when
- * `features.recent` is false (a missing key counts as on), else the numbers with
- * `RECENT_DEFAULTS` as fallbacks, plus `memory.clampTolerance` (undefined when
- * missing: src/memory/clamp.js then uses its own default). The result can be
- * spread into the options of `mergeRecent` / src/memory/store.js#applyRecentOps.
- * @param {object} config
- * @returns {{ hours: number, maxStored: number, maxNew: number, chars: number, shown: number,
- *   clampTolerance: number|undefined } | null}
+ * The recent layer's settings (MEMORY_LIMITS of src/memory/text-limits.js), spread into the options of
+ * `mergeRecent` and src/memory/store.js#applyRecentOps. The live config holds none of them.
+ * @type {(config?: unknown) => { hours: number, maxStored: number, maxNew: number, chars: number, shown: number,
+ *   clampTolerance: number }}
  */
-export function recentSettings(config) {
-  const memory = isPlainObject(config?.memory) ? config.memory : {};
-  return {
-    hours: memory.recentHours ?? RECENT_DEFAULTS.hours,
-    maxStored: memory.maxRecentStored ?? RECENT_DEFAULTS.maxStored,
-    maxNew: memory.maxNewRecent ?? RECENT_DEFAULTS.maxNew,
-    chars: memory.recentChars ?? RECENT_DEFAULTS.chars,
-    shown: memory.recentShown ?? RECENT_DEFAULTS.shown,
-    clampTolerance: memory.clampTolerance,
-  };
-}
+export const recentSettings = () => ({
+  hours: MEMORY_LIMITS.recentHours,
+  maxStored: MEMORY_LIMITS.maxRecentStored,
+  maxNew: MEMORY_LIMITS.maxNewRecent,
+  chars: MEMORY_LIMITS.recentChars,
+  shown: MEMORY_LIMITS.recentShown,
+  clampTolerance: MEMORY_LIMITS.clampTolerance,
+});
 
 /**
  * The store of a guild nothing was written to yet.

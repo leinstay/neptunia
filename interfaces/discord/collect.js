@@ -25,6 +25,9 @@ import { MESSAGE_RECEIVED, REACTION_CHANGED } from '../../src/protocol/index.js'
 import { memberView } from './members.ts';
 import { DISCORD_IFACE } from './port.js';
 
+/** The longer side of a picture's preview, in pixels. Production value, config cut of 2026-10-31. */
+const IMAGE_SIZE = 512;
+
 /** Discord's REST page size for a message list. */
 export const PAGE = 100;
 
@@ -520,8 +523,8 @@ const idString = (value) => (value === undefined || value === null ? null : Stri
 
 /**
  * The normalizeMessage options from the live config (`media.embedTextChars`,
- * `media.video.sites`, `context.maxUrlChars`, `media.imageSize`): the one copy every caller reads.
- * @param {{ media?: { embedTextChars?: number, imageSize?: number, video?: { sites?: string[] } },
+ * `media.video.sites`, `context.maxUrlChars`) and IMAGE_SIZE: the one copy every caller reads.
+ * @param {{ media?: { embedTextChars?: number, video?: { sites?: string[] } },
  *   context?: { maxUrlChars?: number } }|null|undefined} config
  * @returns {{ embedTextChars?: number, videoSites?: string[], maxUrlChars?: number, imageSize?: number }}
  */
@@ -530,7 +533,7 @@ export function normalizeOptions(config) {
     embedTextChars: config?.media?.embedTextChars,
     videoSites: config?.media?.video?.sites,
     maxUrlChars: config?.context?.maxUrlChars,
-    imageSize: config?.media?.imageSize,
+    imageSize: IMAGE_SIZE,
   };
 }
 

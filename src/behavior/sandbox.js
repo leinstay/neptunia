@@ -59,7 +59,7 @@ import { linkChannels } from '../memory/mentions.ts';
 import { answerOf, continuationHistory, loopSettings, pickOtherProfiles, taskInput } from './turn.js';
 import { appendStep, cutToFit, roomLeft, segments, stepNote, stepVerdict, thinkMissing } from './tool-step.js';
 import { diagnosticText } from './wake.ts';
-import { callReason, withCalls } from '../format.js';
+import { callReason, MAX_MESSAGE_CHARS, withCalls } from '../format.js';
 import { grant as accessGrant, revoke as accessRevoke } from '../tools/impl/grants.ts';
 import { collectEmojiItems, collectPictures, collectVideos, isDescribable, watchedLengths } from '../media/classify.js';
 import { REPLY_REQUEST, cacheTtlFor } from '../llm/openrouter.js';
@@ -84,6 +84,7 @@ import { diaryConversationIds, viewDiaryIds } from './mirror.ts';
 import { utcDay } from '../time.js';
 import { DEFAULT_RESULT_MAX_CHARS, errandResultText } from '../errands/blocks.ts';
 import { CODE } from '../tools/codes.ts';
+import { MARK_TEXT_CHARS } from '../turn/calls.ts';
 
 // Token estimates taken as they are: the calibrator of a view built without a live one.
 const IDENTITY_CALIBRATOR = Object.freeze({ ratio: 1, apply: (n) => n, observe: () => 1 });
@@ -766,9 +767,7 @@ export function sandboxRequestInput({
     taggedCall: trigger ? isTaggedCall(trigger, selfId) : null,
     guildMemory: memoryOn ? memory.getGuild() : {},
     interlocutor: memoryOn && trigger ? memory.getUser(trigger.authorId) : null,
-    otherProfiles: memoryOn
-      ? pickOtherProfiles(viewAsStore, SANDBOX_GUILD, history, trigger?.authorId, config.context.otherProfiles)
-      : [],
+    otherProfiles: memoryOn ? pickOtherProfiles(viewAsStore, SANDBOX_GUILD, history, trigger?.authorId) : [],
     candidateProfiles: memoryOn ? memory.listUserProfiles() : [],
     nameOf: memoryOn ? (id) => memory.getUser(id)?.names?.[0] ?? null : null,
     channels: memoryOn ? memory.listChannels() : [],
@@ -1268,18 +1267,15 @@ export function skillScenarioRequest(input) {
 /** How far apart a scenario's continuation places her posts, the call and its request (ms). */
 const CONTINUATION_STEP_MS = 1000;
 
-/** The operation's own message on a call mark when `tools.markTextMaxChars` is not set (config.json's value). */
-const MARK_TEXT_MAX_CHARS = 200;
-
 /**
  * The mark one call of hers leaves on the transcript, in src/format.js#withCalls's shape
  * and as a live turn notes it (src/behavior/turn.js, `noteCall`): `outcome` (simulateCall's) made
  * in the turn of `channelId`, its result back at `at`; its status and, when it did not work, why
- * (outcomeDetail, `tools.markTextMaxChars` read from `config`); its target from the resolved
+ * (outcomeDetail, cut at MARK_TEXT_CHARS); its target from the resolved
  * arguments; `postedId` the message the call itself posted, `posted` every message the turn
  * posted. Pure.
  */
-function callMarkOf({ outcome, channelId, at, postedId, posted, config }) {
+function callMarkOf({ outcome, channelId, at, postedId, posted }) {
   const result = outcome.result;
   const args = outcome.executed?.args ?? {};
   const idOf = (value) => (typeof value === 'string' && value ? value : null);
@@ -1288,7 +1284,7 @@ function callMarkOf({ outcome, channelId, at, postedId, posted, config }) {
     at,
     skill: result.skill,
     status: result.status,
-    detail: outcomeDetail(result, { textChars: config.tools?.markTextMaxChars ?? MARK_TEXT_MAX_CHARS }),
+    detail: outcomeDetail(result, { textChars: MARK_TEXT_CHARS }),
     target: { messageId: idOf(args.message) ?? idOf(args.reply), channelId: idOf(args.channel) },
     postedId: postedId ?? null,
     posted,
@@ -1565,7 +1561,7 @@ function preRefusal(record, { isFinal, room, maxCallsPerStep, finalReason }) {
  * messages untouched, her whole text and her calls, one result per call in call order, a note (the
  * held-speech notice, the last-step notice, the parser's diagnostics) -- appendStep over both
  * transports. The last request allowed is final; its calls get `loop-cap` results, its speech is
- * held. A request over the room (the prompt rail, llm.maxRequestTokens x llm.safetyMargin, the tools counted) cuts
+ * held. A request over the room (the prompt rail, llm.maxRequestTokens x SAFETY_MARGIN, the tools counted) cuts
  * the results to fit and is final. What it did is kept on the run (see answerSkillScenario). Resolves
  * `{ stopped }`; the clock is `clock`.
  */
@@ -1888,7 +1884,7 @@ function withOwnReaction(line, emoji) {
  * `postedId`) for the next steps' requests. Not carried: a GIF, an edit or a deletion, the image
  * quota. Ids are snowflakes of their moments. Pure.
  * @param {{ transcript: object[], callMarks?: object[], run: object, at: number, selfId: string, selfName: string,
- *   channel: { id: string }, triggerId?: string|null, config: object }} input
+ *   channel: { id: string }, triggerId?: string|null, config?: object }} input
  * @returns {{ transcript: object[], callMarks: object[], posted: string[] }}
  */
 export function afterScenarioTurn({
@@ -1900,7 +1896,6 @@ export function afterScenarioTurn({
   selfName,
   channel,
   triggerId = null,
-  config,
 }) {
   const callMarks = Array.isArray(earlier) ? earlier : [];
   const channelId = String(channel.id);
@@ -1983,7 +1978,6 @@ export function afterScenarioTurn({
       at: callAt,
       postedId,
       posted: own.map((line) => line.id),
-      config: config ?? {},
     });
   };
   // The turn's steps: every step's posted speech (a held step's is not in the chat), then its calls' effects and marks,
@@ -2047,8 +2041,6 @@ export function seededSelfLine({ text, at, selfId, selfName, channel }) {
   return continuationHistory({ history: [], own: [line], selfName })[0];
 }
 
-/** A burst's waiting text when `context.maxMessageChars` is not set (config.json's value). */
-const QUEUED_TEXT_MAX_CHARS = 2000;
 /** The pending queue's cap when `mention.maxPending` is not set (config.json's value). */
 const MAX_PENDING = 6;
 
@@ -2068,7 +2060,7 @@ const MAX_PENDING = 6;
  * The queue is then drained oldest first (popOldest), each entry its own turn. Each turn's
  * `queued` is what still waits besides it, arrival order, as src/pipeline/pending-queue.ts#queuedFor lists
  * it: the trigger author's own as `{ id, text }`, another member's as `{ id, text, author }`
- * (their display name), the text on one line cut to `context.maxMessageChars`. Not modelled: the
+ * (their display name), the text on one line cut to `MAX_MESSAGE_CHARS`. Not modelled: the
  * ignore rolls, the merge classifier folding a call into an earlier one, a follow-up's window and
  * staleness checks. Pure; nothing handed in is changed.
  * @param {object[]} incoming
@@ -2092,7 +2084,7 @@ export function burstTurns(incoming, { selfId, config, history = [] }) {
       nameTriggers,
     }) ?? 'followUp';
   const maxPending = config?.mention?.maxPending ?? MAX_PENDING;
-  const maxChars = config?.context?.maxMessageChars ?? QUEUED_TEXT_MAX_CHARS;
+  const maxChars = MAX_MESSAGE_CHARS;
   const [first, ...rest] = lines;
   let pending = [];
   const replaced = [];

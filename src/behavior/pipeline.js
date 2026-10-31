@@ -55,23 +55,19 @@ import { createSettles } from '../pipeline/settle.ts';
  * @param {(guildId: string) => string} [deps.getSelfName]  The persona's display name in a guild
  *   (src/core.js). Default: `bot`.
  * @param {object} [deps.describer]  From createDescriber() (src/memory/describe.js), optional: when
- *   absent, or features.mediaDescriptions is off, no description request is ever made from this
- *   pipeline. When present, every observed human message's pictures (up to
- *   media.prefillPerMessage) are handed to it fire-and-forget -- errors swallowed -- so the
- *   cache is already warm by the time a turn wants a caption for one of them. Only the
+ *   absent, no description request is ever made from this pipeline. When present, every observed human
+ *   message's first pictures (src/pipeline/media-prefill.ts) are handed to it fire-and-forget -- errors
+ *   swallowed -- so the cache is already warm by the time a turn wants a caption for one of them. Only the
  *   address and room classifiers await a message's own prefill, then read captions from the cache alone
- *   (`describer.cachedDescriptions` / `cachedVideos`), never a new request. With
- *   features.mediaDescriptions, features.videoDescriptions (a missing key counts as on) and
- *   media.video.prefill all on, the message's first videos (up to
- *   media.video.prefillPerMessage) are handed to `describer.describeVideos` the same way.
- * @param {object} [deps.lookup]  From createLookup() (src/web/lookup.js), optional: with
- *   features.webLookup, web.links.enabled and web.links.prefill on, the message's first readable
+ *   (`describer.cachedDescriptions` / `cachedVideos`), never a new request. The message's first videos are
+ *   handed to `describer.describeVideos` the same way.
+ * @param {object} [deps.lookup]  From createLookup() (src/web/lookup.js), optional: the message's first readable
  *   link (MAX_WARM_LINKS_PER_MESSAGE) is handed to `lookup.readLinks` the same way. Absent -> no
  *   link is ever read from this pipeline.
  * @param {() => number} [deps.rng]
  * @param {() => number} [deps.now]
  * @param {(ms: number) => Promise<void>} [deps.sleep]  Used only for the "human switch pause"
- *   before answering a deferred pending ping (mention.switchDelayMs) -- see src/pipeline/drain.ts.
+ *   before answering a deferred pending ping -- see src/pipeline/drain.ts.
  * @param {{ set: (fn: () => void, ms: number) => any, clear: (timer: any) => void }} [deps.timers]
  *   The settle waits of calls from channels the persona cannot write in (src/pipeline/settle.ts), and the
  *   deadline of a line's observation (src/pipeline/observe.ts).
@@ -146,7 +142,7 @@ export function createMessageHandler({
     getGuildId,
   });
   const { observeLine } = createObserve({ hot, memoryDb, selfIdOf, timers });
-  const turnBlocked = (channelId, config) => isTurnBlocked(turns, channelId, config);
+  const turnBlocked = () => isTurnBlocked(turns);
   const { warmMediaCache, cachedFollowUpMedia } = createMediaPrefill({ hot, describer, lookup, now });
 
   // The follow-up windows load their saved entries back here, before anything else is built.

@@ -155,8 +155,8 @@ export async function setupRequest(
   const snapshot = await beforeBar(snapshotPending);
   draft.snapshot = snapshot;
   // The first part of a split message reuses the history its message's turn fetched.
-  // Part of the history: the messages replies of the window answer from outside it
-  // (context.fetchReplyParents), prepended as its oldest lines (withReplyParents). The
+  // Part of the history: the messages replies of the window answer from outside it,
+  // prepended as its oldest lines (withReplyParents). The
   // persona's own lines carry the message that started their turn (linkTriggers) and the
   // skill calls she made (linkCalls), so the request and every analyzer transcript built from
   // this history name them.
@@ -165,7 +165,7 @@ export async function setupRequest(
       reuseHistory ??
         (await beforeBar(
           readHistory(channel, config, { inner: Boolean(draft.inner), draft, guildId }).then((lines) =>
-            withReplyParents(ifaceReads, channel, lines, { trigger, config })
+            withReplyParents(ifaceReads, channel, lines, { trigger })
           )
         ))
     ),

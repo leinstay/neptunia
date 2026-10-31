@@ -124,6 +124,7 @@ import {
   topExcerptLine,
   traceAgreement,
 } from './lib/recall-eval.mjs';
+import { MAX_MESSAGE_CHARS } from '../src/format.js';
 
 const USAGE =
   'usage: node tools/recall-eval.mjs [<questions.json>] [--limit N] [--max-usd 3] [--dry] [--discord] [--web] [--prefetch] [--no-deadline] [--db <memory.db>] [--guild <id>] [--data <dir>] [--self-id <id>] [--self-name <name>]\n' +
@@ -765,9 +766,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
     const searchCfg = hot.config.web?.search ?? {};
     const contextMessages = Math.max(0, Math.floor(searchCfg.contextMessages ?? 50));
     const context = contextMessages > 0 ? history.filter((m) => m.id !== trigger.id).slice(-contextMessages) : [];
-    const triggerText = [...String(trigger.content ?? '')]
-      .slice(0, hot.config.context?.maxMessageChars ?? 2000)
-      .join('');
+    const triggerText = [...String(trigger.content ?? '')].slice(0, MAX_MESSAGE_CHARS).join('');
     const transcript =
       context.length === 0
         ? ''

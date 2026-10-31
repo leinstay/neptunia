@@ -26,15 +26,12 @@ export function gifWatchPrompt(prompts) {
 }
 
 /**
- * Why GIFs are not watched under the live config and prompts, or null when
- * they are: `off` (`media.gif.watch` false; a missing key counts as on) or
- * `no-prompt` (neither describe-gif nor describe-video).
- * @param {object} [config]   hot.config.
+ * Why GIFs are not watched under the live prompts, or null when they are: `no-prompt` (neither describe-gif nor
+ * describe-video).
  * @param {object} [prompts]  hot.prompts.
- * @returns {'off'|'no-prompt'|null}
+ * @returns {'no-prompt'|null}
  */
-export function gifWatchBlocker(config, prompts) {
-  if (config?.media?.gif?.watch === false) return 'off';
+export function gifWatchBlocker(prompts) {
   if (!gifWatchPrompt(prompts)) return 'no-prompt';
   return null;
 }

@@ -32,11 +32,9 @@ const SEPARATOR_RUN = /[.!?…;,\n。！？；，、][.!?…;,。！？；，、
 const NOT_TEXT = /https?:\/\/\S+|<[^<>\s]+>/gu;
 
 /**
- * The `split` group of `config` (the live config), key by key: `minChars`
- * (a finite number >= 0), `maxTasks`, `contextMessages`, `minPartChars`
- * (>= 0) and `maxOutputTokens` (> 0), each floored; a missing or unusable key
- * takes config.json's value (SPLIT_DEFAULTS). A `maxTasks` below 2 splits
- * nothing; a `minPartChars` of 0 folds nothing.
+ * The splitter's settings: SPLIT_DEFAULTS (`minChars`, `maxTasks`, `contextMessages`, `minPartChars`, production
+ * values of the config cut of 2026-10-31) and `split.maxOutputTokens` of the live config (> 0, floored; a missing or
+ * unusable value takes config.json's).
  * @param {object} config
  * @returns {{ minChars: number, maxTasks: number, contextMessages: number, maxOutputTokens: number, minPartChars: number }}
  */
@@ -49,11 +47,11 @@ export function splitSettings(config) {
       : SPLIT_DEFAULTS[key];
   };
   return {
-    minChars: read('minChars', 0),
-    maxTasks: read('maxTasks', 0),
-    contextMessages: read('contextMessages', 0),
+    minChars: SPLIT_DEFAULTS.minChars,
+    maxTasks: SPLIT_DEFAULTS.maxTasks,
+    contextMessages: SPLIT_DEFAULTS.contextMessages,
     maxOutputTokens: read('maxOutputTokens', 1),
-    minPartChars: read('minPartChars', 0),
+    minPartChars: SPLIT_DEFAULTS.minPartChars,
   };
 }
 

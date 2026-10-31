@@ -92,7 +92,10 @@ const MOVES: Readonly<Record<IntentionStatus, ReadonlyArray<IntentionStatus>>> =
   dropped: [],
 } as const);
 
-/** The defaults of the `intentions` config section (config.json carries the same). */
+/**
+ * The intentions' measures: production values of the config cut of 2026-10-31 (`maxCandidates`, `waitHours`,
+ * `expiryNoticeDays`), and the fallbacks of the keys the live config holds.
+ */
 export const DEFAULTS: Readonly<IntentionSettings> = Object.freeze({
   expiresDays: 14,
   recurringExpiresDays: 30,
@@ -102,7 +105,10 @@ export const DEFAULTS: Readonly<IntentionSettings> = Object.freeze({
   waitHours: 2,
   expiryNoticeDays: 2,
 });
-/** The defaults of `innerLife.attention` an attention record needs (config.json carries the same). */
+/**
+ * The numbers an attention record is born with: her quiet time before a wake and her own daily bound when she names
+ * none. Production values, config cut of 2026-10-31.
+ */
 export const ATTEND_DEFAULTS: Readonly<AttentionSettings> = Object.freeze({ settleSeconds: 90, perDayDefault: 12 });
 /** The most people an attention record names. */
 export const ATTEND_PEOPLE_MAX = 20;
@@ -133,28 +139,21 @@ const MIN_FORGET_NAME = 3;
 
 /** The `origin` of an intention a heartbeat turn created (docs/inner-life.md "What a heartbeat may do"). */
 export const HEARTBEAT_ORIGIN = 'heartbeat' as const;
-/** What a heartbeat may hold open at once (`innerLife.heartbeat.maxOpen` / `maxRecurring`; config.json carries the same). */
+/** What a heartbeat may hold open at once. Production values, config cut of 2026-10-31. */
 export const HEARTBEAT_LIMITS: Readonly<{ maxOpen: number; maxRecurring: number }> = Object.freeze({
   maxOpen: 3,
   maxRecurring: 1,
 });
 
-/** `innerLife.heartbeat.maxOpen` and `maxRecurring`, read from the live config now, each a whole number >= 0 or the default. */
-export function heartbeatLimits(config: Untyped): { maxOpen: number; maxRecurring: number } {
-  const set = objOf(config?.innerLife?.heartbeat);
-  const pick = (key: 'maxOpen' | 'maxRecurring'): number => {
-    const value = set[key];
-    return isFiniteNumber(value) && value >= 0 ? Math.floor(value) : HEARTBEAT_LIMITS[key];
-  };
-  return { maxOpen: pick('maxOpen'), maxRecurring: pick('maxRecurring') };
-}
+/** What a heartbeat may hold open at once (HEARTBEAT_LIMITS); the live config holds none. */
+export const heartbeatLimits: (config?: Untyped) => { maxOpen: number; maxRecurring: number } = () => ({
+  ...HEARTBEAT_LIMITS,
+});
 
-/** `innerLife.heartbeat.dueJitterMinutes` (minutes, 0 disables), read from the live config now. */
+/** The jitter of a heartbeat intention's due wake, in minutes. Production value, config cut of 2026-10-31. */
 export const DUE_JITTER_MINUTES = 20;
-export function dueJitterMinutes(config: Untyped): number {
-  const value: unknown = config?.innerLife?.heartbeat?.dueJitterMinutes;
-  return isFiniteNumber(value) && value >= 0 ? value : DUE_JITTER_MINUTES;
-}
+/** DUE_JITTER_MINUTES; the live config holds no jitter. */
+export const dueJitterMinutes: (config?: Untyped) => number = () => DUE_JITTER_MINUTES;
 
 /**
  * The moment a record's due wake fires. An intention a heartbeat made (`origin: heartbeat`) is
@@ -193,7 +192,10 @@ export function openFromHeartbeat(records: unknown): Array<Intention> {
   });
 }
 
-/** The `intentions` section's numbers, read from the live config now, each falling back to DEFAULTS. */
+/**
+ * The `intentions` settings: DEFAULTS, with `expiresDays`, `recurringExpiresDays`, `maxOpen` and
+ * `candidateExpiresHours` read from the live config now (each a finite number >= 0, else its default).
+ */
 export function intentionSettings(config: Untyped): IntentionSettings {
   const set = objOf(config?.intentions);
   const pick = (key: keyof IntentionSettings): number => {
@@ -204,28 +206,15 @@ export function intentionSettings(config: Untyped): IntentionSettings {
     expiresDays: pick('expiresDays'),
     recurringExpiresDays: pick('recurringExpiresDays'),
     maxOpen: pick('maxOpen'),
-    maxCandidates: pick('maxCandidates'),
+    maxCandidates: DEFAULTS.maxCandidates,
     candidateExpiresHours: pick('candidateExpiresHours'),
-    waitHours: pick('waitHours'),
-    expiryNoticeDays: pick('expiryNoticeDays'),
+    waitHours: DEFAULTS.waitHours,
+    expiryNoticeDays: DEFAULTS.expiryNoticeDays,
   };
 }
 
-/**
- * The `innerLife.attention` numbers an attention is born with, read from the live config now, each
- * falling back to ATTEND_DEFAULTS: `settleSeconds` (>= 0) and `perDayDefault` (an integer >= 1).
- */
-export function attentionSettings(config: Untyped): AttentionSettings {
-  const set = objOf(config?.innerLife?.attention);
-  const { settleSeconds, perDayDefault } = set;
-  return {
-    settleSeconds: isFiniteNumber(settleSeconds) && settleSeconds >= 0 ? settleSeconds : ATTEND_DEFAULTS.settleSeconds,
-    perDayDefault:
-      typeof perDayDefault === 'number' && Number.isInteger(perDayDefault) && perDayDefault >= 1
-        ? perDayDefault
-        : ATTEND_DEFAULTS.perDayDefault,
-  };
-}
+/** The numbers an attention is born with (ATTEND_DEFAULTS); the live config holds none. */
+export const attentionSettings: (config?: Untyped) => AttentionSettings = () => ({ ...ATTEND_DEFAULTS });
 
 /** True for a status nothing moves out of. */
 export function isTerminal(status: unknown): boolean {

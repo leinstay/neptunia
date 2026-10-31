@@ -15,7 +15,7 @@
 // `text` (the old JSON has no such field). Logs carry counts and codes only.
 //
 // Audio: an `audio/*` attachment (a voice message, or mp3 / m4a / wav) is saved next to the pictures, in the same
-// numbering, under the cap `memoryDb.diaryAudioMaxBytes` (default 8 MB) and the same timeout, with a plain fetch
+// numbering, under the cap `DEFAULT_AUDIO_MAX_BYTES` (8 MB) and the same timeout, with a plain fetch
 // (the image fetcher takes pictures only). Its `media` row carries `extra` `{ voice: true, text?, durationSec? }`: the
 // text and duration come from the post's `voice` field when its `messageId` is this message, else the attachment's own
 // duration. A post that already has its text is fetched again only when it has a `voice` field and no audio row.
@@ -29,11 +29,13 @@ import { audienceOf } from './scope.ts';
 import { ensureAudience } from './rows.js';
 import { projectRow } from './graph.js';
 import { diaryPlaces } from './mirrors.ts';
+import { REFERENCE_MAX_BYTES } from '../../media/fetch-image.js';
 
 export const GAP_MS = 1000;
 const MEDIA_DIR = path.join('media', 'diary');
 const EXTENSIONS = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
 const AUDIO_EXTENSIONS = { ogg: 'ogg', oga: 'ogg', opus: 'ogg', mp3: 'mp3', m4a: 'm4a', wav: 'wav' };
+/** The largest voice file a diary post keeps, in bytes. Production value, config cut of 2026-10-31. */
 export const DEFAULT_AUDIO_MAX_BYTES = 8 * 1024 * 1024;
 const noop = () => {};
 const silent = { info: noop, warn: noop, error: noop, debug: noop };
@@ -359,11 +361,9 @@ export function createDiaryMedia({
   function settings() {
     const cfg = config() ?? {};
     return {
-      maxBytes: cfg.image?.referenceMaxBytes,
+      maxBytes: REFERENCE_MAX_BYTES,
       timeoutMs: cfg.context?.vision?.fetchTimeoutMs,
-      audioMaxBytes: Number.isFinite(cfg.memoryDb?.diaryAudioMaxBytes)
-        ? cfg.memoryDb.diaryAudioMaxBytes
-        : DEFAULT_AUDIO_MAX_BYTES,
+      audioMaxBytes: DEFAULT_AUDIO_MAX_BYTES,
     };
   }
 

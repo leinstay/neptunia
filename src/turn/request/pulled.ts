@@ -115,7 +115,7 @@ export function usablePulled(pulled: unknown, currentChannelId: string | null): 
 
 /**
  * Every pulled channel's transcript items: ordinary chat lines
- * (`formatOptions`, so `context.maxMessageChars`), numbered on from
+ * (`formatOptions`, so `MAX_MESSAGE_CHARS`), numbered on from
  * `firstIndex` and on again after each earlier channel, with the channel's own
  * captions joined to the turn's and NO attachment marker (nothing of another
  * channel is attached). A line that called the persona gets
@@ -510,13 +510,16 @@ export function fitPulled(given: RequestInput & Base & PulledView & Room & HeadS
   return { pulledFits, pulledTaken, pulledSection };
 }
 
+/** Characters per message from a neighbouring channel. Production value, config cut of 2026-10-31. */
+const NEIGHBOR_MESSAGE_CHARS = 300;
+
 /**
- * The neighbours, cut shorter than the chat (context.neighborMessageChars); a channel whose pulled block is shown is
+ * The neighbours, cut shorter than the chat (NEIGHBOR_MESSAGE_CHARS); a channel whose pulled block is shown is
  * not shown again among them, one whose block was cut still is.
  */
 export function neighborItemsOf(given: RequestInput & Base & PulledView & PulledFits): Array<string> {
-  const { config, descriptions, formatOptions, offeredNeighbors, pulledFits } = given;
-  const neighborChars = config.context.neighborMessageChars ?? 300;
+  const { descriptions, formatOptions, offeredNeighbors, pulledFits } = given;
+  const neighborChars = NEIGHBOR_MESSAGE_CHARS;
   // The neighbours' own cached captions join the chat's for their lines only, so the
   // chat keeps exactly the captions this turn gave it.
   // The describer's cached captions of the neighbours' pictures, item id to caption.

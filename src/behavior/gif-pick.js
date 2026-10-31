@@ -12,7 +12,10 @@
 import { isPlainObject } from '../config.js';
 import { gifCaption, gifLine } from './prompt.js';
 
-/** config.json's `gifs.pick` values: the fallback of a missing or unusable key. */
+/**
+ * The GIF picker's measures: production values of the config cut of 2026-10-31 (`maxChars`, `contextMessages`,
+ * `graceMs`), and the fallback of `gifs.pick.maxOutputTokens`.
+ */
 export const GIF_PICK_DEFAULTS = Object.freeze({
   maxChars: 160,
   contextMessages: 4,
@@ -21,13 +24,10 @@ export const GIF_PICK_DEFAULTS = Object.freeze({
 });
 
 /**
- * The `gifs.pick` settings of the live config, key by key: `maxChars` (the
- * longest message, in code points, the picker may replace; a finite number >= 0,
- * floored), `contextMessages` (the last chat lines its `<context>` shows; >= 0,
- * floored), `maxOutputTokens` (> 0, floored) and `graceMs` (how long the first
- * message, once its typing imitation is over, still waits for the picker's
- * answer; >= 0, floored; `null` = as long as the answer takes); a missing or
- * unusable key takes config.json's value (GIF_PICK_DEFAULTS).
+ * The GIF picker's settings: GIF_PICK_DEFAULTS (`maxChars`, the longest message in code points the picker may
+ * replace; `contextMessages`, the last chat lines its `<context>` shows; `graceMs`, how long the first message, once
+ * its typing imitation is over, still waits for the picker's answer), with `gifs.pick.maxOutputTokens` read from the
+ * live config (> 0, floored; a missing or unusable value takes the default).
  * @param {object} config  The whole live config.
  * @returns {{ maxChars: number, contextMessages: number, maxOutputTokens: number, graceMs: number|null }}
  */
@@ -36,10 +36,10 @@ export function gifPickSettings(config) {
   const read = (key, min) =>
     Number.isFinite(group[key]) && group[key] >= min ? Math.floor(group[key]) : GIF_PICK_DEFAULTS[key];
   return {
-    maxChars: read('maxChars', 0),
-    contextMessages: read('contextMessages', 0),
+    maxChars: GIF_PICK_DEFAULTS.maxChars,
+    contextMessages: GIF_PICK_DEFAULTS.contextMessages,
     maxOutputTokens: read('maxOutputTokens', 1),
-    graceMs: group.graceMs === null ? null : read('graceMs', 0),
+    graceMs: GIF_PICK_DEFAULTS.graceMs,
   };
 }
 

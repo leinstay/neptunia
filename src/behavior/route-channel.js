@@ -22,6 +22,7 @@ import {
   routeEntries,
   routeSettings,
 } from './route.js';
+import { MEMORY_LIMITS } from '../memory/text-limits.js';
 
 /**
  * The numbered `<channels>` list of one route decision for the route hook below: the stored
@@ -60,7 +61,7 @@ export function routeChannelOffer({
     check,
     profileOf: (userId) => store.getUser(guildId, userId),
     max: settings.maxChannels,
-    aliasHalfLifeDays: config.memory?.aliasHalfLifeDays,
+    aliasHalfLifeDays: MEMORY_LIMITS.aliasHalfLifeDays,
   });
   return routeChannelList(entries, { max: settings.maxChannels, purposeChars: settings.purposeChars });
 }

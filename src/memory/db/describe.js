@@ -26,7 +26,7 @@
 //   The review reads (and finds its description) through `audience_id`, not the triple.
 
 import { MEMORY_ROLE, roleModel } from '../../llm/roles.js';
-import { MEMORY_LIMIT_DEFAULTS } from '../text-limits.js';
+import { MEMORY_LIMITS, RELATIONSHIP_LIMITS } from '../text-limits.js';
 import { shortHash } from './ids.ts';
 import { ifaceOrLegacy } from './legacy-namespace.ts';
 import { audienceOf, dmScope, groupContext, groupScope, scopeWhere } from './scope.ts';
@@ -53,9 +53,8 @@ const positive = (value, fallback) =>
  * for a portrait; config.json's values when missing).
  */
 export function fieldCap(config, field) {
-  const fieldChars = positive(config?.memory?.fieldChars, MEMORY_LIMIT_DEFAULTS.fieldChars);
-  if (field === 'relationship')
-    return positive(config?.relationships?.textChars, MEMORY_LIMIT_DEFAULTS.relationshipChars);
+  const fieldChars = MEMORY_LIMITS.fieldChars;
+  if (field === 'relationship') return RELATIONSHIP_LIMITS.textChars;
   if (field === 'patterns' || field === 'starters') return fieldChars * 2;
   return fieldChars;
 }
@@ -283,7 +282,6 @@ async function ask(ctx, messages, { purpose, maxOutputTokens }) {
     model: roleModel(config, MEMORY_ROLE),
     maxOutputTokens,
     timeoutMs: sessionSettings(config).timeoutMs,
-    temperature: config?.llm?.temperature,
     skipCalibration: true,
     cache: false,
     origin: purpose,

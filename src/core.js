@@ -105,6 +105,7 @@ import { PROFILES as AGENT_PROFILES } from './agent-runner/profiles.js';
 import { createTagHistory, deprecatedModelKeys } from './behavior/mention.js';
 import { createMessageHandler } from './behavior/pipeline.js';
 import { createLeasedAttention } from './behavior/attention.ts';
+import { RELATIONSHIP_LIMITS } from './memory/text-limits.js';
 
 const REQUIRED_PROMPTS = ['system-prompt', 'character-card', 'format', 'reply', 'interject', 'initiate'];
 
@@ -341,7 +342,8 @@ async function buildCore(options, cleanups) {
   // hot list loses it, while features.archive is exactly true (read at each write). Its own append
   // store for the pending queue (an operational file), so its counts speak for the archive alone.
   const archiveAppendStore = createAppendStore({
-    fsyncMs: hot.config.appendStore?.fsyncMs ?? 500,
+    // Production value, config cut of 2026-10-31.
+    fsyncMs: 500,
     retryMax: hot.config.appendStore?.retryMax ?? 1000,
     log,
   });
@@ -671,9 +673,7 @@ async function buildCore(options, cleanups) {
     paused: () => store.state.data.paused === true,
   });
   // Who reacted to her messages, fed by `reaction.changed` (the door below) and by the `reactors` read.
-  const reactors = createReactorStore({
-    maxMessages: () => Number(hot.config.context?.reactions?.maxMessages ?? 500),
-  });
+  const reactors = createReactorStore();
   // The route classifier (features.channelRoute): picks a channel the conversation is about for <channel_view>.
   const routeChannels = createChannelRouter({ hot, store, llm });
   // The search of the server's own history beside the web search (features.recall): the lookup's server part.
@@ -1124,7 +1124,7 @@ async function buildCore(options, cleanups) {
   }
 
   /**
-   * relationships.decayPerDay: every stored affinity (public and private) drifts toward zero, one
+   * RELATIONSHIP_LIMITS.decayPerDay: every stored affinity (public and private) drifts toward zero, one
    * step per whole day (src/memory/store.js#decayAffinities). Cheap to run hourly: it only applies
    * full days. Skipped while paused (the owner may be editing data/).
    */
@@ -1142,7 +1142,7 @@ async function buildCore(options, cleanups) {
     const last = Date.parse(store.state.data.affinityDecaySweptAt ?? '');
     const gap = Number.isFinite(last) ? now - last : 0;
     const skipMs = gap > 2 * AFFINITY_SWEEP_MS ? gap - AFFINITY_SWEEP_MS : 0;
-    const counts = store.decayAffinities(guildId, now, { ...(config.relationships ?? {}), skipMs });
+    const counts = store.decayAffinities(guildId, now, { ...RELATIONSHIP_LIMITS, skipMs });
     store.state.data.affinityDecaySweptAt = new Date(now).toISOString();
     store.state.markDirty();
     if (counts.decayed > 0 || skipMs > 0)
@@ -1487,11 +1487,11 @@ async function buildCore(options, cleanups) {
   // The spontaneous, diary and inner life ticks: the scheduler's beats, each wait a `scheduler.tick` through the door.
   scheduler.start();
   every(AFFINITY_SWEEP_MS, sweepAffinityDecay, 'affinity decay');
-  // The embedding queue flushes every embed.flushSeconds (read at each tick; a full batch sooner);
-  // the same tick runs its catch-up pass when the switches turn on and every embed.catchUpEveryMinutes.
+  // The embedding queue flushes on its own clock (src/memory/embedder.js; a full batch sooner);
+  // the same tick runs its catch-up pass at the start and then on its own clock.
   every(30_000, () => embedQueue.tick(instance.guildId), 'embed.tick');
   // The avatar queue: its first tick scans the profiled members, then once a day; between
-  // requests it waits avatars.intervalMs (read at each tick). A no-op with the switch off.
+  // requests it waits its interval (src/memory/avatar-queue.js).
   every(5_000, () => avatars.tick(), 'avatars.tick');
   // The speed samples written to data/metrics.json (at most once a minute; nothing new, no write).
   every(60_000, () => metrics.save(), 'metrics.save');
@@ -1541,8 +1541,7 @@ async function buildCore(options, cleanups) {
   await startupStep('intentions.reconcile', () => intentions.reconcile(instance.guildId), { wait: true });
 
   // The meaning index caught up with what the record took while the queue was down (the last
-  // embed.catchUpHours). Fire-and-forget; nothing while paused or
-  // with the switches off.
+  // CATCH_UP_HOURS of src/memory/embedder.js). Fire-and-forget; nothing while paused.
   await startupStep('embed.catchUp', () => embedQueue.catchUp(instance.guildId));
 
   // Once per guild after the deploy that keyed access by operation: the stored grants re-expanded
@@ -1562,12 +1561,10 @@ async function buildCore(options, cleanups) {
   await startupStep('journal.prune', () => pruneJournalRequests(instance.guildId));
   every(DAY_MS, () => pruneJournalRequests(instance.guildId), 'journal.prune');
 
-  // The custom emoji ranking from history, once (features.customEmoji on, no emojiBackfill stamp,
-  // context.customEmoji.backfillMessages > 0). Fire-and-forget: never blocks the persona, logs its errors.
+  // The custom emoji ranking from history, once (no emojiBackfill stamp). Fire-and-forget: never blocks the persona, logs its errors.
   await startupStep('emojiBackfill.startIfNeeded', () => emojiBackfill.startIfNeeded(instance.guildId));
 
-  // The GIF library from history, once (features.gifs on, no backfill stamp in gifs.json,
-  // gifs.backfillMessages > 0). Fire-and-forget: never blocks the persona, logs its errors.
+  // The GIF library from history, once (no backfill stamp in gifs.json). Fire-and-forget: never blocks the persona, logs its errors.
   await startupStep('gifBackfill.startIfNeeded', () => gifBackfill.startIfNeeded(instance.guildId));
 
   // Affinity decay: once now (catches up the days the process was down), then hourly (above).

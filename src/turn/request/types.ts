@@ -89,19 +89,7 @@ export type RequestConfig = {
   readonly private?: { readonly enabled?: unknown; readonly likeServer?: unknown };
   readonly context: {
     readonly caps: Caps;
-    readonly gapMarkerMinutes: number;
-    readonly maxMessageChars: number;
-    readonly ageAfterMinutes?: number;
-    readonly reactionsPerMessage?: number;
-    readonly reactions?: { readonly maxNames?: number };
-    readonly replyQuoteChars?: number;
     readonly customEmoji?: EmojiConfig;
-    readonly tempo?: { liveMessages10min: number; deadSilenceMinutes: number };
-    readonly channelActivity?: { liveMessagesPerDay?: number; deadAfterDays?: number };
-    readonly neighborMessageChars?: number;
-    readonly askedAboutProfiles?: number;
-    readonly askedAboutEpisodes?: number;
-    readonly attitudes?: number;
     readonly around?: { readonly maxTokens?: number };
   };
   readonly memory?: {

@@ -60,7 +60,7 @@ import { createHash } from 'node:crypto';
 import { fitSections, requestTokenLimit, sectionCost } from '../llm/budget.js';
 import { computeTempo, fill, formatNow, formatTranscript, renderTempo, renderTranscript } from '../format.js';
 import { RECENT_EPISODES_PER_MEMBER, recentSettings, recentView } from '../memory/recent.js';
-import { renderKindsBlock } from './diary.ts';
+import { DEFAULT_HISTORY_POSTS, renderKindsBlock } from './diary.ts';
 import { diaryHistoryLines, diaryOf, worldText } from '../turn/request/diary.ts';
 import { gifListOf, trimLists } from '../turn/request/emoji-gifs.ts';
 import { requestHead, requestRoom } from '../turn/request/head.ts';
@@ -91,6 +91,7 @@ import { assembleUser, seenOf } from '../turn/request/tail.ts';
 import { finalTask, taskOf } from '../turn/request/task.ts';
 import { TAG_OVERHEAD, block, fillPromptTemplate, requireLabels } from '../turn/request/text.ts';
 import { wakeTexts } from '../turn/request/wake.ts';
+import { LORE_LIMITS } from '../memory/text-limits.js';
 
 // The block builders live in src/turn/request/; their importers read them from here.
 export { block, fillPromptTemplate, hasRequiredLabels } from '../turn/request/text.ts';
@@ -156,9 +157,7 @@ export function userText(content) {
  * lookup classifiers, src/behavior/turn.js#classifierContext): `messages`
  * (already chosen by the caller, oldest first) rendered as the chat renders
  * them (src/format.js) under the live `config` -- `bot.timezone`,
- * `context.gapMarkerMinutes`, `context.maxMessageChars` (800, config.json's
- * value, when missing), `features.seeReactions`, `context.reactionsPerMessage`
- * -- with the media states the caller already has (`descriptions`, `videos`,
+ * the transcript constants of src/format.js -- with the media states the caller already has (`descriptions`, `videos`,
  * `reads`; each optional). The one copy of these options for the classifiers;
  * the caller wraps the body. Pure.
  * @param {object[]} messages
@@ -169,13 +168,9 @@ export function userText(content) {
 export function classifierTranscript(messages, { config, selfName, labels, descriptions, videos, reads }) {
   const items = formatTranscript(messages, {
     timezone: config.bot?.timezone,
-    gapMinutes: config.context?.gapMarkerMinutes,
-    maxChars: config.context?.maxMessageChars ?? 2000,
     selfName,
     labels,
     seeReactions: true,
-    reactionsPerMessage: config.context?.reactionsPerMessage,
-    replyQuoteChars: config.context?.replyQuoteChars,
     descriptions,
     videos,
     reads,
@@ -613,9 +608,7 @@ export function buildRequest(input) {
   // On a routed turn the call is not in this chat: its silence is measured to now, and its
   // last line being the persona's own is no sign that nobody answered the persona.
   const tempo = computeTempo(given.history, given.now, view.routed ? null : given.trigger);
-  const tempoText = heartbeat
-    ? ''
-    : renderTempo(view.routed ? { ...tempo, lastIsOwn: false } : tempo, labels, given.config.context.tempo);
+  const tempoText = heartbeat ? '' : renderTempo(view.routed ? { ...tempo, lastIsOwn: false } : tempo, labels);
   const task = taskOf({ ...given, ...base, ...view });
   const senses = sensesOf({ ...given, ...base, ...views });
   const diary = diaryOf({ ...given, labels });
@@ -768,7 +761,7 @@ export function buildDiaryPlanRequest(input) {
 
   const system = fillPromptTemplate(prompts['diary-plan'] ?? '', { name: selfName }).trim();
   const nowText = formatNow(now, timezone, labels.locale);
-  const kindsText = renderKindsBlock(input.kinds, posts, labels, { window: config.diary?.historyPosts ?? 150 });
+  const kindsText = renderKindsBlock(input.kinds, posts, labels, { window: DEFAULT_HISTORY_POSTS });
   const diaryLines = diaryHistoryLines(posts, labels, config);
   const diaryIntro = diaryLines.length > 0 ? (labels.diary?.intro ?? '') : '';
 
@@ -823,7 +816,6 @@ export function buildDiaryPlanRequest(input) {
           channelIds,
           history,
           now,
-          config.context?.channelActivity,
           labels,
           nameOf,
           new Set(),
@@ -840,7 +832,7 @@ export function buildDiaryPlanRequest(input) {
         name: 'lore',
         cap: caps.lore,
         keep: 'first',
-        items: loreItems(input.loreEntries, history, null, labels, config.lore, nameOf),
+        items: loreItems(input.loreEntries, history, null, labels, LORE_LIMITS, nameOf),
       },
     ],
     limit,

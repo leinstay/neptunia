@@ -4,7 +4,7 @@
 // createSkillCalls; the tool round and the attempt call its functions.
 
 import { DESTINATION_REQUIRED } from '../behavior/inner-output.js';
-import { POSTING_SKILLS, innerSettings } from '../behavior/inner.ts';
+import { POSTING_SKILLS } from '../behavior/inner.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import type { TurnRoutes } from '../behavior/turn-ability-route.ts';
 import { segments } from '../behavior/tool-step.js';
@@ -19,7 +19,7 @@ import type { GateContext } from '../tools/gateway.ts';
 import type { HeldNote, SendHold } from '../tools/send-hold.ts';
 import { objOf } from '../tools/types.ts';
 import type { Obj, SkillMap } from '../tools/types.ts';
-import { PERSONA, WRITTEN_SKILLS, callTextOf, callViewOf, defaultSkills, valuesOf } from './calls.ts';
+import { callTextOf, callViewOf, defaultSkills, MARK_TEXT_CHARS, PERSONA, valuesOf, WRITTEN_SKILLS } from './calls.ts';
 import type { CallEnvelope } from './calls.ts';
 import { journalResultOf, portError, postedOf } from './journal.ts';
 import type { JournalOp } from './journal.ts';
@@ -30,7 +30,7 @@ import type { RenderedPost, Sends } from './sends.ts';
 import { HEARTBEAT_INTENT_SKILLS, HEARTBEAT_READ_SKILLS, INTENT_ID_SKILLS } from './settings.ts';
 
 /** The live config, as far as the calls read it; the gateway and the executors read their own sections. */
-export type CallsConfig = { tools?: { callTimeoutMs?: number; markTextMaxChars?: number } | null };
+export type CallsConfig = { tools?: { callTimeoutMs?: number } | null };
 
 type CallsLabels = Parameters<typeof untaggedNote>[2];
 
@@ -472,9 +472,9 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     };
   }
 
-  /** Whether this turn is a heartbeat held to intention changes only (`innerLife.heartbeat.intentionsOnly`, read now). */
+  /** Whether this turn is a heartbeat, held to intention changes only. */
   function heartbeatOnly(draft: CallsDraft | null | undefined): boolean {
-    return draft?.inner?.wake?.kind === 'heartbeat' && innerSettings(hot.config).heartbeat.intentionsOnly === true;
+    return draft?.inner?.wake?.kind === 'heartbeat';
   }
 
   /**
@@ -692,7 +692,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
         status: innerGate?.proposed ? 'proposed' : ran ? 'executed' : 'refused',
         result: result.status,
         ...(result.code ? { code: result.code } : {}),
-        ...(result.status !== 'ok' ? callTextOf(result, hot.config.tools?.markTextMaxChars ?? 200) : {}),
+        ...(result.status !== 'ok' ? callTextOf(result) : {}),
         target: callTarget(plan.resolved?.args ?? {}),
         ...(named ? { intentionId: named } : {}),
         ...(skill === 'intention.set' && ran && result.status === 'ok' && typeof result.intentionId === 'string'
@@ -771,10 +771,10 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       status: result.status,
       // Why it did not work, when it did not (the mark words it through labels.transcript.callReasons;
       // without a specific phrase, the operation's own message before the generic one: one line,
-      // tools.markTextMaxChars, read now). In process only: the journal keeps the code and reason,
+      // MARK_TEXT_CHARS). In process only: the journal keeps the code and reason,
       // never that message.
       detail: outcomeDetail(result, {
-        textChars: hot.config.tools?.markTextMaxChars ?? 200,
+        textChars: MARK_TEXT_CHARS,
         argNames: (skills ?? defaultSkills()).get(skill)?.dispatch?.options?.map((option) => option.name) ?? null,
       }),
       target: { messageId: idText(args.message) ?? idText(args.reply), channelId: where ?? idText(args.channel) },

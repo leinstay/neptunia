@@ -148,24 +148,6 @@ Her memory session: she reads new chat lines of one scope and says what she keep
 
 <!-- settings: memoryDb.session -->
 
-## `capture`
-
-Foreign capture: when the persona is mentioned in a place her connection does not read continuously, the adapter fetches the context around that line. Not wired to a live adapter yet.
-
-<!-- settings: capture -->
-
-## `graph`
-
-The memory graph: typed memory rows projected into nodes and edges, and the walks over it.
-
-<!-- settings: graph -->
-
-## `focus`
-
-Her focus set: the people her attention is on. Computed by the `memoryDb.focus` job. See [Memory](memory.md).
-
-<!-- settings: focus -->
-
 ## `embed`
 
 <!-- settings: embed -->
@@ -174,13 +156,9 @@ Her focus set: the people her attention is on. Computed by the `memoryDb.focus` 
 
 <!-- settings: context -->
 
-### `context.customEmoji`
-
-<!-- settings: context.customEmoji -->
-
 ### `context.pull`
 
-Settings for pulling another channel (`features.channelPull`).
+Settings for pulling another channel.
 
 <!-- settings: context.pull -->
 
@@ -190,13 +168,13 @@ Settings for pulling another channel (`features.channelPull`).
 
 ## `missed`
 
-Settings for missed-answer recovery (`features.missedAnswers`).
+Settings for missed-answer recovery.
 
 <!-- settings: missed -->
 
 ## `offlineCatchUp`
 
-Messages posted while the bot was down, read once at start (`features.offlineCatchUp`), and the messages that arrived while it was paused, handed back on resume (`src/behavior/core-pause.ts`). The same window decides which of them are answered.
+Messages posted while the bot was down, read once at start, and the messages that arrived while it was paused, handed back on resume (`src/behavior/core-pause.ts`). The same window decides which of them are answered.
 
 <!-- settings: offlineCatchUp -->
 
@@ -216,55 +194,41 @@ How long each stage of a turn may take. A request on a model role other than `co
 
 ## `split`
 
-Settings for the task splitter (`features.splitTasks`).
+Settings for the task splitter.
 
 <!-- settings: split -->
 
 ## `route`
 
-Settings for the channel route classifier (`features.channelRoute`).
+Settings for the channel route classifier.
 
 <!-- settings: route -->
-
-## `elsewhere`
-
-Settings for answering calls from channels where the bot can read but not send.
-
-<!-- settings: elsewhere -->
 
 ## `memory`
 
 <!-- settings: memory -->
 
-## `lore`
-
-<!-- settings: lore -->
-
-## `relationships`
-
-<!-- settings: relationships -->
-
 ## `media`
 
-Settings for the media describer (`features.mediaDescriptions`). The describer model is `models.base.vision`. See [Media](media.md).
+Settings for the media describer. The describer model is `models.base.vision`. See [Media](media.md).
 
 <!-- settings: media -->
 
 ## `web`
 
-Settings for web lookup (`features.webLookup`). Link reading, search and the persona's own `web.search` and `web.read` share a daily counter (`web.maxPerDay`). See [Media](media.md).
+Settings for web lookup. See [Media](media.md).
 
 <!-- settings: web -->
 
 ## `participation`
 
-The persona's own exchanges on other channels (`features.participation`).
+The persona's own exchanges on other channels.
 
 <!-- settings: participation -->
 
 ## `recall`
 
-Settings for the server-history search (`features.recall`). See [Memory](memory.md).
+Settings for the server-history search. See [Memory](memory.md).
 
 <!-- settings: recall -->
 
@@ -276,19 +240,19 @@ Database backend settings.
 
 ### `recall.prefetch`
 
-The automatic memory prefetch (`features.coreTools` with `features.memoryPrefetch`).
+The automatic memory prefetch.
 
 <!-- settings: recall.prefetch -->
 
 ## `image`
 
-Settings for drawing (`features.imageGeneration`). See [Media](media.md).
+Settings for drawing. See [Media](media.md).
 
 <!-- settings: image -->
 
 ## `speech`
 
-Settings for voice messages (`features.speech`). The persona's `voice.say` skill sends text through the `speech` role's model and posts it as a Discord voice message.
+Settings for voice messages. The persona's `voice.say` skill sends text through the `speech` role's model and posts it as a Discord voice message.
 
 <!-- settings: speech -->
 
@@ -298,7 +262,7 @@ Settings for voice messages (`features.speech`). The persona's `voice.say` skill
 
 ## `diary`
 
-Settings for the diary (`features.diary`). See [Diary](diary.md).
+Settings for the diary. See [Diary](diary.md).
 
 <!-- settings: diary -->
 
@@ -313,15 +277,9 @@ Default windows:
 ]
 ```
 
-## `avatars`
-
-Settings for avatar descriptions (`features.avatars`).
-
-<!-- settings: avatars -->
-
 ## `gifs`
 
-Settings for the GIF library (`features.gifs`).
+Settings for the GIF library.
 
 <!-- settings: gifs -->
 
@@ -365,13 +323,13 @@ The task board's settings (`src/board/board.ts#boardSettings` and `#boardTimings
 
 ## `intentions`
 
-Settings for the persona's intentions (`features.intentions`). See [Inner life](inner-life.md).
+Settings for the persona's intentions. See [Inner life](inner-life.md).
 
 <!-- settings: intentions -->
 
 ## `innerLife`
 
-Settings for the persona's inner life (`features.innerLife`). See [Inner life](inner-life.md).
+Settings for the persona's inner life. See [Inner life](inner-life.md).
 
 <!-- settings: innerLife -->
 
@@ -383,12 +341,12 @@ The journal, record and archive's file writer.
 
 ## `journal`
 
-The persona's journal (`features.journal`).
+The persona's journal.
 
 <!-- settings: journal -->
 
 ## `archive`
 
-Before anything leaves hot memory, a copy goes to `data/guilds/<id>/archive/<YYYY-MM>.jsonl`. Needs `features.archive`.
+Before anything leaves hot memory, a copy goes to `data/guilds/<id>/archive/<YYYY-MM>.jsonl`.
 
 <!-- settings: archive -->

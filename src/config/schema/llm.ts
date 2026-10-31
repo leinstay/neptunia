@@ -11,13 +11,6 @@ export const LLM: ReadonlyArray<SchemaEntry> = [
     'text': 'Chat completions endpoint',
   },
   {
-    'key': 'llm.temperature',
-    'types': ['number'],
-    'reader': 'src/llm/openrouter.js',
-    'default': 1,
-    'text': 'Sampling temperature',
-  },
-  {
     'key': 'llm.maxOutputTokens',
     'types': ['number'],
     'reader': 'src/llm/openrouter.js',
@@ -30,13 +23,6 @@ export const LLM: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/behavior/sandbox.js',
     'default': 50000,
     'text': 'Hard token cap per request',
-  },
-  {
-    'key': 'llm.safetyMargin',
-    'types': ['number'],
-    'reader': 'src/behavior/sandbox.js',
-    'default': 0.9,
-    'text': 'Budgeting fraction of `maxRequestTokens`',
   },
   {
     'key': 'llm.timeoutMs',
@@ -111,14 +97,6 @@ export const LLM: ReadonlyArray<SchemaEntry> = [
     'text': 'Cache TTL for the markers on the system message and the stable user prefix: `"1h"` or `"5m"`',
   },
   {
-    'key': 'llm.cache.profilesTtl',
-    'types': ['string', 'null', 'boolean'],
-    'reader': 'src/llm/openrouter.js',
-    'default': '1h',
-    'text':
-      'Cache TTL for the profiles marker: `"1h"`, `"5m"`, or `null`/`false` for none. Never longer than `cache.ttl`',
-  },
-  {
     'key': 'llm.cache.roles',
     'types': ['array'],
     'reader': 'src/llm/openrouter.js',
@@ -131,13 +109,6 @@ export const LLM: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/llm/openrouter.js',
     'default': ['anthropic/'],
     'text': 'Model id prefixes whose provider accepts the `cache_control` marker',
-  },
-  {
-    'key': 'llm.cache.promptIncludesCached',
-    'types': ['boolean'],
-    'reader': 'src/llm/openrouter.js',
-    'default': true,
-    'text': "Whether the provider's reported `prompt_tokens` already includes cached and cache-write tokens",
   },
   {
     'key': 'llm.hedge.roles',

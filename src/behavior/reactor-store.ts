@@ -2,7 +2,7 @@
 // says. A small in-process store, never persisted: message id -> emoji -> the reactors' member ids in the order they
 // reacted. It is fed by the interface's `reaction.changed` events of the served community, and for her messages a
 // transcript shows with reactions it has no reactors for (after a restart, say) by a best-effort `reactors` read
-// bounded by a time budget. Only her messages are kept, at most `context.reactions.maxMessages`, the oldest message
+// bounded by a time budget. Only her messages are kept, at most `REACTIONS_MAX_MESSAGES`, the oldest message
 // evicted first. Her own reaction is the `mine` flag of the reaction already, so she is never listed as a reactor;
 // other bots count like anyone. Pure but for the timer of `runBackfill`.
 
@@ -32,15 +32,20 @@ export type ReactorStore = {
 
 type Entry = { emojis: Map<string, Array<string>>; attempted: Set<string> };
 
+/** Her messages the store keeps reactors for. Production value, config cut of 2026-10-31. */
+const REACTIONS_MAX_MESSAGES = 500;
+
 /**
- * The reactor store. `maxMessages` is read at each insertion (the live `context.reactions.maxMessages`; 500 when it is
- * not a positive integer). A message enters through `markOwn` (it is hers); reactions on any other message are ignored.
+ * The reactor store. `maxMessages` is read at each insertion (`REACTIONS_MAX_MESSAGES` when it is not a positive
+ * integer). A message enters through `markOwn` (it is hers); reactions on any other message are ignored.
  */
-export function createReactorStore({ maxMessages = () => 500 }: { maxMessages?: () => number } = {}): ReactorStore {
+export function createReactorStore({
+  maxMessages = () => REACTIONS_MAX_MESSAGES,
+}: { maxMessages?: () => number } = {}): ReactorStore {
   const messages = new Map<string, Entry>();
   const limit = (): number => {
     const value = Number(maxMessages());
-    return Number.isInteger(value) && value > 0 ? value : 500;
+    return Number.isInteger(value) && value > 0 ? value : REACTIONS_MAX_MESSAGES;
   };
   const evict = (): void => {
     while (messages.size > limit()) {

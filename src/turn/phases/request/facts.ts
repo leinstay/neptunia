@@ -128,7 +128,7 @@ export async function tellFacts(
     promptState.followUpMissing = missing;
   }
   // `<now>`: the persona's recent time away (the journal's pauses and stops).
-  const offPeriods = await offPeriodsFor(guildId, config);
+  const offPeriods = await offPeriodsFor(guildId);
   // Skills discovery on a turn someone asked for: the catalogue when the question was what the
   // persona can do; named skills only logged and journaled (shadow).
   const skillsInventory = asked

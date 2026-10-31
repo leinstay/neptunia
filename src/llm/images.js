@@ -67,16 +67,20 @@ export function familyOf(model) {
   return null;
 }
 
+// The picture's form. Production values, config cut of 2026-10-31.
+const OUTPUT_FORMAT = 'png';
+const ASPECT_RATIO = 'auto';
+const OPENAI_BACKGROUND = 'auto';
+
 /**
  * The request body for one generation; `null`/undefined config values omit their fields.
  * `routing` is the generation's resolved route (see `generate`), read at the moment of use.
  */
 function buildBody({ cfg, model, routing, family, prompt, reference }) {
   const body = { model, prompt };
-  if (cfg.outputFormat != null) body.output_format = cfg.outputFormat;
-  if (cfg.aspectRatio != null && !(family === 'google' && cfg.aspectRatio === 'auto')) {
-    body.aspect_ratio = cfg.aspectRatio;
-  }
+  body.output_format = OUTPUT_FORMAT;
+  // Google takes no `auto` ratio, so the field is left out for it.
+  if (family !== 'google') body.aspect_ratio = ASPECT_RATIO;
   // Routing first (the `llm.providerByModel` entry for the model and the `drawing` role, see
   // `matchRoute`, else `image.provider`; without its `byok` mark, see `providerBodyOf`; copied,
   // never mutated), then the family's own provider options over it.
@@ -84,7 +88,7 @@ function buildBody({ cfg, model, routing, family, prompt, reference }) {
   if (family === 'openai') {
     const openai = cfg.openai ?? {};
     if (openai.quality != null) body.quality = openai.quality;
-    if (openai.background != null) body.background = openai.background;
+    body.background = OPENAI_BACKGROUND;
     if (openai.moderation != null) {
       const options = isPlainObject(provider.options) ? { ...provider.options } : {};
       const openaiOptions = isPlainObject(options.openai) ? { ...options.openai } : {};
@@ -217,8 +221,7 @@ export function createImageGen({ apiKey, getConfig, fetchImpl = fetch, now = () 
         );
       }
       const buffer = Buffer.from(item.b64_json, 'base64');
-      const outputFormat = cfg.outputFormat ?? 'png';
-      const mediaType = item.media_type ?? `image/${outputFormat === 'jpeg' ? 'jpeg' : outputFormat}`;
+      const mediaType = item.media_type ?? `image/${OUTPUT_FORMAT}`;
       const cost = json.usage?.cost ?? null;
       const usage = json.usage ?? null;
       const seconds = Math.round((now() - started) / 100) / 10;

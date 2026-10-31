@@ -23,6 +23,14 @@ import type { Setup } from './setup.ts';
 /** One stage of the preparation, with the value its work resolved once it is done (trackStage). */
 export type Tracked<TValue> = Omit<Stage, 'value' | 'settled'> & { value: TValue | undefined; settled: Promise<void> };
 
+// Production values, config cut of 2026-10-31.
+/** The characters of a text attachment the request shows. */
+const FILE_PREVIEW_CHARS = 10000;
+/** The new pictures captioned per turn. */
+const MEDIA_PER_TURN = 6;
+/** The new videos watched per turn. */
+export const VIDEOS_PER_TURN = 5;
+
 /** A caption or a video watch's candidate (src/turn/media.ts, src/media/classify.js). */
 export type MediaItem = { itemId: string; messageId: string; name: string; kind?: unknown; [key: string]: unknown };
 
@@ -87,13 +95,11 @@ export function startStages(
   // Lazy, request-time only (see fetchTextPreview's header comment):
   // never fetched during plain normalization or while just buffered. Read by the
   // transcripts alone: the request's and the two classifiers'.
-  const previews = track('previews', () =>
-    withTextPreviews(rawHistory, Number(config.media?.filePreviewChars ?? 10000), fetchImpl)
-  );
+  const previews = track('previews', () => withTextPreviews(rawHistory, FILE_PREVIEW_CHARS, fetchImpl));
   const previewed = () => (previews.done && Array.isArray(previews.value) ? previews.value : rawHistory);
 
   // The pictures of the window get a `vision` caption, newest first, capped at
-  // media.maxPerTurn; cached captions are free (see src/memory/describe.js). The caption is
+  // MEDIA_PER_TURN; cached captions are free (see src/memory/describe.js). The caption is
   // the only way a picture reaches the persona: none goes into her request as an image. A
   // routed call's own pictures are captioned with its pulled channel instead.
   let captions: Staged['captions'] = null;
@@ -107,7 +113,7 @@ export function startStages(
     captions = track('captions', () =>
       journalled(
         describeOp,
-        () => describer.describeMany(guildId, captionCandidates, { maxNew: config.media?.maxPerTurn ?? 6 }),
+        () => describer.describeMany(guildId, captionCandidates, { maxNew: MEDIA_PER_TURN }),
         (value) => {
           const count = value?.descriptions?.size ?? 0;
           return { result: { count }, offered: count > 0 };
@@ -158,7 +164,7 @@ export function startStages(
   const hasParts = () => Boolean(splitStage?.done) && Array.isArray(splitStage?.value);
 
   // Videos (attached, or linked from a known video site) may be watched
-  // by the video describer, newest first, at most media.video.maxPerTurn
+  // by the video describer, newest first, at most VIDEOS_PER_TURN
   // NEW ones per turn; cached results and limit/error states are free.
   let videoStage: Staged['videoStage'] = null;
   const videoCandidates: Array<MediaItem> = [];
@@ -176,7 +182,7 @@ export function startStages(
     videoStage = track('videos', () =>
       journalled(
         watchOp,
-        () => describeVideos(guildId, candidates, { maxNew: videoCfg.maxPerTurn ?? 5 }),
+        () => describeVideos(guildId, candidates, { maxNew: VIDEOS_PER_TURN }),
         (value) => {
           const states = value?.videos instanceof Map ? [...value.videos.values()] : [];
           return {

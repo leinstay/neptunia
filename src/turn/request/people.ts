@@ -18,6 +18,7 @@ import type { PulledFits } from './pulled.ts';
 import type { Ahead } from './sections.ts';
 import type { Task } from './task.ts';
 import type { Alias, Fit, MemoryRead, Message, Profile, RequestInput, Section } from './types.ts';
+import { MEMORY_LIMITS } from '../../memory/text-limits.js';
 
 /** A profile list as given (store.listUserProfiles, the turn's other profiles): an array, anything else none. */
 const profileList = (profiles: unknown): Array<Profile | null | undefined> =>
@@ -211,7 +212,7 @@ export type InterlocutorBlocks = {
  */
 // health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.js in stage 5d, a pure split
 export function interlocutorOf(given: RequestInput & Base & Room & Task): InterlocutorBlocks {
-  const { config, now, trigger, caps, cost, overheard } = given;
+  const { now, trigger, caps, cost, overheard } = given;
   const { labels, interlocutor, nameOf, timezone, handleFor, relationships, shownMoves, episodesOn } = given;
   const { liveOn, liveSnapshot, voiceChannelNameOf } = given;
   const episodesOpt = { enabled: episodesOn, cap: caps.interlocutor, cost };
@@ -222,18 +223,18 @@ export function interlocutorOf(given: RequestInput & Base & Room & Task): Interl
     handle: handleFor(memberIdOf(interlocutor?.id)),
     relationships,
     episodes: episodesOpt,
-    maxInterests: config.memory?.maxInterests,
-    maxDetails: config.memory?.maxDetails,
-    maxAliases: config.memory?.maxAliases,
-    aliasHalfLifeDays: config.memory?.aliasHalfLifeDays,
-    addressHalfLifeDays: config.memory?.addressHalfLifeDays,
-    interestHalfLifeDays: config.memory?.interestHalfLifeDays,
-    detailHalfLifeDays: config.memory?.detailHalfLifeDays,
-    confirmAfter: config.memory?.confirmAfter,
-    staleDays: config.memory?.interestStaleDays,
+    maxInterests: MEMORY_LIMITS.maxInterests,
+    maxDetails: MEMORY_LIMITS.maxDetails,
+    maxAliases: MEMORY_LIMITS.maxAliases,
+    aliasHalfLifeDays: MEMORY_LIMITS.aliasHalfLifeDays,
+    addressHalfLifeDays: MEMORY_LIMITS.addressHalfLifeDays,
+    interestHalfLifeDays: MEMORY_LIMITS.interestHalfLifeDays,
+    detailHalfLifeDays: MEMORY_LIMITS.detailHalfLifeDays,
+    confirmAfter: MEMORY_LIMITS.confirmAfter,
+    staleDays: MEMORY_LIMITS.interestStaleDays,
     now,
     nameOf,
-    supersededShownDays: config.memory?.supersededShownDays,
+    supersededShownDays: MEMORY_LIMITS.supersededShownDays,
     avatars: avatarsOn,
   });
   // `<people_now>`: one entry per person with what is current about them -- a heading line led
@@ -287,6 +288,14 @@ export function interlocutorOf(given: RequestInput & Base & Room & Task): Interl
   };
 }
 
+// Production values, config cut of 2026-10-31.
+/** The members asked about that `<people>` shows in full. */
+const ASKED_ABOUT_PROFILES = 3;
+/** The top moments shown of each member asked about. */
+const ASKED_ABOUT_EPISODES = 3;
+/** The members `<attitudes>` shows. */
+const ATTITUDES_SHOWN = 6;
+
 /** Who `<people>` shows in full and in short, and how many moments each member asked about may show. */
 export type AskedAbout = {
   askedAbout: Array<Profile>;
@@ -317,16 +326,14 @@ export function askedAboutOf(given: RequestInput & Base & PulledFits): AskedAbou
     history,
     trigger,
     interlocutor?.id,
-    config.context.askedAboutProfiles,
-    config.memory?.maxAliases,
-    config.memory?.aliasHalfLifeDays,
+    ASKED_ABOUT_PROFILES,
+    MEMORY_LIMITS.maxAliases,
+    MEMORY_LIMITS.aliasHalfLifeDays,
     pulledAuthors(pulledFits)
   );
-  // Each member asked about shows their top `context.askedAboutEpisodes` episodes (0 = off;
-  // none in a private chat: another member's moments never reach it; none with an older labels
+  // Each member asked about shows their top `ASKED_ABOUT_EPISODES` episodes (none in a private chat: another member's moments never reach it; none with an older labels
   // file that cannot render one).
-  const askedAboutEpisodes =
-    privateChat && config.private?.likeServer === false ? 0 : (config.context.askedAboutEpisodes ?? 3);
+  const askedAboutEpisodes = privateChat && config.private?.likeServer === false ? 0 : ASKED_ABOUT_EPISODES;
   const episodeCount = (profile: Profile | null | undefined) =>
     Array.isArray(profile?.episodes) ? profile.episodes.length : 0;
   const episodeLabelsOn = Boolean(
@@ -371,7 +378,7 @@ export type Placed = {
 export function placeAskedAbout(
   given: RequestInput & Base & Room & InterlocutorBlocks & AskedAbout & Recent & Ahead
 ): Placed {
-  const { config, now, labels, nameOf, timezone, handleFor, relationships, shownMoves, caps, cost, limit } = given;
+  const { now, labels, nameOf, timezone, handleFor, relationships, shownMoves, caps, cost, limit } = given;
   const { avatarsOn, liveOf, askedAbout, askedEpisodesOn, askedAboutEpisodes, episodeCount, askedKeys } = given;
   const { askedIntended, buildRecent, recentSectionOf, recentCap, aheadOfPeopleWith } = given;
   let { recentBuilt, recentSection } = given;
@@ -406,18 +413,18 @@ export function placeAskedAbout(
       handle: handleFor(memberIdOf(profile?.id)),
       relationships,
       episodes,
-      maxInterests: config.memory?.maxInterests,
-      maxDetails: config.memory?.maxDetails,
-      maxAliases: config.memory?.maxAliases,
-      aliasHalfLifeDays: config.memory?.aliasHalfLifeDays,
-      addressHalfLifeDays: config.memory?.addressHalfLifeDays,
-      interestHalfLifeDays: config.memory?.interestHalfLifeDays,
-      detailHalfLifeDays: config.memory?.detailHalfLifeDays,
-      confirmAfter: config.memory?.confirmAfter,
-      staleDays: config.memory?.interestStaleDays,
+      maxInterests: MEMORY_LIMITS.maxInterests,
+      maxDetails: MEMORY_LIMITS.maxDetails,
+      maxAliases: MEMORY_LIMITS.maxAliases,
+      aliasHalfLifeDays: MEMORY_LIMITS.aliasHalfLifeDays,
+      addressHalfLifeDays: MEMORY_LIMITS.addressHalfLifeDays,
+      interestHalfLifeDays: MEMORY_LIMITS.interestHalfLifeDays,
+      detailHalfLifeDays: MEMORY_LIMITS.detailHalfLifeDays,
+      confirmAfter: MEMORY_LIMITS.confirmAfter,
+      staleDays: MEMORY_LIMITS.interestStaleDays,
       now,
       nameOf,
-      supersededShownDays: config.memory?.supersededShownDays,
+      supersededShownDays: MEMORY_LIMITS.supersededShownDays,
       avatars: avatarsOn,
     });
     return { ...shown, text: withRow(shown.text, askedRows.get(profile) ?? '') };
@@ -530,7 +537,7 @@ export type PeopleOffered = {
 export function peopleOfferedOf(
   given: RequestInput & Base & Room & InterlocutorBlocks & AskedAbout & Placed
 ): PeopleOffered {
-  const { config, now, labels, nameOf, handleFor, relationships, selfMemberId, caps, avatarsOn } = given;
+  const { now, labels, nameOf, handleFor, relationships, selfMemberId, caps, avatarsOn } = given;
   const { liveOn, liveSnapshot, voiceChannelNameOf, liveOf, interlocutorRowId } = given;
   const { askedAbout, participants, askedRows, askedAboutItems, askedAboutReads, tailRowOf, withRow } = given;
   // `<people>`'s items, each with the member it renders and their `<people_now>` entry (an empty
@@ -548,12 +555,12 @@ export function peopleOfferedOf(
         compact: true,
         handle: handleFor(memberIdOf(profile?.id)),
         relationships,
-        maxAliases: config.memory?.maxAliases,
-        aliasHalfLifeDays: config.memory?.aliasHalfLifeDays,
-        addressHalfLifeDays: config.memory?.addressHalfLifeDays,
-        interestHalfLifeDays: config.memory?.interestHalfLifeDays,
-        confirmAfter: config.memory?.confirmAfter,
-        staleDays: config.memory?.interestStaleDays,
+        maxAliases: MEMORY_LIMITS.maxAliases,
+        aliasHalfLifeDays: MEMORY_LIMITS.aliasHalfLifeDays,
+        addressHalfLifeDays: MEMORY_LIMITS.addressHalfLifeDays,
+        interestHalfLifeDays: MEMORY_LIMITS.interestHalfLifeDays,
+        confirmAfter: MEMORY_LIMITS.confirmAfter,
+        staleDays: MEMORY_LIMITS.interestStaleDays,
         now,
         nameOf,
         avatars: avatarsOn,
@@ -598,17 +605,13 @@ export function peopleOfferedOf(
 }
 
 /**
- * `<attitudes>`: the top `context.attitudes` members by attitude strength (0 = no block), the interlocutor and the
+ * `<attitudes>`: the top `ATTITUDES_SHOWN` members by attitude strength, the interlocutor and the
  * members `<people>` shows left out.
  */
 export function attitudesOf(given: RequestInput & Base & Room & Recent & Placed & PeopleOffered): string {
-  const { config, labels, relationships, limit, cost, interlocutorId, aheadOfPeople, peopleSection, keptPeopleOf } =
-    given;
-  const attitudesMax = config.context.attitudes ?? 6;
+  const { labels, relationships, limit, cost, interlocutorId, aheadOfPeople, peopleSection, keptPeopleOf } = given;
   const attitudesOn =
     relationships &&
-    Number.isInteger(attitudesMax) &&
-    attitudesMax > 0 &&
     Boolean(labels.attitudes?.header && labels.attitudes?.line) &&
     Array.isArray(given.candidateProfiles) &&
     given.candidateProfiles.length > 0;
@@ -618,7 +621,7 @@ export function attitudesOf(given: RequestInput & Base & Room & Recent & Placed 
     const skipIds = new Set(
       [interlocutorId, ...peopleKept.map((profile) => memberIdOf(profile?.id))].filter((id) => id !== null)
     );
-    attitudesText = renderAttitudes(given.candidateProfiles, labels, { max: attitudesMax, skipIds });
+    attitudesText = renderAttitudes(given.candidateProfiles, labels, { max: ATTITUDES_SHOWN, skipIds });
   }
   return attitudesText;
 }

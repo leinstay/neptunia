@@ -47,7 +47,7 @@ export function dueScopes(db, config, now) {
   const settings = sessionSettings(config);
   const out = [];
   const settleBefore = now - settings.settleMinutes * MINUTE;
-  for (const scope of scopesOf(db, { audienceColumn: config?.memoryDb?.audienceColumn === true })) {
+  for (const scope of scopesOf(db, { audienceColumn: true })) {
     const cursor = Number(
       db.prepare('SELECT value FROM meta WHERE key = ?').get(cursorKey(settings.mode, scope.key))?.value ?? 0
     );
@@ -97,7 +97,7 @@ function subjectName(db, kind, id, selfName) {
 
 /** The description flags waiting for a review, in review order (see the head of this file). */
 export function openFlags(db, config, { skip = new Set(), selfName = '' } = {}) {
-  const audienceColumn = config?.memoryDb?.audienceColumn === true;
+  const audienceColumn = true;
   const rows = db
     .prepare(
       "SELECT id, at, extra FROM decisions WHERE action = 'flag:description' AND by = 'her' AND retired_at IS NULL ORDER BY at, id"

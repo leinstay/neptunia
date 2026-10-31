@@ -48,15 +48,6 @@ export type MaybeFollowUp = (
   ownPrefill?: Promise<void> | null
 ) => Promise<boolean>;
 
-/**
- * Whether a follow-up turn of `triggerKind` that found the attention taken
- * waits in the pending queue: a `followUp` always, an `overheard` while
- * mention.pendingOverheard is on in `config` (missing = on).
- */
-function waitsWhenBusy(triggerKind: FollowUpKind, config: PipelineConfig): boolean {
-  return triggerKind === 'followUp' || config.mention?.pendingOverheard !== false;
-}
-
 export function createFollowUp({
   hot,
   turns,
@@ -209,7 +200,7 @@ export function createFollowUp({
     if (waiting)
       log.info('follow-up: dropped', { channel: channelId, message: waiting.normalized.id, reason: 'newer' });
     // A "yes" or an "overheard" answer always has its kind.
-    const triggerKind = followUpTriggerKind(answer, hot.config.mention) as FollowUpKind;
+    const triggerKind = followUpTriggerKind(answer) as FollowUpKind;
     if (triggerKind === 'overheard' && followUpHeld.has(channelId)) return { started: false, waiting: candidate };
     return { started: startFollowUpTurn(candidate, triggerKind), waiting: null };
   }
@@ -225,7 +216,6 @@ export function createFollowUp({
    * is read now as well (followUpTriggerKind).
    */
   async function startWaitingLine(channelId: string, waiting: Candidate): Promise<void> {
-    const config = hot.config;
     let reason: string | null = followUpMuted();
     if (!reason) {
       const here = await currentOf(waiting.channel);
@@ -236,7 +226,7 @@ export function createFollowUp({
       return;
     }
     // An "overheard" answer always has its kind.
-    startFollowUpTurn(waiting, followUpTriggerKind('overheard', config.mention) as FollowUpKind);
+    startFollowUpTurn(waiting, followUpTriggerKind('overheard') as FollowUpKind);
   }
 
   /**
@@ -257,15 +247,12 @@ export function createFollowUp({
   function startFollowUpTurn({ channel, normalized }: Candidate, triggerKind: FollowUpKind): boolean {
     const channelId = channel.id;
     const config = hot.config;
+    // A follow-up turn that finds the attention taken waits in the pending queue, an overheard one too.
     if (turnBlocked(channelId, config)) {
-      if (waitsWhenBusy(triggerKind, config)) deferFollowUp(channel, normalized, triggerKind);
-      else log.info('follow-up: dropped', { channel: channelId, message: normalized.id, reason: 'busy' });
+      deferFollowUp(channel, normalized, triggerKind);
       return false;
     }
-    // A follow-up is counted for spam (mention.spamThreshold, future
-    // explicit pings) and rolled for mention.followUpIgnoreChance
-    // (decideAndLog): the persona may let the other person have the last
-    // word. An ignored one starts no turn and leaves the window and its
+    // A follow-up is counted for spam (decideAndLog). An ignored one starts no turn and leaves the window and its
     // no-streak as they are. Talk about the persona (overheard) is not a call
     // to it: neither counted nor rolled.
     if (triggerKind === 'followUp' && !decideAndLog(channel, normalized, 'followUp', config).respond) return false;
@@ -273,10 +260,6 @@ export function createFollowUp({
       .runTurn({ conversation: refOf(channel), mode: 'reply', trigger: normalized, triggerKind })
       .then((result) => {
         if (result?.outcome === 'busy') {
-          if (!waitsWhenBusy(triggerKind, hot.config)) {
-            log.info('follow-up: dropped', { channel: channelId, message: normalized.id, reason: 'busy' });
-            return undefined;
-          }
           deferFollowUp(channel, normalized, triggerKind);
           if (!turnBlocked(channelId, hot.config)) return drainPending();
           return undefined;

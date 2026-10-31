@@ -2,7 +2,7 @@
 // post's `<seeds>` and what its search found (`<found>`). buildRequest and buildDiaryPlanRequest
 // (src/behavior/prompt.js) call them. None of it reaches a request of another mode.
 
-import { renderDiaryBlock } from '../../behavior/diary.ts';
+import { DEFAULT_HISTORY_POSTS, renderDiaryBlock } from '../../behavior/diary.ts';
 import { fillPromptTemplate } from './text.ts';
 import type { Labels, Prompts, RequestConfig, RequestInput } from './types.ts';
 
@@ -48,7 +48,7 @@ export function diaryHistoryLines(
 ): Array<string> {
   const body = renderDiaryBlock(posts, labels, {
     timezone: config.bot?.timezone,
-    max: config.diary?.historyPosts ?? 150,
+    max: DEFAULT_HISTORY_POSTS,
   });
   if (!body) return [];
   const lines = body.split('\n');

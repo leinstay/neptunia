@@ -5,7 +5,7 @@
 
 import { privateChatsOff } from '../behavior/core-pause.ts';
 import { lineOf } from '../behavior/line-of.js';
-import { pauseNotice, pauseNoticeMinutes, postPauseNotice } from '../behavior/limits.js';
+import { pauseNotice, PAUSE_NOTICE_MINUTES, postPauseNotice } from '../behavior/limits.js';
 import { detectTrigger } from '../behavior/mention.js';
 import { MINUTE_MS } from '../time.js';
 import type { Conversations } from './conversations.ts';
@@ -86,7 +86,7 @@ export function createPauseNotice({
   /**
    * A message arrived while paused: a direct call (pausedCall) gets the pause
    * notice in its channel -- a reply to the call, like a limit notice -- at
-   * most once per channel per mention.pauseNoticeMinutes (0: every call).
+   * most once per channel per mention.PAUSE_NOTICE_MINUTES (0: every call).
    * Off with features.pauseNotice or without the label; anything else stays
    * silent. Config and labels read now.
    */
@@ -97,7 +97,7 @@ export function createPauseNotice({
     if (!pauseNotice(labels as object)) return;
     const call = await pausedCall(event, config);
     if (!call) return;
-    const minutes = pauseNoticeMinutes(config);
+    const minutes = PAUSE_NOTICE_MINUTES;
     const last = pauseNoticeAt.get(call.channel.id);
     const t = now();
     if (minutes > 0 && last !== undefined && t - last < minutes * MINUTE_MS) return;

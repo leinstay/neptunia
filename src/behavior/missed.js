@@ -34,7 +34,7 @@
 
 import path from 'node:path';
 import * as nodeFs from 'node:fs/promises';
-import { formatTranscript, renderTranscript, withTriggers } from '../format.js';
+import { formatTranscript, MAX_MESSAGE_CHARS, renderTranscript, withTriggers } from '../format.js';
 import { roleRequestOptions } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
@@ -67,7 +67,10 @@ const OWED_TRIGGER_KINDS = new Set(['mention', 'reply', 'name', 'followUp', 'err
 /** The states in which a candidate may still change. */
 const OPEN_STATES = new Set(['pending', 'in_progress']);
 
-/** `missed.*` when a key is missing: config.json's values. */
+/**
+ * The recovery's measures: production values of the config cut of 2026-10-31, and the fallbacks of the two keys
+ * `missed.expireMinutes` and `missed.maxOutputTokens`.
+ */
 const MISSED_FALLBACK = Object.freeze({
   sweepDelaySeconds: 90,
   sweepMaxDelaySeconds: 240,
@@ -91,17 +94,21 @@ const FILE_VERSION = 1;
 /** A question mark, ASCII or full-width. */
 const QUESTION_RE = /[?\uFF1F]/;
 
+/** The keys of `missed` the live config holds. */
+const MISSED_KEYS = Object.freeze(['expireMinutes', 'maxOutputTokens']);
+
 /**
- * `missed.*` of the live config, each key a finite number >= 0 or config.json's value.
+ * The recovery's settings: MISSED_FALLBACK, with `missed.expireMinutes` and `missed.maxOutputTokens` of the live
+ * config each a finite number >= 0 or config.json's value.
  * @param {object|undefined} config  The whole live config.
  * @returns {typeof MISSED_FALLBACK}
  */
 export function missedSettings(config) {
   const group = config?.missed ?? {};
-  const out = {};
-  for (const [key, fallback] of Object.entries(MISSED_FALLBACK)) {
+  const out = { ...MISSED_FALLBACK };
+  for (const key of MISSED_KEYS) {
     const value = group[key];
-    out[key] = typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback;
+    if (typeof value === 'number' && Number.isFinite(value) && value >= 0) out[key] = value;
   }
   return out;
 }
@@ -518,12 +525,9 @@ export function buildCheckRequest({ prompt, labels, config, selfName, history, c
   const lines = typeof triggerOf === 'function' ? withTriggers(window, triggerOf) : window;
   const items = formatTranscript(lines, {
     timezone: config.bot?.timezone,
-    gapMinutes: config.context?.gapMarkerMinutes,
-    maxChars: config.context?.maxMessageChars,
     selfName,
     labels,
     seeReactions: false,
-    replyQuoteChars: config.context?.replyQuoteChars,
     now,
   });
   const indexOf = new Map(items.map((item) => [item.id, item.index]));
@@ -1027,7 +1031,7 @@ export function createMissed({
   /** Whether a turn would find the attention taken in `channelId` now (the rule runTurn applies). */
   function attentionTaken(channelId) {
     if (typeof turns?.isBusy === 'function' && turns.isBusy(channelId)) return true;
-    return hot.config.mention?.oneAtATime !== false && typeof turns?.isAnyBusy === 'function' && turns.isAnyBusy();
+    return typeof turns?.isAnyBusy === 'function' && turns.isAnyBusy();
   }
 
   /** Hold the owed candidates of a channel for a later sweep, `waitMs` from now at the earliest. */
@@ -1099,7 +1103,7 @@ export function createMissed({
       }).list;
     lastRecoveryAt = { ...lastRecoveryAt, [channelId]: startedAt };
     await save();
-    const maxChars = config.context?.maxMessageChars ?? 2000;
+    const maxChars = MAX_MESSAGE_CHARS;
     const missedItems = shown.map((candidate) => {
       const message = byId.get(candidate.messageId);
       return {

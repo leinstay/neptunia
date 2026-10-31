@@ -1,6 +1,6 @@
 // Her attention as leases in the memory database (src/memory/db/wake-queue.ts): the turn runner's set of the
 // conversations a turn runs in (src/behavior/turn.js, `attention`), each entry mirrored by the lease `attention:*`
-// while `mention.oneAtATime` holds (the default: one turn anywhere), else `attention:<conversation>`. A lease lasts
+// (one turn anywhere at a time). A lease lasts
 // `context.turnLeaseMs` and is renewed while the turn runs, at a third of that; the turn's end lets it go. The set in
 // process stays what decides whether a turn may start, because a turn takes the attention before anything is awaited;
 // the lease is what another process sees, and one a stopped process left is taken over once it expired. The writes
@@ -60,11 +60,10 @@ class LeasedAttention extends Set<string> {
     return removed;
   }
 
-  #settings(): { oneAtATime: boolean; ttlMs: number } {
+  #settings(): { ttlMs: number } {
     const config = objOf(objOf(this.#options.hot).config);
     const ttl = objOf(config.context).turnLeaseMs;
     return {
-      oneAtATime: objOf(config.mention).oneAtATime !== false,
       ttlMs: typeof ttl === 'number' && Number.isFinite(ttl) && ttl > 0 ? ttl : TURN_LEASE_MS,
     };
   }
@@ -89,8 +88,9 @@ class LeasedAttention extends Set<string> {
   }
 
   #take(conversationId: string): void {
-    const { oneAtATime, ttlMs } = this.#settings();
-    const name = oneAtATime ? 'attention:*' : `attention:${conversationId}`;
+    const { ttlMs } = this.#settings();
+    // One turn at a time anywhere: `mention.oneAtATime` was on in production, config cut of 2026-10-31.
+    const name = 'attention:*';
     const held: Held = {
       name,
       token: null,

@@ -2,9 +2,7 @@
 // dislikes one member, on a -100 (can't stand them) .. 100 (adores them)
 // scale, 0 = neutral. The memory-update analyzer is the only writer of a
 // `delta`; this module clamps it, folds it into the stored score and keeps a
-// short history of what moved it. Also used by `decideMention` to make the
-// persona a little quicker to ignore someone it dislikes, a little slower to
-// ignore someone it likes, and by the analyzer's request builder to decide
+// short history of what moved it. Also used by the analyzer's request builder to decide
 // when the stored relationship text no longer matches the score or was
 // flagged for a forced rewrite (`relationshipStaleOf`). See
 // docs/prompt-contract.md, "The analyzer".
@@ -416,18 +414,4 @@ export function decayAffinity(affinity, nowMs, cfg = {}) {
     affinity: { ...base, score: round2(score) || 0, decayedAt: new Date(since + days * DAY_MS).toISOString() },
     days,
   };
-}
-
-/**
- * Extra chance to ignore a call, driven by how the persona feels about the
- * caller: a disliked person is ignored a bit more (up to `+affinityIgnoreBonus`
- * at score -100), a liked person a bit less (up to `-affinityLikeBonus` at
- * score +100). 0 or a non-finite score changes nothing.
- * @param {number} score
- * @param {{ affinityIgnoreBonus: number, affinityLikeBonus: number }} cfg  config.mention
- */
-export function ignoreAdjustment(score, cfg) {
-  if (!Number.isFinite(score) || score === 0) return 0;
-  const magnitude = Math.min(100, Math.abs(score)) / 100;
-  return score < 0 ? cfg.affinityIgnoreBonus * magnitude : -cfg.affinityLikeBonus * magnitude;
 }

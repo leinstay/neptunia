@@ -24,15 +24,13 @@ const SECOND_MS = 1000;
 /** The parts of the live config this module reads. */
 type Config =
   | ({
-      elsewhere?: Partial<Record<'settleSeconds' | 'settleMaxSeconds' | 'rememberPings' | 'pingMaxAgeDays', unknown>>;
       memory?: { mainChannelIds?: unknown };
     } & Record<string, unknown>)
   | null
   | undefined;
 
 /**
- * Defaults of the `elsewhere` config block (config.json carries the same
- * values): the quiet time in the source before acting, the longest settle
+ * The elsewhere measures, production values of the config cut of 2026-10-31: the quiet time in the source before acting, the longest settle
  * wait, the ring size and the ring entry lifetime.
  */
 export const ELSEWHERE_DEFAULTS = Object.freeze({
@@ -42,37 +40,26 @@ export const ELSEWHERE_DEFAULTS = Object.freeze({
   pingMaxAgeDays: 7,
 });
 
-/** A finite number >= 0 from `value`, else `fallback`. */
-function nonNegativeOr(value: unknown, fallback: number): number {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback;
-}
-
 /** A finite number from `value`, else null. */
 function finiteOrNull(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 /**
- * The `elsewhere` settings read from the live config, converted to
- * milliseconds, each falling back to `ELSEWHERE_DEFAULTS` when missing or not
- * a finite number >= 0. `rememberPings` 0 keeps no call; `pingMaxAgeDays` 0
- * means no age limit (the ring is then bounded by its size only).
+ * The `elsewhere` measures in milliseconds: ELSEWHERE_DEFAULTS; the live config holds none. `pingMaxAgeDays` 0 would
+ * mean no age limit (the ring then bounded by its size only).
  */
-export function elsewhereSettings(config?: Config): {
+export const elsewhereSettings: (config?: Config) => {
   settleMs: number;
   settleMaxMs: number;
   rememberPings: number;
   pingMaxAgeMs: number;
-} {
-  const e = config?.elsewhere ?? {};
-  const d = ELSEWHERE_DEFAULTS;
-  return {
-    settleMs: nonNegativeOr(e.settleSeconds, d.settleSeconds) * SECOND_MS,
-    settleMaxMs: nonNegativeOr(e.settleMaxSeconds, d.settleMaxSeconds) * SECOND_MS,
-    rememberPings: Math.floor(nonNegativeOr(e.rememberPings, d.rememberPings)),
-    pingMaxAgeMs: nonNegativeOr(e.pingMaxAgeDays, d.pingMaxAgeDays) * DAY_MS,
-  };
-}
+} = () => ({
+  settleMs: ELSEWHERE_DEFAULTS.settleSeconds * SECOND_MS,
+  settleMaxMs: ELSEWHERE_DEFAULTS.settleMaxSeconds * SECOND_MS,
+  rememberPings: ELSEWHERE_DEFAULTS.rememberPings,
+  pingMaxAgeMs: ELSEWHERE_DEFAULTS.pingMaxAgeDays * DAY_MS,
+});
 
 // ---- settle ---------------------------------------------------------------------------
 

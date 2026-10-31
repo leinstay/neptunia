@@ -17,6 +17,9 @@ export function touchKey(cache, key, value) {
   cache[key] = value;
 }
 
+/** The entries a guild's media cache keeps. Production value, config cut of 2026-10-31. */
+export const MEDIA_CACHE_ENTRIES = 5000;
+
 /**
  * Drop the oldest entries once `cache` holds more than `maxEntries`.
  * @param {object} cache

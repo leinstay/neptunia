@@ -3,13 +3,16 @@
 // watch page (src/memory/describe.js#fetchVideoMedia); on many servers
 // YouTube answers yt-dlp with a bot check and the page carries no duration,
 // so without the key most links end as "could not load" -- silently, one link
-// at a time. This probes one fixed canary video (`media.video.canaryUrl`)
+// at a time. This probes one fixed canary video (`CANARY_URL`)
 // through the same fetcher and says which link of that chain works, for
 // `/nep ping video` and one startup log line. No LLM call, nothing cached,
 // nothing written under data/; never logs the URL or the key.
 
 import { log as defaultLog } from '../log.js';
 import { proxyFor } from '../media/video-sites.js';
+
+/** The canary video probed. Production value, config cut of 2026-10-31. */
+const CANARY_URL = 'https://www.youtube.com/watch?v=jNQXAC9IVRw';
 
 /** A probe failure's reason for the detail string; never an error message. */
 function reasonOf(result) {
@@ -33,8 +36,7 @@ export function createYoutubeCheck({ hot, videoFetcher, youtubeApiKey = null }) 
   return async function checkYoutube() {
     const keySet = typeof youtubeApiKey === 'string' && youtubeApiKey !== '';
     const videoCfg = hot.config.media?.video ?? {};
-    const url = videoCfg.canaryUrl;
-    if (typeof url !== 'string' || !url) return { status: 'blocked', detail: 'canaryUrl not set', keySet };
+    const url = CANARY_URL;
     const fetchTimeoutMs = hot.config.context?.vision?.fetchTimeoutMs;
 
     try {

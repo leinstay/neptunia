@@ -17,6 +17,7 @@ import type { SensesOf } from './senses.ts';
 import type { Task } from './task.ts';
 import type { Fit, RequestInput, Section } from './types.ts';
 import type { WakeTexts } from './wake.ts';
+import { LORE_LIMITS } from '../../memory/text-limits.js';
 
 /** The sections fitted ahead of the chat, the chat's, and what memory each memory section offered with its ids. */
 export type HeadSections = {
@@ -103,7 +104,7 @@ export function headSections(
   const aboutOffered = aboutChatItems(given.guildMemory, labels, nameOf, learnedConfig(config), aboutIds);
   const loreIds: Array<string | null> = [];
   const loreOffered = loreOn
-    ? loreItems(given.loreEntries, history, trigger, labels, config.lore, nameOf, loreIds)
+    ? loreItems(given.loreEntries, history, trigger, labels, LORE_LIMITS, nameOf, loreIds)
     : [];
   const serverIds: Array<string | null> = [];
   const serverOffered = privateChat
@@ -116,7 +117,6 @@ export function headSections(
         [...pulledChannelIds, ...offeredNeighbors.map((n) => n.channelId).filter((id): id is string => Boolean(id))],
         history,
         now,
-        config.context.channelActivity,
         labels,
         nameOf,
         readOnlyIds,
@@ -235,28 +235,21 @@ export function fitAll(
         name: 'emoji',
         cap: caps.emoji ?? 800,
         keep: 'first',
-        items: emojiItems(
-          customEmoji,
-          given.guildMemory?.emojiUsage,
-          given.mediaCache ?? null,
-          labels,
-          config.context.customEmoji,
-          {
-            seen: emojiOnce
-              ? seenEmoji([
-                  history,
-                  ...pulledChannels.map((channel) => channel.messages),
-                  ...offeredNeighbors.map((neighbor) => neighbor.messages),
-                ])
-              : [],
-            describe: (id) =>
-              emojiCaption(`emoji:${id}`, [
-                descriptions,
-                given.neighborDescriptions,
-                ...pulledChannels.map((channel) => channel.entry.descriptions),
-              ]),
-          }
-        ),
+        items: emojiItems(customEmoji, given.guildMemory?.emojiUsage, given.mediaCache ?? null, labels, {
+          seen: emojiOnce
+            ? seenEmoji([
+                history,
+                ...pulledChannels.map((channel) => channel.messages),
+                ...offeredNeighbors.map((neighbor) => neighbor.messages),
+              ])
+            : [],
+          describe: (id) =>
+            emojiCaption(`emoji:${id}`, [
+              descriptions,
+              given.neighborDescriptions,
+              ...pulledChannels.map((channel) => channel.entry.descriptions),
+            ]),
+        }),
       },
       // Below even the emoji: the GIF library, trimmed the same way (least used last).
       {

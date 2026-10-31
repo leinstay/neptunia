@@ -52,18 +52,16 @@ import type {
 import type { TriggerKind } from './triggers.ts';
 import type { Typing } from './typing.ts';
 
+/** Reactors read per reaction of her lines. Production value, config cut of 2026-10-31. */
+const REACTION_FETCH_USERS = 10;
+
 /** The live config, as far as the tool round reads it; the settings functions read their own sections. */
 export type ToolRoundConfig = Parameters<typeof resultCharsFor>[1] & {
-  tools?: { callTimeoutMs?: number; markTextMaxChars?: number; resultMaxChars?: number } | null;
+  tools?: { callTimeoutMs?: number; resultMaxChars?: number } | null;
   bot?: { timezone?: string } | null;
   context: {
     channelMessages: number;
-    reactions?: { fetchTimeoutMs?: number; fetchUsers?: number } | null;
-    gapMarkerMinutes: number;
-    maxMessageChars: number;
-    ageAfterMinutes?: number;
-    reactionsPerMessage?: number;
-    replyQuoteChars?: number;
+    reactions?: { fetchTimeoutMs?: number } | null;
   };
   diary?: unknown;
 };
@@ -276,7 +274,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
       ? {
           store: reactors,
           budgetMs: config.context.reactions?.fetchTimeoutMs ?? 2000,
-          fetchUsers: config.context.reactions?.fetchUsers ?? 10,
+          fetchUsers: REACTION_FETCH_USERS,
           known: (memberId) => (communityId ? memberOf(communityId, memberId) : null),
           cache: draft
             ? (draft.reactorNames ??= new Map<string, { name: string; bot: boolean } | null>())
@@ -345,15 +343,10 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
       handles instanceof Map ? new Map([...handles].map(([handle, id]) => [String(id), handle])) : undefined;
     return formatTranscript(lines, {
       timezone: config.bot?.timezone ?? 'UTC',
-      gapMinutes: config.context?.gapMarkerMinutes,
-      maxChars: config.context?.maxMessageChars,
       selfName,
       labels: hot.prompts?.labels ?? {},
       now: clock(),
-      ageMinutes: config.context?.ageAfterMinutes ?? 60,
       seeReactions: true,
-      reactionsPerMessage: config.context?.reactionsPerMessage,
-      replyQuoteChars: config.context?.replyQuoteChars,
       handles: handleOf,
       memberNames: memberNames ?? undefined,
       indexOffset,
@@ -831,7 +824,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
             skill: result.skill,
             status: CALL_STATUS_NAMES.has(result.status) ? result.status : 'failed',
             code: typeof result.code === 'string' && result.code ? result.code : null,
-            ...callTextOf(result, hot.config.tools?.markTextMaxChars ?? 200),
+            ...callTextOf(result),
           }))
       );
     }

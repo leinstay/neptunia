@@ -41,9 +41,9 @@ import { roleModel } from '../llm/roles.js';
 import { DAY_MS, MINUTE_MS } from '../time.js';
 import { log as defaultLog } from '../log.js';
 
-/** `gifs.recachePerRun` when missing or invalid (config.json carries the same). */
+/** The GIFs one recache run queues. Production value, config cut of 2026-10-31. */
 const DEFAULT_PER_RUN = 50;
-/** `media.recacheIntervalMs` when missing or invalid (config.json carries the same). */
+/** The wait between two recache requests, in ms. Production value, config cut of 2026-10-31. */
 const DEFAULT_INTERVAL_MS = 3000;
 /** The `days` of a media recache run: the default and the bounds (`/nep media` checks the same). */
 export const RECACHE_DAYS = Object.freeze({ default: 7, min: 1, max: 60 });
@@ -392,9 +392,7 @@ export function createGifRecache({
     for (const key of dropped) delete cache[key];
     if (dropped.length > 0) store.markMediaCacheDirty(guildId);
 
-    const perRun = hot.config.gifs?.recachePerRun;
-    const limit = Number.isInteger(perRun) && perRun >= 0 ? perRun : DEFAULT_PER_RUN;
-    const queue = recacheQueue(gifs, cache, limit);
+    const queue = recacheQueue(gifs, cache, DEFAULT_PER_RUN);
     log.info('gif-recache: started', { dropped: dropped.length, queued: queue.length });
 
     running = work(guildId, queue)
@@ -405,10 +403,9 @@ export function createGifRecache({
     return { ok: true, dropped: dropped.length, queued: queue.length };
   }
 
-  /** `media.recacheIntervalMs`, read at the moment of use. */
+  /** The wait between two recache requests. */
   function intervalMs() {
-    const value = hot.config.media?.recacheIntervalMs;
-    return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : DEFAULT_INTERVAL_MS;
+    return DEFAULT_INTERVAL_MS;
   }
 
   /** Why a run must stop before its next step (`paused`), or null. */

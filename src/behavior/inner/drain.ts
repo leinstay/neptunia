@@ -554,8 +554,7 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
   await startUp(life, guildId);
   if (state.queue.length === 0) return null;
   if (state.stopped || paused(life)) return { deferred: 'stopped' };
-  const oneAtATime = objOf(objOf(hot.config).mention).oneAtATime !== false;
-  if (oneAtATime && typeof turns?.isAnyBusy === 'function' && turns.isAnyBusy()) return { deferred: 'busy' };
+  if (typeof turns?.isAnyBusy === 'function' && turns.isAnyBusy()) return { deferred: 'busy' };
   if (peopleWaiting()) return { deferred: 'people' };
   const settings = innerSettings(hot.config);
   const at = now();

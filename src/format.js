@@ -20,11 +20,15 @@ import { clampWithEllipsis, oneLine } from './memory/clamp.js';
 import { isWordChar, outsideUrls } from './memory/mentions.ts';
 import { untaggedNames, withUserHandles } from './handles-text.js';
 
-// config.json's context.replyQuoteChars: how much of a reply's parent its line quotes.
+// The transcript's measures. Production values, config cut of 2026-10-31.
+/** How much of a reply's parent its line quotes. */
 const DEFAULT_REPLY_QUOTE_CHARS = 80;
-
-// config.json's context.ageAfterMinutes: from what age a chat line shows how long ago it was.
-const DEFAULT_AGE_MINUTES = 60;
+/** From what age a chat line shows how long ago it was. */
+export const AGE_AFTER_MINUTES = 60;
+/** A silence longer than this many minutes gets a gap marker. */
+export const GAP_MARKER_MINUTES = 20;
+/** Characters of one message's text in a transcript. */
+export const MAX_MESSAGE_CHARS = 2000;
 
 // A language-neutral marker (memory transcript only) for a message addressed
 // to the persona, so the analyzer can weigh "how people talk TO it" apart
@@ -779,8 +783,8 @@ function numberMessageRefs(text, refs, numberOf) {
  * @param {object[]} messages  Normalized messages, oldest first.
  * @param {object} options
  * @param {string} options.timezone
- * @param {number} options.gapMinutes   Silence longer than this gets a marker.
- * @param {number} options.maxChars     Per-message content limit.
+ * @param {number} [options.gapMinutes]   Silence longer than this gets a marker (GAP_MARKER_MINUTES when omitted).
+ * @param {number} [options.maxChars]     Per-message content limit (MAX_MESSAGE_CHARS when omitted).
  * @param {string} options.selfName     The persona's display name, used to fill `labels.self`.
  * @param {object} options.labels       Live `prompts.labels` (locale, self, units, transcript.*).
  * @param {'chat'|'memory'} [options.mode]  'memory' drops #indexes and adds user ids;
@@ -816,7 +820,7 @@ function numberMessageRefs(text, refs, numberOf) {
  *   reactors named exactly like the authors of lines (the `handles` and `transcript.author` below),
  *   at most `reactionNamesMax` (5 when omitted) of them, the rest as `transcript.reactionMore`.
  *   Off, without the label or on anyone else's line: the counts as before.
- * @param {number} [options.reactionNamesMax]  `context.reactions.maxNames`.
+ * @param {number} [options.reactionNamesMax]  5 when omitted.
  * @param {number} [options.replyQuoteChars]  `context.replyQuoteChars` (80 when omitted; 0 = whole):
  *   a reply to a message of the list renders `transcript.replyTo` with `{index}`, `{author}` (the
  *   parent's name, the persona's self label for its own line) and `{quote}` (replyQuote); in
@@ -845,7 +849,7 @@ function numberMessageRefs(text, refs, numberOf) {
  *   and `{age}` (formatDuration of `now - ts`). No `now`, or labels without a non-empty
  *   `transcript.timeAged`, keeps the plain `[clock]`. Memory mode never shows ages. The age is
  *   relative to this clock, so the items' text is for this request only and is never stored.
- * @param {number} [options.ageMinutes]  `context.ageAfterMinutes` (60 when omitted): how old a
+ * @param {number} [options.ageMinutes]  `AGE_AFTER_MINUTES` when omitted: how old a
  *   line must be, in minutes, to carry its age.
  * @param {Map<string, string>} [options.handles]  Member id -> handle (src/behavior/handles.js,
  *   features.mentionHandles). In `mode: 'chat'` with a non-empty `transcript.author` label, the
@@ -888,8 +892,8 @@ function numberMessageRefs(text, refs, numberOf) {
 export function formatTranscript(messages, options) {
   const {
     timezone,
-    gapMinutes,
-    maxChars,
+    gapMinutes = GAP_MARKER_MINUTES,
+    maxChars = MAX_MESSAGE_CHARS,
     selfName,
     labels,
     mode = 'chat',
@@ -920,7 +924,7 @@ export function formatTranscript(messages, options) {
   const agedTemplate = labels.transcript.timeAged;
   const agesOn =
     mode === 'chat' && typeof options.now === 'number' && typeof agedTemplate === 'string' && agedTemplate !== '';
-  const ageMs = (options.ageMinutes ?? DEFAULT_AGE_MINUTES) * MINUTE_MS;
+  const ageMs = (options.ageMinutes ?? AGE_AFTER_MINUTES) * MINUTE_MS;
   /** The bracketed time of a line at `ts`, with its age when old enough (see agesOn). */
   const timeOf = (ts) => {
     const clock = formatClock(ts, timezone, locale);
@@ -1138,8 +1142,7 @@ export function computeTempo(messages, now, trigger = null) {
   };
 }
 
-// Defaults mirror config.json's context.tempo; used whenever the caller omits
-// `thresholds` or one of its two keys (e.g. an older config.local.json).
+// The tempo verdict's thresholds when the caller gives none. Production values, config cut of 2026-10-31.
 const DEFAULT_TEMPO_THRESHOLDS = { liveMessages10min: 4, deadSilenceMinutes: 45 };
 
 /**

@@ -10,6 +10,7 @@ import { CODE } from '../codes.ts';
 import { callMethod, listOf, objOf, textOf } from '../types.ts';
 import type { Env } from './env.ts';
 import type { Obj, OpContext, Untyped } from '../types.ts';
+import { MEMORY_LIMITS } from '../../memory/text-limits.js';
 
 const handlers = perEnv((env) => {
   const { hot, store, assertNotPaused, requireGuildId, tokenResolver } = env;
@@ -30,7 +31,7 @@ const handlers = perEnv((env) => {
     const text = textOf(args.text).trim();
     if (!text) throw invalid('text is required');
 
-    const memoryCfg = hot.config?.memory ?? {};
+    const memoryCfg = { ...hot.config?.memory, ...MEMORY_LIMITS };
     const target = confirmTarget(memoryCfg);
 
     const key = normalizeTopic(text);
@@ -71,7 +72,7 @@ const handlers = perEnv((env) => {
     const existing = (store.getGuild(guildId).learned ?? []).find((item: Untyped) => item.id === id);
     if (!existing) throw invalid(`no learned item #${id}`, CODE.NOT_FOUND);
 
-    store.applyLearnedOps(guildId, { remove: [id] }, { ...(hot.config?.memory ?? {}), seenAt: Date.now() });
+    store.applyLearnedOps(guildId, { remove: [id] }, { ...hot.config?.memory, ...MEMORY_LIMITS, seenAt: Date.now() });
     return `Removed learned item #${id}: ${tokenResolver(guildId).resolve(existing.text)}`;
   }
 

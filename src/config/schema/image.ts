@@ -19,27 +19,6 @@ export const IMAGE: ReadonlyArray<SchemaEntry> = [
       'Visual reference when the persona is in the picture. `"avatar"` downloads the bot\'s avatar; anything else sends nothing',
   },
   {
-    'key': 'image.referenceMaxBytes',
-    'types': ['number'],
-    'reader': 'src/media/fetch-image.js',
-    'default': 4000000,
-    'text': 'Max avatar file size (bytes)',
-  },
-  {
-    'key': 'image.outputFormat',
-    'types': ['string'],
-    'reader': 'src/llm/images.js',
-    'default': 'png',
-    'text': 'Output format (`png`, `jpeg`, `webp`)',
-  },
-  {
-    'key': 'image.aspectRatio',
-    'types': ['string'],
-    'reader': 'src/llm/images.js',
-    'default': 'auto',
-    'text': 'Aspect ratio. For Google models, `auto` is omitted',
-  },
-  {
     'key': 'image.timeoutMs',
     'types': ['number'],
     'reader': 'src/media/draw.js',
@@ -66,13 +45,6 @@ export const IMAGE: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/llm/images.js',
     'default': 'medium',
     'text': 'Image quality for `openai/*` models',
-  },
-  {
-    'key': 'image.openai.background',
-    'types': ['string'],
-    'reader': 'src/llm/images.js',
-    'default': 'auto',
-    'text': 'Background mode for `openai/*` models',
   },
   {
     'key': 'image.openai.moderation',

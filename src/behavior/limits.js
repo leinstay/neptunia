@@ -39,18 +39,8 @@ export function pauseNotice(labels) {
   return typeof text === 'string' && text.trim() ? text : '';
 }
 
-/**
- * The least minutes between two pause notices in one channel:
- * `mention.pauseNoticeMinutes` (`config` read by the caller now) floored at
- * 0, or 10 (the config.json value) when it is missing or not a number. 0
- * lets every call get one.
- * @param {object} config
- * @returns {number}
- */
-export function pauseNoticeMinutes(config) {
-  const value = config?.mention?.pauseNoticeMinutes;
-  return Number.isFinite(value) ? Math.max(0, value) : 10;
-}
+/** The least minutes between two pause notices in one channel. Production value, config cut of 2026-10-31. */
+export const PAUSE_NOTICE_MINUTES = 10;
 
 /**
  * Whether `content` is a line `limitNotice` produced from the current label

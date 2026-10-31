@@ -65,7 +65,7 @@ export async function waitForPreparation(
           return allowed;
         };
         // Without the listing (the interface does not offer it) there are no neighbours to show.
-        const found = snapshot ? await fetchNeighbors(ifaceReads, snapshot, channel, config, now, { accept }) : [];
+        const found = snapshot ? await fetchNeighbors(ifaceReads, snapshot, channel, now, { accept }) : [];
         return { neighbors: found, hidden };
       });
   // The pulled channels started earlier: timed from their own start.

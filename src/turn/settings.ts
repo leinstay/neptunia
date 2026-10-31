@@ -80,7 +80,7 @@ const DIARY_LOOP_FALLBACK = Object.freeze({ maxSteps: 2, timeBudgetMs: 600000 })
 /** The least time one call of the tool loop gets, whatever is left of its budget. */
 export const LOOP_MIN_CALL_MS = 2000;
 /**
- * The calls a heartbeat turn accepts while `innerLife.heartbeat.intentionsOnly` is on (docs/inner-life.md
+ * The calls a heartbeat turn accepts (docs/inner-life.md
  * "What a heartbeat may do"): memory inspection, then one change of an intention. Other calls are refused `heartbeat-only`;
  * `<skip/>` is no call.
  */

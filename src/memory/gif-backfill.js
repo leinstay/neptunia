@@ -1,12 +1,12 @@
 // The GIF library history backfill: members' GIFs are recorded as they arrive
 // (src/memory/update.js), so on a server with a long history the `<gifs>`
 // block would stay empty until enough GIFs are posted again. This reads the
-// last `gifs.backfillMessages` messages of every readable channel over the
+// last `BACKFILL_MESSAGES` messages of every readable channel over the
 // interface's history reads -- no LLM for the counting, no token budget -- and counts them
 // into gifs.json at once (src/memory/gifs.js), starting from counts reset to
 // 0 (entries and handles kept, so a GIF keeps its handle across a recount),
 // then stamps `backfill: { at, channels, messages }` so it never
-// counts the same history twice. The top `gifs.backfillDescribe` GIFs without
+// counts the same history twice. The top `BACKFILL_DESCRIBE` GIFs without
 // a cached caption are then sent to the media describer (real requests,
 // counted against the daily cap), so the list the persona picks from says
 // what each GIF shows. Runs once at startup (`startIfNeeded`) and again only
@@ -14,21 +14,22 @@
 
 import { collectPictures } from '../media/classify.js';
 import { readMemberHistory } from './emoji-backfill.js';
-import { gifOpts, rankGifs } from './gifs.js';
+import { GIF_HALF_LIFE_DAYS, gifOpts, rankGifs } from './gifs.js';
 import { log as defaultLog } from '../log.js';
 
 /** How many messages one `store.recordGifs` call takes. */
 const CHUNK = 500;
 
-/** Defaults of `gifs.*` when a key is missing (config.json carries the same). */
-const DEFAULT_BACKFILL_MESSAGES = 500;
-const DEFAULT_BACKFILL_DESCRIBE = 20;
+// Production values, config cut of 2026-10-31.
+/** The messages read per channel. */
+const BACKFILL_MESSAGES = 500;
+/** The GIFs without a caption sent to the describer after a count. */
+const BACKFILL_DESCRIBE = 20;
 
 /**
  * The GIF history backfill for the served guild.
  * @param {object} deps
- * @param {object} deps.hot        src/hot.js view; `config.gifs`, `config.bot`,
- *   `config.media.embedTextChars`, `config.features.gifs` read at use.
+ * @param {object} deps.hot        src/hot.js view; `config` read at use.
  * @param {object} deps.store      src/memory/store.js.
  * @param {import('../interface/reads.ts').Reads} deps.reads  The core's reads of the interface (src/memory/emoji-backfill.js#readMemberHistory's).
  * @param {() => string} deps.iface  The interface's name, read when a run starts.
@@ -56,7 +57,7 @@ export function createGifBackfill({ hot, store, reads, iface, describer = null, 
     if (!describer || typeof describer.describeMany !== 'function' || limit <= 0) return 0;
     const cache = store.getMediaCache(guildId);
     const items = [];
-    for (const entry of rankGifs(store.getGifs(guildId), gifOpts(hot.config).halfLifeDays)) {
+    for (const entry of rankGifs(store.getGifs(guildId), GIF_HALF_LIFE_DAYS)) {
       if (items.length >= limit) break;
       const cached = cache?.[entry.itemId];
       if (cached && !cached.miss && typeof cached.text === 'string' && cached.text.trim()) continue;
@@ -84,8 +85,7 @@ export function createGifBackfill({ hot, store, reads, iface, describer = null, 
    * Channels are read one after another (readMemberHistory). Messages of bots and of the
    * persona are skipped. Resetting, counting and stamping happen together
    * after every channel is read; the describing comes after, and only while
-   * not paused. Skips (never throws) when paused, when `backfillMessages` is
-   * 0, when already stamped (no `force`), while another run is in flight, or
+   * not paused. Skips (never throws) when paused, when already stamped (no `force`), while another run is in flight, or
    * when the interface lists no readable conversation of the community; an unexpected error is thrown.
    * @param {string} guildId
    * @param {{ force?: boolean }} [opts]
@@ -95,13 +95,11 @@ export function createGifBackfill({ hot, store, reads, iface, describer = null, 
   async function run(guildId, { force = false } = {}) {
     if (running) return skipped('running');
     if (store.state?.data?.paused) return skipped('paused');
-    const limit = hot.config.gifs?.backfillMessages ?? DEFAULT_BACKFILL_MESSAGES;
-    if (!Number.isInteger(limit) || limit <= 0) return skipped('disabled');
     if (!force && store.getGifs(guildId).backfill?.at) return skipped('done');
 
     running = true;
     try {
-      const history = await readMemberHistory(reads, guildId, limit, {
+      const history = await readMemberHistory(reads, guildId, BACKFILL_MESSAGES, {
         config: hot.config,
         iface: iface(),
         log,
@@ -113,8 +111,7 @@ export function createGifBackfill({ hot, store, reads, iface, describer = null, 
       // From here on nothing awaits until the stamp: no GIF can be recorded in between.
       if (store.state?.data?.paused) return skipped('paused');
       const members = collected.sort((a, b) => a.ts - b.ts);
-      const gifCfg = hot.config.gifs ?? {};
-      const opts = gifOpts(hot.config);
+      const opts = gifOpts();
 
       // Always from zero counts: the window already holds what was recorded on arrival.
       store.resetGifCounts(guildId);
@@ -133,11 +130,7 @@ export function createGifBackfill({ hot, store, reads, iface, describer = null, 
             pictures.set(picture.itemId, picture);
         }
       }
-      const describeLimit = gifCfg.backfillDescribe ?? DEFAULT_BACKFILL_DESCRIBE;
-      const described =
-        store.state?.data?.paused || !Number.isInteger(describeLimit)
-          ? 0
-          : await describeTop(guildId, pictures, describeLimit);
+      const described = store.state?.data?.paused ? 0 : await describeTop(guildId, pictures, BACKFILL_DESCRIBE);
       if (described > 0) store.flush();
 
       const counts = { channels, messages: members.length, gifs, described };

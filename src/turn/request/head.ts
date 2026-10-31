@@ -20,7 +20,7 @@ import { requestTokenLimit, sectionCost } from '../../llm/budget.js';
 import { cacheTtlMs } from '../../llm/openrouter.js';
 import { gifHandleMap, normalizeGifs } from '../../memory/index.js';
 import { memberIdOf } from '../../memory/recent.js';
-import { emojiMax, freezePerBucket, gifFieldChars, gifFieldsMap } from './emoji-gifs.ts';
+import { freezePerBucket, gifFieldChars, gifFieldsMap } from './emoji-gifs.ts';
 import type { Held } from './emoji-gifs.ts';
 import { anchoredOn } from './memory.ts';
 import { authorsInView } from './pulled.ts';
@@ -38,6 +38,7 @@ import type {
   RequestInput,
   TranscriptItem,
 } from './types.ts';
+import { RELATIONSHIP_LIMITS } from '../../memory/text-limits.js';
 
 /** The live glance at the server's sidebar (src/behavior/around-store.ts), as `<people_now>` reads it. */
 export type AroundSnapshot = {
@@ -196,7 +197,7 @@ export function requestHead(given: RequestInput): Base {
   const nowText = nowBlock(now, timezone, labels, given.offPeriods);
   const relationships = true;
   // How many attitude moves follow the attitude in a `<people_now>` entry (profileStateFields).
-  const shownMoves = config.relationships?.shownMoves ?? 4;
+  const shownMoves = RELATIONSHIP_LIMITS.shownMoves;
   const episodesOn = true;
   const loreOn = true;
   // The GIF library: the switch (a missing key counts as on) and at least one entry.
@@ -212,24 +213,17 @@ export function requestHead(given: RequestInput): Base {
   const emojiLabels = labels.emoji;
   const emojiOnce =
     Boolean(emojiLabels?.header && emojiLabels.entryNoText && emojiLabels.entry && emojiLabels.seenInChat) &&
-    emojiMax(config.context.customEmoji) > 0 &&
     customEmoji.some((emoji) => emoji?.id && emoji.name);
   const formatOptions = {
     timezone,
-    gapMinutes: config.context.gapMarkerMinutes,
-    maxChars: config.context.maxMessageChars,
     selfName,
     labels,
     // An old line carries its age against the same clock as `<now>` and `<tempo>`: the chat,
     // neighbour and pulled channels alike.
     now,
-    ageMinutes: config.context.ageAfterMinutes ?? 60,
     seeReactions: true,
-    reactionsPerMessage: config.context.reactionsPerMessage,
     // Who reacted to the persona's own lines, named like authors (features.reactionNames).
     reactionNames: true,
-    reactionNamesMax: config.context.reactions?.maxNames ?? 5,
-    replyQuoteChars: config.context.replyQuoteChars,
     emojiInline: !emojiOnce,
     descriptions,
     videos,
@@ -253,7 +247,7 @@ export function requestHead(given: RequestInput): Base {
     // ...and its three caption fields, cut like the `<gifs>` list (transcript.gifKnownFields).
     gifFields:
       gifsOn && labels.transcript?.gifKnownFields && given.mediaCache
-        ? gifFieldsMap(given.mediaCache, gifFieldChars(config.gifs))
+        ? gifFieldsMap(given.mediaCache, gifFieldChars())
         : undefined,
   };
 
@@ -328,7 +322,7 @@ export function requestRoom(given: RequestInput): Room {
     toolsExposed && reserveRaw !== undefined && Number.isFinite(reserveRaw) && reserveRaw > 0
       ? Math.floor(reserveRaw)
       : 0;
-  // The prompt rail is the same with or without tools: requestTokenLimit (llm.maxRequestTokens x llm.safetyMargin). The output budget is separate.
+  // The prompt rail is the same with or without tools: requestTokenLimit (llm.maxRequestTokens x SAFETY_MARGIN). The output budget is separate.
   const limit = Math.max(0, requestTokenLimit(config) - TAG_OVERHEAD - toolsTokens - stepReserve);
   return { caps, cost, limit };
 }

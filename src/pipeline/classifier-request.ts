@@ -10,6 +10,13 @@ import { fillPromptTemplate } from '../turn/request/text.ts';
 import type { ConversationRef } from './conversations.ts';
 import type { MediaPrefill } from './media-prefill.ts';
 import type { Conv, Line, PipelineConfig, PipelineHot, PipelineLabels } from './types.ts';
+import { MEMORY_LIMITS } from '../memory/text-limits.js';
+
+// The address classifier's request. Production values, config cut of 2026-10-31.
+/** The channel lines before the candidate. */
+const FOLLOW_UP_CONTEXT = 15;
+/** The candidate author's aliases in `<author>`. */
+const FOLLOW_UP_ALIASES = 5;
 
 /** A classifier's request: the system and user texts, and the fetched lines without the candidate (never sent). */
 export type ClassifierRequest = { system: string; user: string; history: Array<Line> };
@@ -60,7 +67,7 @@ export function createClassifierRequest({ reads, store, refOf, cachedFollowUpMed
     if (!prompt) return null;
     // The classifiers run only with the prompts loaded, so the labels file is there.
     const labels = (prompts as NonNullable<PipelineHot['prompts']>).labels;
-    const contextLines = Math.max(0, config.mention.followUpContext ?? 15);
+    const contextLines = FOLLOW_UP_CONTEXT;
     const raw = contextLines > 0 ? await historyLines(reads, refOf(channel), { limit: contextLines }) : [];
     // A history line is a normalized line as lineOf gives it (src/behavior/lines.ts).
     const history = raw.filter((m) => m.id !== normalized.id) as unknown as Array<Line>;
@@ -70,13 +77,9 @@ export function createClassifierRequest({ reads, store, refOf, cachedFollowUpMed
     const { descriptions, videos } = await cachedFollowUpMedia(guildId, messages, config, ownPrefill);
     const items = formatTranscript(messages, {
       timezone: config.bot.timezone,
-      gapMinutes: config.context.gapMarkerMinutes,
-      maxChars: config.context.maxMessageChars,
       selfName,
       labels,
       seeReactions: true,
-      reactionsPerMessage: config.context.reactionsPerMessage,
-      replyQuoteChars: config.context.replyQuoteChars,
       descriptions,
       videos,
     });
@@ -95,12 +98,12 @@ export function createClassifierRequest({ reads, store, refOf, cachedFollowUpMed
 
   /**
    * The `<author>` block's one line: the candidate author's display name and
-   * the top `mention.followUpAliases` stored aliases by rank (decayed with
-   * `memory.aliasHalfLifeDays`, the same order the persona's own request
+   * the top `FOLLOW_UP_ALIASES` stored aliases by rank (decayed with
+   * `MEMORY_LIMITS.aliasHalfLifeDays`, the same order the persona's own request
    * shows), filled into `labels.address.author` (`{name}`, `{aliases}`) --
    * so the classifier can tie a nickname in the persona's line to this
    * member. Read-only (`store.getUser`). `''` (no block) with no profile, no
-   * aliases, a cap of 0 or no `labels.address.author`.
+   * aliases or no `labels.address.author`.
    */
   function followUpAuthorLine(
     guildId: string,
@@ -110,12 +113,11 @@ export function createClassifierRequest({ reads, store, refOf, cachedFollowUpMed
   ): string {
     const template = labels?.address?.author;
     if (!template) return '';
-    const cap = Math.max(0, Math.floor(config.mention?.followUpAliases ?? 5));
-    if (!(cap > 0)) return '';
+    const cap = FOLLOW_UP_ALIASES;
     const profile = store?.getUser?.(guildId, normalized.authorId);
     const aliases: Array<object> = Array.isArray(profile?.aliases) ? (profile.aliases as Array<object>) : [];
     // A stored alias has its name (src/memory/aliases.js).
-    const ranked = topByRank(aliases, cap, config.memory?.aliasHalfLifeDays) as Array<{ name: string }>;
+    const ranked = topByRank(aliases, cap, MEMORY_LIMITS.aliasHalfLifeDays) as Array<{ name: string }>;
     const names = ranked.map((item) => item.name);
     if (names.length === 0) return '';
     return fill(template, { name: normalized.authorName, aliases: names.join(', ') });

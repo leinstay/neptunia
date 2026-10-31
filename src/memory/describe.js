@@ -6,7 +6,7 @@
 // picture at once (a message prefill and a turn) share one download and one
 // request. Results are cached per
 // attachment/embed id in data/guilds/<id>/media.json (src/memory/store.js),
-// LRU-trimmed to `media.cacheEntries`. A failure is cached as a miss for an
+// LRU-trimmed to `MEDIA_CACHE_ENTRIES` (src/web/cache.js). A failure is cached as a miss for an
 // hour, so a broken picture is not retried on every turn/batch -- except a
 // refusal by `llm.maxRequestsPerDay`, which says nothing about the picture.
 // Once that cap is spent (llm.capLeft) nothing is downloaded, no daily video,
@@ -126,14 +126,14 @@
 
 import { isPlainObject } from '../config.js';
 import { watchedLengths } from '../media/classify.js';
-import { createImageFetcher } from '../media/fetch-image.js';
+import { createImageFetcher, VISION_MAX_BYTES } from '../media/fetch-image.js';
 import { createVideoFetcher } from '../media/fetch-video.js';
 import { audioMapSettings, videoAudioNote, withAudioNote } from '../media/audio-map.js';
 import { isDirectUrlSite, proxyFor, publicVideoUrl, safeLocation, youtubeVideoId } from '../media/video-sites.js';
 import {
   roleRequestOptions,
   railReason,
-  VIDEO_TOKENS_PER_SECOND_FALLBACK as STATIC_TOKENS_PER_SECOND_FALLBACK,
+  VIDEO_TOKENS_PER_SECOND as STATIC_TOKENS_PER_SECOND_FALLBACK,
 } from '../llm/openrouter.js';
 import { clampText, oneLine } from './clamp.js';
 import { roleModel } from '../llm/roles.js';
@@ -142,25 +142,44 @@ import { createYoutubeCheck } from './youtube-check.js';
 import { gifWatchBlocker as gifWatchBlockerOf, gifWatchPrompt } from './gif-watch.js';
 import { log } from '../log.js';
 import { MINUTE_MS, utcDay } from '../time.js';
-import { hashedKey, touchKey, trimCache } from '../web/cache.js';
+import { MEDIA_CACHE_ENTRIES, hashedKey, touchKey, trimCache } from '../web/cache.js';
 import { normalizeQuery } from '../web/lookup.js';
 
 const MISS_TTL_MS = 60 * MINUTE_MS;
-// Only when media.descriptionChars is missing or invalid (config.json always has it).
-const DESCRIPTION_CHARS_FALLBACK = 500;
 // Only when media.video.errorRetryMinutes is missing or invalid (config.json always has it).
 const VIDEO_ERROR_RETRY_MINUTES_FALLBACK = 60;
-// Only when media.video.urlProcessing is missing (config.json always has it; null omits the field).
-const VIDEO_URL_PROCESSING_FALLBACK = 'agentic';
-// Only when media.video.summaryChars is missing (config.json always has it, the same value).
-const VIDEO_TEXT_CHARS_FALLBACK = 1500;
-const REWATCH_ANSWER_CHARS_FALLBACK = 1200;
+// The describer's measures. Production values, config cut of 2026-10-31.
+/** The length of a picture's or a GIF's caption. */
+const DESCRIPTION_CHARS = 500;
+/** The seconds of a GIF that are watched. */
+const GIF_MAX_SECONDS = 15;
+/** The length of the answer of a second look. */
+const REWATCH_ANSWER_CHARS = 1200;
+/**
+ * The fixed fields of `media.video`, laid over the live section by videoSettingsOf: the summary's length, the
+ * lengths a clip and a public URL may run, the clip's bytes, the per-second estimates, the sites whose videos go out
+ * by their public URL, the processing mode of a public URL and the reasoning effort of a video request.
+ */
+const VIDEO_FIXED = Object.freeze({
+  summaryChars: 1500,
+  maxSeconds: 300,
+  directUrlMaxSeconds: 3600,
+  maxBytes: 14500000,
+  tokensPerSecond: 120,
+  directUrlTokensPerSecond: 10,
+  directUrlSites: Object.freeze(['youtube.com', 'youtu.be']),
+  urlProcessing: 'agentic',
+  reasoning: Object.freeze({ effort: 'low' }),
+});
+
+/** The live `media.video` section with the fixed fields (VIDEO_FIXED) over it. */
+function videoSettingsOf(config) {
+  return { ...(config?.media?.video ?? {}), ...VIDEO_FIXED };
+}
 const REWATCH_TTL_MS = 60 * MINUTE_MS;
 const PERMANENT_VIDEO_MISSES = new Set(['length', 'size']);
 /** What cachedPicture returns for a picture whose recent failure is still remembered. */
 const FRESH_MISS = Symbol('fresh-miss');
-// Only when media.gif.maxSeconds is missing or invalid (config.json always has it).
-const GIF_MAX_SECONDS_FALLBACK = 15;
 
 /**
  * The file a GIF watch downloads: a gif embed's `animationUrl` (the mp4 of
@@ -260,11 +279,6 @@ export function parseGifDescription(raw, { descriptionChars }) {
   return { text, reaction: bound(reactionWhole), action: bound(actionWhole), screen: bound(screenWhole) };
 }
 
-/** A positive number from the config, else `fallback`. */
-function positiveOr(value, fallback) {
-  return typeof value === 'number' && value > 0 ? value : fallback;
-}
-
 /**
  * The cache key of one question's answer: `<prefix>:<itemId>:q:` (`video`
  * for a re-watch, `image` for a picture's second look, `gif` for a GIF's) and the sha1 prefix
@@ -347,7 +361,7 @@ function staticRequestSeconds(videoCfg, llmCfg) {
 
 /** The processing mode a public URL goes out with (see videoPart), or null when the field is omitted. */
 function urlProcessingMode(videoCfg) {
-  const mode = videoCfg.urlProcessing === undefined ? VIDEO_URL_PROCESSING_FALLBACK : videoCfg.urlProcessing;
+  const mode = videoCfg.urlProcessing;
   return typeof mode === 'string' && mode ? mode : null;
 }
 
@@ -360,7 +374,7 @@ function urlProcessingMode(videoCfg) {
  * `media.video.errorRetryMinutes`, see describeVideo), or a `length` miss whose duration is
  * unknown or fits the length cap that applies to `item` now (a raised cap retries it). `item`
  * (a collectVideos candidate) only decides the cap: a pinnable direct-URL link has its own; without
- * one (a buffered message keeps no URL) the cap is `media.video.maxSeconds`. Pure. Used by the
+ * one (a buffered message keeps no URL) the cap is VIDEO_FIXED's `maxSeconds`. Pure. Used by the
  * describer's cache lookup.
  * @param {object|undefined} entry
  * @param {object} config  Live config (`media.video`, `llm`).
@@ -376,7 +390,7 @@ export function videoStateFromCache(entry, config, item = {}) {
   if (entry.reason === 'length') {
     // An unknown duration (older entries included) costs one probe to learn.
     if (typeof entry.durationSec !== 'number') return null;
-    if (entry.durationSec <= lengthCap(item, config?.media?.video ?? {}, config?.llm)) return null;
+    if (entry.durationSec <= lengthCap(item, videoSettingsOf(config), config?.llm)) return null;
   }
   return { state: 'limit', reason: entry.reason };
 }
@@ -575,7 +589,7 @@ export function createDescriber({
     const promptText = hot.prompts?.describe;
     if (!promptText) return null;
     const mediaCfg = hot.config.media ?? {};
-    const descriptionChars = positiveOr(mediaCfg.descriptionChars, DESCRIPTION_CHARS_FALLBACK);
+    const descriptionChars = DESCRIPTION_CHARS;
     const cache = store.getMediaCache(guildId);
 
     // The old caption kept on a failure, its entry stamped when `mark` is set.
@@ -609,7 +623,7 @@ export function createDescriber({
       if (previous) return keepPrevious(mark);
       if (mark) {
         touchKey(cache, item.itemId, { miss: true, ts: now() });
-        trimCache(cache, mediaCfg.cacheEntries ?? Infinity);
+        trimCache(cache, MEDIA_CACHE_ENTRIES);
         store.markMediaCacheDirty(guildId);
       }
       return null;
@@ -617,7 +631,7 @@ export function createDescriber({
 
     const visionCfg = hot.config.context?.vision ?? {};
     const downloaded = await imageFetcher.fetchAsDataUrl(imageUrl, {
-      maxBytes: visionCfg.maxBytes,
+      maxBytes: VISION_MAX_BYTES,
       timeoutMs: visionCfg.fetchTimeoutMs,
     });
     if (!downloaded) {
@@ -678,7 +692,7 @@ export function createDescriber({
     if (item.kind === 'gif') entry.gif = true;
     if (watchFailed) entry.watchFailed = entry.ts;
     touchKey(cache, item.itemId, entry);
-    trimCache(cache, mediaCfg.cacheEntries ?? Infinity);
+    trimCache(cache, MEDIA_CACHE_ENTRIES);
     store.markMediaCacheDirty(guildId);
     return { text, usage: completion.usage ?? null, estimated: completion.estimated ?? 0 };
   }
@@ -689,7 +703,7 @@ export function createDescriber({
    * @returns {'off'|'video-off'|'no-prompt'|null}
    */
   function gifWatchBlocker() {
-    return gifWatchBlockerOf(hot.config, hot.prompts);
+    return gifWatchBlockerOf(hot.prompts);
   }
 
   /**
@@ -714,10 +728,9 @@ export function createDescriber({
    * `describe: gif` log line, codes only.
    */
   async function watchGifNow(guildId, item, source) {
-    const mediaCfg = hot.config.media ?? {};
-    const videoCfg = mediaCfg.video ?? {};
-    const maxSeconds = positiveOr(mediaCfg.gif?.maxSeconds, GIF_MAX_SECONDS_FALLBACK);
-    const descriptionChars = positiveOr(mediaCfg.descriptionChars, DESCRIPTION_CHARS_FALLBACK);
+    const videoCfg = videoSettingsOf(hot.config);
+    const maxSeconds = GIF_MAX_SECONDS;
+    const descriptionChars = DESCRIPTION_CHARS;
     const report = (outcome, extra = {}) => {
       log.info('describe: gif', {
         state: outcome.state,
@@ -781,7 +794,7 @@ export function createDescriber({
    * bytes }` (`seconds` never above `maxSeconds`) or `{ ok: false, reason }`.
    */
   async function fetchGifClip(source, maxSeconds) {
-    const videoCfg = hot.config.media?.video ?? {};
+    const videoCfg = videoSettingsOf(hot.config);
     const media = await videoFetcher.fetchGif(source, {
       maxSeconds,
       maxBytes: videoCfg.maxBytes,
@@ -963,7 +976,7 @@ export function createDescriber({
   function putVideoEntry(guildId, key, value) {
     const cache = store.getMediaCache(guildId);
     touchKey(cache, key, value);
-    trimCache(cache, hot.config.media?.cacheEntries ?? Infinity);
+    trimCache(cache, MEDIA_CACHE_ENTRIES);
     store.markMediaCacheDirty(guildId);
   }
 
@@ -1079,7 +1092,7 @@ export function createDescriber({
    */
   async function fetchVideoMedia(item, videoCfg) {
     const { maxSeconds, maxBytes, toolTimeoutMs, ffmpegPath, ytdlpPath } = videoCfg;
-    const audioMap = audioMapSettings(videoCfg.audioMap);
+    const audioMap = audioMapSettings();
     if (item.source === 'attachment') {
       const got = await videoFetcher.fetchAttachment(item.url, {
         durationSec: item.durationSec,
@@ -1124,11 +1137,6 @@ export function createDescriber({
     // without one the clip is downloaded like any other site's.
     const pinnable = isPinnableLink(item, videoCfg);
     if (!probe.ok) {
-      // No duration at all: only the owner's explicit switch sends the URL,
-      // billed as the longest allowed video.
-      if (pinnable && videoCfg.directUrlUnknownDuration === true) {
-        return { ok: true, url: publicVideoUrl(item.url), seconds: maxSeconds, bytes: null, pinned: true };
-      }
       return probe;
     }
     const durationSec = probe.durationSec ?? item.durationSec ?? null;
@@ -1179,8 +1187,8 @@ export function createDescriber({
    * with its entry stamped `refreshFailedAt` -- never a miss over it.
    */
   async function watchVideo(guildId, item, key, promptText, forced = false, previous = null) {
-    const videoCfg = hot.config.media?.video ?? {};
-    const summaryChars = positiveOr(videoCfg.summaryChars, VIDEO_TEXT_CHARS_FALLBACK);
+    const videoCfg = videoSettingsOf(hot.config);
+    const summaryChars = videoCfg.summaryChars;
     const report = (result, extra = {}) => {
       log.info('describe: video', {
         source: item.source,
@@ -1411,9 +1419,9 @@ export function createDescriber({
     const asked = String(question ?? '').trim();
     if (!promptText || !isVideoCandidate(item) || !asked) return null;
 
-    const videoCfg = hot.config.media?.video ?? {};
+    const videoCfg = videoSettingsOf(hot.config);
     const rewatchCfg = videoCfg.rewatch ?? {};
-    const answerChars = positiveOr(rewatchCfg.answerChars, REWATCH_ANSWER_CHARS_FALLBACK);
+    const answerChars = REWATCH_ANSWER_CHARS;
     const report = (outcome, extra = {}) => {
       log.info('describe: rewatch', {
         source: item.source,
@@ -1510,7 +1518,7 @@ export function createDescriber({
 
     const mediaCfg = hot.config.media ?? {};
     const rewatchCfg = mediaCfg.video?.rewatch ?? {};
-    const answerChars = positiveOr(rewatchCfg.answerChars, REWATCH_ANSWER_CHARS_FALLBACK);
+    const answerChars = REWATCH_ANSWER_CHARS;
     const report = (outcome, extra = {}) => {
       log.info('describe: relook', {
         source: item.source ?? null,
@@ -1542,7 +1550,7 @@ export function createDescriber({
 
     const visionCfg = hot.config.context?.vision ?? {};
     const downloaded = await imageFetcher.fetchAsDataUrl(pictureImageUrl(item, mediaCfg), {
-      maxBytes: visionCfg.maxBytes,
+      maxBytes: VISION_MAX_BYTES,
       timeoutMs: visionCfg.fetchTimeoutMs,
     });
     if (!downloaded) {
@@ -1645,11 +1653,10 @@ export function createDescriber({
     const source = gifAnimationSource(item);
     if (!promptText || !item?.itemId || !source || !asked) return null;
 
-    const mediaCfg = hot.config.media ?? {};
-    const videoCfg = mediaCfg.video ?? {};
+    const videoCfg = videoSettingsOf(hot.config);
     const rewatchCfg = videoCfg.rewatch ?? {};
-    const answerChars = positiveOr(rewatchCfg.answerChars, REWATCH_ANSWER_CHARS_FALLBACK);
-    const maxSeconds = positiveOr(mediaCfg.gif?.maxSeconds, GIF_MAX_SECONDS_FALLBACK);
+    const answerChars = REWATCH_ANSWER_CHARS;
+    const maxSeconds = GIF_MAX_SECONDS;
     const report = (outcome, extra = {}) => {
       log.info('describe: rewatch', {
         kind: 'gif',

@@ -899,7 +899,7 @@ export type HeartbeatInput = {
   now: number;
   /** Her previous heartbeat (epoch ms); null: the last day. */
   since?: number | null;
-  /** `innerLife.heartbeat`: the numbers of the view and `intentionsOnly`. */
+  /** `innerLife.heartbeat`: the numbers of the view. */
   settings?: Readonly<Record<string, unknown>> | null;
   /** The member profiles (store.listUserProfiles). */
   profiles?: unknown;
@@ -1060,7 +1060,9 @@ export async function buildHeartbeatFacts({
     activity,
     refs: book.refs,
     maxTokens: s.maxTokens,
-    intentionsOnly: settings?.intentionsOnly === true,
+    // A heartbeat is held to intention changes only: `innerLife.heartbeat.intentionsOnly` was on in production, config
+    // cut of 2026-10-31.
+    intentionsOnly: true,
     life: lifeOf(common),
     skills: skillFamilies(skills),
     agents: listOf(agents).filter((name): name is string => typeof name === 'string' && name !== ''),

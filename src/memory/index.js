@@ -22,7 +22,7 @@ export { createAvatarQueue } from './avatar-queue.js';
 export { startYoutubeCheck } from './youtube-check.js';
 
 // Reads: profiles, the private layer, channels, lore, episodes, media and the journal's views.
-export { affinityBand, clampScore, emptyAffinity, ignoreAdjustment, roundScore, strongestMoves } from './affinity.js';
+export { affinityBand, clampScore, emptyAffinity, roundScore, strongestMoves } from './affinity.js';
 export { isConfirmed, isOpen, isStale, normalizeTopic } from './interests.js';
 export { rankAddressed } from './addressed.js';
 export { episodeDate, sortEpisodesForDisplay, topEpisodes } from './episodes.js';

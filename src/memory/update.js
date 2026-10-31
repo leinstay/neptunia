@@ -11,6 +11,7 @@ import { emojiUsageOpts } from './emoji-usage.js';
 import { gifOpts } from './gifs.js';
 import { recordLinks } from './record.js';
 import { diaryConversationIds } from './db/mirrors.ts';
+import { MEMORY_LIMITS } from './text-limits.js';
 
 /**
  * The log `error` field of a failure: the error's name only (`SyntaxError`, `TypeError`, `Error`), never its message.
@@ -190,19 +191,20 @@ export function createMemoryUpdater({ hot, store }) {
     if (privateUserId) return;
     touchMemory(store, guildId, normalized, {
       ...hot.config.memory,
+      ...MEMORY_LIMITS,
       diaryChannelIds: diaryConversationIds(store),
     });
     // The GIF library (src/memory/gifs.js) is fed here: it needs the GIF's URL, which no slim message keeps.
-    const gifs = store.recordGifs(guildId, [normalized], gifOpts(hot.config));
+    const gifs = store.recordGifs(guildId, [normalized], gifOpts());
     if (gifs > 0) log.info('memory: gifs recorded', { guildId, gifs });
     const slim = slimMessage(normalized, direct);
     try {
-      store.recordEmojiUsage(guildId, [slim], emojiUsageOpts(hot.config));
+      store.recordEmojiUsage(guildId, [slim], emojiUsageOpts());
     } catch (err) {
       log.warn('memory: emoji count left out', { guildId, reason: 'store-error', error: errorNameOf(err) });
     }
     try {
-      recordAddressing(store, guildId, [slim], hot.config.memory ?? {});
+      recordAddressing(store, guildId, [slim], MEMORY_LIMITS);
     } catch (err) {
       log.warn('memory: address count left out', { guildId, reason: 'store-error', error: errorNameOf(err) });
     }

@@ -16,7 +16,7 @@
 // form) and the search key (OPENCODE_WEBSEARCH_KEY) when set. Without the role's key no secrets
 // are sent (the runner falls back to its own environment). Settings are read at the moment of
 // use; logs carry ids and codes, never a goal, a result or a secret. The context also carries
-// `recent`: the last `errands.recentLines` lines of the origin channel as `[{ author, text }]`
+// `recent`: the last `DEFAULT_RECENT_LINES` lines of the origin channel as `[{ author, text }]`
 // (display names and text on one line, cut to RECENT_CHARS), read from the memory's buffer
 // (the memory database's newest lines of the channel) at the moment the errand is queued and kept in memory only until it is sent;
 // a `dm`-scoped errand sends `recent: []` (nothing of a private chat reaches a runner this way).
@@ -61,7 +61,7 @@ import type {
 
 /** The limit keys an errand may carry to its runner (src/agent-runner/protocol.js#LIMIT_KEYS). */
 const ERRAND_LIMIT_KEYS = Object.freeze(['steps', 'seconds'] as const);
-/** `errands.recentLines` when it is missing (config.json carries the same). */
+/** The origin channel's lines an errand carries. Production value, config cut of 2026-10-31. */
 export const DEFAULT_RECENT_LINES = 6;
 /** The least time between two pings a `runner-down` refusal sends to recheck its runner (ms). */
 export const RUNNER_RECHECK_MS = 10_000;
@@ -105,15 +105,13 @@ function secretsFor(agent: string, config: Untyped, env: Record<string, string |
  * out). [] for a `dm` scope, without a channel or a buffer.
  */
 function recentLinesOf(
-  { memory, config, log }: { memory: ErrandServiceOptions['memory']; config: Untyped; log: Logger },
+  { memory, log }: { memory: ErrandServiceOptions['memory']; log: Logger },
   guildId: string,
   channelId: string | null,
   scope: ErrandScope
 ): RunContext['recent'] {
   if (scope === 'dm' || !channelId || typeof memory?.recentLines !== 'function') return [];
-  const set = config?.errands?.recentLines;
-  const count = Math.min(MAX_RECENT_ENTRIES, Number.isFinite(set) && set >= 0 ? Math.floor(set) : DEFAULT_RECENT_LINES);
-  if (count === 0) return [];
+  const count = Math.min(MAX_RECENT_ENTRIES, DEFAULT_RECENT_LINES);
   let lines: Array<{ author?: unknown; text?: unknown }>;
   try {
     lines = memory.recentLines(guildId, channelId, count);
@@ -209,7 +207,7 @@ export function createErrandService({
   const limitsOf = (agent: string): Limits => limitsFor(agent, hot.config);
   const secretsOf = (agent: string): RunSecrets | null => secretsFor(agent, hot.config, env);
   const recentOf = (guildId: string, channelId: string | null, scope: ErrandScope): RunContext['recent'] =>
-    recentLinesOf({ memory, config: hot.config, log }, guildId, channelId, scope);
+    recentLinesOf({ memory, log }, guildId, channelId, scope);
 
   /** One queued errand sent to its runner and closed with its end. Never throws. */
   async function runErrand(store: ErrandStore, id: string): Promise<ErrandRecord | null> {
