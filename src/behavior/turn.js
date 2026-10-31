@@ -13,7 +13,7 @@
 // plain, with a jump link to it.
 
 import { randomUUID } from 'node:crypto';
-import { block, buildRequest, fillPromptTemplate, usesFollowUpTask } from './prompt.js';
+import { block, buildRequest, usesFollowUpTask } from './prompt.js';
 import { isSetKind, setSettings, stripUrls } from './diary.ts';
 import { createDeadline, createPrepLedger, lateMediaTeller } from './turn-parts.ts';
 import { createLinker, messageLinkOf } from './elsewhere.ts';
@@ -22,12 +22,11 @@ import { audienceAllows, takeSnapshot } from './snapshot.ts';
 import { fetchNeighbors } from './neighbors.ts';
 import { withTextPreviews } from '../media/text-preview.ts';
 import { isTaggedCall } from './mention.js';
-import { roleModel } from '../llm/roles.js';
-import { fallbackLookupPlan, parseLookupAnswer, recallSettings } from './recall.js';
-import { parseSplitAnswer, splitCandidate, splitSettings } from './split.js';
+import { fallbackLookupPlan } from './recall.js';
+import { splitCandidate } from './split.js';
 import { turnRequestInput } from './turn-input.js';
 import { parseOutput } from '../llm/parse.js';
-import { DailyCapError, TokenLimitError, errorCodeOf, roleRequestOptions, railReason } from '../llm/openrouter.js';
+import { DailyCapError, TokenLimitError, errorCodeOf, railReason } from '../llm/openrouter.js';
 import { limitOf } from './limits.js';
 import { portIface } from '../interface/capabilities.ts';
 import { collectVideos, lateVideoStates } from '../media/classify.js';
@@ -35,24 +34,21 @@ import { createImageFetcher } from '../media/fetch-image.js';
 import { resolveReactionEmoji } from './emoji.js';
 import { refreshEmojiIfOn } from './emoji-index.ts';
 import { log } from '../log.js';
-import { countDashes, oneLine, stripDashes } from '../memory/clamp.js';
+import { countDashes, stripDashes } from '../memory/clamp.js';
 import { isVideoVisionOn, createOffPeriodsReader } from '../memory/index.js';
 import { createParticipationPicker, participationEpisodeOffer } from './participation-pick.js';
-import { askPlanner, parsePlannerAnswer, parseRewatchPickDetailed, plannerOn } from './planner.js';
+import { parseRewatchPickDetailed, plannerOn } from './planner.js';
 import { routeAllowed, routeCandidate, routeSettings } from './route.js';
 import { routeChannelOffer } from './route-channel.js';
 import { deletedLinesMax, deletedLinesOf, withDeletedLines } from './deleted-lines.js';
-import { zonedDay } from '../time.js';
 import { budgetDrops } from '../llm/budget.js';
 import { createLimits } from '../llm/limits.js';
 import { createThinkStore } from './previous-think.js';
 import { exposedSkillNames } from '../tools/discovery.ts';
 import { outcomeDetail } from '../tools/executors.ts';
-import { prefetchLanes, prefetchOn, wakeLanes } from './prefetch.js';
 import { FACTS_SHOWN_MAX, factPayload } from './inner.ts';
 import { innerOutputCalls } from './inner-output.js';
 import { feedbackInTurnText, wakeBlockText } from './wake.ts';
-import { CODE } from '../tools/codes.ts';
 import { turnRoutes } from './turn-ability-route.ts';
 import { transportOf } from '../tools/tool-calls.ts';
 import { buildTools } from '../tools/tools-json.ts';
@@ -64,17 +60,10 @@ import { forcedPictureRefusal, publishHeldDiary, recordEntry, wakeInputs } from 
 import { NO_LOOP, coreToolsOn, loopSettings, paceSettings } from '../turn/settings.ts';
 import { PREPARE_STAGES, TOO_SLOW, scheduleTimer, trackStage } from '../turn/timers.ts';
 import { DIRECT_CALLS, askedFor, postsPlain, takeAttention, unhurried } from '../turn/triggers.ts';
-import { lookupClassifierInput, renderClassifierContext } from '../turn/lookup-input.ts';
+import { lookupClassifierInput } from '../turn/lookup-input.ts';
 import { mentionDirectory, pickOtherProfiles, resolveMentions, storedNames, untaggedNote } from '../turn/mentions.ts';
 import { sourceLinkTarget } from '../turn/targets.ts';
 import {
-  REWATCH_KIND_GIF,
-  REWATCH_KIND_PICTURE,
-  REWATCH_KIND_VIDEO,
-  REWATCH_STATUS_DESCRIBED,
-  REWATCH_STATUS_NOT_LOADED,
-  REWATCH_STATUS_WATCHED,
-  REWATCH_SUMMARY_CHARS,
   describableCandidates,
   gifRewatchItems,
   readableLinkCandidates,
@@ -90,8 +79,10 @@ import { createFacts } from '../turn/facts.ts';
 import { createInTurnTools } from '../turn/in-turn-tools.ts';
 import { createInputs } from '../turn/inputs.ts';
 import { createJournalNotes } from '../turn/journal-notes.ts';
+import { createLookup } from '../turn/lookup.ts';
 import { createParticipation } from '../turn/participation.ts';
 import { createPulls } from '../turn/pulls.ts';
+import { createRewatch } from '../turn/rewatch.ts';
 import { createSends } from '../turn/sends.ts';
 import { createSkillCalls } from '../turn/skill-calls.ts';
 import { createToolRound } from '../turn/tool-round.ts';
@@ -445,99 +436,6 @@ export function createTurnRunner({
     placesInputFor,
   } = createInputs({ hot, store, iface, skills, selfIdOf, memoryContext, errands, intentions, places });
 
-  // Trigger key -> the prefetch already started for it (startPrefetch): a later attempt of the
-  // same turn, or the same part of a split message, reuses it instead of searching again.
-  const prefetchMemo = new Map();
-  /** The most triggers whose prefetch is remembered (the oldest forgotten first). */
-  const PREFETCH_MEMO = 16;
-
-  /**
-   * The automatic memory prefetch of a turn (src/behavior/prefetch.js, read now): with prefetchOn
-   * and the recall runner's `prefetch`, the lanes of this turn's trigger (prefetchLanes: none for
-   * a turn no person's new message opened, nor for a trivial one -- logged `recall: prefetch
-   * skipped` with its `reason`), searched once per trigger and text (`prefetchMemo`) over the
-   * served guild (a private chat on its `partner`'s behalf), the persona's lines marked with her
-   * calls (linkCalls). A journal step `memory-prefetch` of the stage `prefetch` (`input.lanes`;
-   * `status`, `excerpts`, `ms`) when it starts. Resolves never rejecting. Null when nothing runs,
-   * else `{ lanes, pending }`.
-   */
-  function startPrefetch({
-    config,
-    channel,
-    snapshot = null,
-    guildId,
-    guild,
-    partner,
-    trigger,
-    candidate,
-    triggerKind,
-    mode,
-    history,
-    selfId,
-    selfName,
-    nameOf,
-    journalStep,
-    wake = null,
-  }) {
-    if (!prefetchOn(config) || typeof recall?.prefetch !== 'function' || !guild) return null;
-    const settings = recallSettings(config)?.prefetch;
-    if (!settings) return null;
-    // An inner turn has no message: its lane is the purposes of the intentions it woke for.
-    const purposes = mode === 'inner' ? (wake?.intentions ?? []).map((record) => record?.purpose) : null;
-    const { lanes, skip } = purposes
-      ? wakeLanes(purposes)
-      : prefetchLanes({
-          trigger,
-          candidate,
-          triggerKind,
-          mode,
-          history,
-          settings,
-          selfId,
-          selfName,
-          selfNames: config.bot?.nameTriggers ?? [],
-          nameOf,
-        });
-    if (skip) {
-      if (skip !== 'no-trigger') log.info('recall: prefetch skipped', { channel: channel.id, reason: skip });
-      return null;
-    }
-    const key = purposes
-      ? `${channel.id}:inner:${lanes[0]?.text ?? ''}`
-      : `${channel.id}:${trigger.id}:${candidate?.content ?? ''}`;
-    if (prefetchMemo.has(key)) return { lanes, pending: prefetchMemo.get(key) };
-    const basis = lanes.map((lane) => lane.kind);
-    const op =
-      journalStep?.('prefetch', 'memory-prefetch', { input: { lanes: basis } }, (result) => result.excerpts > 0) ??
-      null;
-    const pending = (async () => {
-      await op?.started();
-      try {
-        const found = await recall.prefetch({
-          guildId,
-          snapshot,
-          channel,
-          partnerId: partner?.id ?? null,
-          selfId,
-          selfName,
-          history,
-          lanes,
-          asker: candidate?.authorId ?? null,
-          decorate: (lines) => linkCalls(lines, { channel, snapshot, guildId }),
-        });
-        op?.succeeded({ status: found?.status ?? null, excerpts: found?.excerpts?.length ?? 0, ms: found?.ms ?? null });
-        return found;
-      } catch (err) {
-        log.warn('recall: prefetch failed', { channel: channel.id, stage: 'turn', name: err?.name ?? null });
-        op?.failed(CODE.ERROR);
-        return { status: 'unavailable', basis, excerpts: [] };
-      }
-    })();
-    prefetchMemo.set(key, pending);
-    while (prefetchMemo.size > PREFETCH_MEMO) prefetchMemo.delete(prefetchMemo.keys().next().value);
-    return { lanes, pending };
-  }
-
   // channelId -> the chain of parts running there (runChain): its author, its parts, the part
   // in progress (`next`, 1-based; 0 before the first) and the messages folded into a later part.
   const chains = new Map();
@@ -763,797 +661,30 @@ export function createTurnRunner({
     linkCalls,
     drawTool,
   });
-
-  /**
-   * The `<transcript>` block of a classifier request (re-watch, search) with
-   * the media states this turn already has: renderClassifierContext over the
-   * live labels (prompts.labels, read now).
-   * @returns {{ triggerText: string, transcriptBlock: string }}
-   */
-  function classifierContext(params) {
-    return renderClassifierContext({ ...params, labels: hot.prompts.labels });
-  }
-
-  /**
-   * The second look on a question (features.videoRewatch for videos,
-   * features.imageRelook for pictures): when the trigger asks about a video
-   * watched, or a picture posted, in the last `media.video.rewatch.recentMessages`
-   * messages (at most `media.video.rewatch.maxCandidates` of them, the videos
-   * first, then the watched GIFs, then the pictures, each newest first), one cheap classifier call
-   * (prompts.rewatch, on the analyzer model: roleModel for `analyzer` --
-   * `models.byPurpose.rewatch`, else `models.base.analyzer`, else its default; its answer capped at
-   * `media.video.rewatch.classifierMaxOutputTokens`) picks the item and
-   * the question. For a video the describer looks at it again
-   * (describer.rewatchVideo) and the answer joins that video's state as
-   * `answer: { question, text }` -- mutating `videos` in place. For a picture
-   * (`pictures`, relookCandidates; listed with the caption `descriptions`
-   * holds for it) the describer looks at it again (describer.relookImage) and
-   * the answer goes into `imageAnswers` under the picture's id. A watched GIF
-   * (`gifs`, gifRewatchItems narrowed to the watched ones; `gifCaptions` holds
-   * each one's watched caption) is listed as a `video`, status `watched`,
-   * after the videos and before the pictures; the describer watches its clip
-   * again (describer.rewatchGif) and the answer goes into `imageAnswers`
-   * under the GIF's id (rendered as `videoAnswered`, see
-   * src/media/classify.js#mediaLabelFor). A GIF takes a second-look slot and a
-   * GIF watch slot (`videoCapsLeft().gif`), never a video one. Videos that
-   * did not load (`error` state) are candidates too whenever the describer
-   * can fetch one (describer.describeVideo): the classifier's `<n> | retry`
-   * watches one again with `force` and its new state replaces the old one; a
-   * retry never applies to a picture. The explicit request has its own slot,
-   * apart from the `media.video.maxPerTurn` new videos this turn already
-   * fetched; the describer's daily caps still apply. At most one second look
-   * or retry per turn. The `<media>` lines are numbered 1.. in that order
-   * (`<n> | <kind> | <name> | <status> | <summary>`) and the classifier
-   * answers with that ordinal, mapped back here. A `<transcript>` block before
-   * `<media>` carries the last `media.video.rewatch.contextMessages` messages before the
-   * trigger (0 omits it), with the video states and captions this turn already has. Never throws: any failure leaves
-   * `videos` and `imageAnswers` as they were. The question and the answer are data: never logged
-   * (`rewatch: classified` names a picked GIF `target: 'gif'` and counts `offered.gifs`);
-   * every early stop logs `rewatch: skipped` with its reason. The classifier is
-   * not asked when its answer could not run (`reason: 'cap'`): the describer's
-   * `videoCapsLeft()` (when it has one; read only) says no video can be
-   * looked at or retried today (no video slot left, or no second-look slot
-   * left and no failed video can be retried) and no picture can be looked
-   * at (no second-look slot left -- one counter for every kind) and no GIF
-   * can be re-watched (no second-look or no GIF watch slot left) -- with only
-   * the second-look slots spent, only the videos that did not load are
-   * offered. The classifier's request is an `analyzer` request (roleRequestOptions).
-   */
-  async function maybeRewatch({
-    config,
-    guildId,
-    channelId,
-    selfName,
-    history,
-    trigger,
-    videos,
-    descriptions,
-    candidates,
-    gifs = [],
-    gifCaptions = new Map(),
-    pictures = [],
-    imageAnswers,
-  }) {
-    const prompt = hot.prompts?.rewatch;
-    if (!prompt) {
-      log.info('rewatch: skipped', { channel: channelId, reason: 'no-prompt' });
-      return;
-    }
-    const offer = rewatchOffer({
-      config,
-      channelId,
-      history,
-      videos,
-      descriptions,
-      candidates,
-      gifs,
-      gifCaptions,
-      pictures,
-    });
-    if (!offer) return;
-    const system = fillPromptTemplate(prompt, { name: selfName ?? '' });
-    const rewatchCfg = config.media?.video?.rewatch ?? {};
-    // The chat around the question.
-    const { triggerText, transcriptBlock } = classifierContext({
-      config,
-      selfName,
-      history,
-      trigger,
-      contextMessages: Math.max(0, Math.floor(rewatchCfg.contextMessages ?? 50)),
-      descriptions,
-      videos,
-    });
-    const user = `${transcriptBlock}<media>\n${offer.lines.join('\n')}\n</media>\n<candidate>\n${trigger.authorName}: ${triggerText}\n</candidate>`;
-
-    let completion;
-    try {
-      completion = await llm.complete(
-        [
-          { role: 'system', content: system },
-          { role: 'user', content: user },
-        ],
-        {
-          model: roleModel(config, 'analyzer', 'rewatch'),
-          ...roleRequestOptions(config, {
-            role: 'analyzer',
-            maxOutputTokens: rewatchCfg.classifierMaxOutputTokens ?? 2000,
-            purpose: 'rewatch',
-          }),
-        }
-      );
-    } catch (err) {
-      log.warn('rewatch: classifier failed', { channel: channelId, status: err.statusCode ?? null, name: err.name });
-      return;
-    }
-    const { pick, reason } = parseRewatchPickDetailed(completion.text, offer.listed.length);
-    await applyRewatch({ guildId, channelId, offer, pick, reason, videos, imageAnswers });
-  }
-
-  /**
-   * The `<media>` list of one second look (maybeRewatch's rules, shared with
-   * the turn planner): the items offered, newest first within each kind and
-   * capped at `media.video.rewatch.maxCandidates`, each judged against the
-   * video states `videos`, `gifCaptions` and today's slots, rendered as
-   * `<n> | <kind> | <name> | <status> | <summary>`. Null after logging
-   * `rewatch: skipped` (`cap`, `no-window`, `no-watched`) when nothing can be
-   * offered. `states` is the map the list was judged on; `canRetry` whether a
-   * video that did not load may be tried again.
-   * @returns {{ listed: { item: object, kind: string }[], lines: string[], states: Map<string, object>,
-   *   canRetry: boolean }|null}
-   */
-  function rewatchOffer({
-    config,
-    channelId,
-    history,
-    videos,
-    descriptions,
-    candidates,
-    gifs = [],
-    gifCaptions = new Map(),
-    pictures = [],
-  }) {
-    // A retry requested by the person has its own slot, outside media.video.maxPerTurn.
-    const canRetry = typeof describer.describeVideo === 'function';
-    // Today's slots, when the describer can tell: a video's second look and a retry take a video
-    // slot; a second look at a video or a picture takes the one second-look slot.
-    const slots = typeof describer.videoCapsLeft === 'function' ? describer.videoCapsLeft() : null;
-    const questionsOn = !slots || slots.rewatch > 0;
-    const videoSlot = !slots || slots.video > 0;
-    // A GIF's second look takes a GIF watch slot, never a video one (a describer without the count: no limit).
-    const gifSlot = !slots || (slots.gif ?? Infinity) > 0;
-    const gifsOn = questionsOn && gifSlot;
-    if (
-      slots &&
-      (!videoSlot || (!questionsOn && !canRetry)) &&
-      (pictures.length === 0 || !questionsOn) &&
-      (gifs.length === 0 || !gifsOn)
-    ) {
-      log.info('rewatch: skipped', { channel: channelId, reason: 'cap' });
-      return null;
-    }
-    const rewatchCfg = config.media?.video?.rewatch ?? {};
-    const recent = Math.max(0, Math.floor(rewatchCfg.recentMessages ?? 60));
-    if (recent === 0) {
-      log.info('rewatch: skipped', { channel: channelId, reason: 'no-window' });
-      return null;
-    }
-    const states = videos instanceof Map ? videos : new Map();
-    // `candidates`, `gifs` and `pictures` are each newest first: the videos come first, then the
-    // GIFs, and the cap over the merged list keeps the newest of each.
-    const maxCandidates = Math.max(1, Math.floor(rewatchCfg.maxCandidates ?? 6));
-    const recentIds = new Set(history.slice(-recent).map((m) => m.id));
-    const seen = new Set();
-    const listed = [];
-    for (const item of videoSlot ? candidates : []) {
-      if (listed.length >= maxCandidates) break;
-      if (seen.has(item.itemId) || !recentIds.has(item.messageId)) continue;
-      const state = states.get(item.itemId)?.state;
-      if (!(state === 'watched' && questionsOn) && !(state === 'error' && canRetry)) continue;
-      seen.add(item.itemId);
-      listed.push({ item, kind: REWATCH_KIND_VIDEO });
-    }
-    for (const item of gifsOn ? gifs : []) {
-      if (listed.length >= maxCandidates) break;
-      if (seen.has(item.itemId) || !recentIds.has(item.messageId) || !gifCaptions.get(item.itemId)) continue;
-      seen.add(item.itemId);
-      listed.push({ item, kind: REWATCH_KIND_GIF });
-    }
-    for (const item of questionsOn ? pictures : []) {
-      if (listed.length >= maxCandidates) break;
-      if (seen.has(item.itemId) || !recentIds.has(item.messageId)) continue;
-      seen.add(item.itemId);
-      listed.push({ item, kind: REWATCH_KIND_PICTURE });
-    }
-    if (listed.length === 0) {
-      log.info('rewatch: skipped', { channel: channelId, reason: 'no-watched', watched: 0, recent });
-      return null;
-    }
-
-    const lines = listed.map(({ item, kind }, index) => {
-      if (kind === REWATCH_KIND_PICTURE) {
-        const caption = descriptions?.get(item.itemId);
-        const summary = caption ? [...oneLine(caption)].slice(0, REWATCH_SUMMARY_CHARS).join('') : '';
-        return `${index + 1} | ${kind} | ${oneLine(item.name)} | ${REWATCH_STATUS_DESCRIBED} | ${summary}`.trimEnd();
-      }
-      if (kind === REWATCH_KIND_GIF) {
-        const summary = [...oneLine(gifCaptions.get(item.itemId))].slice(0, REWATCH_SUMMARY_CHARS).join('');
-        return `${index + 1} | ${REWATCH_KIND_VIDEO} | ${oneLine(item.name)} | ${REWATCH_STATUS_WATCHED} | ${summary}`.trimEnd();
-      }
-      const video = states.get(item.itemId);
-      const status = video.state === 'watched' ? REWATCH_STATUS_WATCHED : REWATCH_STATUS_NOT_LOADED;
-      const summary =
-        video.state === 'watched' ? [...oneLine(video.text)].slice(0, REWATCH_SUMMARY_CHARS).join('') : '';
-      return `${index + 1} | ${kind} | ${oneLine(item.name)} | ${status} | ${summary}`.trimEnd();
-    });
-    return { listed, lines, states, canRetry };
-  }
-
-  /**
-   * The second look a re-watch answer asked for (`pick`, read by
-   * parseRewatchPickDetailed against `offer.listed`; `reason` its parse code)
-   * on the item of `offer` it names: logged `rewatch: classified` (codes and
-   * counts only), then -- for a usable pick -- the describer looks again and
-   * the answer lands in `videos` (mutated in place: a video's answer, or a
-   * retried video's new state) or `imageAnswers` (a picture's or a GIF's).
-   * A retry is for a video that did not load, a question for a watched one, a
-   * GIF or a picture, judged on the states the list was built from
-   * (`offer.states`); anything else is ignored.
-   */
-  async function applyRewatch({ guildId, channelId, offer, pick, reason, videos, imageAnswers }) {
-    const { listed, states, canRetry } = offer;
-    const entry = pick ? listed[pick.n - 1] : null;
-    const item = entry?.item ?? null;
-    const isPicture = entry?.kind === REWATCH_KIND_PICTURE;
-    const isGif = entry?.kind === REWATCH_KIND_GIF;
-    const loaded = item && !isPicture && !isGif ? states.get(item.itemId)?.state === 'watched' : false;
-    // A retry is for a video that did not load, a question for a watched one, a GIF or a picture; anything else is ignored.
-    const usable = Boolean(item) && (isPicture || isGif ? !pick.retry : pick.retry !== loaded);
-    const pictureCount = listed.filter((candidate) => candidate.kind === REWATCH_KIND_PICTURE).length;
-    const gifCount = listed.filter((candidate) => candidate.kind === REWATCH_KIND_GIF).length;
-    const watchedCount = listed.filter(
-      (candidate) => candidate.kind === REWATCH_KIND_VIDEO && states.get(candidate.item.itemId)?.state === 'watched'
-    ).length;
-    // Codes and counts only, never the question: an answer outside the format hints at a prompt mismatch.
-    const level = reason === 'unknown-id' || reason === 'no-bar' ? 'warn' : 'info';
-    log[level]('rewatch: classified', {
-      channel: channelId,
-      candidates: listed.length,
-      offered: {
-        watched: watchedCount,
-        notLoaded: listed.length - watchedCount - pictureCount - gifCount,
-        gifs: gifCount,
-        pictures: pictureCount,
-      },
-      retryAllowed: canRetry,
-      parse: reason,
-      kind: pick ? (pick.retry ? 'retry' : 'question') : null,
-      target: entry?.kind ?? null,
-      picked: usable,
-    });
-    if (!usable) return;
-
-    if (isPicture) {
-      const answer = await describer.relookImage(guildId, item, pick.question);
-      if (answer) imageAnswers.set(item.itemId, answer);
-      return;
-    }
-    if (isGif) {
-      const answer = await describer.rewatchGif(guildId, item, pick.question);
-      if (answer) imageAnswers.set(item.itemId, answer);
-      return;
-    }
-    if (pick.retry) {
-      const retried = await describer.describeVideo(guildId, item, { force: true });
-      if (retried) videos.set(item.itemId, retried);
-      return;
-    }
-    const answer = await describer.rewatchVideo(guildId, item, pick.question);
-    if (answer) videos.set(item.itemId, { ...(videos.get(item.itemId) ?? states.get(item.itemId)), answer });
-  }
-
-  /**
-   * Whether the server search (`recall`) could run now: wired, and its
-   * `available()` (the switch, its prompt, the daily caps; read only) says
-   * yes. A throw counts as no.
-   */
-  function recallAvailable() {
-    if (typeof recall?.available !== 'function' || typeof recall.run !== 'function') return false;
-    try {
-      return recall.available() === true;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * The fallback directory of one turn (mentionDirectory) as a thunk, built on its first call
-   * and kept for the turn: the members of the served community the member directory holds (only the members
-   * the interface already told the core of, no read) and, with memory on, the stored
-   * profiles. A failure to build it logs `turn: directory failed` and gives an empty one.
-   * @returns {() => { name: string, id: string }[]}
-   */
-  function turnDirectory({ guildId, memoryOn }) {
-    let built = null;
-    return () => {
-      if (built) return built;
-      try {
-        const members = typeof membersOf === 'function' ? membersOf(guildId) : [];
-        const profiles =
-          memoryOn && typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [];
-        built = mentionDirectory({ members, profiles, selfId: selfIdOf() || null });
-      } catch (err) {
-        log.warn('turn: directory failed', { guildId, error: err });
-        built = [];
-      }
-      return built;
-    };
-  }
-
-  /**
-   * A private chat's partner as a member of the served community (`memberInfo`), for a private chat that works
-   * like a server turn on their behalf: features.privateLikeServer (read from `config`, the turn's live
-   * config; a missing key counts as on, only false turns it off). Null with the switch off or without a user id.
-   * A read the interface does not answer, an error answer and a user who is no member (the member left) are null
-   * and log `turn: partner failed`. Never rejects.
-   * @returns {Promise<{ id: string, name: string|null, bot: boolean, groupIds: string[] }|null>}
-   */
-  async function privatePartner({ guildId, userId, config }) {
-    if (config.features?.privateLikeServer === false || !userId) return null;
-    const found = await ifaceReads.memberInfo({ communityId: guildId, memberId: String(userId) });
-    if (found?.member) return found.member;
-    log.warn('turn: partner failed', { guildId, userId });
-    return null;
-  }
-
-  /**
-   * `work()` as a promise that never rejects: a throw or a rejection logs
-   * `lookup: failed` with the `part` it was (`web` / `server`) and gives null.
-   */
-  function settleLookupPart(work, channelId, part) {
-    return Promise.resolve()
-      .then(work)
-      .catch((err) => {
-        log.warn('lookup: failed', { channel: channelId, part, error: err });
-        return null;
-      });
-  }
-
-  /**
-   * One attempt's turn planner (src/behavior/planner.js, features.turnPlanner
-   * exactly true): the one request that stands in for the route, the
-   * participation pick, the re-watch and the search classifiers. The pull's
-   * route step registers its channel list (`offerChannels`, ignored once the
-   * planner started) and waits on `result` for its pick; the participation,
-   * re-watch and lookup stages wait on `result` too. `start(inputs)` sends
-   * the request once -- `transcriptBlock`, `candidateBlock`, the `episodes`
-   * and `media` offers (`{ lines, ids }` / rewatchOffer's, null when not
-   * offered) and `lookup` (true when the search classifier would have been
-   * asked); later calls do nothing. `abandon(reason)` settles `result` with
-   * every block missing when the planner never started (a deadline passed
-   * first, or the attempt ended), so no stage waits forever. `early` is true
-   * on a turn whose pull is awaited before its preparation (a source, or a
-   * mode still to choose): its route step starts the planner itself.
-   * `result` never rejects: askPlanner's `{ outcome, reason, blocks }` plus
-   * `offer` (`channel`, `episodes`, `media`: the offers sent, null when not;
-   * `lookup`: boolean), what each consumer maps the block's numbers back with.
-   */
-  function createTurnPlan({ config, channelId, selfName, triggerKind, limits, early }) {
-    let channelOffer = null;
-    let started = false;
-    let settle;
-    const result = new Promise((resolve) => {
-      settle = resolve;
-    });
-    const unused = (reason) => ({
-      outcome: 'skipped',
-      reason,
-      blocks: parsePlannerAnswer(''),
-      offer: { channel: null, episodes: null, media: null, lookup: false },
-    });
-    const offered = (offer) => (Array.isArray(offer?.lines) && offer.lines.length > 0 ? offer : null);
-    return {
-      early,
-      result,
-      get started() {
-        return started;
-      },
-      offerChannels(offer) {
-        if (!started) channelOffer = offered(offer);
-      },
-      start({
-        transcriptBlock = '',
-        candidateBlock = null,
-        episodes = null,
-        media = null,
-        lookup: lookupWanted = false,
-      }) {
-        if (started) return;
-        started = true;
-        const offer = {
-          channel: channelOffer,
-          episodes: offered(episodes),
-          media: offered(media),
-          lookup: lookupWanted === true,
-        };
-        const discovery = discoveryPrompt(config);
-        askPlanner({
-          llm,
-          config,
-          prompt: hot.prompts?.planner,
-          selfName,
-          today: zonedDay(clock(), config.bot?.timezone),
-          skills: discovery.index,
-          skillNames: discovery.names,
-          offer: {
-            channels: offer.channel?.lines,
-            episodes: offer.episodes?.lines,
-            episodeAges: offer.episodes?.ages,
-            media: offer.media?.lines,
-            lookup: offer.lookup,
-          },
-          transcriptBlock,
-          candidateBlock,
-          channelId,
-          kind: triggerKind,
-          now: clock,
-          limits,
-        }).then(
-          (asked) => settle({ ...asked, offer }),
-          () => settle(unused('error'))
-        );
-      },
-      abandon(reason = 'late') {
-        if (started) return;
-        started = true;
-        settle(unused(reason));
-      },
-    };
-  }
-
-  /**
-   * Which side of a lookup can run now (maybeLookup's gates, shared with the
-   * turn planner's offer): the web side under `webOn` unless
-   * `web.search.maxPerTurn` is below 1 (`no-slot`), the search has no key
-   * (`no-key`) or its daily slots are spent (`cap`); `skip` is that code, or
-   * `no-search`, when neither the web side nor the server side (`serverOn`)
-   * can run, else null. Read only.
-   * @returns {{ webCan: boolean, skip: string|null }}
-   */
-  function lookupGate({ config, webOn, serverOn }) {
-    const searchCfg = config.web?.search ?? {};
-    let webSkip = null;
-    if (webOn) {
-      if ((searchCfg.maxPerTurn ?? 1) < 1) webSkip = 'no-slot';
-      else if (typeof lookup.hasSearch === 'function' && !lookup.hasSearch()) webSkip = 'no-key';
-      else if (typeof lookup.webCapLeft === 'function' && !(lookup.webCapLeft() > 0)) webSkip = 'cap';
-    }
-    const webCan = Boolean(webOn) && webSkip === null;
-    return { webCan, skip: !webCan && !serverOn ? (webSkip ?? 'no-search') : null };
-  }
-
-  /**
-   * The searches on a question: the web search (`webOn`: features.webLookup, web.search.enabled, a lookup with
-   * `search`) and the search of the server's own history (`serverOn`: recall wired and available, a server turn or a
-   * private chat with its `partner`; the community searched is the `snapshot`'s). One cheap classifier call
-   * (prompts.lookup, `{{name}}` = the persona's display name, `{{today}}` = the injected clock's date `YYYY-MM-DD` in
-   * `bot.timezone`, the zone its `when:` range is read in; on the `analyzer` model role (roleModel), its answer capped
-   * at `web.search.classifierMaxOutputTokens`) reads the last `web.search.contextMessages` messages of `history` before
-   * the trigger (with the pictures' captions, the video states and the read links this turn already has; on a routed
-   * turn the caller passes the source channel's lines, where the call was written) and the trigger itself, and answers
-   * `none` or labelled lines (src/behavior/recall.js#parseLookupAnswer, `when:` read in `bot.timezone`, forms capped at
-   * `recall.maxForms`). The web side runs only under its own gates: `web.search.maxPerTurn` below 1 (`no-slot`), no
-   * search key (`no-key`), its daily slots spent (`cap`: the lookup's `webCapLeft()`, when it has one; read only); the
-   * classifier is not asked when neither side can run (`lookup: skipped` with the web side's reason, or `no-prompt`
-   * without prompts.lookup). Then what the answer asks for runs in parallel: a `web` query goes to lookup.search (at
-   * most one per turn), a `server` part to `recall.run` (`history` = `chatHistory`, the turn's own chat with its reply
-   * parents: what `<chat>` shows; `context` = `history`, the lines this classifier read, with their `descriptions`;
-   * `candidate` = the trigger); a part the answer asks for whose side cannot run is not run, and a failing part logs
-   * `lookup: failed` and counts as nothing. Resolves the `lookup` input of the request (see createTurnRunner) or null.
-   * The query, the forms and the transcript are data: never logged (`lookup: classified` carries codes and counts
-   * only); an empty or blank answer is a failed call (`lookup: classifier failed`, `reason: 'empty'`). A failed call
-   * (it threw, or answered nothing) on a direct call (`triggerKind` in DIRECT_CALLS) with `serverOn` and
-   * recall.fallbackOnClassifierFailure on runs the server search on the question's own words instead
-   * (fallbackLookupPlan over the stored profiles; `lookup: fallback` with `reason` `classifier-failed` | `empty` and
-   * the counts, a `helper-fallback` entry on `limits`); never the web search; else no search. Its request is an
-   * `analyzer` request (roleRequestOptions). `onSearch()` is called once the answer asks for a search that runs, before
-   * it starts (the turn's deadline grows to pace.prepareSearchMs; until the answer the turn holds its deadline on this
-   * call, see createDeadline's `hold`).
-   * With the turn planner (`planned`: the attempt's createTurnPlan result)
-   * no classifier is asked here: the planner's lookup block stands in for its
-   * answer -- `ok` runs what it asks for; `none`, a planner that skipped or a
-   * block it never offered run nothing; `invalid`, `missing` or a failed
-   * planner call take the failed classifier's fallback above (`reason` the
-   * state or the failure code; the `helper-fallback` entry is the planner's,
-   * `where: 'planner:lookup'`).
-   * Skills discovery (discoveryPrompt, read now): the classifier's `{{skills}}`
-   * is filled with the registry's lines, and a `skills:` line of its answer
-   * (parseLookupAnswer's `skills`) is handed to `onSkills` before any search
-   * runs; with the planner the turn reads the planner's own `skills:` line.
-   * An `agent:` line of the answer (a classifier prompt that still has one) is ignored: the
-   * classifier never creates or suggests an errand, only the persona's own `errand.run` call does.
-   * `lookup: classified` carries `route` -- what runs: `fast` (a web search), `memory` (a server
-   * search), `+`-joined in that order, else `none`. `turnContext()` (optional) gives the turn's
-   * execution context for the server search's database reads (turnContextOf).
-   */
-  async function maybeLookup({
-    config,
-    guildId,
-    channel,
-    snapshot = null,
-    partner = null,
-    selfId,
-    selfName,
-    history,
-    chatHistory,
-    trigger,
-    descriptions,
-    videos,
-    reads,
-    webOn,
-    serverOn,
-    onSearch,
-    onSkills = null,
-    journalStep = null,
-    triggerKind = null,
-    limits = null,
-    planned = null,
-    turnContext = null,
-  }) {
-    const channelId = channel.id;
-    const prompt = hot.prompts?.lookup;
-    const searchCfg = config.web?.search ?? {};
-    const { webCan, skip: gateSkip } = lookupGate({ config, webOn, serverOn });
-    let skip = null;
-    if (!planned && !prompt) skip = 'no-prompt';
-    else skip = gateSkip;
-    if (skip) {
-      log.info('lookup: skipped', { channel: channelId, reason: skip });
-      return null;
-    }
-
-    // The chat around the question, with the pages this turn already read.
-    const { triggerText, user } = lookupClassifierInput({
-      config,
-      labels: hot.prompts.labels,
-      selfName,
-      history,
-      trigger,
-      descriptions,
-      videos,
-      reads,
-    });
-    if (planned) {
-      if (planned.offer?.lookup !== true || planned.outcome === 'skipped') return null;
-      if (planned.outcome === 'failed') return fallback(planned.reason);
-      const answer = planned.blocks.lookup;
-      if (answer.state === 'ok') return runSearches({ web: answer.web, server: answer.server });
-      return answer.state === 'none' ? null : fallback(answer.state);
-    }
-
-    // Read once: the request and its empty-answer warning name the same model.
-    const model = roleModel(config, 'analyzer', 'lookup');
-    // Skills discovery: the registry's lines fill `{{skills}}`, its names bound the `skills:` line.
-    const discovery = discoveryPrompt(config);
-    let completion;
-    try {
-      completion = await llm.complete(
-        [
-          {
-            role: 'system',
-            content: fillPromptTemplate(prompt, {
-              today: zonedDay(clock(), config.bot?.timezone),
-              name: selfName ?? '',
-              skills: discovery.index,
-            }),
-          },
-          { role: 'user', content: user },
-        ],
-        {
-          model,
-          ...roleRequestOptions(config, {
-            role: 'analyzer',
-            maxOutputTokens: searchCfg.classifierMaxOutputTokens ?? 2000,
-            purpose: 'lookup',
-          }),
-        }
-      );
-    } catch (err) {
-      log.warn('lookup: classifier failed', { channel: channelId, status: err.statusCode ?? null, name: err.name });
-      return fallback('classifier-failed');
-    }
-    if (!String(completion.text ?? '').trim()) {
-      // Nothing at all (typically a reasoning model that spent its whole
-      // output cap thinking) is a failed call, not a silent "none".
-      log.warn('lookup: classifier failed', { channel: channelId, reason: 'empty', model: model ?? null });
-      return fallback('empty');
-    }
-    const parsed = parseLookupAnswer(completion.text, {
-      timezone: config.bot?.timezone,
-      now: clock(),
-      maxForms: recallSettings(config)?.maxForms,
-      skillNames: discovery.names,
-    });
-    // The `skills:` line goes to the turn, whatever the searches do (src/tools/discovery.ts).
-    if (parsed.skills) onSkills?.(parsed.skills);
-    const { web, server } = parsed;
-    const route =
-      [webCan && web ? 'fast' : null, serverOn && server ? 'memory' : null].filter(Boolean).join('+') || 'none';
-    // Codes and counts only, never the query, a form or a name.
-    log.info('lookup: classified', {
-      channel: channelId,
-      picked: Boolean(web || server),
-      parse: parsed.reason,
-      web: Boolean(parsed.web),
-      server: Boolean(server),
-      forms: server?.forms.length ?? 0,
-      who: server?.who.length ?? 0,
-      ranged: Boolean(server && (server.from !== null || server.to !== null)),
-      route,
-    });
-    return runSearches({ web, server });
-
-    /**
-     * The failed classifier's fallback (`reason`: `classifier-failed` | `empty`): on a direct call
-     * (DIRECT_CALLS) with the server search possible and recall.fallbackOnClassifierFailure on, a
-     * recall on the question's own words (fallbackLookupPlan); never the web side. Null otherwise.
-     */
-    async function fallback(reason) {
-      if (!serverOn || !DIRECT_CALLS.has(triggerKind)) return null;
-      const settings = recallSettings(config);
-      if (!settings?.fallbackOnClassifierFailure) return null;
-      const plan = fallbackLookupPlan({
-        text: triggerText,
-        profiles: store.listUserProfiles?.(guildId) ?? [],
-        selfId,
-        selfName,
-        maxForms: settings.maxForms,
-      });
-      if (!plan) return null;
-      // Counts only, never a form or a name.
-      log.info('lookup: fallback', { channel: channelId, reason, forms: plan.forms.length, who: plan.who.length });
-      // The planner records its own fallen-back blocks (src/behavior/planner.js#askPlanner).
-      if (!planned) limits?.add({ kind: 'helper-fallback', where: 'lookup', detail: reason });
-      return runSearches({ web: null, server: plan });
-    }
-
-    /** The searches asked for (`web` query, `server` part), those whose side can run, in parallel. */
-    async function runSearches({ web, server }) {
-      const runWeb = webCan && Boolean(web);
-      const runServer = serverOn && Boolean(server);
-      if (!runWeb && !runServer) return null;
-      onSearch?.();
-      // The journal: each search the answer asks for is an operation of the engine (journalStep).
-      const webOp = runWeb ? (journalStep?.('lookup', 'lookup', { input: { query: web } }) ?? null) : null;
-      const recallOp = runServer
-        ? (journalStep?.(
-            'lookup',
-            'recall',
-            { input: { forms: server.forms, who: server.who, from: server.from, to: server.to } },
-            (result) => result.summaryChars > 0 || result.stretch === true
-          ) ?? null)
-        : null;
-      const [webResult, found] = await Promise.all([
-        runWeb
-          ? settleLookupPart(
-              () =>
-                journalled(
-                  webOp,
-                  () => lookup.search(guildId, web),
-                  (result) =>
-                    result
-                      ? {
-                          result: { results: Array.isArray(result.sources) ? result.sources.length : 0 },
-                          offered: Boolean(result.text),
-                        }
-                      : { failed: CODE.NO_RESULT }
-                ),
-              channelId,
-              'web'
-            )
-          : null,
-        runServer
-          ? settleLookupPart(
-              () =>
-                recall.run({
-                  ...(recallOp ? { op: recallOp } : {}),
-                  guildId,
-                  snapshot,
-                  channel,
-                  partnerId: partner?.id ?? null,
-                  selfId,
-                  selfName,
-                  history: chatHistory,
-                  context: history,
-                  contextDescriptions: descriptions,
-                  candidate: trigger,
-                  server,
-                  // Her lines in the found stretches show her skill calls like her chat lines.
-                  decorate: (lines) => linkCalls(lines, { channel, snapshot, guildId }),
-                  // The turn's execution context, issued when the search runs.
-                  ...(typeof turnContext === 'function' ? { memoryContext: turnContext() } : {}),
-                }),
-              channelId,
-              'server'
-            )
-          : null,
-      ]);
-      // A server search that found nothing leaves no server part.
-      const serverPart =
-        found && (found.text || found.stretch)
-          ? {
-              text: found.text ?? null,
-              stretch: found.stretch ?? null,
-              people: Array.isArray(found.people) ? found.people : [],
-            }
-          : null;
-      if (!serverPart) return webResult ?? null;
-      return { ...(webResult ?? {}), server: serverPart };
-    }
-  }
-
-  /**
-   * The splitter (src/behavior/split.js): whether the call `trigger` holds
-   * several requests. One cheap classifier call (`prompt`, prompts/split.md,
-   * `{{name}}` = the persona's display name, `{{maxTasks}}` = split.maxTasks;
-   * on the `analyzer` model role (roleModel), its answer capped at split.maxOutputTokens, a
-   * `analyzer` request: roleRequestOptions, purpose `split`) reads the last
-   * `split.contextMessages` messages of `history` before the trigger (the
-   * captions this turn has at its start) and the trigger itself, and answers
-   * `one` or 2..maxTasks lines `- <part>` (parseSplitAnswer). Resolves the
-   * parts, or null for one request: `one`, a failed call (`split: failed`
-   * with the rail's code or `llm-error` and the HTTP status), an empty or
-   * unparsable answer (`split: failed`, `empty` / `unparsed`). Every answer
-   * that parsed logs `split: verdict` (`parts`: 1 for `one`, `ms`, and `late`
-   * once the turn went on without it, `isLate()`). Codes and counts only,
-   * never a part. Never throws.
-   * @returns {Promise<string[]|null>}
-   */
-  async function maybeSplit({ config, channelId, selfName, history, trigger, descriptions, prompt, isLate }) {
-    const settings = splitSettings(config);
-    const startedAt = clock();
-    let completion;
-    try {
-      const { triggerText, transcriptBlock } = classifierContext({
-        config,
-        selfName,
-        history,
-        trigger,
-        contextMessages: settings.contextMessages,
-        descriptions,
-      });
-      completion = await llm.complete(
-        [
-          {
-            role: 'system',
-            content: fillPromptTemplate(prompt, { name: selfName ?? '', maxTasks: settings.maxTasks }),
-          },
-          {
-            role: 'user',
-            content: `${transcriptBlock}<candidate>\n${trigger.authorName}: ${triggerText}\n</candidate>`,
-          },
-        ],
-        {
-          model: roleModel(config, 'analyzer', 'split'),
-          ...roleRequestOptions(config, {
-            role: 'analyzer',
-            maxOutputTokens: settings.maxOutputTokens,
-            purpose: 'split',
-          }),
-        }
-      );
-    } catch (err) {
-      log.warn('split: failed', { channel: channelId, reason: railReason(err), status: err?.statusCode ?? null });
-      return null;
-    }
-    const { parts, reason } = parseSplitAnswer(completion?.text, settings);
-    const late = isLate() ? { late: true } : {};
-    if (reason === 'empty' || reason === 'unparsed') {
-      log.warn('split: failed', { channel: channelId, reason, status: null, ...late });
-      return null;
-    }
-    log.info('split: verdict', { channel: channelId, parts: parts?.length ?? 1, ms: clock() - startedAt, ...late });
-    return parts;
-  }
+  const { classifierContext, maybeRewatch, rewatchOffer, applyRewatch } = createRewatch({ hot, llm, describer });
+  const {
+    startPrefetch,
+    recallAvailable,
+    turnDirectory,
+    privatePartner,
+    createTurnPlan,
+    lookupGate,
+    maybeLookup,
+    maybeSplit,
+  } = createLookup({
+    hot,
+    store,
+    llm,
+    clock,
+    lookup,
+    recall,
+    membersOf,
+    selfIdOf,
+    ifaceReads,
+    discoveryPrompt,
+    classifierContext,
+    linkCalls,
+  });
 
   /**
    * @param {object} params

@@ -639,6 +639,20 @@
       "test": "none"
     },
     {
+      "path": "src/turn/rewatch.ts",
+      "purpose": "The second look on a question: the media list a re-watch classifier or the planner is offered, the classifier's request, the describer's look again, and the transcript input of a turn's classifiers. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/lookup.ts",
+      "purpose": "What a turn looks up before its reply: the memory prefetch, the search classifier with its web and server searches, the turn planner, the splitter, and the directory and private partner. Tested through the turn and events tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/errands/",
       "purpose": "The errand service: the ledger, the store, the client to the runner and the turns that bring results back.",
       "layer": "public",
