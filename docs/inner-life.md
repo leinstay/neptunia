@@ -1,6 +1,6 @@
 # Inner life
 
-The persona can wake on her own, without anyone writing to her. A scheduler checks every `innerLife.tickSeconds` (default 60) seconds whether something of hers is due. When it is, the engine sends an `inner.wake` event through the event door, and the turn runner gives her a turn with nobody's message in front of her: her tools, her memory, and a `<wake>` block that says why she is awake. Behind `features.innerLife` (default `false`).
+The persona can wake on her own, without anyone writing to her. A scheduler checks every `innerLife.tickSeconds` (default 60) seconds whether something of hers is due. When it is, the engine sends an `inner.wake` event through the event door, and the turn runner gives her a turn with nobody's message in front of her: her tools, her memory, and a `<wake>` block that says why she is awake.
 
 No model decides when she wakes. The scheduler lists what is due; she decides what to do with it.
 
@@ -8,7 +8,7 @@ No model decides when she wakes. The scheduler lists what is due; she decides wh
 
 ### Intentions coming due
 
-With `features.intentions` on, an open intention whose due time has passed produces an `intention_due` wake. A wait for an errand past its deadline produces an `errand_deadline` wake. The same due time never wakes her twice; a new due time she sets creates a new wake.
+An open intention whose due time has passed produces an `intention_due` wake. A wait for an errand past its deadline produces an `errand_deadline` wake. The same due time never wakes her twice; a new due time she sets creates a new wake.
 
 A recurring intention (`every`: `day`, `week`, or an interval like `12h`, `3d`) wakes her once per occurrence. Its due time is the current occurrence, pinned to the wall clock of `bot.timezone` for `day` and `week`. When the wake is handled (her turn ended, or the engine dropped it), the record stays open and the due time moves to the next occurrence after now. Occurrences already past are skipped. The history gets `recurred` when a call of the turn named the intention, `missed` when none did. Closing with `intention.update state=done` closes only the occurrence (`done-occurrence`). The intention expires after `intentions.recurringExpiresDays` (default 30) days; the last occurrence before expiry carries the note `last-occurrence` in her `<wake>` line.
 
@@ -16,7 +16,7 @@ A recurring intention (`every`: `day`, `week`, or an interval like `12h`, `3d`) 
 
 Once a day, at a random moment inside the hours she usually speaks in. The engine counts her own lines per hour of `bot.timezone` from the last `innerLife.review.historyDays` (default 14) days, draws an hour weighted by those counts (every hour equal when she has no lines), then a minute inside it. The moment is drawn at the first tick of each local day, never in an hour already past, and kept in the state so a restart preserves it. A day that ends before its review ran is journalled as missed.
 
-The review's `<wake>` also tells her which of her intentions expired untouched since she was last told (never a candidate): the newest `innerLife.review.expiredMax` (default 5), the rest counted and told next time. Each listed intention is marked as shown only after that review turn completed, so a held or failed review lists them again.
+The review's `<wake>` also tells her which of her intentions expired untouched since she was last told (never a candidate): the newest five (`INNER_DEFAULTS.review.expiredMax` in `src/behavior/inner/settings.ts`), the rest counted and told next time. Each listed intention is marked as shown only after that review turn completed, so a held or failed review lists them again.
 
 ### The heartbeat
 
@@ -30,21 +30,21 @@ The heartbeat has no current channel. The turn runs in a channel she spoke in la
 
 One function (`src/behavior/heartbeat-view.ts`) reads the stores with no model. The `<wake>` block carries:
 
-**Places.** Where others wrote in the last `heartbeat.placesHours` (default 6) hours, the busiest first, at most `heartbeat.placesShown` (default 6). Each place lists its name, line count, who wrote, and the last `heartbeat.placeLines` (default 2) lines as previews (author, time, up to 140 characters, a marker for links or media). Every quoted line carries a `#N` handle she can use in `message.create reply=`, `media.look` and reactions.
+**Places.** Where others wrote in the last six hours, the busiest first, at most six places. Each place lists its name, line count, who wrote, and the last two lines as previews (author, time, up to 140 characters, a marker for links or media). The three counts are `placesHours`, `placesShown` and `placeLines` of `INNER_DEFAULTS.heartbeat` in `src/behavior/inner/settings.ts`. Every quoted line carries a `#N` handle she can use in `message.create reply=`, `media.look` and reactions.
 
-**People.** Up to `innerLife.heartbeat.people` (default 8) members, chosen by affinity (`innerLife.heartbeat.focusSource: "profiles"`, the default). Each with when and where she last talked with them, their newest line within `heartbeat.historyDays` (default 14) days (time, place, a preview, a handle), their top 3 interests, and where they wrote lately. With `focusSource: "db"`, the people come from the memory database's focus set instead: the close members first, then the exploring ones with a share of `focus.exploringShare` (default 0.15) of the slots (rounded, at least one when there are any). This requires `memoryDb.focus.enabled` (default `false`).
+**People.** Up to eight members (`INNER_DEFAULTS.heartbeat.people`), taken from the memory database's focus set: the close members first, then the exploring ones with a share of 0.15 of the slots (`FOCUS_DEFAULTS.exploringShare` in `src/memory/db/focus.js`, rounded, at least one when there are any). While the database is closed the members are ranked by affinity instead. Each comes with when and where she last talked with them, their newest line within `heartbeat.historyDays` (default 14) days (time, place, a preview, a handle), their top 3 interests, and where they wrote lately.
 
-**Her life.** What she did in the last day: her posts (place and preview), executed calls of her inner turns, her errands with their goal, her diary posts. Her open intentions and attentions, and the latest `heartbeat.closedShown` (default 10) closed intentions of any state, newest first, each with its outcome or reason, the rest counted.
+**Her life.** What she did in the last day: her posts (place and preview), executed calls of her inner turns, her errands with their goal, her diary posts. Her open intentions and attentions, and the latest ten closed intentions (`INNER_DEFAULTS.heartbeat.closedShown`) of any state, newest first, each with its outcome or reason, the rest counted.
 
 **What she can do.** Her granted tools by family, and the errand agents.
 
-**Since the last heartbeat** (the last day for the first one): counts of what was done; what was not done or counted on (expired or missed intentions, failed errands, sends with unknown outcome, turns that ended in error, the facts already told as one count); and what was filtered without her (the missed check's dismissals and the address check's "not to her" verdicts with place, time, author and a preview, at most `heartbeat.filteredShown` (default 10), the rest counted).
+**Since the last heartbeat** (the last day for the first one): counts of what was done; what was not done or counted on (expired or missed intentions, failed errands, sends with unknown outcome, turns that ended in error, the facts already told as one count); and what was filtered without her (the missed check's dismissals and the address check's "not to her" verdicts with place, time, author and a preview, at most ten (`INNER_DEFAULTS.heartbeat.filteredShown`), the rest counted).
 
 The whole block is capped at `heartbeat.maxTokens` (default 2500). Over that limit, lists shed their last items in this order: filtered lines, lines of her life, places beyond 3, people beyond 5. The count line says how many were cut.
 
 #### What a heartbeat may do
 
-With `innerLife.heartbeat.intentionsOnly` (default `true`), the heartbeat accepts only memory reads and intention calls: `memory.search`, `memory.profile.read`, `memory.affinity.read`, `memory.channel.read`, `memory.server.read`, `memory.recent.read`, `memory.archive.read`, `memory.journal.read`, `conversation.read`, `intention.list`, `lore.list`, `lore.show` and `tools.describe`. These calls still pass the usual permissions.
+The heartbeat accepts only memory reads and intention calls: `memory.search`, `memory.profile.read`, `memory.affinity.read`, `memory.channel.read`, `memory.server.read`, `memory.recent.read`, `memory.archive.read`, `memory.journal.read`, `conversation.read`, `intention.list`, `lore.list`, `lore.show` and `tools.describe`. These calls still pass the usual permissions.
 
 The prompt asks her to follow a memory thread before choosing. The wake finishes with one successful `intention.set`, `intention.update` or `intention.cancel`, or `<skip/>`. The first successful change ends the turn without another model request. A second intention call in the same step is refused. Posts, reactions, web reads and errands are refused `heartbeat-only`. A refusal or failed read may be corrected within the loop limits.
 
@@ -52,7 +52,7 @@ With the switch `false`, the heartbeat can act freely; the origin and caps below
 
 **Origin.** An intention a heartbeat turn creates carries `origin: heartbeat`, stamped by the engine from the wake kind. Updates keep it. It changes no priority and no schedule.
 
-**Caps.** At most `innerLife.heartbeat.maxOpen` (default 3) open intentions with heartbeat origin, of them at most `maxRecurring` (default 1) recurring. At the cap, `intention.set` from a heartbeat is refused `heartbeat-cap` (or `heartbeat-recurring-cap`) and the result names the open ones so she can update or cancel one.
+**Caps.** At most three open intentions with heartbeat origin, of them at most one recurring (`HEARTBEAT_LIMITS` in `src/intentions/model.ts`). At the cap, `intention.set` from a heartbeat is refused `heartbeat-cap` (or `heartbeat-recurring-cap`) and the result names the open ones so she can update or cancel one.
 
 **Due-time jitter.** An intention a heartbeat created is shifted off its round clock time by an offset derived from a hash of the intention's id and due time, uniform in `+-dueJitterMinutes` (default 20), never more than a quarter of the lead time and never past `expiresAt`.
 
@@ -62,15 +62,15 @@ With the switch `false`, the heartbeat can act freely; the origin and caps below
 
 She chooses where to listen. `intention.set attend=<place>` makes an open intention of kind `attend`: while it is open, the engine wakes her on new lines in that place.
 
-Her last look is her last own line in that place or the last attend wake handled for it, whichever is later. Nothing from before the attention was set counts. `settle=<seconds>` (default `innerLife.attention.settleSeconds`, 90) waits until the place has been quiet that long. The queue holds one wake per attention; a newer burst replaces the queued one (the turn's history is the place's lines, so nothing is lost). `people=<handles>` makes only their lines count for the wake; the turn's history stays the whole conversation. `perday=<n>` (default `innerLife.attention.perDayDefault`, 12) is her own daily bound: past it the wake waits and runs the next local day. Other wakes are not held by it. `intention.update` changes `people`, `settle`, `perday` and `expires`. Setting `due=` or `every=` on an attention is refused.
+Her last look is her last own line in that place or the last attend wake handled for it, whichever is later. Nothing from before the attention was set counts. `settle=<seconds>` (default 90, `ATTEND_DEFAULTS.settleSeconds` in `src/intentions/model.ts`) waits until the place has been quiet that long. The queue holds one wake per attention; a newer burst replaces the queued one (the turn's history is the place's lines, so nothing is lost). `people=<handles>` makes only their lines count for the wake; the turn's history stays the whole conversation. `perday=<n>` (default 12, `ATTEND_DEFAULTS.perDayDefault`) is her own daily bound: past it the wake waits and runs the next local day. Other wakes are not held by it. `intention.update` changes `people`, `settle`, `perday` and `expires`. Setting `due=` or `every=` on an attention is refused.
 
-The lines come from the record, indexed incrementally at each tick over the last `innerLife.attention.lookbackHours` (default 24) hours.
+The lines come from the record, indexed incrementally at each tick over the last 24 hours (`INNER_DEFAULTS.attention.lookbackHours`).
 
-**The places view.** Her `places.list` tool lists every place the interface publishes: its address, name, whether she can write there, lines and distinct people since her last look, the newest line, and whether she attends it. `filter=<text>`, `sort=recent|name|lines` (default `recent`), `page=<n>` turns pages of `innerLife.attention.pageSize` (default 12). Every inner turn's `<wake>` carries a short page of it (`innerLife.attention.placesInWake`, default 8, by recent activity, with the total).
+**The places view.** Her `places.list` tool lists every place the interface publishes: its address, name, whether she can write there, lines and distinct people since her last look, the newest line, and whether she attends it. `filter=<text>`, `sort=recent|name|lines` (default `recent`), `page=<n>` turns pages of 12 places (`INNER_DEFAULTS.attention.pageSize`). Every inner turn's `<wake>` carries a short page of it (eight places, `INNER_DEFAULTS.attention.placesInWake`, by recent activity, with the total).
 
 ### Her diary
 
-The diary is a wake of its own, `selfreflection`, behind `features.diary` rather than `features.innerLife`. Its day plan runs on the scheduler's `diary.tick` (`src/behavior/diary.ts`), and each due slot runs a diary turn with no conversation: it reads every group conversation and no direct chat, writes her entry into memory, and the diary's mirrors post it (`src/behavior/mirror.ts`). A mirror place is written only by the diary: an event there opens no turn, and every send there from another turn, wake or tool is refused `diary-mirror`. See [Diary](diary.md).
+The diary is a wake of its own, `selfreflection`. Its day plan runs on the scheduler's `diary.tick` (`src/behavior/diary.ts`), and each due slot runs a diary turn with no conversation: it reads every group conversation and no direct chat, writes her entry into memory, and the diary's mirrors post it (`src/behavior/mirror.ts`). A mirror place is written only by the diary: an event there opens no turn, and every send there from another turn, wake or tool is refused `diary-mirror`. See [Diary](diary.md).
 
 ### Feedback on her own turn
 
@@ -85,7 +85,7 @@ The scheduler collects facts from a turn's result:
 - `turnFailed`: the turn ended `error` or `refused`.
 - `wakeDropped`: a wake that ended without a turn (stopped, overflow, stale, no-channel, and others).
 - `wakeHeld`: a wake held on a cap, with the local midnight it waits for.
-- `memoryFailed`: a memory batch whose answer could not be applied, while `features.innerLife` is on.
+- `memoryFailed`: a memory batch whose answer could not be applied.
 - `interrupted`: an inner turn that a restart cut off after it did something.
 
 An addressed turn records facts the same way: `sendFailed` when a `<msg>` did not go out, `loopCut`, `callFailed` for a call whose result she never read.
@@ -108,7 +108,7 @@ If the process dies inside the turn, its wakes stay `running`. The next start ta
 
 **Sleep.** A wake that fell due while the core was down or paused sleeps: it becomes `slept` and never runs (`src/behavior/inner/recovery.ts`). A downtime runs from the last renewal of the `core:alive` lease, which every tick renews, to the first tick of the next start. A pause runs from the `pausedAt` of `/pause` to the first tick after `/resume`. A wake listed only after that interval sleeps too. A one-off intention whose wake slept is cancelled with a `sleptAt` mark, and her `intention.update` and `intention.cancel` on it answer `slept`. A recurring intention loses only that occurrence: its history records `slept`, and the next occurrence comes due as usual. Nothing about a slept wake becomes a fact, a wake or a memory. The owner's status counts the wakes slept since the start.
 
-**Stale and overflow.** A wake whose intentions were closed meanwhile is dropped as stale. At most `innerLife.queueMax` (default 20) wakes wait; one more is dropped as overflow.
+**Stale and overflow.** A wake whose intentions were closed meanwhile is dropped as stale. At most 20 wakes wait (`INNER_DEFAULTS.queueMax`); one more is dropped as overflow.
 
 **Where.** The current channel comes from the cause of the wake: the intention's conversation, the attend wake's place, the errand's channel, the feedback's channel. A review or heartbeat has no channel; the turn runs in a channel she was recently active in. A private-chat intention's channel is that DM. A wake with no usable channel is dropped.
 
@@ -117,7 +117,7 @@ If the process dies inside the turn, its wakes stay `running`. The next start ta
 The same voice, memory prefetch and tools as any turn, with nobody's message in front of her. The request carries:
 
 - `<wake>`: why she is awake, with each wake's intention, the current channel and why it was chosen, her budget lines, and the places page.
-- The last `innerLife.chatMessages` (default 30) messages of the conversation.
+- The last 30 messages of the conversation (`INNER_DEFAULTS.chatMessages`).
 - `<retrieved>`: the prefetch, searched with the purposes of the wake's intentions.
 - Her `<intentions>` and `<errands>`.
 - The task prompt `prompts/inner.md`; on a heartbeat wake, `prompts/heartbeat.md` instead.
@@ -142,13 +142,13 @@ In live mode her posts in a wake turn wait until the wake completes, so a send t
 
 The wake's completion records one `deliveries` row per held post in the transaction that marks the wake handled (`finishTurn` in `src/behavior/inner/wake-store.ts`). The row is keyed by the call's effect key and names the wake and the conversation. Its payload is the conversation and the content (text, reply and mentions). A file with its bytes is written under `data/media/deliveries/` as a `media` row of kind `delivery`, and the payload names it. When the turn's wakes go back to the queue for a retry, nothing is recorded, and the rerun makes its posts again under the same keys.
 
-After the completion commits, `src/behavior/inner/deliveries.ts` sends the rows in order through the port, each under its key, before the tick returns. Before each send it asks the kill switch again: while her inner life is stopped, the row stays `queued`. A row is `sending` from just before the port is called. The answer makes it `sent`, `unknown` or `failed` and is kept as its receipt. A sent `message.create` is recorded as a message turn records a sent post: a `post` operation of the wake's turn in the journal around the send (`features.journal`), and her `said` line in the record with the message id and the turn's id (`features.record`). A row that ends `failed` or `unknown` is never sent again. It becomes a `callFailed` fact in its conversation, and one `feedback` wake there brings it to her next turn. At a start, before the first tick lists anything, a row still `sending` lost its answer, so it is reconciled by its key through the adapter (`src/interface/reconcile.ts`). Found, it is `sent`. Known not to have gone out, it is `queued` again. When the adapter cannot tell, it is `unknown` and never sent again. Then every `queued` row is sent once.
+After the completion commits, `src/behavior/inner/deliveries.ts` sends the rows in order through the port, each under its key, before the tick returns. Before each send it asks the kill switch again: while her inner life is stopped, the row stays `queued`. A row is `sending` from just before the port is called. The answer makes it `sent`, `unknown` or `failed` and is kept as its receipt. A sent `message.create` is recorded as a message turn records a sent post: a `post` operation of the wake's turn in the journal around the send, and her `said` line in the record with the message id and the turn's id. A row that ends `failed` or `unknown` is never sent again. It becomes a `callFailed` fact in its conversation, and one `feedback` wake there brings it to her next turn. At a start, before the first tick lists anything, a row still `sending` lost its answer, so it is reconciled by its key through the adapter (`src/interface/reconcile.ts`). Found, it is `sent`. Known not to have gone out, it is `queued` again. When the adapter cannot tell, it is `unknown` and never sent again. Then every `queued` row is sent once.
 
 A shadow turn, a message turn, the diary turn and the CLI chat hold nothing: their sends go out during the turn.
 
 ## Intentions
 
-Things she means to do later, kept across restarts. Behind `features.intentions` (default `false`).
+Things she means to do later, kept across restarts.
 
 ### Where they come from
 
@@ -175,7 +175,7 @@ Who may accept a candidate:
 
 Every intention has an expiry (`intentions.expiresDays`, default 14). An intention with no due time and no wait never wakes her; it only expires, and its `<intentions>` line says so. One of hers that expires untouched is told once in her next daily review. An attention is `pending` while open and keeps a daily counter of attend wakes.
 
-At most `intentions.maxOpen` (default 20) open at once, and `intentions.maxCandidates` (default 5) candidates.
+At most `intentions.maxOpen` (default 20) open at once, and five candidates (`DEFAULTS.maxCandidates` in `src/intentions/model.ts`).
 
 `intention.update state=dropped reason=...` lets go of an open intention. `intention.set state=dropped reason=...` records one considered and let go at once. A reason is required. A dropped record never wakes her and is not counted as open.
 
@@ -197,7 +197,7 @@ Every intention keeps the members of the conversation it came from.
 
 ### Turning it on
 
-Set `features.intentions` to `true`, and grant her the tools by name with `/tools grant`: `intention.set`, `intention.update`, `intention.cancel` and `intention.list`.
+Grant her the tools by name with `/tools grant`: `intention.set`, `intention.update`, `intention.cancel` and `intention.list`.
 
 ## Bounds
 
@@ -206,7 +206,7 @@ Code enforces these; she reads what is left as facts in `<wake>`.
 | Cap | Default | What it counts |
 |---|---|---|
 | `caps.perChain` | 3 | Inner turns of one chain per local day (`bot.timezone`). Past the cap the chain's wakes wait and run after local midnight. Wakes of other chains are not held. |
-| An attention's `perDay` | `attention.perDayDefault` (12) | Attend wakes of that attention per local day. Past the cap the wake waits for the next day. |
+| An attention's `perDay` | 12 (`ATTEND_DEFAULTS.perDayDefault`) | Attend wakes of that attention per local day. Past the cap the wake waits for the next day. |
 
 A feedback wake is never held, never joined to another wake, and does not count against the chain.
 
@@ -234,7 +234,7 @@ Shadow turns count. A shadow turn's reads really ran, so what they found enters 
 
 The queue, the handled wake ids of the last 30 days and the turn in flight are rows of the memory database's `wakes` table (see [memory.md](memory.md)). An inner life built without a memory database keeps them in one in-memory database per data directory for the life of the process. The rest of the state per guild is `data/guilds/<id>/inner.json`: the chains' counts, the day's review, the heartbeat, turns, spend and posts of the last two days, facts and the stop, written after every change. A wake that fell due before a downtime runs at the first tick after it.
 
-With `features.journal` on, `inner` records carry: wakes, turns (outcome, actions, loop, feedback, cost), cap refusals, overflows, stale drops, slept wakes, the review, recurring advances, restarts, the stop/start. The inner turn is a turn of the journal with mode `inner`.
+The journal's `inner` records carry: wakes, turns (outcome, actions, loop, feedback, cost), cap refusals, overflows, stale drops, slept wakes, the review, recurring advances, restarts, the stop/start. The inner turn is a turn of the journal with mode `inner`.
 
 ## Checking it before going live
 
@@ -252,8 +252,7 @@ The inner turns are answered by a stub voice (deterministic, costs nothing). The
 
 `--live` runs selected days with the real voice in shadow on the simulator key, the stub on the others. Wired like `replay.mjs --inner`: her memory from a read-only copy, nothing posted. See [tools/README.md](../tools/README.md) for the full usage.
 
-## Built but off
+## Wake runs, focus and places
 
-- `memoryDb.wakeRuns` (default `false`): records each inner turn as a wake run in the memory database with its actions.
-- `memoryDb.focus.enabled` (default `false`): maintains the focus set (close and exploring people scored by affinity, reciprocity, recency and other factors). Used by the heartbeat's people view when `innerLife.heartbeat.focusSource` is `"db"`.
-- `context.places` (default `false`): shows the places page as a `<places>` block on addressed server turns.
+Each inner turn is recorded as a wake run in the memory database with its actions. Once per UTC day the focus job (`src/memory/db/focus.js`) recomputes the focus set, the close and exploring people scored by affinity, reciprocity, recency and other factors, and the heartbeat's people view reads it. Addressed server turns carry no `<places>` block: `ADDRESSED_PLACES` in `src/turn/inputs.ts` is `false`, and the code that builds the block stays.
+

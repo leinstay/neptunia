@@ -1084,7 +1084,7 @@
     },
     {
       "path": "src/pipeline/pause-notice.ts",
-      "purpose": "The pause notice: a direct call that arrives while the persona is paused gets one plain line, at most once per channel per `mention.pauseNoticeMinutes`. Tested through the events tests.",
+      "purpose": "The pause notice: a direct call that arrives while the persona is paused gets one plain line, at most once per channel per `PAUSE_NOTICE_MINUTES` (10) of `src/behavior/limits.js`. Tested through the events tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"

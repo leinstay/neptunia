@@ -43,7 +43,7 @@ Copy `.env.example` to `.env` and fill in the values. The file is read once at s
 | `OPENCODE_WEBSEARCH_KEY` | no | The scout errand agent's web search key |
 | `MEDIA_VIDEO_PROXY` | no | A socks5h:// or http:// proxy for video fetches |
 | `YOUTUBE_API_KEY` | no | YouTube Data API key, used when yt-dlp is unavailable to learn video duration |
-| `BRAVE_SEARCH_API_KEY` | no | Brave Search API key for `features.webLookup` (free tier: 2,000 queries/month) |
+| `BRAVE_SEARCH_API_KEY` | no | Brave Search API key for the `brave` search engine, the default of `web.search.engine` (free tier: 2,000 queries/month) |
 | `EXA_API_KEY` | no | Exa API key for the `exa` search engine (`web.search.engine`) |
 
 When `NEPTUNIA_PRIVATE_DIR` is set in the process environment, `.env`, `config.local/` and `prompts.local/` are read from that directory instead of from the checkout root. `NEPTUNIA_DATA_DIR` moves the `data/` directory. Both are described in [docs/configuration.md](configuration.md) and used by the example systemd unit.
@@ -65,12 +65,6 @@ npm start
 ```
 
 When `bot.guildId` is empty and the bot is in exactly one server, it locks to that server automatically. If the bot is in several servers, it refuses to start; set `bot.guildId` in `config.local/config.json`.
-
-## Dry run
-
-Set `features.dryRun` to `true` in `config.local/config.json`. The bot runs the full pipeline (memory, triggers, LLM calls) but never sends a message or reaction. Output goes to the log. Set `bot.dryRunChannelId` to a private channel to get a readable mirror of everything the bot would post. Slash commands still work in any channel.
-
-A good first step on a new server: enable dry run, watch the log or the mirror channel, tune the persona live with `/config set` and `/rules add` in the `neptunia` chat, then turn dry run off with `/config set features.dryRun false`.
 
 ## Running as a service
 

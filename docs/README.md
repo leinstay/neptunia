@@ -23,7 +23,7 @@ Neptunia is a persona engine. One instance serves one chat server, one bot accou
   memory ── profiles, episodes, lore, journal, recall
 ```
 
-A message arrives through an interface adapter. The event door validates it and passes it to the pipeline. The pipeline decides whether the persona answers (a mention, a reply, a name trigger, a spontaneous cut-in) and collects the context: memory profiles, channel history, media descriptions, recall hits. A turn assembles everything into one LLM request under a token budget, sends it, and acts on the output (messages, reactions, tool calls). Memory is updated by the persona's own memory session.
+A message arrives through an interface adapter. The event door validates it and passes it to the pipeline. The pipeline decides whether the persona answers (a mention, a reply, a name trigger, a follow-up) and collects the context: memory profiles, channel history, media descriptions, recall hits. A turn assembles everything into one LLM request under a token budget, sends it, and acts on the output (messages, reactions, tool calls). Memory is updated by the persona's own memory session.
 
 The persona's inner life (heartbeat wakes, intentions, the diary) runs the same turn machinery on a timer instead of on an incoming message.
 

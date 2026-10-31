@@ -114,10 +114,10 @@ Version 20 rebuilds `deliveries` with three more states and a `receipt` column (
 | `turn_reads` | Which rows each request carried, in which context and by which reader |
 | `execution_contexts` | The contexts the engine issued for turns, sessions and wakes |
 | `relationship_daily` | How often she and each person addressed each other per day and audience (counts, recounted from `sources`) |
-| `focus_members` | Her current close and exploring sets (built, off by default) |
+| `focus_members` | Her current close and exploring sets |
 | `focus_events` | Every change of those sets (append-only) |
 | `focus_overrides` | The owner's pins and exclusions |
-| `wake_runs` | One row per inner wake run (built, off by default) |
+| `wake_runs` | One row per inner wake run |
 | `wake_actions` | Each action of a wake run (append-only) |
 | `skills` | Registered skills by name, with lifecycle and active version (built, off by default) |
 | `skill_versions` | Each version of a skill, with content hash, manifest hash and engine commit |
@@ -188,7 +188,7 @@ Her turn writes her `said` lines with turn and operation ids, her day events, pa
 
 ### 3. The embedder
 
-The embedder (`src/memory/embedder.js`) sends new lines to the embedding model in batches. An hourly catch-up (`embed.catchUpEveryMinutes`, default 60) covers the last 72 hours, so a line has its vector within an hour. Off unless `features.meaningSearch` and `features.embedIndex` are both true.
+The embedder (`src/memory/embedder.js`) sends new lines to the embedding model in batches. An hourly catch-up (`CATCH_UP_EVERY_MINUTES`, 60) covers the last 72 hours (`CATCH_UP_HOURS`), so a line has its vector within an hour.
 
 ### 4. Code-made counters
 
@@ -196,7 +196,7 @@ The embedder (`src/memory/embedder.js`) sends new lines to the embedding model i
 
 ### 5. Affinity decay
 
-Every stored attitude drifts toward zero at `relationships.decayPerDay` (default 0.04) per day. The sweep runs hourly (`src/core.js`), but counts only the time the persona was running: a gap of more than two sweep intervals is treated as downtime, and the gap is skipped. The decay is applied to both public and private scores by `src/memory/store.js#decayAffinities`.
+Every stored attitude drifts toward zero at 0.04 per day (`RELATIONSHIP_LIMITS.decayPerDay` in `src/memory/text-limits.js`). The sweep runs hourly (`src/core.js`), but counts only the time the persona was running: a gap of more than two sweep intervals is treated as downtime, and the gap is skipped. The decay is applied to both public and private scores by `src/memory/store.js#decayAffinities`.
 
 ### The store, the outbox and pending writes
 
@@ -227,7 +227,7 @@ The session runs on its own model role (`memory`) and its own key (configured th
 Controlled by the `memoryDb.session` config block. A scope (the public channels of an interface together, or one DM conversation) sweeps when:
 
 - at least `minMessages` (default 5) settled lines sit after its cursor
-- `settleMinutes` (default 10) have passed since the newest of those lines
+- ten minutes have passed since the newest of those lines (a constant, `DEFAULTS.settleMinutes` in `src/memory/db/session.js`)
 - `everyMinutes` (default 60) have passed since the last sweep of this scope, or the scope has `maxMessages` (default 200) waiting lines
 
 One sweep at a time. At most `sweepsPerScopePerDay` (default 24) sweeps of one scope per UTC day.
@@ -276,12 +276,12 @@ Recall is the search behind the persona's `memory.search` tool and the automatic
 |---|---|
 | Words | The plan's forms as stems (learned from the database's own text by `src/memory/db/stems.js`, the same stemmer that stamped `sources.stems`) through `sources_fts`. A one-word form is a word match; a longer form is a phrase match. Ranked by BM25 |
 | Trigrams | A form the word stream finds nothing for, searched as a substring through `sources_tri`. Catches typos and stems the learned endings did not cover |
-| Meaning | The stored vectors within the context's scope. A plain scan with cosine similarity on the int8 rows (the question's embedding is the caller's). Candidates limited by `recall.db.candidates` (default 40) |
+| Meaning | The stored vectors within the context's scope. A plain scan with cosine similarity on the int8 rows (the question's embedding is the caller's). Candidates limited to 40 (`RECALL_DEFAULTS.db.candidates` in `src/behavior/recall.js`) |
 | People | The lines of the members the plan's name forms point at |
 
 The streams are fused by reciprocal rank (k=60). A relevance gate drops hits far below the best. The rest are ranked by closeness to the plan's date range when one exists; without a date, by what terms a hit holds.
 
-**Stretches:** around the best hits, a window is built: the reply chain, context lines on each side, then the conversation followed forward while it continues (`recall.followMessages` lines, up to the first silence longer than `recall.followGapMinutes` minutes). Windows that share a line are merged.
+**Stretches:** around the best hits, a window is built: the reply chain, context lines on each side, then the conversation followed forward while it continues (24 lines, up to the first silence longer than five minutes: `RECALL_DEFAULTS.followMessages` and `followGapMinutes`). Windows that share a line are merged.
 
 **The hidden marker:** a group context that has a better match only in the querier's own DM gets a `hidden` marker and nothing else: no text, no count.
 
@@ -303,7 +303,7 @@ Operational state that the process writes stays on disk as JSON files. The exact
 
 - `state.json`, `usage.json`, `metrics.json` (top-level and per-guild)
 - Per-guild: `inner.json`, `missed.json`, `participation.json`, `gifs.json` (the GIF library), `media.json` (the vision cache)
-- `recall-trace.jsonl` (when `features.recallTrace` is on)
+- `recall-trace.jsonl`
 - `journal/.running` (the running marker) and `journal/requests/` (request dumps)
 - The backfill folders and `record/backfill.json`
 - `archive/pending*.jsonl` (the archive's pending queue)
@@ -367,26 +367,17 @@ The memory system reads these config groups from `config/config.json` (and `conf
 
 | Group | What it controls |
 |---|---|
-| `memoryDb` | The database file, session schedule, backups, focus, wake runs, skills registry, observation timeout |
-| `recall` | Search parameters: forms, clusters, windows, follow, time ranges, the `db` subgroup (word pool, vector days, eviction), the `prefetch` subgroup |
-| `embed` | Embedding dimensions, batch size, flush interval, catch-up window |
-| `capture` | Foreign capture defaults (ancestors, context lines, watch intervals) |
-| `graph` | Walk depth and row limits |
-| `focus` | Policy version, set sizes, weights, decay, novelty, consistency |
-| `relationships` | Delta cap, history size, decay rate, damping, rewrite triggers, text length |
+| `memoryDb` | The database file, session schedule, backups, skills registry, observation timeout |
+| `recall` | The search's timeout, output and memory tokens, record days, the `db` subgroup (vector days, touch days, eviction, re-embedding), the `prefetch` subgroup (deadline, tokens, word lists) |
+| `embed` | Embedding dimensions |
+| `memory` | The vault directory and the main channels |
 
-Feature switches that gate memory behavior:
+The other measures of memory are constants in the module that reads them: the capture's `CAPTURE_DEFAULTS` in `src/memory/db/observe.js`, the graph walk's `DEFAULTS` in `src/memory/db/graph.js`, `FOCUS_DEFAULTS` in `src/memory/db/focus.js`, the embedding queue's in `src/memory/embedder.js`, and `MEMORY_LIMITS`, `RELATIONSHIP_LIMITS` and `LORE_LIMITS` in `src/memory/text-limits.js`.
+
+Two switches gate memory behaviour:
 
 | Switch | Default | What it gates |
 |---|---|---|
-| `features.recall` | on | Recall search (the `memory.search` tool and the runner) |
-| `features.record` | on | Writing lines to the record |
-| `features.archive` | on | Archiving items that leave hot memory |
-| `features.relationships` | on | Attitude tracking and decay |
-| `features.meaningSearch` | off (`=== true`) | Vector search in recall |
-| `features.embedIndex` | off (`=== true`) | The live embedding queue |
-| `features.journal` | on (`=== true`) | Writing journal entries |
-| `features.recallTrace` | off | Writing the recall trace file |
 | `memoryDb.session.mode` | `"off"` | Her memory session (`"off"`, `"shadow"`, `"apply"`) |
 | `memoryDb.backup.enabled` | `false` | The daily backup job |
 
@@ -394,13 +385,10 @@ Feature switches that gate memory behavior:
 
 | Feature | Switch | State |
 |---|---|---|
-| Focus (close and exploring sets for her heartbeat) | `memoryDb.focus.enabled` | Built, off |
-| Wake runs and wake actions | `memoryDb.wakeRuns` | Built, off |
 | Skills registry | `memoryDb.skillsRegistry` | Built, off |
 | Vector eviction (drop bytes of old, uncited vectors) | `recall.db.vectorEviction` | Built, off |
 | Re-embedding on touch | `recall.db.reembed` | Built, off |
 | Foreign capture (threads, boards) | Live in schema; no adapter emits capture events yet | Built, no adapter |
-| Diary media fetch | `memoryDb.diaryMedia` | Built, off |
 
 ## Appendix: who may read each table
 

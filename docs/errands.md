@@ -104,11 +104,11 @@ Neither shell runs an interpreter or command runner (`python`, `node`, `perl`, `
 
 ### `<errands>` block
 
-While she has an open task or a finished one she has not read, the tail of every request includes an `<errands>` block. Each task is one line: the id, the agent, the state, the age in minutes, and the goal cut to 120 characters. Open tasks come first, then unread finished ones (oldest first, at most `errands.unreadShown`, the rest counted). The task of an `<errand_result>` turn is not listed again. A private chat's tasks show only in that chat.
+While she has an open task or a finished one she has not read, the tail of every request includes an `<errands>` block. Each task is one line: the id, the agent, the state, the age in minutes, and the goal cut to 120 characters. Open tasks come first, then unread finished ones (oldest first, at most five by `DEFAULT_UNREAD_SHOWN` of `src/errands/blocks.ts`, the rest counted). The task of an `<errand_result>` turn is not listed again. A private chat's tasks show only in that chat.
 
 ### `<errand_result>` block
 
-When a task finishes, the persona gets her own turn in the conversation it was asked in, replying to the message that started it. The turn follows the same attention as every other turn and observes `errands.resultCooldownSeconds` (default 60) between two such turns in one conversation. The block carries the id, agent, goal, state, the result text cut to `errands.resultMaxChars` (default 3000), the sources as a numbered list, each file as a handle, and (when the runner withheld paths) a line naming them.
+When a task finishes, the persona gets her own turn in the conversation it was asked in, replying to the message that started it. The turn follows the same attention as every other turn and waits at least `DEFAULT_COOLDOWN_SECONDS` (60) of `src/errands/turns.ts` between two such turns in one conversation. The block carries the id, agent, goal, state, the result text cut to `errands.resultMaxChars` (default 3000), the sources as a numbered list, each file as a handle, and (when the runner withheld paths) a line naming them.
 
 When the result turn fails (`error`, `refused`), it is retried every `errands.resultRetrySeconds` (default 30), at most 20 times. After that, the task stays unread in `<errands>` with a note that the turn never ran. A restart re-opens result turns for finished tasks still unread.
 
@@ -132,7 +132,7 @@ Board version 3 moves the errands of the `work` table onto the board with their 
 
 ## Task operations
 
-These are her tools, closed until the owner grants them to her. A member asks her for them, and all of them require `features.memberCommands`. The owner's chat runs `errand.list`, `errand.status` and `errand.cancel` as `/errands`.
+These are her tools, closed until the owner grants them to her. A member asks her for them. The owner's chat runs `errand.list`, `errand.status` and `errand.cancel` as `/errands`.
 
 | Operation | What it does |
 |---|---|
