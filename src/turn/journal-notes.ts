@@ -1,5 +1,5 @@
 // What a turn notes about itself as it runs: the facts kept for her next request, the outside text an attempt has seen
-// and where her lines came from, the trigger and call marks on her own lines, her previous think per place, and the
+// and where her lines came from, the trigger and call marks on her own lines (seeded from the journal at start), her previous think per place, and the
 // journal's and the record's lines (the request dumps, the turn records, the `said` lines, the operations).
 // createTurnRunner (src/behavior/turn.js) builds it once per runner with createJournalNotes over the runner's state;
 // the attempt, the calls, the act and the pulls call its functions.
@@ -11,6 +11,7 @@ import { withCalls, withTriggers } from '../format.js';
 import { SOURCE_CHARS_MAX, lineSourcesOf, textsOf } from '../intentions/sources.ts';
 import { log } from '../log.js';
 import { toRecordLine } from '../memory/record.js';
+import { outcomeDetail } from '../tools/executors.ts';
 import { CALL_MARKS_MAX, POSTED_FROM_MAX, TRIGGER_LINKS_MAX } from './calls.ts';
 import { FAILED_TURN_KEEP_MS, NO_OP, journalTurnRecord, journalUsage } from './journal.ts';
 import type { JournalDraft, JournalOp } from './journal.ts';
@@ -143,8 +144,14 @@ export type JournalNotesContext = {
 type FactScopeOf = { channelId: string | null; privateChat?: boolean };
 
 export type JournalNotes = {
-  factsOfKind: (guildId: string, scope: FactScopeOf, kind: string, at: number) => Array<Fact>;
-  keepFact: (guildId: string, scope: FactScopeOf, kind: string, payload: Record<string, unknown>, at: number) => void;
+  factsOfKind: (guildId: string | null, scope: FactScopeOf, kind: string, at: number) => Array<Fact>;
+  keepFact: (
+    guildId: string | null,
+    scope: FactScopeOf,
+    kind: string,
+    payload: Record<string, unknown>,
+    at: number
+  ) => void;
   noteSeen: (draft: NotesDraft | null | undefined, value: unknown, options?: { read?: boolean }) => void;
   noteLineSources: (draft: NotesDraft | null | undefined, postedId: unknown, text: string) => void;
   noteTrigger: (postedId: unknown, triggerId: unknown) => void;
@@ -163,6 +170,8 @@ export type JournalNotes = {
   ) => void;
   noteCall: (mark: CallMark) => void;
   notePostedFrom: (postedId: unknown, originId: unknown) => void;
+  seedTriggerLinks: (pairs: unknown) => void;
+  seedCallMarks: (marks: { calls?: unknown; postedFrom?: unknown } | null | undefined) => void;
   linkCalls: (
     lines: Array<object>,
     options: { channel: NotesChannel; snapshot?: Snapshot | null; guildId: string | null; extra?: unknown }
@@ -220,14 +229,14 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
     return Number.isInteger(kept) && (kept as number) >= 0 ? (kept as number) : 3;
   };
   /** The facts of `kind` of the conversation `scope` still in their window, oldest first. */
-  function factsOfKind(guildId: string, scope: FactScopeOf, kind: string, at: number): Array<Fact> {
+  function factsOfKind(guildId: string | null, scope: FactScopeOf, kind: string, at: number): Array<Fact> {
     return facts()
       .pending(guildId, scope)
       .filter((fact) => fact.kind === kind && fact.channelId === scope.channelId && at - fact.at < FAILED_TURN_KEEP_MS);
   }
   /** A fact of `kind` kept (at most `failedKept()` of the kind per conversation, the newest; one per message). */
   function keepFact(
-    guildId: string,
+    guildId: string | null,
     scope: FactScopeOf,
     kind: string,
     payload: Record<string, unknown>,
@@ -602,6 +611,43 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
     };
   }
 
+  /**
+   * Remember which message started the turn that posted each message of `pairs`
+   * (`[postedId, triggerId]`, oldest first: src/memory/journal.js#triggerLinks at start), so
+   * her lines posted before a restart name their trigger too. A malformed pair is skipped; a
+   * link noted since is kept over a seeded one.
+   */
+  function seedTriggerLinks(pairs: unknown): void {
+    for (const pair of isList(pairs) ? pairs : []) {
+      // A Map answers false for a key of another type.
+      if (!isList(pair) || triggerLinks.has(pair[0] as string)) continue;
+      noteTrigger(pair[0], pair[1]);
+    }
+  }
+
+  /**
+   * Remember the persona's skill calls from before a restart (src/memory/journal.js#callMarks at
+   * start: `calls` oldest first, `postedFrom` pairs), so her lines keep showing them -- a call
+   * that did not work with why (its `code` and `reason` through outcomeDetail). They go
+   * before the calls noted since; a post noted since keeps its channel.
+   */
+  function seedCallMarks(marks: { calls?: unknown; postedFrom?: unknown } | null | undefined): void {
+    // A call that did not work keeps why (its journaled code and reason, outcomeDetail).
+    const seeded = (isList(marks?.calls) ? marks.calls : [])
+      .filter((mark): mark is Record<string, unknown> => Boolean(mark) && typeof mark === 'object')
+      // outcomeDetail reads each field of a journaled mark by its type.
+      .map((mark) =>
+        mark.detail ? mark : { ...mark, detail: outcomeDetail(mark as Parameters<typeof outcomeDetail>[0]) }
+      );
+    callMarks.unshift(...seeded.slice(-CALL_MARKS_MAX));
+    if (callMarks.length > CALL_MARKS_MAX) callMarks.splice(0, callMarks.length - CALL_MARKS_MAX);
+    for (const pair of isList(marks?.postedFrom) ? marks.postedFrom : []) {
+      // A Map answers false for a key of another type.
+      if (!isList(pair) || postedFromLinks.has(pair[0] as string)) continue;
+      notePostedFrom(pair[0], pair[1]);
+    }
+  }
+
   return {
     factsOfKind,
     keepFact,
@@ -613,6 +659,8 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
     recordTurnThink,
     noteCall,
     notePostedFrom,
+    seedTriggerLinks,
+    seedCallMarks,
     linkCalls,
     journalOn,
     dumpTurnRequest,
@@ -621,4 +669,9 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
     recordSaid,
     journalOp,
   };
+}
+
+/** Whether a value is a list. */
+function isList(value: unknown): value is ReadonlyArray<unknown> {
+  return Array.isArray(value);
 }
