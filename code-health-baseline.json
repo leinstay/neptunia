@@ -5,7 +5,6 @@
     "src/behavior/recall-run.js": 2331,
     "src/behavior/recall.js": 2491,
     "src/behavior/sandbox.js": 2136,
-    "src/behavior/turn.js": 2658,
     "src/memory/store.js": 3342,
     "tests/admin.test.js": 3880,
     "tests/describe.test.js": 3705,
@@ -241,11 +240,7 @@
     },
     "src/behavior/turn.js": {
       "createTurnRunner": {
-        "function-length": 2297
-      },
-      "createTurnRunner>runTurnAttempt": {
-        "complexity": 374,
-        "function-length": 1863
+        "function-length": 505
       }
     },
     "src/behavior/wake.ts": {

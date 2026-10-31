@@ -684,32 +684,20 @@
     }
   },
   "src/behavior/turn.js": {
-    "@typescript-eslint/no-base-to-string": {
-      "count": 1
-    },
-    "@typescript-eslint/no-floating-promises": {
-      "count": 2
-    },
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 92
+      "count": 11
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 389
+      "count": 78
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 73
+      "count": 4
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 414
+      "count": 9
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 43
-    },
-    "@typescript-eslint/only-throw-error": {
-      "count": 2
-    },
-    "prefer-const": {
-      "count": 1
+      "count": 4
     }
   },
   "src/config.js": {
