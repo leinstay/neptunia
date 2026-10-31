@@ -17,7 +17,6 @@
 // messages, a message by id, a member) it asks the interface through the core's `reads`
 // (src/interface/reads.ts), and a conversation is the info the interface gave of it.
 
-import { isOwnerId } from '../tools/impl/grants.ts';
 import {
   collectPictures,
   collectEmojiItems,
@@ -58,25 +57,18 @@ import { block, fillPromptTemplate } from './prompt.js';
 import { roomQuestionChance } from './spontaneous.js';
 import { routeFor } from './turn.js';
 import { elsewhereSettings, pingsIn, pingStatus, recordPing, settleDueAt, stampPings } from './elsewhere.ts';
-import { privateGate } from './private.js';
 import { lineOf } from './line-of.js';
 import { historyLines } from './lines.ts';
 import { takeSnapshot } from './snapshot.ts';
 import { isLimitNotice, pauseNotice, pauseNoticeMinutes, postLimitNotice, postPauseNotice } from './limits.js';
-import {
-  isVideoVisionOn,
-  slimMessage,
-  appendRevision,
-  toRecordLine,
-  gifOpts,
-  participationSettings,
-  recordFollowing,
-} from '../memory/index.js';
+import { isVideoVisionOn, participationSettings, recordFollowing } from '../memory/index.js';
 import { log } from '../log.js';
 import { MINUTE_MS, utcDay } from '../time.js';
 import { observationOf } from '../memory/db/observe-event.js';
 import { diaryConversationIds, isMirrorPlace } from './mirror.ts';
-import { CLI_GATE, CLI_IFACE, observeWhilePaused, privateChatsOff } from './core-pause.ts';
+import { observeWhilePaused, privateChatsOff } from './core-pause.ts';
+import { createEdits } from '../pipeline/edits.ts';
+import { createPrivateGate } from '../pipeline/private-gate.ts';
 
 /** @typedef {import('../protocol/adapter.ts').ConversationInfo} Conv */
 /** @typedef {import('../protocol/events.js').Message} Msg */
@@ -172,32 +164,6 @@ function callSwitchOff(kind, features) {
  */
 function missingReason(missing) {
   return missing === 'gone' ? 'gone' : 'fetch-failed';
-}
-
-/**
- * The media of `normalized` the message as it was did not carry yet (`known`: the item ids of every
- * attachment and link of the earlier copy and its forwarded snapshots): what an embed the platform
- * attached after the message arrived brought. Stickers and custom emoji always come with the
- * message itself, so none is late. Pure; never mutates `normalized`.
- * @param {object} normalized  A normalized message (src/protocol/events.js#Message).
- * @param {Set<string>} known
- * @returns {object} `normalized` with only the late attachments and links in each part.
- */
-function lateMedia(normalized, known) {
-  const fresh = (items) => (items ?? []).filter((item) => item?.id != null && !known.has(String(item.id)));
-  const part = (p) => ({ ...p, attachments: fresh(p.attachments), links: fresh(p.links), stickers: [], emojis: [] });
-  return { ...part(normalized), forwarded: (normalized.forwarded ?? []).map(part) };
-}
-
-/** The attachment and link item ids of a normalized message and its forwarded snapshots. */
-function mediaIdsOf(message) {
-  const ids = new Set();
-  for (const p of [message, ...(Array.isArray(message.forwarded) ? message.forwarded : [])]) {
-    for (const item of [...(p?.attachments ?? []), ...(p?.links ?? [])]) {
-      if (item?.id != null) ids.add(String(item.id));
-    }
-  }
-  return ids;
 }
 
 /**
@@ -331,13 +297,6 @@ export function createMessageHandler({
     const snapshot = await takeSnapshot(reads, source.communityId ?? getGuildId());
     return routeFor(snapshot?.get(source.id) ?? source, snapshot, config);
   }
-
-  // The record's edits (recordEdit): messageId -> the last revision written, for the UTC day
-  // `revisionsDay`; cleared when the day turns, so it stays small. An edit of a message not in
-  // it is revision 2 (the message itself was revision 1); one the record already holds moves
-  // past the record's newest (src/memory/record.js#appendRevision) and the count continues there.
-  const revisions = new Map();
-  let revisionsDay = null;
 
   /**
    * The live observation path: `event` as an observation of the memory database (see
@@ -1395,65 +1354,27 @@ export function createMessageHandler({
       log.info('elsewhere: marked', { source: channelId, message: messageId, status });
   }
 
-  /**
-   * After a private turn: every turn that reached the model (it spoke, or it
-   * chose to stay silent -- `skip`) counts toward today's cap; a refusal is
-   * announced. A refused, busy, paused, error or not-now turn is not counted.
-   */
-  async function afterPrivateTurn(channel, guildId, trigger, result) {
-    if (result?.outcome === 'spoke' || result?.outcome === 'skip') {
-      store.bumpPrivateReplies(guildId, trigger.authorId, utcDay(now()));
-    }
-    await announceRefusal(channel, trigger, result, 'private');
-  }
-
-  /**
-   * The private-chat gate for one DM author (src/behavior/private.js#privateGate),
-   * shared by a live DM and a queued one at drain time. The free checks (a
-   * stored profile, the owner flag, the attitude threshold) run before any
-   * read: `memberInfo` is only asked when those checks would let the author through. The owner's command line passes.
-   * @returns {Promise<{ gate: object, isOwner: boolean, replies: object|null, today: string }>}
-   */
-  async function checkPrivateGate(config, guildId, authorId, iface = '') {
-    if (iface === CLI_IFACE) return CLI_GATE;
-    const profile = store.getUser(guildId, authorId);
-    const isOwner = isOwnerId(config, authorId);
-    const replies = store.getPrivate(guildId, authorId)?.replies ?? null;
-    const today = utcDay(now());
-    const input = { config, profile, isOwner, replies, today };
-
-    const free = privateGate({ ...input, isMember: true });
-    if (!free.ok && free.reason !== 'cap') return { gate: free, isOwner, replies, today };
-    const found = await reads.memberInfo({ communityId: guildId, memberId: String(authorId) });
-    const isMember = found?.member != null;
-    return { gate: privateGate({ ...input, isMember }), isOwner, replies, today };
-  }
-
-  // A recovery turn of the missed-answer registry in a DM passes the same gate, and counts toward the same cap.
-  missed?.setPrivateRecovery?.({
-    allow: async (_channel, trigger) => {
-      const guildId = getGuildId();
-      if (!guildId || hot.config.features?.privateMessages !== true) return false;
-      return (await checkPrivateGate(hot.config, guildId, trigger.authorId)).gate.ok === true;
-    },
-    after: async (channel, trigger, result) => {
-      const guildId = getGuildId();
-      if (guildId) await afterPrivateTurn(channel, guildId, trigger, result);
-    },
+  // The private chat (src/pipeline/private-gate.ts): its gate, its drop and its count, and a direct message's path.
+  const { afterPrivateTurn, checkPrivateGate, dropPrivate, onPrivateMessage } = createPrivateGate({
+    hot,
+    store,
+    reads,
+    now,
+    getGuildId,
+    selfIdOf,
+    activity,
+    turns,
+    memory,
+    missed,
+    refOf,
+    infoNow,
+    observeLine,
+    turnBlocked,
+    holdCall,
+    queuedFor,
+    notifyLimit,
+    announceRefusal,
   });
-
-  /**
-   * A DM the gate refused: dropped silently (the reason is logged), except
-   * the daily-cap notice, posted at most once a day per person.
-   */
-  async function dropPrivate(channel, guildId, authorId, trigger, { gate, isOwner, replies, today }) {
-    log.info('private: dropped', { reason: gate.reason });
-    if (gate.reason === 'cap' && replies?.noticedDay !== today) {
-      store.markPrivateNoticed(guildId, authorId, today);
-      const key = isOwner ? 'private.maxPerOwnerPerDay' : 'private.maxPerUserPerDay';
-      await notifyLimit(channel, trigger, { key, used: gate.used, cap: gate.cap }, 'private');
-    }
-  }
 
   // --- Pending direct pings ---------------------------------------------------
   // A @mention, a reply to the persona or her name that arrives while a turn is running
@@ -2515,81 +2436,6 @@ export function createMessageHandler({
     }
   }
 
-  /**
-   * A direct message (private chat). Checked locally with zero tokens: the
-   * switch, other bots, the served guild, membership, a stored profile, the
-   * public attitude and today's reply cap (privateGate). A refused DM is
-   * dropped silently, except the daily-cap notice once a day per person. No
-   * ignore roll, follow-up window, eavesdrop or address classifier here.
-   * @param {Ev} event
-   */
-  async function onPrivateMessage(event, config) {
-    const author = event.message.author;
-    const features = config.features ?? {};
-    if (privateChatsOff(features, event)) return;
-    const selfId = selfIdOf();
-    if (author.bot && author.id !== selfId) return;
-    // When the partner last wrote here (pace.settleMs); the persona's own messages never count.
-    if (author.id !== selfId) activity?.note(event.conversation.id, author.id, event.message.at);
-
-    const guildId = getGuildId();
-    if (!guildId) return;
-    const memoryOn = features.memory !== false;
-    const normalized = lineOf(event);
-
-    // The persona's own DM message: bookkeeping, remembered under the
-    // partner's id. Without a usable partner id, or for a limit notice (not
-    // the persona's speech), only the post is noted.
-    if (normalized.self) {
-      turns.notePost(normalized.channelId, normalized.ts);
-      // The partner of the private chat, as the event's conversation names it.
-      const partnerId = event.conversation?.partnerId ?? null;
-      if (!partnerId || String(partnerId) === String(selfId)) return;
-      if (isLimitNotice(hot.prompts?.labels, normalized.content)) return;
-      if (memoryOn) {
-        memory.observe(guildId, normalized, { private: partnerId });
-        const observing = observeLine(event, false, { guildId, privateUserId: String(partnerId) });
-        if (observing) await observing;
-      }
-      return;
-    }
-
-    const authorId = author.id;
-    const channel = await infoNow(event.iface, event.conversation.id);
-    if (!channel) return;
-    const check = await checkPrivateGate(config, guildId, authorId, event.iface);
-    if (!check.gate.ok) {
-      await dropPrivate(channel, guildId, authorId, normalized, check);
-      return;
-    }
-
-    // Observed like a direct call.
-    if (memoryOn) {
-      memory.observe(guildId, normalized, { direct: true, private: authorId });
-      const observing = observeLine(event, true, { guildId, privateUserId: String(authorId) });
-      if (observing) await observing;
-    }
-
-    // One turn at a time: busy anywhere (or, with oneAtATime off, in this very
-    // chat) -> pending, answered by drainPending once the turn frees up.
-    if (turnBlocked(channel.id, config)) {
-      holdCall(channel, normalized, 'private');
-      return;
-    }
-
-    turns
-      .runTurn({
-        conversation: refOf(channel),
-        guildId,
-        mode: 'reply',
-        trigger: normalized,
-        triggerKind: 'private',
-        queued: queuedFor(channel.id, normalized),
-      })
-      .then((result) => afterPrivateTurn(channel, guildId, normalized, result))
-      .catch((err) => log.error('private: turn failed', { channel: channel.id, error: err }));
-  }
-
   // --- The pause notice ---------------------------------------------------------
   // While paused (`/nep pause`) a direct call gets one plain line saying so
   // (labels.limits.paused, features.pauseNotice), like a limit notice. Read
@@ -2914,159 +2760,18 @@ export function createMessageHandler({
     }
   }
 
-  /**
-   * A message changed after it arrived (an edit event): an edit of its text is a `seen` line of the
-   * record with its next revision (`recordEdit`). Some platforms attach embeds late -- a Tenor link's
-   * `gifv` embed comes in an update, not with the message -- so the media the message as it was
-   * (`previous` of the event) did not carry is counted into the GIF library
-   * (features.gifs) and handed to the media prefill under the same switches as on arrival
-   * (warmMediaCache). Nothing else: no trigger, no turn, no eavesdrop, no counters, no channel map,
-   * no affinity. Without the earlier message (the interface did not hold it) what it carried is unknown: an
-   * accepted miss, logged with counts only. Off with features.embedUpdates (a missing key counts as
-   * on), with features.memory off and while paused. Only the served community, a conversation outside threads
-   * and the dry-run mirror, and a human author's message with media. Config read now. Never throws.
-   * @param {import('../protocol/index.js').MessageReceived} event  The edit event; a partial one is read whole here.
-   * @returns {Promise<void>}
-   */
-  async function onMessageUpdate(event) {
-    await recordEdit(event);
-    try {
-      const config = hot.config;
-      const features = config.features ?? {};
-      if (features.embedUpdates === false || features.memory === false) return;
-      if (store?.state?.data?.paused) return;
-      const guildId = event.conversation.communityId ?? null;
-      if (!guildId || guildId !== getGuildId()) return;
-      let edited = event;
-      if (event.partial) {
-        const fetched = await reads.fetchMessages({ iface: event.iface, conversationId: event.conversation.id }, [
-          event.message.id,
-        ]);
-        const whole = fetched?.messages[0]?.event;
-        if (!whole) return;
-        edited = { ...whole, conversation: event.conversation, previous: event.previous ?? null };
-      }
-      const message = edited.message;
-      if (message.system === true) return;
-      const selfId = selfIdOf();
-      if (!message.author || message.author.bot || message.author.id === selfId) return;
-      if (event.conversation.kind === 'thread') return;
-      const dryRunChannelId = config.bot.dryRunChannelId;
-      if (dryRunChannelId && event.conversation.id === dryRunChannelId) return;
-
-      const normalized = lineOf(edited);
-      const previous = edited.previous ? lineOf({ ...edited, message: edited.previous }) : null;
-      const late = lateMedia(normalized, previous ? mediaIdsOf(previous) : new Set());
-      const items = [late, ...(late.forwarded ?? [])].flatMap((part) => [...part.attachments, ...part.links]).length;
-      if (items === 0) return;
-      const fields = { channelId: normalized.channelId, messageId: normalized.id, items };
-      if (!previous) {
-        log.info('events: embeds late', fields);
-        return;
-      }
-      const gifs = features.gifs !== false ? store.recordGifs(guildId, [late], gifOpts(config)) : 0;
-      warmMediaCache(guildId, late);
-      log.info('events: embeds folded', { ...fields, gifs });
-    } catch (err) {
-      log.error('events: update handler failed', { error: err });
-    }
-  }
-
-  /**
-   * Whether the message of `event` may enter the record: a record injected, features.record exactly true, the served
-   * community, no system or other bot's message, a conversation outside threads and the dry-run mirror.
-   * @param {Ev} event
-   */
-  function recordable(event, config) {
-    if (!record || config.features?.record !== true) return false;
-    const guildId = event.conversation?.communityId ?? null;
-    if (!guildId || guildId !== getGuildId()) return false;
-    const message = event.message;
-    if (message?.system === true) return false;
-    if (message?.author?.bot && message.author.self !== true) return false;
-    if (event.conversation.kind === 'thread') return false;
-    const dryRunChannelId = config.bot?.dryRunChannelId;
-    return !(dryRunChannelId && event.conversation.id === dryRunChannelId);
-  }
-
-  /** The text of a message as written (`sourceText`, else what the chat shows), for telling an edit from an embed update. */
-  const sourceTextOf = (/** @type {Msg|null|undefined} */ message) =>
-    typeof message?.sourceText === 'string' ? message.sourceText : (message?.content ?? '');
-
-  /**
-   * An edited message (its text changed between `oldMessage` and `newMessage`) as a `seen`
-   * line of the record with the next revision of the day (`revisions`). An update that only
-   * attached embeds is no edit. Never throws: a refused append is logged as `events: record failed` (counts only).
-   * @param {Ev} event
-   */
-  async function recordEdit(event) {
-    try {
-      const config = hot.config;
-      if (event.partial || !recordable(event, config)) return;
-      if (event.previous && sourceTextOf(event.previous) === sourceTextOf(event.message)) return;
-      const guildId = event.conversation.communityId;
-      const normalized = lineOf(event);
-      const day = utcDay(now());
-      if (day !== revisionsDay) {
-        revisions.clear();
-        revisionsDay = day;
-      }
-      const revision = (revisions.get(normalized.id) ?? 1) + 1;
-      revisions.set(normalized.id, revision);
-      const slim = slimMessage(normalized, false);
-      // The database counts its own revisions (observe.js): the edit goes there without one, and the observation is the
-      // record: the edit's line takes the revision the database counted (a failed observation waits for its retry).
-      // A revision the record already holds moves the edit past it; later edits continue from there.
-      const observed = observeLine(event, false, { guildId });
-      let start = revision;
-      if (observed) {
-        const done = await observed;
-        if (!done || done.ok !== true || !Number.isInteger(done.revision)) return;
-        start = done.revision;
-      }
-      const landed = await appendRevision(
-        record,
-        guildId,
-        (next) => toRecordLine(slim, { revision: next, now }),
-        start
-      );
-      if (landed.revision > (revisions.get(normalized.id) ?? 0)) revisions.set(normalized.id, landed.revision);
-    } catch (err) {
-      log.warn('events: record failed', { kind: 'seen', lines: 1, code: err?.code ?? null });
-    }
-  }
-
-  /**
-   * A message of the served guild deleted on the platform as a `deleted` line of
-   * the record, dated by the message's own creation time (`createdTimestamp`, which a partial
-   * message has too; now when missing) so a window can place it; the envelope's `recordedAt`
-   * keeps the deletion time. The message's recorded text stays (a deletion is not a forget
-   * request). Only what `recordable` lets in. Never throws: a refused append is logged as
-   * `events: record failed` (counts only).
-   * @param {import('../protocol/index.js').MessageReceived} event  The deletion event.
-   * @returns {Promise<void>}
-   */
-  async function onMessageDelete(event) {
-    try {
-      const config = hot.config;
-      const message = event?.message;
-      const id = message?.id;
-      if (!id || !recordable(event, config)) return;
-      const guildId = event.conversation.communityId;
-      const line = toRecordLine(
-        {
-          id: String(id),
-          channelId: event.conversation.id,
-          authorId: message.author?.id ?? null,
-          ts: Number.isFinite(message.at) && message.at > 0 ? message.at : now(),
-        },
-        { kind: 'deleted', now }
-      );
-      await record.append(guildId, [line]);
-    } catch (err) {
-      log.warn('events: record failed', { kind: 'deleted', lines: 1, code: err?.code ?? null });
-    }
-  }
+  // An edit and a deletion of a message (src/pipeline/edits.ts).
+  const { onMessageUpdate, onMessageDelete } = createEdits({
+    hot,
+    store,
+    reads,
+    getGuildId,
+    selfIdOf,
+    record,
+    now,
+    warmMediaCache,
+    observeLine,
+  });
 
   onMessage.drainPending = drainPending;
   onMessage.catchUp = catchUpMessage;

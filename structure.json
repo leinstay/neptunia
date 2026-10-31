@@ -912,6 +912,27 @@
       "test": "none"
     },
     {
+      "path": "src/pipeline/",
+      "purpose": "The message pipeline's topic modules, each built once by `createMessageHandler` in `src/behavior/pipeline.js` over a typed context: the private chat's gate and an edit and a deletion of a message.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/pipeline/edits.ts",
+      "purpose": "What changes to a message after it arrived: an edit as a `seen` line of the record with its next revision, late media counted and warmed, and a deletion as a `deleted` line. Tested through the events and pipeline no raw tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/private-gate.ts",
+      "purpose": "The private chat: a direct message's gate with zero tokens, its silent drop and daily-cap notice, its observation and its turn, and the same gate and count for a queued direct message and a recovery turn. Tested through the private, core pause and events tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/errands/",
       "purpose": "The errand service: the ledger, the store, the client to the runner and the turns that bring results back.",
       "layer": "public",
