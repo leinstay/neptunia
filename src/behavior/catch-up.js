@@ -9,7 +9,7 @@
 // conversation has a newer message (`conversationInfo`'s `lastMessageAt`; unknown -> looked at anyway), the newest
 // `offlineCatchUp.maxMessages` messages are read through `history` (whole `message.received` events) and those
 // posted after the last one the bot saw are kept. All of them, across channels, oldest first and one at a time, go through
-// the live message handler (src/behavior/pipeline.js#catchUpMessage): observed into memory like
+// the live message handler (src/pipeline/handle-message.ts#catchUpMessage): observed into memory like
 // live messages, and the ones that would have started a turn live -- a mention, a reply to the
 // persona, her name, by the live trigger classification -- take the ordinary call path when they
 // are younger than `offlineCatchUp.windowMinutes` and the persona did not post in that channel

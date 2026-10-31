@@ -2067,7 +2067,7 @@ const MAX_PENDING = 6;
  * `full`), a follow-up takes the channel's one follow-up slot (followUpSlot: a newer one takes an
  * older one's place, which is `replaced` -- live, a missed-answer candidate -- by the newer's id).
  * The queue is then drained oldest first (popOldest), each entry its own turn. Each turn's
- * `queued` is what still waits besides it, arrival order, as src/behavior/pipeline.js#queuedFor lists
+ * `queued` is what still waits besides it, arrival order, as src/pipeline/pending-queue.ts#queuedFor lists
  * it: the trigger author's own as `{ id, text }`, another member's as `{ id, text, author }`
  * (their display name), the text on one line cut to `context.maxMessageChars`. Not modelled: the
  * ignore rolls, the merge classifier folding a call into an earlier one, a follow-up's window and

@@ -31,7 +31,7 @@
  * @property {object} trigger   the normalized message that called the persona
  * @property {'mention'|'reply'|'name'|'private'|'followUp'|'overheard'} kind  `followUp` / `overheard`: an address-classifier
  *                              `yes` / `overheard` that found the attention taken (one of them per channel,
- *                              followUpSlot, pipeline.js#deferFollowUp)
+ *                              followUpSlot, src/pipeline/pending-queue.ts#deferFollowUp)
  * @property {number} arrivedAt
  * @property {boolean} [decided] set on a re-queued server call whose ignore roll already said respond
  * @property {*} [destination]  a routed call only: the conversation its turn posts in (the

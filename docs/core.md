@@ -16,13 +16,13 @@ The behaviours' clock is one such event. `src/behavior/scheduler.ts` keeps one t
 
 ## The pipeline
 
-A `message.received` event enters the message pipeline (`src/behavior/pipeline.js`). The pipeline decides the outcome:
+A `message.received` event enters the message pipeline. `createMessageHandler` in `src/behavior/pipeline.js` builds the topic modules of `src/pipeline/` once, and `src/pipeline/handle-message.ts` takes each message through the steps below. The pipeline decides the outcome:
 
 1. **Filter.** Bot messages, system messages, empty messages and messages from the bot itself are ignored.
 2. **Private-chat gate.** A direct message goes through `src/behavior/private.js`: it needs `features.privateMessages`, server membership, a profile and a passing affinity check.
-3. **Trigger detection.** The pipeline checks whether the message is a mention, a reply, a name trigger or a follow-up to an earlier exchange (`src/behavior/mention.js`). An address classifier (an `analyzer` call with `prompts/address.md`) decides ambiguous cases.
-4. **Spontaneous interest.** A message that is not addressed to the persona may still trigger a spontaneous answer: eavesdropping, random interjection, or a question put to the whole room.
-5. **Pending queue.** When the persona is already answering someone, a new call goes into the pending queue. One turn runs at a time across the whole server. Calls are answered in order, any number per channel and author, up to `mention.maxPending` (default 6). A new message about something already waiting is folded into that pending item instead of queueing separately.
+3. **Trigger detection.** The pipeline checks whether the message is a mention, a reply, a name trigger or a follow-up to an earlier exchange (`src/behavior/mention.js`). An address classifier (an `analyzer` call with `prompts/address.md`, `src/pipeline/follow-up.ts`) decides ambiguous cases.
+4. **Spontaneous interest.** A message that is not addressed to the persona may still trigger a spontaneous answer: eavesdropping, random interjection, or a question put to the whole room (`src/pipeline/room.ts`).
+5. **Pending queue.** When the persona is already answering someone, a new call goes into the pending queue (`src/pipeline/pending-queue.ts`), which `src/pipeline/drain.ts` works off after each turn. One turn runs at a time across the whole server. Calls are answered in order, any number per channel and author, up to `mention.maxPending` (default 6). A new message about something already waiting is folded into that pending item instead of queueing separately.
 6. **Turn.** A call that passes the queue starts a turn.
 
 ## A turn
