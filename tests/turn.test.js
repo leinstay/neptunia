@@ -12879,3 +12879,15 @@ test('createTurnRunner: a message the record holds as deleted appears in the win
   const capped = await run(1);
   assert.equal(capped.userMessage.split(labels.transcript.deleted).length - 1, 1, 'the newest one only');
 });
+
+// PR 7d: the daily caps of plan section 4.5 are gone. A state written before the cut may hold the day's count and a
+// local layer not yet cut may set `gifs.maxPerDay`; neither stops her GIF.
+test('runTurn: her GIF is posted after a hundred GIFs today, a stale gifs.maxPerDay in the config included', async () => {
+  const run = await runPickTurn({
+    reply: '<msg>χα</msg><gif>g2</gif>',
+    pick: 'none',
+    store: pickStore({ data: { gifDay: '2026-09-20', gifCount: 100 } }),
+    maxPerDay: 3,
+  });
+  assert.deepEqual(run.sent(), ['χα', 'https://tenor.com/view/gif-2']);
+});

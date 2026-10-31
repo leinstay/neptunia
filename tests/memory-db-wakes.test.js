@@ -339,17 +339,23 @@ test('inner life: with memoryDb.wakeRuns on, a turn is one wake run with its inp
   }
 });
 
-test('inner life: with memoryDb.wakeRuns off (the default) nothing is written; a failed turn ends its run failed', async () => {
-  const off = innerHarness({ wakeRuns: false, actions: [{ skill: 'memory.search', status: 'executed' }] });
+// PR 7d: `memoryDb.wakeRuns` is code (owner, 2026-10-31), so the half of this test that wrote nothing with the switch
+// off is gone; the next test holds the run written with no setting.
+test('inner life: with no setting a turn is a wake run with its actions', async () => {
+  const run = innerHarness({ wakeRuns: undefined, actions: [{ skill: 'memory.search', status: 'executed' }] });
   try {
-    await off.inner.tick();
+    await run.inner.tick();
     await settle();
-    assert.equal(off.calls.length, 1, 'the turn runs as before');
-    assert.equal(off.writes.length, 0);
-    assert.equal(count(off.handle.db, 'SELECT COUNT(*) AS n FROM wake_runs'), 0);
+    assert.equal(run.calls.length, 1);
+    assert.equal(count(run.handle.db, 'SELECT COUNT(*) AS n FROM wake_runs'), 1);
+    assert.equal(count(run.handle.db, "SELECT COUNT(*) AS n FROM wake_runs WHERE status = 'succeeded'"), 1);
+    assert.equal(count(run.handle.db, 'SELECT COUNT(*) AS n FROM wake_actions'), 1);
   } finally {
-    off.handle.close();
+    run.handle.close();
   }
+});
+
+test('inner life: a failed turn ends its run failed', async () => {
   const failed = innerHarness({ wakeRuns: true, outcome: 'error' });
   try {
     await failed.inner.tick();
@@ -361,7 +367,9 @@ test('inner life: with memoryDb.wakeRuns off (the default) nothing is written; a
   }
 });
 
-test('service: recordWake writes only with memoryDb.wakeRuns on; an open interrupts the stale runs a dead process left', async () => {
+// PR 7d: `memoryDb.wakeRuns` is code (owner, 2026-10-31). This test held that nothing was written and no stale run
+// was interrupted with the switch off; with no setting the service now writes and interrupts at the first open.
+test('service: recordWake writes with no setting; an open interrupts the stale runs a dead process left', async () => {
   const root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-wakes-'));
   const data = path.join(root, 'data');
   fs.mkdirSync(data);
@@ -371,30 +379,13 @@ test('service: recordWake writes only with memoryDb.wakeRuns on; an open interru
     const before = openMemoryDb(path.join(data, 'memory.db'));
     startRun(before, { id: 'left', kind: 'heartbeat', startedAt: NOW - 30 * MINUTE });
     before.close();
-    const hot = { config: { memoryDb: { wakeRuns: false }, innerLife: { loop: { timeBudgetMs: 3 * MINUTE } } } };
-    let service = createMemoryDb({ hot, dataDir: data, log: SILENT, worker: false, now: () => NOW });
-    await service.tick();
-    await settle();
-    assert.equal(
-      service.recordWake({ kind: 'wake', op: 'start', run: { id: 'r1', kind: 'heartbeat', startedAt: NOW } }),
-      null,
-      'off: nothing'
-    );
-    await service.close();
-    let reader = openMemoryDb(path.join(data, 'memory.db'), { readOnly: true });
-    assert.equal(
-      reader.db.prepare("SELECT status FROM wake_runs WHERE id = 'left'").get().status,
-      'running',
-      'off: no interrupt'
-    );
-    reader.close();
-    hot.config.memoryDb.wakeRuns = true;
-    service = createMemoryDb({ hot, dataDir: data, log: SILENT, worker: false, now: () => NOW });
+    const hot = { config: { innerLife: { loop: { timeBudgetMs: 3 * MINUTE } } } };
+    const service = createMemoryDb({ hot, dataDir: data, log: SILENT, worker: false, now: () => NOW });
     await service.tick();
     await settle();
     await service.recordWake({ kind: 'wake', op: 'start', run: { id: 'r1', kind: 'heartbeat', startedAt: NOW } });
     await service.close();
-    reader = openMemoryDb(path.join(data, 'memory.db'), { readOnly: true });
+    const reader = openMemoryDb(path.join(data, 'memory.db'), { readOnly: true });
     const status = Object.fromEntries(
       reader.db
         .prepare('SELECT id, status FROM wake_runs')

@@ -1,0 +1,493 @@
+{
+  "audioMapSettings": {
+    "noiseDb": -50,
+    "minSilenceSeconds": 0.5,
+    "mapBelowShare": 0.8,
+    "maxSpans": 20
+  },
+  "recentSettings": {
+    "hours": 72,
+    "maxStored": 150,
+    "maxNew": 3,
+    "chars": 160,
+    "shown": 12,
+    "clampTolerance": 1.25
+  },
+  "participationSettings": {
+    "hours": 72,
+    "linesBefore": 3,
+    "linesAfter": 1,
+    "followMinutes": 10,
+    "mergeGapMinutes": 10,
+    "contextMinutes": 30,
+    "maxMessages": 32,
+    "maxStored": 120,
+    "maxTextChars": 400,
+    "shown": 4,
+    "perChannel": 2,
+    "episodeChars": 1800,
+    "contextMessages": 6,
+    "maxOutputTokens": 60,
+    "pickTimeoutMs": 1500,
+    "earlierHours": 3,
+    "earlierShown": 3
+  },
+  "indexSettings": {
+    "vectorDays": 90,
+    "touchDays": 30,
+    "eviction": false,
+    "reembed": false
+  },
+  "dbSettings": {
+    "maxForms": 8,
+    "maxPeople": 2,
+    "dateSamples": 4,
+    "clusterGapMinutes": 30,
+    "maxClusters": 5,
+    "keepOldest": 0,
+    "rareHits": 5,
+    "windowMessages": 16,
+    "followMessages": 24,
+    "followGapMinutes": 5,
+    "answerChars": 1200,
+    "stretchChars": 1500,
+    "quoteWindowChars": 1500,
+    "quoteMaxChars": 9000,
+    "maxPerDay": 100,
+    "timeoutMs": 25000,
+    "minSummaryMs": 2500,
+    "maxOutputTokens": 500,
+    "memoryItems": 6,
+    "selfBonus": 1,
+    "selfExtra": 2,
+    "contextMessages": 6,
+    "traceMaxLines": 500,
+    "memoryTokens": 600,
+    "recordDays": 30,
+    "recordContext": 3,
+    "archiveMonths": 6,
+    "fallbackOnClassifierFailure": true,
+    "meaningCandidates": 80,
+    "meaningWithReply": false,
+    "locatorBonus": 2,
+    "locatorDecayDays": 7,
+    "locatorBroadShare": 0.5,
+    "db": {
+      "gateShare": 0.5,
+      "candidates": 40,
+      "wordPool": 400,
+      "minMeaning": 0.35,
+      "vectorDays": 90,
+      "touchDays": 30,
+      "vectorEviction": false,
+      "reembed": false
+    },
+    "prefetch": {
+      "deadlineMs": 5000,
+      "candidates": 20,
+      "maxExcerpts": 5,
+      "maxTokens": 1500,
+      "excerptChars": 1200,
+      "contextLines": 3,
+      "contextTokens": 500,
+      "shortWords": 4,
+      "minFormsMatched": 2,
+      "minMeaningScore": 0.35,
+      "strongMeaningScore": 0.55,
+      "singleTermScore": 0.45,
+      "maxTermShare": 0.002,
+      "maxPhraseDf": 20,
+      "minPhraseShare": 0.2,
+      "rareTermDf": 30,
+      "trivial": [
+        "γεια",
+        "ok",
+        "ευχαριστω"
+      ],
+      "deictic": [
+        "αυτο",
+        "εκεινο"
+      ]
+    },
+    "gateShare": 0.5,
+    "candidates": 40,
+    "wordPool": 400,
+    "minMeaning": 0.35,
+    "vectorDays": 90,
+    "touchDays": 30,
+    "vectorEviction": false,
+    "reembed": false
+  },
+  "graphSettings": {
+    "maxDepth": 6,
+    "maxRows": 2000
+  },
+  "focusSettings": {
+    "policyVersion": 1,
+    "size": 24,
+    "exploring": 4,
+    "exploringShare": 0.15,
+    "entryAffinity": 0.6,
+    "margin": 0.08,
+    "confirmHours": 24,
+    "maxMovesPerWeek": 2,
+    "settleDays": 21,
+    "weights": {
+      "affinity": 0.55,
+      "reciprocity": 0.15,
+      "sharedInterest": 0.1,
+      "recency": 0.1,
+      "consistency": 0.1
+    },
+    "noveltyMax": 0.12,
+    "noveltyHalfLifeDays": 14,
+    "recencyHalfLifeDays": 60,
+    "consistencyDays": 28,
+    "consistencyCap": 8
+  },
+  "backupSettings": {
+    "hour": 3,
+    "keep": 7,
+    "dir": "/srv/backups/memory"
+  },
+  "boardSettings": {
+    "leaseTtlMinutes": 30,
+    "autoTriage": {
+      "role": "dev",
+      "budget": 4,
+      "steps": 80,
+      "estimate": 30
+    },
+    "projects": {}
+  },
+  "participationPickSettings": {
+    "contextMessages": 6,
+    "maxOutputTokens": 60,
+    "pickTimeoutMs": 1500
+  },
+  "routeSettings": {
+    "contextMessages": 20,
+    "maxChannels": 40,
+    "purposeChars": 80,
+    "maxOutputTokens": 120
+  },
+  "pullSettings": {
+    "windowMinutes": 60,
+    "minMessages": 5,
+    "maxMessages": 60,
+    "maxPictures": 10,
+    "maxNewDescriptions": 8,
+    "describeTimeoutMs": 15000,
+    "scanMessages": 20,
+    "maxChannels": 1,
+    "maxAgeDays": 0,
+    "sameAudience": false,
+    "seenTtlMinutes": 120,
+    "keepMinutes": 10,
+    "keepTurns": 3
+  },
+  "setSettings": {
+    "pictures": [
+      4,
+      6
+    ],
+    "minPosted": 2,
+    "seedSets": 6,
+    "maxMessageBytes": 8000000
+  },
+  "catchUpSettings": {
+    "windowMinutes": 15,
+    "maxMessages": 50
+  },
+  "captureSettings": {
+    "ancestors": 2,
+    "before": 3,
+    "after": 3,
+    "pageLines": 60,
+    "watch": [
+      15,
+      120,
+      1440
+    ],
+    "watchSameAuthor": 20
+  },
+  "elsewhereSettings": {
+    "settleMs": 90000,
+    "settleMaxMs": 300000,
+    "rememberPings": 20,
+    "pingMaxAgeMs": 604800000
+  },
+  "sessionSettings": {
+    "mode": "apply",
+    "maxMessages": 200,
+    "minMessages": 5,
+    "sweepsPerScopePerDay": 24,
+    "everyMinutes": 60,
+    "reviewsPerDay": 6,
+    "settleMinutes": 10,
+    "since": null,
+    "maxPeople": 12,
+    "claimsPerPerson": 30,
+    "selfMax": 40,
+    "episodesMax": 20,
+    "maxOutputTokens": 8000,
+    "timeoutMs": 300000,
+    "descriptionMaxOutputTokens": 1500,
+    "retryLimit": 3
+  },
+  "splitSettings": {
+    "minChars": 80,
+    "maxTasks": 4,
+    "contextMessages": 6,
+    "maxOutputTokens": 300,
+    "minPartChars": 20
+  },
+  "gifPickSettings": {
+    "maxChars": 160,
+    "contextMessages": 4,
+    "maxOutputTokens": 60,
+    "graceMs": 1000
+  },
+  "innerSettings": {
+    "mode": "live",
+    "tickSeconds": 15,
+    "queueMax": 20,
+    "chatMessages": 30,
+    "review": {
+      "enabled": true,
+      "historyDays": 14,
+      "expiredMax": 5
+    },
+    "heartbeat": {
+      "enabled": true,
+      "everyMinutes": 360,
+      "jitterMinutes": 60,
+      "dueJitterMinutes": 20,
+      "people": 8,
+      "filteredShown": 10,
+      "closedShown": 10,
+      "historyDays": 14,
+      "placesHours": 6,
+      "placesShown": 6,
+      "placeLines": 2,
+      "maxTokens": 2500,
+      "intentionsOnly": true,
+      "maxOpen": 3,
+      "maxRecurring": 1
+    },
+    "caps": {
+      "perChain": 3
+    },
+    "attention": {
+      "settleSeconds": 90,
+      "perDayDefault": 12,
+      "pageSize": 12,
+      "placesInWake": 8,
+      "lookbackHours": 24
+    },
+    "loop": {
+      "maxSteps": 4,
+      "timeBudgetMs": 180000,
+      "maxCallsPerStep": 4,
+      "callTimeoutMs": 60000
+    },
+    "factsKeepDays": 7,
+    "retry": {
+      "delaysMinutes": [
+        1,
+        5,
+        15,
+        60
+      ],
+      "maxHours": 6
+    }
+  },
+  "missedSettings": {
+    "sweepDelaySeconds": 90,
+    "sweepMaxDelaySeconds": 240,
+    "expireMinutes": 10,
+    "questionExpireMinutes": 15,
+    "channelCooldownMinutes": 5,
+    "contextMessages": 20,
+    "maxOutputTokens": 2000
+  },
+  "recallSettings": {
+    "maxForms": 8,
+    "maxPeople": 2,
+    "dateSamples": 4,
+    "clusterGapMinutes": 30,
+    "maxClusters": 5,
+    "keepOldest": 0,
+    "rareHits": 5,
+    "windowMessages": 16,
+    "followMessages": 24,
+    "followGapMinutes": 5,
+    "answerChars": 1200,
+    "stretchChars": 1500,
+    "quoteWindowChars": 1500,
+    "quoteMaxChars": 9000,
+    "maxPerDay": 100,
+    "timeoutMs": 25000,
+    "minSummaryMs": 2500,
+    "maxOutputTokens": 500,
+    "memoryItems": 6,
+    "selfBonus": 1,
+    "selfExtra": 2,
+    "contextMessages": 6,
+    "traceMaxLines": 500,
+    "memoryTokens": 600,
+    "recordDays": 30,
+    "recordContext": 3,
+    "archiveMonths": 6,
+    "fallbackOnClassifierFailure": true,
+    "meaningCandidates": 80,
+    "meaningWithReply": false,
+    "locatorBonus": 2,
+    "locatorDecayDays": 7,
+    "locatorBroadShare": 0.5,
+    "db": {
+      "gateShare": 0.5,
+      "candidates": 40,
+      "wordPool": 400,
+      "minMeaning": 0.35,
+      "vectorDays": 90,
+      "touchDays": 30,
+      "vectorEviction": false,
+      "reembed": false
+    },
+    "prefetch": {
+      "deadlineMs": 5000,
+      "candidates": 20,
+      "maxExcerpts": 5,
+      "maxTokens": 1500,
+      "excerptChars": 1200,
+      "contextLines": 3,
+      "contextTokens": 500,
+      "shortWords": 4,
+      "minFormsMatched": 2,
+      "minMeaningScore": 0.35,
+      "strongMeaningScore": 0.55,
+      "singleTermScore": 0.45,
+      "maxTermShare": 0.002,
+      "maxPhraseDf": 20,
+      "minPhraseShare": 0.2,
+      "rareTermDf": 30,
+      "trivial": [
+        "γεια",
+        "ok",
+        "ευχαριστω"
+      ],
+      "deictic": [
+        "αυτο",
+        "εκεινο"
+      ]
+    }
+  },
+  "paceSettings": {
+    "prepareMs": 6000,
+    "prepareSearchMs": 30000,
+    "prepareMediaMs": 20000,
+    "dropAfterMs": 120000,
+    "replyHedgeMs": 30000,
+    "typingWhilePreparing": false,
+    "unpromptedWaits": true,
+    "settleMs": 3000,
+    "settleMaxMs": 8000
+  },
+  "hedgeSettings": {
+    "roles": [
+      "analyzer"
+    ],
+    "afterMs": 5000,
+    "timeoutMs": 12000,
+    "longTimeoutMs": 20000
+  },
+  "heartbeatLimits": {
+    "maxOpen": 3,
+    "maxRecurring": 1
+  },
+  "intentionSettings": {
+    "expiresDays": 14,
+    "recurringExpiresDays": 30,
+    "maxOpen": 20,
+    "maxCandidates": 5,
+    "candidateExpiresHours": 48,
+    "waitHours": 2,
+    "expiryNoticeDays": 2
+  },
+  "attentionSettings": {
+    "settleSeconds": 90,
+    "perDayDefault": 12
+  },
+  "loopSettings": {
+    "maxSteps": 10,
+    "timeBudgetMs": 150000,
+    "maxCallsPerStep": 4,
+    "stepReserveTokens": 6000
+  },
+  "loopSettings inner": {
+    "maxSteps": 4,
+    "timeBudgetMs": 180000,
+    "maxCallsPerStep": 4,
+    "callTimeoutMs": 60000
+  },
+  "loopSettings diary": {
+    "maxSteps": 2,
+    "timeBudgetMs": 600000,
+    "maxCallsPerStep": 6
+  },
+  "agentSettings scout": {
+    "enabled": true,
+    "cost": {
+      "input": 2,
+      "output": 6
+    },
+    "socket": "/run/neptunia-agent-scout/sock",
+    "out": "/var/lib/neptunia-agent-scout/out",
+    "limits": {
+      "steps": 25,
+      "seconds": 600
+    },
+    "daily": {
+      "tasks": 40
+    },
+    "searchProvider": "exa"
+  },
+  "agentSettings server": {
+    "enabled": true,
+    "cost": {
+      "input": 2,
+      "output": 10
+    },
+    "socket": "/run/neptunia-agent-server/sock",
+    "out": "/var/lib/neptunia-agent-server/out",
+    "limits": {
+      "steps": 20,
+      "seconds": 120
+    },
+    "daily": {
+      "tasks": 40
+    },
+    "searchProvider": null
+  },
+  "agentSettings thinker": {
+    "cost": {
+      "input": 4,
+      "output": 20
+    },
+    "limits": {
+      "steps": 400,
+      "minutes": 60
+    }
+  },
+  "agentSettings dev": {
+    "cost": {
+      "input": 2,
+      "output": 10
+    },
+    "limits": {
+      "steps": 300,
+      "minutes": 60
+    }
+  }
+}

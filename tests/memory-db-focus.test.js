@@ -548,14 +548,23 @@ const focusDayOf = (file) => {
 };
 const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
 
-test('service: the focus job runs once a UTC day when switched on, off by default; the reader carries the share; on the worker too', async () => {
+test('service: the focus job runs at the first tick with no setting', async () => {
   const env = serviceEnv();
   try {
-    env.hot.config.memoryDb.focus.enabled = false;
+    delete env.hot.config.memoryDb;
     await env.service.tick();
     await settle();
-    assert.equal(focusDayOf(env.file).day, null, 'off: nothing ran');
-    env.hot.config.memoryDb.focus.enabled = true;
+    assert.equal(focusDayOf(env.file).day, '2026-10-24');
+  } finally {
+    await env.done();
+  }
+});
+
+// PR 7d: `memoryDb.focus.enabled` is code (owner, 2026-10-31), so the step that held nothing ran with the switch off
+// is gone; the next test holds the job running with no setting.
+test('service: the focus job runs once a UTC day; the reader carries the share; on the worker too', async () => {
+  const env = serviceEnv();
+  try {
     await env.service.tick();
     await settle();
     assert.equal(focusDayOf(env.file).day, '2026-10-24');

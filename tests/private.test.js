@@ -351,3 +351,20 @@ test('privateRepliesToday: a stored count that is not a finite number >= 0 reads
   privateRepliesToday({ config: config(), isOwner: false, replies: stale, today: TODAY });
   assert.deepEqual(stale, { day: '2026-09-28', count: 7, noticedDay: '2026-09-28' }, 'a read never rolls the day over');
 });
+
+// PR 7d: the per-person daily caps are gone. The switch lives at `private.enabled`; `features.privateMessages` and the
+// stale caps are what a local layer not yet cut still holds.
+test('privateGate: a member and an owner far past the old daily counts still get their turn', () => {
+  const stale = {
+    features: { privateMessages: true },
+    private: { enabled: true, minAffinity: 5, maxPerUserPerDay: 20, maxPerOwnerPerDay: 200 },
+  };
+  const member = gate({ config: stale, replies: { day: TODAY, count: 50 } });
+  const owner = gate({ config: stale, isOwner: true, replies: { day: TODAY, count: 500 } });
+  assert.deepEqual([member.ok, owner.ok], [true, true]);
+});
+
+test('privateGate: the private.enabled switch off refuses a DM', () => {
+  const off = { private: { enabled: false, minAffinity: 5 }, features: { privateMessages: true } };
+  assert.deepEqual(gate({ config: off }), { ok: false, reason: 'off' });
+});

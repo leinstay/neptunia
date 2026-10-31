@@ -3703,3 +3703,13 @@ test('describeVideo: a downloaded clip stores its length as watchedSeconds; a pi
   assert.equal('totalSeconds' in pinned.store.getMediaCache('g1')[`video:${link.itemId}`], false);
   assert.equal(pinned.llm.calls[0].messages[0].content, VIDEO_PROMPT);
 });
+
+// PR 7d: the daily caps of plan section 4.5 are gone; a local layer not yet cut that still sets them changes nothing.
+test('describeVideo: a hundred videos in one day are all watched, a stale media.video.maxPerDay of 1 included', async () => {
+  const hot = videoHot();
+  hot.config.media.video.maxPerDay = 1;
+  const { describer } = videoDescriber({ hot });
+  const states = [];
+  for (let n = 0; n < 100; n += 1) states.push((await describer.describeVideo('g1', videoAttachment(`v${n}`))).state);
+  assert.deepEqual([...new Set(states)], ['watched']);
+});

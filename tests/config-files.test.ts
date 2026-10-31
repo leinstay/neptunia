@@ -11,6 +11,7 @@ import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHot as createHotUntyped } from '../src/hot.js';
+import * as files from '../src/config/files.ts';
 import { createOpsEnv } from '../src/tools/impl/env.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
@@ -266,4 +267,27 @@ test('the checkout keeps the settings and the labels only under config/', () => 
   assert.equal(fs.existsSync(path.join(ROOT, 'config', 'labels.json')), true);
   assert.equal(fs.existsSync(path.join(ROOT, 'config.json')), false);
   assert.equal(fs.existsSync(path.join(ROOT, 'prompts', 'labels.json')), false);
+});
+
+// ---- the settings of an interface (PR 7d) ---------------------------------------------------------------------------
+// `readInterfaceConfig` gives an interface its settings, the same in the core's process and in a unit: the core's
+// settings, then the package's own `interfaces/<name>/config.json`, then the keys of that package a layer not yet cut
+// still holds in `config.local/config.json`, then `config.local/interfaces/<name>.json`.
+
+test("gives an interface its package's defaults over the core settings and its local file over both", () => {
+  const root = tempDir('nep-iface-root-');
+  write(root, 'interfaces/discord/config.json', { discord: { intents: { presences: false, members: false } } });
+  const dir = tempDir('nep-iface-private-');
+  write(dir, 'config.local/interfaces/discord.json', { discord: { intents: { members: true } } });
+  const settings = files.readInterfaceConfig({ rootDir: root, privateDir: dir, name: 'discord', base: BASE_CONFIG });
+  assert.deepEqual(settings, { ...BASE_CONFIG, discord: { intents: { presences: false, members: true } } });
+});
+
+test('gives an interface the keys of its package that a layer not yet cut holds in its settings file', () => {
+  const root = tempDir('nep-iface-root-');
+  write(root, 'interfaces/discord/config.json', { discord: { intents: { presences: false, members: false } } });
+  const dir = tempDir('nep-iface-private-');
+  write(dir, 'config.local/config.json', { discord: { intents: { presences: true } }, recall: { timeoutMs: 9 } });
+  const settings = files.readInterfaceConfig({ rootDir: root, privateDir: dir, name: 'discord', base: {} });
+  assert.deepEqual(settings, { discord: { intents: { presences: true, members: false } } });
 });

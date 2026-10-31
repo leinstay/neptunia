@@ -485,3 +485,16 @@ test('equivalence: the description review gathers the same claims and finds the 
     env.done();
   }
 });
+
+// PR 7d: `memoryDb.audienceColumn` is code. A context the core issues reads through `audience_id` with no setting. The
+// probe is a row the two predicates tell apart: its triple is Alice's DM, its audience the group's, so only a read
+// through `audience_id` shows it in the group and in Bob's DM. That both predicates give the same rows on rows written
+// through the one resolver is the equivalence test of the scoped tables above.
+test('a context issued with no setting reads a row by its audience_id, not by its triple', () => {
+  const probe = { ...dmScope(ALICE, 'discord'), audience_id: audienceOf(groupScope('discord')).audience_id };
+  const group = issueContext({ kind: 'group', iface: 'discord', now: () => NOW, newId: () => 'ctx:probe' });
+  const bob = issueContext({ kind: 'dm', iface: 'discord', person: BOB, now: () => NOW, newId: () => 'ctx:bob' });
+  assert.deepEqual([canRead(probe, group), canRead(probe, bob)], [true, true]);
+  const where = scopeWhere(group, 's');
+  assert.deepEqual(where, audienceWhere(group, 's'));
+});
