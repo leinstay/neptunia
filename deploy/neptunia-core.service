@@ -1,0 +1,44 @@
+# systemd unit for the persona's core with the interfaces as units (interfaces.mode: units).
+#
+# The core runs src/index.js with no interface of its own: it listens on
+# <data>/run/core.sock (folder 0750, socket 0660, group neptunia) and each
+# interface connects from its own unit (deploy/neptunia-interface@.service).
+# It refuses to start while another core holds the memory database or renewed
+# core:alive within its ttl, and it never runs beside neptunia-bot.service
+# (Conflicts= below). deploy/README.md has the cutover.
+#
+# Install:   sudo deploy/install.sh   (installs this unit, does not enable it)
+# Start:     sudo systemctl start neptunia-core
+# Logs:      journalctl -u neptunia-core -f
+
+[Unit]
+Description=neptunia core (interfaces as units)
+After=network-online.target
+Wants=network-online.target
+Conflicts=neptunia-bot.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/neptunia/app
+ExecStart=/usr/bin/node src/index.js
+User=neptunia-bot
+Group=neptunia
+Restart=on-failure
+RestartSec=5
+Environment=NEPTUNIA_PRIVATE_DIR=/opt/neptunia/etc
+Environment=NEPTUNIA_DATA_DIR=/opt/neptunia/data
+EnvironmentFile=-/opt/neptunia/etc/.env
+
+# The same hardening as neptunia-bot.service: writes go to the data and the
+# private directory only.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/neptunia/data /opt/neptunia/etc
+PrivateTmp=true
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=neptunia-core
+
+[Install]
+WantedBy=multi-user.target
