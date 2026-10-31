@@ -14,6 +14,7 @@ import { openMemoryDb } from '../src/memory/db/open.js';
 import { openBoard, readBoard } from '../src/board/board.ts';
 import type { BoardSettings } from '../src/board/board.ts';
 import type { BoardDb } from '../src/board/schema.ts';
+import { runTaskCommand } from '../src/board/commands.ts';
 import { tableHashes } from '../tools/memory-db.mjs';
 import { importLedger, main } from '../tools/board-import.mjs';
 import { tempDir } from './fixtures/tmp.js';
@@ -317,7 +318,14 @@ test('an imported approved task is handed to a worker by task.next with the firs
   const handle = openMemoryDb(memory);
   try {
     const board = openBoard({ db: dbOf(handle), privateDir, now: () => NOW, settings: () => SETTINGS });
-    const held = board.call('dispatcher', 'task.next', { lane: 'dev', role: 'dev' });
+    // task.next is a core command over the board (src/board/commands.ts), not a Board op; the specifier called it as
+    // an op, so the lead runs it through runTaskCommand, the path the socket takes (PR 6e).
+    const answer = runTaskCommand({ board: () => board, briefWaitMs: () => 0 }, 'dispatcher', 'task.next', {
+      lane: 'dev',
+      role: 'dev',
+    });
+    const held = answer.data as { id?: string; lease_generation?: number } | null;
+    assert.equal(answer.status, 'ok', answer.text);
     assert.equal(held?.id, OPEN_TASK);
     assert.equal(held?.lease_generation, 1);
   } finally {
