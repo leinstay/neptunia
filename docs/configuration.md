@@ -19,17 +19,17 @@ Set them in the process environment (for example `Environment=` in the systemd u
 
 ## Clients and their tokens
 
-`clients.json` in the private directory names every client that may connect to the core's socket, and `clients/<name>.token` holds each client's token. An entry has the client's `kind` (`interface`, `cli` or `plugin`), the `iface` an interface's events must carry, the `tokenFile` relative to the private directory, and `permissions`. The core reads both files at every envelope (`src/interface/principals.ts`), so a change applies at once and a rotated or revoked token closes that client's link. Without `clients.json` the core makes one token at start for the interface it runs in its own process, and nothing else connects. A `clients.json` that is not valid JSON lets no client in. See [Interfaces](interfaces.md#clients-and-principals).
+`clients.json` in the private directory names every client that may connect to the core's socket, and `clients/<name>.token` holds each client's token. An entry has the client's `kind` (`interface`, `cli`, `plugin` or `agent`), the `iface` an interface's events must carry, the `tokenFile` relative to the private directory, and `permissions`. The core reads both files at every envelope (`src/interface/principals.ts`), so a change applies at once and a rotated or revoked token closes that client's link. Without `clients.json` the core makes one token at start for the interface it runs in its own process, and nothing else connects. A `clients.json` that is not valid JSON lets no client in. See [Interfaces](interfaces.md#clients-and-principals).
 
 An entry may also carry `boardRoles`, the client's roles on the task board: any of `owner`, `reviewer`, `worker`, `scheduler`, `persona`, `watcher` and `errand-runner`. The board reads them at every call (`src/board/board.ts`). An entry without `boardRoles`, a name outside that list and a client absent from the file get no right on the board. See [The core](core.md#the-task-board).
 
-The owner's `neptunia` chat is the client `cli` of kind `cli`, which runs every command with the owner's rights. An interface client runs commands only with the permission `commands`: the Discord unit needs it to serve `/nep` when the interfaces run as units.
+The owner's `neptunia` chat is the client `cli` of kind `cli`, which runs every command with the owner's rights. An interface client runs commands only with the permission `commands`: the Discord unit needs it to serve `/nep` when the interfaces run as units. A client of kind `agent` is a development agent of the task board: it says hello under `agent`, sends only the board's `task.*` commands (`neptunia task`, see [The neptunia command](cli.md)), and the board lets it do what its `boardRoles` allow. A `task.*` command of the `cli` client goes to the board too, under the client's own `boardRoles`. The board's builtin principal `persona`, which her board tools call as, holds the role `persona` alone, and an entry named `persona` adds nothing to it.
 
 `tools/client-token.mjs` writes both files, at mode `0600`, in the private directory `NEPTUNIA_PRIVATE_DIR` names. It never prints a token.
 
 | Command | What it does |
 |---|---|
-| `node tools/client-token.mjs add <name> --kind <kind> [--iface <iface>] [--permission <p>]` | Makes a token and the client's entry. `--kind interface` needs `--iface`. `--permission` may repeat |
+| `node tools/client-token.mjs add <name> --kind <kind> [--iface <iface>] [--permission <p>] [--roles <role>,<role>]` | Makes a token and the client's entry. `--kind interface` needs `--iface`. `--permission` may repeat. `--roles` writes the comma list as `boardRoles`, with any kind, and a role outside the board's list writes nothing |
 | `node tools/client-token.mjs rotate <name>` | Writes a new token over the old one |
 | `node tools/client-token.mjs revoke <name>` | Removes the entry and the token file |
 
@@ -1007,13 +1007,15 @@ The thinker and the dev agent run outside the engine; the bot only shows their s
 
 ## `board`
 
-The task board's settings (`src/board/board.ts#boardSettings`), read at every board call. See [The core](core.md#the-task-board).
+The task board's settings (`src/board/board.ts#boardSettings` and `#boardTimings`), read at every board call and before each wait of the reaper's beat. See [The core](core.md#the-task-board).
 
 | Key | Default | What it does |
 |---|---|---|
 | `leaseTtlMinutes` | `30` | Minutes a claim holds a task when the claim or the heartbeat names no lease of its own |
 | `autoTriage` | `{ "role": "dev", "budget": 4, "steps": 80, "estimate": 30 }` | The role, budget in USD, step cap and estimate in minutes that `task.add` with `auto` fills in when the caller left them out |
 | `projects` | `{}` | Per project: `autoTriage` overrides the board-wide one field by field, and `ci: false` marks a project without CI, whose tasks a reviewer merges on recorded passing tests |
+| `reapSeconds` | `60` | Seconds between two beats of the reaper, which returns each task whose lease expired to `approved` (`1` to `3600`) |
+| `briefWaitMs` | `1800000` | Milliseconds `task.next` holds back a task whose answer no reviewer has acted on yet (`0` to 7 days) |
 
 ## `intentions`
 
