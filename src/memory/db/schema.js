@@ -1193,9 +1193,25 @@ function V18(connection, context = {}) {
 // replays each held event once and clears it (ingest.ts). A held row is never pruned.
 const V19 = 'ALTER TABLE ingest ADD COLUMN held JSON;';
 
+// Version 20 (2026-10-31, stage 5c): a wake's deliveries are sent after its completion (wake-queue.ts). A row is
+// `sending` from just before the port call until its answer, so a start that finds one knows the answer was lost and
+// reconciles it instead of sending again; `unknown` is a send the reconcile could not tell, `failed` one the interface
+// refused. `receipt` is what the send answered: its messages, or its error code. SQLite cannot change a CHECK, so the
+// table is rebuilt with its rows.
+const V20 = `CREATE TABLE deliveries_v20 (
+  key TEXT PRIMARY KEY, wake_id TEXT NOT NULL REFERENCES wakes(id), target TEXT, payload JSON NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('queued', 'sending', 'sent', 'unknown', 'failed')), queued_at INTEGER NOT NULL,
+  sent_at INTEGER, receipt JSON
+);
+INSERT INTO deliveries_v20 (key, wake_id, target, payload, state, queued_at, sent_at)
+  SELECT key, wake_id, target, payload, state, queued_at, sent_at FROM deliveries;
+DROP TABLE deliveries;
+ALTER TABLE deliveries_v20 RENAME TO deliveries;
+CREATE INDEX deliveries_state ON deliveries (state, queued_at);`;
+
 /** Each entry moves the schema one version up: SQL text, or a function of the connection (and the opener's context)
  * for a step SQL cannot do. Never edit a shipped entry: append a new one. */
-export const MIGRATIONS = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V19];
+export const MIGRATIONS = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V19, V20];
 
 /** Every table schema v8 adds. */
 export const V8_TABLES = [

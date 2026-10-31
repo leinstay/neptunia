@@ -436,6 +436,13 @@
       "test": "none"
     },
     {
+      "path": "src/behavior/inner/deliveries.ts",
+      "purpose": "A wake's sends after its completion: the hold of a live wake turn, its deliveries sent through the port, and what a crash left reconciled and sent at a start. Tested through the inner wake sends tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/behavior/inner/facts.ts",
       "purpose": "The inner life's facts: what did not go through in a turn, kept until a model answer carried them. Tested through the inner life and inner turn tests.",
       "layer": "public",
@@ -924,6 +931,13 @@
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"
+    },
+    {
+      "path": "src/tools/send-hold.ts",
+      "purpose": "The hold of a wake turn's sends: the port a posting operation sends through keeps each send for the wake's completion. Tested through the inner wake sends tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
     },
     {
       "path": "src/speech/",

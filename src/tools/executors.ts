@@ -20,6 +20,7 @@ import { foldText } from '../memory/recent.js';
 import { SELF_OWNED_OPS } from './impl/effects.ts';
 import { CODE, INVALID_CODES, NOT_CONFIGURED_CODES, WHAT } from './codes.ts';
 import { nestedRefusal } from './access.ts';
+import { heldPort } from './send-hold.ts';
 import { idText, isObj, listOf, objOf, textOf } from './types.ts';
 import type { Obj, Skill, SkillMap } from './types.ts';
 import type { Refusal } from './gateway.ts';
@@ -700,7 +701,9 @@ export async function executeCall(resolved: Resolved, deps: ExecuteDeps): Promis
       const file = objOf(entry);
       return { name: argText(file.name ?? 'file'), data: file.attachment };
     });
-    const sent = fromPort(await deps.port.send(deps.refOf(deps.opContext?.channelId), { attachments }));
+    // A wake turn's post of them is held for its end (src/tools/send-hold.ts), under the call's key.
+    const port = heldPort(deps.port, { hold: deps.opContext?.hold, idempotencyKey: envelope.idempotencyKey });
+    const sent = fromPort(await port.send(deps.refOf(deps.opContext?.channelId), { attachments }));
     return { ...sent, data: { text } };
   } catch (err) {
     return { status: 'failed', code: CODE.ERROR, error: err };

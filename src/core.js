@@ -848,6 +848,8 @@ async function buildCore(options, cleanups) {
     submit: (event) => door.submit(event),
     // Each inner turn as a wake run in the memory database (memoryDb.wakeRuns).
     memoryDb,
+    // A live wake turn's posts go out through the guarded port once the wake completed (src/behavior/inner/deliveries.ts).
+    port: iface,
     now: clock,
     // The heartbeat's facts (src/behavior/heartbeat-view.ts): her errands, what she can do. No presence or
     // do-not-disturb state (owner, 2026-10-20: she must not read those markers).

@@ -6,7 +6,8 @@
 import type { Obj } from '../../tools/types.ts';
 import type { Due, Intention } from '../../intentions/types.ts';
 import type { Reads } from '../../interface/reads.ts';
-import type { ConversationInfo, ConversationRef } from '../../protocol/adapter.ts';
+import type { Adapter, ConversationInfo, ConversationRef } from '../../protocol/adapter.ts';
+import type { SendHold } from '../../tools/send-hold.ts';
 import type { WakeQueueUpdate } from '../../memory/db/wake-queue.ts';
 import type { HeartbeatFacts } from '../heartbeat-view.ts';
 import type { WakeBlockInput } from '../wake.ts';
@@ -309,8 +310,18 @@ export type InnerTurnParams = {
   mode: 'inner';
   triggerKind: 'inner';
   journalTurn: { turnId: string; attemptId: number };
-  inner: { wake: WakeInfo; currentChannel: string | null; shadow: boolean; mayAct: () => boolean };
+  inner: {
+    wake: WakeInfo;
+    currentChannel: string | null;
+    shadow: boolean;
+    mayAct: () => boolean;
+    /** A live wake turn's hold: her posts wait in it for the wake's completion (src/tools/send-hold.ts). */
+    hold?: SendHold | null;
+  };
 };
+
+/** The port a completed wake's deliveries go out through (the core's guarded port), and its reconcile. */
+export type InnerPort = Pick<Adapter, 'send' | 'capabilities' | 'fetchMessages'>;
 
 /** The turn runner as the inner life calls it. */
 export type InnerTurns = {
@@ -376,6 +387,8 @@ export type InnerContext = {
   costs: CostMeter;
   heartbeatSources: HeartbeatSources;
   memoryDb: InnerMemoryDb | null;
+  /** The port a completed wake's deliveries go out through; without one a wake turn holds nothing. */
+  port: InnerPort | null;
   rng: () => number;
   now: () => number;
   log: Logger;

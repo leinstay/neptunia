@@ -2,15 +2,16 @@
 // and `inflight` are a view: read back from `wakes` the first time a guild's state is used, then kept in step by
 // `syncQueue`, which every save of the state calls (a new queued wake is written, a changed one rewritten, one taken
 // off the queue written handled or removed). The turn's own steps are explicit and awaited: `claimTurn` claims the
-// group's wakes with fenced leases before the turn asks the model, and `finishTurn` completes the handled ones and
-// releases the rest after it. Every write goes through one chain, in order, through the memory database's writer
-// (`memoryWrite`); with no memory database the queue lives in one in-memory database per data directory for the
-// life of the process, opened with the same migrations, so the v18 import reads the guild files there too.
+// group's wakes with fenced leases before the turn asks the model, and `finishTurn` completes the handled ones, with
+// the deliveries of the turn's held sends, and releases the rest after it. Every write goes through one chain, in
+// order, through the memory database's writer (`memoryWrite`); with no memory database the queue lives in one
+// in-memory database per data directory for the life of the process, opened with the same migrations, so the v18
+// import reads the guild files there too.
 
 import path from 'node:path';
 import { openMemoryDb } from '../../memory/db/open.js';
 import { applyWakeQueueWrite, listWakes } from '../../memory/db/wake-queue.ts';
-import type { Handle, StoredWake, TurnMark, WakeQueueUpdate } from '../../memory/db/wake-queue.ts';
+import type { DeliveryInput, Handle, StoredWake, TurnMark, WakeQueueUpdate } from '../../memory/db/wake-queue.ts';
 import { errorCode, objOf } from '../../tools/types.ts';
 import { storedWakes } from '../wake.ts';
 import { WAKE_KINDS } from './settings.ts';
@@ -190,16 +191,19 @@ export async function claimTurn(
 
 /**
  * The end of a turn's claim: the wakes of `group` the state no longer queues are completed with their handled outcome,
- * the ones it still queues (a retry, a held turn) are released with their fields, in one fenced write. A refusal (a
- * newer holder took a lease over) is logged.
+ * the ones it still queues (a retry, a held turn) are released with their fields, in one fenced write. The first
+ * completed wake records the `deliveries` of the turn's held sends (deliveries.ts#deliveriesOf); with no wake
+ * completed they are dropped, and the wake's next turn makes them again. Answers the keys of the deliveries the write
+ * committed. A refusal (a newer holder took a lease over) is logged and commits none.
  */
 export async function finishTurn(
   life: InnerContext,
   guildId: string,
   group: ReadonlyArray<Wake>,
-  state: InnerState
-): Promise<void> {
-  const done: Array<{ id: string; token: number; outcome: string; deliveries: [] }> = [];
+  state: InnerState,
+  deliveries: ReadonlyArray<DeliveryInput> = []
+): Promise<Array<string>> {
+  const done: Array<{ id: string; token: number; outcome: string; deliveries: ReadonlyArray<DeliveryInput> }> = [];
   const back: Array<{ id: string; token: number; wake: Wake }> = [];
   const synced = life.synced.get(guildId);
   for (const { id } of group) {
@@ -210,16 +214,35 @@ export async function finishTurn(
     if (queued) {
       back.push({ id, token, wake: queued });
       synced?.set(id, JSON.stringify(queued));
-    } else done.push({ id, token, outcome: state.handled[id]?.outcome ?? 'handled', deliveries: [] });
+    } else
+      done.push({
+        id,
+        token,
+        outcome: state.handled[id]?.outcome ?? 'handled',
+        deliveries: done.length === 0 ? deliveries : [],
+      });
   }
-  if (done.length + back.length === 0) return;
+  if (done.length === 0 && deliveries.length > 0)
+    life.log.info('inner: held sends dropped with a retried turn', { guildId, sends: deliveries.length });
+  if (done.length + back.length === 0) return [];
   try {
-    const answer = objOf(await dbWrite(life, { kind: 'wake-queue', op: 'finish-group', now: life.now(), done, back }));
+    const answer = objOf(
+      await dbWrite(life, {
+        kind: 'wake-queue',
+        op: 'finish-group',
+        now: life.now(),
+        done,
+        back,
+        dataDir: life.dataDir,
+      })
+    );
     const code = typeof answer.code === 'string' ? answer.code : 'error';
-    if (answer.ok !== true) life.log.warn('inner: wake completion refused', { guildId, code });
+    if (answer.ok === true) return done.flatMap((item) => item.deliveries.map((delivery) => delivery.key));
+    life.log.warn('inner: wake completion refused', { guildId, code });
   } catch {
     // Logged by the chain (dbWrite).
   }
+  return [];
 }
 
 /** The leases of the wakes this life's turns hold, kept on while they run (called at every tick). */

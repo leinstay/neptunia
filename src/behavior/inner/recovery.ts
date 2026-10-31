@@ -1,8 +1,9 @@
 // What the inner life does when it starts and while it sleeps. The start's recovery runs once per guild before the
 // first tick lists anything: a turn a restart cut off (its wakes `running` under another holder) is resolved from the
 // journal, then its wakes run again under their first turn id or are handled `interrupted`; the wakes that fell due
-// while the core was down sleep; the handled wakes older than 30 days are deleted; and the `core:alive` lease is
-// renewed, as it is at every tick after, until a clean stop lets it go (`releaseAlive`).
+// while the core was down sleep; the handled wakes older than 30 days are deleted; the `core:alive` lease is renewed,
+// as it is at every tick after, until a clean stop lets it go (`releaseAlive`); and the deliveries a completed wake left
+// unsent are settled and sent (deliveries.ts#resumeDeliveries).
 //
 // Sleep (the owner's answer of 2026-10-27): a wake that fell due during a downtime or a pause is `slept` and never
 // runs. The downtime runs from the last `core:alive` renewal to the start, a pause from its `pausedAt` (else the first
@@ -16,6 +17,7 @@ import { ALIVE_LEASE, leaseOf, listWakes } from '../../memory/db/wake-queue.ts';
 import type { StoredWake } from '../../memory/db/wake-queue.ts';
 import { errorCode as codeOf, listOf, objOf } from '../../tools/types.ts';
 import type { Obj } from '../../tools/types.ts';
+import { resumeDeliveries } from './deliveries.ts';
 import { asText } from './facts.ts';
 import { addFact, enqueue, markHandled, note, paused, save, stateOf, wakeFields } from './queue.ts';
 import { backendOf, dbSend, dbWrite, renewClaims, turnLeaseMs } from './wake-store.ts';
@@ -215,8 +217,11 @@ async function startUpNow(life: InnerContext, guildId: string): Promise<void> {
   sleepQueued(life, guildId, at);
   await dbWrite(life, { kind: 'wake-queue', op: 'recover', now: at }).catch(() => null);
   // A handled id is kept as long as the state file kept it (queue.ts, CHAIN_KEEP_MS), so a due item never wakes her twice.
-  dbSend(life, { kind: 'wake-queue', op: 'prune', before: at - HANDLED_KEEP_MS });
+  dbSend(life, { kind: 'wake-queue', op: 'prune', before: at - HANDLED_KEEP_MS, dataDir: life.dataDir });
   renewAlive(life, at);
+  // What a completed wake left to send when the process stopped: settled and sent before the first tick lists anything.
+  await life.writes;
+  await resumeDeliveries(life);
 }
 
 /** `core:alive` renewed by this life, until the core stops. */
