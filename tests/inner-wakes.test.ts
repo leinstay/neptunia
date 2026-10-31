@@ -3,7 +3,8 @@
 // after: no transaction is open while the model is asked. A wake cut off by a restart runs again under the turn id of
 // its first run, so its effect keys stay the same. A wake that falls due while the core is down or paused sleeps: it
 // becomes `slept` and never runs, the status counts it, and the one-off intention it was for is cancelled with a
-// `sleptAt` mark, so her calls on it answer `slept`. A real memory database on the calling thread, a real intention
+// `sleptAt` mark, so her calls on it answer `slept`. A recurring intention loses only the occurrence that slept: its
+// history records `slept`, and the next occurrence comes due and runs. A real memory database on the calling thread, a real intention
 // service and event door, a fake turn runner standing in for the model call; the clock injected as `now`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -21,6 +22,7 @@ useIface('fake');
 const GUILD = 'g1';
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
 const T = Date.parse('2026-10-31T12:00:00Z');
 const LEASE_MS = MINUTE;
 const SILENT = { info() {}, warn() {}, error() {}, debug() {} };
@@ -290,6 +292,43 @@ test('her calls on an intention whose wake slept answer slept, and the record ke
     assert.equal(record?.sleptAt, T + 40 * MINUTE);
     assert.equal(run.service.update(GUILD, id, { state: 'done' }).code, 'slept');
     assert.equal(run.service.cancel(GUILD, id).code, 'slept');
+  } finally {
+    await run.close();
+  }
+});
+
+test('a recurring intention whose occurrence fell due during the downtime loses that occurrence, and the next one runs', async () => {
+  const run = await core();
+  try {
+    const first = T + 30 * MINUTE;
+    const made = run.service.set(GUILD, {
+      purpose: 'say good morning',
+      dueAt: first,
+      every: { period: 'day', at: null },
+      channelId: 'c1',
+      scope: 'group',
+    });
+    if (!made.ok) throw new Error(`intention not set: ${made.code}`);
+    const { id } = made.intention;
+    await run.life.tick();
+    await run.restart();
+    run.clock.t = T + 2 * HOUR;
+    await run.life.tick();
+    assert.equal(run.turns.calls.length, 0, 'the occurrence of the downtime never runs');
+    assert.equal(wakeOf(readHandleOf(run.memory), `inner.wake:intention_due:${id}:${first}`)?.state, 'slept');
+    const record = run.service.store(GUILD)?.get(id);
+    assert.equal(record?.status, 'pending', 'the intention goes on');
+    assert.equal(record?.dueAt, first + DAY);
+    assert.equal(record?.history.at(-1)?.code, 'slept');
+    run.clock.t = T + DAY;
+    await run.life.tick();
+    run.clock.t = first + DAY + MINUTE;
+    await run.life.tick();
+    assert.deepEqual(
+      run.turns.calls.map((call) => call.inner.wake.items.flatMap((item) => item.intentionIds)),
+      [[id]],
+      'the next occurrence runs as usual'
+    );
   } finally {
     await run.close();
   }

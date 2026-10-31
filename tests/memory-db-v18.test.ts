@@ -2,8 +2,8 @@
 // `inner.json` into the `wakes` table. The data step reads every `guilds/<id>/inner.json` under the opener's
 // `context.dataDir` once, in one transaction, and keeps the wake ids: the queue becomes `queued`, the handled set
 // `handled`, and the wake of the in-flight mark `running` with a lease that expired when that turn started, so the
-// recovery of the next start resolves it. The file is then renamed to `inner.json.imported`, and a later open changes
-// nothing. The rows are read back through src/memory/db/wake-queue.ts. Synthetic data, a temporary data directory.
+// recovery of the next start resolves it. The queue fields are then dropped from the file, and the rest of the state
+// (facts, turns, spend, the review, the heartbeat, the stop switch) stays there. A later open changes nothing. The rows are read back through src/memory/db/wake-queue.ts. Synthetic data, a temporary data directory.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -32,6 +32,16 @@ const RUNNING = wakeOfDue({
 const QUEUED = reviewWake('2026-10-31', STARTED);
 const HANDLED = `inner.wake:intention_due:i0:${STARTED - 2 * HOUR}`;
 
+/** A turn of the state file, which stays in it. */
+const TURN = { at: STARTED - HOUR, chainId: 'intention:i0', usd: 0, outcome: 'spoke', kinds: ['intention_due'] };
+
+/** The guild's state file as it is on disk now. */
+function stateOnDisk(inner: string): Record<string, unknown> {
+  const parsed: unknown = JSON.parse(fs.readFileSync(inner, 'utf8'));
+  if (typeof parsed !== 'object' || parsed === null) throw new Error('the state file holds no object');
+  return { ...parsed };
+}
+
 /** One guild's state as the engine wrote it: two queued wakes, the first in flight, and one handled wake. */
 function innerState(): Record<string, unknown> {
   return {
@@ -41,6 +51,7 @@ function innerState(): Record<string, unknown> {
       { ...QUEUED, queuedAt: STARTED },
     ],
     handled: { [HANDLED]: { at: STARTED - HOUR, outcome: 'spoke' } },
+    turns: [TURN],
     inflight: {
       turnId: 't-cut-off',
       wakeIds: [RUNNING.id],
@@ -78,8 +89,8 @@ function readHandleOf(memoryDb: { readHandle(): unknown }): { db: object } {
   return { db };
 }
 
-test('the v18 step imports the queue, the handled set and the in-flight mark with their ids, and sets the file aside', () => {
-  const { dataDir, file, inner } = upgradeable();
+test('the v18 step imports the queue, the handled set and the in-flight mark with their ids', () => {
+  const { dataDir, file } = upgradeable();
   const handle = openMemoryDb(file, { context: { dataDir } });
   try {
     const running = wakeOf(handle, RUNNING.id);
@@ -101,8 +112,19 @@ test('the v18 step imports the queue, the handled set and the in-flight mark wit
   } finally {
     handle.close();
   }
-  assert.equal(fs.existsSync(inner), false);
-  assert.equal(fs.existsSync(`${inner}.imported`), true);
+});
+
+test('the v18 step drops the queue fields from inner.json and keeps the rest of the state there', () => {
+  const { dataDir, file, inner } = upgradeable();
+  openMemoryDb(file, { context: { dataDir } }).close();
+  const state = stateOnDisk(inner);
+  assert.deepEqual(
+    ['queue', 'handled', 'inflight'].filter((key) => Object.hasOwn(state, key)),
+    [],
+    'the queue lives in the database alone'
+  );
+  assert.deepEqual(state.turns, [TURN]);
+  assert.equal(state.stopped, false);
 });
 
 test('a second open of the imported database changes no wake and imports nothing again', () => {
@@ -116,21 +138,17 @@ test('a second open of the imported database changes no wake and imports nothing
     }
   };
   const first = read();
+  const file1 = fs.readFileSync(inner, 'utf8');
   const second = read();
   assert.deepEqual(second, first);
-  assert.equal(fs.existsSync(inner), false);
-  assert.equal(
-    fs.readFileSync(`${inner}.imported`, 'utf8'),
-    JSON.stringify(innerState()),
-    'the old file is kept as it was'
-  );
+  assert.equal(fs.readFileSync(inner, 'utf8'), file1, 'the state file is left as the first open left it');
 });
 
 test('the imported in-flight wake is queued again by the recovery of the next start', () => {
   const { dataDir, file } = upgradeable();
   const handle = openMemoryDb(file, { context: { dataDir } });
   try {
-    assert.deepEqual(recoverWakes(handle, { now: STARTED + 10 * MINUTE }), { handled: 0, requeued: 1 });
+    assert.deepEqual(recoverWakes(handle, { now: STARTED + 10 * MINUTE }), { requeued: 1, slept: 0 });
     assert.equal(wakeOf(handle, RUNNING.id)?.state, 'queued');
   } finally {
     handle.close();
@@ -145,5 +163,5 @@ test('the memory service hands its data directory to the v18 step, so its open i
   } finally {
     await memory.close();
   }
-  assert.equal(fs.existsSync(`${inner}.imported`), true);
+  assert.equal(Object.hasOwn(stateOnDisk(inner), 'queue'), false);
 });
