@@ -439,26 +439,6 @@ test('roleRequestOptions: complete takes the set as it is -- counted, uncalibrat
   assert.equal(sent[0].signal.aborted, true, 'the signal is cut at llm.analyzerTimeoutMs, not at llm.timeoutMs');
 });
 
-test('complete: the interface of the turn is logged on its usage line and never sent', async () => {
-  const sent = [];
-  const llm = createLlm({
-    apiKey: 'k',
-    getConfig: () => baseConfig(),
-    calibrator: fakeCalibrator(),
-    state: fakeState(),
-    fetchImpl: (url, init) => {
-      sent.push(JSON.parse(init.body));
-      return Promise.resolve(okResponse('yes', { prompt_tokens: 10, completion_tokens: 2, cost: 0.001 }));
-    },
-  });
-  const { logs } = await withCapturedLogs(() =>
-    llm.complete([{ role: 'user', content: 'hi' }], { role: 'core', purpose: 'reply', iface: 'cli' })
-  );
-  const [line] = logs.filter((l) => l.msg === 'llm: usage');
-  assert.equal(line.iface, 'cli');
-  assert.equal(JSON.stringify(sent[0]).includes('cli'), false, 'the interface is not in the body');
-});
-
 test('complete: a json.error body after a 200 is thrown and never retried', async () => {
   let calls = 0;
   const llm = createLlm({

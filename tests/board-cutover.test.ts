@@ -145,8 +145,10 @@ const CLOSING: Asked = { line: 'And when does it close?', goal: 'find the closin
 function errandModel(asked: ReadonlyArray<Asked>): Llm {
   const requests: Array<unknown> = [];
   const used = new Set<string>();
+  // The rig's Llm records the options of each call since PR 7a; this model keeps none.
   return {
     requests,
+    options: [],
     complete: (messages: unknown) => {
       requests.push(messages);
       const text = JSON.stringify(messages);

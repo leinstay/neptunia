@@ -596,7 +596,7 @@
     },
     "src/tools/impl/status.ts": {
       "<anonymous>#2": {
-        "function-length": 643
+        "function-length": 641
       },
       "<anonymous>#2>keyCostsValue": {
         "complexity": 21

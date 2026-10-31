@@ -4432,8 +4432,8 @@ test('createTurnRunner: the persona turn is requested as role core, purpose repl
   assert.equal(llm.optionCalls.length, 1);
   assert.deepEqual(
     withoutTools(llm.optionCalls[0]),
-    { role: 'core', purpose: 'reply' },
-    'only the role and the purpose besides her tools: models.base.core and every other setting stay the defaults'
+    { role: 'core', purpose: 'reply', iface: 'discord' },
+    'only the role, the purpose and the interface (PR 7a: `iface` for the usage row, never in the request) besides her tools: models.base.core and every other setting stay the defaults'
   );
   assert.equal(llm.optionCalls[0].toolChoice, 'auto');
   assert.deepEqual(
@@ -8653,7 +8653,7 @@ test('runTurn: an initiate turn with pace.unpromptedWaits on has no bar, so its 
   const { result } = await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'initiate' }));
 
   assert.equal(result.outcome, 'spoke');
-  assert.deepEqual(llm.optionCalls.map(withoutTools), [{ role: 'core', purpose: 'reply' }]);
+  assert.deepEqual(llm.optionCalls.map(withoutTools), [{ role: 'core', purpose: 'reply', iface: 'discord' }]);
 });
 
 test('runTurn: pace.dropAfterMs 0 sets no bar -- a slow answer is still posted, the request as before', async () => {
@@ -8668,7 +8668,7 @@ test('runTurn: pace.dropAfterMs 0 sets no bar -- a slow answer is still posted, 
 
   assert.equal(result.outcome, 'spoke');
   assert.equal(scene.channel.sent.length, 1);
-  assert.deepEqual(llm.optionCalls.map(withoutTools), [{ role: 'core', purpose: 'reply' }]);
+  assert.deepEqual(llm.optionCalls.map(withoutTools), [{ role: 'core', purpose: 'reply', iface: 'discord' }]);
   assert.equal(
     logs.some((l) => l.msg === 'turn: dropped'),
     false
