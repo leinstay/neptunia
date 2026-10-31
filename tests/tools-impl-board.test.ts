@@ -108,7 +108,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 /** The id of the task a propose answered, from its data `{ task }`. */
 function proposedId(result: Result): string {
-  assert.equal(result.status, 'ok', result.summary);
+  assert.equal(result.status, 'ok', result.summary ?? '');
   assert.ok(isRecord(result.data) && isRecord(result.data.task) && typeof result.data.task.id === 'string');
   return result.data.task.id;
 }
@@ -117,7 +117,7 @@ function proposedId(result: Result): string {
 function statusEntries(
   result: Result
 ): Array<{ task: TaskRecord; questions: Array<unknown>; reviews: Array<unknown> }> {
-  assert.equal(result.status, 'ok', result.summary);
+  assert.equal(result.status, 'ok', result.summary ?? '');
   assert.ok(isRecord(result.data) && Array.isArray(result.data.tasks), 'the data lists tasks');
   // board.status answers one entry per task filed for her, each with the board's TaskRecord and its rows.
   return result.data.tasks as Array<{ task: TaskRecord; questions: Array<unknown>; reviews: Array<unknown> }>;

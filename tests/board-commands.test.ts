@@ -127,7 +127,8 @@ test('task.next skips a task held up by an open blocker and a deferred task', as
   const held = approvedTask(board, { title: 'held', priority: 1 });
   board.call('boss', 'task.depend', { id: held.id, on: blocker.id, type: 'blocks' });
   approvedTask(board, { title: 'deferred', priority: 1, defer_until: '2026-11-02T00:00:00.000Z' });
-  const plain = approvedTask(board, { title: 'plain', priority: 5 });
+  // The specifier wrote priority 5, which the board schema refuses (0 to 4); 4 is the lowest priority it allows.
+  const plain = approvedTask(board, { title: 'plain', priority: 4 });
   assert.equal(taskOf(await run('hand', 'task.next', { lane: 'dev', role: 'dev' })).id, plain.id);
 });
 
