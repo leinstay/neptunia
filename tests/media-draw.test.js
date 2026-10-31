@@ -276,6 +276,7 @@ test('diary set: the avatar is fetched once; a cap ends the set like an image ca
   assert.equal(target.sent.at(-1).files.length, 2, 'what came out is posted (diary.set.minPosted is 2)');
 });
 
+// PR 7b: admin.run takes the operation's name, the command key map is gone; the expectations are as they were.
 test("/nep draw: one picture for the owner; a cap makes the command fail with the image cap's words", async () => {
   const images = recordingImages({ capAfter: 1 });
   const hotValue = hot();
@@ -297,7 +298,7 @@ test("/nep draw: one picture for the owner; a cap makes the command fail with th
     });
   const ctx = { guildId: 'g1', userId: '42' };
   const { result } = await withCapturedLogs(() =>
-    admin(hotValue).run('draw', { text: 'me reading by the window', self: true }, ctx)
+    admin(hotValue).run('draw.create', { text: 'me reading by the window', self: true }, ctx)
   );
   assert.equal(result.files.length, 1);
   assert.equal(
@@ -307,7 +308,7 @@ test("/nep draw: one picture for the owner; a cap makes the command fail with th
 
   const { result: outcome } = await withCapturedLogs(async () => {
     try {
-      return await admin(hotValue).run('draw', { text: 'again' }, ctx);
+      return await admin(hotValue).run('draw.create', { text: 'again' }, ctx);
     } catch (err) {
       return err;
     }

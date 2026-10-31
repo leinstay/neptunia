@@ -189,7 +189,7 @@ An intention she sets in a private chat belongs to that chat: stored with scope 
 
 ### Privacy
 
-Every intention keeps the members of the conversation it came from. `/nep memory forget` removes every intention that concerns the member: one meant for them, an attention naming them, one from a conversation with them, and one whose words carry their id or a known name. `/nep memory wipe` deletes the intentions file with the rest of the server's memory.
+Every intention keeps the members of the conversation it came from.
 
 ### What she sees
 

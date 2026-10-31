@@ -15,8 +15,7 @@ import { createOpsEnv } from '../src/tools/impl/env.ts';
 import { EFFECT_CLASSES, OP_EFFECTS, SELF_OWNED_OPS } from '../src/tools/impl/effects.ts';
 import { PERSONA_GOVERNED_CONFIG, governsPersona } from '../src/tools/impl/rights.ts';
 import { RENAMED_OPS, renameGrants } from '../src/tools/impl/access.ts';
-import { createAdmin } from '../src/admin.js';
-import { createDiscordInterface, createInteractionHandler } from '../interfaces/discord/index.js';
+import { createDiscordInterface } from '../interfaces/discord/index.js';
 import {
   loadSkills,
   skillRegistry,
@@ -1161,42 +1160,4 @@ test('persona grants: an old grant on talk.interject or talk.initiate holds on m
   assert.deepEqual(after['message.create'], { everyone: true, roles: ['r1'], users: [SELF] });
   assert.equal(renameGrants(after), null, 'nothing left to rename');
   assert.equal(before['talk.interject'].users[0], SELF, 'the input is not changed');
-});
-
-// ---- the commands -------------------------------------------------------------------------
-
-test('persona grants: no /nep skill command; the access autocomplete offers her skill names', async () => {
-  const t = makeEnv();
-  try {
-    const admin = createAdmin({
-      discord: DISCORD,
-      hot: t.hot,
-      store: t.store,
-      client: t.client,
-      getGuildId: () => 'g1',
-    });
-    const handle = createInteractionHandler({ hot: t.hot, admin, getGuildId: () => 'g1' });
-    const ask = async (userId, typed) => {
-      const responses = [];
-      await handle({
-        guildId: 'g1',
-        channelId: HERE,
-        user: { id: userId },
-        member: { roles: [] },
-        isAutocomplete: () => true,
-        options: {
-          getSubcommandGroup: () => 'access',
-          getSubcommand: () => 'grant',
-          getFocused: () => ({ name: 'command', value: typed }),
-        },
-        respond: async (choices) => responses.push(choices),
-      });
-      return responses[0].map((choice) => choice.value);
-    };
-    assert.deepEqual(await ask(OWNER, 'MESSAGE.RE'), ['message.react.add', 'message.react.remove']);
-    assert.deepEqual(await ask(OWNER, 'private'), ['memory.private.read']);
-    assert.deepEqual(await ask(MEMBER, 'message'), []);
-  } finally {
-    t.cleanup();
-  }
 });

@@ -705,7 +705,7 @@ test('executeCall: her written text goes out as rendered; only the members the r
   );
 });
 
-test("executeCall: a person who runs /nep message create gives her a turn; her own call posts -- the mode is the server's, by who acts", async () => {
+test("executeCall: a person who runs message.create gives her a turn; her own call posts -- the mode is the server's, by who acts", async () => {
   const forced = [];
   const spontaneous = {
     force: async (conversation, mode, options) => {
@@ -714,8 +714,8 @@ test("executeCall: a person who runs /nep message create gives her a turn; her o
     },
   };
   const { admin, port } = makeAdmin({ extra: { spontaneous } });
-  // a person: a turn, even with a text in the arguments
-  const person = await admin.runCommand(
+  // a person: a turn, even with a text in the arguments (PR 7b: by the operation's name, the command key map is gone)
+  const person = await admin.runSkillOp(
     'message.create',
     { text: 'πες αυτό' },
     { guildId: 'g1', channelId: HERE, userId: OWNER, roleIds: [] }

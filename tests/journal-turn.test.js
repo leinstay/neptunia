@@ -301,6 +301,7 @@ test('findTurn: a turn that crossed midnight -- the record of the next day, the 
 });
 
 // A bare id is dated by reading the message in the conversation the command runs in (`channelId`), a link names its own.
+// PR 7b: admin.run takes the operation's name, the command key map is gone; the expectations are as they were.
 test('memory.journal.read: by message id or link, the turn record whole; not hers or no record is not-found', async () => {
   const clock = { ms: D };
   const { journal } = journalAt(clock);
@@ -316,12 +317,12 @@ test('memory.journal.read: by message id or link, the turn record whole; not her
   const admin = makeAdmin(journal);
 
   const byId = String(
-    await admin.run('memory.journal', { messageId: postedId }, { guildId: 'g1', channelId: 'c1', userId: OWNER })
+    await admin.run('memory.journal.read', { messageId: postedId }, { guildId: 'g1', channelId: 'c1', userId: OWNER })
   );
   assert.ok(byId.includes(THINK), 'the think whole, not its first 80 characters');
   assert.ok(byId.includes(started.turnId));
   const byLink = await admin.run(
-    'memory.journal',
+    'memory.journal.read',
     { messageId: `https://discord.com/channels/111/222/${postedId}` },
     { guildId: 'g1', channelId: 'c1', userId: OWNER }
   );
@@ -329,17 +330,21 @@ test('memory.journal.read: by message id or link, the turn record whole; not her
 
   // Someone else's message (it started the turn), an unknown one, and junk.
   await assert.rejects(
-    admin.run('memory.journal', { messageId: triggerId }, { guildId: 'g1', channelId: 'c1', userId: OWNER }),
+    admin.run('memory.journal.read', { messageId: triggerId }, { guildId: 'g1', channelId: 'c1', userId: OWNER }),
     {
       code: 'not-found',
     }
   );
   await assert.rejects(
-    admin.run('memory.journal', { messageId: idAt(D + 4000, 9) }, { guildId: 'g1', channelId: 'c1', userId: OWNER }),
+    admin.run(
+      'memory.journal.read',
+      { messageId: idAt(D + 4000, 9) },
+      { guildId: 'g1', channelId: 'c1', userId: OWNER }
+    ),
     { code: 'not-found' }
   );
   await assert.rejects(
-    admin.run('memory.journal', { messageId: 'not an id' }, { guildId: 'g1', channelId: 'c1', userId: OWNER }),
+    admin.run('memory.journal.read', { messageId: 'not an id' }, { guildId: 'g1', channelId: 'c1', userId: OWNER }),
     {
       code: 'unknown-message',
     }

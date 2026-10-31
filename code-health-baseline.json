@@ -4,7 +4,7 @@
     "src/behavior/recall.js": 2491,
     "src/behavior/sandbox.js": 2136,
     "src/memory/store.js": 3342,
-    "tests/admin.test.js": 3880,
+    "tests/admin.test.js": 3879,
     "tests/describe.test.js": 3705,
     "tests/events.test.js": 9301,
     "tests/format.test.js": 2060,

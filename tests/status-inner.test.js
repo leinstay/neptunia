@@ -68,10 +68,12 @@ function envOf({ innerLife = true, status = STATUS, usage = null } = {}) {
   };
 }
 
+// PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
 const show = async (env, args, userId) =>
-  (await runOp('status.show', args, { env, guildId: 'g1', userId, roleIds: [] })).data.embeds[0].fields;
+  (await runOp('status.show', args, { env, guildId: 'g1', userId, roleIds: [] })).data.fields;
+// PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
 const showMember = async (env, args) =>
-  (await runOp('status.show', args, { env, guildId: 'g1', userId: '7', roleIds: ['staff'] })).data.embeds[0].fields;
+  (await runOp('status.show', args, { env, guildId: 'g1', userId: '7', roleIds: ['staff'] })).data.fields;
 
 test("status inner: the owner reads the inner life's lines through the labels; field:inner shows it alone", async () => {
   const { env, seen } = envOf();
@@ -182,6 +184,7 @@ test('status inner: the next heartbeat has its own line; off says so; a status w
   assert.ok(!innerLines(STATUS, labels).some((line) => line.startsWith('heartbeat')));
 });
 
+// PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
 test('status.show part: her call defaults to the overview, a part holds its fields, models are named and never probed, a member sees only what a member may', async () => {
   const { env } = envOf();
   const persona = async (args, userId = '42') =>
@@ -193,7 +196,7 @@ test('status.show part: her call defaults to the overview, a part holds its fiel
         roleIds: userId === '42' ? [] : ['staff'],
         actor: 'persona',
       })
-    ).data.embeds[0].fields;
+    ).data.fields;
   assert.deepEqual(
     (await persona({})).map((f) => f.name),
     ['state', 'limits'],
@@ -220,8 +223,7 @@ test('status.show part: her call defaults to the overview, a part holds its fiel
     ['memory']
   );
   assert.ok((await persona({ part: 'all' })).length > 8, 'all is the whole card');
-  const owner = (await runOp('status.show', {}, { env, guildId: 'g1', userId: '42', roleIds: [] })).data.embeds[0]
-    .fields;
+  const owner = (await runOp('status.show', {}, { env, guildId: 'g1', userId: '42', roleIds: [] })).data.fields;
   assert.ok(owner.length > 8, 'the owner command without a part keeps the whole card');
   assert.deepEqual(
     (await persona({ part: 'inner' }, '7')).map((f) => [f.name, f.value]),
@@ -234,6 +236,7 @@ test('status.show part: her call defaults to the overview, a part holds its fiel
   );
 });
 
+// PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
 test('status.show part=features: each boolean switch of the live config, sorted, on or off', async () => {
   const { env } = envOf();
   env.hot.config.features = { innerLife: true, zeta: false, alpha: true, mode: 'x' };
@@ -243,7 +246,7 @@ test('status.show part=features: each boolean switch of the live config, sorted,
       { part: 'features' },
       { env, guildId: 'g1', userId: '7', roleIds: ['staff'], actor: 'persona' }
     )
-  ).data.embeds[0].fields;
+  ).data.fields;
   assert.deepEqual(
     fields.map((f) => [f.name, f.value.split('\n')]),
     [['features', ['alpha on', 'innerLife on', 'zeta off']]]

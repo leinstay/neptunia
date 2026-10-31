@@ -14,27 +14,6 @@ import { start } from '../interfaces/discord/session.ts';
 import type { InterfaceHost, RunningInterface } from '../src/protocol/host.ts';
 
 type Fake = Record<string, unknown>;
-type Legacy = {
-  serveCommands(admin: unknown): unknown;
-};
-
-type RunCall = [string, Record<string, unknown>, Record<string, unknown>];
-
-// The part of the core's admin the interaction handler of the session calls (src/admin.js): what it asks and answers.
-function fakeAdmin() {
-  const runCalls: Array<RunCall> = [];
-  return {
-    runCalls,
-    isAllowed: (): boolean => true,
-    operationFor: (): null => null,
-    accessKeys: (): Array<string> => [],
-    runCommand: (name: string, args: Record<string, unknown>, context: Record<string, unknown>) => {
-      runCalls.push([name, args, context]);
-      return Promise.resolve({ status: 'ok', summary: 'pong', data: null });
-    },
-  };
-}
-
 // A chat input interaction `/nep status` of user u1 in channel c1 of the guild, with the replies it got.
 function statusInteraction(guild: Fake) {
   const replies: Array<unknown> = [];
@@ -118,7 +97,6 @@ function textChannel(id: string, guild: Fake, extra: Fake = {}): Fake {
 }
 
 function guildOf(id: string, name: string) {
-  const trees: Array<unknown> = [];
   const channels = new Map<string, Fake>();
   const guild: Fake = {
     id,
@@ -131,14 +109,8 @@ function guildOf(id: string, name: string) {
     channels: { cache: channels },
     voiceStates: { cache: new Map() },
     presences: { cache: new Map() },
-    commands: {
-      set: (tree: unknown) => {
-        trees.push(tree);
-        return Promise.resolve([]);
-      },
-    },
   };
-  return { guild, trees, channels };
+  return { guild, channels };
 }
 
 function messageIn(id: string, channel: Fake, guild: Fake): Fake {
@@ -208,9 +180,8 @@ function harness(options: { botGuildId?: string; env?: Record<string, string | u
   });
 
   const config = {
-    bot: { guildId: options.botGuildId ?? '', commandName: 'nep', dryRunChannelId: '' },
+    bot: { guildId: options.botGuildId ?? '', dryRunChannelId: '' },
     discord: { intents: { presences: false, members: false } },
-    features: { adminCommands: true },
     media: { embedTextChars: 200, video: { sites: [] as Array<string> } },
     context: { maxUrlChars: 200 },
   };
@@ -250,7 +221,6 @@ function harness(options: { botGuildId?: string; env?: Record<string, string | u
     loop,
     link,
     warns,
-    trees: first.trees,
     guild: first.guild,
     channel: (id: string): Fake => asFake(everyChannel.get(id)),
     events: (kind: string): Array<Fake> => seen.filter((event) => event.kind === kind),
@@ -533,59 +503,7 @@ test('announces each readable channel and each cached thread as updated at conne
   });
 });
 
-// ---- the slash commands -----------------------------------------------------------------------
-
-test('registers the commands again under the new name when bot.commandName changes', async () => {
-  await withSession({}, async (h, running) => {
-    running.open();
-    (running.legacy as Legacy).serveCommands(fakeAdmin());
-    await flush(20);
-    h.config.bot.commandName = 'luna';
-    h.fire('config');
-    const renamed = (): boolean => h.trees.some((tree) => asFake(Array.isArray(tree) ? tree[0] : null).name === 'luna');
-    await until(renamed);
-    assert.equal(renamed(), true);
-  });
-});
-
-test('routes an interaction of the client to the admin the core handed over and answers with its result', async () => {
-  await withSession({}, async (h, running) => {
-    running.open();
-    const admin = fakeAdmin();
-    (running.legacy as Legacy).serveCommands(admin);
-    const { interaction, replies } = statusInteraction(h.guild);
-    h.client.emit(Events.InteractionCreate, interaction);
-    await until(() => replies.length > 0);
-    assert.equal(admin.runCalls[0]?.[0], 'status');
-    assert.equal(admin.runCalls[0]?.[2].userId, 'u1');
-    assert.equal(admin.runCalls[0]?.[2].guildId, 'g1');
-    assert.equal(asFake(replies[0]).content, 'pong');
-  });
-});
-
-test('does not register the commands again when a change leaves bot.commandName and adminCommands as they were', async () => {
-  await withSession({}, async (h, running) => {
-    running.open();
-    (running.legacy as Legacy).serveCommands(fakeAdmin());
-    await flush(20);
-    const before = h.trees.length;
-    h.fire('config');
-    await flush(20);
-    assert.equal(h.trees.length, before);
-  });
-});
-
-// ---- the legacy seams and the end -------------------------------------------------------------
-
-// The reads of the tools replaced the client, the capabilities, the avatar lookup, the catch-up, the persona's messages
-// and the emoji index, so the slash command handler is all that is left (the expectation names the one seam).
-test('hands the core exactly one seam of legacy, the slash command handler', async () => {
-  await withSession({}, (_h, running) => {
-    const legacy = running.legacy as Legacy;
-    assert.deepEqual(Object.keys(legacy), ['serveCommands']);
-    return Promise.resolve();
-  });
-});
+// ---- the end -------------------------------------------------------------------------------------
 
 test('closes the link and destroys the client on stop', async () => {
   const h = harness();
