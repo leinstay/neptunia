@@ -21,12 +21,17 @@
 #   - creates <root>/data (<user>:<user> 750);
 #   - installs deploy/neptunia-bot.service into /etc/systemd/system/ with User=, Group=,
 #     WorkingDirectory=, the two directory variables, EnvironmentFile= and ReadWritePaths= set
-#     for the given user, checkout and root, then runs systemctl daemon-reload.
-# It does not start or enable the service: fill in the private files first (it prints which).
+#     for the given user, checkout and root;
+#   - installs deploy/neptunia-core.service (User= the given user) and the template
+#     deploy/neptunia-interface@.service the same way, for running the interfaces as units
+#     (deploy/README.md), then runs systemctl daemon-reload.
+# It starts and enables none of them: fill in the private files first (it prints which).
 
 set -euo pipefail
 
 UNIT_NAME=neptunia-bot.service
+CORE_UNIT=neptunia-core.service
+INTERFACE_UNIT=neptunia-interface@.service
 UNIT_DIR=/etc/systemd/system
 
 ROOT=/opt/neptunia
@@ -109,6 +114,21 @@ render_unit() {
       "$PREFIX/deploy/$UNIT_NAME"
 }
 
+# Writes one of the units for running the interfaces as units with WorkingDirectory=, the two
+# directory variables and the paths under them set for this layout; the core's User= is the
+# service user, an interface's stays neptunia-%i-interface.
+render_split_unit() {
+  local user_line=()
+  if [ "$1" = "$CORE_UNIT" ]; then user_line=(-e "s|^User=.*|User=$SERVICE_USER|"); fi
+  sed -e "s|^WorkingDirectory=.*|WorkingDirectory=$PREFIX|" \
+      -e "s|^Environment=NEPTUNIA_PRIVATE_DIR=.*|Environment=NEPTUNIA_PRIVATE_DIR=$PRIVATE_DIR|" \
+      -e "s|^Environment=NEPTUNIA_DATA_DIR=.*|Environment=NEPTUNIA_DATA_DIR=$DATA_DIR|" \
+      -e "s|/opt/neptunia/etc|$PRIVATE_DIR|g" \
+      -e "s|/opt/neptunia/data|$DATA_DIR|g" \
+      "${user_line[@]}" \
+      "$PREFIX/deploy/$1"
+}
+
 echo "neptunia-bot install: user=$SERVICE_USER root=$ROOT checkout=$PREFIX$([ "$DRY_RUN" -eq 1 ] && echo ' (dry run)')"
 
 # Service user.
@@ -147,6 +167,16 @@ if [ "$DRY_RUN" -eq 0 ]; then
   render_unit > "$unit_tmp"
   install -o root -g root -m 0644 "$unit_tmp" "$UNIT_DIR/$UNIT_NAME"
 fi
+# The units for running the interfaces as units (replaced on every run, never enabled here).
+for unit in "$CORE_UNIT" "$INTERFACE_UNIT"; do
+  echo "+ render $PREFIX/deploy/$unit (WorkingDirectory=$PREFIX, NEPTUNIA_PRIVATE_DIR=$PRIVATE_DIR, NEPTUNIA_DATA_DIR=$DATA_DIR) > $UNIT_DIR/$unit"
+  if [ "$DRY_RUN" -eq 0 ]; then
+    split_tmp=$(mktemp)
+    render_split_unit "$unit" > "$split_tmp"
+    install -o root -g root -m 0644 "$split_tmp" "$UNIT_DIR/$unit"
+    rm -f "$split_tmp"
+  fi
+done
 run systemctl daemon-reload
 
 cat <<EOF
@@ -157,4 +187,5 @@ Done$([ "$DRY_RUN" -eq 1 ] && echo ' (dry run)'). The service is not started yet
   $PRIVATE_DIR/prompts.local/      the character: files that replace those in prompts/
 Then: sudo systemctl enable --now ${UNIT_NAME%.service}
       journalctl -u ${UNIT_NAME%.service} -f
+To run the interfaces as units instead, follow deploy/README.md (${CORE_UNIT%.service}, ${INTERFACE_UNIT%.service}<name>).
 EOF

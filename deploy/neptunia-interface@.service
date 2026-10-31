@@ -1,0 +1,48 @@
+# systemd template unit for one interface of the persona, as its own process:
+# neptunia-interface@discord runs `neptunia interface run discord`
+# (bin/neptunia.ts) as the user neptunia-discord-interface.
+#
+# The runner reads the client token <private>/clients/%i.token (written by
+# tools/client-token.mjs, owned by this user, mode 0600), connects to the
+# core's socket <data>/run/core.sock as a member of the group neptunia, and
+# keeps the interface's data under <data>/interfaces/%i. It reads no .env: the
+# platform token (DISCORD_TOKEN for discord) comes from the optional
+# environment file below. It reads config.local.json only where this user may.
+# deploy/README.md has the cutover.
+#
+# Install:   sudo deploy/install.sh   (installs this unit, does not enable it)
+# Start:     sudo systemctl start neptunia-interface@discord
+# Logs:      journalctl -u neptunia-interface@discord -f
+
+[Unit]
+Description=neptunia interface %i
+After=network-online.target neptunia-core.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/neptunia/app
+ExecStart=/usr/bin/node bin/neptunia.ts interface run %i
+User=neptunia-%i-interface
+Group=neptunia
+# The runner opens the link again by itself. An interface that cannot (Discord)
+# exits with code 1, and systemd starts it again.
+Restart=always
+RestartSec=5
+Environment=NEPTUNIA_PRIVATE_DIR=/opt/neptunia/etc
+Environment=NEPTUNIA_DATA_DIR=/opt/neptunia/data
+EnvironmentFile=-/opt/neptunia/etc/clients/%i.env
+
+# Writes only its own data folder, and the core's files stay out of reach.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/neptunia/data/interfaces/%i
+InaccessiblePaths=-/opt/neptunia/etc/.env -/opt/neptunia/data/memory.db -/opt/neptunia/data/guilds
+PrivateTmp=true
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=neptunia-interface-%i
+
+[Install]
+WantedBy=multi-user.target

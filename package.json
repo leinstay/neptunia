@@ -4,6 +4,9 @@
   "description": "Discord pseudo-user engine: one LLM-driven persona per server, personality supplied through prompt files",
   "private": true,
   "type": "module",
+  "bin": {
+    "neptunia": "bin/neptunia.ts"
+  },
   "engines": {
     "node": ">=26 <27"
   },

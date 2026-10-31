@@ -72,11 +72,14 @@ import { createErrandTurns, errandDoneEvent } from './errands/turns.ts';
 import { createEventDoor } from './interface/door.js';
 import { createConversationDirectory } from './interface/directory.ts';
 import { isReadable, takeSnapshot } from './behavior/snapshot.ts';
-import { createLinkSwitch, openAdapterLink } from './interface/link.ts';
-import { principalOfToken } from './interface/principals.ts';
+import { createInterfaceLinks, createLinkSwitch, openAdapterLink } from './interface/link.ts';
+import { configuredInterfaces, drainMs, interfaceEnabled } from './interface/mode.ts';
+import { loadPrincipals, principalOfToken } from './interface/principals.ts';
+import { claimCore } from './memory/db/open.js';
+import { readLocalConfig, setPath, writeLocalConfig } from './tools/impl/shared.ts';
 import { createIngestRecord, createRowsByMessage, observingWith } from './memory/db/ingest.ts';
-import { listenSocket } from './interface/socket.ts';
-import { connectSocket } from './protocol/wire.ts';
+import { coreSocketPath, listenSocket } from './interface/socket.ts';
+import { MAX_FRAME_BYTES, connectSocket } from './protocol/wire.ts';
 import { createAroundStore } from './behavior/around-store.ts';
 import { createScheduler } from './behavior/scheduler.ts';
 import { createReactorStore, applyReactionChanged } from './behavior/reactor-store.ts';
@@ -119,10 +122,16 @@ function needOrFail(env, key) {
 
 /**
  * Build the core and start it. `paths` are the checkout, the private layer and the data directory (src/paths.js),
- * `env` the environment the core reads its own keys from (never logged), `interfaces` the interfaces to start
- * (exactly one for now). `llm`, `embedder` and `now` replace the provider client, the embedding client and the
- * clock: only a test passes them. Resolves once the startup steps ran; rejects with a one-line error when a startup
- * check fails. `stop()` ends everything `startCore` began and never exits the process.
+ * `env` the environment the core reads its own keys from (never logged), `interfaces` the interfaces to start in
+ * this process: one (`interfaces.mode: inprocess`), or none, when the interfaces run as units and connect to the
+ * socket themselves; the core then serves `bot.guildId`. `llm`, `embedder` and `now` replace the provider client,
+ * the embedding client and the clock (the scheduler, the inner life and the one-core check): only a test passes them.
+ * One core runs over a data directory: a live holder of the database lock refuses the start (`locked`), and so does
+ * another holder's `core:alive` lease within its ttl (`core-running`), unless the lock it left names a process that is
+ * gone. Resolves once the startup steps ran; rejects with a one-line error when a startup check fails. `stop()` ends
+ * everything `startCore` began and never exits the process. `interfaces` lists the interfaces with the owner's switch
+ * and whether one is connected, and `disable(name)` writes `interfaces.<name>.enabled: false` to config.local.json,
+ * stops sending to that interface, gives its actions in flight `interfaces.drainMs` and ends the rest `unknown`.
  * @param {{
  *   paths: ReturnType<typeof import('./paths.js').resolvePaths>,
  *   env: Readonly<Record<string, string | undefined>>,
@@ -131,7 +140,15 @@ function needOrFail(env, key) {
  *   embedder?: Pick<ReturnType<typeof createEmbedder>, 'embed'> & Partial<ReturnType<typeof createEmbedder>>,
  *   now?: () => number,
  * }} options
- * @returns {Promise<{ door: ReturnType<typeof createEventDoor>, stop(signal?: string): Promise<void> }>}
+ * @returns {Promise<{
+ *   door: ReturnType<typeof createEventDoor>,
+ *   stop(signal?: string): Promise<void>,
+ *   interfaces: {
+ *     list(): Array<import('./interface/link.ts').InterfaceState>,
+ *     disable(name: string): Promise<import('./interface/link.ts').Drained>,
+ *     enable(name: string): void,
+ *   },
+ * }>}
  */
 export async function startCore(options) {
   // What the start opened, closed in reverse order when it fails: a failed start leaves no socket, link, watcher, timer or
@@ -168,7 +185,9 @@ async function buildCore(options, cleanups) {
   log.info('index: paths', { rootDir: paths.rootDir, privateDir: paths.privateDir, dataDir: paths.dataDir });
   if (!fs.existsSync(paths.privateDir))
     fail(`index: the private directory ${paths.privateDir} does not exist (NEPTUNIA_PRIVATE_DIR).`);
-  if (interfaces.length !== 1) fail(`index: the core starts exactly one interface, got ${interfaces.length}.`);
+  if (interfaces.length > 1) fail(`index: the core starts one interface at most, got ${interfaces.length}.`);
+  // No interface in this process: they run as units, and the community comes from the settings.
+  const asUnits = interfaces.length === 0;
 
   const openrouterKey = needOrFail(env, 'OPENROUTER_CORE_KEY');
   // Optional: without it a YouTube duration comes from the watch page only.
@@ -226,6 +245,25 @@ async function buildCore(options, cleanups) {
     log.warn('index: deprecated model key ignored', { key, use });
 
   const dataDir = paths.dataDir;
+  // The parts of the hot reload the one-core claim and the interfaces' switches read and write (src/hot.js).
+  const settings =
+    /** @type {{ config: Readonly<Record<string, Record<string, unknown> | undefined>>, reloadConfig(): boolean }} */ (
+      /** @type {unknown} */ (hot)
+    );
+  const configuredGuild = /** @type {string | undefined} */ (settings.config.bot?.guildId) ?? null;
+  if (asUnits && !configuredGuild)
+    fail('index: bot.guildId must be set when the interfaces run as units (config.local.json).');
+  // One core over this data directory, claimed before anything below touches it or the socket.
+  fs.mkdirSync(dataDir, { recursive: true });
+  /** @type {() => void} */
+  let releaseCore = () => {};
+  try {
+    const dbFile = /** @type {string | undefined} */ (settings.config.memoryDb?.file);
+    releaseCore = claimCore(path.join(dataDir, dbFile || 'memory.db'), { now: clock });
+  } catch (err) {
+    fail(`index: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  cleanups.push(() => releaseCore());
   // Who the persona is on the interface and which namespace its ids belong to: set once from `hello`, read at each use.
   const identity = { iface: '', selfId: '', selfName: 'bot' };
   // The names of the members of the served community, fed by `membership.changed` (a nickname change included).
@@ -391,26 +429,55 @@ async function buildCore(options, cleanups) {
   // directory holds one (a nickname change reaches it through `membership.changed`), else the name `hello` gave.
   const getSelfName = (guildId) => members.nameOf(guildId, identity.selfId) ?? identity.selfName;
 
-  // The link between the core and its interfaces (docs/interfaces.md). Both still run in this process:
-  // the core listens on a Unix socket under the data directory, an interface connects with a token made
-  // at boot, says hello and serves its adapter. Every inbound event travels as an envelope to the
-  // core's door and every effect of the persona travels back as an action. The socket folder is created
-  // at mode 0700 and the file at 0600 (src/interface/socket.ts).
-  const LINK_SOCKET = path.join(dataDir, 'run', 'core.sock');
-  // Ten files of 10 MiB in base64 (a third larger) and the rest of an envelope fit in one frame.
-  const LINK_MAX_FRAME_BYTES = 150 * 1024 * 1024;
+  // The link between the core and its interfaces (docs/interfaces.md): the core listens on a Unix socket under the
+  // data directory, an interface connects with its token, says hello and serves its adapter. Every inbound event
+  // travels as an envelope to the core's door and every effect of the persona travels back as an action. An interface
+  // started here connects with a token made at boot; a unit connects with the token of its client in clients.json.
+  // The socket folder is set to 0750 and the file to 0660 for the group `neptunia` (src/interface/socket.ts).
+  const LINK_SOCKET = coreSocketPath(dataDir);
   const linkToken = randomBytes(32).toString('hex');
   // Every client is a principal of the private layer's clients.json (src/interface/principals.ts), read at each
   // envelope. With no clients.json the token made here is the boot principal of the one in-process interface, named
   // after it and bound to the iface its hello names.
   const bootPrincipal = {
-    name: interfaces[0].name,
+    name: interfaces[0]?.name ?? 'boot',
     kind: /** @type {const} */ ('interface'),
     iface: null,
     permissions: [],
   };
   const principalOf = (/** @type {string} */ token) =>
     principalOfToken(token, { privateDir: paths.privateDir, boot: { token: linkToken, principal: bootPrincipal } });
+  // The interface clients of clients.json, read when the core needs their names.
+  const interfaceClients = () => (loadPrincipals(paths.privateDir) ?? []).filter((entry) => entry.kind === 'interface');
+  if (asUnits) {
+    // The core serves one interface: its namespace is known from clients.json before any unit connects, so every module
+    // below is built with it.
+    const ifaces = [...new Set(interfaceClients().map((entry) => entry.iface))];
+    if (ifaces.length > 1)
+      fail(`index: clients.json names interfaces of ${ifaces.length} namespaces; the core serves one.`);
+    identity.iface = ifaces[0] ?? '';
+  }
+  // The owner's switch of each interface (interfaces.<name>.enabled), written to config.local.json and reloaded, as the
+  // owner commands write it (src/tools/impl/env.ts#editLocalConfig).
+  function setInterfaceEnabled(/** @type {string} */ name, /** @type {boolean} */ enabled) {
+    const file = path.join(paths.privateDir, 'config.local.json');
+    // No key of an old name lies under `interfaces` (src/config-moves.ts), so the file is edited as it is.
+    writeLocalConfig(file, setPath(readLocalConfig(file), ['interfaces', name, 'enabled'], enabled));
+    settings.reloadConfig();
+  }
+  const interfaceLinks = createInterfaceLinks({
+    names: () => [
+      ...interfaces.map((entry) => entry.name),
+      ...interfaceClients().map((entry) => entry.name),
+      ...configuredInterfaces(settings.config),
+    ],
+    isEnabled: (name) => interfaceEnabled(settings.config, name),
+    setEnabled: setInterfaceEnabled,
+    drainMs: () => drainMs(settings.config),
+  });
+  // A disabled interface is refused at its hello, read at each one.
+  const admit = (/** @type {import('./interface/principals.ts').Principal} */ principal) =>
+    principal.kind === 'interface' && !interfaceEnabled(settings.config, principal.name) ? 'interface-disabled' : null;
   // The events each principal sent and its watermark (memory.db's ingest and ingest_cursor, src/memory/db/ingest.ts):
   // the door deduplicates against them and commits each event there before its ack, the link answers hello with the
   // watermark. A write before the database opens is refused, and the event is answered `failed`.
@@ -428,14 +495,25 @@ async function buildCore(options, cleanups) {
   };
   /** @type {PromiseWithResolvers<ReturnType<typeof openAdapterLink>>} */
   const linkOpened = Promise.withResolvers();
+  // With the interfaces as units the core's adapter starts with no link: the first interface whose hello is taken
+  // becomes the one the core serves.
   /** @type {ReturnType<typeof createLinkSwitch> | null} */
-  let linkSwitch = null;
+  let linkSwitch = asUnits ? createLinkSwitch(null) : null;
+  /** @type {string | null} */
+  let servedName = null;
+  /** The served interface's hello: who the persona is on it. */
+  function greet(/** @type {import('./protocol/serve.ts').Hello} */ greeting) {
+    identity.iface = greeting.iface;
+    identity.selfId = greeting.self.id;
+    identity.selfName = greeting.self.name;
+  }
   const linkServer = await listenSocket({
     path: LINK_SOCKET,
-    maxFrameBytes: LINK_MAX_FRAME_BYTES,
+    maxFrameBytes: MAX_FRAME_BYTES,
     log,
     onConnection: (transport) => {
-      const link = openAdapterLink({ transport, door: linkDoor, principalOf, ingest: ingestRecord, log });
+      const link = openAdapterLink({ transport, door: linkDoor, principalOf, ingest: ingestRecord, log, admit });
+      interfaceLinks.add(link);
       if (linkSwitch === null) {
         linkOpened.resolve(link);
         return;
@@ -443,46 +521,59 @@ async function buildCore(options, cleanups) {
       // A reconnect of the interface takes over the core's adapter; another client's link only sends events.
       const switched = linkSwitch;
       link.hello.then(
-        () => {
-          if (link.principal()?.name === switched.current().principal()?.name) switched.attach(link);
+        (greeting) => {
+          const principal = link.principal();
+          if (asUnits && servedName === null && principal?.kind === 'interface') {
+            servedName = principal.name;
+            if (greeting.community !== null && greeting.community.id !== instance.guildId)
+              log.warn('index: the interface serves another community than bot.guildId', {
+                principal: principal.name,
+              });
+          }
+          if (principal === null || principal.name !== (asUnits ? servedName : switched.current().principal()?.name))
+            return;
+          switched.attach(link);
+          if (asUnits) greet(greeting);
         },
         () => {}
       );
     },
   });
   cleanups.push(() => linkServer.close());
-  // The interfaces are started by the caller (src/index.js loads each interface package by name at run time, a test passes
-  // the fake one) with the core's end of the link, its settings and its logger. An interface builds its client,
-  // logs in, waits for the guild, says hello and serves its adapter; the events it sees wait until `running.open()`
-  // below, when the door has its handlers. A refusal (no token, no guild, no login) stops the start here.
-  const running = await interfaces[0]
-    .start({
-      connect: () => connectSocket({ path: LINK_SOCKET, maxFrameBytes: LINK_MAX_FRAME_BYTES }),
-      token: linkToken,
-      dataDir: path.join(dataDir, 'interfaces', interfaces[0].name),
-      env: {},
-      config: () => hot.config,
-      onConfigChange: (listener) => hot.onReload(listener),
-      log,
-    })
-    .catch((err) => fail(`index: ${err instanceof Error ? err.message : String(err)}`));
-  cleanups.push(() => running.stop());
-  const coreLink = createLinkSwitch(await linkOpened.promise);
+  // An interface run in this process is started by the caller (src/index.js loads the interface package by name at run
+  // time, a test passes the fake one) with the core's end of the link, its settings and its logger. It builds its
+  // client, logs in, waits for the guild, says hello and serves its adapter; the events it sees wait until
+  // `running.open()` below, when the door has its handlers. A refusal (no token, no guild, no login) stops the start
+  // here. A unit does all of it in its own process (bin/neptunia.ts).
+  const running = asUnits
+    ? null
+    : await interfaces[0]
+        .start({
+          connect: () => connectSocket({ path: LINK_SOCKET, maxFrameBytes: MAX_FRAME_BYTES }),
+          token: linkToken,
+          dataDir: path.join(dataDir, 'interfaces', interfaces[0].name),
+          env: {},
+          config: () => hot.config,
+          onConfigChange: (listener) => hot.onReload(listener),
+          log,
+        })
+        .catch((err) => fail(`index: ${err instanceof Error ? err.message : String(err)}`));
+  if (running !== null) cleanups.push(() => running.stop());
+  const coreLink = linkSwitch ?? createLinkSwitch(await linkOpened.promise);
   linkSwitch = coreLink;
   cleanups.push(() => coreLink.close());
   // Awaited before anything below is built: every module that takes the port gets the link's adapter, whose
-  // `iface` and capabilities exist once hello has arrived. Nothing sends before this line.
-  const hello = await coreLink
-    .current()
-    .hello.catch((err) => fail(`index: the link to the interface failed: ${String(err)}`));
-  identity.iface = hello.iface;
-  identity.selfId = hello.self.id;
-  identity.selfName = hello.self.name;
+  // `iface` and capabilities exist once hello has arrived. Nothing sends before this line. A unit says hello later,
+  // and until then the adapter answers as a link that dropped.
+  const hello = asUnits
+    ? null
+    : await coreLink.current().hello.catch((err) => fail(`index: the link to the interface failed: ${String(err)}`));
+  if (hello !== null) greet(hello);
   // The around store tells a presence event from a voice one by what the interface declares in `hello`: whether it
   // reports presences at all (intents are fixed at login, the interface reads its own at its start).
   // The live glance at the voice channels and the scene's statuses (features.around): a snapshot in process memory,
   // fed by the interface's voice, presence and connection events through the door below, never written anywhere.
-  const around = createAroundStore({ presences: hello.capabilities.presence === true });
+  const around = createAroundStore({ presences: () => coreLink.adapter.capabilities().presence === true });
   // The persona's interface (src/interface/port.js): every effect of her replies goes through it,
   // after the skill gateway (src/tools/gateway.ts) let the call pass. It is the guarded port: a send to a diary
   // mirror's place goes nowhere (`diary-mirror`); only the mirrors' publisher below holds the link's own adapter.
@@ -492,8 +583,9 @@ async function buildCore(options, cleanups) {
 
   // What the interface hands over besides its adapter: `serveCommands`, the slash command interactions (the command
   // handler). An interface that has none, like the fake, serves no commands.
-  const legacy = /** @type {Partial<import('./interface/legacy.ts').InterfaceLegacy>} */ (running.legacy ?? {});
-  instance.guildId = hello.community?.id ?? null;
+  const legacy = /** @type {Partial<import('./interface/legacy.ts').InterfaceLegacy>} */ (running?.legacy ?? {});
+  // The community the interface serves, or the configured one when the interfaces run as units.
+  instance.guildId = asUnits ? configuredGuild : (hello?.community?.id ?? null);
   // The core's reads of the interface: each answers its body or null, and a block that needs one is left out when it is null.
   const reads = createReads(iface, log);
   // The custom emoji of the served community, read from the interface and kept 60 seconds: the turn lists them to her
@@ -709,6 +801,7 @@ async function buildCore(options, cleanups) {
     submit: (event) => door.submit(event),
     // Each inner turn as a wake run in the memory database (memoryDb.wakeRuns).
     memoryDb,
+    now: clock,
     // The heartbeat's facts (src/behavior/heartbeat-view.ts): her errands, what she can do. No presence or
     // do-not-disturb state (owner, 2026-10-20: she must not read those markers).
     heartbeat: {
@@ -1071,9 +1164,10 @@ async function buildCore(options, cleanups) {
   // The behaviours' clock (src/behavior/scheduler.ts): one timer waits for the earliest beat and each wait is a
   // `scheduler.tick` event through the door below, whose handler starts the beats that are due. The beats are the
   // behaviour ones only; the housekeeping timers further down are plain intervals.
+  // Its waits are real timers, so it reads the real clock: an injected `now` is for the inner life's decisions.
   const scheduler = createScheduler({
     submit: (event) => door.submit(event),
-    now: clock,
+    now: Date.now,
     setTimer: (fn, ms) => {
       const id = setTimeout(fn, ms);
       id.unref?.();
@@ -1203,6 +1297,12 @@ async function buildCore(options, cleanups) {
     errandClient.close();
     taskTurns.stop();
     scheduler.stop();
+    // core:alive let go, so the next start over this data goes ahead at once.
+    try {
+      await inner.release();
+    } catch (err) {
+      log.warn('index: core:alive not released', { error: err });
+    }
     await missed.save().catch((err) => log.warn('index: missed registry not saved', { error: err }));
     // The embedding queue flushes what waits once (a short wait at most), before the stores close.
     await embedQueue.close().catch((err) => log.warn('index: embed queue close failed', { error: err }));
@@ -1230,9 +1330,15 @@ async function buildCore(options, cleanups) {
     await memoryDb.close().catch((err) => log.warn('index: memory db close failed', { error: err }));
     // The interface closes its end of the link and its client, then the core's end and the socket close, and the
     // socket file goes with the server.
-    await running.stop().catch((err) => log.warn('index: interface stop failed', { error: err }));
+    try {
+      await running?.stop();
+    } catch (err) {
+      log.warn('index: interface stop failed', { error: err });
+    }
     coreLink.close();
     await linkServer.close().catch((err) => log.warn('index: link socket close failed', { error: err }));
+    // The writer lock goes with the database; this only removes one a crashed writer thread left behind.
+    releaseCore();
     untapMetrics();
     untapUsage();
   }
@@ -1244,7 +1350,7 @@ async function buildCore(options, cleanups) {
   cleanups.push(() => stop('start-failed'));
 
   // The door has its handlers: the interface delivers the events it held since its start, and every later one.
-  running.open();
+  running?.open();
   // The interface is connected: what the diary's mirrors held queued goes out now.
   mirrors.drainQueued().catch((/** @type {unknown} */ err) => log.warn('mirror: drain failed', { error: err }));
 
@@ -1350,5 +1456,13 @@ async function buildCore(options, cleanups) {
   // the stall check), then on the timer (above). Fire-and-forget.
   await startupStep('archive.drain', () => (store.state.data.paused ? null : store.drainArchive(instance.guildId)));
 
-  return { door, stop };
+  return {
+    door,
+    stop,
+    interfaces: {
+      list: () => interfaceLinks.list(),
+      disable: (/** @type {string} */ name) => interfaceLinks.disable(name),
+      enable: (/** @type {string} */ name) => interfaceLinks.enable(name),
+    },
+  };
 }

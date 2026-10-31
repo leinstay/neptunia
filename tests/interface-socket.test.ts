@@ -239,11 +239,14 @@ test('tells the server side when the client closes', async () => {
   }
 });
 
-test('creates the folder at mode 0700 and the socket at mode 0600', async () => {
+// The expectation follows stage 4 PR C: the interfaces run as units under users of their own in the group `neptunia`,
+// so the group reaches the socket (folder 0750, socket 0660) and the token alone decides who may speak. The modes
+// 0700 and 0600 kept every unit out.
+test('creates the folder at mode 0750 and the socket at mode 0660', async () => {
   const r = await rig(MiB, true);
   try {
-    assert.equal(statSync(join(r.dir, 'run')).mode & 0o777, 0o700);
-    assert.equal(statSync(r.path).mode & 0o777, 0o600);
+    assert.equal(statSync(join(r.dir, 'run')).mode & 0o777, 0o750);
+    assert.equal(statSync(r.path).mode & 0o777, 0o660);
   } finally {
     await r.server.close();
     r.remove();

@@ -147,6 +147,16 @@ On/off switches. A missing key counts as on, except the ones that need `=== true
 
 The voice-state intent (voice channels in `<people_now>`) is not privileged and always requested.
 
+## `interfaces`
+
+| Key | Default | What it does |
+|---|---|---|
+| `mode` | `"inprocess"` | Where the interfaces run. `inprocess` starts the Discord interface inside the core's process. `units` starts the core with no interface, and each interface runs in its own unit (`neptunia interface run <name>`). Read once at the start of `src/index.js`, and any other value stops the start |
+| `drainMs` | `10000` | How long a disable gives the actions in flight to an interface (milliseconds) before the core ends them `unknown` |
+| `<name>.enabled` | `true` (unset) | Whether interface `<name>` may connect. `config.json` names no interface, so each one is enabled until this key says `false`. A `hello` of a disabled interface is refused with `interface-disabled`, read at each `hello`. Disabling writes `false` here in `config.local.json` |
+
+With `mode: units` the core serves `bot.guildId`, which must be set. See [Interfaces](interfaces.md#interfaces-as-units).
+
 ## `bot`
 
 | Key | Default | What it does |

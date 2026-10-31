@@ -9,7 +9,7 @@
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import { MIGRATIONS, finishDiaryDestination, finishDiaryMirror } from './schema.js';
-import { importWakeQueues } from './wake-queue.ts';
+import { ALIVE_LEASE, importWakeQueues, leaseOf } from './wake-queue.ts';
 
 const originalListeners = process.listeners('warning');
 process.removeAllListeners('warning');
@@ -34,6 +34,10 @@ function pidAlive(pid) {
   }
 }
 
+/**
+ * @param {string} file
+ * @returns {{ pid?: number, startedAt?: string } | null}
+ */
 function readLock(file) {
   try {
     const lock = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -59,6 +63,55 @@ export function acquireLock(dbPath, { pid = process.pid, now = Date.now, alive =
     const current = readLock(file);
     if (current?.pid === pid) fs.rmSync(file, { force: true });
   };
+}
+
+/**
+ * The claim of one core on the database at `dbPath`, taken at the core's start before it touches its socket. It takes
+ * the writer lock, so a live holder refuses it (`locked`). Then it reads the `core:alive` lease: while another holder's
+ * renewal is within its ttl at `now()`, it lets the lock go and refuses with `core-running`. A lock left by a process
+ * that is gone means that core crashed, so its lease, fresh as it may be, is no longer anyone's and the start goes on.
+ * @param {string} dbPath
+ * @param {{ pid?: number, now?: () => number, alive?: (pid: number) => boolean }} [options]
+ * @returns {() => void} release (removes the lock only while it is still ours)
+ */
+export function claimCore(dbPath, { pid = process.pid, now = Date.now, alive = pidAlive } = {}) {
+  const file = lockPathOf(dbPath);
+  const held = fs.existsSync(file) ? readLock(file) : null;
+  const crashed = held !== null && !alive(Number(held.pid));
+  const release = acquireLock(dbPath, { pid, now, alive });
+  if (crashed || !fs.existsSync(dbPath)) return release;
+  const lease = aliveLeaseOf(dbPath);
+  const at = now();
+  if (lease !== null && lease.expiresAt > at) {
+    release();
+    throw new Error(
+      `core-running: another core renewed core:alive at ${new Date(lease.renewedAt).toISOString()}, ` +
+        `valid until ${new Date(lease.expiresAt).toISOString()}; stop it first`
+    );
+  }
+  return release;
+}
+
+/**
+ * The `core:alive` lease of the database at `dbPath`, read without a lock; null when there is none to read.
+ * @param {string} dbPath
+ */
+function aliveLeaseOf(dbPath) {
+  /** @type {{ db: object, close: () => void } | null} */
+  let handle = null;
+  try {
+    // Typed here because the opener's options name migration steps the checker cannot follow.
+    const openReadOnly = /** @type {(file: string, opts: { readOnly: true }) => { db: object, close: () => void }} */ (
+      openMemoryDb
+    );
+    handle = openReadOnly(dbPath, { readOnly: true });
+    return leaseOf(handle, ALIVE_LEASE);
+  } catch {
+    // A database before the leases table (schema v18), or one that cannot be read: no core renewed a lease in it.
+    return null;
+  } finally {
+    handle?.close();
+  }
 }
 
 /** The version the database is at (0 for a new file). */

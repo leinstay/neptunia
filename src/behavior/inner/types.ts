@@ -389,6 +389,8 @@ export type InnerContext = {
   factSeq: number;
   /** The holder name of this life's leases (one per process start). */
   holder: string;
+  /** Set once the core stops: `core:alive` is let go and never renewed again. */
+  released: boolean;
   /** The database the queue is kept in (src/behavior/inner/wake-store.ts), opened on first use. */
   wakeDb: WakeBackend | null;
   /** The chain the queue's writes go through, in order. */
