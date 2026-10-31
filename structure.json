@@ -1110,7 +1110,7 @@
     },
     {
       "path": "src/errands/",
-      "purpose": "The errand service: the ledger, the store, the client to the runner and the turns that bring results back.",
+      "purpose": "The errand service: the store, the client to the runner and the turns that bring results back.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"

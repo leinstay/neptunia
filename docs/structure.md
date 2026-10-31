@@ -160,7 +160,7 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `src/pipeline/room.ts` | public | The room classifier: an untagged line put to everyone present is asked about once its roll wins, and a `yes` goes back to the spontaneous scheduler. Tested through the events tests. | `node:*`, `src/**` | none |
 | `src/pipeline/settle.ts` | public | The settle waits of calls and noticed comments from a channel the persona cannot write in, answered in the main channel once that channel is quiet. Tested through the events tests. | `node:*`, `src/**` | none |
 | `src/pipeline/types.ts` | public | The shapes the pipeline modules share. Types only: nothing runs, so nothing is tested. | `node:*`, `src/**` | none |
-| `src/errands/` | public | The errand service: the ledger, the store, the client to the runner and the turns that bring results back. | `node:*`, `src/**` | required |
+| `src/errands/` | public | The errand service: the store, the client to the runner and the turns that bring results back. | `node:*`, `src/**` | required |
 | `src/intentions/` | public | The persona intentions: model, store, sources and the service that wakes them. | `node:*`, `src/**` | required |
 | `src/errands/types.ts` | public | The shapes the errand modules share. Types only: nothing runs, so nothing is tested. | `node:*`, `src/**` | none |
 | `src/intentions/types.ts` | public | The shapes the intention modules share. Types only: nothing runs, so nothing is tested. | `node:*`, `src/**` | none |
