@@ -97,7 +97,7 @@ import type { DrainAnswer } from './inner/drain.ts';
 import { markFactsTold, pendingFactsOf } from './inner/facts.ts';
 import { heartbeatDue } from './inner/heartbeat.ts';
 import { attendWakes, places, refreshPlaces } from './inner/places.ts';
-import { admitListed, beforeTick } from './inner/recovery.ts';
+import { admitListed, beforeTick, releaseAlive } from './inner/recovery.ts';
 import type { PlacesQuery } from './inner/places.ts';
 import { addFact, deadlineWakes, mayAct, note, onWake, save, stateOf, wakeFields, wakeOfDue } from './inner/queue.ts';
 import type { WakeAnswer } from './inner/queue.ts';
@@ -217,6 +217,8 @@ export type InnerLife = {
   places: (guildId?: string | null, options?: PlacesQuery) => PlacesPage;
   state: (guildId: unknown) => InnerState;
   facts: FactsApi;
+  /** The clean stop's end of `core:alive` (recovery.ts#releaseAlive). */
+  release: () => Promise<void>;
 };
 
 /** The persona's inner life over the stores and sources it is given (see the head of this file). */
@@ -275,6 +277,7 @@ export function createInnerLife({
     ticking: false,
     factSeq: 0,
     holder: `core:${randomUUID()}`,
+    released: false,
     wakeDb: null,
     writes: Promise.resolve(),
     viewLoaded: new Set(),
@@ -398,5 +401,6 @@ export function createInnerLife({
     places: (guildId, options) => places(life, guildId, options),
     state: (guildId) => stateOf(life, guildId),
     facts: factsApi,
+    release: () => releaseAlive(life),
   };
 }

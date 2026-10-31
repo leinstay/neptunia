@@ -13,12 +13,21 @@
 // conversations side by side, and their acks carry the contiguous watermark of the events taken, which is written
 // with `ingest.ack` before the ack goes out. An event that `failed` holds the watermark back, so it goes again.
 //
+// A link opened with `admit` asks it about the principal of a good `hello`: a reason it answers refuses the hello with
+// that reason (the core refuses a disabled interface with `interface-disabled`). Every refused `hello` is logged as
+// `link: hello refused` with its reason.
+//
 // The core speaks to the interface through `adapter`: every method is one `action` envelope answered by the
 // `action_result` with the same `replyTo`. A send carries the idempotency key its caller gives (one is made when it
 // gives none), its `deadlineAt`, and a `signal`: aborted before the call, the send is `cancelled` and never leaves;
 // aborted later, a `cancel` envelope names the action and the result that arrives stands. The adapter never rejects.
 // A link that closes answers every pending effect `unknown` (it may have happened) and every pending read `failed`,
-// and so does a call made afterwards.
+// and so does a call made afterwards. `drain(ms)` stops the link taking new actions (each answers `failed` with
+// `interface-disabled`), gives the effects in flight `ms` to finish, then closes the link, so the ones left end
+// `unknown`; it answers how many finished and how many did not.
+//
+// `createInterfaceLinks` keeps every link of the core's socket, answers which interfaces are connected and runs the
+// disable of one: the owner's switch is written first, then each of its links drains.
 
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { ackOf, declaredHooks, envelope, portAction, validateEnvelope } from '../protocol/index.js';
@@ -45,6 +54,9 @@ export type LinkIngest = { cursor(principal: string): number; ack(principal: str
 type Result = Record<string, unknown>;
 type Kind = 'effect' | 'read';
 type Waiting = { kind: Kind; resolve(result: Result): void };
+
+/** What a drain answers: the effects in flight that finished within its time, and those it ended `unknown`. */
+export type Drained = { drained: number; unknown: number };
 
 const NO_CAPABILITIES: Capabilities = {
   operations: [],
@@ -120,7 +132,15 @@ export function openAdapterLink(options: {
   principalOf?: (token: string) => Principal | null;
   token?: string;
   ingest?: LinkIngest | null;
-}): { hello: Promise<Hello>; principal(): Principal | null; adapter: Adapter; close(): void } {
+  admit?: (principal: Principal) => string | null;
+}): {
+  hello: Promise<Hello>;
+  principal(): Principal | null;
+  adapter: Adapter;
+  isClosed(): boolean;
+  drain(ms: number): Promise<Drained>;
+  close(): void;
+} {
   const { transport, door, log } = options;
   const ingest = options.ingest ?? null;
   const principalOf =
@@ -134,6 +154,9 @@ export function openAdapterLink(options: {
   let helloToken = '';
   let watermark = createWatermark(0);
   let closed = false;
+  let draining = false;
+  // Told each time a waiting action is answered, so a drain sees its effects finish.
+  const onSettled = new Set<() => void>();
   let acceptHello: (hello: Hello) => void = () => {};
   let refuseHello: (error: Error) => void = () => {};
   const hello = new Promise<Hello>((resolve, reject) => {
@@ -149,6 +172,7 @@ export function openAdapterLink(options: {
     refuseHello(new Error(`link closed before hello: ${reason}`));
     for (const entry of waiting.values()) entry.resolve(refusal(entry.kind, 'link-closed', false));
     waiting.clear();
+    for (const listener of [...onSettled]) listener();
     transport.close();
   }
 
@@ -166,6 +190,12 @@ export function openAdapterLink(options: {
     if (found.iface !== null && found.iface !== body.iface) {
       log.warn('link: hello refused', { reason: 'iface', principal: found.name });
       shut('iface');
+      return;
+    }
+    const refusedBy = options.admit?.(found) ?? null;
+    if (refusedBy !== null) {
+      log.warn('link: hello refused', { reason: refusedBy, principal: found.name });
+      shut(refusedBy);
       return;
     }
     principal = found;
@@ -246,6 +276,7 @@ export function openAdapterLink(options: {
       if (entry === undefined) return;
       waiting.delete(value.replyTo ?? '');
       entry.resolve(value.body as Result);
+      for (const listener of [...onSettled]) listener();
     } else if (value.type === 'ping') answerWith(value, 'ok');
   }
 
@@ -270,6 +301,7 @@ export function openAdapterLink(options: {
 
   function call(action: Record<string, unknown>, kind: Kind, signal?: AbortSignal): Promise<Result> {
     if (closed || greeting === null) return Promise.resolve(refusal(kind, 'link-closed', false));
+    if (draining) return Promise.resolve(refusal(kind, 'interface-disabled', false));
     if (waiting.size >= MAX_PENDING) return Promise.resolve(refusal(kind, 'link-busy', true));
     const id = randomUUID();
     return new Promise<Result>((resolve) => {
@@ -355,25 +387,66 @@ export function openAdapterLink(options: {
       read('parseLinks', args) as ReturnType<Adapter['parseLinks']>,
     reactors: (...args: Parameters<Adapter['reactors']>) => read('reactors', args) as ReturnType<Adapter['reactors']>,
   };
-  return { hello, principal: () => principal, adapter, close: () => shut('closed') };
+  /** The effects waiting now, given `ms` to finish; then the link closes and the rest end `unknown`. */
+  async function drain(ms: number): Promise<Drained> {
+    draining = true;
+    const ids = [...waiting].filter(([, entry]) => entry.kind === 'effect').map(([id]) => id);
+    const left = (): number => ids.filter((id) => waiting.has(id)).length;
+    if (left() > 0) {
+      await new Promise<void>((resolve) => {
+        const done = (): void => {
+          clearTimeout(timer);
+          onSettled.delete(check);
+          resolve();
+        };
+        const check = (): void => {
+          if (left() === 0) done();
+        };
+        const timer = setTimeout(done, ms);
+        onSettled.add(check);
+      });
+    }
+    const unknown = left();
+    shut('drained');
+    return { drained: ids.length - unknown, unknown };
+  }
+
+  return {
+    hello,
+    principal: () => principal,
+    adapter,
+    isClosed: () => closed,
+    drain,
+    close: () => shut('closed'),
+  };
 }
 
 /** One link as `openAdapterLink` answers it. */
 export type AdapterLink = ReturnType<typeof openAdapterLink>;
 
+/** A link that is closed from the start: it answers every call as a link that dropped does (`link-closed`). */
+function closedLink(): AdapterLink {
+  const transport: Transport = { send() {}, onEnvelope: () => () => {}, onClose: () => () => {}, close() {} };
+  const quiet: Logger = { info() {}, warn() {}, error() {} };
+  const link = openAdapterLink({ transport, door: { receive: () => Promise.reject(new Error('closed')) }, log: quiet });
+  link.close();
+  return link;
+}
+
 /**
  * One adapter over the links of one interface, one after another: every call goes to the link attached last, so an
  * interface that reconnects is reached through the same adapter the core's modules were built with. A call while the
- * attached link is closed is answered as that link answers it (`link-closed`). The core attaches a new link once its
+ * attached link is closed is answered as that link answers it (`link-closed`), and so is a call before the first link
+ * when the switch starts with none (a core whose interface runs as a unit). The core attaches a new link once its
  * `hello` names the principal of the first one.
  */
-export function createLinkSwitch(first: AdapterLink): {
+export function createLinkSwitch(first: AdapterLink | null): {
   adapter: Adapter;
   current(): AdapterLink;
   attach(link: AdapterLink): void;
   close(): void;
 } {
-  let live = first;
+  let live = first ?? closedLink();
   const now = (): Adapter => live.adapter;
   const adapter = {
     ...declaredHooks(),
@@ -407,5 +480,49 @@ export function createLinkSwitch(first: AdapterLink): {
       live = link;
     },
     close: () => live.close(),
+  };
+}
+
+/** One interface as the owner sees it: whether the settings let it connect and whether a link of it is up. */
+export type InterfaceState = { name: string; enabled: boolean; connected: boolean };
+
+/**
+ * The links of the core's socket, by the principal each `hello` named. `names()` lists the interfaces the core knows
+ * (those it runs, the interface clients of `clients.json`, the ones the settings name), `isEnabled` and `setEnabled`
+ * read and write the owner's switch, `drainMs()` is read at each disable.
+ */
+export function createInterfaceLinks(options: {
+  names(): ReadonlyArray<string>;
+  isEnabled(name: string): boolean;
+  setEnabled(name: string, enabled: boolean): void;
+  drainMs(): number;
+}): {
+  add(link: AdapterLink): void;
+  list(): Array<InterfaceState>;
+  disable(name: string): Promise<Drained>;
+  enable(name: string): void;
+} {
+  const links = new Set<AdapterLink>();
+  /** The open links of interface `name` whose `hello` was taken. */
+  function openOf(name: string): Array<AdapterLink> {
+    for (const link of links) if (link.isClosed()) links.delete(link);
+    return [...links].filter((link) => link.principal()?.kind === 'interface' && link.principal()?.name === name);
+  }
+  return {
+    add: (link) => void links.add(link),
+    list: () =>
+      [...new Set(options.names())]
+        .sort()
+        .map((name) => ({ name, enabled: options.isEnabled(name), connected: openOf(name).length > 0 })),
+    async disable(name) {
+      options.setEnabled(name, false);
+      const ms = options.drainMs();
+      const outcomes = await Promise.all(openOf(name).map((link) => link.drain(ms)));
+      return outcomes.reduce(
+        (sum, outcome) => ({ drained: sum.drained + outcome.drained, unknown: sum.unknown + outcome.unknown }),
+        { drained: 0, unknown: 0 }
+      );
+    },
+    enable: (name) => options.setEnabled(name, true),
   };
 }

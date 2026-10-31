@@ -252,6 +252,13 @@
       "test": "required"
     },
     {
+      "path": "interfaces/discord/setup.ts",
+      "purpose": "The setup of the Discord interface, which refuses until the neptunia CLI runs it. No behaviour to test.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
       "path": "tests/",
       "purpose": "The node:test files, one per module.",
       "layer": "public",
@@ -309,9 +316,9 @@
     },
     {
       "path": "src/index.js",
-      "purpose": "The entry point: reads the paths and the environment, loads the Discord package by path, starts the core and owns the process signals and exit. It imports no Discord.",
+      "purpose": "The entry point: reads the paths and the environment, reads where the interfaces run, loads the Discord package by path when it runs in this process, starts the core and owns the process signals and exit. It imports no Discord.",
       "layer": "public",
-      "imports": ["node:*", "src/*.js"],
+      "imports": ["node:*", "src/*.js", "src/interface/mode.ts"],
       "test": "none"
     },
     {
@@ -336,6 +343,7 @@
         "src/interface/door.js",
         "src/interface/link.ts",
         "src/interface/members.ts",
+        "src/interface/mode.ts",
         "src/interface/principals.ts",
         "src/interface/reads.ts",
         "src/interface/socket.ts"

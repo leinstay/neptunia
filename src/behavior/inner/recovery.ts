@@ -2,7 +2,7 @@
 // first tick lists anything: a turn a restart cut off (its wakes `running` under another holder) is resolved from the
 // journal, then its wakes run again under their first turn id or are handled `interrupted`; the wakes that fell due
 // while the core was down sleep; the handled wakes older than 30 days are deleted; and the `core:alive` lease is
-// renewed, as it is at every tick after.
+// renewed, as it is at every tick after, until a clean stop lets it go (`releaseAlive`).
 //
 // Sleep (the owner's answer of 2026-10-27): a wake that fell due during a downtime or a pause is `slept` and never
 // runs. The downtime runs from the last `core:alive` renewal to the start, a pause from its `pausedAt` (else the first
@@ -216,7 +216,32 @@ async function startUpNow(life: InnerContext, guildId: string): Promise<void> {
   await dbWrite(life, { kind: 'wake-queue', op: 'recover', now: at }).catch(() => null);
   // A handled id is kept as long as the state file kept it (queue.ts, CHAIN_KEEP_MS), so a due item never wakes her twice.
   dbSend(life, { kind: 'wake-queue', op: 'prune', before: at - HANDLED_KEEP_MS });
+  renewAlive(life, at);
+}
+
+/** `core:alive` renewed by this life, until the core stops. */
+function renewAlive(life: InnerContext, at: number): void {
+  if (life.released) return;
   dbSend(life, { kind: 'wake-queue', op: 'alive', holder: life.holder, now: at, ttlMs: turnLeaseMs(life) });
+}
+
+/**
+ * The clean stop's end of `core:alive`: the lease this life holds expires now, so the next start goes ahead at once.
+ * Nothing renews it after. Waits for the queue's writes; a lease another holder took over is left alone.
+ */
+export async function releaseAlive(life: InnerContext): Promise<void> {
+  life.released = true;
+  await life.writes;
+  const read = backendOf(life).read();
+  const lease = read ? leaseOf(read, ALIVE_LEASE) : null;
+  if (lease === null || lease.holder !== life.holder) return;
+  await dbWrite(life, {
+    kind: 'wake-queue',
+    op: 'lease-release',
+    name: ALIVE_LEASE,
+    token: lease.token,
+    now: life.now(),
+  }).catch(() => null);
 }
 
 /**
@@ -228,7 +253,7 @@ export async function beforeTick(life: InnerContext, guildId: string): Promise<b
   await startUp(life, guildId);
   const at = life.now();
   renewClaims(life);
-  dbSend(life, { kind: 'wake-queue', op: 'alive', holder: life.holder, now: at, ttlMs: turnLeaseMs(life) });
+  renewAlive(life, at);
   if (paused(life)) {
     if (life.sleep.pausedFrom === null) {
       const mark = life.store?.state?.data?.pausedAt;

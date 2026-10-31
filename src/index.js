@@ -1,13 +1,17 @@
-// Entry point: reads the paths and the private layer's .env, loads the Discord interface (interfaces/discord/, by
-// path at run time, so nothing here imports discord.js), hands them to `startCore` (src/core.js) and owns the
-// process: the signal handlers, the exit code of a failed start and the exit after a clean stop. Nothing else
-// lives here: the core is built and stopped by `startCore`, and the Discord side is built by the interface.
+// Entry point: reads the paths and the private layer's .env, decides from `interfaces.mode` (src/interface/mode.ts)
+// where the interfaces run, hands them to `startCore` (src/core.js) and owns the process: the signal handlers, the
+// exit code of a failed start and the exit after a clean stop. With `inprocess` it loads the Discord interface
+// (interfaces/discord/, by path at run time, so nothing here imports discord.js) and the core starts it. With `units`
+// the core starts with no interface and each one runs in its own unit (bin/neptunia.ts), so no Discord token is
+// read here. Nothing else lives here: the core is built and stopped by `startCore`, and the Discord side is built by
+// the interface.
 
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { ROOT_DIR, env, loadDotEnv } from './config.js';
+import { ROOT_DIR, env, loadDotEnv, readConfig } from './config.js';
 import { startCore } from './core.js';
+import { interfaceMode } from './interface/mode.ts';
 import { log } from './log.js';
 import { resolvePaths } from './paths.js';
 
@@ -24,32 +28,44 @@ function die(message) {
 const paths = resolvePaths({ rootDir: ROOT_DIR });
 loadDotEnv(paths.privateDir);
 
-// Handed to the Discord interface at its start, which logs in with it. Never logged.
-const discordToken = env.DISCORD_TOKEN;
-if (discordToken === undefined || discordToken === '')
-  die(
-    'index: missing required environment variable DISCORD_TOKEN — copy .env.example to .env and fill in the real values.'
-  );
+// Where the interfaces run, read once: the mode decides what this process is.
+/** @type {import('./interface/mode.ts').InterfaceMode} */
+let mode = 'inprocess';
+try {
+  mode = interfaceMode(readConfig(paths.rootDir, { privateDir: paths.privateDir }));
+} catch (err) {
+  die(`index: ${err instanceof Error ? err.message : String(err)}`);
+}
 
-// The interface is loaded by name at run time (stage 4's `/interface enable` does the same in process).
-const loaded = /** @type {unknown} */ (
-  await import(pathToFileURL(path.join(paths.rootDir, 'interfaces', 'discord', 'index.js')).href)
-);
-const discordPackage =
-  /** @type {{ start(host: import('./protocol/host.ts').InterfaceHost): Promise<import('./protocol/host.ts').RunningInterface> }} */ (
-    loaded
+/** The Discord interface started in this process, as the core takes it. */
+async function inProcessDiscord() {
+  // Handed to the Discord interface at its start, which logs in with it. Never logged.
+  const discordToken = env.DISCORD_TOKEN;
+  if (discordToken === undefined || discordToken === '')
+    die(
+      'index: missing required environment variable DISCORD_TOKEN — copy .env.example to .env and fill in the real values.'
+    );
+
+  // The interface is loaded by name at run time.
+  const loaded = /** @type {unknown} */ (
+    await import(pathToFileURL(path.join(paths.rootDir, 'interfaces', 'discord', 'index.js')).href)
   );
+  const discordPackage =
+    /** @type {{ start(host: import('./protocol/host.ts').InterfaceHost): Promise<import('./protocol/host.ts').RunningInterface> }} */ (
+      loaded
+    );
+  return {
+    name: 'discord',
+    // The core's host carries no keys: the Discord token is the entry's to hand over.
+    start: (/** @type {import('./protocol/host.ts').InterfaceHost} */ host) =>
+      discordPackage.start({ ...host, env: { DISCORD_TOKEN: discordToken } }),
+  };
+}
 
 const starting = startCore({
   paths,
   env,
-  interfaces: [
-    {
-      name: 'discord',
-      // The core's host carries no keys: the Discord token is the entry's to hand over.
-      start: (host) => discordPackage.start({ ...host, env: { DISCORD_TOKEN: discordToken } }),
-    },
-  ],
+  interfaces: mode === 'units' ? [] : [await inProcessDiscord()],
 });
 
 // A signal during the start waits for it: the core stops once it exists.

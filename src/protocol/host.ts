@@ -36,4 +36,9 @@ export type RunningInterface = {
   open(): void;
   /** Closes the link and the platform client. */
   stop(): Promise<void>;
+  /**
+   * Opens a new link with `host.connect()` and says hello again, keeping the platform client. The interface runner
+   * (bin/neptunia.ts) calls it when the link drops; an interface without it is restarted by its unit.
+   */
+  reconnect?(): Promise<void>;
 };

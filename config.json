@@ -73,6 +73,10 @@
   "discord": {
     "intents": { "presences": false, "members": false }
   },
+  "interfaces": {
+    "mode": "inprocess",
+    "drainMs": 10000
+  },
   "bot": {
     "timezone": "UTC",
     "owners": [],

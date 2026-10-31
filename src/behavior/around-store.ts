@@ -75,7 +75,11 @@ function presenceRecord(state: PresenceFields): PresenceRecord {
   return { memberId: state.userId, name: nameOf(state.name), status: state.status, activities };
 }
 
-export function createAroundStore(options: { presences: boolean }): {
+/**
+ * `presences` says whether the interface reports presences at all. A core whose interface connects after the store is
+ * built (a unit) passes a function, read at each event.
+ */
+export function createAroundStore(options: { presences: boolean | (() => boolean) }): {
   voiceChanged(event: VoiceChanged): void;
   presenceChanged(event: PresenceChanged): void;
   snapshot(event: PresenceSnapshot): void;
@@ -83,7 +87,8 @@ export function createAroundStore(options: { presences: boolean }): {
   view(): AroundSnapshot;
   counts(): { voice: number; presence: number; stale: boolean };
 } {
-  const { presences } = options;
+  const given = options.presences;
+  const reportsPresences = (): boolean => (typeof given === 'function' ? given() : given);
   let voice = new Map<string, VoiceRecord>();
   let presence = new Map<string, PresenceRecord>();
   let stale = false;
@@ -107,7 +112,7 @@ export function createAroundStore(options: { presences: boolean }): {
     },
     // Nothing is kept while the presences switch is off.
     presenceChanged(event) {
-      if (!presences) return;
+      if (!reportsPresences()) return;
       presence.set(event.userId, presenceRecord(event));
     },
     // Both maps are replaced by what the interface knows now.
@@ -117,7 +122,7 @@ export function createAroundStore(options: { presences: boolean }): {
         if (entry.conversationId !== null) voice.set(entry.userId, voiceRecord(entry, entry.conversationId));
       }
       presence = new Map();
-      if (!presences) return;
+      if (!reportsPresences()) return;
       for (const entry of event.presence) presence.set(entry.userId, presenceRecord(entry));
     },
     connection(event) {
@@ -125,7 +130,7 @@ export function createAroundStore(options: { presences: boolean }): {
     },
     // Copies, so a renderer cannot change the store.
     view() {
-      return { presences, stale, voice: new Map(voice), presence: new Map(presence) };
+      return { presences: reportsPresences(), stale, voice: new Map(voice), presence: new Map(presence) };
     },
     // Counts only, for a log line.
     counts() {

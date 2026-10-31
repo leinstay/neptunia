@@ -23,6 +23,9 @@ export type Transport = {
 
 const NEWLINE = 0x0a;
 
+/** The largest frame of the core's socket: ten files of 10 MiB in base64 (a third larger) and the rest of an envelope. */
+export const MAX_FRAME_BYTES = 150 * 1024 * 1024;
+
 function toWire(value: unknown): unknown {
   if (value instanceof Uint8Array) return { $bytes: Buffer.from(value).toString('base64') };
   if (Array.isArray(value)) return value.map(toWire);
