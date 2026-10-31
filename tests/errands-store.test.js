@@ -373,29 +373,6 @@ test('task store: no out dir at all (no runner on this host) expires nothing', a
   });
 });
 
-// PR 6d: the ledger's id is written to the errand's board task, the one record that replaced errands.json and the
-// transition lines of errands.jsonl; the test reads it there and from a second store.
-test("task store: setLedgerId keeps the ledger's id on the task (written to the board, kept by the later transitions); none for an unknown task", async () => {
-  await withCapturedLogs(async () => {
-    const { store, dataDir } = makeStore();
-    const { errand: task } = store.add(asked);
-    assert.equal(Object.hasOwn(task, 'ledgerId'), false, 'optional: absent until the ledger answers');
-    assert.equal(store.setLedgerId(task.id, 'L7').ledgerId, 'L7');
-    assert.equal(store.setLedgerId(task.id, 12).ledgerId, '12');
-    assert.equal(store.setLedgerId(task.id, 'L7').ledgerId, 'L7');
-    assert.equal(store.setLedgerId('tnone', 'L8'), null);
-    assert.equal(store.setLedgerId(task.id, ''), null);
-    store.start(task.id);
-    const view = await boardTask(store, dataDir, task.id);
-    assert.deepEqual([view.task.status, view.task.metadata.errand.ledgerId], ['in_progress', 'L7']);
-    // A second store over the same directory reads it back.
-    assert.equal(
-      createErrandStore({ dataDir, guildId: 'g1', memoryDb: memoryOf(dataDir), now: () => T0 }).get(task.id).ledgerId,
-      'L7'
-    );
-  });
-});
-
 // PR 6d: after a restart the spend records come from the errands on the board, where errands.jsonl gave them before.
 test('task store: costs and the daily caps read the same spend records, rebuilt from the board after a restart', async () => {
   await withCapturedLogs(async () => {

@@ -191,7 +191,9 @@ test('reads the agent settings of an old local file as the old merged config gav
     daily: { tasks: 40 },
     searchProvider: null,
   });
-  assert.deepEqual((result.agents as Settings).ledger, { socket: null });
+  // This line said the old file's `agents.ledger` section loads as it was. PR 6e drops `agents.ledger.socket`, which
+  // nothing reads after the cutover, at load as config-migrate does.
+  assert.equal(Object.hasOwn(result.agents as Settings, 'ledger'), false);
 });
 
 test('gives the same config as the file written by hand with the new names', async () => {
