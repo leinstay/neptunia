@@ -212,7 +212,7 @@ export function createPrepLedger(): Ledger {
 }
 
 type Item = { itemId: string; messageId: string };
-type Stage<V> = { done?: boolean; value?: V } | null | undefined;
+type Stage<V> = { done?: boolean; value?: V | null } | null | undefined;
 
 /**
  * What the request showed as not ready and is ready now, told once in a step's note: a video the
@@ -245,10 +245,10 @@ export function lateMediaTeller({
   videoStage: Stage<{ videos?: unknown }>;
   videoItems: ReadonlyArray<Item>;
   captions: Stage<{ descriptions?: unknown }>;
-  captionItems: ReadonlyArray<{ messageId: string }>;
+  captionItems: ReadonlyArray<{ messageId: unknown }>;
   pending: { videoIds: ReadonlyArray<string>; captions: boolean };
   onTold: (stage: 'videos' | 'captions') => void;
-  transcript: (lines: ReadonlyArray<object>, options: Record<string, unknown>) => Array<{ id: string; text: string }>;
+  transcript: (lines: Array<object>, options: Record<string, unknown>) => Array<{ id: string; text: string }>;
 }): () => string {
   const told = { videos: new Set<string>(), captions: false };
   return () => {

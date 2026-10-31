@@ -180,7 +180,7 @@ export function createPulls(ctx: PullsContext): Pulls {
    * A private chat with its `partner` (privatePartner) pulls the same way from
    * `snapshot`, the served community's listing, every rail judged against the partner instead of
    * an audience (checkPull: their view of the candidate); it has no
-   * source. `routePlan` (the turn planner's route step, runTurnAttempt; null
+   * source. `routePlan` (the turn planner's route step, src/turn/phases/request/planner.ts; null
    * without features.turnPlanner): `({ lines, routed }) => Promise<{ id,
    * direction }[]>`, asked where the route hook would be, instead of it.
    * Resolves the PulledChannel records, source first; `sourceSkip` is the skip code of a source that could not be

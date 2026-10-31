@@ -15,7 +15,7 @@ const CLOSE = '</tool_call>';
  * (`{ name, description, parameters }`, the dotted name, keys in canonical order, sorted by name),
  * then `labels.tools.toolsText.protocol`. '' without tools.
  * @param {object[]} tools  The native definitions (src/tools/tools-json.ts#buildTools).
- * @param {object} labels
+ * @param {object} [labels]
  * @returns {string}
  */
 export function toolsBlockText(tools, labels) {
