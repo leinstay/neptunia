@@ -600,3 +600,118 @@ test('closes the link and destroys the client on stop', async () => {
   assert.equal(closedWith, 'peer-closed');
   assert.equal(h.state.destroyed, 1);
 });
+
+// ---- no slash command (PR 7b) -----------------------------------------------------------------
+
+// The guild's application commands as Discord holds them, by id: `fetch` lists them, `delete` removes one by its id or
+// its object, `set` replaces them all. `sets` is every list `set` was given. With `fetchFails` the guild refuses the
+// listing the way Discord refuses a bot invited without the `applications.commands` scope (error 50001).
+function registeredCommands(names: ReadonlyArray<string>, options: { fetchFails?: boolean } = {}) {
+  const held = new Map<string, Fake>(names.map((name, index) => [`cmd${index + 1}`, { id: `cmd${index + 1}`, name }]));
+  const sets: Array<unknown> = [];
+  const idOf = (command: unknown): string => (typeof command === 'string' ? command : String(asFake(command).id));
+  const manager = {
+    fetch: (): Promise<Map<string, Fake>> =>
+      options.fetchFails === true
+        ? Promise.reject(Object.assign(new Error('Missing Access'), { code: 50001 }))
+        : Promise.resolve(new Map(held)),
+    delete: (command: unknown): Promise<void> => {
+      held.delete(idOf(command));
+      return Promise.resolve();
+    },
+    set: (tree: unknown): Promise<Array<unknown>> => {
+      sets.push(tree);
+      held.clear();
+      const list = Array.isArray(tree) ? (tree as Array<unknown>) : [];
+      list.forEach((command, index) => held.set(`new${index + 1}`, { ...asFake(command), id: `new${index + 1}` }));
+      return Promise.resolve([]);
+    },
+  };
+  return { held, sets, manager };
+}
+
+const registersNothing = (sets: ReadonlyArray<unknown>): boolean =>
+  sets.every((tree) => Array.isArray(tree) && tree.length === 0);
+
+test('deletes the /nep the guild still has at its first connect and registers no command', async () => {
+  const h = harness();
+  const commands = registeredCommands(['nep']);
+  h.guild.commands = commands.manager;
+  const running = await start(h.host);
+  try {
+    await h.link.hello;
+    running.open();
+    await until(() => commands.held.size === 0);
+    await flush(20);
+    assert.equal(commands.held.size, 0);
+    assert.equal(registersNothing(commands.sets), true, `set was given ${JSON.stringify(commands.sets)}`);
+  } finally {
+    await running.stop();
+  }
+});
+
+test('registers no command when it opens under a core whose interfaces run as units', async () => {
+  const h = harness();
+  Object.assign(h.config, { interfaces: { mode: 'units' } });
+  const commands = registeredCommands([]);
+  h.guild.commands = commands.manager;
+  const running = await start(h.host);
+  try {
+    await h.link.hello;
+    running.open();
+    await flush(40);
+    assert.equal(commands.held.size, 0);
+    assert.equal(registersNothing(commands.sets), true, `set was given ${JSON.stringify(commands.sets)}`);
+  } finally {
+    await running.stop();
+  }
+});
+
+test('logs the number of slash commands it deleted', async () => {
+  const h = harness();
+  const commands = registeredCommands(['nep', 'luna']);
+  h.guild.commands = commands.manager;
+  const infos: Array<Fake> = [];
+  h.host.log = { ...h.host.log, info: (_msg: string, meta?: unknown) => void infos.push(asFake(meta)) };
+  const running = await start(h.host);
+  try {
+    await h.link.hello;
+    running.open();
+    await until(() => infos.some((meta) => meta.deleted === 2));
+    assert.equal(
+      infos.some((meta) => meta.deleted === 2),
+      true
+    );
+  } finally {
+    await running.stop();
+  }
+});
+
+test('starts and carries messages when the guild refuses to list its commands', async () => {
+  const h = harness();
+  h.guild.commands = registeredCommands(['nep'], { fetchFails: true }).manager;
+  const running = await start(h.host);
+  try {
+    await h.link.hello;
+    running.open();
+    h.client.emit(Events.MessageCreate, messageIn('m9', h.channel('c1'), h.guild));
+    await until(() => messageIdsOf(h).includes('m9'));
+    assert.deepEqual(messageIdsOf(h), ['m9']);
+  } finally {
+    await running.stop();
+  }
+});
+
+test('an interaction for /nep sends no command to the core', async () => {
+  await withSession({}, async (h, running) => {
+    running.open();
+    const kinds: Array<unknown> = [];
+    h.loop.core.onEnvelope((value) => {
+      if (value.type === 'event') kinds.push(asFake(value.body).kind);
+    });
+    const { interaction } = statusInteraction(h.guild);
+    h.client.emit(Events.InteractionCreate, interaction);
+    await flush(40);
+    assert.equal(kinds.includes('command.requested'), false);
+  });
+});

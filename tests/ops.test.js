@@ -228,6 +228,19 @@ test('ops: a stored grant on a command or group that runs no operation any more 
   assert.deepEqual(legacyGrantOps('status'), { from: null, names: ['status.show'] });
 });
 
+// PR 7b: with `/nep` gone no embed is built; the card is its fields, which the chat prints as sections and her call
+// reads as lines.
+test('status.show answers the card as its fields, with no embed', async () => {
+  const env = makeEnv();
+  const result = await runOp('status.show', { field: 'features' }, { env, guildId: 'g1', userId: '42', roleIds: [] });
+  assert.equal(result.status, 'ok');
+  const data = /** @type {{ fields?: Array<{ name: string }> }} */ (result.data);
+  assert.deepEqual(
+    [Object.hasOwn(data, 'embeds'), (data.fields ?? []).map((field) => field.name)],
+    [false, ['features']]
+  );
+});
+
 test('createOpsEnv: the simulator key, the management key and the extra role keys reach the owner status card', async () => {
   const rootDir = tempDir('nep-ops-');
   const costs = {

@@ -10,6 +10,11 @@ import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { backupsIn } from '../src/memory/db/backup.js';
+import { createConsole } from '../src/interface/commands/console.ts';
+import type { ConsoleDeps } from '../src/interface/commands/console.ts';
+import { COMMANDS, parseCommandLine } from '../src/interface/commands/table.ts';
+import { NOT_GRANTABLE_TO_PERSONA } from '../src/tools/access.ts';
+import { tempDir } from './fixtures/tmp.js';
 import {
   REPO,
   isRecord,
@@ -510,4 +515,52 @@ test('/doctor in the chat runs the checks of neptunia doctor and ends as it ends
     assert.equal(chat.code, direct.code);
     for (const name of checks.keys()) assert.ok(chat.stdout.includes(name), `the chat's doctor names ${name}`);
   });
+});
+
+// ---- the owner's operations after `/nep` (PR 7b) ---------------------------------------------------------------
+
+/** Every line of the table with its required arguments filled: a choice by its first value, anything else by `1`. */
+function everyLine(): Array<string> {
+  const filled = (args: ReadonlyArray<{ required: boolean; choices?: ReadonlyArray<string> }>): Array<string> =>
+    args.filter((one) => one.required).map((one) => one.choices?.[0] ?? '1');
+  return COMMANDS.flatMap((command) => {
+    const subs = [...command.subcommands, ...(command.otherwise === undefined ? [] : [command.otherwise])];
+    if (subs.length === 0) return [['/' + command.name, ...filled(command.args)].join(' ')];
+    return subs.map((one) => ['/' + command.name, ...one.name.split('.'), ...filled(one.args)].join(' '));
+  });
+}
+
+// The operations no grant opens to her (src/tools/access.ts#NOT_GRANTABLE_TO_PERSONA) have no way to run once `/nep`
+// is gone but a command of the chat: she cannot run them for the owner. `/health` and `/logs` run no operation and
+// read the machine, so they are left out.
+test('every operation no grant opens to her runs from a command of the chat', async () => {
+  const ran = new Set<string>();
+  const dir = tempDir('nep-console-ops-');
+  const deps: ConsoleDeps = {
+    runOp: (op) => {
+      ran.add(op);
+      return Promise.resolve({ status: 'ok', code: '', summary: 'done', data: null });
+    },
+    ownerReads: { lessons: () => '', aliases: () => '' },
+    guildId: () => 'g1',
+    selfId: () => 'self-1',
+    hot: { config: { bot: { owners: [] } } },
+    privateDir: dir,
+    dataDir: dir,
+    memoryDb: null,
+    usage: null,
+    metrics: null,
+    conversationLines: () => [],
+    now: () => T0,
+  };
+  const desk = createConsole(deps);
+  for (const line of everyLine()) {
+    const parsed = parseCommandLine(line);
+    if (!parsed.ok || parsed.name === 'health' || parsed.name === 'logs') continue;
+    await desk.run(parsed.name, parsed.args, { id: 'owner-1' });
+  }
+  assert.deepEqual(
+    NOT_GRANTABLE_TO_PERSONA.filter((op) => !ran.has(op)),
+    []
+  );
 });

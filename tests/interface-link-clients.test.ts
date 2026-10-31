@@ -46,7 +46,14 @@ const HELLO: Hello = { iface: 'fake', self: SELF, community: null, capabilities:
 const FAKE: Principal = { name: 'fake', kind: 'interface', iface: 'fake', permissions: [] };
 const OWNER: Principal = { name: 'owner', kind: 'cli', iface: 'cli', permissions: [] };
 const AGENT: Principal = { name: 'hand', kind: 'agent', iface: null, permissions: [] };
-const TOKENS: Record<string, Principal> = { 'fake-token': FAKE, 'owner-token': OWNER, 'agent-token': AGENT };
+/** An interface principal whose `clients.json` entry still carries the permission `commands` that `/nep` needed. */
+const UNIT: Principal = { name: 'unit', kind: 'interface', iface: 'fake', permissions: ['commands'] };
+const TOKENS: Record<string, Principal> = {
+  'fake-token': FAKE,
+  'owner-token': OWNER,
+  'agent-token': AGENT,
+  'unit-token': UNIT,
+};
 const principalOf = (token: string): Principal | null => TOKENS[token] ?? null;
 
 function reaction(id: string, conversationId = 'c1', iface = 'fake'): Record<string, unknown> {
@@ -171,6 +178,17 @@ test('an interface principal may not send an event of another iface: invalid, an
 test('a hello of an interface principal that names an owner and the cli kind gains no command', async () => {
   const rig = core();
   rig.hello('fake-token', { kind: 'cli', owner: true, ownerId: 'owner-1' });
+  await within(rig.link.hello);
+  rig.client.send(envelope('event', command('k1', 'fake'), { id: 'k1' }));
+  assert.equal((await answered(rig, 'k1')).status, 'invalid');
+  assert.deepEqual(rig.started, []);
+  rig.link.close();
+});
+
+// PR 7b: `/nep` is gone, so no interface sends commands, whatever `clients.json` still grants it.
+test('an interface principal granted commands reaches no command: invalid, and the handler never runs', async () => {
+  const rig = core();
+  rig.hello('unit-token');
   await within(rig.link.hello);
   rig.client.send(envelope('event', command('k1', 'fake'), { id: 'k1' }));
   assert.equal((await answered(rig, 'k1')).status, 'invalid');
