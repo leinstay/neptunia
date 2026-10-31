@@ -733,11 +733,9 @@ const handlers = perEnv((env) => {
     return lines.length > 0 ? lines.join('\n') : '-';
   }
 
-  /** The owner's `costs.development` field (src/tools/impl/usage.ts#agentCostsLines): thinker and dev
-   * from the board's `costs.agents` by role (src/board/costs.ts: the thinker's runs, the dev-lane attempts of an
-   * implementing role whoever ran them; the thinker's last wave adds its context line), read as COSTS_READER. An agent
-   * with no figures shows no runs: a board that is missing, refuses or fails never fails the field. `-` when the
-   * labels give no line. */
+  /** The owner's `costs.development` field (src/tools/impl/usage.ts#agentCostsLines): thinker and dev from the board's
+   * `costs.agents` by role (src/board/costs.ts), read as COSTS_READER; a missing, refusing or failing board shows them
+   * with no runs and never fails the field. `-` when the labels give no line. */
   async function developmentCostsValue() {
     let boardTotals: Readonly<Record<string, unknown>> | null = null;
     try {

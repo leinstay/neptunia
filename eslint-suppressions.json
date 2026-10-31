@@ -167,16 +167,16 @@
   },
   "src/agent-runner/profiles.js": {
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 43
+      "count": 31
     },
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 24
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 7
+      "count": 5
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 34
+      "count": 29
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 6
@@ -766,16 +766,13 @@
   },
   "src/errands/service.ts": {
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 3
+      "count": 2
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 4
+      "count": 3
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 7
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 2
+      "count": 4
     }
   },
   "src/errands/store.ts": {
@@ -3082,13 +3079,13 @@
       "count": 35
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 81
+      "count": 80
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 46
+      "count": 45
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 227
+      "count": 223
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 11
@@ -3972,29 +3969,6 @@
       "count": 1
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 1
-    }
-  },
-  "tests/errands-ledger.test.js": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 5
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 26
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 11
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 71
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 15
-    },
-    "@typescript-eslint/require-await": {
-      "count": 1
-    },
-    "@typescript-eslint/restrict-plus-operands": {
       "count": 1
     }
   },
