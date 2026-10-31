@@ -21,7 +21,6 @@ const DISCORD_ALLOWED: ReadonlyArray<Allowed> = [
   { file: 'src/memory/db/upsert.js', pattern: /`src:discord:/, why: 'a stored legacy message ref' },
   { file: 'src/memory/db/map/participation.js', pattern: /`src:discord:/, why: 'a stored legacy message ref' },
   { file: 'src/memory/db/map/versions.js', pattern: /`desc:(person:)?discord:/, why: 'stored legacy description ids' },
-  { file: 'src/memory/store.js', pattern: /\/\^person:discord:/, why: 'the reader of a stored legacy person id' },
   { file: 'src/tools/impl/catalog.ts', pattern: /discord/i, why: 'the /nep command surface, removed in stage 7' },
   { file: 'src/admin.js', pattern: /discord/i, why: 'the /nep command surface, removed in stage 7' },
   { file: 'src/index.js', pattern: /discord/i, why: 'the entry point loads the Discord package and its token' },
