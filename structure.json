@@ -597,6 +597,13 @@
       "test": "none"
     },
     {
+      "path": "src/turn/pulls.ts",
+      "purpose": "The other channels a turn shows in `<channel_view>`: which it pulls, their captions and last views, and the seen marks, lines in view and ring stamps a turn leaves. Tested through the turn, pull and pull seen tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/errands/",
       "purpose": "The errand service: the ledger, the store, the client to the runner and the turns that bring results back.",
       "layer": "public",

@@ -15,10 +15,10 @@
 import { randomUUID } from 'node:crypto';
 import { block, buildRequest, fillPromptTemplate, skillsInventoryText, usesFollowUpTask } from './prompt.js';
 import { isSetKind, setSettings, stripUrls } from './diary.ts';
-import { channelPullOn, pullPictures, pullSettings, pullTargets } from './pull.js';
+import { pullPictures } from './pull.js';
 import { createDeadline, createPrepLedger, lateMediaTeller } from './turn-parts.ts';
-import { createLinker, markSeen, messageLinkOf, stampPings } from './elsewhere.ts';
-import { captionPulled, checkPull, createPullViews, fetchPull } from './pull-fetch.ts';
+import { createLinker, messageLinkOf } from './elsewhere.ts';
+import { checkPull, createPullViews } from './pull-fetch.ts';
 import { audienceAllows, takeSnapshot } from './snapshot.ts';
 import { fetchNeighbors } from './neighbors.ts';
 import { historyLines } from './lines.ts';
@@ -138,6 +138,7 @@ import { createDrawGif } from '../turn/draw-gif.ts';
 import { createDryAct } from '../turn/dry-act.ts';
 import { createJournalNotes } from '../turn/journal-notes.ts';
 import { createParticipation } from '../turn/participation.ts';
+import { createPulls } from '../turn/pulls.ts';
 import { createSends } from '../turn/sends.ts';
 import { createTyping } from '../turn/typing.ts';
 import { channelDirectoryOf, inCommunity, routeFor, snapshotOfDraft, usableDestination } from '../turn/routing.ts';
@@ -2244,6 +2245,17 @@ export function createTurnRunner({
     pickGifSafely,
     recordOwnParticipation,
   });
+  const { pullChannels, captionAll, withSeenBefore, markPulledSeen, noteSpokeSaw, stampShownCalls } = createPulls({
+    hot,
+    store,
+    describer,
+    routeChannels,
+    clock,
+    ifaceReads,
+    pullViews,
+    keptPulls,
+    spokeSaw,
+  });
 
   /**
    * The `<transcript>` block of a classifier request (re-watch, search) with
@@ -3034,389 +3046,6 @@ export function createTurnRunner({
     }
     log.info('split: verdict', { channel: channelId, parts: parts?.length ?? 1, ms: clock() - startedAt, ...late });
     return parts;
-  }
-
-  /**
-   * fetchPull (src/behavior/pull-fetch.ts) that never throws: an unexpected
-   * failure is logged (`pull: failed`) and counts as a skip with code `error`.
-   */
-  async function pullSafely(args) {
-    try {
-      return await fetchPull({ reads: ifaceReads, ...args });
-    } catch (err) {
-      log.warn('pull: failed', {
-        channel: args.destination?.id ?? null,
-        source: args.channelId,
-        pullReason: args.reason,
-        error: err,
-      });
-      return { pulled: null, skip: 'error' };
-    }
-  }
-
-  /**
-   * The route hook's picks as `{ id, direction }`: a non-empty string id (direction null) or
-   * `{ id, direction: 'earlier' }` (the page before the last view of that channel); anything
-   * else is dropped. A throw (`pull: route failed`) or a non-array answer is [].
-   */
-  async function routeIds(args) {
-    try {
-      const ids = await routeChannels(args);
-      if (!Array.isArray(ids)) return [];
-      return ids
-        .map((pick) =>
-          typeof pick === 'string'
-            ? { id: pick, direction: null }
-            : { id: pick?.id, direction: pick?.direction === 'earlier' ? 'earlier' : null }
-        )
-        .filter((pick) => typeof pick.id === 'string' && pick.id !== '');
-    } catch (err) {
-      log.warn('pull: route failed', { channel: args.channel.id, error: err });
-      return [];
-    }
-  }
-
-  /**
-   * The other channels a server turn shows in `<channel_view>`, each fetched
-   * by fetchPull, in the order of src/behavior/pull.js#pullTargets: the
-   * turn's `source` first and alone -- a turn about it does not go on
-   * without it, so nothing else is fetched when it fails -- then the explicit
-   * `<#id>` mentions of the trigger and of the last `context.pull.scanMessages`
-   * messages, then the route hook's ids (routeIds; asked only with
-   * features.channelPull on and while a slot is
-   * left; on a routed turn it reads the source's lines; a pick marked
-   * `earlier` fetches the page before the oldest line of the last view of that
-   * channel shown here, pullViews within `context.pull.seenTtlMinutes`, else
-   * the newest page -- the source itself is never paged back), at most
-   * `context.pull.maxChannels` in all. features.channelPull off: the source
-   * alone. Without `labelled` (no `labels.pull.header`: buildRequest renders
-   * no `<channel_view>`) the source alone too, with no fresh caption, and one
-   * `pull: skipped` (`reason: 'no-label'`) when the turn had a source, a
-   * mention or a route hook to ask. Every candidate is judged once, without a
-   * request, by the rails fetchPull checks first (checkPull); a refused one
-   * logs `pull: skipped` (`channel`, `source` = its id, `reason` = the skip
-   * code, `pullReason` = `mention` or `route`), one whose check throws logs
-   * `pull: failed` and is not pulled. Every pull reads the ring of calls
-   * (`state.json` `elsewherePings`) for its ping marks. Fresh captions only
-   * with `certain` (no chooser can still end the turn as not-now). Settings come from `config`, the turn's live config.
-   * `candidate` (default: the trigger) is what the route hook judges: on a
-   * turn answering one part of a split message, the trigger with that part's text.
-   * A private chat with its `partner` (privatePartner) pulls the same way from
-   * `snapshot`, the served community's listing, every rail judged against the partner instead of
-   * an audience (checkPull: their view of the candidate); it has no
-   * source. `routePlan` (the turn planner's route step, runTurnAttempt; null
-   * without features.turnPlanner): `({ lines, routed }) => Promise<{ id,
-   * direction }[]>`, asked where the route hook would be, instead of it.
-   * @returns {Promise<{ pulled: object[], sourceSkip: string|null }>}  The PulledChannel records,
-   *   source first; `sourceSkip` is the skip code of a source that could not be pulled.
-   */
-  async function pullChannels({
-    channel,
-    guildId,
-    snapshot = null,
-    partner = null,
-    history,
-    trigger,
-    candidate = trigger,
-    triggerKind = null,
-    source,
-    selfName,
-    config,
-    now,
-    certain,
-    labelled,
-    routePlan = null,
-  }) {
-    const settings = pullSettings(config);
-    const channelPull = channelPullOn(config) && labelled;
-    // Every candidate judged once: its skip code (null = pullable) and why it was a candidate.
-    const judged = new Map();
-    let judging = 'mention';
-    const judge = (id) => {
-      try {
-        return checkPull({ snapshot, channelId: id, destination: channel, partnerId: partner?.id ?? null, config, now })
-          .skip;
-      } catch (err) {
-        log.warn('pull: failed', { channel: channel.id, source: id, pullReason: judging, error: err });
-        return 'error';
-      }
-    };
-    const isPullable = (id) => {
-      if (!judged.has(id)) judged.set(id, { skip: judge(id), pullReason: judging });
-      return judged.get(id).skip === null;
-    };
-    // The channels the exchange with this author keeps from an earlier turn (context.pull.keepMinutes / keepTurns).
-    const keptIds = keptPullIds(channel.id, trigger, now, settings);
-    const targetsWith = (extra, { pullable = isPullable, more = channelPull, kept = [] } = {}) =>
-      pullTargets({
-        source,
-        history,
-        trigger,
-        extra,
-        kept,
-        currentChannelId: channel.id,
-        scanMessages: settings.scanMessages,
-        maxChannels: settings.maxChannels,
-        isPullable: pullable,
-        channelPull: more,
-      });
-    const logRefused = () => {
-      for (const [id, { skip, pullReason }] of judged) {
-        // A check that threw was logged as `pull: failed` already.
-        if (skip && skip !== 'error')
-          log.info('pull: skipped', { channel: channel.id, source: id, reason: skip, pullReason });
-      }
-    };
-    if (!labelled) {
-      // What the turn would have pulled with the label (unjudged: no check is wasted on it).
-      const wanted = targetsWith([], { pullable: () => true, more: channelPullOn(config) });
-      const hookWanted =
-        typeof routeChannels === 'function' && channelPullOn(config) && wanted.length < settings.maxChannels;
-      if (wanted.length > 0 || hookWanted) log.info('pull: skipped', { channel: channel.id, reason: 'no-label' });
-    }
-    const pings = store.state.data.elsewherePings ?? [];
-    // The route hook's channels asked for the page before their last view here.
-    const earlierIds = new Set();
-    const pageOf = (channelId) => {
-      if (!earlierIds.has(channelId)) return {};
-      const previous = pullViews.previous(channel.id, channelId, { now, ttlMinutes: settings.seenTtlMinutes });
-      return { direction: 'earlier', beforeId: previous?.oldestId ?? null };
-    };
-    const pullOne = (target) =>
-      pullSafely({
-        snapshot,
-        guildId,
-        channelId: target.channelId,
-        destination: channel,
-        partnerId: partner?.id ?? null,
-        reason: target.reason,
-        trigger: target.reason === 'routed' ? trigger : null,
-        ...pageOf(target.channelId),
-        pings,
-        config,
-        now,
-        describer: describer ?? null,
-        turnCertain: certain && labelled,
-      });
-
-    let targets = targetsWith([]);
-    let picked = false;
-    const sourceTarget = source ? (targets.find((target) => target.channelId === source.channelId) ?? null) : null;
-    let sourcePulled = null;
-    if (sourceTarget) {
-      const result = await pullOne(sourceTarget);
-      if (!result.pulled) {
-        logRefused();
-        return { pulled: [], sourceSkip: result.skip };
-      }
-      sourcePulled = result.pulled;
-    }
-    if ((routePlan || typeof routeChannels === 'function') && channelPull && targets.length < settings.maxChannels) {
-      const routedLines = source?.reason === 'routed' ? sourcePulled?.messages : null;
-      // With the turn planner its channel block stands in for the route hook (never both).
-      const picks = routePlan
-        ? await routePlan({ lines: routedLines ?? history, routed: routedLines ? sourcePulled : null })
-        : await routeIds({
-            guildId,
-            channel,
-            snapshot,
-            partner,
-            history: routedLines ?? history,
-            trigger: candidate,
-            triggerKind,
-            selfName,
-            config,
-          });
-      judging = 'route';
-      for (const pick of picks)
-        if (pick.direction === 'earlier' && pick.id !== sourceTarget?.channelId) earlierIds.add(pick.id);
-      if (picks.length > 0) {
-        targets = targetsWith(picks.map((pick) => pick.id));
-        picked = true;
-      }
-    }
-    // A pick of the router (or a mention) replaces the kept channel; otherwise it fills a free slot.
-    if (!picked && keptIds.length > 0 && channelPull && targets.length < settings.maxChannels) {
-      judging = 'kept';
-      targets = targetsWith([], { kept: keptIds });
-    }
-    const rest = targets.filter((target) => target.channelId !== sourceTarget?.channelId);
-    const fetched = await Promise.all(rest.map(pullOne));
-    logRefused();
-    const got = rest.filter((target, i) => fetched[i].pulled);
-    noteKeptPull(channel.id, trigger, now, settings, {
-      fresh: got.filter((target) => target.reason !== 'kept').map((target) => target.channelId),
-      keptWanted: keptIds.length > 0,
-      keptUsed: got.filter((target) => target.reason === 'kept').map((target) => target.channelId),
-    });
-    return { pulled: [sourcePulled, ...fetched.map((result) => result.pulled)].filter(Boolean), sourceSkip: null };
-  }
-
-  /**
-   * The channels a turn in `destinationId` keeps pulled from an earlier turn of the exchange:
-   * only for a turn with a trigger from the author who pulled them, within `context.pull.keepMinutes`
-   * of the pull and at most `context.pull.keepTurns` kept turns. An entry that no longer qualifies
-   * is dropped; a turn without a trigger (spontaneous, inner) leaves it alone. Logged `pull: kept`
-   * (`pullReason` `kept`) by noteKeptPull when it is used.
-   * @returns {string[]}
-   */
-  function keptPullIds(destinationId, trigger, now, settings) {
-    const entry = keptPulls.get(destinationId);
-    if (!entry || !trigger) return [];
-    const live =
-      settings.keepTurns > 0 &&
-      entry.turns < settings.keepTurns &&
-      now - entry.at < settings.keepMinutes * 60000 &&
-      trigger.authorId &&
-      trigger.authorId === entry.authorId;
-    if (!live) {
-      keptPulls.delete(destinationId);
-      return [];
-    }
-    return entry.channelIds;
-  }
-
-  /**
-   * What pullChannels pulled, for the exchange to keep: channels pulled by a mention or the router
-   * (`fresh`) start a new keep for the trigger's author; kept ones that were pulled again
-   * (`keptUsed`) count one turn; kept ones that could not be pulled end the keep.
-   */
-  function noteKeptPull(destinationId, trigger, now, settings, { fresh, keptWanted, keptUsed }) {
-    if (!trigger || settings.keepTurns <= 0) return;
-    if (fresh.length > 0) {
-      keptPulls.set(destinationId, { channelIds: fresh, at: now, turns: 0, authorId: trigger.authorId ?? null });
-      return;
-    }
-    const entry = keptPulls.get(destinationId);
-    if (!entry || !keptWanted) return;
-    if (keptUsed.length === 0) {
-      keptPulls.delete(destinationId);
-      return;
-    }
-    entry.turns += 1;
-    log.info('pull: kept', {
-      channel: destinationId,
-      source: keptUsed.join(','),
-      pullReason: 'kept',
-      turns: entry.turns,
-    });
-  }
-
-  /**
-   * Fresh captions (src/behavior/pull-fetch.ts#captionPulled) for channels
-   * pulled before a chooser, once the turn is certain to run; only with
-   * features.mediaDescriptions on and a describer. Never rejects: a channel
-   * whose captions fail keeps the cached ones (`pull: captions failed`).
-   */
-  function captionAll(pulled, { guildId, config, destination }) {
-    if (pulled.length === 0 || config.features?.mediaDescriptions !== true || !describer)
-      return Promise.resolve(pulled);
-    return Promise.all(
-      pulled.map((entry) =>
-        captionPulled(entry, { describer, guildId, config, destination }).catch((err) => {
-          log.warn('pull: captions failed', { channel: destination.id, source: entry.channelId, error: err });
-          return entry;
-        })
-      )
-    );
-  }
-
-  /**
-   * The pulled records with the last view of each shown in `destinationId`
-   * (pullViews, within `context.pull.seenTtlMinutes` read now) as `seenBefore`,
-   * new objects; a record without one is passed as it is. buildRequest reads
-   * features.pullSeenMarker itself.
-   * @param {object[]} pulled  The PulledChannel records.
-   * @param {string} destinationId  The channel the turn speaks in.
-   * @param {number} at  The turn's clock.
-   * @returns {object[]}
-   */
-  function withSeenBefore(pulled, destinationId, at) {
-    const { seenTtlMinutes } = pullSettings(hot.config);
-    return pulled.map((entry) => {
-      const seenBefore = pullViews.previous(destinationId, entry.channelId, { now: at, ttlMinutes: seenTtlMinutes });
-      return seenBefore ? { ...entry, seenBefore } : entry;
-    });
-  }
-
-  /**
-   * Move the seen mark of each pulled channel whose block the request showed
-   * (buildRequest's `pulledKept`) to the newest line shown, in `state.json`
-   * `elsewhereSeen` (src/behavior/elsewhere.ts#markSeen: never backwards). The
-   * caller marks the state dirty.
-   * @param {{ channelId: string, newestTs: number }[]} shown
-   */
-  function markPulledSeen(shown) {
-    if (shown.length === 0) return;
-    let seen = store.state.data.elsewhereSeen;
-    for (const { channelId, newestTs } of shown) seen = markSeen(seen, channelId, newestTs);
-    store.state.data.elsewhereSeen = seen;
-  }
-
-  /**
-   * What a turn that spoke had in view (spokeAfterSeeing): this channel's
-   * history under this channel, and the lines shown of each pulled channel
-   * the bot cannot write in under that channel -- a call there is answered
-   * here, so one queued meanwhile and already shown is not answered twice. A
-   * pulled channel the bot can write in keeps its own record: a call written
-   * there is answered there, not by being shown here. The calls the request
-   * named as still waiting for their own turn (`deferred`: the author's queued
-   * calls under `labels.task.queued` or a part's `{others}`) are left out: in
-   * view, yet deliberately not answered by this turn.
-   * @param {object} channel
-   * @param {object[]} history
-   * @param {{ channelId: string, ids: string[] }[]} shown  buildRequest's `pulledKept`.
-   * @param {object[]} pulled  The PulledChannel records (their `readOnly`).
-   * @param {Set<string>} [deferred]
-   */
-  function noteSpokeSaw(channel, history, shown, pulled, deferred = new Set()) {
-    spokeSaw.set(channel.id, new Set(history.map((m) => m.id).filter((id) => !deferred.has(id))));
-    const readOnly = readOnlyIdsOf(pulled);
-    for (const { channelId, ids } of shown) {
-      if (readOnly.has(channelId)) spokeSaw.set(channelId, new Set(ids));
-    }
-  }
-
-  /** The ids of the pulled channels (PulledChannel records) the bot cannot write in. */
-  function readOnlyIdsOf(pulled) {
-    return new Set(pulled.filter((entry) => entry.readOnly === true).map((entry) => entry.channelId));
-  }
-
-  /**
-   * The ring of calls (`state.json` `elsewherePings`, read by every later
-   * pull) after a turn that reached a decision -- it chose silence, or it
-   * spoke for real (a dry run that spoke reached nobody and stamps nothing):
-   * every call of the ring among the lines it showed of a channel the bot
-   * cannot write in (buildRequest's `pulledKept`) is stamped answered when
-   * what reached the chat answered it (`answered`, from act), else skipped --
-   * it was in view, so no later pull presents it as waiting for an answer
-   * (src/behavior/elsewhere.ts#stampPings: an answer wins over a skip, a stamp
-   * never moves). A pulled channel the bot can write in is left alone (a call
-   * there is answered there), and so is `exceptId`: a routed turn's own call,
-   * which its caller (src/behavior/pipeline.js) stamps by the turn's outcome.
-   * Nothing changes while paused (the owner may be editing data/). Each call
-   * whose state changed logs `elsewhere: marked`; the state is marked dirty
-   * once.
-   * @param {{ shown: { channelId: string, ids: string[] }[], pulled: object[], answered: Set<string>,
-   *   exceptId: string|null }} args
-   */
-  function stampShownCalls({ shown, pulled, answered, exceptId }) {
-    const readOnly = readOnlyIdsOf(pulled);
-    const stamps = shown
-      .filter(({ channelId }) => readOnly.has(channelId))
-      .flatMap(({ ids }) =>
-        ids
-          .filter((id) => id !== exceptId)
-          .map((id) => ({ messageId: id, status: answered.has(id) ? 'answered' : 'skipped' }))
-      );
-    const data = store.state.data;
-    if (stamps.length === 0 || data.paused || !Array.isArray(data.elsewherePings)) return;
-    const { ring, marked } = stampPings(data.elsewherePings, stamps, clock());
-    if (marked.length === 0) return;
-    data.elsewherePings = ring;
-    store.state.markDirty();
-    for (const { messageId, channelId, status } of marked)
-      log.info('elsewhere: marked', { source: channelId, message: messageId, status });
   }
 
   /**

@@ -87,6 +87,7 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `src/turn/typing.ts` | public | The typing indicator of a turn while its tool loop runs and while it prepares. Tested through the turn tests. | `node:*`, `src/**` | none |
 | `src/turn/dry-act.ts` | public | The dry run's stand-in for the act: every would-be reaction, message, GIF and diary picture logged, journaled and mirrored. Tested through the turn and journal turn tests. | `node:*`, `src/**` | none |
 | `src/turn/act.ts` | public | The act of a turn: her reactions, messages and GIF posted, checked, typed out, journaled and recorded, and a diary post's speech held. Tested through the turn, journal turn, gifs and diary turn tests. | `node:*`, `src/**` | none |
+| `src/turn/pulls.ts` | public | The other channels a turn shows in `<channel_view>`: which it pulls, their captions and last views, and the seen marks, lines in view and ring stamps a turn leaves. Tested through the turn, pull and pull seen tests. | `node:*`, `src/**` | none |
 | `src/errands/` | public | The errand service: the ledger, the store, the client to the runner and the turns that bring results back. | `node:*`, `src/**` | required |
 | `src/intentions/` | public | The persona intentions: model, store, sources and the service that wakes them. | `node:*`, `src/**` | required |
 | `src/errands/types.ts` | public | The shapes the errand modules share. Types only: nothing runs, so nothing is tested. | `node:*`, `src/**` | none |
