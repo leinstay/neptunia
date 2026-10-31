@@ -5,7 +5,7 @@
     "src/behavior/recall-run.js": 2331,
     "src/behavior/recall.js": 2491,
     "src/behavior/sandbox.js": 2136,
-    "src/behavior/turn.js": 9246,
+    "src/behavior/turn.js": 9243,
     "src/memory/store.js": 3342,
     "tests/admin.test.js": 3880,
     "tests/describe.test.js": 3705,
@@ -244,7 +244,7 @@
         "complexity": 30
       },
       "createTurnRunner": {
-        "function-length": 7264
+        "function-length": 7260
       },
       "createTurnRunner>act": {
         "complexity": 62,
@@ -516,7 +516,7 @@
     },
     "src/memory/describe.js": {
       "createDescriber": {
-        "function-length": 1413
+        "function-length": 1412
       },
       "createDescriber>fetchVideoMedia": {
         "complexity": 23
@@ -716,7 +716,7 @@
     },
     "src/tools/impl/voice.ts": {
       "<anonymous>>cmdVoice": {
-        "complexity": 27
+        "complexity": 26
       }
     },
     "src/tools/registry.ts": {
@@ -739,7 +739,7 @@
         "complexity": 35
       },
       "runMediaLook": {
-        "complexity": 47
+        "complexity": 41
       },
       "runMemorySearch": {
         "complexity": 35

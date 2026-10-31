@@ -51,6 +51,7 @@ export function speechCostOf(chars, config) {
  * @param {string} args.mainKey        The main OpenRouter key.
  * @param {typeof fetch} [args.fetchImpl]
  * @param {() => number} [args.now]
+ * @param {string|null} [args.model]  The core model's id when the call is routed to it; null for the speech role's own.
  * @returns {Promise<{ mp3: Buffer, ms: number, model: string, cost: number }>}
  */
 export async function synthesizeSpeech({
@@ -60,9 +61,10 @@ export async function synthesizeSpeech({
   mainKey,
   fetchImpl = fetch,
   now = () => Date.now(),
+  model: given = null,
 }) {
   const config = getConfig();
-  const model = roleModel(config, SPEECH_ROLE);
+  const model = given ?? roleModel(config, SPEECH_ROLE);
   const voice = config.speech?.voice;
   if (!model || typeof voice !== 'string' || !voice)
     throw new SpeechSynthError('not-configured', 'no voice model or voice configured');

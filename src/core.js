@@ -39,6 +39,7 @@ import { mirrorDryRun } from './behavior/limits.js';
 import { DAY_MS, utcDay } from './time.js';
 import { createCalibrator } from './llm/tokens.js';
 import { createLlm, roleApiKey } from './llm/openrouter.js';
+import { createRoleHealth, reportingLlm, roleKeyCheck } from './llm/role-health.ts';
 import { createEmbedder } from './llm/embed.js';
 import { createImageGen } from './llm/images.js';
 import { createSpeech } from './speech/index.js';
@@ -366,6 +367,12 @@ async function buildCore(options, cleanups) {
   });
 
   const calibrator = createCalibrator(store.state.data.calibration);
+  // Which model roles are down (src/llm/role-health.ts): one tracker for the turns, the operations, the describer and
+  // `/status`. A role has no key when the key it resolves to is empty (src/llm/openrouter.js#roleApiKey).
+  const roleHealth = createRoleHealth({
+    now: () => Date.now(),
+    hasKey: roleKeyCheck({ hot, env, mainKey: openrouterKey }),
+  });
   // `env` (the .env loaded once above): the keys `llm.keyByRole` names per role, looked up per request.
   const llm =
     options.llm ??
@@ -421,7 +428,17 @@ async function buildCore(options, cleanups) {
   const imageFetcher = createImageFetcher();
   const videoFetcher = createVideoFetcher();
   // state: the daily video counter lives next to the LLM client's daily counter.
-  const describer = createDescriber({ hot, store, llm, imageFetcher, videoFetcher, state: store.state, youtubeApiKey });
+  // Its vision and video requests tell the role health how they went.
+  const describerLlm = reportingLlm(llm, { health: roleHealth, hot, roles: ['vision', 'video'] });
+  const describer = createDescriber({
+    hot,
+    store,
+    llm: describerLlm,
+    imageFetcher,
+    videoFetcher,
+    state: store.state,
+    youtubeApiKey,
+  });
   // The web lookup (features.webLookup, off by default): link reader + search on a question.
   // state: the daily web counter lives next to the LLM client's daily counter.
   const lookup = createLookup({
@@ -718,6 +735,7 @@ async function buildCore(options, cleanups) {
   const turns = createTurnRunner({
     hot,
     store,
+    roleHealth,
     // The memory rows a turn's request carried go to the database (memoryDb.turnReads).
     memoryReads: (args) => memoryDb.recordTurnReads(args),
     // One execution context per turn for its memory reads (recorded while the database is open).
@@ -949,6 +967,7 @@ async function buildCore(options, cleanups) {
   const admin = createAdmin({
     hot,
     store,
+    roleHealth,
     // The operations' `env.reads`: the conversation they post in, a message's event.
     reads,
     // Who the persona is, and the names of members and conversations the interface reported.
@@ -1032,6 +1051,7 @@ async function buildCore(options, cleanups) {
         inner,
         errands: taskStores,
         guildId: getGuildId,
+        roleHealth,
       }),
   });
 

@@ -25,7 +25,7 @@ A line that starts with `/` is a command. It goes to the core as a `command.requ
 
 | Command | What it does |
 |---|---|
-| `/status` | The short summary: whether the core is paused, today's spend in total and for the core model, the interfaces up or down, the next wake, the open intentions, the errands and the wakes that slept since the start. It reads what the core holds and asks no model. |
+| `/status` | The short summary: whether the core is paused, today's spend in total and for the core model, the interfaces up or down, each model role that is failing with its reason, the next wake, the open intentions, the errands and the wakes that slept since the start. It reads what the core holds and asks no model. |
 | `/pause` | Stops admission: the turns that run finish, and nothing new starts. See [Pause](#pause). |
 | `/resume` | Ends the pause and hands back what it kept. |
 | `/wakes` | The inner life's status: its queue, its next wake and its last turn (`/nep task inner status`). |
@@ -56,9 +56,10 @@ The core's side of these commands is `src/interface/neptunia-cli.ts` (see [Comma
 |---|---|
 | `node` | The major version of Node: 26, as `package.json` `engines` says. |
 | `binaries` | `ffmpeg`, which voice messages need. Missing is `warn`. |
-| `config` | `config.json` and `config.local.json` parse, and each key of `config.local.json` has the type `config.json` gives it. A key of another type is `warn`. |
+| `config` | `config.json` and `config.local.json` parse, and each key of `config.local.json` has the type `config.json` gives it. A key of another type is `warn`, except a model role set to `false`. |
 | `local-layer` | The private directory exists, and whether `prompts.local/` is there. |
 | `env-keys` | `.env` in the private directory sets `OPENROUTER_CORE_KEY` (`fail` without it) and every key `llm.keyByRole` names (`warn` for a missing one). Names only. |
+| `roles` | A model role switched off with `models.base.<role>: false`, or a role whose key never falls back (`memory`) without its `llm.keyByRole` variable. Either is `warn`. |
 | `tokens` | Every client of `clients.json` has a token file that is not empty and that only its owner can read. |
 | `database` | `PRAGMA quick_check` of the memory database. A missing database is `warn`. |
 | `socket` | `<data>/run/core.sock` exists and the core answers on it. |

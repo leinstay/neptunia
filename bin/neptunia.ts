@@ -60,6 +60,8 @@ import { ROOT_DIR, deepMerge, parseEnv, readConfig, resolveEnvRefs } from '../sr
 import { moveConfigKeys } from '../src/config-moves.ts';
 import { CLIENTS_FILE, loadPrincipals } from '../src/interface/principals.ts';
 import { coreSocketPath } from '../src/interface/socket.ts';
+import { BASE_ROLES, MEMORY_ROLE } from '../src/llm/roles.js';
+import { ROLE_KEY_NAME, STRICT_KEY_ROLES } from '../src/llm/openrouter.js';
 import { log, logToStderr } from '../src/log.js';
 import { resolvePaths } from '../src/paths.js';
 import type {
@@ -545,7 +547,10 @@ function checkConfig(where: { rootDir: string; privateDir: string }): Check {
   if (base === null) return { name: 'config', status: 'fail', detail: 'config.json is missing' };
   if (local === null)
     return { name: 'config', status: 'warn', detail: 'no config.local.json: the shipped settings apply' };
-  const wrong = mismatchedKeys(base, moveConfigKeys(local).config);
+  const moved = moveConfigKeys(local).config;
+  // A model role switched off (`models.base.<role>: false`) is the roles check's to report, not a wrong type.
+  const off = new Set(rolesOff(moved).map((role) => `models.base.${role}`));
+  const wrong = mismatchedKeys(base, moved).filter((key) => !off.has(key));
   return wrong.length === 0
     ? { name: 'config', status: 'ok', detail: 'config.json and config.local.json read' }
     : { name: 'config', status: 'warn', detail: `keys of another type than config.json's: ${wrong.join(', ')}` };
@@ -584,6 +589,40 @@ function checkEnvKeys(where: { rootDir: string; privateDir: string }): Check {
   return missing.length === 0
     ? { name: 'env-keys', status: 'ok', detail: 'every key a role names is set' }
     : { name: 'env-keys', status: 'warn', detail: `not set: ${missing.join(', ')}` };
+}
+
+/** The base model roles `config` switches off with `models.base.<role>: false`. */
+function rolesOff(config: Settings): Array<string> {
+  const models = isObject(config.models) ? config.models : {};
+  const base = isObject(models.base) ? models.base : {};
+  return [...BASE_ROLES, MEMORY_ROLE].filter((role) => base[role] === false);
+}
+
+/**
+ * The model roles that cannot run: switched off (`models.base.<role>: false`), or one whose key never falls back to
+ * the main key (`STRICT_KEY_ROLES`) without its `llm.keyByRole` variable in `.env`. Either is `warn`. Names only.
+ */
+function checkRoles(where: { rootDir: string; privateDir: string }): Check {
+  let config: Settings;
+  let names: Set<string>;
+  try {
+    config = readConfig(where.rootDir, { privateDir: where.privateDir }) as Settings;
+    names = new Set(Object.keys(parseEnv(fs.readFileSync(path.join(where.privateDir, '.env'), 'utf8'))));
+  } catch {
+    return { name: 'roles', status: 'warn', detail: 'not checked: the config or .env does not read' };
+  }
+  const byRole = isObject(config.llm) && isObject(config.llm.keyByRole) ? config.llm.keyByRole : {};
+  const noKey = STRICT_KEY_ROLES.filter((role) => {
+    const name = byRole[role];
+    return typeof name !== 'string' || !ROLE_KEY_NAME.test(name) || !names.has(name);
+  });
+  const problems = [
+    ...rolesOff(config).map((role) => `${role} has no model`),
+    ...noKey.map((role) => `${role} has no key`),
+  ];
+  return problems.length === 0
+    ? { name: 'roles', status: 'ok', detail: 'every model role has a model and a key' }
+    : { name: 'roles', status: 'warn', detail: problems.join(', ') };
 }
 
 function checkTokens(where: { privateDir: string }): Check {
@@ -661,6 +700,7 @@ async function runDoctor(argv: ReadonlyArray<string>): Promise<void> {
     checkConfig(where),
     checkLocalLayer(where),
     checkEnvKeys(where),
+    checkRoles(where),
     checkTokens(where),
     checkDatabase(where),
     await checkSocket(where),

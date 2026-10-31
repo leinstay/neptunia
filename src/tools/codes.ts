@@ -12,8 +12,9 @@
 // Fields of an entry: `status` the result status the code is reported under by default (`ok`,
 // `denied`, `invalid`, `not_configured`, `failed`, `partial`, `unknown`); `group` where the wording
 // lives (`skill`, `wake`, `internal`, `ok`); `params` the values the label may name (`{status}`:
-// an HTTP status, `{what}`: what timed out or ran out, `{feature}`: what is not set up). A value of
-// `what` or `feature` is a key of `labels.tools.result.params.<param>` (else the value as it is).
+// an HTTP status, `{what}`: what timed out or ran out, `{feature}`: what is not set up, `{ability}` and `{why}`: the
+// ability a down model role serves and why it is down). A value of any but `status` is a key of
+// `labels.tools.result.params.<param>` (else the value as it is).
 
 import { idText, objOf } from './types.ts';
 
@@ -168,6 +169,8 @@ export const CATALOGUE = Object.freeze({
   'image-error': skill('failed'),
   'image-empty': skill('failed'),
   'unsupported-model': skill('failed'),
+  // A tool role that is down while the core model lacks its ability (src/tools/gateway.ts#abilityRoute).
+  'ability-unavailable': skill('failed', ['ability', 'why']),
   'speech-cap-daily': skill('failed'),
   'speech-prepare-failed': skill('failed'),
   'speech-synth-failed': skill('failed'),

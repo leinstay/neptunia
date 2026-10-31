@@ -1109,9 +1109,9 @@ export function createDescriber({
    * URL, the reasoning settings (`media.video.reasoning`, a plain object or
    * nothing), never the text calibration.
    */
-  function videoRequestOptions(videoCfg, media, { maxOutputTokens }) {
+  function videoRequestOptions(videoCfg, media, { maxOutputTokens, model = null }) {
     return {
-      model: roleModel(hot.config, 'video'),
+      model: model ?? roleModel(hot.config, 'video'),
       role: 'video',
       maxOutputTokens,
       timeoutMs: videoCfg.timeoutMs,
@@ -1480,7 +1480,7 @@ export function createDescriber({
    * @param {string} question
    * @returns {Promise<{ question: string, text: string }|null>}
    */
-  async function rewatchVideo(guildId, item, question) {
+  async function rewatchVideo(guildId, item, question, { model = null } = {}) {
     if (!isVideoVisionOn(hot.config) || hot.config.features?.videoRewatch === false) return null;
     const promptText = hot.prompts?.['rewatch-answer'];
     const asked = String(question ?? '').trim();
@@ -1549,7 +1549,7 @@ export function createDescriber({
           },
           { role: 'user', content: [{ type: 'text', text: asked }, videoPart(videoCfg, media)] },
         ],
-        videoRequestOptions(videoCfg, media, { maxOutputTokens: rewatchCfg.maxOutputTokens })
+        videoRequestOptions(videoCfg, media, { maxOutputTokens: rewatchCfg.maxOutputTokens, model })
       );
     } catch (err) {
       report('error', { reason: requestFailureReason(err), seconds: media.seconds ?? null });
@@ -1588,9 +1588,8 @@ export function createDescriber({
    * @param {string} question
    * @returns {Promise<{ question: string, text: string }|null>}
    */
-  async function relookImage(guildId, item, question) {
-    const features = hot.config.features ?? {};
-    if (features.imageRelook === false) return null;
+  async function relookImage(guildId, item, question, { model = null } = {}) {
+    if (hot.config.features?.imageRelook === false) return null;
     const promptText = hot.prompts?.['rewatch-answer'];
     const asked = String(question ?? '').trim();
     if (!promptText || item?.kind !== 'image' || !item.itemId || !item.url || !asked) return null;
@@ -1662,7 +1661,7 @@ export function createDescriber({
           },
         ],
         {
-          model: roleModel(hot.config, 'vision', 'relook'),
+          model: model ?? roleModel(hot.config, 'vision', 'relook'),
           ...roleRequestOptions(hot.config, {
             role: 'vision',
             maxOutputTokens: rewatchCfg.maxOutputTokens,
@@ -1733,7 +1732,7 @@ export function createDescriber({
    * @param {string} question
    * @returns {Promise<{ question: string, text: string }|null>}
    */
-  async function rewatchGif(guildId, item, question) {
+  async function rewatchGif(guildId, item, question, { model = null } = {}) {
     if (gifWatchBlocker() !== null || hot.config.features?.videoRewatch === false) return null;
     const promptText = hot.prompts?.['rewatch-answer'];
     const asked = String(question ?? '').trim();
@@ -1804,7 +1803,7 @@ export function createDescriber({
           },
           { role: 'user', content: [videoPart(videoCfg, clip)] },
         ],
-        videoRequestOptions(videoCfg, clip, { maxOutputTokens: rewatchCfg.maxOutputTokens })
+        videoRequestOptions(videoCfg, clip, { maxOutputTokens: rewatchCfg.maxOutputTokens, model })
       );
     } catch (err) {
       report('error', { reason: requestFailureReason(err), seconds: clip.seconds });

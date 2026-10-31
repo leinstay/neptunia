@@ -146,6 +146,7 @@ import { intentionSettings, isIntentionId } from '../intentions/model.ts';
 import { WAKE_PURPOSE_CHARS } from './wake.ts';
 import { diagnosticText, feedbackInTurnText, placesBlockText, wakeBlockText } from './wake.ts';
 import { CODE } from '../tools/codes.ts';
+import { turnRoutes } from './turn-ability-route.ts';
 import { coerceArgs, coversSpeech, normalizeCalls, toolResultText, transportOf } from '../tools/tool-calls.ts';
 import { buildTools } from '../tools/tools-json.ts';
 import {
@@ -2024,10 +2025,13 @@ export function createTurnRunner({
   memoryContext = null,
   // Her attention, one turn at a time: src/behavior/attention.ts mirrors it as leases; a plain set without them.
   attention = new Set(),
+  // Which model roles are down (src/llm/role-health.ts), shared with the admin: her tool roles route on it.
+  roleHealth = null,
 }) {
   /** @type {import('../interface/reads.ts').Reads} */
   const ifaceReads = readsDep;
   const busy = attention;
+  const routes = turnRoutes(hot, roleHealth);
 
   /**
    * The one execution context of an attempt's memory reads (`memoryContext`): issued the first time a read needs it
@@ -2746,15 +2750,15 @@ export function createTurnRunner({
   }
 
   /**
-   * Her in-turn tools for one turn (src/tools/tools.ts, whatever features.coreTools says): skill name
-   * -> `(args) => result`, run by src/tools/executors.ts#executeCall in place of the operation's
-   * command, over the turn's own context -- `web.search` through the turn's `lookup`, `web.read`
-   * too (a `#N` message she names read as its first link in `history`: an embedded one, else one
-   * written in its text), `media.look` through the turn's `describer` (a `#N` message she names
-   * found in `history`; at most `media.look.maxPerTurn` second looks in the turn, read at each call),
-   * `memory.search` through its `recall` over the served community (`snapshot`; a private chat on its
-   * `partner`'s behalf), the turn's `history` left out of the hits and her call marks on the
-   * quoted lines (linkCalls), and `draw.create` through drawTool.
+   * Her in-turn tools for one turn (src/tools/tools.ts, whatever features.coreTools says): skill name -> `(args) =>
+   * result`, run by src/tools/executors.ts#executeCall in place of the operation's command, over the turn's own context
+   * -- `web.search` through the turn's `lookup`, `web.read` too (a `#N` message she names read as its first link in
+   * `history`: an embedded one, else one written in its text), `media.look` through the turn's `describer` (a `#N`
+   * message she names found in `history`; at most `media.look.maxPerTurn` second looks in the turn, read at each call),
+   * `memory.search` through its `recall` over the served community (`snapshot`; a private chat on its `partner`'s
+   * behalf), the turn's `history` left out of the hits and her call marks on the quoted lines (linkCalls), and
+   * `draw.create` through drawTool; `draw.create` and `media.look` go on the route of their model role
+   * (src/behavior/turn-ability-route.ts#turnRoutes).
    */
   function inTurnTools({
     channel,
@@ -2772,10 +2776,11 @@ export function createTurnRunner({
   }) {
     // The second looks this turn took (media.look): every step of the loop shares the count.
     let looks = 0;
+    const where = { channel, guildId, trigger, triggerKind, selfName, draft, mode, plain };
     // A message the turn's history lacks but one of its memory.search results quoted.
     const quotedMessage = (messageId) => draft?.searchRefs?.byId.get(String(messageId))?.message ?? null;
     return {
-      'draw.create': (args) => drawTool(args, { channel, guildId, trigger, triggerKind, selfName, draft, mode, plain }),
+      'draw.create': (args) => routes.tool('drawing', (model) => drawTool(args, where, model)),
       ...(mode === 'diary' ? diaryVoiceTool({ speech, held: draft }) : {}),
       'web.search': (args) =>
         runWebSearch({ lookup: lookup ?? null, config: hot.config, labels: hot.prompts?.labels ?? {}, guildId, args }),
@@ -2806,6 +2811,7 @@ export function createTurnRunner({
             looks += 1;
             return true;
           },
+          onRoute: routes.look,
         }),
       'media.find': (args) =>
         runMediaFind({ store, config: hot.config, labels: hot.prompts?.labels ?? {}, guildId, args }),
@@ -3008,9 +3014,10 @@ export function createTurnRunner({
   }
 
   /**
-   * The planned calls of one step made (runCall over `context`), in segments (src/behavior/tool-step.js#segments):
-   * a run of consecutive reads together, every other call, a refusal included, alone, in her written order. Resolves
-   * the results in the order of `plans`, one for each.
+   * The planned calls of one step made (runCall over `context`), in segments (src/behavior/tool-step.js#segments): a
+   * run of consecutive reads together, every other call, a refusal included, alone, in her written order. Resolves the
+   * results in the order of `plans`, one for each. The first result of the turn that a model role's route moved carries
+   * the route line (turnRoutes).
    */
   async function runCalls(plans, context) {
     const results = new Array(plans.length);
@@ -3023,7 +3030,7 @@ export function createTurnRunner({
       });
       at += segment.calls.length;
     }
-    return results;
+    return routes.tell(results, context);
   }
 
   /**
@@ -4434,13 +4441,14 @@ export function createTurnRunner({
   }
 
   /**
-   * One picture (src/media/draw.js#drawPicture): her scene verbatim into the drawing prompt, the
-   * avatar reference for a picture she is in, one generation. `userId` is the member whose rail
-   * counts it (null: nobody's); `avatar` the holder a diary set reuses the avatar through.
-   * Throws what the image client throws (ImageCapError, ImageGenError).
+   * One picture (src/media/draw.js#drawPicture): her scene verbatim into the drawing prompt, the avatar reference for a
+   * picture she is in, one generation. `userId` is the member whose rail counts it (null: nobody's); `avatar` the
+   * holder a diary set reuses the avatar through; `model` the core model's id when the call is routed there (null: the
+   * drawing role's own, whose outcome the role health is told). Throws what the image client throws (ImageCapError,
+   * ImageGenError).
    */
-  function makePicture({ scene, self, selfName, guildId = null, userId = null, avatar = null }) {
-    return drawPicture({
+  function makePicture({ scene, self, selfName, guildId = null, userId = null, avatar = null, model = null }) {
+    const made = drawPicture({
       images,
       hot,
       // The persona's large avatar, asked of the interface only when the picture needs the reference.
@@ -4450,32 +4458,33 @@ export function createTurnRunner({
       },
       imageFetcher,
       now: clock,
-      input: { scene, selfName, self, withTime: true, userId, avatar },
+      input: { scene, selfName, self, withTime: true, userId, avatar, model },
     });
+    return routes.report('drawing', model, made);
   }
 
   /**
-   * `draw.create` as an in-turn tool of hers (`args`: the operation's, `{ text, self, channelId?, replyTo? }`):
-   * the picture through makePicture, the scene verbatim, with the local time, then one upload through
-   * the port. It posts where `message.create` would: the channel she names, else the replied message's
-   * (a link names it; a channel and a reply that disagree are refused `unknown-message`), else this one,
-   * checked before anything is generated (src/tools/impl/shared.ts#postingConversation, `attach`). A reply
-   * quotes the message in that channel. The picture is charged to the asking member's rail when the turn
-   * was asked (askedFor), to nobody's otherwise. Every failure is a result she reads, never a limit
-   * notice: an image cap is `image-cap-daily` or `image-cap-user-daily`, a
-   * generation failure `image-moderation`, `image-timeout` or `image-error`, a refused publication its
-   * gateway code, and the port's answer to the upload passes through (`unknown` when it may have gone
-   * out: never generated again). In a diary turn (`mode` 'diary') the picture is staged into
-   * `draft.staged` as `{ picture, self, text }` instead of posted (ok, code `staged`), counted against
-   * the day's diary pictures as it is generated, and refused `daily-cap` (reason: the gate that closed,
-   * diaryPictureGate) while the post may carry none, `loop-cap` past what the post's kind takes
-   * (one picture, or `diary.set.pictures[1]` for a set kind: `draft.diary.set`). Never throws.
+   * `draw.create` as an in-turn tool of hers (`args`: the operation's, `{ text, self, channelId?, replyTo? }`): the
+   * picture through makePicture, the scene verbatim, with the local time, then one upload through the port. It posts
+   * where `message.create` would: the channel she names, else the replied message's (a link names it; a channel and a
+   * reply that disagree are refused `unknown-message`), else this one, checked before anything is generated, on `model`
+   * (the core model's id when its route moved it, else null) (src/tools/impl/shared.ts#postingConversation, `attach`).
+   * A reply quotes the message in that channel. The picture is charged to the asking member's rail when the turn was
+   * asked (askedFor), to nobody's otherwise. Every failure is a result she reads, never a limit notice: an image cap is
+   * `image-cap-daily` or `image-cap-user-daily`, a generation failure `image-moderation`, `image-timeout` or
+   * `image-error`, a refused publication its gateway code, and the port's answer to the upload passes through
+   * (`unknown` when it may have gone out: never generated again). In a diary turn (`mode` 'diary') the picture is
+   * staged into `draft.staged` as `{ picture, self, text }` instead of posted (ok, code `staged`), counted against the
+   * day's diary pictures as it is generated, and refused `daily-cap` (reason: the gate that closed, diaryPictureGate)
+   * while the post may carry none, `loop-cap` past what the post's kind takes (one picture, or `diary.set.pictures[1]`
+   * for a set kind: `draft.diary.set`). Never throws.
    * @returns {Promise<{ status: string, code?: string, ref?: object|null, at?: number, error?: object|null, data: { text: string } }>}
    * @param {*} args
    */
   async function drawTool(
     args,
-    { channel, guildId = null, trigger = null, triggerKind = null, selfName, draft = null, mode = null, plain = false }
+    { channel, guildId = null, trigger = null, triggerKind = null, selfName, draft = null, mode = null, plain = false },
+    model = null
   ) {
     const none = { text: '' };
     const failed = (status, code, extra = {}) => ({ status, code, ...extra, data: none });
@@ -4528,6 +4537,7 @@ export function createTurnRunner({
           selfName,
           guildId,
           userId: asked ? (trigger.authorId ?? null) : null,
+          model,
           ...(staging && draft ? { avatar: (draft.avatar ??= {}) } : {}),
         });
       } catch (err) {
@@ -5766,45 +5776,32 @@ export function createTurnRunner({
   }
 
   /**
-   * The searches on a question: the web search (`webOn`: features.webLookup,
-   * web.search.enabled, a lookup with `search`) and the search of the
-   * server's own history (`serverOn`: recall wired and available, a server
-   * turn or a private chat with its `partner`; the community searched is the
-   * `snapshot`'s). One cheap classifier call (prompts.lookup, `{{name}}` = the
-   * persona's display name, `{{today}}` = the injected clock's date
-   * `YYYY-MM-DD` in `bot.timezone`, the zone its `when:` range is read in;
-   * on the `analyzer` model role (roleModel), its answer capped at
-   * `web.search.classifierMaxOutputTokens`) reads the last
-   * `web.search.contextMessages` messages of `history` before the trigger
-   * (with the pictures' captions, the video states and the read links this
-   * turn already has; on a routed turn the caller passes the source
-   * channel's lines, where the call was written) and the trigger itself, and
-   * answers `none` or labelled lines (src/behavior/recall.js#parseLookupAnswer,
-   * `when:` read in `bot.timezone`, forms capped at `recall.maxForms`).
-   * The web side runs only under its own gates: `web.search.maxPerTurn`
-   * below 1 (`no-slot`), no search key (`no-key`), its daily slots spent
-   * (`cap`: the lookup's `webCapLeft()`, when it has one; read only); the
-   * classifier is not asked when neither side can run (`lookup: skipped`
-   * with the web side's reason, or `no-prompt` without prompts.lookup). Then
-   * what the answer asks for runs in parallel: a `web` query goes to
-   * lookup.search (at most one per turn), a `server` part to `recall.run`
-   * (`history` = `chatHistory`, the turn's own chat with its reply parents:
-   * what `<chat>` shows; `context` = `history`, the lines this classifier
-   * read, with their `descriptions`; `candidate` = the trigger); a part the answer asks for whose side cannot run is not run,
-   * and a failing part logs `lookup: failed` and counts as nothing. Resolves
-   * the `lookup` input of the request (see createTurnRunner) or null. The
-   * query, the forms and the transcript are data: never logged (`lookup:
-   * classified` carries codes and counts only); an empty or blank answer is
-   * a failed call (`lookup: classifier failed`, `reason: 'empty'`). A failed
-   * call (it threw, or answered nothing) on a direct call (`triggerKind` in
-   * DIRECT_CALLS) with `serverOn` and recall.fallbackOnClassifierFailure on
-   * runs the server search on the question's own words instead
-   * (fallbackLookupPlan over the stored profiles; `lookup: fallback` with
-   * `reason` `classifier-failed` | `empty` and the counts, a `helper-fallback`
-   * entry on `limits`); never the web search; else no search. Its request is an `analyzer` request (roleRequestOptions). `onSearch()`
-   * is called once the answer asks for a search that runs, before it starts
-   * (the turn's deadline grows to pace.prepareSearchMs; until the answer the
-   * turn holds its deadline on this call, see createDeadline's `hold`).
+   * The searches on a question: the web search (`webOn`: features.webLookup, web.search.enabled, a lookup with
+   * `search`) and the search of the server's own history (`serverOn`: recall wired and available, a server turn or a
+   * private chat with its `partner`; the community searched is the `snapshot`'s). One cheap classifier call
+   * (prompts.lookup, `{{name}}` = the persona's display name, `{{today}}` = the injected clock's date `YYYY-MM-DD` in
+   * `bot.timezone`, the zone its `when:` range is read in; on the `analyzer` model role (roleModel), its answer capped
+   * at `web.search.classifierMaxOutputTokens`) reads the last `web.search.contextMessages` messages of `history` before
+   * the trigger (with the pictures' captions, the video states and the read links this turn already has; on a routed
+   * turn the caller passes the source channel's lines, where the call was written) and the trigger itself, and answers
+   * `none` or labelled lines (src/behavior/recall.js#parseLookupAnswer, `when:` read in `bot.timezone`, forms capped at
+   * `recall.maxForms`). The web side runs only under its own gates: `web.search.maxPerTurn` below 1 (`no-slot`), no
+   * search key (`no-key`), its daily slots spent (`cap`: the lookup's `webCapLeft()`, when it has one; read only); the
+   * classifier is not asked when neither side can run (`lookup: skipped` with the web side's reason, or `no-prompt`
+   * without prompts.lookup). Then what the answer asks for runs in parallel: a `web` query goes to lookup.search (at
+   * most one per turn), a `server` part to `recall.run` (`history` = `chatHistory`, the turn's own chat with its reply
+   * parents: what `<chat>` shows; `context` = `history`, the lines this classifier read, with their `descriptions`;
+   * `candidate` = the trigger); a part the answer asks for whose side cannot run is not run, and a failing part logs
+   * `lookup: failed` and counts as nothing. Resolves the `lookup` input of the request (see createTurnRunner) or null.
+   * The query, the forms and the transcript are data: never logged (`lookup: classified` carries codes and counts
+   * only); an empty or blank answer is a failed call (`lookup: classifier failed`, `reason: 'empty'`). A failed call
+   * (it threw, or answered nothing) on a direct call (`triggerKind` in DIRECT_CALLS) with `serverOn` and
+   * recall.fallbackOnClassifierFailure on runs the server search on the question's own words instead
+   * (fallbackLookupPlan over the stored profiles; `lookup: fallback` with `reason` `classifier-failed` | `empty` and
+   * the counts, a `helper-fallback` entry on `limits`); never the web search; else no search. Its request is an
+   * `analyzer` request (roleRequestOptions). `onSearch()` is called once the answer asks for a search that runs, before
+   * it starts (the turn's deadline grows to pace.prepareSearchMs; until the answer the turn holds its deadline on this
+   * call, see createDeadline's `hold`).
    * With the turn planner (`planned`: the attempt's createTurnPlan result)
    * no classifier is asked here: the planner's lookup block stands in for its
    * answer -- `ok` runs what it asks for; `none`, a planner that skipped or a

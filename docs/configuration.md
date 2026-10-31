@@ -192,6 +192,12 @@ Three groups, the same three the `/nep status` card shows. Each role is set inde
 | `speech` | `"elevenlabs/eleven-v4"` | Speaks her text aloud through the speech endpoint. Named on the status card, never probed |
 | `drawing` | `"openai/gpt-image-2.5-flare"` | Generates pictures through the Images API. Only `openai/*` and `google/*` families |
 
+A role set to `false` has no model. Its tool calls (`media.look` for `vision` and `video`, `draw.create` for `drawing`, `voice.say` for `speech`) go to the core model when the core declares the role's ability in `models.abilities`, and answer `ability-unavailable` otherwise. `/status` lists the role as failing and `neptunia doctor` warns about it. `null` or a missing key is the role's default model. The same route applies while a role is failing globally (see [Media](media.md#when-a-model-role-is-down)).
+
+### `models.abilities`
+
+What each model can do, keyed by model id: a list of `text`, `imagesIn`, `imagesOut`, `videoIn`, `audioOut` and `embeddings`. A model without an entry has `text` only. Only the core model's list is read, by `src/tools/gateway.ts#abilityRoute`, when a tool role is down. Default: no entry, so the core has `text` only and a down tool role answers `ability-unavailable`. The local layer adds an entry, for example `"anthropic/claude-opus-4.6": ["text", "imagesIn"]` for a core that reads pictures.
+
 ### `models.byPurpose`
 
 An object whose keys are purpose strings (e.g. `reply`, `lookup`, `recall-summary`, `diary-plan`, `planner`, `web-search`) and whose values are model ids. A match on purpose wins over the role's model. Default: `{}` (no overrides). Not probed by `/nep status`.

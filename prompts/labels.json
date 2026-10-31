@@ -796,6 +796,7 @@
         "speech-convert-failed": "the recording could not be turned into a voice note",
         "speech-not-configured": "voice messages are not available here",
         "unsupported-model": "that picture model is not supported",
+        "ability-unavailable": "{ability} is down ({why}) and your own model cannot do it either",
         "loop-cap": "the turn's step limit has been reached",
         "malformed-call": "the call could not be read",
         "truncated-call": "the call was cut off before it was complete",
@@ -813,8 +814,28 @@
         },
         "feature": {
           "web": "the web lookup"
+        },
+        "ability": {
+          "imagesIn": "looking at pictures",
+          "videoIn": "watching videos",
+          "imagesOut": "drawing",
+          "audioOut": "speaking in voice messages"
+        },
+        "why": {
+          "no-model": "no model is set for it",
+          "no-key": "its key is missing",
+          "unauthorized": "its key was refused",
+          "payment": "its account is out of credit",
+          "not-found": "its model was not found",
+          "daily-limit": "its daily limit is used up",
+          "malformed": "its model keeps answering with nothing usable"
         }
       }
+    },
+    "route": {
+      "fallback": "{ability} goes through your own model for now ({why})",
+      "unavailable": "{ability} is down ({why})",
+      "separator": ", "
     },
     "tools": {
       "web": {

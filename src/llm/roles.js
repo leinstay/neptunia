@@ -31,6 +31,8 @@
 // No request of the bot goes out on an errand or development model role (OPENCODE_ROLES): they run on
 // OpenCode, not through the bot's OpenRouter client, and their models are OpenCode model ids
 // (`openrouter/<vendor>/<model>`), unlike the bare OpenRouter ids of the base model roles.
+// `models.abilities.<model id>` lists what a model can do (modelAbilities), and ROLE_ABILITY names the ability each
+// base role serves: the tool gateway routes a down tool role to the core model by them (src/tools/gateway.ts).
 // Pure; every reader passes the live config read at the moment of use.
 
 import { isPlainObject } from '../config.js';
@@ -83,6 +85,37 @@ export const ROLE_DEFAULTS = Object.freeze({
   thinker: 'openrouter/anthropic/claude-opus-5.5',
   dev: 'openrouter/anthropic/claude-sonnet-5.5',
 });
+
+/** What a model can do, as `models.abilities.<model id>` lists it. */
+export const ABILITIES = Object.freeze(['text', 'imagesIn', 'imagesOut', 'videoIn', 'audioOut', 'embeddings']);
+
+/** The ability each base model role other than `core` and `memory` serves. */
+export const ROLE_ABILITY = Object.freeze({
+  analyzer: 'text',
+  vision: 'imagesIn',
+  video: 'videoIn',
+  embedding: 'embeddings',
+  speech: 'audioOut',
+  drawing: 'imagesOut',
+});
+
+/**
+ * What `model` can do: the known abilities of its `models.abilities.<model id>` list (the local layer may add one or
+ * replace it), `['text']` for a model without one.
+ * @param {object|undefined} config  The whole live config, read at the moment of use.
+ * @param {unknown} model
+ * @returns {string[]}
+ */
+export function modelAbilities(config, model) {
+  /** @type {unknown} */
+  const models = isPlainObject(config) ? Reflect.get(config, 'models') : undefined;
+  /** @type {unknown} */
+  const table = isPlainObject(models) ? Reflect.get(models, 'abilities') : undefined;
+  /** @type {unknown} */
+  const listed = typeof model === 'string' && isPlainObject(table) && Object.hasOwn(table, model) ? table[model] : null;
+  if (!Array.isArray(listed)) return ['text'];
+  return ABILITIES.filter((ability) => listed.includes(ability));
+}
 
 /**
  * The group of `models` a model role's model sits in: `base`, `errands` or `development`, undefined for

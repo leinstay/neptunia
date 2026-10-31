@@ -8,7 +8,8 @@
 // the bot's own user id, the image client whose daily caps are the drawing budget, and the errand
 // tasks whose caps are an errand's budget (src/errands/store.ts#budget). Codes are
 // kebab-case; `reason` is a short machine-readable detail (a schema path, a config key, an ops
-// refusal code), never wording.
+// refusal code), never wording. `abilityRoute` decides where a call of a model role that runs as her tool goes when
+// the role is down (src/llm/role-health.ts): to the core model when it declares the role's ability, else nowhere.
 
 import { getOp as registryGetOp } from './impl/registry.ts';
 import type { Op } from './impl/registry.ts';
@@ -20,6 +21,8 @@ import { skillArgs } from './discovery.ts';
 import { MINUTE_MS } from '../time.js';
 import { SELF_OWNED_OPS } from './impl/effects.ts';
 import { CODE } from './codes.ts';
+import { CORE_ROLE, ROLE_ABILITY, modelAbilities, roleModel } from '../llm/roles.js';
+import type { RoleDownReason, RoleHealth } from '../llm/role-health.ts';
 import { idText, isObj, objOf } from './types.ts';
 import type { Skill, SkillMap } from './types.ts';
 import type { WakeAction } from './access.ts';
@@ -324,3 +327,86 @@ export type ListedSkill = {
   reason: string;
   args: ReturnType<typeof skillArgs>;
 };
+
+/** The model roles that run as her tools and fall back to the core model, in the order her route line names them. */
+export const TOOL_ROLES = Object.freeze(['vision', 'video', 'drawing', 'speech'] as const);
+
+/** Where one call of a model role goes: its own model, the core model, or nowhere. */
+export type AbilityRoute =
+  | { kind: 'role'; role: string; model: string }
+  | { kind: 'core'; role: string; ability: string; model: string; reason: RoleDownReason }
+  | { kind: 'unavailable'; role: string; ability: string; reason: RoleDownReason };
+
+const isToolRole = (role: string): boolean => TOOL_ROLES.some((name) => name === role);
+
+/** The ability a model role serves (src/llm/roles.js#ROLE_ABILITY), `text` for one that names none. */
+function abilityOf(role: string): string {
+  const table: Readonly<Record<string, string>> = ROLE_ABILITY;
+  return Object.hasOwn(table, role) ? (table[role] ?? 'text') : 'text';
+}
+
+/**
+ * The route of one call of `role` now: its own model while `health` says it is up; when it is down, the core model if
+ * the core declares the role's ability (`models.abilities.<model id>`), else `unavailable` with why the role is down.
+ * Only the tool roles (TOOL_ROLES) fall back: the analyzer and the embedding role always go to their own model.
+ */
+export function abilityRoute({
+  config,
+  role,
+  health,
+}: {
+  config: unknown;
+  role: string;
+  health: RoleHealth | null;
+}): AbilityRoute {
+  const own = { kind: 'role', role, model: String(roleModel(config, role) ?? '') } as const;
+  const down = isToolRole(role) ? (health?.down(config, role) ?? null) : null;
+  if (down === null) return own;
+  const ability = abilityOf(role);
+  const core = String(roleModel(config, CORE_ROLE) ?? '');
+  return modelAbilities(config, core).includes(ability)
+    ? { kind: 'core', role, ability, model: core, reason: down.reason }
+    : { kind: 'unavailable', role, ability, reason: down.reason };
+}
+
+/**
+ * One call of `role` on its route: `call` runs with the core model's id when the route is the core, with null for the
+ * role's own model, and not at all when it is `unavailable`. `call` tells `health` how its own model's request went;
+ * when that put the role down, the same call is routed again at once. Resolves the route the value came from.
+ */
+export async function callOnRoute<TValue>({
+  config,
+  role,
+  health,
+  call,
+}: {
+  config: unknown;
+  role: string;
+  health: RoleHealth | null;
+  call: (model: string | null) => Promise<TValue>;
+}): Promise<{ route: AbilityRoute; value: TValue | null }> {
+  const first = abilityRoute({ config, role, health });
+  if (first.kind === 'unavailable') return { route: first, value: null };
+  const value = await call(first.kind === 'core' ? first.model : null);
+  if (first.kind === 'core') return { route: first, value };
+  const again = abilityRoute({ config, role, health });
+  if (again.kind === 'role') return { route: first, value };
+  return { route: again, value: again.kind === 'core' ? await call(again.model) : null };
+}
+
+/** The result of a call that did not happen because its role is down and the core model lacks the ability. */
+export function abilityUnavailable(route: { ability: string; reason: RoleDownReason }): {
+  status: 'failed';
+  code: string;
+  values: { ability: string; why: RoleDownReason };
+  route: 'unavailable';
+  data: { text: string };
+} {
+  return {
+    status: 'failed',
+    code: CODE.ABILITY_UNAVAILABLE,
+    values: { ability: route.ability, why: route.reason },
+    route: 'unavailable',
+    data: { text: '' },
+  };
+}

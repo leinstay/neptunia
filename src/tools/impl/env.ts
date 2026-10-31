@@ -17,6 +17,7 @@ import { CODE } from '../codes.ts';
 import { idText, objOf } from '../types.ts';
 import type { Untyped } from '../types.ts';
 import type { Reads } from '../../interface/reads.ts';
+import type { RoleHealth } from '../../llm/role-health.ts';
 
 /** What `createOpsEnv` is given: the persona's subsystems, the reads of the interface and the clock. */
 export type OpsDeps = {
@@ -36,6 +37,8 @@ export type OpsDeps = {
   connection?: { lastReconnectAt: number | null };
   now?: () => number;
   dataDir?: string | null;
+  /** Which model roles are down (src/llm/role-health.ts), shared with the turn runner. */
+  roleHealth?: RoleHealth | null;
   [subsystem: string]: Untyped;
 };
 
@@ -59,6 +62,7 @@ function buildEnv({
   pending,
   images,
   speech = null,
+  roleHealth = null,
   imageFetcher,
   emojiBackfill,
   gifBackfill,
@@ -238,6 +242,8 @@ function buildEnv({
     pending,
     images,
     speech,
+    // Which model roles are down (src/llm/role-health.ts): `voice.say` routes on it.
+    roleHealth,
     imageFetcher,
     emojiBackfill,
     gifBackfill,
