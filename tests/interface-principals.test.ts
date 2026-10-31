@@ -85,3 +85,13 @@ test('loadPrincipals lists each client with its kind, iface and token file, and 
   assert.equal(byName.get('discord')?.tokenFile, 'clients/discord.token');
   assert.equal(byName.get('owner')?.kind, 'cli');
 });
+
+// Stage 6c: the board's agents are clients of their own kind.
+test('an agent entry of clients.json stands for a principal of kind agent with no iface', () => {
+  const AGENT: Entry = { kind: 'agent', tokenFile: 'clients/hand.token', permissions: [] };
+  const privateDir = layer({ hand: AGENT }, { hand: 'h'.repeat(64) });
+  const hand = principalOfToken('h'.repeat(64), { privateDir, boot: null });
+  assert.equal(hand?.name, 'hand');
+  assert.equal(hand?.kind, 'agent');
+  assert.equal(hand?.iface, null);
+});

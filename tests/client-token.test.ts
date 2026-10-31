@@ -146,3 +146,28 @@ for (const command of ['revoke', 'rotate']) {
     assert.deepEqual(live.handled, ['e1']);
   });
 }
+
+// Stage 6c: an agent client and its board roles.
+test('add --kind agent --roles writes the board roles and the token stands for an agent principal', () => {
+  const privateDir = tempDir('nep-token-');
+  const run = tool(privateDir, ['add', 'hand', '--kind', 'agent', '--roles', 'worker,reviewer']);
+  assert.equal(run.code, 0, run.out);
+  assert.equal(whoIs(privateDir, tokenOf(privateDir, 'hand'))?.kind, 'agent');
+  const clients = JSON.parse(fs.readFileSync(path.join(privateDir, 'clients.json'), 'utf8')) as Record<
+    string,
+    { boardRoles?: Array<string> }
+  >;
+  assert.deepEqual(clients.hand?.boardRoles, ['worker', 'reviewer']);
+});
+
+test('add with a board role outside the board roles refuses and leaves clients.json as it was', () => {
+  const privateDir = tempDir('nep-token-');
+  assert.equal(tool(privateDir, ['add', 'boss', '--kind', 'agent', '--roles', 'owner']).code, 0);
+  const run = tool(privateDir, ['add', 'hand', '--kind', 'agent', '--roles', 'worker,admin']);
+  assert.notEqual(run.code, 0);
+  assert.deepEqual(
+    (loadPrincipals(privateDir) ?? []).map((entry) => entry.name),
+    ['boss']
+  );
+  assert.equal(fs.existsSync(tokenFile(privateDir, 'hand')), false);
+});
