@@ -20,7 +20,7 @@
 // when unknown here (`unknown-file`: a private chat's file goes only back to that chat), larger
 // than the interface takes (`attachment-too-large`) or unreadable (`file-unreadable`). It may also
 // carry one GIF of her library (`gif`, a handle), posted after the text or alone, counted like a
-// reply's `<gif>` (`unknown-gif`; over `gifs.maxPerDay` `gif-cap`; both refuse before anything is posted).
+// reply's `<gif>` (`unknown-gif`, refused before anything is posted).
 // Instead of either, it may repost a picture of one of HER OWN earlier messages (`media`, a message id or
 // link, `item` picking one of several attachments): the message is fetched, its attachment downloaded and
 // uploaded as a real file (never a link). Refused: another's message (`not-own-message`), an unknown or
@@ -36,9 +36,8 @@ import { defineOp, perEnv, invalid, denied } from './registry.ts';
 import { DIARY_DAILY } from '../../behavior/diary.ts';
 import type { createMirrors } from '../../behavior/mirror.ts';
 import { writeDiaryMessage } from '../../behavior/diary-turn.ts';
-import { freshAttachmentUrl, gifPostUrl, countGifPost } from '../../media/gif-post.js';
-import { gifPostsToday } from '../../memory/gif-watch.js';
-import { countToday, utcDay } from '../../time.js';
+import { freshAttachmentUrl, gifPostUrl } from '../../media/gif-post.js';
+import { countToday } from '../../time.js';
 import { CODE } from '../codes.ts';
 import { idText, objOf, textOf } from '../types.ts';
 import type { Obj, OpContext, Untyped } from '../types.ts';
@@ -238,7 +237,7 @@ function gifEntry(env: Env, args: Obj, guildId: string | null): Untyped {
 }
 
 const handlers = perEnv((env) => {
-  const { hot, store, spontaneous, turns, assertNotPaused, resolvedGuildId } = env;
+  const { store, spontaneous, turns, assertNotPaused, resolvedGuildId } = env;
   const { reads } = env;
   const port = env.port as Adapter | null | undefined;
   const fetchImpl = typeof env.fetchImpl === 'function' ? env.fetchImpl : fetch;
@@ -314,18 +313,11 @@ const handlers = perEnv((env) => {
     };
   }
 
-  /** Whether today's GIF posts are spent against `gifs.maxPerDay` (read now). */
-  function gifCapSpent() {
-    const posts = gifPostsToday(objOf(store.state.data), objOf(hot.config), utcDay(clock()));
-    return posts.used >= posts.cap;
-  }
-
   /**
    * The persona's own text posted as hers: the channel checked, the reply target in it. A `gif`
    * (her library's handle) follows the text, or goes alone when the text is empty, as a `<gif>`
    * of a reply turn does (src/media/gif-post.js): the entry's URL as the text of a message of
-   * hers, counted against `gifs.maxPerDay` and stamped on its entry. The day's cap spent: refused
-   * `gif-cap` before anything is posted.
+   * hers, stamped on its entry.
    */
   async function post(args: Obj, context: OpContext, p: Adapter) {
     const text = textOf(args.text).trim();
@@ -340,9 +332,6 @@ const handlers = perEnv((env) => {
     const repliedUser = Boolean(reply) && !pingsOff(context, context?.repliedAuthorId);
     const guildId = resolvedGuildId(context);
     const entry = gifEntry(env, args, guildId);
-    const capped = entry ? gifCapSpent() : false;
-    // Over the day's cap nothing is posted, the text included: she may call again without the GIF.
-    if (capped) throw invalid('the GIF limit for today is used up', CODE.GIF_CAP);
     const attachment = (await errandFile(env, args, context, channelId, p)) ?? (await mediaFile(args, context, p));
     const to = { iface: p.iface, conversationId: channelId };
     const content: Content = {
@@ -405,8 +394,6 @@ const handlers = perEnv((env) => {
       : { text: gifPostUrl(entry as { url: string }, fresh), mentions: { users: [], repliedUser: false } };
     const sent = await p.send(to, content);
     if (sent?.status === 'ok') {
-      countGifPost(store.state.data, clock());
-      store.state.markDirty();
       if (entry.key && typeof store.recordOwnGif === 'function') store.recordOwnGif(guildId, entry.key, clock());
     }
     return sent;

@@ -46,13 +46,6 @@ export const GIFS: ReadonlyArray<SchemaEntry> = [
     'text': 'Recency half-life (days)',
   },
   {
-    'key': 'gifs.maxPerDay',
-    'types': ['number'],
-    'reader': 'src/memory/gif-watch.js',
-    'default': 40,
-    'text': 'GIFs the persona may post per day',
-  },
-  {
     'key': 'gifs.backfillMessages',
     'types': ['number'],
     'reader': 'src/core.js',

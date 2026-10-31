@@ -18,7 +18,7 @@ export type Senses = { stable: string; turn: string };
 export type SensesOptions = {
   searchAvailable?: boolean;
   recallAvailable?: boolean;
-  drawQuota?: { spent: boolean; userSpent: boolean } | null;
+  drawOn?: boolean;
   privateChat?: boolean;
   customEmoji?: boolean;
   gifs?: boolean;
@@ -61,8 +61,7 @@ export type SkillRow = {
  * a private chat). Each half keeps the lines in the order described below.
  * Both are '' when `labels.senses` is missing entirely, so an older
  * deployment's labels.json never breaks — the block is simply omitted.
- * `drawQuota` (`{ spent, userSpent }` from the image client's quota(), or
- * undefined when no image client is wired) picks the drawing line.
+ * `drawOn` (an image client and Attach Files) adds the drawing line.
  * `privateChat` adds `senses.privateChat`; outside a private chat,
  * `features.privateMessages === true` adds `senses.privateAware` instead.
  * `recallAvailable` (outside a private chat) adds `senses.recall` right after the search line.
@@ -94,7 +93,7 @@ export function renderSenses(
   {
     searchAvailable = false,
     recallAvailable = false,
-    drawQuota,
+    drawOn,
     privateChat = false,
     customEmoji = false,
     gifs = false,
@@ -151,13 +150,9 @@ export function renderSenses(
   // The search of the server's own message history (`recallAvailable`: a server turn where the runner is
   // available); an older labels.json without the line shows nothing. Per turn.
   if (recallAvailable === true && granted('memory.search') && senses.recallTool) turnLines.push(senses.recallTool);
-  // Drawing (features.imageGeneration, a missing key counts as on) needs the
-  // image client (`drawQuota` present): one line, the spent forms first. An
-  // older labels.json without senses.draw shows nothing. Per turn: the quotas
-  // move within a day, and the member's one with the author.
-  if (drawQuota && senses.draw) {
-    turnLines.push(drawQuota.spent ? senses.drawSpent : drawQuota.userSpent ? senses.drawSpentUser : senses.draw);
-  }
+  // Drawing needs the image client and Attach Files (`drawOn`): one line. An older labels.json without senses.draw
+  // shows nothing. Per turn: Attach Files is the conversation's.
+  if (drawOn === true && senses.draw) turnLines.push(senses.draw);
   lines.push(senses.files);
   // How to read clock times, line ages and gap markers; private chats too.
   if (typeof senses.time === 'string' && senses.time) lines.push(senses.time);
@@ -311,7 +306,7 @@ export function sensesOf(given: RequestInput & Base & MemoryViews): SensesOf {
       ? // The names of the tools exposed to her this turn (src/tools/discovery.ts#exposedSkillNames).
         (given.toolsGranted as Array<string>).filter((name) => IN_TURN_TOOLS.includes(name))
       : [],
-    drawQuota: given.drawQuota,
+    drawOn: given.drawOn,
     privateChat,
     customEmoji: customEmoji.length > 0,
     gifs: gifsOn,

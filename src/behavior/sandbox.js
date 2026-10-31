@@ -145,7 +145,7 @@ export const SANDBOX_OMITS = Object.freeze({
     'no automatic memory prefetch: no <retrieved> block (a scenario run with her tool loop hands in the one a live turn would get: `coreTools.prefetch`)',
   imageAnswers: 'no second look at a picture is run: no imageAnswered line',
   recallAvailable: 'no server search is run: <senses> does not offer it',
-  drawQuota: 'no drawing is offered: a sandbox never draws, so <senses> has no drawing line',
+  drawOn: 'no drawing is offered: a sandbox never draws, so <senses> has no drawing line',
   focus: 'no room question: a live turn has no caller for it either',
   tasks:
     "no part of a split message, no queued or folded call: a replay knows none (a skill scenario's burst hands in its waiting calls: `queued`)",
@@ -804,7 +804,7 @@ export function sandboxRequestInput({
     prefetch: coreTools?.prefetch ?? null,
     // Absent (SANDBOX_OMITS) but with her tool loop (`coreTools`) or the pre-turn searches: whether the server search runs.
     recallAvailable: coreTools ? coreTools.recallAvailable === true : preTurn ? preTurn.recallAvailable === true : null,
-    drawQuota: null,
+    drawOn: false,
     focus: null,
     // Absent but on a burst's turn with calls still waiting (`queued`).
     tasks,

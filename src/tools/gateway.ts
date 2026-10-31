@@ -126,21 +126,14 @@ function requesterRefusal(
 }
 
 /**
- * The budget of each paid skill: a function of the call's context, requester and arguments
- * answering the caps as src/llm/images.js#quota does (`{ spent, userSpent }`; `code` and `key`
- * naming the refusal and the cap that is spent when they are not the drawing's), or null when
- * unavailable.
+ * The budget of a paid skill that has one: a function of the call's context, requester and arguments answering
+ * `{ spent }` (`code` and `key` naming the refusal and the cap that is spent), or null when unavailable. An errand's is
+ * its agent's caps (open tasks and tasks a day), `context.tasks`; a drawing and a voice message have no daily budget.
  */
-const drawBudget = (context: GateContext, requester: Requester | null): unknown =>
-  typeof context.images?.quota === 'function' ? context.images.quota({ userId: requester?.id ?? null }) : null;
-/** An errand's budget: its agent's caps (open tasks, tasks and dollars a day), `context.tasks`. */
 const taskBudget = (context: GateContext, _requester: Requester | null, args: unknown): unknown =>
   typeof context.tasks?.budget === 'function' ? context.tasks.budget(objOf(args).agent) : null;
-/** A voice message's budget: today's count against `speech.maxPerDay`, `context.speech`. */
-const speechBudget = (context: GateContext): unknown =>
-  typeof context.speech?.quota === 'function' ? context.speech.quota() : null;
 const BUDGETS: Readonly<Record<string, (context: GateContext, requester: Requester | null, args: unknown) => unknown>> =
-  Object.freeze({ 'draw.create': drawBudget, 'voice.say': speechBudget, 'errand.run': taskBudget });
+  Object.freeze({ 'errand.run': taskBudget });
 
 /** Minutes between two destructive calls from one channel (`tools.destructiveCooldownMinutes`; config.json's value). */
 const DESTRUCTIVE_COOLDOWN_MINUTES = 10;
@@ -159,19 +152,19 @@ function cooldownRefusal(skill: Skill, context: GateContext): Refusal | null {
   return now - lastRunAt < minutes * MINUTE_MS ? refused(CODE.COOLDOWN, 'tools.destructiveCooldownMinutes') : null;
 }
 
-/** Null when a paid skill still has budget today, else the refusal. Fails closed. */
+/** Null when a paid skill with a budget still has some today, else the refusal; a budget it cannot read fails closed. */
 function budgetRefusal(skill: Skill, requester: Requester | null, context: GateContext, args: unknown): Refusal | null {
   if (skill.costClass !== 'paid') return null;
   const ask = BUDGETS[skill.name];
-  const answer = Object.hasOwn(BUDGETS, skill.name) && ask !== undefined ? ask(context, requester, args) : null;
+  if (!Object.hasOwn(BUDGETS, skill.name) || ask === undefined) return null;
+  const answer = ask(context, requester, args);
   if (!isObj(answer)) return refused(CODE.NO_BUDGET, 'unavailable');
   const budget: Budget = answer;
   if (budget.spent === true)
     return refused(
       typeof budget.code === 'string' && budget.code ? budget.code : CODE.DAILY_CAP,
-      typeof budget.key === 'string' && budget.key ? budget.key : 'image.maxPerDay'
+      typeof budget.key === 'string' && budget.key ? budget.key : 'unavailable'
     );
-  if (budget.userSpent === true) return refused(CODE.DAILY_CAP, 'image.maxPerUserPerDay');
   return null;
 }
 

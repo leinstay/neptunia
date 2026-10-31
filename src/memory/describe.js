@@ -139,9 +139,9 @@ import { clampText, oneLine } from './clamp.js';
 import { roleModel } from '../llm/roles.js';
 import { fillPromptTemplate } from '../behavior/prompt.js';
 import { createYoutubeCheck } from './youtube-check.js';
-import { gifWatchBlocker as gifWatchBlockerOf, gifWatchCap, gifWatchPrompt } from './gif-watch.js';
+import { gifWatchBlocker as gifWatchBlockerOf, gifWatchPrompt } from './gif-watch.js';
 import { log } from '../log.js';
-import { countToday as readDailyCount, dailyCounter, MINUTE_MS, utcDay } from '../time.js';
+import { MINUTE_MS, utcDay } from '../time.js';
 import { hashedKey, touchKey, trimCache } from '../web/cache.js';
 import { normalizeQuery } from '../web/lookup.js';
 
@@ -157,12 +157,6 @@ const VIDEO_TEXT_CHARS_FALLBACK = 1500;
 const REWATCH_ANSWER_CHARS_FALLBACK = 1200;
 const REWATCH_TTL_MS = 60 * MINUTE_MS;
 const PERMANENT_VIDEO_MISSES = new Set(['length', 'size']);
-/** The state.json fields of the daily video counter (every watch and every re-watch attempt). */
-export const VIDEO_DAILY = Object.freeze({ dayKey: 'videoDay', countKey: 'videoCount' });
-/** The state.json fields of the daily second-look counter: a video re-watch and a picture relook alike. */
-const REWATCH_DAILY = Object.freeze({ dayKey: 'rewatchDay', countKey: 'rewatchCount' });
-/** The state.json fields of the daily GIF watch counter: a GIF watch and a GIF's second look alike. */
-const GIF_WATCH_DAILY = Object.freeze({ dayKey: 'gifWatchDay', countKey: 'gifWatchCount' });
 /** What cachedPicture returns for a picture whose recent failure is still remembered. */
 const FRESH_MISS = Symbol('fresh-miss');
 // Only when media.gif.maxSeconds is missing or invalid (config.json always has it).
@@ -288,11 +282,6 @@ function questionKey(itemId, question, prefix = 'video') {
  */
 function pictureImageUrl(item) {
   return item.previewUrl ?? item.url;
-}
-
-/** A stand-in for the persistent state when none is wired (tests, tools): the daily count lives in memory. */
-function memoryState() {
-  return { data: {}, markDirty() {} };
 }
 
 /** ≤200 chars, with any query string stripped -- an error message must never leak a signed URL. */
@@ -438,7 +427,6 @@ export function createDescriber({
   now = Date.now,
   imageFetcher = createImageFetcher(),
   videoFetcher = createVideoFetcher(),
-  state = memoryState(),
   youtubeApiKey = null,
 }) {
   /** Today's UTC date as `YYYY-MM-DD` from the injected clock: the daily counters and the prompts' `{{today}}`. */
@@ -744,11 +732,6 @@ export function createDescriber({
 
     // The request would be refused: no fetch, no GIF slot.
     if (capSpent()) return report({ state: 'unavailable', reason: 'daily-cap' });
-    // The daily GIF slot, reserved synchronously like a video watch's.
-    const watchedToday = countToday('gifWatchDay', 'gifWatchCount');
-    if (watchedToday >= gifWatchCap(hot.config)) return report({ state: 'unavailable', reason: 'daily' });
-    state.data.gifWatchCount = watchedToday + 1;
-    state.markDirty();
 
     const fetched = await fetchGifClip(source, maxSeconds);
     if (!fetched.ok) return report({ state: 'failed', reason: fetched.reason });
@@ -1018,48 +1001,6 @@ export function createDescriber({
   }
 
   /**
-   * Today's count of one daily counter (`state.data[dayKey]` / `[countKey]`);
-   * resets it when the day changed (same day logic as the LLM client's).
-   */
-  function countToday(dayKey, countKey) {
-    const { count, rolled } = dailyCounter(state.data, { dayKey, countKey }, now());
-    if (rolled) state.markDirty();
-    return count;
-  }
-
-  /** Today's video count (every watch and every re-watch attempt). */
-  function videoCountToday() {
-    return countToday(VIDEO_DAILY.dayKey, VIDEO_DAILY.countKey);
-  }
-
-  /**
-   * The video slots left today, read only (the counters are never rolled
-   * over or written here): `video` under `media.video.maxPerDay` (a watch, a
-   * retry and a re-watch each take one) and `rewatch` under
-   * `media.video.rewatch.maxPerDay` (a re-watch also needs a `video` slot; a
-   * picture's second look, relookImage, takes a `rewatch` slot only), plus
-   * `gif` under `media.gif.maxPerDay` (gifWatchCap; a GIF's second look,
-   * rewatchGif, takes a `rewatch` and a `gif` slot, never a video one).
-   * A cap that is not a number leaves its rail unlimited (Infinity), as the
-   * watch itself reads it. For a turn that skips a classifier whose action
-   * could not run.
-   * @returns {{ video: number, rewatch: number, gif: number }}
-   */
-  function videoCapsLeft() {
-    const videoCfg = hot.config.media?.video ?? {};
-    const nowMs = now();
-    const left = (cap, keys) =>
-      typeof cap === 'number' && !Number.isNaN(cap)
-        ? Math.max(0, cap - readDailyCount(state.data, keys, nowMs))
-        : Infinity;
-    return {
-      video: left(videoCfg.maxPerDay, VIDEO_DAILY),
-      rewatch: left(videoCfg.rewatch?.maxPerDay, REWATCH_DAILY),
-      gif: left(gifWatchCap(hot.config), GIF_WATCH_DAILY),
-    };
-  }
-
-  /**
    * The `video_url` part of a video request. A public URL (a pinned
    * direct-URL request) carries OpenRouter's processing mode
    * (`media.video.urlProcessing`, a missing key = 'agentic', a non-string or
@@ -1275,17 +1216,6 @@ export function createDescriber({
       report({ state: 'skipped' }, { reason: 'daily-cap' });
       return { result: previous?.result ?? null, sent: false, attempted: false };
     }
-
-    // Reserve the daily slot synchronously, before any await, so concurrent
-    // watches can never overshoot maxPerDay. A failed fetch or request keeps
-    // its slot: attempts count, like media.video.maxPerTurn.
-    const countToday = videoCountToday();
-    if (countToday >= (videoCfg.maxPerDay ?? Infinity)) {
-      const limit = report({ state: 'limit', reason: 'daily' });
-      return { result: previous?.result ?? limit, sent: false, attempted: false };
-    }
-    state.data.videoCount = countToday + 1;
-    state.markDirty();
 
     const media = await fetchVideoMedia(item, videoCfg);
     if (!media.ok) {
@@ -1514,16 +1444,6 @@ export function createDescriber({
       report('limit', { reason: 'daily-cap' });
       return null;
     }
-    // Both rails, both reserved synchronously before any await (like a watch).
-    const rewatchedToday = countToday(REWATCH_DAILY.dayKey, REWATCH_DAILY.countKey);
-    const videosToday = videoCountToday();
-    if (rewatchedToday >= (rewatchCfg.maxPerDay ?? Infinity) || videosToday >= (videoCfg.maxPerDay ?? Infinity)) {
-      report('limit', { reason: 'daily' });
-      return null;
-    }
-    state.data.rewatchCount = rewatchedToday + 1;
-    state.data.videoCount = videosToday + 1;
-    state.markDirty();
 
     const media = await fetchVideoMedia(item, videoCfg);
     if (!media.ok) {
@@ -1619,14 +1539,6 @@ export function createDescriber({
       report('limit', { reason: 'daily-cap' });
       return null;
     }
-    // The one second-look counter, reserved synchronously before any await.
-    const lookedToday = countToday(REWATCH_DAILY.dayKey, REWATCH_DAILY.countKey);
-    if (lookedToday >= (rewatchCfg.maxPerDay ?? Infinity)) {
-      report('limit', { reason: 'daily' });
-      return null;
-    }
-    state.data.rewatchCount = lookedToday + 1;
-    state.markDirty();
 
     const visionCfg = hot.config.context?.vision ?? {};
     const downloaded = await imageFetcher.fetchAsDataUrl(pictureImageUrl(item, mediaCfg), {
@@ -1769,16 +1681,6 @@ export function createDescriber({
       report('limit', { reason: 'daily-cap' });
       return null;
     }
-    // Both rails, both reserved synchronously before any await (like a watch).
-    const lookedToday = countToday(REWATCH_DAILY.dayKey, REWATCH_DAILY.countKey);
-    const gifsToday = countToday(GIF_WATCH_DAILY.dayKey, GIF_WATCH_DAILY.countKey);
-    if (lookedToday >= (rewatchCfg.maxPerDay ?? Infinity) || gifsToday >= gifWatchCap(hot.config)) {
-      report('limit', { reason: 'daily' });
-      return null;
-    }
-    state.data.rewatchCount = lookedToday + 1;
-    state.data.gifWatchCount = gifsToday + 1;
-    state.markDirty();
 
     const fetched = await fetchGifClip(source, maxSeconds);
     if (!fetched.ok) {
@@ -1831,7 +1733,6 @@ export function createDescriber({
     relookImage,
     rewatchGif,
     watchedGifs,
-    videoCapsLeft,
     watchGif,
     gifWatchBlocker,
     checkYoutube,

@@ -301,7 +301,7 @@ export type RequestInput = {
   readonly prefetch?: Prefetch | null;
   readonly searchAvailable?: unknown;
   readonly recallAvailable?: unknown;
-  readonly drawQuota?: { spent: boolean; userSpent: boolean } | null;
+  readonly drawOn?: boolean;
   readonly customEmoji?: unknown;
   readonly mediaCache?: MediaCache | null;
   readonly gifs?: unknown;

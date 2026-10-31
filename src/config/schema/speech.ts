@@ -11,13 +11,6 @@ export const SPEECH: ReadonlyArray<SchemaEntry> = [
     'text': 'Voice name passed to the speech endpoint',
   },
   {
-    'key': 'speech.maxPerDay',
-    'types': ['number'],
-    'reader': 'src/speech/index.js',
-    'default': 100,
-    'text': 'Daily voice messages',
-  },
-  {
     'key': 'speech.maxChars',
     'types': ['number'],
     'reader': 'src/speech/index.js',

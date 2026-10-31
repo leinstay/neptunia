@@ -4,7 +4,7 @@
 
 import { drawPicture } from '../../media/draw.js';
 import { imageFileName } from '../../behavior/mirror.ts';
-import { ImageCapError, ImageGenError, UnsupportedImageModelError } from '../../llm/images.js';
+import { ImageGenError, UnsupportedImageModelError } from '../../llm/images.js';
 import { roleModel } from '../../llm/roles.js';
 import { log } from '../../log.js';
 import { messageRefOf, postingConversation } from './shared.ts';
@@ -87,7 +87,7 @@ const handlers = perEnv((env) => {
       }));
       if (referenceMissing) log.warn('admin: draw avatar reference unavailable', {});
     } catch (err) {
-      if (err instanceof ImageCapError || err instanceof ImageGenError) {
+      if (err instanceof ImageGenError) {
         const status = 'statusCode' in err && err.statusCode ? `, HTTP ${err.statusCode}` : '';
         throw new Error(`draw failed (${err.reason}${status}): ${err.message}`);
       }

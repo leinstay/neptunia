@@ -88,13 +88,6 @@ export const MEDIA: ReadonlyArray<SchemaEntry> = [
     'text': 'Seconds of the animation sent to the video model',
   },
   {
-    'key': 'media.gif.maxPerDay',
-    'types': ['number'],
-    'reader': 'src/memory/describe.js',
-    'default': 200,
-    'text': 'Daily GIF watch cap, separate from `video.maxPerDay`',
-  },
-  {
     'key': 'media.video.provider',
     'types': ['map', 'null'],
     'reader': 'src/memory/describe.js',
@@ -149,13 +142,6 @@ export const MEDIA: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/memory/describe.js',
     'default': 5,
     'text': 'Max new videos per turn',
-  },
-  {
-    'key': 'media.video.maxPerDay',
-    'types': ['number'],
-    'reader': 'src/memory/describe.js',
-    'default': 40,
-    'text': 'Daily video request cap',
   },
   {
     'key': 'media.video.tokensPerSecond',
@@ -320,13 +306,6 @@ export const MEDIA: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/behavior/pipeline.js',
     'default': 5,
     'text': 'Videos of one message watched on arrival. `0` turns video prefill off',
-  },
-  {
-    'key': 'media.video.rewatch.maxPerDay',
-    'types': ['number'],
-    'reader': 'src/memory/describe.js',
-    'default': 20,
-    'text': 'Daily re-watch cap (separate from `video.maxPerDay`)',
   },
   {
     'key': 'media.video.rewatch.maxOutputTokens',

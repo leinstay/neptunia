@@ -302,8 +302,8 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' })
  * @param {boolean} [input.recallAvailable]  Whether the search of the server's own history could
  *   run this turn (src/behavior/turn.js#recallAvailable, never in a private chat); `senses.recall`
  *   renders, right after the web search line, only when it is true (and never in a private chat).
- * @param {{ spent: boolean, userSpent: boolean }} [input.drawQuota]  The image client's
- *   quota for this turn (src/llm/images.js#quota); omitted -> no drawing line in `<senses>`.
+ * @param {boolean} [input.drawOn]  Whether this turn may draw (an image client and Attach Files);
+ *   false or omitted -> no drawing line in `<senses>`.
  * @param {{ id: string, name: string, animated?: boolean }[]} [input.customEmoji]  The served
  *   guild's custom emoji (src/behavior/emoji-index.ts#createEmojiIndex's `list()`). With
  *   `features.customEmoji` on (a missing key counts as on) and a non-empty list, `<emoji>`
@@ -574,7 +574,7 @@ export function buildRequest(input) {
     prefetch: input.prefetch,
     searchAvailable: input.searchAvailable,
     recallAvailable: input.recallAvailable,
-    drawQuota: input.drawQuota,
+    drawOn: input.drawOn,
     customEmoji: input.customEmoji,
     mediaCache: input.mediaCache,
     gifs: input.gifs,

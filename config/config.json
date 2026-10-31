@@ -413,8 +413,7 @@
     "recacheIntervalMs": 3000,
     "gif": {
       "watch": true,
-      "maxSeconds": 15,
-      "maxPerDay": 200
+      "maxSeconds": 15
     },
     "video": {
       "provider": {
@@ -428,7 +427,6 @@
       "directUrlMaxSeconds": 3600,
       "maxBytes": 14500000,
       "maxPerTurn": 5,
-      "maxPerDay": 40,
       "tokensPerSecond": 120,
       "directUrlTokensPerSecond": 10,
       "timeoutMs": 90000,
@@ -466,7 +464,6 @@
       "prefill": true,
       "prefillPerMessage": 5,
       "rewatch": {
-        "maxPerDay": 20,
         "maxOutputTokens": 600,
         "classifierMaxOutputTokens": 2000,
         "answerChars": 1200,
@@ -630,8 +627,6 @@
     }
   },
   "image": {
-    "maxPerDay": 50,
-    "maxPerUserPerDay": 50,
     "maxPromptChars": 1600,
     "reference": "avatar",
     "referenceMaxBytes": 4000000,
@@ -651,7 +646,6 @@
   },
   "speech": {
     "voice": "jessica",
-    "maxPerDay": 100,
     "maxChars": 1500,
     "usdPerMillionChars": 40,
     "timeoutMs": 60000,
@@ -748,7 +742,6 @@
     "ownMarkHours": 24,
     "storeMax": 300,
     "halfLifeDays": 30,
-    "maxPerDay": 40,
     "backfillMessages": 500,
     "backfillDescribe": 20,
     "recachePerRun": 50,

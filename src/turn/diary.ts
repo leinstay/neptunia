@@ -305,8 +305,13 @@ export function createDiary(ctx: DiaryContext): Diary {
 
   /** Whether a diary post in `channel` may carry a picture now (src/behavior/diary-turn.ts#pictureGate). */
   function diaryPictureGate(config: DiaryConfig, channel: ConversationInfo, now: number): PictureGate {
-    const imageQuota = images && typeof images.quota === 'function' ? images.quota({}) : null;
-    return pictureGate({ config, attach: channel.permissions.attach, imageQuota, data: store.state.data, now });
+    return pictureGate({
+      config,
+      attach: channel.permissions.attach,
+      drawing: Boolean(images),
+      data: store.state.data,
+      now,
+    });
   }
 
   return { prepareDiary, diaryPictureGate };

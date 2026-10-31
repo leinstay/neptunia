@@ -167,7 +167,7 @@ export async function responsePhase(
     const shaped = shapeOutput(parseOutput(split.speechText, { limits: draft.limits }));
     noteDiagnostics(draft, shaped, answered);
     noteThink(draft, shaped);
-    const resolved: Parsed = Object.assign(shaped, { gif: resolveGif(guildId, shaped.gif, channel.id, draft.limits) });
+    const resolved: Parsed = Object.assign(shaped, { gif: resolveGif(guildId, shaped.gif, channel.id) });
     // Counted, never refused: the answer is acted on all the same.
     if (thinkMissing(split.rawText)) {
       draft.format.thinkMissing += 1;

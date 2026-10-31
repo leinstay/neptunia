@@ -24,18 +24,17 @@ import {
 } from '../behavior/gif-pick.js';
 import type { PictureGate } from '../behavior/diary-turn.ts';
 import { DIARY_PICTURES_DAILY } from '../behavior/diary.ts';
-import { limitOf } from '../behavior/limits.js';
 import { replyMarker } from '../format.js';
 import type { Reads } from '../interface/reads.ts';
-import { ImageCapError, ImageGenError, UnsupportedImageModelError } from '../llm/images.js';
+import { ImageGenError, UnsupportedImageModelError } from '../llm/images.js';
 import { cacheTtlMs, railReason, roleRequestOptions } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
 import { log } from '../log.js';
 import { drawPicture, drawPromptOf } from '../media/draw.js';
-import { freshAttachmentUrl as sharedFreshAttachmentUrl, gifPostUrl, countGifPost } from '../media/gif-post.js';
-import { gifPostsToday, rankGifs } from '../memory/index.js';
+import { freshAttachmentUrl as sharedFreshAttachmentUrl, gifPostUrl } from '../media/gif-post.js';
+import { rankGifs } from '../memory/index.js';
 import type { ConversationInfo, ConversationRef, MessageRef } from '../protocol/adapter.ts';
-import { bumpDaily, utcDay } from '../time.js';
+import { bumpDaily } from '../time.js';
 import { CODE } from '../tools/codes.ts';
 import { refusalStatus } from '../tools/executors.ts';
 import { messageRefOf, postingConversation } from '../tools/impl/shared.ts';
@@ -182,12 +181,7 @@ export type DrawGif = {
     },
     model?: string | null
   ) => Promise<DrawResult>;
-  resolveGif: (
-    guildId: string,
-    gif: GifCall | null | undefined,
-    channelId: string,
-    limits?: DrawDraft['limits']
-  ) => ResolvedGif | null;
+  resolveGif: (guildId: string, gif: GifCall | null | undefined, channelId: string) => ResolvedGif | null;
   postGif: (
     channel: PostChannel,
     guildId: string,
@@ -376,18 +370,6 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
           ...(staging && draft ? { avatar: (draft.avatar ??= {}) } : {}),
         });
       } catch (err) {
-        if (err instanceof ImageCapError) {
-          const limit = limitOf(err);
-          log.info('turn: draw refused by a limit', {
-            channel: channel.id,
-            key: limit?.key ?? null,
-            used: limit?.used ?? null,
-            cap: limit?.cap ?? null,
-            spontaneous: !trigger,
-            asked,
-          });
-          return failed('failed', err.reason === 'userDaily' ? CODE.IMAGE_CAP_USER_DAILY : CODE.IMAGE_CAP_DAILY);
-        }
         if (err instanceof UnsupportedImageModelError) return failed('failed', CODE.UNSUPPORTED_MODEL);
         if (err instanceof ImageGenError) {
           log.warn('turn: draw error', { channel: channel.id, reason: err.reason, status: err.statusCode ?? null });
@@ -453,47 +435,18 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     }
   }
 
-  /** Today's UTC date `YYYY-MM-DD` on the injected clock (the daily GIF counter). */
-  function todayDate(): string {
-    return utcDay(clock());
-  }
-
-  /** GIFs the persona posted today against `gifs.maxPerDay` (src/memory/gif-watch.js#gifPostsToday); reads only. */
-  function gifsToday(): { used: number; cap: number } {
-    return gifPostsToday(store.state.data, hot.config, todayDate());
-  }
-
-  /** Count one posted GIF against `gifs.maxPerDay` (the counter restarts on a new UTC day). */
-  function countGif(): void {
-    countGifPost(store.state.data, clock());
-    store.state.markDirty();
-  }
-
   /**
    * The persona's `<gif>` resolved against the guild's library: `{ id,
-   * replyTo, entry }`, or null (logged with its reason, never a URL) when
-   * features.gifs is false, the handle is unknown, or `gifs.maxPerDay`
-   * (default 40, read now) is spent -- the last told to `limits` (optional) as a `daily-cap`.
+   * replyTo, entry }`, or null (logged with its reason, never a URL) when the handle is unknown.
    */
-  function resolveGif(
-    guildId: string,
-    gif: GifCall | null | undefined,
-    channelId: string,
-    limits: DrawDraft['limits'] = null
-  ): ResolvedGif | null {
+  function resolveGif(guildId: string, gif: GifCall | null | undefined, channelId: string): ResolvedGif | null {
     if (!gif) return null;
-    let reason: string | null = null;
     const entry: GifEntry | null | undefined = store.findGif(guildId, gif.id);
-    const posts = gifsToday();
-    if (!entry) reason = 'unknown';
-    else if (posts.used >= posts.cap) reason = 'daily';
-    if (reason) {
-      if (reason === 'daily') limits?.add({ kind: 'daily-cap', where: 'gifs.maxPerDay' });
-      log.info('turn: gif dropped', { channel: channelId, reason, usedToday: gifsToday().used });
+    if (!entry) {
+      log.info('turn: gif dropped', { channel: channelId, reason: 'unknown' });
       return null;
     }
-    // No reason means the library found the entry.
-    return { ...gif, entry: entry! };
+    return { ...gif, entry };
   }
 
   /**
@@ -556,7 +509,6 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
       }
       const message = postedOf(result);
       if (op.opId) await op.succeeded({ messageId: message.id });
-      countGif();
       if (entry.key && typeof store.recordOwnGif === 'function') store.recordOwnGif(guildId, entry.key, clock());
       lastPostAt.set(channel.id, clock());
       log.info('turn: gif sent', {
@@ -651,8 +603,6 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
       }
     );
     if (!pickCandidates({ text: first.text, postsGif: Boolean(gif), captioned: library.length }, settings)) return null;
-    const posts = gifsToday();
-    if (posts.used >= posts.cap) return null;
     // The line the first message answers: its reply target (a pulled line is not in `history`), else the trigger.
     const replyId =
       first.replyTo !== null && first.replyTo !== undefined ? (idByIndex.get(first.replyTo) ?? null) : null;

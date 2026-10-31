@@ -3,18 +3,9 @@
 // The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
-import {
-  rankEmojiUsage,
-  rankGifs,
-  gifCaptionCounts,
-  gifFormatCounts,
-  RECACHE_DAYS,
-  gifPostsToday,
-  gifWatchesToday,
-} from '../../memory/index.js';
+import { rankEmojiUsage, rankGifs, gifCaptionCounts, gifFormatCounts, RECACHE_DAYS } from '../../memory/index.js';
 import {
   NONE,
-  todayUtc,
   backfillText,
   EMOJI_RESCAN_SKIPS,
   GIFS_RESCAN_SKIPS,
@@ -96,10 +87,6 @@ const handlers = perEnv((env) => {
       return cached && !cached.miss && typeof cached.text === 'string' ? cached.text.trim() : '';
     };
     const running = gifBackfill?.isRunning?.() ? ' (running now)' : '';
-    const data = store.state.data;
-    const today = todayUtc();
-    const posts = gifPostsToday(data, hot.config, today);
-    const watches = gifWatchesToday(data, hot.config, today);
     const captions = gifCaptionCounts(library, cache);
     const format = gifFormatCounts(library, cache);
     const recaching = gifRecache?.isRunning?.() ? ' (recache running now)' : '';
@@ -110,8 +97,6 @@ const handlers = perEnv((env) => {
         .slice(0, 10)
         .map((entry) => `  ${entry.id} x${entry.count} — ${captionOf(entry) || entry.name || entry.site || entry.url}`),
       `backfill: ${backfillText(library.backfill)}${running}`,
-      `posted today: ${posts.used}/${posts.cap}`,
-      `watched today: ${watches.used}/${watches.cap}`,
       // Nothing to count in an empty library, unless a recache is running.
       ...(ranked.length > 0 || recaching
         ? [

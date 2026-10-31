@@ -70,7 +70,7 @@ export function buildTurnRequest(
   const { finalMode } = pulled;
   const { participationShown, participationStage, participationAudienceOf } = waited;
   const { history, neighbors, descriptions, neighborDescriptions, videos, imageAnswers, reads } = gathered;
-  const { lookupResult, prefetchResult, drawQuota, diaryPrep, pulled: pulledList, readOnlyIds } = gathered;
+  const { lookupResult, prefetchResult, drawOn, diaryPrep, pulled: pulledList, readOnlyIds } = gathered;
   const { destination, recent, prompts } = gathered;
   const { factsText, tasks, guildMemory, taggedCall, offPeriods, skillsInventory } = told;
   const pulled2 = pulledList;
@@ -141,7 +141,7 @@ export function buildTurnRequest(
     searchAvailable: typeof lookup?.hasSearch === 'function' && lookup.hasSearch() === true,
     // The search of the server's own history: the value the lookup stage used.
     recallAvailable: serverOn,
-    drawQuota: drawQuota ?? null,
+    drawOn,
     // The `<emoji>` block: the index's emoji (ranked by guildMemory.emojiUsage) and their cached captions.
     customEmoji: emoji ? (emoji.list() ?? []) : [],
     // The `<gifs>` block and the transcript's GIF handles: the guild's library (features.gifs).

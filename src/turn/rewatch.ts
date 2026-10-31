@@ -87,7 +87,6 @@ export type VideoState = { state: string; text?: string; answer?: unknown; [key:
 /** The describer (src/memory/describe.js#createDescriber), as the second look uses it. */
 export type RewatchDescriber = {
   describeVideo?: (guildId: string, item: RewatchItem, options: { force: boolean }) => Promise<VideoState | null>;
-  videoCapsLeft?: () => { rewatch: number; video: number; gif?: number } | null;
   relookImage: (guildId: string, item: RewatchItem, question: string) => Promise<unknown>;
   rewatchGif: (guildId: string, item: RewatchItem, question: string) => Promise<unknown>;
   rewatchVideo: (guildId: string, item: RewatchItem, question: string) => Promise<unknown>;
@@ -319,23 +318,6 @@ export function createRewatch(ctx: RewatchContext): Rewatch {
     const seer = describer!;
     // A retry requested by the person has its own slot, outside media.video.maxPerTurn.
     const canRetry = typeof seer.describeVideo === 'function';
-    // Today's slots, when the describer can tell: a video's second look and a retry take a video
-    // slot; a second look at a video or a picture takes the one second-look slot.
-    const slots = typeof seer.videoCapsLeft === 'function' ? seer.videoCapsLeft() : null;
-    const questionsOn = !slots || slots.rewatch > 0;
-    const videoSlot = !slots || slots.video > 0;
-    // A GIF's second look takes a GIF watch slot, never a video one (a describer without the count: no limit).
-    const gifSlot = !slots || (slots.gif ?? Infinity) > 0;
-    const gifsOn = questionsOn && gifSlot;
-    if (
-      slots &&
-      (!videoSlot || (!questionsOn && !canRetry)) &&
-      (pictures.length === 0 || !questionsOn) &&
-      (gifs.length === 0 || !gifsOn)
-    ) {
-      log.info('rewatch: skipped', { channel: channelId, reason: 'cap' });
-      return null;
-    }
     const rewatchCfg = config.media?.video?.rewatch ?? {};
     const recent = Math.max(0, Math.floor(rewatchCfg.recentMessages ?? 60));
     if (recent === 0) {
@@ -349,21 +331,21 @@ export function createRewatch(ctx: RewatchContext): Rewatch {
     const recentIds = new Set(history.slice(-recent).map((m) => m.id));
     const seen = new Set<string>();
     const listed: Array<Listed> = [];
-    for (const item of videoSlot ? candidates : []) {
+    for (const item of candidates) {
       if (listed.length >= maxCandidates) break;
       if (seen.has(item.itemId) || !recentIds.has(item.messageId)) continue;
       const state = states.get(item.itemId)?.state;
-      if (!(state === 'watched' && questionsOn) && !(state === 'error' && canRetry)) continue;
+      if (state !== 'watched' && !(state === 'error' && canRetry)) continue;
       seen.add(item.itemId);
       listed.push({ item, kind: REWATCH_KIND_VIDEO });
     }
-    for (const item of gifsOn ? gifs : []) {
+    for (const item of gifs) {
       if (listed.length >= maxCandidates) break;
       if (seen.has(item.itemId) || !recentIds.has(item.messageId) || !gifCaptions.get(item.itemId)) continue;
       seen.add(item.itemId);
       listed.push({ item, kind: REWATCH_KIND_GIF });
     }
-    for (const item of questionsOn ? pictures : []) {
+    for (const item of pictures) {
       if (listed.length >= maxCandidates) break;
       if (seen.has(item.itemId) || !recentIds.has(item.messageId)) continue;
       seen.add(item.itemId);

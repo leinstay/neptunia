@@ -4,20 +4,6 @@ import type { SchemaEntry } from '../schema.ts';
 
 export const IMAGE: ReadonlyArray<SchemaEntry> = [
   {
-    'key': 'image.maxPerDay',
-    'types': ['number'],
-    'reader': 'src/llm/images.js',
-    'default': 50,
-    'text': 'Daily generation cap',
-  },
-  {
-    'key': 'image.maxPerUserPerDay',
-    'types': ['number'],
-    'reader': 'src/llm/images.js',
-    'default': 50,
-    'text': 'Daily cap per member',
-  },
-  {
     'key': 'image.maxPromptChars',
     'types': ['number'],
     'reader': 'src/behavior/prompt.js',

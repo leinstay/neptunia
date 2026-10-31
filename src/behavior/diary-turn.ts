@@ -38,30 +38,27 @@ const numberOr = (value: unknown, fallback: number): number =>
 export type PictureGate = { allowed: boolean; limit: { key: string; used: number; cap: number } | null };
 
 /**
- * Whether a diary post may carry a picture, in this order: an image client (`imageQuota`), `features.imageGeneration`
- * (a missing key counts as on), Attach Files in the conversation (`attach`), the day's diary pictures under
- * `diary.maxPicturesPerDay` (8), the image client's own daily cap (`image.maxPerDay`). Pure.
+ * Whether a diary post may carry a picture, in this order: an image client (`drawing`), Attach Files in the
+ * conversation (`attach`), the day's diary pictures under `diary.maxPicturesPerDay` (8). Pure.
  */
 export function pictureGate({
   config,
   attach,
-  imageQuota,
+  drawing,
   data,
   now,
 }: {
   config: Config;
   attach: boolean;
-  imageQuota: { used: number; cap: number } | null;
+  drawing: boolean;
   data: Counters;
   now: number;
 }): PictureGate {
   const closed = (limit: PictureGate['limit'] = null): PictureGate => ({ allowed: false, limit });
-  if (!imageQuota || !attach) return closed();
+  if (!drawing || !attach) return closed();
   const picturesToday = today(data, DIARY_PICTURES_DAILY, now);
   const diaryCap = numberOr(sectionOf(config, 'diary').maxPicturesPerDay, 8);
   if (picturesToday >= diaryCap) return closed({ key: 'diary.maxPicturesPerDay', used: picturesToday, cap: diaryCap });
-  if (imageQuota.used >= imageQuota.cap)
-    return closed({ key: 'image.maxPerDay', used: imageQuota.used, cap: imageQuota.cap });
   return { allowed: true, limit: null };
 }
 

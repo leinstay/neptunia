@@ -89,7 +89,6 @@ export type LookDescriber = {
   relookImage?: (guildId: string | null, item: Obj, question: string, options?: LookOptions) => Promise<unknown>;
   rewatchVideo?: (guildId: string | null, item: Obj, question: string, options?: LookOptions) => Promise<unknown>;
   rewatchGif?: (guildId: string | null, item: Obj, question: string, options?: LookOptions) => Promise<unknown>;
-  videoCapsLeft?: () => { rewatch?: number; video?: number; gif?: number } | null;
 };
 
 /** The model a second look goes out on: the core model's id when it is routed there, else the role's own. */
@@ -788,13 +787,6 @@ const LOOKS: Readonly<
   gif: { method: 'rewatchGif', role: 'video' },
 });
 
-/** Whether the describer's day has no second look of `kind` left (a video also needs a video slot, a GIF a GIF watch slot). */
-function lookSpent(slots: ReturnType<NonNullable<LookDescriber['videoCapsLeft']>>, kind: string): boolean {
-  if (!slots) return false;
-  if (!((slots.rewatch ?? 0) > 0)) return true;
-  return (kind === 'video' && !((slots.video ?? 0) > 0)) || (kind === 'gif' && !((slots.gif ?? Infinity) > 0));
-}
-
 /** The look on its route: through `onRoute` when the caller routes, else on the role's own model. */
 function lookOnRoute(
   onRoute: OnRoute | null,
@@ -902,8 +894,6 @@ export async function runMediaLook({
     }
     const look = LOOKS[kind];
     if (typeof describer?.[look.method] !== 'function') return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
-    const slots = typeof describer?.videoCapsLeft === 'function' ? describer.videoCapsLeft() : null;
-    if (lookSpent(slots, kind)) return { status: 'failed', code: CODE.DAILY_CAP };
     if (typeof takeTurnSlot === 'function' && !takeTurnSlot()) return { status: 'failed', code: CODE.TURN_CAP };
     const looked = await lookOnRoute(onRoute, look.role, (model) =>
       Promise.resolve(describer?.[look.method]?.(guildId, item, question, model ? { model } : {}))

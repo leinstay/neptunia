@@ -40,9 +40,8 @@ export {
 export { normalizeAvatar } from './avatars.js';
 export { rankEmojiUsage } from './emoji-usage.js';
 export { findGif, gifHandleMap, gifHandleOf, gifOpts, normalizeGifs, rankGifs } from './gifs.js';
-export { gifPostsToday, gifWatchBlocker, gifWatchesToday } from './gif-watch.js';
+export { gifWatchBlocker } from './gif-watch.js';
 export { RECACHE_DAYS, gifCaptionCounts, gifFormatCounts } from './gif-recache.js';
-export { VIDEO_DAILY } from './describe.js';
 export { createOffPeriodsReader, journalLine, turnView } from './journal.js';
 export { ARCHIVE_EVENTS, ARCHIVE_KINDS, archiveEntry } from './archive.js';
 

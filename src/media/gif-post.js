@@ -3,8 +3,6 @@
 // (src/tools/impl/message.ts) share: a fresh URL of an attached GIF, the URL a GIF
 // posts as, and the daily count against `gifs.maxPerDay`. No wording here.
 
-import { bumpDaily } from '../time.js';
-
 /**
  * A fresh URL of an attached GIF: its original message is read again (attachment URLs of a platform expire)
  * through the interface's `fetchMessages` and the attachment found by id, in the message itself or in a forwarded
@@ -52,9 +50,4 @@ export async function freshAttachmentUrl({ reads, channel, entry, onError = () =
  */
 export function gifPostUrl(entry, fresh) {
   return fresh ?? entry.url;
-}
-
-/** Count one posted GIF against `gifs.maxPerDay` (the counter restarts on a new UTC day); the caller marks the state dirty. */
-export function countGifPost(data, nowMs) {
-  bumpDaily(data, { dayKey: 'gifDay', countKey: 'gifCount' }, nowMs);
 }

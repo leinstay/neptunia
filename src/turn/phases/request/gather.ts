@@ -49,7 +49,6 @@ export type Gathered = {
   diaryPrep: Awaited<ReturnType<Diary['prepareDiary']>> | null;
   neighborDescriptions: Map<string, unknown> | undefined;
   drawOn: boolean;
-  drawQuota: unknown;
   readOnlyIds: Set<string>;
   destination: { name?: string | null } | null;
   recent: ReturnType<Participation['recentInput']>;
@@ -72,7 +71,7 @@ export async function gatherRequest(
   const { hot, store, clock, record, describer, images, noteSeen, recentInput } = ctx;
   const { trigger = null, taskResult = null } = params;
   const { channel, guildId, isPrivate, prep } = opened;
-  const { config, memoryOn, selfId, selfName, snapshot, now, asked, prefetching, diaryPending } = setup;
+  const { config, memoryOn, selfId, selfName, snapshot, now, prefetching, diaryPending } = setup;
   const { beforeBar } = setup;
   const { previewed, captions, captionCandidates, videoStage, videoCandidates } = staged;
   const { slot: second2, videosSoFar } = second;
@@ -193,11 +192,8 @@ export async function gatherRequest(
           neighbors.flatMap((neighbor) => describableCandidates(neighbor.messages))
         )
       : undefined;
-  // Drawing (features.imageGeneration, a missing key counts as on) needs the image client
-  // and Attach Files here. An unasked turn reads the quota for no member, like draw.create charges none.
-  // A diary post draws only while its picture check allowed it (its own daily cap and the image cap).
+  // Drawing needs the image client and Attach Files here. A diary post draws only while its picture check allowed it.
   const drawOn = Boolean(images) && channel.permissions.attach && (!diaryPrep || diaryPrep.pictureAllowed);
-  const drawQuota = drawOn ? images?.quota({ userId: asked ? (trigger?.authorId ?? null) : null }) : undefined;
   // Neighbours the bot can read but not write in, marked in `<server>` (a pulled channel's
   // record carries its own mark). A pulled channel whose block is shown is left out of the
   // neighbours by buildRequest itself.
@@ -225,7 +221,6 @@ export async function gatherRequest(
     diaryPrep,
     neighborDescriptions,
     drawOn,
-    drawQuota,
     readOnlyIds,
     destination,
     recent,

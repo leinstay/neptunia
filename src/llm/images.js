@@ -1,23 +1,17 @@
-// OpenRouter Images API client for the persona's drawings. A picture is far
-// more expensive than a chat request, so this module owns its own rails,
-// separate from the chat client's: no more than `image.maxPerDay` generations
-// per day for the instance and `image.maxPerUserPerDay` per member, both
-// checked before the request and counted only when it is actually sent. An
-// unsupported model family is refused before anything is counted or sent.
+// OpenRouter Images API client for the persona's drawings. An unsupported model family is refused before anything is
+// sent.
 //
 // Logs carry the model, counts, cost and failure reasons -- never the prompt
 // (it may quote members).
 
 import { log } from '../log.js';
 import { isPlainObject } from '../config.js';
-import { bumpDaily, countToday, dailyCounter } from '../time.js';
 import {
   NotByokError,
   RETRY_STATUS,
   apiUrl,
   assertByok,
   backoffMs,
-  dailyCapOf,
   openRouterHeaders,
   providerBodyOf,
   resolveProvider,
@@ -30,10 +24,6 @@ const MODERATION_MARKERS = /moderation|content_policy|safety/i;
 
 /** The model role a generation routes as: `"<prefix>@drawing"` keys of `llm.providerByModel` apply to it. */
 export const IMAGE_ROLE = 'drawing';
-/** The state.json fields of the instance-wide daily picture counter. */
-const IMAGE_DAILY = { dayKey: 'imageDay', countKey: 'imageCount' };
-/** One member's slot of `state.data.imageUsers` (`{ day, counts }`) laid out as a counter pair, for a read. */
-const MEMBER_DAILY = { dayKey: 'day', countKey: 'count' };
 
 function isAbort(err) {
   return err?.name === 'AbortError' || err?.name === 'TimeoutError';
@@ -54,19 +44,6 @@ export class ImageGenError extends Error {
     // Full provider error body for a caller that needs it; kept out of the
     // message so a logged error never echoes provider text.
     if (body !== undefined) this.body = body;
-  }
-}
-
-/** A generation refused by a daily rail before any request; `reason` is 'daily' | 'userDaily'. */
-export class ImageCapError extends Error {
-  /**
-   * @param {'daily'|'userDaily'} reason
-   * @param {string} [message]
-   */
-  constructor(reason, message) {
-    super(message ?? `daily image cap reached (${reason})`);
-    this.name = 'ImageCapError';
-    this.reason = reason;
   }
 }
 
@@ -131,67 +108,18 @@ function buildBody({ cfg, model, routing, family, prompt, reference }) {
  * @param {string|(() => string)} deps.apiKey  The key, or a function giving it, read at each request
  *   (the key `llm.keyByRole.drawing` names, src/llm/openrouter.js#roleApiKey).
  * @param {() => object} deps.getConfig   Returns the live config (hot-reloaded).
- * @param {object} deps.state             Persistent state; `imageDay` / `imageCount` / `imageUsers` live on `state.data`.
  * @param {typeof fetch} [deps.fetchImpl]
- * @param {() => number} [deps.now]       Clock in ms, for the day rollover.
- * @returns {{ generate: Function, quota: Function, familyOf: typeof familyOf }}
+ * @param {() => number} [deps.now]       Clock in ms.
+ * @returns {{ generate: Function, familyOf: typeof familyOf }}
  */
-export function createImageGen({ apiKey, getConfig, state, fetchImpl = fetch, now = () => Date.now() }) {
-  /**
-   * Today's counters as read, without resetting anything (src/time.js#countToday): a count
-   * stored for another day, or one that is not a finite number >= 0, reads as 0.
-   */
-  function readCounts(userId, nowMs) {
-    const used = countToday(state.data, IMAGE_DAILY, nowMs);
-    const users = state.data.imageUsers;
-    const userUsed =
-      userId == null ? 0 : countToday({ day: users?.day, count: users?.counts?.[userId] }, MEMBER_DAILY, nowMs);
-    return { used, userUsed };
-  }
-
-  /** Both caps, read now; one that is not a finite number counts as 0 (src/llm/openrouter.js#dailyCapOf). */
-  function caps(cfg) {
-    return {
-      cap: dailyCapOf(cfg.maxPerDay, 'image.maxPerDay'),
-      userCap: dailyCapOf(cfg.maxPerUserPerDay, 'image.maxPerUserPerDay'),
-    };
-  }
-
-  /** Roll both counters over to today, refuse at a cap, then count this request. */
-  function countRequest(cfg, userId) {
-    const { cap, userCap } = caps(cfg);
-    const nowMs = now();
-    const { day, count: used } = dailyCounter(state.data, IMAGE_DAILY, nowMs);
-    if (
-      !isPlainObject(state.data.imageUsers) ||
-      state.data.imageUsers.day !== day ||
-      !isPlainObject(state.data.imageUsers.counts)
-    ) {
-      state.data.imageUsers = { day, counts: {} };
-    }
-    const counts = state.data.imageUsers.counts;
-    if (used >= cap) {
-      const err = new ImageCapError('daily', `daily image cap reached (${cap})`);
-      throw Object.assign(err, { key: 'image.maxPerDay', used, cap });
-    }
-    if (userId != null && (counts[userId] ?? 0) >= userCap) {
-      const err = new ImageCapError('userDaily', `daily per-member image cap reached (${userCap})`);
-      throw Object.assign(err, { key: 'image.maxPerUserPerDay', used: counts[userId] ?? 0, cap: userCap });
-    }
-    bumpDaily(state.data, IMAGE_DAILY, nowMs);
-    if (userId != null) counts[userId] = (counts[userId] ?? 0) + 1;
-    state.markDirty();
-  }
-
+export function createImageGen({ apiKey, getConfig, fetchImpl = fetch, now = () => Date.now() }) {
   /**
    * Generate one picture. `reference` is an optional data: URL sent as an
-   * input reference; `userId` (null for spontaneous turns and owner commands)
-   * selects the per-member rail; `model` is the drawing role's own unless the call is routed to the core model.
-   * Throws `UnsupportedImageModelError` or `ImageCapError` before any request, `ImageGenError` after one.
-   * @param {{ prompt: string, reference?: string|null, userId?: string|null, model?: string }} args
+   * input reference; `model` is the drawing role's own unless the call is routed to the core model. Throws `UnsupportedImageModelError` before any request, `ImageGenError` after one.
+   * @param {{ prompt: string, reference?: string|null, model?: string }} args
    * @returns {Promise<{ buffer: Buffer, mediaType: string, cost: number|null, usage: object|null, model: string, seconds: number }>}
    */
-  async function generate({ prompt, reference = null, userId = null, model = roleModel(getConfig(), 'drawing') }) {
+  async function generate({ prompt, reference = null, model = roleModel(getConfig(), 'drawing') }) {
     const cfg = getConfig().image ?? {};
     const baseUrl = getConfig().llm.baseUrl;
     const family = familyOf(model);
@@ -199,13 +127,6 @@ export function createImageGen({ apiKey, getConfig, state, fetchImpl = fetch, no
       log.warn('images: unsupported model', { model });
       throw new UnsupportedImageModelError(model);
     }
-    try {
-      countRequest(cfg, userId);
-    } catch (err) {
-      log.info('images: refused', { model, reason: err.reason });
-      throw err;
-    }
-
     // The route of this generation: its body's `provider` and, on the answer, its `byok` mark.
     const routing = resolveProvider(model, {
       byModel: getConfig().llm?.providerByModel,
@@ -325,25 +246,5 @@ export function createImageGen({ apiKey, getConfig, state, fetchImpl = fetch, no
     throw fail(lastError, attempt - 1);
   }
 
-  /**
-   * Today's use of both rails, for the senses block and `/nep status`. Reads
-   * only: yesterday's counters show as zero but are not reset here.
-   * @param {{ userId?: string|null }} [args]
-   * @returns {{ used: number, cap: number, userUsed: number, userCap: number, spent: boolean, userSpent: boolean }}
-   */
-  function quota({ userId = null } = {}) {
-    const cfg = getConfig().image ?? {};
-    const { used, userUsed } = readCounts(userId, now());
-    const { cap, userCap } = caps(cfg);
-    return {
-      used,
-      cap,
-      userUsed,
-      userCap,
-      spent: used >= cap,
-      userSpent: userId != null && userUsed >= userCap,
-    };
-  }
-
-  return { generate, quota, familyOf };
+  return { generate, familyOf };
 }

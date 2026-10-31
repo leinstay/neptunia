@@ -33,7 +33,7 @@ import { keyHashOf, llmCountToday, resolveProvider } from '../../llm/openrouter.
 import { familyOf as imageFamilyOf, IMAGE_ROLE } from '../../llm/images.js';
 import { SPEECH_ROLE } from '../../speech/synth.js';
 import { countToday, DAY_MS, HOUR_MS, MINUTE_MS, utcDay, utcMinute } from '../../time.js';
-import { VIDEO_DAILY, ARCHIVE_EVENTS } from '../../memory/index.js';
+import { ARCHIVE_EVENTS } from '../../memory/index.js';
 import { WEB_DAILY } from '../../web/lookup.js';
 import { clampChars, oneLine } from '../../memory/clamp.js';
 import { isOwnerCaller } from './grants.ts';
@@ -589,12 +589,7 @@ const handlers = perEnv((env) => {
   function limitsValue(cfg: Untyped, data: Untyped): string {
     const nowMs = Date.now();
     const parts = [`requests ${usedOf(llmCountToday(data, nowMs), cfg?.llm?.maxRequestsPerDay)}`];
-    if (images) {
-      const quota = images.quota({ userId: null });
-      parts.push(`images ${usedOf(quota.used, quota.cap)}`);
-    }
     parts.push(
-      `videos ${usedOf(countToday(data, VIDEO_DAILY, nowMs), cfg?.media?.video?.maxPerDay)}`,
       `recall ${usedOf(countToday(data, RECALL_DAILY, nowMs), cfg?.recall?.maxPerDay)}`,
       `lookups ${usedOf(countToday(data, WEB_DAILY, nowMs), cfg?.web?.maxPerDay)}`
     );
