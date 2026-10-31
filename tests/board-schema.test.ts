@@ -27,7 +27,9 @@ const columnsOf = (db: BoardDb, table: string): Array<string> =>
 
 const BROKEN = 'CREATE TABLE board_half (id TEXT); THIS IS NOT SQL;';
 
-test('a new memory database holds the eleven board tables and the board at version 1', () => {
+// PR 6b: board v2 (lease generations, the block, the handoff and the review decisions) is the latest, so a new
+// database stands at version 2, where it stood at 1 before that migration existed.
+test('a new memory database holds the eleven board tables and the board at version 2', () => {
   const handle = openMemoryDb(':memory:');
   try {
     const db = dbOf(handle);
@@ -47,8 +49,8 @@ test('a new memory database holds the eleven board tables and the board at versi
     ]);
     for (const table of BOARD_TABLES) assert.ok(tables.includes(table), `${table} is missing`);
     assert.ok(tables.includes('board_schema_version'));
-    assert.equal(BOARD_MIGRATIONS.length, 1);
-    assert.equal(boardVersion(db), 1);
+    assert.equal(BOARD_MIGRATIONS.length, 2);
+    assert.equal(boardVersion(db), 2);
     assert.equal(handle.board.ok, true);
   } finally {
     handle.close();
@@ -56,7 +58,9 @@ test('a new memory database holds the eleven board tables and the board at versi
 });
 
 // The cutover (PR 6e) copies ledger.db's rows column by column, so each board table keeps its ledger v3 columns.
-test('the board tables have the columns of the ledger schema v3, approvals as reviews', () => {
+// PR 6b: board v2 appends three columns to board_tasks after the ledger's, so the v3 columns keep their order and the
+// cutover's copy names only those.
+test('the board tables have the columns of the ledger schema v3, approvals as reviews, and the v2 task columns', () => {
   const handle = openMemoryDb(':memory:');
   try {
     const db = dbOf(handle);
@@ -87,6 +91,9 @@ test('the board tables have the columns of the ledger schema v3, approvals as re
         'created_at',
         'updated_at',
         'metadata',
+        'lease_generation',
+        'blocked_reason',
+        'unblocks',
       ],
       board_dependencies: ['task_id', 'depends_on_id', 'type', 'created_by', 'created_at'],
       board_attempts: [
@@ -162,7 +169,8 @@ test('the board tables have the columns of the ledger schema v3, approvals as re
   }
 });
 
-test('a reopened file keeps its board rows and does not run board v1 twice', () => {
+// PR 6b: the board has more than one migration, so a single run of each leaves one version row per migration.
+test('a reopened file keeps its board rows and does not run a board migration twice', () => {
   const file = path.join(tempDir('nep-board-schema-'), 'memory.db');
   const first = openMemoryDb(file);
   dbOf(first)
@@ -174,14 +182,15 @@ test('a reopened file keeps its board rows and does not run board v1 twice', () 
   const second = openMemoryDb(file);
   try {
     const db = dbOf(second);
-    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM board_schema_version').get()?.n, 1);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM board_schema_version').get()?.n, BOARD_MIGRATIONS.length);
     assert.equal(db.prepare("SELECT title FROM board_tasks WHERE id = 'T-aaaaaa'").get()?.title, 'kept');
   } finally {
     second.close();
   }
 });
 
-test('a later board migration is applied on top of v1 and leaves the memory version alone', () => {
+// PR 6b: the shipped list has two entries, so the appended migration is version 3; the count follows the list.
+test('a later board migration is applied on top of the shipped ones and leaves the memory version alone', () => {
   const file = path.join(tempDir('nep-board-schema-'), 'memory.db');
   openMemoryDb(file).close();
   const handle = openMemoryDb(file, {
@@ -189,7 +198,7 @@ test('a later board migration is applied on top of v1 and leaves the memory vers
   });
   try {
     const db = dbOf(handle);
-    assert.equal(boardVersion(db), 2);
+    assert.equal(boardVersion(db), BOARD_MIGRATIONS.length + 1);
     assert.ok(tableNames(db).includes('board_later'));
     assert.equal(schemaVersion(handle.db), MIGRATIONS.length);
   } finally {
@@ -214,7 +223,8 @@ test('a failing board migration leaves the memory migrated, open and writable, a
   }
 });
 
-test('a failing board migration on top of v1 keeps the v1 board and its rows as they were', () => {
+// PR 6b: the file opens at the latest shipped version (2), and a failing step above it keeps that version.
+test('a failing board migration on top of the shipped ones keeps the board and its rows as they were', () => {
   const file = path.join(tempDir('nep-board-schema-'), 'memory.db');
   const first = openMemoryDb(file);
   dbOf(first)
@@ -227,7 +237,7 @@ test('a failing board migration on top of v1 keeps the v1 board and its rows as 
   try {
     const db = dbOf(handle);
     assert.equal(handle.board.ok, false);
-    assert.equal(boardVersion(db), 1);
+    assert.equal(boardVersion(db), BOARD_MIGRATIONS.length);
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM board_tasks').get()?.n, 1);
     assert.ok(!tableNames(db).includes('board_half'));
   } finally {
@@ -242,6 +252,75 @@ test('a read-only open of a memory file without a board creates no board table',
   try {
     assert.equal(boardVersion(dbOf(handle)), 0);
     assert.ok(!tableNames(dbOf(handle)).includes('board_tasks'));
+  } finally {
+    handle.close();
+  }
+});
+
+test('board v2 on a v1 file keeps every row, starts each task at generation 0, and keeps the indexes and checks', () => {
+  const file = path.join(tempDir('nep-board-schema-'), 'memory.db');
+  const v1 = openMemoryDb(file, { boardMigrations: BOARD_MIGRATIONS.slice(0, 1) });
+  const old = dbOf(v1);
+  old
+    .prepare(
+      `INSERT INTO board_tasks (id, title, requester, status, lease_owner, lease_expires_at, revision, created_at, updated_at, metadata)
+      VALUES ('T-held11', 'held', 'owner', 'in_progress', 'hand', '2026-10-31T10:30:00.000Z', 4, 'x', 'x', '{"ci":"green"}')`
+    )
+    .run();
+  old
+    .prepare(
+      "INSERT INTO board_results (id, task_id, kind, uri, created_at) VALUES ('R-pr1111', 'T-held11', 'pr', 'u', 'x')"
+    )
+    .run();
+  old
+    .prepare(
+      "INSERT INTO board_reviews (id, task_id, principal, decision, scope, created_at) VALUES ('A-rev111', 'T-held11', 'owner', 'approve', 'plan', 'x')"
+    )
+    .run();
+  old
+    .prepare(
+      "INSERT INTO board_dependencies (task_id, depends_on_id, type) VALUES ('T-held11', 'T-other1', 'parent-child')"
+    )
+    .run();
+  v1.close();
+
+  const handle = openMemoryDb(file);
+  try {
+    const db = dbOf(handle);
+    assert.equal(handle.board.ok, true);
+    assert.equal(boardVersion(db), BOARD_MIGRATIONS.length);
+    const task = db.prepare("SELECT * FROM board_tasks WHERE id = 'T-held11'").get();
+    assert.deepEqual(
+      [task?.status, task?.lease_owner, task?.revision, task?.metadata],
+      ['in_progress', 'hand', 4, '{"ci":"green"}']
+    );
+    assert.deepEqual([task?.lease_generation, task?.blocked_reason, task?.unblocks], [0, null, null]);
+    for (const table of ['board_results', 'board_reviews', 'board_dependencies']) {
+      assert.equal(db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get()?.n, 1, table);
+    }
+    const indexes = db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'board_tasks'")
+      .all()
+      .map((row) => String(row.name));
+    assert.ok(indexes.includes('board_tasks_status') && indexes.includes('board_tasks_lease'), indexes.join(','));
+    db.prepare(
+      "INSERT INTO board_tasks (id, title, requester, status, created_at, updated_at) VALUES ('T-block1', 'b', 'owner', 'blocked', 'x', 'x')"
+    ).run();
+    db.prepare(
+      "INSERT INTO board_results (id, task_id, kind, body, created_at) VALUES ('R-hand11', 'T-block1', 'handoff', '{}', 'x')"
+    ).run();
+    for (const decision of ['accept', 'changes']) {
+      db.prepare(
+        "INSERT INTO board_reviews (id, task_id, principal, decision, scope, created_at) VALUES (?, 'T-block1', 'rev', ?, 'merge', 'x')"
+      ).run(`A-${decision}`, decision);
+    }
+    assert.throws(() =>
+      db
+        .prepare(
+          "INSERT INTO board_tasks (id, title, requester, status, created_at, updated_at) VALUES ('T-bad111', 'b', 'owner', 'paused', 'x', 'x')"
+        )
+        .run()
+    );
   } finally {
     handle.close();
   }
