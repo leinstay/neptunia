@@ -691,25 +691,25 @@
       "count": 2
     },
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 207
+      "count": 92
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 933
+      "count": 389
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 185
+      "count": 73
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 1110
+      "count": 414
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 88
+      "count": 43
     },
     "@typescript-eslint/only-throw-error": {
       "count": 2
     },
     "prefer-const": {
-      "count": 2
+      "count": 1
     }
   },
   "src/config.js": {
