@@ -408,10 +408,20 @@ export function callTextOf(
 }
 
 /**
+ * `{ iface }` naming the interface of the conversation the attempt answers (`draft.info`, set by its preflight), for
+ * the usage line's interface; nothing before the preflight read it. Never part of the request body.
+ */
+export function ifaceOption(draft: { info?: { iface?: string } | null }): { iface?: string } {
+  const iface = draft.info?.iface;
+  return typeof iface === 'string' && iface !== '' ? { iface } : {};
+}
+
+/**
  * The reply request's options (role `core`, purpose `reply`): with a bar, each attempt's timeout is the smaller of
  * llm.timeoutMs and the time left, and the bar's signal aborts it; nothing is asked once no time is left. With a bar the
  * request is also hedged (pace.replyHedgeMs): no answer by then, a second identical request is sent and the first answer
- * wins, the whole call still cut at the same timeout. A journalled attempt tells its collector what it hit.
+ * wins, the whole call still cut at the same timeout. A journalled attempt tells its collector what it hit, and every
+ * attempt names its interface (ifaceOption).
  */
 export function replyOptionsOf(
   config: { llm?: { timeoutMs?: unknown } | null } & Record<string, unknown>,
@@ -419,9 +429,13 @@ export function replyOptionsOf(
     draft,
     bar,
     barAbort,
-  }: { draft: { started?: unknown; limits?: unknown }; bar: { leftMs(): number | null }; barAbort: AbortController }
+  }: {
+    draft: { started?: unknown; limits?: unknown; info?: { iface?: string } | null };
+    bar: { leftMs(): number | null };
+    barAbort: AbortController;
+  }
 ): Record<string, unknown> {
-  const journalLimits = draft.started ? { limits: draft.limits } : {};
+  const journalLimits = { ...(draft.started ? { limits: draft.limits } : {}), ...ifaceOption(draft) };
   const left = bar.leftMs();
   if (left === null) return { ...REPLY_REQUEST, ...journalLimits };
   // The bar's signal: a symbol runTurnOnce catches, never an error.

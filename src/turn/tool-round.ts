@@ -27,7 +27,7 @@ import { coerceArgs, coversSpeech, toolResultText } from '../tools/tool-calls.ts
 import type { NormalCall } from '../tools/tool-calls.ts';
 import type { Obj, SkillMap } from '../tools/types.ts';
 import type { Act, ActArgs, ActOutcome, HeldSpeech, HoldArgs } from './act.ts';
-import { CALL_STATUS_NAMES, callTextOf, defaultSkills, searchHandles, speechItemsOf } from './calls.ts';
+import { CALL_STATUS_NAMES, callTextOf, defaultSkills, ifaceOption, searchHandles, speechItemsOf } from './calls.ts';
 import type { CallEnvelope, SearchRefs } from './calls.ts';
 import { cutOffOf, untoldDiagnostics } from './journal.ts';
 import type { JournalNotes } from './journal-notes.ts';
@@ -133,6 +133,7 @@ type FormatCounts = {
 
 /** What an attempt's draft holds that the steps read and write. */
 export type ToolRoundDraft = CallsDraft & {
+  info?: { iface?: string } | null;
   inner?: {
     wake?: {
       items?: unknown;
@@ -751,6 +752,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
         completion = await llm.complete(sent, {
           ...REPLY_REQUEST,
           ...(draft.started ? { limits: draft.limits } : {}),
+          ...ifaceOption(draft),
           ...tools,
         });
       } catch (err) {

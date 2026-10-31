@@ -8,7 +8,8 @@
 // and cost, and by the `images: generated` lines (a picture: the `drawing` role, a cost and no
 // tokens); it keeps the last KEEP_DAYS UTC days (today included), in memory, and `data/usage.json`
 // keeps them across a restart (written at most once a minute, and once more on shutdown;
-// write-temp + rename). Only numbers and role codes are kept. The costs are OpenRouter's reported
+// write-temp + rename). A line that names the interface of its turn (`iface`) also adds to that interface's row
+// of the day, kept apart from the role rows. Only numbers, role codes and interface names are kept. The costs are OpenRouter's reported
 // ones: a BYOK request is billed by the provider and shows here at OpenRouter's list price (the
 // upstream cost when the answer carries it). The renderers are pure and take every word from
 // `labels.status.costs`.
@@ -34,12 +35,23 @@ export type Counters = {
 /** One role's row of the accumulator. */
 export type RoleRow = Counters & { role: string };
 
-/** What a sum over days answers. */
-export type DaysSum = { rows: Array<RoleRow>; total: Counters; since: string; partial: boolean };
+/** One interface's row of a sum: the requests of the turns of that interface. */
+export type InterfaceRow = Counters & { iface: string };
+
+/** What a sum over days answers: the rows per role and, apart, the rows per interface of the requests that named one. */
+export type DaysSum = {
+  rows: Array<RoleRow>;
+  interfaces: Array<InterfaceRow>;
+  total: Counters;
+  since: string;
+  partial: boolean;
+};
 
 /** One request as the accumulator records it. */
 export type UsageEntry = {
   role?: string | null;
+  /** The interface of the turn the request belongs to; none adds no interface row. */
+  iface?: string | null;
   promptTokens?: unknown;
   cachedTokens?: unknown;
   completionTokens?: unknown;
@@ -131,6 +143,7 @@ export function createUsage({
 }): Usage {
   const file = path.join(dataDir, USAGE_FILE);
   const days: Record<string, Record<string, Counters>> = {}; // day -> role -> counters
+  const ifaces: Record<string, Record<string, Counters>> = {}; // day -> interface -> counters
   let dirty = false;
   let lastSaveAt = -Infinity;
   let chain: Promise<void> = Promise.resolve();
@@ -140,7 +153,20 @@ export function createUsage({
     const nowMs = now();
     const today = utcDay(nowMs);
     const first = utcDay(nowMs - (KEEP_DAYS - 1) * DAY_MS);
-    for (const day of Object.keys(days)) if (!DAY_KEY.test(day) || day < first || day > today) delete days[day];
+    for (const kept of [days, ifaces])
+      for (const day of Object.keys(kept)) if (!DAY_KEY.test(day) || day < first || day > today) delete kept[day];
+  }
+
+  /** `stored` (day -> key -> counters) into `into`, every counter cleaned. */
+  function readDays(stored: Obj, into: Record<string, Record<string, Counters>>): void {
+    for (const [day, keyed] of Object.entries(stored)) {
+      if (!isObj(keyed)) continue;
+      into[day] = Object.fromEntries(
+        Object.entries(keyed)
+          .filter(([, row]) => isObj(row))
+          .map(([key, row]) => [key, cleanRow(row)])
+      );
+    }
   }
 
   function load(): void {
@@ -154,27 +180,25 @@ export function createUsage({
     }
     const stored = objOf(parsed).days;
     if (!isObj(stored)) return;
-    for (const [day, roles] of Object.entries(stored)) {
-      if (!isObj(roles)) continue;
-      days[day] = Object.fromEntries(
-        Object.entries(roles)
-          .filter(([, row]) => isObj(row))
-          .map(([role, row]) => [role, cleanRow(row)])
-      );
-    }
+    readDays(stored, days);
+    // A file written before the interface rows has none: the days load as they are.
+    const byIface = objOf(parsed).interfaces;
+    if (isObj(byIface)) readDays(byIface, ifaces);
     prune();
   }
 
-  function record({ role, promptTokens, cachedTokens, completionTokens, cost }: UsageEntry = {}): void {
+  function record({ role, iface, promptTokens, cachedTokens, completionTokens, cost }: UsageEntry = {}): void {
     const day = utcDay(now());
+    const add = (row: Counters): void => {
+      row.requests += 1;
+      row.promptTokens += amountOr0(promptTokens);
+      row.cachedTokens += amountOr0(cachedTokens);
+      row.completionTokens += amountOr0(completionTokens);
+      row.cost += amountOr0(cost);
+    };
     const key = typeof role === 'string' && role ? role : NO_ROLE;
-    const today = (days[day] ??= {});
-    const row = (today[key] ??= cleanRow(null));
-    row.requests += 1;
-    row.promptTokens += amountOr0(promptTokens);
-    row.cachedTokens += amountOr0(cachedTokens);
-    row.completionTokens += amountOr0(completionTokens);
-    row.cost += amountOr0(cost);
+    add(((days[day] ??= {})[key] ??= cleanRow(null)));
+    if (typeof iface === 'string' && iface) add(((ifaces[day] ??= {})[iface] ??= cleanRow(null)));
     prune();
     dirty = true;
   }
@@ -182,6 +206,21 @@ export function createUsage({
   function byRole(): Array<RoleRow> {
     const today = days[utcDay(now())] ?? {};
     return sortRows(Object.entries(today).map(([role, row]) => ({ role, ...row })));
+  }
+
+  /** The interface rows of the days from `start` to `today`, by cost, then requests, then name. */
+  function sumInterfaces(start: string, today: string): Array<InterfaceRow> {
+    const byIface: Record<string, Counters> = {};
+    for (const [day, keyed] of Object.entries(ifaces)) {
+      if (day < start || day > today) continue;
+      for (const [iface, row] of Object.entries(keyed)) {
+        const sum = (byIface[iface] ??= cleanRow(null));
+        for (const field of COUNTERS) sum[field] += amountOr0(row[field]);
+      }
+    }
+    return Object.entries(byIface)
+      .map(([iface, row]) => ({ iface, ...row }))
+      .sort((a, b) => b.cost - a.cost || b.requests - a.requests || (a.iface < b.iface ? -1 : 1));
   }
 
   function sumDays(
@@ -211,12 +250,15 @@ export function createUsage({
     const rows = sortRows(Object.entries(sums).map(([role, row]) => ({ role, ...row })));
     const total = cleanRow(null);
     for (const row of rows) for (const field of COUNTERS) total[field] += row[field];
-    return { rows, total, since, partial: since !== start };
+    return { rows, interfaces: sumInterfaces(start, today), total, since, partial: since !== start };
   }
 
   async function write(): Promise<void> {
     prune();
-    const text = JSON.stringify({ v: VERSION, days });
+    // The interface rows go in only when a request named an interface, so a file without them stays as it was.
+    const text = JSON.stringify(
+      Object.keys(ifaces).length > 0 ? { v: VERSION, days, interfaces: ifaces } : { v: VERSION, days }
+    );
     const tmp = `${file}.tmp`;
     await fs.promises.mkdir(dataDir, { recursive: true });
     await fs.promises.writeFile(tmp, text);
@@ -249,7 +291,7 @@ export function createUsage({
 }
 
 /**
- * A log listener (src/log.js#onLog) feeding `usage` from every `llm: usage` line: its role, prompt,
+ * A log listener (src/log.js#onLog) feeding `usage` from every `llm: usage` line: its role, its interface, prompt,
  * cached and completion tokens, and its cost (`upstreamCost` when the line has one, else `cost`);
  * and from every `images: generated` line (src/llm/images.js, which logs no `llm: usage`): one
  * request of the `drawing` role with its `cost` and no tokens, and every `speech: synthesized` line
@@ -272,6 +314,7 @@ export function usageTap(usage: Pick<Usage, 'record'>): (entry: unknown) => void
     if (entry.msg !== 'llm: usage') return;
     usage.record({
       role: typeof entry.role === 'string' ? entry.role : null,
+      iface: typeof entry.iface === 'string' ? entry.iface : null,
       promptTokens: entry.promptTokens,
       cachedTokens: entry.cachedTokens,
       completionTokens: entry.completionTokens,

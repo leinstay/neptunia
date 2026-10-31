@@ -82,6 +82,7 @@ import {
   openAdapterLink,
 } from './interface/link.ts';
 import { createCommandDesk, createCommandIntake, coreStatusFacts } from './interface/neptunia-cli.ts';
+import { createConsole } from './interface/commands/console.ts';
 import { holdIfPaused, resumeHeld } from './behavior/core-pause.ts';
 import { configuredInterfaces, drainMs, interfaceEnabled } from './interface/mode.ts';
 import { loadPrincipals, principalOfToken } from './interface/principals.ts';
@@ -1064,6 +1065,24 @@ async function buildCore(options, cleanups) {
   });
   // The owner's commands over the link: the `neptunia` chat and `-p`, and `/nep` from an interface unit.
   commandDesk = createCommandDesk({
+    // The owner's console (src/interface/commands/console.ts): the chat's table over the operations, run as the owner.
+    console: createConsole({
+      runOp: (op, args, context) => admin.runSkillOp(op, args, context),
+      ownerReads: admin.ownerReads,
+      guildId: getGuildId,
+      selfId: () => identity.selfId || null,
+      hot,
+      privateDir: paths.privateDir,
+      dataDir,
+      memoryDb,
+      usage,
+      metrics,
+      conversationLines: (conversationId, count) => {
+        const guildId = getGuildId();
+        return guildId ? recentChannelLines(guildId, conversationId, count) : [];
+      },
+      now: Date.now,
+    }),
     admin,
     interfaces: interfaceLinks,
     guildId: getGuildId,

@@ -759,6 +759,16 @@ function cacheCode(marked, usage) {
 // first attempt to the answer, retried attempts and their backoff included; never negative,
 // null when the clock gave no number). Numbers, booleans, ids and codes only -- an absent value
 // or one of another type is null -- so the line never carries text of a prompt or an answer.
+/**
+ * `{ iface }` of a request's options when they name the interface of its turn, else nothing.
+ * @param {unknown} options
+ * @returns {{ iface?: string }}
+ */
+function ifaceField(options) {
+  const iface = options !== null && typeof options === 'object' && 'iface' in options ? options.iface : null;
+  return typeof iface === 'string' && iface ? { iface } : {};
+}
+
 function usageLogFields(json, usage, model, options, marked, elapsedMs) {
   return {
     role: stringOrNull(options.role),
@@ -777,6 +787,8 @@ function usageLogFields(json, usage, model, options, marked, elapsedMs) {
     byok: typeof usage.is_byok === 'boolean' ? usage.is_byok : null,
     id: stringOrNull(json.id),
     ms: Number.isFinite(elapsedMs) ? Math.max(0, Math.round(elapsedMs)) : null,
+    // The interface of the turn the request belongs to (the usage accumulator's interface rows); never in the body.
+    ...ifaceField(options),
   };
 }
 
@@ -1185,9 +1197,9 @@ export function createLlm({
    * `search-summary`, `describe`, ...): the requests that share one model role are told
    * apart by it in the journal.
    * `options.origin` — where the request comes from when it is not live chat
-   * traffic (e.g. `replay`), so a day's count can leave it out. Both are
-   * logged on the usage line only: never sent in the request body, never
-   * used for routing.
+   * traffic (e.g. `replay`), so a day's count can leave it out. `options.iface` — the interface
+   * of the turn (its usage row). All three are logged on the usage line only: never sent in the
+   * request body, never used for routing.
    * The calibrator is fed, and the over-cap warning
    * (`llm: provider counted more prompt tokens than the cap`) compares, the
    * provider's count of the whole prompt, its cached part included
@@ -1352,7 +1364,7 @@ export function createLlm({
       if (typeof options.parallelToolCalls === 'boolean') body.parallel_tool_calls = options.parallelToolCalls;
     }
     if (Array.isArray(options.plugins) && options.plugins.length) body.plugins = options.plugins;
-    // `options.purpose` and `options.origin` are for the usage line only: never put on `body`.
+    // `options.purpose`, `options.origin` and `options.iface` are for the usage line only: never put on `body`.
 
     // The key of this request's role (`llm.keyByRole`, read now), else the main key.
     const requestKey = roleApiKey(getConfig(), env, options.role, apiKey);

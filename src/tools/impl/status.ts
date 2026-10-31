@@ -36,7 +36,7 @@ import { countToday, DAY_MS, HOUR_MS, MINUTE_MS, utcDay, utcMinute } from '../..
 import { VIDEO_DAILY, ARCHIVE_EVENTS } from '../../memory/index.js';
 import { WEB_DAILY } from '../../web/lookup.js';
 import { clampChars, oneLine } from '../../memory/clamp.js';
-import { isOwnerId } from './grants.ts';
+import { isOwnerCaller } from './grants.ts';
 import { MODEL_ROLES, STATUS_FIELDS, STATUS_PARTS } from './catalog.ts';
 import { CORE_ROLE, DEVELOPMENT_ROLES, ERRAND_ROLES, MEMORY_ROLE, PURPOSE_ROLES, roleModel } from '../../llm/roles.js';
 import { EMBED_ROLE } from '../../llm/embed.js';
@@ -375,7 +375,11 @@ function featuresValue(cfg: Untyped): string {
 type CardField = { name: string; value: string; inline: boolean };
 
 /** What the status card asks: for an owner or a member, one field, or one of her parts. */
-type CardRequest = { owner: boolean; field?: string | null; part?: string | null };
+type CardRequest = { owner: boolean; field?: string | null; part?: string | null; offline?: boolean };
+
+/** The fields whose work reads the network (the key limits' GETs): the offline card of the owner's console leaves
+ * them out, as it probes no model (`/status full`; the probes are `/doctor live`, the keys `/usage`). */
+const NETWORK_FIELDS = new Set(['keys.base']);
 
 /** `status` of an account read, null when it was read. */
 const statusOfRead = (read: AccountRead): number | null => (read.ok ? null : (read.status ?? null));
@@ -961,22 +965,20 @@ const handlers = perEnv((env) => {
    * out the keys, costs, memory and speed fields and the storage line (and sends no account read), and
    * names the models without probing them. With `field` (one of STATUS_FIELDS this caller may see)
    * the card holds that field alone and only its work runs (no probe, no account read, no
-   * coverage for another field); any other `field` gives the whole card. Reads the freshest data/
-   * even mid-pause.
+   * coverage for another field); any other `field` gives the whole card; `offline`, NETWORK_FIELDS left out. Reads
+   * the freshest data/ even mid-pause.
    */
   async function cmdStatusCard({
     owner,
     field = null,
     part = null,
+    offline = false,
   }: CardRequest): Promise<{ fields: Array<CardField> }> {
     freshenIfPaused();
     const cfg = hot.config;
-    const data = store.state.data ?? {};
-    const guildId = getGuildId?.() ?? null;
-    const unresolved = 'guild not resolved yet';
-    const visible = STATUS_FIELDS.filter(
-      (name) => (owner || !OWNER_FIELDS.has(name)) && (name !== 'inner' || innerOn(cfg))
-    );
+    const [data, guildId, unresolved] = [store.state.data ?? {}, getGuildId?.() ?? null, 'guild not resolved yet'];
+    const shownTo = (name: string): boolean => (owner || !OWNER_FIELDS.has(name)) && (name !== 'inner' || innerOn(cfg));
+    const visible = STATUS_FIELDS.filter((name) => shownTo(name) && !(offline && NETWORK_FIELDS.has(name)));
     // Her own call may ask for a part (PART_FIELDS): the fields it holds that she may see, models named and never probed.
     const partFields =
       typeof part === 'string' && Object.hasOwn(PART_FIELDS, part) && part !== 'all' ? PART_FIELDS[part] : null;
@@ -1028,12 +1030,14 @@ defineOp({
   name: 'status.show',
   rights: { kind: 'read' },
   run: async (args, ctx) => {
-    const owner = isOwnerId(ctx.env.hot.config, ctx?.userId);
+    const owner = isOwnerCaller(ctx.env.hot.config, ctx);
     const field = typeof args.field === 'string' ? args.field : null;
     // Her own call without a part gets the short overview; the owner's command without a field, the whole card.
     const asked = typeof args.part === 'string' && STATUS_PARTS.includes(args.part) ? args.part : null;
-    const part = asked ?? (ctx?.actor === 'persona' && !field ? 'overview' : null);
-    const card = await handlers(ctx.env).cmdStatusCard({ owner, field, part });
+    // The owner's console asks for the whole card with nothing read over the network (`offline`).
+    const offline = args.offline === true && ctx?.actor !== 'persona';
+    const part = offline ? 'all' : (asked ?? (ctx?.actor === 'persona' && !field ? 'overview' : null));
+    const card = await handlers(ctx.env).cmdStatusCard({ owner, field: offline ? null : field, part, offline });
     return { text: '', embeds: [card] };
   },
 });

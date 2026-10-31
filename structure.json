@@ -352,6 +352,7 @@
         "src/interface/link.ts",
         "src/interface/members.ts",
         "src/interface/neptunia-cli.ts",
+        "src/interface/commands/console.ts",
         "src/interface/mode.ts",
         "src/interface/principals.ts",
         "src/interface/reads.ts",
@@ -414,6 +415,13 @@
       "layer": "public",
       "imports": ["node:*", "src/board/**"],
       "test": "none"
+    },
+    {
+      "path": "src/health/",
+      "purpose": "The three parts of the owner's `/health`: the server, the core and the memory, each judged by a pure function over a probe or the memory database.",
+      "layer": "public",
+      "imports": ["node:*", "src/health/**", "src/memory/db/backup.js"],
+      "test": "required"
     },
     {
       "path": "src/behavior/",
@@ -1139,6 +1147,13 @@
     {
       "path": "src/interface/",
       "purpose": "The core side of the interface port: the door that admits events, the link to an interface, the socket server, the fake interface and typing leases.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/interface/commands/",
+      "purpose": "The owner's command table of the chat and `neptunia -p`, its parse, and the console that runs a parsed command in the core as the owner.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"

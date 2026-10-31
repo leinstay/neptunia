@@ -5,7 +5,7 @@
 //
 //   neptunia                                     the chat
 //   neptunia -p "<command>"                      one command; its answer on stdout, exit 0 when it ran
-//   neptunia doctor [--json]                     the checks of the installation, with the core up or down
+//   neptunia doctor [--live] [--json]            the checks of the installation, with the core up or down
 //   neptunia errand-runner --profile <name>      the errand runner of one agent (deploy/neptunia-agent-<name>.service)
 //   neptunia interface run <name> [--interfaces-dir <dir>]   one interface (deploy/neptunia-interface@.service)
 //   neptunia service install|start|stop|restart|status [<unit> ...]   the units, through systemctl
@@ -17,20 +17,25 @@
 // The chat is the `cli` interface. It connects to the core's socket `<data>/run/core.sock` with the token of the
 // client `cli` (`<private>/clients/cli.token`, tools/client-token.mjs writes it) and says hello as `iface: 'cli'`. Each
 // line typed is a `message.received` event in the direct chat `cli:dm:owner` between the owner and the persona, and
-// her reply arrives as a send action and is printed. A line starting with `/` is a `command.requested` event: its
-// answer is printed for the owner and never reaches her memory or her requests. `/clear` clears the screen and asks
-// the core nothing. A line typed before the link is up waits in the input until it is. The chat opens with the core's
+// her reply arrives as a send action and is printed. A line starting with `/` is parsed by the command table
+// (src/interface/commands/table.ts), which prints the reason of a line it refuses, and becomes a `command.requested`
+// event: its answer is printed for the owner and never reaches her memory or her requests. `/clear`, `/doctor` and
+// `/logs` (journalctl of the core's unit, from PATH) run here and ask the core nothing, but `/doctor live` asks it
+// for the probes of the model roles. A line typed before the link is up waits in the input until it is. The chat opens with the core's
 // header and, above it, the picture in `<private>/cli/picture.txt` when that file exists. In a terminal the command
 // history is kept in `<private>/cli/history`. The end of the input ends the chat with exit 0, once the answers of the
 // commands still running have arrived.
 //
-// `-p` sends one command the same way and prints its answer alone. It exits 0 when the core answers `ok`, 1 for any
-// other answer or when no core listens. Log lines of the chat and of `-p` go to stderr.
+// `-p` sends one command the same way and prints its answer alone. It exits 0 when the command ran, 1 for a line the
+// table refuses (the reason on stderr), for any other answer than `ok`, or when no core listens for a command that
+// needs one. Log lines of the chat and of `-p` go to stderr.
 //
-// `doctor` asks the core nothing and writes nothing: it checks Node, the binaries the engine runs, config.json and
+// `doctor` writes nothing and asks the core nothing without `--live`: it checks Node, the binaries the engine runs, config.json and
 // config.local.json, the local layer, the `.env` keys of the enabled roles, the client tokens, the memory database
-// (read only, with no lock) and the socket. `--json` prints `{ checks: [{ name, status, detail }] }`. A check is `ok`,
-// `warn` or `fail`, and any `fail` exits 1. No key or token value is ever printed.
+// (read only, with no lock) and the socket. `--live` adds `providers`, the core's probes of the model roles, which is
+// `skipped` when no core answers, since the command line holds no key. `--json` prints
+// `{ checks: [{ name, status, detail }] }`. A check is `ok`, `warn`, `fail` or `skipped`, and any `fail` exits 1. No
+// key or token value is ever printed.
 //
 // `errand-runner` reads config.json and, when its user can read it, the local layer's config.local.json, takes the socket and the output folder
 // from `agents.<name>.socket` and `.out` (src/agent-runner/profiles.js#agentSettings), and serves the agent's tasks
@@ -46,7 +51,7 @@
 // the interface and exit 0.
 
 import { randomUUID } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
@@ -59,6 +64,7 @@ import { agentSettings, profileOf } from '../src/agent-runner/profiles.js';
 import { startSweeper } from '../src/agent-runner/sweep.js';
 import { ROOT_DIR, deepMerge, parseEnv, readConfig, resolveEnvRefs } from '../src/config.js';
 import { moveConfigKeys } from '../src/config-moves.ts';
+import { parseCommandLine } from '../src/interface/commands/table.ts';
 import { CLIENTS_FILE, loadPrincipals } from '../src/interface/principals.ts';
 import { coreSocketPath } from '../src/interface/socket.ts';
 import { BASE_ROLES, MEMORY_ROLE } from '../src/llm/roles.js';
@@ -83,7 +89,7 @@ import type { Transport } from '../src/protocol/wire.ts';
 const USAGE = [
   'usage: neptunia                      the chat',
   '       neptunia -p "<command>"       one command, its answer on stdout',
-  '       neptunia doctor [--json]',
+  '       neptunia doctor [--live] [--json]',
   '       neptunia errand-runner --profile <name>',
   '       neptunia interface run <name> [--interfaces-dir <dir>]',
   '       neptunia service install|start|stop|restart|status [<unit> ...]',
@@ -305,24 +311,6 @@ function lineEvent(text: string, at: number, options: { id?: string; self?: bool
   };
 }
 
-/**
- * A command line (`/interface list`, `status`) as the command's name and arguments: `interface` takes its action as
- * `interface.<action>` and the interface as `args.name`; any other command is its first word, with `full` as
- * `args.full`. Null for an empty line.
- */
-function commandOf(line: string): { name: string; args: Record<string, unknown> } | null {
-  const words = line
-    .trim()
-    .replace(/^\//, '')
-    .split(/\s+/)
-    .filter((word) => word !== '');
-  const [first, second, third] = words;
-  if (first === undefined) return null;
-  if (first === 'interface' && second !== undefined)
-    return { name: `interface.${second}`, args: third === undefined ? {} : { name: third } };
-  return { name: first, args: second === 'full' ? { full: true } : {} };
-}
-
 /** One command as the `command.requested` event of the owner, answered by the `command.result` naming `replyRef`. */
 function commandEvent(
   command: { name: string; args: Record<string, unknown> },
@@ -346,7 +334,7 @@ const quiet: Logger = { info() {}, warn() {}, error() {} };
 /** The command line's link to the core: its events, and the answers of its commands by their `replyRef`. */
 type CliLink = {
   say(text: string): Promise<string>;
-  ask(command: { name: string; args: Record<string, unknown> }): Promise<{ text: string; status: string }>;
+  ask(command: Command): Promise<Answer>;
   closed: Promise<void>;
   close(): void;
 };
@@ -405,11 +393,103 @@ async function openCliLink(print: ((text: string) => void) | null): Promise<CliL
   };
 }
 
+/** A parsed command. */
+type Command = { name: string; args: Record<string, unknown> };
+
+/** One answer of a command, from the core or from the command line itself. */
+type Answer = { text: string; status: string };
+
+/** The commands the command line runs itself, with no core: the doctor, the journal and the screen. */
+const LOCAL_COMMANDS = new Set(['doctor', 'doctor.live', 'logs', 'clear']);
+
+/** The core's unit, whose journal `/logs` reads (deploy/neptunia-core.service). */
+const CORE_UNIT = 'neptunia-core.service';
+
+/** The arguments of `journalctl` for `/logs` with its words (`errors`, `since <value>`, `follow`). */
+function journalArgs(options: string): { args: Array<string>; follow: boolean } {
+  const words = options.split(' ').filter((word) => word !== '');
+  const args = ['-u', CORE_UNIT, '--no-pager'];
+  let follow = false;
+  for (let i = 0; i < words.length; i += 1) {
+    const word = words[i];
+    if (word === 'errors') args.push('-p', 'err');
+    else if (word === 'follow') follow = true;
+    else if (word === 'since') {
+      i += 1;
+      // The table refused `since` without a value; the value is the rest of the words up to the next keyword.
+      const value: Array<string> = [];
+      while (i < words.length && words[i] !== 'errors' && words[i] !== 'follow') {
+        value.push(words[i] ?? '');
+        i += 1;
+      }
+      i -= 1;
+      args.push('--since', value.join(' '));
+    }
+  }
+  if (follow) args.push('-f');
+  return { args, follow };
+}
+
+/** `/logs` once: journalctl's output, or why it did not run. A follow is the chat's (`followJournal`). */
+function readJournal(options: string): Answer {
+  const { args, follow } = journalArgs(options);
+  if (follow) return { text: '/logs follow: only the chat follows the journal', status: 'invalid' };
+  const run = spawnSync('journalctl', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  if (run.error !== undefined) {
+    const code = (run.error as NodeJS.ErrnoException).code ?? 'error';
+    return { text: `/logs: journalctl does not run here (${code}); it is not on PATH`, status: 'failed' };
+  }
+  const text = run.stdout === '' ? run.stderr : run.stdout;
+  return { text: text === '' ? '(no lines)' : text, status: run.status === 0 ? 'ok' : 'failed' };
+}
+
+/** `/logs ... follow` in the chat: journalctl's lines printed as they come, until the chat ends. */
+function followJournal(options: string, print: (text: string) => void): Promise<unknown> {
+  const child = spawn('journalctl', journalArgs(options).args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  child.stdout.on('data', (chunk: Buffer) => print(chunk.toString()));
+  process.once('exit', () => child.kill());
+  return new Promise<void>((resolve) => {
+    child.once('error', (err: NodeJS.ErrnoException) => {
+      print(`/logs: journalctl does not run here (${err.code ?? 'error'}); it is not on PATH`);
+      resolve();
+    });
+    child.once('exit', () => resolve());
+  });
+}
+
+/** The doctor's checks as lines of the chat: each check's status and name, then its detail. */
+const checkLines = (checks: ReadonlyArray<Check>): string =>
+  checks
+    .map((check) => `${check.status.padEnd(7)}  ${check.name.padEnd(11)}  ${check.detail.replaceAll('\n', '; ')}`)
+    .join('\n');
+
+/** A command the command line runs itself; `ask` reaches the core for the probes of `doctor.live`, null when down. */
+async function runLocal(command: Command, ask: ((command: Command) => Promise<Answer>) | null): Promise<Answer> {
+  if (command.name === 'clear') return { text: '', status: 'ok' };
+  if (command.name === 'logs') return readJournal(typeof command.args.options === 'string' ? command.args.options : '');
+  const checks = await doctorChecks(paths(), command.name === 'doctor.live' ? { ask } : null);
+  return { text: checkLines(checks), status: checks.some((check) => check.status === 'fail') ? 'failed' : 'ok' };
+}
+
 async function runOne(argv: ReadonlyArray<string>): Promise<void> {
   const [line, ...rest] = argv;
   if (line === undefined || rest.length > 0) usage();
-  const command = commandOf(line);
-  if (command === null) usage();
+  const parsed = parseCommandLine(line);
+  if (!parsed.ok) {
+    console.error(`neptunia: ${parsed.reason}`);
+    process.exit(1);
+  }
+  const command = { name: parsed.name, args: parsed.args };
+  const print = (answer: Answer): never => {
+    if (answer.text !== '') process.stdout.write(answer.text.endsWith('\n') ? answer.text : `${answer.text}\n`);
+    process.exit(answer.status === 'ok' ? 0 : 1);
+  };
+  if (LOCAL_COMMANDS.has(command.name)) {
+    const link = command.name === 'doctor.live' ? await tryCliLink() : null;
+    const answer = await runLocal(command, link === null ? null : (asked) => link.ask(asked));
+    link?.close();
+    print(answer);
+  }
   let link: CliLink;
   try {
     link = await openCliLink(null);
@@ -417,9 +497,18 @@ async function runOne(argv: ReadonlyArray<string>): Promise<void> {
     die(`no core listens (${(err as NodeJS.ErrnoException).code ?? 'error'}); start it with neptunia service start`);
   }
   const answer = await link.ask(command);
-  process.stdout.write(answer.text.endsWith('\n') ? answer.text : `${answer.text}\n`);
   link.close();
-  process.exit(answer.status === 'ok' ? 0 : 1);
+  print(answer);
+}
+
+/** The `cli` client's link when its token is there and a core listens, else null. */
+async function tryCliLink(): Promise<CliLink | null> {
+  if (!fs.existsSync(path.join(paths().privateDir, 'clients', `${CLI_CLIENT}.token`))) return null;
+  try {
+    return await openCliLink(null);
+  } catch {
+    return null;
+  }
 }
 
 /** The command history of a terminal chat, oldest last as readline keeps it; none when the file is unreadable. */
@@ -480,8 +569,17 @@ async function runChat(): Promise<void> {
     if (text === '/clear') {
       if (terminal) console.clear();
     } else if (text.startsWith('/')) {
-      const command = commandOf(text);
-      if (command !== null) track(link.ask(command).then((answer) => printBlock(answer.text)));
+      const parsed = parseCommandLine(text);
+      if (!parsed.ok) printBlock(parsed.reason);
+      else if (
+        parsed.name === 'logs' &&
+        typeof parsed.args.options === 'string' &&
+        journalArgs(parsed.args.options).follow
+      )
+        track(followJournal(parsed.args.options, printBlock));
+      else if (LOCAL_COMMANDS.has(parsed.name))
+        track(runLocal(parsed, (asked) => link.ask(asked)).then((answer) => printBlock(answer.text)));
+      else track(link.ask(parsed).then((answer) => printBlock(answer.text)));
     } else {
       track(
         link.say(line).then((status) => {
@@ -501,7 +599,8 @@ async function runChat(): Promise<void> {
 // doctor
 // ---------------------------------------------------------------------------------------------------------------
 
-type CheckStatus = 'ok' | 'warn' | 'fail';
+/** A skipped check could not run here (the probes with the core down) and fails nothing. */
+type CheckStatus = 'ok' | 'warn' | 'fail' | 'skipped';
 type Check = { name: string; status: CheckStatus; detail: string };
 
 /** The major version of Node the engine runs on (package.json `engines`). */
@@ -693,10 +792,22 @@ function checkSocket(where: { dataDir: string }): Promise<Check> {
   });
 }
 
-async function runDoctor(argv: ReadonlyArray<string>): Promise<void> {
-  const json = argv.includes('--json');
-  if (argv.some((arg) => arg !== '--json')) usage();
-  const where = paths();
+/**
+ * The probe of every model role, run by the core (`doctor.live`, the status card's probes): `ok`, `warn` when a probe
+ * failed, and `skipped` without a core, since the command line holds no key.
+ */
+async function checkProviders(ask: ((command: Command) => Promise<Answer>) | null): Promise<Check> {
+  if (ask === null) return { name: 'providers', status: 'skipped', detail: 'the core is down: only it holds the keys' };
+  const answer = await ask({ name: 'doctor.live', args: {} });
+  if (answer.status === 'ok') return { name: 'providers', status: 'ok', detail: answer.text };
+  return { name: 'providers', status: answer.status === 'failed' ? 'warn' : 'fail', detail: answer.text };
+}
+
+/** Every check of the installation; with `live`, the providers probed through the core too. */
+async function doctorChecks(
+  where: { rootDir: string; privateDir: string; dataDir: string },
+  live: { ask: ((command: Command) => Promise<Answer>) | null } | null
+): Promise<Array<Check>> {
   const checks: Array<Check> = [
     checkNode(),
     checkBinaries(),
@@ -708,10 +819,27 @@ async function runDoctor(argv: ReadonlyArray<string>): Promise<void> {
     checkDatabase(where),
     await checkSocket(where),
   ];
+  if (live !== null) checks.push(await checkProviders(live.ask));
+  return checks;
+}
+
+async function runDoctor(argv: ReadonlyArray<string>): Promise<void> {
+  const json = argv.includes('--json');
+  const live = argv.includes('--live');
+  if (argv.some((arg) => arg !== '--json' && arg !== '--live')) usage();
+  const where = paths();
+  const link = live ? await tryCliLink() : null;
+  const checks = await doctorChecks(
+    where,
+    live ? { ask: link === null ? null : (command) => link.ask(command) } : null
+  );
+  link?.close();
   if (json) process.stdout.write(`${JSON.stringify({ checks })}\n`);
   else
     for (const check of checks)
-      process.stdout.write(`${check.status.padEnd(4)}  ${check.name.padEnd(11)}  ${check.detail}\n`);
+      process.stdout.write(
+        `${check.status.padEnd(7)}  ${check.name.padEnd(11)}  ${check.detail.replaceAll('\n', '; ')}\n`
+      );
   process.exit(checks.some((check) => check.status === 'fail') ? 1 : 0);
 }
 

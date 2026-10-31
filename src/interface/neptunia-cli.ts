@@ -9,13 +9,14 @@
 // the board's rights decide it, and it answers whether the core is paused or not.
 //
 // A command of an interface principal is a `/nep` command key with its arguments: it runs through the admin's
-// `runCommand`, the rights of its requester checked as on the in-process path. A command of the `cli` principal is one
-// of CLI_COMMANDS and runs with the owner's rights: `status` (the short summary), `header` (the chat's opening line),
-// `pause`, `resume`, `wakes`, `errands` and `intentions` (the `/nep` operations of the same name), `interface.list`,
-// `interface.enable` and `interface.disable` (`args.name`), and `help`. Every answer is plain text with a status:
-// `ok` when the command ran, else the operation's own status (`denied`, `invalid`, `error`). `status` and `header`
-// read what the core holds already (today's usage, the inner life, the errands, the interfaces, the model roles that
-// are down by src/llm/role-health.ts) and call no model.
+// `runCommand`, the rights of its requester checked as on the in-process path. A command of the `cli` principal is a
+// command of the chat's table (src/interface/commands/table.ts), parsed by the chat, and runs with the owner's rights:
+// `status` (the short summary), `header` (the chat's opening line, no row of the table), `help`, and
+// `interface.list`, `interface.enable` and `interface.disable` (`args.name`) are answered here, every other one by the
+// owner's console (src/interface/commands/console.ts). Every answer is plain text with a status: `ok` when the command
+// ran, else the operation's own status (`denied`, `invalid`, `failed`). `status` and `header` read what the core holds
+// already (today's usage, the inner life, the errands, the interfaces, the model roles that are down by
+// src/llm/role-health.ts) and call no model.
 //
 // `createCommandIntake` stands between each link and the event door: a `command.requested` envelope is checked,
 // acknowledged at once and run on the desk, and its answer goes back as a `command.result` action over the same link;
@@ -25,6 +26,7 @@
 import fs from 'node:fs';
 import { roleModel } from '../llm/roles.js';
 import { log } from '../log.js';
+import { COMMANDS } from './commands/table.ts';
 import { ackOf, validateEvent } from '../protocol/index.js';
 import type { Adapter } from '../protocol/adapter.ts';
 import type { RoleDown } from '../llm/role-health.ts';
@@ -33,21 +35,6 @@ import type { Envelope } from '../protocol/wire.ts';
 import type { TaskAnswer } from '../board/commands.ts';
 import type { AdapterLink, From, LinkDoor } from './link.ts';
 import type { Principal } from './principals.ts';
-
-/** The commands the `cli` principal runs, each with the line `help` prints for it. */
-export const CLI_COMMANDS = {
-  status: 'the short summary: spend today, interfaces, failing model roles, the next wake, intentions and errands',
-  pause: 'stop admission; active turns finish, messages are kept for the resume',
-  resume: 'end the pause; each message kept meanwhile reaches the persona once',
-  wakes: 'the next wakes and the last ones',
-  errands: "the persona's latest errands",
-  intentions: "the persona's open intentions",
-  'interface.list': 'every interface, whether it is enabled and whether it is connected',
-  'interface.enable': 'enable an interface: /interface enable <name>',
-  'interface.disable': 'disable an interface: /interface disable <name>',
-  help: 'this list',
-  header: 'the line the chat opens with',
-} as const;
 
 /** One command's answer: the text the owner reads and its outcome. */
 export type Answer = { text: string; status: string };
@@ -83,8 +70,9 @@ export type StatusFacts = {
 };
 
 export type CommandDeps = {
+  /** The owner's console: every command of the table this desk does not answer itself. */
+  console: { run(name: string, args: Record<string, unknown>, requester: { id: string }): Promise<Answer> };
   admin: {
-    run(commandKey: string, args: Record<string, unknown>, context: Record<string, unknown>): Promise<unknown>;
     runCommand(commandKey: string, args: Record<string, unknown>, context: Record<string, unknown>): Promise<OpResult>;
   };
   interfaces: {
@@ -144,19 +132,8 @@ export function headerText(facts: StatusFacts): string {
   ].join('\n');
 }
 
-const helpText = (): string =>
-  Object.entries(CLI_COMMANDS)
-    .filter(([name]) => name !== 'header')
-    .map(([name, line]) => `/${name.replace('.', ' ')}  ${line}`)
-    .concat(['/clear  clear the screen'])
-    .join('\n');
-
-/** An operation's rendered answer as text: a status card's text, or the reply itself. */
-function textOf(rendered: unknown): string {
-  if (typeof rendered === 'string') return rendered;
-  const text: unknown = rendered !== null && typeof rendered === 'object' ? Reflect.get(rendered, 'text') : null;
-  return typeof text === 'string' ? text : '';
-}
+/** One line per command of the table, each starting `/<name>`. */
+const helpText = (): string => COMMANDS.map((command) => `/${command.name}  ${command.help}`).join('\n');
 
 const failed = (err: unknown): Answer => {
   const status: unknown = err !== null && typeof err === 'object' ? Reflect.get(err, 'status') : null;
@@ -164,15 +141,6 @@ const failed = (err: unknown): Answer => {
     text: `Error: ${err instanceof Error ? err.message : String(err)}`,
     status: typeof status === 'string' ? status : 'error',
   };
-};
-
-/** The `/nep` operation each cli command of the same name runs, with its arguments. */
-const OPERATION_OF: Record<string, [string, Record<string, unknown>]> = {
-  pause: ['pause', {}],
-  resume: ['resume', {}],
-  wakes: ['task.inner', { action: 'status' }],
-  errands: ['task.list', {}],
-  intentions: ['task.intent', { action: 'list' }],
 };
 
 export function createCommandDesk(deps: CommandDeps): {
@@ -202,15 +170,12 @@ export function createCommandDesk(deps: CommandDeps): {
 
   async function cliCommand(event: CommandEvent): Promise<Answer> {
     const { name, args } = event;
-    if (!Object.hasOwn(CLI_COMMANDS, name)) return { text: `Unknown command /${name}. Type /help.`, status: 'invalid' };
     if (name === 'help') return { text: helpText(), status: 'ok' };
     if (name === 'status') return { text: statusText(deps.facts()), status: 'ok' };
     if (name === 'header') return { text: headerText(deps.facts()), status: 'ok' };
-    if (name.startsWith('interface.')) return interfaceCommand(name, args);
-    const operation = OPERATION_OF[name];
-    if (operation === undefined) return { text: `Unknown command /${name}. Type /help.`, status: 'invalid' };
-    const [key, given] = operation;
-    return { text: textOf(await deps.admin.run(key, given, { guildId: deps.guildId() })), status: 'ok' };
+    if (name === 'interface.list' || name === 'interface.enable' || name === 'interface.disable')
+      return interfaceCommand(name, args);
+    return deps.console.run(name, args, event.requester);
   }
 
   async function nepCommand(event: CommandEvent): Promise<Answer> {

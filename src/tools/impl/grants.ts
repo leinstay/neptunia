@@ -30,6 +30,18 @@ export function isOwnerId(config: unknown, userId: unknown): boolean {
 }
 
 /**
+ * True when the caller of an operation is an owner: the owner's console (`context.asOwner`, which only the command
+ * desk sets, for the `cli` principal) or a user of `config.bot.owners`. The owner check of every operation that
+ * shows or does more for an owner.
+ */
+export function isOwnerCaller(
+  config: unknown,
+  context: { userId?: unknown; asOwner?: unknown } | null | undefined
+): boolean {
+  return context?.asOwner === true || isOwnerId(config, context?.userId);
+}
+
+/**
  * True when a grant may ever open `op`: not owner-only, not `grantable: false`, not a member
  * operation (open without a grant).
  */

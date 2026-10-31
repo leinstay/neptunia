@@ -1,11 +1,13 @@
-// Operations: `/nep alias`: the owner confirms or removes a member's alias.
+// Operations: `/nep alias`: the owner confirms or removes a member's alias, and the owner's console read
+// `/memory aliases list` (no operation, so no tool of hers) lists them.
 // The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
 import { normalizeTopic, applyAliasOps } from '../../memory/index.js';
 import { confirmTarget, formatAliasList } from './shared.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
-import { idText, textOf } from '../types.ts';
+import { callMethod, idText, objOf, textOf } from '../types.ts';
+import type { Env } from './env.ts';
 import type { Obj, OpContext, Untyped } from '../types.ts';
 
 const handlers = perEnv((env) => {
@@ -95,8 +97,23 @@ const handlers = perEnv((env) => {
     return formatAliasList(after, memoryCfg);
   }
 
-  return { cmdAliasAdd, cmdAliasRemove };
+  /** `/memory aliases list <user>`: the member's aliases, as `add` and `remove` answer them. A member with no
+   * profile is an error. */
+  function cmdAliasList(args: Obj, context: OpContext) {
+    const userId = idText(args.userId);
+    if (!userId) throw invalid('a user is required');
+    const guildId = requireGuildId(context);
+    requireProfile(guildId, userId);
+    return formatAliasList(callMethod(store, 'getUser', guildId, userId), objOf(objOf(objOf(hot).config).memory));
+  }
+
+  return { cmdAliasAdd, cmdAliasRemove, cmdAliasList };
 });
+
+/** `/memory aliases list <user>` of the owner's console (src/interface/commands/console.ts), over the ops env `env`. */
+export function listAliases(env: Env, args: Obj, context: OpContext): string {
+  return handlers(env).cmdAliasList(args, context);
+}
 
 defineOp({
   name: 'alias.add',

@@ -16,7 +16,7 @@
 // returned; `errand.resolve id` closes a finished errand (read too). Both follow the same view rule. Answers are operator lines (ids, agents, states, ages), the goal cut to one short line. A
 // `errand.run` of her turn links the intentions of that turn waiting for its errand (src/intentions/).
 
-import { isOwnerId } from './grants.ts';
+import { isOwnerCaller } from './grants.ts';
 import { TASK_AGENTS } from './catalog.ts';
 import { clampWithEllipsis, oneLine } from '../../memory/clamp.js';
 import { MINUTE_MS } from '../../time.js';
@@ -55,7 +55,7 @@ const handlers = perEnv((env) => {
 
   /** Whether the caller is an owner (`bot.owners`, read now). */
   function ownerCalls(context: OpContext) {
-    return isOwnerId(hot.config, context?.userId);
+    return isOwnerCaller(hot.config, context);
   }
 
   /** Who asks: an owner, a member, or the persona on her own (her call with nobody asking). */

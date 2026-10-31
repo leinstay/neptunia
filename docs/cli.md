@@ -6,7 +6,7 @@
 |---|---|
 | `neptunia` | Opens the chat. |
 | `neptunia -p "<command>"` | Runs one command and prints its answer alone. |
-| `neptunia doctor [--json]` | Checks the installation, with the core up or down. |
+| `neptunia doctor [--live] [--json]` | Checks the installation, with the core up or down. |
 | `neptunia errand-runner --profile <name>` | Runs the errand runner of one agent, as `deploy/neptunia-agent-<name>.service` does. |
 | `neptunia interface run <name> [--interfaces-dir <dir>]` | Runs one interface, as `deploy/neptunia-interface@.service` does (see [Interfaces](interfaces.md#interfaces-as-units)). |
 | `neptunia service install\|start\|stop\|restart\|status [<unit> ...]` | Installs the units with `deploy/install.sh`, or runs `systemctl` on the named units, by default `neptunia-core.service` and the two errand units. |
@@ -22,26 +22,56 @@ The chat and `-p` are the client `cli` of kind `cli`. Its token is `<private>/cl
 
 Every line typed is a message to the persona. It goes to the core as a `message.received` event in the direct conversation `cli:dm:owner` of kind `dm`, between the owner and her, and she remembers it as any direct chat. The private-chat gate lets it through whatever `features.privateMessages` and `bot.owners` say. Her reply comes back as a send action and is printed once. A line typed before the link is up waits in the input until it is. The chat answers the core's reads of the conversation and of its history from the lines of the session, so a turn sees what was said since the chat opened.
 
-A line that starts with `/` is a command. It goes to the core as a `command.requested` event, and its answer is printed for the owner alone: neither the command nor its answer reaches her memory or a request. `/clear` clears the screen and asks the core nothing. In a terminal the command history is kept in `<private>/cli/history`. The end of the input (Ctrl-D) ends the chat with exit 0 once the answers of the commands still running have arrived.
+A line that starts with `/` is a command. The chat parses it by the command table (`src/interface/commands/table.ts`) and prints the reason when the table refuses it. A parsed command goes to the core as a `command.requested` event, and its answer is printed for the owner alone: neither the command nor its answer reaches her memory or a request. `/clear`, `/doctor` and `/logs` run in the chat itself, and `/doctor live` asks the core only for the probes. In a terminal the command history is kept in `<private>/cli/history`. The end of the input (Ctrl-D) ends the chat with exit 0 once the answers of the commands still running have arrived.
+
+## Commands
+
+A line is the command, then its subcommand when it has one, then its arguments in order, split on spaces. The last argument takes the rest of the line, so `/rules add never answer before noon` adds one rule, and `/memory lore add Tower tower,spire The tower has seven floors` is the title `Tower`, the keys `tower,spire` and the text. A command with subcommands runs the first one listed below when the line names none, except `/memory`, which needs one. The table refuses an unknown command, an unknown subcommand, a missing argument, a `/health` part other than `server`, `core` or `memory`, and a `/usage` window other than `7d` or `30d`.
+
+The core's console (`src/interface/commands/console.ts`) runs each command with the owner's rights, whatever `bot.owners` says. A command that maps onto an operation runs it through `runOp`. A refused answer starts with the command as it was typed, so it names the id, the tool or the setting it refused.
 
 | Command | What it does |
 |---|---|
-| `/status` | The short summary: whether the core is paused, today's spend in total and for the core model, the interfaces up or down, each model role that is failing with its reason, the next wake, the open intentions, the errands and the wakes that slept since the start. It reads what the core holds and asks no model. |
-| `/pause` | Stops admission: the turns that run finish, and nothing new starts. See [Pause](#pause). |
-| `/resume` | Ends the pause and hands back what it kept. |
-| `/wakes` | The inner life's status: its queue, its next wake and its last turn (`/nep task inner status`). |
-| `/errands` | The latest errands (`/nep task list`). |
-| `/intentions` | The open intentions (`/nep task intent list`). |
-| `/interface list` | Every interface the core knows, enabled or disabled, connected or not. |
-| `/interface enable <name>`, `/interface disable <name>` | The owner's switch of one interface. A disable gives the actions in flight `interfaces.drainMs` and ends the rest `unknown`. |
-| `/help` | The commands. |
+| `/status` | The short summary: whether the core is paused, today's spend in total and for the core model, the interfaces up or down, each model role that is failing with its reason, the next wake, the open intentions, the errands and the wakes that slept since the start. |
+| `/status full` | Every section of the status card as text, with the models of every role and today's costs per role from `usage.json`. It asks no model and reads nothing over the network. The key limits are in `/usage`, the probes in `/doctor live`. |
+| `/doctor`, `/doctor live` | The checks of `neptunia doctor`, run by the chat, each with its status. `live` adds the check `providers`: the core probes the model of every role as the status card does. |
+| `/health [server\|core\|memory]` | The health of one part, or of all three. See [Health](#health). |
+| `/logs [errors] [since <value>] [follow]` | Runs `journalctl -u neptunia-core.service --no-pager` from `PATH` and prints its lines. `errors` adds `-p err`, `since` adds `--since <value>`, and `follow` follows the journal, in the chat only. |
+| `/usage [7d\|30d]` | The requests, tokens and dollars of `usage.json` over the window, today without one: by model group (`base`, `errands`, `development`, `memory`) with each role by its name, then by interface, then each key's limit and spend. The key limits come from the status card's GETs. |
+| `/errands`, `/errands show <id>`, `/errands cancel <id>` | The latest errands, one errand, or the cancel of an open one (`errand.list`, `errand.status`, `errand.cancel`). |
+| `/intentions`, `/intentions show <id>`, `/intentions cancel <id>` | The open intentions, one of them, or its cancel (`intention.list`, `intention.cancel`). |
+| `/wakes` | The inner life's status: its queue, its next wake and its last turn (`inner.status`). |
+| `/pause`, `/resume` | Stop admission and end the pause. See [Pause](#pause). |
+| `/config`, `/config get <path>`, `/config set <path> <value>`, `/config unset <path>` | `config.local.json` as it is, the live value of one setting, or an override written or removed (`config.set`, `config.unset`). |
+| `/model`, `/route` | The model of every role and the provider routes (`model.show`, `route.list`). |
+| `/memory profile <user> [section]`, `affinity <user>`, `private <user>` | A member's profile, affinity and private memory. |
+| `/memory conversation <id>`, `recent`, `server`, `journal [<day>]`, `archive [<kind>]` | A conversation's newest 30 stored lines from the memory database, the live recent lines, the server notes, the journal of a day and what left hot memory. |
+| `/memory search <query>` | A search of her memory (`memory.search`). |
+| `/memory backup` | A backup of the memory database into `memoryDb.backup.dir` (default `../backups/memory`, from the data folder) through `src/memory/db/backup.js`, then the list of the kept ones. A whole-database restore is `tools/memory-db.mjs restore` on a stopped core. |
+| `/memory restore <id>` | An archived item back in memory (`memory.restore`). |
+| `/memory lore add <title> <keys> <text>`, `lore list [<query>]`, `lore show <id>`, `lore remove <id>` | The lore entries. |
+| `/memory aliases add <user> <name>`, `aliases list <user>`, `aliases remove <user> <name>` | A member's aliases. |
+| `/memory lessons add <text>`, `lessons list`, `lessons remove <number>` | The lessons. The two lists are reads of the console and no operation, so neither is a tool of hers. |
+| `/rules`, `/rules add <text>`, `/rules remove <number>` | The owner's live rules in `prompts.local/rules.md` (`rule.*`). The tracked `prompts/rules.md` is never written. |
+| `/tools`, `/tools describe <tool>` | Every tool and whether she has it, or one tool or family in full (`tools.describe`). |
+| `/tools grant <tool> [target]`, `/tools revoke <tool> [target]` | Her grant of a tool when no target is given, else the grant of `everyone`, `role <id>` or `user <id>` (`access.grant`, `access.revoke`). Her grant names her user id, so it fails and writes nothing until an interface has said who she is. |
+| `/interface`, `/interface enable <name>`, `/interface disable <name>` | Every interface the core knows, enabled or disabled, connected or not, and the owner's switch of one. A disable gives the actions in flight `interfaces.drainMs` and ends the rest `unknown`. `/interface <name> <sub>` is the form of an interface's own subcommands, and no interface has any yet. |
+| `/help` | One line per command. |
 | `/clear` | Clears the screen. |
 
-The core's side of these commands is `src/interface/neptunia-cli.ts` (see [Commands over the link](interfaces.md#commands-over-the-link)).
+## Health
+
+`/health` reads three parts, each a function that the command and `neptunia -p "/health <part>"` call. Each part is `ok`, `warn` or `fail`, and a `fail` ends `-p` with exit 1.
+
+The server part (`src/health/server.ts`) reports the free disk under the data folder, the load, the units `neptunia-core.service`, `neptunia-agent-scout.service`, `neptunia-agent-server.service` and every `neptunia-interface@*.service`, the newest memory backup and the firewall. A unit that is not active fails the part. Less than a tenth of the disk free, a fifteen-minute load above two per CPU, or an inactive `ufw` is a warning. A machine without `ufw`, or a `ufw status` that refuses to answer, reports no firewall.
+
+The core part (`src/health/core.ts`) reads the memory database. It counts the stuck errands, which are board tasks of the lane `errand`, `approved` or `in_progress`, whose lease expired: the condition under which the board's reaper reclaims a task. It also counts the deliveries that `failed` and those still `queued`, the undelivered rows of `board_outbox`, the `ingest` rows past their principal's acknowledged sequence and the wakes claimed more than once. The reply latency is the median and the 95th percentile of the `reply` metric over the last day. A stuck errand or a failed send is a warning.
+
+The memory part (`src/health/memory.ts`) looks back seven days. It names every person who spoke in that time (`people.last_seen_at`) about whom nothing was written in it: no claim about them created or seen, no version of such a claim recorded, no version of a description of them written. It names every claim with more than 10 versions recorded in the window, counts the members' lines past the furthest cursor of an applied memory session, and names the newest finished backup. A silent person or a churning claim is a warning.
 
 ## One command
 
-`neptunia -p "/status"` sends one command the way the chat does and prints its answer on stdout with nothing else, so a script or an agent reads it. It exits 0 when the core answers `ok` and 1 for any other answer. When no core listens it exits 1 at once. The log lines of the chat and of `-p` go to stderr.
+`neptunia -p "/status"` sends one command the way the chat does and prints its answer on stdout with nothing else, so a script or an agent reads it. It exits 0 when the command ran and 1 otherwise: a line the table refuses, with the reason on stderr, an operation's `denied`, `invalid` or `failed`, a `/health` part that fails, a `/doctor` with a failed check, or no `journalctl` for `/logs`. When no core listens it exits 1 at once, except for `/doctor`, `/logs` and `/clear`, which need no core. A usage error of `neptunia` itself exits 2. The log lines of the chat and of `-p` go to stderr.
 
 ## Pause
 
@@ -51,7 +81,7 @@ The core's side of these commands is `src/interface/neptunia-cli.ts` (see [Comma
 
 ## doctor
 
-`neptunia doctor` asks the core nothing and writes nothing. It opens the memory database read only and immutable, so it takes no lock and creates no file, and it never prints a key or a token. `--json` prints `{ checks: [{ name, status, detail }] }`, and the plain form prints one line per check. Each check is `ok`, `warn` or `fail`, and any `fail` exits 1.
+`neptunia doctor` writes nothing and asks the core nothing unless `--live` is given. It opens the memory database read only and immutable, so it takes no lock and creates no file, and it never prints a key or a token. `--json` prints `{ checks: [{ name, status, detail }] }`, and the plain form prints one line per check. Each check is `ok`, `warn`, `fail` or `skipped`, and any `fail` exits 1. A skipped check could not run here and fails nothing.
 
 | Check | What it looks at |
 |---|---|
@@ -64,6 +94,7 @@ The core's side of these commands is `src/interface/neptunia-cli.ts` (see [Comma
 | `tokens` | Every client of `clients.json` has a token file that is not empty and that only its owner can read. |
 | `database` | `PRAGMA quick_check` of the memory database. A missing database is `warn`. |
 | `socket` | `<data>/run/core.sock` exists and the core answers on it. |
+| `providers` | With `--live` only: the core probes the model of every role, one minimal request each, as the status card does. A failed probe is `warn`. With the core down, or without the `cli` token, the check is `skipped`, because the command line holds no key. |
 
 ## The task board
 

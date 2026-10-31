@@ -30,6 +30,12 @@ export function listOf(value: unknown): Array<unknown> {
   return Array.isArray(value) ? value : [];
 }
 
+/** What `owner.name(...args)` answers, or undefined when `owner` has no such method: a typed call into an untyped store. */
+export function callMethod(owner: unknown, name: string, ...args: Array<unknown>): unknown {
+  const method = objOf(owner)[name];
+  return typeof method === 'function' ? (Reflect.apply(method, owner, args) as unknown) : undefined;
+}
+
 /** `value` when it is a string, else the empty string. */
 export function textOf(value: unknown): string {
   return typeof value === 'string' ? value : '';
@@ -97,6 +103,9 @@ export type OpContext = {
   roleIds?: ReadonlyArray<string>;
   /** `persona` for her own call, else the kind of caller (`owner`, `member`). */
   actor?: string;
+  /** The owner's console: set by the command desk for the `cli` principal alone, it passes as an owner whatever
+   * `bot.owners` says (src/tools/impl/grants.ts#isOwnerCaller). */
+  asOwner?: boolean;
   privateChat?: boolean;
   mentionUserIds?: ReadonlyArray<string>;
   ownInitiative?: boolean;

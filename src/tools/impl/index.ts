@@ -262,7 +262,12 @@ function refusal(status: string, code: string, summary: string): OpResult {
  * member operation while `features.memberCommands` is off included), else `not-granted`.
  */
 function checkRights(op: { name: string; rights: Rights }, ctx: Partial<OpContext> | undefined): OpResult | null {
-  const code = rightsRefusal(op, { userId: ctx?.userId, roleIds: ctx?.roleIds, config: ctx?.env?.hot?.config });
+  const code = rightsRefusal(op, {
+    userId: ctx?.userId,
+    roleIds: ctx?.roleIds,
+    config: ctx?.env?.hot?.config,
+    asOwner: ctx?.asOwner === true,
+  });
   if (code === null) return null;
   if (code === CODE.NOT_GRANTED) return refusal('denied', code, 'Not allowed');
   return refusal('denied', code, `${op.name} is owner-only`);
