@@ -20,6 +20,8 @@
 //   - `status().observe` counts the observations waiting for the database (`queued`), under way (`writing`) and lost
 //     (`dropped`: the bounded queue's oldest, a write that failed every retry, one the shutdown could not write);
 //     `waitObservations()` writes the waiting ones and awaits them.
+//   - the task board (src/board/writer.ts) writes through `memoryWrite` too: an agent's `task.*` command, a board call
+//     of her tools and the reaper's beat are each a write of kind `board`, run by the writer whole.
 //   - `issueContext(spec)` issues an execution context (scope.ts#issueContext: an id, the mode, the destination) read
 //     through the triple or `audience_id` as `memoryDb.audienceColumn` says, and records it in `execution_contexts`
 //     (deferred, through the writer) while the database is open; closed, the context is a pure object all the same.

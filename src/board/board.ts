@@ -2,6 +2,8 @@
 // operation in one BEGIN IMMEDIATE transaction, writes its events in it, and stores the answer of a mutation that
 // carries an idempotency key for 24 hours. The rights come from the `boardRoles` of the caller's entry in the private
 // layer's `clients.json`, read at every call, and from the roles the board derives per task (src/board/machine.ts).
+// A builtin principal (`BoardOptions.builtins`, the core's `persona`) holds exactly its own roles, whatever
+// `clients.json` says of its name.
 // A board that is not at its schema version answers `board-unavailable` to everything. `readBoard` is the offline
 // inspection of tools/memory-db.mjs. Nothing here logs.
 
@@ -86,6 +88,23 @@ export function boardSettings(config: unknown): BoardSettings {
     };
   }
   return { leaseTtlMinutes, autoTriage, projects };
+}
+
+/** `board.reapSeconds` and `board.briefWaitMs` when missing or out of range (config.json carries the same). */
+const TIMING_DEFAULTS = Object.freeze({ reapSeconds: 60, briefWaitMs: 30 * 60 * 1000 });
+
+/**
+ * How often the core's reaper beat runs (`board.reapSeconds`, 1 to 3600) and how long `task.next` holds back a task
+ * whose answer no reviewer has acted on (`board.briefWaitMs`, 0 to 7 days), read at the moment of use.
+ */
+export function boardTimings(config: unknown): { reapSeconds: number; briefWaitMs: number } {
+  const board = isObject(config) && isObject(config.board) ? config.board : {};
+  const within = (value: unknown, min: number, max: number, fallback: number): number =>
+    typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max ? value : fallback;
+  return {
+    reapSeconds: within(board.reapSeconds, 1, 3600, TIMING_DEFAULTS.reapSeconds),
+    briefWaitMs: within(board.briefWaitMs, 0, 7 * 24 * 60 * 60 * 1000, TIMING_DEFAULTS.briefWaitMs),
+  };
 }
 
 // ---------- records ----------
@@ -261,21 +280,29 @@ const HANDOFF_MAX = 2000000;
 
 // ---------- rights ----------
 
-/** The board roles of every client of `clients.json`, by name; empty when the file is missing or unreadable. */
-function readGrants(privateDir: string): Map<string, ReadonlySet<BoardRole>> {
+/** The board roles of a builtin principal, by its name: the only roles that name ever holds. */
+export type BoardBuiltins = Readonly<Record<string, ReadonlyArray<BoardRole>>>;
+
+/**
+ * The board roles of every client of `clients.json` by name, then each builtin's own roles over its name, so an entry
+ * of a builtin's name never adds to them. The clients' part is empty when the file is missing or unreadable.
+ */
+function readGrants(privateDir: string, builtins: BoardBuiltins): Map<string, ReadonlySet<BoardRole>> {
   const grants = new Map<string, ReadonlySet<BoardRole>>();
-  let parsed: unknown;
+  let parsed: unknown = null;
   try {
     parsed = JSON.parse(fs.readFileSync(path.join(privateDir, 'clients.json'), 'utf8'));
   } catch {
-    // A missing or broken clients.json grants no one anything.
-    return grants;
+    // A missing or broken clients.json grants no client anything.
   }
-  if (!isObject(parsed)) return grants;
-  for (const [name, entry] of Object.entries(parsed)) {
+  for (const [name, entry] of Object.entries(isObject(parsed) ? parsed : {})) {
     const list = isObject(entry) && Array.isArray(entry.boardRoles) ? entry.boardRoles : [];
     const roles = new Set<BoardRole>(BOARD_ROLES.filter((role) => list.includes(role)));
     if (roles.size > 0) grants.set(name, roles);
+  }
+  for (const [name, roles] of Object.entries(builtins)) {
+    grants.delete(name);
+    if (roles.length > 0) grants.set(name, new Set(roles));
   }
   return grants;
 }
@@ -395,6 +422,8 @@ export type BoardOptions = {
   privateDir: string;
   now: () => number;
   settings: () => BoardSettings;
+  /** The principals the core itself calls as (her `persona`), with their roles; none by default. */
+  builtins?: BoardBuiltins;
 };
 
 type Handler = (board: Board, principal: string, args: Args) => unknown;
@@ -407,6 +436,7 @@ export class Board {
   readonly privateDir: string;
   readonly clock: () => number;
   readonly settingsOf: () => BoardSettings;
+  readonly builtins: BoardBuiltins;
   context: CallContext;
 
   constructor(options: BoardOptions) {
@@ -414,6 +444,7 @@ export class Board {
     this.privateDir = options.privateDir;
     this.clock = options.now;
     this.settingsOf = options.settings;
+    this.builtins = options.builtins ?? {};
     this.context = { grants: new Map(), settings: BOARD_DEFAULTS };
   }
 
@@ -429,7 +460,7 @@ export class Board {
     idempotency: string | null = null
   ): BoardResults[TOp] {
     requireVersion(this.db);
-    const grants = readGrants(this.privateDir);
+    const grants = readGrants(this.privateDir, this.builtins);
     const own = grants.get(principal);
     if (own === undefined) throw new BoardError('forbidden', `${principal} holds no board role`);
     const handler: Handler | undefined = OPS[op];
@@ -498,6 +529,11 @@ export class Board {
     return this.db
       .prepare('SELECT * FROM board_events WHERE seq > ? ORDER BY seq LIMIT ?')
       .all(Number(from) || 0, limit) as Array<EventRow>;
+  }
+
+  /** The board roles of every principal as a call would read them now: clients.json and the builtins. */
+  rolesNow(): ReadonlyMap<string, ReadonlySet<BoardRole>> {
+    return readGrants(this.privateDir, this.builtins);
   }
 
   // BEGIN IMMEDIATE takes the write lock at the start, so two connections never interleave a read and a write.
@@ -1632,3 +1668,7 @@ const OPS: Readonly<Record<BoardOp, Handler>> = {
   'task.review': reviewTask,
   'task.orient': (board, principal) => orientOf(board, principal),
 };
+
+/** Every operation `Board.call` runs, in the order of OPS. */
+// The keys of OPS, a Record over BoardOp, are exactly the BoardOp names.
+export const BOARD_OPS: ReadonlyArray<BoardOp> = Object.freeze(Object.keys(OPS) as Array<BoardOp>);
