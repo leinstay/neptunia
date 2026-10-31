@@ -1,0 +1,171 @@
+// The settings schema of `llm` (src/config/schema.ts): one entry per key, in the order of config/config.json.
+
+import type { SchemaEntry } from '../schema.ts';
+
+export const LLM: ReadonlyArray<SchemaEntry> = [
+  {
+    'key': 'llm.baseUrl',
+    'types': ['string'],
+    'reader': 'src/llm/openrouter.js',
+    'default': 'https://openrouter.ai/api/v1',
+    'text': 'Chat completions endpoint',
+  },
+  {
+    'key': 'llm.temperature',
+    'types': ['number'],
+    'reader': 'src/llm/openrouter.js',
+    'default': 1,
+    'text': 'Sampling temperature',
+  },
+  {
+    'key': 'llm.maxOutputTokens',
+    'types': ['number'],
+    'reader': 'src/llm/openrouter.js',
+    'default': 2000,
+    'text': 'Max output tokens',
+  },
+  {
+    'key': 'llm.maxRequestTokens',
+    'types': ['number'],
+    'reader': 'src/behavior/sandbox.js',
+    'default': 50000,
+    'text': 'Hard token cap per request',
+  },
+  {
+    'key': 'llm.safetyMargin',
+    'types': ['number'],
+    'reader': 'src/behavior/sandbox.js',
+    'default': 0.9,
+    'text': 'Budgeting fraction of `maxRequestTokens`',
+  },
+  {
+    'key': 'llm.timeoutMs',
+    'types': ['number'],
+    'reader': 'src/llm/openrouter.js',
+    'default': 300000,
+    'text': 'Request timeout (ms)',
+  },
+  {
+    'key': 'llm.probeTimeoutMs',
+    'types': ['number'],
+    'reader': 'src/tools/impl/status.ts',
+    'default': 30000,
+    'text': 'Timeout of each model probe and of the key reads of the status card (ms)',
+  },
+  {
+    'key': 'llm.analyzerTimeoutMs',
+    'types': ['number'],
+    'reader': 'src/llm/embed.js',
+    'default': 30000,
+    'text':
+      "Timeout of a request on a model role other than the core's, made alongside the turn (route classifier, search classifier, recall summary). Past this the request is abandoned",
+  },
+  {
+    'key': 'llm.retries',
+    'types': ['number'],
+    'reader': 'src/llm/embed.js',
+    'default': 2,
+    'text': 'Retries on transient HTTP errors (408/429/5xx) and network failures. A daily-quota 429 is thrown at once',
+  },
+  {
+    'key': 'llm.maxRequestsPerDay',
+    'types': ['number'],
+    'reader': 'src/behavior/pull-fetch.ts',
+    'default': 5000,
+    'text': 'Daily request cap',
+  },
+  {
+    'key': 'llm.provider',
+    'types': ['map', 'null'],
+    'reader': 'src/llm/openrouter.js',
+    'default': null,
+    'text': 'OpenRouter `provider` routing object, passed verbatim',
+  },
+  {
+    'key': 'llm.providerByModel',
+    'types': ['map'],
+    'reader': 'src/llm/embed.js',
+    'default': {},
+    'text': 'Per-model provider routing. See the resolution order below',
+  },
+  {
+    'key': 'llm.keyByRole',
+    'types': ['map'],
+    'reader': 'src/core.js',
+    'default': {
+      'scout': 'OPENROUTER_ERRAND_KEY',
+      'server': 'OPENROUTER_ERRAND_KEY',
+      'drawing': 'OPENROUTER_ERRAND_KEY',
+      'thinker': 'OPENROUTER_DEV_KEY',
+      'dev': 'OPENROUTER_DEV_KEY',
+      'memory': 'OPENROUTER_MEMORY_KEY',
+    },
+    'text':
+      'Maps a role name to the NAME of a `.env` variable holding an OpenRouter key. Read at every request. A role not in the map falls back to `OPENROUTER_CORE_KEY`. The `memory` role is the exception: with `OPENROUTER_MEMORY_KEY` unset, the session is not configured and no request goes out on any other key',
+  },
+  {
+    'key': 'llm.cache.ttl',
+    'types': ['string'],
+    'reader': 'src/behavior/prompt.js',
+    'default': '1h',
+    'text': 'Cache TTL for the markers on the system message and the stable user prefix: `"1h"` or `"5m"`',
+  },
+  {
+    'key': 'llm.cache.profilesTtl',
+    'types': ['string', 'null', 'boolean'],
+    'reader': 'src/llm/openrouter.js',
+    'default': '1h',
+    'text':
+      'Cache TTL for the profiles marker: `"1h"`, `"5m"`, or `null`/`false` for none. Never longer than `cache.ttl`',
+  },
+  {
+    'key': 'llm.cache.roles',
+    'types': ['array'],
+    'reader': 'src/llm/openrouter.js',
+    'default': ['core'],
+    'text': 'Model roles whose requests get the cache marker. Add `analyzer` to cache its requests too',
+  },
+  {
+    'key': 'llm.cache.models',
+    'types': ['array'],
+    'reader': 'src/llm/openrouter.js',
+    'default': ['anthropic/'],
+    'text': 'Model id prefixes whose provider accepts the `cache_control` marker',
+  },
+  {
+    'key': 'llm.cache.promptIncludesCached',
+    'types': ['boolean'],
+    'reader': 'src/llm/openrouter.js',
+    'default': true,
+    'text': "Whether the provider's reported `prompt_tokens` already includes cached and cache-write tokens",
+  },
+  {
+    'key': 'llm.hedge.roles',
+    'types': ['array'],
+    'reader': 'src/llm/openrouter.js',
+    'default': ['analyzer'],
+    'text': 'Roles whose calls are hedged (two concurrent attempts, first to finish wins)',
+  },
+  {
+    'key': 'llm.hedge.afterMs',
+    'types': ['number'],
+    'reader': 'src/llm/openrouter.js',
+    'default': 2500,
+    'text': 'Milliseconds before the second attempt starts. `0` or below turns hedging off',
+  },
+  {
+    'key': 'llm.hedge.timeoutMs',
+    'types': ['number'],
+    'reader': 'src/llm/openrouter.js',
+    'default': 8000,
+    'text': "Milliseconds from the first attempt's start at which both are aborted if neither returned",
+  },
+  {
+    'key': 'llm.hedge.longTimeoutMs',
+    'types': ['number'],
+    'reader': 'src/llm/openrouter.js',
+    'default': 20000,
+    'text':
+      'Timeout used when the caller marks the request `long: true` (the route classifier does this for a large channel list)',
+  },
+];

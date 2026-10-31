@@ -1,0 +1,126 @@
+// The settings schema of `participation` (src/config/schema.ts): one entry per key, in the order of config/config.json.
+
+import type { SchemaEntry } from '../schema.ts';
+
+export const PARTICIPATION: ReadonlyArray<SchemaEntry> = [
+  {
+    'key': 'participation.hours',
+    'types': ['number'],
+    'reader': 'src/memory/participation.js',
+    'default': 72,
+    'text': 'Hours an episode is kept',
+  },
+  {
+    'key': 'participation.linesBefore',
+    'types': ['number'],
+    'reader': 'src/turn/participation.ts',
+    'default': 3,
+    'text': "Lines saved before each of the persona's messages",
+  },
+  {
+    'key': 'participation.linesAfter',
+    'types': ['number'],
+    'reader': 'src/memory/participation.js',
+    'default': 1,
+    'text': "Lines saved after the persona's last message",
+  },
+  {
+    'key': 'participation.followMinutes',
+    'types': ['number'],
+    'reader': 'src/pipeline/following.ts',
+    'default': 10,
+    'text': "Minutes after the persona's message a reply must come to be saved",
+  },
+  {
+    'key': 'participation.mergeGapMinutes',
+    'types': ['number'],
+    'reader': 'src/memory/participation.js',
+    'default': 10,
+    'text': "A new message joins the channel's last episode when its last line is at most this old",
+  },
+  {
+    'key': 'participation.contextMinutes',
+    'types': ['number'],
+    'reader': 'src/memory/participation.js',
+    'default': 30,
+    'text': "Max age of saved context lines before the persona's message",
+  },
+  {
+    'key': 'participation.maxMessages',
+    'types': ['number'],
+    'reader': 'src/memory/participation.js',
+    'default': 32,
+    'text': 'Messages per episode',
+  },
+  {
+    'key': 'participation.maxStored',
+    'types': ['number'],
+    'reader': 'src/memory/participation.js',
+    'default': 120,
+    'text': 'Episodes on disk',
+  },
+  {
+    'key': 'participation.maxTextChars',
+    'types': ['number'],
+    'reader': 'src/memory/participation.js',
+    'default': 400,
+    'text': 'Characters per saved message',
+  },
+  {
+    'key': 'participation.shown',
+    'types': ['number'],
+    'reader': 'src/turn/request/memory.ts',
+    'default': 4,
+    'text': 'Episodes shown per turn',
+  },
+  {
+    'key': 'participation.perChannel',
+    'types': ['number'],
+    'reader': 'src/turn/request/memory.ts',
+    'default': 2,
+    'text': 'Episodes per channel',
+  },
+  {
+    'key': 'participation.episodeChars',
+    'types': ['number'],
+    'reader': 'src/turn/request/memory.ts',
+    'default': 1800,
+    'text': 'Characters of text per episode',
+  },
+  {
+    'key': 'participation.contextMessages',
+    'types': ['number'],
+    'reader': 'src/behavior/participation-pick.js',
+    'default': 6,
+    'text': 'Chat lines for the pick classifier',
+  },
+  {
+    'key': 'participation.maxOutputTokens',
+    'types': ['number'],
+    'reader': 'src/behavior/participation-pick.js',
+    'default': 60,
+    'text': 'Max output tokens for the pick classifier',
+  },
+  {
+    'key': 'participation.pickTimeoutMs',
+    'types': ['number', 'null'],
+    'reader': 'src/behavior/participation-pick.js',
+    'default': 1500,
+    'text': 'How long the turn waits for the pick (ms). `null` waits indefinitely',
+  },
+  {
+    'key': 'participation.earlierHours',
+    'types': ['number'],
+    'reader': 'src/behavior/prompt.js',
+    'default': 3,
+    'text':
+      'With `anchoredWindow` on: saved episodes of the current channel older than the window, within this many hours',
+  },
+  {
+    'key': 'participation.earlierShown',
+    'types': ['number'],
+    'reader': 'src/turn/request/memory.ts',
+    'default': 3,
+    'text': 'Episodes of the current channel in `<earlier>`',
+  },
+];
