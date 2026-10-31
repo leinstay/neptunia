@@ -711,6 +711,7 @@ export function createLookup(ctx: LookupContext): Lookup {
     }
 
     /** The searches asked for (`web` query, `server` part), those whose side can run, in parallel. */
+    // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.js in stage 5b, a pure move
     async function runSearches({
       web,
       server,

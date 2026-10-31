@@ -112,6 +112,7 @@ export type Rewatch = {
   }) => Promise<void>;
 };
 
+// health: allow function-length until 2027-04-01 -- the second look shares the runner state of src/behavior/turn.js, moved whole in stage 5b
 export function createRewatch(ctx: RewatchContext): Rewatch {
   const { hot, llm, describer } = ctx;
 
