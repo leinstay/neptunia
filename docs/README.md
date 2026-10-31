@@ -43,7 +43,7 @@ The persona's inner life (heartbeat wakes, intentions, the diary) runs the same 
 | [The neptunia command](cli.md) | The owner's chat in a terminal and its commands, the access model, `-p`, pause, `doctor`, the errand runner and the units |
 | [Media](media.md) | Pictures, video, drawing, voice messages, GIFs, custom emoji, web and server search |
 | [Repository structure](structure.md) | The generated table of every folder and file pattern of the tracked tree: purpose, layer, what it may import, whether its modules need a test |
-| [Configuration reference](configuration.md) | Every key in config.json |
+| [Configuration reference](configuration.md) | Every key of `config/config.json`, generated from the settings schema |
 | [Prompt contract](prompt-contract.md) | The contract between prompt files and code: files, placeholders, labels, output tags |
 | [Writing](../WRITING.md) | How prose is written here: the habits of model text and what to do instead, documentation, prompts, commits, replies, the accepted examples |
 | [Style guide](../STYLEGUIDE.md) | How code and documentation are written |

@@ -52,7 +52,7 @@ Each agent's model sits under `models.development.<name>` in config:
 }
 ```
 
-These are OpenCode model ids (`openrouter/<vendor>/<model>`), not the bare OpenRouter ids the bot's own roles use. A deployment overrides them in `config.local.json` (or with `/model set`). The engine never makes a request on a development role itself.
+These are OpenCode model ids (`openrouter/<vendor>/<model>`), not the bare OpenRouter ids the bot's own roles use. A deployment overrides them in `config.local/config.json` (or with `/model set`). The engine never makes a request on a development role itself.
 
 The status card (`/status full`) shows development models in `models.development` and their spend in `costs.development`. The spend comes from the task board's attempts and agent runs (see below), not from the engine's own accounting.
 
@@ -76,7 +76,7 @@ The development agents' tasks, briefs, reviews, attempts and results live on the
 
 ## Config
 
-The price and the limits of a development agent live in its profile, and a deployment overrides them under `agents.<name>` in `config.local.json`. `agentSettings(name, config)` in `src/agent-runner/profiles.js` lays the override over the profile.
+The price and the limits of a development agent live in its profile, and a deployment overrides them under `agents.<name>` in `config.local/config.json`. `agentSettings(name, config)` in `src/agent-runner/profiles.js` lays the override over the profile.
 
 | Key | Default (thinker / dev) | What it does |
 |---|---|---|

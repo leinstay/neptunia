@@ -18,6 +18,7 @@ import {
   normalCode,
   reasonText,
 } from '../src/tools/codes.ts';
+import { joinLabels } from '../src/config/labels.ts';
 import { fill, formatTranscript, withCalls } from '../src/format.js';
 import { toolResultText } from '../src/tools/tool-calls.ts';
 import { refusalStatus } from '../src/tools/executors.ts';
@@ -25,7 +26,10 @@ import { callMarksOf } from '../src/memory/journal.js';
 import { catalogueProblems, renderCodesTable } from '../tools/lib/labels-catalogue.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'prompts', 'labels.json'), 'utf8'));
+// PR 7c: the shipped labels live in config/labels.json under `model` and `owner`, read joined as the engine reads them.
+/** @type {unknown} */
+const labelsFile = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'labels.json'), 'utf8'));
+const shipped = joinLabels(/** @type {import('../src/config/labels.ts').LabelsFile} */ (labelsFile));
 const contract = fs.readFileSync(path.join(ROOT, 'docs', 'prompt-contract.md'), 'utf8');
 
 // ---- the emitters ----------------------------------------------------------------------------

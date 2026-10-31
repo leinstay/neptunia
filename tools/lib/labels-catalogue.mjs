@@ -1,5 +1,5 @@
 // The pure side of tools/labels-catalogue.mjs: the code catalogue (src/tools/codes.ts) against the
-// shipped labels (prompts/labels.json) and the contract's list of reason codes (docs/prompt-contract.md).
+// shipped labels (config/labels.json, its two sections joined) and the contract's list of reason codes (docs/prompt-contract.md).
 // Every `skill` code needs a `tools.result.reasons.<code>`, every `wake` code a `wake.feedback.codes.<code>`,
 // no label may lack its code (`other` is the one fallback), and a label may only name values its code takes.
 // The contract keeps a generated table between two markers; `renderCodesTable` writes it.

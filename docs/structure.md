@@ -14,11 +14,10 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `.env` | local | The deployment keys, never committed. | nothing | none |
 | `.agents/` | local | The working folder of the agents of one deployment. | nothing | none |
 | `prompts.local/` | local | A deployment prompt layer that shadows the tracked prompts. | nothing | none |
-| `config.local.json` | local | A deployment settings layer over config.json. | nothing | none |
-| `config.local/` | local | A deployment's tool texts, laid over the tracked ones. | nothing | none |
+| `config.local.json` | local | The old place of a deployment's settings, read until `tools/config-files-move.mjs` moves it into `config.local/`. | nothing | none |
+| `config.local/` | local | A deployment's settings, labels and tool texts, each laid over its tracked file, and the settings of each interface it runs. | nothing | none |
 | `data/` | local | A deployment memory, state and logs. | nothing | none |
-| `config.json` | public | The tracked default settings. | nothing | none |
-| `config/` | public | The tracked texts of the persona's tools. | nothing | none |
+| `config/` | public | The tracked default settings, the labels code inserts (split into model and owner) and the texts of the persona's tools. | nothing | none |
 | `package.json` | public | The root package: scripts, workspaces and development dependencies. | nothing | none |
 | `package-lock.json` | public | The locked dependency tree. | nothing | none |
 | `tsconfig.json` | public | The TypeScript compiler options used for type checking. | nothing | none |
@@ -34,7 +33,7 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `.gitignore` | public | The paths git ignores. | nothing | none |
 | `.gitattributes` | public | The git attributes of the tree. | nothing | none |
 | `.nvmrc` | public | The Node version of the project. | nothing | none |
-| `prompts/` | public | The tracked prompt files and labels the model reads. | nothing | none |
+| `prompts/` | public | The tracked prompt files the model reads. | nothing | none |
 | `docs/` | public | How the engine works, one topic per file. | nothing | none |
 | `agents/` | public | The profile and prompt of each errand and development agent. | nothing | none |
 | `agents/scout/web-search.mjs` | public | The scout's web search command, run by its wrapper `agents/scout/bin/web-search` on the agent's PATH. Its logic is `src/web/web-search.js`, tested there. | `src/web/web-search.js` | none |
@@ -50,9 +49,11 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `tools/fixtures/` | public | Sample data for the virtual-week harness. | nothing | none |
 | `tools/prompts/` | public | Example scenario files for the tools. | nothing | none |
 | `src/*.js` | public | The small modules every part uses: settings, hot reload, logging, paths, time and text formatting. | `node:*`, `src/**` | required |
-| `src/config-moves.ts` | public | The config keys of an earlier name and the new name each one is read under, applied to the local config before it is laid over config.json. | nothing | required |
+| `src/config/` | public | Where the settings and the labels live, the join and split of the labels, the settings schema and its checks. | `node:*`, `src/config/**` | required |
+| `src/config/schema/` | public | The entries of the settings schema, one file per top-level section of `config/config.json`. | `src/config/schema.ts` | none |
+| `src/config-moves.ts` | public | The config keys of an earlier name and the new name each one is read under, applied to the local config before it is laid over `config/config.json`. | nothing | required |
 | `src/index.js` | public | The entry point: reads the paths and the environment, reads where the interfaces run, loads the Discord package by path when it runs in this process, starts the core and owns the process signals and exit. It imports no Discord. | `node:*`, `src/*.js`, `src/interface/mode.ts` | none |
-| `src/core.js` | public | The composition root: `startCore` builds the core over the paths, the environment and the interfaces it is given. Proved by the slice test. It imports no Discord. | `node:*`, `src/*.js`, `src/agent-runner/**`, `src/behavior/**`, `src/board/**`, `src/errands/**`, `src/intentions/**`, `src/llm/**`, `src/media/**`, `src/memory/**`, `src/protocol/**`, `src/speech/**`, `src/tools/**`, `src/web/**`, `src/interface/directory.ts`, `src/interface/door.js`, `src/interface/link.ts`, `src/interface/members.ts`, `src/interface/neptunia-cli.ts`, `src/interface/commands/console.ts`, `src/interface/mode.ts`, `src/interface/principals.ts`, `src/interface/reads.ts`, `src/interface/socket.ts` | none |
+| `src/core.js` | public | The composition root: `startCore` builds the core over the paths, the environment and the interfaces it is given. Proved by the slice test. It imports no Discord. | `node:*`, `src/*.js`, `src/agent-runner/**`, `src/config/files.ts`, `src/behavior/**`, `src/board/**`, `src/errands/**`, `src/intentions/**`, `src/llm/**`, `src/media/**`, `src/memory/**`, `src/protocol/**`, `src/speech/**`, `src/tools/**`, `src/web/**`, `src/interface/directory.ts`, `src/interface/door.js`, `src/interface/link.ts`, `src/interface/members.ts`, `src/interface/neptunia-cli.ts`, `src/interface/commands/console.ts`, `src/interface/mode.ts`, `src/interface/principals.ts`, `src/interface/reads.ts`, `src/interface/socket.ts` | none |
 | `src/agent-runner/` | public | The process that works errands: the socket server, the profiles, the OpenCode driver and the sweep. | `node:*`, `src/**` | required |
 | `src/board/` | public | The task board in the memory database: its tables, its state machine, the rights from clients.json, its operations from filing to review, and the reaper. | `node:*`, `src/board/**` | required |
 | `src/board/archive.ts` | public | Her errands as rows of the board's errand lane, board v3's move of them out of the work archive, and the archive's comparison with the board. Tested through the board v3 and verify-errands tests. | `node:*`, `src/board/**` | none |

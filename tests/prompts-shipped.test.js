@@ -15,6 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SnowflakeUtil } from 'discord.js';
+import { joinLabels } from '../src/config/labels.ts';
 import { deepMerge, isPlainObject } from '../src/config.js';
 import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay, zonedDay } from '../src/time.js';
 import {
@@ -80,16 +81,15 @@ function readPrompt(name) {
   return (text.startsWith(BOM) ? text.slice(1) : text).replace(/\r\n/g, '\n').trim();
 }
 
-/** The tracked layer alone: config.json and prompts/ with labels.json, never a local override. */
+/** The tracked layer alone: config/ with the labels read joined, and prompts/, never a local override. */
 const SHIPPED = {
-  config: JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8')),
+  config: JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'config.json'), 'utf8')),
   prompts: {
     ...Object.fromEntries(PROMPT_FILES.map((name) => [name, readPrompt(name)])),
-    labels: JSON.parse(fs.readFileSync(path.join(PROMPTS_DIR, 'labels.json'), 'utf8')),
+    labels: joinLabels(JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'labels.json'), 'utf8'))),
   },
 };
 const LABELS = SHIPPED.prompts.labels;
-
 /** Tracked prompt files no request here can build, each with the reason. */
 const NOT_BUILT = {
   // The voice-message preparation pass (src/speech/prepare.js) runs inside the speech pipeline, whose request tests/speech-prepare.test.js checks.

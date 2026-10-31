@@ -165,7 +165,7 @@ async function describeWith(media, text, prompt) {
 }
 
 test('describe: code fallbacks equal config.json', async () => {
-  const shipped = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8')).media;
+  const shipped = JSON.parse(fs.readFileSync(new URL('../config/config.json', import.meta.url), 'utf8')).media;
   const today = new Date().toISOString().slice(0, 10);
 
   // media.descriptionChars missing: the {{maxChars}} a picture prompt gets.
@@ -1061,7 +1061,7 @@ test('describeVideo: media.video.errorRetryMinutes sets the error-miss TTL, read
 });
 
 test('describeVideo: without errorRetryMinutes an error miss waits exactly what config.json ships (code fallback = shipped value)', async () => {
-  const shipped = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
+  const shipped = JSON.parse(fs.readFileSync(new URL('../config/config.json', import.meta.url), 'utf8'));
   const minutes = shipped.media.video.errorRetryMinutes;
   assert.ok(typeof minutes === 'number' && minutes > 0, 'config.json ships a usable retry delay');
   let t = 1_000_000;
@@ -1165,7 +1165,7 @@ test('describeVideo: a public-URL part carries media.video.urlProcessing; a data
 });
 
 test('describeVideo: without urlProcessing a public URL goes out in the mode config.json ships (code fallback = shipped value)', async () => {
-  const shipped = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
+  const shipped = JSON.parse(fs.readFileSync(new URL('../config/config.json', import.meta.url), 'utf8'));
   const { describer, llm } = videoDescriber({ hot: videoHot({ video: { urlProcessing: undefined } }) });
   assert.equal((await describer.describeVideo('g1', videoLink())).state, 'watched');
   const part = llm.calls[0].messages[1].content[0].video_url;
@@ -1174,7 +1174,7 @@ test('describeVideo: without urlProcessing a public URL goes out in the mode con
 });
 
 test('describeVideo: the request body carries media.video.reasoning (shipped default) through the real client; a non-object omits it', async () => {
-  const shipped = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
+  const shipped = JSON.parse(fs.readFileSync(new URL('../config/config.json', import.meta.url), 'utf8'));
   const run = async (reasoning) => {
     const hot = videoHot({ video: { reasoning } });
     hot.config.llm = {
@@ -2087,7 +2087,7 @@ test('describeVideo: cached length misses of 2719 s and 570 s pinned links are r
 });
 
 test('describeVideo: config.json ships a direct-URL cap that, at the shipped agentic rate, stays within maxRequestTokens', async () => {
-  const shipped = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
+  const shipped = JSON.parse(fs.readFileSync(new URL('../config/config.json', import.meta.url), 'utf8'));
   const prompt = fs.readFileSync(new URL('../prompts/describe-video.md', import.meta.url), 'utf8');
   const video = shipped.media.video;
   // Only the values under test come from config.json. What makes a link go out by its URL at the direct-URL
@@ -2136,7 +2136,7 @@ test('describeVideo: config.json ships a direct-URL cap that, at the shipped age
 });
 
 test('describeVideo: config.json ships clips whose base64 fits the inline request limit, estimated at the code-fallback rate', () => {
-  const shipped = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
+  const shipped = JSON.parse(fs.readFileSync(new URL('../config/config.json', import.meta.url), 'utf8'));
   const video = shipped.media.video;
   // Base64 of the largest clip stays under the provider's ~20 MB inline request limit.
   assert.ok(Math.ceil(video.maxBytes / 3) * 4 < 20_000_000);
@@ -2145,7 +2145,7 @@ test('describeVideo: config.json ships clips whose base64 fits the inline reques
 });
 
 test('describeVideo: a shipped-length clip at the shipped rate plus the shipped prompt stays under media.video.maxRequestTokens', async () => {
-  const shipped = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
+  const shipped = JSON.parse(fs.readFileSync(new URL('../config/config.json', import.meta.url), 'utf8'));
   const prompt = fs.readFileSync(new URL('../prompts/describe-video.md', import.meta.url), 'utf8');
   const video = shipped.media.video;
   const hot = videoHot({ video, prompts: { 'describe-video': prompt } });

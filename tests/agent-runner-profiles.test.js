@@ -298,7 +298,8 @@ test('model: each profile runs on its model role, whose default is its default m
   assert.equal(SERVER.modelRole, 'server');
   assert.equal(SCOUT.defaultModel, ROLE_DEFAULTS.scout);
   assert.equal(SERVER.defaultModel, ROLE_DEFAULTS.server);
-  const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8')).agents;
+  // PR 7c: the shipped settings live in config/config.json.
+  const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'config.json'), 'utf8')).agents;
   for (const name of ['scout', 'server']) {
     // The agent's settings are its profile's now, so config.json may hold no section for it at all.
     assert.equal(
@@ -1530,7 +1531,7 @@ test('a profile of the retired kind `tool` is refused at load, naming the agent 
 test('the real agents/ folder has no drawing agent: no profile, no config entry, and the runner refuses its id', () => {
   assert.equal(fs.existsSync(path.join(ROOT, 'agents', 'drawing')), false);
   assert.equal(profileOf('drawing'), null);
-  const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
+  const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'config.json'), 'utf8'));
   assert.equal(Object.hasOwn(shipped.agents, 'drawing'), false);
   // Stage 4 PR D ("PR D in detail", the errand runner): `neptunia errand-runner` replaces bin/agent-runner.mjs.
   const run = spawnSync(

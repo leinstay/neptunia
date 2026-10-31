@@ -14,6 +14,7 @@ import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { localConfigPath } from './config/files.ts';
 import { createHot } from './hot.js';
 import { log, onLog } from './log.js';
 import { createMetrics, metricsTap } from './tools/impl/metrics.ts';
@@ -142,7 +143,7 @@ function needOrFail(env, key) {
  * another holder's `core:alive` lease within its ttl (`core-running`), unless the lock it left names a process that is
  * gone. Resolves once the startup steps ran; rejects with a one-line error when a startup check fails. `stop()` ends
  * everything `startCore` began and never exits the process. `interfaces` lists the interfaces with the owner's switch
- * and whether one is connected, and `disable(name)` writes `interfaces.<name>.enabled: false` to config.local.json,
+ * and whether one is connected, and `disable(name)` writes `interfaces.<name>.enabled: false` to config.local/config.json,
  * stops sending to that interface, gives its actions in flight `interfaces.drainMs` and ends the rest `unknown`.
  * @param {{
  *   paths: ReturnType<typeof import('./paths.js').resolvePaths>,
@@ -192,7 +193,7 @@ export async function startCore(options) {
 async function buildCore(options, cleanups) {
   const { paths, env, interfaces } = options;
   const clock = options.now ?? Date.now;
-  // The three directories (src/paths.js): the checkout, the private layer (config.local.json, prompts.local/) and the
+  // The three directories (src/paths.js): the checkout, the private layer (config.local/, prompts.local/) and the
   // data directory. Logged once, paths only.
   log.info('index: paths', { rootDir: paths.rootDir, privateDir: paths.privateDir, dataDir: paths.dataDir });
   if (!fs.existsSync(paths.privateDir))
@@ -222,10 +223,10 @@ async function buildCore(options, cleanups) {
   if (!hasRequiredLabels(hot.prompts.labels)) missingPrompts.push('labels');
 
   if (missingPrompts.length > 0) {
-    const files = missingPrompts.map((name) => (name === 'labels' ? 'prompts/labels.json' : `prompts/${name}.md`));
+    const files = missingPrompts.map((name) => (name === 'labels' ? 'config/labels.json' : `prompts/${name}.md`));
     fail(
       `index: missing required prompt file(s): ${files.join(', ')} ` +
-        '(prompts.local/ may override any of these, file by file).'
+        '(prompts.local/ may override any of these prompt files, file by file, and config.local/labels.json the labels).'
     );
   }
 
@@ -257,7 +258,7 @@ async function buildCore(options, cleanups) {
     );
   const configuredGuild = /** @type {string | undefined} */ (settings.config.bot?.guildId) ?? null;
   if (asUnits && !configuredGuild)
-    fail('index: bot.guildId must be set when the interfaces run as units (config.local.json).');
+    fail('index: bot.guildId must be set when the interfaces run as units (config.local/config.json).');
   // One core over this data directory, claimed before anything below touches it or the socket.
   fs.mkdirSync(dataDir, { recursive: true });
   /** @type {() => void} */
@@ -486,10 +487,10 @@ async function buildCore(options, cleanups) {
       fail(`index: clients.json names interfaces of ${ifaces.length} namespaces; the core serves one.`);
     identity.iface = ifaces[0] ?? '';
   }
-  // The owner's switch of each interface (interfaces.<name>.enabled), written to config.local.json and reloaded, as the
-  // owner commands write it (src/tools/impl/env.ts#editLocalConfig).
+  // The owner's switch of each interface (interfaces.<name>.enabled), written to the private settings file and reloaded,
+  // as the owner commands write it (src/tools/impl/env.ts#editLocalConfig).
   function setInterfaceEnabled(/** @type {string} */ name, /** @type {boolean} */ enabled) {
-    const file = path.join(paths.privateDir, 'config.local.json');
+    const file = localConfigPath(paths.privateDir);
     // No key of an old name lies under `interfaces` (src/config-moves.ts), so the file is edited as it is.
     writeLocalConfig(file, setPath(readLocalConfig(file), ['interfaces', name, 'enabled'], enabled));
     settings.reloadConfig();
@@ -1486,7 +1487,7 @@ async function buildCore(options, cleanups) {
   scheduleArchiveDrain();
 
   if (!hot.config.bot.guildId) {
-    log.info('index: bot.guildId is not set, using the only guild the bot is in — pin it in config.local.json', {
+    log.info('index: bot.guildId is not set, using the only guild the bot is in — pin it in config.local/config.json', {
       guildId: instance.guildId,
     });
   }

@@ -1248,7 +1248,7 @@ test('renderTempo: does not mention the unanswered line when there is a trigger'
 });
 
 test('format: the code fallbacks equal the values in config.json', () => {
-  const shipped = JSON.parse(readFileSync(new URL('../config.json', import.meta.url), 'utf8')).context;
+  const shipped = JSON.parse(readFileSync(new URL('../config/config.json', import.meta.url), 'utf8')).context;
   // Tempo: a thresholds argument that is missing, or missing a key, reads as the shipped pair.
   const { liveMessages10min, deadSilenceMinutes } = shipped.tempo;
   const probes = [

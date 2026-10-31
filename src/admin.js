@@ -1,5 +1,5 @@
 // The owner's operations as one object the core builds once (src/core.js): live rules
-// (prompts.local/rules.md, seeded from prompts/rules.md), config overrides (config.local.json,
+// (prompts.local/rules.md, seeded from prompts/rules.md), config overrides (config.local/config.json,
 // hot-reloaded), status, a turn of the persona asked for now (`message.create`) and profile
 // inspection. No operation deletes stored memory. The tracked prompts/ layer is never written at
 // runtime: live corrections always land in the untracked prompts.local/ layer.

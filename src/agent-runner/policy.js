@@ -55,7 +55,7 @@ const FIXED_ROOTS = Object.freeze([
 
 /**
  * The deployment's own withheld directories: its data directory (the persona's memory about real
- * people) and, when it is apart from the checkout, its private directory (.env, config.local.json,
+ * people) and, when it is apart from the checkout, its private directory (.env, config.local/,
  * prompts.local/). Pure.
  * @param {{ rootDir: string, privateDir: string, dataDir: string }} paths  src/paths.js#resolvePaths
  * @returns {string[]}
@@ -79,7 +79,15 @@ export function withheldRootsOf({ paths = resolvePaths({ rootDir: ROOT_DIR }) } 
 /** Absolute paths whose content is withheld in `dm` and `group` (everything under them too), for this process. */
 export const WITHHELD_ROOTS = withheldRootsOf();
 /** Path components that withhold the path wherever they appear. */
-export const WITHHELD_NAMES = Object.freeze(['.git', '.local.git', '.secrets', '.ssh', 'config.local.json', 'scratch']);
+export const WITHHELD_NAMES = Object.freeze([
+  '.git',
+  '.local.git',
+  '.secrets',
+  '.ssh',
+  'config.local.json',
+  'config.local',
+  'scratch',
+]);
 /** A `.env` file (`.env`, `.env.local`, ...) is withheld wherever it is. */
 const ENV_FILE = /^\.env(?:\..+)?$/;
 /** The glob patterns of the fixed roots and the names, before the deployment's directories. */
@@ -105,6 +113,8 @@ const FIXED_GLOBS = Object.freeze([
   '**/.ssh',
   '**/.ssh/**',
   '**/config.local.json',
+  '**/config.local',
+  '**/config.local/**',
   '**/.env',
   '**/.env.*',
 ]);

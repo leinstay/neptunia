@@ -45,8 +45,8 @@ Every step is done once, as root, with the paths of the default layout.
    chmod 0640 /opt/neptunia/etc/clients/cli.token
    ```
 6. Move the platform token out of the core's `.env` into the interface's environment file, `/opt/neptunia/etc/clients/discord.env`, as `DISCORD_TOKEN=...`, owned by root at mode `0600`. systemd reads it before it drops to the interface's user.
-7. Let the interface read the settings: `chgrp neptunia /opt/neptunia/etc/config.local.json && chmod 0640 /opt/neptunia/etc/config.local.json`. Without this it runs on `config.json` alone, with no `bot.guildId` and the default intents.
-8. Set `"interfaces": { "mode": "units" }` and a non-empty `bot.guildId` in `config.local.json`. `neptunia-bot.service` reads the mode too, so from here on it starts a core with no interface.
+7. Let the interface read the settings: `chgrp neptunia /opt/neptunia/etc/config.local /opt/neptunia/etc/config.local/config.json && chmod 0750 /opt/neptunia/etc/config.local && chmod 0640 /opt/neptunia/etc/config.local/config.json`. Without this it runs on `config/config.json` alone, with no `bot.guildId` and the default intents. Settings for this interface only go into `config.local/interfaces/discord.json`, which `neptunia interface run discord` lays over the others, readable by the same group.
+8. Set `"interfaces": { "mode": "units" }` and a non-empty `bot.guildId` in `config.local/config.json`. `neptunia-bot.service` reads the mode too, so from here on it starts a core with no interface.
 
 ### The cutover
 

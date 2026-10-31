@@ -42,7 +42,7 @@ useSelf('self1');
 // The tracked defaults only -- never the deployment's config.local.json, so
 // the suite passes the same on every machine.
 const DEFAULT_CONFIG = JSON.parse(
-  fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'config.json'), 'utf8')
+  fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'config', 'config.json'), 'utf8')
 );
 
 // The settings the behaviour tests below rely on, pinned here so a tuned default never breaks them.

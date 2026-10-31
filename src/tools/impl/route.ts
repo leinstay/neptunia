@@ -1,4 +1,4 @@
-// Operations: `/nep route`: which providers serve each model, per role (llm.providerByModel in config.local.json).
+// Operations: `/nep route`: which providers serve each model, per role (llm.providerByModel in the private settings file).
 // The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
@@ -44,7 +44,7 @@ const handlers = perEnv((env) => {
     return isObj(routes) ? routes : {};
   }
 
-  /** config.local.json with `llm.providerByModel` replaced by `edit(copyOfTheLocalMap)`'s result;
+  /** The private settings file with `llm.providerByModel` replaced by `edit(copyOfTheLocalMap)`'s result;
    * an emptied map, then an emptied `llm`, are pruned. Reloads the config; the reload's outcome. */
   function writeRoutes(edit: (map: Obj) => Obj): boolean {
     return editLocalConfig((local) => {
@@ -135,7 +135,7 @@ const handlers = perEnv((env) => {
     return `Route ${key} (${role ?? 'any role'}): only ${providers.join(', ')}, fallbacks: ${onOff(allowFallbacks)}, byok: ${onOff(byok)} ${reloadNote(ok)}`;
   }
 
-  /** `/nep route remove`: drops the `<prefix>` or `<prefix>@<role>` key from config.local.json */
+  /** `/nep route remove`: drops the `<prefix>` or `<prefix>@<role>` key from the private settings file */
   function cmdRouteRemove(args: Obj): string {
     const prefix = routePrefixArg(args);
     const role = routeRoleArg(args);
@@ -145,7 +145,7 @@ const handlers = perEnv((env) => {
     if (!Object.hasOwn(localMap, key)) {
       const live = hot.config?.llm?.providerByModel;
       const fromBase =
-        isObj(live) && Object.hasOwn(live, key) ? ' in config.local.json (it is set in config.json)' : '';
+        isObj(live) && Object.hasOwn(live, key) ? ' in config.local/config.json (it is set in config/config.json)' : '';
       throw invalid(`no route ${key}${fromBase}`, CODE.NOT_FOUND);
     }
     const ok = writeRoutes((map) => {

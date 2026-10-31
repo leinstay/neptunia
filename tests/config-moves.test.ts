@@ -132,8 +132,10 @@ test('leaves a skills value that is not a section alone', () => {
 /** A checkout whose config.json has the tools defaults and a private folder whose config.local.json is `local`. */
 function deployment(local: Settings | null) {
   const root = tempDir('nep-moves-');
+  // PR 7c: the tracked settings live in config/config.json.
+  fs.mkdirSync(path.join(root, 'config'), { recursive: true });
   fs.writeFileSync(
-    path.join(root, 'config.json'),
+    path.join(root, 'config', 'config.json'),
     JSON.stringify({
       features: { tools: true, toolsDiscovery: true, diary: true },
       tools: { safeMode: false, transport: 'native', loop: { maxSteps: 3, maxCallsPerStep: 4 } },
@@ -559,7 +561,10 @@ test('config-migrate --apply drops bot.commandName and features.adminCommands an
 });
 
 test('the shipped config.json holds neither bot.commandName nor features.adminCommands', () => {
-  const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8')) as Record<string, Settings>;
+  const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'config.json'), 'utf8')) as Record<
+    string,
+    Settings
+  >;
   const has = (section: string, key: string): boolean => Object.hasOwn(shipped[section] ?? {}, key);
   assert.deepEqual([has('bot', 'commandName'), has('features', 'adminCommands')], [false, false]);
 });

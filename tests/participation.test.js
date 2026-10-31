@@ -52,7 +52,8 @@ const ids = (episode) => episode.messages.map((m) => m.id);
 // --- settings ------------------------------------------------------------------
 
 test('participation: defaults equal config.json and missing keys fall back to them', () => {
-  const config = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
+  // PR 7c: the shipped settings live in config/config.json.
+  const config = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'config.json'), 'utf8'));
   assert.deepEqual({ ...PARTICIPATION_DEFAULTS }, config.participation);
   assert.equal(config.features.participation, true);
   assert.deepEqual(participationSettings({}), { ...PARTICIPATION_DEFAULTS });

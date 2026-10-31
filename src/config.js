@@ -1,12 +1,13 @@
 // Loads .env (simple KEY=VALUE parser — not the `dotenv` package) into
 // process.env without overriding already-set variables, and reads
-// config.json (+ optional config.local.json, deep-merged) for non-secret
+// config/config.json (+ the optional private settings file, deep-merged) for non-secret
 // settings. Secrets are read once at startup; the JSON config is re-read by
 // src/hot.js whenever the files change, so nothing here caches it. Every string value of the merged config may reference an
 // environment variable as `${env:NAME}` (`resolveEnvRefs`), so a value that holds credentials
 // (e.g. `media.video.proxy`) can stay in .env.
-// config.json is read from the checkout root; config.local.json and .env from the deployment's
-// private directory (src/paths.js: NEPTUNIA_PRIVATE_DIR), which is the root unless set.
+// config/config.json is read from the checkout; config.local/config.json (or config.local.json of the old layout,
+// src/config/files.ts) and .env from the deployment's private directory (src/paths.js: NEPTUNIA_PRIVATE_DIR), which
+// is the root unless set.
 // Pure functions (parseEnv, applyEnv, deepMerge, resolveEnvRefs) are exported separately so they
 // can be unit-tested without touching the filesystem.
 
@@ -15,6 +16,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { log } from './log.js';
 import { moveConfigKeys } from './config-moves.ts';
+import { localFiles, trackedConfigPath } from './config/files.ts';
 
 export const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -154,10 +156,11 @@ export function loadDotEnv(privateDir = ROOT_DIR) {
 }
 
 /**
- * Read config.json merged with config.local.json, then every `${env:NAME}` in a string value
+ * Read config/config.json merged with the private settings file, then every `${env:NAME}` in a string value
  * replaced from process.env (`resolveEnvRefs`; an unset name becomes '' and is warned about once
- * per process). Throws on invalid JSON. config.json comes from `rootDir`, config.local.json from
- * `privateDir` (the deployment's private directory, src/paths.js), which defaults to `rootDir`.
+ * per process). Throws on invalid JSON and on a private settings file at both its places. config/config.json comes
+ * from `rootDir`, the private file from `privateDir` (the deployment's private directory, src/paths.js), which
+ * defaults to `rootDir`: `config.local/config.json`, or `config.local.json` of the old layout (src/config/files.ts).
  * @param {string} [rootDir]
  * @param {{ privateDir?: string }} [options]
  * @returns {object}
@@ -166,11 +169,11 @@ export function readConfig(rootDir = ROOT_DIR, { privateDir = rootDir } = {}) {
   return resolveEnvRefs(mergeConfigFiles(rootDir, privateDir), process.env, warnUnsetEnvRef);
 }
 
-/** `<rootDir>/config.json` deep-merged with `<privateDir>/config.local.json`, env references unresolved. */
+/** `<rootDir>/config/config.json` deep-merged with the private settings file, env references unresolved. */
 function mergeConfigFiles(rootDir, privateDir) {
-  const base = JSON.parse(fs.readFileSync(path.join(rootDir, 'config.json'), 'utf8'));
-  const localPath = path.join(privateDir, 'config.local.json');
-  if (!fs.existsSync(localPath)) return base;
+  const base = JSON.parse(fs.readFileSync(trackedConfigPath(rootDir), 'utf8'));
+  const localPath = localFiles(privateDir).config;
+  if (localPath === null) return base;
   const raw = fs.readFileSync(localPath, 'utf8').trim();
   if (!raw) return base;
   /** @type {unknown} */

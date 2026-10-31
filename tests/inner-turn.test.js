@@ -915,7 +915,8 @@ test('inner turn, live: message.create with gif= posts the text then the GIF', a
 });
 
 test("loopSettings: an inner turn's bounds are innerLife.loop's (config.json's when missing or unusable); an ordinary turn's stay tools.loop's", () => {
-  const tracked = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
+  // PR 7c: the shipped settings live in config/config.json.
+  const tracked = JSON.parse(fs.readFileSync(new URL('../config/config.json', import.meta.url), 'utf8'));
   assert.deepEqual(loopSettings({}, { inner: true }), tracked.innerLife.loop);
   assert.deepEqual(tracked.innerLife.loop, {
     maxSteps: 4,

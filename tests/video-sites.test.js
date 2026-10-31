@@ -248,7 +248,8 @@ test('ffmpegGifArgs: a GIF becomes a short, even-sided, never upscaled yuv420p H
 });
 
 test('fitBitrate + ffmpegFitArgs: a shipped-length fit re-encode stays within the shipped maxBytes, and that under the 20 MB body limit once base64', () => {
-  const shipped = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
+  // PR 7c: the shipped settings live in config/config.json.
+  const shipped = JSON.parse(fs.readFileSync(new URL('../config/config.json', import.meta.url), 'utf8'));
   const { maxSeconds, maxBytes } = shipped.media.video;
   const { videoKbps, audioKbps } = fitBitrate({ maxBytes, seconds: maxSeconds });
   const { args } = ffmpegFitArgs('/tmp/in.webm', '/tmp/out.mp4', {

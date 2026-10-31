@@ -27,7 +27,8 @@ import { useIface, world } from './fixtures/turn-world.ts';
 useIface('fake');
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SHIPPED_CONFIG = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
+// PR 7c: the shipped settings live in config/config.json.
+const SHIPPED_CONFIG = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'config.json'), 'utf8'));
 
 const NOW = Date.UTC(2026, 9, 5, 12, 0, 0);
 const MINUTE = 60_000;

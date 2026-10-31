@@ -19,7 +19,8 @@ import {
 } from '../src/behavior/mention.js';
 import { ROLE_DEFAULTS, roleModel } from '../src/llm/roles.js';
 
-const shipped = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
+// PR 7c: the shipped settings live in config/config.json.
+const shipped = JSON.parse(fs.readFileSync(new URL('../config/config.json', import.meta.url), 'utf8'));
 const NAME_TRIGGERS = ['νεπτούνια'];
 
 // --- detectTrigger ----------------------------------------------------------

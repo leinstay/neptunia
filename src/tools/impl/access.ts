@@ -147,16 +147,16 @@ const handlers = perEnv((env) => {
     if (reachesHer) throw denied(`${name}: the persona never changes rights that reach her`, CODE.SELF_GRANT);
   }
 
-  /** `bot.access` as of the last write (`localOrLive`): config.local.json already holds the whole
+  /** `bot.access` as of the last write (`localOrLive`): the private settings file already holds the whole
    * merged object the moment one grant/revoke writes it (see `writeAccess`), so reading it back
    * first keeps repeated grant/revoke/list calls consistent even a moment before the next reload
-   * lands. Falls back to `hot.config.bot.access` (the base config.json default, `{}`) before
+   * lands. Falls back to `hot.config.bot.access` (the config/config.json default, `{}`) before
    * anything has ever been written locally. */
   function effectiveAccess(): Access {
     return objOf(localOrLive('bot.access'));
   }
 
-  /** Writes `nextAccess` to `bot.access` in config.local.json and reloads config -- the same
+  /** Writes `nextAccess` to `bot.access` in the private settings file and reloads config -- the same
    * mechanism cmdSet uses; the reload's outcome. */
   function writeAccess(nextAccess: Access): boolean {
     return writeLocalPath('bot.access', nextAccess);
@@ -279,7 +279,7 @@ const handlers = perEnv((env) => {
    * Once per guild (`accessMigrated: 1` in data/guilds/<id>/guild.json): the stored grants,
    * keyed by the old slash-command keys, re-expanded under the operation names
    * (src/tools/impl/grants.ts#migrateGrants with `legacy`, src/config-moves.ts#legacyGrantOps), written
-   * back to config.local.json when they changed, and a journal `system` record `access-migrated`
+   * back to the private settings file when they changed, and a journal `system` record `access-migrated`
    * whose note lists what each grant covers now and the owner-only operations dropped.
    */
   async function migrateStoredGrants(

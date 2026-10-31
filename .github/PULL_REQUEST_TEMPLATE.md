@@ -15,7 +15,7 @@
 - [ ] I have read [CONTRIBUTING.md](https://github.com/leinstay/neptunia/blob/main/CONTRIBUTING.md)
 - [ ] `npm test` passes
 - [ ] No new runtime dependency (or discussed and approved in an issue)
-- [ ] No model-facing text in `src/` — prompts and `labels.json` only
-- [ ] Every new setting has its default in `config.json` and a row in the README
+- [ ] No model-facing text in `src/` — prompts and `config/labels.json` only
+- [ ] Every new setting has its default in `config/config.json` and an entry in `src/config/schema/`
 - [ ] A contract change updates `docs/prompt-contract.md`
 - [ ] Nothing private: no `data/` contents, member messages, tokens or character card

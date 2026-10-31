@@ -13,16 +13,16 @@
 # the public code only and stays read-only to the service.
 #   /opt/neptunia/
 #     app/    the engine checkout (root-owned, read-only to the service)
-#     etc/    .env, config.local.json, prompts.local/   (NEPTUNIA_PRIVATE_DIR)
+#     etc/    .env, config.local/, prompts.local/       (NEPTUNIA_PRIVATE_DIR)
 #     data/   everything the bot writes                 (NEPTUNIA_DATA_DIR)
 # deploy/install.sh creates etc/ and data/ for the service user and installs
 # this unit for the checkout (--dry-run shows its commands first).
 #
-# A deployment that keeps everything in the checkout (.env, config.local.json,
+# A deployment that keeps everything in the checkout (.env, config.local/,
 # prompts.local/ and data/ next to the code) deletes the two Environment= lines
 # below, points EnvironmentFile= at /opt/neptunia/app/.env and restores the old
 # write paths:
-#   ReadWritePaths=/opt/neptunia/app/data /opt/neptunia/app/prompts.local /opt/neptunia/app/config.local.json
+#   ReadWritePaths=/opt/neptunia/app/data /opt/neptunia/app/prompts.local /opt/neptunia/app/config.local
 
 [Unit]
 Description=neptunia-bot — SillyTavern-inspired Discord pseudo-user engine
@@ -41,7 +41,7 @@ Environment=NEPTUNIA_DATA_DIR=/opt/neptunia/data
 EnvironmentFile=-/opt/neptunia/etc/.env
 
 # Hardening: the process needs write access only to its own data and
-# per-deployment overrides (/nep set writes config.local.json, /nep rule add
+# per-deployment overrides (/config set writes config.local/config.json, /rules add
 # writes prompts.local/rules.md); everything else, the checkout included,
 # stays read-only.
 NoNewPrivileges=true

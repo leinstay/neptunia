@@ -64,6 +64,10 @@ import { agentSettings, profileOf } from '../src/agent-runner/profiles.js';
 import { startSweeper } from '../src/agent-runner/sweep.js';
 import { ROOT_DIR, deepMerge, parseEnv, readConfig, resolveEnvRefs } from '../src/config.js';
 import { moveConfigKeys } from '../src/config-moves.ts';
+import { checkConfig as checkSettings } from '../src/config/check.ts';
+import { LOCAL_CONFIG_DIR, MOVE_TOOL, localConfigPath, localFiles, trackedConfigPath } from '../src/config/files.ts';
+import type { LocalFiles } from '../src/config/files.ts';
+import { CONFIG_SCHEMA } from '../src/config/schema.ts';
 import { parseCommandLine } from '../src/interface/commands/table.ts';
 import { CLIENTS_FILE, loadPrincipals } from '../src/interface/principals.ts';
 import { coreSocketPath } from '../src/interface/socket.ts';
@@ -623,39 +627,35 @@ function checkBinaries(): Check {
     : { name: 'binaries', status: 'warn', detail: 'ffmpeg not found: voice messages are off' };
 }
 
-/** The leaves of `local` whose type differs from the value config.json gives the same key. */
-function mismatchedKeys(base: Settings, local: Settings, prefix = ''): Array<string> {
-  const found: Array<string> = [];
-  for (const [key, value] of Object.entries(local)) {
-    if (!Object.hasOwn(base, key)) continue;
-    const shipped = base[key];
-    const at = prefix === '' ? key : `${prefix}.${key}`;
-    if (isObject(shipped) && isObject(value)) found.push(...mismatchedKeys(shipped, value, at));
-    else if (shipped !== null && value !== null && Array.isArray(shipped) !== Array.isArray(value)) found.push(at);
-    else if (shipped !== null && value !== null && typeof shipped !== typeof value) found.push(at);
-  }
-  return found;
-}
-
+/**
+ * The private settings file against the schema (src/config/check.ts): `warn` naming each unknown key and each key of
+ * the wrong type, or the old layout that tools/config-files-move.mjs moves; `fail` when a file is not JSON, the
+ * tracked file is missing or a file sits at both its places.
+ */
 function checkConfig(where: { rootDir: string; privateDir: string }): Check {
   let base: Settings | null;
   let local: Settings | null;
+  let found: LocalFiles;
   try {
-    base = readObject(path.join(where.rootDir, 'config.json'));
-    local = readObject(path.join(where.privateDir, 'config.local.json'));
+    found = localFiles(where.privateDir);
+    base = readObject(trackedConfigPath(where.rootDir));
+    local = found.config === null ? null : readObject(found.config);
   } catch (err) {
-    return { name: 'config', status: 'fail', detail: `a config file is not JSON: ${(err as Error).message}` };
+    return { name: 'config', status: 'fail', detail: `a config file is not read: ${(err as Error).message}` };
   }
-  if (base === null) return { name: 'config', status: 'fail', detail: 'config.json is missing' };
-  if (local === null)
-    return { name: 'config', status: 'warn', detail: 'no config.local.json: the shipped settings apply' };
-  const moved = moveConfigKeys(local).config;
-  // A model role switched off (`models.base.<role>: false`) is the roles check's to report, not a wrong type.
-  const off = new Set(rolesOff(moved).map((role) => `models.base.${role}`));
-  const wrong = mismatchedKeys(base, moved).filter((key) => !off.has(key));
-  return wrong.length === 0
-    ? { name: 'config', status: 'ok', detail: 'config.json and config.local.json read' }
-    : { name: 'config', status: 'warn', detail: `keys of another type than config.json's: ${wrong.join(', ')}` };
+  if (base === null) return { name: 'config', status: 'fail', detail: 'config/config.json is missing' };
+  if (local === null || found.config === null)
+    return { name: 'config', status: 'warn', detail: 'no config.local/config.json: the shipped settings apply' };
+  const file = path.relative(where.privateDir, found.config);
+  const problems = checkSettings(moveConfigKeys(local).config, CONFIG_SCHEMA).map(({ key, kind }) =>
+    kind === 'unknown' ? `${key} (unknown)` : `${key} (wrong type)`
+  );
+  const moveNote = found.old ? `; the old layout, moved by node ${MOVE_TOOL}` : '';
+  if (problems.length > 0)
+    return { name: 'config', status: 'warn', detail: `${file}: ${problems.join(', ')}${moveNote}` };
+  return found.old
+    ? { name: 'config', status: 'warn', detail: `config/config.json and ${file} read${moveNote}` }
+    : { name: 'config', status: 'ok', detail: `config/config.json and ${file} read` };
 }
 
 function checkLocalLayer(where: { privateDir: string }): Check {
@@ -863,11 +863,10 @@ async function runErrandRunner(argv: ReadonlyArray<string>): Promise<void> {
   const where = paths();
   const profile = profileOf(name) as (Settings & { defaultLimits?: Settings }) | null;
   if (profile === null) die(`unknown profile: ${name} (expected scout or server)`);
-  // config.json, then config.local.json when this user can read it: the runner's user may not read the local layer.
-  const files = createSettings([
-    path.join(where.rootDir, 'config.json'),
-    path.join(where.privateDir, 'config.local.json'),
-  ]);
+  // config/config.json, then the private settings file when this user can read it: the runner's user may not read the
+  // local layer.
+  const localFile = localConfigPath(where.privateDir);
+  const files = createSettings([trackedConfigPath(where.rootDir), localFile], localFile);
   const read = (): Settings => files.read();
   let config = read();
   const errands = isObject(config.errands) ? config.errands : {};
@@ -998,8 +997,11 @@ function changedAt(file: string): number {
   }
 }
 
-/** The interface's settings, read again when a file changed. Each change that read well is told to the listeners. */
-function createSettings(files: ReadonlyArray<string>) {
+/**
+ * The interface's settings, read again when a file changed. Each change that read well is told to the listeners.
+ * `local` is the private settings file among `files`, read with its keys of an old name under the new one.
+ */
+function createSettings(files: ReadonlyArray<string>, local: string) {
   const listeners = new Set<(what: string) => void>();
   let stamp = '';
   let current: Settings = {};
@@ -1009,11 +1011,11 @@ function createSettings(files: ReadonlyArray<string>) {
     const [base = '', ...layers] = files;
     try {
       let merged = readObject(base) ?? {};
-      for (const [index, file] of layers.entries()) {
+      for (const file of layers) {
         const layer = readObject(file);
         if (layer === null) continue;
-        // The last layer is config.local.json, read with its keys of an old name under the new one, as the core reads it.
-        merged = deepMerge(merged, index === layers.length - 1 ? moveConfigKeys(layer).config : layer) as Settings;
+        // The private settings file is read with its keys of an old name under the new one, as the core reads it.
+        merged = deepMerge(merged, file === local ? moveConfigKeys(layer).config : layer) as Settings;
       }
       current = resolveEnvRefs(merged) as Settings;
     } catch (err) {
@@ -1041,11 +1043,17 @@ async function runInterface(argv: ReadonlyArray<string>): Promise<void> {
   const pkg = await loadPackage(packageDir);
   const token = readToken(where.privateDir, name);
   const socketPath = coreSocketPath(where.dataDir);
-  const settings = createSettings([
-    path.join(where.rootDir, 'config.json'),
-    path.join(packageDir, 'config.json'),
-    path.join(where.privateDir, 'config.local.json'),
-  ]);
+  // The tracked settings, the package's own, the private settings file, then the private file of this interface.
+  const localFile = localConfigPath(where.privateDir);
+  const settings = createSettings(
+    [
+      trackedConfigPath(where.rootDir),
+      path.join(packageDir, 'config.json'),
+      localFile,
+      path.join(where.privateDir, LOCAL_CONFIG_DIR, 'interfaces', `${name}.json`),
+    ],
+    localFile
+  );
   settings.read();
 
   let delays = 0;

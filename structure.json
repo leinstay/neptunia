@@ -58,14 +58,14 @@
     },
     {
       "path": "config.local.json",
-      "purpose": "A deployment settings layer over config.json.",
+      "purpose": "The old place of a deployment's settings, read until `tools/config-files-move.mjs` moves it into `config.local/`.",
       "layer": "local",
       "imports": [],
       "test": "none"
     },
     {
       "path": "config.local/",
-      "purpose": "A deployment's tool texts, laid over the tracked ones.",
+      "purpose": "A deployment's settings, labels and tool texts, each laid over its tracked file, and the settings of each interface it runs.",
       "layer": "local",
       "imports": [],
       "test": "none"
@@ -78,15 +78,8 @@
       "test": "none"
     },
     {
-      "path": "config.json",
-      "purpose": "The tracked default settings.",
-      "layer": "public",
-      "imports": [],
-      "test": "none"
-    },
-    {
       "path": "config/",
-      "purpose": "The tracked texts of the persona's tools.",
+      "purpose": "The tracked default settings, the labels code inserts (split into model and owner) and the texts of the persona's tools.",
       "layer": "public",
       "imports": [],
       "test": "none"
@@ -204,7 +197,7 @@
     },
     {
       "path": "prompts/",
-      "purpose": "The tracked prompt files and labels the model reads.",
+      "purpose": "The tracked prompt files the model reads.",
       "layer": "public",
       "imports": [],
       "test": "none"
@@ -315,8 +308,22 @@
       "test": "required"
     },
     {
+      "path": "src/config/",
+      "purpose": "Where the settings and the labels live, the join and split of the labels, the settings schema and its checks.",
+      "layer": "public",
+      "imports": ["node:*", "src/config/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/config/schema/",
+      "purpose": "The entries of the settings schema, one file per top-level section of `config/config.json`.",
+      "layer": "public",
+      "imports": ["src/config/schema.ts"],
+      "test": "none"
+    },
+    {
       "path": "src/config-moves.ts",
-      "purpose": "The config keys of an earlier name and the new name each one is read under, applied to the local config before it is laid over config.json.",
+      "purpose": "The config keys of an earlier name and the new name each one is read under, applied to the local config before it is laid over `config/config.json`.",
       "layer": "public",
       "imports": [],
       "test": "required"
@@ -336,6 +343,7 @@
         "node:*",
         "src/*.js",
         "src/agent-runner/**",
+        "src/config/files.ts",
         "src/behavior/**",
         "src/board/**",
         "src/errands/**",

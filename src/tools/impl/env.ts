@@ -1,12 +1,13 @@
 // The environment every operation runs against: the dependencies src/admin.js#createAdmin is
 // given (see its JSDoc for each one) and the functions several operations share -- the slash
 // wording of a pointer to another command, the paused / no-guild refusals, the token
-// resolver of analyzer text, the journal's system records and the config.local.json
-// writers (under `hot.privateDir`, the deployment's private directory). Built once per admin; an operation reads it as `ctx.env`. Hot
+// resolver of analyzer text, the journal's system records and the writers of the private settings
+// file (under `hot.privateDir`, the deployment's private directory). Built once per admin; an operation reads it as `ctx.env`. Hot
 // values are read at the moment of use, through `hot`, never copied.
 
 import path from 'node:path';
 import { moveConfigKeys } from '../../config-moves.ts';
+import { localConfigPath } from '../../config/files.ts';
 import { fromTokens } from '../../memory/mentions.ts';
 import { familyOf as imageFamilyOf } from '../../llm/images.js';
 import { roleModel } from '../../llm/roles.js';
@@ -174,20 +175,20 @@ function buildEnv({
     }
   }
 
-  /** config.local.json in the private directory the live config reads it from (`hot.privateDir`,
-   * the checkout root unless set apart; a hot without one falls back to `hot.rootDir`). */
+  /** The private settings file the live config reads (src/config/files.ts#localConfigPath) in the private directory
+   * (`hot.privateDir`, the checkout root unless set apart; a hot without one falls back to `hot.rootDir`). */
   function localConfigFile(): string {
-    return path.join((hot.privateDir ?? hot.rootDir) as string, 'config.local.json');
+    return localConfigPath((hot.privateDir ?? hot.rootDir) as string);
   }
 
-  /** config.local.json with its keys of an old name written under their new one (src/config-moves.ts), as the
+  /** the private settings file with its keys of an old name written under their new one (src/config-moves.ts), as the
    * loader reads it: a command that read the raw file would add a key under the new name beside the old one, and the
    * next load would let the new one win. */
   function settledLocalConfig(file: string): Untyped {
     return moveConfigKeys(readLocalConfig(file)).config as Untyped;
   }
 
-  /** config.local.json, settled, passed through `edit` (object in, object out), written back, and the
+  /** the private settings file, settled, passed through `edit` (object in, object out), written back, and the
    * config reloaded; the reload's outcome. Every config writer goes through here. */
   function editLocalConfig(edit: (local: Untyped) => unknown): boolean {
     const file = localConfigFile();
@@ -196,12 +197,12 @@ function buildEnv({
   }
 
   /** `value` written at `dottedPath` (or an array of keys, src/tools/impl/shared.ts#splitPath) of
-   * config.local.json, then reloaded; the reload's outcome. */
+   * the private settings file, then reloaded; the reload's outcome. */
   function writeLocalPath(dottedPath: string | ReadonlyArray<string>, value: unknown): boolean {
     return editLocalConfig((local) => setPath(local, dottedPath, value));
   }
 
-  /** The value at `dottedPath` as of the last write: config.local.json's when it holds the path,
+  /** The value at `dottedPath` as of the last write: the private settings file's when it holds the path,
    * else the live config's -- so a read right after a write sees it even a moment before the
    * reload lands. */
   function localOrLive(dottedPath: string | ReadonlyArray<string>): unknown {

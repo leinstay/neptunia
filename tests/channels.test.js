@@ -98,7 +98,8 @@ test('channelActivity: one millisecond past deadAfterDays is dead', () => {
 
 test('channelActivity: a missing cfg, or a missing key, falls back to the values of config.json', () => {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const tracked = JSON.parse(fs.readFileSync(path.join(root, 'config.json'), 'utf8')).context.channelActivity;
+  // PR 7c: the tracked settings live in config/config.json.
+  const tracked = JSON.parse(fs.readFileSync(path.join(root, 'config', 'config.json'), 'utf8')).context.channelActivity;
   const channels = [
     channel({ lastMessageAt: NOW - (tracked.deadAfterDays + 1) * DAY }),
     channel({ lastMessageAt: NOW - DAY }),

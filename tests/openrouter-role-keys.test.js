@@ -137,7 +137,8 @@ test('createLlm: roleKeys names the extra keys by role without their values; key
 });
 
 test('config.json: the errand agents share OPENROUTER_ERRAND_KEY, the development agents share OPENROUTER_DEV_KEY: two key lines; an unset one logs once and shows none', async () => {
-  const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
+  // PR 7c: the shipped settings live in config/config.json.
+  const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'config.json'), 'utf8'));
   assert.deepEqual(shipped.llm.keyByRole, {
     scout: 'OPENROUTER_ERRAND_KEY',
     server: 'OPENROUTER_ERRAND_KEY',
@@ -177,7 +178,7 @@ test('config.json: the errand agents share OPENROUTER_ERRAND_KEY, the developmen
 });
 
 test("config.json: no role is on the simulator key OPENROUTER_SIM_KEY (the advice role is gone); the bot's requests stay on the main key", async () => {
-  const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
+  const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'config.json'), 'utf8'));
   assert.ok(!Object.values(shipped.llm.keyByRole).includes('OPENROUTER_SIM_KEY'));
   const cfg = config(shipped.llm.keyByRole);
   const { llm, sent } = makeLlm(cfg, {

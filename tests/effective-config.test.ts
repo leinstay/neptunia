@@ -30,8 +30,10 @@ const grant = { everyone: false, roles: [], users: [SELF] };
 /** A checkout whose config.json has the new names only, and a private folder with `local` as config.local.json. */
 function load(local: Settings, features: Settings = {}): Settings {
   const root = tempDir('nep-effective-');
+  // PR 7c: the tracked settings live in config/config.json.
+  fs.mkdirSync(path.join(root, 'config'), { recursive: true });
   fs.writeFileSync(
-    path.join(root, 'config.json'),
+    path.join(root, 'config', 'config.json'),
     JSON.stringify({
       features: { tools: true, toolsDiscovery: true, innerLife: false, intentions: false, ...features },
       errands: ERRAND_DEFAULTS,

@@ -390,7 +390,7 @@ test('roleRequestOptions: counted, never calibrated, on llm.analyzerTimeoutMs un
 });
 
 test('code fallbacks: the defaults the code applies when a setting is missing equal config.json', () => {
-  const shipped = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
+  const shipped = JSON.parse(fs.readFileSync(new URL('../config/config.json', import.meta.url), 'utf8'));
   for (const bare of [undefined, null, {}, { llm: null }, { llm: {} }, { llm: { analyzerTimeoutMs: null } }]) {
     assert.equal(
       roleRequestOptions(bare, { role: 'analyzer' }).timeoutMs,
@@ -3035,7 +3035,7 @@ test("hedge: no helper mark, a role not listed, afterMs 0 or no llm.hedge object
 });
 
 test('hedgeSettings: null without an llm.hedge object; inside the group a missing or invalid key reads as config.json', () => {
-  const shipped = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
+  const shipped = JSON.parse(fs.readFileSync(new URL('../config/config.json', import.meta.url), 'utf8'));
   for (const config of [undefined, null, {}, { llm: {} }, { llm: { hedge: null } }, { llm: { hedge: [] } }]) {
     assert.equal(hedgeSettings(config), null, JSON.stringify(config));
   }

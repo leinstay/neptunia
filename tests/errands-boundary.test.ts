@@ -10,6 +10,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { joinLabels } from '../src/config/labels.ts';
+import type { LabelsFile } from '../src/config/labels.ts';
 import { createErrandService } from '../src/errands/service.ts';
 import { createErrandStores } from '../src/errands/store.ts';
 import { errandsBlockText } from '../src/errands/blocks.ts';
@@ -46,9 +48,10 @@ const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const SILENT = { info() {}, warn() {}, error() {}, debug() {} };
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SHIPPED_LABELS: Record<string, unknown> = JSON.parse(
-  fs.readFileSync(path.join(REPO, 'prompts', 'labels.json'), 'utf8')
-) as Record<string, unknown>;
+// PR 7c: the shipped labels live in config/labels.json under `model` and `owner`, read joined as the engine reads them.
+const SHIPPED_LABELS: Record<string, unknown> = joinLabels(
+  JSON.parse(fs.readFileSync(path.join(REPO, 'config', 'labels.json'), 'utf8')) as LabelsFile
+);
 
 // ---- what the code before the rename stored ---------------------------------------------------------------------------
 

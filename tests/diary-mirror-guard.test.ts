@@ -43,7 +43,8 @@ const NOW = Date.parse('2026-10-17T12:00:00Z');
 const GUILD = 'g1';
 const MIRROR = 'd1';
 /** The tracked settings of the message handler's rails (config.json), so the handler runs as it ships. */
-const TRACKED = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8')) as Record<
+// PR 7c: the shipped settings live in config/config.json.
+const TRACKED = JSON.parse(fs.readFileSync(new URL('../config/config.json', import.meta.url), 'utf8')) as Record<
   string,
   unknown
 >;

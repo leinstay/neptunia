@@ -235,8 +235,9 @@ test('says what it would rename on a dry run, writes nothing, and finds nothing 
 /** A checkout with a config.json and the tracked tool texts, to lay a private layer over. */
 function checkout(): string {
   const root = tempDir('nep-checkout-');
-  fs.writeFileSync(path.join(root, 'config.json'), '{}');
   fs.mkdirSync(path.join(root, 'config'));
+  // PR 7c: the tracked settings live in config/config.json.
+  fs.writeFileSync(path.join(root, 'config', 'config.json'), '{}');
   fs.writeFileSync(
     path.join(root, 'config', 'tools.json'),
     JSON.stringify({

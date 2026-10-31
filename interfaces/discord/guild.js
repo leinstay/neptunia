@@ -3,7 +3,7 @@
 // is from `config.bot.guildId` and the list of guilds the client is actually
 // in, without touching discord.js itself, so it is unit-tested directly with
 // plain `{ id, name }` objects. The caller (src/index.js) turns an error into
-// a startup failure and logs the "pin it in config.local.json" hint for the
+// a startup failure and logs the "pin it in config.local/config.json" hint for the
 // single-guild-with-no-config case.
 
 /**
@@ -36,6 +36,6 @@ export function resolveGuild(configuredId, guilds) {
 
   const known = list.map(describe).join(', ');
   return {
-    error: `bot.guildId is not set and the bot is in multiple guilds: ${known}. Set bot.guildId in config.local.json.`,
+    error: `bot.guildId is not set and the bot is in multiple guilds: ${known}. Set bot.guildId in config.local/config.json.`,
   };
 }

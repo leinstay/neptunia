@@ -25,6 +25,46 @@ const DISCORD_ALLOWED: ReadonlyArray<Allowed> = [
   { file: 'src/memory/db/map/versions.js', pattern: /`desc:(person:)?discord:/, why: 'stored legacy description ids' },
   { file: 'src/index.js', pattern: /discord/i, why: 'the entry point loads the Discord package and its token' },
   {
+    file: 'src/config/schema.ts',
+    pattern: /discord/i,
+    why: 'the settings schema names the discord keys until PR 7d moves them',
+  },
+  {
+    file: 'src/config/schema/discord.ts',
+    pattern: /discord/i,
+    why: 'the settings schema names the discord keys until PR 7d moves them',
+  },
+  {
+    file: 'src/config/schema/context.ts',
+    pattern: /discord/i,
+    why: 'the settings schema names the discord keys until PR 7d moves them',
+  },
+  {
+    file: 'src/config/schema/diary.ts',
+    pattern: /discord/i,
+    why: 'the settings schema names the discord keys until PR 7d moves them',
+  },
+  {
+    file: 'src/config/schema/features.ts',
+    pattern: /discord/i,
+    why: 'the settings schema names the discord keys until PR 7d moves them',
+  },
+  {
+    file: 'src/config/schema/interfaces.ts',
+    pattern: /discord/i,
+    why: 'the settings schema names the discord keys until PR 7d moves them',
+  },
+  {
+    file: 'src/config/schema/media.ts',
+    pattern: /discord/i,
+    why: 'the settings schema names the discord keys until PR 7d moves them',
+  },
+  {
+    file: 'src/config/schema/web.ts',
+    pattern: /discord/i,
+    why: 'the settings schema names the discord keys until PR 7d moves them',
+  },
+  {
     file: 'src/tools/impl/metrics.ts',
     pattern: /'discord search'|`?discordMs`?/,
     why: 'the /nep metrics name and an old log field',

@@ -17,7 +17,9 @@ const DISCORD = createDiscordInterface().capabilities;
 
 function makeRoot({ config = { bot: { timezone: 'UTC' } }, prompts = {} } = {}) {
   const dir = tempDir('nep-hot-');
-  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify(config));
+  // PR 7c: the tracked settings live in config/config.json.
+  fs.mkdirSync(path.join(dir, 'config'));
+  fs.writeFileSync(path.join(dir, 'config', 'config.json'), JSON.stringify(config));
   fs.mkdirSync(path.join(dir, 'prompts'));
   for (const [name, text] of Object.entries(prompts)) {
     fs.writeFileSync(path.join(dir, 'prompts', `${name}.md`), text);
@@ -45,7 +47,7 @@ test('reloadConfig: picks up a valid change', () => {
   const dir = makeRoot({ config: { a: 1 } });
   const hot = createHot({ rootDir: dir });
   try {
-    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ a: 2 }));
+    fs.writeFileSync(path.join(dir, 'config', 'config.json'), JSON.stringify({ a: 2 }));
     const ok = hot.reloadConfig();
     assert.equal(ok, true);
     assert.deepEqual(hot.config, { a: 2 });
@@ -59,7 +61,7 @@ test('reloadConfig: keeps the previous config on invalid JSON and returns false'
   const dir = makeRoot({ config: { a: 1 } });
   const hot = createHot({ rootDir: dir });
   try {
-    fs.writeFileSync(path.join(dir, 'config.json'), '{ not valid json');
+    fs.writeFileSync(path.join(dir, 'config', 'config.json'), '{ not valid json');
     const ok = hot.reloadConfig();
     assert.equal(ok, false);
     assert.deepEqual(hot.config, { a: 1 });
@@ -119,7 +121,7 @@ test('createHot: emits "change" with what:"config" after reloadConfig', () => {
     hot.on('change', (payload) => {
       seen = payload;
     });
-    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ a: 2 }));
+    fs.writeFileSync(path.join(dir, 'config', 'config.json'), JSON.stringify({ a: 2 }));
     hot.reloadConfig();
     assert.deepEqual(seen, { what: 'config' });
   } finally {
@@ -153,7 +155,7 @@ test('createHot: does not emit "change" when reloadConfig fails', () => {
     hot.on('change', () => {
       emitted = true;
     });
-    fs.writeFileSync(path.join(dir, 'config.json'), '{ bad json');
+    fs.writeFileSync(path.join(dir, 'config', 'config.json'), '{ bad json');
     hot.reloadConfig();
     assert.equal(emitted, false);
   } finally {
@@ -198,10 +200,26 @@ function writeLocalPrompt(dir, name, text) {
   fs.writeFileSync(path.join(localDir, `${name}.md`), text);
 }
 
+// PR 7c: the tracked labels live in config/labels.json under `model`; a flat prompts.local/labels.json still loads.
+/**
+ * @param {string} dir
+ * @param {string} layer
+ * @param {string} value
+ */
 function writeLabels(dir, layer, value) {
-  const target = layer === 'base' ? path.join(dir, 'prompts') : path.join(dir, 'prompts.local');
+  const target = layer === 'base' ? path.join(dir, 'config') : path.join(dir, 'prompts.local');
   fs.mkdirSync(target, { recursive: true });
-  fs.writeFileSync(path.join(target, 'labels.json'), value);
+  let text = value;
+  if (layer === 'base') {
+    try {
+      /** @type {unknown} */
+      const model = JSON.parse(value);
+      text = JSON.stringify({ model, owner: {} });
+    } catch {
+      // an invalid file stays invalid
+    }
+  }
+  fs.writeFileSync(path.join(target, 'labels.json'), text);
 }
 
 test('createHot: a prompts.local file replaces the base file of the same name', () => {
@@ -469,7 +487,7 @@ test('createHot: a config that still sets memory.voiceModel warns once at startu
     const reloads = await withCapturedLogs(() => {
       hot.reloadConfig(); // still set: no second warning
       fs.writeFileSync(
-        path.join(dir, 'config.json'),
+        path.join(dir, 'config', 'config.json'),
         JSON.stringify({ llm: { model: 'x/voice' }, memory: { voiceModel: null } })
       );
       hot.reloadConfig(); // gone (null counts as unset)
@@ -603,7 +621,9 @@ test('createHot: a config that still sets a per-day, per-hour or public-posts co
 
 test('createHot: a config.local.json is read key by key: an old model key is not read, a reload keeps the previous config on bad JSON', async () => {
   const dir = makeRoot({ config: { models: { base: { analyzer: 'x/default' } } } });
-  const localFile = path.join(dir, 'config.local.json');
+  // PR 7c: the layout of a moved layer, as the old one draws the move warning this test counts.
+  fs.mkdirSync(path.join(dir, 'config.local'));
+  const localFile = path.join(dir, 'config.local', 'config.json');
   fs.writeFileSync(
     localFile,
     JSON.stringify({ classifier: { text: 'x/old-text' }, models: { base: { vision: 'x/new-vision' } } })
@@ -639,7 +659,7 @@ test('hot: exposes promptsHash and configHash that change when a prompt or the c
     assert.match(first.configHash, /^[0-9a-f]{16}$/);
 
     // A reload of unchanged files keeps both; the key order of the config does not count.
-    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ b: { c: 2 }, a: 1 }));
+    fs.writeFileSync(path.join(dir, 'config', 'config.json'), JSON.stringify({ b: { c: 2 }, a: 1 }));
     hot.reloadConfig();
     hot.reloadPrompts();
     assert.deepEqual(hot.hashes, first);
@@ -650,14 +670,14 @@ test('hot: exposes promptsHash and configHash that change when a prompt or the c
     assert.equal(hot.hashes.configHash, first.configHash);
 
     const promptsHash = hot.hashes.promptsHash;
-    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ a: 2, b: { c: 2 } }));
+    fs.writeFileSync(path.join(dir, 'config', 'config.json'), JSON.stringify({ a: 2, b: { c: 2 } }));
     hot.reloadConfig();
     assert.notEqual(hot.hashes.configHash, first.configHash);
     assert.equal(hot.hashes.promptsHash, promptsHash);
 
     // A reload that fails keeps the hash of what stays live.
     const configHash = hot.hashes.configHash;
-    fs.writeFileSync(path.join(dir, 'config.json'), '{ not valid json');
+    fs.writeFileSync(path.join(dir, 'config', 'config.json'), '{ not valid json');
     hot.reloadConfig();
     assert.equal(hot.hashes.configHash, configHash);
   } finally {
@@ -673,11 +693,11 @@ test('hot: onReload fires with the layer name', async () => {
     const off = hot.onReload((what) => seen.push(what));
     hot.reloadConfig();
     hot.reloadPrompts();
-    fs.writeFileSync(path.join(dir, 'config.json'), '{ broken');
+    fs.writeFileSync(path.join(dir, 'config', 'config.json'), '{ broken');
     await withCapturedLogs(() => hot.reloadConfig());
     assert.deepEqual(seen, ['config', 'prompts']);
     off();
-    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ a: 2 }));
+    fs.writeFileSync(path.join(dir, 'config', 'config.json'), JSON.stringify({ a: 2 }));
     hot.reloadConfig();
     assert.deepEqual(seen, ['config', 'prompts']);
   } finally {

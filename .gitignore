@@ -7,6 +7,7 @@
 .env.*
 !.env.example
 config.local.json
+config.local/
 
 # Persistent bot state: user memory, guild patterns, scheduler state
 /data/

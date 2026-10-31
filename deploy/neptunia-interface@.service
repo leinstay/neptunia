@@ -7,7 +7,8 @@
 # core's socket <data>/run/core.sock as a member of the group neptunia, and
 # keeps the interface's data under <data>/interfaces/%i. It reads no .env: the
 # platform token (DISCORD_TOKEN for discord) comes from the optional
-# environment file below. It reads config.local.json only where this user may.
+# environment file below. It reads config.local/config.json and config.local/interfaces/%i.json only where
+# this user may.
 # deploy/README.md has the cutover.
 #
 # Install:   sudo deploy/install.sh   (installs this unit, does not enable it)

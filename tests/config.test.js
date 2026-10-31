@@ -108,7 +108,9 @@ test('deepMerge: does not mutate the base object', () => {
 test('readConfig: an empty config.local.json is treated as no override', () => {
   const dir = tmpDir();
   try {
-    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ bot: { timezone: 'UTC' } }));
+    // PR 7c: the tracked settings live in config/config.json.
+    fs.mkdirSync(path.join(dir, 'config'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'config', 'config.json'), JSON.stringify({ bot: { timezone: 'UTC' } }));
     fs.writeFileSync(path.join(dir, 'config.local.json'), '   \n  ');
     const cfg = readConfig(dir);
     assert.deepEqual(cfg, { bot: { timezone: 'UTC' } });
@@ -120,8 +122,9 @@ test('readConfig: an empty config.local.json is treated as no override', () => {
 test('readConfig: config.local.json is deep-merged over config.json', () => {
   const dir = tmpDir();
   try {
+    fs.mkdirSync(path.join(dir, 'config'), { recursive: true });
     fs.writeFileSync(
-      path.join(dir, 'config.json'),
+      path.join(dir, 'config', 'config.json'),
       JSON.stringify({ bot: { timezone: 'UTC', owners: [] }, llm: { model: 'a' } })
     );
     fs.writeFileSync(path.join(dir, 'config.local.json'), JSON.stringify({ bot: { owners: ['1'] } }));
@@ -135,7 +138,8 @@ test('readConfig: config.local.json is deep-merged over config.json', () => {
 test('readConfig: invalid JSON in config.json throws', () => {
   const dir = tmpDir();
   try {
-    fs.writeFileSync(path.join(dir, 'config.json'), '{ not valid json');
+    fs.mkdirSync(path.join(dir, 'config'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'config', 'config.json'), '{ not valid json');
     assert.throws(() => readConfig(dir));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -184,8 +188,9 @@ test('readConfig: env references resolve after the merge; an unset name warns on
   process.env.NEP_TEST_PROXY_REF = 'http://user:secret@host:1';
   delete process.env.NEP_TEST_UNSET_REF;
   try {
+    fs.mkdirSync(path.join(dir, 'config'), { recursive: true });
     fs.writeFileSync(
-      path.join(dir, 'config.json'),
+      path.join(dir, 'config', 'config.json'),
       JSON.stringify({ media: { video: { proxy: '' } }, other: '${env:NEP_TEST_UNSET_REF}' })
     );
     fs.writeFileSync(
@@ -232,27 +237,27 @@ test('need: throws when the value is an empty string', () => {
 
 test('config.json: the code fallback of spontaneous.roomQuestionChance is the shipped value', () => {
   const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const shipped = JSON.parse(fs.readFileSync(path.join(root, 'config.json'), 'utf8'));
+  const shipped = JSON.parse(fs.readFileSync(path.join(root, 'config', 'config.json'), 'utf8'));
   assert.equal(roomQuestionChance({}), shipped.spontaneous.roomQuestionChance);
 });
 
 test('config.json: the code fallbacks of the recall group are the shipped values', () => {
   const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const shipped = JSON.parse(fs.readFileSync(path.join(root, 'config.json'), 'utf8'));
+  const shipped = JSON.parse(fs.readFileSync(path.join(root, 'config', 'config.json'), 'utf8'));
   assert.deepEqual(recallSettings({}), shipped.recall);
   assert.deepEqual({ ...RECALL_DEFAULTS }, shipped.recall);
 });
 
 test('config.json: the code fallbacks of the pace group are the shipped values', () => {
   const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const shipped = JSON.parse(fs.readFileSync(path.join(root, 'config.json'), 'utf8'));
+  const shipped = JSON.parse(fs.readFileSync(path.join(root, 'config', 'config.json'), 'utf8'));
   assert.deepEqual(paceSettings({}), shipped.pace);
 });
 
 test('config.json: the pause notice fallbacks are the shipped values', async () => {
   const { pauseNoticeMinutes } = await import('../src/behavior/limits.js');
   const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const shipped = JSON.parse(fs.readFileSync(path.join(root, 'config.json'), 'utf8'));
+  const shipped = JSON.parse(fs.readFileSync(path.join(root, 'config', 'config.json'), 'utf8'));
   assert.equal(pauseNoticeMinutes({}), shipped.mention.pauseNoticeMinutes);
   assert.equal(
     shipped.features.pauseNotice,
@@ -263,7 +268,7 @@ test('config.json: the pause notice fallbacks are the shipped values', async () 
 
 test('config.json: the recall budget fallbacks (forms, clusters, run limit, summary minimum) are the shipped values', () => {
   const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const shipped = JSON.parse(fs.readFileSync(path.join(root, 'config.json'), 'utf8'));
+  const shipped = JSON.parse(fs.readFileSync(path.join(root, 'config', 'config.json'), 'utf8'));
   for (const key of ['maxForms', 'maxClusters', 'timeoutMs', 'minSummaryMs']) {
     assert.equal(recallSettings({ recall: {} })[key], shipped.recall[key], key);
   }
@@ -271,7 +276,7 @@ test('config.json: the recall budget fallbacks (forms, clusters, run limit, summ
 
 test('config.json: the code fallbacks of the split group are the shipped values, and splitTasks ships on', () => {
   const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const shipped = JSON.parse(fs.readFileSync(path.join(root, 'config.json'), 'utf8'));
+  const shipped = JSON.parse(fs.readFileSync(path.join(root, 'config', 'config.json'), 'utf8'));
   assert.deepEqual(splitSettings({}), shipped.split);
   assert.deepEqual(splitSettings({ split: {} }), shipped.split);
   assert.deepEqual({ ...SPLIT_DEFAULTS }, shipped.split);

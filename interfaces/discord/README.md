@@ -7,7 +7,7 @@ The package `@neptunia/interface-discord` connects the persona's core to one Dis
 | File | What it is |
 |---|---|
 | `index.js` | The entry. It exports `start(host)`, which the core or the interface runner calls, and `createDiscordInterface`. |
-| `config.json` | The package's own settings, laid between the core's `config.json` and `config.local.json` when the interface runs as a unit. It holds none yet: the Discord keys (`discord.intents`, `bot.guildId` and the rest) are in the core's `config.json`. |
+| `config.json` | The package's own settings, laid between the core's `config/config.json` and the private `config.local/config.json` when the interface runs as a unit, with `config.local/interfaces/discord.json` last. It holds none yet: the Discord keys (`discord.intents`, `bot.guildId` and the rest) are in the core's `config/config.json`. |
 | `setup.ts` | The setup of the interface. It refuses until the `neptunia` CLI brings `neptunia interface setup discord`. |
 | `package.json` | The package and its one dependency. |
 
