@@ -49,7 +49,7 @@ The persona's tools are defined in `src/tools/definitions.ts`: operations coveri
 
 ## Prompt assembly
 
-`src/behavior/prompt.js` builds one request: a system message (the character-agnostic rules, the character card, live corrections, the output format) and a user message with context blocks, ordered for the provider's prompt cache.
+`buildRequest` in `src/behavior/prompt.js` builds one request: a system message (the character-agnostic rules, the character card, live corrections, the output format) and a user message with context blocks, ordered for the provider's prompt cache. It assembles the request from the block builders of `src/turn/request/`, one module per group of blocks.
 
 The token budget (`llm.maxRequestTokens`, default 50,000) is spent in this priority order:
 

@@ -458,7 +458,7 @@
     },
     {
       "path": "src/turn/",
-      "purpose": "A turn, one topic per module. The functions that stand on their own are its settings, timers, triggers, inputs, mentions, targets, media, history, routing, journal records and skill calls. The modules that `createTurnRunner` in `src/behavior/turn.js` builds once over a typed context are the facts, the inputs, participation, the journal notes, the diary's first step, the pictures and GIFs, the sends, the typing indicator, the dry act, the act, the pulls, the skill calls, the tool round, the in-turn tools, the second look, the lookup and the outcome. `src/behavior/turn.js` keeps their wiring, runs each attempt through the phases of `src/turn/phases/`, and re-exports what its importers read.",
+      "purpose": "A turn, one topic per module. The functions that stand on their own are its settings, timers, triggers, inputs, mentions, targets, media, history, routing, journal records and skill calls. The modules that `createTurnRunner` in `src/behavior/turn.js` builds once over a typed context are the facts, the inputs, participation, the journal notes, the diary's first step, the pictures and GIFs, the sends, the typing indicator, the dry act, the act, the pulls, the skill calls, the tool round, the in-turn tools, the second look, the lookup and the outcome. `src/behavior/turn.js` keeps their wiring, runs each attempt through the phases of `src/turn/phases/`, and re-exports what its importers read. The block builders of a turn's request, which `buildRequest` in `src/behavior/prompt.js` assembles, are in `src/turn/request/`.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"
@@ -788,6 +788,146 @@
     {
       "path": "src/turn/phases/outcome.ts",
       "purpose": "The last phase of an attempt: what its steps posted, a diary entry recorded, the result, how an attempt that threw ends and what every attempt closes. Tested through the turn and diary turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/request/types.ts",
+      "purpose": "The shapes a turn's request is built from: the labels and config as the block builders read them, the profiles, the messages, the budget's sections and the request's input. Types only: nothing runs, so nothing is tested.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/request/text.ts",
+      "purpose": "The text tools every request builder shares: a block's tags, the `{{key}}` filler, the stored `<@id>` tokens as names, the labels' check and two date forms. Tested through the prompt and prompts shipped tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/request/reads.ts",
+      "purpose": "The memory-read collector of a request: what it carried from memory, in the order of its blocks. Tested through the prompt memory reads tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/request/head.ts",
+      "purpose": "The stable head of a request: its labels, switches, handles and directories, the transcript's options, the system prompt, the chat's lines and the room its sections share. Tested through the prompt, prompt directory and channel handles tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/request/profiles.ts",
+      "purpose": "One member as a request shows them: the `<people>` profile with its marks, the `<attitudes>` list and the fields of their `<people_now>` entry. Tested through the prompt and memory session tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/request/people.ts",
+      "purpose": "The people of a request: who `<people>` shows in full and in short, the room for the moments of the members asked about, the `<people_now>` entries and the people in voice. Tested through the prompt, prompt budget and around tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/request/server.ts",
+      "purpose": "The server and its places in a request: the `<server>` entries, the `<about_chat>` lines and the `<lore>` entries. Tested through the prompt and prompt diary tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/request/emoji-gifs.ts",
+      "purpose": "The custom emoji and the GIF library in a request: `<emoji>`, `<gifs>` held per cache bucket, `<gifs_recent>` and the caption fields of a library GIF. Tested through the prompt emoji, prompt gifs and prompt freeze tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/request/memory.ts",
+      "purpose": "The memory blocks of a request: `<recent>`, `<participation>` and the anchored window `<earlier>`, before and after the budget. Tested through the prompt, prompt participation and prompt anchors tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/request/pulled.ts",
+      "purpose": "The other channels in a request: `<channel_view>` with its call marks and seen line, each channel cut to its share, the neighbours and the authors in view. Tested through the prompt and pull seen tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/request/recall.ts",
+      "purpose": "What a turn looked up and recalled: the `<lookup>` block with its smaller fallbacks and the `<retrieved>` block of the memory prefetch. Tested through the prompt tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/request/senses.ts",
+      "purpose": "What the persona can sense and do in a turn: the `<senses>` lines in their stable and per-turn halves, and the `<skills>` catalogue. Tested through the prompt, prompts shipped and skills tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/request/task.ts",
+      "purpose": "The task of a request: its prompt file, the trigger's label, a routed call's origin, the room's question, what else the author waits for and the follow-up check. Tested through the prompt and turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/request/diary.ts",
+      "purpose": "A diary post's own blocks: `<world>`, `<diary>`, `<plan>`, `<seeds>` and `<found>`. Tested through the prompt diary and diary requests tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/request/wake.ts",
+      "purpose": "What a request carries from the persona's own life: the bodies of her errands, intentions, wake, places and previous think. Tested through the prompt, previous think and inner turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/request/sections.ts",
+      "purpose": "The budget sections of a request in priority order: the fixed part, the interlocutor, the lookups, the server's memory, the chat and the lists fitted last. Tested through the prompt and prompt budget tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/request/tail.ts",
+      "purpose": "The end of a request: `<now>`, the user message's text parts in their three cache segments and what of the chat went in. Tested through the prompt and prompt freeze tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/",
+      "purpose": "The message pipeline's topic modules, each built once by `createMessageHandler` in `src/behavior/pipeline.js` over a typed context: the private chat's gate and an edit and a deletion of a message.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/pipeline/edits.ts",
+      "purpose": "What changes to a message after it arrived: an edit as a `seen` line of the record with its next revision, late media counted and warmed, and a deletion as a `deleted` line. Tested through the events and pipeline no raw tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/private-gate.ts",
+      "purpose": "The private chat: a direct message's gate with zero tokens, its silent drop and daily-cap notice, its observation and its turn, and the same gate and count for a queued direct message and a recovery turn. Tested through the private, core pause and events tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"

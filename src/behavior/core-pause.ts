@@ -23,7 +23,10 @@ const looseOf = (value: unknown): Loose => (value !== null && typeof value === '
 /** The namespace of the owner's command line, which only the `cli` principal may name (src/interface/link.ts). */
 export const CLI_IFACE = 'cli';
 
-/** The private-chat gate's answer for the owner's command line (pipeline.js#checkPrivateGate): it lets it through. */
+/**
+ * The private-chat gate's answer for the owner's command line (src/pipeline/private-gate.ts#checkPrivateGate): it lets
+ * it through.
+ */
 export const CLI_GATE = Object.freeze({ gate: Object.freeze({ ok: true }), isOwner: true, replies: null, today: '' });
 
 /** Whether direct chats are off for `event`: `features.privateMessages` is not on and the chat is not the owner's. */

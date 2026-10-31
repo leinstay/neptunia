@@ -395,7 +395,7 @@ export function purgeRecentFor(stored, userId, names = []) {
  * fields src/memory/episodes.js treats as its identity. A caller that already
  * shows some moments elsewhere in a request passes their keys to `recentView`
  * so it never repeats them.
- * @param {string|number} profileId
+ * @param {string|number|null} profileId
  * @param {{ date?: string, what?: string }} ep
  * @returns {string}
  */
