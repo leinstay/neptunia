@@ -1,6 +1,7 @@
 // Opens the memory database (`data/memory.db`): node:sqlite, WAL, foreign keys on, a busy timeout, migrations by a
 // `schema_version` table, `transaction(fn)`, and the single writer's lock file `<db>.lock` holding
-// `{ pid, startedAt }`. Only the bot process writes; tools open `readOnly` (no lock, no migration) and the
+// `{ pid, startedAt }`. After the memory migrations the task board's own migrations run in a transaction of their own
+// (src/board/schema.ts), so a board that fails to migrate is down while her memory stays open and writable. Only the bot process writes; tools open `readOnly` (no lock, no migration) and the
 // tools that import or sync refuse to run while a live process holds the lock. A lock of a dead pid is taken over.
 //
 // Node prints an ExperimentalWarning when node:sqlite loads; that one warning is dropped and every other warning
@@ -10,6 +11,7 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import { MIGRATIONS, finishDiaryDestination, finishDiaryMirror } from './schema.js';
 import { ALIVE_LEASE, importWakeQueues, leaseOf } from './wake-queue.ts';
+import { BOARD_MIGRATIONS, boardVersion, migrateBoard } from '../../board/schema.ts';
 
 const originalListeners = process.listeners('warning');
 process.removeAllListeners('warning');
@@ -164,11 +166,26 @@ export function inTransaction(db, fn) {
 }
 
 /**
+ * The board's status as a read-only open finds it: up when it is at the version of `migrations`.
+ * @param {import('../../board/schema.ts').BoardDb} db
+ * @param {ReadonlyArray<string>} migrations
+ * @returns {import('../../board/schema.ts').BoardStatus}
+ */
+function boardStatusOf(db, migrations) {
+  const version = boardVersion(db);
+  return version === migrations.length
+    ? { ok: true, version }
+    : { ok: false, version, error: `the board is at version ${version}, the engine expects ${migrations.length}` };
+}
+
+/**
  * Opens a memory database.
  * @param {string} dbPath  A file path, or ':memory:' (no lock, no file).
- * @param {{ readOnly?: boolean, migrations?: Array<string | ((db: never, context: never) => void)>, pid?: number, now?: () => number, alive?: (pid: number) => boolean,
- *   context?: { diaryPlaceId?: string|null, dataDir?: string } }} [opts]  `context`: what a migration step needs from the opener (migrate)
- * @returns {{ db: object, path: string, readOnly: boolean, transaction: (fn: () => any) => any, close: () => void }}
+ * @param {{ readOnly?: boolean, migrations?: Array<string | ((db: never, context: never) => void)>, boardMigrations?: ReadonlyArray<string>, pid?: number, now?: () => number, alive?: (pid: number) => boolean,
+ *   context?: { diaryPlaceId?: string|null, dataDir?: string } }} [opts]  `context`: what a migration step needs from the opener (migrate);
+ *   `boardMigrations` replaces the board's list (default `BOARD_MIGRATIONS`), as `migrations` does the memory's
+ * @returns {{ db: object, path: string, readOnly: boolean, board: import('../../board/schema.ts').BoardStatus, transaction: (fn: () => any) => any, close: () => void }}
+ *   `board`: the board's migration status (a read-only open migrates nothing and reports the board down when it is not at the expected version)
  */
 export function openMemoryDb(dbPath, opts = {}) {
   const readOnly = opts.readOnly === true;
@@ -176,6 +193,8 @@ export function openMemoryDb(dbPath, opts = {}) {
   let release = () => {};
   if (!readOnly && !memory) release = acquireLock(dbPath, opts);
   let db;
+  /** @type {import('../../board/schema.ts').BoardStatus} */
+  let board = { ok: false, version: 0, error: 'not opened' };
   try {
     db = new DatabaseSync(dbPath, readOnly ? { readOnly: true } : {});
     if (!readOnly) {
@@ -185,6 +204,10 @@ export function openMemoryDb(dbPath, opts = {}) {
     db.exec('PRAGMA busy_timeout = 5000');
     db.exec('PRAGMA foreign_keys = ON');
     if (!readOnly) migrate(db, opts.migrations ?? MIGRATIONS, opts.context ?? {});
+    // node:sqlite's DatabaseSync, loaded through require and so untyped here, has every method BoardDb names.
+    const boardDb = /** @type {import('../../board/schema.ts').BoardDb} */ (db);
+    const boardMigrations = opts.boardMigrations ?? BOARD_MIGRATIONS;
+    board = readOnly ? boardStatusOf(boardDb, boardMigrations) : migrateBoard(boardDb, boardMigrations);
   } catch (error) {
     try {
       db?.close();
@@ -199,6 +222,7 @@ export function openMemoryDb(dbPath, opts = {}) {
     db,
     path: dbPath,
     readOnly,
+    board,
     transaction(fn) {
       if (readOnly) throw new Error('memory db is open read-only');
       return inTransaction(db, fn);
