@@ -532,7 +532,7 @@ export function createMemoryDb({
    * Keeps a unit write that could not be made (unit-outbox.js#keep, at shutdown) in `memory-pending/`, replayed at the
    * next open. A value replaces the one kept for its owner; lines are appended to the kept ones. Throws on an
    * I/O failure (the caller logs it). Returns the file's path.
-   * @param {{ owner: string, op: 'value'|'lines', value?: any, lines?: object[] }} update
+   * @param {{ owner: string, op: 'value'|'lines'|'errand', value?: any, lines?: object[] }} update
    */
   function keepPending(update) {
     const owner = String(update?.owner ?? '');
@@ -578,17 +578,19 @@ export function createMemoryDb({
     for (const name of names) {
       const file = path.join(pendingDir, name);
       try {
-        const kept = JSON.parse(fs.readFileSync(file, 'utf8'));
-        if (typeof kept?.owner !== 'string' || (kept.op !== 'value' && kept.op !== 'lines')) {
+        /** @type {{ owner?: unknown, op?: unknown, value?: unknown, lines?: unknown }} */
+        const kept = JSON.parse(fs.readFileSync(file, 'utf8')) ?? {};
+        const { owner, op } = kept;
+        if (typeof owner !== 'string' || (op !== 'value' && op !== 'lines' && op !== 'errand')) {
           bad += 1;
           continue;
         }
         out.push({
           file,
           update:
-            kept.op === 'value'
-              ? { op: 'value', owner: kept.owner, value: kept.value }
-              : { op: 'lines', owner: kept.owner, lines: Array.isArray(kept.lines) ? kept.lines : [] },
+            op === 'lines'
+              ? { op, owner, lines: Array.isArray(kept.lines) ? kept.lines : [] }
+              : { op, owner, value: kept.value },
         });
       } catch {
         bad += 1;
