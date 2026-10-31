@@ -1,7 +1,6 @@
 {
   "files": {
     "src/behavior/pipeline.js": 3089,
-    "src/behavior/prompt.js": 4903,
     "src/behavior/recall-run.js": 2331,
     "src/behavior/recall.js": 2491,
     "src/behavior/sandbox.js": 2136,
@@ -144,36 +143,8 @@
       }
     },
     "src/behavior/prompt.js": {
-      "anchorsView": {
-        "complexity": 22
-      },
-      "assembleUser": {
-        "complexity": 22
-      },
       "buildDiaryPlanRequest": {
         "complexity": 28
-      },
-      "buildRequest": {
-        "complexity": 313,
-        "function-length": 1320
-      },
-      "buildRequest>composeTask": {
-        "complexity": 22
-      },
-      "participationView": {
-        "complexity": 25
-      },
-      "renderProfileShown": {
-        "complexity": 37
-      },
-      "renderSenses": {
-        "complexity": 72
-      },
-      "renderTasks": {
-        "complexity": 26
-      },
-      "splitPeople": {
-        "complexity": 31
       }
     },
     "src/behavior/recall-run.js": {
