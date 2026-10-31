@@ -25,8 +25,6 @@
 // directory after `errands.keepFilesHours` (src/agent-runner/sweep.js); a finished errand whose result lists files is
 // marked `filesExpired` once its directory is gone from an out dir that is still there (checked when the errands are
 // read), and its handles name nothing from then on.
-// An errand mirrored into the ledger (src/errands/ledger.ts) carries the ledger's id as `ledgerId` (optional; set once
-// the ledger answers).
 // A finished errand's result stays until she has read it: the record carries `readAt` (null until a turn that showed
 // its `<errand_result>` completed, or `errand.read` returned it, src/tools/impl/errand.ts) and `resolvedAt` (she closed
 // it: `errand.resolve`, or an intention that waited on it moved to done). `unread` lists the finished ones with
@@ -602,24 +600,6 @@ export function createErrandStore({
     return copy(errand);
   }
 
-  /**
-   * Errand `id` given the ledger's id of its mirror (src/errands/ledger.ts), written to the board when
-   * it changes; null when there is no such errand (forgotten or wiped meanwhile) or no id.
-   */
-  function setLedgerId(id: unknown, ledgerId: unknown): ErrandRecord | null {
-    const errand = find(id);
-    const value =
-      typeof ledgerId === 'string' || (typeof ledgerId === 'number' && Number.isFinite(ledgerId))
-        ? String(ledgerId)
-        : '';
-    if (!errand || !value) return null;
-    if (errand.ledgerId !== value) {
-      errand.ledgerId = value;
-      persist(errand);
-    }
-    return copy(errand);
-  }
-
   /** The open errands (queued and running), oldest first. */
   function open(): Array<ErrandRecord> {
     return state.errands.filter((errand) => isOpenState(errand.state)).map(copy);
@@ -776,7 +756,6 @@ export function createErrandStore({
     markRead,
     markResultFailed,
     resolve,
-    setLedgerId,
     open,
     recent,
     unseen,

@@ -1,5 +1,5 @@
-// The shapes the errand modules share: the record the store keeps, what the store, the service, the client and the ledger
-// mirror answer, and the small value types between them. Types only, nothing runs here. src/errands/*.ts, the errand
+// The shapes the errand modules share: the record the store keeps, what the store, the service and the client answer,
+// and the small value types between them. Types only, nothing runs here. src/errands/*.ts, the errand
 // operations (src/tools/impl/errand.ts) and the intention service (src/intentions/) import them.
 
 import type net from 'node:net';
@@ -79,7 +79,6 @@ export type ErrandRecord = {
   readAt: number | null;
   resolvedAt: number | null;
   opId: string;
-  ledgerId?: string;
   filesExpired?: boolean;
   resultTurnFailed?: boolean;
 };
@@ -153,7 +152,6 @@ export type ErrandStore = {
   markRead: (id: unknown) => ErrandRecord | null;
   markResultFailed: (id: unknown) => ErrandRecord | null;
   resolve: (id: unknown) => ErrandRecord | null;
-  setLedgerId: (id: unknown, ledgerId: unknown) => ErrandRecord | null;
   open: () => Array<ErrandRecord>;
   recent: (n?: number) => Array<ErrandRecord>;
   unseen: () => Array<ErrandRecord>;
@@ -178,47 +176,6 @@ export type ErrandStore = {
 export type ErrandStores = {
   get: (guildId: unknown) => ErrandStore | null;
   flush: (options?: { final?: boolean }) => Promise<FlushCounts>;
-};
-
-/** The ledger's reading of the development agents' spend (src/errands/ledger.ts#agentCostsOf). */
-export type LedgerCosts = {
-  thinker: CostWindows & { last_wave: LastWave | null };
-  dev: CostWindows;
-};
-export type LastWave = {
-  wave: unknown;
-  turns: number;
-  usd: number;
-  context_mean: number | null;
-  context_peak: number | null;
-};
-
-/** What `add` of the ledger mirror is given: the guild, the limits for the triage, and who keeps the ledger's id. */
-export type LedgerAddOptions = {
-  guildId?: string;
-  limits?: Limits;
-  onLedgerId?: ((ledgerId: string) => void) | null;
-};
-/** What `mirrorOpen` is given: as `add`, with the limits and the id handler per errand. */
-export type MirrorOpenOptions = {
-  guildId?: string;
-  limitsOf?: ((errand: ErrandRecord) => Limits) | null;
-  onLedgerId?: ((errand: ErrandRecord, ledgerId: string) => void) | null;
-};
-
-/** The mirror of the errands into the ledger (src/errands/ledger.ts#createLedgerMirror). */
-export type LedgerMirror = {
-  enabled: () => boolean;
-  add: (errand: ErrandRecord, options?: LedgerAddOptions) => boolean;
-  start: (errand: ErrandRecord, options?: { limits?: Limits; model?: string | null }) => boolean;
-  progress: (errand: ErrandRecord) => boolean;
-  finish: (errand: ErrandRecord, options?: { maxChars?: number }) => boolean;
-  cancel: (errand: ErrandRecord, options?: { by?: string }) => boolean;
-  mirrorOpen: (errands: Array<ErrandRecord>, options: MirrorOpenOptions) => number;
-  costs: (options?: { now?: number }) => Promise<LedgerCosts | null>;
-  idle: () => Promise<void>;
-  close: () => void;
-  queued: () => number;
 };
 
 /** What the service hands the client to run one errand. */
@@ -289,7 +246,6 @@ export type ErrandService = {
   runnerUp: (agent: string) => boolean | null;
   store: (guildId?: unknown) => ErrandStore | null;
   limitsOf: (agent: string) => Limits;
-  ledger: LedgerMirror;
 };
 
 /** What a timer function hands back (a Node timer; tests inject their own). */
@@ -302,18 +258,6 @@ export type ErrandClientOptions = {
   connect?: (path: string) => net.Socket;
   setTimer?: (fn: () => void, ms: number) => TimerHandle;
   clearTimer?: (timer: TimerHandle | null) => void;
-};
-
-/** What `createLedgerMirror` is given. `socketPath` is the ledger socket or a function read at the moment of use. */
-export type LedgerOptions = {
-  socketPath?: string | null | (() => string | null);
-  log?: Logger;
-  now?: () => number;
-  connect?: (path: string) => net.Socket;
-  reconnectMinMs?: number;
-  reconnectMaxMs?: number;
-  replyTimeoutMs?: number;
-  costsTimeoutMs?: number;
 };
 
 /** What `createErrandService` is given. */
@@ -329,6 +273,5 @@ export type ErrandServiceOptions = {
   onFinished?: ((errand: ErrandRecord, guildId: string) => unknown) | null;
   log?: Logger;
   defer?: (fn: () => unknown) => unknown;
-  ledger?: LedgerMirror | null;
   now?: () => number;
 };

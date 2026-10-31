@@ -30,7 +30,11 @@ const STATE_OF: Readonly<Partial<Record<string, string>>> = {
   cancelled: 'cancelled',
 };
 
-/** The fields of an errand in the order the store writes them; a field outside the list follows them. */
+/**
+ * The fields of an errand in the order the store writes them; a field outside the list follows them. `ledgerId` is the
+ * id an errand of the ledger mirror's time carries in its metadata: no code writes it, and it keeps its place so such
+ * an errand reads back with its fields in the order it was stored.
+ */
 const ERRAND_KEYS: ReadonlyArray<string> = [
   'id',
   'agent',
