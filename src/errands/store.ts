@@ -327,9 +327,7 @@ export function createErrandStore({
       delivered: delivered.has(id),
       closing: closings.get(id) ?? null,
     });
-    // A flush, not a push: a push skips an errand whose earlier write is still under way, and the newer write would
-    // wait for the next change or the stop. The delivery mark comes right after the end's own write commits, so it
-    // goes as soon as that write settles, and a core that crashes after the delivery finds the end delivered.
+    // A push skips an errand whose earlier write is under way; a flush sends this one as soon as that write settles.
     void outbox.flush();
   }
 
@@ -730,8 +728,7 @@ export function createErrandStore({
 
   /**
    * The end of errand `id` marked delivered (the door took its `errand.done`), written to the board; false when no end
-   * of that errand is pending. An end whose own write has not landed yet counts as pending: the mark rides along that
-   * write, so the end and its delivery reach the board in one transaction.
+   * of that errand is pending. An end whose write has not landed is pending, and the mark rides along that write.
    */
   function markDelivered(id: unknown): boolean {
     const key = idText(id);
