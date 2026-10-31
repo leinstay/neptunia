@@ -534,12 +534,10 @@ function withTimeout(promise: Promise<unknown>, ms: number): Promise<unknown> {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-/** A status card (`data.embeds`) as text: one `name: value` line per field. */
+/** A status card (`data.fields`) as text: one `name: value` line per field. */
 function cardText(result: unknown): string {
-  const embeds = objOf(objOf(result).data).embeds;
-  const card = objOf(Array.isArray(embeds) ? (embeds[0] as unknown) : null);
-  const fields = Array.isArray(card.fields) ? (card.fields as Array<unknown>) : [];
-  return fields
+  const fields = objOf(objOf(result).data).fields;
+  return (Array.isArray(fields) ? (fields as Array<unknown>) : [])
     .map((entry) => {
       const field = objOf(entry);
       return `${argText(field.name)}: ${argText(field.value)}`;
@@ -680,8 +678,8 @@ export async function executeCall(resolved: Resolved, deps: ExecuteDeps): Promis
     const resultData = objOf(result.data);
     const taskId = objOf(resultData.task).id;
     const intentionId = objOf(resultData.intention).id;
-    const embeds = Array.isArray(resultData.embeds) && resultData.embeds.length > 0;
-    const text = embeds ? cardText(result) : argText(result.summary);
+    const card = Array.isArray(resultData.fields) && resultData.fields.length > 0;
+    const text = card ? cardText(result) : argText(result.summary);
     const out: CallResult = {
       status,
       ...(status === 'ok' ? {} : { code: argText(result.code ?? CODE.ERROR) }),

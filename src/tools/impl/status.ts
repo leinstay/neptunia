@@ -239,7 +239,7 @@ const PROBE_TIMEOUT_MS = 30000;
 /** How much of a failed probe's error message the card keeps. */
 const PROBE_ERROR_CHARS = 100;
 
-/** The cap on one field's value of a card, the command interface's limit (1024). */
+/** The cap on one field's value of a card (1024 characters, the length her status call has always read). */
 const FIELD_MAX_CHARS = 1024;
 
 /** `value` within the field cap, cut after its last whole line that fits. */
@@ -372,7 +372,7 @@ function featuresValue(cfg: Untyped): string {
 }
 
 /** One field of the status card. */
-type CardField = { name: string; value: string; inline: boolean };
+type CardField = { name: string; value: string };
 
 /** What the status card asks: for an owner or a member, one field, or one of her parts. */
 type CardRequest = { owner: boolean; field?: string | null; part?: string | null; offline?: boolean };
@@ -960,11 +960,11 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * The status card as plain embed data (`{ fields: [{ name, value, inline }] }`), the fields in
+   * The status card as its fields (`{ fields: [{ name, value }] }`), the fields in
    * STATUS_FIELDS order, one item per line in each, a field with no line `-`; `owner` false leaves
    * out the keys, costs, memory and speed fields and the storage line (and sends no account read), and
-   * names the models without probing them. With `field` (one of STATUS_FIELDS this caller may see)
-   * the card holds that field alone and only its work runs (no probe, no account read, no
+   * names the models without probing them. With `field` (one of STATUS_FIELDS this caller may see,
+   * or `features`) the card holds that field alone and only its work runs (no probe, no account read, no
    * coverage for another field); any other `field` gives the whole card; `offline`, NETWORK_FIELDS left out. Reads
    * the freshest data/ even mid-pause.
    */
@@ -985,10 +985,10 @@ const handlers = perEnv((env) => {
     const probe = partFields === null && part !== 'all';
     const shown: Array<string> = partFields
       ? partFields.filter((name) => name === 'features' || visible.includes(name))
-      : field !== null && visible.includes(field)
+      : field !== null && (visible.includes(field) || field === 'features')
         ? [field]
         : [...visible];
-    if (partFields && shown.length === 0) return { fields: [{ name: part ?? '', value: '-', inline: false }] };
+    if (partFields && shown.length === 0) return { fields: [{ name: part ?? '', value: '-' }] };
     // Each field's work, run only for the fields shown, all at once: the account reads go out
     // alongside the model probes.
     const compute: Record<string, () => Promise<string> | string> = {
@@ -1019,7 +1019,7 @@ const handlers = perEnv((env) => {
       speed: async () => [speedValue(cfg), await missedLine(guildId, cfg)].filter(Boolean).join('\n'),
     };
     const values = await Promise.all(shown.map(async (name) => (await compute[name]?.()) ?? '-'));
-    const fields = shown.map((name, i) => ({ name, value: fitField(values[i] || '-'), inline: false }));
+    const fields = shown.map((name, i) => ({ name, value: fitField(values[i] || '-') }));
     return { fields };
   }
 
@@ -1038,6 +1038,6 @@ defineOp({
     const offline = args.offline === true && ctx?.actor !== 'persona';
     const part = offline ? 'all' : (asked ?? (ctx?.actor === 'persona' && !field ? 'overview' : null));
     const card = await handlers(ctx.env).cmdStatusCard({ owner, field: offline ? null : field, part, offline });
-    return { text: '', embeds: [card] };
+    return { text: '', fields: card.fields };
   },
 });
