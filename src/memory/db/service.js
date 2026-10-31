@@ -360,7 +360,7 @@ function startWorker({ workerFile, log, codeOf }) {
 
 /**
  * @param {{ hot: { config: object }, dataDir: string, log?: object, now?: () => number,
- *   open?: typeof openMemoryDb, defer?: (fn: () => void) => void,
+ *   open?: typeof openMemoryDb, defer?: (fn: () => void) => void, worker?: boolean, iface?: () => string | null,
  *   diaryMediaDeps?: () => ({ port: object, imageFetcher: object }|null) }} options
  *   `diaryMediaDeps` (read at each tick) gives the interface port and the image fetcher the diary media job needs
  *   (`memoryDb.diaryMedia`, diary-media.js); without it the job does nothing.
