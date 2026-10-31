@@ -1,11 +1,10 @@
-// What a turn looks up before its reply request: the memory prefetch of its trigger, the search classifier with the web
-// and server searches it asks for, the splitter of a message that
+// What a turn looks up before its reply request: the memory prefetch of its trigger, the splitter of a message that
 // holds several requests, and the directory and partner a turn's searches and mentions read. createTurnRunner
 // (src/behavior/turn.js) builds it once per runner with createLookup; the attempt calls its functions.
 
 import { prefetchLanes, prefetchOn, wakeLanes } from '../behavior/prefetch.js';
 import { fillPromptTemplate } from '../behavior/prompt.js';
-import { fallbackLookupPlan, parseLookupAnswer, recallSettings } from '../behavior/recall.js';
+import { recallSettings } from '../behavior/recall.js';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import { parseSplitAnswer, splitSettings } from '../behavior/split.js';
 import type { Reads } from '../interface/reads.ts';
@@ -13,29 +12,18 @@ import { railReason, roleRequestOptions } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
 import { log } from '../log.js';
 import type { MemberInfo } from '../protocol/adapter.ts';
-import { zonedDay } from '../time.js';
 import { CODE } from '../tools/codes.ts';
 import type { JournalNotes } from './journal-notes.ts';
-import { journalled } from './journal.ts';
+import type { journalled } from './journal.ts';
 import type { ClassifierContextInput } from './lookup-input.ts';
-import { lookupClassifierInput } from './lookup-input.ts';
 import { mentionDirectory } from './mentions.ts';
 import type { ClassifierLlm, Rewatch } from './rewatch.ts';
-import { DIRECT_CALLS } from './triggers.ts';
 import type { TriggerKind } from './triggers.ts';
 
 /** The live config, as far as the lookup reads it; the settings functions read their own sections. */
 export type LookupConfig = ClassifierContextInput['config'] & {
-  web?: { search?: { maxPerTurn?: number; classifierMaxOutputTokens?: number; contextMessages?: number } | null };
   bot?: { timezone?: string; nameTriggers?: Array<string> } | null;
   private?: { likeServer?: unknown } | null;
-};
-
-/** The web lookup (src/web/lookup.js#createLookup), as the search on a question uses it. */
-export type LookupWeb = {
-  hasSearch?: () => boolean;
-  webCapLeft?: () => number;
-  search: (guildId: string, query: string) => Promise<{ text?: unknown; sources?: unknown } | null>;
 };
 
 /** What recall's server search found: its summary, the stretch it quoted and the people in it. */
@@ -70,17 +58,15 @@ export type JournalStep = (
 /** What createLookup reads: the dependencies and the functions of the other topic modules it calls. */
 export type LookupContext = {
   hot: {
-    readonly prompts: { labels: object; lookup?: string | null };
+    readonly prompts: { labels: object };
   };
   store: LookupStore;
   llm: ClassifierLlm;
   clock: () => number;
-  lookup: LookupWeb | undefined;
   recall: LookupRecall;
   membersOf: ((communityId: string) => Iterable<unknown>) | null;
   selfIdOf: () => string;
   ifaceReads: Reads;
-  discoveryPrompt: () => { index: string; names: Array<string> };
   classifierContext: Rewatch['classifierContext'];
   linkCalls: JournalNotes['linkCalls'];
 };
@@ -91,35 +77,8 @@ type Channel = { id: string; communityId?: string | null };
 type Lane = { kind: string; text: string; words: string };
 type Prefetching = { lanes: Array<Lane>; pending: Promise<unknown> };
 
-/** A server search a lookup answer asks for. */
-type ServerPart = NonNullable<ReturnType<typeof parseLookupAnswer>['server']>;
-
 /** The request's `lookup` input: the web search's result, with what the server search found. */
 export type LookupInput = Record<string, unknown> | null;
-
-type LookupArgs = {
-  config: LookupConfig;
-  guildId: string;
-  channel: Channel;
-  snapshot?: Snapshot | null;
-  partner?: { id?: string | null } | null;
-  selfId: string | null;
-  selfName: string;
-  history: ClassifierContextInput['history'];
-  chatHistory: ClassifierContextInput['history'];
-  trigger: ClassifierContextInput['trigger'];
-  descriptions?: Map<string, unknown>;
-  videos?: Map<string, unknown>;
-  reads?: Map<string, unknown>;
-  webOn: boolean;
-  serverOn: boolean;
-  onSearch?: (() => void) | null;
-  onSkills?: ((skills: NonNullable<ReturnType<typeof parseLookupAnswer>['skills']>) => void) | null;
-  journalStep?: JournalStep | null;
-  triggerKind?: TriggerKind | null;
-  limits?: { add: (limit: { kind: string; where: string; detail: string }) => void } | null;
-  turnContext?: (() => unknown) | null;
-};
 
 export type Lookup = {
   startPrefetch: (args: {
@@ -147,11 +106,6 @@ export type Lookup = {
     userId: string | null | undefined;
     config: LookupConfig;
   }) => Promise<MemberInfo | null>;
-  lookupGate: (args: { config: LookupConfig; webOn: boolean; serverOn: boolean }) => {
-    webCan: boolean;
-    skip: string | null;
-  };
-  maybeLookup: (args: LookupArgs) => Promise<LookupInput>;
   maybeSplit: (args: {
     config: LookupConfig;
     channelId: string;
@@ -166,20 +120,7 @@ export type Lookup = {
 
 // health: allow function-length until 2027-04-01 -- the lookup shares the runner state of src/behavior/turn.js, moved whole in stage 5b
 export function createLookup(ctx: LookupContext): Lookup {
-  const {
-    hot,
-    store,
-    llm,
-    clock,
-    lookup,
-    recall,
-    membersOf,
-    selfIdOf,
-    ifaceReads,
-    discoveryPrompt,
-    classifierContext,
-    linkCalls,
-  } = ctx;
+  const { store, llm, clock, recall, membersOf, selfIdOf, ifaceReads, classifierContext, linkCalls } = ctx;
 
   // Trigger key -> the prefetch already started for it (startPrefetch): a later attempt of the
   // same turn, or the same part of a split message, reuses it instead of searching again.
@@ -341,308 +282,6 @@ export function createLookup(ctx: LookupContext): Lookup {
   }
 
   /**
-   * `work()` as a promise that never rejects: a throw or a rejection logs
-   * `lookup: failed` with the `part` it was (`web` / `server`) and gives null.
-   */
-  function settleLookupPart<TValue>(
-    work: () => TValue | Promise<TValue>,
-    channelId: string,
-    part: string
-  ): Promise<TValue | null> {
-    return Promise.resolve()
-      .then(work)
-      .catch((err: unknown) => {
-        log.warn('lookup: failed', { channel: channelId, part, error: err });
-        return null;
-      });
-  }
-
-  /**
-   * Which side of a lookup can run now (maybeLookup's gates): the web side under `webOn` unless
-   * `web.search.maxPerTurn` is below 1 (`no-slot`), the search has no key
-   * (`no-key`) or its daily slots are spent (`cap`); `skip` is that code, or
-   * `no-search`, when neither the web side nor the server side (`serverOn`)
-   * can run, else null. Read only.
-   */
-  function lookupGate({ config, webOn, serverOn }: Parameters<Lookup['lookupGate']>[0]): {
-    webCan: boolean;
-    skip: string | null;
-  } {
-    const searchCfg = config.web?.search ?? {};
-    let webSkip: string | null = null;
-    if (webOn) {
-      // The web side is on only with a lookup (the attempt's webOn).
-      const web = lookup!;
-      if ((searchCfg.maxPerTurn ?? 1) < 1) webSkip = 'no-slot';
-      else if (typeof web.hasSearch === 'function' && !web.hasSearch()) webSkip = 'no-key';
-      else if (typeof web.webCapLeft === 'function' && !(web.webCapLeft() > 0)) webSkip = 'cap';
-    }
-    const webCan = Boolean(webOn) && webSkip === null;
-    return { webCan, skip: !webCan && !serverOn ? (webSkip ?? 'no-search') : null };
-  }
-
-  /**
-   * The searches on a question: the web search (`webOn`: features.webLookup, web.search.enabled, a lookup with
-   * `search`) and the search of the server's own history (`serverOn`: recall wired and available, a server turn or a
-   * private chat with its `partner`; the community searched is the `snapshot`'s). One cheap classifier call
-   * (prompts.lookup, `{{name}}` = the persona's display name, `{{today}}` = the injected clock's date `YYYY-MM-DD` in
-   * `bot.timezone`, the zone its `when:` range is read in; on the `analyzer` model role (roleModel), its answer capped
-   * at `web.search.classifierMaxOutputTokens`) reads the last `web.search.contextMessages` messages of `history` before
-   * the trigger (with the pictures' captions, the video states and the read links this turn already has; on a routed
-   * turn the caller passes the source channel's lines, where the call was written) and the trigger itself, and answers
-   * `none` or labelled lines (src/behavior/recall.js#parseLookupAnswer, `when:` read in `bot.timezone`, forms capped at
-   * `recall.maxForms`). The web side runs only under its own gates: `web.search.maxPerTurn` below 1 (`no-slot`), no
-   * search key (`no-key`), its daily slots spent (`cap`: the lookup's `webCapLeft()`, when it has one; read only); the
-   * classifier is not asked when neither side can run (`lookup: skipped` with the web side's reason, or `no-prompt`
-   * without prompts.lookup). Then what the answer asks for runs in parallel: a `web` query goes to lookup.search (at
-   * most one per turn), a `server` part to `recall.run` (`history` = `chatHistory`, the turn's own chat with its reply
-   * parents: what `<chat>` shows; `context` = `history`, the lines this classifier read, with their `descriptions`;
-   * `candidate` = the trigger); a part the answer asks for whose side cannot run is not run, and a failing part logs
-   * `lookup: failed` and counts as nothing. Resolves the `lookup` input of the request (see createTurnRunner) or null.
-   * The query, the forms and the transcript are data: never logged (`lookup: classified` carries codes and counts
-   * only); an empty or blank answer is a failed call (`lookup: classifier failed`, `reason: 'empty'`). A failed call
-   * (it threw, or answered nothing) on a direct call (`triggerKind` in DIRECT_CALLS) with `serverOn` and
-   * recall.fallbackOnClassifierFailure on runs the server search on the question's own words instead
-   * (fallbackLookupPlan over the stored profiles; `lookup: fallback` with `reason` `classifier-failed` | `empty` and
-   * the counts, a `helper-fallback` entry on `limits`); never the web search; else no search. Its request is an
-   * `analyzer` request (roleRequestOptions). `onSearch()` is called once the answer asks for a search that runs, before
-   * it starts (the turn's deadline grows to pace.prepareSearchMs; until the answer the turn holds its deadline on this
-   * call, see createDeadline's `hold`).
-   * Skills discovery (discoveryPrompt, read now): the classifier's `{{skills}}`
-   * is filled with the registry's lines, and a `skills:` line of its answer
-   * (parseLookupAnswer's `skills`) is handed to `onSkills` before any search
-   * runs.
-   * An `agent:` line of the answer (a classifier prompt that still has one) is ignored: the
-   * classifier never creates or suggests an errand, only the persona's own `errand.run` call does.
-   * `lookup: classified` carries `route` -- what runs: `fast` (a web search), `memory` (a server
-   * search), `+`-joined in that order, else `none`. `turnContext()` (optional) gives the turn's
-   * execution context for the server search's database reads (turnContextOf).
-   */
-  // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.js in stage 5b, a pure move
-  async function maybeLookup({
-    config,
-    guildId,
-    channel,
-    snapshot = null,
-    partner = null,
-    selfId,
-    selfName,
-    history,
-    chatHistory,
-    trigger,
-    descriptions,
-    videos,
-    reads,
-    webOn,
-    serverOn,
-    onSearch,
-    onSkills = null,
-    journalStep = null,
-    triggerKind = null,
-    limits = null,
-    turnContext = null,
-  }: LookupArgs): Promise<LookupInput> {
-    const channelId = channel.id;
-    const prompt = hot.prompts?.lookup;
-    const searchCfg = config.web?.search ?? {};
-    const { webCan, skip: gateSkip } = lookupGate({ config, webOn, serverOn });
-    let skip: string | null = null;
-    if (!prompt) skip = 'no-prompt';
-    else skip = gateSkip;
-    if (skip) {
-      log.info('lookup: skipped', { channel: channelId, reason: skip });
-      return null;
-    }
-
-    // The chat around the question, with the pages this turn already read.
-    const { triggerText, user } = lookupClassifierInput({
-      config,
-      labels: hot.prompts.labels,
-      selfName,
-      history,
-      trigger,
-      descriptions,
-      videos,
-      reads,
-    });
-    // Read once: the request and its empty-answer warning name the same model.
-    const model = roleModel(config, 'analyzer', 'lookup');
-    // Skills discovery: the registry's lines fill `{{skills}}`, its names bound the `skills:` line.
-    const discovery = discoveryPrompt();
-    let completion;
-    try {
-      completion = await llm.complete(
-        [
-          {
-            role: 'system',
-            content: fillPromptTemplate(prompt, {
-              today: zonedDay(clock(), config.bot?.timezone),
-              name: selfName ?? '',
-              skills: discovery.index,
-            }),
-          },
-          { role: 'user', content: user },
-        ],
-        {
-          model,
-          ...roleRequestOptions(config, {
-            role: 'analyzer',
-            maxOutputTokens: searchCfg.classifierMaxOutputTokens ?? 2000,
-            purpose: 'lookup',
-          }),
-        }
-      );
-    } catch (err) {
-      // The client throws an Error, with the HTTP status when the provider answered one.
-      const failure = err as { statusCode?: unknown; name?: unknown };
-      log.warn('lookup: classifier failed', {
-        channel: channelId,
-        status: failure.statusCode ?? null,
-        name: failure.name,
-      });
-      return fallback('classifier-failed');
-    }
-    if (!String(completion.text ?? '').trim()) {
-      // Nothing at all (typically a reasoning model that spent its whole
-      // output cap thinking) is a failed call, not a silent "none".
-      log.warn('lookup: classifier failed', { channel: channelId, reason: 'empty', model: model ?? null });
-      return fallback('empty');
-    }
-    const parsed = parseLookupAnswer(completion.text, {
-      timezone: config.bot?.timezone,
-      now: clock(),
-      maxForms: recallSettings(config)?.maxForms,
-      skillNames: discovery.names,
-    });
-    // The `skills:` line goes to the turn, whatever the searches do (src/tools/discovery.ts).
-    if (parsed.skills) onSkills?.(parsed.skills);
-    const { web, server } = parsed;
-    const route =
-      [webCan && web ? 'fast' : null, serverOn && server ? 'memory' : null].filter(Boolean).join('+') || 'none';
-    // Codes and counts only, never the query, a form or a name.
-    log.info('lookup: classified', {
-      channel: channelId,
-      picked: Boolean(web || server),
-      parse: parsed.reason,
-      web: Boolean(parsed.web),
-      server: Boolean(server),
-      forms: server?.forms.length ?? 0,
-      who: server?.who.length ?? 0,
-      ranged: Boolean(server && (server.from !== null || server.to !== null)),
-      route,
-    });
-    return runSearches({ web, server });
-
-    /**
-     * The failed classifier's fallback (`reason`: `classifier-failed` | `empty`): on a direct call
-     * (DIRECT_CALLS) with the server search possible and recall.fallbackOnClassifierFailure on, a
-     * recall on the question's own words (fallbackLookupPlan); never the web side. Null otherwise.
-     */
-    async function fallback(reason: string | null): Promise<LookupInput> {
-      if (!serverOn || !DIRECT_CALLS.has(triggerKind)) return null;
-      const settings = recallSettings(config);
-      if (!settings?.fallbackOnClassifierFailure) return null;
-      const plan = fallbackLookupPlan({
-        text: triggerText,
-        profiles: store.listUserProfiles?.(guildId) ?? [],
-        selfId,
-        selfName,
-        maxForms: settings.maxForms,
-      });
-      if (!plan) return null;
-      // Counts only, never a form or a name.
-      log.info('lookup: fallback', { channel: channelId, reason, forms: plan.forms.length, who: plan.who.length });
-      // The fallback's reason is the failure's code.
-      limits?.add({ kind: 'helper-fallback', where: 'lookup', detail: reason as string });
-      return runSearches({ web: null, server: plan });
-    }
-
-    /** The searches asked for (`web` query, `server` part), those whose side can run, in parallel. */
-    // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.js in stage 5b, a pure move
-    async function runSearches({
-      web,
-      server,
-    }: {
-      web: string | null;
-      server: ServerPart | null;
-    }): Promise<LookupInput> {
-      const runWeb = webCan && Boolean(web);
-      const runServer = serverOn && Boolean(server);
-      if (!runWeb && !runServer) return null;
-      onSearch?.();
-      // The journal: each search the answer asks for is an operation of the engine (journalStep).
-      const webOp = runWeb ? (journalStep?.('lookup', 'lookup', { input: { query: web } }) ?? null) : null;
-      const recallOp =
-        runServer && server
-          ? (journalStep?.(
-              'lookup',
-              'recall',
-              { input: { forms: server.forms, who: server.who, from: server.from, to: server.to } },
-              (result) => result.summaryChars > 0 || result.stretch === true
-            ) ?? null)
-          : null;
-      const [webResult, found] = await Promise.all([
-        runWeb
-          ? settleLookupPart(
-              () =>
-                journalled(
-                  webOp,
-                  // runWeb holds only with a web query and the lookup (webCan).
-                  () => lookup!.search(guildId, web as string),
-                  (result) =>
-                    result
-                      ? {
-                          result: { results: Array.isArray(result.sources) ? result.sources.length : 0 },
-                          offered: Boolean(result.text),
-                        }
-                      : { failed: CODE.NO_RESULT }
-                ),
-              channelId,
-              'web'
-            )
-          : null,
-        runServer
-          ? settleLookupPart(
-              () =>
-                // runServer holds only with recall wired and available (serverOn).
-                recall!.run!({
-                  ...(recallOp ? { op: recallOp } : {}),
-                  guildId,
-                  snapshot,
-                  channel,
-                  partnerId: partner?.id ?? null,
-                  selfId,
-                  selfName,
-                  history: chatHistory,
-                  context: history,
-                  contextDescriptions: descriptions,
-                  candidate: trigger,
-                  server,
-                  // Her lines in the found stretches show her skill calls like her chat lines.
-                  decorate: (lines: Array<object>) => linkCalls(lines, { channel, snapshot, guildId }),
-                  // The turn's execution context, issued when the search runs.
-                  ...(typeof turnContext === 'function' ? { memoryContext: turnContext() } : {}),
-                }),
-              channelId,
-              'server'
-            )
-          : null,
-      ]);
-      // A server search that found nothing leaves no server part.
-      const serverPart =
-        found && (found.text || found.stretch)
-          ? {
-              text: found.text ?? null,
-              stretch: found.stretch ?? null,
-              people: Array.isArray(found.people) ? (found.people as Array<unknown>) : [],
-            }
-          : null;
-      if (!serverPart) return webResult ?? null;
-      return { ...(webResult ?? {}), server: serverPart };
-    }
-  }
-
-  /**
    * The splitter (src/behavior/split.js): whether the call `trigger` holds
    * several requests. One cheap classifier call (`prompt`, prompts/split.md,
    * `{{name}}` = the persona's display name, `{{maxTasks}}` = split.maxTasks;
@@ -721,8 +360,6 @@ export function createLookup(ctx: LookupContext): Lookup {
     recallAvailable,
     turnDirectory,
     privatePartner,
-    lookupGate,
-    maybeLookup,
     maybeSplit,
   };
 }

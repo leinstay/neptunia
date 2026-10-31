@@ -1,14 +1,15 @@
-// The input of a classifier request over the chat before a trigger (the re-watch and the search classifier): the
-// `<transcript>` block and the trigger's text. src/behavior/turn.js builds both classifiers' requests with it, and
-// tools/search-policy-eval.mjs measures the search classifier's input through the re-export there.
+// The input of a classifier request over the chat before a trigger: the `<transcript>` block and the trigger's text.
+// The splitter builds its request with it, and tools/search-policy-eval.mjs measures the search classifier's input
+// through the re-export in src/behavior/turn.js.
 
 import { classifierTranscript } from '../behavior/prompt.js';
+import { MAX_MESSAGE_CHARS } from '../format.js';
 
-/** The config keys these inputs read. */
-type LookupConfig = Record<string, unknown> & {
-  context?: { maxMessageChars?: number };
-  web?: { search?: { contextMessages?: number } };
-};
+/** The live config, handed on to the transcript. */
+type LookupConfig = Record<string, unknown>;
+
+/** The chat lines before the trigger the search classifier reads. Production value, config cut of 2026-10-31. */
+const SEARCH_CONTEXT_MESSAGES = 50;
 
 /** A line of the history, as far as these inputs read it; the rest goes to the transcript as it is. */
 type HistoryLine = Record<string, unknown> & { id?: unknown };
@@ -32,7 +33,7 @@ export type ClassifierContextInput = {
  * last `contextMessages` messages of `history` before the trigger, rendered
  * by src/behavior/prompt.js#classifierTranscript (as the route classifier's)
  * with the media states the caller already has, plus the trigger's text cut to
- * `context.maxMessageChars`. `transcriptBlock` is '' (no block) for a
+ * `MAX_MESSAGE_CHARS`. `transcriptBlock` is '' (no block) for a
  * window of 0 or no earlier message. Pure.
  */
 export function renderClassifierContext({
@@ -46,7 +47,7 @@ export function renderClassifierContext({
   videos,
   reads,
 }: ClassifierContextInput & { contextMessages: number }): { triggerText: string; transcriptBlock: string } {
-  const triggerText = [...String(trigger.content ?? '')].slice(0, config.context?.maxMessageChars ?? 2000).join('');
+  const triggerText = [...String(trigger.content ?? '')].slice(0, MAX_MESSAGE_CHARS).join('');
   const context = contextMessages > 0 ? history.filter((m) => m.id !== trigger.id).slice(-contextMessages) : [];
   if (context.length === 0) return { triggerText, transcriptBlock: '' };
   const body = classifierTranscript(context, { config, selfName, labels, descriptions, videos, reads });
@@ -56,7 +57,7 @@ export function renderClassifierContext({
 /**
  * The user message of the search classifier (prompts.lookup) as a live turn
  * sends it (createTurnRunner's maybeLookup): the `<transcript>` of the last
- * `web.search.contextMessages` (50 when missing) messages of `history` before
+ * SEARCH_CONTEXT_MESSAGES messages of `history` before
  * `trigger` (renderClassifierContext, `labels` = prompts.labels), then the
  * trigger as `<candidate>` with its author's name. Exported so
  * tools/search-policy-eval.mjs measures exactly what production sends. Pure.
@@ -71,7 +72,7 @@ export function lookupClassifierInput({
   videos,
   reads,
 }: ClassifierContextInput): { triggerText: string; transcriptBlock: string; user: string } {
-  const contextMessages = Math.max(0, Math.floor(config.web?.search?.contextMessages ?? 50));
+  const contextMessages = SEARCH_CONTEXT_MESSAGES;
   const { triggerText, transcriptBlock } = renderClassifierContext({
     config,
     labels,

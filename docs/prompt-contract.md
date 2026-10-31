@@ -30,7 +30,6 @@ All instructions are English in both layers; a character's speech samples may be
 | `describe-video.md` | yes | Out-of-character prompt of the video describer (`features.videoDescriptions`): one video clip in (with sound), a full ordered account out: who appears, what is said (key phrases quoted), text on screen, what happens visually. Audio-first: the model decides from the audio alone whether anything is audible, opens with a plain statement of what it hears (or silence), and never infers sound from the picture, captions or genre. Configurable length. Always English; speech, captions and on-screen text quoted in their original language. No character card | `{{today}}` `{{maxChars}}` |
 | `describe-gif.md` | no | Out-of-character prompt for the GIF describer (`media.gif.watch`): a short silent clip in, three labelled lines out: `reaction` (the reply function, a few words or `none`), `action` (what visibly happens, capped at `{{maxChars}}`), `text` (on-screen text verbatim or `none`). Always English. No character card. Falls back to `describe-video.md` when absent | `{{today}}` `{{maxChars}}` `{{seconds}}` |
 | `avatar.md` | no | Out-of-character prompt of the avatar describer (`features.avatars`): one member's avatar picture in (a static PNG; an animated avatar's first frame), one plain line out of what is visibly there. Role `vision`, purpose `avatar`; the output's first line is kept, cut to `avatars.descriptionChars`. Always English. No character card. Without it the feature does nothing. See [Avatars](#avatars) | `{{maxChars}}` |
-| `rewatch.md` | yes | Classifier: does this message need the persona to re-watch a video, retry one that did not load, or look at a picture again (`features.videoRewatch`, `features.imageRelook`). Receives a numbered list of recent media (videos, watched GIFs listed as videos, and pictures) with their kind, status and the new message. Output is ONE line: `<number> \| <question>`, `<number> \| retry` or `none`. Never asked with `features.coreTools` on (the persona's own `media.look` instead) | `{{name}}` |
 | `rewatch-answer.md` | yes | Out-of-character prompt for the second-look answer: the vision or video model looks at the item again and answers one question in the language of the question. The question arrives as the user message next to the picture or video. Kind-neutral (serves both videos and pictures). For a video: sound only when present in the audio, silence stated plainly, track identification treated as guesswork unless the clip names it. No character card | `{{today}}` `{{maxChars}}` |
 | `address.md` | yes | Classifier: is this untagged message addressed to the persona, about them, or neither. Output is one word: `yes`, `overheard` or `no` | `{{name}}` |
 | `overheard.md` | no | Task: the message talks about the persona, not to them. Used INSTEAD of the mode prompt when the trigger kind is `overheard` and the file is present and non-blank; missing or blank falls back to the mode prompt (degraded) | `{{name}}` `{{author}}` `{{trigger}}` `{{target}}` |
@@ -865,7 +864,6 @@ catalogue, the labels and the table disagree.
 | `channel-not-visible` | denied | - | `tools.result.reasons.channel-not-visible` |
 | `cap-open` | denied | - | `tools.result.reasons.cap-open` |
 | `cap-tasks` | denied | - | `tools.result.reasons.cap-tasks` |
-| `cap-diary` | denied | - | `tools.result.reasons.cap-diary` |
 | `heartbeat-only` | denied | - | `tools.result.reasons.heartbeat-only` |
 | `heartbeat-cap` | denied | - | `tools.result.reasons.heartbeat-cap` |
 | `heartbeat-recurring-cap` | denied | - | `tools.result.reasons.heartbeat-recurring-cap` |
@@ -1092,14 +1090,12 @@ on read.
 Who is described and when: a scan of every profiled member on the first tick after the start (or after the switch is
 turned on) and then once a day; between scans, a member is offered when Discord reports a changed avatar
 (`guildMemberUpdate` and `userUpdate`, which need `discord.intents.members`) or when they post a message. A background
-queue sends one request at a time, `avatars.intervalMs` (default 20000) apart, at most `avatars.maxPerDay` (default 60)
-a UTC day (`state.json`: `avatarDay`, `avatarCount`; a missing or broken cap refuses), never while
-`llm.maxRequestsPerDay` is spent or the persona is paused; it never blocks a turn. A version whose download or request
-failed is tried again at the next scan.
+queue sends one request at a time, 20 seconds apart, never while `llm.maxRequestsPerDay` is spent or the persona is
+paused; it never blocks a turn. A version whose download or request failed is tried again at the next scan.
 
 The chat model sees it as one line of the member's `<people>` profile (see `<people>` above). Logs: `avatars: scanned`
-(counts), `avatars: described` (`userId`, `chars` or `default`), `avatars: skipped` (`reason`: `avatar-cap`,
-`daily-cap`, `download`, `llm-error`, `token-limit`, `empty`, `no-url`, `no-profile`); never the description or a URL.
+(counts), `avatars: described` (`userId`, `chars` or `default`), `avatars: skipped` (`reason`: `daily-cap`, `download`,
+`llm-error`, `token-limit`, `empty`, `no-url`, `no-profile`); never the description or a URL.
 
 ## Address classifier
 
@@ -1123,63 +1119,15 @@ any reply to another member is an automatic `no`. With `mention.classifyWhileBus
 Three `no` in a row (`mention.followUpNoStreak`, default 3) close the window; `overheard` counts as `yes` for the streak. Switch `features.followUp` (default on). Logged as counts, verdicts and `answer` on `follow-up: verdict`.
 The window state survives a restart: active windows are saved in `data/state.json` under `followUpWindows` and restored at startup, with expired ones dropped.
 
-## Re-watch classifier
+## Second look
 
-When the persona is directly addressed (a reply turn, not an overheard or spontaneous turn) and a video or picture sits in the last `media.video.rewatch.recentMessages`
-(default 60) messages of the channel, a classifier decides whether the message asks about one of those items, asserts a concrete detail about a picture, or asks
-to retry a video that did not load. Candidates: watched videos, error-state videos, watched GIFs (an attached GIF or a GIF embed whose cached description came from watching its clip, see `describe-gif.md`), and described pictures (attached pictures, including the persona's own uploads; pasted image links are excluded). Pictures are offered only when `features.imageRelook` is on (never gated by `features.vision`); watched GIFs only while GIFs are watched (`media.gif.watch`, video vision on). At most `media.video.rewatch.maxCandidates` (default 6) items are
-offered to the classifier, videos first, then watched GIFs, then pictures, newest-message first within each group. Code sends `rewatch.md` as the system prompt on the
-`analyzer` role with a user message
-containing three blocks: a short `<transcript>` of the last few channel messages with the persona's own lines marked
-with `labels.self` (so the classifier sees what the candidate replies to), then the media list and the candidate:
-
-```
-<transcript>
-...
-</transcript>
-<media>
-<number> | <kind> | <name> | <status> | <beginning of the caption or account>
-...
-</media>
-<candidate>
-<author name>: <trigger text>
-</candidate>
-```
-
-Each `<media>` line carries five pipe-separated columns: a sequential number (1 = newest item in its kind group), kind (`video` or `picture`), the item name,
-a status (`watched` or `not loaded` for videos, `described` for pictures), and the first 200 characters of the summary or caption (empty for not-loaded videos).
-A watched GIF is listed as a video: kind `video`, status `watched`, its name (the attached file's name, or the embed's title or site, e.g. `Tenor`) and the beginning of its watched description.
-Names and summaries are whitespace-collapsed to one line. The trigger text is cut at `context.maxMessageChars`.
-Output is ONE line:
-
-- `<number> | <question>`: the message asks about a watched video or a described picture (including a claimed detail that needs checking) and needs a detail the account does not cover. The number is copied from the list.
-- `<number> | retry`: the message is about a not-loaded video and asks to try again or asks about its content. The number is copied from the list. Retry applies to videos only.
-- `none`: no second look or retry needed.
-
-On a question hit for a video, the video model watches the clip again with `rewatch-answer.md` (`{{question}}` and `{{maxChars}}`
-= `rewatch.answerChars`, default 1200) and the answer is appended to the transcript as `transcript.videoAnswered`
-(`{question}`, `{text}`) after the watched tag.
-
-On a question hit for a watched GIF, its clip is fetched again exactly as for the first watch (the first `media.gif.maxSeconds` seconds) and the video model answers with `rewatch-answer.md` the same way; the transcript carries `transcript.videoAnswered` (`{question}`, `{text}`) after the GIF's tag. The answer is cached for one hour apart from the GIF's description. Retry never applies to a GIF.
-
-On a question hit for a picture, the vision model (`vision` role, `purpose: relook`, prompt `rewatch-answer.md`, which is kind-neutral) looks at the picture again with that question. The answer is not stored as the caption (cached one hour) and the transcript carries `transcript.imageAnswered` (`{question}`, `{text}`) under the picture's line.
-
-The `<senses>` block includes `senses.videoRewatch` when the feature is on.
-
-On a retry hit, the video model watches the clip with `force` (ignoring the error cache), using the same
-`describeVideo` path as a first watch. If the retry succeeds, the video's state changes from error to watched and the
-transcript shows the summary as first-hand. A retry counts as a new video attempt against `media.video.maxPerTurn` and
-`media.video.maxPerDay`.
-
-Rails: at most one re-watch or retry per turn; the classifier and the second look each count against
-`llm.maxRequestsPerDay`; a video's second look also counts against `media.video.maxPerDay`, a GIF's against `media.gif.maxPerDay` (never the video counter);
-`media.video.rewatch.maxPerDay` (default 20) caps video re-watches, GIF re-watches and picture relooks (shared counter). Answers are cached for one hour per
-question (see the video cache section above). Switch `features.videoRewatch` (missing = on, needs
-`videoDescriptions` on). Switch `features.imageRelook` (missing = on; the look runs through the `vision` model role, the persona's only sight).
-
-With `features.coreTools` on this classifier is never asked (nor the planner's rewatch block): the persona looks more closely
-herself with `media.look` (see [the tool loop](#the-tool-loop-featurescoretools)), which runs the same second look
-with her own question.
+The persona looks at a video, a watched GIF or a picture again with her own question through `media.look` (see [the
+tool loop](#the-tool-loop-featurescoretools)). For a video the video model watches the clip again with
+`rewatch-answer.md` (`{{question}}`, and `{{maxChars}}` = 1200) and the transcript carries `transcript.videoAnswered`
+(`{question}`, `{text}`) after the watched tag. A watched GIF's clip is fetched again as for its first watch (its first
+15 seconds) and answered the same way. A picture goes to the `vision` model role (`purpose: relook`) with the same
+prompt, which is kind-neutral, and the transcript carries `transcript.imageAnswered` (`{question}`, `{text}`) under the
+picture's line. An answer is cached for one hour per question, apart from the item's description.
 
 ## Search and recall classifier
 
@@ -1400,7 +1348,7 @@ The persona's own messages in a place of her diary count toward the channel's `d
 
 A place of an enabled diary mirror is written only by the diary's publisher. The core's outbound port refuses every send there (a message, a file, a GIF, a picture, a voice message) from a turn, a wake or a tool with the code `diary-mirror`, worded by `tools.result.reasons.diary-mirror`, and an event there opens no turn. Reactions are not refused.
 
-`message.create` takes `diary` (`true` or `false`, a string choice). With `true` the post goes to her diary in place of a channel ([Diary](diary.md#writing-to-the-diary-from-other-turns)), and `channel` or `reply` beside it is `invalid-args`. The turn's first such call is refused `cap-diary`, worded by `tools.result.reasons.cap-diary`, when `diary.maxPerDay` entries are counted today. In the diary turn such a call is refused `diary-draw-only`, as every call but `draw.create` and `voice.say` is there. A call that went through answers with `tools.result.diaryWritten`. `tools.result.reasons.diary-mirror` tells her to write to her diary with `message.create` and `diary`.
+`message.create` takes `diary` (`true` or `false`, a string choice). With `true` the post goes to her diary in place of a channel ([Diary](diary.md#writing-to-the-diary-from-other-turns)), and `channel` or `reply` beside it is `invalid-args`. In the diary turn such a call is refused `diary-draw-only`, as every call but `draw.create` and `voice.say` is there. A call that went through answers with `tools.result.diaryWritten`. `tools.result.reasons.diary-mirror` tells her to write to her diary with `message.create` and `diary`.
 
 ### Logs
 

@@ -7,7 +7,6 @@ import type { createParticipationPicker } from '../../behavior/participation-pic
 import type { createPullViews } from '../../behavior/pull-fetch.ts';
 import type { recordEntry } from '../../behavior/diary-turn.ts';
 import type { refreshEmojiIfOn } from '../../behavior/emoji-index.ts';
-import type { fetchNeighbors } from '../../behavior/neighbors.ts';
 import type { Deadline } from '../../behavior/turn-parts.ts';
 import type { ErrandRecord } from '../../errands/types.ts';
 import type { Reads } from '../../interface/reads.ts';
@@ -16,14 +15,13 @@ import type { SkillMap } from '../../tools/types.ts';
 import type { Diary, DiaryConfig } from '../diary.ts';
 import type { DrawGif } from '../draw-gif.ts';
 import type { Facts } from '../facts.ts';
-import type { withReplyParents } from '../history.ts';
 import type { InTurnTools, InTurnConfig } from '../in-turn-tools.ts';
 import type { Inputs, InputsConfig } from '../inputs.ts';
 import type { JournalNotes, NotesConfig } from '../journal-notes.ts';
 import type { Lookup, LookupConfig } from '../lookup.ts';
 import type { Participation, ParticipationConfig } from '../participation.ts';
 import type { Pulls, PullsConfig } from '../pulls.ts';
-import type { Rewatch, RewatchConfig, VideoState } from '../rewatch.ts';
+import type { Rewatch, VideoState } from '../rewatch.ts';
 import type { Sends, SendsConfig } from '../sends.ts';
 import type { StepCompletion, ToolRound, ToolRoundConfig } from '../tool-round.ts';
 import type { TriggerKind } from '../triggers.ts';
@@ -37,10 +35,7 @@ export type PhaseConfig = LookupConfig &
   SendsConfig &
   InputsConfig &
   NotesConfig &
-  InTurnConfig &
-  RewatchConfig &
-  Parameters<typeof fetchNeighbors>[3] &
-  NonNullable<Parameters<typeof withReplyParents>[3]>['config'] & {
+  InTurnConfig & {
     web?: {
       search?: { enabled?: unknown; contextMessages?: number } | null;
       links?: { enabled?: unknown; maxPerTurn?: number } | null;
@@ -55,7 +50,6 @@ export type PhaseConfig = LookupConfig &
     format?: { stripDashes?: unknown } | null;
     bot?: { timezone?: string } | null;
     diary?: { maxMessages?: number; setKinds?: unknown } | null;
-    context: { otherProfiles: number };
   };
 
 /** The labels, as far as the phases read them; the text functions read their own sections. */
@@ -154,16 +148,7 @@ export type PhaseContext = {
   Pick<ToolRound, 'readHistory' | 'noteThink' | 'stepTranscript' | 'runSteps'> &
   InTurnTools &
   Rewatch &
-  Pick<
-    Lookup,
-    | 'startPrefetch'
-    | 'recallAvailable'
-    | 'turnDirectory'
-    | 'privatePartner'
-    | 'lookupGate'
-    | 'maybeLookup'
-    | 'maybeSplit'
-  >;
+  Pick<Lookup, 'startPrefetch' | 'recallAvailable' | 'turnDirectory' | 'privatePartner' | 'maybeSplit'>;
 
 /** The describer (src/memory/describe.js#createDescriber), as the preparation of a turn uses it. */
 export type PhaseDescriber = {

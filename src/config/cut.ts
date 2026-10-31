@@ -453,6 +453,8 @@ const GONE: Readonly<Record<string, unknown>> = {
   'mention.repeatPenalty': 0,
   'mention.affinityIgnoreBonus': 0,
   'pace.typingWhilePreparing': false,
+  // The re-watch classifier's budget went with the classifier (no live turn asked it).
+  'media.video.rewatch.classifierMaxOutputTokens': 2000,
   'spontaneous.channels': [],
   'spontaneous.minIntervalMinutes': 45,
   'spontaneous.maxIntervalMinutes': 420,

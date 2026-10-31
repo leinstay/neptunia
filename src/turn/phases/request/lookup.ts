@@ -4,7 +4,7 @@
 
 import { log } from '../../../log.js';
 import { linkHosts, journalled } from '../../journal.ts';
-import type { Lookup } from '../../lookup.ts';
+import type { LookupInput } from '../../lookup.ts';
 import { readableLinkCandidates } from '../../media.ts';
 import type { PhaseContext } from '../context.ts';
 import type { Opened } from '../preflight.ts';
@@ -18,8 +18,11 @@ export type Looked = {
   cachedLinkReads: () => Map<string, unknown> | undefined;
   lookupChain: Promise<void> | null;
   // Set once the chain starts the search classifier; read when the request is built.
-  slot: { lookup: Tracked<Awaited<ReturnType<Lookup['maybeLookup']>> | null> | null };
+  slot: { lookup: Tracked<LookupInput> | null };
 };
+
+/** The new links read per turn. Production value, config cut of 2026-10-31. */
+const LINKS_PER_TURN = 2;
 
 /** The read texts of a link stage's answer (src/web/lookup.js#readLinks). */
 function readsOf(value: unknown): Map<string, unknown> {
@@ -33,10 +36,8 @@ export function startLookup(ctx: PhaseContext, opened: Opened, setup: Setup, pla
   const { config, asked, answersTask, rawHistory } = setup;
   const { webLookupOn, webSearchOn, serverOn } = planned;
   const { track } = staged;
-  // The links: the newest readable links of the history, at most web.links.maxPerTurn NEW reads (cached excerpts are
-  // free).
+  // The links: the newest readable links of the history, at most LINKS_PER_TURN NEW reads (cached excerpts are free).
   let linksStage: Looked['linksStage'] = null;
-  const webCfg = config.web ?? {};
   // Cache only: no fetch, no model request, no daily slot (src/web/lookup.js#cachedReads).
   const cachedLinkReads = () => {
     if (!linksStage || typeof lookup?.cachedReads !== 'function') return undefined;
@@ -47,7 +48,7 @@ export function startLookup(ctx: PhaseContext, opened: Opened, setup: Setup, pla
       return undefined;
     }
   };
-  if (webLookupOn && webCfg.links?.enabled !== false && typeof lookup?.readLinks === 'function') {
+  if (webLookupOn && typeof lookup?.readLinks === 'function') {
     const readLinks = lookup.readLinks.bind(lookup);
     linksStage = track('links', async () => {
       try {
@@ -57,7 +58,7 @@ export function startLookup(ctx: PhaseContext, opened: Opened, setup: Setup, pla
           candidates.length > 0 ? prepStep('links', 'read-link', { input: { hosts: linkHosts(candidates) } }) : null;
         const read = await journalled(
           readOp,
-          () => readLinks(guildId, candidates, { maxNew: webCfg.links?.maxPerTurn ?? 2 }),
+          () => readLinks(guildId, candidates, { maxNew: LINKS_PER_TURN }),
           (value) => {
             const reads = readsOf(value);
             const chars = [...reads.values()].reduce<number>(

@@ -14,7 +14,7 @@ export const PACE: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'pace.prepareSearchMs',
     'types': ['number'],
-    'reader': 'src/turn/lookup.ts',
+    'reader': 'src/turn/settings.ts',
     'default': 18000,
     'text': 'Extended deadline while the search classifier runs. `0` removes the limit',
   },

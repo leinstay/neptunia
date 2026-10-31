@@ -15,17 +15,19 @@ import { intentionSettings } from '../intentions/model.ts';
 import { log } from '../log.js';
 import { channelPlaceId, personId } from '../memory/db/ids.ts';
 import type { ConversationRef, MessageRef } from '../protocol/adapter.ts';
-import { IN_TURN_TOOLS } from '../tools/tools.ts';
-import { proposalVerdicts, proposedRows, skillsIndex } from '../tools/discovery.ts';
+import { proposalVerdicts, proposedRows } from '../tools/discovery.ts';
 import type { SkillsLines } from '../tools/discovery.ts';
 import { checkReplyEffect, listSkills } from '../tools/gateway.ts';
 import type { SkillMap } from '../tools/types.ts';
 import { PERSONA, defaultSkills, requesterOf } from './calls.ts';
 import { inCommunity } from './routing.ts';
 
+/** Whether an addressed turn's request carries `<places>`. Production value, config cut of 2026-10-31: off. */
+const ADDRESSED_PLACES: boolean = false;
+
 /** The live config, as far as the inputs read it; the settings functions read their own sections. */
 export type InputsConfig = {
-  errands?: { unreadShown?: number; resultMaxChars?: number } | null;
+  errands?: { resultMaxChars?: number } | null;
   bot?: { timezone?: string } | null;
   context?: { caps?: { intentions?: number } | null; places?: unknown } | null;
 };
@@ -100,7 +102,6 @@ export type Inputs = {
   conversationOf: (channel: { id: string }) => ConversationRef;
   messageOf: (channel: { id: string }, messageId: string) => MessageRef;
   checkEffect: (skill: string, args: unknown, at: { channel: { id: string } }) => EffectVerdict;
-  discoveryPrompt: () => { index: string; names: Array<string> };
   discoverSkills: (args: {
     config: unknown;
     channel: { id: string };
@@ -186,19 +187,6 @@ export function createInputs(ctx: InputsContext): Inputs {
     if (!verdict.ok)
       log.info('skill: refused', { skill, code: verdict.code, reason: verdict.reason, channel: channel.id });
     return verdict;
-  }
-
-  /**
-   * What skills discovery gives a classifier (src/tools/discovery.ts, the live config read by
-   * the caller now): `index` fills its prompt's `{{skills}}` (skillsIndex over the registry and
-   * `hot.prompts.tools`: static texts, no grant), `names` are the registry's skills its `skills:`
-   * line may name. With discovery off, '' and none.
-   */
-  function discoveryPrompt(): { index: string; names: Array<string> } {
-    // Her in-turn tools are hers to call: never offered to a classifier.
-    const registry = new Map([...(skills ?? defaultSkills())].filter(([name]) => !IN_TURN_TOOLS.includes(name)));
-    const names = [...registry.keys()];
-    return { index: skillsIndex(registry, hot.prompts?.tools), names };
   }
 
   /**
@@ -288,7 +276,7 @@ export function createInputs(ctx: InputsContext): Inputs {
     now,
   }: Parameters<Inputs['errandsInputFor']>[0]): { list: string; result: string } | null {
     const listed = listedTasks({ guildId, channel, isPrivate, taskResult });
-    const list = errandsBlockText(listed, labels, { now, unreadShown: config.errands?.unreadShown });
+    const list = errandsBlockText(listed, labels, { now });
     const result = taskResult
       ? errandResultText(taskResult, labels, { maxChars: config.errands?.resultMaxChars ?? DEFAULT_RESULT_MAX_CHARS })
       : '';
@@ -334,12 +322,12 @@ export function createInputs(ctx: InputsContext): Inputs {
   }
 
   /**
-   * The request's `<places>` body (context.places exactly true, read now; src/behavior/wake.ts#placesBlockText):
+   * The request's `<places>` body (with ADDRESSED_PLACES on; src/behavior/wake.ts#placesBlockText):
    * the first `innerLife.attention.placesInWake` places by recent activity (0: none), from the inner
    * life's places view. '' with the switch off, without the view, or when it fails.
    */
   function placesInputFor({ guildId, config, labels }: Parameters<Inputs['placesInputFor']>[0]): string {
-    if (config.context?.places !== true || typeof places !== 'function') return '';
+    if (!ADDRESSED_PLACES || typeof places !== 'function') return '';
     const size = innerSettings(config).attention.placesInWake;
     if (!(size > 0)) return '';
     try {
@@ -356,7 +344,6 @@ export function createInputs(ctx: InputsContext): Inputs {
     conversationOf,
     messageOf,
     checkEffect,
-    discoveryPrompt,
     discoverSkills,
     errandsInputFor,
     intentionsInputFor,

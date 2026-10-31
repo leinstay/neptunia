@@ -41,7 +41,7 @@ import { createLookup } from '../turn/lookup.ts';
 import { createOutcome } from '../turn/outcome.ts';
 import { createParticipation } from '../turn/participation.ts';
 import { createPulls } from '../turn/pulls.ts';
-import { createRewatch, parseRewatchPickDetailed } from '../turn/rewatch.ts';
+import { createRewatch } from '../turn/rewatch.ts';
 import { createSends } from '../turn/sends.ts';
 import { createSkillCalls } from '../turn/skill-calls.ts';
 import { createToolRound } from '../turn/tool-round.ts';
@@ -111,7 +111,6 @@ export {
 export { fallbackLookupPlan };
 
 // The re-watch classifier's answer parser lives with the re-watch (src/turn/rewatch.ts).
-export { parseRewatchPickDetailed };
 
 /**
  * `images` (src/llm/images.js#createImageGen) is optional: absent,
@@ -347,7 +346,6 @@ export function createTurnRunner({
     conversationOf,
     messageOf,
     checkEffect,
-    discoveryPrompt,
     discoverSkills,
     errandsInputFor,
     intentionsInputFor,
@@ -578,22 +576,19 @@ export function createTurnRunner({
     linkCalls,
     drawTool,
   });
-  const { classifierContext, maybeRewatch, rewatchOffer, applyRewatch } = createRewatch({ hot, llm, describer });
-  const { startPrefetch, recallAvailable, turnDirectory, privatePartner, lookupGate, maybeLookup, maybeSplit } =
-    createLookup({
-      hot,
-      store,
-      llm,
-      clock,
-      lookup,
-      recall,
-      membersOf,
-      selfIdOf,
-      ifaceReads,
-      discoveryPrompt,
-      classifierContext,
-      linkCalls,
-    });
+  const { classifierContext } = createRewatch({ hot });
+  const { startPrefetch, recallAvailable, turnDirectory, privatePartner, maybeSplit } = createLookup({
+    hot,
+    store,
+    llm,
+    clock,
+    recall,
+    membersOf,
+    selfIdOf,
+    ifaceReads,
+    classifierContext,
+    linkCalls,
+  });
   // What the phases of an attempt (src/turn/phases/) read: the dependencies, the closure state and the topic functions.
   const phases = {
     hot,
@@ -659,15 +654,10 @@ export function createTurnRunner({
     runSteps,
     inTurnTools,
     classifierContext,
-    maybeRewatch,
-    rewatchOffer,
-    applyRewatch,
     startPrefetch,
     recallAvailable,
     turnDirectory,
     privatePartner,
-    lookupGate,
-    maybeLookup,
     maybeSplit,
   };
 
