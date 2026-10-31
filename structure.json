@@ -367,7 +367,7 @@
     },
     {
       "path": "src/board/",
-      "purpose": "The task board in the memory database: its tables, its state machine, the rights from clients.json, its operations and the reaper.",
+      "purpose": "The task board in the memory database: its tables, its state machine, the rights from clients.json, its operations from filing to review, and the reaper.",
       "layer": "public",
       "imports": ["node:*", "src/board/**"],
       "test": "required"
