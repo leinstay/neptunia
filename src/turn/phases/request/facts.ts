@@ -109,7 +109,7 @@ export async function tellFacts(
   const notAnswered =
     triggerAt === -1 ? tasks.deferred : new Set([...tasks.deferred, ...history.slice(triggerAt + 1).map((m) => m.id)]);
   const guildMemory = memoryOn ? store.getGuild(guildId) : null;
-  // Whether the call tags the persona, read as decideMention reads it (pipeline.js decideAndLog):
+  // Whether the call tags the persona, read as decideMention reads it (src/pipeline/answer.ts#decideAndLog):
   // an untagged reply takes the follow-up task (usesFollowUpTask).
   const taggedCall = trigger ? isTaggedCall(trigger, selfId) : null;
   if (

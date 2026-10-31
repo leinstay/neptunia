@@ -913,7 +913,7 @@
     },
     {
       "path": "src/pipeline/",
-      "purpose": "The message pipeline's topic modules, each built once by `createMessageHandler` in `src/behavior/pipeline.js` over a typed context: the private chat's gate and an edit and a deletion of a message.",
+      "purpose": "The message pipeline's topic modules, each built once by `createMessageHandler` in `src/behavior/pipeline.js` over a typed context: a new message's path, the classifiers, the pending queue and its drain, the settle waits, the private chat's gate, and an edit and a deletion of a message.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"
@@ -928,6 +928,132 @@
     {
       "path": "src/pipeline/private-gate.ts",
       "purpose": "The private chat: a direct message's gate with zero tokens, its silent drop and daily-cap notice, its observation and its turn, and the same gate and count for a queued direct message and a recovery turn. Tested through the private, core pause and events tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/address-classifier.ts",
+      "purpose": "The address classifier's call about an untagged line in an open follow-up window: its `yes`, `overheard` or `no`, the window's no-streak bumped on a `no`, and a failed call let through while the line keeps a one-to-one exchange. Tested through the events tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/answer.ts",
+      "purpose": "The ordinary path of a server call: held while the attention is taken, otherwise counted, rolled for the ignore chance and answered by a reply turn. Tested through the events tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/call-outcome.ts",
+      "purpose": "What follows a call's turn: the limit notice of a refusal, the ring's stamp of a routed call, and a held call looked up again before it is answered. Tested through the events tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/classifier-request.ts",
+      "purpose": "The request the address and room classifiers send about one new line: the channel's last lines, the author's stored aliases and the line itself as the candidate. Tested through the events tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/conversations.ts",
+      "purpose": "What the pipeline asks the interface about a conversation: how it looks now, whether a turn may open there, where a call written in it is answered, and whether a line replies to the persona. Tested through the events tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/drain.ts",
+      "purpose": "The drain of the pending queue: after a turn ends, the oldest waiting call is checked again and answered, one at a time, after a switch pause. Tested through the events tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/follow-up-window.ts",
+      "purpose": "A channel's follow-up window, opened by the persona's post, kept in the state and closed by a run of `no` verdicts, and the checks in front of the address classifier. Tested through the events tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/follow-up.ts",
+      "purpose": "The follow-up path of an untagged line: one address classifier call in flight per channel, the lines that arrive meanwhile held, and the turn a verdict starts or defers. Tested through the events tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/following.ts",
+      "purpose": "A member's line right after the persona spoke in a channel, joined to her newest participation episode. Tested through the events tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/handle-message.ts",
+      "purpose": "What happens to one new message: ignored, observed, eavesdropped, classified or answered as a call, once across the live path and the start's catch-up. Tested through the events and catch-up tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/media-prefill.ts",
+      "purpose": "An observed line's media read ahead of time: its pictures captioned, its first videos watched and its first link read, and the cached captions the classifiers show. Tested through the events tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/merge.ts",
+      "purpose": "A call held while the attention is taken: queued, or folded by the merge classifier into an item its author already waits for. Tested through the events tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/observe.ts",
+      "purpose": "A line's observation, sent to the memory database and awaited at most `memoryDb.observeTimeoutMs`. Tested through the core slice test.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/pause-notice.ts",
+      "purpose": "The pause notice: a direct call that arrives while the persona is paused gets one plain line, at most once per channel per `mention.pauseNoticeMinutes`. Tested through the events tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/pending-queue.ts",
+      "purpose": "The pending queue of calls that found the attention taken: added, replaced, evicted and requeued, with their log lines and their missed facts. Tested through the events tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/room.ts",
+      "purpose": "The room classifier: an untagged line put to everyone present is asked about once its roll wins, and a `yes` goes back to the spontaneous scheduler. Tested through the events tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/settle.ts",
+      "purpose": "The settle waits of calls and noticed comments from a channel the persona cannot write in, answered in the main channel once that channel is quiet. Tested through the events tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/types.ts",
+      "purpose": "The shapes the pipeline modules share. Types only: nothing runs, so nothing is tested.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
