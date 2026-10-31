@@ -229,7 +229,7 @@
     },
     "src/errands/store.ts": {
       "createErrandStore": {
-        "function-length": 547
+        "function-length": 536
       }
     },
     "src/format.js": {
@@ -471,7 +471,7 @@
         "complexity": 42
       },
       "createJournal": {
-        "function-length": 647
+        "function-length": 626
       },
       "journalLine": {
         "complexity": 22

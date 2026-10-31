@@ -688,13 +688,24 @@ async function buildCore(options, cleanups) {
   // someone waits until they stop writing (pace.settleMs).
   const activity = createActivity();
   // The persona's errands (`errands.*`, `agents.<profile>` overrides): a task she or a member asks for goes to its agent runner over
-  // its socket in the background (src/errands/); the tasks live in data/guilds/<id>/errands.json.
+  // its socket in the background (src/errands/); the errands are tasks of the board's errand lane in memory.db.
   const errandClient = createErrandClient({ hot, log });
   const taskStores = createErrandStores({ config: () => hot.config, journal, log, memoryDb });
   // An errand's end opens her own turn where it was asked (the task turns, created below the runner).
   // An errand's end is an `errand.done` event through the event door (`door`, created below with
-  // the gateway's handlers); the door's handler (src/errands/turns.ts#onEvent) first moves the
-  // intentions waiting on it back to pending, then opens her turn, which shows them with the outcome.
+  // the gateway's handlers), its id `errand-done:<errand id>`; the door's handler (src/errands/turns.ts#onEvent) first
+  // moves the intentions waiting on it back to pending, then opens her turn, which shows them with the outcome. Once
+  // the door took the event its end is marked delivered on the board, so a core started after a crash finds only the
+  // ends it never delivered (ErrandStore#pendingEnds).
+  /**
+   * @param {import('./errands/types.ts').ErrandRecord} task
+   * @param {string} guildId
+   */
+  async function submitErrandEnd(task, guildId) {
+    const answer = await door.submit({ ...errandDoneEvent(task, guildId), id: `errand-done:${task.id}` });
+    if (answer.status === 'ok' || answer.status === 'duplicate') taskStores.get(guildId)?.markDelivered(task.id);
+    return answer;
+  }
   // A task's `context.recent`: the channel's newest lines from the memory database (her own under her name), oldest first.
   function recentChannelLines(guildId, channelId, count) {
     const db = memoryDb.database();
@@ -730,7 +741,7 @@ async function buildCore(options, cleanups) {
     memory: { recentLines: recentChannelLines },
     getGuildId,
     log,
-    onFinished: (task, guildId) => door.submit(errandDoneEvent(task, guildId)),
+    onFinished: (task, guildId) => submitErrandEnd(task, guildId),
   });
   // The persona's intentions (features.intentions): data/guilds/<id>/intentions.json, her own
   // `intent.*` calls, the analyzer's candidates from her lines, and the waits on her errands.

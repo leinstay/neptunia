@@ -31,6 +31,14 @@
 //   { kind: 'unit', op: 'project', sliceUnits, maxSlices, at }   the graph projection a migration left pending
 //       (graph.js#projectPending, at most `maxSlices` slices) and the stems still pending (stems.js); returns
 //       `{ units, done, stems }`.
+//   { kind: 'unit', op: 'errand', owner, value }   one write of the errand store (src/errands/store.ts): `value` is a
+//       src/board/errands.ts#ErrandSave with its `closing` (the closing journal line, `{ owner, line }`, or null) and
+//       `owner` the outbox's key of that errand (`board/errands/<id>`). src/board/errands.ts#applyErrandUnit brings the
+//       board to the errand and, when the save moves it to an end, the closing line is written as op `lines` writes it,
+//       all in one transaction. Returns `{ ended }`.
+// From board v3 (src/board/errands.ts#ERRANDS_ON_BOARD) her errands live on the board: a write of an errand unit
+// (`errands.json`, `errands.jsonl`, under either name) is accepted and writes nothing, its count returned as
+// `skipped` (the service logs it), so `work` and `work_events` stay the archive board v3 left.
 // An unmapped owner is refused with `UNIT_UNMAPPED`, an unknown op with `UNIT_BAD_OP`. Counts and codes only, never a
 // text.
 
@@ -42,6 +50,7 @@ import { unitRows } from './export.js';
 import { assignDiaryDestination } from './publish.js';
 import { graphPending, projectPending } from './graph.js';
 import { fillStems, markStemsPending, stemsPending } from './stems.js';
+import { applyErrandUnit, skippedErrandUnit } from '../../board/errands.ts';
 
 /** Tables of an owned unit whose rows carry a `position`. */
 const POSITIONED = [
@@ -330,10 +339,11 @@ export function applyUnitWrite(handle, update) {
   if (op === 'project') return project(handle, update, at);
   const db = handle.db;
   const run = {
-    lines: () => writeLines(db, update, at),
-    value: () => writeValue(db, update, at),
+    lines: () => skippedErrandUnit(db, update, unitOf) ?? writeLines(db, update, at),
+    value: () => skippedErrandUnit(db, update, unitOf) ?? writeValue(db, update, at),
     diary: () => writeDiary(db, update, at),
     vectors: () => writeVectors(db, update, at),
+    errand: () => applyErrandUnit(db, update, at, (closing) => writeLines(db, closing, at)),
   }[op];
   if (!run) throw coded('UNIT_BAD_OP');
   return handle.transaction(run);

@@ -5,7 +5,9 @@
 //   action, inner, system, turn.start, answer (the missed-message records) and any other kind -> a `day` row
 //
 // Every field a column names is in the column; the rest of the line is in the carrying row's `extra` (the `day`
-// row, the `decisions` row), so the line is rebuilt exactly from its rows. `day.what` is the line's kind.
+// row, the `decisions` row), so the line is rebuilt exactly from its rows. `day.what` is the line's kind. An action
+// line of an errand (`name` `errand`) references its board task in `day.work_id`: the errand's id, from the line's
+// `input`, `target` or `result` (`errandId`); every other line has none.
 // Note that a journal line of kind `answer` is a missed-message record, not a `sources` row of kind answer.
 //
 // toRows(rel, line, ctx) -> { day|decisions|sources|affinity_events: [...] }      ctx: { position? }
@@ -14,6 +16,7 @@
 import { answerSourceId, nativeOfAny, personId } from '../ids.ts';
 import { extraText, ifaceOf, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './common.js';
 import { privateUserOf, scopeFrom, scopeInto } from './scope-parts.js';
+import { errandIdOfLine } from '../../../board/archive.ts';
 
 const DAY_SPEC = [
   { col: 'id', key: 'id', type: 'text' },
@@ -109,7 +112,7 @@ export function toRows(rel, line, ctx = {}) {
     ...cols,
     place_id: scope.place_id,
     source_id: sourceId,
-    work_id: null,
+    work_id: errandIdOfLine(line),
     scope_kind: scope.scope_kind,
     scope_iface: scope.scope_iface,
     scope_dm: scope.scope_dm,

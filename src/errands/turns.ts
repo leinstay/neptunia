@@ -18,7 +18,9 @@
 // errand itself rides along in-process under `raw.errand` (the event holds its id and status), and
 // when it does not, the errand store of the event's guild is asked for it. Before the result turn,
 // the end reaches the persona's intentions waiting on that errand (`intentions.onErrandFinished`,
-// src/intentions/service.ts), so the turn already shows them back to pending with the outcome.
+// src/intentions/service.ts), so the turn already shows them back to pending with the outcome. An `errand.done` for an
+// errand whose result she has read already (`readAt` set, in the event's errand or in the store), as a second delivery
+// of the same end after a restart brings it, opens no second result turn.
 
 import { log as defaultLog } from '../log.js';
 import { lineOf } from '../behavior/line-of.js';
@@ -236,7 +238,8 @@ export function createErrandTurns({
    */
   function onEvent(event: ErrandDoneEvent): Promise<TurnResult> {
     const guildId = event?.communityId ?? null;
-    const errand = event?.raw?.errand ?? errands?.store?.(guildId)?.get?.(event?.errandId) ?? null;
+    const stored = errands?.store?.(guildId)?.get?.(event?.errandId) ?? null;
+    const errand = event?.raw?.errand ?? stored;
     if (!errand) {
       log.warn('errands: finished task not found', { id: event?.errandId ?? null });
       return Promise.resolve(null);
@@ -245,6 +248,10 @@ export function createErrandTurns({
       intentions?.onErrandFinished?.(errand, guildId);
     } catch (err) {
       log.warn('errands: intentions not reached', { id: errand.id, error: err });
+    }
+    if (errand.readAt || stored?.readAt) {
+      log.info('errands: result already read', { id: errand.id });
+      return Promise.resolve(null);
     }
     return onFinished(errand, guildId);
   }

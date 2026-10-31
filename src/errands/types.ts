@@ -59,7 +59,7 @@ export type ErrandUsage = {
 /** The limits an errand runs under. */
 export type Limits = { steps?: number; seconds?: number };
 
-/** An errand as the store keeps it (the unit `errands.json` holds a list of these). */
+/** An errand as the store keeps it (a task of the board's errand lane holds one, src/board/archive.ts). */
 export type ErrandRecord = {
   id: string;
   agent: string;
@@ -137,10 +137,13 @@ export type ExpiredFileRef = { expired: true; errand: ErrandRecord };
 /** What the store's `budget` says to the skills gateway. */
 export type Budget = { spent: boolean; key: string | null; code: string | null };
 
+/** One end committed on the board whose `errand.done` has not been marked delivered. */
+export type ErrandEnd = { eventId: string; errandId: string; state: ErrandState };
+
 /** The writes still waiting for the memory database, and the ones kept in `memory-pending/`. */
 export type FlushCounts = { waiting: number; pending: number };
 
-/** The errands of one guild, in the memory database (src/errands/store.ts#createErrandStore). */
+/** The errands of one guild, on the memory database's task board (src/errands/store.ts#createErrandStore). */
 export type ErrandStore = {
   add: (input: AddInput) => AddResult;
   start: (id: unknown) => ErrandRecord | null;
@@ -163,6 +166,10 @@ export type ErrandStore = {
   fileExpired: (handle: unknown) => boolean;
   failOpen: (code: string) => number;
   expireFiles: () => number;
+  /** The ends committed on the board and not marked delivered, oldest first; `eventId` is `errand-done:<errand id>`. */
+  pendingEnds: () => Array<ErrandEnd>;
+  /** Marks the pending end of errand `id` delivered; false when no end of that errand is pending. */
+  markDelivered: (id: unknown) => boolean;
   flush: (options?: { final?: boolean }) => Promise<FlushCounts>;
   guildId: string;
 };

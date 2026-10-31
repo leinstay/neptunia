@@ -114,6 +114,7 @@ import { stemsPending } from './stems.js';
 import { createHash } from 'node:crypto';
 import { backupName, backupOn, backupSettings, configHash, partialOf, pruneBackups } from './backup.js';
 import { mirrorPlaces, readMirrors } from './mirrors.ts';
+import { noteSkipped } from '../../board/errands.ts';
 
 /** The folder of the unit writes that failed at a shutdown (stage W2b), under the data directory. */
 export const PENDING_DIR = 'memory-pending';
@@ -535,7 +536,7 @@ export function createMemoryDb({
    */
   function keepPending(update) {
     const owner = String(update?.owner ?? '');
-    if (!owner || (update.op !== 'value' && update.op !== 'lines'))
+    if (!owner || (update.op !== 'value' && update.op !== 'lines' && update.op !== 'errand'))
       throw Object.assign(new Error('memory db: not a unit write'), { code: 'UNIT_BAD_OP' });
     const file = pendingFileOf(owner);
     let lines = update.op === 'lines' ? (Array.isArray(update.lines) ? update.lines : []) : null;
@@ -630,7 +631,7 @@ export function createMemoryDb({
     if (!engine) {
       for (const { file, update } of writes) {
         try {
-          applyMemoryWrite(handle, stampUnit(update));
+          noteSkipped(log, applyMemoryWrite(handle, stampUnit(update)));
           done(file);
         } catch (error) {
           fail(error);
@@ -641,7 +642,7 @@ export function createMemoryDb({
     return (async () => {
       for (const { file, update } of writes) {
         try {
-          await engine.call('memoryWrite', { update: stampUnit(update) });
+          noteSkipped(log, await engine.call('memoryWrite', { update: stampUnit(update) }));
           done(file);
         } catch (error) {
           fail(error);
@@ -835,14 +836,14 @@ export function createMemoryDb({
   }
 
   /**
-   * One write of a memory unit (unit-write.js) through the writer. Resolves the writer's counts once committed; rejects
-   * with a code (`DB_CLOSED` while the database is not open).
+   * One write of a memory unit (unit-write.js) through the writer. Resolves the writer's counts once committed (a skipped
+   * errand unit logged with its count); rejects with a code (`DB_CLOSED` while the database is not open).
    */
   async function writeUnit(update) {
     if (!handle || closing) throw Object.assign(new Error('memory db is not open'), { code: 'DB_CLOSED' });
     const stamped = stampUnit(update);
-    if (engine) return engine.call('memoryWrite', { update: stamped });
-    return applyMemoryWrite(handle, stamped);
+    if (engine) return noteSkipped(log, /** @type {unknown} */ (await engine.call('memoryWrite', { update: stamped })));
+    return noteSkipped(log, applyMemoryWrite(handle, stamped));
   }
 
   // The graph projection a migration left pending and the stems of new lines: the writer finishes them, one slice per
