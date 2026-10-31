@@ -78,7 +78,7 @@
 // turn's wakes again, and a wake that fell due while the core was down or paused sleeps and never
 // runs. Logs carry ids, codes and counts, never text.
 //
-// With `memoryDb.wakeRuns` exactly true (read at the turn) each inner turn is also a wake run in the memory database
+// Each inner turn is also a wake run in the memory database
 // (src/memory/db/wakes.js, through the service's writer): started before the turn runs (its id the in-flight turn id,
 // its inputs the ids and versions its view showed, the envelope's policy version), each action recorded once by its
 // number, ended `succeeded` or `failed` with the outcome. The journal and the state file are unchanged by it.

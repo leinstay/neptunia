@@ -436,7 +436,7 @@ const CODE: Readonly<Record<string, unknown>> = {
   'memoryDb.diaryMedia': true,
   'memoryDb.focus.enabled': true,
   'memoryDb.wakeRuns': true,
-  'innerLife.heartbeat.focusSource': 'focus',
+  'innerLife.heartbeat.focusSource': 'db',
 };
 
 /** The switches and knobs that went with their code, with the value production ran with. */

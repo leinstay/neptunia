@@ -427,7 +427,7 @@ function wakeInfoOf(life: InnerContext, guildId: string, group: ReadonlyArray<Wa
   };
 }
 
-/** The wake run of a turn as it starts (memoryDb.wakeRuns): what its view showed, ids with their versions. */
+/** The wake run of a turn as it starts: what its view showed, ids with their versions. */
 function startWakeRun(
   life: InnerContext,
   run: { turnKey: string; anchor: Wake; group: ReadonlyArray<Wake>; at: number; records: Array<Intention> },
@@ -713,7 +713,7 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
   const claimed = await beginTurn(life, guildId, group, { at, channel, kind: anchor.kind });
   if (!claimed) return { deferred: 'claim' };
   const { turnId: turnKey, attempt } = claimed;
-  // The wake run (memoryDb.wakeRuns): what this turn's view showed; the journal and the `day` rows stay as they are.
+  // The wake run: what this turn's view showed; the journal and the `day` rows stay as they are.
   const shownIds = [...shownFacts.map((fact) => fact.id), ...[...ownFactIds].map(asText)];
   startWakeRun(life, { turnKey, anchor, group, at, records }, shownIds, {
     channelId: current.channelId ?? null,

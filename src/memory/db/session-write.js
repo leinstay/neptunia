@@ -44,7 +44,7 @@
 //
 // Every row with the scope triple is written with its `audience_id` from the one resolver (scope.ts#audienceOf, through
 // rows.js), and her answer rows with their authority, author kind and `observed_at`. `update.audienceColumn` (stamped
-// by the service from `memoryDb.audienceColumn`) makes the scope check of a target claim read `audience_id`.
+// by the service) makes the scope check of a target claim read `audience_id`.
 //
 // A plan is the validated, resolved form of the answer: ids are database ids, never the request's `#n` / `cN`.
 //   claims:       { op: 'add', subjectKind, subjectId, kind, text, how, sources, when }

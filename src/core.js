@@ -36,7 +36,6 @@ import {
   createAvatarQueue,
   startYoutubeCheck,
 } from './memory/index.js';
-import { mirrorDryRun } from './behavior/limits.js';
 import { DAY_MS, utcDay } from './time.js';
 import { createCalibrator } from './llm/tokens.js';
 import { createLlm, roleApiKey } from './llm/openrouter.js';
@@ -767,7 +766,7 @@ async function buildCore(options, cleanups) {
     hot,
     store,
     roleHealth,
-    // The memory rows a turn's request carried go to the database (memoryDb.turnReads).
+    // The memory rows a turn's request carried go to the database.
     memoryReads: (args) => memoryDb.recordTurnReads(args),
     // One execution context per turn for its memory reads (recorded while the database is open).
     memoryContext: (spec) => memoryDb.issueContext({ iface: identity.iface, ...spec }),
@@ -877,7 +876,7 @@ async function buildCore(options, cleanups) {
     // People's turns first: an inner turn waits while a direct ping is queued.
     peopleWaiting: () => onMessage.pendingCount() > 0,
     submit: (event) => door.submit(event),
-    // Each inner turn as a wake run in the memory database (memoryDb.wakeRuns).
+    // Each inner turn as a wake run in the memory database.
     memoryDb,
     // A live wake turn's posts go out through the guarded port once the wake completed (src/behavior/inner/deliveries.ts).
     port: iface,
@@ -889,8 +888,7 @@ async function buildCore(options, cleanups) {
       skills: () => grantedSkillNames({ config: hot.config, selfId: identity.selfId, registry: skillRegistry() }),
       agents: () => Object.keys(AGENT_PROFILES),
       selfId: () => identity.selfId,
-      focusPeople: () =>
-        hot.config.innerLife?.heartbeat?.focusSource === 'db' ? memoryDb.focusPeople({ iface: identity.iface }) : null,
+      focusPeople: () => memoryDb.focusPeople({ iface: identity.iface }),
     },
     log,
   });

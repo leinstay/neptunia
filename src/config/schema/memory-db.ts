@@ -18,48 +18,11 @@ export const MEMORY_DB: ReadonlyArray<SchemaEntry> = [
     'text': 'At shutdown, how long to wait for the pass under way before the worker is terminated',
   },
   {
-    'key': 'memoryDb.turnReads',
-    'types': ['boolean'],
-    'reader': 'src/core.js',
-    'default': true,
-    'text': "After a turn's request is built, record which memory rows it carried in the database",
-  },
-  {
-    'key': 'memoryDb.audienceColumn',
-    'types': ['boolean'],
-    'reader': 'src/behavior/recall-run.js',
-    'default': false,
-    'text':
-      'Filter memory rows by their `audience_id` column instead of the three scope columns. Both give the same rows',
-  },
-  {
-    'key': 'memoryDb.diaryMedia',
-    'types': ['boolean'],
-    'reader': 'src/memory/db/service.js',
-    'default': false,
-    'text':
-      "Fetch the messages of the diary posts made before the mirrors and save their text and pictures in the database, from the place each post's publication names",
-  },
-  {
     'key': 'memoryDb.diaryAudioMaxBytes',
     'types': ['number'],
     'reader': 'src/memory/db/diary-media.js',
     'default': 8388608,
     'text': 'Size cap for an audio attachment of a diary post saved next to the pictures',
-  },
-  {
-    'key': 'memoryDb.focus.enabled',
-    'types': ['boolean'],
-    'reader': 'src/memory/db/service.js',
-    'default': false,
-    'text': 'Compute the focus set (the people her attention is on) once per UTC day from the relationship counts',
-  },
-  {
-    'key': 'memoryDb.wakeRuns',
-    'types': ['boolean'],
-    'reader': 'src/behavior/inner/drain.ts',
-    'default': false,
-    'text': 'Record each inner turn as a wake run in the database',
   },
   {
     'key': 'memoryDb.skillsRegistry',

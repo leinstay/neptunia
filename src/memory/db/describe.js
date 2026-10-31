@@ -23,7 +23,7 @@
 // reviewDescription(db, subject, field, { ctx }) -> { status, code?, draft?, final?, reason?, row? }
 //   subject: { kind: 'person' | 'place' | 'self', id, name? }
 //   ctx:     { llm, hot ({ config, prompts }), env, now, write, log, selfName, readCtx (a scope context, group by default) }
-//   With `memoryDb.audienceColumn` the review reads (and finds its description) through `audience_id`, not the triple.
+//   The review reads (and finds its description) through `audience_id`, not the triple.
 
 import { MEMORY_ROLE, roleModel } from '../../llm/roles.js';
 import { MEMORY_LIMIT_DEFAULTS } from '../text-limits.js';
@@ -303,9 +303,8 @@ export async function reviewDescription(db, subject, field, { ctx }) {
   if (refused) return { status: refused === CODES.OFF ? 'off' : 'refused', code: refused };
   if (!DESCRIPTION_FIELDS.includes(field) || !subject?.id || !['person', 'place', 'self'].includes(subject.kind))
     return { status: 'refused', code: 'bad_subject' };
-  // Read through `audience_id` when the live config says so (`memoryDb.audienceColumn`) or the caller's context does.
-  const given = ctx.readCtx ?? groupContext(ifaceOrLegacy(ctx));
-  const readCtx = config?.memoryDb?.audienceColumn === true ? { ...given, audienceColumn: true } : given;
+  // Read through `audience_id`, as every context the core issues reads.
+  const readCtx = { ...(ctx.readCtx ?? groupContext(ifaceOrLegacy(ctx))), audienceColumn: true };
   const settings = sessionSettings(config);
   const cap = fieldCap(config, field);
   const selfName = ctx.selfName ?? '';

@@ -11,7 +11,7 @@
 //     The description flags her session runs raised (`decisions` rows `flag:description`, `by` her) whose description
 //     has no accepted review (`origin` `review`) written since the flag, one per description (its oldest open flag: a
 //     flag raised after the last review opens the description again), in
-//     the order the reviews are run: with `memoryDb.focus.enabled` the people of her focus close set first (by their
+//     the order the reviews are run: the people of her focus close set first (by their
 //     focus score), then every other flag by its age, oldest first. `skip`: description ids not to offer again today.
 //   reviewsToday(db, now) -> number    the accepted reviews written on the UTC day of `now`
 //   effectiveModels(config, env) -> [{ purpose, role, model, key }]
@@ -130,7 +130,7 @@ export function openFlags(db, config, { skip = new Set(), selfName = '' } = {}) 
     const name = subjectName(db, kind, subject.id, selfName);
     flags.push({ key, at: row.at, subject: name ? { ...subject, name } : subject, field: op.field, readCtx });
   }
-  const close = config?.memoryDb?.focus?.enabled === true ? closePeople(db) : [];
+  const close = closePeople(db);
   const rank = (flag) => {
     const at = flag.subject.kind === 'person' ? close.indexOf(flag.subject.id) : -1;
     return at === -1 ? Infinity : at;

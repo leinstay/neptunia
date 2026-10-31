@@ -158,13 +158,6 @@ export const INNER_LIFE: ReadonlyArray<SchemaEntry> = [
     'text': 'Jitter on intention due times set by heartbeat',
   },
   {
-    'key': 'innerLife.heartbeat.focusSource',
-    'types': ['string'],
-    'reader': 'src/behavior/heartbeat-view.ts',
-    'default': 'profiles',
-    'text': 'Where the people block takes its members: `profiles` (by affinity) or `db` (the focus set)',
-  },
-  {
     'key': 'innerLife.caps.perChain',
     'types': ['number'],
     'reader': 'src/behavior/inner.ts',
