@@ -246,7 +246,7 @@ function numberAtLeast(value, fallback, min) {
  *   timeoutMs: number, minSummaryMs: number, maxOutputTokens: number, memoryItems: number, selfBonus: number, selfExtra: number,
  *   contextMessages: number, traceMaxLines: number, memoryTokens: number, recordDays: number, recordContext: number,
  *   archiveMonths: number, fallbackOnClassifierFailure: boolean, meaningCandidates: number, meaningWithReply: boolean,
- *   locatorBonus: number, locatorDecayDays: number, locatorBroadShare: number }|null}
+ *   locatorBonus: number, locatorDecayDays: number, locatorBroadShare: number, prefetch: ReturnType<typeof prefetchSettingsOf> }|null}
  */
 export function recallSettings(config) {
   if (config?.features?.recall === false) return null;

@@ -5,7 +5,7 @@
     "src/behavior/recall-run.js": 2331,
     "src/behavior/recall.js": 2491,
     "src/behavior/sandbox.js": 2136,
-    "src/behavior/turn.js": 5464,
+    "src/behavior/turn.js": 2658,
     "src/memory/store.js": 3342,
     "tests/admin.test.js": 3880,
     "tests/describe.test.js": 3705,
@@ -241,29 +241,7 @@
     },
     "src/behavior/turn.js": {
       "createTurnRunner": {
-        "function-length": 5039
-      },
-      "createTurnRunner>applyRewatch": {
-        "complexity": 23
-      },
-      "createTurnRunner>maybeLookup": {
-        "complexity": 29
-      },
-      "createTurnRunner>noteFailedTurn": {
-        "complexity": 24
-      },
-      "createTurnRunner>planToolCall": {
-        "complexity": 25
-      },
-      "createTurnRunner>rewatchOffer": {
-        "complexity": 41
-      },
-      "createTurnRunner>runCall": {
-        "complexity": 94
-      },
-      "createTurnRunner>runStepsIn": {
-        "complexity": 97,
-        "function-length": 469
+        "function-length": 2297
       },
       "createTurnRunner>runTurnAttempt": {
         "complexity": 374,

@@ -213,7 +213,7 @@ export function toolResultText(
  * `data` result never does, because she has to read it first.
  */
 export function coversSpeech(
-  definition: Pick<Definition, 'result'> | null | undefined,
+  definition: { result?: Definition['result'] } | null | undefined,
   result: { status?: string } | null | undefined
 ): boolean {
   return result?.status === 'ok' && (definition?.result === 'effect' || definition?.result === 'job');
