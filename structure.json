@@ -451,7 +451,7 @@
     },
     {
       "path": "src/turn/",
-      "purpose": "The functions of a turn that stand on their own, one topic per module: its settings, timers, triggers, inputs, mentions, targets, media, history, routing, journal records and skill calls. `src/behavior/turn.js` imports them and re-exports what its importers read.",
+      "purpose": "A turn, one topic per module. The functions that stand on their own are its settings, timers, triggers, inputs, mentions, targets, media, history, routing, journal records and skill calls. The modules that `createTurnRunner` in `src/behavior/turn.js` builds once over a typed context are participation, the journal notes, the diary's first step, the pictures and GIFs, the sends, the typing indicator, the dry act, the act and the pulls. `src/behavior/turn.js` imports them and re-exports what its importers read.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"
