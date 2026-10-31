@@ -764,16 +764,21 @@ function importGuild(db: Db, community: string, state: Record<string, unknown>):
   return count;
 }
 
-/** The state file written back without its queue fields, after a copy of it as it was (`inner.json.v17`). */
+/**
+ * The state file written back without its queue fields. A file that cannot be written (a read-only directory) keeps
+ * them, and the next open imports them again, which changes no row it already holds: the open never fails for it.
+ */
 function dropQueueFields(file: string, state: Record<string, unknown>): void {
-  const backup = `${file}.v17`;
-  if (!fs.existsSync(backup)) fs.copyFileSync(file, backup);
   const kept = Object.fromEntries(
     Object.entries(state).filter(([key]) => !(QUEUE_FIELDS as ReadonlyArray<string>).includes(key))
   );
   const temporary = `${file}.tmp-${process.pid}`;
-  fs.writeFileSync(temporary, JSON.stringify(kept));
-  fs.renameSync(temporary, file);
+  try {
+    fs.writeFileSync(temporary, JSON.stringify(kept));
+    fs.renameSync(temporary, file);
+  } catch {
+    fs.rmSync(temporary, { force: true });
+  }
 }
 
 /**
