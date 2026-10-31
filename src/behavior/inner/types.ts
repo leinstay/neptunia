@@ -7,9 +7,11 @@ import type { Obj } from '../../tools/types.ts';
 import type { Due, Intention } from '../../intentions/types.ts';
 import type { Reads } from '../../interface/reads.ts';
 import type { ConversationInfo, ConversationRef } from '../../protocol/adapter.ts';
+import type { WakeQueueUpdate } from '../../memory/db/wake-queue.ts';
 import type { HeartbeatFacts } from '../heartbeat-view.ts';
 import type { WakeBlockInput } from '../wake.ts';
 import type { WAKE_KINDS } from './settings.ts';
+import type { WakeBackend } from './wake-store.ts';
 
 /** A wake kind, as the `<wake>` block names it. */
 export type WakeKind = (typeof WAKE_KINDS)[number];
@@ -228,6 +230,8 @@ export type InnerIntentions = {
   ): { get?(id: string): Intention | null | undefined; list?(): ReadonlyArray<Intention> } | null | undefined;
   countAttendWake?(guildId: string, id: string): unknown;
   markExpiredShown?(guildId: string, id: string): unknown;
+  /** The intention a wake that slept was for: a one-off cancelled with `sleptAt`, a recurring one past its occurrence. */
+  sleep?(guildId: string, id: string): unknown;
 };
 
 /** The journal as the inner life writes and reads it. */
@@ -242,7 +246,7 @@ export type InnerJournal = {
 
 /** The memory store as the inner life reads it: its pause, the profiles and her diary for the heartbeat. */
 export type InnerStore = {
-  state?: { data?: { paused?: unknown } };
+  state?: { data?: { paused?: unknown; pausedAt?: unknown } };
   listUserProfiles?(guildId: string): unknown;
   getDiary?(guildId: string): { posts?: unknown } | null | undefined;
 };
@@ -371,7 +375,7 @@ export type InnerContext = {
   uuid: () => string;
   costs: CostMeter;
   heartbeatSources: HeartbeatSources;
-  memoryDb: { recordWake?(update: WakeUpdate): unknown } | null;
+  memoryDb: InnerMemoryDb | null;
   rng: () => number;
   now: () => number;
   log: Logger;
@@ -383,4 +387,27 @@ export type InnerContext = {
   running: Set<string>;
   ticking: boolean;
   factSeq: number;
+  /** The holder name of this life's leases (one per process start). */
+  holder: string;
+  /** The database the queue is kept in (src/behavior/inner/wake-store.ts), opened on first use. */
+  wakeDb: WakeBackend | null;
+  /** The chain the queue's writes go through, in order. */
+  writes: Promise<unknown>;
+  /** Per guild: whether the queue view was read back from the table. */
+  viewLoaded: Set<string>;
+  /** Per guild: each queued wake as it was last written, by id. */
+  synced: Map<string, Map<string, string>>;
+  /** The lease tokens of the wakes this life's turns hold, by wake id. */
+  claims: Map<string, number>;
+  /** Per guild: the start's recovery, run once. */
+  started: Map<string, Promise<void>>;
+  /** What she slept through: the downtime and pause intervals, the pause under way, the count per guild. */
+  sleep: { windows: Array<readonly [number, number]>; pausedFrom: number | null; slept: Map<string, number> };
+};
+
+/** The memory database as the inner life uses it (src/memory/db/service.js): wake runs, the writer, the reads. */
+export type InnerMemoryDb = {
+  recordWake?(update: WakeUpdate): unknown;
+  memoryWrite?(update: WakeQueueUpdate): Promise<unknown>;
+  readHandle?(): unknown;
 };

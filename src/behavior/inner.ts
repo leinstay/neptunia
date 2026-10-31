@@ -70,10 +70,13 @@
 // her own grants. The kill switch (`/nep task inner action:stop`) is persisted with the state,
 // drops the queue, and is asked again right before any external action of a running inner turn
 // (`mayAct`). Off (`features.innerLife` not exactly true, read at every tick) nothing is listed and
-// nothing is written. State per guild in `data/guilds/<id>/inner.json` (queue, handled ids, the
-// day's review, the counters, the stop), written whole after every change, so a restart resumes;
-// ticks missed while down coalesce into the first tick after it. Logs carry ids, codes and
-// counts, never text.
+// nothing is written. The queue, the handled ids and the turn in flight are rows of the memory
+// database's `wakes` (src/behavior/inner/wake-store.ts: a turn claims its wakes with fenced leases
+// before it asks the model and completes them after); the rest of the state per guild (the day's
+// review, the counters, the facts, the stop) is `data/guilds/<id>/inner.json`, written after every
+// change. A restart resumes: the start's recovery (src/behavior/inner/recovery.ts) runs a cut-off
+// turn's wakes again, and a wake that fell due while the core was down or paused sleeps and never
+// runs. Logs carry ids, codes and counts, never text.
 //
 // With `memoryDb.wakeRuns` exactly true (read at the turn) each inner turn is also a wake run in the memory database
 // (src/memory/db/wakes.js, through the service's writer): started before the turn runs (its id the in-flight turn id,
@@ -94,20 +97,9 @@ import type { DrainAnswer } from './inner/drain.ts';
 import { markFactsTold, pendingFactsOf } from './inner/facts.ts';
 import { heartbeatDue } from './inner/heartbeat.ts';
 import { attendWakes, places, refreshPlaces } from './inner/places.ts';
+import { admitListed, beforeTick } from './inner/recovery.ts';
 import type { PlacesQuery } from './inner/places.ts';
-import {
-  addFact,
-  deadlineWakes,
-  enqueue,
-  mayAct,
-  note,
-  onWake,
-  paused,
-  save,
-  stateOf,
-  wakeFields,
-  wakeOfDue,
-} from './inner/queue.ts';
+import { addFact, deadlineWakes, mayAct, note, onWake, save, stateOf, wakeFields, wakeOfDue } from './inner/queue.ts';
 import type { WakeAnswer } from './inner/queue.ts';
 import { reviewDue } from './inner/review.ts';
 import { innerOn, innerSettings } from './inner/settings.ts';
@@ -120,6 +112,7 @@ import type {
   InnerContext,
   InnerIntentions,
   InnerJournal,
+  InnerMemoryDb,
   InnerState,
   InnerStore,
   InnerTurns,
@@ -128,7 +121,6 @@ import type {
   PlacesPage,
   RecordSource,
   Wake,
-  WakeUpdate,
 } from './inner/types.ts';
 
 export {
@@ -192,10 +184,11 @@ export type InnerLifeOptions = {
   /** The sources of the heartbeat's facts that are not the stores above (src/behavior/heartbeat-view.ts). */
   heartbeat?: HeartbeatSources;
   /**
-   * The memory database (src/memory/db/service.js): with `memoryDb.wakeRuns` on, each inner turn is recorded as a wake
-   * run with its actions.
+   * The memory database (src/memory/db/service.js): the wake queue is kept in it through its writer, and with
+   * `memoryDb.wakeRuns` on each inner turn is recorded as a wake run with its actions. Without one the queue lives in
+   * an in-memory database per data directory.
    */
-  memoryDb?: { recordWake?(update: WakeUpdate): unknown } | null;
+  memoryDb?: InnerMemoryDb | null;
   rng?: () => number;
   now?: () => number;
   log?: Logger;
@@ -281,6 +274,14 @@ export function createInnerLife({
     running: new Set(),
     ticking: false,
     factSeq: 0,
+    holder: `core:${randomUUID()}`,
+    wakeDb: null,
+    writes: Promise.resolve(),
+    viewLoaded: new Set(),
+    synced: new Map(),
+    claims: new Map(),
+    started: new Map(),
+    sleep: { windows: [], pausedFrom: null, slept: new Map() },
   };
 
   /**
@@ -295,7 +296,7 @@ export function createInnerLife({
     const guildId = getGuildId();
     if (!guildId) return { ran: false, reason: 'no-guild' };
     if (life.ticking) return { ran: false, reason: 'ticking' };
-    if (paused(life)) return { ran: false, reason: 'paused' };
+    if (await beforeTick(life, guildId)) return { ran: false, reason: 'paused' };
     if (stateOf(life, guildId).stopped) return { ran: false, reason: 'stopped' };
     life.ticking = true;
     try {
@@ -344,8 +345,7 @@ export function createInnerLife({
               note(life, guildId, { event: 'replaced', wake: wakeFields(previous), by: wake.id });
           }
         }
-        await enqueue(life, guildId, wake);
-        submitted += 1;
+        submitted += await admitListed(life, guildId, wake);
       }
       const drained = await drain(life, guildId);
       return { ran: true, listed: listed.length, submitted, drained };
@@ -353,6 +353,8 @@ export function createInnerLife({
       log.warn('inner: tick failed', { error: err });
       return { ran: false, reason: 'error' };
     } finally {
+      // The queue's writes of this tick are in the database before it answers (wake-store.ts).
+      await life.writes;
       life.ticking = false;
     }
   }

@@ -92,6 +92,8 @@ export type Intention = {
   note?: string | null;
   outcome?: WaitOutcome | null;
   expiredShownAt?: number;
+  /** When the engine cancelled it because its wake fell due while she was asleep (src/intentions/model.ts#sleepIntention). */
+  sleptAt?: number;
 };
 
 /** A new record, or the code of the invariant it would break. */
@@ -268,6 +270,7 @@ export type IntentionService = {
   onErrandFinished: (errand: ErrandRecord, guildId: unknown) => number;
   reconcile: (guildId: unknown) => ReconcileCounts;
   advance: (guildId: unknown, id: unknown, options?: { named?: boolean; by?: string }) => Advanced;
+  sleep: (guildId: unknown, id: unknown) => Moved;
   due: (guildId: unknown) => Array<Due>;
   attending: (guildId: unknown) => Array<Intention>;
   attendToday: (guildId: unknown, id: unknown) => { day: string; wakes: number } | null;

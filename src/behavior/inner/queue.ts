@@ -1,8 +1,9 @@
-// The wake queue and its store: the state of one guild's inner life in `data/guilds/<id>/inner.json` (read on first
-// use, set aside when it cannot be read, pruned and written whole after every change), the door's handler of
-// `inner.wake`, the wakes an intention gives and how queued wakes coalesce into one turn. The other modules of
-// src/behavior/inner/ read and change the state only through these functions, over the `life` context that
-// src/behavior/inner.ts builds.
+// The wake queue and its store: the state of one guild's inner life (read on first use, pruned and written after every
+// change), the door's handler of `inner.wake`, the wakes an intention gives and how queued wakes coalesce into one
+// turn. The queue, the handled wakes and the in-flight mark are kept in the memory database's `wakes`
+// (src/behavior/inner/wake-store.ts keeps the state's view of them in step); the rest of the state is
+// `data/guilds/<id>/inner.json`, set aside when it cannot be read. The other modules of src/behavior/inner/ read and
+// change the state only through these functions, over the `life` context that src/behavior/inner.ts builds.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -13,6 +14,7 @@ import type { Obj } from '../../tools/types.ts';
 import { storedWakes } from '../wake.ts';
 import { addFactTo, asText, idOrNull } from './facts.ts';
 import { INNER_DEFAULTS, WAKE_KINDS, innerOn, innerSettings } from './settings.ts';
+import { backendOf, loadView, syncQueue } from './wake-store.ts';
 import type {
   Fact,
   FactInput,
@@ -279,7 +281,13 @@ export function stateOf(life: InnerContext, guildId: unknown): InnerState {
   const { states } = life;
   const key = String(guildId);
   const known = states.get(key);
-  if (known) return known;
+  const keepSince = life.now() - CHAIN_KEEP_MS;
+  if (known) {
+    loadView(life, key, known, keepSince);
+    return known;
+  }
+  // Opened before the file is read: an in-memory queue's first open imports the file's queue fields (wake-store.ts).
+  backendOf(life);
   let raw: unknown = null;
   let lost: string | null = null;
   try {
@@ -290,6 +298,7 @@ export function stateOf(life: InnerContext, guildId: unknown): InnerState {
   const state = normalizeState(raw);
   states.set(key, state);
   if (lost !== null) loseState(life, key, state, lost);
+  loadView(life, key, state, keepSince);
   return state;
 }
 
@@ -315,13 +324,13 @@ export function loseState(life: InnerContext, key: string, state: InnerState, co
   // Written only when the old file is safe aside; if it could not be moved it stays where it is.
   if (!kept) return;
   try {
-    writeJsonAtomic(fileOf(life, key), state);
+    writeJsonAtomic(fileOf(life, key), fileStateOf(state));
   } catch (err) {
     log.warn('inner: state write failed', { guildId: key, code: errorCode(err) });
   }
 }
 
-/** The guild's state pruned in place and written whole. */
+/** The guild's state pruned in place and written: its file, and the queue's changes to the table. */
 export function save(life: InnerContext, guildId: unknown): InnerState {
   const { hot, now, log } = life;
   const key = String(guildId);
@@ -331,11 +340,22 @@ export function save(life: InnerContext, guildId: unknown): InnerState {
     pruneState(stateOf(life, key), now(), { factsKeepMs: innerSettings(hot.config).factsKeepDays * DAY_MS })
   );
   try {
-    writeJsonAtomic(fileOf(life, key), next);
+    writeJsonAtomic(fileOf(life, key), fileStateOf(next));
   } catch (err) {
     log.warn('inner: state write failed', { guildId: key, code: errorCode(err) });
   }
+  syncQueue(life, key, next);
   return next;
+}
+
+/**
+ * What `inner.json` holds of the state: everything but the queue, the handled wakes and the in-flight mark (the entries
+ * are the state's own, so the cast only drops the three keys the filter removed).
+ */
+function fileStateOf(state: InnerState): Omit<InnerState, 'queue' | 'handled' | 'inflight'> {
+  return Object.fromEntries(
+    Object.entries(state).filter(([key]) => key !== 'queue' && key !== 'handled' && key !== 'inflight')
+  ) as Omit<InnerState, 'queue' | 'handled' | 'inflight'>;
 }
 
 /**

@@ -989,6 +989,17 @@ export function advanceOccurrence(
 }
 
 /**
+ * `record` after the wake of its due moment slept (the core was down or paused when it fell due; the owner, 2026-10-27):
+ * a recurring one moves past that occurrence (advanceOccurrence, code `slept`), a one-off is cancelled with the code
+ * `slept` and `sleptAt: now`, which her later calls on it answer. A closed record changes nothing.
+ */
+export function sleepIntention(record: Intention, { now, timezone }: { now: number; timezone: string }): Moved {
+  if (!isOpen(record.status)) return { ok: true, intention: record, changed: false };
+  if (record.every) return advanceOccurrence(record, { now, timezone, code: CODE.SLEPT, by: 'engine' });
+  return transition(record, 'cancelled', { now, by: 'engine', code: CODE.SLEPT, patch: { sleptAt: now } });
+}
+
+/**
  * One `waiting` record reconciled against the errand store (`errandOf(id)`: the errand, or null when
  * the store has none): the errand gone -> `pending` with note `errand-missing`; the errand ended ->
  * as `arrive`; the wait deadline passed -> `pending` with note `wait-deadline`; else unchanged.

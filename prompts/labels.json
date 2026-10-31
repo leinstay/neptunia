@@ -375,7 +375,8 @@
       "outcomeUnknown": "unknown",
       "intentionsLine": "intentions · {pending} pending · {waiting} waiting · {proposed} proposed",
       "attentionLine": "attention · {open} open · attend wakes today {listed} listed · {run} run · {spoken} spoken · {skipped} skipped · {waiting} waiting",
-      "tokensLine": "core tokens today · {prompt} prompt ({cached} cached) · {completion} completion"
+      "tokensLine": "core tokens today · {prompt} prompt ({cached} cached) · {completion} completion",
+    "sleptLine": "slept through {count} wakes since the start"
     },
     "memoryDb": {
       "unavailable": "db: on, not open",
@@ -770,6 +771,7 @@
         "errand-ended": "that errand has ended",
         "wait-without-errand": "a wait needs an errand",
         "terminal": "that intention has already ended",
+        "slept": "that intention was cancelled: you were asleep when it came due",
         "duplicate-id": "that id is already taken",
         "invalid-action": "the action is not valid",
         "invalid-emoji": "that emoji is not valid",

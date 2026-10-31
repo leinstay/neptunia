@@ -1,13 +1,14 @@
 // The drain and the turn it opens: one inner turn for the queue's first coalesced group, once the attention is free
 // and no cap holds it. The drain picks the conversation, builds the `<wake>` facts, records the wake run, runs the
 // turn through the turn runner (src/behavior/turn.js, mode `inner`), then marks the wakes handled or retries them,
-// keeps the turn's feedback facts and queues the feedback wake. A turn that a restart cut off is resolved here from
-// the journal, and an errand an inner turn handed off has its cost counted here when it ends. The tick
+// keeps the turn's feedback facts and queues the feedback wake. The turn's wakes are claimed in the memory database
+// before the turn asks the model and completed or released after it (wake-store.ts); the start's recovery
+// (recovery.ts) runs first. An errand an inner turn handed off has its cost counted here when it ends. The tick
 // (src/behavior/inner.ts) calls `drain`.
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { onLog } from '../../log.js';
-import { HOUR_MS, MINUTE_MS, utcDay, zonedDay, zonedEpoch } from '../../time.js';
+import { HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../../time.js';
 import {
   HEARTBEAT_ORIGIN,
   attendCounter,
@@ -20,7 +21,6 @@ import { errorCodeOf } from '../../llm/openrouter.js';
 import { CODE } from '../../tools/codes.ts';
 import { WAKE_POLICY_VERSION } from '../../tools/access.ts';
 import { errorCode as codeOf, isFiniteNumber, listOf, objOf } from '../../tools/types.ts';
-import type { Obj } from '../../tools/types.ts';
 import type { ConversationInfo } from '../../protocol/adapter.ts';
 import type { HeartbeatFacts } from '../heartbeat-view.ts';
 import { asText, factPayload, feedbackFacts, idOrNull, markFactsTold, pendingFactsOf } from './facts.ts';
@@ -42,8 +42,11 @@ import {
   wakeFields,
   wakeWrite,
 } from './queue.ts';
+import { startUp } from './recovery.ts';
 import { channelNames, recentChannels } from './review.ts';
 import { FACTS_SHOWN_MAX, innerSettings } from './settings.ts';
+import { claimTurn, finishTurn } from './wake-store.ts';
+import type { TurnClaim } from './wake-store.ts';
 import type {
   ChainBudget,
   CostMeter,
@@ -359,91 +362,6 @@ export function logDueOutcome(
   }
 }
 
-/** What an operation of a cut-off turn is called in the `interrupted` fact. */
-const opLabel = (op: Obj): string =>
-  (op.name === 'skill'
-    ? `skill ${asText(op.skill ?? '')}`
-    : op.name === 'post' && op.text
-      ? `post "${asText(op.text)}"`
-      : asText(op.name ?? 'operation')
-  ).trim();
-
-/**
- * An in-flight mark left behind by a process that died in a turn (`state.inflight`): resolved from the journal
- * once its start-up reconciliation is done. If any operation of that turn went out (a persona's post reconciled as
- * sent or a call that executed; one that may have run and cannot be told counts too), its wakes are handled, not run
- * again, and an `interrupted` fact tells her what was done; if nothing went out (or the journal cannot say), the mark
- * is cleared and the wakes run again as before. Never throws.
- */
-export async function resolveInflight(life: InnerContext, guildId: string): Promise<void> {
-  const { hot, journal, ready, now, log } = life;
-  const state = stateOf(life, guildId);
-  const mark = state.inflight;
-  if (!mark) return;
-  try {
-    await ready();
-  } catch (err) {
-    log.warn('inner: journal reconciliation failed before an interrupted turn was resolved', {
-      guildId,
-      code: codeOf(err),
-    });
-  }
-  let ops: Array<Obj> = [];
-  if (objOf(objOf(hot.config).features).journal === true && typeof journal?.turnOperations === 'function') {
-    try {
-      const at = now();
-      const read = await journal.turnOperations(guildId, {
-        turnId: mark.turnId,
-        days: [...new Set([utcDay(mark.startedAt), utcDay(at)])],
-        privateUserId: mark.privateUserId,
-      });
-      ops = listOf(read).map(objOf);
-    } catch (err) {
-      log.warn('inner: journal could not say what an interrupted turn did', { guildId, code: codeOf(err) });
-    }
-  }
-  const done: Array<string> = [];
-  for (const op of ops) {
-    if (op.by !== 'persona' || op.dryRun || op.shadow) continue;
-    if (op.phase === 'succeeded') done.push(opLabel(op));
-    else if (op.phase === 'open' || (op.phase === 'unknown' && op.name !== 'post'))
-      done.push(`${opLabel(op)} (unclear)`);
-  }
-  const ids = new Set(mark.wakeIds);
-  const wakes = state.queue.filter((wake) => ids.has(wake.id));
-  const at = now();
-  state.inflight = null;
-  if (done.length > 0 && wakes.length > 0) {
-    markHandled(life, state, wakes, 'interrupted', at, {
-      guildId,
-      named: wakes.flatMap((wake) => listOf(wake.intentionIds)),
-    });
-    addFact(life, state, {
-      at,
-      kind: 'interrupted',
-      wake: mark.kind,
-      done: done.join('; '),
-      channelId: mark.channelId,
-      privateChat: mark.privateChat,
-    });
-  }
-  save(life, guildId);
-  log.warn('inner: a turn was cut off by a restart', {
-    guildId,
-    turnId: mark.turnId,
-    wakes: wakes.length,
-    done: done.length,
-    rerun: !(done.length > 0 && wakes.length > 0),
-  });
-  note(life, guildId, {
-    event: 'interrupted',
-    turnId: mark.turnId,
-    wakes: wakes.map(wakeFields),
-    done: done.length,
-    handled: done.length > 0 && wakes.length > 0,
-  });
-}
-
 /** An intention of the guild's store that is still open (pending or waiting), else null. */
 function openRecordOf(life: InnerContext, guildId: string, id: string): Intention | null {
   const intention = life.intentions?.store?.(guildId)?.get?.(id) ?? null;
@@ -575,6 +493,38 @@ function endWakeRun(life: InnerContext, turnKey: string, actions: Array<unknown>
   });
 }
 
+/**
+ * The wakes of a turn's group marked running in process and claimed in the database before the turn runs, and its
+ * in-flight mark set (`state.inflight`, the view of the claim); null when the claim was refused.
+ */
+async function beginTurn(
+  life: InnerContext,
+  guildId: string,
+  group: ReadonlyArray<Wake>,
+  { at, channel, kind }: { at: number; channel: ConversationInfo; kind: string }
+): Promise<TurnClaim | null> {
+  const where = {
+    channelId: String(channel.id),
+    privateChat: channel.communityId === null,
+    privateUserId: channel.communityId !== null ? null : idOrNull(channel.partnerId),
+  };
+  for (const wake of group) life.running.add(wake.id);
+  const claim = await claimTurn(life, guildId, group, { at, turn: { kind, ...where } });
+  if (!claim) {
+    for (const wake of group) life.running.delete(wake.id);
+    return null;
+  }
+  stateOf(life, guildId).inflight = {
+    turnId: claim.turnId,
+    wakeIds: group.map((wake) => wake.id),
+    kind,
+    startedAt: at,
+    ...where,
+  };
+  save(life, guildId);
+  return claim;
+}
+
 /** What drain answers: why nothing ran, or the turn that did. */
 export type DrainAnswer =
   | { deferred: unknown }
@@ -589,9 +539,9 @@ export type DrainAnswer =
  * refuses; a turn held back (`busy`, `paused`) leaves the group queued with its due times.
  */
 export async function drain(life: InnerContext, guildId: string): Promise<DrainAnswer> {
-  const { hot, turns, intentions, peopleWaiting, uuid, costs, now, log, running } = life;
+  const { hot, turns, intentions, peopleWaiting, costs, now, log, running } = life;
   const state = stateOf(life, guildId);
-  if (state.inflight) await resolveInflight(life, guildId);
+  await startUp(life, guildId);
   if (state.queue.length === 0) return null;
   if (state.stopped || paused(life)) return { deferred: 'stopped' };
   const oneAtATime = objOf(objOf(hot.config).mention).oneAtATime !== false;
@@ -759,19 +709,10 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
     heartbeat,
     here: current,
   });
-  for (const wake of group) running.add(wake.id);
-  // The turn is on record before it runs: a process that dies in it leaves this mark (resolveInflight).
-  const turnKey = `t-${uuid()}`;
-  state.inflight = {
-    turnId: turnKey,
-    wakeIds: group.map((wake) => wake.id),
-    kind: anchor.kind,
-    startedAt: at,
-    channelId: String(channel.id),
-    privateChat: channel.communityId === null,
-    privateUserId: channel.communityId !== null ? null : idOrNull(channel.partnerId),
-  };
-  save(life, guildId);
+  // The turn's wakes are claimed before it runs: a process that dies in it leaves them running (recovery.ts).
+  const claimed = await beginTurn(life, guildId, group, { at, channel, kind: anchor.kind });
+  if (!claimed) return { deferred: 'claim' };
+  const { turnId: turnKey, attempt } = claimed;
   // The wake run (memoryDb.wakeRuns): what this turn's view showed; the journal and the `day` rows stay as they are.
   const shownIds = [...shownFacts.map((fact) => fact.id), ...[...ownFactIds].map(asText)];
   startWakeRun(life, { turnKey, anchor, group, at, records }, shownIds, {
@@ -787,7 +728,7 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
         guildId,
         mode: 'inner',
         triggerKind: 'inner',
-        journalTurn: { turnId: turnKey, attemptId: 1 },
+        journalTurn: { turnId: turnKey, attemptId: attempt },
         inner: {
           wake: info,
           currentChannel: current.channelId,
@@ -813,8 +754,9 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
   if (HELD.has(outcome)) {
     // Stopped while it waited: its wakes go with the rest of the queue.
     if (after.stopped) markHandled(life, after, group, 'stopped', now(), { guildId });
-    // The turn never ran: its mark goes.
+    // The turn never ran: its mark goes, and its wakes are released.
     save(life, guildId);
+    await finishTurn(life, guildId, group, after);
     log.info('inner: turn held', { guildId, outcome, wakes: group.length });
     return { deferred: outcome };
   }
@@ -937,6 +879,7 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
     })
   );
   save(life, guildId);
+  await finishTurn(life, guildId, group, after);
   let feedbackWakeId: string | null = null;
   if (feedback.length > 0 && !isFeedback && !comesBack) {
     feedbackWakeId = `inner.wake:feedback:${asText(turnId ?? ended)}`;

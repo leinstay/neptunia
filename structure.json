@@ -406,6 +406,20 @@
       "test": "none"
     },
     {
+      "path": "src/behavior/inner/wake-store.ts",
+      "purpose": "The inner life's wake queue in the memory database: the state's view of `wakes`, the claim and completion of a turn's wakes, and the in-memory database without one. Tested through the inner life, inner wakes and fault-injection tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/behavior/inner/recovery.ts",
+      "purpose": "The inner life's start and sleep: a cut-off turn resolved and run again, the wakes that fell due while the core was down or paused slept, and the `core:alive` lease. Tested through the inner wakes and fault-injection tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/behavior/inner/facts.ts",
       "purpose": "The inner life's facts: what did not go through in a turn, kept until a model answer carried them. Tested through the inner life and inner turn tests.",
       "layer": "public",
