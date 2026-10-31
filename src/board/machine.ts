@@ -10,6 +10,7 @@ export const STATUSES = [
   'in_progress',
   'needs_answer',
   'needs_validation',
+  'blocked',
   'done',
   'failed',
   'cancelled',
@@ -22,6 +23,7 @@ export const OPEN: ReadonlyArray<Status> = [
   'in_progress',
   'needs_answer',
   'needs_validation',
+  'blocked',
 ];
 export const CLOSED: ReadonlyArray<Status> = ['rejected', 'done', 'failed', 'cancelled'];
 // A move into one of these writes an outbox row to the task's subscriber.
@@ -39,14 +41,26 @@ export type Role = BoardRole | DerivedRole;
 // no-ci: the task's project has `ci: false` in `board.projects`. tests-pass: metadata.tests is 'pass'.
 export const CONDITIONS = ['risk-low', 'errand', 'ci-green', 'no-ci', 'tests-pass'] as const;
 export type Condition = (typeof CONDITIONS)[number];
-export type Via = 'transition' | 'approve' | 'claim' | 'ask' | 'answer' | 'reaper' | 'release' | 'retry';
-// triage-fields: role and estimate set. close-reason: a close_reason given. result: a pr, diff or summary result
-// recorded. comment: a comment saying what to fix. why: a close_reason or the last attempt's outcome.
+export type Via =
+  | 'transition'
+  | 'approve'
+  | 'review'
+  | 'claim'
+  | 'ask'
+  | 'answer'
+  | 'block'
+  | 'unblock'
+  | 'reaper'
+  | 'release'
+  | 'retry';
+// triage-fields: role and estimate set. close-reason: a close_reason given. result: a handoff, or a pr, diff or
+// summary result, recorded. comment: a comment saying what to fix. why: a close_reason or the last attempt's outcome.
 export type Requirement = 'triage-fields' | 'close-reason' | 'result' | 'comment' | 'why';
 
 export const ERROR_CODES = [
   'invalid-transition',
   'stale',
+  'stale-lease',
   'not-found',
   'forbidden',
   'claimed',
@@ -105,15 +119,18 @@ const TRANSITIONS: ReadonlyArray<Transition> = [
   rule('approved', 'in_progress', ['claim'], [...any('owner', 'scheduler', 'worker'), RUNNER]),
   rule('in_progress', 'needs_answer', ['ask'], any('holder')),
   rule('needs_answer', 'in_progress', ['answer'], any('answerer', 'owner')),
+  // A holder that cannot go on blocks the task with what would unblock it; the owner or a reviewer unblocks it.
+  rule('in_progress', 'blocked', ['block'], any('holder')),
+  rule('blocked', 'approved', ['unblock'], any('owner', 'reviewer')),
   rule('in_progress', 'needs_validation', ['transition'], any('holder'), { requires: ['result'] }),
   // The reviewer merges at any risk once CI is green; on a project without CI its recorded passing tests stand in.
   rule(
     'needs_validation',
     'done',
-    ['approve'],
+    ['approve', 'review'],
     [...any('owner'), { role: 'reviewer', when: ['ci-green'] }, { role: 'reviewer', when: ['no-ci', 'tests-pass'] }]
   ),
-  rule('needs_validation', 'in_progress', ['transition', 'approve'], any('owner', 'reviewer'), {
+  rule('needs_validation', 'in_progress', ['transition', 'approve', 'review'], any('owner', 'reviewer'), {
     requires: ['comment'],
   }),
   rule('in_progress', 'done', ['transition'], [RUNNER], { when: ['errand'] }),

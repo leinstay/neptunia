@@ -132,7 +132,7 @@ Version 20 rebuilds `deliveries` with three more states and a `receipt` column (
 
 ### The task board's tables
 
-The task board (`src/board/`) keeps eleven tables in `memory.db`, `board_tasks` through `board_agent_runs`, and its own version table, `board_schema_version` (`src/board/schema.ts`). `openMemoryDb` runs the board's migrations after the memory's, in a transaction of their own. When a board migration fails, the memory stays migrated, open and writable, the handle's `board.ok` is false, and every board operation answers `board-unavailable`. A read-only open migrates neither part. No graph projection, recall, export or sync reads the board's tables, and no foreign key joins them to her memory.
+The task board (`src/board/`) keeps eleven tables in `memory.db`, `board_tasks` through `board_agent_runs`, and its own version table, `board_schema_version` (`src/board/schema.ts`). Board version 2 gives `board_tasks` the columns `lease_generation`, `blocked_reason` and `unblocks` after the ledger's, the status `blocked`, the result kind `handoff` and the review decisions `accept` and `changes`. A task of version 1 starts at generation 0. `openMemoryDb` runs the board's migrations after the memory's, in a transaction of their own. When a board migration fails, the memory stays migrated, open and writable, the handle's `board.ok` is false, and every board operation answers `board-unavailable`. A read-only open migrates neither part. No graph projection, recall, export or sync reads the board's tables, and no foreign key joins them to her memory.
 
 ### Structural
 
@@ -350,7 +350,7 @@ The board and her memory share the file, and `tools/memory-db.mjs restore-tables
 | `tools/memory-db.mjs index-policy` | Shows (or with `--apply` writes) the tier of every line and which vectors would be evicted |
 | `tools/memory-db.mjs media-check` | Checks which diary media files are present or missing |
 | `tools/memory-db.mjs board list` | Every task of the board, read-only, also while the bot runs (`--json` prints the answer of `task.list`) |
-| `tools/memory-db.mjs board show <id>` | One task with its dependencies, attempts, questions, reviews, results, comments and latest events (`--json` prints the answer of `task.show`) |
+| `tools/memory-db.mjs board show <id>` | One task with its dependencies, attempts, questions, reviews, results, comments and latest events (`--json` prints the answer of `task.show`, its latest handoff included) |
 | `tools/memory-session.mjs` | Runs her memory session once, in shadow, on a copy of the database |
 | `tools/recall-eval.mjs` | Recall against questions with known answers |
 
@@ -467,8 +467,8 @@ The full-text tables' own storage tables (`sources_fts_*`, `sources_tri_*`) belo
 | `board_dependencies` | internal-only | which task waits on which, and how |
 | `board_attempts` | internal-only | each run of an agent on a task, with its accounting |
 | `board_questions` | internal-only | the questions a task's holder asked and their answers |
-| `board_reviews` | internal-only | the approvals of a task's plan, merge and deploy |
-| `board_results` | internal-only | what a task produced: summaries, diffs, pull requests, files, prompts and specs |
+| `board_reviews` | internal-only | the approvals of a task's plan, merge and deploy, and the `accept` and `changes` of its review |
+| `board_results` | internal-only | what a task produced: handoffs, summaries, diffs, pull requests, files, prompts and specs |
 | `board_comments` | internal-only | the comments on a task |
 | `board_events` | internal-only | every change of the board, in one sequence |
 | `board_outbox` | internal-only | what the board has to tell a principal, until it is pulled |
