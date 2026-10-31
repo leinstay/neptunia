@@ -37,7 +37,7 @@ Copy `.env.example` to `.env` and fill in the values. The file is read once at s
 | `DISCORD_TOKEN` | yes | The bot token from the Discord Developer Portal |
 | `OPENROUTER_CORE_KEY` | yes | The main API key for chat completions (the core and every role that `llm.keyByRole` does not map elsewhere) |
 | `OPENROUTER_SIM_KEY` | no | A second key used only by `tools/` scripts (replay, eval, memory session). Without it a tool refuses to run. The bot never spends it |
-| `OPENROUTER_MANAGEMENT_KEY` | no | An OpenRouter management key. When set, `/nep status` shows each key's last 7 and 30 days of spending from OpenRouter's own figures. The bot only reads activity with it |
+| `OPENROUTER_MANAGEMENT_KEY` | no | An OpenRouter management key. When set, the status card shows each key's last 7 and 30 days of spending from OpenRouter's own figures. The bot only reads activity with it |
 | `OPENROUTER_ERRAND_KEY` | no | The errand agents' own key (mapped via `llm.keyByRole`). The bot never sends its own requests with it |
 | `OPENROUTER_DEV_KEY` | no | The development worker's own key (mapped via `llm.keyByRole`) |
 | `OPENCODE_WEBSEARCH_KEY` | no | The scout errand agent's web search key |
@@ -70,7 +70,7 @@ When `bot.guildId` is empty and the bot is in exactly one server, it locks to th
 
 Set `features.dryRun` to `true` in `config.local.json`. The bot runs the full pipeline (memory, triggers, LLM calls) but never sends a message or reaction. Output goes to the log. Set `bot.dryRunChannelId` to a private channel to get a readable mirror of everything the bot would post. Slash commands still work in any channel.
 
-A good first step on a new server: enable dry run, watch the log or the mirror channel, tune the persona live with `/nep set` and `/nep rule add`, then turn dry run off with `/nep set features.dryRun false`.
+A good first step on a new server: enable dry run, watch the log or the mirror channel, tune the persona live with `/config set` and `/rules add` in the `neptunia` chat, then turn dry run off with `/config set features.dryRun false`.
 
 ## Running as a service
 

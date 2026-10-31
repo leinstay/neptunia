@@ -11,7 +11,7 @@ other. See `CONTRIBUTING.md` for the workflow around changes.
 | `prompts/` | yes | English engine defaults + a neutral example character. Works out of the box |
 | `prompts.local/` | no | A deployment's overrides: a file replaces the default of the same name; `labels.json` is deep-merged. The tool texts have their own local folder, `config.local/` (see `tools.json` below) |
 
-Both hot-reloaded. `/nep rule add` writes to `prompts.local/rules.md` (seeded from the default), never to `prompts/`.
+Both hot-reloaded. `/rules add` writes to `prompts.local/rules.md` (seeded from the default), never to `prompts/`.
 All instructions are English in both layers; a character's speech samples may be in the language it speaks.
 
 ## Files
@@ -25,7 +25,7 @@ All instructions are English in both layers; a character's speech samples may be
 | `reply.md` | yes | Task: somebody called the persona | `{{name}}` `{{author}}` `{{trigger}}` `{{target}}` |
 | `follow-up.md` | no | Task: a line that carries on an exchange with the persona. The persona first decides whether another outward line is warranted (silence by default when the line asks nothing) and assesses any call separately; `<skip/>` only when neither is warranted. Replaces `reply.md` as the task text when the trigger kind is `followUp` (the address classifier's `yes`) or `reply` without an explicit @mention of the persona (Discord's reply ping does not count). A mention, a tagged reply and a name call keep `reply.md`. A missing or blank file falls back to `reply.md` | `{{name}}` `{{author}}` `{{trigger}}` `{{target}}` |
 | `interject.md` / `initiate.md` | yes | Tasks: cut into a live conversation / start a topic in a silent chat. Code rolls `spontaneous.initiateChance` after `deadAfterMinutes` of silence, so the initiate prompt speaks by default and `<skip/>` is for a channel where a new topic is plainly out of place. An initiate turn may also follow the persona's own last line once the channel is dead | `{{name}}` |
-| `forced.md` | no | Appended after the mode prompt on a forced turn (`/nep talk interject`, `/nep talk initiate`). Overrides the `<skip/>` default | `{{name}}` |
+| `forced.md` | no | Appended after the mode prompt on a forced turn (a person's `message.create`). Overrides the `<skip/>` default | `{{name}}` |
 | `describe.md` | yes | Out-of-character prompt of the media describer (`features.mediaDescriptions`): one picture in, one plain line out: what is visibly there, with actions and identities only on clear evidence. Legible text quoted in its original script. Indistinct regions described as such, ambiguous shapes not turned into an identity. Always English. No commentary, no moralising, no markdown | `{{today}}` `{{maxChars}}` (optional) |
 | `describe-video.md` | yes | Out-of-character prompt of the video describer (`features.videoDescriptions`): one video clip in (with sound), a full ordered account out: who appears, what is said (key phrases quoted), text on screen, what happens visually. Audio-first: the model decides from the audio alone whether anything is audible, opens with a plain statement of what it hears (or silence), and never infers sound from the picture, captions or genre. Configurable length. Always English; speech, captions and on-screen text quoted in their original language. No character card | `{{today}}` `{{maxChars}}` |
 | `describe-gif.md` | no | Out-of-character prompt for the GIF describer (`media.gif.watch`): a short silent clip in, three labelled lines out: `reaction` (the reply function, a few words or `none`), `action` (what visibly happens, capped at `{{maxChars}}`), `text` (on-screen text verbatim or `none`). Always English. No character card. Falls back to `describe-video.md` when absent | `{{today}}` `{{maxChars}}` `{{seconds}}` |
@@ -65,7 +65,7 @@ All instructions are English in both layers; a character's speech samples may be
 `{{target}}` index of the calling message (`#87`).
 `{{today}}` in `lookup.md` is the date in `bot.timezone`; in the describers (`describe.md`, `describe-video.md`, `describe-gif.md`) and `search-summary.md` it is the UTC date.
 System message = `system-prompt` + `character-card` + `rules` + `format`.
-On a forced turn (`/nep talk interject`, `/nep talk initiate`), `forced.md` is appended after the mode prompt if the file exists.
+On a forced turn (a person's `message.create`), `forced.md` is appended after the mode prompt if the file exists.
 On an `overheard` turn, `overheard.md` REPLACES the mode prompt (it is the task text, not an append). When `overheard.md` is missing or blank, the mode prompt is used instead (degraded: the mode prompt frames the line as said to the persona, which is not what happened).
 On the turn a finished errand opens without an origin message (trigger kind `errand`, no trigger), `errand-result.md` REPLACES the mode prompt (`interject.md`). When `errand-result.md` is missing or blank, `interject.md` is used (degraded: it tells the persona that skipping is the normal outcome). With an origin message the reply task text is used as before.
 In a private chat, `private.md` is appended after the mode prompt (before `forced.md`) with the same `{{name}}` and `{{author}}` placeholders.
@@ -427,8 +427,8 @@ locale                                   BCP-47 tag for dates
 status.inner.attentionLine               {open} {listed} {run} {spoken} {skipped} {waiting}: her attention today on the owner's `inner` field (attentions open; attend wakes listed, run, spoken, skipped, waiting on a cap); read by the owner, never sent to a model
 status.inner.tokensLine                  {prompt} {cached} {completion}: the core role's tokens of the day on the owner's `inner` field; left out without a usage row
 status.inner.sleptLine                   {count}: the wakes that slept since the start (they fell due while the core was down or paused, and never ran) on the owner's `inner` field; left out at 0
-status.probe                             the user message of the model probe on the owner's `/nep status` card; must make any model answer one short word. The embedding role is probed with a one-input embedding request of this text instead of a chat completion; when no embedding client is wired the embed line says it was not checked
-status.costs.*                           the costs fields of the owner's `/nep status` card, `keys.base` (src/tools/impl/usage.ts#keyCostsLines), `costs.base` (#roleCostsLines), and `costs.errands` and `costs.development` (#agentCostsLines); read by the owner, never sent to a model. A missing key leaves its line out. The costs are OpenRouter's reported ones (the upstream cost when the answer carries it): a BYOK request is billed by the provider and shows at OpenRouter's list price
+status.probe                             the user message of the model probe on the owner's status card; must make any model answer one short word. The embedding role is probed with a one-input embedding request of this text instead of a chat completion; when no embedding client is wired the embed line says it was not checked
+status.costs.*                           the costs fields of the owner's status card, `keys.base` (src/tools/impl/usage.ts#keyCostsLines), `costs.base` (#roleCostsLines), and `costs.errands` and `costs.development` (#agentCostsLines); read by the owner, never sent to a model. A missing key leaves its line out. The costs are OpenRouter's reported ones (the upstream cost when the answer carries it): a BYOK request is billed by the provider and shows at OpenRouter's list price
 status.costs.keyLead | simKeyLead        the {lead} of the main key's and of the simulator key's (OPENROUTER_SIM_KEY) lines; each key's limit line is followed by its own usage line
 status.costs.simKeyNotSet                the one line for the simulator key when it is not set (no usage line under it)
 status.costs.keyLimit                    {lead} {spent} {limit} {notes}: the key's limit with what it spent in USD; notes are the reset and the BYOK note joined by `noteSeparator`; `keyLimitPlain` ({lead} {spent} {limit}) when there is no note; spent is `-` when the key reports none
@@ -1280,11 +1280,11 @@ Every candidate writes `answer` records to the journal:
 - `expired`: the candidate expired without a verdict (message id).
 - `recovery`: a recovery turn started for this channel (message ids of the owed candidates).
 
-Records carry ids only, never message text. `/nep memory journal kind:answer` shows these records.
+Records carry ids only, never message text. `memory.journal.read` with `kind: answer` shows these records.
 
 ### Status card
 
-The `/nep status` card carries a speed line: `missed: N candidates, M owed, K recovered`, where the counts are the day's totals.
+The status card carries a speed line: `missed: N candidates, M owed, K recovered`, where the counts are the day's totals.
 
 ### Logs
 

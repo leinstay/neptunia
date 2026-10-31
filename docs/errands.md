@@ -132,7 +132,7 @@ Board version 3 moves the errands of the `work` table onto the board with their 
 
 ## Task operations
 
-These are both `/nep` commands and her tools (closed until granted to her). All require `features.memberCommands`.
+These are her tools, closed until the owner grants them to her. A member asks her for them, and all of them require `features.memberCommands`. The owner's chat runs `errand.list`, `errand.status` and `errand.cancel` as `/errands`.
 
 | Operation | What it does |
 |---|---|
@@ -151,7 +151,7 @@ A running task can fail with the runner's error code. A task left open by a rest
 
 ## Costs
 
-The owner's `/nep status` card shows errand agents' models in `models.errands` and their spend in `costs.errands`: runs queued today, the last 7 and the last 30 UTC days, input and output tokens, and the estimated dollars. The dollars are OpenCode's step-cost estimate (priced by the profile's `cost`, overridable under `agents.<profile>.cost`), not OpenRouter's billed figure. The spending limit is the credit limit on the runner's OpenRouter key.
+The status card (`/status full`) shows errand agents' models in `models.errands` and their spend in `costs.errands`: runs queued today, the last 7 and the last 30 UTC days, input and output tokens, and the estimated dollars. The dollars are OpenCode's step-cost estimate (priced by the profile's `cost`, overridable under `agents.<profile>.cost`), not OpenRouter's billed figure. The spending limit is the credit limit on the runner's OpenRouter key.
 
 ## Adding an agent
 

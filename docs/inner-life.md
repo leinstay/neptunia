@@ -106,7 +106,7 @@ If the process dies inside the turn, its wakes stay `running`. The next start ta
 
 **Coalescing.** Wakes of the same conversation run as one inner turn. The day's review joins any server wake. Wakes elsewhere wait for their own turn. A heartbeat is never coalesced.
 
-**Sleep.** A wake that fell due while the core was down or paused sleeps: it becomes `slept` and never runs (`src/behavior/inner/recovery.ts`). A downtime runs from the last renewal of the `core:alive` lease, which every tick renews, to the first tick of the next start. A pause runs from the `pausedAt` of `/nep pause` to the first tick after `/nep resume`. A wake listed only after that interval sleeps too. A one-off intention whose wake slept is cancelled with a `sleptAt` mark, and her `intention.update` and `intention.cancel` on it answer `slept`. A recurring intention loses only that occurrence: its history records `slept`, and the next occurrence comes due as usual. Nothing about a slept wake becomes a fact, a wake or a memory. The owner's status counts the wakes slept since the start.
+**Sleep.** A wake that fell due while the core was down or paused sleeps: it becomes `slept` and never runs (`src/behavior/inner/recovery.ts`). A downtime runs from the last renewal of the `core:alive` lease, which every tick renews, to the first tick of the next start. A pause runs from the `pausedAt` of `/pause` to the first tick after `/resume`. A wake listed only after that interval sleeps too. A one-off intention whose wake slept is cancelled with a `sleptAt` mark, and her `intention.update` and `intention.cancel` on it answer `slept`. A recurring intention loses only that occurrence: its history records `slept`, and the next occurrence comes due as usual. Nothing about a slept wake becomes a fact, a wake or a memory. The owner's status counts the wakes slept since the start.
 
 **Stale and overflow.** A wake whose intentions were closed meanwhile is dropped as stale. At most `innerLife.queueMax` (default 20) wakes wait; one more is dropped as overflow.
 
@@ -156,7 +156,7 @@ Things she means to do later, kept across restarts. Behind `features.intentions`
 
 **The memory analyzer.** A guild batch also returns candidates from her own lines (a promise, a thing to come back to, a question for someone later). Code keeps a candidate only when its quoted words appear in one of her lines of the batch and in nobody else's. A candidate is `proposed`: it does nothing until she accepts it (`intention.update state=pending`) or rejects it (`intention.cancel`). Untouched, it expires after `intentions.candidateExpiresHours` (default 48) hours. Each carries its origin: `own`, or `external` when its words came from outside material (a web page, a memory-search result, an errand's output).
 
-**The owner.** `/nep task intent` runs the same operations.
+**The owner.** `/intentions` lists the open intentions and `/intentions cancel <id>` cancels one, through `intention.list` and `intention.cancel`.
 
 ### Candidate origins and acceptance
 
@@ -167,7 +167,7 @@ Who may accept a candidate:
 - Never the turn that wrote its line.
 - An external candidate only her later ordinary turn, never an inner turn.
 - An inner turn never one born in an inner turn of its own chain.
-- An owner's `/nep task intent` is not limited by origin.
+- The owner's `/intentions cancel` is not limited by origin.
 
 ### States
 
@@ -197,7 +197,7 @@ Every intention keeps the members of the conversation it came from. `/nep memory
 
 ### Turning it on
 
-Set `features.intentions` to `true`, and grant her the tools by name (`/nep access grant`: `intention.set`, `intention.update`, `intention.cancel`, `intention.list`).
+Set `features.intentions` to `true`, and grant her the tools by name with `/tools grant`: `intention.set`, `intention.update`, `intention.cancel` and `intention.list`.
 
 ## Bounds
 
@@ -212,7 +212,7 @@ A feedback wake is never held, never joined to another wake, and does not count 
 
 ## The kill switch
 
-`/nep task inner action:stop`: stops the inner life, drops every queued wake, refuses every further action of a running inner turn (`inner-stopped`). Kept across restarts. `action:start` releases it. `action:status` shows the switch, the mode, the queue, the day's review and the caps used. The persona cannot stop or start it herself.
+`/wakes stop` stops the inner life (`inner.stop`). It drops every queued wake and refuses every further action of a running inner turn with `inner-stopped`, and the stop is kept across restarts. `/wakes start` releases it (`inner.start`), and `/wakes` shows the switch, the mode, the queue, the day's review and the caps used (`inner.status`). The persona cannot stop or start it herself.
 
 ## When a provider call fails
 

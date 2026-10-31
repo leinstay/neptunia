@@ -40,10 +40,11 @@ The core's console (`src/interface/commands/console.ts`) runs each command with 
 | `/usage [7d\|30d]` | The requests, tokens and dollars of `usage.json` over the window, today without one: by model group (`base`, `errands`, `development`, `memory`) with each role by its name, then by interface, then each key's limit and spend. The key limits come from the status card's GETs. |
 | `/errands`, `/errands show <id>`, `/errands cancel <id>` | The latest errands, one errand, or the cancel of an open one (`errand.list`, `errand.status`, `errand.cancel`). |
 | `/intentions`, `/intentions show <id>`, `/intentions cancel <id>` | The open intentions, one of them, or its cancel (`intention.list`, `intention.cancel`). |
-| `/wakes` | The inner life's status: its queue, its next wake and its last turn (`inner.status`). |
+| `/wakes`, `/wakes stop`, `/wakes start` | The inner life's status: its queue, its next wake and its last turn (`inner.status`). `stop` is its kill switch: no wake runs and the queued ones are dropped until `start` (`inner.stop`, `inner.start`). |
 | `/pause`, `/resume` | Stop admission and end the pause. See [Pause](#pause). |
 | `/config`, `/config get <path>`, `/config set <path> <value>`, `/config unset <path>` | `config.local.json` as it is, the live value of one setting, or an override written or removed (`config.set`, `config.unset`). |
-| `/model`, `/route` | The model of every role and the provider routes (`model.show`, `route.list`). |
+| `/model`, `/model set <role> <model>` | The model of every role, or the model of one role set in `config.local.json` (`model.show`, `model.set`). Setting `vision` or `video` also sets `media.recacheBefore`. |
+| `/route`, `/route set <model> <providers> [role] [fallbacks] [byok]`, `/route remove <model> [role]` | Every route of `llm.providerByModel`, then each role's model and route (`route.list`). `set` routes a model prefix to the comma-separated providers only, for one role or `any`, and `true` for `fallbacks` or `byok` allows other providers or refuses an answer from OpenRouter's own capacity (`route.set`). `remove` drops a route (`route.remove`). |
 | `/memory profile <user> [section]`, `affinity <user>`, `private <user>` | A member's profile, affinity and private memory. |
 | `/memory conversation <id>`, `recent`, `server`, `journal [<day>]`, `archive [<kind>]` | A conversation's newest 30 stored lines from the memory database, the live recent lines, the server notes, the journal of a day and what left hot memory. |
 | `/memory search <query>` | A search of her memory (`memory.search`). |
@@ -58,6 +59,20 @@ The core's console (`src/interface/commands/console.ts`) runs each command with 
 | `/interface`, `/interface enable <name>`, `/interface disable <name>` | Every interface the core knows, enabled or disabled, connected or not, and the owner's switch of one. A disable gives the actions in flight `interfaces.drainMs` and ends the rest `unknown`. `/interface <name> <sub>` is the form of an interface's own subcommands, and no interface has any yet. |
 | `/help` | One line per command. |
 | `/clear` | Clears the screen. |
+
+## Access
+
+The chat runs every command as the owner. Everyone else reaches an operation through the persona: when a person asks her, she calls her tool under that person's right, and the gateway (`src/tools/gateway.ts`) checks both her grant and the person's. The rights live in `config.local.json` and are read at each call.
+
+An owner (`bot.owners`) may run every operation. Anyone else needs a grant on the exact operation in `bot.access`. `/tools grant <tool> everyone`, `/tools grant <tool> role <id>` and `/tools grant <tool> user <id>` open one operation to everyone, to a role or to a user, and `/tools revoke` with the same target closes it. A group name, such as `memory`, or `*` stores the read operations that exist at that moment, one entry each. It never opens a write, and an operation added later stays closed until it is granted by name. A revoke of a group or of `*` removes the target from every operation stored under it.
+
+No grant opens the owner-only operations, `*` included: `access.*`, `memory.private.read`, `memory.journal.read`, `memory.snapshot`, `memory.archive.read`, `memory.restore` and `inner.*`.
+
+The member operations are open to every member without a grant while `features.memberCommands` is on: `pings.*`, `errand.run`, `errand.status`, `errand.cancel`, `errand.list`, `errand.read`, `errand.resolve`, `web.search`, `web.read`, `media.look`, `media.find`, `memory.search`, `conversation.read`, `places.list` and `tools.describe`. A member switches their own notifications by asking her, and she calls `pings.set` for that member only. Her call needs her own grant too, so the switch works once the owner has run `/tools grant pings.set`.
+
+Each of her tools is closed until `/tools grant <tool>` with no target opens it to her. The same group and `*` rule applies. Her plain reply needs no grant: a message, a reaction or a drawing in the conversation she answers. No grant opens to her `memory.restore`, `rule.remove`, `config.set`, `config.unset`, `model.set`, `route.set`, `route.remove`, `access.grant`, `access.revoke`, `bot.pause`, `bot.resume`, `inner.stop` and `inner.start` (`NOT_GRANTABLE_TO_PERSONA` in `src/tools/access.ts`), and a group grant skips them. They run from the chat alone. The in-turn tools `web.search`, `web.read`, `media.look`, `memory.search` and `conversation.read` answer inside her turn while `features.coreTools` is on.
+
+Each operation has a kind, `read` or `write`, and an effect (`src/tools/impl/effects.ts`). The kind decides what a group or `*` grant stores, and the effect decides the cooldowns and the cost labels.
 
 ## Health
 
@@ -75,7 +90,7 @@ The memory part (`src/health/memory.ts`) looks back seven days. It names every p
 
 ## Pause
 
-`/pause` (and `/nep pause`) sets the pause in `state.json`, so a restart while paused stays paused. The turns that run finish, and a reply already on its way is sent. While paused, the core runs no turn, and every message that arrives is still taken: the door observes its line into the memory database and marks its `ingest` row as held, with the whole event, before it acknowledges it. The queued direct pings stay queued. Wakes that fall due during the pause sleep (see [Inner life](inner-life.md)).
+`/pause` sets the pause in `state.json`, so a restart while paused stays paused. The turns that run finish, and a reply already on its way is sent. While paused, the core runs no turn, and every message that arrives is still taken: the door observes its line into the memory database and marks its `ingest` row as held, with the whole event, before it acknowledges it. The queued direct pings stay queued. Wakes that fall due during the pause sleep (see [Inner life](inner-life.md)).
 
 `/resume` hands back each held message once, oldest first, through the path of the offline catch-up (`src/behavior/core-pause.ts`), and clears its hold. A held message that calls for an answer gets one turn and one reply when `features.offlineCatchUp` is on and it is younger than `offlineCatchUp.windowMinutes`, and is only observed otherwise. Then the queued direct pings are answered.
 

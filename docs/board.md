@@ -34,13 +34,13 @@ node tools/client-token.mjs add dispatcher --kind agent --roles worker
 
 A development agent runs `neptunia task <command>` with its token in `NEPTUNIA_TASK_TOKEN` (see [The neptunia command](cli.md#the-task-board)). The command connects to the core's socket, `<data>/run/core.sock`, and the board's own rights decide each call. A worker takes its next task with `neptunia task next --lane dev --role <role>`, which holds back a task that waits for its brief, and every holder call after it carries the generation `next` answered. A call with an older generation is refused `stale-lease` and writes nothing, so a worker whose lease the reaper took back cannot write over the next holder's work. The orchestrator follows the board with `neptunia task events --from <seq>`.
 
-Her tools `board.propose` and `board.status` call the board as `persona`. They are closed until the owner grants them to her by name, `/nep access grant` with her as the target, like every tool of hers.
+Her tools `board.propose` and `board.status` call the board as `persona`. They are closed until the owner grants them to her by name with `/tools grant <tool>`, like every tool of hers.
 
 No dollar cap stops a task or an attempt. `budget_usd` is stored on a task and an attempt reports its cost with `task.attempt.end`, and nothing compares the two. The money bound of an agent is the OpenRouter limit of the key it spends.
 
 ## Costs on the status card
 
-The owner's `/nep status` field `costs.development` (`src/tools/impl/status.ts`) shows the thinker and dev over today, the last 7 and the last 30 UTC days. It asks the board's `costs.agents` with `by: 'role'` as the principal `thinker` (`src/board/costs.ts`). The thinker's figures are its runs in `board_agent_runs`, and its last wave adds the context line. Dev's figures are the dev-lane attempts whose role is `dev`, `implementer` or `writer`, whoever ran them. A run or an attempt counts on the day it started and its tokens and dollars on the day it ended. Without `by`, `costs.agents` keys the attempts by the principal that ran them, and `neptunia task costs` prints that answer. A board that is down or refuses shows both agents with no runs.
+The status card's field `costs.development` (`src/tools/impl/status.ts`) shows the thinker and dev over today, the last 7 and the last 30 UTC days. It asks the board's `costs.agents` with `by: 'role'` as the principal `thinker` (`src/board/costs.ts`). The thinker's figures are its runs in `board_agent_runs`, and its last wave adds the context line. Dev's figures are the dev-lane attempts whose role is `dev`, `implementer` or `writer`, whoever ran them. A run or an attempt counts on the day it started and its tokens and dollars on the day it ended. Without `by`, `costs.agents` keys the attempts by the principal that ran them, and `neptunia task costs` prints that answer. A board that is down or refuses shows both agents with no runs.
 
 ## Backup and restore
 
