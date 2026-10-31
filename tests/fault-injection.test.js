@@ -33,6 +33,7 @@ import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { tempDir } from './fixtures/tmp.js';
 import { openTestMemorySync } from './fixtures/memory-db/service.js';
+import { wakeOf } from '../src/memory/db/wake-queue.ts';
 
 /** The memory database of each data directory used here (a restart opens the same one); closed when the file is done. */
 const MEMORY = new Map();
@@ -392,6 +393,7 @@ function boot(
     die = false,
     store = fakeStore(gifs),
     ready = undefined,
+    innerMemory = null,
   } = {}
 ) {
   const intentions = fakeIntentions(records);
@@ -497,6 +499,7 @@ function boot(
     store: { state: { data: {} } },
     getGuildId: () => GUILD,
     meter: { run: async (fn) => ({ result: await fn(), usd: 0, requests: 1, voice: 1 }) },
+    ...(innerMemory ? { memoryDb: innerMemory } : {}),
     rng: () => 0.5,
     now: () => clock.t,
     log: SILENT,
@@ -722,20 +725,23 @@ test('row 2: the process dies after an inner turn sent a message and before the 
   const records = [intentionRecord('i1')];
   const hot = hotWith({ grants: ['message.create'], features: { journal: true } });
   const wake = wakeOfDue({ intention: records[0], reason: 'due', at: records[0].dueAt });
-  const before = boot(chat, { dataDir, records, hot, journal: journalFor(chat, dataDir).journal });
+  // The in-flight mark is the running wake in the memory database (stage 4 cut, the lead's decision 1).
+  // The test's memory service; its JS source leaves the read connection untyped, this is its shape while open.
+  const innerMemory = /** @type {{ readHandle(): { db: object } }} */ (memoryOf(dataDir));
+  const before = boot(chat, { dataDir, records, hot, journal: journalFor(chat, dataDir).journal, innerMemory });
   chat.script = ['<msg>καλημέρα</msg>'];
   chat.dieAfterSend(1);
   await dieDuring(chat, () => before.inner.tick());
   assert.deepEqual(chat.textsFromSelf('c1'), ['καλημέρα']);
-  const mark = JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', GUILD, 'inner.json'), 'utf8')).inflight;
+  const mark = wakeOf(innerMemory.readHandle(), wake.id);
   assert.deepEqual(
-    [mark.wakeIds, mark.kind, mark.channelId, typeof mark.turnId],
-    [[wake.id], 'intention_due', 'c1', 'string'],
+    [mark.state, mark.kind, mark.payload.channelId, typeof mark.turnId],
+    ['running', 'intention_due', 'c1', 'string'],
     'the turn in flight is on disk'
   );
 
   const reborn = journalFor(chat, dataDir);
-  const after = boot(chat, { dataDir, records, hot, journal: reborn.journal, ready: reborn.ready });
+  const after = boot(chat, { dataDir, records, hot, journal: reborn.journal, ready: reborn.ready, innerMemory });
   chat.script = ['<msg>καλημέρα</msg>'];
   await after.tick();
   assert.deepEqual(chat.textsFromSelf('c1'), ['καλημέρα'], 'no resend');
