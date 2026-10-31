@@ -20,7 +20,7 @@ Beside the database, her diary pictures and voice files sit under `data/media/di
 | Affinity | Her attitude to a person: a number from -100 to 100, moved by her memory session with a reason and a capped delta | `people.affinity`, `affinity_events` |
 | Her day | Every turn, action, wake and system event | `day`, `decisions` |
 | Diary | Her diary entries (real or imagined), with media; interface posts are mirrors | `diary`, `diary_mirrors`, `publications`, `publication_grants`, `media` |
-| Intention, work | Her intentions and her errands with events | `intentions`, `work`, `work_events` |
+| Intention, work | Her intentions, and her errands as tasks of the task board's errand lane | `intentions`, `board_tasks`, and the errand archive `work` and `work_events` |
 | Vector | A 1024-dimensional int8 embedding of a source or consolidated row (`text-embedding-3-large`) | `vectors`, `index_policy` |
 | Graph | A derived projection of every typed row into nodes and typed edges (`authored_by`, `located_in`, `replies_to`, `about`, `account_of`, `published_as`, and others), with the audience of its source row | `graph_nodes`, `graph_edges`, `node_access` |
 
@@ -102,8 +102,8 @@ Version 20 rebuilds `deliveries` with three more states and a `receipt` column (
 | `publication_grants` | The owner's exceptions allowing specific content to specific destinations |
 | `media` | Pictures and audio she keeps |
 | `intentions` | What she means to do |
-| `work` | Errands |
-| `work_events` | The steps of an errand |
+| `work` | The archive of her errands that board version 3 moved to the board, neither written nor read by the engine |
+| `work_events` | The steps of an archived errand |
 
 ### Internal bookkeeping
 
@@ -133,6 +133,8 @@ Version 20 rebuilds `deliveries` with three more states and a `receipt` column (
 ### The task board's tables
 
 The task board (`src/board/`) keeps eleven tables in `memory.db`, `board_tasks` through `board_agent_runs`, and its own version table, `board_schema_version` (`src/board/schema.ts`). Board version 2 gives `board_tasks` the columns `lease_generation`, `blocked_reason` and `unblocks` after the ledger's, the status `blocked`, the result kind `handoff` and the review decisions `accept` and `changes`. A task of version 1 starts at generation 0. `openMemoryDb` runs the board's migrations after the memory's, in a transaction of their own. When a board migration fails, the memory stays migrated, open and writable, the handle's `board.ok` is false, and every board operation answers `board-unavailable`. A read-only open migrates neither part. No graph projection, recall, export or sync reads the board's tables, and no foreign key joins them to her memory.
+
+Board version 3 is a data step (`MOVE_ARCHIVE_SQL` in `src/board/archive.ts`). Every `work` row of kind errand becomes a task of lane `errand` with the same id, and every `work_events` line of it a `status` event in line order, `queued` mapped to `approved` and `running` to `in_progress`. From then on the errands live on the board (see [Errands](errands.md#where-errands-are-kept)). `work` and `work_events` stay in the file as an archive that no code writes or reads. The unit writer (`src/memory/db/unit-write.js`) accepts a write of an errand unit, `errands.json` or `errands.jsonl`, writes nothing and returns its count as `skipped`, and the memory service logs `memory db: errand unit skipped` with that count. An action line of an errand in her journal references its task: the `day` row's `work_id` holds the errand's id (`src/memory/db/map/journal.js`).
 
 ### Structural
 
@@ -351,6 +353,7 @@ The board and her memory share the file, and `tools/memory-db.mjs restore-tables
 | `tools/memory-db.mjs media-check` | Checks which diary media files are present or missing |
 | `tools/memory-db.mjs board list` | Every task of the board, read-only, also while the bot runs (`--json` prints the answer of `task.list`) |
 | `tools/memory-db.mjs board show <id>` | One task with its dependencies, attempts, questions, reviews, results, comments and latest events (`--json` prints the answer of `task.show`, its latest handoff included) |
+| `tools/memory-db.mjs board verify-errands` | Every errand of the `work` archive compared with its board task field by field, read-only; exit 1 on any difference (`--json` prints `{ checked, mismatches: [{ id, field }] }`, the field `missing` for an errand with no task) |
 | `tools/memory-session.mjs` | Runs her memory session once, in shadow, on a copy of the database |
 | `tools/recall-eval.mjs` | Recall against questions with known answers |
 
@@ -446,8 +449,8 @@ The full-text tables' own storage tables (`sources_fts_*`, `sources_tri_*`) belo
 | `publication_grants` | internal-only | the owner's exceptions: one content hash of one row allowed to these destinations |
 | `media` | audience-scoped | pictures and audio she keeps, with the audience of what they belong to |
 | `intentions` | audience-scoped | what she means to do |
-| `work` | audience-scoped | errands |
-| `work_events` | inherits from work | the steps of an errand |
+| `work` | audience-scoped | the archive of her errands, moved to `board_tasks` by board version 3 |
+| `work_events` | inherits from work | the steps of an archived errand |
 | `session_runs` | internal-only | one row per memory session request; its audience names the scope the run read |
 | `decisions` | internal-only | why the engine or she changed memory (proposals, rejections, quarantines) |
 | `turn_reads` | internal-only | which rows each request carried, in which context and by which reader |

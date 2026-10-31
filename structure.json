@@ -374,8 +374,22 @@
       "test": "required"
     },
     {
+      "path": "src/board/archive.ts",
+      "purpose": "Her errands as rows of the board's errand lane, board v3's move of them out of the work archive, and the archive's comparison with the board. Tested through the board v3 and verify-errands tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/board/**"],
+      "test": "none"
+    },
+    {
       "path": "src/board/costs.ts",
       "purpose": "The board's costs.agents: the agents' spend by principal over today, 7 and 30 days. Tested through the board tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/board/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/board/errands.ts",
+      "purpose": "The errand store's side of the board: its one write inside the memory writer's transaction, its reads of a guild's errands and of the ends not yet delivered. Tested through the errand board and errand tools board tests.",
       "layer": "public",
       "imports": ["node:*", "src/board/**"],
       "test": "none"

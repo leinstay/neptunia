@@ -1,6 +1,6 @@
 // Tests for src/errands/store.ts: the persona's errand tasks, per guild, in the memory database of a
-// temp data/ directory. A task moves queued -> running -> done | failed | cancelled, the unit
-// errands.json holds the list and errands.jsonl one line per transition, the caps refuse with their codes (open at
+// temp data/ directory. A task moves queued -> running -> done | failed | cancelled, each one a task of the board's
+// errand lane with one status event per transition, the caps refuse with their codes (open at
 // once, tasks and dollars per UTC day), the journal gets one operation per task with counts
 // only, and a file handle resolves only to a file the task's result lists.
 import { after, test } from 'node:test';
@@ -11,7 +11,8 @@ import path from 'node:path';
 import { createErrandStore, fileHandle, parseFileHandle } from '../src/errands/store.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { tempDir } from './fixtures/tmp.js';
-import { openTestMemorySync, unitFile } from './fixtures/memory-db/service.js';
+import { openTestMemorySync } from './fixtures/memory-db/service.js';
+import { readBoard } from '../src/board/board.ts';
 
 const DAY = 24 * 60 * 60 * 1000;
 const T0 = Date.parse('2026-10-17T10:00:00Z');
@@ -30,11 +31,20 @@ function memoryOf(dataDir) {
   return MEMORY.get(dataDir).memoryDb;
 }
 
-/** The unit `rel` of `dataDir` as the file it stands for, once `store`'s writes landed. */
-async function fileText(store, dataDir, rel) {
+/**
+ * Task `id` as the board of `dataDir` shows it, once `store`'s writes landed.
+ * @returns {Promise<import('../src/board/board.ts').TaskView>}
+ */
+async function boardTask(store, dataDir, id) {
   await store.flush();
-  return unitFile(memoryOf(dataDir), rel);
+  return readBoard(memoryOf(dataDir).readHandle().db, () => T0).show(id);
 }
+
+/**
+ * The statuses a board task passed through, in order.
+ * @param {import('../src/board/board.ts').TaskView} view
+ */
+const statusesOf = (view) => view.events.filter((event) => event.type === 'status').map((event) => event.new);
 
 function makeStore({
   dataDir = tempDataDir(),
@@ -74,7 +84,9 @@ const asked = {
   scope: 'group',
 };
 
-test('task store: a new task is queued and written to errands.json and errands.jsonl', async () => {
+// PR 6d: the errands live on the board, so the unit errands.json and its lines in errands.jsonl became one task of the
+// errand lane and its status events; the test checks the same write and read-back there.
+test('task store: a new task is queued and written to the board as an approved errand task', async () => {
   await withCapturedLogs(async () => {
     const { store, dataDir } = makeStore();
     const added = store.add(asked);
@@ -90,17 +102,16 @@ test('task store: a new task is queued and written to errands.json and errands.j
     assert.equal(task.createdAt, T0);
     assert.equal(task.seen, false);
     assert.equal(task.result, null);
-    const file = JSON.parse(await fileText(store, dataDir, 'guilds/g1/errands.json'));
-    assert.equal(file.errands.length, 1);
-    const lines = (await fileText(store, dataDir, 'guilds/g1/errands.jsonl')).trim().split('\n');
-    assert.equal(lines.length, 1);
-    assert.equal(JSON.parse(lines[0]).state, 'queued');
+    const view = await boardTask(store, dataDir, task.id);
+    assert.deepEqual([view.task.lane, view.task.status], ['errand', 'approved']);
+    assert.deepEqual(statusesOf(view), ['approved']);
     // A second store over the same directory reads the list back.
     const again = createErrandStore({ dataDir, guildId: 'g1', memoryDb: memoryOf(dataDir), now: () => T0 });
     assert.equal(again.get(task.id).goal, 'find the release notes');
   });
 });
 
+// PR 6d: the transitions errands.jsonl held are the board task's status events; the test reads them there.
 test('task store: queued -> running -> done; the end is written once, a late one ignored', async () => {
   await withCapturedLogs(async () => {
     const { store, dataDir, clock } = makeStore();
@@ -133,11 +144,7 @@ test('task store: queued -> running -> done; the end is written once, a late one
     assert.equal(store.markSeen(task.id).seen, true);
     assert.deepEqual(store.unseen(), []);
     assert.equal(store.today('scout').usd, 0.25);
-    const states = (await fileText(store, dataDir, 'guilds/g1/errands.jsonl'))
-      .trim()
-      .split('\n')
-      .map((line) => JSON.parse(line).state);
-    assert.deepEqual(states, ['queued', 'running', 'done']);
+    assert.deepEqual(statusesOf(await boardTask(store, dataDir, task.id)), ['approved', 'in_progress', 'done']);
   });
 });
 
@@ -325,6 +332,7 @@ test('task store: recent lists newest first; failOpen fails what a restart left 
   });
 });
 
+// PR 6d: the mark is written to the errand's board task (its metadata), where errands.json held it before.
 test("task store: a finished task's files expire once the runner removed its directory; the handle then names nothing", async () => {
   await withCapturedLogs(async () => {
     const out = tempDir('errands-out-');
@@ -345,8 +353,8 @@ test("task store: a finished task's files expire once the runner removed its dir
     assert.equal(store.fileOf(fileHandle(gone.id, 'meme.png')), null);
     assert.ok(store.fileOf(fileHandle(kept.id, 'meme.png')));
     assert.ok(store.unseen().find((t) => t.id === gone.id).filesExpired);
-    const saved = JSON.parse(await fileText(store, dataDir, 'guilds/g1/errands.json'));
-    assert.equal(saved.errands.find((t) => t.id === gone.id).filesExpired, true, 'written to errands.json');
+    const saved = (await boardTask(store, dataDir, gone.id)).task.metadata.errand;
+    assert.equal(saved.filesExpired, true, 'written to the board');
     assert.equal(store.expireFiles(), 0, 'marked once');
     fs.rmSync(path.join(out, kept.id), { recursive: true });
     assert.equal(store.recent(10).find((t) => t.id === kept.id).filesExpired, true);
@@ -365,7 +373,9 @@ test('task store: no out dir at all (no runner on this host) expires nothing', a
   });
 });
 
-test("task store: setLedgerId keeps the ledger's id on the task (errands.json written, the later transition lines carry it); none for an unknown task", async () => {
+// PR 6d: the ledger's id is written to the errand's board task, the one record that replaced errands.json and the
+// transition lines of errands.jsonl; the test reads it there and from a second store.
+test("task store: setLedgerId keeps the ledger's id on the task (written to the board, kept by the later transitions); none for an unknown task", async () => {
   await withCapturedLogs(async () => {
     const { store, dataDir } = makeStore();
     const { errand: task } = store.add(asked);
@@ -376,19 +386,8 @@ test("task store: setLedgerId keeps the ledger's id on the task (errands.json wr
     assert.equal(store.setLedgerId('tnone', 'L8'), null);
     assert.equal(store.setLedgerId(task.id, ''), null);
     store.start(task.id);
-    const file = JSON.parse(await fileText(store, dataDir, 'guilds/g1/errands.json'));
-    assert.equal(file.errands[0].ledgerId, 'L7');
-    const lines = (await fileText(store, dataDir, 'guilds/g1/errands.jsonl'))
-      .trim()
-      .split('\n')
-      .map((line) => JSON.parse(line));
-    assert.deepEqual(
-      lines.map((line) => [line.state, line.ledgerId ?? null]),
-      [
-        ['queued', null],
-        ['running', 'L7'],
-      ]
-    );
+    const view = await boardTask(store, dataDir, task.id);
+    assert.deepEqual([view.task.status, view.task.metadata.errand.ledgerId], ['in_progress', 'L7']);
     // A second store over the same directory reads it back.
     assert.equal(
       createErrandStore({ dataDir, guildId: 'g1', memoryDb: memoryOf(dataDir), now: () => T0 }).get(task.id).ledgerId,
@@ -397,7 +396,8 @@ test("task store: setLedgerId keeps the ledger's id on the task (errands.json wr
   });
 });
 
-test('task store: costs and the daily caps read the same spend records, rebuilt from errands.jsonl after a restart', async () => {
+// PR 6d: after a restart the spend records come from the errands on the board, where errands.jsonl gave them before.
+test('task store: costs and the daily caps read the same spend records, rebuilt from the board after a restart', async () => {
   await withCapturedLogs(async () => {
     const dataDir = tempDataDir();
     const clock = { t: T0 };
@@ -423,8 +423,8 @@ test('task store: costs and the daily caps read the same spend records, rebuilt 
     const c = store.add(asked).errand;
     store.finish(c.id, { status: 'done', usage: { usd: 0.2 } });
 
-    // A restart: the list file carries no counters; errands.jsonl gives the same numbers back.
-    assert.equal(Object.hasOwn(JSON.parse(await fileText(store, dataDir, 'guilds/g1/errands.json')), 'daily'), false);
+    // A restart: the board gives the same numbers back.
+    await store.flush();
     const again = createErrandStore({
       dataDir,
       guildId: 'g1',

@@ -4,7 +4,8 @@
 // connection, at once and whole, so nothing else writes between a `task.next` list and its claim.
 // The message carries everything the board reads: the caller, the core's clock at the call (`at`), the live
 // `board.*` settings (src/board/board.ts#boardSettings), the brief wait and the private directory whose
-// `clients.json` grants the roles. Her principal `persona` is a builtin with the board role `persona` alone.
+// `clients.json` grants the roles. Her principal `persona` is a builtin with the board role `persona` alone, and the
+// errand store's principal `core` (src/board/errands.ts) one with `errand-runner` and `scheduler`.
 // `createBoardPort` is the core's side: the commands, the calls (a refusal comes back as the BoardError it was) and the
 // reap over one `write` function. Nothing here logs.
 
@@ -16,8 +17,14 @@ import { BoardError, ERROR_CODES } from './machine.ts';
 import type { BoardErrorCode } from './machine.ts';
 import type { BoardDb } from './schema.ts';
 
-/** The principals the core itself calls the board as: her tools run as `persona`, which may file and read only. */
-export const CORE_BUILTINS: BoardBuiltins = Object.freeze({ persona: Object.freeze(['persona'] as const) });
+/**
+ * The principals the core itself calls the board as: her tools run as `persona`, which may file and read only; her
+ * errand store as `core`, which runs the errand lane.
+ */
+export const CORE_BUILTINS: BoardBuiltins = Object.freeze({
+  persona: Object.freeze(['persona'] as const),
+  core: Object.freeze(['errand-runner', 'scheduler'] as const),
+});
 
 /** What every board write carries from the core. */
 type Context = { at: number; settings: BoardSettings; privateDir: string };

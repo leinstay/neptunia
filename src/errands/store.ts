@@ -1,31 +1,37 @@
-// The persona's errands, one store per guild, in the memory database: the unit `guilds/<id>/errands.json` holds
-// the current list (the open errands, then the finished ones she has not seen yet and the latest
-// others, at most KEEP_FINISHED of them), written whole on every change; the unit `guilds/<id>/errands.jsonl` gets one
-// line per transition (the errand as it stands after it), appended, never rewritten. An errand moves `queued` ->
-// `running` -> `done` | `failed` | `cancelled` (a queued one may also be cancelled or failed
-// directly); a finished errand is never reopened, and an end that arrives after a cancel is
-// ignored. The caps are enforced here, on `add`, read from the live config at the moment of use:
-// `errands.maxOpen` open errands at once (`cap-open`), `agents.<profile>.daily.tasks` (the profile's `daily`, overridable there) errands per UTC day (`cap-tasks`; an errand counts on
-// the day it was queued). That daily number
-// and the owner card's `costs.errands` come from one place: src/errands/costs.ts#agentCosts over
-// the store's spend records, one per errand of the last KEEP_DAYS days (read from errands.jsonl at
-// load, then kept with every transition).
-// Every transition is also an `action` line of the
-// journal (src/memory/journal.js), shaped like a skill call's operation: one `opId` per errand,
-// `proposed` when queued, `started` when running, then one closing `succeeded` or `failed`
-// (with the code), counts only -- never the goal or the result. An errand's files are named to the
-// persona by a handle `file:<errand id>/<name>` (fileOf resolves it, only for a name the errand's
-// result lists, inside the profile's `out`). The runner deletes an errand's directory after
-// `errands.keepFilesHours` (src/agent-runner/sweep.js); a finished errand whose result lists files
-// is marked `filesExpired` once its directory is gone from an out dir that is still there (checked
-// when the errands are read), and its handles name nothing from then on.
-// An errand mirrored into the ledger (src/errands/ledger.ts) carries the ledger's id as `ledgerId`
-// (optional; set once the ledger answers, so the transition lines after it carry it too).
-// A finished errand's result stays until she has read it: the record carries `readAt` (null until a
-// turn that showed its `<errand_result>` completed, or `errand.read` returned it, src/tools/impl/errand.ts) and
-// `resolvedAt` (she closed it: `errand.resolve`, or an intention that waited on it moved to done).
-// `unread` lists the finished ones with neither, oldest first; `seen` only says the result turn
-// ran, and hides nothing. A record from before `readAt` existed counts as read when it was `seen`.
+// The persona's errands, one store per guild, on the task board of the memory database (src/board/errands.ts): each
+// errand is a task of the board's errand lane with the errand's id, written as the principal `core`, and the store
+// loads every errand of its guild from the board at its creation. An errand moves `queued` -> `running` -> `done` |
+// `failed` | `cancelled` (a queued one may also be cancelled or failed directly); a finished errand is never reopened,
+// and an end that arrives after a cancel is ignored. The list in memory keeps the open errands, then the finished ones
+// she has not read and the latest others, at most KEEP_FINISHED of them; the board keeps them all. The caps are
+// enforced here, on `add`, read from the live config at the moment of use: `errands.maxOpen` open errands at once
+// (`cap-open`), `agents.<profile>.daily.tasks` (the profile's `daily`, overridable there) errands per UTC day
+// (`cap-tasks`; an errand counts on the day it was queued). That daily number and the owner card's `costs.errands`
+// come from one place: src/errands/costs.ts#agentCosts over the store's spend records, one per errand of the last
+// KEEP_DAYS days (read from the board at load, then kept with every transition).
+// Every change of an errand is one write of the whole errand through the memory database's writer (op `errand` of
+// src/memory/db/unit-write.js), handed to an outbox (src/memory/db/unit-outbox.js) keyed by the errand: a newer write
+// of the same errand replaces the one waiting, a failed write goes again at the next change or `flush`, and
+// `flush({ final: true })` (the shutdown) keeps what still fails in `memory-pending/`. The end of an errand (`finish`,
+// `cancel`, `failOpen`) is one transaction of the writer: the board's move to its end, the board's outbox row to
+// `persona`, and the closing journal action line; a failure of any of them writes none. `pendingEnds` lists the ends
+// the board committed whose `errand.done` the core has not marked delivered (`markDelivered`), so a core started after
+// a crash finds an end it never delivered.
+// Every transition is also an `action` line of the journal (src/memory/journal.js), shaped like a skill call's
+// operation: one `opId` per errand, `proposed` when queued, `started` when running, then one closing `succeeded` or
+// `failed` (with the code), counts only -- never the goal or the result; the line's `errandId` references the board
+// task (`day.work_id`). An errand's files are named to the persona by a handle `file:<errand id>/<name>` (fileOf
+// resolves it, only for a name the errand's result lists, inside the profile's `out`). The runner deletes an errand's
+// directory after `errands.keepFilesHours` (src/agent-runner/sweep.js); a finished errand whose result lists files is
+// marked `filesExpired` once its directory is gone from an out dir that is still there (checked when the errands are
+// read), and its handles name nothing from then on.
+// An errand mirrored into the ledger (src/errands/ledger.ts) carries the ledger's id as `ledgerId` (optional; set once
+// the ledger answers).
+// A finished errand's result stays until she has read it: the record carries `readAt` (null until a turn that showed
+// its `<errand_result>` completed, or `errand.read` returned it, src/tools/impl/errand.ts) and `resolvedAt` (she closed
+// it: `errand.resolve`, or an intention that waited on it moved to done). `unread` lists the finished ones with
+// neither, oldest first; `seen` only says the result turn ran, and hides nothing. A record from before `readAt`
+// existed counts as read when it was `seen`.
 // Logs carry ids and codes, never text.
 
 import fs from 'node:fs';
@@ -36,8 +42,8 @@ import { DAY_MS } from '../time.js';
 import { agentCosts, costRecord, KEEP_DAYS } from './costs.ts';
 import { normalizeResult, normalizeUsage } from '../agent-runner/protocol.js';
 import { createReadSeam } from '../memory/db/readers/common.js';
-import { errandEventLines, errandsValue } from '../memory/db/readers/errands.js';
 import { createUnitOutbox } from '../memory/db/unit-outbox.js';
+import { errandsOf, pendingEnds as boardEnds } from '../board/errands.ts';
 import { agentSettings, profileOf } from '../agent-runner/profiles.js';
 import { CODE } from '../tools/codes.ts';
 import { errorCode, idText, isFiniteNumber, objOf } from '../tools/types.ts';
@@ -48,6 +54,7 @@ import type {
   AgentCosts,
   Budget,
   CostRecord,
+  ErrandEnd,
   ErrandFileRef,
   ErrandRecord,
   ErrandState,
@@ -74,7 +81,7 @@ export const OPEN_STATES: ReadonlyArray<string> = Object.freeze(['queued', 'runn
 export const REQUESTER_KINDS: ReadonlyArray<RequesterKind> = Object.freeze(['owner', 'member', 'persona'] as const);
 /** `errands.maxOpen` when it is missing (config.json carries the same). */
 export const DEFAULT_MAX_OPEN = 3;
-/** The finished errands errands.json keeps besides the open ones (errands.jsonl keeps every transition). */
+/** The finished errands the list in memory keeps besides the open ones (the board keeps every errand). */
 export const KEEP_FINISHED = 50;
 /** The prefix of an errand file handle. */
 export const FILE_HANDLE_PREFIX = 'file:';
@@ -130,14 +137,127 @@ type StoreOptions = {
   memoryDb?: Untyped;
 };
 
+/** The memory database service's writes the store makes (src/memory/db/service.js). */
+type MemoryWrites = {
+  writeUnit: (update: Record<string, unknown>) => Promise<unknown>;
+  keepPending: ((update: Record<string, unknown>) => unknown) | null;
+};
+/** The journal's two writers of an `action` line the store uses (src/memory/journal.js). */
+type JournalWrites = {
+  action: ((guildId: string, record: Record<string, unknown>) => unknown) | null;
+  actionLine: ((guildId: string, record: Record<string, unknown>) => unknown) | null;
+};
+
+/** A function property `name` of `value`, bound to it, or null. */
+function methodOf(value: unknown, name: string): ((...args: Array<unknown>) => unknown) | null {
+  const found: unknown = value !== null && typeof value === 'object' ? Reflect.get(value, name) : null;
+  // A function read off the object is called with its own object as `this`, whatever its arguments.
+  return typeof found === 'function' ? (found as (...args: Array<unknown>) => unknown).bind(value) : null;
+}
+
+/** The writes of the memory database service, or null without a `writeUnit`. */
+function memoryWritesOf(memoryDb: unknown): MemoryWrites | null {
+  const writeUnit = methodOf(memoryDb, 'writeUnit');
+  if (writeUnit === null) return null;
+  return {
+    writeUnit: (update) => Promise.resolve(writeUnit(update)),
+    keepPending: methodOf(memoryDb, 'keepPending'),
+  };
+}
+
+/** The journal's `action` and `actionLine`, each null when the journal has none. */
+const journalWritesOf = (journal: unknown): JournalWrites => ({
+  action: methodOf(journal, 'action'),
+  actionLine: methodOf(journal, 'actionLine'),
+});
+
+/** The outbox of the errand writes: op `errand` of the memory writer, kept in `memory-pending/` at the shutdown. */
+function errandOutbox({ writeUnit, keepPending }: MemoryWrites, log: Logger): ReturnType<typeof createUnitOutbox> {
+  const asErrand = (update: Record<string, unknown>): Record<string, unknown> => ({ ...update, op: 'errand' });
+  const writer = {
+    writeUnit: (update: Record<string, unknown>): Promise<unknown> => writeUnit(asErrand(update)),
+    ...(keepPending
+      ? { keepPending: (update: Record<string, unknown>): unknown => keepPending(asErrand(update)) }
+      : {}),
+  };
+  return createUnitOutbox({ memoryDb: writer, log, name: 'tasks' });
+}
+
+/** Whether a spend record is older than the last KEEP_DAYS days (by its later time). */
+function stale(record: CostRecord, at: number): boolean {
+  const last = Math.max(record.createdAt ?? -Infinity, record.endedAt ?? -Infinity);
+  return last < at - KEEP_DAYS * DAY_MS;
+}
+
+/** The spend records of `errands` at `at`, the stale ones left out. */
+function spendOf(errands: ReadonlyArray<ErrandRecord>, at: number): Map<string, CostRecord> {
+  const records = new Map<string, CostRecord>();
+  for (const errand of errands) {
+    const record = costRecord(errand);
+    if (record && !stale(record, at)) records.set(record.id, record);
+  }
+  return records;
+}
+
+/** Whether `errand` is a finished errand whose result she has not read nor closed. */
+function isUnread(errand: ErrandRecord): boolean {
+  return !isOpenState(errand.state) && !errand.readAt && !errand.resolvedAt;
+}
+
+/** The list kept: every open errand, then the finished ones, the unread first, at most KEEP_FINISHED. */
+function pruned(errands: Array<ErrandRecord>): Array<ErrandRecord> {
+  const finished = errands.filter((errand) => !isOpenState(errand.state));
+  if (finished.length <= KEEP_FINISHED) return errands;
+  // The unread first, then the latest to end.
+  const keep = new Set(
+    [...finished]
+      .sort(
+        (a, b) => Number(isUnread(a) === false) - Number(isUnread(b) === false) || (b.endedAt ?? 0) - (a.endedAt ?? 0)
+      )
+      .slice(0, KEEP_FINISHED)
+  );
+  return errands.filter((errand) => isOpenState(errand.state) || keep.has(errand));
+}
+
+/** The fields of the errand's journal `action` line of `phase`. */
+function journalFields(errand: ErrandRecord, phase: string, extra: Record<string, unknown>): Record<string, unknown> {
+  const privateUserId = errand.scope === 'dm' ? (errand.requester?.userId ?? null) : null;
+  return {
+    opId: errand.opId,
+    name: 'errand',
+    // Her errand, whoever asked for it: the requester is in `participants`.
+    by: 'persona',
+    ...(privateUserId ? { privateUserId } : { channelId: errand.origin?.channelId ?? null }),
+    participants: errand.requester?.userId ? [errand.requester.userId] : [],
+    sourceMessageIds: errand.origin?.messageId ? [errand.origin.messageId] : [],
+    phase,
+    ...extra,
+  };
+}
+
+/** The counts of a finished errand for its closing journal line: never its text. */
+function journalResult(errand: ErrandRecord): Record<string, unknown> {
+  const result = errand.result;
+  const out: Record<string, unknown> = { errandId: errand.id, state: errand.state };
+  const chars = typeof result?.text === 'string' ? result.text.length : 0;
+  if (chars > 0) out.chars = chars;
+  if (Array.isArray(result?.sources) && result.sources.length > 0) out.sources = result.sources.length;
+  if (Array.isArray(result?.files) && result.files.length > 0) out.files = result.files.length;
+  if (errand.usage)
+    out.usage = { usd: errand.usage.usd ?? 0, steps: errand.usage.steps ?? 0, seconds: errand.usage.seconds ?? 0 };
+  return out;
+}
+
+/** A copy of a stored errand, as the store hands it out (a stored record is plain JSON). */
+function copy(errand: ErrandRecord): ErrandRecord {
+  return JSON.parse(JSON.stringify(errand)) as ErrandRecord;
+}
+
 /**
- * `memoryDb` is the memory database service: the list and the spend records are loaded
- *   from it (src/memory/db/readers/errands.js; a failed read throws, with a code); each change hands the whole list
- *   (`errands.json`, op `value`) and the transition line (`errands.jsonl`, op `lines`) to an outbox
- *   (src/memory/db/unit-outbox.js) that sends them through the database's writer; the list in memory stays the truth,
- *   a failed write goes again at the next change or `flush`, and `flush({ final: true })` (the shutdown) keeps what
- *   still fails in `memory-pending/`. Without a `memoryDb` (tests) nothing is read or written: the list lives in
- *   memory only.
+ * `memoryDb` is the memory database service: the errands and the spend records are loaded from the board on its read
+ *   connection (src/board/errands.ts#errandsOf; a failed read throws, with a code), and each change goes to the board
+ *   through the outbox (see the head of this file). Without a `memoryDb` (tests) nothing is read or written: the list
+ *   lives in memory only, and no end is ever pending.
  */
 export function createErrandStore({
   guildId,
@@ -150,60 +270,32 @@ export function createErrandStore({
 }: StoreOptions): ErrandStore {
   const seam = createReadSeam({ memoryDb, log, reader: 'tasks' });
   const db = memoryDb ? seam.db() : null;
-  const state: { errands: Array<ErrandRecord> } = load();
-  const outbox =
-    db && typeof memoryDb?.writeUnit === 'function' ? createUnitOutbox({ memoryDb, log, name: 'tasks' }) : null;
-  const listOwner = `guilds/${String(guildId)}/errands.json`;
-  const logOwner = `guilds/${String(guildId)}/errands.jsonl`;
+  // Every errand of the guild the board holds; the list keeps the pruned part of them.
+  const loaded = load();
+  const state: { errands: Array<ErrandRecord> } = { errands: loaded };
+  const writes = memoryWritesOf(memoryDb);
+  const journalWrites = journalWritesOf(journal);
+  const outbox = db && writes ? errandOutbox(writes, log) : null;
+  // id -> the closing journal line of an end not yet known written; it rides along every write of that errand, and
+  // the writer writes it only with the move to the end.
+  const closings = new Map<string, unknown>();
+  // The errands whose end this process marked delivered.
+  const delivered = new Set<string>();
   // id -> the spend record of each errand of the last KEEP_DAYS days (src/errands/costs.ts#costRecord).
-  const spend = loadSpend();
+  const spend = spendOf(loaded, now());
+  state.errands = pruned(state.errands);
 
-  /** The list read once from the database (none without a `memoryDb`). */
-  function load(): { errands: Array<ErrandRecord> } {
-    let raw: Untyped = null;
-    if (db) {
-      const found = seam.run(() => errandsValue(db, guildId));
-      raw = found.found ? found.value : null;
-    }
-    const errands: Array<ErrandRecord> = Array.isArray(raw?.errands) ? raw.errands.filter(isStoredErrand) : [];
+  /** Every errand of the guild, read once from the board (none without a `memoryDb`). */
+  function load(): Array<ErrandRecord> {
+    // The board rebuilds each errand exactly as this store wrote it (src/board/archive.ts#errandOf).
+    const errands = db ? (seam.run(() => errandsOf(db, String(guildId))) as Array<unknown>).filter(isStoredErrand) : [];
     for (const errand of errands) {
       // Records from before readAt: a seen one was read, an unseen one is still unread.
       if (errand.readAt === undefined)
         errand.readAt = errand.seen === true ? (errand.endedAt ?? errand.createdAt ?? 0) : null;
       if (errand.resolvedAt === undefined) errand.resolvedAt = null;
     }
-    return { errands };
-  }
-
-  /** Whether a spend record is older than the last KEEP_DAYS days (by its later time). */
-  function stale(record: CostRecord, at: number = now()): boolean {
-    const last = Math.max(record.createdAt ?? -Infinity, record.endedAt ?? -Infinity);
-    return last < at - KEEP_DAYS * DAY_MS;
-  }
-
-  /** The spend records read once: the last line of each errand in errands.jsonl (a line that does not
-   * parse is skipped), then the list's own copies over them; the stale ones left out. */
-  function loadSpend(): Map<string, CostRecord> {
-    const records = new Map<string, CostRecord>();
-    const text = db ? seam.run(() => errandEventLines(db, guildId)).join('\n') : '';
-    for (const line of text.split('\n')) {
-      if (!line.trim()) continue;
-      let value: unknown = null;
-      try {
-        value = JSON.parse(line) as unknown;
-      } catch {
-        continue;
-      }
-      const record = costRecord(value);
-      if (record) records.set(record.id, record);
-    }
-    for (const errand of state.errands) {
-      const record = costRecord(errand);
-      if (record) records.set(record.id, record);
-    }
-    const at = now();
-    for (const [id, record] of records) if (stale(record, at)) records.delete(id);
-    return records;
+    return errands;
   }
 
   /** `errand`'s spend record updated, the stale ones dropped. */
@@ -214,70 +306,55 @@ export function createErrandStore({
     for (const [id, kept] of spend) if (stale(kept, at)) spend.delete(id);
   }
 
-  /** Whether `errand` is a finished errand whose result she has not read nor closed. */
-  function isUnread(errand: ErrandRecord): boolean {
-    return !isOpenState(errand.state) && !errand.readAt && !errand.resolvedAt;
-  }
-
-  /** The list kept: every open errand, then the finished ones, the unread first, at most KEEP_FINISHED. */
-  function pruned(errands: Array<ErrandRecord>): Array<ErrandRecord> {
-    const finished = errands.filter((errand) => !isOpenState(errand.state));
-    if (finished.length <= KEEP_FINISHED) return errands;
-    // The unread first, then the latest to end.
-    const keep = new Set(
-      [...finished]
-        .sort(
-          (a, b) => Number(isUnread(a) === false) - Number(isUnread(b) === false) || (b.endedAt ?? 0) - (a.endedAt ?? 0)
-        )
-        .slice(0, KEEP_FINISHED)
-    );
-    return errands.filter((errand) => isOpenState(errand.state) || keep.has(errand));
-  }
-
-  /** The list handed to the outbox whole, and the transition of `errand` as a line of errands.jsonl. */
-  function persist(errand: ErrandRecord | null): void {
+  /** The errand's write to the board handed to the outbox (its spend noted, the list pruned). */
+  function persist(errand: ErrandRecord): void {
     state.errands = pruned(state.errands);
-    if (errand) noteSpend(errand);
+    noteSpend(errand);
+    send(errand.id, errand);
+  }
+
+  /** One write of errand `id` (its record, or null for the delivery mark alone) to the outbox. */
+  function send(id: string, errand: ErrandRecord | null): void {
     if (!memoryDb) return;
     if (!outbox) {
       log.warn('errands: tasks write failed', { guildId: String(guildId), code: 'DB_CLOSED' });
       return;
     }
-    outbox.value(listOwner, JSON.parse(JSON.stringify({ errands: state.errands })));
-    if (errand) outbox.lines(logOwner, [JSON.parse(JSON.stringify({ at: now(), ...errand }))]);
-    outbox.push();
+    outbox.value(`board/errands/${id}`, {
+      id,
+      guildId: String(guildId),
+      at: now(),
+      errand: errand ? copy(errand) : null,
+      delivered: delivered.has(id),
+      closing: closings.get(id) ?? null,
+    });
+    void outbox.push();
+  }
+
+  /** Whether the journal takes lines now (`features.journal` exactly true, read now). */
+  const journalOn = (): boolean => Boolean(journal) && config()?.features?.journal === true;
+
+  /**
+   * The closing journal line of an end: kept to ride along the end's write to the board (one transaction with the move)
+   * when the store writes the board and the journal builds lines (`actionLine`), else written by itself.
+   */
+  function closingLine(errand: ErrandRecord, phase: string, extra: Record<string, unknown>): void {
+    if (!journalOn()) return;
+    const { actionLine } = journalWrites;
+    if (outbox && actionLine) {
+      closings.set(errand.id, actionLine(String(guildId), journalFields(errand, phase, extra)));
+      return;
+    }
+    journalLine(errand, phase, extra);
   }
 
   /** One journal `action` line of the errand's operation (features.journal exactly true, read now); never throws. */
   function journalLine(errand: ErrandRecord, phase: string, extra: Record<string, unknown> = {}): void {
-    if (!journal || typeof journal.action !== 'function' || config()?.features?.journal !== true) return;
-    const privateUserId = errand.scope === 'dm' ? (errand.requester?.userId ?? null) : null;
-    Promise.resolve(
-      journal.action(String(guildId), {
-        opId: errand.opId,
-        name: 'errand',
-        // Her errand, whoever asked for it: the requester is in `participants`.
-        by: 'persona',
-        ...(privateUserId ? { privateUserId } : { channelId: errand.origin?.channelId ?? null }),
-        participants: errand.requester?.userId ? [errand.requester.userId] : [],
-        sourceMessageIds: errand.origin?.messageId ? [errand.origin.messageId] : [],
-        phase,
-        ...extra,
-      })
-    ).catch((err: unknown) => log.warn('errands: journal failed', { id: errand.id, code: errorCode(err) }));
-  }
-
-  /** The counts of a finished errand for its closing journal line: never its text. */
-  function journalResult(errand: ErrandRecord): Record<string, unknown> {
-    const result = errand.result;
-    const out: Record<string, unknown> = { errandId: errand.id, state: errand.state };
-    const chars = typeof result?.text === 'string' ? result.text.length : 0;
-    if (chars > 0) out.chars = chars;
-    if (Array.isArray(result?.sources) && result.sources.length > 0) out.sources = result.sources.length;
-    if (Array.isArray(result?.files) && result.files.length > 0) out.files = result.files.length;
-    if (errand.usage)
-      out.usage = { usd: errand.usage.usd ?? 0, steps: errand.usage.steps ?? 0, seconds: errand.usage.seconds ?? 0 };
-    return out;
+    const { action } = journalWrites;
+    if (!journalOn() || !action) return;
+    Promise.resolve(action(String(guildId), journalFields(errand, phase, extra))).catch((err: unknown) =>
+      log.warn('errands: journal failed', { id: errand.id, code: errorCode(err) })
+    );
   }
 
   /** The out directory of `agent` (its profile's `out` under the deployment's override); null for an unknown agent. */
@@ -308,10 +385,10 @@ export function createErrandStore({
       const outDir = outDirOf(errand.agent);
       if (!outDir || missing(outDir) || !missing(path.join(outDir, errand.id))) continue;
       errand.filesExpired = true;
+      persist(errand);
       changed += 1;
     }
     if (changed > 0) {
-      persist(null);
       log.info('errands: task files expired', { guildId: String(guildId), count: changed });
     }
     return changed;
@@ -362,11 +439,6 @@ export function createErrandStore({
   /** The errand `id` (the stored object), or null. */
   function find(id: unknown): ErrandRecord | null {
     return state.errands.find((errand) => errand.id === idText(id)) ?? null;
-  }
-
-  /** A copy of a stored errand, as the store hands it out (a stored record is plain JSON). */
-  function copy(errand: ErrandRecord): ErrandRecord {
-    return JSON.parse(JSON.stringify(errand)) as ErrandRecord;
   }
 
   /**
@@ -466,9 +538,9 @@ export function createErrandStore({
             ? 'cancelled'
             : 'failed';
     errand.seen = false;
+    if (errand.state === 'done') closingLine(errand, 'succeeded', { result: journalResult(errand) });
+    else closingLine(errand, 'failed', { result: { ...journalResult(errand), code: errand.error } });
     persist(errand);
-    if (errand.state === 'done') journalLine(errand, 'succeeded', { result: journalResult(errand) });
-    else journalLine(errand, 'failed', { result: { ...journalResult(errand), code: errand.error } });
     log.info('errands: task ended', {
       guildId: String(guildId),
       id: errand.id,
@@ -492,7 +564,7 @@ export function createErrandStore({
     if (!errand) return null;
     if (errand.seen !== true) {
       errand.seen = true;
-      persist(null);
+      persist(errand);
     }
     return copy(errand);
   }
@@ -503,7 +575,7 @@ export function createErrandStore({
     if (!errand) return null;
     if (!errand.readAt) {
       errand.readAt = now();
-      persist(null);
+      persist(errand);
     }
     return copy(errand);
   }
@@ -514,7 +586,7 @@ export function createErrandStore({
     if (!errand) return null;
     if (errand.resultTurnFailed !== true) {
       errand.resultTurnFailed = true;
-      persist(null);
+      persist(errand);
     }
     return copy(errand);
   }
@@ -525,13 +597,13 @@ export function createErrandStore({
     if (!errand || isOpenState(errand.state)) return null;
     if (!errand.resolvedAt) {
       errand.resolvedAt = now();
-      persist(null);
+      persist(errand);
     }
     return copy(errand);
   }
 
   /**
-   * Errand `id` given the ledger's id of its mirror (src/errands/ledger.ts), errands.json written when
+   * Errand `id` given the ledger's id of its mirror (src/errands/ledger.ts), written to the board when
    * it changes; null when there is no such errand (forgotten or wiped meanwhile) or no id.
    */
   function setLedgerId(id: unknown, ledgerId: unknown): ErrandRecord | null {
@@ -543,7 +615,7 @@ export function createErrandStore({
     if (!errand || !value) return null;
     if (errand.ledgerId !== value) {
       errand.ledgerId = value;
-      persist(null);
+      persist(errand);
     }
     return copy(errand);
   }
@@ -651,6 +723,41 @@ export function createErrandStore({
   }
 
   /**
+   * The ends the board committed for this guild whose `errand.done` is not marked delivered, oldest first, each with
+   * its event id `errand-done:<errand id>`; none without a `memoryDb` or while the database cannot be read.
+   */
+  function pendingEnds(): Array<ErrandEnd> {
+    if (!memoryDb) return [];
+    let ends: Array<{ errandId: string; state: string }> = [];
+    try {
+      ends = seam.run(() => boardEnds(seam.db(), String(guildId)));
+    } catch {
+      // The seam logged the failed read with its code; nothing is pending that cannot be read.
+      return [];
+    }
+    return ends
+      .filter((end) => !delivered.has(end.errandId))
+      .map((end) => ({
+        eventId: `errand-done:${end.errandId}`,
+        errandId: end.errandId,
+        state: endStateOf(end.state),
+      }));
+  }
+
+  /**
+   * The end of errand `id` marked delivered (the door took its `errand.done`), written to the board; false when no end
+   * of that errand is pending.
+   */
+  function markDelivered(id: unknown): boolean {
+    const key = idText(id);
+    if (!key || !pendingEnds().some((end) => end.errandId === key)) return false;
+    delivered.add(key);
+    send(key, find(key));
+    log.info('errands: end delivered', { guildId: String(guildId), id: key });
+    return true;
+  }
+
+  /**
    * The writes still waiting sent again and awaited; with `final` (the shutdown) what still fails is kept in
    * `memory-pending/`. Nothing without a `memoryDb`.
    */
@@ -682,6 +789,8 @@ export function createErrandStore({
     fileExpired,
     failOpen,
     expireFiles,
+    pendingEnds,
+    markDelivered,
     flush,
     guildId: String(guildId),
   };

@@ -133,7 +133,7 @@ The `web.search` and `web.read` tools run in the persona's own turn, synchronous
 
 ## The task board
 
-The task board (`src/board/`) holds the development tasks and their history in `memory.db`, beside her memory and apart from it (see [Memory](memory.md#the-task-boards-tables)). `openBoard` takes the memory database's connection, the private directory and the board's settings, and `Board.call(principal, op, args, idempotency)` runs one operation, such as `task.add`, `task.claim` or `task.submit`, in one transaction. A mutation that carries an idempotency key answers the same for 24 hours. `Board.reap` returns the tasks whose lease expired to `approved`. The core calls it on a scheduler beat (below), and `startReaper` in `src/board/reaper.ts` calls it on a timer of its own.
+The task board (`src/board/`) holds the development tasks, her errands and their history in `memory.db`, beside her memory and apart from it (see [Memory](memory.md#the-task-boards-tables)). `openBoard` takes the memory database's connection, the private directory and the board's settings, and `Board.call(principal, op, args, idempotency)` runs one operation, such as `task.add`, `task.claim` or `task.submit`, in one transaction. A mutation that carries an idempotency key answers the same for 24 hours. `Board.reap` returns the tasks whose lease expired to `approved`. The core calls it on a scheduler beat (below), and `startReaper` in `src/board/reaper.ts` calls it on a timer of its own.
 
 The state machine is data in `src/board/machine.ts`: eleven statuses from `proposed` to `done`, and for each move the roles that may make it and what it requires. A principal's roles come from its `boardRoles` in `clients.json` (see [Configuration](configuration.md#clients-and-their-tokens)), read at every call, so a change applies at the next call. The board derives `holder`, `requester` and `answerer` per task. `owner` holds every right of `reviewer`, and a reviewer approves a plan only at low risk and merges once CI is green, never claiming a task itself. A principal with no board role is refused every operation with `forbidden`, and a `watcher` only reads. A board that is not at its schema version answers `board-unavailable`.
 
@@ -163,7 +163,9 @@ The reaper is the scheduler beat `board.reap` in `src/core.js`, every `board.rea
 
 Her tools `board.propose` and `board.status` (`src/tools/impl/board.ts`) call the board as the builtin principal `persona`, whose only board role is `persona` whatever `clients.json` says of that name. `board.propose` files a `dev` task in `proposed` with her evidence as its description and `persona:self` as its requester and subscriber. `board.status` reads every task filed for `persona:self` with its questions and its reviews. She never approves, reviews or merges, and the tracked `config.json` grants neither tool to her. A refusal reaches her as `forbidden` or `board-unavailable`.
 
-`tools/memory-db.mjs board list` and `board show <id>` read the board with the core up or down.
+Her errands are tasks of the board's errand lane, written by the errand store as the builtin principal `core`, whose board roles are `errand-runner` and `scheduler` (see [Errands](errands.md#where-errands-are-kept)). A principal whose only board role is `errand-runner` sees only the errand tasks of its own name.
+
+`tools/memory-db.mjs board list` and `board show <id>` read the board with the core up or down, and `board verify-errands` compares the errand archive with the board.
 
 ## Safety rails
 

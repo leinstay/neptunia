@@ -51,6 +51,11 @@
 //        attempts, questions, reviews, results, comments and latest events. Opens the database read-only. `--json`
 //        prints one line, the answer of `task.list` or `task.show`. An unknown id, or a board that is not at the
 //        engine's version, exits 1.
+//   node tools/memory-db.mjs board verify-errands --db <file> [--json]
+//        Compares every errand of the `work` archive with the errand its board task holds since board v3, field by
+//        field over the record (src/board/archive.ts#compareArchive). Opens the database read-only. `--json` prints
+//        one line, `{ checked, mismatches: [{ id, field }] }`, the field `missing` for an errand with no task. Exits 0
+//        with no mismatch, 1 with any.
 //
 // reproject, rebuild, restore-tables, index-policy --apply and media-check --apply take the database's writer lock
 // and refuse while the bot (or another tool) holds it.
@@ -68,6 +73,7 @@ import { checkMedia, classify as classifyIndex } from '../src/memory/db/index-po
 import { backupDatabase, checkBackup, restoreDatabase, tablesOf } from '../src/memory/db/backup.js';
 import { createMemoryDb, engineCommit } from '../src/memory/db/service.js';
 import { readBoard } from '../src/board/board.ts';
+import { compareArchive } from '../src/board/archive.ts';
 import { BoardError } from '../src/board/machine.ts';
 
 export { backupDatabase, restoreDatabase };
@@ -605,7 +611,9 @@ function printTask(io, view) {
 function runBoard(io, options) {
   need(options, 'db');
   const [sub, id, ...extra] = Array.isArray(options._) ? options._.map(String) : [];
-  if (sub !== 'list' && sub !== 'show') throw new Error('usage: board list|show <id> --db <file> [--json]');
+  if (sub === 'verify-errands') return runVerifyErrands(io, options, [id, ...extra]);
+  if (sub !== 'list' && sub !== 'show')
+    throw new Error('usage: board list|show <id>|verify-errands --db <file> [--json]');
   if (sub === 'show' && !id) throw new Error('board show needs a task id');
   const surplus = sub === 'list' ? [id, ...extra] : extra;
   if (surplus.some((arg) => arg !== undefined)) throw new Error(`unexpected argument ${String(surplus.find(Boolean))}`);
@@ -632,6 +640,31 @@ function runBoard(io, options) {
       return 1;
     }
     throw error;
+  } finally {
+    handle.close();
+  }
+}
+
+/**
+ * `board verify-errands` over a read-only open (see the head of this file).
+ * @param {Io} io
+ * @param {Record<string, unknown>} options
+ * @param {Array<string | undefined>} surplus  the arguments after the subcommand, none expected
+ * @returns {number}
+ */
+function runVerifyErrands(io, options, surplus) {
+  const extra = surplus.find((arg) => arg !== undefined);
+  if (extra !== undefined) throw new Error(`unexpected argument ${extra}`);
+  const handle = openMemoryDb(String(options.db), { readOnly: true });
+  try {
+    // node:sqlite's DatabaseSync, which open.js types as `object`, has every method BoardDb names.
+    const verdict = compareArchive(/** @type {BoardDb} */ (handle.db));
+    if (options.json) io.out(JSON.stringify(verdict));
+    else {
+      io.out(`verify-errands: ${verdict.checked} archived errands, ${verdict.mismatches.length} mismatches`);
+      for (const { id, field } of verdict.mismatches) io.out(`${id}  ${field}`);
+    }
+    return verdict.mismatches.length === 0 ? 0 : 1;
   } finally {
     handle.close();
   }

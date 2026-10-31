@@ -538,6 +538,33 @@ export function turnView({ turn, start = null, posted = [], calls = [] }) {
   ].join('\n');
 }
 
+/** The text of a system message's content (a string, or text parts joined). */
+function textOfContent(content) {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content.map((part) => (typeof part?.text === 'string' ? part.text : '')).join('');
+}
+
+/** One user-message part as stored: a picture becomes its size, a data: URL is never kept. */
+function dumpPart(part) {
+  if (part?.type !== 'image_url') return part;
+  const url = typeof part.image_url?.url === 'string' ? part.image_url.url : '';
+  const comma = url.startsWith('data:') ? url.indexOf(',') : -1;
+  const bytes = comma >= 0 ? Math.floor(((url.length - comma - 1) * 3) / 4) : null;
+  return { image: typeof part.messageId === 'string' && part.messageId ? part.messageId : 'attachment', bytes };
+}
+
+/**
+ * The messages after the first two as stored (`later`): role, content (a picture part reduced like
+ * `dumpPart`), an assistant message's `tool_calls`, a tool message's `tool_call_id`, kept as sent.
+ */
+function dumpLater(later) {
+  return later.map((message) => {
+    if (!message || typeof message !== 'object') return message;
+    return Array.isArray(message.content) ? { ...message, content: message.content.map(dumpPart) } : { ...message };
+  });
+}
+
 /** The record's scope: the partner's private layer, a channel, or the whole guild. */
 function scopeOf({ privateUserId = null, channelId = null } = {}) {
   if (typeof privateUserId === 'string' && privateUserId) return { user: privateUserId, private: true };
@@ -552,7 +579,7 @@ function scopeOf({ privateUserId = null, channelId = null } = {}) {
  * @param {{ append?: Function, iterate?: Function, flush?: Function, stats?: Function }|null} [options.appendStore]  src/memory/append-store.js, optional:
  *   flushed by `withWriterLock`; its `stats().stalled` is `stalled()`
  * @param {string} options.dataDir  the `data/` directory
- * @param {() => ({ thinkChars?: number }|undefined)} [options.config]  the live `journal` config
+ * @param {() => ({ thinkChars?: number, [key: string]: unknown }|undefined)} [options.config]  the live `journal` config
  *   section, read at each write (`hot.config.journal`)
  * @param {() => number} [options.now=Date.now]
  * @param {() => string} [options.uuid=randomUUID]
@@ -566,12 +593,15 @@ function scopeOf({ privateUserId = null, channelId = null } = {}) {
  *   with a code), and every line the writers write goes to it as the journal mapper maps it (`day`, `decisions`,
  *   her answers' `sources`, `affinity_events`, in the day's unit, `memoryDb.writeUnit`): the request dumps and the
  *   `.running` marker stay files.
+ *   `actionLine` builds an `action` line and its day unit without writing it: an errand's end writes it with its
+ *   board move.
  * @returns {{
  *   start(guildId: string, input: { channelId?: string, mode?: string, trigger?: object|null,
  *     participants?: string[], sourceMessageIds?: string[], privateUserId?: string|null,
  *     turnId?: string, attemptId?: number }): { turnId: string, attemptId: number, startedAt: string },
  *   turn(guildId: string, record: object): Promise<void>,
  *   action(guildId: string, record: object): Promise<void>,
+ *   actionLine(guildId: string, record: object): { owner: string, line: unknown },
  *   memory(guildId: string, record: object): Promise<void>,
  *   system(guildId: string, record: object): Promise<void>,
  *   answer(guildId: string, record: object): Promise<void>,
@@ -698,14 +728,19 @@ export function createJournal({
     while (held) await held;
   }
 
+  /** @returns {{ owner: string, line: unknown }} a line of `kind` in its envelope, and the unit of its day */
+  function lineOf(guildId, kind, fields) {
+    const { record, privateUserId } = envelope(guildId, kind, fields);
+    return { owner: root.relative(dayFile(guildId, record.occurredAt, privateUserId)), line: record };
+  }
+
   async function write(guildId, kind, fields) {
     try {
-      const { record, privateUserId } = envelope(guildId, kind, fields);
+      const { owner, line } = lineOf(guildId, kind, fields);
       await unlocked();
-      const file = dayFile(guildId, record.occurredAt, privateUserId);
       if (typeof memoryDb?.writeUnit !== 'function')
         throw Object.assign(new Error('memory db: no writer'), { code: 'DB_CLOSED' });
-      await memoryDb.writeUnit({ op: 'lines', owner: root.relative(file), lines: [record] });
+      await memoryDb.writeUnit({ op: 'lines', owner, lines: [line] });
     } catch (error) {
       log.warn('journal: append failed', { kind, code: error?.code ?? null, guildId: String(guildId) });
     }
@@ -1044,33 +1079,6 @@ export function createJournal({
     return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
   }
 
-  /** The text of a system message's content (a string, or text parts joined). */
-  function textOfContent(content) {
-    if (typeof content === 'string') return content;
-    if (!Array.isArray(content)) return '';
-    return content.map((part) => (typeof part?.text === 'string' ? part.text : '')).join('');
-  }
-
-  /** One user-message part as stored: a picture becomes its size, a data: URL is never kept. */
-  function dumpPart(part) {
-    if (part?.type !== 'image_url') return part;
-    const url = typeof part.image_url?.url === 'string' ? part.image_url.url : '';
-    const comma = url.startsWith('data:') ? url.indexOf(',') : -1;
-    const bytes = comma >= 0 ? Math.floor(((url.length - comma - 1) * 3) / 4) : null;
-    return { image: typeof part.messageId === 'string' && part.messageId ? part.messageId : 'attachment', bytes };
-  }
-
-  /**
-   * The messages after the first two as stored (`later`): role, content (a picture part reduced like
-   * `dumpPart`), an assistant message's `tool_calls`, a tool message's `tool_call_id`, kept as sent.
-   */
-  function dumpLater(later) {
-    return later.map((message) => {
-      if (!message || typeof message !== 'object') return message;
-      return Array.isArray(message.content) ? { ...message, content: message.content.map(dumpPart) } : { ...message };
-    });
-  }
-
   // The tool-definition copies written by this process (`requests/tools/<sha>.json`).
   const toolsWritten = new Set();
 
@@ -1253,6 +1261,7 @@ export function createJournal({
     start,
     turn,
     action,
+    actionLine: (guildId, record) => lineOf(guildId, 'action', record),
     memory,
     system,
     answer,

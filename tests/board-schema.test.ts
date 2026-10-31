@@ -27,9 +27,10 @@ const columnsOf = (db: BoardDb, table: string): Array<string> =>
 
 const BROKEN = 'CREATE TABLE board_half (id TEXT); THIS IS NOT SQL;';
 
-// PR 6b: board v2 (lease generations, the block, the handoff and the review decisions) is the latest, so a new
-// database stands at version 2, where it stood at 1 before that migration existed.
-test('a new memory database holds the eleven board tables and the board at version 2', () => {
+// PR 6b: board v2 (lease generations, the block, the handoff and the review decisions) made a new database stand at
+// version 2, where it stood at 1 before. PR 6d: board v3 (her errands moved out of the `work` archive) is the latest,
+// so a new database stands at version 3.
+test('a new memory database holds the eleven board tables and the board at version 3', () => {
   const handle = openMemoryDb(':memory:');
   try {
     const db = dbOf(handle);
@@ -49,8 +50,8 @@ test('a new memory database holds the eleven board tables and the board at versi
     ]);
     for (const table of BOARD_TABLES) assert.ok(tables.includes(table), `${table} is missing`);
     assert.ok(tables.includes('board_schema_version'));
-    assert.equal(BOARD_MIGRATIONS.length, 2);
-    assert.equal(boardVersion(db), 2);
+    assert.equal(BOARD_MIGRATIONS.length, 3);
+    assert.equal(boardVersion(db), 3);
     assert.equal(handle.board.ok, true);
   } finally {
     handle.close();

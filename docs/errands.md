@@ -36,7 +36,7 @@ Both workers are disabled by default (`enabled: false` in the profile, `agents/<
 
 ### Queuing
 
-`errand.run` accepts `agent` (one of `scout`, `server`) and `goal`. The errand service (`src/errands/service.ts`) queues the task in the guild's store (`data/guilds/<id>/errands.json`) and answers at once with the id and `queued`. Nobody waits for the errand.
+`errand.run` accepts `agent` (one of `scout`, `server`) and `goal`. The errand service (`src/errands/service.ts`) queues the task in the guild's store, a task of the board's errand lane in `memory.db` (see [Where errands are kept](#where-errands-are-kept)), and answers at once with the id and `queued`. Nobody waits for the errand.
 
 An idempotency key ties the task to the turn and the call's index within it: the same call made twice returns the task already queued, never a second errand.
 
@@ -115,6 +115,20 @@ When the result turn fails (`error`, `refused`), it is retried every `errands.re
 ### File handles
 
 A task's saved files are named `file:<task id>/<name>`. The persona uses this handle as the `file` argument of `message.create` to attach the file. A handle for a file she does not own (or a private chat's file outside that chat) is refused `unknown-file`. A file whose task directory the runner has cleaned up is refused `file-expired`. The runner removes directories older than `errands.keepFilesHours` (default 24).
+
+## Where errands are kept
+
+Each errand is a task of the task board's errand lane in `memory.db` (`src/board/errands.ts` and `src/board/archive.ts`). The task keeps the errand's id, its agent as `role`, its goal as `title`, and `persona` as requester and subscriber. Its status follows the errand: `queued` is `approved`, `running` is `in_progress`, and `done`, `failed` and `cancelled` keep their names. The errand's error is the task's `close_reason` and its result text the task's `handoff` result. Every other field of the errand sits in the task's `metadata`, with the guild it belongs to. The errand store (`src/errands/store.ts`) loads every errand of its guild from the board when it is created and keeps the open errands and the latest 50 finished ones in memory.
+
+Every change of an errand is one write of the whole errand through the memory writer, as the board principal `core`. Writes of one errand that wait together go out as the latest of them, and a write that fails is sent again at the next change or flush. At shutdown the writes that still fail are kept in `memory-pending/` and replayed at the next start.
+
+The end of an errand is one transaction of the writer: the move to `done`, `failed` or `cancelled`, the board's outbox row to `persona`, and the closing line of her journal. When any of the three fails, none of them is written. The core submits the end as an `errand.done` event with the id `errand-done:<errand id>` and marks the end delivered once the door took it (`markDelivered`). `pendingEnds` lists the ends the board holds that were never marked delivered, oldest first. An `errand.done` for an errand whose result she has read already opens no second result turn (`src/errands/turns.ts`).
+
+Each journal line of an errand references its task through the `day` row's `work_id`, so her memory of the work leads to the task and its goal. The goal itself never enters the journal.
+
+A principal whose only board role is `errand-runner` sees the errand tasks of its own name and nothing else: `task.list` leaves the others out, and `task.show` of any other task answers `not-found`.
+
+Board version 3 moves the errands of the `work` table onto the board with their ids, and `tools/memory-db.mjs board verify-errands --db <file>` compares each archived errand with its task field by field (see [Memory](memory.md#the-task-boards-tables)).
 
 ## Task operations
 

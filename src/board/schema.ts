@@ -3,6 +3,8 @@
 // the memory migrations in a transaction of its own, so a failing board migration leaves her memory open and the
 // board down. The tables are internal-only: no graph projection, recall, export or sync reads them.
 
+import { MOVE_ARCHIVE_SQL } from './archive.ts';
+
 // The connection the board needs: node:sqlite's DatabaseSync has every method named here.
 export type BoardDb = {
   exec(sql: string): void;
@@ -144,8 +146,13 @@ DROP TABLE board_results;
 ALTER TABLE board_results_v2 RENAME TO board_results;
 `;
 
+// Board v3, the data step of her errands: every `work` row of kind errand becomes an errand-lane task with its id
+// (src/board/archive.ts#MOVE_ARCHIVE_SQL). `work` and `work_events` stay as they are, an archive the engine neither
+// writes nor reads.
+const V3 = MOVE_ARCHIVE_SQL;
+
 /** Each entry moves the board one version up. Never edit a shipped entry: append a new one. */
-export const BOARD_MIGRATIONS: ReadonlyArray<string> = [V1, V2];
+export const BOARD_MIGRATIONS: ReadonlyArray<string> = [V1, V2, V3];
 
 /** The tables of the board, in the order board v1 creates them. */
 export const BOARD_TABLES: ReadonlyArray<string> = [

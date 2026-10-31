@@ -672,6 +672,16 @@ export class Board {
     return out;
   }
 
+  /**
+   * Whether `principal` sees `task`: a principal whose only board role is `errand-runner` (an errand agent) sees the
+   * errand-lane tasks of its own name and nothing else; any other role sees the whole board.
+   */
+  sees(principal: string, task: TaskRow | TaskRecord): boolean {
+    const grants = this.grantsOf(principal);
+    if (grants.size === 0 || [...grants].some((role) => role !== 'errand-runner')) return true;
+    return task.lane === 'errand' && task.role === principal;
+  }
+
   /** The errand runner works the errand lane: it runs attempts and records results on any errand task. */
   isErrandRunner(principal: string, task: TaskRow): boolean {
     return this.grantsOf(principal).has('errand-runner') && task.lane === 'errand';
@@ -1638,10 +1648,18 @@ function orientOf(board: Board, principal: string): Orientation {
   };
 }
 
+// A task the principal may not see answers as one that does not exist.
+function visibleTask(board: Board, principal: string, id: unknown): TaskRow {
+  const task = board.getTask(id);
+  if (!board.sees(principal, task)) throw new BoardError('not-found', `no task ${String(id)}`);
+  return task;
+}
+
 const OPS: Readonly<Record<BoardOp, Handler>> = {
   'task.add': addTask,
-  'task.list': (board, _principal, args) => listTasks(board.db, args, board.now()),
-  'task.show': (board, _principal, args) => viewOf(board.db, board.getTask(args.id), board.now()),
+  'task.list': (board, principal, args) =>
+    listTasks(board.db, args, board.now()).filter((task) => board.sees(principal, task)),
+  'task.show': (board, principal, args) => viewOf(board.db, visibleTask(board, principal, args.id), board.now()),
   'task.update': updateTask,
   'task.transition': transitionTask,
   'task.claim': claimTask,

@@ -20,9 +20,12 @@ export function dbOf(handle: { db: object }): Db {
   return handle.db as Db;
 }
 
-/** A database file at v13 (the migrations before v14), opened for writing. */
+/**
+ * A database file at v13 (the migrations before v14), opened for writing. A database of that time had no task board,
+ * so none is created: the current code's first open builds it over the errands these rows hold (board v3).
+ */
 export function openV13(file: string): { db: Db; close(): void } {
-  const handle = openMemoryDb(file, { migrations: MIGRATIONS.slice(0, 13) });
+  const handle = openMemoryDb(file, { migrations: MIGRATIONS.slice(0, 13), boardMigrations: [] });
   return { db: dbOf(handle), close: () => handle.close() };
 }
 

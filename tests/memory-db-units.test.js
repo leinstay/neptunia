@@ -25,11 +25,35 @@ import { touchMemory } from '../src/memory/update.js';
 import { CHANNEL, GUILD, MEMBER, buildDataDir } from './fixtures/memory-db/datadir.js';
 import { createUnitOutbox } from '../src/memory/db/unit-outbox.js';
 import { unitValue } from '../src/memory/db/readers/common.js';
+import { BOARD_MIGRATIONS } from '../src/board/schema.ts';
 
 const quiet = { info() {}, debug() {}, warn() {}, error() {} };
 const NOW = Date.parse('2026-11-03T12:00:00.000Z');
 const DAY_MS = 86_400_000;
 const DB_FILES = new Set(['memory.db', 'memory.db-wal', 'memory.db-shm', 'memory.db.lock']);
+
+/** The status events and the outbox rows to `persona` of one task (its id given twice). */
+const ROWS_OF_TASK = `SELECT (SELECT COUNT(*) FROM board_events WHERE task_id = ? AND type = 'status') AS events,
+  (SELECT COUNT(*) FROM board_outbox WHERE task_id = ? AND to_whom = 'persona') AS ends`;
+
+/** The status events of the errand task titled `the pier` on the board. */
+const PIER_EVENTS = `SELECT e.seq FROM board_events e JOIN board_tasks t ON t.id = e.task_id
+  WHERE t.lane = 'errand' AND t.title = 'the pier' AND e.type = 'status'`;
+
+/**
+ * The status events of the errand tasks titled `title` on the board, in order.
+ * @param {import('node:sqlite').DatabaseSync} db
+ * @param {string} title
+ * @returns {Array<unknown>}
+ */
+const errandEvents = (db, title) =>
+  db
+    .prepare(
+      `SELECT e.new AS status FROM board_events e JOIN board_tasks t ON t.id = e.task_id
+       WHERE t.lane = 'errand' AND t.title = ? AND e.type = 'status' ORDER BY e.seq`
+    )
+    .all(title)
+    .map((row) => row.status);
 
 const tmpRoot = (prefix = 'memdb-w2b-') => fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), prefix));
 const settle = async (rounds = 8) => {
@@ -53,13 +77,20 @@ const configOf = (memoryDb = {}) => ({
   diary: { channelId: CHANNEL },
 });
 
-/** The data directory with the fixture already in its database. */
-function prepared() {
+/**
+ * The data directory with the fixture already in its database. `archived`: seeded at board v2, so the fixture's errand
+ * units land in the `work` archive and the next open's board v3 moves them onto the board (a deployment from before
+ * PR 6d); else seeded at the current board, where the unit writer skips the errand units.
+ */
+function prepared({ archived = false } = {}) {
   const root = tmpRoot();
   const data = path.join(root, 'data');
   fs.mkdirSync(data);
   buildDataDir(data);
-  const handle = openMemoryDb(path.join(data, 'memory.db'));
+  const handle = openMemoryDb(
+    path.join(data, 'memory.db'),
+    archived ? { boardMigrations: BOARD_MIGRATIONS.slice(0, 2) } : {}
+  );
   try {
     seedUnits(handle, data, { now: () => NOW - DAY_MS });
   } finally {
@@ -320,13 +351,10 @@ test('a day of writes with the memory files gone writes every kind of unit to th
     const right = openMemoryDb(path.join(db.data, 'memory.db'), { readOnly: true });
     try {
       const count = (sql, ...params) => right.db.prepare(sql).get(...params).n;
-      assert.equal(
-        count(
-          'SELECT COUNT(*) AS n FROM work_events WHERE owner_file = ? AND retired_at IS NULL',
-          `guilds/${GUILD}/errands.jsonl`
-        ),
-        4
-      );
+      // PR 6d, errands on the board: the day's errand is a board task with its three moves, and the `work` archive
+      // takes no write (it asserted the errands.jsonl lines in `work_events` before).
+      assert.deepEqual(errandEvents(right.db, 'find the café hours'), ['approved', 'in_progress', 'done']);
+      assert.equal(count('SELECT COUNT(*) AS n FROM work') + count('SELECT COUNT(*) AS n FROM work_events'), 0);
       assert.equal(
         count(
           "SELECT COUNT(*) AS n FROM intentions WHERE owner_file = ? AND id LIKE '%i2%' AND retired_at IS NULL",
@@ -351,8 +379,10 @@ test('a day of writes with the memory files gone writes every kind of unit to th
   }
 });
 
+// PR 6d, errands on the board: the fixture's errand reaches the store from the board (moved there by board v3 from
+// the archive a v2 database holds), no longer from the errands unit.
 test('reads: the store, the intentions and the tasks load the database values with the memory files gone', async () => {
-  const db = prepared();
+  const db = prepared({ archived: true });
   retireFiles(db.data);
   const dm = modules(db.data);
   try {
@@ -400,10 +430,9 @@ test('a failed unit write survives a restart through memory-pending/ and is appl
     defer: (fn) => setImmediate(fn),
   });
   const pendingDir = path.join(data, 'memory-pending');
-  const lineCount = (handle) =>
-    handle.db
-      .prepare('SELECT COUNT(*) AS n FROM work_events WHERE owner_file = ? AND retired_at IS NULL')
-      .get(`guilds/${GUILD}/errands.jsonl`).n;
+  // PR 6d, errands on the board: the errand's write is op `errand` onto the board, so the refused write, its pending
+  // file and its single replay are counted on the board's status events (they were errands.jsonl lines before).
+  const moves = (handle) => handle.db.prepare(PIER_EVENTS).all().length;
   try {
     fs.chmodSync(data, 0o755);
     await service.tick();
@@ -411,13 +440,13 @@ test('a failed unit write survives a restart through memory-pending/ and is appl
     const down = {
       ...service,
       writeUnit: async (update) => {
-        if (update.op === 'value' || update.op === 'lines')
+        if (update.op === 'value' || update.op === 'lines' || update.op === 'errand')
           throw Object.assign(new Error('down'), { code: 'SQLITE_FULL' });
         return service.writeUnit(update);
       },
     };
     const m = modules(data, { log, memoryDb: down });
-    const before = lineCount(service.readHandle());
+    const before = moves(service.readHandle());
     m.store.setLore(GUILD, [{ title: 'Η αποβάθρα', keys: ['αποβάθρα'], text: 'The old pier.' }], {
       source: 'owner',
       now: NOW,
@@ -437,10 +466,10 @@ test('a failed unit write survives a restart through memory-pending/ and is appl
     assert.equal(task.ok, true);
     const settled = await m.store.flushSettled({ final: true });
     assert.equal(settled.pending, 2, 'the lore and the diary');
-    assert.deepEqual(await m.tasks().flush({ final: true }), { waiting: 2, pending: 2 });
+    assert.deepEqual(await m.tasks().flush({ final: true }), { waiting: 1, pending: 1 });
     await m.close();
     await service.close();
-    assert.equal(fs.readdirSync(pendingDir).filter((name) => name.endsWith('.json')).length, 4);
+    assert.equal(fs.readdirSync(pendingDir).filter((name) => name.endsWith('.json')).length, 3);
     const lore = JSON.parse(
       fs.readFileSync(
         path.join(pendingDir, `${createHash('sha1').update(`guilds/${GUILD}/lore.json`).digest('hex')}.json`),
@@ -471,7 +500,7 @@ test('a failed unit write survives a restart through memory-pending/ and is appl
         assert.ok(
           JSON.stringify(unitValue(handle.db, `guilds/${GUILD}/diary.json`).value).includes('une journée de pluie')
         );
-        assert.equal(lineCount(handle), before + 1, 'the transition line applied once');
+        assert.equal(moves(handle), before + 1, 'the errand filed once');
       } finally {
         await next.close();
       }
@@ -553,11 +582,16 @@ test('a task transition or an intention whose write committed and whose answer w
     };
     const m = modules(data, { memoryDb: flaky });
     const db = () => service.readHandle().db;
-    const transitions = (id) =>
-      db().prepare('SELECT COUNT(*) AS n FROM work_events WHERE work_id = ? AND retired_at IS NULL').get(id).n;
+    // PR 6d, errands on the board: the transitions are the task's status events and its end the outbox row to
+    // `persona`, written by op `errand` (they were `work_events` lines of op `lines` before).
+    /** @param {unknown} id */
+    const rows = (id) =>
+      /** @type {import('node:sqlite').DatabaseSync} */ (db()).prepare(ROWS_OF_TASK).get(String(id), String(id));
+    const transitions = (id) => rows(id)?.events;
+    const ends = (id) => rows(id)?.ends;
     const run = async (lose) => {
       lost = lose;
-      lostOp = (update) => update.op === 'lines';
+      lostOp = (update) => update.op === 'errand';
       const tasks = m.tasks();
       const added = tasks.add({
         agent: 'scout',
@@ -583,6 +617,8 @@ test('a task transition or an intention whose write committed and whose answer w
     assert.equal(lost, 0, 'every lost answer was hit');
     assert.equal(transitions(control), 3, 'added, started, done');
     assert.equal(transitions(faulted), 3, 'the retried transitions are not written twice');
+    assert.equal(ends(control), 1);
+    assert.equal(ends(faulted), 1, 'the retried end is not announced twice');
     assert.equal(m.tasks().get(faulted).state, 'done');
     // The same check for an intention: its value and its archive line retried after a lost answer stay one row each.
     lost = 2;
