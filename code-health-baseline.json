@@ -1,6 +1,5 @@
 {
   "files": {
-    "src/behavior/pipeline.js": 2794,
     "src/behavior/recall-run.js": 2331,
     "src/behavior/recall.js": 2491,
     "src/behavior/sandbox.js": 2136,
@@ -118,20 +117,6 @@
     "src/behavior/participation-pick.js": {
       "createParticipationPicker>pickParticipation": {
         "complexity": 21
-      }
-    },
-    "src/behavior/pipeline.js": {
-      "createMessageHandler": {
-        "function-length": 2542
-      },
-      "createMessageHandler>classifyFollowUp": {
-        "complexity": 21
-      },
-      "createMessageHandler>drainPending": {
-        "complexity": 43
-      },
-      "createMessageHandler>handleMessage": {
-        "complexity": 39
       }
     },
     "src/behavior/prefetch.js": {

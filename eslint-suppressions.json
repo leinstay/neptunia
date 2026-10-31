@@ -429,23 +429,17 @@
     }
   },
   "src/behavior/pipeline.js": {
-    "@typescript-eslint/no-misused-promises": {
-      "count": 1
-    },
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 136
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 297
+      "count": 3
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 25
+      "count": 1
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 305
+      "count": 1
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 6
+      "count": 1
     }
   },
   "src/behavior/planner.js": {
