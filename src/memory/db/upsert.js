@@ -14,7 +14,9 @@
 // (rows.js#ensureRelations). Every row written or retired is projected into the graph in the same transaction
 // (graph.js#projectRow), and every diary mirror written or retired derives its `publications` row
 // (publish.js#deriveMirrorPublication). A row an observation wrote live (observe.js: a line, an account, a place under
-// the observer's own id) is adopted when a unit write brings it (`observedRow`).
+// the observer's own id) is adopted when a unit write brings it (`observedRow`). In a row the unit still owns, the
+// columns her memory session wrote last stay as she wrote them (session-rows.ts#sessionHold: a person's attitude, a
+// description's current version).
 //
 // Pure of the bot: it takes an opened database's connection; the caller holds the writer lock and the transaction
 // (unit-write.js, through the service's writer).
@@ -23,6 +25,7 @@ import { deriveRow, ensureLinks, ensureNodeKeys, ensureRelations } from './rows.
 import { projectRow } from './graph.js';
 import { deriveMirrorPublication } from './publish.js';
 import { LEGACY_IFACE } from './legacy-namespace.ts';
+import { sessionHold } from './session-rows.ts';
 
 /** Tables whose rows belong to one file (`owner_file`), and their primary key columns. */
 export const OWNED = {
@@ -297,10 +300,12 @@ function writeChildren(db, mapping, owner, skippedParents, touched) {
 export function writeMapping(db, mapping, owner, { ignoreClaims = false, at } = {}) {
   let count = 0;
   const skippedParents = new Set();
+  const hold = sessionHold(db, mapping);
   for (const [table, rows] of Object.entries(mapping)) {
     if (CHILDREN[table] || !rows.length) continue;
     for (const row of rows) {
-      if (writeRow(db, table, row, { ignore: table === 'claims' && ignoreClaims, at })) count += 1;
+      const kept = hold(table, row);
+      if (kept && writeRow(db, table, kept, { ignore: table === 'claims' && ignoreClaims, at })) count += 1;
       else if (Object.values(CHILDREN).some(([parent]) => parent === table))
         skippedParents.add(`${table}\u0000${row.id}`);
     }

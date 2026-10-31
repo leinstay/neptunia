@@ -1041,7 +1041,7 @@ export function createStore({
 }) {
   const root = memoryRootOf(dataDir);
   const seam = createReadSeam({ memoryDb, log, reader: 'store' });
-  const entries = new Map(); // file path -> { value, dirty }
+  const entries = new Map(); // file path -> { value, dirty, stale? }
   // The units a flush hands over, until their write resolved.
   const outbox = typeof memoryDb?.writeUnit === 'function' ? createUnitOutbox({ memoryDb, log, name: 'store' }) : null;
 
@@ -1451,6 +1451,11 @@ export function createStore({
 
   function entry(file, fallback) {
     let item = entries.get(file);
+    // A profile an attitude move made stale (`noteAffinityMoves`) is read again once its own write has landed.
+    if (item?.stale && !item.dirty && !outbox?.holds(root.relative(file))) {
+      entries.delete(file);
+      item = undefined;
+    }
     if (!item) {
       const place = dbPlace(file);
       let value;
@@ -3302,35 +3307,26 @@ export function createStore({
 
     /**
      * Her memory session moved these people's attitude in the database (`[{ personId, applied }]`,
-     * src/memory/db/service.js#onAffinityMoves). A member's cached profile would write its older score over the move at
-     * its next flush, so: a clean entry no write holds is dropped (the next read takes the database's value, the move
-     * in it); any other (changed since, or its write still under way) gets the move added to its score (clamped to
-     * -100..100, as the session clamps it) and is written again at the next flush. So a move and a change of the cache
-     * at the same time (a decay tick) both count.
+     * src/memory/db/service.js#onAffinityMoves, any person id `person:<interface>:<id>`). A member's cached profile
+     * holds the attitude as it was before the move, so it is dropped: a clean entry no write holds at once, any other
+     * (changed since, or its write still under way) once its write has landed (`stale`, see `entry`). Its write keeps
+     * the session's score and reason (src/memory/db/session-rows.ts#sessionHold), and the next read takes the
+     * database's profile, the moves in its history.
      * @param {{ personId: string, applied: number }[]} moves
-     * @returns {number} how many cached profiles took a move
+     * @returns {number} how many cached profiles were dropped or marked
      */
     noteAffinityMoves(moves) {
       if (!Array.isArray(moves)) return 0;
       let taken = 0;
       for (const move of moves) {
-        const userId = /^person:discord:(.+)$/.exec(String(move?.personId ?? ''))?.[1];
-        if (!userId || !Number.isFinite(move.applied)) continue;
+        const userId = /^person:[^:]+:(.+)$/.exec(String(move?.personId ?? ''))?.[1];
+        if (!userId) continue;
         for (const [file, item] of [...entries]) {
           const parts = root.relative(file).split('/');
           if (parts.length !== 4 || parts[0] !== 'guilds' || parts[2] !== 'users' || parts[3] !== `${userId}.json`)
             continue;
-          const rel = parts.join('/');
-          if (!item.dirty && !outbox?.holds(rel)) {
-            entries.delete(file);
-          } else if (isPlainObject(item.value?.affinity) && Number.isFinite(item.value.affinity.score)) {
-            const score =
-              Math.round(Math.max(-100, Math.min(100, item.value.affinity.score + move.applied)) * 100) / 100;
-            item.value.affinity = { ...item.value.affinity, score };
-            item.dirty = true;
-          } else {
-            continue;
-          }
+          if (!item.dirty && !outbox?.holds(parts.join('/'))) entries.delete(file);
+          else item.stale = true;
           taken += 1;
         }
       }

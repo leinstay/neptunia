@@ -18,7 +18,10 @@
 //         sources do not all resolve, whose reason is missing or whose target is outside the run's scope is rejected whole
 //         (a `decisions` row `rejected:<why>`). A claim's scope is the narrowest scope of the run and of the NEW
 //         sources; when it differs from the target claim's scope, the change is written as a new claim of that scope
-//         and the old claim stays as it was.
+//         and the old claim stays as it was. A confirm, revise or retire of a claim a file owns takes the claim over
+//         (`owner_file` null, its `co_owners` rows gone): the unit sync never writes it again (upsert.js), and the
+//         profile shows it as the session left it (session-rows.ts). A file read before an attitude move never
+//         writes over the move.
 //   { kind: 'description', mode, row, subject, scope, expectCurrent, answers, now }
 //       One `description_versions` row. `shadow`: origin `shadow`, never current. `apply`: origin
 //       `review`, and in the same transaction the `descriptions` row is created or moved to this version.
@@ -87,6 +90,7 @@ import { applyPublicationWrite } from './publish.js';
 import { applyEntryMedia } from './diary-media.js';
 import { writeBackup } from './backup.js';
 import { applyIngestWrite } from './ingest.ts';
+import { takeOverClaim } from './session-rows.ts';
 
 /**
  * The newest live version of a claim (recorded time, then row order): the version a read of the claim is said to have
@@ -444,6 +448,7 @@ function applyClaim(db, op, state) {
     counts.retired += 1;
   }
   if (derived) counts.derived += 1;
+  else takeOverClaim(db, op.id);
   insertDecisionFor(db, { runId, index, at, op, action: op.op, target });
 }
 

@@ -5,13 +5,15 @@
 // one unit; a unit that is gone is a tombstone, `gone_at`); what is in them comes from the rows whose `owner_file` is
 // the unit's full path (`guilds/<g>/users/<u>.json`) or that the unit shares with another guild (`co_owners`), and that
 // are not retired. A JSON unit is built the way the store writes it (2 spaces, no trailing newline), a JSONL unit one
-// line per row in its line order, vector bytes exactly, operational rows verbatim.
+// line per row in its line order, vector bytes exactly, operational rows verbatim. A member's profile and private
+// layer also hold what her memory session wrote about the person (session-rows.ts#addSessionRows).
 //
 // exportOne(database, relPath) -> { found, value } | { found: false, reason }   (one JSON unit's value)
 
 import { classify } from './map/index.js';
 import { filesOf } from './map/vectors.js';
 import { OWNED } from './upsert.js';
+import { addSessionRows } from './session-rows.ts';
 
 const CHILDREN = {
   episode_sources: ['episodes', 'episode_id'],
@@ -37,7 +39,10 @@ const HAS_POSITION = new Set([
 const KEY_SQL = (table) =>
   OWNED[table].length === 1 ? `"${OWNED[table][0]}"` : OWNED[table].map((col) => `"${col}"`).join(' || char(0) || ');
 
-/** The active rows of one unit (`owner` is its full path): table -> rows (every table present), children included. */
+/**
+ * The active rows of one unit (`owner` is its full path): table -> rows (every table present), children included; a
+ * member's unit with her session's rows about the person.
+ */
 export function unitRows(db, owner) {
   const rows = {};
   for (const table of Object.keys(OWNED)) {
@@ -58,6 +63,7 @@ export function unitRows(db, owner) {
       .all(owner, parent, owner)
       .map((row) => ({ ...row }));
   }
+  addSessionRows(db, classify(owner)?.kind, rows);
   return rows;
 }
 

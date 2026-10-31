@@ -73,6 +73,8 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `src/memory/db/` | public | The memory database: schema, the single writer, sessions, wakes and the read paths. | `node:*`, `src/**` | required |
 | `src/memory/db/diary-past.ts` | public | Schema v15's data step that makes her past messages in a diary mirror's place entries. Tested through the v15 migration tests. | `node:*`, `src/**` | none |
 | `src/memory/db/mirrors.ts` | public | The reads of the diary's mirrors over the memory database: the places her diary is posted to and whether a conversation is one. Tested through the mirror and diary mirror tests. | `node:*`, `src/**` | none |
+| `src/memory/db/session-repair.ts` | public | Schema v17's data step that sets back the claims, descriptions and attitude reasons the unit sync wrote over her memory session's changes. Tested through the v17 migration tests. | `node:*`, `src/**` | none |
+| `src/memory/db/session-rows.ts` | public | Her memory session's rows beside the store's files: what a member's profile reads of them and what a unit write leaves as she wrote it. Tested through the two-writers tests. | `node:*`, `src/**` | none |
 | `src/memory/db/map/` | public | The mapping of memory rows to records and back. | `node:*`, `src/**` | required |
 | `src/memory/db/readers/` | public | The read queries of the memory database. | `node:*`, `src/**` | required |
 | `src/tools/impl/` | public | The owner operations behind the /nep commands. | `node:*`, `src/**` | required |

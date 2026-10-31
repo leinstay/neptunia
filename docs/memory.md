@@ -44,7 +44,9 @@ The module seams stay as they were before the database: `record`, `journal`, `ar
 
 ## Data model
 
-Schema version 14 (`src/memory/db/schema.js`; migrations appended, never edited). Version 14 renames the errand units (`guilds/<g>/tasks.json` and `tasks.jsonl` become `errands.json` and `errands.jsonl`) in every table that stores a unit path, and renames the errand fields of the open intention records. `currentUnitPath` in `src/memory/db/paths.js` maps the old unit names on the way in, so a write that waited in `memory-pending/` across the upgrade lands in the current unit.
+Schema version 17 (`src/memory/db/schema.js`; migrations appended, never edited). Version 14 renames the errand units (`guilds/<g>/tasks.json` and `tasks.jsonl` become `errands.json` and `errands.jsonl`) in every table that stores a unit path, and renames the errand fields of the open intention records. `currentUnitPath` in `src/memory/db/paths.js` maps the old unit names on the way in, so a write that waited in `memory-pending/` across the upgrade lands in the current unit.
+
+Version 17 is a data step: it sets back what the unit sync wrote over her memory session's changes (`src/memory/db/session-repair.ts`). A claim takes the text and the last-seen time of her newest version, and the truth of a retire, and becomes hers. Her newest review becomes the current version of its description again, and a person she moved takes the reason of her newest move. Each repair applies only when her version is newer than the file's last change of the row: the claim's first or last seen time, the newest legacy description version, or the file's newest attitude move. The step asks no model and sends nothing, and one `decisions` row (`migration:v17:session_rows_repaired`) counts what it set back.
 
 ### Identity
 
@@ -189,6 +191,16 @@ The store keeps an in-memory cache of profiles, places, lore and other memory un
 At shutdown, a unit the writer still cannot take goes to `data/memory-pending/` as a JSON file. At the next start, each pending file is replayed through the writer before anything reads the database. A replay that fails keeps its file and the database does not open (`PENDING_REPLAY`).
 
 Observations that arrive before the database opens wait in a bounded queue (5000 entries). A shutdown writes the waiting ones before it closes. If the queue is full, the oldest is dropped with a warning.
+
+### Her session's rows and the store's files
+
+Two writers change the rows of a member's profile: the store's flush of the cached file (`users/<id>.json`, `private/<id>.json`) and her memory session (`src/memory/db/session-write.js`). Every row a file's mapper wrote carries the file's path as `owner_file`. A row her session adds has no `owner_file`, and a claim she confirms, revises or retires loses its `owner_file` in the same transaction, so it becomes hers. A unit write never updates, retires or re-owns a row without an `owner_file`, and it skips the file's copy of such a row (`src/memory/db/upsert.js`).
+
+The profile the store reads (`export.js#unitRows`) holds the file's rows and, in the file's scope, the rows her session wrote about the person (`src/memory/db/session-rows.ts`): the claims she shows (truth `current` or `disputed`), her episodes and her attitude moves. The public profile takes the group of the person's interface, the private layer the DM with the person. Her claims and episodes follow the file's in the order she made them, and her moves join the file's history by time, each with its event id as the `itemId`. A description shows the version its `current_version` names.
+
+A person's attitude and a description keep columns of both writers. Her last move of an attitude is her newest `affinity_events` row about the person, and the profile names it as `affinity.moveId`. A file that names an older move was read before her later ones. Its write keeps her reason, and its score is the file's score plus her later moves, clamped to -100..100, so a decay tick in the cache and her move both count. A file that names no move leaves her score, reason and decay stamp as they are. When a description's current version is a review, it stays current while the file brings the review's text or its own earlier text. A file that brings a new text makes its own version current again.
+
+When her session moves someone's attitude, `noteAffinityMoves` in the store drops that member's cached profile, whatever interface the person id names. A clean entry goes at once, a changed one once its write has landed, and the next read takes the database's profile with the moves in its history.
 
 ## Her memory session
 

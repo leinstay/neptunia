@@ -10,6 +10,7 @@
 
 import { assignDiaryDestination, deriveAllMirrorPublications } from './publish.js';
 import { pastEntries } from './diary-past.ts';
+import { repairSessionRows } from './session-repair.ts';
 
 const SCOPE = 'scope_kind TEXT, scope_iface TEXT, scope_dm TEXT';
 
@@ -1151,9 +1152,13 @@ const V16 = `CREATE TABLE ingest (
 CREATE INDEX ingest_committed_at ON ingest (committed_at);
 CREATE TABLE ingest_cursor (principal TEXT PRIMARY KEY, acked_seq INTEGER NOT NULL);`;
 
+// Version 17 (2026-10-31): a data step, no table. The rows the unit sync wrote back over her memory session's change
+// are set back to what she recorded (session-repair.ts).
+const V17 = (db) => repairSessionRows(db);
+
 /** Each entry moves the schema one version up: SQL text, or a function of the connection (and the opener's context)
  * for a step SQL cannot do. Never edit a shipped entry: append a new one. */
-export const MIGRATIONS = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16];
+export const MIGRATIONS = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17];
 
 /** Every table schema v8 adds. */
 export const V8_TABLES = [
