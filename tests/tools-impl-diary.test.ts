@@ -7,6 +7,7 @@
 // and a scripted model. Synthetic text only.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { utcDay } from '../src/time.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createMirrors, guardMirrorPort } from '../src/behavior/mirror.ts';
@@ -77,7 +78,8 @@ async function community({ postsToday = 0 }: { postsToday?: number } = {}) {
       handle === 'g1' ? { id: 'g1', url: 'https://media.example/g1.gif', file: null } : null,
     recordOwnGif: () => {},
   });
-  if (postsToday > 0) Object.assign(store.state.data, { diaryDay: '2026-10-27', diaryPosts: postsToday });
+  // The diary cap counts by the admin's own clock, the real one, so the seeded day is today's.
+  if (postsToday > 0) Object.assign(store.state.data, { diaryDay: utcDay(Date.now()), diaryPosts: postsToday });
   const adapter = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
   const reads = world().adopt(adapter);
   const mirrors = createMirrors({
