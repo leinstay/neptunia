@@ -1,10 +1,4 @@
 {
-  "discord": {
-    "intents": {
-      "presences": false,
-      "members": false
-    }
-  },
   "interfaces": {
     "mode": "inprocess",
     "drainMs": 10000
@@ -166,7 +160,6 @@
     "neighborMaxAgeMinutes": 60,
     "neighborMaxChannels": 8,
     "maxMessageChars": 2000,
-    "maxUrlChars": 200,
     "gapMarkerMinutes": 20,
     "ageAfterMinutes": 60,
     "reactionsPerMessage": 6,
@@ -408,7 +401,6 @@
     "prefillPerMessage": 5,
     "cacheEntries": 5000,
     "filePreviewChars": 10000,
-    "embedTextChars": 200,
     "recacheBefore": null,
     "recacheIntervalMs": 3000,
     "gif": {

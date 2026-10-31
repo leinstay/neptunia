@@ -53,13 +53,6 @@ export const MEDIA: ReadonlyArray<SchemaEntry> = [
     'text': 'Characters shown from the beginning of text files',
   },
   {
-    'key': 'media.embedTextChars',
-    'types': ['number'],
-    'reader': 'interfaces/discord/collect.js',
-    'default': 200,
-    'text': 'Characters shown from link embed text',
-  },
-  {
     'key': 'media.recacheBefore',
     'types': ['string', 'null'],
     'reader': 'src/memory/describe.js',

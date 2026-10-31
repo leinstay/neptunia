@@ -74,13 +74,6 @@ export const CONTEXT: ReadonlyArray<SchemaEntry> = [
     'text': 'Truncate messages beyond this',
   },
   {
-    'key': 'context.maxUrlChars',
-    'types': ['number'],
-    'reader': 'interfaces/discord/collect.js',
-    'default': 200,
-    'text': 'URLs longer than this are cut with an ellipsis. `0` keeps every URL whole',
-  },
-  {
     'key': 'context.gapMarkerMinutes',
     'types': ['number'],
     'reader': 'src/behavior/prompt.js',

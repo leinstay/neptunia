@@ -5,7 +5,6 @@
 // the defaults make, which tests/config-schema.test.ts holds equal to config/config.json; src/config/check.ts checks a
 // local layer and the readers against the schema, and tools/config-doc.mjs writes docs/configuration.md from it.
 
-import { DISCORD } from './schema/discord.ts';
 import { INTERFACES } from './schema/interfaces.ts';
 import { BOT } from './schema/bot.ts';
 import { MODELS } from './schema/models.ts';
@@ -65,7 +64,6 @@ export type SchemaEntry = {
 
 /** Every key of the settings, in the order of config/config.json. */
 export const CONFIG_SCHEMA: ReadonlyArray<SchemaEntry> = [
-  ...DISCORD,
   ...INTERFACES,
   ...BOT,
   ...MODELS,
