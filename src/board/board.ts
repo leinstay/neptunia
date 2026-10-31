@@ -116,6 +116,26 @@ export type TaskRecord = {
   created_at: string;
   updated_at: string;
   metadata: Record<string, unknown> | null;
+  lease_generation: number;
+  blocked_reason: string | null;
+  unblocks: string | null;
+};
+export type HandoffTest = { command: string; passed: number; failed: number };
+// What a holder hands over with task.submit: the result, the evidence for it, the changed artifacts, the tests run
+// with their counts, and what is still open.
+export type Handoff = {
+  result: string;
+  evidence: Array<string>;
+  artifacts: Array<string>;
+  tests: Array<HandoffTest>;
+  open_issues: Array<string>;
+};
+// The answer of task.orient: what the caller holds, what it blocked, what waits for its review, what it is asked.
+export type Orientation = {
+  held: Array<TaskRecord>;
+  blocked: Array<TaskRecord>;
+  reviews: Array<TaskRecord>;
+  questions: Array<Row>;
 };
 export type Row = Readonly<Record<string, unknown>>;
 export type EventRow = {
@@ -137,6 +157,7 @@ export type TaskView = {
   questions: Array<Row>;
   approvals: Array<Row>;
   results: Array<Row>;
+  handoff: Handoff | null;
   comments: Array<CommentRow>;
   events: Array<EventRow>;
 };
@@ -158,6 +179,11 @@ export type BoardResults = {
   'task.approve': { approval: Row; task: TaskRecord };
   'task.result': { result: Row; task: TaskRecord };
   'task.comment': { comment: CommentRow; task: TaskRecord };
+  'task.block': TaskRecord;
+  'task.unblock': TaskRecord;
+  'task.submit': { result: Row; handoff: Handoff; task: TaskRecord };
+  'task.review': { review: Row; task: TaskRecord };
+  'task.orient': Orientation;
   'attempt.start': Row;
   'attempt.end': Row;
   'run.start': Row;
@@ -170,7 +196,7 @@ export type BoardOp = keyof BoardResults;
 // A board_tasks row as stored: the record with its metadata still JSON text.
 type TaskRow = Omit<TaskRecord, 'metadata'> & { metadata: string | null };
 
-// The columns of board_tasks are the TaskRow fields (schema v1), so a row read from it is one.
+// The columns of board_tasks are the TaskRow fields (board v2), so a row read from it is one.
 const asTask = (row: Record<string, unknown>): TaskRow => row as unknown as TaskRow;
 
 function parseTask(row: TaskRow): TaskRecord {
@@ -182,6 +208,8 @@ const BASE32 = 'abcdefghijklmnopqrstuvwxyz234567';
 const IDEMPOTENCY_MS = 24 * 60 * 60 * 1000;
 const RESULT_KINDS: ReadonlyArray<string> = ['summary', 'diff', 'pr', 'answer', 'file', 'prompt', 'spec'];
 const SUBMIT_KINDS: ReadonlyArray<string> = ['summary', 'diff', 'pr'];
+// A move into one of these ends the lease (as does a move into a closed status).
+const LEASE_ENDS: ReadonlyArray<Status> = ['needs_answer', 'needs_validation', 'blocked', 'approved'];
 const DEP_TYPES: ReadonlyArray<string> = ['blocks', 'parent-child', 'discovered-from', 'related'];
 const OUTCOMES: ReadonlyArray<string> = ['done', 'failed', 'stopped', 'stalled', 'over-budget', 'needs_answer'];
 // The errand mirror sends its errand's state as the outcome, and a cancelled run is a stopped attempt.
@@ -226,7 +254,10 @@ const RUN_END_INTEGERS: ReadonlyArray<string> = [
   'compactions',
 ];
 
-const READ_OPS: ReadonlySet<string> = new Set(['task.list', 'task.show', 'costs.agents']);
+const READ_OPS: ReadonlySet<string> = new Set(['task.list', 'task.show', 'task.orient', 'costs.agents']);
+const HANDOFF_LISTS = ['evidence', 'artifacts', 'open_issues'] as const;
+const HANDOFF_KEYS: ReadonlyArray<string> = ['result', ...HANDOFF_LISTS, 'tests'];
+const HANDOFF_MAX = 2000000;
 
 // ---------- rights ----------
 
@@ -292,6 +323,16 @@ function listTasks(db: BoardDb, args: Args, nowIso: string): Array<TaskRecord> {
     .map((row) => parseTask(asTask(row)));
 }
 
+function latestHandoff(db: BoardDb, taskId: string): Handoff | null {
+  const row = db
+    .prepare(
+      "SELECT body FROM board_results WHERE task_id = ? AND kind = 'handoff' ORDER BY created_at DESC, rowid DESC LIMIT 1"
+    )
+    .get(taskId);
+  // Only task.submit and a submitting task.result write a handoff row, and its body is the JSON of a filled Handoff.
+  return typeof row?.body === 'string' ? (JSON.parse(row.body) as Handoff) : null;
+}
+
 function viewOf(db: BoardDb, task: TaskRow, nowIso: string): TaskView {
   const all = (sql: string): Array<Row> => db.prepare(sql).all(task.id);
   return {
@@ -303,6 +344,7 @@ function viewOf(db: BoardDb, task: TaskRow, nowIso: string): TaskView {
     questions: all('SELECT * FROM board_questions WHERE task_id = ? ORDER BY created_at, rowid'),
     approvals: all('SELECT * FROM board_reviews WHERE task_id = ? ORDER BY created_at, rowid'),
     results: all('SELECT * FROM board_results WHERE task_id = ? ORDER BY created_at, rowid'),
+    handoff: latestHandoff(db, task.id),
     // The rows of board_comments and board_events have exactly the CommentRow and EventRow columns (schema v1).
     comments: all('SELECT * FROM board_comments WHERE task_id = ? ORDER BY created_at, rowid') as Array<CommentRow>,
     events: all(
@@ -420,7 +462,10 @@ export class Board {
     });
   }
 
-  /** Returns tasks whose lease expired to approved and purges idempotency keys past 24 hours; the expired ids. */
+  /**
+   * Returns tasks whose lease expired to approved, each with its generation raised so the late holder is refused, and
+   * purges idempotency keys past 24 hours; the expired ids.
+   */
   reap(): Array<string> {
     requireVersion(this.db);
     return this.transaction(() => {
@@ -439,7 +484,7 @@ export class Board {
           conditions: new Set(),
         });
         this.event(task.id, 'reaper', 'lease.expired', { owner: task.lease_owner, expires_at: task.lease_expires_at });
-        this.move(task, 'approved', 'reaper');
+        this.move(task, 'approved', 'reaper', { lease_generation: task.lease_generation + 1 });
       }
       this.db.prepare('DELETE FROM board_idempotency WHERE created_at < ?').run(isoOf(this.clock() - IDEMPOTENCY_MS));
       return expired.map((t) => t.id);
@@ -514,7 +559,8 @@ export class Board {
   row(sql: string, ...params: Array<unknown>): Row {
     const found = this.db.prepare(sql).get(...params);
     if (found === undefined) throw new BoardError('not-found', 'the row just written is gone');
-    return found;
+    // A plain copy: node:sqlite's rows have no prototype, and a replayed answer (JSON) must equal the first one.
+    return { ...found };
   }
 
   event(taskId: string | null, actor: string, type: string, oldValue: unknown = null, newValue: unknown = null): void {
@@ -530,6 +576,23 @@ export class Board {
     this.db
       .prepare('INSERT INTO board_outbox (task_id, to_whom, kind, payload, created_at) VALUES (?, ?, ?, ?, ?)')
       .run(taskId, toWhom, kind, JSON.stringify(payload), this.now());
+  }
+
+  /**
+   * Refuses a holder's call whose generation is not the task's: 'stale-lease' for another integer, 'invalid' for a
+   * value that is not one. A call without a generation passes. Runs before any status check and any write.
+   */
+  checkGeneration(task: TaskRow, generation: unknown): void {
+    if (generation === undefined || generation === null) return;
+    if (typeof generation !== 'number' || !Number.isInteger(generation)) {
+      throw invalid('generation must be an integer');
+    }
+    if (generation !== task.lease_generation) {
+      throw new BoardError(
+        'stale-lease',
+        `generation ${generation} of ${task.id} is stale, the lease is at ${task.lease_generation}`
+      );
+    }
   }
 
   checkRevision(task: TaskRow, revision: unknown, required: boolean): void {
@@ -599,10 +662,14 @@ export class Board {
     return typeof found?.actor === 'string' ? found.actor : null;
   }
 
-  /** Moves the task to `to` with extra columns; writes the event, the outbox row and the blocked projection. */
+  /**
+   * Moves the task to `to` with extra columns; writes the event, the outbox row and the blocked projection. Throws
+   * BoardError 'blocked' for a move to done while a child of the task is open.
+   */
   move(task: TaskRow, to: Status, actor: string, fields: Readonly<Record<string, SqlValue>> = {}): TaskRow {
+    if (to === 'done') this.refuseOpenChildren(task);
     const extra: Record<string, SqlValue> = { ...fields, status: to };
-    if (CLOSED.includes(to) || to === 'needs_answer' || to === 'needs_validation' || to === 'approved') {
+    if (CLOSED.includes(to) || LEASE_ENDS.includes(to)) {
       Object.assign(extra, { lease_owner: null, lease_expires_at: null, heartbeat_at: null });
     }
     const updated = this.write(task, extra);
@@ -617,6 +684,30 @@ export class Board {
     }
     if (CLOSED.includes(to)) this.refreshDependents(task.id, actor);
     return updated;
+  }
+
+  refuseOpenChildren(task: TaskRow): void {
+    const placeholders = CLOSED.map(() => '?').join(',');
+    const open = Number(
+      this.db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM board_dependencies d JOIN board_tasks c ON c.id = d.task_id
+      WHERE d.depends_on_id = ? AND d.type = 'parent-child' AND c.status NOT IN (${placeholders})`
+        )
+        .get(task.id, ...CLOSED)?.n ?? 0
+    );
+    if (open > 0) throw new BoardError('blocked', `${task.id} has ${open} open child task(s)`);
+  }
+
+  /**
+   * Whether `principal` may review `task`: it holds owner or reviewer and is not the task's requester. The owner
+   * reviews what it filed itself, unless it also holds `persona`: the persona never reviews its own task.
+   */
+  mayReview(principal: string, task: TaskRow): boolean {
+    const grants = this.grantsOf(principal);
+    if (!grants.has('owner') && !grants.has('reviewer')) return false;
+    if (!this.actsFor(principal, task.requester)) return true;
+    return grants.has('owner') && !grants.has('persona');
   }
 
   refreshBlocked(taskId: string, actor: string): void {
@@ -671,11 +762,13 @@ export class Board {
           if (!str(args.comment, 'comment')) throw invalid('a comment saying what to fix is required');
           break;
         case 'result': {
-          const placeholders = SUBMIT_KINDS.map(() => '?').join(',');
+          const kinds = ['handoff', ...SUBMIT_KINDS];
           const n = this.db
-            .prepare(`SELECT COUNT(*) AS n FROM board_results WHERE task_id = ? AND kind IN (${placeholders})`)
-            .get(task.id, ...SUBMIT_KINDS)?.n;
-          if (!n) throw invalid('a pr, diff or summary result is required first');
+            .prepare(
+              `SELECT COUNT(*) AS n FROM board_results WHERE task_id = ? AND kind IN (${kinds.map(() => '?').join(',')})`
+            )
+            .get(task.id, ...kinds)?.n;
+          if (!n) throw invalid('a handoff, or a pr, diff or summary result, is required first');
           break;
         }
         case 'why':
@@ -795,10 +888,22 @@ function newTaskFields(board: Board, args: Args, project: string | null): Record
   return row;
 }
 
+// A child task depends on its parent with a parent-child row: the parent waits for it at done, its claim does not.
+function linkParent(board: Board, principal: string, child: string, parent: string): void {
+  board.db
+    .prepare(
+      `INSERT INTO board_dependencies (task_id, depends_on_id, type, created_by, created_at)
+      VALUES (?, ?, 'parent-child', ?, ?)`
+    )
+    .run(child, parent, principal, board.now());
+  board.event(child, principal, 'dependency.added', null, { on: parent, type: 'parent-child' });
+}
+
 function addTask(board: Board, principal: string, args: Args): TaskRecord {
   const { lane, requester, subscriber } = filingOf(board, principal, args);
   const project = str(args.project, 'project');
   const row = newTaskFields(board, args, project);
+  const parent = args.parent === undefined || args.parent === null ? null : board.getTask(args.parent).id;
   const id = board.newId('T', 'board_tasks');
   const now = board.now();
   board.db
@@ -829,6 +934,7 @@ function addTask(board: Board, principal: string, args: Args): TaskRecord {
     );
   board.event(id, principal, 'task.created', null, { title: row.title, lane, requester });
   board.event(id, principal, 'status', null, 'proposed');
+  if (parent !== null) linkParent(board, principal, id, parent);
   if (!args.auto) return parseTask(board.getTask(id));
   // Triage and approval in the same transaction, through the machine's own rules: a caller who may not approve this
   // task is refused and nothing is added.
@@ -914,19 +1020,25 @@ function claimTask(board: Board, principal: string, args: Args): TaskRecord {
   const info = board.db
     .prepare(
       `UPDATE board_tasks SET status = 'in_progress', lease_owner = ?, lease_expires_at = ?,
-      heartbeat_at = ?, revision = revision + 1, updated_at = ?
+      heartbeat_at = ?, lease_generation = lease_generation + 1, revision = revision + 1, updated_at = ?
       WHERE id = ? AND status = 'approved' AND lease_owner IS NULL AND is_blocked = 0
       AND (defer_until IS NULL OR defer_until <= ?)`
     )
     .run(principal, expires, now, now, task.id, now);
   if (Number(info.changes) !== 1) throw new BoardError('claimed', `${task.id} was claimed by someone else`);
   board.event(task.id, principal, 'status', 'approved', 'in_progress');
-  board.event(task.id, principal, 'lease.claimed', null, { owner: principal, expires_at: expires });
-  return parseTask(board.getTask(task.id));
+  const claimed = board.getTask(task.id);
+  board.event(task.id, principal, 'lease.claimed', null, {
+    owner: principal,
+    expires_at: expires,
+    generation: claimed.lease_generation,
+  });
+  return parseTask(claimed);
 }
 
 function heartbeatTask(board: Board, principal: string, args: Args): TaskRecord {
   const task = board.getTask(args.id);
+  board.checkGeneration(task, args.generation);
   if (task.status !== 'in_progress') throw new BoardError('invalid-transition', `${task.id} is ${task.status}`);
   if (task.lease_owner !== principal) throw new BoardError('forbidden', `${principal} does not hold ${task.id}`);
   const expires = board.later(leaseMinutes(args, board.context.settings.leaseTtlMinutes));
@@ -938,6 +1050,7 @@ function heartbeatTask(board: Board, principal: string, args: Args): TaskRecord 
 
 function releaseTask(board: Board, principal: string, args: Args): TaskRecord {
   const task = board.getTask(args.id);
+  board.checkGeneration(task, args.generation);
   board.checkRevision(task, args.revision, false);
   board.authorizeMove(principal, task, 'approved', 'release');
   board.event(task.id, principal, 'lease.released', { owner: task.lease_owner }, null);
@@ -1003,6 +1116,7 @@ function undependTask(board: Board, principal: string, args: Args): TaskRecord {
 
 function askTask(board: Board, principal: string, args: Args): { question: Row; task: TaskRecord } {
   const task = board.getTask(args.id);
+  board.checkGeneration(task, args.generation);
   board.checkRevision(task, args.revision, false);
   const text = str(args.text, 'text', { required: true });
   const toWhom = str(args.to_whom ?? args.to, 'to_whom', { required: true, max: 200 });
@@ -1114,10 +1228,40 @@ function approveTask(board: Board, principal: string, args: Args): { approval: R
   };
 }
 
+function insertResult(
+  board: Board,
+  principal: string,
+  task: TaskRow,
+  attemptId: string | null,
+  { kind, body, uri }: { kind: string; body: string | null; uri: string | null }
+): string {
+  const id = board.newId('R', 'board_results');
+  board.db
+    .prepare(
+      'INSERT INTO board_results (id, task_id, attempt_id, kind, body, uri, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    )
+    .run(id, task.id, attemptId, kind, body, uri, board.now());
+  board.event(task.id, principal, 'result', null, { id, kind, uri });
+  return id;
+}
+
+function insertHandoff(
+  board: Board,
+  principal: string,
+  task: TaskRow,
+  attemptId: string | null,
+  handoff: Handoff
+): string {
+  const body = JSON.stringify(handoff);
+  if (body.length > HANDOFF_MAX) throw invalid('the handoff is too long');
+  return insertResult(board, principal, task, attemptId, { kind: 'handoff', body, uri: null });
+}
+
 // task_id is an alias of id and text of body (the errand mirror sends them). A result has no metadata column:
 // metadata given is accepted and not stored.
 function resultTask(board: Board, principal: string, args: Args): { result: Row; task: TaskRecord } {
   const task = board.getTask(aliased(args, 'id', 'task_id'));
+  board.checkGeneration(task, args.generation);
   board.checkRevision(task, args.revision, false);
   if (!board.isErrandRunner(principal, task)) board.requireEditor(principal, task);
   const kind = args.kind;
@@ -1127,13 +1271,18 @@ function resultTask(board: Board, principal: string, args: Args): { result: Row;
   const body = str(aliased(args, 'body', 'text'), 'body', { max: 2000000 });
   const uri = str(args.uri, 'uri', { max: 2000 });
   if (!body && !uri) throw invalid('a result needs a body or a uri');
-  const id = board.newId('R', 'board_results');
-  board.db
-    .prepare(
-      'INSERT INTO board_results (id, task_id, attempt_id, kind, body, uri, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    )
-    .run(id, task.id, str(args.attempt_id, 'attempt_id'), kind, body, uri, board.now());
-  board.event(task.id, principal, 'result', null, { id, kind, uri });
+  const attemptId = str(args.attempt_id, 'attempt_id');
+  // A submitting result of a submit kind is a handoff with only its result and the uri as its artifact.
+  const id =
+    args.submit && SUBMIT_KINDS.includes(kind)
+      ? insertHandoff(board, principal, task, attemptId, {
+          result: body ?? uri ?? '',
+          evidence: [],
+          artifacts: uri ? [uri] : [],
+          tests: [],
+          open_issues: [],
+        })
+      : insertResult(board, principal, task, attemptId, { kind, body, uri });
   let updated = board.write(task, {});
   if (args.submit) updated = board.transitionTo(principal, updated, 'needs_validation', 'transition', {});
   return { result: board.row('SELECT * FROM board_results WHERE id = ?', id), task: parseTask(updated) };
@@ -1202,6 +1351,7 @@ function endAttempt(board: Board, principal: string, given: Args): Row {
   if (attempt === undefined) throw new BoardError('not-found', `no attempt ${aid}`);
   if (attempt.ended_at) throw invalid(`${aid} has ended`);
   const task = board.getTask(attempt.task_id);
+  board.checkGeneration(task, given.generation);
   if (
     attempt.principal !== principal &&
     !board.grantsOf(principal).has('owner') &&
@@ -1321,6 +1471,137 @@ function pullOutbox(board: Board, principal: string, args: Args): Array<Row> {
   }));
 }
 
+// ---------- the workflow: block, submit, review, orient ----------
+
+// The holder stops: the task waits in `blocked` with why and what would unblock it, and the lease ends.
+function blockTask(board: Board, principal: string, args: Args): TaskRecord {
+  const task = board.getTask(args.id);
+  board.checkGeneration(task, args.generation);
+  board.checkRevision(task, args.revision, false);
+  board.authorizeMove(principal, task, 'blocked', 'block');
+  const reason = str(args.reason, 'reason', { required: true, max: 2000 });
+  const unblocks = str(args.unblocks, 'unblocks', { required: true, max: 2000 });
+  board.event(task.id, principal, 'task.blocked', { owner: task.lease_owner }, { reason, unblocks });
+  return parseTask(board.move(task, 'blocked', principal, { blocked_reason: reason, unblocks }));
+}
+
+// The owner or a reviewer returns a blocked task to approved; the note says what changed and becomes a comment.
+function unblockTask(board: Board, principal: string, args: Args): TaskRecord {
+  const task = board.getTask(args.id);
+  board.checkRevision(task, args.revision, false);
+  board.authorizeMove(principal, task, 'approved', 'unblock');
+  const note = str(args.note, 'note', { required: true }) ?? '';
+  board.addComment(principal, task, note);
+  return parseTask(board.move(task, 'approved', principal, { blocked_reason: null, unblocks: null }));
+}
+
+function stringList(value: unknown, name: string): Array<string> {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
+    throw invalid(`handoff.${name} must be a list of strings`);
+  }
+  return [...(value as Array<string>)];
+}
+
+function handoffTests(value: unknown): Array<HandoffTest> {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw invalid('handoff.tests must be a list');
+  return value.map((entry: unknown) => {
+    const count = (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 0;
+    if (
+      !isObject(entry) ||
+      Object.keys(entry).some((key) => !['command', 'passed', 'failed'].includes(key)) ||
+      typeof entry.command !== 'string' ||
+      entry.command.trim() === '' ||
+      !count(entry.passed) ||
+      !count(entry.failed)
+    ) {
+      throw invalid('each handoff test needs a command and its passed and failed counts');
+    }
+    return { command: entry.command, passed: entry.passed, failed: entry.failed };
+  });
+}
+
+/** The handoff of a submit, every list filled; throws BoardError 'invalid' for a missing result or a stray key. */
+function parseHandoff(value: unknown): Handoff {
+  if (!isObject(value)) throw invalid('handoff is required');
+  const stray = Object.keys(value).filter((key) => !HANDOFF_KEYS.includes(key));
+  if (stray.length) throw invalid(`handoff has unknown fields: ${stray.join(', ')}`);
+  if (typeof value.result !== 'string' || value.result.trim() === '') throw invalid('handoff.result is required');
+  return {
+    result: value.result,
+    evidence: stringList(value.evidence, 'evidence'),
+    artifacts: stringList(value.artifacts, 'artifacts'),
+    tests: handoffTests(value.tests),
+    open_issues: stringList(value.open_issues, 'open_issues'),
+  };
+}
+
+// The holder hands the work over for review: one handoff row, then needs_validation.
+function submitTask(board: Board, principal: string, args: Args): { result: Row; handoff: Handoff; task: TaskRecord } {
+  const task = board.getTask(args.id);
+  board.checkGeneration(task, args.generation);
+  board.checkRevision(task, args.revision, false);
+  const found = board.authorizeMove(principal, task, 'needs_validation', 'transition');
+  const handoff = parseHandoff(args.handoff);
+  const id = insertHandoff(board, principal, task, str(args.attempt_id, 'attempt_id'), handoff);
+  board.checkRequires(found, task, {});
+  const updated = board.move(task, 'needs_validation', principal);
+  return { result: board.row('SELECT * FROM board_results WHERE id = ?', id), handoff, task: parseTask(updated) };
+}
+
+// accept closes the task under the merge rule of the machine; changes hands it back to the principal who submitted it,
+// with the comment. The requester never reviews its own task (Board#mayReview).
+function reviewTask(board: Board, principal: string, args: Args): { review: Row; task: TaskRecord } {
+  const task = board.getTask(args.id);
+  board.checkRevision(task, args.revision, false);
+  const decision = args.decision;
+  if (decision !== 'accept' && decision !== 'changes') throw invalid('decision must be accept or changes');
+  if (task.status !== 'needs_validation') {
+    throw new BoardError('invalid-transition', `${task.id} is ${task.status}, not needs_validation`);
+  }
+  const comment = str(args.comment, 'comment');
+  if (decision === 'changes' && !comment) throw invalid('a comment saying what to fix is required');
+  const grants = board.grantsOf(principal);
+  if ((grants.has('owner') || grants.has('reviewer')) && !board.mayReview(principal, task)) {
+    throw new BoardError('forbidden', `${principal} filed ${task.id} and may not review it`);
+  }
+  const to = decision === 'accept' ? 'done' : 'in_progress';
+  const updated = board.transitionTo(principal, task, to, 'review', { comment });
+  const id = board.newId('A', 'board_reviews');
+  board.db
+    .prepare(
+      'INSERT INTO board_reviews (id, task_id, principal, decision, scope, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    )
+    .run(id, task.id, principal, decision, 'merge', comment, board.now());
+  board.event(task.id, principal, 'review', null, { id, decision, comment });
+  return { review: board.row('SELECT * FROM board_reviews WHERE id = ?', id), task: parseTask(updated) };
+}
+
+function orientOf(board: Board, principal: string): Orientation {
+  const tasks = (status: Status): Array<TaskRow> =>
+    board.db
+      .prepare('SELECT * FROM board_tasks WHERE status = ? ORDER BY priority, created_at, rowid')
+      .all(status)
+      .map(asTask);
+  const questions = board.db
+    .prepare('SELECT * FROM board_questions WHERE answered_at IS NULL ORDER BY created_at, rowid')
+    .all()
+    .filter((row) => board.actsFor(principal, typeof row.to_whom === 'string' ? row.to_whom : null));
+  return {
+    held: tasks('in_progress')
+      .filter((task) => task.lease_owner === principal)
+      .map(parseTask),
+    blocked: tasks('blocked')
+      .filter((task) => board.parkedBy(task) === principal)
+      .map(parseTask),
+    reviews: tasks('needs_validation')
+      .filter((task) => board.mayReview(principal, task))
+      .map(parseTask),
+    questions,
+  };
+}
+
 const OPS: Readonly<Record<BoardOp, Handler>> = {
   'task.add': addTask,
   'task.list': (board, _principal, args) => listTasks(board.db, args, board.now()),
@@ -1345,4 +1626,9 @@ const OPS: Readonly<Record<BoardOp, Handler>> = {
   'run.end': endRun,
   'costs.agents': costsOf,
   'outbox.pull': pullOutbox,
+  'task.block': blockTask,
+  'task.unblock': unblockTask,
+  'task.submit': submitTask,
+  'task.review': reviewTask,
+  'task.orient': (board, principal) => orientOf(board, principal),
 };
