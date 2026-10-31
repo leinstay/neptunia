@@ -730,11 +730,14 @@ export function createErrandStore({
 
   /**
    * The end of errand `id` marked delivered (the door took its `errand.done`), written to the board; false when no end
-   * of that errand is pending.
+   * of that errand is pending. An end whose own write has not landed yet counts as pending: the mark rides along that
+   * write, so the end and its delivery reach the board in one transaction.
    */
   function markDelivered(id: unknown): boolean {
     const key = idText(id);
-    if (!key || !pendingEnds().some((end) => end.errandId === key)) return false;
+    const errand = key ? find(key) : null;
+    const landing = Boolean(errand && !isOpenState(errand.state) && outbox?.holds(`board/errands/${key}`));
+    if (!key || (!landing && !pendingEnds().some((end) => end.errandId === key))) return false;
     delivered.add(key);
     send(key, find(key));
     log.info('errands: end delivered', { guildId: String(guildId), id: key });
