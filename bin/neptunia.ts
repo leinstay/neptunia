@@ -44,7 +44,8 @@
 // `interface run` loads `<dir>/<name>/index.ts` or `index.js` (the default dir is the checkout's `interfaces/`), reads
 // the client's token from `<private>/clients/<name>.token`, connects to the core's socket and calls the package's
 // `start(host)` with `host.dataDir` set to `<data>/interfaces/<name>`, where the interface keeps its outbox. Its
-// settings are config.json, then the package's own config.json, then config.local.json when this user can read it,
+// settings are the core's (config/config.json, then the private settings file when this user can read it), then the
+// package's own config.json, then the private `config.local/interfaces/<name>.json` (src/config/files.ts#readInterfaceConfig),
 // read again whenever one of the files changes. A link that drops is opened again with backoff, from a quarter second
 // doubling to 30 seconds, and the backoff starts over once a link stayed up for 30 seconds. An interface that cannot
 // reconnect (no `reconnect()`) ends the process with exit code 1, and its unit restarts it. SIGTERM and SIGINT stop
@@ -65,7 +66,15 @@ import { startSweeper } from '../src/agent-runner/sweep.js';
 import { ROOT_DIR, deepMerge, parseEnv, readConfig, resolveEnvRefs } from '../src/config.js';
 import { moveConfigKeys } from '../src/config-moves.ts';
 import { checkConfig as checkSettings } from '../src/config/check.ts';
-import { LOCAL_CONFIG_DIR, MOVE_TOOL, localConfigPath, localFiles, trackedConfigPath } from '../src/config/files.ts';
+import {
+  MOVE_TOOL,
+  localConfigPath,
+  localFiles,
+  localInterfacePath,
+  readInterfaceConfig,
+  trackedConfigPath,
+} from '../src/config/files.ts';
+import { cutConfigKeys } from '../src/config/cut.ts';
 import type { LocalFiles } from '../src/config/files.ts';
 import { CONFIG_SCHEMA } from '../src/config/schema.ts';
 import { parseCommandLine } from '../src/interface/commands/table.ts';
@@ -647,7 +656,7 @@ function checkConfig(where: { rootDir: string; privateDir: string }): Check {
   if (local === null || found.config === null)
     return { name: 'config', status: 'warn', detail: 'no config.local/config.json: the shipped settings apply' };
   const file = path.relative(where.privateDir, found.config);
-  const problems = checkSettings(moveConfigKeys(local).config, CONFIG_SCHEMA).map(({ key, kind }) =>
+  const problems = checkSettings(settledLayer(local), CONFIG_SCHEMA).map(({ key, kind }) =>
     kind === 'unknown' ? `${key} (unknown)` : `${key} (wrong type)`
   );
   const moveNote = found.old ? `; the old layout, moved by node ${MOVE_TOOL}` : '';
@@ -997,16 +1006,27 @@ function changedAt(file: string): number {
   }
 }
 
+type SettingsLayers = { compose?: (core: Settings) => Settings; watched?: ReadonlyArray<string> };
+
+/** A private settings file as the core reads it: its keys of an old name under the new one, the cut keys out. */
+const settledLayer = (layer: Settings): Settings => cutConfigKeys(moveConfigKeys(layer).config).config;
+
 /**
- * The interface's settings, read again when a file changed. Each change that read well is told to the listeners.
- * `local` is the private settings file among `files`, read with its keys of an old name under the new one.
+ * The process's settings, read again when a file changed. Each change that read well is told to the listeners.
+ * `local` is the private settings file among `files`, read the way the core reads it (`settledLayer`). `compose`
+ * lays the files an interface adds over the merged settings (src/config/files.ts#readInterfaceConfig); a file it
+ * reads itself is in `watched`, so a change to it reads the settings again.
  */
-function createSettings(files: ReadonlyArray<string>, local: string) {
+function createSettings(
+  files: ReadonlyArray<string>,
+  local: string,
+  { compose = (core: Settings): Settings => core, watched = [] }: SettingsLayers = {}
+) {
   const listeners = new Set<(what: string) => void>();
   let stamp = '';
   let current: Settings = {};
   function read(): Settings {
-    const now = files.map(changedAt).join(':');
+    const now = [...files, ...watched].map(changedAt).join(':');
     if (now === stamp) return current;
     const [base = '', ...layers] = files;
     try {
@@ -1014,10 +1034,9 @@ function createSettings(files: ReadonlyArray<string>, local: string) {
       for (const file of layers) {
         const layer = readObject(file);
         if (layer === null) continue;
-        // The private settings file is read with its keys of an old name under the new one, as the core reads it.
-        merged = deepMerge(merged, file === local ? moveConfigKeys(layer).config : layer) as Settings;
+        merged = deepMerge(merged, file === local ? settledLayer(layer) : layer) as Settings;
       }
-      current = resolveEnvRefs(merged) as Settings;
+      current = resolveEnvRefs(compose(merged)) as Settings;
     } catch (err) {
       if (stamp === '') throw err;
       log.warn('interface: settings not reloaded, keeping the previous ones', { error: err });
@@ -1043,17 +1062,14 @@ async function runInterface(argv: ReadonlyArray<string>): Promise<void> {
   const pkg = await loadPackage(packageDir);
   const token = readToken(where.privateDir, name);
   const socketPath = coreSocketPath(where.dataDir);
-  // The tracked settings, the package's own, the private settings file, then the private file of this interface.
+  // The core's settings (the tracked file and the private settings file), then the package's own, the package's keys a
+  // private file not yet cut holds, and the private file of this interface (src/config/files.ts#readInterfaceConfig).
   const localFile = localConfigPath(where.privateDir);
-  const settings = createSettings(
-    [
-      trackedConfigPath(where.rootDir),
-      path.join(packageDir, 'config.json'),
-      localFile,
-      path.join(where.privateDir, LOCAL_CONFIG_DIR, 'interfaces', `${name}.json`),
-    ],
-    localFile
-  );
+  const settings = createSettings([trackedConfigPath(where.rootDir), localFile], localFile, {
+    compose: (core) =>
+      readInterfaceConfig({ rootDir: where.rootDir, privateDir: where.privateDir, name, base: core, packageDir }),
+    watched: [path.join(packageDir, 'config.json'), localInterfacePath(where.privateDir, name)],
+  });
   settings.read();
 
   let delays = 0;

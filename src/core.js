@@ -14,7 +14,7 @@ import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { localConfigPath } from './config/files.ts';
+import { localConfigPath, readInterfaceConfig } from './config/files.ts';
 import { createHot } from './hot.js';
 import { log, onLog } from './log.js';
 import { createMetrics, metricsTap } from './tools/impl/metrics.ts';
@@ -588,6 +588,27 @@ async function buildCore(options, cleanups) {
   // client, logs in, waits for the guild, says hello and serves its adapter; the events it sees wait until
   // `running.open()` below, when the door has its handlers. A refusal (no token, no guild, no login) stops the start
   // here. A unit does all of it in its own process (bin/neptunia.ts).
+  // The interface's settings are the core's with its package's own and its private file over them
+  // (src/config/files.ts#readInterfaceConfig), read again when the core's settings reload.
+  /**
+   * @param {string} name
+   * @param {() => Record<string, unknown>} current  The core's settings now.
+   * @returns {() => Record<string, unknown>}
+   */
+  const interfaceConfigOf = (name, current) => {
+    /** @type {unknown} */
+    let seen = null;
+    /** @type {Record<string, unknown>} */
+    let settings = {};
+    return () => {
+      const core = current();
+      if (core !== seen) {
+        seen = core;
+        settings = readInterfaceConfig({ rootDir: paths.rootDir, privateDir: paths.privateDir, name, base: core });
+      }
+      return settings;
+    };
+  };
   const running = asUnits
     ? null
     : await interfaces[0]
@@ -596,7 +617,7 @@ async function buildCore(options, cleanups) {
           token: linkToken,
           dataDir: path.join(dataDir, 'interfaces', interfaces[0].name),
           env: {},
-          config: () => hot.config,
+          config: interfaceConfigOf(interfaces[0].name, () => hot.config),
           onConfigChange: (listener) => hot.onReload(listener),
           log,
         })
