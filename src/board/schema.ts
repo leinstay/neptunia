@@ -87,10 +87,67 @@ CREATE TABLE board_agent_runs (
 CREATE INDEX board_agent_runs_agent ON board_agent_runs(agent, started_at);
 `;
 
-/** Each entry moves the board one version up. Never edit a shipped entry: append a new one. */
-export const BOARD_MIGRATIONS: ReadonlyArray<string> = [V1];
+// Board v2: the lease generation that shuts out a late holder, the `blocked` status with its reason and what unblocks
+// it, the `handoff` result and the `accept` and `changes` review decisions. A CHECK changes only by a rebuild: each
+// table is created anew, its rows copied with their rowids (the reads order ties by rowid), the old one dropped, and
+// the new one renamed. A v1 task starts at generation 0.
+const V2_TASK_COLUMNS =
+  'id, lane, project, title, description, acceptance, requester, priority, risk, role, budget_usd, step_cap, ' +
+  'estimate_minutes, status, close_reason, defer_until, is_blocked, revision, lease_owner, lease_expires_at, ' +
+  'heartbeat_at, subscriber, created_at, updated_at, metadata';
+const V2 = `
+CREATE TABLE board_tasks_v2 (
+  id TEXT PRIMARY KEY,
+  lane TEXT CHECK (lane IN ('dev','errand')),
+  project TEXT,
+  title TEXT NOT NULL, description TEXT, acceptance TEXT,
+  requester TEXT NOT NULL,
+  priority INTEGER CHECK (priority BETWEEN 0 AND 4) DEFAULT 2,
+  risk TEXT CHECK (risk IN ('low','normal','high')) DEFAULT 'normal',
+  role TEXT,
+  budget_usd REAL, step_cap INTEGER, estimate_minutes INTEGER,
+  status TEXT NOT NULL CHECK (status IN ('proposed','triaged','approved','rejected','in_progress','needs_answer','needs_validation','blocked','done','failed','cancelled')),
+  close_reason TEXT, defer_until TEXT,
+  is_blocked INTEGER NOT NULL DEFAULT 0,
+  revision INTEGER NOT NULL DEFAULT 1,
+  lease_owner TEXT, lease_expires_at TEXT, heartbeat_at TEXT,
+  subscriber TEXT,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+  metadata TEXT,
+  lease_generation INTEGER NOT NULL DEFAULT 0,
+  blocked_reason TEXT,
+  unblocks TEXT
+);
+INSERT INTO board_tasks_v2 (rowid, ${V2_TASK_COLUMNS}) SELECT rowid, ${V2_TASK_COLUMNS} FROM board_tasks;
+DROP TABLE board_tasks;
+ALTER TABLE board_tasks_v2 RENAME TO board_tasks;
+CREATE INDEX board_tasks_status ON board_tasks(status);
+CREATE INDEX board_tasks_lease ON board_tasks(lease_expires_at) WHERE lease_owner IS NOT NULL;
+CREATE TABLE board_reviews_v2 (
+  id TEXT PRIMARY KEY, task_id TEXT NOT NULL, principal TEXT,
+  decision TEXT CHECK (decision IN ('approve','reject','accept','changes')),
+  scope TEXT CHECK (scope IN ('plan','merge','deploy')),
+  note TEXT, created_at TEXT
+);
+INSERT INTO board_reviews_v2 (rowid, id, task_id, principal, decision, scope, note, created_at)
+  SELECT rowid, id, task_id, principal, decision, scope, note, created_at FROM board_reviews;
+DROP TABLE board_reviews;
+ALTER TABLE board_reviews_v2 RENAME TO board_reviews;
+CREATE TABLE board_results_v2 (
+  id TEXT PRIMARY KEY, task_id TEXT NOT NULL, attempt_id TEXT,
+  kind TEXT CHECK (kind IN ('summary','diff','pr','answer','file','prompt','spec','handoff')),
+  body TEXT, uri TEXT, created_at TEXT
+);
+INSERT INTO board_results_v2 (rowid, id, task_id, attempt_id, kind, body, uri, created_at)
+  SELECT rowid, id, task_id, attempt_id, kind, body, uri, created_at FROM board_results;
+DROP TABLE board_results;
+ALTER TABLE board_results_v2 RENAME TO board_results;
+`;
 
-/** The tables board v1 creates, in this order. */
+/** Each entry moves the board one version up. Never edit a shipped entry: append a new one. */
+export const BOARD_MIGRATIONS: ReadonlyArray<string> = [V1, V2];
+
+/** The tables of the board, in the order board v1 creates them. */
 export const BOARD_TABLES: ReadonlyArray<string> = [
   'board_tasks',
   'board_dependencies',
