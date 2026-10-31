@@ -18,18 +18,31 @@ test('a new database is migrated to the latest version with every table of schem
   const handle = openMemoryDb(':memory:');
   assert.equal(schemaVersion(handle.db), MIGRATIONS.length);
   const tables = names(handle.db);
-  for (const table of V1_TABLES) assert.ok(tables.includes(table), `${table} is missing`);
+  // Schema v21 drops the eight reserved ledger_* tables of v1, which no code ever wrote (the board's tables replace
+  // them, src/board/schema.ts), so every other v1 table is still there.
+  for (const table of V1_TABLES.filter((name) => !name.startsWith('ledger_')))
+    assert.ok(tables.includes(table), `${table} is missing`);
   assert.ok(!tables.includes('now'));
   assert.ok(!tables.includes('states'));
   handle.close();
 });
 
-test('the ledger tables are reserved and empty', () => {
-  const handle = openMemoryDb(':memory:');
-  for (const table of names(handle.db).filter((name) => name.startsWith('ledger_'))) {
-    assert.equal(handle.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n, 0);
-  }
-  assert.equal(names(handle.db).filter((name) => name.startsWith('ledger_')).length, 8);
+// This test pinned the eight reserved ledger_* tables as present and empty. Schema v21 drops them (the board's own
+// tables replace them, spec 2026-10-31-stage-6-cut, PR 6a), so it checks the drop on a v20 file instead, and that
+// the drop takes nothing else with it.
+test('schema v21 drops the eight reserved ledger tables of a v20 file and keeps its other rows', () => {
+  const dir = tempDir('nep-memdb-');
+  const file = path.join(dir, 'memory.db');
+  const old = openMemoryDb(file, { migrations: MIGRATIONS.slice(0, 20) });
+  old.db.prepare("INSERT INTO meta (key, value) VALUES ('kept', 'v20')").run();
+  old.close();
+  const handle = openMemoryDb(file);
+  assert.equal(schemaVersion(handle.db), MIGRATIONS.length);
+  assert.deepEqual(
+    names(handle.db).filter((name) => name.startsWith('ledger_')),
+    []
+  );
+  assert.equal(handle.db.prepare("SELECT value FROM meta WHERE key = 'kept'").get().value, 'v20');
   handle.close();
 });
 

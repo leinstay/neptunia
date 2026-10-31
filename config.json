@@ -729,6 +729,11 @@
       "socket": null
     }
   },
+  "board": {
+    "leaseTtlMinutes": 30,
+    "autoTriage": { "role": "dev", "budget": 4, "steps": 80, "estimate": 30 },
+    "projects": {}
+  },
   "intentions": {
     "expiresDays": 14,
     "recurringExpiresDays": 30,

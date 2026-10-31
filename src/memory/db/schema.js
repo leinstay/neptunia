@@ -1209,9 +1209,42 @@ DROP TABLE deliveries;
 ALTER TABLE deliveries_v20 RENAME TO deliveries;
 CREATE INDEX deliveries_state ON deliveries (state, queued_at);`;
 
+// Version 21 (2026-10-31, stage 6a): the eight reserved ledger_* tables of v1 go. No code ever wrote them, and the
+// task board keeps its own tables beside her memory (src/board/schema.ts).
+const V21 = `DROP TABLE ledger_tasks;
+DROP TABLE ledger_attempts;
+DROP TABLE ledger_questions;
+DROP TABLE ledger_approvals;
+DROP TABLE ledger_results;
+DROP TABLE ledger_comments;
+DROP TABLE ledger_events;
+DROP TABLE ledger_outbox;`;
+
 /** Each entry moves the schema one version up: SQL text, or a function of the connection (and the opener's context)
  * for a step SQL cannot do. Never edit a shipped entry: append a new one. */
-export const MIGRATIONS = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V19, V20];
+export const MIGRATIONS = [
+  V1,
+  V2,
+  V3,
+  V4,
+  V5,
+  V6,
+  V7,
+  V8,
+  V9,
+  V10,
+  V11,
+  V12,
+  V13,
+  V14,
+  V15,
+  V16,
+  V17,
+  V18,
+  V19,
+  V20,
+  V21,
+];
 
 /** Every table schema v8 adds. */
 export const V8_TABLES = [

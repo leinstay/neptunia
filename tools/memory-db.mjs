@@ -18,9 +18,6 @@
 //        them again from the typed tables, then rebuilds the full-text indexes. Prints the hashes of the derived tables
 //        before and after. An edge the graph had retired because its row no longer produces it is history the typed
 //        tables do not hold: a rebuild does not bring it back (it says how many such edges there were).
-//   node tools/memory-db.mjs ledger-import --ledger <ledger.db> --db <file>
-//        Copies the task ledger's rows into the reserved ledger_* tables as JSON records (the source is opened
-//        read-only).
 //   node tools/memory-db.mjs index-policy --db <file> [--apply] [--days <n>]
 //        The index policy (src/memory/db/index-policy.js): the tier of every stored line and the vectors outside the
 //        owner's classes (older than --days, default `recall.db.vectorDays` 90, and not cited, pinned, touched or
@@ -43,9 +40,20 @@
 //        every table of the restored database compared with the same hash of the backup's own database, then a memory
 //        service opened there (no worker, no network, no interface, every job off). Exit 1 on any difference or when
 //        the service does not open the restored database. The temporary directory is removed in every case.
+//   node tools/memory-db.mjs restore-tables --part board|memory --from <backup dir> --db <file>
+//        Brings one part of the database back from a backup and leaves the other as it is. The backup's files are
+//        checked against its manifest first. `board` replaces every `board_*` table (`board_schema_version` included)
+//        with the backup's; `memory` replaces every other table, the full-text indexes rebuilt from the restored
+//        lines. Refused, with nothing changed, when the part's schema versions differ between the two files.
+//   node tools/memory-db.mjs board list --db <file> [--json]
+//   node tools/memory-db.mjs board show <id> --db <file> [--json]
+//        The task board read with the core down or running: every task, or one task with its dependencies,
+//        attempts, questions, reviews, results, comments and latest events. Opens the database read-only. `--json`
+//        prints one line, the answer of `task.list` or `task.show`. An unknown id, or a board that is not at the
+//        engine's version, exits 1.
 //
-// reproject, rebuild, ledger-import, index-policy --apply and media-check --apply take the database's writer lock and
-// refuse while the bot (or another tool) holds it.
+// reproject, rebuild, restore-tables, index-policy --apply and media-check --apply take the database's writer lock
+// and refuse while the bot (or another tool) holds it.
 // The database is never added to git. Nothing here starts the bot or calls a model.
 
 import fs from 'node:fs';
@@ -57,16 +65,23 @@ import { createHash } from 'node:crypto';
 import { openMemoryDb } from '../src/memory/db/open.js';
 import { rebuildGraph, reproject, projectPending } from '../src/memory/db/graph.js';
 import { checkMedia, classify as classifyIndex } from '../src/memory/db/index-policy.js';
-import { backupDatabase, restoreDatabase, tablesOf } from '../src/memory/db/backup.js';
+import { backupDatabase, checkBackup, restoreDatabase, tablesOf } from '../src/memory/db/backup.js';
 import { createMemoryDb, engineCommit } from '../src/memory/db/service.js';
+import { readBoard } from '../src/board/board.ts';
+import { BoardError } from '../src/board/machine.ts';
 
 export { backupDatabase, restoreDatabase };
 
-const FLAGS = new Set(['apply']);
+const FLAGS = new Set(['apply', 'json']);
 
 function parseArgs(argv) {
   const [command, ...rest] = argv;
   const options = {};
+  /** @type {Array<string>} */
+  const positionals = [];
+  // `board` takes its subcommand and an id before its flags.
+  while (command === 'board' && rest.length && !rest[0].startsWith('--')) positionals.push(rest.shift());
+  options._ = positionals;
   for (let i = 0; i < rest.length; i += 1) {
     const arg = rest[i];
     if (!arg.startsWith('--')) throw new Error(`unexpected argument ${arg}`);
@@ -141,6 +156,9 @@ const valueOf = (value) => {
  * The content hash of every table (or of `only`): `[{ table, rows, hash }]`. Rows in primary-key order, every column;
  * a table without a primary key in the order of all its columns; a full-text table by its index content (fts5vocab
  * `instance`: every term, row, column and offset).
+ * @param {any} db  node:sqlite's DatabaseSync, which open.js types as `object`
+ * @param {ReadonlyArray<string> | null} [only]
+ * @returns {Array<{ table: string, rows: number, hash: string }>}
  */
 export function tableHashes(db, only = null) {
   const out = [];
@@ -247,38 +265,6 @@ function runRebuild(io, options) {
     return 0;
   } finally {
     handle.close();
-  }
-}
-
-// ---------- ledger-import ----------
-
-const LEDGER_TABLES = ['tasks', 'attempts', 'questions', 'approvals', 'results', 'comments', 'events', 'outbox'];
-
-function runLedgerImport(io, options) {
-  need(options, 'ledger', 'db');
-  const source = openMemoryDb(options.ledger, { readOnly: true });
-  const target = openMemoryDb(options.db);
-  try {
-    const counts = {};
-    target.transaction(() => {
-      for (const table of LEDGER_TABLES) {
-        const exists = source.db
-          .prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = ?")
-          .get(table);
-        counts[table] = 0;
-        if (!exists) continue;
-        const insert = target.db.prepare(`INSERT OR REPLACE INTO ledger_${table} (id, record) VALUES (?, ?)`);
-        for (const row of source.db.prepare(`SELECT * FROM "${table}"`).all()) {
-          insert.run(String(row.id ?? row.seq), JSON.stringify({ ...row }));
-          counts[table] += 1;
-        }
-      }
-    });
-    io.out(`ledger rows copied: ${LEDGER_TABLES.map((table) => `${table} ${counts[table]}`).join(', ')}`);
-    return 0;
-  } finally {
-    source.close();
-    target.close();
   }
 }
 
@@ -433,6 +419,224 @@ async function runRestoreTest(io, options) {
   }
 }
 
+// ---------- restore-tables ----------
+
+/** @typedef {import('../src/board/schema.ts').BoardDb} BoardDb */
+/** @typedef {{ out: (line: string) => void, err: (line: string) => void }} Io */
+
+const isBoardTable = (/** @type {string} */ name) => name.startsWith('board_');
+
+/**
+ * The names `schema`'s sqlite_master lists for `sql` (a query of `name` and `sql`).
+ * @param {BoardDb} db
+ * @param {string} query
+ * @param {Array<unknown>} params
+ * @returns {Array<{ name: string, sql: string }>}
+ */
+const namesOf = (db, query, params = []) =>
+  db
+    .prepare(query)
+    .all(...params)
+    .map((row) => ({ name: String(row.name), sql: typeof row.sql === 'string' ? row.sql : '' }));
+
+/**
+ * The plain tables of one part of the database `schema` names (`main` or `backup`): every board table, or every other
+ * table, without the SQLite internals and without the full-text tables and their storage, which a memory restore
+ * rebuilds from the restored lines.
+ * @param {BoardDb} db
+ * @param {string} schema
+ * @param {'board' | 'memory'} part
+ * @returns {Array<string>}
+ */
+function partTables(db, schema, part) {
+  const rows = namesOf(
+    db,
+    `SELECT name, sql FROM "${schema}".sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`
+  );
+  const virtual = rows.filter((row) => /^CREATE VIRTUAL TABLE/i.test(row.sql)).map((row) => row.name);
+  return rows
+    .map((row) => row.name)
+    .filter((name) => !virtual.some((v) => name === v || name.startsWith(`${v}_`)))
+    .filter((name) => (part === 'board' ? isBoardTable(name) : !isBoardTable(name)));
+}
+
+/**
+ * Whether the database `schema` names has the table `table`.
+ * @param {BoardDb} db
+ * @param {string} schema
+ * @param {string} table
+ */
+const hasTable = (db, schema, table) =>
+  db.prepare(`SELECT 1 AS ok FROM "${schema}".sqlite_master WHERE type = 'table' AND name = ?`).get(table) !==
+  undefined;
+
+/**
+ * The version a part is at in the database `schema` names; 0 when it has none.
+ * @param {BoardDb} db
+ * @param {string} schema
+ * @param {'board' | 'memory'} part
+ * @returns {number}
+ */
+function partVersion(db, schema, part) {
+  const table = part === 'board' ? 'board_schema_version' : 'schema_version';
+  if (!hasTable(db, schema, table)) return 0;
+  return Number(db.prepare(`SELECT MAX(version) AS v FROM "${schema}"."${table}"`).get()?.v ?? 0);
+}
+
+/**
+ * Copies the part's rows of `sqlite_sequence` (the AUTOINCREMENT counters) from the backup.
+ * @param {BoardDb} db
+ * @param {'board' | 'memory'} part
+ */
+function copySequences(db, part) {
+  if (!hasTable(db, 'main', 'sqlite_sequence') || !hasTable(db, 'backup', 'sqlite_sequence')) return;
+  const mine = part === 'board' ? "name LIKE 'board\\_%' ESCAPE '\\'" : "name NOT LIKE 'board\\_%' ESCAPE '\\'";
+  db.exec(`DELETE FROM main.sqlite_sequence WHERE ${mine}`);
+  db.exec(`INSERT INTO main.sqlite_sequence (name, seq) SELECT name, seq FROM backup.sqlite_sequence WHERE ${mine}`);
+}
+
+/**
+ * Copies every table of `tables` from the backup; for the memory part the triggers are dropped for the copy and made
+ * again from the database's own definitions, the full-text indexes rebuilt and the foreign keys checked.
+ * @param {BoardDb} db
+ * @param {'board' | 'memory'} part
+ * @param {Array<string>} tables
+ */
+function copyPart(db, part, tables) {
+  const triggers =
+    part === 'memory'
+      ? namesOf(db, "SELECT name, sql FROM main.sqlite_master WHERE type = 'trigger' AND sql IS NOT NULL")
+      : [];
+  for (const trigger of triggers) db.exec(`DROP TRIGGER main."${trigger.name}"`);
+  for (const table of tables) {
+    const columns = db
+      .prepare(`PRAGMA main.table_info("${table}")`)
+      .all()
+      .map((column) => `"${String(column.name)}"`)
+      .join(', ');
+    db.exec(`DELETE FROM main."${table}"`);
+    db.exec(`INSERT INTO main."${table}" (${columns}) SELECT ${columns} FROM backup."${table}"`);
+  }
+  copySequences(db, part);
+  if (part !== 'memory') return;
+  for (const { name, virtual } of tablesOf(db)) {
+    if (virtual) db.exec(`INSERT INTO main."${name}"("${name}") VALUES ('rebuild')`);
+  }
+  for (const trigger of triggers) db.exec(trigger.sql);
+  const broken = db.prepare('PRAGMA main.foreign_key_check').all();
+  if (broken.length) throw new Error(`${broken.length} rows of the restored memory break a foreign key`);
+}
+
+/**
+ * Replaces one part of the database with the backup's, in one transaction (see the head of this file).
+ * @param {Io} io
+ * @param {Record<string, unknown>} options
+ * @returns {number}
+ */
+function runRestoreTables(io, options) {
+  need(options, 'part', 'from', 'db');
+  const { part, from, db: file } = options;
+  if (part !== 'board' && part !== 'memory') throw new Error('--part must be board or memory');
+  if (typeof from !== 'string' || typeof file !== 'string') throw new Error('--from and --db need a path');
+  checkBackup(from);
+  const start = performance.now();
+  // No migration of either part: a restore leaves the versions as they are, and refuses when they differ.
+  const handle = openMemoryDb(file, { migrations: [], boardMigrations: [] });
+  // node:sqlite's DatabaseSync, which open.js types as `object`, has every method BoardDb names.
+  const db = /** @type {BoardDb} */ (handle.db);
+  let attached = false;
+  try {
+    db.prepare('ATTACH DATABASE ? AS backup').run(path.join(from, 'memory.db'));
+    attached = true;
+    const here = partVersion(db, 'main', part);
+    const there = partVersion(db, 'backup', part);
+    if (here !== there) {
+      throw new Error(`the ${part} is at version ${here} here and ${there} in the backup; restore refused`);
+    }
+    const tables = partTables(db, 'main', part);
+    if (tables.join(',') !== partTables(db, 'backup', part).join(',')) {
+      throw new Error(`the ${part} tables differ from the backup's; restore refused`);
+    }
+    // Foreign keys cannot be switched inside a transaction; the copy checks them itself before it commits.
+    if (part === 'memory') db.exec('PRAGMA foreign_keys = OFF');
+    try {
+      handle.transaction(() => copyPart(db, part, tables));
+    } finally {
+      if (part === 'memory') db.exec('PRAGMA foreign_keys = ON');
+    }
+    io.out(
+      `restore-tables ok: the ${part} at version ${here}, ${tables.length} tables from the backup (${seconds(start)})`
+    );
+    return 0;
+  } finally {
+    if (attached) db.exec('DETACH DATABASE backup');
+    handle.close();
+  }
+}
+
+// ---------- board ----------
+
+/**
+ * Prints one task of `board show` as lines.
+ * @param {Io} io
+ * @param {import('../src/board/board.ts').TaskView} view
+ */
+function printTask(io, view) {
+  const { task } = view;
+  const lease = task.lease_owner ? `, held by ${task.lease_owner} until ${task.lease_expires_at ?? '?'}` : '';
+  io.out(`${task.id}  ${task.status}  ${task.lane}  ${task.title}`);
+  io.out(
+    `requester ${task.requester}, risk ${task.risk}, priority ${task.priority}, revision ${task.revision}${lease}`
+  );
+  io.out(
+    `attempts ${view.attempts.length}, questions ${view.questions.length}, reviews ${view.approvals.length}, results ${view.results.length}, comments ${view.comments.length}`
+  );
+  for (const event of view.events) {
+    io.out(`${String(event.seq).padStart(6)}  ${event.created_at}  ${event.actor}  ${event.type}  ${event.new ?? ''}`);
+  }
+}
+
+/**
+ * `board list` and `board show <id>` over a read-only open (see the head of this file).
+ * @param {Io} io
+ * @param {Record<string, unknown>} options
+ * @returns {number}
+ */
+function runBoard(io, options) {
+  need(options, 'db');
+  const [sub, id, ...extra] = Array.isArray(options._) ? options._.map(String) : [];
+  if (sub !== 'list' && sub !== 'show') throw new Error('usage: board list|show <id> --db <file> [--json]');
+  if (sub === 'show' && !id) throw new Error('board show needs a task id');
+  const surplus = sub === 'list' ? [id, ...extra] : extra;
+  if (surplus.some((arg) => arg !== undefined)) throw new Error(`unexpected argument ${String(surplus.find(Boolean))}`);
+  const handle = openMemoryDb(String(options.db), { readOnly: true });
+  try {
+    // node:sqlite's DatabaseSync, which open.js types as `object`, has every method BoardDb names.
+    const board = readBoard(/** @type {BoardDb} */ (handle.db), Date.now);
+    if (sub === 'list') {
+      const tasks = board.list();
+      if (options.json) io.out(JSON.stringify(tasks));
+      else
+        for (const task of tasks)
+          io.out(`${task.id}  ${task.status.padEnd(16)}  p${task.priority}  ${task.lane}  ${task.title}`);
+      return 0;
+    }
+    const view = board.show(String(id));
+    if (options.json) io.out(JSON.stringify(view));
+    else printTask(io, view);
+    return 0;
+  } catch (error) {
+    // An unknown id or a board at another version is an answer, not a usage error.
+    if (error instanceof BoardError && (error.code === 'not-found' || error.code === 'board-unavailable')) {
+      io.err(`memory-db: ${error.message}`);
+      return 1;
+    }
+    throw error;
+  } finally {
+    handle.close();
+  }
+}
+
 // ---------- entry ----------
 
 const COMMANDS = {
@@ -440,12 +644,13 @@ const COMMANDS = {
   hash: runHash,
   reproject: runReproject,
   rebuild: runRebuild,
-  'ledger-import': runLedgerImport,
   'index-policy': runIndexPolicy,
   'media-check': runMediaCheck,
   backup: runBackup,
   restore: runRestore,
   'restore-test': runRestoreTest,
+  'restore-tables': runRestoreTables,
+  board: runBoard,
 };
 
 /** Runs a command line; returns the exit code (a promise of it for `restore-test`). `io` is { out(line), err(line) }. */

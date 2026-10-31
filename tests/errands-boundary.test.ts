@@ -220,6 +220,9 @@ test('one open of the v13 database moves the errand units and the intention reco
     const after = dumpTables(now.db);
     for (const table of Object.keys(old)) {
       if (TOUCHED.includes(table)) continue;
+      // Schema v21 drops the eight reserved ledger_* tables of v1, empty in every database (spec 2026-10-31-stage-6-cut,
+      // PR 6a), so they are gone after the open rather than as they were.
+      if (table.startsWith('ledger_')) continue;
       assert.deepEqual(after[table], old[table], `the table ${table} is as it was`);
     }
     const sans = (rows: Array<Row> | undefined) =>

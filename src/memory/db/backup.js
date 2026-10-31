@@ -10,6 +10,8 @@
 //     count of every table. `to` must be new or empty. Not inside a transaction (VACUUM refuses one).
 //   backupDatabase({ db, to, data, now, commit, configHash }) -> manifest
 //     the same from a database path, opened read-only (the tool's `backup`; the bot's lock is not needed).
+//   checkBackup(from) -> manifest
+//     every file of the backup against its manifest (size and SHA-256); throws on the first mismatch.
 //   restoreDatabase({ from, db, data }) -> manifest
 //     checks every file of the backup against its manifest, then copies the database to `db` (which must not exist,
 //     nor its -wal, -shm or lock) and the diary media under `data` (no file is overwritten), and checks the restored
@@ -145,9 +147,17 @@ export function backupDatabase({
   }
 }
 
-/** Checks a backup against its manifest and restores it (see the head of this file); returns the manifest. */
-export function restoreDatabase({ from, db: dbPath, data = path.dirname(dbPath) }) {
-  const manifest = JSON.parse(fs.readFileSync(path.join(from, 'manifest.json'), 'utf8'));
+/**
+ * Checks every file of the backup in `from` against its manifest; returns the manifest, throws on a mismatch.
+ * @param {string} from
+ * @returns {{ v: number, schemaVersion: number, files: Array<{ path: string, size: number, sha256: string }>, rows?: Record<string, number> }}
+ */
+export function checkBackup(from) {
+  // A manifest is checked field by field below before any field is trusted.
+  const manifest =
+    /** @type {{ v: number, schemaVersion: number, files: Array<{ path: string, size: number, sha256: string }>, rows?: Record<string, number> }} */ (
+      JSON.parse(fs.readFileSync(path.join(from, 'manifest.json'), 'utf8'))
+    );
   if (manifest?.v !== 1 || !Array.isArray(manifest.files) || !manifest.files.some((file) => file.path === 'memory.db'))
     throw new Error('not a memory database backup');
   for (const file of manifest.files) {
@@ -157,6 +167,12 @@ export function restoreDatabase({ from, db: dbPath, data = path.dirname(dbPath) 
     if (fs.statSync(abs).size !== file.size || sha256File(abs) !== file.sha256)
       throw new Error(`does not match the manifest: ${file.path}`);
   }
+  return manifest;
+}
+
+/** Checks a backup against its manifest and restores it (see the head of this file); returns the manifest. */
+export function restoreDatabase({ from, db: dbPath, data = path.dirname(dbPath) }) {
+  const manifest = checkBackup(from);
   for (const suffix of ['', '-wal', '-shm', '.lock'])
     if (fs.existsSync(`${dbPath}${suffix}`))
       throw new Error(`${dbPath}${suffix} exists; restore only into an empty path`);

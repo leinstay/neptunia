@@ -366,6 +366,27 @@
       "test": "required"
     },
     {
+      "path": "src/board/",
+      "purpose": "The task board in the memory database: its tables, its state machine, the rights from clients.json, its operations and the reaper.",
+      "layer": "public",
+      "imports": ["node:*", "src/board/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/board/costs.ts",
+      "purpose": "The board's costs.agents: the agents' spend by principal over today, 7 and 30 days. Tested through the board tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/board/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/board/fields.ts",
+      "purpose": "The checks of a board operation's arguments and the auto-triage settings. Tested through the board tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/board/**"],
+      "test": "none"
+    },
+    {
       "path": "src/behavior/",
       "purpose": "What a turn does: the pipeline, triggers, prefetch, prompt assembly, recall, the inner turn and the heartbeat.",
       "layer": "public",

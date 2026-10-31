@@ -44,7 +44,7 @@ The module seams stay as they were before the database: `record`, `journal`, `ar
 
 ## Data model
 
-Schema version 20 (`src/memory/db/schema.js`; migrations appended, never edited). Version 14 renames the errand units (`guilds/<g>/tasks.json` and `tasks.jsonl` become `errands.json` and `errands.jsonl`) in every table that stores a unit path, and renames the errand fields of the open intention records. `currentUnitPath` in `src/memory/db/paths.js` maps the old unit names on the way in, so a write that waited in `memory-pending/` across the upgrade lands in the current unit.
+Schema version 21 (`src/memory/db/schema.js`; migrations appended, never edited). The task board keeps its own tables in the same file with a version of its own (see [The task board's tables](#the-task-boards-tables)). Version 14 renames the errand units (`guilds/<g>/tasks.json` and `tasks.jsonl` become `errands.json` and `errands.jsonl`) in every table that stores a unit path, and renames the errand fields of the open intention records. `currentUnitPath` in `src/memory/db/paths.js` maps the old unit names on the way in, so a write that waited in `memory-pending/` across the upgrade lands in the current unit.
 
 Version 17 is a data step: it sets back what the unit sync wrote over her memory session's changes (`src/memory/db/session-repair.ts`). A claim takes the text and the last-seen time of her newest version, and the truth of a retire, and becomes hers. Her newest review becomes the current version of its description again, and a person she moved takes the reason of her newest move. Each repair applies only when her version is newer than the file's last change of the row: the claim's first or last seen time, the newest legacy description version, or the file's newest attitude move. The step asks no model and sends nothing, and one `decisions` row (`migration:v17:session_rows_repaired`) counts what it set back.
 
@@ -129,7 +129,10 @@ Version 20 rebuilds `deliveries` with three more states and a `receipt` column (
 | `wakes` | One row per wake of the inner life: its state, its lease, the turn id it runs under and its outcome (schema v18) |
 | `leases` | Time-limited claims whose token rises with every grant: `wake:<id>`, `attention:*` or `attention:<conversation>`, and `core:alive` (schema v18) |
 | `deliveries` | What a completed wake leaves to send, by effect key: `queued`, `sending`, then `sent`, `unknown` or `failed`, with the send's receipt (schema v18, states and `receipt` v20) |
-| `ledger_tasks` through `ledger_outbox` | Reserved tables for the task ledger (not used yet) |
+
+### The task board's tables
+
+The task board (`src/board/`) keeps eleven tables in `memory.db`, `board_tasks` through `board_agent_runs`, and its own version table, `board_schema_version` (`src/board/schema.ts`). `openMemoryDb` runs the board's migrations after the memory's, in a transaction of their own. When a board migration fails, the memory stays migrated, open and writable, the handle's `board.ok` is false, and every board operation answers `board-unavailable`. A read-only open migrates neither part. No graph projection, recall, export or sync reads the board's tables, and no foreign key joins them to her memory.
 
 ### Structural
 
@@ -328,6 +331,10 @@ Each edge carries the audience of the row it came from. `node_access` holds one 
 
 `tools/memory-db.mjs restore --from <backup> --db <target>`: checks every file in the backup against its manifest, copies the database (which must not exist, nor its WAL or SHM files), copies the diary media under the data directory, and checks the restored file's schema version and row counts.
 
+### Restoring one part
+
+The board and her memory share the file, and `tools/memory-db.mjs restore-tables --part board|memory --from <backup> --db <file>` brings one of them back from a backup while the other stays as it is. It checks the backup against its manifest, takes the writer lock and replaces, in one transaction, every `board_*` table (`--part board`) or every other table (`--part memory`) with the backup's. A memory restore drops the triggers for the copy and makes them again, rebuilds the full-text indexes from the restored lines and checks the foreign keys before it commits. It refuses, and changes nothing, when the part's schema version in the backup differs from the file's, when the bot holds the lock, or when the backup fails its manifest.
+
 ### Restore test
 
 `tools/memory-db.mjs restore-test --from <backup>`: proves a backup in a temporary directory by restoring it and verifying everything matches.
@@ -342,6 +349,8 @@ Each edge carries the audience of the row it came from. `node_access` holds one 
 | `tools/memory-db.mjs rebuild` | Drops and rebuilds the graph and full-text indexes |
 | `tools/memory-db.mjs index-policy` | Shows (or with `--apply` writes) the tier of every line and which vectors would be evicted |
 | `tools/memory-db.mjs media-check` | Checks which diary media files are present or missing |
+| `tools/memory-db.mjs board list` | Every task of the board, read-only, also while the bot runs (`--json` prints the answer of `task.list`) |
+| `tools/memory-db.mjs board show <id>` | One task with its dependencies, attempts, questions, reviews, results, comments and latest events (`--json` prints the answer of `task.show`) |
 | `tools/memory-session.mjs` | Runs her memory session once, in shadow, on a copy of the database |
 | `tools/recall-eval.mjs` | Recall against questions with known answers |
 
@@ -453,14 +462,18 @@ The full-text tables' own storage tables (`sources_fts_*`, `sources_tri_*`) belo
 | `skill_evaluations` | internal-only | the tests, trials, outcome reviews and audience checks of each skill version, with the hashes they evaluated (append-only); the evidence they name keeps its own audience |
 | `capture_watches` | internal-only | when a bundle is looked at again, and how that went |
 | `operational` | internal-only | state files kept verbatim (request dumps, buffers, queues) |
-| `ledger_tasks` | internal-only | the task ledger's copy |
-| `ledger_attempts` | internal-only | the task ledger's copy |
-| `ledger_questions` | internal-only | the task ledger's copy |
-| `ledger_approvals` | internal-only | the task ledger's copy |
-| `ledger_results` | internal-only | the task ledger's copy |
-| `ledger_comments` | internal-only | the task ledger's copy |
-| `ledger_events` | internal-only | the task ledger's copy |
-| `ledger_outbox` | internal-only | the task ledger's copy |
+| `board_schema_version` | internal-only | the version of the task board's tables |
+| `board_tasks` | internal-only | one row per task of the board |
+| `board_dependencies` | internal-only | which task waits on which, and how |
+| `board_attempts` | internal-only | each run of an agent on a task, with its accounting |
+| `board_questions` | internal-only | the questions a task's holder asked and their answers |
+| `board_reviews` | internal-only | the approvals of a task's plan, merge and deploy |
+| `board_results` | internal-only | what a task produced: summaries, diffs, pull requests, files, prompts and specs |
+| `board_comments` | internal-only | the comments on a task |
+| `board_events` | internal-only | every change of the board, in one sequence |
+| `board_outbox` | internal-only | what the board has to tell a principal, until it is pulled |
+| `board_idempotency` | internal-only | the stored answers of the mutations that carried an idempotency key, for 24 hours |
+| `board_agent_runs` | internal-only | one row per turn of an agent outside any task |
 | `people` | structural | one row per person (hers is `person:self`); the attitude columns mirror the public profile, the DM attitude lives in `affinity_events` |
 | `accounts` | structural | one row per account on an interface; names are what the interface shows everyone |
 | `account_person_links` | structural | which person an account belongs to, with its state (proposed, verified, revoked) and validity |
