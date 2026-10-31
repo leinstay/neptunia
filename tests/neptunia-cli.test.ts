@@ -37,7 +37,8 @@ const count = (text: string, part: string): number => text.split(part).length - 
 /** The stdout lines that are log entries of src/log.js, which a script reading the answer must never get. */
 const logLines = (stdout: string): Array<string> => stdout.split('\n').filter((line) => line.startsWith('{"level"'));
 
-// Case 1 of PR D.
+// Case 1 of PR D. A DM place has no native id (src/memory/db/ids.ts): its id is `<iface>:dm:<partner>`, and the
+// chat's events name the partner `owner`.
 test('a line typed in the chat reaches her, her reply is printed once, and the line is kept in the cli dm', async () => {
   await withRig({}, async ({ dirs, llm, clis, cores }) => {
     cores.push(await startUnitsCore(dirs, llm, () => T0));
@@ -53,7 +54,7 @@ test('a line typed in the chat reaches her, her reply is printed once, and the l
     assert.deepEqual(
       query(
         dirs,
-        `SELECT s.kind, s.scope_kind, s.scope_iface, p.native_id AS place
+        `SELECT s.kind, s.scope_kind, s.scope_iface, p.id AS place
          FROM sources s JOIN places p ON p.id = s.place_id WHERE s.text = ?`,
         'hello from the console'
       ),
@@ -62,7 +63,7 @@ test('a line typed in the chat reaches her, her reply is printed once, and the l
     assert.deepEqual(
       query(
         dirs,
-        `SELECT DISTINCT s.scope_kind FROM sources s JOIN places p ON p.id = s.place_id WHERE p.native_id = ?`,
+        `SELECT DISTINCT s.scope_kind FROM sources s JOIN places p ON p.id = s.place_id WHERE p.id = ?`,
         'cli:dm:owner'
       ).map((row) => row.scope_kind),
       ['dm'],

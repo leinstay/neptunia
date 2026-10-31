@@ -152,11 +152,12 @@ test("scout shell: the web-search command runs, through the wrapper on the child
   assert.equal(SCOUT_TOOLS_DIR, path.join(ROOT, 'agents', 'scout', 'bin'));
   const wrapper = path.join(SCOUT_TOOLS_DIR, 'web-search');
   assert.ok(fs.statSync(wrapper).mode & 0o111, 'the wrapper is executable');
+  // Stage 4 PR D ("PR D in detail", the errand runner): bin/web-search.mjs moves next to its wrapper in agents/scout/.
   assert.match(
     fs.readFileSync(wrapper, 'utf8'),
-    /^#!\/bin\/sh\n[\s\S]*exec node "\$\{0%\/\*\}\/\.\.\/\.\.\/\.\.\/bin\/web-search\.mjs" "\$@"\n$/
+    /^#!\/bin\/sh\n[\s\S]*exec node "\$\{0%\/\*\}\/\.\.\/web-search\.mjs" "\$@"\n$/
   );
-  assert.ok(fs.existsSync(path.join(ROOT, 'bin', 'web-search.mjs')));
+  assert.ok(fs.existsSync(path.join(ROOT, 'agents', 'scout', 'web-search.mjs')));
   assert.deepEqual([...SERVER.pathDirs], [], 'the server agent gets no command of its own');
 });
 
@@ -1531,10 +1532,12 @@ test('the real agents/ folder has no drawing agent: no profile, no config entry,
   assert.equal(profileOf('drawing'), null);
   const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
   assert.equal(Object.hasOwn(shipped.agents, 'drawing'), false);
-  const run = spawnSync(process.execPath, [path.join(ROOT, 'bin', 'agent-runner.mjs'), '--profile', 'drawing'], {
-    encoding: 'utf8',
-    timeout: 20000,
-  });
+  // Stage 4 PR D ("PR D in detail", the errand runner): `neptunia errand-runner` replaces bin/agent-runner.mjs.
+  const run = spawnSync(
+    process.execPath,
+    [path.join(ROOT, 'bin', 'neptunia.ts'), 'errand-runner', '--profile', 'drawing'],
+    { encoding: 'utf8', timeout: 20000 }
+  );
   assert.equal(run.status, 1);
   assert.match(run.stdout + run.stderr, /unknown profile/);
 });
@@ -1543,7 +1546,9 @@ test('the scout unit: runs the scout profile as its own user with the state and 
   const unit = fs.readFileSync(path.join(ROOT, 'deploy', 'neptunia-agent-scout.service'), 'utf8');
   const line = (key) => unit.split('\n').find((text) => text.startsWith(`${key}=`));
   assert.equal(line('User'), 'User=neptunia-agent-scout');
-  assert.ok(line('ExecStart').endsWith('bin/agent-runner.mjs --profile scout'));
+  // Stage 4 PR D ("PR D in detail", the errand runner): both errand units call the new entry, named as the interface
+  // unit names it (deploy/neptunia-interface@.service).
+  assert.ok(line('ExecStart').endsWith('bin/neptunia.ts errand-runner --profile scout'));
   assert.equal(line('StateDirectory'), 'StateDirectory=neptunia-agent-scout');
   assert.equal(line('RuntimeDirectory'), 'RuntimeDirectory=neptunia-agent-scout');
   assert.equal(line('EnvironmentFile'), 'EnvironmentFile=-/opt/neptunia/etc/agent-scout.env');
