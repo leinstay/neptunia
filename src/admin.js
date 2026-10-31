@@ -29,6 +29,8 @@ import { createOpsEnv } from './tools/impl/env.ts';
 import { resolveCommand, runOp, runOpPrechecked, legacyGrantOps } from './tools/impl/index.ts';
 import { getOp, listOps } from './tools/impl/registry.ts';
 import { grantKeys, migrateStoredGrants } from './tools/impl/access.ts';
+import { listAliases } from './tools/impl/alias.ts';
+import { listLessons } from './tools/impl/learning.ts';
 import { skillNames } from './tools/registry.ts';
 import { SELF_OWNED_OPS } from './tools/impl/effects.ts';
 import { CODE } from './tools/codes.ts';
@@ -231,6 +233,15 @@ export function createAdmin(deps) {
     return runOpPrechecked(op, args, { ...context, env });
   }
 
+  /**
+   * The owner's console reads that are no operation, so no tool of hers (src/interface/commands/console.ts):
+   * `lessons(context)` and `aliases({ userId }, context)`, each the reply text or a thrown operator-facing `Error`.
+   */
+  const ownerReads = {
+    lessons: (context = {}) => listLessons(env, { ...context, env }),
+    aliases: (args = {}, context = {}) => listAliases(env, args, { ...context, env }),
+  };
+
   /** Once per guild at start: the stored grants re-expanded under the operation names
    * (src/tools/impl/access.ts#migrateStoredGrants). */
   function migrateAccess(guildId) {
@@ -281,5 +292,6 @@ export function createAdmin(deps) {
     runOwnSkillOp,
     runInitiativeSkillOp,
     migrateAccess,
+    ownerReads,
   };
 }

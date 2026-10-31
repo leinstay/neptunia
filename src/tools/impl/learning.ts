@@ -1,12 +1,14 @@
-// Operations: `/nep learned add|remove`: the owner's side of the guild's list of things people taught the persona (store.js#applyLearnedOps).
+// Operations: `/nep learned add|remove`, and the owner's console read `/memory lessons list` (no operation, so no
+// tool of hers): the owner's side of the guild's list of things people taught the persona (store.js#applyLearnedOps).
 // The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
 import { normalizeTopic } from '../../memory/index.js';
-import { confirmTarget, learnedLine } from './shared.ts';
+import { NONE, confirmTarget, learnedLine } from './shared.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
 import { CODE } from '../codes.ts';
-import { textOf } from '../types.ts';
+import { callMethod, listOf, objOf, textOf } from '../types.ts';
+import type { Env } from './env.ts';
 import type { Obj, OpContext, Untyped } from '../types.ts';
 
 const handlers = perEnv((env) => {
@@ -73,8 +75,22 @@ const handlers = perEnv((env) => {
     return `Removed learned item #${id}: ${tokenResolver(guildId).resolve(existing.text)}`;
   }
 
-  return { cmdLearnedAdd, cmdLearnedRemove };
+  /** `/memory lessons list`: every lesson of the guild, one line each, as `add` answers one. */
+  function cmdLearnedList(context: OpContext): string {
+    const guildId = requireGuildId(context);
+    const items = listOf(objOf(callMethod(store, 'getGuild', guildId)).learned);
+    if (items.length === 0) return NONE;
+    const { resolve } = tokenResolver(guildId);
+    return items.map((item) => learnedLine(item, resolve)).join('\n');
+  }
+
+  return { cmdLearnedAdd, cmdLearnedRemove, cmdLearnedList };
 });
+
+/** `/memory lessons list` of the owner's console (src/interface/commands/console.ts), over the ops env `env`. */
+export function listLessons(env: Env, context: OpContext): string {
+  return handlers(env).cmdLearnedList(context);
+}
 
 defineOp({
   name: 'learning.add',

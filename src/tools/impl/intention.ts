@@ -30,7 +30,7 @@
 import { formatClock, formatDate } from '../../format.js';
 import { clampWithEllipsis, oneLine } from '../../memory/clamp.js';
 import { HEARTBEAT_ORIGIN, intentionsOn, isIntentionId, parseEvery, parseWhen } from '../../intentions/model.ts';
-import { isOwnerId } from './grants.ts';
+import { isOwnerCaller } from './grants.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
 import { CODE } from '../codes.ts';
 import { idText } from '../types.ts';
@@ -229,7 +229,7 @@ const handlers = perEnv((env) => {
    * intention; anyone else (her own call included) a private chat's only in that chat.
    */
   function whereOf(context: OpContext) {
-    const owner = context?.actor !== 'persona' && isOwnerId(hot.config, context?.userId);
+    const owner = context?.actor !== 'persona' && isOwnerCaller(hot.config, context);
     return {
       all: owner,
       privateChannelId: !owner && inPrivate(context) && context?.channelId ? idText(context.channelId) : null,
@@ -240,7 +240,7 @@ const handlers = perEnv((env) => {
   function origin(context: OpContext) {
     const persona = context?.actor === 'persona';
     return {
-      by: persona ? 'persona' : isOwnerId(hot.config, context?.userId) ? 'owner' : 'member',
+      by: persona ? 'persona' : isOwnerCaller(hot.config, context) ? 'owner' : 'member',
       turnId: persona && context?.turnId ? idText(context.turnId) : null,
       messageId: context?.sourceMessageId ? idText(context.sourceMessageId) : null,
       channelId: context?.channelId ? idText(context.channelId) : null,

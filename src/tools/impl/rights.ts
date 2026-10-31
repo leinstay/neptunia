@@ -11,15 +11,23 @@ import type { OpInfo } from '../types.ts';
 export type RightsRefusal = 'owner-only' | 'not-grantable' | 'not-granted';
 
 /**
- * Null when the caller may run `op`, else the refusal code: src/tools/impl/grants.ts#isAllowed over
+ * Null when the caller may run `op`, else the refusal code: the owner's console (`asOwner`) always may, anyone else
+ * by src/tools/impl/grants.ts#isAllowed over
  * `bot.owners`, `bot.access` and `features`. `owner-only` for an owner-only operation,
  * `not-grantable` for one no grant opens (a member operation while `features.memberCommands` is
  * off included), else `not-granted`.
  */
 export function rightsRefusal(
   op: Partial<OpInfo> | null | undefined,
-  { userId, roleIds, config }: { userId?: unknown; roleIds?: ReadonlyArray<unknown>; config?: unknown } = {}
+  {
+    userId,
+    roleIds,
+    config,
+    asOwner = false,
+  }: { userId?: unknown; roleIds?: ReadonlyArray<unknown>; config?: unknown; asOwner?: boolean } = {}
 ): RightsRefusal | null {
+  // The owner's console runs as the owner (src/tools/types.ts#OpContext.asOwner).
+  if (asOwner) return null;
   const bot = objOf(objOf(config).bot);
   const allowed = isAllowed({
     op,

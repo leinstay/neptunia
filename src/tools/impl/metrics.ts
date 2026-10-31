@@ -20,6 +20,7 @@ export type Summary = { n: number; median: number | null; mean: number | null };
 export type Metrics = {
   record(name: string, ms: number): boolean;
   summary(name: string, hours?: number): Summary;
+  samples(name: string, hours?: number): Array<number>;
   names(): Array<string>;
   save(opts?: { force?: boolean }): Promise<boolean>;
 };
@@ -84,7 +85,7 @@ function summarize(values: ReadonlyArray<number>): Summary {
  * `dataDir` is the `data/` directory, `fs` a `node:fs`-shaped API (`readFileSync`, `promises.mkdir|writeFile|rename`).
  * `record` keeps one sample (refused, false, for an empty name or anything but a finite
  *   duration >= 0). `summary` covers the samples of the last `hours` (default 24, never more
- *   than 24). `save` writes the file when a sample came since the last write and, unless
+ *   than 24), and `samples` lists those durations themselves, oldest first. `save` writes the file when a sample came since the last write and, unless
  *   `force`, a minute has passed since it; resolves whether it wrote. A failed write is logged
  *   (`metrics: save failed`, its code) and tried again on the next call. Writes run one at a time.
  */
@@ -154,14 +155,16 @@ export function createMetrics({
     return true;
   }
 
-  function summary(name: string, hours = 24): Summary {
+  function samples(name: string, hours = 24): Array<number> {
     const span = Math.min(isDuration(hours) ? hours * HOUR_MS : KEEP_MS, KEEP_MS);
     const from = now() - span;
-    return summarize(
-      prune(name)
-        .filter(([at]) => at >= from)
-        .map(([, ms]) => ms)
-    );
+    return prune(name)
+      .filter(([at]) => at >= from)
+      .map(([, ms]) => ms);
+  }
+
+  function summary(name: string, hours = 24): Summary {
+    return summarize(samples(name, hours));
   }
 
   function names(): Array<string> {
@@ -199,7 +202,7 @@ export function createMetrics({
   }
 
   load();
-  return { record, summary, names, save };
+  return { record, summary, samples, names, save };
 }
 
 /** The channel a log entry names, or null. */

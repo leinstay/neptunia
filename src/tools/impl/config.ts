@@ -3,7 +3,7 @@
 // the operation's `ctx` as the command context.
 
 import { leafPaths } from './catalog.ts';
-import { isOwnerId } from './grants.ts';
+import { isOwnerCaller } from './grants.ts';
 import { governsPersona } from './rights.ts';
 import {
   splitPath,
@@ -30,7 +30,7 @@ const handlers = perEnv((env) => {
     if (context?.actor === 'persona' && governsPersona(parts.join('.'))) {
       throw denied(`the persona never changes ${parts.join('.')}`, CODE.SELF_GRANT);
     }
-    if (touchesOwnerOnlyConfig(parts) && !isOwnerId(hot.config, context?.userId)) {
+    if (touchesOwnerOnlyConfig(parts) && !isOwnerCaller(hot.config, context)) {
       throw denied(`only an owner may change ${parts.join('.')}`);
     }
   }
