@@ -1,6 +1,7 @@
 // Mapper: a member's public profile `users/<id>.json` <-> rows.
 //
-//   people          the member (first/last seen, message count, real name, the affinity score, reason and decay stamp)
+//   people          the member (first/last seen, message count, real name, the affinity score, reason, decay stamp;
+//                   `affinity.moveId`, her session's last move the profile was read with, stays in `extra`)
 //   accounts        the platform account (id, display names, avatar)
 //   memberships     the guild membership, only when the file has `addressedAs`
 //   claims          details, interests, aliases (current) and closed items (truth historical)

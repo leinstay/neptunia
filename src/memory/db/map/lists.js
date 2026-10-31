@@ -7,6 +7,11 @@
 // own key. The remainder lists what was mapped in `$has`, so an empty list stays an empty list and an absent one
 // stays absent. A claim's id is the item's `itemId` when it had one; an item without one gets a derived id and the
 // claim's remainder says so (`$derived`), which is what keeps the old item without an `itemId` after the round trip.
+//
+// The rows her memory session wrote (no `owner_file`, export.js#unitRows adds them to a member's unit) come back like
+// the file's own: a claim and an episode with their id as the `itemId`, an attitude move with its event id as the
+// `itemId` (`aff:<run>:<n>`), so the file the store writes back names the same rows and the unit write leaves them
+// alone (upsert.js). A description is its current version (`current_version`), whichever writer wrote it.
 
 import { SELF_PERSON, itemOrDerivedId, shortHash, uniqueIds } from '../ids.ts';
 import { extraText, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './common.js';
@@ -74,6 +79,15 @@ export const AFFINITY_SPEC = [
   { col: 'affinity_reason', key: 'reason', type: 'text' },
   { col: 'affinity_decayed_at', key: 'decayedAt', type: 'text' },
 ];
+
+/**
+ * The event id of an attitude move her session wrote, carried as the move's `itemId` (the store's own are `mv-`).
+ * @param {{ itemId?: unknown }} item
+ */
+function sessionMoveId(item) {
+  const id = item.itemId;
+  return typeof id === 'string' && id.startsWith('aff:') ? id : null;
+}
 
 const listOfObjects = (value) => Array.isArray(value) && value.every(isPlainObject);
 const listOfStrings = (value) => Array.isArray(value) && value.every((item) => typeof item === 'string');
@@ -237,8 +251,10 @@ export function profileRows(rows, value, o) {
       has.push('affinity.history');
       history.forEach((item, position) => {
         const part = split(item, HISTORY_SPEC);
+        const sessionId = sessionMoveId(item);
+        if (sessionId) delete part.rest.itemId;
         put(rows, 'affinity_events', {
-          id: `aff:${o.owner}:${position}:${shortHash(item.ts ?? '')}`,
+          id: sessionId ?? `aff:${o.owner}:${position}:${shortHash(item.ts ?? '')}`,
           person_id: o.person,
           ...part.cols,
           ...o.scope,
@@ -273,9 +289,12 @@ export function profileFrom(rows, has, o) {
       return item;
     });
   }
-  const versions = new Map(rowsOf(rows, 'description_versions').map((row) => [row.description_id, row]));
+  /** @type {Array<Record<string, unknown>>} */
+  const versionRows = rowsOf(rows, 'description_versions');
+  const versions = new Map(versionRows.map((row) => [row.id, row]));
   for (const description of rowsOf(rows, 'descriptions')) {
-    const version = versions.get(description.id);
+    // A description shows the version it points to; a unit without that row shows the file's own text.
+    const version = versions.get(description.current_version) ?? versions.get(`${description.id}:legacy`);
     if (!version) continue;
     obj[description.field] = version.text;
     if (description.field === 'relationship' && version.written_at !== null && version.written_at !== undefined)
@@ -293,7 +312,13 @@ export function affinityFrom(rows, cols, leftovers, has) {
 
 /** The affinity history array back from the `affinity_events` rows, in order. */
 export function historyFrom(rows) {
-  return ordered(rows, 'affinity_events').map((row) => join(row, row.extra, HISTORY_SPEC));
+  /** @type {Array<Record<string, unknown>>} */
+  const events = ordered(rows, 'affinity_events');
+  return events.map((row) =>
+    row.owner_file === null || row.owner_file === undefined
+      ? { ...join(row, null, HISTORY_SPEC), itemId: row.id }
+      : join(row, row.extra, HISTORY_SPEC)
+  );
 }
 
 export { SELF_PERSON };

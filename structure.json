@@ -497,6 +497,20 @@
       "test": "none"
     },
     {
+      "path": "src/memory/db/session-repair.ts",
+      "purpose": "Schema v17's data step that sets back the claims, descriptions and attitude reasons the unit sync wrote over her memory session's changes. Tested through the v17 migration tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/session-rows.ts",
+      "purpose": "Her memory session's rows beside the store's files: what a member's profile reads of them and what a unit write leaves as she wrote it. Tested through the two-writers tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/memory/db/map/",
       "purpose": "The mapping of memory rows to records and back.",
       "layer": "public",
