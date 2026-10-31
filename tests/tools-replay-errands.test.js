@@ -115,23 +115,30 @@ function fakeChannel() {
   };
 }
 
-/** A scratch data/ with the guild's tasks.json as given; returns the data directory. */
+/**
+ * A scratch data/ with the guild's tasks as given, on the board; returns the data directory.
+ * @param {import('node:test').TestContext} t
+ * @param {{ tasks: Array<Record<string, unknown> & { id: string }> } | null} tasksJson
+ */
 function scratchData(t, tasksJson) {
   const dataDir = tempDir('replay-errands-');
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
   const dir = path.join(dataDir, 'guilds', GUILD);
   fs.mkdirSync(dir, { recursive: true });
   if (tasksJson) {
-    // The tasks as the live engine keeps them: the unit in the memory database.
+    // The tasks as the live engine keeps them: tasks of the board's errand lane, written by the errand store's op
+    // `errand` (PR 6d, errands on the board; they were the errands unit before).
     const handle = openMemoryDb(path.join(dataDir, 'memory.db'));
     try {
-      applyUnitWrite(handle, {
-        kind: 'unit',
-        op: 'value',
-        owner: `guilds/${GUILD}/tasks.json`,
-        value: tasksJson,
-        now: NOW,
-      });
+      for (const errand of tasksJson.tasks) {
+        applyUnitWrite(handle, {
+          kind: 'unit',
+          op: 'errand',
+          owner: `board/errands/${errand.id}`,
+          value: { id: errand.id, guildId: GUILD, at: NOW, errand, delivered: false, closing: null },
+          now: NOW,
+        });
+      }
     } finally {
       handle.close();
     }
@@ -187,6 +194,7 @@ function runTask({ config, tasks, agent = 'scout', author = OWNER }) {
   });
 }
 
+// PR 6d, errands on the board: the budget's errands are seeded as board tasks (scratchData), no longer as a unit.
 test('replay --skills: errand.run passes the sandbox gateway under the live errand budget, is refused at a spent cap, and nothing is written', (t) => {
   const config = scenarioConfig(['errand.run']);
   // One scout and one server task asked today (the daily caps count them from the task records).

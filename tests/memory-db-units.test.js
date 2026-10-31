@@ -32,7 +32,20 @@ const NOW = Date.parse('2026-11-03T12:00:00.000Z');
 const DAY_MS = 86_400_000;
 const DB_FILES = new Set(['memory.db', 'memory.db-wal', 'memory.db-shm', 'memory.db.lock']);
 
-/** The status events of the errand tasks titled `title` on the board, in order. */
+/** The status events and the outbox rows to `persona` of one task (its id given twice). */
+const ROWS_OF_TASK = `SELECT (SELECT COUNT(*) FROM board_events WHERE task_id = ? AND type = 'status') AS events,
+  (SELECT COUNT(*) FROM board_outbox WHERE task_id = ? AND to_whom = 'persona') AS ends`;
+
+/** The status events of the errand task titled `the pier` on the board. */
+const PIER_EVENTS = `SELECT e.seq FROM board_events e JOIN board_tasks t ON t.id = e.task_id
+  WHERE t.lane = 'errand' AND t.title = 'the pier' AND e.type = 'status'`;
+
+/**
+ * The status events of the errand tasks titled `title` on the board, in order.
+ * @param {import('node:sqlite').DatabaseSync} db
+ * @param {string} title
+ * @returns {Array<unknown>}
+ */
 const errandEvents = (db, title) =>
   db
     .prepare(
@@ -419,7 +432,7 @@ test('a failed unit write survives a restart through memory-pending/ and is appl
   const pendingDir = path.join(data, 'memory-pending');
   // PR 6d, errands on the board: the errand's write is op `errand` onto the board, so the refused write, its pending
   // file and its single replay are counted on the board's status events (they were errands.jsonl lines before).
-  const moves = (handle) => errandEvents(handle.db, 'the pier').length;
+  const moves = (handle) => handle.db.prepare(PIER_EVENTS).all().length;
   try {
     fs.chmodSync(data, 0o755);
     await service.tick();
@@ -571,10 +584,11 @@ test('a task transition or an intention whose write committed and whose answer w
     const db = () => service.readHandle().db;
     // PR 6d, errands on the board: the transitions are the task's status events and its end the outbox row to
     // `persona`, written by op `errand` (they were `work_events` lines of op `lines` before).
-    const transitions = (id) =>
-      db().prepare("SELECT COUNT(*) AS n FROM board_events WHERE task_id = ? AND type = 'status'").get(id).n;
-    const ends = (id) =>
-      db().prepare("SELECT COUNT(*) AS n FROM board_outbox WHERE task_id = ? AND to_whom = 'persona'").get(id).n;
+    /** @param {unknown} id */
+    const rows = (id) =>
+      /** @type {import('node:sqlite').DatabaseSync} */ (db()).prepare(ROWS_OF_TASK).get(String(id), String(id));
+    const transitions = (id) => rows(id)?.events;
+    const ends = (id) => rows(id)?.ends;
     const run = async (lose) => {
       lost = lose;
       lostOp = (update) => update.op === 'errand';

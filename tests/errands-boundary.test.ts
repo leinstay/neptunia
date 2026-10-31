@@ -394,10 +394,13 @@ test('a restart fails the running errand once and moves its waiting intention to
     second.errands.start(GUILD);
     second.intentions.reconcile(GUILD);
     await second.settle();
-    const lines = dbOf(second.memory.memoryDb.readHandle() as { db: object })
-      .prepare("SELECT COUNT(*) AS n FROM work_events WHERE work_id = 't0000000c'")
-      .get();
-    assert.equal(lines?.n, 2, 'the running line and the one failure, no second failure');
+    // PR 6d, errands on the board: the moves are the task's status events, board v3's import of the running line
+    // and the one failure (they were `work_events` lines before).
+    const moves = dbOf(second.memory.memoryDb.readHandle() as { db: object })
+      .prepare("SELECT new FROM board_events WHERE task_id = 't0000000c' AND type = 'status' ORDER BY seq")
+      .all()
+      .map((row) => row.new);
+    assert.deepEqual(moves, ['in_progress', 'failed'], 'the running line and the one failure, no second failure');
   } finally {
     await second.stop();
   }

@@ -19,7 +19,7 @@ import { createErrandClient } from '../src/errands/client.ts';
 import { encodeLine } from '../src/agent-runner/protocol.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { tempDir } from './fixtures/tmp.js';
-import { openTestMemorySync, unitFile } from './fixtures/memory-db/service.js';
+import { openTestMemorySync } from './fixtures/memory-db/service.js';
 
 /** The memory database of each data directory used here, opened once; closed when the file is done. */
 const MEMORY = new Map();
@@ -659,14 +659,22 @@ test("errands service: a private chat's unread result is in the view only in tha
       again.unread().map((task) => task.id),
       [dm, group]
     );
-    // A record from before readAt: seen counts as read, unseen as unread.
-    const list = JSON.parse(unitFile(memoryOf(dataDir), 'guilds/g1/errands.json'));
-    for (const task of list.errands) {
+    // A record from before readAt: seen counts as read, unseen as unread. PR 6d, errands on the board: such a record
+    // reaches the store only from the archive board v3 moved, so it is written onto the board through the writer's
+    // op `errand` (it was written into the errands unit before).
+    for (const [id, seen] of [
+      [dm, true],
+      [group, false],
+    ]) {
+      const task = again.get(id);
       delete task.readAt;
       delete task.resolvedAt;
+      await memoryOf(dataDir).writeUnit({
+        op: 'errand',
+        owner: `board/errands/${id}`,
+        value: { id, guildId: 'g1', at: Date.now(), errand: { ...task, seen }, delivered: false, closing: null },
+      });
     }
-    list.errands[0].seen = true;
-    await memoryOf(dataDir).writeUnit({ op: 'value', owner: 'guilds/g1/errands.json', value: list });
     const legacy = createErrandStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: fakeLog() }).get(
       'g1'
     );

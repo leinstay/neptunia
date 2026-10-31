@@ -9,6 +9,8 @@ import path from 'node:path';
 import { openMemoryDb } from '../../../src/memory/db/open.js';
 import { createVectors } from '../../../src/memory/vectors.js';
 import { openTestMemory } from './service.js';
+import { seedUnits } from './seed.js';
+import { BOARD_MIGRATIONS } from '../../../src/board/schema.ts';
 import { CHANNEL, GUILD, MEMBER, buildDataDir, buildSecondGuild, envelope, guildDir, seen, writeJson, writeLines } from './datadir.js';
 
 export { CHANNEL, GUILD, MEMBER };
@@ -92,9 +94,10 @@ async function addVectors(data, memoryDb) {
 
 /**
  * The data directory and its database: `data`, `dbFile`, `handle` (read-only), `memoryDb` (a service-shaped object
- * over `handle`), `closedDb` (nothing open), `log` (warns collected in `warns`), `done()`.
+ * over `handle`), `closedDb` (nothing open), `log` (warns collected in `warns`), `done()`. `archived`: the fixture
+ * seeded at board v2, so its errands reach the board through board v3's move.
  */
-export async function readerEnv() {
+export async function readerEnv({ archived = false } = {}) {
   const root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-readers-'));
   const data = path.join(root, 'data');
   fs.mkdirSync(data);
@@ -102,7 +105,17 @@ export async function readerEnv() {
   buildSecondGuild(data);
   addExtra(data);
   const dbFile = path.join(data, 'memory.db');
-  const writer = await openTestMemory({ dataDir: data, seed: true });
+  if (archived) {
+    // Seeded at board v2, as a database from before PR 6d: the errand units land in the `work` archive, and the
+    // writer's open below runs board v3, which moves them onto the board.
+    const seeding = openMemoryDb(dbFile, { boardMigrations: BOARD_MIGRATIONS.slice(0, 2) });
+    try {
+      seedUnits(seeding, data);
+    } finally {
+      seeding.close();
+    }
+  }
+  const writer = await openTestMemory({ dataDir: data, seed: !archived });
   try {
     await addVectors(data, writer.memoryDb);
   } finally {

@@ -23,6 +23,7 @@ import { createIntentionStores } from '../src/intentions/store.ts';
 import { createErrandStores } from '../src/errands/store.ts';
 import { CHANNEL, GUILD, MEMBER, buildDataDir } from './fixtures/memory-db/datadir.js';
 import { seedUnits } from './fixtures/memory-db/seed.js';
+import { BOARD_MIGRATIONS } from '../src/board/schema.ts';
 
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');
 const quiet = { info() {}, debug() {}, warn() {}, error() {} };
@@ -44,7 +45,9 @@ function databaseOnly() {
   const data = path.join(root, 'data');
   fs.mkdirSync(data);
   buildDataDir(data);
-  const handle = openMemoryDb(path.join(data, 'memory.db'));
+  // Seeded at board v2, as a database from before PR 6d: the fixture's errand lands in the `work` archive and the
+  // engine's first open moves it onto the board (board v3), where the errand store reads it.
+  const handle = openMemoryDb(path.join(data, 'memory.db'), { boardMigrations: BOARD_MIGRATIONS.slice(0, 2) });
   try {
     assert.equal(seedUnits(handle, data, { now: NOW - 86_400_000 }).errors, 0);
   } finally {
@@ -138,6 +141,8 @@ test('the memory starts from memory.db and the operational files alone, writes o
       lines.push(line);
     assert.ok(lines.length > 0, 'the record day');
     assert.ok((await first.journal.read(GUILD, { day: '2026-10-20', n: 100 })).length > 0, 'the journal day');
+    // PR 6d, errands on the board: the fixture's errand is read from the board task board v3 made of it (it was read
+    // from the errands unit before).
     assert.deepEqual(
       first.taskStores
         .get(GUILD)
