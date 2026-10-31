@@ -880,7 +880,7 @@ Settings for the GIF library (`features.gifs`).
 
 ## `private`
 
-Settings for private chat: `private.enabled` answers direct messages at all.
+`private.enabled` switches private chat on, and the other keys apply to it.
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|

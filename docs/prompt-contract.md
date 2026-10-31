@@ -37,10 +37,8 @@ All instructions are English in both layers; a character's speech samples may be
 | `errand-result.md` | no | Task: a finished errand of the persona opened this turn and there is no origin message. Used INSTEAD of the mode prompt (`interject.md`) when the trigger kind is `errand` with no trigger and the file is present and non-blank; missing or blank falls back to `interject.md` (degraded) | `{{name}}` |
 | `lookup.md` | no | Classifier: does the persona need to look something up (`features.webLookup`, `features.recall`). Receives a short transcript and a `<candidate>` block. Output is `none`, or up to six labelled lines: `web:` a web query, `server:` word forms to search in the server's messages, `who:` name forms to find a person, `when:` a date range, `when-role:` `scope` or `locator` (whether the date is the question or only helps find the event; it only qualifies `when:`), `recent:` `yes` or `no` (a vague "recently"; it only qualifies the other lines). An optional `skills:` line names skills relevant to the message or requests the full list. A single unlabelled line is still read as a web query. The classifier never creates or suggests an errand (only the persona's own `errand.run` call does): an `agent:` line is ignored | `{{name}}` `{{today}}` `{{skills}}` |
 | `recall-summary.md` | no | Out-of-character prompt for the recall summary (`features.recall`): reads the stretches of old chat found by the server search and answers the question, optionally naming one stretch the persona gets verbatim. No character card | `{{name}}` `{{answerChars}}` |
-| `room.md` | no | Classifier: is this message put to everyone in the room, or aimed at one person (`spontaneous.roomQuestionChance`). Receives a short transcript, the author's aliases and a `<candidate>` block. Output is ONE word: `yes` or `no` | `{{name}}` |
 | `route-channel.md` | no | Classifier: does answering this message need the persona to see another channel (`features.channelRoute`). Receives a short transcript, a `<channels>` list and a `<candidate>` block. Output is ONE line: a number from the list, `<n> earlier` (the page before the last view of that channel) or `none`. With no previous view within `context.pull.seenTtlMinutes` the earlier form shows the newest page | `{{name}}` |
 | `participation-pick.md` | no | Classifier: which of the persona's stored exchanges on other channels the new message refers to (`features.participation`). Receives a numbered `<episodes>` list first (the cache-stable part: oldest first, no ages, so a new episode appends a line), then `<episode_ages>` (`n | duration`, per call), a short `<transcript>` (own lines marked with `labels.self`) and a `<candidate>` block. Output is ONE line: up to 4 numbers from the list, comma-separated, most relevant first, or `none`. No character card. Without this file the newest episodes are shown | `{{name}}` |
-| `planner.md` | no | The turn planner (`features.turnPlanner`): one pre-reply analyzer call that replaces the channel router, the episode pick, the search classifier and the re-watch classifier. Receives `<channels>`, `<episodes>` (oldest first, no ages; with `<channels>` the cache-stable part), `<episode_ages>`, `<media>`, a short transcript (`web.search.contextMessages` lines) and a `<candidate>` block. Output is four labelled blocks (`channel`, `episodes`, `rewatch`, `lookup`) plus an optional `skills` line. Role `analyzer`, purpose `planner`; output cap `web.search.classifierMaxOutputTokens`. No character card | `{{name}}` `{{today}}` `{{skills}}` |
 | `elsewhere.md` | no | Task: the persona read a channel where they cannot write and may comment on it in the main channel (`features.elsewhere`). Used as the task text for a noticed turn. `<skip/>` is the normal outcome | `{{name}}` `{{channel}}` `{{destination}}` |
 | `read-link.md` | no | Out-of-character prompt for the link reader (`features.webLookup`, `web.links.enabled`): condense a fetched page into one paragraph. Receives the page title and body. Not used with `features.coreTools` on (a posted link shows the opening of the page's text instead). No character card | `{{today}}` `{{maxChars}}` |
 | `search-summary.md` | no | Out-of-character prompt for the search condenser (`features.webLookup`, `web.search.enabled`): condense numbered search results into one note with inline sources. Only for the search classifier's lookup (`features.coreTools` off) and the diary; never for her own `web.search`, which returns the results raw. No character card | `{{today}}` `{{query}}` `{{maxChars}}` |
@@ -487,7 +485,6 @@ transcript.callReasons.message-deleted   the message was deleted by its author o
 transcript.callReasons.channel-no-permission      {channel}: the channel the bot has no permission in for this call
 transcript.callReasons.file-elsewhere              {channel}: the file from an errand tried to post in a channel the requester did not name
 transcript.callReasons.unknown-gif       the handle is not in the GIF library; nothing is posted, she may call again without `gif=`
-transcript.callReasons.gif-cap           the daily GIF limit is spent; nothing is posted, she may call again without `gif=`. Any kind without its phrase here falls back to tools.result.reasons[code], then .other
 transcript.postedFrom                    {channel}: after the persona's name on a line a call from another channel's turn posted; blanked: no marker
 transcript.replyTo                       {index} {author} {quote}: the parent message's number, its author (the self label when the parent is the persona's own) and a quote of the parent's text, cut at a word boundary to `context.replyQuoteChars` (default 80; `0` = whole); a parent with only media quotes its media labels
 transcript.replyToMemory                 {author} {quote}: appended to a line in a memory batch transcript; names the parent's author (the self label when the parent is the persona's own) and quotes its text. No `{index}`. A parent outside the batch renders `replyToOld`
@@ -530,30 +527,24 @@ transcript.reactionNames                 OPTIONAL {emoji} {names} {count}: one r
 transcript.reactionSeparator             OPTIONAL: placed between two reactions of one line, counts and names alike (" · "); names inside one reaction stay joined with ", ". Missing: ", "
 transcript.reactionMore                  OPTIONAL {n}: after the names, the members who reacted and are not named (past context.reactions.maxNames, or not known). Blank: nothing
 transcript.unknownDuration               shown in place of {duration} when Discord gave none
-senses.imageDescribed | imageBlind       one line; code picks the one true under the live config (features.mediaDescriptions). No first-hand line exists: the persona never sees a picture herself
-senses.gifWatched | gifDescribed | gifBlind   gifWatched replaces gifDescribed when media.gif.watch is on (needs video vision on and a describe-gif or describe-video prompt); a labels file without gifWatched falls back to gifDescribed. Both say GIF descriptions come from a model role (second-hand); without a description the persona does not infer the content
-senses.videoDescribed | videoBlind
-senses.videoWatch                        replaces videoDescribed when features.videoDescriptions is on (needs mediaDescriptions too); covers watched, still frame and not-watched states
-senses.videoRewatch                      shown alongside videoWatch when features.videoRewatch is on; tells the persona that a second look at a watched video may appear, marked as first-hand
-senses.stickerDescribed | stickerBlind
+senses.imageDescribed                    one line, always: the persona never sees a picture herself; she reads the describer's captions
+senses.gifWatched | gifDescribed   gifWatched replaces gifDescribed when media.gif.watch is on (needs video vision on and a describe-gif or describe-video prompt); a labels file without gifWatched falls back to gifDescribed. Both say GIF descriptions come from a model role (second-hand); without a description the persona does not infer the content
+senses.videoDescribed                    the still-frame line; videoWatch stands in for it, and a labels file without videoWatch falls back to it
+senses.videoWatch                        replaces videoDescribed; covers watched, still frame and not-watched states
+senses.stickerDescribed
 senses.lottie
 senses.customEmoji                       shown when features.customEmoji is on and the server has at least one custom emoji; tells the persona they can use server custom emoji by writing :name:
 senses.gifs                              shown when features.gifs is on and the library is not empty; tells the persona they can post one GIF per turn by handle from the list or transcript; entries give the reaction, visible action and on-screen text; recent-use marks show own posts; only listed or transcript handles; unknown handle posts nothing
 senses.voice | links | files
 senses.linksWatch                        replaces links when features.videoDescriptions is on; adds that a linked video may come watched or not watched with the reason
-senses.linksTool                         with `features.coreTools` and `features.webLookup` on and `web.read` granted to her, in place of `senses.links`: the same line, but a link may show the opening of the page as a preview and she can read the whole page with `web.read` (no "cannot open the page" sentence). Without the label `senses.links` shows
 senses.linksWatchTool                    the same for `senses.linksWatch` (`features.videoDescriptions` on)
 senses.linksRead                         shown after the links line when features.webLookup is on and web.links.enabled is not false; tells the persona that a link's preview is the opening of the page's own text, first-hand, not the whole page
-senses.search                            shown when features.webLookup is on, web.search.enabled is not false AND a Brave Search key is configured; tells the persona that a `<lookup>` block may appear with web results and that no search can happen during the reply itself
-senses.recall                            shown right after the search line when the server-history search is available: on every server turn, and in a private chat when `features.privateLikeServer` is on (the default). Tells the persona that a search of the server's old messages either ran before the reply or did not, that its part of `<lookup>` is what the history holds (the analyzer's summary or a verbatim stretch), and that without it nothing was looked up there. An older labels file without the key renders nothing
 senses.searchTool                        with `features.coreTools` on, in place of `senses.search` (same conditions) and only when `web.search` is granted to her: nothing is searched before her reply; she calls `web.search` herself and its result comes back as raw search results (title, link, snippet, site), the pages not opened. Without the label nothing is shown
 senses.readTool                          with `features.coreTools` on, features.webLookup on and `web.read` granted to her, after the links lines: she can open a page herself with `web.read` (its link, or a message `#N` holding one); the page's own text comes back in its tool result, cut, not a summary. Without the label nothing is shown
 senses.lookTool                          with `features.coreTools` on and `media.look` granted to her, while the image second look (`features.imageRelook`) or video vision is on, in place of `senses.videoRewatch`: she can look more closely at a picture, GIF or video of a message `#N` with `media.look` and her question; the closer look comes back in its tool result. Without the label nothing is shown
 senses.recallTool                        with `features.coreTools` on, in place of `senses.recall` (same conditions, per turn) and only when `memory.search` is granted to her: she calls `memory.search` herself; the messages come back quoted in its tool result. Without the label nothing is shown
 senses.diary                             {channel}: shown when her diary has a place (a diary turn's own conversation, else the first enabled mirror) and `features.diary` is not false. It tells the persona they keep a diary in that channel
 senses.draw                              shown when features.imageGeneration is on and an image client is wired; tells the persona they can draw
-senses.drawSpent                         replaces draw when the daily picture quota is spent
-senses.drawSpentUser                     replaces draw when this member's daily quota is spent
 senses.privateChat                       shown in a DM turn: this is a one-on-one conversation, what is said here stays between the two of them
 senses.privateAware                      shown on a server turn when features.privateMessages is on: the persona knows they have private chats and never repeats or hints at anything from them
 prefetch.header                          the first line of `<retrieved>` (the automatic memory prefetch, `features.coreTools`): what the block is. Missing: no block
@@ -815,7 +806,6 @@ tools.tools.read.none                   the page had no readable text
 tools.tools.look.image                  {name} {question}: the first line of a `media.look` result on a picture: a closer look at the picture and what was asked; the answer follows as the model gave it
 tools.tools.look.video                  {name} {question}: the same for a video or a GIF
 tools.tools.look.notVideoSite           {sites}: the data of a `media.look` `url` refused with `not-video-site`: the configured `media.video.sites`, comma separated
-tools.tools.look.off                    {feature}: why a `media.look` was not run: the switch that is off (`features.imageRelook`, `features.videoRewatch` or video vision)
 tools.tools.memory.source               the first line of a `memory.search` result: where it came from (this server's message history) and what kind of evidence it is (messages quoted as written, each with its time and author; a sample)
 tools.tools.memory.window               {date} {channel}: the heading of one quoted stretch (`YYYY-MM-DD` in `bot.timezone`, the channel's name)
 tools.tools.memory.windowCut            {dropped}: after a stretch cut at `recall.quoteWindowChars`; the count of lines left out of this stretch
@@ -1297,65 +1287,6 @@ Selection, cutting, dedup. The request shows at most `participation.shown` episo
 
 Logs (counts and codes only): `participation: recorded` (`channel`, `episodes`; `following: true` for a line after the persona's), `participation: classified` (`channel`, `kind`, `offered`, `picked`, `parse`, `ms`), `participation: skipped` (`no-prompt`, `no-candidate`), `participation: failed` (`reason`: a rail code, `error`, `record-error`, `following-error`). The reply's `turn: model answered` carries `budget.participation` (`used`, `kept`, `dropped`, `offered`, `shown`, `cut`, `deduped`).
 
-## Turn planner
-
-When `features.turnPlanner` is exactly `true`, one analyzer call replaces four classifiers that otherwise run separately before a reply: the channel router (`route-channel.md`), the episode pick (`participation-pick.md`), the re-watch classifier (`rewatch.md`) and the search classifier (`lookup.md`). The address classifier and the GIF picker stay separate.
-
-`planner.md` runs on the `analyzer` role (purpose `planner`), output capped at `web.search.classifierMaxOutputTokens` (default 2000). Placeholders: `{{name}}` (the persona's display name), `{{today}}` (the date in `bot.timezone`, `YYYY-MM-DD`).
-
-### Input
-
-The user message carries the same lists the old classifiers received, in this order: `<channels>` (channel lines from the route classifier), `<episodes>` (episode lines from the participation pick), `<media>` (video and picture lines from the re-watch classifier), then a short transcript of the last `web.search.contextMessages` lines, then `<candidate>` (the new message: `<author name>: <text>`). A block whose list is empty is left out. The `<channels>` and `<episodes>` blocks are tagged `cacheSegment: 'stable'` (they change only when a channel or an episode does); the `<media>` list, the transcript and the candidate are the per-turn tail.
-
-### Output
-
-Four labelled blocks, each present exactly once, in any order:
-
-```
-channel: <n> | channel: <n> earlier | channel: none
-episodes: <n>, <n>, ... | episodes: none
-rewatch: <n> retry | rewatch: <n> question: <text> | rewatch: none
-lookup: none
-```
-
-When a search is needed, the `lookup` block carries one or more labelled lines instead of `none`:
-
-```
-web: <query>
-server: <form>, <form>, ...
-who: <name form>, <name form>, ...
-when: <from> .. <to>
-when-role: scope | locator
-recent: yes | no
-```
-
-`when-role` reads as in the search classifier: `scope` makes the `when:` range a hard bound, `locator` (or no role beside `server:` / `who:`) only ranks by it.
-
-An optional `skills` line may follow (`features.toolsDiscovery`): `skills: inventory`, `skills: <name>, <name>` (up to 4), or `skills: none`. Read by `parseSkillsAnswer`; same effect as in the standalone classifier.
-
-Each lookup label may appear at most once. The grammar of each block matches the output format of the classifier it replaces: `channel` is read by `parseRouteAnswer`, `episodes` by `parseParticipationPick`, `rewatch` by `parseRewatchPickDetailed`, and the lookup lines by `parseLookupAnswer`.
-
-### Block states
-
-Each block in the parsed answer carries a state:
-
-- `ok`: a usable pick.
-- `none`: the model answered `none`.
-- `invalid`: present but unparsable (a number outside its list, a duplicate line, conflicting content such as `lookup: none` alongside labelled lines).
-- `missing`: not answered at all.
-
-An `invalid` or `missing` block takes its safe default: no channel routed, no episodes picked, no second look. The lookup block falls back to the words recall (`recall.fallbackOnClassifierFailure`). On a whole failure (the request threw, timed out or returned a blank answer), every offered block records its fallback and the lookup fallback runs alone. The old classifiers are never re-run.
-
-### Fallback journal entries
-
-Every offered block that ends up `invalid` or `missing`, and every offered block of a failed call, records a `helper-fallback` limit entry: `where: 'planner:<block>'` (e.g. `planner:channel`, `planner:lookup`), `detail`: the state or the failure code.
-
-### Logs
-
-- `planner: classified`: each block's state, the offered counts, the picked counts. Codes and counts only, never a line, a query or a question.
-- `planner: failed`: the request threw, timed out or returned a blank answer. Fields: `reason` (`classifier-failed` or `empty`), `rail` (the rail code when applicable).
-- `planner: skipped`: the planner had nothing to decide (`reason`: `no-prompt`, `nothing`, `no-candidate`). No request, no fallback recorded.
-
 ## Drawing
 
 The persona can produce pictures through a drawing sub-process (`features.imageGeneration`, on by default). When the
@@ -1383,34 +1314,23 @@ like. If the avatar cannot be fetched, the generation proceeds without a referen
 
 ### Senses
 
-The `<senses>` block includes one drawing line when an image client is wired and `features.imageGeneration` is not
-false:
-
-- `senses.draw` — the persona can draw.
-- `senses.drawSpent` — the daily quota (`image.maxPerDay`) is spent.
-- `senses.drawSpentUser` — this member's daily quota (`image.maxPerUserPerDay`) is spent.
-
-An older `labels.json` without `senses.draw` shows nothing.
+The `<senses>` block includes `senses.draw` (the persona can draw) when an image client is wired and the conversation
+allows Attach Files. An older `labels.json` without `senses.draw` shows nothing.
 
 ### Failures
 
 A failed picture is never a turn of its own and never a limit notice. The `draw.create` call comes back to her as a
-result with its code: `image-cap-daily` or `image-cap-user-daily` (the caps), `image-moderation`, `image-timeout`,
-`image-error`, a refused publication with its gateway code. Her speech of that step is held, and the next request
+result with its code: `image-moderation`, `image-timeout`, `image-error`, a refused publication with its gateway code. Her speech of that step is held, and the next request
 tells her so ([The steps of a turn](#the-steps-of-a-turn)).
 
 ### Rails
 
 - The scene text of one `draw.create` call is clamped to `image.maxPromptChars` (default 1600) at the last sentence or word boundary.
-- `image.maxPerDay` (default 50) and `image.maxPerUserPerDay` (default 50) are checked and counted before the
-  request; a cap error throws `ImageCapError` with reason `daily` or `userDaily`.
 - An unsupported model family (not `openai/*` or `google/*`) is refused with `UnsupportedImageModelError`.
 - Generation failures throw `ImageGenError` with reason `moderation`, `timeout`, `error` or `empty`.
 - Transient HTTP errors (408, 429, 5xx) and network failures are retried up to `image.retries` (default 1).
 - Moderation refusals (HTTP 400/403 with a moderation marker) are not retried.
 - Logs carry the model, counts, cost and failure reasons — never the prompt, because it may quote members.
-- In dry-run, the full image prompt (prompt files + the persona's request) is logged and mirrored, but nothing is
-  generated.
 
 ## Diary
 
@@ -1547,15 +1467,9 @@ The gate uses the public score alone.
 
 When a rail refuses a directly requested action (a mention, reply, name trigger, follow-up or private message, not an overheard or spontaneous turn), the
 bot posts one plain line from `labels.limits.notice` with `{limit}` (the config key), `{used}` and `{cap}` filled.
-Spontaneous turns that hit a rail stay silent. In dry-run the notice is logged and mirrored, not sent.
+An unprompted turn that hits a rail stays silent.
 
-The config keys that can appear as `{limit}`: `llm.maxRequestsPerDay`, `llm.maxRequestTokens`, `image.maxPerDay`,
-`image.maxPerUserPerDay`, `private.maxPerUserPerDay`, `private.maxPerOwnerPerDay`.
-
-Private DM caps post the notice once per person per day (tracked by `replies.noticedDay` in the private file).
-An image cap on a `draw.create` call comes back to her as a result (`image-cap-daily`, `image-cap-user-daily`; the
-senses line already told her the quota was spent). Video and web daily caps do not block a reply and keep their
-in-transcript states; no notice.
+The config keys that can appear as `{limit}`: `llm.maxRequestsPerDay` and `llm.maxRequestTokens`.
 
 ## Her memory session and description review
 

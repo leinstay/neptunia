@@ -15,7 +15,7 @@
   },
   "docs/configuration.md": {
     "label": 7,
-    "slash": 4
+    "slash": 2
   },
   "docs/core.md": {
     "label": 2
@@ -42,8 +42,8 @@
     "label": 13
   },
   "docs/prompt-contract.md": {
-    "dash": 18,
-    "label": 44,
+    "dash": 15,
+    "label": 37,
     "slash": 8
   }
 }
