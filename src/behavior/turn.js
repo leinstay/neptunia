@@ -41,9 +41,9 @@ import {
 } from './diary.ts';
 import { channelPullOn, pullPictures, pullSettings, pullTargets } from './pull.js';
 import { createDeadline, createPrepLedger, lateMediaTeller } from './turn-parts.ts';
-import { audienceCovers, createLinker, markSeen, messageLinkOf, stampPings } from './elsewhere.ts';
+import { createLinker, markSeen, messageLinkOf, stampPings } from './elsewhere.ts';
 import { captionPulled, checkPull, createPullViews, fetchPull } from './pull-fetch.ts';
-import { audienceAllows, everyMemberAudience, railAudience, takeSnapshot } from './snapshot.ts';
+import { audienceAllows, takeSnapshot } from './snapshot.ts';
 import { fetchNeighbors } from './neighbors.ts';
 import { historyLines } from './lines.ts';
 import { withTextPreviews } from '../media/text-preview.ts';
@@ -82,25 +82,16 @@ import { portIface } from '../interface/capabilities.ts';
 import { between, typingMs } from './random.js';
 import { startTypingLease } from '../interface/typing.js';
 import { settleWait } from './activity.js';
-import { collectPictures, collectVideos, collectReadableLinks, lateVideoStates } from '../media/classify.js';
+import { collectVideos, collectReadableLinks, lateVideoStates } from '../media/classify.js';
 import { createImageFetcher } from '../media/fetch-image.js';
 import { drawPicture, drawPromptOf } from '../media/draw.js';
 import { renderCustomEmoji, resolveReactionEmoji } from './emoji.js';
 import { refreshEmojiIfOn } from './emoji-index.ts';
-import { callReason, fill, formatTranscript, replyMarker, withCalls, withTriggers } from '../format.js';
+import { callReason, fill, formatTranscript, replyMarker } from '../format.js';
 import { log } from '../log.js';
 import { clampWithEllipsis, countDashes, oneLine, stripDashes } from '../memory/clamp.js';
-import {
-  gifPostsToday,
-  rankGifs,
-  participationSettings,
-  recordOwnLine,
-  isVideoVisionOn,
-  toRecordLine,
-  createOffPeriodsReader,
-} from '../memory/index.js';
+import { gifPostsToday, rankGifs, isVideoVisionOn, createOffPeriodsReader } from '../memory/index.js';
 import { linkChannels, linkMessageNumbers } from '../memory/mentions.ts';
-import { foldText, liveRecent, recentSettings } from '../memory/recent.js';
 import { createParticipationPicker, participationEpisodeOffer } from './participation-pick.js';
 import { askPlanner, parsePlannerAnswer, parseRewatchPickDetailed, plannerOn } from './planner.js';
 import { routeAllowed, routeCandidate, routeSettings } from './route.js';
@@ -112,7 +103,7 @@ import { budgetDrops, requestTokenLimit } from '../llm/budget.js';
 import { createLimits } from '../llm/limits.js';
 import { checkReplyEffect, checkSkill, listSkills } from '../tools/gateway.ts';
 import { callArgsText } from '../tools/call-args.ts';
-import { createThinkStore, placeKey } from './previous-think.js';
+import { createThinkStore } from './previous-think.js';
 import { discoveryOn, exposedSkillNames, proposalVerdicts, proposedRows, skillsIndex } from '../tools/discovery.ts';
 import { skillFeatureOn, skillsOn } from '../tools/access.ts';
 import { executeCall, linksOfCalls, outcomeDetail, refusalStatus, resolveCall } from '../tools/executors.ts';
@@ -131,7 +122,6 @@ import { channelPlaceId, personId } from '../memory/db/ids.ts';
 import { prefetchLanes, prefetchOn, wakeLanes } from './prefetch.js';
 import { FACTS_SHOWN_MAX, POSTING_SKILLS, createLocalFacts, factPayload, innerSettings } from './inner.ts';
 import { DESTINATION_REQUIRED, innerOutputCalls } from './inner-output.js';
-import { SOURCE_CHARS_MAX, lineSourcesOf, textsOf } from '../intentions/sources.ts';
 import { intentionSettings, isIntentionId } from '../intentions/model.ts';
 import { WAKE_PURPOSE_CHARS } from './wake.ts';
 import { diagnosticText, feedbackInTurnText, placesBlockText, wakeBlockText } from './wake.ts';
@@ -210,6 +200,8 @@ import {
   triggerBringsMedia,
 } from '../turn/media.ts';
 import { NO_RECENT, continuationHistory, withReplyParents } from '../turn/history.ts';
+import { createJournalNotes } from '../turn/journal-notes.ts';
+import { createParticipation } from '../turn/participation.ts';
 import { channelDirectoryOf, inCommunity, routeFor, usableDestination } from '../turn/routing.ts';
 import {
   FAILED_TURN_KEEP_MS,
@@ -236,9 +228,7 @@ import {
   CALL_MARKS_MAX,
   CALL_STATUS_NAMES,
   PERSONA,
-  POSTED_FROM_MAX,
   SEARCH_HANDLE_GAP,
-  TRIGGER_LINKS_MAX,
   WRITTEN_SKILLS,
   answerOf,
   callEnvelope,
@@ -556,6 +546,15 @@ export function createTurnRunner({
   const ifaceReads = readsDep;
   const busy = attention;
   const routes = turnRoutes(hot, roleHealth);
+  // The topic modules of the closure (src/turn/<topic>.ts), each built once from the context it reads.
+  const {
+    participationOn,
+    participationAudience,
+    aroundInputFor,
+    liveChannelName,
+    recordOwnParticipation,
+    recentInput,
+  } = createParticipation({ hot, store, around, clock });
 
   /**
    * The one execution context of an attempt's memory reads (`memoryContext`): issued the first time a read needs it
@@ -2169,33 +2168,6 @@ export function createTurnRunner({
   const facts = () => (factsSource?.enabled?.() === true ? factsSource : localFacts);
   // The channels known to be private chats (a deferred call names only its channel).
   const privateChannels = new Set();
-  const failedKept = () => {
-    const kept = hot.config.context?.failedTurnsKept;
-    return Number.isInteger(kept) && kept >= 0 ? kept : 3;
-  };
-  /** The facts of `kind` of the conversation `scope` still in their window, oldest first. */
-  function factsOfKind(guildId, scope, kind, at) {
-    return facts()
-      .pending(guildId, scope)
-      .filter((fact) => fact.kind === kind && fact.channelId === scope.channelId && at - fact.at < FAILED_TURN_KEEP_MS);
-  }
-  /** A fact of `kind` kept (at most `failedKept()` of the kind per conversation, the newest; one per message). */
-  function keepFact(guildId, scope, kind, payload, at) {
-    const kept = failedKept();
-    if (kept <= 0) return;
-    const store = facts();
-    if (payload.messageId)
-      store.markTold(
-        guildId,
-        factsOfKind(guildId, scope, kind, at)
-          .filter((fact) => fact.messageId === payload.messageId)
-          .map((fact) => fact.id)
-      );
-    store.add(guildId, { kind, ...scope, at, ...payload });
-    const live = factsOfKind(guildId, scope, kind, at);
-    const over = live.slice(0, Math.max(0, live.length - kept)).map((fact) => fact.id);
-    if (over.length > 0) store.markTold(guildId, over);
-  }
   const lastPostAt = new Map(); // channelId -> ts of the persona's last message
   // `${skill}:${originChannelId}` -> when a destructive skill call of hers was last dispatched
   // from that channel (tools.destructiveCooldownMinutes, src/tools/gateway.ts); in process.
@@ -2224,70 +2196,6 @@ export function createTurnRunner({
   // links go first past TRIGGER_LINKS_MAX. Her transcript lines read it (linkTriggers).
   const triggerLinks = new Map();
 
-  /**
-   * Outside text the attempt `draft` has seen (src/intentions/sources.ts): someone's message, the
-   * retrieved memory, a read's result; `read` marks outside material (a read, a page, a lookup, an
-   * errand's result). At most SOURCE_CHARS_MAX characters in all.
-   */
-  function noteSeen(draft, value, { read = false } = {}) {
-    if (!draft) return;
-    const left = SOURCE_CHARS_MAX - (draft.seenChars ?? 0);
-    const texts = left > 0 ? textsOf(value, left) : [];
-    if (texts.length === 0) return;
-    (draft.seenTexts ??= []).push(...texts);
-    draft.seenChars = (draft.seenChars ?? 0) + texts.reduce((sum, text) => sum + text.length, 0);
-    if (read) draft.seenRead = true;
-  }
-
-  /**
-   * Where her line `postedId` (its `text` as she wrote it) came from, noted with the intention
-   * service for the candidates the analyzer may find in it (src/intentions/sources.ts#lineSourcesOf:
-   * what the turn had seen before it went out, its turn, an inner turn's chain). Never throws.
-   */
-  function noteLineSources(draft, postedId, text) {
-    if (typeof intentions?.noteLine !== 'function' || typeof postedId !== 'string' || !postedId) return;
-    try {
-      intentions.noteLine(
-        postedId,
-        lineSourcesOf({
-          text,
-          external: draft?.seenTexts ?? [],
-          read: draft?.seenRead === true,
-          turnId: draft?.started?.turnId ?? draft?.turnKey?.turnId ?? null,
-          inner: Boolean(draft?.inner),
-          chainId: draft?.inner?.wake?.chainId ?? null,
-        })
-      );
-    } catch (err) {
-      log.warn('turn: line sources not noted', { error: err });
-    }
-  }
-
-  /** Remember that `postedId` was posted by the turn `triggerId` started (a newer link wins). */
-  function noteTrigger(postedId, triggerId) {
-    if (
-      typeof postedId !== 'string' ||
-      !postedId ||
-      typeof triggerId !== 'string' ||
-      !triggerId ||
-      postedId === triggerId
-    )
-      return;
-    triggerLinks.delete(postedId);
-    triggerLinks.set(postedId, triggerId);
-    while (triggerLinks.size > TRIGGER_LINKS_MAX) triggerLinks.delete(triggerLinks.keys().next().value);
-  }
-
-  /**
-   * `lines` with the persona's own lines carrying the message that started their turn
-   * (src/format.js#withTriggers), so every transcript built from them names it;
-   * `lines` as they are with features.triggerMarkers off (a missing key counts as on, read now).
-   */
-  function linkTriggers(lines) {
-    if (hot.config.features?.triggerMarkers === false) return lines;
-    return withTriggers(lines, triggerLinks);
-  }
-
   // The persona's skill calls, in process (noteCall at each call, seedCallMarks at start from the
   // journal), oldest first, the oldest dropped past CALL_MARKS_MAX; and posted message id -> the
   // channel of the turn that posted it from another channel (notePostedFrom). Her transcript
@@ -2298,253 +2206,41 @@ export function createTurnRunner({
   // The last think per place (src/behavior/previous-think.js), in process; a restart forgets it.
   const thinks = createThinkStore();
 
-  /** Whether her previous think is carried at all (features.previousThink, read now; a missing key counts as on). */
-  function previousThinkOn() {
-    return hot.config.features?.previousThink !== false;
-  }
-
-  /**
-   * The key of the place a channel is (interface + server or private chat + channel).
-   */
-  function placeOf(channel, guildId = null) {
-    return placeKey({
-      guildId: inCommunity(channel) ? (guildId ?? channel.communityId ?? null) : null,
-      channelId: channel.id,
-    });
-  }
-
-  /**
-   * The think a NEW turn's first request carries (an inner turn imports none), chosen once, logged
-   * `turn: previous think` with the source (turn id, relation, age) or why there is none. Null when
-   * nothing is carried.
-   * @returns {{ text: string, relation: 'earlier', ageMs: number }|null}
-   */
-  function earlierThinkFor({ channel, guildId, isPrivate, draft, mode }) {
-    if (!previousThinkOn() || draft.inner || mode === 'diary') return null;
-    const picked = thinks.select(placeOf(channel, guildId), {
-      now: clock(),
-      minutes: hot.config.context?.previousThink?.minutes ?? 0,
-      isPrivate,
-    });
-    if (!picked.think) {
-      log.info('turn: previous think', {
-        channel: channel.id,
-        none: picked.why,
-        ...(picked.turnId ? { source: picked.turnId } : {}),
-      });
-      return null;
-    }
-    log.info('turn: previous think', {
-      channel: channel.id,
-      source: picked.source.turnId,
-      relation: picked.source.relation,
-      ageSeconds: Math.round(picked.source.ageMs / 1000),
-    });
-    return { text: picked.think, relation: 'earlier', ageMs: picked.source.ageMs };
-  }
-
-  /** The turn ended: its final think goes to the places it ran in and delivered to (previous-think.js#record). Never throws. */
-  function recordTurnThink(args, draft, result) {
-    try {
-      /** @type {Conv|undefined} */
-      const channel = draft.info;
-      const outcome = result?.outcome ?? 'error';
-      if (!channel || result?.dryRun === true || !previousThinkOn()) return;
-      const failed = outcome === 'error' || outcome === 'refused';
-      if (!failed && outcome !== 'spoke' && outcome !== 'skip') return;
-      const guildId = args.guildId ?? channel.communityId ?? null;
-      const delivered = [...(draft.deliveredIn ?? [])].map((id) =>
-        placeKey({ guildId: inCommunity(channel) ? guildId : null, channelId: id })
-      );
-      thinks.record({
-        turnId: draft.started?.turnId ?? draft.turnKey?.turnId ?? null,
-        at: clock(),
-        think: draft.finalThink ?? null,
-        failed,
-        isPrivate: !inCommunity(channel),
-        inner: Boolean(args.inner),
-        ran: placeOf(channel, guildId),
-        delivered,
-      });
-    } catch (err) {
-      log.warn('turn: previous think not kept', { error: err });
-    }
-  }
-
-  /** Remember one skill call of hers (in src/format.js#withCalls's shape). */
-  function noteCall(mark) {
-    callMarks.push(mark);
-    if (callMarks.length > CALL_MARKS_MAX) callMarks.splice(0, callMarks.length - CALL_MARKS_MAX);
-  }
-
-  /** Remember that `postedId` was posted by a turn of channel `originId` (a newer link wins). */
-  function notePostedFrom(postedId, originId) {
-    if (typeof postedId !== 'string' || !postedId || typeof originId !== 'string' || !originId) return;
-    postedFromLinks.delete(postedId);
-    postedFromLinks.set(postedId, originId);
-    while (postedFromLinks.size > POSTED_FROM_MAX) postedFromLinks.delete(postedFromLinks.keys().next().value);
-  }
-
-  /**
-   * `lines` with the persona's skill calls on her own lines (src/format.js#withCalls): the
-   * channel names read live from the guild of `channel` (the turn's), the message links built in
-   * `guildId` (`@me` for a message of the private chat itself). `lines` as they are with
-   * features.callMarkers off (a missing key counts as on, read now).
-   * @param {*} lines
-   */
-  function linkCalls(lines, { channel, snapshot = null, guildId, extra = null }) {
-    if (hot.config.features?.callMarkers === false) return lines;
-    const turnMarks = Array.isArray(extra) ? extra : [];
-    if (callMarks.length === 0 && turnMarks.length === 0 && postedFromLinks.size === 0) return lines;
-    const privateId = inCommunity(channel) ? null : String(channel.id);
-    return withCalls(
-      lines,
-      { calls: turnMarks.length > 0 ? [...callMarks, ...turnMarks] : callMarks, postedFrom: postedFromLinks },
-      {
-        nameOf: liveChannelName(channel, snapshot),
-        linkOf: (channel, message) => messageLinkOf(iface, channel === privateId ? null : guildId, channel, message),
-      }
-    );
-  }
-
-  /** Whether the journal is written now: one injected and features.journal exactly true (read now). */
-  function journalOn() {
-    return Boolean(journal) && hot.config.features?.journal === true;
-  }
-
-  /**
-   * The journal's request dump (journal.keepRequests) of one request of the turn: the message
-   * list as sent and the raw answer; `step` (1, 2, ...) for a request after a call (the
-   * follow-up, the tool loop's steps), none for the reply's own. Fire-and-forget, only for a
-   * started turn with the journal on; a failure is logged with a count of one, never the contents.
-   * `sent` (`{ tools, toolChoice }`) is what the request carried besides messages, when it had tools.
-   * `later` (the messages after the first two, when the turn's steps appended any) is stored with the dump.
-   */
-  function dumpTurnRequest(guildId, draft, messages, completion, step = null, sent = null, later = null) {
-    if (!draft?.started || !journalOn() || typeof journal.dumpRequest !== 'function') return;
-    Promise.resolve()
-      .then(() =>
-        journal.dumpRequest(guildId, {
-          turnId: draft.started.turnId,
-          attemptId: draft.started.attemptId,
-          ...(step !== null ? { step } : {}),
-          request: { messages },
-          raw: completion.text,
-          usage: journalUsage(completion),
-          privateUserId: draft.privateUserId ?? null,
-          // A request that carried tools: the definitions and the choice sent, the answer's calls.
-          ...(Array.isArray(sent?.tools) && sent.tools.length > 0
-            ? { tools: sent.tools, toolChoice: sent.toolChoice ?? 'auto' }
-            : {}),
-          ...(Array.isArray(completion.toolCalls) && completion.toolCalls.length > 0
-            ? { toolCalls: completion.toolCalls }
-            : {}),
-          ...(Array.isArray(later) && later.length > 0 ? { later } : {}),
-        })
-      )
-      .catch((error) =>
-        log.warn('journal: dump failed', { code: error?.code ?? null, failed: 1, ...(step !== null ? { step } : {}) })
-      );
-  }
-
   // The persona's recent time away from the journal's system records, reused for a minute.
   const readOffPeriods = createOffPeriodsReader({ journal, now: clock });
-
-  /**
-   * The off periods `<now>` shows (src/memory/journal.js#offPeriods): read only with the journal
-   * on and features.offPeriods on (a missing key counts as on), over the last
-   * `journal.offWindowHours` hours (24 when unset), all read now; null otherwise. Never throws.
-   */
-  async function offPeriodsFor(guildId, config) {
-    if (!journalOn() || config.features?.offPeriods === false) return null;
-    return readOffPeriods(guildId, { windowHours: config.journal?.offWindowHours ?? 24 });
-  }
-
-  /** The turn records of runTurn's attempts, in order; a failed append is the journal's to log. */
-  async function writeTurnRecords(attempts) {
-    for (const { draft, result } of attempts) {
-      await journal.turn(draft.guildId, journalTurnRecord(draft, result));
-    }
-  }
-
-  /**
-   * The persona's posted message `posted` as a `said` line of the record: `text` as she wrote
-   * it, the message it replies to and that message's author, the members it mentions, the
-   * turn's id and the post operation's (null when the journal does not follow the attempt). A
-   * private chat's line goes to its partner's private record, and nowhere without a known
-   * partner. Off unless a record is injected and features.record is exactly true (read now).
-   * Not awaited; a refused append is logged as `turn: record failed` (counts only).
-   */
-  function recordSaid({
-    guildId,
-    channel,
-    privateChat,
-    trigger,
-    draft,
-    op,
-    posted,
-    text,
-    replyId,
-    repliedAuthorId,
-    userIds,
-  }) {
-    if (!record || hot.config.features?.record !== true) return;
-    if (typeof posted?.id !== 'string' || !posted.id) return;
-    const privateUserId = privateChat ? (draft?.privateUserId ?? trigger?.authorId ?? channel.partnerId ?? null) : null;
-    if (privateChat && !privateUserId) return;
-    const line = toRecordLine(
-      {
-        id: posted.id,
-        channelId: channel.id,
-        content: text,
-        ts: Number.isFinite(posted.createdTimestamp) ? posted.createdTimestamp : clock(),
-        replyToId: replyId ?? null,
-        replyToAuthorId: repliedAuthorId ?? null,
-        mentionedUserIds: userIds,
-      },
-      { kind: 'said', now: clock, turnId: draft?.started?.turnId ?? null, opId: op?.opId ?? null }
-    );
-    const failed = (err) => log.warn('turn: record failed', { channel: channel.id, lines: 1, code: err?.code ?? null });
-    try {
-      Promise.resolve(record.append(guildId, [line], privateUserId ? { privateUserId } : {})).catch(failed);
-    } catch (err) {
-      failed(err);
-    }
-  }
-
-  /**
-   * One side effect of the attempt `draft` as a journal operation (src/memory/journal.js#op):
-   * `name`, `by` (`persona`: her output asked for it; `engine`: preparation the engine runs on
-   * its own) and `fields` (`input`, `intent`, `participants`, `sourceMessageIds`, `dryRun`).
-   * NO_OP when the attempt is not journalled. Its opId joins the turn record's `actions` once
-   * its `started` line is written.
-   */
-  function journalOp(draft, name, by, fields = {}) {
-    if (!draft?.started || typeof journal?.op !== 'function') return NO_OP;
-    const handle = journal.op(draft.guildId, {
-      turnId: draft.started.turnId,
-      name,
-      by,
-      channelId: draft.channelId,
-      privateUserId: draft.privateUserId,
-      ...fields,
-    });
-    const actions = (draft.actions ??= []);
-    const note = () => {
-      if (!actions.includes(handle.opId)) actions.push(handle.opId);
-    };
-    return {
-      ...handle,
-      proposed: (extra) => {
-        note();
-        return handle.proposed(extra);
-      },
-      started: (extra) => {
-        note();
-        return handle.started(extra);
-      },
-    };
-  }
+  const {
+    factsOfKind,
+    keepFact,
+    noteSeen,
+    noteLineSources,
+    noteTrigger,
+    linkTriggers,
+    earlierThinkFor,
+    recordTurnThink,
+    noteCall,
+    notePostedFrom,
+    linkCalls,
+    journalOn,
+    dumpTurnRequest,
+    offPeriodsFor,
+    writeTurnRecords,
+    recordSaid,
+    journalOp,
+  } = createJournalNotes({
+    hot,
+    clock,
+    journal,
+    record,
+    intentions,
+    iface,
+    facts,
+    triggerLinks,
+    callMarks,
+    postedFromLinks,
+    thinks,
+    readOffPeriods,
+    liveChannelName,
+  });
 
   /**
    * `text` with every transcript number `#n` of this turn's numbering (`idByIndex`, chat and
@@ -4660,175 +4356,6 @@ export function createTurnRunner({
     } catch (err) {
       log.warn('pull: route failed', { channel: args.channel.id, error: err });
       return [];
-    }
-  }
-
-  /**
-   * Whether a server turn in `channel` has the persona's participation store: features.memory
-   * and features.participation on (`config`, the turn's live config; a missing key counts as on),
-   * a server channel that is not a place of her diary (src/behavior/mirror.ts#diaryConversationIds), and a store that
-   * keeps one. Recording, the pick classifier and the `<participation>` block all ask this.
-   */
-  function participationOn(channel, config) {
-    const features = config.features ?? {};
-    if (features.memory === false || features.participation === false) return false;
-    if (!inCommunity(channel) || typeof store.getParticipation !== 'function') return false;
-    return !diaryConversationIds(store).has(String(channel.id));
-  }
-
-  /**
-   * Which channels a turn in `channel` may show participation episodes from: a conversation of its
-   * community (the turn's snapshot) whose audience passes the rail the neighbours and the pulls pass
-   * (src/behavior/snapshot.ts#audienceAllows, `context.pull.sameAudience`: everyone who can
-   * read this channel can read that one). A conversation the snapshot does not hold, or a check that
-   * throws, is refused.
-   * @param {Conv} channel
-   * @param {*} config
-   * @param {Snap|null} [snapshot]
-   * @returns {(channelId: string) => boolean}
-   */
-  function participationAudience(channel, config, snapshot = null) {
-    return (channelId) => {
-      try {
-        const other = snapshot?.get(String(channelId)) ?? null;
-        return Boolean(other) && audienceAllows(channel, other, config);
-      } catch {
-        return false;
-      }
-    };
-  }
-
-  /**
-   * The live part of `<people_now>` (src/behavior/around-store.ts): the snapshot of the voice channels and
-   * of the statuses (the prompt builder computes each person's row from it) and the voice channels' names -- only those a member without any role may see, so
-   * she never names who sits in a room this chat cannot see. Null without the store, with
-   * `features.around` off (a missing key counts as on), in a private chat and in a diary post.
-   * Read at the moment of the request; nothing of it is kept.
-   */
-  function aroundInputFor({ config, mode, isPrivate, snapshot = null }) {
-    if (!around || config.features?.around === false || isPrivate || mode === 'diary') return null;
-    return {
-      snapshot: around.view(),
-      channelNameOf: (channelId) => {
-        const voice = snapshot?.get(String(channelId));
-        const visible = voice?.voice === true && voice.public === true;
-        return visible && typeof voice.name === 'string' && voice.name ? voice.name : null;
-      },
-    };
-  }
-
-  /**
-   * A channel's live name in `channel`'s guild, for a participation episode whose channel has no stored note.
-   */
-  function liveChannelName(channel, snapshot = null) {
-    return (channelId) => {
-      const name = inCommunity(channel) ? snapshot?.get(String(channelId))?.name : undefined;
-      return typeof name === 'string' && name ? name : null;
-    };
-  }
-
-  /**
-   * One message of a turn's history in the participation store's shape
-   * (src/memory/participation.js): the persona's own lines named `selfName`, a picture's
-   * caption the turn already had (`descriptions`, the first captioned picture of the line).
-   */
-  function participationMessage(message, { selfName, descriptions }) {
-    let caption = null;
-    if (descriptions instanceof Map && descriptions.size > 0) {
-      for (const item of collectPictures(message)) {
-        const text = descriptions.get(item.itemId);
-        if (typeof text === 'string' && text) {
-          caption = text;
-          break;
-        }
-      }
-    }
-    return {
-      id: message.id,
-      ts: message.ts,
-      authorId: message.authorId ?? '',
-      name: message.self ? selfName : (message.authorName ?? ''),
-      self: message.self === true,
-      text: typeof message.content === 'string' ? message.content : '',
-      replyTo: message.replyToId ?? null,
-      caption,
-    };
-  }
-
-  /**
-   * Record one message the persona just sent in `channel` in the guild's participation store
-   * (src/memory/participation.js#recordOwnLine, settings read now): `own` her message, `before`
-   * the last `participation.linesBefore` lines of the turn's `history` followed by what she
-   * already sent this turn (`earlier`), `parent` the line it replies to when the history holds
-   * it (the reply parents the turn fetched included; nothing is fetched here). Written only when
-   * something changed, then logged `participation: recorded` (`channel`, `episodes`: how many
-   * the store holds). Never throws: a failure logs `participation: failed` (`reason:
-   * 'record-error'`).
-   */
-  function recordOwnParticipation({ channel, guildId, history, earlier, own, replyId, selfName, descriptions }) {
-    try {
-      const config = hot.config;
-      if (!participationOn(channel, config)) return;
-      const settings = participationSettings(config);
-      const at = clock();
-      const shape = (message) => participationMessage(message, { selfName, descriptions });
-      const take = Math.max(0, Math.floor(settings.linesBefore));
-      const before = take > 0 ? [...history, ...earlier].slice(-take).map(shape) : [];
-      const parentLine = replyId ? (history.find((message) => message.id === replyId) ?? null) : null;
-      const state = store.getParticipation(guildId);
-      const next = recordOwnLine(
-        state,
-        { channelId: channel.id, own: shape(own), before, parent: parentLine ? shape(parentLine) : null },
-        settings,
-        at
-      );
-      if (next === state) return;
-      store.setParticipation(guildId, next, { settings, now: at });
-      log.info('participation: recorded', { channel: channel.id, episodes: next.episodes.length });
-    } catch (err) {
-      log.warn('participation: failed', {
-        channel: channel?.id ?? null,
-        reason: 'record-error',
-        name: err?.name ?? null,
-      });
-    }
-  }
-
-  /**
-   * The input of a turn's `<recent>` block (src/behavior/prompt.js#buildRequest
-   * `recentLines` / `recentAudience`): the guild's recent lines inside the last
-   * `memory.recentHours` (src/memory/store.js#getRecent, read now) and which
-   * source channels this turn may show them from. On a server turn: the
-   * channel the turn posts in, and every channel whose audience covers it
-   * (the snapshot's audiences, src/behavior/elsewhere.ts#audienceCovers:
-   * everyone who can read this channel can read that one). In a private chat:
-   * the channels every member of the served guild can read. A channel the
-   * guild does not hold is never covered. No live line: an empty list (the
-   * block may still show the members' moments of those hours). Nothing
-   * (`lines` undefined: no block at all) with features.recent off (a missing
-   * key counts as on) or for a store without the recent store (tests' fakes);
-   * a read that throws is logged (`recent: failed`) and is nothing either: the
-   * block is never worth a turn.
-   * @param {{ channel: Conv, snapshot?: Snap|null, [key: string]: * }} params
-   * @returns {{ lines: object[]|undefined, audience: ((channelId: string|null) => boolean)|undefined }}
-   */
-  function recentInput({ channel, snapshot = null, guildId, isPrivate, config, now }) {
-    const settings = recentSettings(config);
-    if (!settings || typeof store.getRecent !== 'function') return NO_RECENT;
-    try {
-      const lines = liveRecent(store.getRecent(guildId)?.lines, { now, hours: settings.hours });
-      if (lines.length === 0) return { lines, audience: undefined };
-      const here = isPrivate ? everyMemberAudience() : railAudience(channel.audience);
-      const allowed = new Set();
-      for (const id of new Set(lines.map((line) => line.channelId))) {
-        if (typeof id !== 'string' || !id) continue;
-        if (!isPrivate && id === channel.id) allowed.add(id);
-        else if (audienceCovers(here, railAudience(snapshot?.get(String(id))?.audience))) allowed.add(id);
-      }
-      return { lines, audience: (channelId) => allowed.has(channelId) };
-    } catch (err) {
-      log.warn('recent: failed', { channel: channel.id, error: err });
-      return NO_RECENT;
     }
   }
 

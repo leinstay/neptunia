@@ -541,6 +541,20 @@
       "test": "none"
     },
     {
+      "path": "src/turn/participation.ts",
+      "purpose": "Her participation in a server turn: whether the store applies, the channels its episodes come from, the live `<people_now>` input, the record of her lines and the `<recent>` input. Tested through the turn and participation tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/journal-notes.ts",
+      "purpose": "What a turn notes as it runs: the facts for her next request, the text an attempt saw, the trigger and call marks, her previous think, and the journal's and the record's lines. Tested through the turn, journal turn and failed-earlier tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/errands/",
       "purpose": "The errand service: the ledger, the store, the client to the runner and the turns that bring results back.",
       "layer": "public",
