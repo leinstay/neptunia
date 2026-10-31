@@ -315,7 +315,7 @@ const handlers = perEnv((env) => {
 
   /** Whether today's GIF posts are spent against `gifs.maxPerDay` (read now). */
   function gifCapSpent() {
-    const posts = gifPostsToday(store.state.data, hot.config, utcDay(clock()));
+    const posts = gifPostsToday(objOf(store.state.data), objOf(hot.config), utcDay(clock()));
     return posts.used >= posts.cap;
   }
 
@@ -400,8 +400,8 @@ const handlers = perEnv((env) => {
           })
         : null;
     const content = lead
-      ? { ...lead, text: gifPostUrl(entry, fresh) }
-      : { text: gifPostUrl(entry, fresh), mentions: { users: [], repliedUser: false } };
+      ? { ...lead, text: gifPostUrl(entry as { url: string }, fresh) }
+      : { text: gifPostUrl(entry as { url: string }, fresh), mentions: { users: [], repliedUser: false } };
     const sent = await p.send(to, content);
     if (sent?.status === 'ok') {
       countGifPost(store.state.data, clock());

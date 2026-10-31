@@ -451,7 +451,7 @@
     },
     {
       "path": "src/turn/",
-      "purpose": "The functions of a turn that stand on their own, one topic per module: its settings, timers, triggers, inputs, mentions, targets, media, history, routing, journal records and skill calls. `src/behavior/turn.js` imports them and re-exports what its importers read.",
+      "purpose": "A turn, one topic per module. The functions that stand on their own are its settings, timers, triggers, inputs, mentions, targets, media, history, routing, journal records and skill calls. The modules that `createTurnRunner` in `src/behavior/turn.js` builds once over a typed context are participation, the journal notes, the diary's first step, the pictures and GIFs, the sends, the typing indicator, the dry act, the act and the pulls. `src/behavior/turn.js` imports them and re-exports what its importers read.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"
@@ -536,6 +536,69 @@
     {
       "path": "src/turn/task-input.ts",
       "purpose": "The `tasks` input of a turn's request. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/participation.ts",
+      "purpose": "Her participation in a server turn: whether the store applies, the channels its episodes come from, the live `<people_now>` input, the record of her lines and the `<recent>` input. Tested through the turn and participation tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/journal-notes.ts",
+      "purpose": "What a turn notes as it runs: the facts for her next request, the text an attempt saw, the trigger and call marks, her previous think, and the journal's and the record's lines. Tested through the turn, journal turn and failed-earlier tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/diary.ts",
+      "purpose": "A diary post's first step and its picture gate: the plan request with its seeds and topic, the plan's search and a set post's seeds. Tested through the diary turn and diary requests tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/draw-gif.ts",
+      "purpose": "The pictures and GIFs of a turn: her `draw.create` tool, the image prompt the dry run shows, the day's GIF count, a `<gif>` resolved and posted, and the GIF picker. Tested through the turn, media draw, draw parity and gifs tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/sends.ts",
+      "purpose": "How her words are rendered and timed before they go out: a post's mentions, emoji and links, the settle wait for the trigger's author, her diary's place name and the dry-run mirror. Tested through the turn, message links and channel links tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/typing.ts",
+      "purpose": "The typing indicator of a turn while its tool loop runs and while it prepares. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/dry-act.ts",
+      "purpose": "The dry run's stand-in for the act: every would-be reaction, message, GIF and diary picture logged, journaled and mirrored. Tested through the turn and journal turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/act.ts",
+      "purpose": "The act of a turn: her reactions, messages and GIF posted, checked, typed out, journaled and recorded, and a diary post's speech held. Tested through the turn, journal turn, gifs and diary turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/pulls.ts",
+      "purpose": "The other channels a turn shows in `<channel_view>`: which it pulls, their captions and last views, and the seen marks, lines in view and ring stamps a turn leaves. Tested through the turn, pull and pull seen tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"

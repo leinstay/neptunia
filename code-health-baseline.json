@@ -5,7 +5,7 @@
     "src/behavior/recall-run.js": 2331,
     "src/behavior/recall.js": 2491,
     "src/behavior/sandbox.js": 2136,
-    "src/behavior/turn.js": 7767,
+    "src/behavior/turn.js": 5464,
     "src/memory/store.js": 3342,
     "tests/admin.test.js": 3880,
     "tests/describe.test.js": 3705,
@@ -241,20 +241,10 @@
     },
     "src/behavior/turn.js": {
       "createTurnRunner": {
-        "function-length": 7260
-      },
-      "createTurnRunner>act": {
-        "complexity": 62,
-        "function-length": 335
+        "function-length": 5039
       },
       "createTurnRunner>applyRewatch": {
         "complexity": 23
-      },
-      "createTurnRunner>drawTool": {
-        "complexity": 56
-      },
-      "createTurnRunner>dryAct": {
-        "complexity": 28
       },
       "createTurnRunner>maybeLookup": {
         "complexity": 29
@@ -262,17 +252,8 @@
       "createTurnRunner>noteFailedTurn": {
         "complexity": 24
       },
-      "createTurnRunner>pickGif": {
-        "complexity": 29
-      },
       "createTurnRunner>planToolCall": {
         "complexity": 25
-      },
-      "createTurnRunner>prepareDiary": {
-        "complexity": 54
-      },
-      "createTurnRunner>pullChannels": {
-        "complexity": 29
       },
       "createTurnRunner>rewatchOffer": {
         "complexity": 41

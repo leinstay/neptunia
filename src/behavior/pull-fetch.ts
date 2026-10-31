@@ -60,7 +60,7 @@ export type PulledChannel = {
   /** The persona cannot send there. */
   readOnly: boolean;
   /** Why it was pulled. */
-  reason: 'routed' | 'noticed' | 'mention' | 'route' | 'recall' | null;
+  reason: 'routed' | 'noticed' | 'mention' | 'route' | 'kept' | 'recall' | null;
   /** Messages shown, oldest first: the window, the routed trigger when it was outside the window, and the earlier calls. */
   messages: Array<Line>;
   /** Ids among `messages` shown before the window. */

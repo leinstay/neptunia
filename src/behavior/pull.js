@@ -54,7 +54,7 @@ function numberAtLeast(value, fallback, min) {
  * @param {object} config  The live config.
  * @returns {{ windowMinutes: number, minMessages: number, maxMessages: number, maxPictures: number,
  *   maxNewDescriptions: number, describeTimeoutMs: number, scanMessages: number, maxChannels: number,
- *   maxAgeDays: number, sameAudience: boolean, seenTtlMinutes: number }}
+ *   maxAgeDays: number, sameAudience: boolean, seenTtlMinutes: number, keepMinutes: number, keepTurns: number }}
  */
 export function pullSettings(config) {
   const p = config?.context?.pull ?? {};

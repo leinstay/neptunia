@@ -4770,7 +4770,7 @@ function planBody(plan, labels) {
  * `context.caps` entry). Pure.
  * @param {{ config: object, prompts: object, calibrator: object, now: number, selfName: string,
  *   history?: object[], guildMemory?: object|null, channels?: object[], loreEntries?: object[],
- *   currentChannelId?: string|null, recentLines?: object[]|null,
+ *   currentChannelId?: string|null, diaryChannelIds?: Iterable<string>, recentLines?: object[]|null,
  *   recentAudience?: ((channelId: string|null) => boolean)|null, candidateProfiles?: object[],
  *   nameOf?: ((id: string) => (string|null))|null, posts?: object[], kinds?: Record<string, number>,
  *   seedsText?: string, topicText?: string }} input

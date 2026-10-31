@@ -512,7 +512,7 @@
   },
   "src/behavior/prompt.js": {
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 305
+      "count": 304
     },
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 446
@@ -691,22 +691,19 @@
       "count": 2
     },
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 273
+      "count": 207
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1303
+      "count": 933
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 275
+      "count": 185
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 1583
+      "count": 1110
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 125
-    },
-    "@typescript-eslint/no-unused-vars": {
-      "count": 2
+      "count": 88
     },
     "@typescript-eslint/only-throw-error": {
       "count": 2
@@ -1207,12 +1204,6 @@
   "src/media/gif-post.js": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 2
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 1
     }
   },
   "src/media/video-sites.js": {
