@@ -16,7 +16,7 @@ import { executeCall, outcomeDetail, refusalStatus, resolveCall } from '../tools
 import type { CallResult, CallView, ExecuteDeps, Resolved, RunOperation } from '../tools/executors.ts';
 import { checkSkill } from '../tools/gateway.ts';
 import type { GateContext } from '../tools/gateway.ts';
-import type { SendHold } from '../tools/send-hold.ts';
+import type { HeldNote, SendHold } from '../tools/send-hold.ts';
 import { objOf } from '../tools/types.ts';
 import type { Obj, SkillMap } from '../tools/types.ts';
 import { PERSONA, WRITTEN_SKILLS, callTextOf, callViewOf, defaultSkills, valuesOf } from './calls.ts';
@@ -497,6 +497,30 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     return typeof worded === 'string' ? worded : '';
   }
 
+  /**
+   * What a held call's sends are for: its skill, and for a `message.create` the said line its post becomes once it is
+   * sent, with the fields a sent post's line takes in runCall (her text as resolved, the reply, the replied author and
+   * the members the rendering mentioned).
+   */
+  function heldNoteOf(
+    skill: string,
+    resolved: Resolved,
+    { privateChat, rendered }: { privateChat: boolean; rendered: RenderedPost | null }
+  ): HeldNote {
+    const args: Obj = resolved.args ?? {};
+    const said =
+      skill === 'message.create' && typeof args.text === 'string'
+        ? {
+            text: args.text,
+            // A resolved `reply` is a message id (src/tools/executors.ts#resolveCall).
+            replyId: typeof args.reply === 'string' ? args.reply : null,
+            repliedAuthorId: typeof resolved.repliedAuthorId === 'string' ? resolved.repliedAuthorId : null,
+            userIds: (rendered?.userIds ?? []).filter((id): id is string => typeof id === 'string' && id !== ''),
+          }
+        : null;
+    return { skill, privateChat, said };
+  }
+
   /** The ids a resolved call aims at (its channel, message, reply target, member), for its journal line: never its text. */
   function callTarget(args: Obj | null | undefined): Record<string, string> {
     const out: Record<string, string> = {};
@@ -642,8 +666,10 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
         });
         // A post the hold kept goes out when the wake completes: she is told so, and it has no message yet.
         const key = envelope.idempotencyKey;
-        if (result.status === 'ok' && inner?.hold && key && inner.hold.countUnder(key) > 0)
+        if (result.status === 'ok' && inner?.hold && key && inner.hold.countUnder(key) > 0) {
+          inner.hold.note(key, heldNoteOf(skill, resolvedCall, { privateChat, rendered }));
           result = { status: 'ok', code: CODE.HELD, data: { text: heldUntilEnd() } };
+        }
       }
     }
     // What a read of hers returned is outside material her later lines of the turn may repeat.

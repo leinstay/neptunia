@@ -214,6 +214,8 @@ export type PlaceIndex = {
 /** The record as the inner life reads it: its lines from a time on. */
 export type RecordSource = {
   iterate?(guildId: string, query: { from: string }): AsyncIterable<unknown> | Iterable<unknown>;
+  /** Her lines appended (src/memory/record.js): a wake's held post becomes her `said` line once it is sent. */
+  append?(guildId: string, lines: ReadonlyArray<unknown>, options?: Obj): unknown;
 };
 
 /**
@@ -243,6 +245,17 @@ export type InnerJournal = {
     query: { turnId: string; days: Array<string>; privateUserId: string | null }
   ): unknown;
   read?(guildId: string, query: { day: string; kind: string; n: number }): unknown;
+  /** One operation of a turn (src/memory/journal.js#op): a wake's held post is a `post` around its send. */
+  op?(guildId: string, base: Obj): InnerJournalOp;
+};
+
+/** A journal operation as the inner life closes it (src/memory/journal.js#op). */
+export type InnerJournalOp = {
+  opId: string | null;
+  started(extra?: Obj): Promise<void> | void;
+  succeeded(result?: Obj): Promise<void> | void;
+  failed(code: string, result?: Obj): Promise<void> | void;
+  unknown(result?: Obj): Promise<void> | void;
 };
 
 /** The memory store as the inner life reads it: its pause, the profiles and her diary for the heartbeat. */

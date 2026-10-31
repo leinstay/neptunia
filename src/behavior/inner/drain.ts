@@ -687,7 +687,6 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
       ? expiredToShow(intentions.store?.(guildId)?.list?.() ?? [], { max: settings.review.expiredMax })
       : null;
   const shadow = settings.mode !== 'live';
-  // A live wake turn's posts wait for the completion, then go out (deliveries.ts).
   const hold = holdFor(life, shadow);
   const current = currentChannelOf(group, records);
   // The facts a feedback wake carries, and the other facts this conversation may be shown (not told yet).
@@ -887,7 +886,8 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
     })
   );
   save(life, guildId);
-  await sendDeliveries(life, await finishTurn(life, guildId, group, after, deliveriesOf(hold)));
+  const recorded = await finishTurn(life, guildId, group, after, deliveriesOf(hold, { turnId: turnKey, chainId }));
+  await sendDeliveries(life, guildId, recorded);
   let feedbackWakeId: string | null = null;
   if (feedback.length > 0 && !isFeedback && !comesBack) {
     feedbackWakeId = `inner.wake:feedback:${asText(turnId ?? ended)}`;

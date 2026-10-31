@@ -5,13 +5,26 @@
 // kept send answers `ok` with no message: it has no id until the inner life sends it after the wake's completion
 // (src/behavior/inner/deliveries.ts). Each send keeps the idempotency key it was given, else the call's key
 // (`context.idempotencyKey`, then `<key>:<n>` for the next send of the same call); a second send under a key the hold
-// already keeps is the same send again (another attempt of the turn) and is not kept twice.
+// already keeps is the same send again (another attempt of the turn) and is not kept twice. Once the call answered,
+// the turn notes on its sends what they are for (`note`): the skill, and for a `message.create` the said line the
+// record keeps of it once it is sent, as a sent post of a message turn is recorded (src/turn/journal-notes.ts#recordSaid).
 
 import type { ConversationRef, Delivery, SendOptions } from '../protocol/adapter.ts';
 import type { Content } from '../protocol/actions.js';
 
-/** One send a wake turn held: its effect key, where it goes and what it carries. */
-export type HeldSend = { key: string; conversation: ConversationRef; content: Content };
+/** Her line as the record keeps a post once it is sent: her text as she wrote it, its reply and its mentions. */
+export type SaidNote = {
+  text: string;
+  replyId: string | null;
+  repliedAuthorId: string | null;
+  userIds: ReadonlyArray<string>;
+};
+
+/** What the turn notes on a call's held sends: the skill that made them, and her said line for the first of them. */
+export type HeldNote = { skill: string; privateChat: boolean; said: SaidNote | null };
+
+/** One send a wake turn held: its effect key, where it goes, what it carries and what the turn noted on it. */
+export type HeldSend = { key: string; conversation: ConversationRef; content: Content; note?: HeldNote };
 
 /** The sends of one wake turn, in the order she made them. */
 export type SendHold = {
@@ -21,6 +34,8 @@ export type SendHold = {
   holdsIn(conversationId: string): boolean;
   /** How many sends are held under `key` (the key itself or `<key>:<n>`). */
   countUnder(key: string): number;
+  /** `note` on the sends held under `key`; its said line on the first of them only (the key itself). */
+  note(key: string, note: HeldNote): void;
 };
 
 /** An empty hold for one wake turn. */
@@ -33,6 +48,12 @@ export function createSendHold(): SendHold {
     },
     holdsIn: (conversationId) => sends.some((held) => held.conversation.conversationId === conversationId),
     countUnder: (key) => sends.filter((held) => held.key === key || held.key.startsWith(`${key}:`)).length,
+    note(key, note) {
+      for (const held of sends) {
+        if (held.key === key) held.note = note;
+        else if (held.key.startsWith(`${key}:`)) held.note = { ...note, said: null };
+      }
+    },
   };
 }
 

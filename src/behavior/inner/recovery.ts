@@ -221,7 +221,7 @@ async function startUpNow(life: InnerContext, guildId: string): Promise<void> {
   renewAlive(life, at);
   // What a completed wake left to send when the process stopped: settled and sent before the first tick lists anything.
   await life.writes;
-  await resumeDeliveries(life);
+  await resumeDeliveries(life, guildId);
 }
 
 /** `core:alive` renewed by this life, until the core stops. */
