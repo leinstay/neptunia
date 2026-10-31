@@ -7,14 +7,14 @@
 // - readLinks: a normal page link (never a video-site link -- the video
 //   describer owns those -- never an embed classified as anything but a link
 //   (a gif), never a GIF site's page (src/media/classify.js#isGifHostUrl),
-//   never a `web.links.skipSites` host, never a URL whose path ends
+//   never a `SKIP_SITES` host, never a URL whose path ends
 //   with a picture/video/audio/archive/pdf extension) is fetched through the
 //   SSRF-guarded page fetcher (src/web/fetch-page.js; `web.acceptLanguage`
 //   sent as its Accept-Language) and condensed by the `analyzer` model role (purpose
 //   `read-link`) through prompts/read-link.md into one excerpt of at most
-//   `web.links.summaryChars`. With features.coreTools (read now) no model role condenses it:
+//   `LINK_SUMMARY_CHARS`. With features.coreTools (read now) no model role condenses it:
 //   the excerpt is the opening of the page's own extracted text, cut at
-//   `web.links.previewChars` -- what a link preview shows -- cached apart
+//   `LINK_PREVIEW_CHARS` -- what a link preview shows -- cached apart
 //   (`preview:<link id>`), no model request.
 // - search: one web search whose numbered results are condensed through
 //   prompts/search-summary.md, sources kept. `web.search.engine` picks the
@@ -36,19 +36,16 @@
 //   and never read), the results being its `url_citation` annotations with their content.
 //   Cached apart (`results:<sha1 prefix>`), served while younger than `web.search.cacheHours`.
 // - readPage: the persona's own web.read: one page by url through the same fetcher, its
-//   extracted main text (src/web/readable.js) cut at `web.links.readChars`, with its title
+//   extracted main text (src/web/readable.js) cut at `PAGE_READ_CHARS`, with its title
 //   and final url; no model request. Cached (`page:<sha1 prefix of the url>`) for
 //   `web.links.readCacheHours`; a failure is not cached.
 //
 // Both share the media cache (data/guilds/<id>/media.json, LRU-trimmed to
-// `media.cacheEntries`): `read:<link id>` holds an excerpt `{ text, ts }` or a
+// `MEDIA_CACHE_ENTRIES` of src/web/cache.js): `read:<link id>` holds an excerpt `{ text, ts }` or a
 // miss `{ miss, ts, reason }` skipped for 6 hours (never for a refusal by
 // `llm.maxRequestsPerDay`); `search:<sha1 prefix of the
 // normalized query>` holds `{ query, text, sources, ts }`, served while younger
-// than `web.search.cacheHours`. All share one daily counter
-// (`state.data.webDay` / `webCount`, `web.maxPerDay`; a cap that is not a
-// finite number counts as 0), reserved before the fetch or the search
-// request and kept when either fails. Every model call
+// than `web.search.cacheHours`. Every model call
 // goes through llm.complete (its token cap and daily request cap apply); once
 // that daily request cap is spent (llm.capLeft) no page is fetched for a
 // condensed read, no search that needs a request is sent and no web slot is taken.
@@ -59,11 +56,11 @@ import { isGifHostUrl, siteOf } from '../media/classify.js';
 import { videoSiteFor, safeLocation } from '../media/video-sites.js';
 import { roleModel } from '../llm/roles.js';
 import { fillPromptTemplate } from '../behavior/prompt.js';
-import { dailyCapOf, roleRequestOptions, railReason } from '../llm/openrouter.js';
+import { roleRequestOptions, railReason } from '../llm/openrouter.js';
 import { clampText, oneLine } from '../memory/clamp.js';
 import { log } from '../log.js';
-import { bumpDaily, countToday, dailyCounter, MINUTE_MS, utcDay } from '../time.js';
-import { hashedKey, touchKey, trimCache } from './cache.js';
+import { MINUTE_MS, utcDay } from '../time.js';
+import { MEDIA_CACHE_ENTRIES, hashedKey, touchKey, trimCache } from './cache.js';
 import { truncateText } from './readable.js';
 import { CODE } from '../tools/codes.ts';
 
@@ -71,16 +68,37 @@ const READ_MISS_TTL_MS = 6 * 60 * MINUTE_MS;
 // An answer this short is the read-link prompt's "no real content" signal.
 const UNREADABLE_MAX_WORDS = 4;
 // Only when a web.* number is missing (config.json always has them).
-const LINK_SUMMARY_CHARS_FALLBACK = 700;
-const SEARCH_SUMMARY_CHARS_FALLBACK = 900;
 const SEARCH_CACHE_HOURS_FALLBACK = 24;
-const LINK_PREVIEW_CHARS_FALLBACK = 700;
-const PAGE_READ_CHARS_FALLBACK = 4000;
 const PAGE_CACHE_HOURS_FALLBACK = 6;
+// The reader's and the search's measures. Production values, config cut of 2026-10-31.
+/** The largest page fetched, in bytes. */
+const LINK_MAX_BYTES = 1500000;
+/** The characters of a page's text the condensing request reads. */
+const LINK_TEXT_CHARS = 6000;
+/** The length of a link's condensed excerpt. */
+const LINK_SUMMARY_CHARS = 700;
+/** The length of a page's opening kept beside the excerpt. */
+const LINK_PREVIEW_CHARS = 700;
+/** The length of a page read whole (`web.read`). */
+const PAGE_READ_CHARS = 4000;
+/** The length of a search's condensed answer. */
+const SEARCH_SUMMARY_CHARS = 900;
+/** The results one search asks for. */
+const SEARCH_RESULTS = 5;
+/** The hosts whose links are media, never read as pages. */
+const SKIP_SITES = Object.freeze([
+  'cdn.discordapp.com',
+  'media.discordapp.net',
+  'tenor.com',
+  'giphy.com',
+  'klipy.com',
+  'imgur.com',
+  'i.redd.it',
+  'v.redd.it',
+  'pbs.twimg.com',
+]);
 const RAW_OUTPUT_TOKENS_FALLBACK = 256;
 const QUERY_MAX_CHARS = 200;
-/** The state.json fields of the daily web counter (link reads and searches share it). */
-export const WEB_DAILY = { dayKey: 'webDay', countKey: 'webCount' };
 // Tab, line feed, vertical tab, form feed, carriage return, NEL, line and paragraph separators.
 const QUERY_LINE_BREAKS = /[\t\n\v\f\r\u0085\u2028\u2029]+/g;
 const QUERY_CONTROLS = /[\u0000-\u001f\u007f-\u009f]/g;
@@ -172,11 +190,6 @@ function llmFailure(err) {
   return railReason(err, 'llm');
 }
 
-/** A stand-in for the persistent state when none is wired (tests, tools). */
-function memoryState() {
-  return { data: {}, markDirty() {} };
-}
-
 /**
  * A query as the search cache sees it: lower-cased, whitespace-collapsed, trimmed.
  * @param {string} query
@@ -256,8 +269,6 @@ export function renderResults(results) {
  * @param {object} deps.hot     Live config + prompts; read at the moment of use.
  * @param {object} deps.store   getMediaCache / markMediaCacheDirty (src/memory/store.js).
  * @param {object} deps.llm     From createLlm().
- * @param {{ data: object, markDirty: () => void }} [deps.state]  The persistent state holding the
- *   daily web counter; without it the counter lives in memory only.
  * @param {object} deps.pageFetcher  From createPageFetcher() (src/web/fetch-page.js).
  * @param {{ brave?: object, exa?: object }} [deps.searches]  The search clients: createBraveSearch()
  *   (src/web/brave.js) and createExaSearch() (src/web/exa.js); an engine without its client is
@@ -266,16 +277,7 @@ export function renderResults(results) {
  *   optional EXA_API_KEY; never logged.
  * @param {() => number} [deps.now]
  */
-export function createLookup({
-  hot,
-  store,
-  llm,
-  state = memoryState(),
-  pageFetcher,
-  searches = {},
-  keys = {},
-  now = Date.now,
-}) {
+export function createLookup({ hot, store, llm, pageFetcher, searches = {}, keys = {}, now = Date.now }) {
   // One in-flight read per guild + link: a message prefill and a turn that
   // reach the same new link at once share one request.
   const inFlight = new Map();
@@ -283,7 +285,7 @@ export function createLookup({
   function putEntry(guildId, key, value) {
     const cache = store.getMediaCache(guildId);
     touchKey(cache, key, value);
-    trimCache(cache, hot.config.media?.cacheEntries ?? Infinity);
+    trimCache(cache, MEDIA_CACHE_ENTRIES);
     store.markMediaCacheDirty(guildId);
   }
 
@@ -301,43 +303,12 @@ export function createLookup({
     return typeof llm?.capLeft === 'function' && llm.capLeft() <= 0;
   }
 
-  /**
-   * The slots of the shared daily web counter left today (`web.maxPerDay`,
-   * read now; not a finite number counts as 0), read only: the counter is
-   * never rolled over or written here. For a turn that skips the search
-   * classifier when no search could run.
-   * @returns {number}
-   */
-  function webCapLeft() {
-    const cap = dailyCapOf(hot.config.web?.maxPerDay, 'web.maxPerDay');
-    return Math.max(0, cap - countToday(state.data, WEB_DAILY, now()));
-  }
-
-  /**
-   * Reserve one slot of the shared daily web counter; false when `web.maxPerDay`
-   * (read now; not a finite number counts as 0) is spent.
-   */
-  function reserveDaily() {
-    const cap = dailyCapOf(hot.config.web?.maxPerDay, 'web.maxPerDay');
-    const nowMs = now();
-    const { count } = dailyCounter(state.data, WEB_DAILY, nowMs);
-    if (count >= cap) {
-      state.markDirty();
-      return false;
-    }
-    bumpDaily(state.data, WEB_DAILY, nowMs);
-    state.markDirty();
-    return true;
-  }
-
   /** Whether `link` may be read under the live config at all (switches, prompt, kind, sites, file path). */
   function readable(link) {
     const config = hot.config;
-    const linksCfg = config.web?.links ?? {};
-    if (linksCfg.enabled === false) return false;
     if (!link?.id || !link.url) return false;
     if (link.kind !== undefined && link.kind !== 'link') return false;
-    if (videoSiteFor(link.url, linksCfg.skipSites ?? [])) return false;
+    if (videoSiteFor(link.url, SKIP_SITES)) return false;
     if (isGifHostUrl(link.url)) return false;
     if (videoSiteFor(link.url, config.media?.video?.sites ?? [])) return false;
     if (isBinaryPath(link.url)) return false;
@@ -360,7 +331,7 @@ export function createLookup({
   async function fetchAndRead(guildId, link, key) {
     const config = hot.config;
     const linksCfg = config.web?.links ?? {};
-    const summaryChars = positiveOr(linksCfg.summaryChars, LINK_SUMMARY_CHARS_FALLBACK);
+    const summaryChars = LINK_SUMMARY_CHARS;
     const location = safeLocation(link.url);
     const report = (outcome, reason = null, extra = {}) =>
       log.info('lookup: link', { state: outcome, reason, cached: false, location, ...extra });
@@ -376,15 +347,11 @@ export function createLookup({
       report('limit', 'daily-cap');
       return { result: null, attempted: false };
     }
-    if (!reserveDaily()) {
-      report('limit', 'daily');
-      return { result: null, attempted: false };
-    }
 
     const page = await pageFetcher.fetchText(link.url, {
-      maxBytes: linksCfg.maxBytes,
+      maxBytes: LINK_MAX_BYTES,
       timeoutMs: linksCfg.fetchTimeoutMs,
-      maxChars: linksCfg.textChars,
+      maxChars: LINK_TEXT_CHARS,
       acceptLanguage: config.web?.acceptLanguage,
     });
     if (!page?.ok) return miss(page?.reason ?? 'network', page?.status !== undefined ? { status: page.status } : {});
@@ -395,7 +362,7 @@ export function createLookup({
 
     // A preview: the opening of the page's own text, no model request.
     if (preview) {
-      const opening = cleanText(body, positiveOr(linksCfg.previewChars, LINK_PREVIEW_CHARS_FALLBACK));
+      const opening = cleanText(body, LINK_PREVIEW_CHARS);
       if (!opening) return miss('empty');
       putEntry(guildId, key, { text: opening, ts: now() });
       report('read', null, { chars: opening.length, preview: true });
@@ -563,10 +530,6 @@ export function createLookup({
       report('limit', 'daily-cap');
       return null;
     }
-    if (!reserveDaily()) {
-      report('limit', 'daily');
-      return null;
-    }
 
     const engines = [engineOf(config), ...fallbackEngines(config)];
     for (let i = 0; i < engines.length; i += 1) {
@@ -642,7 +605,7 @@ export function createLookup({
    */
   async function attempt(engine, asked, promptText, config) {
     const searchCfg = config.web?.search ?? {};
-    const summaryChars = positiveOr(searchCfg.summaryChars, SEARCH_SUMMARY_CHARS_FALLBACK);
+    const summaryChars = SEARCH_SUMMARY_CHARS;
     const { system, options } = summaryRequest(config, promptText, asked, summaryChars, searchCfg);
 
     if (engine === 'openrouter') {
@@ -652,7 +615,7 @@ export function createLookup({
           ...options,
           // No hedge: a second attempt would run (and bill) the web search twice.
           isRoleRequest: false,
-          plugins: webSearchPlugins(searchCfg.results),
+          plugins: webSearchPlugins(SEARCH_RESULTS),
         });
       } catch (err) {
         return {
@@ -671,7 +634,7 @@ export function createLookup({
     const client = searches[engine];
     const found = await client.search(asked, {
       apiKey: keys[engine] ?? null,
-      count: searchCfg.results,
+      count: SEARCH_RESULTS,
       timeoutMs: searchCfg.timeoutMs,
     });
     if (!found?.ok) {
@@ -744,10 +707,6 @@ export function createLookup({
       report('limit', 'daily-cap');
       return failedWith(CODE.CAP);
     }
-    if (!reserveDaily()) {
-      report('limit', 'daily');
-      return failedWith(CODE.CAP);
-    }
     let last;
     for (let i = 0; i < engines.length; i += 1) {
       const meta = { engine: engines[i], fallback: i > 0 };
@@ -794,7 +753,7 @@ export function createLookup({
           }),
           // No hedge: a second attempt would run (and bill) the web search twice.
           isRoleRequest: false,
-          plugins: webSearchPlugins(searchCfg.results),
+          plugins: webSearchPlugins(SEARCH_RESULTS),
         });
       } catch (err) {
         return {
@@ -815,7 +774,7 @@ export function createLookup({
     }
     const found = await searches[engine].search(asked, {
       apiKey: keys[engine] ?? null,
-      count: searchCfg.results,
+      count: SEARCH_RESULTS,
       timeoutMs: searchCfg.timeoutMs,
     });
     if (!found?.ok) {
@@ -840,7 +799,7 @@ export function createLookup({
 
   /**
    * The persona's own web.read: the page at `url` through the SSRF-guarded fetcher, its
-   * extracted main text cut at `web.links.readChars` (`cut: true` when it was longer), its
+   * extracted main text cut at `PAGE_READ_CHARS` (`cut: true` when it was longer), its
    * title and the url it ended at after redirects; no model request. Needs the feature;
    * takes one daily web slot per fetch (a cache hit is free). `{ ok: false, reason }`:
    * `not-configured` (the feature off), `daily-cap` (the day's slots spent), `empty` (no
@@ -855,7 +814,7 @@ export function createLookup({
   async function readPage(guildId, url) {
     const config = hot.config;
     const linksCfg = config.web?.links ?? {};
-    const maxChars = positiveOr(linksCfg.readChars, PAGE_READ_CHARS_FALLBACK);
+    const maxChars = PAGE_READ_CHARS;
     const asked = String(url ?? '').trim();
     const location = safeLocation(asked);
     const report = (outcome, reason = null, extra = {}) =>
@@ -873,12 +832,8 @@ export function createLookup({
       delete cache[key];
       store.markMediaCacheDirty(guildId);
     }
-    if (!reserveDaily()) {
-      report('limit', 'daily');
-      return { ok: false, reason: 'daily-cap' };
-    }
     const page = await pageFetcher.fetchText(asked, {
-      maxBytes: linksCfg.maxBytes,
+      maxBytes: LINK_MAX_BYTES,
       timeoutMs: linksCfg.fetchTimeoutMs,
       acceptLanguage: config.web?.acceptLanguage,
     });
@@ -918,5 +873,5 @@ export function createLookup({
     return engineOf(hot.config);
   }
 
-  return { readLinks, cachedReads, search, searchResults, readPage, hasSearch, searchEngine, webCapLeft };
+  return { readLinks, cachedReads, search, searchResults, readPage, hasSearch, searchEngine };
 }

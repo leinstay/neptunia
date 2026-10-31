@@ -32,12 +32,10 @@ import fsp from 'node:fs/promises';
 import { messageRefOf, portAnswer, postingConversation } from './shared.ts';
 import { heldPort } from '../send-hold.ts';
 import { lineOf } from '../../behavior/line-of.js';
-import { defineOp, perEnv, invalid, denied } from './registry.ts';
-import { DIARY_DAILY } from '../../behavior/diary.ts';
+import { defineOp, perEnv, invalid } from './registry.ts';
 import type { createMirrors } from '../../behavior/mirror.ts';
 import { writeDiaryMessage } from '../../behavior/diary-turn.ts';
 import { freshAttachmentUrl, gifPostUrl } from '../../media/gif-post.js';
-import { countToday } from '../../time.js';
 import { CODE } from '../codes.ts';
 import { idText, objOf, textOf } from '../types.ts';
 import type { Obj, OpContext, Untyped } from '../types.ts';
@@ -48,7 +46,6 @@ import type { Env } from './env.ts';
 
 /** The conversation a diary post names where a channel post names its channel. */
 const DIARY_TARGET = 'diary';
-const DEFAULT_DIARY_PER_DAY = 12; // diary.maxPerDay
 
 /** The ports that hold what is sent for her diary (diaryPort). */
 const DIARY_PORTS = new WeakSet<Adapter>();
@@ -56,16 +53,10 @@ const DIARY_PORTS = new WeakSet<Adapter>();
 /** The diary hold of the mirrors' publisher (src/behavior/mirror.ts). */
 type DiaryHold = Pick<ReturnType<typeof createMirrors>, 'holdDiary' | 'heldDiary'>;
 
-/** A positive whole number setting, else `fallback`. */
-function positive(value: unknown, fallback: number): number {
-  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : fallback;
-}
-
 /**
  * The port her post to her diary (`diary`) goes through: `real` whose `send` holds each message for the turn's one
  * entry (`env.mirrors`, src/behavior/mirror.ts#holdDiary), which the turn records and the mirrors publish when it ends
- * (src/behavior/diary-turn.ts#publishHeldDiary). Refused: a channel or a reply beside it (`invalid-args`), and the
- * turn's first diary message when `diary.maxPerDay` (default 12) entries are counted today (`cap-diary`).
+ * (src/behavior/diary-turn.ts#publishHeldDiary). Refused: a channel or a reply beside it (`invalid-args`).
  */
 function diaryPort(env: Env, args: Obj, context: OpContext, real: Adapter): Adapter {
   if (args.channelId || args.replyTo) throw invalid('a diary message goes to your diary, with no channel or reply');
@@ -74,13 +65,9 @@ function diaryPort(env: Env, args: Obj, context: OpContext, real: Adapter): Adap
   const guildId = env.resolvedGuildId(context);
   if (typeof hold?.holdDiary !== 'function' || !turnId || !guildId)
     throw Object.assign(new Error('your diary is not available here'), { code: CODE.NOT_CONFIGURED });
-  // The live config and the store's counters, untyped in the env.
+  // The live config, untyped in the env.
   const config = objOf(env.hot as unknown).config;
-  const counters = objOf(objOf(objOf(env.store as unknown).state).data);
-  const cap = positive(objOf(objOf(config).diary).maxPerDay, DEFAULT_DIARY_PER_DAY);
   const clock = typeof env.now === 'function' ? env.now : Date.now;
-  if (hold.heldDiary(turnId) === 0 && countToday(counters, DIARY_DAILY, clock()) >= cap)
-    throw denied(`your diary holds ${cap} entries a day at most`, CODE.CAP_DIARY);
   const held = Object.create(real) as Adapter;
   // Each send is one message of the turn's entry, kept in memory before the call answers.
   held.send = async (_to: ConversationRef, content: Content): Promise<Delivery> => {

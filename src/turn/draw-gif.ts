@@ -23,7 +23,6 @@ import {
   renderGifLibrary,
 } from '../behavior/gif-pick.js';
 import type { PictureGate } from '../behavior/diary-turn.ts';
-import { DIARY_PICTURES_DAILY } from '../behavior/diary.ts';
 import { replyMarker } from '../format.js';
 import type { Reads } from '../interface/reads.ts';
 import { ImageGenError, UnsupportedImageModelError } from '../llm/images.js';
@@ -34,7 +33,6 @@ import { drawPicture, drawPromptOf } from '../media/draw.js';
 import { freshAttachmentUrl as sharedFreshAttachmentUrl, gifPostUrl } from '../media/gif-post.js';
 import { rankGifs } from '../memory/index.js';
 import type { ConversationInfo, ConversationRef, MessageRef } from '../protocol/adapter.ts';
-import { bumpDaily } from '../time.js';
 import { CODE } from '../tools/codes.ts';
 import { refusalStatus } from '../tools/executors.ts';
 import { messageRefOf, postingConversation } from '../tools/impl/shared.ts';
@@ -43,12 +41,12 @@ import type { JournalOp, PortResult } from './journal.ts';
 import { sendArgs, withLink } from './targets.ts';
 import { askedFor } from './triggers.ts';
 import type { TriggerKind } from './triggers.ts';
+import { GIF_HALF_LIFE_DAYS } from '../memory/gifs.js';
+import { OWN_MARK_HOURS } from './request/emoji-gifs.ts';
 
 /** The live config, as far as the pictures and GIFs read it; the settings functions read their own sections. */
 export type DrawGifConfig = {
   diary?: unknown;
-  gifs?: { halfLifeDays?: number; ownMarkHours?: number } | null;
-  context?: { replyQuoteChars?: number } | null;
 };
 
 /** The labels the GIF picker reads (prompts.labels). */
@@ -390,9 +388,6 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
       if (referenceMissing) log.warn('turn: avatar reference unavailable', { channel: channel.id });
       if (staging) {
         (draft ? (draft.staged ??= []) : []).push({ picture, self, text: scene });
-        // Counted when it is generated, posted or not.
-        bumpDaily(store.state.data, DIARY_PICTURES_DAILY, clock());
-        store.state.markDirty();
         return { status: 'ok', code: CODE.STAGED, data: none };
       }
       const name = imageFileName(picture.mediaType);
@@ -575,8 +570,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
       return null;
     const settings = gifPickSettings(config);
     const first = messages[0];
-    const gifsCfg = config.gifs ?? {};
-    const chars = gifFieldChars(gifsCfg);
+    const chars = gifFieldChars();
     const labels = hot.prompts?.labels;
     const at = clock();
     // The library as the first pick of this cache bucket rendered it (no clock in it); the
@@ -585,12 +579,12 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     const { library, handles } = freezePerBucket<{ library: Array<string>; handles: Array<string> }>(
       freeze,
       'gif-pick',
-      { now: at, bucketMs: cacheTtlMs(config), signature: JSON.stringify([labels?.gifs ?? null, gifsCfg]) },
+      { now: at, bucketMs: cacheTtlMs(config), signature: JSON.stringify([labels?.gifs ?? null]) },
       () => {
         const mediaCache = typeof store.getMediaCache === 'function' ? (store.getMediaCache(guildId) ?? null) : null;
         const listed = captionedEntries(
           // The check above found getGifs on the store.
-          rankGifs(store.getGifs!(guildId), gifsCfg.halfLifeDays ?? 30),
+          rankGifs(store.getGifs!(guildId), GIF_HALF_LIFE_DAYS),
           mediaCache,
           chars.actionChars
         );
@@ -619,13 +613,12 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
         ? replyMarker(context.messages[context.answeredIndex - 1], context.answeredIndex, {
             labels,
             selfName,
-            replyQuoteChars: config.context?.replyQuoteChars,
           })
         : '';
     const replyBody = answersMark ? `${answersMark} ${first.text}` : first.text;
     // Which of the listed GIFs the persona posted lately, with how long ago: per call, in the tail.
     const recent = labels
-      ? ownGifLines(store.getGifs(guildId), handles, labels, { ownMarkHours: gifsCfg.ownMarkHours ?? 24, now: at })
+      ? ownGifLines(store.getGifs(guildId), handles, labels, { ownMarkHours: OWN_MARK_HOURS, now: at })
       : [];
     let completion: unknown;
     try {

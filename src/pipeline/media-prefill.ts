@@ -11,13 +11,15 @@ import {
   isDescribable,
 } from '../media/classify.js';
 import type { formatTranscript } from '../format.js';
-import { utcDay } from '../time.js';
 import type { PipelineHot } from './types.ts';
 
-// The most links one observed message has read ahead of time (web.links.prefill).
+// The most links one observed message has read ahead of time.
 const MAX_WARM_LINKS_PER_MESSAGE = 1;
-// Only when web.links.prefillPerUserPerDay is missing (config.json always has it).
-const PREFILL_PER_USER_PER_DAY_FALLBACK = 10;
+// Production values, config cut of 2026-10-31.
+/** The pictures of one observed message captioned ahead of time. */
+const PICTURES_PER_MESSAGE = 5;
+/** The videos of one observed message watched ahead of time. */
+const VIDEOS_PER_MESSAGE = 5;
 
 /** A normalized line (src/behavior/line-of.js#lineOf), as the media collectors read it. */
 type MediaLine = Parameters<typeof collectPictures>[0] & { readonly authorId?: string };
@@ -39,11 +41,7 @@ export type MediaPrefillContext = {
   describer: Describer | null | undefined;
   lookup:
     | {
-        readLinks?: (
-          guildId: string,
-          links: Array<unknown>,
-          options: { maxNew: number }
-        ) => Promise<{ newCount?: number }>;
+        readLinks?: (guildId: string, links: Array<unknown>, options: { maxNew: number }) => Promise<unknown>;
       }
     | null
     | undefined;
@@ -60,16 +58,7 @@ export type MediaPrefill = {
   ) => Promise<CachedMedia>;
 };
 
-/**
- * How many items of one observed message a prefill may take: `value` (a
- * config count, read by the caller now) floored at 0, or `fallback` (the
- * config.json value) when it is missing or not a number. 0 turns that prefill off.
- */
-function prefillPerMessage(value: number | undefined, fallback: number): number {
-  return Number.isFinite(value) ? Math.max(0, Math.floor(value as number)) : fallback;
-}
-
-export function createMediaPrefill({ hot, describer, lookup, now }: MediaPrefillContext): MediaPrefill {
+export function createMediaPrefill({ hot, describer, lookup }: MediaPrefillContext): MediaPrefill {
   /**
    * Fire-and-forget: the message path never waits on it (see
    * createMessageHandler). A no-op when the feature is off or no describer was wired in, so
@@ -82,9 +71,8 @@ export function createMediaPrefill({ hot, describer, lookup, now }: MediaPrefill
     warmLinkCache(guildId, normalized);
     if (!describer) return null;
     warmVideoCache(guildId, normalized);
-    // Per real-time message, not per batch, so it stays small (media.prefillPerMessage).
-    const max = prefillPerMessage(hot.config.media?.prefillPerMessage, 5);
-    const candidates: Array<unknown> = describableItems([normalized]).slice(0, max);
+    // Per real-time message, not per batch, so it stays small.
+    const candidates: Array<unknown> = describableItems([normalized]).slice(0, PICTURES_PER_MESSAGE);
     if (candidates.length === 0) return null;
     return describer
       .describeMany(guildId, candidates)
@@ -137,16 +125,12 @@ export function createMediaPrefill({ hot, describer, lookup, now }: MediaPrefill
   /** Fire-and-forget like warmMediaCache: watch the message's first videos now, not when a turn needs it. */
   function warmVideoCache(guildId: string, normalized: MediaLine): void {
     const config = hot.config;
-    // Both switches, like the describer and the senses line; a missing videoDescriptions counts as on.
-    if (config.media?.video?.prefill !== true) return;
     // warmMediaCache calls this only with a describer.
     const media = describer as Describer;
     if (typeof media.describeVideos !== 'function') return;
-    // Watching is far dearer than a picture caption: one video per message by default.
-    const max = prefillPerMessage(config.media.video.prefillPerMessage, 5);
-    const candidates: Array<unknown> = collectVideos(normalized, { videoSites: config.media.video.sites }).slice(
+    const candidates: Array<unknown> = collectVideos(normalized, { videoSites: config.media?.video?.sites }).slice(
       0,
-      max
+      VIDEOS_PER_MESSAGE
     );
     if (candidates.length === 0) return;
     media
@@ -156,55 +140,17 @@ export function createMediaPrefill({ hot, describer, lookup, now }: MediaPrefill
 
   /**
    * Fire-and-forget like warmMediaCache: read the message's first readable
-   * link now (src/web/lookup.js), not when a turn needs it. Needs
-   * features.webLookup (a missing key counts as OFF: it costs money),
-   * web.links.enabled (a missing key counts as on) and web.links.prefill.
-   * One member gets at most `web.links.prefillPerUserPerDay` new fetches a
-   * UTC day this way (in memory; cache hits are free), so posting links
-   * cannot spend `web.maxPerDay` for everyone. The turn path is not limited.
+   * link now (src/web/lookup.js), not when a turn needs it.
    */
   function warmLinkCache(guildId: string, normalized: MediaLine): void {
     if (typeof lookup?.readLinks !== 'function') return;
-    const config = hot.config;
-    const linksCfg = config.web?.links ?? {};
-    if (linksCfg.enabled === false || linksCfg.prefill !== true) return;
     const links: Array<unknown> = collectReadableLinks(normalized, {
-      videoSites: config.media?.video?.sites ?? [],
+      videoSites: hot.config.media?.video?.sites ?? [],
     }).slice(0, MAX_WARM_LINKS_PER_MESSAGE);
     if (links.length === 0) return;
-    const perUser = Number.isFinite(linksCfg.prefillPerUserPerDay)
-      ? Math.max(0, Math.floor(linksCfg.prefillPerUserPerDay as number))
-      : PREFILL_PER_USER_PER_DAY_FALLBACK;
-    const slot = reservePrefill(`${guildId}:${normalized.authorId ?? ''}`, links.length, perUser);
-    if (slot.granted === 0) return;
     Promise.resolve()
-      .then(() => lookup.readLinks?.(guildId, links, { maxNew: slot.granted }))
-      .then((result) => refundPrefill(slot, slot.granted - (result?.newCount ?? 0)))
+      .then(() => lookup.readLinks?.(guildId, links, { maxNew: links.length }))
       .catch((err: unknown) => log.warn('events: link prefill failed', { error: err }));
-  }
-
-  // Per-(guild, author) prefill counts for the current UTC day; cleared when the day turns.
-  const prefillCounts = new Map<string, number>();
-  let prefillDay: string | null = null;
-
-  /** Take up to `wanted` of the member's remaining daily prefill slots: `{ key, day, granted }`. */
-  function reservePrefill(key: string, wanted: number, perUser: number) {
-    const day = utcDay(now());
-    if (day !== prefillDay) {
-      prefillDay = day;
-      prefillCounts.clear();
-    }
-    const used = prefillCounts.get(key) ?? 0;
-    const granted = Math.max(0, Math.min(wanted, perUser - used));
-    if (granted > 0) prefillCounts.set(key, used + granted);
-    return { key, day, granted };
-  }
-
-  /** Give back the slots a prefill did not spend on a new fetch (a cache hit, a fresh miss, the daily cap). */
-  function refundPrefill(slot: { key: string; day: string; granted: number }, unused: number): void {
-    if (unused <= 0 || slot.day !== prefillDay) return;
-    const used = prefillCounts.get(slot.key) ?? 0;
-    prefillCounts.set(slot.key, Math.max(0, used - unused));
   }
 
   return { warmMediaCache, cachedFollowUpMedia };

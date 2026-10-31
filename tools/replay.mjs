@@ -550,6 +550,7 @@ import {
   recallScope,
   requesterOfChannel,
 } from './lib/platform-objects.ts';
+import { MAX_MESSAGE_CHARS } from '../src/format.js';
 
 export { guildListing, hiddenReads, requesterOfChannel, roleIdsOf } from './lib/platform-objects.ts';
 
@@ -586,8 +587,6 @@ const DIARY_REQUESTS_PER_BRIEF = 2;
 const MAX_DIARY_COUNT = 50;
 /** The longest `--seed` of a `--diary-day` run. */
 const MAX_SEED_CHARS = 200;
-/** `diary.maxPerDay` when the config has none (src/behavior/diary.ts's default, config.json's value). */
-const DEFAULT_DIARY_MAX_PER_DAY = 12;
 /** The estimate per model request this tool sends: about what a persona answer costs on the live key. */
 const USD_PER_ANSWER = 0.15;
 /** A journal turn id (src/memory/journal.js#start). */
@@ -1157,7 +1156,7 @@ async function cacheMembers(guild, ids) {
 /**
  * The `--split` mode: the request src/behavior/turn.js#maybeSplit sends for
  * `trigger` (its classifierContext rebuilt here: the trigger's text cut to
- * `context.maxMessageChars`, the last `split.contextMessages` messages of
+ * `MAX_MESSAGE_CHARS`, the last `split.contextMessages` messages of
  * `history` other than the trigger in a `<transcript>` block), sent
  * `samples` times one after another, each answer parsed. A failed request
  * is a verdict with `reason: 'failed'` and its rail code; any failure or a
@@ -1194,7 +1193,7 @@ async function runSplit({
   const settings = splitSettings(config);
 
   // src/behavior/turn.js#classifierContext with the splitter's arguments (no videos, no reads).
-  const triggerText = [...String(trigger.content ?? '')].slice(0, config.context?.maxMessageChars ?? 800).join('');
+  const triggerText = [...String(trigger.content ?? '')].slice(0, MAX_MESSAGE_CHARS).join('');
   const context =
     settings.contextMessages > 0 ? history.filter((m) => m.id !== trigger.id).slice(-settings.contextMessages) : [];
   const transcriptBlock =
@@ -1294,8 +1293,6 @@ async function runSplit({
   };
 }
 
-/** The state.json fields of the daily recall counter (src/behavior/recall-run.js RECALL_DAILY). */
-const RECALL_DAILY = Object.freeze({ dayKey: 'recallDay', countKey: 'recallCount' });
 /** The heading of a `<found>` section (src/behavior/recall.js#buildRecallRequest): `## n | YYYY-MM-DD | #channel`. */
 const FOUND_HEADER_RE = /^## (\d+) \| (\d{4}-\d{2}-\d{2}) \| #(.*)$/;
 /**
@@ -1445,7 +1442,6 @@ async function runRecall({
     roleRequestOptions,
     railReason,
     zonedDay,
-    countToday,
     paceSettings,
     createDescriber,
     createLookup,
@@ -1516,7 +1512,7 @@ async function runRecall({
   }
   const searchCfg = config.web?.search ?? {};
   const contextMessages = Math.max(0, Math.floor(searchCfg.contextMessages ?? 50));
-  const triggerText = [...String(trigger.content ?? '')].slice(0, config.context?.maxMessageChars ?? 800).join('');
+  const triggerText = [...String(trigger.content ?? '')].slice(0, MAX_MESSAGE_CHARS).join('');
   const context = contextMessages > 0 ? history.filter((m) => m.id !== trigger.id).slice(-contextMessages) : [];
   const transcriptBlock =
     context.length === 0
@@ -1573,10 +1569,7 @@ async function runRecall({
   if (classifierError !== null) notRun = 'no-classifier-answer';
   else if (!server) notRun = 'no-server-part';
   else if (!settings) notRun = 'feature-off';
-  else if (countToday(store.state.data, RECALL_DAILY, Date.now()) >= settings.maxPerDay) notRun = 'daily';
   else if (signal?.aborted) notRun = 'stopped';
-  if (notRun === 'daily')
-    process.stderr.write('replay-cli: recall.maxPerDay is spent today; the server search is not run\n');
 
   const searches = [];
   const rawHits = new Map();
@@ -2382,7 +2375,7 @@ export function diaryTurnRunner(
 
 async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv, log, signal, rng }) {
   const mods = await loadDiaryMods(load);
-  const { DIARY_PICTURES_DAILY, diaryTopic, isPictureKind, isSetKind, stripUrls, validatePlan } = mods;
+  const { DIARY_KINDS, diaryTopic, isPictureKind, isSetKind, stripUrls, validatePlan } = mods;
   const { createStore, createCalibrator, createLlm, createImageGen, resolveGuild } = mods;
   const { parseJsonObject, parseOutput, stripDashes, countToday } = mods;
 
@@ -2409,25 +2402,22 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     }
     const hot = dryRunHot(layered?.hot ?? liveHot);
     const config = hot.config;
-    const weight = config.diary?.kinds?.[kind];
+    const weight = DIARY_KINDS[kind];
     if (!(Number.isFinite(weight) && weight > 0))
-      log.warn('replay-cli: the kind has no positive weight in diary.kinds', { kind, weight: weight ?? null });
-    if (!isPictureKind(kind, config.diary?.pictureKinds))
-      log.warn('replay-cli: the kind is not in diary.pictureKinds; it draws only when the plan says picture', { kind });
-    if (isSetKind(kind, config.diary?.setKinds))
+      log.warn('replay-cli: the kind has no positive weight in DIARY_KINDS', { kind, weight: weight ?? null });
+    if (!isPictureKind(kind, undefined))
+      log.warn('replay-cli: the kind is not a picture kind; it draws only when the plan says picture', { kind });
+    if (isSetKind(kind, undefined))
       log.warn('replay-cli: the kind is a set kind; only the first <draw> is reported', { kind });
 
     // The store and the counters: an in-memory copy; the picture gate opened there only.
     const { store, state } = unflushedStore(createStore({ dataDir: liveData, memoryDb: memoryFor(liveData) }));
     const nowMs = Date.now();
     const were = {
-      diaryPictures: countToday(state.data, DIARY_PICTURES_DAILY, nowMs),
       images: countToday(state.data, { dayKey: 'imageDay', countKey: 'imageCount' }, nowMs),
     };
-    state.data[DIARY_PICTURES_DAILY.countKey] = 0;
     state.data.imageCount = 0;
     log.info('replay-cli: diary gates opened', {
-      diaryPicturesWere: were.diaryPictures,
       imagesWere: were.images,
       paused: Boolean(state.data.paused),
     });
@@ -2497,12 +2487,7 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
       }
       if (answer && typeof answer === 'object' && !Array.isArray(answer)) answer = { ...answer, kind };
       const pictureAllowed = result?.outcome !== 'refused' || result?.reason !== 'pictures';
-      const validated = validatePlan(
-        answer,
-        { [kind]: 1 },
-        { pictureAllowed, searchKinds: config.diary?.searchKinds, pictureKinds: config.diary?.pictureKinds },
-        rng
-      );
+      const validated = validatePlan(answer, { [kind]: 1 }, { pictureAllowed }, rng);
       const plan = topic ? { ...validated, topic } : validated;
 
       // The compose answer as runTurn reads it for a diary post.
@@ -3412,10 +3397,10 @@ export function diaryDayGate(args, config, { planDay, zonedEpoch, localDayKey },
  */
 async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, signal }) {
   const mods = await loadDiaryMods(load);
-  const { DIARY_DAILY, DIARY_PICTURES_DAILY, localDayKey, planDay } = mods;
+  const { localDayKey, planDay } = mods;
   const { createStore, createCalibrator, createLlm, createImageGen, ImageCapError, resolveGuild, createFakeAdapter } =
     mods;
-  const { parseJsonObject, countToday, zonedEpoch } = mods;
+  const { parseJsonObject, zonedEpoch } = mods;
 
   // The day plan, before anything is read from Discord or sent: its slots are the estimate.
   const { timezone, date, seed, day, gate } = diaryDayGate(args, liveHot.config, { planDay, zonedEpoch, localDayKey });
@@ -3492,8 +3477,6 @@ async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, si
 
     // The store and the counters: an in-memory copy, today's diary and image counts at 0.
     const { store, state } = unflushedStore(createStore({ dataDir: liveData, memoryDb: memoryFor(liveData) }));
-    state.data[DIARY_DAILY.countKey] = 0;
-    state.data[DIARY_PICTURES_DAILY.countKey] = 0;
     state.data.imageCount = 0;
     if (state.data.paused) log.warn('replay-cli: the bot is paused; every slot will answer paused', {});
 
@@ -3586,14 +3569,6 @@ async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, si
         requests: 0,
         cost: 0,
       };
-      // The tick's own check: the day's posts under diary.maxPerDay.
-      const cap = hot.config.diary?.maxPerDay ?? DEFAULT_DIARY_MAX_PER_DAY;
-      if (countToday(state.data, DIARY_DAILY, now()) >= cap) {
-        Object.assign(slot, { outcome: 'skip', reason: 'cap' });
-        report.slots.push(slot);
-        writeReport();
-        continue;
-      }
       const fromCalls = calls.length;
       const fromDraws = images.calls.length;
       let result;
@@ -4329,13 +4304,10 @@ export function createReplayTools({
         }
         return {
           timezone,
-          gapMinutes: config.context?.gapMarkerMinutes,
-          maxChars: config.context?.maxMessageChars ?? 2000,
           selfName,
           labels,
           descriptions,
           seeReactions: true,
-          reactionsPerMessage: config.context?.reactionsPerMessage,
         };
       },
       refs: searchHandles(draft),
@@ -4445,7 +4417,7 @@ export function createReplayTools({
       // the attachment itself; the message `#N` named is looked up in the request's history. At most lookPerTurn per tools' life.
       if (skill === 'media.look' && mediaTools?.createDescriber && mediaTools.runMediaLook) {
         const lookDescriber = mediaTools.createDescriber({ hot, store: webStore, llm: client });
-        const cap = typeof mediaTools.lookPerTurn === 'function' ? mediaTools.lookPerTurn(hot.config) : Infinity;
+        const cap = typeof mediaTools.lookPerTurn === 'function' ? mediaTools.lookPerTurn() : Infinity;
         const result = await mediaTools.runMediaLook({
           describer: lookDescriber,
           config: hot.config,

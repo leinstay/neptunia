@@ -4,12 +4,17 @@
 // before it builds a diary post's request, and runTurn asks diaryPictureGate before a forced picture kind.
 
 import {
+  DEFAULT_PICTURE_KINDS,
+  DEFAULT_SEARCH_KINDS,
+  DEFAULT_SET_KINDS,
+  DIARY_KINDS,
   diaryTopic,
   isSetKind,
   parseSeedFamilies,
   pickSeeds,
   renderSeedsBlock,
   renderTopicBlock,
+  SEED_SETS,
   setSettings,
   validatePlan,
   withoutPictureKinds,
@@ -125,14 +130,12 @@ export function createDiary(ctx: DiaryContext): Diary {
   /**
    * A diary post's first step (mode `diary`), before its request is built:
    * the post history (store.getDiary), whether it may carry a picture (the
-   * image client, `features.imageGeneration`, Attach Files here, the day's
-   * diary pictures under `diary.maxPicturesPerDay` (2) and the image client's
-   * own cap not spent), then the plan request (src/behavior/prompt.js#buildDiaryPlanRequest:
+   * image client and Attach Files here), then the plan request (src/behavior/prompt.js#buildDiaryPlanRequest:
    * prompts/diary-plan.md on the classifier model, `diary.planMaxOutputTokens`
    * (300), `diary.planTimeoutMs` (20000), usage purpose `diary-plan`; when
    * `llm.hedge` hedges `analyzer`, the hedged call is limited by
    * `diary.planTimeoutMs` rather than `llm.hedge.timeoutMs`) with
-   * `<seeds>` drawn from prompts/diary-seeds.md (`diary.seedSets`, 2) and,
+   * `<seeds>` drawn from prompts/diary-seeds.md (SEED_SETS) and,
    * with an owner's topic (`params.topic`, src/behavior/diary.ts#diaryTopic),
    * a `<topic>` block after them; the topic also rides on the plan as its
    * `topic` field (the `<plan>` block of the post). The answer goes through parseJsonObject and src/behavior/diary.ts#validatePlan
@@ -178,8 +181,8 @@ export function createDiary(ctx: DiaryContext): Diary {
       ? { [forcedKind]: 1 }
       : picturesOff
         ? // withoutPictureKinds drops entries of `kinds` and keeps the rest as they are, numbers.
-          (withoutPictureKinds(diaryCfg.kinds ?? {}, diaryCfg.pictureKinds) as Record<string, number>)
-        : (diaryCfg.kinds ?? {});
+          (withoutPictureKinds(DIARY_KINDS, DEFAULT_PICTURE_KINDS) as Record<string, number>)
+        : DIARY_KINDS;
 
     let answer: unknown = null;
     const planPrompt = prompts?.['diary-plan'];
@@ -187,10 +190,7 @@ export function createDiary(ctx: DiaryContext): Diary {
       const recent = memoryOn
         ? recentInput({ channel, snapshot: snapshotOfDraft(draft), guildId, isPrivate: false, config, now })
         : NO_RECENT;
-      const seedsText = renderSeedsBlock(
-        pickSeeds(parseSeedFamilies(prompts['diary-seeds']), diaryCfg.seedSets ?? 2, rng),
-        labels
-      );
+      const seedsText = renderSeedsBlock(pickSeeds(parseSeedFamilies(prompts['diary-seeds']), SEED_SETS, rng), labels);
       const request = buildDiaryPlanRequest({
         config,
         prompts,
@@ -255,7 +255,7 @@ export function createDiary(ctx: DiaryContext): Diary {
     const validated = validatePlan(
       answer,
       kinds,
-      { pictureAllowed, searchKinds: diaryCfg.searchKinds, pictureKinds: diaryCfg.pictureKinds },
+      { pictureAllowed, searchKinds: DEFAULT_SEARCH_KINDS, pictureKinds: DEFAULT_PICTURE_KINDS },
       rng
     );
     // The owner's topic reaches the post even when the planner ignored it.
@@ -284,7 +284,7 @@ export function createDiary(ctx: DiaryContext): Diary {
       }
     }
     // A set post (diary.setKinds): its compose request gets diary.set.seedSets seed combinations.
-    const seeds = isSetKind(plan.kind, diaryCfg.setKinds)
+    const seeds = isSetKind(plan.kind, DEFAULT_SET_KINDS)
       ? renderSeedsBlock(
           pickSeeds(parseSeedFamilies(prompts?.['diary-seeds']), setSettings(diaryCfg).seedSets, rng),
           labels ?? {}

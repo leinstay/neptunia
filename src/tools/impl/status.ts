@@ -28,13 +28,11 @@
 // the data `/nep task inner status` reads): its mode and switch, the day's turns, chains, dollars, public
 // posts, the next wake, the last turn and the open intentions; its words are `labels.status.inner`.
 
-import { RECALL_DAILY } from '../../behavior/recall-run.js';
 import { keyHashOf, llmCountToday, resolveProvider } from '../../llm/openrouter.js';
 import { familyOf as imageFamilyOf, IMAGE_ROLE } from '../../llm/images.js';
 import { SPEECH_ROLE } from '../../speech/synth.js';
-import { countToday, DAY_MS, HOUR_MS, MINUTE_MS, utcDay, utcMinute } from '../../time.js';
+import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay, utcMinute } from '../../time.js';
 import { ARCHIVE_EVENTS } from '../../memory/index.js';
-import { WEB_DAILY } from '../../web/lookup.js';
 import { clampChars, oneLine } from '../../memory/clamp.js';
 import { isOwnerCaller } from './grants.ts';
 import { MODEL_ROLES, STATUS_FIELDS, STATUS_PARTS } from './catalog.ts';
@@ -585,14 +583,10 @@ const handlers = perEnv((env) => {
     return [groupedModels(cfg, lineOf), await imageProbeLine(cfg, timeoutMs)].join('\n');
   }
 
-  /** The limits field: every daily rail's used/cap, the web search engine, then when they reset. */
+  /** The limits field: the daily request rail's used/cap, the web search engine, then when it resets. */
   function limitsValue(cfg: Untyped, data: Untyped): string {
     const nowMs = Date.now();
     const parts = [`requests ${usedOf(llmCountToday(data, nowMs), cfg?.llm?.maxRequestsPerDay)}`];
-    parts.push(
-      `recall ${usedOf(countToday(data, RECALL_DAILY, nowMs), cfg?.recall?.maxPerDay)}`,
-      `lookups ${usedOf(countToday(data, WEB_DAILY, nowMs), cfg?.web?.maxPerDay)}`
-    );
     // The web search engine, one word: the chosen engine (web.search.engine) when a search can
     // run (features.webLookup on, web.search.enabled not false, the engine ready), else `off`.
     if (typeof lookup?.searchEngine === 'function') {
@@ -754,15 +748,13 @@ const handlers = perEnv((env) => {
 
   /** The meaning index line: `off` unless features.meaningSearch and features.embedIndex are both
    * exactly true; else its rows (the guild's and every private layer's), the share of the record
-   * messages of the last `embed.catchUpHours` it holds and the day of the oldest one missing. */
-  async function indexLine(guildId: string, cfg: Untyped): Promise<string> {
+   * messages of the last `CATCH_UP_HOURS` it holds and the day of the oldest one missing. */
+  async function indexLine(guildId: string): Promise<string> {
     if (typeof embedQueue?.indexSummary !== 'function') return 'index: not available';
     const { rows } = await embedQueue.indexSummary(guildId);
     const parts = [`index: ${rows} rows`];
     if (typeof embedQueue.coverage === 'function') {
-      const configured = cfg?.embed?.catchUpHours;
-      const hours =
-        typeof configured === 'number' && Number.isFinite(configured) && configured > 0 ? configured : CATCH_UP_HOURS;
+      const hours = CATCH_UP_HOURS;
       const found = await embedQueue.coverage(guildId, { hours });
       parts.push(`${percent(found.indexed, found.messages)} of record messages indexed (last ${hours} h)`);
       parts.push(found.oldestMissing ? `oldest missing ${String(found.oldestMissing).slice(0, 10)}` : 'none missing');
@@ -875,11 +867,10 @@ const handlers = perEnv((env) => {
 
   /** The memory field (the coverage of every kind of memory), one line per kind. */
   async function computeMemory(guildId: string): Promise<string> {
-    const cfg = hot.config;
     const today = utcDay(clock());
     return [
       await safeLine('record', () => recordLine(guildId, today)),
-      await safeLine('index', () => indexLine(guildId, cfg)),
+      await safeLine('index', () => indexLine(guildId)),
       await safeLine('archive', () => archiveLine(guildId)),
       await safeLine('profiles', () => profilesLine(guildId)),
       await safeLine('server notes', () => serverNotesLine(guildId)),

@@ -30,7 +30,7 @@ import { RECALL_DEFAULTS, memorySearchPlan, recallSettings } from '../behavior/r
 import { collectPictures, collectVideos } from '../media/classify.js';
 import { videoSiteFor, videoUrlCacheKey } from '../media/video-sites.js';
 import { foldText } from '../memory/recent.js';
-import { rankGifs } from '../memory/gifs.js';
+import { GIF_HALF_LIFE_DAYS, rankGifs } from '../memory/gifs.js';
 import { gifFieldChars, gifFields, gifLine } from '../behavior/prompt.js';
 import { IN_TURN_TOOLS } from './discovery.ts';
 import { CODE, FEATURE, WHAT, isCode } from './codes.ts';
@@ -51,7 +51,6 @@ export type WebLookup = {
   searchResults?: (guildId: string | null, query: string) => Promise<unknown>;
   readPage?: (guildId: string | null, url: string) => Promise<unknown>;
   hasSearch?: () => boolean;
-  webCapLeft?: () => number;
 };
 
 /** The result of a tool: a status, a code and the text she reads. Further fields carry what the executor passes on. */
@@ -130,18 +129,15 @@ function toolLabels(labels: unknown, kind: string): ToolLabels {
 /** How long a title or a link in a web.search result may be. */
 const RESULT_TITLE_MAX = 120;
 const RESULT_URL_MAX = 300;
-/** `web.search.snippetChars` and `web.search.resultsChars` when missing (config.json's values). */
-const SNIPPET_CHARS_FALLBACK = 400;
-const RESULTS_CHARS_FALLBACK = 3000;
-/** `web.links.readChars` when missing (config.json's value). */
-const READ_CHARS_FALLBACK = 4000;
+// The web tools' measures. Production values, config cut of 2026-10-31.
+/** The length of one web.search result's snippet. */
+const SNIPPET_CHARS = 400;
+/** The length of web.search's whole answer. */
+const RESULTS_CHARS = 3000;
+/** The length of a page web.read shows. */
+const READ_CHARS = 4000;
 /** Query parameters that only track the click and never pick the page. */
 const TRACKING_PARAM = /^(utm_\w+|fbclid|gclid|yclid|mc_cid|mc_eid|ref_src)$/i;
-
-/** A positive whole number from the config, else `fallback`. */
-function positiveOr(value: unknown, fallback: number): number {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
-}
 
 /**
  * A result's link as she may hand it on: http(s) only, the fragment and tracking parameters
@@ -181,8 +177,8 @@ export function webSearchText(
   {
     goal = '',
     labels,
-    snippetChars = SNIPPET_CHARS_FALLBACK,
-    maxChars = RESULTS_CHARS_FALLBACK,
+    snippetChars = SNIPPET_CHARS,
+    maxChars = RESULTS_CHARS,
   }: { goal?: unknown; labels: unknown; snippetChars?: number; maxChars?: number }
 ): string {
   const l = toolLabels(labels, 'web');
@@ -251,7 +247,7 @@ export function webSearchText(
  */
 export function webReadText(
   page: unknown,
-  { labels, maxChars = READ_CHARS_FALLBACK }: { labels: unknown; maxChars?: number }
+  { labels, maxChars = READ_CHARS }: { labels: unknown; maxChars?: number }
 ): string {
   const l = toolLabels(labels, 'read');
   const lines: Array<string> = [];
@@ -416,7 +412,7 @@ export async function runWebSearch({
   args,
 }: {
   lookup: WebLookup | null;
-  config: unknown;
+  config?: unknown;
   labels: unknown;
   guildId: string | null;
   args: unknown;
@@ -430,8 +426,6 @@ export async function runWebSearch({
       return { status: 'not_configured', code: CODE.NOT_CONFIGURED, values: { feature: FEATURE.web } };
     if (typeof lookup.hasSearch === 'function' && !lookup.hasSearch())
       return { status: 'not_configured', code: CODE.NOT_CONFIGURED, values: { feature: FEATURE.web } };
-    if (typeof lookup.webCapLeft === 'function' && !(lookup.webCapLeft() > 0))
-      return { status: 'failed', code: CODE.DAILY_CAP };
     const answer = await lookup.searchResults(guildId, query);
     if (!isObj(answer)) return { status: 'failed', code: CODE.ERROR };
     const found = answer;
@@ -451,8 +445,8 @@ export async function runWebSearch({
       {
         goal: given.goal,
         labels,
-        snippetChars: positiveOr(searchCfg.snippetChars, SNIPPET_CHARS_FALLBACK),
-        maxChars: positiveOr(searchCfg.resultsChars, RESULTS_CHARS_FALLBACK),
+        snippetChars: SNIPPET_CHARS,
+        maxChars: RESULTS_CHARS,
       }
     );
     return { status: 'ok', data: { text: shown } };
@@ -479,24 +473,22 @@ const READ_INVALID = new Set(['scheme']);
 /**
  * One web.read: the page at `args.url`, or the first link of the message `args.message` names
  * (an id her `#N` resolved to: `linkOf(id)`, the caller's, resolves to a url or null), through
- * `lookup.readPage` (the SSRF-guarded fetcher, the daily web slot, no model request).
+ * `lookup.readPage` (the SSRF-guarded fetcher, no model request).
  * `invalid` (`invalid-args`) without either, (`no-link`) when that message holds no link, and
  * (`scheme`) for a url that is not http(s); `not_configured` (`not-configured`) without the
- * client or the feature (features.webLookup, read now); `failed` with `daily-cap` once the day's
- * web slots are spent, else with the page's code (`private`, `type`, `size`, `http`,
- * `timeout`, ...); `ok` with webReadText (`web.links.readChars`, read now) as its `data.text`, or
+ * client; `failed` with the page's code (`private`, `type`, `size`, `http`,
+ * `timeout`, ...); `ok` with webReadText (READ_CHARS) as its `data.text`, or
  * `.none` when the page had no text. Never throws.
  */
 export async function runWebRead({
   lookup,
-  config,
   labels,
   guildId,
   args,
   linkOf = null,
 }: {
   lookup: WebLookup | null;
-  config: unknown;
+  config?: unknown;
   labels: unknown;
   guildId: string | null;
   args: unknown;
@@ -513,10 +505,8 @@ export async function runWebRead({
       url = text(typeof linkOf === 'function' ? await linkOf(messageId) : null);
       if (!url) return { status: 'invalid', code: CODE.NO_LINK };
     }
-    if (typeof lookup.webCapLeft === 'function' && !(lookup.webCapLeft() > 0))
-      return { status: 'failed', code: CODE.DAILY_CAP };
     const page = objOf(await lookup.readPage(guildId, url));
-    const maxChars = positiveOr(objOf(objOf(objOf(config).web).links).readChars, READ_CHARS_FALLBACK);
+    const maxChars = READ_CHARS;
     if (page.ok === true) return { status: 'ok', data: { text: webReadText(page, { labels, maxChars }) } };
     const reason = plain(page.reason ?? CODE.ERROR);
     if (reason === 'empty') {
@@ -709,15 +699,9 @@ export async function runMemorySearch({
   }
 }
 
-/** `media.look.maxPerTurn` when missing (config.json's value). */
-export const LOOK_PER_TURN_FALLBACK = 2;
-
-/**
- * The most second looks one turn of hers may take (`media.look.maxPerTurn`, read by the caller
- * now; a whole number of at least 1, else LOOK_PER_TURN_FALLBACK). Pure.
- */
-export function lookPerTurn(config: unknown): number {
-  return positiveOr(objOf(objOf(objOf(config).media).look).maxPerTurn, LOOK_PER_TURN_FALLBACK);
+/** The most second looks one turn of hers may take. Production value, config cut of 2026-10-31. */
+export function lookPerTurn(): number {
+  return 2;
 }
 
 /**
@@ -951,7 +935,7 @@ export function findGifs(
   gifs: unknown,
   mediaCache: Obj | null,
   query: string,
-  { n = FIND_DEFAULT, halfLifeDays = 30 }: { n?: unknown; halfLifeDays?: number } = {}
+  { n = FIND_DEFAULT, halfLifeDays = GIF_HALF_LIFE_DAYS }: { n?: unknown; halfLifeDays?: number } = {}
 ): Array<GifEntry> {
   const wanted = [...new Set(wordsOf(query))];
   if (wanted.length === 0) return [];
@@ -996,7 +980,6 @@ export function mediaFindText(
     query = '',
     labels,
     mediaCache = null,
-    config = {},
   }: { query?: string; labels: unknown; mediaCache?: Obj | null; config?: unknown }
 ): string {
   const l = toolLabels(labels, 'find');
@@ -1007,7 +990,7 @@ export function mediaFindText(
     return lines.join('\n');
   }
   if (l.source) lines.push(fill(l.source, { query: oneLine(query), count: String(found.length) }));
-  const chars = gifFieldChars(objOf(objOf(config).gifs));
+  const chars = gifFieldChars();
   for (const entry of found)
     lines.push(gifLine(entry, mediaCache, objOf(labels), { ...chars, ownMarkHours: 0, now: 0 }));
   return lines.join('\n');
@@ -1050,11 +1033,7 @@ export function runMediaFind({
       return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.n:range' };
     const cache = typeof store.getMediaCache === 'function' ? store.getMediaCache(guildId) : null;
     const mediaCache = isObj(cache) ? cache : null;
-    const halfLife = objOf(objOf(config).gifs).halfLifeDays;
-    const found = findGifs(store.getGifs(guildId), mediaCache, query, {
-      n: given,
-      halfLifeDays: typeof halfLife === 'number' ? halfLife : 30,
-    });
+    const found = findGifs(store.getGifs(guildId), mediaCache, query, { n: given });
     return { status: 'ok', data: { text: mediaFindText(found, { query, labels, mediaCache, config }) } };
   } catch {
     return { status: 'failed', code: CODE.ERROR };

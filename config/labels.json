@@ -709,7 +709,6 @@
           "malformed-call": "the call could not be read",
           "truncated-call": "the call was cut off before it was complete",
           "diary-draw-only": "only draw.create runs in a diary turn",
-          "cap-diary": "the diary entry limit for today is used up",
           "other": "something went wrong"
         },
         "params": {
