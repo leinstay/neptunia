@@ -569,6 +569,27 @@
       "test": "none"
     },
     {
+      "path": "src/turn/sends.ts",
+      "purpose": "How her words are rendered and timed before they go out: a post's mentions, emoji and links, the settle wait for the trigger's author, her diary's place name and the dry-run mirror. Tested through the turn, message links and channel links tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/typing.ts",
+      "purpose": "The typing indicator of a turn while its tool loop runs and while it prepares. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/dry-act.ts",
+      "purpose": "The dry run's stand-in for the act: every would-be reaction, message, GIF and diary picture logged, journaled and mirrored. Tested through the turn and journal turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/errands/",
       "purpose": "The errand service: the ledger, the store, the client to the runner and the turns that bring results back.",
       "layer": "public",

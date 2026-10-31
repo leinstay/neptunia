@@ -312,6 +312,13 @@ export function occursAsWordStem(text: string, form: string): boolean {
 /** A channel as the matching reads it: its id and its name. */
 type ChannelRef = { id: string; name: string };
 
+/** Whether a listed channel has the id and the name a link needs. */
+function isChannelRef(channel: { id?: unknown; name?: unknown } | null | undefined): channel is ChannelRef {
+  return (
+    typeof channel?.id === 'string' && channel.id !== '' && typeof channel.name === 'string' && channel.name !== ''
+  );
+}
+
 /** Leading or trailing characters that are no letter and no digit: emoji, symbols, punctuation, joiners. */
 const CORE_EDGES_RE = /^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu;
 /** One emoji-like character a written channel name may carry around its core (never punctuation or space). */
@@ -410,15 +417,14 @@ function coreAt(
  */
 export function linkChannels(
   text: string,
-  channels: Iterable<ChannelRef> | null | undefined,
+  channels: Iterable<{ id: string; name?: string | null } | null | undefined> | null | undefined,
   handles: Map<string, string> | null = null
 ): string {
   const byHandle = handles instanceof Map && handles.size > 0 ? handles : null;
   if (typeof text !== 'string' || !text.includes('#') || (!channels && !byHandle)) return text;
   const known: Array<ChannelRef> = [];
   for (const channel of channels ?? []) {
-    if (typeof channel?.id === 'string' && channel.id && typeof channel.name === 'string' && channel.name)
-      known.push(channel);
+    if (isChannelRef(channel)) known.push(channel);
   }
   if (known.length === 0 && !byHandle) return text;
   known.sort((a, b) => b.name.length - a.name.length);

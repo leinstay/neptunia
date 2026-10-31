@@ -163,7 +163,7 @@ type PickArgs = {
   gif: unknown;
   history: Array<{ id?: string } & object>;
   selfName: string;
-  idByIndex?: Map<number, string>;
+  idByIndex?: ReadonlyMap<number, string>;
   trigger?: DrawTrigger;
 };
 

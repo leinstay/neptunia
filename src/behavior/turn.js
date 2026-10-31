@@ -24,7 +24,6 @@ import { fetchNeighbors } from './neighbors.ts';
 import { historyLines } from './lines.ts';
 import { withTextPreviews } from '../media/text-preview.ts';
 import { isTaggedCall } from './mention.js';
-import { resolveHandles } from './handles.js';
 import { roleModel } from '../llm/roles.js';
 import { RECALL_DEFAULTS, fallbackLookupPlan, parseLookupAnswer, recallSettings } from './recall.js';
 import { parseSplitAnswer, splitCandidate, splitSettings } from './split.js';
@@ -41,20 +40,17 @@ import {
   railReason,
   sleep,
 } from '../llm/openrouter.js';
-import { limitOf, mirrorChannelLabel, mirrorDryRun } from './limits.js';
+import { limitOf } from './limits.js';
 import { portIface } from '../interface/capabilities.ts';
 import { between, typingMs } from './random.js';
-import { startTypingLease } from '../interface/typing.js';
-import { settleWait } from './activity.js';
 import { collectVideos, collectReadableLinks, lateVideoStates } from '../media/classify.js';
 import { createImageFetcher } from '../media/fetch-image.js';
-import { renderCustomEmoji, resolveReactionEmoji } from './emoji.js';
+import { resolveReactionEmoji } from './emoji.js';
 import { refreshEmojiIfOn } from './emoji-index.ts';
 import { callReason, fill, formatTranscript } from '../format.js';
 import { log } from '../log.js';
 import { clampWithEllipsis, countDashes, oneLine, stripDashes } from '../memory/clamp.js';
 import { isVideoVisionOn, createOffPeriodsReader } from '../memory/index.js';
-import { linkChannels, linkMessageNumbers } from '../memory/mentions.ts';
 import { createParticipationPicker, participationEpisodeOffer } from './participation-pick.js';
 import { askPlanner, parsePlannerAnswer, parseRewatchPickDetailed, plannerOn } from './planner.js';
 import { routeAllowed, routeCandidate, routeSettings } from './route.js';
@@ -67,7 +63,7 @@ import { checkReplyEffect, checkSkill, listSkills } from '../tools/gateway.ts';
 import { callArgsText } from '../tools/call-args.ts';
 import { createThinkStore } from './previous-think.js';
 import { discoveryOn, exposedSkillNames, proposalVerdicts, proposedRows, skillsIndex } from '../tools/discovery.ts';
-import { skillFeatureOn, skillsOn } from '../tools/access.ts';
+import { skillFeatureOn } from '../tools/access.ts';
 import { executeCall, linksOfCalls, outcomeDetail, refusalStatus, resolveCall } from '../tools/executors.ts';
 import { fetchSpan, runConversationRead, recordMessages } from '../tools/conversation-read.ts';
 import {
@@ -103,7 +99,7 @@ import {
 } from './tool-step.js';
 import { toolsBlockText } from '../llm/tool-text.js';
 import { estimateMessages, estimateTools } from '../llm/tokens.js';
-import { chunkPictures, diaryConversationIds, diaryPlaces, filesPerMessage, readMirrors } from './mirror.ts';
+import { chunkPictures, diaryConversationIds, filesPerMessage } from './mirror.ts';
 import { diaryVoiceTool, forcedPictureRefusal, publishHeldDiary, recordEntry, wakeInputs } from './diary-turn.ts';
 import {
   HEARTBEAT_INTENT_SKILLS,
@@ -113,26 +109,16 @@ import {
   LOOP_MIN_CALL_MS,
   LOOP_WHY,
   NO_LOOP,
-  SETTLE_STEP_MS,
   coreToolsOn,
   loopSettings,
   paceSettings,
   resultCharsFor,
 } from '../turn/settings.ts';
-import { PREPARE_STAGES, PREPARE_TYPING_REFRESH_MS, TOO_SLOW, scheduleTimer, trackStage } from '../turn/timers.ts';
+import { PREPARE_STAGES, TOO_SLOW, scheduleTimer, trackStage } from '../turn/timers.ts';
 import { DIRECT_CALLS, askedFor, postsPlain, takeAttention, unhurried } from '../turn/triggers.ts';
 import { lookupClassifierInput, renderClassifierContext } from '../turn/lookup-input.ts';
 import { mentionDirectory, pickOtherProfiles, resolveMentions, storedNames, untaggedNote } from '../turn/mentions.ts';
-import {
-  authorNameFor,
-  mirrorPartChars,
-  reactionChannel,
-  replyTarget,
-  sendArgs,
-  sourceLinkTarget,
-  splitForMirror,
-  withLink,
-} from '../turn/targets.ts';
+import { reactionChannel, replyTarget, sendArgs, sourceLinkTarget } from '../turn/targets.ts';
 import {
   REWATCH_KIND_GIF,
   REWATCH_KIND_PICTURE,
@@ -150,8 +136,11 @@ import {
 import { NO_RECENT, continuationHistory, withReplyParents } from '../turn/history.ts';
 import { createDiary } from '../turn/diary.ts';
 import { createDrawGif } from '../turn/draw-gif.ts';
+import { createDryAct } from '../turn/dry-act.ts';
 import { createJournalNotes } from '../turn/journal-notes.ts';
 import { createParticipation } from '../turn/participation.ts';
+import { createSends } from '../turn/sends.ts';
+import { createTyping } from '../turn/typing.ts';
 import { channelDirectoryOf, inCommunity, routeFor, snapshotOfDraft, usableDestination } from '../turn/routing.ts';
 import {
   FAILED_TURN_KEEP_MS,
@@ -2211,413 +2200,30 @@ export function createTurnRunner({
     lastPostAt,
     diaryPictureGate,
   });
-
-  /**
-   * `text` with every transcript number `#n` of this turn's numbering (`idByIndex`, chat and
-   * pulled lines) turned into the jump link of that message (src/memory/mentions.ts#linkMessageNumbers):
-   * features.messageLinks on (read now; a missing key counts as on). A pulled line links in its own
-   * channel (`pulledIds`), any other in `channelId`; a private chat uses `@me` for the guild.
-   */
-  function withMessageLinks(text, { guildId, channelId, privateChat, idByIndex, pulledIds }) {
-    if (hot.config.features?.messageLinks === false || !idByIndex) return text;
-    const community = privateChat || !guildId ? null : guildId;
-    return linkMessageNumbers(text, (n) => {
-      const messageId = idByIndex.get(n);
-      if (!messageId) return null;
-      return messageLinkOf(iface, community, pulledIds?.get(messageId) ?? channelId, messageId);
-    });
-  }
-
-  /**
-   * `text` with every `#handle` of `channelHandles` (the request's handle -> channel id) and, with
-   * features.channelLinks on (read now; a missing key counts as on), every `#name` of one of the
-   * community's text channels (the turn's snapshot) turned into its `<#id>` link (src/memory/mentions.ts#linkChannels; a
-   * handle first, exactly). A private chat has no guild: only its handles, if any, are linked.
-   * @param {Conv} channel
-   * @param {Snap|null} [snapshot]
-   */
-  function withChannelLinks(channel, text, channelHandles = null, snapshot = null) {
-    const handles = channelHandles instanceof Map ? channelHandles : null;
-    if (hot.config.features?.channelLinks === false) return handles ? linkChannels(text, [], handles) : text;
-    if (!snapshot || !inCommunity(channel)) return handles ? linkChannels(text, [], handles) : text;
-    const channels = snapshot.conversations.map((entry) => ({ id: entry.id, name: entry.name }));
-    return linkChannels(text, channels, handles);
-  }
-
-  /** The custom emoji lookup, or null when there is no index or features.customEmoji is off (read now). */
-  function emojiLookup() {
-    return emoji && hot.config.features?.customEmoji !== false ? emoji.byName : null;
-  }
-
-  /**
-   * The persona's `text` as it is posted -- a `<msg>`, or the text of her `message.create` /
-   * `message.edit` call: with `handles` (the request's handle -> member id map,
-   * features.mentionHandles on) only an exact `@handle` becomes a mention and no name is ever
-   * matched (src/behavior/handles.js#resolveHandles; a handle-shaped token the map does not hold
-   * stays text and is logged `turn: unknown handle` with `count`, unless `quiet`); without them
-   * `@name` resolved over `lines`, then `knownNames`, then the fallback
-   * `directory` (a thunk, only called when the text has an `@`; resolveMentions), custom
-   * emoji after the mentions (`<@id>` has no `:name:` in it to break), transcript numbers into jump
-   * links (withMessageLinks), channel names into channel links (withChannelLinks), then `link`
-   * joined (withLink). Resolves
-   * `text` (as sent), `spoken` (before any link: what the typing time is taken from) and
-   * `userIds` (the members it mentions: the only ones a send may notify, allowedMentions).
-   * @returns {{ text: string, spoken: string, userIds: string[] }}
-   */
-  function renderPost(
-    written,
-    {
-      channel,
-      snapshot = null,
-      guildId,
-      privateChat,
-      idByIndex,
-      pulledIds,
-      lines,
-      knownNames,
-      directory = null,
-      handles = null,
-      channelHandles = null,
-      link = null,
-      quiet = false,
-    }
-  ) {
-    let mentioned;
-    if (handles instanceof Map) {
-      mentioned = resolveHandles(written, handles);
-      if (mentioned.unknown > 0 && !quiet)
-        log.info('turn: unknown handle', { channel: channel.id, count: mentioned.unknown });
-    } else {
-      const fallback = typeof directory === 'function' && String(written ?? '').includes('@') ? directory() : [];
-      mentioned = resolveMentions(written, lines ?? [], knownNames ?? [], fallback);
-    }
-    const spoken = renderCustomEmoji(mentioned.text, emojiLookup());
-    const text = withLink(
-      withChannelLinks(
-        channel,
-        withMessageLinks(spoken, { guildId, channelId: channel.id, privateChat, idByIndex, pulledIds }),
-        channelHandles,
-        snapshot
-      ),
-      link,
-      hot.prompts?.labels
-    );
-    return { text, spoken, userIds: mentioned.userIds };
-  }
-
-  /**
-   * Wait until `trigger`'s author has been quiet in `channelId` for pace.settleMs (read at every
-   * check), never past pace.settleMaxMs from the trigger message's time (the start of the wait
-   * when that is unknown), checking the activity again at least every SETTLE_STEP_MS so a new
-   * message of theirs restarts the count; the pauses run on the injected `schedule`. Resolves
-   * the milliseconds actually waited: 0 with no activity tracker, no trigger author or settle
-   * off. Never rejects: a failing check ends the wait.
-   */
-  async function settleAuthor(channelId, trigger) {
-    const authorId = trigger?.authorId;
-    if (!activity || !authorId) return 0;
-    const settleStartedAt = clock();
-    const triggerAt = Number.isFinite(trigger.ts) ? trigger.ts : settleStartedAt;
-    try {
-      for (;;) {
-        const { settleMs, settleMaxMs } = paceSettings(hot.config);
-        const wait = settleWait({
-          now: clock(),
-          triggerAt,
-          lastAt: activity.lastAt(channelId, authorId),
-          settleMs,
-          settleMaxMs,
-        });
-        if (!(wait > 0)) break;
-        await new Promise((resolve) => {
-          schedule(resolve, Math.min(wait, SETTLE_STEP_MS));
-        });
-      }
-    } catch (err) {
-      log.warn('turn: settle failed', { channel: channelId, error: err });
-    }
-    return clock() - settleStartedAt;
-  }
-
-  /**
-   * The bare name of her diary's place for `<senses>`: a diary turn's own conversation (`own`), else the first of
-   * mirror.ts#diaryPlaces, as the snapshot, the directory or memory names it; null with none or `features.diary` off.
-   */
-  function diaryChannelName(guildId, config, snapshot = null, own = null) {
-    const found = own ? { conversationId: String(own.id), name: own.name } : readMirrors(store, diaryPlaces, [])[0];
-    const place = config.features?.diary === false ? null : (found ?? null);
-    if (!place) return null;
-    const name = snapshot?.get(place.conversationId)?.name ?? conversationName(place.conversationId) ?? place.name;
-    return typeof name === 'string' && name ? name : null;
-  }
-
-  /** One dry-run mirror message (src/behavior/limits.js#mirrorDryRun), `bot.dryRunChannelId` read now. */
-  function mirror(header, body) {
-    return mirrorDryRun({ port: iface, dryRunChannelId: hot.config.bot?.dryRunChannelId || '', header, body });
-  }
-
-  /**
-   * A typing lease on `channel` (src/interface/typing.js): refreshed until stopped, and lapsing on its own if nobody
-   * stops it. Sent through the port; one that does not answer `ok` logs `turn: typing failed`. `preparing` tells the
-   * log which wait it covers (the preparation, or the tool loop's calls).
-   * @returns {() => void}  Stops the lease.
-   */
-  function startChannelTyping(channel, preparing) {
-    const send = () =>
-      Promise.resolve()
-        .then(() => iface.typing(conversationOf(channel)))
-        .then((result) => {
-          if (result?.status !== 'ok')
-            log.warn('turn: typing failed', { channel: channel.id, preparing, error: portError(result) });
-        })
-        .catch((err) => log.warn('turn: typing failed', { channel: channel.id, preparing, error: err }));
-    return startTypingLease({
-      send,
-      schedule,
-      refreshMs: PREPARE_TYPING_REFRESH_MS,
-      now: clock,
-      onExpire: () => log.info('turn: typing lease expired', { channel: channel.id }),
-    });
-  }
-
-  /**
-   * The typing indicator while a direct call's tool loop runs: from the first step that has calls until the turn's
-   * last speech is posted or the turn ends (runSteps stops it). Only for a turn someone waits for (DIRECT_CALLS), never
-   * an inner or a diary turn, with features.typingSimulation on, where the bot can send, in no dry run, with skills on.
-   * Not gated by pace.typingWhilePreparing (that one is the preparation's).
-   * @returns {() => void}  Stops the lease; `() => {}` when it does not show.
-   */
-  function typingWhileCalls(channel, triggerKind, draft) {
-    const off = () => {};
-    if (!DIRECT_CALLS.has(triggerKind) || draft.inner || draft.diary) return off;
-    const config = hot.config;
-    if (config.features?.typingSimulation === false || config.features?.dryRun === true || !skillsOn(config))
-      return off;
-    const sendable = channel.permissions?.send === true;
-    return sendable ? startChannelTyping(channel, false) : off;
-  }
-
-  /**
-   * The typing indicator while a turn prepares and waits for its answer:
-   * sent once now and again every few seconds until the returned function
-   * stops it (the answer is in hand, the turn is dropped or failed). Only for a turn
-   * answering a direct call (DIRECT_CALLS: no unprompted turn, no overheard
-   * line), with features.typingSimulation and pace.typingWhilePreparing on
-   * (`config`, the turn's live config), never in a dry run (read now), never
-   * where the bot cannot send, never with features.tools off (read now: she
-   * is silent). Sent through the port; one that does not answer `ok` logs
-   * `turn: typing failed` and changes nothing else.
-   * @returns {() => void}  Stops the indicator's refresh.
-   */
-  function typingWhilePreparing(channel, triggerKind, config) {
-    const off = () => {};
-    if (!DIRECT_CALLS.has(triggerKind) || config.features?.typingSimulation === false) return off;
-    if (!paceSettings(config).typingWhilePreparing || hot.config.features?.dryRun === true || !skillsOn(hot.config))
-      return off;
-    const sendable = channel.permissions?.send === true;
-    if (!sendable) return off;
-    return startChannelTyping(channel, true);
-  }
-
-  /**
-   * Dry-run stand-in for `act()`: does everything `act()` would have decided
-   * to do, but never touches the target channel -- no sendTyping, no send, no
-   * react, no artificial timing. Logs one line per would-be action and, when
-   * `bot.dryRunChannelId` is configured, mirrors it there in plain language.
-   * The same routing as act(): a reaction on a pulled line names its channel
-   * (`source`) or is dropped where the bot may not react there, a message, the
-   * GIF or the picture answering a pulled line carries its jump link
-   * (`linkFor`) and no reply. Like act(), a reaction stamps no `lastPostAt`.
-   * The mirror header names the mode, the trigger kind (none on a spontaneous
-   * turn), then `react to <name>` for a reaction and `to <name>` for a message
-   * that answers a line (a reply or a linked pulled line); nothing more for
-   * one that answers none. A turn answering one part of a split message
-   * names its part (`part <index>/<total>`) after the trigger kind. The
-   * messages are the model's as written (nothing rewrites them); nothing is
-   * counted or stamped: nothing was posted. The GIF picker runs as in act()
-   * (pickGif, its request included): a GIF it picks is logged and mirrored
-   * first, as the GIF that would be posted in place of the first message, then
-   * the other messages. `history`: the chat lines the picker's `<context>`
-   * reads; `trigger`: the message the turn answers (the picker's answered line).
-   * @param {{ channel: Conv, guildId: string, parsed: object, idByIndex: Map<number, string>,
-   *   history?: object[], mode: string, triggerKind: TriggerKind|null, trigger?: object|null, plain: boolean, selfName: string, pulledIds: Map<string, string>,
-   *   lines: object[], knownNames: { name: string, id: string }[], directory?: (() => { name: string, id: string }[])|null,
-   *   linkFor: (pulledId: string|null) => string|null, part?: { index: number, total: number }|null, diaryDraws?: object[]|null, diarySet?: boolean }} args
-   *   `diaryDraws`: a diary post's `draw.create` calls (`{ text, self }`), each logged
-   *   `dry-run: would draw` and mirrored; with `diarySet` (a set kind) logged with `set: true` and its place in the set.
-   *   `plain`: the turn quotes no chat line (postsPlain); `lines`: the lines shown of the pulled
-   *   channels, then this chat's history (names and authors); `knownNames`: the stored names
-   *   `@name` resolves by too (storedNames); `directory`: the fallback behind them (mentionDirectory);
-   *   `handles`: the request's handle -> member id map, in place of all three (renderPost).
-   */
-  async function dryAct({
-    channel,
-    guildId,
-    parsed,
-    idByIndex,
-    history = [],
-    mode,
-    triggerKind,
-    trigger = null,
-    plain,
-    selfName,
-    pulledIds,
-    lines,
-    knownNames,
-    directory = null,
-    handles = null,
-    channelHandles = null,
-    linkFor,
-    part = null,
-    gifPick = true,
-    diaryDraws = null,
-    diarySet = false,
-    draft = null,
-  }) {
-    const channelName = channel.name ?? null;
-    const where = mirrorChannelLabel(channel);
-    // Every triggered turn shares the mode `reply`: the header names its
-    // trigger kind (a call, a follow-up, an overheard line...); a spontaneous
-    // turn has none.
-    const partMark = part ? ` · part ${part.index}/${part.total}` : '';
-    const head = `[dry-run] ${where} · ${mode}${triggerKind ? ` · ${triggerKind}` : ''}${partMark}`;
-    const labels = hot.prompts?.labels;
-    // The journal: every would-be action as an operation that started and succeeded, marked dryRun.
-    const rehearse = async (name, fields = {}, result = {}) => {
-      const op = journalOp(draft, name, 'persona', { ...fields, dryRun: true });
-      if (!op.opId) return;
-      await op.started();
-      await op.succeeded(result);
-    };
-
-    for (const reaction of parsed.reactions) {
-      const targetId = idByIndex.get(reaction.to);
-      if (!targetId) continue;
-      const route = await reactionChannel(ifaceReads, channel, targetId, pulledIds);
-      if (!route.target) {
-        log.info('turn: reaction dropped', { channel: channel.id, source: route.source, reason: route.reason });
-        continue;
-      }
-      await rehearse(
-        'react',
-        { input: { to: targetId, emoji: reaction.emoji }, sourceMessageIds: [targetId] },
-        { to: targetId, emoji: reaction.emoji }
-      );
-      const authorName = authorNameFor(lines, targetId) ?? '—';
-      // The ONE deliberate exception to "never log message contents": this is
-      // the persona's own output, not a user's, and only while dry-run is on.
-      log.info('dry-run: would react', {
-        channel: channel.id,
-        channelName,
-        source: route.source,
-        to: targetId,
-        emoji: reaction.emoji,
-      });
-      const elsewhere = route.source ? ` in ${mirrorChannelLabel(route.target)}` : '';
-      await mirror(`${head} · react to ${authorName}`, `reacts with ${reaction.emoji} to ${authorName}${elsewhere}`);
-    }
-
-    const dryGif = async (gif) => {
-      const { replyId, pulledId } = replyTarget(gif.replyTo, { plain, idByIndex, pulledIds });
-      const link = linkFor(pulledId);
-      const { entry } = gif;
-      // The persona's own pick from the library, dry-run only: the handle and the stored URL.
-      await rehearse('gif', { input: { gif: entry.id }, sourceMessageIds: replyId ? [replyId] : [] });
-      log.info('dry-run: would send gif', {
-        channel: channel.id,
-        channelName,
-        mode,
-        replyTo: replyId,
-        link,
-        gif: entry.id,
-        kind: entry.kind,
-        url: entry.url,
-      });
-      await mirror(`${head} · gif ${entry.id}`, withLink(entry.url, link, labels));
-      lastPostAt.set(channel.id, clock());
-    };
-
-    const picked = gifPick
-      ? await pickGifSafely({
-          channelId: channel.id,
-          guildId,
-          messages: parsed.messages,
-          gif: parsed.gif,
-          history,
-          selfName,
-          idByIndex,
-          trigger,
-        })
-      : null;
-    // A picked GIF would be posted in place of the first message; the rest follow as written.
-    if (picked) await dryGif(picked);
-    const messages = picked ? parsed.messages.slice(1) : parsed.messages;
-    const gif = picked ? null : parsed.gif;
-    for (const message of messages) {
-      const { replyId, pulledId } = replyTarget(message.replyTo, { plain, idByIndex, pulledIds });
-      const answeredId = replyId ?? pulledId;
-      const to = answeredId ? ` · to ${authorNameFor(lines, answeredId) ?? '—'}` : '';
-      const link = linkFor(pulledId);
-      // Same deliberate exception as above: the persona's own output, dry-run only.
-      const { text } = renderPost(message.text, {
-        channel,
-        snapshot: snapshotOfDraft(draft),
-        guildId,
-        privateChat: false,
-        idByIndex,
-        pulledIds,
-        lines,
-        knownNames,
-        directory,
-        handles,
-        channelHandles,
-        link,
-      });
-      await rehearse('post', { intent: { replyTo: replyId, text }, sourceMessageIds: replyId ? [replyId] : [] });
-      log.info('dry-run: would send', {
-        channel: channel.id,
-        channelName,
-        mode,
-        trigger: triggerKind ?? null,
-        replyTo: replyId,
-        link,
-        text,
-      });
-      // The mirror shows @name as the model wrote it: resolving it to a real
-      // mention here would ping someone in a channel meant to be invisible to them.
-      await mirror(`${head}${to}`, withLink(renderCustomEmoji(message.text, emojiLookup()), link, labels));
-      lastPostAt.set(channel.id, clock());
-    }
-
-    if (gif) await dryGif(gif);
-
-    // A diary post (`diaryDraws`): every picture it would generate, in order. Her calls elsewhere are logged by the caller.
-    const dryDraws = diaryDraws ?? [];
-    for (const [index, drawn] of dryDraws.entries()) {
-      const self = drawn.self === true;
-      // The FULL image prompt (prompt files + the persona's request), so the
-      // owner can check the prompt files in dry-run. Same deliberate exception:
-      // the persona's own output, dry-run only. Nothing is generated.
-      const prompt = drawPromptFor(selfName, drawn);
-      await rehearse('draw', { input: { self, ...(diarySet ? { set: true } : {}) } });
-      log.info('dry-run: would draw', {
-        channel: channel.id,
-        channelName,
-        mode,
-        self,
-        prompt,
-        ...(diarySet ? { set: true } : {}),
-      });
-      // A full prompt outgrows one message of the interface: mirrored in numbered parts.
-      const setMark = diarySet ? ` · set ${index + 1}/${dryDraws.length}` : '';
-      const header = `${head} · draw${self ? ' (self)' : ''}${setMark}`;
-      const parts = splitForMirror(prompt, mirrorPartChars(iface, header.length));
-      for (const [i, part] of parts.entries()) {
-        await mirror(parts.length > 1 ? `${header} (${i + 1}/${parts.length})` : header, part);
-      }
-      lastPostAt.set(channel.id, clock());
-    }
-  }
+  const { emojiLookup, renderPost, settleAuthor, diaryChannelName, mirror } = createSends({
+    hot,
+    store,
+    emoji,
+    conversationName,
+    clock,
+    schedule,
+    activity,
+    iface,
+  });
+  const { typingWhileCalls, typingWhilePreparing } = createTyping({ hot, iface, schedule, clock, conversationOf });
+  const { dryAct } = createDryAct({
+    hot,
+    ifaceReads,
+    iface,
+    clock,
+    lastPostAt,
+    journalOp,
+    renderPost,
+    emojiLookup,
+    mirror,
+    pickGifSafely,
+    drawPromptFor,
+  });
 
   /**
    * A diary post's speech held where act would send it: her messages as written and as renderPost renders them (pings
