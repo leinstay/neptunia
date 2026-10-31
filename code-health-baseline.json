@@ -1,6 +1,6 @@
 {
   "files": {
-    "src/behavior/pipeline.js": 3089,
+    "src/behavior/pipeline.js": 2794,
     "src/behavior/recall-run.js": 2331,
     "src/behavior/recall.js": 2491,
     "src/behavior/sandbox.js": 2136,
@@ -122,7 +122,7 @@
     },
     "src/behavior/pipeline.js": {
       "createMessageHandler": {
-        "function-length": 2803
+        "function-length": 2542
       },
       "createMessageHandler>classifyFollowUp": {
         "complexity": 21
@@ -132,9 +132,6 @@
       },
       "createMessageHandler>handleMessage": {
         "complexity": 39
-      },
-      "createMessageHandler>onMessageUpdate": {
-        "complexity": 25
       }
     },
     "src/behavior/prefetch.js": {
