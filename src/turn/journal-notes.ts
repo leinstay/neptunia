@@ -196,6 +196,7 @@ function codeOf(error: unknown): unknown {
   return (error as { code?: unknown } | null)?.code ?? null;
 }
 
+// health: allow function-length until 2027-04-01 -- the notes share the runner state of src/behavior/turn.js, moved whole in stage 5b
 export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
   const {
     hot,
