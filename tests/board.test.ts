@@ -1239,3 +1239,45 @@ test('task.escalate: the addressee hands a question up to the owner; the owner t
     'not-found'
   );
 });
+
+// PR 6d: an agent principal that runs errands (`clients.json` kind `agent`, the board role `errand-runner` alone) sees
+// the errands of its own agent and nothing else of the board: not the other agent's errands, not the dev lane.
+const RUNNERS: Record<string, ReadonlyArray<string>> = {
+  ...LEDGER_ROLES,
+  scout: ['errand-runner'],
+  server: ['errand-runner'],
+};
+
+function runnerBoard(t: { after: (fn: () => void) => void }): {
+  ledger: Board;
+  mine: string;
+  theirs: string;
+  dev: string;
+} {
+  const { ledger } = makeLedger(t, { clients: RUNNERS });
+  const mine = ledger.call('core', 'task.add', { title: 'look it up', lane: 'errand', role: 'scout' }).id;
+  const theirs = ledger.call('core', 'task.add', { title: 'list the units', lane: 'errand', role: 'server' }).id;
+  const dev = ledger.call('lead', 'task.add', { title: 'a dev task', lane: 'dev', project: 'core' }).id;
+  return { ledger, mine, theirs, dev };
+}
+
+test("an errand runner's task.list holds only the errands of its own agent", (t) => {
+  const { ledger, mine } = runnerBoard(t);
+  assert.deepEqual(
+    ledger.call('scout', 'task.list', {}).map((task) => task.id),
+    [mine]
+  );
+});
+
+test("an errand runner's task.show of another agent's errand or a dev task answers not-found", (t) => {
+  const { ledger, mine, theirs, dev } = runnerBoard(t);
+  assert.equal(ledger.call('scout', 'task.show', { id: mine }).task.id, mine);
+  assert.equal(
+    errorCode(() => ledger.call('scout', 'task.show', { id: theirs })),
+    'not-found'
+  );
+  assert.equal(
+    errorCode(() => ledger.call('scout', 'task.show', { id: dev })),
+    'not-found'
+  );
+});
