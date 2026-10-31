@@ -33,6 +33,7 @@ const COSTS = {
   agentEstimate: 'est.',
 };
 
+// PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
 function setup() {
   const config = {
     bot: { owners: ['42'] },
@@ -74,7 +75,7 @@ function setup() {
   const card = async (field) =>
     (
       await runOp('status.show', { field }, { env, guildId: 'g1', userId: '42', roleIds: [] })
-    ).data.embeds[0].fields[0].value.split('\n');
+    ).data.fields[0].value.split('\n');
   return { card, reads };
 }
 

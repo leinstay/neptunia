@@ -3,27 +3,20 @@
 // Discord adapter over it, then carries every gateway event the core uses as a protocol event. Events that arrive
 // before `open()` are held (at most 1,000, the oldest dropped) until the core's door has its handlers.
 //
-// `legacy` holds the slash command handler, the one thing the core takes besides the adapter. The conversation reads,
-// the reactions and the direct chats of the turn, the message pipeline and the tools are answered over the link by the
-// adapter (reads.ts) and the events.
-//
-// The slash commands run on the admin the core hands over through `legacy.serveCommands` (the in-process core). Until
-// one is handed over, as under a core whose interfaces run as units, each `/nep` interaction goes to the core as a
-// `command.requested` event under this interface's principal, and the text of the `command.result` that answers it is
-// the interaction's reply. The core runs it only when `clients.json` grants the principal the permission `commands`.
-// Under `interfaces.mode: units` the session registers the command tree itself when it opens.
+// The conversation reads, the reactions and the direct chats of the turn, the message pipeline and the tools are
+// answered over the link by the adapter (reads.ts) and the events. The interface registers no slash command. On its
+// first connect it deletes every application command its bot still has on the guild and logs how many, and an
+// interaction that still arrives gets a short ephemeral refusal and never reaches the core.
 //
 // With a data folder (`host.dataDir`) the session numbers its events in an outbox there (src/protocol/outbox.ts), so
 // what the core did not acknowledge goes again after a restart of either side. `reconnect()` opens a new link with
 // `host.connect()`, says hello again and resends the outbox, keeping the Discord client.
 
-import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { Events } from 'discord.js';
+import { Events, MessageFlags } from 'discord.js';
 import type { InterfaceHost, RunningInterface } from '../../src/protocol/host.ts';
 import { createOutbox } from '../../src/protocol/outbox.ts';
 import { serveAdapter } from '../../src/protocol/serve.ts';
-import type { CommandResult } from '../../src/protocol/serve.ts';
 import { createAudienceWarmer } from './audience-warm.js';
 import { connectionEvent, presenceEvent, presenceSnapshotEvent, voiceEvent } from './around.js';
 import {
@@ -35,7 +28,6 @@ import {
   reactionEvent,
   toEvent,
 } from './collect.js';
-import { createInteractionHandler, registerCommands } from './commands.js';
 import { createDiscordClient } from './gateway.js';
 import { resolveGuild } from './guild.js';
 import { createDiscordInterface } from './index.js';
@@ -57,19 +49,14 @@ type Gateway = {
   users?: { cache: Map<string, Obj> };
 };
 
-/** What `start` hands the core as `RunningInterface.legacy` (src/interface/legacy.ts is the core's view of it). */
-export type DiscordLegacy = {
-  serveCommands(admin: unknown): { register(): Promise<unknown> };
-};
-
 /** How many gateway events are held before `open()`. */
 const HELD_MAX = 1000;
 
 /** How many unacknowledged events the outbox holds. */
 const OUTBOX_CAPACITY = 1000;
 
-/** An operation's answer as the interaction handler reads it (src/admin.js#runCommand). */
-type OpAnswer = { status: string; code: string | null; summary: string; data: null };
+/** What an interaction for a slash command of this bot is answered: the interface registers none. */
+const NO_COMMAND_REPLY = 'This command no longer exists.';
 
 const text = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null);
 const obj = (value: unknown): Obj => (value !== null && typeof value === 'object' ? (value as Obj) : {});
@@ -110,13 +97,6 @@ function conversationChangedEvent(
   };
 }
 
-// The `hot` the interaction handler reads: its `config` is the live config at each read.
-const liveConfig = (read: () => Obj) => ({
-  get config(): Obj {
-    return read();
-  },
-});
-
 // The persona's display name in a guild, the name her hello gives the core: her nickname there, else her username.
 function displayNameIn(guild: Obj | null, user: { username?: string } | null): string {
   const member = obj(obj(guild).members).me as { displayName?: string } | undefined;
@@ -138,6 +118,40 @@ function memberEvents(guild: Obj | null): Array<Obj> {
     }
   }
   return events;
+}
+
+// The application commands the bot still has on the guild, deleted one by one: the interface registers none. A guild
+// that refuses the listing (Discord error 50001, a bot invited without the `applications.commands` scope) is logged.
+async function deleteCommandsOf(guild: Obj | null, log: InterfaceHost['log']): Promise<void> {
+  const manager = obj(guild?.commands) as {
+    fetch?: () => Promise<Map<string, unknown>>;
+    delete?: (command: unknown) => Promise<unknown>;
+  };
+  if (typeof manager.fetch !== 'function' || typeof manager.delete !== 'function') return;
+  try {
+    const registered = await manager.fetch();
+    for (const id of registered.keys()) await manager.delete(id);
+    log.info('interface: slash commands deleted', { deleted: registered.size });
+  } catch (err) {
+    log.warn('interface: slash commands not deleted', { code: obj(err).code ?? null });
+  }
+}
+
+// The parts of a discord.js interaction the refusal touches.
+type Interaction = {
+  isAutocomplete?: () => boolean;
+  respond?: (choices: Array<unknown>) => Promise<unknown>;
+  reply?: (payload: unknown) => Promise<unknown>;
+};
+
+// An interaction for a slash command, answered with a short ephemeral refusal. An autocomplete gets no choices.
+async function refuseInteraction(interaction: Interaction): Promise<void> {
+  try {
+    if (interaction.isAutocomplete?.() === true) await interaction.respond?.([]);
+    else await interaction.reply?.({ content: NO_COMMAND_REPLY, flags: MessageFlags.Ephemeral });
+  } catch {
+    // An interaction Discord already expired cannot be answered, and nothing reaches the core either way.
+  }
 }
 
 export async function start(host: InterfaceHost): Promise<RunningInterface> {
@@ -175,18 +189,6 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
     host.dataDir === undefined
       ? undefined
       : createOutbox({ dir: path.join(host.dataDir, 'outbox'), capacity: OUTBOX_CAPACITY });
-  // The answers the core still owes to the commands sent to it, by their `replyRef`.
-  const answers = new Map<string, (answer: OpAnswer) => void>();
-  const settleAnswers = (): void => {
-    for (const resolve of answers.values())
-      resolve({ status: 'error', code: 'link-closed', summary: 'the link to the core closed', data: null });
-    answers.clear();
-  };
-  const onCommandResult = (result: CommandResult): void => {
-    const resolve = answers.get(result.replyRef);
-    answers.delete(result.replyRef);
-    resolve?.({ status: result.status ?? 'ok', code: null, summary: result.text, data: null });
-  };
   const serve = async (): Promise<ReturnType<typeof serveAdapter>> =>
     serveAdapter({
       transport: await host.connect(),
@@ -201,47 +203,9 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
       token: host.token,
       adapter: discord.port,
       log,
-      onCommandResult,
       ...(outbox === undefined ? {} : { outbox }),
     });
   let served = await serve();
-
-  // The admin of a core that hands none over: each command goes to the core and its answer comes back over the link.
-  const remoteAdmin = {
-    operationFor: (): null => null,
-    isAllowed: (): boolean => false,
-    accessKeys: (): Array<string> => [],
-    async runCommand(name: string, args: Obj, context: Obj): Promise<OpAnswer> {
-      const replyRef = randomUUID();
-      const answer = new Promise<OpAnswer>((resolve) => answers.set(replyRef, resolve));
-      const status = await served.emit({
-        kind: 'command.requested',
-        iface: DISCORD_IFACE,
-        at: Date.now(),
-        id: `${DISCORD_IFACE}:command:${replyRef}`,
-        conversation: { id: String(context.channelId), kind: 'channel', communityId: guildId, name: null },
-        name,
-        args,
-        requester: {
-          id: String(context.userId),
-          name: null,
-          roles: Array.isArray(context.roleIds) ? context.roleIds.map(String) : [],
-          owner: false,
-        },
-        replyRef,
-      });
-      if (status !== 'ok') {
-        answers.delete(replyRef);
-        return {
-          status: 'error',
-          code: 'refused',
-          summary: `the core did not take the command (${status})`,
-          data: null,
-        };
-      }
-      return answer;
-    },
-  };
 
   const audienceWarmer = createAudienceWarmer({ getGuild: guildNow, logger: log });
 
@@ -358,48 +322,14 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
   on(Events.ShardResume, () => inbound('connection.changed', () => connectionEvent('resumed', Date.now())));
   on(Events.ShardReady, announceGuild);
 
-  // The slash commands: the core hands over its admin once it exists, the session builds the interaction handler
-  // over it, and the command tree is registered again when the name or the switch changed.
-  let commandsServed = false;
-  let commandName = text(obj(config().bot).commandName);
-  let adminCommandsOn = obj(config().features).adminCommands !== false;
-  const stopWatching = host.onConfigChange((what) => {
-    if (what !== 'config' || !commandsServed) return;
-    const nextName = text(obj(config().bot).commandName);
-    const nextOn = obj(config().features).adminCommands !== false;
-    if (nextName === commandName && nextOn === adminCommandsOn) return;
-    commandName = nextName;
-    adminCommandsOn = nextOn;
-    const guild = guildNow();
-    if (guild !== null) {
-      registerCommands(guild as never, config()).catch((err: unknown) =>
-        log.error('interface: failed to re-register commands', { error: err })
-      );
-    }
-  });
-
-  // One listener for the interactions, over the admin the core handed over, or over the core's link until it does.
-  let onInteraction = createInteractionHandler({
-    hot: liveConfig(config),
-    admin: remoteAdmin,
-    getGuildId: () => guildId,
-  });
-  on(Events.InteractionCreate, (interaction: Parameters<typeof onInteraction>[0]) => void onInteraction(interaction));
-
-  function serveCommands(admin: unknown): { register(): Promise<unknown> } {
-    onInteraction = createInteractionHandler({ hot: liveConfig(config), admin, getGuildId: () => guildId });
-    commandsServed = true;
-    return { register: () => registerCommands(guildNow() as never, config()) };
-  }
+  // An interaction for a command the bot no longer registers: refused here, never sent to the core.
+  on(Events.InteractionCreate, (interaction: Interaction) => void refuseInteraction(interaction));
 
   announceGuild();
-
-  // What the core takes besides the adapter: the slash command handler.
-  const legacy: DiscordLegacy = { serveCommands };
+  void deleteCommandsOf(guildNow(), log);
 
   return {
     iface: discord.port.iface,
-    legacy,
     open(): void {
       if (held === null) return;
       const waiting = held;
@@ -409,25 +339,13 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
       for (const { kind, event } of waiting) deliver(kind, event);
       // The members named by channel overwrites, fetched so the audience rail knows which are bots.
       void audienceWarmer.warm();
-      // Under units no core hands an admin over: the session registers its command tree itself.
-      if (!commandsServed && obj(config().interfaces).mode === 'units') {
-        commandsServed = true;
-        const guild = guildNow();
-        if (guild !== null)
-          registerCommands(guild as never, config()).catch((err: unknown) =>
-            log.error('interface: failed to register commands', { error: err })
-          );
-      }
     },
     async reconnect(): Promise<void> {
       served.close();
-      settleAnswers();
       served = await serve();
     },
     async stop(): Promise<void> {
-      stopWatching();
       served.close();
-      settleAnswers();
       await client.destroy();
     },
   };

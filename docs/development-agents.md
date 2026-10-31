@@ -52,9 +52,9 @@ Each agent's model sits under `models.development.<name>` in config:
 }
 ```
 
-These are OpenCode model ids (`openrouter/<vendor>/<model>`), not the bare OpenRouter ids the bot's own roles use. A deployment overrides them in `config.local.json` (or with `/nep model set`). The engine never makes a request on a development role itself.
+These are OpenCode model ids (`openrouter/<vendor>/<model>`), not the bare OpenRouter ids the bot's own roles use. A deployment overrides them in `config.local.json` (or with `/model set`). The engine never makes a request on a development role itself.
 
-The `/nep status` card shows development models in `models.development` and their spend in `costs.development`. The spend comes from the task board's attempts and agent runs (see below), not from the engine's own accounting.
+The status card (`/status full`) shows development models in `models.development` and their spend in `costs.development`. The spend comes from the task board's attempts and agent runs (see below), not from the engine's own accounting.
 
 ## The two run paths
 
@@ -72,7 +72,7 @@ In both paths, the profile's `tools` list names what the agent asks for. The dis
 
 ## The task board
 
-The development agents' tasks, briefs, reviews, attempts and results live on the task board in `memory.db`, beside her errands. A dispatcher or an orchestrator outside the engine reaches it with `neptunia task` over the core's socket, under a client token whose `boardRoles` decide what it may do. The `/nep status` card reads the thinker's runs and the dev attempts from the board, and without a board both agents show with no runs. See [The task board](board.md).
+The development agents' tasks, briefs, reviews, attempts and results live on the task board in `memory.db`, beside her errands. A dispatcher or an orchestrator outside the engine reaches it with `neptunia task` over the core's socket, under a client token whose `boardRoles` decide what it may do. The status card reads the thinker's runs and the dev attempts from the board, and without a board both agents show with no runs. See [The task board](board.md).
 
 ## Config
 

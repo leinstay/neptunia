@@ -326,7 +326,8 @@ describe('an adapter that claims the owner', () => {
             event
           );
           ran.push(name);
-          return admin.runCommand(name, args, { guildId: GUILD, userId: requester.id });
+          // PR 7b: the command key map is gone, so the door runs the operation by its name; the link refuses first.
+          return admin.runSkillOp('bot.pause', args, { guildId: GUILD, userId: requester.id });
         },
       },
       log: SILENT,

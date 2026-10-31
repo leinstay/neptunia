@@ -1,3 +1,4 @@
+// PR 7b: `admin.run` takes the operation's name (`status.show`, `config.set`, ...); every expectation is as it was.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -341,6 +342,11 @@ function makeStore() {
   return store;
 }
 
+// PR 7b: admin.isAllowed is gone; a caller may run `op` when runSkillOp, which checks the rights, does not deny it.
+/** @type {(admin: ReturnType<typeof createAdmin>, op: string, caller: Record<string, unknown>) => Promise<boolean>} */
+const mayRun = async (admin, op, caller) =>
+  (await admin.runSkillOp(op, {}, { guildId: 'g1', roleIds: [], ...caller })).status !== 'denied';
+
 function makeAdmin(rootDir, extra = {}) {
   const hot = extra.hot ?? makeHot(rootDir);
   const store = extra.store ?? makeStore();
@@ -382,18 +388,6 @@ function makeAdmin(rootDir, extra = {}) {
 function readLocal(rootDir) {
   return JSON.parse(fs.readFileSync(path.join(rootDir, 'config.local.json'), 'utf8'));
 }
-
-// ---------------------------------------------------------------------------
-// owners
-// ---------------------------------------------------------------------------
-
-test('isAllowed: a listed owner id passes for any command; the admin exposes no separate owner check', () => {
-  const rootDir = makeRoot();
-  const { admin } = makeAdmin(rootDir);
-  assert.equal(admin.isAllowed('config.set', { userId: '42' }), true);
-  assert.equal(admin.isAllowed('config.set', { userId: '999' }), false);
-  assert.equal(admin.isOwner, undefined);
-});
 
 // ---------------------------------------------------------------------------
 // rule.add / rule.list / rule.remove
@@ -464,7 +458,7 @@ test('run: set writes an override to config.local.json and reloads config', asyn
   const rootDir = makeRoot();
   const { admin, hot } = makeAdmin(rootDir);
 
-  const result = await admin.run('set', { path: 'models.base.core', value: '"openrouter/test-model"' }, {});
+  const result = await admin.run('config.set', { path: 'models.base.core', value: '"openrouter/test-model"' }, {});
 
   assert.deepEqual(readLocal(rootDir), { models: { base: { core: 'openrouter/test-model' } } });
   assert.equal(hot.reloadConfigCalls, 1);
@@ -475,7 +469,7 @@ test('run: set falls back to the raw string when the value is not valid JSON', a
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir);
 
-  await admin.run('set', { path: 'models.base.core', value: 'plain-text-model' }, {});
+  await admin.run('config.set', { path: 'models.base.core', value: 'plain-text-model' }, {});
   assert.deepEqual(readLocal(rootDir), { models: { base: { core: 'plain-text-model' } } });
 });
 
@@ -483,7 +477,10 @@ test('run: set rejects an unknown config path and writes nothing', async () => {
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir);
 
-  await assert.rejects(() => admin.run('set', { path: 'llm.doesNotExist', value: '1' }, {}), /unknown config path/);
+  await assert.rejects(
+    () => admin.run('config.set', { path: 'llm.doesNotExist', value: '1' }, {}),
+    /unknown config path/
+  );
   assert.equal(fs.existsSync(path.join(rootDir, 'config.local.json')), false);
 });
 
@@ -491,8 +488,8 @@ test('run: unset removes a previously set override', async () => {
   const rootDir = makeRoot();
   const { admin, hot } = makeAdmin(rootDir);
 
-  await admin.run('set', { path: 'models.base.core', value: '"temp-model"' }, {});
-  await admin.run('unset', { path: 'models.base.core' }, {});
+  await admin.run('config.set', { path: 'models.base.core', value: '"temp-model"' }, {});
+  await admin.run('config.unset', { path: 'models.base.core' }, {});
 
   assert.deepEqual(readLocal(rootDir), {});
   assert.equal(hot.reloadConfigCalls, 2);
@@ -508,18 +505,22 @@ test('run: set and unset read a key with a dot as one key, never a path', async 
   };
   hot.config.names = { 'x.web': 'old' };
 
-  const result = await admin.run('set', { path: 'models.errands.scout', value: 'openrouter/x-ai/web-model' }, {});
+  const result = await admin.run(
+    'config.set',
+    { path: 'models.errands.scout', value: 'openrouter/x-ai/web-model' },
+    {}
+  );
   assert.ok(result.startsWith('Set models.errands.scout = "openrouter/x-ai/web-model"'), result);
-  await admin.run('set', { path: 'names.x.web', value: 'new' }, {});
+  await admin.run('config.set', { path: 'names.x.web', value: 'new' }, {});
   assert.deepEqual(readLocal(rootDir), {
     models: { errands: { scout: 'openrouter/x-ai/web-model' } },
     names: { 'x.web': 'new' },
   });
 
-  await admin.run('unset', { path: 'models.errands.scout' }, {});
+  await admin.run('config.unset', { path: 'models.errands.scout' }, {});
   assert.deepEqual(readLocal(rootDir), { names: { 'x.web': 'new' } });
   await assert.rejects(
-    () => admin.run('set', { path: 'names.x', value: '"x/y"' }, {}),
+    () => admin.run('config.set', { path: 'names.x', value: '"x/y"' }, {}),
     /unknown config path: names\.x/
   );
 });
@@ -532,35 +533,42 @@ test('set: a non-owner granted set cannot touch bot.owners or bot.access; an own
     'config.unset': { everyone: false, roles: [], users: ['999'] },
   };
   const { admin } = makeAdmin(rootDir, { hot });
-  assert.equal(admin.isAllowed('set', { userId: '999', roleIds: [] }), true, 'the non-owner holds the grant');
+  assert.equal(await mayRun(admin, 'config.set', { userId: '999' }), true, 'the non-owner holds the grant');
 
   const stranger = { guildId: 'g1', userId: '999' };
   await assert.rejects(
-    () => admin.run('set', { path: 'bot.owners', value: '["42","999"]' }, stranger),
+    () => admin.run('config.set', { path: 'bot.owners', value: '["42","999"]' }, stranger),
     /only an owner may change bot\.owners/
   );
   await assert.rejects(
-    () => admin.run('set', { path: 'bot.access.set', value: '{}' }, stranger),
+    () => admin.run('config.set', { path: 'bot.access.set', value: '{}' }, stranger),
     /only an owner may change bot\.access/
   );
   await assert.rejects(
-    () => admin.run('unset', { path: 'bot.owners' }, stranger),
+    () => admin.run('config.unset', { path: 'bot.owners' }, stranger),
     /only an owner may change bot\.owners/
   );
   await assert.rejects(
-    () => admin.run('unset', { path: 'bot.access' }, stranger),
+    () => admin.run('config.unset', { path: 'bot.access' }, stranger),
     /only an owner may change bot\.access/
   );
-  await assert.rejects(() => admin.run('unset', { path: 'bot' }, stranger), /only an owner may change bot/);
-  await assert.rejects(() => admin.run('set', { path: 'bot..owners', value: '["999"]' }, stranger), /only an owner/);
+  await assert.rejects(() => admin.run('config.unset', { path: 'bot' }, stranger), /only an owner may change bot/);
   await assert.rejects(
-    () => admin.run('set', { path: 'bot.owners', value: '["999"]' }, {}),
+    () => admin.run('config.set', { path: 'bot..owners', value: '["999"]' }, stranger),
+    /only an owner/
+  );
+  await assert.rejects(
+    () => admin.run('config.set', { path: 'bot.owners', value: '["999"]' }, {}),
     /only an owner/,
     'no caller is no owner'
   );
   assert.equal(fs.existsSync(path.join(rootDir, 'config.local.json')), false, 'nothing was written');
 
-  const result = await admin.run('set', { path: 'bot.owners', value: '["42","7"]' }, { guildId: 'g1', userId: '42' });
+  const result = await admin.run(
+    'config.set',
+    { path: 'bot.owners', value: '["42","7"]' },
+    { guildId: 'g1', userId: '42' }
+  );
   assert.match(result, /^Set bot\.owners/);
   assert.deepEqual(readLocal(rootDir), { bot: { owners: ['42', '7'] } });
 });
@@ -574,32 +582,32 @@ test('set: accepts only an own leaf path of the live config and a value of the s
   const owner = { userId: '42' };
 
   await assert.rejects(
-    () => admin.run('set', { path: 'toString', value: '1' }, owner),
+    () => admin.run('config.set', { path: 'toString', value: '1' }, owner),
     /unknown config path: toString/
   );
   await assert.rejects(
-    () => admin.run('set', { path: 'llm.hasOwnProperty', value: '1' }, owner),
+    () => admin.run('config.set', { path: 'llm.hasOwnProperty', value: '1' }, owner),
     /unknown config path: llm\.hasOwnProperty/
   );
-  await assert.rejects(() => admin.run('set', { path: 'llm', value: '5' }, owner), /llm is a section/);
+  await assert.rejects(() => admin.run('config.set', { path: 'llm', value: '5' }, owner), /llm is a section/);
   await assert.rejects(
-    () => admin.run('set', { path: 'llm.maxRequestsPerDay', value: '3OO' }, owner),
+    () => admin.run('config.set', { path: 'llm.maxRequestsPerDay', value: '3OO' }, owner),
     /llm\.maxRequestsPerDay expects a number, got a string/
   );
   await assert.rejects(
-    () => admin.run('set', { path: 'features.dryRun', value: '"true"' }, owner),
+    () => admin.run('config.set', { path: 'features.dryRun', value: '"true"' }, owner),
     /features\.dryRun expects a boolean, got a string/
   );
   await assert.rejects(
-    () => admin.run('set', { path: 'bot.owners', value: '"42"' }, owner),
+    () => admin.run('config.set', { path: 'bot.owners', value: '"42"' }, owner),
     /bot\.owners expects an array, got a string/
   );
   assert.equal(fs.existsSync(path.join(rootDir, 'config.local.json')), false, 'nothing was written');
 
-  await admin.run('set', { path: 'llm.maxRequestsPerDay', value: '250' }, owner);
-  await admin.run('set', { path: 'features.dryRun', value: 'true' }, owner);
-  await admin.run('set', { path: 'models.base.spare', value: '"x/y"' }, owner); // the current value is null: any type
-  await admin.run('set', { path: 'models.base.core', value: '123' }, owner); // a string setting keeps the text as typed
+  await admin.run('config.set', { path: 'llm.maxRequestsPerDay', value: '250' }, owner);
+  await admin.run('config.set', { path: 'features.dryRun', value: 'true' }, owner);
+  await admin.run('config.set', { path: 'models.base.spare', value: '"x/y"' }, owner); // the current value is null: any type
+  await admin.run('config.set', { path: 'models.base.core', value: '123' }, owner); // a string setting keeps the text as typed
   assert.deepEqual(readLocal(rootDir), {
     llm: { maxRequestsPerDay: 250 },
     models: { base: { core: '123', spare: 'x/y' } },
@@ -822,69 +830,26 @@ test('model set drawing: writes models.base.drawing to config.local.json, reload
 });
 
 // ---------------------------------------------------------------------------
-// isAllowed
+// the rights check
 // ---------------------------------------------------------------------------
 
-test('isAllowed: a non-owner reads bot.access off the live hot.config, role grant on the operation included', async () => {
-  const rootDir = makeRoot();
-  const hot = makeHot(rootDir);
-  hot.config.bot.access = { 'status.show': { everyone: false, roles: ['staff'], users: [] } };
-  const { admin } = makeAdmin(rootDir, { hot });
-
-  assert.equal(admin.isAllowed('status', { userId: '999', roleIds: ['staff'] }), true);
-  assert.equal(admin.isAllowed('status', { userId: '999', roleIds: ['other'] }), false);
-  hot.config.bot.access = { status: { everyone: true, roles: [], users: [] } };
-  assert.equal(
-    admin.isAllowed('status', { userId: '999', roleIds: [] }),
-    false,
-    'a grant on the old command key opens nothing'
-  );
-});
-
-test('isAllowed: the commands the tree dropped (ping, reload, learned list) run nothing; isAllowed keeps an unknown key owner-only', async () => {
-  const rootDir = makeRoot();
-  const hot = makeHot(rootDir);
-  const open = { everyone: true, roles: [], users: [] };
-  hot.config.bot.access = { '*': open, ping: open, reload: open, 'learned.list': open };
-  const { admin } = makeAdmin(rootDir, { hot });
-
-  for (const key of ['ping', 'reload', 'learned.list']) {
-    assert.equal(admin.isAllowed(key, { userId: '999', roleIds: [] }), false, key);
-    assert.equal(admin.operationFor(key, {}), null, key);
-    const owner = await admin.runCommand(key, {}, { guildId: 'g1', userId: '42', roleIds: [] });
-    assert.equal(owner.status, 'invalid', `${key}: unknown even to the owner`);
-    await assert.rejects(() => admin.run(key, {}, { guildId: 'g1' }), /unknown command/, key);
-  }
-});
-
-test('runCommand: the full rights check -- a member granted memory.affinity.read reads, another is denied', async () => {
+// PR 7b: runCommand and isAllowed went with the slash command; runSkillOp runs the operation by its name, rights
+// included, and the read of the granted member is asserted through it in place of isAllowed.
+test('runSkillOp: the full rights check -- a member granted memory.affinity.read reads, another is denied', async () => {
   const rootDir = makeRoot();
   const hot = makeHot(rootDir);
   hot.config.bot.access = { 'memory.affinity.read': { everyone: false, roles: [], users: ['7'] } };
   const { admin } = makeAdmin(rootDir, { hot });
   const member = { guildId: 'g1', userId: '7', roleIds: [] };
 
-  const other = await admin.runCommand('memory.affinity', { userId: '5' }, { guildId: 'g1', userId: '8', roleIds: [] });
+  const other = await admin.runSkillOp(
+    'memory.affinity.read',
+    { userId: '5' },
+    { guildId: 'g1', userId: '8', roleIds: [] }
+  );
   assert.equal(other.status, 'denied');
   assert.equal(other.code, 'not-granted');
-  assert.equal(admin.isAllowed('memory.affinity', { userId: '7' }, {}), true);
-  assert.equal(admin.isAllowed('memory.affinity', { userId: '8' }, {}), false);
-  const unknown = await admin.runCommand('nonsense', {}, member);
-  assert.equal(unknown.status, 'invalid');
-});
-
-test('isAllowed: pings is open to a member with no grant while features.memberCommands is on, read live', async () => {
-  const rootDir = makeRoot();
-  const hot = makeHot(rootDir);
-  const { admin } = makeAdmin(rootDir, { hot });
-
-  assert.equal(admin.isAllowed('pings', { userId: '999', roleIds: [] }), true, 'no features key counts as on');
-  hot.config.features = { memberCommands: false };
-  assert.equal(admin.isAllowed('pings', { userId: '999', roleIds: [] }), false);
-  assert.equal(admin.isAllowed('pings', { userId: '42', roleIds: [] }), true, 'an owner still passes');
-  hot.config.features = { memberCommands: true };
-  assert.equal(admin.isAllowed('pings', { userId: '999', roleIds: [] }), true);
-  assert.equal(admin.isAllowed('status', { userId: '999', roleIds: [] }), false, 'it opens nothing else');
+  assert.equal(await mayRun(admin, 'memory.affinity.read', member), true);
 });
 
 /** makeStore with the pings-off list of one guild, the way src/memory/store.js keeps it. */
@@ -906,12 +871,16 @@ test('run: pings with no mode shows the state of the caller; off and on change o
   const { admin } = makeAdmin(rootDir, { store });
   const context = { guildId: 'g1', channelId: 'c1', userId: '999' };
 
-  assert.equal(await admin.run('pings', {}, context), 'Pings: on');
-  assert.equal(await admin.run('pings', { mode: 'off' }, context), 'Pings: off');
-  assert.equal(await admin.run('pings', { mode: undefined }, context), 'Pings: off');
+  assert.equal(await admin.run('pings.get', {}, context), 'Pings: on');
+  assert.equal(await admin.run('pings.set', { mode: 'off' }, context), 'Pings: off');
+  assert.equal(await admin.run('pings.get', { mode: undefined }, context), 'Pings: off');
   assert.deepEqual([...store.pingsOff], ['g1:999']);
-  assert.equal(await admin.run('pings', {}, { ...context, userId: '777' }), 'Pings: on', 'another member is untouched');
-  assert.equal(await admin.run('pings', { mode: 'on' }, context), 'Pings: on');
+  assert.equal(
+    await admin.run('pings.get', {}, { ...context, userId: '777' }),
+    'Pings: on',
+    'another member is untouched'
+  );
+  assert.equal(await admin.run('pings.set', { mode: 'on' }, context), 'Pings: on');
   assert.deepEqual([...store.pingsOff], []);
 });
 
@@ -921,7 +890,7 @@ test('run: pings refuses an unknown mode, writing nothing', async () => {
   const { admin } = makeAdmin(rootDir, { store });
 
   await assert.rejects(
-    () => admin.run('pings', { mode: 'maybe' }, { guildId: 'g1', userId: '999' }),
+    () => admin.run('pings.set', { mode: 'maybe' }, { guildId: 'g1', userId: '999' }),
     /mode must be one of: on, off/
   );
   assert.deepEqual([...store.pingsOff], []);
@@ -934,8 +903,8 @@ test('run: pings works while paused, a change included, reading fresh off disk f
   const context = { guildId: 'g1', channelId: 'c1', userId: '999' };
   store.state.data.paused = true;
 
-  assert.equal(await admin.run('pings', { mode: 'off' }, context), 'Pings: off');
-  assert.equal(await admin.run('pings', {}, context), 'Pings: off');
+  assert.equal(await admin.run('pings.set', { mode: 'off' }, context), 'Pings: off');
+  assert.equal(await admin.run('pings.get', {}, context), 'Pings: off');
   assert.deepEqual([...store.pingsOff], ['g1:999']);
   assert.equal(store.dropCachesCalls, 2, 'each call reads past the caches while paused');
 });
@@ -1217,7 +1186,11 @@ test('run: memory.affinity only reads -- the attitude changes through the memory
   store.profiles.set('g1:123', { id: '123', affinity: { score: 12, reason: 'kind words', history: [] } });
 
   // a score in the arguments (an old caller) reaches no write: the view, the score as it was
-  const result = await admin.run('memory.affinity', { userId: '123', score: 77, reason: 'by hand' }, { guildId: 'g1' });
+  const result = await admin.run(
+    'memory.affinity.read',
+    { userId: '123', score: 77, reason: 'by hand' },
+    { guildId: 'g1' }
+  );
   assert.ok(result.includes('score: 12'), result);
   assert.equal(store.getUser('g1', '123').affinity.score, 12);
   assert.equal(getOp('memory.affinity.set'), null, 'no operation sets it');
@@ -1235,7 +1208,7 @@ test('memory.affinity / alias.add / alias.remove: a member with no profile is re
   };
 
   await assert.rejects(
-    () => admin.run('memory.affinity', { userId: '555', score: 10 }, { guildId: 'g1' }),
+    () => admin.run('memory.affinity.read', { userId: '555', score: 10 }, { guildId: 'g1' }),
     /^Error: no profile for 555$/
   );
   await assert.rejects(
@@ -1256,7 +1229,7 @@ test('run: memory.affinity falls back to the single served guild when context.gu
   const { admin, store } = makeAdmin(rootDir, { client, getGuildId: () => 'g1' });
   store.profiles.set('g1:123', { id: '123', affinity: { score: 5, reason: 'ok so far', history: [] } });
 
-  const result = await admin.run('memory.affinity', { userId: '123' }, {});
+  const result = await admin.run('memory.affinity.read', { userId: '123' }, {});
   assert.ok(result.includes('score: 5'));
 });
 
@@ -1322,7 +1295,7 @@ test('run: private.show renders the private layer under the public name, with bo
   });
   store.privates.set('g1:123', samplePrivate());
 
-  const result = await admin.run('memory.private', { action: 'show', userId: '123' }, { guildId: 'g1' });
+  const result = await admin.run('memory.private.read', { action: 'show', userId: '123' }, { guildId: 'g1' });
 
   assert.match(result.split('\n')[0], /Zoé/);
   assert.match(result, /trusts the persona with plans/);
@@ -1346,7 +1319,7 @@ test('run: private.show clamps the effective score and uses the owner cap for an
   store.profiles.set('g1:42', { id: '42', names: ['Owner'], affinity: { score: 90, reason: '', history: [] } });
   store.privates.set('g1:42', samplePrivate({ affinity: { score: 30, reason: '', history: [] } }));
 
-  const result = await admin.run('memory.private', { action: 'show', userId: '42' }, { guildId: 'g1' });
+  const result = await admin.run('memory.private.read', { action: 'show', userId: '42' }, { guildId: 'g1' });
 
   assert.match(result, /effective affinity: 100\b/);
   assert.match(result, /replies today: 7 \/ 200/);
@@ -1358,7 +1331,7 @@ test('run: private.show counts replies stored for another day as 0 today', async
   store.profiles.set('g1:123', { id: '123', names: ['Zoé'] });
   store.privates.set('g1:123', samplePrivate({ replies: { day: '2000-01-01', count: 55, noticedDay: '' } }));
 
-  const result = await admin.run('memory.private', { action: 'show', userId: '123' }, { guildId: 'g1' });
+  const result = await admin.run('memory.private.read', { action: 'show', userId: '123' }, { guildId: 'g1' });
 
   assert.match(result, /replies today: 0\b/);
   assert.ok(!result.includes('55'));
@@ -1367,11 +1340,14 @@ test('run: private.show counts replies stored for another day as 0 today', async
 test('run: private.show needs a user and a resolved guild', async () => {
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir);
-  await assert.rejects(() => admin.run('memory.private', { action: 'show' }, { guildId: 'g1' }), /a user is required/);
+  await assert.rejects(
+    () => admin.run('memory.private.read', { action: 'show' }, { guildId: 'g1' }),
+    /a user is required/
+  );
 
   const { admin: unresolved } = makeAdmin(rootDir, { getGuildId: () => null });
   await assert.rejects(
-    () => unresolved.run('memory.private', { action: 'show', userId: '123' }, {}),
+    () => unresolved.run('memory.private.read', { action: 'show', userId: '123' }, {}),
     /no guild resolved yet/
   );
 });
@@ -1387,8 +1363,8 @@ test('run: memory.show never shows the private layer', async () => {
   });
   store.privates.set('g1:123', samplePrivate());
 
-  const summary = await admin.run('memory.show', { userId: '123' }, { guildId: 'g1' });
-  const raw = await admin.run('memory.show', { userId: '123', section: 'raw' }, { guildId: 'g1' });
+  const summary = await admin.run('memory.profile.read', { userId: '123' }, { guildId: 'g1' });
+  const raw = await admin.run('memory.profile.read', { userId: '123', section: 'raw' }, { guildId: 'g1' });
   for (const text of [summary, raw]) {
     assert.ok(!text.includes('trusts the persona with plans'));
     assert.ok(!text.includes('astronomy'));
@@ -1413,7 +1389,7 @@ test('run: memory.show section:raw also prints the stored episodes (date, weight
     ],
   });
 
-  const result = await admin.run('memory.show', { userId: '123', section: 'raw' }, { guildId: 'g1' });
+  const result = await admin.run('memory.profile.read', { userId: '123', section: 'raw' }, { guildId: 'g1' });
 
   assert.ok(result.includes('episodes:'));
   assert.ok(result.includes('2026-01-01'));
@@ -1435,7 +1411,7 @@ test('run: memory.show section:raw lists every stored interest in rank order and
     ],
   });
 
-  const result = await admin.run('memory.show', { userId: '123', section: 'raw' }, { guildId: 'g1' });
+  const result = await admin.run('memory.profile.read', { userId: '123', section: 'raw' }, { guildId: 'g1' });
 
   assert.ok(result.includes('Fresh interest'), 'both stored interests are listed');
   assert.ok(result.includes('Ancient favorite'));
@@ -1466,7 +1442,7 @@ test('run: memory.show order:recent sorts a list section newest lastSeen first, 
   });
 
   const result = await admin.run(
-    'memory.show',
+    'memory.profile.read',
     { userId: '123', section: 'interests', order: 'recent' },
     { guildId: 'g1' }
   );
@@ -1490,7 +1466,11 @@ test('run: memory.show respects a custom limit, capping a list section', async (
     })),
   });
 
-  const result = await admin.run('memory.show', { userId: '123', section: 'interests', limit: 2 }, { guildId: 'g1' });
+  const result = await admin.run(
+    'memory.profile.read',
+    { userId: '123', section: 'interests', limit: 2 },
+    { guildId: 'g1' }
+  );
   assert.equal(result.split('\n').length, 2);
 });
 
@@ -1618,7 +1598,7 @@ test('run: alias.add/alias.remove are refused while paused', async () => {
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir);
 
-  await admin.run('pause', {}, {});
+  await admin.run('bot.pause', {}, {});
 
   await assert.rejects(
     () => admin.run('alias.add', { userId: '123', name: 'Ari' }, { guildId: 'g1' }),
@@ -1735,7 +1715,7 @@ test('run: learned.add/learned.remove are refused while paused', async () => {
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir);
 
-  await admin.run('pause', {}, {});
+  await admin.run('bot.pause', {}, {});
 
   await assert.rejects(() => admin.run('learning.add', { text: 'première' }, { guildId: 'g1' }), /paused.*resume/i);
   await assert.rejects(() => admin.run('learning.remove', { id: 1 }, { guildId: 'g1' }), /paused.*resume/i);
@@ -1800,6 +1780,7 @@ test('run: lore.remove deletes an entry by id and reports its title', async () =
 // status
 // ---------------------------------------------------------------------------
 
+// PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
 test('status: the card carries the fields in order and the member variant drops the storage line, memory and speed', async () => {
   const rootDir = makeRoot();
   const journalDir = tempDir('nep-status-journal-');
@@ -1817,10 +1798,9 @@ test('status: the card carries the fields in order and the member variant drops 
   store.state.data.pausedAt = '2026-10-13T08:30:00.000Z';
   store.state.data.pausedBy = '42';
 
-  const owner = await admin.run('status', {}, { userId: '42' });
+  const owner = await admin.run('status.show', {}, { userId: '42' });
   assert.equal(owner.text, '', 'the card alone, no long form');
-  assert.equal(owner.embeds.length, 1);
-  const fields = owner.embeds[0].fields;
+  const fields = owner.fields;
   assert.deepEqual(
     fields.map((f) => f.name),
     [
@@ -1900,8 +1880,8 @@ test('status: the card carries the fields in order and the member variant drops 
   assert.equal(value('speed'), 'not available', 'no metrics wired');
   for (const field of fields) assert.ok(field.value.length > 0 && field.value.length <= 1024, field.name);
 
-  const member = await admin.run('status', {}, { userId: '999' });
-  const memberFields = member.embeds[0].fields;
+  const member = await admin.run('status.show', {}, { userId: '999' });
+  const memberFields = member.fields;
   assert.deepEqual(
     memberFields.map((f) => f.name),
     ['state', 'tasks', 'models.base', 'models.errands', 'models.development', 'limits']
@@ -1914,6 +1894,7 @@ test('status: the card carries the fields in order and the member variant drops 
   assert.equal(member.text, '', 'a member never gets the long form');
 });
 
+// PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
 test('status: the owner card shows the limit of each key with its usage under it, then today by role, with no credits read; a member gets neither field and no read', async () => {
   const rootDir = makeRoot();
   const reads = [];
@@ -1952,7 +1933,7 @@ test('status: the owner card shows the limit of each key with its usage under it
   hot.config.llm.probeTimeoutMs = 1234;
 
   const fieldOf = async (name) =>
-    (await admin.run('status', {}, { userId: '42' })).embeds[0].fields.find((f) => f.name === name).value;
+    (await admin.run('status.show', {}, { userId: '42' })).fields.find((f) => f.name === name).value;
   assert.deepEqual((await fieldOf('keys.base')).split('\n'), [
     'main 8.45/30.00 USD (resets daily at 2026-10-16 00:00 UTC; BYOK in)',
     'usage day 0.10 USD',
@@ -1991,11 +1972,12 @@ test('status: the owner card shows the limit of each key with its usage under it
   rows = [];
   assert.equal(await fieldOf('costs.base'), 'today by role: none');
 
-  const member = await admin.run('status', {}, { userId: '999' });
-  assert.ok(!member.embeds[0].fields.some((f) => f.name.startsWith('costs')), 'no costs field for a member');
+  const member = await admin.run('status.show', {}, { userId: '999' });
+  assert.ok(!member.fields.some((f) => f.name.startsWith('costs')), 'no costs field for a member');
   assert.equal(reads.length, 4, 'a member card sends no account read');
 });
 
+// PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
 test('status: the field option renders that field alone and runs only its work', async () => {
   const rootDir = makeRoot();
   const reads = [];
@@ -2022,7 +2004,7 @@ test('status: the field option renders that field alone and runs only its work',
   hot.prompts.labels.status.costs = labels.status.costs;
   hot.config.llm.maxRequestsPerDay = 300;
 
-  const only = async (field, userId = '42') => (await admin.run('status', { field }, { userId })).embeds[0].fields;
+  const only = async (field, userId = '42') => (await admin.run('status.show', { field }, { userId })).fields;
   const limits = await only('limits');
   assert.deepEqual(
     limits.map((f) => f.name),
@@ -2084,6 +2066,7 @@ function handClock(start) {
   return now;
 }
 
+// PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
 test('status: the memory field shows the coverage of every kind of memory, computed at most once a minute', async () => {
   const rootDir = makeRoot();
   const now = handClock(Date.parse('2026-10-14T12:00:00.000Z'));
@@ -2149,9 +2132,7 @@ test('status: the memory field shows the coverage of every kind of memory, compu
     ],
   });
   const memoryLines = async () =>
-    (await admin.run('status', {}, { userId: '42' })).embeds[0].fields
-      .find((f) => f.name === 'memory')
-      .value.split('\n');
+    (await admin.run('status.show', {}, { userId: '42' })).fields.find((f) => f.name === 'memory').value.split('\n');
 
   assert.deepEqual(await memoryLines(), [
     'record: 4 messages · 2026-09-30..2026-10-14 · 27% of days have lines',
@@ -2183,6 +2164,7 @@ test('status: the memory field shows the coverage of every kind of memory, compu
   assert.equal((await memoryLines())[1], 'index: 1234 rows · - of record messages indexed (last 48 h) · none missing');
 });
 
+// PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
 test('status: the speed field gives the median and the mean of the last 24 h with the count, the planner only while it is on', async () => {
   const rootDir = makeRoot();
   const now = handClock(Date.parse('2026-10-14T12:00:00.000Z'));
@@ -2194,9 +2176,7 @@ test('status: the speed field gives the median and the mean of the last 24 h wit
   metrics.record('planner', 700);
   const { admin, hot } = makeAdmin(rootDir, { metrics, now });
   const speedLines = async () =>
-    (await admin.run('status', {}, { userId: '42' })).embeds[0].fields
-      .find((f) => f.name === 'speed')
-      .value.split('\n');
+    (await admin.run('status.show', {}, { userId: '42' })).fields.find((f) => f.name === 'speed').value.split('\n');
 
   const off = await speedLines();
   assert.deepEqual(off, [
@@ -2219,6 +2199,7 @@ test('status: the speed field gives the median and the mean of the last 24 h wit
   );
 });
 
+// PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
 test("status: the speed field ends with today's missed-answer figures from the journal, while it is on", async () => {
   const rootDir = makeRoot();
   const now = handClock(Date.parse('2026-10-14T12:00:00.000Z'));
@@ -2238,7 +2219,7 @@ test("status: the speed field ends with today's missed-answer figures from the j
   };
   const { admin, hot } = makeAdmin(rootDir, { journal, now });
   const speed = async (userId = '42') =>
-    (await admin.run('status', {}, { userId })).embeds[0].fields.find((f) => f.name === 'speed')?.value;
+    (await admin.run('status.show', {}, { userId })).fields.find((f) => f.name === 'speed')?.value;
   hot.config.features = { ...hot.config.features, journal: true };
   assert.equal(await speed(), 'not available\nmissed: 2 candidates, 1 owed, 1 recovered');
   assert.deepEqual(asked, [['g1', { day: '2026-10-14', kind: 'answer', n: Number.MAX_SAFE_INTEGER }]]);
@@ -2247,14 +2228,14 @@ test("status: the speed field ends with today's missed-answer figures from the j
   assert.equal(await speed(), 'not available', 'no journal, no line');
 });
 
+// PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
 test('status: the storage line flags a journal that stopped writing while turns happen', async () => {
   const rootDir = makeRoot();
   let lastWriteMs = null;
   const journal = { stats: async () => ({ lastWriteMs }), stalled: () => false };
   const metrics = createMetrics({ dataDir: path.join(rootDir, 'data') });
   const { admin, hot } = makeAdmin(rootDir, { journal, metrics });
-  const storage = async () =>
-    (await admin.run('status', {}, { userId: '42' })).embeds[0].fields[0].value.split('\n')[1];
+  const storage = async () => (await admin.run('status.show', {}, { userId: '42' })).fields[0].value.split('\n')[1];
 
   hot.config.features = { journal: true };
   assert.equal(await storage(), 'storage ok', 'no turn in the last hour: nothing to judge');
@@ -2317,6 +2298,7 @@ function probeConfig(hot) {
 /** The models field's lines. */
 const roleLinesOf = (value) => value.split('\n');
 
+// PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
 test('status: the card lists one item per line in every field, the models one line per role with no heading', async () => {
   const rootDir = makeRoot();
   const journal = { dayFile: () => path.join(rootDir, 'none.jsonl'), stalled: () => false };
@@ -2339,10 +2321,10 @@ test('status: the card lists one item per line in every field, the models one li
   hot.config.recall = { maxPerDay: 100 };
   hot.config.web = { maxPerDay: 60 };
 
-  const { embeds } = await admin.run('status', {}, { userId: '42' });
-  const lines = (name) => embeds[0].fields.find((f) => f.name === name).value.split('\n');
+  const { fields } = await admin.run('status.show', {}, { userId: '42' });
+  const lines = (name) => fields.find((f) => f.name === name).value.split('\n');
   assert.deepEqual(
-    embeds[0].fields.map((f) => f.name),
+    fields.map((f) => f.name),
     [
       'state',
       'tasks',
@@ -2393,9 +2375,10 @@ test('status: the card lists one item per line in every field, the models one li
     `thinker · ${ROLE_DEFAULTS.thinker}`,
     `dev · ${ROLE_DEFAULTS.dev}`,
   ]);
-  for (const field of embeds[0].fields) assert.ok(field.value.length > 0 && field.value.length <= 1024, field.name);
+  for (const field of fields) assert.ok(field.value.length > 0 && field.value.length <= 1024, field.name);
 });
 
+// PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
 test('status: the limits field names the web search engine (one word), off when no search can run', async () => {
   const rootDir = makeRoot();
   const lookup = {
@@ -2412,8 +2395,8 @@ test('status: the limits field names the web search engine (one word), off when 
   hot.config.features = { ...hot.config.features, webLookup: true };
   hot.config.web = { maxPerDay: 60, search: { enabled: true } };
   const searchLine = async () => {
-    const { embeds } = await admin.run('status', { field: 'limits' }, { userId: '42' });
-    return embeds[0].fields[0].value.split('\n').filter((line) => line.startsWith('search'));
+    const { fields } = await admin.run('status.show', { field: 'limits' }, { userId: '42' });
+    return fields[0].value.split('\n').filter((line) => line.startsWith('search'));
   };
   assert.deepEqual(await searchLine(), ['search: exa']);
   lookup.engine = 'openrouter';
@@ -2429,6 +2412,7 @@ test('status: the limits field names the web search engine (one word), off when 
   assert.deepEqual(await searchLine(), ['search: off']);
 });
 
+// PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
 test("status: the owner card probes every role's model and shows its provider and latency, or the failure", async () => {
   const rootDir = makeRoot();
   const funnel = JSON.stringify({
@@ -2449,10 +2433,10 @@ test("status: the owner card probes every role's model and shows its provider an
   probeConfig(hot);
   const modelOf = { core: 'anthropic/claude-opus-4.6', analyzer: 'x/text', vision: 'x/media', video: 'x/video' };
 
-  const { result, logs } = await withCapturedLogs(() => admin.run('status', {}, { userId: '42' }));
-  const lines = roleLinesOf(result.embeds[0].fields.find((f) => f.name === 'models.base').value);
-  const errands = roleLinesOf(result.embeds[0].fields.find((f) => f.name === 'models.errands').value);
-  const development = roleLinesOf(result.embeds[0].fields.find((f) => f.name === 'models.development').value);
+  const { result, logs } = await withCapturedLogs(() => admin.run('status.show', {}, { userId: '42' }));
+  const lines = roleLinesOf(result.fields.find((f) => f.name === 'models.base').value);
+  const errands = roleLinesOf(result.fields.find((f) => f.name === 'models.errands').value);
+  const development = roleLinesOf(result.fields.find((f) => f.name === 'models.development').value);
 
   assert.deepEqual(
     llm.calls.map((call) => call.options.role).sort(),
@@ -2498,6 +2482,7 @@ test("status: the owner card probes every role's model and shows its provider an
   assert.equal(probed[0].failed, 1);
 });
 
+// PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
 test('status: the member card shows the models one line per role without probing', async () => {
   const rootDir = makeRoot();
   const llm = fakeProbeLlm(() => ({ provider: 'Prov' }));
@@ -2505,8 +2490,8 @@ test('status: the member card shows the models one line per role without probing
   probeConfig(hot);
   hot.config.bot.access = { 'status.show': { everyone: true, roles: [], users: [] } };
 
-  const { embeds } = await admin.run('status', {}, { userId: '999' });
-  const valueOf = (name) => embeds[0].fields.find((f) => f.name === name).value;
+  const { fields } = await admin.run('status.show', {}, { userId: '999' });
+  const valueOf = (name) => fields.find((f) => f.name === name).value;
   assert.equal(
     valueOf('models.base'),
     [
@@ -2532,6 +2517,7 @@ test('status: the member card shows the models one line per role without probing
   assert.equal(llm.listings.length, 0, 'no listing request');
 });
 
+// PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
 test('status: identical probes are sent once, each role shows its own model, the overrides follow their role, the embedding role gets an embedding probe', async () => {
   const rootDir = makeRoot();
   const llm = fakeProbeLlm(() => ({ provider: 'Prov', usage: { prompt_tokens: 9, completion_tokens: 1 } }));
@@ -2549,8 +2535,8 @@ test('status: identical probes are sent once, each role shows its own model, the
   // A role-specific route keeps the video role's probe apart although its model is the vision one.
   hot.config.llm.providerByModel = { 'x/@video': { only: ['video-host'] } };
 
-  const { result, logs } = await withCapturedLogs(() => admin.run('status', {}, { userId: '42' }));
-  const lines = roleLinesOf(result.embeds[0].fields.find((f) => f.name === 'models.base').value);
+  const { result, logs } = await withCapturedLogs(() => admin.run('status.show', {}, { userId: '42' }));
+  const lines = roleLinesOf(result.fields.find((f) => f.name === 'models.base').value);
 
   assert.deepEqual(
     llm.calls.map((call) => [call.options.role, call.options.model]).sort(),
@@ -2583,14 +2569,15 @@ test('status: identical probes are sent once, each role shows its own model, the
   assert.equal(logs.find((entry) => entry.msg === 'status: probed').requests, 5);
 });
 
+// PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
 test('status: without an embedding client the embedding role is shown unchecked; an embedding failure shows its reason', async () => {
   const rootDir = makeRoot();
   const llm = fakeProbeLlm(() => ({ provider: 'Prov' }));
   const none = makeAdmin(rootDir, { llm });
   probeConfig(none.hot);
-  const unchecked = await none.admin.run('status', {}, { userId: '42' });
+  const unchecked = await none.admin.run('status.show', {}, { userId: '42' });
   assert.ok(
-    unchecked.embeds[0].fields
+    unchecked.fields
       .find((f) => f.name === 'models.base')
       .value.split('\n')
       .includes('embedding · x/embed · not checked (no embedding client)')
@@ -2603,9 +2590,9 @@ test('status: without an embedding client the embedding role is shown unchecked;
   };
   const failing = makeAdmin(makeRoot(), { llm, embedder });
   probeConfig(failing.hot);
-  const { result } = await withCapturedLogs(() => failing.admin.run('status', {}, { userId: '42' }));
+  const { result } = await withCapturedLogs(() => failing.admin.run('status.show', {}, { userId: '42' }));
   assert.ok(
-    result.embeds[0].fields
+    result.fields
       .find((f) => f.name === 'models.base')
       .value.split('\n')
       .includes('embedding · x/embed · failed: HTTP 404: no such model')
@@ -2660,7 +2647,7 @@ test('run: pause sets paused/pausedAt first, flushes, and drops caches', async (
   const rootDir = makeRoot();
   const { admin, store } = makeAdmin(rootDir);
 
-  const result = await admin.run('pause', {}, {});
+  const result = await admin.run('bot.pause', {}, {});
 
   assert.equal(store.state.data.paused, true);
   assert.ok(store.state.data.pausedAt);
@@ -2674,11 +2661,11 @@ test('run: pause is idempotent -- a second call just reports the state without d
   const rootDir = makeRoot();
   const { admin, store } = makeAdmin(rootDir);
 
-  await admin.run('pause', {}, {});
+  await admin.run('bot.pause', {}, {});
   const pausedAt = store.state.data.pausedAt;
   const dropsAfterFirst = store.dropCachesCalls;
 
-  const result = await admin.run('pause', {}, {});
+  const result = await admin.run('bot.pause', {}, {});
 
   assert.equal(store.state.data.pausedAt, pausedAt, 'pausedAt is not bumped by a repeat pause');
   assert.equal(store.dropCachesCalls, dropsAfterFirst, 'nothing is dropped again');
@@ -2695,7 +2682,7 @@ test('run: pause clears the pending-ping queue', async () => {
   };
   const { admin } = makeAdmin(rootDir, { pending });
 
-  await admin.run('pause', {}, {});
+  await admin.run('bot.pause', {}, {});
 
   assert.equal(clearCalls, 1);
 });
@@ -2709,7 +2696,7 @@ test('run: pause waits for a turn already in flight before dropping caches', asy
   const turns = { waitIdle: () => idlePromise };
   const { admin, store } = makeAdmin(rootDir, { turns });
 
-  const pausePromise = admin.run('pause', {}, {});
+  const pausePromise = admin.run('bot.pause', {}, {});
   await Promise.resolve();
   await Promise.resolve();
   assert.equal(store.dropCachesCalls, 0, 'must not drop caches before the in-flight turn finished');
@@ -2770,10 +2757,10 @@ test('/nep pause: no timer-driven writer (spontaneous.tick, store.flush) writes 
 test('run: resume refuses when data/ has an invalid file, naming the path, and leaves paused untouched', async () => {
   const rootDir = makeRoot();
   const { admin, store } = makeAdmin(rootDir);
-  await admin.run('pause', {}, {});
+  await admin.run('bot.pause', {}, {});
   store.validateResult = ['guilds/g1/users/u1.json'];
 
-  const result = await admin.run('resume', {}, {});
+  const result = await admin.run('bot.resume', {}, {});
 
   assert.match(result, /invalid json/i);
   assert.ok(result.includes('guilds/g1/users/u1.json'));
@@ -2783,9 +2770,9 @@ test('run: resume refuses when data/ has an invalid file, naming the path, and l
 test('run: resume clears the flags and reports plain confirmation', async () => {
   const rootDir = makeRoot();
   const { admin, store } = makeAdmin(rootDir);
-  await admin.run('pause', {}, {});
+  await admin.run('bot.pause', {}, {});
 
-  const result = await admin.run('resume', {}, {});
+  const result = await admin.run('bot.resume', {}, {});
 
   assert.equal(store.state.data.paused, undefined);
   assert.equal(store.state.data.pausedAt, undefined);
@@ -2803,13 +2790,13 @@ test('run: resume starts a catch-up pass of the meaning index for the guild; pau
     },
   };
   const { admin, store } = makeAdmin(rootDir, { embedQueue });
-  await admin.run('pause', {}, { guildId: 'g1' });
+  await admin.run('bot.pause', {}, { guildId: 'g1' });
   store.validateResult = ['guilds/g1/users/u1.json'];
-  await admin.run('resume', {}, { guildId: 'g1' });
+  await admin.run('bot.resume', {}, { guildId: 'g1' });
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(passes, [], 'still paused: no pass');
   store.validateResult = [];
-  assert.equal(await admin.run('resume', {}, { guildId: 'g1' }), 'Resumed.');
+  assert.equal(await admin.run('bot.resume', {}, { guildId: 'g1' }), 'Resumed.');
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(passes, ['g1']);
 });
@@ -2822,7 +2809,7 @@ test('run: every command that writes data/ is refused while paused, with a hint 
   store.setLore('g1', [{ title: 'X', keys: ['xx'], text: 'y' }], { source: 'owner', now: 1 });
   const [{ id: loreId }] = store.getLore('g1');
 
-  await admin.run('pause', {}, {});
+  await admin.run('bot.pause', {}, {});
 
   const attempts = [
     ['lore.add', { title: 'Y', keys: 'y', text: 'z' }],
@@ -2845,16 +2832,16 @@ test('run: read-only and config commands keep working while paused', async () =>
   store.profiles.set('g1:123', { id: '123', character: 'chatty' });
   store.setLore('g1', [{ title: 'X', keys: ['xx'], text: 'y' }], { source: 'owner', now: 1 });
 
-  await admin.run('pause', {}, {});
+  await admin.run('bot.pause', {}, {});
 
-  await assert.doesNotReject(() => admin.run('status', {}, {}));
-  await assert.doesNotReject(() => admin.run('memory.show', { userId: '123' }, { guildId: 'g1' }));
-  await assert.doesNotReject(() => admin.run('memory.affinity', { userId: '123' }, { guildId: 'g1' }));
+  await assert.doesNotReject(() => admin.run('status.show', {}, {}));
+  await assert.doesNotReject(() => admin.run('memory.profile.read', { userId: '123' }, { guildId: 'g1' }));
+  await assert.doesNotReject(() => admin.run('memory.affinity.read', { userId: '123' }, { guildId: 'g1' }));
   await assert.doesNotReject(() => admin.run('lore.list', {}, { guildId: 'g1' }));
   await assert.doesNotReject(() => admin.run('model.show', {}, {}));
   await assert.doesNotReject(() => admin.run('rule.list', {}, {}));
-  await assert.doesNotReject(() => admin.run('set', { path: 'models.base.core', value: '"x/y"' }, {}));
-  await assert.doesNotReject(() => admin.run('unset', { path: 'models.base.core' }, {}));
+  await assert.doesNotReject(() => admin.run('config.set', { path: 'models.base.core', value: '"x/y"' }, {}));
+  await assert.doesNotReject(() => admin.run('config.unset', { path: 'models.base.core' }, {}));
   await assert.doesNotReject(() => admin.run('model.set', { role: 'core', id: 'x/y' }, {}));
 });
 
@@ -2865,10 +2852,10 @@ test('run: memory.show/lore.list/lore.show drop caches first while paused, so a 
   store.setLore('g1', [{ title: 'X', keys: ['xx'], text: 'y' }], { source: 'owner', now: 1 });
   const [{ id: loreId }] = store.getLore('g1');
 
-  await admin.run('pause', {}, {});
+  await admin.run('bot.pause', {}, {});
   const dropsAfterPause = store.dropCachesCalls;
 
-  await admin.run('memory.show', { userId: '123' }, { guildId: 'g1' });
+  await admin.run('memory.profile.read', { userId: '123' }, { guildId: 'g1' });
   assert.equal(store.dropCachesCalls, dropsAfterPause + 1);
 
   await admin.run('lore.list', {}, { guildId: 'g1' });
@@ -2877,7 +2864,7 @@ test('run: memory.show/lore.list/lore.show drop caches first while paused, so a 
   await admin.run('lore.show', { id: loreId }, { guildId: 'g1' });
   assert.equal(store.dropCachesCalls, dropsAfterPause + 3);
 
-  await admin.run('memory.affinity', { userId: '123' }, { guildId: 'g1' });
+  await admin.run('memory.affinity.read', { userId: '123' }, { guildId: 'g1' });
   assert.equal(store.dropCachesCalls, dropsAfterPause + 4);
 });
 
@@ -2955,7 +2942,7 @@ test('run: draw builds the prompt as a turn does and answers with the picture as
   const imageFetcher = fakeImageFetcher();
   const { admin } = makeAdmin(rootDir, { hot, images, imageFetcher, client: drawClient() });
 
-  const result = await admin.run('draw', { text: 'a lighthouse at dusk', self: false }, { guildId: 'g1' });
+  const result = await admin.run('draw.create', { text: 'a lighthouse at dusk', self: false }, { guildId: 'g1' });
 
   assert.equal(images.calls.length, 1);
   assert.deepEqual(images.calls[0], {
@@ -2986,7 +2973,7 @@ test('run: draw clamps the request to image.maxPromptChars before building the p
   const images = fakeImages();
   const { admin } = makeAdmin(rootDir, { hot, images, client: drawClient() });
 
-  await admin.run('draw', { text: 'άλφαβήτα', self: false }, { guildId: 'g1' });
+  await admin.run('draw.create', { text: 'άλφαβήτα', self: false }, { guildId: 'g1' });
 
   assert.equal(
     images.calls[0].prompt,
@@ -3002,7 +2989,7 @@ test('run: draw with self adds the appearance and sends the avatar as the refere
   const client = drawClient();
   const { admin } = makeAdmin(rootDir, { hot, images, imageFetcher, client });
 
-  await admin.run('draw', { text: 'at the beach', self: true }, { guildId: 'g1' });
+  await admin.run('draw.create', { text: 'at the beach', self: true }, { guildId: 'g1' });
 
   assert.deepEqual(imageFetcher.calls, [
     { url: 'https://cdn.example/avatar.png', opts: { maxBytes: 4000000, timeoutMs: 7000 } },
@@ -3023,7 +3010,7 @@ test('run: draw with self but image.reference none sends no reference', async ()
   const imageFetcher = fakeImageFetcher();
   const { admin } = makeAdmin(rootDir, { hot, images, imageFetcher, client: drawClient() });
 
-  await admin.run('draw', { text: 'at the beach', self: true }, { guildId: 'g1' });
+  await admin.run('draw.create', { text: 'at the beach', self: true }, { guildId: 'g1' });
 
   assert.equal(imageFetcher.calls.length, 0);
   assert.equal(images.calls[0].reference, null);
@@ -3037,7 +3024,7 @@ test('run: draw still generates when the avatar cannot be fetched, and says so',
   const imageFetcher = fakeImageFetcher(null);
   const { admin } = makeAdmin(rootDir, { hot, images, imageFetcher, client: drawClient() });
 
-  const result = await admin.run('draw', { text: 'at the beach', self: true }, { guildId: 'g1' });
+  const result = await admin.run('draw.create', { text: 'at the beach', self: true }, { guildId: 'g1' });
 
   assert.equal(images.calls.length, 1);
   assert.equal(images.calls[0].reference, null);
@@ -3051,7 +3038,7 @@ test('run: draw with an unsupported image model is a not-configured refusal with
   const { admin } = makeAdmin(rootDir, { hot, images, client: drawClient() });
 
   await assert.rejects(
-    () => admin.run('draw', { text: 'a cat' }, { guildId: 'g1' }),
+    () => admin.run('draw.create', { text: 'a cat' }, { guildId: 'g1' }),
     (err) => err.code === 'not-configured' && /someone\/else-model/.test(err.message) && /unsupported/.test(err.message)
   );
   assert.equal(images.calls.length, 0);
@@ -3067,7 +3054,7 @@ test('run: draw reports a failed generation with its reason and HTTP status', as
   const { admin } = makeAdmin(rootDir, { hot, images: fakeImages({ error }), client: drawClient() });
 
   await assert.rejects(
-    () => admin.run('draw', { text: 'a cat' }, { guildId: 'g1' }),
+    () => admin.run('draw.create', { text: 'a cat' }, { guildId: 'g1' }),
     (err) => /moderation/.test(err.message) && /400/.test(err.message) && !err.message.includes('provider text')
   );
 });
@@ -3077,8 +3064,8 @@ test('run: draw is refused while paused', async () => {
   const images = fakeImages();
   const { admin } = makeAdmin(rootDir, { hot: hotForDraw(rootDir), images, client: drawClient() });
 
-  await admin.run('pause', {}, {});
-  await assert.rejects(() => admin.run('draw', { text: 'a cat' }, { guildId: 'g1' }), /paused/);
+  await admin.run('bot.pause', {}, {});
+  await assert.rejects(() => admin.run('draw.create', { text: 'a cat' }, { guildId: 'g1' }), /paused/);
   assert.equal(images.calls.length, 0);
 });
 
@@ -3132,7 +3119,7 @@ test('run: emoji.rescan runs the backfill forced and replies with the counts', a
   const emojiBackfill = fakeEmojiBackfill();
   const { admin } = makeAdmin(rootDir, { emojiBackfill });
 
-  const body = await admin.run('media', { kind: 'emoji', action: 'rescan' }, { guildId: 'g1' });
+  const body = await admin.run('media.rescan', { kind: 'emoji', action: 'rescan' }, { guildId: 'g1' });
   assert.deepEqual(emojiBackfill.calls, [['g1', { force: true }]]);
   assert.equal(body, 'Emoji rescan done: 3 channels, 120 messages read, 17 emoji uses counted.');
 });
@@ -3141,13 +3128,16 @@ test('run: emoji.rescan is refused while paused and without the backfill', async
   const rootDir = makeRoot();
   const emojiBackfill = fakeEmojiBackfill();
   const { admin } = makeAdmin(rootDir, { emojiBackfill });
-  await admin.run('pause', {}, {});
-  await assert.rejects(() => admin.run('media', { kind: 'emoji', action: 'rescan' }, { guildId: 'g1' }), /paused/);
+  await admin.run('bot.pause', {}, {});
+  await assert.rejects(
+    () => admin.run('media.rescan', { kind: 'emoji', action: 'rescan' }, { guildId: 'g1' }),
+    /paused/
+  );
   assert.equal(emojiBackfill.calls.length, 0);
 
   const { admin: bare } = makeAdmin(rootDir);
   assert.equal(
-    await bare.run('media', { kind: 'emoji', action: 'rescan' }, { guildId: 'g1' }),
+    await bare.run('media.rescan', { kind: 'emoji', action: 'rescan' }, { guildId: 'g1' }),
     'the emoji backfill is not available'
   );
 });
@@ -3174,13 +3164,16 @@ test('run: gifs.rescan is refused while paused and without the backfill', async 
   const rootDir = makeRoot();
   const gifBackfill = fakeGifBackfill();
   const { admin } = makeAdmin(rootDir, { gifBackfill });
-  await admin.run('pause', {}, {});
-  await assert.rejects(() => admin.run('media', { kind: 'gifs', action: 'rescan' }, { guildId: 'g1' }), /paused/);
+  await admin.run('bot.pause', {}, {});
+  await assert.rejects(
+    () => admin.run('media.rescan', { kind: 'gifs', action: 'rescan' }, { guildId: 'g1' }),
+    /paused/
+  );
   assert.equal(gifBackfill.calls.length, 0);
 
   const { admin: bare } = makeAdmin(rootDir);
   assert.equal(
-    await bare.run('media', { kind: 'gifs', action: 'rescan' }, { guildId: 'g1' }),
+    await bare.run('media.rescan', { kind: 'gifs', action: 'rescan' }, { guildId: 'g1' }),
     'the GIF backfill is not available'
   );
 });
@@ -3215,7 +3208,7 @@ test('run: gifs.status counts the library by caption format: watched with fields
     'm3#e0': { text: 'a still', ts: 1, gif: true },
   });
   const { admin } = makeAdmin(rootDir, { store });
-  const out = await admin.run('media', { kind: 'gifs', action: 'status' }, { guildId: 'g1' });
+  const out = await admin.run('media.status', { kind: 'gifs', action: 'status' }, { guildId: 'g1' });
   assert.ok(
     out.includes('caption format: 1 watched with fields, 1 watched in the old format (to re-describe), 2 unwatched'),
     out
@@ -3244,14 +3237,17 @@ test('run: gifs.recache is refused while paused and without the recache; pause w
   const rootDir = makeRoot();
   const gifRecache = fakeGifRecache();
   const { admin } = makeAdmin(rootDir, { gifRecache });
-  await admin.run('pause', {}, {});
+  await admin.run('bot.pause', {}, {});
   assert.equal(gifRecache.idleWaits, 1, '/nep pause waits for the recache');
-  await assert.rejects(() => admin.run('media', { kind: 'gifs', action: 'recache' }, { guildId: 'g1' }), /paused/);
+  await assert.rejects(
+    () => admin.run('media.recache', { kind: 'gifs', action: 'recache' }, { guildId: 'g1' }),
+    /paused/
+  );
   assert.equal(gifRecache.calls.length, 0);
 
   const { admin: bare } = makeAdmin(rootDir);
   assert.equal(
-    await bare.run('media', { kind: 'gifs', action: 'recache' }, { guildId: 'g1' }),
+    await bare.run('media.recache', { kind: 'gifs', action: 'recache' }, { guildId: 'g1' }),
     'the GIF recache is not available'
   );
 });
@@ -3278,10 +3274,10 @@ test('run: media pictures recache starts the media run with days (default 7) and
   const gifRecache = fakeMediaRecache((options) => ({ ok: true, picked: 12, days: options.days }));
   const { admin } = makeAdmin(rootDir, { gifRecache });
 
-  const reply = await admin.run('media', { kind: 'pictures', action: 'recache' }, { guildId: 'g1' });
+  const reply = await admin.run('media.recache', { kind: 'pictures', action: 'recache' }, { guildId: 'g1' });
   assert.deepEqual(gifRecache.calls[0], { guildId: 'g1', options: { days: 7 } });
   assert.match(reply, /^Media recache started: 12 cached descriptions used in the last 7 days/);
-  await admin.run('media', { kind: 'pictures', action: 'recache', days: 30 }, { guildId: 'g1' });
+  await admin.run('media.recache', { kind: 'pictures', action: 'recache', days: 30 }, { guildId: 'g1' });
   assert.deepEqual(gifRecache.calls[1].options, { days: 30 });
 });
 
@@ -3290,26 +3286,29 @@ test('run: media pictures recache refuses days out of 1..60, a run in flight, pi
   const { admin } = makeAdmin(rootDir, { gifRecache: fakeMediaRecache() });
   for (const days of [0, 61, 2.5, '7']) {
     await assert.rejects(
-      () => admin.run('media', { kind: 'pictures', action: 'recache', days }, { guildId: 'g1' }),
+      () => admin.run('media.recache', { kind: 'pictures', action: 'recache', days }, { guildId: 'g1' }),
       /days must be a whole number from 1 to 60/,
       String(days)
     );
   }
   await assert.rejects(
-    () => admin.run('media', { kind: 'pictures', action: 'status' }, { guildId: 'g1' }),
+    () => admin.run('media.status', { kind: 'pictures', action: 'status' }, { guildId: 'g1' }),
     /kind must be one of: emoji, gifs/
   );
 
   const { admin: busy } = makeAdmin(rootDir, { gifRecache: fakeMediaRecache({ ok: false, reason: 'running' }) });
-  assert.match(await busy.run('media', { kind: 'pictures', action: 'recache' }, { guildId: 'g1' }), /already running/);
+  assert.match(
+    await busy.run('media.recache', { kind: 'pictures', action: 'recache' }, { guildId: 'g1' }),
+    /already running/
+  );
   const { admin: off } = makeAdmin(rootDir, { gifRecache: fakeMediaRecache({ ok: false, reason: 'off' }) });
   assert.match(
-    await off.run('media', { kind: 'pictures', action: 'recache' }, { guildId: 'g1' }),
+    await off.run('media.recache', { kind: 'pictures', action: 'recache' }, { guildId: 'g1' }),
     /features\.mediaDescriptions is off/
   );
   const { admin: bare } = makeAdmin(rootDir);
   assert.equal(
-    await bare.run('media', { kind: 'pictures', action: 'recache' }, { guildId: 'g1' }),
+    await bare.run('media.recache', { kind: 'pictures', action: 'recache' }, { guildId: 'g1' }),
     'the media recache is not available'
   );
 });
@@ -3489,8 +3488,8 @@ test('access: route.list is read-only, route.set and route.remove open a write; 
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir);
   for (const key of ['route.list', 'route.set', 'route.remove'])
-    assert.equal(admin.isAllowed(key, { userId: '999' }), false, key);
-  assert.equal(admin.isAllowed('route.set', { userId: '42' }), true, 'the owner');
+    assert.equal(await mayRun(admin, key, { userId: '999' }), false, key);
+  assert.equal(await mayRun(admin, 'route.set', { userId: '42' }), true, 'the owner');
 
   assert.ok(!(await admin.run('access.grant', { command: 'route.list' }, {})).includes('Note:'));
   assert.ok((await admin.run('access.grant', { command: 'route.set', roleId: '7' }, {})).includes('Note:'));
@@ -3528,7 +3527,7 @@ test('run: memory.recent lists the live lines newest first and leaves out the ex
     recentLine(4, 5, 'middle line'),
   ]);
 
-  const rows = (await admin.run('memory.recent', {}, { guildId: 'g1' })).split('\n');
+  const rows = (await admin.run('memory.recent.read', {}, { guildId: 'g1' })).split('\n');
 
   assert.equal(rows.length, 4, 'the header and three live lines');
   assert.match(rows[0], /3/);
@@ -3544,7 +3543,7 @@ test('run: memory.recent resolves <@id> tokens, names the channel from its note 
   store.profiles.set(`g1:${otherId}`, { id: otherId, names: ['Zoe'] });
   store.channels.set('g1:c1', { id: 'c1', name: 'general' });
 
-  const text = await admin.run('memory.recent', {}, { guildId: 'g1' });
+  const text = await admin.run('memory.recent.read', {}, { guildId: 'g1' });
 
   assert.ok(text.includes(`joked with Zoe (id:${otherId})`));
   assert.ok(!text.includes('<@'));
@@ -3558,19 +3557,19 @@ test('run: memory.recent shows the time in the configured time zone', async (t) 
   ]);
   hot.config.bot.timezone = 'Europe/Athens';
 
-  const text = await admin.run('memory.recent', {}, { guildId: 'g1' });
+  const text = await admin.run('memory.recent.read', {}, { guildId: 'g1' });
 
   assert.ok(text.includes('2026-10-06 01:30'), text);
 });
 
 test('run: memory.recent answers one short line with the switch off or with no live line', async (t) => {
   const off = makeRecentAdmin(t, [recentLine(1, 1, 'a line')], { features: { recent: false } });
-  const offText = await off.admin.run('memory.recent', {}, { guildId: 'g1' });
+  const offText = await off.admin.run('memory.recent.read', {}, { guildId: 'g1' });
   assert.ok(!offText.includes('\n'));
   assert.ok(!offText.includes('a line'));
 
   const none = makeRecentAdmin(t, [recentLine(1, 100, 'expired line')]);
-  const noneText = await none.admin.run('memory.recent', {}, { guildId: 'g1' });
+  const noneText = await none.admin.run('memory.recent.read', {}, { guildId: 'g1' });
   assert.ok(!noneText.includes('\n'));
   assert.ok(!noneText.includes('expired line'));
   assert.notEqual(noneText, offText);
@@ -3581,12 +3580,12 @@ test('run: memory.recent works while paused, writes nothing and is open to a gra
   store.state.data.paused = true;
   hot.config.bot.access = { 'memory.recent.read': { everyone: false, roles: ['123'], users: [] } };
 
-  const text = await admin.run('memory.recent', {}, { guildId: 'g1' });
+  const text = await admin.run('memory.recent.read', {}, { guildId: 'g1' });
 
   assert.ok(text.includes('a line'));
   assert.equal(store.flushCalls, 0);
-  assert.equal(admin.isAllowed('memory.recent', { userId: '7', roleIds: ['123'] }), true);
-  assert.equal(admin.isAllowed('memory.recent', { userId: '7', roleIds: [] }), false);
+  assert.equal(await mayRun(admin, 'memory.recent.read', { userId: '7', roleIds: ['123'] }), true);
+  assert.equal(await mayRun(admin, 'memory.recent.read', { userId: '7', roleIds: [] }), false);
 });
 
 // ---------------------------------------------------------------------------
@@ -3619,11 +3618,11 @@ test('admin: memory restore re-inserts an episode and writes a restored event, i
       'evicted and archived'
     );
 
-    const listed = await admin.run('memory.archive', { userId: 'u1' }, { guildId: 'g1' });
+    const listed = await admin.run('memory.archive.read', { userId: 'u1' }, { guildId: 'g1' });
     assert.match(listed, new RegExp(`evicted\\s+episode\\s+${old.itemId}`));
     assert.match(listed, /Έχασε στο σκάκι/);
     assert.equal(
-      await admin.run('memory.archive', { kind: 'episode' }, { guildId: 'g1' }),
+      await admin.run('memory.archive.read', { kind: 'episode' }, { guildId: 'g1' }),
       '(none)',
       'nothing at the server level'
     );
@@ -3714,13 +3713,13 @@ test('admin: pause and resume write system records and post nothing to the chat'
   hot.config.journal = {};
   const { admin } = makeAdmin(rootDir, { hot, client, journal });
 
-  const paused = await admin.run('pause', {}, { guildId: 'g1' });
+  const paused = await admin.run('bot.pause', {}, { guildId: 'g1' });
   assert.match(paused, /^Paused./);
   assert.equal(client.sent.length, 0);
   const pauseRecord = journal.calls.find(([name]) => name === 'system');
   assert.deepEqual(pauseRecord, ['system', 'g1', { event: 'pause', by: 'owner' }]);
 
-  const resumed = await admin.run('resume', {}, { guildId: 'g1' });
+  const resumed = await admin.run('bot.resume', {}, { guildId: 'g1' });
   assert.equal(resumed, 'Resumed.');
   assert.equal(client.sent.length, 0);
   const records = journal.calls.filter(([name]) => name === 'system').map(([, , record]) => record);
@@ -3730,12 +3729,12 @@ test('admin: pause and resume write system records and post nothing to the chat'
   ]);
 
   // A repeat pause or resume that changes nothing records nothing.
-  await admin.run('resume', {}, { guildId: 'g1' });
+  await admin.run('bot.resume', {}, { guildId: 'g1' });
   assert.equal(journal.calls.filter(([name]) => name === 'system').length, 2);
 
   // With the journal off nothing is recorded, and still nothing is posted.
   hot.config.features.journal = false;
-  await admin.run('pause', {}, { guildId: 'g1' });
+  await admin.run('bot.pause', {}, { guildId: 'g1' });
   assert.equal(client.sent.length, 0);
   assert.equal(journal.calls.filter(([name]) => name === 'system').length, 2);
 });
@@ -3768,7 +3767,7 @@ test('admin: journal lists the last n records of a day as short lines', async ()
   });
   const { admin } = makeAdmin(rootDir, { journal });
 
-  const all = await admin.run('memory.journal', { day, n: 3 }, { guildId: 'g1' });
+  const all = await admin.run('memory.journal.read', { day, n: 3 }, { guildId: 'g1' });
   const lines = all.split('\n');
   assert.deepEqual(lines.slice(1), [
     '10:00:07 turn reply spoke 2 msgs, think: Η Ελένη ρωτά.',
@@ -3778,26 +3777,26 @@ test('admin: journal lists the last n records of a day as short lines', async ()
   assert.match(lines[0], /2026-10-12/);
   assert.deepEqual(journal.calls.at(-1), ['read', 'g1', { day, kind: null, n: 3 }]);
 
-  const actions = await admin.run('memory.journal', { day, kind: 'action' }, { guildId: 'g1' });
+  const actions = await admin.run('memory.journal.read', { day, kind: 'action' }, { guildId: 'g1' });
   assert.deepEqual(actions.split('\n').slice(1), ['10:00:05 action post started', '10:00:06 action post succeeded']);
   assert.deepEqual(journal.calls.at(-1)[2], { day, kind: 'action', n: 20 });
 
   // Today (UTC) by default; nothing there is said plainly.
-  const today = await admin.run('memory.journal', {}, { guildId: 'g1' });
+  const today = await admin.run('memory.journal.read', {}, { guildId: 'g1' });
   assert.equal(journal.calls.at(-1)[2].day, new Date(Date.now()).toISOString().slice(0, 10));
   assert.match(today, /no journal records/);
 
-  await assert.rejects(admin.run('memory.journal', { day: '12.10.2026' }, { guildId: 'g1' }), /YYYY-MM-DD/);
-  await assert.rejects(admin.run('memory.journal', { day, n: 51 }, { guildId: 'g1' }), /1\.\.50/);
-  await assert.rejects(admin.run('memory.journal', { day, kind: 'lore' }, { guildId: 'g1' }), /kind/);
+  await assert.rejects(admin.run('memory.journal.read', { day: '12.10.2026' }, { guildId: 'g1' }), /YYYY-MM-DD/);
+  await assert.rejects(admin.run('memory.journal.read', { day, n: 51 }, { guildId: 'g1' }), /1\.\.50/);
+  await assert.rejects(admin.run('memory.journal.read', { day, kind: 'lore' }, { guildId: 'g1' }), /kind/);
   // Owner-only: no grant opens it.
-  assert.equal(admin.isAllowed('memory.journal', { userId: '42' }), true);
+  assert.equal(await mayRun(admin, 'memory.journal.read', { userId: '42' }), true);
   const openHot = makeHot(rootDir);
   const open = { everyone: true, roles: [], users: [] };
   openHot.config.bot.access = { '*': open, 'memory.profile.read': open, 'memory.journal.read': open };
   const { admin: granted } = makeAdmin(rootDir, { hot: openHot, journal });
-  assert.equal(granted.isAllowed('memory.show', { userId: '7' }), true);
-  assert.equal(granted.isAllowed('memory.journal', { userId: '7' }), false);
+  assert.equal(await mayRun(granted, 'memory.profile.read', { userId: '7' }), true);
+  assert.equal(await mayRun(granted, 'memory.journal.read', { userId: '7' }), false);
 });
 
 // ---------------------------------------------------------------------------
@@ -3875,6 +3874,6 @@ test('admin: memory snapshot is owner-only and cannot be granted', async () => {
   const rootDir = makeRoot();
   const { admin, hot } = makeAdmin(rootDir);
   hot.config.bot.access = { memory: { everyone: true } };
-  assert.equal(admin.isAllowed('memory.snapshot', { userId: '7' }), false);
-  assert.equal(admin.isAllowed('memory.snapshot', { userId: '42' }), true);
+  assert.equal(await mayRun(admin, 'memory.snapshot', { userId: '7' }), false);
+  assert.equal(await mayRun(admin, 'memory.snapshot', { userId: '42' }), true);
 });

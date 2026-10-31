@@ -1,8 +1,7 @@
 // Who the persona is and which interface a row belongs to, end to end (the harness of tests/core-slice.test.ts):
 // `startCore` over the fake interface, whose `hello` names the persona and the community. The persona's name in every
 // request is the one of `hello`, a nickname change that arrives as `membership.changed` changes it for the next
-// request, and the rows her turn writes carry the interface of the event, not a fixed one. A legacy surface that still
-// holds a stale persona name and id is handed over, and the core must never read it.
+// request, and the rows her turn writes carry the interface of the event, not a fixed one.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -79,11 +78,6 @@ function scriptedLlm() {
   };
 }
 
-// A legacy surface with the persona's old seams put back, to show the core no longer asks them.
-function staleLegacy(): unknown {
-  return { selfName: () => 'Stale', selfId: () => 'stale-id', guildId: 'g-stale' };
-}
-
 async function withIdentityCore(body: (ctx: Context) => Promise<void>) {
   const dirs = folders();
   const llm = scriptedLlm();
@@ -96,7 +90,6 @@ async function withIdentityCore(body: (ctx: Context) => Promise<void>) {
         name: 'fake',
         start: async (host) => {
           running = await start(host, {
-            legacy: staleLegacy(),
             self: { id: SELF_ID, name: SELF_NAME },
             community: { id: 'g1', name: 'Alpha' },
           });
@@ -167,17 +160,6 @@ function nicknameChange(userId: string, name: string, n: number): Row {
     member: { id: userId, name, bot: userId === SELF_ID },
   };
 }
-
-test('the first request names the persona as hello did, never as the legacy seam does', async () => {
-  await withCapturedLogs(() =>
-    withIdentityCore(async (ctx) => {
-      assert.equal(await ctx.emit(ctx.mentionEvent({ id: 'm1', content: 'hello', at: Date.now() })), 'ok');
-      await until(() => ctx.posted().length === 1);
-      assert.ok(requestText(ctx, 0).includes(`You are ${SELF_NAME}, `), 'the name of hello');
-      assert.equal(requestText(ctx, 0).includes('Stale'), false, 'the stale legacy name');
-    })
-  );
-});
 
 test('a nickname change of the persona reaches the next request', async () => {
   await withCapturedLogs(() =>

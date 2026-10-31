@@ -115,9 +115,9 @@ When `features.imageGeneration` is on (default `false`; a missing key counts as 
 
 The drawing prompt is `prompts/draw.md`. The scene text is clamped to `image.maxPromptChars` (default 1600) characters. When the persona is in the picture (`self: true` in the call) and `image.reference` is `'avatar'`, the bot's Discord avatar is sent as a visual reference so the model knows what she looks like.
 
-At most `image.maxPerDay` (default 50) pictures per day and `image.maxPerUserPerDay` (default 50) per requesting member. Both are checked before the request and counted only when it is sent. Image requests do not count against `llm.maxRequestsPerDay`. They are paid with the key `llm.keyByRole.drawing` names and show in the `costs.base` row of `/nep status`. A single request is cut off after `image.timeoutMs`.
+At most `image.maxPerDay` (default 50) pictures per day and `image.maxPerUserPerDay` (default 50) per requesting member. Both are checked before the request and counted only when it is sent. Image requests do not count against `llm.maxRequestsPerDay`. They are paid with the key `llm.keyByRole.drawing` names and show in the `costs.base` field of the status card. A single request is cut off after `image.timeoutMs`.
 
-Pricing depends on the provider. The provider's `usage.cost` is reported by `/nep draw` and logged (model and counts only, never the prompt). A generation the provider rejects for content policy costs nothing. In dry-run, the full prompt is logged but nothing is generated.
+Pricing depends on the provider. The provider's `usage.cost` is reported by `draw.create` and logged (model and counts only, never the prompt). A generation the provider rejects for content policy costs nothing. In dry-run, the full prompt is logged but nothing is generated.
 
 With the `drawing` role down, her `draw.create` goes to the core model or answers `ability-unavailable` (see [When a model role is down](#when-a-model-role-is-down)).
 
@@ -149,7 +149,7 @@ The roles behind her tools are `vision` and `video` (`media.look`), `drawing` (`
 
 While a role is down, its call goes to the core model with the same input and the role's own prompt when `models.abilities` declares the role's ability for the core model (`imagesIn`, `videoIn`, `imagesOut` or `audioOut`). Otherwise the call does not happen and its result is `ability-unavailable`, worded with the ability and the reason. A global failure met during a call routes that same call at once. The first result of a turn that took either path carries one more line naming every tool role that is down, so she hears it once per turn (`labels.tools.route`, [Prompt contract](prompt-contract.md)). `/status` lists each failing role with its reason, and `neptunia doctor` warns about a role with no model or no key.
 
-The analyzer and the embedding role never move to the core: the analyzer's gates fail as they do without it, and recall searches by words when embeddings fail. `/nep draw` runs on the drawing role alone.
+The analyzer and the embedding role never move to the core: the analyzer's gates fail as they do without it, and recall searches by words when embeddings fail. `draw.create` runs on the drawing role alone.
 
 ## Blind spots
 

@@ -530,3 +530,36 @@ test('config-migrate keeps diary.channelId and says so in one line when the data
   const lines = `${run.out}${run.err}`.split('\n').filter((line) => line.includes('diary.channelId'));
   assert.equal(lines.length, 1, `${run.out}${run.err}`);
 });
+
+// ---- the slash command's two keys (PR 7b) --------------------------------------------------------------------
+
+test('drops bot.commandName and features.adminCommands, lists both and keeps what sits beside them', () => {
+  const { config, moved, dropped } = moveConfigKeys({
+    bot: { owners: ['o1'], commandName: 'luna' },
+    features: { adminCommands: false, diary: true },
+  });
+  assert.deepEqual(config, { bot: { owners: ['o1'] }, features: { diary: true } });
+  assert.deepEqual([moved, [...dropped].sort()], [[], ['bot.commandName', 'features.adminCommands']]);
+});
+
+test('config-migrate --apply drops bot.commandName and features.adminCommands and changes nothing else', () => {
+  const access = { 'lore.list': { everyone: true, roles: [], users: [] } };
+  const file = localCopy({
+    bot: { owners: ['o1'], commandName: 'nep', access },
+    features: { adminCommands: true, memberCommands: true },
+    board: { leaseTtlMinutes: 45 },
+  });
+  const applied = migrate(['--apply'], file);
+  assert.equal(applied.code, 0, applied.err);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), {
+    bot: { owners: ['o1'], access },
+    features: { memberCommands: true },
+    board: { leaseTtlMinutes: 45 },
+  });
+});
+
+test('the shipped config.json holds neither bot.commandName nor features.adminCommands', () => {
+  const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8')) as Record<string, Settings>;
+  const has = (section: string, key: string): boolean => Object.hasOwn(shipped[section] ?? {}, key);
+  assert.deepEqual([has('bot', 'commandName'), has('features', 'adminCommands')], [false, false]);
+});

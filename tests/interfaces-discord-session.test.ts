@@ -14,27 +14,6 @@ import { start } from '../interfaces/discord/session.ts';
 import type { InterfaceHost, RunningInterface } from '../src/protocol/host.ts';
 
 type Fake = Record<string, unknown>;
-type Legacy = {
-  serveCommands(admin: unknown): unknown;
-};
-
-type RunCall = [string, Record<string, unknown>, Record<string, unknown>];
-
-// The part of the core's admin the interaction handler of the session calls (src/admin.js): what it asks and answers.
-function fakeAdmin() {
-  const runCalls: Array<RunCall> = [];
-  return {
-    runCalls,
-    isAllowed: (): boolean => true,
-    operationFor: (): null => null,
-    accessKeys: (): Array<string> => [],
-    runCommand: (name: string, args: Record<string, unknown>, context: Record<string, unknown>) => {
-      runCalls.push([name, args, context]);
-      return Promise.resolve({ status: 'ok', summary: 'pong', data: null });
-    },
-  };
-}
-
 // A chat input interaction `/nep status` of user u1 in channel c1 of the guild, with the replies it got.
 function statusInteraction(guild: Fake) {
   const replies: Array<unknown> = [];
@@ -118,7 +97,6 @@ function textChannel(id: string, guild: Fake, extra: Fake = {}): Fake {
 }
 
 function guildOf(id: string, name: string) {
-  const trees: Array<unknown> = [];
   const channels = new Map<string, Fake>();
   const guild: Fake = {
     id,
@@ -131,14 +109,8 @@ function guildOf(id: string, name: string) {
     channels: { cache: channels },
     voiceStates: { cache: new Map() },
     presences: { cache: new Map() },
-    commands: {
-      set: (tree: unknown) => {
-        trees.push(tree);
-        return Promise.resolve([]);
-      },
-    },
   };
-  return { guild, trees, channels };
+  return { guild, channels };
 }
 
 function messageIn(id: string, channel: Fake, guild: Fake): Fake {
@@ -208,9 +180,8 @@ function harness(options: { botGuildId?: string; env?: Record<string, string | u
   });
 
   const config = {
-    bot: { guildId: options.botGuildId ?? '', commandName: 'nep', dryRunChannelId: '' },
+    bot: { guildId: options.botGuildId ?? '', dryRunChannelId: '' },
     discord: { intents: { presences: false, members: false } },
-    features: { adminCommands: true },
     media: { embedTextChars: 200, video: { sites: [] as Array<string> } },
     context: { maxUrlChars: 200 },
   };
@@ -250,7 +221,6 @@ function harness(options: { botGuildId?: string; env?: Record<string, string | u
     loop,
     link,
     warns,
-    trees: first.trees,
     guild: first.guild,
     channel: (id: string): Fake => asFake(everyChannel.get(id)),
     events: (kind: string): Array<Fake> => seen.filter((event) => event.kind === kind),
@@ -533,59 +503,7 @@ test('announces each readable channel and each cached thread as updated at conne
   });
 });
 
-// ---- the slash commands -----------------------------------------------------------------------
-
-test('registers the commands again under the new name when bot.commandName changes', async () => {
-  await withSession({}, async (h, running) => {
-    running.open();
-    (running.legacy as Legacy).serveCommands(fakeAdmin());
-    await flush(20);
-    h.config.bot.commandName = 'luna';
-    h.fire('config');
-    const renamed = (): boolean => h.trees.some((tree) => asFake(Array.isArray(tree) ? tree[0] : null).name === 'luna');
-    await until(renamed);
-    assert.equal(renamed(), true);
-  });
-});
-
-test('routes an interaction of the client to the admin the core handed over and answers with its result', async () => {
-  await withSession({}, async (h, running) => {
-    running.open();
-    const admin = fakeAdmin();
-    (running.legacy as Legacy).serveCommands(admin);
-    const { interaction, replies } = statusInteraction(h.guild);
-    h.client.emit(Events.InteractionCreate, interaction);
-    await until(() => replies.length > 0);
-    assert.equal(admin.runCalls[0]?.[0], 'status');
-    assert.equal(admin.runCalls[0]?.[2].userId, 'u1');
-    assert.equal(admin.runCalls[0]?.[2].guildId, 'g1');
-    assert.equal(asFake(replies[0]).content, 'pong');
-  });
-});
-
-test('does not register the commands again when a change leaves bot.commandName and adminCommands as they were', async () => {
-  await withSession({}, async (h, running) => {
-    running.open();
-    (running.legacy as Legacy).serveCommands(fakeAdmin());
-    await flush(20);
-    const before = h.trees.length;
-    h.fire('config');
-    await flush(20);
-    assert.equal(h.trees.length, before);
-  });
-});
-
-// ---- the legacy seams and the end -------------------------------------------------------------
-
-// The reads of the tools replaced the client, the capabilities, the avatar lookup, the catch-up, the persona's messages
-// and the emoji index, so the slash command handler is all that is left (the expectation names the one seam).
-test('hands the core exactly one seam of legacy, the slash command handler', async () => {
-  await withSession({}, (_h, running) => {
-    const legacy = running.legacy as Legacy;
-    assert.deepEqual(Object.keys(legacy), ['serveCommands']);
-    return Promise.resolve();
-  });
-});
+// ---- the end -------------------------------------------------------------------------------------
 
 test('closes the link and destroys the client on stop', async () => {
   const h = harness();
@@ -599,4 +517,119 @@ test('closes the link and destroys the client on stop', async () => {
   await until(() => closedWith !== null);
   assert.equal(closedWith, 'peer-closed');
   assert.equal(h.state.destroyed, 1);
+});
+
+// ---- no slash command (PR 7b) -----------------------------------------------------------------
+
+// The guild's application commands as Discord holds them, by id: `fetch` lists them, `delete` removes one by its id or
+// its object, `set` replaces them all. `sets` is every list `set` was given. With `fetchFails` the guild refuses the
+// listing the way Discord refuses a bot invited without the `applications.commands` scope (error 50001).
+function registeredCommands(names: ReadonlyArray<string>, options: { fetchFails?: boolean } = {}) {
+  const held = new Map<string, Fake>(names.map((name, index) => [`cmd${index + 1}`, { id: `cmd${index + 1}`, name }]));
+  const sets: Array<unknown> = [];
+  const idOf = (command: unknown): string => (typeof command === 'string' ? command : String(asFake(command).id));
+  const manager = {
+    fetch: (): Promise<Map<string, Fake>> =>
+      options.fetchFails === true
+        ? Promise.reject(Object.assign(new Error('Missing Access'), { code: 50001 }))
+        : Promise.resolve(new Map(held)),
+    delete: (command: unknown): Promise<void> => {
+      held.delete(idOf(command));
+      return Promise.resolve();
+    },
+    set: (tree: unknown): Promise<Array<unknown>> => {
+      sets.push(tree);
+      held.clear();
+      const list = Array.isArray(tree) ? (tree as Array<unknown>) : [];
+      list.forEach((command, index) => held.set(`new${index + 1}`, { ...asFake(command), id: `new${index + 1}` }));
+      return Promise.resolve([]);
+    },
+  };
+  return { held, sets, manager };
+}
+
+const registersNothing = (sets: ReadonlyArray<unknown>): boolean =>
+  sets.every((tree) => Array.isArray(tree) && tree.length === 0);
+
+test('deletes the /nep the guild still has at its first connect and registers no command', async () => {
+  const h = harness();
+  const commands = registeredCommands(['nep']);
+  h.guild.commands = commands.manager;
+  const running = await start(h.host);
+  try {
+    await h.link.hello;
+    running.open();
+    await until(() => commands.held.size === 0);
+    await flush(20);
+    assert.equal(commands.held.size, 0);
+    assert.equal(registersNothing(commands.sets), true, `set was given ${JSON.stringify(commands.sets)}`);
+  } finally {
+    await running.stop();
+  }
+});
+
+test('registers no command when it opens under a core whose interfaces run as units', async () => {
+  const h = harness();
+  Object.assign(h.config, { interfaces: { mode: 'units' } });
+  const commands = registeredCommands([]);
+  h.guild.commands = commands.manager;
+  const running = await start(h.host);
+  try {
+    await h.link.hello;
+    running.open();
+    await flush(40);
+    assert.equal(commands.held.size, 0);
+    assert.equal(registersNothing(commands.sets), true, `set was given ${JSON.stringify(commands.sets)}`);
+  } finally {
+    await running.stop();
+  }
+});
+
+test('logs the number of slash commands it deleted', async () => {
+  const h = harness();
+  const commands = registeredCommands(['nep', 'luna']);
+  h.guild.commands = commands.manager;
+  const infos: Array<Fake> = [];
+  h.host.log = { ...h.host.log, info: (_msg: string, meta?: unknown) => void infos.push(asFake(meta)) };
+  const running = await start(h.host);
+  try {
+    await h.link.hello;
+    running.open();
+    await until(() => infos.some((meta) => meta.deleted === 2));
+    assert.equal(
+      infos.some((meta) => meta.deleted === 2),
+      true
+    );
+  } finally {
+    await running.stop();
+  }
+});
+
+test('starts and carries messages when the guild refuses to list its commands', async () => {
+  const h = harness();
+  h.guild.commands = registeredCommands(['nep'], { fetchFails: true }).manager;
+  const running = await start(h.host);
+  try {
+    await h.link.hello;
+    running.open();
+    h.client.emit(Events.MessageCreate, messageIn('m9', h.channel('c1'), h.guild));
+    await until(() => messageIdsOf(h).includes('m9'));
+    assert.deepEqual(messageIdsOf(h), ['m9']);
+  } finally {
+    await running.stop();
+  }
+});
+
+test('an interaction for /nep sends no command to the core', async () => {
+  await withSession({}, async (h, running) => {
+    running.open();
+    const kinds: Array<unknown> = [];
+    h.loop.core.onEnvelope((value) => {
+      if (value.type === 'event') kinds.push(asFake(value.body).kind);
+    });
+    const { interaction } = statusInteraction(h.guild);
+    h.client.emit(Events.InteractionCreate, interaction);
+    await flush(40);
+    assert.equal(kinds.includes('command.requested'), false);
+  });
 });

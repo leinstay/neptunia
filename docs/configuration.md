@@ -4,7 +4,7 @@ Every setting lives in `config.json` with its default value. A deployment overri
 
 Both files reload without a restart. Code reads `hot.config` at the moment of use, so an edit takes effect on the next request. A file that fails to parse (half-written JSON, an editor temp file) is ignored: the previous good value stays live and the error is logged. At startup, invalid JSON still throws so a broken deployment fails fast.
 
-Any string value in the merged config may hold `${env:NAME}` (`NAME` is letters, digits and `_`, not starting with a digit). After the merge, each reference is replaced with the variable's value from `.env`, so a credential can stay in `.env` while the config holds only the reference. An unset variable becomes an empty string and is logged once (`config: env ref unset`). `/nep set` keeps the reference in `config.local.json`; it is resolved again on every reload.
+Any string value in the merged config may hold `${env:NAME}` (`NAME` is letters, digits and `_`, not starting with a digit). After the merge, each reference is replaced with the variable's value from `.env`, so a credential can stay in `.env` while the config holds only the reference. An unset variable becomes an empty string and is logged once (`config: env ref unset`). `/config set` keeps the reference in `config.local.json`; it is resolved again on every reload.
 
 ## Where the private files live
 
@@ -23,7 +23,7 @@ Set them in the process environment (for example `Environment=` in the systemd u
 
 An entry may also carry `boardRoles`, the client's roles on the task board: any of `owner`, `reviewer`, `worker`, `scheduler`, `persona`, `watcher` and `errand-runner`. The board reads them at every call (`src/board/board.ts`). An entry without `boardRoles`, a name outside that list and a client absent from the file get no right on the board. See [The core](core.md#the-task-board).
 
-The owner's `neptunia` chat is the client `cli` of kind `cli`, which runs every command with the owner's rights. An interface client runs commands only with the permission `commands`: the Discord unit needs it to serve `/nep` when the interfaces run as units. A client of kind `agent` is a development agent of the task board: it says hello under `agent`, sends only the board's `task.*` commands (`neptunia task`, see [The neptunia command](cli.md)), and the board lets it do what its `boardRoles` allow. A `task.*` command of the `cli` client goes to the board too, under the client's own `boardRoles`. The board's builtin principal `persona`, which her board tools call as, holds the role `persona` alone, and an entry named `persona` adds nothing to it.
+The owner's `neptunia` chat is the client `cli` of kind `cli`, which runs every command with the owner's rights. An interface client sends no command: the link refuses its `command.requested` whatever its `permissions` hold. A client of kind `agent` is a development agent of the task board: it says hello under `agent`, sends only the board's `task.*` commands (`neptunia task`, see [The neptunia command](cli.md)), and the board lets it do what its `boardRoles` allow. A `task.*` command of the `cli` client goes to the board too, under the client's own `boardRoles`. The board's builtin principal `persona`, which her board tools call as, holds the role `persona` alone, and an entry named `persona` adds nothing to it.
 
 `tools/client-token.mjs` writes both files, at mode `0600`, in the private directory `NEPTUNIA_PRIVATE_DIR` names. It never prints a token.
 
@@ -128,8 +128,7 @@ On/off switches. A missing key counts as on, except the ones that need `=== true
 | `diary` | `true` | The persona keeps a diary on its own and posts each entry to the diary's mirrors. See [Diary](diary.md) |
 | `typingSimulation` | `true` | Simulate typing speed |
 | `pauseNotice` | `true` | Post a short notice when the persona is called while paused. See `mention.pauseNoticeMinutes` |
-| `adminCommands` | `true` | Owner slash commands. `false` unregisters them |
-| `memberCommands` | `true` | The commands every member may run (`/nep pings`, `/nep task`, `/nep memory search`). `false` restricts them to owners |
+| `memberCommands` | `true` | The operations every member may have her run without a grant (`pings.*`, the `errand.*` reads and requests, `memory.search`, see [Access](cli.md#access)). `false` restricts them to owners |
 | `tools` | `true` | The persona's tool gateway. `false` refuses every tool call |
 | `toolsDiscovery` | `true` | The lookup classifier and the turn planner can name tools or request the full list. Off when `tools` is off |
 | `coreTools` | `false` | Her own tools replace the classifiers before her reply. She looks things up herself with `web.search`, `web.read`, `media.look` and `memory.search`, each granted to her by name. See [Core](core.md) |
@@ -167,15 +166,14 @@ With `mode: units` the core serves `bot.guildId`, which must be set. See [Interf
 |---|---|---|
 | `timezone` | `"UTC"` | Timezone for model timestamps |
 | `owners` | `[]` | User IDs for owner commands |
-| `commandName` | `"nep"` | Slash command name (lowercase `a-z 0-9 _ -`, up to 32 chars; re-registered on change) |
 | `nameTriggers` | `[]` | Extra trigger strings besides @mention |
 | `guildId` | `""` | Server to lock to; auto-detected if in exactly one |
 | `dryRunChannelId` | `""` | Channel for the dry-run mirror |
-| `access` | `{}` | Who besides owners may run which operations (managed by `/nep access`). See [Commands](owner-commands.md) |
+| `access` | `{}` | Who besides owners may run which operations, written by `/tools grant` and `/tools revoke`. See [Access](cli.md#access) |
 
 ## `models`
 
-Three groups, the same three the `/nep status` card shows. Each role is set independently with its own default, so changing one never moves another.
+Three groups, the same three the status card shows (`/status full`). Each role is set independently with its own default, so changing one never moves another.
 
 - **`models.base`**: the bot's own requests. The core decides and speaks as the persona; each other model role gathers, describes, extracts or finds.
 - **`models.errands`**: delegated agents. Each runs its own OpenCode loop as a separate process. See [Errands](errands.md).
@@ -202,7 +200,7 @@ What each model can do, keyed by model id: a list of `text`, `imagesIn`, `images
 
 ### `models.byPurpose`
 
-An object whose keys are purpose strings (e.g. `reply`, `lookup`, `recall-summary`, `diary-plan`, `planner`, `web-search`) and whose values are model ids. A match on purpose wins over the role's model. Default: `{}` (no overrides). Not probed by `/nep status`.
+An object whose keys are purpose strings (e.g. `reply`, `lookup`, `recall-summary`, `diary-plan`, `planner`, `web-search`) and whose values are model ids. A match on purpose wins over the role's model. Default: `{}` (no overrides). Not probed by the status card.
 
 ### `models.errands`
 
@@ -218,7 +216,7 @@ An object whose keys are purpose strings (e.g. `reply`, `lookup`, `recall-summar
 | `thinker` | `"openrouter/anthropic/claude-opus-5.5"` | OpenCode model id of the orchestrator |
 | `dev` | `"openrouter/anthropic/claude-sonnet-5.5"` | OpenCode model id of the coding and writing worker |
 
-Errand and development roles run on OpenCode, not the bot's client. They take OpenCode model ids (`openrouter/<vendor>/<model>`), unlike the base roles' bare OpenRouter ids. `/nep status` does not probe them and `/nep route` cannot route them.
+Errand and development roles run on OpenCode, not the bot's client. They take OpenCode model ids (`openrouter/<vendor>/<model>`), unlike the base roles' bare OpenRouter ids. The status card does not probe them and `/route set` cannot route them.
 
 ## `llm`
 
@@ -230,7 +228,7 @@ Errand and development roles run on OpenCode, not the bot's client. They take Op
 | `maxRequestTokens` | `50000` | Hard token cap per request |
 | `safetyMargin` | `0.9` | Budgeting fraction of `maxRequestTokens` |
 | `timeoutMs` | `300000` | Request timeout (ms) |
-| `probeTimeoutMs` | `30000` | Timeout of each model probe and of the key reads on `/nep status` (ms) |
+| `probeTimeoutMs` | `30000` | Timeout of each model probe and of the key reads of the status card (ms) |
 | `analyzerTimeoutMs` | `30000` | Timeout of a request on a model role other than the core's, made alongside the turn (route classifier, search classifier, recall summary). Past this the request is abandoned |
 | `retries` | `2` | Retries on transient HTTP errors (408/429/5xx) and network failures. A daily-quota 429 is thrown at once |
 | `maxRequestsPerDay` | `5000` | Daily request cap |
@@ -596,7 +594,7 @@ Settings for answering calls from channels where the bot can read but not send (
 | `maxNewRecent` | `3` | Lines the analyzer may add per batch |
 | `recentChars` | `160` | Max characters per recent line |
 | `recentShown` | `12` | Live recent lines shown to the analyzer |
-| `vaultDir` | `"vault"` | Directory under `data/` that an older install may have used for copies of deleted memory. Nothing in the engine writes here now; the setting tells `/nep memory snapshot` where to find it so the vault is skipped when copying |
+| `vaultDir` | `"vault"` | Directory under `data/` that an older install may have used for copies of deleted memory. Nothing in the engine writes here now; the setting tells `memory.snapshot` where to find it so the vault is skipped when copying |
 | `channelWritersStored` | `20` | Top writers kept per channel |
 | `channelWritersHalfLifeDays` | `30` | Half-life of the per-channel writer tally (days) |
 | `confirmAfter` | `2` | Sightings before an interest or detail is confirmed |
@@ -656,7 +654,7 @@ Settings for the media describer (`features.mediaDescriptions`). The describer m
 | `filePreviewChars` | `10000` | Characters shown from the beginning of text files |
 | `embedTextChars` | `200` | Characters shown from link embed text |
 | `recacheBefore` | `null` | ISO date-time, or `null` (off). Descriptions written before it are described again when they come up |
-| `recacheIntervalMs` | `3000` | Milliseconds between descriptions of a `/nep media pictures recache` run |
+| `recacheIntervalMs` | `3000` | Milliseconds between descriptions of a `media.recache` run over pictures |
 | `gif.watch` | `true` | Watch GIFs as short video clips. Needs `mediaDescriptions` and `videoDescriptions` on |
 | `gif.maxSeconds` | `15` | Seconds of the animation sent to the video model |
 | `gif.maxPerDay` | `200` | Daily GIF watch cap, separate from `video.maxPerDay` |

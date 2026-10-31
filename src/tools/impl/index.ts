@@ -1,15 +1,11 @@
-// The operations layer: one typed operation behind every owner command, the same ones the
-// persona's adapter will call later. `runOp(name, args, ctx)` checks the caller's rights
-// (owner-only before any grant; grants are stored per operation name, src/tools/impl/grants.ts),
-// runs the operation and always answers
-// `{ status, code, summary, data }` -- it never throws. The slash commands arrive under
-// their command keys (`memory.show`, `media`, ...): COMMAND_TO_OP maps each one onto its
-// operation and arguments; src/admin.js renders the result as the reply. The persona's skills
-// do not read the tree: they have a table of their own (src/tools/definitions.ts).
+// The operations layer: one typed operation behind every owner command and every tool of the persona.
+// `runOp(name, args, ctx)` checks the caller's rights (owner-only before any grant; grants are stored per
+// operation name, src/tools/impl/grants.ts), runs the operation and always answers
+// `{ status, code, summary, data }`: it never throws. The owner's console (src/interface/commands/console.ts) and
+// her tools (src/tools/definitions.ts) name the operations directly.
 
 import { log } from '../../log.js';
-import { COMMAND_TABLE } from './catalog.ts';
-import { OpError, STATUSES, getOp, listOps } from './registry.ts';
+import { OpError, STATUSES, getOp } from './registry.ts';
 import { rightsRefusal } from './rights.ts';
 import './status.ts';
 import './config.ts';
@@ -38,217 +34,10 @@ import { CODE } from '../codes.ts';
 import { idText, isObj, objOf } from '../types.ts';
 import type { Obj, OpContext, Rights } from '../types.ts';
 
-/** What a command key resolves to: an operation with its arguments, or why its arguments pick none. */
-export type Resolved = { op: string; args: Obj | undefined } | { invalid: string };
-
-/** One entry of a command table: an operation name (same arguments), or a function of the arguments. */
-type Target = string | ((args: Obj | undefined) => Resolved);
-
 /** The result of an operation as `runOp` answers it. */
 export type OpResult = { status: string; code: string; summary: string; data: unknown };
 
 export { defineOp, listOps, OpError, invalid, denied } from './registry.ts';
-
-/** `args` with `kind` set, for the media commands that became one operation per action. */
-function withKind(kind: string): (op: string) => (args: Obj | undefined) => Resolved {
-  return (op) => (args) => ({ op, args: { ...args, kind } });
-}
-
-const emoji = withKind('emoji');
-const gifs = withKind('gifs');
-
-/** True when an optional argument was not given (absent, null or empty text). */
-function absent(value: unknown): boolean {
-  return value === undefined || value === null || value === '';
-}
-
-/**
- * The `option` argument picking one operation among `table` (`{ value: operation }`): the
- * operation with the arguments as given, or `{ invalid }` naming the values when the argument is
- * missing or unknown. `byAction` reads `action` (with `kind` for media).
- */
-function byOption(option: string, table: Record<string, string>): (args: Obj | undefined) => Resolved {
-  return (args) => {
-    const value = idText(objOf(args)[option]);
-    const op = table[value];
-    if (!Object.hasOwn(table, value) || op === undefined)
-      return { invalid: `${option} must be one of: ${Object.keys(table).join(', ')}` };
-    return { op, args };
-  };
-}
-
-const byAction = (actions: Record<string, string>): ((args: Obj | undefined) => Resolved) =>
-  byOption('action', actions);
-
-const intentionByAction = byAction({
-  add: 'intention.set',
-  update: 'intention.update',
-  cancel: 'intention.cancel',
-  list: 'intention.list',
-});
-
-/** `/nep task intent`: the slash option `task` (the errand to wait for) reaches the operation as `errand`. */
-function intentionOf(args: Obj | undefined): Resolved {
-  const picked = intentionByAction(args);
-  if ('invalid' in picked) return picked;
-  const { task, ...rest } = objOf(args);
-  return { op: picked.op, args: task === undefined ? picked.args : { ...rest, errand: rest.errand ?? task } };
-}
-
-/**
- * The command keys of the tree (src/tools/impl/catalog.ts#COMMAND_TABLE, `<group>.<name>` or a bare
- * `<name>`) -> operation: an operation name (same arguments), or `(args) => ({ op, args })` where
- * the arguments pick the operation (`media`, `message.react`, `task.intent` and `task.inner` by `action`,
- * `pings` by `mode`), or `{ invalid }` when they cannot. A key not listed
- * here runs nothing.
- */
-export const COMMAND_TO_OP: Readonly<Record<string, Target>> = Object.freeze({
-  status: 'status.show',
-  set: 'config.set',
-  unset: 'config.unset',
-  pause: 'bot.pause',
-  resume: 'bot.resume',
-  draw: 'draw.create',
-  pings: (args) => ({ op: absent(objOf(args).mode) ? 'pings.get' : 'pings.set', args }),
-  media: byAction({ status: 'media.status', rescan: 'media.rescan', recache: 'media.recache' }),
-  'model.show': 'model.show',
-  'model.set': 'model.set',
-  'route.list': 'route.list',
-  'route.set': 'route.set',
-  'route.remove': 'route.remove',
-  'rule.add': 'rule.add',
-  'rule.list': 'rule.list',
-  'rule.remove': 'rule.remove',
-  'access.grant': 'access.grant',
-  'access.revoke': 'access.revoke',
-  'access.list': 'access.list',
-  'alias.add': 'alias.add',
-  'alias.remove': 'alias.remove',
-  'learning.add': 'learning.add',
-  'learning.remove': 'learning.remove',
-  'lore.add': 'lore.add',
-  'lore.list': 'lore.list',
-  'lore.show': 'lore.show',
-  'lore.remove': 'lore.remove',
-  'memory.show': 'memory.profile.read',
-  'memory.channel': 'memory.channel.read',
-  'memory.server': 'memory.server.read',
-  'memory.recent': 'memory.recent.read',
-  'memory.affinity': 'memory.affinity.read',
-  'memory.journal': 'memory.journal.read',
-  'memory.archive': 'memory.archive.read',
-  'memory.restore': 'memory.restore',
-  'memory.snapshot': 'memory.snapshot',
-  'memory.private': 'memory.private.read',
-  'message.create': 'message.create',
-  'message.edit': 'message.edit',
-  'message.delete': 'message.delete',
-  'message.react': byAction({ add: 'message.react.add', remove: 'message.react.remove' }),
-  'task.run': 'errand.run',
-  // Her own call adds `action`: read or resolve a finished errand (src/tools/impl/catalog.ts, the leaf's persona-only options).
-  'task.status': (args) =>
-    objOf(args).action === undefined
-      ? { op: 'errand.status', args }
-      : byAction({ read: 'errand.read', resolve: 'errand.resolve' })(args),
-  'task.cancel': 'errand.cancel',
-  'task.list': 'errand.list',
-  'task.search': 'web.search',
-  'task.read': 'web.read',
-  'task.look': 'media.look',
-  'task.find': 'media.find',
-  'task.intent': intentionOf,
-  'task.inner': byAction({ stop: 'inner.stop', start: 'inner.start', status: 'inner.status' }),
-  'task.places': 'places.list',
-  'task.skills': 'tools.describe',
-  'task.conversation': 'conversation.read',
-  'memory.search': 'memory.search',
-});
-
-/**
- * The slash-command keys of the tree before the operations layer -> operation, the same shape as
- * COMMAND_TO_OP: kept only so `legacyGrantOps` can read the grants stored under those keys (the
- * one-time migration, src/tools/impl/grants.ts#migrateGrants). Never dispatched.
- */
-const LEGACY_COMMAND_TO_OP: Readonly<Record<string, Target>> = Object.freeze({
-  status: 'status.show',
-  set: 'config.set',
-  unset: 'config.unset',
-  pause: 'bot.pause',
-  resume: 'bot.resume',
-  interject: 'message.create',
-  initiate: 'message.create',
-  draw: 'draw.create',
-  pings: (args) => ({ op: absent(objOf(args).mode) ? 'pings.get' : 'pings.set', args }),
-  'emoji.status': emoji('media.status'),
-  'emoji.rescan': emoji('media.rescan'),
-  'gifs.status': gifs('media.status'),
-  'gifs.rescan': gifs('media.rescan'),
-  'gifs.recache': gifs('media.recache'),
-  'model.show': 'model.show',
-  'model.set': 'model.set',
-  'route.list': 'route.list',
-  'route.set': 'route.set',
-  'route.remove': 'route.remove',
-  'rule.add': 'rule.add',
-  'rule.list': 'rule.list',
-  'rule.remove': 'rule.remove',
-  'access.grant': 'access.grant',
-  'access.revoke': 'access.revoke',
-  'access.list': 'access.list',
-  'alias.add': 'alias.add',
-  'alias.remove': 'alias.remove',
-  'learned.add': 'learning.add',
-  'learned.remove': 'learning.remove',
-  'lore.add': 'lore.add',
-  'lore.list': 'lore.list',
-  'lore.show': 'lore.show',
-  'lore.remove': 'lore.remove',
-  'memory.show': 'memory.profile.read',
-  'memory.channel': 'memory.channel.read',
-  'memory.server': 'memory.server.read',
-  'memory.recent': 'memory.recent.read',
-  'memory.affinity': 'memory.affinity.read',
-  'memory.journal': 'memory.journal.read',
-  'memory.archive': 'memory.archive.read',
-  'memory.restore': 'memory.restore',
-  'memory.snapshot': 'memory.snapshot',
-  'private.show': 'memory.private.read',
-});
-
-/** `table[key]` resolved with `args`; null for a key the table does not hold. */
-function resolveIn(table: Readonly<Record<string, Target>>, key: string, args: Obj | undefined): Resolved | null {
-  const target = table[key];
-  if (!Object.hasOwn(table, key) || target === undefined) return null;
-  return typeof target === 'function' ? target(args) : { op: target, args };
-}
-
-/**
- * The operation and arguments a command key runs, `{ invalid }` (an operator-facing message)
- * when its arguments pick none, or null for a key with no operation.
- */
-export function resolveCommand(commandKey: unknown, args: unknown = {}): Resolved | null {
-  return resolveIn(COMMAND_TO_OP, idText(commandKey), objOf(args));
-}
-
-/**
- * The operations an old (slash-command key) grant covered, for the one-time migration of the
- * stored grants (src/tools/impl/grants.ts#migrateGrants): `*` -> every operation (`from: '*'`); an
- * old command key -> the operation it runs with no optional argument (`memory.affinity` ->
- * `memory.affinity.read`); an old group -> its keys' operations (`from` the group); a key with
- * no operation (`ping`, `reload`, `learned.list` and the other removed commands) -> null: such a
- * grant is dropped.
- */
-export function legacyGrantOps(key: string): { from: string | null; names: Array<string> } | null {
-  if (key === '*') return { from: '*', names: listOps().map((op) => op.name) };
-  const opOf = (full: string): string => {
-    const resolved = resolveIn(LEGACY_COMMAND_TO_OP, full, {});
-    return resolved !== null && 'op' in resolved ? resolved.op : '';
-  };
-  if (Object.hasOwn(LEGACY_COMMAND_TO_OP, key)) return { from: null, names: [opOf(key)] };
-  const under = Object.keys(LEGACY_COMMAND_TO_OP).filter((full) => full.startsWith(`${key}.`));
-  if (under.length === 0) return null;
-  return { from: key, names: [...new Set(under.map(opOf))] };
-}
 
 /** A refusal result. */
 function refusal(status: string, code: string, summary: string): OpResult {
@@ -284,9 +73,8 @@ export function asResult(value: unknown): OpResult {
 }
 
 /**
- * Runs `name` WITHOUT the rights check: only for src/admin.js#run, which the tests drive directly
- * and the slash commands no longer use for an operation (they call `runOp`, rights included).
- * Same result shape as `runOp`; never throws.
+ * Runs `name` WITHOUT the rights check: for src/admin.js#run, which the tests drive directly, and for
+ * her own calls, whose grant the skill gateway checks. Same result shape as `runOp`; never throws.
  * `ctx` is `{ env, guildId, channelId, userId, roleIds }`.
  */
 export async function runOpPrechecked(name: string, args: Obj = {}, ctx: Partial<OpContext> = {}): Promise<OpResult> {

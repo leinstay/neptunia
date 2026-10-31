@@ -22,7 +22,7 @@ A package imports nothing of the core beyond `src/protocol/`.
 
 Package `@neptunia/interface-discord` (`interfaces/discord/package.json`). Depends on discord.js 14. Its [README](discord/README.md) says how it runs in each mode.
 
-Entry point: `index.js`, which exports `start(host)` and `createDiscordInterface({ client })`. The core calls `start(host)`: it builds the discord.js client, logs in, resolves the guild, connects the link, serves the adapter and resolves with a running interface (`iface`, `legacy`, `open()`, `stop()`, `reconnect()`). Gateway events are held until `open()`, and an outbox under the interface's data folder keeps them until the core acknowledges them. `legacy` lists what the core's subsystems still read from discord.js, and `legacy.serveCommands(admin)` builds the slash command handler over the core's admin. Until a core hands over its admin, the slash commands go to the core as `command.requested` events. [docs/interfaces.md](../docs/interfaces.md) describes the host and the fields. `createDiscordInterface` returns the outbound port (the persona's effects in Discord), a frozen capabilities object (permission checks, history, the pull rails, searches, the presence snapshot, the emoji index, the member cache warmer, the command tree) and the client itself.
+Entry point: `index.js`, which exports `start(host)` and `createDiscordInterface({ client })`. The core calls `start(host)`: it builds the discord.js client, logs in, resolves the guild, connects the link, serves the adapter and resolves with a running interface (`iface`, `open()`, `stop()`, `reconnect()`). Gateway events are held until `open()`, and an outbox under the interface's data folder keeps them until the core acknowledges them. On its first connect the session deletes every slash command its bot still has on the guild, and it registers none. [docs/interfaces.md](../docs/interfaces.md) describes the host and the fields. `createDiscordInterface` returns the outbound port (the persona's effects in Discord), a frozen capabilities object (permission checks, history, the pull rails, searches, the presence snapshot, the emoji index, the member cache warmer) and the client itself.
 
 The modules:
 
@@ -35,7 +35,6 @@ The modules:
 | `members.ts` | A member as the avatar queue sees it (`memberView`, `avatarHashOf`) and the `membership.changed` event. |
 | `gateway.js` | Creates the discord.js client with the intents and partials the engine needs. |
 | `guild.js` | Resolves which single guild this instance serves. |
-| `commands.js` | The slash command tree, registration and interaction handling. |
 | `pull-fetch.js` | The rails of a pull of another channel over discord.js objects, for the recall runner. A turn pulls through the reads. |
 | `search.js` | Guild message search and member search for recall. |
 | `around.js` | Voice and presence state of members, the live snapshot for `<people_now>`. |

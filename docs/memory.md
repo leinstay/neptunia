@@ -295,7 +295,7 @@ The prefetch keeps only hits that pass a relevance threshold (a rare phrase, two
 
 There is no forget path, no wipe command, no way to delete memory rows through the engine. Precision falls through tiers: the context window is the most precise, then word search, then meaning search, then the journal. Rows leave hot memory through caps, but the archive (`src/memory/archive.js`) keeps a copy before anything is removed, and the record (`src/memory/record.js`) holds every line for good.
 
-A retired row keeps its history. `removeLore` (`/nep lore remove`) takes one lorebook entry out on the owner's word; that is the only removal.
+A retired row keeps its history. `removeLore` (`/memory lore remove`) takes one lorebook entry out on the owner's word; that is the only removal.
 
 ## What stays as files
 

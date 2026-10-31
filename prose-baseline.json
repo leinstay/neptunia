@@ -27,11 +27,11 @@
     "slash": 1
   },
   "docs/inner-life.md": {
-    "label": 12,
+    "label": 11,
     "slash": 1
   },
   "docs/interfaces.md": {
-    "label": 11,
+    "label": 10,
     "slash": 2
   },
   "docs/media.md": {
@@ -40,9 +40,6 @@
   },
   "docs/memory.md": {
     "label": 13
-  },
-  "docs/owner-commands.md": {
-    "slash": 4
   },
   "docs/prompt-contract.md": {
     "dash": 18,

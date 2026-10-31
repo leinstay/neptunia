@@ -278,7 +278,7 @@ const handlers = perEnv((env) => {
   /**
    * Once per guild (`accessMigrated: 1` in data/guilds/<id>/guild.json): the stored grants,
    * keyed by the old slash-command keys, re-expanded under the operation names
-   * (src/tools/impl/grants.ts#migrateGrants with `legacy`, src/tools/impl/index.ts#legacyGrantOps), written
+   * (src/tools/impl/grants.ts#migrateGrants with `legacy`, src/config-moves.ts#legacyGrantOps), written
    * back to config.local.json when they changed, and a journal `system` record `access-migrated`
    * whose note lists what each grant covers now and the owner-only operations dropped.
    */

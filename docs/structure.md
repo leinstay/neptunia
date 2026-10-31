@@ -177,9 +177,8 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `src/memory/db/session-rows.ts` | public | Her memory session's rows beside the store's files: what a member's profile reads of them and what a unit write leaves as she wrote it. Tested through the two-writers tests. | `node:*`, `src/**` | none |
 | `src/memory/db/map/` | public | The mapping of memory rows to records and back. | `node:*`, `src/**` | required |
 | `src/memory/db/readers/` | public | The read queries of the memory database. | `node:*`, `src/**` | required |
-| `src/tools/impl/` | public | The owner operations behind the /nep commands. | `node:*`, `src/**` | required |
+| `src/tools/impl/` | public | The typed operations behind the owner's commands and the persona's tools. | `node:*`, `src/**` | required |
 | `src/protocol/` | public | The neutral protocol of events, actions and envelopes between the core and its interfaces, and the serving side of the link. | `node:*`, `src/**` | required |
-| `src/interface/legacy.ts` | public | The types of what the core reads from an interface's `legacy`, one field per seam stage 3 removes. Types only. | nothing | none |
 | `src/protocol/host.ts` | public | The types of what the core hands an interface when it starts one and what the interface hands back. Types only. | `src/protocol/**` | none |
 | `src/tools/` | public | The tools the persona can call: definitions, registry, executors and the gateway. | `node:*`, `src/**` | required |
 | `src/tools/send-hold.ts` | public | The hold of a wake turn's sends: the port a posting operation sends through keeps each send for the wake's completion. Tested through the inner wake sends tests. | `node:*`, `src/**` | none |

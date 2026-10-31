@@ -10,10 +10,13 @@
 // The moves are one ordered list. A move whose old key is absent does nothing, so applying the list twice gives the
 // same config. Where the old and the new key are both set, the new one wins and the old one is dropped and reported as
 // shadowed. Keys nothing reads any more (three grants of `bot.access`, `agents.maxDownloadBytes`, the two context
-// keys of `agents.thinker` and `agents.ledger.socket`) are removed, with a section they leave empty, and reported as
-// dropped. `diary.channelId` is the seed of the diary's mirror
+// keys of `agents.thinker`, `agents.ledger.socket`, and `bot.commandName` and `features.adminCommands` of the slash
+// command that is gone) are removed, with a section they leave empty, and reported as dropped. `diary.channelId` is the seed of the diary's mirror
 // (schema v15): once the memory database has that mirror (`diaryMirror`, told by the caller) the key is removed and
 // reported as moved to the database (`toDatabase`). Nothing here reads a file.
+//
+// The grants of `bot.access` stored under the keys of the old slash command (`memory.show`, `emoji.rescan`, ...) are
+// read by `legacyGrantOps`, which src/tools/impl/access.ts#migrateStoredGrants calls once per guild at start.
 
 type Config = Record<string, unknown>;
 
@@ -127,6 +130,8 @@ const DROPPED_KEYS: ReadonlyArray<ReadonlyArray<string>> = [
   ['agents', 'thinker', 'contextLimit'],
   ['agents', 'thinker', 'contextHard'],
   ['agents', 'ledger', 'socket'],
+  ['bot', 'commandName'],
+  ['features', 'adminCommands'],
 ];
 
 /** `bot.access` of `config` when it is a plain object. */
@@ -244,4 +249,73 @@ export function moveConfigKeys(config: Config, { diaryMirror = false }: { diaryM
   dropKeys(report.config, report);
   moveDiarySeed(report.config, diaryMirror, report);
   return report;
+}
+
+/**
+ * The keys of the old slash command, before the operations layer, each with the operation it ran with no optional
+ * argument. Never dispatched: only `legacyGrantOps` reads it, for the grants stored under those keys.
+ */
+const LEGACY_COMMAND_TO_OP: Readonly<Record<string, string>> = Object.freeze({
+  status: 'status.show',
+  set: 'config.set',
+  unset: 'config.unset',
+  pause: 'bot.pause',
+  resume: 'bot.resume',
+  interject: 'message.create',
+  initiate: 'message.create',
+  draw: 'draw.create',
+  pings: 'pings.get',
+  'emoji.status': 'media.status',
+  'emoji.rescan': 'media.rescan',
+  'gifs.status': 'media.status',
+  'gifs.rescan': 'media.rescan',
+  'gifs.recache': 'media.recache',
+  'model.show': 'model.show',
+  'model.set': 'model.set',
+  'route.list': 'route.list',
+  'route.set': 'route.set',
+  'route.remove': 'route.remove',
+  'rule.add': 'rule.add',
+  'rule.list': 'rule.list',
+  'rule.remove': 'rule.remove',
+  'access.grant': 'access.grant',
+  'access.revoke': 'access.revoke',
+  'access.list': 'access.list',
+  'alias.add': 'alias.add',
+  'alias.remove': 'alias.remove',
+  'learned.add': 'learning.add',
+  'learned.remove': 'learning.remove',
+  'lore.add': 'lore.add',
+  'lore.list': 'lore.list',
+  'lore.show': 'lore.show',
+  'lore.remove': 'lore.remove',
+  'memory.show': 'memory.profile.read',
+  'memory.channel': 'memory.channel.read',
+  'memory.server': 'memory.server.read',
+  'memory.recent': 'memory.recent.read',
+  'memory.affinity': 'memory.affinity.read',
+  'memory.journal': 'memory.journal.read',
+  'memory.archive': 'memory.archive.read',
+  'memory.restore': 'memory.restore',
+  'memory.snapshot': 'memory.snapshot',
+  'private.show': 'memory.private.read',
+});
+
+/**
+ * The operations an old slash-command grant covered, for the one-time migration of the stored grants
+ * (src/tools/impl/grants.ts#migrateGrants): `*` -> every operation of `everyOp` (`from: '*'`); an old command key ->
+ * the operation it ran (`memory.affinity` -> `memory.affinity.read`); an old group -> its keys' operations (`from` the
+ * group); a key with no operation (`ping`, `reload`, `learned.list` and the other removed commands) -> null, and such
+ * a grant is dropped.
+ */
+export function legacyGrantOps(
+  key: string,
+  everyOp: ReadonlyArray<string> = []
+): { from: string | null; names: Array<string> } | null {
+  if (key === '*') return { from: '*', names: [...everyOp] };
+  const opOf = (full: string): string => LEGACY_COMMAND_TO_OP[full] ?? '';
+  if (Object.hasOwn(LEGACY_COMMAND_TO_OP, key)) return { from: null, names: [opOf(key)] };
+  const under = Object.keys(LEGACY_COMMAND_TO_OP).filter((full) => full.startsWith(`${key}.`));
+  if (under.length === 0) return null;
+  return { from: key, names: [...new Set(under.map(opOf))] };
 }

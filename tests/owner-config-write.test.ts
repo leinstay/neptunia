@@ -76,9 +76,10 @@ test('revokes errand.run from her when the file holds her grant as task.run', as
   assert.equal(grantedToPersona(world.hot.config, SELF, 'errand.read'), true, 'the other grant stays');
 });
 
+// PR 7b: admin.run takes the operation's name, the command key map is gone; the expectations are as they were.
 test('sets errands.maxOpen over a file that still holds agents.maxOpen, and the file keeps only the new key', async () => {
   const world = deployment({ agents: { maxOpen: 7 } });
-  await run(() => world.admin.run('set', { path: 'errands.maxOpen', value: '5' }, {}));
+  await run(() => world.admin.run('config.set', { path: 'errands.maxOpen', value: '5' }, {}));
   assert.deepEqual(world.written(), { errands: { maxOpen: 5 } });
   assert.equal((world.hot.config.errands as Settings).maxOpen, 5);
 });

@@ -40,7 +40,6 @@ const handlers = perEnv((env) => {
     emojiBackfill,
     gifBackfill,
     gifRecache,
-    slash,
     skipText,
     assertNotPaused,
     freshenIfPaused,
@@ -147,12 +146,12 @@ const handlers = perEnv((env) => {
     const result = gifRecache.start(guildId);
     if (!result.ok) {
       if (result.reason === 'running')
-        return `A GIF recache is already running: see ${slash('media kind:gifs action:status')}.`;
+        return 'A GIF recache is already running: media.status with kind gifs shows how far it is.';
       return skipText(GIFS_RECACHE_SKIPS, result.reason, `not started (${result.reason})`);
     }
     return [
       `GIF recache started: ${result.queued} library GIFs to watch, ${result.dropped} one-frame captions dropped from the media cache.`,
-      `Follow it with ${slash('media kind:gifs action:status')}.`,
+      'media.status with kind gifs shows how far it is.',
     ].join('\n');
   }
 

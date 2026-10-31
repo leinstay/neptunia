@@ -103,11 +103,9 @@ export function roleRowsText(rows: ReadonlyArray<RoleRow>): Array<string> {
   return lines;
 }
 
-/** The card's fields (status.show's `{ embeds: [{ fields }] }`) as sections of text, `replace` naming new values. */
+/** The card's fields (status.show's `{ fields }`) as sections of text, `replace` naming new values. */
 function cardSections(data: unknown, replace: Readonly<Record<string, string>>): string {
-  const embeds = isRecord(data) && Array.isArray(data.embeds) ? (data.embeds as Array<unknown>) : [];
-  const first = embeds[0];
-  const fields = isRecord(first) && Array.isArray(first.fields) ? (first.fields as Array<unknown>) : [];
+  const fields = isRecord(data) && Array.isArray(data.fields) ? (data.fields as Array<unknown>) : [];
   return fields
     .filter(isRecord)
     .map((field) => {
@@ -119,6 +117,9 @@ function cardSections(data: unknown, replace: Readonly<Record<string, string>>):
 
 /** The probe lines of the status card (src/tools/impl/status.ts#probeLine) mark a failed probe so. */
 const FAILED_PROBE = '· failed';
+
+/** A route's role as the owner typed it: `any`, or none, is a route of every role. */
+const anyRole = (role: unknown): unknown => (role === 'any' ? undefined : role);
 
 /** The command as the owner typed it, for the head of a refused answer. */
 function typed(name: string, args: Readonly<Record<string, unknown>>): string {
@@ -326,13 +327,27 @@ export function createConsole(deps: ConsoleDeps): {
     'errands.cancel': (args) => ['errand.cancel', { id: args.id }],
     'intentions.list': () => ['intention.list', {}],
     'intentions.cancel': (args) => ['intention.cancel', { id: args.id }],
-    wakes: () => ['inner.status', {}],
+    'wakes.list': () => ['inner.status', {}],
+    'wakes.stop': () => ['inner.stop', {}],
+    'wakes.start': () => ['inner.start', {}],
     pause: () => ['bot.pause', {}],
     resume: () => ['bot.resume', {}],
     'config.set': (args) => ['config.set', { path: args.path, value: args.value }],
     'config.unset': (args) => ['config.unset', { path: args.path }],
-    model: () => ['model.show', {}],
-    route: () => ['route.list', {}],
+    'model.show': () => ['model.show', {}],
+    'model.set': (args) => ['model.set', { role: args.role, id: args.model }],
+    'route.list': () => ['route.list', {}],
+    'route.set': (args) => [
+      'route.set',
+      {
+        model: args.model,
+        providers: args.providers,
+        role: anyRole(args.role),
+        fallbacks: args.fallbacks === undefined ? undefined : args.fallbacks === 'true',
+        byok: args.byok,
+      },
+    ],
+    'route.remove': (args) => ['route.remove', { model: args.model, role: anyRole(args.role) }],
     'memory.profile': (args) => ['memory.profile.read', { userId: args.user, section: args.section }],
     'memory.recent': () => ['memory.recent.read', {}],
     'memory.affinity': (args) => ['memory.affinity.read', { userId: args.user }],

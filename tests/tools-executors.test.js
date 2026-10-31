@@ -705,7 +705,7 @@ test('executeCall: her written text goes out as rendered; only the members the r
   );
 });
 
-test("executeCall: a person who runs /nep message create gives her a turn; her own call posts -- the mode is the server's, by who acts", async () => {
+test("executeCall: a person who runs message.create gives her a turn; her own call posts -- the mode is the server's, by who acts", async () => {
   const forced = [];
   const spontaneous = {
     force: async (conversation, mode, options) => {
@@ -714,8 +714,8 @@ test("executeCall: a person who runs /nep message create gives her a turn; her o
     },
   };
   const { admin, port } = makeAdmin({ extra: { spontaneous } });
-  // a person: a turn, even with a text in the arguments
-  const person = await admin.runCommand(
+  // a person: a turn, even with a text in the arguments (PR 7b: by the operation's name, the command key map is gone)
+  const person = await admin.runSkillOp(
     'message.create',
     { text: 'πες αυτό' },
     { guildId: 'g1', channelId: HERE, userId: OWNER, roleIds: [] }
@@ -1366,4 +1366,73 @@ test("an unknown argument is still refused by the engine although the model's sc
   });
   assert.equal(gate.ok, false);
   assert.equal(gate.code, 'invalid-args');
+});
+
+// ---- a member's notification switch through her (PR 7b) -----------------------------------------------
+// With `/nep pings` gone, a member asks her in the chat and her `pings.set` runs under that member's own right: it
+// switches the asker's pings and nobody else's.
+
+/**
+ * A store whose pings switch is the real one: `off` holds the `<guild>:<user>` keys that turned pings off.
+ * @param {Array<string>} off
+ */
+function pingsStore(off = []) {
+  const keys = new Set(off);
+  return {
+    keys,
+    state: { data: {}, markDirty() {} },
+    getUser: () => null,
+    getGuild: () => ({}),
+    /** @param {string} guildId @param {string} userId */
+    isPingsOff: (guildId, userId) => keys.has(`${guildId}:${userId}`),
+    /** @param {string} guildId @param {string} userId @param {boolean} value */
+    setPingsOff(guildId, userId, value) {
+      if (value) keys.add(`${guildId}:${userId}`);
+      else keys.delete(`${guildId}:${userId}`);
+      return value;
+    },
+  };
+}
+
+const pingsGranted = (features = {}) =>
+  config({
+    features: { memberCommands: true, ...features },
+    access: { 'pings.set': { everyone: false, roles: [], users: [SELF] } },
+  });
+
+test('a member who asks her turns off their own pings through pings.set, and nobody else is switched', async () => {
+  const cfg = pingsGranted();
+  const store = pingsStore(['g1:8']);
+  const { admin, port } = makeAdmin({ cfg, extra: { store } });
+  const gate = checkSkill({
+    skill: 'pings.set',
+    args: { mode: 'off' },
+    principal: { kind: 'persona' },
+    requester: { id: MEMBER, roleIds: [] },
+    audience: { conversationId: HERE },
+    context: { config: cfg, selfId: SELF },
+  });
+  assert.deepEqual(gate, { ok: true });
+  const result = await executeCall(
+    resolve('pings.set', { mode: 'off' }),
+    deps(admin, port, { requester: { id: MEMBER, roleIds: [] } })
+  );
+  assert.equal(result.status, 'ok');
+  assert.deepEqual([...store.keys].sort(), ['g1:7', 'g1:8']);
+});
+
+test('pings.set takes no member to switch: a call that names another member is refused before it runs', () => {
+  const call = resolve('pings.set', { mode: 'off', user: '@Élodie' });
+  assert.deepEqual([call.ok, call.reason], [false, 'args.user:unknown']);
+});
+
+test("pings.set is refused under the member's own right while features.memberCommands is off, and nothing changes", async () => {
+  const store = pingsStore();
+  const { admin, port } = makeAdmin({ cfg: pingsGranted({ memberCommands: false }), extra: { store } });
+  const result = await executeCall(
+    resolve('pings.set', { mode: 'off' }),
+    deps(admin, port, { requester: { id: MEMBER, roleIds: [] } })
+  );
+  assert.equal(result.status, 'denied');
+  assert.deepEqual([...store.keys], []);
 });

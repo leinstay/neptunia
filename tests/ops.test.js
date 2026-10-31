@@ -1,12 +1,14 @@
 // Tests for src/tools/impl/: the typed operations behind the owner commands -- the registry, the rights
-// check of runOp, the result shape, and the old command keys' table (COMMAND_TO_OP).
+// check of runOp, the result shape, and the old command keys of the stored grants (legacyGrantOps).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { legacyGrantOps, listOps, runOp } from '../src/tools/impl/index.ts';
+import { listOps, runOp } from '../src/tools/impl/index.ts';
+// PR 7b: the old command keys of the stored grants are read in src/config-moves.ts, beside the other old config keys.
+import { legacyGrantOps } from '../src/config-moves.ts';
 import { createOpsEnv } from '../src/tools/impl/env.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.js';
 import { tempDir } from './fixtures/tmp.js';
@@ -228,6 +230,20 @@ test('ops: a stored grant on a command or group that runs no operation any more 
   assert.deepEqual(legacyGrantOps('status'), { from: null, names: ['status.show'] });
 });
 
+// PR 7b: with `/nep` gone no embed is built; the card is its fields, which the chat prints as sections and her call
+// reads as lines.
+test('status.show answers the card as its fields, with no embed', async () => {
+  const env = makeEnv();
+  const result = await runOp('status.show', { field: 'features' }, { env, guildId: 'g1', userId: '42', roleIds: [] });
+  assert.equal(result.status, 'ok');
+  const data = /** @type {{ fields?: Array<{ name: string }> }} */ (result.data);
+  assert.deepEqual(
+    [Object.hasOwn(data, 'embeds'), (data.fields ?? []).map((field) => field.name)],
+    [false, ['features']]
+  );
+});
+
+// PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
 test('createOpsEnv: the simulator key, the management key and the extra role keys reach the owner status card', async () => {
   const rootDir = tempDir('nep-ops-');
   const costs = {
@@ -275,10 +291,10 @@ test('createOpsEnv: the simulator key, the management key and the extra role key
   assert.equal(env.managementKey, 'mgmt-test');
   const result = await runOp('status.show', { field: 'keys.base' }, { env, guildId: null, userId: '42', roleIds: [] });
   assert.deepEqual(
-    result.data.embeds[0].fields.map((field) => field.name),
+    result.data.fields.map((field) => field.name),
     ['keys.base']
   );
-  const value = result.data.embeds[0].fields[0].value;
+  const value = result.data.fields[0].value;
   assert.deepEqual(
     value.split('\n'),
     ['main 0.00/30.00', 'sim 0.00/5.00', 'core key 0.00/200.00'],
@@ -297,6 +313,7 @@ test('createOpsEnv: the simulator key, the management key and the extra role key
   );
 });
 
+// PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
 test('status keys: a role on the simulator key (here the vision role) is shown on the simulator line, never on a line of its own', async () => {
   const rootDir = tempDir('nep-ops-');
   const costs = {
@@ -336,7 +353,7 @@ test('status keys: a role on the simulator key (here the vision role) is shown o
     simKey: 'sim-test-key',
   });
   const result = await runOp('status.show', { field: 'keys.base' }, { env, guildId: null, userId: '42', roleIds: [] });
-  const value = result.data.embeds[0].fields[0].value;
+  const value = result.data.fields[0].value;
   assert.deepEqual(
     value.split('\n'),
     ['main 0.00/30.00', 'sim 0.00/5.00', 'dev key 0.00/200.00'],
@@ -350,11 +367,12 @@ test('status keys: a role on the simulator key (here the vision role) is shown o
     { env: noSim, guildId: null, userId: '42', roleIds: [] }
   );
   assert.ok(
-    without.data.embeds[0].fields[0].value.split('\n').includes('vision key 0.00/200.00'),
+    without.data.fields[0].value.split('\n').includes('vision key 0.00/200.00'),
     'with no simulator key on the card, the role keeps a line of its own'
   );
 });
 
+// PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
 test("status keys.base and costs.errands: the errand agents' key has no line and no read; their spend comes from the task records, the agents without records show no runs", async () => {
   const rootDir = tempDir('nep-ops-');
   const costs = {
@@ -418,7 +436,7 @@ test("status keys.base and costs.errands: the errand agents' key has no line and
   const errands = { store: (guildId) => (guildId === 'g1' ? tasks : null) };
   const env = createOpsEnv({ discord: DISCORD, hot, store, client: {}, getGuildId: () => 'g1', llm, errands });
   const card = async (field) =>
-    (await runOp('status.show', { field }, { env, guildId: 'g1', userId: '42', roleIds: [] })).data.embeds[0].fields;
+    (await runOp('status.show', { field }, { env, guildId: 'g1', userId: '42', roleIds: [] })).data.fields;
 
   const [keys] = await card('keys.base');
   assert.deepEqual(
@@ -444,7 +462,7 @@ test("status keys.base and costs.errands: the errand agents' key has no line and
   const noErrands = createOpsEnv({ discord: DISCORD, hot, store, client: {}, getGuildId: () => 'g1', llm });
   const [empty] = (
     await runOp('status.show', { field: 'costs.errands' }, { env: noErrands, guildId: 'g1', userId: '42', roleIds: [] })
-  ).data.embeds[0].fields;
+  ).data.fields;
   assert.deepEqual(
     empty.value.split('\n'),
     ['scout: none', 'server: none', 'est.'],
@@ -476,6 +494,7 @@ const COST_LABELS = {
  * @param {(db: import('../src/board/schema.ts').BoardDb) => void} seed
  * @returns {Promise<Array<string>>}
  */
+// PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
 async function developmentField(seed) {
   const now = Date.parse('2026-10-31T10:00:00.000Z');
   const privateDir = tempDir('nep-ops-board-');
@@ -514,8 +533,7 @@ async function developmentField(seed) {
       { field: 'costs.development' },
       { env, guildId: 'g1', userId: '42', roleIds: [] }
     );
-    const value = /** @type {{ embeds: Array<{ fields: Array<{ value: string }> }> }} */ (answer.data).embeds[0]
-      ?.fields[0]?.value;
+    const value = /** @type {{ fields: Array<{ value: string }> }} */ (answer.data).fields[0]?.value;
     return String(value).split('\n');
   } finally {
     handle.close();

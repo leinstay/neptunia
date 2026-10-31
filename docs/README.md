@@ -40,11 +40,10 @@ The persona's inner life (heartbeat wakes, intentions, the diary) runs the same 
 | [Development agents](development-agents.md) | The dev and thinker agents, profiles, the two run paths |
 | [The task board](board.md) | What the board holds, its roles, how the agents reach it, its costs, the restore and the ledger import |
 | [Interfaces](interfaces.md) | The interface port and protocol, the Discord adapter, adding an interface |
-| [The neptunia command](cli.md) | The owner's chat in a terminal and its commands, `-p`, pause, `doctor`, the errand runner and the units |
+| [The neptunia command](cli.md) | The owner's chat in a terminal and its commands, the access model, `-p`, pause, `doctor`, the errand runner and the units |
 | [Media](media.md) | Pictures, video, drawing, voice messages, GIFs, custom emoji, web and server search |
 | [Repository structure](structure.md) | The generated table of every folder and file pattern of the tracked tree: purpose, layer, what it may import, whether its modules need a test |
 | [Configuration reference](configuration.md) | Every key in config.json |
-| [Owner commands](owner-commands.md) | The /nep command tree and the access model |
 | [Prompt contract](prompt-contract.md) | The contract between prompt files and code: files, placeholders, labels, output tags |
 | [Writing](../WRITING.md) | How prose is written here: the habits of model text and what to do instead, documentation, prompts, commits, replies, the accepted examples |
 | [Style guide](../STYLEGUIDE.md) | How code and documentation are written |

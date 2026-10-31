@@ -296,6 +296,7 @@ test("draw parity: a diary set's pictures, the persona in the first one only", a
   ]);
 });
 
+// PR 7b: admin.run takes the operation's name, the command key map is gone; the expectations are as they were.
 test('draw parity: /nep draw with self', async () => {
   const images = recordingImages();
   const admin = createAdmin({
@@ -314,7 +315,7 @@ test('draw parity: /nep draw with self', async () => {
     now: () => NOW,
   });
   const { result } = await withCapturedLogs(() =>
-    admin.run('draw', { text: 'me reading by the window', self: true }, { guildId: 'g1', userId: '42' })
+    admin.run('draw.create', { text: 'me reading by the window', self: true }, { guildId: 'g1', userId: '42' })
   );
   assert.equal(result.files.length, 1);
   // The owner's command carries no local time: its `{{when}}` is blank.

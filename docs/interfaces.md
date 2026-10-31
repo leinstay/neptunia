@@ -207,7 +207,7 @@ Every client of the core is a principal: a `name`, a `kind` (`interface`, `cli`,
 - An `event` with a malformed body is answered `invalid` with the field and the problem.
 - A second `hello` is answered `invalid` with `hello:repeated`.
 - An event of another `iface` is answered `invalid` with `body.iface:foreign`.
-- A `command.requested` of a principal that may not send one is answered `invalid` with `body.kind:not-allowed` and logged as `link: event refused`. The `cli` principal may, so may an `agent` principal, and so may an interface principal whose `permissions` hold `commands`.
+- A `command.requested` of a principal that may not send one is answered `invalid` with `body.kind:not-allowed` and logged as `link: event refused`. The `cli` principal may and so may an `agent` principal. An interface principal may not, whatever its `permissions` hold.
 - An `agent` principal sends nothing but `command.requested` events whose `name` starts with `task.`. Any other event of it is answered `invalid` with `body.kind:not-allowed`, and any other command with `body.name:not-allowed`, and neither reaches the door.
 
 The namespace `cli` belongs to the owner's command line: a `cli` principal must say `hello` as `iface: 'cli'`, and any other principal that names `cli` is refused with `iface`. The namespace `agent` belongs to the development agents of the task board in the same way: an `agent` principal must say `hello` as `iface: 'agent'`, and no other principal may.
@@ -229,12 +229,11 @@ An interface package exports `start(host)`, which resolves with a running interf
 | `log` | The logger. An interface package never imports the core's. |
 | `createClient` | Builds the platform client from the privileged intents asked for. Tests inject a stand-in. |
 
-`start` builds the platform client, logs in, resolves the platform's guild, connects the link and serves the adapter over it. It rejects with a message when it cannot: `missing DISCORD_TOKEN`, a login that failed, or a guild that cannot be told (see "Guild resolution"). The running interface it resolves with has four fields:
+`start` builds the platform client, logs in, resolves the platform's guild, connects the link and serves the adapter over it. It rejects with a message when it cannot: `missing DISCORD_TOKEN`, a login that failed, or a guild that cannot be told (see "Guild resolution"). The running interface it resolves with has these fields:
 
 | Field | What it is |
 |---|---|
 | `iface` | The interface's namespace on the link. |
-| `legacy` | What the core still takes from the platform package: `serveCommands` (see "What the core still takes from the interface"). |
 | `open()` | Delivers the events the interface has held since `start`, and every later one. |
 | `stop()` | Closes the link and the platform client. |
 | `reconnect()` | Optional. Opens a new link with `connect()` and says `hello` again, keeping the platform client. The fake and the Discord interfaces have it. |
@@ -312,7 +311,7 @@ The Discord adapter lives in `interfaces/discord/` as the npm workspace package 
 - A member or user update becomes `membership.changed` with the avatar hash and url from `members.ts#memberView`. A message's author carries the same pair as `author.avatar`.
 - A channel or thread that is created, edited or deleted becomes `conversation.changed`. At connect every readable channel and cached thread is announced as `updated`.
 - Voice states, presences, the guild snapshot and the shard's loss and return become `voice.changed`, `presence.changed`, `presence.snapshot` and `connection.changed`.
-- Slash command interactions go to the interaction handler that the session builds over the core's admin when the core calls `legacy.serveCommands(admin)`. The session registers the command tree again when `bot.commandName` or `features.adminCommands` change.
+- The interface registers no slash command. On its first connect it lists the application commands its bot has on the guild, deletes each one and logs `interface: slash commands deleted` with the count in `deleted`. A guild that refuses the listing, as Discord does for a bot invited without the `applications.commands` scope, is logged as `interface: slash commands not deleted`, and the session carries on. An interaction that still arrives gets a short ephemeral refusal from the session and never reaches the core.
 - A new or edited channel of the served guild makes the audience warmer fetch the members its overwrites name. The warmer also runs once at `open()`.
 
 Besides the port, `createDiscordInterface` returns a frozen capabilities object: the functions the package's own modules call over discord.js objects. They include:
@@ -324,7 +323,6 @@ Besides the port, `createDiscordInterface` returns a frozen capabilities object:
 - Around: builders that turn voice states, presences and a guild's snapshot into protocol events. The core's around store keeps the live view for the `<people_now>` prompt block, never persisted and gone at restart.
 - Emoji: the server's custom emoji index.
 - Audience: warming the member cache for the audience rail.
-- Commands: the slash command tree, registration and interaction handling.
 
 The core reaches none of them. Everything it asks of the platform goes through the reads and the port, and a test or a tool hands in a fake adapter (`src/interface/fake.js`).
 
@@ -376,7 +374,7 @@ One instance serves exactly one Discord server. The guild is resolved from `bot.
 
 The fake answers every read from what a test seeds: `seedConversation(info)` gives a conversation with its permissions, audience and viewers, `seedEvent(event)` puts a whole message into a conversation's history, `seedMember`, `seedGroups`, `seedEmoji` and `seedReactors` give the members, groups, emoji and reactors a read returns, and `removeConversation` takes a conversation away. The `reads` option limits which reads the fake declares, and `showSendsInHistory(false)` keeps the persona's own sends out of the history it serves.
 
-`src/interface/fake-interface.ts` starts the fake the way a package starts: `start(host, { legacy, selfId, self, community, reads })` connects with `host.connect()`, serves the adapter with `serveAdapter` and resolves with the running interface plus `emit(event)`, which injects an inbound event and resolves with the core's ack status, and `adapter`, whose stored messages are what the persona posted. `self` and `community` are what its `hello` tells the core, and a test that names neither gets the account of `selfId` and the community `g1`. With a `host.dataDir` the fake numbers its events in an outbox there. `drop()` closes its end of the link as a lost connection would, and `reconnect()` connects again, says `hello` and resends what the core has not acknowledged. The fake has no `legacy` of its own, and a turn needs none: it reads the conversation through the fake's reads. `tests/fixtures/core-over-fake.ts` starts the whole core over the fake with temporary directories, the tracked prompts and a scripted model, and `tests/core-slice.test.ts` runs a message through it.
+`src/interface/fake-interface.ts` starts the fake the way a package starts: `start(host, { selfId, self, community, reads })` connects with `host.connect()`, serves the adapter with `serveAdapter` and resolves with the running interface plus `emit(event)`, which injects an inbound event and resolves with the core's ack status, and `adapter`, whose stored messages are what the persona posted. `self` and `community` are what its `hello` tells the core, and a test that names neither gets the account of `selfId` and the community `g1`. With a `host.dataDir` the fake numbers its events in an outbox there. `drop()` closes its end of the link as a lost connection would, and `reconnect()` connects again, says `hello` and resends what the core has not acknowledged. A turn reads the conversation through the fake's reads. `tests/fixtures/core-over-fake.ts` starts the whole core over the fake with temporary directories, the tracked prompts and a scripted model, and `tests/core-slice.test.ts` runs a message through it.
 
 `replayFixture(fixture, door)` replays a recorded fixture of inbound events through the event door in order, the way a live adapter would deliver them. A `redeliver: n` field on an event sends it n extra times (the door answers `duplicate` to each), testing at-least-once delivery.
 
@@ -400,9 +398,7 @@ To wire up a new chat platform:
 
 A `command.requested` event never reaches the event door. `createCommandIntake` in `src/interface/neptunia-cli.ts` stands between each link and the door. It validates the event, acknowledges it at once and runs it on the command desk (`createCommandDesk`). The answer goes back over the same link as a `command.result` action with the command's `replyRef`, `text` and `status`. So a command and its answer never reach her memory, a turn or a request.
 
-A command of the `cli` principal is a command of the chat's table (see [The neptunia command](cli.md#commands)) and runs as the owner. The desk answers `status`, `header`, `help` and the interface switches itself and hands every other one to the owner's console (`createConsole` in `src/interface/commands/console.ts`). The console runs an operation through `runOp` with the context flag `asOwner`, which the rights check and the owner checks inside the operations pass whatever `bot.owners` says. Only the desk sets that flag, and only for the `cli` principal. A command of an `agent` principal, and a `task.*` command of the `cli` principal, is a command of the task board, run under the principal's name with the board's own rights (see [The core](core.md#the-board-on-the-cores-socket)). A command of an interface principal granted `commands` is a `/nep` command key with its arguments, run through the admin's `runCommand` with the rights of its requester, as on the in-process path. `serveAdapter` hands a `command.result` to its `onCommandResult` option and answers it `ok`. Without that option the action is `unsupported`.
-
-The Discord session forwards `/nep` this way until the core hands it an admin. Under `interfaces.mode: units` no core does, so each interaction goes to the core as `command.requested` under the principal `discord`, and the text of the answer is the interaction's reply. The session registers the command tree itself when it opens in that mode. Without the permission `commands` the core refuses the event, and the reply says the core did not take the command.
+A command of the `cli` principal is a command of the chat's table (see [The neptunia command](cli.md#commands)) and runs as the owner. The desk answers `status`, `header`, `help` and the interface switches itself and hands every other one to the owner's console (`createConsole` in `src/interface/commands/console.ts`). The console runs an operation through `runOp` with the context flag `asOwner`, which the rights check and the owner checks inside the operations pass whatever `bot.owners` says. Only the desk sets that flag, and only for the `cli` principal. A command of an `agent` principal, and a `task.*` command of the `cli` principal, is a command of the task board, run under the principal's name with the board's own rights (see [The core](core.md#the-board-on-the-cores-socket)). The link refuses a command of an interface principal, and the desk answers one that reaches it `denied`. `serveAdapter` hands a `command.result` to its `onCommandResult` option and answers it `ok`. Without that option the action is `unsupported`.
 
 ## The owner's command line in the core
 
@@ -410,8 +406,6 @@ The chat's direct conversation `cli:dm:owner` is a conversation of the namespace
 
 The private-chat gate lets the chat through whatever `features.privateMessages` and `bot.owners` say (`privateChatsOff` and `CLI_GATE` in `src/behavior/core-pause.ts`). Only the `cli` principal may name that namespace, so the chat is the owner's.
 
-## What the core still takes from the interface
+## What the core takes from the interface
 
-`start` resolves with `legacy`, an object with one field, `serveCommands(admin)`. `src/interface/legacy.ts` types it from the core's side, so the core needs no type from `interfaces/`. `serveCommands` builds the interaction handler over the core's admin, wires the slash command interactions to it and returns `{ register() }`, which pushes the command tree. `startCore` calls it when it runs the interface in its own process. An interface that has none (the fake) serves no commands.
-
-Everything else the core knows of the community comes through the reads: recall and search, the offline catch-up, the journal's reconciliation of the persona's own messages, the emoji index, the avatar queue and the memory backfills. The member directory and the conversation directory of the core name who and where.
+The core takes nothing from an interface besides the link. Everything it knows of the community comes through the reads: recall and search, the offline catch-up, the journal's reconciliation of the persona's own messages, the emoji index, the avatar queue and the memory backfills. The member directory and the conversation directory of the core name who and where.
