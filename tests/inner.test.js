@@ -34,27 +34,14 @@ import { createIntentionService } from '../src/intentions/service.ts';
 import { createIntention } from '../src/intentions/model.ts';
 import { localHour } from '../src/format.js';
 import { HOUR_MS, MINUTE_MS, DAY_MS, zonedEpoch } from '../src/time.js';
-import { wakeOf } from '../src/memory/db/wake-queue.ts';
 import { tempDir } from './fixtures/tmp.js';
-import { openTestMemorySync } from './fixtures/memory-db/service.js';
+import { seeded, wakeMemory } from './fixtures/inner-rig.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
 
 useIface('fake');
 const NOW = Date.parse('2026-10-19T12:00:00Z');
 const SILENT = { info() {}, warn() {}, error() {} };
 const GUILD = 'g1';
-
-/** A seeded stream in [0, 1) (mulberry32). */
-function seeded(seed) {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 function intention(
   id,
@@ -179,30 +166,6 @@ function setup({
 }
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
-
-/**
- * The memory database's read connection. The service's JS source leaves it untyped; this is the node:sqlite shape it
- * has while the database is open.
- * @param {{ readHandle(): unknown }} memoryDb
- */
-function readOf(memoryDb) {
-  return /** @type {{ db: { prepare(sql: string): { all(...params: string[]): Array<{ id: string }> } } }} */ (
-    memoryDb.readHandle()
-  );
-}
-
-/**
- * The stored wakes in `state` (src/memory/db/wake-queue.ts), read on the memory database's read connection.
- * @param {{ readHandle(): unknown }} memoryDb
- * @param {string} state
- */
-function wakesIn(memoryDb, state) {
-  const handle = readOf(memoryDb);
-  return handle.db
-    .prepare('SELECT id FROM wakes WHERE state = ? ORDER BY queued_at, id')
-    .all(state)
-    .map((row) => wakeOf(handle, row.id));
-}
 
 test.beforeEach(() => void (clock.t = NOW));
 
@@ -666,8 +629,8 @@ test('inner: what one drain hands off (a stale wake) and keeps (the wake of a he
   ];
   const hot = hotWith({ innerLife: { caps: { perChain: 1 } } });
   // The queue and the handled set live in the memory database (stage 4 cut, the lead's decision 1); the facts stay in inner.json.
-  const { memoryDb } = openTestMemorySync({ dataDir, now: () => clock.t });
-  const run = setup({ records, dataDir, hot, memoryDb });
+  const db = wakeMemory(dataDir, () => clock.t);
+  const run = setup({ records, dataDir, hot, memoryDb: db.memoryDb });
   run.turns.busy = true;
   await run.inner.tick();
   // Chain k already spent; i1 closed meanwhile.
@@ -677,15 +640,18 @@ test('inner: what one drain hands off (a stale wake) and keeps (the wake of a he
   await run.inner.tick();
   assert.equal(run.turns.calls.length, 0);
   const onDisk = JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', GUILD, 'inner.json'), 'utf8'));
-  const queued = wakesIn(memoryDb, 'queued');
   assert.deepEqual(
-    queued
+    db
+      .queue()
       .filter((wake) => wake.kind !== 'feedback')
-      .map((wake) => `${String(wake.payload.intentionIds[0])}:${String(wake.payload.capped)}`),
+      .map((wake) => `${wake.intentionIds[0]}:${wake.capped}`),
     ['i2:per-chain']
   );
   assert.deepEqual(
-    queued.filter((wake) => wake.kind === 'feedback').map((wake) => wake.payload.factIds.length),
+    db
+      .queue()
+      .filter((wake) => wake.kind === 'feedback')
+      .map((wake) => wake.factIds.length),
     [1],
     'the hold, told by a feedback wake'
   );
@@ -694,7 +660,7 @@ test('inner: what one drain hands off (a stale wake) and keeps (the wake of a he
     ['wakeDropped:stale', 'wakeHeld:per-chain']
   );
   assert.deepEqual(
-    wakesIn(memoryDb, 'handled').map((wake) => wake.outcome),
+    db.wakes('handled').map((wake) => wake.outcome),
     ['stale']
   );
 });
@@ -2416,30 +2382,27 @@ test('heartbeat: the review keeps working unchanged beside it', async () => {
 test('inner: the turn in flight is on disk while the turn runs and gone once it ended; a turn held (busy) leaves no mark', async () => {
   const dataDir = tempDir('nep-inner-flight-');
   // The in-flight mark is the running wake in the memory database (stage 4 cut, the lead's decision 1).
-  const { memoryDb } = openTestMemorySync({ dataDir, now: () => clock.t });
-  const records = [intention('i1')];
-  const wakeId = wakeOfDue({ intention: records[0], reason: 'due', at: records[0].dueAt }).id;
+  const db = wakeMemory(dataDir, () => clock.t);
   let during = null;
   const turns = fakeTurns({
     answer: (params) => {
-      during = { running: wakesIn(memoryDb, 'running'), journalTurn: params.journalTurn };
+      during = { running: db.wakes('running'), journalTurn: params.journalTurn };
       return { outcome: 'skip', reason: 'nothing-to-do', inner: { actions: [], turnId: 't-1' } };
     },
   });
-  const run = setup({ records, turns, dataDir, memoryDb });
+  const run = setup({ records: [intention('i1')], turns, dataDir, memoryDb: db.memoryDb });
   await run.inner.tick();
   assert.deepEqual(
     [
-      during.running.map((wake) => wake.id),
+      during.running.length,
       during.running[0].kind,
       during.running[0].payload.channelId,
       during.running[0].turnId === during.journalTurn.turnId,
       during.journalTurn.attemptId,
     ],
-    [[wakeId], 'intention_due', 'c1', true, 1]
+    [1, 'intention_due', 'c1', true, 1]
   );
-  assert.deepEqual(wakesIn(memoryDb, 'running'), [], 'no wake runs once the turn ended');
-  assert.equal(wakeOf(readOf(memoryDb), wakeId).state, 'handled');
+  assert.equal(db.wake(during.running[0].id).state, 'handled', 'gone once it ended');
 
   const held = setup({
     records: [intention('i2')],
