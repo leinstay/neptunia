@@ -28,6 +28,7 @@ const SHOWN: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze({
   'errand.status': ['id', 'from'],
   'errand.cancel': ['id'],
   'errand.resolve': ['id', 'from'],
+  'board.propose': ['title'],
   'intention.set': ['id', 'text', 'due', 'every', 'channel'],
   'intention.update': ['id', 'text', 'due', 'every', 'channel'],
   'intention.cancel': ['id'],
