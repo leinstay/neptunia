@@ -27,9 +27,12 @@
 // `unknown`; it answers how many finished and how many did not.
 //
 // `answerCommand` sends the `command.result` of a command the principal asked for over this link, with its `status`.
-// A command reaches the link only from a `cli` principal or an interface principal granted `commands`; any other is
-// refused and logged as `link: event refused`. Only a `cli` principal says hello as `iface: 'cli'`, and it says hello
-// under no other namespace.
+// A command reaches the link only from a `cli` principal, an interface principal granted `commands`, or an `agent`
+// principal; any other is refused and logged as `link: event refused`. Only a `cli` principal says hello as
+// `iface: 'cli'`, only an `agent` principal says hello as `iface: 'agent'`, and neither says hello under another
+// namespace. An agent (a development agent of the task board) sends nothing but `command.requested` events whose
+// `name` starts with `task.`: any other event and any other command of it is answered `invalid` and never reaches the
+// door.
 //
 // `createInterfaceLinks` keeps every link of the core's socket, answers which interfaces are connected and runs the
 // disable of one: the owner's switch is written first, then each of its links drains. `createIfaceRouter` puts the
@@ -133,21 +136,36 @@ export const CLI_IFACE = 'cli';
 /** The permission that lets an interface principal send commands (a unit's slash commands, `/nep`). */
 export const COMMANDS_PERMISSION = 'commands';
 
-/** Whether `principal` may send `command.requested`: the owner's command line, or an interface granted `commands`. */
+/** The namespace of the board's agents: only an `agent` principal says hello under it, and it says hello under no other. */
+export const AGENT_IFACE = 'agent';
+
+/** The prefix of the only commands an agent principal sends: the board's (src/board/commands.ts). */
+const TASK_PREFIX = 'task.';
+
+/** Whether `principal` may send `command.requested`: the owner's command line, an agent, or an interface granted `commands`. */
 export const mayCommand = (principal: Principal): boolean =>
-  principal.kind === 'cli' || principal.permissions.includes(COMMANDS_PERMISSION);
+  principal.kind === 'cli' || principal.kind === 'agent' || principal.permissions.includes(COMMANDS_PERMISSION);
 
 /** Why the authenticated sender of `body` may not send it, or null. */
 function eventRefusal(body: Record<string, unknown>, iface: string, principal: Principal): string | null {
   if (body.iface !== iface) return 'body.iface:foreign';
+  if (principal.kind === 'agent') {
+    if (body.kind !== 'command.requested') return 'body.kind:not-allowed';
+    if (typeof body.name !== 'string' || !body.name.startsWith(TASK_PREFIX)) return 'body.name:not-allowed';
+    return null;
+  }
   if (body.kind === 'command.requested' && !mayCommand(principal)) return 'body.kind:not-allowed';
   return null;
 }
 
-/** Why a principal may not say hello under `iface`, or null: the `cli` namespace belongs to the `cli` principals alone. */
+/**
+ * Why a principal may not say hello under `iface`, or null: the `cli` namespace belongs to the `cli` principals alone,
+ * the `agent` namespace to the `agent` principals alone.
+ */
 function ifaceRefusal(found: Principal, iface: unknown): string | null {
   if (found.iface !== null && found.iface !== iface) return 'iface';
   if ((found.kind === 'cli') !== (iface === CLI_IFACE)) return 'iface';
+  if ((found.kind === 'agent') !== (iface === AGENT_IFACE)) return 'iface';
   return null;
 }
 

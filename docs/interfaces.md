@@ -200,16 +200,17 @@ At start `startCore` (`src/core.js`) makes a random token with `crypto.randomByt
 
 ### Clients and principals
 
-Every client of the core is a principal: a `name`, a `kind` (`interface`, `cli` or `plugin`), the `iface` an interface's events must carry, and `permissions`. `principalOfToken` in `src/interface/principals.ts` resolves a token to its principal from the private layer's `clients.json` and the token files beside it (see [Configuration](configuration.md#clients-and-their-tokens)), reading them at every call. With no `clients.json` the one principal is the boot principal: the token the core made at start, named after the interface it runs, and bound to the `iface` its `hello` names.
+Every client of the core is a principal: a `name`, a `kind` (`interface`, `cli`, `plugin` or `agent`), the `iface` an interface's events must carry, and `permissions`. `principalOfToken` in `src/interface/principals.ts` resolves a token to its principal from the private layer's `clients.json` and the token files beside it (see [Configuration](configuration.md#clients-and-their-tokens)), reading them at every call. With no `clients.json` the one principal is the boot principal: the token the core made at start, named after the interface it runs, and bound to the `iface` its `hello` names.
 
 `openAdapterLink` takes `principalOf` and resolves the token of `hello`, and again for every later envelope, so a rotated or revoked token closes the link at its next envelope. The principal decides what the connection may do, never what `hello` claims: the `kind` or an owner named in `hello` grants nothing. After `hello`, every envelope is checked with `validateEnvelope` by its type, and the link stays open whatever it answers:
 
 - An `event` with a malformed body is answered `invalid` with the field and the problem.
 - A second `hello` is answered `invalid` with `hello:repeated`.
 - An event of another `iface` is answered `invalid` with `body.iface:foreign`.
-- A `command.requested` of a principal that may not send one is answered `invalid` with `body.kind:not-allowed` and logged as `link: event refused`. The `cli` principal may, and so may an interface principal whose `permissions` hold `commands`.
+- A `command.requested` of a principal that may not send one is answered `invalid` with `body.kind:not-allowed` and logged as `link: event refused`. The `cli` principal may, so may an `agent` principal, and so may an interface principal whose `permissions` hold `commands`.
+- An `agent` principal sends nothing but `command.requested` events whose `name` starts with `task.`. Any other event of it is answered `invalid` with `body.kind:not-allowed`, and any other command with `body.name:not-allowed`, and neither reaches the door.
 
-The namespace `cli` belongs to the owner's command line: a `cli` principal must say `hello` as `iface: 'cli'`, and any other principal that names `cli` is refused with `iface`.
+The namespace `cli` belongs to the owner's command line: a `cli` principal must say `hello` as `iface: 'cli'`, and any other principal that names `cli` is refused with `iface`. The namespace `agent` belongs to the development agents of the task board in the same way: an `agent` principal must say `hello` as `iface: 'agent'`, and no other principal may.
 
 `openAdapterLink` also takes `admit`, which the core passes to refuse a `hello` of an interface whose `interfaces.<name>.enabled` is `false`, with the reason `interface-disabled`. Every refused `hello` is logged as `link: hello refused` with its reason (`token`, `iface`, `hello-invalid` or `interface-disabled`), and the link closes.
 
@@ -399,7 +400,7 @@ To wire up a new chat platform:
 
 A `command.requested` event never reaches the event door. `createCommandIntake` in `src/interface/neptunia-cli.ts` stands between each link and the door. It validates the event, acknowledges it at once and runs it on the command desk (`createCommandDesk`). The answer goes back over the same link as a `command.result` action with the command's `replyRef`, `text` and `status`. So a command and its answer never reach her memory, a turn or a request.
 
-A command of the `cli` principal is one of the commands of the `neptunia` chat (see [The neptunia command](cli.md)) and runs with the owner's rights. A command of an interface principal granted `commands` is a `/nep` command key with its arguments, run through the admin's `runCommand` with the rights of its requester, as on the in-process path. `serveAdapter` hands a `command.result` to its `onCommandResult` option and answers it `ok`. Without that option the action is `unsupported`.
+A command of the `cli` principal is one of the commands of the `neptunia` chat (see [The neptunia command](cli.md)) and runs with the owner's rights. A command of an `agent` principal, and a `task.*` command of the `cli` principal, is a command of the task board, run under the principal's name with the board's own rights (see [The core](core.md#the-board-on-the-cores-socket)). A command of an interface principal granted `commands` is a `/nep` command key with its arguments, run through the admin's `runCommand` with the rights of its requester, as on the in-process path. `serveAdapter` hands a `command.result` to its `onCommandResult` option and answers it `ok`. Without that option the action is `unsupported`.
 
 The Discord session forwards `/nep` this way until the core hands it an admin. Under `interfaces.mode: units` no core does, so each interaction goes to the core as `command.requested` under the principal `discord`, and the text of the answer is the interaction's reply. The session registers the command tree itself when it opens in that mode. Without the permission `commands` the core refuses the event, and the reply says the core did not take the command.
 
