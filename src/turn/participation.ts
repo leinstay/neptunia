@@ -8,7 +8,6 @@ import { audienceCovers } from '../behavior/elsewhere.ts';
 import { diaryConversationIds } from '../behavior/mirror.ts';
 import { audienceAllows, everyMemberAudience, railAudience } from '../behavior/snapshot.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
-import type { Line } from '../behavior/lines.ts';
 import { log } from '../log.js';
 import { collectPictures } from '../media/classify.js';
 import { participationSettings, recordOwnLine } from '../memory/index.js';
@@ -41,7 +40,10 @@ export type ParticipationContext = {
 };
 
 /** A message of a turn's history as participation reads it. */
-type HistoryMessage = Line & {
+type HistoryMessage = {
+  id: string | null;
+  ts: number;
+  self?: boolean;
   authorId?: string | null;
   authorName?: string | null;
   content?: unknown;
@@ -50,7 +52,7 @@ type HistoryMessage = Line & {
 
 /** One message in the participation store's shape. */
 type ParticipationMessage = {
-  id: string;
+  id: string | null;
   ts: number;
   authorId: string;
   name: string;

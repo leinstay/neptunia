@@ -590,6 +590,13 @@
       "test": "none"
     },
     {
+      "path": "src/turn/act.ts",
+      "purpose": "The act of a turn: her reactions, messages and GIF posted, checked, typed out, journaled and recorded, and a diary post's speech held. Tested through the turn, journal turn, gifs and diary turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/errands/",
       "purpose": "The errand service: the ledger, the store, the client to the runner and the turns that bring results back.",
       "layer": "public",
