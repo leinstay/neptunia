@@ -15,6 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { moveConfigKeys } from '../../config-moves.ts';
+import { cutConfigKeys } from '../../config/cut.ts';
 import { checkConfig } from '../../config/check.ts';
 import { localConfigPath } from '../../config/files.ts';
 import { CONFIG_SCHEMA } from '../../config/schema.ts';
@@ -137,7 +138,8 @@ function configShow(privateDir: string): Answer {
 
 /**
  * `/config check`: the private settings file against the schema (src/config/check.ts), its keys of an old name moved
- * to the new one first (src/config-moves.ts), one line per unknown key or key of the wrong type.
+ * to the new one first (src/config-moves.ts) and the keys of the config cut taken out (src/config/cut.ts), one line per
+ * unknown key or key of the wrong type.
  */
 function configCheck(privateDir: string): Answer {
   const file = localConfigPath(privateDir);
@@ -149,7 +151,7 @@ function configCheck(privateDir: string): Answer {
   } catch (err) {
     return { text: `${shown} does not parse: ${err instanceof Error ? err.message : String(err)}`, status: 'failed' };
   }
-  const settled = isRecord(local) ? moveConfigKeys(local).config : local;
+  const settled = isRecord(local) ? cutConfigKeys(moveConfigKeys(local).config).config : local;
   const problems = checkConfig(settled, CONFIG_SCHEMA);
   if (problems.length === 0) return { text: `${shown}: every key is known and of its type`, status: 'ok' };
   const lines = problems.map(({ key, kind }) => (kind === 'unknown' ? `${key}: unknown key` : `${key}: wrong type`));

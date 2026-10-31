@@ -16,6 +16,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { log } from './log.js';
 import { moveConfigKeys } from './config-moves.ts';
+import { cutConfigKeys } from './config/cut.ts';
 import { localFiles, trackedConfigPath } from './config/files.ts';
 
 export const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -182,23 +183,30 @@ function mergeConfigFiles(rootDir, privateDir) {
 }
 
 /**
- * The local file with its keys of an earlier name written under their new one (src/config-moves.ts), one warning line
- * per load when any moved, lost to a key of the new name or was dropped. The file itself is untouched: `tools/config-migrate.mjs`
- * writes the same moves into it.
+ * The local file with its keys of an earlier name written under their new one (src/config-moves.ts), then the keys the
+ * config cut took out of the settings removed (src/config/cut.ts), with one warning line per load when either changed
+ * anything. The file itself is untouched: `tools/config-migrate.mjs` writes the same moves and the same cut into it.
  * @param {unknown} local
  * @returns {unknown}
  */
 function movedLocal(local) {
   if (typeof local !== 'object' || local === null || Array.isArray(local)) return local;
   const { config, moved, shadowed, dropped } = moveConfigKeys(/** @type {Record<string, unknown>} */ (local));
-  if (moved.length > 0 || shadowed.length > 0 || dropped.length > 0)
-    log.warn('config: keys of an old name read under the new one', {
+  const after = cutConfigKeys(config);
+  const interfaces = Object.keys(after.interfaces).length;
+  const counts = [moved, shadowed, dropped, after.cut, after.renamed].map((list) => list.length);
+  if (counts.some((n) => n > 0) || interfaces > 0)
+    log.warn('config: keys of an old name read under the new one, or cut from the settings', {
       moved: moved.length,
       shadowed: shadowed.length,
       dropped: dropped.length,
+      cut: after.cut.length,
+      differs: after.differs.length,
+      renamed: after.renamed.length,
+      interfaces,
       migrate: 'tools/config-migrate.mjs',
     });
-  return config;
+  return after.config;
 }
 
 export const env = process.env;
