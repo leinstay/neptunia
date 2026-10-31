@@ -358,6 +358,15 @@ function startWorker({ workerFile, log, codeOf }) {
   return engine;
 }
 
+/** What a migration needs from the opener (open.js#migrate): the diary channel as a place, and the data directory. */
+function openContextOf(config, dataDir) {
+  const channel = config?.diary?.channelId;
+  return {
+    diaryPlaceId: typeof channel === 'string' && channel ? channelPlaceId(LEGACY_IFACE, channel) : null,
+    dataDir,
+  };
+}
+
 /**
  * @param {{ hot: { config: object }, dataDir: string, log?: object, now?: () => number,
  *   open?: typeof openMemoryDb, defer?: (fn: () => void) => void, worker?: boolean, iface?: () => string | null,
@@ -417,11 +426,8 @@ export function createMemoryDb({
   let replaying = false;
   const pendingDir = path.join(dataDir, PENDING_DIR);
 
-  /** What a migration needs from the opener (open.js#migrate): the deployment's diary channel as a place. */
-  const openContext = () => {
-    const channel = hot.config?.diary?.channelId;
-    return { diaryPlaceId: typeof channel === 'string' && channel ? channelPlaceId(LEGACY_IFACE, channel) : null };
-  };
+  // What a migration needs from the opener (openContextOf).
+  const openContext = () => openContextOf(hot.config, dataDir);
 
   async function openNow() {
     const { file } = settings();

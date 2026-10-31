@@ -9,6 +9,7 @@
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import { MIGRATIONS, finishDiaryDestination, finishDiaryMirror } from './schema.js';
+import { importWakeQueues } from './wake-queue.ts';
 
 const originalListeners = process.listeners('warning');
 process.removeAllListeners('warning');
@@ -70,7 +71,8 @@ export function schemaVersion(db) {
 /**
  * Applies every migration above the current version, in one transaction. An entry is SQL text or a function of the
  * connection and `context` (what only the opener knows: `diaryPlaceId`, the deployment's diary channel, for v12 and
- * v15). A data step v12 or v15 could not finish without the context is finished by the first open that has it.
+ * v15, and `dataDir`, the data directory, for v18). A data step v12, v15 or v18 could not finish without the context
+ * is finished by the first open that has it.
  */
 export function migrate(db, migrations = MIGRATIONS, context = {}) {
   inTransaction(db, () => {
@@ -86,6 +88,7 @@ export function migrate(db, migrations = MIGRATIONS, context = {}) {
     if (migrations === MIGRATIONS && schemaVersion(db) >= MIGRATIONS.length) {
       finishDiaryDestination(db, context);
       finishDiaryMirror(db, context);
+      importWakeQueues(db, context);
     }
   });
 }
@@ -111,7 +114,7 @@ export function inTransaction(db, fn) {
  * Opens a memory database.
  * @param {string} dbPath  A file path, or ':memory:' (no lock, no file).
  * @param {{ readOnly?: boolean, migrations?: Array<string | ((db: never, context: never) => void)>, pid?: number, now?: () => number, alive?: (pid: number) => boolean,
- *   context?: { diaryPlaceId?: string|null } }} [opts]  `context`: what a migration step needs from the opener (migrate)
+ *   context?: { diaryPlaceId?: string|null, dataDir?: string } }} [opts]  `context`: what a migration step needs from the opener (migrate)
  * @returns {{ db: object, path: string, readOnly: boolean, transaction: (fn: () => any) => any, close: () => void }}
  */
 export function openMemoryDb(dbPath, opts = {}) {
