@@ -1,17 +1,18 @@
 // The clients of the core and the principal each token stands for. The private layer's `clients.json` maps a client's
-// name to its principal: `kind` (`interface`, `cli` or `plugin`), `iface` for an interface, `tokenFile` (a path under
-// the private directory, `clients/<name>.token`, mode 0600) and `permissions`. tools/client-token.mjs writes both. The
-// link (src/interface/link.ts) resolves the token of every envelope through `principalOfToken`, which reads the files
-// at each call, so a rotated or revoked token stops at the next envelope. With no `clients.json` the core's boot
-// principal, made at start for its one in-process interface, is the only one. A `clients.json` that cannot be read
-// makes every token no one. Logs nothing and never throws.
+// name to its principal: `kind` (`interface`, `cli`, `plugin` or `agent`), `iface` for an interface, `tokenFile` (a
+// path under the private directory, `clients/<name>.token`, mode 0600), `permissions`, and for a client of the task
+// board its `boardRoles` (src/board/board.ts reads those). tools/client-token.mjs writes both. An agent's principal has
+// no `iface`: it says hello under `agent` (src/interface/link.ts). The link resolves the token of every envelope
+// through `principalOfToken`, which reads the files at each call, so a rotated or revoked token stops at the next
+// envelope. With no `clients.json` the core's boot principal, made at start for its one in-process interface, is the
+// only one. A `clients.json` that cannot be read makes every token no one. Logs nothing and never throws.
 
 import { createHash, timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-/** The client kinds: an interface package, the owner's command line, a plugin. */
-export const PRINCIPAL_KINDS = ['interface', 'cli', 'plugin'] as const;
+/** The client kinds: an interface package, the owner's command line, a plugin, a development agent of the board. */
+export const PRINCIPAL_KINDS = ['interface', 'cli', 'plugin', 'agent'] as const;
 export type PrincipalKind = (typeof PRINCIPAL_KINDS)[number];
 
 /**
@@ -44,7 +45,8 @@ const isKind = (value: unknown): value is PrincipalKind =>
 function entryOf(name: string, value: unknown): ClientEntry | null {
   if (!isObject(value) || !isKind(value.kind)) return null;
   if (typeof value.tokenFile !== 'string' || value.tokenFile === '') return null;
-  const iface = typeof value.iface === 'string' && value.iface !== '' ? value.iface : null;
+  const named = typeof value.iface === 'string' && value.iface !== '' ? value.iface : null;
+  const iface = value.kind === 'agent' ? null : named;
   if (value.kind === 'interface' && iface === null) return null;
   const permissions = Array.isArray(value.permissions)
     ? value.permissions.filter((item): item is string => typeof item === 'string')

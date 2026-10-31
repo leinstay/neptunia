@@ -60,5 +60,6 @@ test('the committed table holds a row per tool of the registry and a verdict per
     contexts.filter((name) => row.verdicts[name] === undefined).map((name) => `${row.tool}:${name}`)
   );
   assert.deepEqual(gaps, []);
-  assert.equal(committed.tools.length, 67);
+  // Two more since the board tools board.propose and board.status (PR 6c).
+  assert.equal(committed.tools.length, 69);
 });

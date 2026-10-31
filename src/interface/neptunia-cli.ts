@@ -1,7 +1,12 @@
-// The core's side of the owner's commands over the link: what answers a `command.requested` event. src/core.js hands
-// each one here before the event door sees it, so a command never reaches her memory, her turns or her requests. The
-// link (link.ts) lets a command through only from the `cli` principal (the `neptunia` chat and `neptunia -p`, the
-// owner) or from an interface principal granted `commands` (a unit's slash commands, `/nep`).
+// The core's side of the commands over the link: what answers a `command.requested` event. src/core.js hands each one
+// here before the event door sees it, so a command never reaches her memory, her turns or her requests. The link
+// (link.ts) lets a command through only from the `cli` principal (the `neptunia` chat and `neptunia -p`, the owner),
+// from an interface principal granted `commands` (a unit's slash commands, `/nep`), or from an `agent` principal (a
+// development agent of the task board, `neptunia task`).
+//
+// A command of an `agent` principal, and a `task.*` command of the `cli` principal, is a board command: it runs as
+// the principal's name through `tasks` (src/board/commands.ts, run in the memory writer by src/board/writer.ts), so
+// the board's rights decide it, and it answers whether the core is paused or not.
 //
 // A command of an interface principal is a `/nep` command key with its arguments: it runs through the admin's
 // `runCommand`, the rights of its requester checked as on the in-process path. A command of the `cli` principal is one
@@ -25,7 +30,9 @@ import type { Adapter } from '../protocol/adapter.ts';
 import type { RoleDown } from '../llm/role-health.ts';
 import type { Logger } from '../protocol/serve.ts';
 import type { Envelope } from '../protocol/wire.ts';
+import type { TaskAnswer } from '../board/commands.ts';
 import type { AdapterLink, From, LinkDoor } from './link.ts';
+import type { Principal } from './principals.ts';
 
 /** The commands the `cli` principal runs, each with the line `help` prints for it. */
 export const CLI_COMMANDS = {
@@ -87,7 +94,12 @@ export type CommandDeps = {
   };
   facts(): StatusFacts;
   guildId(): string | null;
+  /** The board's `task.*` commands, run under a principal's name. */
+  tasks: { command(principal: string, name: string, args: Record<string, unknown>): Promise<TaskAnswer> };
 };
+
+/** The prefix of the board's commands. */
+const TASK_PREFIX = 'task.';
 
 const money = (value: number): string => `$${value.toFixed(value >= 1 ? 2 : 4)}`;
 
@@ -164,7 +176,7 @@ const OPERATION_OF: Record<string, [string, Record<string, unknown>]> = {
 };
 
 export function createCommandDesk(deps: CommandDeps): {
-  run(event: CommandEvent, kind: 'cli' | 'interface' | 'plugin'): Promise<Answer>;
+  run(event: CommandEvent, principal: Pick<Principal, 'kind' | 'name'>): Promise<Answer>;
 } {
   async function interfaceCommand(name: string, args: Record<string, unknown>): Promise<Answer> {
     if (name === 'interface.list') {
@@ -214,10 +226,17 @@ export function createCommandDesk(deps: CommandDeps): {
     return { text: `Error: ${result.summary}`, status: result.status };
   }
 
+  async function boardCommand(event: CommandEvent, principal: string): Promise<Answer> {
+    const answer = await deps.tasks.command(principal, event.name, event.args);
+    return { text: answer.text, status: answer.status };
+  }
+
   return {
-    async run(event, kind) {
+    async run(event, principal) {
       try {
-        return kind === 'cli' ? await cliCommand(event) : await nepCommand(event);
+        if (principal.kind === 'agent' || (principal.kind === 'cli' && event.name.startsWith(TASK_PREFIX)))
+          return await boardCommand(event, principal.name);
+        return principal.kind === 'cli' ? await cliCommand(event) : await nepCommand(event);
       } catch (err) {
         log.warn('commands: command failed', { command: event.name, error: err });
         return failed(err);
@@ -367,9 +386,9 @@ export function createCommandIntake(deps: {
     if (!verdict.ok || desk === null) return ackOf(value, 'invalid', verdict.ok ? 'not-ready' : verdict.reason);
     // The event passed validation as a command.requested: its fields are those of CommandEvent.
     const event = body as unknown as CommandEvent & { replyRef: string };
-    const kind = link.principal()?.kind ?? 'interface';
+    const principal = link.principal() ?? { kind: 'interface', name: '' };
     void desk
-      .run(event, kind)
+      .run(event, principal)
       .then((answer) => link.answerCommand({ replyRef: event.replyRef, ...answer }))
       .catch((err: unknown) => deps.log.warn('commands: answer not sent', { error: err }));
     return ackOf(value, 'ok');

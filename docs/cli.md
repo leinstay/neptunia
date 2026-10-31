@@ -10,6 +10,7 @@
 | `neptunia errand-runner --profile <name>` | Runs the errand runner of one agent, as `deploy/neptunia-agent-<name>.service` does. |
 | `neptunia interface run <name> [--interfaces-dir <dir>]` | Runs one interface, as `deploy/neptunia-interface@.service` does (see [Interfaces](interfaces.md#interfaces-as-units)). |
 | `neptunia service install\|start\|stop\|restart\|status [<unit> ...]` | Installs the units with `deploy/install.sh`, or runs `systemctl` on the named units, by default `neptunia-core.service` and the two errand units. |
+| `neptunia task <command> [options]` | The task board's command line, a client of the core (see [The task board](#the-task-board)). |
 
 ## The client
 
@@ -63,6 +64,12 @@ The core's side of these commands is `src/interface/neptunia-cli.ts` (see [Comma
 | `tokens` | Every client of `clients.json` has a token file that is not empty and that only its owner can read. |
 | `database` | `PRAGMA quick_check` of the memory database. A missing database is `warn`. |
 | `socket` | `<data>/run/core.sock` exists and the core answers on it. |
+
+## The task board
+
+`neptunia task <command>` (`bin/neptunia-task.ts`) is the command line of the task board for the development agents. It takes the commands and flags of the ledger's `task` command, sends each as the board's `task.*` command over the core's socket and prints the core's answer (see [The core](core.md#the-board-on-the-cores-socket)). `neptunia task help` prints them all. Beside the ledger's commands it has `next --lane <lane> --role <role>`, which claims the first ready task of a role and prints it. It also has `block`, `unblock`, `submit` with the handoff as JSON from `--handoff <file>` or `-` for stdin, `review --accept` or `review --changes --comment`, `orient`, and `--parent` on `add`. The holder's calls `heartbeat`, `release`, `result`, `ask`, `block` and `submit` take the lease's generation as `--generation <n>`, the number `next` and `claim` answer. The core refuses `heartbeat`, `release`, `block` and `submit` without it. `update`, `triage`, `move`, `cancel`, `fail` and `result` read the task first for its revision or status. `--json` prints the answer's JSON, `--key <key>` sends an idempotency key, and `--socket <path>` names another socket than `<data>/run/core.sock`.
+
+The token is `NEPTUNIA_TASK_TOKEN` itself, or else the file `<private>/clients/<name>.token` of the client `NEPTUNIA_TASK_CLIENT` names. The command says `hello` as `iface: 'agent'`, so the token must stand for a client of kind `agent`, and that client's `boardRoles` decide what the board lets it do (see [Configuration](configuration.md#clients-and-their-tokens)). It exits 0 when the core answers `ok`. It exits 1 for any other answer, with `<status>: <text>` on stderr, and with `unavailable: ...` when no token is set or no core listens. A usage error (an unknown command, a missing id or a missing required flag) exits 2 before it connects. The commands answer while the core is paused.
 
 ## The errand runner
 

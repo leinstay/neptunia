@@ -732,7 +732,9 @@
   "board": {
     "leaseTtlMinutes": 30,
     "autoTriage": { "role": "dev", "budget": 4, "steps": 80, "estimate": 30 },
-    "projects": {}
+    "projects": {},
+    "reapSeconds": 60,
+    "briefWaitMs": 1800000
   },
   "intentions": {
     "expiresDays": 14,

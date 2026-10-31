@@ -66,6 +66,8 @@ export const OP_EFFECTS: Readonly<Record<string, EffectClass>> = Object.freeze({
   'errand.list': 'read',
   'errand.read': 'read',
   'errand.resolve': 'write',
+  'board.propose': 'write',
+  'board.status': 'read',
   'web.search': 'read',
   'web.read': 'read',
   'media.look': 'read',

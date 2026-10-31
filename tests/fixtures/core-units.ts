@@ -105,8 +105,14 @@ export function folders(config: Settings = {}): Dirs {
   return { root, dataDir, privateDir, paths: { rootDir: REPO, privateDir, dataDir } };
 }
 
-/** One client of the core: its name, kind, the `iface` of an interface and its permissions. */
-export type Client = { name: string; kind: 'interface' | 'cli'; iface?: string; permissions?: ReadonlyArray<string> };
+/** One client of the core: its name, kind, the `iface` of an interface, its permissions and its board roles. */
+export type Client = {
+  name: string;
+  kind: 'interface' | 'cli' | 'agent';
+  iface?: string;
+  permissions?: ReadonlyArray<string>;
+  roles?: ReadonlyArray<string>;
+};
 
 /** The fake interface unit's client and the owner's command line, the clients of most rigs. */
 export const FAKE_CLIENT: Client = { name: 'fake', kind: 'interface', iface: 'fake' };
@@ -117,6 +123,7 @@ export function addClient(privateDir: string, client: Client): void {
   const args = ['tools/client-token.mjs', 'add', client.name, '--kind', client.kind];
   if (client.iface !== undefined) args.push('--iface', client.iface);
   for (const permission of client.permissions ?? []) args.push('--permission', permission);
+  if (client.roles !== undefined) args.push('--roles', client.roles.join(','));
   const run = spawnSync(process.execPath, args, {
     cwd: REPO,
     encoding: 'utf8',

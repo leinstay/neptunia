@@ -45,7 +45,8 @@ const HELLO: Hello = { iface: 'fake', self: SELF, community: null, capabilities:
 
 const FAKE: Principal = { name: 'fake', kind: 'interface', iface: 'fake', permissions: [] };
 const OWNER: Principal = { name: 'owner', kind: 'cli', iface: 'cli', permissions: [] };
-const TOKENS: Record<string, Principal> = { 'fake-token': FAKE, 'owner-token': OWNER };
+const AGENT: Principal = { name: 'hand', kind: 'agent', iface: null, permissions: [] };
+const TOKENS: Record<string, Principal> = { 'fake-token': FAKE, 'owner-token': OWNER, 'agent-token': AGENT };
 const principalOf = (token: string): Principal | null => TOKENS[token] ?? null;
 
 function reaction(id: string, conversationId = 'c1', iface = 'fake'): Record<string, unknown> {
@@ -119,6 +120,9 @@ function core(held: ReadonlyArray<string> = []) {
         return hold(event.id);
       },
       'command.requested': (event: { id: string }) => {
+        started.push(event.id);
+      },
+      'message.received': (event: { id: string }) => {
         started.push(event.id);
       },
     },
@@ -303,4 +307,61 @@ test('an abort after the action went out sends a cancel naming it, and the resul
   assert.equal(delivery.status, 'ok');
   assert.equal(delivery.ref?.messageId, 'p1');
   link.close();
+});
+
+// Stage 6c: an agent principal (a development agent of the board) says hello under `agent` and sends board
+// commands only: a `command.requested` whose name starts with `task.`.
+
+/** A command of the agent namespace named `name`. */
+const agentCommand = (id: string, name: string): Record<string, unknown> => ({
+  ...command(id, 'agent'),
+  name,
+  args: {},
+});
+
+test('an agent principal reaches a task command, and its status command is refused', async () => {
+  const rig = core();
+  rig.hello('agent-token', { iface: 'agent' });
+  await within(rig.link.hello);
+  rig.client.send(envelope('event', agentCommand('k1', 'task.list'), { id: 'k1' }));
+  assert.equal((await answered(rig, 'k1')).status, 'ok');
+  rig.client.send(envelope('event', agentCommand('k2', 'status'), { id: 'k2' }));
+  assert.equal((await answered(rig, 'k2')).status, 'invalid');
+  assert.deepEqual(rig.started, ['k1']);
+  rig.link.close();
+});
+
+test("an agent principal's message event is refused and never reaches the door", async () => {
+  const rig = core();
+  rig.hello('agent-token', { iface: 'agent' });
+  await within(rig.link.hello);
+  const message = {
+    kind: 'message.received',
+    iface: 'agent',
+    at: 1,
+    id: 'm1',
+    conversation: { id: 'agent:hand', kind: 'dm' },
+    message: {
+      id: 'm1',
+      author: { id: 'hand', name: 'hand', self: false, bot: false },
+      content: 'hello',
+      sourceText: 'hello',
+      system: false,
+      at: 1,
+      replyToId: null,
+      replyPingUserId: null,
+      forwardedFrom: null,
+      attachments: [],
+      links: [],
+      forwarded: [],
+      stickers: [],
+      emojis: [],
+      reactions: [],
+    },
+    addressing: { mentioned: false, replyToSelf: false, mentionedUserIds: [], mentionedConversationIds: [] },
+  };
+  rig.client.send(envelope('event', message, { id: 'm1' }));
+  assert.equal((await answered(rig, 'm1')).status, 'invalid');
+  assert.deepEqual(rig.started, []);
+  rig.link.close();
 });

@@ -230,6 +230,8 @@ export const API_NAMES: Readonly<Record<string, string>> = Object.freeze({
   'errand.list': 'errand_list',
   'errand.read': 'errand_read',
   'errand.resolve': 'errand_resolve',
+  'board.propose': 'board_propose',
+  'board.status': 'board_status',
   'intention.set': 'intention_set',
   'intention.update': 'intention_update',
   'intention.cancel': 'intention_cancel',
@@ -654,6 +656,13 @@ const ENTRIES: Array<Definition> = [
     toArgs: taskStatusArgs('read'),
   }),
   def('errand.resolve', { params: obj({ id: str() }, ['id']), effects: 'write', toArgs: taskStatusArgs('resolve') }),
+  def('board.propose', {
+    params: obj({ title: str(200), evidence: str(4000), acceptance: str(2000) }, ['title', 'evidence']),
+    body: 'evidence',
+    effects: 'write',
+    toArgs: (a) => ({ title: val(a, 'title'), evidence: val(a, 'evidence'), acceptance: val(a, 'acceptance') }),
+  }),
+  def('board.status', { params: EMPTY(), effects: 'read', toArgs: none }),
   def('intention.set', {
     params: INTENT_PARAMS.set,
     refs: { channel: 'channel', attend: 'channel' },

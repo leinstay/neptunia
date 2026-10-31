@@ -9,6 +9,7 @@
 //   neptunia errand-runner --profile <name>      the errand runner of one agent (deploy/neptunia-agent-<name>.service)
 //   neptunia interface run <name> [--interfaces-dir <dir>]   one interface (deploy/neptunia-interface@.service)
 //   neptunia service install|start|stop|restart|status [<unit> ...]   the units, through systemctl
+//   neptunia task <command> [options]            the task board's command line (bin/neptunia-task.ts)
 //
 // Every command reads `NEPTUNIA_PRIVATE_DIR` (the local layer) and `NEPTUNIA_DATA_DIR` (the data folder), as the core
 // does (src/paths.js). A usage error exits 2.
@@ -74,6 +75,7 @@ import type {
 } from '../src/protocol/adapter.ts';
 import type { InterfaceHost, RunningInterface } from '../src/protocol/host.ts';
 import { serveAdapter } from '../src/protocol/serve.ts';
+import { runTask } from './neptunia-task.ts';
 import type { CommandResult, Logger } from '../src/protocol/serve.ts';
 import { MAX_FRAME_BYTES, connectSocket } from '../src/protocol/wire.ts';
 import type { Transport } from '../src/protocol/wire.ts';
@@ -85,6 +87,7 @@ const USAGE = [
   '       neptunia errand-runner --profile <name>',
   '       neptunia interface run <name> [--interfaces-dir <dir>]',
   '       neptunia service install|start|stop|restart|status [<unit> ...]',
+  '       neptunia task <command> [options]   (neptunia task help)',
 ].join('\n');
 
 /** The first wait before a new connection, and the longest. */
@@ -1031,6 +1034,9 @@ switch (group) {
     break;
   case 'interface':
     await runInterface(rest).catch(fault);
+    break;
+  case 'task':
+    process.exit(await runTask(rest).catch(fault));
     break;
   default:
     usage();

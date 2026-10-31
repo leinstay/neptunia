@@ -321,6 +321,20 @@
     "whenToUse": "Mark resolved; leaves errands block.",
     "whenNotToUse": "Not needed once you report its result."
   },
+  "board.propose": {
+    "title": "Propose a change to your code",
+    "whenToUse": "Something in how you work keeps going wrong, or an ability is missing, and only a code change would fix it. Files a proposal on the task board. The owner decides whether it gets built. board.status shows where it stands.",
+    "whenNotToUse": "Not for a one-off slip or for an errand.",
+    "args": {
+      "title": "The change, in a few words.",
+      "evidence": "What went wrong, where and how often. The reviewer reads only this.",
+      "acceptance": "How to tell the change works."
+    }
+  },
+  "board.status": {
+    "title": "Check your proposals",
+    "whenToUse": "Your proposals with their state, the questions put to you and the reviews."
+  },
   "errand.cancel": {
     "title": "Cancel an errand",
     "whenToUse": "Stop an open errand.",

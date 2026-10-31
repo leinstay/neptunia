@@ -92,6 +92,8 @@ import { coreSocketPath, listenSocket } from './interface/socket.ts';
 import { MAX_FRAME_BYTES, connectSocket } from './protocol/wire.ts';
 import { createAroundStore } from './behavior/around-store.ts';
 import { createScheduler } from './behavior/scheduler.ts';
+import { boardSettings, boardTimings } from './board/board.ts';
+import { createBoardPort } from './board/writer.ts';
 import { createReactorStore, applyReactionChanged } from './behavior/reactor-store.ts';
 import { createReads } from './interface/reads.ts';
 import { createIntentionStores } from './intentions/store.ts';
@@ -308,6 +310,14 @@ async function buildCore(options, cleanups) {
     onSessionFailure: (failure) => tellSessionFailure(failure),
   });
   cleanups.push(() => memoryDb.close());
+  // The task board (src/board/, docs/core.md "The task board"): its tables in the memory database, every write of it
+  // a write of the memory writer, over the core's clock, the live `board.*` settings and the private layer's
+  // clients.json, read at each call. The agents' `task.*` commands, her board tools and the reaper's beat use it.
+  const board = createBoardPort({
+    write: (write) => memoryDb.memoryWrite({ kind: 'board', write }),
+    context: () => ({ at: clock(), settings: boardSettings(settings.config), privateDir: paths.privateDir }),
+    briefWaitMs: () => boardTimings(settings.config).briefWaitMs,
+  });
   // The record (src/memory/record.js): every observed message, the persona's own lines and her
   // feelings, written while features.record is exactly true (read at each write).
   // A snapshot holds the record's appends with the journal's writer lock (journal.withWriterLock).
@@ -969,6 +979,8 @@ async function buildCore(options, cleanups) {
   const admin = createAdmin({
     hot,
     store,
+    // Her board tools (src/tools/impl/board.ts): she files and reads as the builtin principal `persona`.
+    board,
     roleHealth,
     // The operations' `env.reads`: the conversation they post in, a message's event.
     reads,
@@ -1044,6 +1056,8 @@ async function buildCore(options, cleanups) {
     admin,
     interfaces: interfaceLinks,
     guildId: getGuildId,
+    // The agents' board commands (src/board/commands.ts), each run in the memory writer.
+    tasks: board,
     facts: () =>
       coreStatusFacts({
         hot,
@@ -1253,6 +1267,17 @@ async function buildCore(options, cleanups) {
     run: async () => {
       await diary.tick();
       await mirrors.drainQueued();
+    },
+  });
+  // The board's reaper (src/board/board.ts#reap), every board.reapSeconds (read before each wait): a lease past its
+  // expiry goes back to approved with its generation raised, so the late holder's next call is refused. Nothing to
+  // do while the memory database is not open.
+  scheduler.add({
+    name: 'board.reap',
+    everyMs: () => boardTimings(settings.config).reapSeconds * 1000,
+    run: async () => {
+      const ids = await board.reap();
+      if (ids.length > 0) log.info('board: leases expired', { count: ids.length, tasks: ids });
     },
   });
   // The inner life's tick, every innerLife.tickSeconds (read before each wait).

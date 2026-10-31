@@ -18,6 +18,8 @@ const DISCORD = createDiscordInterface().capabilities;
 
 /** The operation names the commands-cleanup plan agreed on (its wildcards spelled out), `/nep talk` since merged into `message.create`. */
 const AGREED = new Set([
+  'board.propose',
+  'board.status',
   'status.show',
   'config.set',
   'config.unset',

@@ -91,6 +91,7 @@ import { applyEntryMedia } from './diary-media.js';
 import { writeBackup } from './backup.js';
 import { applyIngestWrite } from './ingest.ts';
 import { applyWakeQueueWrite } from './wake-queue.ts';
+import { applyBoardWrite } from '../../board/writer.ts';
 import { takeOverClaim } from './session-rows.ts';
 
 /**
@@ -613,6 +614,12 @@ function guard(update) {
   if (update.mode !== 'shadow' && update.mode !== 'apply') throw coded('BAD_MODE');
 }
 
+/** The writers that take the handle and the whole update, by the update's kind. */
+const WHOLE_WRITES = new Map([
+  ['wake-queue', applyWakeQueueWrite],
+  ['board', applyBoardWrite],
+]);
+
 /** Applies one write on the writer connection; returns counts. */
 export function applyMemoryWrite(handle, update) {
   const kind = /** @type {unknown} */ (update?.kind);
@@ -627,8 +634,9 @@ export function applyMemoryWrite(handle, update) {
   if (kind === 'entry-media') return applyEntryMedia(handle, update);
   // Schema v16: the event door's ingestion record (ingest.ts).
   if (kind === 'ingest' || kind === 'ingest-ack' || kind === 'ingest-release') return applyIngestWrite(handle, update);
-  // Schema v18: the inner life's wake queue and leases (wake-queue.ts).
-  if (kind === 'wake-queue') return applyWakeQueueWrite(handle, update);
+  // Schema v18: the inner life's wake queue and leases (wake-queue.ts); the task board (src/board/writer.ts).
+  const whole = WHOLE_WRITES.get(/** @type {string} */ (kind));
+  if (whole) return whole(handle, update);
   if (kind === 'backup') {
     return writeBackup(handle, {
       to: update.to,
