@@ -87,33 +87,8 @@ test('a second open changes neither the board nor the archive', () => {
   assert.deepEqual(part(second), part(first));
 });
 
-test('the archive keeps its rows and refuses an insert, an update and a delete of work', () => {
-  const { file } = archiveDataDir();
-  withOpen(file, (db) => {
-    assert.equal(countOf(db, "SELECT COUNT(*) AS n FROM work WHERE kind = 'errand'"), ARCHIVE.length);
-    assert.throws(() =>
-      db.prepare("INSERT INTO work (id, kind, state, record) VALUES ('t0000e999', 'errand', 'queued', '{}')").run()
-    );
-    assert.throws(() => db.prepare("UPDATE work SET state = 'done' WHERE id = 't0000e002'").run());
-    assert.throws(() => db.prepare("DELETE FROM work WHERE id = 't0000e003'").run());
-    assert.equal(countOf(db, 'SELECT COUNT(*) AS n FROM work'), ARCHIVE.length);
-    assert.equal(countOf(db, "SELECT COUNT(*) AS n FROM work WHERE id = 't0000e002' AND state = 'failed'"), 1);
-  });
-});
-
-test('the archive refuses an insert, an update and a delete of work_events', () => {
-  const { file } = archiveDataDir();
-  withOpen(file, (db) => {
-    const before = countOf(db, 'SELECT COUNT(*) AS n FROM work_events');
-    assert.ok(before > 0, 'the fixture wrote transition lines');
-    assert.throws(() =>
-      db.prepare("INSERT INTO work_events (id, work_id, at_ms, record) VALUES ('x:1:0', 't0000e001', 1, '{}')").run()
-    );
-    assert.throws(() => db.prepare('UPDATE work_events SET at_ms = 0').run());
-    assert.throws(() => db.prepare('DELETE FROM work_events').run());
-    assert.equal(countOf(db, 'SELECT COUNT(*) AS n FROM work_events'), before);
-  });
-});
+// The archive is unwritten by the code, not guarded by triggers: the lead chose the spec's reading, since
+// triggers on `work` would break the unit writer's seeds and the memory-only restore (PR 6d).
 
 test('a database with no archived errand reaches board v3 with an empty board', () => {
   const handle = openMemoryDb(':memory:');
