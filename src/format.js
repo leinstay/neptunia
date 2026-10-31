@@ -803,7 +803,7 @@ function numberMessageRefs(text, refs, numberOf) {
  *   GIF id -> its three caption fields, cut for display (src/behavior/prompt.js#gifFieldsMap);
  *   a GIF with a handle, a caption and a non-empty reaction or on-screen text renders
  *   `transcript.gifKnownFields`, falling back to `gifKnown` when the labels lack that key.
- * @param {Map<string, { question: string, text: string }>} [options.imageAnswers]  Picture id -> a
+ * @param {Map<string, { question: string, text: string }>|null} [options.imageAnswers]  Picture id -> a
  *   second look on a question (src/memory/describe.js#relookImage); renders `transcript.imageAnswered`
  *   after the picture's tag. Ignored when the labels have no `transcript.imageAnswered` key.
  * @param {boolean} [options.seeReactions]  Default true: a message's `reactions` render as

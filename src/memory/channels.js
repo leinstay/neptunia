@@ -62,7 +62,7 @@ function topWritersText(topWriters, nameOf) {
  *   topWriters?: {id: string, count: number}[] }} channel
  * @param {object} labels  Live `prompts.labels`; uses `labels.server.*`/`labels.units`.
  * @param {{ current?: boolean, activity: 'live'|'slow'|'dead', now?: number,
- *   nameOf?: (id: string) => (string|null), readOnly?: boolean }} options  `now` and
+ *   nameOf?: (id: string) => (string|null), readOnly?: boolean, diary?: boolean }} options  `now` and
  *   `labels.server.lastMessage` together render "how long ago the last message was"
  *   (`formatDuration`, the same humanised-age function the `<tempo>` block uses); `nameOf` and
  *   `labels.server.topWriters` together render who writes here most. Either fact is omitted --
