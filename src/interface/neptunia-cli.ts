@@ -9,7 +9,8 @@
 // `pause`, `resume`, `wakes`, `errands` and `intentions` (the `/nep` operations of the same name), `interface.list`,
 // `interface.enable` and `interface.disable` (`args.name`), and `help`. Every answer is plain text with a status:
 // `ok` when the command ran, else the operation's own status (`denied`, `invalid`, `error`). `status` and `header`
-// read what the core holds already (today's usage, the inner life, the errands, the interfaces) and call no model.
+// read what the core holds already (today's usage, the inner life, the errands, the interfaces, the model roles that
+// are down by src/llm/role-health.ts) and call no model.
 //
 // `createCommandIntake` stands between each link and the event door: a `command.requested` envelope is checked,
 // acknowledged at once and run on the desk, and its answer goes back as a `command.result` action over the same link;
@@ -21,13 +22,14 @@ import { roleModel } from '../llm/roles.js';
 import { log } from '../log.js';
 import { ackOf, validateEvent } from '../protocol/index.js';
 import type { Adapter } from '../protocol/adapter.ts';
+import type { RoleDown } from '../llm/role-health.ts';
 import type { Logger } from '../protocol/serve.ts';
 import type { Envelope } from '../protocol/wire.ts';
 import type { AdapterLink, From, LinkDoor } from './link.ts';
 
 /** The commands the `cli` principal runs, each with the line `help` prints for it. */
 export const CLI_COMMANDS = {
-  status: 'the short summary: spend today, interfaces, the next wake, intentions and errands',
+  status: 'the short summary: spend today, interfaces, failing model roles, the next wake, intentions and errands',
   pause: 'stop admission; active turns finish, messages are kept for the resume',
   resume: 'end the pause; each message kept meanwhile reaches the persona once',
   wakes: 'the next wakes and the last ones',
@@ -65,6 +67,8 @@ export type StatusFacts = {
   /** Today's requests and spend, in total and for the core model role. */
   spend: { requests: number; cost: number; coreCost: number };
   interfaces: ReadonlyArray<InterfaceRow>;
+  /** The model roles that are down or still failing, each with why. */
+  failingRoles: ReadonlyArray<{ role: string; reason: string }>;
   next: { kind: string; at: number } | null;
   intentions: { pending: number; waiting: number; proposed: number } | null;
   errands: { open: number; latest: ReadonlyArray<{ id: string; state: string; agent: string }> };
@@ -107,6 +111,7 @@ export function statusText(facts: StatusFacts): string {
     `spend today ${money(spend.cost)} over ${spend.requests} requests: core model ${money(spend.coreCost)}, ` +
       `other roles ${money(Math.max(0, spend.cost - spend.coreCost))}`,
     `interfaces: ${interfacesLine(facts.interfaces)}`,
+    ...facts.failingRoles.map((row) => `model role ${row.role} failing: ${row.reason}`),
     `next wake: ${facts.next === null ? 'none' : `${facts.next.kind} at ${clock(facts.next.at)}`}`,
     intentions === null
       ? 'intentions: off'
@@ -235,6 +240,8 @@ export type FactSources = {
   inner(guildId: string | null): unknown;
   errands(guildId: string | null): ReadonlyArray<unknown>;
   guildId(): string | null;
+  /** The model roles that are down (src/llm/role-health.ts#createRoleHealth's `failing`). */
+  failingRoles(): ReadonlyArray<RoleDown>;
 };
 
 /** How many errands the summary names by id. */
@@ -263,6 +270,7 @@ export function statusFactsOf(sources: FactSources): StatusFacts {
       coreCost: rows.filter((row) => row.role === 'core').reduce((sum, row) => sum + numberOf(row.cost), 0),
     },
     interfaces: sources.interfaces(),
+    failingRoles: sources.failingRoles().map((row) => ({ role: row.role, reason: row.reason })),
     next: typeof next.at === 'number' && typeof next.kind === 'string' ? { kind: next.kind, at: next.at } : null,
     intentions:
       intentions === null
@@ -313,6 +321,7 @@ export function coreStatusFacts(core: {
   inner: unknown;
   errands: unknown;
   guildId: () => unknown;
+  roleHealth: { failing(config: unknown): Array<RoleDown> } | null;
 }): StatusFacts {
   const list = (value: unknown): Array<unknown> => (Array.isArray(value) ? (value as Array<unknown>) : []);
   const guildId = (): string | null => {
@@ -336,6 +345,7 @@ export function coreStatusFacts(core: {
     inner: (id) => (id === null ? null : callOf(core.inner, 'status')?.(id)),
     errands: (id) => list(callOf(callOf(core.errands, 'get')?.(id), 'recent')?.(100)),
     guildId,
+    failingRoles: () => core.roleHealth?.failing(looseOf(core.hot).config) ?? [],
   });
 }
 

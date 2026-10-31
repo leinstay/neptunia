@@ -98,6 +98,13 @@
       "drawing": "openai/gpt-image-2.5-flare"
     },
     "byPurpose": {},
+    "abilities": {
+      "anthropic/claude-opus-4.6": ["text", "imagesIn"],
+      "google/gemini-3.8-flash": ["text", "imagesIn", "videoIn"],
+      "openai/text-embedding-3-large": ["embeddings"],
+      "elevenlabs/eleven-v4": ["audioOut"],
+      "openai/gpt-image-2.5-flare": ["imagesOut"]
+    },
     "errands": {
       "scout": "openrouter/openai/gpt-6.1-sol",
       "server": "openrouter/openai/gpt-6.1-sol"

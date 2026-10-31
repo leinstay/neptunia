@@ -177,7 +177,8 @@ test("roleGroup / roleConfigKeys: each role's group and config keys", () => {
 
 test("roles: the built-in defaults equal config.json's three groups, and every role has one", () => {
   const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
-  assert.deepEqual(Object.keys(shipped.models), ['base', 'byPurpose', 'errands', 'development']);
+  // `abilities` declares what each model can do, per model id (PR E in detail, stage 4 cut spec).
+  assert.deepEqual(Object.keys(shipped.models), ['base', 'byPurpose', 'abilities', 'errands', 'development']);
   assert.deepEqual(Object.keys(shipped.models.base), [CORE_ROLE, MEMORY_ROLE, ...NON_CORE_ROLES, 'drawing']);
   assert.deepEqual(Object.keys(shipped.models.errands), [...ERRAND_ROLES]);
   assert.deepEqual(Object.keys(shipped.models.development), [...DEVELOPMENT_ROLES]);

@@ -16,7 +16,7 @@ The picture is downloaded first (`src/media/fetch-image.js`) and sent to the mod
 
 When someone asks about a picture the persona has already seen, a re-look happens. With `features.imageRelook` on (default `true`), the rewatch classifier offers recent pictures alongside videos and the vision model looks at the picture again with the person's question. The answer appears in the transcript alongside the original caption. Picture re-looks share the daily counter `media.video.rewatch.maxPerDay` (default 20) with video rewatches.
 
-With `features.coreTools` on, the persona can look at a picture herself by calling the `media.look` tool with a message reference and her own question (at most `media.look.maxPerTurn` per turn, default 2).
+With `features.coreTools` on, the persona can look at a picture herself by calling the `media.look` tool with a message reference and her own question (at most `media.look.maxPerTurn` per turn, default 2). With the `vision` role down the look goes to the core model or answers `ability-unavailable` (see [When a model role is down](#when-a-model-role-is-down)).
 
 Switch: `features.mediaDescriptions` (default `true`).
 
@@ -119,6 +119,8 @@ At most `image.maxPerDay` (default 50) pictures per day and `image.maxPerUserPer
 
 Pricing depends on the provider. The provider's `usage.cost` is reported by `/nep draw` and logged (model and counts only, never the prompt). A generation the provider rejects for content policy costs nothing. In dry-run, the full prompt is logged but nothing is generated.
 
+With the `drawing` role down, her `draw.create` goes to the core model or answers `ability-unavailable` (see [When a model role is down](#when-a-model-role-is-down)).
+
 Switch: `features.imageGeneration` (default `false`).
 Model role: `drawing`.
 
@@ -136,8 +138,18 @@ The result is posted as a Discord voice message (no text, with the voice flag). 
 
 The result tells her the duration, the characters, the estimated cost and the text as spoken. A diary turn may make one: it is not posted from the turn but kept in the entry, whose post keeps a `voice` field with the text as voiced and the length, and the diary's mirrors send it before her messages (`src/behavior/mirror.ts`).
 
+With the `speech` role down, the synthesis goes to the core model or the call answers `ability-unavailable` (see [When a model role is down](#when-a-model-role-is-down)). The pronunciation pass stays on the `analyzer`.
+
 Switch: `features.speech` (default `true`).
 Model roles: `analyzer` (pronunciation pass), `speech` (synthesis).
+
+## When a model role is down
+
+The roles behind her tools are `vision` and `video` (`media.look`), `drawing` (`draw.create`) and `speech` (`voice.say`). `src/llm/role-health.ts` keeps in memory which of them is down. A role is down when its model is `false` in `models.base`, when its key is missing, after a 401, 402 or 404, after a 429 that says the provider's daily limit is spent, and after three answers in a row with no text from the vision or video model. Any other failure of one request leaves the role up. A failing role gets one try after 1, 5, 15 and then every 60 minutes, and its first success clears it. The describer's vision and video requests, the drawing requests of her turn and the synthesis of `voice.say` report to it. A 429 from the speech endpoint carries no body the engine reads, so a daily limit there counts as a failure of one request.
+
+While a role is down, its call goes to the core model with the same input and the role's own prompt when `models.abilities` declares the role's ability for the core model (`imagesIn`, `videoIn`, `imagesOut` or `audioOut`). Otherwise the call does not happen and its result is `ability-unavailable`, worded with the ability and the reason. A global failure met during a call routes that same call at once. The first result of a turn that took either path carries one more line naming every tool role that is down, so she hears it once per turn (`labels.tools.route`, [Prompt contract](prompt-contract.md)). `/status` lists each failing role with its reason, and `neptunia doctor` warns about a role with no model or no key.
+
+The analyzer and the embedding role never move to the core: the analyzer's gates fail as they do without it, and recall searches by words when embeddings fail. `/nep draw` runs on the drawing role alone.
 
 ## Blind spots
 

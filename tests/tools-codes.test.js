@@ -101,8 +101,9 @@ test('catalogue: every entry has a known status, a group and only the values the
   for (const [code, entry] of Object.entries(CATALOGUE)) {
     assert.ok(statuses.has(entry.status), code);
     assert.ok(['skill', 'wake', 'internal', 'ok'].includes(entry.group), code);
+    // `ability` and `why` are the values of `ability-unavailable` (PR E in detail, stage 4 cut spec).
     assert.ok(
-      entry.params.every((param) => ['status', 'what', 'feature'].includes(param)),
+      entry.params.every((param) => ['status', 'what', 'feature', 'ability', 'why'].includes(param)),
       code
     );
   }
@@ -110,7 +111,8 @@ test('catalogue: every entry has a known status, a group and only the values the
     Object.keys(CATALOGUE)
       .filter((code) => CATALOGUE[code].params.length > 0)
       .sort(),
-    ['cap', 'http', 'not-configured', 'provider', 'timeout']
+    // `ability-unavailable` names the ability and why its role is down (PR E in detail, stage 4 cut spec).
+    ['ability-unavailable', 'cap', 'http', 'not-configured', 'provider', 'timeout']
   );
 });
 

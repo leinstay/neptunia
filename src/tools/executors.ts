@@ -66,6 +66,18 @@ export type CallResult = { status: string; code?: string; reason?: string; data?
 /** The text of a value an argument may carry: a string, a number or a boolean; else empty. */
 const argText = (value: unknown): string =>
   typeof value === 'string' ? value : typeof value === 'number' || typeof value === 'boolean' ? String(value) : '';
+/**
+ * What an operation's result carries for her turn beside its text: the values its code's label names, and the route
+ * of a model role's call that went to the core model or did not happen (src/tools/gateway.ts#callOnRoute), read off
+ * the result or, for an `ok` reply, its data.
+ */
+function carriedOf(result: Obj): Obj {
+  const route = result.route ?? objOf(result.data).route;
+  return {
+    ...(isObj(result.values) ? { values: result.values } : {}),
+    ...(route === 'core' || route === 'unavailable' ? { route } : {}),
+  };
+}
 /** The options whose value may be a transcript number `#N`: a message she can see. */
 const MESSAGE_OPTIONS: ReadonlyArray<string> = Object.freeze(['message', 'reply', 'around', 'anchor', 'media']);
 
@@ -675,6 +687,7 @@ export async function executeCall(resolved: Resolved, deps: ExecuteDeps): Promis
       data: { text },
       ...(resultData.ref ? { ref: resultData.ref } : {}),
       ...(resultData.voice ? { voice: resultData.voice } : {}),
+      ...carriedOf(result),
       ...(status === 'ok' && typeof taskId === 'string' ? { taskId } : {}),
       ...(status === 'ok' && typeof intentionId === 'string' ? { intentionId } : {}),
     };

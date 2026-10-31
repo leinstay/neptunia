@@ -180,7 +180,7 @@ export function journalOverMemory() {
  * `wrapCommand` wraps the admin's runSkillOp; `runner` and `adminExtra` go to the runner and the
  * admin as they are.
  */
-export async function coreTurn({ answers, allowed = ['lore.list', 'memory.server.read'], coreTools = true, loop = {}, features = {}, journal = null, wrapCommand = null, runner = {}, adminExtra = {}, store = fakeStore(), content = 'βρες κάτι', classifier = 'none', config = {}, firstAttachments = new Map(), prompts = {}, seeds = [], triggerKind = 'mention', neighbours = [], clientExtra = {}, setup = null, inner = null, spontaneous = null, onAnswer = null, withHot = null, earlier = [] }) {
+export async function coreTurn({ answers, allowed = ['lore.list', 'memory.server.read'], coreTools = true, loop = {}, features = {}, journal = null, wrapCommand = null, runner = {}, adminExtra = {}, store = fakeStore(), content = 'βρες κάτι', classifier = 'none', config = {}, firstAttachments = new Map(), prompts = {}, seeds = [], triggerKind = 'mention', neighbours = [], clientExtra = {}, setup = null, inner = null, spontaneous = null, onAnswer = null, withHot = /** @type {((hot: { config: unknown, prompts: unknown }) => void) | null} */ (null), earlier = [] }) {
   const history = [...earlier, rawMessage({ id: 'm0', ts: NOW - 5000, authorId: 'u2', authorName: 'Zoë', content: 'καλημέρα', attachments: firstAttachments }), rawMessage({ id: 'm1', content })];
   const hot = hotWith({
     features: { coreTools, journal: Boolean(journal), ...features },

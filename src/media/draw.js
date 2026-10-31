@@ -57,9 +57,11 @@ export function drawPromptOf({ hot, selfName, scene, self = false, withTime = fa
  * @property {string|null} [userId]  The member whose per-member rail counts it (null: nobody's).
  * @property {{ reference?: string|null }} [avatar]  A holder the avatar is fetched into once and
  *   reused (a diary set): a `reference` of null counts as fetched, absent as not yet.
+ * @property {string|null} [model]  The core model's id when the call is routed to it (src/tools/gateway.ts#callOnRoute),
+ *   null for the drawing role's own.
  */
 export async function drawPicture({ images, hot, avatarUrl = null, imageFetcher = null, now = Date.now, input }) {
-  const { scene, selfName, self = false, withTime = false, userId = null, avatar = null } = input;
+  const { scene, selfName, self = false, withTime = false, userId = null, avatar = null, model = null } = input;
   const prompt = drawPromptOf({ hot, selfName, scene, self, withTime, now });
   let reference = null;
   let referenceMissing = false;
@@ -75,6 +77,6 @@ export async function drawPicture({ images, hot, avatarUrl = null, imageFetcher 
       if (avatar) avatar.reference = reference;
     }
   }
-  const picture = await images.generate({ prompt, reference, userId });
+  const picture = await images.generate({ prompt, reference, userId, ...(model ? { model } : {}) });
   return { picture, referenceMissing };
 }

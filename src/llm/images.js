@@ -186,15 +186,14 @@ export function createImageGen({ apiKey, getConfig, state, fetchImpl = fetch, no
   /**
    * Generate one picture. `reference` is an optional data: URL sent as an
    * input reference; `userId` (null for spontaneous turns and owner commands)
-   * selects the per-member rail. Throws `UnsupportedImageModelError` or
-   * `ImageCapError` before any request, `ImageGenError` after one.
-   * @param {{ prompt: string, reference?: string|null, userId?: string|null }} args
+   * selects the per-member rail; `model` is the drawing role's own unless the call is routed to the core model.
+   * Throws `UnsupportedImageModelError` or `ImageCapError` before any request, `ImageGenError` after one.
+   * @param {{ prompt: string, reference?: string|null, userId?: string|null, model?: string }} args
    * @returns {Promise<{ buffer: Buffer, mediaType: string, cost: number|null, usage: object|null, model: string, seconds: number }>}
    */
-  async function generate({ prompt, reference = null, userId = null }) {
+  async function generate({ prompt, reference = null, userId = null, model = roleModel(getConfig(), 'drawing') }) {
     const cfg = getConfig().image ?? {};
     const baseUrl = getConfig().llm.baseUrl;
-    const model = roleModel(getConfig(), 'drawing');
     const family = familyOf(model);
     if (!family) {
       log.warn('images: unsupported model', { model });

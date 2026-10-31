@@ -73,11 +73,12 @@ export function createSpeech({
   /**
    * Make one voice message of `text` (already within `speech.maxChars`). Throws `SpeechError` for a
    * spent rail, a failed preparation (stage `prepare`, `reason` as the pass gave it; nothing is
-   * synthesized or counted), a failed synthesis or a failed conversion.
-   * @param {{ text: string }} args
+   * synthesized or counted), a failed synthesis or a failed conversion. `model` is the speech role's own unless the
+   * call is routed to the core model.
+   * @param {{ text: string, model?: string|null }} args
    * @returns {Promise<{ ogg: Buffer, durationSecs: number, waveform: string, chars: number, cost: number, model: string, voiced: string, prepared: true, ms: number }>}
    */
-  async function say({ text }) {
+  async function say({ text, model = null }) {
     const config = getConfig();
     const original = String(text ?? '');
     const { used, cap } = quota();
@@ -106,7 +107,7 @@ export function createSpeech({
     state.markDirty();
     let made;
     try {
-      made = await synthesizeSpeech({ text: prepared.text, getConfig, env, mainKey: apiKey, fetchImpl, now });
+      made = await synthesizeSpeech({ text: prepared.text, getConfig, env, mainKey: apiKey, fetchImpl, now, model });
     } catch (err) {
       if (!(err instanceof SpeechSynthError)) throw err;
       const code = err.reason === 'not-configured' ? CODE.SPEECH_NOT_CONFIGURED : CODE.SPEECH_SYNTH_FAILED;

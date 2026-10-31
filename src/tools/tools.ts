@@ -17,7 +17,8 @@
 // wrote it to the describer's existing second-look path (src/memory/describe.js#relookImage,
 // #rewatchGif, #rewatchVideo: the vision or video model, their daily limits and cache), and the
 // answer comes back named as that model's observation with what was asked -- no classifier picks
-// the item or words the question for her. `media.find` searches her own GIF library by meaning of
+// the item or words the question for her. With the vision or video role down, the look goes to the core model or
+// answers `ability-unavailable` (the caller's `onRoute`, src/tools/gateway.ts#callOnRoute). `media.find` searches her own GIF library by meaning of
 // the stored descriptions, ranked by words only (no description vectors exist; computing them
 // would be a new background job) and returns the library's handles, which post exactly as the
 // `<gifs>` block's do.
@@ -37,6 +38,8 @@ import { CODE, FEATURE, WHAT, isCode } from './codes.ts';
 import { isObj, listOf, objOf } from './types.ts';
 import type { Obj } from './types.ts';
 import type { HandleRefs } from './conversation-read.ts';
+import { abilityUnavailable } from './gateway.ts';
+import type { AbilityRoute } from './gateway.ts';
 
 /** The words of a tool's labels (`labels.tools.tools.<kind>`): each a string when the owner wrote it. */
 type ToolLabels = Record<string, string | undefined>;
@@ -59,6 +62,8 @@ export type ToolResult = {
   reason?: string;
   values?: Obj;
   data?: { text: string };
+  /** Set when a model role's call went to the core model or did not happen (src/tools/gateway.ts#callOnRoute). */
+  route?: 'core' | 'unavailable';
 };
 
 /** One stretch of the server's history that recall found. */
@@ -82,11 +87,20 @@ export type RecallClient = {
 
 /** The describer's second look: one method per kind of media, and the day's slots. */
 export type LookDescriber = {
-  relookImage?: (guildId: string | null, item: Obj, question: string) => Promise<unknown>;
-  rewatchVideo?: (guildId: string | null, item: Obj, question: string) => Promise<unknown>;
-  rewatchGif?: (guildId: string | null, item: Obj, question: string) => Promise<unknown>;
+  relookImage?: (guildId: string | null, item: Obj, question: string, options?: LookOptions) => Promise<unknown>;
+  rewatchVideo?: (guildId: string | null, item: Obj, question: string, options?: LookOptions) => Promise<unknown>;
+  rewatchGif?: (guildId: string | null, item: Obj, question: string, options?: LookOptions) => Promise<unknown>;
   videoCapsLeft?: () => { rewatch?: number; video?: number; gif?: number } | null;
 };
+
+/** The model a second look goes out on: the core model's id when it is routed there, else the role's own. */
+export type LookOptions = { model?: string };
+
+/** How the caller routes a call of a model role (src/tools/gateway.ts#callOnRoute over the turn's role health). */
+export type OnRoute = (
+  role: string,
+  call: (model: string | null) => Promise<unknown>
+) => Promise<{ route: AbilityRoute; value: unknown }>;
 
 /** One thing media.look can look at: a picture, a GIF or a video, by the id the transcript keys it with. */
 export type LookItem = Obj & { itemId: string };
@@ -777,19 +791,42 @@ export function mediaLookText(
 const LOOKS: Readonly<
   Record<
     'image' | 'video' | 'gif',
-    { method: 'relookImage' | 'rewatchVideo' | 'rewatchGif'; on: (features: Obj, config: unknown) => boolean }
+    {
+      method: 'relookImage' | 'rewatchVideo' | 'rewatchGif';
+      role: 'vision' | 'video';
+      on: (features: Obj, config: unknown) => boolean;
+    }
   >
 > = Object.freeze({
-  image: { method: 'relookImage', on: (features) => features.imageRelook !== false },
+  image: { method: 'relookImage', role: 'vision', on: (features) => features.imageRelook !== false },
   video: {
     method: 'rewatchVideo',
+    role: 'video',
     on: (features, config) => isVideoVisionOn(objOf(config)) && features.videoRewatch !== false,
   },
   gif: {
     method: 'rewatchGif',
+    role: 'video',
     on: (features, config) => isVideoVisionOn(objOf(config)) && features.videoRewatch !== false,
   },
 });
+
+/** Whether the describer's day has no second look of `kind` left (a video also needs a video slot, a GIF a GIF watch slot). */
+function lookSpent(slots: ReturnType<NonNullable<LookDescriber['videoCapsLeft']>>, kind: string): boolean {
+  if (!slots) return false;
+  if (!((slots.rewatch ?? 0) > 0)) return true;
+  return (kind === 'video' && !((slots.video ?? 0) > 0)) || (kind === 'gif' && !((slots.gif ?? Infinity) > 0));
+}
+
+/** The look on its route: through `onRoute` when the caller routes, else on the role's own model. */
+function lookOnRoute(
+  onRoute: OnRoute | null,
+  role: string,
+  call: (model: string | null) => Promise<unknown>
+): Promise<{ route: AbilityRoute | null; value: unknown }> {
+  if (typeof onRoute === 'function') return onRoute(role, call);
+  return call(null).then((value) => ({ route: null, value }));
+}
 
 /** The switch that keeps the second look of `kind` off, by its name (`features.<name>`, or the video vision's own); '' when none is, the describer lacking the method. */
 function switchOf(kind: string, features: Obj, config: unknown): string {
@@ -823,6 +860,7 @@ export async function runMediaLook({
   args,
   mediaOf,
   takeTurnSlot = null,
+  onRoute = null,
 }: {
   describer: LookDescriber | null;
   config: unknown;
@@ -831,6 +869,7 @@ export async function runMediaLook({
   args: unknown;
   mediaOf: (messageId: string) => unknown;
   takeTurnSlot?: (() => boolean) | null;
+  onRoute?: OnRoute | null;
 }): Promise<ToolResult> {
   try {
     const given = objOf(args);
@@ -904,18 +943,17 @@ export async function runMediaLook({
       };
     }
     const slots = typeof describer?.videoCapsLeft === 'function' ? describer.videoCapsLeft() : null;
-    if (
-      slots &&
-      (!((slots.rewatch ?? 0) > 0) ||
-        (kind === 'video' && !((slots.video ?? 0) > 0)) ||
-        (kind === 'gif' && !((slots.gif ?? Infinity) > 0)))
-    )
-      return { status: 'failed', code: CODE.DAILY_CAP };
+    if (lookSpent(slots, kind)) return { status: 'failed', code: CODE.DAILY_CAP };
     if (typeof takeTurnSlot === 'function' && !takeTurnSlot()) return { status: 'failed', code: CODE.TURN_CAP };
-    const answer = objOf(await describer?.[look.method]?.(guildId, item, question));
+    const looked = await lookOnRoute(onRoute, look.role, (model) =>
+      Promise.resolve(describer?.[look.method]?.(guildId, item, question, model ? { model } : {}))
+    );
+    if (looked.route?.kind === 'unavailable') return abilityUnavailable(looked.route);
+    const answer = objOf(looked.value);
     const said = typeof answer.text === 'string' ? answer.text.trim() : '';
     if (!said) return { status: 'failed', code: CODE.ERROR };
     return {
+      ...(looked.route?.kind === 'core' ? { route: 'core' } : {}),
       status: 'ok',
       data: {
         text: mediaLookText(
