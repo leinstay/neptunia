@@ -5,7 +5,6 @@
 // by the tracked split. The tests assert on keys and on the strings they put in, never on the shipped wording.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { joinLabels, splitLabels } from '../src/config/labels.ts';
@@ -25,16 +24,6 @@ function leafPaths(tree: Tree, prefix = ''): Array<string> {
 }
 
 /** `value` as JSON with every object's keys sorted, so equal content gives equal text. */
-function canonical(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
-  if (isTree(value))
-    return `{${Object.keys(value)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`)
-      .join(',')}}`;
-  return JSON.stringify(value);
-}
-
 function trackedLabels(): LabelsFile {
   const parsed: unknown = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'labels.json'), 'utf8'));
   assert.ok(isTree(parsed) && isTree(parsed.model) && isTree(parsed.owner), 'config/labels.json is { model, owner }');
@@ -111,15 +100,4 @@ test('the tracked labels keep the status card costs and inner-life lines under o
   assert.ok(isTree(status.inner) && Object.keys(status.inner).length > 0, 'owner.status.inner holds the inner lines');
   const model = tracked.model.status;
   assert.equal(isTree(model) && Object.hasOwn(model, 'costs'), false, 'no costs line stays under model');
-});
-
-// The move of PR 7c only: the sha256 of the canonical JSON of prompts/labels.json at main cb4fbbd8, the last commit
-// before the split (765 leaves). The joined tracked file must hold the same keys with the same strings, so a string lost
-// or reworded in the move fails here. PR 7d changes labels on purpose and replaces this check with its replay.
-test('the tracked labels joined hold every string of labels.json before the split, unchanged', () => {
-  const joined = joinLabels(trackedLabels());
-  assert.equal(
-    createHash('sha256').update(canonical(joined)).digest('hex'),
-    'fcb1ee4d347746ed9bedb9cc76d868419c95b11a4da302ea0ca017d82d92f611'
-  );
 });
