@@ -12,7 +12,8 @@
 // Every change of an errand is one write of the whole errand through the memory database's writer (op `errand` of
 // src/memory/db/unit-write.js), handed to an outbox (src/memory/db/unit-outbox.js) keyed by the errand: a newer write
 // of the same errand replaces the one waiting, a failed write goes again at the next change or `flush`, and
-// `flush({ final: true })` (the shutdown) keeps what still fails in `memory-pending/`. The end of an errand (`finish`,
+// `flush({ final: true })` (the shutdown) keeps what still fails in `memory-pending/`; a write that waits behind an earlier
+// write of the same errand goes as soon as that one settles. The end of an errand (`finish`,
 // `cancel`, `failOpen`) is one transaction of the writer: the board's move to its end, the board's outbox row to
 // `persona`, and the closing journal action line; a failure of any of them writes none. `pendingEnds` lists the ends
 // the board committed whose `errand.done` the core has not marked delivered (`markDelivered`), so a core started after
@@ -326,7 +327,10 @@ export function createErrandStore({
       delivered: delivered.has(id),
       closing: closings.get(id) ?? null,
     });
-    void outbox.push();
+    // A flush, not a push: a push skips an errand whose earlier write is still under way, and the newer write would
+    // wait for the next change or the stop. The delivery mark comes right after the end's own write commits, so it
+    // goes as soon as that write settles, and a core that crashes after the delivery finds the end delivered.
+    void outbox.flush();
   }
 
   /** Whether the journal takes lines now (`features.journal` exactly true, read now). */
