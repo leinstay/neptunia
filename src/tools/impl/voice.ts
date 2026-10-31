@@ -80,8 +80,8 @@ async function sayOnRoute({
     },
   });
   if (route.kind === 'unavailable') return { made: null, unavailable: abilityUnavailable(route) };
-  if (value === null || value.made === null)
-    throw value.error instanceof Error ? value.error : new Error('voice: speech failed');
+  if (value === null) throw new Error('voice: speech failed');
+  if (value.made === null) throw value.error instanceof Error ? value.error : new Error('voice: speech failed');
   return { made: value.made, routed: route.kind === 'core' };
 }
 
