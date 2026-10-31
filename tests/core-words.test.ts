@@ -43,6 +43,7 @@ const HELPER_ALLOWED: ReadonlyArray<Allowed> = [
   { file: 'src/behavior/participation-pick.js', pattern: /`?helper-timeout`?/, why: 'a limit kind the journal stores' },
   { file: 'src/turn/act.ts', pattern: /`?helper-timeout`?/, why: 'a limit kind the journal stores' },
   { file: 'src/turn/draw-gif.ts', pattern: /`?helper-timeout`?/, why: 'a limit kind the journal stores' },
+  { file: 'src/turn/lookup.ts', pattern: /`?helper-fallback`?/, why: 'a limit kind the journal stores' },
   { file: 'src/behavior/missed.js', pattern: /'missed: helper failed'/, why: 'a log line name' },
   { file: 'src/config-moves.ts', pattern: /helperTimeoutMs/, why: 'the old name of a moved config key' },
 ];
