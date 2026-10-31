@@ -180,63 +180,56 @@ function rowAndTask(data: unknown, key: string): string {
   return [field(row.id), task ? taskLine(task) : ''].filter(Boolean).join('\n');
 }
 
+type Render = (data: unknown, args: Readonly<Record<string, unknown>>) => string;
+
+const lineOf = (data: unknown): string => {
+  const task = taskOf(data);
+  return task ? taskLine(task) : '';
+};
+const idOf = (data: unknown): string => field(isObject(data) ? data.id : '');
+const listOf =
+  <T>(empty: string, line: (row: T) => string): Render =>
+  // The answer of a listing command is an array of its rows (BoardResults in board.ts).
+  (data) =>
+    (data as Array<T>).length ? (data as Array<T>).map(line).join('\n') : empty;
+const decided =
+  (key: string, fields: ReadonlyArray<string>): Render =>
+  (data) => {
+    const row = isObject(data) && isObject(data[key]) ? data[key] : {};
+    return `${fields.map((name) => field(row[name])).join(' ')}\n${lineOf(data)}`;
+  };
+
+// Each renderer reads the answer of its own op (BoardResults in board.ts), or the command layer's own for next and
+// events.
+const RENDERS: Readonly<Record<string, Render>> = {
+  'task.add': idOf,
+  'task.list': listOf('(no tasks)', taskLine),
+  'task.show': (data, args) => showText(data as TaskView, { full: args.full === true }),
+  'task.next': (data) => (data === null ? '(no task ready)' : taskLine(data as TaskRecord)),
+  'task.approve': decided('approval', ['id', 'scope', 'decision']),
+  'task.review': decided('review', ['id', 'decision']),
+  'task.ask': (data) => rowAndTask(data, 'question'),
+  'task.result': (data) => rowAndTask(data, 'result'),
+  'task.submit': (data) => rowAndTask(data, 'result'),
+  'task.comment': (data) => idOf(isObject(data) ? data.comment : null),
+  'task.answer': lineOf,
+  'task.escalate': lineOf,
+  'task.events': listOf('(no events)', eventLine),
+  'task.outbox.pull': listOf('(inbox empty)', inboxLine),
+  'task.costs.agents': (data) => costsText(data as Readonly<Record<string, unknown>>),
+  'task.orient': (data) => orientText(data as Orientation),
+  'task.attempt.start': idOf,
+  'task.attempt.end': idOf,
+  'task.run.start': idOf,
+  'task.run.end': idOf,
+};
+
 /**
  * The plain text of the answer `data` of the command `name`, as the ledger's command line printed it: the new id for
  * `task.add`, a task line for a command that answers a task, the whole view for `task.show` (`full` as its arg).
  */
 export function answerText(name: string, data: unknown, args: Readonly<Record<string, unknown>>): string {
-  // Each case reads the answer of its own op (BoardResults in board.ts), or the command layer's own for next and events.
-  switch (name) {
-    case 'task.add':
-      return field((data as TaskRecord).id);
-    case 'task.list': {
-      const tasks = data as Array<TaskRecord>;
-      return tasks.length ? tasks.map(taskLine).join('\n') : '(no tasks)';
-    }
-    case 'task.show':
-      return showText(data as TaskView, { full: args.full === true });
-    case 'task.next':
-      return data === null ? '(no task ready)' : taskLine(data as TaskRecord);
-    case 'task.approve': {
-      const approval = isObject(data) && isObject(data.approval) ? data.approval : {};
-      const task = taskOf(data);
-      return `${field(approval.id)} ${field(approval.scope)} ${field(approval.decision)}\n${task ? taskLine(task) : ''}`;
-    }
-    case 'task.review': {
-      const review = isObject(data) && isObject(data.review) ? data.review : {};
-      const task = taskOf(data);
-      return `${field(review.id)} ${field(review.decision)}\n${task ? taskLine(task) : ''}`;
-    }
-    case 'task.ask':
-      return rowAndTask(data, 'question');
-    case 'task.result':
-    case 'task.submit':
-      return rowAndTask(data, 'result');
-    case 'task.comment':
-      return field(isObject(data) && isObject(data.comment) ? data.comment.id : '');
-    case 'task.answer':
-    case 'task.escalate': {
-      const task = taskOf(data);
-      return task ? taskLine(task) : '';
-    }
-    case 'task.events': {
-      const events = data as Array<EventRow>;
-      return events.length ? events.map(eventLine).join('\n') : '(no events)';
-    }
-    case 'task.outbox.pull': {
-      const rows = data as Array<Row>;
-      return rows.length ? rows.map(inboxLine).join('\n') : '(inbox empty)';
-    }
-    case 'task.costs.agents':
-      return costsText(data as Readonly<Record<string, unknown>>);
-    case 'task.orient':
-      return orientText(data as Orientation);
-    case 'task.attempt.start':
-    case 'task.attempt.end':
-    case 'task.run.start':
-    case 'task.run.end':
-      return field(isObject(data) ? data.id : '');
-    default:
-      return isObject(data) && typeof data.id === 'string' ? taskLine(data as TaskRecord) : JSON.stringify(data);
-  }
+  const render = Object.hasOwn(RENDERS, name) ? RENDERS[name] : undefined;
+  if (render !== undefined) return render(data, args);
+  return isObject(data) && typeof data.id === 'string' ? taskLine(data as TaskRecord) : JSON.stringify(data);
 }

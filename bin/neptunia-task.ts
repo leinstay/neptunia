@@ -576,71 +576,53 @@ async function connect(socketPath: string, name: string, token: string): Promise
   };
 }
 
-/** Runs `neptunia task ...argv`; resolves with the exit code. Prints the answer on stdout, a refusal on stderr. */
-export async function runTask(argv: ReadonlyArray<string>, env: NodeJS.ProcessEnv = process.env): Promise<number> {
-  const out = (text: string): void => void process.stdout.write(text.endsWith('\n') ? text : `${text}\n`);
-  const err = (text: string): void => void process.stderr.write(`${text}\n`);
-  const stdin = (): string => fs.readFileSync(0, 'utf8');
+const out = (text: string): void => void process.stdout.write(text.endsWith('\n') ? text : `${text}\n`);
+const err = (text: string): void => void process.stderr.write(`${text}\n`);
+
+/** A usage error on stderr with the usage: exit 2. */
+function usageError(message: string): number {
+  err(message);
+  err(TASK_USAGE);
+  return 2;
+}
+
+/**
+ * The command of the line and its flags, or the exit code when the line is a usage error or asks for help. The
+ * command's own checks run against a core that answers nothing, so a usage error is found before connecting.
+ */
+async function lineOf(argv: ReadonlyArray<string>): Promise<{ command: Command; parsed: Parsed } | number> {
   let parsed: Parsed;
   try {
     parsed = parseArgs(argv);
   } catch (error) {
-    err(error instanceof Error ? error.message : String(error));
-    err(TASK_USAGE);
-    return 2;
+    return usageError(error instanceof Error ? error.message : String(error));
   }
-  const { flags, positionals } = parsed;
-  const name = positionals.shift();
-  if (name === undefined || flags.help === true || name === 'help') {
-    (name === undefined ? err : out)(TASK_USAGE);
-    return name === undefined ? 2 : 0;
+  const name = parsed.positionals.shift();
+  if (name === undefined) return usageError('a command is required');
+  if (parsed.flags.help === true || name === 'help') {
+    out(TASK_USAGE);
+    return 0;
   }
   const command = COMMANDS[name];
-  if (command === undefined) {
-    err(`unknown command ${name}`);
-    err(TASK_USAGE);
-    return 2;
-  }
-  // The line's own checks run against a core that answers nothing: a usage error is found before connecting.
+  if (command === undefined) return usageError(`unknown command ${name}`);
   const dry: Ask = () => Promise.resolve({ status: 'ok', text: '{"task":{"revision":0,"status":""}}' });
   try {
-    await command({ ask: dry, flags, positionals: [...positionals], stdin: () => '{}' });
+    await command({ ask: dry, flags: parsed.flags, positionals: [...parsed.positionals], stdin: () => '{}' });
   } catch (error) {
-    if (error instanceof UsageError) {
-      err(error.message);
-      err(TASK_USAGE);
-      return 2;
-    }
-    // Any other failure of the dry run (a --handoff file that cannot be read) is found again below.
+    if (error instanceof UsageError) return usageError(error.message);
+    // Any other failure of the dry run (a --handoff file that cannot be read) is found again when it runs.
   }
-  const where = resolvePaths({ rootDir: ROOT_DIR });
-  const held = tokenOf(env, where.privateDir);
-  if (typeof held === 'string') {
-    err(`unavailable: ${held}`);
-    return 1;
-  }
-  const socketPath = flagText(flags, 'socket') ?? coreSocketPath(where.dataDir);
-  let link: { ask: Ask; close(): void };
-  try {
-    link = await connect(socketPath, held.name, held.token);
-  } catch (error) {
-    err(`unavailable: no core listens at ${socketPath} (${(error as NodeJS.ErrnoException).code ?? 'error'})`);
-    return 1;
-  }
+  return { command, parsed };
+}
+
+/** Runs the command over the link and prints its answer; the exit code. */
+async function send(link: { ask: Ask }, command: Command, { flags, positionals }: Parsed): Promise<number> {
+  const stdin = (): string => fs.readFileSync(0, 'utf8');
   const key = flagText(flags, 'key');
   try {
     const built = await command({ ask: link.ask, flags, positionals: [...positionals], stdin });
-    const answer =
-      'name' in built
-        ? await link.ask({
-            name: built.name,
-            args: {
-              ...built.args,
-              ...(flags.json === true ? { json: true } : {}),
-              ...(key ? { idempotency: key } : {}),
-            },
-          })
-        : built;
+    const extra = { ...(flags.json === true ? { json: true } : {}), ...(key ? { idempotency: key } : {}) };
+    const answer = 'name' in built ? await link.ask({ name: built.name, args: { ...built.args, ...extra } }) : built;
     if (answer.status !== 'ok') {
       err(`${answer.status}: ${answer.text}`);
       return 1;
@@ -648,17 +630,32 @@ export async function runTask(argv: ReadonlyArray<string>, env: NodeJS.ProcessEn
     out(answer.text);
     return 0;
   } catch (error) {
-    if (error instanceof UsageError) {
-      err(error.message);
-      err(TASK_USAGE);
-      return 2;
-    }
-    if (error instanceof Refused) {
-      err(`${error.status}: ${error.message}`);
-      return 1;
-    }
-    err(`error: ${error instanceof Error ? error.message : String(error)}`);
+    if (error instanceof UsageError) return usageError(error.message);
+    err(error instanceof Refused ? `${error.status}: ${error.message}` : `error: ${String(error)}`);
     return 1;
+  }
+}
+
+/** Runs `neptunia task ...argv`; resolves with the exit code. Prints the answer on stdout, a refusal on stderr. */
+export async function runTask(argv: ReadonlyArray<string>, env: NodeJS.ProcessEnv = process.env): Promise<number> {
+  const line = await lineOf(argv);
+  if (typeof line === 'number') return line;
+  const where = resolvePaths({ rootDir: ROOT_DIR });
+  const held = tokenOf(env, where.privateDir);
+  if (typeof held === 'string') {
+    err(`unavailable: ${held}`);
+    return 1;
+  }
+  const socketPath = flagText(line.parsed.flags, 'socket') ?? coreSocketPath(where.dataDir);
+  let link: { ask: Ask; close(): void };
+  try {
+    link = await connect(socketPath, held.name, held.token);
+  } catch (error) {
+    err(`unavailable: no core listens at ${socketPath} (${(error as NodeJS.ErrnoException).code ?? 'error'})`);
+    return 1;
+  }
+  try {
+    return await send(link, line.command, line.parsed);
   } finally {
     link.close();
   }
