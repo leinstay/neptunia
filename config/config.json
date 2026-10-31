@@ -8,7 +8,6 @@
     "owners": [],
     "nameTriggers": [],
     "guildId": "",
-    "dryRunChannelId": "",
     "access": {}
   },
   "models": {
@@ -289,8 +288,6 @@
     "prepareMediaMs": 20000,
     "dropAfterMs": 120000,
     "replyHedgeMs": 30000,
-    "typingWhilePreparing": false,
-    "unpromptedWaits": true,
     "settleMs": 3000,
     "settleMaxMs": 8000
   },
@@ -315,28 +312,6 @@
     "settleMaxSeconds": 300,
     "rememberPings": 20,
     "pingMaxAgeDays": 7
-  },
-  "spontaneous": {
-    "channels": [],
-    "minIntervalMinutes": 45,
-    "maxIntervalMinutes": 420,
-    "burstChance": 0.15,
-    "burstMinutes": [3, 15],
-    "activeHours": {
-      "from": 10,
-      "to": 3
-    },
-    "liveWindowMinutes": 15,
-    "liveMinMessages": 4,
-    "deadAfterMinutes": 90,
-    "initiateChance": 0.1,
-    "initiateCooldownHours": [24, 48],
-    "eavesdropChance": 0.02,
-    "roomQuestionChance": 0.04,
-    "eavesdropDelayMs": [5000, 40000],
-    "minGapMinutes": 12,
-    "maxChannelSilenceHours": 6,
-    "someoneAroundMinutes": 120
   },
   "memory": {
     "fieldChars": 1000,
@@ -747,9 +722,7 @@
   "private": {
     "enabled": false,
     "likeServer": true,
-    "minAffinity": 5,
-    "maxPerUserPerDay": 20,
-    "maxPerOwnerPerDay": 200
+    "minAffinity": 5
   },
   "errands": {
     "opencodePath": "/opt/opencode/bin/opencode",
@@ -831,45 +804,7 @@
       "delaysMinutes": [1, 5, 15, 60],
       "maxHours": 6
     },
-    "factsKeepDays": 7,
-    "wakes": {
-      "intention_due": {
-        "tools": "*",
-        "maxActs": null,
-        "maxTasks": null,
-        "inputTokens": null
-      },
-      "review": {
-        "tools": "*",
-        "maxActs": null,
-        "maxTasks": null,
-        "inputTokens": null
-      },
-      "errand_deadline": {
-        "tools": "*",
-        "maxActs": null,
-        "maxTasks": null,
-        "inputTokens": null
-      },
-      "attend": {
-        "tools": "*",
-        "maxActs": null,
-        "maxTasks": null,
-        "inputTokens": null
-      },
-      "feedback": {
-        "tools": "*",
-        "maxActs": null,
-        "maxTasks": null,
-        "inputTokens": null
-      },
-      "heartbeat": {
-        "tools": "*",
-        "maxActs": null,
-        "maxTasks": null,
-        "inputTokens": null
-      }
-    }
+    "factsKeepDays": 7
   },
   "appendStore": {
     "fsyncMs": 500,

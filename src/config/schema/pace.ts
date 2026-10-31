@@ -41,20 +41,6 @@ export const PACE: ReadonlyArray<SchemaEntry> = [
       'On a direct call, when the reply has no answer after this long, a second request is sent. `0` = one attempt only',
   },
   {
-    'key': 'pace.typingWhilePreparing',
-    'types': ['boolean'],
-    'reader': 'src/turn/settings.ts',
-    'default': false,
-    'text': 'Show the typing indicator from the start of a turn, not only while the finished answer is typed out',
-  },
-  {
-    'key': 'pace.unpromptedWaits',
-    'types': ['boolean'],
-    'reader': 'src/turn/phases/request/setup.ts',
-    'default': true,
-    'text': 'A turn nobody waits for ignores `prepareMs`, `prepareSearchMs` and `dropAfterMs`',
-  },
-  {
     'key': 'pace.settleMs',
     'types': ['number'],
     'reader': 'src/behavior/pipeline.js',

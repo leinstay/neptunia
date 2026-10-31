@@ -191,7 +191,7 @@ export const WEB: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'web.search.classifierMaxOutputTokens',
     'types': ['number'],
-    'reader': 'src/behavior/planner.js',
+    'reader': 'src/turn/lookup.ts',
     'default': 2000,
     'text': 'Max output tokens for the search classifier',
   },

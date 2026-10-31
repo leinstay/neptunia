@@ -6,7 +6,7 @@ export const ELSEWHERE: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'elsewhere.settleSeconds',
     'types': ['number'],
-    'reader': 'src/behavior/spontaneous.js',
+    'reader': 'src/behavior/elsewhere.ts',
     'default': 90,
     'text': 'Seconds after the last message in the source channel before the call is answered',
   },

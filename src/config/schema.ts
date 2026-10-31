@@ -24,7 +24,6 @@ import { FORMAT } from './schema/format.ts';
 import { SPLIT } from './schema/split.ts';
 import { ROUTE } from './schema/route.ts';
 import { ELSEWHERE } from './schema/elsewhere.ts';
-import { SPONTANEOUS } from './schema/spontaneous.ts';
 import { MEMORY } from './schema/memory.ts';
 import { LORE } from './schema/lore.ts';
 import { RELATIONSHIPS } from './schema/relationships.ts';
@@ -83,7 +82,6 @@ export const CONFIG_SCHEMA: ReadonlyArray<SchemaEntry> = [
   ...SPLIT,
   ...ROUTE,
   ...ELSEWHERE,
-  ...SPONTANEOUS,
   ...MEMORY,
   ...LORE,
   ...RELATIONSHIPS,

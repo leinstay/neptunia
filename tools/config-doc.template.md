@@ -52,8 +52,6 @@ The persona's skills are tools in the settings. `src/config-moves.ts` holds the 
 | Old key | New key |
 |---|---|
 | `skills.*` | `tools.*` |
-| `features.skills` | `features.tools` |
-| `features.skillsDiscovery` | `features.toolsDiscovery` |
 | `bot.access."skills.describe"` | `bot.access."tools.describe"` |
 | `bot.access."task.run"`, `"task.status"`, `"task.read"`, `"task.resolve"`, `"task.cancel"`, `"task.list"` | `bot.access."errand.run"`, `"errand.status"`, `"errand.read"`, `"errand.resolve"`, `"errand.cancel"`, `"errand.list"` |
 | `bot.access."intent.set"`, `"intent.update"`, `"intent.cancel"`, `"intent.list"` | `bot.access."intention.set"`, `"intention.update"`, `"intention.cancel"`, `"intention.list"` |
@@ -74,19 +72,19 @@ The tool texts moved too: `prompts/skills.json` is `config/tools.json`, and a de
 Two hard rails that must stay on:
 
 - **50 000 tokens per request** (`llm.maxRequestTokens`). Every request the bot sends is budgeted against this cap. The prompt builder trims sections by priority to fit.
-- **Daily request cap** (`llm.maxRequestsPerDay`, default 5000). Every model request counts (requests on every model role, probes, tools, hedged duplicates).
+- **Daily request cap** (`llm.maxRequestsPerDay`, default 5000). Every model request counts (requests on every model role, probes, tools, hedged duplicates). It is the one daily count the engine refuses at.
 
-## `features`
+## The config cut
 
-On/off switches. A missing key counts as on, except the ones that need `=== true` to enable: `dryRun`, `webLookup`, `mediaDescriptions`, `privateMessages`, `recallTrace`, `journal`, `record`, `archive`, `meaningSearch`, `embedIndex`, `promptCache`, `turnPlanner`, `missedRecovery`, `avatars`, `coreTools`, `anchoredWindow`, `intentions`, `innerLife`.
+The settings hold the keys someone would change, the timeouts, budgets, retention and recovery limits, the privacy switches and the two rails. `src/config/cut.ts` lists every key the cut of 2026-10-31 took out and what it became: a named constant in the module that reads it, with the value production ran with; code that always runs, for a switch that was on (the `features.*` switches and the rollouts of `memoryDb`); nothing, for a switch that was off and the code it reached (`features.dryRun`, `features.spontaneous`, `features.eavesdrop`, `features.turnPlanner`, `pace.typingWhilePreparing`, `bot.dryRunChannelId`, `spontaneous.*`); and nothing, for a daily cap, whose counter went with it. `features.privateMessages` and `features.privateLikeServer` are `private.enabled` and `private.likeServer`, and the per-wake budgets are one `innerLife.wakes.*.<field>` entry each.
 
-<!-- settings: features -->
+`src/config.js` takes the cut keys out of the private settings file at each load, after the moves, and logs one warning line with the counts. `node tools/config-migrate.mjs --dry-run` prints `<key> dropped (<becomes>)` for each, `<key> differs: live <json>, constant <json>` for a live value apart from the constant that replaced it, `<from> -> <to>` for the two privacy switches, and `<key> -> config.local/interfaces/discord.json` for a key of the Discord package. `--apply` writes the file and merges the Discord keys under what `config.local/interfaces/discord.json` already holds.
 
-## `discord`
+`node tools/config-effective.mjs --snapshot <file> --private <dir>` writes the effective settings of a private layer and the objects the readers derive from them, and `--compare <file> --private <dir>` prints each leaf that differs as `<config|settings>.<path>: before <json>, after <json>`, marked ` (declared)` when the cut declares it, then `equal: <n>, differ: <n>, declared: <n>`. It exits 1 on an undeclared difference.
 
-<!-- settings: discord -->
+## The Discord package's settings
 
-The voice-state intent (voice channels in `<people_now>`) is not privileged and always requested.
+`discord.intents.presences` and `discord.intents.members` (default `false`, the privileged intents), `context.maxUrlChars` (default `200`, the longest a URL in a message's text reads) and `media.embedTextChars` (default `200`, the characters of an embed's title and of its text) live in `interfaces/discord/config.json`. The interface reads them over the core's settings with `config.local/interfaces/discord.json` over both (`src/config/files.ts#readInterfaceConfig`), in the core's process and as a unit alike. The voice-state intent (voice channels in `<people_now>`) is not privileged and always requested.
 
 ## `interfaces`
 
@@ -230,13 +228,9 @@ Settings for the channel route classifier (`features.channelRoute`).
 
 ## `elsewhere`
 
-Settings for answering calls from channels where the bot can read but not send (`features.elsewhere`).
+Settings for answering calls from channels where the bot can read but not send.
 
 <!-- settings: elsewhere -->
-
-## `spontaneous`
-
-<!-- settings: spontaneous -->
 
 ## `memory`
 
@@ -333,7 +327,7 @@ Settings for the GIF library (`features.gifs`).
 
 ## `private`
 
-Settings for private chat (`features.privateMessages`).
+Settings for private chat: `private.enabled` answers direct messages at all.
 
 <!-- settings: private -->
 

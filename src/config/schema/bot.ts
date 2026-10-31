@@ -32,13 +32,6 @@ export const BOT: ReadonlyArray<SchemaEntry> = [
     'text': 'Server to lock to; auto-detected if in exactly one',
   },
   {
-    'key': 'bot.dryRunChannelId',
-    'types': ['string'],
-    'reader': 'src/behavior/limits.js',
-    'default': '',
-    'text': 'Channel for the dry-run mirror',
-  },
-  {
     'key': 'bot.access',
     'types': ['map'],
     'reader': 'src/behavior/sandbox.js',

@@ -132,7 +132,7 @@ export const MEDIA: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'media.video.maxPerTurn',
     'types': ['number'],
-    'reader': 'src/memory/describe.js',
+    'reader': 'src/turn/phases/request/stages.ts',
     'default': 5,
     'text': 'Max new videos per turn',
   },

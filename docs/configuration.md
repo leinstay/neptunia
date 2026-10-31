@@ -53,8 +53,6 @@ The persona's skills are tools in the settings. `src/config-moves.ts` holds the 
 | Old key | New key |
 |---|---|
 | `skills.*` | `tools.*` |
-| `features.skills` | `features.tools` |
-| `features.skillsDiscovery` | `features.toolsDiscovery` |
 | `bot.access."skills.describe"` | `bot.access."tools.describe"` |
 | `bot.access."task.run"`, `"task.status"`, `"task.read"`, `"task.resolve"`, `"task.cancel"`, `"task.list"` | `bot.access."errand.run"`, `"errand.status"`, `"errand.read"`, `"errand.resolve"`, `"errand.cancel"`, `"errand.list"` |
 | `bot.access."intent.set"`, `"intent.update"`, `"intent.cancel"`, `"intent.list"` | `bot.access."intention.set"`, `"intention.update"`, `"intention.cancel"`, `"intention.list"` |
@@ -75,91 +73,19 @@ The tool texts moved too: `prompts/skills.json` is `config/tools.json`, and a de
 Two hard rails that must stay on:
 
 - **50 000 tokens per request** (`llm.maxRequestTokens`). Every request the bot sends is budgeted against this cap. The prompt builder trims sections by priority to fit.
-- **Daily request cap** (`llm.maxRequestsPerDay`, default 5000). Every model request counts (requests on every model role, probes, tools, hedged duplicates).
+- **Daily request cap** (`llm.maxRequestsPerDay`, default 5000). Every model request counts (requests on every model role, probes, tools, hedged duplicates). It is the one daily count the engine refuses at.
 
-## `features`
+## The config cut
 
-On/off switches. A missing key counts as on, except the ones that need `=== true` to enable: `dryRun`, `webLookup`, `mediaDescriptions`, `privateMessages`, `recallTrace`, `journal`, `record`, `archive`, `meaningSearch`, `embedIndex`, `promptCache`, `turnPlanner`, `missedRecovery`, `avatars`, `coreTools`, `anchoredWindow`, `intentions`, `innerLife`.
+The settings hold the keys someone would change, the timeouts, budgets, retention and recovery limits, the privacy switches and the two rails. `src/config/cut.ts` lists every key the cut of 2026-10-31 took out and what it became: a named constant in the module that reads it, with the value production ran with; code that always runs, for a switch that was on (the `features.*` switches and the rollouts of `memoryDb`); nothing, for a switch that was off and the code it reached (`features.dryRun`, `features.spontaneous`, `features.eavesdrop`, `features.turnPlanner`, `pace.typingWhilePreparing`, `bot.dryRunChannelId`, `spontaneous.*`); and nothing, for a daily cap, whose counter went with it. `features.privateMessages` and `features.privateLikeServer` are `private.enabled` and `private.likeServer`, and the per-wake budgets are one `innerLife.wakes.*.<field>` entry each.
 
-| Key | Type | Default | What it does | Read by |
-|---|---|---|---|---|
-| `features.dryRun` | boolean | `false` | Full pipeline, never sends. See [Getting started](getting-started.md) | `src/behavior/limits.js` |
-| `features.mentions` | boolean | `true` | React to @mentions | `src/behavior/sandbox.js` |
-| `features.replies` | boolean | `true` | React to replies | `src/behavior/sandbox.js` |
-| `features.nameTriggers` | boolean | `true` | React to name mentions in messages | `src/behavior/sandbox.js` |
-| `features.followUp` | boolean | `true` | Classify untagged messages after the persona answers to continue a conversation | `src/behavior/pipeline.js` |
-| `features.splitTasks` | boolean | `true` | Split a long structured direct call into separate parts, each answered in its own turn. Needs `prompts/split.md` | `src/behavior/split.js` |
-| `features.spontaneous` | boolean | `true` | Unprompted messages on a random timer | `src/behavior/spontaneous.js` |
-| `features.eavesdrop` | boolean | `true` | Random chance to jump into any message | `src/behavior/spontaneous.js` |
-| `features.memory` | boolean | `true` | Build profiles, track server patterns, record self-claims | `src/behavior/recall-run.js` |
-| `features.relationships` | boolean | `true` | Per-member attitude scores (-100 to 100) | `src/behavior/mention.js` |
-| `features.episodes` | boolean | `true` | Per-person long-term memories (moments, quotes, grudges) | `src/behavior/recall-run.js` |
-| `features.lore` | boolean | `true` | Server-wide lorebook | `src/behavior/recall-run.js` |
-| `features.reactions` | boolean | `true` | The persona places emoji reactions | `src/behavior/sandbox.js` |
-| `features.customEmoji` | boolean | `true` | Rank the server's custom emoji by usage so the persona can use them | `src/behavior/prompt.js` |
-| `features.gifs` | boolean | `true` | Build a GIF library from what members share | `src/behavior/prompt.js` |
-| `features.embedUpdates` | boolean | `true` | Fold a link's embed (Tenor GIFs arrive this way) into the memory buffer when Discord attaches it after the message | `src/pipeline/edits.ts` |
-| `features.seeReactions` | boolean | `true` | Show reactions on messages in the transcript. Distinct from `reactions` (whether the persona places them); this one controls whether she sees them | `src/behavior/prompt.js` |
-| `features.reactionNames` | boolean | `true` | On the persona's own messages, each reaction shows who put it (up to `context.reactions.maxNames` names). Process memory only, never stored | `src/core.js` |
-| `features.triggerMarkers` | boolean | `true` | Each line the persona posted names the message that started the turn which posted it, so a late answer is not taken for an answer to a newer question | `src/core.js` |
-| `features.callMarkers` | boolean | `true` | A skill call she made shows on her line in the transcript: the skill, target, outcome and link | `src/behavior/sandbox.js` |
-| `features.previousThink` | boolean | `true` | A request carries her one previous think in a `<previous_think>` block. See `context.previousThink.minutes` | `src/behavior/prompt.js` |
-| `features.multiMessage` | boolean | `true` | Allow 2 to 3 messages in a row | `src/behavior/sandbox.js` |
-| `features.mediaDescriptions` | boolean | `true` | One-line descriptions for pictures, GIFs, video frames and link thumbnails | `src/behavior/pipeline.js` |
-| `features.videoDescriptions` | boolean | `false` | Watch short video clips through a video-capable model. Needs `mediaDescriptions` on, a video-capable model and `yt-dlp`/`ffmpeg` for site links | `src/behavior/pipeline.js` |
-| `features.videoRewatch` | boolean | `true` | When addressed, re-watch a video to answer a question about it. Needs `videoDescriptions` on | `src/memory/describe.js` |
-| `features.imageRelook` | boolean | `true` | When addressed, look at a picture again to answer a question about it. Shares the daily `media.video.rewatch.maxPerDay` counter with video re-watches | `src/memory/describe.js` |
-| `features.webLookup` | boolean | `false` | Read links posted in chat and search the web. Needs `BRAVE_SEARCH_API_KEY` in `.env` for search; without it only link reading works. See [Media](media.md) | `src/behavior/pipeline.js` |
-| `features.recall` | boolean | `true` | Search the server's own message history when a question calls for it | `src/behavior/prefetch.js` |
-| `features.recallTrace` | boolean | `false` | Write one JSON line per recall run to `data/guilds/<id>/recall-trace.jsonl` for diagnosis. Capped at `recall.traceMaxLines` | `src/behavior/recall-run.js` |
-| `features.journal` | boolean | `true` | Keep the persona's journal: for every turn, one line when it starts and one when it ends (what of the chat went into the request, her hidden reasoning, what she posted, token usage), in `data/guilds/<id>/journal/<YYYY-MM-DD>.jsonl` by UTC day. Must be exactly `true` to enable. See `journal.*` | `src/admin.js` |
-| `features.offPeriods` | boolean | `true` | `<now>` lists the periods of the last `journal.offWindowHours` hours when the persona was paused or the service was off, newest first, at most 3. Nothing is posted. Needs `journal` | `src/behavior/prompt.js` |
-| `features.record` | boolean | `true` | Keep the record: every message the memory buffer took, every edit as a new line, every deletion, each message the persona posted, in `data/guilds/<id>/record/<YYYY-MM>/<YYYY-MM-DD>.jsonl` by UTC day. Never trimmed. Must be exactly `true` to enable | `src/behavior/inner/deliveries.ts` |
-| `features.archive` | boolean | `true` | Keep the archive: before anything leaves hot memory, a copy goes to `data/guilds/<id>/archive/<YYYY-MM>.jsonl` by month. The item stays in memory until the archive confirms the write. Never trimmed. Must be exactly `true` to enable. See `archive.*` | `src/core.js` |
-| `features.meaningSearch` | boolean | `false` | On each recall run, embed the question and search the vector index by meaning. Needs `recall` on and the embedding model reachable | `src/behavior/recall-run.js` |
-| `features.embedIndex` | boolean | `false` | Keep the vector index current while the bot runs. Needs `meaningSearch` on. Without it the index is built only by `tools/memory-db.mjs` | `src/core.js` |
-| `features.imageGeneration` | boolean | `false` | Let the persona draw pictures. Needs a drawing model in `models.base.drawing`. See [Media](media.md) | `src/core.js` |
-| `features.speech` | boolean | `true` | The persona's voice messages. Her `voice.say` skill sends text through the `speech` role and posts a voice message. See `speech.*` | `src/core.js` |
-| `features.privateMessages` | boolean | `false` | Answer direct messages from guild members. Needs a stored public profile and `affinity.score >= private.minAffinity` | `src/behavior/core-pause.ts` |
-| `features.privateLikeServer` | boolean | `true` | A private chat works like a server channel: route classifier, channel pull, server search, asked-about episodes. `false` restores the old DM behaviour | `src/behavior/route-channel.js` |
-| `features.gifPicker` | boolean | `true` | When the persona's first message is short, a classifier picks a fitting GIF from the library. Needs `gifs` on and a non-empty library | `src/turn/draw-gif.ts` |
-| `features.versions` | boolean | `true` | Keep a version history of every prose memory field when its text is replaced | `src/memory/store.js` |
-| `features.recent` | boolean | `true` | Show a `<recent>` block of what happened on the server in the last few days. See `memory.recentHours` | `src/behavior/prompt.js` |
-| `features.participation` | boolean | `true` | The persona remembers its own exchanges on other channels and sees a few of them in `<participation>` | `src/behavior/participation-pick.js` |
-| `features.anchoredWindow` | boolean | `false` | Show older lines that still matter (reply parents, the persona's recent exchanges) in an `<earlier>` block | `src/behavior/prompt.js` |
-| `features.promptCache` | boolean | `true` | Mark parts of the request for the provider's prompt cache. See `llm.cache.*` | `src/behavior/prompt.js` |
-| `features.channelPull` | boolean | `true` | Pull another channel into a turn's request when the messages contain a real channel mention. See `context.pull.*` | `src/behavior/pull.js` |
-| `features.pullSeenMarker` | boolean | `true` | Show how many messages in a pulled channel are new since the persona last saw it | `src/turn/pulls.ts` |
-| `features.channelRoute` | boolean | `true` | A classifier picks a channel the conversation is about before a turn, so it can be pulled. See `route.*` | `src/behavior/route-channel.js` |
-| `features.turnPlanner` | boolean | `false` | One analyzer call before the reply replaces the channel router, the episode pick, the search classifier and the re-watch classifier. Needs `prompts/planner.md` | `src/behavior/planner.js` |
-| `features.channelLinks` | boolean | `true` | When the persona writes `#channel-name`, the sent message carries a real channel link | `src/turn/sends.ts` |
-| `features.messageLinks` | boolean | `true` | When the persona writes `#93`, the posted text carries a Discord message link to that transcript line | `src/format.js` |
-| `features.mentionHandles` | boolean | `true` | Every member with a stored profile gets a short handle (`@u7k2f`), listed in `<directory>`. The persona mentions people by handle | `src/behavior/prompt.js` |
-| `features.elsewhere` | boolean | `true` | Answer a call from a channel where the bot can read but not send. The answer goes to the first usable channel in `memory.mainChannelIds` | `src/behavior/elsewhere.ts` |
-| `features.diary` | boolean | `true` | The persona keeps a diary on its own and posts each entry to the diary's mirrors. See [Diary](diary.md) | `src/behavior/diary.ts` |
-| `features.typingSimulation` | boolean | `true` | Simulate typing speed | `src/turn/typing.ts` |
-| `features.pauseNotice` | boolean | `true` | Post a short notice when the persona is called while paused. See `mention.pauseNoticeMinutes` | `src/pipeline/pause-notice.ts` |
-| `features.memberCommands` | boolean | `true` | The operations every member may have her run without a grant (`pings.*`, the `errand.*` reads and requests, `memory.search`, see [Access](cli.md#access)). `false` restricts them to owners | `src/tools/impl/board.ts` |
-| `features.tools` | boolean | `true` | The persona's tool gateway. `false` refuses every tool call | `src/behavior/sandbox.js` |
-| `features.toolsDiscovery` | boolean | `true` | The lookup classifier and the turn planner can name tools or request the full list. Off when `tools` is off | `src/behavior/sandbox.js` |
-| `features.coreTools` | boolean | `false` | Her own tools replace the classifiers before her reply. She looks things up herself with `web.search`, `web.read`, `media.look` and `memory.search`, each granted to her by name. See [Core](core.md) | `src/behavior/prefetch.js` |
-| `features.memoryPrefetch` | boolean | `true` | With `coreTools` on: before a turn, search the record and stored memory once with the trigger message and put the relevant excerpts in `<retrieved>`. See `recall.prefetch.*` | `src/behavior/prefetch.js` |
-| `features.missedAnswers` | boolean | `true` | Track messages that may have been left unanswered | `src/behavior/missed.js` |
-| `features.missedRecovery` | boolean | `false` | When the sweep finds owed candidates, start a reply turn. Off (the default), the sweep classifies and journals only | `src/behavior/missed.js` |
-| `features.offlineCatchUp` | boolean | `true` | At start, read the messages posted while the bot was down and answer recent calls. On resume, answer the recent calls among the messages the pause held. See `offlineCatchUp.*` | `src/behavior/catch-up.js` |
-| `features.around` | boolean | `true` | The persona sees what a member sees in Discord's sidebar right now (voice channels, activities) in `<people_now>`. See `context.around.*` | `src/behavior/prompt.js` |
-| `features.avatars` | boolean | `false` | The persona knows what each member's avatar looks like. Each avatar is described by the vision model. See `avatars.*` | `src/core.js` |
-| `features.intentions` | boolean | `false` | The persona keeps intentions: things she means to do later. See `intentions.*` and [Inner life](inner-life.md) | `src/behavior/prompt.js` |
-| `features.innerLife` | boolean | `false` | The persona wakes on her own for a reason (a due intention, a review, a heartbeat). See `innerLife.*` and [Inner life](inner-life.md) | `src/behavior/inner/settings.ts` |
+`src/config.js` takes the cut keys out of the private settings file at each load, after the moves, and logs one warning line with the counts. `node tools/config-migrate.mjs --dry-run` prints `<key> dropped (<becomes>)` for each, `<key> differs: live <json>, constant <json>` for a live value apart from the constant that replaced it, `<from> -> <to>` for the two privacy switches, and `<key> -> config.local/interfaces/discord.json` for a key of the Discord package. `--apply` writes the file and merges the Discord keys under what `config.local/interfaces/discord.json` already holds.
 
-## `discord`
+`node tools/config-effective.mjs --snapshot <file> --private <dir>` writes the effective settings of a private layer and the objects the readers derive from them, and `--compare <file> --private <dir>` prints each leaf that differs as `<config|settings>.<path>: before <json>, after <json>`, marked ` (declared)` when the cut declares it, then `equal: <n>, differ: <n>, declared: <n>`. It exits 1 on an undeclared difference.
 
-| Key | Type | Default | What it does | Read by |
-|---|---|---|---|---|
-| `discord.intents.presences` | boolean | `false` | Request the privileged Presence intent so the persona can see members' activities in `<people_now>`. Read once at startup; a change needs a restart. The intent must also be enabled in the Discord Developer Portal | `interfaces/discord/session.ts` |
-| `discord.intents.members` | boolean | `false` | Request the privileged Server Members intent. Same startup/restart rules. `avatars` uses it to see a changed avatar at once; without it a change is seen at the member's next message or the daily scan | `interfaces/discord/session.ts` |
+## The Discord package's settings
 
-The voice-state intent (voice channels in `<people_now>`) is not privileged and always requested.
+`discord.intents.presences` and `discord.intents.members` (default `false`, the privileged intents), `context.maxUrlChars` (default `200`, the longest a URL in a message's text reads) and `media.embedTextChars` (default `200`, the characters of an embed's title and of its text) live in `interfaces/discord/config.json`. The interface reads them over the core's settings with `config.local/interfaces/discord.json` over both (`src/config/files.ts#readInterfaceConfig`), in the core's process and as a unit alike. The voice-state intent (voice channels in `<people_now>`) is not privileged and always requested.
 
 ## `interfaces`
 
@@ -179,7 +105,6 @@ With `mode: units` the core serves `bot.guildId`, which must be set. See [Interf
 | `bot.owners` | array | `[]` | User IDs for owner commands | `src/behavior/core-pause.ts` |
 | `bot.nameTriggers` | array | `[]` | Extra trigger strings besides @mention | `src/behavior/sandbox.js` |
 | `bot.guildId` | string | `""` | Server to lock to; auto-detected if in exactly one | `src/core.js` |
-| `bot.dryRunChannelId` | string | `""` | Channel for the dry-run mirror | `src/behavior/limits.js` |
 | `bot.access` | map | `{}` | Who besides owners may run which operations, written by `/tools grant` and `/tools revoke`. See [Access](cli.md#access) | `src/behavior/sandbox.js` |
 
 ## `models`
@@ -272,12 +197,7 @@ The memory database. One SQLite file, kept in sync with the stored memory. See [
 |---|---|---|---|---|
 | `memoryDb.file` | string | `"memory.db"` | The database file under `data/`. Tools open it read-only | `src/memory/db/service.js` |
 | `memoryDb.closeTimeoutMs` | number | `10000` | At shutdown, how long to wait for the pass under way before the worker is terminated | `src/memory/db/service.js` |
-| `memoryDb.turnReads` | boolean | `true` | After a turn's request is built, record which memory rows it carried in the database | `src/core.js` |
-| `memoryDb.audienceColumn` | boolean | `false` | Filter memory rows by their `audience_id` column instead of the three scope columns. Both give the same rows | `src/behavior/recall-run.js` |
-| `memoryDb.diaryMedia` | boolean | `false` | Fetch the messages of the diary posts made before the mirrors and save their text and pictures in the database, from the place each post's publication names | `src/memory/db/service.js` |
 | `memoryDb.diaryAudioMaxBytes` | number | `8388608` | Size cap for an audio attachment of a diary post saved next to the pictures | `src/memory/db/diary-media.js` |
-| `memoryDb.focus.enabled` | boolean | `false` | Compute the focus set (the people her attention is on) once per UTC day from the relationship counts | `src/memory/db/service.js` |
-| `memoryDb.wakeRuns` | boolean | `false` | Record each inner turn as a wake run in the database | `src/behavior/inner/drain.ts` |
 | `memoryDb.skillsRegistry` | boolean | `false` | At each open of the database, register every skill with the hash of its definition and manifest | `src/memory/db/service.js` |
 | `memoryDb.observeTimeoutMs` | number | `5000` | How long the message handler waits for an observation's commit before going on | `src/behavior/pipeline.js` |
 | `memoryDb.ingestKeepDays` | number | `7` | How many days the `ingest` table keeps an event the core took, the window in which a redelivered event is still a duplicate after a restart | `src/memory/db/ingest.ts` |
@@ -382,7 +302,6 @@ Her focus set: the people her attention is on. Computed by the `memoryDb.focus` 
 | `context.neighborMaxAgeMinutes` | number | `60` | Max age for neighbour messages (minutes) | `src/behavior/neighbors.ts` |
 | `context.neighborMaxChannels` | number | `8` | Max neighbour channels | `src/behavior/neighbors.ts` |
 | `context.maxMessageChars` | number | `2000` | Truncate messages beyond this | `src/behavior/prompt.js` |
-| `context.maxUrlChars` | number | `200` | URLs longer than this are cut with an ellipsis. `0` keeps every URL whole | `interfaces/discord/collect.js` |
 | `context.gapMarkerMinutes` | number | `20` | Time-gap marker threshold (minutes) | `src/behavior/prompt.js` |
 | `context.ageAfterMinutes` | number | `60` | Messages at least this old show how long ago they were posted | `src/format.js` |
 | `context.reactionsPerMessage` | number | `6` | Max reactions listed per message, most frequent first | `src/behavior/prompt.js` |
@@ -527,8 +446,6 @@ How long each stage of a turn may take. A request on a model role other than `co
 | `pace.prepareMediaMs` | number | `20000` | Extended deadline on a direct call whose trigger carries a picture, GIF or video. `0` removes it | `src/turn/settings.ts` |
 | `pace.dropAfterMs` | number | `120000` | If the finished answer has not arrived by this time, the turn is dropped. `0` removes it | `src/turn/phases/request/setup.ts` |
 | `pace.replyHedgeMs` | number | `30000` | On a direct call, when the reply has no answer after this long, a second request is sent. `0` = one attempt only | `src/llm/openrouter.js` |
-| `pace.typingWhilePreparing` | boolean | `false` | Show the typing indicator from the start of a turn, not only while the finished answer is typed out | `src/turn/settings.ts` |
-| `pace.unpromptedWaits` | boolean | `true` | A turn nobody waits for ignores `prepareMs`, `prepareSearchMs` and `dropAfterMs` | `src/turn/phases/request/setup.ts` |
 | `pace.settleMs` | number | `3000` | Wait for the person to stop writing before reading the chat, so quick messages are answered whole | `src/behavior/pipeline.js` |
 | `pace.settleMaxMs` | number | `8000` | The longest that wait may run from the calling message | `src/turn/sends.ts` |
 
@@ -563,37 +480,14 @@ Settings for the channel route classifier (`features.channelRoute`).
 
 ## `elsewhere`
 
-Settings for answering calls from channels where the bot can read but not send (`features.elsewhere`).
+Settings for answering calls from channels where the bot can read but not send.
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `elsewhere.settleSeconds` | number | `90` | Seconds after the last message in the source channel before the call is answered | `src/behavior/spontaneous.js` |
+| `elsewhere.settleSeconds` | number | `90` | Seconds after the last message in the source channel before the call is answered | `src/behavior/elsewhere.ts` |
 | `elsewhere.settleMaxSeconds` | number | `300` | Maximum seconds before the answer fires regardless | `src/pipeline/settle.ts` |
 | `elsewhere.rememberPings` | number | `20` | Calls remembered per channel | `src/pipeline/settle.ts` |
 | `elsewhere.pingMaxAgeDays` | number | `7` | Days before a remembered call expires | `src/pipeline/call-outcome.ts` |
-
-## `spontaneous`
-
-| Key | Type | Default | What it does | Read by |
-|---|---|---|---|---|
-| `spontaneous.channels` | array | `[]` | Allowed channels | `src/behavior/spontaneous.js` |
-| `spontaneous.minIntervalMinutes` | number | `45` | Min check interval (minutes) | `src/behavior/spontaneous.js` |
-| `spontaneous.maxIntervalMinutes` | number | `420` | Max check interval (minutes) | `src/behavior/spontaneous.js` |
-| `spontaneous.burstChance` | number | `0.15` | Burst follow-up chance | `src/behavior/spontaneous.js` |
-| `spontaneous.burstMinutes` | array | `[3, 15]` | Burst timing range (minutes) | `src/behavior/spontaneous.js` |
-| `spontaneous.activeHours.from` | number | `10` | First hour of the active hours, which may wrap midnight | `src/behavior/spontaneous.js` |
-| `spontaneous.activeHours.to` | number | `3` | Hour the active hours end, which may be before `from` to wrap midnight | `src/behavior/spontaneous.js` |
-| `spontaneous.liveWindowMinutes` | number | `15` | Live window (minutes) | `src/behavior/spontaneous.js` |
-| `spontaneous.liveMinMessages` | number | `4` | Messages for the channel to count as live | `src/behavior/spontaneous.js` |
-| `spontaneous.deadAfterMinutes` | number | `90` | Silence before the channel counts as dead (minutes) | `src/behavior/spontaneous.js` |
-| `spontaneous.initiateChance` | number | `0.1` | Chance of starting a topic vs interjecting | `src/behavior/spontaneous.js` |
-| `spontaneous.initiateCooldownHours` | array | `[24, 48]` | Cooldown after starting a topic (hours). `[0, 0]` = no cooldown | `src/behavior/spontaneous.js` |
-| `spontaneous.eavesdropChance` | number | `0.02` | Per-message jump-in chance | `src/behavior/spontaneous.js` |
-| `spontaneous.roomQuestionChance` | number | `0.04` | Chance a message put to the room is picked up. `0` turns it off | `src/behavior/mention.js` |
-| `spontaneous.eavesdropDelayMs` | array | `[5000, 40000]` | Eavesdrop delay range (ms) | `src/behavior/spontaneous.js` |
-| `spontaneous.minGapMinutes` | number | `12` | Min gap between actions (minutes) | `src/behavior/spontaneous.js` |
-| `spontaneous.maxChannelSilenceHours` | number | `6` | Channel silence that blocks spontaneous messages (hours). `0` = no limit | `src/behavior/spontaneous.js` |
-| `spontaneous.someoneAroundMinutes` | number | `120` | No spontaneous turn when every channel's last message is older than this. `0` = no gate | `src/behavior/spontaneous.js` |
 
 ## `memory`
 
@@ -672,12 +566,10 @@ Settings for the media describer (`features.mediaDescriptions`). The describer m
 | `media.prefillPerMessage` | number | `5` | Pictures of one observed message sent to the describer as they arrive. `0` turns prefill off | `src/behavior/pipeline.js` |
 | `media.cacheEntries` | number | `5000` | Description cache size | `src/memory/describe.js` |
 | `media.filePreviewChars` | number | `10000` | Characters shown from the beginning of text files | `src/turn/phases/request/gather.ts` |
-| `media.embedTextChars` | number | `200` | Characters shown from link embed text | `interfaces/discord/collect.js` |
 | `media.recacheBefore` | string, null | `null` | ISO date-time, or `null` (off). Descriptions written before it are described again when they come up | `src/memory/describe.js` |
 | `media.recacheIntervalMs` | number | `3000` | Milliseconds between descriptions of a `media.recache` run over pictures | `src/memory/gif-recache.js` |
 | `media.gif.watch` | boolean | `true` | Watch GIFs as short video clips. Needs `mediaDescriptions` and `videoDescriptions` on | `src/memory/describe.js` |
 | `media.gif.maxSeconds` | number | `15` | Seconds of the animation sent to the video model | `src/memory/describe.js` |
-| `media.gif.maxPerDay` | number | `200` | Daily GIF watch cap, separate from `video.maxPerDay` | `src/memory/describe.js` |
 | `media.video.provider` | map, null | `{ "order": ["google-ai-studio"], "allow_fallbacks": false }` | Provider routing for the direct-URL path. `null` uses the normal resolution | `src/memory/describe.js` |
 | `media.video.maxOutputTokens` | number | `800` | Max output tokens per video summary | `src/llm/openrouter.js` |
 | `media.video.summaryChars` | number | `1500` | Max characters for a video account | `src/memory/describe.js` |
@@ -685,8 +577,7 @@ Settings for the media describer (`features.mediaDescriptions`). The describer m
 | `media.video.maxSeconds` | number | `300` | Max clip duration for attachments and downloads | `src/memory/describe.js` |
 | `media.video.directUrlMaxSeconds` | number | `3600` | Max duration for a public-URL video in agentic mode | `src/memory/describe.js` |
 | `media.video.maxBytes` | number | `14500000` | Max file size for video clips (bytes) | `src/media/video-sites.js` |
-| `media.video.maxPerTurn` | number | `5` | Max new videos per turn | `src/memory/describe.js` |
-| `media.video.maxPerDay` | number | `40` | Daily video request cap | `src/memory/describe.js` |
+| `media.video.maxPerTurn` | number | `5` | Max new videos per turn | `src/turn/phases/request/stages.ts` |
 | `media.video.tokensPerSecond` | number | `120` | Token estimate per second for downloaded clips | `src/llm/openrouter.js` |
 | `media.video.directUrlTokensPerSecond` | number | `10` | Token estimate per second for public-URL videos in agentic mode | `src/llm/openrouter.js` |
 | `media.video.timeoutMs` | number | `90000` | LLM request timeout for video (ms) | `src/media/fetch-image.js` |
@@ -709,7 +600,6 @@ Settings for the media describer (`features.mediaDescriptions`). The describer m
 | `media.video.reasoning.effort` | string | `"low"` | Reasoning effort sent with video requests | `src/agent-runner/profiles.js` |
 | `media.video.prefill` | boolean | `true` | Watch a video as soon as it arrives | `src/behavior/pipeline.js` |
 | `media.video.prefillPerMessage` | number | `5` | Videos of one message watched on arrival. `0` turns video prefill off | `src/behavior/pipeline.js` |
-| `media.video.rewatch.maxPerDay` | number | `20` | Daily re-watch cap (separate from `video.maxPerDay`) | `src/memory/describe.js` |
 | `media.video.rewatch.maxOutputTokens` | number | `600` | Max output tokens for the re-watch answer | `src/memory/describe.js` |
 | `media.video.rewatch.classifierMaxOutputTokens` | number | `2000` | Max output tokens for the re-watch classifier | `src/turn/rewatch.ts` |
 | `media.video.rewatch.answerChars` | number | `1200` | Max characters for the answer | `src/memory/describe.js` |
@@ -749,7 +639,7 @@ Settings for web lookup (`features.webLookup`). Link reading, search and the per
 | `web.search.resultsChars` | number | `3000` | Max characters of the whole `web.search` result | `src/tools/tools.ts` |
 | `web.search.rawOutputTokens` | number | `256` | Max output tokens of the `openrouter` engine's request for `web.search` | `src/web/lookup.js` |
 | `web.search.maxOutputTokens` | number | `4000` | Max output tokens for the condenser | `src/llm/openrouter.js` |
-| `web.search.classifierMaxOutputTokens` | number | `2000` | Max output tokens for the search classifier | `src/behavior/planner.js` |
+| `web.search.classifierMaxOutputTokens` | number | `2000` | Max output tokens for the search classifier | `src/turn/lookup.ts` |
 | `web.search.cacheHours` | number | `24` | Hours a cached search result is served | `src/web/lookup.js` |
 | `web.search.contextMessages` | number | `50` | Recent messages for the search classifier | `src/turn/lookup-input.ts` |
 | `web.search.timeoutMs` | number | `10000` | Search request timeout (ms) | `src/behavior/recall-run.js` |
@@ -864,8 +754,6 @@ Settings for drawing (`features.imageGeneration`). See [Media](media.md).
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `image.maxPerDay` | number | `50` | Daily generation cap | `src/llm/images.js` |
-| `image.maxPerUserPerDay` | number | `50` | Daily cap per member | `src/llm/images.js` |
 | `image.maxPromptChars` | number | `1600` | Scene text clamped to this length | `src/behavior/prompt.js` |
 | `image.reference` | string | `"avatar"` | Visual reference when the persona is in the picture. `"avatar"` downloads the bot's avatar; anything else sends nothing | `src/media/draw.js` |
 | `image.referenceMaxBytes` | number | `4000000` | Max avatar file size (bytes) | `src/media/fetch-image.js` |
@@ -886,7 +774,6 @@ Settings for voice messages (`features.speech`). The persona's `voice.say` skill
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
 | `speech.voice` | string | `"jessica"` | Voice name passed to the speech endpoint | `src/speech/synth.js` |
-| `speech.maxPerDay` | number | `100` | Daily voice messages | `src/speech/index.js` |
 | `speech.maxChars` | number | `1500` | Max text characters per voice message | `src/speech/index.js` |
 | `speech.usdPerMillionChars` | number | `40` | Estimated cost for the tool gateway's budget | `src/speech/synth.js` |
 | `speech.timeoutMs` | number | `60000` | Speech request timeout (ms) | `src/speech/synth.js` |
@@ -983,7 +870,6 @@ Settings for the GIF library (`features.gifs`).
 | `gifs.ownMarkHours` | number | `24` | Hours after the persona posts a GIF during which it is named in `<gifs_recent>`. `0` turns it off | `src/behavior/prompt.js` |
 | `gifs.storeMax` | number | `300` | GIFs kept in the library | `src/memory/gifs.js` |
 | `gifs.halfLifeDays` | number | `30` | Recency half-life (days) | `src/tools/impl/media.ts` |
-| `gifs.maxPerDay` | number | `40` | GIFs the persona may post per day | `src/memory/gif-watch.js` |
 | `gifs.backfillMessages` | number | `500` | Messages read per channel at startup to seed the library. `0` disables | `src/core.js` |
 | `gifs.backfillDescribe` | number | `20` | Top GIFs described right after the backfill | `src/memory/gif-backfill.js` |
 | `gifs.recachePerRun` | number | `50` | Library GIFs re-described per recache run | `src/memory/gif-recache.js` |
@@ -994,13 +880,13 @@ Settings for the GIF library (`features.gifs`).
 
 ## `private`
 
-Settings for private chat (`features.privateMessages`).
+Settings for private chat: `private.enabled` answers direct messages at all.
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
+| `private.enabled` | boolean | `false` | Answer direct messages from guild members. Needs a stored public profile and `affinity.score >= private.minAffinity` | `src/behavior/private.js` |
+| `private.likeServer` | boolean | `true` | A private chat works like a server channel: route classifier, channel pull, server search, asked-about episodes. `false`: a private chat has none of them | `src/turn/lookup.ts` |
 | `private.minAffinity` | number | `5` | Minimum public attitude score to answer a DM; owners bypass this | `src/behavior/private.js` |
-| `private.maxPerUserPerDay` | number | `20` | DM turns per member per day | `src/behavior/private.js` |
-| `private.maxPerOwnerPerDay` | number | `200` | DM turns per day for owners | `src/behavior/private.js` |
 
 ## `errands`
 
@@ -1097,7 +983,6 @@ Settings for the persona's inner life (`features.innerLife`). See [Inner life](i
 | `innerLife.heartbeat.maxOpen` | number | `3` | Max open intentions created by heartbeat turns | `src/intentions/model.ts` |
 | `innerLife.heartbeat.maxRecurring` | number | `1` | Max recurring intentions from heartbeat turns | `src/behavior/inner/settings.ts` |
 | `innerLife.heartbeat.dueJitterMinutes` | number | `20` | Jitter on intention due times set by heartbeat | `src/intentions/model.ts` |
-| `innerLife.heartbeat.focusSource` | string | `"profiles"` | Where the people block takes its members: `profiles` (by affinity) or `db` (the focus set) | `src/behavior/heartbeat-view.ts` |
 | `innerLife.caps.perChain` | number | `3` | Inner turns of one chain per local day | `src/behavior/inner.ts` |
 | `innerLife.attention.settleSeconds` | number | `90` | Quiet seconds an attention waits before waking her | `src/tools/impl/intention.ts` |
 | `innerLife.attention.perDayDefault` | number | `12` | Attend wakes per local day (the default) | `src/behavior/inner/settings.ts` |
@@ -1111,30 +996,10 @@ Settings for the persona's inner life (`features.innerLife`). See [Inner life](i
 | `innerLife.retry.delaysMinutes` | array | `[1, 5, 15, 60]` | Retry delays after a provider failure (minutes) | `src/behavior/inner/settings.ts` |
 | `innerLife.retry.maxHours` | number | `6` | Hours before retries stop | `src/behavior/inner/settings.ts` |
 | `innerLife.factsKeepDays` | number | `7` | Days an untold fact stays | `src/behavior/inner/settings.ts` |
-| `innerLife.wakes.intention_due.tools` | string, array | `"*"` | The tools a wake of kind `intention_due` may call: `"*"` for every granted tool or a list of tool names | `src/tools/access.ts` |
-| `innerLife.wakes.intention_due.maxActs` | number, null | `null` | Most calls that change something in one wake of kind `intention_due`. `null` sets no cap | `src/tools/access.ts` |
-| `innerLife.wakes.intention_due.maxTasks` | number, null | `null` | Most errands one wake of kind `intention_due` starts. `null` sets no cap | `src/tools/access.ts` |
-| `innerLife.wakes.intention_due.inputTokens` | number, null | `null` | The input token budget of one wake of kind `intention_due`. `null` uses the turn budget | `src/tools/access.ts` |
-| `innerLife.wakes.review.tools` | string, array | `"*"` | The tools a wake of kind `review` may call: `"*"` for every granted tool or a list of tool names | `src/tools/access.ts` |
-| `innerLife.wakes.review.maxActs` | number, null | `null` | Most calls that change something in one wake of kind `review`. `null` sets no cap | `src/tools/access.ts` |
-| `innerLife.wakes.review.maxTasks` | number, null | `null` | Most errands one wake of kind `review` starts. `null` sets no cap | `src/tools/access.ts` |
-| `innerLife.wakes.review.inputTokens` | number, null | `null` | The input token budget of one wake of kind `review`. `null` uses the turn budget | `src/tools/access.ts` |
-| `innerLife.wakes.errand_deadline.tools` | string, array | `"*"` | The tools a wake of kind `errand_deadline` may call: `"*"` for every granted tool or a list of tool names | `src/tools/access.ts` |
-| `innerLife.wakes.errand_deadline.maxActs` | number, null | `null` | Most calls that change something in one wake of kind `errand_deadline`. `null` sets no cap | `src/tools/access.ts` |
-| `innerLife.wakes.errand_deadline.maxTasks` | number, null | `null` | Most errands one wake of kind `errand_deadline` starts. `null` sets no cap | `src/tools/access.ts` |
-| `innerLife.wakes.errand_deadline.inputTokens` | number, null | `null` | The input token budget of one wake of kind `errand_deadline`. `null` uses the turn budget | `src/tools/access.ts` |
-| `innerLife.wakes.attend.tools` | string, array | `"*"` | The tools a wake of kind `attend` may call: `"*"` for every granted tool or a list of tool names | `src/tools/access.ts` |
-| `innerLife.wakes.attend.maxActs` | number, null | `null` | Most calls that change something in one wake of kind `attend`. `null` sets no cap | `src/tools/access.ts` |
-| `innerLife.wakes.attend.maxTasks` | number, null | `null` | Most errands one wake of kind `attend` starts. `null` sets no cap | `src/tools/access.ts` |
-| `innerLife.wakes.attend.inputTokens` | number, null | `null` | The input token budget of one wake of kind `attend`. `null` uses the turn budget | `src/tools/access.ts` |
-| `innerLife.wakes.feedback.tools` | string, array | `"*"` | The tools a wake of kind `feedback` may call: `"*"` for every granted tool or a list of tool names | `src/turn/skill-calls.ts` |
-| `innerLife.wakes.feedback.maxActs` | number, null | `null` | Most calls that change something in one wake of kind `feedback`. `null` sets no cap | `src/tools/access.ts` |
-| `innerLife.wakes.feedback.maxTasks` | number, null | `null` | Most errands one wake of kind `feedback` starts. `null` sets no cap | `src/tools/access.ts` |
-| `innerLife.wakes.feedback.inputTokens` | number, null | `null` | The input token budget of one wake of kind `feedback`. `null` uses the turn budget | `src/tools/access.ts` |
-| `innerLife.wakes.heartbeat.tools` | string, array | `"*"` | The tools a wake of kind `heartbeat` may call: `"*"` for every granted tool or a list of tool names | `src/tools/impl/status.ts` |
-| `innerLife.wakes.heartbeat.maxActs` | number, null | `null` | Most calls that change something in one wake of kind `heartbeat`. `null` sets no cap | `src/tools/access.ts` |
-| `innerLife.wakes.heartbeat.maxTasks` | number, null | `null` | Most errands one wake of kind `heartbeat` starts. `null` sets no cap | `src/tools/access.ts` |
-| `innerLife.wakes.heartbeat.inputTokens` | number, null | `null` | The input token budget of one wake of kind `heartbeat`. `null` uses the turn budget | `src/tools/access.ts` |
+| `innerLife.wakes.*.tools` | string, array | `"*"` | The tools a wake of the kind may call: `"*"` (when unset) for every granted tool or a list of tool names | `src/tools/access.ts` |
+| `innerLife.wakes.*.maxActs` | number, null | `null` | The most actions a wake of the kind may take; unset or null: no cap | `src/tools/access.ts` |
+| `innerLife.wakes.*.maxTasks` | number, null | `null` | The most errands a wake of the kind may start; unset or null: no cap | `src/tools/access.ts` |
+| `innerLife.wakes.*.inputTokens` | number, null | `null` | The input token budget of a wake of the kind; unset or null: the loop budget | `src/tools/access.ts` |
 
 ## `appendStore`
 
