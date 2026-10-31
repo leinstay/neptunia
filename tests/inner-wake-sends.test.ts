@@ -19,8 +19,10 @@ import type { InnerTurnParams } from '../src/behavior/inner/types.ts';
 import { createEventDoor } from '../src/interface/door.js';
 import { createIntentionService } from '../src/intentions/service.ts';
 import { createIntentionStores } from '../src/intentions/store.ts';
-import { deliveryOf, queuedDeliveries, wakeOf } from '../src/memory/db/wake-queue.ts';
+import { deliveriesIn, deliveryOf, queuedDeliveries, wakeOf } from '../src/memory/db/wake-queue.ts';
 import type { WakeQueueUpdate } from '../src/memory/db/wake-queue.ts';
+import { notOk } from '../src/interface/port.js';
+import { CODE } from '../src/tools/codes.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import '../src/tools/impl/index.ts';
 import { openTestMemory } from './fixtures/memory-db/service.js';
@@ -53,7 +55,42 @@ type Start = {
   dieAtCommit?: boolean;
   /** The port the inner life sends through (the world's by default). */
   port?: Fake;
+  /** Called with the inner life when a write first leaves a delivery queued, right after that commit. */
+  atCommit?: (life: ReturnType<typeof createInnerLife>) => void;
 };
+
+/** The record of her lines (src/memory/record.js), as the turn runner and the inner life append to it. */
+type Record_ = {
+  lines: Array<unknown>;
+  append(guildId: string, lines: ReadonlyArray<unknown>, options?: unknown): Promise<void>;
+  iterate(): Array<unknown>;
+};
+
+/** A record that keeps every line appended to it, in order, and lists nothing back. */
+function keptRecord(): Record_ {
+  const lines: Array<unknown> = [];
+  return {
+    lines,
+    append: (_guildId, appended) => {
+      lines.push(...appended);
+      return Promise.resolve();
+    },
+    iterate: () => [],
+  };
+}
+
+/** The lines of `record` of `kind` in conversation c1, each as `<kind>:<message id>`. */
+function linesOf(record: Record_, kind: string): Array<string> {
+  return record.lines
+    .filter((line) => Reflect.get(Object(line), 'kind') === kind)
+    .filter((line) => Reflect.get(Object(Reflect.get(Object(line), 'scope')), 'channel') === 'c1')
+    .map((line) => `${kind}:${String(Reflect.get(Object(line), 'messageId'))}`);
+}
+
+/** The facts the wake of `params` showed her. */
+function factsOf(params: InnerTurnParams | undefined): Array<unknown> {
+  return params?.inner.wake.facts ?? [];
+}
 
 /** The texts of the sends that reached `port`, in order. */
 function sendsOf(port: Fake): Array<unknown> {
@@ -154,7 +191,11 @@ function hotOf(mode: 'live' | 'shadow', heartbeat: boolean) {
  */
 async function core(
   first: Start,
-  { mode = 'live', heartbeat = false }: { mode?: 'live' | 'shadow'; heartbeat?: boolean } = {}
+  {
+    mode = 'live',
+    heartbeat = false,
+    record = null,
+  }: { mode?: 'live' | 'shadow'; heartbeat?: boolean; record?: Record_ | null } = {}
 ) {
   // The heartbeat has no place: with reads that say no interface answers, it runs in its stand-in (drain.ts).
   const reads = heartbeat
@@ -170,6 +211,8 @@ async function core(
   const port = world().port;
   const clock = { t: T };
   const hot = hotOf(mode, heartbeat);
+  // Her lines are recorded only while features.record is exactly true.
+  if (record) Object.assign(hot.config.features, { record: true });
   const dataDir = tempDir('nep-inner-wake-sends-');
   const flags: PauseFlags = {};
   const service = createIntentionService({
@@ -203,6 +246,7 @@ async function core(
       now: () => clock.t,
       skills: skillRegistry(),
       journal: null,
+      ...(record ? { record } : {}),
       runOp: admin.runSkillOp,
       runOwnOp: admin.runOwnSkillOp,
       runInitiativeOp: admin.runInitiativeSkillOp,
@@ -221,12 +265,14 @@ async function core(
     const { llm, runner } = runnerOf(start.answers, died);
     // The sends the port had when a delivery was first recorded queued (null while none was).
     const committed: { sends: number | null } = { sends: null };
+    let life: ReturnType<typeof createInnerLife> | null = null;
     const memoryDb = {
       readHandle: (): unknown => memory.memoryDb.readHandle(),
       memoryWrite: async (update: WakeQueueUpdate): Promise<unknown> => {
         const answer: unknown = await memory.memoryDb.memoryWrite(update);
         if (committed.sends === null && queuedDeliveries(readHandleOf(memory)).length > 0) {
           committed.sends = sendsOf(port).length;
+          if (life) start.atCommit?.(life);
           if (start.dieAtCommit === true) {
             died();
             return new Promise<unknown>(() => {});
@@ -236,7 +282,6 @@ async function core(
       },
     };
     let busy = 0;
-    let life: ReturnType<typeof createInnerLife> | null = null;
     const door = createEventDoor({ handlers: { 'inner.wake': (event: object) => life?.onWake(event) }, log: SILENT });
     life = createInnerLife({
       hot,
@@ -257,6 +302,7 @@ async function core(
       },
       intentions: service,
       reads,
+      ...(record ? { record } : {}),
       iface: () => 'fake',
       conversationName: (id: string) => `chan-${id}`,
       submit: (event: object) => door.submit(event),
@@ -339,7 +385,7 @@ test("a wake turn's message.create is held until the completion, then the port g
 });
 
 test('a crash after the completion and before the send: the next start sends the held message once, and a second start sends nothing', async () => {
-  const run = await core({ answers: ['<msg>καλησπέρα</msg>'], dieAtCommit: true });
+  const run = await core({ answers: ['<msg>καλησπέρα</msg>', '<skip/>'], dieAtCommit: true });
   try {
     dueIntention(run, T - MINUTE);
     const tick = run.life.tick().then(() => 'ended' as const);
@@ -362,7 +408,7 @@ test('a crash after the completion and before the send: the next start sends the
 });
 
 test('a start whose send of a recorded delivery lost its answer: the next start reconciles it and sends nothing again', async () => {
-  const run = await core({ answers: ['<msg>καλησπέρα</msg>'], dieAtCommit: true });
+  const run = await core({ answers: ['<msg>καλησπέρα</msg>', '<skip/>'], dieAtCommit: true });
   try {
     dueIntention(run, T - MINUTE);
     const tick = run.life.tick().then(() => 'ended' as const);
@@ -438,6 +484,74 @@ test('an edit of a held message later in the same turn is refused held-message, 
       'the edit reached no interface'
     );
     assert.deepEqual(sendsOf(run.port), ['καλημέρα']);
+  } finally {
+    await run.close();
+  }
+});
+
+test('a held post sent after the completion is recorded once as her said line in its conversation', async () => {
+  const record = keptRecord();
+  const run = await core(
+    { answers: [toolAnswer('', [call('message.create', { text: 'καλημέρα' })]), '<skip/>'] },
+    { record }
+  );
+  try {
+    dueIntention(run, T - MINUTE);
+    await run.life.tick();
+    const [posted] = run.port.messagesIn('c1');
+    assert.ok(posted, 'the held post went out');
+    assert.deepEqual(linesOf(record, 'said'), [`said:${posted.ref.messageId}`]);
+    run.clock.t += MINUTE;
+    await run.life.tick();
+    assert.deepEqual(linesOf(record, 'said'), [`said:${posted.ref.messageId}`], 'recorded once');
+  } finally {
+    await run.close();
+  }
+});
+
+test('a delivery the interface refuses ends failed, her next wake shows it as a failed call, and no start resends it', async () => {
+  const run = await core({ answers: ['<msg>καλησπέρα</msg>', '<skip/>'] });
+  try {
+    const { wakeId } = dueIntention(run, T - MINUTE);
+    run.port.failNext('send', notOk('failed', CODE.SEND_FAILED));
+    await run.life.tick();
+    assert.equal(sendsOf(run.port).length, 1, 'the interface was asked once');
+    assert.deepEqual(run.port.messagesIn('c1'), [], 'and posted nothing');
+    assert.deepEqual(
+      deliveriesIn(readHandleOf(run.memory), 'failed').map((delivery) => delivery.wakeId),
+      [wakeId],
+      'the delivery ended failed'
+    );
+    run.clock.t += MINUTE;
+    await run.life.tick();
+    assert.equal(run.calls.length, 2, 'a next wake runs');
+    const told = factsOf(run.calls[1]).map(
+      (fact) => `${String(Reflect.get(Object(fact), 'kind'))}:${String(Reflect.get(Object(fact), 'code'))}`
+    );
+    assert.ok(told.includes(`callFailed:${CODE.SEND_FAILED}`), `her next wake shows the failure: ${told.join(', ')}`);
+    await run.restart({ answers: ['<skip/>'] });
+    run.clock.t += MINUTE;
+    await run.life.tick();
+    assert.equal(sendsOf(run.port).length, 1, 'no start resends a failed delivery');
+  } finally {
+    await run.close();
+  }
+});
+
+test('the stop switch turned on after the completion keeps the deliveries queued and sends nothing', async () => {
+  const run = await core({
+    answers: ['<msg>καλησπέρα</msg>', '<skip/>'],
+    atCommit: (life) => life.stop(GUILD),
+  });
+  try {
+    dueIntention(run, T - MINUTE);
+    await run.life.tick();
+    assert.equal(run.committed.sends, 0, 'the completion recorded the held post before any send');
+    assert.deepEqual(sendsOf(run.port), [], 'the drain asked the switch again before it sent');
+    assert.deepEqual(
+      queuedDeliveries(readHandleOf(run.memory)).map((delivery) => delivery.state),
+      ['queued']
+    );
   } finally {
     await run.close();
   }
