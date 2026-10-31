@@ -4418,7 +4418,7 @@
   },
   "tests/hot.test.js": {
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 14
+      "count": 11
     },
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 33

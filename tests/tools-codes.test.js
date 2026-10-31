@@ -27,7 +27,9 @@ import { catalogueProblems, renderCodesTable } from '../tools/lib/labels-catalog
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // PR 7c: the shipped labels live in config/labels.json under `model` and `owner`, read joined as the engine reads them.
-const shipped = joinLabels(JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'labels.json'), 'utf8')));
+/** @type {unknown} */
+const labelsFile = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'labels.json'), 'utf8'));
+const shipped = joinLabels(/** @type {import('../src/config/labels.ts').LabelsFile} */ (labelsFile));
 const contract = fs.readFileSync(path.join(ROOT, 'docs', 'prompt-contract.md'), 'utf8');
 
 // ---- the emitters ----------------------------------------------------------------------------

@@ -201,13 +201,20 @@ function writeLocalPrompt(dir, name, text) {
 }
 
 // PR 7c: the tracked labels live in config/labels.json under `model`; a flat prompts.local/labels.json still loads.
+/**
+ * @param {string} dir
+ * @param {string} layer
+ * @param {string} value
+ */
 function writeLabels(dir, layer, value) {
   const target = layer === 'base' ? path.join(dir, 'config') : path.join(dir, 'prompts.local');
   fs.mkdirSync(target, { recursive: true });
   let text = value;
   if (layer === 'base') {
     try {
-      text = JSON.stringify({ model: JSON.parse(value), owner: {} });
+      /** @type {unknown} */
+      const model = JSON.parse(value);
+      text = JSON.stringify({ model, owner: {} });
     } catch {
       // an invalid file stays invalid
     }
