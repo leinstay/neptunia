@@ -21,8 +21,10 @@ const grant = { everyone: false, roles: [], users: [SELF] };
 /** An admin over a checkout with a tracked config.json and a private folder whose config.local.json is `local`. */
 function deployment(local: Settings) {
   const root = tempDir('nep-owner-write-');
+  // PR 7c: the tracked settings live in config/config.json.
+  fs.mkdirSync(path.join(root, 'config'), { recursive: true });
   fs.writeFileSync(
-    path.join(root, 'config.json'),
+    path.join(root, 'config', 'config.json'),
     JSON.stringify({
       features: { tools: true, toolsDiscovery: true, intentions: true },
       tools: { safeMode: false },

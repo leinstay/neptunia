@@ -2,6 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { localPath, madeLocalPath } from './fixtures/config-local.js';
 import path from 'node:path';
 
 import {
@@ -386,7 +387,7 @@ function makeAdmin(rootDir, extra = {}) {
 }
 
 function readLocal(rootDir) {
-  return JSON.parse(fs.readFileSync(path.join(rootDir, 'config.local.json'), 'utf8'));
+  return JSON.parse(fs.readFileSync(localPath(rootDir), 'utf8'));
 }
 
 // ---------------------------------------------------------------------------
@@ -481,7 +482,7 @@ test('run: set rejects an unknown config path and writes nothing', async () => {
     () => admin.run('config.set', { path: 'llm.doesNotExist', value: '1' }, {}),
     /unknown config path/
   );
-  assert.equal(fs.existsSync(path.join(rootDir, 'config.local.json')), false);
+  assert.equal(fs.existsSync(localPath(rootDir)), false);
 });
 
 test('run: unset removes a previously set override', async () => {
@@ -562,7 +563,7 @@ test('set: a non-owner granted set cannot touch bot.owners or bot.access; an own
     /only an owner/,
     'no caller is no owner'
   );
-  assert.equal(fs.existsSync(path.join(rootDir, 'config.local.json')), false, 'nothing was written');
+  assert.equal(fs.existsSync(localPath(rootDir)), false, 'nothing was written');
 
   const result = await admin.run(
     'config.set',
@@ -602,7 +603,7 @@ test('set: accepts only an own leaf path of the live config and a value of the s
     () => admin.run('config.set', { path: 'bot.owners', value: '"42"' }, owner),
     /bot\.owners expects an array, got a string/
   );
-  assert.equal(fs.existsSync(path.join(rootDir, 'config.local.json')), false, 'nothing was written');
+  assert.equal(fs.existsSync(localPath(rootDir)), false, 'nothing was written');
 
   await admin.run('config.set', { path: 'llm.maxRequestsPerDay', value: '250' }, owner);
   await admin.run('config.set', { path: 'features.dryRun', value: 'true' }, owner);
@@ -772,7 +773,7 @@ test('run: model.set rejects an unknown role and a role name that is no longer o
       role
     );
   }
-  assert.equal(fs.existsSync(path.join(rootDir, 'config.local.json')), false);
+  assert.equal(fs.existsSync(localPath(rootDir)), false);
 });
 
 test('run: model.set rejects an id that does not look like a model id', async () => {
@@ -781,7 +782,7 @@ test('run: model.set rejects an id that does not look like a model id', async ()
 
   await assert.rejects(() => admin.run('model.set', { role: 'core', id: 'x' }, {}), /model id/);
   await assert.rejects(() => admin.run('model.set', { role: 'drawing', id: 'has spaces here' }, {}), /model id/);
-  assert.equal(fs.existsSync(path.join(rootDir, 'config.local.json')), false);
+  assert.equal(fs.existsSync(localPath(rootDir)), false);
 });
 
 test('run: model.set accepts a loosely-valid id (letters, digits, dot, colon, slash, dash, underscore)', async () => {
@@ -921,7 +922,7 @@ test('run: access.grant refuses the pings operations, writing nothing', async ()
     () => admin.run('access.grant', { command: 'pings' }, {}),
     /pings covers no grantable read operation/
   );
-  assert.equal(fs.existsSync(path.join(rootDir, 'config.local.json')), false);
+  assert.equal(fs.existsSync(localPath(rootDir)), false);
 });
 
 // ---------------------------------------------------------------------------
@@ -967,7 +968,7 @@ test('run: access.grant rejects both a role and a user at once, writing nothing'
     () => admin.run('access.grant', { command: 'status.show', roleId: '1', userId: '2' }, {}),
     /give a role or a user, not both/
   );
-  assert.equal(fs.existsSync(path.join(rootDir, 'config.local.json')), false);
+  assert.equal(fs.existsSync(localPath(rootDir)), false);
 });
 
 test('run: access.grant rejects an unknown operation and an old command key, writing nothing', async () => {
@@ -979,7 +980,7 @@ test('run: access.grant rejects an unknown operation and an old command key, wri
     () => admin.run('access.grant', { command: 'memory.show' }, {}),
     /unknown operation: memory\.show/
   );
-  assert.equal(fs.existsSync(path.join(rootDir, 'config.local.json')), false);
+  assert.equal(fs.existsSync(localPath(rootDir)), false);
 });
 
 test('run: access.list leaves out stale grants: owner-only operations and old command keys', async () => {
@@ -987,17 +988,14 @@ test('run: access.list leaves out stale grants: owner-only operations and old co
   const { admin } = makeAdmin(rootDir);
   const open = { everyone: true, roles: [], users: [] };
   fs.writeFileSync(
-    path.join(rootDir, 'config.local.json'),
+    madeLocalPath(rootDir),
     JSON.stringify({
       bot: { access: { private: open, 'memory.private.read': open, status: open, 'status.show': open } },
     })
   );
   assert.equal(await admin.run('access.list', {}, {}), 'status.show: everyone');
 
-  fs.writeFileSync(
-    path.join(rootDir, 'config.local.json'),
-    JSON.stringify({ bot: { access: { 'memory.private.read': open } } })
-  );
+  fs.writeFileSync(madeLocalPath(rootDir), JSON.stringify({ bot: { access: { 'memory.private.read': open } } }));
   assert.equal(await admin.run('access.list', {}, {}), '(none)');
 });
 
@@ -1092,7 +1090,7 @@ test('migrateAccess: once per guild, the old command-key grants re-expanded unde
   const { admin } = makeAdmin(rootDir, { hot, journal, store });
   const open = { everyone: true, roles: [], users: [] };
   fs.writeFileSync(
-    path.join(rootDir, 'config.local.json'),
+    madeLocalPath(rootDir),
     JSON.stringify({
       bot: {
         access: {
@@ -3095,7 +3093,7 @@ test('run: access.grant refuses private memory and access management (owner-only
         `${group}: ${command} to a user`
       );
     }
-    assert.equal(fs.existsSync(path.join(rootDir, 'config.local.json')), false, `${group}: nothing was written`);
+    assert.equal(fs.existsSync(localPath(rootDir)), false, `${group}: nothing was written`);
   }
 });
 
@@ -3319,7 +3317,7 @@ test('run: media pictures recache refuses days out of 1..60, a run in flight, pi
 
 test('run: route.set without a role writes { only, allow_fallbacks: false } under the bare prefix and reloads', async () => {
   const rootDir = makeRoot();
-  fs.writeFileSync(path.join(rootDir, 'config.local.json'), JSON.stringify({ llm: { model: 'x/kept' } }));
+  fs.writeFileSync(madeLocalPath(rootDir), JSON.stringify({ llm: { model: 'x/kept' } }));
   const { admin, hot } = makeAdmin(rootDir);
 
   const result = await admin.run('route.set', { model: 'google/', providers: 'google-vertex' }, {});
@@ -3380,7 +3378,7 @@ test('run: route.set validates the prefix, the providers and the role, writing n
   for (const [args, message] of bad) {
     await assert.rejects(() => admin.run('route.set', args, {}), message, JSON.stringify(args));
   }
-  assert.equal(fs.existsSync(path.join(rootDir, 'config.local.json')), false);
+  assert.equal(fs.existsSync(localPath(rootDir)), false);
   assert.equal(hot.reloadConfigCalls, 0);
 });
 
@@ -3418,13 +3416,13 @@ test('run: route.remove deletes only the named key; an unknown route is an error
   });
   assert.equal(hot.reloadConfigCalls, 3);
 
-  const before = fs.readFileSync(path.join(rootDir, 'config.local.json'), 'utf8');
+  const before = fs.readFileSync(localPath(rootDir), 'utf8');
   await assert.rejects(
     () => admin.run('route.remove', { model: 'google/', role: 'core' }, {}),
     /no route google\/@core/
   );
   await assert.rejects(() => admin.run('route.remove', { model: 'google/', role: 'bogus' }, {}), /unknown role/);
-  assert.equal(fs.readFileSync(path.join(rootDir, 'config.local.json'), 'utf8'), before);
+  assert.equal(fs.readFileSync(localPath(rootDir), 'utf8'), before);
   assert.equal(hot.reloadConfigCalls, 3);
 
   await admin.run('route.remove', { model: 'google/' }, {});

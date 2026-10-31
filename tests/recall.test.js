@@ -43,7 +43,7 @@ import path from 'node:path';
 import { tempDir } from './fixtures/tmp.js';
 import { openTestMemory } from './fixtures/memory-db/service.js';
 
-const SHIPPED_CONFIG = JSON.parse(readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
+const SHIPPED_CONFIG = JSON.parse(readFileSync(new URL('../config/config.json', import.meta.url), 'utf8'));
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;

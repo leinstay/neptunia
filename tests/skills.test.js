@@ -1005,9 +1005,9 @@ function makeEnv({ cfg = config(), roles = [] } = {}) {
     getGuildId: () => 'g1',
     now: () => Date.UTC(2026, 9, 14, 10, 0, 0),
   });
-  /** `bot.access` as written to config.local.json. */
+  /** `bot.access` as written to the private settings file (PR 7c: config.local/config.json). */
   const stored = () => {
-    const file = path.join(rootDir, 'config.local.json');
+    const file = path.join(rootDir, 'config.local', 'config.json');
     return fs.existsSync(file) ? (JSON.parse(fs.readFileSync(file, 'utf8')).bot?.access ?? {}) : {};
   };
   return { env, hot, store, client, stored, cleanup: () => fs.rmSync(rootDir, { recursive: true, force: true }) };

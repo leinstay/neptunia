@@ -1350,12 +1350,13 @@ test('replay --skills --prompts: the directory is laid over a copy of prompts.lo
     fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
     fs.writeFileSync(path.join(root, rel), text);
   };
-  write('config.json', JSON.stringify({ features: { tools: true } }));
+  // PR 7c: the tracked settings and labels live in config/, the labels under `model`.
+  write('config/config.json', JSON.stringify({ features: { tools: true } }));
   write('prompts/reply.md', 'tracked reply');
   write('prompts/format.md', 'tracked format');
   write(
-    'prompts/labels.json',
-    JSON.stringify({ transcript: { author: '{name}' }, task: { queued: 'tracked queued' } })
+    'config/labels.json',
+    JSON.stringify({ model: { transcript: { author: '{name}' }, task: { queued: 'tracked queued' } }, owner: {} })
   );
   const localLabels = JSON.stringify({ task: { queued: 'local queued', queuedOthers: 'local others' } });
   write('prompts.local/reply.md', 'local réply');
@@ -1442,9 +1443,10 @@ test('replay --skills --prompts: a prompts.local/ that links to the live layer i
       fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
       fs.writeFileSync(path.join(dir, rel), text);
     };
-    write(root, 'config.json', JSON.stringify({ features: { tools: true } }));
+    // PR 7c: the tracked settings and labels live in config/, the labels under `model`.
+    write(root, 'config/config.json', JSON.stringify({ features: { tools: true } }));
     write(root, 'prompts/reply.md', 'tracked reply');
-    write(root, 'prompts/labels.json', JSON.stringify({ task: { queued: 'tracked queued' } }));
+    write(root, 'config/labels.json', JSON.stringify({ model: { task: { queued: 'tracked queued' } }, owner: {} }));
     const liveLabels = JSON.stringify({ task: { queued: 'live queued', queuedOthers: 'live others' } });
     write(live, 'reply.md', 'live réply');
     write(live, 'labels.json', liveLabels);

@@ -5857,7 +5857,7 @@ test('attitudes: a block over context.caps.attitudes is dropped whole', () => {
 // --- code fallbacks equal config.json --------------------------------------------
 
 test('buildRequest: the code fallbacks for missing settings equal the values in config.json', () => {
-  const shipped = JSON.parse(readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
+  const shipped = JSON.parse(readFileSync(new URL('../config/config.json', import.meta.url), 'utf8'));
   const base = {
     bot: { timezone: 'Europe/Moscow' },
     context: { gapMarkerMinutes: 20, maxMessageChars: 800, caps: {}, vision: {} },

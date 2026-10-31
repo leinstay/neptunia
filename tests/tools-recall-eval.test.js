@@ -38,7 +38,8 @@ import { createExaSearch } from '../src/web/exa.js';
 import { webSearchKeys, webSearchReady } from '../tools/recall-eval.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SHIPPED_CONFIG = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
+// PR 7c: the shipped settings live in config/config.json.
+const SHIPPED_CONFIG = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'config.json'), 'utf8'));
 
 const DAY = 86_400_000;
 const NOW = Date.UTC(2026, 9, 16, 12, 0, 0);

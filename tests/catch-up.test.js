@@ -17,7 +17,8 @@ import { IFACE, channel, message, rig } from './fixtures/reads-rig.ts';
 // The conversations are held by a fake interface named `fake`, where the persona is `self1`.
 useIface('fake');
 useSelf('self1');
-const SHIPPED = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
+// PR 7c: the shipped settings live in config/config.json.
+const SHIPPED = JSON.parse(fs.readFileSync(new URL('../config/config.json', import.meta.url), 'utf8'));
 const MIN = 60_000;
 const NOW = Date.parse('2026-10-18T12:00:00Z');
 const LAST_SEEN = NOW - 30 * MIN;

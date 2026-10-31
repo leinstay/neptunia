@@ -421,7 +421,8 @@ test('recent: remove takes stored ids only', () => {
 });
 
 test('recent: settings follow config.json and features.recent missing counts as on', () => {
-  const config = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
+  // PR 7c: the shipped settings live in config/config.json.
+  const config = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'config.json'), 'utf8'));
   assert.deepEqual(
     { ...RECENT_DEFAULTS },
     {

@@ -118,7 +118,8 @@ export async function toolDecisions() {
   const access = /** @type {AccessModule} */ (await load('access'));
   const registry = skillRegistry();
   const names = [...registry.keys()];
-  const shippedText = fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8');
+  // PR 7c: the shipped settings live in config/config.json.
+  const shippedText = fs.readFileSync(path.join(ROOT, 'config', 'config.json'), 'utf8');
   /** @type {unknown} */
   const parsed = JSON.parse(shippedText);
   const shipped = /** @type {{ bot: Settings } & Settings} */ (parsed);
@@ -164,15 +165,71 @@ export async function toolDecisions() {
    *   context?: object }>}
    */
   const contexts = [
-    { name: 'owner-here', about: 'Every tool granted to her, the owner asked, in this conversation', config: configOf(), requester: { id: OWNER }, context: budgets.open },
-    { name: 'member-here', about: 'Granted to her, a member asked, nothing granted to the member', config: configOf(), requester: { id: MEMBER }, context: budgets.open },
-    { name: 'member-granted-here', about: 'Granted to her and to everyone, a member asked', config: configOf({ everyone: true }), requester: { id: MEMBER }, context: budgets.open },
-    { name: 'owner-there', about: 'The owner asked, aimed at another conversation where the tool takes one', config: configOf(), requester: { id: OWNER }, there: true, context: budgets.open },
-    { name: 'member-there', about: 'A member asked, aimed at another conversation where the tool takes one', config: configOf(), requester: { id: MEMBER }, there: true, context: budgets.open },
-    { name: 'ungranted-owner-here', about: 'Nothing granted to her, the owner asked', config: configOf({ granted: false }), requester: { id: OWNER }, context: budgets.open },
-    { name: 'shipped-owner-here', about: 'The shipped config.json, the owner listed and asking', config: { ...clone(shipped), bot: { ...clone(shipped.bot), owners: [OWNER] } }, requester: { id: OWNER }, context: budgets.open },
-    { name: 'no-requester', about: 'Granted to her, nobody asked', config: configOf(), requester: null, context: budgets.open },
-    { name: 'own-initiative', about: 'Granted to her, an inner turn with no wake kind', config: configOf(), requester: null, context: { ...budgets.open, ownInitiative: true } },
+    {
+      name: 'owner-here',
+      about: 'Every tool granted to her, the owner asked, in this conversation',
+      config: configOf(),
+      requester: { id: OWNER },
+      context: budgets.open,
+    },
+    {
+      name: 'member-here',
+      about: 'Granted to her, a member asked, nothing granted to the member',
+      config: configOf(),
+      requester: { id: MEMBER },
+      context: budgets.open,
+    },
+    {
+      name: 'member-granted-here',
+      about: 'Granted to her and to everyone, a member asked',
+      config: configOf({ everyone: true }),
+      requester: { id: MEMBER },
+      context: budgets.open,
+    },
+    {
+      name: 'owner-there',
+      about: 'The owner asked, aimed at another conversation where the tool takes one',
+      config: configOf(),
+      requester: { id: OWNER },
+      there: true,
+      context: budgets.open,
+    },
+    {
+      name: 'member-there',
+      about: 'A member asked, aimed at another conversation where the tool takes one',
+      config: configOf(),
+      requester: { id: MEMBER },
+      there: true,
+      context: budgets.open,
+    },
+    {
+      name: 'ungranted-owner-here',
+      about: 'Nothing granted to her, the owner asked',
+      config: configOf({ granted: false }),
+      requester: { id: OWNER },
+      context: budgets.open,
+    },
+    {
+      name: 'shipped-owner-here',
+      about: 'The shipped config.json, the owner listed and asking',
+      config: { ...clone(shipped), bot: { ...clone(shipped.bot), owners: [OWNER] } },
+      requester: { id: OWNER },
+      context: budgets.open,
+    },
+    {
+      name: 'no-requester',
+      about: 'Granted to her, nobody asked',
+      config: configOf(),
+      requester: null,
+      context: budgets.open,
+    },
+    {
+      name: 'own-initiative',
+      about: 'Granted to her, an inner turn with no wake kind',
+      config: configOf(),
+      requester: null,
+      context: { ...budgets.open, ownInitiative: true },
+    },
     ...WAKE_KINDS.map((kind) => ({
       name: `wake-${kind}`,
       about: `Granted to her, an inner turn woken by ${kind}, one reaction already done`,
@@ -185,13 +242,57 @@ export async function toolDecisions() {
         wakeActions: [{ skill: 'message.react.add', status: 'executed' }],
       },
     })),
-    { name: 'safe-mode', about: 'Safe mode on, the owner asked', config: configOf({ safeMode: true }), requester: { id: OWNER }, context: budgets.open },
-    { name: 'tools-off', about: 'The tools switch off, the owner asked', config: configOf({ featuresState: { ...featuresOn, skills: false, tools: false } }), requester: { id: OWNER }, context: budgets.open },
-    { name: 'features-off', about: 'Every feature switch of a tool off, the owner asked', config: configOf({ featuresState: { skills: true, tools: true, ...Object.fromEntries(featureKeys.map((key) => [key, false])) } }), requester: { id: OWNER }, context: budgets.open },
-    { name: 'mixed-requesters', about: 'The turn answers several people, the owner among them', config: configOf(), requester: { id: OWNER }, context: { ...budgets.open, mixedRequesters: true } },
-    { name: 'cooldown', about: 'A destructive tool ran a minute ago', config: configOf(), requester: { id: OWNER }, context: { ...budgets.open, lastRunAt: NOW - MINUTE, now: NOW } },
-    { name: 'budget-spent', about: 'Every daily budget spent', config: configOf(), requester: { id: OWNER }, context: budgets.spent },
-    { name: 'budget-unknown', about: 'No budget source given', config: configOf(), requester: { id: OWNER }, context: budgets.none },
+    {
+      name: 'safe-mode',
+      about: 'Safe mode on, the owner asked',
+      config: configOf({ safeMode: true }),
+      requester: { id: OWNER },
+      context: budgets.open,
+    },
+    {
+      name: 'tools-off',
+      about: 'The tools switch off, the owner asked',
+      config: configOf({ featuresState: { ...featuresOn, skills: false, tools: false } }),
+      requester: { id: OWNER },
+      context: budgets.open,
+    },
+    {
+      name: 'features-off',
+      about: 'Every feature switch of a tool off, the owner asked',
+      config: configOf({
+        featuresState: { skills: true, tools: true, ...Object.fromEntries(featureKeys.map((key) => [key, false])) },
+      }),
+      requester: { id: OWNER },
+      context: budgets.open,
+    },
+    {
+      name: 'mixed-requesters',
+      about: 'The turn answers several people, the owner among them',
+      config: configOf(),
+      requester: { id: OWNER },
+      context: { ...budgets.open, mixedRequesters: true },
+    },
+    {
+      name: 'cooldown',
+      about: 'A destructive tool ran a minute ago',
+      config: configOf(),
+      requester: { id: OWNER },
+      context: { ...budgets.open, lastRunAt: NOW - MINUTE, now: NOW },
+    },
+    {
+      name: 'budget-spent',
+      about: 'Every daily budget spent',
+      config: configOf(),
+      requester: { id: OWNER },
+      context: budgets.spent,
+    },
+    {
+      name: 'budget-unknown',
+      about: 'No budget source given',
+      config: configOf(),
+      requester: { id: OWNER },
+      context: budgets.none,
+    },
   ];
 
   /** @type {Record<string, string>} */

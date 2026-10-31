@@ -43,7 +43,8 @@ type RunArgs = {
   server: Server;
 };
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SHIPPED = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8')) as Record<string, object>;
+// PR 7c: the shipped settings live in config/config.json.
+const SHIPPED = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'config.json'), 'utf8')) as Record<string, object>;
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const NOW = Date.UTC(2026, 9, 5, 12, 0, 0);

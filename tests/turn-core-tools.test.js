@@ -33,7 +33,8 @@ function toolContent(llm, i, n = 0) {
 }
 
 test("loopSettings: a missing or unusable value takes config.json's", () => {
-  const tracked = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8')).tools.loop;
+  // PR 7c: the shipped settings live in config/config.json.
+  const tracked = JSON.parse(fs.readFileSync(new URL('../config/config.json', import.meta.url), 'utf8')).tools.loop;
   assert.deepEqual(loopSettings({}), tracked);
   assert.deepEqual(loopSettings({ tools: { loop: { maxSteps: 0, timeBudgetMs: -1, maxCallsPerStep: 1.5 } } }), tracked);
   assert.deepEqual(loopSettings({ tools: { loop: { maxSteps: 5, timeBudgetMs: 900, maxCallsPerStep: 2 } } }), {

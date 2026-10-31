@@ -41,14 +41,20 @@ const quietHot = createHot; // never watched: createHot watches only on .watch()
 /** A scratch checkout: config.json, prompts/ with two files and labels, prompts.local/ with one. */
 function scratchRoot() {
   const root = tempDir('nep-replay-test-');
+  // PR 7c: the tracked settings live in config/config.json.
+  fs.mkdirSync(path.join(root, 'config'), { recursive: true });
   fs.writeFileSync(
-    path.join(root, 'config.json'),
+    path.join(root, 'config', 'config.json'),
     JSON.stringify({ features: { dryRun: false, diary: true }, bot: { dryRunChannelId: '42' } })
   );
   fs.mkdirSync(path.join(root, 'prompts'));
   fs.writeFileSync(path.join(root, 'prompts', 'reply.md'), 'tracked reply');
   fs.writeFileSync(path.join(root, 'prompts', 'diary-plan.md'), 'tracked plan');
-  fs.writeFileSync(path.join(root, 'prompts', 'labels.json'), JSON.stringify({ diary: { topic: 'Topic' } }));
+  // PR 7c: the tracked labels live in config/labels.json under `model`.
+  fs.writeFileSync(
+    path.join(root, 'config', 'labels.json'),
+    JSON.stringify({ model: { diary: { topic: 'Topic' } }, owner: {} })
+  );
   fs.mkdirSync(path.join(root, 'prompts.local'));
   fs.writeFileSync(path.join(root, 'prompts.local', 'reply.md'), 'local réply');
   fs.mkdirSync(path.join(root, 'candidate'));
@@ -138,7 +144,8 @@ test('replay: --prompts layering is one helper shared by pair and diary', () => 
     assert.deepEqual(diaryPromptLayers(root, 'candidate'), ['candidate']);
     assert.throws(() => promptLayersHot(quietHot, root, ['missing'], { tmpDir }), /missing is not a directory/);
     // The checkout is untouched.
-    assert.deepEqual(fs.readdirSync(path.join(root, 'prompts')).sort(), ['diary-plan.md', 'labels.json', 'reply.md']);
+    // PR 7c: the tracked labels live in config/, beside prompts/.
+    assert.deepEqual(fs.readdirSync(path.join(root, 'prompts')).sort(), ['diary-plan.md', 'reply.md']);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
     fs.rmSync(tmpDir, { recursive: true, force: true });

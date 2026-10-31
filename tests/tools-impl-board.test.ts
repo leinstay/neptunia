@@ -249,7 +249,8 @@ test('her task tools exist and the tracked config grants neither to her', () => 
   const names = SKILL_DEFINITIONS.map((definition) => definition.name);
   assert.ok(names.includes('board.propose'));
   assert.ok(names.includes('board.status'));
-  const tracked: unknown = JSON.parse(fs.readFileSync(path.join(REPO, 'config.json'), 'utf8'));
+  // PR 7c: the shipped settings live in config/config.json.
+  const tracked: unknown = JSON.parse(fs.readFileSync(path.join(REPO, 'config', 'config.json'), 'utf8'));
   assert.equal(grantedToPersona(tracked, SELF_ID, 'board.propose'), false);
   assert.equal(grantedToPersona(tracked, SELF_ID, 'board.status'), false);
 });

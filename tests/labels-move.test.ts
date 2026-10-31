@@ -101,11 +101,17 @@ test('moves the labels and the tool texts in one run', () => {
 
 test("gives the engine the owner's wording over the shipped wording under the new key after the move", () => {
   const root = tempDir('nep-checkout-');
-  fs.writeFileSync(path.join(root, 'config.json'), '{}');
+  // PR 7c: the tracked settings live in config/config.json.
+  fs.mkdirSync(path.join(root, 'config'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'config', 'config.json'), '{}');
   fs.mkdirSync(path.join(root, 'prompts'));
+  // PR 7c: the tracked labels live in config/labels.json under `model`.
   fs.writeFileSync(
-    path.join(root, 'prompts', 'labels.json'),
-    JSON.stringify({ tools: { result: { reasons: { 'not-allowed': 'shipped', 'daily-cap': 'shipped too' } } } })
+    path.join(root, 'config', 'labels.json'),
+    JSON.stringify({
+      model: { tools: { result: { reasons: { 'not-allowed': 'shipped', 'daily-cap': 'shipped too' } } } },
+      owner: {},
+    })
   );
   const home = layer();
   home.write(LABELS, { skills: { result: { reasons: { 'not-allowed': 'mine' } } } });

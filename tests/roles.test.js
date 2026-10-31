@@ -33,7 +33,9 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 function loadWith(local) {
   const dir = tempDir('nep-roles-');
   try {
-    fs.copyFileSync(path.join(ROOT, 'config.json'), path.join(dir, 'config.json'));
+    // PR 7c: the tracked settings live in config/config.json.
+    fs.mkdirSync(path.join(dir, 'config'), { recursive: true });
+    fs.copyFileSync(path.join(ROOT, 'config', 'config.json'), path.join(dir, 'config', 'config.json'));
     if (local !== undefined) fs.writeFileSync(path.join(dir, 'config.local.json'), JSON.stringify(local));
     return readConfig(dir);
   } finally {
@@ -176,7 +178,7 @@ test("roleGroup / roleConfigKeys: each role's group and config keys", () => {
 });
 
 test("roles: the built-in defaults equal config.json's three groups, and every role has one", () => {
-  const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
+  const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'config.json'), 'utf8'));
   // `abilities` declares what each model can do, per model id (PR E in detail, stage 4 cut spec).
   assert.deepEqual(Object.keys(shipped.models), ['base', 'byPurpose', 'abilities', 'errands', 'development']);
   assert.deepEqual(Object.keys(shipped.models.base), [CORE_ROLE, MEMORY_ROLE, ...NON_CORE_ROLES, 'drawing']);
@@ -229,7 +231,7 @@ test('roles: the groups, the OpenCode roles with OpenCode model ids, resolved li
 });
 
 test('roles: config.json carries none of the old model keys', () => {
-  const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
+  const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'config.json'), 'utf8'));
   assert.equal(shipped.classifier, undefined);
   assert.equal(Object.hasOwn(shipped, 'roles'), false);
   assert.equal(Object.hasOwn(shipped.llm, 'model'), false);
