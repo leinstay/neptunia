@@ -757,7 +757,12 @@ function questionOf(board: Board, args: Args): Row {
   return question;
 }
 
-function addTask(board: Board, principal: string, args: Args): TaskRecord {
+// Who a new task is filed for and who hears of it: the caller's own names, `owner`, or a name it acts for.
+function filingOf(
+  board: Board,
+  principal: string,
+  args: Args
+): { lane: 'dev' | 'errand'; requester: string; subscriber: string } {
   if (args.auto !== undefined && typeof args.auto !== 'boolean') throw invalid('auto must be true or false');
   if (args.no_brief !== undefined && typeof args.no_brief !== 'boolean') {
     throw invalid('no_brief must be true or false');
@@ -772,17 +777,28 @@ function addTask(board: Board, principal: string, args: Args): TaskRecord {
   if (subscriber !== 'owner' && !board.actsFor(principal, subscriber)) {
     throw new BoardError('forbidden', `${principal} may not subscribe ${subscriber}`);
   }
+  return { lane, requester, subscriber };
+}
+
+// A new task's fields as stored; with `auto`, the triage defaults fill only the fields the caller left out.
+function newTaskFields(board: Board, args: Args, project: string | null): Record<string, SqlValue> {
   const fields = pickFields(args, UPDATABLE);
   const row: Record<string, SqlValue> = { title: normalizeField('title', fields.title) };
   for (const name of UPDATABLE) {
     if (name === 'title' || name === 'metadata') continue;
     row[name] = normalizeField(name, fields[name]);
   }
-  const project = str(args.project, 'project');
   if (args.auto) {
     const defaults = board.triageDefaults(project);
     for (const name of AUTO_TRIAGE_FIELDS) if (row[name] === null) row[name] = defaults[name] ?? null;
   }
+  return row;
+}
+
+function addTask(board: Board, principal: string, args: Args): TaskRecord {
+  const { lane, requester, subscriber } = filingOf(board, principal, args);
+  const project = str(args.project, 'project');
+  const row = newTaskFields(board, args, project);
   const id = board.newId('T', 'board_tasks');
   const now = board.now();
   board.db
