@@ -131,6 +131,14 @@ All web activity (link reads and searches) shares one daily counter: `web.maxPer
 
 The `web.search` and `web.read` tools run in the persona's own turn, synchronously. A scout errand (`errand.run` with the scout agent, see [docs/errands.md](errands.md)) runs asynchronously in a separate process: it can do multi-step research, fetch media and files, and bring back attachments. The in-turn tools are fast and cheap (one search, one page). The errand is for work that takes several steps or needs to return files.
 
+## The task board
+
+The task board (`src/board/`) holds the development tasks and their history in `memory.db`, beside her memory and apart from it (see [Memory](memory.md#the-task-boards-tables)). `openBoard` takes the memory database's connection, the private directory and the board's settings, and `Board.call(principal, op, args, idempotency)` runs one operation, such as `task.add`, `task.claim` or `task.approve`, in one transaction. A mutation that carries an idempotency key answers the same for 24 hours. `Board.reap` returns the tasks whose lease expired to `approved`, and `startReaper` in `src/board/reaper.ts` calls it on an interval.
+
+The state machine is data in `src/board/machine.ts`: ten statuses from `proposed` to `done`, and for each move the roles that may make it and what it requires. A principal's roles come from its `boardRoles` in `clients.json` (see [Configuration](configuration.md#clients-and-their-tokens)), read at every call, so a change applies at the next call. The board derives `holder`, `requester` and `answerer` per task. `owner` holds every right of `reviewer`, and a reviewer approves a plan only at low risk and merges once CI is green, never claiming a task itself. A principal with no board role is refused every operation with `forbidden`, and a `watcher` only reads. A board that is not at its schema version answers `board-unavailable`.
+
+Nothing in the core calls the board yet. `tools/memory-db.mjs board list` and `board show <id>` read it with the core up or down.
+
 ## Safety rails
 
 Two hard limits that cannot be turned off:
