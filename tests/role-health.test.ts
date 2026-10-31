@@ -93,7 +93,11 @@ test('a failing role is retried after 1, 5, 15 and then every 60 minutes, and cl
   assert.equal(health.down(CONFIG, 'drawing')?.retryAt, T0 + MINUTE);
 
   clock.at = T0 + MINUTE - 1;
-  assert.notEqual(health.down(CONFIG, 'drawing'), null, 'not called before its retry is due');
+  assert.deepEqual(
+    health.down(CONFIG, 'drawing'),
+    { role: 'drawing', reason: 'unauthorized', retryAt: T0 + MINUTE },
+    'not called before its retry is due'
+  );
   clock.at = T0 + MINUTE;
   assert.equal(health.down(CONFIG, 'drawing'), null, 'the retry is due: the role may be called once');
   assert.deepEqual(
