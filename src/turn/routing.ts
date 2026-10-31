@@ -1,6 +1,6 @@
 // Where the persona's words go when she cannot write where they are about, and which channels a turn can name: the
-// usable destination, the route of a routed call or a noticed comment, the `<channel_directory>` input and whether a
-// conversation belongs to a community. src/behavior/turn.js asks these per attempt; `<senses>` and the noticed
+// usable destination, the route of a routed call or a noticed comment, the `<channel_directory>` input, the snapshot an
+// attempt took and whether a conversation belongs to a community. src/behavior/turn.js asks these per attempt; `<senses>` and the noticed
 // comments ask usableDestination and routeFor through its re-exports.
 
 import { resolveDestination } from '../behavior/elsewhere.ts';
@@ -90,3 +90,8 @@ export function channelDirectoryOf(
 /** Whether a conversation belongs to a community (a channel or a thread), not a private chat. */
 export const inCommunity = (channel: { communityId?: string | null } | null | undefined): boolean =>
   channel?.communityId !== null && channel?.communityId !== undefined;
+
+/** The snapshot a turn attempt took, kept on its draft. */
+export function snapshotOfDraft(draft: { snapshot?: Snapshot | null } | null | undefined): Snapshot | null {
+  return draft?.snapshot ?? null;
+}

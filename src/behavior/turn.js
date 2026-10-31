@@ -15,7 +15,6 @@
 import { randomUUID } from 'node:crypto';
 import {
   block,
-  buildDiaryPlanRequest,
   buildRequest,
   classifierTranscript,
   fillPromptTemplate,
@@ -26,19 +25,7 @@ import {
   stableThenTail,
   usesFollowUpTask,
 } from './prompt.js';
-import {
-  DIARY_PICTURES_DAILY,
-  diaryTopic,
-  isSetKind,
-  parseSeedFamilies,
-  pickSeeds,
-  renderSeedsBlock,
-  renderTopicBlock,
-  setSettings,
-  stripUrls,
-  validatePlan,
-  withoutPictureKinds,
-} from './diary.ts';
+import { DIARY_PICTURES_DAILY, isSetKind, setSettings, stripUrls } from './diary.ts';
 import { channelPullOn, pullPictures, pullSettings, pullTargets } from './pull.js';
 import { createDeadline, createPrepLedger, lateMediaTeller } from './turn-parts.ts';
 import { createLinker, markSeen, messageLinkOf, stampPings } from './elsewhere.ts';
@@ -63,14 +50,13 @@ import {
 import { turnRequestInput } from './turn-input.js';
 import { DEFAULT_RESULT_MAX_CHARS, errandsBlockText, errandResultText } from '../errands/blocks.ts';
 import { DEFAULT_INTENTIONS_CAP, intentionsBlockText } from '../intentions/blocks.ts';
-import { parseJsonObject, parseOutput } from '../llm/parse.js';
+import { parseOutput } from '../llm/parse.js';
 import {
   DailyCapError,
   REPLY_REQUEST,
   TokenLimitError,
   cacheTtlMs,
   errorCodeOf,
-  hedgeSettings,
   roleRequestOptions,
   railReason,
   sleep,
@@ -149,14 +135,7 @@ import {
   imageFileName,
   readMirrors,
 } from './mirror.ts';
-import {
-  diaryVoiceTool,
-  forcedPictureRefusal,
-  pictureGate,
-  publishHeldDiary,
-  recordEntry,
-  wakeInputs,
-} from './diary-turn.ts';
+import { diaryVoiceTool, forcedPictureRefusal, publishHeldDiary, recordEntry, wakeInputs } from './diary-turn.ts';
 import {
   HEARTBEAT_INTENT_SKILLS,
   HEARTBEAT_READ_SKILLS,
@@ -200,9 +179,10 @@ import {
   triggerBringsMedia,
 } from '../turn/media.ts';
 import { NO_RECENT, continuationHistory, withReplyParents } from '../turn/history.ts';
+import { createDiary } from '../turn/diary.ts';
 import { createJournalNotes } from '../turn/journal-notes.ts';
 import { createParticipation } from '../turn/participation.ts';
-import { channelDirectoryOf, inCommunity, routeFor, usableDestination } from '../turn/routing.ts';
+import { channelDirectoryOf, inCommunity, routeFor, snapshotOfDraft, usableDestination } from '../turn/routing.ts';
 import {
   FAILED_TURN_KEEP_MS,
   NO_OP,
@@ -310,15 +290,6 @@ function asObject(value) {
  */
 function asList(value) {
   return value;
-}
-
-/**
- * The snapshot a turn attempt took, kept on its draft.
- * @param {*} draft
- * @returns {Snap|null}
- */
-function snapshotOfDraft(draft) {
-  return draft?.snapshot ?? null;
 }
 
 /**
@@ -2240,6 +2211,17 @@ export function createTurnRunner({
     thinks,
     readOffPeriods,
     liveChannelName,
+  });
+  const { prepareDiary, diaryPictureGate } = createDiary({
+    hot,
+    store,
+    llm,
+    calibrator,
+    rng,
+    lookup,
+    images,
+    journalOp,
+    recentInput,
   });
 
   /**
@@ -4357,182 +4339,6 @@ export function createTurnRunner({
       log.warn('pull: route failed', { channel: args.channel.id, error: err });
       return [];
     }
-  }
-
-  /**
-   * A diary post's first step (mode `diary`), before its request is built:
-   * the post history (store.getDiary), whether it may carry a picture (the
-   * image client, `features.imageGeneration`, Attach Files here, the day's
-   * diary pictures under `diary.maxPicturesPerDay` (2) and the image client's
-   * own cap not spent), then the plan request (src/behavior/prompt.js#buildDiaryPlanRequest:
-   * prompts/diary-plan.md on the classifier model, `diary.planMaxOutputTokens`
-   * (300), `diary.planTimeoutMs` (20000), usage purpose `diary-plan`; when
-   * `llm.hedge` hedges `analyzer`, the hedged call is limited by
-   * `diary.planTimeoutMs` rather than `llm.hedge.timeoutMs`) with
-   * `<seeds>` drawn from prompts/diary-seeds.md (`diary.seedSets`, 2) and,
-   * with an owner's topic (`params.topic`, src/behavior/diary.ts#diaryTopic),
-   * a `<topic>` block after them; the topic also rides on the plan as its
-   * `topic` field (the `<plan>` block of the post). The answer goes through parseJsonObject and src/behavior/diary.ts#validatePlan
-   * (a weighted random kind when it is missing, broken or names no weighted
-   * kind; `diary.searchKinds`, `diary.pictureKinds`). While the post may not
-   * carry a picture, the kinds in `diary.pictureKinds` are dropped before the
-   * plan request and validatePlan (src/behavior/diary.ts#withoutPictureKinds),
-   * so neither the planner nor the random fallback picks one, and the
-   * `diary: planned` line carries `picturesOff: true`. A forced kind
-   * (`params.kind`) is the only kind offered and replaces the answer's kind,
-   * its brief kept (a forced picture kind with pictures off never gets here:
-   * runTurn refuses it first, diaryPictureGate). Then the search the plan asks for (lookup.search, its own
-   * switch, cache and daily cap): its text is `found`; a failure or nothing
-   * found logs `diary: search failed` and the post goes without it. A request
-   * or token cap on the plan request throws (the turn is refused); any other
-   * failure of it falls back. A planned kind in `diary.setKinds` (a set post) also draws
-   * `diary.set.seedSets` (6) seed combinations for the compose request (`seeds`, the rendered
-   * `<seeds>` body; '' for any other kind). Settings come from `config`, the turn's live config.
-   * @returns {Promise<{ posts: object[], plan: { kind: string|null, brief: string, search: string,
-   *   picture: boolean, fallback: boolean, topic?: string }, found: string|null, pictureAllowed: boolean, seeds: string }>}
-   */
-  async function prepareDiary({ config, guildId, channel, selfName, history, now, params, memoryOn, draft = null }) {
-    const prompts = hot.prompts;
-    const labels = prompts?.labels;
-    const diaryCfg = config.diary ?? {};
-    const stored = typeof store.getDiary === 'function' ? store.getDiary(guildId) : null;
-    const posts = Array.isArray(stored?.posts) ? stored.posts : [];
-    const forcedKind = typeof params?.kind === 'string' && params.kind ? params.kind : null;
-    const topic = diaryTopic(params?.topic);
-    const pictureAllowed = diaryPictureGate(config, channel, now).allowed;
-    // Pictures off: only the text kinds are offered (a forced kind is offered alone).
-    const picturesOff = !forcedKind && !pictureAllowed;
-    const kinds = forcedKind
-      ? { [forcedKind]: 1 }
-      : picturesOff
-        ? withoutPictureKinds(diaryCfg.kinds ?? {}, diaryCfg.pictureKinds)
-        : (diaryCfg.kinds ?? {});
-
-    let answer = null;
-    const planPrompt = prompts?.['diary-plan'];
-    if (typeof planPrompt === 'string' && planPrompt.trim() && labels) {
-      const recent = memoryOn
-        ? recentInput({ channel, snapshot: snapshotOfDraft(draft), guildId, isPrivate: false, config, now })
-        : NO_RECENT;
-      const seedsText = renderSeedsBlock(
-        pickSeeds(parseSeedFamilies(prompts['diary-seeds']), diaryCfg.seedSets ?? 2, rng),
-        labels
-      );
-      const request = buildDiaryPlanRequest({
-        config,
-        prompts,
-        calibrator,
-        now,
-        selfName,
-        history,
-        guildMemory: memoryOn ? store.getGuild(guildId) : null,
-        channels: memoryOn ? store.listChannels(guildId) : [],
-        loreEntries: memoryOn ? store.getLore(guildId) : [],
-        currentChannelId: channel.id,
-        diaryChannelIds: diaryConversationIds(store),
-        recentLines: recent.lines ?? null,
-        recentAudience: recent.audience ?? null,
-        candidateProfiles: memoryOn ? store.listUserProfiles(guildId) : [],
-        nameOf: memoryOn ? (id) => store.getUser(guildId, id)?.names?.[0] ?? null : null,
-        posts,
-        kinds,
-        seedsText,
-        topicText: renderTopicBlock(topic, labels),
-      });
-      const planTimeoutMs = diaryCfg.planTimeoutMs ?? 60000;
-      // A hedged plan request gets the plan's own limit, not llm.hedge.timeoutMs.
-      const hedge = hedgeSettings(config);
-      const planHedge =
-        hedge && hedge.afterMs > 0 && hedge.roles.includes('analyzer')
-          ? { hedge: { afterMs: hedge.afterMs, timeoutMs: planTimeoutMs } }
-          : {};
-      let completion = null;
-      try {
-        completion = await llm.complete(request.messages, {
-          model: roleModel(config, 'analyzer', 'diary-plan'),
-          ...roleRequestOptions(config, {
-            role: 'analyzer',
-            maxOutputTokens: diaryCfg.planMaxOutputTokens ?? 2000,
-            purpose: 'diary-plan',
-            timeoutMs: planTimeoutMs,
-          }),
-          ...planHedge,
-        });
-      } catch (err) {
-        if (err instanceof DailyCapError || err instanceof TokenLimitError) throw err;
-        log.warn('diary: plan failed', {
-          channel: channel.id,
-          reason: railReason(err),
-          status: err?.statusCode ?? null,
-        });
-      }
-      if (completion) {
-        try {
-          answer = parseJsonObject(completion.text);
-        } catch {
-          log.warn('diary: plan failed', { channel: channel.id, reason: 'unparsed', status: null });
-        }
-      }
-    } else {
-      log.warn('diary: plan failed', { channel: channel.id, reason: 'no-prompt', status: null });
-    }
-    if (forcedKind && answer && typeof answer === 'object' && !Array.isArray(answer))
-      answer = { ...answer, kind: forcedKind };
-    const validated = validatePlan(
-      answer,
-      kinds,
-      { pictureAllowed, searchKinds: diaryCfg.searchKinds, pictureKinds: diaryCfg.pictureKinds },
-      rng
-    );
-    // The owner's topic reaches the post even when the planner ignored it.
-    const plan = topic ? { ...validated, topic } : validated;
-
-    let found = null;
-    if (plan.search && typeof lookup?.search === 'function') {
-      // The journal: the plan's search is the engine's operation; what it found enters the post's request.
-      const op = journalOp(draft, 'lookup', 'engine', { input: { query: plan.search } });
-      if (op.opId) await op.started();
-      try {
-        const result = await lookup.search(guildId, plan.search);
-        found = typeof result?.text === 'string' && result.text.trim() ? result.text.trim() : null;
-        if (op.opId)
-          await (result
-            ? op.succeeded({
-                results: Array.isArray(result.sources) ? result.sources.length : 0,
-                delivered: found !== null,
-              })
-            : op.failed(CODE.NO_RESULT));
-        if (found === null)
-          log.info('diary: search failed', { channel: channel.id, reason: result ? 'nothing' : 'refused' });
-      } catch (err) {
-        if (op.opId) await op.failed(CODE.ERROR);
-        log.warn('diary: search failed', { channel: channel.id, reason: 'error', error: err });
-      }
-    }
-    // A set post (diary.setKinds): its compose request gets diary.set.seedSets seed combinations.
-    const seeds = isSetKind(plan.kind, diaryCfg.setKinds)
-      ? renderSeedsBlock(
-          pickSeeds(parseSeedFamilies(prompts?.['diary-seeds']), setSettings(diaryCfg).seedSets, rng),
-          labels ?? {}
-        )
-      : '';
-    log.info('diary: planned', {
-      channel: channel.id,
-      kind: plan.kind,
-      fallback: plan.fallback,
-      picture: plan.picture,
-      search: Boolean(plan.search),
-      found: found !== null,
-      forced: params?.forced === true,
-      ...(picturesOff ? { picturesOff: true } : {}),
-    });
-    return { posts, plan, found, pictureAllowed, seeds };
-  }
-
-  /** Whether a diary post in `channel` may carry a picture now (src/behavior/diary-turn.ts#pictureGate). */
-  function diaryPictureGate(config, channel, now) {
-    const imageQuota = images && typeof images.quota === 'function' ? images.quota({}) : null;
-    return pictureGate({ config, attach: channel.permissions.attach, imageQuota, data: store.state.data, now });
   }
 
   /**

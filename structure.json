@@ -555,6 +555,13 @@
       "test": "none"
     },
     {
+      "path": "src/turn/diary.ts",
+      "purpose": "A diary post's first step and its picture gate: the plan request with its seeds and topic, the plan's search and a set post's seeds. Tested through the diary turn and diary requests tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/errands/",
       "purpose": "The errand service: the ledger, the store, the client to the runner and the turns that bring results back.",
       "layer": "public",

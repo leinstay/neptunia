@@ -81,6 +81,7 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `src/turn/task-input.ts` | public | The `tasks` input of a turn's request. Tested through the turn tests. | `node:*`, `src/**` | none |
 | `src/turn/participation.ts` | public | Her participation in a server turn: whether the store applies, the channels its episodes come from, the live `<people_now>` input, the record of her lines and the `<recent>` input. Tested through the turn and participation tests. | `node:*`, `src/**` | none |
 | `src/turn/journal-notes.ts` | public | What a turn notes as it runs: the facts for her next request, the text an attempt saw, the trigger and call marks, her previous think, and the journal's and the record's lines. Tested through the turn, journal turn and failed-earlier tests. | `node:*`, `src/**` | none |
+| `src/turn/diary.ts` | public | A diary post's first step and its picture gate: the plan request with its seeds and topic, the plan's search and a set post's seeds. Tested through the diary turn and diary requests tests. | `node:*`, `src/**` | none |
 | `src/errands/` | public | The errand service: the ledger, the store, the client to the runner and the turns that bring results back. | `node:*`, `src/**` | required |
 | `src/intentions/` | public | The persona intentions: model, store, sources and the service that wakes them. | `node:*`, `src/**` | required |
 | `src/errands/types.ts` | public | The shapes the errand modules share. Types only: nothing runs, so nothing is tested. | `node:*`, `src/**` | none |

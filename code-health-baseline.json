@@ -5,7 +5,7 @@
     "src/behavior/recall-run.js": 2331,
     "src/behavior/recall.js": 2491,
     "src/behavior/sandbox.js": 2136,
-    "src/behavior/turn.js": 7294,
+    "src/behavior/turn.js": 7100,
     "src/memory/store.js": 3342,
     "tests/admin.test.js": 3880,
     "tests/describe.test.js": 3705,
@@ -241,7 +241,7 @@
     },
     "src/behavior/turn.js": {
       "createTurnRunner": {
-        "function-length": 6797
+        "function-length": 6632
       },
       "createTurnRunner>act": {
         "complexity": 62,
@@ -267,9 +267,6 @@
       },
       "createTurnRunner>planToolCall": {
         "complexity": 25
-      },
-      "createTurnRunner>prepareDiary": {
-        "complexity": 54
       },
       "createTurnRunner>pullChannels": {
         "complexity": 29
