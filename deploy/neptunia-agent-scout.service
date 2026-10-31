@@ -34,7 +34,7 @@ Type=simple
 User=neptunia-agent-scout
 Group=neptunia-discord-interface
 WorkingDirectory=/opt/neptunia/app
-ExecStart=/opt/node/bin/node bin/agent-runner.mjs --profile scout
+ExecStart=/opt/node/bin/node bin/neptunia.ts errand-runner --profile scout
 # The bot's directories (deploy/neptunia-bot.service), set as in its unit. The
 # runner reads the override prompts.local/agent-scout.md from
 # NEPTUNIA_PRIVATE_DIR (the tracked agents/scout/prompt.md stays in the

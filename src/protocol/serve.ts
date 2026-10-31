@@ -16,6 +16,10 @@
 // An action carrying `deadlineAt` (ms since the epoch, by the injected `now`) that arrives after it is refused
 // `failed` with `deadline-passed` and never reaches the adapter; one that started in time keeps its result. A
 // `cancel` envelope naming an action that has not started ends it `cancelled`; once started, its result stands.
+//
+// A `command.result` action goes to `onCommandResult` with the command's `replyRef`, `text` and `status`, and is
+// answered `ok`; without it the action is `unsupported`. A `command.requested` event never enters the outbox: it goes
+// out at once, and on a closed link it is answered `failed`.
 
 import type { Adapter, Capabilities } from './adapter.ts';
 import { ackOf, envelope, validateEnvelope } from './envelope.js';
@@ -131,8 +135,16 @@ function cleaned(event: Record<string, unknown>): Record<string, unknown> {
   return clean;
 }
 
+/** The `command.result` action as the serving side hands it on: the command it answers, its text and its outcome. */
+export type CommandResult = { replyRef: string; text: string; status: string | null };
+
 /** The action runner of one adapter: reads, effects under their idempotency key, deadlines and cancels. */
-function createActions(adapter: Adapter, log: Logger, now: () => number) {
+function createActions(
+  adapter: Adapter,
+  log: Logger,
+  now: () => number,
+  onCommandResult: ((result: CommandResult) => unknown) | null
+) {
   // Insertion order is the age: the oldest key is the first one.
   const keys = new Map<string, Promise<Result>>();
   const cancelled = new Set<string>();
@@ -163,6 +175,14 @@ function createActions(adapter: Adapter, log: Logger, now: () => number) {
       // The action carries no lease: the platform's typing indicator ends by itself.
       case 'conversation.typing':
         return await adapter.typing(conversation, { untilMs: 0 });
+      case 'command.result':
+        if (onCommandResult === null) return refusal('unsupported', 'unsupported');
+        await onCommandResult({
+          replyRef: body.replyRef as string,
+          text: body.text as string,
+          status: typeof body.status === 'string' ? body.status : null,
+        });
+        return { status: 'ok' };
       default:
         return refusal('unsupported', 'unsupported');
     }
@@ -242,10 +262,11 @@ export function serveAdapter(options: {
   log: Logger;
   outbox?: Outbox;
   now?: () => number;
+  onCommandResult?: (result: CommandResult) => unknown;
 }): { emit(event: unknown): Promise<AckStatus>; status(): ServeStatus; close(): void } {
   const { transport, hello, token, adapter, log } = options;
   const outbox = options.outbox ?? null;
-  const actions = createActions(adapter, log, options.now ?? Date.now);
+  const actions = createActions(adapter, log, options.now ?? Date.now, options.onCommandResult ?? null);
   const waiting = new Map<string, Array<(status: AckStatus) => void>>();
   const helloId = `hello:${hello.iface}`;
   const gap: Gap = new Map();
@@ -396,7 +417,9 @@ export function serveAdapter(options: {
         log.warn('link: invalid event', { kind: clean.kind, reason: verdict.reason });
         return Promise.resolve('invalid');
       }
-      if (outbox !== null) return emitDurable(clean, outbox);
+      // A command is answered while its asker waits: it is never kept for a later connection to run again.
+      if (outbox !== null && clean.kind !== 'command.requested') return emitDurable(clean, outbox);
+      if (closed) return Promise.resolve('failed');
       const acked = awaitAck(clean.id as string);
       sendEvent(clean, null);
       return acked;

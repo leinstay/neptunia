@@ -72,7 +72,16 @@ import { createErrandTurns, errandDoneEvent } from './errands/turns.ts';
 import { createEventDoor } from './interface/door.js';
 import { createConversationDirectory } from './interface/directory.ts';
 import { isReadable, takeSnapshot } from './behavior/snapshot.ts';
-import { createInterfaceLinks, createLinkSwitch, openAdapterLink } from './interface/link.ts';
+import {
+  CLI_IFACE,
+  closedAdapter,
+  createIfaceRouter,
+  createInterfaceLinks,
+  createLinkSwitch,
+  openAdapterLink,
+} from './interface/link.ts';
+import { createCommandDesk, createCommandIntake, coreStatusFacts } from './interface/neptunia-cli.ts';
+import { holdIfPaused, resumeHeld } from './behavior/core-pause.ts';
 import { configuredInterfaces, drainMs, interfaceEnabled } from './interface/mode.ts';
 import { loadPrincipals, principalOfToken } from './interface/principals.ts';
 import { claimCore } from './memory/db/open.js';
@@ -507,12 +516,25 @@ async function buildCore(options, cleanups) {
     identity.selfId = greeting.self.id;
     identity.selfName = greeting.self.name;
   }
+  // The owner's commands (src/interface/neptunia-cli.ts) are answered before the door: a command never reaches her
+  // memory or a turn. The desk exists once the admin does, below; a command that arrives sooner waits for the door.
+  // The link of the owner's chat that sent the last line is where her replies in `cli:dm:owner` go.
+  /** @type {ReturnType<typeof createCommandDesk> | null} */
+  let commandDesk = null;
+  const intake = createCommandIntake({ door: linkDoor, ready: () => doorReady.promise, desk: () => commandDesk, log });
   const linkServer = await listenSocket({
     path: LINK_SOCKET,
     maxFrameBytes: MAX_FRAME_BYTES,
     log,
     onConnection: (transport) => {
-      const link = openAdapterLink({ transport, door: linkDoor, principalOf, ingest: ingestRecord, log, admit });
+      const link = openAdapterLink({
+        transport,
+        door: intake.doorOf(() => link),
+        principalOf,
+        ingest: ingestRecord,
+        log,
+        admit,
+      });
       interfaceLinks.add(link);
       if (linkSwitch === null) {
         linkOpened.resolve(link);
@@ -577,7 +599,14 @@ async function buildCore(options, cleanups) {
   // The persona's interface (src/interface/port.js): every effect of her replies goes through it,
   // after the skill gateway (src/tools/gateway.ts) let the call pass. It is the guarded port: a send to a diary
   // mirror's place goes nowhere (`diary-mirror`); only the mirrors' publisher below holds the link's own adapter.
-  const iface = guardMirrorPort(coreLink.adapter, { memoryDb });
+  // Her replies in the owner's chat (`iface: 'cli'`) go to the chat's link, every other effect to the served
+  // interface; with no chat connected a reply there ends as a dropped link's does.
+  const routed = createIfaceRouter(
+    coreLink.adapter,
+    (name) => (name !== CLI_IFACE ? null : (intake.chat() ?? closedAdapter())),
+    () => [intake.chat()].filter((adapter) => adapter !== null)
+  );
+  const iface = guardMirrorPort(routed, { memoryDb });
   // The diary's mirrors (src/behavior/mirror.ts): each recorded entry published once to every enabled mirror.
   const mirrors = createMirrors({ memoryDb, port: () => coreLink.adapter, now: Date.now, dataDir });
 
@@ -943,8 +972,10 @@ async function buildCore(options, cleanups) {
     calibrator,
     getGuildId,
     turns,
-    // /nep pause: clears the pending-ping queue on pause.
-    pending: { clear: () => onMessage.clearPending() },
+    // /nep resume: what the pause kept, the held messages and the queued pings, handed back once.
+    pending: {
+      drain: () => resumeHeld({ ingest: ingestRecord, handler: onMessage, hot, store, now: Date.now, log }),
+    },
     // The image client's quota and model family, for the owner commands; /nep draw generates through it.
     images,
     // The voice messages' quota and pipeline, for the skill `voice.say`.
@@ -987,6 +1018,23 @@ async function buildCore(options, cleanups) {
     // /nep memory snapshot: the data directory it copies.
     dataDir,
   });
+  // The owner's commands over the link: the `neptunia` chat and `-p`, and `/nep` from an interface unit.
+  commandDesk = createCommandDesk({
+    admin,
+    interfaces: interfaceLinks,
+    guildId: getGuildId,
+    facts: () =>
+      coreStatusFacts({
+        hot,
+        store,
+        usage,
+        interfaces: interfaceLinks,
+        inner,
+        errands: taskStores,
+        guildId: getGuildId,
+      }),
+  });
+
   // The slash commands: the interface builds the interaction handler over the admin and routes the interactions to
   // it, and re-registers the command tree when `bot.commandName` or `features.adminCommands` change;
   // `commands.register()` pushes the tree once at start.
@@ -1221,6 +1269,8 @@ async function buildCore(options, cleanups) {
     handlers: {
       // The second argument holds the event's ingestion row, which the observation of its line commits with the line.
       'message.received': async (event, context) => {
+        // A new message while paused is held for the resume, with its ingestion row (src/behavior/core-pause.ts).
+        holdIfPaused(event, context, store);
         const release = ingestRows.hold(event, context.ingest);
         try {
           // The direct chats of members are learned from the messages seen in them.

@@ -626,7 +626,7 @@ export function applyMemoryWrite(handle, update) {
   if (kind === 'publication') return applyPublicationWrite(handle, update);
   if (kind === 'entry-media') return applyEntryMedia(handle, update);
   // Schema v16: the event door's ingestion record (ingest.ts).
-  if (kind === 'ingest' || kind === 'ingest-ack') return applyIngestWrite(handle, update);
+  if (kind === 'ingest' || kind === 'ingest-ack' || kind === 'ingest-release') return applyIngestWrite(handle, update);
   // Schema v18: the inner life's wake queue and leases (wake-queue.ts).
   if (kind === 'wake-queue') return applyWakeQueueWrite(handle, update);
   if (kind === 'backup') {

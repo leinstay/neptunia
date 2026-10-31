@@ -14,8 +14,8 @@ const handlers = perEnv((env) => {
    * Sets `paused`/`pausedAt` (and `pausedBy`, the caller) in state.json FIRST (so a crash or restart
    * mid-pause comes back paused), then waits out a turn already running and a
    * GIF recache in flight. Only once
-   * all are idle does it clear the pending-ping
-   * queue, flush everything and drop every cache except state.json itself, so
+   * all are idle does it clear the pending-ping queue when the deps give a `pending.clear` (the core gives none:
+   * its pings wait for the resume), flush everything and drop every cache except state.json itself, so
    * nothing stale (or a late in-flight write) can land in data/ after the
    * owner starts editing it. Idempotent: a second call just reports the
    * state. Then the journal's `pause` record; nothing is posted to the chat (the persona learns
@@ -73,7 +73,8 @@ const handlers = perEnv((env) => {
    * data/ fails to parse, naming the offending paths; else re-reads
    * state.json (the owner may have hand-edited data/ while paused) and clears
    * the pause flags, letting every other cache lazily re-populate from disk.
-   * Then the journal's `resume` record; nothing is posted to the chat. Last, the meaning index's
+   * Then the journal's `resume` record; nothing is posted to the chat. Then `pending.drain(guildId)` hands back
+   * what the pause kept (the core's held messages and queued pings), never awaited. Last, the meaning index's
    * catch-up pass starts in the background (`embedQueue.catchUp`, never awaited; it does nothing
    * with the index switches off).
    */
@@ -104,6 +105,14 @@ const handlers = perEnv((env) => {
 
     const guildId = resolvedGuildId(context);
     await journalSystem(guildId, { event: 'resume', by: 'owner' });
+
+    // What the pause kept: the messages held for the resume, then the queued direct pings (src/core.js). Never awaited.
+    const drain = objOf(objOf(env).pending).drain;
+    if (typeof drain === 'function') {
+      Promise.resolve()
+        .then(() => Reflect.apply(drain, objOf(env).pending, [guildId]) as unknown)
+        .catch((err: unknown) => log.warn('admin: resume drain failed', { code: objOf(err).code ?? null }));
+    }
 
     if (guildId && typeof env.embedQueue?.catchUp === 'function') {
       Promise.resolve()
