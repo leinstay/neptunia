@@ -95,7 +95,7 @@ Every effect the persona has in a conversation is one named action. The first si
 | `message.react.add` | `message` | `emoji` (a string) |
 | `message.react.remove` | `message` | `emoji` |
 | `conversation.typing` | `conversation` | (none) |
-| `command.result` | (none) | `replyRef`, `text`, optional `files`, optional `ephemeral` |
+| `command.result` | (none) | `replyRef`, `text`, optional `files`, optional `ephemeral`, optional `status` (`ok` when the command ran, else the operation's own status) |
 
 A `conversation` reference is `{ iface, conversationId }`. A `message` reference is `{ iface, conversationId, messageId }`, with an optional `memberId` for the author.
 
@@ -207,7 +207,9 @@ Every client of the core is a principal: a `name`, a `kind` (`interface`, `cli` 
 - An `event` with a malformed body is answered `invalid` with the field and the problem.
 - A second `hello` is answered `invalid` with `hello:repeated`.
 - An event of another `iface` is answered `invalid` with `body.iface:foreign`.
-- A `command.requested` of a principal that is not `cli` is answered `invalid` with `body.kind:not-allowed`.
+- A `command.requested` of a principal that may not send one is answered `invalid` with `body.kind:not-allowed` and logged as `link: event refused`. The `cli` principal may, and so may an interface principal whose `permissions` hold `commands`.
+
+The namespace `cli` belongs to the owner's command line: a `cli` principal must say `hello` as `iface: 'cli'`, and any other principal that names `cli` is refused with `iface`.
 
 `openAdapterLink` also takes `admit`, which the core passes to refuse a `hello` of an interface whose `interfaces.<name>.enabled` is `false`, with the reason `interface-disabled`. Every refused `hello` is logged as `link: hello refused` with its reason (`token`, `iface`, `hello-invalid` or `interface-disabled`), and the link closes.
 
@@ -234,7 +236,7 @@ An interface package exports `start(host)`, which resolves with a running interf
 | `legacy` | What the core still takes from the platform package: `serveCommands` (see "What the core still takes from the interface"). |
 | `open()` | Delivers the events the interface has held since `start`, and every later one. |
 | `stop()` | Closes the link and the platform client. |
-| `reconnect()` | Optional. Opens a new link with `connect()` and says `hello` again, keeping the platform client. The fake interface has it, and the Discord interface does not. |
+| `reconnect()` | Optional. Opens a new link with `connect()` and says `hello` again, keeping the platform client. The fake and the Discord interfaces have it. |
 
 The core calls `open()` once its door has its handlers, because the door answers `unhandled` to a kind it has no handler for. Until then the interface holds what it sees, at most 1,000 events. Past that the oldest is dropped and one warn line says so.
 
@@ -261,7 +263,7 @@ A connection the runner cannot open is tried again with backoff, from 250 millis
 
 The core serves one interface namespace. When it starts with no interface, it takes the namespace from the interface clients of `clients.json` and refuses to start when they name more than one. The first interface whose `hello` is taken becomes the core's adapter, the persona's id and name come from its `hello`, and a later link of the same client takes over as in-process. Until then every effect answers `unknown` with `link-closed` and every read `failed`, as on a link that dropped. The inner life runs without an interface: a heartbeat or a selfreflection wake runs its turn, and what it sends answers as above.
 
-`interfaces` of the started core is the owner's view of the interfaces (`createInterfaceLinks` in `src/interface/link.ts`). `list()` answers `{ name, enabled, connected }` for every interface the core runs, every interface client of `clients.json` and every interface the settings name. `enable(name)` writes `interfaces.<name>.enabled: true` to `config.local.json`. `disable(name)` writes `false` there and reloads the config, so the next `hello` of that interface is refused. Then each of its links drains: the link takes no new action and answers each with `failed` and `interface-disabled`, the effects in flight get `interfaces.drainMs` (default `10000`) to finish, and the link closes, which ends the rest `unknown`. `disable` resolves with `{ drained, unknown }`, the counts of the two. The `/interface` commands over it come with the CLI.
+`interfaces` of the started core is the owner's view of the interfaces (`createInterfaceLinks` in `src/interface/link.ts`). `list()` answers `{ name, enabled, connected }` for every interface the core runs, every interface client of `clients.json` and every interface the settings name. `enable(name)` writes `interfaces.<name>.enabled: true` to `config.local.json`. `disable(name)` writes `false` there and reloads the config, so the next `hello` of that interface is refused. Then each of its links drains: the link takes no new action and answers each with `failed` and `interface-disabled`, the effects in flight get `interfaces.drainMs` (default `10000`) to finish, and the link closes, which ends the rest `unknown`. `disable` resolves with `{ drained, unknown }`, the counts of the two. The `/interface` commands of the `neptunia` chat run over it (see [The neptunia command](cli.md)).
 
 ### One core at a time
 
@@ -275,7 +277,7 @@ The core serves one interface namespace. When it starts with no interface, it ta
 
 A full outbox evicts nothing. The event is refused, `status()` reports `{ outbox: 'outbox-full' }`, and the interface marks the time of the first refused message of each conversation. Once acknowledgements make room, it reads those conversations back with `history(conversation, { since })`, at most 100 messages each, and queues them under the ids live ingestion gives them, so the core deduplicates what it already had. Until that gap is read back every new event joins it. An event of another kind refused meanwhile is lost, with a warning that counts it.
 
-The fake interface keeps its outbox in `host.dataDir`. The Discord interface sends its events without an outbox, in the core's process and in its unit alike.
+The fake and the Discord interfaces keep their outbox in `host.dataDir`, under `outbox/`, at most 1,000 events. A `command.requested` never enters an outbox: it goes out at once, and on a closed link its `emit` resolves `failed`.
 
 The discord.js message behind a message event stays on the Discord side. The pipeline decides on the event's own fields and asks the interface for anything else through a read.
 
@@ -393,8 +395,22 @@ To wire up a new chat platform:
 
 5. Map your platform's error responses to the result statuses. Once a request may have taken effect, the status must be `unknown`.
 
+## Commands over the link
+
+A `command.requested` event never reaches the event door. `createCommandIntake` in `src/interface/neptunia-cli.ts` stands between each link and the door. It validates the event, acknowledges it at once and runs it on the command desk (`createCommandDesk`). The answer goes back over the same link as a `command.result` action with the command's `replyRef`, `text` and `status`. So a command and its answer never reach her memory, a turn or a request.
+
+A command of the `cli` principal is one of the commands of the `neptunia` chat (see [The neptunia command](cli.md)) and runs with the owner's rights. A command of an interface principal granted `commands` is a `/nep` command key with its arguments, run through the admin's `runCommand` with the rights of its requester, as on the in-process path. `serveAdapter` hands a `command.result` to its `onCommandResult` option and answers it `ok`. Without that option the action is `unsupported`.
+
+The Discord session forwards `/nep` this way until the core hands it an admin. Under `interfaces.mode: units` no core does, so each interaction goes to the core as `command.requested` under the principal `discord`, and the text of the answer is the interaction's reply. The session registers the command tree itself when it opens in that mode. Without the permission `commands` the core refuses the event, and the reply says the core did not take the command.
+
+## The owner's command line in the core
+
+The chat's direct conversation `cli:dm:owner` is a conversation of the namespace `cli`, beside the one interface the core serves. `createIfaceRouter` in `src/interface/link.ts` puts both behind the core's one port: a call whose reference names `iface: 'cli'` goes to the link of the chat that sent the last line, and every other call to the served interface. With no chat connected such a call answers as a link that dropped. The router's capabilities are the served interface's, with the reads of the connected chat added, so the core reads the chat's conversation and history at all. A turn names a conversation under the `iface` its info gives (`conversationOf` in `src/behavior/turn.js`), so her reply in the chat goes back to the chat.
+
+The private-chat gate lets the chat through whatever `features.privateMessages` and `bot.owners` say (`privateChatsOff` and `CLI_GATE` in `src/behavior/core-pause.ts`). Only the `cli` principal may name that namespace, so the chat is the owner's.
+
 ## What the core still takes from the interface
 
-`start` resolves with `legacy`, an object with one field, `serveCommands(admin)`. `src/interface/legacy.ts` types it from the core's side, so the core needs no type from `interfaces/`. `serveCommands` builds the interaction handler over the core's admin, wires the slash command interactions to it and returns `{ register() }`, which pushes the command tree. `startCore` calls it. An interface that has none (the fake) serves no commands.
+`start` resolves with `legacy`, an object with one field, `serveCommands(admin)`. `src/interface/legacy.ts` types it from the core's side, so the core needs no type from `interfaces/`. `serveCommands` builds the interaction handler over the core's admin, wires the slash command interactions to it and returns `{ register() }`, which pushes the command tree. `startCore` calls it when it runs the interface in its own process. An interface that has none (the fake) serves no commands.
 
 Everything else the core knows of the community comes through the reads: recall and search, the offline catch-up, the journal's reconciliation of the persona's own messages, the emoji index, the avatar queue and the memory backfills. The member directory and the conversation directory of the core name who and where.

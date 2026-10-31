@@ -12,7 +12,7 @@ By default everything sits in the checkout: `config.json`, `config/` and `prompt
 
 | Variable | Default | What lives there |
 |---|---|---|
-| `NEPTUNIA_PRIVATE_DIR` | the checkout | `.env`, `config.local.json`, `config.local/`, `prompts.local/`, `clients.json`, `clients/` |
+| `NEPTUNIA_PRIVATE_DIR` | the checkout | `.env`, `config.local.json`, `config.local/`, `prompts.local/`, `clients.json`, `clients/`, `cli/` (the chat's picture and history, see [The neptunia command](cli.md)) |
 | `NEPTUNIA_DATA_DIR` | `data/` in the checkout | everything the bot writes: `guilds/`, `state.json`, `usage.json`, `metrics.json`, caches |
 
 Set them in the process environment (for example `Environment=` in the systemd unit), not in `.env`: the bot reads `.env` from the private directory, so it needs to know that directory first. A relative path is resolved against the checkout. An edit to `config.local.json` or a file in `prompts.local/` inside the private directory still reloads live. The tools read the same two variables; `--data` overrides the data path. At start the bot logs the three resolved directories (`index: paths`). `deploy/neptunia-bot.service` shows the recommended layout.
@@ -20,6 +20,8 @@ Set them in the process environment (for example `Environment=` in the systemd u
 ## Clients and their tokens
 
 `clients.json` in the private directory names every client that may connect to the core's socket, and `clients/<name>.token` holds each client's token. An entry has the client's `kind` (`interface`, `cli` or `plugin`), the `iface` an interface's events must carry, the `tokenFile` relative to the private directory, and `permissions`. The core reads both files at every envelope (`src/interface/principals.ts`), so a change applies at once and a rotated or revoked token closes that client's link. Without `clients.json` the core makes one token at start for the interface it runs in its own process, and nothing else connects. A `clients.json` that is not valid JSON lets no client in. See [Interfaces](interfaces.md#clients-and-principals).
+
+The owner's `neptunia` chat is the client `cli` of kind `cli`, which runs every command with the owner's rights. An interface client runs commands only with the permission `commands`: the Discord unit needs it to serve `/nep` when the interfaces run as units.
 
 `tools/client-token.mjs` writes both files, at mode `0600`, in the private directory `NEPTUNIA_PRIVATE_DIR` names. It never prints a token.
 
@@ -132,7 +134,7 @@ On/off switches. A missing key counts as on, except the ones that need `=== true
 | `memoryPrefetch` | `true` | With `coreTools` on: before a turn, search the record and stored memory once with the trigger message and put the relevant excerpts in `<retrieved>`. See `recall.prefetch.*` |
 | `missedAnswers` | `true` | Track messages that may have been left unanswered |
 | `missedRecovery` | `false` | When the sweep finds owed candidates, start a reply turn. Off (the default), the sweep classifies and journals only |
-| `offlineCatchUp` | `true` | At start, read the messages posted while the bot was down and answer recent calls. See `offlineCatchUp.*` |
+| `offlineCatchUp` | `true` | At start, read the messages posted while the bot was down and answer recent calls. On resume, answer the recent calls among the messages the pause held. See `offlineCatchUp.*` |
 | `around` | `true` | The persona sees what a member sees in Discord's sidebar right now (voice channels, activities) in `<people_now>`. See `context.around.*` |
 | `avatars` | `false` | The persona knows what each member's avatar looks like. Each avatar is described by the vision model. See `avatars.*` |
 | `intentions` | `false` | The persona keeps intentions: things she means to do later. See `intentions.*` and [Inner life](inner-life.md) |
@@ -152,7 +154,7 @@ The voice-state intent (voice channels in `<people_now>`) is not privileged and 
 | Key | Default | What it does |
 |---|---|---|
 | `mode` | `"inprocess"` | Where the interfaces run. `inprocess` starts the Discord interface inside the core's process. `units` starts the core with no interface, and each interface runs in its own unit (`neptunia interface run <name>`). Read once at the start of `src/index.js`, and any other value stops the start |
-| `drainMs` | `10000` | How long a disable gives the actions in flight to an interface (milliseconds) before the core ends them `unknown` |
+| `drainMs` | `10000` | How long a disable (`/interface disable`) gives the actions in flight to an interface (milliseconds) before the core ends them `unknown` |
 | `<name>.enabled` | `true` (unset) | Whether interface `<name>` may connect. `config.json` names no interface, so each one is enabled until this key says `false`. A `hello` of a disabled interface is refused with `interface-disabled`, read at each `hello`. Disabling writes `false` here in `config.local.json` |
 
 With `mode: units` the core serves `bot.guildId`, which must be set. See [Interfaces](interfaces.md#interfaces-as-units).
@@ -472,7 +474,7 @@ Settings for missed-answer recovery (`features.missedAnswers`).
 
 ## `offlineCatchUp`
 
-Messages posted while the bot was down, read once at start (`features.offlineCatchUp`).
+Messages posted while the bot was down, read once at start (`features.offlineCatchUp`), and the messages that arrived while it was paused, handed back on resume (`src/behavior/core-pause.ts`). The same window decides which of them are answered.
 
 | Key | Default | What it does |
 |---|---|---|
