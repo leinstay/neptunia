@@ -30,7 +30,7 @@ import type { Reads } from '../interface/reads.ts';
 import type { ErrandRecord, ErrandService, ErrorLogger } from './types.ts';
 
 /** What the turn runner answers a result turn with. */
-type TurnResult = { outcome?: string; dryRun?: boolean } | null | undefined;
+type TurnResult = { outcome?: string } | null | undefined;
 
 /** The turn runner as the result turn uses it. */
 type TurnsPort = {
@@ -207,10 +207,6 @@ export function createErrandTurns({
       result = { outcome: 'error' };
     }
     const outcome = result?.outcome ?? 'error';
-    if (result?.dryRun === true) {
-      log.info('errands: result turn', { id: errand.id, channelId, outcome, dryRun: true });
-      return result;
-    }
     if (!DONE.has(outcome)) {
       // Held back, or failed on its own: the result is still unread, so the turn is tried again.
       lastAt.delete(channelId);

@@ -232,10 +232,7 @@ async function errandFile(
 function gifEntry(env: Env, args: Obj, guildId: string | null): Untyped {
   const handle = textOf(args.gif).trim();
   if (!handle) return null;
-  const entry =
-    env.hot.config.features?.gifs === false || typeof env.store?.findGif !== 'function'
-      ? null
-      : env.store.findGif(guildId, handle);
+  const entry = typeof env.store?.findGif !== 'function' ? null : env.store.findGif(guildId, handle);
   if (!entry) throw invalid(`no GIF ${handle} in the library`, CODE.UNKNOWN_GIF);
   return entry;
 }

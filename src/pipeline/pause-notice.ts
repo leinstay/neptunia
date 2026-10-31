@@ -48,41 +48,36 @@ export function createPauseNotice({
    * mention, a reply to one of its messages or its name (each behind its
    * switch) in the served guild, outside threads, in a channel the bot can
    * send in, not the dry-run mirror, from a human; in a private chat
-   * (features.privateMessages) an author the private gate lets through, the
-   * daily cap aside. `{ channel, trigger, kind }`, or null for anything else
+   * (private.enabled) an author the private gate lets through. `{ channel, trigger, kind }`, or null for anything else
    * (an untagged follow-up included: it would need the address classifier).
    */
   async function pausedCall(event: MessageEvent, config: PipelineConfig): Promise<PausedCall | null> {
     const author = event.message.author;
-    const features = config.features ?? {};
     const selfId = selfIdOf();
     if (author?.bot || author?.id === selfId) return null;
     // lineOf gives the normalized line of a message event.
     const normalize = () => lineOf(event) as Line;
 
     if (event.conversation.communityId === null) {
-      if (privateChatsOff(features, event)) return null;
+      if (privateChatsOff(config, event)) return null;
       const guildId = getGuildId();
       if (!guildId) return null;
       const { gate } = await checkPrivateGate(config, guildId, author.id, event.iface);
-      if (!gate.ok && gate.reason !== 'cap') return null;
+      if (!gate.ok) return null;
       const privateChannel = await infoNow(event.iface, event.conversation.id);
       return privateChannel ? { channel: privateChannel, trigger: normalize(), kind: 'private' } : null;
     }
 
     if (event.conversation.communityId !== getGuildId() || event.conversation.kind === 'thread') return null;
-    if (config.bot.dryRunChannelId && event.conversation.id === config.bot.dryRunChannelId) return null;
     const channel = await infoNow(event.iface, event.conversation.id);
     if (!channel?.permissions.send) return null;
     const normalized = normalize();
     // The door refuses a whole message without its addressing (src/protocol/validate.js).
     const kind: unknown = detectTrigger({
-      mentionsSelf: features.mentions !== false && event.addressing!.mentioned,
-      repliesToSelf:
-        features.replies !== false &&
-        (event.addressing!.replyToSelf || (await resolveReference(refOf(channel), normalized.replyToId))),
+      mentionsSelf: event.addressing!.mentioned,
+      repliesToSelf: event.addressing!.replyToSelf || (await resolveReference(refOf(channel), normalized.replyToId)),
       content: normalized.content,
-      nameTriggers: features.nameTriggers !== false ? config.bot.nameTriggers : [],
+      nameTriggers: config.bot.nameTriggers,
     });
     // detectTrigger answers a trigger kind or null (src/behavior/mention.js).
     return kind ? { channel, trigger: normalized, kind: kind as string } : null;
@@ -97,7 +92,6 @@ export function createPauseNotice({
    */
   async function maybePauseNotice(event: MessageEvent): Promise<void> {
     const config = hot.config;
-    if (config.features?.pauseNotice === false) return;
     const labels = hot.prompts?.labels;
     // pauseNotice reads the labels it is given, a missing labels file as none.
     if (!pauseNotice(labels as object)) return;
@@ -109,7 +103,7 @@ export function createPauseNotice({
     if (minutes > 0 && last !== undefined && t - last < minutes * MINUTE_MS) return;
     pauseNoticeAt.set(call.channel.id, t);
     // postPauseNotice reads the labels it is given; pauseNotice found the label above, so they are there.
-    await postPauseNotice({ ...call, asReply: true, labels: labels as object, config, port });
+    await postPauseNotice({ ...call, asReply: true, labels: labels as object, port });
   }
 
   return { maybePauseNotice };

@@ -16,7 +16,7 @@ import type { Draft } from '../../draft.ts';
 import { withReplyParents } from '../../history.ts';
 import type { Inputs } from '../../inputs.ts';
 import type { Lookup } from '../../lookup.ts';
-import { coreToolsOn, paceSettings } from '../../settings.ts';
+import { paceSettings } from '../../settings.ts';
 import type { PaceSettings } from '../../settings.ts';
 import { TOO_SLOW } from '../../timers.ts';
 import { askedFor, unhurried } from '../../triggers.ts';
@@ -37,14 +37,13 @@ export function beforeBarOf(bar: Deadline): BeforeBar {
         ]);
 }
 
-/** The skills line of the search classifier or the planner, once one answered (skills discovery). */
+/** The skills line of the search classifier, once one answered (skills discovery). */
 export type SkillsAnswer = { value: Parameters<Inputs['discoverSkills']>[0]['answer'] | null };
 
 /** What the setup made: the attempt's settings, its bar, the history and the work started beside it. */
 export type Setup = {
   ended: null;
   config: PhaseConfig;
-  features: Record<string, unknown>;
   transport: 'native' | 'text';
   memoryOn: boolean;
   selfId: string;
@@ -59,7 +58,6 @@ export type Setup = {
   replyOptions: () => ReturnType<typeof replyOptionsOf>;
   asked: boolean;
   answersTask: boolean;
-  coreTools: boolean;
   skillsAnswer: SkillsAnswer;
   snapshot: Snapshot | null;
   rawHistory: Array<HistoryLine>;
@@ -90,7 +88,6 @@ export async function setupRequest(
     selfIdOf,
     getSelfName,
     diaryPictureGate,
-    typingWhilePreparing,
     privatePartner,
     readHistory,
     linkTriggers,
@@ -102,11 +99,10 @@ export async function setupRequest(
   const diaryParams = params.diary ?? null;
   const { channel, guildId, isPrivate, prepStep, life } = opened;
   const config = hot.config;
-  const features = config.features ?? {};
   // How her tools travel this turn (tools.transport, read once): native tool calls, or text blocks.
   const transport = transportOf(config);
   draft.transport = transport;
-  const memoryOn = features.memory !== false;
+  const memoryOn = true;
   const selfId = selfIdOf();
   const selfName = getSelfName(guildId);
   const now = life.turnStartedAt;
@@ -115,9 +111,9 @@ export async function setupRequest(
   const kind = mode === 'diary' ? diaryParams?.kind : null;
   const pictureRefusal = forcedPictureRefusal({ config, kind, gate: () => diaryPictureGate(config, channel, now) });
   if (pictureRefusal) return { ended: pictureRefusal };
-  // The turn's pace: an unhurried turn (spontaneous or overheard, pace.unpromptedWaits on) has no bar or deadline.
+  // The turn's pace: an unhurried turn (unprompted or overheard) has no bar or deadline.
   const pace = paceSettings(config);
-  const waitsForAll = unhurried(triggerKind, pace);
+  const waitsForAll = unhurried(triggerKind);
   // The bar (pace.dropAfterMs, from the turn's start): the answer must be in hand by then, or the turn is dropped
   // unposted. At the bar every wait below gives up (beforeBar throws TOO_SLOW), the typing stops and the reply request
   // is aborted.
@@ -133,18 +129,14 @@ export async function setupRequest(
   // Someone asked for this turn (askedFor): not a spontaneous or an overheard one.
   const asked = askedFor(trigger, triggerKind);
   // A turn a returned errand opened answers with its result: the engine's own search
-  // (the classifier, the planner's lookup block) is not run on the original request, so no
+  // (the classifier) is not run on the original request, so no
   // <lookup> block stands beside the result. Her own recall call still runs.
   const answersTask = triggerKind === 'errand';
-  // features.coreTools (read now): she calls her own tools in the turn, so no search classifier
-  // (nor the planner's lookup or skills block) runs before her reply.
-  const coreTools = coreToolsOn(config);
-  // Skills discovery: the `skills:` line of the search classifier or the planner (parseSkillsLines).
+  // She calls her own tools in the turn, so no search classifier runs before her reply.
+  // Skills discovery: the `skills:` line of the search classifier (parseSkillsLines).
   const skillsAnswer: SkillsAnswer = { value: null };
-  // A direct call sees the persona typing while the turn prepares.
-  life.stopTyping = typingWhilePreparing(channel, triggerKind, config);
 
-  // A private chat's partner as a guild member (features.privateLikeServer), fetched beside
+  // A private chat's partner as a guild member (private.likeServer), fetched beside
   // the history; null on a server turn, with the switch off or when the fetch fails.
   const partnerPending = isPrivate
     ? privatePartner({ guildId, userId: trigger?.authorId ?? channel.partnerId ?? null, config })
@@ -158,7 +150,7 @@ export async function setupRequest(
   // chat is listed for its partner's sake.
   const partnerHint = isPrivate ? (trigger?.authorId ?? channel.partnerId ?? null) : null;
   const snapshotPending = takeSnapshot(ifaceReads, guildId, partnerHint ? [String(partnerHint)] : []);
-  const emojiPending = refreshEmojiIfOn(emoji, config);
+  const emojiPending = refreshEmojiIfOn(emoji);
   const historyStartedAt = clock();
   const snapshot = await beforeBar(snapshotPending);
   draft.snapshot = snapshot;
@@ -233,7 +225,6 @@ export async function setupRequest(
   return {
     ended: null,
     config,
-    features,
     transport,
     memoryOn,
     selfId,
@@ -248,7 +239,6 @@ export async function setupRequest(
     replyOptions,
     asked,
     answersTask,
-    coreTools,
     skillsAnswer,
     snapshot,
     rawHistory,

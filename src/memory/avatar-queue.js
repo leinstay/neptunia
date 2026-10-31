@@ -81,7 +81,7 @@ export function createAvatarQueue({
 
   /** Whether the feature works under the live config and prompts: the switch exactly true and the prompt there. */
   function on() {
-    return hot.config?.features?.avatars === true && Boolean(hot.prompts?.avatar);
+    return Boolean(hot.prompts?.avatar);
   }
 
   /**

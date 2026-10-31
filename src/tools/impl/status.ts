@@ -40,13 +40,11 @@ import { isOwnerCaller } from './grants.ts';
 import { MODEL_ROLES, STATUS_FIELDS, STATUS_PARTS } from './catalog.ts';
 import { CORE_ROLE, DEVELOPMENT_ROLES, ERRAND_ROLES, MEMORY_ROLE, PURPOSE_ROLES, roleModel } from '../../llm/roles.js';
 import { EMBED_ROLE } from '../../llm/embed.js';
-import { plannerOn } from '../../behavior/planner.js';
 import { missedCounts, missedStatusLine } from '../../behavior/missed.js';
 import { SPEED_METRICS } from './metrics.ts';
 import { activitySums, agentCostsLines, keyCostsLines, roleCostsLines, readAccount, readActivity } from './usage.ts';
 import { PROFILES } from '../../agent-runner/profiles.js';
 import { fill } from '../../format.js';
-import { innerOn } from '../../behavior/inner.ts';
 import { log } from '../../log.js';
 import { modelForRole } from './shared.ts';
 import { defineOp, perEnv } from './registry.ts';
@@ -68,7 +66,7 @@ export { STATUS_FIELDS };
 
 /**
  * The card's fields each part of her `status.show part=` call shows, in card order (STATUS_PARTS; `all` is the whole
- * card). `features` is no card field: the switches of `features` in the live config, one per line (featuresValue).
+ * card).
  */
 export const PART_FIELDS: Readonly<Record<string, ReadonlyArray<string> | null>> = Object.freeze({
   overview: ['state', 'limits'],
@@ -77,7 +75,6 @@ export const PART_FIELDS: Readonly<Record<string, ReadonlyArray<string> | null>>
   memory: ['memory'],
   inner: ['inner'],
   errands: ['tasks', 'costs.errands', 'costs.development'],
-  features: ['features'],
   all: null,
 });
 
@@ -361,16 +358,6 @@ function stateValue(data: Untyped): string {
   return `paused since ${utcMinute(data.pausedAt)}${by}`;
 }
 
-/** The features part: each `features` switch of the live config that is a plain true or false, `<name> on|off`, sorted by name. */
-function featuresValue(cfg: Untyped): string {
-  const features = objOf(cfg?.features);
-  const lines = Object.keys(features)
-    .filter((name) => typeof features[name] === 'boolean')
-    .sort()
-    .map((name) => `${name} ${features[name] ? 'on' : 'off'}`);
-  return lines.length > 0 ? lines.join('\n') : '-';
-}
-
 /** One field of the status card. */
 type CardField = { name: string; value: string };
 
@@ -454,18 +441,13 @@ const handlers = perEnv((env) => {
    * for over an hour while turns happen (features.journal exactly true, read now; a reply posted
    * in the last hour per the metrics; nothing is judged without them).
    */
-  async function storageLine(guildId: string | null, cfg: Untyped): Promise<string> {
+  async function storageLine(guildId: string | null): Promise<string> {
     const problems: Array<string> = [];
     if (typeof journal?.stalled === 'function' && journal.stalled() === true) problems.push('append store stalled');
     const pending = archivePending(guildId);
     if (pending > 0) problems.push(`${pending} archive copies pending`);
     const nowMs = clock();
-    if (
-      guildId &&
-      cfg?.features?.journal === true &&
-      typeof metrics?.summary === 'function' &&
-      metrics.summary('reply', 1).n > 0
-    ) {
+    if (guildId && typeof metrics?.summary === 'function' && metrics.summary('reply', 1).n > 0) {
       const last = await journalLastWrite(guildId, nowMs);
       if (last === null) problems.push('journal not written today while turns happen');
       else if (nowMs - last > HOUR_MS) problems.push(`journal not written since ${utcMinute(last)} while turns happen`);
@@ -520,13 +502,11 @@ const handlers = perEnv((env) => {
     return `listed, image output, ${endpoints} endpoint(s), ${Date.now() - start} ms`;
   }
 
-  /** The drawing model's line (`drawing · no model configured` when none is set); notes when
-   * drawing is switched off (features.imageGeneration false; a missing key counts as on). */
+  /** The drawing model's line (`drawing · no model configured` when none is set). */
   async function imageProbeLine(cfg: Untyped, timeoutMs: number): Promise<string> {
     const model = roleModel(cfg, 'drawing');
     if (!model) return roleHead(IMAGE_ROLE, 'no model configured');
-    const off = cfg?.features?.imageGeneration === false ? ' (features.imageGeneration is off)' : '';
-    return `${roleHead(IMAGE_ROLE, model)} · ${await imageListing(model, timeoutMs)}${off}`;
+    return `${roleHead(IMAGE_ROLE, model)} · ${await imageListing(model, timeoutMs)}`;
   }
 
   /**
@@ -621,7 +601,7 @@ const handlers = perEnv((env) => {
     // The web search engine, one word: the chosen engine (web.search.engine) when a search can
     // run (features.webLookup on, web.search.enabled not false, the engine ready), else `off`.
     if (typeof lookup?.searchEngine === 'function') {
-      const on = cfg?.features?.webLookup === true && cfg?.web?.search?.enabled !== false && lookup.hasSearch();
+      const on = cfg?.web?.search?.enabled !== false && lookup.hasSearch();
       parts.push(`search: ${on ? lookup.searchEngine() : 'off'}`);
     }
     return `${parts.join('\n')}\nresets 00:00 UTC`;
@@ -781,7 +761,6 @@ const handlers = perEnv((env) => {
    * exactly true; else its rows (the guild's and every private layer's), the share of the record
    * messages of the last `embed.catchUpHours` it holds and the day of the oldest one missing. */
   async function indexLine(guildId: string, cfg: Untyped): Promise<string> {
-    if (cfg?.features?.meaningSearch !== true || cfg?.features?.embedIndex !== true) return 'index: off';
     if (typeof embedQueue?.indexSummary !== 'function') return 'index: not available';
     const { rows } = await embedQueue.indexSummary(guildId);
     const parts = [`index: ${rows} rows`];
@@ -932,15 +911,13 @@ const handlers = perEnv((env) => {
   }
 
   /** The speed field: each metric's median and mean over the last 24 h with the sample count in
-   * brackets, `-` without a sample; the planner only while features.turnPlanner is on. */
-  function speedValue(cfg: Untyped): string {
+   * brackets, `-` without a sample. */
+  function speedValue(): string {
     if (typeof metrics?.summary !== 'function') return 'not available';
-    return SPEED_METRICS.filter((name) => name !== 'planner' || plannerOn(cfg))
-      .map((name) => {
-        const { n, median, mean } = metrics.summary(name, 24);
-        return n > 0 ? `${name}: median ${duration(median)} · mean ${duration(mean)} (${n})` : `${name}: -`;
-      })
-      .join('\n');
+    return SPEED_METRICS.map((name) => {
+      const { n, median, mean } = metrics.summary(name, 24);
+      return n > 0 ? `${name}: median ${duration(median)} · mean ${duration(mean)} (${n})` : `${name}: -`;
+    }).join('\n');
   }
 
   /**
@@ -948,8 +925,8 @@ const handlers = perEnv((env) => {
    * records (src/behavior/missed.js#missedCounts). Null -- no line -- without a journal that
    * reads, without a guild, or with features.journal off; `missed: unreadable` when the read fails.
    */
-  async function missedLine(guildId: string | null, cfg: Untyped): Promise<string | null> {
-    if (!guildId || typeof journal?.read !== 'function' || cfg.features?.journal !== true) return null;
+  async function missedLine(guildId: string | null): Promise<string | null> {
+    if (!guildId || typeof journal?.read !== 'function') return null;
     try {
       const records = await journal.read(guildId, { day: utcDay(clock()), kind: 'answer', n: Number.MAX_SAFE_INTEGER });
       return missedStatusLine(missedCounts(records));
@@ -977,15 +954,15 @@ const handlers = perEnv((env) => {
     freshenIfPaused();
     const cfg = hot.config;
     const [data, guildId, unresolved] = [store.state.data ?? {}, getGuildId?.() ?? null, 'guild not resolved yet'];
-    const shownTo = (name: string): boolean => (owner || !OWNER_FIELDS.has(name)) && (name !== 'inner' || innerOn(cfg));
+    const shownTo = (name: string): boolean => owner || !OWNER_FIELDS.has(name);
     const visible = STATUS_FIELDS.filter((name) => shownTo(name) && !(offline && NETWORK_FIELDS.has(name)));
     // Her own call may ask for a part (PART_FIELDS): the fields it holds that she may see, models named and never probed.
     const partFields =
       typeof part === 'string' && Object.hasOwn(PART_FIELDS, part) && part !== 'all' ? PART_FIELDS[part] : null;
     const probe = partFields === null && part !== 'all';
     const shown: Array<string> = partFields
-      ? partFields.filter((name) => name === 'features' || visible.includes(name))
-      : field !== null && (visible.includes(field) || field === 'features')
+      ? partFields.filter((name) => visible.includes(name))
+      : field !== null && visible.includes(field)
         ? [field]
         : [...visible];
     if (partFields && shown.length === 0) return { fields: [{ name: part ?? '', value: '-' }] };
@@ -996,7 +973,7 @@ const handlers = perEnv((env) => {
       state: async () =>
         [
           stateValue(data),
-          owner ? await storageLine(guildId, cfg) : null,
+          owner ? await storageLine(guildId) : null,
           connectionValue(),
           `uptime ${span(process.uptime() * 1000)}`,
         ]
@@ -1004,7 +981,6 @@ const handlers = perEnv((env) => {
           .join('\n'),
       tasks: () => longTasksValue(guildId),
       // The owner's card probes every model (the old ping); a member's, or one without an llm client, names them.
-      features: () => featuresValue(cfg),
       'models.base': () =>
         owner && probe && typeof llm?.complete === 'function' ? probedModelsValue(cfg) : modelsValue(cfg),
       'keys.base': () => keyCostsValue(cfg),
@@ -1016,7 +992,7 @@ const handlers = perEnv((env) => {
       inner: () => innerValue(guildId),
       limits: () => limitsValue(cfg, data),
       memory: () => (guildId ? memoryValue(guildId) : unresolved),
-      speed: async () => [speedValue(cfg), await missedLine(guildId, cfg)].filter(Boolean).join('\n'),
+      speed: async () => [speedValue(), await missedLine(guildId)].filter(Boolean).join('\n'),
     };
     const values = await Promise.all(shown.map(async (name) => (await compute[name]?.()) ?? '-'));
     const fields = shown.map((name, i) => ({ name, value: fitField(values[i] || '-') }));

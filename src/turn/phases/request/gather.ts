@@ -72,7 +72,7 @@ export async function gatherRequest(
   const { hot, store, clock, record, describer, images, noteSeen, recentInput } = ctx;
   const { trigger = null, taskResult = null } = params;
   const { channel, guildId, isPrivate, prep } = opened;
-  const { config, features, memoryOn, selfId, selfName, snapshot, now, asked, prefetching, diaryPending } = setup;
+  const { config, memoryOn, selfId, selfName, snapshot, now, asked, prefetching, diaryPending } = setup;
   const { beforeBar } = setup;
   const { previewed, captions, captionCandidates, videoStage, videoCandidates } = staged;
   const { slot: second2, videosSoFar } = second;
@@ -87,7 +87,7 @@ export async function gatherRequest(
   // channel, each the history lacks put back as a placeholder at its own place (never in a
   // private chat); its read takes `timings.record`.
   timings.record = null;
-  if (!isPrivate && record && features.record === true && typeof record.iterate === 'function') {
+  if (!isPrivate && record && typeof record.iterate === 'function') {
     const found = await deletedLinesOf({
       record: record as { iterate: (...args: Array<unknown>) => unknown },
       guildId,
@@ -187,7 +187,7 @@ export async function gatherRequest(
     draft.diary = { set: isSetKind(diaryPrep.plan.kind, config.diary?.setKinds) };
   }
   const neighborDescriptions =
-    features.mediaDescriptions === true && typeof describer?.cachedDescriptions === 'function' && neighbors.length > 0
+    typeof describer?.cachedDescriptions === 'function' && neighbors.length > 0
       ? describer.cachedDescriptions(
           guildId,
           neighbors.flatMap((neighbor) => describableCandidates(neighbor.messages))
@@ -196,11 +196,7 @@ export async function gatherRequest(
   // Drawing (features.imageGeneration, a missing key counts as on) needs the image client
   // and Attach Files here. An unasked turn reads the quota for no member, like draw.create charges none.
   // A diary post draws only while its picture check allowed it (its own daily cap and the image cap).
-  const drawOn =
-    Boolean(images) &&
-    features.imageGeneration !== false &&
-    channel.permissions.attach &&
-    (!diaryPrep || diaryPrep.pictureAllowed);
+  const drawOn = Boolean(images) && channel.permissions.attach && (!diaryPrep || diaryPrep.pictureAllowed);
   const drawQuota = drawOn ? images?.quota({ userId: asked ? (trigger?.authorId ?? null) : null }) : undefined;
   // Neighbours the bot can read but not write in, marked in `<server>` (a pulled channel's
   // record carries its own mark). A pulled channel whose block is shown is left out of the

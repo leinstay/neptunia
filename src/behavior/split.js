@@ -90,7 +90,6 @@ export function mayHaveParts(text, minChars) {
  * @returns {boolean}
  */
 export function splitCandidate(trigger, triggerKind, config) {
-  if (config?.features?.splitTasks === false) return false;
   if (!trigger || !SPLIT_KINDS.has(triggerKind)) return false;
   const settings = splitSettings(config);
   if (settings.maxTasks < 2) return false;

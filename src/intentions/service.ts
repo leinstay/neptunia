@@ -48,7 +48,6 @@ import {
   HEARTBEAT_ORIGIN,
   intentionSettings,
   markExpiredShown as markShown,
-  intentionsOn,
   isOpen,
   newIntentionId,
   pinEvery,
@@ -538,7 +537,6 @@ export function createIntentionService({
     guildId: unknown,
     { privateChannelId = null }: { privateChannelId?: string | null } = {}
   ): Array<Intention> {
-    if (!intentionsOn(hot.config)) return [];
     const open = list(guildId, { privateChannelId });
     const active = open.filter((record) => record.status === 'pending').sort(byDue);
     const waiting = open.filter((record) => record.status === 'waiting').sort(byDue);
@@ -771,7 +769,7 @@ export function createIntentionService({
       dropped: { invalid: 0, unanchored: 0, quoted: 0, over: 0 },
     };
     try {
-      if (!intentionsOn(hot.config) || !Array.isArray(raw) || raw.length === 0) return out;
+      if (!Array.isArray(raw) || raw.length === 0) return out;
       const store = storeOf(guildId);
       if (!store) return out;
       const limits = settings();
@@ -792,12 +790,7 @@ export function createIntentionService({
           continue;
         }
         let turnId = candidate.turnId ?? null;
-        if (
-          !turnId &&
-          typeof journal?.findTurn === 'function' &&
-          hot.config?.features?.journal === true &&
-          isFiniteNumber(candidate.ts)
-        ) {
+        if (!turnId && typeof journal?.findTurn === 'function' && isFiniteNumber(candidate.ts)) {
           try {
             turnId =
               (await journal.findTurn(store.guildId, { messageId: candidate.messageId, at: candidate.ts }))?.turn

@@ -364,9 +364,7 @@ async function buildCore(options, cleanups) {
   const store = createStore({
     dataDir,
     record,
-    recordOn: () => hot.config.features?.record === true,
     archive,
-    archiveOn: () => hot.config.features?.archive === true,
     memoryDb,
   });
 
@@ -815,7 +813,7 @@ async function buildCore(options, cleanups) {
     // `<places>` on an addressed turn (context.places): the inner life's places view, read at call time.
     places: (guildId, options) => inner.places(guildId, options),
   });
-  const spontaneous = createSpontaneous({ hot, store, reads, turns, getGuildId });
+  const spontaneous = createSpontaneous({ turns });
   // The persona's diary: its own entries on a day plan as the selfreflection wake, ticked below, each published to the
   // diary's mirrors. The diary's posts are rows of the memory database already: no backfill from the channel.
   const diary = createDiary({ hot, store, reads, turns, getGuildId, mirrors });
@@ -844,7 +842,7 @@ async function buildCore(options, cleanups) {
     placeListings.set(
       String(communityId),
       snapshot.conversations
-        .filter((entry) => isReadable(entry, /** @type {{ dryRunChannelId?: unknown }|undefined} */ (hot.config.bot)))
+        .filter((entry) => isReadable(entry))
         .map((entry) => ({ id: entry.id, name: entry.name ?? entry.id, writable: entry.permissions.send }))
     );
   }
@@ -960,7 +958,6 @@ async function buildCore(options, cleanups) {
     reads,
     selfId: () => identity.selfId,
     turns,
-    spontaneous,
     memory,
     tagHistory,
     getGuildId,
@@ -1113,7 +1110,7 @@ async function buildCore(options, cleanups) {
 
   // Once at startup, fire-and-forget: tell the operator whether YouTube links can
   // be watched here (only when video vision is on). Logs the status, never the URL or key.
-  startYoutubeCheck({ hot, checkYoutube: describer.checkYoutube });
+  startYoutubeCheck({ checkYoutube: describer.checkYoutube });
 
   const timers = [];
 
@@ -1139,7 +1136,7 @@ async function buildCore(options, cleanups) {
   function sweepAffinityDecay() {
     const guildId = instance.guildId;
     const config = hot.config;
-    if (!guildId || config.features?.relationships === false) return;
+    if (!guildId) return;
     if (store.state.data.paused) return;
     // Decay counts only time she was running: the sweep runs hourly, so a gap of more than two sweeps since the last one
     // (kept in the state file) is downtime, and all of it but one sweep's hour is skipped.
@@ -1202,7 +1199,6 @@ async function buildCore(options, cleanups) {
    * unknown; nothing is sent again. Only operations started before this start are touched.
    */
   async function reconcileJournal(guildId) {
-    if (hot.config.features?.journal !== true) return;
     const startedAt = Date.now();
     const days = [utcDay(startedAt - DAY_MS), utcDay(startedAt)];
     const counts = await journal.reconcile(guildId, {
@@ -1239,7 +1235,7 @@ async function buildCore(options, cleanups) {
   }
 
   /** Whether the journal is written now (features.journal exactly true, read now). */
-  const journalOn = () => hot.config.features?.journal === true;
+  const journalOn = () => true;
 
   /** Delete the request dumps older than journal.keepRequests days (features.journal, read now). */
   async function pruneJournalRequests(guildId) {
@@ -1294,7 +1290,6 @@ async function buildCore(options, cleanups) {
     },
     log,
   });
-  scheduler.add({ name: 'spontaneous.tick', everyMs: () => 30_000, run: () => spontaneous.tick() });
   // The diary's beat also sends what its mirrors still hold queued.
   scheduler.add({
     name: 'diary.tick',
@@ -1422,7 +1417,6 @@ async function buildCore(options, cleanups) {
     log.info('index: shutting down', { signal });
     for (const id of timers) clearInterval(id);
     if (archiveDrainTimer) clearTimeout(archiveDrainTimer);
-    spontaneous.stop();
     diary.stop();
     onMessage.stop();
     missed.stop();

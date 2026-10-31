@@ -6,7 +6,7 @@
 import { isPlainObject } from '../../config.js';
 import { fill } from '../../format.js';
 import { gifWatchBlocker } from '../../memory/index.js';
-import { IN_TURN_TOOLS, byFamily, discoveryOn } from '../../tools/discovery.ts';
+import { IN_TURN_TOOLS, byFamily } from '../../tools/discovery.ts';
 import type { Base } from './head.ts';
 import type { MemoryViews } from './memory.ts';
 import type { Cost, Fit, Labels, RequestConfig, RequestInput } from './types.ts';
@@ -106,86 +106,56 @@ export function renderSenses(
   }: SensesOptions = {}
 ): Senses {
   const senses = labels.senses;
-  // features.coreTools: no search runs before her reply; she calls her own tools (granted to her by name).
-  const coreTools = config.features?.coreTools === true;
+  // No search runs before her reply; she calls her own tools (granted to her by name).
   const granted = (name: string) => Array.isArray(toolsGranted) && toolsGranted.includes(name);
   if (!senses) return { stable: '', turn: '' };
-  // Pictures never go into the persona's own request: she sees them through the describer's
-  // captions (and her second look), so the lines say described or blind, never seen first-hand.
-  const describedOn = config.features?.mediaDescriptions === true;
   const lines: Array<string | undefined> = [];
   // The lines that change from turn to turn: they stay out of the cached part.
   const turnLines: Array<string | undefined> = [];
-  lines.push(describedOn ? senses.imageDescribed : senses.imageBlind);
+  // Pictures never go into the persona's own request: she sees them through the describer's
+  // captions (and her second look), so the lines say described, never seen first-hand.
+  lines.push(senses.imageDescribed);
   // A watched GIF (its animation, not one frame); an older labels.json
   // without the line keeps the one-frame one.
-  const gifDescribedLine = gifWatching ? (senses.gifWatched ?? senses.gifDescribed) : senses.gifDescribed;
-  lines.push(describedOn ? gifDescribedLine : senses.gifBlind);
-  // Watching a video needs the describer on too; an older labels.json
-  // without the video-watching lines falls back to the still-frame ones.
-  const videoOn = describedOn && config.features?.videoDescriptions !== false;
-  lines.push(
-    videoOn ? (senses.videoWatch ?? senses.videoDescribed) : describedOn ? senses.videoDescribed : senses.videoBlind
-  );
-  // The second look on a question (features.videoRewatch, a missing key
-  // counts as on); an older labels.json without the line shows nothing.
-  // With features.coreTools no classifier gives her one: she looks again herself with media.look,
-  // granted to her by name, at a picture (features.imageRelook, through the vision model) or a
-  // video (video vision).
-  if (coreTools) {
-    const imageRelookOn = config.features?.imageRelook !== false;
-    if (granted('media.look') && (imageRelookOn || videoOn) && senses.lookTool) lines.push(senses.lookTool);
-  } else if (videoOn && config.features?.videoRewatch !== false && senses.videoRewatch) lines.push(senses.videoRewatch);
+  lines.push(gifWatching ? (senses.gifWatched ?? senses.gifDescribed) : senses.gifDescribed);
+  // An older labels.json without the video-watching line falls back to the still-frame one.
+  lines.push(senses.videoWatch ?? senses.videoDescribed);
+  // The second look on a question: she looks again herself with media.look, granted to her by name, at a
+  // picture (through the vision model) or a video (video vision).
+  if (granted('media.look') && senses.lookTool) lines.push(senses.lookTool);
 
   // Stickers get their own lines (a picture-format one behaves like an
   // image); senses.lottie only shows up alongside them -- an animated
-  // built-in (Lottie) sticker is never a picture, name only, regardless of
-  // mediaDescriptions.
-  const stickerLines: Array<string | undefined> = [];
-  stickerLines.push(describedOn ? senses.stickerDescribed : senses.stickerBlind);
-  const shownStickerLines = stickerLines.filter(Boolean);
-  lines.push(...shownStickerLines);
-  if (shownStickerLines.length > 0) lines.push(senses.lottie);
-  // The server's custom emoji (`customEmoji`: features.customEmoji on and a
-  // non-empty index); an older labels.json without the line shows nothing.
+  // built-in (Lottie) sticker is never a picture, name only.
+  if (senses.stickerDescribed) lines.push(senses.stickerDescribed, senses.lottie);
+  // The server's custom emoji (`customEmoji`: a non-empty index); an older labels.json without the line shows
+  // nothing.
   if (customEmoji && senses.customEmoji) lines.push(senses.customEmoji);
-  // The GIF library (`gifs`: features.gifs on and a non-empty library); an
-  // older labels.json without the line shows nothing.
+  // The GIF library (`gifs`: a non-empty library); an older labels.json without the line shows nothing.
   if (gifs && senses.gifs) lines.push(senses.gifs);
 
-  // The web lookup (features.webLookup -- a missing key counts as OFF, it
-  // costs money and needs a key): the links line stays as it is and the
-  // read-excerpt line follows it; the search line follows only when a search
-  // key is configured (`searchAvailable`). An older labels.json without
-  // either line shows nothing extra.
-  const webOn = config.features?.webLookup === true;
-  const readOn = webOn && config.web?.links?.enabled !== false;
-  const searchOn = webOn && config.web?.search?.enabled !== false && searchAvailable === true;
-  // With her own page reader (features.coreTools, web lookup on, web.read granted) the links line says a
-  // preview may show the opening of the page and she can read it all, in place of "cannot open the page".
-  const readerOn = webOn && coreTools && granted('web.read');
-  const linksLine = videoOn
-    ? (readerOn && senses.linksWatchTool) || senses.linksWatch || senses.links
-    : (readerOn && senses.linksTool) || senses.links;
+  // The web lookup: the links line stays as it is and the read-excerpt line follows it; the search line follows
+  // only when a search key is configured (`searchAvailable`). An older labels.json without either line shows
+  // nothing extra.
+  const readOn = config.web?.links?.enabled !== false;
+  const searchOn = config.web?.search?.enabled !== false && searchAvailable === true;
+  // With her own page reader (web.read granted) the links line says a preview may show the opening of the page
+  // and she can read it all, in place of "cannot open the page".
+  const readerOn = granted('web.read');
+  const linksLine = (readerOn && senses.linksWatchTool) || senses.linksWatch || senses.links;
   lines.push(senses.voice, linksLine);
   if (readOn && senses.linksRead) lines.push(senses.linksRead);
-  // Her own page reader (features.coreTools, granted to her by name): she can open a page herself.
+  // Her own page reader (granted to her by name): she can open a page herself.
   if (readerOn && senses.readTool) lines.push(senses.readTool);
-  if (searchOn && coreTools) {
-    if (granted('web.search') && senses.searchTool) lines.push(senses.searchTool);
-  } else if (searchOn && senses.search) lines.push(senses.search);
-  // The search of the server's own message history (`recallAvailable`: a server
-  // turn where the runner is available; its own switch, not the web one); an
-  // older labels.json without the line shows nothing.
-  // Per turn: the runner's daily caps can close it within a day.
-  if (recallAvailable === true && coreTools) {
-    if (granted('memory.search') && senses.recallTool) turnLines.push(senses.recallTool);
-  } else if (recallAvailable === true && senses.recall) turnLines.push(senses.recall);
+  if (searchOn && granted('web.search') && senses.searchTool) lines.push(senses.searchTool);
+  // The search of the server's own message history (`recallAvailable`: a server turn where the runner is
+  // available); an older labels.json without the line shows nothing. Per turn.
+  if (recallAvailable === true && granted('memory.search') && senses.recallTool) turnLines.push(senses.recallTool);
   // Drawing (features.imageGeneration, a missing key counts as on) needs the
   // image client (`drawQuota` present): one line, the spent forms first. An
   // older labels.json without senses.draw shows nothing. Per turn: the quotas
   // move within a day, and the member's one with the author.
-  if (drawQuota && config.features?.imageGeneration !== false && senses.draw) {
+  if (drawQuota && senses.draw) {
     turnLines.push(drawQuota.spent ? senses.drawSpent : drawQuota.userSpent ? senses.drawSpentUser : senses.draw);
   }
   lines.push(senses.files);
@@ -206,7 +176,7 @@ export function renderSenses(
   // Private chat: the one line for this conversation (per turn), or -- on the
   // server, with the feature on -- the rule about what was said in private.
   if (privateChat) turnLines.push(senses.privateChat);
-  else if (config.features?.privateMessages === true) lines.push(senses.privateAware);
+  else if (config.private?.enabled === true) lines.push(senses.privateAware);
   return { stable: lines.filter(Boolean).join('\n'), turn: turnLines.filter(Boolean).join('\n') };
 }
 
@@ -356,7 +326,7 @@ export function sensesOf(given: RequestInput & Base & MemoryViews): SensesOf {
   // The persona's skills (features.tools and features.toolsDiscovery, read now): the catalogue
   // with her access only on a turn whose question was what she can do (`skillsInventory`), in the
   // tail. Her tools travel as the request's `tools` (or, on the text transport, as `<tools>`).
-  const skillsShown = discoveryOn(config);
+  const skillsShown = true;
   const toolsText = typeof given.toolsBlock === 'string' ? given.toolsBlock.trim() : '';
   const inventoryText = skillsShown ? skillsInventoryText(given.skillsInventory, labels) : '';
   return { sensesOptions, senses, toolsText, inventoryText };

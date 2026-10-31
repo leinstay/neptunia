@@ -216,7 +216,7 @@ export function interlocutorOf(given: RequestInput & Base & Room & Task): Interl
   const { liveOn, liveSnapshot, voiceChannelNameOf } = given;
   const episodesOpt = { enabled: episodesOn, cap: caps.interlocutor, cost };
   // The avatar line of every profile (features.avatars, exactly true: a paid `vision` request writes it).
-  const avatarsOn = config.features?.avatars === true;
+  const avatarsOn = true;
   const interlocutorShown = renderProfileShown(interlocutor, labels, {
     interlocutor: true,
     handle: handleFor(memberIdOf(interlocutor?.id)),
@@ -326,7 +326,7 @@ export function askedAboutOf(given: RequestInput & Base & PulledFits): AskedAbou
   // none in a private chat: another member's moments never reach it; none with an older labels
   // file that cannot render one).
   const askedAboutEpisodes =
-    privateChat && config.features?.privateLikeServer === false ? 0 : (config.context.askedAboutEpisodes ?? 3);
+    privateChat && config.private?.likeServer === false ? 0 : (config.context.askedAboutEpisodes ?? 3);
   const episodeCount = (profile: Profile | null | undefined) =>
     Array.isArray(profile?.episodes) ? profile.episodes.length : 0;
   const episodeLabelsOn = Boolean(

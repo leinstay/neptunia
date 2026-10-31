@@ -15,7 +15,7 @@ import { getOp as registryGetOp } from './impl/registry.ts';
 import type { Op } from './impl/registry.ts';
 import { rightsRefusal } from './impl/rights.ts';
 import { skillRegistry, describeSkill } from './registry.ts';
-import { CARRIED_OVER, skillAccess, skillFeatureOn, skillsOn } from './access.ts';
+import { CARRIED_OVER, skillAccess } from './access.ts';
 import { schemaError } from './schema.ts';
 import { skillArgs } from './discovery.ts';
 import { MINUTE_MS } from '../time.js';
@@ -204,7 +204,6 @@ export function checkSkill({
   context?: GateContext;
 }): { ok: true } | Refusal {
   if (principal?.kind !== 'persona') return refused(CODE.UNKNOWN_PRINCIPAL, idText(principal?.kind));
-  if (!skillsOn(context.config)) return refused(CODE.SKILLS_OFF, 'features.tools');
   const registry = context.registry ?? skillRegistry();
   const skill = registry.get(name);
   if (!skill) return refused(CODE.UNKNOWN_SKILL, idText(name));
@@ -250,20 +249,16 @@ export function checkSkill({
  * Whether one effect of the persona's ordinary reply may happen now -- a `<msg>` or `<gif>`
  * (`message.create`), a `<react>` (`message.react.add`), a `draw.create` call, always in the
  * current conversation: carried over without a grant (src/tools/access.ts#CARRIED_OVER), even in
- * safe mode; refused only under the full stop (`features.tools` false: she goes silent). Never
- * throws.
+ * safe mode. Never throws.
  */
 export function checkReplyEffect({
   skill,
   principal,
-  config,
 }: {
   skill: string;
   principal: { kind?: string } | null | undefined;
-  config: unknown;
 }): { ok: true } | Refusal {
   if (principal?.kind !== 'persona') return refused(CODE.UNKNOWN_PRINCIPAL, idText(principal?.kind));
-  if (!skillsOn(config)) return refused(CODE.SKILLS_OFF, 'features.tools');
   if (!CARRIED_OVER.includes(skill)) return refused(CODE.UNKNOWN_SKILL, idText(skill));
   return { ok: true };
 }
@@ -298,8 +293,6 @@ export function listSkills({
 }): Array<ListedSkill> {
   const rows: Array<ListedSkill> = [];
   for (const skill of registry.values()) {
-    // A skill whose feature switch is off does not exist for her: no row.
-    if (!skillFeatureOn(skill.name, config)) continue;
     const { title, whenToUse } = describeSkill(skill, texts);
     const current = audience?.conversationId ?? null;
     let { allowed, reason } = skillAccess({

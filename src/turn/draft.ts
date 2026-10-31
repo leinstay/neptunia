@@ -7,7 +7,6 @@ import type { Snapshot } from '../behavior/snapshot.ts';
 import type { ConversationInfo } from '../protocol/adapter.ts';
 import type { Act } from './act.ts';
 import type { DrawGif } from './draw-gif.ts';
-import type { DryAct } from './dry-act.ts';
 import type { InTurnDraft } from './in-turn-tools.ts';
 import type { Inputs } from './inputs.ts';
 import type { JournalNotes, NotesDraft } from './journal-notes.ts';
@@ -41,7 +40,6 @@ type Started = { turnId: string; attemptId: string; startedAt: number };
 /** The drafts of the topic modules, all of which this one object is. */
 type ModuleDrafts = ToolRoundDraft &
   NonNullable<Parameters<Act['act']>[0]['draft']> &
-  NonNullable<Parameters<DryAct['dryAct']>[0]['draft']> &
   InTurnDraft &
   NotesDraft &
   NonNullable<Parameters<Inputs['turnContextOf']>[0]> &

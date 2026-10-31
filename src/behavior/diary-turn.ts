@@ -56,7 +56,7 @@ export function pictureGate({
   now: number;
 }): PictureGate {
   const closed = (limit: PictureGate['limit'] = null): PictureGate => ({ allowed: false, limit });
-  if (!imageQuota || sectionOf(config, 'features').imageGeneration === false || !attach) return closed();
+  if (!imageQuota || !attach) return closed();
   const picturesToday = today(data, DIARY_PICTURES_DAILY, now);
   const diaryCap = numberOr(sectionOf(config, 'diary').maxPicturesPerDay, 8);
   if (picturesToday >= diaryCap) return closed({ key: 'diary.maxPicturesPerDay', used: picturesToday, cap: diaryCap });

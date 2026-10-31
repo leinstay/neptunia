@@ -25,7 +25,6 @@ import { serverHealth, systemProbe, worse } from '../../health/server.ts';
 import type { HealthStatus } from '../../health/server.ts';
 import { DEVELOPMENT_ROLES, ERRAND_ROLES, MEMORY_ROLE } from '../../llm/roles.js';
 import { backupDatabase, backupName, backupSettings, backupsIn, partialOf } from '../../memory/db/backup.js';
-import { skillFeatureOn } from '../../tools/access.ts';
 import { grantedSkillNames } from '../../tools/discovery.ts';
 import { ownValueAt, splitPath } from '../../tools/impl/shared.ts';
 import { skillRegistry } from '../../tools/registry.ts';
@@ -328,7 +327,7 @@ export function createConsole(deps: ConsoleDeps): {
     const registry = skillRegistry();
     const granted = new Set(grantedSkillNames({ config: settings, selfId: deps.selfId(), registry }));
     const lines = [...registry.keys()].sort().map((tool) => {
-      const state = !skillFeatureOn(tool, settings) ? 'off by its feature switch' : granted.has(tool) ? 'granted' : '-';
+      const state = granted.has(tool) ? 'granted' : '-';
       return `${tool}  ${state}`;
     });
     return { text: lines.join('\n'), status: 'ok' };

@@ -15,27 +15,24 @@ import type { ConversationInfo, ConversationRef } from '../../protocol/adapter.t
 import type { SkillMap } from '../../tools/types.ts';
 import type { Diary, DiaryConfig } from '../diary.ts';
 import type { DrawGif } from '../draw-gif.ts';
-import type { DryAct } from '../dry-act.ts';
 import type { Facts } from '../facts.ts';
 import type { withReplyParents } from '../history.ts';
 import type { InTurnTools, InTurnConfig } from '../in-turn-tools.ts';
 import type { Inputs, InputsConfig } from '../inputs.ts';
 import type { JournalNotes, NotesConfig } from '../journal-notes.ts';
-import type { Lookup, LookupConfig, TurnPlan } from '../lookup.ts';
+import type { Lookup, LookupConfig } from '../lookup.ts';
 import type { Participation, ParticipationConfig } from '../participation.ts';
 import type { Pulls, PullsConfig } from '../pulls.ts';
 import type { Rewatch, RewatchConfig, VideoState } from '../rewatch.ts';
 import type { Sends, SendsConfig } from '../sends.ts';
 import type { StepCompletion, ToolRound, ToolRoundConfig } from '../tool-round.ts';
 import type { TriggerKind } from '../triggers.ts';
-import type { Typing, TypingConfig } from '../typing.ts';
 
 /** The live config, as far as the phases read it; the functions they call read their own sections. */
 export type PhaseConfig = LookupConfig &
   PullsConfig &
   DiaryConfig &
   ToolRoundConfig &
-  TypingConfig &
   ParticipationConfig &
   SendsConfig &
   InputsConfig &
@@ -44,7 +41,6 @@ export type PhaseConfig = LookupConfig &
   RewatchConfig &
   Parameters<typeof fetchNeighbors>[3] &
   NonNullable<Parameters<typeof withReplyParents>[3]>['config'] & {
-    features?: Record<string, unknown> | null;
     web?: {
       search?: { enabled?: unknown; contextMessages?: number } | null;
       links?: { enabled?: unknown; maxPerTurn?: number } | null;
@@ -154,8 +150,6 @@ export type PhaseContext = {
   Pick<Diary, 'prepareDiary' | 'diaryPictureGate'> &
   Pick<DrawGif, 'resolveGif'> &
   Pick<Sends, 'emojiLookup' | 'settleAuthor' | 'diaryChannelName'> &
-  Pick<Typing, 'typingWhilePreparing'> &
-  DryAct &
   Pulls &
   Pick<ToolRound, 'readHistory' | 'noteThink' | 'stepTranscript' | 'runSteps'> &
   InTurnTools &
@@ -166,7 +160,6 @@ export type PhaseContext = {
     | 'recallAvailable'
     | 'turnDirectory'
     | 'privatePartner'
-    | 'createTurnPlan'
     | 'lookupGate'
     | 'maybeLookup'
     | 'maybeSplit'
@@ -260,13 +253,12 @@ export type Ended = { ended: AttemptResult };
 
 /**
  * What the end of an attempt closes whatever it returned: the typing indicator, the preparation's deadline, the bar,
- * the planner, and whether a chain of parts took the attention. `turnMode` is the mode a dropped turn logs.
+ * and whether a chain of parts took the attention. `turnMode` is the mode a dropped turn logs.
  */
 export type Life = {
   stopTyping: () => void;
   deadline: Deadline | null;
   bar: Deadline | null;
-  planner: TurnPlan | null;
   chained: boolean;
   turnMode: string;
   turnStartedAt: number;

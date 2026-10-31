@@ -9,13 +9,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { onLog } from '../../log.js';
 import { HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../../time.js';
-import {
-  HEARTBEAT_ORIGIN,
-  attendCounter,
-  expiredToShow,
-  intentionsOn,
-  nextOccurrence,
-} from '../../intentions/model.ts';
+import { HEARTBEAT_ORIGIN, attendCounter, expiredToShow, nextOccurrence } from '../../intentions/model.ts';
 import type { Intention } from '../../intentions/types.ts';
 import { errorCodeOf } from '../../llm/openrouter.js';
 import { CODE } from '../../tools/codes.ts';
@@ -296,8 +290,8 @@ export async function conversationFor(
       fail(CODE.UNAVAILABLE);
       continue;
     }
-    // A private chat only while private chats are on (features.privateMessages, read now).
-    if (channel.communityId === null && objOf(objOf(hot.config).features).privateMessages !== true) {
+    // A private chat only while private chats are on (private.enabled, read now).
+    if (channel.communityId === null && objOf(objOf(hot.config).private).enabled !== true) {
       fail(CODE.DM_OFF);
       continue;
     }
@@ -683,7 +677,7 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
   // shown (never a candidate), the newest first, `review.expiredMax` of them; marked shown once the turn ran.
   const isReview = group.some((wake) => wake.kind === 'review');
   const expired =
-    isReview && intentions && intentionsOn(hot.config)
+    isReview && intentions
       ? expiredToShow(intentions.store?.(guildId)?.list?.() ?? [], { max: settings.review.expiredMax })
       : null;
   const shadow = settings.mode !== 'live';

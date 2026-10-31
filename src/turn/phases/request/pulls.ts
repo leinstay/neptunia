@@ -1,13 +1,12 @@
 // The third step of a turn's request: the other channels the turn shows (`<channel_view>`), found and fetched before
 // its mode is chosen, the chooser of a spontaneous turn, and the source a routed call lives in. The request phase
-// (src/turn/phases/request.ts) runs it after the planner step; the turn ends here when its source is gone or its
+// (src/turn/phases/request.ts) runs it after the searches step; the turn ends here when its source is gone or its
 // chooser finds nothing to do.
 
 import { log } from '../../../log.js';
 import type { PulledChannel } from '../../../behavior/pull-fetch.ts';
 import type { Ended, PhaseContext, PhaseParams } from '../context.ts';
 import type { Opened } from '../preflight.ts';
-import type { Planned } from './planner.ts';
 import type { Setup } from './setup.ts';
 
 /** What the pull step made: the turn's mode, its pulled channels (or the work fetching them) and its source. */
@@ -24,14 +23,12 @@ export async function pullRequest(
   ctx: PhaseContext,
   params: PhaseParams,
   opened: Opened,
-  setup: Setup,
-  planned: Planned
+  setup: Setup
 ): Promise<Ended | Pulled> {
   const { hot, clock, pullChannels, captionAll } = ctx;
   const { mode, trigger = null, triggerKind = null, chooseMode = null, source = null } = params;
   const { channel, guildId, isPrivate, life } = opened;
   const { config, likeServer, servedSnapshot, partner, rawHistory, candidate, selfName, now, beforeBar } = setup;
-  const { routePlan } = planned;
   // The other channels this turn shows (`<channel_view>`, pullChannels), found and fetched
   // before the mode is chosen so a chooser sees them. Fresh captions only for a turn certain
   // to run: with the fetch when no chooser can still say not-now, else once it chose
@@ -63,7 +60,6 @@ export async function pullRequest(
           now,
           certain,
           labelled: pullLabelled,
-          routePlan,
         })
           // Never fails the turn: anything unexpected is no pull (and no source).
           .catch((err: unknown) => {

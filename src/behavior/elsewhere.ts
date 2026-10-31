@@ -1,13 +1,9 @@
 // "Elsewhere": the persona may read a channel it cannot write in (a diary, an
-// announcements channel), and a call or something worth a remark there has
-// nowhere to go. This module is the pure core of answering or commenting in
+// announcements channel), and a call there has nowhere to go. This module is the pure core of answering in
 // the main channel instead (the destination, the first usable id of
 // `memory.mainChannelIds`): when a settle wait in the source is due, the ring
 // of calls received there (answered, skipped by choice, or still unanswered),
-// the per-channel seen mark that keeps the persona from commenting twice on
-// the same content, the ordinary liveness rule a noticed comment found on a
-// tick must pass (a count the writable channels' chooser can share), the
-// audience comparison that keeps a narrower channel's content out of a wider
+// the per-channel seen mark of the pulled blocks, the audience comparison that keeps a narrower channel's content out of a wider
 // one, the destination pick and the link of a message (the address the interface gave it).
 //
 // No I/O, no platform SDK: the clock is passed in, platform objects are read by
@@ -19,7 +15,7 @@
 
 import { memberIdOf as idOf } from '../memory/recent.js';
 import { mainChannelSet } from '../memory/index.js';
-import { MINUTE_MS, DAY_MS } from '../time.js';
+import { DAY_MS } from '../time.js';
 import type { MessageUrlTemplate } from '../protocol/adapter.ts';
 import { portIface, portMessageUrl } from '../interface/capabilities.ts';
 
@@ -27,11 +23,10 @@ const SECOND_MS = 1000;
 
 /** The parts of the live config this module reads. */
 type Config =
-  | {
+  | ({
       elsewhere?: Partial<Record<'settleSeconds' | 'settleMaxSeconds' | 'rememberPings' | 'pingMaxAgeDays', unknown>>;
-      features?: { elsewhere?: unknown };
       memory?: { mainChannelIds?: unknown };
-    }
+    } & Record<string, unknown>)
   | null
   | undefined;
 
@@ -45,16 +40,6 @@ export const ELSEWHERE_DEFAULTS = Object.freeze({
   settleMaxSeconds: 300,
   rememberPings: 20,
   pingMaxAgeDays: 7,
-});
-
-/**
- * Fallbacks of the two `spontaneous` liveness keys the noticed-comment rule
- * reads (config.json carries the same values), so a source qualifies exactly
- * as a writable channel does for `interject` in src/behavior/spontaneous.js.
- */
-export const LIVENESS_DEFAULTS = Object.freeze({
-  liveMinMessages: 4,
-  liveWindowMinutes: 15,
 });
 
 /** A finite number >= 0 from `value`, else `fallback`. */
@@ -87,14 +72,6 @@ export function elsewhereSettings(config?: Config): {
     rememberPings: Math.floor(nonNegativeOr(e.rememberPings, d.rememberPings)),
     pingMaxAgeMs: nonNegativeOr(e.pingMaxAgeDays, d.pingMaxAgeDays) * DAY_MS,
   };
-}
-
-/**
- * `features.elsewhere` (a missing key counts as on). On its own it does not
- * make the feature act: see `resolveDestination`.
- */
-export function elsewhereOn(config?: Config): boolean {
-  return config?.features?.elsewhere !== false;
 }
 
 // ---- settle ---------------------------------------------------------------------------
@@ -311,123 +288,6 @@ export function markSeen(seen: unknown, channelId: string, ts: number): Record<s
   return next;
 }
 
-/**
- * Whether a channel holds something its seen mark does not cover: its last
- * message (`lastActivity`, 0 for none) is newer than the mark. No mark counts
- * as nothing seen.
- */
-export function hasUnseen(lastTs: number, seenTs: number | null | undefined): boolean {
-  return Number.isFinite(lastTs) && lastTs > (typeof seenTs === 'number' && Number.isFinite(seenTs) ? seenTs : 0);
-}
-
-// ---- the liveness of a noticed comment --------------------------------------------------
-
-/** Whether a normalized message is a member's: neither the persona's own nor a bot's. */
-type LiveMessage = { ts: number; self?: boolean; bot?: boolean };
-
-function isMemberMessage(message: LiveMessage | null | undefined): message is LiveMessage {
-  return message !== null && message !== undefined && !message.self && !message.bot;
-}
-
-/**
- * The one liveness count: messages by members (neither the persona's own nor
- * a bot's) written inside the last `windowMinutes` before `now` (a message
- * exactly `windowMinutes` old counts) and after `sinceTs` (a missing or
- * non-finite `sinceTs` excludes nothing). The values are used as given, as
- * `chooseMode` in src/behavior/spontaneous.js does: a `windowMinutes` of 0
- * counts only messages written at `now`, a garbage one counts nothing. Kept
- * free of the platform so that chooser can count with it too (`sinceTs` omitted).
- * `messages` are normalized messages (`{ ts, self, bot }`), any order.
- */
-export function liveMemberCount(
-  messages: unknown,
-  { now, windowMinutes, sinceTs }: { now: number; windowMinutes: number; sinceTs?: number | null }
-): number {
-  const windowStart = now - windowMinutes * MINUTE_MS;
-  const since = typeof sinceTs === 'number' && Number.isFinite(sinceTs) ? sinceTs : -Infinity;
-  let count = 0;
-  for (const m of (Array.isArray(messages) ? messages : []) as Array<LiveMessage | null>) {
-    if (isMemberMessage(m) && m.ts >= windowStart && m.ts > since) count += 1;
-  }
-  return count;
-}
-
-/** The two liveness settings read as `chooseMode` reads them, falling back only when a key is missing. */
-type LivenessConfig = { liveMinMessages?: number; liveWindowMinutes?: number };
-
-function livenessSettings(cfg: LivenessConfig | undefined): { need: number; windowMinutes: number } {
-  return {
-    need: cfg?.liveMinMessages ?? LIVENESS_DEFAULTS.liveMinMessages,
-    windowMinutes: cfg?.liveWindowMinutes ?? LIVENESS_DEFAULTS.liveWindowMinutes,
-  };
-}
-
-/**
- * The ordinary liveness rule of `interject` applied to a source the persona
- * cannot write in (no looser rule on the tick path): at least
- * `cfg.liveMinMessages` member messages inside the last
- * `cfg.liveWindowMinutes` (`liveMemberCount`), counted only after the seen
- * mark (no mark counts as nothing seen). The settings are read exactly as
- * `chooseMode` reads them; a missing key falls back to `LIVENESS_DEFAULTS`.
- * A `liveMinMessages` of 0 makes any source live, as it makes any writable
- * channel interject; the seen-mark rule of `chooseElsewhereMode` still
- * applies.
- * `messages` are the source's normalized messages (`{ ts, self, bot }`), any order; `cfg` is config.spontaneous.
- */
-export function isSourceLive(
-  messages: ReadonlyArray<LiveMessage>,
-  now: number,
-  seenTs: number | null | undefined,
-  cfg?: LivenessConfig
-): boolean {
-  const { need, windowMinutes } = livenessSettings(cfg);
-  return liveMemberCount(messages, { now, windowMinutes, sinceTs: seenTs }) >= need;
-}
-
-/**
- * A cheap necessary condition for `chooseElsewhereMode` on the tick path,
- * from the source's last message time alone (`lastActivity`, any author), so
- * a tick need not fetch a source that cannot pass: the last message is newer
- * than the seen mark and, when `liveMinMessages` is above 0, inside the live
- * window. A source whose new content went quiet longer than the window ago
- * stops being a candidate. It cannot tell members from bots: a source where
- * only bots post still passes it.
- * `cfg` is config.spontaneous.
- */
-export function mayBeLive(
-  lastTs: number,
-  now: number,
-  seenTs: number | null | undefined,
-  cfg?: LivenessConfig
-): boolean {
-  if (!hasUnseen(lastTs, seenTs)) return false;
-  const { need, windowMinutes } = livenessSettings(cfg);
-  return need > 0 ? lastTs >= now - windowMinutes * MINUTE_MS : true;
-}
-
-/**
- * The mode chooser of a noticed turn (`runTurn`'s `chooseMode`, given the
- * pulled source's messages). On both paths a member must have written after
- * the seen mark (the persona never comments twice on the same content). On
- * the tick path (also the default for a missing or unknown `path`) the source
- * must pass `isSourceLive` as well. On the eavesdrop path the
- * `eavesdropChance` roll that armed the settle is the gate, so one new member
- * message is enough; a caller that wants the liveness rule on that path too
- * passes `'tick'`. Else null (`not-now`).
- * `cfg` is config.spontaneous.
- */
-export function chooseElsewhereMode(
-  messages: ReadonlyArray<LiveMessage>,
-  now: number,
-  seenTs: number | null | undefined,
-  cfg?: LivenessConfig,
-  { path }: { path?: 'tick' | 'eavesdrop' } = {}
-): 'elsewhere' | null {
-  if (liveMemberCount(messages, { now, windowMinutes: Infinity, sinceTs: seenTs }) === 0) return null;
-  if (path === 'eavesdrop') return 'elsewhere';
-  return isSourceLive(messages, now, seenTs, cfg) ? 'elsewhere' : null;
-}
-
 // ---- the audience rail ------------------------------------------------------------------
 
 /**
@@ -570,7 +430,6 @@ export function resolveDestination(
   config: Config,
   isUsable: (id: string) => boolean
 ): { destinationId: string; reason: null } | { destinationId: null; reason: 'off' | 'no-destination' } {
-  if (!elsewhereOn(config)) return { destinationId: null, reason: 'off' };
   const destinationId = pickDestinationId(config?.memory?.mainChannelIds, isUsable);
   return destinationId ? { destinationId, reason: null } : { destinationId: null, reason: 'no-destination' };
 }

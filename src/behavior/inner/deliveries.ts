@@ -139,11 +139,10 @@ function recordSaid(
   delivery: Delivery,
   { messageId, at, opId }: { messageId: string | null; at: number | null; opId: string | null }
 ): void {
-  const { record, hot, now, log } = life;
+  const { record, now, log } = life;
   const noted = notedOf(delivery);
   const said: SaidNote | null = noted.said;
   if (!said || !messageId || typeof record?.append !== 'function') return;
-  if (objOf(objOf(hot.config).features).record !== true) return;
   const line: unknown = toRecordLine(
     {
       id: messageId,
@@ -166,10 +165,9 @@ function recordSaid(
 
 /** The `post` operation of the delivery's turn in the journal (features.journal exactly true, read now), or null. */
 function postOp(life: InnerContext, guildId: string, delivery: Delivery): InnerJournalOp | null {
-  const { journal, hot } = life;
+  const { journal } = life;
   const noted = notedOf(delivery);
   if (!noted.said || !noted.turnId || typeof journal?.op !== 'function') return null;
-  if (objOf(objOf(hot.config).features).journal !== true) return null;
   return journal.op(guildId, {
     turnId: noted.turnId,
     name: 'post',

@@ -43,7 +43,6 @@ export { findGif, gifHandleMap, gifHandleOf, gifOpts, normalizeGifs, rankGifs } 
 export { gifPostsToday, gifWatchBlocker, gifWatchesToday } from './gif-watch.js';
 export { RECACHE_DAYS, gifCaptionCounts, gifFormatCounts } from './gif-recache.js';
 export { VIDEO_DAILY } from './describe.js';
-export { isVideoVisionOn } from './youtube-check.js';
 export { createOffPeriodsReader, journalLine, turnView } from './journal.js';
 export { ARCHIVE_EVENTS, ARCHIVE_KINDS, archiveEntry } from './archive.js';
 

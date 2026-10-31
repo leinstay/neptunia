@@ -1,6 +1,6 @@
 // Discovery of the persona's skills (the skills design, phase 0): how she learns what she can
 // do without the whole catalogue sitting in every request. The search classifier
-// (prompts/lookup.md) and the turn planner (prompts/planner.md) may answer one more line,
+// (prompts/lookup.md) may answer one more line,
 // `skills: inventory` (the message asks what she can do: the turn then shows her the catalogue
 // with her access, src/behavior/prompt.js) or `skills: <name>, <name>` (up to four registry
 // skills relevant to the message: shadow only, logged and journaled, never rendered yet). The
@@ -11,14 +11,7 @@
 // can do without a classifier naming it.
 // Pure; the texts are `hot.prompts.tools`, read by the caller at the moment of use.
 
-import {
-  CARRIED_OVER,
-  NOT_GRANTABLE_TO_PERSONA,
-  grantedToPersona,
-  safeModeOn,
-  skillFeatureOn,
-  skillsOn,
-} from './access.ts';
+import { CARRIED_OVER, NOT_GRANTABLE_TO_PERSONA, grantedToPersona, safeModeOn } from './access.ts';
 import { describeSkill, skillNames } from './registry.ts';
 import { CODE } from './codes.ts';
 import { objOf } from './types.ts';
@@ -48,14 +41,6 @@ const SPLIT_RE = /[,;，、]/;
 const WRAPPING = /^[\s"'`“”‘’«»*]+|[\s"'`“”‘’«»*.!?…]+$/gu;
 
 /**
- * Whether discovery runs: `features.tools` and `features.toolsDiscovery` both not false (a
- * missing key counts as on), read from the live config at the moment of use.
- */
-export function discoveryOn(config: unknown): boolean {
-  return skillsOn(config) && objOf(objOf(config).features).toolsDiscovery !== false;
-}
-
-/**
  * The names of the registry skills granted to the persona (src/tools/access.ts#grantedToPersona:
  * a `bot.access` entry naming her user id `selfId`), sorted by name (code-unit order, so the same
  * grants give the same list whatever the order they were stored or registered in). Only her
@@ -74,14 +59,11 @@ export function grantedSkillNames({
   selfId?: string | null;
   registry?: ReadonlyMap<string, Skill> | null;
 }): Array<string> {
-  if (!skillsOn(config) || safeModeOn(config) || !(registry instanceof Map)) return [];
+  if (safeModeOn(config) || !(registry instanceof Map)) return [];
   return [...registry.keys()]
     .filter(
       (name) =>
-        typeof name === 'string' &&
-        !NOT_GRANTABLE_TO_PERSONA.includes(name) &&
-        skillFeatureOn(name, config) &&
-        grantedToPersona(config, selfId, name)
+        typeof name === 'string' && !NOT_GRANTABLE_TO_PERSONA.includes(name) && grantedToPersona(config, selfId, name)
     )
     .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
@@ -104,14 +86,11 @@ export function exposedSkillNames({
   selfId?: string | null;
   registry?: ReadonlyMap<string, Skill> | null;
 }): Array<string> {
-  if (!skillsOn(config) || !(registry instanceof Map)) return [];
+  if (!(registry instanceof Map)) return [];
   const names = safeModeOn(config)
     ? [...CARRIED_OVER]
     : [...grantedSkillNames({ config, selfId, registry }), ...CARRIED_OVER];
-  const drawOn = objOf(objOf(config).features).imageGeneration !== false;
-  return [...new Set(names)]
-    .filter((name) => registry.has(name) && skillFeatureOn(name, config) && (name !== 'draw.create' || drawOn))
-    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  return [...new Set(names)].filter((name) => registry.has(name)).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
 /** No `skills:` line at all: what an answer without one means (none). */
@@ -330,9 +309,7 @@ export function describeRows({
   const wanted = (typeof name === 'string' ? name : '').trim().toLowerCase();
   if (!wanted || !(registry instanceof Map)) return { rows: [], closest: [] };
   const granted = new Set(grantedSkillNames({ config, selfId, registry }));
-  const skills = [...(registry as ReadonlyMap<string, Skill>).values()].filter((skill) =>
-    skillFeatureOn(skill.name, config)
-  );
+  const skills = [...(registry as ReadonlyMap<string, Skill>).values()];
   const row = (skill: Skill, withArgs: boolean): DescribedRow => ({
     ...describeSkill(skill, texts),
     args: withArgs ? skillArgs(skill) : [],

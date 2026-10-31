@@ -1,76 +1,9 @@
 {
-  "features": {
-    "dryRun": false,
-    "mentions": true,
-    "replies": true,
-    "nameTriggers": true,
-    "followUp": true,
-    "splitTasks": true,
-    "spontaneous": true,
-    "eavesdrop": true,
-    "memory": true,
-    "relationships": true,
-    "episodes": true,
-    "lore": true,
-    "reactions": true,
-    "customEmoji": true,
-    "gifs": true,
-    "embedUpdates": true,
-    "seeReactions": true,
-    "reactionNames": true,
-    "triggerMarkers": true,
-    "callMarkers": true,
-    "previousThink": true,
-    "multiMessage": true,
-    "mediaDescriptions": true,
-    "videoDescriptions": false,
-    "videoRewatch": true,
-    "imageRelook": true,
-    "webLookup": false,
-    "recall": true,
-    "recallTrace": false,
-    "journal": true,
-    "offPeriods": true,
-    "record": true,
-    "archive": true,
-    "meaningSearch": false,
-    "embedIndex": false,
-    "imageGeneration": false,
-    "speech": true,
-    "privateMessages": false,
-    "privateLikeServer": true,
-    "gifPicker": true,
-    "versions": true,
-    "recent": true,
-    "participation": true,
-    "anchoredWindow": false,
-    "promptCache": true,
-    "channelPull": true,
-    "pullSeenMarker": true,
-    "channelRoute": true,
-    "turnPlanner": false,
-    "channelLinks": true,
-    "messageLinks": true,
-    "mentionHandles": true,
-    "elsewhere": true,
-    "diary": true,
-    "typingSimulation": true,
-    "pauseNotice": true,
-    "memberCommands": true,
-    "tools": true,
-    "toolsDiscovery": true,
-    "coreTools": false,
-    "memoryPrefetch": true,
-    "missedAnswers": true,
-    "missedRecovery": false,
-    "offlineCatchUp": true,
-    "around": true,
-    "avatars": false,
-    "intentions": false,
-    "innerLife": false
-  },
   "discord": {
-    "intents": { "presences": false, "members": false }
+    "intents": {
+      "presences": false,
+      "members": false
+    }
   },
   "interfaces": {
     "mode": "inprocess",
@@ -140,7 +73,12 @@
       "models": ["anthropic/"],
       "promptIncludesCached": true
     },
-    "hedge": { "roles": ["analyzer"], "afterMs": 2500, "timeoutMs": 8000, "longTimeoutMs": 20000 }
+    "hedge": {
+      "roles": ["analyzer"],
+      "afterMs": 2500,
+      "timeoutMs": 8000,
+      "longTimeoutMs": 20000
+    }
   },
   "memoryDb": {
     "file": "memory.db",
@@ -149,12 +87,19 @@
     "audienceColumn": false,
     "diaryMedia": false,
     "diaryAudioMaxBytes": 8388608,
-    "focus": { "enabled": false },
+    "focus": {
+      "enabled": false
+    },
     "wakeRuns": false,
     "skillsRegistry": false,
     "observeTimeoutMs": 5000,
     "ingestKeepDays": 7,
-    "backup": { "enabled": false, "hour": 3, "dir": "../backups/memory", "keep": 7 },
+    "backup": {
+      "enabled": false,
+      "hour": 3,
+      "dir": "../backups/memory",
+      "keep": 7
+    },
     "session": {
       "mode": "off",
       "maxMessages": 200,
@@ -196,7 +141,13 @@
     "confirmHours": 24,
     "maxMovesPerWeek": 2,
     "settleDays": 21,
-    "weights": { "affinity": 0.55, "reciprocity": 0.15, "sharedInterest": 0.1, "recency": 0.1, "consistency": 0.1 },
+    "weights": {
+      "affinity": 0.55,
+      "reciprocity": 0.15,
+      "sharedInterest": 0.1,
+      "recency": 0.1,
+      "consistency": 0.1
+    },
     "noveltyMax": 0.12,
     "noveltyHalfLifeDays": 14,
     "recencyHalfLifeDays": 60,
@@ -226,7 +177,12 @@
     "gapMarkerMinutes": 20,
     "ageAfterMinutes": 60,
     "reactionsPerMessage": 6,
-    "reactions": { "maxMessages": 500, "maxNames": 5, "fetchUsers": 10, "fetchTimeoutMs": 2000 },
+    "reactions": {
+      "maxMessages": 500,
+      "maxNames": 5,
+      "fetchUsers": 10,
+      "fetchTimeoutMs": 2000
+    },
     "replyQuoteChars": 80,
     "otherProfiles": 6,
     "failedTurnsKept": 3,
@@ -234,8 +190,13 @@
     "askedAboutProfiles": 3,
     "askedAboutEpisodes": 3,
     "attitudes": 6,
-    "around": { "maxTokens": 400 },
-    "tempo": { "liveMessages10min": 4, "deadSilenceMinutes": 45 },
+    "around": {
+      "maxTokens": 400
+    },
+    "tempo": {
+      "liveMessages10min": 4,
+      "deadSilenceMinutes": 45
+    },
     "caps": {
       "interlocutor": 6000,
       "aboutChat": 2500,
@@ -253,7 +214,9 @@
       "intentions": 600
     },
     "places": false,
-    "previousThink": { "minutes": 30 },
+    "previousThink": {
+      "minutes": 30
+    },
     "pull": {
       "windowMinutes": 60,
       "minMessages": 5,
@@ -269,9 +232,21 @@
       "keepMinutes": 10,
       "keepTurns": 3
     },
-    "customEmoji": { "max": 30, "storeMax": 200, "halfLifeDays": 30, "backfillMessages": 500 },
-    "channelActivity": { "liveMessagesPerDay": 20, "deadAfterDays": 7 },
-    "vision": { "tokensPerImage": 400, "maxBytes": 1500000, "fetchTimeoutMs": 10000 }
+    "customEmoji": {
+      "max": 30,
+      "storeMax": 200,
+      "halfLifeDays": 30,
+      "backfillMessages": 500
+    },
+    "channelActivity": {
+      "liveMessagesPerDay": 20,
+      "deadAfterDays": 7
+    },
+    "vision": {
+      "tokensPerImage": 400,
+      "maxBytes": 1500000,
+      "fetchTimeoutMs": 10000
+    }
   },
   "mention": {
     "ignoreChance": 0,
@@ -333,17 +308,38 @@
     "settleMs": 3000,
     "settleMaxMs": 8000
   },
-  "format": { "stripDashes": true },
-  "split": { "minChars": 80, "maxTasks": 4, "contextMessages": 6, "maxOutputTokens": 300, "minPartChars": 20 },
-  "route": { "contextMessages": 20, "maxChannels": 40, "purposeChars": 80, "maxOutputTokens": 120 },
-  "elsewhere": { "settleSeconds": 90, "settleMaxSeconds": 300, "rememberPings": 20, "pingMaxAgeDays": 7 },
+  "format": {
+    "stripDashes": true
+  },
+  "split": {
+    "minChars": 80,
+    "maxTasks": 4,
+    "contextMessages": 6,
+    "maxOutputTokens": 300,
+    "minPartChars": 20
+  },
+  "route": {
+    "contextMessages": 20,
+    "maxChannels": 40,
+    "purposeChars": 80,
+    "maxOutputTokens": 120
+  },
+  "elsewhere": {
+    "settleSeconds": 90,
+    "settleMaxSeconds": 300,
+    "rememberPings": 20,
+    "pingMaxAgeDays": 7
+  },
   "spontaneous": {
     "channels": [],
     "minIntervalMinutes": 45,
     "maxIntervalMinutes": 420,
     "burstChance": 0.15,
     "burstMinutes": [3, 15],
-    "activeHours": { "from": 10, "to": 3 },
+    "activeHours": {
+      "from": 10,
+      "to": 3
+    },
     "liveWindowMinutes": 15,
     "liveMinMessages": 4,
     "deadAfterMinutes": 90,
@@ -422,9 +418,16 @@
     "embedTextChars": 200,
     "recacheBefore": null,
     "recacheIntervalMs": 3000,
-    "gif": { "watch": true, "maxSeconds": 15, "maxPerDay": 200 },
+    "gif": {
+      "watch": true,
+      "maxSeconds": 15,
+      "maxPerDay": 200
+    },
     "video": {
-      "provider": { "order": ["google-ai-studio"], "allow_fallbacks": false },
+      "provider": {
+        "order": ["google-ai-studio"],
+        "allow_fallbacks": false
+      },
       "maxOutputTokens": 800,
       "summaryChars": 1500,
       "maxRequestTokens": 60000,
@@ -457,9 +460,16 @@
       "proxySites": ["youtube.com", "youtu.be"],
       "proxyRetryMinutes": 10,
       "errorRetryMinutes": 60,
-      "audioMap": { "noiseDb": -50, "minSilenceSeconds": 0.5, "mapBelowShare": 0.8, "maxSpans": 20 },
+      "audioMap": {
+        "noiseDb": -50,
+        "minSilenceSeconds": 0.5,
+        "mapBelowShare": 0.8,
+        "maxSpans": 20
+      },
       "urlProcessing": "agentic",
-      "reasoning": { "effort": "low" },
+      "reasoning": {
+        "effort": "low"
+      },
       "prefill": true,
       "prefillPerMessage": 5,
       "rewatch": {
@@ -472,7 +482,9 @@
         "contextMessages": 50
       }
     },
-    "look": { "maxPerTurn": 2 }
+    "look": {
+      "maxPerTurn": 2
+    }
   },
   "web": {
     "maxPerDay": 60,
@@ -635,8 +647,14 @@
     "timeoutMs": 120000,
     "retries": 1,
     "provider": null,
-    "openai": { "quality": "medium", "background": "auto", "moderation": "low" },
-    "google": { "resolution": "1K" }
+    "openai": {
+      "quality": "medium",
+      "background": "auto",
+      "moderation": "low"
+    },
+    "google": {
+      "resolution": "1K"
+    }
   },
   "speech": {
     "voice": "jessica",
@@ -653,16 +671,37 @@
     "destructiveCooldownMinutes": 10,
     "callTimeoutMs": 120000,
     "transport": "native",
-    "loop": { "maxSteps": 3, "timeBudgetMs": 20000, "maxCallsPerStep": 4, "stepReserveTokens": 6000 }
+    "loop": {
+      "maxSteps": 3,
+      "timeBudgetMs": 20000,
+      "maxCallsPerStep": 4,
+      "stepReserveTokens": 6000
+    }
   },
   "diary": {
     "channelId": "",
     "world": false,
     "windows": [
-      { "from": 7, "to": 11, "posts": [0, 0] },
-      { "from": 12, "to": 16, "posts": [0, 1] },
-      { "from": 18, "to": 1, "posts": [0, 2] },
-      { "from": 1, "to": 5, "posts": [0, 1] }
+      {
+        "from": 7,
+        "to": 11,
+        "posts": [0, 0]
+      },
+      {
+        "from": 12,
+        "to": 16,
+        "posts": [0, 1]
+      },
+      {
+        "from": 18,
+        "to": 1,
+        "posts": [0, 2]
+      },
+      {
+        "from": 1,
+        "to": 5,
+        "posts": [0, 1]
+      }
     ],
     "quietDayChance": 0.3,
     "hungerBoost": 0.5,
@@ -691,12 +730,24 @@
     "searchKinds": ["news", "facts"],
     "pictureKinds": ["selfPicture", "picture", "meme", "photoset", "randomSet"],
     "setKinds": ["photoset", "randomSet"],
-    "set": { "pictures": [4, 6], "minPosted": 2, "seedSets": 6, "maxMessageBytes": 8000000 },
-    "loop": { "maxSteps": 2, "timeBudgetMs": 600000 },
+    "set": {
+      "pictures": [4, 6],
+      "minPosted": 2,
+      "seedSets": 6,
+      "maxMessageBytes": 8000000
+    },
+    "loop": {
+      "maxSteps": 2,
+      "timeBudgetMs": 600000
+    },
     "planMaxOutputTokens": 2000,
     "planTimeoutMs": 60000
   },
-  "avatars": { "intervalMs": 20000, "maxPerDay": 60, "descriptionChars": 200 },
+  "avatars": {
+    "intervalMs": 20000,
+    "maxPerDay": 60,
+    "descriptionChars": 200
+  },
   "gifs": {
     "max": 25,
     "reactionChars": 40,
@@ -708,9 +759,20 @@
     "backfillMessages": 500,
     "backfillDescribe": 20,
     "recachePerRun": 50,
-    "pick": { "maxChars": 160, "contextMessages": 4, "maxOutputTokens": 60, "graceMs": 1000 }
+    "pick": {
+      "maxChars": 160,
+      "contextMessages": 4,
+      "maxOutputTokens": 60,
+      "graceMs": 1000
+    }
   },
-  "private": { "minAffinity": 5, "maxPerUserPerDay": 20, "maxPerOwnerPerDay": 200 },
+  "private": {
+    "enabled": false,
+    "likeServer": true,
+    "minAffinity": 5,
+    "maxPerUserPerDay": 20,
+    "maxPerOwnerPerDay": 200
+  },
   "errands": {
     "opencodePath": "/opt/opencode/bin/opencode",
     "toolResultChars": 6000,
@@ -725,7 +787,12 @@
   "agents": {},
   "board": {
     "leaseTtlMinutes": 30,
-    "autoTriage": { "role": "dev", "budget": 4, "steps": 80, "estimate": 30 },
+    "autoTriage": {
+      "role": "dev",
+      "budget": 4,
+      "steps": 80,
+      "estimate": 30
+    },
     "projects": {},
     "reapSeconds": 60,
     "briefWaitMs": 1800000
@@ -744,7 +811,11 @@
     "tickSeconds": 60,
     "queueMax": 20,
     "chatMessages": 30,
-    "review": { "enabled": true, "historyDays": 14, "expiredMax": 5 },
+    "review": {
+      "enabled": true,
+      "historyDays": 14,
+      "expiredMax": 5
+    },
     "heartbeat": {
       "enabled": true,
       "everyMinutes": 180,
@@ -763,18 +834,64 @@
       "dueJitterMinutes": 20,
       "focusSource": "profiles"
     },
-    "caps": { "perChain": 3 },
-    "attention": { "settleSeconds": 90, "perDayDefault": 12, "pageSize": 12, "placesInWake": 8, "lookbackHours": 24 },
-    "loop": { "maxSteps": 4, "timeBudgetMs": 180000, "maxCallsPerStep": 4, "callTimeoutMs": 60000 },
-    "retry": { "delaysMinutes": [1, 5, 15, 60], "maxHours": 6 },
+    "caps": {
+      "perChain": 3
+    },
+    "attention": {
+      "settleSeconds": 90,
+      "perDayDefault": 12,
+      "pageSize": 12,
+      "placesInWake": 8,
+      "lookbackHours": 24
+    },
+    "loop": {
+      "maxSteps": 4,
+      "timeBudgetMs": 180000,
+      "maxCallsPerStep": 4,
+      "callTimeoutMs": 60000
+    },
+    "retry": {
+      "delaysMinutes": [1, 5, 15, 60],
+      "maxHours": 6
+    },
     "factsKeepDays": 7,
     "wakes": {
-      "intention_due": { "tools": "*", "maxActs": null, "maxTasks": null, "inputTokens": null },
-      "review": { "tools": "*", "maxActs": null, "maxTasks": null, "inputTokens": null },
-      "errand_deadline": { "tools": "*", "maxActs": null, "maxTasks": null, "inputTokens": null },
-      "attend": { "tools": "*", "maxActs": null, "maxTasks": null, "inputTokens": null },
-      "feedback": { "tools": "*", "maxActs": null, "maxTasks": null, "inputTokens": null },
-      "heartbeat": { "tools": "*", "maxActs": null, "maxTasks": null, "inputTokens": null }
+      "intention_due": {
+        "tools": "*",
+        "maxActs": null,
+        "maxTasks": null,
+        "inputTokens": null
+      },
+      "review": {
+        "tools": "*",
+        "maxActs": null,
+        "maxTasks": null,
+        "inputTokens": null
+      },
+      "errand_deadline": {
+        "tools": "*",
+        "maxActs": null,
+        "maxTasks": null,
+        "inputTokens": null
+      },
+      "attend": {
+        "tools": "*",
+        "maxActs": null,
+        "maxTasks": null,
+        "inputTokens": null
+      },
+      "feedback": {
+        "tools": "*",
+        "maxActs": null,
+        "maxTasks": null,
+        "inputTokens": null
+      },
+      "heartbeat": {
+        "tools": "*",
+        "maxActs": null,
+        "maxTasks": null,
+        "inputTokens": null
+      }
     }
   },
   "appendStore": {

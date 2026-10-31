@@ -10,16 +10,7 @@ import { postLimitNotice } from '../behavior/limits.js';
 import type { Reads } from '../interface/reads.ts';
 import { log } from '../log.js';
 import type { ConversationRef } from './conversations.ts';
-import type {
-  Conv,
-  Line,
-  PipelineConfig,
-  PipelineHot,
-  PipelineState,
-  PipelineTurns,
-  TriggerKind,
-  TurnResult,
-} from './types.ts';
+import type { Conv, Line, PipelineHot, PipelineState, PipelineTurns, TriggerKind, TurnResult } from './types.ts';
 
 /** A rail's limit as the notice quotes it (src/behavior/limits.js#postLimitNotice). */
 export type NoticeLimit = Parameters<typeof postLimitNotice>[0]['limit'];
@@ -78,17 +69,6 @@ export function routedFields({ destination }: { destination?: Conv | null }): { 
 }
 
 /**
- * Whether the switch that lets a server call of `kind` through (onMessage
- * step 8) is off in `features` now: features.replies for a reply,
- * features.nameTriggers for a name, features.mentions for a mention.
- */
-export function callSwitchOff(kind: TriggerKind, features: NonNullable<PipelineConfig['features']>): boolean {
-  if (kind === 'reply') return features.replies === false;
-  if (kind === 'name') return features.nameTriggers === false;
-  return features.mentions === false;
-}
-
-/**
  * The `mention: dropped` reason for a call messageStillExists did not find:
  * `gone` (deleted) or `fetch-failed` (the lookup failed; it may still exist).
  */
@@ -117,7 +97,6 @@ export function createCallOutcome({ hot, store, now, turns, reads, refOf, port }
       asReply: !plain && triggerKind !== 'followUp',
       // postLimitNotice reads the labels it is given, a missing labels file as none.
       labels: hot.prompts?.labels as object,
-      config: hot.config,
       port,
     });
   }
@@ -179,8 +158,7 @@ export function createCallOutcome({ hot, store, now, turns, reads, refOf, port }
   function markRoutedCall(messageId: string, result: TurnResult): void {
     let status: 'answered' | 'skipped' | null = null;
     if (result?.outcome === 'skip') status = 'skipped';
-    else if (result?.outcome === 'spoke' && result.dryRun !== true)
-      status = result.delivered === false ? 'skipped' : 'answered';
+    else if (result?.outcome === 'spoke') status = result.delivered === false ? 'skipped' : 'answered';
     if (status) stampRing([{ messageId, status }]);
   }
 

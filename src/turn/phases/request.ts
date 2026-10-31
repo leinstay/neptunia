@@ -1,5 +1,5 @@
 // The second phase of a turn attempt: everything before the reply request, built from what the turn prepared. Its
-// steps live in src/turn/phases/request/: the setup, the planner, the pulls, the stages, the second look, the lookup,
+// steps live in src/turn/phases/request/: the setup, the searches, the pulls, the stages, the second look, the lookup,
 // the wait, the gather, the facts and the build. runTurnOnce (src/behavior/turn.js) calls it after the preflight; the
 // turn ends here when a step returns its result (a refused diary picture, a source gone, nothing to choose, parts in
 // time).
@@ -15,8 +15,8 @@ import { gatherRequest } from './request/gather.ts';
 import type { Gathered } from './request/gather.ts';
 import { startLookup } from './request/lookup.ts';
 import type { Looked } from './request/lookup.ts';
-import { planRequest } from './request/planner.ts';
-import type { Planned } from './request/planner.ts';
+import { planRequest } from './request/searches.ts';
+import type { Planned } from './request/searches.ts';
 import { pullRequest } from './request/pulls.ts';
 import type { Pulled } from './request/pulls.ts';
 import { startSecondLook } from './request/second-look.ts';
@@ -52,13 +52,13 @@ export async function requestPhase(
 ): Promise<Ended | Prepared> {
   const setup = await setupRequest(ctx, params, draft, opened);
   if (setup.ended) return setup;
-  const planned = planRequest(ctx, params, draft, opened, setup);
-  const pulled = await pullRequest(ctx, params, opened, setup, planned);
+  const planned = planRequest(ctx, opened, setup);
+  const pulled = await pullRequest(ctx, params, opened, setup);
   if (pulled.ended) return pulled;
   const staged = startStages(ctx, params, opened, setup, pulled);
-  const second = startSecondLook(ctx, params, opened, setup, planned, pulled, staged);
-  const looked = startLookup(ctx, params, draft, opened, setup, planned, pulled, staged, second);
-  const waited = await waitForPreparation(ctx, params, draft, opened, setup, planned, pulled, staged, second, looked);
+  const second = startSecondLook(ctx, params, opened, setup, staged);
+  const looked = startLookup(ctx, opened, setup, planned, staged);
+  const waited = await waitForPreparation(ctx, params, draft, opened, setup, pulled, staged, second, looked);
   if (waited.ended) return waited;
   const gathered = await gatherRequest(ctx, params, draft, opened, setup, pulled, staged, second, looked, waited);
   const told = await tellFacts(ctx, params, draft, opened, setup, pulled, gathered);

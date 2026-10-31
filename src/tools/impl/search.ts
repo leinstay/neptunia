@@ -194,7 +194,7 @@ const handlers = perEnv((env) => {
         String(id) === String(here.id) ||
         checkPull({ snapshot, channelId: String(id), destination: here, config, now: now() }).skip === null,
       readRecord: ({ channelId, from }) =>
-        config.features?.record === true && env.record && guildId
+        env.record && guildId
           ? recordMessages(env.record, guildId, { channelId, from, nameOf, selfName })
           : Promise.resolve([]),
       fetchLive: (request) =>
@@ -214,7 +214,7 @@ const handlers = perEnv((env) => {
         maxChars: config.context?.maxMessageChars ?? 2000,
         selfName,
         labels,
-        seeReactions: config.features?.seeReactions !== false,
+        seeReactions: true,
         reactionsPerMessage: config.context?.reactionsPerMessage,
       }),
       now: now(),

@@ -1,9 +1,8 @@
-// The second look on a question: the `<media>` list a re-watch classifier (or the turn planner) is offered, the
+// The second look on a question: the `<media>` list a re-watch classifier is offered, the answer's parser, the
 // classifier's request, and the describer's look again at the item it picked; and the `<transcript>` input every
 // classifier of a turn reads. createTurnRunner (src/behavior/turn.js) builds it once per runner with createRewatch; the
 // attempt, the lookup and the splitter call its functions.
 
-import { parseRewatchPickDetailed } from '../behavior/planner.js';
 import { fillPromptTemplate } from '../behavior/prompt.js';
 import { roleModel } from '../llm/roles.js';
 import { roleRequestOptions } from '../llm/openrouter.js';
@@ -20,6 +19,51 @@ import {
   REWATCH_STATUS_WATCHED,
   REWATCH_SUMMARY_CHARS,
 } from './media.ts';
+
+const REWATCH_QUESTION_CHARS = 300;
+const REWATCH_RETRY = /^retry$/i;
+// The ordinal column: `<n>`, tolerating a `#` before it or a `.` after it.
+const REWATCH_ORDINAL = /^#?\s*(\d+)\.?$/;
+
+/**
+ * Parse the re-watch classifier's answer (prompts/rewatch.md): ONE line,
+ * `none` or `<n> | <question>` (`<n> | retry` asks to try a video that did
+ * not load again), where `<n>` is the 1-based ordinal of a `<media>` line
+ * (1 = the first line: the newest video, the pictures after the videos;
+ * ordinals, not ids, because the model miscopies long ids).
+ * `#1` and `1.` are accepted as `1`. Only the first non-empty line counts;
+ * `none` (any case), anything unparsable, an ordinal outside 1..`count` or an
+ * empty question -> no pick. The question is trimmed and cut to 300
+ * characters; `retry` is true when it is exactly `retry` (any case). The
+ * caller maps `n` back to its candidate (`candidates[n - 1]`). `reason` is a
+ * code safe to log: `none` (the model answered none), `empty` (no non-empty
+ * line), `no-bar`, `unknown-id` (not an ordinal within 1..`count`; the name
+ * predates ordinals and is kept for log continuity), `no-question` or `ok`.
+ * src/behavior/turn.js re-exports it.
+ * `count` is how many lines the `<media>` block listed.
+ */
+export function parseRewatchPickDetailed(
+  raw: string | null | undefined,
+  count: number
+): {
+  pick: { n: number; question: string; retry: boolean } | null;
+  reason: 'none' | 'empty' | 'no-bar' | 'unknown-id' | 'no-question' | 'ok';
+} {
+  const line = String(raw ?? '')
+    .split('\n')
+    .map((l) => l.trim())
+    .find(Boolean);
+  if (!line) return { pick: null, reason: 'empty' };
+  if (/^none$/i.test(line)) return { pick: null, reason: 'none' };
+  const bar = line.indexOf('|');
+  if (bar === -1) return { pick: null, reason: 'no-bar' };
+  const ordinal = REWATCH_ORDINAL.exec(line.slice(0, bar).trim());
+  const n = ordinal ? Number(ordinal[1]) : NaN;
+  const question = [...line.slice(bar + 1).trim()].slice(0, REWATCH_QUESTION_CHARS).join('').trim();
+  if (!Number.isSafeInteger(n) || n < 1 || n > count) return { pick: null, reason: 'unknown-id' };
+  if (!question) return { pick: null, reason: 'no-question' };
+  return { pick: { n, question, retry: REWATCH_RETRY.test(question) }, reason: 'ok' };
+}
 
 /** The second look's settings (`media.video.rewatch`). */
 type RewatchSettings = {
@@ -246,13 +290,12 @@ export function createRewatch(ctx: RewatchContext): Rewatch {
       return;
     }
     // The parser reads whatever text the client answered.
-    const { pick, reason } = parseRewatchPickDetailed(completion.text as string, offer.listed.length);
+    const { pick, reason } = parseRewatchPickDetailed(completion.text, offer.listed.length);
     await applyRewatch({ guildId, channelId, offer, pick, reason, videos, imageAnswers });
   }
 
   /**
-   * The `<media>` list of one second look (maybeRewatch's rules, shared with
-   * the turn planner): the items offered, newest first within each kind and
+   * The `<media>` list of one second look (maybeRewatch's rules): the items offered, newest first within each kind and
    * capped at `media.video.rewatch.maxCandidates`, each judged against the
    * video states `videos`, `gifCaptions` and today's slots, rendered as
    * `<n> | <kind> | <name> | <status> | <summary>`. Null after logging

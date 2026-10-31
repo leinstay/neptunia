@@ -69,20 +69,17 @@ export function railAudience(audience: Audience | null | undefined): RailAudienc
   };
 }
 
-type Bot = { dryRunChannelId?: unknown } | null | undefined;
-
 /**
- * Whether the persona may read the conversation: a channel of a community (not a thread, not a private chat), not the
- * dry-run mirror (`bot.dryRunChannelId`), its history readable.
+ * Whether the persona may read the conversation: a channel of a community (not a thread, not a private chat), its
+ * history readable.
  */
-export function isReadable(entry: ConversationInfo, bot: Bot): boolean {
-  const mirror = bot?.dryRunChannelId;
-  return !(mirror && entry.id === mirror) && entry.kind === 'channel' && entry.permissions.read;
+export function isReadable(entry: ConversationInfo): boolean {
+  return entry.kind === 'channel' && entry.permissions.read;
 }
 
 /** Whether the persona may speak there unasked or on someone's behalf: readable, and she can send. */
-export function isWritable(entry: ConversationInfo, bot: Bot): boolean {
-  return isReadable(entry, bot) && entry.permissions.send;
+export function isWritable(entry: ConversationInfo): boolean {
+  return isReadable(entry) && entry.permissions.send;
 }
 
 /**

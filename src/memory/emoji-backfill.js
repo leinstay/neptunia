@@ -30,13 +30,13 @@ const DEFAULT_BACKFILL_MESSAGES = 500;
  * @param {import('../interface/reads.ts').Reads} reads
  * @param {string} communityId
  * @param {number} limit
- * @param {{ config: object, iface: string, log?: object, prefix: string }} deps  `config` is the live config (`bot`).
+ * @param {{ iface: string, log?: object, prefix: string }} deps
  * @returns {Promise<{ channels: number, messages: object[] }|null>}  `messages` as lines, in read order.
  */
-export async function readMemberHistory(reads, communityId, limit, { config, iface, log = defaultLog, prefix }) {
+export async function readMemberHistory(reads, communityId, limit, { iface, log = defaultLog, prefix }) {
   const listing = await reads.conversations({ communityId });
   if (listing === null) return null;
-  const channels = listing.conversations.filter((entry) => isReadable(entry, config.bot));
+  const channels = listing.conversations.filter((entry) => isReadable(entry));
   if (channels.length === 0) return null;
   const messages = [];
   for (const channel of channels) {
@@ -144,10 +144,6 @@ export function createEmojiBackfill({ hot, store, reads, iface, log = defaultLog
    */
   async function startIfNeeded(guildId) {
     try {
-      if (hot.config.features?.customEmoji === false) {
-        skipped('feature-off');
-        return;
-      }
       await run(guildId);
     } catch (err) {
       log.error('emoji-backfill: failed', { error: err });

@@ -36,12 +36,11 @@ export const DIRECT_CALLS: ReadonlySet<string | null | undefined> = new Set([
 ]);
 
 /**
- * Whether nobody waits for a turn of `triggerKind` -- a spontaneous one (no trigger kind: an
- * interject, an initiate, a noticed comment, a forced turn) or an overheard line -- so that, with
- * `pace.unpromptedWaits` on, it prepares without a deadline or a bar. `pace` is paceSettings of the turn's config.
+ * Whether nobody waits for a turn of `triggerKind` -- an unprompted one (no trigger kind: a noticed comment, a forced
+ * turn) or an overheard line -- so that it prepares without a deadline or a bar.
  */
-export function unhurried(triggerKind: TriggerKind | null | undefined, pace: { unpromptedWaits: boolean }): boolean {
-  return pace.unpromptedWaits && !DIRECT_CALLS.has(triggerKind);
+export function unhurried(triggerKind: TriggerKind | null | undefined): boolean {
+  return !DIRECT_CALLS.has(triggerKind);
 }
 
 /**

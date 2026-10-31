@@ -50,7 +50,6 @@ export type TurnResult = {
   outcome: string;
   reason?: unknown;
   mode?: unknown;
-  dryRun?: boolean;
   delivered?: boolean;
   turnId?: unknown;
   parts?: Array<string>;
@@ -84,7 +83,6 @@ export type TurnEnd = {
   outcome: string;
   reason: string | null;
   replyTargets: Array<string>;
-  dryRun: boolean;
   turnId: unknown;
 };
 
@@ -122,7 +120,7 @@ export type OutcomeContext = {
 
 export type Outcome = {
   runTurn: (params: TurnParams) => Promise<TurnResult>;
-  recordTurnFacts: (args: { guildId?: string | null }, draft: FactsDraft, result: TurnResult | undefined) => void;
+  recordTurnFacts: (args: { guildId?: string | null }, draft: FactsDraft) => void;
   notifyIdle: () => void;
   /**
    * The parts of the chain running in `channelId` not started yet, when its message is
@@ -378,10 +376,10 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    * not go out (`sendFailed`), calls the loop dropped (`loopCut`) and failed calls she never read the
    * result of (`callFailed`). Never throws.
    */
-  function recordTurnFacts(args: { guildId?: string | null }, draft: FactsDraft, result: TurnResult | undefined): void {
+  function recordTurnFacts(args: { guildId?: string | null }, draft: FactsDraft): void {
     try {
       const channel = draft.info;
-      if (!channel || result?.dryRun === true) return;
+      if (!channel) return;
       const entries: Array<FactInput> = [];
       if (draft.sendFailure) entries.push({ kind: 'sendFailed', ...draft.sendFailure });
       if ((draft.loopCut?.dropped ?? 0) > 0 && draft.loopCut)
@@ -444,7 +442,6 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
       outcome,
       reason,
       replyTargets: [...new Set(ends.replyTargets)],
-      dryRun: result?.dryRun === true,
       turnId: result?.turnId ?? null,
     };
     Promise.resolve()
@@ -530,18 +527,17 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
   /**
    * One result for a message answered part by part, as its caller counts a
    * turn: `spoke` when any part spoke (`delivered` when anything of any part
-   * reached the chat; `dryRun` when every part that spoke was a rehearsal),
+   * reached the chat),
    * else the first part's `skip`, else the first part's result (a refusal
    * keeps its `limit`).
    */
   function chainOutcome(results: Array<TurnResult>): TurnResult {
     const spoke = results.filter((result) => result.outcome === 'spoke');
     if (spoke.length > 0) {
-      const real = spoke.filter((result) => result.dryRun !== true);
       return {
         outcome: 'spoke',
         mode: spoke[0].mode,
-        ...(real.length === 0 ? { dryRun: true } : { delivered: real.some((result) => result.delivered === true) }),
+        delivered: spoke.some((result) => result.delivered === true),
       };
     }
     return results.find((result) => result.outcome === 'skip') ?? results[0] ?? { outcome: 'error' };

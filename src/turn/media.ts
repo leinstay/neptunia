@@ -8,8 +8,7 @@ import { collectEmojiItems, collectPictures, collectReadableLinks, isDescribable
 export const REWATCH_SUMMARY_CHARS = 200;
 // Protocol tokens of the re-watch classifier (docs/prompt-contract.md), not wording:
 // the kind and status columns of a `<media>` line. The answer's parser
-// (parseRewatchPickDetailed) lives in src/behavior/planner.js, which reads the
-// planner's re-watch block with it; it is re-exported from src/behavior/turn.js.
+// (parseRewatchPickDetailed) lives in src/turn/rewatch.ts; it is re-exported from src/behavior/turn.js.
 export const REWATCH_KIND_VIDEO = 'video';
 export const REWATCH_KIND_PICTURE = 'picture';
 // A watched GIF: listed to the classifier as a video (REWATCH_KIND_VIDEO); `gif` is the internal

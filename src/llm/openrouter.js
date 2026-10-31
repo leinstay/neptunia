@@ -513,7 +513,6 @@ export function cacheTtlFor(config, role, model, force) {
   const cache = config?.llm?.cache;
   const ttl = cache?.ttl === '5m' ? '5m' : '1h';
   if (force === true) return ttl;
-  if (config?.features?.promptCache !== true) return null;
   const roles = Array.isArray(cache?.roles) ? cache.roles : DEFAULT_CACHE_ROLES;
   if (typeof role !== 'string' || !roles.includes(role)) return null;
   const models = Array.isArray(cache?.models) ? cache.models : DEFAULT_CACHE_MODELS;

@@ -227,11 +227,6 @@ export function attentionSettings(config: Untyped): AttentionSettings {
   };
 }
 
-/** Whether `features.intentions` is exactly true (a missing key counts as off). */
-export function intentionsOn(config: Untyped): boolean {
-  return config?.features?.intentions === true;
-}
-
 /** True for a status nothing moves out of. */
 export function isTerminal(status: unknown): boolean {
   return typeof status === 'string' && TERMINAL.includes(status);

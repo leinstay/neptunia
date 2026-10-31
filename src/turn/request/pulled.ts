@@ -467,7 +467,7 @@ export type PulledFits = {
  * most `context.caps.pulled`, shared evenly between the channels, each cut to its share here.
  */
 export function fitPulled(given: RequestInput & Base & PulledView & Room & HeadSections): PulledFits {
-  const { config, now, labels, timezone, caps, cost, limit, routed, pulledSets, pulledTriggerId, readOnlyIds } = given;
+  const { now, labels, timezone, caps, cost, limit, routed, pulledSets, pulledTriggerId, readOnlyIds } = given;
   const { head, chatSection } = given;
   // The pulled block's room: what the sections fitted ahead of it leave (the chat included,
   // except on a routed turn), at most context.caps.pulled, shared evenly between the
@@ -494,7 +494,7 @@ export function fitPulled(given: RequestInput & Base & PulledView & Room & HeadS
         readOnly: readOnlyIds.has(channel.channelId),
         triggerId: pulledTriggerId,
         // features.pullSeenMarker (a missing key counts as on), read now.
-        seenOn: config.features?.pullSeenMarker !== false,
+        seenOn: true,
       });
       if (!fitted) continue;
       pulledTaken += cost(fitted.text);

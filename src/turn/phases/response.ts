@@ -58,7 +58,7 @@ export async function responsePhase(
   const { trigger = null, triggerKind = null, source = null, focus = null } = params;
   const { opened, setup, pulled: pulledStep, waited, gathered, request } = prepared;
   const { channel, guildId, isPrivate, settledMs, life } = opened;
-  const { config, features, transport, startedAt, now, bar, beforeBar, replyOptions } = setup;
+  const { config, transport, startedAt, now, bar, beforeBar, replyOptions } = setup;
   const { finalMode } = pulledStep;
   const { prepareMs, late, timings } = waited;
   const { diaryPrep, neighborsHidden, pulled } = gathered;
@@ -108,16 +108,11 @@ export async function responsePhase(
   const shapeOutput = (raw: RawParsed): Shaped => {
     // The one field shaping adds, `loweredCalls`, is set below before it returns.
     const parsed = raw as Shaped;
-    if (features.reactions === false) {
-      parsed.reactions = [];
-      parsed.untargetedReactions = [];
-    }
     // A custom emoji reaction resolves through the index; an unknown one (or the switch off) is dropped.
     const lookupEmoji = emojiLookup();
     parsed.reactions = parsed.reactions
       .map((reaction) => ({ ...reaction, emoji: resolveReactionEmoji(reaction.emoji, lookupEmoji) }))
       .filter((reaction): reaction is { to: number; emoji: string } => Boolean(reaction.emoji));
-    if (features.multiMessage === false) parsed.messages = parsed.messages.slice(0, 1);
     // format.stripDashes (a missing key counts as on): no em/en dash in a <msg> text; a message
     // left empty is not posted. Hyphens, <react>, <gif> and reply ids are untouched.
     if (hot.config.format?.stripDashes !== false) {

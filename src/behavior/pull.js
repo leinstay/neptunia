@@ -77,17 +77,6 @@ export function pullSettings(config) {
 }
 
 /**
- * `features.channelPull` (a missing key counts as on): whether an explicit
- * `<#id>` or a route hook id pulls a channel. A turn's own source (a routed
- * call, a noticed comment) is pulled regardless: that is `features.elsewhere`.
- * @param {object} config  The live config.
- * @returns {boolean}
- */
-export function channelPullOn(config) {
-  return config?.features?.channelPull !== false;
-}
-
-/**
  * The channel ids written as explicit `<#id>` mentions in `messages`
  * (each message's `mentionedChannelIds`), newest message first, each id
  * once; within one message its own order is kept. Missing entries and
@@ -139,8 +128,7 @@ export function explicitChannelIds(messages) {
  * Mentions and route ids fill the slots the source leaves, up to
  * `maxChannels`, skipping the current channel, duplicates and ids for which
  * `isPullable(id)` is false. `isPullable` carries the caller's checks: same
- * guild, text based, not a thread, not the dry-run mirror
- * (`bot.dryRunChannelId`), and every check fetchPull
+ * guild, text based, not a thread, and every check fetchPull
  * (src/behavior/pull-fetch.ts) can make before its fetch (readable, the
  * audience rail), so a slot goes only to a channel the
  * fetch can serve and a refused newer mention never crowds out an older

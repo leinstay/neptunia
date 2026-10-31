@@ -52,11 +52,7 @@ const MEMORY_WEIGHT = 0.5;
  * @returns {boolean}
  */
 export function prefetchOn(config) {
-  return (
-    config?.features?.coreTools === true &&
-    config?.features?.memoryPrefetch !== false &&
-    recallSettings(config) !== null
-  );
+  return recallSettings(config) !== null;
 }
 
 /** `text` without its inline tokens, on one line. */

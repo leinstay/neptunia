@@ -741,8 +741,7 @@ export function createDiary({
   }
 
   /** Why no post may run now, or null. */
-  function gate(config: unknown) {
-    if (sectionOf(config, 'features').diary === false) return 'off';
+  function gate() {
     if (stateData(store).paused) return 'paused';
     return null;
   }
@@ -830,7 +829,6 @@ export function createDiary({
       outcome: answer.outcome ?? null,
       ...(answer.reason ? { reason: answer.reason } : {}),
       forced,
-      ...(answer.dryRun ? { dryRun: true } : {}),
     });
     const entry = made.entry;
     if (entry && mirrors) {
@@ -850,7 +848,7 @@ export function createDiary({
     const config = hot.config;
     const t = now();
     const day = localDayKey(t, zoneOf(config));
-    const blocked = gate(config);
+    const blocked = gate();
     if (blocked) {
       skip(blocked, day);
       return;
@@ -905,7 +903,7 @@ export function createDiary({
   }: { kind?: string | null; topic?: string | null } = {}): Promise<unknown> {
     const config = hot.config;
     const t = now();
-    const blocked = gate(config);
+    const blocked = gate();
     if (blocked === 'paused') return { outcome: 'paused' };
     if (blocked) return { outcome: 'not-now', reason: blocked };
     const guildId = getGuildId();

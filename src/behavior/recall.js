@@ -249,7 +249,6 @@ function numberAtLeast(value, fallback, min) {
  *   locatorBonus: number, locatorDecayDays: number, locatorBroadShare: number, prefetch: ReturnType<typeof prefetchSettingsOf> }|null}
  */
 export function recallSettings(config) {
-  if (config?.features?.recall === false) return null;
   const r = config?.recall ?? {};
   const d = RECALL_DEFAULTS;
   return {

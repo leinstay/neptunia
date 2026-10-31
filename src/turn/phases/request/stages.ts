@@ -8,7 +8,6 @@ import type { Deadline } from '../../../behavior/turn-parts.ts';
 import { splitCandidate } from '../../../behavior/split.js';
 import { withTextPreviews } from '../../../media/text-preview.ts';
 import { collectVideos } from '../../../media/classify.js';
-import { isVideoVisionOn } from '../../../memory/index.js';
 import { log } from '../../../log.js';
 import { journalled } from '../../journal.ts';
 import type { Lookup } from '../../lookup.ts';
@@ -55,7 +54,7 @@ export function startStages(
   const { hot, clock, schedule, describer, fetchImpl, maybeSplit } = ctx;
   const { trigger = null, triggerKind = null, maySplit = false } = params;
   const { channel, guildId, prepStep, life } = opened;
-  const { config, features, startedAt, waitsForAll, pace, prefetching, rawHistory, selfName } = setup;
+  const { config, startedAt, waitsForAll, pace, prefetching, rawHistory, selfName } = setup;
   const { routedPull } = pulled;
   // Everything below starts as soon as its inputs exist and runs alongside the rest; the turn
   // waits for all of it together, at most until the deadline (paceSettings, counted from the
@@ -99,7 +98,7 @@ export function startStages(
   // routed call's own pictures are captioned with its pulled channel instead.
   let captions: Staged['captions'] = null;
   let captionCandidates: Staged['captionCandidates'] = [];
-  if (features.mediaDescriptions === true && describer) {
+  if (describer) {
     captionCandidates = describableCandidates(rawHistory);
     const describeOp =
       captionCandidates.length > 0
@@ -164,7 +163,7 @@ export function startStages(
   let videoStage: Staged['videoStage'] = null;
   const videoCandidates: Array<MediaItem> = [];
   // Both switches (isVideoVisionOn), like the senses line; a missing videoDescriptions counts as on.
-  if (isVideoVisionOn(config) && typeof describer?.describeVideos === 'function') {
+  if (typeof describer?.describeVideos === 'function') {
     const describeVideos = describer.describeVideos.bind(describer);
     const videoCfg = config.media?.video ?? {};
     for (let i = rawHistory.length - 1; i >= 0; i -= 1) {

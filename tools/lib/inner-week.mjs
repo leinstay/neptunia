@@ -617,7 +617,7 @@ export function fixtureConfig(fixture, { mode = fixture.mode } = {}) {
   const life = fixture.innerLife ?? {};
   return {
     bot: { timezone: fixture.timezone },
-    features: { innerLife: true, intentions: true, journal: true, privateMessages: false },
+    private: { enabled: false },
     mention: { oneAtATime: true },
     intentions: {
       expiresDays: 14,

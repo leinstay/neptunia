@@ -193,10 +193,8 @@ export function createMemoryUpdater({ hot, store }) {
       diaryChannelIds: diaryConversationIds(store),
     });
     // The GIF library (src/memory/gifs.js) is fed here: it needs the GIF's URL, which no slim message keeps.
-    if (hot.config.features?.gifs !== false) {
-      const gifs = store.recordGifs(guildId, [normalized], gifOpts(hot.config));
-      if (gifs > 0) log.info('memory: gifs recorded', { guildId, gifs });
-    }
+    const gifs = store.recordGifs(guildId, [normalized], gifOpts(hot.config));
+    if (gifs > 0) log.info('memory: gifs recorded', { guildId, gifs });
     const slim = slimMessage(normalized, direct);
     try {
       store.recordEmojiUsage(guildId, [slim], emojiUsageOpts(hot.config));

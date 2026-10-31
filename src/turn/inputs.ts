@@ -16,8 +16,7 @@ import { log } from '../log.js';
 import { channelPlaceId, personId } from '../memory/db/ids.ts';
 import type { ConversationRef, MessageRef } from '../protocol/adapter.ts';
 import { IN_TURN_TOOLS } from '../tools/tools.ts';
-import { skillFeatureOn } from '../tools/access.ts';
-import { discoveryOn, proposalVerdicts, proposedRows, skillsIndex } from '../tools/discovery.ts';
+import { proposalVerdicts, proposedRows, skillsIndex } from '../tools/discovery.ts';
 import type { SkillsLines } from '../tools/discovery.ts';
 import { checkReplyEffect, listSkills } from '../tools/gateway.ts';
 import type { SkillMap } from '../tools/types.ts';
@@ -26,7 +25,6 @@ import { inCommunity } from './routing.ts';
 
 /** The live config, as far as the inputs read it; the settings functions read their own sections. */
 export type InputsConfig = {
-  features?: { intentions?: unknown } | null;
   errands?: { unreadShown?: number; resultMaxChars?: number } | null;
   bot?: { timezone?: string } | null;
   context?: { caps?: { intentions?: number } | null; places?: unknown } | null;
@@ -102,7 +100,7 @@ export type Inputs = {
   conversationOf: (channel: { id: string }) => ConversationRef;
   messageOf: (channel: { id: string }, messageId: string) => MessageRef;
   checkEffect: (skill: string, args: unknown, at: { channel: { id: string } }) => EffectVerdict;
-  discoveryPrompt: (config: unknown) => { index: string; names: Array<string> };
+  discoveryPrompt: () => { index: string; names: Array<string> };
   discoverSkills: (args: {
     config: unknown;
     channel: { id: string };
@@ -184,7 +182,7 @@ export function createInputs(ctx: InputsContext): Inputs {
    * for the reader; the check needs neither. A refusal logs `skill: refused`.
    */
   function checkEffect(skill: string, _args: unknown, { channel }: { channel: { id: string } }): EffectVerdict {
-    const verdict = checkReplyEffect({ skill, principal: PERSONA, config: hot.config });
+    const verdict = checkReplyEffect({ skill, principal: PERSONA });
     if (!verdict.ok)
       log.info('skill: refused', { skill, code: verdict.code, reason: verdict.reason, channel: channel.id });
     return verdict;
@@ -196,13 +194,9 @@ export function createInputs(ctx: InputsContext): Inputs {
    * `hot.prompts.tools`: static texts, no grant), `names` are the registry's skills its `skills:`
    * line may name. With discovery off, '' and none.
    */
-  function discoveryPrompt(config: unknown): { index: string; names: Array<string> } {
-    if (!discoveryOn(config)) return { index: '', names: [] };
-    // Her in-turn tools are hers to call (features.coreTools, where no classifier runs): never offered to one.
-    // A skill whose feature switch is off is not offered either (src/tools/access.ts#skillFeatureOn).
-    const registry = new Map(
-      [...(skills ?? defaultSkills())].filter(([name]) => !IN_TURN_TOOLS.includes(name) && skillFeatureOn(name, config))
-    );
+  function discoveryPrompt(): { index: string; names: Array<string> } {
+    // Her in-turn tools are hers to call: never offered to a classifier.
+    const registry = new Map([...(skills ?? defaultSkills())].filter(([name]) => !IN_TURN_TOOLS.includes(name)));
     const names = [...registry.keys()];
     return { index: skillsIndex(registry, hot.prompts?.tools), names };
   }
@@ -225,7 +219,7 @@ export function createInputs(ctx: InputsContext): Inputs {
     answer,
     draft,
   }: Parameters<Inputs['discoverSkills']>[0]): Array<object> | null {
-    if (!answer || !discoveryOn(config)) return null;
+    if (!answer) return null;
     const named: ReadonlyArray<string> = Array.isArray(answer.names) ? answer.names : [];
     if (answer.inventory !== true && named.length === 0) return null;
     const rows = listSkills({
@@ -316,7 +310,7 @@ export function createInputs(ctx: InputsContext): Inputs {
     labels,
     now,
   }: Parameters<Inputs['intentionsInputFor']>[0]): string {
-    if (!intentions || config.features?.intentions !== true) return '';
+    if (!intentions) return '';
     let shown: unknown = [];
     try {
       shown = intentions.view(guildId, { privateChannelId: isPrivate ? String(channel.id) : null });

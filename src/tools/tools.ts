@@ -29,7 +29,6 @@ import { zonedDay } from '../time.js';
 import { RECALL_DEFAULTS, memorySearchPlan, recallSettings } from '../behavior/recall.js';
 import { collectPictures, collectVideos } from '../media/classify.js';
 import { videoSiteFor, videoUrlCacheKey } from '../media/video-sites.js';
-import { isVideoVisionOn } from '../memory/youtube-check.js';
 import { foldText } from '../memory/recent.js';
 import { rankGifs } from '../memory/gifs.js';
 import { gifFieldChars, gifFields, gifLine } from '../behavior/prompt.js';
@@ -428,12 +427,7 @@ export async function runWebSearch({
     const query = text(given.query);
     if (!query) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.query:required' };
     const searchCfg = objOf(objOf(objOf(config).web).search);
-    if (
-      !lookup ||
-      typeof lookup.searchResults !== 'function' ||
-      objOf(objOf(config).features).webLookup !== true ||
-      searchCfg.enabled === false
-    )
+    if (!lookup || typeof lookup.searchResults !== 'function' || searchCfg.enabled === false)
       return { status: 'not_configured', code: CODE.NOT_CONFIGURED, values: { feature: FEATURE.web } };
     if (typeof lookup.hasSearch === 'function' && !lookup.hasSearch())
       return { status: 'not_configured', code: CODE.NOT_CONFIGURED, values: { feature: FEATURE.web } };
@@ -514,7 +508,7 @@ export async function runWebRead({
     let url = text(given.url);
     const messageId = text(given.message);
     if (!url && !messageId) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.url:required' };
-    if (!lookup || typeof lookup.readPage !== 'function' || objOf(objOf(config).features).webLookup !== true)
+    if (!lookup || typeof lookup.readPage !== 'function')
       return { status: 'not_configured', code: CODE.NOT_CONFIGURED, values: { feature: FEATURE.web } };
     if (!url) {
       url = text(typeof linkOf === 'function' ? await linkOf(messageId) : null);
@@ -783,32 +777,15 @@ export function mediaLookText(
 }
 
 /**
- * The describer's second look for each kind and whether its switches let it run now: a picture
- * under features.imageRelook (the look runs through the vision model like a caption), a video and a GIF under video vision
- * (src/memory/youtube-check.js#isVideoVisionOn) and features.videoRewatch (a missing key counts
- * as on, each, as the describer reads them).
+ * The describer's second look for each kind: a picture through the vision model like a caption, a video and a GIF
+ * through the video model.
  */
 const LOOKS: Readonly<
-  Record<
-    'image' | 'video' | 'gif',
-    {
-      method: 'relookImage' | 'rewatchVideo' | 'rewatchGif';
-      role: 'vision' | 'video';
-      on: (features: Obj, config: unknown) => boolean;
-    }
-  >
+  Record<'image' | 'video' | 'gif', { method: 'relookImage' | 'rewatchVideo' | 'rewatchGif'; role: 'vision' | 'video' }>
 > = Object.freeze({
-  image: { method: 'relookImage', role: 'vision', on: (features) => features.imageRelook !== false },
-  video: {
-    method: 'rewatchVideo',
-    role: 'video',
-    on: (features, config) => isVideoVisionOn(objOf(config)) && features.videoRewatch !== false,
-  },
-  gif: {
-    method: 'rewatchGif',
-    role: 'video',
-    on: (features, config) => isVideoVisionOn(objOf(config)) && features.videoRewatch !== false,
-  },
+  image: { method: 'relookImage', role: 'vision' },
+  video: { method: 'rewatchVideo', role: 'video' },
+  gif: { method: 'rewatchGif', role: 'video' },
 });
 
 /** Whether the describer's day has no second look of `kind` left (a video also needs a video slot, a GIF a GIF watch slot). */
@@ -828,13 +805,6 @@ function lookOnRoute(
   return call(null).then((value) => ({ route: null, value }));
 }
 
-/** The switch that keeps the second look of `kind` off, by its name (`features.<name>`, or the video vision's own); '' when none is, the describer lacking the method. */
-function switchOf(kind: string, features: Obj, config: unknown): string {
-  if (kind === 'image') return features.imageRelook === false ? 'features.imageRelook' : '';
-  if (!isVideoVisionOn(objOf(config))) return 'video vision';
-  return features.videoRewatch === false ? 'features.videoRewatch' : '';
-}
-
 /**
  * One media.look: the picture, GIF or video number `args.item` (1.., default 1; lookableMedia's
  * order) of the message `args.message` names, or (`args.url`, exactly one of the two) a video link of a
@@ -846,7 +816,7 @@ function switchOf(kind: string, features: Obj, config: unknown): string {
  * message-or-url (both or neither) or a question, an unparseable url, or with an item the message does not hold; `invalid`
  * (`unknown-message`, reason `message-deleted` for a deleted one) when the message is not one she sees, (`no-media`) when it holds nothing to
  * look at; `not_configured` (`not-configured`) without the describer or its second look for that
- * kind, or while the kind's switches are off (read now; the switch named in `data.text` from `labels.tools.tools.look.off`, `{feature}`); `failed` with `daily-cap` when the
+ * kind; `failed` with `daily-cap` when the
  * describer's `videoCapsLeft()` says the day's second looks are spent (a video also needs a video
  * slot, a GIF a GIF watch slot), with `turn-cap` when `takeTurnSlot()` (the caller's per-turn
  * count, asked only once every other check passed) refuses, with `error` when the second look
@@ -877,7 +847,6 @@ export async function runMediaLook({
     const link = text(given.url);
     const question = text(given.question);
     const mediaCfg = objOf(objOf(config).media);
-    const features = objOf(objOf(config).features);
     if (messageId && link) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.url|message:one' };
     if (!messageId && !link) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.url|message:one' };
     if (!question) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.question:required' };
@@ -932,16 +901,7 @@ export async function runMediaLook({
       ({ kind, item } = chosen);
     }
     const look = LOOKS[kind];
-    if (!look.on(features, config) || typeof describer?.[look.method] !== 'function') {
-      // The switch that is off, by name (`labels.tools.tools.look.off`, as the call mark's op text).
-      const feature = switchOf(kind, features, config);
-      const off = toolLabels(labels, 'look').off;
-      return {
-        status: 'not_configured',
-        code: CODE.NOT_CONFIGURED,
-        ...(feature && off ? { data: { text: fill(off, { feature }) } } : {}),
-      };
-    }
+    if (typeof describer?.[look.method] !== 'function') return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
     const slots = typeof describer?.videoCapsLeft === 'function' ? describer.videoCapsLeft() : null;
     if (lookSpent(slots, kind)) return { status: 'failed', code: CODE.DAILY_CAP };
     if (typeof takeTurnSlot === 'function' && !takeTurnSlot()) return { status: 'failed', code: CODE.TURN_CAP };
@@ -1088,7 +1048,7 @@ export function runMediaFind({
     const query = text(asked.query);
     if (!query || wordsOf(query).length === 0)
       return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.query:required' };
-    if (!store || typeof store.getGifs !== 'function' || !guildId || objOf(objOf(config).features).gifs === false)
+    if (!store || typeof store.getGifs !== 'function' || !guildId)
       return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
     const given = asked.n;
     if (

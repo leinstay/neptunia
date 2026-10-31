@@ -19,9 +19,8 @@ import type { NoteFollowingLine } from './following.ts';
 import type { MediaPrefill } from './media-prefill.ts';
 import type { ObserveLine } from './observe.ts';
 import type { PrivateGate } from './private-gate.ts';
-import type { MaybeRoom } from './room.ts';
 import type { Settles } from './settle.ts';
-import type { Conv, Line, PipelineHot, PipelineMissed, PipelineState, PipelineTurns, TriggerKind } from './types.ts';
+import type { Line, PipelineHot, PipelineMissed, PipelineState, PipelineTurns, TriggerKind } from './types.ts';
 
 /** How many message ids each path of handleMessage remembers (the live one, the start's catch-up). */
 const CATCH_UP_IDS_KEPT = 1000;
@@ -38,7 +37,6 @@ export type HandleMessageContext = {
   store: { state?: PipelineState } | null | undefined;
   turns: PipelineTurns;
   memory: { observe: (guildId: string, line: Line, options?: { direct: boolean }) => void };
-  spontaneous: { onMessage: (channel: Conv, normalized: Line) => unknown };
   activity: { note: (channelId: string, authorId: string, at: number) => void } | null;
   missed: PipelineMissed | null;
   getGuildId: () => string | null;
@@ -54,8 +52,6 @@ export type HandleMessageContext = {
   noteFollowingLine: NoteFollowingLine;
   touchSettle: Settles['touchSettle'];
   maybeFollowUp: MaybeFollowUp;
-  maybeNotice: Settles['maybeNotice'];
-  maybeRoom: MaybeRoom;
   rememberCall: Settles['rememberCall'];
   armSettle: Settles['armSettle'];
   answerCall: Answer['answerCall'];
@@ -74,7 +70,6 @@ export function createHandleMessage({
   store,
   turns,
   memory,
-  spontaneous,
   activity,
   missed,
   getGuildId,
@@ -90,8 +85,6 @@ export function createHandleMessage({
   noteFollowingLine,
   touchSettle,
   maybeFollowUp,
-  maybeNotice,
-  maybeRoom,
   rememberCall,
   armSettle,
   answerCall,
@@ -160,8 +153,7 @@ export function createHandleMessage({
       }
 
       const config = hot.config;
-      const features = config.features ?? {};
-      const memoryOn = features.memory !== false;
+      const memoryOn = true;
 
       // 2. DMs: private chat (features.privateMessages, off by default) --
       // see onPrivateMessage. Owner commands are slash commands
@@ -176,13 +168,6 @@ export function createHandleMessage({
       // it sees is the platform's permissions alone.
       if (event.conversation.communityId !== getGuildId()) return 'ignored';
       if (event.conversation.kind === 'thread') return 'ignored';
-
-      // 3b. The dry-run mirror channel is the owner's private test room: it
-      // carries the persona's own rehearsal output (src/behavior/turn.js),
-      // never real conversation. Nothing posted here is ever observed into
-      // memory, no trigger is detected, no turn runs, no eavesdrop.
-      const dryRunChannelId = config.bot.dryRunChannelId;
-      if (dryRunChannelId && event.conversation.id === dryRunChannelId) return 'ignored';
 
       // 3c. When this author last wrote in this channel, for a turn that waits until the person
       // it answers stops writing (pace.settleMs). The persona's own messages never count.
@@ -224,16 +209,12 @@ export function createHandleMessage({
       // BEFORE memory observes the message, so the buffer can mark it. A
       // forward of the persona's own message has no replyToId: not a reply.
       // The door refuses a whole message without its addressing (src/protocol/validate.js).
-      const mentionsSelf = features.mentions !== false && event.addressing!.mentioned;
+      const mentionsSelf = event.addressing!.mentioned;
       // The adapter's cached answer first; else the reference is fetched as before.
       const repliesToSelf =
-        features.replies !== false &&
-        (event.addressing!.replyToSelf ||
-          (await resolveReference(
-            { iface: event.iface, conversationId: event.conversation.id },
-            normalized.replyToId
-          )));
-      const nameTriggers = features.nameTriggers !== false ? config.bot.nameTriggers : [];
+        event.addressing!.replyToSelf ||
+        (await resolveReference({ iface: event.iface, conversationId: event.conversation.id }, normalized.replyToId));
+      const nameTriggers = config.bot.nameTriggers;
       // detectTrigger answers a trigger kind or null (src/behavior/mention.js).
       const kind = detectTrigger({
         mentionsSelf,
@@ -254,23 +235,16 @@ export function createHandleMessage({
       // 9b. A channel whose call waits to be answered elsewhere is still talking: its settle wait moves (touchSettle).
       touchSettle(event.conversation.id);
 
-      // 10. No trigger: maybe a follow-up (features.followUp) inside a window the persona itself opened by answering --
-      // fully handled by maybeFollowUp either way (a computed verdict or a deliberate no-op, see its own header
-      // comment); otherwise let the spontaneous scheduler eavesdrop, nothing more. In a channel the bot cannot send in,
-      // an eavesdrop hit there arms a noticed settle wait (maybeNotice). A line the eavesdrop roll did not schedule may
-      // still be put to the whole room (maybeRoom). A caught-up line stops here: no follow-up, eavesdrop or room
-      // question for chatter from before the start; so does a caught-up call not to be answered. Nothing opens a
-      // turn in a diary mirror's place: only her diary writes there (src/behavior/mirror.ts).
+      // 10. No trigger: maybe a follow-up inside a window the persona itself opened by answering -- fully handled by
+      // maybeFollowUp either way (a computed verdict or a deliberate no-op, see its own header comment), nothing more.
+      // A caught-up line stops here: no follow-up for chatter from before the start; so does a caught-up call not to
+      // be answered. Nothing opens a turn in a diary mirror's place: only her diary writes there
+      // (src/behavior/mirror.ts).
       if (catchUp && (!kind || !catchUp.trigger)) return 'observed';
       const channel = await turnPlaceOf(event);
       if (!channel) return 'observed';
       if (!kind) {
-        const followedUp = await maybeFollowUp(channel, normalized, selfId, ownPrefill);
-        if (!followedUp) {
-          const scheduled = spontaneous.onMessage(channel, normalized) === true;
-          if (!channel.permissions.send) await maybeNotice(channel, normalized);
-          else if (!scheduled) await maybeRoom(channel, normalized, ownPrefill);
-        }
+        await maybeFollowUp(channel, normalized, selfId, ownPrefill);
         return;
       }
 

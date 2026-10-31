@@ -15,24 +15,21 @@
 // (skipSeenCalls). A call the ring already holds as answered is never answered again (ringAnswered: state.json, so a
 // restart keeps it). The waits live in memory only: a restart during one loses the call, which stays unanswered in
 // the ring; a pause (clearPending) and shutdown (stop) clear them.
-// The same wait (kind `noticed`, no call, nothing in the ring) follows an eavesdrop hit on an untriggered message
-// there (spontaneous.noticeElsewhere) when no wait is armed in that source; when it is over the persona may comment
-// on the source in the destination (spontaneous.runNoticed). A call arriving meanwhile takes its place, as a newer
-// call does. createMessageHandler (src/behavior/pipeline.js) builds it once with createSettles.
+// createMessageHandler (src/behavior/pipeline.js) builds it once with createSettles.
 
 import { elsewhereSettings, recordPing, settleDueAt } from '../behavior/elsewhere.ts';
 import { log } from '../log.js';
 import type { Answer } from './answer.ts';
 import type { CallOutcome } from './call-outcome.ts';
-import { callSwitchOff, missingReason } from './call-outcome.ts';
+import { missingReason } from './call-outcome.ts';
 import type { Conversations } from './conversations.ts';
 import type { FollowUpWindows } from './follow-up-window.ts';
 import type { Timers } from './observe.ts';
 import type { Conv, Line, PipelineConfig, PipelineHot, PipelineState, PipelineTurns, TriggerKind } from './types.ts';
 
-/** One settle wait of a source: a routed call (`ping`) or a noticed comment, and its timing. */
+/** One settle wait of a source: a routed call (`ping`) and its timing. */
 type SettleEntry = {
-  kind: 'ping' | 'noticed';
+  kind: 'ping';
   channel: Conv;
   normalized: Line;
   triggerKind: TriggerKind | null;
@@ -44,12 +41,6 @@ type SettleEntry = {
   timer: unknown;
 };
 
-/** The spontaneous scheduler (src/behavior/spontaneous.js#createSpontaneous), as the noticed waits call it. */
-type NoticeScheduler = {
-  noticeElsewhere?: (source: Conv, normalized: Line) => unknown;
-  runNoticed?: (channel: Conv) => Promise<{ reason?: string } | null | undefined>;
-};
-
 /** What createSettles reads: the dependencies of createMessageHandler and its other parts' functions. */
 export type SettlesContext = {
   hot: PipelineHot;
@@ -57,7 +48,6 @@ export type SettlesContext = {
   now: () => number;
   timers: Timers;
   turns: PipelineTurns;
-  spontaneous: NoticeScheduler;
   routeOf: Conversations['routeOf'];
   followUpMuted: FollowUpWindows['followUpMuted'];
   heldCallState: CallOutcome['heldCallState'];
@@ -69,7 +59,6 @@ export type Settles = {
   clearSettles: (reason: 'paused' | null) => void;
   rememberCall: (source: Conv, normalized: Line, config: PipelineConfig) => void;
   armSettle: (source: Conv, normalized: Line, triggerKind: TriggerKind, destination: Conv) => void;
-  maybeNotice: (source: Conv, normalized: Line) => Promise<void>;
   touchSettle: (channelId: string) => void;
 };
 
@@ -89,7 +78,6 @@ export function createSettles({
   now,
   timers,
   turns,
-  spontaneous,
   routeOf,
   followUpMuted,
   heldCallState,
@@ -178,8 +166,7 @@ export function createSettles({
         message: waiting.normalized.id,
         reason: 'replaced',
       });
-      const superseded =
-        waiting.kind === 'noticed' ? [...waiting.superseded] : [...waiting.superseded, waiting.normalized.id];
+      const superseded = [...waiting.superseded, waiting.normalized.id];
       Object.assign(waiting, { kind: 'ping', channel: source, normalized, triggerKind, superseded });
       return;
     }
@@ -188,13 +175,12 @@ export function createSettles({
 
   /**
    * Arm a new settle wait in `source` (none is armed there) for a routed call
-   * (`ping`, its `triggerKind`) or a noticed comment (`noticed`, no
-   * triggerKind) and log `elsewhere: settling`.
+   * (`ping`, its `triggerKind`) and log `elsewhere: settling`.
    */
   function startSettle(
     source: Conv,
     normalized: Line,
-    kind: 'ping' | 'noticed',
+    kind: 'ping',
     triggerKind: TriggerKind | null,
     destination: Conv
   ): void {
@@ -214,37 +200,6 @@ export function createSettles({
     settles.set(source.id, entry);
     scheduleSettle(source.id, entry, settleDue(entry));
     log.info('elsewhere: settling', { source: source.id, kind, message: normalized.id, destination: destination.id });
-  }
-
-  /**
-   * An untriggered message in `source`, a channel the bot cannot send in,
-   * after its settle wait was touched: with no wait armed there, an
-   * eavesdrop hit (spontaneous.noticeElsewhere: the rails and the roll)
-   * arms one of kind `noticed` toward the destination resolved now.
-   */
-  async function maybeNotice(source: Conv, normalized: Line): Promise<void> {
-    if (settles.has(source.id)) return;
-    if ((await spontaneous.noticeElsewhere?.(source, normalized)) !== true) return;
-    const route = await routeOf(source, hot.config);
-    if (!route.destination) return;
-    if (settles.has(source.id)) return;
-    startSettle(source, normalized, 'noticed', null, route.destination);
-  }
-
-  /**
-   * A noticed wait is over: the comment runs through spontaneous.runNoticed,
-   * which reads every rail again; one that refuses is logged as
-   * `elsewhere: dropped` with its code.
-   */
-  async function fireNoticed(sourceId: string, { channel, normalized }: SettleEntry): Promise<void> {
-    const result = await spontaneous.runNoticed?.(channel);
-    if (result?.reason)
-      log.info('elsewhere: dropped', {
-        source: sourceId,
-        kind: 'noticed',
-        message: normalized.id,
-        reason: result.reason,
-      });
   }
 
   /**
@@ -282,8 +237,7 @@ export function createSettles({
    * other calls of its source that turn showed are stamped skipped in the
    * ring: skipSeenCalls); when its kind's switch was turned off
    * (`mention: dropped`, `off`). The calls it carries (`superseded`) go with it to
-   * answerCall. A noticed wait (no call) goes to fireNoticed instead once
-   * the pause check passed. A timer whose wait already ended (or
+   * answerCall. A timer whose wait already ended (or
    * was removed) does nothing. Never rejects: it runs from a timer.
    */
   async function fireSettle(sourceId: string, entry: SettleEntry): Promise<void> {
@@ -291,16 +245,12 @@ export function createSettles({
     settles.delete(sourceId);
     try {
       const { kind, channel, normalized, superseded } = entry;
-      // A wait of kind `ping` carries the kind of its call; a noticed wait returns before it is read.
+      // A wait of kind `ping` carries the kind of its call.
       const triggerKind = entry.triggerKind as TriggerKind;
       log.info('elsewhere: settled', { source: sourceId, kind, waitedMs: now() - entry.firstAt, moved: entry.moved });
       const muted = followUpMuted();
       if (muted) {
         log.info('elsewhere: dropped', { source: sourceId, kind, message: normalized.id, reason: muted });
-        return;
-      }
-      if (kind === 'noticed') {
-        await fireNoticed(sourceId, entry);
         return;
       }
       const held = await heldCallState(channel, normalized.id, true);
@@ -323,13 +273,6 @@ export function createSettles({
         return;
       }
       const config = hot.config;
-      const features = config.features ?? {};
-      // The switch that let this call through in onMessage step 8.
-      const switchOff = callSwitchOff(triggerKind, features);
-      if (switchOff) {
-        log.info('mention: dropped', { channel: sourceId, kind: triggerKind, reason: 'off' });
-        return;
-      }
       const route = await routeOf(channel, config);
       if (!route.destination) {
         log.info('elsewhere: dropped', { source: sourceId, kind, message: normalized.id, reason: route.reason });
@@ -341,5 +284,5 @@ export function createSettles({
     }
   }
 
-  return { clearSettles, rememberCall, armSettle, maybeNotice, touchSettle };
+  return { clearSettles, rememberCall, armSettle, touchSettle };
 }

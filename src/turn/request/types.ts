@@ -80,16 +80,13 @@ export type Labels = {
 /** The live prompts: the prompt files by name, and the labels. */
 export type Prompts = { readonly labels: Labels; readonly [file: string]: unknown };
 
-/** A switch of `features`: compared with `true` or `false`, a missing key read by each reader's own default. */
-export type Features = { readonly [name: string]: unknown };
-
 /** `context.caps`: the token cap of each budget section. */
 export type Caps = { readonly [section: string]: number | undefined };
 
 /** The live config, as far as the request builders read it. */
 export type RequestConfig = {
   readonly bot: { readonly timezone: string };
-  readonly features?: Features;
+  readonly private?: { readonly enabled?: unknown; readonly likeServer?: unknown };
   readonly context: {
     readonly caps: Caps;
     readonly gapMarkerMinutes: number;

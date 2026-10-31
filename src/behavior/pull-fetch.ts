@@ -4,8 +4,8 @@
 // The pure decisions live elsewhere: src/behavior/pull.js (the window that ends at the channel's newest message, the
 // pictures that may get a caption, the `context.pull` settings) and src/behavior/elsewhere.ts (the ring of calls, the
 // audience comparison). This module is the rails and the reads, `fetchPull`, which any caller can use for any
-// conversation id of the turn's snapshot: the rails a pull must pass (a readable channel, allowed, not a thread, not the
-// dry-run mirror, visible to everyone who can view the conversation the persona speaks in -- in a private chat, to the
+// conversation id of the turn's snapshot: the rails a pull must pass (a readable channel, allowed, not a thread,
+// visible to everyone who can view the conversation the persona speaks in -- in a private chat, to the
 // partner), one page of history, the ring's calls marked on their lines, and the captions -- the cache's first, fresh
 // ones only for a turn certain to run, in parallel and never waited for past a timeout. A pull made before the turn is
 // certain (a chooser can still return `not-now`) gets its fresh captions later from `captionPulled`, without reading
@@ -23,10 +23,7 @@ import { historyLines } from './lines.ts';
 import { audienceAllows, isReadable } from './snapshot.ts';
 import type { Snapshot } from './snapshot.ts';
 
-type Config = {
-  bot?: { dryRunChannelId?: unknown };
-  features?: { mediaDescriptions?: unknown; elsewhere?: unknown; channelPull?: unknown };
-} & Record<string, unknown>;
+type Config = Record<string, unknown>;
 
 type Timers = { set(fn: () => void, ms: number): unknown; clear(timer: unknown): void };
 
@@ -136,11 +133,9 @@ const refused = (skip: string): { channel: null; skip: string } => ({ channel: n
  * reader obeys, neighbours included); the checks after it only name the refusal, and a refusal none of them names is
  * `not-readable`.
  */
-function readableRefusal(entry: ConversationInfo, bot: Config['bot']): string | null {
-  if (isReadable(entry, bot)) return null;
+function readableRefusal(entry: ConversationInfo): string | null {
+  if (isReadable(entry)) return null;
   if (entry.kind === 'thread') return 'thread';
-  const mirror = bot?.dryRunChannelId;
-  if (mirror && entry.id === mirror) return 'dry-run-channel';
   return 'not-readable';
 }
 
@@ -149,7 +144,7 @@ function readableRefusal(entry: ConversationInfo, bot: Config['bot']): string | 
  * `destination` that is given is a conversation of a community, or a private chat with its `partnerId`
  * (`private-chat` without one, whatever the audience rail says); the id is a conversation of the snapshot
  * (`not-found`); the conversation is one the persona may read (`isReadable`, the rule neighbours obey too), the refusal
- * named `thread`, `dry-run-channel` (`bot.dryRunChannelId`) or else `not-readable`; the audience rail toward
+ * named `thread` or else `not-readable`; the audience rail toward
  * `destination` (see `audienceAllows`: in a private chat, the partner's view of it); and its newest message not older
  * than a positive `context.pull.maxAgeDays` (`too-old`; 0, the default, never refuses). No read is made: a route hook
  * or a mention scan can ask it for every candidate id (`pullTargets`' `isPullable`).
@@ -172,7 +167,7 @@ export function checkPull({
   if (destination && destination.communityId === null && partnerId === null) return refused('private-chat');
   const entry = typeof channelId === 'string' && channelId ? (snapshot?.get(channelId) ?? null) : null;
   if (entry === null) return refused('not-found');
-  const unreadable = readableRefusal(entry, config.bot);
+  const unreadable = readableRefusal(entry);
   if (unreadable) return refused(unreadable);
   if (!audienceAllows(destination, entry, config, { partnerId })) return refused('audience');
   const last = entry.lastMessageAt ?? 0;
@@ -356,7 +351,7 @@ async function pullCaptions(
   let asked = 0;
   let fresh = 0;
   let late = 0;
-  if (config.features?.mediaDescriptions === true && describer) {
+  if (describer) {
     const unknown = [...pictures, ...emoji].filter((item) => !descriptions.has(item.itemId));
     if (unknown.length > 0 && typeof describer.cachedDescriptions === 'function') {
       for (const [id, text] of describer.cachedDescriptions(guildId, unknown) ?? []) descriptions.set(id, text);

@@ -45,7 +45,6 @@ export type FollowUpWindows = {
   windowOf: (channelId: string) => FollowUpWindow | undefined;
   noteFollowUpSend: (channelId: string, ts: number) => void;
   bumpFollowUpNoStreak: (channelId: string, state: FollowUpWindow, mentionCfg: MentionConfig) => void;
-  followUpOff: (config: PipelineConfig) => boolean;
   followUpMuted: () => 'paused' | null;
   followUpGate: (channel: Conv, normalized: Line, selfId: string) => FollowUpGate;
   followUpStale: (ping: Ping, config: PipelineConfig) => 'closed' | null;
@@ -148,12 +147,6 @@ export function createFollowUpWindows({
     }
   }
 
-  /** Whether the address classifier is switched off (features.followUp or features.mentions false) in `config`. */
-  function followUpOff(config: PipelineConfig): boolean {
-    const features = config.features ?? {};
-    return features.followUp === false || features.mentions === false;
-  }
-
   /**
    * Why the persona is mute right now, as onMessage sees it before any
    * classifier (and a settle wait when it is over): `'paused'` (`/nep
@@ -173,8 +166,6 @@ export function createFollowUpWindows({
    */
   function followUpGate(channel: Conv, normalized: Line, selfId: string): FollowUpGate {
     const config = hot.config;
-    if (followUpOff(config)) return { kind: 'skip', reason: 'off' };
-
     const channelId = channel.id;
     const mentionCfg = config.mention;
     const state = followUpWindows.get(channelId);
@@ -236,7 +227,6 @@ export function createFollowUpWindows({
     windowOf,
     noteFollowUpSend,
     bumpFollowUpNoStreak,
-    followUpOff,
     followUpMuted,
     followUpGate,
     followUpStale,

@@ -18,8 +18,7 @@ import {
   SNAPSHOTS_DIR,
 } from '../../memory/index.js';
 import { JOURNAL_KINDS, MEMORY_SHOW_SECTIONS } from './catalog.ts';
-import { isOwnerId } from './grants.ts';
-import { effectiveAffinity, privateRepliesToday } from '../../behavior/private.js';
+import { effectiveAffinity } from '../../behavior/private.js';
 import { log } from '../../log.js';
 import { clampAtBoundary } from '../../memory/clamp.js';
 import { DAY_MS, utcDay, zonedDay } from '../../time.js';
@@ -32,7 +31,6 @@ import {
   treeSize,
   NONE,
   isoDay,
-  todayUtc,
   onOff,
   MEMORY_SHOW_DEFAULT_LIMIT,
   MEMORY_SHOW_MAX_LIMIT,
@@ -493,13 +491,6 @@ const handlers = perEnv((env) => {
     const effective = effectiveAffinity(publicProfile?.affinity, privateAffinity);
     const privateReason = resolve(privateAffinity.reason);
 
-    const replies = privateRepliesToday({
-      config: hot.config,
-      isOwner: isOwnerId(hot.config, userId),
-      replies: priv.replies,
-      today: todayUtc(),
-    });
-
     const section = (title: string, items: ReadonlyArray<unknown>, lines: ReadonlyArray<string>): Array<string> => [
       `${title} (${items.length} stored):`,
       ...lines.map((line) => `  ${line}`),
@@ -512,7 +503,6 @@ const handlers = perEnv((env) => {
       `private memory: ${label}`,
       `private affinity: ${roundScore(privateAffinity.score ?? 0)} (${affinityBand(privateAffinity.score ?? 0)})${privateReason ? ` — ${privateReason}` : ''}`,
       `effective affinity: ${roundScore(effective.score)} (${affinityBand(effective.score)})`,
-      `replies today: ${replies.used} / ${replies.cap}`,
       `first seen: ${priv.firstSeen ? priv.firstSeen.slice(0, 10) : '-'} · last seen: ${priv.lastSeen ? priv.lastSeen.slice(0, 10) : '-'}`,
       `relationship: ${resolve(priv.relationship) || '(empty)'}`,
       ...section(

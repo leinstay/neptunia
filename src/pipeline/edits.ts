@@ -29,15 +29,7 @@ type Line = MediaPart & { readonly id: string; readonly channelId: string; reado
 export type Observed = { ok?: boolean; code?: unknown; revision?: unknown } | null;
 
 /** The live config, as far as the edit handlers read it. */
-type EditsConfig = {
-  readonly features?: {
-    readonly embedUpdates?: unknown;
-    readonly memory?: unknown;
-    readonly gifs?: unknown;
-    readonly record?: unknown;
-  };
-  readonly bot: { readonly dryRunChannelId?: string | null };
-};
+type EditsConfig = Record<string, unknown>;
 
 /** The record (src/memory/record.js#createRecord): its append and its newest revision. */
 type EditsRecord = {
@@ -141,8 +133,6 @@ export function createEdits({
     await recordEdit(event as MessageEvent);
     try {
       const config = hot.config;
-      const features = config.features ?? {};
-      if (features.embedUpdates === false || features.memory === false) return;
       if (store?.state?.data?.paused) return;
       const guildId = event.conversation.communityId ?? null;
       if (!guildId || guildId !== getGuildId()) return;
@@ -161,8 +151,6 @@ export function createEdits({
       const selfId = selfIdOf();
       if (!message.author || message.author.bot || message.author.id === selfId) return;
       if (event.conversation.kind === 'thread') return;
-      const dryRunChannelId = config.bot.dryRunChannelId;
-      if (dryRunChannelId && event.conversation.id === dryRunChannelId) return;
 
       // lineOf gives the normalized line of a message event.
       const normalized = lineOf(edited) as Line;
@@ -178,7 +166,7 @@ export function createEdits({
         log.info('events: embeds late', fields);
         return;
       }
-      const gifs = features.gifs !== false && store ? store.recordGifs(guildId, [late], gifOpts(config)) : 0;
+      const gifs = store ? store.recordGifs(guildId, [late], gifOpts(config)) : 0;
       // Fire-and-forget, as on arrival: the prefill never rejects.
       void warmMediaCache(guildId, late);
       log.info('events: embeds folded', { ...fields, gifs });
@@ -188,19 +176,17 @@ export function createEdits({
   }
 
   /**
-   * Whether the message of `event` may enter the record: a record injected, features.record exactly true, the served
-   * community, no system or other bot's message, a conversation outside threads and the dry-run mirror.
+   * Whether the message of `event` may enter the record: a record injected, the served community, no system or other
+   * bot's message, a conversation outside threads.
    */
-  function recordable(event: MessageReceived, config: EditsConfig): boolean {
-    if (!record || config.features?.record !== true) return false;
+  function recordable(event: MessageReceived): boolean {
+    if (!record) return false;
     const guildId = event.conversation?.communityId ?? null;
     if (!guildId || guildId !== getGuildId()) return false;
     const message = event.message;
     if ('system' in message && message.system === true) return false;
     if (message?.author?.bot && message.author.self !== true) return false;
-    if (event.conversation.kind === 'thread') return false;
-    const dryRunChannelId = config.bot?.dryRunChannelId;
-    return !(dryRunChannelId && event.conversation.id === dryRunChannelId);
+    return event.conversation.kind !== 'thread';
   }
 
   /** The text of a message as written (`sourceText`, else what the chat shows), for telling an edit from an embed update. */
@@ -214,8 +200,7 @@ export function createEdits({
    */
   async function recordEdit(event: MessageEvent): Promise<void> {
     try {
-      const config = hot.config;
-      if (event.partial || !recordable(event, config)) return;
+      if (event.partial || !recordable(event)) return;
       if (event.previous && sourceTextOf(event.previous) === sourceTextOf(event.message)) return;
       // recordable holds only for the served community.
       const guildId = event.conversation.communityId!;
@@ -263,10 +248,9 @@ export function createEdits({
    */
   async function onMessageDelete(event: MessageReceived): Promise<void> {
     try {
-      const config = hot.config;
       const message = event?.message;
       const id = message?.id;
-      if (!id || !recordable(event, config)) return;
+      if (!id || !recordable(event)) return;
       // recordable holds only for the served community.
       const guildId = event.conversation.communityId!;
       const line = toRecordLine(

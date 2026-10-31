@@ -1,6 +1,5 @@
 // The fourth phase of a turn attempt: how her answer reaches the chat (which line lives where, whose `@name` resolves,
-// which post carries a jump link), the recovery turn's last check that its messages still wait, and the dry run that
-// rehearses the act instead of the tool round. runTurnOnce (src/behavior/turn.js) calls it after the response phase;
+// which post carries a jump link) and the recovery turn's last check that its messages still wait. runTurnOnce (src/behavior/turn.js) calls it after the response phase;
 // the tool round posts through the routing it made.
 
 import { setSettings } from '../../behavior/diary.ts';
@@ -13,7 +12,7 @@ import { postsPlain } from '../triggers.ts';
 import type { AttemptResult, Ended, HistoryLine, PhaseContext, PhaseParams } from './context.ts';
 import type { Answered } from './response.ts';
 
-/** How her answer reaches the chat: the routing act and dryAct share. */
+/** How her answer reaches the chat: the routing act reads. */
 export type Routing = {
   pulledIds: Map<string, string>;
   lines: Array<HistoryLine>;
@@ -37,35 +36,18 @@ export type Acting = Omit<Answered, 'ended'> & {
 };
 
 // health: allow complexity until 2027-04-01 -- moved from runTurnAttempt in src/behavior/turn.js in stage 5c, a pure split
-export async function actPhase(
-  ctx: PhaseContext,
-  params: PhaseParams,
-  draft: Draft,
-  answered: Answered
-): Promise<Ended | Acting> {
-  const { hot, store, iface, turnDirectory, dryAct, noteSpokeSaw } = ctx;
-  const { trigger = null, triggerKind = null, source = null, part = null, plainPosts = false } = params;
+export function actPhase(ctx: PhaseContext, params: PhaseParams, draft: Draft, answered: Answered): Ended | Acting {
+  const { hot, store, iface, turnDirectory } = ctx;
+  const { trigger = null, triggerKind = null, source = null, plainPosts = false } = params;
   const { stillDue = null } = params;
-  const {
-    opened,
-    setup,
-    pulled: pulledStep,
-    gathered,
-    told,
-    request,
-    first,
-    parsed,
-    shownPulled,
-    serverShown,
-  } = answered;
+  const { opened, setup, pulled: pulledStep, gathered, request, shownPulled } = answered;
   const { channel, guildId, isPrivate } = opened;
-  const { config, memoryOn, selfName } = setup;
+  const { memoryOn } = setup;
   const { finalMode } = pulledStep;
-  const { history, pulled, diaryPrep, drawOn } = gathered;
-  const { notAnswered } = told;
+  const { history, pulled } = gathered;
   const idByIndex = request.idByIndex;
   // The output side of the pulled channels: which line lives where, whose @name resolves,
-  // which post carries a jump link (one rule for act and dryAct). Names resolve over the
+  // which post carries a jump link. Names resolve over the
   // pulled lines the request showed, then this chat's history: resolveMentions keeps the
   // last author of a display name, so a chat author wins a name both share. The stored names
   // of the members whose profile the request kept and of the pulled lines' authors resolve
@@ -114,9 +96,6 @@ export async function actPhase(
     linkFor,
     plain,
   };
-  // Read fresh right here, not from the `features` snapshot taken at the
-  // top of this turn: unlike the other switches this one defaults to OFF,
-  // and whether to actually post is the very last decision of a turn.
   // A set below diary.set.minPosted (read now) is not posted at all: not even its messages.
   const setShort = (pictures: number, extra: Record<string, unknown> = {}): AttemptResult => {
     log.info('turn: set short', {
@@ -140,54 +119,5 @@ export async function actPhase(
     draft.reason = 'answered-meanwhile';
     return { ended: { outcome: 'not-now', mode: finalMode, reason: 'answered-meanwhile' } };
   }
-  if (hot.config.features?.dryRun === true) {
-    // A diary post's pictures as the dry run counts them: her draw.create calls, the first few its kind takes (none while drawing is off).
-    const diarySet = Boolean(draft.diary?.set);
-    const diaryDraws = diaryPrep
-      ? (drawOn ? first.calls.filter((one) => one.name === 'draw.create') : [])
-          .slice(0, diarySet ? setSettings(config.diary).pictures[1] : 1)
-          // eslint-disable-next-line @typescript-eslint/no-base-to-string -- the model's argument may be any JSON value, read as text
-          .map((one) => ({ text: String(one.args?.text ?? ''), self: one.args?.self === true }))
-      : null;
-    // Nothing is generated: a set with fewer drawings than it needs would be short.
-    if (diarySet && diaryDraws && diaryDraws.length < setSettings(config.diary).minPosted)
-      return { ended: setShort(diaryDraws.length, { dryRun: true }) };
-    // Her calls in a dry run: logged with the skill and the names of its arguments, never checked, run or followed by a step.
-    for (const call of first.calls)
-      log.info('dry-run: would call', { channel: channel.id, skill: call.name, args: Object.keys(call.args) });
-    await dryAct({
-      channel,
-      guildId,
-      parsed,
-      idByIndex,
-      history,
-      mode: finalMode,
-      triggerKind,
-      trigger,
-      selfName,
-      part,
-      ...routing,
-      gifPick: !diaryPrep,
-      diaryDraws,
-      diarySet,
-      draft,
-    });
-    noteSpokeSaw(channel, history, serverShown, pulled, notAnswered);
-    // A rehearsed diary post is not recorded and counts for no daily cap.
-    const rehearsedPictures = diaryDraws?.length ?? 0;
-    const rehearsed = diaryPrep
-      ? {
-          diary: {
-            kind: diaryPrep.plan.kind,
-            picture: rehearsedPictures > 0,
-            search: Boolean(diaryPrep.plan.search),
-            messages: parsed.messages.length,
-            pictures: rehearsedPictures,
-          },
-        }
-      : {};
-    return { ended: { outcome: 'spoke', mode: finalMode, dryRun: true, ...rehearsed } };
-  }
-
   return { ...answered, ended: null, idByIndex, pulledIds, lines, routing, setShort };
 }

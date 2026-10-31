@@ -104,7 +104,7 @@ export function requestHead(given: RequestInput): Base {
   // TTL bucket while the prompt cache is on (freezePerBucket): a memory batch or the persona's
   // GIF post rewrites the cached prefix at most once per bucket.
   const stableFreeze =
-    config.features?.promptCache === true && given.stableFreeze instanceof Map
+    given.stableFreeze instanceof Map
       ? // The caller's holder of what freezePerBucket keeps for this request.
         (given.stableFreeze as Map<string, Held<unknown>>)
       : null;
@@ -112,14 +112,13 @@ export function requestHead(given: RequestInput): Base {
     freezePerBucket(stableFreeze, key, { now, bucketMs: cacheTtlMs(config), signature }, compute);
   // Mention handles (features.mentionHandles, a missing key counts as on): every member with a
   // stored profile gets one in `<directory>` (the stable part), the authors in view on their lines.
-  const handlesOn = config.features?.mentionHandles !== false;
+  const handlesOn = true;
   // `<people_now>`'s live part (features.around, a missing key counts as on): the snapshot of
   // the gateway's voice states and presences, never in a private chat or a diary post.
   // The live glance as the turn hands it: checked to be an object with a snapshot below.
   const aroundInput = given.around as
     { snapshot?: AroundSnapshot | null; channelNameOf?: (channelId: string) => string | null } | null | undefined;
   const liveOn =
-    config.features?.around !== false &&
     !privateChat &&
     mode !== 'diary' &&
     isPlainObject(aroundInput) &&
@@ -194,21 +193,20 @@ export function requestHead(given: RequestInput): Base {
   const handleFor = (memberId: string | null) =>
     memberId !== null && handleById ? (handleById.get(memberId) ?? null) : null;
   // `<now>`: the clock, then the persona's recent time away (features.offPeriods, read now).
-  const nowText = nowBlock(now, timezone, labels, config.features?.offPeriods !== false ? given.offPeriods : null);
-  const relationships = config.features?.relationships !== false;
+  const nowText = nowBlock(now, timezone, labels, given.offPeriods);
+  const relationships = true;
   // How many attitude moves follow the attitude in a `<people_now>` entry (profileStateFields).
   const shownMoves = config.relationships?.shownMoves ?? 4;
-  const episodesOn = config.features?.episodes !== false;
-  const loreOn = config.features?.lore !== false;
+  const episodesOn = true;
+  const loreOn = true;
   // The GIF library: the switch (a missing key counts as on) and at least one entry.
-  const gifLibrary = config.features?.gifs !== false && given.gifs ? normalizeGifs(given.gifs) : null;
+  const gifLibrary = given.gifs ? normalizeGifs(given.gifs) : null;
   const gifsOn = gifLibrary !== null && Object.keys(gifLibrary.entries).length > 0;
   // The server's custom emoji: the switch (a missing key counts as on) and a non-empty index.
-  const customEmoji: Array<EmojiRef> =
-    config.features?.customEmoji !== false && Array.isArray(given.customEmoji)
-      ? // The emoji index's list as the turn hands it (src/behavior/emoji-index.ts).
-        (given.customEmoji as Array<EmojiRef>)
-      : [];
+  const customEmoji: Array<EmojiRef> = Array.isArray(given.customEmoji)
+    ? // The emoji index's list as the turn hands it (src/behavior/emoji-index.ts).
+      (given.customEmoji as Array<EmojiRef>)
+    : [];
   // A custom emoji of the transcript is described once, in `<emoji>` (emojiItems), when that
   // block can carry it; otherwise its lines keep the inline `transcript.emojiDescribed` tag.
   const emojiLabels = labels.emoji;
@@ -226,10 +224,10 @@ export function requestHead(given: RequestInput): Base {
     // neighbour and pulled channels alike.
     now,
     ageMinutes: config.context.ageAfterMinutes ?? 60,
-    seeReactions: config.features?.seeReactions !== false,
+    seeReactions: true,
     reactionsPerMessage: config.context.reactionsPerMessage,
     // Who reacted to the persona's own lines, named like authors (features.reactionNames).
-    reactionNames: config.features?.reactionNames !== false,
+    reactionNames: true,
     reactionNamesMax: config.context.reactions?.maxNames ?? 5,
     replyQuoteChars: config.context.replyQuoteChars,
     emojiInline: !emojiOnce,
@@ -242,7 +240,7 @@ export function requestHead(given: RequestInput): Base {
     handles: handleById ?? undefined,
     memberNames: memberNames ?? undefined,
     // A message link to a line of the same rendering reads as its `#n` (features.messageLinks).
-    messageNumbers: config.features?.messageLinks !== false,
+    messageNumbers: true,
     // Each channel a line mentions carries its handle (transcript.channel).
     channels: channelHandleById
       ? new Map(

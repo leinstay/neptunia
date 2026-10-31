@@ -21,14 +21,6 @@ import type { Snapshot } from '../behavior/snapshot.ts';
 /** The config keys the notes read, at the moment of use. */
 export type NotesConfig = {
   context?: { failedTurnsKept?: unknown; previousThink?: { minutes?: number } | null } | null;
-  features?: {
-    triggerMarkers?: unknown;
-    previousThink?: unknown;
-    callMarkers?: unknown;
-    journal?: unknown;
-    offPeriods?: unknown;
-    record?: unknown;
-  } | null;
   journal?: { offWindowHours?: number } | null;
 };
 
@@ -166,7 +158,7 @@ export type JournalNotes = {
   recordTurnThink: (
     args: { guildId?: string | null; inner?: unknown },
     draft: NotesDraft,
-    result: { outcome?: string; dryRun?: unknown } | null | undefined
+    result: { outcome?: string } | null | undefined
   ) => void;
   noteCall: (mark: CallMark) => void;
   notePostedFrom: (postedId: unknown, originId: unknown) => void;
@@ -320,13 +312,12 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
    * `lines` as they are with features.triggerMarkers off (a missing key counts as on, read now).
    */
   function linkTriggers(lines: Array<object>): Array<object> {
-    if (hot.config.features?.triggerMarkers === false) return lines;
     return withTriggers(lines, triggerLinks);
   }
 
   /** Whether her previous think is carried at all (features.previousThink, read now; a missing key counts as on). */
   function previousThinkOn(): boolean {
-    return hot.config.features?.previousThink !== false;
+    return true;
   }
 
   /**
@@ -384,12 +375,12 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
   function recordTurnThink(
     args: { guildId?: string | null; inner?: unknown },
     draft: NotesDraft,
-    result: { outcome?: string; dryRun?: unknown } | null | undefined
+    result: { outcome?: string } | null | undefined
   ): void {
     try {
       const channel = draft.info;
       const outcome = result?.outcome ?? 'error';
-      if (!channel || result?.dryRun === true || !previousThinkOn()) return;
+      if (!channel || !previousThinkOn()) return;
       const failed = outcome === 'error' || outcome === 'refused';
       if (!failed && outcome !== 'spoke' && outcome !== 'skip') return;
       const guildId = args.guildId ?? channel.communityId ?? null;
@@ -441,7 +432,6 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
       extra = null,
     }: { channel: NotesChannel; snapshot?: Snapshot | null; guildId: string | null; extra?: unknown }
   ): Array<object> {
-    if (hot.config.features?.callMarkers === false) return lines;
     const turnMarks: Array<CallMark> = Array.isArray(extra) ? (extra as Array<CallMark>) : [];
     if (callMarks.length === 0 && turnMarks.length === 0 && postedFromLinks.size === 0) return lines;
     const privateId = inCommunity(channel) ? null : String(channel.id);
@@ -457,7 +447,7 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
 
   /** Whether the journal is written now: one injected and features.journal exactly true (read now). */
   function journalOn(): boolean {
-    return Boolean(journal) && hot.config.features?.journal === true;
+    return Boolean(journal);
   }
 
   /**
@@ -512,7 +502,7 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
    * `journal.offWindowHours` hours (24 when unset), all read now; null otherwise. Never throws.
    */
   async function offPeriodsFor(guildId: string, config: NotesConfig): Promise<unknown> {
-    if (!journalOn() || config.features?.offPeriods === false) return null;
+    if (!journalOn()) return null;
     return readOffPeriods(guildId, { windowHours: config.journal?.offWindowHours ?? 24 });
   }
 
@@ -547,7 +537,7 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
     repliedAuthorId,
     userIds,
   }: SaidArgs): void {
-    if (!record || hot.config.features?.record !== true) return;
+    if (!record) return;
     if (typeof posted?.id !== 'string' || !posted.id) return;
     const privateUserId = privateChat ? (draft?.privateUserId ?? trigger?.authorId ?? channel.partnerId ?? null) : null;
     if (privateChat && !privateUserId) return;

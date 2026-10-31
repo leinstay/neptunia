@@ -316,7 +316,7 @@ export function participationView(
   }
 ): ParticipationView | null {
   const p = labels.participation;
-  if (privateChat || config.features?.participation === false) return null;
+  if (privateChat) return null;
   if (!p?.header || !p.episode) return null;
   if (!participation || typeof participation !== 'object' || !participation.state) return null;
   const settings = participationSettings(config);
@@ -414,7 +414,7 @@ export function participationText(view: ParticipationView, keptEpisodes: Array<P
  * the request is the one the count-based window always made.
  */
 export function anchoredOn(config: RequestConfig, labels: Labels, privateChat: boolean): boolean {
-  return config.features?.anchoredWindow === true && !privateChat && Boolean(labels.participation?.earlierHeader);
+  return !privateChat && Boolean(labels.participation?.earlierHeader);
 }
 
 /**
@@ -480,10 +480,7 @@ export function anchorsView(
   const windowLines = history.filter((message) => message.replyParent !== true);
   const indexOf = new Map(history.map((message, i) => [message.id, i + 1]));
   const starts = windowLines.map((message) => message?.ts).filter(Number.isFinite);
-  const state =
-    config.features?.participation !== false && participation && typeof participation === 'object'
-      ? participation.state
-      : null;
+  const state = participation && typeof participation === 'object' ? participation.state : null;
   // earlierEpisodes cuts the stored episodes, which it returns as plain objects.
   const episodes = (
     state && starts.length > 0

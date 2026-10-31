@@ -582,14 +582,8 @@ export function createRecall({
     const none = { items: [], nameOf: () => null };
     const forms = Array.isArray(server.forms) ? server.forms : [];
     const who = Array.isArray(server.who) ? server.who : [];
-    if (
-      settings.memoryItems <= 0 ||
-      config.features?.memory === false ||
-      (forms.length === 0 && who.length === 0 && meaning.length === 0)
-    )
-      return none;
+    if (settings.memoryItems <= 0 || (forms.length === 0 && who.length === 0 && meaning.length === 0)) return none;
     try {
-      const features = config.features ?? {};
       const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [];
       const names = new Map(
         profiles.filter((p) => p?.id).map((p) => [String(p.id), typeof p.names?.[0] === 'string' ? p.names[0] : null])
@@ -597,11 +591,7 @@ export function createRecall({
       const ranged = Number.isFinite(server.from) || Number.isFinite(server.to);
       // A locator bounds no item: it only ranks (matchMemory's `locator`).
       const bounds = locator ? { from: null, to: null } : { from: server.from ?? null, to: server.to ?? null };
-      const switchedOff = new Set([
-        ...(features.episodes === false ? ['episode'] : []),
-        ...(features.recent === false ? ['recent'] : []),
-        ...(features.participation === false ? ['participation'] : []),
-      ]);
+      const switchedOff = new Set([]);
       const allow = (entry) => !switchedOff.has(entry?.itemKind) && allowEntry(entry);
       // Entries are recorded after what they observed: the months from `from` on, the private archive after the guild's.
       const stream = (query) =>
@@ -657,8 +647,8 @@ export function createRecall({
       const items = matchMemory({
         forms,
         who,
-        profiles: features.episodes !== false ? profiles : profiles.map((p) => ({ ...p, episodes: [] })),
-        lore: features.lore !== false && typeof store.getLore === 'function' ? (store.getLore(guildId) ?? []) : [],
+        profiles,
+        lore: typeof store.getLore === 'function' ? (store.getLore(guildId) ?? []) : [],
         learned: typeof store.getGuild === 'function' ? (store.getGuild(guildId)?.learned ?? []) : [],
         recentLines: shownRecentLines(config, snapshot, guildId, channel, partnerId),
         archived,
@@ -796,12 +786,7 @@ export function createRecall({
     signal,
     locator = null,
   }) {
-    if (
-      config.features?.meaningSearch !== true ||
-      typeof embed !== 'function' ||
-      typeof vectors?.search !== 'function' ||
-      settings.meaningCandidates <= 0
-    )
+    if (typeof embed !== 'function' || typeof vectors?.search !== 'function' || settings.meaningCandidates <= 0)
       return null;
     const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [];
     const stored = new Map(
@@ -901,8 +886,7 @@ export function createRecall({
 
   /** The cached captions of the windows' pictures and custom emoji, or undefined (cache only, never a request). */
   function cachedCaptions(config, guildId, windows) {
-    if (config.features?.mediaDescriptions !== true || typeof describer?.cachedDescriptions !== 'function')
-      return undefined;
+    if (typeof describer?.cachedDescriptions !== 'function') return undefined;
     const { items, rest, emoji } = pullPictures(
       windows.flatMap((w) => w.messages),
       0
@@ -1064,7 +1048,7 @@ export function createRecall({
       selfName,
       gapMinutes: config.context?.gapMarkerMinutes,
       maxChars: config.context?.maxMessageChars ?? 2000,
-      seeReactions: config.features?.seeReactions !== false,
+      seeReactions: true,
       reactionsPerMessage: config.context?.reactionsPerMessage,
     };
     return quotesOf(shown, { render, stretchChars: settings.stretchChars });
@@ -1112,7 +1096,7 @@ export function createRecall({
       };
     let vector = null;
     let degraded = false;
-    if (config.features?.meaningSearch === true && typeof embed === 'function' && settings.meaningCandidates > 0) {
+    if (typeof embed === 'function' && settings.meaningCandidates > 0) {
       const query = meaningQuery({ candidate, lines: [], withReply: false, nameOf: reader.nameOf });
       if (query) {
         const embedStarted = now();
@@ -1626,7 +1610,7 @@ export function createRecall({
       selfName,
       gapMinutes: config.context?.gapMarkerMinutes,
       maxChars: config.context?.maxMessageChars ?? 2000,
-      seeReactions: config.features?.seeReactions !== false,
+      seeReactions: true,
       reactionsPerMessage: config.context?.reactionsPerMessage,
     };
     /** One window as a stretch (no indices, cut to `recall.stretchChars`), or null. */
@@ -1875,10 +1859,8 @@ export function createRecall({
       const settings = recallSettings(config);
       if (!settings) return empty();
       // Every run past the switch is traced, one skipped by a gate below included (its reason in `skipped`).
-      if (config.features?.recallTrace === true) {
-        trace = newTrace({ started, channelId, candidate, server });
-        traceMaxLines = settings.traceMaxLines;
-      }
+      trace = newTrace({ started, channelId, candidate, server });
+      traceMaxLines = settings.traceMaxLines;
       if (!guildId || (!inCommunity(channel) && !partnerId)) return skip('private-chat');
       if (!asksServer(server)) return skip('no-query');
       const prompt = summaryPrompt();
@@ -2140,7 +2122,7 @@ export function createRecall({
       };
       // The database answers the words and the meaning of every lane (while it is not open, the stored memory alone).
       const db = dbOf();
-      const dbMeaning = Boolean(db) && config.features?.meaningSearch === true && typeof embed === 'function';
+      const dbMeaning = Boolean(db) && typeof embed === 'function';
       // One embedding request for every lane's text.
       const laneVectors = dbMeaning
         ? timed(
@@ -2262,7 +2244,7 @@ export function createRecall({
         selfName,
         gapMinutes: config.context?.gapMarkerMinutes,
         maxChars: config.context?.maxMessageChars ?? 2000,
-        seeReactions: config.features?.seeReactions !== false,
+        seeReactions: true,
         reactionsPerMessage: config.context?.reactionsPerMessage,
         indexed: false,
       };

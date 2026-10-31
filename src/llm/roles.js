@@ -13,7 +13,7 @@
 //                is the core's, it is not listed by `/nep model`, and its key never falls back;
 // - `analyzer`   the core's classifier model: picks one of a few given options (address, room,
 //                merge, route-channel, participation-pick, rewatch, split, gif-pick, missed),
-//                plans a search and turns sources into notes (lookup, planner, recall-summary,
+//                plans a search and turns sources into notes (lookup, recall-summary,
 //                search-summary, read-link, diary-plan) and runs the persona's raw web search
 //                on the OpenRouter engine (web-search);
 // - `vision`     describes a picture (describe, relook, avatar);
@@ -158,7 +158,6 @@ export const PURPOSE_ROLES = Object.freeze({
   'gif-pick': 'analyzer',
   missed: 'analyzer',
   lookup: 'analyzer',
-  planner: 'analyzer',
   'recall-summary': 'analyzer',
   'search-summary': 'analyzer',
   'read-link': 'analyzer',

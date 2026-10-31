@@ -37,8 +37,7 @@ type CheckPullArgs = Parameters<typeof checkPull>[0];
 
 /** The live config, as far as the in-turn tools read it; the tools read their own sections. */
 export type InTurnConfig = CheckPullArgs['config'] & {
-  bot?: { timezone?: string; dryRunChannelId?: unknown };
-  features?: { record?: unknown; mediaDescriptions?: unknown; seeReactions?: unknown; elsewhere?: unknown };
+  bot?: { timezone?: string };
   context?: {
     gapMarkerMinutes?: number;
     maxMessageChars?: number;
@@ -279,10 +278,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
           return false;
         }
       },
-      readRecord: ({ channelId, from }) =>
-        config.features?.record === true
-          ? recordMessages(record, guildId, { channelId, from, nameOf, selfName })
-          : Promise.resolve([]),
+      readRecord: ({ channelId, from }) => recordMessages(record, guildId, { channelId, from, nameOf, selfName }),
       fetchLive: (request) => {
         const source = channelOf(request.channelId);
         // fetchSpan takes the request as it comes, its anchor included.
@@ -294,7 +290,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
       },
       render: (slice: ReadonlyArray<ReadMessage>) => {
         let descriptions: unknown;
-        if (config.features?.mediaDescriptions === true && typeof describer?.cachedDescriptions === 'function') {
+        if (typeof describer?.cachedDescriptions === 'function') {
           const { items, rest, emoji } = pullPictures(slice as Array<object>, 0);
           const wanted = [...items, ...rest, ...emoji];
           try {
@@ -310,7 +306,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
           selfName,
           labels,
           descriptions,
-          seeReactions: config.features?.seeReactions !== false,
+          seeReactions: true,
           reactionsPerMessage: config.context?.reactionsPerMessage,
         };
       },

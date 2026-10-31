@@ -21,7 +21,7 @@ import { channelDirectoryOf } from '../../routing.ts';
 import type { PhaseContext, PhaseParams } from '../context.ts';
 import type { Opened } from '../preflight.ts';
 import type { Gathered } from './gather.ts';
-import type { Planned } from './planner.ts';
+import type { Planned } from './searches.ts';
 import type { Pulled } from './pulls.ts';
 import type { Setup } from './setup.ts';
 import type { Told } from './facts.ts';
@@ -65,7 +65,7 @@ export function buildTurnRequest(
   const { taskResult = null } = params;
   const diaryParams = params.diary ?? null;
   const { channel, guildId, isPrivate } = opened;
-  const { config, features, transport, memoryOn, selfId, selfName, now, snapshot } = setup;
+  const { config, transport, memoryOn, selfId, selfName, now, snapshot } = setup;
   const { serverOn } = planned;
   const { finalMode } = pulled;
   const { participationShown, participationStage, participationAudienceOf } = waited;
@@ -126,7 +126,7 @@ export function buildTurnRequest(
     nameOf: memoryOn ? (id: string) => store.getUser(guildId, id)?.names?.[0] ?? null : null,
     channels: memoryOn ? store.listChannels(guildId) : [],
     // `<channel_directory>`: every text channel the persona can read, with its handle (none in a private chat).
-    channelDirectory: channelDirectoryOf(isPrivate ? null : snapshot, config.bot),
+    channelDirectory: channelDirectoryOf(isPrivate ? null : snapshot),
     loreEntries: memoryOn ? store.getLore(guildId) : [],
     currentChannelId: channel.id,
     diaryChannelIds: diaryConversationIds(store),
@@ -138,20 +138,16 @@ export function buildTurnRequest(
     lookup: lookupResult ?? null,
     // `<retrieved>`: the automatic memory prefetch of this trigger (null: none ran).
     prefetch: prefetchResult,
-    searchAvailable:
-      features.webLookup === true && typeof lookup?.hasSearch === 'function' && lookup.hasSearch() === true,
+    searchAvailable: typeof lookup?.hasSearch === 'function' && lookup.hasSearch() === true,
     // The search of the server's own history: the value the lookup stage used.
     recallAvailable: serverOn,
     drawQuota: drawQuota ?? null,
     // The `<emoji>` block: the index's emoji (ranked by guildMemory.emojiUsage) and their cached captions.
     customEmoji: emoji ? (emoji.list() ?? []) : [],
     // The `<gifs>` block and the transcript's GIF handles: the guild's library (features.gifs).
-    gifs: features.gifs !== false && typeof store.getGifs === 'function' ? (store.getGifs(guildId) ?? null) : null,
+    gifs: typeof store.getGifs === 'function' ? (store.getGifs(guildId) ?? null) : null,
     // The cached captions of both lists.
-    mediaCache:
-      emoji || (features.gifs !== false && typeof store.getGifs === 'function')
-        ? (store.getMediaCache(guildId) ?? null)
-        : null,
+    mediaCache: emoji || typeof store.getGifs === 'function' ? (store.getMediaCache(guildId) ?? null) : null,
     // `<channel_view>`: the channels pulled into this turn (each with the last view of it
     // shown in this channel, when one is within context.pull.seenTtlMinutes), the one it is
     // about, the chat line put to the room, where a call from a read-only channel is answered.

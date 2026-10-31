@@ -102,13 +102,12 @@ export async function preflight(ctx: PhaseContext, params: PhaseParams, draft: D
   const settledMs =
     mode === 'reply' && !reuseHistory ? await settleAuthor(trigger?.channelId ?? channel.id, trigger) : 0;
   // The typing indicator, the preparation's deadline and the turn's bar, ended at the attempt's end
-  // whatever the outcome; the start and the mode a dropped turn logs. The turn planner is abandoned
-  // there if it never started; `chained` is set when this turn hands its message to a chain of parts.
+  // whatever the outcome; the start and the mode a dropped turn logs. `chained` is set when this turn hands its
+  // message to a chain of parts.
   const life: Life = {
     stopTyping: () => {},
     deadline: null,
     bar: null,
-    planner: null,
     chained: false,
     turnStartedAt: clock(),
     turnMode: mode,

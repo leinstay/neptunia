@@ -109,15 +109,13 @@ export function createOfflineCatchUp({
   async function run(guildId) {
     try {
       const config = hot.config;
-      if (config.features?.offlineCatchUp === false) return null;
       if (store?.state?.data?.paused) {
         log.info('catch-up: skipped', { guildId, reason: 'paused' });
         return null;
       }
       const { windowMinutes, maxMessages } = catchUpSettings(config);
-      const dryRunChannelId = config.bot?.dryRunChannelId || null;
       const channels = (store.listChannels(guildId) ?? []).filter(
-        (channel) => channel?.id && Number.isFinite(channel.lastMessageAt) && channel.id !== dryRunChannelId
+        (channel) => channel?.id && Number.isFinite(channel.lastMessageAt)
       );
       const startedAt = now();
       const planned = [];
@@ -126,7 +124,7 @@ export function createOfflineCatchUp({
       for (const channel of channels) {
         const ref = { iface, conversationId: channel.id };
         const info = (await reads.conversationInfo(ref))?.conversation ?? null;
-        if (info === null || !isReadable(info, config.bot)) continue;
+        if (info === null || !isReadable(info)) continue;
         if (Number.isFinite(info.lastMessageAt) && info.lastMessageAt <= channel.lastMessageAt) continue;
         const page = await reads.history(ref, { limit: maxMessages });
         if (page === null) {
@@ -171,7 +169,7 @@ export function createOfflineCatchUp({
         triggered: counts.reduce((sum, tally) => sum + tally.triggered, 0),
         failed,
       });
-      if (config.features?.journal === true && typeof journal?.system === 'function') {
+      if (typeof journal?.system === 'function') {
         await journal.system(guildId, { event: 'catch-up', by: 'service', channels: counts, failed });
       }
       return { channels: counts, failed };

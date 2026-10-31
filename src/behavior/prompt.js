@@ -173,7 +173,7 @@ export function classifierTranscript(messages, { config, selfName, labels, descr
     maxChars: config.context?.maxMessageChars ?? 2000,
     selfName,
     labels,
-    seeReactions: config.features?.seeReactions !== false,
+    seeReactions: true,
     reactionsPerMessage: config.context?.reactionsPerMessage,
     replyQuoteChars: config.context?.replyQuoteChars,
     descriptions,
@@ -779,7 +779,7 @@ export function buildDiaryPlanRequest(input) {
   );
   let recentBuilt = null;
   if (recentOn) {
-    const episodesOn = Boolean(labels.recent.episode) && config.features?.episodes !== false;
+    const episodesOn = Boolean(labels.recent.episode);
     const profiles = episodesOn && Array.isArray(input.candidateProfiles) ? input.candidateProfiles : [];
     const view = recentView({
       lines: input.recentLines,
@@ -840,10 +840,7 @@ export function buildDiaryPlanRequest(input) {
         name: 'lore',
         cap: caps.lore,
         keep: 'first',
-        items:
-          config.features?.lore !== false
-            ? loreItems(input.loreEntries, history, null, labels, config.lore, nameOf)
-            : [],
+        items: loreItems(input.loreEntries, history, null, labels, config.lore, nameOf),
       },
     ],
     limit,

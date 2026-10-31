@@ -65,7 +65,6 @@ export type ToolRoundConfig = Parameters<typeof resultCharsFor>[1] & {
     reactionsPerMessage?: number;
     replyQuoteChars?: number;
   };
-  features?: { reactionNames?: unknown; seeReactions?: unknown } | null;
   diary?: unknown;
 };
 
@@ -271,7 +270,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
     config: ToolRoundConfig,
     { inner = false, draft = null, guildId = null }: NonNullable<Parameters<ToolRound['readHistory']>[2]> = {}
   ): Promise<Array<Line>> {
-    const namesOn = reactors && config.features?.reactionNames !== false && config.features?.seeReactions !== false;
+    const namesOn = reactors;
     const communityId = channel.communityId ?? guildId;
     const names: ReactorNames | null = namesOn
       ? {
@@ -352,7 +351,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
       labels: hot.prompts?.labels ?? {},
       now: clock(),
       ageMinutes: config.context?.ageAfterMinutes ?? 60,
-      seeReactions: config.features?.seeReactions !== false,
+      seeReactions: true,
       reactionsPerMessage: config.context?.reactionsPerMessage,
       replyQuoteChars: config.context?.replyQuoteChars,
       handles: handleOf,

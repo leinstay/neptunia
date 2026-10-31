@@ -1210,7 +1210,6 @@ async function runSplit({
   const textPasses = mayHaveParts(trigger.content, settings.minChars);
   const labelsPart = Boolean(labels?.task?.part);
   const notAsked = [];
-  if (config?.features?.splitTasks === false) notAsked.push('feature-off');
   if (!['mention', 'reply', 'name', 'followUp', 'private'].includes(triggerKind)) notAsked.push('trigger-kind');
   if (settings.maxTasks < 2) notAsked.push('max-tasks');
   if (!textPasses) notAsked.push('text-too-short-or-one-sentence');
@@ -1324,7 +1323,6 @@ async function loadRecallMods(load) {
   const lookup = await load('web/lookup.js');
   const media = await load('media/classify.js');
   const pull = await load('../interfaces/discord/index.js');
-  const youtube = await load('memory/youtube-check.js');
   const mods = {
     parseLookupAnswer: recall.parseLookupAnswer,
     recallSettings: recall.recallSettings,
@@ -1342,7 +1340,6 @@ async function loadRecallMods(load) {
     createLookup: lookup.createLookup,
     collectReadableLinks: media.collectReadableLinks,
     checkPull: pull.checkPull,
-    isVideoVisionOn: youtube.isVideoVisionOn,
   };
   for (const [name, fn] of Object.entries(mods)) {
     if (typeof fn !== 'function') throw new CliError(`replay-cli: the engine has no ${name} (--recall needs it)`);
@@ -1454,7 +1451,6 @@ async function runRecall({
     createLookup,
     collectReadableLinks,
     checkPull,
-    isVideoVisionOn,
   } = mods;
   const config = hot.config;
   const prompt = hot.prompts?.lookup;
@@ -1507,10 +1503,10 @@ async function runRecall({
 
   // 1. The search classifier, as maybeLookup builds it: the media states a live turn has by then, from the caches.
   const media = replayMedia(history, { cache: mediaCache, sites: config.media?.video?.sites, before: null });
-  const descriptions = config.features?.mediaDescriptions === true ? media.descriptions : undefined;
-  const videos = isVideoVisionOn(config) ? media.videos : undefined;
+  const descriptions = media.descriptions;
+  const videos = media.videos;
   let reads;
-  if (config.features?.webLookup === true && config.web?.links?.enabled !== false) {
+  if (config.web?.links?.enabled !== false) {
     // src/behavior/turn.js#readableLinkCandidates: newest message first.
     const sites = config.media?.video?.sites ?? [];
     const links = [];
@@ -2106,11 +2102,7 @@ export function dryRunHot(hot) {
     get(target, prop) {
       if (prop === 'config') {
         const config = target.config ?? {};
-        return {
-          ...config,
-          features: { ...(config.features ?? {}), dryRun: true },
-          bot: { ...(config.bot ?? {}), dryRunChannelId: '' },
-        };
+        return config;
       }
       const value = Reflect.get(target, prop, target);
       return typeof value === 'function' ? value.bind(target) : value;
@@ -2417,8 +2409,6 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     }
     const hot = dryRunHot(layered?.hot ?? liveHot);
     const config = hot.config;
-    if (config.features?.diary === false)
-      log.warn('replay-cli: features.diary is off; the live diary would not post', {});
     const weight = config.diary?.kinds?.[kind];
     if (!(Number.isFinite(weight) && weight > 0))
       log.warn('replay-cli: the kind has no positive weight in diary.kinds', { kind, weight: weight ?? null });
@@ -2527,7 +2517,6 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
         const parsed = parseOutput(split.speechText);
         const live = hot.config;
         messages = parsed.messages.map((m) => m.text);
-        if (live.features?.multiMessage === false) messages = messages.slice(0, 1);
         if (live.format?.stripDashes !== false) messages = messages.map(stripDashes).filter((t) => t !== '');
         messages = messages
           .map(stripUrls)
@@ -2606,8 +2595,6 @@ export function innerReplayHot(hot) {
         const config = target.config ?? {};
         return {
           ...config,
-          features: { ...(config.features ?? {}), innerLife: true, dryRun: false, journal: false },
-          bot: { ...(config.bot ?? {}), dryRunChannelId: '' },
           innerLife: { ...(config.innerLife ?? {}), mode: 'shadow' },
         };
       }
@@ -3112,7 +3099,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
           places: hiddenPlaces((id) => {
             const guild = client.guilds.cache.get(String(id));
             if (!guild) return [];
-            return capabilities.channelDirectoryOf(guild, hot.config.bot).map((entry) => {
+            return capabilities.channelDirectoryOf(guild).map((entry) => {
               let writable = null;
               try {
                 const found = guild.channels.cache.get(entry.id);
@@ -3354,11 +3341,7 @@ export function noPostHot(hot) {
     get(target, prop) {
       if (prop === 'config') {
         const config = target.config ?? {};
-        return {
-          ...config,
-          features: { ...(config.features ?? {}), dryRun: false, typingSimulation: false },
-          bot: { ...(config.bot ?? {}), dryRunChannelId: '' },
-        };
+        return config;
       }
       const value = Reflect.get(target, prop, target);
       return typeof value === 'function' ? value.bind(target) : value;
@@ -3502,8 +3485,6 @@ async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, si
   try {
     const hot = noPostHot(liveHot);
     const config = hot.config;
-    if (config.features?.diary === false)
-      log.warn('replay-cli: features.diary is off; the live diary would not post', {});
 
     // The clock of the turn runner and the image client: the slot's instant, running on from there.
     const clock = { base: day.start, real: Date.now() };
@@ -4334,14 +4315,11 @@ export function createReplayTools({
           return false;
         }
       },
-      readRecord: ({ channelId, from }) =>
-        config.features?.record === true
-          ? recordMessages(record, guildId, { channelId, from, nameOf, selfName })
-          : Promise.resolve([]),
+      readRecord: ({ channelId, from }) => recordMessages(record, guildId, { channelId, from, nameOf, selfName }),
       fetchLive: (request) => fetchSpan(reads, { iface, conversationId: String(request.channelId) }, request),
       render: (slice) => {
         let descriptions;
-        if (config.features?.mediaDescriptions === true && typeof describer?.cachedDescriptions === 'function') {
+        if (typeof describer?.cachedDescriptions === 'function') {
           const { items, rest, emoji } = pullPictures(slice, 0);
           try {
             descriptions = describer.cachedDescriptions(guildId, [...items, ...rest, ...emoji]) ?? undefined;
@@ -4356,7 +4334,7 @@ export function createReplayTools({
           selfName,
           labels,
           descriptions,
-          seeReactions: config.features?.seeReactions !== false,
+          seeReactions: true,
           reactionsPerMessage: config.context?.reactionsPerMessage,
         };
       },
@@ -4400,7 +4378,7 @@ export function createReplayTools({
           .filter((p) => p?.id)
           .map((p) => [String(p.id), typeof p.names?.[0] === 'string' ? p.names[0] : null])
       );
-      const nameOf = hot.config.features?.memory !== false ? (id) => names.get(String(id)) ?? null : null;
+      const nameOf = (id) => names.get(String(id)) ?? null;
       const { lanes, skip } = prefetchLanes({
         trigger,
         triggerKind,
@@ -5603,7 +5581,7 @@ async function runSkills({
     });
     // The files of the scenario's errand, named by their handles as live (`file:<task id>/<name>`).
     const fileOf = task ? scenarioFileOf(task, parseFileHandle) : null;
-    const memoryOn = scenarioConfig.features?.memory !== false;
+    const memoryOn = true;
     // Her call taken through the real resolution and gateway at `now`, never run: answered with `resultText`.
     // Her in-turn tools run for real (`tools`, loopCall); every other call, a write or a paid effect, is answered canned; an errand.run is only recorded.
     const onCallOf = (callRequester, now, resultText, tools) => {
@@ -5982,8 +5960,7 @@ export async function preTurnLookup({
     fallbackLookupPlan,
   } = deps;
   const searchCfg = config.web?.search ?? {};
-  const webOn =
-    config.features?.webLookup === true && searchCfg.enabled !== false && typeof lookup?.search === 'function';
+  const webOn = searchCfg.enabled !== false && typeof lookup?.search === 'function';
   const webCan =
     webOn &&
     (searchCfg.maxPerTurn ?? 1) >= 1 &&
@@ -6448,7 +6425,7 @@ export async function runTriggerLoops({
             idByIndex,
             lines: lines2,
             pulledIds: new Map(),
-            memoryOn: config.features?.memory !== false,
+            memoryOn: true,
             store,
             selfId: self.id,
             skills: registry,
@@ -6735,7 +6712,7 @@ async function loopDepsOf({
         }
       : null;
   const { transportOf } = await load('tools/tool-calls.ts');
-  const { skillsIndex, discoveryOn } = await load('tools/discovery.ts');
+  const { skillsIndex } = await load('tools/discovery.ts');
   // The automatic memory prefetch a live turn with the tool loop runs (absent from an older engine: none).
   const { prefetchLanes = null, prefetchOn = null } = await load('behavior/prefetch.js').catch(() => ({}));
   // The search classifier's path before her reply with features.coreTools off (preTurnLookup).
@@ -6773,7 +6750,6 @@ async function loopDepsOf({
     createArchive,
     createVectors,
     skillsIndex,
-    discoveryOn,
     ...preTurnDeps,
   };
   for (const [name, fn] of Object.entries(fns))
@@ -6791,7 +6767,7 @@ async function loopDepsOf({
     memoryDb: memoryFor(dataDir),
   };
   let embed = null;
-  if (hot.config.features?.meaningSearch === true && openrouterKey) {
+  if (openrouterKey) {
     const { createEmbedder } = await load('llm/embed.js');
     const embedder = createEmbedder({ apiKey: openrouterKey, env: {}, state: { data: {}, markDirty() {} } });
     embed = (texts, options = {}) =>
@@ -6825,7 +6801,6 @@ async function loopDepsOf({
     // The search classifier's `{{skills}}` and the names its `skills:` line may give (src/behavior/turn.js#discoveryPrompt):
     // the registry without her in-turn tools, never offered to a classifier.
     discoveryOf: (config, registry, texts) => {
-      if (!discoveryOn(config)) return { index: '', names: [] };
       const offered = new Map([...registry].filter(([name]) => !IN_TURN_TOOLS.includes(name)));
       return { index: skillsIndex(offered, texts), names: [...offered.keys()] };
     },
@@ -7194,7 +7169,7 @@ async function runMain(args, { root, signal, rng, answers }) {
     const { guild, guildId, self } = connection;
     const config = hot.config;
     // `<channel_directory>`: the guild's readable text channels, as a live turn lists them.
-    const channelDirectory = channelDirectoryOf(guild, hot.config.bot);
+    const channelDirectory = channelDirectoryOf(guild);
 
     const realStore = createStore({ dataDir, memoryDb: memoryFor(dataDir) });
     const store = readOnlyStore(realStore, SANDBOX_STORE_READS);
@@ -7218,10 +7193,7 @@ async function runMain(args, { root, signal, rng, answers }) {
         }),
     };
     const mediaCache = typeof store.getMediaCache === 'function' ? (store.getMediaCache(guildId) ?? null) : null;
-    const gifs =
-      hot.config.features?.gifs !== false && typeof store.getGifs === 'function'
-        ? (store.getGifs(guildId) ?? null)
-        : null;
+    const gifs = typeof store.getGifs === 'function' ? (store.getGifs(guildId) ?? null) : null;
     const customEmoji = await customEmojiOf(discordReads(client, () => hot.config).reads, String(guildId));
     // Her tools that only read (web.search, memory.search) run for real over this guild, read only (createReplayTools).
     const loopDeps = loopWanted
@@ -7493,11 +7465,11 @@ async function runMain(args, { root, signal, rng, answers }) {
       // The trigger kind as the sandbox reads it: the journal's, else 'reply' to the persona, else 'mention'.
       const { triggerKind } = situationHistory(situation);
       // The live splitter gets captions only when the describer runs (features.mediaDescriptions === true).
-      const descriptions =
-        hot.config.features?.mediaDescriptions === true
-          ? replayMedia(history, { cache: mediaCache, sites: hot.config.media?.video?.sites, before: null })
-              .descriptions
-          : undefined;
+      const descriptions = replayMedia(history, {
+        cache: mediaCache,
+        sites: hot.config.media?.video?.sites,
+        before: null,
+      }).descriptions;
       // --text: the same message (author, time, id) with the operator's text in place of its own.
       const trigger = args.text !== null ? { ...triggerLine, content: args.text } : triggerLine;
       return await runSplit({

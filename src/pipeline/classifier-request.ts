@@ -74,7 +74,7 @@ export function createClassifierRequest({ reads, store, refOf, cachedFollowUpMed
       maxChars: config.context.maxMessageChars,
       selfName,
       labels,
-      seeReactions: config.features?.seeReactions !== false,
+      seeReactions: true,
       reactionsPerMessage: config.context.reactionsPerMessage,
       replyQuoteChars: config.context.replyQuoteChars,
       descriptions,

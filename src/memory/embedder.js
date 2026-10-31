@@ -145,7 +145,7 @@ export function createEmbedder({
   let appendedDuringPass = null;
   const lastPass = new Map();
 
-  const on = () => hot.config?.features?.meaningSearch === true && hot.config?.features?.embedIndex === true;
+  const on = () => true;
   const isPaused = () => typeof paused === 'function' && paused() === true;
   const jobKey = (idKey, revision) => `${idKey}#${revision}`;
 

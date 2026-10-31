@@ -19,13 +19,12 @@ import { fallbackLookupPlan } from './recall.js';
 import { createImageFetcher } from '../media/fetch-image.js';
 import { createOffPeriodsReader } from '../memory/index.js';
 import { createParticipationPicker } from './participation-pick.js';
-import { parseRewatchPickDetailed } from './planner.js';
 import { createLimits } from '../llm/limits.js';
 import { createThinkStore } from './previous-think.js';
 import { turnRoutes } from './turn-ability-route.ts';
 import { chunkPictures } from './mirror.ts';
 import { publishHeldDiary } from './diary-turn.ts';
-import { coreToolsOn, loopSettings, paceSettings } from '../turn/settings.ts';
+import { loopSettings, paceSettings } from '../turn/settings.ts';
 import { scheduleTimer } from '../turn/timers.ts';
 import { postsPlain } from '../turn/triggers.ts';
 import { lookupClassifierInput } from '../turn/lookup-input.ts';
@@ -34,7 +33,6 @@ import { continuationHistory } from '../turn/history.ts';
 import { createAct } from '../turn/act.ts';
 import { createDiary } from '../turn/diary.ts';
 import { createDrawGif } from '../turn/draw-gif.ts';
-import { createDryAct } from '../turn/dry-act.ts';
 import { createFacts } from '../turn/facts.ts';
 import { createInTurnTools } from '../turn/in-turn-tools.ts';
 import { createInputs } from '../turn/inputs.ts';
@@ -43,7 +41,7 @@ import { createLookup } from '../turn/lookup.ts';
 import { createOutcome } from '../turn/outcome.ts';
 import { createParticipation } from '../turn/participation.ts';
 import { createPulls } from '../turn/pulls.ts';
-import { createRewatch } from '../turn/rewatch.ts';
+import { createRewatch, parseRewatchPickDetailed } from '../turn/rewatch.ts';
 import { createSends } from '../turn/sends.ts';
 import { createSkillCalls } from '../turn/skill-calls.ts';
 import { createToolRound } from '../turn/tool-round.ts';
@@ -90,7 +88,6 @@ export {
   answerOf,
   callViewOf,
   continuationHistory,
-  coreToolsOn,
   journalResultOf,
   journalTurnRecord,
   lookupClassifierInput,
@@ -113,7 +110,7 @@ export {
 // The server search on a question's own words lives with the recall planning (src/behavior/recall.js).
 export { fallbackLookupPlan };
 
-// The re-watch classifier's answer parser lives with the planner (src/behavior/planner.js).
+// The re-watch classifier's answer parser lives with the re-watch (src/turn/rewatch.ts).
 export { parseRewatchPickDetailed };
 
 /**
@@ -189,14 +186,6 @@ export { parseRewatchPickDetailed };
  * store to buildRequest as `<participation>`; beside its preparation the pick classifier
  * (src/behavior/participation-pick.js) chooses which stored episodes
  * of other channels come first, under the same deadline -- late, the newest are shown.
- *
- * The turn planner (src/behavior/planner.js; features.turnPlanner exactly true, read per turn):
- * one request (prompts/planner.md, role `analyzer`, purpose `planner`) stands in for
- * the route hook, the participation pick, the re-watch classifier and the search classifier,
- * none of which is asked then (createTurnPlan). Each answer block reaches the code its old
- * classifier fed; a block that is invalid or missing keeps that consumer's default (no channel,
- * the newest episodes, no second look), and the lookup block, or a failed call, takes the
- * search classifier's fallback.
  *
  * Everything a turn prepares before its reply request (the file previews, the
  * captions, the videos and their re-watch, the link reads, the search
@@ -464,7 +453,7 @@ export function createTurnRunner({
     journalOp,
     recentInput,
   });
-  const { drawPromptFor, drawTool, resolveGif, postGif, pickedInTime, pickGifSafely } = createDrawGif({
+  const { drawTool, resolveGif, postGif, pickedInTime, pickGifSafely } = createDrawGif({
     hot,
     store,
     llm,
@@ -483,7 +472,7 @@ export function createTurnRunner({
     lastPostAt,
     diaryPictureGate,
   });
-  const { emojiLookup, renderPost, settleAuthor, diaryChannelName, mirror } = createSends({
+  const { emojiLookup, renderPost, settleAuthor, diaryChannelName } = createSends({
     hot,
     store,
     emoji,
@@ -493,20 +482,7 @@ export function createTurnRunner({
     activity,
     iface,
   });
-  const { typingWhileCalls, typingWhilePreparing } = createTyping({ hot, iface, schedule, clock, conversationOf });
-  const { dryAct } = createDryAct({
-    hot,
-    ifaceReads,
-    iface,
-    clock,
-    lastPostAt,
-    journalOp,
-    renderPost,
-    emojiLookup,
-    mirror,
-    pickGifSafely,
-    drawPromptFor,
-  });
+  const { typingWhileCalls } = createTyping({ iface, schedule, clock, conversationOf });
   const { holdSpeech, act } = createAct({
     hot,
     store,
@@ -603,29 +579,21 @@ export function createTurnRunner({
     drawTool,
   });
   const { classifierContext, maybeRewatch, rewatchOffer, applyRewatch } = createRewatch({ hot, llm, describer });
-  const {
-    startPrefetch,
-    recallAvailable,
-    turnDirectory,
-    privatePartner,
-    createTurnPlan,
-    lookupGate,
-    maybeLookup,
-    maybeSplit,
-  } = createLookup({
-    hot,
-    store,
-    llm,
-    clock,
-    lookup,
-    recall,
-    membersOf,
-    selfIdOf,
-    ifaceReads,
-    discoveryPrompt,
-    classifierContext,
-    linkCalls,
-  });
+  const { startPrefetch, recallAvailable, turnDirectory, privatePartner, lookupGate, maybeLookup, maybeSplit } =
+    createLookup({
+      hot,
+      store,
+      llm,
+      clock,
+      lookup,
+      recall,
+      membersOf,
+      selfIdOf,
+      ifaceReads,
+      discoveryPrompt,
+      classifierContext,
+      linkCalls,
+    });
   // What the phases of an attempt (src/turn/phases/) read: the dependencies, the closure state and the topic functions.
   const phases = {
     hot,
@@ -679,8 +647,6 @@ export function createTurnRunner({
     emojiLookup,
     settleAuthor,
     diaryChannelName,
-    typingWhilePreparing,
-    dryAct,
     pullChannels,
     captionAll,
     withSeenBefore,
@@ -700,7 +666,6 @@ export function createTurnRunner({
     recallAvailable,
     turnDirectory,
     privatePartner,
-    createTurnPlan,
     lookupGate,
     maybeLookup,
     maybeSplit,
@@ -728,7 +693,7 @@ export function createTurnRunner({
         try {
           const prepared = await requestPhase(phases, args, draft, opened);
           const answered = prepared.ended ? prepared : await responsePhase(phases, args, draft, prepared);
-          const acting = answered.ended ? answered : await actPhase(phases, args, draft, answered);
+          const acting = answered.ended ? answered : actPhase(phases, args, draft, answered);
           const rounded = acting.ended ? acting : await toolRoundPhase(phases, args, draft, acting);
           result = rounded.ended ?? outcomePhase(phases, args, draft, rounded);
         } catch (err) {
@@ -749,7 +714,7 @@ export function createTurnRunner({
         if (draft.factsShown) args.turnEnds.factsShown = draft.factsShown;
       }
       // What an addressed turn lost, kept for her next request there (an inner turn's go to the inner life).
-      if (!args.inner) recordTurnFacts(args, draft, result);
+      if (!args.inner) recordTurnFacts(args, draft);
       recordTurnThink(args, draft, result);
     }
     return attemptReport(args, draft, result);

@@ -46,7 +46,6 @@ export type PendingQueueContext = {
   missed: PipelineMissed | null;
   pending: PendingQueue;
   followUpMuted: FollowUpWindows['followUpMuted'];
-  followUpOff: FollowUpWindows['followUpOff'];
 };
 
 export type PendingQueueOps = {
@@ -91,7 +90,6 @@ export function createPendingQueue({
   missed,
   pending,
   followUpMuted,
-  followUpOff,
 }: PendingQueueContext): PendingQueueOps {
   /** How many calls `authorId` has waiting in `channelId` (authorCalls): the `queued` count of the pending logs. */
   function queuedCount(channelId: string, authorId: string): number {
@@ -188,8 +186,7 @@ export function createPendingQueue({
     const channelId = channel.id;
     const sameChannel = turns.isBusy(channelId);
     let reason: string | null = followUpMuted();
-    if (!reason && (followUpOff(config) || (sameChannel && config.mention.pendingSameChannel === false)))
-      reason = 'busy';
+    if (!reason && sameChannel && config.mention.pendingSameChannel === false) reason = 'busy';
     if (reason) {
       log.info('follow-up: dropped', { channel: channelId, message: trigger.id, reason });
       return;

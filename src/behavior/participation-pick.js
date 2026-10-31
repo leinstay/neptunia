@@ -45,7 +45,6 @@ function intAtLeast(value, fallback, min) {
  * @returns {{ contextMessages: number, maxOutputTokens: number, pickTimeoutMs: number|null }|null}
  */
 export function participationPickSettings(config) {
-  if (config?.features?.participation === false) return null;
   const p = isPlainObject(config?.participation) ? config.participation : {};
   const d = PARTICIPATION_PICK_DEFAULTS;
   return {
@@ -193,8 +192,7 @@ export function parseParticipationPick(raw, count) {
 }
 
 /**
- * The numbered `<episodes>` list of one pick, shared by the pick hook below
- * and the turn planner (src/behavior/planner.js): the live headlines of the
+ * The numbered `<episodes>` list of one pick for the pick hook below: the live headlines of the
  * guild's stored episodes outside `channel` that pass `audience`
  * (src/memory/participation.js#episodeHeadlines with the live
  * `participation` settings), rendered by participationEpisodeList with each

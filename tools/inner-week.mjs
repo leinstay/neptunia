@@ -246,8 +246,7 @@ async function createLiveVoice({ args, fixture, clock, budget, log }) {
   const hot = new Proxy(shadowHot, {
     get(target, prop) {
       if (prop === 'config') {
-        const config = target.config;
-        return { ...config, features: { ...config.features, intentions: true } };
+        return target.config;
       }
       return Reflect.get(target, prop, target);
     },

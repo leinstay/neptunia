@@ -249,10 +249,9 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
     const at = Date.now();
     inbound('presence.snapshot', () => presenceSnapshotEvent(guild, at));
     inbound('connection.changed', () => connectionEvent('resumed', at));
-    const bot = obj(config().bot);
     for (const channel of client.channels.cache.values()) {
       if (obj(channel.guild).id !== guildId) continue;
-      const readable = isThreadChannel(channel) ? canRead(channel) : isReadableChannel(channel, bot);
+      const readable = isThreadChannel(channel) ? canRead(channel) : isReadableChannel(channel);
       if (readable) inbound('conversation.changed', () => conversationChangedEvent('updated', channel, guildId, at));
     }
   }

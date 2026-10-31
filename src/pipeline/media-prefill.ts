@@ -11,7 +11,6 @@ import {
   isDescribable,
 } from '../media/classify.js';
 import type { formatTranscript } from '../format.js';
-import { isVideoVisionOn } from '../memory/index.js';
 import { utcDay } from '../time.js';
 import type { PipelineHot } from './types.ts';
 
@@ -83,7 +82,6 @@ export function createMediaPrefill({ hot, describer, lookup, now }: MediaPrefill
     warmLinkCache(guildId, normalized);
     if (!describer) return null;
     warmVideoCache(guildId, normalized);
-    if (hot.config.features?.mediaDescriptions !== true) return null;
     // Per real-time message, not per batch, so it stays small (media.prefillPerMessage).
     const max = prefillPerMessage(hot.config.media?.prefillPerMessage, 5);
     const candidates: Array<unknown> = describableItems([normalized]).slice(0, max);
@@ -122,7 +120,7 @@ export function createMediaPrefill({ hot, describer, lookup, now }: MediaPrefill
     config: PipelineHot['config'],
     ownPrefill: Promise<void> | null
   ): Promise<CachedMedia> {
-    if (!describer || config.features?.mediaDescriptions !== true) return {};
+    if (!describer) return {};
     if (ownPrefill) await ownPrefill;
     const media: CachedMedia = {};
     if (typeof describer.cachedDescriptions === 'function') {
@@ -140,7 +138,6 @@ export function createMediaPrefill({ hot, describer, lookup, now }: MediaPrefill
   function warmVideoCache(guildId: string, normalized: MediaLine): void {
     const config = hot.config;
     // Both switches, like the describer and the senses line; a missing videoDescriptions counts as on.
-    if (!isVideoVisionOn(config)) return;
     if (config.media?.video?.prefill !== true) return;
     // warmMediaCache calls this only with a describer.
     const media = describer as Describer;
@@ -169,7 +166,6 @@ export function createMediaPrefill({ hot, describer, lookup, now }: MediaPrefill
   function warmLinkCache(guildId: string, normalized: MediaLine): void {
     if (typeof lookup?.readLinks !== 'function') return;
     const config = hot.config;
-    if (config.features?.webLookup !== true) return;
     const linksCfg = config.web?.links ?? {};
     if (linksCfg.enabled === false || linksCfg.prefill !== true) return;
     const links: Array<unknown> = collectReadableLinks(normalized, {

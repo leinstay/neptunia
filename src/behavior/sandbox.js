@@ -71,7 +71,7 @@ import { findGif } from '../memory/index.js';
 import { tokenIds } from '../memory/mentions.ts';
 import { liveRecent, recentSettings } from '../memory/recent.js';
 import { checkSkill, listSkills } from '../tools/gateway.ts';
-import { discoveryOn, exposedSkillNames, proposalVerdicts, proposedRows } from '../tools/discovery.ts';
+import { exposedSkillNames, proposalVerdicts, proposedRows } from '../tools/discovery.ts';
 import { outcomeDetail, refusalStatus, resolveCall } from '../tools/executors.ts';
 import { coerceArgs, toolResultText, transportOf } from '../tools/tool-calls.ts';
 import { buildTools } from '../tools/tools-json.ts';
@@ -658,7 +658,7 @@ function recentLinesOf(view, at) {
  */
 function sandboxChannels(given, view, channel) {
   if (Array.isArray(given)) return given;
-  const memoryOn = view.config.features?.memory !== false;
+  const memoryOn = true;
   const stored = memoryOn && typeof view.memory?.listChannels === 'function' ? (view.memory.listChannels() ?? []) : [];
   const list = stored
     .filter((entry) => entry && entry.id !== undefined && entry.id !== null)
@@ -744,7 +744,7 @@ export function sandboxRequestInput({
     ? taskInput({ part: null, queued: () => waiting, added: null, labels: view.prompts?.labels, channelId: channel.id })
         .input
     : null;
-  const memoryOn = config.features?.memory !== false;
+  const memoryOn = true;
   const { history, trigger, triggerKind } = situationHistory(situation);
   // pickOtherProfiles reads a store-shaped object; this one reads the view.
   const viewAsStore = { getUser: (guildId, id) => memory.getUser(id) };
@@ -1052,12 +1052,11 @@ function sandboxMessages(input, samples, { segments = false } = {}) {
  * what a live turn would mention (handleMentions); its `text` stays as she wrote it.
  */
 function shapeAnswer(parsed, config, gifs, handles = null) {
-  const features = config.features ?? {};
-  const reactions = features.reactions === false ? [] : parsed.reactions;
-  const kept = features.multiMessage === false ? parsed.messages.slice(0, 1) : parsed.messages;
+  const reactions = parsed.reactions;
+  const kept = parsed.messages;
   const replies = kept.map((message) => ({ ...message, ...handleMentions(message.text, handles) }));
   // As src/behavior/turn.js: a GIF off the library or with the switch off is dropped.
-  const gif = parsed.gif && features.gifs !== false && findGif(gifs, parsed.gif.id) ? parsed.gif : null;
+  const gif = parsed.gif && findGif(gifs, parsed.gif.id) ? parsed.gif : null;
   const nothingToDo = replies.length === 0 && reactions.length === 0 && gif === null;
   return { messages: replies, reactions, gif, skip: parsed.skip || nothingToDo, think: parsed.think };
 }
@@ -1140,7 +1139,7 @@ export function scenarioInventory({
   discovery = 'inventory',
   getOp,
 }) {
-  if (!discoveryOn(config) || discovery === 'none') return null;
+  if (discovery === 'none') return null;
   const rows = listSkills({
     config,
     selfId,
@@ -1298,7 +1297,7 @@ function callMarkOf({ outcome, channelId, at, postedId, posted, config }) {
 
 /** A channel's name by id for a call mark: the view's channel map, the turn's `channel` by its own name. */
 function channelNamesOf(view, channel) {
-  const memoryOn = view.config.features?.memory !== false;
+  const memoryOn = true;
   const stored = memoryOn && typeof view.memory?.listChannels === 'function' ? (view.memory.listChannels() ?? []) : [];
   const names = new Map(
     stored.filter((entry) => entry && typeof entry.name === 'string').map((entry) => [String(entry.id), entry.name])
@@ -1371,7 +1370,7 @@ export async function answerSkillScenario({
   registry = skillRegistry(),
 }) {
   // The earlier steps' calls on her lines, as a live turn's history carries them (linkCalls).
-  const earlier = Array.isArray(callMarks) && view.config.features?.callMarkers !== false ? callMarks : [];
+  const earlier = Array.isArray(callMarks) ? callMarks : [];
   const moment =
     earlier.length > 0
       ? {
@@ -2080,17 +2079,15 @@ const MAX_PENDING = 6;
 export function burstTurns(incoming, { selfId, config, history = [] }) {
   const lines = (Array.isArray(incoming) ? incoming : []).filter(Boolean);
   if (lines.length === 0) return { turns: [], replaced: [], dropped: [] };
-  const features = config?.features ?? {};
   const self = String(selfId);
-  const nameTriggers =
-    features.nameTriggers !== false && Array.isArray(config?.bot?.nameTriggers) ? config.bot.nameTriggers : [];
+  const nameTriggers = Array.isArray(config?.bot?.nameTriggers) ? config.bot.nameTriggers : [];
   const herLines = new Set(
     [...(Array.isArray(history) ? history : []), ...lines].filter((line) => line?.self === true).map((line) => line.id)
   );
   const kindOf = (line) =>
     detectTrigger({
-      mentionsSelf: features.mentions !== false && (line.mentionedUserIds ?? []).includes(self),
-      repliesToSelf: features.replies !== false && Boolean(line.replyToId) && herLines.has(line.replyToId),
+      mentionsSelf: (line.mentionedUserIds ?? []).includes(self),
+      repliesToSelf: Boolean(line.replyToId) && herLines.has(line.replyToId),
       content: String(line.content ?? ''),
       nameTriggers,
     }) ?? 'followUp';

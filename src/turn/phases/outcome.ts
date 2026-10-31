@@ -108,14 +108,13 @@ export function outcomeOfError(
   return { outcome: 'error', reason: code };
 }
 
-/** What every attempt past its preflight closes, whatever it returned: its clocks, its planner and the attention. */
+/** What every attempt past its preflight closes, whatever it returned: its clocks and the attention. */
 export function closeAttempt(ctx: PhaseContext, params: PhaseParams, draft: Draft, opened: Opened): void {
   const { busy, notifyIdle } = ctx;
   const { owned = false } = params;
   const { channel, prep, life } = opened;
   draft.mode = life.turnMode;
   prep.closeAll();
-  life.planner?.abandon('ended');
   life.stopTyping();
   life.deadline?.close();
   life.bar?.close();

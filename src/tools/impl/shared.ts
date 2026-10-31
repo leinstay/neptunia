@@ -654,15 +654,13 @@ export const GIFS_RESCAN_SKIPS: Record<string, string> = {
 /** Why `/nep gifs recache` did not start, by src/memory/gif-recache.js's skip reason. */
 export const GIFS_RECACHE_SKIPS: Record<string, string> = {
   unavailable: 'the GIF recache is not available',
-  off: 'GIFs are not watched (features.mediaDescriptions or media.gif.watch is off).',
-  'video-off': 'GIFs are not watched while video vision is off (features.videoDescriptions).',
+  off: 'GIFs are not watched (media.gif.watch is off).',
   'no-prompt': 'GIFs are not watched: the describe-video prompt is missing.',
 };
 
 /** Why `/nep media kind:pictures action:recache` did not start, by src/memory/gif-recache.js#startMedia's skip reason. */
 export const PICTURES_RECACHE_SKIPS: Record<string, string> = {
   unavailable: 'the media recache is not available',
-  off: 'Pictures are not described (features.mediaDescriptions is off).',
   'no-prompt': 'Pictures are not described: the describe prompt is missing.',
 };
 

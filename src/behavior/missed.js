@@ -595,11 +595,10 @@ export function createMissed({
   const sweeps = new Map(); // channelId -> { firstAt, lastAt, timer }
   const sweeping = new Set();
 
-  const enabled = () => hot.config.features?.missedAnswers !== false;
-  const recoveryOn = () => hot.config.features?.missedRecovery === true;
+  const enabled = () => true;
+  const recoveryOn = () => true;
   const paused = () => Boolean(store?.state?.data?.paused);
-  const journalOn = () =>
-    Boolean(journal) && typeof journal.answer === 'function' && hot.config.features?.journal === true;
+  const journalOn = () => Boolean(journal) && typeof journal.answer === 'function';
   const fileOf = (guildId) => path.join(dataDir, 'guilds', String(guildId), 'missed.json');
   const iso = (ms) => new Date(ms).toISOString();
 
@@ -683,17 +682,15 @@ export function createMissed({
   async function start(guildId) {
     loadedGuildId = guildId;
     await load(guildId);
-    if (hot.config.features?.journal === true) {
-      try {
-        const result = reconcileFromRecords(candidates, await recentRecords(guildId), {
-          now: now(),
-          recovery: recoveryOn(),
-        });
-        candidates = result.list;
-        log.info('missed: reconciled', { guildId: String(guildId), added: result.added, closed: result.closed });
-      } catch (error) {
-        log.warn('missed: reconcile failed', { code: error?.code ?? null });
-      }
+    try {
+      const result = reconcileFromRecords(candidates, await recentRecords(guildId), {
+        now: now(),
+        recovery: recoveryOn(),
+      });
+      candidates = result.list;
+      log.info('missed: reconciled', { guildId: String(guildId), added: result.added, closed: result.closed });
+    } catch (error) {
+      log.warn('missed: reconcile failed', { code: error?.code ?? null });
     }
     candidates = pruneCandidates(candidates, now());
     await save();
@@ -1179,7 +1176,6 @@ export function createMissed({
       triggerId,
       outcome,
       ...(typeof result?.reason === 'string' ? { reason: result.reason } : {}),
-      ...(result?.dryRun === true ? { dryRun: true } : {}),
       participants: [...new Set(list.map((candidate) => candidate.authorId).filter(Boolean))],
       sourceMessageIds: ids,
     });

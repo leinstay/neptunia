@@ -45,7 +45,6 @@ function intAtLeast(value, fallback, min) {
  * @returns {{ contextMessages: number, maxChannels: number, purposeChars: number, maxOutputTokens: number }|null}
  */
 export function routeSettings(config) {
-  if (config?.features?.channelRoute === false) return null;
   const r = config?.route ?? {};
   const d = ROUTE_DEFAULTS;
   return {

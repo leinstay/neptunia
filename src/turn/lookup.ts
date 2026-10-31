@@ -1,9 +1,8 @@
 // What a turn looks up before its reply request: the memory prefetch of its trigger, the search classifier with the web
-// and server searches it asks for, the turn planner that stands in for the classifiers, the splitter of a message that
+// and server searches it asks for, the splitter of a message that
 // holds several requests, and the directory and partner a turn's searches and mentions read. createTurnRunner
 // (src/behavior/turn.js) builds it once per runner with createLookup; the attempt calls its functions.
 
-import { askPlanner, parsePlannerAnswer } from '../behavior/planner.js';
 import { prefetchLanes, prefetchOn, wakeLanes } from '../behavior/prefetch.js';
 import { fillPromptTemplate } from '../behavior/prompt.js';
 import { fallbackLookupPlan, parseLookupAnswer, recallSettings } from '../behavior/recall.js';
@@ -29,7 +28,7 @@ import type { TriggerKind } from './triggers.ts';
 export type LookupConfig = ClassifierContextInput['config'] & {
   web?: { search?: { maxPerTurn?: number; classifierMaxOutputTokens?: number; contextMessages?: number } | null };
   bot?: { timezone?: string; nameTriggers?: Array<string> } | null;
-  features?: { privateLikeServer?: unknown } | null;
+  private?: { likeServer?: unknown } | null;
 };
 
 /** The web lookup (src/web/lookup.js#createLookup), as the search on a question uses it. */
@@ -71,7 +70,7 @@ export type JournalStep = (
 /** What createLookup reads: the dependencies and the functions of the other topic modules it calls. */
 export type LookupContext = {
   hot: {
-    readonly prompts: { labels: object; lookup?: string | null; planner?: string | null };
+    readonly prompts: { labels: object; lookup?: string | null };
   };
   store: LookupStore;
   llm: ClassifierLlm;
@@ -81,7 +80,7 @@ export type LookupContext = {
   membersOf: ((communityId: string) => Iterable<unknown>) | null;
   selfIdOf: () => string;
   ifaceReads: Reads;
-  discoveryPrompt: (config: unknown) => { index: string; names: Array<string> };
+  discoveryPrompt: () => { index: string; names: Array<string> };
   classifierContext: Rewatch['classifierContext'];
   linkCalls: JournalNotes['linkCalls'];
 };
@@ -97,30 +96,6 @@ type ServerPart = NonNullable<ReturnType<typeof parseLookupAnswer>['server']>;
 
 /** The request's `lookup` input: the web search's result, with what the server search found. */
 export type LookupInput = Record<string, unknown> | null;
-
-/** An offer of the planner: the lines it lists, with their ages for the episodes. */
-type Offer = { lines?: Array<string>; ages?: Array<string>; ids?: unknown } | null | undefined;
-
-/** The answer of one attempt's planner, with the offers it was sent. */
-export type PlanResult = Awaited<ReturnType<typeof askPlanner>> & {
-  offer: { channel: Offer; episodes: Offer; media: Offer; lookup: boolean };
-};
-
-/** One attempt's turn planner (createTurnPlan). */
-export type TurnPlan = {
-  early: boolean;
-  result: Promise<PlanResult>;
-  readonly started: boolean;
-  offerChannels: (offer: Offer) => void;
-  start: (inputs: {
-    transcriptBlock?: string;
-    candidateBlock?: string | null;
-    episodes?: Offer;
-    media?: Offer;
-    lookup?: boolean;
-  }) => void;
-  abandon: (reason?: string) => void;
-};
 
 type LookupArgs = {
   config: LookupConfig;
@@ -143,7 +118,6 @@ type LookupArgs = {
   journalStep?: JournalStep | null;
   triggerKind?: TriggerKind | null;
   limits?: { add: (limit: { kind: string; where: string; detail: string }) => void } | null;
-  planned?: PlanResult | null;
   turnContext?: (() => unknown) | null;
 };
 
@@ -173,14 +147,6 @@ export type Lookup = {
     userId: string | null | undefined;
     config: LookupConfig;
   }) => Promise<MemberInfo | null>;
-  createTurnPlan: (args: {
-    config: LookupConfig;
-    channelId: string;
-    selfName: string;
-    triggerKind: TriggerKind | null;
-    limits: unknown;
-    early: boolean;
-  }) => TurnPlan;
   lookupGate: (args: { config: LookupConfig; webOn: boolean; serverOn: boolean }) => {
     webCan: boolean;
     skip: string | null;
@@ -367,7 +333,7 @@ export function createLookup(ctx: LookupContext): Lookup {
     userId,
     config,
   }: Parameters<Lookup['privatePartner']>[0]): Promise<MemberInfo | null> {
-    if (config.features?.privateLikeServer === false || !userId) return null;
+    if (config.private?.likeServer === false || !userId) return null;
     const found = await ifaceReads.memberInfo({ communityId: guildId, memberId: String(userId) });
     if (found?.member) return found.member;
     log.warn('turn: partner failed', { guildId, userId });
@@ -392,108 +358,7 @@ export function createLookup(ctx: LookupContext): Lookup {
   }
 
   /**
-   * One attempt's turn planner (src/behavior/planner.js, features.turnPlanner
-   * exactly true): the one request that stands in for the route, the
-   * participation pick, the re-watch and the search classifiers. The pull's
-   * route step registers its channel list (`offerChannels`, ignored once the
-   * planner started) and waits on `result` for its pick; the participation,
-   * re-watch and lookup stages wait on `result` too. `start(inputs)` sends
-   * the request once -- `transcriptBlock`, `candidateBlock`, the `episodes`
-   * and `media` offers (`{ lines, ids }` / rewatchOffer's, null when not
-   * offered) and `lookup` (true when the search classifier would have been
-   * asked); later calls do nothing. `abandon(reason)` settles `result` with
-   * every block missing when the planner never started (a deadline passed
-   * first, or the attempt ended), so no stage waits forever. `early` is true
-   * on a turn whose pull is awaited before its preparation (a source, or a
-   * mode still to choose): its route step starts the planner itself.
-   * `result` never rejects: askPlanner's `{ outcome, reason, blocks }` plus
-   * `offer` (`channel`, `episodes`, `media`: the offers sent, null when not;
-   * `lookup`: boolean), what each consumer maps the block's numbers back with.
-   */
-  function createTurnPlan({
-    config,
-    channelId,
-    selfName,
-    triggerKind,
-    limits,
-    early,
-  }: Parameters<Lookup['createTurnPlan']>[0]): TurnPlan {
-    let channelOffer: Offer = null;
-    let started = false;
-    let settle: (value: PlanResult) => void = () => {};
-    const result = new Promise<PlanResult>((resolve) => {
-      settle = resolve;
-    });
-    const unused = (reason: string): PlanResult => ({
-      outcome: 'skipped',
-      reason,
-      blocks: parsePlannerAnswer(''),
-      offer: { channel: null, episodes: null, media: null, lookup: false },
-    });
-    const offered = (offer: Offer): Offer => (Array.isArray(offer?.lines) && offer.lines.length > 0 ? offer : null);
-    return {
-      early,
-      result,
-      get started() {
-        return started;
-      },
-      offerChannels(offer) {
-        if (!started) channelOffer = offered(offer);
-      },
-      start({
-        transcriptBlock = '',
-        candidateBlock = null,
-        episodes = null,
-        media = null,
-        lookup: lookupWanted = false,
-      }) {
-        if (started) return;
-        started = true;
-        const offer = {
-          channel: channelOffer,
-          episodes: offered(episodes),
-          media: offered(media),
-          lookup: lookupWanted === true,
-        };
-        const discovery = discoveryPrompt(config);
-        askPlanner({
-          llm,
-          config,
-          prompt: hot.prompts?.planner,
-          selfName,
-          today: zonedDay(clock(), config.bot?.timezone),
-          skills: discovery.index,
-          skillNames: discovery.names,
-          offer: {
-            channels: offer.channel?.lines,
-            episodes: offer.episodes?.lines,
-            episodeAges: offer.episodes?.ages,
-            media: offer.media?.lines,
-            lookup: offer.lookup,
-          },
-          transcriptBlock,
-          candidateBlock,
-          channelId,
-          kind: triggerKind,
-          now: clock,
-          // The attempt's limits (src/llm/limits.js#createLimits), as askPlanner adds to them.
-          limits: limits as { add: (...args: Array<unknown>) => unknown } | null,
-        }).then(
-          (asked) => settle({ ...asked, offer }),
-          () => settle(unused('error'))
-        );
-      },
-      abandon(reason = 'late') {
-        if (started) return;
-        started = true;
-        settle(unused(reason));
-      },
-    };
-  }
-
-  /**
-   * Which side of a lookup can run now (maybeLookup's gates, shared with the
-   * turn planner's offer): the web side under `webOn` unless
+   * Which side of a lookup can run now (maybeLookup's gates): the web side under `webOn` unless
    * `web.search.maxPerTurn` is below 1 (`no-slot`), the search has no key
    * (`no-key`) or its daily slots are spent (`cap`); `skip` is that code, or
    * `no-search`, when neither the web side nor the server side (`serverOn`)
@@ -543,17 +408,10 @@ export function createLookup(ctx: LookupContext): Lookup {
    * `analyzer` request (roleRequestOptions). `onSearch()` is called once the answer asks for a search that runs, before
    * it starts (the turn's deadline grows to pace.prepareSearchMs; until the answer the turn holds its deadline on this
    * call, see createDeadline's `hold`).
-   * With the turn planner (`planned`: the attempt's createTurnPlan result)
-   * no classifier is asked here: the planner's lookup block stands in for its
-   * answer -- `ok` runs what it asks for; `none`, a planner that skipped or a
-   * block it never offered run nothing; `invalid`, `missing` or a failed
-   * planner call take the failed classifier's fallback above (`reason` the
-   * state or the failure code; the `helper-fallback` entry is the planner's,
-   * `where: 'planner:lookup'`).
    * Skills discovery (discoveryPrompt, read now): the classifier's `{{skills}}`
    * is filled with the registry's lines, and a `skills:` line of its answer
    * (parseLookupAnswer's `skills`) is handed to `onSkills` before any search
-   * runs; with the planner the turn reads the planner's own `skills:` line.
+   * runs.
    * An `agent:` line of the answer (a classifier prompt that still has one) is ignored: the
    * classifier never creates or suggests an errand, only the persona's own `errand.run` call does.
    * `lookup: classified` carries `route` -- what runs: `fast` (a web search), `memory` (a server
@@ -582,7 +440,6 @@ export function createLookup(ctx: LookupContext): Lookup {
     journalStep = null,
     triggerKind = null,
     limits = null,
-    planned = null,
     turnContext = null,
   }: LookupArgs): Promise<LookupInput> {
     const channelId = channel.id;
@@ -590,7 +447,7 @@ export function createLookup(ctx: LookupContext): Lookup {
     const searchCfg = config.web?.search ?? {};
     const { webCan, skip: gateSkip } = lookupGate({ config, webOn, serverOn });
     let skip: string | null = null;
-    if (!planned && !prompt) skip = 'no-prompt';
+    if (!prompt) skip = 'no-prompt';
     else skip = gateSkip;
     if (skip) {
       log.info('lookup: skipped', { channel: channelId, reason: skip });
@@ -608,19 +465,10 @@ export function createLookup(ctx: LookupContext): Lookup {
       videos,
       reads,
     });
-    if (planned) {
-      if (planned.offer?.lookup !== true || planned.outcome === 'skipped') return null;
-      if (planned.outcome === 'failed') return fallback(planned.reason);
-      const answer = planned.blocks.lookup;
-      // The planner's lookup block reads the server part as parseLookupAnswer does.
-      if (answer.state === 'ok') return runSearches({ web: answer.web, server: answer.server as ServerPart | null });
-      return answer.state === 'none' ? null : fallback(answer.state);
-    }
-
     // Read once: the request and its empty-answer warning name the same model.
     const model = roleModel(config, 'analyzer', 'lookup');
     // Skills discovery: the registry's lines fill `{{skills}}`, its names bound the `skills:` line.
-    const discovery = discoveryPrompt(config);
+    const discovery = discoveryPrompt();
     let completion;
     try {
       completion = await llm.complete(
@@ -704,9 +552,8 @@ export function createLookup(ctx: LookupContext): Lookup {
       if (!plan) return null;
       // Counts only, never a form or a name.
       log.info('lookup: fallback', { channel: channelId, reason, forms: plan.forms.length, who: plan.who.length });
-      // The planner records its own fallen-back blocks (src/behavior/planner.js#askPlanner).
-      // The fallback's reason is the failure's code or the planner block's state.
-      if (!planned) limits?.add({ kind: 'helper-fallback', where: 'lookup', detail: reason as string });
+      // The fallback's reason is the failure's code.
+      limits?.add({ kind: 'helper-fallback', where: 'lookup', detail: reason as string });
       return runSearches({ web: null, server: plan });
     }
 
@@ -874,7 +721,6 @@ export function createLookup(ctx: LookupContext): Lookup {
     recallAvailable,
     turnDirectory,
     privatePartner,
-    createTurnPlan,
     lookupGate,
     maybeLookup,
     maybeSplit,

@@ -9,10 +9,7 @@ import type { Snapshot } from '../behavior/snapshot.ts';
 import type { ConversationInfo } from '../protocol/adapter.ts';
 
 /** The live config, as far as the routing reads it. */
-type RouteConfig =
-  | (NonNullable<Parameters<typeof resolveDestination>[0]> & { bot?: { dryRunChannelId?: unknown } | null })
-  | null
-  | undefined;
+type RouteConfig = NonNullable<Parameters<typeof resolveDestination>[0]> | null | undefined;
 
 export type Destination =
   { channel: ConversationInfo; reason: null } | { channel: null; reason: 'off' | 'no-destination' };
@@ -23,7 +20,7 @@ export type Destination =
  * call: the first id of `memory.mainChannelIds`
  * (src/behavior/elsewhere.ts#resolveDestination) that is a conversation of
  * `snapshot` the persona may write in (src/behavior/snapshot.ts#isWritable:
- * a channel, not a thread, never the dry-run mirror, its history
+ * a channel, not a thread, its history
  * readable, she can send) and not `exceptId` (the
  * channel the words are about). The one copy of the rule: `<senses>` names
  * this channel, and whatever routes a call there asks the same function.
@@ -37,7 +34,7 @@ export function usableDestination(
 ): Destination {
   const usable = (id: string) => {
     const target = snapshot?.get(String(id)) ?? null;
-    return target !== null && id !== exceptId && isWritable(target, config?.bot ?? {});
+    return target !== null && id !== exceptId && isWritable(target);
   };
   const found = resolveDestination(config, usable);
   if (found.destinationId === null) return { channel: null, reason: found.reason };
@@ -70,16 +67,14 @@ export function routeFor(
 }
 
 /**
- * `<channel_directory>`'s input: every channel of the snapshot's community the persona may read (never a thread, never the
- * dry-run mirror), as `{ id, name, category }`. None without a listing (a private chat, an interface that offers none).
- * `bot` is the live `config.bot`.
+ * `<channel_directory>`'s input: every channel of the snapshot's community the persona may read (never a thread), as
+ * `{ id, name, category }`. None without a listing (a private chat, an interface that offers none).
  */
 export function channelDirectoryOf(
-  snapshot: Snapshot | null | undefined,
-  bot: { dryRunChannelId?: unknown } | null | undefined
+  snapshot: Snapshot | null | undefined
 ): Array<{ id: string; name: string | null | undefined; category: string | null }> {
   return (snapshot?.conversations ?? [])
-    .filter((entry) => isReadable(entry, bot))
+    .filter((entry) => isReadable(entry))
     .map((entry) => ({
       id: entry.id,
       name: entry.name,

@@ -11,16 +11,6 @@
 import { log as defaultLog } from '../log.js';
 import { proxyFor } from '../media/video-sites.js';
 
-/**
- * Whether video vision is on: features.mediaDescriptions AND
- * features.videoDescriptions (a missing key counts as on), like the describer.
- * @param {object} config
- */
-export function isVideoVisionOn(config) {
-  const features = config?.features ?? {};
-  return features.mediaDescriptions === true && features.videoDescriptions !== false;
-}
-
 /** A probe failure's reason for the detail string; never an error message. */
 function reasonOf(result) {
   return typeof result?.reason === 'string' ? result.reason : 'download';
@@ -80,13 +70,12 @@ export function createYoutubeCheck({ hot, videoFetcher, youtubeApiKey = null }) 
 }
 
 /**
- * The startup check: fire-and-forget, only when video vision is on. Logs the
- * status (info), or a warning with a hint when YouTube links will mostly fail.
- * @param {{ hot: object, checkYoutube: () => Promise<{ status: string }>, log?: object }} deps
- * @returns {Promise<void>|null}  null when the check was not run (video vision off).
+ * The startup check, fire-and-forget. Logs the status (info), or a warning with a hint when YouTube links will
+ * mostly fail.
+ * @param {{ checkYoutube: () => Promise<{ status: string }>, log?: object }} deps
+ * @returns {Promise<void>}
  */
-export function startYoutubeCheck({ hot, checkYoutube, log = defaultLog }) {
-  if (!isVideoVisionOn(hot.config)) return null;
+export function startYoutubeCheck({ checkYoutube, log = defaultLog }) {
   return Promise.resolve()
     .then(() => checkYoutube())
     .then(({ status }) => {

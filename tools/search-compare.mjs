@@ -112,7 +112,6 @@ function forcedConfig(live, engine) {
   const web = live?.web ?? {};
   return {
     ...live,
-    features: { ...(live?.features ?? {}), webLookup: true },
     web: { ...web, maxPerDay: 1, search: { ...(web.search ?? {}), enabled: true, engine, fallback: [] } },
   };
 }

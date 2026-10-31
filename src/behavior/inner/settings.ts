@@ -68,11 +68,6 @@ export const FEEDBACK_KINDS = Object.freeze([
 /** The most facts one turn is shown; the rest stay for the next one. */
 export const FACTS_SHOWN_MAX = 12;
 
-/** Whether the inner life runs (`features.innerLife` exactly true). */
-export function innerOn(config: unknown): boolean {
-  return objOf(objOf(config).features).innerLife === true;
-}
-
 const count = (value: unknown, fallback: number): number =>
   typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback;
 /** A whole number of at least `min`, else `fallback`. */

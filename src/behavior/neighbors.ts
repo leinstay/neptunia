@@ -15,7 +15,6 @@ import type { Snapshot } from './snapshot.ts';
 import { isReadable } from './snapshot.ts';
 
 type Config = {
-  bot?: { dryRunChannelId?: unknown };
   context: { neighborMessages: number; neighborMaxAgeMinutes: number; neighborMaxChannels: number };
 };
 
@@ -35,7 +34,7 @@ export async function fetchNeighbors(
   const lastAt = (entry: ConversationInfo): number => entry.lastMessageAt ?? 0;
 
   const candidates = snapshot.conversations
-    .filter((other) => other.id !== here.id && isReadable(other, config.bot))
+    .filter((other) => other.id !== here.id && isReadable(other))
     .filter((other) => lastAt(other) >= minTs)
     .filter((other) => typeof accept !== 'function' || accept(other))
     .sort((a, b) => lastAt(b) - lastAt(a))

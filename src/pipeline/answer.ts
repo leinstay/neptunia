@@ -88,14 +88,10 @@ export function createAnswer({
     config: PipelineConfig,
     { deferred = false, destination = null }: { deferred?: boolean; destination?: Conv | null } = {}
   ): Decision {
-    const features = config.features ?? {};
     // A server call is written in a community, so its channel has the id.
     const guildId = channel.communityId as string;
     const recentCalls = tagHistory.hit(trigger.authorId, now(), repeatWindowMs(config.mention));
-    const affinityScore =
-      features.memory !== false && features.relationships !== false
-        ? store?.getUser?.(guildId, trigger.authorId)?.affinity?.score
-        : undefined;
+    const affinityScore = store?.getUser?.(guildId, trigger.authorId)?.affinity?.score;
     const decision = decideMention({
       // decideMention reads the kinds of a server call; a follow-up is one of them.
       kind: kind as 'mention' | 'reply' | 'name' | 'followUp',

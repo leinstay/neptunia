@@ -331,8 +331,8 @@ export function createErrandStore({
     void outbox.flush();
   }
 
-  /** Whether the journal takes lines now (`features.journal` exactly true, read now). */
-  const journalOn = (): boolean => Boolean(journal) && config()?.features?.journal === true;
+  /** Whether the journal takes lines: one was given. */
+  const journalOn = (): boolean => Boolean(journal);
 
   /**
    * The closing journal line of an end: kept to ride along the end's write to the board (one transaction with the move)

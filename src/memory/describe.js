@@ -138,7 +138,7 @@ import {
 import { clampText, oneLine } from './clamp.js';
 import { roleModel } from '../llm/roles.js';
 import { fillPromptTemplate } from '../behavior/prompt.js';
-import { createYoutubeCheck, isVideoVisionOn } from './youtube-check.js';
+import { createYoutubeCheck } from './youtube-check.js';
 import { gifWatchBlocker as gifWatchBlockerOf, gifWatchCap, gifWatchPrompt } from './gif-watch.js';
 import { log } from '../log.js';
 import { countToday as readDailyCount, dailyCounter, MINUTE_MS, utcDay } from '../time.js';
@@ -455,19 +455,17 @@ export function createDescriber({
     return typeof llm?.capLeft === 'function' && llm.capLeft() <= 0;
   }
 
-  /** Whether pictures are described under the live config and prompts (the switch and the describe prompt). */
+  /** Whether pictures are described under the live prompts (the describe prompt is there). */
   function picturesOn() {
     return pictureBlocker() === null;
   }
 
   /**
-   * Why pictures are not described under the live config and prompts, or
-   * null when they are: `off` (features.mediaDescriptions not true) or
-   * `no-prompt` (no describe prompt).
-   * @returns {'off'|'no-prompt'|null}
+   * Why pictures are not described under the live prompts, or null when
+   * they are: `no-prompt` (no describe prompt).
+   * @returns {'no-prompt'|null}
    */
   function pictureBlocker() {
-    if (hot.config.features?.mediaDescriptions !== true) return 'off';
     if (!hot.prompts?.describe) return 'no-prompt';
     return null;
   }
@@ -963,7 +961,7 @@ export function createDescriber({
    */
   function cachedDescriptions(guildId, items) {
     const descriptions = new Map();
-    if (hot.config.features?.mediaDescriptions !== true || !hot.prompts?.describe) return descriptions;
+    if (!hot.prompts?.describe) return descriptions;
     const cache = store.getMediaCache(guildId);
     for (const item of items ?? []) {
       const entry = item?.itemId ? cache[item.itemId] : undefined;
@@ -1363,8 +1361,6 @@ export function createDescriber({
    * still applies).
    */
   async function describeVideoCharged(guildId, item, { cacheOnly = false, force = false } = {}) {
-    // Video vision needs both switches, like the senses line (src/behavior/prompt.js#renderSenses).
-    if (!isVideoVisionOn(hot.config)) return { result: null, sent: false, attempted: false };
     const promptText = hot.prompts?.['describe-video'];
     if (!promptText || !isVideoCandidate(item)) return { result: null, sent: false, attempted: false };
 
@@ -1481,7 +1477,6 @@ export function createDescriber({
    * @returns {Promise<{ question: string, text: string }|null>}
    */
   async function rewatchVideo(guildId, item, question, { model = null } = {}) {
-    if (!isVideoVisionOn(hot.config) || hot.config.features?.videoRewatch === false) return null;
     const promptText = hot.prompts?.['rewatch-answer'];
     const asked = String(question ?? '').trim();
     if (!promptText || !isVideoCandidate(item) || !asked) return null;
@@ -1589,7 +1584,6 @@ export function createDescriber({
    * @returns {Promise<{ question: string, text: string }|null>}
    */
   async function relookImage(guildId, item, question, { model = null } = {}) {
-    if (hot.config.features?.imageRelook === false) return null;
     const promptText = hot.prompts?.['rewatch-answer'];
     const asked = String(question ?? '').trim();
     if (!promptText || item?.kind !== 'image' || !item.itemId || !item.url || !asked) return null;
@@ -1733,7 +1727,7 @@ export function createDescriber({
    * @returns {Promise<{ question: string, text: string }|null>}
    */
   async function rewatchGif(guildId, item, question, { model = null } = {}) {
-    if (gifWatchBlocker() !== null || hot.config.features?.videoRewatch === false) return null;
+    if (gifWatchBlocker() !== null) return null;
     const promptText = hot.prompts?.['rewatch-answer'];
     const asked = String(question ?? '').trim();
     const source = gifAnimationSource(item);

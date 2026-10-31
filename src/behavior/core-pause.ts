@@ -11,7 +11,7 @@
 // stops it, and what is left waits for the next resume.
 //
 // It also holds the rule of the owner's command line in the private-chat gate: a direct chat of `iface: 'cli'` is the
-// owner's own, so it passes whatever features.privateMessages and bot.owners say (`privateChatsOff`, `CLI_GATE`).
+// owner's own, so it passes whatever private.enabled and bot.owners say (`privateChatsOff`, `CLI_GATE`).
 
 import { MINUTE_MS } from '../time.js';
 import { catchUpSettings } from './catch-up.js';
@@ -27,11 +27,11 @@ export const CLI_IFACE = 'cli';
  * The private-chat gate's answer for the owner's command line (src/pipeline/private-gate.ts#checkPrivateGate): it lets
  * it through.
  */
-export const CLI_GATE = Object.freeze({ gate: Object.freeze({ ok: true }), isOwner: true, replies: null, today: '' });
+export const CLI_GATE = Object.freeze({ gate: Object.freeze({ ok: true }), isOwner: true });
 
-/** Whether direct chats are off for `event`: `features.privateMessages` is not on and the chat is not the owner's. */
-export const privateChatsOff = (features: unknown, event: unknown): boolean =>
-  looseOf(features).privateMessages !== true && looseOf(event).iface !== CLI_IFACE;
+/** Whether direct chats are off for `event`: `private.enabled` is not on and the chat is not the owner's. */
+export const privateChatsOff = (config: unknown, event: unknown): boolean =>
+  looseOf(looseOf(config).private).enabled !== true && looseOf(event).iface !== CLI_IFACE;
 
 /** The event without the platform handles an in-process interface attaches: what the hold stores. */
 export function heldEventOf(event: unknown): Loose {
@@ -57,11 +57,11 @@ export function holdIfPaused(event: unknown, context: unknown, store: unknown): 
 }
 
 /** Where the pipeline is when a line arrives while paused. */
-type PausedPlace = { guildId: string | null; selfId: string; dryRunChannelId: string; memoryOn: boolean };
+type PausedPlace = { guildId: string | null; selfId: string };
 
 /**
  * How a line that arrives while paused is observed: `direct` and the record it belongs to, or null for a line the live
- * path would not observe now. A line of the served guild outside threads and the dry-run mirror is observed, hers or a
+ * path would not observe now. A line of the served guild outside threads is observed, hers or a
  * member's, another bot's not. A direct chat is observed only from the owner's command line: any other waits for its
  * private-chat gate at the resume.
  */
@@ -74,14 +74,13 @@ function pausedObservation(
   const author = looseOf(message.author);
   const conversation = looseOf(fields.conversation);
   const { guildId } = place;
-  if (!place.memoryOn || guildId === null || guildId === '') return null;
+  if (guildId === null || guildId === '') return null;
   if (fields.edit === true || fields.deleted === true || message.system === true) return null;
   if (conversation.communityId === null || conversation.communityId === undefined) {
     if (fields.iface !== CLI_IFACE || author.self === true || typeof author.id !== 'string') return null;
     return { direct: true, where: { guildId, privateUserId: author.id } };
   }
   if (conversation.communityId !== guildId || conversation.kind === 'thread') return null;
-  if (place.dryRunChannelId !== '' && conversation.id === place.dryRunChannelId) return null;
   if (author.bot === true && author.id !== place.selfId) return null;
   return { direct: looseOf(fields.addressing).mentioned === true, where: { guildId } };
 }
@@ -96,15 +95,11 @@ export type PausedDeps = {
 
 /** Observes a line that arrives while paused into the memory database, awaited; nothing else happens to it here. */
 export async function observeWhilePaused(event: unknown, deps: PausedDeps): Promise<void> {
-  const config = looseOf(looseOf(deps.hot).config);
   const guildId = deps.getGuildId();
   const selfId = deps.selfIdOf();
-  const dryRun = looseOf(config.bot).dryRunChannelId;
   const observed = pausedObservation(event, {
     guildId: typeof guildId === 'string' ? guildId : null,
     selfId: typeof selfId === 'string' ? selfId : '',
-    dryRunChannelId: typeof dryRun === 'string' ? dryRun : '',
-    memoryOn: looseOf(config.features).memory !== false,
   });
   // The pipeline's observe path takes the event the door validated.
   if (observed !== null) await deps.observeLine(event as never, observed.direct, observed.where);
@@ -135,7 +130,7 @@ async function callOn(owner: unknown, name: string, args: Array<unknown>): Promi
 export async function resumeHeld(deps: ResumeDeps): Promise<number> {
   const config = looseOf(deps.hot).config;
   const isPaused = (): boolean => isPausedIn(deps.store);
-  const answer = looseOf(looseOf(config).features).offlineCatchUp !== false;
+  const answer = true;
   const windowMs = catchUpSettings(looseOf(config)).windowMinutes * MINUTE_MS;
   let replayed = 0;
   for (const held of deps.ingest.held()) {

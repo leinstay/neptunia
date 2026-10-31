@@ -143,25 +143,9 @@ function citationsOf(annotations) {
   return urlCitations(annotations).map(({ title, url }) => ({ title, url }));
 }
 
-/**
- * Whether the web lookup is on. Unlike the other `features.*` switches a
- * missing key counts as OFF: it costs money and needs a key.
- */
-function webOn(config) {
-  return config?.features?.webLookup === true;
-}
-
-/**
- * Whether a link posted in the chat is read as a preview (features.coreTools exactly true):
- * the opening of the page's own text, no model role condensing it.
- */
-function previewOn(config) {
-  return config?.features?.coreTools === true;
-}
-
 /** The media cache key of a link's read: `preview:<id>` under previewOn, else `read:<id>`. */
 function linkKey(config, link) {
-  return `${previewOn(config) ? 'preview' : 'read'}:${link.id}`;
+  return `preview:${link.id}`;
 }
 
 /** A positive number from the config, else `fallback`. */
@@ -349,10 +333,8 @@ export function createLookup({
   /** Whether `link` may be read under the live config at all (switches, prompt, kind, sites, file path). */
   function readable(link) {
     const config = hot.config;
-    if (!webOn(config)) return false;
     const linksCfg = config.web?.links ?? {};
     if (linksCfg.enabled === false) return false;
-    if (!previewOn(config) && !hot.prompts?.['read-link']) return false;
     if (!link?.id || !link.url) return false;
     if (link.kind !== undefined && link.kind !== 'link') return false;
     if (videoSiteFor(link.url, linksCfg.skipSites ?? [])) return false;
@@ -388,7 +370,7 @@ export function createLookup({
       return { result: null, attempted: true };
     };
 
-    const preview = previewOn(config);
+    const preview = true;
     // The condensing request would be refused: no fetch, no slot, no miss (a preview sends none).
     if (!preview && capSpent()) {
       report('limit', 'daily-cap');
@@ -552,7 +534,6 @@ export function createLookup({
    */
   async function search(guildId, query) {
     const config = hot.config;
-    if (!webOn(config)) return null;
     const searchCfg = config.web?.search ?? {};
     if (searchCfg.enabled === false) return null;
     const promptText = hot.prompts?.['search-summary'];
@@ -734,7 +715,6 @@ export function createLookup({
   async function searchResults(guildId, query) {
     const config = hot.config;
     const failedWith = (code, status) => ({ failed: { code, ...(status !== undefined ? { status } : {}) } });
-    if (!webOn(config)) return failedWith(CODE.NOT_CONFIGURED);
     const searchCfg = config.web?.search ?? {};
     if (searchCfg.enabled === false) return failedWith(CODE.NOT_CONFIGURED);
     const asked = cleanQuery(query);
@@ -874,7 +854,6 @@ export function createLookup({
    */
   async function readPage(guildId, url) {
     const config = hot.config;
-    if (!webOn(config)) return { ok: false, reason: 'not-configured' };
     const linksCfg = config.web?.links ?? {};
     const maxChars = positiveOr(linksCfg.readChars, PAGE_READ_CHARS_FALLBACK);
     const asked = String(url ?? '').trim();

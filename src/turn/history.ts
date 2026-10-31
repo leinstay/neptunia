@@ -13,7 +13,6 @@ export const NO_RECENT = Object.freeze({ lines: undefined, audience: undefined }
 /** The config keys withReplyParents reads. */
 type ReplyParentsConfig = {
   context?: { fetchReplyParents?: unknown; replyParentsFor?: number; replyParentsMax?: number } | null;
-  features?: { anchoredWindow?: unknown } | null;
 };
 
 /**
@@ -43,7 +42,7 @@ export async function withReplyParents(
   const own = trigger && (!trigger.channelId || trigger.channelId === channel.id) ? trigger : null;
   const parents = await fetchReplyParents(reads, { iface: channel.iface, conversationId: channel.id }, history, {
     trigger: own,
-    recent: config.features?.anchoredWindow === true ? history.length : (context.replyParentsFor ?? 3),
+    recent: history.length,
     max: context.replyParentsMax ?? 4,
   });
   // Marked, so the request can say which of its lines came from outside the window (the journal's `seen.parents`).

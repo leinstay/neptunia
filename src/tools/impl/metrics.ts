@@ -1,5 +1,4 @@
-// The speed figures of the owner's `/nep status` card: how long a reply, a recall step, the
-// planner, an analyzer batch or an embedding flush took over the last day. The durations come
+// The speed figures of the owner's `/nep status` card: how long a reply, a recall step, an analyzer batch or an embedding flush took over the last day. The durations come
 // from the log lines that already carry them (src/log.js#onLog, subscribed in src/index.js via
 // `metricsTap`); each metric keeps its samples of the last 24 h, at most MAX_SAMPLES (the oldest
 // go first), in memory, and `data/metrics.json` keeps them across a restart (written at most once
@@ -46,8 +45,7 @@ const VERSION = 1;
 /**
  * The metrics the tap records, in the order the status card's speed field lists them.
  * `reply`: from the trigger to the turn's first message posted, every turn; split by whether a
- * recall ran during the turn. The recall steps, the planner, the analyzer batch and the
- * embedding flush come from their own log lines.
+ * recall ran during the turn. The recall steps, the analyzer batch and the embedding flush come from their own log lines.
  */
 export const SPEED_METRICS = Object.freeze([
   'reply',
@@ -59,7 +57,6 @@ export const SPEED_METRICS = Object.freeze([
   'memory match',
   'meaning search',
   'recall summary',
-  'planner',
   'analyzer batch',
   'embedding flush',
 ]);
@@ -223,7 +220,6 @@ const recalledSince = (recalledAt: number | undefined, startedAt: number): boole
  *     `meaningMs` (a step that took no time did not run: no sample); it also marks its channel as recalled at the line's time;
  *   - `recall: summary`: `ms` (the summary request; 0 when none was sent: no sample) and
  *     `totalMs` (the run from its start, as `recall total`);
- *   - `planner: classified`: `ms`;
  *   - `memory: update applied`, `memory: private update applied`: `ms` (`analyzer batch`);
  *   - `embedder: flushed`: `ms`, only for a flush that embedded something;
  *   - `turn: timings` opens a turn of its channel (it started `totalMs` before the line), with a
@@ -260,9 +256,6 @@ export function metricsTap(metrics: Pick<Metrics, 'record'>): (entry: unknown) =
       case 'recall: summary':
         if (positive(entry.ms)) metrics.record('recall summary', entry.ms);
         if (isDuration(entry.totalMs)) metrics.record('recall total', entry.totalMs);
-        break;
-      case 'planner: classified':
-        if (isDuration(entry.ms)) metrics.record('planner', entry.ms);
         break;
       case 'memory: update applied':
       case 'memory: private update applied':

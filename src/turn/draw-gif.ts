@@ -47,7 +47,6 @@ import type { TriggerKind } from './triggers.ts';
 
 /** The live config, as far as the pictures and GIFs read it; the settings functions read their own sections. */
 export type DrawGifConfig = {
-  features?: { imageGeneration?: unknown; gifs?: unknown; gifPicker?: unknown; promptCache?: unknown } | null;
   diary?: unknown;
   gifs?: { halfLifeDays?: number; ownMarkHours?: number } | null;
   context?: { replyQuoteChars?: number } | null;
@@ -322,7 +321,6 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
       data: none,
     });
     if (!images) return failed('not_configured', CODE.NOT_CONFIGURED);
-    if (hot.config.features?.imageGeneration === false) return failed('denied', CODE.FEATURE_OFF);
     const self = args?.self === true;
     // eslint-disable-next-line @typescript-eslint/no-base-to-string -- the model's argument may be any JSON value, read as text
     const scene = String(args?.text ?? '');
@@ -485,14 +483,10 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
   ): ResolvedGif | null {
     if (!gif) return null;
     let reason: string | null = null;
-    let entry: GifEntry | null | undefined = null;
-    if (hot.config.features?.gifs === false) reason = 'off';
-    else {
-      entry = store.findGif(guildId, gif.id);
-      const posts = gifsToday();
-      if (!entry) reason = 'unknown';
-      else if (posts.used >= posts.cap) reason = 'daily';
-    }
+    const entry: GifEntry | null | undefined = store.findGif(guildId, gif.id);
+    const posts = gifsToday();
+    if (!entry) reason = 'unknown';
+    else if (posts.used >= posts.cap) reason = 'daily';
     if (reason) {
       if (reason === 'daily') limits?.add({ kind: 'daily-cap', where: 'gifs.maxPerDay' });
       log.info('turn: gif dropped', { channel: channelId, reason, usedToday: gifsToday().used });
@@ -623,7 +617,6 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     trigger = null,
   }: PickArgs): Promise<ResolvedGif | null> {
     const config = hot.config;
-    if (config.features?.gifPicker === false || config.features?.gifs === false) return null;
     const prompt = hot.prompts?.['gif-pick'];
     if (typeof prompt !== 'string' || prompt.trim() === '') return null;
     if (typeof store.getGifs !== 'function' || typeof store.findGif !== 'function' || messages.length === 0)
@@ -636,10 +629,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     const at = clock();
     // The library as the first pick of this cache bucket rendered it (no clock in it); the
     // signature lets an edit of its labels or settings show at once.
-    const freeze =
-      config.features?.promptCache === true
-        ? stableFreezeOf<{ library: Array<string>; handles: Array<string> }>(guildId)
-        : null;
+    const freeze = stableFreezeOf<{ library: Array<string>; handles: Array<string> }>(guildId);
     const { library, handles } = freezePerBucket<{ library: Array<string>; handles: Array<string> }>(
       freeze,
       'gif-pick',

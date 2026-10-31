@@ -1,7 +1,6 @@
 // The private chat: a direct message checked locally with zero tokens (the switch, other bots, the served guild,
-// membership, a stored profile, the public attitude and today's reply cap), dropped silently when refused but for the
-// daily-cap notice, observed like a direct call and answered in its own turn; the same gate and count for a queued
-// direct message and for a recovery turn in a DM. createMessageHandler (src/behavior/pipeline.js) builds it once with
+// membership, a stored profile and the public attitude), dropped silently when refused, observed like a direct call
+// and answered in its own turn; the same gate for a queued direct message and for a recovery turn in a DM. createMessageHandler (src/behavior/pipeline.js) builds it once with
 // createPrivateGate; the live path, the drain of the pending queue and the replay of a held chat call it.
 
 import { lineOf } from '../behavior/line-of.js';
@@ -12,7 +11,6 @@ import type { Reads } from '../interface/reads.ts';
 import { log } from '../log.js';
 import type { ConversationInfo, ConversationRef } from '../protocol/adapter.ts';
 import { isOwnerId } from '../tools/impl/grants.ts';
-import { utcDay } from '../time.js';
 import type { MessageEvent, Observed } from './edits.ts';
 
 /** A normalized line (src/behavior/line-of.js#lineOf), as the private chat reads it. */
@@ -28,26 +26,16 @@ export type PrivateLine = {
 /** A turn's result as the private chat reads it (src/turn/outcome.ts). */
 type TurnResultOf = { outcome?: string; limit?: object | null } | undefined;
 
-/** The private-chat gate's verdict for one author, with what the cap notice needs. */
-export type GateCheck = {
-  gate: { ok: boolean; reason?: string; cap?: number; used?: number };
-  isOwner: boolean;
-  replies: { day?: string; count?: number; noticedDay?: string } | null;
-  today: string;
-};
+/** The private-chat gate's verdict for one author. */
+export type GateCheck = { gate: { ok: boolean; reason?: string }; isOwner: boolean };
 
 /** The live config, as far as the private chat reads it (privateGate reads the rest). */
-type PrivateConfig = { readonly features?: { readonly memory?: unknown; readonly privateMessages?: unknown } } & object;
+type PrivateConfig = { readonly private?: { readonly enabled?: unknown } } & object;
 
 /** What createPrivateGate reads: the dependencies of createMessageHandler and the functions of its other parts. */
 export type PrivateContext = {
   hot: { readonly config: PrivateConfig; readonly prompts?: { readonly labels?: object } | null };
-  store: {
-    bumpPrivateReplies: (guildId: string, userId: string, day: string) => void;
-    getUser: (guildId: string, userId: string) => object | null;
-    getPrivate: (guildId: string, userId: string) => { replies?: GateCheck['replies'] } | null;
-    markPrivateNoticed: (guildId: string, userId: string, day: string) => void;
-  };
+  store: { getUser: (guildId: string, userId: string) => object | null };
   reads: Reads;
   now: () => number;
   getGuildId: () => string | null;
@@ -69,12 +57,6 @@ export type PrivateContext = {
   turnBlocked: (channelId: string, config: object) => boolean;
   holdCall: (channel: ConversationInfo, trigger: PrivateLine, kind: string) => void;
   queuedFor: (channelId: string, trigger: PrivateLine) => unknown;
-  notifyLimit: (
-    channel: ConversationInfo,
-    trigger: PrivateLine,
-    limit: { key: string; used?: number; cap?: number },
-    triggerKind: string
-  ) => Promise<void>;
   announceRefusal: (
     channel: ConversationInfo,
     trigger: PrivateLine,
@@ -91,13 +73,7 @@ export type PrivateGate = {
     result: TurnResultOf
   ) => Promise<void>;
   checkPrivateGate: (config: PrivateConfig, guildId: string, authorId: string, iface?: string) => Promise<GateCheck>;
-  dropPrivate: (
-    channel: ConversationInfo,
-    guildId: string,
-    authorId: string,
-    trigger: PrivateLine,
-    check: GateCheck
-  ) => Promise<void>;
+  dropPrivate: (check: GateCheck) => void;
   onPrivateMessage: (event: MessageEvent, config: PrivateConfig) => Promise<void>;
 };
 
@@ -105,7 +81,6 @@ export function createPrivateGate({
   hot,
   store,
   reads,
-  now,
   getGuildId,
   selfIdOf,
   activity,
@@ -118,23 +93,15 @@ export function createPrivateGate({
   turnBlocked,
   holdCall,
   queuedFor,
-  notifyLimit,
   announceRefusal,
 }: PrivateContext): PrivateGate {
-  /**
-   * After a private turn: every turn that reached the model (it spoke, or it
-   * chose to stay silent -- `skip`) counts toward today's cap; a refusal is
-   * announced. A refused, busy, paused, error or not-now turn is not counted.
-   */
+  /** After a private turn: a refusal is announced. */
   async function afterPrivateTurn(
     channel: ConversationInfo,
-    guildId: string,
+    _guildId: string,
     trigger: PrivateLine,
     result: TurnResultOf
   ): Promise<void> {
-    if (result?.outcome === 'spoke' || result?.outcome === 'skip') {
-      store.bumpPrivateReplies(guildId, trigger.authorId, utcDay(now()));
-    }
     await announceRefusal(channel, trigger, result, 'private');
   }
 
@@ -153,22 +120,20 @@ export function createPrivateGate({
     if (iface === CLI_IFACE) return CLI_GATE;
     const profile = store.getUser(guildId, authorId);
     const isOwner = isOwnerId(config, authorId);
-    const replies = store.getPrivate(guildId, authorId)?.replies ?? null;
-    const today = utcDay(now());
-    const input = { config, profile, isOwner, replies, today };
+    const input = { config, profile, isOwner };
 
     const free = privateGate({ ...input, isMember: true });
-    if (!free.ok && free.reason !== 'cap') return { gate: free, isOwner, replies, today };
+    if (!free.ok) return { gate: free, isOwner };
     const found = await reads.memberInfo({ communityId: guildId, memberId: String(authorId) });
     const isMember = found?.member != null;
-    return { gate: privateGate({ ...input, isMember }), isOwner, replies, today };
+    return { gate: privateGate({ ...input, isMember }), isOwner };
   }
 
-  // A recovery turn of the missed-answer registry in a DM passes the same gate, and counts toward the same cap.
+  // A recovery turn of the missed-answer registry in a DM passes the same gate.
   missed?.setPrivateRecovery?.({
     allow: async (_channel: ConversationInfo, trigger: PrivateLine) => {
       const guildId = getGuildId();
-      if (!guildId || hot.config.features?.privateMessages !== true) return false;
+      if (!guildId || hot.config.private?.enabled !== true) return false;
       return (await checkPrivateGate(hot.config, guildId, trigger.authorId)).gate.ok === true;
     },
     after: async (channel: ConversationInfo, trigger: PrivateLine, result: TurnResultOf) => {
@@ -177,36 +142,20 @@ export function createPrivateGate({
     },
   });
 
-  /**
-   * A DM the gate refused: dropped silently (the reason is logged), except
-   * the daily-cap notice, posted at most once a day per person.
-   */
-  async function dropPrivate(
-    channel: ConversationInfo,
-    guildId: string,
-    authorId: string,
-    trigger: PrivateLine,
-    { gate, isOwner, replies, today }: GateCheck
-  ): Promise<void> {
+  /** A DM the gate refused: dropped silently, the reason logged. */
+  function dropPrivate({ gate }: GateCheck): void {
     log.info('private: dropped', { reason: gate.reason });
-    if (gate.reason === 'cap' && replies?.noticedDay !== today) {
-      store.markPrivateNoticed(guildId, authorId, today);
-      const key = isOwner ? 'private.maxPerOwnerPerDay' : 'private.maxPerUserPerDay';
-      await notifyLimit(channel, trigger, { key, used: gate.used, cap: gate.cap }, 'private');
-    }
   }
 
   /**
    * A direct message (private chat). Checked locally with zero tokens: the
-   * switch, other bots, the served guild, membership, a stored profile, the
-   * public attitude and today's reply cap (privateGate). A refused DM is
-   * dropped silently, except the daily-cap notice once a day per person. No
-   * ignore roll, follow-up window, eavesdrop or address classifier here.
+   * switch, other bots, the served guild, membership, a stored profile and the
+   * public attitude (privateGate). A refused DM is dropped silently. No
+   * follow-up window or address classifier here.
    */
   async function onPrivateMessage(event: MessageEvent, config: PrivateConfig): Promise<void> {
     const author = event.message.author;
-    const features = config.features ?? {};
-    if (privateChatsOff(features, event)) return;
+    if (privateChatsOff(config, event)) return;
     const selfId = selfIdOf();
     if (author.bot && author.id !== selfId) return;
     // When the partner last wrote here (pace.settleMs); the persona's own messages never count.
@@ -214,7 +163,6 @@ export function createPrivateGate({
 
     const guildId = getGuildId();
     if (!guildId) return;
-    const memoryOn = features.memory !== false;
     // lineOf gives the normalized line of a message event.
     const normalized = lineOf(event) as PrivateLine;
 
@@ -228,11 +176,9 @@ export function createPrivateGate({
       if (!partnerId || String(partnerId) === String(selfId)) return;
       // isLimitNotice reads the labels it is given, a missing labels file as none.
       if (isLimitNotice(hot.prompts?.labels as object, normalized.content)) return;
-      if (memoryOn) {
-        memory.observe(guildId, normalized, { private: partnerId });
-        const observing = observeLine(event, false, { guildId, privateUserId: String(partnerId) });
-        if (observing) await observing;
-      }
+      memory.observe(guildId, normalized, { private: partnerId });
+      const observing = observeLine(event, false, { guildId, privateUserId: String(partnerId) });
+      if (observing) await observing;
       return;
     }
 
@@ -241,16 +187,14 @@ export function createPrivateGate({
     if (!channel) return;
     const check = await checkPrivateGate(config, guildId, authorId, event.iface);
     if (!check.gate.ok) {
-      await dropPrivate(channel, guildId, authorId, normalized, check);
+      dropPrivate(check);
       return;
     }
 
     // Observed like a direct call.
-    if (memoryOn) {
-      memory.observe(guildId, normalized, { direct: true, private: authorId });
-      const observing = observeLine(event, true, { guildId, privateUserId: String(authorId) });
-      if (observing) await observing;
-    }
+    memory.observe(guildId, normalized, { direct: true, private: authorId });
+    const observing = observeLine(event, true, { guildId, privateUserId: String(authorId) });
+    if (observing) await observing;
 
     // One turn at a time: busy anywhere (or, with oneAtATime off, in this very
     // chat) -> pending, answered by drainPending once the turn frees up.

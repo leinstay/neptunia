@@ -157,10 +157,6 @@ export function createGifBackfill({ hot, store, reads, iface, describer = null, 
    */
   async function startIfNeeded(guildId) {
     try {
-      if (hot.config.features?.gifs === false) {
-        skipped('feature-off');
-        return;
-      }
       await run(guildId);
     } catch (err) {
       log.error('gif-backfill: failed', { error: err });

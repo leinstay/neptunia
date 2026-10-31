@@ -12,7 +12,7 @@ import {
   roleConfigKeys,
   roleModel,
 } from '../../llm/roles.js';
-import { onOff, reloadNote, setPath, MODEL_ID_RE, modelForRole } from './shared.ts';
+import { reloadNote, setPath, MODEL_ID_RE, modelForRole } from './shared.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
 import { objOf } from '../types.ts';
 
@@ -35,7 +35,6 @@ const handlers = perEnv((env) => {
       ...ERRAND_ROLES.map(lineOf),
       'development:',
       ...DEVELOPMENT_ROLES.map(lineOf),
-      `mediaDescriptions: ${onOff(cfg?.features?.mediaDescriptions === true)}`,
     ];
     return lines.join('\n');
   }

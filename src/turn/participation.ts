@@ -17,9 +17,7 @@ import { NO_RECENT } from './history.ts';
 import { inCommunity } from './routing.ts';
 
 /** The config keys participation reads itself; the settings functions read their own sections. */
-export type ParticipationConfig = {
-  features?: { memory?: unknown; participation?: unknown; around?: unknown } | null;
-};
+export type ParticipationConfig = Record<string, unknown>;
 
 /** A participation store's state as src/memory/participation.js keeps it. */
 type ParticipationState = ReturnType<typeof recordOwnLine>;
@@ -72,7 +70,7 @@ type RecentInput = {
 type AroundInput = { snapshot: AroundSnapshot; channelNameOf: (channelId: string) => string | null };
 
 export type Participation = {
-  participationOn: (channel: ConversationInfo, config: ParticipationConfig) => boolean;
+  participationOn: (channel: ConversationInfo) => boolean;
   participationAudience: (
     channel: ConversationInfo,
     config: unknown,
@@ -115,9 +113,7 @@ export function createParticipation({ hot, store, around, clock }: Participation
    * a server channel that is not a place of her diary (src/behavior/mirror.ts#diaryConversationIds), and a store that
    * keeps one. Recording, the pick classifier and the `<participation>` block all ask this.
    */
-  function participationOn(channel: ConversationInfo, config: ParticipationConfig): boolean {
-    const features = config.features ?? {};
-    if (features.memory === false || features.participation === false) return false;
+  function participationOn(channel: ConversationInfo): boolean {
     if (!inCommunity(channel) || typeof store.getParticipation !== 'function') return false;
     return !diaryConversationIds(store).has(String(channel.id));
   }
@@ -152,7 +148,6 @@ export function createParticipation({ hot, store, around, clock }: Participation
    * Read at the moment of the request; nothing of it is kept.
    */
   function aroundInputFor({
-    config,
     mode,
     isPrivate,
     snapshot = null,
@@ -162,7 +157,7 @@ export function createParticipation({ hot, store, around, clock }: Participation
     isPrivate: boolean;
     snapshot?: Snapshot | null;
   }): AroundInput | null {
-    if (!around || config.features?.around === false || isPrivate || mode === 'diary') return null;
+    if (!around || isPrivate || mode === 'diary') return null;
     return {
       snapshot: around.view(),
       channelNameOf: (channelId) => {
@@ -248,7 +243,7 @@ export function createParticipation({ hot, store, around, clock }: Participation
   }): void {
     try {
       const config = hot.config;
-      if (!participationOn(channel, config)) return;
+      if (!participationOn(channel)) return;
       const settings = participationSettings(config);
       const at = clock();
       const shape = (message: HistoryMessage): ParticipationMessage =>

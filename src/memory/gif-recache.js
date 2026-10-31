@@ -375,7 +375,7 @@ export function createGifRecache({
    * `gifs.recachePerRun` library entries (recacheQueue) in the background.
    * Resolves at once, never throws for a skip: `{ ok: false, reason }` --
    * `running`, `paused`, `unavailable` (no describer), or why GIFs
-   * are not watched (`off`, `video-off`, `no-prompt`) -- else `{ ok: true,
+   * are not watched (`off`, `no-prompt`) -- else `{ ok: true,
    * dropped, queued }`.
    * @param {string} guildId
    */
@@ -500,8 +500,8 @@ export function createGifRecache({
    * and the current vision and video models), then re-describes them in the
    * background. Resolves at once, never throws for a skip: `{ ok: false,
    * reason }` -- `running` (this or a GIF run), `paused`,
-   * `unavailable` (no describer), or why pictures are not described (`off`,
-   * `no-prompt`) -- else `{ ok: true, picked, days }`.
+   * `unavailable` (no describer), or why pictures are not described
+   * (`no-prompt`) -- else `{ ok: true, picked, days }`.
    * @param {string} guildId
    * @param {{ days?: number }} [options]  Whole days back, RECACHE_DAYS (out of bounds -> clamped).
    */

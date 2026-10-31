@@ -57,19 +57,6 @@ export const NOT_GRANTABLE_TO_PERSONA: ReadonlyArray<string> = Object.freeze([
   'inner.start',
 ]);
 
-/**
- * The skills that exist for the persona only while a feature switch is exactly true (skill name
- * -> `features.<key>`): off, they are refused (`feature-off`), never listed to her and never
- * offered to a classifier, so a request is as it was before them.
- */
-export const FEATURE_SKILLS: Readonly<Record<string, string>> = Object.freeze(
-  Object.fromEntries(
-    SKILL_DEFINITIONS.flatMap((definition) =>
-      definition.feature === null ? [] : [[definition.name, definition.feature] as const]
-    )
-  )
-);
-
 /** The policy version of the wake envelopes (recorded on every wake run). */
 export const WAKE_POLICY_VERSION = 1;
 
@@ -200,17 +187,6 @@ export function nestedRefusal({
   return null;
 }
 
-/** Whether skill `name` exists now: no switch of its own (FEATURE_SKILLS), or its switch exactly true. */
-export function skillFeatureOn(name: string, config: unknown): boolean {
-  const key = Object.hasOwn(FEATURE_SKILLS, name) ? (FEATURE_SKILLS[name] ?? null) : null;
-  return key === null || objOf(objOf(config).features)[key] === true;
-}
-
-/** True when `features.tools` is not false (a missing key counts as on). */
-export function skillsOn(config: unknown): boolean {
-  return objOf(objOf(config).features).tools !== false;
-}
-
 /** True when `tools.safeMode` is exactly true. */
 export function safeModeOn(config: unknown): boolean {
   return objOf(objOf(config).tools).safeMode === true;
@@ -256,8 +232,6 @@ export function skillAccess({
   wakeKind?: string | null;
   wakeActions?: ReadonlyArray<WakeAction> | null;
 }): SkillVerdict {
-  if (!skillsOn(config)) return { allowed: false, reason: CODE.SKILLS_OFF };
-  if (!skillFeatureOn(skill.name, config)) return { allowed: false, reason: CODE.FEATURE_OFF };
   const envelope = wakeEnvelopeRefusal({ config, wakeKind, skill: skill.name, actions: wakeActions });
   if (envelope) return envelope;
   const target = conversationId ?? currentConversationId;

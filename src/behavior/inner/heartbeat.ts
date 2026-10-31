@@ -4,7 +4,7 @@
 // outcome. The tick (src/behavior/inner.ts) and the drain (src/behavior/inner/drain.ts) call it.
 
 import { MINUTE_MS } from '../../time.js';
-import { intentionsOn, openFromHeartbeat } from '../../intentions/model.ts';
+import { openFromHeartbeat } from '../../intentions/model.ts';
 import { errorCode, isFiniteNumber } from '../../tools/types.ts';
 import { buildHeartbeatFacts } from '../heartbeat-view.ts';
 import type { HeartbeatFacts } from '../heartbeat-view.ts';
@@ -123,7 +123,7 @@ export async function heartbeatFacts(
   settings: InnerSettings,
   at: number
 ): Promise<HeartbeatFacts | null> {
-  const { hot, intentions, record, nameOf, journal, store, heartbeatSources, log } = life;
+  const { intentions, record, nameOf, journal, store, heartbeatSources, log } = life;
   const state = stateOf(life, guildId);
   const guarded = (fn: () => unknown, fallback: unknown): unknown => {
     try {
@@ -143,10 +143,7 @@ export async function heartbeatFacts(
       selfId: guarded(() => heartbeatSources.selfId?.(), null),
       record,
       journal,
-      intentions: guarded(
-        () => (intentionsOn(hot.config) ? intentions?.list?.(guildId, { all: true, closed: true }) : []),
-        []
-      ),
+      intentions: guarded(() => intentions?.list?.(guildId, { all: true, closed: true }), []),
       tasks: guarded(() => heartbeatSources.tasks?.(guildId), []),
       diary: guarded(() => store?.getDiary?.(guildId)?.posts, []),
       places: placesInWakeOf(life, guildId, settings),

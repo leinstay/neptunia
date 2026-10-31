@@ -31,7 +31,6 @@ export type FollowUpContext = {
   turns: PipelineTurns;
   followUpGate: FollowUpWindows['followUpGate'];
   followUpMuted: FollowUpWindows['followUpMuted'];
-  followUpOff: FollowUpWindows['followUpOff'];
   currentOf: (channel: Conv) => Promise<Conv>;
   refOf: (channel: Conv) => ConversationRef;
   classifyFollowUp: ClassifyFollowUp;
@@ -63,7 +62,6 @@ export function createFollowUp({
   turns,
   followUpGate,
   followUpMuted,
-  followUpOff,
   currentOf,
   refOf,
   classifyFollowUp,
@@ -229,7 +227,6 @@ export function createFollowUp({
   async function startWaitingLine(channelId: string, waiting: Candidate): Promise<void> {
     const config = hot.config;
     let reason: string | null = followUpMuted();
-    if (!reason && followUpOff(config)) reason = 'off';
     if (!reason) {
       const here = await currentOf(waiting.channel);
       if (!here.permissions.send) reason = 'cannot-send';

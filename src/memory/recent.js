@@ -86,7 +86,6 @@ const MAX_ZONE_AHEAD_MS = 14 * HOUR_MS;
  *   clampTolerance: number|undefined } | null}
  */
 export function recentSettings(config) {
-  if (config?.features?.recent === false) return null;
   const memory = isPlainObject(config?.memory) ? config.memory : {};
   return {
     hours: memory.recentHours ?? RECENT_DEFAULTS.hours,

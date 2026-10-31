@@ -103,7 +103,6 @@ export function loadSkills(
         targets: definition.targets ?? null,
         interfaceCapability: definition.interfaceCapability ?? null,
         ...(definition.api !== undefined ? { api: definition.api } : {}),
-        ...(definition.feature !== undefined ? { feature: definition.feature } : {}),
         ...(definition.result !== undefined ? { result: definition.result } : {}),
         ...(dispatch ? { opBacked: true, dispatch } : {}),
       })
@@ -131,7 +130,6 @@ export function definitionsOf(table: ReadonlyArray<unknown> = SKILL_DEFINITIONS)
       targets: null,
       interfaceCapability: null,
       api: entry.api,
-      feature: entry.feature,
       result: entry.result,
       dispatch: Object.freeze({
         op: entry.op,
