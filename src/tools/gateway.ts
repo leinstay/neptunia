@@ -359,12 +359,14 @@ export function abilityRoute({
   role: string;
   health: RoleHealth | null;
 }): AbilityRoute {
-  const own = { kind: 'role', role, model: String(roleModel(config, role) ?? '') } as const;
+  // roleModel and modelAbilities read the config as an object; any other value has no models and gives the defaults.
+  const models = config !== null && typeof config === 'object' ? config : undefined;
+  const own = { kind: 'role', role, model: String(roleModel(models, role) ?? '') } as const;
   const down = isToolRole(role) ? (health?.down(config, role) ?? null) : null;
   if (down === null) return own;
   const ability = abilityOf(role);
-  const core = String(roleModel(config, CORE_ROLE) ?? '');
-  return modelAbilities(config, core).includes(ability)
+  const core = String(roleModel(models, CORE_ROLE) ?? '');
+  return modelAbilities(models, core).includes(ability)
     ? { kind: 'core', role, ability, model: core, reason: down.reason }
     : { kind: 'unavailable', role, ability, reason: down.reason };
 }

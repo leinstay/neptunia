@@ -128,7 +128,10 @@ export function reportingLlm<TClient extends Completing>(
   llm: TClient,
   { health, hot, roles }: { health: RoleHealth; hot: unknown; roles: ReadonlyArray<string> }
 ): TClient {
-  const config = (): unknown => configOf(hot);
+  const config = (): object | undefined => {
+    const live = configOf(hot);
+    return live !== null && typeof live === 'object' ? live : undefined;
+  };
   const roleOf = (options: unknown): string | null => {
     const given = options !== null && typeof options === 'object' ? options : {};
     const role: unknown = Reflect.get(given, 'role');
