@@ -450,6 +450,97 @@
       "test": "none"
     },
     {
+      "path": "src/turn/",
+      "purpose": "The functions of a turn that stand on their own, one topic per module: its settings, timers, triggers, inputs, mentions, targets, media, history, routing, journal records and skill calls. `src/behavior/turn.js` imports them and re-exports what its importers read.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/turn/settings.ts",
+      "purpose": "The pace and tool loop settings a turn reads from the live config. Tested through the turn, config and inner turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/timers.ts",
+      "purpose": "The stages, the bar signal, the typing refresh and the stage record of a turn's preparation. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/triggers.ts",
+      "purpose": "The trigger kinds and what they say about a turn: plain posts, who waits, who asked, the attention. Tested through the turn and attention tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/lookup-input.ts",
+      "purpose": "The transcript and trigger input of the re-watch and search classifiers. Tested through the turn and search policy eval tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/mentions.ts",
+      "purpose": "The `@name` matching, the member directory, the stored names and profiles a request shows, and the untagged note. Tested through the turn and mention feedback tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/targets.ts",
+      "purpose": "Where a post or a reaction lands, the link a post carries, a post's check arguments and the dry-run mirror's parts. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/media.ts",
+      "purpose": "The re-watch classifier's tokens and the media of a history a turn's preparation works on. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/history.ts",
+      "purpose": "The history a turn reads with its reply parents and continues after a skill call. Tested through the turn, prompt anchors and replay loop tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/routing.ts",
+      "purpose": "The destination of words about a channel she cannot write in, the route of a routed call and the channel directory. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/journal.ts",
+      "purpose": "The journal records of a turn: skip codes, operations, diagnostics, send hashes, usage and the turn record. Tested through the journal turn, skill result and failed-earlier tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/calls.ts",
+      "purpose": "Her skill calls as a turn makes them: the requester, the call view, the search handles, the envelope, the answer split and the reply request's options. Tested through the replay skill, replay loop and turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/task-input.ts",
+      "purpose": "The `tasks` input of a turn's request. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/errands/",
       "purpose": "The errand service: the ledger, the store, the client to the runner and the turns that bring results back.",
       "layer": "public",
