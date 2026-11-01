@@ -940,11 +940,7 @@ const EMOJI_INDEX = [
  */
 function cacheScene({ triggerFields, config: configOverrides = {}, ...overrides } = {}) {
   return segmentScene({
-    config: fakeConfig({
-      memory: { interestStaleDays: 30, confirmAfter: 2 },
-      private: { enabled: true },
-      context: { customEmoji: { max: 2 } },
-    }),
+    config: fakeConfig({ private: { enabled: true } }),
     triggerFields: { content: 'ωραίο :pog:', emojis: [{ id: '9', name: 'pog' }], ...triggerFields },
     guildMemory: {
       patterns: 'talks fast',
@@ -1027,10 +1023,12 @@ test('buildRequest: the senses lines are the ones of one block, only moved; <emo
     e.header,
     fill(e.entry, { name: 'beta', text: 'a dancing bean' }),
     fill(e.entryNoText, { name: 'alpha' }),
+    // PR 7d: context.customEmoji.max is the constant 30, so the whole list of three is shown.
+    fill(e.entryNoText, { name: 'gamma' }),
     e.seenInChat,
     fill(e.entry, { name: 'pog', text: 'a surprised cat face' }),
   ]);
-  assert.equal(request.stats.emoji.kept, 5);
+  assert.equal(request.stats.emoji.kept, 6);
 
   // Nothing of this turn in the cached part: its clock, tempo, channel, quotas, private flag, chat emoji.
   const turnValues = [
@@ -1489,7 +1487,8 @@ test('buildRequest: under a tiny server cap, the map is trimmed but <chat> still
     fakeChannel('c2', { name: 'random', purpose: 'y'.repeat(200), lastMessageAt: NOW - MIN }),
   ];
   const neighbors = [{ channelId: 'c2', channelName: 'random', messages: [makeMessage(20, NOW - MIN)] }];
-  const config = fakeConfig({ llm: { maxRequestTokens: exactly(360) } });
+  // PR 7d: the fixed sections grew with the always-on senses lines, so the cap leaves 400 tokens, not 360.
+  const config = fakeConfig({ llm: { maxRequestTokens: exactly(400) } });
   const request = buildRequest(baseInput({ history, channels, neighbors, currentChannelId: 'c1', config }));
 
   assert.equal(request.stats.server.kept, 0);
@@ -1754,19 +1753,25 @@ test('profileStateFields: a compact profile shows at most the one strongest move
   assert.equal(movesOf(none), null);
 });
 
-test('buildRequest: relationships.shownMoves and bot.timezone reach the moves of the interlocutor, in their <people_now> entry', () => {
-  const history = [attitudeMove(1, 2, 'α', 22), attitudeMove(2, 3, 'β'), attitudeMove(3, 4, 'γ')];
+test('buildRequest: the four shown moves and bot.timezone reach the moves of the interlocutor, in their <people_now> entry', () => {
+  // PR 7d: relationships.shownMoves is the constant 4, so the fifth move of five falls out.
+  const history = [
+    attitudeMove(1, 2, 'α', 22),
+    attitudeMove(2, 3, 'β'),
+    attitudeMove(3, 4, 'γ'),
+    attitudeMove(4, 5, 'δ'),
+    attitudeMove(5, 6, 'ε'),
+  ];
   const interlocutor = { ...movedProfile(history), id: 'author-1', names: ['Alice'] };
-  const config = { ...fakeConfig(), relationships: { shownMoves: 2 } };
-  const request = buildRequest(baseInput({ config, interlocutor }));
-  // Europe/Moscow: 22:00 UTC on 03-01 is 03-02.
-  assert.equal(fieldsOf(rowOf(request, 'Alice'))[F.moves], 'move +3 on 2026-03-02: β; move +4 on 2026-03-03: γ');
+  const request = buildRequest(baseInput({ interlocutor }));
+  assert.equal(
+    fieldsOf(rowOf(request, 'Alice'))[F.moves],
+    'move +3 on 2026-03-02: β; move +4 on 2026-03-03: γ; move +5 on 2026-03-04: δ; move +6 on 2026-03-05: ε'
+  );
   assert.ok(
     !request.messages[1].content.some((part) => part.cacheSegment && part.text.includes('move ')),
     'no move in a cached part'
   );
-  const off = buildRequest(baseInput({ config: { ...fakeConfig(), relationships: { shownMoves: 0 } }, interlocutor }));
-  assert.equal(fieldsOf(rowOf(off, 'Alice'))[F.moves], undefined);
 });
 
 // --- renderProfile: episodes --------------------------------------------------
@@ -2033,20 +2038,21 @@ test('renderProfile: uses labels.profile.interestItem/interestItemNoNote when pr
   assert.ok(text.includes('interests: [Chess: weekly club]; <Anime>'));
 });
 
-test('buildRequest: config.memory.maxInterests caps how many interests render', () => {
+test('buildRequest: twelve interests render, the lightest of thirteen is left out', () => {
+  // PR 7d: memory.maxInterests is the constant 12 (the production value).
   const trigger = makeMessage(1, NOW - MIN, { authorName: 'Alice' });
   const interlocutor = {
     id: 'author-1',
     names: ['Alice'],
-    interests: [interestFixture({ topic: 'A', weight: 1 }), interestFixture({ topic: 'B', weight: 2 })],
+    interests: Array.from({ length: 13 }, (_, i) => interestFixture({ topic: `T${i + 1}`, weight: 13 - i })),
   };
-  const config = fakeConfig({ memory: { maxInterests: 1 } });
   const request = buildRequest(
-    baseInput({ config, history: [trigger], trigger, triggerKind: 'mention', interlocutor, otherProfiles: [] })
+    baseInput({ history: [trigger], trigger, triggerKind: 'mention', interlocutor, otherProfiles: [] })
   );
   const user = contentText(request.messages[1].content);
-  assert.ok(user.includes('interests: B'));
-  assert.ok(!user.includes('interests: B; A'));
+  assert.ok(user.includes('interests: T1; T2'));
+  assert.ok(user.includes('T12'));
+  assert.ok(!user.includes('T13'));
 });
 
 // --- renderProfile: unsure/stale marks (opt-in via confirmAfter/staleDays) ----
@@ -2839,7 +2845,7 @@ test('buildRequest: peopleShown names the members whose profile the budget kept,
   );
 });
 
-// --- <people>: episodes of the members asked about (context.askedAboutEpisodes) -----
+// --- <people>: episodes of the members asked about (context.askedAboutEpisodes, the constant 3) -----
 
 /** Five moments of one member: heaviest-then-newest order is ε5, ε4, ε3, ε2, ε1. */
 function askedEpisodes() {
@@ -2867,7 +2873,7 @@ function askedAboutScene({ context = {}, zoe = {}, ...overrides } = {}) {
   return { request, people: bodyOf(userText(request), 'people') ?? '' };
 }
 
-test('people: an asked-about member renders up to askedAboutEpisodes episodes, heaviest first', () => {
+test('people: an asked-about member renders up to three episodes, heaviest first', () => {
   const { people } = askedAboutScene();
   const lines = people.split('\n');
   assert.equal(lines[0], `## Zoé (@${handleOf('z1')})`);
@@ -2886,9 +2892,6 @@ test('people: an asked-about member renders up to askedAboutEpisodes episodes, h
   );
   assert.equal(lines[5], 'character: rêveuse');
   assert.ok(!people.includes('ε2') && !people.includes('ε1'), 'only the three heaviest of five are shown');
-
-  const two = askedAboutScene({ context: { askedAboutEpisodes: 2 } }).people;
-  assert.ok(two.includes('ε5') && two.includes('ε4') && !two.includes('ε3'));
 });
 
 test('people: a compact participant still renders no episodes', () => {
@@ -2921,11 +2924,9 @@ test('people: the interlocutor still renders every episode within caps.interlocu
       ),
       'people'
     );
-  const shown = own({ askedAboutEpisodes: 1 });
+  const shown = own({});
   for (const what of ['ε1', 'ε2', 'ε3', 'ε4', 'ε5'])
     assert.ok(shown.includes(what), `${what}: askedAboutEpisodes never caps the interlocutor`);
-  assert.equal(own({ askedAboutEpisodes: 0 }), shown);
-  assert.equal(own({}), shown);
 
   // A tight caps.interlocutor still drops the interlocutor's lightest episodes first, as before.
   const cost = (text) => estimateTokens(text) + 2;
@@ -2941,35 +2942,10 @@ test('people: the interlocutor still renders every episode within caps.interlocu
   ];
   const cap = cost(rest) + cost(labels.profile.episodes) + heavy.reduce((sum, line) => sum + cost(line), 0);
   const tight = own({
-    askedAboutEpisodes: 3,
     caps: { interlocutor: cap, aboutChat: 2500, people: 4000, neighbors: 3000, server: 2500, lore: 1500 },
   });
   assert.ok(tight.includes('ε5') && tight.includes('ε4'));
   assert.ok(!tight.includes('ε3') && !tight.includes('ε2') && !tight.includes('ε1'));
-});
-
-test('people: a request whose asked-about members have no episodes is the same whatever askedAboutEpisodes says', () => {
-  // The interlocutor and a compact participant have episodes, the member asked about has none.
-  const carl = { id: 'p2', names: ['Carl'], character: 'calm', episodes: askedEpisodes() };
-  const interlocutor = { id: 'u1', names: ['Ana'], character: 'vive', episodes: askedEpisodes() };
-  const scene = (askedAboutEpisodes) =>
-    askedAboutScene({
-      context: { askedAboutEpisodes },
-      zoe: { episodes: [] },
-      history: [
-        makeMessage(2, NOW - 2 * MIN, { authorId: 'p2', authorName: 'Carl' }),
-        makeMessage(1, NOW - MIN, { authorId: 'u1', authorName: 'Ana', content: 'τι έκανε η Zoé χθες;' }),
-      ],
-      otherProfiles: [carl],
-      interlocutor,
-    }).request;
-  const before = scene(0);
-  assert.ok(allPeopleOf(userText(before)).includes('## Zoé'));
-  for (const value of [3, 10]) {
-    const after = scene(value);
-    assert.deepEqual(after.messages, before.messages, String(value));
-    assert.deepEqual(after.stats, before.stats, String(value));
-  }
 });
 
 test('people: an asked-about member known only by episodes still shows them', () => {
@@ -2983,8 +2959,6 @@ test('people: an asked-about member known only by episodes still shows them', ()
     'the heading, the episodes heading and three episodes, nothing claiming she is unknown'
   );
   assert.ok(!people.includes(labels.profile.unknown));
-  const none = askedAboutScene({ zoe: { character: undefined }, context: { askedAboutEpisodes: 0 } }).people;
-  assert.equal(none, '', 'no episodes shown and nothing else known: no profile, as before');
 });
 
 test('people: under a tight caps.people the lightest episodes of an asked-about member go first and the member stays', () => {
@@ -3023,19 +2997,18 @@ test('people: near the request limit an asked-about member keeps her place and l
     makeMessage(2, NOW - 2 * MIN, { authorId: 'p2', authorName: 'Carl', content: 'καλημέρα' }),
     makeMessage(1, NOW - MIN, { authorId: 'u1', authorName: 'Ana', content: 'τι έκανε η Zoé χθες;' }),
   ];
-  const scene = (llm, askedAboutEpisodes) =>
+  const scene = (llm) =>
     askedAboutScene({
-      config: fakeConfig({ context: { askedAboutEpisodes }, llm }),
+      config: fakeConfig({ llm }),
       history,
       trigger: history[1],
       otherProfiles: [carl],
     });
   // What the sections ahead of <people> take: nothing after it is offered in this scene.
-  const loose = scene({}, 0).request.stats;
+  const loose = scene({}).request.stats;
   const ahead = loose.used - peopleSide(loose);
-  // A limit leaving <people> exactly `room` tokens (safetyMargin 1, no picture, 60 for the tags).
-  const tight = (room, askedAboutEpisodes) =>
-    scene({ maxRequestTokens: exactly(ahead + room + 60) }, askedAboutEpisodes);
+  // A limit leaving <people> exactly `room` tokens (no picture, 60 for the tags).
+  const tight = (room) => scene({ maxRequestTokens: exactly(ahead + room + 60) });
 
   const rest = renderProfile({ id: 'z1', names: ['Zoé'], character: 'rêveuse' }, labels, {
     relationships: true,
@@ -3049,9 +3022,8 @@ test('people: near the request limit an asked-about member keeps her place and l
   });
   const room = itemCost(rest, { id: 'z1', names: ['Zoé'] }) + cost(labels.profile.episodes) + cost(heaviest);
   assert.ok(room < fakeConfig().context.caps.people, 'the request limit binds, not caps.people');
-  assert.ok(tight(room, 0).people.startsWith(rest), 'without episodes she is shown');
 
-  const { request, people } = tight(room, 3);
+  const { request, people } = tight(room);
   assert.ok(
     people.startsWith(`## Zoé (@${handleOf('z1')})\n`),
     `the member asked about is never lost to her episodes: ${people}`
@@ -3060,7 +3032,7 @@ test('people: near the request limit an asked-about member keeps her place and l
   assert.ok(request.stats.used <= request.stats.limit);
 
   // Room for her profile and the episodes heading, none for an episode: no heading without an episode under it.
-  const headingOnly = tight(itemCost(rest, { id: 'z1', names: ['Zoé'] }) + cost(labels.profile.episodes), 3).people;
+  const headingOnly = tight(itemCost(rest, { id: 'z1', names: ['Zoé'] }) + cost(labels.profile.episodes)).people;
   assert.equal(headingOnly.split('\n\n')[0], rest);
   assert.ok(!headingOnly.includes(labels.profile.episodes));
 });
@@ -3153,20 +3125,15 @@ test("people: the first asked-about member's episodes never cost a later member 
     authorName: 'Ana',
     content: 'τι έκαναν η Zoé και ο Maxime χθες;',
   });
-  const scene = (askedAboutEpisodes) =>
-    buildRequest(
-      baseInput({
-        config: fakeConfig({ context: { caps, askedAboutEpisodes } }),
-        history: [trigger],
-        trigger,
-        triggerKind: 'mention',
-        candidateProfiles: [zoe, maxime],
-      })
-    );
-  const before = scene(0);
-  assert.deepEqual([before.stats.people.kept, before.stats.people.dropped], [2, 0], 'without episodes both are shown');
-
-  const request = scene(3);
+  const request = buildRequest(
+    baseInput({
+      config: fakeConfig({ context: { caps } }),
+      history: [trigger],
+      trigger,
+      triggerKind: 'mention',
+      candidateProfiles: [zoe, maxime],
+    })
+  );
   const body = bodyOf(userText(request), 'people');
   assert.equal(body, `${zoeWith(2)}\n\n${bareMaxime}`, 'Zoé loses her lightest episode, Maxime keeps his place');
   assert.deepEqual([request.stats.people.kept, request.stats.people.dropped], [2, 0]);
@@ -3189,10 +3156,10 @@ test('people: next to a pulled block near the request limit an asked-about membe
       content: `σελίδα ${i}: une longue page du journal, écrite avec soin`,
     })
   );
-  const scene = (llm, askedAboutEpisodes) =>
+  const scene = (llm) =>
     buildRequest(
       baseInput({
-        config: fakeConfig({ context: { askedAboutEpisodes }, llm }),
+        config: fakeConfig({ llm }),
         history: [trigger],
         trigger,
         triggerKind: 'mention',
@@ -3201,7 +3168,7 @@ test('people: next to a pulled block near the request limit an asked-about membe
       })
     );
   // What the sections ahead of <people> take, the pulled block included: nothing after it is offered.
-  const loose = scene({}, 0);
+  const loose = scene({});
   assert.equal(loose.stats.pulled.kept, 1);
   const ahead = loose.stats.used - peopleSide(loose.stats);
   assert.ok(
@@ -3209,8 +3176,8 @@ test('people: next to a pulled block near the request limit an asked-about membe
     'the block is larger than the two episodes left out'
   );
 
-  // A limit leaving <people> exactly her profile with her heaviest episode (safetyMargin 1, no picture, 60 for the tags).
-  const request = scene({ maxRequestTokens: ahead + itemCost(zoeWith(1), zoe) + 60, safetyMargin: 1 }, 3);
+  // A limit leaving <people> exactly her profile with her heaviest episode (no picture, 60 for the tags).
+  const request = scene({ maxRequestTokens: exactly(ahead + itemCost(zoeWith(1), zoe) + 60) });
   assert.deepEqual(
     [request.stats.pulled.kept, request.stats.pulled.linesCut],
     [1, 0],
@@ -3221,14 +3188,14 @@ test('people: next to a pulled block near the request limit an asked-about membe
   assert.ok(request.stats.used <= request.stats.limit);
 });
 
-test("people: a private chat shows an asked-about member's episodes like the server; privateLikeServer off hides them", () => {
+test("people: a private chat shows an asked-about member's episodes like the server; private.likeServer off hides them", () => {
   const zoe = { id: 'z1', names: ['Zoé'], character: 'rêveuse', episodes: askedEpisodes() };
   const history = [makeMessage(1, NOW - MIN, { authorId: 'u1', authorName: 'Alice', content: 'τι έκανε η Zoé χθες;' })];
   const shown = allPeopleOf(
     userText(buildRequest(privateScene({ history, trigger: history[0], candidateProfiles: [zoe] })))
   );
   assert.ok(shown.includes('## Zoé') && shown.includes('ε5'), 'a missing switch counts as on: the episodes show');
-  const off = fakeConfig({ features: { privateLikeServer: false } });
+  const off = fakeConfig({ private: { likeServer: false } });
   const user = userText(
     buildRequest(privateScene({ history, trigger: history[0], candidateProfiles: [zoe], config: off }))
   );
@@ -3257,37 +3224,10 @@ test('people: an author of a pulled line asked about through the pulled block sh
   assert.ok(people.includes('## Zoé') && people.includes('ε5') && !people.includes('ε2'));
 });
 
-// --- <senses>: the second look on a question (videoRewatch) --------------------------
-
-test('buildRequest: video watching and videoRewatch on -> the videoRewatch line right after the video line', () => {
-  const config = fakeConfig({ features: { mediaDescriptions: true } });
-  const lines = sensesOf(buildRequest(baseInput({ config }))).split('\n');
-  const at = lines.indexOf(labels.senses.videoWatch);
-  assert.ok(at !== -1);
-  assert.equal(lines[at + 1], labels.senses.videoRewatch);
-});
-
-test('buildRequest: videoRewatch false, video watching off, or no videoRewatch label -> no videoRewatch line', () => {
-  const cases = [
-    { features: { mediaDescriptions: true, videoRewatch: false } },
-    { features: { mediaDescriptions: true, videoDescriptions: false } },
-    { features: { mediaDescriptions: false } },
-  ];
-  for (const overrides of cases) {
-    const senses = sensesOf(buildRequest(baseInput({ config: fakeConfig(overrides) })));
-    assert.ok(!senses.includes(labels.senses.videoRewatch), JSON.stringify(overrides));
-  }
-  const oldLabels = { ...labels, senses: { ...labels.senses, videoRewatch: undefined } };
-  const config = fakeConfig({ features: { mediaDescriptions: true } });
-  const senses = sensesOf(buildRequest(baseInput({ config, prompts: fakePrompts({ labels: oldLabels }) })));
-  assert.ok(senses.includes(labels.senses.videoWatch));
-  assert.ok(!senses.includes(labels.senses.videoRewatch));
-});
-
 // --- the web lookup: <lookup>, read links, senses -----------------------------------
 
 function webConfig(features = {}, web = {}) {
-  const config = fakeConfig({ features: { webLookup: true, ...features } });
+  const config = fakeConfig();
   config.web = { links: { enabled: true, ...web.links }, search: { enabled: true, ...web.search } };
   return config;
 }
@@ -3470,116 +3410,100 @@ test('buildRequest: reads reach the <chat> transcript as linkRead', () => {
   assert.ok(contentText(request.messages[1].content).includes('[link: example.org — Crêpes] [page read: trois œufs]'));
 });
 
-test('buildRequest: webLookup on with links -> the links line stays and linksRead follows it; a search key -> the search line after that', () => {
+test('buildRequest: the links line stays and linksRead follows it; a search key and the grant -> the search line after that', () => {
   const senses = sensesOf(
-    buildRequest(baseInput({ config: webConfig({ mediaDescriptions: true }), searchAvailable: true }))
+    buildRequest(baseInput({ config: webConfig(), searchAvailable: true, toolsGranted: ['web.search'] }))
   ).split('\n');
   const at = senses.indexOf(labels.senses.linksWatch);
   assert.ok(at !== -1, 'the links line is the same as without the lookup');
   assert.equal(senses[at + 1], labels.senses.linksRead);
-  assert.equal(senses[at + 2], labels.senses.search);
+  assert.equal(senses[at + 2], labels.senses.searchTool);
   assert.equal(senses[at + 3], labels.senses.files);
-
-  const plain = sensesOf(buildRequest(baseInput({ config: webConfig(), searchAvailable: true }))).split('\n');
-  const plainAt = plain.indexOf(labels.senses.links);
-  assert.ok(plainAt !== -1, 'video watching off -> the plain links line');
-  assert.equal(plain[plainAt + 1], labels.senses.linksRead);
 });
 
-test('buildRequest: the search line needs searchAvailable -- no key, or searchAvailable omitted, shows no search line', () => {
-  for (const searchAvailable of [false, undefined]) {
-    const senses = sensesOf(buildRequest(baseInput({ config: webConfig(), searchAvailable }))).split('\n');
-    assert.ok(!senses.includes(labels.senses.search));
+test('buildRequest: the search line needs searchAvailable and the grant -- no key, no grant or searchAvailable omitted shows no search line', () => {
+  for (const [searchAvailable, toolsGranted] of [
+    [false, ['web.search']],
+    [undefined, ['web.search']],
+    [true, []],
+  ]) {
+    const senses = sensesOf(buildRequest(baseInput({ config: webConfig(), searchAvailable, toolsGranted }))).split(
+      '\n'
+    );
+    assert.ok(!senses.includes(labels.senses.searchTool));
     assert.ok(senses.includes(labels.senses.linksRead), 'reading links needs no search key');
   }
 });
 
-test('buildRequest: links disabled -> no linksRead; search disabled -> no search line even with a key', () => {
-  const noLinks = sensesOf(
+test('buildRequest: search disabled -> no search line even with a key and the grant', () => {
+  const noSearch = sensesOf(
     buildRequest(
       baseInput({
-        config: webConfig({ mediaDescriptions: true }, { links: { enabled: false } }),
+        config: webConfig({}, { search: { enabled: false } }),
         searchAvailable: true,
+        toolsGranted: ['web.search'],
       })
     )
-  ).split('\n');
-  assert.ok(noLinks.includes(labels.senses.linksWatch));
-  assert.ok(!noLinks.includes(labels.senses.linksRead));
-  assert.ok(noLinks.includes(labels.senses.search));
-  const noSearch = sensesOf(
-    buildRequest(baseInput({ config: webConfig({}, { search: { enabled: false } }), searchAvailable: true }))
   ).split('\n');
   assert.ok(noSearch.includes(labels.senses.linksRead));
-  assert.ok(!noSearch.includes(labels.senses.search));
+  assert.ok(!noSearch.includes(labels.senses.searchTool));
 });
 
-test('buildRequest: an older labels set without linksRead/search keeps only the links line', () => {
-  const older = { ...labels, senses: { ...labels.senses, linksRead: undefined, search: undefined } };
-  const withLabels = sensesOf(
-    buildRequest(baseInput({ config: webConfig({ mediaDescriptions: true }), searchAvailable: true }))
-  ).split('\n');
-  const senses = sensesOf(
-    buildRequest(
-      baseInput({
-        config: webConfig({ mediaDescriptions: true }),
-        searchAvailable: true,
-        prompts: fakePrompts({ labels: older }),
-      })
-    )
-  ).split('\n');
+test('buildRequest: an older labels set without linksRead/searchTool keeps only the links line', () => {
+  const older = { ...labels, senses: { ...labels.senses, linksRead: undefined, searchTool: undefined } };
+  const scene = { config: webConfig(), searchAvailable: true, toolsGranted: ['web.search'] };
+  const withLabels = sensesOf(buildRequest(baseInput(scene))).split('\n');
+  const senses = sensesOf(buildRequest(baseInput({ ...scene, prompts: fakePrompts({ labels: older }) }))).split('\n');
   assert.ok(senses.includes(labels.senses.linksWatch));
   assert.equal(senses.length, withLabels.length - 2);
 });
 
-test('buildRequest: recallAvailable true -> the recall line leads the per-turn senses, before the drawing line, whatever the web lookup does', () => {
+test('buildRequest: recallAvailable true and the grant -> the recall line leads the per-turn senses, before the drawing line', () => {
   const request = buildRequest(
     baseInput({
-      config: webConfig({ mediaDescriptions: true }),
+      config: webConfig(),
       searchAvailable: true,
       recallAvailable: true,
       drawOn: true,
+      toolsGranted: ['web.search', 'memory.search'],
     })
   );
   const { stable, turn } = sensesHalves(request);
   const stableLines = stable.split('\n');
-  const at = stableLines.indexOf(labels.senses.search);
+  const at = stableLines.indexOf(labels.senses.searchTool);
   assert.ok(at !== -1);
   assert.equal(stableLines[at + 1], labels.senses.files, 'the search line stays in the cached half');
-  assert.deepEqual(turn.split('\n'), [labels.senses.recall, labels.senses.draw]);
-
-  // Its own switch: no web lookup at all, the recall line is still there.
-  const noWeb = sensesHalves(
-    buildRequest(baseInput({ config: fakeConfig({ features: { webLookup: false } }), recallAvailable: true }))
-  );
-  assert.ok(!noWeb.stable.split('\n').includes(labels.senses.search));
-  assert.equal(noWeb.turn, labels.senses.recall);
+  assert.deepEqual(turn.split('\n'), [labels.senses.recallTool, labels.senses.draw]);
 });
 
-test('buildRequest: no recall line unless recallAvailable is true -- false, omitted or null', () => {
-  for (const recallAvailable of [false, undefined, null]) {
+test('buildRequest: no recall line unless recallAvailable is true and the grant is there', () => {
+  for (const [recallAvailable, toolsGranted] of [
+    [false, ['memory.search']],
+    [undefined, ['memory.search']],
+    [null, ['memory.search']],
+    [true, []],
+  ]) {
     const senses = sensesOf(
-      buildRequest(baseInput({ config: webConfig(), searchAvailable: true, recallAvailable }))
+      buildRequest(baseInput({ config: webConfig(), searchAvailable: true, recallAvailable, toolsGranted }))
     ).split('\n');
-    assert.ok(!senses.includes(labels.senses.recall), String(recallAvailable));
+    assert.ok(!senses.includes(labels.senses.recallTool), String(recallAvailable));
   }
 });
 
 test('buildRequest: a private chat shows the recall line when the turn says recall is available, none otherwise', () => {
-  const on = sensesOf(buildRequest(privateScene({ recallAvailable: true }))).split('\n');
-  assert.ok(on.includes(labels.senses.recall));
-  const off = sensesOf(buildRequest(privateScene({ recallAvailable: false }))).split('\n');
-  assert.ok(!off.includes(labels.senses.recall));
+  const toolsGranted = ['memory.search'];
+  const on = sensesOf(buildRequest(privateScene({ recallAvailable: true, toolsGranted }))).split('\n');
+  assert.ok(on.includes(labels.senses.recallTool));
+  const off = sensesOf(buildRequest(privateScene({ recallAvailable: false, toolsGranted }))).split('\n');
+  assert.ok(!off.includes(labels.senses.recallTool));
 });
 
-test('buildRequest: an older labels set without senses.recall renders no recall line and no gap', () => {
-  const { recall: _recall, ...olderSenses } = labels.senses;
+test('buildRequest: an older labels set without senses.recallTool renders no recall line and no gap', () => {
+  const { recallTool: _recall, ...olderSenses } = labels.senses;
   const older = fakePrompts({ labels: { ...labels, senses: olderSenses } });
-  const withLabel = sensesOf(
-    buildRequest(baseInput({ config: webConfig(), searchAvailable: true, recallAvailable: true }))
-  ).split('\n');
-  const senses = sensesOf(
-    buildRequest(baseInput({ config: webConfig(), searchAvailable: true, recallAvailable: true, prompts: older }))
-  ).split('\n');
+  const scene = { config: webConfig(), searchAvailable: true, recallAvailable: true, toolsGranted: ['memory.search'] };
+  const withLabel = sensesOf(buildRequest(baseInput(scene))).split('\n');
+  const senses = sensesOf(buildRequest(baseInput({ ...scene, prompts: older }))).split('\n');
   assert.equal(senses.length, withLabel.length - 1);
   assert.ok(senses.every((line) => line.trim() !== ''));
 });
@@ -3615,8 +3539,7 @@ test('buildRequest: learned renders after the injokes, ranked, capped, with teac
       learnedItem('l2', 'pizza with <@322222222222222222> on Fridays', 3, '2026-09-10T00:00:00.000Z'),
     ],
   };
-  const config = fakeConfig({ memory: { maxLearned: 4, learnedHalfLifeDays: 720, confirmAfter: 2 } });
-  const lines = aboutChatOf(buildRequest(baseInput({ config, guildMemory, nameOf: learnedNameOf }))).split('\n');
+  const lines = aboutChatOf(buildRequest(baseInput({ guildMemory, nameOf: learnedNameOf }))).split('\n');
   assert.deepEqual(lines, [
     fill(labels.aboutChat.patterns, { text: 'short lines' }),
     fill(labels.aboutChat.injokes, { text: 'the lamp' }),
@@ -3627,27 +3550,28 @@ test('buildRequest: learned renders after the injokes, ranked, capped, with teac
         fill(labels.aboutChat.learnedItemNoFrom, { text: 'café closes at nine' }),
         fill(labels.aboutChat.learnedItem, { text: 'Friday is τυρόπιτα day', who: 'Björn' }) +
           labels.aboutChat.unsureMark,
+        fill(labels.aboutChat.learnedItemNoFrom, { text: 'forgotten one' }) + labels.aboutChat.unsureMark,
       ].join('; '),
     }),
   ]);
 });
 
-test('buildRequest: memory.learnedHalfLifeDays decides whether an old heavy fact outranks a recent light one', () => {
+test('buildRequest: twenty learned facts render, the lightest of twenty-two are left out', () => {
+  // PR 7d: memory.maxLearned is the constant 20 (the production value).
+  const learned = Array.from({ length: 22 }, (_, i) =>
+    learnedItem(`l${i}`, `fact number ${i}`, 30 - i, '2026-09-10T00:00:00.000Z')
+  );
+  const text = aboutChatOf(buildRequest(baseInput({ guildMemory: { learned } })));
+  assert.equal(text.split('; ').length, 20);
+  assert.ok(text.includes('fact number 19') && !text.includes('fact number 20'));
+});
+
+test('buildRequest: a recent light fact outranks an old heavy one under the learned half-life', () => {
+  // PR 7d: memory.learnedHalfLifeDays is the constant 720, so six years age a weight of 3 below a fresh 1.
   const oldHeavy = learnedItem('old', 'ancient heavy fact', 3, '2020-01-01T00:00:00.000Z');
   const recentLight = learnedItem('new', 'recent light fact', 1, '2026-09-01T00:00:00.000Z');
-  const rendered = (learnedHalfLifeDays) =>
-    aboutChatOf(
-      buildRequest(
-        baseInput({
-          config: fakeConfig({ memory: { learnedHalfLifeDays } }),
-          guildMemory: { learned: [oldHeavy, recentLight] },
-        })
-      )
-    );
-  const decayed = rendered(720);
-  assert.ok(decayed.indexOf('recent light fact') < decayed.indexOf('ancient heavy fact'));
-  const noDecay = rendered(1e9);
-  assert.ok(noDecay.indexOf('ancient heavy fact') < noDecay.indexOf('recent light fact'));
+  const rendered = aboutChatOf(buildRequest(baseInput({ guildMemory: { learned: [oldHeavy, recentLight] } })));
+  assert.ok(rendered.indexOf('recent light fact') < rendered.indexOf('ancient heavy fact'));
 });
 
 test('buildRequest: learned without nameOf falls back to the no-teacher form', () => {
