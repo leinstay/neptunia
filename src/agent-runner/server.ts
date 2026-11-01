@@ -18,7 +18,7 @@ import net from 'node:net';
 import fs from 'node:fs';
 import { objOf } from '../tools/types.ts';
 import { errorFields } from '../error-fields.ts';
-import { log } from '../log.js';
+import { log } from '../log.ts';
 import {
   encodeLine,
   endEvent,

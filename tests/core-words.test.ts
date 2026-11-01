@@ -23,7 +23,7 @@ const DISCORD_ALLOWED: ReadonlyArray<Allowed> = [
   { file: 'src/memory/db/upsert.ts', pattern: /`src:discord:/, why: 'a stored legacy message ref' },
   { file: 'src/memory/db/map/participation.ts', pattern: /`src:discord:/, why: 'a stored legacy message ref' },
   { file: 'src/memory/db/map/versions.ts', pattern: /`desc:(person:)?discord:/, why: 'stored legacy description ids' },
-  { file: 'src/index.js', pattern: /discord/i, why: 'the entry point loads the Discord package and its token' },
+  { file: 'src/index.ts', pattern: /discord/i, why: 'the entry point loads the Discord package and its token' },
   {
     file: 'src/config/schema/interfaces.ts',
     pattern: /discord/i,
@@ -46,10 +46,10 @@ const DISCORD_ALLOWED: ReadonlyArray<Allowed> = [
 const HELPER_ALLOWED: ReadonlyArray<Allowed> = [
   { file: 'src/llm/limits.ts', pattern: /'helper-(timeout|fallback)'/, why: 'limit kinds the journal stores' },
   { file: 'src/turn/phases/request/wait.ts', pattern: /`?helper-timeout`?/, why: 'a limit kind the journal stores' },
-  { file: 'src/behavior/participation-pick.js', pattern: /`?helper-timeout`?/, why: 'a limit kind the journal stores' },
+  { file: 'src/behavior/participation-pick.ts', pattern: /`?helper-timeout`?/, why: 'a limit kind the journal stores' },
   { file: 'src/turn/act.ts', pattern: /`?helper-timeout`?/, why: 'a limit kind the journal stores' },
   { file: 'src/turn/draw-gif.ts', pattern: /`?helper-timeout`?/, why: 'a limit kind the journal stores' },
-  { file: 'src/behavior/missed.js', pattern: /'missed: helper failed'/, why: 'a log line name' },
+  { file: 'src/behavior/missed.ts', pattern: /'missed: helper failed'/, why: 'a log line name' },
   { file: 'src/config-moves.ts', pattern: /helperTimeoutMs/, why: 'the old name of a moved config key' },
 ];
 

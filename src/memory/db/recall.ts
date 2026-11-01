@@ -34,7 +34,7 @@
 // as arguments. Rows are read here; wording and rendering are the caller's (`quotesOf` turns windows into the
 // stretches `recall.run` returns when it renders them with src/behavior/recall.js#renderRecallWindows).
 
-import { MINUTE_MS } from '../../time.js';
+import { MINUTE_MS } from '../../time.ts';
 import {
   RECALL_DEFAULTS,
   RRF_K,
@@ -44,8 +44,8 @@ import {
   mergeWindows,
   recallSettings,
   renderRecallWindows,
-} from '../../behavior/recall.js';
-import { log } from '../../log.js';
+} from '../../behavior/recall.ts';
+import { log } from '../../log.ts';
 import { foldText } from '../recent.ts';
 import { indexWords } from '../record-index.ts';
 import { channelPlaceId, nativeOf } from './ids.ts';
@@ -1078,11 +1078,11 @@ export function quotesOf(
   }> = [];
   for (const one of (Array.isArray(windows) ? windows : []) as Array<RecallWindow | null>) {
     if (!one || !(stretchChars > 0)) continue;
-    // Same as in `search`: recall.js types the window and its lines narrower than they are.
+    // Same as in `search`: recall.ts types the window and its lines narrower than they are.
     const [shown] = renderRecallWindows([one as unknown as Parameters<typeof renderRecallWindows>[0][number]], {
       ...render,
       indexed: false,
-    } as Parameters<typeof renderRecallWindows>[1]);
+    });
     const lines = cutStretch(shown?.lines ?? [], stretchChars) as unknown as Array<{
       id: unknown;
       text: string;

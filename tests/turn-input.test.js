@@ -1,14 +1,15 @@
-// Tests for src/behavior/turn-input.js: the turn's request input names every
-// input src/behavior/prompt.js#buildRequest reads, and a key left out throws.
+// Tests for src/behavior/turn-input.ts: the turn's request input names every
+// input src/behavior/prompt.ts#buildRequest reads, and a key left out throws.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { TURN_INPUT_KEYS, turnRequestInput } from '../src/behavior/turn-input.js';
+import { TURN_INPUT_KEYS, turnRequestInput } from '../src/behavior/turn-input.ts';
 
 /** Every input buildRequest reads: the keys it destructures from `input` and each `input.<key>` of its body. */
 function buildRequestInputs() {
-  const source = fs.readFileSync(new URL('../src/behavior/prompt.js', import.meta.url), 'utf8');
-  const start = source.indexOf('export function buildRequest(input) {');
+  const source = fs.readFileSync(new URL('../src/behavior/prompt.ts', import.meta.url), 'utf8');
+  // The signature carries the input's type since the file is TypeScript, so only its start is searched.
+  const start = source.indexOf('export function buildRequest(input');
   assert.ok(start >= 0, 'buildRequest is where this test reads it');
   const body = source.slice(start, source.indexOf('\n}\n', start));
   const destructured = /const \{([^}]*)\} = input;/.exec(body);

@@ -1,7 +1,7 @@
 // The config keys the tools rename moved (src/config-moves.ts): the settings that were under `skills.*`, the two feature
 // switches `features.skills` and `features.skillsDiscovery`, and the owner's grant on the tool `skills.describe`. A
 // config written with the old keys must keep meaning what it meant, so `moveConfigKeys` writes each old key under its
-// new name, and the loader (src/config.js#readConfig) does it to the local file before that file is laid over
+// new name, and the loader (src/config.ts#readConfig) does it to the local file before that file is laid over
 // config.json: an old key then overrides the shipped default of its new name, and a move is one warning line per load.
 // `tools/config-migrate.mjs` shows (`--dry-run`) or writes (`--apply`) the same moves on a copy of a local file.
 // The errand and intention names add more of the same kind: the grants of `bot.access` on the ten tools renamed from
@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { readConfig } from '../src/config.js';
+import { readConfig } from '../src/config.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { tempDir } from './fixtures/tmp.js';
 import { moveConfigKeys } from '../src/config-moves.ts';

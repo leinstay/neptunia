@@ -15,7 +15,7 @@
 
 import { memberIdOf as idOf } from '../memory/recent.ts';
 import { mainChannelSet } from '../memory/index.ts';
-import { DAY_MS } from '../time.js';
+import { DAY_MS } from '../time.ts';
 import type { MessageUrlTemplate } from '../protocol/adapter.ts';
 import { portIface, portMessageUrl } from '../interface/capabilities.ts';
 

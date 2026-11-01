@@ -1,7 +1,7 @@
 // Tests for the skill scenarios of tools/replay.mjs (`--skills`): the scenario loader, the
 // persona's grants laid over a copy of the config, and her `<call>` taken through the real
 // resolution and the real gateway with the operation never run
-// (src/behavior/sandbox.js#simulateCall), and multi-step scenarios played step by step with her
+// (src/behavior/sandbox.ts#simulateCall), and multi-step scenarios played step by step with her
 // turns carried into the next step (playSteps, afterScenarioTurn), a burst played as the live
 // queue plays it (burstTurns), and the prompt layers of `--prompts` / `--pair-prompts` with
 // their side-by-side report, all against fakes: no network, no data/.
@@ -14,10 +14,10 @@ import '../src/tools/impl/index.ts';
 import { expandPersonaGrant } from '../src/tools/impl/access.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { NOT_GRANTABLE_TO_PERSONA } from '../src/tools/access.ts';
-import { callViewOf, requesterOf } from '../src/behavior/turn.js';
-import { fill } from '../src/format.js';
-import { createHot } from '../src/hot.js';
-import { deepMerge } from '../src/config.js';
+import { callViewOf, requesterOf } from '../src/behavior/turn.ts';
+import { fill } from '../src/format.ts';
+import { createHot } from '../src/hot.ts';
+import { deepMerge } from '../src/config.ts';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
 import {
   afterScenarioTurn,
@@ -28,7 +28,7 @@ import {
   scenarioInventory,
   seededSelfLine,
   simulateCall,
-} from '../src/behavior/sandbox.js';
+} from '../src/behavior/sandbox.ts';
 import {
   firstDecision,
   overlayPromptsHot,

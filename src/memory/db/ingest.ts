@@ -169,7 +169,7 @@ export function applyIngestWrite(handle: unknown, update: unknown): { written: n
   return { written: 1 };
 }
 
-/** The ingestion record as the event door and the link use it (src/core.js wires it). */
+/** The ingestion record as the event door and the link use it (src/core.ts wires it). */
 export type IngestRecord = {
   /** Whether the principal's event was taken; false while the database is closed. */
   seen: (principal: string, eventId: string) => boolean;

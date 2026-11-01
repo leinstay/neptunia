@@ -8,7 +8,7 @@
 // the warmer is the thin part that reads the live guild.
 import { OverwriteType } from 'discord.js';
 import { errorFields } from './values.ts';
-import { log } from '../../src/log.js';
+import { log } from '../../src/log.ts';
 import type { ChannelLike, GuildLike } from './platform-types.ts';
 
 // Discord's JSON error codes for a member or user that does not exist (left the guild, deleted).

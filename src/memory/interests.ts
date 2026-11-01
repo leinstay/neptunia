@@ -23,7 +23,7 @@
 
 import { topRanked } from './ranking.ts';
 import { clampText, stripUrls } from './clamp.ts';
-import { HOUR_MS } from '../time.js';
+import { HOUR_MS } from '../time.ts';
 import { isFiniteNumber, isIntegerNumber } from './types.ts';
 import type { StoredRecord, Untyped } from './types.ts';
 

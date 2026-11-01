@@ -1,14 +1,14 @@
 // What a turn writes to the journal (src/memory/journal.ts) and how it reads its own sends back: the skip codes, the
 // operation that writes nothing, how a port result closes an operation, the parser's diagnostics, the send hash and
 // the settling of unknown sends, the start and the closing record of a turn, and the usage and format counts of an
-// answer. src/behavior/turn.js calls them around every effect; the tests read the exported ones through its re-exports.
+// answer. src/behavior/turn.ts calls them around every effect; the tests read the exported ones through its re-exports.
 
 import { createHash } from 'node:crypto';
 
-import { log } from '../log.js';
+import { log } from '../log.ts';
 import { CODE } from '../tools/codes.ts';
 import { isFiniteNumber, isObj } from '../tools/types.ts';
-import { DAY_MS } from '../time.js';
+import { DAY_MS } from '../time.ts';
 import type { TriggerKind } from './triggers.ts';
 
 /**
@@ -378,7 +378,7 @@ export type JournalDraft = {
  * draft and the result it returned: `reason` is the attempt's skip code (`silence`, `nothing-to-do`:
  * SKIP_SILENCE, SKIP_NOTHING_TO_DO) or refusal code, else null (old skip records carry null too).
  */
-// health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.js in stage 5a, a pure move
+// health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.ts in stage 5a, a pure move
 export function journalTurnRecord(
   draft: JournalDraft,
   result: { mode?: string | null; outcome?: string | null; reason?: unknown } | null | undefined

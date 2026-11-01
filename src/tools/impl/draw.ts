@@ -1,12 +1,12 @@
 // Operations: `/nep draw`: one picture through the turn's drawing prompt.
-// The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
+// The handler bodies moved here from src/admin.ts unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
 import { drawPicture } from '../../media/draw.ts';
 import { imageFileName } from '../../behavior/mirror.ts';
 import { ImageGenError, UnsupportedImageModelError } from '../../llm/images.ts';
 import { roleModel } from '../../llm/roles.ts';
-import { log } from '../../log.js';
+import { log } from '../../log.ts';
 import { messageRefOf, postingConversation } from './shared.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
 import { CODE } from '../codes.ts';

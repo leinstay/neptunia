@@ -1,9 +1,9 @@
 // The request of the address classifier about one new message: the
 // prompt with the persona's name, the channel's last lines, the author's stored aliases and the new message as the
-// candidate. createMessageHandler (src/behavior/pipeline.js) builds it once with createClassifierRequest.
+// candidate. createMessageHandler (src/behavior/pipeline.ts) builds it once with createClassifierRequest.
 
 import { historyLines } from '../behavior/lines.ts';
-import { fill, formatTranscript, renderTranscript } from '../format.js';
+import { fill, formatTranscript, renderTranscript } from '../format.ts';
 import type { Reads } from '../interface/reads.ts';
 import { topByRank } from '../memory/ranking.ts';
 import { fillPromptTemplate } from '../turn/request/text.ts';
@@ -83,8 +83,7 @@ export function createClassifierRequest({ reads, store, refOf, cachedFollowUpMed
       videos,
     });
     const candidateItem = items[items.length - 1];
-    // renderTranscript joins the rendered items into one text (src/format.js).
-    const transcript = renderTranscript(items.slice(0, -1), config.bot.timezone, labels) as string;
+    const transcript = renderTranscript(items.slice(0, -1), config.bot.timezone, labels);
     const author = followUpAuthorLine(guildId, normalized, config, labels);
     const authorBlock = author ? `\n<author>\n${author}\n</author>` : '';
     return {

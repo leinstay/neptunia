@@ -15,7 +15,7 @@
 import { collectPictures } from '../media/classify.ts';
 import { readMemberHistory } from './emoji-backfill.ts';
 import { GIF_HALF_LIFE_DAYS, gifOpts, rankGifs } from './gifs.ts';
-import { log as defaultLog } from '../log.js';
+import { log as defaultLog } from '../log.ts';
 import type { Reads } from '../interface/reads.ts';
 import type { StoreView } from './store.ts';
 import type { Log, StoredRecord } from './types.ts';

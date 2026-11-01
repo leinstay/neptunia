@@ -1,7 +1,7 @@
 // The stable head of a turn's request: the labels, the clock and the switches it is built under, the merged profile
 // of a private chat's partner, the mention and channel handles with their directories, the transcript's options,
 // the system prompt and the chat's own lines, and the room the request's sections share. buildRequest
-// (src/behavior/prompt.js) builds it first.
+// (src/behavior/prompt.ts) builds it first.
 
 import {
   assignChannelHandles,
@@ -11,11 +11,12 @@ import {
   memberNameMap,
   renderChannelDirectory,
   renderDirectory,
-} from '../../behavior/handles.js';
-import { voiceOccupants } from '../../behavior/around.js';
-import { mergeProfiles } from '../../behavior/private.js';
-import { isPlainObject } from '../../config.js';
-import { formatTranscript } from '../../format.js';
+} from '../../behavior/handles.ts';
+import type { AroundSnapshot } from '../../behavior/around-store.ts';
+import { voiceOccupants } from '../../behavior/around.ts';
+import { mergeProfiles } from '../../behavior/private.ts';
+import { isPlainObject } from '../../config.ts';
+import { formatTranscript } from '../../format.ts';
 import { requestTokenLimit, sectionCost } from '../../llm/budget.ts';
 import { cacheTtlMs } from '../../llm/openrouter.ts';
 import { gifHandleMap, normalizeGifs } from '../../memory/index.ts';
@@ -39,14 +40,6 @@ import type {
   TranscriptItem,
 } from './types.ts';
 import { RELATIONSHIP_LIMITS } from '../../memory/text-limits.ts';
-
-/** The live glance at the server's sidebar (src/behavior/around-store.ts), as `<people_now>` reads it. */
-export type AroundSnapshot = {
-  readonly presences: boolean;
-  readonly stale: boolean;
-  readonly voice: Map<string, object>;
-  readonly presence: Map<string, object>;
-};
 
 /** What the rest of the request is built on: the labels, the switches, the handles, the transcript and the chat. */
 export type Base = {
@@ -86,7 +79,7 @@ export type Base = {
 export type Room = { caps: Caps; cost: Cost; limit: number };
 
 /** The labels, switches, handles, transcript options, system prompt and chat lines of a request. */
-// health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.js in stage 5d, a pure split
+// health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.ts in stage 5d, a pure split
 export function requestHead(given: RequestInput): Base {
   const { config, prompts, mode, now, selfName, history, neighbors, descriptions, videos, imageAnswers, reads } = given;
   const labels = requireLabels(prompts);

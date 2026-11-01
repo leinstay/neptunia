@@ -1,8 +1,8 @@
-// The memory-read collector of src/behavior/prompt.js#buildRequest (`memoryReads`): what a request carried from
+// The memory-read collector of src/behavior/prompt.ts#buildRequest (`memoryReads`): what a request carried from
 // memory, in the memory's own identity. Synthetic prompts, config and labels only (tests/fixtures/labels.js).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildRequest, userText as contentText } from '../src/behavior/prompt.js';
+import { buildRequest, userText as contentText } from '../src/behavior/prompt.ts';
 import { labels } from './fixtures/labels.js';
 
 const NOW = Date.UTC(2026, 9, 10, 12, 0, 0);
@@ -313,7 +313,7 @@ test('memoryReads: each read names the block it sat in and its place in the requ
   const at = reads.map((read) => text.indexOf(`<${read.block}>`));
   assert.ok(
     at.every((position) => position >= 0),
-    `every block is in the content: ${reads.map((read) => read.block)}`
+    `every block is in the content: ${reads.map((read) => read.block).join()}`
   );
   assert.deepEqual(
     at,

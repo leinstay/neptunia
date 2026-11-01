@@ -16,7 +16,7 @@ import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { tempDir } from './fixtures/tmp.js';
 
-// The Discord interface's capabilities object, as src/index.js injects it.
+// The Discord interface's capabilities object, as src/index.ts injects it.
 const DISCORD = createDiscordInterface().capabilities;
 
 const OWNER = '42';

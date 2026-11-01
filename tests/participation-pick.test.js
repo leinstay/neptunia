@@ -1,4 +1,4 @@
-// Tests for the participation pick classifier (src/behavior/participation-pick.js):
+// Tests for the participation pick classifier (src/behavior/participation-pick.ts):
 // its settings and switch, which turns may ask it, the numbered episode list,
 // the request, the answer parser and the picker's I/O side with a fake store and LLM.
 import { test } from 'node:test';
@@ -15,8 +15,8 @@ import {
   participationPickAllowed,
   participationPickSettings,
   parseParticipationPick,
-} from '../src/behavior/participation-pick.js';
-import { userText } from '../src/behavior/prompt.js';
+} from '../src/behavior/participation-pick.ts';
+import { userText } from '../src/behavior/prompt.ts';
 import { snapshotOf } from '../src/behavior/snapshot.ts';
 import { DailyCapError } from '../src/llm/openrouter.ts';
 import { labels } from './fixtures/labels.js';

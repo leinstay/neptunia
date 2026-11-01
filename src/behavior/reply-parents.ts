@@ -9,8 +9,8 @@
 
 import type { ConversationRef } from '../protocol/adapter.ts';
 import type { Reads } from '../interface/reads.ts';
-import { log } from '../log.js';
-import { lineOf } from './line-of.js';
+import { log } from '../log.ts';
+import { lineOf } from './line-of.ts';
 import type { Line } from './lines.ts';
 
 type Trigger = { id?: string; replyToId?: string | null } | null;
@@ -41,9 +41,9 @@ export async function fetchReplyParents(
   };
 
   const parent = await fetchParent(trigger?.replyToId ?? null);
-  if (parent) await fetchParent(parent.replyToId as string | null);
+  if (parent) await fetchParent(parent.replyToId);
   const tail = recent > 0 ? history.slice(-recent).reverse() : [];
-  for (const line of tail) await fetchParent((line.replyToId as string | null | undefined) ?? null);
+  for (const line of tail) await fetchParent(line.replyToId ?? null);
 
   return found.sort((a, b) => a.ts - b.ts);
 }

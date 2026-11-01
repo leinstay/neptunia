@@ -1,6 +1,6 @@
 // A diary post's first step and its picture gate: the post history, whether the post may carry a picture, the plan
 // request with its seeds and the owner's topic, the search the plan asks for, and the seeds of a set post.
-// createTurnRunner (src/behavior/turn.js) builds it once per runner with createDiary; the attempt calls prepareDiary
+// createTurnRunner (src/behavior/turn.ts) builds it once per runner with createDiary; the attempt calls prepareDiary
 // before it builds a diary post's request, and runTurn asks diaryPictureGate before a forced picture kind.
 
 import {
@@ -22,12 +22,12 @@ import {
 import { pictureGate } from '../behavior/diary-turn.ts';
 import type { PictureGate } from '../behavior/diary-turn.ts';
 import { diaryConversationIds } from '../behavior/mirror.ts';
-import { buildDiaryPlanRequest } from '../behavior/prompt.js';
+import { buildDiaryPlanRequest } from '../behavior/prompt.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import { DailyCapError, TokenLimitError, hedgeSettings, railReason, roleRequestOptions } from '../llm/openrouter.ts';
 import { parseJsonObject } from '../llm/parse.ts';
 import { roleModel } from '../llm/roles.ts';
-import { log } from '../log.js';
+import { log } from '../log.ts';
 import type { ConversationInfo } from '../protocol/adapter.ts';
 import { CODE } from '../tools/codes.ts';
 import { NO_RECENT } from './history.ts';
@@ -130,7 +130,7 @@ export function createDiary(ctx: DiaryContext): Diary {
   /**
    * A diary post's first step (mode `diary`), before its request is built:
    * the post history (store.getDiary), whether it may carry a picture (the
-   * image client and Attach Files here), then the plan request (src/behavior/prompt.js#buildDiaryPlanRequest:
+   * image client and Attach Files here), then the plan request (src/behavior/prompt.ts#buildDiaryPlanRequest:
    * prompts/diary-plan.md on the classifier model, `diary.planMaxOutputTokens`
    * (300), `diary.planTimeoutMs` (20000), usage purpose `diary-plan`; when
    * `llm.hedge` hedges `analyzer`, the hedged call is limited by
@@ -155,7 +155,7 @@ export function createDiary(ctx: DiaryContext): Diary {
    * `diary.set.seedSets` (6) seed combinations for the compose request (`seeds`, the rendered
    * `<seeds>` body; '' for any other kind). Settings come from `config`, the turn's live config.
    */
-  // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.js in stage 5b, a pure move
+  // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.ts in stage 5b, a pure move
   async function prepareDiary({
     config,
     guildId,

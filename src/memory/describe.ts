@@ -127,11 +127,11 @@ import {
 } from '../llm/openrouter.ts';
 import { clampText, oneLine } from './clamp.ts';
 import { roleModel } from '../llm/roles.ts';
-import { fillPromptTemplate } from '../behavior/prompt.js';
+import { fillPromptTemplate } from '../behavior/prompt.ts';
 import { createYoutubeCheck } from './youtube-check.ts';
 import { gifWatchBlocker as gifWatchBlockerOf, gifWatchPrompt } from './gif-watch.ts';
-import { log } from '../log.js';
-import { MINUTE_MS, utcDay } from '../time.js';
+import { log } from '../log.ts';
+import { MINUTE_MS, utcDay } from '../time.ts';
 import { MEDIA_CACHE_ENTRIES, hashedKey, touchKey, trimCache } from '../web/cache.ts';
 import { normalizeQuery } from '../web/lookup.ts';
 import type { StoredRecord, Untyped } from './types.ts';

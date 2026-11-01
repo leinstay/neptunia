@@ -1,9 +1,9 @@
 // Operations: `/nep pings`: a member's own notification switch, open to every member while features.memberCommands is on.
-// The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
+// The handler bodies moved here from src/admin.ts unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
 import { PINGS_MODES } from './catalog.ts';
-import { log } from '../../log.js';
+import { log } from '../../log.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
 import { objOf } from '../types.ts';
 import type { Obj, OpContext } from '../types.ts';
@@ -12,7 +12,7 @@ const handlers = perEnv((env) => {
   const { store, freshenIfPaused, requireGuildId } = env;
 
   /** `/nep pings [on|off]`: the caller's own notifications from the persona in this guild
-   * (store.setPingsOff; src/behavior/turn.js reads them when it posts). No mode shows the state.
+   * (store.setPingsOff; src/behavior/turn.ts reads them when it posts). No mode shows the state.
    * A member's own switch, not memory: it works while paused too (read fresh off disk then, and
    * written at once by the store). */
   function cmdPings(args: Obj, context: OpContext): string {

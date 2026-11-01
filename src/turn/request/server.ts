@@ -3,7 +3,7 @@
 // the `<lore>` entries the transcript matches. buildRequest and buildDiaryPlanRequest (src/behavior/prompt.js) call
 // them.
 
-import { fill } from '../../format.js';
+import { fill } from '../../format.ts';
 import { channelActivity, isConfirmed, matchLore, renderChannel } from '../../memory/index.ts';
 import { ID_DIGITS } from '../../memory/mentions.ts';
 import { topByRank } from '../../memory/ranking.ts';

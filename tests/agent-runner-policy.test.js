@@ -3,7 +3,7 @@
 // path is withheld in dm/group, a listing is not, core withholds nothing),
 // and the secret redaction (keys, tokens, assignments, SSH material, URL
 // credentials), and the withheld roots and globs built from the deployment's
-// directories (src/paths.js). Pure; no I/O. Non-ASCII data is Greek/accented
+// directories (src/paths.ts). Pure; no I/O. Non-ASCII data is Greek/accented
 // Latin.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -23,7 +23,7 @@ import {
   withheldRootsOf,
   withheldGlobsOf,
 } from '../src/agent-runner/policy.ts';
-import { resolvePaths } from '../src/paths.js';
+import { resolvePaths } from '../src/paths.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 

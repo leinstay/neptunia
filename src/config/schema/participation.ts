@@ -6,14 +6,14 @@ export const PARTICIPATION: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'participation.maxOutputTokens',
     'types': ['number'],
-    'reader': 'src/behavior/participation-pick.js',
+    'reader': 'src/behavior/participation-pick.ts',
     'default': 60,
     'text': 'Max output tokens for the pick classifier',
   },
   {
     'key': 'participation.pickTimeoutMs',
     'types': ['number', 'null'],
-    'reader': 'src/behavior/participation-pick.js',
+    'reader': 'src/behavior/participation-pick.ts',
     'default': 1500,
     'text': 'How long the turn waits for the pick (ms). `null` waits indefinitely',
   },

@@ -1,6 +1,6 @@
 # systemd unit for the persona's core with the interfaces as units (interfaces.mode: units).
 #
-# The core runs src/index.js with no interface of its own: it listens on
+# The core runs src/index.ts with no interface of its own: it listens on
 # <data>/run/core.sock (folder 0750, socket 0660, group neptunia) and each
 # interface connects from its own unit (deploy/neptunia-interface@.service).
 # It refuses to start while another core holds the memory database or renewed
@@ -20,7 +20,7 @@ Conflicts=neptunia-bot.service
 [Service]
 Type=simple
 WorkingDirectory=/opt/neptunia/app
-ExecStart=/usr/bin/node src/index.js
+ExecStart=/usr/bin/node src/index.ts
 User=neptunia-bot
 Group=neptunia
 Restart=on-failure

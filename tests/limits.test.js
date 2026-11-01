@@ -1,4 +1,4 @@
-// Tests for src/behavior/limits.js: the one plain line that says a rail
+// Tests for src/behavior/limits.ts: the one plain line that says a rail
 // refused a directly requested action, reading the limit off an error, and
 // the shared posting side (the notice).
 import { test } from 'node:test';
@@ -10,7 +10,7 @@ import {
   pauseNotice,
   postLimitNotice,
   postPauseNotice,
-} from '../src/behavior/limits.js';
+} from '../src/behavior/limits.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 

@@ -8,7 +8,7 @@
 // `/nep ping video` and one startup log line. No LLM call, nothing cached,
 // nothing written under data/; never logs the URL or the key.
 
-import { log as defaultLog } from '../log.js';
+import { log as defaultLog } from '../log.ts';
 import { proxyFor } from '../media/video-sites.ts';
 import type { Hot, Log, Obj } from './types.ts';
 import { isFiniteNumber } from './types.ts';

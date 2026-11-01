@@ -6,14 +6,14 @@ export const OFFLINE_CATCH_UP: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'offlineCatchUp.windowMinutes',
     'types': ['number'],
-    'reader': 'src/behavior/catch-up.js',
+    'reader': 'src/behavior/catch-up.ts',
     'default': 15,
     'text': 'Only a call younger than this is answered. `0` answers none',
   },
   {
     'key': 'offlineCatchUp.maxMessages',
     'types': ['number'],
-    'reader': 'src/behavior/catch-up.js',
+    'reader': 'src/behavior/catch-up.ts',
     'default': 50,
     'text': 'Newest messages fetched per channel (1 to 100)',
   },

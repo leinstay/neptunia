@@ -1,4 +1,4 @@
-// Tests for src/behavior/handles.js: handles derived from the user id (stable, unique within a
+// Tests for src/behavior/handles.ts: handles derived from the user id (stable, unique within a
 // request, a profiled member never moved by one in view), the people directory's entries and
 // text, and `@handle` -> `<@id>` in the persona's output. Pure.
 import { test } from 'node:test';
@@ -11,7 +11,7 @@ import {
   handleOf,
   renderDirectory,
   resolveHandles,
-} from '../src/behavior/handles.js';
+} from '../src/behavior/handles.ts';
 
 // Two ids whose four-digit handles collide (found by search; see the derivation in handles.js).
 const OLDER = '400000000000807738';

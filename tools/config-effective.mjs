@@ -6,7 +6,7 @@
 //   node tools/config-effective.mjs --compare <file> --private <dir>
 //
 // `--snapshot` writes `{ config, settings }` to `<file>`: `config` is this checkout's `config/config.json` with the
-// private layer of `<dir>` over it, read the way the engine reads it (src/config.js#readConfig), and `settings` holds
+// private layer of `<dir>` over it, read the way the engine reads it (src/config.ts#readConfig), and `settings` holds
 // what each reader derives from it, keyed by the reader's name (`recallSettings`, `loopSettings inner`,
 // `agentSettings scout`, ...). `--compare` derives the same from the layer as it is now and prints one line per leaf
 // that differs, `<config|settings>.<path>: before <json>, after <json>`, an absent value printed as `absent`. A line
@@ -18,7 +18,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { ROOT_DIR, readConfig } from '../src/config.js';
+import { ROOT_DIR, readConfig } from '../src/config.ts';
 import { CUT_KEYS } from '../src/config/cut.ts';
 import { audioMapSettings } from '../src/media/audio-map.ts';
 import { recentSettings } from '../src/memory/recent.ts';
@@ -31,17 +31,17 @@ import { backupSettings } from '../src/memory/db/backup.ts';
 import { captureSettings } from '../src/memory/db/observe.ts';
 import { sessionSettings } from '../src/memory/db/session.ts';
 import { boardSettings } from '../src/board/board.ts';
-import { participationPickSettings } from '../src/behavior/participation-pick.js';
-import { routeSettings } from '../src/behavior/route.js';
-import { pullSettings } from '../src/behavior/pull.js';
+import { participationPickSettings } from '../src/behavior/participation-pick.ts';
+import { routeSettings } from '../src/behavior/route.ts';
+import { pullSettings } from '../src/behavior/pull.ts';
 import { setSettings } from '../src/behavior/diary.ts';
-import { catchUpSettings } from '../src/behavior/catch-up.js';
+import { catchUpSettings } from '../src/behavior/catch-up.ts';
 import { elsewhereSettings } from '../src/behavior/elsewhere.ts';
-import { splitSettings } from '../src/behavior/split.js';
-import { gifPickSettings } from '../src/behavior/gif-pick.js';
+import { splitSettings } from '../src/behavior/split.ts';
+import { gifPickSettings } from '../src/behavior/gif-pick.ts';
 import { innerSettings } from '../src/behavior/inner/settings.ts';
-import { missedSettings } from '../src/behavior/missed.js';
-import { recallSettings } from '../src/behavior/recall.js';
+import { missedSettings } from '../src/behavior/missed.ts';
+import { recallSettings } from '../src/behavior/recall.ts';
 import { loopSettings, paceSettings } from '../src/turn/settings.ts';
 import { hedgeSettings } from '../src/llm/openrouter.ts';
 import { attentionSettings, heartbeatLimits, intentionSettings } from '../src/intentions/model.ts';

@@ -20,7 +20,7 @@ export const WEB: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'web.links.maxOutputTokens',
     'types': ['number'],
-    'reader': 'src/behavior/recall.js',
+    'reader': 'src/behavior/recall.ts',
     'default': 4000,
     'text': 'Max output tokens for the condenser',
   },
@@ -41,14 +41,14 @@ export const WEB: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'web.search.engine',
     'types': ['string'],
-    'reader': 'src/core.js',
+    'reader': 'src/core.ts',
     'default': 'brave',
     'text': 'Search engine: `brave`, `exa` or `openrouter`',
   },
   {
     'key': 'web.search.fallback',
     'types': ['array'],
-    'reader': 'src/core.js',
+    'reader': 'src/core.ts',
     'default': [],
     'text': 'Engines tried in order on failure',
   },
@@ -83,7 +83,7 @@ export const WEB: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'web.search.timeoutMs',
     'types': ['number'],
-    'reader': 'src/behavior/recall-run.js',
+    'reader': 'src/behavior/recall-run.ts',
     'default': 10000,
     'text': 'Search request timeout (ms)',
   },

@@ -62,7 +62,7 @@ import {
   turnsOnDays,
   withChannelMap,
 } from './lib/inner-week.mjs';
-import { onLog } from '../src/log.js';
+import { onLog } from '../src/log.ts';
 import '../src/tools/impl/index.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 
@@ -230,9 +230,9 @@ export function scriptedHistory(lines, { channel, selfId, selfName, now, limit }
 async function createLiveVoice({ args, fixture, clock, budget, log }) {
   const replay = await import('./replay.mjs');
   const load = (rel) => import(pathToFileURL(path.join(ROOT, 'src', rel)).href);
-  const mods = { ...(await replay.loadDiaryMods(load)), ...(await load('admin.js')) };
-  const { loadDotEnv } = await load('config.js');
-  const { createHot } = await load('hot.js');
+  const mods = { ...(await replay.loadDiaryMods(load)), ...(await load('admin.ts')) };
+  const { loadDotEnv } = await load('config.ts');
+  const { createHot } = await load('hot.ts');
   loadDotEnv(privateDirOf(ROOT));
   const token = process.env.DISCORD_TOKEN;
   if (!token) throw new CliError('inner-week: DISCORD_TOKEN is not set (.env)');
@@ -456,7 +456,7 @@ export async function main(argv, { cwd = process.cwd() } = {}) {
   if (!gate.ok) throw new CliError(`inner-week: ${gate.text}`, { exitCode: REFUSED_EXIT });
   process.stderr.write(`inner-week: ${gate.text}\n`);
   const clockBox = { now: () => fixture.startMs };
-  const { log } = await import('../src/log.js');
+  const { log } = await import('../src/log.ts');
   const live = await createLiveVoice({ args, fixture, clock: { now: () => clockBox.now() }, budget: gate.budget, log });
   try {
     const liveFixture = withChannelMap(fixture, liveChannelMap(fixture, live.channel));

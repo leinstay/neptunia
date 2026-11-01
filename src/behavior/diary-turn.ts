@@ -1,9 +1,9 @@
-// The diary turn's own steps, beside the turn runner (src/behavior/turn.js, mode `diary`). A diary turn writes her
+// The diary turn's own steps, beside the turn runner (src/behavior/turn.ts, mode `diary`). A diary turn writes her
 // entry and sends nothing: the entry is recorded in memory first (`recordEntry`, the store's diary unit), and the
 // diary's mirrors publish it (src/behavior/mirror.ts). Run as the `selfreflection` wake it has no conversation, and
 // `wakeInputs` gives it the place her diary is posted to (mirror.ts#diaryPlaces) as its conversation and her diary as
 // its history: her entries' posts as memory holds them, message by message, read through the same line builder
-// (src/behavior/line-of.js). `pictureGate` says whether the post may carry a picture, and
+// (src/behavior/line-of.ts). `pictureGate` says whether the post may carry a picture, and
 // `diaryVoiceTool` keeps her voice message for the entry instead of posting it. Logs: none.
 
 import { randomUUID } from 'node:crypto';
@@ -15,8 +15,8 @@ import {
   isPictureKind,
   setSettings,
 } from './diary.ts';
-import { lineOf } from './line-of.js';
-import { log } from '../log.js';
+import { lineOf } from './line-of.ts';
+import { log } from '../log.ts';
 import { diaryPlaces, readMirrors } from './mirror.ts';
 import type { DiaryEntry, DiaryPlace, EntryPicture, EntryVoice, HeldDiary, HeldDiaryMessage } from './mirror.ts';
 import { CODE } from '../tools/codes.ts';

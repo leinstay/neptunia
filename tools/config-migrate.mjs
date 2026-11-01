@@ -11,7 +11,7 @@
 // database given with `--db` (opened read-only) has an enabled `diary` mirror, printed as `diary.channelId -> memory
 // database`. Without that mirror, or without `--db`, the key stays and one line says so.
 //
-// The file is `--file`, else the private settings file of `NEPTUNIA_PRIVATE_DIR`, else of the checkout (src/paths.js):
+// The file is `--file`, else the private settings file of `NEPTUNIA_PRIVATE_DIR`, else of the checkout (src/paths.ts):
 // `config.local/config.json`, or `config.local.json` of the old layout (src/config/files.ts#localConfigPath).
 // `--dry-run` prints each move as `from -> to`, each key nothing reads any more as `<path> dropped (no reader)`, and
 // writes nothing. A second run finds nothing to move.
@@ -32,7 +32,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DROPPED_GRANTS, ERRAND_KEYS, GRANT_MOVES, moveConfigKeys } from '../src/config-moves.ts';
-import { ROOT_DIR, deepMerge } from '../src/config.js';
+import { ROOT_DIR, deepMerge } from '../src/config.ts';
 import { LOCAL_CONFIG_DIR, localConfigPath, trackedConfigPath } from '../src/config/files.ts';
 import { CUT_KEYS, cutConfigKeys } from '../src/config/cut.ts';
 import { agentSettings } from '../src/agent-runner/profiles.ts';

@@ -6,7 +6,7 @@
 // breaks the model's invariants is left out on load (counted in the log). The store moves nothing by itself: every
 // change is a pure transition of the model applied through `update`. Logs carry ids and counts, never text.
 
-import { log as defaultLog } from '../log.js';
+import { log as defaultLog } from '../log.ts';
 import { checkInvariants, isOpen } from './model.ts';
 import { CODE } from '../tools/codes.ts';
 import { createReadSeam } from '../memory/db/readers/common.ts';

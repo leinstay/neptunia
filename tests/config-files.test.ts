@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createHot as createHotUntyped } from '../src/hot.js';
+import { createHot as createHotUntyped } from '../src/hot.ts';
 import * as files from '../src/config/files.ts';
 import { createOpsEnv } from '../src/tools/impl/env.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
@@ -80,7 +80,7 @@ function fakeWatch(): {
   return { watch, of: (target) => handed.filter((one) => one.target === target) };
 }
 
-/** What these tests read of the live view (src/hot.js). */
+/** What these tests read of the live view (src/hot.ts). */
 type Hot = {
   config: Tree;
   prompts: { labels: Tree };
@@ -96,7 +96,7 @@ const createHot = (options: { rootDir: string; privateDir: string; watchImpl?: u
     rootDir: options.rootDir,
     privateDir: options.privateDir,
     ...(options.watchImpl === undefined ? {} : { watchImpl: options.watchImpl as typeof fs.watch }),
-  }) as unknown as Hot;
+  });
 
 const movedWarnings = (logs: ReadonlyArray<Tree>): number =>
   logs.filter((entry) => entry.level === 'warn' && entry.move === MOVE_TOOL).length;

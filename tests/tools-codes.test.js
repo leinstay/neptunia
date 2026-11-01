@@ -19,7 +19,7 @@ import {
   reasonText,
 } from '../src/tools/codes.ts';
 import { joinLabels } from '../src/config/labels.ts';
-import { fill, formatTranscript, withCalls } from '../src/format.js';
+import { fill, formatTranscript, withCalls } from '../src/format.ts';
 import { toolResultText } from '../src/tools/tool-calls.ts';
 import { refusalStatus } from '../src/tools/executors.ts';
 import { callMarksOf } from '../src/memory/journal.ts';
@@ -50,18 +50,18 @@ const NOT_CODES = new Set(['string', 'number', 'resolve', 'gateway']);
 const SCANNED = [
   'src/skills',
   'src/ops',
-  'src/admin.js',
+  'src/admin.ts',
   'src/errands',
   'src/web',
   'src/intentions',
-  'src/behavior/turn.js',
-  'src/behavior/inner-output.js',
+  'src/behavior/turn.ts',
+  'src/behavior/inner-output.ts',
   'src/behavior/inner.ts',
-  'src/behavior/recall-run.js',
-  'src/behavior/sandbox.js',
-  'src/behavior/pipeline.js',
-  'src/behavior/pending.js',
-  'src/behavior/missed.js',
+  'src/behavior/recall-run.ts',
+  'src/behavior/sandbox.ts',
+  'src/behavior/pipeline.ts',
+  'src/behavior/pending.ts',
+  'src/behavior/missed.ts',
   'src/interface',
   'interfaces/discord/port.ts',
 ];

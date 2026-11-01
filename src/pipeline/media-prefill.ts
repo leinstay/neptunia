@@ -1,8 +1,8 @@
 // The media prefill of an observed line: its pictures captioned, its first videos watched and its first readable link
 // read ahead of time, each fire-and-forget, so a turn finds them in the cache; and the cached captions the address and
-// room classifiers show. createMessageHandler (src/behavior/pipeline.js) builds it once with createMediaPrefill.
+// room classifiers show. createMessageHandler (src/behavior/pipeline.ts) builds it once with createMediaPrefill.
 
-import { log } from '../log.js';
+import { log } from '../log.ts';
 import {
   collectEmojiItems,
   collectPictures,
@@ -10,7 +10,7 @@ import {
   collectVideos,
   isDescribable,
 } from '../media/classify.ts';
-import type { formatTranscript } from '../format.js';
+import type { formatTranscript } from '../format.ts';
 import type { PipelineHot } from './types.ts';
 
 // The most links one observed message has read ahead of time.
@@ -21,10 +21,10 @@ const PICTURES_PER_MESSAGE = 5;
 /** The videos of one observed message watched ahead of time. */
 const VIDEOS_PER_MESSAGE = 5;
 
-/** A normalized line (src/behavior/line-of.js#lineOf), as the media collectors read it. */
+/** A normalized line (src/behavior/line-of.ts#lineOf), as the media collectors read it. */
 type MediaLine = Parameters<typeof collectPictures>[0] & { readonly authorId?: string };
 
-/** What the classifiers' transcript shows of a line's media (src/format.js#formatTranscript). */
+/** What the classifiers' transcript shows of a line's media (src/format.ts#formatTranscript). */
 export type CachedMedia = Pick<Parameters<typeof formatTranscript>[1], 'descriptions' | 'videos'>;
 
 /** The describer (src/memory/describe.ts#createDescriber), as the prefill calls it. */

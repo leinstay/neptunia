@@ -1,5 +1,5 @@
 // The `<transcript>` input every classifier of a turn reads, and the video state the turn knows. createTurnRunner
-// (src/behavior/turn.js) builds it once per runner with createRewatch; the splitter calls classifierContext.
+// (src/behavior/turn.ts) builds it once per runner with createRewatch; the splitter calls classifierContext.
 
 import { renderClassifierContext } from './lookup-input.ts';
 import type { ClassifierContextInput } from './lookup-input.ts';

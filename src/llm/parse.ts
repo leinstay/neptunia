@@ -14,13 +14,13 @@
 // silence (`thinkOpen`, its text so far kept in `think` for the journal). It also accounts for
 // what it did not use: `diagnostics`, one `{ kind, ... }` per thing it dropped, cut or joined
 // (`retiredTag` with its `tag`, `messagesMerged`, `thinkUnclosed`), so the caller can
-// tell the persona what happened to her output (src/behavior/turn.js).
+// tell the persona what happened to her output (src/behavior/turn.ts).
 
 import type { LimitsSink } from './limits.ts';
 
 const MAX_MESSAGES = 3;
 const MAX_FALLBACK_CHARS = 600;
-// A reaction body: a short unicode emoji, or a custom one as `:name:` / `<a:name:id>` (src/behavior/emoji.js).
+// A reaction body: a short unicode emoji, or a custom one as `:name:` / `<a:name:id>` (src/behavior/emoji.ts).
 const MAX_REACTION_CHARS = 16;
 const CUSTOM_REACTION_RE = /^(?::[A-Za-z0-9_]{2,32}:|<a?:[A-Za-z0-9_]{2,32}:\d{1,25}>)$/;
 // A GIF handle (src/memory/gifs.ts): `g` and digits, any case.

@@ -14,7 +14,7 @@ import { CODE } from '../codes.ts';
 import { heldPort } from '../send-hold.ts';
 import { abilityUnavailable, callOnRoute } from '../gateway.ts';
 import type { RoleHealth } from '../../llm/role-health.ts';
-import { log } from '../../log.js';
+import { log } from '../../log.ts';
 import { idText, objOf } from '../types.ts';
 import type { Adapter } from '../../protocol/adapter.ts';
 import type { OpContext } from '../types.ts';

@@ -24,7 +24,7 @@ import {
   normalizeTopic,
 } from './interests.ts';
 import { clampText, stripUrls } from './clamp.ts';
-import { HOUR_MS } from '../time.js';
+import { HOUR_MS } from '../time.ts';
 import { isFiniteNumber, isIntegerNumber } from './types.ts';
 import type { RankedItem } from './interests.ts';
 import type { Untyped } from './types.ts';

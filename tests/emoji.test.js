@@ -3,7 +3,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CUSTOM_EMOJI_MARKUP, matchEmojiName, renderCustomEmoji, resolveReactionEmoji } from '../src/behavior/emoji.js';
+import { CUSTOM_EMOJI_MARKUP, matchEmojiName, renderCustomEmoji, resolveReactionEmoji } from '../src/behavior/emoji.ts';
 
 const EMOJIS = [
   { id: '111111111111111111', name: 'pepe_cry', animated: false },

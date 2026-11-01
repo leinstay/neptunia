@@ -1,8 +1,8 @@
 // The typing indicator of a turn: a lease on a channel, shown while a direct call's tool loop runs. createTurnRunner
-// (src/behavior/turn.js) builds it once per runner with createTyping; the tool loop starts and stops the lease.
+// (src/behavior/turn.ts) builds it once per runner with createTyping; the tool loop starts and stops the lease.
 
 import { startTypingLease } from '../interface/typing.ts';
-import { log } from '../log.js';
+import { log } from '../log.ts';
 import type { ConversationRef } from '../protocol/adapter.ts';
 import { portError } from './journal.ts';
 import type { PortResult } from './journal.ts';

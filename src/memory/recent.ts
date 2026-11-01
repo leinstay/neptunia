@@ -39,7 +39,7 @@
 // (see `momentAt`).
 
 import { isRecord, isFiniteNumber, isIntegerNumber } from './types.ts';
-import { DAY_MS, HOUR_MS } from '../time.js';
+import { DAY_MS, HOUR_MS } from '../time.ts';
 import { clampText, oneLine, stripUrls } from './clamp.ts';
 import { topEpisodes } from './episodes.ts';
 import { isWordChar, occursAsWholeWord, tokenIds } from './mentions.ts';

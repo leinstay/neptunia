@@ -1,6 +1,6 @@
 // Operations: `/nep learned add|remove`, and the owner's console read `/memory lessons list` (no operation, so no
 // tool of hers): the owner's side of the guild's list of things people taught the persona (store.js#applyLearnedOps).
-// The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
+// The handler bodies moved here from src/admin.ts unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
 import { normalizeTopic } from '../../memory/index.ts';

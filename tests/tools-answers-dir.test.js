@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import '../src/tools/impl/index.ts';
-import { answerSkillScenario, liveView, personaGrantsConfig } from '../src/behavior/sandbox.js';
+import { answerSkillScenario, liveView, personaGrantsConfig } from '../src/behavior/sandbox.ts';
 import {
   requestJson,
   createAnswersDir,

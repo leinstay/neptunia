@@ -3,7 +3,7 @@
 // the four `intent.*`), the nine settings of `agents` that every errand reads (they live under `errands`),
 // `agents.<name>.search.provider` (now `searchProvider`) and the analyzer timeout `llm.helperTimeoutMs` (now
 // `llm.analyzerTimeoutMs`). A local config written with the old keys keeps its meaning
-// because `moveConfigKeys` writes each old key under its new name, and the loader (src/config.js#readConfig) applies it to
+// because `moveConfigKeys` writes each old key under its new name, and the loader (src/config.ts#readConfig) applies it to
 // the local file before that file is laid over config.json, so an old key overrides the shipped default of its new name.
 // `tools/config-migrate.mjs` writes the same moves into the file.
 //

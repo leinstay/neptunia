@@ -1,10 +1,10 @@
-// Tests for the message links on the way out (src/behavior/turn.js with
+// Tests for the message links on the way out (src/behavior/turn.ts with
 // src/memory/mentions.ts#linkMessageNumbers) and, at the end, on the way in: a transcript number `#n` in a `<msg>` is sent as the
 // jump link of that message. Fake discord.js-shaped objects, a fake
 // LLM and store.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.js';
+import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.ts';
 import { labels } from './fixtures/labels.js';
 import { onWorld, world } from './fixtures/turn-world.ts';
 

@@ -1,5 +1,5 @@
 // The diary's mirrors (stage 3 design, section 5). A mirror is one place her diary entries are posted to, a `mirrors`
-// row of schema v15 the owner set up; there may be none or many. `createMirrors` (wired in src/core.js) publishes a
+// row of schema v15 the owner set up; there may be none or many. `createMirrors` (wired in src/core.ts) publishes a
 // recorded entry once to every enabled mirror: each mirror gets one `publications` row (src/memory/db/publish.ts), keyed
 // `diary:<entry id>:<place id>`, prepared `queued` under the mirror's standing grant, then sent through the interface
 // port and marked `sent` with the message ids as receipts, `failed` with the port's code, or `unknown` when the port
@@ -9,7 +9,7 @@
 // (`memoryWrite`, kind `publication`).
 //
 // An entry goes out in the order a diary post goes out from the turn: the voice message, her messages one by one, then
-// the pictures in messages of files (`sendEntry`). The turn's act path (src/behavior/turn.js#act) splits a set with
+// the pictures in messages of files (`sendEntry`). The turn's act path (src/behavior/turn.ts#act) splits a set with
 // the same `chunkPictures` and names its files with `pictureAttachments`; `voice.say` (src/tools/impl/voice.ts) builds
 // its file with `voiceAttachment`. Before any send the entry's pictures and voice file are kept in memory as files
 // under the data directory and `media` rows (memoryWrite kind `entry-media`, src/memory/db/diary-media.ts), so a row
@@ -25,7 +25,7 @@
 import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { log } from '../log.js';
+import { log } from '../log.ts';
 import { portLimit } from '../interface/capabilities.ts';
 import { issueContext } from '../memory/db/scope.ts';
 import { mirrorReceipts } from '../memory/db/publish.ts';
@@ -263,7 +263,7 @@ function postedOf(sent: Delivery, content: Content, items: Array<number>): Poste
   };
 }
 
-/** The places of her diary a sandbox's view names (`memory.diaryChannelIds`, src/behavior/sandbox.js), else none. */
+/** The places of her diary a sandbox's view names (`memory.diaryChannelIds`, src/behavior/sandbox.ts), else none. */
 export function viewDiaryIds(view: unknown): Array<string> {
   const read = (view as { memory?: { diaryChannelIds?: unknown } } | null | undefined)?.memory?.diaryChannelIds;
   return typeof read === 'function' ? (read as () => Array<string>)() : [];

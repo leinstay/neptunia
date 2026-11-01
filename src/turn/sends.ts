@@ -1,16 +1,16 @@
 // How the persona's words are rendered and timed before they go out: a post's mentions, custom emoji, jump links and
 // channel links, the wait for the trigger's author to fall quiet and the name of her diary's place for `<senses>`.
-// createTurnRunner (src/behavior/turn.js) builds it once per runner with createSends; the act, her calls and the
+// createTurnRunner (src/behavior/turn.ts) builds it once per runner with createSends; the act, her calls and the
 // attempt call its functions.
 
-import { settleWait } from '../behavior/activity.js';
+import { settleWait } from '../behavior/activity.ts';
 import { messageLinkOf } from '../behavior/elsewhere.ts';
 import type { IndexedEmoji } from '../behavior/emoji-index.ts';
-import { renderCustomEmoji } from '../behavior/emoji.js';
-import { resolveHandles } from '../behavior/handles.js';
+import { renderCustomEmoji } from '../behavior/emoji.ts';
+import { resolveHandles } from '../behavior/handles.ts';
 import { diaryPlaces, readMirrors } from '../behavior/mirror.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
-import { log } from '../log.js';
+import { log } from '../log.ts';
 import { linkChannels, linkMessageNumbers } from '../memory/mentions.ts';
 import { resolveMentions } from './mentions.ts';
 import { inCommunity } from './routing.ts';
@@ -122,7 +122,7 @@ export function createSends(ctx: SendsContext): Sends {
     channelHandles: unknown = null,
     snapshot: Snapshot | null = null
   ): string {
-    // A Map of the request is handle -> channel id (src/behavior/prompt.js).
+    // A Map of the request is handle -> channel id (src/behavior/prompt.ts).
     const handles = channelHandles instanceof Map ? (channelHandles as Map<string, string>) : null;
     if (!snapshot || !inCommunity(channel)) return handles ? linkChannels(text, [], handles) : text;
     const channels = snapshot.conversations.map((entry) => ({ id: entry.id, name: entry.name }));
@@ -138,7 +138,7 @@ export function createSends(ctx: SendsContext): Sends {
    * The persona's `text` as it is posted -- a `<msg>`, or the text of her `message.create` /
    * `message.edit` call: with `handles` (the request's handle -> member id map,
    * features.mentionHandles on) only an exact `@handle` becomes a mention and no name is ever
-   * matched (src/behavior/handles.js#resolveHandles; a handle-shaped token the map does not hold
+   * matched (src/behavior/handles.ts#resolveHandles; a handle-shaped token the map does not hold
    * stays text and is logged `turn: unknown handle` with `count`, unless `quiet`); without them
    * `@name` resolved over `lines`, then `knownNames`, then the fallback
    * `directory` (a thunk, only called when the text has an `@`; resolveMentions), custom

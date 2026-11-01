@@ -227,7 +227,7 @@ export function upsertLore(
     if (existing.source === 'owner' && source !== 'owner') continue; // never touched by the analyzer
     // An analyzer re-send that leaves the entry as it is stays unstamped and uncounted, so neither
     // `updatedAt` nor the update log overstates how much the lorebook moves. An owner write is an
-    // explicit save and always counts (src/admin.js reads 0 as an invalid entry).
+    // explicit save and always counts (src/admin.ts reads 0 as an invalid entry).
     if (source !== 'owner' && isSameEntry(existing, { title, keys, text, source })) continue;
 
     const updated: LoreEntry = { ...existing, title, keys, text, source, updatedAt: nowIso };

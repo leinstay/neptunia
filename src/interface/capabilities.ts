@@ -1,6 +1,6 @@
 // What the core reads of an interface's port without trusting its shape: the namespace it names its ids with and what
 // its `capabilities()` declare. The port is the link's adapter in a running core and any object a test hands over, so
-// each read answers a default instead of throwing (src/behavior/turn.js reads the limits of a message and the address
+// each read answers a default instead of throwing (src/behavior/turn.ts reads the limits of a message and the address
 // form of a message here).
 
 import type { MessageUrlTemplate } from '../protocol/adapter.ts';

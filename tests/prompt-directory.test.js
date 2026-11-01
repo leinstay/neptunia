@@ -1,12 +1,12 @@
-// Tests for the people directory and the mention handles in src/behavior/prompt.js#buildRequest
+// Tests for the people directory and the mention handles in src/behavior/prompt.ts#buildRequest
 // (features.mentionHandles): `<directory>` last in the cached stable part, byte-identical between
 // turns, requesters and channels; each author in view carrying their handle on their lines
-// (src/format.js, `transcript.author`); the request's handle -> member id map; nothing of
+// (src/format.ts, `transcript.author`); the request's handle -> member id map; nothing of
 // it with the switch off. Fake prompts and config; the fixture labels plus the keys under test.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildRequest, userText } from '../src/behavior/prompt.js';
-import { assignHandles, handleOf } from '../src/behavior/handles.js';
+import { buildRequest, userText } from '../src/behavior/prompt.ts';
+import { assignHandles, handleOf } from '../src/behavior/handles.ts';
 import { estimateTokens } from '../src/llm/tokens.ts';
 import { labels as fixtureLabels } from './fixtures/labels.js';
 

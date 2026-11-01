@@ -1,14 +1,14 @@
 // The drain and the turn it opens: one inner turn for the queue's first coalesced group, once the attention is free
 // and no cap holds it. The drain picks the conversation, builds the `<wake>` facts, records the wake run, runs the
-// turn through the turn runner (src/behavior/turn.js, mode `inner`), then marks the wakes handled or retries them,
+// turn through the turn runner (src/behavior/turn.ts, mode `inner`), then marks the wakes handled or retries them,
 // keeps the turn's feedback facts and queues the feedback wake. The turn's wakes are claimed in the memory database
 // before the turn asks the model and completed or released after it (wake-store.ts); a live turn's posts are held
 // and sent once the completion committed (deliveries.ts). The start's recovery (recovery.ts) runs first. An errand an
 // inner turn handed off has its cost counted here when it ends. The tick (src/behavior/inner.ts) calls `drain`.
 
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { onLog } from '../../log.js';
-import { HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../../time.js';
+import { onLog } from '../../log.ts';
+import { HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../../time.ts';
 import { HEARTBEAT_ORIGIN, attendCounter, expiredToShow, nextOccurrence } from '../../intentions/model.ts';
 import type { Intention } from '../../intentions/types.ts';
 import { errorCodeOf } from '../../llm/openrouter.ts';
@@ -180,7 +180,7 @@ type CostBox = { usd: number; peak: number; requests: number; voice: number };
 /**
  * The cost of whatever runs inside `run(fn)`: every `llm: usage` line (its `upstreamCost`, else
  * `cost`; the `core` role counted apart, as `voice`, the journal field's name since the role was called so) and `images: generated` line logged in its async context
- * (AsyncLocalStorage over the log listeners, src/log.js#onLog), requests on model roles other than `core` it starts included;
+ * (AsyncLocalStorage over the log listeners, src/log.ts#onLog), requests on model roles other than `core` it starts included;
  * `running()`, asked inside it, says what it has cost so far and its costliest single request.
  */
 export function createCostMeter({

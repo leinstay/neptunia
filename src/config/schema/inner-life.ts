@@ -13,7 +13,7 @@ export const INNER_LIFE: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'innerLife.tickSeconds',
     'types': ['number'],
-    'reader': 'src/core.js',
+    'reader': 'src/core.ts',
     'default': 60,
     'text': 'How often the scheduler looks at what is due',
   },

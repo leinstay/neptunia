@@ -1,10 +1,10 @@
-// What the recall runner (src/behavior/recall-run.js) does with the interface's reads that needs none of its state: a
+// What the recall runner (src/behavior/recall-run.ts) does with the interface's reads that needs none of its state: a
 // search hit read as the clustering takes it, a search plan entry written as the interface's message search takes it,
 // a history read turned into lines, and the wait on a read that cannot be cancelled.
 
 import type { Reads } from '../interface/reads.ts';
 import type { HistoryQuery, MessageHit } from '../protocol/adapter.ts';
-import { lineOf } from './line-of.js';
+import { lineOf } from './line-of.ts';
 import { objOf } from '../tools/types.ts';
 
 /** A search hit as the clustering reads it; `queries` holds the keys of the queries that found it. */
@@ -18,7 +18,7 @@ export type RecallHit = {
   queries: Set<string>;
 };
 
-/** One entry of a search plan (src/behavior/recall.js#searchPlan). */
+/** One entry of a search plan (src/behavior/recall.ts#searchPlan). */
 export type PlannedQuery = {
   kind: string;
   content?: string;

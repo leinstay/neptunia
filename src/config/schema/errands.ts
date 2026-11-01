@@ -34,7 +34,7 @@ export const ERRANDS: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'errands.resultMaxChars',
     'types': ['number'],
-    'reader': 'src/behavior/sandbox.js',
+    'reader': 'src/behavior/sandbox.ts',
     'default': 3000,
     'text': "Characters of an errand's result in the `<errand_result>` block",
   },

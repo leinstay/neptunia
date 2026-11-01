@@ -33,7 +33,7 @@
 // Every list is capped, the rest counted. A source that is missing or throws leaves its list empty
 // (never the whole view); the log carries codes, never text. Pure apart from the reads it is given.
 
-import { DAY_MS, HOUR_MS, utcDay } from '../time.js';
+import { DAY_MS, HOUR_MS, utcDay } from '../time.ts';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
 import { isOpen } from '../memory/interests.ts';
 import { currentToolName } from '../tools/definitions.ts';
@@ -68,7 +68,7 @@ export const PREVIEW_CHARS = Object.freeze({ place: 140, person: 120, filtered: 
 const PLACE_PEOPLE_SHOWN = 6;
 /** The calls that are her own sends (an unknown outcome of these is worth telling; an engine or model role action never is). */
 const SEND_SKILLS: ReadonlyArray<unknown> = Object.freeze(['message.create', 'draw.create', 'voice.say', 'diary.post']);
-/** The journal operations of the persona's own output that are sends (src/behavior/turn.js#journalOp names). */
+/** The journal operations of the persona's own output that are sends (src/behavior/turn.ts#journalOp names). */
 const SEND_OPS: ReadonlyArray<unknown> = Object.freeze(['post', 'draw', 'gif']);
 
 /** A list of at most a shown number of entries, and how many more there were. */
@@ -373,7 +373,7 @@ async function scanRecord({
 
 /**
  * The numbered lines the view hands out: one ref per record line (`{ id, channelId, authorId, self, message }`,
- * the shape of the handles a memory.search quotes, src/behavior/turn.js#searchHandles), in the order first asked;
+ * the shape of the handles a memory.search quotes, src/behavior/turn.ts#searchHandles), in the order first asked;
  * the wake words each as `#N` once the turn numbers them.
  */
 function refBook(): RefBook {

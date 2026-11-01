@@ -10,7 +10,7 @@
 import { foldText } from './recent.ts';
 import { isOpen } from './interests.ts';
 import { isWordChar, occursAsWholeWord, occursAsWordStem } from './mentions.ts';
-import { DAY_MS } from '../time.js';
+import { DAY_MS } from '../time.ts';
 import { isFiniteNumber, isIntegerNumber, isRecord } from './types.ts';
 import type { ValidityFields } from './interests.ts';
 import type { Untyped } from './types.ts';

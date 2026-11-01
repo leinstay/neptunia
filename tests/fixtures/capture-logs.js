@@ -1,4 +1,4 @@
-// Shared log capture for tests: src/log.js writes each entry as one JSON line through
+// Shared log capture for tests: src/log.ts writes each entry as one JSON line through
 // process.stdout.write. Under `node --test` the runner reports results over the same stdout, so
 // a capture that swallowed every write would drop test events and hide tests from the total.
 // Only the logger's own lines are captured; everything else is passed through untouched.
@@ -6,7 +6,7 @@
 const LOG_PREFIX = '{"level"';
 
 /**
- * Runs `fn` with src/log.js output intercepted and restores the original writer afterwards,
+ * Runs `fn` with src/log.ts output intercepted and restores the original writer afterwards,
  * even if `fn` throws. Writes that are not log lines reach the real stdout.
  * @template T
  * @param {() => T | Promise<T>} fn

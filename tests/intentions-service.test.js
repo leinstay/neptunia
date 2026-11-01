@@ -92,7 +92,7 @@ function makeEnv({
   const stores = createErrandStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, now });
   const intentionStores = createIntentionStores({ memoryDb: memoryOf(dataDir), now });
   let intentions = null;
-  // An errand's end goes the way src/index.js sends it: an errand.done event through the event
+  // An errand's end goes the way src/index.ts sends it: an errand.done event through the event
   // door, whose handler (the task turns) moves the waiting intentions, then runs her result turn,
   // which notes what it found.
   let door = null;

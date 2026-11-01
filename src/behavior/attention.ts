@@ -1,10 +1,10 @@
 // Her attention as leases in the memory database (src/memory/db/wake-queue.ts): the turn runner's set of the
-// conversations a turn runs in (src/behavior/turn.js, `attention`), each entry mirrored by the lease `attention:*`
+// conversations a turn runs in (src/behavior/turn.ts, `attention`), each entry mirrored by the lease `attention:*`
 // (one turn anywhere at a time). A lease lasts
 // `context.turnLeaseMs` and is renewed while the turn runs, at a third of that; the turn's end lets it go. The set in
 // process stays what decides whether a turn may start, because a turn takes the attention before anything is awaited;
 // the lease is what another process sees, and one a stopped process left is taken over once it expired. The writes
-// go through the memory database's writer and never hold a turn up: a failure is logged with its code. src/core.js
+// go through the memory database's writer and never hold a turn up: a failure is logged with its code. src/core.ts
 // builds it for the turn runner.
 
 import { errorCode, objOf } from '../tools/types.ts';

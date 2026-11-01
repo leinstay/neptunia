@@ -1,8 +1,8 @@
 // The shapes a turn's request is built from: the live labels and config as far as the block builders read them, the
 // stored profiles, the normalized messages, the transcript items and the budget's sections. Types only: the block
-// builders of src/turn/request/ and src/behavior/prompt.js#buildRequest share them.
+// builders of src/turn/request/ and src/behavior/prompt.ts#buildRequest share them.
 
-import type { formatTranscript } from '../../format.js';
+import type { formatTranscript } from '../../format.ts';
 import type { ParticipationInput } from './memory.ts';
 import type { Lookup, Prefetch } from './recall.ts';
 import type { GuildMemory, StoredChannel } from './server.ts';
@@ -52,6 +52,7 @@ export type Labels = {
   readonly units: Units;
   readonly transcript: LabelGroup;
   readonly profile: LabelGroup;
+  readonly tempo: LabelGroup;
   readonly peopleNow?: PeopleNowLabels;
   readonly affinity?: { readonly bands?: LabelGroup };
   readonly attitudes?: LabelGroup;
@@ -160,10 +161,10 @@ export type Message = {
   readonly stickers?: Array<{ readonly id?: unknown; readonly url?: unknown; readonly name?: unknown }>;
 };
 
-/** One line of a rendered transcript (src/format.js#formatTranscript). */
+/** One line of a rendered transcript (src/format.ts#formatTranscript). */
 export type TranscriptItem = ReturnType<typeof formatTranscript>[number];
 
-/** The options of src/format.js#formatTranscript a request renders its chat, neighbours and pulled channels with. */
+/** The options of src/format.ts#formatTranscript a request renders its chat, neighbours and pulled channels with. */
 export type FormatOptions = Parameters<typeof formatTranscript>[1];
 
 /** A stored claim about a member (an interest, a detail, an alias), with its validity. */
@@ -252,7 +253,7 @@ export type Cost = (text: string) => number;
 export type Neighbor = { readonly channelId?: string; readonly channelName: string; readonly messages: Array<Message> };
 
 /**
- * Every input buildRequest reads (src/behavior/prompt.js, where each is described). An input the block builders read
+ * Every input buildRequest reads (src/behavior/prompt.ts, where each is described). An input the block builders read
  * only after its own check is `unknown` here; the builders hand on the checked value under the same name.
  */
 export type RequestInput = {

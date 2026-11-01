@@ -17,7 +17,7 @@ import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { openBoard } from '../src/board/board.ts';
 
-// The Discord interface's capabilities object, as src/index.js injects it.
+// The Discord interface's capabilities object, as src/index.ts injects it.
 const DISCORD = createDiscordInterface().capabilities;
 
 /** The operation names the commands-cleanup plan agreed on (its wildcards spelled out), `/nep talk` since merged into `message.create`. */

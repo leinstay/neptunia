@@ -1,6 +1,6 @@
 // The budget sections of a turn's request in their priority order: the fixed part that is never cut, the
 // interlocutor, what was looked up, what the server's memory offers, the chat, and the lists fitted last. The block
-// builders of src/turn/request/ fill them, and buildRequest (src/behavior/prompt.js) has the budget fit them.
+// builders of src/turn/request/ fill them, and buildRequest (src/behavior/prompt.ts) has the budget fit them.
 
 import { fitSections } from '../../llm/budget.ts';
 import { emojiCaption, emojiItems, seenEmoji } from './emoji-gifs.ts';
@@ -38,7 +38,7 @@ export type HeadSections = {
  * interlocutor, `<lookup>` as the first candidate that fits, the prefetch, a diary post's find, the tool catalogue,
  * `<about_chat>`, `<self_facts>`, `<lore>` and `<server>`, then the chat.
  */
-// health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.js in stage 5d, a pure split
+// health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.ts in stage 5d, a pure split
 export function headSections(
   given: RequestInput &
     Base &

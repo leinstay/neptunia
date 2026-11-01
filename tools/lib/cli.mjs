@@ -1,12 +1,12 @@
 // What every script under tools/ shares: flag parsing, the UTC day range, the deployment's data
-// and private directories (src/paths.js), the guild of a data directory, the OpenRouter key slot of the tools, the spend gate, and the entry point (print the result, or the error and exit 1).
+// and private directories (src/paths.ts), the guild of a data directory, the OpenRouter key slot of the tools, the spend gate, and the entry point (print the result, or the error and exit 1).
 // The spend gate is the one rule for a tool that sends model requests: it prints its estimate
 // first and refuses unless `--spend <usd>` covers it.
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { resolvePaths } from '../../src/paths.js';
+import { resolvePaths } from '../../src/paths.ts';
 
 /** An operator-facing failure: printed as is, exit code `exitCode` (1 by default). */
 export class CliError extends Error {
@@ -86,7 +86,7 @@ export function daysBetween(since, until, usage) {
 
 /**
  * The data directory a tool reads when `--data` is not given: `NEPTUNIA_DATA_DIR` resolved against
- * `cwd` when set, else `<cwd>/data` (src/paths.js#resolvePaths). A given `--data` still wins.
+ * `cwd` when set, else `<cwd>/data` (src/paths.ts#resolvePaths). A given `--data` still wins.
  * @param {string} cwd
  * @param {Record<string, string | undefined>} [env]
  * @returns {string}
@@ -97,7 +97,7 @@ export function defaultDataDir(cwd, env = process.env) {
 
 /**
  * The private directory of the checkout at `root` (where a tool reads .env and the local layer):
- * `NEPTUNIA_PRIVATE_DIR` resolved against `root` when set, else `root` (src/paths.js#resolvePaths).
+ * `NEPTUNIA_PRIVATE_DIR` resolved against `root` when set, else `root` (src/paths.ts#resolvePaths).
  * @param {string} root
  * @param {Record<string, string | undefined>} [env]
  * @returns {string}

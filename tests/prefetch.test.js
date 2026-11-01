@@ -1,4 +1,4 @@
-// Tests for src/behavior/prefetch.js: the pure core of the automatic memory prefetch -- when it
+// Tests for src/behavior/prefetch.ts: the pure core of the automatic memory prefetch -- when it
 // runs, which triggers are trivial, the query lanes, the stored-memory plan of a lane, what counts
 // as relevant, the fusion and deduplication across lanes, the focus of an excerpt, and the caps.
 // No I/O.
@@ -15,8 +15,8 @@ import {
   prefetchLanes,
   quotedPhrases,
   rankPrefetch,
-} from '../src/behavior/prefetch.js';
-import { recallSettings } from '../src/behavior/recall.js';
+} from '../src/behavior/prefetch.ts';
+import { recallSettings } from '../src/behavior/recall.ts';
 
 const SETTINGS = {
   ...recallSettings({}).prefetch,

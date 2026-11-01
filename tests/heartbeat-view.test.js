@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { buildHeartbeatFacts } from '../src/behavior/heartbeat-view.ts';
 import { wakeBlockText } from '../src/behavior/wake.ts';
 import { labels } from './fixtures/labels.js';
-import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay } from '../src/time.js';
+import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay } from '../src/time.ts';
 
 const NOW = Date.parse('2026-10-20T12:00:00Z');
 const SINCE = NOW - 3 * HOUR_MS;

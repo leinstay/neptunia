@@ -1,6 +1,6 @@
 // The facts of the inner life (docs/inner-life.md "Feedback on her own turn"): `feedbackFacts` reads from a turn's
 // result what did not go through, and the state keeps each fact until a model answer carried it (`told`). The drain
-// (src/behavior/inner/drain.ts) keeps a turn's facts, the turn runner (src/behavior/turn.js) shows the kept ones on
+// (src/behavior/inner/drain.ts) keeps a turn's facts, the turn runner (src/behavior/turn.ts) shows the kept ones on
 // an addressed turn, and `createLocalFacts` keeps them in process when no inner life runs. Pure.
 
 import { isFiniteNumber, listOf, objOf } from '../../tools/types.ts';
@@ -21,7 +21,7 @@ const CALL_STATUSES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * What did not go through in one inner turn, from its result (src/behavior/turn.js's
+ * What did not go through in one inner turn, from its result (src/behavior/turn.ts's
  * `{ outcome, inner: { actions, intentIds, loop } }`), as a list of facts, each
  * `{ kind, ... }` (FEEDBACK_KINDS), in this order: one `callFailed` per call whose status was not `ok`
  * and not `presented` in a later step of the turn (`failed`, `partial`, `invalid`, `denied`, `not_configured`, `refused`, `unknown`, `timeout`; `skill`, `status`, `code`, and the

@@ -3,7 +3,7 @@
 // `/skills` to show. The labels (`skills.index`, `skills.line` in prompts/labels.json) are handed in; the request
 // builder (src/turn/request/) adds the tag.
 
-import { fill } from '../format.js';
+import { fill } from '../format.ts';
 
 export type MissingTool = { tool: string; reason: 'not-registered' | 'not-granted' };
 export type ActiveSkill = {

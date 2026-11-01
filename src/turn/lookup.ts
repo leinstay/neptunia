@@ -1,16 +1,16 @@
 // What a turn looks up before its reply request: the memory prefetch of its trigger, the splitter of a message that
 // holds several requests, and the directory and partner a turn's searches and mentions read. createTurnRunner
-// (src/behavior/turn.js) builds it once per runner with createLookup; the attempt calls its functions.
+// (src/behavior/turn.ts) builds it once per runner with createLookup; the attempt calls its functions.
 
-import { prefetchLanes, prefetchOn, wakeLanes } from '../behavior/prefetch.js';
-import { fillPromptTemplate } from '../behavior/prompt.js';
-import { recallSettings } from '../behavior/recall.js';
+import { prefetchLanes, prefetchOn, wakeLanes } from '../behavior/prefetch.ts';
+import { fillPromptTemplate } from '../behavior/prompt.ts';
+import { recallSettings } from '../behavior/recall.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
-import { parseSplitAnswer, splitSettings } from '../behavior/split.js';
+import { parseSplitAnswer, splitSettings } from '../behavior/split.ts';
 import type { Reads } from '../interface/reads.ts';
 import { railReason, roleRequestOptions } from '../llm/openrouter.ts';
 import { roleModel } from '../llm/roles.ts';
-import { log } from '../log.js';
+import { log } from '../log.ts';
 import type { MemberInfo } from '../protocol/adapter.ts';
 import { CODE } from '../tools/codes.ts';
 import type { JournalNotes } from './journal-notes.ts';
@@ -29,7 +29,7 @@ export type LookupConfig = ClassifierContextInput['config'] & {
 /** What recall's server search found: its summary, the stretch it quoted and the people in it. */
 type RecallFound = { text?: unknown; stretch?: unknown; people?: unknown } | null;
 
-/** The recall runner (src/behavior/recall-run.js#createRecall), as the searches and the prefetch use it. */
+/** The recall runner (src/behavior/recall-run.ts#createRecall), as the searches and the prefetch use it. */
 export type LookupRecall = {
   available?: () => unknown;
   run?: (input: Record<string, unknown>) => Promise<RecallFound>;
@@ -118,7 +118,7 @@ export type Lookup = {
   }) => Promise<Array<string> | null>;
 };
 
-// health: allow function-length until 2027-04-01 -- the lookup shares the runner state of src/behavior/turn.js, moved whole in stage 5b
+// health: allow function-length until 2027-04-01 -- the lookup shares the runner state of src/behavior/turn.ts, moved whole in stage 5b
 export function createLookup(ctx: LookupContext): Lookup {
   const { store, llm, clock, recall, membersOf, selfIdOf, ifaceReads, classifierContext, linkCalls } = ctx;
 
@@ -129,7 +129,7 @@ export function createLookup(ctx: LookupContext): Lookup {
   const PREFETCH_MEMO = 16;
 
   /**
-   * The automatic memory prefetch of a turn (src/behavior/prefetch.js, read now): with prefetchOn
+   * The automatic memory prefetch of a turn (src/behavior/prefetch.ts, read now): with prefetchOn
    * and the recall runner's `prefetch`, the lanes of this turn's trigger (prefetchLanes: none for
    * a turn no person's new message opened, nor for a trivial one -- logged `recall: prefetch
    * skipped` with its `reason`), searched once per trigger and text (`prefetchMemo`) over the
@@ -282,7 +282,7 @@ export function createLookup(ctx: LookupContext): Lookup {
   }
 
   /**
-   * The splitter (src/behavior/split.js): whether the call `trigger` holds
+   * The splitter (src/behavior/split.ts): whether the call `trigger` holds
    * several requests. One cheap classifier call (`prompt`, prompts/split.md,
    * `{{name}}` = the persona's display name, `{{maxTasks}}` = split.maxTasks;
    * on the `analyzer` model role (roleModel), its answer capped at split.maxOutputTokens, a

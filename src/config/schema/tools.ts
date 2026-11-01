@@ -13,7 +13,7 @@ export const TOOLS: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'tools.resultMaxChars',
     'types': ['number'],
-    'reader': 'src/behavior/sandbox.js',
+    'reader': 'src/behavior/sandbox.ts',
     'default': 4500,
     'text': "Characters of a tool's returned data shown in a call's result",
   },
@@ -27,14 +27,14 @@ export const TOOLS: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'tools.callTimeoutMs',
     'types': ['number'],
-    'reader': 'src/behavior/sandbox.js',
+    'reader': 'src/behavior/sandbox.ts',
     'default': 120000,
     'text': 'How long a skill call may run before its outcome is `unknown`',
   },
   {
     'key': 'tools.transport',
     'types': ['string'],
-    'reader': 'src/behavior/sandbox.js',
+    'reader': 'src/behavior/sandbox.ts',
     'default': 'native',
     'text':
       'How tools reach the model. `native`: structured tool calls. `text`: tools described in the prompt, calls as `<tool_call>` blocks',

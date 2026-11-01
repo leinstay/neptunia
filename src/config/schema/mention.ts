@@ -20,7 +20,7 @@ export const MENTION: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'mention.maxPending',
     'types': ['number'],
-    'reader': 'src/behavior/pending.js',
+    'reader': 'src/behavior/pending.ts',
     'default': 6,
     'text': 'Total pending calls held across all channels',
   },

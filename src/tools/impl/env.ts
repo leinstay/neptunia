@@ -1,4 +1,4 @@
-// The environment every operation runs against: the dependencies src/admin.js#createAdmin is
+// The environment every operation runs against: the dependencies src/admin.ts#createAdmin is
 // given (see its JSDoc for each one) and the functions several operations share -- the slash
 // wording of a pointer to another command, the paused / no-guild refusals, the token
 // resolver of analyzer text, the journal's system records and the writers of the private settings
@@ -11,7 +11,7 @@ import { localConfigPath } from '../../config/files.ts';
 import { fromTokens } from '../../memory/mentions.ts';
 import { familyOf as imageFamilyOf } from '../../llm/images.ts';
 import { roleModel } from '../../llm/roles.ts';
-import { log } from '../../log.js';
+import { log } from '../../log.ts';
 import { invalid } from './registry.ts';
 import { NO_GUILD, splitPath, setPath, ownValueAt, readLocalConfig, writeLocalConfig } from './shared.ts';
 import { CODE } from '../codes.ts';
@@ -50,7 +50,7 @@ export type OpsDeps = {
 };
 
 /**
- * The operations' environment over `deps` (src/admin.js#createAdmin's dependencies, the same
+ * The operations' environment over `deps` (src/admin.ts#createAdmin's dependencies, the same
  * defaults): the dependencies themselves plus the shared functions.
  */
 function buildEnv({
@@ -97,7 +97,7 @@ function buildEnv({
   board = null,
   skills = null,
   now = Date.now,
-  // The data directory src/index.js resolved (src/paths.js); `<hot.rootDir>/data` when not given.
+  // The data directory src/index.ts resolved (src/paths.ts); `<hot.rootDir>/data` when not given.
   dataDir = hot?.rootDir ? path.join(hot.rootDir as string, 'data') : null,
 }: OpsDeps) {
   /** `/<rest>`: every reply that points the owner at a command of the chat (src/interface/commands/table.ts). */
@@ -267,7 +267,7 @@ function buildEnv({
     metrics,
     // The web lookup: the status card's search line and `/nep task search` (src/tools/impl/search.ts).
     lookup,
-    // The server search of the recall runner (src/behavior/recall-run.js): `/nep memory search`.
+    // The server search of the recall runner (src/behavior/recall-run.ts): `/nep memory search`.
     recall,
     // The media describer (src/memory/describe.ts): `/nep task look`, its second look.
     describer,
@@ -315,7 +315,7 @@ function buildEnv({
 /** The environment an operation runs against: what `createOpsEnv` builds. */
 export type Env = ReturnType<typeof buildEnv>;
 
-/** The operations' environment over `deps` (src/admin.js#createAdmin's dependencies): the dependencies plus the shared functions. */
+/** The operations' environment over `deps` (src/admin.ts#createAdmin's dependencies): the dependencies plus the shared functions. */
 export function createOpsEnv(deps: OpsDeps): Env {
   return buildEnv(deps);
 }

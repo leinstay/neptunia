@@ -1,4 +1,4 @@
-// The route of her tool abilities inside one turn (src/behavior/turn.js): `draw.create` on the drawing role and
+// The route of her tool abilities inside one turn (src/behavior/turn.ts): `draw.create` on the drawing role and
 // `media.look` on the vision or video role go through src/tools/gateway.ts#callOnRoute over the core's one role
 // health (src/llm/role-health.ts); `voice.say` routes inside its operation (src/tools/impl/voice.ts) and its result
 // carries the same mark. The first result of a turn that went to the core model or did not happen gets one route
@@ -6,7 +6,7 @@
 // (`labels.tools.route.fallback` or `.unavailable` per role, `.separator` between them, the ability and the reason in
 // the words of `labels.tools.result.params.ability` and `.why`). Later calls of the turn get none.
 
-import { fill } from '../format.js';
+import { fill } from '../format.ts';
 import { TOOL_ROLES, abilityRoute, abilityUnavailable, callOnRoute } from '../tools/gateway.ts';
 import type { RoleHealth } from '../llm/role-health.ts';
 

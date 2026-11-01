@@ -18,10 +18,10 @@
 // factory at the end (createDiary) is the module's edge: it ticks, keeps the
 // day plan in state.json and runs the post through the turn runner.
 
-import { fill } from '../format.js';
-import { log } from '../log.js';
+import { fill } from '../format.ts';
+import { log } from '../log.ts';
 import { oneLine, clampText, stripUrls } from '../memory/clamp.ts';
-import { MINUTE_MS, zonedDay, zonedEpoch, utcDay } from '../time.js';
+import { MINUTE_MS, zonedDay, zonedEpoch, utcDay } from '../time.ts';
 import { isFiniteNumber, listOf, objOf } from '../tools/types.ts';
 import type { Obj } from '../tools/types.ts';
 import type { Reads } from '../interface/reads.ts';
@@ -30,7 +30,7 @@ import type { ConversationRef } from '../protocol/adapter.ts';
 import { historyLines } from './lines.ts';
 import { diaryPlaces, readMirrors } from './mirror.ts';
 
-/** A day counter of the store's state (src/time.js#countToday): the key of its day and the key of its count. */
+/** A day counter of the store's state (src/time.ts#countToday): the key of its day and the key of its count. */
 export type Daily = { dayKey: string; countKey: string };
 
 /** The diary's plan of one local day, as state.json keeps it (`diary[guildId]`). */
@@ -629,7 +629,7 @@ export function renderTopicBlock(topic: unknown, labels: unknown): string {
   return [diaryWords(labels).topic, text].filter(Boolean).join('\n');
 }
 
-// A diary post's text loses its URLs through the one shared sanitizer (src/memory/clamp.ts#stripUrls).
+// A diary post's text loses its URLs through the one shared sanitizer (src/memory/clamp.js#stripUrls).
 export { stripUrls };
 
 /**
@@ -683,7 +683,7 @@ export type DiaryDeps = {
 
 /**
  * The diary's scheduler and its owner-facing edge. `tick()` (every 30 s,
- * src/index.js) does nothing while the bot is paused (`diary: skip` with `reason`
+ * src/index.ts) does nothing while the bot is paused (`diary: skip` with `reason`
  * `paused`, once per local day). Otherwise it keeps the day plan of the
  * served guild in state.json (`diary[guildId] = { day, slots, done, quiet,
  * posted, hunger, quietStreak }`, `day` the local date in `bot.timezone`):

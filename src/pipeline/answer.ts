@@ -1,10 +1,10 @@
 // The ordinary path of a server call the persona may answer: held while the attention is taken, otherwise counted,
 // rolled for the ignore chance and answered by a reply turn, the live call and a routed one alike. createMessageHandler
-// (src/behavior/pipeline.js) builds it once with createAnswer; the live path, the settle waits, the follow-up path and
+// (src/behavior/pipeline.ts) builds it once with createAnswer; the live path, the settle waits, the follow-up path and
 // the drain call it.
 
-import { SPAM_WINDOW_MS, decideMention } from '../behavior/mention.js';
-import { log } from '../log.js';
+import { SPAM_WINDOW_MS, decideMention } from '../behavior/mention.ts';
+import { log } from '../log.ts';
 import type { CallOutcome } from './call-outcome.ts';
 import { routedFields } from './call-outcome.ts';
 import type { ConversationRef } from './conversations.ts';
@@ -12,7 +12,7 @@ import type { HoldCall } from './merge.ts';
 import type { PendingQueueOps } from './pending-queue.ts';
 import type { Conv, Line, PipelineConfig, PipelineTurns, TriggerKind } from './types.ts';
 
-/** The ignore decision of one call (src/behavior/mention.js#decideMention). */
+/** The ignore decision of one call (src/behavior/mention.ts#decideMention). */
 export type Decision = { respond: boolean; reason: string; ignoreChance: number; roll?: number };
 
 /** One call on the ordinary path: where it was written, the line, its kind and, for a routed call, its destination. */

@@ -3,9 +3,9 @@
 // with createFollowing; handleMessage calls it for every member's line of the served guild.
 
 import { diaryConversationIds } from '../behavior/mirror.ts';
-import { log } from '../log.js';
+import { log } from '../log.ts';
 import { participationSettings, recordFollowing } from '../memory/index.ts';
-import { MINUTE_MS } from '../time.js';
+import { MINUTE_MS } from '../time.ts';
 import type { Line, PipelineConfig, PipelineTurns, Thrown } from './types.ts';
 
 /** The participation store of src/memory/store.ts, as the following line writes it. */

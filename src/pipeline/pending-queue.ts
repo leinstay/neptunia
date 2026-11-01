@@ -14,8 +14,8 @@
 // (turns.spokeAfterSeeing). Never persisted. createMessageHandler (src/behavior/pipeline.js) builds it once with
 // createPendingQueue over the queue it shares with the merge and the drain (src/pipeline/drain.ts).
 
-import { addPending, authorCalls, followUpSlot, requeuePending } from '../behavior/pending.js';
-import { log } from '../log.js';
+import { addPending, authorCalls, followUpSlot, requeuePending } from '../behavior/pending.ts';
+import { log } from '../log.ts';
 import { clampChars, oneLine } from '../memory/clamp.ts';
 import { CODE } from '../tools/codes.ts';
 import { routedFields } from './call-outcome.ts';
@@ -30,7 +30,7 @@ import type {
   PipelineTurns,
   TurnRequest,
 } from './types.ts';
-import { MAX_MESSAGE_CHARS } from '../format.js';
+import { MAX_MESSAGE_CHARS } from '../format.ts';
 
 /** What src/behavior/pending.js answers a change of the list with: it keeps the entries it is given. */
 type Kept = { list: Array<Ping>; evicted: Ping | null };

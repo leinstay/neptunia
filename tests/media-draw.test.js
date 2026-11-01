@@ -5,8 +5,8 @@
 // tests/draw-parity.test.js. Fake clock, prompts, labels, avatar and channel; no network.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.js';
-import { createAdmin } from '../src/admin.js';
+import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.ts';
+import { createAdmin } from '../src/admin.ts';
 import '../src/tools/impl/index.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { familyOf } from '../src/llm/images.ts';

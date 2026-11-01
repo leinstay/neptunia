@@ -1,5 +1,5 @@
 // The core as the units run it, for the tests of the `neptunia` command and of what reaches the core through it.
-// `startCore` (src/core.js) runs in the test process with no interface of its own (`interfaces.mode: units`), over
+// `startCore` (src/core.ts) runs in the test process with no interface of its own (`interfaces.mode: units`), over
 // temporary data and private folders, a scripted model and the tracked prompts. Clients are written by
 // tools/client-token.mjs, as an operator writes them. Two kinds of child process connect to the core's socket:
 // - `spawnUnit` runs `bin/neptunia.ts interface run fake` over the fake interface of
@@ -16,8 +16,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { startCore } from '../../src/core.js';
-import { onLog } from '../../src/log.js';
+import { startCore } from '../../src/core.ts';
+import { onLog } from '../../src/log.ts';
 import { openMemoryDb } from '../../src/memory/db/open.ts';
 import { ANSWER, channelInfo, lineEvent } from './core-over-fake.ts';
 import { withCapturedLogs } from './capture-logs.js';

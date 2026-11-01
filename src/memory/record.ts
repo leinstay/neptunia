@@ -25,7 +25,7 @@
 
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { log as defaultLog } from '../log.js';
+import { log as defaultLog } from '../log.ts';
 import { clampChars, clampWithEllipsis, oneLine } from './clamp.ts';
 import { memoryRootOf } from './root.ts';
 

@@ -19,29 +19,29 @@ const fileHead = (file) =>
   `diff --git a/${file} b/${file}\nindex 1111111..2222222 100644\n--- a/${file}\n+++ b/${file}`;
 
 test('parseChangedRanges: reads the new-side range from a real unified=0 hunk header', () => {
-  const diff = diffOf(fileHead('src/time.js'), '@@ -41,2 +41,5 @@ export function parse(x) {', '-old', '+new');
-  assert.deepEqual(parseChangedRanges(diff), { 'src/time.js': [[41, 45]] });
+  const diff = diffOf(fileHead('src/time.ts'), '@@ -41,2 +41,5 @@ export function parse(x) {', '-old', '+new');
+  assert.deepEqual(parseChangedRanges(diff), { 'src/time.ts': [[41, 45]] });
 });
 
 test('parseChangedRanges: a header without a count is one line', () => {
-  const diff = diffOf(fileHead('src/log.js'), '@@ -7 +7 @@', '-a', '+b');
-  assert.deepEqual(parseChangedRanges(diff), { 'src/log.js': [[7, 7]] });
+  const diff = diffOf(fileHead('src/log.ts'), '@@ -7 +7 @@', '-a', '+b');
+  assert.deepEqual(parseChangedRanges(diff), { 'src/log.ts': [[7, 7]] });
 });
 
 test('parseChangedRanges: a pure insertion starts at the line after the anchor', () => {
-  const diff = diffOf(fileHead('src/log.js'), '@@ -10,0 +11,3 @@', '+a', '+b', '+c');
-  assert.deepEqual(parseChangedRanges(diff), { 'src/log.js': [[11, 13]] });
+  const diff = diffOf(fileHead('src/log.ts'), '@@ -10,0 +11,3 @@', '+a', '+b', '+c');
+  assert.deepEqual(parseChangedRanges(diff), { 'src/log.ts': [[11, 13]] });
 });
 
 test('parseChangedRanges: a deleted-only hunk yields no range but the file stays listed', () => {
-  const diff = diffOf(fileHead('src/log.js'), '@@ -20,3 +19,0 @@', '-a', '-b', '-c');
-  assert.deepEqual(parseChangedRanges(diff), { 'src/log.js': [] });
+  const diff = diffOf(fileHead('src/log.ts'), '@@ -20,3 +19,0 @@', '-a', '-b', '-c');
+  assert.deepEqual(parseChangedRanges(diff), { 'src/log.ts': [] });
 });
 
 test('parseChangedRanges: collects two hunks of one file in order', () => {
-  const diff = diffOf(fileHead('src/log.js'), '@@ -3 +3,2 @@', '-a', '+b', '+c', '@@ -30,0 +31 @@', '+d');
+  const diff = diffOf(fileHead('src/log.ts'), '@@ -3 +3,2 @@', '-a', '+b', '+c', '@@ -30,0 +31 @@', '+d');
   assert.deepEqual(parseChangedRanges(diff), {
-    'src/log.js': [
+    'src/log.ts': [
       [3, 4],
       [31, 31],
     ],
@@ -118,7 +118,7 @@ const existing = [
 ];
 
 test('selectTestFiles: picks the test named after the file', () => {
-  assert.deepEqual(selectTestFiles(['src/time.js'], [], existing), ['tests/time.test.js']);
+  assert.deepEqual(selectTestFiles(['src/time.ts'], [], existing), ['tests/time.test.js']);
 });
 
 test('selectTestFiles: matches a tail of the folder path joined by hyphens', () => {
@@ -131,7 +131,7 @@ test('selectTestFiles: a source file without a test selects nothing', () => {
 });
 
 test('selectTestFiles: adds a changed test file and lists each test once', () => {
-  const picked = selectTestFiles(['src/time.js'], ['tests/time.test.js', 'tests/other.test.js', 'docs/x.md'], existing);
+  const picked = selectTestFiles(['src/time.ts'], ['tests/time.test.js', 'tests/other.test.js', 'docs/x.md'], existing);
   assert.deepEqual(picked, ['tests/other.test.js', 'tests/time.test.js']);
 });
 
@@ -150,7 +150,7 @@ test('selectTestFiles: picks a test of another name that imports the module', ()
   const read = reader({
     'tests/protocol.test.js': "import { validate } from '../src/protocol/validate.ts';\n",
     'tests/protocol-events.test.ts': "import { validate } from '../src/protocol/validate.ts';\n",
-    'tests/time.test.js': "import { parse } from '../src/time.js';\n",
+    'tests/time.test.js': "import { parse } from '../src/time.ts';\n",
   });
   assert.deepEqual(selectTestFiles(['src/protocol/validate.ts'], [], protocolTests, read), [
     'tests/protocol-events.test.ts',
@@ -174,7 +174,7 @@ test('selectTestFiles: does not pick a test that imports other modules only', ()
   const read = reader({
     'tests/protocol.test.js': "import { send } from '../src/protocol/send.js';\n",
     'tests/protocol-events.test.ts': "import { validate } from '../src/protocol/validate.ts';\n",
-    'tests/time.test.js': "import { parse } from '../src/time.js';\n",
+    'tests/time.test.js': "import { parse } from '../src/time.ts';\n",
   });
   assert.deepEqual(selectTestFiles(['src/protocol/validate.ts'], [], protocolTests, read), [
     'tests/protocol-events.test.ts',
@@ -185,7 +185,7 @@ test('selectTestFiles: a module neither named nor imported selects nothing', () 
   const read = reader({
     'tests/protocol.test.js': "import { send } from '../src/protocol/send.js';\n",
     'tests/protocol-events.test.ts': '',
-    'tests/time.test.js': "import { parse } from '../src/time.js';\n",
+    'tests/time.test.js': "import { parse } from '../src/time.ts';\n",
   });
   assert.deepEqual(selectTestFiles(['src/protocol/validate.ts'], [], protocolTests, read), []);
 });
@@ -214,8 +214,8 @@ test('selectTestFiles: keeps the named test next to the importing ones', () => {
 });
 
 test('selectTestFiles: lists a test once when the name and an import both pick it', () => {
-  const read = reader({ 'tests/time.test.js': "import { parse } from '../src/time.js';\n" });
-  assert.deepEqual(selectTestFiles(['src/time.js'], [], ['tests/time.test.js'], read), ['tests/time.test.js']);
+  const read = reader({ 'tests/time.test.js': "import { parse } from '../src/time.ts';\n" });
+  assert.deepEqual(selectTestFiles(['src/time.ts'], [], ['tests/time.test.js'], read), ['tests/time.test.js']);
 });
 
 test('selectTestFiles: a test file the reader cannot find selects nothing', () => {
@@ -289,11 +289,11 @@ test('scoreFromReport: gives a null score when no mutant could be judged', () =>
 });
 
 test('filesWithoutTest: names the source files no test is named after', () => {
-  assert.deepEqual(filesWithoutTest(['src/time.js', 'src/orphan.js'], existing), ['src/orphan.js']);
+  assert.deepEqual(filesWithoutTest(['src/time.ts', 'src/orphan.js'], existing), ['src/orphan.js']);
 });
 
 test('filesWithoutTest: names nothing when every file has a test', () => {
-  assert.deepEqual(filesWithoutTest(['src/time.js', 'src/memory/db.js'], existing), []);
+  assert.deepEqual(filesWithoutTest(['src/time.ts', 'src/memory/db.js'], existing), []);
 });
 
 test('filesWithoutTest: names nothing for an empty list', () => {
@@ -301,11 +301,11 @@ test('filesWithoutTest: names nothing for an empty list', () => {
 });
 
 test('isFormatOnly: true when every subject starts with Format', () => {
-  assert.equal(isFormatOnly(['Format src/time.js with Prettier', 'Format the memory modules']), true);
+  assert.equal(isFormatOnly(['Format src/time.ts with Prettier', 'Format the memory modules']), true);
 });
 
 test('isFormatOnly: false when one subject changes something else', () => {
-  assert.equal(isFormatOnly(['Format src/time.js with Prettier', 'Fix the day rollover']), false);
+  assert.equal(isFormatOnly(['Format src/time.ts with Prettier', 'Fix the day rollover']), false);
 });
 
 test('isFormatOnly: false for an empty list', () => {

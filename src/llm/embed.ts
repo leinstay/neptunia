@@ -22,7 +22,7 @@ import {
 } from './openrouter.ts';
 import { roleModel } from './roles.ts';
 import { errorFields } from '../error-fields.ts';
-import { log } from '../log.js';
+import { log } from '../log.ts';
 import { objOf } from '../tools/types.ts';
 
 /** The model role an embedding request goes out on: `/nep model`, `llm.providerByModel` keys `"<prefix>@embedding"`. */

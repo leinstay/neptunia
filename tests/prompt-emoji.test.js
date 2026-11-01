@@ -1,9 +1,9 @@
 // The `<emoji>` block and the `senses.customEmoji` line of buildRequest
-// (src/behavior/prompt.js).
+// (src/behavior/prompt.ts).
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildRequest, userText as contentText } from '../src/behavior/prompt.js';
+import { buildRequest, userText as contentText } from '../src/behavior/prompt.ts';
 import { labels } from './fixtures/labels.js';
 
 const NOW = Date.UTC(2026, 8, 20, 10, 0, 0);

@@ -1,9 +1,9 @@
 // The task of a turn's request: which prompt file frames it, the trigger's label, where a routed call came from, the
 // room's question, what else the author waits for, the private chat's and the forced turn's additions, and the
-// check of a follow-up's own task. buildRequest (src/behavior/prompt.js) and the request phase's facts
+// check of a follow-up's own task. buildRequest (src/behavior/prompt.ts) and the request phase's facts
 // (src/turn/phases/request/facts.ts) call them.
 
-import { fill, formatDuration } from '../../format.js';
+import { fill, formatDuration } from '../../format.ts';
 import { currentChannelFallback } from './server.ts';
 import { fillPromptTemplate } from './text.ts';
 import type { Base } from './head.ts';
@@ -44,7 +44,7 @@ function numberedItems(texts: Array<string>, first: number): Array<string> {
  * message's `#n` in the transcript else its `link`, `{ago}` through `labels.units`, `{code}`).
  * '' when nothing applies.
  */
-// health: allow complexity until 2027-04-01 -- moved whole from src/behavior/prompt.js in stage 5d, a pure move
+// health: allow complexity until 2027-04-01 -- moved whole from src/behavior/prompt.ts in stage 5d, a pure move
 export function renderTasks(
   tasks: Tasks | null | undefined,
   labels: Labels,
@@ -54,7 +54,7 @@ export function renderTasks(
   const queued = Array.isArray(tasks.queued) ? tasks.queued : [];
   const added = Array.isArray(tasks.added) ? tasks.added : [];
   const texts: Array<string> = [];
-  // A recovery turn's messages left unanswered earlier (src/behavior/missed.js), first.
+  // A recovery turn's messages left unanswered earlier (src/behavior/missed.ts), first.
   const missed = Array.isArray(tasks.missed)
     ? tasks.missed.filter((item): item is NonNullable<typeof item> => Boolean(item && item.text))
     : [];
@@ -119,7 +119,7 @@ export function renderTasks(
  * Whether a turn's task text is `prompts['follow-up']` instead of `prompts.reply`: a reply-mode
  * turn answering a follow-up (`followUp`: an untagged line the address classifier marked as said
  * to the persona) or an untagged `reply` (a platform reply to the persona's line with no typed tag,
- * `taggedCall` exactly false -- src/behavior/mention.js#isTaggedCall, as decideMention reads it).
+ * `taggedCall` exactly false -- src/behavior/mention.ts#isTaggedCall, as decideMention reads it).
  * A mention, a tagged reply (or one whose tagged state is unknown), a name call, an overheard
  * line, a routed call and a private chat keep their usual task. Pure.
  */
@@ -153,7 +153,7 @@ export type Task = {
  * then the routed call's origin, the room's question, what else the author waits for, the private chat's and the
  * forced turn's additions.
  */
-// health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.js in stage 5d, a pure split
+// health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.ts in stage 5d, a pure split
 export function taskOf(given: RequestInput & Base & PulledView): Task {
   const { prompts, mode, forced, now, selfName, history, trigger, triggerKind, channels, currentChannelId } = given;
   const { labels, privateChat, chatItems, source, routed, offered, chatTrigger, pulledTriggerId, pulledSets } = given;
@@ -214,7 +214,7 @@ export function taskOf(given: RequestInput & Base & PulledView): Task {
   const tasksText = renderTasks(given.tasks, labels, { chatItems, now });
   // The task text. `callShown`: whether the pulled trigger's line made it into
   // `<channel_view>` -- a task never points at a line the request does not show.
-  // health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.js in stage 5d, a pure split
+  // health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.ts in stage 5d, a pure split
   const composeTask = (callShown: boolean) => {
     const callItem = chatTrigger ?? (callShown ? pulledTrigger : null);
     const taskValues = {

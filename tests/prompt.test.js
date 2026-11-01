@@ -1,4 +1,4 @@
-// Tests for src/behavior/prompt.js: buildRequest, the one-shot LLM request
+// Tests for src/behavior/prompt.ts: buildRequest, the one-shot LLM request
 // assembler. Uses fake prompts/config/labels only -- never reads prompts/ or
 // data/. tests/fixtures/labels.js is an English fixture covering every key of
 // the prompt contract.
@@ -16,15 +16,15 @@ import {
   fillPromptTemplate,
   userText as contentText,
   usesFollowUpTask,
-} from '../src/behavior/prompt.js';
+} from '../src/behavior/prompt.ts';
 import { estimateTokens } from '../src/llm/tokens.ts';
 import { SAFETY_MARGIN } from '../src/llm/budget.ts';
 import { createFedAround as createAroundStore } from './fixtures/around-feed.ts';
-import { fill, formatClock, formatDate, formatDuration } from '../src/format.js';
-import { zonedDay } from '../src/time.js';
+import { fill, formatClock, formatDate, formatDuration } from '../src/format.ts';
+import { zonedDay } from '../src/time.ts';
 import { labels } from './fixtures/labels.js';
 import { tokenIds } from '../src/memory/mentions.ts';
-import { handleOf } from '../src/behavior/handles.js';
+import { handleOf } from '../src/behavior/handles.ts';
 
 const NOW = Date.UTC(2026, 8, 20, 10, 0, 0); // Sun 20 Sep 2026, 13:00 Moscow
 const MIN = 60_000;

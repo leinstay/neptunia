@@ -1,4 +1,4 @@
-// The recall runner (src/behavior/recall-run.js) over the interface's reads. A search is `searchMessages` with the
+// The recall runner (src/behavior/recall-run.ts) over the interface's reads. A search is `searchMessages` with the
 // community and a neutral query (text, author, a time range as `after` and `before` in ms); a hit is neutral too (a
 // reference, a time, a text and its author). The windows around the hits are `history` reads, anchored `around` a
 // message and followed `after` the last line; a member name is `searchMembers`. Which conversations a hit may come
@@ -17,9 +17,9 @@ import type { Snapshot } from '../src/behavior/snapshot.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { labels } from './fixtures/labels.js';
 import { COMMUNITY, SELF_ID, channel, member, message, privateChannel, rig } from './fixtures/reads-rig.ts';
-import { createRecall } from '../src/behavior/recall-run.js';
-import * as recall from '../src/behavior/recall.js';
-import { searchPlan } from '../src/behavior/recall.js';
+import { createRecall } from '../src/behavior/recall-run.ts';
+import * as recall from '../src/behavior/recall.ts';
+import { searchPlan } from '../src/behavior/recall.ts';
 
 type Line = {
   id: string;

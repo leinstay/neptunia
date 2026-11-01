@@ -30,7 +30,7 @@
 // failure (`web: exa failed`), carrying the reason and an HTTP status only --
 // never the query (it is chat content), never the key, never the URL.
 
-import { log } from '../log.js';
+import { log } from '../log.ts';
 import { clampText } from '../memory/clamp.ts';
 import { objOf } from '../tools/types.ts';
 import type { SearchClient, SearchFailure, SearchOptions, SearchOutcome, SearchResult } from './search-types.ts';

@@ -1,15 +1,15 @@
 // The other channels a turn shows in `<channel_view>`: which ones it pulls (the source, the mentions, the route hook's
 // picks, the ones an exchange keeps), their fresh captions and last views, and what a turn that spoke leaves behind
-// (the seen marks, the lines it had in view, the calls of the ring it stamps). createTurnRunner (src/behavior/turn.js)
+// (the seen marks, the lines it had in view, the calls of the ring it stamps). createTurnRunner (src/behavior/turn.ts)
 // builds it once per runner with createPulls over the runner's pull state; the attempt calls its functions.
 
 import { markSeen, stampPings } from '../behavior/elsewhere.ts';
 import { captionPulled, checkPull, fetchPull } from '../behavior/pull-fetch.ts';
 import type { PulledChannel, createPullViews } from '../behavior/pull-fetch.ts';
-import { pullSettings, pullTargets } from '../behavior/pull.js';
+import { pullSettings, pullTargets } from '../behavior/pull.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import type { Reads } from '../interface/reads.ts';
-import { log } from '../log.js';
+import { log } from '../log.ts';
 import type { ConversationInfo } from '../protocol/adapter.ts';
 import type { TriggerKind } from './triggers.ts';
 
@@ -18,7 +18,7 @@ type FetchArgs = Parameters<typeof fetchPull>[0];
 /** The live config, as far as the pulls read it; the settings functions read their own sections. */
 export type PullsConfig = FetchArgs['config'];
 
-/** A pull's settings (src/behavior/pull.js#pullSettings). */
+/** A pull's settings (src/behavior/pull.ts#pullSettings). */
 type PullSettings = ReturnType<typeof pullSettings>;
 
 /** One channel pullTargets lists. */
@@ -97,7 +97,7 @@ export type Pulls = {
   }) => void;
 };
 
-// health: allow function-length until 2027-04-01 -- the pulls share the runner state of src/behavior/turn.js, moved whole in stage 5b
+// health: allow function-length until 2027-04-01 -- the pulls share the runner state of src/behavior/turn.ts, moved whole in stage 5b
 export function createPulls(ctx: PullsContext): Pulls {
   const { hot, store, describer, routeChannels, clock, ifaceReads, pullViews, keptPulls, spokeSaw } = ctx;
 
@@ -153,7 +153,7 @@ export function createPulls(ctx: PullsContext): Pulls {
 
   /**
    * The other channels a server turn shows in `<channel_view>`, each fetched
-   * by fetchPull, in the order of src/behavior/pull.js#pullTargets: the
+   * by fetchPull, in the order of src/behavior/pull.ts#pullTargets: the
    * turn's `source` first and alone -- a turn about it does not go on
    * without it, so nothing else is fetched when it fails -- then the explicit
    * `<#id>` mentions of the trigger and of the last `context.pull.scanMessages`
@@ -183,7 +183,7 @@ export function createPulls(ctx: PullsContext): Pulls {
    * Resolves the PulledChannel records, source first; `sourceSkip` is the skip code of a source that could not be
    * pulled.
    */
-  // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.js in stage 5b, a pure move
+  // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.ts in stage 5b, a pure move
   async function pullChannels({
     channel,
     guildId,
@@ -485,7 +485,7 @@ export function createPulls(ctx: PullsContext): Pulls {
    * (src/behavior/elsewhere.ts#stampPings: an answer wins over a skip, a stamp
    * never moves). A pulled channel the bot can write in is left alone (a call
    * there is answered there), and so is `exceptId`: a routed turn's own call,
-   * which its caller (src/behavior/pipeline.js) stamps by the turn's outcome.
+   * which its caller (src/behavior/pipeline.ts) stamps by the turn's outcome.
    * Nothing changes while paused (the owner may be editing data/). Each call
    * whose state changed logs `elsewhere: marked`; the state is marked dirty
    * once.

@@ -1,4 +1,4 @@
-// Tests for src/format.js: pure transcript/time formatting. Every
+// Tests for src/format.ts: pure transcript/time formatting. Every
 // word comes from `labels` (tests/fixtures/labels.js is an English fixture
 // covering the full prompt-contract key list); a second, non-English labels
 // object proves nothing in the code is language-bound.
@@ -18,7 +18,7 @@ import {
   renderTempo,
   withTriggers,
   withCalls,
-} from '../src/format.js';
+} from '../src/format.ts';
 import { labels } from './fixtures/labels.js';
 
 const TZ = 'Europe/Moscow'; // fixed UTC+3, no DST -- safe for exact arithmetic in tests

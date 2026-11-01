@@ -1,10 +1,10 @@
 // The other channels a turn's request shows: `<channel_view>`, another channel pulled into the turn, with its lines
 // numbered on after the chat's, its call marks and its line against the last view of it, each channel cut to its
 // share of the room. It also names the authors in view, who get the mention handles. buildRequest
-// (src/behavior/prompt.js) calls them.
+// (src/behavior/prompt.ts) calls them.
 
 import { createHash } from 'node:crypto';
-import { fill, formatDate, formatDuration, formatTranscript, reactorIdsOf } from '../../format.js';
+import { fill, formatDate, formatDuration, formatTranscript, reactorIdsOf } from '../../format.ts';
 import { fitSections } from '../../llm/budget.ts';
 import { pulledMoment } from './text.ts';
 import type { Base, Room } from './head.ts';
@@ -65,7 +65,7 @@ function pingStateOf(pingState: unknown, id: unknown): string | null {
 /**
  * The ids of the members who wrote the lines a request may show -- `history`, then every
  * `messages` list of each of `sources` (the pulled channels, the neighbours) -- never the
- * persona's own lines or a bot's, each once (src/behavior/handles.js#assignHandles' `inView`);
+ * persona's own lines or a bot's, each once (src/behavior/handles.ts#assignHandles' `inView`);
  * the members named as reactors on her lines of `history` too.
  * `sources` are lists of `{ messages }` entries; anything else is skipped.
  */
@@ -189,7 +189,7 @@ function pulledLineHash(message: Message): string {
 
 /**
  * The view of the same source channel last shown in this destination channel
- * (src/behavior/pull-fetch.ts#createPullViews, attached by src/behavior/turn.js
+ * (src/behavior/pull-fetch.ts#createPullViews, attached by src/behavior/turn.ts
  * as the entry's `seenBefore`), or null when there is none or it is unusable.
  */
 function seenBeforeOf(entry: PulledEntry): { hashes: Map<string, string>; oldestTs: number; shownAt: number } | null {

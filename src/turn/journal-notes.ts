@@ -6,10 +6,10 @@
 
 import { messageLinkOf } from '../behavior/elsewhere.ts';
 import type { FactInput, FactsApi, Fact } from '../behavior/inner.ts';
-import { placeKey } from '../behavior/previous-think.js';
-import { withCalls, withTriggers } from '../format.js';
+import { placeKey } from '../behavior/previous-think.ts';
+import { withCalls, withTriggers } from '../format.ts';
 import { SOURCE_CHARS_MAX, lineSourcesOf, textsOf } from '../intentions/sources.ts';
-import { log } from '../log.js';
+import { log } from '../log.ts';
 import { toRecordLine } from '../memory/record.ts';
 import { outcomeDetail } from '../tools/executors.ts';
 import { CALL_MARKS_MAX, POSTED_FROM_MAX, TRIGGER_LINKS_MAX } from './calls.ts';

@@ -3,7 +3,7 @@
 // argument names, codes, counts, ids and the board's own titles and notes are the only content; no line of chat is here.
 // `wakeBlockText` (src/behavior/wake.ts) calls it after the heartbeat's lines.
 
-import { fill } from '../format.js';
+import { fill } from '../format.ts';
 import { oneLine } from '../memory/clamp.ts';
 import { listOf, objOf } from '../tools/types.ts';
 import type { Obj } from '../tools/types.ts';

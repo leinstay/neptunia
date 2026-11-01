@@ -36,7 +36,7 @@
 // `innerLife.attention.*` through attentionSettings); validAttend checks the shape.
 
 import { createHash, randomUUID } from 'node:crypto';
-import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../time.js';
+import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../time.ts';
 import { clampChars, oneLine } from '../memory/clamp.ts';
 import { isWordChar, occursAsWholeWord } from '../memory/mentions.ts';
 import { foldText as foldName } from '../memory/recent.ts';

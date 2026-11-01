@@ -24,12 +24,12 @@
 // bot is paused. Each pass logs its coverage (counts), and warns when a message the queue had
 // taken is missing with nothing left to send it (lost). Logs carry counts and guild ids, never text.
 
-import { log as defaultLog } from '../log.js';
+import { log as defaultLog } from '../log.ts';
 import { roleModel } from '../llm/roles.ts';
 import { EMBED_ROLE } from '../llm/embed.ts';
 import { railReason } from '../llm/openrouter.ts';
 import { estimateTokens } from '../llm/tokens.ts';
-import { HOUR_MS, MINUTE_MS } from '../time.js';
+import { HOUR_MS, MINUTE_MS } from '../time.ts';
 import {
   CHUNK_CONTEXT_LINES,
   chunkKey,

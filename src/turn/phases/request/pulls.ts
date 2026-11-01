@@ -3,7 +3,7 @@
 // (src/turn/phases/request.ts) runs it after the searches step; the turn ends here when its source is gone or its
 // chooser finds nothing to do.
 
-import { log } from '../../../log.js';
+import { log } from '../../../log.ts';
 import type { PulledChannel } from '../../../behavior/pull-fetch.ts';
 import type { Ended, PhaseContext, PhaseParams } from '../context.ts';
 import type { Opened } from '../preflight.ts';

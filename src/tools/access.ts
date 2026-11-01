@@ -110,7 +110,7 @@ export function envelopeAllows(envelope: { tools: '*' | ReadonlyArray<string> },
   return envelope.tools.includes(skill) || envelope.tools.includes(`${family}.*`) || envelope.tools.includes('*');
 }
 
-/** A call that counts as done or proposed (src/behavior/turn.js `innerActions`). */
+/** A call that counts as done or proposed (src/behavior/turn.ts `innerActions`). */
 const counted = (action: WakeAction | null | undefined): boolean =>
   action?.status === 'executed' || action?.status === 'proposed';
 

@@ -20,7 +20,7 @@ export const MEMORY_DB: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'memoryDb.observeTimeoutMs',
     'types': ['number'],
-    'reader': 'src/behavior/pipeline.js',
+    'reader': 'src/behavior/pipeline.ts',
     'default': 5000,
     'text': "How long the message handler waits for an observation's commit before going on",
   },

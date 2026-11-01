@@ -1,16 +1,16 @@
 // The act of a turn: her reactions, messages and GIF posted for real, each checked by the gateway right before it, typed
 // out like a person would, journaled and recorded; and a diary post's speech held where the act would send it.
-// createTurnRunner (src/behavior/turn.js) builds it once per runner with createAct; the attempt and her calls call act
+// createTurnRunner (src/behavior/turn.ts) builds it once per runner with createAct; the attempt and her calls call act
 // and holdSpeech.
 
 import { setSettings } from '../behavior/diary.ts';
 import { chunkPictures, filesPerMessage } from '../behavior/mirror.ts';
 import type { EntryPicture } from '../behavior/mirror.ts';
-import { between, typingMs } from '../behavior/random.js';
+import { between, typingMs } from '../behavior/random.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import type { Reads } from '../interface/reads.ts';
 import { sleep } from '../llm/openrouter.ts';
-import { log } from '../log.js';
+import { log } from '../log.ts';
 import type { ConversationInfo, ConversationRef, MessageRef } from '../protocol/adapter.ts';
 import { CODE } from '../tools/codes.ts';
 import type { DrawGif, ResolvedGif } from './draw-gif.ts';
@@ -184,7 +184,7 @@ export type Act = {
   act: (args: ActArgs) => Promise<ActOutcome>;
 };
 
-// health: allow function-length until 2027-04-01 -- the act shares the runner state of src/behavior/turn.js, moved whole in stage 5b
+// health: allow function-length until 2027-04-01 -- the act shares the runner state of src/behavior/turn.ts, moved whole in stage 5b
 export function createAct(ctx: ActContext): Act {
   const {
     hot,
@@ -286,8 +286,8 @@ export function createAct(ctx: ActContext): Act {
    * posted, as the persona wrote them), `lines` (each message posted as a transcript line of hers: its id, time and
    * text as written), `gifs` (the handles of the GIFs posted) and `drew` (false: a picture goes out through its call).
    */
-  // health: allow function-length until 2027-04-01 -- moved whole from src/behavior/turn.js in stage 5b, a pure move
-  // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.js in stage 5b, a pure move
+  // health: allow function-length until 2027-04-01 -- moved whole from src/behavior/turn.ts in stage 5b, a pure move
+  // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.ts in stage 5b, a pure move
   async function act({
     channel,
     guildId,

@@ -1,4 +1,4 @@
-// The core over the fake interface and nothing else: `startCore` (src/core.js) with the fake interface of
+// The core over the fake interface and nothing else: `startCore` (src/core.ts) with the fake interface of
 // src/interface/fake-interface.ts started without a `legacy` object, a scripted model and temporary data and private
 // folders. A test seeds the fake's conversations and messages through `seed`, emits whole `message.received` events
 // the way an interface delivers them, and reads what the persona posted, what the model was asked and which reads
@@ -7,7 +7,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { startCore } from '../../src/core.js';
+import { startCore } from '../../src/core.ts';
 import { start } from '../../src/interface/fake-interface.ts';
 import { openMemoryDb } from '../../src/memory/db/open.ts';
 import type { ConversationInfo, MessageEvent } from '../../src/protocol/adapter.ts';

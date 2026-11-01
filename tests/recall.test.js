@@ -1,4 +1,4 @@
-// Tests for src/behavior/recall.js: the pure core of recall (the lookup
+// Tests for src/behavior/recall.ts: the pure core of recall (the lookup
 // answer parser, the search plan, clustering, window rendering, the summary
 // request and its answer). No I/O, no real clock.
 import { test } from 'node:test';
@@ -33,7 +33,7 @@ import {
   sampleOffsets,
   scanArchive,
   searchPlan,
-} from '../src/behavior/recall.js';
+} from '../src/behavior/recall.ts';
 import { estimateTokens } from '../src/llm/tokens.ts';
 import { createRecord, toRecordLine } from '../src/memory/record.ts';
 import { labels } from './fixtures/labels.js';

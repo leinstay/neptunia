@@ -215,11 +215,11 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   const dataDir = args.data ? path.resolve(cwd, args.data) : defaultDataDir(ROOT);
   const file = outPath(dataDir, cwd, args.out, now());
 
-  const { createHot } = await import('../src/hot.js');
+  const { createHot } = await import('../src/hot.ts');
   const hot = createHot({ rootDir: ROOT, privateDir: privateDirOf(ROOT) });
   try {
     // The keys (OPENROUTER_SIM_KEY, DISCORD_TOKEN, YOUTUBE_API_KEY) from .env; never printed.
-    const { loadDotEnv } = await import('../src/config.js');
+    const { loadDotEnv } = await import('../src/config.ts');
     loadDotEnv(privateDirOf(ROOT));
     const configuredGuild = hot.config.bot?.guildId || undefined;
     let guildId;

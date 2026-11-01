@@ -1,6 +1,6 @@
 // The effective config of a local file written before the rename: the settings and the grants it carries under the old
 // names (`skills.*`, `features.skills`, `features.skillsDiscovery`, the grant on `skills.describe`) must mean what they
-// meant. The file is loaded the way a start loads it (src/config.js#readConfig) over a config.json that has only the new
+// meant. The file is loaded the way a start loads it (src/config.ts#readConfig) over a config.json that has only the new
 // names, and the functions that read the settings answer what the owner set: the tool transport, the tool loop's bounds,
 // safe mode and the names of the tools granted to the persona. The shape is that of a production local
 // file: a few settings under `skills`, a switch off, grants for her user id on tools and on the tool `skills.describe`.
@@ -12,8 +12,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { readConfig } from '../src/config.js';
-import { loopSettings } from '../src/behavior/turn.js';
+import { readConfig } from '../src/config.ts';
+import { loopSettings } from '../src/behavior/turn.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { tempDir } from './fixtures/tmp.js';
 import '../src/tools/impl/index.ts';
@@ -45,7 +45,7 @@ function load(local: Settings): Settings {
     })
   );
   fs.writeFileSync(path.join(root, 'config.local.json'), JSON.stringify(local));
-  return readConfig(root, { privateDir: root }) as Settings;
+  return readConfig(root, { privateDir: root });
 }
 
 /** The errand settings config.json carries, the ones every errand reads (PR 7d: three more are constants). */

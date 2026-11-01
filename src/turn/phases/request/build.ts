@@ -2,14 +2,14 @@
 // built (twice for a heartbeat whose handles follow the request's own lines), the record of the memory rows it carried
 // and what of the window the journal names as seen. The request phase (src/turn/phases/request.ts) runs it last.
 
-import { buildRequest } from '../../../behavior/prompt.js';
+import { buildRequest } from '../../../behavior/prompt.ts';
 import { diaryConversationIds } from '../../../behavior/mirror.ts';
-import { turnRequestInput } from '../../../behavior/turn-input.js';
+import { turnRequestInput } from '../../../behavior/turn-input.ts';
 import { wakeBlockText } from '../../../behavior/wake.ts';
 import { budgetDrops } from '../../../llm/budget.ts';
 import { toolsBlockText } from '../../../llm/tool-text.ts';
 import { estimateTools } from '../../../llm/tokens.ts';
-import { log } from '../../../log.js';
+import { log } from '../../../log.ts';
 import { exposedSkillNames } from '../../../tools/discovery.ts';
 import { buildTools } from '../../../tools/tools-json.ts';
 import { SEARCH_HANDLE_GAP, defaultSkills, searchHandles } from '../../calls.ts';
@@ -27,11 +27,8 @@ import type { Setup } from './setup.ts';
 import type { Told } from './facts.ts';
 import type { Waited } from './wait.ts';
 
-/** The request as buildRequest builds it, with the parts its header names beside the typed ones. */
-export type BuiltRequest = ReturnType<typeof buildRequest> & {
-  memberNames?: Map<string, Array<string>> | null;
-  memoryReads?: Array<unknown>;
-};
+/** The request as buildRequest builds it. */
+export type BuiltRequest = ReturnType<typeof buildRequest>;
 
 /** The budget's line of a request: one entry per section (src/llm/budget.ts). */
 function statsOf(request: BuiltRequest): Record<string, { dropped?: number }> {
@@ -45,7 +42,7 @@ function requestOf(input: Record<string, unknown>): BuiltRequest {
   return buildRequest(input as Parameters<typeof buildRequest>[0]);
 }
 
-// health: allow complexity until 2027-04-01 -- moved from runTurnAttempt in src/behavior/turn.js in stage 5c, a pure split
+// health: allow complexity until 2027-04-01 -- moved from runTurnAttempt in src/behavior/turn.ts in stage 5c, a pure split
 export function buildTurnRequest(
   ctx: PhaseContext,
   params: PhaseParams,

@@ -28,7 +28,7 @@ import {
   topExcerptLine,
   traceAgreement,
 } from '../tools/lib/recall-eval.mjs';
-import { createRecall } from '../src/behavior/recall-run.js';
+import { createRecall } from '../src/behavior/recall-run.ts';
 import { toRecordLine } from '../src/memory/record.ts';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';

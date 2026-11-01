@@ -5,10 +5,10 @@
 
 import { messageLinkOf } from '../../../behavior/elsewhere.ts';
 import { FACTS_SHOWN_MAX, factPayload } from '../../../behavior/inner.ts';
-import { isTaggedCall } from '../../../behavior/mention.js';
-import { usesFollowUpTask } from '../../../behavior/prompt.js';
+import { isTaggedCall } from '../../../behavior/mention.ts';
+import { usesFollowUpTask } from '../../../behavior/prompt.ts';
 import { feedbackInTurnText } from '../../../behavior/wake.ts';
-import { log } from '../../../log.js';
+import { log } from '../../../log.ts';
 import type { Draft } from '../../draft.ts';
 import { FAILED_TURN_KEEP_MS, settleUnknownSends } from '../../journal.ts';
 import { askedFor } from '../../triggers.ts';
@@ -30,7 +30,7 @@ export type Told = {
   skillIndex: string | null;
 };
 
-// health: allow complexity until 2027-04-01 -- moved from runTurnAttempt in src/behavior/turn.js in stage 5c, a pure split
+// health: allow complexity until 2027-04-01 -- moved from runTurnAttempt in src/behavior/turn.ts in stage 5c, a pure split
 export async function tellFacts(
   ctx: PhaseContext,
   params: PhaseParams,

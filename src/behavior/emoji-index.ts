@@ -5,7 +5,7 @@
 
 import type { EmojiInfo } from '../protocol/adapter.ts';
 import type { Reads } from '../interface/reads.ts';
-import { matchEmojiName } from './emoji.js';
+import { matchEmojiName } from './emoji.ts';
 
 /** How long a read of the list stands (a decision of 2026-10-26: the interface sends no change event). */
 const EMOJI_TTL_MS = 60_000;

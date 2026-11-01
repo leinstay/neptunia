@@ -1,19 +1,19 @@
 // What a turn's request carries from the persona's own life beside the chat: her errands and the result that opened
 // the turn, her intentions, an inner turn's wake, the places page and her previous think. The turn renders all but
 // the last (src/errands/blocks.ts, src/intentions/blocks.ts, src/behavior/wake.ts). buildRequest
-// (src/behavior/prompt.js) puts them in the tail, never cut.
+// (src/behavior/prompt.ts) puts them in the tail, never cut.
 
-import { fill, formatDuration } from '../../format.js';
-import { inertThink } from '../../behavior/previous-think.js';
+import { fill, formatDuration } from '../../format.ts';
+import { inertThink } from '../../behavior/previous-think.ts';
 import type { Labels, RequestInput } from './types.ts';
 
-/** Her one previous think (src/behavior/previous-think.js), and whether it was this conversation's last request. */
+/** Her one previous think (src/behavior/previous-think.ts), and whether it was this conversation's last request. */
 export type PreviousThink = { readonly text: string; readonly relation: 'same' | 'earlier'; readonly ageMs?: number };
 
 /**
  * The `<previous_think>` body (docs/prompt-contract.md): `labels.previousThink.note`, then one line of
  * engine metadata (`labels.previousThink.same`, or `earlier` with `{ago}`), then the think as inert
- * text (src/behavior/previous-think.js#inertThink). '' without a think, without the note label or
+ * text (src/behavior/previous-think.ts#inertThink). '' without a think, without the note label or
  * without the metadata label of its relation. Pure.
  */
 export function previousThinkBody(previous: PreviousThink | null | undefined, labels: Labels): string {
@@ -36,7 +36,7 @@ export type WakeTexts = {
 };
 
 /** The bodies of `<errands>`, `<errand_result>`, `<intentions>`, `<wake>`, `<places>` and `<previous_think>`. */
-// health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.js in stage 5d, a pure split
+// health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.ts in stage 5d, a pure split
 export function wakeTexts(given: RequestInput, labels: Labels): WakeTexts {
   // The errands' bodies as the turn rendered them (src/errands/blocks.ts); a missing one is ''.
   const errands = given.errands as { list?: unknown; result?: unknown } | null | undefined;

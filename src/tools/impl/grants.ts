@@ -22,7 +22,7 @@ function listsOwner(owners: unknown, userId: unknown): boolean {
 
 /**
  * True when `userId` is one of `config.bot.owners`: the one owner check of the owner commands
- * (src/admin.js, src/tools/impl/index.ts) and of `isAllowed` below. No user, no owner. `config` is the live merged
+ * (src/admin.ts, src/tools/impl/index.ts) and of `isAllowed` below. No user, no owner. `config` is the live merged
  * config (hot.config).
  */
 export function isOwnerId(config: unknown, userId: unknown): boolean {

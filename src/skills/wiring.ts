@@ -1,4 +1,4 @@
-// The core's skills, wired once (src/core.js calls it): the access over the memory writer (client.ts), the index of her
+// The core's skills, wired once (src/core.ts calls it): the access over the memory writer (client.ts), the index of her
 // active skills for a request with the list of what it showed, and the sources of the selfimprovement wake's facts that
 // concern skills and the board. The skill folders are `skills/` in the checkout (tracked), the `skills/` of each enabled
 // plugin and `skills.local/` in the private layer; all are read at each call, and the grants, the labels and `skills.reviewDays` are read from `hot` at

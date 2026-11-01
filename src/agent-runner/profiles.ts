@@ -57,7 +57,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WITHHELD_GLOBS, WITHHELD_NAMES, WITHHELD_ROOTS, withheldRootsOf } from './policy.ts';
 import { DEVELOPMENT_ROLES, OPENCODE_ROLES, ROLE_DEFAULTS } from '../llm/roles.ts';
-import { resolvePaths } from '../paths.js';
+import { resolvePaths } from '../paths.ts';
 import { errorFields } from '../error-fields.ts';
 import { scalarText } from '../tools/types.ts';
 
@@ -173,7 +173,7 @@ const PROFILE_FILE = 'profile.json';
 /**
  * The system-prompt files of agent `name`, in the order they are tried: the deployment's
  * override `prompts.local/<override>` under the private directory (`NEPTUNIA_PRIVATE_DIR`, else
- * the root; src/paths.js#resolvePaths), then the tracked `agents/<name>/<prompt>` under the root.
+ * the root; src/paths.ts#resolvePaths), then the tracked `agents/<name>/<prompt>` under the root.
  * `override` defaults to `agent-<name>.md` and `prompt` to `prompt.md`, the names the shipped
  * profiles use, so the owner's override files keep their names. An override that exists but
  * cannot be read (EACCES, EPERM) is skipped like an absent one, with one warning
@@ -688,7 +688,7 @@ const SEGMENT_STARTS = Object.freeze(['', '* ', '*/', '*=', "*'", '*"']);
  * SEGMENT_STARTS form instead (the name right after a space, a slash, `=` or a quote), so it
  * matches only where a path segment starts with it, never inside `core.git`. Listing commands
  * (`ls`, `find`, `stat`, `du`,
- * `readlink`, `realpath`) get none: names stay visible. `paths` (src/paths.js#resolvePaths) picks
+ * `readlink`, `realpath`) get none: names stay visible. `paths` (src/paths.ts#resolvePaths) picks
  * the deployment's withheld directories; by default this process's (WITHHELD_ROOTS).
  */
 export function withheldShellDenies({

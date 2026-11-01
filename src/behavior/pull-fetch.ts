@@ -1,7 +1,7 @@
 // Fetching another conversation for a turn: the pulled block (`<channel_view>`). A turn sometimes needs a conversation
 // other than the one it speaks in -- the read-only channel a call came from, a channel someone named with an explicit
 // <#id>, or any channel a route hook names -- and without it the persona would be asked about a channel it cannot see.
-// The pure decisions live elsewhere: src/behavior/pull.js (the window that ends at the channel's newest message, the
+// The pure decisions live elsewhere: src/behavior/pull.ts (the window that ends at the channel's newest message, the
 // pictures that may get a caption, the `context.pull` settings) and src/behavior/elsewhere.ts (the ring of calls, the
 // audience comparison). This module is the rails and the reads, `fetchPull`, which any caller can use for any
 // conversation id of the turn's snapshot: the rails a pull must pass (a readable channel, allowed, not a thread,
@@ -13,11 +13,11 @@
 
 import type { ConversationInfo } from '../protocol/adapter.ts';
 import type { Reads } from '../interface/reads.ts';
-import { log } from '../log.js';
-import { MINUTE_MS } from '../time.js';
-import { isTooOld, pullPictures, pullSettings, pullWindow } from './pull.js';
+import { log } from '../log.ts';
+import { MINUTE_MS } from '../time.ts';
+import { isTooOld, pullPictures, pullSettings, pullWindow } from './pull.ts';
 import { elsewhereSettings, pingStatus, pingsIn } from './elsewhere.ts';
-import { lineOf } from './line-of.js';
+import { lineOf } from './line-of.ts';
 import type { Line } from './lines.ts';
 import { historyLines } from './lines.ts';
 import { audienceAllows, isReadable } from './snapshot.ts';
@@ -47,8 +47,8 @@ const DEFAULT_TIMERS: Timers = Object.freeze({
 type PingState = 'answered' | 'skipped' | 'unanswered';
 
 /**
- * One conversation shown to the persona beside the chat it answers. Consumed by src/behavior/prompt.js (rendering; it
- * finds the newest line shown itself) and src/behavior/turn.js (reactions, which ask the snapshot's `permissions.react`;
+ * One conversation shown to the persona beside the chat it answers. Consumed by src/behavior/prompt.ts (rendering; it
+ * finds the newest line shown itself) and src/behavior/turn.ts (reactions, which ask the snapshot's `permissions.react`;
  * seen marks); no platform object is inside it.
  */
 export type PulledChannel = {
@@ -80,7 +80,7 @@ type View = { hashes: Map<string, string>; oldestTs: number; oldestId: string | 
  * The last view of each pulled conversation shown in each conversation, in process only (no file: it is about the
  * current conversation, and a restart forgets it). Keyed `${destinationId}:${sourceId}`; one view holds each shown
  * line's id with its hash, the oldest window line's time and id (`oldestId`: an earlier page starts before it,
- * `fetchPull`'s `beforeId`) and when it was shown. src/behavior/turn.js reads it before building a turn's request (the
+ * `fetchPull`'s `beforeId`) and when it was shown. src/behavior/turn.ts reads it before building a turn's request (the
  * PulledChannel's `seenBefore`) and writes it once the request was sent and answered, from buildRequest's
  * `pulledViews`. A view older than the TTL (`context.pull.seenTtlMinutes`, read by the caller at the moment of use) is
  * ignored and pruned.

@@ -1,14 +1,14 @@
 // What happens to one new message: ignored, observed into memory, put to the
 // address classifier, or answered as a call, here or in the main channel once its channel settles. A message
 // the gateway delivered and one the start's catch-up delivered are handled once, whichever path reaches it first.
-// createMessageHandler (src/behavior/pipeline.js) builds it once with createHandleMessage and returns its onMessage.
+// createMessageHandler (src/behavior/pipeline.ts) builds it once with createHandleMessage and returns its onMessage.
 
 import { observeWhilePaused } from '../behavior/core-pause.ts';
 import type { PausedDeps } from '../behavior/core-pause.ts';
-import { isLimitNotice } from '../behavior/limits.js';
-import { lineOf } from '../behavior/line-of.js';
-import { detectTrigger } from '../behavior/mention.js';
-import { log } from '../log.js';
+import { isLimitNotice } from '../behavior/limits.ts';
+import { lineOf } from '../behavior/line-of.ts';
+import { detectTrigger } from '../behavior/mention.ts';
+import { log } from '../log.ts';
 import type { MessageReceived } from '../protocol/events.ts';
 import type { Answer } from './answer.ts';
 import type { Conversations } from './conversations.ts';
@@ -109,7 +109,7 @@ export function createHandleMessage({
   }
 
   /**
-   * One message posted while the bot was offline (src/behavior/catch-up.js, at start), handled
+   * One message posted while the bot was offline (src/behavior/catch-up.ts, at start), handled
    * like a live one with three differences: it is dropped when the gateway (or an earlier
    * catch-up) already delivered it; nothing at all happens while paused (no pause notice), in a
    * private chat or for a line that is no call (no follow-up for stale chatter); and a call (a mention, a reply to the persona, her name -- the live
@@ -120,11 +120,11 @@ export function createHandleMessage({
     event: MessageReceived & { raw: object },
     { trigger = false }: { trigger?: boolean } = {}
   ): Promise<'duplicate' | 'ignored' | 'observed' | 'triggered'> {
-    // A catch-up delivers whole messages (src/behavior/catch-up.js).
+    // A catch-up delivers whole messages (src/behavior/catch-up.ts).
     return (await handleMessage(event as MessageEvent, { trigger: trigger === true })) ?? 'ignored';
   }
 
-  // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/pipeline.js in stage 5d, a pure move
+  // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/pipeline.ts in stage 5d, a pure move
   async function handleMessage(event: MessageEvent, catchUp: CatchUp): Promise<Handled> {
     try {
       // 1. System / webhook messages are not conversation.
@@ -172,7 +172,7 @@ export function createHandleMessage({
       // it answers stops writing (pace.settleMs). The persona's own messages never count.
       if (event.message.author.id !== selfIdOf())
         activity?.note(event.conversation.id, event.message.author.id, event.message.at);
-      // Any message, hers included, pushes back a missed-answer sweep armed here (src/behavior/missed.js).
+      // Any message, hers included, pushes back a missed-answer sweep armed here (src/behavior/missed.ts).
       missed?.noteActivity(event.conversation.id, event.message.at);
 
       const selfId = selfIdOf();
@@ -214,7 +214,7 @@ export function createHandleMessage({
         event.addressing!.replyToSelf ||
         (await resolveReference({ iface: event.iface, conversationId: event.conversation.id }, normalized.replyToId));
       const nameTriggers = config.bot.nameTriggers;
-      // detectTrigger answers a trigger kind or null (src/behavior/mention.js).
+      // detectTrigger answers a trigger kind or null (src/behavior/mention.ts).
       const kind = detectTrigger({
         mentionsSelf,
         repliesToSelf,

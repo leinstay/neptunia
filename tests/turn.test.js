@@ -1,4 +1,4 @@
-// Tests for src/behavior/turn.js: the pure helpers (between, typingMs, resolveMentions) plus one integration-style
+// Tests for src/behavior/turn.ts: the pure helpers (between, typingMs, resolveMentions) plus one integration-style
 // suite for createTurnRunner itself, driven with fake discord.js-shaped objects, a fake LLM and a fake store --
 // proving the feature switches (reactions, multiMessage, typingSimulation, memory) are applied where this module is
 // responsible for them.
@@ -11,14 +11,14 @@ import {
   createTurnRunner as createRealTurnRunner,
   usableDestination,
   paceSettings,
-} from '../src/behavior/turn.js';
-import { between, typingMs } from '../src/behavior/random.js';
-import { fillPromptTemplate, userText as textOf } from '../src/behavior/prompt.js';
-import { fill, formatClock, formatDate, formatDuration } from '../src/format.js';
+} from '../src/behavior/turn.ts';
+import { between, typingMs } from '../src/behavior/random.ts';
+import { fillPromptTemplate, userText as textOf } from '../src/behavior/prompt.ts';
+import { fill, formatClock, formatDate, formatDuration } from '../src/format.ts';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
-import { handleOf } from '../src/behavior/handles.js';
+import { handleOf } from '../src/behavior/handles.ts';
 import { ImageGenError } from '../src/llm/images.ts';
 import { DailyCapError, TokenLimitError } from '../src/llm/openrouter.ts';
 import { pingStatus } from '../src/behavior/elsewhere.ts';
@@ -27,7 +27,7 @@ import { callMarksOf, createJournal } from '../src/memory/journal.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 import '../src/tools/impl/index.ts';
 import { loadSkills, skillRegistry } from '../src/tools/registry.ts';
-import { createAdmin } from '../src/admin.js';
+import { createAdmin } from '../src/admin.ts';
 import { createDiscordAdapter, createDiscordInterface } from '../interfaces/discord/index.ts';
 import { createLocalFacts } from '../src/behavior/inner.ts';
 import { freshWorld, onWorld, world } from './fixtures/turn-world.ts';
@@ -45,7 +45,7 @@ after(async () => {
   for (const mem of OPENED_MEMORY) await mem.close();
 });
 
-// The Discord interface's capabilities object, as src/index.js injects it.
+// The Discord interface's capabilities object, as src/index.ts injects it.
 const DISCORD = createDiscordInterface().capabilities;
 
 function rngReturning(value) {
@@ -1235,7 +1235,7 @@ function storeWithPingsOff(pingsOff) {
   return store;
 }
 
-// The mention handles of the two authors of runPingsTurn's chat (src/behavior/handles.js).
+// The mention handles of the two authors of runPingsTurn's chat (src/behavior/handles.ts).
 const ALICE = `@${handleOf('u1')}`;
 const BOB = `@${handleOf('u2')}`;
 
@@ -4279,7 +4279,7 @@ test('runTurn: a routed turn stamps the other calls it showed and leaves its own
     assert.deepEqual(
       ringStates(scene.store),
       states,
-      `${label}: the routed call is stamped by its caller (src/behavior/pipeline.js)`
+      `${label}: the routed call is stamped by its caller (src/behavior/pipeline.ts)`
     );
     assert.deepEqual(markedLines(logs), [[DIARY, 'e1', states.e1]], label);
     assert.equal('sourceShownIds' in result, false, label);
@@ -4560,7 +4560,7 @@ test('turn: a store without the recent store reads nothing; an empty or a broken
   assert.ok(failed.logs.some((entry) => entry.msg === 'recent: failed' && entry.channel === 'c1'));
 });
 
-// --- the request input, named in full (src/behavior/turn-input.js) ----------------------------
+// --- the request input, named in full (src/behavior/turn-input.ts) ----------------------------
 
 /** Makes #open and #staff of audienceGuild active neighbours (a fresh line each), recording their history reads. */
 function activeRooms(rooms) {
@@ -6209,7 +6209,7 @@ test("runTurn: another member's waiting call is named under labels.task.queuedOt
 });
 
 // ---------------------------------------------------------------------------
-// The GIF picker (src/behavior/gif-pick.js): a short reply is shown with the
+// The GIF picker (src/behavior/gif-pick.ts): a short reply is shown with the
 // WHOLE captioned library to one classifier request; a handle it names is
 // posted instead of the text.
 
@@ -8579,7 +8579,7 @@ test("skill call: the next request shows a read's data as its tool message, a me
 });
 
 // ---------------------------------------------------------------------------
-// Call marks (src/format.js#withCalls): a later turn's transcript shows the skill calls
+// Call marks (src/format.ts#withCalls): a later turn's transcript shows the skill calls
 // she made on her lines of the turn that made them, in the channel where she made them.
 
 /**
@@ -8792,7 +8792,7 @@ test('call marks: seeded from the journal after a restart, the calls show as the
 });
 
 // ---------------------------------------------------------------------------
-// The end hook and the recovery turn (src/behavior/missed.js): every runTurn reports how it
+// The end hook and the recovery turn (src/behavior/missed.ts): every runTurn reports how it
 // ended; a `missed` turn names its messages under labels.task.missed and posts nothing once
 // they no longer wait (stillDue).
 

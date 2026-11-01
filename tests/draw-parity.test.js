@@ -7,8 +7,8 @@
 // fake discord.js-shaped channel; no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.js';
-import { createAdmin } from '../src/admin.js';
+import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.ts';
+import { createAdmin } from '../src/admin.ts';
 import { familyOf } from '../src/llm/images.ts';
 import { onWorld, world } from './fixtures/turn-world.ts';
 import { labels as baseLabels } from './fixtures/labels.js';

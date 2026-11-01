@@ -1,6 +1,6 @@
 // The turn an errand's end opens: when an errand of the persona's finishes (src/errands/service.ts
 // calls `onFinished`), she gets a turn of her own in the conversation it was asked in, the way
-// the missed-answer recovery opens one (src/behavior/missed.js): through the turn runner's one
+// the missed-answer recovery opens one (src/behavior/missed.ts): through the turn runner's one
 // attention (a turn running anywhere holds it back; mention.oneAtATime), a cooldown per
 // conversation between two such turns (`DEFAULT_COOLDOWN_SECONDS`), and she may answer with
 // silence. The turn's trigger is the message the errand was asked in (her answer replies to it),
@@ -22,8 +22,8 @@
 // errand whose result she has read already (`readAt` set, in the event's errand or in the store), as a second delivery
 // of the same end after a restart brings it, opens no second result turn.
 
-import { log as defaultLog } from '../log.js';
-import { lineOf } from '../behavior/line-of.js';
+import { log as defaultLog } from '../log.ts';
+import { lineOf } from '../behavior/line-of.ts';
 import type { Untyped } from '../tools/types.ts';
 import type { ConversationRef } from '../protocol/adapter.ts';
 import type { Reads } from '../interface/reads.ts';

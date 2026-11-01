@@ -4,9 +4,9 @@
 // `labels.errands` (prompts/labels.json); a block whose labels are missing is left out (''). Ids,
 // agent names, states' codes, URLs, file handles, content types and sizes are data, not wording.
 
-import { fill } from '../format.js';
+import { fill } from '../format.ts';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
-import { MINUTE_MS } from '../time.js';
+import { MINUTE_MS } from '../time.ts';
 import { fileHandle, isOpenState } from './store.ts';
 import { listOf, objOf } from '../tools/types.ts';
 import type { Untyped } from '../tools/types.ts';

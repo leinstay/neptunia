@@ -35,7 +35,7 @@ import {
   waitOn,
 } from '../src/intentions/model.ts';
 import { lineSourcesOf } from '../src/intentions/sources.ts';
-import { zonedEpoch } from '../src/time.js';
+import { zonedEpoch } from '../src/time.ts';
 
 const T0 = Date.parse('2026-10-18T10:00:00Z');
 const HOUR = 60 * 60 * 1000;

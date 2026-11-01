@@ -3,7 +3,7 @@
 // it would do and writes nothing, `--apply` does it, and a rerun finds nothing left to do. With the old file only, it
 // moves it. With the new one only, it does nothing. With both and the same content, it deletes the old one. With both
 // and different content, it refuses, lists the keys that differ and changes nothing at all. A start with the old file
-// still in place refuses with one line that names this tool (src/hot.js). The tool also renames what the errand and
+// still in place refuses with one line that names this tool (src/hot.ts). The tool also renames what the errand and
 // intention names changed in a local layer: the label keys `tasks`, `triggers.task`, `intentions.notes.task-missing`
 // and the code keys under `tools.result.reasons`, the placeholder `{task}` in the label texts that carry it, and the ten
 // tool keys of the tool texts (`task.*` and `intent.*`), in place whichever file holds them.
@@ -11,7 +11,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createHot } from '../src/hot.js';
+import { createHot } from '../src/hot.ts';
 import { layer, moveTool } from './fixtures/private-layer.ts';
 import { tempDir } from './fixtures/tmp.js';
 

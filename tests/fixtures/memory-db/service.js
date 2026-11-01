@@ -1,6 +1,6 @@
 // A memory database for a test: the real service (src/memory/db/service.ts) over a temporary data directory, on the
 // calling thread (no worker), opened by its first tick, every job off unless the test's config turns it on. The
-// memory modules a test builds take it as their `memoryDb`, as src/index.js wires them. `seed` (optional) fills it
+// memory modules a test builds take it as their `memoryDb`, as src/index.ts wires them. `seed` (optional) fills it
 // from the data directory first (seed.js: the memory units a fixture wrote there). `openTestMemorySync` is the same
 // service opened at once (on the calling thread the first tick opens the database synchronously), for a test that
 // builds its stores synchronously; `unitFile` is a memory unit as the file it stands for (its text, from the database

@@ -6,7 +6,7 @@
 // `selfimprovementDue`; the drain (src/behavior/inner/drain.ts) asks `selfimprovementFacts` for its turn and
 // `committedSelfimprovement` once the turn committed. `weeklyWake` and `failureCause` are the rules, pure.
 
-import { DAY_MS, utcDay } from '../../time.js';
+import { DAY_MS, utcDay } from '../../time.ts';
 import { errorCode, isFiniteNumber } from '../../tools/types.ts';
 import { buildSelfimprovementFacts, chainsOfJournal, readJournalLines, shapesOf } from '../selfimprovement-view.ts';
 import type { Chain, SelfimprovementFacts } from '../selfimprovement-view.ts';

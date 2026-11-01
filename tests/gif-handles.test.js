@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 
 import { gifHandleMap, gifHandleOf, matchGifKey, mergeGifs } from '../src/memory/gifs.ts';
 import { mediaLabelFor } from '../src/media/classify.ts';
-import { formatTranscript } from '../src/format.js';
+import { formatTranscript } from '../src/format.ts';
 import { labels } from './fixtures/labels.js';
 
 const T0 = Date.UTC(2026, 8, 1);

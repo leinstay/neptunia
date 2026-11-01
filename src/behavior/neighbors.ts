@@ -6,8 +6,8 @@
 
 import type { ConversationInfo } from '../protocol/adapter.ts';
 import type { Reads } from '../interface/reads.ts';
-import { log } from '../log.js';
-import { MINUTE_MS } from '../time.js';
+import { log } from '../log.ts';
+import { MINUTE_MS } from '../time.ts';
 import { historyLines } from './lines.ts';
 import type { Line } from './lines.ts';
 import type { Snapshot } from './snapshot.ts';

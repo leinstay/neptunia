@@ -1,5 +1,5 @@
 // The preamble of one errand run, picked by agent and model from the deployment's private
-// prompt layer: the optional files of prompts.local/preambles/ (loaded live by src/hot.js into
+// prompt layer: the optional files of prompts.local/preambles/ (loaded live by src/hot.ts into
 // `hot.prompts.preambles`, by base name), with no tracked default. One shared text does not fit
 // every model, so a run's preamble is the matching files, in this order, joined by a blank line:
 //   all.md                 every run;

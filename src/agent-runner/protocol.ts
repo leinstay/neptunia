@@ -11,7 +11,7 @@
 // also carry the deployment's shared preamble (the core reads it from its
 // private prompt layer; the runner never reads that layer itself).
 
-import { isPlainObject } from '../config.js';
+import { isPlainObject } from '../config.ts';
 import { objOf, scalarText } from '../tools/types.ts';
 import { SCOPES } from './policy.ts';
 

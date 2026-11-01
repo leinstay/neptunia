@@ -6,7 +6,7 @@
 import type { ConversationRef } from '../protocol/adapter.ts';
 import type { Reads } from '../interface/reads.ts';
 import type { Logger } from '../protocol/serve.ts';
-import { lineOf } from './line-of.js';
+import { lineOf } from './line-of.ts';
 import { backfillPlan, runBackfill, withReactors } from './reactor-store.ts';
 import type { ReactorName } from './reactor-store.ts';
 import type { ReactorStore } from './reactor-store.ts';
@@ -14,6 +14,13 @@ import type { ReactorStore } from './reactor-store.ts';
 /** A line as the transcript reads it: the fields this module needs, the rest passes through. */
 export type Line = Record<string, unknown> & {
   id: string;
+  channelId: string;
+  authorId?: string;
+  authorName?: string;
+  content?: string;
+  replyToId?: string | null;
+  mentionedUserIds?: Array<string>;
+  replyPingUserId?: string | null;
   self: boolean;
   ts: number;
   reactions: Array<{ emoji: string; count: number; mine: boolean; users?: Array<ReactorName> }>;

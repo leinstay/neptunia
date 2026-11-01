@@ -1,6 +1,6 @@
 // The live glance at the voice channels and the people's statuses, held by the core. The interface reports
 // `voice.changed`, `presence.changed`, `presence.snapshot` and `connection.changed` events through the event
-// door and the door's handlers feed this store; src/behavior/around.js renders its `view()` into the
+// door and the door's handlers feed this store; src/behavior/around.ts renders its `view()` into the
 // `<people_now>` rows.
 //
 // A LIVE SNAPSHOT, never a record: the store lives in process memory, is never written to data/, the journal,
@@ -11,7 +11,7 @@
 // Member-supplied text (names, activity names, details) is untrusted data: one line, clamped, angle brackets
 // removed (cleanText), at most three activities per member.
 
-import { cleanText } from './around.js';
+import { cleanText } from './around.ts';
 import type { ConnectionChanged, PresenceChanged, PresenceSnapshot, VoiceChanged } from '../protocol/events.ts';
 
 const MAX_ACTIVITIES = 3;

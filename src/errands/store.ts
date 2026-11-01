@@ -36,8 +36,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { log as defaultLog } from '../log.js';
-import { DAY_MS } from '../time.js';
+import { log as defaultLog } from '../log.ts';
+import { DAY_MS } from '../time.ts';
 import { agentCosts, costRecord, KEEP_DAYS } from './costs.ts';
 import { normalizeResult, normalizeUsage } from '../agent-runner/protocol.ts';
 import { createReadSeam } from '../memory/db/readers/common.ts';
@@ -444,7 +444,7 @@ export function createErrandStore({
   /**
    * A new errand, `queued`, or the cap it hits: `{ ok: true, errand }` | `{ ok: false, code }`
    * (`unknown-agent`, `bad-goal`, `cap-open`, `cap-tasks`). The persona's own call
-   * brings its `idempotencyKey` (her turn and the call's index in it, src/behavior/turn.js) and
+   * brings its `idempotencyKey` (her turn and the call's index in it, src/behavior/turn.ts) and
    * its turn (`origin.turnId`): an errand the store still holds under the same key is answered as it
    * is, `{ ok: true, errand, duplicate: true }`, before any cap -- a retried call never queues a
    * second errand. The goal is kept as she wrote it (trimmed).

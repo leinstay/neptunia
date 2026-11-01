@@ -2,7 +2,7 @@
 // classifier runs before it. The request phase (src/turn/phases/request.ts) runs it after the second-look step; the
 // wait and the request read the stages it started.
 
-import { log } from '../../../log.js';
+import { log } from '../../../log.ts';
 import { linkHosts, journalled } from '../../journal.ts';
 import { readableLinkCandidates } from '../../media.ts';
 import type { PhaseContext } from '../context.ts';

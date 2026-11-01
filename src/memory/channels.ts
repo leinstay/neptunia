@@ -4,8 +4,8 @@
 // one channel entry is rendered into the <server> prompt block. No I/O here;
 // `nowMs` and the channel record are always injected.
 
-import { fill, formatDuration } from '../format.js';
-import { DAY_MS, utcDay } from '../time.js';
+import { fill, formatDuration } from '../format.ts';
+import { DAY_MS, utcDay } from '../time.ts';
 import { isFiniteNumber } from './types.ts';
 import type { StoredRecord } from './types.ts';
 

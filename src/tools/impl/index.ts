@@ -4,7 +4,7 @@
 // `{ status, code, summary, data }`: it never throws. The owner's console (src/interface/commands/console.ts) and
 // her tools (src/tools/definitions.ts) name the operations directly.
 
-import { log } from '../../log.js';
+import { log } from '../../log.ts';
 import { OpError, STATUSES, getOp } from './registry.ts';
 import { rightsRefusal } from './rights.ts';
 import './status.ts';
@@ -74,7 +74,7 @@ export function asResult(value: unknown): OpResult {
 }
 
 /**
- * Runs `name` WITHOUT the rights check: for src/admin.js#run, which the tests drive directly, and for
+ * Runs `name` WITHOUT the rights check: for src/admin.ts#run, which the tests drive directly, and for
  * her own calls, whose grant the skill gateway checks. Same result shape as `runOp`; never throws.
  * `ctx` is `{ env, guildId, channelId, userId, roleIds }`.
  */

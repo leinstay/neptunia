@@ -1,9 +1,9 @@
 // The people of a turn's request: who `<people>` shows in full (the members asked about) and in short (the other
 // participants), the room the members asked about get for their moments, the `<people_now>` entries that ride on
-// their profiles, the people in voice without a profile, and `<attitudes>`. buildRequest (src/behavior/prompt.js)
+// their profiles, the people in voice without a profile, and `<attitudes>`. buildRequest (src/behavior/prompt.ts)
 // calls them.
 
-import { liveFields, liveNotices, personRow, voiceOccupants } from '../../behavior/around.js';
+import { liveFields, liveNotices, personRow, voiceOccupants } from '../../behavior/around.ts';
 import { fitSections } from '../../llm/budget.ts';
 import { topEpisodes } from '../../memory/index.ts';
 import { isWordChar, occursAsWholeWord } from '../../memory/mentions.ts';
@@ -131,7 +131,7 @@ function isAskedAbout(
  * them is promoted, a silent member is taken from `candidateProfiles`.
  * `maxAskedAbout` not a non-negative integer is no cap.
  */
-// health: allow complexity until 2027-04-01 -- moved whole from src/behavior/prompt.js in stage 5d, a pure move
+// health: allow complexity until 2027-04-01 -- moved whole from src/behavior/prompt.ts in stage 5d, a pure move
 export function splitPeople(
   otherProfiles: unknown,
   candidateProfiles: unknown,
@@ -210,7 +210,7 @@ export type InterlocutorBlocks = {
  * The interlocutor in full (`<people>` of the profiles part), their `<people_now>` entry with its live fields, and
  * the lead and notices of `<people_now>`.
  */
-// health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.js in stage 5d, a pure split
+// health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.ts in stage 5d, a pure split
 export function interlocutorOf(given: RequestInput & Base & Room & Task): InterlocutorBlocks {
   const { now, trigger, caps, cost, overheard } = given;
   const { labels, interlocutor, nameOf, timezone, handleFor, relationships, shownMoves, episodesOn } = given;
@@ -312,7 +312,7 @@ export type AskedAbout = {
  * authors of the pulled lines shown (rendered in full with their top moments), and the other active participants
  * (rendered compact).
  */
-// health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.js in stage 5d, a pure split
+// health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.ts in stage 5d, a pure split
 export function askedAboutOf(given: RequestInput & Base & PulledFits): AskedAbout {
   const { config, history, trigger, labels, privateChat, interlocutor, episodesOn, pulledFits } = given;
   // <people> priority (b)/(c): who the trigger message / the last few
@@ -374,7 +374,7 @@ export type Placed = {
  * takes them in order, so no member asked about is ever cut for anyone's episodes; `<recent>` is built again when
  * `<people>` shows fewer moments than it left out.
  */
-// health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.js in stage 5d, a pure split
+// health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.ts in stage 5d, a pure split
 export function placeAskedAbout(
   given: RequestInput & Base & Room & InterlocutorBlocks & AskedAbout & Recent & Ahead
 ): Placed {
@@ -533,7 +533,7 @@ export type PeopleOffered = {
  * `<people>`'s items, each with the member it renders and their `<people_now>` entry, and the people in voice the
  * request shows no profile for.
  */
-// health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.js in stage 5d, a pure split
+// health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.ts in stage 5d, a pure split
 export function peopleOfferedOf(
   given: RequestInput & Base & Room & InterlocutorBlocks & AskedAbout & Placed
 ): PeopleOffered {

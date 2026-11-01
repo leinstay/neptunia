@@ -23,12 +23,12 @@
 //   `[redacted]`.
 // Both pure. The withheld roots include the deployment's data directory and,
 // when apart from the checkout, its private directory, resolved once at load
-// from NEPTUNIA_DATA_DIR / NEPTUNIA_PRIVATE_DIR (src/paths.js), so the policy
+// from NEPTUNIA_DATA_DIR / NEPTUNIA_PRIVATE_DIR (src/paths.ts), so the policy
 // follows the layout the unit sets.
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { resolvePaths } from '../paths.js';
+import { resolvePaths } from '../paths.ts';
 import { scalarText } from '../tools/types.ts';
 
 /** The engine root (two levels up from this file). */
@@ -58,7 +58,7 @@ const FIXED_ROOTS = Object.freeze([
  * The deployment's own withheld directories: its data directory (the persona's memory about real
  * people) and, when it is apart from the checkout, its private directory (.env, config.local/,
  * prompts.local/). Pure.
- * @param paths src/paths.js#resolvePaths
+ * @param paths src/paths.ts#resolvePaths
  */
 function deploymentRootsOf(paths: { rootDir: string; privateDir: string; dataDir: string }): Array<string> {
   return paths.privateDir === paths.rootDir ? [paths.dataDir] : [paths.dataDir, paths.privateDir];

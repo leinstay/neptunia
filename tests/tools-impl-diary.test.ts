@@ -7,13 +7,13 @@
 // and a scripted model. Synthetic text only.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { utcDay } from '../src/time.js';
+import { utcDay } from '../src/time.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createMirrors, guardMirrorPort } from '../src/behavior/mirror.ts';
 import type { PublishOutcome } from '../src/behavior/mirror.ts';
-import { createTurnRunner } from '../src/behavior/turn.js';
-import { createAdmin } from '../src/admin.js';
+import { createTurnRunner } from '../src/behavior/turn.ts';
+import { createAdmin } from '../src/admin.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 import { createStore } from '../src/memory/store.ts';
 import { skillRegistry } from '../src/tools/registry.ts';

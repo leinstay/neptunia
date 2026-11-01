@@ -1,7 +1,7 @@
 // Where the settings and the labels live. The checkout holds `config/config.json` and `config/labels.json`, the
 // private layer `config.local/config.json` and `config.local/labels.json`. A private layer laid out the old way, with
 // `config.local.json` and a flat `prompts.local/labels.json`, still loads until tools/config-files-move.mjs moves it,
-// and a layer holding a file at both places is refused. The loader (src/config.js, src/hot.js), the writer of
+// and a layer holding a file at both places is refused. The loader (src/config.ts, src/hot.ts), the writer of
 // `/config set` (src/tools/impl/env.ts), the console's `/config show` and `/config check` and `neptunia doctor` ask this
 // module which file to read. An interface's settings (`readInterfaceConfig`) are the core's with the package's own
 // `interfaces/<name>/config.json` and the private `config.local/interfaces/<name>.json` over them.

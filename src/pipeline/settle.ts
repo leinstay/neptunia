@@ -1,7 +1,7 @@
 // Calls from a channel the persona cannot write in. A call (a mention, a reply or the persona's
 // name) written where the bot can read but not send has nowhere to be answered. When a destination is usable (the
-// first usable id of memory.mainChannelIds, src/behavior/turn.js#usableDestination) and everyone who can view it can
-// view the source too (the audience rail, context.pull.sameAudience; src/behavior/turn.js#routeFor), the call is
+// first usable id of memory.mainChannelIds, src/behavior/turn.ts#usableDestination) and everyone who can view it can
+// view the source too (the audience rail, context.pull.sameAudience; src/behavior/turn.ts#routeFor), the call is
 // recorded in the ring (state.json `elsewherePings`: ids and a time, no author, no text) and a settle wait is armed
 // for the source: one timer per source, never a busy mark, so the attention stays free while it waits. Every message
 // observed in the source moves the wait (elsewhere.settleSeconds after the last one, at most
@@ -15,10 +15,10 @@
 // (skipSeenCalls). A call the ring already holds as answered is never answered again (ringAnswered: state.json, so a
 // restart keeps it). The waits live in memory only: a restart during one loses the call, which stays unanswered in
 // the ring; a pause (clearPending) and shutdown (stop) clear them.
-// createMessageHandler (src/behavior/pipeline.js) builds it once with createSettles.
+// createMessageHandler (src/behavior/pipeline.ts) builds it once with createSettles.
 
 import { elsewhereSettings, recordPing, settleDueAt } from '../behavior/elsewhere.ts';
-import { log } from '../log.js';
+import { log } from '../log.ts';
 import type { Answer } from './answer.ts';
 import type { CallOutcome } from './call-outcome.ts';
 import { missingReason } from './call-outcome.ts';

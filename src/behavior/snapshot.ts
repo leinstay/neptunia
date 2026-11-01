@@ -7,7 +7,7 @@
 import type { Audience, ConversationInfo, GroupInfo } from '../protocol/adapter.ts';
 import type { Reads } from '../interface/reads.ts';
 import { audienceCovers } from './elsewhere.ts';
-import { pullSettings } from './pull.js';
+import { pullSettings } from './pull.ts';
 
 /** The listing: the conversations with their audience and viewers, the groups of the community. */
 export type Snapshot = {

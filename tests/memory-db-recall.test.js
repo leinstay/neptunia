@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createRecall } from '../src/behavior/recall-run.js';
+import { createRecall } from '../src/behavior/recall-run.ts';
 import { snapshotOf } from '../src/behavior/snapshot.ts';
 import { channel as channelInfo, privateChannel } from './fixtures/reads-rig.ts';
 import { memorySearchText, runMemorySearch } from '../src/tools/tools.ts';

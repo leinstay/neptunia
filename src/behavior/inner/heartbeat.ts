@@ -3,7 +3,7 @@
 // its `<wake>` carries (src/behavior/heartbeat-view.ts over the stores this life was given) and the log line of its
 // outcome. The tick (src/behavior/inner.ts) and the drain (src/behavior/inner/drain.ts) call it.
 
-import { MINUTE_MS } from '../../time.js';
+import { MINUTE_MS } from '../../time.ts';
 import { openFromHeartbeat } from '../../intentions/model.ts';
 import { errorCode, isFiniteNumber } from '../../tools/types.ts';
 import { buildHeartbeatFacts } from '../heartbeat-view.ts';

@@ -1,6 +1,6 @@
 // The second phase of a turn attempt: everything before the reply request, built from what the turn prepared. Its
 // steps live in src/turn/phases/request/: the setup, the searches, the pulls, the stages, the second look, the lookup,
-// the wait, the gather, the facts and the build. runTurnOnce (src/behavior/turn.js) calls it after the preflight; the
+// the wait, the gather, the facts and the build. runTurnOnce (src/behavior/turn.ts) calls it after the preflight; the
 // turn ends here when a step returns its result (a refused diary picture, a source gone, nothing to choose, parts in
 // time).
 

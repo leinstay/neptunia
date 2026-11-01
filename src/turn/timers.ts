@@ -1,6 +1,6 @@
 // The clock side of a turn's preparation: the stages `turn: timings` names, the signal a turn throws once its bar has
 // passed, the typing indicator's refresh, the real timer behind `schedule` and the record of one preparation stage.
-// src/behavior/turn.js uses them for every attempt.
+// src/behavior/turn.ts uses them for every attempt.
 
 /** The stages of a turn's preparation, in the order `turn: timings` names them. */
 export const PREPARE_STAGES = Object.freeze([

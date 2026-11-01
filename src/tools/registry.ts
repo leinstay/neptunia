@@ -199,7 +199,7 @@ export function pluginToolNames(): ReadonlyArray<string> {
 
 /**
  * Every skill against the live ops registry (buildSkills, the registered operations), loaded once on first use
- * (src/index.js calls this at start so a bad definition fails there). A load that throws is
+ * (src/index.ts calls this at start so a bad definition fails there). A load that throws is
  * not kept.
  */
 export function skillRegistry(): SkillMap {
@@ -215,7 +215,7 @@ export function skillRegistry(): SkillMap {
 /**
  * The names of the table's entries that have no skill in `registry`: an entry whose operation is
  * not registered (src/tools/impl/registry.ts) is left out of the live registry, so the start reports it
- * (src/index.js) instead of the persona silently lacking a skill.
+ * (src/index.ts) instead of the persona silently lacking a skill.
  */
 export function missingDefinitions(
   registry: SkillMap = skillRegistry(),

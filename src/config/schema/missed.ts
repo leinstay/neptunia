@@ -6,14 +6,14 @@ export const MISSED: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'missed.expireMinutes',
     'types': ['number'],
-    'reader': 'src/behavior/missed.js',
+    'reader': 'src/behavior/missed.ts',
     'default': 5,
     'text': 'Minutes before a candidate expires. A question mark uses `questionExpireMinutes`',
   },
   {
     'key': 'missed.maxOutputTokens',
     'types': ['number'],
-    'reader': 'src/behavior/missed.js',
+    'reader': 'src/behavior/missed.ts',
     'default': 2000,
     'text': 'Max output tokens for the analyzer',
   },

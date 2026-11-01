@@ -1,6 +1,6 @@
 // Operations: `/nep alias`: the owner confirms or removes a member's alias, and the owner's console read
 // `/memory aliases list` (no operation, so no tool of hers) lists them.
-// The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
+// The handler bodies moved here from src/admin.ts unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
 import { normalizeTopic, applyAliasOps } from '../../memory/index.ts';

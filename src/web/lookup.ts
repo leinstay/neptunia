@@ -52,11 +52,11 @@
 import { isGifHostUrl, siteOf } from '../media/classify.ts';
 import { videoSiteFor, safeLocation } from '../media/video-sites.ts';
 import { roleModel } from '../llm/roles.ts';
-import { fillPromptTemplate } from '../behavior/prompt.js';
+import { fillPromptTemplate } from '../behavior/prompt.ts';
 import { roleRequestOptions, railReason } from '../llm/openrouter.ts';
 import { clampText, oneLine } from '../memory/clamp.ts';
-import { log } from '../log.js';
-import { MINUTE_MS, utcDay } from '../time.js';
+import { log } from '../log.ts';
+import { MINUTE_MS, utcDay } from '../time.ts';
 import { MEDIA_CACHE_ENTRIES, hashedKey, touchKey, trimCache } from './cache.ts';
 import { truncateText } from './readable.ts';
 import { CODE } from '../tools/codes.ts';

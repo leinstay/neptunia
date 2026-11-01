@@ -1,5 +1,5 @@
 // The engine's memory starts from the memory database alone: a data directory that holds only `memory.db` and the
-// operational files (src/memory/db/paths.ts), every memory file gone, wired the way src/index.js wires its memory
+// operational files (src/memory/db/paths.ts), every memory file gone, wired the way src/index.ts wires its memory
 // (the database service on its writer, the store, the record, the archive with its pending queue, the journal, the
 // meaning index and its queue, the intention and task stores). Everything the fixture held is read back from the
 // database, a day of writes goes into it, and after the shutdown no memory file was written and a fresh start reads the
@@ -59,7 +59,7 @@ function databaseOnly() {
   return { root, data };
 }
 
-/** The memory modules over `data`, as src/index.js builds them (the clock fixed, no network, no model). */
+/** The memory modules over `data`, as src/index.ts builds them (the clock fixed, no network, no model). */
 function engine(data, log = quiet) {
   const config = {
     features: { record: true, journal: true, archive: true, intentions: true },
@@ -95,7 +95,7 @@ function engine(data, log = quiet) {
     embedQueue,
     taskStores,
     intentionStores,
-    /** The shutdown of src/index.js: the stores' writes, the queue, then the database. */
+    /** The shutdown of src/index.ts: the stores' writes, the queue, then the database. */
     async close() {
       store.flush();
       await store.flushSettled({ final: true });

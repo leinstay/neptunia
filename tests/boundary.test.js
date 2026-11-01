@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import { lockPathOf, openMemoryDb } from '../src/memory/db/open.ts';
-import { createAdmin } from '../src/admin.js';
+import { createAdmin } from '../src/admin.ts';
 import { createEventDoor } from '../src/interface/door.ts';
 import { openAdapterLink } from '../src/interface/link.ts';
 import { createLoopback, envelope } from '../src/protocol/index.ts';

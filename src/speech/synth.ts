@@ -8,7 +8,7 @@
 // text (it is her words and may quote members).
 
 import { errorFields } from '../error-fields.ts';
-import { log } from '../log.js';
+import { log } from '../log.ts';
 import { objOf } from '../tools/types.ts';
 import { apiUrl, openRouterHeaders, providerBodyOf, resolveProvider, roleApiKey } from '../llm/openrouter.ts';
 import { roleModel } from '../llm/roles.ts';

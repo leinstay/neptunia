@@ -1,4 +1,4 @@
-// The offline catch-up (src/behavior/catch-up.js) over the interface's reads: for each conversation the store knows,
+// The offline catch-up (src/behavior/catch-up.ts) over the interface's reads: for each conversation the store knows,
 // `conversationInfo.lastMessageAt` says whether the platform holds anything newer than the last message the persona saw,
 // `history` gives the newest messages as whole `message.received` events, and the ones after the last seen go to the
 // message handler's catch-up path as they are, oldest first across conversations, each once. No event is built from a
@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { MessageEvent } from '../src/protocol/adapter.ts';
 import { IFACE, SELF_ID, channel, message, rig } from './fixtures/reads-rig.ts';
-import { createOfflineCatchUp, planChannel } from '../src/behavior/catch-up.js';
+import { createOfflineCatchUp, planChannel } from '../src/behavior/catch-up.ts';
 
 type Delivery = { event: MessageEvent; trigger: boolean };
 const MIN = 60_000;

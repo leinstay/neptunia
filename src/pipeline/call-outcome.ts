@@ -3,16 +3,16 @@
 // (labels.limits.notice), so the requester knows it was a limit and not silence in character. Spontaneous turns never
 // come through here; an overheard turn does, and nobody asked for it: it stays silent too. A routed call's ring entry
 // (state.json `elsewherePings`) follows its turn's outcome, and a held call is looked up again before it is answered.
-// createMessageHandler (src/behavior/pipeline.js) builds it once with createCallOutcome.
+// createMessageHandler (src/behavior/pipeline.ts) builds it once with createCallOutcome.
 
 import { elsewhereSettings, pingStatus, pingsIn, stampPings } from '../behavior/elsewhere.ts';
-import { postLimitNotice } from '../behavior/limits.js';
+import { postLimitNotice } from '../behavior/limits.ts';
 import type { Reads } from '../interface/reads.ts';
-import { log } from '../log.js';
+import { log } from '../log.ts';
 import type { ConversationRef } from './conversations.ts';
 import type { Conv, Line, PipelineHot, PipelineState, PipelineTurns, TriggerKind, TurnResult } from './types.ts';
 
-/** A rail's limit as the notice quotes it (src/behavior/limits.js#postLimitNotice). */
+/** A rail's limit as the notice quotes it (src/behavior/limits.ts#postLimitNotice). */
 export type NoticeLimit = Parameters<typeof postLimitNotice>[0]['limit'];
 
 /** How a limit notice is posted: as a platform reply to the call, or `plain`. */
@@ -78,7 +78,7 @@ export function missingReason(missing: 'gone' | 'error'): 'gone' | 'fetch-failed
 
 export function createCallOutcome({ hot, store, now, turns, reads, refOf, port }: CallOutcomeContext): CallOutcome {
   /**
-   * Post the limit notice in `channel` (src/behavior/limits.js#postLimitNotice:
+   * Post the limit notice in `channel` (src/behavior/limits.ts#postLimitNotice:
    * labels read now). A follow-up's notice is never a
    * platform reply, like the follow-up turn itself; nor is one posted `plain`
    * (a routed call's, whose trigger lives in another channel). Never throws.
@@ -149,7 +149,7 @@ export function createCallOutcome({ hot, store, now, turns, reads, refOf, port }
    * it chose reached the chat (a reaction dropped or refused). The other
    * calls of the ring the turn showed -- one this call replaced, an earlier
    * one still waiting -- are the turn's to stamp, by what its output answered
-   * (src/behavior/turn.js#stampShownCalls); one it did not show stays as it
+   * (src/behavior/turn.ts#stampShownCalls); one it did not show stays as it
    * was. A turn that skipped stamps it like any skip --
    * silence is the persona's choice, not a post. Any other outcome (an error,
    * a refusal, busy, paused) stamps nothing.
@@ -177,7 +177,7 @@ export function createCallOutcome({ hot, store, now, turns, reads, refOf, port }
    * (turns.spokeAfterSeeing): the call and every other call of its source in
    * the ring that turn showed are stamped skipped (stampRing) -- in view, so
    * a later pull never presents them as waiting. A turn that spoke
-   * stamped them itself already (src/behavior/turn.js#stampShownCalls; an
+   * stamped them itself already (src/behavior/turn.ts#stampShownCalls; an
    * answer it gave is kept). A call of the source that
    * turn did not show is left as it was.
    */

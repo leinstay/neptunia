@@ -5,15 +5,15 @@
 // `memory.search` (`/nep memory search`: the server's own message history through the recall
 // runner, quoted as it was, no summary) and `conversation.read` (a channel read in order, from the
 // record and the interface's history; hers alone, no slash command: catalog.js `personaOnly`).
-// Her own calls of them run inside her turn with its context (src/behavior/turn.js, the tool
+// Her own calls of them run inside her turn with its context (src/behavior/turn.ts, the tool
 // loop); a command runs the same code (src/tools/tools.ts) over what an
 // operation knows: the channel it was typed in, no chat window to leave out. Reads, open to
 // every member while features.memberCommands is on (rights.member), as `errand.status` is.
 
 import { firstLinkIn, runMediaFind, runMediaLook, runMemorySearch, runWebRead, runWebSearch } from '../tools.ts';
 import { fetchSpan, recordMessages, runConversationRead } from '../conversation-read.ts';
-import { RECALL_DEFAULTS, recallSettings } from '../../behavior/recall.js';
-import { lineOf } from '../../behavior/line-of.js';
+import { RECALL_DEFAULTS, recallSettings } from '../../behavior/recall.ts';
+import { lineOf } from '../../behavior/line-of.ts';
 import { checkPull } from '../../behavior/pull-fetch.ts';
 import { takeSnapshot } from '../../behavior/snapshot.ts';
 import { messageRefOf } from './shared.ts';

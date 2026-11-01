@@ -1,4 +1,4 @@
-// The idempotency key of an effect of her turn (src/behavior/turn.js) is the effect's record,
+// The idempotency key of an effect of her turn (src/behavior/turn.ts) is the effect's record,
 // `<turnId>:<effectIndex>:<target>`. It names no attempt, so a later attempt of the same turn (the journal's
 // `journalTurn`) carries the key a first attempt would have carried. A retry or a rerun of the turn then never posts
 // twice. Here the first attempt fails at the model before it sends anything and the second attempt sends. The key is
@@ -7,8 +7,8 @@
 // a scripted model. Synthetic text only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createTurnRunner } from '../src/behavior/turn.js';
-import { createAdmin } from '../src/admin.js';
+import { createTurnRunner } from '../src/behavior/turn.ts';
+import { createAdmin } from '../src/admin.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';

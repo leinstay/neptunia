@@ -1,4 +1,4 @@
-// Tests for the diary side of src/behavior/prompt.js: the `<world>` block only
+// Tests for the diary side of src/behavior/prompt.ts: the `<world>` block only
 // in a diary request under `diary.world`, the `{{when}}` line of the drawing
 // prompt, the diary channel in `<senses>`, the diary post's own blocks and
 // their budget, and the plan request. Fake prompts/config/labels only.
@@ -10,8 +10,8 @@ import {
   buildRequest,
   userText as textOf,
   worldText,
-} from '../src/behavior/prompt.js';
-import { fill } from '../src/format.js';
+} from '../src/behavior/prompt.ts';
+import { fill } from '../src/format.ts';
 import { labels } from './fixtures/labels.js';
 
 const NOW = Date.UTC(2026, 8, 20, 10, 0, 0);

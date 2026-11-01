@@ -2,7 +2,7 @@
 // `message.create` is one operation with two modes, chosen by the server from who acts, never by
 // an argument: when a person runs it, she gets one turn in that channel now, bypassing the
 // schedule -- an answer to the named message, else she reads the channel and joins the
-// conversation or starts a topic herself (src/behavior/spontaneous.js#force); when she calls it
+// conversation or starts a topic herself (src/behavior/spontaneous.ts#force); when she calls it
 // (`context.actor` 'persona', her skills, src/tools/), her own text -- the call's body -- is
 // posted through her interface (src/interface/port.ts, `env.port`), replying to a message when
 // one is named, and a reply notifies the replied author unless they turned pings off. Her text
@@ -31,7 +31,7 @@
 import fsp from 'node:fs/promises';
 import { messageRefOf, portAnswer, postingConversation } from './shared.ts';
 import { heldPort } from '../send-hold.ts';
-import { lineOf } from '../../behavior/line-of.js';
+import { lineOf } from '../../behavior/line-of.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
 import type { createMirrors } from '../../behavior/mirror.ts';
 import { writeDiaryMessage } from '../../behavior/diary-turn.ts';
@@ -109,7 +109,7 @@ async function postTarget(
 }
 
 /**
- * `real` whose sends carry her turn's key of this call (`context.idempotencyKey`, src/behavior/turn.js), so a repeat
+ * `real` whose sends carry her turn's key of this call (`context.idempotencyKey`, src/behavior/turn.ts), so a repeat
  * of the call posts nothing new: the first send under the key itself, a later one of the same call (a GIF after her
  * text) under `<key>:<n>`. `real` itself when the call has no key.
  */

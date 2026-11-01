@@ -20,7 +20,7 @@ export const LLM: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'llm.maxRequestTokens',
     'types': ['number'],
-    'reader': 'src/behavior/sandbox.js',
+    'reader': 'src/behavior/sandbox.ts',
     'default': 50000,
     'text': 'Hard token cap per request',
   },
@@ -77,7 +77,7 @@ export const LLM: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'llm.keyByRole',
     'types': ['map'],
-    'reader': 'src/core.js',
+    'reader': 'src/core.ts',
     'default': {
       'scout': 'OPENROUTER_ERRAND_KEY',
       'server': 'OPENROUTER_ERRAND_KEY',
@@ -92,7 +92,7 @@ export const LLM: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'llm.cache.ttl',
     'types': ['string'],
-    'reader': 'src/behavior/prompt.js',
+    'reader': 'src/behavior/prompt.ts',
     'default': '1h',
     'text': 'Cache TTL for the markers on the system message and the stable user prefix: `"1h"` or `"5m"`',
   },

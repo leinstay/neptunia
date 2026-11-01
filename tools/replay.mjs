@@ -548,7 +548,7 @@ import {
   recallScope,
   requesterOfChannel,
 } from './lib/platform-objects.ts';
-import { MAX_MESSAGE_CHARS } from '../src/format.js';
+import { MAX_MESSAGE_CHARS } from '../src/format.ts';
 
 export { guildListing, hiddenReads, requesterOfChannel, roleIdsOf } from './lib/platform-objects.ts';
 
@@ -1307,13 +1307,13 @@ const FOUND_LINE_RE = /^(>> )?#\d+ \[/;
  * modules may export the same name). A missing one is a CliError.
  */
 async function loadRecallMods(load) {
-  const recall = await load('behavior/recall.js');
-  const runner = await load('behavior/recall-run.js');
-  const prompt = await load('behavior/prompt.js');
+  const recall = await load('behavior/recall.ts');
+  const runner = await load('behavior/recall-run.ts');
+  const prompt = await load('behavior/prompt.ts');
   const roles = await load('llm/roles.ts');
   const openrouter = await load('llm/openrouter.ts');
-  const time = await load('time.js');
-  const turn = await load('behavior/turn.js');
+  const time = await load('time.ts');
+  const turn = await load('behavior/turn.ts');
   const describe = await load('memory/describe.ts');
   const lookup = await load('web/lookup.ts');
   const media = await load('media/classify.ts');
@@ -2154,9 +2154,9 @@ export async function loadDiaryMods(load) {
     ...(await load('llm/tokens.ts')),
     ...(await load('llm/openrouter.ts')),
     ...(await load('llm/images.ts')),
-    ...(await load('behavior/turn.js')),
-    ...(await load('behavior/route-channel.js')),
-    ...(await load('behavior/recall-run.js')),
+    ...(await load('behavior/turn.ts')),
+    ...(await load('behavior/route-channel.ts')),
+    ...(await load('behavior/recall-run.ts')),
     ...(await load('../interfaces/discord/index.ts')),
     ...(await load('interface/fake.ts')),
     ...(await load('interface/reads.ts')),
@@ -2171,7 +2171,7 @@ export async function loadDiaryMods(load) {
     ...(await load('llm/parse.ts')),
     ...(await load('tools/tool-calls.ts')),
     ...(await load('memory/clamp.ts')),
-    ...(await load('time.js')),
+    ...(await load('time.ts')),
   };
 }
 
@@ -2907,15 +2907,15 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     ...(await load('memory/append-store.ts')),
     ...(await load('memory/record.ts')),
     ...(await load('memory/journal.ts')),
-    ...(await load('admin.js')),
+    ...(await load('admin.ts')),
     ...(await load('tools/registry.ts')),
-    ...(await load('behavior/prompt.js')),
+    ...(await load('behavior/prompt.ts')),
   };
   await load('tools/impl/index.ts');
   const { createJournal } = await load('memory/journal.ts');
   const { grantedSkillNames } = await load('tools/discovery.ts');
   const { PROFILES: AGENT_PROFILES } = await load('agent-runner/profiles.ts');
-  const { deepMerge } = await load('config.js');
+  const { deepMerge } = await load('config.ts');
   const {
     createStore,
     createCalibrator,
@@ -6549,7 +6549,7 @@ async function loopDepsOf({
   const { createLookup } = await load('web/lookup.ts');
   const { createBraveSearch } = await load('web/brave.ts');
   const { createExaSearch } = await load('web/exa.ts');
-  const { createRecall } = await load('behavior/recall-run.js');
+  const { createRecall } = await load('behavior/recall-run.ts');
   const { createDescriber } = await load('memory/describe.ts');
   const { createDiscordInterface } = await load('../interfaces/discord/index.ts');
   const {
@@ -6574,7 +6574,7 @@ async function loopDepsOf({
     (typeof firstLinkIn === 'function' ? firstLinkIn(message?.content) : null);
   // conversation.read (absent from an older engine: its calls fail as an unknown tool's).
   const conversationMod = await load('tools/conversation-read.ts').catch(() => null);
-  const { pullPictures = null } = await load('behavior/pull.js').catch(() => ({}));
+  const { pullPictures = null } = await load('behavior/pull.ts').catch(() => ({}));
   const conversation =
     conversationMod &&
     typeof conversationMod.runConversationRead === 'function' &&
@@ -6591,11 +6591,11 @@ async function loopDepsOf({
   const { transportOf } = await load('tools/tool-calls.ts');
   const { skillsIndex } = await load('tools/discovery.ts');
   // The automatic memory prefetch a live turn with the tool loop runs (absent from an older engine: none).
-  const { prefetchLanes = null, prefetchOn = null } = await load('behavior/prefetch.js').catch(() => ({}));
+  const { prefetchLanes = null, prefetchOn = null } = await load('behavior/prefetch.ts').catch(() => ({}));
   // The search classifier's path before her reply with features.coreTools off (preTurnLookup).
-  const { fillPromptTemplate } = await load('behavior/prompt.js');
-  const { parseLookupAnswer, recallSettings } = await load('behavior/recall.js');
-  const { zonedDay } = await load('time.js');
+  const { fillPromptTemplate } = await load('behavior/prompt.ts');
+  const { parseLookupAnswer, recallSettings } = await load('behavior/recall.ts');
+  const { zonedDay } = await load('time.ts');
   const { roleModel } = await load('llm/roles.ts');
   const { roleRequestOptions } = await load('llm/openrouter.ts');
   const preTurnDeps = {
@@ -6752,7 +6752,7 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
 
 async function runMain(args, { root, signal, rng, answers }) {
   const src = path.join(root, 'src');
-  if (!fs.existsSync(path.join(src, 'behavior', 'sandbox.js')))
+  if (!fs.existsSync(path.join(src, 'behavior', 'sandbox.ts')))
     throw new CliError(`replay-cli: no engine under ${src}; run it from the bot's directory`);
   const loadModule = (rel) => import(pathToFileURL(path.join(src, rel)).href);
   // With an answers directory every llm client built from src/llm/openrouter.ts answers Anthropic models from files.
@@ -6793,9 +6793,9 @@ async function runMain(args, { root, signal, rng, answers }) {
     }
     scenarios = parseScenarios(text);
   }
-  const { loadDotEnv, deepMerge } = await load('config.js');
-  const { createHot } = await load('hot.js');
-  const { log } = await load('log.js');
+  const { loadDotEnv, deepMerge } = await load('config.ts');
+  const { createHot } = await load('hot.ts');
+  const { log } = await load('log.ts');
 
   // Reads config.json, config.local.json and both prompt layers; writes nothing. Not watched: one request.
   const hot = createHot({ rootDir: root, privateDir: privateDirOf(root) });
@@ -6804,7 +6804,7 @@ async function runMain(args, { root, signal, rng, answers }) {
   // below: src/tools/impl/index.ts.)
   const loopWanted = Boolean(scenarios || args.pairTransport || args.loopTriggers);
   if (loopWanted) await load('tools/impl/index.ts');
-  const turnMod = loopWanted ? await load('behavior/turn.js') : null;
+  const turnMod = loopWanted ? await load('behavior/turn.ts') : null;
   if (loopWanted && typeof turnMod.loopSettings !== 'function') {
     hot.close();
     throw new CliError('replay-cli: the engine has no step engine (loopSettings)');
@@ -6961,14 +6961,14 @@ async function runMain(args, { root, signal, rng, answers }) {
     afterScenarioTurn,
     burstTurns,
     seededSelfLine,
-  } = await load('behavior/sandbox.js');
+  } = await load('behavior/sandbox.ts');
   const discordPackage = /** @type {Record<string, unknown>} */ (await load('../interfaces/discord/index.ts'));
   const { channelDirectoryOf, fetchHistoryWindow, fetchMessage, resolveGuild } = discordPackage;
   const viewMods = { liveView, momentView, momentCutoff, hiddenLater };
   const splitMods = args.split
     ? {
-        ...(await load('behavior/split.js')),
-        ...(await load('behavior/prompt.js')),
+        ...(await load('behavior/split.ts')),
+        ...(await load('behavior/prompt.ts')),
         ...(await load('llm/roles.ts')),
         ...(await load('llm/openrouter.ts')),
       }
@@ -6980,7 +6980,7 @@ async function runMain(args, { root, signal, rng, answers }) {
     await load('tools/impl/index.ts');
     const { skillRegistry } = await load('tools/registry.ts');
     const { expandPersonaGrant } = await load('tools/impl/access.ts');
-    const { requesterOf, callViewOf } = await load('behavior/turn.js');
+    const { requesterOf, callViewOf } = await load('behavior/turn.ts');
     const { createImageGen } = await load('llm/images.ts');
     const { grantedSkillNames } = await load('tools/discovery.ts');
     // The errands' budget (every scenario: an errand.run is checked as live) and the handles of an errand's files.
@@ -7407,7 +7407,7 @@ async function runMain(args, { root, signal, rng, answers }) {
 
     if (turnStart) {
       // The request rebuilt, never sent: what the sandbox would send for this turn now.
-      const { buildRequest, userText } = await load('behavior/prompt.js');
+      const { buildRequest, userText } = await load('behavior/prompt.ts');
       const request = buildRequest(
         sandboxRequestInput({
           view,

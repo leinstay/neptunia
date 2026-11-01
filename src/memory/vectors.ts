@@ -24,7 +24,7 @@
 // Logs carry counts, months and guild ids, never a row's contents.
 
 import path from 'node:path';
-import { log as defaultLog } from '../log.js';
+import { log as defaultLog } from '../log.ts';
 import { isoOf } from './record.ts';
 import { chunkKey } from './chunks.ts';
 import { memoryRootOf } from './root.ts';

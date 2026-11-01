@@ -1,6 +1,6 @@
 // Tests for src/llm/roles.ts (the model roles in three groups: `models.base` for the core, its
 // helpers and drawing, `models.errands` for the errand agents, `models.development` for the
-// development agents; one resolver, no cross-role fallback), src/config.js#readConfig and the call sites.
+// development agents; one resolver, no cross-role fallback), src/config.ts#readConfig and the call sites.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -23,7 +23,7 @@ import {
   roleGroup,
   roleModel,
 } from '../src/llm/roles.ts';
-import { readConfig } from '../src/config.js';
+import { readConfig } from '../src/config.ts';
 import { MODEL_SET_ROLES } from '../src/tools/impl/catalog.ts';
 import { tempDir } from './fixtures/tmp.js';
 
@@ -263,11 +263,13 @@ test("purposes: under config.json every purpose resolves to its role's default m
 // ---- the call sites ----------------------------------------------------------
 
 /**
- * Every .js/.mjs file under src/ and tools/, as [relative path, text], and the TypeScript files of the folders that were
- * JavaScript when this check was written (their call sites stay in the count after the conversion).
+ * Every .js/.mjs file under src/ and tools/, as [relative path, text], the TypeScript files of the folders that were
+ * JavaScript when this check was written, and the modules at the root of `src/` (their call sites stay in the count
+ * after the conversion).
  */
 const CONVERTED_FOLDERS = [
   'src/agent-runner/',
+  'src/behavior/',
   'src/interface/',
   'src/llm/',
   'src/media/',
@@ -285,7 +287,9 @@ function sources() {
       if (fs.statSync(full).isDirectory()) walk(full);
       else if (
         /\.m?js$/.test(name) ||
-        (name.endsWith('.ts') && CONVERTED_FOLDERS.some((folder) => path.relative(ROOT, full).startsWith(folder)))
+        (name.endsWith('.ts') &&
+          (/^src\/[^/]+\.ts$/.test(path.relative(ROOT, full)) ||
+            CONVERTED_FOLDERS.some((folder) => path.relative(ROOT, full).startsWith(folder))))
       )
         out.push([path.relative(ROOT, full), fs.readFileSync(full, 'utf8')]);
     }

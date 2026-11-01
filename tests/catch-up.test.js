@@ -1,4 +1,4 @@
-// Tests for src/behavior/catch-up.js with the live message handler behind it (src/behavior/pipeline.js#catchUpMessage):
+// Tests for src/behavior/catch-up.ts with the live message handler behind it (src/behavior/pipeline.ts#catchUpMessage):
 // the messages posted while the bot was down are read once at start through the interface and handed to the handler's
 // catch-up path. The unit side (which conversations are read, which events are kept, the tally) is tests/catch-up-reads.test.ts;
 // here a real handler answers: a mention starts one turn, an older line is only observed, a message the live path also
@@ -7,10 +7,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
-import { createOfflineCatchUp } from '../src/behavior/catch-up.js';
-import { createMessageHandler } from '../src/behavior/pipeline.js';
-import { createTagHistory } from '../src/behavior/mention.js';
-import { deepMerge } from '../src/config.js';
+import { createOfflineCatchUp } from '../src/behavior/catch-up.ts';
+import { createMessageHandler } from '../src/behavior/pipeline.ts';
+import { createTagHistory } from '../src/behavior/mention.ts';
+import { deepMerge } from '../src/config.ts';
 import { onWorldIface, useIface, useSelf, world } from './fixtures/turn-world.ts';
 import { IFACE, channel, message, rig } from './fixtures/reads-rig.ts';
 
@@ -83,7 +83,7 @@ function harness({ hot, channels = [{ id: 'c1', lastMessageAt: LAST_SEEN }], pau
     now: () => NOW,
   });
   const live = (event) => handler(onWorldIface(event));
-  const deliver = (event, options) => handler.catchUp(onWorldIface(event), options);
+  const deliver = (event, options = {}) => handler.catchUp(onWorldIface(event), options);
   return { handler, live, deliver, store, turnsStarted, observed };
 }
 

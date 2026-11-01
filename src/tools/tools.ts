@@ -23,15 +23,15 @@
 // would be a new background job) and returns the library's handles, which post exactly as the
 // `<gifs>` block's do.
 
-import { fill } from '../format.js';
+import { fill } from '../format.ts';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
-import { zonedDay } from '../time.js';
-import { RECALL_DEFAULTS, memorySearchPlan, recallSettings } from '../behavior/recall.js';
+import { zonedDay } from '../time.ts';
+import { RECALL_DEFAULTS, memorySearchPlan, recallSettings } from '../behavior/recall.ts';
 import { collectPictures, collectVideos } from '../media/classify.ts';
 import { videoSiteFor, videoUrlCacheKey } from '../media/video-sites.ts';
 import { foldText } from '../memory/recent.ts';
 import { GIF_HALF_LIFE_DAYS, rankGifs } from '../memory/gifs.ts';
-import { gifFieldChars, gifFields, gifLine } from '../behavior/prompt.js';
+import { gifFieldChars, gifFields, gifLine } from '../behavior/prompt.ts';
 import { IN_TURN_TOOLS } from './discovery.ts';
 import { CODE, FEATURE, WHAT, isCode } from './codes.ts';
 import { isObj, listOf, objOf } from './types.ts';

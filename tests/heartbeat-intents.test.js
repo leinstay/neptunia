@@ -5,13 +5,13 @@
 // adapter; no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.js';
-import { userText } from '../src/behavior/prompt.js';
+import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.ts';
+import { userText } from '../src/behavior/prompt.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import '../src/tools/impl/index.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
-import { createAdmin } from '../src/admin.js';
+import { createAdmin } from '../src/admin.ts';
 import { createIntentionStores } from '../src/intentions/store.ts';
 import { createIntentionService } from '../src/intentions/service.ts';
 import { buildHeartbeatFacts } from '../src/behavior/heartbeat-view.ts';

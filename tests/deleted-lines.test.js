@@ -1,8 +1,8 @@
-// Tests for src/behavior/deleted-lines.js: the deletions of a window read from the record.
+// Tests for src/behavior/deleted-lines.ts: the deletions of a window read from the record.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { deletedLinesOf, withDeletedLines } from '../src/behavior/deleted-lines.js';
+import { deletedLinesOf, withDeletedLines } from '../src/behavior/deleted-lines.ts';
 
 const T0 = Date.UTC(2026, 9, 19, 10, 0, 0);
 const iso = (ts) => new Date(ts).toISOString();

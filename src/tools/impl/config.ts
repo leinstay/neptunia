@@ -1,5 +1,5 @@
 // Operations: `/nep set|unset`: one config override in the private settings file (config.local/config.json); a path under bot.owners or bot.access only for an owner.
-// The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
+// The handler bodies moved here from src/admin.ts unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
 import { leafPaths } from './catalog.ts';

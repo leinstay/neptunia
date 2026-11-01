@@ -1,8 +1,8 @@
 // The shapes the message pipeline's topic modules share: a normalized line, a conversation, the live config as far as
 // the pipeline reads it, a pending ping, a turn's result and the parts of the core the pipeline calls. Types only:
-// createMessageHandler (src/behavior/pipeline.js) wires the modules, and nothing here runs.
+// createMessageHandler (src/behavior/pipeline.ts) wires the modules, and nothing here runs.
 
-import type { PendingPing } from '../behavior/pending.js';
+import type { PendingPing } from '../behavior/pending.ts';
 import type { ConversationInfo } from '../protocol/adapter.ts';
 import type { TriggerKind } from '../turn/triggers.ts';
 
@@ -11,7 +11,7 @@ export type { TriggerKind };
 /** A conversation as the interface describes it (src/protocol/adapter.ts). */
 export type Conv = ConversationInfo;
 
-/** A normalized line (src/behavior/line-of.js#lineOf), as the pipeline reads it. */
+/** A normalized line (src/behavior/line-of.ts#lineOf), as the pipeline reads it. */
 export type Line = {
   readonly id: string;
   readonly channelId: string;
@@ -25,7 +25,7 @@ export type Line = {
   readonly self?: boolean;
 };
 
-/** Why a turn ended (src/behavior/turn.js#TurnOutcome). */
+/** Why a turn ended (src/behavior/turn.ts#TurnOutcome). */
 export type TurnOutcome = 'spoke' | 'skip' | 'busy' | 'refused' | 'paused' | 'not-now' | 'error';
 
 /** A rail's limit a refused turn carries, as the limit notice quotes it. */
@@ -35,7 +35,7 @@ export type Limit = { key: string; used?: number; cap?: number };
 export type TurnResult =
   { outcome?: TurnOutcome; limit?: Limit | null; delivered?: boolean; reason?: string } | undefined;
 
-/** A queued call of the pending queue (src/behavior/pending.js#PendingPing), with its conversations and its line. */
+/** A queued call of the pending queue (src/behavior/pending.ts#PendingPing), with its conversations and its line. */
 export type Ping = Omit<PendingPing, 'channel' | 'trigger' | 'destination'> & {
   channel: Conv;
   trigger: Line;
@@ -43,7 +43,7 @@ export type Ping = Omit<PendingPing, 'channel' | 'trigger' | 'destination'> & {
 };
 
 /**
- * The pending queue's list, shared by the modules that read or replace it. src/behavior/pending.js answers a new list
+ * The pending queue's list, shared by the modules that read or replace it. src/behavior/pending.ts answers a new list
  * each time, so a module writes `list` back instead of holding the array.
  */
 export type PendingQueue = { list: Array<Ping> };
@@ -88,7 +88,7 @@ export type MentionConfig = {
   readonly repeatWindowMinutes: number;
 };
 
-/** The hot config and prompts (src/hot.js#createHot), read at the moment of use. */
+/** The hot config and prompts (src/hot.ts#createHot), read at the moment of use. */
 export type PipelineHot = {
   readonly config: PipelineConfig;
   readonly prompts?: {
@@ -112,7 +112,7 @@ export type PipelineState = {
   markDirty?: () => void;
 };
 
-/** A turn as runTurn starts it (src/behavior/turn.js#runTurn), as far as the pipeline fills it in. */
+/** A turn as runTurn starts it (src/behavior/turn.ts#runTurn), as far as the pipeline fills it in. */
 export type TurnRequest = {
   conversation: { iface: string; conversationId: string };
   guildId?: string;
@@ -124,7 +124,7 @@ export type TurnRequest = {
   source?: { channelId: string; reason: 'routed' };
 };
 
-/** The turn runner (src/behavior/turn.js#createTurnRunner), as far as the pipeline calls it. */
+/** The turn runner (src/behavior/turn.ts#createTurnRunner), as far as the pipeline calls it. */
 export type PipelineTurns = {
   isBusy: (channelId: string) => boolean;
   isAnyBusy: () => boolean;
@@ -133,7 +133,12 @@ export type PipelineTurns = {
   notePost: (channelId: string, ts: number) => void;
   spokeAfterSeeing?: (channelId: string, messageId: string) => boolean;
   waitingParts?: (channelId: string, authorId: string) => unknown;
-  addToPart?: (channelId: string, authorId: string, index: number, message: object) => unknown;
+  addToPart?: (
+    channelId: string,
+    authorId: string,
+    index: number,
+    message: { id: string; text: string; ts: number }
+  ) => unknown;
   lastPostAt?: (channelId: string) => number;
 };
 
@@ -145,7 +150,7 @@ export type PipelineLlm = {
   ) => Promise<{ text?: unknown } | null | undefined>;
 };
 
-/** The missed-answer registry (src/behavior/missed.js#createMissed), as the pipeline notes into it. */
+/** The missed-answer registry (src/behavior/missed.ts#createMissed), as the pipeline notes into it. */
 export type PipelineMissed = {
   noteFact: (fact: object) => void;
   noteActivity: (channelId: string, at: number) => void;

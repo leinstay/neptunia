@@ -33,7 +33,7 @@ import { videoUrlCacheKey } from '../src/media/video-sites.ts';
 import { collectPictures, collectVideos } from '../src/media/classify.ts';
 import { audienceCovers } from '../src/behavior/elsewhere.ts';
 import { emptyGifs, mergeGifs } from '../src/memory/gifs.ts';
-import { formatTranscript } from '../src/format.js';
+import { formatTranscript } from '../src/format.ts';
 import { labels } from './fixtures/labels.js';
 import { validateEvent } from '../src/protocol/index.ts';
 

@@ -3,8 +3,8 @@
 // (src/behavior/prompt.js), her skill reads (src/tools/impl/skills.ts) and the tool round (src/turn/tool-round.ts)
 // call them.
 
-import { isPlainObject } from '../../config.js';
-import { fill } from '../../format.js';
+import { isPlainObject } from '../../config.ts';
+import { fill } from '../../format.ts';
 import { gifWatchBlocker } from '../../memory/index.ts';
 import { IN_TURN_TOOLS, byFamily } from '../../tools/discovery.ts';
 import type { Base } from './head.ts';

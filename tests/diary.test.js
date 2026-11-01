@@ -28,8 +28,8 @@ import {
   createDiary,
 } from '../src/behavior/diary.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { fill, localHour } from '../src/format.js';
-import { MINUTE_MS, HOUR_MS } from '../src/time.js';
+import { fill, localHour } from '../src/format.ts';
+import { MINUTE_MS, HOUR_MS } from '../src/time.ts';
 import { labels } from './fixtures/labels.js';
 import { createStore } from '../src/memory/store.ts';
 import { useIface, world } from './fixtures/turn-world.ts';

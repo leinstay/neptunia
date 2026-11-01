@@ -3,7 +3,7 @@
 // accounting (drawing's row included); `costs.errands`, the errand agents' runs and estimated spend (scout and
 // server from the errand records, src/errands/costs.ts); `costs.development`, thinker and dev from
 // the board's `costs.agents` by role (src/board/costs.ts); both rendered here by agentCostsLines. The
-// accumulator is fed by the `llm: usage` log lines (src/log.js#onLog, subscribed in src/index.js
+// accumulator is fed by the `llm: usage` log lines (src/log.ts#onLog, subscribed in src/index.ts
 // via `usageTap`), the one place every chat completion and embedding request reports its tokens
 // and cost, and by the `images: generated` lines (a picture: the `drawing` role, a cost and no
 // tokens); it keeps the last KEEP_DAYS UTC days (today included), in memory, and `data/usage.json`
@@ -16,9 +16,9 @@
 
 import * as nodeFs from 'node:fs';
 import path from 'node:path';
-import { MINUTE_MS, DAY_MS, utcDay, utcMinute } from '../../time.js';
-import { fill } from '../../format.js';
-import { log as defaultLog } from '../../log.js';
+import { MINUTE_MS, DAY_MS, utcDay, utcMinute } from '../../time.ts';
+import { fill } from '../../format.ts';
+import { log as defaultLog } from '../../log.ts';
 import { IMAGE_ROLE } from '../../llm/images.ts';
 import { isObj, objOf } from '../types.ts';
 import type { Obj, Untyped } from '../types.ts';
@@ -291,7 +291,7 @@ export function createUsage({
 }
 
 /**
- * A log listener (src/log.js#onLog) feeding `usage` from every `llm: usage` line: its role, its interface, prompt,
+ * A log listener (src/log.ts#onLog) feeding `usage` from every `llm: usage` line: its role, its interface, prompt,
  * cached and completion tokens, and its cost (`upstreamCost` when the line has one, else `cost`);
  * and from every `images: generated` line (src/llm/images.ts, which logs no `llm: usage`): one
  * request of the `drawing` role with its `cost` and no tokens, and every `speech: synthesized` line

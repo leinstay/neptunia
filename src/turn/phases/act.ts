@@ -1,10 +1,10 @@
 // The fourth phase of a turn attempt: how her answer reaches the chat (which line lives where, whose `@name` resolves,
-// which post carries a jump link) and the recovery turn's last check that its messages still wait. runTurnOnce (src/behavior/turn.js) calls it after the response phase;
+// which post carries a jump link) and the recovery turn's last check that its messages still wait. runTurnOnce (src/behavior/turn.ts) calls it after the response phase;
 // the tool round posts through the routing it made.
 
 import { setSettings } from '../../behavior/diary.ts';
 import { createLinker, messageLinkOf } from '../../behavior/elsewhere.ts';
-import { log } from '../../log.js';
+import { log } from '../../log.ts';
 import type { Draft } from '../draft.ts';
 import { storedNames } from '../mentions.ts';
 import { sourceLinkTarget } from '../targets.ts';
@@ -35,7 +35,7 @@ export type Acting = Omit<Answered, 'ended'> & {
   setShort: (pictures: number, extra?: Record<string, unknown>) => AttemptResult;
 };
 
-// health: allow complexity until 2027-04-01 -- moved from runTurnAttempt in src/behavior/turn.js in stage 5c, a pure split
+// health: allow complexity until 2027-04-01 -- moved from runTurnAttempt in src/behavior/turn.ts in stage 5c, a pure split
 export function actPhase(ctx: PhaseContext, params: PhaseParams, draft: Draft, answered: Answered): Ended | Acting {
   const { hot, store, iface, turnDirectory } = ctx;
   const { trigger = null, triggerKind = null, source = null, plainPosts = false } = params;
@@ -106,7 +106,7 @@ export function actPhase(ctx: PhaseContext, params: PhaseParams, draft: Draft, a
     });
     return { outcome: 'refused', mode: finalMode, reason: 'set-short', ...extra };
   };
-  // A recovery turn (src/behavior/missed.js) asks right before anything is posted whether
+  // A recovery turn (src/behavior/missed.ts) asks right before anything is posted whether
   // its messages still wait for an answer (`stillDue`): the persona spoke in the channel
   // since it started, or another turn answered one of them -- nothing is posted.
   if (typeof stillDue === 'function' && !stillDue()) {

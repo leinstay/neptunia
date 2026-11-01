@@ -20,7 +20,7 @@
 // quote the whole URL).
 
 import { errorFields } from '../error-fields.ts';
-import { log } from '../log.js';
+import { log } from '../log.ts';
 import { objOf } from '../tools/types.ts';
 import { bareContentType, safeLocation } from './video-sites.ts';
 

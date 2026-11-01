@@ -25,7 +25,7 @@
 // no current channel, say), so the scheduler's feedback wake (src/behavior/inner.ts#feedbackFacts)
 // can be exercised) for the cheap runs, or
 // the real voice in shadow (tools/inner-week.mjs `--live`) on selected days. The stub's calls pass
-// a gate that mirrors the turn runner's inner gate (src/behavior/turn.js#innerVerdict: a read
+// a gate that mirrors the turn runner's inner gate (src/behavior/turn.ts#innerVerdict: a read
 // runs, shadow proposes everything else, live asks the kill switch right
 // before the call) and,
 // when they run, act on the week's world: intentions through the real service, an errand into the
@@ -58,9 +58,9 @@ import { createIntentionStores } from '../../src/intentions/store.ts';
 import { createIntentionService } from '../../src/intentions/service.ts';
 import { dueList, parseEvery, parseWhen, isAttend, isOpen, OCCURRENCE_CODES } from '../../src/intentions/model.ts';
 import { lineSourcesOf } from '../../src/intentions/sources.ts';
-import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../../src/time.js';
+import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../../src/time.ts';
 import { parseOutput } from '../../src/llm/parse.ts';
-import { answerOf } from '../../src/behavior/turn.js';
+import { answerOf } from '../../src/behavior/turn.ts';
 import { weekReads } from './platform-objects.ts';
 
 /** The read skills whose results the week's simulated analyzer reads as her inner-turn findings. */
@@ -714,7 +714,7 @@ export function createStubVoice(fixture) {
 }
 
 /**
- * What the inner gate says of one call (a mirror of src/behavior/turn.js#innerVerdict): a read
+ * What the inner gate says of one call (a mirror of src/behavior/turn.ts#innerVerdict): a read
  * runs; in shadow anything else is proposed; live, a stopped inner life refuses (`inner-stopped`).
  * @returns {{ status: 'executed'|'proposed'|'refused', code?: string, public?: boolean }}
  */
@@ -962,7 +962,7 @@ export async function runWeek({
       });
     });
     const acted = actions.some((a) => a.status !== 'refused');
-    // The intentions her intention.* calls named, however they went (src/behavior/turn.js's `inner.intentIds`).
+    // The intentions her intention.* calls named, however they went (src/behavior/turn.ts's `inner.intentIds`).
     const intentIds = [
       ...new Set(
         planned
@@ -1117,7 +1117,7 @@ export async function runWeek({
       log,
     });
     inner = life;
-    // At start, as src/index.js does: the waits reconciled with the errands as they stand.
+    // At start, as src/index.ts does: the waits reconciled with the errands as they stand.
     intentions.reconcile(guildId);
     onReady?.({ clock, intentions });
   }
@@ -1555,7 +1555,7 @@ export function occurrences(run) {
   return counts;
 }
 
-/** The turn outcomes that mean a turn ran for the wake (src/behavior/turn.js#TurnOutcome less the held ones). */
+/** The turn outcomes that mean a turn ran for the wake (src/behavior/turn.ts#TurnOutcome less the held ones). */
 const RAN = new Set(['spoke', 'skip', 'refused', 'not-now', 'error']);
 
 /**

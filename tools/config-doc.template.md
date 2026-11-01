@@ -1,6 +1,6 @@
 # Configuration
 
-Every setting lives in `config/config.json` with its default value. A deployment overrides what it needs in `config.local/config.json`, which is deep-merged over `config/config.json` at startup and on every file change. Plain objects merge key by key, and arrays and scalars in the local file replace the base value whole. `src/config/files.ts` says which file the loader reads, and `src/config.js` and `src/hot.js` read it.
+Every setting lives in `config/config.json` with its default value. A deployment overrides what it needs in `config.local/config.json`, which is deep-merged over `config/config.json` at startup and on every file change. Plain objects merge key by key, and arrays and scalars in the local file replace the base value whole. `src/config/files.ts` says which file the loader reads, and `src/config.ts` and `src/hot.ts` read it.
 
 Both files reload without a restart. Code reads `hot.config` at the moment of use, so an edit takes effect on the next request. A file that fails to parse (half-written JSON, an editor temp file) is ignored: the previous good value stays live and the error is logged. At startup, invalid JSON still throws so a broken deployment fails fast.
 
@@ -47,7 +47,7 @@ The token file belongs to the user the client runs as: `chown` it after `add` an
 
 ## Keys that moved
 
-The persona's skills are tools in the settings. `src/config-moves.ts` holds the old names as an ordered list, and `src/config.js` applies it to the private settings file before the file is laid over `config/config.json`, so an old key still sets the value of its new name. Each load that moves a key logs one warning with the counts. Where both names are set, the new one wins.
+The persona's skills are tools in the settings. `src/config-moves.ts` holds the old names as an ordered list, and `src/config.ts` applies it to the private settings file before the file is laid over `config/config.json`, so an old key still sets the value of its new name. Each load that moves a key logs one warning with the counts. Where both names are set, the new one wins.
 
 | Old key | New key |
 |---|---|
@@ -78,7 +78,7 @@ Two hard rails that must stay on:
 
 The settings hold the keys someone would change, the timeouts, budgets, retention and recovery limits, the privacy switches and the two rails. `src/config/cut.ts` lists every key the cut of 2026-10-31 took out and what it became: a named constant in the module that reads it, with the value production ran with; code that always runs, for a switch that was on (the `features.*` switches and the rollouts of `memoryDb`); nothing, for a switch that was off and the code it reached (`features.dryRun`, `features.spontaneous`, `features.eavesdrop`, `features.turnPlanner`, `pace.typingWhilePreparing`, `bot.dryRunChannelId`, `spontaneous.*`); and nothing, for a daily cap, whose counter went with it. `features.privateMessages` and `features.privateLikeServer` are `private.enabled` and `private.likeServer`, and the per-wake budgets are one `innerLife.wakes.*.<field>` entry each.
 
-`src/config.js` takes the cut keys out of the private settings file at each load, after the moves, and logs one warning line with the counts. `node tools/config-migrate.mjs --dry-run` prints `<key> dropped (<becomes>)` for each, `<key> differs: live <json>, constant <json>` for a live value apart from the constant that replaced it, `<from> -> <to>` for the two privacy switches, and `<key> -> config.local/interfaces/discord.json` for a key of the Discord package. `--apply` writes the file and merges the Discord keys under what `config.local/interfaces/discord.json` already holds.
+`src/config.ts` takes the cut keys out of the private settings file at each load, after the moves, and logs one warning line with the counts. `node tools/config-migrate.mjs --dry-run` prints `<key> dropped (<becomes>)` for each, `<key> differs: live <json>, constant <json>` for a live value apart from the constant that replaced it, `<from> -> <to>` for the two privacy switches, and `<key> -> config.local/interfaces/discord.json` for a key of the Discord package. `--apply` writes the file and merges the Discord keys under what `config.local/interfaces/discord.json` already holds.
 
 `node tools/config-effective.mjs --snapshot <file> --private <dir>` writes the effective settings of a private layer and the objects the readers derive from them, and `--compare <file> --private <dir>` prints each leaf that differs as `<config|settings>.<path>: before <json>, after <json>`, marked ` (declared)` when the cut declares it, then `equal: <n>, differ: <n>, declared: <n>`. It exits 1 on an undeclared difference.
 

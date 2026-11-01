@@ -7,7 +7,7 @@
 // expected key happened once. `observe` hangs the ledger on a fake adapter, so every call that reaches the interface is
 // counted at the place a platform would see it, below the link's own dedupe by idempotency key.
 //
-// `withLiveCore` starts the real core (`startCore`, src/core.js) over temporary folders in the layout of a deployment
+// `withLiveCore` starts the real core (`startCore`, src/core.ts) over temporary folders in the layout of a deployment
 // (`config.local/config.json`), a scripted model and a fake interface over one fake adapter that survives a restart of
 // the core. The model never sees a provider: `scripted` answers each request from the directive `do:<verb>:<word>` in
 // its newest line, so a message in the chat is the script of what she does about it. Nothing here reads a real
@@ -16,7 +16,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { startCore } from '../../src/core.js';
+import { startCore } from '../../src/core.ts';
 import { createFakeAdapter } from '../../src/interface/fake.ts';
 import { openMemoryDb } from '../../src/memory/db/open.ts';
 import { start as startFake } from '../../src/interface/fake-interface.ts';

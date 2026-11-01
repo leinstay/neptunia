@@ -8,7 +8,7 @@
 // builds that ffmpeg run, reads its stderr, and turns the silences into the
 // audible stretches and the `m:ss-m:ss` list the note carries. No I/O here.
 
-import { fill } from '../format.js';
+import { fill } from '../format.ts';
 import { formatDurationShort } from './classify.ts';
 
 /** The audio measuring's settings. Production values, config cut of 2026-10-31. */

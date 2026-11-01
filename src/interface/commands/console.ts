@@ -42,9 +42,9 @@ export type Answer = { text: string; status: string };
 type OpResult = { status: string; code: string; summary: string; data: unknown };
 
 export type ConsoleDeps = {
-  /** One operation for a caller, the rights check included (src/admin.js#runSkillOp). */
+  /** One operation for a caller, the rights check included (src/admin.ts#runSkillOp). */
   runOp(op: string, args: Record<string, unknown>, context: Record<string, unknown>): Promise<OpResult>;
-  /** The owner's reads that are no operation (src/admin.js#ownerReads): each a reply text, or a thrown refusal. */
+  /** The owner's reads that are no operation (src/admin.ts#ownerReads): each a reply text, or a thrown refusal. */
   ownerReads: {
     lessons(context: Record<string, unknown>): string;
     aliases(args: Record<string, unknown>, context: Record<string, unknown>): string;
@@ -52,7 +52,7 @@ export type ConsoleDeps = {
   guildId(): string | null;
   /** Her own id on the interface that said who she is, null before one did. */
   selfId(): string | null;
-  /** The hot settings (src/hot.js): `config` is read at each use. */
+  /** The hot settings (src/hot.ts): `config` is read at each use. */
   hot: unknown;
   /** The private directory, where config.local/config.json lives. */
   privateDir: string;

@@ -1,6 +1,6 @@
 // The two sections of `config/labels.json`: `model`, the wording her requests and the analyzer's requests carry, and
 // `owner`, the strings of the owner's answers. `joinLabels` gives the one flat object the engine reads as
-// `hot.prompts.labels` (src/hot.js), every key at its path under its section. `splitLabels` sorts a flat labels file,
+// `hot.prompts.labels` (src/hot.ts), every key at its path under its section. `splitLabels` sorts a flat labels file,
 // a deployment's `prompts.local/labels.json` of the old layout, by the tracked split (tools/config-files-move.mjs).
 
 export type LabelsFile = { model: Record<string, unknown>; owner: Record<string, unknown> };

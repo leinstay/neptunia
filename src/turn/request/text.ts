@@ -1,8 +1,8 @@
 // The small text tools every request builder shares: a block's tags, the `{{key}}` filler of the prompt files, the
 // stored `<@id>` tokens turned into names, the labels' check, and the two date forms the blocks write. The block
-// builders of src/turn/request/ and the request builders of src/behavior/prompt.js call them.
+// builders of src/turn/request/ and the request builders of src/behavior/prompt.ts call them.
 
-import { formatClock, formatDate } from '../../format.js';
+import { formatClock, formatDate } from '../../format.ts';
 import { fromTokens } from '../../memory/mentions.ts';
 import type { Labels, NameOf } from './types.ts';
 
@@ -30,7 +30,7 @@ export function resolveChatText<T>(text: T, nameOf: NameOf | null | undefined): 
 /**
  * Fill the double-brace `{{key}}` placeholders of a prompt file (the prompt
  * contract's form; labels.json uses single braces, see fill() in
- * src/format.js). The one `{{key}}` filler of the codebase: a key
+ * src/format.ts). The one `{{key}}` filler of the codebase: a key
  * present in `values` (an own property) with a non-null value is replaced by
  * `String(value)`; a key that is absent, null or undefined leaves its
  * placeholder untouched. A missing template reads as ''.
@@ -46,7 +46,7 @@ export function fillPromptTemplate(template: unknown, values?: Record<string, un
 
 /**
  * Whether `labels` (prompts.labels) can render a request at all: an object
- * with `transcript`. The startup check (src/index.js) and every request
+ * with `transcript`. The startup check (src/index.ts) and every request
  * builder use this one test.
  */
 export function hasRequiredLabels(labels: unknown): boolean {

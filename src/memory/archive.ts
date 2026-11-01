@@ -25,7 +25,7 @@ import * as nodeFs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { isRecord, propOf, isFiniteNumber, isIntegerNumber, readSeamOf } from './types.ts';
-import { log as defaultLog } from '../log.js';
+import { log as defaultLog } from '../log.ts';
 import { stripUrls } from './clamp.ts';
 import { TEACHER_TOKEN_RE, tokenIds } from './mentions.ts';
 import { isoOf, revisionOf } from './record.ts';

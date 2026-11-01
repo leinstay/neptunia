@@ -1,10 +1,10 @@
 // The pull rails over discord.js objects, for the one reader that still takes them: the recall runner
-// (src/behavior/recall-run.js, converted with the tools). A turn pulls through src/behavior/pull-fetch.ts over the
+// (src/behavior/recall-run.ts, converted with the tools). A turn pulls through src/behavior/pull-fetch.ts over the
 // interface's listing; this module keeps the audience rule (`audienceAllows`) and the rails of a pull (`checkPull`)
 // for a discord.js guild, channel and member until the runner reads through the core's reads.
 
 import { PermissionFlagsBits } from 'discord.js';
-import { isTooOld, pullSettings } from '../../src/behavior/pull.js';
+import { isTooOld, pullSettings } from '../../src/behavior/pull.ts';
 import { audienceCovers } from '../../src/behavior/elsewhere.ts';
 import { asChannel, asGuild, audienceOf, isReadableChannel, lastActivity } from './collect.ts';
 import type { ChannelLike } from './platform-types.ts';

@@ -1,8 +1,8 @@
 // The live observation of a line: a message event as an observation of the memory database, sent through its writer
-// and awaited at most `memoryDb.observeTimeoutMs`. createMessageHandler (src/behavior/pipeline.js) builds it once with
+// and awaited at most `memoryDb.observeTimeoutMs`. createMessageHandler (src/behavior/pipeline.ts) builds it once with
 // createObserve; a new line, an edit and a private message observe through it.
 
-import { log } from '../log.js';
+import { log } from '../log.ts';
 import { observationOf } from '../memory/db/observe-event.ts';
 import type { MessageEvent, Observed } from './edits.ts';
 import type { PipelineHot, Thrown } from './types.ts';
@@ -43,7 +43,7 @@ export function createObserve({ hot, memoryDb, selfIdOf, timers }: ObserveContex
       if (!envelope) return null;
       const sent = Promise.resolve(memoryDb.observe(envelope, where))
         .then((done) => {
-          // src/log.js has no debug level, so this optional call writes nothing.
+          // src/log.ts has no debug level, so this optional call writes nothing.
           if (done && done.ok === false) (log as DebugLog).debug?.('events: observe refused', { code: done.code });
           return done ?? null;
         })

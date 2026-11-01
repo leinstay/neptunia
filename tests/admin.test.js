@@ -13,14 +13,14 @@ import {
   unsetPath,
   createAdmin,
   buildProfileSummary,
-} from '../src/admin.js';
+} from '../src/admin.ts';
 import { emptyAffinity, applyDelta } from '../src/memory/affinity.ts';
 import { upsertLore } from '../src/memory/lore.ts';
 import { createStore } from '../src/memory/store.ts';
 import { MEMORY_LIMITS } from '../src/memory/text-limits.ts';
 import { createAppendStore } from '../src/memory/append-store.ts';
 import { createArchive } from '../src/memory/archive.ts';
-import { buildDrawPrompt } from '../src/behavior/prompt.js';
+import { buildDrawPrompt } from '../src/behavior/prompt.ts';
 import { familyOf, ImageGenError } from '../src/llm/images.ts';
 import { ROLE_DEFAULTS } from '../src/llm/roles.ts';
 import { createMetrics } from '../src/tools/impl/metrics.ts';

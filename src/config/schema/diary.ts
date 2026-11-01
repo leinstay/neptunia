@@ -14,7 +14,7 @@ export const DIARY: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'diary.world',
     'types': ['boolean'],
-    'reader': 'src/behavior/prompt.js',
+    'reader': 'src/behavior/prompt.ts',
     'default': false,
     'text': 'Include `prompts/world.md` as a `<world>` block in diary requests',
   },

@@ -57,7 +57,7 @@ export function seededRng(seed, stream) {
  * day's first tick (planDay at local midnight) with no hunger carried in, on the seed's `plan`
  * stream: the same config, date and seed give the same slots. `start` is the local midnight.
  * @param {{ diaryCfg: object|undefined, timezone: string|undefined, date: string, seed: string,
- *   planDay: Function, zonedEpoch: Function }} input  planDay and zonedEpoch from src/behavior/diary.ts and src/time.js.
+ *   planDay: Function, zonedEpoch: Function }} input  planDay and zonedEpoch from src/behavior/diary.ts and src/time.ts.
  * @returns {{ day: string, start: number, slots: number[], quiet: boolean, hunger: number[], quietStreak: number }}
  */
 export function planDiaryDay({ diaryCfg, timezone, date, seed, planDay, zonedEpoch }) {

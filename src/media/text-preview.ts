@@ -1,7 +1,7 @@
 // The text of a text attachment as a request shows it, fetched lazily over plain HTTP: only ever called for a message
 // that ends up inside a real request (src/behavior/prompt.js, src/memory/update.ts), never while a message is read.
 
-import { log } from '../log.js';
+import { log } from '../log.ts';
 
 /** Never fetch a bigger "text" attachment than this. */
 const TEXT_PREVIEW_SIZE_GUARD = 256 * 1024;

@@ -4,8 +4,8 @@
 // function of the request that builds one; the last one repeats.
 import { after } from 'node:test';
 import path from 'node:path';
-import { createTurnRunner as createRealTurnRunner } from '../../src/behavior/turn.js';
-import { userText } from '../../src/behavior/prompt.js';
+import { createTurnRunner as createRealTurnRunner } from '../../src/behavior/turn.ts';
+import { userText } from '../../src/behavior/prompt.ts';
 import { createFakeAdapter } from '../../src/interface/fake.ts';
 import { createDiscordInterface } from '../../interfaces/discord/index.ts';
 import { createJournal } from '../../src/memory/journal.ts';
@@ -15,7 +15,7 @@ import { tempDir } from './tmp.js';
 import { openTestMemorySync } from './memory-db/service.js';
 import '../../src/tools/impl/index.ts';
 import { skillRegistry } from '../../src/tools/registry.ts';
-import { createAdmin } from '../../src/admin.js';
+import { createAdmin } from '../../src/admin.ts';
 import { labels } from './labels.js';
 import { withCapturedLogs } from './capture-logs.js';
 import { completionOf } from './tool-answers.js';

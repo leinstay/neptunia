@@ -21,8 +21,8 @@ import {
 import { createStore } from '../src/memory/store.ts';
 import { createMemoryUpdater } from '../src/memory/update.ts';
 import { parseOutput } from '../src/llm/parse.ts';
-import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.js';
-import { userText } from '../src/behavior/prompt.js';
+import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.ts';
+import { userText } from '../src/behavior/prompt.ts';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { onWorld, world } from './fixtures/turn-world.ts';

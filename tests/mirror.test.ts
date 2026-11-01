@@ -246,7 +246,7 @@ function setAndVoiceTurns(store: Awaited<ReturnType<typeof scene>>['store'], pic
 }
 
 // The order is the one a diary post goes out in from the turn today: the voice is sent while the step's calls run, her
-// message and the staged pictures after them (src/behavior/turn.js, the act path). The publisher sends all three one
+// message and the staged pictures after them (src/behavior/turn.ts, the act path). The publisher sends all three one
 // after another.
 test('an entry with two pictures and a voice reaches the mirror as the voice, the message, then the pictures', async () => {
   const core = await scene({ mirrors: [{ conversationId: 'd1' }] });

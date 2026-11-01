@@ -1,8 +1,8 @@
-// Tests for src/behavior/activity.js: the per-author last-message tracker and the settle wait
+// Tests for src/behavior/activity.ts: the per-author last-message tracker and the settle wait
 // a turn answering a person sits through before it reads the channel.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createActivity, settleWait } from '../src/behavior/activity.js';
+import { createActivity, settleWait } from '../src/behavior/activity.ts';
 
 const T = Date.UTC(2026, 8, 20, 12, 0, 0);
 

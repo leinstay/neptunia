@@ -4,7 +4,7 @@ How the engine processes one event from start to finish: the event door, the pip
 
 ## The composition root
 
-`startCore` in `src/core.js` builds every subsystem in one order and starts it: the configuration and its hot reload, the memory database, the stores, the model clients, the link to the interface, the turn runner and the behaviours, the event door and the timers, then the startup steps. It takes the paths, the environment and the interfaces as arguments, so a test starts the whole core over temporary directories with a scripted model and the fake interface (`tests/core-slice.test.ts`). `src/index.js` is the entry that supplies the real ones and the Discord package. See [Starting the core](interfaces.md#starting-the-core).
+`startCore` in `src/core.ts` builds every subsystem in one order and starts it: the configuration and its hot reload, the memory database, the stores, the model clients, the link to the interface, the turn runner and the behaviours, the event door and the timers, then the startup steps. It takes the paths, the environment and the interfaces as arguments, so a test starts the whole core over temporary directories with a scripted model and the fake interface (`tests/core-slice.test.ts`). `src/index.ts` is the entry that supplies the real ones and the Discord package. See [Starting the core](interfaces.md#starting-the-core).
 
 ## The event door
 
@@ -12,25 +12,25 @@ Every event enters through one door (`src/interface/door.ts`). An interface adap
 
 The door validates each event against the protocol's schema and deduplicates by event id. An id that was already handled gets a `duplicate` status and its handler does not run again. An id whose handler threw is not remembered, so redelivery gets another try. Nothing throws out of the door: the answer is always a status with a reason.
 
-The behaviours' clock is one such event. `src/behavior/scheduler.ts` keeps one timer for the earliest of its beats: `diary.tick` (which also sends what the diary's mirrors hold queued) every 30 seconds, the board's `board.reap` every `board.reapSeconds`, and the inner life's tick every `innerLife.tickSeconds` (default 60), each read before each wait. A wait ends in a `scheduler.tick` event submitted through the door, and the door's handler starts every beat that is due without waiting for it. A beat that throws is logged and the others still run. The housekeeping timers (store flush, memory database tick, embedding and avatar queues, metrics, usage, archive drain, affinity decay) are plain intervals in `src/core.js`.
+The behaviours' clock is one such event. `src/behavior/scheduler.ts` keeps one timer for the earliest of its beats: `diary.tick` (which also sends what the diary's mirrors hold queued) every 30 seconds, the board's `board.reap` every `board.reapSeconds`, and the inner life's tick every `innerLife.tickSeconds` (default 60), each read before each wait. A wait ends in a `scheduler.tick` event submitted through the door, and the door's handler starts every beat that is due without waiting for it. A beat that throws is logged and the others still run. The housekeeping timers (store flush, memory database tick, embedding and avatar queues, metrics, usage, archive drain, affinity decay) are plain intervals in `src/core.ts`.
 
 ## The pipeline
 
-A `message.received` event enters the message pipeline. `createMessageHandler` in `src/behavior/pipeline.js` builds the topic modules of `src/pipeline/` once, and `src/pipeline/handle-message.ts` takes each message through the steps below. The pipeline decides the outcome:
+A `message.received` event enters the message pipeline. `createMessageHandler` in `src/behavior/pipeline.ts` builds the topic modules of `src/pipeline/` once, and `src/pipeline/handle-message.ts` takes each message through the steps below. The pipeline decides the outcome:
 
 1. **Filter.** Bot messages, system messages, empty messages and messages from the bot itself are ignored.
-2. **Private-chat gate.** A direct message goes through `src/behavior/private.js`: it needs `private.enabled`, server membership, a profile and a passing affinity check.
-3. **Trigger detection.** The pipeline checks whether the message is a mention, a reply, a name trigger or a follow-up to an earlier exchange (`src/behavior/mention.js`). An address classifier (an `analyzer` call with `prompts/address.md`, `src/pipeline/follow-up.ts`) decides ambiguous cases.
+2. **Private-chat gate.** A direct message goes through `src/behavior/private.ts`: it needs `private.enabled`, server membership, a profile and a passing affinity check.
+3. **Trigger detection.** The pipeline checks whether the message is a mention, a reply, a name trigger or a follow-up to an earlier exchange (`src/behavior/mention.ts`). An address classifier (an `analyzer` call with `prompts/address.md`, `src/pipeline/follow-up.ts`) decides ambiguous cases.
 4. **Pending queue.** When the persona is already answering someone, a new call goes into the pending queue (`src/pipeline/pending-queue.ts`), which `src/pipeline/drain.ts` works off after each turn. One turn runs at a time across the whole server. Calls are answered in order, any number per channel and author, up to `mention.maxPending` (default 6). A new message about something already waiting is folded into that pending item instead of queueing separately.
 5. **Turn.** A call that passes the queue starts a turn.
 
 ## A turn
 
-A turn (`src/behavior/turn.js` and its phases in `src/turn/phases/`) has four stages:
+A turn (`src/behavior/turn.ts` and its phases in `src/turn/phases/`) has four stages:
 
 **Collect.** The turn gathers the context it needs: channel history, memory profiles, the persona's recent participation on other channels, media descriptions (pictures, video) from the `vision` and `video` model roles, lorebook entries matched by the transcript, and recall hits if a search classifier or the automatic prefetch found anything relevant.
 
-**Build.** `src/behavior/prompt.js` assembles one LLM request under the token budget. The budget is spent in priority order (see "Prompt assembly" below). What does not fit is trimmed by `src/llm/budget.ts`, lowest priority first.
+**Build.** `src/behavior/prompt.ts` assembles one LLM request under the token budget. The budget is spent in priority order (see "Prompt assembly" below). What does not fit is trimmed by `src/llm/budget.ts`, lowest priority first.
 
 **Call.** The request goes to the LLM through `src/llm/openrouter.ts`. The response is parsed for output tags (`src/llm/parse.ts`): `<msg>`, `<react>`, `<draw>`, `<gif>`, `<call>`, `<skip/>` and others defined in `prompts/format.md`.
 
@@ -46,7 +46,7 @@ The persona's tools are defined in `src/tools/definitions.ts`: operations coveri
 
 ## Prompt assembly
 
-`buildRequest` in `src/behavior/prompt.js` builds one request: a system message (the character-agnostic rules, the character card, live corrections, the output format) and a user message with context blocks, ordered for the provider's prompt cache. It assembles the request from the block builders of `src/turn/request/`, one module per group of blocks.
+`buildRequest` in `src/behavior/prompt.ts` builds one request: a system message (the character-agnostic rules, the character card, live corrections, the output format) and a user message with context blocks, ordered for the provider's prompt cache. It assembles the request from the block builders of `src/turn/request/`, one module per group of blocks.
 
 The token budget (`llm.maxRequestTokens`, default 50,000) is spent in this priority order:
 
@@ -152,7 +152,7 @@ Over the socket a holder call must carry its generation. `task.heartbeat`, `task
 
 `task.next` with a `lane` (default `dev`) and a `role` claims the first ready task of that lane triaged for that role, by priority, then age, then filing order, and answers it with its generation. A task another caller claimed between the list and the claim is passed over for the next one. The whole command is one write of the memory writer, so of two agents asking at once for the one ready task only one gets it. With nothing ready it answers `ok` with no data and writes nothing. It holds back a task that waits for its brief. A task waits when some client of `clients.json` holds `reviewer`, the task's latest attempt ended `needs_answer`, and one of its questions was answered at or after that end by a principal without the `reviewer` role. The wait ends when a reviewer comments on the task or updates it, or once `board.briefWaitMs` (default `1800000`) has passed since the answer by the board's clock. `task.events` with `from` (default `0`) and `limit` (default and most `1000`) answers the events after that sequence number.
 
-The reaper is the scheduler beat `board.reap` in `src/core.js`, every `board.reapSeconds` seconds (default `60`). A lease that expired while its worker was cut off goes back to `approved` at the next beat with its generation raised, so the worker's late heartbeat or submit is refused `stale-lease`.
+The reaper is the scheduler beat `board.reap` in `src/core.ts`, every `board.reapSeconds` seconds (default `60`). A lease that expired while its worker was cut off goes back to `approved` at the next beat with its generation raised, so the worker's late heartbeat or submit is refused `stale-lease`.
 
 Her tools `board.propose` and `board.status` (`src/tools/impl/board.ts`) call the board as the builtin principal `persona`, whose only board role is `persona` whatever `clients.json` says of that name. `board.propose` files a `dev` task in `proposed` with her evidence as its description and `persona:self` as its requester and subscriber. `board.status` reads every task filed for `persona:self` with its questions and its reviews. She never approves, reviews or merges, and the tracked `config.json` grants neither tool to her. A proposal of `kind` `skill` or `fix` carries its examples, benefit and evaluation case ([Skills](skills.md)). A refusal reaches her as `forbidden` or `board-unavailable`.
 

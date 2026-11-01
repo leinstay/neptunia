@@ -4,7 +4,7 @@
 // scheduler and the sandbox) read them here. Pure reads over a node:sqlite connection; a failed read is logged with
 // its code and answers nothing.
 
-import { log } from '../../log.js';
+import { log } from '../../log.ts';
 
 /** A place an entry is posted to: the place id, its interface, the conversation it is and its name. */
 export type DiaryPlace = { placeId: string; iface: string; conversationId: string; name: string | null };

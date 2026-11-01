@@ -6,7 +6,7 @@ export const IMAGE: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'image.maxPromptChars',
     'types': ['number'],
-    'reader': 'src/behavior/prompt.js',
+    'reader': 'src/behavior/prompt.ts',
     'default': 1600,
     'text': 'Scene text clamped to this length',
   },

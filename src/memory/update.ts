@@ -5,7 +5,7 @@
 // the observed lines from the database. `slimMessage` is the one shape a normalized message is kept in by the
 // record (src/memory/record.ts#toRecordLine) and by the late-embed fold of src/behavior/pipeline.js.
 
-import { log } from '../log.js';
+import { log } from '../log.ts';
 import { DEFAULT_ADDRESS_HALF_LIFE_DAYS, addressCandidates, countAddressUses } from './addressed.ts';
 import { emojiUsageOpts } from './emoji-usage.ts';
 import { gifOpts } from './gifs.ts';

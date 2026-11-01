@@ -6,7 +6,7 @@ export const ROUTE: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'route.maxOutputTokens',
     'types': ['number'],
-    'reader': 'src/behavior/route-channel.js',
+    'reader': 'src/behavior/route-channel.ts',
     'default': 120,
     'text': 'Max output tokens',
   },

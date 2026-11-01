@@ -1,11 +1,11 @@
-// Tests for the step engine of a turn (src/behavior/turn.js#runSteps): her tool calls planned in her order and made
+// Tests for the step engine of a turn (src/behavior/turn.ts#runSteps): her tool calls planned in her order and made
 // in segments, her speech out after them only when every call worked and none gave her something to read, held
 // otherwise; one more request when something is left to read, append-only, one result for every call; bounds with
 // the final request reserved. Over a real admin and the fake interface adapter; the model is scripted with native
 // tool calls (tests/fixtures/tool-answers.js); no network, no data/.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fill } from '../src/format.js';
+import { fill } from '../src/format.ts';
 import { labels } from './fixtures/labels.js';
 import { call, badCall, toolAnswer, textAnswer } from './fixtures/tool-answers.js';
 import {

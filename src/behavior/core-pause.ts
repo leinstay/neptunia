@@ -1,5 +1,5 @@
 // What the core does with the messages that arrive while it is paused (`/pause`, `/nep pause`), and how the resume
-// hands them back. src/core.js and the message pipeline (pipeline.js) call it.
+// hands them back. src/core.ts and the message pipeline (pipeline.js) call it.
 //
 // While paused, the door's handler marks each new message as held: its ingestion row (memory.db's `ingest`) carries
 // the whole event in `held` (`holdIfPaused`), committed with the row before the core acknowledges the event, so a
@@ -13,8 +13,8 @@
 // It also holds the rule of the owner's command line in the private-chat gate: a direct chat of `iface: 'cli'` is the
 // owner's own, so it passes whatever private.enabled and bot.owners say (`privateChatsOff`, `CLI_GATE`).
 
-import { MINUTE_MS } from '../time.js';
-import { catchUpSettings } from './catch-up.js';
+import { MINUTE_MS } from '../time.ts';
+import { catchUpSettings } from './catch-up.ts';
 import type { HeldEvent } from '../memory/db/ingest.ts';
 
 type Loose = Record<string, unknown>;

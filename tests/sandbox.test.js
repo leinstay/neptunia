@@ -1,18 +1,18 @@
-// Tests for src/behavior/sandbox.js: the replay sandbox (a real moment's
+// Tests for src/behavior/sandbox.ts: the replay sandbox (a real moment's
 // request as a turn builds it, sampled, nothing sent), the memory as it stood
 // at the moment, the cached media a replay renders, and tools/replay.mjs's use
 // of the module, all against fakes.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import * as sandbox from '../src/behavior/sandbox.js';
+import * as sandbox from '../src/behavior/sandbox.ts';
 import { fetchHistoryWindow } from '../interfaces/discord/index.ts';
-import { formatTranscript } from '../src/format.js';
+import { formatTranscript } from '../src/format.ts';
 import { videoUrlCacheKey } from '../src/media/video-sites.ts';
 import { createCalibrator } from '../src/llm/tokens.ts';
-import { fill } from '../src/format.js';
-import { buildRequest } from '../src/behavior/prompt.js';
-import { handleOf } from '../src/behavior/handles.js';
+import { fill } from '../src/format.ts';
+import { buildRequest } from '../src/behavior/prompt.ts';
+import { handleOf } from '../src/behavior/handles.ts';
 
 const {
   liveView,
@@ -970,8 +970,9 @@ test('answerReply: a recent store that cannot be read costs the block, never the
 
 /** Every input buildRequest reads: the keys it destructures from `input` and each `input.<key>` of its body. */
 function buildRequestInputs() {
-  const source = fs.readFileSync(new URL('../src/behavior/prompt.js', import.meta.url), 'utf8');
-  const start = source.indexOf('export function buildRequest(input) {');
+  const source = fs.readFileSync(new URL('../src/behavior/prompt.ts', import.meta.url), 'utf8');
+  // The signature carries the input's type since the file is TypeScript, so only its start is searched.
+  const start = source.indexOf('export function buildRequest(input');
   assert.ok(start >= 0, 'buildRequest is where this test reads it');
   const body = source.slice(start, source.indexOf('\n}\n', start));
   const destructured = /const \{([^}]*)\} = input;/.exec(body);
@@ -1800,10 +1801,10 @@ test('replayMedia: the describer cache as it stood when she answered renders as 
 
 // ---- tools/replay.mjs ------------------------------------------------------------------------
 
-test('tools/replay.mjs: replays through src/behavior/sandbox.js, every name it takes exported there', () => {
+test('tools/replay.mjs: replays through src/behavior/sandbox.ts, every name it takes exported there', () => {
   const source = fs.readFileSync(new URL('../tools/replay.mjs', import.meta.url), 'utf8');
-  assert.ok(source.includes("path.join(src, 'behavior', 'sandbox.js')"), 'the engine check names the sandbox');
-  const match = /const \{([^}]*)\} = await load\('behavior\/sandbox\.js'\);/.exec(source);
+  assert.ok(source.includes("path.join(src, 'behavior', 'sandbox.ts')"), 'the engine check names the sandbox');
+  const match = /const \{([^}]*)\} = await load\('behavior\/sandbox\.ts'\);/.exec(source);
   assert.ok(match, 'replay loads the sandbox');
   const names = match[1]
     .split(',')

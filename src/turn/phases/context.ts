@@ -1,11 +1,11 @@
 // What the phases of a turn attempt share: the runner's dependencies and the functions of its topic modules
 // (PhaseContext), what the attempt was asked to do (PhaseParams), how a phase ends the attempt early (Ended), the
 // attempt's clocks and indicator that its end closes (Life), and the cancellation point at its bar (BeforeBar).
-// createTurnRunner (src/behavior/turn.js) builds the context once; runTurnOnce hands it to every phase.
+// createTurnRunner (src/behavior/turn.ts) builds the context once; runTurnOnce hands it to every phase.
 
 import type { SkillUse } from '../../memory/db/skills.ts';
 import type { IndexedSkill } from '../../skills/uses.ts';
-import type { createParticipationPicker } from '../../behavior/participation-pick.js';
+import type { createParticipationPicker } from '../../behavior/participation-pick.ts';
 import type { createPullViews } from '../../behavior/pull-fetch.ts';
 import type { recordEntry } from '../../behavior/diary-turn.ts';
 import type { refreshEmojiIfOn } from '../../behavior/emoji-index.ts';
@@ -225,7 +225,7 @@ export type PhaseParams = {
   standIn?: ConversationInfo | null;
 };
 
-/** How an attempt ended (TurnOutcome in src/behavior/turn.js), with the parts of a message that splits. */
+/** How an attempt ended (TurnOutcome in src/behavior/turn.ts), with the parts of a message that splits. */
 export type AttemptResult = {
   outcome: string;
   mode?: string;

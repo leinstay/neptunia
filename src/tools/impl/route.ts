@@ -1,5 +1,5 @@
 // Operations: `/nep route`: which providers serve each model, per role (llm.providerByModel in the private settings file).
-// The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
+// The handler bodies moved here from src/admin.ts unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
 import { IMAGE_ROLE } from '../../llm/images.ts';

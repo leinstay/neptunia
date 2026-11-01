@@ -1,4 +1,4 @@
-// The core as its own process and the interfaces as units (stage 4, PR C). `startCore` (src/core.js) runs in the test
+// The core as its own process and the interfaces as units (stage 4, PR C). `startCore` (src/core.ts) runs in the test
 // process with no interface, over temporary data and private folders, a scripted model and the tracked prompts. An
 // interface runs the way a unit runs it: `bin/neptunia.ts interface run fake --interfaces-dir tests/fixtures/interfaces`
 // in a child process, which reads its token from `<private>/clients/fake.token`, connects to `<data>/run/core.sock`
@@ -13,9 +13,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, wri
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { startCore } from '../src/core.js';
+import { startCore } from '../src/core.ts';
 import { start as startFake } from '../src/interface/fake-interface.ts';
-import { onLog } from '../src/log.js';
+import { onLog } from '../src/log.ts';
 import { lockPathOf, openMemoryDb } from '../src/memory/db/open.ts';
 import { applyWakeQueueWrite } from '../src/memory/db/wake-queue.ts';
 import { ANSWER, COMMUNITY, SELF, channelInfo, lineEvent } from './fixtures/core-over-fake.ts';

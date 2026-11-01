@@ -1,9 +1,9 @@
-// Tests for the message links a transcript shows as numbers (src/format.js#formatTranscript with `messageNumbers`):
+// Tests for the message links a transcript shows as numbers (src/format.ts#formatTranscript with `messageNumbers`):
 // the core turns only the references the adapter put on a message (`messageRefs`) into the `#n` of a line of the
 // window, never a link it finds in the text by its shape.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatTranscript } from '../src/format.js';
+import { formatTranscript } from '../src/format.ts';
 import { labels } from './fixtures/labels.js';
 
 const TZ = 'Europe/Athens';

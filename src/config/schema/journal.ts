@@ -6,7 +6,7 @@ export const JOURNAL: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'journal.keepRequests',
     'types': ['number'],
-    'reader': 'src/core.js',
+    'reader': 'src/core.ts',
     'default': 3,
     'text': 'Days the request dumps are kept. `0` writes none',
   },

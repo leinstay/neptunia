@@ -1,10 +1,10 @@
 // What a turn looked up and recalled, as its request shows it: the `<lookup>` block of the web search and the search
 // of the server's own history, with its smaller fallbacks, and the `<retrieved>` block of the automatic memory
-// prefetch. buildRequest (src/behavior/prompt.js) calls them.
+// prefetch. buildRequest (src/behavior/prompt.ts) calls them.
 
-import { isPlainObject } from '../../config.js';
-import { fill } from '../../format.js';
-import { zonedDay } from '../../time.js';
+import { isPlainObject } from '../../config.ts';
+import { fill } from '../../format.ts';
+import { zonedDay } from '../../time.ts';
 import { block } from './text.ts';
 import type { Labels } from './types.ts';
 
@@ -16,7 +16,7 @@ type WebLookup = {
   readonly cached?: boolean;
 };
 
-/** What the search of the server's own history found (src/behavior/recall-run.js). */
+/** What the search of the server's own history found (src/behavior/recall-run.ts). */
 type ServerLookup = {
   readonly text?: string | null;
   readonly stretch?: {
@@ -43,7 +43,7 @@ export type Excerpt = {
   readonly hitIds?: unknown;
 };
 
-/** The automatic memory prefetch of a turn (src/behavior/recall-run.js `prefetch`). */
+/** The automatic memory prefetch of a turn (src/behavior/recall-run.ts `prefetch`). */
 export type Prefetch = {
   readonly status: string;
   readonly basis?: Array<string>;
@@ -88,7 +88,7 @@ function renderWebLookup(lookup: WebLookup, labels: Labels): string {
 
 /**
  * The server part of `<lookup>`: what the search of the server's own history
- * found this turn (src/behavior/recall-run.js) -- `labels.lookup.serverHeader`,
+ * found this turn (src/behavior/recall-run.ts) -- `labels.lookup.serverHeader`,
  * then the summary text, then, when a stretch came back and the labels have
  * `labels.lookup.stretch`, that label with `{date}` (the day of the stretch's
  * first line as `YYYY-MM-DD` in `timezone`: with its year, a stretch may be

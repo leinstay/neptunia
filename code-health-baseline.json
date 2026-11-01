@@ -1,8 +1,8 @@
 {
   "files": {
-    "src/behavior/recall-run.js": 2278,
-    "src/behavior/recall.js": 2458,
-    "src/behavior/sandbox.js": 2121,
+    "src/behavior/recall-run.ts": 2143,
+    "src/behavior/recall.ts": 2375,
+    "src/behavior/sandbox.ts": 2063,
     "tests/admin.test.js": 3769,
     "tests/describe.test.js": 3115,
     "tests/events.test.js": 7253,
@@ -50,12 +50,12 @@
         "complexity": 42
       }
     },
-    "src/behavior/around.js": {
+    "src/behavior/around.ts": {
       "liveFields": {
         "complexity": 24
       }
     },
-    "src/behavior/deleted-lines.js": {
+    "src/behavior/deleted-lines.ts": {
       "deletedLinesOf": {
         "complexity": 34
       }
@@ -86,35 +86,35 @@
         "complexity": 23
       }
     },
-    "src/behavior/missed.js": {
+    "src/behavior/missed.ts": {
       "createMissed": {
         "function-length": 648
       },
       "createMissed>onTurnEnd": {
-        "complexity": 23
+        "complexity": 22
       },
       "reconcileFromRecords": {
         "complexity": 32
       }
     },
-    "src/behavior/participation-pick.js": {
+    "src/behavior/participation-pick.ts": {
       "createParticipationPicker>pickParticipation": {
         "complexity": 21
       }
     },
-    "src/behavior/prefetch.js": {
+    "src/behavior/prefetch.ts": {
       "prefetchLanes": {
         "complexity": 24
       }
     },
-    "src/behavior/prompt.js": {
+    "src/behavior/prompt.ts": {
       "buildDiaryPlanRequest": {
         "complexity": 25
       }
     },
-    "src/behavior/recall-run.js": {
+    "src/behavior/recall-run.ts": {
       "createRecall": {
-        "function-length": 1884
+        "function-length": 1749
       },
       "createRecall>findPeople": {
         "complexity": 36
@@ -124,7 +124,7 @@
       },
       "createRecall>recallWith": {
         "complexity": 74,
-        "function-length": 482
+        "function-length": 481
       },
       "createRecall>run": {
         "complexity": 28
@@ -133,7 +133,7 @@
         "complexity": 40
       }
     },
-    "src/behavior/recall.js": {
+    "src/behavior/recall.ts": {
       "archivedItem": {
         "complexity": 26
       },
@@ -156,12 +156,12 @@
         "complexity": 35
       }
     },
-    "src/behavior/route-channel.js": {
+    "src/behavior/route-channel.ts": {
       "createChannelRouter>routeChannels": {
         "complexity": 23
       }
     },
-    "src/behavior/sandbox.js": {
+    "src/behavior/sandbox.ts": {
       "runSkillLoop": {
         "complexity": 42
       },
@@ -169,7 +169,7 @@
         "complexity": 38
       }
     },
-    "src/behavior/turn.js": {
+    "src/behavior/turn.ts": {
       "createTurnRunner": {
         "function-length": 470
       }
@@ -205,7 +205,7 @@
         "function-length": 520
       }
     },
-    "src/format.js": {
+    "src/format.ts": {
       "formatTranscript": {
         "complexity": 80
       },
@@ -778,11 +778,11 @@
   "structure": {
     "imports": {
       "interfaces/discord/audience-warm.ts": [
-        "src/log.js"
+        "src/log.ts"
       ],
       "interfaces/discord/collect.ts": [
-        "src/behavior/emoji.js",
-        "src/log.js",
+        "src/behavior/emoji.ts",
+        "src/log.ts",
         "src/memory/mentions.ts"
       ],
       "interfaces/discord/port.ts": [
@@ -791,28 +791,28 @@
       ],
       "interfaces/discord/pull-fetch.ts": [
         "src/behavior/elsewhere.ts",
-        "src/behavior/pull.js"
+        "src/behavior/pull.ts"
       ],
       "interfaces/discord/search.ts": [
-        "src/log.js"
+        "src/log.ts"
       ]
     },
     "tests": [
       "interfaces/discord/gateway.ts",
       "interfaces/discord/index.ts",
       "interfaces/discord/port.ts",
-      "src/behavior/pipeline.js",
-      "src/behavior/random.js",
-      "src/behavior/route-channel.js",
+      "src/behavior/pipeline.ts",
+      "src/behavior/random.ts",
+      "src/behavior/route-channel.ts",
       "src/behavior/wake.ts",
       "src/errands/blocks.ts",
       "src/errands/turns.ts",
-      "src/handles-text.js",
+      "src/handles-text.ts",
       "src/intentions/blocks.ts",
       "src/intentions/sources.ts",
       "src/interface/fake.ts",
       "src/interface/port.ts",
-      "src/log.js",
+      "src/log.ts",
       "src/media/classify.ts",
       "src/media/gif-post.ts",
       "src/memory/avatar-queue.ts",
