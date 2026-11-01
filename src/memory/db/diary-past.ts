@@ -8,27 +8,19 @@
 // entry keeps its text, and its mirror and its publication gain the joined message. Her messages are those she has a
 // `said` line of and those seen from her own account (a message of files only is recorded as seen). The record keeps
 // no attachments of hers, so every entry the step writes or extends is marked `mediaPending` in its extra, and the
-// diary media job (diary-media.js) reads its files and their descriptions once. A message she deleted is left out. Runs inside the migration's transaction; a second run finds every message named
+// diary media job (diary-media.ts) reads its files and their descriptions once. A message she deleted is left out. Runs inside the migration's transaction; a second run finds every message named
 // and writes nothing.
 
 import { createHash } from 'node:crypto';
-import { contentHash, deriveMirrorPublication, mirrorReceipts, publicationKey } from './publish.js';
-import { projectRow } from './graph.js';
+import { contentHash, deriveMirrorPublication, mirrorReceipts, publicationKey } from './publish.ts';
+import { projectRow } from './graph.ts';
 import { audienceOf, groupScope } from './scope.ts';
+import type { Db, Row } from './types.ts';
 
 /** How near in time a message with no turn must be to an entry's message to join it. */
 const JOIN_MS = 2 * 60 * 1000;
 /** The characters of a new entry's gist (`diary.gistChars`' default). */
 const GIST_CHARS = 200;
-
-type Row = Record<string, unknown>;
-type Db = {
-  prepare(sql: string): {
-    all(...params: Array<unknown>): Array<Row>;
-    get(...params: Array<unknown>): Row | undefined;
-    run(...params: Array<unknown>): unknown;
-  };
-};
 
 /** One message of hers in the place: its id, time, newest text and turn. */
 type Line = { id: string; at: number; text: string; turnId: string | null; joined?: boolean };

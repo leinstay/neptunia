@@ -11,9 +11,9 @@
 // `delivery` under `media/deliveries/`, written by the completion and deleted with the delivery when it is pruned.
 //
 // Times are epoch milliseconds. The functions run synchronously over an open handle: the service's writer applies the
-// writes (`applyWakeQueueWrite`, reached through session-write.js#applyMemoryWrite), and the reads take the read
+// writes (`applyWakeQueueWrite`, reached through session-write.ts#applyMemoryWrite), and the reads take the read
 // connection (`{ db }`). The inner life (src/behavior/inner/wake-store.ts) is the one caller of the writes;
-// `importWakeQueues` is the v18 data step that moves each guild's `inner.json` queue into the table (open.js runs it
+// `importWakeQueues` is the v18 data step that moves each guild's `inner.json` queue into the table (open.ts runs it
 // again at every open that knows the data directory, for a file an earlier opener could not reach).
 
 import { createHash } from 'node:crypto';
@@ -115,11 +115,11 @@ type Statement = {
 };
 type Db = { prepare(sql: string): Statement; exec(sql: string): void };
 
-// The handle's connection is node:sqlite's DatabaseSync, which open.js leaves untyped; this is the part used here.
+// The handle's connection is node:sqlite's DatabaseSync, which `MemoryHandle.db` keeps opaque; this is the part used here.
 const dbOf = (handle: Handle): Db => handle.db as Db;
 
 /**
- * BEGIN IMMEDIATE .. COMMIT over the handle's connection, as open.js#inTransaction does (open.js imports this module
+ * BEGIN IMMEDIATE .. COMMIT over the handle's connection, as open.ts#inTransaction does (open.ts imports this module
  * for the v18 step, so it is not imported back); a throw rolls back and rethrows.
  */
 function inWrite<TResult>(handle: Handle, fn: (db: Db) => TResult): TResult {
@@ -791,7 +791,7 @@ const isWakeQueueUpdate = (value: unknown): value is WakeQueueUpdate =>
   WAKE_QUEUE_OPS.has(Reflect.get(value, 'op'));
 
 /**
- * One write of the inner life, applied on the writer connection (session-write.js#applyMemoryWrite routes it here, and
+ * One write of the inner life, applied on the writer connection (session-write.ts#applyMemoryWrite routes it here, and
  * the in-memory queue of wake-store.ts calls it directly). Refuses a closed handle and an op outside the union; the
  * fields of a known op are the ones src/behavior/inner/wake-store.ts wrote.
  */
@@ -956,7 +956,7 @@ export function importWakeQueues(connection: unknown, context: unknown = {}): nu
   const given: unknown = context !== null && typeof context === 'object' ? Reflect.get(context, 'dataDir') : null;
   const dataDir = typeof given === 'string' && given ? given : null;
   if (!dataDir || connection === null || typeof connection !== 'object') return 0;
-  // The migration's connection is node:sqlite's DatabaseSync, which open.js leaves untyped.
+  // The migration's connection is node:sqlite's DatabaseSync, which `MemoryHandle.db` keeps opaque.
   const db = connection as Db;
   const guilds = path.join(dataDir, 'guilds');
   let count = 0;

@@ -2,10 +2,10 @@
 // the principal that sent it, and in `ingest_cursor` the contiguous watermark acknowledged to each principal. The
 // event door (src/interface/door.js) asks `ingested` before it hands an event on and commits the row with
 // `insertIngest` once the handler succeeded; the live message path commits the same row in the transaction of the
-// observation it makes (observe.js#observe), and the door's later insert then changes nothing. The link
+// observation it makes (observe.ts#observe), and the door's later insert then changes nothing. The link
 // (src/interface/link.ts) answers `hello` with `cursorOf` and writes each new watermark with `ackCursor`. Every
 // insert also deletes the rows older than `keepDays`, at most once an hour, so the record holds what a redelivery
-// can still bring. The writes go through the one writer (`memoryWrite`, session-write.js#applyMemoryWrite), the reads
+// can still bring. The writes go through the one writer (`memoryWrite`, session-write.ts#applyMemoryWrite), the reads
 // run on the read connection.
 
 /**
@@ -120,7 +120,7 @@ export function ackCursor(db: Db, principal: string, seq: number): void {
   ).run(principal, seq);
 }
 
-/** A connection handle as the writer holds it (open.js#openMemoryDb). */
+/** A connection handle as the writer holds it (open.ts#openMemoryDb). */
 type Handle = { db: Db; transaction(fn: () => void): void };
 
 const isHandle = (value: unknown): value is Handle =>
@@ -133,14 +133,14 @@ const keepDaysOf = (value: unknown): number => (typeof value === 'number' && val
 
 const refused = (message: string): Error => Object.assign(new Error(message), { code: 'BAD_INGEST' });
 
-/** The `ingest` an observation envelope carries (`{ row, keepDays }`, see observe.js#observe), or null. */
+/** The `ingest` an observation envelope carries (`{ row, keepDays }`, see observe.ts#observe), or null. */
 export function ingestOption(envelope: unknown): { row: IngestRow; keepDays: number } | null {
   const ingest = fieldsOf(fieldsOf(envelope).ingest);
   return isIngestRow(ingest.row) ? { row: ingest.row, keepDays: keepDaysOf(ingest.keepDays) } : null;
 }
 
 /**
- * The writer's ingestion writes (session-write.js#applyMemoryWrite): kind `ingest` `{ row, at, keepDays }` writes one
+ * The writer's ingestion writes (session-write.ts#applyMemoryWrite): kind `ingest` `{ row, at, keepDays }` writes one
  * event's row, kind `ingest-ack` `{ principal, seq }` a principal's watermark, kind `ingest-release`
  * `{ principal, eventId }` clears the hold of one event, each in its own transaction.
  */
@@ -183,12 +183,12 @@ export type IngestRecord = {
   held: () => Array<HeldEvent>;
   /** Clears the hold of one event through the writer, once the resume replayed it. */
   release: (principal: string, eventId: string) => Promise<unknown>;
-  /** The observation envelope of a line with the ingestion row of its event, for observe.js to write with it. */
+  /** The observation envelope of a line with the ingestion row of its event, for observe.ts to write with it. */
   withRow: (envelope: object, row: IngestRow | null) => object;
 };
 
 /**
- * The ingestion record over the memory service (service.js#createMemoryDb): reads on its read connection, writes
+ * The ingestion record over the memory service (service.ts#createMemoryDb): reads on its read connection, writes
  * through `memoryWrite`, the one writer. `memoryDb.ingestKeepDays` is read from `hot.config` at each write.
  */
 export function createIngestRecord(deps: {

@@ -7,12 +7,12 @@
 // on. `skill_uses` is the append-only record of how her turns used a skill.
 //
 // Everything here is synchronous over the writer connection (`handle`); the memory writer applies `SkillsUpdate`
-// writes through `applySkillsWrite` (session-write.js), and the reads take any connection with a `db`. Results are
+// writes through `applySkillsWrite` (session-write.ts), and the reads take any connection with a `db`. Results are
 // `{ ok: true, ... }` or `{ ok: false, code }` with a kebab-case code. A skill's row is `skill:<name>`; its `extra` JSON
 // holds `activatedAt`, `activatedBy`, `history` (the ids a rollback walks back) and the disabled switch.
 
 import { createHash } from 'node:crypto';
-import type { openMemoryDb } from './open.js';
+import type { openMemoryDb } from './open.ts';
 import type { ParsedSkill } from '../../skills/format.ts';
 
 export const SKILL_USE_KINDS = ['discovered', 'read', 'tried', 'succeeded', 'corrected', 'declined'] as const;
@@ -36,12 +36,12 @@ type Db = {
     run(...p: Array<unknown>): { changes: number };
   };
 };
-// open.js types the connection as `object`; it is node:sqlite's DatabaseSync, which has every method Db names.
+// open.ts types the connection as `object`; it is node:sqlite's DatabaseSync, which has every method Db names.
 const dbOf = (handle: { db: object }): Db => handle.db as Db;
 
-/** One transaction on the writer connection; `transaction` is typed `any` in open.js, the result is what `fn` returned. */
+/** One transaction on the writer connection; the result is what `fn` returned. */
 function tx<TResult>(handle: SkillsHandle, fn: () => TResult): TResult {
-  return handle.transaction(fn) as TResult;
+  return handle.transaction(fn);
 }
 
 const sha256 = (text: string): string => createHash('sha256').update(text).digest('hex');
@@ -444,7 +444,7 @@ export function reviewsDue(
   return out;
 }
 
-/** The writes of kind `skills` the memory writer runs (session-write.js). */
+/** The writes of kind `skills` the memory writer runs (session-write.ts). */
 export type SkillsUpdate =
   | { kind: 'skills'; op: 'sync'; files: Array<SkillSource>; at: number }
   | { kind: 'skills'; op: 'activate'; name: string; at: number; by: string }
@@ -455,13 +455,13 @@ export type SkillsUpdate =
 
 /**
  * Runs one skills write on the writer's connection. The memory writer hands over its handle and the update as it
- * received them (session-write.js), so both are checked here: a write of no known op is refused.
+ * received them (session-write.ts), so both are checked here: a write of no known op is refused.
  */
 export function applySkillsWrite(handle: unknown, update: unknown): unknown {
   if (handle === null || typeof handle !== 'object' || !('db' in handle) || !('transaction' in handle)) {
     throw Object.assign(new Error('a skills write needs the writer handle'), { code: 'BAD_UPDATE' });
   }
-  // The handle is open.js's writer connection, its shape checked above.
+  // The handle is open.ts's writer connection, its shape checked above.
   const writer = handle as SkillsHandle;
   const write = update as SkillsUpdate;
   switch (write?.op) {

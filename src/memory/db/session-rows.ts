@@ -1,14 +1,14 @@
-// The rows her memory session wrote (session-write.js) beside the rows of the store's files (the unit sync,
-// upsert.js), in the two places the two writers meet: the read of a member's unit and the unit write of it.
+// The rows her memory session wrote (session-write.ts) beside the rows of the store's files (the unit sync,
+// upsert.ts), in the two places the two writers meet: the read of a member's unit and the unit write of it.
 //
-// addSessionRows (called by export.js#unitRows): a member's profile (`users/<id>.json`) and private layer
+// addSessionRows (called by export.ts#unitRows): a member's profile (`users/<id>.json`) and private layer
 // (`private/<id>.json`) also hold what her session wrote about that person in the unit's scope (the group of the
 // person's interface, or the DM with the person): the live claims she shows (`shown`, truth current or disputed), the
 // episodes and the attitude moves that have no `owner_file`, and the version a description's `current_version` names.
 // They follow the unit's own rows: the claims and the episodes in the order they were made, the moves merged into the
 // file's history by time.
 //
-// sessionHold (called by upsert.js#writeMapping): what a unit write leaves as her session wrote it in a row the file
+// sessionHold (called by upsert.ts#writeMapping): what a unit write leaves as her session wrote it in a row the file
 // still owns. Her last move of a person's attitude is her newest `affinity_events` row about the person, and a profile
 // read from the database names it (`affinity.moveId`, in the remainder of the person row, `extra`). A file that
 // names an older move was read before her later ones: its write keeps her reason, and its score is the file's score (a
@@ -16,9 +16,9 @@
 // any of her moves, or before the profile named them: its write leaves her score, reason and decay stamp as they are.
 // A description keeps its current version when that version is not the file's own (origin `legacy`) and the file
 // brings either the text of that version or the text the file already had: the file was not edited since. A row her
-// session took over (no `owner_file`) is never written by a unit at all (upsert.js#writeRow).
+// session took over (no `owner_file`) is never written by a unit at all (upsert.ts#writeRow).
 //
-// takeOverClaim (called by session-write.js#applyClaim): a confirm, revise or retire of a claim makes the claim her
+// takeOverClaim (called by session-write.ts#applyClaim): a confirm, revise or retire of a claim makes the claim her
 // session's (`owner_file` null, its `co_owners` rows gone), in the transaction of the op.
 
 type Row = Record<string, unknown>;
@@ -90,7 +90,7 @@ function mergedByTime(file: ReadonlyArray<Row>, session: ReadonlyArray<Row>): Ar
 }
 
 /**
- * Adds to `rows` (a unit's rows, export.js#unitRows) what her session wrote about the person of a member's unit of
+ * Adds to `rows` (a unit's rows, export.ts#unitRows) what her session wrote about the person of a member's unit of
  * mapper kind `kind` (see the head of this file). Any other unit is left as it is.
  */
 export function addSessionRows(connection: unknown, kind: unknown, rows: Rows): void {
@@ -164,7 +164,7 @@ function heldDescriptions(db: Db, mapping: Rows): Set<string> {
  */
 export function sessionHold(connection: unknown, mapping: unknown): (table: string, row: unknown) => Row | null {
   const db = connection as Db; // a node:sqlite connection of the memory database; the queries below read it
-  // A mapping is table -> rows (map/index.js#toRows), each row a column -> value object.
+  // A mapping is table -> rows (map/index.ts#toRows), each row a column -> value object.
   const descriptions = heldDescriptions(db, mapping as Rows);
   return (table, value) => {
     const row = value as Row; // one row of the mapping above
